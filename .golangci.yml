@@ -532,9 +532,10 @@ linters:
           - gosec
         text: 'G204'
 
-      # The open resolver runs the configured zoxide binary with argv and no shell, so the G204
-      # finding is the intended design, as for tmuxctl (orchestrator decision ED2c-2).
-      - path: 'internal/open/open\.go'
+      # The open resolver runs the configured zoxide binary, and the intent lookup runs the configured
+      # claude binary, with argv and no shell, so the G204 finding is the intended design, as for
+      # tmuxctl (orchestrator decision ED2c-2).
+      - path: 'internal/open/(open|intent)\.go'
         linters:
           - gosec
         text: 'G204'
