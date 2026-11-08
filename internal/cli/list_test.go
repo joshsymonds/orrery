@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/joshsymonds/orrery/internal/cli"
 	"github.com/joshsymonds/orrery/internal/protocol"
@@ -23,6 +24,8 @@ const (
 	listGoldenPath  = "testdata/list.golden.json"
 	listGoldenHost  = "example-host"
 	listGoldenCwd   = "/home/user/project"
+	listCommandWait = 10 * time.Second
+	listPollEvery   = 10 * time.Millisecond
 )
 
 // listNewServer returns a client for a unique private server name and kills that server at cleanup.
@@ -64,6 +67,31 @@ func listPaneIDs(t *testing.T, client *tmuxctl.Client, session string) []string 
 	return strings.Fields(out)
 }
 
+// listWaitForCommand polls pane until its foreground command is want, failing the test after listCommandWait.
+// A pane reports its command only after its shell has exec'd it, so listing earlier shows the shell instead.
+func listWaitForCommand(t *testing.T, client *tmuxctl.Client, pane, want string) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), listCommandWait)
+	defer cancel()
+	ticker := time.NewTicker(listPollEvery)
+	defer ticker.Stop()
+	for {
+		out, err := client.Run(ctx, "display-message", "-p", "-t", pane, "#{pane_current_command}")
+		if err != nil {
+			t.Fatalf("pane %s pane_current_command: %v", pane, err)
+		}
+		got := strings.TrimSpace(out)
+		if got == want {
+			return
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatalf("pane %s pane_current_command = %q after %v, want %q", pane, got, listCommandWait, want)
+		case <-ticker.C:
+		}
+	}
+}
+
 func listSetOption(t *testing.T, client *tmuxctl.Client, pane, name, value string) {
 	t.Helper()
 	if err := client.SetPaneOption(t.Context(), pane, name, value); err != nil {
@@ -92,6 +120,9 @@ func TestListJSON(t *testing.T) {
 	panesB := listPaneIDs(t, client, "example-b")
 	if len(panesA) != 2 || len(panesB) != 1 {
 		t.Fatalf("pane IDs example-a=%v example-b=%v, want 2 and 1", panesA, panesB)
+	}
+	for _, pane := range append(panesA, panesB...) {
+		listWaitForCommand(t, client, pane, "sleep")
 	}
 
 	listSetOption(t, client, panesA[0], protocol.OptionState, string(protocol.StateWaiting))
