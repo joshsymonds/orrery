@@ -15,6 +15,7 @@ import (
 
 	"github.com/joshsymonds/orrery/internal/cli"
 	"github.com/joshsymonds/orrery/internal/protocol"
+	"github.com/joshsymonds/orrery/internal/push"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
 )
 
@@ -40,6 +41,9 @@ const (
 	fieldExpectQuestion = "expect_question"
 	fieldPane           = "pane"
 	fieldKind           = "kind"
+	fieldEndpoint       = "endpoint"
+	fieldP256dh         = "p256dh"
+	fieldAuth           = "auth"
 )
 
 // Kinds of window POST /v1/panes opens: kindClaude runs claude in it, kindShell runs the default shell.
@@ -71,6 +75,8 @@ type Config struct {
 	Logins []string
 	// Tmux runs the tmux commands behind the read routes.
 	Tmux *tmuxctl.Client
+	// Push holds the push subscriptions the registration routes write.
+	Push *push.Store
 }
 
 // New returns a handler that admits only the configured logins, requires a JSON content type and
@@ -82,6 +88,9 @@ func New(cfg Config) (http.Handler, error) {
 	}
 	if cfg.Tmux == nil {
 		return nil, errors.New("server: no tmux client configured")
+	}
+	if cfg.Push == nil {
+		return nil, errors.New("server: no push store configured")
 	}
 	allowed := make(map[string]struct{}, len(cfg.Logins))
 	for _, login := range cfg.Logins {
@@ -98,6 +107,8 @@ func New(cfg Config) (http.Handler, error) {
 	mux.HandleFunc("POST /v1/panes/{id}/text", servePaneText(cfg.Tmux))
 	mux.HandleFunc("POST /v1/panes/{id}/keys", servePaneKeys(cfg.Tmux))
 	mux.HandleFunc("POST /v1/panes/{id}/seen", servePaneSeen(cfg.Tmux))
+	mux.HandleFunc("POST /v1/push/register", servePushRegister(cfg.Push))
+	mux.HandleFunc("DELETE /v1/push/register", serveUnregister(cfg.Push))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if _, ok := allowed[r.Header.Get(HeaderLogin)]; !ok {
 			http.Error(w, "forbidden", http.StatusForbidden)
@@ -299,6 +310,72 @@ func paneError(w http.ResponseWriter, err error) {
 		http.Error(w, "pane not found", http.StatusNotFound)
 	default:
 		http.Error(w, "internal server error", http.StatusInternalServerError)
+	}
+}
+
+// servePushRegister answers POST /v1/push/register {endpoint, p256dh, auth} by storing the subscription. It
+// answers 204 when stored, 400 for a malformed body or an invalid subscription, 422 for an endpoint the
+// store refuses, and 500 for any other store error. No response body echoes the endpoint.
+func servePushRegister(store *push.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		fields, ok := decodeBody(r)
+		if !ok {
+			http.Error(w, "bad request body", http.StatusBadRequest)
+			return
+		}
+		endpoint, ok := jsonString(fields[fieldEndpoint])
+		if !ok {
+			http.Error(w, "bad request body", http.StatusBadRequest)
+			return
+		}
+		p256dh, ok := jsonString(fields[fieldP256dh])
+		if !ok {
+			http.Error(w, "bad request body", http.StatusBadRequest)
+			return
+		}
+		auth, ok := jsonString(fields[fieldAuth])
+		if !ok {
+			http.Error(w, "bad request body", http.StatusBadRequest)
+			return
+		}
+		err := store.Add(push.Subscription{Endpoint: endpoint, P256dh: p256dh, Auth: auth})
+		switch {
+		case err == nil:
+			w.WriteHeader(http.StatusNoContent)
+		case errors.Is(err, push.ErrInvalidSubscription):
+			http.Error(w, "bad request body", http.StatusBadRequest)
+		case errors.Is(err, push.ErrEndpointNotAllowed):
+			http.Error(w, "endpoint not allowed", http.StatusUnprocessableEntity)
+		default:
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+		}
+	}
+}
+
+// serveUnregister answers DELETE /v1/push/register {endpoint} by removing the subscription. It answers 204
+// when removed, 400 for a malformed body or a missing endpoint, 404 when no subscription is stored for the
+// endpoint, and 500 for any other store error. No response body echoes the endpoint.
+func serveUnregister(store *push.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		fields, ok := decodeBody(r)
+		if !ok {
+			http.Error(w, "bad request body", http.StatusBadRequest)
+			return
+		}
+		endpoint, ok := jsonString(fields[fieldEndpoint])
+		if !ok {
+			http.Error(w, "bad request body", http.StatusBadRequest)
+			return
+		}
+		err := store.Remove(endpoint)
+		switch {
+		case err == nil:
+			w.WriteHeader(http.StatusNoContent)
+		case errors.Is(err, push.ErrNotRegistered):
+			http.Error(w, "endpoint not registered", http.StatusNotFound)
+		default:
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+		}
 	}
 }
 

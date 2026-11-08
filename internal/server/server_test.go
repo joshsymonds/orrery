@@ -3,7 +3,9 @@ package server_test
 import (
 	"bytes"
 	"context"
+	"crypto/ecdh"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,6 +18,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -23,6 +26,7 @@ import (
 
 	"github.com/joshsymonds/orrery/internal/cli"
 	"github.com/joshsymonds/orrery/internal/protocol"
+	"github.com/joshsymonds/orrery/internal/push"
 	"github.com/joshsymonds/orrery/internal/server"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
 )
@@ -95,11 +99,80 @@ func paneID(t *testing.T, tmux *tmuxctl.Client, session string) string {
 // newHandler builds the guarded handler that admits only allowedLogin and routes to tmux.
 func newHandler(t *testing.T, tmux *tmuxctl.Client) http.Handler {
 	t.Helper()
-	handler, err := server.New(server.Config{Logins: []string{allowedLogin}, Tmux: tmux})
+	return newHandlerWithStore(t, tmux, newPushStore(t))
+}
+
+// newHandlerWithStore builds the guarded handler that admits only allowedLogin, routes to tmux, and
+// registers push subscriptions in store.
+func newHandlerWithStore(t *testing.T, tmux *tmuxctl.Client, store *push.Store) http.Handler {
+	t.Helper()
+	handler, err := server.New(server.Config{Logins: []string{allowedLogin}, Tmux: tmux, Push: store})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
 	return handler
+}
+
+// pushHost is the synthetic push host the test store allows.
+const pushHost = "push.example.test"
+
+// pushPath is the push registration route.
+const pushPath = "/v1/push/register"
+
+// newPushStore returns a store under a fresh temporary directory that allows only pushHost.
+func newPushStore(t *testing.T) *push.Store {
+	t.Helper()
+	store, err := push.NewStore(filepath.Join(t.TempDir(), "push.json"), []string{pushHost})
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	return store
+}
+
+// pushKeys returns a fresh P-256 public key and a 16-byte auth secret, both base64url without padding.
+func pushKeys(t *testing.T) (string, string) {
+	t.Helper()
+	priv, err := ecdh.P256().GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("generate P-256 key: %v", err)
+	}
+	secret := make([]byte, 16)
+	if _, err := rand.Read(secret); err != nil {
+		t.Fatalf("generate auth secret: %v", err)
+	}
+	return base64.RawURLEncoding.EncodeToString(priv.PublicKey().Bytes()),
+		base64.RawURLEncoding.EncodeToString(secret)
+}
+
+// registerBody returns a POST body that registers endpoint with fresh keys.
+func registerBody(t *testing.T, endpoint string) string {
+	t.Helper()
+	p256dh, auth := pushKeys(t)
+	return jsonBody(t, map[string]any{"endpoint": endpoint, "p256dh": p256dh, "auth": auth})
+}
+
+// unregisterBody returns a DELETE body that names endpoint.
+func unregisterBody(t *testing.T, endpoint string) string {
+	t.Helper()
+	return jsonBody(t, map[string]any{"endpoint": endpoint})
+}
+
+// assertStored fails the test unless store holds exactly the subscriptions for endpoints, in any order.
+func assertStored(t *testing.T, store *push.Store, endpoints ...string) {
+	t.Helper()
+	subs, err := store.List()
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	got := make([]string, 0, len(subs))
+	for _, sub := range subs {
+		got = append(got, sub.Endpoint)
+	}
+	slices.Sort(got)
+	slices.Sort(endpoints)
+	if !slices.Equal(got, endpoints) {
+		t.Fatalf("stored endpoints = %q, want %q", got, endpoints)
+	}
 }
 
 // serve sends one request through handler and returns the recorded response.
@@ -511,6 +584,168 @@ func TestServeRequiresTmux(t *testing.T) {
 	if _, err := server.New(server.Config{Logins: []string{allowedLogin}}); err == nil {
 		t.Fatal("New without a tmux client: want error, got nil")
 	}
+}
+
+func TestServeRequiresPush(t *testing.T) {
+	t.Parallel()
+
+	if _, err := server.New(server.Config{Logins: []string{allowedLogin}, Tmux: newTmuxClient(t)}); err == nil {
+		t.Fatal("New without a push store: want error, got nil")
+	}
+}
+
+func TestPushRegisterStoresAndRemoves(t *testing.T) {
+	t.Parallel()
+
+	store := newPushStore(t)
+	handler := newHandlerWithStore(t, newTmuxClient(t), store)
+	endpoint := "https://" + pushHost + "/synthetic-topic-register"
+	assertStatus(t, postJSON(t, handler, pushPath, registerBody(t, endpoint)), http.StatusNoContent)
+	assertStored(t, store, endpoint)
+	rec := serve(t, handler, http.MethodDelete, pushPath, writeHeader(), unregisterBody(t, endpoint))
+	assertStatus(t, rec, http.StatusNoContent)
+	assertStored(t, store)
+}
+
+func TestPushRegisterDeleteUnknownIsNotFound(t *testing.T) {
+	t.Parallel()
+
+	store := newPushStore(t)
+	handler := newHandlerWithStore(t, newTmuxClient(t), store)
+	endpoint := "https://" + pushHost + "/synthetic-topic-unknown"
+	rec := serve(t, handler, http.MethodDelete, pushPath, writeHeader(), unregisterBody(t, endpoint))
+	assertStatus(t, rec, http.StatusNotFound)
+	if strings.Contains(rec.Body.String(), endpoint) {
+		t.Fatal("404 body echoes the endpoint")
+	}
+	assertStored(t, store)
+}
+
+func TestPushRegisterRefusesEndpoint(t *testing.T) {
+	t.Parallel()
+
+	endpoints := []string{
+		"http://" + pushHost + "/synthetic-topic-refused",
+		"https://other.example.test/synthetic-topic-refused",
+	}
+	for _, endpoint := range endpoints {
+		t.Run(endpoint, func(t *testing.T) {
+			t.Parallel()
+
+			store := newPushStore(t)
+			handler := newHandlerWithStore(t, newTmuxClient(t), store)
+			rec := postJSON(t, handler, pushPath, registerBody(t, endpoint))
+			assertStatus(t, rec, http.StatusUnprocessableEntity)
+			if strings.Contains(rec.Body.String(), endpoint) {
+				t.Fatal("422 body echoes the endpoint")
+			}
+			assertStored(t, store)
+		})
+	}
+}
+
+func TestPushRegisterRejectsBadBodies(t *testing.T) {
+	t.Parallel()
+
+	endpoint := "https://" + pushHost + "/synthetic-topic-bad"
+	p256dh, auth := pushKeys(t)
+	shortValue := base64.RawURLEncoding.EncodeToString([]byte("short"))
+	offCurve := base64.RawURLEncoding.EncodeToString(append([]byte{0x04}, make([]byte, 64)...))
+	bodies := map[string]string{
+		"not json":             `not json`,
+		"array":                `[]`,
+		"null":                 `null`,
+		"empty object":         `{}`,
+		"missing endpoint":     jsonBody(t, map[string]any{"p256dh": p256dh, "auth": auth}),
+		"numeric endpoint":     jsonBody(t, map[string]any{"endpoint": 1, "p256dh": p256dh, "auth": auth}),
+		"missing p256dh":       jsonBody(t, map[string]any{"endpoint": endpoint, "auth": auth}),
+		"null auth":            jsonBody(t, map[string]any{"endpoint": endpoint, "p256dh": p256dh, "auth": nil}),
+		"short p256dh":         jsonBody(t, map[string]any{"endpoint": endpoint, "p256dh": shortValue, "auth": auth}),
+		"off-curve p256dh":     jsonBody(t, map[string]any{"endpoint": endpoint, "p256dh": offCurve, "auth": auth}),
+		"short auth":           jsonBody(t, map[string]any{"endpoint": endpoint, "p256dh": p256dh, "auth": shortValue}),
+		"not base64url p256dh": jsonBody(t, map[string]any{"endpoint": endpoint, "p256dh": "!!", "auth": auth}),
+	}
+	for name, body := range bodies {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			store := newPushStore(t)
+			handler := newHandlerWithStore(t, newTmuxClient(t), store)
+			assertStatus(t, postJSON(t, handler, pushPath, body), http.StatusBadRequest)
+			assertStored(t, store)
+		})
+	}
+}
+
+func TestPushRegisterDeleteRejectsBadBodies(t *testing.T) {
+	t.Parallel()
+
+	store := newPushStore(t)
+	handler := newHandlerWithStore(t, newTmuxClient(t), store)
+	endpoint := "https://" + pushHost + "/synthetic-topic-kept"
+	assertStatus(t, postJSON(t, handler, pushPath, registerBody(t, endpoint)), http.StatusNoContent)
+	bodies := []string{
+		`not json`,
+		`[]`,
+		`null`,
+		`{}`,
+		`{"endpoint":1}`,
+	}
+	for _, body := range bodies {
+		assertStatus(t, serve(t, handler, http.MethodDelete, pushPath, writeHeader(), body), http.StatusBadRequest)
+	}
+	assertStored(t, store, endpoint)
+}
+
+// guardFixture returns a store holding one registered subscription and a handler over it, with the endpoint
+// of that subscription.
+func guardFixture(t *testing.T) (*push.Store, http.Handler, string) {
+	t.Helper()
+	store := newPushStore(t)
+	handler := newHandlerWithStore(t, newTmuxClient(t), store)
+	registered := "https://" + pushHost + "/synthetic-topic-registered"
+	p256dh, auth := pushKeys(t)
+	if err := store.Add(push.Subscription{Endpoint: registered, P256dh: p256dh, Auth: auth}); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	return store, handler, registered
+}
+
+func TestPushRegisterRequiresGuard(t *testing.T) {
+	t.Parallel()
+
+	unguarded := map[string]func(http.Header){
+		"without client header": func(h http.Header) { h.Del(server.HeaderClient) },
+		"without login":         func(h http.Header) { h.Del(server.HeaderLogin) },
+		"unlisted login":        func(h http.Header) { h.Set(server.HeaderLogin, otherLogin) },
+		"text content type":     func(h http.Header) { h.Set("Content-Type", textType) },
+	}
+	for name, mutate := range unguarded {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			store, handler, registered := guardFixture(t)
+			attempted := "https://" + pushHost + "/synthetic-topic-attempted"
+			header := writeHeader()
+			mutate(header)
+			post := serve(t, handler, http.MethodPost, pushPath, header, registerBody(t, attempted))
+			assertStatus(t, post, http.StatusForbidden)
+			del := serve(t, handler, http.MethodDelete, pushPath, header, unregisterBody(t, registered))
+			assertStatus(t, del, http.StatusForbidden)
+			assertStored(t, store, registered)
+		})
+	}
+}
+
+func TestPushRegisterAdmitsGuardedWrites(t *testing.T) {
+	t.Parallel()
+
+	store, handler, registered := guardFixture(t)
+	attempted := "https://" + pushHost + "/synthetic-topic-attempted"
+	assertStatus(t, postJSON(t, handler, pushPath, registerBody(t, attempted)), http.StatusNoContent)
+	rec := serve(t, handler, http.MethodDelete, pushPath, writeHeader(), unregisterBody(t, registered))
+	assertStatus(t, rec, http.StatusNoContent)
+	assertStored(t, store, attempted)
 }
 
 // inputReady is printed by an input pane once its line discipline is off, so the test may type into it.
