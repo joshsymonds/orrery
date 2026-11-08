@@ -5,13 +5,18 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
+	"maps"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -349,16 +354,7 @@ func TestServePanesList(t *testing.T) {
 		t.Fatalf("SetPaneOption: %v", err)
 	}
 
-	rec := get(t, newHandler(t, tmux), "/v1/panes", allowedLogin)
-	assertStatus(t, rec, http.StatusOK)
-	assertJSON(t, rec)
-	got := decodeObjects(t, rec.Body.Bytes())
-
-	var list bytes.Buffer
-	if err := cli.List(t.Context(), tmux, []string{"--json"}, &list); err != nil {
-		t.Fatalf("cli.List: %v", err)
-	}
-	want := decodeObjects(t, list.Bytes())
+	got, want := listUntilAgreed(t, tmux, newHandler(t, tmux))
 	if len(got) != 2 || len(want) != 2 {
 		t.Fatalf("got %d panes and cli.List has %d, want 2 each", len(got), len(want))
 	}
@@ -381,6 +377,51 @@ func TestServePanesList(t *testing.T) {
 			t.Fatalf("pane %s = %v, want the cli.List fields %v", id, pane, want[i])
 		}
 	}
+}
+
+// listUntilAgreed reads GET /v1/panes and cli.List until the two agree on every field except question_hash.
+// A pane's current command changes while its shell starts, so the two reads can differ until it settles.
+func listUntilAgreed(t *testing.T, tmux *tmuxctl.Client, handler http.Handler) ([]map[string]any, []map[string]any) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), screenWait)
+	defer cancel()
+	ticker := time.NewTicker(screenPoll)
+	defer ticker.Stop()
+	for {
+		rec := get(t, handler, "/v1/panes", allowedLogin)
+		assertStatus(t, rec, http.StatusOK)
+		assertJSON(t, rec)
+		got := decodeObjects(t, rec.Body.Bytes())
+
+		var list bytes.Buffer
+		if err := cli.List(ctx, tmux, []string{"--json"}, &list); err != nil {
+			t.Fatalf("cli.List: %v", err)
+		}
+		want := decodeObjects(t, list.Bytes())
+		if agreeWithoutHash(got, want) {
+			return got, want
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatalf("GET /v1/panes = %v never agreed with cli.List = %v", got, want)
+		case <-ticker.C:
+		}
+	}
+}
+
+// agreeWithoutHash reports whether got and want hold the same panes in order once question_hash is removed from got.
+func agreeWithoutHash(got, want []map[string]any) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	for i := range got {
+		pane := maps.Clone(got[i])
+		delete(pane, "question_hash")
+		if !reflect.DeepEqual(pane, want[i]) {
+			return false
+		}
+	}
+	return true
 }
 
 func TestServePanesNoServer(t *testing.T) {
@@ -480,4 +521,302 @@ func TestServeRequiresTmux(t *testing.T) {
 	if _, err := server.New(server.Config{Logins: []string{allowedLogin}}); err == nil {
 		t.Fatal("New without a tmux client: want error, got nil")
 	}
+}
+
+// inputReady is printed by an input pane once its line discipline is off, so the test may type into it.
+const inputReady = "input ready"
+
+// synthText is the synthetic text the text route pastes.
+const synthText = "synthetic text"
+
+// writeRoute names a write route and a body it accepts.
+type writeRoute struct {
+	name string
+	body string
+}
+
+// writeRoutes returns each write route with a body it accepts.
+func writeRoutes() []writeRoute {
+	return []writeRoute{
+		{name: "text", body: `{"text":"` + synthText + `"}`},
+		{name: "keys", body: `{"keys":["k"]}`},
+		{name: "seen", body: `{}`},
+	}
+}
+
+// writeHeader returns the headers of a request the guard admits for a write.
+func writeHeader() http.Header {
+	header := http.Header{}
+	header.Set(server.HeaderLogin, allowedLogin)
+	header.Set("Content-Type", jsonType)
+	header.Set(server.HeaderClient, client)
+	return header
+}
+
+// paneRoute returns the write path of route on pane.
+func paneRoute(pane, route string) string {
+	return "/v1/panes/" + url.PathEscape(pane) + "/" + route
+}
+
+// jsonBody encodes fields as a JSON object body.
+func jsonBody(t *testing.T, fields map[string]any) string {
+	t.Helper()
+	body, err := json.Marshal(fields)
+	if err != nil {
+		t.Fatalf("encode body: %v", err)
+	}
+	return string(body)
+}
+
+// postJSON sends a write with the admitted headers and body through handler.
+func postJSON(t *testing.T, handler http.Handler, path, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	return serve(t, handler, http.MethodPost, path, writeHeader(), body)
+}
+
+// startInputPane starts session whose pane prints screen, enables bracketed paste, turns off the line
+// discipline, and runs cat into a file. It returns the pane ID and the file, once the pane is ready.
+// The screen is written to a file and printed with cat, so its text is never interpolated into the shell.
+func startInputPane(t *testing.T, tmux *tmuxctl.Client, session, screen string) (string, string) {
+	t.Helper()
+	dir := t.TempDir()
+	file := filepath.Join(dir, "input")
+	screenFile := filepath.Join(dir, "screen")
+	if err := os.WriteFile(screenFile, []byte(screen+"\n"), 0o600); err != nil {
+		t.Fatalf("write screen: %v", err)
+	}
+	script := fmt.Sprintf(
+		`cat %s; printf "\033[?2004h"; stty -icanon -echo -icrnl; printf "%s\n"; exec cat > %s`,
+		screenFile, inputReady, file,
+	)
+	startSession(t, tmux, session, "exec sh -c '"+script+"'")
+	pane := paneID(t, tmux, session)
+	waitForScreen(t, tmux, pane, inputReady)
+	return pane, file
+}
+
+// waitForScreen waits until want appears in the captured screen of pane.
+func waitForScreen(t *testing.T, tmux *tmuxctl.Client, pane, want string) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), screenWait)
+	defer cancel()
+	ticker := time.NewTicker(screenPoll)
+	defer ticker.Stop()
+	for {
+		screen, err := tmux.Run(ctx, "capture-pane", "-p", "-J", "-t", pane)
+		if err != nil {
+			t.Fatalf("capture-pane %s: %v", pane, err)
+		}
+		if strings.Contains(screen, want) {
+			return
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatalf("screen of %s never showed %q", pane, want)
+		case <-ticker.C:
+		}
+	}
+}
+
+// awaitInput waits until file holds at least len(want) bytes, then requires it to equal want exactly.
+func awaitInput(t *testing.T, file, want string) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), screenWait)
+	defer cancel()
+	ticker := time.NewTicker(screenPoll)
+	defer ticker.Stop()
+	for {
+		got, err := os.ReadFile(file)
+		if err != nil && !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("read input: %v", err)
+		}
+		if len(got) >= len(want) {
+			if string(got) != want {
+				t.Fatalf("pane received %q, want %q", got, want)
+			}
+			return
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatalf("pane received %q, want %q", got, want)
+		case <-ticker.C:
+		}
+	}
+}
+
+func TestServePaneText(t *testing.T) {
+	t.Parallel()
+
+	tmux := newTmuxServer(t)
+	pane, file := startInputPane(t, tmux, "s1", synthScreen)
+	rec := postJSON(t, newHandler(t, tmux), paneRoute(pane, "text"), jsonBody(t, map[string]any{"text": synthText}))
+	assertStatus(t, rec, http.StatusNoContent)
+	awaitInput(t, file, "\x1b[200~"+synthText+"\x1b[201~\r")
+}
+
+func TestServePaneKeys(t *testing.T) {
+	t.Parallel()
+
+	tmux := newTmuxServer(t)
+	pane, file := startInputPane(t, tmux, "s1", synthQuestion)
+	other, otherFile := startInputPane(t, tmux, "s2", synthScreen)
+	if err := tmux.SetPaneOption(t.Context(), pane, protocol.OptionQuestion, synthQuestion); err != nil {
+		t.Fatalf("SetPaneOption: %v", err)
+	}
+	handler := newHandler(t, tmux)
+	path := paneRoute(pane, "keys")
+
+	// A question hash that does not match must answer 409, and its key must never reach the pane.
+	refused := jsonBody(t, map[string]any{
+		"keys":            []string{"x"},
+		"expect_question": protocol.QuestionHash("a different question"),
+	})
+	assertStatus(t, postJSON(t, handler, path, refused), http.StatusConflict)
+
+	// Unguarded keys arrive.
+	unguarded := jsonBody(t, map[string]any{"keys": []string{"a"}})
+	assertStatus(t, postJSON(t, handler, path, unguarded), http.StatusNoContent)
+
+	// A matching question hash with the question visible on the pane delivers.
+	guarded := jsonBody(t, map[string]any{
+		"keys":            []string{"b"},
+		"expect_question": protocol.QuestionHash(synthQuestion),
+	})
+	assertStatus(t, postJSON(t, handler, path, guarded), http.StatusNoContent)
+
+	// A key spelled like a flag is typed literally into the target pane, and the other pane gets nothing.
+	literal := jsonBody(t, map[string]any{"keys": []string{"--pane=" + other}})
+	assertStatus(t, postJSON(t, handler, path, literal), http.StatusNoContent)
+	awaitInput(t, file, "ab--pane="+other)
+
+	toOther := jsonBody(t, map[string]any{"keys": []string{"z"}})
+	assertStatus(t, postJSON(t, handler, paneRoute(other, "keys"), toOther), http.StatusNoContent)
+	awaitInput(t, otherFile, "z")
+}
+
+func TestServePaneSeen(t *testing.T) {
+	t.Parallel()
+
+	tmux := newTmuxServer(t)
+	pane, _ := startInputPane(t, tmux, "s1", synthScreen)
+	before := time.Now().Unix()
+	rec := postJSON(t, newHandler(t, tmux), paneRoute(pane, "seen"), "{}")
+	assertStatus(t, rec, http.StatusNoContent)
+	after := time.Now().Unix()
+
+	value, ok, err := tmux.PaneOption(t.Context(), pane, protocol.OptionSeen)
+	if err != nil {
+		t.Fatalf("PaneOption: %v", err)
+	}
+	if !ok {
+		t.Fatalf("%s is unset on %s, want the current time", protocol.OptionSeen, pane)
+	}
+	seen, err := strconv.ParseInt(value, 10, 64)
+	if err != nil {
+		t.Fatalf("%s = %q: %v", protocol.OptionSeen, value, err)
+	}
+	if seen < before || seen > after {
+		t.Fatalf("%s = %d, want a time between %d and %d", protocol.OptionSeen, seen, before, after)
+	}
+}
+
+func TestServeWriteRoutesRejectMalformedID(t *testing.T) {
+	t.Parallel()
+
+	handler := newHandler(t, newTmuxClient(t))
+	for _, route := range writeRoutes() {
+		for _, id := range []string{"abc", "%", "%x", "1", "%1x", "%-1", "%%1"} {
+			t.Run(route.name+" "+id, func(t *testing.T) {
+				t.Parallel()
+				rec := postJSON(t, handler, paneRoute(id, route.name), route.body)
+				assertStatus(t, rec, http.StatusBadRequest)
+			})
+		}
+	}
+}
+
+func TestServeWriteRoutesAbsentPane(t *testing.T) {
+	t.Parallel()
+
+	tmux := newTmuxServer(t)
+	startSession(t, tmux, "s1", longCommand)
+	handler := newHandler(t, tmux)
+	for _, route := range writeRoutes() {
+		t.Run(route.name, func(t *testing.T) {
+			t.Parallel()
+			rec := postJSON(t, handler, paneRoute("%999999", route.name), route.body)
+			assertStatus(t, rec, http.StatusNotFound)
+			// The mux answers unknown routes with its own 404 body, so the pane's answer is the one checked.
+			if body := strings.TrimSpace(rec.Body.String()); body != "pane not found" {
+				t.Fatalf("body = %q, want %q", body, "pane not found")
+			}
+		})
+	}
+}
+
+func TestServePaneTextRejectsBadBody(t *testing.T) {
+	t.Parallel()
+
+	tmux := newTmuxServer(t)
+	pane, file := startInputPane(t, tmux, "s1", synthScreen)
+	handler := newHandler(t, tmux)
+	path := paneRoute(pane, "text")
+	bodies := []string{`[]`, `null`, `not json`, `{}`, `{"text":1}`, `{"text":null}`, `{"text":["a"]}`}
+	for _, body := range bodies {
+		assertStatus(t, postJSON(t, handler, path, body), http.StatusBadRequest)
+	}
+
+	// Nothing from the rejected bodies reached the pane, so the next delivery is exactly its own text.
+	assertStatus(t, postJSON(t, handler, path, `{"text":"ok"}`), http.StatusNoContent)
+	awaitInput(t, file, "\x1b[200~ok\x1b[201~\r")
+}
+
+func TestServePaneKeysRejectsBadBody(t *testing.T) {
+	t.Parallel()
+
+	tmux := newTmuxServer(t)
+	pane, file := startInputPane(t, tmux, "s1", synthScreen)
+	handler := newHandler(t, tmux)
+	path := paneRoute(pane, "keys")
+	bodies := []string{
+		`[]`,
+		`null`,
+		`not json`,
+		`{}`,
+		`{"keys":null}`,
+		`{"keys":[]}`,
+		`{"keys":"a"}`,
+		`{"keys":[1]}`,
+		`{"keys":[null]}`,
+		`{"keys":["a"],"expect_question":1}`,
+		`{"keys":["a"],"expect_question":null}`,
+	}
+	for _, body := range bodies {
+		assertStatus(t, postJSON(t, handler, path, body), http.StatusBadRequest)
+	}
+
+	// Nothing from the rejected bodies reached the pane, so the next delivery is exactly its own key.
+	assertStatus(t, postJSON(t, handler, path, `{"keys":["ok"]}`), http.StatusNoContent)
+	awaitInput(t, file, "ok")
+}
+
+func TestServeWriteRoutesRequireClientHeader(t *testing.T) {
+	t.Parallel()
+
+	tmux := newTmuxServer(t)
+	pane, file := startInputPane(t, tmux, "s1", synthScreen)
+	handler := newHandler(t, tmux)
+	header := writeHeader()
+	header.Del(server.HeaderClient)
+	for _, route := range writeRoutes() {
+		rec := serve(t, handler, http.MethodPost, paneRoute(pane, route.name), header, route.body)
+		assertStatus(t, rec, http.StatusForbidden)
+	}
+
+	// Nothing from the rejected writes reached the pane or set the seen option.
+	if _, ok, err := tmux.PaneOption(t.Context(), pane, protocol.OptionSeen); err != nil || ok {
+		t.Fatalf("%s after rejected seen: set %t, err %v; want unset", protocol.OptionSeen, ok, err)
+	}
+	assertStatus(t, postJSON(t, handler, paneRoute(pane, "keys"), `{"keys":["ok"]}`), http.StatusNoContent)
+	awaitInput(t, file, "ok")
 }

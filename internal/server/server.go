@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"mime"
 	"net"
 	"net/http"
@@ -28,6 +29,16 @@ const questionHashKey = "question_hash"
 
 // jsonContentType is the Content-Type of every JSON response.
 const jsonContentType = "application/json"
+
+// Keys of the JSON object a write route reads its body from.
+const (
+	fieldText           = "text"
+	fieldKeys           = "keys"
+	fieldExpectQuestion = "expect_question"
+)
+
+// flagPane is the cli.Send and cli.Seen flag that names the target pane.
+const flagPane = "--pane"
 
 // errMalformedPaneID reports a pane ID that is not % followed by digits.
 var errMalformedPaneID = errors.New("malformed pane id")
@@ -70,6 +81,9 @@ func New(cfg Config) (http.Handler, error) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/panes", servePanes(cfg.Tmux))
 	mux.HandleFunc("GET /v1/panes/{id}/screen", serveScreen(cfg.Tmux))
+	mux.HandleFunc("POST /v1/panes/{id}/text", servePaneText(cfg.Tmux))
+	mux.HandleFunc("POST /v1/panes/{id}/keys", servePaneKeys(cfg.Tmux))
+	mux.HandleFunc("POST /v1/panes/{id}/seen", servePaneSeen(cfg.Tmux))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if _, ok := allowed[r.Header.Get(HeaderLogin)]; !ok {
 			http.Error(w, "forbidden", http.StatusForbidden)
@@ -119,14 +133,7 @@ func serveScreen(tmux *tmuxctl.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := r.PathValue("id")
 		if err := checkPane(r.Context(), tmux, id); err != nil {
-			switch {
-			case errors.Is(err, errMalformedPaneID):
-				http.Error(w, "malformed pane id", http.StatusBadRequest)
-			case errors.Is(err, errPaneNotFound):
-				http.Error(w, "pane not found", http.StatusNotFound)
-			default:
-				http.Error(w, "internal server error", http.StatusInternalServerError)
-			}
+			paneError(w, err)
 			return
 		}
 		screen, err := tmux.Run(r.Context(), "capture-pane", "-p", "-J", "-t", id)
@@ -136,6 +143,147 @@ func serveScreen(tmux *tmuxctl.Client) http.HandlerFunc {
 		}
 		writeJSON(w, screenResponse{Pane: id, Screen: screen})
 	}
+}
+
+// servePaneText answers POST /v1/panes/{id}/text by pasting the body's text into the pane and pressing Enter.
+func servePaneText(tmux *tmuxctl.Client) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := r.PathValue("id")
+		if err := checkPane(r.Context(), tmux, id); err != nil {
+			paneError(w, err)
+			return
+		}
+		fields, ok := decodeBody(r)
+		if !ok {
+			http.Error(w, "bad request body", http.StatusBadRequest)
+			return
+		}
+		text, ok := jsonString(fields[fieldText])
+		if !ok {
+			http.Error(w, "bad request body", http.StatusBadRequest)
+			return
+		}
+		if err := cli.Send(r.Context(), tmux, []string{flagPane, id, "--text", text}, io.Discard); err != nil {
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+// servePaneKeys answers POST /v1/panes/{id}/keys by sending the body's keys to the pane. An expect_question
+// field makes the send conditional on the pane's question: 409 when that question does not match.
+func servePaneKeys(tmux *tmuxctl.Client) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := r.PathValue("id")
+		if err := checkPane(r.Context(), tmux, id); err != nil {
+			paneError(w, err)
+			return
+		}
+		fields, ok := decodeBody(r)
+		if !ok {
+			http.Error(w, "bad request body", http.StatusBadRequest)
+			return
+		}
+		keys, ok := jsonStrings(fields[fieldKeys])
+		if !ok {
+			http.Error(w, "bad request body", http.StatusBadRequest)
+			return
+		}
+		args := []string{flagPane, id}
+		if raw, guarded := fields[fieldExpectQuestion]; guarded {
+			hash, isString := jsonString(raw)
+			if !isString {
+				http.Error(w, "bad request body", http.StatusBadRequest)
+				return
+			}
+			args = append(args, "--expect-question", hash)
+		}
+		// The -- ends flag parsing, so a key spelled like a flag is typed into the pane as a key.
+		args = append(args, "--keys", "--")
+		args = append(args, keys...)
+		switch err := cli.Send(r.Context(), tmux, args, io.Discard); {
+		case errors.Is(err, cli.ErrQuestionRefused):
+			http.Error(w, "question refused", http.StatusConflict)
+			return
+		case err != nil:
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+// servePaneSeen answers POST /v1/panes/{id}/seen by setting the pane's seen time to now.
+func servePaneSeen(tmux *tmuxctl.Client) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := r.PathValue("id")
+		if err := checkPane(r.Context(), tmux, id); err != nil {
+			paneError(w, err)
+			return
+		}
+		if err := cli.Seen(r.Context(), tmux, []string{flagPane, id}, io.Discard); err != nil {
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+// paneError answers a failed checkPane: 400 for a malformed pane ID, 404 for an absent pane, else 500.
+func paneError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, errMalformedPaneID):
+		http.Error(w, "malformed pane id", http.StatusBadRequest)
+	case errors.Is(err, errPaneNotFound):
+		http.Error(w, "pane not found", http.StatusNotFound)
+	default:
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+	}
+}
+
+// decodeBody reads the request body as one JSON object and returns its fields. It reports false when
+// the body cannot be read or is not a JSON object, including null.
+func decodeBody(r *http.Request) (map[string]json.RawMessage, bool) {
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		return nil, false
+	}
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(body, &fields) != nil || fields == nil {
+		return nil, false
+	}
+	return fields, true
+}
+
+// jsonString returns the string raw holds. It reports false when raw is absent, null, or not a string.
+func jsonString(raw json.RawMessage) (string, bool) {
+	if !bytes.HasPrefix(bytes.TrimSpace(raw), []byte(`"`)) {
+		return "", false
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err != nil {
+		return "", false
+	}
+	return s, true
+}
+
+// jsonStrings returns the non-empty array of strings raw holds. It reports false when raw is absent,
+// null, empty, not an array, or holds a value that is not a string.
+func jsonStrings(raw json.RawMessage) ([]string, bool) {
+	var items []json.RawMessage
+	if err := json.Unmarshal(raw, &items); err != nil || len(items) == 0 {
+		return nil, false
+	}
+	strs := make([]string, 0, len(items))
+	for _, item := range items {
+		s, ok := jsonString(item)
+		if !ok {
+			return nil, false
+		}
+		strs = append(strs, s)
+	}
+	return strs, true
 }
 
 // checkPane returns errMalformedPaneID unless id is % followed by digits, and errPaneNotFound unless
