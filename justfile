@@ -43,3 +43,13 @@ cover:
 
 # Lint and coverage gates.
 check: lint cover
+
+# Run the Android lint and JVM unit tests.
+android-test:
+    nix develop .#android -c gradle -p android lintDebug test
+
+# Build the debug APK and install it on the connected device.
+android-install:
+    nix develop .#android -c bash -ceu '\
+        gradle -p android assembleDebug; \
+        adb install -r android/app/build/outputs/apk/debug/app-debug.apk'
