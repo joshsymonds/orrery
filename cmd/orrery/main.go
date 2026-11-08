@@ -8,13 +8,19 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
+	"os/signal"
 	"slices"
 	"strings"
+	"syscall"
+	"time"
 
 	"github.com/joshsymonds/orrery/internal/cli"
 	"github.com/joshsymonds/orrery/internal/hook"
 	"github.com/joshsymonds/orrery/internal/protocol"
+	"github.com/joshsymonds/orrery/internal/push"
+	"github.com/joshsymonds/orrery/internal/server"
 	"github.com/joshsymonds/orrery/internal/summary"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
 )
@@ -29,6 +35,13 @@ const (
 
 // anthropicBaseURLEnv names the variable that carries the session's patchbay base URL.
 const anthropicBaseURLEnv = "ANTHROPIC_BASE_URL"
+
+// Serve timeouts. Request headers must arrive within serveHeaderTimeout, and shutdown waits at most
+// serveShutdownTimeout for requests in flight.
+const (
+	serveHeaderTimeout   = 10 * time.Second
+	serveShutdownTimeout = 5 * time.Second
+)
 
 const usageText = `usage: orrery [-L NAME | -S PATH] [--socket PATH] SUBCOMMAND [ARGS]
 
@@ -45,6 +58,8 @@ subcommands:
                                                 send text or keys to a pane; --keys must be last
   debug summarize --pane ID --transcript PATH [--claude PATH]
                                                 write a pane's summary and label
+  serve --listen ADDR --allow-login LOGIN [--allow-login LOGIN]... [--push-host HOST]...
+                                                serve the HTTP API on a loopback address until SIGINT or SIGTERM
 `
 
 // usageError is a command line refused before any work. It exits 2 and prints the usage text.
@@ -135,6 +150,8 @@ func dispatch(ctx context.Context, opts globals, rest []string, stdin io.Reader,
 		}
 		hook.Run(stdin, getenv, socket)
 		return nil
+	case "serve":
+		return runServe(ctx, opts, args, getenv)
 	case "list", "seen", "send", "debug":
 		client, err := tmuxctl.New(opts.server)
 		if err != nil {
@@ -144,6 +161,84 @@ func dispatch(ctx context.Context, opts globals, rest []string, stdin io.Reader,
 	default:
 		return usagef("unknown subcommand %q", name)
 	}
+}
+
+// listFlag is a repeatable string flag. It collects the values in the order given.
+type listFlag []string
+
+// String implements flag.Value.
+func (l *listFlag) String() string {
+	return strings.Join(*l, ",")
+}
+
+// Set implements flag.Value.
+func (l *listFlag) Set(value string) error {
+	*l = append(*l, value)
+	return nil
+}
+
+// runServe runs `orrery serve`. It serves the HTTP API for the tmux server named by opts on the loopback address
+// --listen until SIGINT or SIGTERM, then shuts down and returns nil.
+func runServe(ctx context.Context, opts globals, args []string, getenv func(string) string) error {
+	flags := flag.NewFlagSet("orrery serve", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	listen := flags.String("listen", "", "loopback address to serve on")
+	var logins listFlag
+	flags.Var(&logins, "allow-login", "Tailscale login the API admits, repeatable")
+	var pushHosts listFlag
+	flags.Var(&pushHosts, "push-host", "push relay host a subscription may name, repeatable")
+	if err := flags.Parse(args); err != nil {
+		return usagef("serve: %v", err)
+	}
+	if flags.NArg() > 0 {
+		return usagef("serve: unexpected argument %q", flags.Arg(0))
+	}
+	if *listen == "" {
+		return usagef("serve: --listen is required")
+	}
+	if len(logins) == 0 {
+		return usagef("serve: at least one --allow-login is required")
+	}
+	if len(pushHosts) == 0 {
+		pushHosts = listFlag{push.DefaultPushHost}
+	}
+	tmux, err := tmuxctl.New(opts.server)
+	if err != nil {
+		return fmt.Errorf("tmux server: %w", err)
+	}
+	storePath, err := push.DefaultStorePath(getenv)
+	if err != nil {
+		return fmt.Errorf("push store: %w", err)
+	}
+	store, err := push.NewStore(storePath, pushHosts)
+	if err != nil {
+		return fmt.Errorf("push store: %w", err)
+	}
+	handler, err := server.New(server.Config{Logins: logins, Tmux: tmux, Push: store})
+	if err != nil {
+		return fmt.Errorf("serve: %w", err)
+	}
+
+	ctx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	ln, err := server.Listen(ctx, *listen)
+	if err != nil {
+		return fmt.Errorf("serve: %w", err)
+	}
+	httpServer := &http.Server{Handler: handler, ReadHeaderTimeout: serveHeaderTimeout}
+	serving := make(chan error, 1)
+	go func() { serving <- httpServer.Serve(ln) }()
+	select {
+	case serveErr := <-serving:
+		return fmt.Errorf("serve: %w", serveErr)
+	case <-ctx.Done():
+	}
+	shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), serveShutdownTimeout)
+	defer cancel()
+	if err = httpServer.Shutdown(shutdownCtx); err != nil {
+		return fmt.Errorf("serve: shutdown: %w", err)
+	}
+	return nil
 }
 
 // runTmux runs a subcommand that works on the tmux server client talks to.
