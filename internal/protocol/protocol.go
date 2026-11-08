@@ -1,0 +1,151 @@
+// Package protocol defines the names and wire types shared by the orrery CLI,
+// the orreryd daemon, and the Claude Code hook.
+package protocol
+
+import (
+	"bytes"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/url"
+	"path/filepath"
+	"strings"
+)
+
+// State is the state of a Claude Code pane.
+type State string
+
+// Pane states.
+const (
+	StateWorking State = "working"
+	StateWaiting State = "waiting"
+	StateDone    State = "done"
+)
+
+// ParseState returns the State named by s, or an error when s is not one of the three states.
+func ParseState(s string) (State, error) {
+	switch State(s) {
+	case StateWorking, StateWaiting, StateDone:
+		return State(s), nil
+	default:
+		return "", fmt.Errorf("unknown pane state %q", s)
+	}
+}
+
+// Per-pane tmux option names, set at pane scope. Values are single-line.
+const (
+	OptionState    = "@orrery_state"
+	OptionChanged  = "@orrery_changed"
+	OptionSeen     = "@orrery_seen"
+	OptionQuestion = "@orrery_question"
+	OptionSummary  = "@orrery_summary"
+	OptionLabel    = "@orrery_label"
+)
+
+// Pane is one element of the `orrery list --json` array.
+type Pane struct {
+	ID          string `json:"id"`
+	Host        string `json:"host"`
+	Session     string `json:"session"`
+	WindowIndex int    `json:"window"`
+	PaneIndex   int    `json:"pane"`
+	Cwd         string `json:"cwd"`
+	Command     string `json:"command"`
+	State       State  `json:"state"`
+	Summary     string `json:"summary"`
+	Label       string `json:"label"`
+	Changed     int64  `json:"changed"`
+	Seen        int64  `json:"seen"`
+	Question    string `json:"question"`
+}
+
+// Environment variable names and the value that marks a summarizer process.
+const (
+	EnvSocket       = "ORRERY_SOCKET"
+	EnvNtfyURLFile  = "ORRERY_NTFY_URL_FILE"
+	EnvNtfyAuthFile = "ORRERY_NTFY_TOKEN_FILE"
+	EnvSummarizer   = "ORRERY_SUMMARIZER"
+	SummarizerValue = "1"
+)
+
+// SocketPath resolves the daemon socket: flagValue when non-empty, else ORRERY_SOCKET,
+// else $XDG_RUNTIME_DIR/orrery/orreryd.sock. It returns an error when none of them is set.
+func SocketPath(flagValue string, getenv func(string) string) (string, error) {
+	if flagValue != "" {
+		return flagValue, nil
+	}
+	if sock := getenv(EnvSocket); sock != "" {
+		return sock, nil
+	}
+	if runtimeDir := getenv("XDG_RUNTIME_DIR"); runtimeDir != "" {
+		return filepath.Join(runtimeDir, "orrery", "orreryd.sock"), nil
+	}
+	return "", fmt.Errorf("no daemon socket: pass --socket, set %s, or set XDG_RUNTIME_DIR", EnvSocket)
+}
+
+// IsSummarizer reports whether this process is the summarizer's own claude subprocess.
+func IsSummarizer(getenv func(string) string) bool {
+	return getenv(EnvSummarizer) == SummarizerValue
+}
+
+// DefaultSummaryModel is the summary model used when the patchbay context has no mapping.
+const DefaultSummaryModel = "claude-haiku-5-5"
+
+// SummaryContext returns the name in the first /ctx/<name> path segment pair of baseURL,
+// or "" when there is none or baseURL does not parse.
+func SummaryContext(baseURL string) string {
+	parsed, err := url.Parse(baseURL)
+	if err != nil {
+		return ""
+	}
+	segments := strings.Split(parsed.Path, "/")
+	for i := range len(segments) - 1 {
+		if segments[i] == "ctx" {
+			return segments[i+1]
+		}
+	}
+	return ""
+}
+
+// SummaryModel returns models[SummaryContext(baseURL)] when that context is non-empty and
+// maps to a non-empty model, else DefaultSummaryModel.
+func SummaryModel(baseURL string, models map[string]string) string {
+	if name := SummaryContext(baseURL); name != "" {
+		if model := models[name]; model != "" {
+			return model
+		}
+	}
+	return DefaultSummaryModel
+}
+
+// HookFrame is the single frame a Claude Code hook sends to orreryd per connection.
+type HookFrame struct {
+	Hook             json.RawMessage `json:"hook"`
+	TmuxPane         string          `json:"tmuxPane"`
+	Tmux             string          `json:"tmux"`
+	Cwd              string          `json:"cwd"`
+	AnthropicBaseURL string          `json:"anthropicBaseUrl"`
+}
+
+// WriteFrame writes frame to w as one JSON object terminated by a newline.
+func WriteFrame(w io.Writer, frame HookFrame) error {
+	if err := json.NewEncoder(w).Encode(frame); err != nil {
+		return fmt.Errorf("write hook frame: %w", err)
+	}
+	return nil
+}
+
+// ReadFrame decodes one frame from r with no line-length limit. It rejects malformed JSON
+// and a hook that is missing, null, or not a JSON object.
+func ReadFrame(r io.Reader) (HookFrame, error) {
+	var frame HookFrame
+	if err := json.NewDecoder(r).Decode(&frame); err != nil {
+		return HookFrame{}, fmt.Errorf("read hook frame: %w", err)
+	}
+	hook := bytes.TrimSpace(frame.Hook)
+	if len(hook) == 0 || hook[0] != '{' {
+		return HookFrame{}, errors.New("read hook frame: hook must be a JSON object")
+	}
+	return frame, nil
+}
