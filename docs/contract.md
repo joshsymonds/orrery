@@ -205,6 +205,7 @@ Subcommands:
     - The display fragment is derived from the stored `@orrery_question` value. For an AskUserQuestion value it is `questions[0].question`. Otherwise, when `input` is an object, it is the first non-empty of `command`, `file_path`, `url`, then the first string field of `input` in document order. Otherwise it is the `tool` value. A stored value that is not a JSON object is its own fragment.
     - The fragment is its first non-blank line, with whitespace runs collapsed to one space, trimmed, cut to its first 40 runes, and trimmed again. The screen from `capture-pane -p -J` is compared with its whitespace runs collapsed to one space. An empty fragment refuses.
 - `debug summarize --pane ID --transcript PATH [--claude PATH]` runs one synchronous summary for the pane. The base URL comes from `ANTHROPIC_BASE_URL`. The command writes `@orrery_summary` and `@orrery_label` on the pane.
+- `serve --listen ADDR --allow-login LOGIN` serves the HTTP API of section 12. See `### orrery serve`.
 
 Exit codes:
 
@@ -215,15 +216,41 @@ Exit codes:
 | 2 | usage error |
 | 3 | question refused (`send --expect-question`: no question, hash mismatch, empty display fragment, or fragment not visible) |
 
+### orrery serve
+
+```
+orrery [-L NAME | -S PATH] serve --listen ADDR --allow-login LOGIN [--allow-login LOGIN]... [--push-host HOST]...
+```
+
+- `-L NAME` and `-S PATH` select the tmux server, as section 6 defines.
+- `--listen ADDR` sets the address to serve on. ADDR is a loopback IP literal with a port, such as `127.0.0.1:8080` or `[::1]:8080`. Any other ADDR exits 1 before anything is bound.
+- `--allow-login LOGIN` admits one Tailscale login. Repeat the flag for each login. At least one is required.
+- `--push-host HOST` names a push relay host, as `orreryd` does. Repeat the flag for each host. The default is `ntfy.sh`.
+
+Registrations are written to the push store that `orreryd` reads (see `### orreryd`). When neither `XDG_STATE_HOME` nor `HOME` is set, `serve` exits 1.
+
+`--listen` and at least one `--allow-login` are required. Without them `serve` exits 2.
+
+`serve` is meant to sit behind `tailscale serve`, which sets the `Tailscale-User-Login` header that section 12 checks. Do not expose it through Tailscale Funnel.
+
+`SIGINT` and `SIGTERM` stop `serve` and exit 0.
+
+Example. Every name and address is synthetic:
+
+```
+orrery serve --listen 127.0.0.1:8080 --allow-login user@example.test
+```
+
 ### orreryd
 
 ```
-orreryd [-L NAME | -S PATH] [--socket PATH] [--claude PATH] [--summary-model CONTEXT=MODEL]...
+orreryd [-L NAME | -S PATH] [--socket PATH] [--claude PATH] [--summary-model CONTEXT=MODEL]... [--push-host HOST]...
 ```
 
 - `-L`, `-S`, and `--socket` work as they do for `orrery`.
 - `--claude PATH` sets the `claude` binary the summarizer runs.
 - `--summary-model CONTEXT=MODEL` maps a patchbay context (section 8) to a summary model. Repeat the flag for each context. A context with no mapping uses `claude-haiku-5-5`.
+- `--push-host HOST` names a push relay host that a Web Push subscription may use. Repeat the flag for each host. The default is `ntfy.sh`. A subscription whose endpoint is on another host is refused (section 12).
 
 `orreryd` listens on the unix socket only. It opens no network listener.
 
@@ -236,6 +263,13 @@ ntfy notifications are sent only when `ORRERY_NTFY_URL_FILE` is set:
 - The access token comes from `ORRERY_NTFY_TOKEN_FILE`.
 - The host tag is the machine host name.
 
+Web Push is sent on the same two transitions. On `waiting` and on `done`, `orreryd` posts an encrypted Web Push to every registered subscription. Section 12 defines the payload. The subscriptions are kept in the push store:
+
+- `$XDG_STATE_HOME/orrery/push.json` when `XDG_STATE_HOME` is set.
+- Otherwise `$HOME/.local/state/orrery/push.json`.
+
+When neither variable is set, `orreryd` exits 1.
+
 `SIGINT` and `SIGTERM` stop `orreryd`.
 
 ### Environment
@@ -244,6 +278,8 @@ ntfy notifications are sent only when `ORRERY_NTFY_URL_FILE` is set:
 |---|---|---|
 | `ORRERY_SOCKET` | `orrery`, `orreryd` | daemon socket path (section 5) |
 | `XDG_RUNTIME_DIR` | `orrery`, `orreryd` | default socket directory when no path is set (section 5) |
+| `XDG_STATE_HOME` | `orrery` (`serve`), `orreryd` | base directory of the push store, `$XDG_STATE_HOME/orrery/push.json` (section 11, orreryd) |
+| `HOME` | `orrery` (`serve`), `orreryd` | used for the push store when `XDG_STATE_HOME` is unset, at `$HOME/.local/state/orrery/push.json` |
 | `ORRERY_NTFY_URL_FILE` | `orreryd` | file holding the ntfy topic URL; enables ntfy when set |
 | `ORRERY_NTFY_TOKEN_FILE` | `orreryd` | file holding the ntfy access token |
 | `ANTHROPIC_BASE_URL` | `orrery` (`hook`, `debug summarize`) | the session's base URL. The hook sends it in each frame (section 9), and each summary runs through its own session's base URL. |
@@ -268,6 +304,65 @@ Register `orrery hook` for each hook event that reports state. The path below is
 }
 ```
 
-## 12. Freeze
+## 12. HTTP API
+
+`orrery serve` (section 11) serves this API over HTTP at the address given by `--listen`. Bodies are JSON unless the table says otherwise. Every example is synthetic.
+
+### Guard
+
+The guard runs before routing. It checks every request:
+
+- The `Tailscale-User-Login` header must equal one of the `--allow-login` values. Otherwise the response is 403.
+
+Every POST and DELETE must also send:
+
+- `Content-Type: application/json`, and
+- a non-empty `X-Orrery-Client` header.
+
+Otherwise the response is 403. The server sends no CORS headers. An unknown path gets 404.
+
+### Pane IDs in paths
+
+A pane ID is `%` followed by digits, such as `%3`. The `{id}` segment of a path takes the pane ID with its `%` written as `%25`. Pane `%3` is therefore `/v1/panes/%253/screen`.
+
+### Routes
+
+| Method and path | Body | Success | Other status codes |
+|---|---|---|---|
+| `GET /v1/panes` | none | 200, JSON array of panes | 500 tmux failure |
+| `POST /v1/panes` | `{"pane": "%3", "kind": "claude"}` or `{"pane": "%3", "kind": "shell"}` | 201, `{"pane": "%7"}` | 400 bad body, 404 absent pane, 500 tmux failure |
+| `GET /v1/panes/{id}/screen` | none | 200, `text/plain; charset=utf-8` | 400 malformed pane ID, 404 absent pane, 500 tmux failure |
+| `POST /v1/panes/{id}/text` | `{"text": "example input"}` | 204 | 400 malformed pane ID or bad body, 404 absent pane, 500 tmux failure |
+| `POST /v1/panes/{id}/keys` | `{"keys": ["Enter"], "expect_question": "H"}`; `expect_question` is optional | 204 | 400 malformed pane ID or bad body, 404 absent pane, 409 question refused, 500 tmux failure |
+| `POST /v1/panes/{id}/seen` | none | 204 | 400 malformed pane ID, 404 absent pane, 500 tmux failure |
+| `POST /v1/push/register` | `{"endpoint": "https://push.example.test/sub/example", "p256dh": "example-key", "auth": "example-auth"}` | 204 | 400 bad body or keys, 422 endpoint not https on a `--push-host` host, 500 store failure |
+| `DELETE /v1/push/register` | `{"endpoint": "https://push.example.test/sub/example"}` | 204 | 400 bad body, 404 not registered, 500 store failure |
+
+Details for each route:
+
+- `GET /v1/panes` returns the pane list of section 3. Each pane also has `question_hash`, the question hash of section 10 for the pane's `question`.
+- `POST /v1/panes` opens a window in the session and directory of the pane named by `pane`. The window runs `claude` for kind `claude`, and the default shell for kind `shell`. The 201 response names the new pane.
+- `GET /v1/panes/{id}/screen` returns the pane's screen as plain text, the output of `capture-pane -p -J`. It is not JSON.
+- `POST /v1/panes/{id}/keys` sends the keys to the pane. When `expect_question` is present, the send is refused with 409 unless the question check passes. That check is the one `orrery send --expect-question` applies (section 11). `expect_question` takes the question hash H from section 10.
+- `POST /v1/push/register` registers a Web Push subscription. `p256dh` and `auth` are the subscription's keys. The endpoint must be `https` and must be on a host named by `--push-host` (section 11).
+- `DELETE /v1/push/register` removes the subscription with that endpoint.
+
+### Push payload
+
+When a pane enters `waiting` or `done`, `orreryd` posts to each registered subscription:
+
+- The body is one RFC 8291 `aes128gcm` record. The record is at most 4096 bytes.
+- The headers are `Content-Encoding: aes128gcm` and `TTL: 3600`.
+- The plaintext is a JSON object. Every value is a string. The keys are `pane`, `host`, `project`, `state`, `summary`, `label`, `question`, and `question_hash`.
+- The plaintext is at most 3993 bytes. When it is longer, the question is cut first, then the summary.
+- `question_hash` always covers the full question, even when the question is cut.
+
+Example plaintext. The question and its hash are the fixed vector of section 10:
+
+```json
+{"pane":"%1","host":"example-host","project":"example-project","state":"waiting","summary":"Example summary of the pane's work.","label":"example-label","question":"Example question for the user?","question_hash":"7f593eeb8a031e6a99b02a9b65b8e03a17a82a20ca4862ecda37bd06c479a5eb"}
+```
+
+## 13. Freeze
 
 The names and values in this document are frozen as of effort 1. Later efforts, including the effort-4 golden test, build on them.

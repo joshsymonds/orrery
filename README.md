@@ -19,6 +19,14 @@ read the pane states with `orrery list --json`. Command lines, flags,
 environment variables, exit codes, and a settings example are documented in
 [section 11 of `docs/contract.md`](docs/contract.md#11-commands-and-configuration).
 
+## Phone service
+
+`orrery serve` exposes the pane list, pane screens, and input over HTTP, so a
+phone client can read and drive the panes. It listens on a loopback address and
+sits behind `tailscale serve`. The routes, guard headers, push registration, and
+Web Push payload are documented in
+[section 12 of `docs/contract.md`](docs/contract.md#12-http-api).
+
 ## Build and check
 
 ```sh
