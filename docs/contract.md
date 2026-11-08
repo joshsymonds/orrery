@@ -6,7 +6,7 @@ Module path: `github.com/joshsymonds/orrery`.
 
 The Go code that implements each part lives in one of two packages:
 
-- `internal/protocol`: pane state, tmux option names, the `orrery list --json` element, environment names, the daemon socket path, the summarizer sentinel, the summary model map, and the hook-to-daemon frame.
+- `internal/protocol`: pane state, tmux option names, the `orrery list --json` element, environment names, the daemon socket path, the summarizer sentinel, the summary model map, the question hash, and the hook-to-daemon frame.
 - `internal/tmuxctl`: the tmux client that runs the `tmux` binary and reads and writes the per-pane options.
 
 ## 1. Pane state
@@ -167,6 +167,21 @@ Example frame. Every value is synthetic. The wire form is this object on one lin
 {"hook":{"hook_event_name":"Stop","session_id":"example-session"},"tmuxPane":"%1","tmux":"/tmp/example-tmux,1234,0","cwd":"/home/user/project","anthropicBaseUrl":"https://patchbay.example.com/ctx/example-context"}
 ```
 
-## 10. Freeze
+## 10. Question hash
+
+H is the question hash. R8's `--expect-question H` compares H against the value this section defines.
+
+- `func QuestionHash(question string) string` returns the lowercase hex SHA-256 of the raw `@orrery_question` option value's bytes, exactly as stored. It applies no trimming and no other normalization.
+- An unset question hashes as the empty string, so `QuestionHash("")` is the hash of the empty input.
+- `protocol.QuestionHash` is the only function that computes H. Every consumer calls it.
+
+Fixed vectors. Both inputs are synthetic:
+
+| Input | H |
+|---|---|
+| `Example question for the user?` | `7f593eeb8a031e6a99b02a9b65b8e03a17a82a20ca4862ecda37bd06c479a5eb` |
+| `""` (unset) | `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855` |
+
+## 11. Freeze
 
 The names and values in this document are frozen as of effort 1. Later efforts, including the effort-4 golden test, build on them.

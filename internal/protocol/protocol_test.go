@@ -2,6 +2,8 @@ package protocol_test
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"maps"
@@ -331,6 +333,39 @@ func TestSummaryContext(t *testing.T) {
 	for input, want := range cases {
 		if got := protocol.SummaryContext(input); got != want {
 			t.Errorf("SummaryContext(%q) = %q, want %q", input, got, want)
+		}
+	}
+}
+
+func TestQuestionHash(t *testing.T) {
+	cases := []struct {
+		name, question, want string
+	}{
+		{
+			"fixed vector",
+			"Example question for the user?",
+			"7f593eeb8a031e6a99b02a9b65b8e03a17a82a20ca4862ecda37bd06c479a5eb",
+		},
+		{
+			"unset question",
+			"",
+			"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+		},
+	}
+	for _, tc := range cases {
+		if got := protocol.QuestionHash(tc.question); got != tc.want {
+			t.Errorf("%s: QuestionHash(%q) = %q, want %q", tc.name, tc.question, got, tc.want)
+		}
+	}
+}
+
+func TestQuestionHashIsSHA256OfRawBytes(t *testing.T) {
+	// Surrounding whitespace is part of the stored value and must not be trimmed.
+	for _, question := range []string{" padded question? ", "line one\nline two", "Ünïcode?"} {
+		sum := sha256.Sum256([]byte(question))
+		want := hex.EncodeToString(sum[:])
+		if got := protocol.QuestionHash(question); got != want {
+			t.Errorf("QuestionHash(%q) = %q, want %q", question, got, want)
 		}
 	}
 }

@@ -4,6 +4,8 @@ package protocol
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -87,6 +89,13 @@ func SocketPath(flagValue string, getenv func(string) string) (string, error) {
 // IsSummarizer reports whether this process is the summarizer's own claude subprocess.
 func IsSummarizer(getenv func(string) string) bool {
 	return getenv(EnvSummarizer) == SummarizerValue
+}
+
+// QuestionHash returns the lowercase hex SHA-256 of question's raw bytes, exactly as stored
+// in the @orrery_question option. The empty string hashes as an unset question.
+func QuestionHash(question string) string {
+	sum := sha256.Sum256([]byte(question))
+	return hex.EncodeToString(sum[:])
 }
 
 // DefaultSummaryModel is the summary model used when the patchbay context has no mapping.
