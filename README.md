@@ -9,8 +9,15 @@ through ntfy. `orrery list` shows the panes and their states.
 
 ## Binaries
 
-- `cmd/orrery`: the hook and CLI client (`orrery list`).
-- `cmd/orreryd`: the local daemon that holds session state.
+- `cmd/orrery`: the Claude Code hook and the CLI client (`hook`, `list`, `seen`, `send`, `debug summarize`).
+- `cmd/orreryd`: the local daemon that holds session state and listens on a unix socket only.
+
+## Usage
+
+Register `orrery hook` for the Claude Code hook events in your settings, then
+read the pane states with `orrery list --json`. Command lines, flags,
+environment variables, exit codes, and a settings example are documented in
+[section 11 of `docs/contract.md`](docs/contract.md#11-commands-and-configuration).
 
 ## Build and check
 

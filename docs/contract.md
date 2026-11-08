@@ -182,6 +182,90 @@ Fixed vectors. Both inputs are synthetic:
 | `Example question for the user?` | `7f593eeb8a031e6a99b02a9b65b8e03a17a82a20ca4862ecda37bd06c479a5eb` |
 | `""` (unset) | `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855` |
 
-## 11. Freeze
+## 11. Commands and configuration
+
+This section documents the command lines and configuration that ship with `orrery` and `orreryd`. Every name is synthetic in the examples.
+
+### orrery
+
+```
+orrery [-L NAME | -S PATH] [--socket PATH] SUBCOMMAND
+```
+
+- `-L NAME` and `-S PATH` select the tmux server, as section 6 defines.
+- `--socket PATH` sets the daemon socket, as section 5 defines.
+
+Subcommands:
+
+- `hook` reads one Claude Code hook JSON object on stdin, sends it to `orreryd` as a frame (section 9), and always exits 0 silently.
+- `list --json` prints the pane list defined in section 3.
+- `seen --pane ID` marks the pane as seen.
+- `send --pane ID [--expect-question H] (--text T | --keys K...)` sends text or keys to the pane. Put the flags before `--keys`. A key that spells a send flag is refused.
+  - `--expect-question H` sends only when the pane has a question, H equals its question hash (section 10), and the question is visible on the pane. Otherwise nothing is sent and the command exits 3.
+- `debug summarize --pane ID --transcript PATH [--claude PATH]` runs one synchronous summary for the pane. The base URL comes from `ANTHROPIC_BASE_URL`. The command writes `@orrery_summary` and `@orrery_label` on the pane.
+
+Exit codes:
+
+| Code | Meaning |
+|---|---|
+| 0 | success |
+| 1 | error |
+| 2 | usage error |
+| 3 | question refused (`send --expect-question`: no question, hash mismatch, or question not visible) |
+
+### orreryd
+
+```
+orreryd [-L NAME | -S PATH] [--socket PATH] [--claude PATH] [--summary-model CONTEXT=MODEL]...
+```
+
+- `-L`, `-S`, and `--socket` work as they do for `orrery`.
+- `--claude PATH` sets the `claude` binary the summarizer runs.
+- `--summary-model CONTEXT=MODEL` maps a patchbay context (section 8) to a summary model. Repeat the flag for each context. A context with no mapping uses `claude-haiku-5-5`.
+
+`orreryd` listens on the unix socket only. It opens no network listener.
+
+Summaries run when a session enters `working` (throttled) and when it becomes `done`.
+
+ntfy notifications are sent only when `ORRERY_NTFY_URL_FILE` is set:
+
+- On `waiting`, the body is the question.
+- On `done`, the body is the latest summary.
+- The access token comes from `ORRERY_NTFY_TOKEN_FILE`.
+- The host tag is the machine host name.
+
+`SIGINT` and `SIGTERM` stop `orreryd`.
+
+### Environment
+
+| Variable | Read by | Meaning |
+|---|---|---|
+| `ORRERY_SOCKET` | `orrery`, `orreryd` | daemon socket path (section 5) |
+| `XDG_RUNTIME_DIR` | `orrery`, `orreryd` | default socket directory when no path is set (section 5) |
+| `ORRERY_NTFY_URL_FILE` | `orreryd` | file holding the ntfy topic URL; enables ntfy when set |
+| `ORRERY_NTFY_TOKEN_FILE` | `orreryd` | file holding the ntfy access token |
+| `ANTHROPIC_BASE_URL` | `orrery` (`hook`, `debug summarize`) | the session's base URL. The hook sends it in each frame (section 9), and each summary runs through its own session's base URL. |
+| `ORRERY_SUMMARIZER` | `orrery` (`hook`) | summarizer sentinel (section 7). `orreryd` sets it on each summary run. Summaries also run with hooks disabled. |
+
+### Claude Code hook settings
+
+Register `orrery hook` for each hook event that reports state. The path below is synthetic:
+
+```json
+{
+  "hooks": {
+    "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "/usr/local/bin/orrery hook" }] }],
+    "PreToolUse": [{ "hooks": [{ "type": "command", "command": "/usr/local/bin/orrery hook" }] }],
+    "PostToolUse": [{ "hooks": [{ "type": "command", "command": "/usr/local/bin/orrery hook" }] }],
+    "PostToolUseFailure": [{ "hooks": [{ "type": "command", "command": "/usr/local/bin/orrery hook" }] }],
+    "PermissionRequest": [{ "hooks": [{ "type": "command", "command": "/usr/local/bin/orrery hook" }] }],
+    "Notification": [{ "hooks": [{ "type": "command", "command": "/usr/local/bin/orrery hook" }] }],
+    "Stop": [{ "hooks": [{ "type": "command", "command": "/usr/local/bin/orrery hook" }] }],
+    "SessionEnd": [{ "hooks": [{ "type": "command", "command": "/usr/local/bin/orrery hook" }] }]
+  }
+}
+```
+
+## 12. Freeze
 
 The names and values in this document are frozen as of effort 1. Later efforts, including the effort-4 golden test, build on them.
