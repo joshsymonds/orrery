@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
@@ -16,8 +17,10 @@ import (
 
 // Every test server starts with -f /dev/null so the user's tmux config never applies.
 const (
-	noConfig    = "/dev/null"
-	testCommand = "sleep 300"
+	noConfig        = "/dev/null"
+	testCommand     = "sleep 300"
+	commandWait     = 10 * time.Second
+	commandPollEach = 10 * time.Millisecond
 )
 
 // newServer returns a client for a unique private server name and kills that server at cleanup.
@@ -58,6 +61,31 @@ func mustRun(t *testing.T, client *tmuxctl.Client, args ...string) string {
 func startSession(t *testing.T, client *tmuxctl.Client, name, dir string) {
 	t.Helper()
 	mustRun(t, client, "-f", noConfig, "new-session", "-d", "-s", name, "-c", dir, testCommand)
+}
+
+// waitForCommand polls pane until its foreground command is want, failing the test after commandWait.
+// A pane reports its command only after its shell has exec'd it, so listing earlier shows the shell instead.
+func waitForCommand(t *testing.T, client *tmuxctl.Client, pane, want string) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), commandWait)
+	defer cancel()
+	ticker := time.NewTicker(commandPollEach)
+	defer ticker.Stop()
+	for {
+		out, err := client.Run(ctx, "display-message", "-p", "-t", pane, "#{pane_current_command}")
+		if err != nil {
+			t.Fatalf("pane %s pane_current_command: %v", pane, err)
+		}
+		got := strings.TrimSpace(out)
+		if got == want {
+			return
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatalf("pane %s pane_current_command = %q after %v, want %q", pane, got, commandWait, want)
+		case <-ticker.C:
+		}
+	}
 }
 
 func paneIDs(t *testing.T, client *tmuxctl.Client, session string) []string {
@@ -205,6 +233,10 @@ func TestListPanesReturnsEveryPane(t *testing.T) {
 	setPaneOption(t, client, s1[0], protocol.OptionSummary, "example summary\twith tab")
 	setPaneOption(t, client, s1[0], protocol.OptionLabel, "example label")
 	setPaneOption(t, client, s1[0], protocol.OptionQuestion, "example question?")
+
+	for _, pane := range append(s1, s2...) {
+		waitForCommand(t, client, pane, "sleep")
+	}
 
 	got, err := client.ListPanes(t.Context())
 	if err != nil {
