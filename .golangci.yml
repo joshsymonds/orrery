@@ -532,6 +532,14 @@ linters:
           - gosec
         text: 'G204'
 
+      # The open resolver runs the configured zoxide binary, and the intent lookup runs the configured
+      # claude binary, with argv and no shell, so the G204 finding is the intended design, as for
+      # tmuxctl (orchestrator decision ED2c-2).
+      - path: 'internal/open/(open|intent)\.go'
+        linters:
+          - gosec
+        text: 'G204'
+
       # The summarizer runs the configured claude binary with argv and no shell, so the G204
       # finding is the intended design, as for tmuxctl (effort-3 decision E3-D4).
       - path: 'internal/summary/summary\.go'

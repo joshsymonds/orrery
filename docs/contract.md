@@ -23,7 +23,7 @@ Go type: `type State string`. `func ParseState(s string) (State, error)` returns
 
 ## 2. Per-pane tmux options
 
-Options are set at pane scope with tmux 3.8 `set-option -p`.
+Options are set at pane scope with tmux 3.8 `set-option -p`, except `@orrery_dir`, which is the one session-scoped option (see below).
 
 | Go constant | Option name | Value |
 |---|---|---|
@@ -34,7 +34,15 @@ Options are set at pane scope with tmux 3.8 `set-option -p`.
 | `protocol.OptionSummary` | `@orrery_summary` | single-line text |
 | `protocol.OptionLabel` | `@orrery_label` | single-line text |
 | `protocol.OptionContext` | `@orrery_context` | the patchbay context name from the pane's last applied hook frame, the `SummaryContext` (section 8) of its `anthropicBaseUrl`; `""` for the default route |
-| `protocol.OptionDir` | `@orrery_dir` | reserved for `orrery open`; its scope and value are defined where it is first written |
+| `protocol.OptionDir` | `@orrery_dir` | the absolute project directory after `filepath.Clean`, symlinks not resolved; session scope, see below |
+
+`@orrery_dir` is a tmux user option set on the session with `set-option -t <session>`, without `-p`. It is not a field of `orrery list --json`.
+
+- `orrery open` writes it whenever it creates a session, including `new`. Sessions whose names begin with `_orrery-shell-` carry it too.
+- `orrery open` reads it to find a directory's session before it falls back to the session name.
+- Its absence means the session is not an orrery project session.
+
+Example value. The path is synthetic: `/home/user/project`.
 
 Rules for every option value:
 
