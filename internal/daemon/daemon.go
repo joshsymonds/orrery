@@ -1,0 +1,205 @@
+// Package daemon serves the hook socket: it reads one hook frame per connection, applies it to the
+// pane's tmux server through state.Apply, and reports each state change to observers.
+package daemon
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io/fs"
+	"log/slog"
+	"net"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+	"syscall"
+	"time"
+
+	"github.com/joshsymonds/orrery/internal/protocol"
+	"github.com/joshsymonds/orrery/internal/state"
+	"github.com/joshsymonds/orrery/internal/tmuxctl"
+)
+
+const (
+	// readTimeout bounds how long a connection may take to deliver its frame.
+	readTimeout = 2 * time.Second
+	// probeTimeout bounds the dial that decides whether a socket file has a live listener.
+	probeTimeout = time.Second
+)
+
+// Config configures Serve.
+type Config struct {
+	// Server, when non-zero, selects the tmux server for every frame instead of the frame's $TMUX.
+	Server tmuxctl.Server
+	// Observers are called in order, synchronously, for each state change. They must return quickly.
+	Observers []Observer
+	// Logger receives read, resolve and apply errors. Nil discards them.
+	Logger *slog.Logger
+}
+
+// Observer receives one state change.
+type Observer func(Transition)
+
+// Transition is one state change of a pane, with the frame that caused it.
+type Transition struct {
+	PaneID string
+	Server tmuxctl.Server
+	From   protocol.State
+	To     protocol.State
+	Frame  protocol.HookFrame
+}
+
+// Listen returns a listener on the unix socket socketPath. It creates the parent directory with mode
+// 0700 when absent, replaces a stale socket file, and returns an error when a live listener holds the path.
+func Listen(socketPath string) (net.Listener, error) {
+	if err := os.MkdirAll(filepath.Dir(socketPath), 0o700); err != nil {
+		return nil, fmt.Errorf("create socket directory: %w", err)
+	}
+	if err := removeStaleSocket(socketPath); err != nil {
+		return nil, err
+	}
+	var lc net.ListenConfig
+	ln, err := lc.Listen(context.Background(), "unix", socketPath)
+	if err != nil {
+		return nil, fmt.Errorf("listen on %s: %w", socketPath, err)
+	}
+	return ln, nil
+}
+
+// removeStaleSocket deletes path only when it is a socket that refuses connections. It returns an error
+// when a listener accepts on path, when path is not a socket, or when the probe fails for another reason.
+func removeStaleSocket(path string) error {
+	info, err := os.Lstat(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("stat %s: %w", path, err)
+	}
+	if info.Mode().Type() != fs.ModeSocket {
+		return fmt.Errorf("%s exists and is not a socket", path)
+	}
+
+	dialer := net.Dialer{Timeout: probeTimeout}
+	conn, err := dialer.DialContext(context.Background(), "unix", path)
+	if err == nil {
+		if closeErr := conn.Close(); closeErr != nil {
+			return fmt.Errorf("close probe connection: %w", closeErr)
+		}
+		return fmt.Errorf("socket %s has a live listener", path)
+	}
+	if !errors.Is(err, syscall.ECONNREFUSED) {
+		return fmt.Errorf("probe socket %s: %w", path, err)
+	}
+	if err = os.Remove(path); err != nil {
+		return fmt.Errorf("remove stale socket: %w", err)
+	}
+	return nil
+}
+
+// Serve accepts connections on ln until ctx is done, then closes ln, waits for in-flight connections,
+// and returns nil. Any other accept failure is returned once in-flight connections finish.
+func Serve(ctx context.Context, ln net.Listener, cfg Config) error {
+	logger := cfg.Logger
+	if logger == nil {
+		logger = slog.New(slog.DiscardHandler)
+	}
+	stop := context.AfterFunc(ctx, func() {
+		if err := ln.Close(); err != nil {
+			logger.ErrorContext(ctx, "close listener", "error", err)
+		}
+	})
+	defer stop()
+
+	frames := &frameHandler{cfg: cfg, logger: logger}
+	var wg sync.WaitGroup
+	defer wg.Wait()
+	for {
+		conn, err := ln.Accept()
+		if err != nil {
+			if ctx.Err() != nil {
+				return nil
+			}
+			return fmt.Errorf("accept: %w", err)
+		}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			frames.serveConn(ctx, conn)
+		}()
+	}
+}
+
+// frameHandler applies frames. Its mutex serializes state.Apply and the observer calls for each frame.
+type frameHandler struct {
+	cfg    Config
+	logger *slog.Logger
+	mu     sync.Mutex
+}
+
+// serveConn reads one frame from conn, applies it, and closes conn; the close tells the sender the frame
+// was handled. The frame is applied even when ctx is done, so an accepted event is never half-written. The
+// read deadline bounds the wait for the frame.
+func (h *frameHandler) serveConn(ctx context.Context, conn net.Conn) {
+	defer func() {
+		if err := conn.Close(); err != nil {
+			h.logger.WarnContext(ctx, "close connection", "error", err)
+		}
+	}()
+	if err := conn.SetReadDeadline(time.Now().Add(readTimeout)); err != nil {
+		h.logger.WarnContext(ctx, "set read deadline", "error", err)
+		return
+	}
+	frame, err := protocol.ReadFrame(conn)
+	if err != nil {
+		h.logger.WarnContext(ctx, "read hook frame", "error", err)
+		return
+	}
+	if frame.TmuxPane == "" {
+		h.logger.WarnContext(ctx, "drop hook frame", "reason", "empty tmuxPane")
+		return
+	}
+	h.apply(context.WithoutCancel(ctx), frame)
+}
+
+// apply runs one frame through state.Apply under the mutex and calls every observer when the state changes.
+func (h *frameHandler) apply(ctx context.Context, frame protocol.HookFrame) {
+	server := resolveServer(h.cfg.Server, frame.Tmux)
+	client, err := tmuxctl.New(server)
+	if err != nil {
+		h.logger.ErrorContext(ctx, "resolve tmux server", "error", err)
+		return
+	}
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	transition, changed, err := state.Apply(ctx, client, frame.TmuxPane, frame.Hook, time.Now())
+	if err != nil {
+		h.logger.ErrorContext(ctx, "apply hook frame", "pane", frame.TmuxPane, "error", err)
+		return
+	}
+	if !changed {
+		return
+	}
+	event := Transition{
+		PaneID: frame.TmuxPane,
+		Server: server,
+		From:   transition.From,
+		To:     transition.To,
+		Frame:  frame,
+	}
+	for _, observe := range h.cfg.Observers {
+		observe(event)
+	}
+}
+
+// resolveServer returns configured when it is set. Otherwise it returns the socket named by the frame's
+// $TMUX, the part before its first comma, and the default server when $TMUX is empty.
+func resolveServer(configured tmuxctl.Server, tmuxEnv string) tmuxctl.Server {
+	if configured != (tmuxctl.Server{}) {
+		return configured
+	}
+	socket, _, _ := strings.Cut(tmuxEnv, ",")
+	return tmuxctl.Server{Socket: socket}
+}
