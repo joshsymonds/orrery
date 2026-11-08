@@ -28,6 +28,9 @@ const (
 	quietWindow = 200 * time.Millisecond
 	// oversize is larger than a default unix socket buffer, so an unread write blocks.
 	oversize = 4 << 20
+	// whitespace is scanned by the JSON encoder but dropped from the frame it writes, so
+	// encoding alone takes well over forwardDeadline while the bytes on the wire stay small.
+	whitespace = 16 << 20
 )
 
 // testEnv returns a getenv backed by vars.
@@ -144,16 +147,54 @@ func TestHookDaemonDown(t *testing.T) {
 	}
 }
 
+func TestHookEncodingOutsideDeadline(t *testing.T) {
+	path, ln := listen(t)
+
+	got := make(chan received, 1)
+	go func() {
+		conn, err := ln.Accept()
+		if err != nil {
+			got <- received{err: err}
+			return
+		}
+		defer func() { _ = conn.Close() }()
+		frame, err := protocol.ReadFrame(conn)
+		got <- received{frame: frame, err: err}
+	}()
+
+	hook := `{"hook_event_name":"Stop",` + strings.Repeat(" ", whitespace) + `"session_id":"example-session"}`
+	Run(strings.NewReader(hook), testEnv(map[string]string{"TMUX_PANE": testPane}), path)
+
+	var result received
+	select {
+	case result = <-got:
+	case <-time.After(frameWait):
+		t.Fatal("daemon received no frame")
+	}
+	if result.err != nil {
+		t.Fatalf("read frame: %v (the frame was dropped; encoding ran inside the deadline)", result.err)
+	}
+	if string(result.frame.Hook) != testHook {
+		t.Errorf("hook = %s, want %s", result.frame.Hook, testHook)
+	}
+}
+
 func TestHookDeadline(t *testing.T) {
 	path, ln := listen(t)
 
-	accepted := make(chan net.Conn, 1)
+	// accepted records when the daemon accepted the connection: the deadline governs the time
+	// from there to Run's return.
+	type acceptance struct {
+		conn net.Conn
+		at   time.Time
+	}
+	accepted := make(chan acceptance, 1)
 	go func() {
 		conn, err := ln.Accept()
 		if err != nil {
 			return
 		}
-		accepted <- conn
+		accepted <- acceptance{conn: conn, at: time.Now()}
 	}()
 
 	hook := `{"hook_event_name":"Stop","padding":"` + strings.Repeat("x", oversize) + `"}`
@@ -161,28 +202,28 @@ func TestHookDeadline(t *testing.T) {
 	limit := forwardDeadline + slack
 
 	// Run runs in its own goroutine so an overrunning Run fails the test rather than hanging it.
-	finished := make(chan time.Duration, 1)
+	finished := make(chan time.Time, 1)
 	go func() {
-		start := time.Now()
 		Run(strings.NewReader(hook), env, path)
-		finished <- time.Since(start)
+		finished <- time.Now()
 	}()
 
-	var elapsed time.Duration
+	var returned time.Time
 	select {
-	case elapsed = <-finished:
+	case returned = <-finished:
 	case <-time.After(frameWait):
 		t.Fatalf("Run did not return within %v with an unread daemon", frameWait)
 	}
-	if elapsed > limit {
-		t.Fatalf("Run took %v with an unread daemon, want under %v", elapsed, limit)
-	}
 
+	var acc acceptance
 	select {
-	case conn := <-accepted:
-		t.Cleanup(func() { _ = conn.Close() })
+	case acc = <-accepted:
+		t.Cleanup(func() { _ = acc.conn.Close() })
 	case <-time.After(frameWait):
 		t.Fatal("daemon never accepted the connection")
+	}
+	if elapsed := returned.Sub(acc.at); elapsed > limit {
+		t.Fatalf("Run returned %v after the daemon accepted, want under %v", elapsed, limit)
 	}
 }
 

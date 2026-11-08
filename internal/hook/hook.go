@@ -2,6 +2,7 @@
 package hook
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"net"
@@ -39,6 +40,12 @@ func Run(stdin io.Reader, getenv func(string) string, socketPath string) {
 		AnthropicBaseURL: getenv("ANTHROPIC_BASE_URL"),
 	}
 
+	// Encoding runs before the clock starts: the deadline bounds only the dial and the write.
+	var payload bytes.Buffer
+	if err = protocol.WriteFrame(&payload, frame); err != nil {
+		return
+	}
+
 	deadline := time.Now().Add(forwardDeadline)
 	ctx, cancel := context.WithDeadline(context.Background(), deadline)
 	defer cancel()
@@ -56,7 +63,7 @@ func Run(stdin io.Reader, getenv func(string) string, socketPath string) {
 	if err = conn.SetDeadline(deadline); err != nil {
 		return
 	}
-	if err = protocol.WriteFrame(conn, frame); err != nil {
+	if _, err = conn.Write(payload.Bytes()); err != nil {
 		return
 	}
 }
