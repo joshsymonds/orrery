@@ -5,8 +5,16 @@ package integration_test
 import (
 	"bytes"
 	"context"
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/ecdh"
+	"crypto/hkdf"
 	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
@@ -24,6 +32,7 @@ import (
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/protocol"
+	"github.com/joshsymonds/orrery/internal/push"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
 )
 
@@ -183,10 +192,16 @@ func (p *orreryProcess) stop(t *testing.T) outcome {
 	if err := p.cmd.Process.Signal(syscall.SIGTERM); err != nil {
 		t.Fatalf("signal orreryd: %v", err)
 	}
+	return p.exitOutcome(t)
+}
+
+// exitOutcome returns the exit outcome once orreryd exits, failing the test if it is still running after waitLimit.
+func (p *orreryProcess) exitOutcome(t *testing.T) outcome {
+	t.Helper()
 	select {
 	case <-p.done:
 	case <-time.After(waitLimit):
-		t.Fatal("orreryd did not exit within the wait limit after SIGTERM")
+		t.Fatal("orreryd did not exit within the wait limit")
 	}
 	code := 0
 	var exitErr *exec.ExitError
@@ -795,7 +810,8 @@ func TestOrrerydDrivesHooksEndToEnd(t *testing.T) {
 	}
 	socket := filepath.Join(dir, "orreryd.sock")
 
-	daemon := startOrreryd(t, scrubbedEnv("ORRERY_NTFY_URL_FILE="+urlFile), "-L", name, "--socket", socket,
+	daemon := startOrreryd(t, scrubbedEnv("ORRERY_NTFY_URL_FILE="+urlFile, "XDG_STATE_HOME="+t.TempDir()),
+		"-L", name, "--socket", socket,
 		"--claude", fakeClaude, "--summary-model", exampleContextName+"="+exampleModel)
 	daemon.waitForListener(t, socket)
 
@@ -884,7 +900,7 @@ func startSummaryDaemon(t *testing.T, server, script string) (*orreryProcess, st
 	fakeClaude := filepath.Join(dir, "fake-claude.sh")
 	writeFile(t, fakeClaude, script, 0o700)
 	socket := filepath.Join(dir, "orreryd.sock")
-	daemon := startOrreryd(t, scrubbedEnv(), "-L", server, "--socket", socket,
+	daemon := startOrreryd(t, scrubbedEnv("XDG_STATE_HOME="+dir), "-L", server, "--socket", socket,
 		"--claude", fakeClaude, "--summary-model", exampleContextName+"="+exampleModel)
 	daemon.waitForListener(t, socket)
 	return daemon, socket, dir
@@ -987,11 +1003,259 @@ func TestOrrerydUsageExitCodes(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			out := runCommand(t, "", "orreryd", "", scrubbedEnv(), tc.args...)
+			out := runCommand(t, "", "orreryd", "", scrubbedEnv("XDG_STATE_HOME="+t.TempDir()), tc.args...)
 			wantExit(t, out, 2)
 			if !strings.HasPrefix(out.stderr, "orreryd: ") {
 				t.Fatalf("stderr %q, want orreryd: prefix", out.stderr)
 			}
 		})
+	}
+}
+
+// pushEndpoint is a fake Web Push service: a TLS server that records each request it receives, and the user agent
+// key and auth secret that a subscription to it carries.
+type pushEndpoint struct {
+	server   *httptest.Server
+	key      *ecdh.PrivateKey
+	auth     []byte
+	requests chan pushRequest
+}
+
+// pushRequest is one POST a fake endpoint received.
+type pushRequest struct {
+	encoding string
+	body     []byte
+}
+
+// newPushEndpoint starts a fake endpoint on 127.0.0.1 with fresh subscription keys. Its server closes at cleanup.
+func newPushEndpoint(t *testing.T) *pushEndpoint {
+	t.Helper()
+	key, err := ecdh.P256().GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("generate user agent key: %v", err)
+	}
+	auth := make([]byte, 16)
+	if _, err = rand.Read(auth); err != nil {
+		t.Fatalf("generate auth secret: %v", err)
+	}
+	ep := &pushEndpoint{key: key, auth: auth, requests: make(chan pushRequest, 8)}
+	ep.server = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		body, err := io.ReadAll(req.Body)
+		if err != nil {
+			t.Errorf("read push body: %v", err)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		ep.requests <- pushRequest{encoding: req.Header.Get("Content-Encoding"), body: body}
+		w.WriteHeader(http.StatusCreated)
+	}))
+	t.Cleanup(ep.server.Close)
+	return ep
+}
+
+// subscription returns the subscription a client registers for the endpoint.
+func (ep *pushEndpoint) subscription() push.Subscription {
+	return push.Subscription{
+		Endpoint: ep.server.URL + "/push/example",
+		P256dh:   base64.RawURLEncoding.EncodeToString(ep.key.PublicKey().Bytes()),
+		Auth:     base64.RawURLEncoding.EncodeToString(ep.auth),
+	}
+}
+
+// registerPush stores the subscriptions for endpoints in the push store under stateHome, where orreryd reads them.
+func registerPush(t *testing.T, stateHome string, endpoints ...*pushEndpoint) {
+	t.Helper()
+	store, err := push.NewStore(filepath.Join(stateHome, "orrery", "push.json"), []string{"127.0.0.1"})
+	if err != nil {
+		t.Fatalf("open push store: %v", err)
+	}
+	for _, ep := range endpoints {
+		if err = store.Add(ep.subscription()); err != nil {
+			t.Fatalf("register push endpoint: %v", err)
+		}
+	}
+}
+
+// startPushDaemon starts orreryd for server with the fake claude script, the push store under stateHome, and
+// SSL_CERT_FILE trusting the certificate of ep's server. It waits for the listener and returns the daemon and socket.
+func startPushDaemon(t *testing.T, server, dir, stateHome string, ep *pushEndpoint) (*orreryProcess, string) {
+	t.Helper()
+	fakeClaude := filepath.Join(dir, "fake-claude.sh")
+	writeFile(t, fakeClaude, fakeClaudeScript, 0o700)
+	roots := filepath.Join(dir, "push-roots.pem")
+	writeFile(t, roots, string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: ep.server.Certificate().Raw})),
+		0o600)
+	socket := filepath.Join(dir, "orreryd.sock")
+	daemon := startOrreryd(t, scrubbedEnv("XDG_STATE_HOME="+stateHome, "SSL_CERT_FILE="+roots), "-L", server,
+		"--socket", socket, "--claude", fakeClaude, "--summary-model", exampleContextName+"="+exampleModel,
+		"--push-host", "127.0.0.1")
+	daemon.waitForListener(t, socket)
+	return daemon, socket
+}
+
+// nextPush returns the next request ep received, failing the test after waitLimit.
+func nextPush(t *testing.T, ep *pushEndpoint) pushRequest {
+	t.Helper()
+	select {
+	case got := <-ep.requests:
+		return got
+	case <-time.After(waitLimit):
+		t.Fatal("no push request within the wait limit")
+	}
+	return pushRequest{}
+}
+
+// assertPushed reads the next request ep received and fails unless it is one aes128gcm body that decrypts to a
+// notification for pane in state.
+func assertPushed(t *testing.T, ep *pushEndpoint, pane string, state protocol.State) {
+	t.Helper()
+	got := nextPush(t, ep)
+	if got.encoding != "aes128gcm" {
+		t.Fatalf("Content-Encoding %q, want aes128gcm", got.encoding)
+	}
+	var note map[string]string
+	if err := json.Unmarshal(decryptPush(t, got.body, ep.key, ep.auth), &note); err != nil {
+		t.Fatalf("decode notification: %v", err)
+	}
+	if note["pane"] != pane || note["state"] != string(state) {
+		t.Fatalf("notification pane %q state %q, want pane %q state %q", note["pane"], note["state"], pane, state)
+	}
+}
+
+// decryptPush is the user agent side of RFC 8291 for an aes128gcm body with one record. It returns the plaintext
+// without its padding delimiter.
+func decryptPush(t *testing.T, body []byte, uaPrivate *ecdh.PrivateKey, authSecret []byte) []byte {
+	t.Helper()
+	const (
+		saltLen   = 16
+		keyIDLen  = 65
+		headerLen = saltLen + 4 + 1 + keyIDLen
+		recordLen = 4096
+		delimiter = 0x02
+	)
+	if len(body) <= headerLen {
+		t.Fatalf("push body is %d bytes, shorter than its header", len(body))
+	}
+	salt := body[:saltLen]
+	if rs := binary.BigEndian.Uint32(body[saltLen : saltLen+4]); rs != recordLen {
+		t.Fatalf("record size %d, want %d", rs, recordLen)
+	}
+	if idlen := int(body[saltLen+4]); idlen != keyIDLen {
+		t.Fatalf("key id length %d, want %d", idlen, keyIDLen)
+	}
+	keyID := body[saltLen+5 : headerLen]
+	asPublic, err := ecdh.P256().NewPublicKey(keyID)
+	if err != nil {
+		t.Fatalf("key id is not a P-256 point: %v", err)
+	}
+	secret, err := uaPrivate.ECDH(asPublic)
+	if err != nil {
+		t.Fatalf("ecdh: %v", err)
+	}
+	ikm, err := hkdf.Key(sha256.New, secret, authSecret,
+		"WebPush: info\x00"+string(uaPrivate.PublicKey().Bytes())+string(keyID), 32)
+	if err != nil {
+		t.Fatalf("derive ikm: %v", err)
+	}
+	cek, err := hkdf.Key(sha256.New, ikm, salt, "Content-Encoding: aes128gcm\x00", 16)
+	if err != nil {
+		t.Fatalf("derive cek: %v", err)
+	}
+	nonce, err := hkdf.Key(sha256.New, ikm, salt, "Content-Encoding: nonce\x00", 12)
+	if err != nil {
+		t.Fatalf("derive nonce: %v", err)
+	}
+	block, err := aes.NewCipher(cek)
+	if err != nil {
+		t.Fatalf("aes: %v", err)
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		t.Fatalf("gcm: %v", err)
+	}
+	padded, err := gcm.Open(nil, nonce, body[headerLen:], nil)
+	if err != nil {
+		t.Fatalf("open record: %v", err)
+	}
+	if len(padded) == 0 || padded[len(padded)-1] != delimiter {
+		t.Fatalf("record lacks its last-record delimiter")
+	}
+	return padded[:len(padded)-1]
+}
+
+func TestOrrerydPushesEncryptedNotifications(t *testing.T) {
+	client, name := newServer(t)
+	pane := startPane(t, client, "sleep 300")
+	dir := t.TempDir()
+	stateHome := filepath.Join(dir, "state")
+	endpoint := newPushEndpoint(t)
+	registerPush(t, stateHome, endpoint)
+	daemon, socket := startPushDaemon(t, name, dir, stateHome, endpoint)
+	transcript := filepath.Join(dir, "transcript.jsonl")
+	writeFile(t, transcript, exampleTranscript, 0o600)
+
+	sendHook(t, socket, pane, dir, map[string]any{
+		"hook_event_name": "PermissionRequest",
+		"tool_name":       "example-tool",
+		"tool_input":      map[string]any{"command": "example"},
+	})
+	assertPushed(t, endpoint, pane, protocol.StateWaiting)
+
+	sendHook(t, socket, pane, dir, map[string]any{
+		"hook_event_name":        "Stop",
+		"transcript_path":        transcript,
+		"last_assistant_message": exampleLastMessage,
+	})
+	assertPushed(t, endpoint, pane, protocol.StateDone)
+
+	// orreryd awaits every notification before it exits, so a request still queued after the stop is an extra one.
+	wantExit(t, daemon.stop(t), 0)
+	if extra := len(endpoint.requests); extra != 0 {
+		t.Fatalf("%d push requests beyond one per transition", extra)
+	}
+}
+
+func TestOrrerydPushFailureHidesEndpointURL(t *testing.T) {
+	client, name := newServer(t)
+	pane := startPane(t, client, "sleep 300")
+	dir := t.TempDir()
+	stateHome := filepath.Join(dir, "state")
+	live := newPushEndpoint(t)
+	closed := newPushEndpoint(t)
+	registerPush(t, stateHome, live, closed)
+	closed.server.Close()
+	daemon, socket := startPushDaemon(t, name, dir, stateHome, live)
+
+	sendHook(t, socket, pane, dir, map[string]any{
+		"hook_event_name": "PermissionRequest",
+		"tool_name":       "example-tool",
+		"tool_input":      map[string]any{"command": "example"},
+	})
+	assertPushed(t, live, pane, protocol.StateWaiting)
+
+	out := daemon.stop(t)
+	wantExit(t, out, 0)
+	if !strings.Contains(out.stderr, "post push notification") {
+		t.Fatalf("stderr %q lacks the logged push failure", out.stderr)
+	}
+	if endpoint := closed.subscription().Endpoint; strings.Contains(out.stderr, endpoint) {
+		t.Fatalf("stderr %q contains the endpoint URL %s", out.stderr, endpoint)
+	}
+}
+
+func TestOrrerydWithoutPushStoreExitsOne(t *testing.T) {
+	// Without XDG_STATE_HOME or HOME the push store has no path, so orreryd exits before it listens.
+	var env []string
+	for _, entry := range scrubbedEnv() {
+		if !strings.HasPrefix(entry, "XDG_STATE_HOME=") && !strings.HasPrefix(entry, "HOME=") {
+			env = append(env, entry)
+		}
+	}
+	socket := filepath.Join(t.TempDir(), "orreryd.sock")
+	daemon := startOrreryd(t, env, "--socket", socket)
+	out := daemon.exitOutcome(t)
+	wantExit(t, out, 1)
+	if !strings.Contains(out.stderr, "push store") {
+		t.Fatalf("stderr %q, want a push store error", out.stderr)
 	}
 }
