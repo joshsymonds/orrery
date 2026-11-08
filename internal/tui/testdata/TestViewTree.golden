@@ -1,0 +1,9 @@
+/home/user/src/alpha
+>   waiting  alpha-review     needs approval           2m
+  * done     alpha-tests      ran 14 tests             30s
+/home/user/src/beta
+    working  beta-build       compiling                1h
+    -        beta-notes                                -
+
+$ claude
+> Approve the migration? [y/n]
