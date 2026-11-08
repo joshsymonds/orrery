@@ -48,6 +48,9 @@ func TestFrozenNames(t *testing.T) {
 		{"OptionQuestion", protocol.OptionQuestion, "@orrery_question"},
 		{"OptionSummary", protocol.OptionSummary, "@orrery_summary"},
 		{"OptionLabel", protocol.OptionLabel, "@orrery_label"},
+		{"OptionContext", protocol.OptionContext, "@orrery_context"},
+		{"OptionDir", protocol.OptionDir, "@orrery_dir"},
+		{"ShellSessionPrefix", protocol.ShellSessionPrefix, "_orrery-shell-"},
 		{"EnvSocket", protocol.EnvSocket, "ORRERY_SOCKET"},
 		{"EnvNtfyURLFile", protocol.EnvNtfyURLFile, "ORRERY_NTFY_URL_FILE"},
 		{"EnvNtfyAuthFile", protocol.EnvNtfyAuthFile, "ORRERY_NTFY_TOKEN_FILE"},
@@ -88,7 +91,7 @@ func TestPaneJSONKeys(t *testing.T) {
 		t.Fatalf("marshal zero Pane: %v", err)
 	}
 	want := []string{
-		"changed", "command", "cwd", "host", "id", "label", "pane",
+		"changed", "command", "context", "cwd", "host", "id", "label", "pane",
 		"question", "seen", "session", "state", "summary", "window",
 	}
 	if got := sortedKeys(t, data); !slices.Equal(got, want) {
@@ -111,6 +114,7 @@ func TestPaneWireFormat(t *testing.T) {
 		Changed:     100,
 		Seen:        200,
 		Question:    "ship it?",
+		Context:     "example-context",
 	}
 	data, err := json.Marshal(pane)
 	if err != nil {
@@ -119,7 +123,7 @@ func TestPaneWireFormat(t *testing.T) {
 	want := `{"id":"%3","host":"host-a","session":"work","window":1,"pane":2,` +
 		`"cwd":"/home/u/proj","command":"claude","state":"waiting",` +
 		`"summary":"waiting on review","label":"proj","changed":100,"seen":200,` +
-		`"question":"ship it?"}`
+		`"question":"ship it?","context":"example-context"}`
 	if string(data) != want {
 		t.Errorf("Pane JSON =\n%s\nwant\n%s", data, want)
 	}

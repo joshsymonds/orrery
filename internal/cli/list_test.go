@@ -131,6 +131,7 @@ func TestListJSON(t *testing.T) {
 	listSetOption(t, client, panesA[0], protocol.OptionChanged, "1700000000")
 	listSetOption(t, client, panesA[0], protocol.OptionSeen, "1700000100")
 	listSetOption(t, client, panesA[0], protocol.OptionQuestion, "Example question for the user?")
+	listSetOption(t, client, panesA[0], protocol.OptionContext, "example-context")
 	listSetOption(t, client, panesA[1], protocol.OptionState, string(protocol.StateWorking))
 	listSetOption(t, client, panesA[1], protocol.OptionChanged, "1700000200")
 

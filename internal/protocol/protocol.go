@@ -43,7 +43,12 @@ const (
 	OptionQuestion = "@orrery_question"
 	OptionSummary  = "@orrery_summary"
 	OptionLabel    = "@orrery_label"
+	OptionContext  = "@orrery_context"
+	OptionDir      = "@orrery_dir"
 )
+
+// ShellSessionPrefix is the fixed prefix of shell session names.
+const ShellSessionPrefix = "_orrery-shell-"
 
 // Pane is one element of the `orrery list --json` array.
 type Pane struct {
@@ -60,6 +65,7 @@ type Pane struct {
 	Changed     int64  `json:"changed"`
 	Seen        int64  `json:"seen"`
 	Question    string `json:"question"`
+	Context     string `json:"context"`
 }
 
 // Environment variable names and the value that marks a summarizer process.

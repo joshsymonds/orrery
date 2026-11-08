@@ -233,6 +233,7 @@ func TestListPanesReturnsEveryPane(t *testing.T) {
 	setPaneOption(t, client, s1[0], protocol.OptionSummary, "example summary\twith tab")
 	setPaneOption(t, client, s1[0], protocol.OptionLabel, "example label")
 	setPaneOption(t, client, s1[0], protocol.OptionQuestion, "example question?")
+	setPaneOption(t, client, s1[0], protocol.OptionContext, "example-context")
 
 	for _, pane := range append(s1, s2...) {
 		waitForCommand(t, client, pane, "sleep")
@@ -247,6 +248,7 @@ func TestListPanesReturnsEveryPane(t *testing.T) {
 			ID: s1[0], Session: "s1", WindowIndex: 0, PaneIndex: 0, Cwd: resolved, Command: "sleep",
 			State: protocol.StateWaiting, Summary: "example summary\twith tab", Label: "example label",
 			Changed: 1700000000, Seen: 1700000100, Question: "example question?",
+			Context: "example-context",
 		},
 		{ID: s1[1], Session: "s1", WindowIndex: 0, PaneIndex: 1, Cwd: resolved, Command: "sleep"},
 		{ID: s2[0], Session: "s2", WindowIndex: 0, PaneIndex: 0, Cwd: resolved, Command: "sleep"},
