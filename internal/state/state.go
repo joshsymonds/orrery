@@ -23,6 +23,10 @@ type Transition struct {
 // larger value would make the set-option fail.
 const maxQuestionBytes = 8192
 
+// stopGraceWindow is how long after a done pane's Stop a tool event is still treated as a late frame
+// from the finished turn. A tool event at or after it means Claude continued the turn.
+const stopGraceWindow = 5 * time.Second
+
 // Hook JSON keys and values the state machine reads.
 const (
 	keyEventName        = "hook_event_name"
@@ -49,7 +53,8 @@ type hookFields map[string]json.RawMessage
 
 // Apply applies one Claude Code hook event to the pane paneID and reports the transition. The bool
 // is true exactly when the event is handled and the state changes. Unhandled events make no tmux
-// call and return the zero Transition, false, nil. Malformed hook JSON is an error.
+// call and return the zero Transition, false, nil. Malformed hook JSON is an error, and so is a
+// malformed @orrery_changed when a tool event reaches a done pane.
 func Apply(
 	ctx context.Context,
 	client *tmuxctl.Client,
@@ -78,10 +83,16 @@ func Apply(
 	if err != nil {
 		return Transition{}, false, err
 	}
-	// A tool event that arrives after the turn's Stop is late. Only UserPromptSubmit restarts a done
-	// pane, so the late event leaves the pane and its options untouched.
+	// A tool event that lands just after the turn's Stop is a late frame from that turn. It leaves
+	// the pane and its options untouched. A later tool event means Claude continued the turn.
 	if from == protocol.StateDone && isToolEvent(event) {
-		return Transition{From: from, To: from}, false, nil
+		late, lateErr := isLateToolEvent(ctx, client, paneID, now)
+		if lateErr != nil {
+			return Transition{}, false, lateErr
+		}
+		if late {
+			return Transition{From: from, To: from}, false, nil
+		}
 	}
 	transition := Transition{From: from, To: to}
 	if event == eventSessionEnd {
@@ -114,6 +125,28 @@ func targetState(event, notification string) (protocol.State, bool) {
 		return "", true
 	}
 	return "", false
+}
+
+// isLateToolEvent reports whether a tool event at now falls inside stopGraceWindow after the pane's
+// Stop, read from @orrery_changed. An unset @orrery_changed is outside the window.
+func isLateToolEvent(
+	ctx context.Context,
+	client *tmuxctl.Client,
+	paneID string,
+	now time.Time,
+) (bool, error) {
+	value, ok, err := client.PaneOption(ctx, paneID, protocol.OptionChanged)
+	if err != nil {
+		return false, fmt.Errorf("read %s: %w", protocol.OptionChanged, err)
+	}
+	if !ok {
+		return false, nil
+	}
+	stopped, err := strconv.ParseInt(value, 10, 64)
+	if err != nil {
+		return false, fmt.Errorf("parse %s: %w", protocol.OptionChanged, err)
+	}
+	return now.Sub(time.Unix(stopped, 0)) < stopGraceWindow, nil
 }
 
 // isToolEvent reports whether event is a tool-use event.

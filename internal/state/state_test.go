@@ -361,6 +361,97 @@ func TestDonePaneIgnoresLateToolEvents(t *testing.T) {
 	})
 }
 
+// setPaneState writes @orrery_state directly, for a pane whose history is not replayed.
+func setPaneState(t *testing.T, client *tmuxctl.Client, pane string, want protocol.State) {
+	t.Helper()
+	if err := client.SetPaneOption(t.Context(), pane, protocol.OptionState, string(want)); err != nil {
+		t.Fatalf("SetPaneOption(%s): %v", protocol.OptionState, err)
+	}
+}
+
+// TestDonePaneToolEventWindow checks where a tool event stops being late: at the window's edge and
+// after it, a done pane moves to working, and an unset or malformed @orrery_changed is handled.
+func TestDonePaneToolEventWindow(t *testing.T) {
+	t0 := time.Unix(1700000000, 0)
+	stopAt := t0.Add(4 * time.Second)
+	tools := []struct {
+		name string
+		hook string
+	}{
+		{"PreToolUse", preToolUseHook},
+		{"PostToolUse", postToolUseHook},
+		{"PostToolUseFailure", postToolFailureHook},
+	}
+
+	// donePane returns a pane whose turn ended at stopAt.
+	donePane := func(t *testing.T) (*tmuxctl.Client, string) {
+		t.Helper()
+		client, pane := startPane(t)
+		apply(t, client, pane, userPromptSubmitHook, t0)
+		apply(t, client, pane, stopHook, stopAt)
+		wantState(t, client, pane, protocol.StateDone)
+		return client, pane
+	}
+
+	for _, offset := range []time.Duration{5 * time.Second, 60 * time.Second} {
+		for _, tc := range tools {
+			t.Run(fmt.Sprintf("%s at Stop plus %v", tc.name, offset), func(t *testing.T) {
+				client, pane := donePane(t)
+				at := stopAt.Add(offset)
+
+				transition, changed := apply(t, client, pane, tc.hook, at)
+				if transition != (state.Transition{From: protocol.StateDone, To: protocol.StateWorking}) || !changed {
+					t.Fatalf("%s transition = %+v changed = %v, want done to working and true",
+						tc.name, transition, changed)
+				}
+				wantState(t, client, pane, protocol.StateWorking)
+				if got, _ := option(t, client, pane, protocol.OptionChanged); got != fmt.Sprint(at.Unix()) {
+					t.Fatalf("%s = %q, want the event time %d", protocol.OptionChanged, got, at.Unix())
+				}
+			})
+		}
+	}
+
+	t.Run("tool event just inside the window leaves the pane done", func(t *testing.T) {
+		client, pane := donePane(t)
+		at := stopAt.Add(5*time.Second - time.Second)
+
+		transition, changed := apply(t, client, pane, postToolUseHook, at)
+		if transition != (state.Transition{From: protocol.StateDone, To: protocol.StateDone}) || changed {
+			t.Fatalf("inside-window transition = %+v changed = %v, want done to done and false", transition, changed)
+		}
+		wantState(t, client, pane, protocol.StateDone)
+	})
+
+	t.Run("absent @orrery_changed moves a done pane to working", func(t *testing.T) {
+		client, pane := startPane(t)
+		setPaneState(t, client, pane, protocol.StateDone)
+
+		transition, changed := apply(t, client, pane, preToolUseHook, t0)
+		if transition != (state.Transition{From: protocol.StateDone, To: protocol.StateWorking}) || !changed {
+			t.Fatalf("transition = %+v changed = %v, want done to working and true", transition, changed)
+		}
+		wantState(t, client, pane, protocol.StateWorking)
+		if got, _ := option(t, client, pane, protocol.OptionChanged); got != "1700000000" {
+			t.Fatalf("%s = %q, want 1700000000", protocol.OptionChanged, got)
+		}
+	})
+
+	t.Run("malformed @orrery_changed is an error", func(t *testing.T) {
+		client, pane := startPane(t)
+		setPaneState(t, client, pane, protocol.StateDone)
+		if err := client.SetPaneOption(t.Context(), pane, protocol.OptionChanged, "synthetic"); err != nil {
+			t.Fatalf("SetPaneOption(%s): %v", protocol.OptionChanged, err)
+		}
+
+		_, _, err := state.Apply(t.Context(), client, pane, json.RawMessage(preToolUseHook), t0)
+		if err == nil {
+			t.Fatal("Apply with malformed @orrery_changed: want error, got nil")
+		}
+		wantState(t, client, pane, protocol.StateDone)
+	})
+}
+
 // captureQuestion starts a pane, applies one PermissionRequest hook, and returns the stored question.
 func captureQuestion(t *testing.T, hook string) string {
 	t.Helper()
