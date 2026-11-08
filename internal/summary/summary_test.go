@@ -3,11 +3,15 @@ package summary_test
 import (
 	"context"
 	"crypto/rand"
+	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -29,6 +33,9 @@ const (
 	previousLabel   = "previous label"
 	shortTimeout    = 200 * time.Millisecond
 	failureBound    = 10 * time.Second
+	pollInterval    = 10 * time.Millisecond
+	settleTime      = 200 * time.Millisecond
+	labelMarker     = "label: <3 to 4 words"
 )
 
 // argvFor is the exact argv after the binary for model.
@@ -81,6 +88,124 @@ func readLines(t *testing.T, path string) []string {
 		return nil
 	}
 	return strings.Split(strings.TrimSuffix(text, "\n"), "\n")
+}
+
+// countRuns returns how many runs the fake beside bin has started and how many of those have not written done.
+func countRuns(t *testing.T, bin string) (started, running int) {
+	t.Helper()
+	runs, err := filepath.Glob(filepath.Join(filepath.Dir(bin), "calls", "*"))
+	if err != nil {
+		t.Fatalf("glob calls: %v", err)
+	}
+	for _, run := range runs {
+		_, err := os.Stat(filepath.Join(run, "done"))
+		switch {
+		case err == nil:
+		case errors.Is(err, fs.ErrNotExist):
+			running++
+		default:
+			t.Fatalf("stat done: %v", err)
+		}
+	}
+	return len(runs), running
+}
+
+// waitRunning polls until want fake runs are in flight, failing the test when that takes longer than failureBound.
+func waitRunning(t *testing.T, bin string, want int) {
+	t.Helper()
+	deadline := time.After(failureBound)
+	ticker := time.NewTicker(pollInterval)
+	defer ticker.Stop()
+	for {
+		_, running := countRuns(t, bin)
+		if running == want {
+			return
+		}
+		select {
+		case <-deadline:
+			t.Fatalf("runs in flight = %d, want %d", running, want)
+		case <-ticker.C:
+		}
+	}
+}
+
+// waitIdle waits for s to finish every run in flight or waiting, failing the test when that takes longer than failureBound.
+func waitIdle(t *testing.T, s *summary.Summarizer) {
+	t.Helper()
+	done := make(chan struct{})
+	go func() {
+		s.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(failureBound):
+		t.Fatalf("Wait did not return within %v", failureBound)
+	}
+}
+
+// fakeClock is a settable clock for Config.Now.
+type fakeClock struct {
+	mu  sync.Mutex
+	now time.Time
+}
+
+func (c *fakeClock) Now() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.now
+}
+
+func (c *fakeClock) Set(now time.Time) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.now = now
+}
+
+// jsonLine marshals one transcript entry.
+func jsonLine(t *testing.T, entry map[string]any) string {
+	t.Helper()
+	raw, err := json.Marshal(entry)
+	if err != nil {
+		t.Fatalf("marshal transcript entry: %v", err)
+	}
+	return string(raw)
+}
+
+// exampleTranscript writes a session transcript of exchanges synthetic exchanges and returns its path.
+func exampleTranscript(t *testing.T, exchanges int) string {
+	t.Helper()
+	lines := make([]string, 0, 2*exchanges)
+	for i := 1; i <= exchanges; i++ {
+		lines = append(lines,
+			jsonLine(t, map[string]any{
+				"type":    "user",
+				"message": map[string]any{"role": "user", "content": fmt.Sprintf("Example prompt %d", i)},
+			}),
+			jsonLine(t, map[string]any{
+				"type": "assistant",
+				"message": map[string]any{"role": "assistant", "content": []any{
+					map[string]any{"type": "text", "text": fmt.Sprintf("Example reply %d", i)},
+				}},
+			}),
+		)
+	}
+	path := filepath.Join(t.TempDir(), "session.jsonl")
+	if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0o600); err != nil {
+		t.Fatalf("write example transcript: %v", err)
+	}
+	return path
+}
+
+// exampleRequest is a summary request for pane that reads transcript and carries last as the last message.
+func exampleRequest(pane string, stop bool, transcript, last string) summary.Request {
+	return summary.Request{
+		PaneID:               pane,
+		BaseURL:              exampleBaseURL,
+		TranscriptPath:       transcript,
+		LastAssistantMessage: last,
+		Stop:                 stop,
+	}
 }
 
 // recordedCalls returns one call per run the fake beside bin has recorded.
@@ -151,15 +276,29 @@ type rig struct {
 
 func newRig(t *testing.T, models map[string]string, timeout time.Duration) rig {
 	t.Helper()
+	return newRigWith(t, summary.Config{Models: models, Timeout: timeout})
+}
+
+// newRigWith wires a summarizer built from cfg to a fake claude and to a private tmux server holding one pane.
+func newRigWith(t *testing.T, cfg summary.Config) rig {
+	t.Helper()
 	client := newServer(t)
-	mustRun(t, client, "-f", noConfig, "new-session", "-d", "-s", "s1", "-c", t.TempDir(), testCommand)
-	pane := strings.Fields(mustRun(t, client, "list-panes", "-t", "s1", "-F", "#{pane_id}"))[0]
+	pane := newPane(t, client, "s1")
 	bin := installFake(t)
-	s, err := summary.New(summary.Config{Claude: bin, Models: models, Tmux: client, Timeout: timeout})
+	cfg.Claude = bin
+	cfg.Tmux = client
+	s, err := summary.New(cfg)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
 	return rig{bin: bin, client: client, pane: pane, s: s}
+}
+
+// newPane adds a detached session named session to client, holding one pane, and returns the pane id.
+func newPane(t *testing.T, client *tmuxctl.Client, session string) string {
+	t.Helper()
+	mustRun(t, client, "-f", noConfig, "new-session", "-d", "-s", session, "-c", t.TempDir(), testCommand)
+	return strings.Fields(mustRun(t, client, "list-panes", "-t", session, "-F", "#{pane_id}"))[0]
 }
 
 func (r rig) job(wantLabel bool) summary.Job {
@@ -171,6 +310,20 @@ func (r rig) place(t *testing.T, name, content string) {
 	t.Helper()
 	if err := os.WriteFile(filepath.Join(filepath.Dir(r.bin), name), []byte(content), 0o600); err != nil {
 		t.Fatalf("place %s: %v", name, err)
+	}
+}
+
+// hold makes every fake run wait until release.
+func (r rig) hold(t *testing.T) {
+	t.Helper()
+	r.place(t, "hold", "")
+}
+
+// release removes the hold so the waiting fake runs finish.
+func (r rig) release(t *testing.T) {
+	t.Helper()
+	if err := os.Remove(filepath.Join(filepath.Dir(r.bin), "hold")); err != nil {
+		t.Fatalf("release: %v", err)
 	}
 }
 
@@ -371,4 +524,172 @@ func TestSummaryFailureKeepsPrevious(t *testing.T) {
 		}
 		r.assertPrevious(t)
 	})
+
+	t.Run("missing transcript on request path", func(t *testing.T) {
+		r := newRig(t, nil, 0)
+		r.setPrevious(t)
+		r.place(t, "reply", validReply)
+		missing := filepath.Join(t.TempDir(), "missing.jsonl")
+		r.s.Request(t.Context(), exampleRequest(r.pane, true, missing, "Example last message"))
+		waitIdle(t, r.s)
+		r.assertPrevious(t)
+		if got := recordedCalls(t, r.bin); len(got) != 0 {
+			t.Fatalf("claude runs = %d, want 0 for a missing transcript", len(got))
+		}
+	})
+}
+
+func TestSummarizerThrottle(t *testing.T) {
+	clock := &fakeClock{now: time.Date(2026, 11, 8, 12, 0, 0, 0, time.UTC)}
+	r := newRigWith(t, summary.Config{Now: clock.Now})
+	r.place(t, "reply", validReply)
+	transcript := exampleTranscript(t, 1)
+	base := clock.Now()
+
+	// run sets the clock to base+at, sends one request, waits for it, and checks the run count.
+	run := func(at time.Duration, stop bool, wantRuns int) {
+		t.Helper()
+		clock.Set(base.Add(at))
+		r.s.Request(t.Context(), exampleRequest(r.pane, stop, transcript, "Example last message"))
+		waitIdle(t, r.s)
+		if got := len(recordedCalls(t, r.bin)); got != wantRuns {
+			t.Fatalf("after request at +%v (stop=%t): claude runs = %d, want %d", at, stop, got, wantRuns)
+		}
+	}
+
+	run(0, false, 1)
+	run(30*time.Second, false, 1)
+	run(61*time.Second, false, 2)
+	run(62*time.Second, true, 3)
+}
+
+func TestSummarizerCap(t *testing.T) {
+	r := newRig(t, nil, 0)
+	r.place(t, "reply", validReply)
+	r.hold(t)
+	panes := []string{r.pane, newPane(t, r.client, "s2"), newPane(t, r.client, "s3")}
+	transcript := exampleTranscript(t, 1)
+
+	start := time.Now()
+	for _, pane := range panes {
+		r.s.Request(t.Context(), exampleRequest(pane, true, transcript, "Example last message"))
+	}
+	if elapsed := time.Since(start); elapsed > failureBound {
+		t.Fatalf("Request calls took %v while runs were held, want within %v", elapsed, failureBound)
+	}
+
+	waitRunning(t, r.bin, summary.MaxRuns)
+	<-time.After(settleTime)
+	if started, _ := countRuns(t, r.bin); started != summary.MaxRuns {
+		t.Fatalf("runs started while held = %d, want %d", started, summary.MaxRuns)
+	}
+
+	r.release(t)
+	waitIdle(t, r.s)
+	if got := len(recordedCalls(t, r.bin)); got != len(panes) {
+		t.Fatalf("claude runs = %d, want %d once released", got, len(panes))
+	}
+	for _, pane := range panes {
+		value, _, err := r.client.PaneOption(t.Context(), pane, protocol.OptionSummary)
+		if err != nil {
+			t.Fatalf("PaneOption(%s): %v", pane, err)
+		}
+		if want := "example session summary"; value != want {
+			t.Errorf("pane %s %s = %q, want %q", pane, protocol.OptionSummary, value, want)
+		}
+	}
+}
+
+func TestSummarizerLatestWaitingWins(t *testing.T) {
+	r := newRig(t, nil, 0)
+	r.place(t, "reply", validReply)
+	r.hold(t)
+	transcript := exampleTranscript(t, 1)
+
+	r.s.Request(t.Context(), exampleRequest(r.pane, true, transcript, "Example message A"))
+	waitRunning(t, r.bin, 1)
+	r.s.Request(t.Context(), exampleRequest(r.pane, true, transcript, "Example message B"))
+	r.s.Request(t.Context(), exampleRequest(r.pane, true, transcript, "Example message C"))
+
+	r.release(t)
+	waitIdle(t, r.s)
+	calls := recordedCalls(t, r.bin)
+	if len(calls) != 2 {
+		t.Fatalf("claude runs = %d, want 2: the held run and one run for the latest waiting request", len(calls))
+	}
+	for _, message := range []string{"Example message A", "Example message C"} {
+		if n := countStdin(calls, message); n != 1 {
+			t.Errorf("runs with stdin holding %q = %d, want 1", message, n)
+		}
+	}
+	if n := countStdin(calls, "Example message B"); n != 0 {
+		t.Errorf("runs with stdin holding superseded %q = %d, want 0", "Example message B", n)
+	}
+}
+
+// countStdin returns how many of calls received stdin holding text.
+func countStdin(calls []call, text string) int {
+	n := 0
+	for _, c := range calls {
+		if strings.Contains(c.stdin, text) {
+			n++
+		}
+	}
+	return n
+}
+
+func TestSummarizerInput(t *testing.T) {
+	r := newRig(t, nil, 0)
+	r.place(t, "reply", validReply)
+	transcript := exampleTranscript(t, 2)
+	const last = "Example final message"
+	excerpt, err := summary.ReadExcerpt(transcript, last)
+	if err != nil {
+		t.Fatalf("ReadExcerpt: %v", err)
+	}
+
+	r.s.Request(t.Context(), exampleRequest(r.pane, true, transcript, last))
+	waitIdle(t, r.s)
+	got := onlyCall(t, r.bin).stdin
+	if !strings.HasSuffix(got, excerpt.Text) {
+		t.Fatalf("stdin = %q, want it to end with the excerpt %q", got, excerpt.Text)
+	}
+	for _, want := range []string{"User: Example prompt 1", "Assistant: Example reply 2", "Assistant: " + last} {
+		if !strings.Contains(got, want) {
+			t.Errorf("stdin = %q, want it to hold %q", got, want)
+		}
+	}
+}
+
+func TestSummarizerLabelCadence(t *testing.T) {
+	r := newRig(t, nil, 0)
+	r.place(t, "reply", validReply)
+
+	// Exchange counts 1, 2, 4 and 5 are requested in order; labels are wanted for 1 and 5 only.
+	cadence := []struct {
+		exchanges int
+		wantLabel bool
+	}{{1, true}, {2, false}, {4, false}, {5, true}}
+	for _, step := range cadence {
+		last := fmt.Sprintf("Example message %d", step.exchanges)
+		r.s.Request(t.Context(), exampleRequest(r.pane, true, exampleTranscript(t, step.exchanges), last))
+		waitIdle(t, r.s)
+	}
+
+	calls := recordedCalls(t, r.bin)
+	for _, step := range cadence {
+		message := fmt.Sprintf("Example message %d", step.exchanges)
+		var matched []call
+		for _, c := range calls {
+			if strings.Contains(c.stdin, message) {
+				matched = append(matched, c)
+			}
+		}
+		if len(matched) != 1 {
+			t.Fatalf("runs with stdin holding %q = %d, want 1", message, len(matched))
+		}
+		if got := strings.Contains(matched[0].stdin, labelMarker); got != step.wantLabel {
+			t.Errorf("%d exchanges: label instruction present = %t, want %t", step.exchanges, got, step.wantLabel)
+		}
+	}
 }

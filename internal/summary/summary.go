@@ -5,9 +5,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -17,6 +19,13 @@ import (
 
 // DefaultTimeout bounds one summary run when Config.Timeout is zero.
 const DefaultTimeout = 60 * time.Second
+
+// Scheduling limits for Request.
+const (
+	Throttle   = 60 * time.Second // minimum gap between runs for one pane on working events
+	MaxRuns    = 2                // summary runs in flight at once
+	LabelEvery = 4                // exchanges between label refreshes
+)
 
 // killGrace bounds how long a run waits for its output pipes once the child has exited or been killed,
 // so a descendant that outlives the child cannot hold the run open.
@@ -39,7 +48,18 @@ type Config struct {
 	Claude  string            // path of the claude binary
 	Models  map[string]string // patchbay context name to summary model, see protocol.SummaryModel
 	Tmux    *tmuxctl.Client
-	Timeout time.Duration // per-run limit; zero selects DefaultTimeout
+	Timeout time.Duration    // per-run limit; zero selects DefaultTimeout
+	Now     func() time.Time // clock for the throttle; nil selects time.Now
+	Logger  *slog.Logger     // receives failed runs; nil discards
+}
+
+// Request is one summary trigger for one pane.
+type Request struct {
+	PaneID               string
+	BaseURL              string // the session's ANTHROPIC_BASE_URL
+	TranscriptPath       string
+	LastAssistantMessage string // Stop's last_assistant_message, "" otherwise
+	Stop                 bool   // true on Stop, false while working
 }
 
 // Summarizer runs the claude binary once per job and writes the reply to the job's pane.
@@ -48,6 +68,15 @@ type Summarizer struct {
 	models  map[string]string
 	tmux    *tmuxctl.Client
 	timeout time.Duration
+	now     func() time.Time
+	logger  *slog.Logger
+	runs    sync.WaitGroup // one count per run in flight
+
+	mu              sync.Mutex
+	running         map[string]bool      // panes with a run in flight
+	started         map[string]time.Time // start of each pane's latest run
+	waiting         map[string]Request   // each pane's latest request that could not start yet
+	labeledExchange map[string]int       // exchange count of each pane's latest label run
 }
 
 // New returns a Summarizer for cfg. It returns an error when cfg.Claude is empty or cfg.Tmux is nil.
@@ -62,7 +91,26 @@ func New(cfg Config) (*Summarizer, error) {
 	if timeout == 0 {
 		timeout = DefaultTimeout
 	}
-	return &Summarizer{claude: cfg.Claude, models: cfg.Models, tmux: cfg.Tmux, timeout: timeout}, nil
+	now := cfg.Now
+	if now == nil {
+		now = time.Now
+	}
+	logger := cfg.Logger
+	if logger == nil {
+		logger = slog.New(slog.DiscardHandler)
+	}
+	return &Summarizer{
+		claude:          cfg.Claude,
+		models:          cfg.Models,
+		tmux:            cfg.Tmux,
+		timeout:         timeout,
+		now:             now,
+		logger:          logger,
+		running:         make(map[string]bool),
+		started:         make(map[string]time.Time),
+		waiting:         make(map[string]Request),
+		labeledExchange: make(map[string]int),
+	}, nil
 }
 
 // Job is one summary run for one pane.
@@ -94,6 +142,89 @@ func (s *Summarizer) Summarize(ctx context.Context, job Job) error {
 		return fmt.Errorf("write label: %w", err)
 	}
 	return nil
+}
+
+// Request triggers a summary for req.PaneID and returns without waiting for the run. A working request is dropped
+// when the pane's last run started less than Throttle ago. Otherwise the request starts at once when its pane has
+// no run in flight and fewer than MaxRuns runs are in flight; if not, it replaces the pane's waiting request.
+// ctx bounds the runs that Request starts, including the waiting requests they start in turn.
+func (s *Summarizer) Request(ctx context.Context, req Request) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	now := s.now()
+	if !req.Stop {
+		if last, ok := s.started[req.PaneID]; ok && now.Sub(last) < Throttle {
+			return
+		}
+	}
+	if s.running[req.PaneID] || len(s.running) >= MaxRuns {
+		s.waiting[req.PaneID] = req
+		return
+	}
+	s.startLocked(ctx, req, now)
+}
+
+// Wait returns once no run is in flight or waiting.
+func (s *Summarizer) Wait() {
+	s.runs.Wait()
+}
+
+// startLocked starts the run for req and records its start. The caller holds s.mu.
+func (s *Summarizer) startLocked(ctx context.Context, req Request, now time.Time) {
+	s.running[req.PaneID] = true
+	s.started[req.PaneID] = now
+	s.runs.Add(1)
+	go s.execute(ctx, req)
+}
+
+// execute runs req, then starts each waiting request whose pane is free while a run slot is open.
+func (s *Summarizer) execute(ctx context.Context, req Request) {
+	defer s.runs.Done()
+	s.summarizeRequest(ctx, req)
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.running, req.PaneID)
+	for pane, next := range s.waiting {
+		if len(s.running) >= MaxRuns {
+			break
+		}
+		if s.running[pane] {
+			continue
+		}
+		delete(s.waiting, pane)
+		s.startLocked(ctx, next, s.now())
+	}
+}
+
+// summarizeRequest reads req's transcript excerpt and runs one summary over it. A failure is logged and leaves
+// the pane's previous options in place.
+func (s *Summarizer) summarizeRequest(ctx context.Context, req Request) {
+	excerpt, err := ReadExcerpt(req.TranscriptPath, req.LastAssistantMessage)
+	if err != nil {
+		s.logger.WarnContext(ctx, "read transcript excerpt failed", "pane", req.PaneID, "error", err)
+		return
+	}
+	wantLabel := s.wantLabel(req.PaneID, excerpt.Exchanges)
+	job := Job{PaneID: req.PaneID, BaseURL: req.BaseURL, Input: excerpt.Text, WantLabel: wantLabel}
+	if err = s.Summarize(ctx, job); err != nil {
+		s.logger.WarnContext(ctx, "summary run failed", "pane", req.PaneID, "error", err)
+		return
+	}
+	if wantLabel {
+		s.mu.Lock()
+		s.labeledExchange[req.PaneID] = excerpt.Exchanges
+		s.mu.Unlock()
+	}
+}
+
+// wantLabel reports whether pane has no label yet, or its last label run is LabelEvery or more exchanges old.
+func (s *Summarizer) wantLabel(pane string, exchanges int) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	labeled, ok := s.labeledExchange[pane]
+	return !ok || exchanges >= labeled+LabelEvery
 }
 
 // run executes one claude summary call for job and returns its stdout.
