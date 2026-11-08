@@ -1,0 +1,442 @@
+package picker
+
+import (
+	"context"
+	"crypto/rand"
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/joshsymonds/orrery/internal/open"
+	"github.com/joshsymonds/orrery/internal/protocol"
+	"github.com/joshsymonds/orrery/internal/tmuxctl"
+)
+
+const (
+	// childEnv names the spec file a picker pane reads. Only TestPickerPane reads it.
+	childEnv = "ORRERY_PICKER_SPEC"
+	// noConfig keeps the user's tmux configuration out of the test servers.
+	noConfig = "/dev/null"
+	// paneWidth and paneHeight keep a list row on one line of the captured pane.
+	paneWidth  = "200"
+	paneHeight = "50"
+	// settle is how long a check waits for the picker to act on a key it must ignore.
+	settle = 500 * time.Millisecond
+	// waitLimit bounds every wait for the picker pane.
+	waitLimit = 20 * time.Second
+	// testText is the synthetic TEXT every test sends.
+	testText = "example text"
+	// projectName is the synthetic name of the project action the fake reply offers.
+	projectName = "example-project"
+)
+
+// pickerSpec is what a picker pane reads: the server and fakes Run uses, TEXT, and the file the outcome goes to.
+type pickerSpec struct {
+	Server string
+	Zoxide string
+	Claude string
+	Root   string
+	Text   string
+	Result string
+}
+
+// pickerOutcome is what the picker pane's Run returned.
+type pickerOutcome struct {
+	Session string
+	Pane    string
+	Chosen  bool
+	Err     string
+}
+
+// TestPickerPane is the program of a picker pane. The parent test runs the test binary with only this test
+// selected and childEnv set; without childEnv the test does nothing.
+func TestPickerPane(t *testing.T) {
+	specPath := os.Getenv(childEnv)
+	if specPath == "" {
+		t.Skip("runs only as a picker pane")
+	}
+	data, err := os.ReadFile(specPath)
+	if err != nil {
+		t.Fatalf("read spec: %v", err)
+	}
+	var spec pickerSpec
+	if err := json.Unmarshal(data, &spec); err != nil {
+		t.Fatalf("decode spec: %v", err)
+	}
+	client, err := tmuxctl.New(tmuxctl.Server{Name: spec.Server})
+	if err != nil {
+		t.Fatalf("tmux client: %v", err)
+	}
+	target, chosen, runErr := Run(t.Context(), Options{
+		Config: open.Config{Tmux: client, Zoxide: spec.Zoxide, Claude: spec.Claude, Root: spec.Root},
+		Text:   spec.Text,
+		Input:  os.Stdin,
+		Output: os.Stdout,
+	})
+	outcome := pickerOutcome{Session: target.Session, Pane: target.Pane, Chosen: chosen}
+	if runErr != nil {
+		outcome.Err = runErr.Error()
+	}
+	out, err := json.Marshal(outcome)
+	if err != nil {
+		t.Fatalf("encode outcome: %v", err)
+	}
+	// The parent waits for the result file, so it is renamed into place whole.
+	tmp := spec.Result + ".tmp"
+	if err := os.WriteFile(tmp, out, 0o600); err != nil {
+		t.Fatalf("write outcome: %v", err)
+	}
+	if err := os.Rename(tmp, spec.Result); err != nil {
+		t.Fatalf("publish outcome: %v", err)
+	}
+}
+
+// newPickerServer returns a client and name for a unique private tmux server, killed at cleanup.
+func newPickerServer(t *testing.T) (*tmuxctl.Client, string) {
+	t.Helper()
+	var suffix [8]byte
+	if _, err := rand.Read(suffix[:]); err != nil {
+		t.Fatalf("random server name: %v", err)
+	}
+	name := fmt.Sprintf("orrery-test-picker-%d-%x", os.Getpid(), suffix)
+	client, err := tmuxctl.New(tmuxctl.Server{Name: name})
+	if err != nil {
+		t.Fatalf("New(Name=%q): %v", name, err)
+	}
+	t.Cleanup(func() {
+		// t.Context is canceled before Cleanup runs, so the kill uses a background context.
+		_, err := client.Run(context.Background(), "kill-server")
+		if err == nil {
+			return
+		}
+		msg := err.Error()
+		if !strings.Contains(msg, "no server running") && !strings.Contains(msg, "error connecting to") {
+			t.Errorf("kill-server: %v", err)
+		}
+	})
+	return client, name
+}
+
+// fixture is one picker run: a private tmux server with a target pane that has a state, the fake zoxide and
+// fake claude, and the directories zoxide ranks.
+type fixture struct {
+	client        *tmuxctl.Client
+	server        string
+	root          string // absolute: the default project root, and the parent of the ranked directories
+	dir1          string // ranked d1
+	zoxide        string
+	claude        string
+	hold          string // while this file exists, every fake claude run blocks
+	targetSession string
+	targetPane    string
+	pane          string // the picker's pane
+	spec          string
+	result        string
+}
+
+// newFixture starts the target pane and installs the fakes. The fake zoxide exits with zoxideStatus; the fake
+// claude replies with one pane action, one jump to the target pane, one project, and task: yes.
+func newFixture(t *testing.T, zoxideStatus int) *fixture {
+	t.Helper()
+	client, server := newPickerServer(t)
+	root := t.TempDir()
+	f := &fixture{
+		client:        client,
+		server:        server,
+		root:          root,
+		dir1:          filepath.Join(root, "dir-01"),
+		targetSession: "target",
+	}
+	dir2 := filepath.Join(root, "dir-02")
+	for _, dir := range []string{f.dir1, dir2} {
+		if err := os.Mkdir(dir, 0o750); err != nil {
+			t.Fatalf("mkdir %s: %v", dir, err)
+		}
+	}
+	mustRun(t, client, "-f", noConfig, "new-session", "-d", "-s", f.targetSession, "-c", root, "sleep 300")
+	f.targetPane = trimLine(mustRun(t, client, "display-message", "-p", "-t", f.targetSession, "#{pane_id}"))
+	mustRun(t, client, "set-option", "-p", "-t", f.targetPane, protocol.OptionState, "waiting")
+
+	zoxideListing := zoxideLine(f.dir1) + zoxideLine(dir2)
+	f.zoxide = installFake(t, "fake-zoxide", "zoxide", zoxideListing, zoxideStatus)
+	reply := fmt.Sprintf("pane d1\njump %s\nnew %s default\ntask: yes\n", f.targetPane, projectName)
+	f.claude = installFake(t, "fake-claude", "claude", reply, 0)
+	f.hold = filepath.Join(filepath.Dir(f.claude), "hold")
+	return f
+}
+
+// startPicker runs the test binary as the picker pane's program, with testText, and returns once the pane exists.
+func (f *fixture) startPicker(t *testing.T) {
+	t.Helper()
+	dir := t.TempDir()
+	f.spec = filepath.Join(dir, "spec.json")
+	f.result = filepath.Join(dir, "result.json")
+	data, err := json.Marshal(pickerSpec{
+		Server: f.server,
+		Zoxide: f.zoxide,
+		Claude: f.claude,
+		Root:   f.root,
+		Text:   testText,
+		Result: f.result,
+	})
+	if err != nil {
+		t.Fatalf("encode spec: %v", err)
+	}
+	writeFile(t, f.spec, string(data))
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatalf("test binary: %v", err)
+	}
+	// The pane runs this test binary, then sleeps so the pane and its session outlive Run.
+	command := fmt.Sprintf("%s=%s %s %s; sleep 300",
+		childEnv, shellQuote(f.spec), shellQuote(exe), shellQuote("-test.run=^TestPickerPane$"))
+	mustRun(t, f.client, "new-session", "-d", "-s", "picker", "-x", paneWidth, "-y", paneHeight, "-c", f.root, command)
+	f.pane = trimLine(mustRun(t, f.client, "display-message", "-p", "-t", "picker", "#{pane_id}"))
+}
+
+// frame returns the picker pane's visible text.
+func (f *fixture) frame(t *testing.T) string {
+	t.Helper()
+	return mustRun(t, f.client, "capture-pane", "-p", "-t", f.pane)
+}
+
+// waitForFrame waits until the picker pane shows want.
+func (f *fixture) waitForFrame(t *testing.T, want string) {
+	t.Helper()
+	waitUntil(t, fmt.Sprintf("the picker to show %q", want), func() bool {
+		return strings.Contains(f.frame(t), want)
+	})
+}
+
+// sendKeys writes key to the picker pane as a key press.
+func (f *fixture) sendKeys(t *testing.T, key string) {
+	t.Helper()
+	mustRun(t, f.client, "send-keys", "-t", f.pane, key)
+}
+
+// awaitOutcome waits for the picker's Run to return and reads what it returned.
+func (f *fixture) awaitOutcome(t *testing.T) pickerOutcome {
+	t.Helper()
+	var outcome pickerOutcome
+	waitUntil(t, "the picker outcome", func() bool {
+		data, err := os.ReadFile(f.result)
+		if err != nil {
+			return false
+		}
+		return json.Unmarshal(data, &outcome) == nil
+	})
+	return outcome
+}
+
+// assertNoOutcome fails when Run has returned, after giving the picker time to return.
+func (f *fixture) assertNoOutcome(t *testing.T) {
+	t.Helper()
+	time.Sleep(settle)
+	if _, err := os.Stat(f.result); err == nil {
+		t.Fatal("Run returned before Enter on a shown choice")
+	}
+}
+
+// state is the sessions, the windows, and the entries under the root. A test asserts it is unchanged to show
+// that nothing was created.
+func (f *fixture) state(t *testing.T) string {
+	t.Helper()
+	sessions := strings.TrimSpace(mustRun(t, f.client, "list-sessions", "-F", "#{session_name}"))
+	windows := strings.TrimSpace(mustRun(t, f.client, "list-windows", "-a", "-F", "#{window_id}"))
+	entries, err := os.ReadDir(f.root)
+	if err != nil {
+		t.Fatalf("read root: %v", err)
+	}
+	names := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		names = append(names, entry.Name())
+	}
+	return strings.Join([]string{sessions, windows, strings.Join(names, " ")}, "\n")
+}
+
+// sessionDir returns the @orrery_dir option of session.
+func (f *fixture) sessionDir(t *testing.T, session string) string {
+	t.Helper()
+	return trimLine(mustRun(t, f.client, "show-options", "-v", "-t", "="+session+":", protocol.OptionDir))
+}
+
+// claudeRuns counts the fake claude runs that have started.
+func claudeRuns(t *testing.T, claude string) int {
+	t.Helper()
+	runs, err := filepath.Glob(filepath.Join(filepath.Dir(claude), "calls", "run.*"))
+	if err != nil {
+		t.Fatalf("glob claude runs: %v", err)
+	}
+	return len(runs)
+}
+
+func TestPickerDiscardsKeysTypedBeforeRender(t *testing.T) {
+	f := newFixture(t, 0)
+	writeFile(t, f.hold, "")
+	f.startPicker(t)
+	baseline := f.state(t)
+
+	// Intent is held in the fake claude, so the picker has not rendered. The j moves the cursor if it reaches the
+	// list. The Enter reaches the terminal as a newline (ICRNL), which the picker reads as ctrl+j, so the j is what
+	// shows whether the queued keys were discarded.
+	waitUntil(t, "the fake claude run to start", func() bool { return claudeRuns(t, f.claude) > 0 })
+	f.sendKeys(t, "j")
+	f.sendKeys(t, "Enter")
+	time.Sleep(settle)
+	if err := os.Remove(f.hold); err != nil {
+		t.Fatalf("release the fake claude run: %v", err)
+	}
+
+	f.waitForFrame(t, "> pane "+f.dir1+" (prompt)")
+	f.assertNoOutcome(t)
+	if got := f.state(t); got != baseline {
+		t.Fatalf("state changed before Enter on a shown choice:\nbefore:\n%s\nafter:\n%s", baseline, got)
+	}
+
+	// The pane action's fake claude run holds too, so its session outlives the check.
+	writeFile(t, f.hold, "")
+	f.sendKeys(t, "Enter")
+	outcome := f.awaitOutcome(t)
+	if !outcome.Chosen || outcome.Err != "" {
+		t.Fatalf("outcome = %+v, want the first action run with no error", outcome)
+	}
+	if outcome.Pane != "" || outcome.Session == "" || outcome.Session == f.targetSession {
+		t.Fatalf("outcome = %+v, want a new session with no pane", outcome)
+	}
+	if got := f.sessionDir(t, outcome.Session); got != f.dir1 {
+		t.Fatalf("new session dir = %q, want %q", got, f.dir1)
+	}
+}
+
+func TestPickerDownAndUpMoveSelectionAndEnterRunsIt(t *testing.T) {
+	f := newFixture(t, 0)
+	f.startPicker(t)
+	baseline := f.state(t)
+	f.waitForFrame(t, "> pane "+f.dir1)
+
+	// Up at the first row stays there, down stops at the last row, and up returns to the jump row.
+	for _, key := range []string{"k", "j", "j", "j", "k"} {
+		f.sendKeys(t, key)
+	}
+	f.waitForFrame(t, "> jump "+f.targetPane)
+	f.sendKeys(t, "Enter")
+
+	outcome := f.awaitOutcome(t)
+	if !outcome.Chosen || outcome.Err != "" {
+		t.Fatalf("outcome = %+v, want the jump run with no error", outcome)
+	}
+	if outcome.Pane != f.targetPane || outcome.Session != f.targetSession {
+		t.Fatalf("outcome = %+v, want pane %s in session %s", outcome, f.targetPane, f.targetSession)
+	}
+	if got := f.state(t); got != baseline {
+		t.Fatalf("jump created state:\nbefore:\n%s\nafter:\n%s", baseline, got)
+	}
+}
+
+func TestPickerQuitExecutesNothing(t *testing.T) {
+	for _, key := range []string{"q", "Escape"} {
+		t.Run(key, func(t *testing.T) {
+			f := newFixture(t, 0)
+			f.startPicker(t)
+			baseline := f.state(t)
+			f.waitForFrame(t, "> pane "+f.dir1)
+			f.sendKeys(t, key)
+
+			outcome := f.awaitOutcome(t)
+			if outcome.Chosen || outcome.Err != "" || outcome.Session != "" || outcome.Pane != "" {
+				t.Fatalf("outcome = %+v, want no choice, no error, and no target", outcome)
+			}
+			if got := f.state(t); got != baseline {
+				t.Fatalf("quit created state:\nbefore:\n%s\nafter:\n%s", baseline, got)
+			}
+		})
+	}
+}
+
+func TestPickerReturnsIntentError(t *testing.T) {
+	f := newFixture(t, 2)
+	f.startPicker(t)
+	baseline := f.state(t)
+
+	outcome := f.awaitOutcome(t)
+	if outcome.Chosen || !strings.Contains(outcome.Err, "zoxide query") {
+		t.Fatalf("outcome = %+v, want an Intent error and no choice", outcome)
+	}
+	if strings.Contains(f.frame(t), "> pane") {
+		t.Fatal("the picker showed a list after Intent failed")
+	}
+	if got := f.state(t); got != baseline {
+		t.Fatalf("failed Intent created state:\nbefore:\n%s\nafter:\n%s", baseline, got)
+	}
+}
+
+// installFake copies testdata/<src>.sh into a fresh directory as name and returns the copy's path. A non-empty
+// reply is printed on each run; a non-zero status is the run's exit status.
+func installFake(t *testing.T, src, name, reply string, status int) string {
+	t.Helper()
+	body, err := os.ReadFile(filepath.Join("..", "open", "testdata", src+".sh"))
+	if err != nil {
+		t.Fatalf("read %s: %v", src, err)
+	}
+	dir := t.TempDir()
+	bin := filepath.Join(dir, name)
+	if err := os.WriteFile(bin, body, 0o755); err != nil {
+		t.Fatalf("install %s: %v", name, err)
+	}
+	if reply != "" {
+		writeFile(t, filepath.Join(dir, "reply"), reply)
+	}
+	if status != 0 {
+		writeFile(t, filepath.Join(dir, "exit"), strconv.Itoa(status))
+	}
+	return bin
+}
+
+// zoxideLine is one line of `zoxide query -l -s` output for path.
+func zoxideLine(path string) string {
+	return "  9.0 " + path + "\n"
+}
+
+// waitUntil polls cond until it holds, failing the test when waitLimit passes.
+func waitUntil(t *testing.T, what string, cond func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(waitLimit)
+	for !cond() {
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for %s", what)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+// mustRun runs tmux with args against the test's server and returns stdout.
+func mustRun(t *testing.T, client *tmuxctl.Client, args ...string) string {
+	t.Helper()
+	out, err := client.Run(t.Context(), args...)
+	if err != nil {
+		t.Fatalf("Run(%v): %v", args, err)
+	}
+	return out
+}
+
+func writeFile(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write %s: %v", path, err)
+	}
+}
+
+// shellQuote quotes s for the shell that runs a pane command.
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
+// trimLine removes the newline tmux prints after a value.
+func trimLine(s string) string {
+	return strings.TrimSuffix(s, "\n")
+}
