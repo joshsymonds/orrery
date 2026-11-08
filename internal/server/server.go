@@ -35,7 +35,18 @@ const (
 	fieldText           = "text"
 	fieldKeys           = "keys"
 	fieldExpectQuestion = "expect_question"
+	fieldPane           = "pane"
+	fieldKind           = "kind"
 )
+
+// Kinds of window POST /v1/panes opens: kindClaude runs claude in it, kindShell runs the default shell.
+const (
+	kindClaude = "claude"
+	kindShell  = "shell"
+)
+
+// claudeCommand is the command a kindClaude window runs.
+const claudeCommand = "claude"
 
 // flagPane is the cli.Send and cli.Seen flag that names the target pane.
 const flagPane = "--pane"
@@ -52,6 +63,11 @@ type screenResponse struct {
 	Screen string `json:"screen"`
 }
 
+// newPaneResponse is the body of a 201 answer from POST /v1/panes.
+type newPaneResponse struct {
+	Pane string `json:"pane"`
+}
+
 // Config holds the guard settings for New.
 type Config struct {
 	// Logins lists the Tailscale logins admitted by the guard, matched exactly.
@@ -62,7 +78,7 @@ type Config struct {
 
 // New returns a handler that admits only the configured logins, requires a JSON content type and
 // the HeaderClient header on every POST and DELETE, and never emits CORS headers. Requests that pass
-// the guard reach the read routes, and every other path answers 404.
+// the guard reach the read and write routes, and every other path answers 404.
 func New(cfg Config) (http.Handler, error) {
 	if len(cfg.Logins) == 0 {
 		return nil, errors.New("server: no allowed logins configured")
@@ -80,6 +96,7 @@ func New(cfg Config) (http.Handler, error) {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/panes", servePanes(cfg.Tmux))
+	mux.HandleFunc("POST /v1/panes", serveNewWindow(cfg.Tmux))
 	mux.HandleFunc("GET /v1/panes/{id}/screen", serveScreen(cfg.Tmux))
 	mux.HandleFunc("POST /v1/panes/{id}/text", servePaneText(cfg.Tmux))
 	mux.HandleFunc("POST /v1/panes/{id}/keys", servePaneKeys(cfg.Tmux))
@@ -124,7 +141,50 @@ func servePanes(tmux *tmuxctl.Client) http.HandlerFunc {
 			}
 			pane[questionHashKey] = hash
 		}
-		writeJSON(w, panes)
+		writeJSON(w, http.StatusOK, panes)
+	}
+}
+
+// serveNewWindow answers POST /v1/panes {pane, kind} by opening a window in the pane's session, in the
+// pane's directory, running claude for kind "claude" or the default shell for kind "shell". It answers 201
+// with the new pane's ID.
+func serveNewWindow(tmux *tmuxctl.Client) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		fields, ok := decodeBody(r)
+		if !ok {
+			http.Error(w, "bad request body", http.StatusBadRequest)
+			return
+		}
+		id, ok := jsonString(fields[fieldPane])
+		if !ok {
+			http.Error(w, "bad request body", http.StatusBadRequest)
+			return
+		}
+		kind, ok := jsonString(fields[fieldKind])
+		if !ok || (kind != kindClaude && kind != kindShell) {
+			http.Error(w, "bad request body", http.StatusBadRequest)
+			return
+		}
+		source, err := checkPane(r.Context(), tmux, id)
+		if err != nil {
+			paneError(w, err)
+			return
+		}
+		// The = makes the session name match exactly, so a name that is a prefix of another does not match it.
+		// tmux expands formats in -c, so each # is doubled to keep the directory literal.
+		dir := strings.ReplaceAll(source.Cwd, "#", "##")
+		args := []string{
+			"new-window", "-d", "-P", "-F", "#{pane_id}", "-t", "=" + source.Session + ":", "-c", dir,
+		}
+		if kind == kindClaude {
+			args = append(args, claudeCommand)
+		}
+		out, err := tmux.Run(r.Context(), args...)
+		if err != nil {
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, http.StatusCreated, newPaneResponse{Pane: strings.TrimSpace(out)})
 	}
 }
 
@@ -132,7 +192,7 @@ func servePanes(tmux *tmuxctl.Client) http.HandlerFunc {
 func serveScreen(tmux *tmuxctl.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := r.PathValue("id")
-		if err := checkPane(r.Context(), tmux, id); err != nil {
+		if _, err := checkPane(r.Context(), tmux, id); err != nil {
 			paneError(w, err)
 			return
 		}
@@ -141,7 +201,7 @@ func serveScreen(tmux *tmuxctl.Client) http.HandlerFunc {
 			http.Error(w, "internal server error", http.StatusInternalServerError)
 			return
 		}
-		writeJSON(w, screenResponse{Pane: id, Screen: screen})
+		writeJSON(w, http.StatusOK, screenResponse{Pane: id, Screen: screen})
 	}
 }
 
@@ -149,7 +209,7 @@ func serveScreen(tmux *tmuxctl.Client) http.HandlerFunc {
 func servePaneText(tmux *tmuxctl.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := r.PathValue("id")
-		if err := checkPane(r.Context(), tmux, id); err != nil {
+		if _, err := checkPane(r.Context(), tmux, id); err != nil {
 			paneError(w, err)
 			return
 		}
@@ -176,7 +236,7 @@ func servePaneText(tmux *tmuxctl.Client) http.HandlerFunc {
 func servePaneKeys(tmux *tmuxctl.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := r.PathValue("id")
-		if err := checkPane(r.Context(), tmux, id); err != nil {
+		if _, err := checkPane(r.Context(), tmux, id); err != nil {
 			paneError(w, err)
 			return
 		}
@@ -218,7 +278,7 @@ func servePaneKeys(tmux *tmuxctl.Client) http.HandlerFunc {
 func servePaneSeen(tmux *tmuxctl.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := r.PathValue("id")
-		if err := checkPane(r.Context(), tmux, id); err != nil {
+		if _, err := checkPane(r.Context(), tmux, id); err != nil {
 			paneError(w, err)
 			return
 		}
@@ -286,22 +346,22 @@ func jsonStrings(raw json.RawMessage) ([]string, bool) {
 	return strs, true
 }
 
-// checkPane returns errMalformedPaneID unless id is % followed by digits, and errPaneNotFound unless
-// tmux lists a pane with id. Any other failure is the wrapped tmux error.
-func checkPane(ctx context.Context, tmux *tmuxctl.Client, id string) error {
+// checkPane returns the pane tmux lists with id. It returns errMalformedPaneID unless id is % followed by
+// digits, and errPaneNotFound unless tmux lists a pane with id. Any other failure is the wrapped tmux error.
+func checkPane(ctx context.Context, tmux *tmuxctl.Client, id string) (protocol.Pane, error) {
 	if !validPaneID(id) {
-		return errMalformedPaneID
+		return protocol.Pane{}, errMalformedPaneID
 	}
 	panes, err := tmux.ListPanes(ctx)
 	if err != nil {
-		return fmt.Errorf("server: list panes: %w", err)
+		return protocol.Pane{}, fmt.Errorf("server: list panes: %w", err)
 	}
 	for _, pane := range panes {
 		if pane.ID == id {
-			return nil
+			return pane, nil
 		}
 	}
-	return errPaneNotFound
+	return protocol.Pane{}, errPaneNotFound
 }
 
 // validPaneID reports whether id is % followed by one or more decimal digits.
@@ -318,14 +378,15 @@ func validPaneID(id string) bool {
 	return true
 }
 
-// writeJSON writes v as an application/json body with status 200, or a 500 when v cannot be encoded.
-func writeJSON(w http.ResponseWriter, v any) {
+// writeJSON writes v as an application/json body with the given status, or a 500 when v cannot be encoded.
+func writeJSON(w http.ResponseWriter, status int, v any) {
 	body, err := json.Marshal(v)
 	if err != nil {
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", jsonContentType)
+	w.WriteHeader(status)
 	_, _ = w.Write(body)
 }
 

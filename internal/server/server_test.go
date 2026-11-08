@@ -820,3 +820,302 @@ func TestServeWriteRoutesRequireClientHeader(t *testing.T) {
 	assertStatus(t, postJSON(t, handler, paneRoute(pane, "keys"), `{"keys":["ok"]}`), http.StatusNoContent)
 	awaitInput(t, file, "ok")
 }
+
+// listedPanes returns every pane tmux lists on the server of tmux.
+func listedPanes(t *testing.T, tmux *tmuxctl.Client) []protocol.Pane {
+	t.Helper()
+	panes, err := tmux.ListPanes(t.Context())
+	if err != nil {
+		t.Fatalf("ListPanes: %v", err)
+	}
+	return panes
+}
+
+// findPane returns the pane with id from panes, and fails the test when there is none.
+func findPane(t *testing.T, panes []protocol.Pane, id string) protocol.Pane {
+	t.Helper()
+	for _, pane := range panes {
+		if pane.ID == id {
+			return pane
+		}
+	}
+	t.Fatalf("pane %s is not listed", id)
+	return protocol.Pane{}
+}
+
+// paneFormat returns the tmux format expanded for pane, without its trailing newline.
+func paneFormat(t *testing.T, tmux *tmuxctl.Client, pane, format string) string {
+	t.Helper()
+	out, err := tmux.Run(t.Context(), "display-message", "-p", "-t", pane, format)
+	if err != nil {
+		t.Fatalf("display-message %s on %s: %v", format, pane, err)
+	}
+	return strings.TrimSpace(out)
+}
+
+// waitForFormat polls the tmux format on pane until it expands to want.
+func waitForFormat(t *testing.T, tmux *tmuxctl.Client, pane, format, want string) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), screenWait)
+	defer cancel()
+	ticker := time.NewTicker(screenPoll)
+	defer ticker.Stop()
+	got := paneFormat(t, tmux, pane, format)
+	for got != want {
+		select {
+		case <-ctx.Done():
+			t.Fatalf("%s of %s = %q, want %q", format, pane, got, want)
+		case <-ticker.C:
+		}
+		got = paneFormat(t, tmux, pane, format)
+	}
+}
+
+// waitForFile waits until path exists.
+func waitForFile(t *testing.T, path string) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), screenWait)
+	defer cancel()
+	ticker := time.NewTicker(screenPoll)
+	defer ticker.Stop()
+	for {
+		_, err := os.Stat(path)
+		if err == nil {
+			return
+		}
+		if !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("stat %s: %v", path, err)
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatalf("%s never appeared", path)
+		case <-ticker.C:
+		}
+	}
+}
+
+// useStandIns makes tmux run each new pane's command in a shell that has dir first on PATH, so a claude
+// command finds the stand-in in dir. tmux 3.8 does not pass a PATH set with set-environment -g to panes, and
+// the default shell's own startup files would reorder PATH anyway, so the default shell is a synthetic wrapper
+// that prepends dir and then runs /bin/sh.
+func useStandIns(t *testing.T, tmux *tmuxctl.Client, dir string) {
+	t.Helper()
+	wrapper := filepath.Join(t.TempDir(), "shell")
+	script := "#!/bin/sh\nPATH=" + dir + ":$PATH\nexport PATH\nexec /bin/sh \"$@\"\n"
+	if err := os.WriteFile(wrapper, []byte(script), 0o700); err != nil {
+		t.Fatalf("write shell wrapper: %v", err)
+	}
+	if _, err := tmux.Run(t.Context(), "set-option", "-g", "default-shell", wrapper); err != nil {
+		t.Fatalf("set default-shell: %v", err)
+	}
+}
+
+// writeClaudeStandIn writes an executable named claude into dir. It creates marker, then execs a long
+// sleep, so the pane keeps running until its server is killed.
+func writeClaudeStandIn(t *testing.T, dir, marker string) {
+	t.Helper()
+	script := "#!/bin/sh\n: > " + marker + "\nexec sleep 300\n"
+	if err := os.WriteFile(filepath.Join(dir, "claude"), []byte(script), 0o700); err != nil {
+		t.Fatalf("write claude stand-in: %v", err)
+	}
+}
+
+// newPaneID decodes the answer to POST /v1/panes and returns the pane ID it names.
+func newPaneID(t *testing.T, rec *httptest.ResponseRecorder) string {
+	t.Helper()
+	var body map[string]string
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode %q: %v", rec.Body.String(), err)
+	}
+	id, ok := body["pane"]
+	if !ok || len(body) != 1 || id == "" {
+		t.Fatalf("body = %q, want exactly one pane field holding an ID", rec.Body.String())
+	}
+	return id
+}
+
+// newWindowPath is the path of the route that opens a window beside an existing pane.
+const newWindowPath = "/v1/panes"
+
+func TestServeNewWindow(t *testing.T) {
+	t.Parallel()
+
+	t.Run("shell opens a window in the source session at the source directory", func(t *testing.T) {
+		t.Parallel()
+
+		tmux := newTmuxServer(t)
+		startSession(t, tmux, "src", longCommand)
+		source := paneID(t, tmux, "src")
+		sourcePane := findPane(t, listedPanes(t, tmux), source)
+		rec := postJSON(t, newHandler(t, tmux), newWindowPath,
+			jsonBody(t, map[string]any{"pane": source, "kind": "shell"}))
+		assertStatus(t, rec, http.StatusCreated)
+		assertJSON(t, rec)
+		created := newPaneID(t, rec)
+
+		panes := listedPanes(t, tmux)
+		if len(panes) != 2 {
+			t.Fatalf("%d panes listed, want the source and the new pane", len(panes))
+		}
+		pane := findPane(t, panes, created)
+		if pane.Session != "src" {
+			t.Fatalf("new pane is in session %q, want %q", pane.Session, "src")
+		}
+		if pane.WindowIndex == sourcePane.WindowIndex {
+			t.Fatalf("new pane is in window %d, the source's window; want a new window", pane.WindowIndex)
+		}
+		waitForFormat(t, tmux, created, "#{pane_current_path}", sourcePane.Cwd)
+	})
+
+	t.Run("a source directory containing # is opened literally", func(t *testing.T) {
+		t.Parallel()
+
+		// tmux expands formats in new-window -c, so an unescaped #S here would name the session instead.
+		dir := filepath.Join(t.TempDir(), "c#Sharp")
+		if err := os.Mkdir(dir, 0o700); err != nil {
+			t.Fatalf("mkdir %s: %v", dir, err)
+		}
+		tmux := newTmuxServer(t)
+		// new-session -c expands formats too, so the fixture doubles each # to start the source pane in dir.
+		if _, err := tmux.Run(t.Context(), "-f", noConfig, "new-session", "-d", "-s", "src", "-c",
+			strings.ReplaceAll(dir, "#", "##"), longCommand); err != nil {
+			t.Fatalf("new-session in %s: %v", dir, err)
+		}
+		source := paneID(t, tmux, "src")
+		waitForFormat(t, tmux, source, "#{pane_current_path}", dir)
+		rec := postJSON(t, newHandler(t, tmux), newWindowPath,
+			jsonBody(t, map[string]any{"pane": source, "kind": "shell"}))
+		assertStatus(t, rec, http.StatusCreated)
+		waitForFormat(t, tmux, newPaneID(t, rec), "#{pane_current_path}", dir)
+	})
+
+	t.Run("claude runs the claude stand-in in a new window", func(t *testing.T) {
+		t.Parallel()
+
+		tmux := newTmuxServer(t)
+		startSession(t, tmux, "src", longCommand)
+		source := paneID(t, tmux, "src")
+		dir := t.TempDir()
+		marker := filepath.Join(dir, "started")
+		writeClaudeStandIn(t, dir, marker)
+		useStandIns(t, tmux, dir)
+
+		rec := postJSON(t, newHandler(t, tmux), newWindowPath,
+			jsonBody(t, map[string]any{"pane": source, "kind": "claude"}))
+		assertStatus(t, rec, http.StatusCreated)
+		assertJSON(t, rec)
+		created := newPaneID(t, rec)
+
+		waitForFile(t, marker)
+		if got := paneFormat(t, tmux, created, "#{pane_start_command}"); got != "claude" {
+			t.Fatalf("pane_start_command = %q, want %q", got, "claude")
+		}
+		pane := findPane(t, listedPanes(t, tmux), created)
+		if pane.Session != "src" {
+			t.Fatalf("new pane is in session %q, want %q", pane.Session, "src")
+		}
+	})
+
+	t.Run("window lands in the source session when another session shares its name prefix", func(t *testing.T) {
+		t.Parallel()
+
+		tmux := newTmuxServer(t)
+		startSession(t, tmux, "orrery-team", longCommand)
+		startSession(t, tmux, "orrery", longCommand)
+		source := paneID(t, tmux, "orrery")
+		rec := postJSON(t, newHandler(t, tmux), newWindowPath,
+			jsonBody(t, map[string]any{"pane": source, "kind": "shell"}))
+		assertStatus(t, rec, http.StatusCreated)
+		created := newPaneID(t, rec)
+
+		panes := listedPanes(t, tmux)
+		if pane := findPane(t, panes, created); pane.Session != "orrery" {
+			t.Fatalf("new pane is in session %q, want %q", pane.Session, "orrery")
+		}
+		sibling := 0
+		for _, pane := range panes {
+			if pane.Session == "orrery-team" {
+				sibling++
+			}
+		}
+		if sibling != 1 {
+			t.Fatalf("orrery-team has %d panes, want the one it started with", sibling)
+		}
+	})
+
+	t.Run("bad body answers 400 and creates no window", func(t *testing.T) {
+		t.Parallel()
+
+		tmux := newTmuxServer(t)
+		startSession(t, tmux, "src", longCommand)
+		source := paneID(t, tmux, "src")
+		handler := newHandler(t, tmux)
+		bodies := []string{
+			`[]`,
+			`null`,
+			`not json`,
+			`{}`,
+			`{"kind":"shell"}`,
+			jsonBody(t, map[string]any{"pane": 1, "kind": "shell"}),
+			jsonBody(t, map[string]any{"pane": nil, "kind": "shell"}),
+			jsonBody(t, map[string]any{"pane": source}),
+			jsonBody(t, map[string]any{"pane": source, "kind": "bash"}),
+			jsonBody(t, map[string]any{"pane": source, "kind": "Shell"}),
+			jsonBody(t, map[string]any{"pane": source, "kind": "shell "}),
+			jsonBody(t, map[string]any{"pane": source, "kind": 1}),
+		}
+		for _, body := range bodies {
+			assertStatus(t, postJSON(t, handler, newWindowPath, body), http.StatusBadRequest)
+		}
+		if n := len(listedPanes(t, tmux)); n != 1 {
+			t.Fatalf("%d panes listed after rejected bodies, want 1", n)
+		}
+	})
+
+	t.Run("malformed pane answers 400 and creates no window", func(t *testing.T) {
+		t.Parallel()
+
+		tmux := newTmuxServer(t)
+		startSession(t, tmux, "src", longCommand)
+		handler := newHandler(t, tmux)
+		for _, id := range []string{"abc", "%", "%x", "1", "%1x", "%-1", "%%1"} {
+			body := jsonBody(t, map[string]any{"pane": id, "kind": "shell"})
+			assertStatus(t, postJSON(t, handler, newWindowPath, body), http.StatusBadRequest)
+		}
+		if n := len(listedPanes(t, tmux)); n != 1 {
+			t.Fatalf("%d panes listed after malformed panes, want 1", n)
+		}
+	})
+
+	t.Run("absent pane answers 404 and creates no window", func(t *testing.T) {
+		t.Parallel()
+
+		tmux := newTmuxServer(t)
+		startSession(t, tmux, "src", longCommand)
+		body := jsonBody(t, map[string]any{"pane": "%999999", "kind": "shell"})
+		rec := postJSON(t, newHandler(t, tmux), newWindowPath, body)
+		assertStatus(t, rec, http.StatusNotFound)
+		if got := strings.TrimSpace(rec.Body.String()); got != "pane not found" {
+			t.Fatalf("body = %q, want %q", got, "pane not found")
+		}
+		if n := len(listedPanes(t, tmux)); n != 1 {
+			t.Fatalf("%d panes listed after an absent pane, want 1", n)
+		}
+	})
+
+	t.Run("missing client header answers 403 and creates no window", func(t *testing.T) {
+		t.Parallel()
+
+		tmux := newTmuxServer(t)
+		startSession(t, tmux, "src", longCommand)
+		source := paneID(t, tmux, "src")
+		header := writeHeader()
+		header.Del(server.HeaderClient)
+		body := jsonBody(t, map[string]any{"pane": source, "kind": "shell"})
+		assertStatus(t, serve(t, newHandler(t, tmux), http.MethodPost, newWindowPath, header, body),
+			http.StatusForbidden)
+		if n := len(listedPanes(t, tmux)); n != 1 {
+			t.Fatalf("%d panes listed after an unguarded write, want 1", n)
+		}
+	})
+}
