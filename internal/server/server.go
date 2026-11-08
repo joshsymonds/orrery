@@ -30,6 +30,9 @@ const questionHashKey = "question_hash"
 // jsonContentType is the Content-Type of every JSON response.
 const jsonContentType = "application/json"
 
+// textContentType is the Content-Type of the plain-text screen response.
+const textContentType = "text/plain; charset=utf-8"
+
 // Keys of the JSON object a write route reads its body from.
 const (
 	fieldText           = "text"
@@ -56,12 +59,6 @@ var errMalformedPaneID = errors.New("malformed pane id")
 
 // errPaneNotFound reports a well-formed pane ID that tmux does not list.
 var errPaneNotFound = errors.New("pane not found")
-
-// screenResponse is the body of GET /v1/panes/{id}/screen.
-type screenResponse struct {
-	Pane   string `json:"pane"`
-	Screen string `json:"screen"`
-}
 
 // newPaneResponse is the body of a 201 answer from POST /v1/panes.
 type newPaneResponse struct {
@@ -192,16 +189,19 @@ func serveNewWindow(tmux *tmuxctl.Client) http.HandlerFunc {
 func serveScreen(tmux *tmuxctl.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := r.PathValue("id")
-		if _, err := checkPane(r.Context(), tmux, id); err != nil {
+		pane, err := checkPane(r.Context(), tmux, id)
+		if err != nil {
 			paneError(w, err)
 			return
 		}
-		screen, err := tmux.Run(r.Context(), "capture-pane", "-p", "-J", "-t", id)
+		screen, err := tmux.Run(r.Context(), "capture-pane", "-p", "-J", "-t", pane.ID)
 		if err != nil {
 			http.Error(w, "internal server error", http.StatusInternalServerError)
 			return
 		}
-		writeJSON(w, http.StatusOK, screenResponse{Pane: id, Screen: screen})
+		w.Header().Set("Content-Type", textContentType)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(screen))
 	}
 }
 

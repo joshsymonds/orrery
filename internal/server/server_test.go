@@ -31,6 +31,7 @@ const (
 	allowedLogin = "user@example.test"
 	otherLogin   = "stranger@example.test"
 	jsonType     = "application/json"
+	textType     = "text/plain; charset=utf-8"
 	client       = "synthetic-client"
 
 	// noConfig keeps the user's tmux config away from every test server.
@@ -44,12 +45,6 @@ const (
 	screenWait  = 10 * time.Second
 	screenPoll  = 10 * time.Millisecond
 )
-
-// screenBody mirrors the JSON body of GET /v1/panes/{id}/screen.
-type screenBody struct {
-	Pane   string `json:"pane"`
-	Screen string `json:"screen"`
-}
 
 // newTmuxClient returns a client for a unique private tmux server name. The server is not started.
 func newTmuxClient(t *testing.T) *tmuxctl.Client {
@@ -459,16 +454,11 @@ func TestServePaneScreen(t *testing.T) {
 		rec = get(t, handler, path, allowedLogin)
 	}
 
-	assertJSON(t, rec)
-	var body screenBody
-	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
-		t.Fatalf("decode %q: %v", rec.Body.String(), err)
+	if got := rec.Header().Get("Content-Type"); got != textType {
+		t.Fatalf("Content-Type = %q, want %q", got, textType)
 	}
-	if body.Pane != pane {
-		t.Fatalf("pane = %q, want %q", body.Pane, pane)
-	}
-	if !strings.Contains(body.Screen, synthScreen) {
-		t.Fatalf("screen = %q, want it to contain %q", body.Screen, synthScreen)
+	if !strings.Contains(rec.Body.String(), synthScreen) {
+		t.Fatalf("body = %q, want it to contain %q", rec.Body.String(), synthScreen)
 	}
 }
 
