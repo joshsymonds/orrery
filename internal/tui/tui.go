@@ -68,6 +68,10 @@ func Run(ctx context.Context, opts Options) (Result, error) {
 		},
 		time.Now,
 	)
+	tree.clientTTY = opts.ClientTTY
+	tree.invoke = func(fn func(context.Context, *tmuxctl.Client) error) error {
+		return fn(ctx, opts.Client)
+	}
 	program := tea.NewProgram(
 		tree,
 		tea.WithContext(ctx),
@@ -87,11 +91,14 @@ func Run(ctx context.Context, opts Options) (Result, error) {
 }
 
 // model is the tree's state. Panes reload through source and previews through capture,
-// both called from commands so that no blocking tmux call runs in Update.
+// both called from commands so that no blocking tmux call runs in Update. Actions run through
+// invoke, also from commands, against the invoking client at clientTTY.
 type model struct {
 	source     func() ([]protocol.Pane, error)
 	capture    func(paneID string) (string, error)
 	now        func() time.Time
+	invoke     func(fn func(context.Context, *tmuxctl.Client) error) error
+	clientTTY  string
 	groups     []view.Group
 	cursorID   string
 	cursor     int
@@ -102,6 +109,7 @@ type model struct {
 	previewID  string
 	sourceErr  error
 	captureErr error
+	actionErr  error
 	width      int
 	height     int
 }
@@ -116,6 +124,11 @@ type (
 		paneID string
 		text   string
 		err    error
+	}
+	// actionMsg reports a finished action. quit ends the tree when the action succeeds.
+	actionMsg struct {
+		err  error
+		quit bool
 	}
 )
 
@@ -147,8 +160,25 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case previewMsg:
 		m.preview, m.previewID, m.captureErr = msg.text, msg.paneID, msg.err
 		return m, nil
+	case actionMsg:
+		return m.actionDone(msg)
 	}
 	return m, nil
+}
+
+// actionDone shows an action's failure on the status line and keeps the tree open. A success
+// quits the tree when the action ends it, and otherwise reloads the panes so that a new pane
+// shows.
+func (m model) actionDone(msg actionMsg) (tea.Model, tea.Cmd) {
+	m.actionErr = msg.err
+	switch {
+	case msg.err != nil:
+		return m, nil
+	case msg.quit:
+		return m, tea.Quit
+	default:
+		return m, m.loadPanes()
+	}
 }
 
 // View renders the current frame.
@@ -272,12 +302,17 @@ func (m model) frame() string {
 	return strings.Join(lines, "\n")
 }
 
-// statusErr returns the error to show: a source error before a capture error.
+// statusErr returns the error to show: a source error, then a capture error, then the error of
+// the last action.
 func (m model) statusErr() error {
-	if m.sourceErr != nil {
+	switch {
+	case m.sourceErr != nil:
 		return m.sourceErr
+	case m.captureErr != nil:
+		return m.captureErr
+	default:
+		return m.actionErr
 	}
-	return m.captureErr
 }
 
 // row formats one pane: cursor, unseen marker, state, label, summary, and age.
