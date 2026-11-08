@@ -33,11 +33,15 @@ Options are set at pane scope with tmux 3.8 `set-option -p`.
 | `protocol.OptionQuestion` | `@orrery_question` | single-line text |
 | `protocol.OptionSummary` | `@orrery_summary` | single-line text |
 | `protocol.OptionLabel` | `@orrery_label` | single-line text |
+| `protocol.OptionContext` | `@orrery_context` | the patchbay context name from the pane's last applied hook frame, the `SummaryContext` (section 8) of its `anthropicBaseUrl`; `""` for the default route |
+| `protocol.OptionDir` | `@orrery_dir` | reserved for `orrery open`; its scope and value are defined where it is first written |
 
 Rules for every option value:
 
 - Values are single-line. Writers replace newlines with spaces before they set an option.
 - Timestamps are decimal unix seconds.
+
+`protocol.ShellSessionPrefix` is `_orrery-shell-`. A session whose name begins with that prefix is a shell session. The pane tree leaves shell sessions out.
 
 ## 3. `orrery list --json`
 
@@ -60,13 +64,14 @@ Each element is a `protocol.Pane`. Every field is always present, with the exact
 | Changed | int64 | `changed` | number | `@orrery_changed` | `0` |
 | Seen | int64 | `seen` | number | `@orrery_seen` | `0` |
 | Question | string | `question` | string | `@orrery_question` | `""` |
+| Context | string | `context` | string | `@orrery_context` | `""` |
 
-There are thirteen fields. The `state` value is one of the strings in section 1, or `""` when the option is unset.
+There are fourteen fields. The `state` value is one of the strings in section 1, or `""` when the option is unset.
 
 Example output with one pane. Every value is synthetic:
 
 ```json
-[{"id":"%1","host":"example-host","session":"example-session","window":0,"pane":0,"cwd":"/home/user/project","command":"claude","state":"waiting","summary":"Example summary of the pane's work.","label":"example-label","changed":1700000000,"seen":1700000100,"question":"Example question for the user?"}]
+[{"id":"%1","host":"example-host","session":"example-session","window":0,"pane":0,"cwd":"/home/user/project","command":"claude","state":"waiting","summary":"Example summary of the pane's work.","label":"example-label","changed":1700000000,"seen":1700000100,"question":"Example question for the user?","context":"example-context"}]
 ```
 
 ## 4. Environment variables
@@ -224,6 +229,7 @@ orreryd [-L NAME | -S PATH] [--socket PATH] [--claude PATH] [--summary-model CON
 - `-L`, `-S`, and `--socket` work as they do for `orrery`.
 - `--claude PATH` sets the `claude` binary the summarizer runs.
 - `--summary-model CONTEXT=MODEL` maps a patchbay context (section 8) to a summary model. Repeat the flag for each context. A context with no mapping uses `claude-haiku-5-5`.
+- Each applied hook frame sets `@orrery_context` on the frame's pane to that frame's context (section 2).
 
 `orreryd` listens on the unix socket only. It opens no network listener.
 
