@@ -960,6 +960,136 @@ func TestOrrerydAsksLabelAfterSessionEnd(t *testing.T) {
 	wantExit(t, daemon.stop(t), 0)
 }
 
+// waitUntil polls ok until it reports true, failing the test after waitLimit.
+func waitUntil(t *testing.T, what string, ok func() bool) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), waitLimit)
+	defer cancel()
+	ticker := time.NewTicker(pollEvery)
+	defer ticker.Stop()
+	for !ok() {
+		select {
+		case <-ctx.Done():
+			t.Fatalf("timed out waiting for %s", what)
+		case <-ticker.C:
+		}
+	}
+}
+
+// viewer is a tmux client attached to session s1 of a private server. The client runs under script in outerPane
+// on a second private server, so keys sent to outerPane reach the client.
+type viewer struct {
+	inner     *tmuxctl.Client
+	outer     *tmuxctl.Client
+	outerPane string
+}
+
+// attachViewer attaches a client to session s1 of the server named innerName, and waits until that server lists it.
+func attachViewer(t *testing.T, inner *tmuxctl.Client, innerName string) viewer {
+	t.Helper()
+	outer, _ := newServer(t)
+	attach := fmt.Sprintf("script -qfc 'env -u TMUX tmux -L %s attach -t s1' /dev/null", innerName)
+	if _, err := outer.Run(t.Context(), "-f", noConfig, "new-session", "-d", "-s", "o1",
+		"-c", t.TempDir(), attach); err != nil {
+		t.Fatalf("outer new-session: %v", err)
+	}
+	pane, err := outer.Run(t.Context(), "list-panes", "-t", "o1", "-F", "#{pane_id}")
+	if err != nil {
+		t.Fatalf("outer list-panes: %v", err)
+	}
+	waitUntil(t, "client attached to s1", func() bool {
+		out, listErr := inner.Run(t.Context(), "list-clients", "-F", "#{client_name}")
+		if listErr != nil {
+			t.Fatalf("list-clients: %v", listErr)
+		}
+		return strings.TrimSpace(out) != ""
+	})
+	return viewer{inner: inner, outer: outer, outerPane: strings.TrimSpace(pane)}
+}
+
+// clientActivity returns the latest client_activity among the clients of the server behind client, or 0 when none.
+func clientActivity(t *testing.T, client *tmuxctl.Client) int64 {
+	t.Helper()
+	out, err := client.Run(t.Context(), "list-clients", "-F", "#{client_activity}")
+	if err != nil {
+		t.Fatalf("list-clients: %v", err)
+	}
+	var latest int64
+	for line := range strings.SplitSeq(out, "\n") {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		n, parseErr := strconv.ParseInt(strings.TrimSpace(line), 10, 64)
+		if parseErr != nil {
+			t.Fatalf("client_activity %q: %v", line, parseErr)
+		}
+		latest = max(latest, n)
+	}
+	return latest
+}
+
+// typeKey types one key through the outer pane and waits until the server records the client's input. Activity has
+// one-second resolution, so the clock must first pass the client's last activity for the new one to differ.
+func (v viewer) typeKey(t *testing.T) {
+	t.Helper()
+	baseline := clientActivity(t, v.inner)
+	waitUntil(t, "wall clock to pass the client's last activity", func() bool {
+		return time.Now().Unix() > baseline
+	})
+	if _, err := v.outer.Run(t.Context(), "send-keys", "-t", v.outerPane, "-l", "x"); err != nil {
+		t.Fatalf("send-keys to outer pane: %v", err)
+	}
+	waitUntil(t, "client activity to advance after typing", func() bool {
+		return clientActivity(t, v.inner) > baseline
+	})
+}
+
+// TestOrrerydMarksViewedPaneSeenOnDone drives the built orreryd while a client shows window 0 of s1 and has just
+// typed. paneA in window 0 is marked seen when it finishes. paneB in window 1, which the client does not show, stays
+// unseen when it finishes.
+func TestOrrerydMarksViewedPaneSeenOnDone(t *testing.T) {
+	inner, name := newServer(t)
+	paneA := startPane(t, inner, "sleep 300")
+	if _, err := inner.Run(t.Context(), "new-window", "-d", "-t", "s1:1", "sleep 300"); err != nil {
+		t.Fatalf("new-window: %v", err)
+	}
+	out, err := inner.Run(t.Context(), "list-panes", "-t", "s1:1", "-F", "#{pane_id}")
+	if err != nil {
+		t.Fatalf("list-panes window 1: %v", err)
+	}
+	paneB := strings.TrimSpace(out)
+
+	view := attachViewer(t, inner, name)
+	_, socket, dir := startSummaryDaemon(t, name, fakeClaudeScript)
+	transcript := filepath.Join(dir, "transcript.jsonl")
+	writeFile(t, transcript, exampleTranscript, 0o600)
+	view.typeKey(t)
+
+	prompt := map[string]any{"hook_event_name": "UserPromptSubmit", "transcript_path": transcript}
+	stop := map[string]any{
+		"hook_event_name":        "Stop",
+		"transcript_path":        transcript,
+		"last_assistant_message": exampleLastMessage,
+	}
+
+	// paneB finishes first. The observer runs under the daemon's lock, and the frames for paneA wait for that lock,
+	// so paneA's seen mark cannot land before paneB's observer has returned.
+	sendHook(t, socket, paneB, dir, prompt)
+	sendHook(t, socket, paneB, dir, stop)
+	waitForOption(t, inner, paneB, protocol.OptionState, string(protocol.StateDone))
+
+	sendHook(t, socket, paneA, dir, prompt)
+	waitForOption(t, inner, paneA, protocol.OptionState, string(protocol.StateWorking))
+	sendHook(t, socket, paneA, dir, stop)
+	waitForOption(t, inner, paneA, protocol.OptionState, string(protocol.StateDone))
+	waitUntil(t, "seen on the pane the client shows", func() bool {
+		return readOption(t, inner, paneA, protocol.OptionSeen) != ""
+	})
+	if got := readOption(t, inner, paneB, protocol.OptionSeen); got != "" {
+		t.Fatalf("%s on the pane in a window the client does not show = %q, want unset", protocol.OptionSeen, got)
+	}
+}
+
 func TestOrrerydUsageExitCodes(t *testing.T) {
 	// Every case exits before any tmux call or socket use, so the socket below is never created.
 	socket := filepath.Join(t.TempDir(), "orreryd.sock")

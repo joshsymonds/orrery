@@ -20,6 +20,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/joshsymonds/orrery/internal/autoseen"
 	"github.com/joshsymonds/orrery/internal/daemon"
 	"github.com/joshsymonds/orrery/internal/ntfy"
 	"github.com/joshsymonds/orrery/internal/protocol"
@@ -196,7 +197,7 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 	observe := func(transition daemon.Transition) { hub.observe(ctx, transition) }
 	serveErr := daemon.Serve(ctx, ln, daemon.Config{
 		Server:    opts.server,
-		Observers: []daemon.Observer{observe},
+		Observers: []daemon.Observer{observe, autoseen.New(time.Now, logger)},
 		Logger:    logger,
 	})
 	hub.wait()
