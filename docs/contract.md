@@ -201,7 +201,9 @@ Subcommands:
 - `list --json` prints the pane list defined in section 3.
 - `seen --pane ID` marks the pane as seen.
 - `send --pane ID [--expect-question H] (--text T | --keys K...)` sends text or keys to the pane. Put the flags before `--keys`. A key that spells a send flag is refused.
-  - `--expect-question H` sends only when the pane has a question, H equals its question hash (section 10), and the question is visible on the pane. Otherwise nothing is sent and the command exits 3.
+  - `--expect-question H` sends only when the pane has a question, H equals its question hash (section 10), and the question's display fragment is visible on the pane. Otherwise nothing is sent and the command exits 3.
+    - The display fragment is derived from the stored `@orrery_question` value. For an AskUserQuestion value it is `questions[0].question`. Otherwise, when `input` is an object, it is the first non-empty of `command`, `file_path`, `url`, then the first string field of `input` in document order. Otherwise it is the `tool` value. A stored value that is not a JSON object is its own fragment.
+    - The fragment is its first non-blank line, with whitespace runs collapsed to one space, trimmed, cut to its first 40 runes, and trimmed again. The screen from `capture-pane -p -J` is compared with its whitespace runs collapsed to one space. An empty fragment refuses.
 - `debug summarize --pane ID --transcript PATH [--claude PATH]` runs one synchronous summary for the pane. The base URL comes from `ANTHROPIC_BASE_URL`. The command writes `@orrery_summary` and `@orrery_label` on the pane.
 
 Exit codes:
@@ -211,7 +213,7 @@ Exit codes:
 | 0 | success |
 | 1 | error |
 | 2 | usage error |
-| 3 | question refused (`send --expect-question`: no question, hash mismatch, or question not visible) |
+| 3 | question refused (`send --expect-question`: no question, hash mismatch, empty display fragment, or fragment not visible) |
 
 ### orreryd
 

@@ -78,16 +78,21 @@ func sendPollUntil(t *testing.T, what string, ready func() (bool, error)) {
 	}
 }
 
-// sendStartPane starts session s1 whose pane prints sendQuestion, enables bracketed paste, turns
-// off the line discipline, prints "ready", and then runs cat into a file. It returns the pane ID and
-// the file path; the pane is ready once "ready" is on screen.
-func sendStartPane(t *testing.T, client *tmuxctl.Client) (string, string) {
+// sendStartPane starts session s1 whose pane prints screen, enables bracketed paste, turns off the
+// line discipline, prints "ready", and then runs cat into a file. It returns the pane ID and the file
+// path; the pane is ready once "ready" is on screen. The screen is written to a file and printed with
+// cat, so its text is never interpolated into the shell.
+func sendStartPane(t *testing.T, client *tmuxctl.Client, screen string) (string, string) {
 	t.Helper()
 	dir := t.TempDir()
 	file := filepath.Join(dir, "input")
+	screenFile := filepath.Join(dir, "screen")
+	if err := os.WriteFile(screenFile, []byte(screen+"\n"), 0o600); err != nil {
+		t.Fatalf("write screen: %v", err)
+	}
 	script := fmt.Sprintf(
-		`printf "%s\n"; printf "\033[?2004h"; stty -icanon -echo -icrnl; printf "ready\n"; exec cat > %s`,
-		sendQuestion, file,
+		`cat %s; printf "\033[?2004h"; stty -icanon -echo -icrnl; printf "ready\n"; exec cat > %s`,
+		screenFile, file,
 	)
 	sendRun(t, client, "-f", sendNoConfig, "new-session", "-d", "-s", "s1", "-c", dir,
 		"exec sh -c '"+script+"'")
@@ -138,7 +143,7 @@ func sendSetQuestion(t *testing.T, client *tmuxctl.Client, pane, question string
 
 func TestSendTextPastesThenEnter(t *testing.T) {
 	client := sendServer(t)
-	pane, file := sendStartPane(t, client)
+	pane, file := sendStartPane(t, client, sendQuestion)
 
 	var out bytes.Buffer
 	if err := cli.Send(t.Context(), client, []string{"--pane", pane, "--text", "synthetic text"}, &out); err != nil {
@@ -152,7 +157,7 @@ func TestSendTextPastesThenEnter(t *testing.T) {
 
 func TestSendKeysDeliversKeys(t *testing.T) {
 	client := sendServer(t)
-	pane, file := sendStartPane(t, client)
+	pane, file := sendStartPane(t, client, sendQuestion)
 
 	var out bytes.Buffer
 	args := []string{"--pane", pane, "--keys", "a", "b", "Enter", "c"}
@@ -167,7 +172,7 @@ func TestSendKeysDeliversKeys(t *testing.T) {
 
 func TestSendKeysAcceptsDashKey(t *testing.T) {
 	client := sendServer(t)
-	pane, file := sendStartPane(t, client)
+	pane, file := sendStartPane(t, client, sendQuestion)
 
 	args := []string{"--pane", pane, "--keys", "--", "-"}
 	if err := cli.Send(t.Context(), client, args, &bytes.Buffer{}); err != nil {
@@ -178,7 +183,7 @@ func TestSendKeysAcceptsDashKey(t *testing.T) {
 
 func TestSendExpectQuestionMatchingSends(t *testing.T) {
 	client := sendServer(t)
-	pane, file := sendStartPane(t, client)
+	pane, file := sendStartPane(t, client, sendQuestion)
 	sendSetQuestion(t, client, pane, sendQuestion)
 
 	args := []string{"--pane", pane, "--expect-question", protocol.QuestionHash(sendQuestion), "--keys", "k", "Enter"}
@@ -190,6 +195,79 @@ func TestSendExpectQuestionMatchingSends(t *testing.T) {
 		t.Fatalf("Send printed %q, want nothing", out.String())
 	}
 	sendAwaitInput(t, file, "k\r")
+}
+
+// TestSendExpectQuestionFragmentDelivers stores a question shaped like state's @orrery_question value
+// and prints only its display fragment on the pane. Each screen is written out by hand from the rule,
+// not computed by the code under test.
+func TestSendExpectQuestionFragmentDelivers(t *testing.T) {
+	long := strings.Repeat("abcdefghij", 5) // 50 runes; its fragment is the first 40
+	cases := []struct {
+		name   string
+		stored string // value of @orrery_question
+		screen string // the only text the pane shows
+	}{
+		{
+			name:   "bash command",
+			stored: `{"tool":"Bash","input":{"command":"synthetic-run --check"}}`,
+			screen: "synthetic-run --check",
+		},
+		{
+			name:   "write file path",
+			stored: `{"tool":"Write","input":{"file_path":"/synthetic/out/notes.txt","content":"synthetic body"}}`,
+			screen: "/synthetic/out/notes.txt",
+		},
+		{
+			name:   "fetch url",
+			stored: `{"tool":"WebFetch","input":{"url":"https://synthetic.example/page"}}`,
+			screen: "https://synthetic.example/page",
+		},
+		{
+			name:   "first string field only",
+			stored: `{"tool":"Mystery","input":{"count":3,"label":"synthetic label","note":"later"}}`,
+			screen: "synthetic label",
+		},
+		{
+			name:   "AskUserQuestion",
+			stored: `{"tool":"AskUserQuestion","questions":[{"question":"Pick a synthetic option?","header":"Pick","options":[{"label":"One","description":"synthetic"}],"multiSelect":false}]}`,
+			screen: "Pick a synthetic option?",
+		},
+		{
+			name:   "truncated marker",
+			stored: `{"tool":"Bash","truncated":true}`,
+			screen: "Bash",
+		},
+		{
+			name:   "multi-line command",
+			stored: `{"tool":"Bash","input":{"command":"synthetic-first\nsynthetic-second"}}`,
+			screen: "synthetic-first",
+		},
+		{
+			name:   "fragment over 40 runes",
+			stored: `{"tool":"Bash","input":{"command":"` + long + `"}}`,
+			screen: long[:40],
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			client := sendServer(t)
+			pane, file := sendStartPane(t, client, tc.screen)
+			sendSetQuestion(t, client, pane, tc.stored)
+
+			args := []string{
+				"--pane", pane, "--expect-question", protocol.QuestionHash(tc.stored),
+				"--keys", "k", "Enter",
+			}
+			var out bytes.Buffer
+			if err := cli.Send(t.Context(), client, args, &out); err != nil {
+				t.Fatalf("Send: %v", err)
+			}
+			if out.Len() != 0 {
+				t.Fatalf("Send printed %q, want nothing", out.String())
+			}
+			sendAwaitInput(t, file, "k\r")
+		})
+	}
 }
 
 func TestSendExpectQuestionRefusesBeforeSending(t *testing.T) {
@@ -210,6 +288,16 @@ func TestSendExpectQuestionRefusesBeforeSending(t *testing.T) {
 			expect: protocol.QuestionHash("Hidden synthetic question?"),
 		},
 		{
+			name:     "json fragment not visible",
+			question: `{"tool":"Bash","input":{"command":"synthetic-hidden-command"}}`, setIt: true,
+			expect: protocol.QuestionHash(`{"tool":"Bash","input":{"command":"synthetic-hidden-command"}}`),
+		},
+		{
+			name:     "empty fragment",
+			question: `{"tool":"","truncated":true}`, setIt: true,
+			expect: protocol.QuestionHash(`{"tool":"","truncated":true}`),
+		},
+		{
 			name:   "unset question",
 			expect: protocol.QuestionHash(sendQuestion),
 		},
@@ -222,7 +310,7 @@ func TestSendExpectQuestionRefusesBeforeSending(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			client := sendServer(t)
-			pane, file := sendStartPane(t, client)
+			pane, file := sendStartPane(t, client, sendQuestion)
 			if tc.setIt {
 				sendSetQuestion(t, client, pane, tc.question)
 			}
@@ -249,7 +337,7 @@ func TestSendExpectQuestionRefusesBeforeSending(t *testing.T) {
 
 func TestSendRejectsBadArguments(t *testing.T) {
 	client := sendServer(t)
-	pane, _ := sendStartPane(t, client)
+	pane, _ := sendStartPane(t, client, sendQuestion)
 
 	cases := []struct {
 		name string
