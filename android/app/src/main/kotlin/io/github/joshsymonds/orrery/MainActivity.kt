@@ -1,27 +1,76 @@
 package io.github.joshsymonds.orrery
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.ui.Alignment
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import io.github.joshsymonds.orrery.api.OrreryClient
+import io.github.joshsymonds.orrery.push.PushNotifier
+import io.github.joshsymonds.orrery.push.PushSetup
+import io.github.joshsymonds.orrery.ui.PaneListScreen
+import io.github.joshsymonds.orrery.ui.PaneScreen
+import io.github.joshsymonds.orrery.ui.SettingsScreen
 
 class MainActivity : ComponentActivity() {
+    private var screen by mutableStateOf<Screen>(Screen.Panes)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val pushSetup = PushSetup(this)
+        if (savedInstanceState == null) {
+            pushSetup.start()
+        }
+        paneExtra(intent)?.let { screen = Screen.Pane(it) }
+        val settings = ServerSettings(this)
         setContent {
             MaterialTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Text("Orrery")
+                    var client by remember { mutableStateOf(OrreryClient(settings.serverUrl)) }
+                    when (val current = screen) {
+                        Screen.Panes -> PaneListScreen(
+                            client = client,
+                            onOpenPane = { screen = Screen.Pane(it.id) },
+                            onOpenSettings = { screen = Screen.Settings },
+                        )
+                        is Screen.Pane -> {
+                            BackHandler { screen = Screen.Panes }
+                            PaneScreen(paneId = current.id, client = client)
+                        }
+                        Screen.Settings -> {
+                            BackHandler { screen = Screen.Panes }
+                            SettingsScreen(
+                                settings = settings,
+                                onSaved = {
+                                    client = OrreryClient(settings.serverUrl)
+                                    screen = Screen.Panes
+                                },
+                            )
+                        }
                     }
                 }
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        paneExtra(intent)?.let { screen = Screen.Pane(it) }
+    }
+
+    private fun paneExtra(intent: Intent): String? = intent.getStringExtra(PushNotifier.EXTRA_PANE)
+
+    private sealed interface Screen {
+        data object Panes : Screen
+        data object Settings : Screen
+        data class Pane(val id: String) : Screen
     }
 }
