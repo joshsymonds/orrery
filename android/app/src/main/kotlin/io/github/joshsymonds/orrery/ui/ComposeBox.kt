@@ -10,6 +10,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -35,6 +36,13 @@ private const val COMPOSE_INPUT_TYPE =
  */
 @Composable
 fun ComposeBox(paneId: String, client: OrreryClient, modifier: Modifier = Modifier) {
+    key(paneId) {
+        ComposeDraft(paneId, client, modifier)
+    }
+}
+
+@Composable
+private fun ComposeDraft(paneId: String, client: OrreryClient, modifier: Modifier) {
     var draft by remember { mutableStateOf("") }
     var sending by remember { mutableStateOf(false) }
     var failed by remember { mutableStateOf(false) }

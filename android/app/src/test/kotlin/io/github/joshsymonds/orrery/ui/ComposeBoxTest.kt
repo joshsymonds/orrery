@@ -6,6 +6,8 @@ import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
 import android.widget.EditText
 import androidx.activity.ComponentActivity
+import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
@@ -27,8 +29,11 @@ import org.robolectric.annotation.Config
 
 private const val PANE_ID = "%3"
 private const val TEXT_PATH = "/v1/panes/%253/text"
+private const val OTHER_PANE_ID = "%2"
+private const val OTHER_PANE_TEXT_PATH = "/v1/panes/%252/text"
 private const val WAIT_MS = 5_000L
 private const val DRAFT = "first line\nsecond line"
+private const val OTHER_DRAFT = "text for the other pane"
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35])
@@ -99,9 +104,31 @@ class ComposeBoxTest {
         composeRule.onNodeWithText("Send").assertIsNotEnabled()
     }
 
-    private fun setBox() {
+    @Test
+    fun draftDoesNotFollowPaneChange() {
+        server.respond("POST", OTHER_PANE_TEXT_PATH, 204)
+        val paneId = mutableStateOf(PANE_ID)
+        setBox(paneId)
+        setDraft(DRAFT)
+
+        composeRule.runOnIdle { paneId.value = OTHER_PANE_ID }
+        composeRule.waitForIdle()
+
+        assertEquals("", editField().text.toString())
+
+        setDraft(OTHER_DRAFT)
+        composeRule.onNodeWithText("Send").performClick()
+        composeRule.waitUntil(WAIT_MS) { editField().text.isEmpty() }
+
+        assertEquals(1, server.requests.size)
+        val request = server.requests.single()
+        assertEquals(OTHER_PANE_TEXT_PATH, request.rawPath)
+        assertEquals(OTHER_DRAFT, JSONObject(request.body).getString("text"))
+    }
+
+    private fun setBox(paneId: MutableState<String> = mutableStateOf(PANE_ID)) {
         val client = OrreryClient(server.baseUrl)
-        composeRule.setContent { ComposeBox(paneId = PANE_ID, client = client) }
+        composeRule.setContent { ComposeBox(paneId = paneId.value, client = client) }
         composeRule.waitForIdle()
     }
 
