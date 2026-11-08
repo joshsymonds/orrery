@@ -369,3 +369,328 @@ func TestIntentWithoutTmuxServerHasNoPanes(t *testing.T) {
 		t.Errorf("Intent() = %+v, want %+v", got, want)
 	}
 }
+
+// waitClaudeRun waits for the fake beside bin to start a run and returns that run. The fake writes its stdin
+// record last of the run's records, before it blocks reading stdin, so the record's presence means the run has
+// recorded everything. The deadline bounds the wait for a pane that has not started.
+func waitClaudeRun(t *testing.T, bin string) claudeRun {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		matches, err := filepath.Glob(filepath.Join(filepath.Dir(bin), "calls", "run.*", "stdin"))
+		if err != nil {
+			t.Fatalf("glob claude stdin records: %v", err)
+		}
+		if len(matches) > 0 {
+			runs := claudeRuns(t, bin)
+			if len(runs) != 1 {
+				t.Fatalf("claude ran %d times, want 1", len(runs))
+			}
+			return runs[0]
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("claude did not start within 10s")
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+// activePane returns the pane ID of session name's first pane.
+func activePane(t *testing.T, client *tmuxctl.Client, name string) string {
+	t.Helper()
+	return strings.TrimSpace(mustRun(t, client, "display-message", "-p", "-t", name, "#{pane_id}"))
+}
+
+func TestExecuteActionJumpSelectsExistingPane(t *testing.T) {
+	client := newClient(t)
+	startSession(t, client, "example-session-a", t.TempDir())
+	pane := activePane(t, client, "example-session-a")
+	cfg := executeConfig(client, installClaude(t, "", 0))
+
+	got, err := ExecuteAction(t.Context(), cfg, Action{Kind: ActionJump, Pane: pane})
+	if err != nil {
+		t.Fatalf("ExecuteAction(jump): %v", err)
+	}
+	if want := (Target{Session: "example-session-a", Pane: pane}); got != want {
+		t.Errorf("ExecuteAction(jump) = %+v, want %+v", got, want)
+	}
+}
+
+func TestExecuteActionJumpMissingPaneIsError(t *testing.T) {
+	client := newClient(t)
+	startSession(t, client, "example-session-a", t.TempDir())
+	cfg := executeConfig(client, installClaude(t, "", 0))
+
+	if _, err := ExecuteAction(t.Context(), cfg, Action{Kind: ActionJump, Pane: "%999"}); err == nil {
+		t.Fatal("ExecuteAction(jump to a missing pane) returned nil error")
+	}
+	if got := sessionNames(t, client); !slices.Equal(got, []string{"example-session-a"}) {
+		t.Errorf("sessions = %q, want only example-session-a", got)
+	}
+}
+
+func TestExecuteActionPaneOpensWindowInSessionWithSameDir(t *testing.T) {
+	client := newClient(t)
+	dir := filepath.Join(t.TempDir(), "example-dir")
+	if err := os.Mkdir(dir, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	startSession(t, client, "example-session-a", t.TempDir())
+	setDir(t, client, "example-session-a", t.TempDir())
+	startSession(t, client, "example-session-b", t.TempDir())
+	setDir(t, client, "example-session-b", dir)
+	claude := installClaude(t, "", 0)
+
+	got, err := ExecuteAction(t.Context(), executeConfig(client, claude),
+		Action{Kind: ActionPane, Dir: dir, Prompt: "example prompt"})
+	if err != nil {
+		t.Fatalf("ExecuteAction(pane): %v", err)
+	}
+	if got.Session != "example-session-b" || got.Pane == "" {
+		t.Fatalf("ExecuteAction(pane) = %+v, want session example-session-b with a new pane", got)
+	}
+	panes := strings.Fields(mustRun(t, client, "list-panes", "-s", "-t", "=example-session-b:", "-F", "#{pane_id}"))
+	if !slices.Contains(panes, got.Pane) || len(panes) != 2 {
+		t.Errorf("panes of example-session-b = %q, want the original pane and %s", panes, got.Pane)
+	}
+	run := waitClaudeRun(t, claude)
+	if run.cwd != dir {
+		t.Errorf("claude cwd = %q, want %q", run.cwd, dir)
+	}
+	if want := []string{"--", "example prompt"}; !slices.Equal(run.args, want) {
+		t.Errorf("claude argv = %q, want %q", run.args, want)
+	}
+	if got := sessionNames(t, client); !slices.Equal(got, []string{"example-session-a", "example-session-b"}) {
+		t.Errorf("sessions = %q, want example-session-a and example-session-b", got)
+	}
+}
+
+func TestExecuteActionPaneCreatesSessionWithDirAndNoPrompt(t *testing.T) {
+	client := newClient(t)
+	startSession(t, client, "keeper", t.TempDir())
+	dir := filepath.Join(t.TempDir(), "example-dir")
+	if err := os.Mkdir(dir, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	claude := installClaude(t, "", 0)
+
+	got, err := ExecuteAction(t.Context(), executeConfig(client, claude), Action{Kind: ActionPane, Dir: dir})
+	if err != nil {
+		t.Fatalf("ExecuteAction(pane): %v", err)
+	}
+	if want := (Target{Session: "example-dir"}); got != want {
+		t.Errorf("ExecuteAction(pane) = %+v, want %+v", got, want)
+	}
+	if got := dirOption(t, client, "example-dir"); got != dir {
+		t.Errorf("@orrery_dir = %q, want %q", got, dir)
+	}
+	run := waitClaudeRun(t, claude)
+	if run.cwd != dir {
+		t.Errorf("claude cwd = %q, want %q", run.cwd, dir)
+	}
+	if len(run.args) != 0 {
+		t.Errorf("claude argv = %q, want none", run.args)
+	}
+	if got := sessionNames(t, client); !slices.Equal(got, []string{"example-dir", "keeper"}) {
+		t.Errorf("sessions = %q, want example-dir and keeper", got)
+	}
+}
+
+func TestExecuteActionProjectCreatesExactlyRootNameAndSessionWithPrompt(t *testing.T) {
+	client := newClient(t)
+	startSession(t, client, "keeper", t.TempDir())
+	root := t.TempDir()
+	claude := installClaude(t, "", 0)
+
+	got, err := ExecuteAction(t.Context(), executeConfig(client, claude),
+		Action{Kind: ActionProject, Name: "example-project", Dir: root, Prompt: "example prompt"})
+	if err != nil {
+		t.Fatalf("ExecuteAction(project): %v", err)
+	}
+	if want := (Target{Session: "example-project"}); got != want {
+		t.Errorf("ExecuteAction(project) = %+v, want %+v", got, want)
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil || len(entries) != 1 || entries[0].Name() != "example-project" {
+		t.Errorf("root entries = %v, %v; want only example-project", entries, err)
+	}
+	if got := dirOption(t, client, "example-project"); got != filepath.Join(root, "example-project") {
+		t.Errorf("@orrery_dir = %q, want %q", got, filepath.Join(root, "example-project"))
+	}
+	run := waitClaudeRun(t, claude)
+	if run.cwd != filepath.Join(root, "example-project") {
+		t.Errorf("claude cwd = %q, want %q", run.cwd, filepath.Join(root, "example-project"))
+	}
+	if want := []string{"--", "example prompt"}; !slices.Equal(run.args, want) {
+		t.Errorf("claude argv = %q, want %q", run.args, want)
+	}
+}
+
+func TestExecuteActionProjectExistingDirIsErrorWithNoSession(t *testing.T) {
+	client := newClient(t)
+	startSession(t, client, "keeper", t.TempDir())
+	root := t.TempDir()
+	if err := os.Mkdir(filepath.Join(root, "example-project"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+
+	action := Action{Kind: ActionProject, Name: "example-project", Dir: root}
+	if _, err := ExecuteAction(t.Context(), executeConfig(client, installClaude(t, "", 0)), action); err == nil {
+		t.Fatal("ExecuteAction(project) over an existing directory returned nil error")
+	}
+	if got := sessionNames(t, client); !slices.Equal(got, []string{"keeper"}) {
+		t.Errorf("sessions = %q, want only keeper", got)
+	}
+}
+
+func TestExecuteActionProjectBadInputIsErrorWithNothingCreated(t *testing.T) {
+	cases := map[string]func(root string) Action{
+		"slash in name": func(root string) Action {
+			return Action{Kind: ActionProject, Name: "example/bad", Dir: root}
+		},
+		"dotdot name": func(root string) Action {
+			return Action{Kind: ActionProject, Name: "..", Dir: root}
+		},
+		"empty name": func(root string) Action {
+			return Action{Kind: ActionProject, Name: "", Dir: root}
+		},
+		"relative root": func(string) Action {
+			return Action{Kind: ActionProject, Name: "example-project", Dir: "relative-root"}
+		},
+	}
+	for name, build := range cases {
+		t.Run(name, func(t *testing.T) {
+			client := newClient(t)
+			startSession(t, client, "keeper", t.TempDir())
+			root := t.TempDir()
+			action := build(root)
+			cfg := executeConfig(client, installClaude(t, "", 0))
+			if _, err := ExecuteAction(t.Context(), cfg, action); err == nil {
+				t.Fatalf("ExecuteAction(%+v) returned nil error", action)
+			}
+			entries, err := os.ReadDir(root)
+			if err != nil || len(entries) != 0 {
+				t.Errorf("root entries = %v, %v; want none", entries, err)
+			}
+			if got := sessionNames(t, client); !slices.Equal(got, []string{"keeper"}) {
+				t.Errorf("sessions = %q, want only keeper", got)
+			}
+		})
+	}
+}
+
+func TestExecuteActionUnknownKindIsErrorWithNoSession(t *testing.T) {
+	client := newClient(t)
+	startSession(t, client, "keeper", t.TempDir())
+	dir := t.TempDir()
+
+	action := Action{Kind: ActionKind("bogus"), Dir: dir}
+	if _, err := ExecuteAction(t.Context(), executeConfig(client, installClaude(t, "", 0)), action); err == nil {
+		t.Fatal("ExecuteAction(unknown kind) returned nil error")
+	}
+	if got := sessionNames(t, client); !slices.Equal(got, []string{"keeper"}) {
+		t.Errorf("sessions = %q, want only keeper", got)
+	}
+}
+
+func TestExecutePassesNoPrompt(t *testing.T) {
+	client := newClient(t)
+	startSession(t, client, "keeper", t.TempDir())
+	dir := t.TempDir()
+	claude := installClaude(t, "", 0)
+
+	if _, err := Execute(t.Context(), executeConfig(client, claude), Plan{Session: "proj", Dir: dir}); err != nil {
+		t.Fatalf("Execute(Dir plan): %v", err)
+	}
+	run := waitClaudeRun(t, claude)
+	if len(run.args) != 0 {
+		t.Errorf("claude argv = %q, want none", run.args)
+	}
+}
+
+// literalDirName is a directory name tmux would format-expand if it reached -c unescaped.
+const literalDirName = "example-#{session_name}#dir"
+
+// literalPrompt ends in ";", which tmux reads as a command separator unless it reaches tmux escaped, and
+// names a format that tmux would expand if it were expanded.
+const literalPrompt = "example prompt #{session_name};"
+
+// assertLiteralRun checks the Claude pane that ran for session: its directory and argv exactly as given, and
+// the @orrery_dir of session exactly as given.
+func assertLiteralRun(t *testing.T, client *tmuxctl.Client, claude, session, dir string) {
+	t.Helper()
+	run := waitClaudeRun(t, claude)
+	if run.cwd != dir {
+		t.Errorf("claude cwd = %q, want %q", run.cwd, dir)
+	}
+	if want := []string{"--", literalPrompt}; !slices.Equal(run.args, want) {
+		t.Errorf("claude argv = %q, want %q", run.args, want)
+	}
+	if got := dirOption(t, client, session); got != dir {
+		t.Errorf("@orrery_dir of %s = %q, want %q", session, got, dir)
+	}
+}
+
+func TestExecuteActionArgumentsReachTmuxLiterally(t *testing.T) {
+	t.Run("pane creates session", func(t *testing.T) {
+		client := newClient(t)
+		startSession(t, client, "keeper", t.TempDir())
+		dir := filepath.Join(t.TempDir(), literalDirName)
+		if err := os.Mkdir(dir, 0o750); err != nil {
+			t.Fatal(err)
+		}
+		claude := installClaude(t, "", 0)
+
+		got, err := ExecuteAction(t.Context(), executeConfig(client, claude),
+			Action{Kind: ActionPane, Dir: dir, Prompt: literalPrompt})
+		if err != nil {
+			t.Fatalf("ExecuteAction(pane): %v", err)
+		}
+		if want := (Target{Session: "example-_{session_name}_dir"}); got != want {
+			t.Errorf("ExecuteAction(pane) = %+v, want %+v", got, want)
+		}
+		assertLiteralRun(t, client, claude, got.Session, dir)
+	})
+
+	t.Run("pane opens window in matching session", func(t *testing.T) {
+		client := newClient(t)
+		dir := filepath.Join(t.TempDir(), literalDirName)
+		if err := os.Mkdir(dir, 0o750); err != nil {
+			t.Fatal(err)
+		}
+		startSession(t, client, "example-session", t.TempDir())
+		setDir(t, client, "example-session", dir)
+		claude := installClaude(t, "", 0)
+
+		got, err := ExecuteAction(t.Context(), executeConfig(client, claude),
+			Action{Kind: ActionPane, Dir: dir, Prompt: literalPrompt})
+		if err != nil {
+			t.Fatalf("ExecuteAction(pane): %v", err)
+		}
+		if got.Session != "example-session" || got.Pane == "" {
+			t.Fatalf("ExecuteAction(pane) = %+v, want session example-session with a new pane", got)
+		}
+		assertLiteralRun(t, client, claude, "example-session", dir)
+	})
+
+	t.Run("project", func(t *testing.T) {
+		client := newClient(t)
+		startSession(t, client, "keeper", t.TempDir())
+		root := t.TempDir()
+		claude := installClaude(t, "", 0)
+
+		got, err := ExecuteAction(t.Context(), executeConfig(client, claude),
+			Action{Kind: ActionProject, Name: literalDirName, Dir: root, Prompt: literalPrompt})
+		if err != nil {
+			t.Fatalf("ExecuteAction(project): %v", err)
+		}
+		if want := (Target{Session: "example-_{session_name}_dir"}); got != want {
+			t.Errorf("ExecuteAction(project) = %+v, want %+v", got, want)
+		}
+		entries, err := os.ReadDir(root)
+		if err != nil || len(entries) != 1 || entries[0].Name() != literalDirName {
+			t.Errorf("root entries = %v, %v; want only %s", entries, err, literalDirName)
+		}
+		assertLiteralRun(t, client, claude, got.Session, filepath.Join(root, literalDirName))
+	})
+}

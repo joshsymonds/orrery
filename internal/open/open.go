@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -62,21 +63,49 @@ func Execute(ctx context.Context, cfg Config, plan Plan) (Target, error) {
 			return Target{}, fmt.Errorf("open: create directory: %w", err)
 		}
 	}
-	if err := createSession(ctx, cfg, plan.Session, plan.Dir); err != nil {
+	if err := createSession(ctx, cfg, plan.Session, plan.Dir, ""); err != nil {
 		return Target{}, err
 	}
 	return Target{Session: plan.Session}, nil
 }
 
-// createSession starts detached session name in dir running cfg.Claude, and sets @orrery_dir to dir,
-// in one tmux call so the option is set as the session starts.
-func createSession(ctx context.Context, cfg Config, name, dir string) error {
-	_, err := cfg.Tmux.Run(ctx, "new-session", "-d", "-s", name, "-c", dir, cfg.Claude,
-		";", "set-option", "-t", "="+name+":", protocol.OptionDir, dir)
+// createSession starts detached session name in dir running the Claude command for prompt, and sets
+// @orrery_dir to dir, in one tmux call so the option is set as the session starts.
+func createSession(ctx context.Context, cfg Config, name, dir, prompt string) error {
+	args := slices.Concat(
+		[]string{"new-session", "-d", "-s", tmuxLiteral(name), "-c", tmuxDirArg(dir)},
+		claudeCommand(cfg.Claude, prompt),
+		[]string{";", "set-option", "-t", "=" + name + ":", protocol.OptionDir, tmuxLiteral(dir)},
+	)
+	_, err := cfg.Tmux.Run(ctx, args...)
 	if err != nil {
 		return fmt.Errorf("open: create session %q: %w", name, err)
 	}
 	return nil
+}
+
+// claudeCommand is the argv of a Claude pane: claude alone, or claude -- prompt when prompt is set. tmux runs
+// it without a shell, so the prompt is one argument.
+func claudeCommand(claude, prompt string) []string {
+	if prompt == "" {
+		return []string{claude}
+	}
+	return []string{claude, "--", tmuxLiteral(prompt)}
+}
+
+// tmuxLiteral returns value as an argument that tmux reads back as value. tmux ends a command at an argument
+// ending in ";", so that final ";" is written as "\;".
+func tmuxLiteral(value string) string {
+	if before, ok := strings.CutSuffix(value, ";"); ok {
+		return before + `\;`
+	}
+	return value
+}
+
+// tmuxDirArg returns dir as a -c argument. tmux expands formats in -c, so every "#" is doubled, then the
+// argument is escaped as tmuxLiteral escapes it.
+func tmuxDirArg(dir string) string {
+	return tmuxLiteral(strings.ReplaceAll(dir, "#", "##"))
 }
 
 // session is one tmux session as listSessions reads it.
@@ -309,7 +338,7 @@ func isShell(name string) bool {
 	return strings.HasPrefix(name, protocol.ShellSessionPrefix)
 }
 
-// sanitize replaces the characters tmux session names cannot carry.
+// sanitize replaces the characters tmux session names cannot carry, and "#", which tmux expands as a format.
 func sanitize(name string) string {
-	return strings.NewReplacer(".", "_", ":", "_").Replace(name)
+	return strings.NewReplacer(".", "_", ":", "_", "#", "_").Replace(name)
 }

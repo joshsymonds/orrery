@@ -250,3 +250,94 @@ func intentEnv(environ []string) []string {
 	}
 	return append(env, protocol.EnvSummarizer+"="+protocol.SummarizerValue)
 }
+
+// ExecuteAction carries out action and returns the Target to attach. A non-empty Prompt becomes the first
+// prompt of the Claude pane the action opens. The caller chooses the action; nothing else runs.
+func ExecuteAction(ctx context.Context, cfg Config, action Action) (Target, error) {
+	switch action.Kind {
+	case ActionJump:
+		return jumpTo(ctx, cfg, action.Pane)
+	case ActionPane:
+		return openPane(ctx, cfg, action)
+	case ActionProject:
+		return newProject(ctx, cfg, action)
+	default:
+		return Target{}, fmt.Errorf("intent: unknown action kind %q", action.Kind)
+	}
+}
+
+// jumpTo returns the Target for pane, which must exist. tmux prints an empty session name for a pane that
+// does not exist, and session names are never empty.
+func jumpTo(ctx context.Context, cfg Config, pane string) (Target, error) {
+	out, err := cfg.Tmux.Run(ctx, "display-message", "-p", "-t", pane, "#{session_name}")
+	if err != nil {
+		return Target{}, fmt.Errorf("intent: pane %q: %w", pane, err)
+	}
+	session := strings.TrimSuffix(out, "\n")
+	if session == "" {
+		return Target{}, fmt.Errorf("intent: pane %q does not exist", pane)
+	}
+	return Target{Session: session, Pane: pane}, nil
+}
+
+// openPane opens a Claude pane in dir: a new window in the session for dir when one exists, else a new session.
+func openPane(ctx context.Context, cfg Config, action Action) (Target, error) {
+	if action.Dir == "" {
+		return Target{}, errors.New("intent: pane needs a directory")
+	}
+	sessions, err := listSessions(ctx, cfg)
+	if err != nil {
+		return Target{}, err
+	}
+	plan := directoryPlan(sessions, action.Dir)
+	if plan.Dir != "" {
+		err = createSession(ctx, cfg, plan.Session, action.Dir, action.Prompt)
+		if err != nil {
+			return Target{}, err
+		}
+		return Target{Session: plan.Session}, nil
+	}
+	pane, err := newWindow(ctx, cfg, plan.Session, action.Dir, action.Prompt)
+	if err != nil {
+		return Target{}, err
+	}
+	return Target{Session: plan.Session, Pane: pane}, nil
+}
+
+// newWindow opens a Claude pane in a new window of session, in dir, and returns the new pane's ID.
+func newWindow(ctx context.Context, cfg Config, session, dir, prompt string) (string, error) {
+	args := slices.Concat(
+		[]string{"new-window", "-P", "-F", "#{pane_id}", "-t", "=" + session + ":", "-c", tmuxDirArg(dir)},
+		claudeCommand(cfg.Claude, prompt),
+	)
+	out, err := cfg.Tmux.Run(ctx, args...)
+	if err != nil {
+		return "", fmt.Errorf("intent: new window in %q: %w", session, err)
+	}
+	return strings.TrimSuffix(out, "\n"), nil
+}
+
+// newProject creates the directory root/name, which must not exist, and a session for it.
+func newProject(ctx context.Context, cfg Config, action Action) (Target, error) {
+	if err := checkName(action.Name); err != nil {
+		return Target{}, err
+	}
+	if !filepath.IsAbs(action.Dir) {
+		return Target{}, fmt.Errorf("intent: project root %q must be an absolute directory", action.Dir)
+	}
+	sessions, err := listSessions(ctx, cfg)
+	if err != nil {
+		return Target{}, err
+	}
+	dir := filepath.Join(action.Dir, action.Name)
+	err = os.Mkdir(dir, 0o750)
+	if err != nil {
+		return Target{}, fmt.Errorf("intent: create directory: %w", err)
+	}
+	name := freeName(sessions, action.Name)
+	err = createSession(ctx, cfg, name, dir, action.Prompt)
+	if err != nil {
+		return Target{}, err
+	}
+	return Target{Session: name}, nil
+}
