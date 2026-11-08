@@ -179,6 +179,11 @@ func (h *frameHandler) apply(ctx context.Context, frame protocol.HookFrame) {
 		h.logger.ErrorContext(ctx, "apply hook frame", "pane", frame.TmuxPane, "error", err)
 		return
 	}
+	contextName := protocol.SummaryContext(frame.AnthropicBaseURL)
+	err = client.SetPaneOption(ctx, frame.TmuxPane, protocol.OptionContext, contextName)
+	if err != nil {
+		h.logger.ErrorContext(ctx, "set pane context", "pane", frame.TmuxPane, "error", err)
+	}
 	if !changed {
 		return
 	}

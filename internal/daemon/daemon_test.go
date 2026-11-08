@@ -156,13 +156,13 @@ func sendBytes(t *testing.T, socketPath string, payload []byte) {
 	}
 }
 
-// drain returns every transition already delivered to ch without blocking.
-func drain(ch <-chan daemon.Transition) []daemon.Transition {
-	var got []daemon.Transition
+// drain returns every value already delivered to ch without blocking.
+func drain[T any](ch <-chan T) []T {
+	var got []T
 	for {
 		select {
-		case transition := <-ch:
-			got = append(got, transition)
+		case value := <-ch:
+			got = append(got, value)
 		default:
 			return got
 		}
@@ -323,6 +323,69 @@ func TestDaemonDropsBadFrames(t *testing.T) {
 		t.Fatalf("good frame after bad frames observed %d transitions, want 1", len(got))
 	}
 	wantOption(t, srv, protocol.OptionState, "working")
+}
+
+// contextObservation is the @orrery_context value an observer read when it ran.
+type contextObservation struct {
+	value string
+	ok    bool
+	err   error
+}
+
+func TestDaemonRecordsContext(t *testing.T) {
+	const (
+		contextURL = "https://patchbay.example.com/ctx/example-context"
+		plainURL   = "https://patchbay.example.com/v1"
+	)
+	srv := startServer(t)
+	observed := make(chan contextObservation, 16)
+	socket := serve(t, daemon.Config{
+		Observers: []daemon.Observer{func(daemon.Transition) {
+			value, ok, err := srv.client.PaneOption(context.Background(), srv.pane, protocol.OptionContext)
+			observed <- contextObservation{value: value, ok: ok, err: err}
+		}},
+	})
+	withBaseURL := func(hook, baseURL string) protocol.HookFrame {
+		frame := frameFor(hook, srv.pane, srv.socket)
+		frame.AnthropicBaseURL = baseURL
+		return frame
+	}
+
+	sendFrame(t, socket, withBaseURL(userPromptSubmitHook, contextURL))
+	wantOption(t, srv, protocol.OptionContext, "example-context")
+	got := drain(observed)
+	if len(got) != 1 {
+		t.Fatalf("observed %d transitions, want 1: %+v", len(got), got)
+	}
+	if got[0].err != nil || !got[0].ok || got[0].value != "example-context" {
+		t.Fatalf("observer saw @orrery_context = (%q, %v, %v), want example-context written before observers run",
+			got[0].value, got[0].ok, got[0].err)
+	}
+
+	// A base URL without /ctx/<name> sets the option to "", which is set, not unset.
+	sendFrame(t, socket, withBaseURL(userPromptSubmitHook, plainURL))
+	if value, ok := option(t, srv, protocol.OptionContext); !ok || value != "" {
+		t.Fatalf("@orrery_context = (%q, %v), want (\"\", true) for a base URL without a context", value, ok)
+	}
+
+	// A frame that leaves the state unchanged still writes the context.
+	sendFrame(t, socket, withBaseURL(userPromptSubmitHook, contextURL))
+	wantOption(t, srv, protocol.OptionContext, "example-context")
+	if got := drain(observed); len(got) != 0 {
+		t.Fatalf("observed %d transitions after the unchanged frame, want 0", len(got))
+	}
+
+	// An unhandled event still writes the context.
+	sendFrame(t, socket, withBaseURL(`{"hook_event_name":"PreCompact"}`, plainURL))
+	if value, ok := option(t, srv, protocol.OptionContext); !ok || value != "" {
+		t.Fatalf("@orrery_context after unhandled event = (%q, %v), want (\"\", true)", value, ok)
+	}
+
+	// A frame whose hook fails to decode writes nothing.
+	sendFrame(t, socket, withBaseURL(`{"hook_event_name":5}`, contextURL))
+	if value, ok := option(t, srv, protocol.OptionContext); !ok || value != "" {
+		t.Fatalf("@orrery_context after failed frame = (%q, %v), want unchanged (\"\", true)", value, ok)
+	}
 }
 
 func TestListen(t *testing.T) {
