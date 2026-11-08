@@ -282,6 +282,85 @@ func TestPaneStateTransitions(t *testing.T) {
 	})
 }
 
+// TestDonePaneIgnoresLateToolEvents replays a permission-answered turn whose Stop is applied before a
+// tool event, the order that left a live session's pane working after its turn ended.
+func TestDonePaneIgnoresLateToolEvents(t *testing.T) {
+	t0 := time.Unix(1700000000, 0)
+	replayTurn := func(t *testing.T, client *tmuxctl.Client, pane string) {
+		t.Helper()
+		steps := []struct {
+			hook string
+			at   time.Duration
+		}{
+			{userPromptSubmitHook, 0},
+			{preToolUseHook, time.Second},
+			{permissionHook, 2 * time.Second},
+			{permissionPromptHook, 3 * time.Second},
+			{stopHook, 4 * time.Second},
+		}
+		for _, step := range steps {
+			apply(t, client, pane, step.hook, t0.Add(step.at))
+		}
+		wantState(t, client, pane, protocol.StateDone)
+	}
+
+	t.Run("late tool events leave the pane done", func(t *testing.T) {
+		late := []struct {
+			name string
+			hook string
+		}{
+			{"PreToolUse", preToolUseHook},
+			{"PostToolUse", postToolUseHook},
+			{"PostToolUseFailure", postToolFailureHook},
+		}
+		for _, tc := range late {
+			t.Run(tc.name, func(t *testing.T) {
+				client, pane := startPane(t)
+				replayTurn(t, client, pane)
+
+				transition, changed := apply(t, client, pane, tc.hook, t0.Add(5*time.Second))
+				if transition != (state.Transition{From: protocol.StateDone, To: protocol.StateDone}) || changed {
+					t.Fatalf("late %s transition = %+v changed = %v, want done to done and false",
+						tc.name, transition, changed)
+				}
+				wantState(t, client, pane, protocol.StateDone)
+				if got, _ := option(t, client, pane, protocol.OptionChanged); got != "1700000004" {
+					t.Fatalf("%s after late %s = %q, want the Stop time 1700000004",
+						protocol.OptionChanged, tc.name, got)
+				}
+				wantQuestion(t, client, pane, "")
+			})
+		}
+	})
+
+	t.Run("UserPromptSubmit after Stop starts working", func(t *testing.T) {
+		client, pane := startPane(t)
+		replayTurn(t, client, pane)
+
+		transition, changed := apply(t, client, pane, userPromptSubmitHook, t0.Add(5*time.Second))
+		if transition != (state.Transition{From: protocol.StateDone, To: protocol.StateWorking}) || !changed {
+			t.Fatalf("UserPromptSubmit after Stop transition = %+v changed = %v", transition, changed)
+		}
+		wantState(t, client, pane, protocol.StateWorking)
+		if got, _ := option(t, client, pane, protocol.OptionChanged); got != "1700000005" {
+			t.Fatalf("%s after UserPromptSubmit = %q, want 1700000005", protocol.OptionChanged, got)
+		}
+	})
+
+	t.Run("PermissionRequest and waiting Notification after Stop still apply", func(t *testing.T) {
+		for _, hook := range []string{permissionHook, permissionPromptHook} {
+			client, pane := startPane(t)
+			replayTurn(t, client, pane)
+
+			transition, changed := apply(t, client, pane, hook, t0.Add(5*time.Second))
+			if transition != (state.Transition{From: protocol.StateDone, To: protocol.StateWaiting}) || !changed {
+				t.Fatalf("Apply(%s) after Stop transition = %+v changed = %v", hook, transition, changed)
+			}
+			wantState(t, client, pane, protocol.StateWaiting)
+		}
+	})
+}
+
 // captureQuestion starts a pane, applies one PermissionRequest hook, and returns the stored question.
 func captureQuestion(t *testing.T, hook string) string {
 	t.Helper()

@@ -78,6 +78,11 @@ func Apply(
 	if err != nil {
 		return Transition{}, false, err
 	}
+	// A tool event that arrives after the turn's Stop is late. Only UserPromptSubmit restarts a done
+	// pane, so the late event leaves the pane and its options untouched.
+	if from == protocol.StateDone && isToolEvent(event) {
+		return Transition{From: from, To: from}, false, nil
+	}
 	transition := Transition{From: from, To: to}
 	if event == eventSessionEnd {
 		err = unsetSession(ctx, client, paneID)
@@ -109,6 +114,15 @@ func targetState(event, notification string) (protocol.State, bool) {
 		return "", true
 	}
 	return "", false
+}
+
+// isToolEvent reports whether event is a tool-use event.
+func isToolEvent(event string) bool {
+	switch event {
+	case eventPreToolUse, eventPostToolUse, eventPostToolUseFailure:
+		return true
+	}
+	return false
 }
 
 // writeTransition writes the question, then the state and its change time. The state options are
