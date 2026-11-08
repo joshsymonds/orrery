@@ -403,6 +403,8 @@ linters:
         # never-matching type pattern): interface{}/any returns, such as the mandated
         # yaml.Marshaler signature, are allowed by this entry.
         - empty
+        # Bubble Tea's Update returns the tea.Model interface by the framework's contract.
+        - charm.land/bubbletea/v2.Model
 
     wrapcheck:
       ignore-sigs:

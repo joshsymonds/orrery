@@ -20,12 +20,15 @@
           version = "0.0.0";
           src = ./.;
           go = pkgs.go_1_26;
-          vendorHash = null;
+          vendorHash = "sha256-Qc+8NFF8weEl0jXtk0LKqErGleQU6mxLNKlcNqazI+w=";
           subPackages = [
             "cmd/orrery"
             "cmd/orreryd"
           ];
-          nativeCheckInputs = [ pkgs.tmux ];
+          nativeCheckInputs = [
+            pkgs.tmux
+            pkgs.util-linux
+          ];
           preCheck = ''
             export TMUX_TMPDIR="$TMPDIR"
           '';
@@ -43,6 +46,7 @@
             pkgs.golangci-lint
             pkgs.just
             pkgs.tmux
+            pkgs.util-linux
           ];
         };
       });
