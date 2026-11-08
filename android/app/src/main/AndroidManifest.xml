@@ -13,5 +13,13 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <receiver
+            android:name=".push.ReplyReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="io.github.joshsymonds.orrery.action.KEY" />
+                <action android:name="io.github.joshsymonds.orrery.action.REPLY" />
+            </intent-filter>
+        </receiver>
     </application>
 </manifest>
