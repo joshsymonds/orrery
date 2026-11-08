@@ -693,3 +693,77 @@ func TestSummarizerLabelCadence(t *testing.T) {
 		}
 	}
 }
+
+// callWith returns the one call whose stdin holds text, failing the test unless exactly one does.
+func callWith(t *testing.T, calls []call, text string) call {
+	t.Helper()
+	var matched []call
+	for _, c := range calls {
+		if strings.Contains(c.stdin, text) {
+			matched = append(matched, c)
+		}
+	}
+	if len(matched) != 1 {
+		t.Fatalf("runs with stdin holding %q = %d, want 1", text, len(matched))
+	}
+	return matched[0]
+}
+
+func TestSummarizerForgetRestartsLabelCadence(t *testing.T) {
+	r := newRig(t, nil, 0)
+	r.place(t, "reply", validReply)
+	r.s.Request(t.Context(), exampleRequest(r.pane, true, exampleTranscript(t, 9), "Example message first"))
+	waitIdle(t, r.s)
+
+	r.s.Forget(r.pane)
+	r.s.Request(t.Context(), exampleRequest(r.pane, true, exampleTranscript(t, 1), "Example message second"))
+	waitIdle(t, r.s)
+
+	got := callWith(t, recordedCalls(t, r.bin), "Example message second")
+	if !strings.Contains(got.stdin, labelMarker) {
+		t.Errorf("run after Forget (1 exchange) stdin lacks label marker; stdin = %q", got.stdin)
+	}
+}
+
+func TestSummarizerForgetEndsInFlightRun(t *testing.T) {
+	r := newRig(t, nil, 0)
+	r.place(t, "reply", validReply)
+	r.setPrevious(t)
+	r.hold(t)
+	transcript := exampleTranscript(t, 9)
+
+	r.s.Request(t.Context(), exampleRequest(r.pane, true, transcript, "Example message in flight"))
+	waitRunning(t, r.bin, 1)
+	r.s.Request(t.Context(), exampleRequest(r.pane, true, transcript, "Example message waiting"))
+
+	start := time.Now()
+	r.s.Forget(r.pane)
+	if elapsed := time.Since(start); elapsed > failureBound {
+		t.Fatalf("Forget took %v while a run was held, want within %v", elapsed, failureBound)
+	}
+
+	r.release(t)
+	waitIdle(t, r.s)
+
+	for _, name := range []string{protocol.OptionSummary, protocol.OptionLabel} {
+		value, ok, err := r.client.PaneOption(t.Context(), r.pane, name)
+		if err != nil {
+			t.Fatalf("PaneOption(%s): %v", name, err)
+		}
+		if ok {
+			t.Errorf("%s = %q after Forget, want unset", name, value)
+		}
+	}
+	calls := recordedCalls(t, r.bin)
+	if len(calls) != 1 {
+		t.Fatalf("claude runs = %d, want 1: the waiting request must not start", len(calls))
+	}
+	callWith(t, calls, "Example message in flight")
+
+	r.s.Request(t.Context(), exampleRequest(r.pane, true, exampleTranscript(t, 1), "Example message after"))
+	waitIdle(t, r.s)
+	got := callWith(t, recordedCalls(t, r.bin), "Example message after")
+	if !strings.Contains(got.stdin, labelMarker) {
+		t.Errorf("run after Forget (1 exchange) stdin lacks label marker; stdin = %q", got.stdin)
+	}
+}
