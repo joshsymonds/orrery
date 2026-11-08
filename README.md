@@ -28,6 +28,20 @@ nix flake check    # evaluate and check the flake
 nix build          # build the packages
 ```
 
+## Android
+
+The Android app lives under `android/`. It is a Kotlin and Jetpack Compose
+app. Only debug builds are produced; no signing key or keystore is in the tree.
+
+```sh
+nix develop .#android      # enter the android devShell with the SDK, Gradle, and JDK 17
+just android-test          # run the Android lint and JVM unit tests
+just android-install       # build the debug APK and install it on the phone
+```
+
+`just android-install` needs the phone paired and connected with adb first.
+The server address setting defaults to `https://vermissian.tail82223.ts.net:8490`.
+
 ## Interface
 
 The frozen interface between the hook, the CLI, and the daemon is documented in

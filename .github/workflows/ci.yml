@@ -25,3 +25,6 @@ jobs:
 
       - name: Run the flake check
         run: nix flake check
+
+      - name: Run the Android lint and unit tests
+        run: nix develop -c just android-test
