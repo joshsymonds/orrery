@@ -207,7 +207,8 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 }
 
 // relay turns each state change into summary requests and notifications. Its observe method runs under the
-// daemon's lock, so it starts work and returns without waiting on tmux or HTTP.
+// daemon's lock, so it starts work and returns without waiting on HTTP. On SessionEnd it waits on tmux for the
+// summarizer to forget the pane, so no run started before SessionEnd writes after the pane's next session begins.
 type relay struct {
 	claude      string
 	models      map[string]string
@@ -234,15 +235,29 @@ func hookString(hook json.RawMessage, key string) (string, error) {
 	return value, nil
 }
 
-// observe requests a summary for a pane that starts working or finishes, and posts a notification when it waits
-// for input or finishes.
+// observe requests a summary for a pane that starts working or finishes, posts a notification when it waits for
+// input or finishes, and forgets the pane's summary when its session ends.
 func (r *relay) observe(ctx context.Context, transition daemon.Transition) {
+	if transition.To == "" {
+		r.forget(ctx, transition)
+	}
 	if transition.To == protocol.StateWorking || transition.To == protocol.StateDone {
 		r.summarize(ctx, transition)
 	}
 	if r.publisher != nil && (transition.To == protocol.StateWaiting || transition.To == protocol.StateDone) {
 		r.notify(ctx, transition)
 	}
+}
+
+// forget ends the pane's session on the summarizer for its tmux server. The summarizer drops the pane's waiting
+// request and unsets its summary and label, and a run already in flight writes nothing once it finishes.
+func (r *relay) forget(ctx context.Context, transition daemon.Transition) {
+	summarizer, err := r.summarizerFor(transition.Server)
+	if err != nil {
+		r.logger.ErrorContext(ctx, "create summarizer", "pane", transition.PaneID, "error", err)
+		return
+	}
+	summarizer.Forget(transition.PaneID)
 }
 
 // summarize requests the summary for the transition's pane. A working request is a periodic refresh; a done

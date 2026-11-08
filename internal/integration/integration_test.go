@@ -559,6 +559,10 @@ const (
 	exampleTitle       = exampleProjectName + " · s1:0"
 	exampleSummary     = "example summary"
 	exampleLastMessage = "example last reply"
+	exampleLabel       = "example label"
+	exampleFollowUp    = "example follow-up reply"
+	exampleExchanges   = 8 // exchanges in the transcript whose session gets its label
+	labelPrompt        = "label: <3 to 4 words"
 	exampleTranscript  = `{"type":"user","message":{"role":"user","content":"example prompt"}}` + "\n" +
 		`{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"example reply"}]}}` + "\n"
 	// fakeClaudeScript stands in for the claude binary. Each run records its argv, the summarizer environment and
@@ -571,6 +575,18 @@ printf '%s\n' "$@" > "$R/args"
 env | grep -E '^(ANTHROPIC_BASE_URL|ORRERY_SUMMARIZER)=' > "$R/env"
 cat > "$R/stdin"
 printf 'summary: example summary\n'
+: > "$R/done"
+`
+	// slowFakeClaudeScript is fakeClaudeScript after a pause, replying with a label line as well as the summary.
+	slowFakeClaudeScript = `#!/bin/sh
+D=$(dirname "$0")
+mkdir -p "$D/calls"
+R=$(mktemp -d "$D/calls/run.XXXXXX")
+printf '%s\n' "$@" > "$R/args"
+env | grep -E '^(ANTHROPIC_BASE_URL|ORRERY_SUMMARIZER)=' > "$R/env"
+cat > "$R/stdin"
+sleep 1
+printf 'summary: example summary\nlabel: example label\n'
 : > "$R/done"
 `
 )
@@ -658,8 +674,9 @@ func finishedRuns(t *testing.T, dir string) []string {
 	return done
 }
 
-// waitForRunWithStdin polls until a finished fake claude run received stdin containing text.
-func waitForRunWithStdin(t *testing.T, dir, text string) {
+// waitForRunWithStdin polls until a finished fake claude run received stdin containing text, and returns that run's
+// directory.
+func waitForRunWithStdin(t *testing.T, dir, text string) string {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), waitLimit)
 	defer cancel()
@@ -672,12 +689,32 @@ func waitForRunWithStdin(t *testing.T, dir, text string) {
 				t.Fatalf("read run stdin: %v", err)
 			}
 			if strings.Contains(string(stdin), text) {
-				return
+				return run
 			}
 		}
 		select {
 		case <-ctx.Done():
 			t.Fatalf("no finished claude run received %q", text)
+		case <-ticker.C:
+		}
+	}
+}
+
+// waitForFinishedRuns polls until n fake claude runs under dir have marked themselves done, failing the test after
+// waitLimit.
+func waitForFinishedRuns(t *testing.T, dir string, n int) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), waitLimit)
+	defer cancel()
+	ticker := time.NewTicker(pollEvery)
+	defer ticker.Stop()
+	for {
+		if len(finishedRuns(t, dir)) >= n {
+			return
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatalf("fewer than %d claude runs finished", n)
 		case <-ticker.C:
 		}
 	}
@@ -829,6 +866,98 @@ func TestOrrerydDrivesHooksEndToEnd(t *testing.T) {
 		!strings.Contains(got[0].body, "example-sentinel-tool") {
 		t.Fatalf("notices after the summarizer and sentinel hooks %+v, want exactly the sentinel question", got)
 	}
+}
+
+// writeFile writes content to path with perm, failing the test on error.
+func writeFile(t *testing.T, path, content string, perm os.FileMode) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte(content), perm); err != nil {
+		t.Fatalf("write %s: %v", path, err)
+	}
+}
+
+// startSummaryDaemon starts orreryd on a socket in a fresh directory, with script as the summarizer's claude binary,
+// and waits for its listener. It returns the daemon, its socket, and the directory that holds the fake claude's runs.
+func startSummaryDaemon(t *testing.T, server, script string) (*orreryProcess, string, string) {
+	t.Helper()
+	dir := t.TempDir()
+	fakeClaude := filepath.Join(dir, "fake-claude.sh")
+	writeFile(t, fakeClaude, script, 0o700)
+	socket := filepath.Join(dir, "orreryd.sock")
+	daemon := startOrreryd(t, scrubbedEnv(), "-L", server, "--socket", socket,
+		"--claude", fakeClaude, "--summary-model", exampleContextName+"="+exampleModel)
+	daemon.waitForListener(t, socket)
+	return daemon, socket, dir
+}
+
+func TestOrrerydForgetsPaneOnSessionEnd(t *testing.T) {
+	client, name := newServer(t)
+	pane := startPane(t, client, "sleep 300")
+	daemon, socket, dir := startSummaryDaemon(t, name, slowFakeClaudeScript)
+	transcript := filepath.Join(dir, "transcript.jsonl")
+	writeFile(t, transcript, exampleTranscript, 0o600)
+
+	sendHook(t, socket, pane, dir, map[string]any{
+		"hook_event_name": "UserPromptSubmit",
+		"transcript_path": transcript,
+	})
+	waitForOption(t, client, pane, protocol.OptionState, string(protocol.StateWorking))
+	sendHook(t, socket, pane, dir, map[string]any{
+		"hook_event_name":        "Stop",
+		"transcript_path":        transcript,
+		"last_assistant_message": exampleLastMessage,
+	})
+	waitForOption(t, client, pane, protocol.OptionState, string(protocol.StateDone))
+	sendHook(t, socket, pane, dir, map[string]any{"hook_event_name": "SessionEnd"})
+	waitForOption(t, client, pane, protocol.OptionState, "")
+
+	// The run in flight at SessionEnd finishes, then a late summary write has this window to land before the daemon
+	// stops. A stop cancels any run still in flight, so it must come after the window.
+	const lateWriteWindow = 500 * time.Millisecond
+	waitForFinishedRuns(t, dir, 1)
+	<-time.After(lateWriteWindow)
+	wantExit(t, daemon.stop(t), 0)
+	for _, option := range []string{protocol.OptionSummary, protocol.OptionLabel} {
+		if got := readOption(t, client, pane, option); got != "" {
+			t.Fatalf("%s = %q after SessionEnd, want unset", option, got)
+		}
+	}
+}
+
+func TestOrrerydAsksLabelAfterSessionEnd(t *testing.T) {
+	client, name := newServer(t)
+	pane := startPane(t, client, "sleep 300")
+	daemon, socket, dir := startSummaryDaemon(t, name, slowFakeClaudeScript)
+	long := filepath.Join(dir, "long.jsonl")
+	writeFile(t, long, strings.Repeat(exampleTranscript, exampleExchanges), 0o600)
+	short := filepath.Join(dir, "short.jsonl")
+	writeFile(t, short, exampleTranscript, 0o600)
+
+	// The first session is labeled at exampleExchanges exchanges.
+	sendHook(t, socket, pane, dir, map[string]any{
+		"hook_event_name":        "Stop",
+		"transcript_path":        long,
+		"last_assistant_message": exampleLastMessage,
+	})
+	waitForOption(t, client, pane, protocol.OptionLabel, exampleLabel)
+	sendHook(t, socket, pane, dir, map[string]any{"hook_event_name": "SessionEnd"})
+	waitForOption(t, client, pane, protocol.OptionLabel, "")
+
+	// The next session has one exchange, far below the first session's label count, yet its first run asks for a label.
+	sendHook(t, socket, pane, dir, map[string]any{
+		"hook_event_name":        "Stop",
+		"transcript_path":        short,
+		"last_assistant_message": exampleFollowUp,
+	})
+	run := waitForRunWithStdin(t, dir, exampleFollowUp)
+	stdin, err := os.ReadFile(filepath.Join(run, "stdin"))
+	if err != nil {
+		t.Fatalf("read run stdin: %v", err)
+	}
+	if !strings.Contains(string(stdin), labelPrompt) {
+		t.Fatalf("next session's run stdin lacks %q; stdin %q", labelPrompt, stdin)
+	}
+	wantExit(t, daemon.stop(t), 0)
 }
 
 func TestOrrerydUsageExitCodes(t *testing.T) {
