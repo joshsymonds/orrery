@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/joshsymonds/orrery/internal/cli"
@@ -73,13 +74,18 @@ func main() {
 // run executes one orrery command line and returns its exit code.
 func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(string) string) int {
 	opts, rest, err := parseGlobal(args)
+	if err == nil && len(rest) > 0 {
+		return report(stderr, dispatch(context.Background(), opts, rest, stdin, stdout, getenv))
+	}
+	// A hook must never fail a Claude Code turn. A refused command line that names hook exits 0 silently
+	// and forwards nothing.
+	if slices.Contains(args, "hook") {
+		return exitOK
+	}
 	if err != nil {
 		return report(stderr, err)
 	}
-	if len(rest) == 0 {
-		return report(stderr, usagef("no subcommand"))
-	}
-	return report(stderr, dispatch(context.Background(), opts, rest, stdin, stdout, getenv))
+	return report(stderr, usagef("no subcommand"))
 }
 
 // report prints err to stderr and returns the exit code it maps to. A nil err exits 0 silently.

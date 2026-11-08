@@ -343,6 +343,32 @@ func TestHookAbsentSocketIsSilentWithJunkArgs(t *testing.T) {
 	}
 }
 
+func TestHookExitsSilentlyWhenGlobalFlagsFail(t *testing.T) {
+	socket := filepath.Join(t.TempDir(), "absent.sock")
+	cases := []struct {
+		name string
+		args []string
+	}{
+		{name: "unknown flag before hook", args: []string{"--bogus", "hook"}},
+		{name: "-L and -S together before hook", args: []string{
+			"-L", "orrery-integration-unused", "-S", "/dev/null", "hook",
+		}},
+		{name: "flag value consumes hook", args: []string{"-L", "hook"}},
+		{name: "socket twice and unknown flag before hook", args: []string{
+			"--socket", socket, "--socket", socket, "--bogus", "hook", "--junk", "extra",
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			out := runOrrery(t, exampleHookJSON, nil, tc.args...)
+			wantExit(t, out, 0)
+			if out.stdout != "" || out.stderr != "" {
+				t.Fatalf("hook printed stdout %q stderr %q, want nothing", out.stdout, out.stderr)
+			}
+		})
+	}
+}
+
 func TestListJSONPrintsPanes(t *testing.T) {
 	client, name := newServer(t)
 	pane := startPane(t, client, "sleep 300")
@@ -475,6 +501,25 @@ func TestDebugSummarizeWritesSummaryAndLabel(t *testing.T) {
 		if !ok || got != want {
 			t.Fatalf("%s = %q (set %t), want %q", option, got, ok, want)
 		}
+	}
+}
+
+func TestHookExitSilenceIsLimitedToHookCommands(t *testing.T) {
+	cases := []struct {
+		name string
+		args []string
+	}{
+		{name: "bad global flag before list", args: []string{"--bogus", "list", "--json"}},
+		{name: "unknown subcommand naming hook", args: []string{"bogus", "hook"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			out := runOrrery(t, "", nil, tc.args...)
+			wantExit(t, out, 2)
+			if !strings.HasPrefix(out.stderr, "orrery: ") {
+				t.Fatalf("stderr %q, want orrery: prefix", out.stderr)
+			}
+		})
 	}
 }
 
