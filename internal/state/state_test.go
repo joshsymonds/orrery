@@ -3,6 +3,8 @@ package state_test
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -475,6 +477,18 @@ func bashQuestion(command string) string {
 	return `{"tool":"Bash","input":{"command":"` + command + `"}}`
 }
 
+// writePermission builds a PermissionRequest for Write whose content is content.
+func writePermission(content string) string {
+	return `{"hook_event_name":"PermissionRequest","tool_name":"Write","tool_input":{"file_path":"synthetic.txt","content":"` +
+		content + `"}}`
+}
+
+// truncatedMarker is the stored form of a question whose full encoding is full and exceeds the bound.
+func truncatedMarker(tool, full string) string {
+	sum := sha256.Sum256([]byte(full))
+	return `{"tool":"` + tool + `","truncated":true,"sha256":"` + hex.EncodeToString(sum[:]) + `"}`
+}
+
 func TestQuestionCapture(t *testing.T) {
 	const askHook = `{"hook_event_name":"PermissionRequest","tool_name":"AskUserQuestion","tool_input":{
   "questions": [
@@ -512,7 +526,8 @@ func TestQuestionCapture(t *testing.T) {
 
 	t.Run("stored value over the 8192-byte bound is truncated", func(t *testing.T) {
 		command := strings.Repeat("a", 8192-len(bashQuestion(""))+1)
-		if got, want := captureQuestion(t, bashPermission(command)), `{"tool":"Bash","truncated":true}`; got != want {
+		want := truncatedMarker("Bash", bashQuestion(command))
+		if got := captureQuestion(t, bashPermission(command)); got != want {
 			t.Fatalf("question over bound = %q, want %q", got, want)
 		}
 	})
@@ -521,8 +536,38 @@ func TestQuestionCapture(t *testing.T) {
 		huge := strings.Repeat("x", 9000)
 		hook := `{"hook_event_name":"PermissionRequest","tool_name":"AskUserQuestion",` +
 			`"tool_input":{"questions":"` + huge + `"}}`
-		if got, want := captureQuestion(t, hook), `{"tool":"AskUserQuestion","truncated":true}`; got != want {
+		full := `{"tool":"AskUserQuestion","questions":"` + huge + `"}`
+		if got, want := captureQuestion(t, hook), truncatedMarker("AskUserQuestion", full); got != want {
 			t.Fatalf("question = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("distinct oversized prompts store distinct values", func(t *testing.T) {
+		client, pane := startPane(t)
+		first := strings.Repeat("a", 9000)
+		second := strings.Repeat("b", 9000)
+		firstFull := `{"tool":"Write","input":{"file_path":"synthetic.txt","content":"` + first + `"}}`
+		secondFull := `{"tool":"Write","input":{"file_path":"synthetic.txt","content":"` + second + `"}}`
+
+		apply(t, client, pane, writePermission(first), time.Unix(1700000000, 0))
+		firstValue, _ := option(t, client, pane, protocol.OptionQuestion)
+		if want := truncatedMarker("Write", firstFull); firstValue != want {
+			t.Fatalf("first question = %q, want %q", firstValue, want)
+		}
+
+		apply(t, client, pane, writePermission(second), time.Unix(1700000001, 0))
+		secondValue, _ := option(t, client, pane, protocol.OptionQuestion)
+		if want := truncatedMarker("Write", secondFull); secondValue != want {
+			t.Fatalf("second question = %q, want %q", secondValue, want)
+		}
+		if firstValue == secondValue {
+			t.Fatalf("distinct oversized prompts both stored %q", firstValue)
+		}
+
+		apply(t, client, pane, writePermission(first), time.Unix(1700000002, 0))
+		repeated, _ := option(t, client, pane, protocol.OptionQuestion)
+		if repeated != firstValue {
+			t.Fatalf("repeated oversized prompt stored %q, want %q", repeated, firstValue)
 		}
 	})
 

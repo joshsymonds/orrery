@@ -3,6 +3,8 @@ package state
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"strconv"
@@ -242,7 +244,7 @@ func currentState(ctx context.Context, client *tmuxctl.Client, paneID string) (p
 
 // questionValue is the compact single-line @orrery_question value for a PermissionRequest.
 // AskUserQuestion stores its questions; any other tool stores its input. A value over
-// maxQuestionBytes is replaced by the tool name and a truncated marker.
+// maxQuestionBytes is replaced by a truncated marker (see truncatedValue).
 func questionValue(fields hookFields) (string, error) {
 	tool, err := fields.text(keyToolName)
 	if err != nil {
@@ -256,11 +258,20 @@ func questionValue(fields hookFields) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("encode question: %w", err)
 	}
-	if len(data) > maxQuestionBytes {
-		data, err = json.Marshal(truncatedQuestion{Tool: tool, Truncated: true})
-		if err != nil {
-			return "", fmt.Errorf("encode truncated question: %w", err)
-		}
+	if len(data) <= maxQuestionBytes {
+		return string(data), nil
+	}
+	return truncatedValue(tool, data)
+}
+
+// truncatedValue is the stored question for the encoded question full, which exceeds
+// maxQuestionBytes. It holds the tool name and the lowercase hex SHA-256 of full, so distinct
+// oversized questions store distinct values.
+func truncatedValue(tool string, full []byte) (string, error) {
+	sum := sha256.Sum256(full)
+	data, err := json.Marshal(truncatedQuestion{Tool: tool, Truncated: true, SHA256: hex.EncodeToString(sum[:])})
+	if err != nil {
+		return "", fmt.Errorf("encode truncated question: %w", err)
 	}
 	return string(data), nil
 }
@@ -293,10 +304,12 @@ type askUserQuestion struct {
 	Questions json.RawMessage `json:"questions"`
 }
 
-// truncatedQuestion is the stored question when the full value exceeds maxQuestionBytes.
+// truncatedQuestion is the stored question when the full value exceeds maxQuestionBytes. SHA256
+// is the lowercase hex SHA-256 of the full encoded question.
 type truncatedQuestion struct {
 	Tool      string `json:"tool"`
 	Truncated bool   `json:"truncated"`
+	SHA256    string `json:"sha256"`
 }
 
 // decodeHook decodes a hook event one level deep. A null hook decodes to no fields.
