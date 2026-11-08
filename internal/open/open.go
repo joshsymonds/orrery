@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
@@ -37,6 +38,45 @@ type Plan struct {
 	MakeDir bool   // Dir itself is created first (new)
 	Tree    bool   // the caller shows the tree after attaching (no argument)
 	Text    string // no fast match: TEXT for the intent resolver; every other field is zero
+}
+
+// Target is what the caller attaches after Execute.
+type Target struct {
+	Session string // session to attach
+	Pane    string // pane to select, "" for the session's current pane
+	Tree    bool   // the caller shows the tree after attaching
+}
+
+// Execute carries out plan and returns the Target the caller attaches. A plan without Dir names an
+// existing session. A plan with Dir creates the session, and creates Dir first when MakeDir. A Text
+// plan is an error that creates nothing.
+func Execute(ctx context.Context, cfg Config, plan Plan) (Target, error) {
+	switch {
+	case plan.Text != "":
+		return Target{}, errors.New("open: text is not a session or directory to execute")
+	case plan.Dir == "":
+		return Target{Session: plan.Session, Tree: plan.Tree}, nil
+	}
+	if plan.MakeDir {
+		if err := os.Mkdir(plan.Dir, 0o750); err != nil {
+			return Target{}, fmt.Errorf("open: create directory: %w", err)
+		}
+	}
+	if err := createSession(ctx, cfg, plan.Session, plan.Dir); err != nil {
+		return Target{}, err
+	}
+	return Target{Session: plan.Session}, nil
+}
+
+// createSession starts detached session name in dir running cfg.Claude, and sets @orrery_dir to dir,
+// in one tmux call so the option is set as the session starts.
+func createSession(ctx context.Context, cfg Config, name, dir string) error {
+	_, err := cfg.Tmux.Run(ctx, "new-session", "-d", "-s", name, "-c", dir, cfg.Claude,
+		";", "set-option", "-t", "="+name+":", protocol.OptionDir, dir)
+	if err != nil {
+		return fmt.Errorf("open: create session %q: %w", name, err)
+	}
+	return nil
 }
 
 // session is one tmux session as listSessions reads it.

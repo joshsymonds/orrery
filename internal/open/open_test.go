@@ -631,3 +631,211 @@ func TestMostRecentTieBreaksByLowestNameAndSkipsShell(t *testing.T) {
 		t.Error("mostRecent(nil) returned true, want false")
 	}
 }
+
+// claudeScript writes a stand-in claude that sleeps, so a created pane runs it without the real claude.
+func claudeScript(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "claude")
+	if err := os.WriteFile(path, []byte("#!/bin/sh\nexec sleep 300\n"), 0o755); err != nil {
+		t.Fatalf("write claude stand-in: %v", err)
+	}
+	return path
+}
+
+// executeConfig is a Config whose created panes run claude.
+func executeConfig(client *tmuxctl.Client, claude string) Config {
+	cfg := config(client, "")
+	cfg.Claude = claude
+	return cfg
+}
+
+// sessionNames returns the sorted names of every session on client's server.
+func sessionNames(t *testing.T, client *tmuxctl.Client) []string {
+	t.Helper()
+	sessions, err := listSessions(t.Context(), config(client, ""))
+	if err != nil {
+		t.Fatalf("listSessions: %v", err)
+	}
+	names := make([]string, 0, len(sessions))
+	for _, s := range sessions {
+		names = append(names, s.name)
+	}
+	slices.Sort(names)
+	return names
+}
+
+// paneValue reads one display-message format from the active pane of session name.
+func paneValue(t *testing.T, client *tmuxctl.Client, name, format string) string {
+	t.Helper()
+	return strings.TrimSpace(mustRun(t, client, "display-message", "-p", "-t", "="+name+":", format))
+}
+
+// dirOption reads @orrery_dir from session name. The exact-match target needs the trailing colon on tmux.
+func dirOption(t *testing.T, client *tmuxctl.Client, name string) string {
+	t.Helper()
+	return strings.TrimSpace(mustRun(t, client, "show-options", "-t", "="+name+":", "-v", protocol.OptionDir))
+}
+
+func TestExecuteDirPlanCreatesSessionWithClaudePane(t *testing.T) {
+	client := newClient(t)
+	startSession(t, client, "keeper", t.TempDir())
+	claude := claudeScript(t)
+	dir := t.TempDir()
+
+	target, err := Execute(t.Context(), executeConfig(client, claude), Plan{Session: "proj", Dir: dir})
+	if err != nil {
+		t.Fatalf("Execute(Dir plan): %v", err)
+	}
+	if want := (Target{Session: "proj"}); target != want {
+		t.Errorf("Execute(Dir plan) = %+v, want %+v", target, want)
+	}
+	if got := paneValue(t, client, "proj", "#{pane_current_path}"); got != dir {
+		t.Errorf("pane directory = %q, want %q", got, dir)
+	}
+	if got := paneValue(t, client, "proj", "#{pane_start_command}"); got != claude {
+		t.Errorf("pane command = %q, want %q", got, claude)
+	}
+	if got := dirOption(t, client, "proj"); got != dir {
+		t.Errorf("@orrery_dir = %q, want %q", got, dir)
+	}
+}
+
+func TestExecuteMakeDirCreatesExactlyDir(t *testing.T) {
+	client := newClient(t)
+	startSession(t, client, "keeper", t.TempDir())
+	root := t.TempDir()
+	dir := filepath.Join(root, "fresh")
+
+	plan := Plan{Session: "fresh", Dir: dir, MakeDir: true}
+	target, err := Execute(t.Context(), executeConfig(client, claudeScript(t)), plan)
+	if err != nil {
+		t.Fatalf("Execute(MakeDir plan): %v", err)
+	}
+	if want := (Target{Session: "fresh"}); target != want {
+		t.Errorf("Execute(MakeDir plan) = %+v, want %+v", target, want)
+	}
+	info, err := os.Stat(dir)
+	if err != nil || !info.IsDir() {
+		t.Fatalf("stat %s = %v, %v; want a directory", dir, info, err)
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatalf("read root: %v", err)
+	}
+	if len(entries) != 1 || entries[0].Name() != "fresh" {
+		t.Errorf("root entries = %v, want only fresh", entries)
+	}
+	if got := paneValue(t, client, "fresh", "#{pane_current_path}"); got != dir {
+		t.Errorf("pane directory = %q, want %q", got, dir)
+	}
+	if got := dirOption(t, client, "fresh"); got != dir {
+		t.Errorf("@orrery_dir = %q, want %q", got, dir)
+	}
+}
+
+func TestExecuteMakeDirDoesNotCreateParents(t *testing.T) {
+	client := newClient(t)
+	startSession(t, client, "keeper", t.TempDir())
+	root := t.TempDir()
+	dir := filepath.Join(root, "missing", "fresh")
+
+	plan := Plan{Session: "fresh", Dir: dir, MakeDir: true}
+	if _, err := Execute(t.Context(), executeConfig(client, claudeScript(t)), plan); err == nil {
+		t.Fatal("Execute with a missing parent returned nil error")
+	}
+	if _, err := os.Stat(filepath.Join(root, "missing")); !os.IsNotExist(err) {
+		t.Errorf("stat missing parent: err %v, want not exist", err)
+	}
+	if got := sessionNames(t, client); !slices.Equal(got, []string{"keeper"}) {
+		t.Errorf("sessions = %q, want only keeper", got)
+	}
+}
+
+func TestExecuteMakeDirExistingDirIsErrorWithNoSession(t *testing.T) {
+	client := newClient(t)
+	startSession(t, client, "keeper", t.TempDir())
+	dir := t.TempDir()
+
+	plan := Plan{Session: "fresh", Dir: dir, MakeDir: true}
+	if _, err := Execute(t.Context(), executeConfig(client, claudeScript(t)), plan); err == nil {
+		t.Fatal("Execute with an existing directory returned nil error")
+	}
+	if got := sessionNames(t, client); !slices.Equal(got, []string{"keeper"}) {
+		t.Errorf("sessions = %q, want only keeper", got)
+	}
+}
+
+func TestExecuteTextPlanIsErrorAndCreatesNothing(t *testing.T) {
+	client := newClient(t)
+	startSession(t, client, "keeper", t.TempDir())
+	root := t.TempDir()
+
+	plan := Plan{Session: "made", Dir: filepath.Join(root, "made"), MakeDir: true, Text: "fix the thing"}
+	if _, err := Execute(t.Context(), executeConfig(client, claudeScript(t)), plan); err == nil {
+		t.Fatal("Execute(Text plan) returned nil error")
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil || len(entries) != 0 {
+		t.Errorf("root entries = %v, %v; want none", entries, err)
+	}
+	if got := sessionNames(t, client); !slices.Equal(got, []string{"keeper"}) {
+		t.Errorf("sessions = %q, want only keeper", got)
+	}
+}
+
+func TestExecuteSessionPlanReturnsTargetWithoutCreating(t *testing.T) {
+	client := newClient(t)
+	startSession(t, client, "keeper", t.TempDir())
+	startSession(t, client, "work", t.TempDir())
+	cfg := executeConfig(client, claudeScript(t))
+
+	got, err := Execute(t.Context(), cfg, Plan{Session: "work"})
+	if err != nil || got != (Target{Session: "work"}) {
+		t.Errorf("Execute(session plan) = %+v, %v; want work, nil", got, err)
+	}
+	got, err = Execute(t.Context(), cfg, Plan{Session: "work", Tree: true})
+	if err != nil || got != (Target{Session: "work", Tree: true}) {
+		t.Errorf("Execute(session plan with Tree) = %+v, %v; want work with tree, nil", got, err)
+	}
+	if names := sessionNames(t, client); !slices.Equal(names, []string{"keeper", "work"}) {
+		t.Errorf("sessions = %q, want keeper and work only", names)
+	}
+}
+
+func TestExecuteSameBasenameRootsResolveToTheirOwnSessions(t *testing.T) {
+	client := newClient(t)
+	startSession(t, client, "keeper", t.TempDir())
+	first := filepath.Join(t.TempDir(), "proj")
+	second := filepath.Join(t.TempDir(), "proj")
+	for _, dir := range []string{first, second} {
+		if err := os.Mkdir(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	bin := installZoxide(t, scored(first), 0)
+	cfg := executeConfig(client, claudeScript(t))
+	cfg.Zoxide = bin
+
+	plan := resolve(t, cfg, Request{Args: []string{"proj"}})
+	if want := (Plan{Session: "proj", Dir: first}); plan != want {
+		t.Fatalf("Resolve(proj) for first root = %+v, want %+v", plan, want)
+	}
+	if target, err := Execute(t.Context(), cfg, plan); err != nil || target != (Target{Session: "proj"}) {
+		t.Fatalf("Execute(first root) = %+v, %v; want proj, nil", target, err)
+	}
+
+	plan = resolve(t, cfg, Request{Args: []string{"."}, Cwd: second})
+	if want := (Plan{Session: "proj-2", Dir: second}); plan != want {
+		t.Fatalf("Resolve(.) for second root = %+v, want %+v", plan, want)
+	}
+	if target, err := Execute(t.Context(), cfg, plan); err != nil || target != (Target{Session: "proj-2"}) {
+		t.Fatalf("Execute(second root) = %+v, %v; want proj-2, nil", target, err)
+	}
+
+	if got := resolve(t, cfg, Request{Args: []string{"."}, Cwd: first}); got != (Plan{Session: "proj"}) {
+		t.Errorf("Resolve(.) in first root = %+v, want session proj", got)
+	}
+	if got := resolve(t, cfg, Request{Args: []string{"."}, Cwd: second}); got != (Plan{Session: "proj-2"}) {
+		t.Errorf("Resolve(.) in second root = %+v, want session proj-2", got)
+	}
+}
