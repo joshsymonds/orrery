@@ -75,10 +75,15 @@ func Run(ctx context.Context, opts Options) (Result, error) {
 		tea.WithOutput(opts.Output),
 		tea.WithWindowSize(fallbackWidth, fallbackHeight),
 	)
-	if _, err := program.Run(); err != nil && !errors.Is(err, tea.ErrProgramKilled) {
+	final, err := program.Run()
+	if err != nil && !errors.Is(err, tea.ErrProgramKilled) {
 		return Result{}, fmt.Errorf("run tree: %w", err)
 	}
-	return Result{Action: ActionClose}, nil
+	done, ok := final.(model)
+	if !ok {
+		return Result{}, fmt.Errorf("run tree: final model is %T", final)
+	}
+	return done.result, nil
 }
 
 // model is the tree's state. Panes reload through source and previews through capture,
@@ -88,6 +93,11 @@ type model struct {
 	capture    func(paneID string) (string, error)
 	now        func() time.Time
 	groups     []view.Group
+	cursorID   string
+	cursor     int
+	query      string
+	filtering  bool
+	result     Result
 	preview    string
 	previewID  string
 	sourceErr  error
@@ -114,7 +124,7 @@ func newModel(
 	capture func(string) (string, error),
 	now func() time.Time,
 ) model {
-	return model{source: source, capture: capture, now: now}
+	return model{source: source, capture: capture, now: now, result: Result{Action: ActionClose}}
 }
 
 // Init loads the panes and starts the reload timer.
@@ -122,9 +132,11 @@ func (m model) Init() tea.Cmd {
 	return tea.Batch(m.loadPanes(), tick())
 }
 
-// Update applies window size, reload, and load results.
+// Update applies key presses, window size, reload, and load results.
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case tea.KeyPressMsg:
+		return m.keyPressed(msg)
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 		return m, nil
@@ -164,14 +176,15 @@ func (m model) loadPreview(paneID string) tea.Cmd {
 	}
 }
 
-// applyPanes regroups the panes and captures the preview of the row under the cursor.
-// A source error keeps the previous tree and shows the error.
+// applyPanes regroups the panes, keeps the cursor on its pane, and captures the preview of
+// the row under the cursor. A source error keeps the previous tree and shows the error.
 func (m model) applyPanes(msg panesMsg) (tea.Model, tea.Cmd) {
 	m.sourceErr = msg.err
 	if msg.err != nil {
 		return m, nil
 	}
 	m.groups = view.Groups(msg.panes)
+	m = m.sync()
 	cur, ok := m.current()
 	if !ok {
 		m.preview, m.previewID, m.captureErr = "", "", nil
@@ -180,32 +193,61 @@ func (m model) applyPanes(msg panesMsg) (tea.Model, tea.Cmd) {
 	return m, m.loadPreview(cur.ID)
 }
 
-// rows returns the panes in display order.
+// rows returns the visible panes in display order.
 func (m model) rows() []protocol.Pane {
 	var rows []protocol.Pane
-	for _, g := range m.groups {
+	for _, g := range m.visible() {
 		rows = append(rows, g.Panes...)
 	}
 	return rows
 }
 
-// current returns the pane under the cursor, which starts on the first row.
+// current returns the pane under the cursor. The cursor starts on the first row.
 func (m model) current() (protocol.Pane, bool) {
 	rows := m.rows()
 	if len(rows) == 0 {
 		return protocol.Pane{}, false
 	}
-	return rows[0], true
+	return rows[m.locate(rows)], true
 }
 
-// frame renders the groups, the selected preview, and an error line, clipped to the terminal.
+// locate returns the index in rows of the cursor: the row with the cursor's pane ID when
+// that pane is still shown, else the cursor's index clamped to the last row. rows must not
+// be empty.
+func (m model) locate(rows []protocol.Pane) int {
+	for i, p := range rows {
+		if p.ID == m.cursorID {
+			return i
+		}
+	}
+	return min(m.cursor, len(rows)-1)
+}
+
+// sync records where the cursor is after the rows changed, so that a later reload can find
+// its pane again or clamp to the same place.
+func (m model) sync() model {
+	rows := m.rows()
+	if len(rows) == 0 {
+		m.cursor, m.cursorID = 0, ""
+		return m
+	}
+	i := m.locate(rows)
+	m.cursor, m.cursorID = i, rows[i].ID
+	return m
+}
+
+// frame renders the filter line, the groups, the selected preview, and an error line,
+// clipped to the terminal.
 func (m model) frame() string {
 	cur, hasCur := m.current()
 	var lines []string
+	if m.filtering || m.query != "" {
+		lines = append(lines, "/"+m.query)
+	}
 	if !hasCur {
 		lines = append(lines, "No panes.")
 	}
-	for _, g := range m.groups {
+	for _, g := range m.visible() {
 		lines = append(lines, g.Dir)
 		for _, p := range g.Panes {
 			lines = append(lines, m.row(p, p.ID == cur.ID))
