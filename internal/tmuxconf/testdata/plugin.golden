@@ -1,0 +1,8 @@
+bind-key Space run-shell -b "tmux display-popup -c #{q:client_tty} -E \"/synthetic/bin/orrery tree --client #{q:client_tty}\""
+bind-key s run-shell -b "tmux has-session -t '=_orrery-shell-#{s/[^A-Za-z0-9_-]/_/:pane_current_path}:' 2>/dev/null || (tmux new-session -d -s '_orrery-shell-#{s/[^A-Za-z0-9_-]/_/:pane_current_path}' -c #{q:pane_current_path} && tmux set-option -t '=_orrery-shell-#{s/[^A-Za-z0-9_-]/_/:pane_current_path}:' @orrery_dir #{q:pane_current_path}); tmux display-popup -c #{q:client_tty} -d #{q:pane_current_path} -E \"tmux attach-session -t '=_orrery-shell-#{s/[^A-Za-z0-9_-]/_/:pane_current_path}:'\""
+set -ga status-right " orrery #{n:#{S:#{?#{m:_orrery-shell-*,#{session_name}},,#{W:#{P:#{?#{==:#{@orrery_state},waiting},w,}}}}}} waiting #{n:#{S:#{?#{m:_orrery-shell-*,#{session_name}},,#{W:#{P:#{?#{==:#{@orrery_state},waiting},,#{?#{@orrery_state},#{?#{e|>|:#{@orrery_changed},#{@orrery_seen}},n,},}}}}}}} new "
+set -g pane-border-status top
+set -g pane-border-format "#{?#{@orrery_state},#{@orrery_state} #{@orrery_label} #{@orrery_summary},}"
+set-hook -ga window-pane-changed "if-shell -F '#{session_attached}' 'run-shell -b \"/synthetic/bin/orrery seen --pane #{pane_id}\"'"
+set-hook -ga session-window-changed "if-shell -F '#{session_attached}' 'run-shell -b \"/synthetic/bin/orrery seen --pane #{pane_id}\"'"
+set-hook -ga client-session-changed "if-shell -F '#{session_attached}' 'run-shell -b \"/synthetic/bin/orrery seen --pane #{pane_id}\"'"
