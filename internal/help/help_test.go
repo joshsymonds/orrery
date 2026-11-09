@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"html"
 	"os"
 	"slices"
 	"strings"
@@ -17,9 +18,10 @@ import (
 )
 
 const (
-	goldenPath = "testdata/card.golden"
-	maxLines   = 40
-	labelWidth = 14
+	goldenPath     = "testdata/card.golden"
+	pageGoldenPath = "testdata/page.golden"
+	maxLines       = 40
+	labelWidth     = 14
 )
 
 // row formats one card row the way the frozen layout does: two spaces, the label left-justified to labelWidth, then
@@ -121,6 +123,108 @@ func TestCardReturnsWriteError(t *testing.T) {
 func newServerName(t *testing.T) string {
 	t.Helper()
 	return fmt.Sprintf("orrery-help-%d-%d", os.Getpid(), time.Now().UnixNano())
+}
+
+// escapeText returns text as the page writes it. html/template escapes '+' as well as what html.EscapeString escapes.
+func escapeText(text string) string {
+	return strings.ReplaceAll(html.EscapeString(text), "+", "&#43;")
+}
+
+// pageRow returns the table row the page writes for one label and text.
+func pageRow(label, text string) string {
+	return fmt.Sprintf("<tr><th>%s</th><td>%s</td></tr>", escapeText(label), escapeText(text))
+}
+
+// renderPage returns the page for a prefix of C-a.
+func renderPage(t *testing.T) string {
+	t.Helper()
+	var got bytes.Buffer
+	if err := help.Page(&got, "C-a"); err != nil {
+		t.Fatalf("Page: %v", err)
+	}
+	return got.String()
+}
+
+func TestPageMatchesGolden(t *testing.T) {
+	got := renderPage(t)
+	want, err := os.ReadFile(pageGoldenPath)
+	if err != nil {
+		t.Fatalf("read golden: %v", err)
+	}
+	if got != string(want) {
+		t.Errorf("Page(w, \"C-a\") differs from %s:\n%s", pageGoldenPath, got)
+	}
+}
+
+func TestPageRepeatsEveryCardHeadingAndRow(t *testing.T) {
+	var card bytes.Buffer
+	if err := help.Card(&card, "C-a"); err != nil {
+		t.Fatalf("Card: %v", err)
+	}
+	page := renderPage(t)
+
+	lines := strings.Split(card.String(), "\n")
+	title := lines[0]
+	if want := "<h1>" + escapeText(title) + "</h1>"; !strings.Contains(page, want) {
+		t.Errorf("page has no %q", want)
+	}
+	for _, line := range lines[1:] {
+		switch {
+		case line == "":
+		case !strings.HasPrefix(line, "  "):
+			if want := "<h2>" + escapeText(line) + "</h2>"; !strings.Contains(page, want) {
+				t.Errorf("page has no %q", want)
+			}
+		default:
+			if len(line) < labelWidth+2 {
+				t.Fatalf("card row %q is shorter than its label column", line)
+			}
+			label := strings.TrimSpace(line[:labelWidth+2])
+			if want := pageRow(label, line[labelWidth+2:]); !strings.Contains(page, want) {
+				t.Errorf("page has no row %q", want)
+			}
+		}
+	}
+}
+
+func TestPageListsEveryKeymapBinding(t *testing.T) {
+	page := renderPage(t)
+	for _, b := range keymap.Bindings() {
+		switch b.Surface {
+		case keymap.Tree:
+			if want := pageRow(strings.Join(b.Keys, ", "), b.Help); !strings.Contains(page, want) {
+				t.Errorf("page has no row %q", want)
+			}
+		case keymap.Tmux:
+			for _, key := range b.Keys {
+				if want := pageRow("prefix "+key, b.Help); !strings.Contains(page, want) {
+					t.Errorf("page has no row %q", want)
+				}
+			}
+		default:
+			t.Fatalf("binding surface %q has no page section", b.Surface)
+		}
+	}
+}
+
+func TestPageHasNoExternalAssets(t *testing.T) {
+	page := renderPage(t)
+	if !strings.HasPrefix(page, "<!doctype html>") {
+		t.Fatalf("page does not start with <!doctype html>:\n%s", page)
+	}
+	lower := strings.ToLower(page)
+	for _, banned := range []string{"<script", "<link", "<img", "src", "url(", "@import", "http://", "https://"} {
+		if strings.Contains(lower, banned) {
+			t.Errorf("page contains %q, want no external assets", banned)
+		}
+	}
+}
+
+func TestPageReturnsWriteError(t *testing.T) {
+	err := help.Page(failingWriter{}, "C-a")
+	if !errors.Is(err, errWrite) {
+		t.Fatalf("Page error = %v, want %v", err, errWrite)
+	}
 }
 
 func TestPrefixReadsLiveServerPrefix(t *testing.T) {

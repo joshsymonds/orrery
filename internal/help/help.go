@@ -1,9 +1,10 @@
-// Package help renders the one-screen help card from the keymap table.
+// Package help renders the one-screen help card and the static help page from the keymap table.
 package help
 
 import (
 	"context"
 	"fmt"
+	"html/template"
 	"io"
 	"strings"
 
@@ -14,43 +15,127 @@ import (
 // labelWidth is the column where a row's text starts, counted after its two-space indent.
 const labelWidth = 14
 
-// Card writes the help card to out. prefix is tmux's prefix key; "" means it is unknown.
-func Card(out io.Writer, prefix string) error {
-	var card strings.Builder
+// row is one label and the text that explains it.
+type row struct {
+	Label string
+	Text  string
+}
 
-	card.WriteString("orrery daily use\n\n")
+// section is one headed group of rows.
+type section struct {
+	Heading string
+	Rows    []row
+}
 
-	card.WriteString("p\n")
-	writeRow(&card, "p", "attach the most recently active session, then open the tree")
-	writeRow(&card, "p .", "the session for the current directory, created if missing")
-	writeRow(&card, "p WORD", "a session named WORD, else a zoxide match, else the picker")
-	writeRow(&card, "p new NAME", "create project directory NAME and a session for it (--root DIR sets the parent)")
-	writeRow(&card, "p WORDS...", "open the picker with WORDS as the intent")
-	card.WriteString("\n")
+// document is the help content that Card and Page both render.
+type document struct {
+	Title    string
+	Sections []section
+}
 
-	if prefix == "" {
-		card.WriteString("tmux\n")
-	} else {
-		fmt.Fprintf(&card, "tmux (prefix is %s)\n", prefix)
+// content builds the help content. prefix is tmux's prefix key; "" means it is unknown.
+func content(prefix string) document {
+	tmux := section{Heading: "tmux"}
+	if prefix != "" {
+		tmux.Heading = fmt.Sprintf("tmux (prefix is %s)", prefix)
 	}
 	for _, binding := range keymap.For(keymap.Tmux) {
 		for _, key := range binding.Keys {
-			writeRow(&card, "prefix "+key, binding.Help)
+			tmux.Rows = append(tmux.Rows, row{Label: "prefix " + key, Text: binding.Help})
 		}
 	}
-	card.WriteString("\n")
 
-	card.WriteString("kitty\n")
-	writeRow(&card, "kitty_mod+p", "run p; nix-config's kitty binding, not set by orrery")
-	card.WriteString("\n")
-
-	card.WriteString("tree\n")
+	tree := section{Heading: "tree"}
 	for _, binding := range keymap.For(keymap.Tree) {
-		writeRow(&card, strings.Join(binding.Keys, ", "), binding.Help)
+		tree.Rows = append(tree.Rows, row{Label: strings.Join(binding.Keys, ", "), Text: binding.Help})
+	}
+
+	return document{
+		Title: "orrery daily use",
+		Sections: []section{
+			{
+				Heading: "p",
+				Rows: []row{
+					{Label: "p", Text: "attach the most recently active session, then open the tree"},
+					{Label: "p .", Text: "the session for the current directory, created if missing"},
+					{Label: "p WORD", Text: "a session named WORD, else a zoxide match, else the picker"},
+					{
+						Label: "p new NAME",
+						Text:  "create project directory NAME and a session for it (--root DIR sets the parent)",
+					},
+					{Label: "p WORDS...", Text: "open the picker with WORDS as the intent"},
+				},
+			},
+			tmux,
+			{
+				Heading: "kitty",
+				Rows: []row{
+					{Label: "kitty_mod+p", Text: "run p; nix-config's kitty binding, not set by orrery"},
+				},
+			},
+			tree,
+		},
+	}
+}
+
+// Card writes the help card to out. prefix is tmux's prefix key; "" means it is unknown.
+func Card(out io.Writer, prefix string) error {
+	doc := content(prefix)
+	var card strings.Builder
+
+	card.WriteString(doc.Title + "\n\n")
+	for i, sec := range doc.Sections {
+		if i > 0 {
+			card.WriteString("\n")
+		}
+		card.WriteString(sec.Heading + "\n")
+		for _, r := range sec.Rows {
+			writeRow(&card, r.Label, r.Text)
+		}
 	}
 
 	if _, err := io.WriteString(out, card.String()); err != nil {
 		return fmt.Errorf("write help card: %w", err)
+	}
+	return nil
+}
+
+// pageSource is the help page. Every label and text reaches it through html/template, which escapes it.
+const pageSource = `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{.Title}}</title>
+<style>
+:root { color-scheme: light dark; }
+body { margin: 0 auto; max-width: 56rem; padding: 2rem 1rem; font: 15px/1.5 system-ui, sans-serif; background: #ffffff; color: #1f2328; }
+h1 { font-size: 1.4rem; }
+h2 { font-size: 1.05rem; margin: 1.6rem 0 0.4rem; }
+table { width: 100%; border-collapse: collapse; }
+th, td { text-align: left; vertical-align: top; padding: 0.2rem 1rem 0.2rem 0; }
+th { font-family: ui-monospace, monospace; font-weight: 600; white-space: nowrap; }
+@media (prefers-color-scheme: dark) { body { background: #0d1117; color: #e6edf3; } }
+</style>
+</head>
+<body>
+<h1>{{.Title}}</h1>
+{{range .Sections}}<h2>{{.Heading}}</h2>
+<table>
+{{range .Rows}}<tr><th>{{.Label}}</th><td>{{.Text}}</td></tr>
+{{end}}</table>
+{{end}}</body>
+</html>
+`
+
+// Page writes the help page to out: the same content as Card, as one static HTML document with inline CSS.
+func Page(out io.Writer, prefix string) error {
+	page, err := template.New("page").Parse(pageSource)
+	if err != nil {
+		return fmt.Errorf("parse help page: %w", err)
+	}
+	if err = page.Execute(out, content(prefix)); err != nil {
+		return fmt.Errorf("write help page: %w", err)
 	}
 	return nil
 }
