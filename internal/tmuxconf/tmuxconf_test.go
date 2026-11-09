@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/joshsymonds/orrery/internal/keymap"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/shell"
 	"github.com/joshsymonds/orrery/internal/tmuxconf"
@@ -74,6 +75,43 @@ func TestPrintGolden(t *testing.T) {
 	}
 	if buf.String() != string(golden) {
 		t.Fatalf("Print output mismatch\n got: %s\nwant: %s", buf.String(), golden)
+	}
+}
+
+// TestPrefixBindingsFollowKeymap checks that the bind-key lines Print writes bind the keys of the keymap's tmux
+// bindings, in keymap order, each to the command for its action.
+func TestPrefixBindingsFollowKeymap(t *testing.T) {
+	treeCommand := `run-shell -b "tmux display-popup -c #{q:client_tty} -E \"` + goldenOrrery +
+		` tree --client #{q:client_tty}\""`
+	shellCommand := `run-shell -b "` + goldenOrrery + ` shell --dir #{q:pane_current_path} --client #{q:client_tty}"`
+	var want []string
+	for _, b := range keymap.For(keymap.Tmux) {
+		var command string
+		switch b.Action {
+		case keymap.ActTree:
+			command = treeCommand
+		case keymap.ActShell:
+			command = shellCommand
+		default:
+			t.Fatalf("no expected command for tmux action %q", b.Action)
+		}
+		for _, key := range b.Keys {
+			want = append(want, "bind-key "+key+" "+command)
+		}
+	}
+
+	var buf bytes.Buffer
+	if err := tmuxconf.Print(&buf, goldenOrrery); err != nil {
+		t.Fatalf("Print: %v", err)
+	}
+	var got []string
+	for line := range strings.SplitSeq(buf.String(), "\n") {
+		if strings.HasPrefix(line, "bind-key ") {
+			got = append(got, line)
+		}
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("bind-key lines = %q, want %q", got, want)
 	}
 }
 
