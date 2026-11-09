@@ -615,3 +615,112 @@ func TestQuestionCapture(t *testing.T) {
 		wantQuestion(t, client, pane, "")
 	})
 }
+
+// recordSession runs one hook through state.RecordSession and fails the test on error.
+func recordSession(t *testing.T, client *tmuxctl.Client, pane, hook string) {
+	t.Helper()
+	if err := state.RecordSession(t.Context(), client, pane, json.RawMessage(hook)); err != nil {
+		t.Fatalf("RecordSession(%s): %v", hook, err)
+	}
+}
+
+// wantOption checks pane-scoped option name; want "" means unset.
+func wantOption(t *testing.T, client *tmuxctl.Client, pane, name, want string) {
+	t.Helper()
+	got, ok := option(t, client, pane, name)
+	if want == "" {
+		if ok {
+			t.Fatalf("%s = %q, want unset", name, got)
+		}
+		return
+	}
+	if !ok || got != want {
+		t.Fatalf("%s = (%q, %v), want (%q, true)", name, got, ok, want)
+	}
+}
+
+// wantSession checks @orrery_claude_session and @orrery_transcript of pane.
+func wantSession(t *testing.T, client *tmuxctl.Client, pane, session, transcript string) {
+	t.Helper()
+	wantOption(t, client, pane, protocol.OptionClaudeSession, session)
+	wantOption(t, client, pane, protocol.OptionTranscript, transcript)
+}
+
+func TestRecordSession(t *testing.T) {
+	const (
+		sessionHook = `{"hook_event_name":"PreToolUse","tool_name":"Bash",` +
+			`"session_id":"synthetic-session","transcript_path":"/synthetic/transcript.jsonl"}`
+		emptySessionHook = `{"hook_event_name":"PreToolUse","session_id":"","transcript_path":""}`
+		plainHook        = `{"hook_event_name":"PreToolUse","tool_name":"Bash"}`
+		sessionEndOther  = `{"hook_event_name":"SessionEnd","reason":"other",` +
+			`"session_id":"synthetic-session","transcript_path":"/synthetic/transcript.jsonl"}`
+		sessionEndClear = `{"hook_event_name":"SessionEnd","reason":"clear"}`
+		newlineHook     = `{"hook_event_name":"PreToolUse","session_id":"synthetic\nsession",` +
+			`"transcript_path":"/synthetic/\ntranscript.jsonl"}`
+	)
+	t0 := time.Unix(1700000000, 0)
+
+	t.Run("sets session and transcript from the hook", func(t *testing.T) {
+		client, pane := startPane(t)
+		recordSession(t, client, pane, sessionHook)
+		wantSession(t, client, pane, "synthetic-session", "/synthetic/transcript.jsonl")
+	})
+
+	t.Run("a hook without them or with empty values keeps them", func(t *testing.T) {
+		client, pane := startPane(t)
+		recordSession(t, client, pane, sessionHook)
+		recordSession(t, client, pane, plainHook)
+		wantSession(t, client, pane, "synthetic-session", "/synthetic/transcript.jsonl")
+		recordSession(t, client, pane, emptySessionHook)
+		wantSession(t, client, pane, "synthetic-session", "/synthetic/transcript.jsonl")
+	})
+
+	t.Run("SessionEnd reason other keeps them", func(t *testing.T) {
+		client, pane := startPane(t)
+		recordSession(t, client, pane, sessionHook)
+		apply(t, client, pane, sessionEndOther, t0)
+		wantSession(t, client, pane, "synthetic-session", "/synthetic/transcript.jsonl")
+		recordSession(t, client, pane, sessionEndOther)
+		wantSession(t, client, pane, "synthetic-session", "/synthetic/transcript.jsonl")
+	})
+
+	t.Run("SessionEnd reason clear unsets them", func(t *testing.T) {
+		client, pane := startPane(t)
+		recordSession(t, client, pane, sessionHook)
+		wantSession(t, client, pane, "synthetic-session", "/synthetic/transcript.jsonl")
+		recordSession(t, client, pane, sessionEndClear)
+		wantSession(t, client, pane, "", "")
+	})
+
+	t.Run("a newline becomes a space", func(t *testing.T) {
+		client, pane := startPane(t)
+		recordSession(t, client, pane, newlineHook)
+		wantSession(t, client, pane, "synthetic session", "/synthetic/ transcript.jsonl")
+	})
+
+	t.Run("bad hook is an error and writes nothing", func(t *testing.T) {
+		cases := []struct {
+			name string
+			hook string
+		}{
+			{"malformed JSON", `{"hook_event_name":`},
+			{"non-string session_id", `{"hook_event_name":"PreToolUse","session_id":5,` +
+				`"transcript_path":"/synthetic/new.jsonl"}`},
+			{"non-string transcript_path", `{"hook_event_name":"PreToolUse","session_id":"synthetic-new",` +
+				`"transcript_path":7}`},
+			{"non-string hook_event_name", `{"hook_event_name":5,"session_id":"synthetic-new"}`},
+			{"non-string reason", `{"hook_event_name":"SessionEnd","reason":["clear"]}`},
+		}
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				client, pane := startPane(t)
+				recordSession(t, client, pane, sessionHook)
+				err := state.RecordSession(t.Context(), client, pane, json.RawMessage(tc.hook))
+				if err == nil {
+					t.Fatalf("RecordSession(%s) error = nil, want error", tc.hook)
+				}
+				wantSession(t, client, pane, "synthetic-session", "/synthetic/transcript.jsonl")
+			})
+		}
+	})
+}

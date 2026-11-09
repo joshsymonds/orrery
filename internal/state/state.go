@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/protocol"
@@ -35,6 +36,11 @@ const (
 	keyNotificationType = "notification_type"
 	keyToolName         = "tool_name"
 	keyToolInput        = "tool_input"
+	keyReason           = "reason"
+	keySessionID        = "session_id"
+	keyTranscriptPath   = "transcript_path"
+
+	reasonClear = "clear"
 
 	eventUserPromptSubmit   = "UserPromptSubmit"
 	eventPreToolUse         = "PreToolUse"
@@ -106,6 +112,64 @@ func Apply(
 		return Transition{}, false, err
 	}
 	return transition, from != to, nil
+}
+
+// RecordSession records the Claude Code session id and transcript path that one hook event carries,
+// so a later close can archive them. A SessionEnd with reason clear unsets both options. Any other
+// event sets each option whose hook value is non-empty; an absent or empty value leaves it unchanged.
+// The whole hook is decoded before any option is written, so a malformed or mistyped field writes
+// nothing.
+func RecordSession(ctx context.Context, client *tmuxctl.Client, paneID string, hook json.RawMessage) error {
+	fields, err := decodeHook(hook)
+	if err != nil {
+		return err
+	}
+	event, err := fields.text(keyEventName)
+	if err != nil {
+		return err
+	}
+	reason, err := fields.text(keyReason)
+	if err != nil {
+		return err
+	}
+	sessionID, err := fields.text(keySessionID)
+	if err != nil {
+		return err
+	}
+	transcript, err := fields.text(keyTranscriptPath)
+	if err != nil {
+		return err
+	}
+
+	if event == eventSessionEnd && reason == reasonClear {
+		for _, name := range []string{protocol.OptionClaudeSession, protocol.OptionTranscript} {
+			if err = client.UnsetPaneOption(ctx, paneID, name); err != nil {
+				return fmt.Errorf("unset %s: %w", name, err)
+			}
+		}
+		return nil
+	}
+	return setSessionValues(ctx, client, paneID, sessionID, transcript)
+}
+
+// setSessionValues sets @orrery_claude_session and @orrery_transcript from the hook's session id and
+// transcript path. Newlines become spaces, because the stored values are single-line. An empty value
+// leaves its option unchanged.
+func setSessionValues(ctx context.Context, client *tmuxctl.Client, paneID, sessionID, transcript string) error {
+	values := []struct{ name, value string }{
+		{protocol.OptionClaudeSession, sessionID},
+		{protocol.OptionTranscript, transcript},
+	}
+	for _, option := range values {
+		if option.value == "" {
+			continue
+		}
+		value := strings.ReplaceAll(option.value, "\n", " ")
+		if err := client.SetPaneOption(ctx, paneID, option.name, value); err != nil {
+			return fmt.Errorf("set %s: %w", option.name, err)
+		}
+	}
+	return nil
 }
 
 // targetState maps a hook event to the state it leaves the pane in. SessionEnd is handled with
