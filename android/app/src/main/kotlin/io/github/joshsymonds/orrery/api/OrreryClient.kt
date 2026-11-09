@@ -1,6 +1,7 @@
 package io.github.joshsymonds.orrery.api
 
 import org.json.JSONArray
+import org.json.JSONException
 import org.json.JSONObject
 import java.io.IOException
 import java.net.HttpURLConnection
@@ -24,7 +25,41 @@ data class Pane(
     val seen: Long,
     val question: String,
     val questionHash: String,
+    val tool: String = "",
 )
+
+data class PaneTool(val id: String, val name: String, val input: String, val start: Long)
+
+fun Pane.currentTool(): PaneTool? {
+    if (tool.isEmpty()) return null
+    val json = try {
+        JSONObject(tool)
+    } catch (e: JSONException) {
+        return null
+    }
+    return PaneTool(
+        id = json.optString("id", ""),
+        name = json.optString("name", ""),
+        input = json.optString("input", ""),
+        start = json.optLong("start", 0L),
+    )
+}
+
+data class ConversationItem(
+    val kind: String,
+    val time: Long,
+    val text: String,
+    val tool: String,
+    val input: String,
+    val id: String,
+    val error: Boolean,
+)
+
+data class Conversation(val origin: String, val items: List<ConversationItem>)
+
+data class HostStat(val label: String, val value: String, val percent: Double?, val level: String)
+
+data class HostStatus(val host: String, val stats: List<HostStat>)
 
 sealed interface KeysResult {
     data object Sent : KeysResult
@@ -66,12 +101,52 @@ class OrreryClient(baseUrl: String) {
                 seen = json.getLong("seen"),
                 question = json.getString("question"),
                 questionHash = json.getString("question_hash"),
+                tool = json.optString("tool", ""),
             )
         }
     }
 
     fun screen(paneId: String): String =
         getOk(panePath(paneId, "screen") + "?ansi=1&history=500")
+
+    fun conversation(paneId: String): Conversation? {
+        val body = getOrNotFound(panePath(paneId, "conversation") + "?limit=50") ?: return null
+        val json = JSONObject(body)
+        val array = json.getJSONArray("items")
+        return Conversation(
+            origin = json.getString("origin"),
+            items = List(array.length()) { index ->
+                val item = array.getJSONObject(index)
+                ConversationItem(
+                    kind = item.getString("kind"),
+                    time = item.getLong("time"),
+                    text = item.getString("text"),
+                    tool = item.getString("tool"),
+                    input = item.getString("input"),
+                    id = item.getString("id"),
+                    error = item.getBoolean("error"),
+                )
+            },
+        )
+    }
+
+    fun host(): HostStatus? {
+        val body = getOrNotFound("/v1/host") ?: return null
+        val json = JSONObject(body)
+        val array = json.getJSONArray("stats")
+        return HostStatus(
+            host = json.getString("host"),
+            stats = List(array.length()) { index ->
+                val stat = array.getJSONObject(index)
+                HostStat(
+                    label = stat.getString("label"),
+                    value = stat.getString("value"),
+                    percent = if (stat.isNull("percent")) null else stat.getDouble("percent"),
+                    level = stat.getString("level"),
+                )
+            },
+        )
+    }
 
     fun sendText(paneId: String, text: String) {
         post(panePath(paneId, "text"), JSONObject().put("text", text))
@@ -116,6 +191,15 @@ class OrreryClient(baseUrl: String) {
 
     private fun getOk(path: String): String {
         val response = send("GET", path, null)
+        checkOk("GET", path, response)
+        return response.body
+    }
+
+    private fun getOrNotFound(path: String): String? {
+        val response = send("GET", path, null)
+        if (response.status == 404) {
+            return null
+        }
         checkOk("GET", path, response)
         return response.body
     }

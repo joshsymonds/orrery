@@ -2,6 +2,7 @@ package io.github.joshsymonds.orrery.api
 
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
 import org.junit.Test
 
@@ -250,6 +251,161 @@ class OrreryClientTest {
             }
 
             assertEquals(500, error.status)
+        }
+    }
+
+    private fun paneJsonWithTool(tool: String): String =
+        """[{"id":"%3","host":"example-host","session":"example-session","window":1,"pane":2,
+           "cwd":"/home/user/project","command":"claude","state":"working",
+           "summary":"","label":"","changed":0,"seen":0,"question":"",
+           "question_hash":"","tool":${JSONObject.quote(tool)}}]"""
+
+    @Test
+    fun panesReadsToolAndCurrentToolDecodesEveryField() {
+        val tool = """{"id":"example-tool-use","name":"Bash","input":"example command","start":1700000250}"""
+        FakeOrreryServer().use { server ->
+            server.respond("GET", "/v1/panes", 200, paneJsonWithTool(tool))
+
+            val pane = OrreryClient(server.baseUrl).panes().single()
+
+            assertEquals(tool, pane.tool)
+            assertEquals(
+                PaneTool("example-tool-use", "Bash", "example command", 1700000250L),
+                pane.currentTool(),
+            )
+        }
+    }
+
+    @Test
+    fun panesWithoutToolKeyHaveEmptyToolAndNoCurrentTool() {
+        FakeOrreryServer().use { server ->
+            server.respond("GET", "/v1/panes", 200, panesJson)
+
+            val panes = OrreryClient(server.baseUrl).panes()
+
+            assertEquals(listOf("", ""), panes.map { it.tool })
+            assertNull(panes[0].currentTool())
+            assertNull(panes[1].currentTool())
+        }
+    }
+
+    @Test
+    fun malformedOrNonObjectToolTextHasNoCurrentTool() {
+        FakeOrreryServer().use { server ->
+            server.respond("GET", "/v1/panes", 200, paneJsonWithTool("{not json"))
+            val malformed = OrreryClient(server.baseUrl).panes().single()
+            assertEquals("{not json", malformed.tool)
+            assertNull(malformed.currentTool())
+
+            server.respond("GET", "/v1/panes", 200, paneJsonWithTool("[1]"))
+            val notObject = OrreryClient(server.baseUrl).panes().single()
+            assertEquals("[1]", notObject.tool)
+            assertNull(notObject.currentTool())
+        }
+    }
+
+    @Test
+    fun conversationParsesOriginAndEveryItemFieldAndAsksForFiftyItems() {
+        val body = """
+            {"origin":"Example opening prompt.","items":[
+              {"kind":"prompt","time":1700000000,"text":"Example prompt.","tool":"","input":"","id":"","error":false},
+              {"kind":"tool","time":1700000200,"text":"","tool":"Bash","input":"example command","id":"example-tool-use","error":false},
+              {"kind":"result","time":1700000210,"text":"Example output.","tool":"","input":"","id":"example-tool-use","error":false},
+              {"kind":"result","time":1700000220,"text":"Example failure.","tool":"","input":"","id":"example-tool-use-2","error":true}
+            ]}
+        """.trimIndent()
+        FakeOrreryServer().use { server ->
+            server.respond("GET", "/v1/panes/%253/conversation", 200, body)
+
+            val conversation = OrreryClient(server.baseUrl).conversation("%3")
+
+            assertEquals(
+                Conversation(
+                    origin = "Example opening prompt.",
+                    items = listOf(
+                        ConversationItem("prompt", 1700000000L, "Example prompt.", "", "", "", false),
+                        ConversationItem("tool", 1700000200L, "", "Bash", "example command", "example-tool-use", false),
+                        ConversationItem("result", 1700000210L, "Example output.", "", "", "example-tool-use", false),
+                        ConversationItem("result", 1700000220L, "Example failure.", "", "", "example-tool-use-2", true),
+                    ),
+                ),
+                conversation,
+            )
+            val request = server.requests.single()
+            assertEquals("GET", request.method)
+            assertEquals("/v1/panes/%253/conversation", request.rawPath)
+            assertEquals("limit=50", request.rawQuery)
+        }
+    }
+
+    @Test
+    fun conversation404ReturnsNull() {
+        FakeOrreryServer().use { server ->
+            server.respond("GET", "/v1/panes/%253/conversation", 404)
+
+            assertNull(OrreryClient(server.baseUrl).conversation("%3"))
+        }
+    }
+
+    @Test
+    fun conversationServerErrorThrowsHttpExceptionCarryingStatus() {
+        FakeOrreryServer().use { server ->
+            server.respond("GET", "/v1/panes/%253/conversation", 500, "boom")
+
+            val error = assertThrows(OrreryHttpException::class.java) {
+                OrreryClient(server.baseUrl).conversation("%3")
+            }
+
+            assertEquals(500, error.status)
+        }
+    }
+
+    @Test
+    fun hostParsesStatsWithAndWithoutPercent() {
+        val body = """
+            {"host":"example-host","stats":[
+              {"label":"example-cpu","value":"12%","percent":12,"level":"ok"},
+              {"label":"example-disk","value":"example-value","level":"warn"}
+            ]}
+        """.trimIndent()
+        FakeOrreryServer().use { server ->
+            server.respond("GET", "/v1/host", 200, body)
+
+            val status = OrreryClient(server.baseUrl).host()
+
+            assertEquals(
+                HostStatus(
+                    host = "example-host",
+                    stats = listOf(
+                        HostStat("example-cpu", "12%", 12.0, "ok"),
+                        HostStat("example-disk", "example-value", null, "warn"),
+                    ),
+                ),
+                status,
+            )
+            assertEquals("GET", server.requests.single().method)
+        }
+    }
+
+    @Test
+    fun host404ReturnsNull() {
+        FakeOrreryServer().use { server ->
+            server.respond("GET", "/v1/host", 404)
+
+            assertNull(OrreryClient(server.baseUrl).host())
+        }
+    }
+
+    @Test
+    fun hostBadGatewayThrowsHttpExceptionCarryingStatus() {
+        FakeOrreryServer().use { server ->
+            server.respond("GET", "/v1/host", 502, "bad status")
+
+            val error = assertThrows(OrreryHttpException::class.java) {
+                OrreryClient(server.baseUrl).host()
+            }
+
+            assertEquals(502, error.status)
         }
     }
 }
