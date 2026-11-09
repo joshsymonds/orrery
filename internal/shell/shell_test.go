@@ -200,6 +200,15 @@ func (f *fixture) popupErr(name string) error {
 	return nil
 }
 
+// showPopup shows command in a popup on the client at tty, the way the Space binding shows the tree: a
+// shell job runs tmux display-popup. A display-popup -E queued in the server's command list would hold
+// that list until the popup closes, so the popup is not started that way.
+func (f *fixture) showPopup(tty, command string) {
+	f.t.Helper()
+	socket := f.run("display-message", "-p", "#{socket_path}")
+	f.run("run-shell", "-b", fmt.Sprintf("tmux -S %s display-popup -c %s -E '%s'", socket, tty, command))
+}
+
 // panePathErr returns an error unless the first pane of session name currently runs in dir.
 func (f *fixture) panePathErr(name, dir string) error {
 	out, err := f.client.Run(f.t.Context(), "list-panes", "-t", "="+name+":", "-F", "#{pane_current_path}")
@@ -298,6 +307,57 @@ func TestOpenTwiceCreatesOneSession(t *testing.T) {
 	if len(sessions) != 2 || !slices.Contains(sessions, "base") || !slices.Contains(sessions, name) {
 		t.Fatalf("sessions after second Open = %v, want base and %s only", sessions, name)
 	}
+}
+
+func TestOpenWhilePopupShownOnInvokingClient(t *testing.T) {
+	f := newFixture(t)
+	dir := t.TempDir()
+	name := shell.Name(dir)
+	const tree = "sleep 31841" // stands in for the tree, shown in a popup on the invoking client
+	f.showPopup(f.invoking, tree)
+	waitFor(t, "popup running on invoking client", func() error { return running(tree) })
+	if err := shell.Open(t.Context(), f.client, dir, f.invoking); err != nil {
+		t.Fatalf("Open(%q): %v", dir, err)
+	}
+	waitFor(t, "popup attaches "+name+" on invoking client", func() error { return f.popupErr(name) })
+}
+
+func TestOpenLeavesPopupOnOtherClientOpen(t *testing.T) {
+	f := newFixture(t)
+	dir := t.TempDir()
+	name := shell.Name(dir)
+	const tree = "sleep 31842" // stands in for the tree, shown in a popup on the other client
+	f.showPopup(f.other, tree)
+	waitFor(t, "popup running on other client", func() error { return running(tree) })
+	if err := shell.Open(t.Context(), f.client, dir, f.invoking); err != nil {
+		t.Fatalf("Open(%q): %v", dir, err)
+	}
+	waitFor(t, "popup attaches "+name+" on invoking client", func() error { return f.popupErr(name) })
+	time.Sleep(settleWait)
+	if err := running(tree); err != nil {
+		t.Fatalf("popup on other client closed: %v", err)
+	}
+	infos, err := f.clients()
+	if err != nil {
+		t.Fatalf("list clients: %v", err)
+	}
+	for _, info := range infos {
+		if info.tty == f.other && info.session != "base" {
+			t.Fatalf("other client moved to session %s, want base", info.session)
+		}
+	}
+}
+
+// running returns an error unless a process whose arguments contain command is running.
+func running(command string) error {
+	out, err := exec.Command("ps", "-eo", "args=").Output()
+	if err != nil {
+		return fmt.Errorf("ps: %w", err)
+	}
+	if !strings.Contains(string(out), command) {
+		return fmt.Errorf("no process running %q", command)
+	}
+	return nil
 }
 
 func TestOpenRejectsRelativeDirAndEmptyTTY(t *testing.T) {

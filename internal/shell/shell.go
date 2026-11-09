@@ -26,7 +26,8 @@ func Name(dir string) string {
 // detached in dir, with @orrery_dir set to dir, unless it already exists. The popup attaches that
 // session, with the server's socket and TMUX unset so the attach is not nested inside the session the
 // popup is drawn over. The session starts in dir, so the popup takes no directory, and dir stays out
-// of the run-shell command.
+// of the run-shell command. A popup already shown on clientTTY, such as the tree that calls Open, is
+// closed first, because tmux ignores a new popup on a client that shows one.
 func Open(ctx context.Context, client *tmuxctl.Client, dir, clientTTY string) error {
 	if !filepath.IsAbs(dir) {
 		return fmt.Errorf("shell: directory %q is not absolute", dir)
@@ -43,9 +44,10 @@ func Open(ctx context.Context, client *tmuxctl.Client, dir, clientTTY string) er
 	if err != nil {
 		return fmt.Errorf("shell: socket path: %w", err)
 	}
+	closePopup := tmuxCommand("display-popup", "-C", "-c", clientTTY)
 	popup := tmuxCommand("display-popup", "-c", clientTTY, "-E",
 		"env", "-u", "TMUX", "tmux", "-S", strings.TrimSpace(socket), "attach-session", "-t", "="+name)
-	if _, err = client.Run(ctx, "run-shell", "-b", "-C", popup); err != nil {
+	if _, err = client.Run(ctx, "run-shell", "-b", "-C", closePopup+" ; "+popup); err != nil {
 		return fmt.Errorf("shell: open popup: %w", err)
 	}
 	return nil
