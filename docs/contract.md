@@ -243,6 +243,7 @@ Subcommands:
   - `--intent TEXT`: opens the picker with `TEXT` at once. It takes no ARGS; with ARGS it exits 2. Flags come before ARGS.
   - With `TMUX` set, the command switches the invoking client (tmux's current client, by its tty). Otherwise it attaches.
   - `claude` and `zoxide` are found on `PATH`.
+  - A pane command with arguments (resume, continue, a first prompt) starts as `<default-shell> -c 'exec "$@"' orrery claude <arguments...>` when the base name of tmux's default-shell is sh, bash, zsh, dash or ksh. The pane gets that shell's environment, and each argument reaches claude unchanged. Under any other shell, or when default-shell cannot be read, the command starts directly. `claude` alone runs as tmux runs any one-word command, through default-shell.
   - Exit codes are those in the table above. A refused `open .` with `--remote` exits 1.
 - `serve --listen ADDR --allow-login LOGIN` serves the HTTP API of section 12. See `### orrery serve`.
 
