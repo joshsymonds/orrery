@@ -52,6 +52,7 @@ func TestFrozenNames(t *testing.T) {
 		{"OptionDir", protocol.OptionDir, "@orrery_dir"},
 		{"OptionClaudeSession", protocol.OptionClaudeSession, "@orrery_claude_session"},
 		{"OptionTranscript", protocol.OptionTranscript, "@orrery_transcript"},
+		{"OptionTool", protocol.OptionTool, "@orrery_tool"},
 		{"ShellSessionPrefix", protocol.ShellSessionPrefix, "_orrery-shell-"},
 		{"EnvSocket", protocol.EnvSocket, "ORRERY_SOCKET"},
 		{"EnvNtfyURLFile", protocol.EnvNtfyURLFile, "ORRERY_NTFY_URL_FILE"},
@@ -94,7 +95,7 @@ func TestPaneJSONKeys(t *testing.T) {
 	}
 	want := []string{
 		"activity", "changed", "claude_session", "command", "context", "cwd", "host", "id",
-		"label", "pane", "question", "seen", "session", "state", "summary", "window",
+		"label", "pane", "question", "seen", "session", "state", "summary", "tool", "window",
 	}
 	if got := sortedKeys(t, data); !slices.Equal(got, want) {
 		t.Errorf("Pane keys = %v, want %v", got, want)
@@ -119,6 +120,7 @@ func TestPaneWireFormat(t *testing.T) {
 		Context:       "example-context",
 		ClaudeSession: "example-claude-session",
 		Activity:      1700000300,
+		Tool:          `{"id":"toolu_example","name":"Bash","input":"go test ./...","start":1700000400}`,
 	}
 	data, err := json.Marshal(pane)
 	if err != nil {
@@ -128,7 +130,9 @@ func TestPaneWireFormat(t *testing.T) {
 		`"cwd":"/home/u/proj","command":"claude","state":"waiting",` +
 		`"summary":"waiting on review","label":"proj","changed":100,"seen":200,` +
 		`"question":"ship it?","context":"example-context",` +
-		`"activity":1700000300,"claude_session":"example-claude-session"}`
+		`"activity":1700000300,"tool":"{\"id\":\"toolu_example\",\"name\":\"Bash\",` +
+		`\"input\":\"go test ./...\",\"start\":1700000400}",` +
+		`"claude_session":"example-claude-session"}`
 	if string(data) != want {
 		t.Errorf("Pane JSON =\n%s\nwant\n%s", data, want)
 	}
@@ -152,6 +156,7 @@ func TestPaneJSONRoundTrip(t *testing.T) {
 		Context:       "example-context",
 		ClaudeSession: `example "quoted" session`,
 		Activity:      1700000300,
+		Tool:          `{"id":"toolu_example","name":"Bash","input":"go test ./...","start":1700000400}`,
 	}
 	data, err := json.Marshal(want)
 	if err != nil {

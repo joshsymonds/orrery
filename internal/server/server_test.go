@@ -25,6 +25,8 @@ import (
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/cli"
+	"github.com/joshsymonds/orrery/internal/conversation"
+	"github.com/joshsymonds/orrery/internal/hoststatus"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/push"
 	"github.com/joshsymonds/orrery/internal/server"
@@ -555,6 +557,135 @@ func TestServePaneScreenAbsentPane(t *testing.T) {
 	startSession(t, tmux, "s1", longCommand)
 	rec := get(t, newHandler(t, tmux), "/v1/panes/"+url.PathEscape("%999999")+"/screen", allowedLogin)
 	assertStatus(t, rec, http.StatusNotFound)
+}
+
+const (
+	// synthColor is the synthetic text a pane prints in red for the ansi parameter.
+	synthColor = "synthetic color marker"
+	// synthRed is the escape sequence that starts red text in a screen body.
+	synthRed = "\x1b[31m"
+	// historyCount is the number of numbered lines a history pane prints, more than the pane's visible height.
+	historyCount = 60
+	// colorCommand prints the synthetic marker in red, then keeps the pane alive.
+	colorCommand = `printf '\033[31m` + synthColor + `\033[0m\n'; ` + longCommand
+)
+
+// historyLine returns the synthetic numbered line n that a history pane prints.
+func historyLine(n int) string {
+	return fmt.Sprintf("synthetic history line %d", n)
+}
+
+// historyCommand prints line 1 in red and lines 2 through historyCount plain, then keeps the pane alive.
+func historyCommand() string {
+	first := fmt.Sprintf(`printf '\033[31m%s\033[0m\n'; `, historyLine(1))
+	loop := fmt.Sprintf(
+		`i=2; while [ $i -le %d ]; do echo "synthetic history line $i"; `+
+			`i=$((i+1)); done; `,
+		historyCount,
+	)
+	return first + loop + longCommand
+}
+
+// pollScreen polls path until it answers 200 with a body containing want, and returns that body.
+func pollScreen(t *testing.T, handler http.Handler, path, want string) string {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), screenWait)
+	defer cancel()
+	ticker := time.NewTicker(screenPoll)
+	defer ticker.Stop()
+	rec := get(t, handler, path, allowedLogin)
+	for rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), want) {
+		select {
+		case <-ctx.Done():
+			t.Fatalf("screen %s never showed %q; last status %d", path, want, rec.Code)
+		case <-ticker.C:
+		}
+		rec = get(t, handler, path, allowedLogin)
+	}
+	return rec.Body.String()
+}
+
+func TestServePaneScreenANSI(t *testing.T) {
+	t.Parallel()
+
+	tmux := newTmuxServer(t)
+	startSession(t, tmux, "s1", colorCommand)
+	pane := paneID(t, tmux, "s1")
+	handler := newHandler(t, tmux)
+	path := "/v1/panes/" + url.PathEscape(pane) + "/screen"
+
+	pollScreen(t, handler, path+"?ansi=1", synthRed+synthColor)
+
+	plain := get(t, handler, path, allowedLogin)
+	assertStatus(t, plain, http.StatusOK)
+	if !strings.Contains(plain.Body.String(), synthColor) {
+		t.Fatalf("plain body = %q, want it to contain %q", plain.Body.String(), synthColor)
+	}
+	if strings.Contains(plain.Body.String(), "\x1b") {
+		t.Fatalf("plain body = %q, want no escape sequences", plain.Body.String())
+	}
+
+	zero := get(t, handler, path+"?ansi=0", allowedLogin)
+	assertStatus(t, zero, http.StatusOK)
+	if zero.Body.String() != plain.Body.String() {
+		t.Fatalf("ansi=0 body = %q, want the plain body %q", zero.Body.String(), plain.Body.String())
+	}
+}
+
+func TestServePaneScreenHistory(t *testing.T) {
+	t.Parallel()
+
+	tmux := newTmuxServer(t)
+	startSession(t, tmux, "s1", historyCommand())
+	pane := paneID(t, tmux, "s1")
+	handler := newHandler(t, tmux)
+	path := "/v1/panes/" + url.PathEscape(pane) + "/screen"
+	first := historyLine(1)
+	count := strconv.Itoa(historyCount)
+
+	// The visible screen shows the last line the pane prints, so poll until that line is on it.
+	plain := pollScreen(t, handler, path, historyLine(historyCount))
+	if slices.Contains(strings.Split(plain, "\n"), first) {
+		t.Fatalf("plain body = %q, want %q only in scrollback", plain, first)
+	}
+
+	withHistory := get(t, handler, path+"?history="+count, allowedLogin)
+	assertStatus(t, withHistory, http.StatusOK)
+	if !slices.Contains(strings.Split(withHistory.Body.String(), "\n"), first) {
+		t.Fatalf("history body = %q, want line %q", withHistory.Body.String(), first)
+	}
+
+	for _, query := range []string{"history=0", "history=2000"} {
+		assertStatus(t, get(t, handler, path+"?"+query, allowedLogin), http.StatusOK)
+	}
+
+	both := get(t, handler, path+"?ansi=1&history="+count, allowedLogin)
+	assertStatus(t, both, http.StatusOK)
+	if !strings.Contains(both.Body.String(), synthRed+first) {
+		t.Fatalf("ansi and history body = %q, want %q", both.Body.String(), synthRed+first)
+	}
+}
+
+func TestServePaneScreenRejectsBadParams(t *testing.T) {
+	t.Parallel()
+
+	tmux := newTmuxServer(t)
+	startSession(t, tmux, "s1", longCommand)
+	pane := paneID(t, tmux, "s1")
+	handler := newHandler(t, tmux)
+	path := "/v1/panes/" + url.PathEscape(pane) + "/screen"
+	queries := []string{
+		"ansi=2", "ansi=yes", "ansi=-1", "ansi=true", "ansi=", "ansi=1&ansi=1",
+		"history=-1", "history=2001", "history=abc", "history=", "history=+5", "history=%205",
+		"history=1.5", "history=0x10", "history=1&history=2",
+	}
+	for _, query := range queries {
+		t.Run(query, func(t *testing.T) {
+			t.Parallel()
+			rec := get(t, handler, path+"?"+query, allowedLogin)
+			assertStatus(t, rec, http.StatusBadRequest)
+		})
+	}
 }
 
 func TestServeTmuxRoutesRequireListedLogin(t *testing.T) {
@@ -1343,4 +1474,343 @@ func TestServeNewWindow(t *testing.T) {
 			t.Fatalf("%d panes listed after an unguarded write, want 1", n)
 		}
 	})
+}
+
+// writeHostStatusScript writes an executable shell script under t.TempDir() that prints output and exits with status.
+func writeHostStatusScript(t *testing.T, output string, status int) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "host-status")
+	body := fmt.Sprintf("#!/bin/sh\ncat <<'EOF'\n%s\nEOF\nexit %d\n", output, status)
+	if err := os.WriteFile(path, []byte(body), 0o700); err != nil {
+		t.Fatalf("write host status script: %v", err)
+	}
+	return path
+}
+
+// newHostHandler builds the guarded handler that admits only allowedLogin and runs host status through runner.
+func newHostHandler(t *testing.T, runner *hoststatus.Runner) http.Handler {
+	t.Helper()
+	handler, err := server.New(server.Config{
+		Logins:     []string{allowedLogin},
+		Tmux:       newTmuxClient(t),
+		Push:       newPushStore(t),
+		HostStatus: runner,
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	return handler
+}
+
+// hostPath is the host status route.
+const hostPath = "/v1/host"
+
+// TestServeHost is not parallel: each case execs a script it has just written, and parallel tests can race that exec.
+func TestServeHost(t *testing.T) {
+	host, err := os.Hostname()
+	if err != nil {
+		t.Fatalf("Hostname: %v", err)
+	}
+
+	t.Run("answers the host and the command's stats", func(t *testing.T) {
+		output := `[{"label":"cpu","value":"12%","percent":12.5,"level":"ok"},` +
+			`{"label":"uptime","value":"3d","level":"warn"}]`
+		script := writeHostStatusScript(t, output, 0)
+		rec := get(t, newHostHandler(t, hoststatus.New(script, time.Now)), hostPath, allowedLogin)
+		assertStatus(t, rec, http.StatusOK)
+		assertJSON(t, rec)
+		assertNoCORS(t, rec)
+		var got any
+		if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+			t.Fatalf("decode %q: %v", rec.Body.String(), err)
+		}
+		want := map[string]any{
+			"host": host,
+			"stats": []any{
+				map[string]any{"label": "cpu", "value": "12%", "percent": 12.5, "level": "ok"},
+				map[string]any{"label": "uptime", "value": "3d", "level": "warn"},
+			},
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("body = %#v, want %#v", got, want)
+		}
+	})
+
+	t.Run("answers 404 when serve has no host status command", func(t *testing.T) {
+		assertStatus(t, get(t, newHandler(t, newTmuxClient(t)), hostPath, allowedLogin), http.StatusNotFound)
+	})
+
+	t.Run("answers 502 when the command exits non-zero", func(t *testing.T) {
+		script := writeHostStatusScript(t, "", 3)
+		rec := get(t, newHostHandler(t, hoststatus.New(script, time.Now)), hostPath, allowedLogin)
+		assertStatus(t, rec, http.StatusBadGateway)
+	})
+
+	t.Run("answers 502 when the command prints invalid stats", func(t *testing.T) {
+		script := writeHostStatusScript(t, "not json", 0)
+		rec := get(t, newHostHandler(t, hoststatus.New(script, time.Now)), hostPath, allowedLogin)
+		assertStatus(t, rec, http.StatusBadGateway)
+	})
+
+	t.Run("answers 403 to a login the guard refuses", func(t *testing.T) {
+		script := writeHostStatusScript(t, "[]", 0)
+		rec := get(t, newHostHandler(t, hoststatus.New(script, time.Now)), hostPath, otherLogin)
+		assertStatus(t, rec, http.StatusForbidden)
+	})
+}
+
+// conversationRoute is the conversation route's path segment after the pane ID.
+const conversationRoute = "/conversation"
+
+// synthOrigin is the synthetic opening prompt of the conversation fixtures.
+const synthOrigin = "synthetic opening prompt for the conversation route"
+
+// conversationPath returns the conversation route of pane, with rawQuery as its query when it is not "".
+func conversationPath(pane, rawQuery string) string {
+	path := "/v1/panes/" + url.PathEscape(pane) + conversationRoute
+	if rawQuery != "" {
+		path += "?" + rawQuery
+	}
+	return path
+}
+
+// writeConversation writes a synthetic transcript to a new file in t.TempDir and returns its path. Its first
+// line is a prompt of synthOrigin, and each of its replies lines is a reply "synthetic reply N" for N from 1.
+func writeConversation(t *testing.T, replies int) string {
+	t.Helper()
+	lines := []string{`{"type":"user","message":{"role":"user","content":"` + synthOrigin + `"}}`}
+	for n := 1; n <= replies; n++ {
+		lines = append(lines, fmt.Sprintf(
+			`{"type":"assistant","message":{"content":[{"type":"text","text":"synthetic reply %d"}]}}`, n))
+	}
+	path := filepath.Join(t.TempDir(), "transcript.jsonl")
+	if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0o600); err != nil {
+		t.Fatalf("write transcript: %v", err)
+	}
+	return path
+}
+
+// liveOptions returns the pane options of a live Claude session whose transcript is at path.
+func liveOptions(path string) map[string]string {
+	return map[string]string{protocol.OptionState: string(protocol.StateWorking), protocol.OptionTranscript: path}
+}
+
+// conversationPane starts a session on a pane running longCommand, sets each of options on that pane, and
+// returns the pane ID.
+func conversationPane(t *testing.T, tmux *tmuxctl.Client, options map[string]string) string {
+	t.Helper()
+	startSession(t, tmux, "s1", longCommand)
+	pane := paneID(t, tmux, "s1")
+	for name, value := range options {
+		if err := tmux.SetPaneOption(t.Context(), pane, name, value); err != nil {
+			t.Fatalf("SetPaneOption(%s, %s): %v", pane, name, err)
+		}
+	}
+	return pane
+}
+
+func TestServePaneConversation(t *testing.T) {
+	t.Parallel()
+
+	tmux := newTmuxServer(t)
+	path := writeConversation(t, 3)
+	pane := conversationPane(t, tmux, liveOptions(path))
+	handler := newHandler(t, tmux)
+
+	rec := get(t, handler, conversationPath(pane, ""), allowedLogin)
+	assertStatus(t, rec, http.StatusOK)
+	assertJSON(t, rec)
+	var got conversation.Conversation
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode %q: %v", rec.Body.String(), err)
+	}
+	want := conversation.Conversation{
+		Origin: synthOrigin,
+		Items: []conversation.Item{
+			{Kind: "prompt", Text: synthOrigin},
+			{Kind: "reply", Text: "synthetic reply 1"},
+			{Kind: "reply", Text: "synthetic reply 2"},
+			{Kind: "reply", Text: "synthetic reply 3"},
+		},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("body = %+v, want %+v", got, want)
+	}
+
+	other := writeConversation(t, 1)
+	rec = get(t, handler, conversationPath(pane, "path="+url.QueryEscape(other)), allowedLogin)
+	assertStatus(t, rec, http.StatusOK)
+	if rec.Body.String() != serveBody(t, handler, conversationPath(pane, "")) {
+		t.Fatalf("a path query changed the body to %q", rec.Body.String())
+	}
+}
+
+// serveBody returns the body of a 200 GET of path through handler, and fails the test on any other status.
+func serveBody(t *testing.T, handler http.Handler, path string) string {
+	t.Helper()
+	rec := get(t, handler, path, allowedLogin)
+	assertStatus(t, rec, http.StatusOK)
+	return rec.Body.String()
+}
+
+func TestServePaneConversationLimit(t *testing.T) {
+	t.Parallel()
+
+	tmux := newTmuxServer(t)
+	pane := conversationPane(t, tmux, liveOptions(writeConversation(t, 40)))
+	handler := newHandler(t, tmux)
+	cases := []struct {
+		name      string
+		query     string
+		wantLen   int
+		wantFirst string
+		wantLast  string
+	}{
+		{
+			name:      "default is 30",
+			query:     "",
+			wantLen:   30,
+			wantFirst: "synthetic reply 11",
+			wantLast:  "synthetic reply 40",
+		},
+		{
+			name:      "limit 5",
+			query:     "limit=5",
+			wantLen:   5,
+			wantFirst: "synthetic reply 36",
+			wantLast:  "synthetic reply 40",
+		},
+		{
+			name:      "limit 1",
+			query:     "limit=1",
+			wantLen:   1,
+			wantFirst: "synthetic reply 40",
+			wantLast:  "synthetic reply 40",
+		},
+		{
+			name:      "limit 100 holds all 41 items",
+			query:     "limit=100",
+			wantLen:   41,
+			wantFirst: synthOrigin,
+			wantLast:  "synthetic reply 40",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			rec := get(t, handler, conversationPath(pane, tc.query), allowedLogin)
+			assertStatus(t, rec, http.StatusOK)
+			var got conversation.Conversation
+			if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+				t.Fatalf("decode %q: %v", rec.Body.String(), err)
+			}
+			if len(got.Items) != tc.wantLen {
+				t.Fatalf("%d items, want %d", len(got.Items), tc.wantLen)
+			}
+			if first := got.Items[0].Text; first != tc.wantFirst {
+				t.Fatalf("first item = %q, want %q", first, tc.wantFirst)
+			}
+			if last := got.Items[len(got.Items)-1].Text; last != tc.wantLast {
+				t.Fatalf("last item = %q, want %q", last, tc.wantLast)
+			}
+		})
+	}
+}
+
+func TestServePaneConversationRejectsBadLimit(t *testing.T) {
+	t.Parallel()
+
+	tmux := newTmuxServer(t)
+	pane := conversationPane(t, tmux, liveOptions(writeConversation(t, 3)))
+	handler := newHandler(t, tmux)
+	queries := []string{
+		"limit=0", "limit=101", "limit=-1", "limit=abc", "limit=", "limit=5&limit=6", "limit=+5", "limit=1.5",
+	}
+	for _, query := range queries {
+		t.Run(query, func(t *testing.T) {
+			t.Parallel()
+			rec := get(t, handler, conversationPath(pane, query), allowedLogin)
+			assertStatus(t, rec, http.StatusBadRequest)
+		})
+	}
+}
+
+func TestServePaneConversationRejectsMalformedID(t *testing.T) {
+	t.Parallel()
+
+	handler := newHandler(t, newTmuxClient(t))
+	for _, id := range []string{"abc", "%", "%x", "1", "%1x", "%-1", "%%1"} {
+		t.Run(id, func(t *testing.T) {
+			t.Parallel()
+			rec := get(t, handler, conversationPath(id, ""), allowedLogin)
+			assertStatus(t, rec, http.StatusBadRequest)
+		})
+	}
+}
+
+func TestServePaneConversationAbsentPane(t *testing.T) {
+	t.Parallel()
+
+	tmux := newTmuxServer(t)
+	startSession(t, tmux, "s1", longCommand)
+	rec := get(t, newHandler(t, tmux), conversationPath("%999999", ""), allowedLogin)
+	assertStatus(t, rec, http.StatusNotFound)
+}
+
+func TestServePaneConversationWithoutTranscript(t *testing.T) {
+	t.Parallel()
+
+	path := writeConversation(t, 1)
+	cases := []struct {
+		name    string
+		options map[string]string
+	}{
+		{
+			name:    "no live session",
+			options: map[string]string{protocol.OptionTranscript: path},
+		},
+		{
+			name:    "no transcript option",
+			options: map[string]string{protocol.OptionState: string(protocol.StateWorking)},
+		},
+		{
+			name: "empty transcript option",
+			options: map[string]string{
+				protocol.OptionState:      string(protocol.StateWorking),
+				protocol.OptionTranscript: "",
+			},
+		},
+		{
+			name: "transcript file missing",
+			options: map[string]string{
+				protocol.OptionState:      string(protocol.StateWorking),
+				protocol.OptionTranscript: filepath.Join(t.TempDir(), "missing.jsonl"),
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			tmux := newTmuxServer(t)
+			pane := conversationPane(t, tmux, tc.options)
+			rec := get(t, newHandler(t, tmux), conversationPath(pane, ""), allowedLogin)
+			assertStatus(t, rec, http.StatusNotFound)
+		})
+	}
+}
+
+func TestServePaneConversationRequiresListedLogin(t *testing.T) {
+	t.Parallel()
+
+	tmux := newTmuxServer(t)
+	pane := conversationPane(t, tmux, liveOptions(writeConversation(t, 1)))
+	handler := newHandler(t, tmux)
+	for _, login := range []string{"", otherLogin} {
+		t.Run(fmt.Sprintf("login %q", login), func(t *testing.T) {
+			t.Parallel()
+			rec := get(t, handler, conversationPath(pane, ""), login)
+			assertStatus(t, rec, http.StatusForbidden)
+			assertNoCORS(t, rec)
+		})
+	}
 }

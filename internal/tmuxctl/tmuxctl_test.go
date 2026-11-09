@@ -22,6 +22,7 @@ const (
 	testCommand     = "sleep 300"
 	commandWait     = 10 * time.Second
 	commandPollEach = 10 * time.Millisecond
+	exampleTool     = `{"id":"toolu_example","name":"Bash","input":"go test ./...","start":1700000400}`
 )
 
 // newServer returns a client for a unique private server name and kills that server at cleanup.
@@ -247,6 +248,7 @@ func TestListPanesReturnsEveryPane(t *testing.T) {
 	setPaneOption(t, client, s1[0], protocol.OptionQuestion, "example question?")
 	setPaneOption(t, client, s1[0], protocol.OptionContext, "example-context")
 	setPaneOption(t, client, s1[0], protocol.OptionClaudeSession, "example-claude-session")
+	setPaneOption(t, client, s1[0], protocol.OptionTool, exampleTool)
 
 	for _, pane := range append(s1, s2...) {
 		waitForCommand(t, client, pane, "sleep")
@@ -264,6 +266,7 @@ func TestListPanesReturnsEveryPane(t *testing.T) {
 			State: protocol.StateWaiting, Summary: "example summary\twith tab", Label: "example label",
 			Changed: 1700000000, Seen: 1700000100, Question: "example question?",
 			Context: "example-context", ClaudeSession: "example-claude-session", Activity: s1Activity,
+			Tool: exampleTool,
 		},
 		{ID: s1[1], Session: "s1", WindowIndex: 0, PaneIndex: 1, Cwd: resolved, Command: "sleep", Activity: s1Activity},
 		{ID: s2[0], Session: "s2", WindowIndex: 0, PaneIndex: 0, Cwd: resolved, Command: "sleep", Activity: s2Activity},

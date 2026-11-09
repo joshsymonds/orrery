@@ -37,8 +37,25 @@ Options are set at pane scope with tmux 3.8 `set-option -p`, except `@orrery_dir
 | `protocol.OptionDir` | `@orrery_dir` | the absolute project directory after `filepath.Clean`, symlinks not resolved; session scope, see below |
 | `protocol.OptionClaudeSession` | `@orrery_claude_session` | the Claude Code session id, the hook payload's `session_id` |
 | `protocol.OptionTranscript` | `@orrery_transcript` | the Claude Code transcript path, the hook payload's `transcript_path` |
+| `protocol.OptionTool` | `@orrery_tool` | compact single-line JSON of the tool a `PreToolUse` started that no end event has cleared, with the keys `id`, `name`, `input`, `start` (see below) |
 
 orreryd writes each of the two new options from every hook frame whose hook decodes, when the payload value is non-empty. SessionEnd keeps both options, except SessionEnd with reason `clear`, which unsets both. `@orrery_transcript` is not a list field.
+
+`@orrery_tool` is written from the hook events of its pane:
+
+- `PreToolUse` with a non-empty `tool_use_id` sets it. A `PreToolUse` without one leaves it unchanged.
+- `PostToolUse` and `PostToolUseFailure` unset it when their `tool_use_id` equals the stored `id`. When their `tool_use_id` is absent or empty, differs from the stored `id`, or the stored value does not decode, they leave it unchanged.
+- `Stop` and `SessionEnd` unset it.
+- Any other event leaves it unchanged.
+- While the pane is `done`, a tool event less than 5 seconds after `@orrery_changed` is a late frame. It leaves the pane's state, `@orrery_changed`, `@orrery_question`, and `@orrery_tool` unchanged. `@orrery_context`, `@orrery_claude_session`, and `@orrery_transcript` are still written from it as from any frame.
+- Apart from a late frame, a `PreToolUse`, `PostToolUse`, or `PostToolUseFailure` whose `tool_use_id` is present, not `null`, and not a JSON string is an error, and so is a `PreToolUse` with a non-empty `tool_use_id` whose `tool_name` is present, not `null`, and not a JSON string. Other events never read either field. orreryd writes no option from an erroring event.
+
+The value is compact single-line JSON with the keys `id`, `name`, `input`, and `start`, in that order:
+
+- `id` is the `tool_use_id`, `name` is the `tool_name`, and `start` is the unix seconds of the `PreToolUse`.
+- `input` is the display text of `tool_input`. When `tool_input` is an object, it is the first non-empty string value among `command`, `file_path`, `path`, `pattern`, `url`, `query`, `prompt`, and `description`, tried in that order. Otherwise it is the compact JSON of `tool_input`. Absent, `null`, or invalid input gives `""`. Line breaks become spaces, and the text is cut to 200 runes.
+
+Example value. Every value is synthetic: `{"id":"example-tool-use","name":"Bash","input":"example command","start":1700000250}`.
 
 `@orrery_dir` is a tmux user option set on the session with `set-option -t <session>`, without `-p`. It is not a field of `orrery list --json`.
 
@@ -78,17 +95,19 @@ Each element is a `protocol.Pane`. Every field is always present, with the exact
 | Question | string | `question` | string | `@orrery_question` | `""` |
 | Context | string | `context` | string | `@orrery_context` | `""` |
 | Activity | int64 | `activity` | number | tmux `#{session_activity}`, unix seconds of the pane's session's last activity | none, always set |
+| Tool | string | `tool` | string | `@orrery_tool` (section 2), as the JSON text of that value | `""` |
 | ClaudeSession | string | `claude_session` | string | `@orrery_claude_session` | `""` |
 
-There are sixteen fields. The `state` value is one of the strings in section 1, or `""` when the option is unset.
+There are seventeen fields. The `state` value is one of the strings in section 1, or `""` when the option is unset.
 
 - `claude_session` is the Claude Code session id of the pane (section 2). The archive records it (section 11), and `orrery open` passes it to `claude --resume`.
 - `activity` is tmux's `session_activity` for the pane's session: unix seconds of that session's last activity. The tree's quiet fold (section 11, Tree keys) reads the newest `activity` of a project's panes.
+- `tool` is the `@orrery_tool` value of section 2 as one JSON string that holds that JSON text. A consumer decodes it again to read `id`, `name`, `input`, and `start`. It is `""` when the option is unset.
 
 Example output with one pane. Every value is synthetic:
 
 ```json
-[{"id":"%1","host":"example-host","session":"example-session","window":0,"pane":0,"cwd":"/home/user/project","command":"claude","state":"waiting","summary":"Example summary of the pane's work.","label":"example-label","changed":1700000000,"seen":1700000100,"question":"Example question for the user?","context":"example-context","activity":1700000300,"claude_session":"example-claude-session"}]
+[{"id":"%1","host":"example-host","session":"example-session","window":0,"pane":0,"cwd":"/home/user/project","command":"claude","state":"waiting","summary":"Example summary of the pane's work.","label":"example-label","changed":1700000000,"seen":1700000100,"question":"Example question for the user?","context":"example-context","activity":1700000300,"tool":"{\"id\":\"example-tool-use\",\"name\":\"Bash\",\"input\":\"example command\",\"start\":1700000250}","claude_session":"example-claude-session"}]
 ```
 
 ## 4. Environment variables
@@ -259,13 +278,14 @@ Exit codes:
 ### orrery serve
 
 ```
-orrery [-L NAME | -S PATH] serve --listen ADDR --allow-login LOGIN [--allow-login LOGIN]... [--push-host HOST]...
+orrery [-L NAME | -S PATH] serve --listen ADDR --allow-login LOGIN [--allow-login LOGIN]... [--push-host HOST]... [--host-status-cmd PATH]
 ```
 
 - `-L NAME` and `-S PATH` select the tmux server, as section 6 defines.
 - `--listen ADDR` sets the address to serve on. ADDR is a loopback IP literal with a port, such as `127.0.0.1:8080` or `[::1]:8080`. Any other ADDR exits 1 before anything is bound.
 - `--allow-login LOGIN` admits one Tailscale login. Repeat the flag for each login. At least one is required.
 - `--push-host HOST` names a push relay host, as `orreryd` does. Repeat the flag for each host. The default is `ntfy.sh`.
+- `--host-status-cmd PATH` sets the command that `GET /v1/host` runs (section 12). `PATH` must be absolute; a relative `PATH` exits 2 before anything is bound. Without the flag, `GET /v1/host` answers 404. The command runs at `PATH` with no arguments and no shell. Its stdout is read up to 64 KiB, and its stderr is discarded. A run is limited to 2 seconds, and a child that outlives it and holds stdout open is cut off 500 ms later. Each run's outcome is cached for 5 seconds (section 12).
 
 Registrations are written to the push store that `orreryd` reads (see `### orreryd`). When neither `XDG_STATE_HOME` nor `HOME` is set, `serve` exits 1.
 
@@ -470,7 +490,9 @@ A pane ID is `%` followed by digits, such as `%3`. The `{id}` segment of a path 
 |---|---|---|---|
 | `GET /v1/panes` | none | 200, JSON array of panes | 500 tmux failure |
 | `POST /v1/panes` | `{"pane": "%3", "kind": "claude"}` or `{"pane": "%3", "kind": "shell"}` | 201, `{"pane": "%7"}` | 400 bad body, 404 absent pane, 500 tmux failure |
-| `GET /v1/panes/{id}/screen` | none | 200, `text/plain; charset=utf-8` | 400 malformed pane ID, 404 absent pane, 500 tmux failure |
+| `GET /v1/panes/{id}/screen` | none; optional query `ansi`, `history` | 200, `text/plain; charset=utf-8` | 400 malformed pane ID or bad query, 404 absent pane, 500 tmux failure |
+| `GET /v1/panes/{id}/conversation` | none; optional query `limit` | 200, JSON conversation | 400 bad `limit` or malformed pane ID, 404 absent pane, 404 no live session, 404 no transcript, 404 transcript not found, 500 tmux failure or transcript read failure |
+| `GET /v1/host` | none | 200, JSON host status | 404 no `--host-status-cmd`, 500 host name failure, 502 status command failed or invalid |
 | `POST /v1/panes/{id}/text` | `{"text": "example input"}` | 204 | 400 malformed pane ID or bad body, 404 absent pane, 500 tmux failure |
 | `POST /v1/panes/{id}/keys` | `{"keys": ["Enter"], "expect_question": "H"}`; `expect_question` is optional | 204 | 400 malformed pane ID or bad body, 404 absent pane, 409 question refused, 500 tmux failure |
 | `POST /v1/panes/{id}/seen` | none | 204 | 400 malformed pane ID, 404 absent pane, 500 tmux failure |
@@ -481,10 +503,46 @@ Details for each route:
 
 - `GET /v1/panes` returns the pane list of section 3. Each pane also has `question_hash`, the question hash of section 10 for the pane's `question`.
 - `POST /v1/panes` opens a window in the session and directory of the pane named by `pane`. The window runs `claude` for kind `claude`, and the default shell for kind `shell`. The 201 response names the new pane.
-- `GET /v1/panes/{id}/screen` returns the pane's screen as plain text, the output of `capture-pane -p -J`. It is not JSON.
+- `GET /v1/panes/{id}/screen` returns the pane's screen as plain text, the output of `capture-pane -p -J`. It is not JSON. The query is checked before the pane ID, so a bad query answers 400 even for an absent pane.
+  - `ansi` absent or `0` gives plain text. `1` adds `-e`, which keeps the color escape sequences. Any other value, or a repeated key, answers 400.
+  - `history` absent gives no scrollback. An integer from 0 to 2000 adds `-S -N`, which includes N lines above the visible screen. Any other value, including a sign, an empty value, a number over 2000, or a repeated key, answers 400.
 - `POST /v1/panes/{id}/keys` sends the keys to the pane. When `expect_question` is present, the send is refused with 409 unless the question check passes. That check is the one `orrery send --expect-question` applies (section 11). `expect_question` takes the question hash H from section 10.
 - `POST /v1/push/register` registers a Web Push subscription. `p256dh` and `auth` are the subscription's keys. The endpoint must be `https` and must be on a host named by `--push-host` (section 11).
 - `DELETE /v1/push/register` removes the subscription with that endpoint.
+- `GET /v1/panes/{id}/conversation` returns the conversation of the pane's Claude transcript as `{"origin": string, "items": [item...]}`. The transcript is the path in the pane's `@orrery_transcript` option (section 2); no request value names a file. The pane must have `@orrery_state` set, or the answer is 404 "no live session". `@orrery_transcript` must be set and non-empty, or the answer is 404 "no transcript". A transcript file that does not exist answers 404; any other read failure answers 500.
+  - The query `limit` is absent for 30, or one decimal integer from 1 to 100. Any other value, including 0, a value over 100, a sign, an empty value, a non-number, or a repeated key, answers 400. The `limit` check runs before the pane ID check.
+  - The reader takes the newest `limit` items from the last 4 MiB of the transcript, oldest first. Only whole lines count, so a partial line at either end of that window is skipped. The reader can return fewer than `limit` items. `items` is `[]` when there are none.
+  - `origin` is the text of the first user prompt in the transcript's first 1 MiB, cut to 300 runes, or `""` when there is none. A user line counts as a prompt when it is not meta or sidechain, has no `tool_result` block, and its text is non-empty. A partial last line in that window is ignored.
+  - Lines of a type other than `assistant` or `user`, lines marked `isMeta` or `isSidechain`, and lines that are not JSON give no items.
+  - An `assistant` line gives one item per content block, in order. A `text` block gives a `reply`. A `tool_use` block gives a `question` when its `name` is `AskUserQuestion`, and a `tool` otherwise. Other blocks, such as thinking blocks, give none.
+  - A `user` line gives one `result` per `tool_result` block when it has any. Otherwise its text gives one `prompt`, when the text is not empty.
+  - Each item has these keys, always present and in this order: `kind`, `time`, `text`, `tool`, `input`, `id`, `error`.
+    - `kind` is `prompt`, `reply`, `tool`, `question`, or `result`.
+    - `time` is the unix seconds of the line's RFC 3339 `timestamp`, or 0 when it is absent or does not parse.
+    - `text` is at most 4096 bytes, cut at a UTF-8 boundary. It holds the text of a prompt, reply, or result, and the questions of a question joined by newlines. A tool item's `text` is `""`.
+    - `tool` is the tool name of a `tool` or `question` item, and `""` otherwise.
+    - `input` is the display text of the tool's input (section 2) for a `tool` item. It is `""` for every other kind, including `question`.
+    - `id` is the `tool_use_id` of a `tool`, `question`, or `result` item, and `""` otherwise.
+    - `error` is the `is_error` flag of a `result` item, and `false` otherwise.
+
+Example response. Every value is synthetic:
+
+```json
+{"origin":"Example opening prompt.","items":[{"kind":"reply","time":1700000100,"text":"Example reply.","tool":"","input":"","id":"","error":false},{"kind":"tool","time":1700000200,"text":"","tool":"Bash","input":"example command","id":"example-tool-use","error":false},{"kind":"result","time":1700000210,"text":"Example output.","tool":"","input":"","id":"example-tool-use","error":false}]}
+```
+
+- `GET /v1/host` runs the `--host-status-cmd` command (section 11) and returns `{"host": string, "stats": [stat...]}`. `host` is the machine's host name, and `stats` holds the command's validated stats in order. Without the flag, the route answers 404.
+  - Each stat has the keys `label`, `value`, `percent` (omitted when the command gave none), and `level`.
+  - The command's output must be a JSON array of at most 12 objects. Each object has a non-empty string `label`, a string `value`, a `level` of `ok`, `warn`, or `crit`, and an optional `percent` that is a number from 0 to 100 (`null` counts as absent). An empty array is valid. Any other output is invalid: a top-level value that is not an array, data after the array, a stat with an unknown key, or a stat with a missing or mistyped field.
+  - `label` is cut to 32 runes, and `value` to 64 runes.
+  - A run that exits with an error, runs past 2 seconds, or prints more than 64 KiB, and a run whose output is invalid, answers 502 with no stats.
+  - The outcome of each run, success or failure, is kept for 5 seconds and served to every request in that window. A run whose own request context ends before the command finishes is not kept.
+
+Example response. Every value is synthetic:
+
+```json
+{"host":"example-host","stats":[{"label":"example-cpu","value":"12%","percent":12,"level":"ok"}]}
+```
 
 ### Push payload
 
@@ -507,3 +565,5 @@ Example plaintext. The question and its hash are the fixed vector of section 10:
 The names and values in this document are frozen as of effort 1. Later efforts, including the effort-4 golden test, build on them.
 
 orrery v0.2.1 (E2b) added the `@orrery_claude_session` and `@orrery_transcript` options and the `claude_session` and `activity` fields additively.
+
+orrery v0.6.0 (E7a) added the `@orrery_tool` option, the `tool` list field, the `ansi` and `history` screen parameters, the `--host-status-cmd` serve flag, and the `GET /v1/panes/{id}/conversation` and `GET /v1/host` routes, all additively. No existing default response changes.

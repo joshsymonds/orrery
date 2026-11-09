@@ -8,12 +8,18 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"mime"
 	"net"
 	"net/http"
+	"net/url"
+	"os"
+	"strconv"
 	"strings"
 
 	"github.com/joshsymonds/orrery/internal/cli"
+	"github.com/joshsymonds/orrery/internal/conversation"
+	"github.com/joshsymonds/orrery/internal/hoststatus"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/push"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
@@ -27,6 +33,21 @@ const HeaderClient = "X-Orrery-Client"
 
 // questionHashKey is the key GET /v1/panes adds to each pane, holding protocol.QuestionHash of its question.
 const questionHashKey = "question_hash"
+
+// Query keys of GET /v1/panes/{id}/screen, and the largest history value the route accepts, in lines.
+const (
+	queryANSI        = "ansi"
+	queryHistory     = "history"
+	screenHistoryMax = 2000
+)
+
+// queryLimit is the query key of GET /v1/panes/{id}/conversation, the number of newest items it answers with.
+// conversationLimitDefault is the value when limit is absent, and conversationLimitMax the largest value it accepts.
+const (
+	queryLimit               = "limit"
+	conversationLimitDefault = 30
+	conversationLimitMax     = 100
+)
 
 // jsonContentType is the Content-Type of every JSON response.
 const jsonContentType = "application/json"
@@ -69,6 +90,12 @@ type newPaneResponse struct {
 	Pane string `json:"pane"`
 }
 
+// hostResponse is the body of a 200 answer from GET /v1/host.
+type hostResponse struct {
+	Host  string            `json:"host"`
+	Stats []hoststatus.Stat `json:"stats"`
+}
+
 // Config holds the guard settings for New.
 type Config struct {
 	// Logins lists the Tailscale logins admitted by the guard, matched exactly.
@@ -77,6 +104,8 @@ type Config struct {
 	Tmux *tmuxctl.Client
 	// Push holds the push subscriptions the registration routes write.
 	Push *push.Store
+	// HostStatus runs the host status command behind GET /v1/host, or is nil when serve has no command.
+	HostStatus *hoststatus.Runner
 }
 
 // New returns a handler that admits only the configured logins, requires a JSON content type and
@@ -104,6 +133,8 @@ func New(cfg Config) (http.Handler, error) {
 	mux.HandleFunc("GET /v1/panes", servePanes(cfg.Tmux))
 	mux.HandleFunc("POST /v1/panes", serveNewWindow(cfg.Tmux))
 	mux.HandleFunc("GET /v1/panes/{id}/screen", serveScreen(cfg.Tmux))
+	mux.HandleFunc("GET /v1/panes/{id}/conversation", serveConversation(cfg.Tmux))
+	mux.HandleFunc("GET /v1/host", serveHost(cfg.HostStatus))
 	mux.HandleFunc("POST /v1/panes/{id}/text", servePaneText(cfg.Tmux))
 	mux.HandleFunc("POST /v1/panes/{id}/keys", servePaneKeys(cfg.Tmux))
 	mux.HandleFunc("POST /v1/panes/{id}/seen", servePaneSeen(cfg.Tmux))
@@ -196,16 +227,22 @@ func serveNewWindow(tmux *tmuxctl.Client) http.HandlerFunc {
 	}
 }
 
-// serveScreen answers GET /v1/panes/{id}/screen with the text one pane currently shows.
+// serveScreen answers GET /v1/panes/{id}/screen with the text one pane currently shows. ansi=1 keeps the
+// color escape sequences, and history=N adds N scrollback lines above the visible screen.
 func serveScreen(tmux *tmuxctl.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		flags, ok := screenFlags(r.URL.Query())
+		if !ok {
+			http.Error(w, "bad request query", http.StatusBadRequest)
+			return
+		}
 		id := r.PathValue("id")
 		pane, err := checkPane(r.Context(), tmux, id)
 		if err != nil {
 			paneError(w, err)
 			return
 		}
-		screen, err := tmux.Run(r.Context(), "capture-pane", "-p", "-J", "-t", pane.ID)
+		screen, err := tmux.Run(r.Context(), append(flags, "-t", pane.ID)...)
 		if err != nil {
 			http.Error(w, "internal server error", http.StatusInternalServerError)
 			return
@@ -214,6 +251,126 @@ func serveScreen(tmux *tmuxctl.Client) http.HandlerFunc {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(screen))
 	}
+}
+
+// serveHost answers GET /v1/host with the host's name and the stats of the host status command, which takes no
+// request input. It answers 404 when runner is nil, the serve flag being unset, and 502 when the command fails or
+// prints invalid stats.
+func serveHost(runner *hoststatus.Runner) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if runner == nil {
+			http.NotFound(w, r)
+			return
+		}
+		stats, err := runner.Stats(r.Context())
+		if err != nil {
+			http.Error(w, "host status unavailable", http.StatusBadGateway)
+			return
+		}
+		host, err := os.Hostname()
+		if err != nil {
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, http.StatusOK, hostResponse{Host: host, Stats: stats})
+	}
+}
+
+// screenFlags returns the capture-pane arguments for a screen query, and false when ansi or history is not a
+// valid value. An absent ansi or ansi=0 is plain text and ansi=1 keeps escape sequences. An absent history adds
+// no scrollback, and history=N with N from 0 to screenHistoryMax adds N lines of it.
+func screenFlags(query url.Values) ([]string, bool) {
+	flags := []string{"capture-pane", "-p", "-J"}
+	if values, present := query[queryANSI]; present {
+		switch singleValue(values) {
+		case "0":
+		case "1":
+			flags = append(flags, "-e")
+		default:
+			return nil, false
+		}
+	}
+	if values, present := query[queryHistory]; present {
+		lines, ok := boundedDecimal(values, 0, screenHistoryMax)
+		if !ok {
+			return nil, false
+		}
+		flags = append(flags, "-S", "-"+strconv.Itoa(lines))
+	}
+	return flags, true
+}
+
+// serveConversation answers GET /v1/panes/{id}/conversation with the conversation of the pane's Claude transcript:
+// its opening prompt and its newest limit items. The transcript is the path in the pane's @orrery_transcript option,
+// never a request value. It answers 404 unless the pane has a live Claude session and that file exists.
+func serveConversation(tmux *tmuxctl.Client) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		limit, ok := conversationLimit(r.URL.Query())
+		if !ok {
+			http.Error(w, "bad request query", http.StatusBadRequest)
+			return
+		}
+		pane, err := checkPane(r.Context(), tmux, r.PathValue("id"))
+		if err != nil {
+			paneError(w, err)
+			return
+		}
+		if pane.State == "" {
+			http.Error(w, "no live session", http.StatusNotFound)
+			return
+		}
+		path, ok, err := tmux.PaneOption(r.Context(), pane.ID, protocol.OptionTranscript)
+		if err != nil {
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		if !ok || path == "" {
+			http.Error(w, "no transcript", http.StatusNotFound)
+			return
+		}
+		conv, err := conversation.Read(path, limit)
+		switch {
+		case errors.Is(err, fs.ErrNotExist):
+			http.Error(w, "transcript not found", http.StatusNotFound)
+			return
+		case err != nil:
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, http.StatusOK, conv)
+	}
+}
+
+// conversationLimit returns the limit query value, or conversationLimitDefault when limit is absent. It returns
+// false unless limit holds exactly one decimal integer from 1 to conversationLimitMax.
+func conversationLimit(query url.Values) (int, bool) {
+	values, present := query[queryLimit]
+	if !present {
+		return conversationLimitDefault, true
+	}
+	return boundedDecimal(values, 1, conversationLimitMax)
+}
+
+// singleValue returns the one value in values, or "" when there are none or several.
+func singleValue(values []string) string {
+	if len(values) != 1 {
+		return ""
+	}
+	return values[0]
+}
+
+// boundedDecimal returns the integer in values, and false unless values holds exactly one string of decimal
+// digits from low to high inclusive.
+func boundedDecimal(values []string, low, high int) (int, bool) {
+	value := singleValue(values)
+	if value == "" || strings.Trim(value, "0123456789") != "" {
+		return 0, false
+	}
+	n, err := strconv.Atoi(value)
+	if err != nil || n < low || n > high {
+		return 0, false
+	}
+	return n, true
 }
 
 // servePaneText answers POST /v1/panes/{id}/text by pasting the body's text into the pane and pressing Enter.

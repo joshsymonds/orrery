@@ -724,3 +724,194 @@ func TestRecordSession(t *testing.T) {
 		}
 	})
 }
+
+// toolRecord is the decoded @orrery_tool value the tool tests check.
+type toolRecord struct {
+	ID    string `json:"id"`
+	Name  string `json:"name"`
+	Input string `json:"input"`
+	Start int64  `json:"start"`
+}
+
+// toolHook returns a synthetic hook for event with a Bash command. An empty id omits tool_use_id.
+func toolHook(t *testing.T, event, id, command string) string {
+	t.Helper()
+	hook := map[string]any{
+		"hook_event_name": event,
+		"tool_name":       "Bash",
+		"tool_input":      map[string]string{"command": command},
+	}
+	if id != "" {
+		hook["tool_use_id"] = id
+	}
+	data, err := json.Marshal(hook)
+	if err != nil {
+		t.Fatalf("marshal %s hook: %v", event, err)
+	}
+	return string(data)
+}
+
+// readTool decodes the @orrery_tool option of pane; ok is false when it is unset.
+func readTool(t *testing.T, client *tmuxctl.Client, pane string) (toolRecord, bool) {
+	t.Helper()
+	raw, ok := option(t, client, pane, protocol.OptionTool)
+	if !ok {
+		return toolRecord{}, false
+	}
+	var record toolRecord
+	if err := json.Unmarshal([]byte(raw), &record); err != nil {
+		t.Fatalf("%s = %q, does not decode: %v", protocol.OptionTool, raw, err)
+	}
+	return record, true
+}
+
+// wantToolID checks the id of the @orrery_tool option of pane; want "" means unset.
+func wantToolID(t *testing.T, client *tmuxctl.Client, pane, want string) {
+	t.Helper()
+	record, ok := readTool(t, client, pane)
+	if want == "" {
+		if ok {
+			t.Fatalf("%s = %+v, want unset", protocol.OptionTool, record)
+		}
+		return
+	}
+	if !ok || record.ID != want {
+		t.Fatalf("%s id = (%q, %v), want (%q, true)", protocol.OptionTool, record.ID, ok, want)
+	}
+}
+
+func TestToolState(t *testing.T) {
+	t0 := time.Unix(1700000000, 0)
+
+	t.Run("PreToolUse records id, name, input and start", func(t *testing.T) {
+		client, pane := startPane(t)
+		apply(t, client, pane, toolHook(t, "PreToolUse", "synthetic-1", "echo synthetic"), t0)
+		record, ok := readTool(t, client, pane)
+		want := toolRecord{ID: "synthetic-1", Name: "Bash", Input: "echo synthetic", Start: t0.Unix()}
+		if !ok || record != want {
+			t.Fatalf("%s = %+v (set %v), want %+v", protocol.OptionTool, record, ok, want)
+		}
+	})
+
+	t.Run("multi-line command is stored as one clipped line", func(t *testing.T) {
+		client, pane := startPane(t)
+		command := "first line\nsecond line " + strings.Repeat("x", 250)
+		apply(t, client, pane, toolHook(t, "PreToolUse", "synthetic-1", command), t0)
+		raw, _ := option(t, client, pane, protocol.OptionTool)
+		if strings.Contains(raw, "\n") {
+			t.Fatalf("%s = %q, want one line", protocol.OptionTool, raw)
+		}
+		record, _ := readTool(t, client, pane)
+		// 23 characters of the first two lines, then x up to the 200-character clip.
+		want := "first line second line " + strings.Repeat("x", 177)
+		if record.Input != want {
+			t.Fatalf("input = %q, want %q", record.Input, want)
+		}
+	})
+
+	t.Run("PostToolUse and PostToolUseFailure with the same id clear it", func(t *testing.T) {
+		for _, event := range []string{"PostToolUse", "PostToolUseFailure"} {
+			t.Run(event, func(t *testing.T) {
+				client, pane := startPane(t)
+				apply(t, client, pane, toolHook(t, "PreToolUse", "synthetic-1", "echo synthetic"), t0)
+				wantToolID(t, client, pane, "synthetic-1")
+				apply(t, client, pane, toolHook(t, event, "synthetic-1", "echo synthetic"), t0.Add(time.Second))
+				wantToolID(t, client, pane, "")
+			})
+		}
+	})
+
+	t.Run("PostToolUse and PostToolUseFailure with another or no id leave it", func(t *testing.T) {
+		for _, event := range []string{"PostToolUse", "PostToolUseFailure"} {
+			for _, id := range []string{"synthetic-2", ""} {
+				t.Run(fmt.Sprintf("%s id %q", event, id), func(t *testing.T) {
+					client, pane := startPane(t)
+					apply(t, client, pane, toolHook(t, "PreToolUse", "synthetic-1", "echo synthetic"), t0)
+					wantToolID(t, client, pane, "synthetic-1")
+					apply(t, client, pane, toolHook(t, event, id, "echo synthetic"), t0.Add(time.Second))
+					wantToolID(t, client, pane, "synthetic-1")
+				})
+			}
+		}
+	})
+
+	t.Run("parallel batch keeps the later tool until its own end", func(t *testing.T) {
+		client, pane := startPane(t)
+		apply(t, client, pane, toolHook(t, "PreToolUse", "synthetic-a", "echo a"), t0)
+		apply(t, client, pane, toolHook(t, "PreToolUse", "synthetic-b", "echo b"), t0.Add(time.Second))
+		wantToolID(t, client, pane, "synthetic-b")
+
+		apply(t, client, pane, toolHook(t, "PostToolUse", "synthetic-a", "echo a"), t0.Add(2*time.Second))
+		wantToolID(t, client, pane, "synthetic-b")
+
+		apply(t, client, pane, toolHook(t, "PostToolUse", "synthetic-b", "echo b"), t0.Add(3*time.Second))
+		wantToolID(t, client, pane, "")
+	})
+
+	t.Run("Stop clears it", func(t *testing.T) {
+		client, pane := startPane(t)
+		apply(t, client, pane, toolHook(t, "PreToolUse", "synthetic-1", "echo synthetic"), t0)
+		wantToolID(t, client, pane, "synthetic-1")
+		apply(t, client, pane, stopHook, t0.Add(time.Second))
+		wantToolID(t, client, pane, "")
+	})
+
+	t.Run("SessionEnd clears it", func(t *testing.T) {
+		client, pane := startPane(t)
+		apply(t, client, pane, toolHook(t, "PreToolUse", "synthetic-1", "echo synthetic"), t0)
+		wantToolID(t, client, pane, "synthetic-1")
+		apply(t, client, pane, sessionEndHook, t0.Add(time.Second))
+		wantToolID(t, client, pane, "")
+	})
+
+	t.Run("late tool events inside the grace window write nothing", func(t *testing.T) {
+		client, pane := startPane(t)
+		apply(t, client, pane, userPromptSubmitHook, t0)
+		apply(t, client, pane, stopHook, t0.Add(4*time.Second))
+		wantState(t, client, pane, protocol.StateDone)
+		// A tool that started before the Stop, stored by hand so a late event that wrote would show.
+		stored := `{"id":"synthetic-1","name":"Bash","input":"echo synthetic","start":1700000000}`
+		if err := client.SetPaneOption(t.Context(), pane, protocol.OptionTool, stored); err != nil {
+			t.Fatalf("SetPaneOption(%s): %v", protocol.OptionTool, err)
+		}
+		apply(t, client, pane, toolHook(t, "PreToolUse", "synthetic-2", "echo late"), t0.Add(5*time.Second))
+		apply(t, client, pane, toolHook(t, "PostToolUse", "synthetic-1", "echo synthetic"), t0.Add(6*time.Second))
+		if got, _ := option(t, client, pane, protocol.OptionTool); got != stored {
+			t.Fatalf("%s after late events = %q, want unchanged %q", protocol.OptionTool, got, stored)
+		}
+	})
+
+	t.Run("PreToolUse without tool_use_id leaves the option unchanged", func(t *testing.T) {
+		client, pane := startPane(t)
+		apply(t, client, pane, toolHook(t, "PreToolUse", "", "echo synthetic"), t0)
+		wantToolID(t, client, pane, "")
+
+		apply(t, client, pane, toolHook(t, "PreToolUse", "synthetic-1", "echo synthetic"), t0.Add(time.Second))
+		wantToolID(t, client, pane, "synthetic-1")
+		empty := `{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_use_id":"",` +
+			`"tool_input":{"command":"echo empty"}}`
+		apply(t, client, pane, empty, t0.Add(2*time.Second))
+		wantToolID(t, client, pane, "synthetic-1")
+	})
+
+	t.Run("a stored value that does not decode never matches", func(t *testing.T) {
+		client, pane := startPane(t)
+		if err := client.SetPaneOption(t.Context(), pane, protocol.OptionTool, "not json"); err != nil {
+			t.Fatalf("SetPaneOption(%s): %v", protocol.OptionTool, err)
+		}
+		apply(t, client, pane, toolHook(t, "PostToolUse", "synthetic-1", "echo synthetic"), t0)
+		if got, _ := option(t, client, pane, protocol.OptionTool); got != "not json" {
+			t.Fatalf("%s = %q, want unchanged", protocol.OptionTool, got)
+		}
+	})
+
+	t.Run("a non-string tool_use_id is an error and writes nothing", func(t *testing.T) {
+		client, pane := startPane(t)
+		hook := `{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_use_id":7}`
+		if _, _, err := state.Apply(t.Context(), client, pane, json.RawMessage(hook), t0); err == nil {
+			t.Fatalf("Apply(%s) error = nil, want error", hook)
+		}
+		wantToolID(t, client, pane, "")
+		wantState(t, client, pane, "")
+	})
+}

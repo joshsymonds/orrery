@@ -47,6 +47,7 @@ const (
 	OptionDir           = "@orrery_dir"
 	OptionClaudeSession = "@orrery_claude_session"
 	OptionTranscript    = "@orrery_transcript"
+	OptionTool          = "@orrery_tool"
 )
 
 // ShellSessionPrefix is the fixed prefix of shell session names.
@@ -74,6 +75,7 @@ type Pane struct {
 	Context       string `json:"context"`
 	ClaudeSession string `json:"-"`
 	Activity      int64  `json:"activity"`
+	Tool          string `json:"tool"`
 }
 
 // paneFields is Pane without its methods, so encoding and decoding it uses the field tags.
