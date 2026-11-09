@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -35,13 +36,16 @@ const (
 	projectName = "example-project"
 )
 
-// pickerSpec is what a picker pane reads: the server and fakes Run uses, TEXT, and the file the outcome goes to.
+// pickerSpec is what a picker pane reads: the server and fakes Run uses, TEXT, DIR, and the file the outcome goes
+// to. A non-empty Gate is a file the pane waits for before Run, so keys sent before it are queued.
 type pickerSpec struct {
 	Server string
 	Zoxide string
 	Claude string
 	Root   string
 	Text   string
+	Dir    string
+	Gate   string
 	Result string
 }
 
@@ -72,9 +76,16 @@ func TestPickerPane(t *testing.T) {
 	if err != nil {
 		t.Fatalf("tmux client: %v", err)
 	}
+	if spec.Gate != "" {
+		waitUntil(t, "the gate", func() bool {
+			_, err := os.Stat(spec.Gate)
+			return err == nil
+		})
+	}
 	target, chosen, runErr := Run(t.Context(), Options{
 		Config: open.Config{Tmux: client, Zoxide: spec.Zoxide, Claude: spec.Claude, Root: spec.Root},
 		Text:   spec.Text,
+		Dir:    spec.Dir,
 		Input:  os.Stdin,
 		Output: os.Stdout,
 	})
@@ -135,6 +146,10 @@ type fixture struct {
 	targetSession string
 	targetPane    string
 	pane          string // the picker's pane
+	text          string // the picker's TEXT; "" asks for it
+	dir           string // the picker's DIR; "" has none
+	gated         bool   // the picker pane waits for gate before Run
+	gate          string
 	spec          string
 	result        string
 }
@@ -151,6 +166,7 @@ func newFixture(t *testing.T, zoxideStatus int) *fixture {
 		root:          root,
 		dir1:          filepath.Join(root, "dir-01"),
 		targetSession: "target",
+		text:          testText,
 	}
 	dir2 := filepath.Join(root, "dir-02")
 	for _, dir := range []string{f.dir1, dir2} {
@@ -170,18 +186,30 @@ func newFixture(t *testing.T, zoxideStatus int) *fixture {
 	return f
 }
 
-// startPicker runs the test binary as the picker pane's program, with testText, and returns once the pane exists.
+// setReply replaces the fake claude's reply with reply.
+func (f *fixture) setReply(t *testing.T, reply string) {
+	t.Helper()
+	writeFile(t, filepath.Join(filepath.Dir(f.claude), "reply"), reply)
+}
+
+// startPicker runs the test binary as the picker pane's program, with the fixture's text and dir, and returns
+// once the pane exists.
 func (f *fixture) startPicker(t *testing.T) {
 	t.Helper()
 	dir := t.TempDir()
 	f.spec = filepath.Join(dir, "spec.json")
 	f.result = filepath.Join(dir, "result.json")
+	if f.gated {
+		f.gate = filepath.Join(dir, "gate")
+	}
 	data, err := json.Marshal(pickerSpec{
 		Server: f.server,
 		Zoxide: f.zoxide,
 		Claude: f.claude,
 		Root:   f.root,
-		Text:   testText,
+		Text:   f.text,
+		Dir:    f.dir,
+		Gate:   f.gate,
 		Result: f.result,
 	})
 	if err != nil {
@@ -213,10 +241,41 @@ func (f *fixture) waitForFrame(t *testing.T, want string) {
 	})
 }
 
-// sendKeys writes key to the picker pane as a key press.
-func (f *fixture) sendKeys(t *testing.T, key string) {
+// sendKeys writes keys to the picker pane as key presses.
+func (f *fixture) sendKeys(t *testing.T, keys ...string) {
 	t.Helper()
-	mustRun(t, f.client, "send-keys", "-t", f.pane, key)
+	mustRun(t, f.client, slices.Concat([]string{"send-keys", "-t", f.pane}, keys)...)
+}
+
+// typeText writes s to the picker pane as literal characters, not key names.
+func (f *fixture) typeText(t *testing.T, s string) {
+	t.Helper()
+	mustRun(t, f.client, "send-keys", "-t", f.pane, "-l", s)
+}
+
+// hasLine reports whether a line of frame is want, ignoring trailing spaces.
+func hasLine(frame, want string) bool {
+	return slices.ContainsFunc(strings.Split(frame, "\n"), func(line string) bool {
+		return strings.TrimRight(line, " ") == want
+	})
+}
+
+// claudeRunFiles returns the content of the file name in each fake claude run's directory.
+func claudeRunFiles(t *testing.T, claude, name string) []string {
+	t.Helper()
+	paths, err := filepath.Glob(filepath.Join(filepath.Dir(claude), "calls", "run.*", name))
+	if err != nil {
+		t.Fatalf("glob claude %s: %v", name, err)
+	}
+	contents := make([]string, 0, len(paths))
+	for _, path := range paths {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s: %v", path, err)
+		}
+		contents = append(contents, string(data))
+	}
+	return contents
 }
 
 // awaitOutcome waits for the picker's Run to return and reads what it returned.
@@ -372,6 +431,202 @@ func TestPickerReturnsIntentError(t *testing.T) {
 	}
 	if got := f.state(t); got != baseline {
 		t.Fatalf("failed Intent created state:\nbefore:\n%s\nafter:\n%s", baseline, got)
+	}
+}
+
+func TestPickerTextDiscardsKeysTypedBeforePrompt(t *testing.T) {
+	f := newFixture(t, 0)
+	f.text, f.gated = "", true
+	f.startPicker(t)
+	baseline := f.state(t)
+
+	// The pane waits at the gate, so the j and Enter are queued before the prompt draws. Read, the j would start
+	// the text.
+	f.sendKeys(t, "j", "Enter")
+	time.Sleep(settle)
+	writeFile(t, f.gate, "")
+
+	f.waitForFrame(t, "text:")
+	f.typeText(t, "examplx")
+	f.sendKeys(t, "BSpace")
+	f.typeText(t, "e text")
+	f.waitForFrame(t, "text: example text")
+	f.sendKeys(t, "Enter")
+	f.waitForFrame(t, "> pane "+f.dir1+" (prompt)")
+
+	stdins := claudeRunFiles(t, f.claude, "stdin")
+	if len(stdins) != 1 || !strings.Contains(stdins[0], "\nTEXT:\nexample text\n") {
+		t.Fatalf("fake claude stdin = %q, want one run with TEXT %q", stdins, "example text")
+	}
+	f.sendKeys(t, "Escape")
+	outcome := f.awaitOutcome(t)
+	if outcome.Chosen || outcome.Err != "" {
+		t.Fatalf("outcome = %+v, want no choice and no error", outcome)
+	}
+	if got := f.state(t); got != baseline {
+		t.Fatalf("state changed:\nbefore:\n%s\nafter:\n%s", baseline, got)
+	}
+}
+
+func TestPickerTextEscapeRunsNothing(t *testing.T) {
+	f := newFixture(t, 0)
+	f.text = ""
+	f.startPicker(t)
+	baseline := f.state(t)
+	f.waitForFrame(t, "text:")
+	f.sendKeys(t, "Escape")
+
+	outcome := f.awaitOutcome(t)
+	if outcome.Chosen || outcome.Err != "" || outcome.Session != "" || outcome.Pane != "" {
+		t.Fatalf("outcome = %+v, want no choice, no error, and no target", outcome)
+	}
+	if n := claudeRuns(t, f.claude); n != 0 {
+		t.Fatalf("fake claude ran %d times, want none", n)
+	}
+	if got := f.state(t); got != baseline {
+		t.Fatalf("Esc at the prompt created state:\nbefore:\n%s\nafter:\n%s", baseline, got)
+	}
+}
+
+func TestPickerDirFirstRowOpensPaneWithPromptOnTask(t *testing.T) {
+	f := newFixture(t, 0)
+	// The model ranks d2 first and names Dir (d1) below it: Dir must come first and appear once.
+	f.setReply(t, fmt.Sprintf("pane d2\npane d1\njump %s\ntask: yes\n", f.targetPane))
+	f.dir = f.dir1
+	f.startPicker(t)
+
+	f.waitForFrame(t, "> pane "+f.dir1+" (prompt)")
+	if n := strings.Count(f.frame(t), "pane "+f.dir1); n != 1 {
+		t.Fatalf("the frame names %s %d times, want once", f.dir1, n)
+	}
+	f.sendKeys(t, "Enter")
+
+	outcome := f.awaitOutcome(t)
+	if !outcome.Chosen || outcome.Err != "" {
+		t.Fatalf("outcome = %+v, want the Dir pane run with no error", outcome)
+	}
+	if outcome.Pane != "" || outcome.Session == "" || outcome.Session == f.targetSession {
+		t.Fatalf("outcome = %+v, want a new session with no pane", outcome)
+	}
+	if got := f.sessionDir(t, outcome.Session); got != f.dir1 {
+		t.Fatalf("new session dir = %q, want %q", got, f.dir1)
+	}
+	waitUntil(t, "the Claude pane to start with the prompt", func() bool {
+		for _, args := range claudeRunFiles(t, f.claude, "args") {
+			if strings.Contains(args, "\n"+testText+"\n") {
+				return true
+			}
+		}
+		return false
+	})
+}
+
+func TestPickerDirFirstRowHasNoPromptWithoutTask(t *testing.T) {
+	f := newFixture(t, 0)
+	f.setReply(t, fmt.Sprintf("pane d2\npane d1\njump %s\ntask: no\n", f.targetPane))
+	f.dir = f.dir1
+	f.startPicker(t)
+
+	f.waitForFrame(t, "> pane "+f.dir1)
+	if frame := f.frame(t); !hasLine(frame, "> pane "+f.dir1) {
+		t.Fatalf("first row is not the bare Dir pane row:\n%s", frame)
+	}
+}
+
+func TestPickerEditProjectNameAndRoot(t *testing.T) {
+	f := newFixture(t, 0)
+	edited := filepath.Join(f.root, "edited")
+	if err := os.Mkdir(edited, 0o750); err != nil {
+		t.Fatalf("mkdir %s: %v", edited, err)
+	}
+	f.startPicker(t)
+	baseline := f.state(t)
+	f.waitForFrame(t, "> pane "+f.dir1)
+	f.sendKeys(t, "j", "j")
+	f.waitForFrame(t, "> project "+projectName)
+
+	f.sendKeys(t, "e")
+	f.waitForFrame(t, "name: "+projectName)
+	f.sendKeys(t, slices.Repeat([]string{"BSpace"}, len(projectName))...)
+	f.typeText(t, "new-name")
+	f.sendKeys(t, "Enter")
+	f.waitForFrame(t, "root: "+f.root)
+
+	f.sendKeys(t, slices.Repeat([]string{"BSpace"}, len(f.root))...)
+	f.typeText(t, edited)
+	f.sendKeys(t, "Enter")
+	f.waitForFrame(t, "> project new-name in "+edited)
+	if got := f.state(t); got != baseline {
+		t.Fatalf("editing created state:\nbefore:\n%s\nafter:\n%s", baseline, got)
+	}
+
+	f.sendKeys(t, "Enter")
+	outcome := f.awaitOutcome(t)
+	if !outcome.Chosen || outcome.Err != "" || outcome.Session == "" {
+		t.Fatalf("outcome = %+v, want the project run with no error and a session", outcome)
+	}
+	if got := f.sessionDir(t, outcome.Session); got != filepath.Join(edited, "new-name") {
+		t.Fatalf("project session dir = %q, want %q", got, filepath.Join(edited, "new-name"))
+	}
+	entries, err := os.ReadDir(edited)
+	if err != nil {
+		t.Fatalf("read %s: %v", edited, err)
+	}
+	if len(entries) != 1 || entries[0].Name() != "new-name" {
+		t.Fatalf("edited root entries = %v, want only new-name", entries)
+	}
+	if _, err := os.Stat(filepath.Join(f.root, projectName)); err == nil {
+		t.Fatalf("the original project name was created under the default root")
+	}
+}
+
+func TestPickerEscMidEditKeepsOriginalAction(t *testing.T) {
+	f := newFixture(t, 0)
+	f.startPicker(t)
+	f.waitForFrame(t, "> pane "+f.dir1)
+	f.sendKeys(t, "j", "j")
+	f.waitForFrame(t, "> project "+projectName)
+
+	f.sendKeys(t, "e")
+	f.waitForFrame(t, "name: "+projectName)
+	f.typeText(t, "other")
+	f.sendKeys(t, "Escape")
+	waitUntil(t, "the edit to close", func() bool {
+		frame := f.frame(t)
+		return !strings.Contains(frame, "name: ") && strings.Contains(frame, "> project "+projectName)
+	})
+
+	f.sendKeys(t, "Enter")
+	outcome := f.awaitOutcome(t)
+	if !outcome.Chosen || outcome.Err != "" {
+		t.Fatalf("outcome = %+v, want the original project run with no error", outcome)
+	}
+	if got := f.sessionDir(t, outcome.Session); got != filepath.Join(f.root, projectName) {
+		t.Fatalf("project session dir = %q, want %q", got, filepath.Join(f.root, projectName))
+	}
+}
+
+func TestPickerEditOnJumpRowChangesNothing(t *testing.T) {
+	f := newFixture(t, 0)
+	f.startPicker(t)
+	baseline := f.state(t)
+	f.waitForFrame(t, "> pane "+f.dir1)
+	f.sendKeys(t, "j")
+	f.waitForFrame(t, "> jump "+f.targetPane)
+
+	f.sendKeys(t, "e")
+	time.Sleep(settle)
+	if frame := f.frame(t); strings.Contains(frame, "name: ") || strings.Contains(frame, "root: ") {
+		t.Fatalf("e on the jump row opened an edit:\n%s", frame)
+	}
+	f.sendKeys(t, "Enter")
+
+	outcome := f.awaitOutcome(t)
+	if !outcome.Chosen || outcome.Err != "" || outcome.Pane != f.targetPane || outcome.Session != f.targetSession {
+		t.Fatalf("outcome = %+v, want the jump to pane %s unchanged", outcome, f.targetPane)
+	}
+	if got := f.state(t); got != baseline {
+		t.Fatalf("jump created state:\nbefore:\n%s\nafter:\n%s", baseline, got)
 	}
 }
 
