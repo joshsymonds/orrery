@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/joshsymonds/orrery/internal/keymap"
+	"github.com/joshsymonds/orrery/internal/palette"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
 )
 
@@ -103,7 +104,9 @@ func Card(out io.Writer, prefix string) error {
 	return nil
 }
 
-// pageSource is the help page. Every label and text reaches it through html/template, which escapes it.
+// pageSource is the help page. Every label and text reaches it through html/template, which escapes it. Its colors
+// come from the palette, so the page is always Catppuccin Mocha; the constant conversions keep them out of template
+// escaping.
 const pageSource = `<!doctype html>
 <html lang="en">
 <head>
@@ -111,14 +114,13 @@ const pageSource = `<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{.Title}}</title>
 <style>
-:root { color-scheme: light dark; }
-body { margin: 0 auto; max-width: 56rem; padding: 2rem 1rem; font: 15px/1.5 system-ui, sans-serif; background: #ffffff; color: #1f2328; }
-h1 { font-size: 1.4rem; }
-h2 { font-size: 1.05rem; margin: 1.6rem 0 0.4rem; }
+:root { color-scheme: dark; }
+body { margin: 0 auto; max-width: 56rem; padding: 2rem 1rem; font: 15px/1.5 system-ui, sans-serif; background: ` + string(palette.Base) + `; color: ` + string(palette.Text) + `; }
+h1 { font-size: 1.4rem; color: ` + string(palette.Mauve) + `; }
+h2 { font-size: 1.05rem; margin: 1.6rem 0 0.4rem; color: ` + string(palette.Mauve) + `; }
 table { width: 100%; border-collapse: collapse; }
 th, td { text-align: left; vertical-align: top; padding: 0.2rem 1rem 0.2rem 0; }
-th { font-family: ui-monospace, monospace; font-weight: 600; white-space: nowrap; }
-@media (prefers-color-scheme: dark) { body { background: #0d1117; color: #e6edf3; } }
+th { font-family: ui-monospace, monospace; font-weight: 600; white-space: nowrap; color: ` + string(palette.Lavender) + `; }
 </style>
 </head>
 <body>

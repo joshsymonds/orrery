@@ -5,14 +5,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>orrery daily use</title>
 <style>
-:root { color-scheme: light dark; }
-body { margin: 0 auto; max-width: 56rem; padding: 2rem 1rem; font: 15px/1.5 system-ui, sans-serif; background: #ffffff; color: #1f2328; }
-h1 { font-size: 1.4rem; }
-h2 { font-size: 1.05rem; margin: 1.6rem 0 0.4rem; }
+:root { color-scheme: dark; }
+body { margin: 0 auto; max-width: 56rem; padding: 2rem 1rem; font: 15px/1.5 system-ui, sans-serif; background: #1e1e2e; color: #cdd6f4; }
+h1 { font-size: 1.4rem; color: #cba6f7; }
+h2 { font-size: 1.05rem; margin: 1.6rem 0 0.4rem; color: #cba6f7; }
 table { width: 100%; border-collapse: collapse; }
 th, td { text-align: left; vertical-align: top; padding: 0.2rem 1rem 0.2rem 0; }
-th { font-family: ui-monospace, monospace; font-weight: 600; white-space: nowrap; }
-@media (prefers-color-scheme: dark) { body { background: #0d1117; color: #e6edf3; } }
+th { font-family: ui-monospace, monospace; font-weight: 600; white-space: nowrap; color: #b4befe; }
 </style>
 </head>
 <body>
