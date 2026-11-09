@@ -17,6 +17,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/archive"
 	"github.com/joshsymonds/orrery/internal/closer"
 	"github.com/joshsymonds/orrery/internal/protocol"
+	"github.com/joshsymonds/orrery/internal/shell"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
 )
 
@@ -355,5 +356,127 @@ func TestPlanPaneKeepsClientWhenSessionKeepsAnotherPane(t *testing.T) {
 	}
 	if plan.MoveTo != "" || plan.Detach {
 		t.Errorf("plan MoveTo=%q Detach=%t, want the client to stay", plan.MoveTo, plan.Detach)
+	}
+}
+
+// setSessionDir sets @orrery_dir on the session name to dir, as the shell package does for its session.
+func setSessionDir(t *testing.T, client *tmuxctl.Client, name, dir string) {
+	t.Helper()
+	if _, err := client.Run(t.Context(), "set-option", "-t", "="+name+":", protocol.OptionDir, dir); err != nil {
+		t.Fatalf("set %s on session %s: %v", protocol.OptionDir, name, err)
+	}
+}
+
+// splitPane splits the pane target in dir, running a long-lived command, and returns the id of the new pane.
+func splitPane(t *testing.T, client *tmuxctl.Client, target, dir string) string {
+	t.Helper()
+	out, err := client.Run(t.Context(), "split-window", "-d", "-P", "-F", "#{pane_id}", "-t", target,
+		"-c", dir, "exec sleep 300")
+	if err != nil {
+		t.Fatalf("split-window %s: %v", target, err)
+	}
+	return strings.TrimSpace(out)
+}
+
+// paneIDsOf returns the id of each pane in panes, in order.
+func paneIDsOf(panes []protocol.Pane) []string {
+	ids := make([]string, 0, len(panes))
+	for _, pane := range panes {
+		ids = append(ids, pane.ID)
+	}
+	return ids
+}
+
+func TestPlanProjectCloseKeepsForeignPaneAndMovesClient(t *testing.T) {
+	client := closerServer(t)
+	dir := t.TempDir()
+	archivePath := filepath.Join(t.TempDir(), "archive.jsonl")
+	projectPane := newSession(t, client, "alpha", dir)
+	setSessionDir(t, client, "alpha", dir)
+	secondPane := splitPane(t, client, projectPane, dir)
+	thirdPane := splitPane(t, client, projectPane, dir)
+	setPaneOptions(t, client, projectPane, map[string]string{
+		protocol.OptionClaudeSession: "claude-alpha",
+		protocol.OptionTranscript:    "/home/user/.claude/projects/alpha/session.jsonl",
+		protocol.OptionLabel:         "alpha label",
+		protocol.OptionSummary:       "alpha summary",
+	})
+	shellName := shell.Name(dir)
+	shellPane := newSession(t, client, shellName, dir)
+	setSessionDir(t, client, shellName, dir)
+	foreignPane := newSession(t, client, "foreign", dir)
+	pastSecond()
+	newSession(t, client, "beta", t.TempDir())
+	invoking := attach(t, client, "alpha")
+
+	plan, err := closer.PlanProject(t.Context(), client, dir, invoking)
+	if err != nil {
+		t.Fatalf("PlanProject: %v", err)
+	}
+	wantClosing := []string{projectPane, secondPane, thirdPane, shellPane}
+	gotClosing := paneIDsOf(plan.Panes)
+	slices.Sort(wantClosing)
+	slices.Sort(gotClosing)
+	if !slices.Equal(gotClosing, wantClosing) {
+		t.Errorf("plan closes panes %v, want %v", gotClosing, wantClosing)
+	}
+	if got := paneIDsOf(plan.Kept); !slices.Equal(got, []string{foreignPane}) {
+		t.Errorf("plan keeps panes %v, want [%s]", got, foreignPane)
+	}
+	if plan.MoveTo != "beta" || plan.Detach {
+		t.Fatalf("plan MoveTo=%q Detach=%t, want MoveTo beta and Detach false", plan.MoveTo, plan.Detach)
+	}
+	if plan.Dir != dir || plan.ClientTTY != invoking {
+		t.Errorf("plan Dir=%q ClientTTY=%q, want %q and %q", plan.Dir, plan.ClientTTY, dir, invoking)
+	}
+
+	if err := closer.Close(t.Context(), client, plan, archivePath, closeTime()); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	records, err := archive.ForDir(archivePath, dir)
+	if err != nil {
+		t.Fatalf("ForDir: %v", err)
+	}
+	want := archive.Record{
+		Dir:           dir,
+		Session:       "alpha",
+		ClaudeSession: "claude-alpha",
+		Transcript:    "/home/user/.claude/projects/alpha/session.jsonl",
+		Label:         "alpha label",
+		Summary:       "alpha summary",
+		Closed:        closeTime().Unix(),
+	}
+	if len(records) != 1 || records[0] != want {
+		t.Errorf("archive records for %s = %+v, want [%+v]", dir, records, want)
+	}
+	for _, id := range wantClosing {
+		if paneListed(t, client, id) {
+			t.Errorf("pane %s is still open after Close", id)
+		}
+	}
+	if !paneListed(t, client, foreignPane) {
+		t.Errorf("foreign pane %s closed although the project close keeps it", foreignPane)
+	}
+	clients, err := clientSessions(t.Context(), client)
+	if err != nil {
+		t.Fatalf("clientSessions: %v", err)
+	}
+	if got := clients[invoking]; got != "beta" {
+		t.Errorf("invoking client shows %q, want beta", got)
+	}
+}
+
+func TestPlanProjectWithoutSessionIsError(t *testing.T) {
+	client := closerServer(t)
+	newSession(t, client, "keeper", t.TempDir())
+	dir := t.TempDir()
+
+	_, err := closer.PlanProject(t.Context(), client, dir, noClientTTY)
+	if err == nil {
+		t.Fatal("PlanProject for a directory with no session returned nil error")
+	}
+	if !strings.Contains(err.Error(), dir) {
+		t.Errorf("PlanProject error %q does not name the directory %s", err, dir)
 	}
 }
