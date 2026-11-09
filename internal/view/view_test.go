@@ -3,10 +3,21 @@ package view_test
 import (
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/view"
 )
+
+// foldNow is the fixed clock the Fold tests classify against.
+func foldNow() time.Time {
+	return time.Date(2026, time.November, 8, 12, 0, 0, 0, time.UTC)
+}
+
+// foldAgo returns the unix seconds of a pane activity that happened d before foldNow.
+func foldAgo(d time.Duration) int64 {
+	return foldNow().Add(-d).Unix()
+}
 
 func ids(panes []protocol.Pane) []string {
 	out := make([]string, 0, len(panes))
@@ -278,5 +289,201 @@ func TestGroupsDoesNotModifyInput(t *testing.T) {
 	_ = view.Groups(panes)
 	if !slices.Equal(panes, before) {
 		t.Fatalf("input changed: got %+v, want %+v", panes, before)
+	}
+}
+
+func TestFoldQuietRule(t *testing.T) {
+	const day = 24 * time.Hour
+	cases := []struct {
+		name  string
+		panes []protocol.Pane
+		quiet bool
+	}{
+		{
+			name: "active eight days ago is quiet",
+			panes: []protocol.Pane{
+				{
+					ID:       "p",
+					Cwd:      "/home/user/project-a",
+					State:    protocol.StateDone,
+					Session:  "s",
+					Activity: foldAgo(8 * day),
+				},
+			},
+			quiet: true,
+		},
+		{
+			name: "active six days ago stays active",
+			panes: []protocol.Pane{
+				{
+					ID:       "p",
+					Cwd:      "/home/user/project-a",
+					State:    protocol.StateDone,
+					Session:  "s",
+					Activity: foldAgo(6 * day),
+				},
+			},
+			quiet: false,
+		},
+		{
+			name: "active exactly seven days ago stays active",
+			panes: []protocol.Pane{
+				{
+					ID:       "p",
+					Cwd:      "/home/user/project-a",
+					State:    protocol.StateDone,
+					Session:  "s",
+					Activity: foldAgo(7 * day),
+				},
+			},
+			quiet: false,
+		},
+		{
+			name: "old pane with recent pane stays active",
+			panes: []protocol.Pane{
+				{
+					ID:       "old",
+					Cwd:      "/home/user/project-a",
+					State:    protocol.StateDone,
+					Session:  "s",
+					Activity: foldAgo(8 * day),
+				},
+				{
+					ID:       "recent",
+					Cwd:      "/home/user/project-a",
+					State:    protocol.StateDone,
+					Session:  "s",
+					Activity: foldAgo(time.Hour),
+				},
+			},
+			quiet: false,
+		},
+		{
+			name: "old group with a waiting pane stays active",
+			panes: []protocol.Pane{
+				{
+					ID:       "waiting",
+					Cwd:      "/home/user/project-a",
+					State:    protocol.StateWaiting,
+					Session:  "s",
+					Changed:  1,
+					Seen:     1,
+					Activity: foldAgo(8 * day),
+				},
+			},
+			quiet: false,
+		},
+		{
+			name: "old group with an unseen pane stays active",
+			panes: []protocol.Pane{
+				{
+					ID:       "unseen",
+					Cwd:      "/home/user/project-a",
+					State:    protocol.StateDone,
+					Session:  "s",
+					Changed:  5,
+					Seen:     1,
+					Activity: foldAgo(8 * day),
+				},
+			},
+			quiet: false,
+		},
+		{
+			name: "all panes with unknown activity stay active",
+			panes: []protocol.Pane{
+				{ID: "p1", Cwd: "/home/user/project-a", State: protocol.StateDone, Session: "s"},
+				{ID: "p2", Cwd: "/home/user/project-a", State: protocol.StateDone, Session: "s"},
+			},
+			quiet: false,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			groups := []view.Group{{Dir: "/home/user/project-a", Panes: tc.panes}}
+			active, quiet := view.Fold(groups, foldNow())
+			if tc.quiet {
+				if len(active) != 0 || len(quiet) != 1 {
+					t.Fatalf("got %d active and %d quiet, want 0 and 1", len(active), len(quiet))
+				}
+				return
+			}
+			if len(active) != 1 || len(quiet) != 0 {
+				t.Fatalf("got %d active and %d quiet, want 1 and 0", len(active), len(quiet))
+			}
+		})
+	}
+}
+
+func TestFoldKeepsOrderAndInput(t *testing.T) {
+	const day = 24 * time.Hour
+	groups := []view.Group{
+		{
+			Dir: "/home/user/project-a",
+			Panes: []protocol.Pane{
+				{
+					ID:       "a",
+					Cwd:      "/home/user/project-a",
+					State:    protocol.StateDone,
+					Session:  "s",
+					Activity: foldAgo(8 * day),
+				},
+			},
+		},
+		{
+			Dir: "/home/user/project-b",
+			Panes: []protocol.Pane{
+				{
+					ID:       "b",
+					Cwd:      "/home/user/project-b",
+					State:    protocol.StateDone,
+					Session:  "s",
+					Activity: foldAgo(time.Hour),
+				},
+			},
+		},
+		{
+			Dir: "/home/user/project-c",
+			Panes: []protocol.Pane{
+				{
+					ID:       "c",
+					Cwd:      "/home/user/project-c",
+					State:    protocol.StateDone,
+					Session:  "s",
+					Activity: foldAgo(9 * day),
+				},
+			},
+		},
+		{
+			Dir: "/home/user/project-d",
+			Panes: []protocol.Pane{
+				{
+					ID:       "d",
+					Cwd:      "/home/user/project-d",
+					State:    protocol.StateWaiting,
+					Session:  "s",
+					Changed:  1,
+					Seen:     1,
+					Activity: foldAgo(10 * day),
+				},
+			},
+		},
+	}
+	beforeDirs := dirs(groups)
+	beforeIDs := [][]string{ids(groups[0].Panes), ids(groups[1].Panes), ids(groups[2].Panes), ids(groups[3].Panes)}
+
+	active, quiet := view.Fold(groups, foldNow())
+	if got := dirs(active); !slices.Equal(got, []string{"/home/user/project-b", "/home/user/project-d"}) {
+		t.Fatalf("active dirs = %v, want project-b then project-d", got)
+	}
+	if got := dirs(quiet); !slices.Equal(got, []string{"/home/user/project-a", "/home/user/project-c"}) {
+		t.Fatalf("quiet dirs = %v, want project-a then project-c", got)
+	}
+	if got := dirs(groups); !slices.Equal(got, beforeDirs) {
+		t.Fatalf("input dirs changed: got %v, want %v", got, beforeDirs)
+	}
+	for i, g := range groups {
+		if got := ids(g.Panes); !slices.Equal(got, beforeIDs[i]) {
+			t.Fatalf("input group %d panes changed: got %v, want %v", i, got, beforeIDs[i])
+		}
 	}
 }

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -16,6 +17,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/joshsymonds/orrery/internal/keymap"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
 )
@@ -217,5 +219,150 @@ func TestRun(t *testing.T) {
 		}
 	case <-time.After(10 * time.Second):
 		t.Fatal("Run did not return after ctx was canceled")
+	}
+}
+
+func TestViewHelp(t *testing.T) {
+	m := pressAll(t, loadedModel(t, staticSource), "?")
+	checkGolden(t, "TestViewHelp", m.View().Content)
+}
+
+func TestHelpListsEveryTreeKeyAndHelpWord(t *testing.T) {
+	content := pressAll(t, loadedModel(t, staticSource), "?").View().Content
+	lines := strings.Split(content, "\n")
+	for _, b := range keymap.For(keymap.Tree) {
+		keys := strings.Join(b.Keys, ", ")
+		if !slices.ContainsFunc(lines, func(line string) bool { return strings.HasPrefix(line, keys) }) {
+			t.Errorf("no overlay line starts with keys %q:\n%s", keys, content)
+		}
+		for _, word := range strings.Fields(b.Help) {
+			if !strings.Contains(content, word) {
+				t.Errorf("overlay lacks help word %q for keys %q:\n%s", word, keys, content)
+			}
+		}
+	}
+}
+
+func TestHelpClosesOnAnyKeyAndRunsNothingElse(t *testing.T) {
+	tree := loadedModel(t, staticSource).View().Content
+	for _, name := range []string{"j", "q", "enter", "?"} {
+		t.Run(name, func(t *testing.T) {
+			m := pressAll(t, loadedModel(t, staticSource), "?")
+			if !strings.HasPrefix(m.View().Content, "Keys\n") {
+				t.Fatal("? did not open the help overlay")
+			}
+			next, cmd := m.Update(keyMsg(name))
+			if cmd != nil {
+				t.Fatalf("key %q while help shows returned a command, want none", name)
+			}
+			m = modelOf(t, next)
+			if got := m.View().Content; got != tree {
+				t.Fatalf("frame after %q is not the tree frame:\n%s\nwant:\n%s", name, got, tree)
+			}
+			assertCursor(t, m, "%1")
+		})
+	}
+}
+
+// quietPanes is synthetic panes for the Quiet section. alpha keeps a waiting pane and an unseen
+// pane, so it stays active. gamma's only pane is done and seen, with activity more than
+// QuietAfter before testNowUnix, so it folds into Quiet.
+func quietPanes() []protocol.Pane {
+	return []protocol.Pane{
+		{ID: "%1", Session: "s1", Cwd: "/home/user/src/alpha", State: protocol.StateWaiting,
+			Label: "alpha-review", Summary: "needs approval",
+			Changed: 1699999880, Seen: 1699999880, Activity: 1699999880},
+		{ID: "%2", Session: "s2", Cwd: "/home/user/src/alpha", State: protocol.StateDone,
+			Label: "alpha-tests", Summary: "ran 14 tests",
+			Changed: 1699999970, Seen: 1699999700, Activity: 1699999970},
+		{ID: "%3", Session: "s3", Cwd: "/home/user/src/gamma", State: protocol.StateDone,
+			Label: "gamma-notes", Summary: "wrote notes",
+			Changed: 1699100000, Seen: 1699100000, Activity: 1699100000},
+	}
+}
+
+func quietSource() ([]protocol.Pane, error) {
+	return quietPanes(), nil
+}
+
+// assertQuietRow fails unless the cursor is on the Quiet row and the frame shows it collapsed.
+func assertQuietRow(t *testing.T, m model) {
+	t.Helper()
+	if _, ok := m.current(); ok {
+		t.Fatal("cursor is on a pane, want the Quiet row")
+	}
+	if !slices.Contains(strings.Split(m.View().Content, "\n"), "> Quiet (1)") {
+		t.Fatalf("no collapsed Quiet row under the cursor:\n%s", m.View().Content)
+	}
+}
+
+func TestViewQuiet(t *testing.T) {
+	captures := map[string]string{"%1": "Approve the migration? [y/n]\n"}
+	got := renderPanes(t, quietPanes(), captures)
+	if strings.Contains(got, "gamma-notes") {
+		t.Fatalf("quiet pane rendered while Quiet is collapsed:\n%s", got)
+	}
+	checkGolden(t, "TestViewQuiet", got)
+}
+
+func TestQuietRowIsReachedByJAndSkippedByN(t *testing.T) {
+	m := pressAll(t, loadedModel(t, quietSource), "n")
+	assertCursor(t, m, "%2")
+	m = pressAll(t, m, "j")
+	assertQuietRow(t, m)
+	m = press(t, m, "n")
+	assertCursor(t, m, "%2")
+}
+
+func TestEnterOnQuietRowExpandsAndMovesToFirstQuietPane(t *testing.T) {
+	m := pressAll(t, loadedModel(t, quietSource), "j", "j")
+	assertQuietRow(t, m)
+	m = press(t, m, "enter")
+	assertCursor(t, m, "%3")
+	content := m.View().Content
+	lines := strings.Split(content, "\n")
+	if !slices.Contains(lines, "  Quiet") {
+		t.Fatalf("no expanded Quiet header after Enter:\n%s", content)
+	}
+	if !slices.Contains(lines, "/home/user/src/gamma") || !strings.Contains(content, "gamma-notes") {
+		t.Fatalf("quiet pane not shown after Enter:\n%s", content)
+	}
+}
+
+func TestQuietSectionStaysExpandedAcrossReload(t *testing.T) {
+	m := pressAll(t, loadedModel(t, quietSource), "j", "j", "enter")
+	m = modelOf(t, settle(t, m, m.loadPanes()))
+	assertCursor(t, m, "%3")
+	content := m.View().Content
+	if !slices.Contains(strings.Split(content, "\n"), "  Quiet") || !strings.Contains(content, "gamma-notes") {
+		t.Fatalf("quiet section collapsed after reload:\n%s", content)
+	}
+}
+
+func TestPaneActionsDoNothingOnQuietRow(t *testing.T) {
+	m := pressAll(t, loadedModel(t, quietSource), "j", "j")
+	before := m.View().Content
+	for _, name := range []string{"x", "c", "s", "N"} {
+		next, cmd := m.Update(keyMsg(name))
+		if cmd != nil {
+			t.Fatalf("key %q on the Quiet row returned a command, want none", name)
+		}
+		if got := modelOf(t, next).View().Content; got != before {
+			t.Fatalf("frame changed after %q on the Quiet row:\n%s\nwant:\n%s", name, got, before)
+		}
+	}
+}
+
+func TestFilterAppliesToQuietGroups(t *testing.T) {
+	m := pressAll(t, loadedModel(t, quietSource), "/")
+	m = press(t, typeText(t, m, "notes"), "enter")
+	assertQuietRow(t, m)
+
+	m = pressAll(t, loadedModel(t, quietSource), "/")
+	m = press(t, typeText(t, m, "alpha"), "enter")
+	if slices.ContainsFunc(strings.Split(m.View().Content, "\n"), func(line string) bool {
+		return strings.Contains(line, "Quiet")
+	}) {
+		t.Fatalf("Quiet row shown with no quiet group matching the filter:\n%s", m.View().Content)
 	}
 }

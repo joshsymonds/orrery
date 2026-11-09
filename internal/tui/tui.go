@@ -8,9 +8,12 @@ import (
 	"io"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/joshsymonds/orrery/internal/closer"
+	"github.com/joshsymonds/orrery/internal/keymap"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
 	"github.com/joshsymonds/orrery/internal/view"
@@ -23,9 +26,11 @@ type Source func(ctx context.Context) ([]protocol.Pane, error)
 type Options struct {
 	Client    *tmuxctl.Client
 	ClientTTY string
-	Panes     Source
-	Input     io.Reader
-	Output    io.Writer
+	// ArchivePath is the archive file a closed Claude pane is appended to.
+	ArchivePath string
+	Panes       Source
+	Input       io.Reader
+	Output      io.Writer
 }
 
 // Action is what the user asked for when Run returned.
@@ -59,6 +64,10 @@ const day = 24 * time.Hour
 // unsetMark stands for an unset state or an age with no change time.
 const unsetMark = "-"
 
+// quietRowID is the ID of the Quiet row in rows. It stands for the section's header, which is no
+// pane. tmux pane IDs start with %, so no pane has this ID.
+const quietRowID = "quiet"
+
 // Run shows the pane tree until ctx ends. It returns ActionClose once the program stops.
 func Run(ctx context.Context, opts Options) (Result, error) {
 	tree := newModel(
@@ -69,6 +78,7 @@ func Run(ctx context.Context, opts Options) (Result, error) {
 		time.Now,
 	)
 	tree.clientTTY = opts.ClientTTY
+	tree.archivePath = opts.ArchivePath
 	tree.invoke = func(fn func(context.Context, *tmuxctl.Client) error) error {
 		return fn(ctx, opts.Client)
 	}
@@ -90,28 +100,41 @@ func Run(ctx context.Context, opts Options) (Result, error) {
 	return done.result, nil
 }
 
+// closePrompt is the close the tree asks the user to confirm. project is set for a close of a
+// whole project. asked is set once the second prompt for a working pane has been answered with y.
+type closePrompt struct {
+	plan    closer.Plan
+	project bool
+	asked   bool
+}
+
 // model is the tree's state. Panes reload through source and previews through capture,
 // both called from commands so that no blocking tmux call runs in Update. Actions run through
 // invoke, also from commands, against the invoking client at clientTTY.
 type model struct {
-	source     func() ([]protocol.Pane, error)
-	capture    func(paneID string) (string, error)
-	now        func() time.Time
-	invoke     func(fn func(context.Context, *tmuxctl.Client) error) error
-	clientTTY  string
-	groups     []view.Group
-	cursorID   string
-	cursor     int
-	query      string
-	filtering  bool
-	result     Result
-	preview    string
-	previewID  string
-	sourceErr  error
-	captureErr error
-	actionErr  error
-	width      int
-	height     int
+	source      func() ([]protocol.Pane, error)
+	capture     func(paneID string) (string, error)
+	now         func() time.Time
+	invoke      func(fn func(context.Context, *tmuxctl.Client) error) error
+	clientTTY   string
+	archivePath string
+	closing     *closePrompt
+	groups      []view.Group
+	quiet       []view.Group
+	quietOpen   bool
+	cursorID    string
+	cursor      int
+	query       string
+	filtering   bool
+	help        bool
+	result      Result
+	preview     string
+	previewID   string
+	sourceErr   error
+	captureErr  error
+	actionErr   error
+	width       int
+	height      int
 }
 
 type (
@@ -129,6 +152,13 @@ type (
 	actionMsg struct {
 		err  error
 		quit bool
+	}
+	// closePlanMsg reports the plan of a close the user asked for. project is set for a close of a
+	// whole project.
+	closePlanMsg struct {
+		plan    closer.Plan
+		project bool
+		err     error
 	}
 )
 
@@ -162,6 +192,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case actionMsg:
 		return m.actionDone(msg)
+	case closePlanMsg:
+		return m.planned(msg), nil
 	}
 	return m, nil
 }
@@ -206,14 +238,15 @@ func (m model) loadPreview(paneID string) tea.Cmd {
 	}
 }
 
-// applyPanes regroups the panes, keeps the cursor on its pane, and captures the preview of
-// the row under the cursor. A source error keeps the previous tree and shows the error.
+// applyPanes regroups the panes into active and quiet projects, keeps the cursor on its pane,
+// and captures the preview of the row under the cursor. A source error keeps the previous tree
+// and shows the error.
 func (m model) applyPanes(msg panesMsg) (tea.Model, tea.Cmd) {
 	m.sourceErr = msg.err
 	if msg.err != nil {
 		return m, nil
 	}
-	m.groups = view.Groups(msg.panes)
+	m.groups, m.quiet = view.Fold(view.Groups(msg.panes), m.now())
 	m = m.sync()
 	cur, ok := m.current()
 	if !ok {
@@ -223,22 +256,44 @@ func (m model) applyPanes(msg panesMsg) (tea.Model, tea.Cmd) {
 	return m, m.loadPreview(cur.ID)
 }
 
-// rows returns the visible panes in display order.
+// rows returns the visible panes in display order. When quiet projects are visible, the Quiet
+// row follows the active panes, and the quiet panes follow it once the section is open.
 func (m model) rows() []protocol.Pane {
 	var rows []protocol.Pane
-	for _, g := range m.visible() {
+	for _, g := range m.visible(m.groups) {
 		rows = append(rows, g.Panes...)
+	}
+	quiet := m.visible(m.quiet)
+	if len(quiet) == 0 {
+		return rows
+	}
+	rows = append(rows, protocol.Pane{ID: quietRowID})
+	if m.quietOpen {
+		for _, g := range quiet {
+			rows = append(rows, g.Panes...)
+		}
 	}
 	return rows
 }
 
-// current returns the pane under the cursor. The cursor starts on the first row.
-func (m model) current() (protocol.Pane, bool) {
+// cursorRow returns the row under the cursor, the Quiet row included. The cursor starts on the
+// first row.
+func (m model) cursorRow() (protocol.Pane, bool) {
 	rows := m.rows()
 	if len(rows) == 0 {
 		return protocol.Pane{}, false
 	}
 	return rows[m.locate(rows)], true
+}
+
+// current returns the pane under the cursor. It returns false when no row is shown or the
+// cursor is on the Quiet row.
+func (m model) current() (protocol.Pane, bool) {
+	cur, ok := m.cursorRow()
+	if !ok || cur.ID == quietRowID {
+		return protocol.Pane{}, false
+	}
+	return cur, true
 }
 
 // locate returns the index in rows of the cursor: the row with the cursor's pane ID when
@@ -266,10 +321,17 @@ func (m model) sync() model {
 	return m
 }
 
-// frame renders the filter line, the groups, the selected preview, and an error line,
-// clipped to the terminal.
+// frame renders the filter line, the groups, the Quiet row, the selected preview, and an error
+// line, clipped to the terminal. An open help overlay replaces all of it.
 func (m model) frame() string {
-	cur, hasCur := m.current()
+	if m.help {
+		lines := helpLines(m.width)
+		if m.height > 0 {
+			lines = clip(lines, m.height)
+		}
+		return render(lines, m.width)
+	}
+	cur, hasCur := m.cursorRow()
 	var lines []string
 	if m.filtering || m.query != "" {
 		lines = append(lines, "/"+m.query)
@@ -277,27 +339,104 @@ func (m model) frame() string {
 	if !hasCur {
 		lines = append(lines, "No panes.")
 	}
-	for _, g := range m.visible() {
-		lines = append(lines, g.Dir)
-		for _, p := range g.Panes {
-			lines = append(lines, m.row(p, p.ID == cur.ID))
+	lines = append(lines, m.groupLines(m.visible(m.groups), cur)...)
+	if quiet := m.visible(m.quiet); len(quiet) > 0 {
+		lines = append(lines, m.quietLine(len(quiet), cur.ID == quietRowID))
+		if m.quietOpen {
+			lines = append(lines, m.groupLines(quiet, cur)...)
 		}
 	}
-	if hasCur && m.previewID == cur.ID && m.preview != "" {
+	if pane, ok := m.current(); ok && m.previewID == pane.ID && m.preview != "" {
 		lines = append(lines, "")
 		lines = append(lines, strings.Split(strings.TrimSuffix(m.preview, "\n"), "\n")...)
 	}
 
 	var status []string
-	if err := m.statusErr(); err != nil {
+	if m.closing != nil {
+		status = m.closing.lines()
+	} else if err := m.statusErr(); err != nil {
 		status = []string{"error: " + err.Error()}
 	}
 	if m.height > 0 {
 		lines = clip(lines, m.height-len(status))
 	}
 	lines = append(lines, status...)
+	return render(lines, m.width)
+}
+
+// groupLines renders each group as its directory line and its pane rows. The row under cur is
+// marked.
+func (m model) groupLines(groups []view.Group, cur protocol.Pane) []string {
+	var lines []string
+	for _, g := range groups {
+		lines = append(lines, g.Dir)
+		for _, p := range g.Panes {
+			lines = append(lines, m.row(p, p.ID == cur.ID))
+		}
+	}
+	return lines
+}
+
+// quietLine formats the Quiet row: its count of quiet projects while the section is collapsed,
+// a plain header once it is open. cursor marks the row.
+func (m model) quietLine(count int, cursor bool) string {
+	mark := "  "
+	if cursor {
+		mark = "> "
+	}
+	if m.quietOpen {
+		return mark + "Quiet"
+	}
+	return fmt.Sprintf("%sQuiet (%d)", mark, count)
+}
+
+// helpGap is the space between a binding's keys and its help text.
+const helpGap = 2
+
+// helpLines lists every tree key in display order under a Keys title. Each binding's keys
+// fill a column as wide as the longest of them, and its help text wraps to the width left
+// beside that column, with continuation lines under the help text.
+func helpLines(width int) []string {
+	bindings := keymap.For(keymap.Tree)
+	keyCol := 0
+	for _, b := range bindings {
+		keyCol = max(keyCol, len(strings.Join(b.Keys, ", ")))
+	}
+	indent := strings.Repeat(" ", keyCol+helpGap)
+	lines := []string{"Keys"}
+	for _, b := range bindings {
+		wrapped := wrap(b.Help, width-len(indent))
+		lines = append(lines, fmt.Sprintf("%-*s%s", keyCol+helpGap, strings.Join(b.Keys, ", "), wrapped[0]))
+		for _, part := range wrapped[1:] {
+			lines = append(lines, indent+part)
+		}
+	}
+	return lines
+}
+
+// wrap breaks text into lines of at most width runes at its spaces. A word longer than width
+// keeps its own line.
+func wrap(text string, width int) []string {
+	var lines []string
+	line := ""
+	for _, word := range strings.Fields(text) {
+		switch {
+		case line == "":
+			line = word
+		case utf8.RuneCountInString(line)+1+utf8.RuneCountInString(word) <= width:
+			line += " " + word
+		default:
+			lines = append(lines, line)
+			line = word
+		}
+	}
+	return append(lines, line)
+}
+
+// render fits each line to width and joins them into a frame.
+func render(lines []string, width int) string {
 	for i, line := range lines {
-		lines[i] = fit(line, m.width)
+		lines[i] = fit(line, width)
 	}
 	return strings.Join(lines, "\n")
 }

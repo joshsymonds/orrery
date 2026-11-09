@@ -9,6 +9,8 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/joshsymonds/orrery/internal/cli"
+	"github.com/joshsymonds/orrery/internal/closer"
+	"github.com/joshsymonds/orrery/internal/keymap"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/shell"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
@@ -25,58 +27,107 @@ const (
 	prevRow = -1
 )
 
-// keyPressed applies a key press. Filter input takes every key. Otherwise the keys move the
-// cursor, jump to the next unseen row, start filter input, act on the pane under the cursor,
-// or close the tree.
+// keyPressed applies a key press. An open help overlay closes on any key and runs nothing
+// else. Filter input takes every key. Otherwise the key runs the action keymap binds to it on
+// the tree.
 func (m model) keyPressed(msg tea.KeyPressMsg) (model, tea.Cmd) {
+	if m.help {
+		m.help = false
+		return m, nil
+	}
+	if m.closing != nil {
+		return m.closeKey(msg)
+	}
 	if m.filtering {
 		return m.filterKey(msg)
 	}
-	switch msg.String() {
-	case "j", "down":
+	action, ok := keymap.Lookup(keymap.Tree, msg.String())
+	if !ok {
+		return m, nil
+	}
+	switch action {
+	case keymap.ActDown:
 		return m.move(nextRow)
-	case "k", "up":
+	case keymap.ActUp:
 		return m.move(prevRow)
-	case "n":
+	case keymap.ActNextUnseen:
 		return m.nextUnseen()
-	case "/":
+	case keymap.ActFilter:
 		m.filtering = true
 		return m, nil
-	case "esc", "q":
+	case keymap.ActHelp:
+		m.help = true
+		return m, nil
+	case keymap.ActQuit:
 		return m, tea.Quit
-	case enterKey, "x", "c", "s", "N":
-		return m.paneKey(msg.String())
+	case keymap.ActSwitch:
+		if m.onQuiet() {
+			return m.expandQuiet()
+		}
+		return m.paneAction(action)
+	case keymap.ActMarkSeen, keymap.ActNewClaude, keymap.ActShell, keymap.ActPicker, keymap.ActClosePane,
+		keymap.ActCloseProject:
+		return m.paneAction(action)
+	case keymap.ActTree:
+		// The tree has no behavior for it. It is a tmux binding.
+		return m, nil
 	}
 	return m, nil
 }
 
-// paneKey runs the action of key on the pane under the cursor. With no row shown it does nothing.
-func (m model) paneKey(key string) (model, tea.Cmd) {
+// onQuiet reports whether the cursor is on the Quiet row.
+func (m model) onQuiet() bool {
+	cur, ok := m.cursorRow()
+	return ok && cur.ID == quietRowID
+}
+
+// expandQuiet opens the Quiet section and moves the cursor to its first pane. The section stays
+// open, so Enter on its header does nothing once it is open.
+func (m model) expandQuiet() (model, tea.Cmd) {
+	if m.quietOpen {
+		return m, nil
+	}
+	header := m.locate(m.rows())
+	m.quietOpen = true
+	return m.selectRow(m.rows(), header+1)
+}
+
+// paneAction runs action on the pane under the cursor. With no pane under the cursor it does
+// nothing.
+func (m model) paneAction(action keymap.Action) (model, tea.Cmd) {
 	cur, ok := m.current()
 	if !ok {
 		return m, nil
 	}
 	tty := m.clientTTY
-	switch key {
-	case enterKey:
+	switch action {
+	case keymap.ActSwitch:
 		return m, m.action(func(ctx context.Context, client *tmuxctl.Client) error {
 			return switchAndMark(ctx, client, tty, cur.ID)
 		}, true)
-	case "x":
+	case keymap.ActMarkSeen:
 		return m, m.action(func(ctx context.Context, client *tmuxctl.Client) error {
 			return markSeen(ctx, client, cur.ID)
 		}, false)
-	case "c":
+	case keymap.ActNewClaude:
 		return m, m.action(func(ctx context.Context, client *tmuxctl.Client) error {
 			return newClaudeWindow(ctx, client, cur.Session, cur.Cwd)
 		}, false)
-	case "s":
+	case keymap.ActShell:
 		return m, m.action(func(ctx context.Context, client *tmuxctl.Client) error {
 			return shell.Open(ctx, client, cur.Cwd, tty)
 		}, true)
-	case "N":
+	case keymap.ActClosePane:
+		return m, m.planClose(cur, false)
+	case keymap.ActCloseProject:
+		return m, m.planClose(cur, true)
+	case keymap.ActPicker:
 		m.result = Result{Action: ActionIntent, Dir: cur.Cwd}
 		return m, tea.Quit
+	case keymap.ActDown, keymap.ActUp, keymap.ActNextUnseen, keymap.ActFilter, keymap.ActHelp, keymap.ActQuit,
+		keymap.ActTree:
+		// keyPressed routes only the pane actions here.
+		return m, nil
 	}
 	return m, nil
 }
@@ -88,6 +139,66 @@ func (m model) action(fn func(context.Context, *tmuxctl.Client) error, quit bool
 	return func() tea.Msg {
 		return actionMsg{err: invoke(fn), quit: quit}
 	}
+}
+
+// planClose plans the close of cur in a command. A project close plans the project in cur's
+// directory; otherwise the close plans cur's pane. The plan returns as a closePlanMsg.
+func (m model) planClose(cur protocol.Pane, project bool) tea.Cmd {
+	tty := m.clientTTY
+	invoke := m.invoke
+	return func() tea.Msg {
+		var plan closer.Plan
+		err := invoke(func(ctx context.Context, client *tmuxctl.Client) error {
+			var planErr error
+			if project {
+				plan, planErr = closer.PlanProject(ctx, client, cur.Cwd, tty)
+			} else {
+				plan, planErr = closer.PlanPane(ctx, client, cur.ID, tty)
+			}
+			if planErr != nil {
+				return fmt.Errorf("plan close: %w", planErr)
+			}
+			return nil
+		})
+		return closePlanMsg{plan: plan, project: project, err: err}
+	}
+}
+
+// planned opens the close prompt for a planned close. A planning error goes to the status line
+// and opens no prompt.
+func (m model) planned(msg closePlanMsg) model {
+	if msg.err != nil {
+		m.actionErr = msg.err
+		return m
+	}
+	m.closing = &closePrompt{plan: msg.plan, project: msg.project}
+	return m
+}
+
+// closeKey answers the close prompt. y confirms the close, or asks the second time when the pane
+// is working. Any other key cancels, and closes nothing.
+func (m model) closeKey(msg tea.KeyPressMsg) (model, tea.Cmd) {
+	prompt := m.closing
+	m.closing = nil
+	if msg.String() != "y" {
+		return m, nil
+	}
+	if prompt.working() && !prompt.asked {
+		prompt.asked = true
+		m.closing = prompt
+		return m, nil
+	}
+	return m, m.closePane(prompt.plan)
+}
+
+// closePane closes the planned panes in a command. The tree stays open, and reloads its panes
+// once the close succeeds.
+func (m model) closePane(plan closer.Plan) tea.Cmd {
+	archivePath := m.archivePath
+	now := m.now()
+	return m.action(func(ctx context.Context, client *tmuxctl.Client) error {
+		return closer.Close(ctx, client, plan, archivePath, now)
+	}, false)
 }
 
 // switchAndMark switches the client at tty to paneID, then marks the pane seen. A pane is
@@ -174,21 +285,24 @@ func (m model) nextUnseen() (model, tea.Cmd) {
 	return m, nil
 }
 
-// selectRow puts the cursor on rows[i] and captures its preview.
+// selectRow puts the cursor on rows[i] and captures its preview. The Quiet row has no preview.
 func (m model) selectRow(rows []protocol.Pane, i int) (model, tea.Cmd) {
 	m.cursor, m.cursorID = i, rows[i].ID
+	if rows[i].ID == quietRowID {
+		return m, nil
+	}
 	return m, m.loadPreview(rows[i].ID)
 }
 
-// visible returns the groups shown under the query, in their display order. A row is shown
-// when its label, summary, or session, or its group's Dir, contains the query, ignoring case.
-// A group with no shown row is dropped.
-func (m model) visible() []view.Group {
+// visible returns the given groups shown under the query, in their display order. A row is
+// shown when its label, summary, or session, or its group's Dir, contains the query, ignoring
+// case. A group with no shown row is dropped.
+func (m model) visible(groups []view.Group) []view.Group {
 	needle := strings.ToLower(m.query)
-	var groups []view.Group
-	for _, group := range m.groups {
+	var shown []view.Group
+	for _, group := range groups {
 		if strings.Contains(strings.ToLower(group.Dir), needle) {
-			groups = append(groups, group)
+			shown = append(shown, group)
 			continue
 		}
 		var panes []protocol.Pane
@@ -198,10 +312,10 @@ func (m model) visible() []view.Group {
 			}
 		}
 		if len(panes) > 0 {
-			groups = append(groups, view.Group{Dir: group.Dir, Panes: panes})
+			shown = append(shown, view.Group{Dir: group.Dir, Panes: panes})
 		}
 	}
-	return groups
+	return shown
 }
 
 // matches reports whether the label, summary, or session of p contains needle, which is
@@ -213,4 +327,75 @@ func matches(p protocol.Pane, needle string) bool {
 		}
 	}
 	return false
+}
+
+// workingPanes returns the planned panes in the working state.
+func (c *closePrompt) workingPanes() []protocol.Pane {
+	var working []protocol.Pane
+	for _, pane := range c.plan.Panes {
+		if pane.State == protocol.StateWorking {
+			working = append(working, pane)
+		}
+	}
+	return working
+}
+
+// working reports whether any planned pane is working.
+func (c *closePrompt) working() bool {
+	return len(c.workingPanes()) > 0
+}
+
+// lines is the close prompt, one entry per line. A pane close is the prompt line. A project close
+// names the directory, each pane it closes, and each pane in the directory that stays open, then
+// says where the invoking client goes, and asks. Its second prompt names the working panes.
+func (c *closePrompt) lines() []string {
+	if !c.project {
+		return []string{c.text()}
+	}
+	if c.asked {
+		var names []string
+		for _, pane := range c.workingPanes() {
+			names = append(names, paneName(pane))
+		}
+		return []string{"Working: " + strings.Join(names, ", ") + ".", "Close the project anyway? y/N"}
+	}
+	lines := []string{"Close the project at:", "  " + c.plan.Dir}
+	for _, pane := range c.plan.Panes {
+		lines = append(lines, "  close "+paneName(pane))
+	}
+	for _, pane := range c.plan.Kept {
+		lines = append(lines, "  stays open: "+paneName(pane))
+	}
+	switch {
+	case c.plan.MoveTo != "":
+		lines = append(lines, "The client moves to "+c.plan.MoveTo+".")
+	case c.plan.Detach:
+		lines = append(lines, "The client detaches.")
+	}
+	return append(lines, "Close these panes? y/N")
+}
+
+// paneName names a pane by its session, and by its label when it has one.
+func paneName(pane protocol.Pane) string {
+	if pane.Label == "" {
+		return pane.Session
+	}
+	return pane.Session + " (" + pane.Label + ")"
+}
+
+// text is the prompt line of a pane close. It names the planned pane's label, asks a second time
+// when the pane is working, and says where the invoking client goes.
+func (c *closePrompt) text() string {
+	label := c.plan.Panes[0].Label
+	question := "Close " + label + "?"
+	if c.asked {
+		question = label + " is working. Close it?"
+	}
+	switch {
+	case c.plan.MoveTo != "":
+		question += " The client moves to " + c.plan.MoveTo + "."
+	case c.plan.Detach:
+		question += " The client detaches."
+	}
+	return question + " y/N"
 }
