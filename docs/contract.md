@@ -218,6 +218,21 @@ Subcommands:
     - The display fragment is derived from the stored `@orrery_question` value. For an AskUserQuestion value it is `questions[0].question`. Otherwise, when `input` is an object, it is the first non-empty of `command`, `file_path`, `url`, then the first string field of `input` in document order. Otherwise it is the `tool` value. A stored value that is not a JSON object is its own fragment.
     - The fragment is its first non-blank line, with whitespace runs collapsed to one space, trimmed, cut to its first 40 runes, and trimmed again. The screen from `capture-pane -p -J` is compared with its whitespace runs collapsed to one space. An empty fragment refuses.
 - `debug summarize --pane ID --transcript PATH [--claude PATH]` runs one synchronous summary for the pane. The base URL comes from `ANTHROPIC_BASE_URL`. The command writes `@orrery_summary` and `@orrery_label` on the pane.
+- `shell --dir DIR --client TTY` opens the popup shell for `DIR` on the client at `TTY`. `DIR` must be absolute.
+  - The shell session is named `_orrery-shell-` followed by the first 12 hex digits of the SHA-256 of the cleaned `DIR`. It is created detached in `DIR`, with `@orrery_dir` set to `DIR`, unless it already exists. The popup attaches it.
+  - Shell sessions are left out of the tree and of `open`.
+- `tree --client TTY` shows the pane tree on the client at `TTY`. The keys are in [Tree keys](#tree-keys). `N` runs the picker for the row's directory, and the picker's choice switches the same client. The command exits 0 when the tree closes.
+- `tmux-conf` prints the tmux plugin for this binary's own path (see [tmux plugin](#tmux-plugin)). It takes no flags and needs no tmux server. It exits 1 when the path holds a byte outside `[A-Za-z0-9/._+-]`.
+- `open [--remote] [--intent TEXT] [ARGS...]` attaches a session for a project, or starts one.
+  - No argument: attaches the most recently active non-shell session, and the tree opens on that client after it attaches.
+  - `.`: the session whose `@orrery_dir` is the current directory. If none exists, a session is created there. `--remote` refuses `.`.
+  - One word: a session with that exact name, else a zoxide fast match, else the word is intent text for the picker. A fast match is one zoxide result, or several when the best one's basename is the word.
+  - `new NAME [--root DIR]`: creates the directory `DIR/NAME` and a session for it. `DIR` must be absolute and defaults to `$HOME`. `NAME` cannot be `.`, `..`, or contain `/`. A taken session name gets `-2`, `-3`, and so on. `.`, `:` and `#` in a name become `_`.
+  - Any other arguments: joined with spaces, they are intent text for the picker.
+  - `--intent TEXT`: opens the picker with `TEXT` at once. It takes no ARGS; with ARGS it exits 2. Flags come before ARGS.
+  - With `TMUX` set, the command switches the invoking client (tmux's current client, by its tty). Otherwise it attaches.
+  - `claude` and `zoxide` are found on `PATH`.
+  - Exit codes are those in the table above. A refused `open .` with `--remote` exits 1.
 
 Exit codes:
 
@@ -250,6 +265,8 @@ ntfy notifications are sent only when `ORRERY_NTFY_URL_FILE` is set:
 - The access token comes from `ORRERY_NTFY_TOKEN_FILE`.
 - The host tag is the machine host name.
 
+When a pane enters `done` while an attached client shows the pane's window and had input in the last 30 seconds, `orreryd` sets `@orrery_seen` on the pane to the current Unix time.
+
 `SIGINT` and `SIGTERM` stop `orreryd`.
 
 ### Environment
@@ -262,6 +279,8 @@ ntfy notifications are sent only when `ORRERY_NTFY_URL_FILE` is set:
 | `ORRERY_NTFY_TOKEN_FILE` | `orreryd` | file holding the ntfy access token |
 | `ANTHROPIC_BASE_URL` | `orrery` (`hook`, `debug summarize`) | the session's base URL. The hook sends it in each frame (section 9), and each summary runs through its own session's base URL. |
 | `ORRERY_SUMMARIZER` | `orrery` (`hook`) | summarizer sentinel (section 7). `orreryd` sets it on each summary run. Summaries also run with hooks disabled. |
+| `HOME` | `orrery` (`tree`, `open`) | default parent directory of new projects |
+| `PATH` | `orrery` (`tree`, `open`) | finds `zoxide` and `claude` for the picker and `open` |
 
 ### Claude Code hook settings
 
@@ -281,6 +300,66 @@ Register `orrery hook` for each hook event that reports state. The path below is
   }
 }
 ```
+
+### Tree keys
+
+`orrery tree` (prefix `Space` in the tmux plugin) reads these keys. With no row shown, the pane keys do nothing.
+
+| Key | Action |
+|---|---|
+| `j`, `down` | move the cursor one row down |
+| `k`, `up` | move the cursor one row up |
+| `n` | move to the next unseen row after the cursor, wrapping around |
+| `/` | start filter input. Typed text sets the filter. Backspace deletes its last character, Enter keeps the filter, and Esc clears it |
+| `Enter` | switch the client to the row's pane, mark the pane seen, and close the tree |
+| `x` | mark the row's pane seen; the tree stays open |
+| `c` | add a window running `claude` to the row's session, started in the row's directory; the tree stays open |
+| `s` | open the shell popup for the row's directory, and close the tree |
+| `N` | close the tree and run the picker for the row's directory; the picker's choice switches the client |
+| `Esc`, `q` | close the tree |
+
+### Picker
+
+The picker is shown by `orrery open` with text, and by the tree's `N` in directory mode.
+
+- With no text, a one-line `text:` prompt asks for it. Enter submits non-empty text, Backspace deletes, and Esc cancels.
+- The text is ranked into actions, best first, and the first row is selected. Each row reads `jump PANE`, `pane DIR`, or `project NAME in DIR`, with ` (prompt)` added when the action carries a first prompt.
+- In directory mode, the first row is `pane DIR`, and any other row for the same directory is dropped. The prompt is the text when any action has one.
+- Keys typed before the prompt or the list is drawn are discarded.
+- A `pane` action opens a Claude pane in the directory: a new window in the directory's session, or a new session when there is none. A `project` action creates the directory `DIR/NAME` and a session for it. The session is named after `NAME`, with `-2`, `-3`, and so on when the name is taken.
+
+| Key | Action |
+|---|---|
+| `j`, `down` | move the cursor down, stopping at the last row |
+| `k`, `up` | move the cursor up, stopping at the first row |
+| `e` | edit a `project` row: its name, then its root, each prefilled; Enter confirms each field. Esc abandons the edit. Other rows ignore `e`. |
+| `Enter` | run the selected action and switch the client to its target. Keys are ignored while it runs |
+| `Esc`, `q` | close the picker without running anything |
+
+### tmux plugin
+
+`orrery tmux-conf` prints the plugin for the binary's own path. The home-manager module sources it (see below). The plugin:
+
+- binds prefix `Space` to `orrery tree` in a popup on the invoking client. This replaces tmux's default `Space` binding.
+- binds prefix `s` to `orrery shell` for the current pane's directory, on the invoking client.
+- appends to `status-right` the counts of waiting panes and new panes, as ` orrery N waiting M new `. Shell sessions are left out.
+- sets the top pane border, showing each pane's state, label, and summary.
+- runs `orrery seen --pane` for the focused pane on `window-pane-changed`, `session-window-changed`, and `client-session-changed`, only while a client is attached to the session.
+
+### Home-manager module
+
+The flake exports `homeManagerModules.default`. Setting `programs.orrery.enable = true` installs the package and `p`, and sources the tmux plugin through `programs.tmux.extraConfig`.
+
+| Option | Type | Default | Meaning |
+|---|---|---|---|
+| `programs.orrery.enable` | bool | `false` | install orrery, `p`, and the tmux plugin |
+| `programs.orrery.package` | package | the flake's `packages.<system>.default` | the orrery package to install and run |
+| `programs.orrery.remoteHost` | nullOr string | `null` | SSH host that `p` opens sessions on |
+
+`p` runs as follows:
+
+- With `remoteHost = null`, `p ARGS...` runs `orrery open ARGS...` locally.
+- Otherwise, `p .` alone prints `p: . is local only; run it on the host itself` and exits 2. Any other `p ARGS...` runs `ssh -t HOST "orrery open --remote ARGS..."`, with each argument quoted for the remote shell.
 
 ## 12. Freeze
 

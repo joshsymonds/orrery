@@ -9,14 +9,18 @@ through ntfy. `orrery list` shows the panes and their states.
 
 ## Binaries
 
-- `cmd/orrery`: the Claude Code hook and the CLI client (`hook`, `list`, `seen`, `send`, `debug summarize`).
+- `cmd/orrery`: the Claude Code hook and the CLI client (`hook`, `list`, `seen`, `send`, `debug summarize`, `shell`, `tree`, `tmux-conf`, `open`).
 - `cmd/orreryd`: the local daemon that holds session state and listens on a unix socket only.
 
 ## Usage
 
 Register `orrery hook` for the Claude Code hook events in your settings, then
-read the pane states with `orrery list --json`. Command lines, flags,
-environment variables, exit codes, and a settings example are documented in
+read the pane states with `orrery list --json`. `orrery tree` shows the panes
+and `orrery open` attaches or starts a project session. The tmux plugin
+(`orrery tmux-conf`) binds prefix `Space` to the tree and prefix `s` to a
+directory shell, and the home-manager module (`programs.orrery`) installs
+orrery and the `p` launcher. Command lines, flags, environment variables, exit
+codes, key tables, and a settings example are documented in
 [section 11 of `docs/contract.md`](docs/contract.md#11-commands-and-configuration).
 
 ## Build and check
