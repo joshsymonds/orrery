@@ -15,6 +15,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/cli"
 	"github.com/joshsymonds/orrery/internal/hook"
 	"github.com/joshsymonds/orrery/internal/protocol"
+	"github.com/joshsymonds/orrery/internal/shell"
 	"github.com/joshsymonds/orrery/internal/summary"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
 )
@@ -45,6 +46,7 @@ subcommands:
                                                 send text or keys to a pane; --keys must be last
   debug summarize --pane ID --transcript PATH [--claude PATH]
                                                 write a pane's summary and label
+  shell --dir DIR --client TTY                  open DIR's shell popup on the client at TTY
 `
 
 // usageError is a command line refused before any work. It exits 2 and prints the usage text.
@@ -135,7 +137,7 @@ func dispatch(ctx context.Context, opts globals, rest []string, stdin io.Reader,
 		}
 		hook.Run(stdin, getenv, socket)
 		return nil
-	case "list", "seen", "send", "debug":
+	case "list", "seen", "send", "debug", "shell":
 		client, err := tmuxctl.New(opts.server)
 		if err != nil {
 			return fmt.Errorf("tmux server: %w", err)
@@ -161,9 +163,29 @@ func runTmux(ctx context.Context, client *tmuxctl.Client, name string, args []st
 			return err
 		}
 		return errors.Join(cli.Send(ctx, client, args, out))
+	case "shell":
+		return shellOpen(ctx, client, args)
 	default:
 		return runDebug(ctx, client, args, getenv)
 	}
+}
+
+// shellOpen runs `orrery shell`, which opens the popup shell for one directory on the client at one tty.
+func shellOpen(ctx context.Context, client *tmuxctl.Client, args []string) error {
+	flags := flag.NewFlagSet("shell", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	dir := flags.String("dir", "", "directory the shell session starts in")
+	clientTTY := flags.String("client", "", "tty of the client that shows the popup")
+	if err := flags.Parse(args); err != nil {
+		return usagef("shell: %v", err)
+	}
+	if flags.NArg() > 0 {
+		return usagef("shell: unexpected argument %q", flags.Arg(0))
+	}
+	if *dir == "" || *clientTTY == "" {
+		return usagef("shell: --dir and --client are required")
+	}
+	return errors.Join(shell.Open(ctx, client, *dir, *clientTTY))
 }
 
 // refuseSendFlagsAfterKeys refuses a send that names a send flag after --keys. Go flag parsing stops at the

@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/protocol"
+	"github.com/joshsymonds/orrery/internal/shell"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
 )
 
@@ -1123,5 +1124,197 @@ func TestOrrerydUsageExitCodes(t *testing.T) {
 				t.Fatalf("stderr %q, want orreryd: prefix", out.stderr)
 			}
 		})
+	}
+}
+
+// clientRow is one client of a tmux server as list-clients reports it.
+type clientRow struct {
+	tty     string
+	session string
+	width   int
+	height  int
+}
+
+// clientRows lists each client of the server behind client with the session it shows and its size.
+func clientRows(t *testing.T, client *tmuxctl.Client) []clientRow {
+	t.Helper()
+	out, err := client.Run(t.Context(), "list-clients", "-F",
+		"#{client_tty} #{client_session} #{client_width} #{client_height}")
+	if err != nil {
+		t.Fatalf("list-clients: %v", err)
+	}
+	var rows []clientRow
+	for line := range strings.SplitSeq(strings.TrimSpace(out), "\n") {
+		if line == "" {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) != 4 {
+			t.Fatalf("list-clients line %q: want 4 fields", line)
+		}
+		width, widthErr := strconv.Atoi(fields[2])
+		if widthErr != nil {
+			t.Fatalf("list-clients width in %q: %v", line, widthErr)
+		}
+		height, heightErr := strconv.Atoi(fields[3])
+		if heightErr != nil {
+			t.Fatalf("list-clients height in %q: %v", line, heightErr)
+		}
+		rows = append(rows, clientRow{tty: fields[0], session: fields[1], width: width, height: height})
+	}
+	return rows
+}
+
+// attachClient starts a client of cols by rows on session of the server named name, through script, and returns
+// its tty once the server lists it. The client stays attached until cleanup.
+func attachClient(t *testing.T, client *tmuxctl.Client, name, session string, cols, rows int) string {
+	t.Helper()
+	known := map[string]bool{}
+	for _, row := range clientRows(t, client) {
+		known[row.tty] = true
+	}
+	command := fmt.Sprintf("stty cols %d rows %d; env -u TMUX tmux -L %s attach -t %s", cols, rows, name, session)
+	cmd := exec.CommandContext(t.Context(), "script", "-qfc", command, "/dev/null")
+	cmd.Env = scrubbedEnv()
+	cmd.Stdout = io.Discard
+	cmd.Stderr = io.Discard
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		t.Fatalf("stdin pipe: %v", err)
+	}
+	if err = cmd.Start(); err != nil {
+		t.Fatalf("start client: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = stdin.Close()
+		_ = cmd.Wait()
+	})
+
+	var tty string
+	waitUntil(t, "client attached to "+session, func() bool {
+		for _, row := range clientRows(t, client) {
+			if !known[row.tty] && row.session == session {
+				tty = row.tty
+				return true
+			}
+		}
+		return false
+	})
+	return tty
+}
+
+// popupError returns an error unless the invoking and other clients still show session, and a client shows the
+// popup session name at a size smaller than the invoking client. A popup drawn on the other client is sized from
+// that larger client, so it fails the size check.
+func popupError(t *testing.T, client *tmuxctl.Client, name, session, invokingTTY, otherTTY string) error {
+	t.Helper()
+	var invoking, other, popup *clientRow
+	rows := clientRows(t, client)
+	for i := range rows {
+		switch {
+		case rows[i].tty == invokingTTY:
+			invoking = &rows[i]
+		case rows[i].tty == otherTTY:
+			other = &rows[i]
+		case rows[i].session == name:
+			popup = &rows[i]
+		}
+	}
+	if invoking == nil || other == nil {
+		return fmt.Errorf("invoking %s or other %s client not listed in %v", invokingTTY, otherTTY, rows)
+	}
+	if invoking.session != session {
+		return fmt.Errorf("invoking client %s moved to session %s", invokingTTY, invoking.session)
+	}
+	if other.session != session {
+		return fmt.Errorf("other client %s moved to session %s", otherTTY, other.session)
+	}
+	if popup == nil {
+		return fmt.Errorf("no client attached to %s in %v", name, rows)
+	}
+	if popup.width >= invoking.width || popup.height >= invoking.height {
+		return fmt.Errorf("popup client is %dx%d, not smaller than invoking client %dx%d",
+			popup.width, popup.height, invoking.width, invoking.height)
+	}
+	return nil
+}
+
+func TestShellOpensPopupOnInvokingClient(t *testing.T) {
+	// Synthetic directory names. Each holds a character that tmux would expand in a -c argument or a command
+	// string if the argument were not escaped.
+	dirNames := []string{"example dir", "example#(id)", "example#{session_name}"}
+	for _, dirName := range dirNames {
+		t.Run(dirName, func(t *testing.T) {
+			client, name := newServer(t)
+			startPane(t, client, "sleep 300")
+			dir := filepath.Join(t.TempDir(), dirName)
+			if err := os.Mkdir(dir, 0o700); err != nil {
+				t.Fatalf("make directory: %v", err)
+			}
+			invoking := attachClient(t, client, name, "s1", 80, 24)
+			other := attachClient(t, client, name, "s1", 200, 60)
+
+			wantExit(t, runOrrery(t, "", nil, "-L", name, "shell", "--dir", dir, "--client", invoking), 0)
+
+			sessionName := shell.Name(dir)
+			if _, err := client.Run(t.Context(), "has-session", "-t", "="+sessionName); err != nil {
+				t.Fatalf("shell session %s: %v", sessionName, err)
+			}
+			got, err := client.Run(t.Context(), "show-options", "-v", "-t", "="+sessionName+":", protocol.OptionDir)
+			if err != nil {
+				t.Fatalf("read %s: %v", protocol.OptionDir, err)
+			}
+			if strings.TrimSpace(got) != dir {
+				t.Fatalf("%s = %q, want %q", protocol.OptionDir, strings.TrimSpace(got), dir)
+			}
+			waitUntil(t, "popup on the invoking client", func() bool {
+				return popupError(t, client, sessionName, "s1", invoking, other) == nil
+			})
+		})
+	}
+}
+
+func TestShellRefusesBadCommandLines(t *testing.T) {
+	// Every case exits before any tmux call that needs a server, so the server name below is never started.
+	const name = "orrery-integration-unused"
+	cases := []struct {
+		name string
+		args []string
+	}{
+		{name: "missing --dir", args: []string{"shell", "--client", "/dev/pts/example"}},
+		{name: "missing --client", args: []string{"shell", "--dir", "/example/dir"}},
+		{name: "stray argument", args: []string{
+			"shell", "--dir", "/example/dir", "--client", "/dev/pts/example", "extra",
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			out := runOrrery(t, "", nil, append([]string{"-L", name}, tc.args...)...)
+			wantExit(t, out, 2)
+			if !strings.Contains(out.stderr, "usage: orrery") ||
+				!strings.Contains(out.stderr, "shell --dir DIR --client TTY") {
+				t.Fatalf("stderr %q, want usage text listing shell --dir DIR --client TTY", out.stderr)
+			}
+		})
+	}
+}
+
+func TestShellRelativeDirExitsOneWithoutSession(t *testing.T) {
+	client, name := newServer(t)
+	startPane(t, client, "sleep 300")
+
+	out := runOrrery(t, "", nil, "-L", name, "shell", "--dir", "example/relative", "--client", "/dev/pts/example")
+	wantExit(t, out, 1)
+	if !strings.HasPrefix(out.stderr, "orrery: ") {
+		t.Fatalf("stderr %q, want orrery: prefix", out.stderr)
+	}
+	sessions, err := client.Run(t.Context(), "list-sessions", "-F", "#{session_name}")
+	if err != nil {
+		t.Fatalf("list-sessions: %v", err)
+	}
+	for session := range strings.SplitSeq(sessions, "\n") {
+		if strings.HasPrefix(session, protocol.ShellSessionPrefix) {
+			t.Fatalf("session %q created for a relative directory", session)
+		}
 	}
 }
