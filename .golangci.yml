@@ -549,6 +549,14 @@ linters:
           - gosec
         text: 'G204'
 
+      # The contract fixes the snake_case wire key claude_session in orrery list --json and
+      # archive.jsonl (orrery-lifecycle R3), so the camel rule does not apply to that one key
+      # (orchestrator decision OD10).
+      - path: 'internal/(protocol/protocol|archive/archive)\.go'
+        linters:
+          - tagliatelle
+        text: "got 'claude_session' want 'claudeSession'"
+
 run:
   timeout: 5m
   concurrency: 0
