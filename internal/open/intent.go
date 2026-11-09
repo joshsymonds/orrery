@@ -22,20 +22,27 @@ import (
 type ActionKind string
 
 // The action kinds: jump switches to an existing pane, pane opens a new Claude pane in a directory, and project
-// opens a new project directory with a Claude session.
+// opens a new project directory with a Claude session. resume opens a Claude pane in a directory that resumes
+// Session, continue opens one that continues the latest session there, and fresh opens one that starts a new
+// session there.
 const (
-	ActionJump    ActionKind = "jump"
-	ActionPane    ActionKind = "pane"
-	ActionProject ActionKind = "project"
+	ActionJump     ActionKind = "jump"
+	ActionPane     ActionKind = "pane"
+	ActionProject  ActionKind = "project"
+	ActionResume   ActionKind = "resume"
+	ActionContinue ActionKind = "continue"
+	ActionFresh    ActionKind = "fresh"
 )
 
 // Action is one choice Intent returns.
 type Action struct {
-	Kind   ActionKind
-	Pane   string // jump: the pane ID
-	Dir    string // pane: the directory; project: the root directory
-	Name   string // project: the new project's name
-	Prompt string // pane and project: TEXT as the first prompt when the model calls it a task, else ""
+	Kind    ActionKind
+	Pane    string // jump: the pane ID
+	Dir     string // pane, resume, continue, fresh: the directory; project: the root directory
+	Name    string // project: the new project's name
+	Prompt  string // pane and project: TEXT as the first prompt when the model calls it a task, else ""
+	Session string // resume: the Claude session ID
+	Note    string // resume: the archived pane's summary, shown by the picker
 }
 
 // intentDirLimit is the number of zoxide directories Intent sends the model.
@@ -265,13 +272,23 @@ func intentEnv(environ []string) []string {
 }
 
 // ExecuteAction carries out action and returns the Target to attach. A non-empty Prompt becomes the first
-// prompt of the Claude pane the action opens. The caller chooses the action; nothing else runs.
+// prompt of the Claude pane the action opens. A resume action with no Session is an error that creates nothing.
+// The caller chooses the action; nothing else runs.
 func ExecuteAction(ctx context.Context, cfg Config, action Action) (Target, error) {
 	switch action.Kind {
 	case ActionJump:
 		return jumpTo(ctx, cfg, action.Pane)
 	case ActionPane:
-		return openPane(ctx, cfg, action)
+		return openPane(ctx, cfg, action.Dir, claudeCommand(cfg.Claude, action.Prompt))
+	case ActionResume:
+		if action.Session == "" {
+			return Target{}, errors.New("intent: resume needs a session ID")
+		}
+		return openPane(ctx, cfg, action.Dir, []string{cfg.Claude, "--resume", tmuxLiteral(action.Session)})
+	case ActionContinue:
+		return openPane(ctx, cfg, action.Dir, []string{cfg.Claude, "--continue"})
+	case ActionFresh:
+		return openPane(ctx, cfg, action.Dir, []string{cfg.Claude})
 	case ActionProject:
 		return newProject(ctx, cfg, action)
 	default:
@@ -293,35 +310,36 @@ func jumpTo(ctx context.Context, cfg Config, pane string) (Target, error) {
 	return Target{Session: session, Pane: pane}, nil
 }
 
-// openPane opens a Claude pane in dir: a new window in the session for dir when one exists, else a new session.
-func openPane(ctx context.Context, cfg Config, action Action) (Target, error) {
-	if action.Dir == "" {
+// openPane opens a Claude pane running argv in dir: a new window in the session for dir when one exists, else a
+// new session.
+func openPane(ctx context.Context, cfg Config, dir string, argv []string) (Target, error) {
+	if dir == "" {
 		return Target{}, errors.New("intent: pane needs a directory")
 	}
 	sessions, err := listSessions(ctx, cfg)
 	if err != nil {
 		return Target{}, err
 	}
-	plan := directoryPlan(sessions, action.Dir)
+	plan := directoryPlan(sessions, dir)
 	if plan.Dir != "" {
-		err = createSession(ctx, cfg, plan.Session, action.Dir, action.Prompt)
+		err = createSession(ctx, cfg, plan.Session, dir, argv)
 		if err != nil {
 			return Target{}, err
 		}
 		return Target{Session: plan.Session}, nil
 	}
-	pane, err := newWindow(ctx, cfg, plan.Session, action.Dir, action.Prompt)
+	pane, err := newWindow(ctx, cfg, plan.Session, dir, argv)
 	if err != nil {
 		return Target{}, err
 	}
 	return Target{Session: plan.Session, Pane: pane}, nil
 }
 
-// newWindow opens a Claude pane in a new window of session, in dir, and returns the new pane's ID.
-func newWindow(ctx context.Context, cfg Config, session, dir, prompt string) (string, error) {
+// newWindow opens a pane running argv in a new window of session, in dir, and returns the new pane's ID.
+func newWindow(ctx context.Context, cfg Config, session, dir string, argv []string) (string, error) {
 	args := slices.Concat(
 		[]string{"new-window", "-P", "-F", "#{pane_id}", "-t", "=" + session + ":", "-c", tmuxDirArg(dir)},
-		claudeCommand(cfg.Claude, prompt),
+		argv,
 	)
 	out, err := cfg.Tmux.Run(ctx, args...)
 	if err != nil {
@@ -348,7 +366,7 @@ func newProject(ctx context.Context, cfg Config, action Action) (Target, error) 
 		return Target{}, fmt.Errorf("intent: create directory: %w", err)
 	}
 	name := freeName(sessions, action.Name)
-	err = createSession(ctx, cfg, name, dir, action.Prompt)
+	err = createSession(ctx, cfg, name, dir, claudeCommand(cfg.Claude, action.Prompt))
 	if err != nil {
 		return Target{}, err
 	}

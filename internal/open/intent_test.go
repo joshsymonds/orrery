@@ -511,6 +511,147 @@ func TestExecuteActionPaneCreatesSessionWithDirAndNoPrompt(t *testing.T) {
 	}
 }
 
+// claudeKinds returns the action kinds that open a Claude pane with a fixed argv.
+func claudeKinds() []ActionKind {
+	return []ActionKind{ActionResume, ActionContinue, ActionFresh}
+}
+
+// claudeKindAction is the action of kind for dir. The resume kind resumes the example Claude session.
+func claudeKindAction(kind ActionKind, dir string) Action {
+	if kind == ActionResume {
+		return Action{Kind: kind, Session: "example-claude-session", Dir: dir}
+	}
+	return Action{Kind: kind, Dir: dir}
+}
+
+// wantClaudeArgv is the argv the fake claude must record for each Claude kind: none for fresh.
+func wantClaudeArgv(kind ActionKind) []string {
+	if kind == ActionResume {
+		return []string{"--resume", "example-claude-session"}
+	}
+	if kind == ActionContinue {
+		return []string{"--continue"}
+	}
+	return nil
+}
+
+func TestExecuteActionClaudeKindsCreateSessionWithDirAndArgv(t *testing.T) {
+	for _, kind := range claudeKinds() {
+		t.Run(string(kind), func(t *testing.T) {
+			client := newClient(t)
+			startSession(t, client, "keeper", t.TempDir())
+			dir := filepath.Join(t.TempDir(), "example-dir")
+			if err := os.Mkdir(dir, 0o750); err != nil {
+				t.Fatal(err)
+			}
+			action := claudeKindAction(kind, dir)
+			claude := installClaude(t, "", 0)
+
+			got, err := ExecuteAction(t.Context(), executeConfig(client, claude), action)
+			if err != nil {
+				t.Fatalf("ExecuteAction(%s): %v", kind, err)
+			}
+			if want := (Target{Session: "example-dir"}); got != want {
+				t.Errorf("ExecuteAction(%s) = %+v, want %+v", kind, got, want)
+			}
+			if got := dirOption(t, client, "example-dir"); got != dir {
+				t.Errorf("@orrery_dir = %q, want %q", got, dir)
+			}
+			run := waitClaudeRun(t, claude)
+			if run.cwd != dir {
+				t.Errorf("claude cwd = %q, want %q", run.cwd, dir)
+			}
+			if !slices.Equal(run.args, wantClaudeArgv(kind)) {
+				t.Errorf("claude argv = %q, want %q", run.args, wantClaudeArgv(kind))
+			}
+			if got := sessionNames(t, client); !slices.Equal(got, []string{"example-dir", "keeper"}) {
+				t.Errorf("sessions = %q, want example-dir and keeper", got)
+			}
+		})
+	}
+}
+
+func TestExecuteActionClaudeKindsOpenWindowInSessionWithSameDir(t *testing.T) {
+	for _, kind := range claudeKinds() {
+		t.Run(string(kind), func(t *testing.T) {
+			client := newClient(t)
+			dir := filepath.Join(t.TempDir(), "example-dir")
+			if err := os.Mkdir(dir, 0o750); err != nil {
+				t.Fatal(err)
+			}
+			action := claudeKindAction(kind, dir)
+			startSession(t, client, "example-session-a", t.TempDir())
+			setDir(t, client, "example-session-a", dir)
+			claude := installClaude(t, "", 0)
+
+			got, err := ExecuteAction(t.Context(), executeConfig(client, claude), action)
+			if err != nil {
+				t.Fatalf("ExecuteAction(%s): %v", kind, err)
+			}
+			if got.Session != "example-session-a" || got.Pane == "" {
+				t.Fatalf("ExecuteAction(%s) = %+v, want session example-session-a with a new pane", kind, got)
+			}
+			panes := strings.Fields(mustRun(t, client,
+				"list-panes", "-s", "-t", "=example-session-a:", "-F", "#{pane_id}"))
+			if !slices.Contains(panes, got.Pane) || len(panes) != 2 {
+				t.Errorf("panes of example-session-a = %q, want the original pane and %s", panes, got.Pane)
+			}
+			run := waitClaudeRun(t, claude)
+			if run.cwd != dir {
+				t.Errorf("claude cwd = %q, want %q", run.cwd, dir)
+			}
+			if !slices.Equal(run.args, wantClaudeArgv(kind)) {
+				t.Errorf("claude argv = %q, want %q", run.args, wantClaudeArgv(kind))
+			}
+			if got := sessionNames(t, client); !slices.Equal(got, []string{"example-session-a"}) {
+				t.Errorf("sessions = %q, want only example-session-a", got)
+			}
+		})
+	}
+}
+
+func TestExecuteActionClaudeKindsWithoutDirIsErrorWithNothingRun(t *testing.T) {
+	for _, kind := range claudeKinds() {
+		t.Run(string(kind), func(t *testing.T) {
+			client := newClient(t)
+			startSession(t, client, "keeper", t.TempDir())
+			claude := installClaude(t, "", 0)
+
+			action := claudeKindAction(kind, "")
+			if _, err := ExecuteAction(t.Context(), executeConfig(client, claude), action); err == nil {
+				t.Fatalf("ExecuteAction(%s) with no directory returned nil error", kind)
+			}
+			if runs := claudeRuns(t, claude); len(runs) != 0 {
+				t.Errorf("claude ran %d times, want 0", len(runs))
+			}
+			if got := sessionNames(t, client); !slices.Equal(got, []string{"keeper"}) {
+				t.Errorf("sessions = %q, want only keeper", got)
+			}
+		})
+	}
+}
+
+func TestExecuteActionResumeWithoutSessionIsErrorWithNothingRun(t *testing.T) {
+	client := newClient(t)
+	startSession(t, client, "keeper", t.TempDir())
+	dir := filepath.Join(t.TempDir(), "example-dir")
+	if err := os.Mkdir(dir, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	claude := installClaude(t, "", 0)
+
+	action := Action{Kind: ActionResume, Dir: dir}
+	if _, err := ExecuteAction(t.Context(), executeConfig(client, claude), action); err == nil {
+		t.Fatal("ExecuteAction(resume) with no session returned nil error")
+	}
+	if runs := claudeRuns(t, claude); len(runs) != 0 {
+		t.Errorf("claude ran %d times, want 0", len(runs))
+	}
+	if got := sessionNames(t, client); !slices.Equal(got, []string{"keeper"}) {
+		t.Errorf("sessions = %q, want only keeper", got)
+	}
+}
+
 func TestExecuteActionProjectCreatesExactlyRootNameAndSessionWithPrompt(t *testing.T) {
 	client := newClient(t)
 	startSession(t, client, "keeper", t.TempDir())

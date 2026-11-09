@@ -63,18 +63,18 @@ func Execute(ctx context.Context, cfg Config, plan Plan) (Target, error) {
 			return Target{}, fmt.Errorf("open: create directory: %w", err)
 		}
 	}
-	if err := createSession(ctx, cfg, plan.Session, plan.Dir, ""); err != nil {
+	if err := createSession(ctx, cfg, plan.Session, plan.Dir, claudeCommand(cfg.Claude, "")); err != nil {
 		return Target{}, err
 	}
 	return Target{Session: plan.Session}, nil
 }
 
-// createSession starts detached session name in dir running the Claude command for prompt, and sets
-// @orrery_dir to dir, in one tmux call so the option is set as the session starts.
-func createSession(ctx context.Context, cfg Config, name, dir, prompt string) error {
+// createSession starts detached session name in dir running argv, and sets @orrery_dir to dir, in one tmux call
+// so the option is set as the session starts.
+func createSession(ctx context.Context, cfg Config, name, dir string, argv []string) error {
 	args := slices.Concat(
 		[]string{"new-session", "-d", "-s", tmuxLiteral(name), "-c", tmuxDirArg(dir)},
-		claudeCommand(cfg.Claude, prompt),
+		argv,
 		[]string{";", "set-option", "-t", "=" + name + ":", protocol.OptionDir, tmuxLiteral(dir)},
 	)
 	_, err := cfg.Tmux.Run(ctx, args...)
