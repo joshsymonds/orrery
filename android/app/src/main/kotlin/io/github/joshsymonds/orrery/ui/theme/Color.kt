@@ -12,4 +12,7 @@ object Mocha {
     val Text = Color(0xFFCDD6F4)
     val Mauve = Color(0xFFCBA6F7)
     val Red = Color(0xFFF38BA8)
+    val Yellow = Color(0xFFF9E2AF)
+    val Peach = Color(0xFFFAB387)
+    val Green = Color(0xFFA6E3A1)
 }
