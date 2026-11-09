@@ -221,11 +221,71 @@ func newServer(t *testing.T) (*tmuxctl.Client, string) {
 		t.Fatalf("New(Name=%q): %v", name, err)
 	}
 	t.Cleanup(func() {
+		groups := paneGroups(t, client)
 		if _, killErr := client.Run(context.Background(), "kill-server"); killErr != nil {
 			t.Errorf("kill-server: %v", killErr)
 		}
+		waitGroupsGone(t, groups)
 	})
 	return client, name
+}
+
+// paneExitLimit bounds how long a pane's process group may outlive kill-server before it is killed.
+const paneExitLimit = 2 * time.Second
+
+// paneGroups returns the process group of each pane on client's server. A pane's command leads its own group, so
+// the group ID is the pane's pid.
+func paneGroups(t *testing.T, client *tmuxctl.Client) []int {
+	t.Helper()
+	out, err := client.Run(context.Background(), "list-panes", "-a", "-F", "#{pane_pid}")
+	if err != nil {
+		t.Errorf("list-panes: %v", err)
+		return nil
+	}
+	var groups []int
+	for _, field := range strings.Fields(out) {
+		pgid, parseErr := strconv.Atoi(field)
+		if parseErr != nil {
+			t.Errorf("pane_pid %q: %v", field, parseErr)
+			continue
+		}
+		// A pane with no process reports 0, and kill(-0) would signal the test's own group.
+		if pgid > 1 {
+			groups = append(groups, pgid)
+		}
+	}
+	return groups
+}
+
+// waitGroupsGone waits after kill-server until no process is left in each of groups. A group still alive after
+// paneExitLimit is SIGKILLed, so that no pane process can write into a TempDir after its test returns.
+func waitGroupsGone(t *testing.T, groups []int) {
+	t.Helper()
+	for _, pgid := range groups {
+		if waitGroupGone(pgid, paneExitLimit) {
+			continue
+		}
+		if err := syscall.Kill(-pgid, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {
+			t.Errorf("kill process group %d: %v", pgid, err)
+		}
+		if !waitGroupGone(pgid, paneExitLimit) {
+			t.Errorf("process group %d outlives kill-server", pgid)
+		}
+	}
+}
+
+// waitGroupGone reports whether process group pgid has no process left within limit.
+func waitGroupGone(pgid int, limit time.Duration) bool {
+	deadline := time.Now().Add(limit)
+	for {
+		if errors.Is(syscall.Kill(-pgid, 0), syscall.ESRCH) {
+			return true
+		}
+		if time.Now().After(deadline) {
+			return false
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 }
 
 // startPane starts detached session s1 running command and returns the ID of its only pane.
