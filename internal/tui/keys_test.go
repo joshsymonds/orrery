@@ -2,8 +2,6 @@ package tui
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -19,6 +17,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/joshsymonds/orrery/internal/protocol"
+	"github.com/joshsymonds/orrery/internal/shell"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
 )
 
@@ -596,15 +595,15 @@ func (a *actionTree) check(invokingSession string, marked ...string) error {
 }
 
 // shellPopupErr returns an error unless the popup shell for dir is attached by a client other
-// than the invoking one, and that popup client is smaller than the invoking client. A popup
-// is sized from the client it is drawn on, so a popup drawn on the wider second client is
-// larger than one drawn on the invoking client.
+// than the invoking one, that popup client is smaller than the invoking client, and the shell
+// session holds @orrery_dir as dir. A popup is sized from the client it is drawn on, so a popup
+// drawn on the wider second client is larger than one drawn on the invoking client.
 func (a *actionTree) shellPopupErr(dir string) error {
 	infos, err := a.listClients()
 	if err != nil {
 		return err
 	}
-	want := shellSessionFor(dir)
+	want := shell.Name(dir)
 	var invoking, popup *clientInfo
 	for i := range infos {
 		switch {
@@ -620,6 +619,13 @@ func (a *actionTree) shellPopupErr(dir string) error {
 	if popup == nil {
 		return fmt.Errorf("no client attached to %s in %v", want, infos)
 	}
+	gotDir, err := a.client.Run(a.t.Context(), "show-options", "-q", "-v", "-t", "="+want+":", protocol.OptionDir)
+	if err != nil {
+		return fmt.Errorf("%s of %s: %w", protocol.OptionDir, want, err)
+	}
+	if got := strings.TrimSuffix(gotDir, "\n"); got != dir {
+		return fmt.Errorf("%s of %s = %q, want %q", protocol.OptionDir, want, got, dir)
+	}
 	if popup.width >= invoking.width || popup.height >= invoking.height {
 		return fmt.Errorf(
 			"popup client %s is %dx%d, not smaller than invoking client %dx%d: popup drawn on another client",
@@ -631,13 +637,6 @@ func (a *actionTree) shellPopupErr(dir string) error {
 		)
 	}
 	return nil
-}
-
-// shellSessionFor returns the shell session name for dir: the shell prefix and the first twelve
-// hex digits of the SHA-256 of dir.
-func shellSessionFor(dir string) string {
-	sum := sha256.Sum256([]byte(dir))
-	return protocol.ShellSessionPrefix + hex.EncodeToString(sum[:])[:12]
 }
 
 // treeRun is one Run of the tree, driven through its Input.
@@ -846,6 +845,23 @@ func TestShellPopupAttachesWithQuotedDirectory(t *testing.T) {
 	waitFor(t, "popup shell attached for quoted directory", func() error { return a.shellPopupErr(a.dir(quoted)) })
 }
 
+func TestShellOpensSessionForDirectoryWithBraceFormat(t *testing.T) {
+	name := "x#{session_name}y"
+	a := newActionTree(t, []actionPane{
+		{session: "s1", dir: name, state: protocol.StateWaiting, label: "brace-dir", changed: "100"},
+		{session: "s4", dir: "beta", state: protocol.StateWorking, label: "beta-notes", changed: "100"},
+	})
+	run := a.start(a.invoking)
+	run.send("s")
+	if got := run.closed(); got.Action != ActionClose {
+		t.Fatalf("Run action = %q, want %q", got.Action, ActionClose)
+	}
+	waitFor(t, "popup shell attached for directory with brace format", func() error {
+		return a.shellPopupErr(a.dir(name))
+	})
+	waitFor(t, "invoking client unchanged", func() error { return a.check("s1") })
+}
+
 func TestShellDoesNotExpandFormatsInGroupDirectory(t *testing.T) {
 	marker := filepath.Join(t.TempDir(), "ran")
 	// The name is a tmux format job, "#(...)", written with its '#' doubled. A directory name
@@ -868,32 +884,6 @@ func TestShellDoesNotExpandFormatsInGroupDirectory(t *testing.T) {
 		t.Fatalf("command in group directory ran: stat %s = %v, want not exist", marker, err)
 	}
 	waitFor(t, "invoking client unchanged", func() error { return a.check("s1") })
-}
-
-func TestTmuxCommandQuotesEachWordAndDoublesHash(t *testing.T) {
-	cases := []struct {
-		name  string
-		value string
-		want  string
-	}{
-		{"plain", "/dev/pts/3", "'/dev/pts/3'"},
-		{"space", "a b", "'a b'"},
-		{"single quote", "it's", `'it'"'"'s'`},
-		{"hash", "a#b", "'a##b'"},
-		{"format job", `x#(touch "$(f)")`, `'x##(touch "$(f)")'`},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := tmuxWord(tc.value); got != tc.want {
-				t.Fatalf("tmuxWord(%q) = %s, want %s", tc.value, got, tc.want)
-			}
-		})
-	}
-	got := tmuxCommand("display-popup", "-c", "/dev/pts/3", "-S", "/tmp/a#b c")
-	want := "display-popup '-c' '/dev/pts/3' '-S' '/tmp/a##b c'"
-	if got != want {
-		t.Fatalf("tmuxCommand = %s, want %s", got, want)
-	}
 }
 
 func TestNHandsOffIntentWithGroupDirectory(t *testing.T) {

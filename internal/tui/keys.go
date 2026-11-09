@@ -2,8 +2,6 @@ package tui
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"io"
 	"strings"
@@ -12,6 +10,7 @@ import (
 
 	"github.com/joshsymonds/orrery/internal/cli"
 	"github.com/joshsymonds/orrery/internal/protocol"
+	"github.com/joshsymonds/orrery/internal/shell"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
 	"github.com/joshsymonds/orrery/internal/view"
 )
@@ -73,7 +72,7 @@ func (m model) paneKey(key string) (model, tea.Cmd) {
 		}, false)
 	case "s":
 		return m, m.action(func(ctx context.Context, client *tmuxctl.Client) error {
-			return openShell(ctx, client, tty, cur.Cwd)
+			return shell.Open(ctx, client, cur.Cwd, tty)
 		}, true)
 	case "N":
 		m.result = Result{Action: ActionIntent, Dir: cur.Cwd}
@@ -114,65 +113,6 @@ func newClaudeWindow(ctx context.Context, client *tmuxctl.Client, session, dir s
 		return fmt.Errorf("new claude window: %w", err)
 	}
 	return nil
-}
-
-// openShell shows the popup shell for dir on the client at tty. A popup on tty attaches the
-// shell session for dir with the server's socket and TMUX unset, so that the attach is not
-// nested inside the session the popup is drawn over. The session starts in dir, so the popup
-// takes no directory, and dir stays out of the run-shell command.
-func openShell(ctx context.Context, client *tmuxctl.Client, tty, dir string) error {
-	name := shellSessionName(dir)
-	if err := ensureShellSession(ctx, client, name, dir); err != nil {
-		return err
-	}
-	out, err := client.Run(ctx, "display-message", "-p", "#{socket_path}")
-	if err != nil {
-		return fmt.Errorf("socket path: %w", err)
-	}
-	popup := tmuxCommand("display-popup", "-c", tty, "-E",
-		"env", "-u", "TMUX", "tmux", "-S", strings.TrimSpace(out), "attach-session", "-t", "="+name)
-	if _, err = client.Run(ctx, "run-shell", "-b", "-C", popup); err != nil {
-		return fmt.Errorf("open popup shell: %w", err)
-	}
-	return nil
-}
-
-// ensureShellSession creates the detached session name in dir unless it already exists.
-func ensureShellSession(ctx context.Context, client *tmuxctl.Client, name, dir string) error {
-	if _, err := client.Run(ctx, "has-session", "-t", "="+name); err == nil {
-		return nil
-	}
-	if _, err := client.Run(ctx, "new-session", "-d", "-s", name, "-c", dir); err != nil {
-		return fmt.Errorf("new shell session: %w", err)
-	}
-	return nil
-}
-
-// shellSessionName returns the shell session name for dir: the shell prefix and the first
-// twelve hex digits of the SHA-256 of dir.
-func shellSessionName(dir string) string {
-	sum := sha256.Sum256([]byte(dir))
-	return protocol.ShellSessionPrefix + hex.EncodeToString(sum[:])[:12]
-}
-
-// tmuxCommand returns a tmux command string: name, then each argument as one quoted word, so
-// that a space, a quote, or a $ in an argument cannot split or expand inside the command.
-func tmuxCommand(name string, args ...string) string {
-	words := make([]string, 0, 1+len(args))
-	words = append(words, name)
-	for _, arg := range args {
-		words = append(words, tmuxWord(arg))
-	}
-	return strings.Join(words, " ")
-}
-
-// tmuxWord quotes value as one word of a tmux command string. Single quotes are literal in
-// tmux, so a single quote inside value is written as '"'"', which joins to one word. Every '#'
-// is doubled, because run-shell -C format-expands its command and "##" expands to "#", so the
-// word reaches the command as written and no format in it runs.
-func tmuxWord(value string) string {
-	escaped := strings.ReplaceAll(value, "#", "##")
-	return "'" + strings.ReplaceAll(escaped, "'", `'"'"'`) + "'"
 }
 
 // filterKey edits the query. Esc clears it, Enter keeps it, Backspace deletes its last
