@@ -27,6 +27,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -34,6 +35,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import io.github.joshsymonds.orrery.api.OrreryClient
 import io.github.joshsymonds.orrery.api.Pane
+import io.github.joshsymonds.orrery.ui.theme.Mocha
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONException
@@ -59,6 +61,14 @@ private sealed interface PaneLoad {
 
 /** The project is the last path segment of the pane's cwd, as orreryd names it. */
 private fun projectOf(cwd: String): String = cwd.trimEnd('/').substringAfterLast('/').ifEmpty { "/" }
+
+/** The Mocha colour of a pane's state word; any other state keeps the default text colour. */
+private fun stateColorOf(state: String): Color = when (state) {
+    "working" -> Mocha.Yellow
+    "waiting" -> Mocha.Peach
+    "done" -> Mocha.Green
+    else -> Color.Unspecified
+}
 
 private fun ageOf(seconds: Long): String = when {
     seconds < 60 -> "${seconds}s"
@@ -199,7 +209,11 @@ private fun PaneRow(pane: Pane, now: Long, onOpenPane: (Pane) -> Unit) {
             Text(pane.summary, style = MaterialTheme.typography.bodySmall)
         }
         Column(horizontalAlignment = Alignment.End) {
-            Text(pane.state, style = MaterialTheme.typography.labelMedium)
+            Text(
+                pane.state,
+                style = MaterialTheme.typography.labelMedium,
+                color = stateColorOf(pane.state),
+            )
             if (pane.changed != 0L) {
                 Text(ageOf(now - pane.changed), style = MaterialTheme.typography.labelSmall)
             }
