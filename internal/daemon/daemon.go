@@ -184,6 +184,9 @@ func (h *frameHandler) apply(ctx context.Context, frame protocol.HookFrame) {
 	if err != nil {
 		h.logger.ErrorContext(ctx, "set pane context", "pane", frame.TmuxPane, "error", err)
 	}
+	if err = state.RecordSession(ctx, client, frame.TmuxPane, frame.Hook); err != nil {
+		h.logger.ErrorContext(ctx, "record pane session", "pane", frame.TmuxPane, "error", err)
+	}
 	if !changed {
 		return
 	}

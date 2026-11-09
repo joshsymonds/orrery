@@ -388,6 +388,50 @@ func TestDaemonRecordsContext(t *testing.T) {
 	}
 }
 
+func TestDaemonRecordsSession(t *testing.T) {
+	const (
+		firstSession    = "synthetic-session-1"
+		firstTranscript = "/synthetic/transcripts/one.jsonl"
+		nextSession     = "synthetic-session-2"
+		nextTranscript  = "/synthetic/transcripts/two.jsonl"
+	)
+	const (
+		firstHook = `{"hook_event_name":"UserPromptSubmit","prompt":"synthetic prompt",` +
+			`"session_id":"synthetic-session-1","transcript_path":"/synthetic/transcripts/one.jsonl"}`
+		badHook = `{"hook_event_name":5,"session_id":"synthetic-session-bad",` +
+			`"transcript_path":"/synthetic/bad.jsonl"}`
+		nextHook = `{"hook_event_name":"PreCompact","session_id":"synthetic-session-2",` +
+			`"transcript_path":"/synthetic/transcripts/two.jsonl"}`
+	)
+	srv := startServer(t)
+	socket := serve(t, daemon.Config{})
+
+	// The hook carries the session id and transcript path on every frame it applies.
+	sendFrame(t, socket, frameFor(firstHook, srv.pane, srv.socket))
+	wantOption(t, srv, protocol.OptionClaudeSession, firstSession)
+	wantOption(t, srv, protocol.OptionTranscript, firstTranscript)
+
+	// A frame whose hook fails to decode changes nothing.
+	sendFrame(t, socket, frameFor(badHook, srv.pane, srv.socket))
+	wantOption(t, srv, protocol.OptionClaudeSession, firstSession)
+	wantOption(t, srv, protocol.OptionTranscript, firstTranscript)
+
+	// An unhandled event with new values updates both options.
+	sendFrame(t, socket, frameFor(nextHook, srv.pane, srv.socket))
+	wantOption(t, srv, protocol.OptionClaudeSession, nextSession)
+	wantOption(t, srv, protocol.OptionTranscript, nextTranscript)
+
+	// SessionEnd with reason other keeps both options.
+	sendFrame(t, socket, frameFor(sessionEndHook, srv.pane, srv.socket))
+	wantOption(t, srv, protocol.OptionClaudeSession, nextSession)
+	wantOption(t, srv, protocol.OptionTranscript, nextTranscript)
+
+	// SessionEnd with reason clear unsets both options.
+	sendFrame(t, socket, frameFor(`{"hook_event_name":"SessionEnd","reason":"clear"}`, srv.pane, srv.socket))
+	wantOption(t, srv, protocol.OptionClaudeSession, "")
+	wantOption(t, srv, protocol.OptionTranscript, "")
+}
+
 func TestListen(t *testing.T) {
 	t.Run("parent_dir", func(t *testing.T) {
 		dir := filepath.Join(t.TempDir(), "run", "orrery")
