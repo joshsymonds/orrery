@@ -70,7 +70,8 @@ class OrreryClient(baseUrl: String) {
         }
     }
 
-    fun screen(paneId: String): String = getOk(panePath(paneId, "screen"))
+    fun screen(paneId: String): String =
+        getOk(panePath(paneId, "screen") + "?ansi=1&history=500")
 
     fun sendText(paneId: String, text: String) {
         post(panePath(paneId, "text"), JSONObject().put("text", text))

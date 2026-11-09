@@ -9,6 +9,7 @@ import java.util.concurrent.ConcurrentHashMap
 data class RecordedRequest(
     val method: String,
     val rawPath: String,
+    val rawQuery: String?,
     val headers: Map<String, String>,
     val body: String,
 )
@@ -50,7 +51,9 @@ class FakeOrreryServer : AutoCloseable {
             entry.key.lowercase() to entry.value.joinToString(", ")
         }
         synchronized(recorded) {
-            recorded.add(RecordedRequest(exchange.requestMethod, rawPath, headers, body))
+            recorded.add(
+                RecordedRequest(exchange.requestMethod, rawPath, exchange.requestURI.rawQuery, headers, body),
+            )
         }
 
         val scripted = routes["${exchange.requestMethod} $rawPath"] ?: Scripted(404, "")
