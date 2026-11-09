@@ -23,6 +23,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/joshsymonds/orrery/internal/archive"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/shell"
 	"github.com/joshsymonds/orrery/internal/tmuxconf"
@@ -1711,6 +1712,40 @@ func TestTreeRefusesMissingClient(t *testing.T) {
 	wantExit(t, out, 2)
 	if !strings.Contains(out.stderr, "usage: orrery") || !strings.Contains(out.stderr, "tree --client TTY") {
 		t.Fatalf("stderr %q, want usage text listing tree --client TTY", out.stderr)
+	}
+}
+
+func TestTreeXArchivesClaudePaneBeforeClose(t *testing.T) {
+	stateHome := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", stateHome)
+	w := setupTree(t)
+	transcript := filepath.Join(t.TempDir(), "example-transcript.jsonl")
+	writeFile(t, transcript, "{}\n", 0o600)
+	if _, err := w.client.Run(t.Context(), "set-option", "-p", "-t", w.target, protocol.OptionClaudeSession,
+		"example-claude-session"); err != nil {
+		t.Fatalf("set %s on %s: %v", protocol.OptionClaudeSession, w.target, err)
+	}
+	if _, err := w.client.Run(t.Context(), "set-option", "-p", "-t", w.target, protocol.OptionTranscript,
+		transcript); err != nil {
+		t.Fatalf("set %s on %s: %v", protocol.OptionTranscript, w.target, err)
+	}
+
+	sendKeys(t, w.client, w.tree, true, "X")
+	waitForScreen(t, w.client, w.tree, "y/N")
+	sendKeys(t, w.client, w.tree, true, "y")
+	waitUntil(t, "target pane to close", func() bool { return !paneListed(t, w.client, w.target) })
+
+	records, err := archive.ForDir(filepath.Join(stateHome, "orrery", "archive.jsonl"), w.targetDir)
+	if err != nil {
+		t.Fatalf("archive.ForDir: %v", err)
+	}
+	if len(records) != 1 {
+		t.Fatalf("archive holds %d records for %s, want 1", len(records), w.targetDir)
+	}
+	if got := records[0]; got.ClaudeSession != "example-claude-session" || got.Transcript != transcript ||
+		got.Session != "s2" {
+		t.Fatalf("archived record %+v, want claude session example-claude-session, transcript %s, session s2",
+			got, transcript)
 	}
 }
 

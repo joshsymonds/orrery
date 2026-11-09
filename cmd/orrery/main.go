@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/joshsymonds/orrery/internal/archive"
 	"github.com/joshsymonds/orrery/internal/cli"
 	"github.com/joshsymonds/orrery/internal/hook"
 	"github.com/joshsymonds/orrery/internal/open"
@@ -224,6 +225,10 @@ func tree(ctx context.Context, client *tmuxctl.Client, args []string, stdin *os.
 	if *clientTTY == "" {
 		return usagef("tree: --client is required")
 	}
+	archivePath, err := archive.Path(getenv)
+	if err != nil {
+		return fmt.Errorf("tree: %w", err)
+	}
 	host, err := os.Hostname()
 	if err != nil {
 		return fmt.Errorf("tree: hostname: %w", err)
@@ -239,8 +244,8 @@ func tree(ctx context.Context, client *tmuxctl.Client, args []string, stdin *os.
 		return all, nil
 	}
 
-	result, err := tui.Run(ctx, tui.Options{Client: client, ClientTTY: *clientTTY, Panes: panes, Input: stdin,
-		Output: stdout})
+	result, err := tui.Run(ctx, tui.Options{Client: client, ClientTTY: *clientTTY, ArchivePath: archivePath,
+		Panes: panes, Input: stdin, Output: stdout})
 	if err != nil {
 		return fmt.Errorf("tree: %w", err)
 	}
