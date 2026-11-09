@@ -105,6 +105,15 @@ func startLabelledPane(t *testing.T, client *tmuxctl.Client, name, state, label,
 	return id
 }
 
+// startDefaultPane starts session name as orreryd records a default-context pane: the pane options a Pane reads
+// are set, and @orrery_context is set to "". It returns the pane ID.
+func startDefaultPane(t *testing.T, client *tmuxctl.Client, name, state, label, summary string) string {
+	t.Helper()
+	id := startLabelledPane(t, client, name, state, label, summary, "")
+	mustRun(t, client, "set-option", "-p", "-t", id, protocol.OptionContext, "")
+	return id
+}
+
 // zoxideListing is the `zoxide query -l -s` output for count directories named dir-01, dir-02, ... under root.
 func zoxideListing(root string, count int) string {
 	var b strings.Builder
@@ -121,14 +130,16 @@ func intentConfig(client *tmuxctl.Client, zoxide, claude, root string) Config {
 func TestIntentStdinCarriesTextDirectoriesAndEligiblePanes(t *testing.T) {
 	client := newClient(t)
 	root := t.TempDir()
-	eligibleA := startLabelledPane(t, client, "example-session-a",
-		"waiting", "example-label-a", "example summary a", "")
-	unsetState := startLabelledPane(t, client, "example-session-b",
-		"", "example-label-b", "example summary b", "")
+	eligibleA := startDefaultPane(t, client, "example-session-a",
+		"waiting", "example-label-a", "example summary a")
+	unsetContext := startLabelledPane(t, client, "example-session-b",
+		"waiting", "example-label-b", "example summary b", "")
 	withContext := startLabelledPane(t, client, "example-session-c",
 		"working", "example-label-c", "example summary c", "example-context")
-	eligibleD := startLabelledPane(t, client, "example-session-d",
-		"done", "example-label-d", "example summary d", "")
+	eligibleD := startDefaultPane(t, client, "example-session-d",
+		"done", "example-label-d", "example summary d")
+	unsetState := startDefaultPane(t, client, "example-session-e",
+		"", "example-label-e", "example summary e")
 	zoxide := installZoxide(t, zoxideListing(root, 32), 0)
 	claude := installClaude(t, "pane d1\n", 0)
 
@@ -153,14 +164,15 @@ func TestIntentStdinCarriesTextDirectoriesAndEligiblePanes(t *testing.T) {
 		}
 	}
 	unwantedText := []string{
-		root, "dir-31", "example-context", "example-label-b", "example-label-c", "example summary c", "example-session",
+		root, "dir-31", "example-context", "example-label-b", "example-label-c", "example summary c", "example-label-e",
+		"example-session",
 	}
 	for _, unwanted := range unwantedText {
 		if strings.Contains(stdin, unwanted) {
 			t.Errorf("stdin contains %q, want it absent", unwanted)
 		}
 	}
-	for _, excluded := range []string{unsetState, withContext} {
+	for _, excluded := range []string{unsetContext, withContext, unsetState} {
 		for _, line := range lines {
 			if strings.HasPrefix(line, excluded+" ") {
 				t.Errorf("stdin carries pane %s: line %q, want it excluded", excluded, line)
@@ -204,7 +216,7 @@ func TestIntentRunArgvEnvAndCwd(t *testing.T) {
 func TestIntentReplyKindsParseInRankOrder(t *testing.T) {
 	client := newClient(t)
 	root := t.TempDir()
-	pane := startLabelledPane(t, client, "example-session-a", "waiting", "example-label-a", "example summary a", "")
+	pane := startDefaultPane(t, client, "example-session-a", "waiting", "example-label-a", "example summary a")
 	zoxide := installZoxide(t, zoxideListing(root, 3), 0)
 	dirs := []string{filepath.Join(root, "dir-01"), filepath.Join(root, "dir-02"), filepath.Join(root, "dir-03")}
 	claude := installClaude(t, "new example-project d2\njump "+pane+"\nPANE d1\ntask: yes\n", 0)
@@ -226,7 +238,7 @@ func TestIntentReplyKindsParseInRankOrder(t *testing.T) {
 func TestIntentTaskNoLeavesPromptEmpty(t *testing.T) {
 	client := newClient(t)
 	root := t.TempDir()
-	pane := startLabelledPane(t, client, "example-session-a", "waiting", "example-label-a", "example summary a", "")
+	pane := startDefaultPane(t, client, "example-session-a", "waiting", "example-label-a", "example summary a")
 	zoxide := installZoxide(t, zoxideListing(root, 1), 0)
 	claude := installClaude(t, "pane d1\njump "+pane+"\nnew example-project default\ntask: no\n", 0)
 
@@ -247,13 +259,16 @@ func TestIntentTaskNoLeavesPromptEmpty(t *testing.T) {
 func TestIntentDropsBadReferences(t *testing.T) {
 	client := newClient(t)
 	root := t.TempDir()
-	unsetState := startLabelledPane(t, client, "example-session-b", "", "example-label-b", "example summary b", "")
+	unsetContext := startLabelledPane(t, client, "example-session-b",
+		"waiting", "example-label-b", "example summary b", "")
 	withContext := startLabelledPane(t, client, "example-session-c",
 		"working", "example-label-c", "example summary c", "example-context")
+	unsetState := startDefaultPane(t, client, "example-session-e", "", "example-label-e", "example summary e")
 	zoxide := installZoxide(t, zoxideListing(root, 3), 0)
 	claude := installClaude(t, strings.Join([]string{
-		"jump " + unsetState,
+		"jump " + unsetContext,
 		"jump " + withContext,
+		"jump " + unsetState,
 		"jump %999",
 		"pane d4",
 		"pane d0",
@@ -330,7 +345,7 @@ func TestRunClaudeTimeoutIsError(t *testing.T) {
 func TestIntentCreatesNothing(t *testing.T) {
 	client := newClient(t)
 	root := t.TempDir()
-	startLabelledPane(t, client, "example-session-a", "waiting", "example-label-a", "example summary a", "")
+	startDefaultPane(t, client, "example-session-a", "waiting", "example-label-a", "example summary a")
 	claude := installClaude(t, "new example-fresh d1\nnew example-made default\npane d1\ntask: yes\n", 0)
 	cfg := intentConfig(client, installZoxide(t, zoxideListing(root, 1), 0), claude, root)
 	before, err := listSessions(t.Context(), cfg)

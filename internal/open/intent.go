@@ -90,7 +90,9 @@ func Intent(ctx context.Context, cfg Config, text string) ([]Action, error) {
 	return actions, nil
 }
 
-// intentPanes returns the panes Intent may name: those with a state and no context. With no tmux server there are none.
+// intentPanes returns the panes Intent may name: those with a state whose @orrery_context is set to "", the
+// default context. An unset @orrery_context is a pane summarized before orreryd recorded contexts, so it is not
+// eligible. With no tmux server there are none.
 func intentPanes(ctx context.Context, cfg Config) ([]protocol.Pane, error) {
 	all, err := cfg.Tmux.ListPanes(ctx)
 	if err != nil {
@@ -100,9 +102,20 @@ func intentPanes(ctx context.Context, cfg Config) ([]protocol.Pane, error) {
 		return nil, fmt.Errorf("intent: list panes: %w", err)
 	}
 	var panes []protocol.Pane
-	for _, p := range all {
-		if p.State != "" && p.Context == "" {
-			panes = append(panes, p)
+	for _, pane := range all {
+		if pane.State == "" {
+			continue
+		}
+		name, ok, optionErr := cfg.Tmux.PaneOption(ctx, pane.ID, protocol.OptionContext)
+		if optionErr != nil {
+			// A pane that closed after ListPanes is no longer a candidate; any other error fails the lookup.
+			if strings.Contains(optionErr.Error(), "can't find pane") {
+				continue
+			}
+			return nil, fmt.Errorf("intent: pane %s context: %w", pane.ID, optionErr)
+		}
+		if ok && name == "" {
+			panes = append(panes, pane)
 		}
 	}
 	return panes, nil

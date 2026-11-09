@@ -177,6 +177,7 @@ func newFixture(t *testing.T, zoxideStatus int) *fixture {
 	mustRun(t, client, "-f", noConfig, "new-session", "-d", "-s", f.targetSession, "-c", root, "sleep 300")
 	f.targetPane = trimLine(mustRun(t, client, "display-message", "-p", "-t", f.targetSession, "#{pane_id}"))
 	mustRun(t, client, "set-option", "-p", "-t", f.targetPane, protocol.OptionState, "waiting")
+	mustRun(t, client, "set-option", "-p", "-t", f.targetPane, protocol.OptionContext, "")
 
 	zoxideListing := zoxideLine(f.dir1) + zoxideLine(dir2)
 	f.zoxide = installFake(t, "fake-zoxide", "zoxide", zoxideListing, zoxideStatus)
