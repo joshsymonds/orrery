@@ -109,7 +109,9 @@ func markSeen(ctx context.Context, client *tmuxctl.Client, paneID string) error 
 
 // newClaudeWindow adds a window running claude to session, started in dir.
 func newClaudeWindow(ctx context.Context, client *tmuxctl.Client, session, dir string) error {
-	if _, err := client.Run(ctx, "new-window", "-t", "="+session+":", "-c", dir, "claude"); err != nil {
+	_, err := client.Run(ctx, "new-window", "-t", "="+session+":",
+		"-c", shell.TmuxDirArg(dir), "claude")
+	if err != nil {
 		return fmt.Errorf("new claude window: %w", err)
 	}
 	return nil

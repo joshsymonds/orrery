@@ -57,7 +57,7 @@ func ensureSession(ctx context.Context, client *tmuxctl.Client, name, dir string
 	if _, err := client.Run(ctx, "has-session", "-t", "="+name); err == nil {
 		return nil
 	}
-	_, err := client.Run(ctx, "new-session", "-d", "-s", name, "-c", tmuxDirArg(dir),
+	_, err := client.Run(ctx, "new-session", "-d", "-s", name, "-c", TmuxDirArg(dir),
 		";", "set-option", "-t", "="+name+":", protocol.OptionDir, tmuxLiteral(dir))
 	if err != nil {
 		return fmt.Errorf("shell: create session %q: %w", name, err)
@@ -74,9 +74,9 @@ func tmuxLiteral(value string) string {
 	return value
 }
 
-// tmuxDirArg returns dir as a -c argument. tmux expands formats in -c, so every "#" is doubled, then
+// TmuxDirArg returns dir as a -c argument. tmux expands formats in -c, so every "#" is doubled, then
 // the argument is escaped as tmuxLiteral escapes it.
-func tmuxDirArg(dir string) string {
+func TmuxDirArg(dir string) string {
 	return tmuxLiteral(strings.ReplaceAll(dir, "#", "##"))
 }
 

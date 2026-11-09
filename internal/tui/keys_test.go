@@ -820,6 +820,49 @@ func TestClaudeAddsWindowInCursorSessionAndDirectory(t *testing.T) {
 	run.closed()
 }
 
+func TestClaudeWindowStartsInDirectoryWithFormatsAndSemicolon(t *testing.T) {
+	bin := t.TempDir()
+	script := "#!/bin/sh\nexec sleep 300\n"
+	if err := os.WriteFile(filepath.Join(bin, "claude"), []byte(script), 0o755); err != nil {
+		t.Fatalf("write synthetic claude: %v", err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	// Each name is the directory of the cursor pane in s2. The new window's -c must carry the
+	// literal name: tmux format-expands -c, and a trailing ";" ends a tmux command.
+	for _, name := range []string{"x#{session_name}y", "x##y", "trail;"} {
+		t.Run(name, func(t *testing.T) {
+			layout := actionLayout()
+			layout[1].dir = name
+			a := newActionTree(t, layout)
+			run := a.start(a.invoking)
+			run.send("j", "c")
+			want := a.dir(name)
+			waitFor(t, "claude window in s2 starts in the literal directory", func() error {
+				count, err := a.windowCount("s2")
+				if err != nil {
+					return err
+				}
+				if count != 2 {
+					return fmt.Errorf("s2 has %d windows, want 2", count)
+				}
+				got, err := a.client.Run(a.t.Context(), "display-message", "-p", "-t", "=s2:1", "#{pane_current_path}")
+				if err != nil {
+					return fmt.Errorf("pane path of window 1: %w", err)
+				}
+				if got = strings.TrimSpace(got); got != want {
+					return fmt.Errorf("window 1 path = %q, want %q", got, want)
+				}
+				return nil
+			})
+			waitFor(t, "invoking client unchanged", func() error { return a.check("s1") })
+			run.assertOpen()
+			run.send("q")
+			run.closed()
+		})
+	}
+}
+
 func TestShellOpensPopupShellForGroupAndAttachesIt(t *testing.T) {
 	a := newActionTree(t, actionLayout())
 	run := a.start(a.invoking)
