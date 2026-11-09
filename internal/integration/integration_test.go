@@ -1880,3 +1880,198 @@ func TestOpenRefusesIntentWithArgs(t *testing.T) {
 		t.Fatalf("stderr %q, want the --intent refusal with usage text", out.stderr)
 	}
 }
+
+// newRecentSession starts session name in a temporary directory once the wall clock has passed the activity of every
+// session the server lists, so that name is the most recently active session. Session activity has one-second
+// resolution.
+func newRecentSession(t *testing.T, client *tmuxctl.Client, name string) {
+	t.Helper()
+	out, err := client.Run(t.Context(), "list-sessions", "-F", "#{session_activity}")
+	if err != nil {
+		t.Fatalf("list-sessions: %v", err)
+	}
+	var latest int64
+	for line := range strings.SplitSeq(strings.TrimSpace(out), "\n") {
+		n, parseErr := strconv.ParseInt(line, 10, 64)
+		if parseErr != nil {
+			t.Fatalf("session_activity %q: %v", line, parseErr)
+		}
+		latest = max(latest, n)
+	}
+	waitUntil(t, "wall clock to pass the sessions' last activity", func() bool {
+		return time.Now().Unix() > latest
+	})
+	newSession(t, client, name, t.TempDir())
+}
+
+// setupRecentOpen is setupOpen with session s2 created last, so that s2 is the most recent session. The invoking
+// client shows s1, and the other client shows s3.
+func setupRecentOpen(t *testing.T) openWorld {
+	t.Helper()
+	claude := installOpenFakes(t, "")
+	client, name := newServer(t)
+	newSession(t, client, "s1", t.TempDir())
+	invoking := attachClient(t, client, name, "s1", 80, 24)
+	newSession(t, client, "s3", t.TempDir())
+	other := attachClient(t, client, name, "s3", 200, 60)
+	newRecentSession(t, client, "s2")
+	return openWorld{client: client, name: name, invoking: invoking, other: other, claude: claude}
+}
+
+// treePIDs returns the IDs of the processes whose command line ends in tree --client TTY, which are the tree
+// processes orrery starts for tty.
+func treePIDs(tty string) ([]int, error) {
+	paths, err := filepath.Glob("/proc/[0-9]*/cmdline")
+	if err != nil {
+		return nil, fmt.Errorf("list processes: %w", err)
+	}
+	var pids []int
+	for _, path := range paths {
+		raw, readErr := os.ReadFile(path)
+		if readErr != nil {
+			continue
+		}
+		args := strings.Split(strings.TrimSuffix(string(raw), "\x00"), "\x00")
+		n := len(args)
+		if n < 3 || args[n-3] != "tree" || args[n-2] != "--client" || args[n-1] != tty {
+			continue
+		}
+		pid, convErr := strconv.Atoi(filepath.Base(filepath.Dir(path)))
+		if convErr != nil {
+			return nil, fmt.Errorf("process ID of %s: %w", path, convErr)
+		}
+		pids = append(pids, pid)
+	}
+	return pids, nil
+}
+
+// killTreesAtCleanup kills the tree processes for tty when the test ends, so that no tree outlives its test.
+func killTreesAtCleanup(t *testing.T, tty string) {
+	t.Helper()
+	t.Cleanup(func() {
+		pids, err := treePIDs(tty)
+		if err != nil {
+			t.Errorf("find tree processes for %s: %v", tty, err)
+		}
+		for _, pid := range pids {
+			if killErr := syscall.Kill(pid, syscall.SIGKILL); killErr != nil {
+				t.Errorf("kill tree process %d: %v", pid, killErr)
+			}
+		}
+	})
+}
+
+// terminalSize returns the columns and rows of the terminal process pid reads from. For a tree popup that terminal is
+// the popup.
+func terminalSize(t *testing.T, pid int) (int, int, error) {
+	t.Helper()
+	pty, err := os.Readlink(fmt.Sprintf("/proc/%d/fd/0", pid))
+	if err != nil {
+		return 0, 0, fmt.Errorf("terminal of process %d: %w", pid, err)
+	}
+	out, err := exec.CommandContext(t.Context(), "stty", "-F", pty, "size").Output()
+	if err != nil {
+		return 0, 0, fmt.Errorf("stty size of %s: %w", pty, err)
+	}
+	fields := strings.Fields(string(out))
+	if len(fields) != 2 {
+		return 0, 0, fmt.Errorf("stty size of %s printed %q", pty, out)
+	}
+	rows, rowsErr := strconv.Atoi(fields[0])
+	cols, colsErr := strconv.Atoi(fields[1])
+	if rowsErr != nil || colsErr != nil {
+		return 0, 0, fmt.Errorf("stty size of %s printed %q", pty, out)
+	}
+	return cols, rows, nil
+}
+
+// treePopupError returns an error unless a tree for tty runs on a terminal smaller than the client at tty. A popup
+// drawn on another client takes that client's size, so a popup on the wrong client fails the size check.
+func treePopupError(t *testing.T, client *tmuxctl.Client, tty string) error {
+	t.Helper()
+	var listed *clientRow
+	rows := clientRows(t, client)
+	for i := range rows {
+		if rows[i].tty == tty {
+			listed = &rows[i]
+		}
+	}
+	if listed == nil {
+		return fmt.Errorf("client %s not listed in %v", tty, rows)
+	}
+	pids, err := treePIDs(tty)
+	if err != nil {
+		return err
+	}
+	if len(pids) == 0 {
+		return fmt.Errorf("no tree for client %s", tty)
+	}
+	cols, lines, err := terminalSize(t, pids[0])
+	if err != nil {
+		return err
+	}
+	if cols >= listed.width || lines >= listed.height {
+		return fmt.Errorf("tree terminal is %dx%d, not smaller than client %dx%d",
+			cols, lines, listed.width, listed.height)
+	}
+	return nil
+}
+
+// waitForTreePopup waits until treePopupError for tty is nil.
+func waitForTreePopup(t *testing.T, client *tmuxctl.Client, tty string) {
+	t.Helper()
+	waitUntil(t, "tree popup on client "+tty, func() bool {
+		return treePopupError(t, client, tty) == nil
+	})
+}
+
+func TestOpenNoArgumentShowsTreeOnInvokingClient(t *testing.T) {
+	w := setupRecentOpen(t)
+	killTreesAtCleanup(t, w.invoking)
+	killTreesAtCleanup(t, w.other)
+	pane := w.runInPane(t, "open")
+	waitForScreen(t, w.client, pane, "exit 0")
+	if got := clientSession(t, w.client, w.invoking); got != "s2" {
+		t.Fatalf("invoking client shows session %s, want s2", got)
+	}
+	if got := clientSession(t, w.client, w.other); got != "s3" {
+		t.Fatalf("other client shows session %s, want s3", got)
+	}
+	waitForTreePopup(t, w.client, w.invoking)
+	pids, err := treePIDs(w.other)
+	if err != nil {
+		t.Fatalf("find tree processes for other client: %v", err)
+	}
+	if len(pids) != 0 {
+		t.Fatalf("tree processes %v started for other client %s", pids, w.other)
+	}
+}
+
+func TestOpenNoArgumentOutsideTmuxAttachesRecentAndShowsTree(t *testing.T) {
+	installOpenFakes(t, "")
+	client, name := newServer(t)
+	newSession(t, client, "s1", t.TempDir())
+	newRecentSession(t, client, "s2")
+	known := knownClients(t, client)
+	startScript(t, fmt.Sprintf("stty cols 80 rows 24; %s -L %s open", orreryPath(), name))
+	tty := waitForNewClient(t, client, "s2", known)
+	killTreesAtCleanup(t, tty)
+	waitForTreePopup(t, client, tty)
+}
+
+func TestOpenNamedSessionStartsNoTree(t *testing.T) {
+	w := setupOpen(t, "")
+	killTreesAtCleanup(t, w.invoking)
+	killTreesAtCleanup(t, w.other)
+	pane := w.runInPane(t, "open s2")
+	waitForScreen(t, w.client, pane, "exit 0")
+	for _, tty := range []string{w.invoking, w.other} {
+		pids, err := treePIDs(tty)
+		if err != nil {
+			t.Fatalf("find tree processes for %s: %v", tty, err)
+		}
+		if len(pids) != 0 {
+			t.Fatalf("tree processes %v started for %s by open s2", pids, tty)
+		}
+	}
+}

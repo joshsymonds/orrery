@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/joshsymonds/orrery/internal/cli"
 	"github.com/joshsymonds/orrery/internal/hook"
@@ -332,11 +333,12 @@ func pick(ctx context.Context, cfg open.Config, text string, stdin *os.File,
 }
 
 // showTarget puts the invoking client on target. Inside tmux that client is the one whose tty tmux reports, and it
-// is switched. Outside tmux the process's terminal is attached to target.
+// is switched. Outside tmux the process's terminal is attached to target. When target sets Tree, the tree opens on
+// that client.
 func showTarget(ctx context.Context, client *tmuxctl.Client, server tmuxctl.Server, stdin *os.File,
 	getenv func(string) string, target open.Target) error {
 	if getenv("TMUX") == "" {
-		return attachTarget(ctx, server, stdin, target)
+		return attachTarget(ctx, client, server, stdin, target)
 	}
 	tty, err := client.Run(ctx, "display-message", "-p", "#{client_tty}")
 	if err != nil {
@@ -349,21 +351,123 @@ func showTarget(ctx context.Context, client *tmuxctl.Client, server tmuxctl.Serv
 	if err = switchClient(ctx, client, clientTTY, target); err != nil {
 		return fmt.Errorf("open: %w", err)
 	}
+	if target.Tree {
+		return openTree(ctx, client, clientTTY)
+	}
 	return nil
 }
 
 // attachTarget attaches the process's terminal to target on server. tmux needs the terminal's own descriptors,
-// so the standard streams are the process's.
-func attachTarget(ctx context.Context, server tmuxctl.Server, stdin *os.File, target open.Target) error {
+// so the standard streams are the process's. When target sets Tree, the tree opens on the attached client.
+func attachTarget(ctx context.Context, client *tmuxctl.Client, server tmuxctl.Server, stdin *os.File,
+	target open.Target) error {
 	argv := append(serverFlags(server), "attach-session", "-t", targetRef(target))
+	if target.Tree {
+		return attachWithTree(ctx, client, argv, stdin)
+	}
+	if err := attachCommand(ctx, argv, stdin).Run(); err != nil {
+		return fmt.Errorf("open: attach: %w", err)
+	}
+	return nil
+}
+
+// attachCommand returns the tmux command that runs argv on the process's terminal.
+func attachCommand(ctx context.Context, argv []string, stdin *os.File) *exec.Cmd {
 	cmd := exec.CommandContext(ctx, "tmux", argv...)
 	cmd.Stdin = stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
+	return cmd
+}
+
+// attachWithTree runs the tmux command argv on the process's terminal. tmux lists the attached client only once the
+// attach runs, so the tree opens on that client while the attach is still running. The function returns when the
+// attach ends.
+func attachWithTree(ctx context.Context, client *tmuxctl.Client, argv []string, stdin *os.File) error {
+	tty, err := terminalTTY(ctx, stdin)
+	if err != nil {
+		return fmt.Errorf("open: %w", err)
+	}
+	attachCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	cmd := attachCommand(attachCtx, argv, stdin)
+	if err = cmd.Start(); err != nil {
 		return fmt.Errorf("open: attach: %w", err)
 	}
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	ticker := time.NewTicker(attachPoll)
+	defer ticker.Stop()
+	for listed := false; !listed; {
+		select {
+		case err = <-done:
+			if err == nil {
+				return errors.New("open: attach ended before tmux listed the client")
+			}
+			return fmt.Errorf("open: attach: %w", err)
+		case <-ticker.C:
+			if listed, err = clientListed(attachCtx, client, tty); err != nil {
+				return fmt.Errorf("open: %w", err)
+			}
+		}
+	}
+	if treeErr := openTree(attachCtx, client, tty); treeErr != nil {
+		return treeErr
+	}
+	if attachErr := <-done; attachErr != nil {
+		return fmt.Errorf("open: attach: %w", attachErr)
+	}
 	return nil
+}
+
+// attachPoll is how often attachWithTree asks tmux for the attached client.
+const attachPoll = 20 * time.Millisecond
+
+// terminalTTY returns the tty of the terminal stdin is.
+func terminalTTY(ctx context.Context, stdin *os.File) (string, error) {
+	cmd := exec.CommandContext(ctx, "tty")
+	cmd.Stdin = stdin
+	out, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("terminal tty: %w", err)
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// clientListed reports whether tmux lists the client at tty.
+func clientListed(ctx context.Context, client *tmuxctl.Client, tty string) (bool, error) {
+	out, err := client.Run(ctx, "list-clients", "-F", "#{client_tty}")
+	if err != nil {
+		return false, fmt.Errorf("list clients: %w", err)
+	}
+	return slices.Contains(strings.Fields(out), tty), nil
+}
+
+// openTree shows the tree in a popup on the client at tty, as the plugin's Space binding does. run-shell -b returns
+// at once, so the open command does not wait for the popup. The popup runs this binary. Its command is one shell word,
+// quoted for the shell and then for tmux, so that no path or tty is split or expanded.
+func openTree(ctx context.Context, client *tmuxctl.Client, tty string) error {
+	orrery, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("open tree: locate orrery binary: %w", err)
+	}
+	popup := "display-popup -c " + quoteTmux(tty) + " -E " +
+		quoteTmux(quoteShell(orrery)+" tree --client "+quoteShell(tty))
+	if _, err = client.Run(ctx, "run-shell", "-b", "-C", popup); err != nil {
+		return fmt.Errorf("open tree: %w", err)
+	}
+	return nil
+}
+
+// quoteShell returns value as one single-quoted shell word.
+func quoteShell(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", `'\''`) + "'"
+}
+
+// quoteTmux returns value as one single-quoted tmux word. Single quotes are literal in tmux, so a single quote in
+// value is written as '"'"'. Every "#" is doubled, because run-shell -C format-expands its command.
+func quoteTmux(value string) string {
+	return "'" + strings.ReplaceAll(strings.ReplaceAll(value, "#", "##"), "'", `'"'"'`) + "'"
 }
 
 // serverFlags returns the tmux flags that select server.
