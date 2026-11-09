@@ -5,6 +5,7 @@ import (
 	"cmp"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/joshsymonds/orrery/internal/protocol"
 )
@@ -39,6 +40,36 @@ func Groups(panes []protocol.Pane) []Group {
 	}
 	slices.SortFunc(groups, compareGroups)
 	return groups
+}
+
+// QuietAfter is how long a project must go without activity before Fold marks it quiet.
+const QuietAfter = 7 * 24 * time.Hour
+
+// Fold splits groups into active and quiet. A group is quiet when none of its
+// panes is waiting or unseen and its newest pane activity is more than QuietAfter
+// before now. A group whose panes all have unknown (zero) activity stays active.
+// Fold only classifies: it closes and drops nothing. Both results keep the input
+// order, and the input is not modified.
+func Fold(groups []Group, now time.Time) (active, quiet []Group) {
+	for _, g := range groups {
+		if isQuiet(g, now) {
+			quiet = append(quiet, g)
+		} else {
+			active = append(active, g)
+		}
+	}
+	return active, quiet
+}
+
+func isQuiet(group Group, now time.Time) bool {
+	var newest int64
+	for _, p := range group.Panes {
+		if p.State == protocol.StateWaiting || Unseen(p) {
+			return false
+		}
+		newest = max(newest, p.Activity)
+	}
+	return newest != 0 && now.Sub(time.Unix(newest, 0)) > QuietAfter
 }
 
 // Pane ranks, smallest first. Waiting always sorts first.
