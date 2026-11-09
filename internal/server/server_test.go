@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/cli"
+	"github.com/joshsymonds/orrery/internal/conversation"
 	"github.com/joshsymonds/orrery/internal/hoststatus"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/push"
@@ -1556,4 +1557,260 @@ func TestServeHost(t *testing.T) {
 		rec := get(t, newHostHandler(t, hoststatus.New(script, time.Now)), hostPath, otherLogin)
 		assertStatus(t, rec, http.StatusForbidden)
 	})
+}
+
+// conversationRoute is the conversation route's path segment after the pane ID.
+const conversationRoute = "/conversation"
+
+// synthOrigin is the synthetic opening prompt of the conversation fixtures.
+const synthOrigin = "synthetic opening prompt for the conversation route"
+
+// conversationPath returns the conversation route of pane, with rawQuery as its query when it is not "".
+func conversationPath(pane, rawQuery string) string {
+	path := "/v1/panes/" + url.PathEscape(pane) + conversationRoute
+	if rawQuery != "" {
+		path += "?" + rawQuery
+	}
+	return path
+}
+
+// writeConversation writes a synthetic transcript to a new file in t.TempDir and returns its path. Its first
+// line is a prompt of synthOrigin, and each of its replies lines is a reply "synthetic reply N" for N from 1.
+func writeConversation(t *testing.T, replies int) string {
+	t.Helper()
+	lines := []string{`{"type":"user","message":{"role":"user","content":"` + synthOrigin + `"}}`}
+	for n := 1; n <= replies; n++ {
+		lines = append(lines, fmt.Sprintf(
+			`{"type":"assistant","message":{"content":[{"type":"text","text":"synthetic reply %d"}]}}`, n))
+	}
+	path := filepath.Join(t.TempDir(), "transcript.jsonl")
+	if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0o600); err != nil {
+		t.Fatalf("write transcript: %v", err)
+	}
+	return path
+}
+
+// liveOptions returns the pane options of a live Claude session whose transcript is at path.
+func liveOptions(path string) map[string]string {
+	return map[string]string{protocol.OptionState: string(protocol.StateWorking), protocol.OptionTranscript: path}
+}
+
+// conversationPane starts a session on a pane running longCommand, sets each of options on that pane, and
+// returns the pane ID.
+func conversationPane(t *testing.T, tmux *tmuxctl.Client, options map[string]string) string {
+	t.Helper()
+	startSession(t, tmux, "s1", longCommand)
+	pane := paneID(t, tmux, "s1")
+	for name, value := range options {
+		if err := tmux.SetPaneOption(t.Context(), pane, name, value); err != nil {
+			t.Fatalf("SetPaneOption(%s, %s): %v", pane, name, err)
+		}
+	}
+	return pane
+}
+
+func TestServePaneConversation(t *testing.T) {
+	t.Parallel()
+
+	tmux := newTmuxServer(t)
+	path := writeConversation(t, 3)
+	pane := conversationPane(t, tmux, liveOptions(path))
+	handler := newHandler(t, tmux)
+
+	rec := get(t, handler, conversationPath(pane, ""), allowedLogin)
+	assertStatus(t, rec, http.StatusOK)
+	assertJSON(t, rec)
+	var got conversation.Conversation
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode %q: %v", rec.Body.String(), err)
+	}
+	want := conversation.Conversation{
+		Origin: synthOrigin,
+		Items: []conversation.Item{
+			{Kind: "prompt", Text: synthOrigin},
+			{Kind: "reply", Text: "synthetic reply 1"},
+			{Kind: "reply", Text: "synthetic reply 2"},
+			{Kind: "reply", Text: "synthetic reply 3"},
+		},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("body = %+v, want %+v", got, want)
+	}
+
+	other := writeConversation(t, 1)
+	rec = get(t, handler, conversationPath(pane, "path="+url.QueryEscape(other)), allowedLogin)
+	assertStatus(t, rec, http.StatusOK)
+	if rec.Body.String() != serveBody(t, handler, conversationPath(pane, "")) {
+		t.Fatalf("a path query changed the body to %q", rec.Body.String())
+	}
+}
+
+// serveBody returns the body of a 200 GET of path through handler, and fails the test on any other status.
+func serveBody(t *testing.T, handler http.Handler, path string) string {
+	t.Helper()
+	rec := get(t, handler, path, allowedLogin)
+	assertStatus(t, rec, http.StatusOK)
+	return rec.Body.String()
+}
+
+func TestServePaneConversationLimit(t *testing.T) {
+	t.Parallel()
+
+	tmux := newTmuxServer(t)
+	pane := conversationPane(t, tmux, liveOptions(writeConversation(t, 40)))
+	handler := newHandler(t, tmux)
+	cases := []struct {
+		name      string
+		query     string
+		wantLen   int
+		wantFirst string
+		wantLast  string
+	}{
+		{
+			name:      "default is 30",
+			query:     "",
+			wantLen:   30,
+			wantFirst: "synthetic reply 11",
+			wantLast:  "synthetic reply 40",
+		},
+		{
+			name:      "limit 5",
+			query:     "limit=5",
+			wantLen:   5,
+			wantFirst: "synthetic reply 36",
+			wantLast:  "synthetic reply 40",
+		},
+		{
+			name:      "limit 1",
+			query:     "limit=1",
+			wantLen:   1,
+			wantFirst: "synthetic reply 40",
+			wantLast:  "synthetic reply 40",
+		},
+		{
+			name:      "limit 100 holds all 41 items",
+			query:     "limit=100",
+			wantLen:   41,
+			wantFirst: synthOrigin,
+			wantLast:  "synthetic reply 40",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			rec := get(t, handler, conversationPath(pane, tc.query), allowedLogin)
+			assertStatus(t, rec, http.StatusOK)
+			var got conversation.Conversation
+			if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+				t.Fatalf("decode %q: %v", rec.Body.String(), err)
+			}
+			if len(got.Items) != tc.wantLen {
+				t.Fatalf("%d items, want %d", len(got.Items), tc.wantLen)
+			}
+			if first := got.Items[0].Text; first != tc.wantFirst {
+				t.Fatalf("first item = %q, want %q", first, tc.wantFirst)
+			}
+			if last := got.Items[len(got.Items)-1].Text; last != tc.wantLast {
+				t.Fatalf("last item = %q, want %q", last, tc.wantLast)
+			}
+		})
+	}
+}
+
+func TestServePaneConversationRejectsBadLimit(t *testing.T) {
+	t.Parallel()
+
+	tmux := newTmuxServer(t)
+	pane := conversationPane(t, tmux, liveOptions(writeConversation(t, 3)))
+	handler := newHandler(t, tmux)
+	queries := []string{
+		"limit=0", "limit=101", "limit=-1", "limit=abc", "limit=", "limit=5&limit=6", "limit=+5", "limit=1.5",
+	}
+	for _, query := range queries {
+		t.Run(query, func(t *testing.T) {
+			t.Parallel()
+			rec := get(t, handler, conversationPath(pane, query), allowedLogin)
+			assertStatus(t, rec, http.StatusBadRequest)
+		})
+	}
+}
+
+func TestServePaneConversationRejectsMalformedID(t *testing.T) {
+	t.Parallel()
+
+	handler := newHandler(t, newTmuxClient(t))
+	for _, id := range []string{"abc", "%", "%x", "1", "%1x", "%-1", "%%1"} {
+		t.Run(id, func(t *testing.T) {
+			t.Parallel()
+			rec := get(t, handler, conversationPath(id, ""), allowedLogin)
+			assertStatus(t, rec, http.StatusBadRequest)
+		})
+	}
+}
+
+func TestServePaneConversationAbsentPane(t *testing.T) {
+	t.Parallel()
+
+	tmux := newTmuxServer(t)
+	startSession(t, tmux, "s1", longCommand)
+	rec := get(t, newHandler(t, tmux), conversationPath("%999999", ""), allowedLogin)
+	assertStatus(t, rec, http.StatusNotFound)
+}
+
+func TestServePaneConversationWithoutTranscript(t *testing.T) {
+	t.Parallel()
+
+	path := writeConversation(t, 1)
+	cases := []struct {
+		name    string
+		options map[string]string
+	}{
+		{
+			name:    "no live session",
+			options: map[string]string{protocol.OptionTranscript: path},
+		},
+		{
+			name:    "no transcript option",
+			options: map[string]string{protocol.OptionState: string(protocol.StateWorking)},
+		},
+		{
+			name: "empty transcript option",
+			options: map[string]string{
+				protocol.OptionState:      string(protocol.StateWorking),
+				protocol.OptionTranscript: "",
+			},
+		},
+		{
+			name: "transcript file missing",
+			options: map[string]string{
+				protocol.OptionState:      string(protocol.StateWorking),
+				protocol.OptionTranscript: filepath.Join(t.TempDir(), "missing.jsonl"),
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			tmux := newTmuxServer(t)
+			pane := conversationPane(t, tmux, tc.options)
+			rec := get(t, newHandler(t, tmux), conversationPath(pane, ""), allowedLogin)
+			assertStatus(t, rec, http.StatusNotFound)
+		})
+	}
+}
+
+func TestServePaneConversationRequiresListedLogin(t *testing.T) {
+	t.Parallel()
+
+	tmux := newTmuxServer(t)
+	pane := conversationPane(t, tmux, liveOptions(writeConversation(t, 1)))
+	handler := newHandler(t, tmux)
+	for _, login := range []string{"", otherLogin} {
+		t.Run(fmt.Sprintf("login %q", login), func(t *testing.T) {
+			t.Parallel()
+			rec := get(t, handler, conversationPath(pane, ""), login)
+			assertStatus(t, rec, http.StatusForbidden)
+			assertNoCORS(t, rec)
+		})
+	}
 }

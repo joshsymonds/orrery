@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"mime"
 	"net"
 	"net/http"
@@ -17,6 +18,7 @@ import (
 	"strings"
 
 	"github.com/joshsymonds/orrery/internal/cli"
+	"github.com/joshsymonds/orrery/internal/conversation"
 	"github.com/joshsymonds/orrery/internal/hoststatus"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/push"
@@ -37,6 +39,14 @@ const (
 	queryANSI        = "ansi"
 	queryHistory     = "history"
 	screenHistoryMax = 2000
+)
+
+// queryLimit is the query key of GET /v1/panes/{id}/conversation, the number of newest items it answers with.
+// conversationLimitDefault is the value when limit is absent, and conversationLimitMax the largest value it accepts.
+const (
+	queryLimit               = "limit"
+	conversationLimitDefault = 30
+	conversationLimitMax     = 100
 )
 
 // jsonContentType is the Content-Type of every JSON response.
@@ -123,6 +133,7 @@ func New(cfg Config) (http.Handler, error) {
 	mux.HandleFunc("GET /v1/panes", servePanes(cfg.Tmux))
 	mux.HandleFunc("POST /v1/panes", serveNewWindow(cfg.Tmux))
 	mux.HandleFunc("GET /v1/panes/{id}/screen", serveScreen(cfg.Tmux))
+	mux.HandleFunc("GET /v1/panes/{id}/conversation", serveConversation(cfg.Tmux))
 	mux.HandleFunc("GET /v1/host", serveHost(cfg.HostStatus))
 	mux.HandleFunc("POST /v1/panes/{id}/text", servePaneText(cfg.Tmux))
 	mux.HandleFunc("POST /v1/panes/{id}/keys", servePaneKeys(cfg.Tmux))
@@ -280,13 +291,64 @@ func screenFlags(query url.Values) ([]string, bool) {
 		}
 	}
 	if values, present := query[queryHistory]; present {
-		lines, ok := historyLines(values)
+		lines, ok := boundedDecimal(values, 0, screenHistoryMax)
 		if !ok {
 			return nil, false
 		}
 		flags = append(flags, "-S", "-"+strconv.Itoa(lines))
 	}
 	return flags, true
+}
+
+// serveConversation answers GET /v1/panes/{id}/conversation with the conversation of the pane's Claude transcript:
+// its opening prompt and its newest limit items. The transcript is the path in the pane's @orrery_transcript option,
+// never a request value. It answers 404 unless the pane has a live Claude session and that file exists.
+func serveConversation(tmux *tmuxctl.Client) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		limit, ok := conversationLimit(r.URL.Query())
+		if !ok {
+			http.Error(w, "bad request query", http.StatusBadRequest)
+			return
+		}
+		pane, err := checkPane(r.Context(), tmux, r.PathValue("id"))
+		if err != nil {
+			paneError(w, err)
+			return
+		}
+		if pane.State == "" {
+			http.Error(w, "no live session", http.StatusNotFound)
+			return
+		}
+		path, ok, err := tmux.PaneOption(r.Context(), pane.ID, protocol.OptionTranscript)
+		if err != nil {
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		if !ok || path == "" {
+			http.Error(w, "no transcript", http.StatusNotFound)
+			return
+		}
+		conv, err := conversation.Read(path, limit)
+		switch {
+		case errors.Is(err, fs.ErrNotExist):
+			http.Error(w, "transcript not found", http.StatusNotFound)
+			return
+		case err != nil:
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, http.StatusOK, conv)
+	}
+}
+
+// conversationLimit returns the limit query value, or conversationLimitDefault when limit is absent. It returns
+// false unless limit holds exactly one decimal integer from 1 to conversationLimitMax.
+func conversationLimit(query url.Values) (int, bool) {
+	values, present := query[queryLimit]
+	if !present {
+		return conversationLimitDefault, true
+	}
+	return boundedDecimal(values, 1, conversationLimitMax)
 }
 
 // singleValue returns the one value in values, or "" when there are none or several.
@@ -297,15 +359,15 @@ func singleValue(values []string) string {
 	return values[0]
 }
 
-// historyLines returns the scrollback line count in values, and false unless values holds exactly one
-// string of decimal digits no larger than screenHistoryMax.
-func historyLines(values []string) (int, bool) {
+// boundedDecimal returns the integer in values, and false unless values holds exactly one string of decimal
+// digits from low to high inclusive.
+func boundedDecimal(values []string, low, high int) (int, bool) {
 	value := singleValue(values)
 	if value == "" || strings.Trim(value, "0123456789") != "" {
 		return 0, false
 	}
 	n, err := strconv.Atoi(value)
-	if err != nil || n > screenHistoryMax {
+	if err != nil || n < low || n > high {
 		return 0, false
 	}
 	return n, true
