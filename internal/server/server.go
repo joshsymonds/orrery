@@ -12,10 +12,12 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 
 	"github.com/joshsymonds/orrery/internal/cli"
+	"github.com/joshsymonds/orrery/internal/hoststatus"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/push"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
@@ -78,6 +80,12 @@ type newPaneResponse struct {
 	Pane string `json:"pane"`
 }
 
+// hostResponse is the body of a 200 answer from GET /v1/host.
+type hostResponse struct {
+	Host  string            `json:"host"`
+	Stats []hoststatus.Stat `json:"stats"`
+}
+
 // Config holds the guard settings for New.
 type Config struct {
 	// Logins lists the Tailscale logins admitted by the guard, matched exactly.
@@ -86,6 +94,8 @@ type Config struct {
 	Tmux *tmuxctl.Client
 	// Push holds the push subscriptions the registration routes write.
 	Push *push.Store
+	// HostStatus runs the host status command behind GET /v1/host, or is nil when serve has no command.
+	HostStatus *hoststatus.Runner
 }
 
 // New returns a handler that admits only the configured logins, requires a JSON content type and
@@ -113,6 +123,7 @@ func New(cfg Config) (http.Handler, error) {
 	mux.HandleFunc("GET /v1/panes", servePanes(cfg.Tmux))
 	mux.HandleFunc("POST /v1/panes", serveNewWindow(cfg.Tmux))
 	mux.HandleFunc("GET /v1/panes/{id}/screen", serveScreen(cfg.Tmux))
+	mux.HandleFunc("GET /v1/host", serveHost(cfg.HostStatus))
 	mux.HandleFunc("POST /v1/panes/{id}/text", servePaneText(cfg.Tmux))
 	mux.HandleFunc("POST /v1/panes/{id}/keys", servePaneKeys(cfg.Tmux))
 	mux.HandleFunc("POST /v1/panes/{id}/seen", servePaneSeen(cfg.Tmux))
@@ -228,6 +239,29 @@ func serveScreen(tmux *tmuxctl.Client) http.HandlerFunc {
 		w.Header().Set("Content-Type", textContentType)
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(screen))
+	}
+}
+
+// serveHost answers GET /v1/host with the host's name and the stats of the host status command, which takes no
+// request input. It answers 404 when runner is nil, the serve flag being unset, and 502 when the command fails or
+// prints invalid stats.
+func serveHost(runner *hoststatus.Runner) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if runner == nil {
+			http.NotFound(w, r)
+			return
+		}
+		stats, err := runner.Stats(r.Context())
+		if err != nil {
+			http.Error(w, "host status unavailable", http.StatusBadGateway)
+			return
+		}
+		host, err := os.Hostname()
+		if err != nil {
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, http.StatusOK, hostResponse{Host: host, Stats: stats})
 	}
 }
 

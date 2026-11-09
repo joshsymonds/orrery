@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/cli"
+	"github.com/joshsymonds/orrery/internal/hoststatus"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/push"
 	"github.com/joshsymonds/orrery/internal/server"
@@ -1471,5 +1472,88 @@ func TestServeNewWindow(t *testing.T) {
 		if n := len(listedPanes(t, tmux)); n != 1 {
 			t.Fatalf("%d panes listed after an unguarded write, want 1", n)
 		}
+	})
+}
+
+// writeHostStatusScript writes an executable shell script under t.TempDir() that prints output and exits with status.
+func writeHostStatusScript(t *testing.T, output string, status int) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "host-status")
+	body := fmt.Sprintf("#!/bin/sh\ncat <<'EOF'\n%s\nEOF\nexit %d\n", output, status)
+	if err := os.WriteFile(path, []byte(body), 0o700); err != nil {
+		t.Fatalf("write host status script: %v", err)
+	}
+	return path
+}
+
+// newHostHandler builds the guarded handler that admits only allowedLogin and runs host status through runner.
+func newHostHandler(t *testing.T, runner *hoststatus.Runner) http.Handler {
+	t.Helper()
+	handler, err := server.New(server.Config{
+		Logins:     []string{allowedLogin},
+		Tmux:       newTmuxClient(t),
+		Push:       newPushStore(t),
+		HostStatus: runner,
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	return handler
+}
+
+// hostPath is the host status route.
+const hostPath = "/v1/host"
+
+// TestServeHost is not parallel: each case execs a script it has just written, and parallel tests can race that exec.
+func TestServeHost(t *testing.T) {
+	host, err := os.Hostname()
+	if err != nil {
+		t.Fatalf("Hostname: %v", err)
+	}
+
+	t.Run("answers the host and the command's stats", func(t *testing.T) {
+		output := `[{"label":"cpu","value":"12%","percent":12.5,"level":"ok"},` +
+			`{"label":"uptime","value":"3d","level":"warn"}]`
+		script := writeHostStatusScript(t, output, 0)
+		rec := get(t, newHostHandler(t, hoststatus.New(script, time.Now)), hostPath, allowedLogin)
+		assertStatus(t, rec, http.StatusOK)
+		assertJSON(t, rec)
+		assertNoCORS(t, rec)
+		var got any
+		if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+			t.Fatalf("decode %q: %v", rec.Body.String(), err)
+		}
+		want := map[string]any{
+			"host": host,
+			"stats": []any{
+				map[string]any{"label": "cpu", "value": "12%", "percent": 12.5, "level": "ok"},
+				map[string]any{"label": "uptime", "value": "3d", "level": "warn"},
+			},
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("body = %#v, want %#v", got, want)
+		}
+	})
+
+	t.Run("answers 404 when serve has no host status command", func(t *testing.T) {
+		assertStatus(t, get(t, newHandler(t, newTmuxClient(t)), hostPath, allowedLogin), http.StatusNotFound)
+	})
+
+	t.Run("answers 502 when the command exits non-zero", func(t *testing.T) {
+		script := writeHostStatusScript(t, "", 3)
+		rec := get(t, newHostHandler(t, hoststatus.New(script, time.Now)), hostPath, allowedLogin)
+		assertStatus(t, rec, http.StatusBadGateway)
+	})
+
+	t.Run("answers 502 when the command prints invalid stats", func(t *testing.T) {
+		script := writeHostStatusScript(t, "not json", 0)
+		rec := get(t, newHostHandler(t, hoststatus.New(script, time.Now)), hostPath, allowedLogin)
+		assertStatus(t, rec, http.StatusBadGateway)
+	})
+
+	t.Run("answers 403 to a login the guard refuses", func(t *testing.T) {
+		script := writeHostStatusScript(t, "[]", 0)
+		rec := get(t, newHostHandler(t, hoststatus.New(script, time.Now)), hostPath, otherLogin)
+		assertStatus(t, rec, http.StatusForbidden)
 	})
 }

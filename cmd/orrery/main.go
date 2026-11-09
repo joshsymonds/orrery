@@ -22,6 +22,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/cli"
 	"github.com/joshsymonds/orrery/internal/help"
 	"github.com/joshsymonds/orrery/internal/hook"
+	"github.com/joshsymonds/orrery/internal/hoststatus"
 	"github.com/joshsymonds/orrery/internal/open"
 	"github.com/joshsymonds/orrery/internal/picker"
 	"github.com/joshsymonds/orrery/internal/protocol"
@@ -73,6 +74,7 @@ subcommands:
   tmux-conf                                     print the orrery tmux plugin for this binary
   help [--html]                                 print the help card for the tmux server, or the HTML page with --html
   serve --listen ADDR --allow-login LOGIN [--allow-login LOGIN]... [--push-host HOST]...
+        [--host-status-cmd PATH]
                                                 serve the HTTP API on a loopback address until SIGINT or SIGTERM
 `
 
@@ -211,6 +213,14 @@ func runServe(ctx context.Context, opts globals, args []string, getenv func(stri
 	flags.Var(&logins, "allow-login", "Tailscale login the API admits, repeatable")
 	var pushHosts listFlag
 	flags.Var(&pushHosts, "push-host", "push relay host a subscription may name, repeatable")
+	var hostStatus *hoststatus.Runner
+	flags.Func("host-status-cmd", "absolute path of the command GET /v1/host runs", func(value string) error {
+		if !filepath.IsAbs(value) {
+			return errors.New("host status command must be an absolute path")
+		}
+		hostStatus = hoststatus.New(value, time.Now)
+		return nil
+	})
 	if err := flags.Parse(args); err != nil {
 		return usagef("serve: %v", err)
 	}
@@ -238,7 +248,7 @@ func runServe(ctx context.Context, opts globals, args []string, getenv func(stri
 	if err != nil {
 		return fmt.Errorf("push store: %w", err)
 	}
-	handler, err := server.New(server.Config{Logins: logins, Tmux: tmux, Push: store})
+	handler, err := server.New(server.Config{Logins: logins, Tmux: tmux, Push: store, HostStatus: hostStatus})
 	if err != nil {
 		return fmt.Errorf("serve: %w", err)
 	}
