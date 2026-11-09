@@ -100,10 +100,10 @@ func TestAppendCreatesDirectoryAndFileAndAppendsLines(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read archive: %v", err)
 	}
-	want := `{"dir":"/work/alpha","session":"s1","claude_session":"c1","transcript":"/transcripts/one.jsonl",` +
-		`"label":"one","summary":"first summary","closed":100}` + "\n" +
-		`{"dir":"/work/beta","session":"s2","claude_session":"c2","transcript":"/transcripts/two.jsonl",` +
-		`"label":"two","summary":"second summary","closed":200}` + "\n"
+	want := `{"dir":"/work/alpha","session":"s1","transcript":"/transcripts/one.jsonl",` +
+		`"label":"one","summary":"first summary","closed":100,"claude_session":"c1"}` + "\n" +
+		`{"dir":"/work/beta","session":"s2","transcript":"/transcripts/two.jsonl",` +
+		`"label":"two","summary":"second summary","closed":200,"claude_session":"c2"}` + "\n"
 	if string(data) != want {
 		t.Errorf("archive bytes:\n got %q\nwant %q", data, want)
 	}
@@ -131,6 +131,60 @@ func TestForDirFiltersNewestFirstWithTies(t *testing.T) {
 		if got[i].Session != want {
 			t.Errorf("record %d session = %q, want %q", i, got[i].Session, want)
 		}
+	}
+}
+
+func TestForDirRoundTripsClaudeSessionWithEscaping(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "archive.jsonl")
+	want := archive.Record{
+		Dir:           "/work/alpha",
+		Session:       "s1",
+		ClaudeSession: `c"1\2`,
+		Transcript:    "/transcripts/one.jsonl",
+		Label:         "one",
+		Summary:       "summary",
+		Closed:        100,
+	}
+	appendRecords(t, path, want)
+
+	got, err := archive.ForDir(path, "/work/alpha")
+	if err != nil {
+		t.Fatalf("ForDir: %v", err)
+	}
+	if len(got) != 1 || got[0] != want {
+		t.Errorf("ForDir = %+v, want [%+v]", got, want)
+	}
+}
+
+func TestForDirNonStringClaudeSessionIsMalformedLine(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "archive.jsonl")
+	content := `{"dir":"/work/alpha","session":"a","claude_session":7,"closed":1}` + "\n"
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatalf("write archive: %v", err)
+	}
+
+	got, err := archive.ForDir(path, "/work/alpha")
+	if err == nil {
+		t.Fatalf("ForDir with non-string claude_session returned %+v, want error", got)
+	}
+	if !strings.Contains(err.Error(), "line 1") {
+		t.Errorf("error %q does not name line 1", err)
+	}
+}
+
+func TestForDirLineWithoutClaudeSessionReadsEmpty(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "archive.jsonl")
+	content := `{"dir":"/work/alpha","session":"a","closed":1}` + "\n"
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatalf("write archive: %v", err)
+	}
+
+	got, err := archive.ForDir(path, "/work/alpha")
+	if err != nil {
+		t.Fatalf("ForDir: %v", err)
+	}
+	if len(got) != 1 || got[0].ClaudeSession != "" {
+		t.Errorf("ForDir = %+v, want one record with empty ClaudeSession", got)
 	}
 }
 

@@ -14,15 +14,58 @@ import (
 	"slices"
 )
 
+// claudeSessionKey is the wire key of Record.ClaudeSession. The field has no struct tag: MarshalJSON
+// appends the key last and UnmarshalJSON reads it by this constant.
+const claudeSessionKey = "claude_session"
+
 // Record describes one closed Claude pane.
 type Record struct {
 	Dir           string `json:"dir"`
 	Session       string `json:"session"`
-	ClaudeSession string `json:"claude_session"`
+	ClaudeSession string `json:"-"`
 	Transcript    string `json:"transcript"`
 	Label         string `json:"label"`
 	Summary       string `json:"summary"`
 	Closed        int64  `json:"closed"`
+}
+
+// recordFields is Record without its methods, so encoding it does not recurse into MarshalJSON.
+type recordFields Record
+
+// MarshalJSON encodes the tagged fields in order, then claude_session as the last key.
+func (r Record) MarshalJSON() ([]byte, error) {
+	body, err := json.Marshal(recordFields(r))
+	if err != nil {
+		return nil, fmt.Errorf("encode archive record: %w", err)
+	}
+	session, err := json.Marshal(r.ClaudeSession)
+	if err != nil {
+		return nil, fmt.Errorf("encode claude session: %w", err)
+	}
+	out := append([]byte(nil), body[:len(body)-1]...)
+	return fmt.Appendf(out, `,"%s":%s}`, claudeSessionKey, session), nil
+}
+
+// UnmarshalJSON decodes the tagged fields, then reads claude_session by its key. An absent key leaves
+// ClaudeSession empty; a non-string value is an error.
+func (r *Record) UnmarshalJSON(data []byte) error {
+	var fields recordFields
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode archive record: %w", err)
+	}
+	var keys map[string]json.RawMessage
+	if err := json.Unmarshal(data, &keys); err != nil {
+		return fmt.Errorf("decode archive record: %w", err)
+	}
+	*r = Record(fields)
+	raw, ok := keys[claudeSessionKey]
+	if !ok {
+		return nil
+	}
+	if err := json.Unmarshal(raw, &r.ClaudeSession); err != nil {
+		return fmt.Errorf("decode %s: %w", claudeSessionKey, err)
+	}
+	return nil
 }
 
 // Path resolves the archive file: $XDG_STATE_HOME/orrery/archive.jsonl when XDG_STATE_HOME is set,
