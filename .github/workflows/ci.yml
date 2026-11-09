@@ -21,7 +21,7 @@ jobs:
             experimental-features = nix-command flakes
 
       - name: Run the repository check
-        run: nix develop -c just check
+        run: TMPDIR=/tmp TERM=xterm-256color nix develop -c just check
 
       - name: Run the flake check
         run: nix flake check
