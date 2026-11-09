@@ -50,6 +50,8 @@ func TestFrozenNames(t *testing.T) {
 		{"OptionLabel", protocol.OptionLabel, "@orrery_label"},
 		{"OptionContext", protocol.OptionContext, "@orrery_context"},
 		{"OptionDir", protocol.OptionDir, "@orrery_dir"},
+		{"OptionClaudeSession", protocol.OptionClaudeSession, "@orrery_claude_session"},
+		{"OptionTranscript", protocol.OptionTranscript, "@orrery_transcript"},
 		{"ShellSessionPrefix", protocol.ShellSessionPrefix, "_orrery-shell-"},
 		{"EnvSocket", protocol.EnvSocket, "ORRERY_SOCKET"},
 		{"EnvNtfyURLFile", protocol.EnvNtfyURLFile, "ORRERY_NTFY_URL_FILE"},
@@ -91,8 +93,8 @@ func TestPaneJSONKeys(t *testing.T) {
 		t.Fatalf("marshal zero Pane: %v", err)
 	}
 	want := []string{
-		"changed", "command", "context", "cwd", "host", "id", "label", "pane",
-		"question", "seen", "session", "state", "summary", "window",
+		"activity", "changed", "claude_session", "command", "context", "cwd", "host", "id",
+		"label", "pane", "question", "seen", "session", "state", "summary", "window",
 	}
 	if got := sortedKeys(t, data); !slices.Equal(got, want) {
 		t.Errorf("Pane keys = %v, want %v", got, want)
@@ -101,20 +103,22 @@ func TestPaneJSONKeys(t *testing.T) {
 
 func TestPaneWireFormat(t *testing.T) {
 	pane := protocol.Pane{
-		ID:          "%3",
-		Host:        "host-a",
-		Session:     "work",
-		WindowIndex: 1,
-		PaneIndex:   2,
-		Cwd:         "/home/u/proj",
-		Command:     "claude",
-		State:       protocol.StateWaiting,
-		Summary:     "waiting on review",
-		Label:       "proj",
-		Changed:     100,
-		Seen:        200,
-		Question:    "ship it?",
-		Context:     "example-context",
+		ID:            "%3",
+		Host:          "host-a",
+		Session:       "work",
+		WindowIndex:   1,
+		PaneIndex:     2,
+		Cwd:           "/home/u/proj",
+		Command:       "claude",
+		State:         protocol.StateWaiting,
+		Summary:       "waiting on review",
+		Label:         "proj",
+		Changed:       100,
+		Seen:          200,
+		Question:      "ship it?",
+		Context:       "example-context",
+		ClaudeSession: "example-claude-session",
+		Activity:      1700000300,
 	}
 	data, err := json.Marshal(pane)
 	if err != nil {
@@ -123,7 +127,8 @@ func TestPaneWireFormat(t *testing.T) {
 	want := `{"id":"%3","host":"host-a","session":"work","window":1,"pane":2,` +
 		`"cwd":"/home/u/proj","command":"claude","state":"waiting",` +
 		`"summary":"waiting on review","label":"proj","changed":100,"seen":200,` +
-		`"question":"ship it?","context":"example-context"}`
+		`"question":"ship it?","context":"example-context",` +
+		`"claude_session":"example-claude-session","activity":1700000300}`
 	if string(data) != want {
 		t.Errorf("Pane JSON =\n%s\nwant\n%s", data, want)
 	}

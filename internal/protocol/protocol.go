@@ -37,14 +37,16 @@ func ParseState(s string) (State, error) {
 
 // Per-pane tmux option names, set at pane scope. Values are single-line.
 const (
-	OptionState    = "@orrery_state"
-	OptionChanged  = "@orrery_changed"
-	OptionSeen     = "@orrery_seen"
-	OptionQuestion = "@orrery_question"
-	OptionSummary  = "@orrery_summary"
-	OptionLabel    = "@orrery_label"
-	OptionContext  = "@orrery_context"
-	OptionDir      = "@orrery_dir"
+	OptionState         = "@orrery_state"
+	OptionChanged       = "@orrery_changed"
+	OptionSeen          = "@orrery_seen"
+	OptionQuestion      = "@orrery_question"
+	OptionSummary       = "@orrery_summary"
+	OptionLabel         = "@orrery_label"
+	OptionContext       = "@orrery_context"
+	OptionDir           = "@orrery_dir"
+	OptionClaudeSession = "@orrery_claude_session"
+	OptionTranscript    = "@orrery_transcript"
 )
 
 // ShellSessionPrefix is the fixed prefix of shell session names.
@@ -52,20 +54,22 @@ const ShellSessionPrefix = "_orrery-shell-"
 
 // Pane is one element of the `orrery list --json` array.
 type Pane struct {
-	ID          string `json:"id"`
-	Host        string `json:"host"`
-	Session     string `json:"session"`
-	WindowIndex int    `json:"window"`
-	PaneIndex   int    `json:"pane"`
-	Cwd         string `json:"cwd"`
-	Command     string `json:"command"`
-	State       State  `json:"state"`
-	Summary     string `json:"summary"`
-	Label       string `json:"label"`
-	Changed     int64  `json:"changed"`
-	Seen        int64  `json:"seen"`
-	Question    string `json:"question"`
-	Context     string `json:"context"`
+	ID            string `json:"id"`
+	Host          string `json:"host"`
+	Session       string `json:"session"`
+	WindowIndex   int    `json:"window"`
+	PaneIndex     int    `json:"pane"`
+	Cwd           string `json:"cwd"`
+	Command       string `json:"command"`
+	State         State  `json:"state"`
+	Summary       string `json:"summary"`
+	Label         string `json:"label"`
+	Changed       int64  `json:"changed"`
+	Seen          int64  `json:"seen"`
+	Question      string `json:"question"`
+	Context       string `json:"context"`
+	ClaudeSession string `json:"claude_session"`
+	Activity      int64  `json:"activity"`
 }
 
 // Environment variable names and the value that marks a summarizer process.
