@@ -167,7 +167,7 @@ func dispatch(ctx context.Context, opts globals, rest []string, stdin *os.File, 
 	case "tmux-conf":
 		return tmuxConf(args, stdout)
 	case "help":
-		return helpCommand(ctx, opts.server, args, stdout)
+		return helpCommand(ctx, opts.server, args, stdout, getenv)
 	case "open":
 		client, err := tmuxctl.New(opts.server)
 		if err != nil {
@@ -673,8 +673,10 @@ func tmuxConf(args []string, stdout io.Writer) error {
 }
 
 // helpCommand runs `orrery help`, which writes the help card for the tmux server's prefix, or the HTML page with
-// --html. It reads the server and never starts one, so an unstarted server gives an empty prefix.
-func helpCommand(ctx context.Context, server tmuxctl.Server, args []string, stdout io.Writer) error {
+// --html. The card is colored only when stdout is a terminal and NO_COLOR is unset or empty. It reads the server and
+// never starts one, so an unstarted server gives an empty prefix.
+func helpCommand(ctx context.Context, server tmuxctl.Server, args []string, stdout io.Writer,
+	getenv func(string) string) error {
 	flags := flag.NewFlagSet("help", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	html := flags.Bool("html", false, "write the HTML page instead of the card")
@@ -695,10 +697,25 @@ func helpCommand(ctx context.Context, server tmuxctl.Server, args []string, stdo
 		}
 		return nil
 	}
-	if err = help.Card(stdout, prefix); err != nil {
+	card := help.Card
+	if getenv("NO_COLOR") == "" && isTerminal(stdout) {
+		card = help.ColorCard
+	}
+	if err = card(stdout, prefix); err != nil {
 		return fmt.Errorf("help: %w", err)
 	}
 	return nil
+}
+
+// isTerminal reports whether out is a character device, such as a terminal. Anything that is not an *os.File, or
+// whose Stat fails, is not a terminal.
+func isTerminal(out io.Writer) bool {
+	file, ok := out.(*os.File)
+	if !ok {
+		return false
+	}
+	info, err := file.Stat()
+	return err == nil && info.Mode()&os.ModeCharDevice != 0
 }
 
 // refuseSendFlagsAfterKeys refuses a send that names a send flag after --keys. Go flag parsing stops at the

@@ -12,8 +12,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/charmbracelet/x/ansi"
+
 	"github.com/joshsymonds/orrery/internal/help"
 	"github.com/joshsymonds/orrery/internal/keymap"
+	"github.com/joshsymonds/orrery/internal/palette"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
 )
 
@@ -101,6 +104,34 @@ func TestCardLineCountWithPrefix(t *testing.T) {
 	}
 	if lines := strings.Count(got.String(), "\n"); lines > maxLines {
 		t.Errorf("card has %d lines, want at most %d", lines, maxLines)
+	}
+}
+
+func TestColorCardCarriesPaletteColors(t *testing.T) {
+	var plain, colored bytes.Buffer
+	if err := help.Card(&plain, "C-a"); err != nil {
+		t.Fatalf("Card: %v", err)
+	}
+	if err := help.ColorCard(&colored, "C-a"); err != nil {
+		t.Fatalf("ColorCard: %v", err)
+	}
+	out := colored.String()
+	lines := strings.Split(out, "\n")
+
+	if want := palette.Fg(palette.Mauve, "orrery daily use"); lines[0] != want {
+		t.Errorf("title line = %q, want %q", lines[0], want)
+	}
+	if want := palette.Fg(palette.Mauve, "p"); !slices.Contains(lines, want) {
+		t.Errorf("colored card has no heading %q", want)
+	}
+	label := fmt.Sprintf("%-*s", labelWidth, "p")
+	wantRow := "  " + palette.Fg(palette.Lavender, label) +
+		"attach the most recently active session, then open the tree"
+	if !slices.Contains(lines, wantRow) {
+		t.Errorf("colored card has no row %q", wantRow)
+	}
+	if got := ansi.Strip(out); got != plain.String() {
+		t.Errorf("ansi.Strip(ColorCard) differs from Card:\n%s", got)
 	}
 }
 

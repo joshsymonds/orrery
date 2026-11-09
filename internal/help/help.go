@@ -82,19 +82,39 @@ func content(prefix string) document {
 	}
 }
 
-// Card writes the help card to out. prefix is tmux's prefix key; "" means it is unknown.
+// painter colors text with c. The plain card uses one that returns text unchanged.
+type painter func(c palette.Color, text string) string
+
+// plain returns text unchanged, for the uncolored card.
+func plain(_ palette.Color, text string) string {
+	return text
+}
+
+// Card writes the help card to out as plain text. prefix is tmux's prefix key; "" means it is unknown.
 func Card(out io.Writer, prefix string) error {
+	return writeCard(out, prefix, plain)
+}
+
+// ColorCard writes the help card to out with palette colors: the title and headings in Mauve, the labels in Lavender,
+// and the text in the terminal's default color. prefix is tmux's prefix key; "" means it is unknown. Stripped of its
+// escape sequences it is Card's output.
+func ColorCard(out io.Writer, prefix string) error {
+	return writeCard(out, prefix, palette.Fg)
+}
+
+// writeCard writes the help card to out, painting each part with paint.
+func writeCard(out io.Writer, prefix string, paint painter) error {
 	doc := content(prefix)
 	var card strings.Builder
 
-	card.WriteString(doc.Title + "\n\n")
+	card.WriteString(paint(palette.Mauve, doc.Title) + "\n\n")
 	for i, sec := range doc.Sections {
 		if i > 0 {
 			card.WriteString("\n")
 		}
-		card.WriteString(sec.Heading + "\n")
+		card.WriteString(paint(palette.Mauve, sec.Heading) + "\n")
 		for _, r := range sec.Rows {
-			writeRow(&card, r.Label, r.Text)
+			writeRow(&card, paint, r.Label, r.Text)
 		}
 	}
 
@@ -145,9 +165,9 @@ func Page(out io.Writer, prefix string) error {
 	return nil
 }
 
-// writeRow appends one indented row: the label left-justified to labelWidth, then the text.
-func writeRow(card *strings.Builder, label, text string) {
-	fmt.Fprintf(card, "  %-*s%s\n", labelWidth, label, text)
+// writeRow appends one indented row: the label left-justified to labelWidth and painted, then the text.
+func writeRow(card *strings.Builder, paint painter, label, text string) {
+	fmt.Fprintf(card, "  %s%s\n", paint(palette.Lavender, fmt.Sprintf("%-*s", labelWidth, label)), text)
 }
 
 // Prefix returns tmux's global prefix key on c's server, trimmed. It returns "" when the server cannot be read.
