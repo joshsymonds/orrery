@@ -65,6 +65,10 @@ func PlanPane(ctx context.Context, client *tmuxctl.Client, paneID, clientTTY str
 // shell session for dir when it exists. It closes every pane of those sessions, keeps the panes in dir
 // of every other session, and moves the client at clientTTY as PlanPane does.
 func PlanProject(ctx context.Context, client *tmuxctl.Client, dir, clientTTY string) (Plan, error) {
+	// An empty dir matches every session without @orrery_dir, so it selects no project.
+	if dir == "" {
+		return Plan{}, fmt.Errorf("closer: no session for an empty directory")
+	}
 	dirs, err := sessionDirs(ctx, client)
 	if err != nil {
 		return Plan{}, err

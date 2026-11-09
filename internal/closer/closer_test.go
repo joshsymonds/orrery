@@ -480,3 +480,22 @@ func TestPlanProjectWithoutSessionIsError(t *testing.T) {
 		t.Errorf("PlanProject error %q does not name the directory %s", err, dir)
 	}
 }
+
+func TestPlanProjectWithEmptyDirIsErrorAndPlansNothing(t *testing.T) {
+	client := closerServer(t)
+	// Two sessions with no @orrery_dir, in different directories: a close of "" must not select them.
+	newSession(t, client, "plain", t.TempDir())
+	newSession(t, client, "gone", t.TempDir())
+	newSession(t, client, "proj", t.TempDir())
+	setSessionDir(t, client, "proj", t.TempDir())
+
+	plan, err := closer.PlanProject(t.Context(), client, "", noClientTTY)
+	if err == nil {
+		t.Fatalf("PlanProject for an empty directory returned nil error and plan closing panes %v",
+			paneIDsOf(plan.Panes))
+	}
+	if len(plan.Panes) != 0 || len(plan.Kept) != 0 {
+		t.Errorf("PlanProject for an empty directory planned panes %v and kept %v, want none",
+			paneIDsOf(plan.Panes), paneIDsOf(plan.Kept))
+	}
+}
