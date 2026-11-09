@@ -11,9 +11,11 @@ import (
 	"unicode/utf8"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/joshsymonds/orrery/internal/closer"
 	"github.com/joshsymonds/orrery/internal/keymap"
+	"github.com/joshsymonds/orrery/internal/palette"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
 	"github.com/joshsymonds/orrery/internal/view"
@@ -378,16 +380,35 @@ func (m model) groupLines(groups []view.Group, cur protocol.Pane) []string {
 }
 
 // quietLine formats the Quiet row: its count of quiet projects while the section is collapsed,
-// a plain header once it is open. cursor marks the row.
+// a plain header once it is open. cursor marks the row and draws it on the bar.
 func (m model) quietLine(count int, cursor bool) string {
 	mark := "  "
 	if cursor {
 		mark = "> "
 	}
-	if m.quietOpen {
-		return mark + "Quiet"
+	line := mark + "Quiet"
+	if !m.quietOpen {
+		line = fmt.Sprintf("%sQuiet (%d)", mark, count)
 	}
-	return fmt.Sprintf("%sQuiet (%d)", mark, count)
+	if cursor {
+		return m.bar(line)
+	}
+	return line
+}
+
+// bar draws the cursor row on the Surface0 bar, padded with spaces to the frame width so the
+// bar spans the frame. Without a known width the bar covers only the line.
+func (m model) bar(line string) string {
+	if m.width > 0 {
+		line += strings.Repeat(" ", max(m.width-ansi.StringWidth(line), 0))
+	}
+	return palette.Bg(palette.Surface0, line)
+}
+
+// column pads text to width runes and colors it with c. A column is colored after it is
+// padded, so the padding stays outside the color and columns stay aligned.
+func column(text string, width int, c palette.Color) string {
+	return palette.Fg(c, text) + strings.Repeat(" ", max(width-utf8.RuneCountInString(text), 0))
 }
 
 // helpGap is the space between a binding's keys and its help text.
@@ -454,7 +475,14 @@ func (m model) statusErr() error {
 	}
 }
 
-// row formats one pane: cursor, unseen marker, state, label, summary, and age.
+// Column widths of a pane row, in cells: its state word and its summary.
+const (
+	stateWidth   = 8
+	summaryWidth = 24
+)
+
+// row formats one pane: cursor, unseen marker, state, label, summary, and age. The unseen
+// marker, state and summary are colored from the palette; the cursor row is drawn on the bar.
 func (m model) row(pane protocol.Pane, cursor bool) string {
 	mark := "  "
 	if cursor {
@@ -462,13 +490,19 @@ func (m model) row(pane protocol.Pane, cursor bool) string {
 	}
 	unseen := " "
 	if view.Unseen(pane) {
-		unseen = "*"
+		unseen = palette.Fg(palette.Mauve, "*")
 	}
 	state := string(pane.State)
 	if state == "" {
 		state = unsetMark
 	}
-	return fmt.Sprintf("%s%s %-8s %-16s %-24s %s", mark, unseen, state, pane.Label, pane.Summary, m.age(pane.Changed))
+	stateCell := column(state, stateWidth, palette.State(pane.State))
+	summaryCell := column(pane.Summary, summaryWidth, palette.Overlay0)
+	line := fmt.Sprintf("%s%s %s %-16s %s %s", mark, unseen, stateCell, pane.Label, summaryCell, m.age(pane.Changed))
+	if cursor {
+		return m.bar(line)
+	}
+	return line
 }
 
 // age returns how long ago the pane changed, in the largest whole unit.
@@ -500,11 +534,11 @@ func clip(lines []string, n int) []string {
 	return lines
 }
 
-// fit truncates line to width runes. A width of 0 means the terminal size is not known yet.
+// fit truncates line to width cells, keeping its escape sequences so a cut row still ends in
+// its resets. A width of 0 means the terminal size is not known yet.
 func fit(line string, width int) string {
-	runes := []rune(line)
-	if width <= 0 || len(runes) <= width {
+	if width <= 0 {
 		return line
 	}
-	return string(runes[:width])
+	return ansi.Truncate(line, width, "")
 }

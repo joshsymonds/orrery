@@ -1,6 +1,6 @@
 /home/user/src/alpha
->   waiting  alpha-review     needs approval           2m
-  * done     alpha-tests      ran 14 tests             30s
+[48;2;49;50;68m>   [38;2;250;179;135mwaiting[39m  alpha-review     [38;2;108;112;134mneeds approval[39m           2m                                           [49m
+  [38;2;203;166;247m*[39m [38;2;166;227;161mdone[39m     alpha-tests      [38;2;108;112;134mran 14 tests[39m             30s
   Quiet (1)
 
 Approve the migration? [y/n]

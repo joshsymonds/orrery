@@ -16,8 +16,10 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/joshsymonds/orrery/internal/keymap"
+	"github.com/joshsymonds/orrery/internal/palette"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
 )
@@ -291,7 +293,10 @@ func assertQuietRow(t *testing.T, m model) {
 	if _, ok := m.current(); ok {
 		t.Fatal("cursor is on a pane, want the Quiet row")
 	}
-	if !slices.Contains(strings.Split(m.View().Content, "\n"), "> Quiet (1)") {
+	lines := strings.Split(m.View().Content, "\n")
+	if !slices.ContainsFunc(lines, func(line string) bool {
+		return strings.TrimRight(ansi.Strip(line), " ") == "> Quiet (1)"
+	}) {
 		t.Fatalf("no collapsed Quiet row under the cursor:\n%s", m.View().Content)
 	}
 }
@@ -303,6 +308,98 @@ func TestViewQuiet(t *testing.T) {
 		t.Fatalf("quiet pane rendered while Quiet is collapsed:\n%s", got)
 	}
 	checkGolden(t, "TestViewQuiet", got)
+}
+
+// rowLine returns the frame line whose text, without escapes, contains label. It fails when no line does.
+func rowLine(t *testing.T, content, label string) string {
+	t.Helper()
+	for _, line := range strings.Split(content, "\n") {
+		if strings.Contains(ansi.Strip(line), label) {
+			return line
+		}
+	}
+	t.Fatalf("no row contains %q:\n%s", label, content)
+	return ""
+}
+
+func TestTreeRowsUsePaletteColours(t *testing.T) {
+	var panes []protocol.Pane
+	if err := json.Unmarshal([]byte(treePanes), &panes); err != nil {
+		t.Fatalf("decode panes: %v", err)
+	}
+	content := renderPanes(t, panes, map[string]string{})
+	cases := []struct {
+		label string
+		want  []string
+	}{
+		{"alpha-review", []string{palette.Fg(palette.Peach, "waiting")}},
+		{"alpha-tests", []string{
+			palette.Fg(palette.Mauve, "*"),
+			palette.Fg(palette.Green, "done"),
+			palette.Fg(palette.Overlay0, "ran 14 tests"),
+		}},
+		{"beta-build", []string{palette.Fg(palette.Yellow, "working"), palette.Fg(palette.Overlay0, "compiling")}},
+	}
+	for _, tc := range cases {
+		line := rowLine(t, content, tc.label)
+		for _, want := range tc.want {
+			if !strings.Contains(line, want) {
+				t.Errorf("row %q lacks %q:\n%q", tc.label, want, line)
+			}
+		}
+	}
+}
+
+func TestCursorRowFillsWidthAndKeepsPrefix(t *testing.T) {
+	var panes []protocol.Pane
+	if err := json.Unmarshal([]byte(treePanes), &panes); err != nil {
+		t.Fatalf("decode panes: %v", err)
+	}
+	line := rowLine(t, renderPanes(t, panes, map[string]string{}), "alpha-review")
+	if w := ansi.StringWidth(line); w != treeWidth {
+		t.Fatalf("cursor row width = %d, want %d: %q", w, treeWidth, line)
+	}
+	if !strings.HasPrefix(ansi.Strip(line), "> ") {
+		t.Fatalf("cursor row lost its prefix: %q", ansi.Strip(line))
+	}
+	open, _, _ := strings.Cut(palette.Bg(palette.Surface0, "|"), "|")
+	if !strings.HasPrefix(line, open+"> ") {
+		t.Fatalf("cursor row is not on the Surface0 bar: %q", line)
+	}
+}
+
+func TestQuietCursorRowFillsWidth(t *testing.T) {
+	m := pressAll(t, loadedModel(t, quietSource), "n", "j")
+	assertQuietRow(t, m)
+	line := rowLine(t, m.View().Content, "Quiet (1)")
+	if w := ansi.StringWidth(line); w != treeWidth {
+		t.Fatalf("Quiet cursor row width = %d, want %d: %q", w, treeWidth, line)
+	}
+	if !strings.HasPrefix(ansi.Strip(line), "> Quiet (1)") {
+		t.Fatalf("Quiet cursor row lost its prefix: %q", ansi.Strip(line))
+	}
+}
+
+func TestTruncatedCursorRowEndsInReset(t *testing.T) {
+	var panes []protocol.Pane
+	if err := json.Unmarshal([]byte(treePanes), &panes); err != nil {
+		t.Fatalf("decode panes: %v", err)
+	}
+	const narrow = 30
+	m := newModel(
+		func() ([]protocol.Pane, error) { return panes, nil },
+		func(string) (string, error) { return "", nil },
+		func() time.Time { return time.Unix(testNowUnix, 0) },
+	)
+	next, _ := m.Update(tea.WindowSizeMsg{Width: narrow, Height: treeHeight})
+	next = settle(t, next, m.loadPanes())
+	line := rowLine(t, next.View().Content, "alpha-review")
+	if w := ansi.StringWidth(line); w != narrow {
+		t.Fatalf("truncated row width = %d, want %d: %q", w, narrow, line)
+	}
+	if !strings.HasSuffix(line, "\x1b[49m") {
+		t.Fatalf("truncated cursor row does not end in a background reset: %q", line)
+	}
 }
 
 func TestQuietRowIsReachedByJAndSkippedByN(t *testing.T) {
