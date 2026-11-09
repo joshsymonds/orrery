@@ -307,7 +307,8 @@ func openCommand(ctx context.Context, client *tmuxctl.Client, server tmuxctl.Ser
 }
 
 // openChoice returns the target for req and whether one was chosen. With --intent, and with a plan that is text,
-// the picker runs for the text. Otherwise the plan runs and its target is chosen.
+// the picker runs for the text. A plan for an existing directory with no session shows its resume actions in the
+// picker. Otherwise the plan runs and its target is chosen.
 func openChoice(ctx context.Context, cfg open.Config, req open.Request, intent string, intentSet bool,
 	stdin *os.File, stdout io.Writer) (open.Target, bool, error) {
 	if intentSet {
@@ -317,14 +318,31 @@ func openChoice(ctx context.Context, cfg open.Config, req open.Request, intent s
 	if err != nil {
 		return open.Target{}, false, fmt.Errorf("plan: %w", err)
 	}
-	if plan.Text != "" {
+	switch {
+	case plan.Text != "":
 		return pick(ctx, cfg, plan.Text, stdin, stdout)
+	case plan.Dir != "" && !plan.MakeDir:
+		return resume(ctx, cfg, plan.Dir, stdin, stdout)
 	}
 	target, err := open.Execute(ctx, cfg, plan)
 	if err != nil {
 		return open.Target{}, false, fmt.Errorf("plan: %w", err)
 	}
 	return target, true, nil
+}
+
+// resume shows the resume actions for dir in the picker and returns the target it chose, if any.
+func resume(ctx context.Context, cfg open.Config, dir string, stdin *os.File,
+	stdout io.Writer) (open.Target, bool, error) {
+	actions, err := open.ResumeActions(cfg, dir)
+	if err != nil {
+		return open.Target{}, false, fmt.Errorf("plan: %w", err)
+	}
+	target, chosen, err := picker.Choose(ctx, picker.Options{Config: cfg, Input: stdin, Output: stdout}, actions)
+	if err != nil {
+		return open.Target{}, false, fmt.Errorf("open: %w", err)
+	}
+	return target, chosen, nil
 }
 
 // pick runs the picker for text and returns the target it chose, if any.
@@ -487,8 +505,8 @@ func serverFlags(server tmuxctl.Server) []string {
 	}
 }
 
-// openConfig returns the picker's configuration: zoxide and claude as absolute paths found on orrery's PATH, and
-// $HOME/Personal as the default root of new projects.
+// openConfig returns the picker's configuration: zoxide and claude as absolute paths found on orrery's PATH, $HOME/Personal
+// as the default root of new projects, and the archive of closed Claude panes.
 func openConfig(client *tmuxctl.Client, getenv func(string) string) (open.Config, error) {
 	zoxide, err := absLookPath("zoxide")
 	if err != nil {
@@ -498,11 +516,16 @@ func openConfig(client *tmuxctl.Client, getenv func(string) string) (open.Config
 	if err != nil {
 		return open.Config{}, err
 	}
+	archivePath, err := archive.Path(getenv)
+	if err != nil {
+		return open.Config{}, fmt.Errorf("archive path: %w", err)
+	}
 	return open.Config{
-		Tmux:   client,
-		Zoxide: zoxide,
-		Claude: claude,
-		Root:   filepath.Join(getenv("HOME"), "Personal"),
+		Tmux:    client,
+		Zoxide:  zoxide,
+		Claude:  claude,
+		Root:    filepath.Join(getenv("HOME"), "Personal"),
+		Archive: archivePath,
 	}, nil
 }
 

@@ -1516,6 +1516,19 @@ func (f fakeTool) waitForStarted(t *testing.T, n int) {
 	})
 }
 
+// soleRun returns the directory of the one run the fake has started, and fails unless it started exactly one.
+func (f fakeTool) soleRun(t *testing.T) string {
+	t.Helper()
+	entries, err := os.ReadDir(filepath.Join(f.dir, "calls"))
+	if err != nil {
+		t.Fatalf("read calls of %s: %v", f.bin, err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("%s ran %d times, want 1", f.bin, len(entries))
+	}
+	return filepath.Join(f.dir, "calls", entries[0].Name())
+}
+
 // setHold makes each run of the fake block while held is true.
 func (f fakeTool) setHold(t *testing.T, held bool) {
 	t.Helper()
@@ -1794,6 +1807,7 @@ func installOpenFakes(t *testing.T, zoxideReply string) fakeTool {
 	zoxide := installFake(t, "fake-zoxide", "zoxide", zoxideReply)
 	t.Setenv("PATH", claude.dir+string(os.PathListSeparator)+zoxide.dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	return claude
 }
 
@@ -1854,6 +1868,8 @@ func TestOpenZoxideFastMatchCreatesSessionAndSwitchesInvokingClient(t *testing.T
 	dir := exampleProjectDir(t)
 	w := setupOpen(t, "  9.0 "+dir+"\n")
 	pane := w.runInPane(t, "open example-project")
+	waitForScreen(t, w.client, pane, "> continue latest in ")
+	sendKeys(t, w.client, pane, false, "Enter")
 	waitForScreen(t, w.client, pane, "exit 0")
 	if got := clientSession(t, w.client, w.invoking); got != "example-project" {
 		t.Fatalf("invoking client shows session %s, want example-project", got)
@@ -1869,6 +1885,60 @@ func TestOpenZoxideFastMatchCreatesSessionAndSwitchesInvokingClient(t *testing.T
 		t.Fatalf("%s = %q, want %q", protocol.OptionDir, strings.TrimSpace(got), dir)
 	}
 	w.claude.waitForStarted(t, 1)
+	if args := readLines(t, filepath.Join(w.claude.soleRun(t), "args")); !slices.Equal(args, []string{"--continue"}) {
+		t.Fatalf("claude argv %q, want --continue", args)
+	}
+}
+
+func TestOpenZoxideFastMatchOffersArchivedResume(t *testing.T) {
+	dir := exampleProjectDir(t)
+	w := setupOpen(t, "  9.0 "+dir+"\n")
+	archivePath, err := archive.Path(os.Getenv)
+	if err != nil {
+		t.Fatalf("archive.Path: %v", err)
+	}
+	transcript := filepath.Join(t.TempDir(), "example-transcript.jsonl")
+	writeFile(t, transcript, "{}\n", 0o600)
+	gone := filepath.Join(t.TempDir(), "example-gone-transcript.jsonl")
+	for _, record := range []archive.Record{
+		{Dir: dir, Session: "s2", ClaudeSession: "example-claude-session-kept", Transcript: transcript,
+			Summary: "example summary", Closed: 100},
+		{Dir: dir, Session: "s2", ClaudeSession: "example-claude-session-gone", Transcript: gone,
+			Summary: "example gone summary", Closed: 200},
+	} {
+		if err = archive.Append(archivePath, record); err != nil {
+			t.Fatalf("archive.Append: %v", err)
+		}
+	}
+
+	pane := w.runInPane(t, "open example-project")
+	waitForScreen(t, w.client, pane, "> resume example-claude-session-kept: example summary")
+	shown := screen(t, w.client, pane)
+	for _, unwanted := range []string{"example-claude-session-gone", "example gone summary", "continue latest in"} {
+		if strings.Contains(shown, unwanted) {
+			t.Fatalf("picker shows %q, want no row for it:\n%s", unwanted, shown)
+		}
+	}
+	if !strings.Contains(shown, "start fresh in ") {
+		t.Fatalf("picker lacks the start fresh row:\n%s", shown)
+	}
+	if got := w.claude.runs(t); got != 0 {
+		t.Fatalf("fake claude ran %d times before Enter, want 0", got)
+	}
+
+	sendKeys(t, w.client, pane, false, "Enter")
+	waitForScreen(t, w.client, pane, "exit 0")
+	if got := clientSession(t, w.client, w.invoking); got != "example-project" {
+		t.Fatalf("invoking client shows session %s, want example-project", got)
+	}
+	if got := clientSession(t, w.client, w.other); got != "s3" {
+		t.Fatalf("other client shows session %s, want s3", got)
+	}
+	w.claude.waitForStarted(t, 1)
+	if args := readLines(t, filepath.Join(w.claude.soleRun(t), "args")); !slices.Equal(args,
+		[]string{"--resume", "example-claude-session-kept"}) {
+		t.Fatalf("claude argv %q, want --resume example-claude-session-kept", args)
+	}
 }
 
 func TestOpenOutsideTmuxAttachesNamedSession(t *testing.T) {
