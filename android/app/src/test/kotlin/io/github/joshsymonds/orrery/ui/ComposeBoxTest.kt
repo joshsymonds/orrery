@@ -14,12 +14,15 @@ import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.core.content.res.ResourcesCompat
+import io.github.joshsymonds.orrery.R
 import io.github.joshsymonds.orrery.api.FakeOrreryServer
 import io.github.joshsymonds.orrery.api.OrreryClient
 import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -60,6 +63,15 @@ class ComposeBoxTest {
         assertTrue(info.inputType and InputType.TYPE_TEXT_FLAG_AUTO_CORRECT != 0)
         assertTrue(info.inputType and InputType.TYPE_TEXT_FLAG_CAP_SENTENCES != 0)
         assertEquals(0, info.inputType and InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS)
+    }
+
+    @Test
+    fun editorDrawsInOrreryMono() {
+        setBox()
+
+        val orreryMono = ResourcesCompat.getFont(composeRule.activity, R.font.orrery_mono_regular)
+        assertNotNull(orreryMono)
+        assertSame(orreryMono, editField().typeface)
     }
 
     @Test

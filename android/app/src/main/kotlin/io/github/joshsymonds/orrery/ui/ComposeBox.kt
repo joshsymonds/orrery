@@ -17,6 +17,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.content.res.ResourcesCompat
+import io.github.joshsymonds.orrery.R
 import io.github.joshsymonds.orrery.api.OrreryClient
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -54,6 +56,7 @@ private fun ComposeDraft(paneId: String, client: OrreryClient, modifier: Modifie
             factory = { context ->
                 EditText(context).apply {
                     inputType = COMPOSE_INPUT_TYPE
+                    typeface = ResourcesCompat.getFont(context, R.font.orrery_mono_regular)
                     addTextChangedListener(
                         object : TextWatcher {
                             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
