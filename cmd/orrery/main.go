@@ -17,6 +17,7 @@ import (
 
 	"github.com/joshsymonds/orrery/internal/archive"
 	"github.com/joshsymonds/orrery/internal/cli"
+	"github.com/joshsymonds/orrery/internal/help"
 	"github.com/joshsymonds/orrery/internal/hook"
 	"github.com/joshsymonds/orrery/internal/open"
 	"github.com/joshsymonds/orrery/internal/picker"
@@ -58,6 +59,7 @@ subcommands:
   tree --client TTY                             show the pane tree on the client at TTY; N picks a pane
   open [--remote] [--intent TEXT] [ARGS...]     switch to the plan for ARGS, or to the picker; attach outside tmux
   tmux-conf                                     print the orrery tmux plugin for this binary
+  help [--html]                                 print the help card for the tmux server, or the HTML page with --html
 `
 
 // usageError is a command line refused before any work. It exits 2 and prints the usage text.
@@ -150,6 +152,8 @@ func dispatch(ctx context.Context, opts globals, rest []string, stdin *os.File, 
 		return nil
 	case "tmux-conf":
 		return tmuxConf(args, stdout)
+	case "help":
+		return helpCommand(ctx, opts.server, args, stdout)
 	case "open":
 		client, err := tmuxctl.New(opts.server)
 		if err != nil {
@@ -570,6 +574,35 @@ func tmuxConf(args []string, stdout io.Writer) error {
 	}
 	if err = tmuxconf.Print(stdout, orrery); err != nil {
 		return fmt.Errorf("tmux-conf: %w", err)
+	}
+	return nil
+}
+
+// helpCommand runs `orrery help`, which writes the help card for the tmux server's prefix, or the HTML page with
+// --html. It reads the server and never starts one, so an unstarted server gives an empty prefix.
+func helpCommand(ctx context.Context, server tmuxctl.Server, args []string, stdout io.Writer) error {
+	flags := flag.NewFlagSet("help", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	html := flags.Bool("html", false, "write the HTML page instead of the card")
+	if err := flags.Parse(args); err != nil {
+		return usagef("help: %v", err)
+	}
+	if flags.NArg() > 0 {
+		return usagef("help: unexpected argument %q", flags.Arg(0))
+	}
+	client, err := tmuxctl.New(server)
+	if err != nil {
+		return fmt.Errorf("tmux server: %w", err)
+	}
+	prefix := help.Prefix(ctx, client)
+	if *html {
+		if err = help.Page(stdout, prefix); err != nil {
+			return fmt.Errorf("help: %w", err)
+		}
+		return nil
+	}
+	if err = help.Card(stdout, prefix); err != nil {
+		return fmt.Errorf("help: %w", err)
 	}
 	return nil
 }

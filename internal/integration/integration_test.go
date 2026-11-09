@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/archive"
+	"github.com/joshsymonds/orrery/internal/help"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/shell"
 	"github.com/joshsymonds/orrery/internal/tmuxconf"
@@ -209,14 +210,20 @@ func wantExit(t *testing.T, out outcome, code int) {
 	}
 }
 
-// newServer returns a client for a unique private tmux server, killed at cleanup.
-func newServer(t *testing.T) (*tmuxctl.Client, string) {
+// newServerName returns a name no other test's tmux server has.
+func newServerName(t *testing.T) string {
 	t.Helper()
 	var suffix [8]byte
 	if _, err := rand.Read(suffix[:]); err != nil {
 		t.Fatalf("random server name: %v", err)
 	}
-	name := fmt.Sprintf("orrery-integration-%d-%x", os.Getpid(), suffix)
+	return fmt.Sprintf("orrery-integration-%d-%x", os.Getpid(), suffix)
+}
+
+// newServer returns a client for a unique private tmux server, killed at cleanup.
+func newServer(t *testing.T) (*tmuxctl.Client, string) {
+	t.Helper()
+	name := newServerName(t)
 	client, err := tmuxctl.New(tmuxctl.Server{Name: name})
 	if err != nil {
 		t.Fatalf("New(Name=%q): %v", name, err)
@@ -1457,6 +1464,93 @@ func TestTmuxConfRefusesStrayArgument(t *testing.T) {
 	wantExit(t, out, 2)
 	if !strings.Contains(out.stderr, "usage: orrery") || !strings.Contains(out.stderr, "\n  tmux-conf ") {
 		t.Fatalf("stderr %q, want usage text listing tmux-conf", out.stderr)
+	}
+}
+
+// helpGolden returns one of internal/help's goldens, which are rendered with the C-a prefix.
+func helpGolden(t *testing.T, name string) string {
+	t.Helper()
+	body, err := os.ReadFile(filepath.Join("..", "help", "testdata", name))
+	if err != nil {
+		t.Fatalf("read golden %s: %v", name, err)
+	}
+	return string(body)
+}
+
+// prefixServer starts a private server whose global prefix is C-a and returns its name.
+func prefixServer(t *testing.T) string {
+	t.Helper()
+	client, name := newServer(t)
+	if _, err := client.Run(t.Context(), "-f", noConfig, "new-session", "-d", "-s", "help"); err != nil {
+		t.Fatalf("new-session: %v", err)
+	}
+	if _, err := client.Run(t.Context(), "set-option", "-g", "prefix", "C-a"); err != nil {
+		t.Fatalf("set-option prefix: %v", err)
+	}
+	return name
+}
+
+func TestHelpPrintsCardWithServerPrefix(t *testing.T) {
+	name := prefixServer(t)
+
+	out := runOrrery(t, "", nil, "-L", name, "help")
+	wantExit(t, out, 0)
+	if want := helpGolden(t, "card.golden"); out.stdout != want {
+		t.Fatalf("stdout does not match card.golden:\n%s", out.stdout)
+	}
+	if out.stderr != "" {
+		t.Fatalf("stderr %q, want empty", out.stderr)
+	}
+}
+
+func TestHelpHTMLPrintsPageWithServerPrefix(t *testing.T) {
+	name := prefixServer(t)
+
+	out := runOrrery(t, "", nil, "-L", name, "help", "--html")
+	wantExit(t, out, 0)
+	if want := helpGolden(t, "page.golden"); out.stdout != want {
+		t.Fatalf("stdout does not match page.golden:\n%s", out.stdout)
+	}
+	if out.stderr != "" {
+		t.Fatalf("stderr %q, want empty", out.stderr)
+	}
+}
+
+func TestHelpWithoutServerPrintsCardWithoutPrefix(t *testing.T) {
+	// help reads the server and never starts one, so an unstarted server gives a card with no prefix.
+	var want bytes.Buffer
+	if err := help.Card(&want, ""); err != nil {
+		t.Fatalf("help.Card: %v", err)
+	}
+	name := newServerName(t)
+	client, err := tmuxctl.New(tmuxctl.Server{Name: name})
+	if err != nil {
+		t.Fatalf("New(Name=%q): %v", name, err)
+	}
+	t.Cleanup(func() {
+		// The kill stops a server that a regression started. With no server it errors, which is the passing case.
+		_, _ = client.Run(context.Background(), "kill-server")
+	})
+
+	out := runOrrery(t, "", nil, "-L", name, "help")
+	wantExit(t, out, 0)
+	if out.stdout != want.String() {
+		t.Fatalf("stdout %q, want help.Card with an empty prefix %q", out.stdout, want.String())
+	}
+	if out.stderr != "" {
+		t.Fatalf("stderr %q, want empty", out.stderr)
+	}
+	if sessions, listErr := client.Run(t.Context(), "list-sessions"); listErr == nil {
+		t.Fatalf("help started server %s; list-sessions %q", name, sessions)
+	}
+}
+
+func TestHelpRefusesExtraArgument(t *testing.T) {
+	// The exit happens before any tmux call, so no server is started.
+	out := runOrrery(t, "", nil, "help", "extra")
+	wantExit(t, out, 2)
+	if !strings.Contains(out.stderr, "usage: orrery") || !strings.Contains(out.stderr, "\n  help ") {
+		t.Fatalf("stderr %q, want usage text listing help", out.stderr)
 	}
 }
 
