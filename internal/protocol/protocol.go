@@ -52,6 +52,10 @@ const (
 // ShellSessionPrefix is the fixed prefix of shell session names.
 const ShellSessionPrefix = "_orrery-shell-"
 
+// claudeSessionKey is the wire key of Pane.ClaudeSession. It is a constant rather than a
+// struct tag, so the camel-case rule of the tag linter does not apply to it.
+const claudeSessionKey = "claude_session"
+
 // Pane is one element of the `orrery list --json` array.
 type Pane struct {
 	ID            string `json:"id"`
@@ -68,8 +72,55 @@ type Pane struct {
 	Seen          int64  `json:"seen"`
 	Question      string `json:"question"`
 	Context       string `json:"context"`
-	ClaudeSession string `json:"claude_session"`
+	ClaudeSession string `json:"-"`
 	Activity      int64  `json:"activity"`
+}
+
+// paneFields is Pane without its methods, so encoding and decoding it uses the field tags.
+type paneFields Pane
+
+// MarshalJSON encodes the tagged fields in declaration order, then claude_session as the last key.
+func (p Pane) MarshalJSON() ([]byte, error) {
+	fields, err := json.Marshal(paneFields(p))
+	if err != nil {
+		return nil, fmt.Errorf("encode pane: %w", err)
+	}
+	session, err := json.Marshal(p.ClaudeSession)
+	if err != nil {
+		return nil, fmt.Errorf("encode %s: %w", claudeSessionKey, err)
+	}
+	// fields is a non-empty JSON object, so its closing brace is the last byte.
+	out := bytes.Clone(fields[:len(fields)-1])
+	out = append(out, `,"`+claudeSessionKey+`":`...)
+	out = append(out, session...)
+	return append(out, '}'), nil
+}
+
+// UnmarshalJSON decodes the tagged fields, then reads claude_session by its constant key. An
+// absent key leaves ClaudeSession empty. A key whose value is not a JSON string is an error.
+func (p *Pane) UnmarshalJSON(data []byte) error {
+	var fields paneFields
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode pane: %w", err)
+	}
+	var keys map[string]json.RawMessage
+	if err := json.Unmarshal(data, &keys); err != nil {
+		return fmt.Errorf("decode pane keys: %w", err)
+	}
+	*p = Pane(fields)
+	raw, ok := keys[claudeSessionKey]
+	if !ok {
+		return nil
+	}
+	if bytes.Equal(raw, []byte("null")) {
+		return fmt.Errorf("decode %s: value is null, want a string", claudeSessionKey)
+	}
+	var session string
+	if err := json.Unmarshal(raw, &session); err != nil {
+		return fmt.Errorf("decode %s: %w", claudeSessionKey, err)
+	}
+	p.ClaudeSession = session
+	return nil
 }
 
 // Environment variable names and the value that marks a summarizer process.

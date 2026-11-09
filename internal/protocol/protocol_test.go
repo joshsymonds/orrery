@@ -128,9 +128,65 @@ func TestPaneWireFormat(t *testing.T) {
 		`"cwd":"/home/u/proj","command":"claude","state":"waiting",` +
 		`"summary":"waiting on review","label":"proj","changed":100,"seen":200,` +
 		`"question":"ship it?","context":"example-context",` +
-		`"claude_session":"example-claude-session","activity":1700000300}`
+		`"activity":1700000300,"claude_session":"example-claude-session"}`
 	if string(data) != want {
 		t.Errorf("Pane JSON =\n%s\nwant\n%s", data, want)
+	}
+}
+
+func TestPaneJSONRoundTrip(t *testing.T) {
+	want := protocol.Pane{
+		ID:            "%3",
+		Host:          "host-a",
+		Session:       "work",
+		WindowIndex:   1,
+		PaneIndex:     2,
+		Cwd:           "/home/u/proj",
+		Command:       "claude",
+		State:         protocol.StateWaiting,
+		Summary:       "waiting on review",
+		Label:         "proj",
+		Changed:       100,
+		Seen:          200,
+		Question:      "ship it?",
+		Context:       "example-context",
+		ClaudeSession: `example "quoted" session`,
+		Activity:      1700000300,
+	}
+	data, err := json.Marshal(want)
+	if err != nil {
+		t.Fatalf("marshal Pane: %v", err)
+	}
+	var got protocol.Pane
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("unmarshal Pane %s: %v", data, err)
+	}
+	if got != want {
+		t.Errorf("round trip = %+v, want %+v", got, want)
+	}
+}
+
+func TestPaneUnmarshalMissingClaudeSession(t *testing.T) {
+	var pane protocol.Pane
+	if err := json.Unmarshal([]byte(`{"id":"%3","activity":5}`), &pane); err != nil {
+		t.Fatalf("unmarshal Pane without claude_session: %v", err)
+	}
+	if pane.ClaudeSession != "" || pane.ID != "%3" || pane.Activity != 5 {
+		t.Errorf("Pane = %+v, want ID %%3, Activity 5, empty ClaudeSession", pane)
+	}
+}
+
+func TestPaneUnmarshalRejectsNonStringClaudeSession(t *testing.T) {
+	inputs := []string{
+		`{"claude_session":1}`,
+		`{"claude_session":null}`,
+		`{"claude_session":["example"]}`,
+	}
+	for _, input := range inputs {
+		var pane protocol.Pane
+		if err := json.Unmarshal([]byte(input), &pane); err == nil {
+			t.Errorf("Unmarshal(%s) returned no error", input)
+		}
 	}
 }
 
