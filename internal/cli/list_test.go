@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -19,14 +20,18 @@ import (
 
 // Every test server starts with -f /dev/null so the user's tmux config never applies.
 const (
-	listNoConfig    = "/dev/null"
-	listTestCommand = "sleep 300"
-	listGoldenPath  = "testdata/list.golden.json"
-	listGoldenHost  = "example-host"
-	listGoldenCwd   = "/home/user/project"
-	listCommandWait = 10 * time.Second
-	listPollEvery   = 10 * time.Millisecond
+	listNoConfig       = "/dev/null"
+	listTestCommand    = "sleep 300"
+	listGoldenPath     = "testdata/list.golden.json"
+	listGoldenHost     = "example-host"
+	listGoldenCwd      = "/home/user/project"
+	listGoldenActivity = "1700000300"
+	listCommandWait    = 10 * time.Second
+	listPollEvery      = 10 * time.Millisecond
 )
+
+// listActivityPattern matches a printed activity value, which is the session's own last-activity time.
+var listActivityPattern = regexp.MustCompile(`"activity":[0-9]+`)
 
 // listNewServer returns a client for a unique private server name and kills that server at cleanup.
 func listNewServer(t *testing.T) *tmuxctl.Client {
@@ -132,6 +137,7 @@ func TestListJSON(t *testing.T) {
 	listSetOption(t, client, panesA[0], protocol.OptionSeen, "1700000100")
 	listSetOption(t, client, panesA[0], protocol.OptionQuestion, "Example question for the user?")
 	listSetOption(t, client, panesA[0], protocol.OptionContext, "example-context")
+	listSetOption(t, client, panesA[0], protocol.OptionClaudeSession, "example-claude-session")
 	listSetOption(t, client, panesA[1], protocol.OptionState, string(protocol.StateWorking))
 	listSetOption(t, client, panesA[1], protocol.OptionChanged, "1700000200")
 
@@ -155,9 +161,12 @@ func TestListJSON(t *testing.T) {
 		if pane.Cwd != resolved {
 			t.Errorf("pane %s cwd = %q, want %q", pane.ID, pane.Cwd, resolved)
 		}
+		if pane.Activity <= 0 {
+			t.Errorf("pane %s activity = %d, want a positive unix time", pane.ID, pane.Activity)
+		}
 	}
 
-	// Replace only the quoted values of the host and cwd keys, so the bytes are otherwise compared as printed.
+	// Replace only the quoted values of the host and cwd keys and the activity numbers, so the bytes are otherwise compared as printed.
 	hostJSON, err := json.Marshal(host)
 	if err != nil {
 		t.Fatalf("marshal host: %v", err)
@@ -168,6 +177,7 @@ func TestListJSON(t *testing.T) {
 	}
 	normalized := strings.ReplaceAll(buf.String(), `"host":`+string(hostJSON), `"host":"`+listGoldenHost+`"`)
 	normalized = strings.ReplaceAll(normalized, `"cwd":`+string(cwdJSON), `"cwd":"`+listGoldenCwd+`"`)
+	normalized = listActivityPattern.ReplaceAllString(normalized, `"activity":`+listGoldenActivity)
 
 	golden, err := os.ReadFile(listGoldenPath)
 	if err != nil {

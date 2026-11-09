@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -91,6 +92,17 @@ func waitForCommand(t *testing.T, client *tmuxctl.Client, pane, want string) {
 func paneIDs(t *testing.T, client *tmuxctl.Client, session string) []string {
 	t.Helper()
 	return strings.Fields(mustRun(t, client, "list-panes", "-t", session, "-F", "#{pane_id}"))
+}
+
+// sessionActivity returns session's #{session_activity} as tmux reports it, in unix seconds.
+func sessionActivity(t *testing.T, client *tmuxctl.Client, session string) int64 {
+	t.Helper()
+	out := mustRun(t, client, "display-message", "-p", "-t", session, "#{session_activity}")
+	n, err := strconv.ParseInt(strings.TrimSpace(out), 10, 64)
+	if err != nil {
+		t.Fatalf("session %s session_activity %q: %v", session, out, err)
+	}
+	return n
 }
 
 // startPane returns a client whose server has one session with one pane, and that pane's ID.
@@ -234,10 +246,13 @@ func TestListPanesReturnsEveryPane(t *testing.T) {
 	setPaneOption(t, client, s1[0], protocol.OptionLabel, "example label")
 	setPaneOption(t, client, s1[0], protocol.OptionQuestion, "example question?")
 	setPaneOption(t, client, s1[0], protocol.OptionContext, "example-context")
+	setPaneOption(t, client, s1[0], protocol.OptionClaudeSession, "example-claude-session")
 
 	for _, pane := range append(s1, s2...) {
 		waitForCommand(t, client, pane, "sleep")
 	}
+	s1Activity := sessionActivity(t, client, "s1")
+	s2Activity := sessionActivity(t, client, "s2")
 
 	got, err := client.ListPanes(t.Context())
 	if err != nil {
@@ -248,10 +263,10 @@ func TestListPanesReturnsEveryPane(t *testing.T) {
 			ID: s1[0], Session: "s1", WindowIndex: 0, PaneIndex: 0, Cwd: resolved, Command: "sleep",
 			State: protocol.StateWaiting, Summary: "example summary\twith tab", Label: "example label",
 			Changed: 1700000000, Seen: 1700000100, Question: "example question?",
-			Context: "example-context",
+			Context: "example-context", ClaudeSession: "example-claude-session", Activity: s1Activity,
 		},
-		{ID: s1[1], Session: "s1", WindowIndex: 0, PaneIndex: 1, Cwd: resolved, Command: "sleep"},
-		{ID: s2[0], Session: "s2", WindowIndex: 0, PaneIndex: 0, Cwd: resolved, Command: "sleep"},
+		{ID: s1[1], Session: "s1", WindowIndex: 0, PaneIndex: 1, Cwd: resolved, Command: "sleep", Activity: s1Activity},
+		{ID: s2[0], Session: "s2", WindowIndex: 0, PaneIndex: 0, Cwd: resolved, Command: "sleep", Activity: s2Activity},
 	}
 
 	if len(got) != len(want) {

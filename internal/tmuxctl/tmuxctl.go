@@ -28,7 +28,7 @@ type Client struct {
 const listFieldSeparator = "\x1f"
 
 // listFieldCount is the number of fields in listFormat, one per Pane member other than Host.
-const listFieldCount = 13
+const listFieldCount = 15
 
 // listFormat is the list-panes format: one field per Pane member in declaration order.
 const listFormat = "#{pane_id}" + listFieldSeparator +
@@ -43,7 +43,9 @@ const listFormat = "#{pane_id}" + listFieldSeparator +
 	"#{" + protocol.OptionChanged + "}" + listFieldSeparator +
 	"#{" + protocol.OptionSeen + "}" + listFieldSeparator +
 	"#{" + protocol.OptionQuestion + "}" + listFieldSeparator +
-	"#{" + protocol.OptionContext + "}"
+	"#{" + protocol.OptionContext + "}" + listFieldSeparator +
+	"#{" + protocol.OptionClaudeSession + "}" + listFieldSeparator +
+	"#{session_activity}"
 
 // New validates server and returns a Client for it.
 func New(server Server) (*Client, error) {
@@ -152,21 +154,27 @@ func parsePane(line string) (protocol.Pane, error) {
 	if err != nil {
 		return protocol.Pane{}, err
 	}
+	activity, err := parseTimestamp(fields[0], "session_activity", fields[14])
+	if err != nil {
+		return protocol.Pane{}, err
+	}
 
 	return protocol.Pane{
-		ID:          fields[0],
-		Session:     fields[1],
-		WindowIndex: windowIndex,
-		PaneIndex:   paneIndex,
-		Cwd:         fields[4],
-		Command:     fields[5],
-		State:       state,
-		Summary:     fields[7],
-		Label:       fields[8],
-		Changed:     changed,
-		Seen:        seen,
-		Question:    fields[11],
-		Context:     fields[12],
+		ID:            fields[0],
+		Session:       fields[1],
+		WindowIndex:   windowIndex,
+		PaneIndex:     paneIndex,
+		Cwd:           fields[4],
+		Command:       fields[5],
+		State:         state,
+		Summary:       fields[7],
+		Label:         fields[8],
+		Changed:       changed,
+		Seen:          seen,
+		Question:      fields[11],
+		Context:       fields[12],
+		ClaudeSession: fields[13],
+		Activity:      activity,
 	}, nil
 }
 
