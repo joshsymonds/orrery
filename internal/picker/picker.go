@@ -13,9 +13,11 @@ import (
 	"syscall"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/term"
 
 	"github.com/joshsymonds/orrery/internal/open"
+	"github.com/joshsymonds/orrery/internal/palette"
 )
 
 // Options configures Run and Choose. Text is what open.Intent ranks actions for; "" asks for it first. Dir, when set,
@@ -234,6 +236,7 @@ func typed(line string, key tea.KeyPressMsg) string {
 type model struct {
 	actions []open.Action
 	execute func(open.Action) (open.Target, error)
+	width   int
 	cursor  int
 	edit    projectEdit
 	running bool
@@ -279,6 +282,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyPressMsg:
 		return m.keyPressed(msg)
+	case tea.WindowSizeMsg:
+		m.width = msg.Width
 	case executed:
 		m.chosen, m.target, m.err = true, msg.target, msg.err
 		return m, tea.Quit
@@ -362,6 +367,8 @@ func (m model) View() tea.View {
 		mark := "  "
 		if i == m.cursor {
 			mark = "> "
+			lines = append(lines, m.bar(mark+describe(action)))
+			continue
 		}
 		lines = append(lines, mark+describe(action))
 	}
@@ -369,6 +376,15 @@ func (m model) View() tea.View {
 		lines = append(lines, m.edit.field())
 	}
 	return tea.NewView(strings.Join(lines, "\n"))
+}
+
+// bar draws the selected row on the cursor bar: the Surface0 background, padded with spaces to the window width.
+// Before a window size is known the row is not padded.
+func (m model) bar(row string) string {
+	if pad := m.width - ansi.StringWidth(row); pad > 0 {
+		row += strings.Repeat(" ", pad)
+	}
+	return palette.Bg(palette.Surface0, row)
 }
 
 // describe names an action by its kind with its pane, directory, session, or name and root, and marks an action with
