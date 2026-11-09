@@ -1,8 +1,11 @@
 bind-key Space run-shell -b "tmux display-popup -c #{q:client_tty} -E \"/synthetic/bin/orrery tree --client #{q:client_tty}\""
 bind-key s run-shell -b "/synthetic/bin/orrery shell --dir #{q:pane_current_path} --client #{q:client_tty}"
-set -ga status-right " orrery #{n:#{S:#{?#{m:_orrery-shell-*,#{session_name}},,#{W:#{P:#{?#{==:#{@orrery_state},waiting},w,}}}}}} waiting #{n:#{S:#{?#{m:_orrery-shell-*,#{session_name}},,#{W:#{P:#{?#{==:#{@orrery_state},waiting},,#{?#{@orrery_state},#{?#{e|>|:#{@orrery_changed},#{@orrery_seen}},n,},}}}}}}} new "
+set -ga status-right " orrery #[fg=#fab387]#{n:#{S:#{?#{m:_orrery-shell-*,#{session_name}},,#{W:#{P:#{?#{==:#{@orrery_state},waiting},w,}}}}}}#[default] waiting #[fg=#cba6f7]#{n:#{S:#{?#{m:_orrery-shell-*,#{session_name}},,#{W:#{P:#{?#{==:#{@orrery_state},waiting},,#{?#{@orrery_state},#{?#{e|>|:#{@orrery_changed},#{@orrery_seen}},n,},}}}}}}}#[default] new "
 set -g pane-border-status top
-set -g pane-border-format "#{?#{@orrery_state},#{@orrery_state} #{@orrery_label} #{@orrery_summary},}"
+set -g pane-border-format "#{?#{@orrery_state},#{?#{==:#{@orrery_state},working},#[fg=#f9e2af],}#{?#{==:#{@orrery_state},waiting},#[fg=#fab387],}#{?#{==:#{@orrery_state},done},#[fg=#a6e3a1],}#{@orrery_state}#[default] #[fg=#cdd6f4]#{@orrery_label}#[default] #[fg=#6c7086]#{@orrery_summary}#[default],}"
+set -g popup-border-lines rounded
+set -g popup-border-style "fg=#b4befe"
+set -g popup-style "bg=#1e1e2e"
 set-hook -ga window-pane-changed "if-shell -F '#{session_attached}' 'run-shell -b \"/synthetic/bin/orrery seen --pane #{pane_id}\"'"
 set-hook -ga session-window-changed "if-shell -F '#{session_attached}' 'run-shell -b \"/synthetic/bin/orrery seen --pane #{pane_id}\"'"
 set-hook -ga client-session-changed "if-shell -F '#{session_attached}' 'run-shell -b \"/synthetic/bin/orrery seen --pane #{pane_id}\"'"

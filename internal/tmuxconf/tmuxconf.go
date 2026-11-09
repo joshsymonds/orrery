@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/joshsymonds/orrery/internal/keymap"
+	"github.com/joshsymonds/orrery/internal/palette"
 	"github.com/joshsymonds/orrery/internal/protocol"
 )
 
@@ -60,10 +61,15 @@ func plugin(orrery string) (string, error) {
 	}
 	seen := seenHook(orrery)
 	lines := slices.Concat(binds, []string{
-		`set -ga status-right " orrery ` + paneCount(waitingPane()) + ` waiting ` + paneCount(newPane()) + ` new "`,
+		`set -ga status-right " orrery ` + palette.Tmux(palette.Peach, paneCount(waitingPane())) + ` waiting ` +
+			palette.Tmux(palette.Mauve, paneCount(newPane())) + ` new "`,
 		`set -g pane-border-status top`,
-		`set -g pane-border-format "#{?` + option(protocol.OptionState) + `,` + option(protocol.OptionState) + ` ` +
-			option(protocol.OptionLabel) + ` ` + option(protocol.OptionSummary) + `,}"`,
+		`set -g pane-border-format "#{?` + option(protocol.OptionState) + `,` + stateStyles() +
+			option(protocol.OptionState) + `#[default] ` + palette.Tmux(palette.Text, option(protocol.OptionLabel)) +
+			` ` + palette.Tmux(palette.Overlay0, option(protocol.OptionSummary)) + `,}"`,
+		`set -g popup-border-lines rounded`,
+		`set -g popup-border-style "fg=` + string(palette.Lavender) + `"`,
+		`set -g popup-style "bg=` + string(palette.Base) + `"`,
 		`set-hook -ga window-pane-changed "` + seen + `"`,
 		`set-hook -ga session-window-changed "` + seen + `"`,
 		`set-hook -ga client-session-changed "` + seen + `"`,
@@ -102,6 +108,17 @@ func prefixCommand(action keymap.Action, orrery string) (string, error) {
 // option returns the format that expands to the value of the option name.
 func option(name string) string {
 	return "#{" + name + "}"
+}
+
+// stateStyles returns the formats that style the state word of a pane border. Each format expands to the style of one
+// state when the pane is in that state, and to nothing otherwise.
+func stateStyles() string {
+	var b strings.Builder
+	for _, state := range []protocol.State{protocol.StateWorking, protocol.StateWaiting, protocol.StateDone} {
+		b.WriteString("#{?#{==:" + option(protocol.OptionState) + "," + string(state) + "},#[fg=" +
+			string(palette.State(state)) + "],}")
+	}
+	return b.String()
 }
 
 // treeCommand returns the command the tree binding runs. It opens `orrery tree` in a popup on the invoking client.

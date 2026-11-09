@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -308,8 +309,60 @@ func TestStatusRightCountsWaitingAndNew(t *testing.T) {
 	s.setPane(t, shell[0], string(protocol.StateWaiting), "")
 
 	out := s.must(t, "display", "-p", "-t", "work", "#{E:status-right}")
-	if !strings.Contains(out, "orrery 1 waiting 1 new") {
-		t.Fatalf("expanded status-right = %q, want it to contain %q", out, "orrery 1 waiting 1 new")
+	if plain := styleSpan.ReplaceAllString(out, ""); !strings.Contains(plain, "orrery 1 waiting 1 new") {
+		t.Fatalf("expanded status-right without styles = %q, want it to contain %q", plain, "orrery 1 waiting 1 new")
+	}
+	for _, want := range []string{"#[fg=#fab387]1#[default]", "#[fg=#cba6f7]1#[default]"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("expanded status-right = %q, want it to contain the count style %q", out, want)
+		}
+	}
+}
+
+// styleSpan matches one tmux style span such as #[fg=#fab387] or #[default].
+var styleSpan = regexp.MustCompile(`#\[[^\]]*\]`)
+
+// TestPaneBorderAndPopupStyle checks that each state's pane border shows the state word in its state color, the label
+// in Text and the summary in Overlay0, and that the popup options are the Mocha lavender border on the base background.
+func TestPaneBorderAndPopupStyle(t *testing.T) {
+	s := startServer(t)
+	s.sourcePlugin(t, builtOrrery())
+	s.must(t, "split-window", "-d", "-t", "work", testCommand)
+	s.must(t, "split-window", "-d", "-t", "work", testCommand)
+	panes := s.panes(t, "work")
+
+	cases := []struct {
+		state string
+		color string
+	}{
+		{string(protocol.StateWaiting), "#fab387"},
+		{string(protocol.StateWorking), "#f9e2af"},
+		{string(protocol.StateDone), "#a6e3a1"},
+	}
+	for i, c := range cases {
+		pane := panes[i]
+		s.setPane(t, pane, c.state, "")
+		s.must(t, "set-option", "-p", "-t", pane, protocol.OptionLabel, "label "+c.state)
+		s.must(t, "set-option", "-p", "-t", pane, protocol.OptionSummary, "summary "+c.state)
+
+		got := strings.TrimSpace(s.must(t, "display", "-p", "-t", pane, "#{E:pane-border-format}"))
+		want := "#[fg=" + c.color + "]" + c.state + "#[default] " +
+			"#[fg=#cdd6f4]label " + c.state + "#[default] " +
+			"#[fg=#6c7086]summary " + c.state + "#[default]"
+		if got != want {
+			t.Fatalf("expanded pane-border-format for %s pane = %q, want %q", c.state, got, want)
+		}
+	}
+
+	popup := map[string]string{
+		"popup-border-lines": "rounded",
+		"popup-border-style": "fg=#b4befe",
+		"popup-style":        "bg=#1e1e2e",
+	}
+	for option, want := range popup {
+		if got := strings.TrimSpace(s.must(t, "show-options", "-gv", option)); got != want {
+			t.Fatalf("%s = %q, want %q", option, got, want)
+		}
 	}
 }
 
