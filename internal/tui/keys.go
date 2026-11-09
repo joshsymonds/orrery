@@ -9,6 +9,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/joshsymonds/orrery/internal/cli"
+	"github.com/joshsymonds/orrery/internal/keymap"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/shell"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
@@ -25,58 +26,76 @@ const (
 	prevRow = -1
 )
 
-// keyPressed applies a key press. Filter input takes every key. Otherwise the keys move the
-// cursor, jump to the next unseen row, start filter input, act on the pane under the cursor,
-// or close the tree.
+// keyPressed applies a key press. An open help overlay closes on any key and runs nothing
+// else. Filter input takes every key. Otherwise the key runs the action keymap binds to it on
+// the tree.
 func (m model) keyPressed(msg tea.KeyPressMsg) (model, tea.Cmd) {
+	if m.help {
+		m.help = false
+		return m, nil
+	}
 	if m.filtering {
 		return m.filterKey(msg)
 	}
-	switch msg.String() {
-	case "j", "down":
+	action, ok := keymap.Lookup(keymap.Tree, msg.String())
+	if !ok {
+		return m, nil
+	}
+	switch action {
+	case keymap.ActDown:
 		return m.move(nextRow)
-	case "k", "up":
+	case keymap.ActUp:
 		return m.move(prevRow)
-	case "n":
+	case keymap.ActNextUnseen:
 		return m.nextUnseen()
-	case "/":
+	case keymap.ActFilter:
 		m.filtering = true
 		return m, nil
-	case "esc", "q":
+	case keymap.ActHelp:
+		m.help = true
+		return m, nil
+	case keymap.ActQuit:
 		return m, tea.Quit
-	case enterKey, "x", "c", "s", "N":
-		return m.paneKey(msg.String())
+	case keymap.ActSwitch, keymap.ActMarkSeen, keymap.ActNewClaude, keymap.ActShell, keymap.ActPicker:
+		return m.paneAction(action)
+	case keymap.ActClosePane, keymap.ActCloseProject, keymap.ActTree:
+		// The tree has no behavior for these yet. ActTree is a tmux binding.
+		return m, nil
 	}
 	return m, nil
 }
 
-// paneKey runs the action of key on the pane under the cursor. With no row shown it does nothing.
-func (m model) paneKey(key string) (model, tea.Cmd) {
+// paneAction runs action on the pane under the cursor. With no row shown it does nothing.
+func (m model) paneAction(action keymap.Action) (model, tea.Cmd) {
 	cur, ok := m.current()
 	if !ok {
 		return m, nil
 	}
 	tty := m.clientTTY
-	switch key {
-	case enterKey:
+	switch action {
+	case keymap.ActSwitch:
 		return m, m.action(func(ctx context.Context, client *tmuxctl.Client) error {
 			return switchAndMark(ctx, client, tty, cur.ID)
 		}, true)
-	case "x":
+	case keymap.ActMarkSeen:
 		return m, m.action(func(ctx context.Context, client *tmuxctl.Client) error {
 			return markSeen(ctx, client, cur.ID)
 		}, false)
-	case "c":
+	case keymap.ActNewClaude:
 		return m, m.action(func(ctx context.Context, client *tmuxctl.Client) error {
 			return newClaudeWindow(ctx, client, cur.Session, cur.Cwd)
 		}, false)
-	case "s":
+	case keymap.ActShell:
 		return m, m.action(func(ctx context.Context, client *tmuxctl.Client) error {
 			return shell.Open(ctx, client, cur.Cwd, tty)
 		}, true)
-	case "N":
+	case keymap.ActPicker:
 		m.result = Result{Action: ActionIntent, Dir: cur.Cwd}
 		return m, tea.Quit
+	case keymap.ActDown, keymap.ActUp, keymap.ActNextUnseen, keymap.ActFilter, keymap.ActHelp, keymap.ActQuit,
+		keymap.ActClosePane, keymap.ActCloseProject, keymap.ActTree:
+		// keyPressed routes only the pane actions here.
+		return m, nil
 	}
 	return m, nil
 }

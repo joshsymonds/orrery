@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -16,6 +17,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/joshsymonds/orrery/internal/keymap"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
 )
@@ -217,5 +219,47 @@ func TestRun(t *testing.T) {
 		}
 	case <-time.After(10 * time.Second):
 		t.Fatal("Run did not return after ctx was canceled")
+	}
+}
+
+func TestViewHelp(t *testing.T) {
+	m := pressAll(t, loadedModel(t, staticSource), "?")
+	checkGolden(t, "TestViewHelp", m.View().Content)
+}
+
+func TestHelpListsEveryTreeKeyAndHelpWord(t *testing.T) {
+	content := pressAll(t, loadedModel(t, staticSource), "?").View().Content
+	lines := strings.Split(content, "\n")
+	for _, b := range keymap.For(keymap.Tree) {
+		keys := strings.Join(b.Keys, ", ")
+		if !slices.ContainsFunc(lines, func(line string) bool { return strings.HasPrefix(line, keys) }) {
+			t.Errorf("no overlay line starts with keys %q:\n%s", keys, content)
+		}
+		for _, word := range strings.Fields(b.Help) {
+			if !strings.Contains(content, word) {
+				t.Errorf("overlay lacks help word %q for keys %q:\n%s", word, keys, content)
+			}
+		}
+	}
+}
+
+func TestHelpClosesOnAnyKeyAndRunsNothingElse(t *testing.T) {
+	tree := loadedModel(t, staticSource).View().Content
+	for _, name := range []string{"j", "q", "enter", "?"} {
+		t.Run(name, func(t *testing.T) {
+			m := pressAll(t, loadedModel(t, staticSource), "?")
+			if !strings.HasPrefix(m.View().Content, "Keys\n") {
+				t.Fatal("? did not open the help overlay")
+			}
+			next, cmd := m.Update(keyMsg(name))
+			if cmd != nil {
+				t.Fatalf("key %q while help shows returned a command, want none", name)
+			}
+			m = modelOf(t, next)
+			if got := m.View().Content; got != tree {
+				t.Fatalf("frame after %q is not the tree frame:\n%s\nwant:\n%s", name, got, tree)
+			}
+			assertCursor(t, m, "%1")
+		})
 	}
 }

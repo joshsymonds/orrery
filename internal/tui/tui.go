@@ -8,9 +8,11 @@ import (
 	"io"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/joshsymonds/orrery/internal/keymap"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
 	"github.com/joshsymonds/orrery/internal/view"
@@ -104,6 +106,7 @@ type model struct {
 	cursor     int
 	query      string
 	filtering  bool
+	help       bool
 	result     Result
 	preview    string
 	previewID  string
@@ -267,8 +270,15 @@ func (m model) sync() model {
 }
 
 // frame renders the filter line, the groups, the selected preview, and an error line,
-// clipped to the terminal.
+// clipped to the terminal. An open help overlay replaces all of it.
 func (m model) frame() string {
+	if m.help {
+		lines := helpLines(m.width)
+		if m.height > 0 {
+			lines = clip(lines, m.height)
+		}
+		return render(lines, m.width)
+	}
 	cur, hasCur := m.current()
 	var lines []string
 	if m.filtering || m.query != "" {
@@ -296,8 +306,56 @@ func (m model) frame() string {
 		lines = clip(lines, m.height-len(status))
 	}
 	lines = append(lines, status...)
+	return render(lines, m.width)
+}
+
+// helpGap is the space between a binding's keys and its help text.
+const helpGap = 2
+
+// helpLines lists every tree key in display order under a Keys title. Each binding's keys
+// fill a column as wide as the longest of them, and its help text wraps to the width left
+// beside that column, with continuation lines under the help text.
+func helpLines(width int) []string {
+	bindings := keymap.For(keymap.Tree)
+	keyCol := 0
+	for _, b := range bindings {
+		keyCol = max(keyCol, len(strings.Join(b.Keys, ", ")))
+	}
+	indent := strings.Repeat(" ", keyCol+helpGap)
+	lines := []string{"Keys"}
+	for _, b := range bindings {
+		wrapped := wrap(b.Help, width-len(indent))
+		lines = append(lines, fmt.Sprintf("%-*s%s", keyCol+helpGap, strings.Join(b.Keys, ", "), wrapped[0]))
+		for _, part := range wrapped[1:] {
+			lines = append(lines, indent+part)
+		}
+	}
+	return lines
+}
+
+// wrap breaks text into lines of at most width runes at its spaces. A word longer than width
+// keeps its own line.
+func wrap(text string, width int) []string {
+	var lines []string
+	line := ""
+	for _, word := range strings.Fields(text) {
+		switch {
+		case line == "":
+			line = word
+		case utf8.RuneCountInString(line)+1+utf8.RuneCountInString(word) <= width:
+			line += " " + word
+		default:
+			lines = append(lines, line)
+			line = word
+		}
+	}
+	return append(lines, line)
+}
+
+// render fits each line to width and joins them into a frame.
+func render(lines []string, width int) string {
 	for i, line := range lines {
-		lines[i] = fit(line, m.width)
+		lines[i] = fit(line, width)
 	}
 	return strings.Join(lines, "\n")
 }
