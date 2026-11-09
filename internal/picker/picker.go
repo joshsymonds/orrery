@@ -371,8 +371,8 @@ func (m model) View() tea.View {
 	return tea.NewView(strings.Join(lines, "\n"))
 }
 
-// describe names an action by its kind with its pane, directory, or name and root, and marks an action with a
-// prompt.
+// describe names an action by its kind with its pane, directory, session, or name and root, and marks an action with
+// a prompt. A resume names its session and shows its note after it when it has one.
 func describe(action open.Action) string {
 	var text string
 	switch action.Kind {
@@ -382,6 +382,15 @@ func describe(action open.Action) string {
 		text = "pane " + action.Dir
 	case open.ActionProject:
 		text = "project " + action.Name + " in " + action.Dir
+	case open.ActionResume:
+		text = "resume " + action.Session
+		if action.Note != "" {
+			text += ": " + action.Note
+		}
+	case open.ActionContinue:
+		text = "continue latest in " + action.Dir
+	case open.ActionFresh:
+		text = "start fresh in " + action.Dir
 	default:
 		text = string(action.Kind)
 	}

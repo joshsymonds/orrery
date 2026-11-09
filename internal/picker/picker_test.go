@@ -729,6 +729,62 @@ func TestChooseWithoutActionsErrors(t *testing.T) {
 	}
 }
 
+func TestChooseResumeRowsShowAndEnterRunsResume(t *testing.T) {
+	f := newFixture(t, 0)
+	dir := filepath.Join(f.root, "resume-dir")
+	if err := os.Mkdir(dir, 0o750); err != nil {
+		t.Fatalf("mkdir %s: %v", dir, err)
+	}
+	f.actions = []open.Action{
+		{Kind: open.ActionResume, Dir: dir, Session: "example-claude-session", Note: "example summary"},
+		{Kind: open.ActionResume, Dir: dir, Session: "example-claude-session"},
+		{Kind: open.ActionContinue, Dir: dir},
+		{Kind: open.ActionFresh, Dir: dir},
+	}
+	// The resume run holds, so its session outlives the check.
+	writeFile(t, f.hold, "")
+	f.startPicker(t)
+	f.waitForFrame(t, "> resume example-claude-session: example summary")
+	var rows []string
+	for line := range strings.SplitSeq(f.frame(t), "\n") {
+		if line = strings.TrimRight(line, " "); line != "" {
+			rows = append(rows, line)
+		}
+	}
+	want := []string{
+		"> resume example-claude-session: example summary",
+		"  resume example-claude-session",
+		"  continue latest in " + dir,
+		"  start fresh in " + dir,
+	}
+	if !slices.Equal(rows, want) {
+		t.Fatalf("rows = %q, want %q", rows, want)
+	}
+	if n := claudeRuns(t, f.claude); n != 0 {
+		t.Fatalf("fake claude ran %d times before input, want none", n)
+	}
+	f.sendKeys(t, "Enter")
+
+	outcome := f.awaitOutcome(t)
+	if !outcome.Chosen || outcome.Err != "" || outcome.Pane != "" || outcome.Session == "" {
+		t.Fatalf("outcome = %+v, want the resume run with no error and a new session", outcome)
+	}
+	if got := f.sessionDir(t, outcome.Session); got != dir {
+		t.Fatalf("new session dir = %q, want %q", got, dir)
+	}
+	// The Claude pane starts after tmux creates the session, so its args are waited for.
+	waitUntil(t, "the Claude pane to start with its args", func() bool {
+		return slices.ContainsFunc(claudeRunFiles(t, f.claude, "args"), func(args string) bool { return args != "" })
+	})
+	if n := claudeRuns(t, f.claude); n != 1 {
+		t.Fatalf("fake claude ran %d times, want exactly one", n)
+	}
+	args := claudeRunFiles(t, f.claude, "args")
+	if want := []string{"--resume\nexample-claude-session\n"}; !slices.Equal(args, want) {
+		t.Fatalf("claude args = %q, want %q", args, want)
+	}
+}
+
 // installFake copies testdata/<src>.sh into a fresh directory as name and returns the copy's path. A non-empty
 // reply is printed on each run; a non-zero status is the run's exit status.
 func installFake(t *testing.T, src, name, reply string, status int) string {
