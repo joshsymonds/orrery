@@ -57,7 +57,10 @@ func content(prefix string) document {
 				Heading: "p",
 				Rows: []row{
 					{Label: "p", Text: "attach the most recently active session, then open the tree"},
-					{Label: "p .", Text: "the session for the current directory, created if missing"},
+					{
+						Label: "p .",
+						Text:  "the session for the current directory, else the picker to resume or start fresh",
+					},
 					{Label: "p WORD", Text: "a session named WORD, else a zoxide match, else the picker"},
 					{
 						Label: "p new NAME",

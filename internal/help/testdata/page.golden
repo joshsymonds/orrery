@@ -20,7 +20,7 @@ th { font-family: ui-monospace, monospace; font-weight: 600; white-space: nowrap
 <h2>p</h2>
 <table>
 <tr><th>p</th><td>attach the most recently active session, then open the tree</td></tr>
-<tr><th>p .</th><td>the session for the current directory, created if missing</td></tr>
+<tr><th>p .</th><td>the session for the current directory, else the picker to resume or start fresh</td></tr>
 <tr><th>p WORD</th><td>a session named WORD, else a zoxide match, else the picker</td></tr>
 <tr><th>p new NAME</th><td>create project directory NAME and a session for it (--root DIR sets the parent)</td></tr>
 <tr><th>p WORDS...</th><td>open the picker with WORDS as the intent</td></tr>
