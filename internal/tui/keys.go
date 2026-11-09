@@ -56,7 +56,12 @@ func (m model) keyPressed(msg tea.KeyPressMsg) (model, tea.Cmd) {
 		return m, nil
 	case keymap.ActQuit:
 		return m, tea.Quit
-	case keymap.ActSwitch, keymap.ActMarkSeen, keymap.ActNewClaude, keymap.ActShell, keymap.ActPicker:
+	case keymap.ActSwitch:
+		if m.onQuiet() {
+			return m.expandQuiet()
+		}
+		return m.paneAction(action)
+	case keymap.ActMarkSeen, keymap.ActNewClaude, keymap.ActShell, keymap.ActPicker:
 		return m.paneAction(action)
 	case keymap.ActClosePane, keymap.ActCloseProject, keymap.ActTree:
 		// The tree has no behavior for these yet. ActTree is a tmux binding.
@@ -65,7 +70,25 @@ func (m model) keyPressed(msg tea.KeyPressMsg) (model, tea.Cmd) {
 	return m, nil
 }
 
-// paneAction runs action on the pane under the cursor. With no row shown it does nothing.
+// onQuiet reports whether the cursor is on the Quiet row.
+func (m model) onQuiet() bool {
+	cur, ok := m.cursorRow()
+	return ok && cur.ID == quietRowID
+}
+
+// expandQuiet opens the Quiet section and moves the cursor to its first pane. The section stays
+// open, so Enter on its header does nothing once it is open.
+func (m model) expandQuiet() (model, tea.Cmd) {
+	if m.quietOpen {
+		return m, nil
+	}
+	header := m.locate(m.rows())
+	m.quietOpen = true
+	return m.selectRow(m.rows(), header+1)
+}
+
+// paneAction runs action on the pane under the cursor. With no pane under the cursor it does
+// nothing.
 func (m model) paneAction(action keymap.Action) (model, tea.Cmd) {
 	cur, ok := m.current()
 	if !ok {
@@ -193,21 +216,24 @@ func (m model) nextUnseen() (model, tea.Cmd) {
 	return m, nil
 }
 
-// selectRow puts the cursor on rows[i] and captures its preview.
+// selectRow puts the cursor on rows[i] and captures its preview. The Quiet row has no preview.
 func (m model) selectRow(rows []protocol.Pane, i int) (model, tea.Cmd) {
 	m.cursor, m.cursorID = i, rows[i].ID
+	if rows[i].ID == quietRowID {
+		return m, nil
+	}
 	return m, m.loadPreview(rows[i].ID)
 }
 
-// visible returns the groups shown under the query, in their display order. A row is shown
-// when its label, summary, or session, or its group's Dir, contains the query, ignoring case.
-// A group with no shown row is dropped.
-func (m model) visible() []view.Group {
+// visible returns the given groups shown under the query, in their display order. A row is
+// shown when its label, summary, or session, or its group's Dir, contains the query, ignoring
+// case. A group with no shown row is dropped.
+func (m model) visible(groups []view.Group) []view.Group {
 	needle := strings.ToLower(m.query)
-	var groups []view.Group
-	for _, group := range m.groups {
+	var shown []view.Group
+	for _, group := range groups {
 		if strings.Contains(strings.ToLower(group.Dir), needle) {
-			groups = append(groups, group)
+			shown = append(shown, group)
 			continue
 		}
 		var panes []protocol.Pane
@@ -217,10 +243,10 @@ func (m model) visible() []view.Group {
 			}
 		}
 		if len(panes) > 0 {
-			groups = append(groups, view.Group{Dir: group.Dir, Panes: panes})
+			shown = append(shown, view.Group{Dir: group.Dir, Panes: panes})
 		}
 	}
-	return groups
+	return shown
 }
 
 // matches reports whether the label, summary, or session of p contains needle, which is

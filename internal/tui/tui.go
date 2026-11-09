@@ -61,6 +61,10 @@ const day = 24 * time.Hour
 // unsetMark stands for an unset state or an age with no change time.
 const unsetMark = "-"
 
+// quietRowID is the ID of the Quiet row in rows. It stands for the section's header, which is no
+// pane. tmux pane IDs start with %, so no pane has this ID.
+const quietRowID = "quiet"
+
 // Run shows the pane tree until ctx ends. It returns ActionClose once the program stops.
 func Run(ctx context.Context, opts Options) (Result, error) {
 	tree := newModel(
@@ -102,6 +106,8 @@ type model struct {
 	invoke     func(fn func(context.Context, *tmuxctl.Client) error) error
 	clientTTY  string
 	groups     []view.Group
+	quiet      []view.Group
+	quietOpen  bool
 	cursorID   string
 	cursor     int
 	query      string
@@ -209,14 +215,15 @@ func (m model) loadPreview(paneID string) tea.Cmd {
 	}
 }
 
-// applyPanes regroups the panes, keeps the cursor on its pane, and captures the preview of
-// the row under the cursor. A source error keeps the previous tree and shows the error.
+// applyPanes regroups the panes into active and quiet projects, keeps the cursor on its pane,
+// and captures the preview of the row under the cursor. A source error keeps the previous tree
+// and shows the error.
 func (m model) applyPanes(msg panesMsg) (tea.Model, tea.Cmd) {
 	m.sourceErr = msg.err
 	if msg.err != nil {
 		return m, nil
 	}
-	m.groups = view.Groups(msg.panes)
+	m.groups, m.quiet = view.Fold(view.Groups(msg.panes), m.now())
 	m = m.sync()
 	cur, ok := m.current()
 	if !ok {
@@ -226,22 +233,44 @@ func (m model) applyPanes(msg panesMsg) (tea.Model, tea.Cmd) {
 	return m, m.loadPreview(cur.ID)
 }
 
-// rows returns the visible panes in display order.
+// rows returns the visible panes in display order. When quiet projects are visible, the Quiet
+// row follows the active panes, and the quiet panes follow it once the section is open.
 func (m model) rows() []protocol.Pane {
 	var rows []protocol.Pane
-	for _, g := range m.visible() {
+	for _, g := range m.visible(m.groups) {
 		rows = append(rows, g.Panes...)
+	}
+	quiet := m.visible(m.quiet)
+	if len(quiet) == 0 {
+		return rows
+	}
+	rows = append(rows, protocol.Pane{ID: quietRowID})
+	if m.quietOpen {
+		for _, g := range quiet {
+			rows = append(rows, g.Panes...)
+		}
 	}
 	return rows
 }
 
-// current returns the pane under the cursor. The cursor starts on the first row.
-func (m model) current() (protocol.Pane, bool) {
+// cursorRow returns the row under the cursor, the Quiet row included. The cursor starts on the
+// first row.
+func (m model) cursorRow() (protocol.Pane, bool) {
 	rows := m.rows()
 	if len(rows) == 0 {
 		return protocol.Pane{}, false
 	}
 	return rows[m.locate(rows)], true
+}
+
+// current returns the pane under the cursor. It returns false when no row is shown or the
+// cursor is on the Quiet row.
+func (m model) current() (protocol.Pane, bool) {
+	cur, ok := m.cursorRow()
+	if !ok || cur.ID == quietRowID {
+		return protocol.Pane{}, false
+	}
+	return cur, true
 }
 
 // locate returns the index in rows of the cursor: the row with the cursor's pane ID when
@@ -269,8 +298,8 @@ func (m model) sync() model {
 	return m
 }
 
-// frame renders the filter line, the groups, the selected preview, and an error line,
-// clipped to the terminal. An open help overlay replaces all of it.
+// frame renders the filter line, the groups, the Quiet row, the selected preview, and an error
+// line, clipped to the terminal. An open help overlay replaces all of it.
 func (m model) frame() string {
 	if m.help {
 		lines := helpLines(m.width)
@@ -279,7 +308,7 @@ func (m model) frame() string {
 		}
 		return render(lines, m.width)
 	}
-	cur, hasCur := m.current()
+	cur, hasCur := m.cursorRow()
 	var lines []string
 	if m.filtering || m.query != "" {
 		lines = append(lines, "/"+m.query)
@@ -287,13 +316,14 @@ func (m model) frame() string {
 	if !hasCur {
 		lines = append(lines, "No panes.")
 	}
-	for _, g := range m.visible() {
-		lines = append(lines, g.Dir)
-		for _, p := range g.Panes {
-			lines = append(lines, m.row(p, p.ID == cur.ID))
+	lines = append(lines, m.groupLines(m.visible(m.groups), cur)...)
+	if quiet := m.visible(m.quiet); len(quiet) > 0 {
+		lines = append(lines, m.quietLine(len(quiet), cur.ID == quietRowID))
+		if m.quietOpen {
+			lines = append(lines, m.groupLines(quiet, cur)...)
 		}
 	}
-	if hasCur && m.previewID == cur.ID && m.preview != "" {
+	if pane, ok := m.current(); ok && m.previewID == pane.ID && m.preview != "" {
 		lines = append(lines, "")
 		lines = append(lines, strings.Split(strings.TrimSuffix(m.preview, "\n"), "\n")...)
 	}
@@ -307,6 +337,32 @@ func (m model) frame() string {
 	}
 	lines = append(lines, status...)
 	return render(lines, m.width)
+}
+
+// groupLines renders each group as its directory line and its pane rows. The row under cur is
+// marked.
+func (m model) groupLines(groups []view.Group, cur protocol.Pane) []string {
+	var lines []string
+	for _, g := range groups {
+		lines = append(lines, g.Dir)
+		for _, p := range g.Panes {
+			lines = append(lines, m.row(p, p.ID == cur.ID))
+		}
+	}
+	return lines
+}
+
+// quietLine formats the Quiet row: its count of quiet projects while the section is collapsed,
+// a plain header once it is open. cursor marks the row.
+func (m model) quietLine(count int, cursor bool) string {
+	mark := "  "
+	if cursor {
+		mark = "> "
+	}
+	if m.quietOpen {
+		return mark + "Quiet"
+	}
+	return fmt.Sprintf("%sQuiet (%d)", mark, count)
 }
 
 // helpGap is the space between a binding's keys and its help text.
