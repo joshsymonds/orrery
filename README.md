@@ -9,7 +9,7 @@ through ntfy. `orrery list` shows the panes and their states.
 
 ## Binaries
 
-- `cmd/orrery`: the Claude Code hook and the CLI client (`hook`, `list`, `seen`, `send`, `debug summarize`, `shell`, `tree`, `tmux-conf`, `open`).
+- `cmd/orrery`: the Claude Code hook and the CLI client (`hook`, `list`, `seen`, `send`, `debug summarize`, `shell`, `tree`, `tmux-conf`, `open`, `help`).
 - `cmd/orreryd`: the local daemon that holds session state and listens on a unix socket only.
 
 ## Usage

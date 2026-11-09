@@ -82,6 +82,9 @@ Each element is a `protocol.Pane`. Every field is always present, with the exact
 
 There are sixteen fields. The `state` value is one of the strings in section 1, or `""` when the option is unset.
 
+- `claude_session` is the Claude Code session id of the pane (section 2). The archive records it (section 11), and `orrery open` passes it to `claude --resume`.
+- `activity` is tmux's `session_activity` for the pane's session: unix seconds of that session's last activity. The tree's quiet fold (section 11, Tree keys) reads the newest `activity` of a project's panes.
+
 Example output with one pane. Every value is synthetic:
 
 ```json
@@ -229,12 +232,14 @@ Subcommands:
   - Shell sessions are left out of the tree and of `open`.
 - `tree --client TTY` shows the pane tree on the client at `TTY`. The keys are in [Tree keys](#tree-keys). `N` runs the picker for the row's directory, and the picker's choice switches the same client. The command exits 0 when the tree closes.
 - `tmux-conf` prints the tmux plugin for this binary's own path (see [tmux plugin](#tmux-plugin)). It takes no flags and needs no tmux server. It exits 1 when the path holds a byte outside `[A-Za-z0-9/._+-]`.
+- `help [--html]` prints the help card. It has the same content as the `Daily use` card in the README, built from the keymap table ([Tree keys](#tree-keys) lists its tree rows). When a tmux server can be read, the tmux heading names the prefix key, as `tmux (prefix is C-b)`; otherwise it reads `tmux`. `--html` writes the same content to stdout as one static HTML page instead.
 - `open [--remote] [--intent TEXT] [ARGS...]` attaches a session for a project, or starts one.
   - No argument: attaches the most recently active non-shell session, and the tree opens on that client after it attaches.
-  - `.`: the session whose `@orrery_dir` is the current directory. If none exists, a session is created there. `--remote` refuses `.`.
+  - `.`: the session whose `@orrery_dir` is the current directory. If none exists, the picker opens for the directory, as below. `--remote` refuses `.`.
   - One word: a session with that exact name, else a zoxide fast match, else the word is intent text for the picker. A fast match is one zoxide result, or several when the best one's basename is the word.
   - `new NAME [--root DIR]`: creates the directory `DIR/NAME` and a session for it. `DIR` must be absolute and defaults to `$HOME/Personal`. `NAME` cannot be `.`, `..`, or contain `/`. A taken session name gets `-2`, `-3`, and so on. `.`, `:` and `#` in a name become `_`.
   - Any other arguments: joined with spaces, they are intent text for the picker.
+  - A project directory with no live session is not given a new session at once. The picker opens with its resume rows: one `resume` row per archived Claude session for the directory whose transcript still exists, newest first. Without any, it opens with a `continue latest` row. A `start fresh` row always comes last. See [Picker](#picker).
   - `--intent TEXT`: opens the picker with `TEXT` at once. It takes no ARGS; with ARGS it exits 2. Flags come before ARGS.
   - With `TMUX` set, the command switches the invoking client (tmux's current client, by its tty). Otherwise it attaches.
   - `claude` and `zoxide` are found on `PATH`.
@@ -286,7 +291,33 @@ When a pane enters `done` while an attached client shows the pane's window and h
 | `ANTHROPIC_BASE_URL` | `orrery` (`hook`, `debug summarize`) | the session's base URL. The hook sends it in each frame (section 9), and each summary runs through its own session's base URL. |
 | `ORRERY_SUMMARIZER` | `orrery` (`hook`) | summarizer sentinel (section 7). `orreryd` sets it on each summary run. Summaries also run with hooks disabled. |
 | `HOME` | `orrery` (`tree`, `open`) | `$HOME/Personal` is the default parent directory of new projects |
+| `XDG_STATE_HOME` | `orrery` (`tree`, `open`) | base directory of the archive file (see [Archive](#archive)) |
 | `PATH` | `orrery` (`tree`, `open`) | finds `zoxide` and `claude` for the picker and `open` |
+
+### Archive
+
+The archive keeps each closed Claude pane so `orrery open` can resume its conversation. Its file is `${XDG_STATE_HOME:-~/.local/state}/orrery/archive.jsonl`. When `XDG_STATE_HOME` is unset, the file is `$HOME/.local/state/orrery/archive.jsonl`. When neither variable is set, no path resolves.
+
+- The file is JSON lines: one record per line, with no other format.
+- The tree writes it. Its `X` and `D` keys archive each Claude pane they close, before the client moves or any pane closes. A Claude pane is one that has `@orrery_claude_session` set; other panes close with no record. If the write for a pane fails, that pane stays open and nothing moves or closes.
+- Each write appends one line. The parent directory is created with mode `0700` and the file with mode `0600` when absent. Existing lines are never rewritten, and nothing deletes an entry.
+- `orrery open` reads the file for a directory's resume rows (see [Picker](#picker)). A malformed line is an error that names its line number.
+
+Each record has these keys, in this order. The example is synthetic:
+
+```json
+{"dir":"/home/user/project","session":"example-session","transcript":"/home/user/.claude/projects/example/example-claude-session.jsonl","label":"example-label","summary":"Example summary of the pane's work.","closed":1700000400,"claude_session":"example-claude-session"}
+```
+
+| Key | Type | Meaning |
+|---|---|---|
+| `dir` | string | the project directory: the pane's directory for `X`, the project's directory for `D` |
+| `session` | string | the tmux session name of the pane |
+| `transcript` | string | the Claude Code transcript path (`@orrery_transcript`); `""` when unset |
+| `label` | string | the pane's label |
+| `summary` | string | the pane's summary |
+| `closed` | number | unix seconds when the record was written |
+| `claude_session` | string | the Claude Code session id (`@orrery_claude_session`), written last |
 
 ### Claude Code hook settings
 
@@ -322,14 +353,22 @@ Register `orrery hook` for each hook event that reports state. The path below is
 | `c` | add a window running `claude` to the row's session, started in the row's directory; the tree stays open |
 | `s` | open the shell popup for the row's directory, and close the tree |
 | `N` | close the tree and run the picker for the row's directory; the picker's choice switches the client |
+| `X` | close the row's pane after a y/N prompt, asking twice for a working Claude pane |
+| `D` | close every session of the row's project and its shell session after a prompt listing them |
+| `?` | show every key |
 | `Esc`, `q` | close the tree |
+
+The tree lists the active projects first. A project is quiet when none of its panes is waiting or unseen (its state is set and its `changed` is later than its `seen`) and its newest pane `activity` is more than 7 days old. A project whose panes all have no activity stays active. Quiet projects sit under one row, `Quiet (N)` with N the count, which stays collapsed. Enter on that row opens the section and moves the cursor to its first pane. Quieting a project closes and drops nothing.
+
+`X` and `D` archive Claude panes before they close (see [Archive](#archive)).
 
 ### Picker
 
 The picker is shown by `orrery open` with text, and by the tree's `N` in directory mode.
 
 - With no text, a one-line `text:` prompt asks for it. Enter submits non-empty text, Backspace deletes, and Esc cancels.
-- The text is ranked into actions, best first, and the first row is selected. Each row reads `jump PANE`, `pane DIR`, or `project NAME in DIR`, with ` (prompt)` added when the action carries a first prompt.
+- The text is ranked into actions, best first, and the first row is selected. Each row reads `jump PANE`, `pane DIR`, `project NAME in DIR`, `resume SESSION`, `continue latest in DIR`, or `start fresh in DIR`, with ` (prompt)` added when the action carries a first prompt. A resume row adds `: NOTE` after its session when the archived record has a summary.
+- The resume rows are the actions that `open` builds for the directory (see its bullet above). A `resume` action runs `claude --resume SESSION`, a `continue` action runs `claude --continue`, and a `start fresh` action runs `claude`. Each opens a Claude pane in the directory, as a `pane` action does.
 - In directory mode, the first row is `pane DIR`, and any other row for the same directory is dropped. The prompt is the text when any action has one.
 - Keys typed before the prompt or the list is drawn are discarded.
 - A `pane` action opens a Claude pane in the directory: a new window in the directory's session, or a new session when there is none. A `project` action creates the directory `DIR/NAME` and a session for it. The session is named after `NAME`, with `-2`, `-3`, and so on when the name is taken.
