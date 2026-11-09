@@ -2,17 +2,26 @@ package io.github.joshsymonds.orrery.ui
 
 import androidx.activity.ComponentActivity
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.lifecycle.Lifecycle
 import io.github.joshsymonds.orrery.api.FakeOrreryServer
 import io.github.joshsymonds.orrery.api.OrreryClient
+import io.github.joshsymonds.orrery.ui.theme.MochaTerminal
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -25,6 +34,8 @@ private const val SEEN_PATH = "/v1/panes/%253/seen"
 private const val PANES_PATH = "/v1/panes"
 private const val KEYS_PATH = "/v1/panes/%253/keys"
 private const val TIMEOUT_MILLIS = 5_000L
+private const val WIDE_LINE_REPEATS = 30
+private val wideLine = "synthetic-wide-line ".repeat(WIDE_LINE_REPEATS).trimEnd()
 
 @OptIn(ExperimentalTestApi::class)
 @RunWith(RobolectricTestRunner::class)
@@ -182,6 +193,73 @@ class PaneScreenTest {
             composeRule.waitUntilExactlyOneExists(hasText("synthetic body"), TIMEOUT_MILLIS)
             composeRule.onNodeWithText("Send").assertIsDisplayed()
             composeRule.onNodeWithText("Esc").assertExists()
+        }
+    }
+
+    private fun terminalText(): AnnotatedString? {
+        val node = composeRule.onAllNodesWithTag(TERMINAL_TEXT_TAG)
+            .fetchSemanticsNodes(atLeastOneRootRequired = false)
+            .singleOrNull() ?: return null
+        return node.config.getOrNull(SemanticsProperties.Text)?.single()
+    }
+
+    private fun terminalLayout(): TextLayoutResult {
+        val node = composeRule.onNodeWithTag(TERMINAL_TEXT_TAG).fetchSemanticsNode()
+        val results = mutableListOf<TextLayoutResult>()
+        node.config[SemanticsActions.GetTextLayoutResult].action!!.invoke(results)
+        return results.single()
+    }
+
+    @Test
+    fun screenBodyShowsColourAsSpanAndNoEscapes() {
+        FakeOrreryServer().use { server ->
+            serve(server, "\u001B[31msynthetic red\u001B[0m plain")
+            setScreen(server)
+
+            composeRule.waitUntil(TIMEOUT_MILLIS) { terminalText()?.text == "synthetic red plain" }
+            val annotated = terminalText()!!
+            val span = annotated.spanStyles.single()
+            assertEquals(0, span.start)
+            assertEquals("synthetic red".length, span.end)
+            assertEquals(MochaTerminal.Ansi[1], span.item.color)
+        }
+    }
+
+    @Test
+    fun lineWiderThanScreenStaysOneLine() {
+        FakeOrreryServer().use { server ->
+            serve(server, wideLine)
+            setScreen(server)
+
+            composeRule.waitUntil(TIMEOUT_MILLIS) { terminalText()?.text == wideLine }
+            val viewportWidth = composeRule.onNodeWithTag(TERMINAL_VIEWPORT_TAG).fetchSemanticsNode().size.width
+            val textWidth = composeRule.onNodeWithTag(TERMINAL_TEXT_TAG).fetchSemanticsNode().size.width
+            assertEquals(1, terminalLayout().lineCount)
+            assertTrue(textWidth > viewportWidth)
+        }
+    }
+
+    @Test
+    fun plainTextBodyRendersUnchanged() {
+        FakeOrreryServer().use { server ->
+            val body = "synthetic plain one\nsynthetic plain two"
+            serve(server, body)
+            setScreen(server)
+
+            composeRule.waitUntil(TIMEOUT_MILLIS) { terminalText()?.text == body }
+            assertTrue(terminalText()!!.spanStyles.isEmpty())
+        }
+    }
+
+    @Test
+    fun screenRequestAsksForAnsiAndHistory() {
+        FakeOrreryServer().use { server ->
+            serve(server, "synthetic query body")
+            setScreen(server)
+
+            composeRule.waitUntil(TIMEOUT_MILLIS) { terminalText()?.text == "synthetic query body" }
+            val request = server.requests.first { it.method == "GET" && it.rawPath == SCREEN_PATH }
+            assertEquals("ansi=1&history=500", request.rawQuery)
         }
     }
 }
