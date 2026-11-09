@@ -128,7 +128,7 @@ func transcriptExists(path string) (bool, error) {
 func createSession(ctx context.Context, cfg Config, name, dir string, argv []string) error {
 	args := slices.Concat(
 		[]string{"new-session", "-d", "-s", tmuxLiteral(name), "-c", tmuxDirArg(dir)},
-		argv,
+		paneArgv(ctx, cfg, argv),
 		[]string{";", "set-option", "-t", "=" + name + ":", protocol.OptionDir, tmuxLiteral(dir)},
 	)
 	_, err := cfg.Tmux.Run(ctx, args...)
@@ -138,8 +138,41 @@ func createSession(ctx context.Context, cfg Config, name, dir string, argv []str
 	return nil
 }
 
-// claudeCommand is the argv of a Claude pane: claude alone, or claude -- prompt when prompt is set. tmux runs
-// it without a shell, so the prompt is one argument.
+// oneWordCommand is the word count of a command with no arguments.
+const oneWordCommand = 1
+
+// paneArgv returns the words tmux runs as a new pane's command. A command with arguments runs through tmux's
+// default-shell when that shell's base name is sh, bash, zsh, dash or ksh: the shell loads its environment and
+// execs the command, and each argument stays one word. A one-word command, a default-shell with another name,
+// and a default-shell that cannot be read all start the command directly, as argv. The lookup starts the server
+// when none runs, so the default-shell applies on a cold server too.
+func paneArgv(ctx context.Context, cfg Config, argv []string) []string {
+	if len(argv) <= oneWordCommand {
+		return argv
+	}
+	out, err := cfg.Tmux.Run(ctx, "start-server", ";", "show-options", "-gv", "default-shell")
+	if err != nil {
+		return argv
+	}
+	shell := strings.TrimSpace(out)
+	if !isPOSIXShell(shell) {
+		return argv
+	}
+	return slices.Concat([]string{shell, "-c", `exec "$@"`, "orrery"}, argv)
+}
+
+// isPOSIXShell reports whether the shell at path is one whose -c runs `exec "$@"` with its arguments.
+func isPOSIXShell(path string) bool {
+	switch filepath.Base(path) {
+	case "sh", "bash", "zsh", "dash", "ksh":
+		return true
+	default:
+		return false
+	}
+}
+
+// claudeCommand is the argv of a Claude pane: claude alone, or claude -- prompt when prompt is set. The prompt
+// stays one argument: paneArgv passes each word to the shell unchanged.
 func claudeCommand(claude, prompt string) []string {
 	if prompt == "" {
 		return []string{claude}

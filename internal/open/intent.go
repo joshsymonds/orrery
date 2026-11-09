@@ -339,7 +339,7 @@ func openPane(ctx context.Context, cfg Config, dir string, argv []string) (Targe
 func newWindow(ctx context.Context, cfg Config, session, dir string, argv []string) (string, error) {
 	args := slices.Concat(
 		[]string{"new-window", "-P", "-F", "#{pane_id}", "-t", "=" + session + ":", "-c", tmuxDirArg(dir)},
-		argv,
+		paneArgv(ctx, cfg, argv),
 	)
 	out, err := cfg.Tmux.Run(ctx, args...)
 	if err != nil {
