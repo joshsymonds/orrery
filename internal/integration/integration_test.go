@@ -1869,6 +1869,36 @@ func TestOpenNewSessionOutsideTmuxCreatesDirectoryAndAttaches(t *testing.T) {
 	claude.waitForStarted(t, 1)
 }
 
+func TestOpenNewSessionDefaultsToPersonalUnderHome(t *testing.T) {
+	claude := installOpenFakes(t, "")
+	home := os.Getenv("HOME")
+	personal := filepath.Join(home, "Personal")
+	if err := os.Mkdir(personal, 0o700); err != nil {
+		t.Fatalf("make directory: %v", err)
+	}
+	client, name := newServer(t)
+	newSession(t, client, "s1", t.TempDir())
+	known := knownClients(t, client)
+	startScript(t, fmt.Sprintf("stty cols 80 rows 24; %s -L %s open new example-new", orreryPath(), name))
+	waitForNewClient(t, client, "example-new", known)
+
+	dir := filepath.Join(personal, "example-new")
+	if info, err := os.Stat(dir); err != nil || !info.IsDir() {
+		t.Fatalf("directory %s: %v", dir, err)
+	}
+	if _, err := os.Stat(filepath.Join(home, "example-new")); !os.IsNotExist(err) {
+		t.Fatalf("directory %s exists or cannot be checked: %v", filepath.Join(home, "example-new"), err)
+	}
+	got, err := client.Run(t.Context(), "show-options", "-v", "-t", "=example-new:", protocol.OptionDir)
+	if err != nil {
+		t.Fatalf("read %s: %v", protocol.OptionDir, err)
+	}
+	if strings.TrimSpace(got) != dir {
+		t.Fatalf("%s = %q, want %q", protocol.OptionDir, strings.TrimSpace(got), dir)
+	}
+	claude.waitForStarted(t, 1)
+}
+
 func TestOpenPickerEnterRunsFirstActionAndSwitchesInvokingClient(t *testing.T) {
 	cases := []struct {
 		name string

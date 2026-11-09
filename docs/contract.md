@@ -227,7 +227,7 @@ Subcommands:
   - No argument: attaches the most recently active non-shell session, and the tree opens on that client after it attaches.
   - `.`: the session whose `@orrery_dir` is the current directory. If none exists, a session is created there. `--remote` refuses `.`.
   - One word: a session with that exact name, else a zoxide fast match, else the word is intent text for the picker. A fast match is one zoxide result, or several when the best one's basename is the word.
-  - `new NAME [--root DIR]`: creates the directory `DIR/NAME` and a session for it. `DIR` must be absolute and defaults to `$HOME`. `NAME` cannot be `.`, `..`, or contain `/`. A taken session name gets `-2`, `-3`, and so on. `.`, `:` and `#` in a name become `_`.
+  - `new NAME [--root DIR]`: creates the directory `DIR/NAME` and a session for it. `DIR` must be absolute and defaults to `$HOME/Personal`. `NAME` cannot be `.`, `..`, or contain `/`. A taken session name gets `-2`, `-3`, and so on. `.`, `:` and `#` in a name become `_`.
   - Any other arguments: joined with spaces, they are intent text for the picker.
   - `--intent TEXT`: opens the picker with `TEXT` at once. It takes no ARGS; with ARGS it exits 2. Flags come before ARGS.
   - With `TMUX` set, the command switches the invoking client (tmux's current client, by its tty). Otherwise it attaches.
@@ -279,7 +279,7 @@ When a pane enters `done` while an attached client shows the pane's window and h
 | `ORRERY_NTFY_TOKEN_FILE` | `orreryd` | file holding the ntfy access token |
 | `ANTHROPIC_BASE_URL` | `orrery` (`hook`, `debug summarize`) | the session's base URL. The hook sends it in each frame (section 9), and each summary runs through its own session's base URL. |
 | `ORRERY_SUMMARIZER` | `orrery` (`hook`) | summarizer sentinel (section 7). `orreryd` sets it on each summary run. Summaries also run with hooks disabled. |
-| `HOME` | `orrery` (`tree`, `open`) | default parent directory of new projects |
+| `HOME` | `orrery` (`tree`, `open`) | `$HOME/Personal` is the default parent directory of new projects |
 | `PATH` | `orrery` (`tree`, `open`) | finds `zoxide` and `claude` for the picker and `open` |
 
 ### Claude Code hook settings

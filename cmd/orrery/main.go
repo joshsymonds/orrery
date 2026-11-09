@@ -483,7 +483,7 @@ func serverFlags(server tmuxctl.Server) []string {
 }
 
 // openConfig returns the picker's configuration: zoxide and claude as absolute paths found on orrery's PATH, and
-// HOME as the default root of new projects.
+// $HOME/Personal as the default root of new projects.
 func openConfig(client *tmuxctl.Client, getenv func(string) string) (open.Config, error) {
 	zoxide, err := absLookPath("zoxide")
 	if err != nil {
@@ -493,7 +493,12 @@ func openConfig(client *tmuxctl.Client, getenv func(string) string) (open.Config
 	if err != nil {
 		return open.Config{}, err
 	}
-	return open.Config{Tmux: client, Zoxide: zoxide, Claude: claude, Root: getenv("HOME")}, nil
+	return open.Config{
+		Tmux:   client,
+		Zoxide: zoxide,
+		Claude: claude,
+		Root:   filepath.Join(getenv("HOME"), "Personal"),
+	}, nil
 }
 
 // absLookPath returns the absolute path of the binary name on orrery's PATH.
