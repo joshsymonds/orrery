@@ -9,16 +9,21 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"slices"
 	"strings"
 
 	"github.com/joshsymonds/orrery/internal/cli"
 	"github.com/joshsymonds/orrery/internal/hook"
+	"github.com/joshsymonds/orrery/internal/open"
+	"github.com/joshsymonds/orrery/internal/picker"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/shell"
 	"github.com/joshsymonds/orrery/internal/summary"
 	"github.com/joshsymonds/orrery/internal/tmuxconf"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
+	"github.com/joshsymonds/orrery/internal/tui"
 )
 
 // Exit codes.
@@ -48,6 +53,7 @@ subcommands:
   debug summarize --pane ID --transcript PATH [--claude PATH]
                                                 write a pane's summary and label
   shell --dir DIR --client TTY                  open DIR's shell popup on the client at TTY
+  tree --client TTY                             show the pane tree on the client at TTY; N picks a pane
   tmux-conf                                     print the orrery tmux plugin for this binary
 `
 
@@ -76,7 +82,7 @@ func main() {
 }
 
 // run executes one orrery command line and returns its exit code.
-func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(string) string) int {
+func run(args []string, stdin *os.File, stdout, stderr io.Writer, getenv func(string) string) int {
 	opts, rest, err := parseGlobal(args)
 	if err == nil && len(rest) > 0 {
 		return report(stderr, dispatch(context.Background(), opts, rest, stdin, stdout, getenv))
@@ -128,7 +134,7 @@ func parseGlobal(args []string) (globals, []string, error) {
 }
 
 // dispatch runs the subcommand named by rest[0] with the arguments after it.
-func dispatch(ctx context.Context, opts globals, rest []string, stdin io.Reader, stdout io.Writer,
+func dispatch(ctx context.Context, opts globals, rest []string, stdin *os.File, stdout io.Writer,
 	getenv func(string) string) error {
 	name, args := rest[0], rest[1:]
 	switch name {
@@ -141,20 +147,20 @@ func dispatch(ctx context.Context, opts globals, rest []string, stdin io.Reader,
 		return nil
 	case "tmux-conf":
 		return tmuxConf(args, stdout)
-	case "list", "seen", "send", "debug", "shell":
+	case "list", "seen", "send", "debug", "shell", "tree":
 		client, err := tmuxctl.New(opts.server)
 		if err != nil {
 			return fmt.Errorf("tmux server: %w", err)
 		}
-		return runTmux(ctx, client, name, args, stdout, getenv)
+		return runTmux(ctx, client, name, args, stdin, stdout, getenv)
 	default:
 		return usagef("unknown subcommand %q", name)
 	}
 }
 
 // runTmux runs a subcommand that works on the tmux server client talks to.
-func runTmux(ctx context.Context, client *tmuxctl.Client, name string, args []string, out io.Writer,
-	getenv func(string) string) error {
+func runTmux(ctx context.Context, client *tmuxctl.Client, name string, args []string, stdin *os.File,
+	out io.Writer, getenv func(string) string) error {
 	// The cli errors already name their subcommand, so errors.Join passes them through unchanged while
 	// keeping errors.Is working for cli.ErrQuestionRefused.
 	switch name {
@@ -169,6 +175,8 @@ func runTmux(ctx context.Context, client *tmuxctl.Client, name string, args []st
 		return errors.Join(cli.Send(ctx, client, args, out))
 	case "shell":
 		return shellOpen(ctx, client, args)
+	case "tree":
+		return tree(ctx, client, args, stdin, out, getenv)
 	default:
 		return runDebug(ctx, client, args, getenv)
 	}
@@ -190,6 +198,98 @@ func shellOpen(ctx context.Context, client *tmuxctl.Client, args []string) error
 		return usagef("shell: --dir and --client are required")
 	}
 	return errors.Join(shell.Open(ctx, client, *dir, *clientTTY))
+}
+
+// tree runs `orrery tree`, which shows the pane tree on the client at --client. N on a row runs the picker for that
+// row's directory, and the picker's choice switches the same client.
+func tree(ctx context.Context, client *tmuxctl.Client, args []string, stdin *os.File, stdout io.Writer,
+	getenv func(string) string) error {
+	flags := flag.NewFlagSet("tree", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	clientTTY := flags.String("client", "", "tty of the client that shows the tree")
+	if err := flags.Parse(args); err != nil {
+		return usagef("tree: %v", err)
+	}
+	if flags.NArg() > 0 {
+		return usagef("tree: unexpected argument %q", flags.Arg(0))
+	}
+	if *clientTTY == "" {
+		return usagef("tree: --client is required")
+	}
+	host, err := os.Hostname()
+	if err != nil {
+		return fmt.Errorf("tree: hostname: %w", err)
+	}
+	panes := func(ctx context.Context) ([]protocol.Pane, error) {
+		all, listErr := client.ListPanes(ctx)
+		if listErr != nil {
+			return nil, fmt.Errorf("list panes: %w", listErr)
+		}
+		for i := range all {
+			all[i].Host = host
+		}
+		return all, nil
+	}
+
+	result, err := tui.Run(ctx, tui.Options{Client: client, ClientTTY: *clientTTY, Panes: panes, Input: stdin,
+		Output: stdout})
+	if err != nil {
+		return fmt.Errorf("tree: %w", err)
+	}
+	if result.Action != tui.ActionIntent {
+		return nil
+	}
+	cfg, err := openConfig(client, getenv)
+	if err != nil {
+		return fmt.Errorf("tree: %w", err)
+	}
+	target, chosen, err := picker.Run(ctx, picker.Options{Config: cfg, Dir: result.Dir, Input: stdin, Output: stdout})
+	if err != nil {
+		return fmt.Errorf("tree: %w", err)
+	}
+	if !chosen {
+		return nil
+	}
+	return switchClient(ctx, client, *clientTTY, target)
+}
+
+// openConfig returns the picker's configuration: zoxide and claude as absolute paths found on orrery's PATH, and
+// HOME as the default root of new projects.
+func openConfig(client *tmuxctl.Client, getenv func(string) string) (open.Config, error) {
+	zoxide, err := absLookPath("zoxide")
+	if err != nil {
+		return open.Config{}, err
+	}
+	claude, err := absLookPath("claude")
+	if err != nil {
+		return open.Config{}, err
+	}
+	return open.Config{Tmux: client, Zoxide: zoxide, Claude: claude, Root: getenv("HOME")}, nil
+}
+
+// absLookPath returns the absolute path of the binary name on orrery's PATH.
+func absLookPath(name string) (string, error) {
+	path, err := exec.LookPath(name)
+	if err != nil {
+		return "", fmt.Errorf("find %s: %w", name, err)
+	}
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return "", fmt.Errorf("absolute path of %s: %w", name, err)
+	}
+	return abs, nil
+}
+
+// switchClient switches the client at tty to target: its pane when the target names one, else its session.
+func switchClient(ctx context.Context, client *tmuxctl.Client, tty string, target open.Target) error {
+	dest := "=" + target.Session + ":"
+	if target.Pane != "" {
+		dest = target.Pane
+	}
+	if _, err := client.Run(ctx, "switch-client", "-c", tty, "-t", dest); err != nil {
+		return fmt.Errorf("tree: switch client: %w", err)
+	}
+	return nil
 }
 
 // tmuxConf runs `orrery tmux-conf`, which prints the orrery tmux plugin for this binary's own path. It takes no

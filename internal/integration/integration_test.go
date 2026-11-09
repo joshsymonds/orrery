@@ -1380,3 +1380,270 @@ func TestTmuxConfRefusesStrayArgument(t *testing.T) {
 		t.Fatalf("stderr %q, want usage text listing tmux-conf", out.stderr)
 	}
 }
+
+// fakeTool is a scripted fake from internal/open/testdata installed on a test's PATH. Its hold file, in dir,
+// blocks each run while it exists.
+type fakeTool struct {
+	bin string
+	dir string
+}
+
+// installFake installs testdata/<src>.sh as name in a fresh directory, printing reply on each run.
+func installFake(t *testing.T, src, name, reply string) fakeTool {
+	t.Helper()
+	body, err := os.ReadFile(filepath.Join("..", "open", "testdata", src+".sh"))
+	if err != nil {
+		t.Fatalf("read %s: %v", src, err)
+	}
+	dir := t.TempDir()
+	bin := filepath.Join(dir, name)
+	if err = os.WriteFile(bin, body, 0o755); err != nil {
+		t.Fatalf("install %s: %v", name, err)
+	}
+	writeFile(t, filepath.Join(dir, "reply"), reply, 0o600)
+	return fakeTool{bin: bin, dir: dir}
+}
+
+// runs counts the runs the fake has started.
+func (f fakeTool) runs(t *testing.T) int {
+	t.Helper()
+	entries, err := os.ReadDir(filepath.Join(f.dir, "calls"))
+	if errors.Is(err, os.ErrNotExist) {
+		return 0
+	}
+	if err != nil {
+		t.Fatalf("read calls of %s: %v", f.bin, err)
+	}
+	return len(entries)
+}
+
+// setHold makes each run of the fake block while held is true.
+func (f fakeTool) setHold(t *testing.T, held bool) {
+	t.Helper()
+	path := filepath.Join(f.dir, "hold")
+	if held {
+		writeFile(t, path, "", 0o600)
+		return
+	}
+	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("release %s: %v", f.bin, err)
+	}
+}
+
+// newSession starts detached session name in dir running command and returns the ID of its first pane.
+func newSession(t *testing.T, client *tmuxctl.Client, name, dir, command string) string {
+	t.Helper()
+	if _, err := client.Run(t.Context(), "-f", noConfig, "new-session", "-d", "-s", name, "-c", dir,
+		command); err != nil {
+		t.Fatalf("new-session %s: %v", name, err)
+	}
+	out, err := client.Run(t.Context(), "list-panes", "-t", name, "-F", "#{pane_id}")
+	if err != nil {
+		t.Fatalf("list-panes %s: %v", name, err)
+	}
+	return strings.TrimSpace(out)
+}
+
+// sendKeys sends keys to pane, typing them literally when literal is set.
+func sendKeys(t *testing.T, client *tmuxctl.Client, pane string, literal bool, keys ...string) {
+	t.Helper()
+	args := []string{"send-keys", "-t", pane}
+	if literal {
+		args = append(args, "-l")
+	}
+	if _, err := client.Run(t.Context(), append(args, keys...)...); err != nil {
+		t.Fatalf("send-keys %v to %s: %v", keys, pane, err)
+	}
+}
+
+// clientSession returns the session the client at tty shows.
+func clientSession(t *testing.T, client *tmuxctl.Client, tty string) string {
+	t.Helper()
+	for _, row := range clientRows(t, client) {
+		if row.tty == tty {
+			return row.session
+		}
+	}
+	t.Fatalf("client %s not listed", tty)
+	return ""
+}
+
+// waitForCursor polls pane until the row under the cursor shows want, failing the test after waitLimit.
+func waitForCursor(t *testing.T, client *tmuxctl.Client, pane, want string) {
+	t.Helper()
+	waitUntil(t, "cursor row of "+pane+" to show "+want, func() bool {
+		for line := range strings.SplitSeq(screen(t, client, pane), "\n") {
+			if strings.HasPrefix(line, "> ") {
+				return strings.Contains(line, want)
+			}
+		}
+		return false
+	})
+}
+
+// treeWorld is a private server for one tree test. Session s1 shows the tree on the invoking client. Session s2
+// holds the waiting target pane, in targetDir. Session s3 is the session of the other client. The fake claude
+// and fake zoxide lead PATH, and HOME is a temp directory.
+type treeWorld struct {
+	client    *tmuxctl.Client
+	invoking  string
+	other     string
+	target    string
+	targetDir string
+	tree      string
+	claude    fakeTool
+}
+
+// setupTree builds a treeWorld and starts orrery tree in a pane of s1 for the invoking client.
+func setupTree(t *testing.T) treeWorld {
+	t.Helper()
+	claude := installFake(t, "fake-claude", "claude", "pane d1\ntask: no\n")
+	zoxide := installFake(t, "fake-zoxide", "zoxide", "  9.0 "+filepath.Join(t.TempDir(), "example-project")+"\n")
+	t.Setenv("PATH", claude.dir+string(os.PathListSeparator)+zoxide.dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("HOME", t.TempDir())
+
+	client, name := newServer(t)
+	newSession(t, client, "s1", t.TempDir(), "sleep 300")
+	invoking := attachClient(t, client, name, "s1", 80, 24)
+
+	targetDir := t.TempDir()
+	target := newSession(t, client, "s2", targetDir, "sleep 300")
+	mustSetState(t, client, target)
+	newSession(t, client, "s3", t.TempDir(), "sleep 300")
+	other := attachClient(t, client, name, "s3", 100, 30)
+
+	orrery := filepath.Join(os.Getenv(binDirEnv), "orrery")
+	tree := splitPane(t, client, "s1", fmt.Sprintf("%s -L %s tree --client %s", orrery, name, invoking))
+	waitForCursor(t, client, tree, "waiting")
+	return treeWorld{
+		client: client, invoking: invoking, other: other, target: target, targetDir: targetDir, tree: tree,
+		claude: claude,
+	}
+}
+
+// mustSetState marks pane waiting, so that the tree ranks it first.
+func mustSetState(t *testing.T, client *tmuxctl.Client, pane string) {
+	t.Helper()
+	if _, err := client.Run(t.Context(), "set-option", "-p", "-t", pane, protocol.OptionState, "waiting"); err != nil {
+		t.Fatalf("set %s on %s: %v", protocol.OptionState, pane, err)
+	}
+}
+
+func TestTreeEnterSwitchesOnlyInvokingClient(t *testing.T) {
+	w := setupTree(t)
+	sendKeys(t, w.client, w.tree, false, "Enter")
+
+	waitUntil(t, "invoking client on the target session", func() bool {
+		return clientSession(t, w.client, w.invoking) == "s2"
+	})
+	if got := clientSession(t, w.client, w.other); got != "s3" {
+		t.Fatalf("other client shows session %s, want s3", got)
+	}
+}
+
+func TestTreeNOpensPaneInGroupDirectory(t *testing.T) {
+	w := setupTree(t)
+	before := sessionNames(t, w.client)
+	w.claude.setHold(t, true)
+
+	sendKeys(t, w.client, w.tree, true, "N")
+	waitForScreen(t, w.client, w.tree, "text:")
+	sendKeys(t, w.client, w.tree, true, "example text")
+	sendKeys(t, w.client, w.tree, false, "Enter")
+	waitUntil(t, "the intent run to start", func() bool { return w.claude.runs(t) == 1 })
+	w.claude.setHold(t, false)
+	waitForScreen(t, w.client, w.tree, "> pane "+w.targetDir)
+	w.claude.setHold(t, true)
+
+	sendKeys(t, w.client, w.tree, false, "Enter")
+	var opened string
+	waitUntil(t, "invoking client on a new session", func() bool {
+		opened = clientSession(t, w.client, w.invoking)
+		return !slices.Contains(before, opened)
+	})
+	if got := clientSession(t, w.client, w.other); got != "s3" {
+		t.Fatalf("other client shows session %s, want s3", got)
+	}
+	if got := clientSession(t, w.client, w.invoking); got != opened {
+		t.Fatalf("invoking client moved again to %s", got)
+	}
+	want := "=" + opened + ":"
+	waitUntil(t, "claude pane in "+w.targetDir, func() bool {
+		return paneField(t, w.client, want, "#{pane_current_path}") == w.targetDir
+	})
+	if got := paneField(t, w.client, want, "#{pane_start_command}"); got != w.claude.bin {
+		t.Fatalf("pane runs %q, want the fake claude at %s", got, w.claude.bin)
+	}
+	if got := paneField(t, w.client, "=s2:", "#{pane_id}"); got != w.target {
+		t.Fatalf("target session s2 shows pane %s, want %s", got, w.target)
+	}
+}
+
+func TestTreeEscInPickerChangesNothing(t *testing.T) {
+	w := setupTree(t)
+	before := sessionNames(t, w.client)
+	w.claude.setHold(t, true)
+
+	sendKeys(t, w.client, w.tree, true, "N")
+	waitForScreen(t, w.client, w.tree, "text:")
+	sendKeys(t, w.client, w.tree, true, "example text")
+	sendKeys(t, w.client, w.tree, false, "Enter")
+	waitUntil(t, "the intent run to start", func() bool { return w.claude.runs(t) == 1 })
+	w.claude.setHold(t, false)
+	waitForScreen(t, w.client, w.tree, "> pane "+w.targetDir)
+
+	sendKeys(t, w.client, w.tree, false, "Escape")
+	waitUntil(t, "the tree to exit", func() bool { return !paneListed(t, w.client, w.tree) })
+	if got := clientSession(t, w.client, w.invoking); got != "s1" {
+		t.Fatalf("invoking client shows session %s, want s1", got)
+	}
+	if got := clientSession(t, w.client, w.other); got != "s3" {
+		t.Fatalf("other client shows session %s, want s3", got)
+	}
+	if got := sessionNames(t, w.client); !slices.Equal(got, before) {
+		t.Fatalf("sessions %v after Esc, want %v", got, before)
+	}
+	if got := w.claude.runs(t); got != 1 {
+		t.Fatalf("fake claude ran %d times, want only the intent run", got)
+	}
+}
+
+func TestTreeRefusesMissingClient(t *testing.T) {
+	out := runOrrery(t, "", nil, "-L", "orrery-integration-unused", "tree")
+	wantExit(t, out, 2)
+	if !strings.Contains(out.stderr, "usage: orrery") || !strings.Contains(out.stderr, "tree --client TTY") {
+		t.Fatalf("stderr %q, want usage text listing tree --client TTY", out.stderr)
+	}
+}
+
+// sessionNames returns the sorted names of the sessions on the server behind client.
+func sessionNames(t *testing.T, client *tmuxctl.Client) []string {
+	t.Helper()
+	out, err := client.Run(t.Context(), "list-sessions", "-F", "#{session_name}")
+	if err != nil {
+		t.Fatalf("list-sessions: %v", err)
+	}
+	names := strings.Fields(out)
+	slices.Sort(names)
+	return names
+}
+
+// paneField returns one format value of the active pane of target.
+func paneField(t *testing.T, client *tmuxctl.Client, target, format string) string {
+	t.Helper()
+	out, err := client.Run(t.Context(), "display-message", "-p", "-t", target, format)
+	if err != nil {
+		t.Fatalf("display-message %s on %s: %v", format, target, err)
+	}
+	return strings.TrimSpace(out)
+}
+
+// paneListed reports whether pane is still on the server.
+func paneListed(t *testing.T, client *tmuxctl.Client, pane string) bool {
+	t.Helper()
+	out, err := client.Run(t.Context(), "list-panes", "-a", "-F", "#{pane_id}")
+	if err != nil {
+		t.Fatalf("list-panes: %v", err)
+	}
+	return slices.Contains(strings.Fields(out), pane)
+}
