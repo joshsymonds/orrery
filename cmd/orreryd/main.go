@@ -1,5 +1,5 @@
 // Command orreryd is the orrery daemon. It listens on a unix socket for hook frames, applies each one to the pane
-// it names, starts summaries, and posts waiting and done notifications through ntfy.
+// it names, starts summaries, and posts waiting and done notifications through ntfy and Web Push.
 package main
 
 import (
@@ -11,6 +11,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -24,6 +25,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/daemon"
 	"github.com/joshsymonds/orrery/internal/ntfy"
 	"github.com/joshsymonds/orrery/internal/protocol"
+	"github.com/joshsymonds/orrery/internal/push"
 	"github.com/joshsymonds/orrery/internal/summary"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
 )
@@ -43,14 +45,15 @@ const (
 
 const (
 	defaultClaude = "claude"
-	// ntfyTimeout bounds each notification request.
-	ntfyTimeout = 10 * time.Second
+	// notifyTimeout bounds each notification request.
+	notifyTimeout = 10 * time.Second
 	// waitingBody and doneBody stand in for an empty question or summary.
 	waitingBody = "waiting for input"
 	doneBody    = "done"
 )
 
 const usageText = `usage: orreryd [-L NAME | -S PATH] [--socket PATH] [--claude PATH] [--summary-model CONTEXT=MODEL]...
+               [--push-host HOST]...
 
 flags:
   -L NAME           tmux server by name (tmux -L)
@@ -59,6 +62,8 @@ flags:
   --claude PATH     claude binary the summarizer runs (default claude)
   --summary-model CONTEXT=MODEL
                     summary model for a patchbay context; repeat for each context
+  --push-host HOST  push relay host a Web Push subscription may name; repeat for each host
+                    (default ntfy.sh)
 `
 
 // usageError is a command line refused before any work. It exits 2 and prints the usage text.
@@ -77,10 +82,25 @@ func usagef(format string, args ...any) error {
 
 // options holds the parsed command line.
 type options struct {
-	server tmuxctl.Server
-	socket string
-	claude string
-	models map[string]string
+	server    tmuxctl.Server
+	socket    string
+	claude    string
+	models    map[string]string
+	pushHosts []string
+}
+
+// hostFlag is the repeatable --push-host flag. It collects the push relay hosts in the order given.
+type hostFlag []string
+
+// String implements flag.Value.
+func (h *hostFlag) String() string {
+	return strings.Join(*h, ",")
+}
+
+// Set implements flag.Value.
+func (h *hostFlag) Set(value string) error {
+	*h = append(*h, value)
+	return nil
 }
 
 // modelFlag is the repeatable --summary-model flag. It maps each patchbay context to its summary model.
@@ -145,6 +165,8 @@ func parseFlags(args []string, getenv func(string) string) (options, error) {
 	claude := flags.String("claude", defaultClaude, "claude binary to run")
 	models := modelFlag{}
 	flags.Var(models, "summary-model", "summary model as CONTEXT=MODEL")
+	var pushHosts hostFlag
+	flags.Var(&pushHosts, "push-host", "push relay host, repeatable")
 	if err := flags.Parse(args); err != nil {
 		return options{}, usagef("%v", err)
 	}
@@ -161,11 +183,15 @@ func parseFlags(args []string, getenv func(string) string) (options, error) {
 	if err != nil {
 		return options{}, usagef("%v", err)
 	}
+	if len(pushHosts) == 0 {
+		pushHosts = hostFlag{push.DefaultPushHost}
+	}
 	return options{
-		server: tmuxctl.Server{Name: *tmuxName, Socket: *tmuxSocket},
-		socket: socket,
-		claude: *claude,
-		models: models,
+		server:    tmuxctl.Server{Name: *tmuxName, Socket: *tmuxSocket},
+		socket:    socket,
+		claude:    *claude,
+		models:    models,
+		pushHosts: pushHosts,
 	}, nil
 }
 
@@ -178,9 +204,21 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 	if host == "" {
 		return errors.New("host name is empty")
 	}
-	publisher, err := ntfy.New(getenv, host, &http.Client{Timeout: ntfyTimeout})
+	publisher, err := ntfy.New(getenv, host, &http.Client{Timeout: notifyTimeout})
 	if err != nil && !errors.Is(err, ntfy.ErrNotConfigured) {
 		return fmt.Errorf("ntfy: %w", err)
+	}
+	storePath, err := push.DefaultStorePath(getenv)
+	if err != nil {
+		return fmt.Errorf("push store: %w", err)
+	}
+	store, err := push.NewStore(storePath, opts.pushHosts)
+	if err != nil {
+		return fmt.Errorf("push store: %w", err)
+	}
+	pushes, err := push.NewPublisher(store, &http.Client{Timeout: notifyTimeout})
+	if err != nil {
+		return fmt.Errorf("push publisher: %w", err)
 	}
 	ln, err := daemon.Listen(opts.socket)
 	if err != nil {
@@ -190,8 +228,10 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 	hub := &relay{
 		claude:      opts.claude,
 		models:      opts.models,
+		host:        host,
 		logger:      logger,
 		publisher:   publisher,
+		pushes:      pushes,
 		summarizers: make(map[tmuxctl.Server]*summary.Summarizer),
 	}
 	observe := func(transition daemon.Transition) { hub.observe(ctx, transition) }
@@ -213,8 +253,10 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 type relay struct {
 	claude      string
 	models      map[string]string
+	host        string
 	logger      *slog.Logger
 	publisher   *ntfy.Publisher // nil when ntfy is off
+	pushes      *push.Publisher
 	summarizers map[tmuxctl.Server]*summary.Summarizer
 	notifying   sync.WaitGroup // one count per notification in flight
 }
@@ -245,7 +287,7 @@ func (r *relay) observe(ctx context.Context, transition daemon.Transition) {
 	if transition.To == protocol.StateWorking || transition.To == protocol.StateDone {
 		r.summarize(ctx, transition)
 	}
-	if r.publisher != nil && (transition.To == protocol.StateWaiting || transition.To == protocol.StateDone) {
+	if transition.To == protocol.StateWaiting || transition.To == protocol.StateDone {
 		r.notify(ctx, transition)
 	}
 }
@@ -318,36 +360,123 @@ func (r *relay) notify(ctx context.Context, transition daemon.Transition) {
 	}()
 }
 
-// publish reads the pane's session, window and stored text from its tmux server, then posts the notification.
-// Failures are logged and never stop the daemon.
+// publish reads the pane's stored text from its tmux server, then posts the notification to ntfy when it is
+// configured and to every push subscription. Failures are logged and never stop the daemon.
 func (r *relay) publish(ctx context.Context, transition daemon.Transition) {
 	client, err := tmuxctl.New(transition.Server)
 	if err != nil {
 		r.logger.ErrorContext(ctx, "resolve tmux server", "pane", transition.PaneID, "error", err)
 		return
 	}
+	text, err := readPaneText(ctx, client, transition.PaneID)
+	if err != nil {
+		r.logger.ErrorContext(ctx, "read notification text", "pane", transition.PaneID, "error", err)
+		return
+	}
+	project := filepath.Base(transition.Frame.Cwd)
+	if r.publisher != nil {
+		r.publishNtfy(ctx, client, transition, project, text)
+	}
+	r.publishPush(ctx, transition, project, text)
+}
+
+// paneText is the text a notification carries, as stored on its pane.
+type paneText struct {
+	summary, label, question string
+}
+
+// readPaneText returns the summary, label and question options of pane.
+func readPaneText(ctx context.Context, client *tmuxctl.Client, pane string) (paneText, error) {
+	var text paneText
+	for _, option := range []struct {
+		name string
+		dst  *string
+	}{
+		{protocol.OptionSummary, &text.summary},
+		{protocol.OptionLabel, &text.label},
+		{protocol.OptionQuestion, &text.question},
+	} {
+		value, _, err := client.PaneOption(ctx, pane, option.name)
+		if err != nil {
+			return paneText{}, fmt.Errorf("read %s: %w", option.name, err)
+		}
+		*option.dst = value
+	}
+	return text, nil
+}
+
+// publishNtfy posts the notification to ntfy. Its body is the question when the pane waits and the summary when
+// it is done, and the session and window come from tmux.
+func (r *relay) publishNtfy(
+	ctx context.Context, client *tmuxctl.Client, transition daemon.Transition, project string, text paneText,
+) {
 	session, window, err := paneLocation(ctx, client, transition.PaneID)
 	if err != nil {
 		r.logger.ErrorContext(ctx, "read pane location", "pane", transition.PaneID, "error", err)
 		return
 	}
-	option, fallback := protocol.OptionQuestion, waitingBody
+	body, fallback := text.question, waitingBody
 	if transition.To == protocol.StateDone {
-		option, fallback = protocol.OptionSummary, doneBody
-	}
-	body, _, err := client.PaneOption(ctx, transition.PaneID, option)
-	if err != nil {
-		r.logger.ErrorContext(ctx, "read notification body", "pane", transition.PaneID, "error", err)
-		return
+		body, fallback = text.summary, doneBody
 	}
 	if body == "" {
 		body = fallback
 	}
-	project := filepath.Base(transition.Frame.Cwd)
 	err = r.publisher.Publish(ctx, project, session, window, transition.To, body)
 	if err != nil {
 		r.logger.ErrorContext(ctx, "post notification", "pane", transition.PaneID, "error", err)
 	}
+}
+
+// publishPush posts the notification to every push subscription. The logged error never carries an endpoint URL.
+func (r *relay) publishPush(ctx context.Context, transition daemon.Transition, project string, text paneText) {
+	note := push.Notification{
+		Pane:     transition.PaneID,
+		Host:     r.host,
+		Project:  project,
+		State:    transition.To,
+		Summary:  text.summary,
+		Label:    text.label,
+		Question: text.question,
+	}
+	if err := r.pushes.Publish(ctx, note); err != nil {
+		r.logger.ErrorContext(ctx, "post push notification", "pane", transition.PaneID,
+			"error", redactEndpoints(err))
+	}
+}
+
+// redactEndpoints returns the message of err with the endpoint URL of each failed push request replaced. The
+// request errors quote the URL they posted to.
+func redactEndpoints(err error) string {
+	msg := err.Error()
+	for _, urlErr := range requestErrors(err) {
+		msg = strings.ReplaceAll(msg, strconv.Quote(urlErr.URL), `"<endpoint>"`)
+	}
+	return msg
+}
+
+// requestErrors returns the *url.Error values in the tree of err. A URL error under several wrapping errors is
+// found once per wrapper; redaction treats the repeats as no-ops.
+func requestErrors(err error) []*url.Error {
+	var found []*url.Error
+	var walk func(node error)
+	walk = func(node error) {
+		var urlErr *url.Error
+		if errors.As(node, &urlErr) {
+			found = append(found, urlErr)
+		}
+		if multi, ok := node.(interface{ Unwrap() []error }); ok {
+			for _, child := range multi.Unwrap() {
+				walk(child)
+			}
+			return
+		}
+		if child := errors.Unwrap(node); child != nil {
+			walk(child)
+		}
+	}
+	walk(err)
+	return found
 }
 
 // paneLocation returns the session name and window index of pane.

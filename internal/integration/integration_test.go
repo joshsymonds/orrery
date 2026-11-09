@@ -5,14 +5,23 @@ package integration_test
 import (
 	"bytes"
 	"context"
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/ecdh"
+	"crypto/hkdf"
 	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -26,6 +35,8 @@ import (
 	"github.com/joshsymonds/orrery/internal/archive"
 	"github.com/joshsymonds/orrery/internal/help"
 	"github.com/joshsymonds/orrery/internal/protocol"
+	"github.com/joshsymonds/orrery/internal/push"
+	"github.com/joshsymonds/orrery/internal/server"
 	"github.com/joshsymonds/orrery/internal/shell"
 	"github.com/joshsymonds/orrery/internal/tmuxconf"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
@@ -119,26 +130,28 @@ func scrubbedEnv(extra ...string) []string {
 	return append(env, extra...)
 }
 
-// orreryProcess is one orreryd started by a test. done closes once the process has exited, and waitErr is set
+// orreryProcess is one binary started by a test. done closes once the process has exited, and waitErr is set
 // before done closes.
 type orreryProcess struct {
+	name    string
 	cmd     *exec.Cmd
 	stderr  bytes.Buffer
 	done    chan struct{}
 	waitErr error
 }
 
-// startOrreryd starts the built orreryd with args and env and kills it at cleanup if it is still running.
-func startOrreryd(t *testing.T, env []string, args ...string) *orreryProcess {
+// startBinary starts the built binary name with args and env and kills it at cleanup if it is still running.
+func startBinary(t *testing.T, name string, env []string, args ...string) *orreryProcess {
 	t.Helper()
 	p := &orreryProcess{
-		cmd:  exec.Command(filepath.Join(os.Getenv(binDirEnv), "orreryd"), args...),
+		name: name,
+		cmd:  exec.Command(filepath.Join(os.Getenv(binDirEnv), name), args...),
 		done: make(chan struct{}),
 	}
 	p.cmd.Env = env
 	p.cmd.Stderr = &p.stderr
 	if err := p.cmd.Start(); err != nil {
-		t.Fatalf("start orreryd %v: %v", args, err)
+		t.Fatalf("start %s %v: %v", name, args, err)
 	}
 	go func() {
 		p.waitErr = p.cmd.Wait()
@@ -155,16 +168,16 @@ func startOrreryd(t *testing.T, env []string, args ...string) *orreryProcess {
 	return p
 }
 
-// waitForListener polls socket until a client connects, failing the test if orreryd exits first or the
-// socket never accepts within waitLimit.
-func (p *orreryProcess) waitForListener(t *testing.T, socket string) {
+// waitForListener polls address on network until a client connects, failing the test if the process exits first or
+// the address never accepts within waitLimit.
+func (p *orreryProcess) waitForListener(t *testing.T, network, address string) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), waitLimit)
 	defer cancel()
 	ticker := time.NewTicker(pollEvery)
 	defer ticker.Stop()
 	for {
-		conn, err := net.Dial("unix", socket)
+		conn, err := net.Dial(network, address)
 		if err == nil {
 			if closeErr := conn.Close(); closeErr != nil {
 				t.Fatalf("close probe connection: %v", closeErr)
@@ -173,31 +186,37 @@ func (p *orreryProcess) waitForListener(t *testing.T, socket string) {
 		}
 		select {
 		case <-p.done:
-			t.Fatalf("orreryd exited before listening on %s; stderr %q", socket, p.stderr.String())
+			t.Fatalf("%s exited before listening on %s; stderr %q", p.name, address, p.stderr.String())
 		case <-ctx.Done():
-			t.Fatalf("orreryd never listened on %s: %v", socket, err)
+			t.Fatalf("%s never listened on %s: %v", p.name, address, err)
 		case <-ticker.C:
 		}
 	}
 }
 
-// stop sends SIGTERM and returns the exit outcome, failing the test if orreryd is still running after waitLimit.
+// stop sends SIGTERM and returns the exit outcome, failing the test if the process is still running after waitLimit.
 func (p *orreryProcess) stop(t *testing.T) outcome {
 	t.Helper()
 	if err := p.cmd.Process.Signal(syscall.SIGTERM); err != nil {
-		t.Fatalf("signal orreryd: %v", err)
+		t.Fatalf("signal %s: %v", p.name, err)
 	}
+	return p.exitOutcome(t)
+}
+
+// exitOutcome returns the exit outcome once the process exits, failing the test if it is still running after waitLimit.
+func (p *orreryProcess) exitOutcome(t *testing.T) outcome {
+	t.Helper()
 	select {
 	case <-p.done:
 	case <-time.After(waitLimit):
-		t.Fatal("orreryd did not exit within the wait limit after SIGTERM")
+		t.Fatalf("%s did not exit within the wait limit", p.name)
 	}
 	code := 0
 	var exitErr *exec.ExitError
 	if errors.As(p.waitErr, &exitErr) {
 		code = exitErr.ExitCode()
 	} else if p.waitErr != nil {
-		t.Fatalf("wait orreryd: %v", p.waitErr)
+		t.Fatalf("wait %s: %v", p.name, p.waitErr)
 	}
 	return outcome{stderr: p.stderr.String(), code: code}
 }
@@ -865,9 +884,10 @@ func TestOrrerydDrivesHooksEndToEnd(t *testing.T) {
 	}
 	socket := filepath.Join(dir, "orreryd.sock")
 
-	daemon := startOrreryd(t, scrubbedEnv("ORRERY_NTFY_URL_FILE="+urlFile), "-L", name, "--socket", socket,
+	daemon := startBinary(t, "orreryd", scrubbedEnv("ORRERY_NTFY_URL_FILE="+urlFile, "XDG_STATE_HOME="+t.TempDir()),
+		"-L", name, "--socket", socket,
 		"--claude", fakeClaude, "--summary-model", exampleContextName+"="+exampleModel)
-	daemon.waitForListener(t, socket)
+	daemon.waitForListener(t, "unix", socket)
 
 	sendHook(t, socket, pane, project, map[string]any{
 		"hook_event_name": "UserPromptSubmit",
@@ -954,9 +974,9 @@ func startSummaryDaemon(t *testing.T, server, script string) (*orreryProcess, st
 	fakeClaude := filepath.Join(dir, "fake-claude.sh")
 	writeFile(t, fakeClaude, script, 0o700)
 	socket := filepath.Join(dir, "orreryd.sock")
-	daemon := startOrreryd(t, scrubbedEnv(), "-L", server, "--socket", socket,
+	daemon := startBinary(t, "orreryd", scrubbedEnv("XDG_STATE_HOME="+dir), "-L", server, "--socket", socket,
 		"--claude", fakeClaude, "--summary-model", exampleContextName+"="+exampleModel)
-	daemon.waitForListener(t, socket)
+	daemon.waitForListener(t, "unix", socket)
 	return daemon, socket, dir
 }
 
@@ -1187,7 +1207,7 @@ func TestOrrerydUsageExitCodes(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			out := runCommand(t, "", "orreryd", "", scrubbedEnv(), tc.args...)
+			out := runCommand(t, "", "orreryd", "", scrubbedEnv("XDG_STATE_HOME="+t.TempDir()), tc.args...)
 			wantExit(t, out, 2)
 			if !strings.HasPrefix(out.stderr, "orreryd: ") {
 				t.Fatalf("stderr %q, want orreryd: prefix", out.stderr)
@@ -2362,5 +2382,475 @@ func TestOpenNamedSessionStartsNoTree(t *testing.T) {
 		if len(pids) != 0 {
 			t.Fatalf("tree processes %v started for %s by open s2", pids, tty)
 		}
+	}
+}
+
+// pushEndpoint is a fake Web Push service: a TLS server that records each request it receives, and the user agent
+// key and auth secret that a subscription to it carries.
+type pushEndpoint struct {
+	server   *httptest.Server
+	key      *ecdh.PrivateKey
+	auth     []byte
+	requests chan pushRequest
+}
+
+// pushRequest is one POST a fake endpoint received.
+type pushRequest struct {
+	encoding string
+	body     []byte
+}
+
+// newPushEndpoint starts a fake endpoint on 127.0.0.1 with fresh subscription keys. Its server closes at cleanup.
+func newPushEndpoint(t *testing.T) *pushEndpoint {
+	t.Helper()
+	key, err := ecdh.P256().GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("generate user agent key: %v", err)
+	}
+	auth := make([]byte, 16)
+	if _, err = rand.Read(auth); err != nil {
+		t.Fatalf("generate auth secret: %v", err)
+	}
+	ep := &pushEndpoint{key: key, auth: auth, requests: make(chan pushRequest, 8)}
+	ep.server = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		body, err := io.ReadAll(req.Body)
+		if err != nil {
+			t.Errorf("read push body: %v", err)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		ep.requests <- pushRequest{encoding: req.Header.Get("Content-Encoding"), body: body}
+		w.WriteHeader(http.StatusCreated)
+	}))
+	t.Cleanup(ep.server.Close)
+	return ep
+}
+
+// subscription returns the subscription a client registers for the endpoint.
+func (ep *pushEndpoint) subscription() push.Subscription {
+	return push.Subscription{
+		Endpoint: ep.server.URL + "/push/example",
+		P256dh:   base64.RawURLEncoding.EncodeToString(ep.key.PublicKey().Bytes()),
+		Auth:     base64.RawURLEncoding.EncodeToString(ep.auth),
+	}
+}
+
+// registerPush stores the subscriptions for endpoints in the push store under stateHome, where orreryd reads them.
+func registerPush(t *testing.T, stateHome string, endpoints ...*pushEndpoint) {
+	t.Helper()
+	store, err := push.NewStore(filepath.Join(stateHome, "orrery", "push.json"), []string{"127.0.0.1"})
+	if err != nil {
+		t.Fatalf("open push store: %v", err)
+	}
+	for _, ep := range endpoints {
+		if err = store.Add(ep.subscription()); err != nil {
+			t.Fatalf("register push endpoint: %v", err)
+		}
+	}
+}
+
+// startPushDaemon starts orreryd for server with the fake claude script, the push store under stateHome, and
+// SSL_CERT_FILE trusting the certificate of ep's server. It waits for the listener and returns the daemon and socket.
+func startPushDaemon(t *testing.T, server, dir, stateHome string, ep *pushEndpoint) (*orreryProcess, string) {
+	t.Helper()
+	fakeClaude := filepath.Join(dir, "fake-claude.sh")
+	writeFile(t, fakeClaude, fakeClaudeScript, 0o700)
+	roots := filepath.Join(dir, "push-roots.pem")
+	writeFile(t, roots, string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: ep.server.Certificate().Raw})),
+		0o600)
+	socket := filepath.Join(dir, "orreryd.sock")
+	daemon := startBinary(t, "orreryd", scrubbedEnv("XDG_STATE_HOME="+stateHome, "SSL_CERT_FILE="+roots), "-L", server,
+		"--socket", socket, "--claude", fakeClaude, "--summary-model", exampleContextName+"="+exampleModel,
+		"--push-host", "127.0.0.1")
+	daemon.waitForListener(t, "unix", socket)
+	return daemon, socket
+}
+
+// nextPush returns the next request ep received, failing the test after waitLimit.
+func nextPush(t *testing.T, ep *pushEndpoint) pushRequest {
+	t.Helper()
+	select {
+	case got := <-ep.requests:
+		return got
+	case <-time.After(waitLimit):
+		t.Fatal("no push request within the wait limit")
+	}
+	return pushRequest{}
+}
+
+// assertPushed reads the next request ep received and fails unless it is one aes128gcm body that decrypts to a
+// notification for pane in state.
+func assertPushed(t *testing.T, ep *pushEndpoint, pane string, state protocol.State) {
+	t.Helper()
+	got := nextPush(t, ep)
+	if got.encoding != "aes128gcm" {
+		t.Fatalf("Content-Encoding %q, want aes128gcm", got.encoding)
+	}
+	var note map[string]string
+	if err := json.Unmarshal(decryptPush(t, got.body, ep.key, ep.auth), &note); err != nil {
+		t.Fatalf("decode notification: %v", err)
+	}
+	if note["pane"] != pane || note["state"] != string(state) {
+		t.Fatalf("notification pane %q state %q, want pane %q state %q", note["pane"], note["state"], pane, state)
+	}
+}
+
+// decryptPush is the user agent side of RFC 8291 for an aes128gcm body with one record. It returns the plaintext
+// without its padding delimiter.
+func decryptPush(t *testing.T, body []byte, uaPrivate *ecdh.PrivateKey, authSecret []byte) []byte {
+	t.Helper()
+	const (
+		saltLen   = 16
+		keyIDLen  = 65
+		headerLen = saltLen + 4 + 1 + keyIDLen
+		recordLen = 4096
+		delimiter = 0x02
+	)
+	if len(body) <= headerLen {
+		t.Fatalf("push body is %d bytes, shorter than its header", len(body))
+	}
+	salt := body[:saltLen]
+	if rs := binary.BigEndian.Uint32(body[saltLen : saltLen+4]); rs != recordLen {
+		t.Fatalf("record size %d, want %d", rs, recordLen)
+	}
+	if idlen := int(body[saltLen+4]); idlen != keyIDLen {
+		t.Fatalf("key id length %d, want %d", idlen, keyIDLen)
+	}
+	keyID := body[saltLen+5 : headerLen]
+	asPublic, err := ecdh.P256().NewPublicKey(keyID)
+	if err != nil {
+		t.Fatalf("key id is not a P-256 point: %v", err)
+	}
+	secret, err := uaPrivate.ECDH(asPublic)
+	if err != nil {
+		t.Fatalf("ecdh: %v", err)
+	}
+	ikm, err := hkdf.Key(sha256.New, secret, authSecret,
+		"WebPush: info\x00"+string(uaPrivate.PublicKey().Bytes())+string(keyID), 32)
+	if err != nil {
+		t.Fatalf("derive ikm: %v", err)
+	}
+	cek, err := hkdf.Key(sha256.New, ikm, salt, "Content-Encoding: aes128gcm\x00", 16)
+	if err != nil {
+		t.Fatalf("derive cek: %v", err)
+	}
+	nonce, err := hkdf.Key(sha256.New, ikm, salt, "Content-Encoding: nonce\x00", 12)
+	if err != nil {
+		t.Fatalf("derive nonce: %v", err)
+	}
+	block, err := aes.NewCipher(cek)
+	if err != nil {
+		t.Fatalf("aes: %v", err)
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		t.Fatalf("gcm: %v", err)
+	}
+	padded, err := gcm.Open(nil, nonce, body[headerLen:], nil)
+	if err != nil {
+		t.Fatalf("open record: %v", err)
+	}
+	if len(padded) == 0 || padded[len(padded)-1] != delimiter {
+		t.Fatalf("record lacks its last-record delimiter")
+	}
+	return padded[:len(padded)-1]
+}
+
+func TestOrrerydPushesEncryptedNotifications(t *testing.T) {
+	client, name := newServer(t)
+	pane := startPane(t, client, "sleep 300")
+	dir := t.TempDir()
+	stateHome := filepath.Join(dir, "state")
+	endpoint := newPushEndpoint(t)
+	registerPush(t, stateHome, endpoint)
+	daemon, socket := startPushDaemon(t, name, dir, stateHome, endpoint)
+	transcript := filepath.Join(dir, "transcript.jsonl")
+	writeFile(t, transcript, exampleTranscript, 0o600)
+
+	sendHook(t, socket, pane, dir, map[string]any{
+		"hook_event_name": "PermissionRequest",
+		"tool_name":       "example-tool",
+		"tool_input":      map[string]any{"command": "example"},
+	})
+	assertPushed(t, endpoint, pane, protocol.StateWaiting)
+
+	sendHook(t, socket, pane, dir, map[string]any{
+		"hook_event_name":        "Stop",
+		"transcript_path":        transcript,
+		"last_assistant_message": exampleLastMessage,
+	})
+	assertPushed(t, endpoint, pane, protocol.StateDone)
+
+	// orreryd awaits every notification before it exits, so a request still queued after the stop is an extra one.
+	wantExit(t, daemon.stop(t), 0)
+	if extra := len(endpoint.requests); extra != 0 {
+		t.Fatalf("%d push requests beyond one per transition", extra)
+	}
+}
+
+func TestOrrerydPushFailureHidesEndpointURL(t *testing.T) {
+	client, name := newServer(t)
+	pane := startPane(t, client, "sleep 300")
+	dir := t.TempDir()
+	stateHome := filepath.Join(dir, "state")
+	live := newPushEndpoint(t)
+	closed := newPushEndpoint(t)
+	registerPush(t, stateHome, live, closed)
+	closed.server.Close()
+	daemon, socket := startPushDaemon(t, name, dir, stateHome, live)
+
+	sendHook(t, socket, pane, dir, map[string]any{
+		"hook_event_name": "PermissionRequest",
+		"tool_name":       "example-tool",
+		"tool_input":      map[string]any{"command": "example"},
+	})
+	assertPushed(t, live, pane, protocol.StateWaiting)
+
+	out := daemon.stop(t)
+	wantExit(t, out, 0)
+	if !strings.Contains(out.stderr, "post push notification") {
+		t.Fatalf("stderr %q lacks the logged push failure", out.stderr)
+	}
+	if endpoint := closed.subscription().Endpoint; strings.Contains(out.stderr, endpoint) {
+		t.Fatalf("stderr %q contains the endpoint URL %s", out.stderr, endpoint)
+	}
+}
+
+func TestOrrerydWithoutPushStoreExitsOne(t *testing.T) {
+	// Without XDG_STATE_HOME or HOME the push store has no path, so orreryd exits before it listens.
+	var env []string
+	for _, entry := range scrubbedEnv() {
+		if !strings.HasPrefix(entry, "XDG_STATE_HOME=") && !strings.HasPrefix(entry, "HOME=") {
+			env = append(env, entry)
+		}
+	}
+	socket := filepath.Join(t.TempDir(), "orreryd.sock")
+	daemon := startBinary(t, "orreryd", env, "--socket", socket)
+	out := daemon.exitOutcome(t)
+	wantExit(t, out, 1)
+	if !strings.Contains(out.stderr, "push store") {
+		t.Fatalf("stderr %q, want a push store error", out.stderr)
+	}
+}
+
+// Synthetic values for the serve tests. The logins are invented, and the push host is a store allow-list entry
+// only: no test sends to it.
+const (
+	exampleLogin  = "example-user@example.test"
+	otherLogin    = "second-user@example.test"
+	strangerLogin = "stranger@example.test"
+	servePushHost = "push.example.test"
+	serveEndpoint = "https://" + servePushHost + "/synthetic-topic"
+	serveClient   = "example-client"
+	unusedServer  = "orrery-integration-unused"
+)
+
+// freeLoopbackAddr returns a 127.0.0.1 address whose port was free when it was chosen.
+func freeLoopbackAddr(t *testing.T) string {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("pick a loopback port: %v", err)
+	}
+	addr := ln.Addr().String()
+	if err = ln.Close(); err != nil {
+		t.Fatalf("release loopback port: %v", err)
+	}
+	return addr
+}
+
+// startServe starts the built orrery serving the API on addr for tmux server name, with one --allow-login per login
+// and XDG_STATE_HOME under stateHome. It waits for the listener and returns the process.
+func startServe(t *testing.T, stateHome, name, addr string, logins ...string) *orreryProcess {
+	t.Helper()
+	loginFlags := make([]string, 0, 2*len(logins))
+	for _, login := range logins {
+		loginFlags = append(loginFlags, "--allow-login", login)
+	}
+	args := slices.Concat([]string{"-L", name, "serve", "--listen", addr, "--push-host", servePushHost}, loginFlags)
+	p := startBinary(t, "orrery", scrubbedEnv("XDG_STATE_HOME="+stateHome), args...)
+	p.waitForListener(t, "tcp", addr)
+	return p
+}
+
+// apiResponse is the status, Content-Type, and body of one answer from the serve API.
+type apiResponse struct {
+	status      int
+	contentType string
+	body        string
+}
+
+// apiDo sends one request with headers to target and returns the answer.
+func apiDo(t *testing.T, method, target, body string, headers map[string]string) apiResponse {
+	t.Helper()
+	req, err := http.NewRequestWithContext(t.Context(), method, target, strings.NewReader(body))
+	if err != nil {
+		t.Fatalf("build %s %s: %v", method, target, err)
+	}
+	for key, value := range headers {
+		req.Header.Set(key, value)
+	}
+	httpClient := &http.Client{Timeout: waitLimit}
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		t.Fatalf("%s %s: %v", method, target, err)
+	}
+	defer resp.Body.Close()
+	raw, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read %s %s: %v", method, target, err)
+	}
+	return apiResponse{status: resp.StatusCode, contentType: resp.Header.Get("Content-Type"), body: string(raw)}
+}
+
+// asLogin returns the headers of a request from login, which the guard matches exactly.
+func asLogin(login string) map[string]string {
+	return map[string]string{server.HeaderLogin: login}
+}
+
+// wantStatus fails the test unless got has the status want, showing the body.
+func wantStatus(t *testing.T, got apiResponse, want int) {
+	t.Helper()
+	if got.status != want {
+		t.Fatalf("status %d, want %d; body %q", got.status, want, got.body)
+	}
+}
+
+// freshSubscription returns a subscription for endpoint with fresh P-256 and auth keys, as a browser would send.
+func freshSubscription(t *testing.T, endpoint string) push.Subscription {
+	t.Helper()
+	key, err := ecdh.P256().GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("generate subscription key: %v", err)
+	}
+	auth := make([]byte, 16)
+	if _, err = rand.Read(auth); err != nil {
+		t.Fatalf("generate subscription auth: %v", err)
+	}
+	return push.Subscription{
+		Endpoint: endpoint,
+		P256dh:   base64.RawURLEncoding.EncodeToString(key.PublicKey().Bytes()),
+		Auth:     base64.RawURLEncoding.EncodeToString(auth),
+	}
+}
+
+// assertServeAPI proves the read routes admit each allowed login, answer 403 without one or with a stranger's, and
+// serve the pane's screen as text.
+func assertServeAPI(t *testing.T, base, pane string) {
+	t.Helper()
+	for _, login := range []string{exampleLogin, otherLogin} {
+		listed := apiDo(t, http.MethodGet, base+"/v1/panes", "", asLogin(login))
+		wantStatus(t, listed, http.StatusOK)
+		var panes []protocol.Pane
+		if err := json.Unmarshal([]byte(listed.body), &panes); err != nil {
+			t.Fatalf("decode panes %q: %v", listed.body, err)
+		}
+		if len(panes) != 1 || panes[0].ID != pane {
+			t.Fatalf("panes %+v for %s, want exactly pane %s", panes, login, pane)
+		}
+	}
+	wantStatus(t, apiDo(t, http.MethodGet, base+"/v1/panes", "", nil), http.StatusForbidden)
+	wantStatus(t, apiDo(t, http.MethodGet, base+"/v1/panes", "", asLogin(strangerLogin)), http.StatusForbidden)
+
+	screenPath := base + "/v1/panes/" + url.PathEscape(pane) + "/screen"
+	screenResp := apiDo(t, http.MethodGet, screenPath, "", asLogin(exampleLogin))
+	wantStatus(t, screenResp, http.StatusOK)
+	if !strings.HasPrefix(screenResp.contentType, "text/plain") {
+		t.Fatalf("screen Content-Type %q, want text/plain", screenResp.contentType)
+	}
+	if !strings.Contains(screenResp.body, "example-screen") {
+		t.Fatalf("screen %q does not show the pane's text", screenResp.body)
+	}
+}
+
+// assertServeWrites proves the registration route stores a subscription from an allowed login that sends the client
+// header, and refuses a write that lacks the header without storing it.
+func assertServeWrites(t *testing.T, base, stateHome string) {
+	t.Helper()
+	payload, err := json.Marshal(freshSubscription(t, serveEndpoint))
+	if err != nil {
+		t.Fatalf("encode subscription: %v", err)
+	}
+	writeHeaders := map[string]string{
+		server.HeaderLogin:  exampleLogin,
+		server.HeaderClient: serveClient,
+		"Content-Type":      "application/json",
+	}
+	register := apiDo(t, http.MethodPost, base+"/v1/push/register", string(payload), writeHeaders)
+	wantStatus(t, register, http.StatusNoContent)
+
+	forged, err := json.Marshal(freshSubscription(t, "https://"+servePushHost+"/synthetic-forged"))
+	if err != nil {
+		t.Fatalf("encode forged subscription: %v", err)
+	}
+	withoutClient := map[string]string{server.HeaderLogin: exampleLogin, "Content-Type": "application/json"}
+	wantStatus(t, apiDo(t, http.MethodPost, base+"/v1/push/register", string(forged), withoutClient),
+		http.StatusForbidden)
+
+	stored, err := push.NewStore(filepath.Join(stateHome, "orrery", "push.json"), []string{servePushHost})
+	if err != nil {
+		t.Fatalf("open push store: %v", err)
+	}
+	subs, err := stored.List()
+	if err != nil {
+		t.Fatalf("list push store: %v", err)
+	}
+	if len(subs) != 1 || subs[0].Endpoint != serveEndpoint {
+		t.Fatalf("store holds %+v, want only %s", subs, serveEndpoint)
+	}
+}
+
+func TestServeServesAPIOnLoopback(t *testing.T) {
+	client, name := newServer(t)
+	pane := startPane(t, client, "echo example-screen; sleep 300")
+	waitForScreen(t, client, pane, "example-screen")
+	stateHome := t.TempDir()
+	addr := freeLoopbackAddr(t)
+	daemon := startServe(t, stateHome, name, addr, exampleLogin, otherLogin)
+
+	assertServeAPI(t, "http://"+addr, pane)
+	assertServeWrites(t, "http://"+addr, stateHome)
+	out := daemon.stop(t)
+	wantExit(t, out, 0)
+	if out.stderr != "" {
+		t.Fatalf("serve wrote stderr %q on shutdown, want nothing", out.stderr)
+	}
+}
+
+func TestServeRefusesNonLoopbackListen(t *testing.T) {
+	// Listen refuses each address before it binds, so the refusal names the address and no port is opened.
+	for _, listen := range []string{"0.0.0.0:0", "192.0.2.1:0", "localhost:0", ":0"} {
+		t.Run(listen, func(t *testing.T) {
+			env := scrubbedEnv("XDG_STATE_HOME=" + t.TempDir())
+			out := runCommand(t, "", "orrery", "", env, "-L", unusedServer, "serve",
+				"--listen", listen, "--allow-login", exampleLogin)
+			wantExit(t, out, 1)
+			if !strings.Contains(out.stderr, "is not a loopback IP literal") {
+				t.Fatalf("stderr %q, want the loopback refusal", out.stderr)
+			}
+		})
+	}
+}
+
+func TestServeUsageExitCodes(t *testing.T) {
+	cases := []struct {
+		name string
+		args []string
+	}{
+		{name: "no --listen", args: []string{"--allow-login", exampleLogin}},
+		{name: "no --allow-login", args: []string{"--listen", "127.0.0.1:0"}},
+		{name: "unexpected argument", args: []string{
+			"--listen", "127.0.0.1:0", "--allow-login", exampleLogin, "extra",
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			args := append([]string{"-L", unusedServer, "serve"}, tc.args...)
+			out := runCommand(t, "", "orrery", "", scrubbedEnv("XDG_STATE_HOME="+t.TempDir()), args...)
+			wantExit(t, out, 2)
+			if !strings.HasPrefix(out.stderr, "orrery: ") || !strings.Contains(out.stderr, "  serve --listen ADDR") {
+				t.Fatalf("stderr %q, want an orrery: message and usage text that lists serve", out.stderr)
+			}
+		})
 	}
 }
