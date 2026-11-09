@@ -25,6 +25,7 @@ import (
 
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/shell"
+	"github.com/joshsymonds/orrery/internal/tmuxconf"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
 )
 
@@ -1316,5 +1317,66 @@ func TestShellRelativeDirExitsOneWithoutSession(t *testing.T) {
 		if strings.HasPrefix(session, protocol.ShellSessionPrefix) {
 			t.Fatalf("session %q created for a relative directory", session)
 		}
+	}
+}
+
+func TestTmuxConfPrintsPluginForBinaryPath(t *testing.T) {
+	// os.Executable resolves symlinks, so the expected path is the resolved path of the built binary.
+	exe, err := filepath.EvalSymlinks(filepath.Join(os.Getenv(binDirEnv), "orrery"))
+	if err != nil {
+		t.Fatalf("resolve orrery binary: %v", err)
+	}
+	var want bytes.Buffer
+	if err = tmuxconf.Print(&want, exe); err != nil {
+		t.Fatalf("tmuxconf.Print(%s): %v", exe, err)
+	}
+
+	out := runOrrery(t, "", nil, "tmux-conf")
+	wantExit(t, out, 0)
+	if out.stdout != want.String() {
+		t.Fatalf("stdout %q, want tmuxconf.Print output %q", out.stdout, want.String())
+	}
+	if !strings.Contains(out.stdout, exe+" tree --client") {
+		t.Fatalf("stdout %q does not run %s tree --client", out.stdout, exe)
+	}
+}
+
+func TestTmuxConfPluginSourcesOnPrivateServer(t *testing.T) {
+	// tmux binds prefix Space to next-layout by default, so only the plugin's binding names the binary.
+	exe, err := filepath.EvalSymlinks(filepath.Join(os.Getenv(binDirEnv), "orrery"))
+	if err != nil {
+		t.Fatalf("resolve orrery binary: %v", err)
+	}
+	client, _ := newServer(t)
+	startPane(t, client, "sleep 300")
+
+	out := runOrrery(t, "", nil, "tmux-conf")
+	wantExit(t, out, 0)
+	plugin := filepath.Join(t.TempDir(), "orrery.tmux")
+	writeFile(t, plugin, out.stdout, 0o600)
+	if _, err = client.Run(t.Context(), "source-file", plugin); err != nil {
+		t.Fatalf("source-file %s: %v", plugin, err)
+	}
+
+	keys, err := client.Run(t.Context(), "list-keys", "-T", "prefix")
+	if err != nil {
+		t.Fatalf("list-keys: %v", err)
+	}
+	for line := range strings.SplitSeq(keys, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) > 0 && fields[0] == "bind-key" && slices.Contains(fields, "prefix") &&
+			slices.Contains(fields, "Space") && strings.Contains(line, exe+" tree --client") {
+			return
+		}
+	}
+	t.Fatalf("no Space binding running %s tree --client in the prefix table; list-keys %q", exe, keys)
+}
+
+func TestTmuxConfRefusesStrayArgument(t *testing.T) {
+	// The exit happens before any tmux call, so no server is started.
+	out := runOrrery(t, "", nil, "tmux-conf", "extra")
+	wantExit(t, out, 2)
+	if !strings.Contains(out.stderr, "usage: orrery") || !strings.Contains(out.stderr, "\n  tmux-conf ") {
+		t.Fatalf("stderr %q, want usage text listing tmux-conf", out.stderr)
 	}
 }

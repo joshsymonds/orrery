@@ -17,6 +17,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/shell"
 	"github.com/joshsymonds/orrery/internal/summary"
+	"github.com/joshsymonds/orrery/internal/tmuxconf"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
 )
 
@@ -47,6 +48,7 @@ subcommands:
   debug summarize --pane ID --transcript PATH [--claude PATH]
                                                 write a pane's summary and label
   shell --dir DIR --client TTY                  open DIR's shell popup on the client at TTY
+  tmux-conf                                     print the orrery tmux plugin for this binary
 `
 
 // usageError is a command line refused before any work. It exits 2 and prints the usage text.
@@ -137,6 +139,8 @@ func dispatch(ctx context.Context, opts globals, rest []string, stdin io.Reader,
 		}
 		hook.Run(stdin, getenv, socket)
 		return nil
+	case "tmux-conf":
+		return tmuxConf(args, stdout)
 	case "list", "seen", "send", "debug", "shell":
 		client, err := tmuxctl.New(opts.server)
 		if err != nil {
@@ -186,6 +190,22 @@ func shellOpen(ctx context.Context, client *tmuxctl.Client, args []string) error
 		return usagef("shell: --dir and --client are required")
 	}
 	return errors.Join(shell.Open(ctx, client, *dir, *clientTTY))
+}
+
+// tmuxConf runs `orrery tmux-conf`, which prints the orrery tmux plugin for this binary's own path. It takes no
+// flags and needs no tmux server.
+func tmuxConf(args []string, stdout io.Writer) error {
+	if len(args) > 0 {
+		return usagef("tmux-conf: unexpected argument %q", args[0])
+	}
+	orrery, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("tmux-conf: locate orrery binary: %w", err)
+	}
+	if err = tmuxconf.Print(stdout, orrery); err != nil {
+		return fmt.Errorf("tmux-conf: %w", err)
+	}
+	return nil
 }
 
 // refuseSendFlagsAfterKeys refuses a send that names a send flag after --keys. Go flag parsing stops at the
