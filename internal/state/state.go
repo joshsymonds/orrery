@@ -36,6 +36,7 @@ const (
 	keyNotificationType = "notification_type"
 	keyToolName         = "tool_name"
 	keyToolInput        = "tool_input"
+	keyToolUseID        = "tool_use_id"
 	keyReason           = "reason"
 	keySessionID        = "session_id"
 	keyTranscriptPath   = "transcript_path"
@@ -224,8 +225,9 @@ func isToolEvent(event string) bool {
 	return false
 }
 
-// writeTransition writes the question, then the state and its change time. The state options are
-// written only when the state changes; the question is written whenever its event applies.
+// writeTransition writes the tool, the question, then the state and its change time. The state options
+// are written only when the state changes; the tool and the question are written whenever their event
+// applies. The tool is written first, so a malformed tool field fails before any option changes.
 func writeTransition(
 	ctx context.Context,
 	client *tmuxctl.Client,
@@ -235,6 +237,9 @@ func writeTransition(
 	transition Transition,
 	now time.Time,
 ) error {
+	if err := writeTool(ctx, client, paneID, fields, event, now); err != nil {
+		return err
+	}
 	if err := writeQuestion(ctx, client, paneID, fields, event, transition.To); err != nil {
 		return err
 	}
@@ -280,7 +285,95 @@ func writeQuestion(
 	return nil
 }
 
-// unsetSession removes all six per-pane options for SessionEnd.
+// writeTool records the tool a PreToolUse starts, clears it when its PostToolUse or
+// PostToolUseFailure ends it, and clears it on Stop. Other events leave it unchanged.
+func writeTool(
+	ctx context.Context,
+	client *tmuxctl.Client,
+	paneID string,
+	fields hookFields,
+	event string,
+	now time.Time,
+) error {
+	switch event {
+	case eventPreToolUse:
+		return setTool(ctx, client, paneID, fields, now)
+	case eventPostToolUse, eventPostToolUseFailure:
+		return clearTool(ctx, client, paneID, fields)
+	case eventStop:
+		return unsetTool(ctx, client, paneID)
+	}
+	return nil
+}
+
+// setTool stores the tool a PreToolUse starts as a single-line @orrery_tool value. A PreToolUse without
+// tool_use_id leaves the option unchanged.
+func setTool(ctx context.Context, client *tmuxctl.Client, paneID string, fields hookFields, now time.Time) error {
+	id, err := fields.text(keyToolUseID)
+	if err != nil {
+		return err
+	}
+	if id == "" {
+		return nil
+	}
+	name, err := fields.text(keyToolName)
+	if err != nil {
+		return err
+	}
+	data, err := json.Marshal(currentTool{
+		ID:    id,
+		Name:  name,
+		Input: protocol.ToolInputText(fields[keyToolInput]),
+		Start: now.Unix(),
+	})
+	if err != nil {
+		return fmt.Errorf("encode %s: %w", protocol.OptionTool, err)
+	}
+	err = client.SetPaneOption(ctx, paneID, protocol.OptionTool, string(data))
+	if err != nil {
+		return fmt.Errorf("set %s: %w", protocol.OptionTool, err)
+	}
+	return nil
+}
+
+// clearTool unsets the tool when its id equals the event's tool_use_id. An event without an id, and a
+// stored value whose id does not match or does not decode, leave the option unchanged.
+func clearTool(ctx context.Context, client *tmuxctl.Client, paneID string, fields hookFields) error {
+	id, err := fields.text(keyToolUseID)
+	if err != nil {
+		return err
+	}
+	if id == "" {
+		return nil
+	}
+	value, ok, err := client.PaneOption(ctx, paneID, protocol.OptionTool)
+	if err != nil {
+		return fmt.Errorf("read %s: %w", protocol.OptionTool, err)
+	}
+	if !ok || storedToolID(value) != id {
+		return nil
+	}
+	return unsetTool(ctx, client, paneID)
+}
+
+// storedToolID returns the id in a stored @orrery_tool value, or "" when the value does not decode.
+func storedToolID(value string) string {
+	var stored currentTool
+	if err := json.Unmarshal([]byte(value), &stored); err != nil {
+		return ""
+	}
+	return stored.ID
+}
+
+// unsetTool removes @orrery_tool.
+func unsetTool(ctx context.Context, client *tmuxctl.Client, paneID string) error {
+	if err := client.UnsetPaneOption(ctx, paneID, protocol.OptionTool); err != nil {
+		return fmt.Errorf("unset %s: %w", protocol.OptionTool, err)
+	}
+	return nil
+}
+
+// unsetSession removes all seven per-pane options for SessionEnd.
 func unsetSession(ctx context.Context, client *tmuxctl.Client, paneID string) error {
 	for _, name := range []string{
 		protocol.OptionState,
@@ -289,6 +382,7 @@ func unsetSession(ctx context.Context, client *tmuxctl.Client, paneID string) er
 		protocol.OptionQuestion,
 		protocol.OptionSummary,
 		protocol.OptionLabel,
+		protocol.OptionTool,
 	} {
 		if err := client.UnsetPaneOption(ctx, paneID, name); err != nil {
 			return fmt.Errorf("unset %s: %w", name, err)
@@ -366,6 +460,15 @@ type toolCall struct {
 type askUserQuestion struct {
 	Tool      string          `json:"tool"`
 	Questions json.RawMessage `json:"questions"`
+}
+
+// currentTool is the @orrery_tool value: the tool a PreToolUse started and no end event has cleared.
+// Input is protocol.ToolInputText of the tool's input, and Start is the Unix time of the PreToolUse.
+type currentTool struct {
+	ID    string `json:"id"`
+	Name  string `json:"name"`
+	Input string `json:"input"`
+	Start int64  `json:"start"`
 }
 
 // truncatedQuestion is the stored question when the full value exceeds maxQuestionBytes. SHA256
