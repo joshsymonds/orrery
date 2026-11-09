@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,16 +14,18 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/joshsymonds/orrery/internal/archive"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
 )
 
 // Config holds the tmux client and the binary paths and defaults that Resolve needs.
 type Config struct {
-	Tmux   *tmuxctl.Client
-	Zoxide string // path of the zoxide binary
-	Claude string // path of the claude binary run in created panes and by the intent lookup
-	Root   string // default parent directory of new projects
+	Tmux    *tmuxctl.Client
+	Zoxide  string // path of the zoxide binary
+	Claude  string // path of the claude binary run in created panes and by the intent lookup
+	Root    string // default parent directory of new projects
+	Archive string // path of the archive file of closed Claude panes
 }
 
 // Request is one `orrery open` invocation.
@@ -63,18 +66,69 @@ func Execute(ctx context.Context, cfg Config, plan Plan) (Target, error) {
 			return Target{}, fmt.Errorf("open: create directory: %w", err)
 		}
 	}
-	if err := createSession(ctx, cfg, plan.Session, plan.Dir, ""); err != nil {
+	if err := createSession(ctx, cfg, plan.Session, plan.Dir, claudeCommand(cfg.Claude, "")); err != nil {
 		return Target{}, err
 	}
 	return Target{Session: plan.Session}, nil
 }
 
-// createSession starts detached session name in dir running the Claude command for prompt, and sets
-// @orrery_dir to dir, in one tmux call so the option is set as the session starts.
-func createSession(ctx context.Context, cfg Config, name, dir, prompt string) error {
+// ResumeActions returns the picker rows for dir when it has no live session: one resume action per archived Claude
+// session for dir whose transcript still exists, newest first; one continue action when there is none; then one
+// fresh action. It reads cfg.Archive and executes nothing.
+func ResumeActions(cfg Config, dir string) ([]Action, error) {
+	if cfg.Archive == "" {
+		return nil, errors.New("open: resume actions need an archive path")
+	}
+	records, err := archive.ForDir(cfg.Archive, dir)
+	if err != nil {
+		return nil, fmt.Errorf("open: resume actions: %w", err)
+	}
+	var actions []Action
+	resumed := make(map[string]bool)
+	for _, record := range records {
+		if record.ClaudeSession == "" || resumed[record.ClaudeSession] {
+			continue
+		}
+		exists, checkErr := transcriptExists(record.Transcript)
+		if checkErr != nil {
+			return nil, checkErr
+		}
+		if !exists {
+			continue
+		}
+		resumed[record.ClaudeSession] = true
+		actions = append(actions, Action{
+			Kind: ActionResume, Dir: dir, Session: record.ClaudeSession, Note: record.Summary,
+		})
+	}
+	if len(actions) == 0 {
+		actions = append(actions, Action{Kind: ActionContinue, Dir: dir})
+	}
+	return append(actions, Action{Kind: ActionFresh, Dir: dir}), nil
+}
+
+// transcriptExists reports whether the transcript file at path exists. An empty path names no file.
+func transcriptExists(path string) (bool, error) {
+	if path == "" {
+		return false, nil
+	}
+	_, err := os.Stat(path)
+	switch {
+	case err == nil:
+		return true, nil
+	case errors.Is(err, fs.ErrNotExist):
+		return false, nil
+	default:
+		return false, fmt.Errorf("open: stat transcript: %w", err)
+	}
+}
+
+// createSession starts detached session name in dir running argv, and sets @orrery_dir to dir, in one tmux call
+// so the option is set as the session starts.
+func createSession(ctx context.Context, cfg Config, name, dir string, argv []string) error {
 	args := slices.Concat(
 		[]string{"new-session", "-d", "-s", tmuxLiteral(name), "-c", tmuxDirArg(dir)},
-		claudeCommand(cfg.Claude, prompt),
+		argv,
 		[]string{";", "set-option", "-t", "=" + name + ":", protocol.OptionDir, tmuxLiteral(dir)},
 	)
 	_, err := cfg.Tmux.Run(ctx, args...)

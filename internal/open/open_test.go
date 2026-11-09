@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/joshsymonds/orrery/internal/archive"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
 )
@@ -561,6 +562,141 @@ func TestQueryZoxideFailureAndMalformedOutputAreErrors(t *testing.T) {
 				t.Fatal("queryZoxide returned nil error")
 			}
 		})
+	}
+}
+
+// resumeArchive writes records, in order, to a fresh synthetic archive under t.TempDir and returns its path.
+func resumeArchive(t *testing.T, records ...archive.Record) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "archive.jsonl")
+	for _, r := range records {
+		if err := archive.Append(path, r); err != nil {
+			t.Fatalf("append archive record: %v", err)
+		}
+	}
+	return path
+}
+
+// resumeTranscript creates a transcript file named name under t.TempDir and returns its path.
+func resumeTranscript(t *testing.T, name string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), name)
+	writeFile(t, path, "{}\n")
+	return path
+}
+
+func TestResumeActionsListsKeptSessionsNewestFirstThenFresh(t *testing.T) {
+	root := t.TempDir()
+	proj := filepath.Join(root, "proj")
+	other := filepath.Join(root, "other")
+	archivePath := resumeArchive(t,
+		archive.Record{
+			Dir: proj, ClaudeSession: "sess-a", Transcript: resumeTranscript(t, "a-old.jsonl"),
+			Summary: "older a", Closed: 100,
+		},
+		archive.Record{
+			Dir: proj, ClaudeSession: "sess-b", Transcript: resumeTranscript(t, "b.jsonl"),
+			Summary: "summary b", Closed: 200,
+		},
+		archive.Record{
+			Dir: proj, ClaudeSession: "sess-gone", Transcript: filepath.Join(root, "gone.jsonl"),
+			Summary: "summary gone", Closed: 300,
+		},
+		archive.Record{
+			Dir: proj, ClaudeSession: "sess-a", Transcript: resumeTranscript(t, "a-new.jsonl"),
+			Summary: "summary a", Closed: 400,
+		},
+		archive.Record{
+			Dir: other, ClaudeSession: "sess-other", Transcript: resumeTranscript(t, "other.jsonl"),
+			Summary: "summary other", Closed: 500,
+		},
+	)
+
+	got, err := ResumeActions(Config{Archive: archivePath}, proj)
+	if err != nil {
+		t.Fatalf("ResumeActions: %v", err)
+	}
+	want := []Action{
+		{Kind: ActionResume, Dir: proj, Session: "sess-a", Note: "summary a"},
+		{Kind: ActionResume, Dir: proj, Session: "sess-b", Note: "summary b"},
+		{Kind: ActionFresh, Dir: proj},
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("ResumeActions = %+v, want %+v", got, want)
+	}
+}
+
+func TestResumeActionsWithNoUsableRecordIsContinueThenFresh(t *testing.T) {
+	proj := filepath.Join(t.TempDir(), "proj")
+	archivePath := resumeArchive(t,
+		archive.Record{
+			Dir: proj, ClaudeSession: "sess-gone", Transcript: filepath.Join(t.TempDir(), "gone.jsonl"),
+			Summary: "summary gone", Closed: 1,
+		},
+		archive.Record{
+			Dir: proj, ClaudeSession: "sess-no-transcript", Transcript: "",
+			Summary: "no transcript", Closed: 2,
+		},
+		archive.Record{
+			Dir: proj, ClaudeSession: "", Transcript: resumeTranscript(t, "unnamed.jsonl"),
+			Summary: "no session", Closed: 3,
+		},
+	)
+
+	got, err := ResumeActions(Config{Archive: archivePath}, proj)
+	if err != nil {
+		t.Fatalf("ResumeActions: %v", err)
+	}
+	want := []Action{{Kind: ActionContinue, Dir: proj}, {Kind: ActionFresh, Dir: proj}}
+	if !slices.Equal(got, want) {
+		t.Errorf("ResumeActions = %+v, want %+v", got, want)
+	}
+}
+
+func TestResumeActionsWithoutArchiveFileIsContinueThenFresh(t *testing.T) {
+	proj := filepath.Join(t.TempDir(), "proj")
+	absent := filepath.Join(t.TempDir(), "absent.jsonl")
+
+	got, err := ResumeActions(Config{Archive: absent}, proj)
+	if err != nil {
+		t.Fatalf("ResumeActions with no archive file: %v", err)
+	}
+	want := []Action{{Kind: ActionContinue, Dir: proj}, {Kind: ActionFresh, Dir: proj}}
+	if !slices.Equal(got, want) {
+		t.Errorf("ResumeActions = %+v, want %+v", got, want)
+	}
+}
+
+func TestResumeActionsEmptyArchiveIsError(t *testing.T) {
+	proj := filepath.Join(t.TempDir(), "proj")
+	if _, err := ResumeActions(Config{}, proj); err == nil {
+		t.Fatal("ResumeActions with an empty Archive returned nil error")
+	}
+}
+
+func TestResumeActionsMalformedArchiveLineIsError(t *testing.T) {
+	proj := filepath.Join(t.TempDir(), "proj")
+	archivePath := filepath.Join(t.TempDir(), "archive.jsonl")
+	writeFile(t, archivePath, "not json\n")
+
+	if _, err := ResumeActions(Config{Archive: archivePath}, proj); err == nil {
+		t.Fatal("ResumeActions with a malformed archive line returned nil error")
+	}
+}
+
+func TestResumeActionsTranscriptStatErrorIsError(t *testing.T) {
+	proj := filepath.Join(t.TempDir(), "proj")
+	notDir := filepath.Join(t.TempDir(), "file")
+	writeFile(t, notDir, "x")
+	archivePath := resumeArchive(t,
+		archive.Record{
+			Dir: proj, ClaudeSession: "sess-x", Transcript: filepath.Join(notDir, "x.jsonl"),
+			Summary: "stat fails", Closed: 1,
+		},
+	)
+
+	if _, err := ResumeActions(Config{Archive: archivePath}, proj); err == nil {
+		t.Fatal("ResumeActions with an unstattable transcript returned nil error")
 	}
 }
 

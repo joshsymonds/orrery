@@ -1,4 +1,5 @@
-// Package picker shows the actions open.Intent ranks for a text, and runs the one the user confirms.
+// Package picker shows actions and runs the one the user confirms. Run shows the actions open.Intent ranks for a
+// text; Choose shows the actions the caller supplies.
 package picker
 
 import (
@@ -17,9 +18,9 @@ import (
 	"github.com/joshsymonds/orrery/internal/open"
 )
 
-// Options configures Run. Text is what open.Intent ranks actions for; "" asks for it first. Dir, when set, is the
-// directory the first action opens a Claude pane in. Input is the terminal the keys are read from and must not be
-// nil; Output is where the prompt and the list are drawn.
+// Options configures Run and Choose. Text is what open.Intent ranks actions for; "" asks for it first. Dir, when set,
+// is the directory the first action opens a Claude pane in. Choose ignores Text and Dir. Input is the terminal the
+// keys are read from and must not be nil; Output is where the prompt and the list are drawn.
 type Options struct {
 	Config open.Config
 	Text   string
@@ -37,10 +38,10 @@ const (
 	keyEsc   = "esc"
 )
 
-// Run asks open.Intent for the actions for the text and shows them, best first, with the first one selected. An
-// empty opts.Text is asked for first, on a one-line prompt; Esc there returns false before the model runs. Enter
-// runs the selected action and returns its Target with true. Esc and q return false and run nothing. Keys queued on
-// a terminal before the prompt or the list is drawn are discarded, so none of them reaches either.
+// Run asks open.Intent for the actions for the text and shows them with Choose, best first, with the first one
+// selected. An empty opts.Text is asked for first, on a one-line prompt; Esc there returns false before the model
+// runs. Enter runs the selected action and returns its Target with true. Esc and q return false and run nothing.
+// Keys queued on a terminal before the prompt or the list is drawn are discarded, so none of them reaches either.
 func Run(ctx context.Context, opts Options) (open.Target, bool, error) {
 	text := opts.Text
 	if text == "" {
@@ -58,14 +59,25 @@ func Run(ctx context.Context, opts Options) (open.Target, bool, error) {
 	if err != nil {
 		return open.Target{}, false, fmt.Errorf("picker: %w", err)
 	}
-	if drainErr := discardQueued(opts.Input); drainErr != nil {
-		return open.Target{}, false, drainErr
+	return Choose(ctx, opts, withDir(actions, opts.Dir, text))
+}
+
+// Choose shows actions as the list, best first with the first one selected, and runs the one Enter selects. It asks
+// for no text and calls no open.Intent: nothing runs before Enter on a row, and Esc and q return false and run
+// nothing. Keys queued on opts.Input before the list is drawn are discarded. Choose ignores opts.Text and opts.Dir.
+// With no actions it returns an error and draws nothing.
+func Choose(ctx context.Context, opts Options, actions []open.Action) (open.Target, bool, error) {
+	if len(actions) == 0 {
+		return open.Target{}, false, errors.New("picker: no actions to choose from")
+	}
+	if err := discardQueued(opts.Input); err != nil {
+		return open.Target{}, false, err
 	}
 	execute := func(action open.Action) (open.Target, error) {
 		return open.ExecuteAction(ctx, opts.Config, action)
 	}
 	program := tea.NewProgram(
-		newModel(withDir(actions, opts.Dir, text), execute),
+		newModel(actions, execute),
 		tea.WithContext(ctx),
 		tea.WithInput(opts.Input),
 		tea.WithOutput(opts.Output),
@@ -359,8 +371,8 @@ func (m model) View() tea.View {
 	return tea.NewView(strings.Join(lines, "\n"))
 }
 
-// describe names an action by its kind with its pane, directory, or name and root, and marks an action with a
-// prompt.
+// describe names an action by its kind with its pane, directory, session, or name and root, and marks an action with
+// a prompt. A resume names its session and shows its note after it when it has one.
 func describe(action open.Action) string {
 	var text string
 	switch action.Kind {
@@ -370,6 +382,15 @@ func describe(action open.Action) string {
 		text = "pane " + action.Dir
 	case open.ActionProject:
 		text = "project " + action.Name + " in " + action.Dir
+	case open.ActionResume:
+		text = "resume " + action.Session
+		if action.Note != "" {
+			text += ": " + action.Note
+		}
+	case open.ActionContinue:
+		text = "continue latest in " + action.Dir
+	case open.ActionFresh:
+		text = "start fresh in " + action.Dir
 	default:
 		text = string(action.Kind)
 	}
