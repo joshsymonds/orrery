@@ -65,10 +65,11 @@ func (m model) keyPressed(msg tea.KeyPressMsg) (model, tea.Cmd) {
 			return m.expandQuiet()
 		}
 		return m.paneAction(action)
-	case keymap.ActMarkSeen, keymap.ActNewClaude, keymap.ActShell, keymap.ActPicker, keymap.ActClosePane:
+	case keymap.ActMarkSeen, keymap.ActNewClaude, keymap.ActShell, keymap.ActPicker, keymap.ActClosePane,
+		keymap.ActCloseProject:
 		return m.paneAction(action)
-	case keymap.ActCloseProject, keymap.ActTree:
-		// The tree has no behavior for these yet. ActTree is a tmux binding.
+	case keymap.ActTree:
+		// The tree has no behavior for it. It is a tmux binding.
 		return m, nil
 	}
 	return m, nil
@@ -117,12 +118,14 @@ func (m model) paneAction(action keymap.Action) (model, tea.Cmd) {
 			return shell.Open(ctx, client, cur.Cwd, tty)
 		}, true)
 	case keymap.ActClosePane:
-		return m, m.planClose(cur)
+		return m, m.planClose(cur, false)
+	case keymap.ActCloseProject:
+		return m, m.planClose(cur, true)
 	case keymap.ActPicker:
 		m.result = Result{Action: ActionIntent, Dir: cur.Cwd}
 		return m, tea.Quit
 	case keymap.ActDown, keymap.ActUp, keymap.ActNextUnseen, keymap.ActFilter, keymap.ActHelp, keymap.ActQuit,
-		keymap.ActCloseProject, keymap.ActTree:
+		keymap.ActTree:
 		// keyPressed routes only the pane actions here.
 		return m, nil
 	}
@@ -138,21 +141,26 @@ func (m model) action(fn func(context.Context, *tmuxctl.Client) error, quit bool
 	}
 }
 
-// planClose plans the close of cur in a command. The plan returns as a closePlanMsg.
-func (m model) planClose(cur protocol.Pane) tea.Cmd {
+// planClose plans the close of cur in a command. A project close plans the project in cur's
+// directory; otherwise the close plans cur's pane. The plan returns as a closePlanMsg.
+func (m model) planClose(cur protocol.Pane, project bool) tea.Cmd {
 	tty := m.clientTTY
 	invoke := m.invoke
 	return func() tea.Msg {
 		var plan closer.Plan
 		err := invoke(func(ctx context.Context, client *tmuxctl.Client) error {
 			var planErr error
-			plan, planErr = closer.PlanPane(ctx, client, cur.ID, tty)
+			if project {
+				plan, planErr = closer.PlanProject(ctx, client, cur.Cwd, tty)
+			} else {
+				plan, planErr = closer.PlanPane(ctx, client, cur.ID, tty)
+			}
 			if planErr != nil {
 				return fmt.Errorf("plan close: %w", planErr)
 			}
 			return nil
 		})
-		return closePlanMsg{plan: plan, err: err}
+		return closePlanMsg{plan: plan, project: project, err: err}
 	}
 }
 
@@ -163,7 +171,7 @@ func (m model) planned(msg closePlanMsg) model {
 		m.actionErr = msg.err
 		return m
 	}
-	m.closing = &closePrompt{plan: msg.plan}
+	m.closing = &closePrompt{plan: msg.plan, project: msg.project}
 	return m
 }
 
@@ -321,14 +329,62 @@ func matches(p protocol.Pane, needle string) bool {
 	return false
 }
 
-// working reports whether the planned pane is a Claude pane in the working state. PlanPane always
-// plans one pane, so Panes[0] is that pane.
-func (c *closePrompt) working() bool {
-	return c.plan.Panes[0].State == protocol.StateWorking
+// workingPanes returns the planned panes in the working state.
+func (c *closePrompt) workingPanes() []protocol.Pane {
+	var working []protocol.Pane
+	for _, pane := range c.plan.Panes {
+		if pane.State == protocol.StateWorking {
+			working = append(working, pane)
+		}
+	}
+	return working
 }
 
-// text is the prompt line. It names the planned pane's label, asks a second time when the pane
-// is working, and says where the invoking client goes.
+// working reports whether any planned pane is working.
+func (c *closePrompt) working() bool {
+	return len(c.workingPanes()) > 0
+}
+
+// lines is the close prompt, one entry per line. A pane close is the prompt line. A project close
+// names the directory, each pane it closes, and each pane in the directory that stays open, then
+// says where the invoking client goes, and asks. Its second prompt names the working panes.
+func (c *closePrompt) lines() []string {
+	if !c.project {
+		return []string{c.text()}
+	}
+	if c.asked {
+		var names []string
+		for _, pane := range c.workingPanes() {
+			names = append(names, paneName(pane))
+		}
+		return []string{"Working: " + strings.Join(names, ", ") + ".", "Close the project anyway? y/N"}
+	}
+	lines := []string{"Close the project at:", "  " + c.plan.Dir}
+	for _, pane := range c.plan.Panes {
+		lines = append(lines, "  close "+paneName(pane))
+	}
+	for _, pane := range c.plan.Kept {
+		lines = append(lines, "  stays open: "+paneName(pane))
+	}
+	switch {
+	case c.plan.MoveTo != "":
+		lines = append(lines, "The client moves to "+c.plan.MoveTo+".")
+	case c.plan.Detach:
+		lines = append(lines, "The client detaches.")
+	}
+	return append(lines, "Close these panes? y/N")
+}
+
+// paneName names a pane by its session, and by its label when it has one.
+func paneName(pane protocol.Pane) string {
+	if pane.Label == "" {
+		return pane.Session
+	}
+	return pane.Session + " (" + pane.Label + ")"
+}
+
+// text is the prompt line of a pane close. It names the planned pane's label, asks a second time
+// when the pane is working, and says where the invoking client goes.
 func (c *closePrompt) text() string {
 	label := c.plan.Panes[0].Label
 	question := "Close " + label + "?"

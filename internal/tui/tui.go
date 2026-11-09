@@ -100,11 +100,12 @@ func Run(ctx context.Context, opts Options) (Result, error) {
 	return done.result, nil
 }
 
-// closePrompt is the close the tree asks the user to confirm. asked is set once the second
-// prompt for a working pane has been answered with y.
+// closePrompt is the close the tree asks the user to confirm. project is set for a close of a
+// whole project. asked is set once the second prompt for a working pane has been answered with y.
 type closePrompt struct {
-	plan  closer.Plan
-	asked bool
+	plan    closer.Plan
+	project bool
+	asked   bool
 }
 
 // model is the tree's state. Panes reload through source and previews through capture,
@@ -152,10 +153,12 @@ type (
 		err  error
 		quit bool
 	}
-	// closePlanMsg reports the plan of a close the user asked for.
+	// closePlanMsg reports the plan of a close the user asked for. project is set for a close of a
+	// whole project.
 	closePlanMsg struct {
-		plan closer.Plan
-		err  error
+		plan    closer.Plan
+		project bool
+		err     error
 	}
 )
 
@@ -350,7 +353,7 @@ func (m model) frame() string {
 
 	var status []string
 	if m.closing != nil {
-		status = []string{m.closing.text()}
+		status = m.closing.lines()
 	} else if err := m.statusErr(); err != nil {
 		status = []string{"error: " + err.Error()}
 	}
