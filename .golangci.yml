@@ -549,6 +549,13 @@ linters:
           - gosec
         text: 'G204'
 
+      # The host status runner executes the configured --host-status-cmd path with no arguments and
+      # no shell, so the G204 finding is the intended design, as for tmuxctl (orchestrator decision E1-D7).
+      - path: 'internal/hoststatus/hoststatus\.go'
+        linters:
+          - gosec
+        text: 'G204'
+
 run:
   timeout: 5m
   concurrency: 0
