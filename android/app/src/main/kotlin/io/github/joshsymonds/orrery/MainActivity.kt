@@ -19,6 +19,7 @@ import io.github.joshsymonds.orrery.push.PushSetup
 import io.github.joshsymonds.orrery.ui.PaneListScreen
 import io.github.joshsymonds.orrery.ui.PaneScreen
 import io.github.joshsymonds.orrery.ui.SettingsScreen
+import io.github.joshsymonds.orrery.ui.theme.OrreryTheme
 
 class MainActivity : ComponentActivity() {
     private var screen by mutableStateOf<Screen>(Screen.Panes)
@@ -32,8 +33,11 @@ class MainActivity : ComponentActivity() {
         paneExtra(intent)?.let { screen = Screen.Pane(it) }
         val settings = ServerSettings(this)
         setContent {
-            MaterialTheme {
-                Surface(modifier = Modifier.fillMaxSize()) {
+            OrreryTheme {
+                Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    color = MaterialTheme.colorScheme.background,
+                ) {
                     var client by remember { mutableStateOf(OrreryClient(settings.serverUrl)) }
                     when (val current = screen) {
                         Screen.Panes -> PaneListScreen(
