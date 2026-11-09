@@ -234,7 +234,7 @@ func TestHelpListsEveryTreeKeyAndHelpWord(t *testing.T) {
 	lines := strings.Split(content, "\n")
 	for _, b := range keymap.For(keymap.Tree) {
 		keys := strings.Join(b.Keys, ", ")
-		if !slices.ContainsFunc(lines, func(line string) bool { return strings.HasPrefix(line, keys) }) {
+		if !slices.ContainsFunc(lines, func(line string) bool { return strings.HasPrefix(ansi.Strip(line), keys) }) {
 			t.Errorf("no overlay line starts with keys %q:\n%s", keys, content)
 		}
 		for _, word := range strings.Fields(b.Help) {
@@ -245,12 +245,26 @@ func TestHelpListsEveryTreeKeyAndHelpWord(t *testing.T) {
 	}
 }
 
+func TestHelpKeysAndTitleUsePaletteColours(t *testing.T) {
+	content := pressAll(t, loadedModel(t, staticSource), "?").View().Content
+	lines := strings.Split(content, "\n")
+	if want := palette.Fg(palette.Mauve, "Keys"); lines[0] != want {
+		t.Errorf("overlay title line = %q, want %q", lines[0], want)
+	}
+	for _, b := range keymap.For(keymap.Tree) {
+		want := palette.Fg(palette.Lavender, strings.Join(b.Keys, ", "))
+		if !slices.ContainsFunc(lines, func(line string) bool { return strings.HasPrefix(line, want) }) {
+			t.Errorf("no overlay line starts with %q:\n%s", want, content)
+		}
+	}
+}
+
 func TestHelpClosesOnAnyKeyAndRunsNothingElse(t *testing.T) {
 	tree := loadedModel(t, staticSource).View().Content
 	for _, name := range []string{"j", "q", "enter", "?"} {
 		t.Run(name, func(t *testing.T) {
 			m := pressAll(t, loadedModel(t, staticSource), "?")
-			if !strings.HasPrefix(m.View().Content, "Keys\n") {
+			if !strings.HasPrefix(ansi.Strip(m.View().Content), "Keys\n") {
 				t.Fatal("? did not open the help overlay")
 			}
 			next, cmd := m.Update(keyMsg(name))

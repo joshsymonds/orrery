@@ -424,10 +424,10 @@ func helpLines(width int) []string {
 		keyCol = max(keyCol, len(strings.Join(b.Keys, ", ")))
 	}
 	indent := strings.Repeat(" ", keyCol+helpGap)
-	lines := []string{"Keys"}
+	lines := []string{palette.Fg(palette.Mauve, "Keys")}
 	for _, b := range bindings {
 		wrapped := wrap(b.Help, width-len(indent))
-		lines = append(lines, fmt.Sprintf("%-*s%s", keyCol+helpGap, strings.Join(b.Keys, ", "), wrapped[0]))
+		lines = append(lines, column(strings.Join(b.Keys, ", "), keyCol+helpGap, palette.Lavender)+wrapped[0])
 		for _, part := range wrapped[1:] {
 			lines = append(lines, indent+part)
 		}
