@@ -9,7 +9,6 @@ import org.unifiedpush.android.connector.FailedReason
 import org.unifiedpush.android.connector.PushService
 import org.unifiedpush.android.connector.data.PushEndpoint
 import org.unifiedpush.android.connector.data.PushMessage
-import java.io.IOException
 
 private const val TAG = "OrreryPushService"
 
@@ -20,13 +19,9 @@ class OrreryPushService : PushService() {
             Log.w(TAG, "endpoint without keys; not registering")
             return
         }
-        val client = OrreryClient(ServerSettings(this).serverUrl)
+        val registration = PushRegistration(OrreryClient(ServerSettings(this).serverUrl))
         Thread {
-            try {
-                client.registerPush(endpoint.url, keys.pubKey, keys.auth)
-            } catch (e: IOException) {
-                Log.w(TAG, "push registration failed", e)
-            }
+            registration.register(endpoint.url, keys.pubKey, keys.auth)
         }.start()
     }
 

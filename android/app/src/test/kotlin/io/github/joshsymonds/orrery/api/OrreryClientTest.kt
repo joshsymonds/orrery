@@ -83,13 +83,28 @@ class OrreryClientTest {
     }
 
     @Test
-    fun screenReturnsBodyVerbatimAndEncodesPaneId() {
-        val screen = "line one  \nline two\n\tindent ✓\n"
+    fun screenAsksForColouredHistoryAndReturnsBodyVerbatim() {
+        val screen = "\u001B[38;2;166;227;161mline one\u001B[0m  \nline two\n\tindent ✓\n"
         FakeOrreryServer().use { server ->
             server.respond("GET", "/v1/panes/%253/screen", 200, screen)
 
             assertEquals(screen, OrreryClient(server.baseUrl).screen("%3"))
-            assertEquals("/v1/panes/%253/screen", server.requests.single().rawPath)
+
+            val request = server.requests.single()
+            assertEquals("GET", request.method)
+            assertEquals("/v1/panes/%253/screen", request.rawPath)
+            assertEquals("ansi=1&history=500", request.rawQuery)
+        }
+    }
+
+    @Test
+    fun screenFromPreV060ServerReturnsPlainTextUnchanged() {
+        val screen = "plain line\nsecond line\n"
+        FakeOrreryServer().use { server ->
+            server.respond("GET", "/v1/panes/%253/screen", 200, screen)
+
+            assertEquals(screen, OrreryClient(server.baseUrl).screen("%3"))
+            assertEquals("ansi=1&history=500", server.requests.single().rawQuery)
         }
     }
 

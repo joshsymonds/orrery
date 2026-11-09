@@ -20,5 +20,9 @@ val MochaColorScheme = darkColorScheme(
 
 @Composable
 fun OrreryTheme(content: @Composable () -> Unit) {
-    MaterialTheme(colorScheme = MochaColorScheme, content = content)
+    MaterialTheme(
+        colorScheme = MochaColorScheme,
+        typography = OrreryTypography,
+        content = content,
+    )
 }

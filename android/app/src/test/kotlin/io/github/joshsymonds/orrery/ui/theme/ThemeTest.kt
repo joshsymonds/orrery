@@ -4,6 +4,12 @@ import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.Font
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.font.FontWeight
+import io.github.joshsymonds.orrery.R
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertSame
 import org.junit.Rule
@@ -36,5 +42,50 @@ class ThemeTest {
         }
         composeRule.waitForIdle()
         assertSame(MochaColorScheme, provided)
+    }
+
+    @Test
+    fun orreryMonoResolvesRegularBoldAndItalicResources() {
+        assertEquals(
+            FontFamily(
+                Font(R.font.orrery_mono_regular, FontWeight.Normal, FontStyle.Normal),
+                Font(R.font.orrery_mono_bold, FontWeight.Bold, FontStyle.Normal),
+                Font(R.font.orrery_mono_italic, FontWeight.Normal, FontStyle.Italic),
+            ),
+            OrreryMono,
+        )
+    }
+
+    @Test
+    fun everyTypographyStyleInsideOrreryThemeUsesOrreryMono() {
+        var styles: List<Pair<String, TextStyle>>? = null
+        composeRule.setContent {
+            OrreryTheme {
+                val typography = MaterialTheme.typography
+                styles = listOf(
+                    "displayLarge" to typography.displayLarge,
+                    "displayMedium" to typography.displayMedium,
+                    "displaySmall" to typography.displaySmall,
+                    "headlineLarge" to typography.headlineLarge,
+                    "headlineMedium" to typography.headlineMedium,
+                    "headlineSmall" to typography.headlineSmall,
+                    "titleLarge" to typography.titleLarge,
+                    "titleMedium" to typography.titleMedium,
+                    "titleSmall" to typography.titleSmall,
+                    "bodyLarge" to typography.bodyLarge,
+                    "bodyMedium" to typography.bodyMedium,
+                    "bodySmall" to typography.bodySmall,
+                    "labelLarge" to typography.labelLarge,
+                    "labelMedium" to typography.labelMedium,
+                    "labelSmall" to typography.labelSmall,
+                )
+            }
+        }
+        composeRule.waitForIdle()
+        val captured = checkNotNull(styles)
+        assertEquals(15, captured.size)
+        captured.forEach { (name, style) ->
+            assertEquals(name, OrreryMono, style.fontFamily)
+        }
     }
 }
