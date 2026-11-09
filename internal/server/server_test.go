@@ -557,6 +557,135 @@ func TestServePaneScreenAbsentPane(t *testing.T) {
 	assertStatus(t, rec, http.StatusNotFound)
 }
 
+const (
+	// synthColor is the synthetic text a pane prints in red for the ansi parameter.
+	synthColor = "synthetic color marker"
+	// synthRed is the escape sequence that starts red text in a screen body.
+	synthRed = "\x1b[31m"
+	// historyCount is the number of numbered lines a history pane prints, more than the pane's visible height.
+	historyCount = 60
+	// colorCommand prints the synthetic marker in red, then keeps the pane alive.
+	colorCommand = `printf '\033[31m` + synthColor + `\033[0m\n'; ` + longCommand
+)
+
+// historyLine returns the synthetic numbered line n that a history pane prints.
+func historyLine(n int) string {
+	return fmt.Sprintf("synthetic history line %d", n)
+}
+
+// historyCommand prints line 1 in red and lines 2 through historyCount plain, then keeps the pane alive.
+func historyCommand() string {
+	first := fmt.Sprintf(`printf '\033[31m%s\033[0m\n'; `, historyLine(1))
+	loop := fmt.Sprintf(
+		`i=2; while [ $i -le %d ]; do echo "synthetic history line $i"; `+
+			`i=$((i+1)); done; `,
+		historyCount,
+	)
+	return first + loop + longCommand
+}
+
+// pollScreen polls path until it answers 200 with a body containing want, and returns that body.
+func pollScreen(t *testing.T, handler http.Handler, path, want string) string {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), screenWait)
+	defer cancel()
+	ticker := time.NewTicker(screenPoll)
+	defer ticker.Stop()
+	rec := get(t, handler, path, allowedLogin)
+	for rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), want) {
+		select {
+		case <-ctx.Done():
+			t.Fatalf("screen %s never showed %q; last status %d", path, want, rec.Code)
+		case <-ticker.C:
+		}
+		rec = get(t, handler, path, allowedLogin)
+	}
+	return rec.Body.String()
+}
+
+func TestServePaneScreenANSI(t *testing.T) {
+	t.Parallel()
+
+	tmux := newTmuxServer(t)
+	startSession(t, tmux, "s1", colorCommand)
+	pane := paneID(t, tmux, "s1")
+	handler := newHandler(t, tmux)
+	path := "/v1/panes/" + url.PathEscape(pane) + "/screen"
+
+	pollScreen(t, handler, path+"?ansi=1", synthRed+synthColor)
+
+	plain := get(t, handler, path, allowedLogin)
+	assertStatus(t, plain, http.StatusOK)
+	if !strings.Contains(plain.Body.String(), synthColor) {
+		t.Fatalf("plain body = %q, want it to contain %q", plain.Body.String(), synthColor)
+	}
+	if strings.Contains(plain.Body.String(), "\x1b") {
+		t.Fatalf("plain body = %q, want no escape sequences", plain.Body.String())
+	}
+
+	zero := get(t, handler, path+"?ansi=0", allowedLogin)
+	assertStatus(t, zero, http.StatusOK)
+	if zero.Body.String() != plain.Body.String() {
+		t.Fatalf("ansi=0 body = %q, want the plain body %q", zero.Body.String(), plain.Body.String())
+	}
+}
+
+func TestServePaneScreenHistory(t *testing.T) {
+	t.Parallel()
+
+	tmux := newTmuxServer(t)
+	startSession(t, tmux, "s1", historyCommand())
+	pane := paneID(t, tmux, "s1")
+	handler := newHandler(t, tmux)
+	path := "/v1/panes/" + url.PathEscape(pane) + "/screen"
+	first := historyLine(1)
+	count := strconv.Itoa(historyCount)
+
+	// The visible screen shows the last line the pane prints, so poll until that line is on it.
+	plain := pollScreen(t, handler, path, historyLine(historyCount))
+	if slices.Contains(strings.Split(plain, "\n"), first) {
+		t.Fatalf("plain body = %q, want %q only in scrollback", plain, first)
+	}
+
+	withHistory := get(t, handler, path+"?history="+count, allowedLogin)
+	assertStatus(t, withHistory, http.StatusOK)
+	if !slices.Contains(strings.Split(withHistory.Body.String(), "\n"), first) {
+		t.Fatalf("history body = %q, want line %q", withHistory.Body.String(), first)
+	}
+
+	for _, query := range []string{"history=0", "history=2000"} {
+		assertStatus(t, get(t, handler, path+"?"+query, allowedLogin), http.StatusOK)
+	}
+
+	both := get(t, handler, path+"?ansi=1&history="+count, allowedLogin)
+	assertStatus(t, both, http.StatusOK)
+	if !strings.Contains(both.Body.String(), synthRed+first) {
+		t.Fatalf("ansi and history body = %q, want %q", both.Body.String(), synthRed+first)
+	}
+}
+
+func TestServePaneScreenRejectsBadParams(t *testing.T) {
+	t.Parallel()
+
+	tmux := newTmuxServer(t)
+	startSession(t, tmux, "s1", longCommand)
+	pane := paneID(t, tmux, "s1")
+	handler := newHandler(t, tmux)
+	path := "/v1/panes/" + url.PathEscape(pane) + "/screen"
+	queries := []string{
+		"ansi=2", "ansi=yes", "ansi=-1", "ansi=true", "ansi=", "ansi=1&ansi=1",
+		"history=-1", "history=2001", "history=abc", "history=", "history=+5", "history=%205",
+		"history=1.5", "history=0x10", "history=1&history=2",
+	}
+	for _, query := range queries {
+		t.Run(query, func(t *testing.T) {
+			t.Parallel()
+			rec := get(t, handler, path+"?"+query, allowedLogin)
+			assertStatus(t, rec, http.StatusBadRequest)
+		})
+	}
+}
+
 func TestServeTmuxRoutesRequireListedLogin(t *testing.T) {
 	t.Parallel()
 

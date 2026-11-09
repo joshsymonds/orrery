@@ -11,6 +11,8 @@ import (
 	"mime"
 	"net"
 	"net/http"
+	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/joshsymonds/orrery/internal/cli"
@@ -27,6 +29,13 @@ const HeaderClient = "X-Orrery-Client"
 
 // questionHashKey is the key GET /v1/panes adds to each pane, holding protocol.QuestionHash of its question.
 const questionHashKey = "question_hash"
+
+// Query keys of GET /v1/panes/{id}/screen, and the largest history value the route accepts, in lines.
+const (
+	queryANSI        = "ansi"
+	queryHistory     = "history"
+	screenHistoryMax = 2000
+)
 
 // jsonContentType is the Content-Type of every JSON response.
 const jsonContentType = "application/json"
@@ -196,16 +205,22 @@ func serveNewWindow(tmux *tmuxctl.Client) http.HandlerFunc {
 	}
 }
 
-// serveScreen answers GET /v1/panes/{id}/screen with the text one pane currently shows.
+// serveScreen answers GET /v1/panes/{id}/screen with the text one pane currently shows. ansi=1 keeps the
+// color escape sequences, and history=N adds N scrollback lines above the visible screen.
 func serveScreen(tmux *tmuxctl.Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		flags, ok := screenFlags(r.URL.Query())
+		if !ok {
+			http.Error(w, "bad request query", http.StatusBadRequest)
+			return
+		}
 		id := r.PathValue("id")
 		pane, err := checkPane(r.Context(), tmux, id)
 		if err != nil {
 			paneError(w, err)
 			return
 		}
-		screen, err := tmux.Run(r.Context(), "capture-pane", "-p", "-J", "-t", pane.ID)
+		screen, err := tmux.Run(r.Context(), append(flags, "-t", pane.ID)...)
 		if err != nil {
 			http.Error(w, "internal server error", http.StatusInternalServerError)
 			return
@@ -214,6 +229,52 @@ func serveScreen(tmux *tmuxctl.Client) http.HandlerFunc {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(screen))
 	}
+}
+
+// screenFlags returns the capture-pane arguments for a screen query, and false when ansi or history is not a
+// valid value. An absent ansi or ansi=0 is plain text and ansi=1 keeps escape sequences. An absent history adds
+// no scrollback, and history=N with N from 0 to screenHistoryMax adds N lines of it.
+func screenFlags(query url.Values) ([]string, bool) {
+	flags := []string{"capture-pane", "-p", "-J"}
+	if values, present := query[queryANSI]; present {
+		switch singleValue(values) {
+		case "0":
+		case "1":
+			flags = append(flags, "-e")
+		default:
+			return nil, false
+		}
+	}
+	if values, present := query[queryHistory]; present {
+		lines, ok := historyLines(values)
+		if !ok {
+			return nil, false
+		}
+		flags = append(flags, "-S", "-"+strconv.Itoa(lines))
+	}
+	return flags, true
+}
+
+// singleValue returns the one value in values, or "" when there are none or several.
+func singleValue(values []string) string {
+	if len(values) != 1 {
+		return ""
+	}
+	return values[0]
+}
+
+// historyLines returns the scrollback line count in values, and false unless values holds exactly one
+// string of decimal digits no larger than screenHistoryMax.
+func historyLines(values []string) (int, bool) {
+	value := singleValue(values)
+	if value == "" || strings.Trim(value, "0123456789") != "" {
+		return 0, false
+	}
+	n, err := strconv.Atoi(value)
+	if err != nil || n > screenHistoryMax {
+		return 0, false
+	}
+	return n, true
 }
 
 // servePaneText answers POST /v1/panes/{id}/text by pasting the body's text into the pane and pressing Enter.
