@@ -20,6 +20,7 @@ import (
 const (
 	goldenPath     = "testdata/card.golden"
 	pageGoldenPath = "testdata/page.golden"
+	readmePath     = "../../README.md"
 	maxLines       = 40
 	labelWidth     = 14
 )
@@ -116,6 +117,43 @@ func TestCardReturnsWriteError(t *testing.T) {
 	err := help.Card(failingWriter{}, "C-a")
 	if !errors.Is(err, errWrite) {
 		t.Fatalf("Card error = %v, want %v", err, errWrite)
+	}
+}
+
+// readmeDailyUseBlock returns the text of the first fenced text block after README.md's Daily use heading, with a
+// trailing newline.
+func readmeDailyUseBlock(t *testing.T) string {
+	t.Helper()
+	raw, err := os.ReadFile(readmePath)
+	if err != nil {
+		t.Fatalf("read README: %v", err)
+	}
+	lines := strings.Split(string(raw), "\n")
+	heading := slices.Index(lines, "## Daily use")
+	if heading < 0 {
+		t.Fatalf("README.md has no \"## Daily use\" heading")
+	}
+	rest := lines[heading+1:]
+	open := slices.Index(rest, "```text")
+	if open < 0 {
+		t.Fatalf("README.md has no ```text block after the \"## Daily use\" heading")
+	}
+	rest = rest[open+1:]
+	end := slices.Index(rest, "```")
+	if end < 0 {
+		t.Fatalf("README.md's ```text block after \"## Daily use\" is not closed")
+	}
+	return strings.Join(rest[:end], "\n") + "\n"
+}
+
+func TestReadmeDailyUseMatchesCard(t *testing.T) {
+	var card bytes.Buffer
+	if err := help.Card(&card, ""); err != nil {
+		t.Fatalf("Card: %v", err)
+	}
+	if got := readmeDailyUseBlock(t); got != card.String() {
+		t.Errorf("README.md Daily use block differs from Card:\n--- README.md\n%s--- Card\n%s",
+			got, card.String())
 	}
 }
 

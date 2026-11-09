@@ -23,6 +23,43 @@ orrery and the `p` launcher. Command lines, flags, environment variables, exit
 codes, key tables, and a settings example are documented in
 [section 11 of `docs/contract.md`](docs/contract.md#11-commands-and-configuration).
 
+## Daily use
+
+`orrery help` prints this card, with the live tmux prefix when a server is reachable. `orrery help --html` writes it as a static page.
+
+```text
+orrery daily use
+
+p
+  p             attach the most recently active session, then open the tree
+  p .           the session for the current directory, created if missing
+  p WORD        a session named WORD, else a zoxide match, else the picker
+  p new NAME    create project directory NAME and a session for it (--root DIR sets the parent)
+  p WORDS...    open the picker with WORDS as the intent
+
+tmux
+  prefix Space  open the tree in a popup
+  prefix s      open the shell popup for the current pane's directory
+
+kitty
+  kitty_mod+p   run p; nix-config's kitty binding, not set by orrery
+
+tree
+  j, down       move the cursor one row down
+  k, up         move the cursor one row up
+  n             move to the next unseen row after the cursor, wrapping around
+  /             start filter input. Typed text sets the filter. Backspace deletes its last character, Enter keeps the filter, and Esc clears it
+  enter         switch the client to the row's pane, mark the pane seen, and close the tree
+  x             mark the row's pane seen; the tree stays open
+  c             add a window running `claude` to the row's session, started in the row's directory; the tree stays open
+  s             open the shell popup for the row's directory, and close the tree
+  N             close the tree and run the picker for the row's directory; the picker's choice switches the client
+  X             close the row's pane after a y/N prompt, asking twice for a working Claude pane
+  D             close every session of the row's project and its shell session after a prompt listing them
+  ?             show every key
+  esc, q        close the tree
+```
+
 ## Build and check
 
 ```sh
