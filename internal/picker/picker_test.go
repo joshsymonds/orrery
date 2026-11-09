@@ -1,6 +1,7 @@
 package picker
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/json"
@@ -37,16 +38,18 @@ const (
 )
 
 // pickerSpec is what a picker pane reads: the server and fakes Run uses, TEXT, DIR, and the file the outcome goes
-// to. A non-empty Gate is a file the pane waits for before Run, so keys sent before it are queued.
+// to. A non-empty Gate is a file the pane waits for before Run, so keys sent before it are queued. A non-empty
+// Actions is the list the pane passes to Choose instead of calling Run.
 type pickerSpec struct {
-	Server string
-	Zoxide string
-	Claude string
-	Root   string
-	Text   string
-	Dir    string
-	Gate   string
-	Result string
+	Server  string
+	Zoxide  string
+	Claude  string
+	Root    string
+	Text    string
+	Dir     string
+	Gate    string
+	Result  string
+	Actions []open.Action
 }
 
 // pickerOutcome is what the picker pane's Run returned.
@@ -82,13 +85,21 @@ func TestPickerPane(t *testing.T) {
 			return err == nil
 		})
 	}
-	target, chosen, runErr := Run(t.Context(), Options{
+	options := Options{
 		Config: open.Config{Tmux: client, Zoxide: spec.Zoxide, Claude: spec.Claude, Root: spec.Root},
 		Text:   spec.Text,
 		Dir:    spec.Dir,
 		Input:  os.Stdin,
 		Output: os.Stdout,
-	})
+	}
+	var target open.Target
+	var chosen bool
+	var runErr error
+	if len(spec.Actions) > 0 {
+		target, chosen, runErr = Choose(t.Context(), options, spec.Actions)
+	} else {
+		target, chosen, runErr = Run(t.Context(), options)
+	}
 	outcome := pickerOutcome{Session: target.Session, Pane: target.Pane, Chosen: chosen}
 	if runErr != nil {
 		outcome.Err = runErr.Error()
@@ -150,6 +161,7 @@ type fixture struct {
 	dir           string // the picker's DIR; "" has none
 	gated         bool   // the picker pane waits for gate before Run
 	gate          string
+	actions       []open.Action // non-empty: the picker pane calls Choose with these instead of Run
 	spec          string
 	result        string
 }
@@ -204,14 +216,15 @@ func (f *fixture) startPicker(t *testing.T) {
 		f.gate = filepath.Join(dir, "gate")
 	}
 	data, err := json.Marshal(pickerSpec{
-		Server: f.server,
-		Zoxide: f.zoxide,
-		Claude: f.claude,
-		Root:   f.root,
-		Text:   f.text,
-		Dir:    f.dir,
-		Gate:   f.gate,
-		Result: f.result,
+		Server:  f.server,
+		Zoxide:  f.zoxide,
+		Claude:  f.claude,
+		Root:    f.root,
+		Text:    f.text,
+		Dir:     f.dir,
+		Gate:    f.gate,
+		Result:  f.result,
+		Actions: f.actions,
 	})
 	if err != nil {
 		t.Fatalf("encode spec: %v", err)
@@ -628,6 +641,91 @@ func TestPickerEditOnJumpRowChangesNothing(t *testing.T) {
 	}
 	if got := f.state(t); got != baseline {
 		t.Fatalf("jump created state:\nbefore:\n%s\nafter:\n%s", baseline, got)
+	}
+}
+
+// chooseActions makes two new directories under the fixture's root and returns a pane action for each, the first
+// action first.
+func chooseActions(t *testing.T, f *fixture) []open.Action {
+	t.Helper()
+	dirs := []string{filepath.Join(f.root, "choose-a"), filepath.Join(f.root, "choose-b")}
+	for _, dir := range dirs {
+		if err := os.Mkdir(dir, 0o750); err != nil {
+			t.Fatalf("mkdir %s: %v", dir, err)
+		}
+	}
+	return []open.Action{{Kind: open.ActionPane, Dir: dirs[0]}, {Kind: open.ActionPane, Dir: dirs[1]}}
+}
+
+func TestChooseShowsActionsAndRunsNothingBeforeInput(t *testing.T) {
+	f := newFixture(t, 0)
+	f.actions = chooseActions(t, f)
+	f.startPicker(t)
+	baseline := f.state(t)
+	f.waitForFrame(t, "> pane "+f.actions[0].Dir)
+	if frame := f.frame(t); !hasLine(frame, "  pane "+f.actions[1].Dir) {
+		t.Fatalf("the second action is not shown:\n%s", frame)
+	}
+	if n := claudeRuns(t, f.claude); n != 0 {
+		t.Fatalf("fake claude ran %d times before input, want none", n)
+	}
+	f.assertNoOutcome(t)
+	if got := f.state(t); got != baseline {
+		t.Fatalf("state changed before Enter on a shown choice:\nbefore:\n%s\nafter:\n%s", baseline, got)
+	}
+}
+
+func TestChooseDownAndEnterRunsSecondAction(t *testing.T) {
+	f := newFixture(t, 0)
+	f.actions = chooseActions(t, f)
+	// The pane action's fake claude run holds, so its session outlives the check.
+	writeFile(t, f.hold, "")
+	f.startPicker(t)
+	f.waitForFrame(t, "> pane "+f.actions[0].Dir)
+	f.sendKeys(t, "j")
+	f.waitForFrame(t, "> pane "+f.actions[1].Dir)
+	f.sendKeys(t, "Enter")
+
+	outcome := f.awaitOutcome(t)
+	if !outcome.Chosen || outcome.Err != "" {
+		t.Fatalf("outcome = %+v, want the second action run with no error", outcome)
+	}
+	if outcome.Pane != "" || outcome.Session == "" || outcome.Session == f.targetSession {
+		t.Fatalf("outcome = %+v, want a new session with no pane", outcome)
+	}
+	if got := f.sessionDir(t, outcome.Session); got != f.actions[1].Dir {
+		t.Fatalf("new session dir = %q, want %q", got, f.actions[1].Dir)
+	}
+}
+
+func TestChooseEscRunsNothing(t *testing.T) {
+	f := newFixture(t, 0)
+	f.actions = chooseActions(t, f)
+	f.startPicker(t)
+	baseline := f.state(t)
+	f.waitForFrame(t, "> pane "+f.actions[0].Dir)
+	f.sendKeys(t, "Escape")
+
+	outcome := f.awaitOutcome(t)
+	if outcome.Chosen || outcome.Err != "" || outcome.Session != "" || outcome.Pane != "" {
+		t.Fatalf("outcome = %+v, want no choice, no error, and no target", outcome)
+	}
+	if n := claudeRuns(t, f.claude); n != 0 {
+		t.Fatalf("fake claude ran %d times, want none", n)
+	}
+	if got := f.state(t); got != baseline {
+		t.Fatalf("Esc created state:\nbefore:\n%s\nafter:\n%s", baseline, got)
+	}
+}
+
+func TestChooseWithoutActionsErrors(t *testing.T) {
+	var out bytes.Buffer
+	_, chosen, err := Choose(t.Context(), Options{Output: &out}, nil)
+	if err == nil || chosen {
+		t.Fatalf("Choose with no actions: chosen = %v, err = %v; want an error and no choice", chosen, err)
+	}
+	if out.Len() != 0 {
+		t.Fatalf("Choose with no actions drew %q, want nothing", out.String())
 	}
 }
 
