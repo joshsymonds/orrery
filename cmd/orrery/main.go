@@ -54,6 +54,7 @@ subcommands:
                                                 write a pane's summary and label
   shell --dir DIR --client TTY                  open DIR's shell popup on the client at TTY
   tree --client TTY                             show the pane tree on the client at TTY; N picks a pane
+  open [--remote] [--intent TEXT] [ARGS...]     switch to the plan for ARGS, or to the picker; attach outside tmux
   tmux-conf                                     print the orrery tmux plugin for this binary
 `
 
@@ -147,6 +148,12 @@ func dispatch(ctx context.Context, opts globals, rest []string, stdin *os.File, 
 		return nil
 	case "tmux-conf":
 		return tmuxConf(args, stdout)
+	case "open":
+		client, err := tmuxctl.New(opts.server)
+		if err != nil {
+			return fmt.Errorf("tmux server: %w", err)
+		}
+		return openCommand(ctx, client, opts.server, args, stdin, stdout, getenv)
 	case "list", "seen", "send", "debug", "shell", "tree":
 		client, err := tmuxctl.New(opts.server)
 		if err != nil {
@@ -250,7 +257,125 @@ func tree(ctx context.Context, client *tmuxctl.Client, args []string, stdin *os.
 	if !chosen {
 		return nil
 	}
-	return switchClient(ctx, client, *clientTTY, target)
+	if err = switchClient(ctx, client, *clientTTY, target); err != nil {
+		return fmt.Errorf("tree: %w", err)
+	}
+	return nil
+}
+
+// openCommand runs `orrery open`. It runs the plan for args, or the picker when args name neither a session nor a
+// directory, or when --intent TEXT is set. The chosen target is then shown on the invoking client.
+func openCommand(ctx context.Context, client *tmuxctl.Client, server tmuxctl.Server, args []string, stdin *os.File,
+	stdout io.Writer, getenv func(string) string) error {
+	flags := flag.NewFlagSet("open", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	remote := flags.Bool("remote", false, "the current directory is on another host")
+	intent := flags.String("intent", "", "text the picker ranks actions for, in place of ARGS")
+	if err := flags.Parse(args); err != nil {
+		return usagef("open: %v", err)
+	}
+	intentSet := false
+	flags.Visit(func(f *flag.Flag) {
+		intentSet = intentSet || f.Name == "intent"
+	})
+	if intentSet && flags.NArg() > 0 {
+		return usagef("open: --intent takes no ARGS")
+	}
+	cfg, err := openConfig(client, getenv)
+	if err != nil {
+		return fmt.Errorf("open: %w", err)
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("open: working directory: %w", err)
+	}
+	req := open.Request{Args: flags.Args(), Cwd: cwd, Remote: *remote}
+	target, chosen, err := openChoice(ctx, cfg, req, *intent, intentSet, stdin, stdout)
+	if err != nil {
+		return err
+	}
+	if !chosen {
+		return nil
+	}
+	return showTarget(ctx, client, server, stdin, getenv, target)
+}
+
+// openChoice returns the target for req and whether one was chosen. With --intent, and with a plan that is text,
+// the picker runs for the text. Otherwise the plan runs and its target is chosen.
+func openChoice(ctx context.Context, cfg open.Config, req open.Request, intent string, intentSet bool,
+	stdin *os.File, stdout io.Writer) (open.Target, bool, error) {
+	if intentSet {
+		return pick(ctx, cfg, intent, stdin, stdout)
+	}
+	plan, err := open.Resolve(ctx, cfg, req)
+	if err != nil {
+		return open.Target{}, false, fmt.Errorf("plan: %w", err)
+	}
+	if plan.Text != "" {
+		return pick(ctx, cfg, plan.Text, stdin, stdout)
+	}
+	target, err := open.Execute(ctx, cfg, plan)
+	if err != nil {
+		return open.Target{}, false, fmt.Errorf("plan: %w", err)
+	}
+	return target, true, nil
+}
+
+// pick runs the picker for text and returns the target it chose, if any.
+func pick(ctx context.Context, cfg open.Config, text string, stdin *os.File,
+	stdout io.Writer) (open.Target, bool, error) {
+	target, chosen, err := picker.Run(ctx, picker.Options{Config: cfg, Text: text, Input: stdin, Output: stdout})
+	if err != nil {
+		return open.Target{}, false, fmt.Errorf("open: %w", err)
+	}
+	return target, chosen, nil
+}
+
+// showTarget puts the invoking client on target. Inside tmux that client is the one whose tty tmux reports, and it
+// is switched. Outside tmux the process's terminal is attached to target.
+func showTarget(ctx context.Context, client *tmuxctl.Client, server tmuxctl.Server, stdin *os.File,
+	getenv func(string) string, target open.Target) error {
+	if getenv("TMUX") == "" {
+		return attachTarget(ctx, server, stdin, target)
+	}
+	tty, err := client.Run(ctx, "display-message", "-p", "#{client_tty}")
+	if err != nil {
+		return fmt.Errorf("open: client tty: %w", err)
+	}
+	clientTTY := strings.TrimSpace(tty)
+	if clientTTY == "" {
+		return errors.New("open: tmux reports no client tty")
+	}
+	if err = switchClient(ctx, client, clientTTY, target); err != nil {
+		return fmt.Errorf("open: %w", err)
+	}
+	return nil
+}
+
+// attachTarget attaches the process's terminal to target on server. tmux needs the terminal's own descriptors,
+// so the standard streams are the process's.
+func attachTarget(ctx context.Context, server tmuxctl.Server, stdin *os.File, target open.Target) error {
+	argv := append(serverFlags(server), "attach-session", "-t", targetRef(target))
+	cmd := exec.CommandContext(ctx, "tmux", argv...)
+	cmd.Stdin = stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("open: attach: %w", err)
+	}
+	return nil
+}
+
+// serverFlags returns the tmux flags that select server.
+func serverFlags(server tmuxctl.Server) []string {
+	switch {
+	case server.Name != "":
+		return []string{"-L", server.Name}
+	case server.Socket != "":
+		return []string{"-S", server.Socket}
+	default:
+		return nil
+	}
 }
 
 // openConfig returns the picker's configuration: zoxide and claude as absolute paths found on orrery's PATH, and
@@ -280,16 +405,20 @@ func absLookPath(name string) (string, error) {
 	return abs, nil
 }
 
-// switchClient switches the client at tty to target: its pane when the target names one, else its session.
+// switchClient switches the client at tty to target.
 func switchClient(ctx context.Context, client *tmuxctl.Client, tty string, target open.Target) error {
-	dest := "=" + target.Session + ":"
-	if target.Pane != "" {
-		dest = target.Pane
-	}
-	if _, err := client.Run(ctx, "switch-client", "-c", tty, "-t", dest); err != nil {
-		return fmt.Errorf("tree: switch client: %w", err)
+	if _, err := client.Run(ctx, "switch-client", "-c", tty, "-t", targetRef(target)); err != nil {
+		return fmt.Errorf("switch client: %w", err)
 	}
 	return nil
+}
+
+// targetRef returns the tmux target that selects target: its pane when it names one, else its session's current pane.
+func targetRef(target open.Target) string {
+	if target.Pane != "" {
+		return target.Pane
+	}
+	return "=" + target.Session + ":"
 }
 
 // tmuxConf runs `orrery tmux-conf`, which prints the orrery tmux plugin for this binary's own path. It takes no

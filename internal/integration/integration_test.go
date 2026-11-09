@@ -1170,11 +1170,41 @@ func clientRows(t *testing.T, client *tmuxctl.Client) []clientRow {
 // its tty once the server lists it. The client stays attached until cleanup.
 func attachClient(t *testing.T, client *tmuxctl.Client, name, session string, cols, rows int) string {
 	t.Helper()
+	known := knownClients(t, client)
+	startScript(t, fmt.Sprintf("stty cols %d rows %d; env -u TMUX tmux -L %s attach -t %s", cols, rows, name, session))
+	return waitForNewClient(t, client, session, known)
+}
+
+// knownClients returns the ttys of the clients the server behind client lists now.
+func knownClients(t *testing.T, client *tmuxctl.Client) map[string]bool {
+	t.Helper()
 	known := map[string]bool{}
 	for _, row := range clientRows(t, client) {
 		known[row.tty] = true
 	}
-	command := fmt.Sprintf("stty cols %d rows %d; env -u TMUX tmux -L %s attach -t %s", cols, rows, name, session)
+	return known
+}
+
+// waitForNewClient waits until the server lists a client that is not in known and shows session, and returns its tty.
+func waitForNewClient(t *testing.T, client *tmuxctl.Client, session string, known map[string]bool) string {
+	t.Helper()
+	var tty string
+	waitUntil(t, "client attached to "+session, func() bool {
+		for _, row := range clientRows(t, client) {
+			if !known[row.tty] && row.session == session {
+				tty = row.tty
+				return true
+			}
+		}
+		return false
+	})
+	return tty
+}
+
+// startScript runs command on a pseudo-terminal through script, with the test's environment minus the tmux
+// variables. The process stays until cleanup, which closes its input and waits for it.
+func startScript(t *testing.T, command string) {
+	t.Helper()
 	cmd := exec.CommandContext(t.Context(), "script", "-qfc", command, "/dev/null")
 	cmd.Env = scrubbedEnv()
 	cmd.Stdout = io.Discard
@@ -1190,18 +1220,6 @@ func attachClient(t *testing.T, client *tmuxctl.Client, name, session string, co
 		_ = stdin.Close()
 		_ = cmd.Wait()
 	})
-
-	var tty string
-	waitUntil(t, "client attached to "+session, func() bool {
-		for _, row := range clientRows(t, client) {
-			if !known[row.tty] && row.session == session {
-				tty = row.tty
-				return true
-			}
-		}
-		return false
-	})
-	return tty
 }
 
 // popupError returns an error unless the invoking and other clients still show session, and a client shows the
@@ -1417,6 +1435,26 @@ func (f fakeTool) runs(t *testing.T) int {
 	return len(entries)
 }
 
+// waitForStarted waits until the fake has started n runs and each has opened its stdin file, the last file a run
+// writes before it blocks. A run that is still writing when a test ends would race the removal of the fake's
+// directory.
+func (f fakeTool) waitForStarted(t *testing.T, n int) {
+	t.Helper()
+	waitUntil(t, fmt.Sprintf("%d runs of %s to start", n, f.bin), func() bool {
+		entries, err := os.ReadDir(filepath.Join(f.dir, "calls"))
+		if err != nil {
+			return false
+		}
+		started := 0
+		for _, entry := range entries {
+			if _, statErr := os.Stat(filepath.Join(f.dir, "calls", entry.Name(), "stdin")); statErr == nil {
+				started++
+			}
+		}
+		return started == n
+	})
+}
+
 // setHold makes each run of the fake block while held is true.
 func (f fakeTool) setHold(t *testing.T, held bool) {
 	t.Helper()
@@ -1430,11 +1468,11 @@ func (f fakeTool) setHold(t *testing.T, held bool) {
 	}
 }
 
-// newSession starts detached session name in dir running command and returns the ID of its first pane.
-func newSession(t *testing.T, client *tmuxctl.Client, name, dir, command string) string {
+// newSession starts detached session name in dir running sleep, and returns the ID of its first pane.
+func newSession(t *testing.T, client *tmuxctl.Client, name, dir string) string {
 	t.Helper()
 	if _, err := client.Run(t.Context(), "-f", noConfig, "new-session", "-d", "-s", name, "-c", dir,
-		command); err != nil {
+		"sleep 300"); err != nil {
 		t.Fatalf("new-session %s: %v", name, err)
 	}
 	out, err := client.Run(t.Context(), "list-panes", "-t", name, "-F", "#{pane_id}")
@@ -1503,13 +1541,13 @@ func setupTree(t *testing.T) treeWorld {
 	t.Setenv("HOME", t.TempDir())
 
 	client, name := newServer(t)
-	newSession(t, client, "s1", t.TempDir(), "sleep 300")
+	newSession(t, client, "s1", t.TempDir())
 	invoking := attachClient(t, client, name, "s1", 80, 24)
 
 	targetDir := t.TempDir()
-	target := newSession(t, client, "s2", targetDir, "sleep 300")
+	target := newSession(t, client, "s2", targetDir)
 	mustSetState(t, client, target)
-	newSession(t, client, "s3", t.TempDir(), "sleep 300")
+	newSession(t, client, "s3", t.TempDir())
 	other := attachClient(t, client, name, "s3", 100, 30)
 
 	orrery := filepath.Join(os.Getenv(binDirEnv), "orrery")
@@ -1646,4 +1684,199 @@ func paneListed(t *testing.T, client *tmuxctl.Client, pane string) bool {
 		t.Fatalf("list-panes: %v", err)
 	}
 	return slices.Contains(strings.Fields(out), pane)
+}
+
+// orreryPath returns the built orrery binary.
+func orreryPath() string {
+	return filepath.Join(os.Getenv(binDirEnv), "orrery")
+}
+
+// installOpenFakes installs a fake claude and a fake zoxide whose reply is zoxideReply, leads PATH with them, and
+// points HOME at a temp directory. It returns the fake claude.
+func installOpenFakes(t *testing.T, zoxideReply string) fakeTool {
+	t.Helper()
+	claude := installFake(t, "fake-claude", "claude", "pane d1\ntask: no\n")
+	zoxide := installFake(t, "fake-zoxide", "zoxide", zoxideReply)
+	t.Setenv("PATH", claude.dir+string(os.PathListSeparator)+zoxide.dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("HOME", t.TempDir())
+	return claude
+}
+
+// openWorld is a private server for the open tests. Session s1 is the invoking client's session and holds the pane
+// that runs orrery. Session s2 is the existing session NAME. Session s3 is the other client's session.
+type openWorld struct {
+	client   *tmuxctl.Client
+	name     string
+	invoking string
+	other    string
+	claude   fakeTool
+}
+
+// setupOpen installs the open fakes with zoxideReply, then attaches the invoking client to s1 and the other client to s3.
+func setupOpen(t *testing.T, zoxideReply string) openWorld {
+	t.Helper()
+	claude := installOpenFakes(t, zoxideReply)
+	client, name := newServer(t)
+	newSession(t, client, "s1", t.TempDir())
+	invoking := attachClient(t, client, name, "s1", 80, 24)
+	newSession(t, client, "s2", t.TempDir())
+	newSession(t, client, "s3", t.TempDir())
+	other := attachClient(t, client, name, "s3", 100, 30)
+	return openWorld{client: client, name: name, invoking: invoking, other: other, claude: claude}
+}
+
+// runInPane starts orrery with args in a new pane of s1, so the command runs with TMUX set. The pane then prints
+// "exit STATUS" and waits. It returns the pane's ID.
+func (w openWorld) runInPane(t *testing.T, args string) string {
+	t.Helper()
+	command := fmt.Sprintf("%s -L %s %s; echo exit $?; sleep 300", orreryPath(), w.name, args)
+	return splitPane(t, w.client, "s1", command)
+}
+
+// exampleProjectDir returns a directory named example-project under a temp directory.
+func exampleProjectDir(t *testing.T) string {
+	t.Helper()
+	dir := filepath.Join(t.TempDir(), "example-project")
+	if err := os.Mkdir(dir, 0o700); err != nil {
+		t.Fatalf("make directory: %v", err)
+	}
+	return dir
+}
+
+func TestOpenExistingSessionSwitchesOnlyInvokingClient(t *testing.T) {
+	w := setupOpen(t, "")
+	pane := w.runInPane(t, "open s2")
+	waitForScreen(t, w.client, pane, "exit 0")
+	if got := clientSession(t, w.client, w.invoking); got != "s2" {
+		t.Fatalf("invoking client shows session %s, want s2", got)
+	}
+	if got := clientSession(t, w.client, w.other); got != "s3" {
+		t.Fatalf("other client shows session %s, want s3", got)
+	}
+}
+
+func TestOpenZoxideFastMatchCreatesSessionAndSwitchesInvokingClient(t *testing.T) {
+	dir := exampleProjectDir(t)
+	w := setupOpen(t, "  9.0 "+dir+"\n")
+	pane := w.runInPane(t, "open example-project")
+	waitForScreen(t, w.client, pane, "exit 0")
+	if got := clientSession(t, w.client, w.invoking); got != "example-project" {
+		t.Fatalf("invoking client shows session %s, want example-project", got)
+	}
+	if got := clientSession(t, w.client, w.other); got != "s3" {
+		t.Fatalf("other client shows session %s, want s3", got)
+	}
+	got, err := w.client.Run(t.Context(), "show-options", "-v", "-t", "=example-project:", protocol.OptionDir)
+	if err != nil {
+		t.Fatalf("read %s: %v", protocol.OptionDir, err)
+	}
+	if strings.TrimSpace(got) != dir {
+		t.Fatalf("%s = %q, want %q", protocol.OptionDir, strings.TrimSpace(got), dir)
+	}
+	w.claude.waitForStarted(t, 1)
+}
+
+func TestOpenOutsideTmuxAttachesNamedSession(t *testing.T) {
+	installOpenFakes(t, "")
+	client, name := newServer(t)
+	newSession(t, client, "s2", t.TempDir())
+	known := knownClients(t, client)
+	startScript(t, fmt.Sprintf("stty cols 80 rows 24; %s -L %s open s2", orreryPath(), name))
+	waitForNewClient(t, client, "s2", known)
+}
+
+func TestOpenNewSessionOutsideTmuxCreatesDirectoryAndAttaches(t *testing.T) {
+	claude := installOpenFakes(t, "")
+	root := t.TempDir()
+	client, name := newServer(t)
+	newSession(t, client, "s1", t.TempDir())
+	known := knownClients(t, client)
+	startScript(t, fmt.Sprintf("stty cols 80 rows 24; %s -L %s open new example-new --root %s",
+		orreryPath(), name, root))
+	waitForNewClient(t, client, "example-new", known)
+
+	dir := filepath.Join(root, "example-new")
+	if info, err := os.Stat(dir); err != nil || !info.IsDir() {
+		t.Fatalf("directory %s: %v", dir, err)
+	}
+	got, err := client.Run(t.Context(), "show-options", "-v", "-t", "=example-new:", protocol.OptionDir)
+	if err != nil {
+		t.Fatalf("read %s: %v", protocol.OptionDir, err)
+	}
+	if strings.TrimSpace(got) != dir {
+		t.Fatalf("%s = %q, want %q", protocol.OptionDir, strings.TrimSpace(got), dir)
+	}
+	claude.waitForStarted(t, 1)
+}
+
+func TestOpenPickerEnterRunsFirstActionAndSwitchesInvokingClient(t *testing.T) {
+	cases := []struct {
+		name string
+		args string
+	}{
+		{name: "words", args: "open two words"},
+		{name: "intent", args: "open --intent 'two words'"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := exampleProjectDir(t)
+			w := setupOpen(t, "  9.0 "+dir+"\n")
+			pane := w.runInPane(t, tc.args)
+			waitForScreen(t, w.client, pane, "> pane ")
+			sendKeys(t, w.client, pane, false, "Enter")
+			waitForScreen(t, w.client, pane, "exit 0")
+			if got := clientSession(t, w.client, w.invoking); got != "example-project" {
+				t.Fatalf("invoking client shows session %s, want example-project", got)
+			}
+			if got := clientSession(t, w.client, w.other); got != "s3" {
+				t.Fatalf("other client shows session %s, want s3", got)
+			}
+			w.claude.waitForStarted(t, 2)
+		})
+	}
+}
+
+func TestOpenPickerEscCreatesNothing(t *testing.T) {
+	dir := exampleProjectDir(t)
+	w := setupOpen(t, "  9.0 "+dir+"\n")
+	before := sessionNames(t, w.client)
+	pane := w.runInPane(t, "open two words")
+	waitForScreen(t, w.client, pane, "> pane ")
+	sendKeys(t, w.client, pane, false, "Escape")
+	waitForScreen(t, w.client, pane, "exit 0")
+	if got := clientSession(t, w.client, w.invoking); got != "s1" {
+		t.Fatalf("invoking client shows session %s, want s1", got)
+	}
+	if got := clientSession(t, w.client, w.other); got != "s3" {
+		t.Fatalf("other client shows session %s, want s3", got)
+	}
+	if got := sessionNames(t, w.client); !slices.Equal(got, before) {
+		t.Fatalf("sessions %v after Esc, want %v", got, before)
+	}
+	if got := w.claude.runs(t); got != 1 {
+		t.Fatalf("fake claude ran %d times, want only the intent run", got)
+	}
+}
+
+func TestOpenRemoteDotRefusesWithoutCreating(t *testing.T) {
+	installOpenFakes(t, "")
+	client, name := newServer(t)
+	newSession(t, client, "s1", t.TempDir())
+	before := sessionNames(t, client)
+	out := runOrrery(t, "", nil, "-L", name, "open", "--remote", ".")
+	wantExit(t, out, 1)
+	if !strings.Contains(out.stderr, "open .: the current directory is on the remote host") {
+		t.Fatalf("stderr %q, want the open . remote refusal", out.stderr)
+	}
+	if got := sessionNames(t, client); !slices.Equal(got, before) {
+		t.Fatalf("sessions %v after refusal, want %v", got, before)
+	}
+}
+
+func TestOpenRefusesIntentWithArgs(t *testing.T) {
+	out := runOrrery(t, "", nil, "-L", "orrery-integration-unused", "open", "--intent", "two words", "NAME")
+	wantExit(t, out, 2)
+	if !strings.Contains(out.stderr, "--intent takes no ARGS") || !strings.Contains(out.stderr, "usage: orrery") {
+		t.Fatalf("stderr %q, want the --intent refusal with usage text", out.stderr)
+	}
 }
