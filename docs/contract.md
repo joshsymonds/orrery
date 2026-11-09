@@ -35,6 +35,10 @@ Options are set at pane scope with tmux 3.8 `set-option -p`, except `@orrery_dir
 | `protocol.OptionLabel` | `@orrery_label` | single-line text |
 | `protocol.OptionContext` | `@orrery_context` | the patchbay context name from the pane's last applied hook frame, the `SummaryContext` (section 8) of its `anthropicBaseUrl`; `""` for the default route |
 | `protocol.OptionDir` | `@orrery_dir` | the absolute project directory after `filepath.Clean`, symlinks not resolved; session scope, see below |
+| `protocol.OptionClaudeSession` | `@orrery_claude_session` | the Claude Code session id, the hook payload's `session_id` |
+| `protocol.OptionTranscript` | `@orrery_transcript` | the Claude Code transcript path, the hook payload's `transcript_path` |
+
+orreryd writes each of the two new options from every hook frame whose hook decodes, when the payload value is non-empty. SessionEnd keeps both options, except SessionEnd with reason `clear`, which unsets both. `@orrery_transcript` is not a list field.
 
 `@orrery_dir` is a tmux user option set on the session with `set-option -t <session>`, without `-p`. It is not a field of `orrery list --json`.
 
@@ -73,13 +77,15 @@ Each element is a `protocol.Pane`. Every field is always present, with the exact
 | Seen | int64 | `seen` | number | `@orrery_seen` | `0` |
 | Question | string | `question` | string | `@orrery_question` | `""` |
 | Context | string | `context` | string | `@orrery_context` | `""` |
+| ClaudeSession | string | `claude_session` | string | `@orrery_claude_session` | `""` |
+| Activity | int64 | `activity` | number | tmux `#{session_activity}`, unix seconds of the pane's session's last activity | none, always set |
 
-There are fourteen fields. The `state` value is one of the strings in section 1, or `""` when the option is unset.
+There are sixteen fields. The `state` value is one of the strings in section 1, or `""` when the option is unset.
 
 Example output with one pane. Every value is synthetic:
 
 ```json
-[{"id":"%1","host":"example-host","session":"example-session","window":0,"pane":0,"cwd":"/home/user/project","command":"claude","state":"waiting","summary":"Example summary of the pane's work.","label":"example-label","changed":1700000000,"seen":1700000100,"question":"Example question for the user?","context":"example-context"}]
+[{"id":"%1","host":"example-host","session":"example-session","window":0,"pane":0,"cwd":"/home/user/project","command":"claude","state":"waiting","summary":"Example summary of the pane's work.","label":"example-label","changed":1700000000,"seen":1700000100,"question":"Example question for the user?","context":"example-context","claude_session":"example-claude-session","activity":1700000300}]
 ```
 
 ## 4. Environment variables
@@ -364,3 +370,5 @@ The flake exports `homeManagerModules.default`. Setting `programs.orrery.enable 
 ## 12. Freeze
 
 The names and values in this document are frozen as of effort 1. Later efforts, including the effort-4 golden test, build on them.
+
+orrery v0.2.1 (E2b) added the `@orrery_claude_session` and `@orrery_transcript` options and the `claude_session` and `activity` fields additively.
