@@ -28,6 +28,7 @@ const (
 	listGoldenActivity = "1700000300"
 	listCommandWait    = 10 * time.Second
 	listPollEvery      = 10 * time.Millisecond
+	listExampleTool    = `{"id":"toolu_example","name":"Bash","input":"go test ./...","start":1700000400}`
 )
 
 // listActivityPattern matches a printed activity value, which is the session's own last-activity time.
@@ -138,6 +139,7 @@ func TestListJSON(t *testing.T) {
 	listSetOption(t, client, panesA[0], protocol.OptionQuestion, "Example question for the user?")
 	listSetOption(t, client, panesA[0], protocol.OptionContext, "example-context")
 	listSetOption(t, client, panesA[0], protocol.OptionClaudeSession, "example-claude-session")
+	listSetOption(t, client, panesA[0], protocol.OptionTool, listExampleTool)
 	listSetOption(t, client, panesA[1], protocol.OptionState, string(protocol.StateWorking))
 	listSetOption(t, client, panesA[1], protocol.OptionChanged, "1700000200")
 

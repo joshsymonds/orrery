@@ -28,7 +28,7 @@ type Client struct {
 const listFieldSeparator = "\x1f"
 
 // listFieldCount is the number of fields in listFormat, one per Pane member other than Host.
-const listFieldCount = 15
+const listFieldCount = 16
 
 // listFormat is the list-panes format: one field per Pane member in declaration order.
 const listFormat = "#{pane_id}" + listFieldSeparator +
@@ -45,7 +45,8 @@ const listFormat = "#{pane_id}" + listFieldSeparator +
 	"#{" + protocol.OptionQuestion + "}" + listFieldSeparator +
 	"#{" + protocol.OptionContext + "}" + listFieldSeparator +
 	"#{" + protocol.OptionClaudeSession + "}" + listFieldSeparator +
-	"#{session_activity}"
+	"#{session_activity}" + listFieldSeparator +
+	"#{" + protocol.OptionTool + "}"
 
 // New validates server and returns a Client for it.
 func New(server Server) (*Client, error) {
@@ -175,6 +176,7 @@ func parsePane(line string) (protocol.Pane, error) {
 		Context:       fields[12],
 		ClaudeSession: fields[13],
 		Activity:      activity,
+		Tool:          fields[15],
 	}, nil
 }
 
