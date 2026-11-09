@@ -64,7 +64,7 @@ func newFixture(t *testing.T) *fixture {
 	})
 	f := &fixture{t: t, client: client}
 	f.run("-f", noConfig, "new-session", "-d", "-s", "base", "-c", t.TempDir(), "sleep 300")
-	f.invoking = f.attach(100, 30)
+	f.invoking = f.attach(80, 24)
 	f.other = f.attach(200, 60)
 	return f
 }
