@@ -5,7 +5,14 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.union
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.getValue
@@ -13,6 +20,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import io.github.joshsymonds.orrery.api.OrreryClient
 import io.github.joshsymonds.orrery.push.PushNotifier
 import io.github.joshsymonds.orrery.push.PushSetup
@@ -21,11 +29,14 @@ import io.github.joshsymonds.orrery.ui.PaneScreen
 import io.github.joshsymonds.orrery.ui.SettingsScreen
 import io.github.joshsymonds.orrery.ui.theme.OrreryTheme
 
+internal const val ROOT_CONTENT_TAG = "root-content"
+
 class MainActivity : ComponentActivity() {
     private var screen by mutableStateOf<Screen>(Screen.Panes)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
         val pushSetup = PushSetup(this)
         if (savedInstanceState == null) {
             pushSetup.start()
@@ -39,25 +50,32 @@ class MainActivity : ComponentActivity() {
                     color = MaterialTheme.colorScheme.background,
                 ) {
                     var client by remember { mutableStateOf(OrreryClient(settings.serverUrl)) }
-                    when (val current = screen) {
-                        Screen.Panes -> PaneListScreen(
-                            client = client,
-                            onOpenPane = { screen = Screen.Pane(it.id) },
-                            onOpenSettings = { screen = Screen.Settings },
-                        )
-                        is Screen.Pane -> {
-                            BackHandler { screen = Screen.Panes }
-                            PaneScreen(paneId = current.id, client = client)
-                        }
-                        Screen.Settings -> {
-                            BackHandler { screen = Screen.Panes }
-                            SettingsScreen(
-                                settings = settings,
-                                onSaved = {
-                                    client = OrreryClient(settings.serverUrl)
-                                    screen = Screen.Panes
-                                },
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .windowInsetsPadding(WindowInsets.safeDrawing.union(WindowInsets.ime))
+                            .testTag(ROOT_CONTENT_TAG),
+                    ) {
+                        when (val current = screen) {
+                            Screen.Panes -> PaneListScreen(
+                                client = client,
+                                onOpenPane = { screen = Screen.Pane(it.id) },
+                                onOpenSettings = { screen = Screen.Settings },
                             )
+                            is Screen.Pane -> {
+                                BackHandler { screen = Screen.Panes }
+                                PaneScreen(paneId = current.id, client = client)
+                            }
+                            Screen.Settings -> {
+                                BackHandler { screen = Screen.Panes }
+                                SettingsScreen(
+                                    settings = settings,
+                                    onSaved = {
+                                        client = OrreryClient(settings.serverUrl)
+                                        screen = Screen.Panes
+                                    },
+                                )
+                            }
                         }
                     }
                 }
