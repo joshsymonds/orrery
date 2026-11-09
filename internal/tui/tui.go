@@ -12,6 +12,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/joshsymonds/orrery/internal/closer"
 	"github.com/joshsymonds/orrery/internal/keymap"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
@@ -25,9 +26,11 @@ type Source func(ctx context.Context) ([]protocol.Pane, error)
 type Options struct {
 	Client    *tmuxctl.Client
 	ClientTTY string
-	Panes     Source
-	Input     io.Reader
-	Output    io.Writer
+	// ArchivePath is the archive file a closed Claude pane is appended to.
+	ArchivePath string
+	Panes       Source
+	Input       io.Reader
+	Output      io.Writer
 }
 
 // Action is what the user asked for when Run returned.
@@ -75,6 +78,7 @@ func Run(ctx context.Context, opts Options) (Result, error) {
 		time.Now,
 	)
 	tree.clientTTY = opts.ClientTTY
+	tree.archivePath = opts.ArchivePath
 	tree.invoke = func(fn func(context.Context, *tmuxctl.Client) error) error {
 		return fn(ctx, opts.Client)
 	}
@@ -96,31 +100,40 @@ func Run(ctx context.Context, opts Options) (Result, error) {
 	return done.result, nil
 }
 
+// closePrompt is the close the tree asks the user to confirm. asked is set once the second
+// prompt for a working pane has been answered with y.
+type closePrompt struct {
+	plan  closer.Plan
+	asked bool
+}
+
 // model is the tree's state. Panes reload through source and previews through capture,
 // both called from commands so that no blocking tmux call runs in Update. Actions run through
 // invoke, also from commands, against the invoking client at clientTTY.
 type model struct {
-	source     func() ([]protocol.Pane, error)
-	capture    func(paneID string) (string, error)
-	now        func() time.Time
-	invoke     func(fn func(context.Context, *tmuxctl.Client) error) error
-	clientTTY  string
-	groups     []view.Group
-	quiet      []view.Group
-	quietOpen  bool
-	cursorID   string
-	cursor     int
-	query      string
-	filtering  bool
-	help       bool
-	result     Result
-	preview    string
-	previewID  string
-	sourceErr  error
-	captureErr error
-	actionErr  error
-	width      int
-	height     int
+	source      func() ([]protocol.Pane, error)
+	capture     func(paneID string) (string, error)
+	now         func() time.Time
+	invoke      func(fn func(context.Context, *tmuxctl.Client) error) error
+	clientTTY   string
+	archivePath string
+	closing     *closePrompt
+	groups      []view.Group
+	quiet       []view.Group
+	quietOpen   bool
+	cursorID    string
+	cursor      int
+	query       string
+	filtering   bool
+	help        bool
+	result      Result
+	preview     string
+	previewID   string
+	sourceErr   error
+	captureErr  error
+	actionErr   error
+	width       int
+	height      int
 }
 
 type (
@@ -138,6 +151,11 @@ type (
 	actionMsg struct {
 		err  error
 		quit bool
+	}
+	// closePlanMsg reports the plan of a close the user asked for.
+	closePlanMsg struct {
+		plan closer.Plan
+		err  error
 	}
 )
 
@@ -171,6 +189,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case actionMsg:
 		return m.actionDone(msg)
+	case closePlanMsg:
+		return m.planned(msg), nil
 	}
 	return m, nil
 }
@@ -329,7 +349,9 @@ func (m model) frame() string {
 	}
 
 	var status []string
-	if err := m.statusErr(); err != nil {
+	if m.closing != nil {
+		status = []string{m.closing.text()}
+	} else if err := m.statusErr(); err != nil {
 		status = []string{"error: " + err.Error()}
 	}
 	if m.height > 0 {

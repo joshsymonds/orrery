@@ -9,6 +9,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/joshsymonds/orrery/internal/cli"
+	"github.com/joshsymonds/orrery/internal/closer"
 	"github.com/joshsymonds/orrery/internal/keymap"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/shell"
@@ -33,6 +34,9 @@ func (m model) keyPressed(msg tea.KeyPressMsg) (model, tea.Cmd) {
 	if m.help {
 		m.help = false
 		return m, nil
+	}
+	if m.closing != nil {
+		return m.closeKey(msg)
 	}
 	if m.filtering {
 		return m.filterKey(msg)
@@ -61,9 +65,9 @@ func (m model) keyPressed(msg tea.KeyPressMsg) (model, tea.Cmd) {
 			return m.expandQuiet()
 		}
 		return m.paneAction(action)
-	case keymap.ActMarkSeen, keymap.ActNewClaude, keymap.ActShell, keymap.ActPicker:
+	case keymap.ActMarkSeen, keymap.ActNewClaude, keymap.ActShell, keymap.ActPicker, keymap.ActClosePane:
 		return m.paneAction(action)
-	case keymap.ActClosePane, keymap.ActCloseProject, keymap.ActTree:
+	case keymap.ActCloseProject, keymap.ActTree:
 		// The tree has no behavior for these yet. ActTree is a tmux binding.
 		return m, nil
 	}
@@ -112,11 +116,13 @@ func (m model) paneAction(action keymap.Action) (model, tea.Cmd) {
 		return m, m.action(func(ctx context.Context, client *tmuxctl.Client) error {
 			return shell.Open(ctx, client, cur.Cwd, tty)
 		}, true)
+	case keymap.ActClosePane:
+		return m, m.planClose(cur)
 	case keymap.ActPicker:
 		m.result = Result{Action: ActionIntent, Dir: cur.Cwd}
 		return m, tea.Quit
 	case keymap.ActDown, keymap.ActUp, keymap.ActNextUnseen, keymap.ActFilter, keymap.ActHelp, keymap.ActQuit,
-		keymap.ActClosePane, keymap.ActCloseProject, keymap.ActTree:
+		keymap.ActCloseProject, keymap.ActTree:
 		// keyPressed routes only the pane actions here.
 		return m, nil
 	}
@@ -130,6 +136,61 @@ func (m model) action(fn func(context.Context, *tmuxctl.Client) error, quit bool
 	return func() tea.Msg {
 		return actionMsg{err: invoke(fn), quit: quit}
 	}
+}
+
+// planClose plans the close of cur in a command. The plan returns as a closePlanMsg.
+func (m model) planClose(cur protocol.Pane) tea.Cmd {
+	tty := m.clientTTY
+	invoke := m.invoke
+	return func() tea.Msg {
+		var plan closer.Plan
+		err := invoke(func(ctx context.Context, client *tmuxctl.Client) error {
+			var planErr error
+			plan, planErr = closer.PlanPane(ctx, client, cur.ID, tty)
+			if planErr != nil {
+				return fmt.Errorf("plan close: %w", planErr)
+			}
+			return nil
+		})
+		return closePlanMsg{plan: plan, err: err}
+	}
+}
+
+// planned opens the close prompt for a planned close. A planning error goes to the status line
+// and opens no prompt.
+func (m model) planned(msg closePlanMsg) model {
+	if msg.err != nil {
+		m.actionErr = msg.err
+		return m
+	}
+	m.closing = &closePrompt{plan: msg.plan}
+	return m
+}
+
+// closeKey answers the close prompt. y confirms the close, or asks the second time when the pane
+// is working. Any other key cancels, and closes nothing.
+func (m model) closeKey(msg tea.KeyPressMsg) (model, tea.Cmd) {
+	prompt := m.closing
+	m.closing = nil
+	if msg.String() != "y" {
+		return m, nil
+	}
+	if prompt.working() && !prompt.asked {
+		prompt.asked = true
+		m.closing = prompt
+		return m, nil
+	}
+	return m, m.closePane(prompt.plan)
+}
+
+// closePane closes the planned panes in a command. The tree stays open, and reloads its panes
+// once the close succeeds.
+func (m model) closePane(plan closer.Plan) tea.Cmd {
+	archivePath := m.archivePath
+	now := m.now()
+	return m.action(func(ctx context.Context, client *tmuxctl.Client) error {
+		return closer.Close(ctx, client, plan, archivePath, now)
+	}, false)
 }
 
 // switchAndMark switches the client at tty to paneID, then marks the pane seen. A pane is
@@ -258,4 +319,27 @@ func matches(p protocol.Pane, needle string) bool {
 		}
 	}
 	return false
+}
+
+// working reports whether the planned pane is a Claude pane in the working state. PlanPane always
+// plans one pane, so Panes[0] is that pane.
+func (c *closePrompt) working() bool {
+	return c.plan.Panes[0].State == protocol.StateWorking
+}
+
+// text is the prompt line. It names the planned pane's label, asks a second time when the pane
+// is working, and says where the invoking client goes.
+func (c *closePrompt) text() string {
+	label := c.plan.Panes[0].Label
+	question := "Close " + label + "?"
+	if c.asked {
+		question = label + " is working. Close it?"
+	}
+	switch {
+	case c.plan.MoveTo != "":
+		question += " The client moves to " + c.plan.MoveTo + "."
+	case c.plan.Detach:
+		question += " The client detaches."
+	}
+	return question + " y/N"
 }

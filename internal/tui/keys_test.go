@@ -16,6 +16,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/joshsymonds/orrery/internal/archive"
+	"github.com/joshsymonds/orrery/internal/closer"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/shell"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
@@ -372,6 +374,10 @@ type actionPane struct {
 	state   protocol.State
 	label   string
 	changed string
+	// claude and transcript are the @orrery_claude_session and @orrery_transcript values of a
+	// Claude pane. A pane with an empty claude has neither option set.
+	claude     string
+	transcript string
 }
 
 // seenBefore is the @orrery_seen value every layout pane starts with. An action that marks a
@@ -396,6 +402,7 @@ type actionTree struct {
 	t        *testing.T
 	client   *tmuxctl.Client
 	base     string
+	archive  string
 	labels   []string
 	panes    map[string]string
 	invoking string
@@ -405,12 +412,26 @@ type actionTree struct {
 // newActionTree builds layout on a fresh private server and attaches the two clients.
 func newActionTree(t *testing.T, layout []actionPane) *actionTree {
 	t.Helper()
-	a := &actionTree{t: t, client: tuiServer(t), base: t.TempDir(), panes: map[string]string{}}
+	a := newLayoutTree(t, layout)
+	a.invoking = a.attach("s1", 80, 24)
+	a.other = a.attach("s4", 200, 60)
+	return a
+}
+
+// newLayoutTree builds layout on a fresh private server without attaching any client. The
+// archive file is under the test's temp dir.
+func newLayoutTree(t *testing.T, layout []actionPane) *actionTree {
+	t.Helper()
+	a := &actionTree{
+		t:       t,
+		client:  tuiServer(t),
+		base:    t.TempDir(),
+		archive: filepath.Join(t.TempDir(), "archive.jsonl"),
+		panes:   map[string]string{},
+	}
 	for _, p := range layout {
 		a.addPane(p)
 	}
-	a.invoking = a.attach("s1", 80, 24)
-	a.other = a.attach("s4", 200, 60)
 	return a
 }
 
@@ -443,6 +464,10 @@ func (a *actionTree) addPane(p actionPane) {
 		protocol.OptionLabel:   p.label,
 		protocol.OptionChanged: p.changed,
 		protocol.OptionSeen:    seenBefore,
+	}
+	if p.claude != "" {
+		options[protocol.OptionClaudeSession] = p.claude
+		options[protocol.OptionTranscript] = p.transcript
 	}
 	for name, value := range options {
 		if err := a.client.SetPaneOption(a.t.Context(), id, name, value); err != nil {
@@ -543,6 +568,31 @@ func (a *actionTree) listClients() ([]clientInfo, error) {
 		got = append(got, clientInfo{tty: fields[0], session: fields[1], width: width, height: height})
 	}
 	return got, nil
+}
+
+// checkClients returns nil when the invoking client shows invokingSession and the second client
+// still shows s4.
+func (a *actionTree) checkClients(invokingSession string) error {
+	clients, err := a.clients()
+	if err != nil {
+		return err
+	}
+	if got := clients[a.invoking]; got != invokingSession {
+		return fmt.Errorf("invoking client shows %s, want %s", got, invokingSession)
+	}
+	if got := clients[a.other]; got != "s4" {
+		return fmt.Errorf("second client shows %s, want s4", got)
+	}
+	return nil
+}
+
+// hasSession reports whether session exists on the server.
+func (a *actionTree) hasSession(session string) (bool, error) {
+	out, err := a.client.Run(a.t.Context(), "list-sessions", "-F", "#{session_name}")
+	if err != nil {
+		return false, fmt.Errorf("list-sessions: %w", err)
+	}
+	return slices.Contains(strings.Fields(out), session), nil
 }
 
 // clients returns the session each attached client shows, keyed by tty.
@@ -655,11 +705,12 @@ func (a *actionTree) start(tty string) *treeRun {
 	a.t.Cleanup(func() { _ = pw.Close() })
 	go func() {
 		res, err := Run(a.t.Context(), Options{
-			Client:    a.client,
-			ClientTTY: tty,
-			Panes:     a.client.ListPanes,
-			Input:     pr,
-			Output:    run.out,
+			Client:      a.client,
+			ClientTTY:   tty,
+			ArchivePath: a.archive,
+			Panes:       a.client.ListPanes,
+			Input:       pr,
+			Output:      run.out,
 		})
 		run.done <- runOutcome{result: res, err: err}
 	}()
@@ -697,6 +748,17 @@ func (r *treeRun) send(keys ...string) {
 			r.t.Fatalf("send %q: %v", key, err)
 		}
 	}
+}
+
+// waitForOutput waits until the tree has rendered text.
+func (r *treeRun) waitForOutput(text string) {
+	r.t.Helper()
+	waitFor(r.t, "tree renders "+strconv.Quote(text), func() error {
+		if !strings.Contains(r.out.String(), text) {
+			return fmt.Errorf("%q not rendered", text)
+		}
+		return nil
+	})
 }
 
 // assertOpen fails if Run has returned.
@@ -970,4 +1032,202 @@ func TestFailedActionShowsErrorAndStaysOpen(t *testing.T) {
 	run.assertOpen()
 	run.send("q")
 	run.closed()
+}
+
+// closeSettle is how long a test waits after a key that starts no output, so that the tree has
+// read it, and so that Esc is not read together with the key after it.
+const closeSettle = 300 * time.Millisecond
+
+// assertNothingClosed fails unless every layout session of a is still open, the clients are
+// where they started, and no archive was written.
+func assertNothingClosed(t *testing.T, a *actionTree) {
+	t.Helper()
+	for _, session := range []string{"s1", "s2", "s3", "s4"} {
+		open, err := a.hasSession(session)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !open {
+			t.Fatalf("session %s was closed, want it open", session)
+		}
+	}
+	if err := a.checkClients("s1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(a.archive); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("archive %s: stat = %v, want not exist", a.archive, err)
+	}
+}
+
+func TestXConfirmClosesPaneArchivesItAndStaysOpen(t *testing.T) {
+	const transcript = "/home/user/.claude/projects/alpha/s.jsonl"
+	layout := actionLayout()
+	layout[1].claude = "claude-alpha-tests"
+	layout[1].transcript = transcript
+	a := newActionTree(t, layout)
+	run := a.start(a.invoking)
+	run.send("j", "X")
+	run.waitForOutput("Close alpha-tests? y/N")
+	run.send("y")
+	waitFor(t, "s2 closed", func() error {
+		open, err := a.hasSession("s2")
+		if err != nil {
+			return err
+		}
+		if open {
+			return errors.New("s2 still open")
+		}
+		return nil
+	})
+
+	records, err := archive.ForDir(a.archive, a.dir("alpha"))
+	if err != nil {
+		t.Fatalf("read archive: %v", err)
+	}
+	if len(records) != 1 {
+		t.Fatalf("archive has %d records for alpha, want 1", len(records))
+	}
+	got := records[0]
+	if got.Dir != a.dir("alpha") || got.Session != "s2" || got.ClaudeSession != "claude-alpha-tests" ||
+		got.Transcript != transcript || got.Label != "alpha-tests" {
+		t.Fatalf("archived record = %+v", got)
+	}
+	waitFor(t, "clients unchanged", func() error { return a.checkClients("s1") })
+	run.assertOpen()
+	run.send("q")
+	run.closed()
+}
+
+func TestXCancelKeysCloseNothing(t *testing.T) {
+	for _, key := range []string{"n", "esc"} {
+		t.Run(key, func(t *testing.T) {
+			layout := actionLayout()
+			layout[1].claude = "claude-alpha-tests"
+			layout[1].transcript = "/home/user/.claude/projects/alpha/s.jsonl"
+			a := newActionTree(t, layout)
+			run := a.start(a.invoking)
+			run.send("j", "X")
+			run.waitForOutput("Close alpha-tests? y/N")
+			run.send(key)
+			time.Sleep(closeSettle)
+			run.send("q")
+			run.closed()
+			assertNothingClosed(t, a)
+		})
+	}
+}
+
+func TestXWorkingPaneAsksAgainAndClosesOnSecondY(t *testing.T) {
+	a := newActionTree(t, actionLayout())
+	run := a.start(a.invoking)
+	run.send("j", "j", "X")
+	run.waitForOutput("Close beta-build? y/N")
+	run.send("y")
+	run.waitForOutput("beta-build is working")
+	open, err := a.hasSession("s3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !open {
+		t.Fatal("working pane s3 closed after one y, want it open until a second y")
+	}
+	run.assertOpen()
+
+	run.send("y")
+	waitFor(t, "s3 closed after second y", func() error {
+		open, err := a.hasSession("s3")
+		if err != nil {
+			return err
+		}
+		if open {
+			return errors.New("s3 still open")
+		}
+		return nil
+	})
+	waitFor(t, "clients unchanged", func() error { return a.checkClients("s1") })
+	run.assertOpen()
+	run.send("q")
+	run.closed()
+}
+
+func TestXWorkingPaneSecondPromptNCancels(t *testing.T) {
+	a := newActionTree(t, actionLayout())
+	run := a.start(a.invoking)
+	run.send("j", "j", "X")
+	run.waitForOutput("Close beta-build? y/N")
+	run.send("y")
+	run.waitForOutput("beta-build is working")
+	run.send("n")
+	time.Sleep(closeSettle)
+	run.send("q")
+	run.closed()
+	assertNothingClosed(t, a)
+}
+
+func TestXAttachedClientMovesToNamedSessionBeforeClose(t *testing.T) {
+	// The close moves the invoking client to the most recently active other session. s2 is
+	// created after both clients attach, so that attaching s4 cannot make s4 more recent than s2.
+	// The second client stays on s4.
+	a := newLayoutTree(t, []actionPane{
+		{session: "s1", dir: "alpha", state: protocol.StateWaiting, label: "alpha-review", changed: "100"},
+		{session: "s4", dir: "beta", state: protocol.StateWorking, label: "beta-notes", changed: "100"},
+	})
+	a.invoking = a.attach("s1", 80, 24)
+	a.other = a.attach("s4", 200, 60)
+	a.addPane(actionPane{session: "s2", dir: "beta", state: protocol.StateDone, label: "beta-tests", changed: "200"})
+	run := a.start(a.invoking)
+	run.send("X")
+	run.waitForOutput("Close alpha-review? The client moves to s2. y/N")
+	run.send("y")
+	waitFor(t, "invoking client moved to s2 and s1 closed", func() error {
+		open, err := a.hasSession("s1")
+		if err != nil {
+			return err
+		}
+		if open {
+			return errors.New("s1 still open")
+		}
+		return a.checkClients("s2")
+	})
+	run.assertOpen()
+	run.send("q")
+	run.closed()
+}
+
+func TestXPromptSaysClientDetachesWhenNoSessionRemains(t *testing.T) {
+	a := newLayoutTree(t, []actionPane{
+		{session: "s1", dir: "alpha", state: protocol.StateWaiting, label: "alpha-review", changed: "100"},
+	})
+	a.invoking = a.attach("s1", 80, 24)
+	run := a.start(a.invoking)
+	run.send("X")
+	run.waitForOutput("Close alpha-review? The client detaches. y/N")
+	run.send("n")
+	time.Sleep(closeSettle)
+	run.send("q")
+	run.closed()
+}
+
+func TestClosePromptStaysOnScreenWhenFrameIsClipped(t *testing.T) {
+	m := loadedModel(t, staticSource)
+	m.height = 1
+	m.closing = &closePrompt{plan: closer.Plan{Panes: []protocol.Pane{{Label: "alpha-review"}}}}
+	if frame := m.frame(); !strings.Contains(frame, "Close alpha-review? y/N") {
+		t.Fatalf("frame = %q, want the close prompt", frame)
+	}
+}
+
+func TestClosePlanErrorShowsStatusAndNoPrompt(t *testing.T) {
+	m := loadedModel(t, staticSource)
+	m.invoke = func(func(context.Context, *tmuxctl.Client) error) error {
+		return errors.New("plan failed")
+	}
+	m = pressAll(t, m, "X")
+	frame := m.frame()
+	if !strings.Contains(frame, "error: plan failed") {
+		t.Fatalf("frame = %q, want the planning error", frame)
+	}
+	if strings.Contains(frame, "y/N") {
+		t.Fatalf("frame = %q, want no close prompt after a planning error", frame)
+	}
 }
