@@ -9,19 +9,16 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/protocol"
+	"github.com/joshsymonds/orrery/internal/shell"
 	"github.com/joshsymonds/orrery/internal/tmuxconf"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
 )
-
-// nonShellName matches each character a shell session name replaces with an underscore.
-var nonShellName = regexp.MustCompile(`[^A-Za-z0-9_-]`)
 
 const (
 	binDirEnv    = "ORRERY_TMUXCONF_BIN_DIR"
@@ -326,28 +323,74 @@ func TestPrefixSpaceOpensTreeOnInvokingClient(t *testing.T) {
 	}
 }
 
-func TestPrefixSOpensProjectShellSessionInPanePath(t *testing.T) {
-	s := startServer(t)
-	s.sourcePlugin(t, builtOrrery())
-	dir := filepath.Join(t.TempDir(), "project one")
+// projectNames returns the pane directory names the prefix s tests use: one with a space, and two whose #( and #{
+// must reach the shell unexpanded.
+func projectNames() []string {
+	return []string{"project one", "project#(x)", "project#{x}"}
+}
+
+// projectDir makes a directory named name under t.TempDir and returns its path.
+func projectDir(t *testing.T, name string) string {
+	t.Helper()
+	dir := filepath.Join(t.TempDir(), name)
 	if err := os.Mkdir(dir, 0o700); err != nil {
 		t.Fatalf("make project directory: %v", err)
 	}
-	s.must(t, "new-session", "-d", "-s", "project", "-c", dir, testCommand)
-	viewer := attachClient(t, s, "project")
+	return dir
+}
 
-	path := strings.TrimSpace(s.must(t, "display", "-p", "-t", "project", "#{pane_current_path}"))
-	if !strings.HasSuffix(path, "/project one") {
-		t.Fatalf("pane_current_path = %q, want the project directory", path)
+// startInDir starts session project with its pane in dir. tmux expands formats in -c, so every # is doubled.
+func (s testServer) startInDir(t *testing.T, dir string) {
+	t.Helper()
+	s.must(t, "new-session", "-d", "-s", "project", "-c", strings.ReplaceAll(dir, "#", "##"), testCommand)
+}
+
+// paneDir returns the current directory of the project session's pane.
+func (s testServer) paneDir(t *testing.T) string {
+	t.Helper()
+	return strings.TrimSpace(s.must(t, "display", "-p", "-t", "project", "#{pane_current_path}"))
+}
+
+func TestPrefixSRunsShellWithPaneAndClient(t *testing.T) {
+	for i, name := range projectNames() {
+		t.Run(fmt.Sprintf("dir%d", i), func(t *testing.T) {
+			s := startServer(t)
+			orrery := fakeOrrery(t)
+			s.sourcePlugin(t, orrery)
+			s.startInDir(t, projectDir(t, name))
+			viewer := attachClient(t, s, "project")
+
+			path := s.paneDir(t)
+			tty := strings.TrimSpace(s.must(t, "list-clients", "-F", "#{client_tty}"))
+			viewer.must(t, "send-keys", "-t", viewer.panes(t, "viewer")[0], "C-b", "s")
+			want := []string{"shell", "--dir", path, "--client", tty}
+			if got := awaitArgs(t, orrery, "shell"); !slices.Equal(got, want) {
+				t.Fatalf("fake orrery arguments = %q, want %q", got, want)
+			}
+		})
 	}
-	target := "=" + protocol.ShellSessionPrefix + nonShellName.ReplaceAllString(path, "_") + ":"
-	viewer.must(t, "send-keys", "-t", viewer.panes(t, "viewer")[0], "C-b", "s")
-	waitFor(t, "the project shell session attached by the popup", func() (bool, error) {
-		// The session appears once the binding's background job creates it, so a failed lookup means not yet.
-		out, err := s.client.Run(t.Context(), "display", "-p", "-t", target, "#{session_attached}")
-		return err == nil && strings.TrimSpace(out) == "1", nil
-	})
-	if got := strings.TrimSpace(s.must(t, "show-options", "-v", "-t", target, protocol.OptionDir)); got != path {
-		t.Fatalf("%s = %q, want %q", protocol.OptionDir, got, path)
+}
+
+func TestPrefixSOpensProjectShellSession(t *testing.T) {
+	for i, name := range projectNames() {
+		t.Run(fmt.Sprintf("dir%d", i), func(t *testing.T) {
+			s := startServer(t)
+			s.sourcePlugin(t, builtOrrery())
+			s.startInDir(t, projectDir(t, name))
+			viewer := attachClient(t, s, "project")
+
+			path := s.paneDir(t)
+			target := "=" + shell.Name(path) + ":"
+			viewer.must(t, "send-keys", "-t", viewer.panes(t, "viewer")[0], "C-b", "s")
+			waitFor(t, "the project shell session attached by the popup", func() (bool, error) {
+				// The session appears once the popup's shell command creates it, so a failed lookup means not yet.
+				out, err := s.client.Run(t.Context(), "display", "-p", "-t", target, "#{session_attached}")
+				return err == nil && strings.TrimSpace(out) == "1", nil
+			})
+			got := strings.TrimSpace(s.must(t, "show-options", "-v", "-t", target, protocol.OptionDir))
+			if got != path {
+				t.Fatalf("%s = %q, want %q", protocol.OptionDir, got, path)
+			}
+		})
 	}
 }

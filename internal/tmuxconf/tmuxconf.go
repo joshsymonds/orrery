@@ -11,10 +11,6 @@ import (
 	"github.com/joshsymonds/orrery/internal/protocol"
 )
 
-// shellSession is the name of the current pane's project shell session: the shell session prefix and the pane's
-// path with every character outside [A-Za-z0-9_-] replaced by an underscore.
-const shellSession = protocol.ShellSessionPrefix + "#{s/[^A-Za-z0-9_-]/_/:pane_current_path}"
-
 // shellGlob matches the names of shell sessions in a #{m:...} format.
 const shellGlob = protocol.ShellSessionPrefix + "*"
 
@@ -55,7 +51,7 @@ func plugin(orrery string) string {
 	lines := []string{
 		`bind-key Space run-shell -b "tmux display-popup -c #{q:client_tty} -E ` + `\"` + orrery +
 			` tree --client #{q:client_tty}` + `\""`,
-		shellBinding(),
+		shellBinding(orrery),
 		`set -ga status-right " orrery ` + paneCount(waitingPane()) + ` waiting ` + paneCount(newPane()) + ` new "`,
 		`set -g pane-border-status top`,
 		`set -g pane-border-format "#{?` + option(protocol.OptionState) + `,` + option(protocol.OptionState) + ` ` +
@@ -72,17 +68,10 @@ func option(name string) string {
 	return "#{" + name + "}"
 }
 
-// shellBinding returns the prefix s binding. A background job creates the pane's project shell session detached on
-// first use, with its directory and @orrery_dir set, then opens a popup on the invoking client that attaches to that
-// session. display-popup does not expand formats in its command, so the job expands them and runs the popup.
-func shellBinding() string {
-	target := "'=" + shellSession + ":'"
-	create := "tmux has-session -t " + target + " 2>/dev/null || (tmux new-session -d -s '" + shellSession +
-		"' -c #{q:pane_current_path} && tmux set-option -t " + target + " " + protocol.OptionDir +
-		" #{q:pane_current_path})"
-	popup := "tmux display-popup -c #{q:client_tty} -d #{q:pane_current_path} -E " + `\"` +
-		"tmux attach-session -t " + target + `\"`
-	return `bind-key s run-shell -b "` + create + `; ` + popup + `"`
+// shellBinding returns the prefix s binding. It runs `orrery shell` in the background with the pane's directory and
+// the invoking client's tty, and that command opens the popup shell for the directory.
+func shellBinding(orrery string) string {
+	return `bind-key s run-shell -b "` + orrery + ` shell --dir #{q:pane_current_path} --client #{q:client_tty}"`
 }
 
 // seenHook returns the command a focus hook runs. It marks the hook's pane seen in the background, and only while a
