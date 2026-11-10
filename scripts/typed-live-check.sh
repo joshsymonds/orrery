@@ -12,9 +12,11 @@
 # orreryd, ntfy or the phone. Hooks also set the pane's @orrery_state, and with them off the
 # script sets that option by hand before each send.
 #
-# Usage: scripts/typed-live-check.sh [agents]
+# Usage: scripts/typed-live-check.sh [agents|titled|overflow]
 # With no argument, runs the three numbered cases. With `agents`, runs only the agent-list case:
-# two forked subtasks, then a nine-line message sent while both are listed.
+# two forked subtasks, then a nine-line message sent while both are listed. With `titled`, renames
+# the session and sends a nine-line message while the upper rule shows the name. With `overflow`,
+# forks six subtasks and sends a nine-line message while the agent list ends in a more row.
 # Exit status: 0 when every case passes, 1 when one fails, 2 for a bad argument.
 
 set -euo pipefail
@@ -43,6 +45,7 @@ stream_limit=120
 reply_limit=300
 fork_limit=60
 agents_limit=120
+rename_limit=30
 
 # The three numbered cases and the agent case. Each carries an invented marker word that
 # Claude is asked to echo alone, so the reply can be recognised in the transcript.
@@ -50,7 +53,13 @@ marker_nine=AMBERKITE
 marker_long=BLUEFINCH
 marker_mid=COBALTWREN
 marker_agents=VERMILION
+marker_titled=TIDEWRACK
+marker_overflow=GRANITEOWL
+titled_name=Quillon
 numbers_request="print the numbers 1 to 2000, one per line, nothing else"
+
+# The pane's width in columns, which the titled rule fills.
+pane_cols=200
 
 # tm runs tmux on the private server. Every tmux call goes through here so that none can
 # reach a server this script did not create.
@@ -60,7 +69,7 @@ tm() {
 
 # usage prints the usage line to stderr.
 usage() {
-    echo "usage: scripts/typed-live-check.sh [agents]" >&2
+    echo "usage: scripts/typed-live-check.sh [agents|titled|overflow]" >&2
 }
 
 # screen prints the pane's visible screen.
@@ -318,22 +327,50 @@ forks_at_least() {
     [ "$(grep -c -- '⑂ forked' <<<"$text")" -ge "$1" ]
 }
 
-# subtask_send TEXT types "/subtask TEXT" at the pane with tmux keys and presses Enter. It is
-# setup for the agent case, not an orrery send, so it leaves the pane's state alone. Enter goes
-# after a pause, as orrery send does, so Claude Code reads it as its own key.
-subtask_send() {
-    tm send-keys -t "$pane" -l "/subtask $1"
+# slash_send LINE types LINE at the pane with tmux keys and presses Enter, for a slash command
+# such as /subtask or /rename. It is setup for a case, not an orrery send, so it leaves the
+# pane's state alone. Enter goes after a pause, as orrery send does, so Claude Code reads it as
+# its own key.
+slash_send() {
+    tm send-keys -t "$pane" -l "$1"
     sleep 0.3
     tm send-keys -t "$pane" Enter
 }
 
-# agents_nine_text prints nine lines of about 1,100 characters in all with no trailing newline,
-# sent while two agents are listed. Like case 1, it is over 800 characters and three lines, so a
-# paste would be collapsed and fail the typed verdict.
-# The first line starts with x and carries the marker. Every line holds an x inside its words.
-agents_nine_text() {
-    local lines=() i
-    lines+=("x Case 4 of the orrery live check, nine lines while two agents are listed. Reply with only ${marker_agents} and nothing else.")
+# titled_rule_on_screen NAME succeeds when a full-width upper rule ending " NAME ─" is on screen:
+# pane_cols columns in all, U+2500 characters, then a space, NAME, a space and one U+2500.
+titled_rule_on_screen() {
+    local name=$1 fill expected text
+    printf -v fill '%*s' $((pane_cols - ${#name} - 3)) ''
+    expected="${fill// /─} $name ─"
+    text=$(screen)
+    grep -qxF -- "$expected" <<<"$text"
+}
+
+# more_row_shown succeeds when the agent list's more row is on screen: two spaces, U+2193, a
+# space, a count and " more".
+more_row_shown() {
+    local text
+    text=$(screen)
+    grep -qE -- '^  ↓ [0-9]+ more$' <<<"$text"
+}
+
+# more_ends_list succeeds when the last agent-list row on screen is the more row, with at least
+# one agent row above it. Only agent rows and the more row are considered, so the footer is left out.
+more_ends_list() {
+    local text last
+    text=$(screen)
+    last=$(grep -E -- '^  (●|◯) |^  ↓ [0-9]+ more$' <<<"$text" | tail -n 1)
+    grep -qE -- '^  ↓ [0-9]+ more$' <<<"$last" && grep -qE -- '^  (●|◯) ' <<<"$text"
+}
+
+# x_nine_text MARKER CASE prints nine lines of about 1,100 characters in all with no trailing
+# newline. Like case 1, it is over 800 characters and three lines, so a paste would be collapsed
+# and fail the typed verdict. The first line starts with x, reads CASE and carries MARKER. Every
+# line holds an x inside its words.
+x_nine_text() {
+    local marker=$1 case_note=$2 lines=() i
+    lines+=("x ${case_note} Reply with only ${marker} and nothing else.")
     for i in 2 3 4 5 6 7 8 9; do
         lines+=("Line $i of 9: the next box holds extra text, with six more words that mix in a little filler, lorem ipsum dolor sit amet.")
     done
@@ -346,9 +383,9 @@ agents_nine_text() {
 agents_case() {
     local names_before text4
     echo "agents: forking two subtasks with /subtask"
-    subtask_send "Run 1: print the numbers 1 to 6000, one per line, no other text, no tools."
+    slash_send "/subtask Run 1: print the numbers 1 to 6000, one per line, no other text, no tools."
     wait_for "the first subtask forked" "$fork_limit" forks_at_least 1 || true
-    subtask_send "Run 2: print the numbers 1 to 6000, one per line, no other text, no tools."
+    slash_send "/subtask Run 2: print the numbers 1 to 6000, one per line, no other text, no tools."
     wait_for "the second subtask forked" "$fork_limit" forks_at_least 2 || true
     wait_for "two agent rows besides main" "$agents_limit" agents_listed || true
 
@@ -361,7 +398,7 @@ agents_case() {
         fail "fewer than two agent rows besides main listed at the send; listed: $(tr '\n' ' ' <<<"$names_before")"
     fi
 
-    text4=$(agents_nine_text)
+    text4=$(x_nine_text "$marker_agents" "Case 4 of the orrery live check, nine lines while two agents are listed.")
     echo "agents: sending nine lines, ${#text4} characters, while the agents are listed"
     send_message "done" "$text4"
     echo "screen right after the send:"
@@ -376,6 +413,77 @@ agents_case() {
     wait_for "agent case reply containing $marker_agents" "$reply_limit" transcript_has_reply "$marker_agents"
     echo "transcript: $transcript"
     check_typed "agents case (nine lines containing x, two agents listed)" "$marker_agents" "$text4"
+}
+
+# titled_case renames the session with /rename, checks that a full-width upper rule ending in the
+# name is on screen at the send and right after it, then sends a nine-line message. Each capture
+# is printed. The message verdict comes from the main transcript.
+titled_case() {
+    local text5
+    echo "titled: renaming the session with /rename $titled_name"
+    slash_send "/rename $titled_name"
+    wait_for "the session renamed" "$rename_limit" screen_has "Session renamed to: $titled_name" || true
+
+    echo "screen at the send, before the nine-line message:"
+    screen
+    if titled_rule_on_screen "$titled_name"; then
+        pass "full-width upper rule ending ' $titled_name ─' on screen at the send"
+    else
+        fail "no full-width upper rule ending ' $titled_name ─' on screen at the send"
+    fi
+
+    text5=$(x_nine_text "$marker_titled" "Case 5 of the orrery live check, nine lines while the session is titled.")
+    echo "titled: sending nine lines, ${#text5} characters, under the titled rule"
+    send_message "done" "$text5"
+    echo "screen right after the send:"
+    screen
+    if titled_rule_on_screen "$titled_name"; then
+        pass "full-width upper rule ending ' $titled_name ─' on screen right after the send"
+    else
+        fail "no full-width upper rule ending ' $titled_name ─' on screen right after the send"
+    fi
+
+    wait_for "titled case submitted to the transcript" "$submit_limit" transcript_has_text "$text5"
+    wait_for "titled case reply containing $marker_titled" "$reply_limit" transcript_has_reply "$marker_titled"
+    echo "transcript: $transcript"
+    check_typed "titled case (nine lines containing x, session titled)" "$marker_titled" "$text5"
+}
+
+# overflow_case forks six subtasks, each waited for, then checks that the agent list ends in a
+# more row at the send and right after it, and sends a nine-line message between the two checks.
+# Each capture is printed. The message verdict comes from the main transcript.
+overflow_case() {
+    local n text6
+    echo "overflow: forking six subtasks with /subtask"
+    for n in 1 2 3 4 5 6; do
+        slash_send "/subtask Run $n: print the numbers 1 to 20000, one per line, no other text, no tools."
+        wait_for "subtask $n forked" "$fork_limit" forks_at_least "$n" || true
+    done
+    wait_for "the more row under the agent list" "$agents_limit" more_row_shown || true
+
+    echo "screen at the send, before the nine-line message:"
+    screen
+    if more_ends_list; then
+        pass "more row ends the agent list at the send"
+    else
+        fail "no more row ends the agent list at the send"
+    fi
+
+    text6=$(x_nine_text "$marker_overflow" "Case 6 of the orrery live check, nine lines while six subtasks are listed.")
+    echo "overflow: sending nine lines, ${#text6} characters, while the agent list overflows"
+    send_message "done" "$text6"
+    echo "screen right after the send:"
+    screen
+    if more_ends_list; then
+        pass "more row ends the agent list right after the send"
+    else
+        fail "no more row ends the agent list right after the send"
+    fi
+
+    wait_for "overflow case submitted to the transcript" "$submit_limit" transcript_has_text "$text6"
+    wait_for "overflow case reply containing $marker_overflow" "$reply_limit" transcript_has_reply "$marker_overflow"
+    echo "transcript: $transcript"
+    check_typed "overflow case (nine lines containing x, agent list overflowing)" "$marker_overflow" "$text6"
 }
 
 # summarize prints the run's result. It returns 1 when a case failed, which ends the run under
@@ -439,13 +547,19 @@ while IFS= read -r name; do
 done < <(compgen -e | grep -E '^(CLAUDECODE$|CLAUDE_|STEWARD_|TMUX_PANE$)' || true)
 
 # Arguments are checked before anything is built or started. No argument runs the three
-# numbered cases; `agents` runs only the agent case.
+# numbered cases; `agents`, `titled` and `overflow` each run only their case.
 mode=all
-if [ $# -eq 1 ] && [ "$1" = agents ]; then
-    mode=agents
-elif [ $# -gt 0 ]; then
+if [ $# -gt 1 ]; then
     usage
     exit 2
+elif [ $# -eq 1 ]; then
+    case "$1" in
+    agents | titled | overflow) mode=$1 ;;
+    *)
+        usage
+        exit 2
+        ;;
+    esac
 fi
 
 echo "build: go build ./cmd/orrery"
@@ -463,7 +577,7 @@ session_id=$(cat /proc/sys/kernel/random/uuid)
 # The first call carries -f /dev/null so the private server reads no user config. The pane
 # runs claude directly, as argv, so no shell quoting touches the settings JSON.
 pane=$(tmux -L "$server" -f /dev/null new-session -d -P -F '#{pane_id}' \
-    -s live -x 200 -y 50 -c "$workdir" \
+    -s live -x "$pane_cols" -y 50 -c "$workdir" \
     claude --model haiku --strict-mcp-config --session-id "$session_id" \
     --settings '{"disableAllHooks":true}')
 
@@ -482,8 +596,12 @@ if screen_has "trust"; then
 fi
 wait_for "the input box" "$box_limit" input_box_ready
 
-if [ "$mode" = agents ]; then
-    agents_case
+if [ "$mode" != all ]; then
+    case "$mode" in
+    agents) agents_case ;;
+    titled) titled_case ;;
+    overflow) overflow_case ;;
+    esac
     summarize
     exit 0
 fi
