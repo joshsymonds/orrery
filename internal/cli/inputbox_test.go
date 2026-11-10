@@ -32,6 +32,11 @@ func TestInputBoxVisible(t *testing.T) {
 	mainRow := "  ● main"
 	agentHollow := "  ◯ invented-agent   Invented description   10s · ↓ 40k tokens"
 	agentFilled := "  ● other-agent   Other invented text   2m · ↓ 1k tokens"
+	selectedAgent := "❯ ● other-agent   Other invented text   2m · ↓ 1k tokens"
+	summaryRow := "  ◯ 4 idle agents"
+	moreOne := "  ↓ 1 more"
+	moreThree := "  ↓ 3 more"
+	upMore := "  ↑ 2 more"
 
 	tests := []struct {
 		name   string
@@ -234,6 +239,56 @@ func TestInputBoxVisible(t *testing.T) {
 		{
 			name:   "dialog whose last row is titled",
 			screen: rule + "\n❯ 1. Option\n  2. Other\n" + inputBoxTestTitledRule("invented title"),
+			want:   false,
+		},
+		{
+			name:   "agent rows then one more row",
+			screen: rule + "\n❯ draft\n" + rule + "\n" + mode + "\n\n" + mainRow + "\n" + agentHollow + "\n" + moreThree,
+			want:   true,
+		},
+		{
+			name:   "agent rows, a summary row, then one more row",
+			screen: rule + "\n❯ draft\n" + rule + "\n" + mode + "\n\n" + mainRow + "\n" + agentHollow + "\n" + summaryRow + "\n" + moreOne,
+			want:   true,
+		},
+		{
+			name:   "more row with a multi-digit count",
+			screen: rule + "\n❯ draft\n" + rule + "\n" + mode + "\n\n" + mainRow + "\n" + agentHollow + "\n  ↓ 128 more",
+			want:   true,
+		},
+		{
+			name:   "selected row mid-list with a more row",
+			screen: rule + "\n❯ draft\n" + rule + "\n" + selectMode + "\n\n❯ ● main\n" + agentHollow + "\n" + moreThree,
+			want:   false,
+		},
+		{
+			name:   "selected row directly above the more row",
+			screen: rule + "\n❯ draft\n" + rule + "\n" + mode + "\n\n" + mainRow + "\n" + selectedAgent + "\n" + moreThree,
+			want:   false,
+		},
+		{
+			name:   "more row alone after the footer's blank line",
+			screen: rule + "\n❯ draft\n" + rule + "\n" + mode + "\n\n" + moreThree,
+			want:   false,
+		},
+		{
+			name:   "more row then another line",
+			screen: rule + "\n❯ draft\n" + rule + "\n" + mode + "\n\n" + mainRow + "\n" + agentHollow + "\n" + moreThree + "\n  trailing text",
+			want:   false,
+		},
+		{
+			name:   "up arrow row after the rows",
+			screen: rule + "\n❯ draft\n" + rule + "\n" + mode + "\n\n" + mainRow + "\n" + agentHollow + "\n" + upMore,
+			want:   false,
+		},
+		{
+			name:   "blank line between the rows and the more row",
+			screen: rule + "\n❯ draft\n" + rule + "\n" + mode + "\n\n" + mainRow + "\n" + agentHollow + "\n\n" + moreThree,
+			want:   false,
+		},
+		{
+			name:   "two more rows",
+			screen: rule + "\n❯ draft\n" + rule + "\n" + mode + "\n\n" + mainRow + "\n" + agentHollow + "\n" + moreThree + "\n" + moreOne,
 			want:   false,
 		},
 		{

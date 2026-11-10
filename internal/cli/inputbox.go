@@ -14,8 +14,8 @@ const inputBoxMaxFooter = 3
 // between them, followed only by blank or indented continuation lines. The rule above may be
 // a titled rule (see isInputBoxTitledRule). Below the lower rule
 // the footer is at most three non-blank lines with no agent row. Background agents may follow
-// the footer: a single blank line, then unselected agent rows that end the screen. Anything
-// else below the box is not the box.
+// the footer: a single blank line, then unselected agent rows that end the screen, optionally
+// followed by one overflow row (see isOverflowRow). Anything else below the box is not the box.
 func inputBoxVisible(screen string, width int) bool {
 	lines := strings.Split(screen, "\n")
 
@@ -52,13 +52,18 @@ func inputBoxVisible(screen string, width int) bool {
 }
 
 // footerBelowBox returns the footer lines under the input box, leaving out a trailing agent list.
-// It reports false when the lines end in agent rows without a blank line and a footer above them.
+// A final overflow row directly under the last agent row is left out before the agent list is
+// judged. It reports false when the lines end in agent rows without a blank line and a footer above them.
 func footerBelowBox(below []string) ([]string, bool) {
 	end := len(below)
 	for end > 0 && strings.TrimSpace(below[end-1]) == "" {
 		end--
 	}
 	body := below[:end]
+	if end >= 2 && isOverflowRow(body[end-1]) && isAgentRow(body[end-2]) {
+		body = body[:end-1]
+		end--
+	}
 	if end == 0 || !isAgentRow(body[end-1]) {
 		return body, true
 	}
@@ -73,11 +78,12 @@ func footerBelowBox(below []string) ([]string, bool) {
 	return body[:start-1], true
 }
 
-// footerWithinLimit reports whether footer has at most inputBoxMaxFooter non-blank lines and no agent or selected row.
+// footerWithinLimit reports whether footer has at most inputBoxMaxFooter non-blank lines and no
+// agent, selected, or overflow row.
 func footerWithinLimit(footer []string) bool {
 	count := 0
 	for _, line := range footer {
-		if isAgentRow(line) || isSelectedAgentRow(line) {
+		if isAgentRow(line) || isSelectedAgentRow(line) || isOverflowRow(line) {
 			return false
 		}
 		if strings.TrimSpace(line) != "" {
@@ -116,6 +122,25 @@ func isInputBoxTitledRule(line string, width int) bool {
 // isAgentRow reports whether line is an unselected background-agent row.
 func isAgentRow(line string) bool {
 	return hasAgentDot(line, "  ")
+}
+
+// isOverflowRow reports whether line is the agent-list overflow row: two spaces, a down arrow,
+// a space, one or more ASCII digits, then " more".
+func isOverflowRow(line string) bool {
+	rest, ok := strings.CutPrefix(line, "  ↓ ")
+	if !ok {
+		return false
+	}
+	digits, ok := strings.CutSuffix(rest, " more")
+	if !ok || digits == "" {
+		return false
+	}
+	for _, r := range digits {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // isSelectedAgentRow reports whether line is a background-agent row marked as selected.
