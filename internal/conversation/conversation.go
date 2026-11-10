@@ -73,10 +73,12 @@ const (
 	maxNoticeRunes = 300
 )
 
-// Conversation is a transcript's opening prompt and its newest items, oldest first.
+// Conversation is a transcript's opening prompt, its newest items, oldest first, and its active goal. Read leaves
+// Goal empty; serve fills it from a Goals.
 type Conversation struct {
 	Origin string `json:"origin"`
 	Items  []Item `json:"items"`
+	Goal   string `json:"goal"`
 }
 
 // Item is one reply, tool call, question, prompt, tool result or notice of a transcript.
