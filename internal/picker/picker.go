@@ -232,34 +232,16 @@ func typed(line string, key tea.KeyPressMsg) string {
 	return line + key.Text
 }
 
-// model is the list: the actions in rank order, the cursor, the project edit, and what the run returned.
+// model is the list: the actions in rank order, the cursor, and what the run returned.
 type model struct {
 	actions []open.Action
 	execute func(open.Action) (open.Target, error)
 	width   int
 	cursor  int
-	edit    projectEdit
 	running bool
 	chosen  bool
 	target  open.Target
 	err     error
-}
-
-// projectEdit is the open edit of a project row: the name and root typed so far, and whether the root is the field
-// being typed.
-type projectEdit struct {
-	active bool
-	onRoot bool
-	name   string
-	root   string
-}
-
-// field draws the field being typed.
-func (e projectEdit) field() string {
-	if e.onRoot {
-		return "root: " + e.root
-	}
-	return "name: " + e.name
 }
 
 // executed is the result of running the selected action.
@@ -291,62 +273,23 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// keyPressed moves the cursor, edits the project row under it, runs the selected action, or quits without running
-// anything. Once an action is running, every key is ignored, so the run ends only with its result.
+// keyPressed moves the cursor, runs the selected action, or quits without running anything. Once an action is
+// running, every key is ignored, so the run ends only with its result.
 func (m model) keyPressed(msg tea.KeyPressMsg) (model, tea.Cmd) {
 	if m.running {
 		return m, nil
-	}
-	if m.edit.active {
-		return m.editKeyPressed(msg), nil
 	}
 	switch msg.String() {
 	case "j", "down":
 		m.cursor = min(m.cursor+1, len(m.actions)-1)
 	case "k", "up":
 		m.cursor = max(m.cursor-1, 0)
-	case "e":
-		return m.beginEdit(), nil
 	case keyEnter:
 		return m.run()
 	case keyEsc, "q":
 		return m, tea.Quit
 	}
 	return m, nil
-}
-
-// beginEdit opens the name and root of the project row under the cursor. Any other row has nothing to edit.
-func (m model) beginEdit() model {
-	action := m.actions[m.cursor]
-	if action.Kind != open.ActionProject {
-		return m
-	}
-	m.edit = projectEdit{active: true, name: action.Name, root: action.Dir}
-	return m
-}
-
-// editKeyPressed types into the field being edited. Enter confirms the name and then the root, and the second
-// confirmation sets the row's name and root. Esc abandons the edit and keeps the row's action.
-func (m model) editKeyPressed(msg tea.KeyPressMsg) model {
-	switch msg.String() {
-	case keyEsc:
-		m.edit = projectEdit{}
-	case keyEnter:
-		if !m.edit.onRoot {
-			m.edit.onRoot = true
-			return m
-		}
-		action := &m.actions[m.cursor]
-		action.Name, action.Dir = m.edit.name, m.edit.root
-		m.edit = projectEdit{}
-	default:
-		if m.edit.onRoot {
-			m.edit.root = typed(m.edit.root, msg)
-		} else {
-			m.edit.name = typed(m.edit.name, msg)
-		}
-	}
-	return m
 }
 
 // run executes the selected action in a command, so the program keeps drawing while tmux works.
@@ -360,9 +303,9 @@ func (m model) run() (model, tea.Cmd) {
 	}
 }
 
-// View draws one row per action, marking the selected row, and the field being edited under them.
+// View draws one row per action, marking the selected row.
 func (m model) View() tea.View {
-	lines := make([]string, 0, len(m.actions)+1)
+	lines := make([]string, 0, len(m.actions))
 	for i, action := range m.actions {
 		mark := "  "
 		if i == m.cursor {
@@ -371,9 +314,6 @@ func (m model) View() tea.View {
 			continue
 		}
 		lines = append(lines, mark+describe(action))
-	}
-	if m.edit.active {
-		lines = append(lines, m.edit.field())
 	}
 	return tea.NewView(strings.Join(lines, "\n"))
 }
@@ -387,8 +327,8 @@ func (m model) bar(row string) string {
 	return palette.Bg(palette.Surface0, row)
 }
 
-// describe names an action by its kind with its pane, directory, session, or name and root, and marks an action with
-// a prompt. A resume names its session and shows its note after it when it has one.
+// describe names an action by its kind with its pane, directory, or session, and marks an action with a prompt. A
+// resume names its session and shows its note after it when it has one.
 func describe(action open.Action) string {
 	var text string
 	switch action.Kind {
@@ -396,8 +336,6 @@ func describe(action open.Action) string {
 		text = "jump " + action.Pane
 	case open.ActionPane:
 		text = "pane " + action.Dir
-	case open.ActionProject:
-		text = "project " + action.Name + " in " + action.Dir
 	case open.ActionResume:
 		text = "resume " + action.Session
 		if action.Note != "" {

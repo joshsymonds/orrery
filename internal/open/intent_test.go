@@ -179,6 +179,11 @@ func TestIntentStdinCarriesTextDirectoriesAndEligiblePanes(t *testing.T) {
 			}
 		}
 	}
+	for _, line := range lines {
+		if strings.HasPrefix(line, "new ") {
+			t.Errorf("stdin carries a new form: line %q, want none", line)
+		}
+	}
 }
 
 func TestIntentRunArgvEnvAndCwd(t *testing.T) {
@@ -226,9 +231,9 @@ func TestIntentReplyKindsParseInRankOrder(t *testing.T) {
 		t.Fatalf("Intent: %v", err)
 	}
 	want := []Action{
-		{Kind: ActionProject, Name: "example-project", Dir: dirs[1], Prompt: "example text"},
 		{Kind: ActionJump, Pane: pane},
 		{Kind: ActionPane, Dir: dirs[0], Prompt: "example text"},
+		{Kind: ActionPane, Dir: root, Prompt: "example text"},
 	}
 	if !slices.Equal(got, want) {
 		t.Errorf("Intent() = %+v, want %+v", got, want)
@@ -249,7 +254,7 @@ func TestIntentTaskNoLeavesPromptEmpty(t *testing.T) {
 	want := []Action{
 		{Kind: ActionPane, Dir: filepath.Join(root, "dir-01")},
 		{Kind: ActionJump, Pane: pane},
-		{Kind: ActionProject, Name: "example-project", Dir: root},
+		{Kind: ActionPane, Dir: root},
 	}
 	if !slices.Equal(got, want) {
 		t.Errorf("Intent() = %+v, want %+v", got, want)
@@ -279,41 +284,84 @@ func TestIntentDropsBadReferences(t *testing.T) {
 		"new example-default default",
 		"task: yes",
 	}, "\n")+"\n", 0)
-	dirs := []string{filepath.Join(root, "dir-01"), filepath.Join(root, "dir-02"), filepath.Join(root, "dir-03")}
+	want := []Action{{Kind: ActionPane, Dir: root, Prompt: "example text"}}
 
 	got, err := Intent(t.Context(), intentConfig(client, zoxide, claude, root), "example text")
 	if err != nil {
 		t.Fatalf("Intent: %v", err)
-	}
-	want := []Action{
-		{Kind: ActionProject, Name: "example-kept", Dir: dirs[0], Prompt: "example text"},
-		{Kind: ActionProject, Name: "example-default", Dir: root, Prompt: "example text"},
 	}
 	if !slices.Equal(got, want) {
 		t.Errorf("Intent() = %+v, want %+v", got, want)
 	}
 }
 
-func TestIntentNoValidActionIsError(t *testing.T) {
-	cases := map[string]string{
-		"empty reply":            "",
-		"only task line":         "task: yes\n",
-		"unknown keyword":        "open %1\n",
-		"reference without ref":  "pane\n",
-		"unlisted pane only":     "jump %999\ntask: no\n",
-		"malformed task keyword": "task: maybe\n",
+func TestIntentNoValidActionGivesRootRow(t *testing.T) {
+	cases := map[string]struct {
+		reply  string
+		prompt string
+	}{
+		"empty reply":            {reply: "", prompt: ""},
+		"only task line":         {reply: "task: yes\n", prompt: "example text"},
+		"unknown keyword":        {reply: "open %1\n", prompt: ""},
+		"reference without ref":  {reply: "pane\n", prompt: ""},
+		"unlisted pane only":     {reply: "jump %999\ntask: no\n", prompt: ""},
+		"malformed task keyword": {reply: "task: maybe\n", prompt: ""},
+		"new line only":          {reply: "new example-project default\ntask: yes\n", prompt: "example text"},
 	}
-	for name, reply := range cases {
+	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			root := t.TempDir()
 			zoxide := installZoxide(t, zoxideListing(root, 1), 0)
-			claude := installClaude(t, reply, 0)
+			claude := installClaude(t, tc.reply, 0)
 			cfg := intentConfig(newClient(t), zoxide, claude, root)
-			if _, err := Intent(t.Context(), cfg, "example text"); err == nil {
-				t.Fatalf("Intent with reply %q returned nil error", reply)
+			got, err := Intent(t.Context(), cfg, "example text")
+			if err != nil {
+				t.Fatalf("Intent with reply %q: %v", tc.reply, err)
+			}
+			want := []Action{{Kind: ActionPane, Dir: root, Prompt: tc.prompt}}
+			if !slices.Equal(got, want) {
+				t.Errorf("Intent() = %+v, want %+v", got, want)
 			}
 		})
 	}
+}
+
+func TestIntentRootNamedGivesNoDuplicateRow(t *testing.T) {
+	root := t.TempDir()
+	zoxide := installZoxide(t, scored(root), 0)
+	claude := installClaude(t, "pane d1\ntask: yes\n", 0)
+
+	got, err := Intent(t.Context(), intentConfig(newClient(t), zoxide, claude, root), "example text")
+	if err != nil {
+		t.Fatalf("Intent: %v", err)
+	}
+	want := []Action{{Kind: ActionPane, Dir: root, Prompt: "example text"}}
+	if !slices.Equal(got, want) {
+		t.Errorf("Intent() = %+v, want %+v", got, want)
+	}
+}
+
+func TestIntentRelativeRootGivesNoRowAndError(t *testing.T) {
+	const root = "relative-root"
+	listed := t.TempDir()
+	zoxide := installZoxide(t, zoxideListing(listed, 1), 0)
+	t.Run("no valid line is an error", func(t *testing.T) {
+		claude := installClaude(t, "task: yes\n", 0)
+		if _, err := Intent(t.Context(), intentConfig(newClient(t), zoxide, claude, root), "example text"); err == nil {
+			t.Fatal("Intent with a relative root and no valid line returned nil error")
+		}
+	})
+	t.Run("valid line gives no root row", func(t *testing.T) {
+		claude := installClaude(t, "pane d1\ntask: yes\n", 0)
+		got, err := Intent(t.Context(), intentConfig(newClient(t), zoxide, claude, root), "example text")
+		if err != nil {
+			t.Fatalf("Intent: %v", err)
+		}
+		want := []Action{{Kind: ActionPane, Dir: filepath.Join(listed, "dir-01"), Prompt: "example text"}}
+		if !slices.Equal(got, want) {
+			t.Errorf("Intent() = %+v, want %+v", got, want)
+		}
+	})
 }
 
 func TestIntentFailedRunsAreErrors(t *testing.T) {
@@ -380,7 +428,7 @@ func TestIntentWithoutTmuxServerHasNoPanes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Intent with no tmux server: %v", err)
 	}
-	if want := []Action{{Kind: ActionPane, Dir: dir}}; !slices.Equal(got, want) {
+	if want := []Action{{Kind: ActionPane, Dir: dir}, {Kind: ActionPane, Dir: root}}; !slices.Equal(got, want) {
 		t.Errorf("Intent() = %+v, want %+v", got, want)
 	}
 }
@@ -652,89 +700,6 @@ func TestExecuteActionResumeWithoutSessionIsErrorWithNothingRun(t *testing.T) {
 	}
 }
 
-func TestExecuteActionProjectCreatesExactlyRootNameAndSessionWithPrompt(t *testing.T) {
-	client := newClient(t)
-	startSession(t, client, "keeper", t.TempDir())
-	root := t.TempDir()
-	claude := installClaude(t, "", 0)
-
-	got, err := ExecuteAction(t.Context(), executeConfig(client, claude),
-		Action{Kind: ActionProject, Name: "example-project", Dir: root, Prompt: "example prompt"})
-	if err != nil {
-		t.Fatalf("ExecuteAction(project): %v", err)
-	}
-	if want := (Target{Session: "example-project"}); got != want {
-		t.Errorf("ExecuteAction(project) = %+v, want %+v", got, want)
-	}
-	entries, err := os.ReadDir(root)
-	if err != nil || len(entries) != 1 || entries[0].Name() != "example-project" {
-		t.Errorf("root entries = %v, %v; want only example-project", entries, err)
-	}
-	if got := dirOption(t, client, "example-project"); got != filepath.Join(root, "example-project") {
-		t.Errorf("@orrery_dir = %q, want %q", got, filepath.Join(root, "example-project"))
-	}
-	run := waitClaudeRun(t, claude)
-	if run.cwd != filepath.Join(root, "example-project") {
-		t.Errorf("claude cwd = %q, want %q", run.cwd, filepath.Join(root, "example-project"))
-	}
-	if want := []string{"--", "example prompt"}; !slices.Equal(run.args, want) {
-		t.Errorf("claude argv = %q, want %q", run.args, want)
-	}
-}
-
-func TestExecuteActionProjectExistingDirIsErrorWithNoSession(t *testing.T) {
-	client := newClient(t)
-	startSession(t, client, "keeper", t.TempDir())
-	root := t.TempDir()
-	if err := os.Mkdir(filepath.Join(root, "example-project"), 0o750); err != nil {
-		t.Fatal(err)
-	}
-
-	action := Action{Kind: ActionProject, Name: "example-project", Dir: root}
-	if _, err := ExecuteAction(t.Context(), executeConfig(client, installClaude(t, "", 0)), action); err == nil {
-		t.Fatal("ExecuteAction(project) over an existing directory returned nil error")
-	}
-	if got := sessionNames(t, client); !slices.Equal(got, []string{"keeper"}) {
-		t.Errorf("sessions = %q, want only keeper", got)
-	}
-}
-
-func TestExecuteActionProjectBadInputIsErrorWithNothingCreated(t *testing.T) {
-	cases := map[string]func(root string) Action{
-		"slash in name": func(root string) Action {
-			return Action{Kind: ActionProject, Name: "example/bad", Dir: root}
-		},
-		"dotdot name": func(root string) Action {
-			return Action{Kind: ActionProject, Name: "..", Dir: root}
-		},
-		"empty name": func(root string) Action {
-			return Action{Kind: ActionProject, Name: "", Dir: root}
-		},
-		"relative root": func(string) Action {
-			return Action{Kind: ActionProject, Name: "example-project", Dir: "relative-root"}
-		},
-	}
-	for name, build := range cases {
-		t.Run(name, func(t *testing.T) {
-			client := newClient(t)
-			startSession(t, client, "keeper", t.TempDir())
-			root := t.TempDir()
-			action := build(root)
-			cfg := executeConfig(client, installClaude(t, "", 0))
-			if _, err := ExecuteAction(t.Context(), cfg, action); err == nil {
-				t.Fatalf("ExecuteAction(%+v) returned nil error", action)
-			}
-			entries, err := os.ReadDir(root)
-			if err != nil || len(entries) != 0 {
-				t.Errorf("root entries = %v, %v; want none", entries, err)
-			}
-			if got := sessionNames(t, client); !slices.Equal(got, []string{"keeper"}) {
-				t.Errorf("sessions = %q, want only keeper", got)
-			}
-		})
-	}
-}
-
 func TestExecuteActionUnknownKindIsErrorWithNoSession(t *testing.T) {
 	client := newClient(t)
 	startSession(t, client, "keeper", t.TempDir())
@@ -827,26 +792,5 @@ func TestExecuteActionArgumentsReachTmuxLiterally(t *testing.T) {
 			t.Fatalf("ExecuteAction(pane) = %+v, want session example-session with a new pane", got)
 		}
 		assertLiteralRun(t, client, claude, "example-session", dir)
-	})
-
-	t.Run("project", func(t *testing.T) {
-		client := newClient(t)
-		startSession(t, client, "keeper", t.TempDir())
-		root := t.TempDir()
-		claude := installClaude(t, "", 0)
-
-		got, err := ExecuteAction(t.Context(), executeConfig(client, claude),
-			Action{Kind: ActionProject, Name: literalDirName, Dir: root, Prompt: literalPrompt})
-		if err != nil {
-			t.Fatalf("ExecuteAction(project): %v", err)
-		}
-		if want := (Target{Session: "example-_{session_name}_dir"}); got != want {
-			t.Errorf("ExecuteAction(project) = %+v, want %+v", got, want)
-		}
-		entries, err := os.ReadDir(root)
-		if err != nil || len(entries) != 1 || entries[0].Name() != literalDirName {
-			t.Errorf("root entries = %v, %v; want only %s", entries, err, literalDirName)
-		}
-		assertLiteralRun(t, client, claude, got.Session, filepath.Join(root, literalDirName))
 	})
 }

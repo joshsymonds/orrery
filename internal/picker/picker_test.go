@@ -34,8 +34,6 @@ const (
 	waitLimit = 20 * time.Second
 	// testText is the synthetic TEXT every test sends.
 	testText = "example text"
-	// projectName is the synthetic name of the project action the fake reply offers.
-	projectName = "example-project"
 )
 
 // pickerSpec is what a picker pane reads: the server and fakes Run uses, TEXT, DIR, and the file the outcome goes
@@ -168,7 +166,7 @@ type fixture struct {
 }
 
 // newFixture starts the target pane and installs the fakes. The fake zoxide exits with zoxideStatus; the fake
-// claude replies with one pane action, one jump to the target pane, one project, and task: yes.
+// claude replies with one pane action, one jump to the target pane, and task: yes.
 func newFixture(t *testing.T, zoxideStatus int) *fixture {
 	t.Helper()
 	client, server := newPickerServer(t)
@@ -194,7 +192,7 @@ func newFixture(t *testing.T, zoxideStatus int) *fixture {
 
 	zoxideListing := zoxideLine(f.dir1) + zoxideLine(dir2)
 	f.zoxide = installFake(t, "fake-zoxide", "zoxide", zoxideListing, zoxideStatus)
-	reply := fmt.Sprintf("pane d1\njump %s\nnew %s default\ntask: yes\n", f.targetPane, projectName)
+	reply := fmt.Sprintf("pane d1\njump %s\ntask: yes\n", f.targetPane)
 	f.claude = installFake(t, "fake-claude", "claude", reply, 0)
 	f.hold = filepath.Join(filepath.Dir(f.claude), "hold")
 	return f
@@ -548,101 +546,50 @@ func TestPickerDirFirstRowHasNoPromptWithoutTask(t *testing.T) {
 	}
 }
 
-func TestPickerEditProjectNameAndRoot(t *testing.T) {
+func TestPickerNewReplyShowsOnlyRootPaneRow(t *testing.T) {
 	f := newFixture(t, 0)
-	edited := filepath.Join(f.root, "edited")
-	if err := os.Mkdir(edited, 0o750); err != nil {
-		t.Fatalf("mkdir %s: %v", edited, err)
-	}
+	f.setReply(t, "new example-project default\ntask: yes\n")
 	f.startPicker(t)
-	baseline := f.state(t)
-	f.waitForFrame(t, "> pane "+f.dir1)
-	f.sendKeys(t, "j", "j")
-	f.waitForFrame(t, "> project "+projectName)
+	rootRow := "> pane " + f.root + " (prompt)"
+	f.waitForFrame(t, rootRow)
 
-	f.sendKeys(t, "e")
-	f.waitForFrame(t, "name: "+projectName)
-	f.sendKeys(t, slices.Repeat([]string{"BSpace"}, len(projectName))...)
-	f.typeText(t, "new-name")
-	f.sendKeys(t, "Enter")
-	f.waitForFrame(t, "root: "+f.root)
-
-	f.sendKeys(t, slices.Repeat([]string{"BSpace"}, len(f.root))...)
-	f.typeText(t, edited)
-	f.sendKeys(t, "Enter")
-	f.waitForFrame(t, "> project new-name in "+edited)
-	if got := f.state(t); got != baseline {
-		t.Fatalf("editing created state:\nbefore:\n%s\nafter:\n%s", baseline, got)
+	var rows []string
+	for line := range strings.SplitSeq(f.frame(t), "\n") {
+		if line = strings.TrimRight(line, " "); line != "" {
+			rows = append(rows, line)
+		}
+	}
+	if want := []string{rootRow}; !slices.Equal(rows, want) {
+		t.Fatalf("rows = %q, want %q", rows, want)
 	}
 
 	f.sendKeys(t, "Enter")
 	outcome := f.awaitOutcome(t)
-	if !outcome.Chosen || outcome.Err != "" || outcome.Session == "" {
-		t.Fatalf("outcome = %+v, want the project run with no error and a session", outcome)
+	if !outcome.Chosen || outcome.Err != "" || outcome.Pane != "" || outcome.Session == "" {
+		t.Fatalf("outcome = %+v, want the root pane run with no error and a new session", outcome)
 	}
-	if got := f.sessionDir(t, outcome.Session); got != filepath.Join(edited, "new-name") {
-		t.Fatalf("project session dir = %q, want %q", got, filepath.Join(edited, "new-name"))
+	if got := f.sessionDir(t, outcome.Session); got != f.root {
+		t.Fatalf("new session dir = %q, want %q", got, f.root)
 	}
-	entries, err := os.ReadDir(edited)
+	entries, err := os.ReadDir(f.root)
 	if err != nil {
-		t.Fatalf("read %s: %v", edited, err)
+		t.Fatalf("read root: %v", err)
 	}
-	if len(entries) != 1 || entries[0].Name() != "new-name" {
-		t.Fatalf("edited root entries = %v, want only new-name", entries)
+	names := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		names = append(names, entry.Name())
 	}
-	if _, err := os.Stat(filepath.Join(f.root, projectName)); err == nil {
-		t.Fatalf("the original project name was created under the default root")
+	if want := []string{"dir-01", "dir-02"}; !slices.Equal(names, want) {
+		t.Fatalf("root entries = %q, want %q", names, want)
 	}
-}
-
-func TestPickerEscMidEditKeepsOriginalAction(t *testing.T) {
-	f := newFixture(t, 0)
-	f.startPicker(t)
-	f.waitForFrame(t, "> pane "+f.dir1)
-	f.sendKeys(t, "j", "j")
-	f.waitForFrame(t, "> project "+projectName)
-
-	f.sendKeys(t, "e")
-	f.waitForFrame(t, "name: "+projectName)
-	f.typeText(t, "other")
-	f.sendKeys(t, "Escape")
-	waitUntil(t, "the edit to close", func() bool {
-		frame := f.frame(t)
-		return !strings.Contains(frame, "name: ") && strings.Contains(frame, "> project "+projectName)
+	waitUntil(t, "the Claude pane to start with the prompt", func() bool {
+		for _, args := range claudeRunFiles(t, f.claude, "args") {
+			if strings.Contains(args, "\n"+testText+"\n") {
+				return true
+			}
+		}
+		return false
 	})
-
-	f.sendKeys(t, "Enter")
-	outcome := f.awaitOutcome(t)
-	if !outcome.Chosen || outcome.Err != "" {
-		t.Fatalf("outcome = %+v, want the original project run with no error", outcome)
-	}
-	if got := f.sessionDir(t, outcome.Session); got != filepath.Join(f.root, projectName) {
-		t.Fatalf("project session dir = %q, want %q", got, filepath.Join(f.root, projectName))
-	}
-}
-
-func TestPickerEditOnJumpRowChangesNothing(t *testing.T) {
-	f := newFixture(t, 0)
-	f.startPicker(t)
-	baseline := f.state(t)
-	f.waitForFrame(t, "> pane "+f.dir1)
-	f.sendKeys(t, "j")
-	f.waitForFrame(t, "> jump "+f.targetPane)
-
-	f.sendKeys(t, "e")
-	time.Sleep(settle)
-	if frame := f.frame(t); strings.Contains(frame, "name: ") || strings.Contains(frame, "root: ") {
-		t.Fatalf("e on the jump row opened an edit:\n%s", frame)
-	}
-	f.sendKeys(t, "Enter")
-
-	outcome := f.awaitOutcome(t)
-	if !outcome.Chosen || outcome.Err != "" || outcome.Pane != f.targetPane || outcome.Session != f.targetSession {
-		t.Fatalf("outcome = %+v, want the jump to pane %s unchanged", outcome, f.targetPane)
-	}
-	if got := f.state(t); got != baseline {
-		t.Fatalf("jump created state:\nbefore:\n%s\nafter:\n%s", baseline, got)
-	}
 }
 
 // chooseActions makes two new directories under the fixture's root and returns a pane action for each, the first

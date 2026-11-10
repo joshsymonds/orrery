@@ -21,14 +21,12 @@ import (
 // ActionKind is the kind of an Intent action.
 type ActionKind string
 
-// The action kinds: jump switches to an existing pane, pane opens a new Claude pane in a directory, and project
-// opens a new project directory with a Claude session. resume opens a Claude pane in a directory that resumes
-// Session, continue opens one that continues the latest session there, and fresh opens one that starts a new
-// session there.
+// The action kinds: jump switches to an existing pane, and pane opens a new Claude pane in a directory. resume opens
+// a Claude pane in a directory that resumes Session, continue opens one that continues the latest session there, and
+// fresh opens one that starts a new session there.
 const (
 	ActionJump     ActionKind = "jump"
 	ActionPane     ActionKind = "pane"
-	ActionProject  ActionKind = "project"
 	ActionResume   ActionKind = "resume"
 	ActionContinue ActionKind = "continue"
 	ActionFresh    ActionKind = "fresh"
@@ -38,9 +36,8 @@ const (
 type Action struct {
 	Kind    ActionKind
 	Pane    string // jump: the pane ID
-	Dir     string // pane, resume, continue, fresh: the directory; project: the root directory
-	Name    string // project: the new project's name
-	Prompt  string // pane and project: TEXT as the first prompt when the model calls it a task, else ""
+	Dir     string // pane, resume, continue, fresh: the directory
+	Prompt  string // pane: TEXT as the first prompt when the model calls it a task, else ""
 	Session string // resume: the Claude session ID
 	Note    string // resume: the archived pane's summary, shown by the picker
 }
@@ -49,12 +46,7 @@ type Action struct {
 const intentDirLimit = 30
 
 // pairWords is the word count of a keyword and one argument: "jump <pane id>", "pane d<N>", "task: yes".
-// newWords is the word count of "new <name> <root>", and keywordNew is the project keyword.
-const (
-	pairWords  = 2
-	newWords   = 3
-	keywordNew = "new"
-)
+const pairWords = 2
 
 // intentKillGrace bounds how long a run waits for its output pipes once the child has been killed.
 const intentKillGrace = 2 * time.Second
@@ -67,15 +59,13 @@ const intentInstruction = `Choose the actions that fit TEXT below and rank them 
 Reply with one line per action, using only these forms:
 jump <pane id>
 pane d<N>
-new <name> d<N>
-new <name> default
-Use only the pane ids and directory numbers listed below. "new" starts a project
-named <name> under directory d<N>, or under the default directory. Then reply with
-exactly one line, "task: yes" if TEXT asks for a task to start in a new pane, or
-"task: no" if it does not. Reply with nothing else.
+Use only the pane ids and directory numbers listed below. Then reply with exactly
+one line, "task: yes" if TEXT asks for a task to start in a new pane, or "task: no"
+if it does not. Reply with nothing else.
 `
 
-// Intent asks the summary model which actions fit text and returns them ranked, best first. It executes nothing.
+// Intent asks the summary model which actions fit text and returns them ranked, best first. When cfg.Root is absolute
+// and no pane action already opens it, the last action is a pane in cfg.Root. It executes nothing.
 func Intent(ctx context.Context, cfg Config, text string) ([]Action, error) {
 	dirs, err := queryZoxide(ctx, cfg)
 	if err != nil {
@@ -144,8 +134,9 @@ func intentStdin(text string, dirs []string, panes []protocol.Pane) string {
 	return out.String()
 }
 
-// parseIntent turns the reply into actions in reply order. A line with the wrong shape, an unlisted pane or
-// directory, or a project name checkName rejects is dropped. "task: yes" anywhere in the reply sets a prompt.
+// parseIntent turns the reply into actions in reply order. A line with the wrong shape, or an unlisted pane or
+// directory, is dropped. "task: yes" anywhere in the reply sets a prompt. When root is absolute and no pane action
+// already opens it, the root pane is appended last, with the prompt every pane action carries.
 func parseIntent(reply, root string, dirs []string, panes []protocol.Pane, text string) []Action {
 	task := false
 	var choices [][]string
@@ -159,7 +150,7 @@ func parseIntent(reply, root string, dirs []string, panes []protocol.Pane, text 
 	}
 	var actions []Action
 	for _, fields := range choices {
-		action, ok := intentAction(fields, root, dirs, panes)
+		action, ok := intentAction(fields, dirs, panes)
 		if !ok {
 			continue
 		}
@@ -168,11 +159,20 @@ func parseIntent(reply, root string, dirs []string, panes []protocol.Pane, text 
 		}
 		actions = append(actions, action)
 	}
+	if filepath.IsAbs(root) && !slices.ContainsFunc(actions, func(action Action) bool {
+		return action.Kind == ActionPane && action.Dir == root
+	}) {
+		rootAction := Action{Kind: ActionPane, Dir: root}
+		if task {
+			rootAction.Prompt = text
+		}
+		actions = append(actions, rootAction)
+	}
 	return actions
 }
 
 // intentAction reads one reply line's fields as an action; ok is false when the line names nothing valid.
-func intentAction(fields []string, root string, dirs []string, panes []protocol.Pane) (Action, bool) {
+func intentAction(fields []string, dirs []string, panes []protocol.Pane) (Action, bool) {
 	if len(fields) == 0 {
 		return Action{}, false
 	}
@@ -188,12 +188,6 @@ func intentAction(fields []string, root string, dirs []string, panes []protocol.
 		}
 		dir, ok := dirRef(fields[1], dirs)
 		return Action{Kind: ActionPane, Dir: dir}, ok
-	case keywordNew:
-		if len(fields) != newWords || checkName(fields[1]) != nil {
-			return Action{}, false
-		}
-		dir, ok := projectRoot(fields[2], root, dirs)
-		return Action{Kind: ActionProject, Name: fields[1], Dir: dir}, ok
 	}
 	return Action{}, false
 }
@@ -214,15 +208,6 @@ func dirRef(ref string, dirs []string) (string, bool) {
 		return "", false
 	}
 	return dirs[n-1], true
-}
-
-// projectRoot returns the parent directory a new project goes under: cfg.Root for default, else the directory
-// ref names. An empty or relative cfg.Root is not a directory, as in open.go's resolveNew.
-func projectRoot(ref, root string, dirs []string) (string, bool) {
-	if strings.EqualFold(ref, "default") {
-		return root, filepath.IsAbs(root)
-	}
-	return dirRef(ref, dirs)
 }
 
 // runClaude runs the claude binary once with stdin, in cwd "/" with the summary argv and env, and returns its
@@ -289,8 +274,6 @@ func ExecuteAction(ctx context.Context, cfg Config, action Action) (Target, erro
 		return openPane(ctx, cfg, action.Dir, []string{cfg.Claude, "--continue"})
 	case ActionFresh:
 		return openPane(ctx, cfg, action.Dir, []string{cfg.Claude})
-	case ActionProject:
-		return newProject(ctx, cfg, action)
 	default:
 		return Target{}, fmt.Errorf("intent: unknown action kind %q", action.Kind)
 	}
@@ -346,29 +329,4 @@ func newWindow(ctx context.Context, cfg Config, session, dir string, argv []stri
 		return "", fmt.Errorf("intent: new window in %q: %w", session, err)
 	}
 	return strings.TrimSuffix(out, "\n"), nil
-}
-
-// newProject creates the directory root/name, which must not exist, and a session for it.
-func newProject(ctx context.Context, cfg Config, action Action) (Target, error) {
-	if err := checkName(action.Name); err != nil {
-		return Target{}, err
-	}
-	if !filepath.IsAbs(action.Dir) {
-		return Target{}, fmt.Errorf("intent: project root %q must be an absolute directory", action.Dir)
-	}
-	sessions, err := listSessions(ctx, cfg)
-	if err != nil {
-		return Target{}, err
-	}
-	dir := filepath.Join(action.Dir, action.Name)
-	err = os.Mkdir(dir, 0o750)
-	if err != nil {
-		return Target{}, fmt.Errorf("intent: create directory: %w", err)
-	}
-	name := freeName(sessions, action.Name)
-	err = createSession(ctx, cfg, name, dir, claudeCommand(cfg.Claude, action.Prompt))
-	if err != nil {
-		return Target{}, err
-	}
-	return Target{Session: name}, nil
 }
