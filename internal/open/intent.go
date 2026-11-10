@@ -45,6 +45,9 @@ type Action struct {
 // intentDirLimit is the number of zoxide directories Intent sends the model.
 const intentDirLimit = 30
 
+// intentDirTotal is the number of directories Intent sends the model in all: zoxide's share and the roots' together.
+const intentDirTotal = 300
+
 // pairWords is the word count of a keyword and one argument: "jump <pane id>", "pane d<N>", "task: yes".
 const pairWords = 2
 
@@ -64,15 +67,14 @@ one line, "task: yes" if TEXT asks for a task to start in a new pane, or "task: 
 if it does not. Reply with nothing else.
 `
 
-// Intent asks the summary model which actions fit text and returns them ranked, best first. The model sees each
-// directory relative to cfg.Home when it lies strictly inside it, else by absolute path. When cfg.Root is absolute
-// and no pane action already opens it, the last action is a pane in cfg.Root. It executes nothing.
+// Intent asks the summary model which actions fit text and returns them ranked, best first. The model sees the
+// directories of intentDirs, each relative to cfg.Home when it lies strictly inside it, else by absolute path. When
+// cfg.Root is absolute and no pane action already opens it, the last action is a pane in cfg.Root. It executes nothing.
 func Intent(ctx context.Context, cfg Config, text string) ([]Action, error) {
-	dirs, err := queryZoxide(ctx, cfg)
+	dirs, err := intentDirs(ctx, cfg)
 	if err != nil {
 		return nil, err
 	}
-	dirs = dirs[:min(len(dirs), intentDirLimit)]
 	panes, err := intentPanes(ctx, cfg)
 	if err != nil {
 		return nil, err
@@ -86,6 +88,72 @@ func Intent(ctx context.Context, cfg Config, text string) ([]Action, error) {
 		return nil, errors.New("intent: the model chose no valid action")
 	}
 	return actions, nil
+}
+
+// intentDirs returns the directories Intent sends the model: zoxide's top intentDirLimit, then each root's
+// directories in Config order, skipping any already listed, and stopping at intentDirTotal.
+func intentDirs(ctx context.Context, cfg Config) ([]string, error) {
+	zoxide, err := queryZoxide(ctx, cfg)
+	if err != nil {
+		return nil, err
+	}
+	dirs := zoxide[:min(len(zoxide), intentDirLimit)]
+	for _, root := range cfg.Roots {
+		for _, dir := range rootDirs(root) {
+			if len(dirs) >= intentDirTotal {
+				return dirs, nil
+			}
+			if !slices.Contains(dirs, dir) {
+				dirs = append(dirs, dir)
+			}
+		}
+	}
+	return dirs, nil
+}
+
+// rootDirs returns the directories of root at levels 1 to root.Depth below root.Dir, sorted by path. A name
+// beginning with "." is left out with everything under it, as is a symlink and any directory os.ReadDir cannot
+// read. A root that cannot be read lists nothing.
+func rootDirs(root Root) []string {
+	dirs := levelDirs([]string{root.Dir}, root.Depth)
+	slices.Sort(dirs)
+	return dirs
+}
+
+// levelDirs returns the directories at up to depth levels below parents, nearest level first. It stops at the
+// first level with no directories.
+func levelDirs(parents []string, depth int) []string {
+	if depth <= 0 {
+		return nil
+	}
+	children := childDirs(parents)
+	if len(children) == 0 {
+		return nil
+	}
+	return slices.Concat(children, levelDirs(children, depth-1))
+}
+
+// childDirs returns the visible, readable directories directly inside each of parents, in the order of parents
+// and then of name. A parent that os.ReadDir cannot read contributes none.
+func childDirs(parents []string) []string {
+	var children []string
+	for _, parent := range parents {
+		entries, err := os.ReadDir(parent)
+		if err != nil {
+			continue
+		}
+		for _, entry := range entries {
+			if !entry.IsDir() || strings.HasPrefix(entry.Name(), ".") {
+				continue
+			}
+			child := filepath.Join(parent, entry.Name())
+			if _, readErr := os.ReadDir(child); readErr != nil {
+				continue
+			}
+			children = append(children, child)
+		}
+	}
+	return children
 }
 
 // intentPanes returns the panes Intent may name: those with a state whose @orrery_context is set to "", the

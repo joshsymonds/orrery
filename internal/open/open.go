@@ -27,6 +27,7 @@ type Config struct {
 	Root    string // default parent directory of new projects
 	Archive string // path of the archive file of closed Claude panes
 	Home    string // the user's home directory; intent names directories strictly inside it relative to it
+	Roots   []Root // directory trees the intent lookup lists below zoxide's directories, in order
 }
 
 // Request is one `orrery open` invocation.
