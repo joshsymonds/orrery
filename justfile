@@ -92,3 +92,7 @@ android-font:
         ttx -q --no-recalc-timestamp -m "$tmp/$lower.ttf" -o "$res/font/orrery_mono_$lower.ttf" "$tmp/$lower.name.ttx"
     done
     SCRIPT
+
+# Rerun the Claude Code protocol probes live against the claude on PATH (spends Haiku turns on your sign-in; not part of check).
+engine-accept:
+    go run ./internal/engine/capture/cmd/enginecapture accept

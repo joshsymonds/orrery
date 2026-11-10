@@ -1,0 +1,3 @@
+{"type":"control_request","request_id":"req_1","request":{"subtype":"initialize","supportedDialogKinds":null,"hooks":{},"systemPrompt":[]}}
+{"type":"user","message":{"role":"user","content":[{"type":"text","text":"redacted"}]},"uuid":"uuid_1"}
+{"type":"control_request","request_id":"req_2","request":{"subtype":"interrupt"}}
