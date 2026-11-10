@@ -266,6 +266,18 @@ Subcommands:
   - A pane command with arguments (resume, continue, a first prompt) starts as `<default-shell> -c 'exec "$@"' orrery claude <arguments...>` when the base name of tmux's default-shell is sh, bash, zsh, dash or ksh. The pane gets that shell's environment, and each argument reaches claude unchanged. Under any other shell, or when default-shell cannot be read, the command starts directly. `claude` alone runs as tmux runs any one-word command, through default-shell.
   - Exit codes are those in the table above. A refused `open .` with `--remote` exits 1.
 - `serve --listen ADDR --allow-login LOGIN` serves the HTTP API of section 12. See `### orrery serve`.
+- `events --url URL [--after N] [--follow]` prints the event stream of `serve` as JSON lines. `--url` is the base URL of that `serve`. The command sends no `Tailscale-User-Login` header, so the URL must lead through a proxy that sets it, such as `tailscale serve`.
+  - Without `--after`, the cursor is the newest seq that `serve` reports in its `List` response (see [Connect API](#connect-api)). With `--after N`, the cursor is `N`.
+  - A cursor past the newest seq is an error. The command exits 1 before any `Watch` call and writes nothing.
+  - Without `--follow`, the command writes events through the newest seq that `serve` reported at start, then exits 0. When that seq is not past the cursor, it writes nothing and makes no `Watch` call. If the stream ends before that seq, it exits 1.
+  - With `--follow`, it writes events until the stream ends, then exits 1 with the stream's error.
+  - Each event is one line: a compact JSON object of the `WatchResponse` message (see [Connect API](#connect-api)), with the JSON names `seq`, `sessionId`, `at`, and one of `sessionAdded`, `sessionChanged`, or `sessionRemoved`. 64-bit numbers are JSON strings. A field at its zero value is left out, except a `sessionChanged` field the event set, which appears even when it is `""`. Example line:
+
+```json
+{"seq":"3","sessionId":"example-session","at":"1700000300","sessionChanged":{"state":"working"}}
+```
+
+  - Usage errors (no `--url`, an unknown flag, an extra argument) exit 2.
 
 Exit codes:
 
@@ -296,7 +308,7 @@ Registrations are written to the push store that `orreryd` reads (see `### orrer
 
 `serve` is meant to sit behind `tailscale serve`, which sets the `Tailscale-User-Login` header that section 12 checks. Do not expose it through Tailscale Funnel.
 
-`SIGINT` and `SIGTERM` stop `serve` and exit 0.
+`SIGINT` and `SIGTERM` stop `serve` and exit 0. Each open `orrery.v1.Events` stream ends first; the [Connect API](#connect-api) section gives the code it ends with.
 
 Example. Every name and address is synthetic:
 
@@ -554,7 +566,7 @@ The guard runs before routing. It checks every request:
 
 - The `Tailscale-User-Login` header must equal one of the `--allow-login` values. Otherwise the response is 403.
 
-Connect paths are those beginning `/orrery.v1.Sessions/` (see [Connect API](#connect-api)). Every request to a Connect path, whatever its method, must also send a non-empty `X-Orrery-Client` header. Otherwise the response is 403. A POST to a Connect path must send `Content-Type` `application/proto`, `application/json`, `application/connect+proto`, or `application/connect+json`. Otherwise the response is 403.
+Connect paths are those beginning `/orrery.v1.Sessions/` or `/orrery.v1.Events/` (see [Connect API](#connect-api)). Every request to a Connect path, whatever its method, must also send a non-empty `X-Orrery-Client` header. Otherwise the response is 403. A POST to a Connect path must send `Content-Type` `application/proto`, `application/json`, `application/connect+proto`, or `application/connect+json`. Otherwise the response is 403.
 
 Every POST and DELETE on any other path must also send:
 
@@ -647,11 +659,12 @@ Example plaintext. The question and its hash are the fixed vector of section 10:
 
 `orrery serve` also serves a typed API over the Connect protocol. The routes above are unchanged by it. The schema is `proto/orrery/v1/orrery.proto`, package `orrery.v1`. Generated Go lives in `internal/gen`. `just generate` writes it, and `just check` fails when it drifts from the schema.
 
-The service is `orrery.v1.Sessions`. It has one call, `List`.
+The services are `orrery.v1.Sessions`, with one call, `List`, and `orrery.v1.Events`, with one call, `Watch`.
 
 | Call | Path | Request | Response |
 |---|---|---|---|
 | `List` | `POST /orrery.v1.Sessions/List` | `ListRequest`, empty | `ListResponse` |
+| `Watch` (server-streaming) | `POST /orrery.v1.Events/Watch` | `WatchRequest` | stream of `WatchResponse` |
 
 `ListResponse` has these fields:
 
@@ -664,13 +677,43 @@ Two sessions can share `server` and `pane` for up to 10 s after a tmux server re
 
 - It opens the file read-only on each call and holds no connection between calls. A file that was replaced, or one that has appeared since the last call, is read as it is now.
 - It never writes the database and never creates the file or its directory. SQLite may create the `-wal` and `-shm` files beside an existing store file.
-- When the file is missing or the database is busy, `List` answers with the Connect code `unavailable`. Any other read failure answers `internal`.
+- When the file is missing, the database is busy, or the file is removed while it is read, `List` answers with the Connect code `unavailable`. Any other read failure answers `internal`.
 - The `/v1/...` routes never read the store.
 
 | Connect code | When |
 |---|---|
-| `unavailable` | the store file is missing, or the database is busy |
+| `unavailable` | the store file is missing, the database is busy, or the file is removed while it is read |
 | `internal` | any other read failure |
+
+`orrery.v1.Events.Watch` streams the events table (see [Store](#store)). `orrery events` (section 11) reads this call.
+
+`WatchRequest` has `after`, the seq the stream resumes after. It is a cursor, and the cursor rules below apply to it.
+
+Each `WatchResponse` has `seq`, `session_id` (the pane's `@orrery_id`), `at` (unix seconds when the event was stored), and one member of its `event` oneof. The store kinds map to the members as follows:
+
+| Store kind | `WatchResponse` member | Payload message |
+|---|---|---|
+| `session_added` | `session_added` | `SessionAdded`: `server`, `pane` |
+| `session_changed` | `session_changed` | `SessionChanged` (below) |
+| `session_removed` | `session_removed` | `SessionRemoved`, no fields |
+
+`SessionChanged` has ten optional fields: `state`, `changed`, `seen`, `question`, `summary`, `label`, `context`, `tool`, `claude_session`, and `transcript`. An event sets a field only when it changed that option. A set field with the value `""` means the option was unset. A field the event did not change is absent.
+
+Watch behavior:
+
+- Each store read returns up to 100 events with seq above the cursor, in seq order. After a read of 100, the next read follows at once. After a shorter read, the stream waits for the next 250 ms tick, then reads again.
+- Each read opens the store read-only and closes it before the send. Nothing is held between reads or across a send.
+- The cursor is out of range when `after` is above the newest seq. When the log holds events, it is also out of range when `after` is below the oldest kept seq minus one. Events older than 14 days are pruned (see [Store](#store)), so cursor 0 is out of range once the oldest kept seq is 2 or more.
+- Each send must complete within 10 seconds. A send that does not ends that stream only.
+- After serve's shutdown signal, a blocked send gets 1 second, and so does the stream's end. A stream that is waiting for its next read or send ends with `unavailable`, with the message `serve is shutting down`.
+
+| Connect code | When |
+|---|---|
+| `out_of_range` | the cursor rule above |
+| `unavailable` | the store file is missing, the database is busy, or the file is removed while it is read; or serve shuts down while the stream waits for its next read or send |
+| `internal` | any other store read failure, a row that does not decode, or an event kind the server does not know |
+
+A stream whose send fails, at the 10-second deadline or during a blocked send at shutdown, ends with an error outside this table.
 
 The guard's rule for Connect paths is in [Guard](#guard). A request the guard refuses gets 403 before any Connect response.
 
@@ -685,3 +728,5 @@ orrery v0.6.0 (E7a) added the `@orrery_tool` option, the `tool` list field, the 
 orrery v0.7.0 (H1a) added the store file (see [Store](#store)) and the `@orrery_id` option, both additively. No existing name or value changes.
 
 The typed API (the `orrery.v1.Sessions` service, see [Connect API](#connect-api)) was added additively. No existing name or value changes.
+
+The event stream (the `orrery.v1.Events` service with `Watch`, see [Connect API](#connect-api)), the `orrery events` command, and serve's shutdown of open streams were added additively. The `List` call also answers `unavailable` for a store removed while it is read. No existing name or value changes.
