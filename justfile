@@ -148,3 +148,58 @@ android-font:
 # Rerun the Claude Code protocol probes live against the claude on PATH (spends Haiku turns on your sign-in; not part of check).
 engine-accept:
     go run ./internal/engine/capture/cmd/enginecapture accept
+
+# Regenerate docs/img/tree.png: the real `orrery tree`, built from this tree,
+# full-frame in VHS's terminal (Catppuccin Mocha, Maple Mono NF) against the
+# private tmux server that docs/tui/fixture.sh start builds. Runs under the
+# tui-shots devenv profile, so vhs, ttyd and chromium stay out of the default
+# shell. Every temporary file and every process it starts is removed on exit.
+[script("devenv", "--profile", "tui-shots", "shell", "--", "bash", "-euo", "pipefail")]
+tui-shots:
+    tmp="$(mktemp -d)"
+    trap 'bash "$PWD/docs/tui/fixture.sh" stop; rm -rf "$tmp"' EXIT
+
+    # Register only Maple Mono NF with fontconfig, in the temporary directory,
+    # and refuse to render unless fc-match resolves it.
+    cat > "$tmp/fonts.conf" <<EOF
+    <?xml version="1.0"?>
+    <!DOCTYPE fontconfig SYSTEM "fonts.dtd">
+    <fontconfig>
+      <dir>$ORRERY_TUI_FONT_DIR</dir>
+      <cachedir>$tmp/fontcache</cachedir>
+      <selectfont>
+        <acceptfont>
+          <pattern>
+            <patelt name="family"><string>Maple Mono NF</string></patelt>
+          </pattern>
+        </acceptfont>
+      </selectfont>
+    </fontconfig>
+    EOF
+    export FONTCONFIG_FILE="$tmp/fonts.conf"
+    family="$(fc-match -f '%{family}' 'Maple Mono NF')"
+    case "$family" in
+        "Maple Mono NF" | "Maple Mono NF,"*) ;;
+        *) echo "tui-shots: fc-match resolves 'Maple Mono NF' to '$family'; ORRERY_TUI_FONT_DIR must hold Maple Mono NF" >&2; exit 1 ;;
+    esac
+
+    # ttyd (VHS's terminal) needs its libwebsockets plugin directory on the library path.
+    lwsdir="$(dirname "$(ldd "$(command -v ttyd)" | awk '/libwebsockets/{print $3}')")"
+    export LD_LIBRARY_PATH="$lwsdir:${LD_LIBRARY_PATH:-}"
+
+    # The tape's shell and VHS's browser keep their temporary files in $tmp.
+    export TMPDIR="$tmp" COLORTERM=truecolor XDG_STATE_HOME=/tmp/orrery-tui-shots/state
+    unset TMUX TMUX_PANE
+
+    mkdir "$tmp/bin"
+    go build -o "$tmp/bin/orrery" ./cmd/orrery
+    export PATH="$tmp/bin:$PATH"
+
+    bash docs/tui/fixture.sh start
+
+    # VHS writes a gif into $tmp; ffmpeg takes its settled last frame as the PNG.
+    tape="$PWD/docs/tui/tree.tape"
+    (cd "$tmp" && vhs "$tape")
+    mkdir -p docs/img
+    ffmpeg -y -loglevel error -sseof -0.3 -i "$tmp/tree.gif" -update 1 -frames:v 1 docs/img/tree.png
+    echo "tui-shots: wrote docs/img/tree.png"
