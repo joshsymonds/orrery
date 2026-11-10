@@ -155,6 +155,225 @@ func TestSendTextPastesThenEnter(t *testing.T) {
 	sendAwaitInput(t, file, "\x1b[200~synthetic text\x1b[201~\r")
 }
 
+// sendBoxScreen returns a screen whose empty input box is 80 columns wide, below synthetic output.
+func sendBoxScreen() string {
+	rule := strings.Repeat("─", 80)
+	return "synthetic output\n" + rule + "\n❯ \n" + rule + "\n  synthetic footer"
+}
+
+// sendSetState sets pane's @orrery_state option to state.
+func sendSetState(t *testing.T, client *tmuxctl.Client, pane, state string) {
+	t.Helper()
+	sendRun(t, client, "set-option", "-p", "-t", pane, protocol.OptionState, state)
+}
+
+// sendTextAwait sends text with --text and requires the pane to receive want exactly, with no output.
+func sendTextAwait(t *testing.T, client *tmuxctl.Client, pane, file, text, want string) {
+	t.Helper()
+	var out bytes.Buffer
+	if err := cli.Send(t.Context(), client, []string{"--pane", pane, "--text", text}, &out); err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	if out.Len() != 0 {
+		t.Fatalf("Send printed %q, want nothing", out.String())
+	}
+	sendAwaitInput(t, file, want)
+}
+
+// TestSendTextTypesIntoInputBox drives a pane in the working and done states whose screen shows the
+// input box. The text is typed: line breaks arrive as C-j, and no paste markers appear.
+func TestSendTextTypesIntoInputBox(t *testing.T) {
+	for _, state := range []string{string(protocol.StateWorking), string(protocol.StateDone)} {
+		t.Run(state, func(t *testing.T) {
+			client := sendServer(t)
+			pane, file := sendStartPane(t, client, sendBoxScreen())
+			width := strings.TrimSpace(sendRun(t, client, "display-message", "-p", "-t", pane, "#{pane_width}"))
+			if width != "80" {
+				t.Fatalf("pane_width = %q, want 80", width)
+			}
+			sendSetState(t, client, pane, state)
+
+			sendTextAwait(t, client, pane, file, "first line\nsecond line", "first line\nsecond line\r")
+		})
+	}
+}
+
+// TestSendTextTypedBytes checks the exact bytes a typed send delivers. Each text is invented to hit one
+// rule: blank lines, line endings, length, the semicolon and dash handling of tmux, and UTF-8 cuts.
+func TestSendTextTypedBytes(t *testing.T) {
+	emoji := "😀"
+	cases := []struct {
+		name string
+		text string
+		want string
+	}{
+		{name: "blank line", text: "a\n\nb", want: "a\n\nb\r"},
+		{name: "trailing newline", text: "a\n", want: "a\n\r"},
+		{name: "CRLF and CR become LF", text: "a\r\nb\rc", want: "a\nb\nc\r"},
+		{
+			name: "3000-byte line",
+			text: strings.Repeat("abcdefghij", 300),
+			want: strings.Repeat("abcdefghij", 300) + "\r",
+		},
+		{
+			name: "semicolon as the 400th byte",
+			text: strings.Repeat("a", 399) + ";tail",
+			want: strings.Repeat("a", 399) + ";tail\r",
+		},
+		{name: "line ending in semicolon", text: "cmd;", want: "cmd;\r"},
+		{name: "line ending in backslash semicolon", text: `x\;`, want: `x\;` + "\r"},
+		{name: "piece starting with dash", text: "-flag value", want: "-flag value\r"},
+		{
+			name: "cut before a dash",
+			text: strings.Repeat("a", 400) + "-flag",
+			want: strings.Repeat("a", 400) + "-flag\r",
+		},
+		{
+			name: "emoji straddling byte 400",
+			text: strings.Repeat("a", 398) + emoji + "tail",
+			want: strings.Repeat("a", 398) + emoji + "tail\r",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			client := sendServer(t)
+			pane, file := sendStartPane(t, client, sendBoxScreen())
+			sendSetState(t, client, pane, string(protocol.StateDone))
+
+			sendTextAwait(t, client, pane, file, tc.text, tc.want)
+		})
+	}
+}
+
+// TestSendTextPastesOutsideInputBox requires the paste path, with no typed bytes, when the state, the
+// screen, or the pane mode is not one the typed path accepts.
+func TestSendTextPastesOutsideInputBox(t *testing.T) {
+	rule := strings.Repeat("─", 80)
+	dialog := rule + "\n ☐ Header\n\nInvented question?\n\n❯ 1. Option\n   2. Other\n" +
+		rule + "\n  4. Chat about this\n\nEnter to select · ↑/↓ to navigate · Esc to cancel"
+	const paste = "\x1b[200~synthetic text\x1b[201~\r"
+	cases := []struct {
+		name   string
+		screen string
+		state  string // value of @orrery_state; empty means it is never set
+		copy   bool   // enter copy mode before sending
+		want   string // bytes the pane receives
+	}{
+		{name: "no state", screen: sendBoxScreen(), want: paste},
+		{name: "waiting state", screen: sendBoxScreen(), state: string(protocol.StateWaiting), want: paste},
+		{name: "done without box", screen: sendQuestion, state: string(protocol.StateDone), want: paste},
+		{name: "done with question dialog", screen: dialog, state: string(protocol.StateDone), want: paste},
+		// In copy mode the paste arrives as plain text with no bracket markers, and the Enter key is
+		// consumed by copy mode, so the pane receives only the text.
+		{
+			name:   "done in copy mode",
+			screen: sendBoxScreen(), state: string(protocol.StateDone), copy: true,
+			want: "synthetic text",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			client := sendServer(t)
+			pane, file := sendStartPane(t, client, tc.screen)
+			if tc.state != "" {
+				sendSetState(t, client, pane, tc.state)
+			}
+			if tc.copy {
+				sendRun(t, client, "copy-mode", "-t", pane)
+			}
+
+			sendTextAwait(t, client, pane, file, "synthetic text", tc.want)
+		})
+	}
+}
+
+// TestSendTextPastesWhatTypingCannotCarry requires the paste path, with no typed bytes, on a pane whose
+// input box is shown and whose state is done. Each text is invented to fail one typing rule: a control
+// character other than the line feed, invalid UTF-8, and more than 200 typed invocations before Enter.
+// Each want is what tmux's paste-buffer -p delivers today: it shows ESC and a stray 0xff byte in caret
+// form and turns each LF into CR.
+func TestSendTextPastesWhatTypingCannotCarry(t *testing.T) {
+	cases := []struct {
+		name  string
+		text  string
+		paste string // the text as the pane receives it between the paste markers
+	}{
+		{name: "tab", text: "a\tb", paste: "a\tb"},
+		{name: "escape", text: "a\x1bb", paste: "a^[b"},
+		{name: "C1 next line U+0085", text: "a\u0085b", paste: "a\u0085b"},
+		{name: "invalid UTF-8", text: "a\xffb", paste: "aM^?b"},
+		{
+			name:  "201 invocations",
+			text:  strings.Repeat("a\n", 100) + "a",
+			paste: strings.Repeat("a\r", 100) + "a",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			client := sendServer(t)
+			pane, file := sendStartPane(t, client, sendBoxScreen())
+			sendSetState(t, client, pane, string(protocol.StateDone))
+
+			sendTextAwait(t, client, pane, file, tc.text, "\x1b[200~"+tc.paste+"\x1b[201~\r")
+		})
+	}
+}
+
+// TestSendTextTypesAtTypeLimit requires text of exactly 200 typed invocations to be typed: 99 line
+// breaks as C-j and 101 literal pieces, with no paste markers.
+func TestSendTextTypesAtTypeLimit(t *testing.T) {
+	text := strings.Repeat("b\n", 99) + strings.Repeat("c", 401)
+	client := sendServer(t)
+	pane, file := sendStartPane(t, client, sendBoxScreen())
+	sendSetState(t, client, pane, string(protocol.StateDone))
+
+	sendTextAwait(t, client, pane, file, text, text+"\r")
+}
+
+// TestSendTextFinishesWhenCallerCancels starts a typed send of 20 short lines under a cancellable context
+// and cancels it once the first bytes reach the pane's input file. The typed send runs on its own bounded
+// context, so Send returns nil and the pane receives every typed byte, then Enter.
+func TestSendTextFinishesWhenCallerCancels(t *testing.T) {
+	lines := make([]string, 0, 20)
+	for i := range 20 {
+		lines = append(lines, fmt.Sprintf("synthetic line %02d", i))
+	}
+	text := strings.Join(lines, "\n")
+
+	client := sendServer(t)
+	pane, file := sendStartPane(t, client, sendBoxScreen())
+	sendSetState(t, client, pane, string(protocol.StateDone))
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	result := make(chan error, 1)
+	go func() {
+		result <- cli.Send(ctx, client, []string{"--pane", pane, "--text", text}, &bytes.Buffer{})
+	}()
+
+	sendPollUntil(t, "first typed bytes in "+file, func() (bool, error) {
+		data, err := os.ReadFile(file)
+		if errors.Is(err, fs.ErrNotExist) {
+			return false, nil
+		}
+		if err != nil {
+			return false, err
+		}
+		return len(data) > 0, nil
+	})
+	cancel()
+
+	select {
+	case err := <-result:
+		if err != nil {
+			t.Fatalf("Send after caller canceled: %v", err)
+		}
+	case <-time.After(sendDeadline):
+		t.Fatalf("Send did not return within %v", sendDeadline)
+	}
+	sendAwaitInput(t, file, text+"\r")
+}
+
 func TestSendKeysDeliversKeys(t *testing.T) {
 	client := sendServer(t)
 	pane, file := sendStartPane(t, client, sendQuestion)

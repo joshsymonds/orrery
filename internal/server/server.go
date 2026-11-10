@@ -16,6 +16,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/cli"
@@ -154,13 +155,14 @@ func New(cfg Config) (http.Handler, error) {
 	}
 
 	goals := conversation.NewGoals()
+	textLocks := &paneLocks{locks: make(map[string]*sync.Mutex)}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/panes", servePanes(cfg.Tmux))
 	mux.HandleFunc("POST /v1/panes", serveNewWindow(cfg.Tmux))
 	mux.HandleFunc("GET /v1/panes/{id}/screen", serveScreen(cfg.Tmux))
 	mux.HandleFunc("GET /v1/panes/{id}/conversation", serveConversation(cfg.Tmux, goals))
 	mux.HandleFunc("GET /v1/host", serveHost(cfg.HostStatus))
-	mux.HandleFunc("POST /v1/panes/{id}/text", servePaneText(cfg.Tmux))
+	mux.HandleFunc("POST /v1/panes/{id}/text", servePaneText(cfg.Tmux, textLocks))
 	mux.HandleFunc("POST /v1/panes/{id}/keys", servePaneKeys(cfg.Tmux))
 	mux.HandleFunc("POST /v1/panes/{id}/seen", servePaneSeen(cfg.Tmux))
 	mux.HandleFunc("POST /v1/push/register", servePushRegister(cfg.Push))
@@ -407,8 +409,28 @@ func boundedDecimal(values []string, low, high int) (int, bool) {
 	return n, true
 }
 
-// servePaneText answers POST /v1/panes/{id}/text by pasting the body's text into the pane and pressing Enter.
-func servePaneText(tmux *tmuxctl.Client) http.HandlerFunc {
+// paneLocks holds one mutex per pane ID, so that text sends to one pane run one after the other.
+type paneLocks struct {
+	mu    sync.Mutex
+	locks map[string]*sync.Mutex
+}
+
+// lock returns the mutex for pane id, creating it on first use.
+func (p *paneLocks) lock(id string) *sync.Mutex {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	mu, ok := p.locks[id]
+	if !ok {
+		mu = &sync.Mutex{}
+		p.locks[id] = mu
+	}
+	return mu
+}
+
+// servePaneText answers POST /v1/panes/{id}/text by sending the body's text as `orrery send --text` does: typed
+// into a Claude pane showing its input box, else pasted, then Enter.
+// The send holds the pane's lock, so two texts to one pane never interleave.
+func servePaneText(tmux *tmuxctl.Client, locks *paneLocks) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := r.PathValue("id")
 		if _, err := checkPane(r.Context(), tmux, id); err != nil {
@@ -425,7 +447,11 @@ func servePaneText(tmux *tmuxctl.Client) http.HandlerFunc {
 			http.Error(w, "bad request body", http.StatusBadRequest)
 			return
 		}
-		if err := cli.Send(r.Context(), tmux, []string{flagPane, id, "--text", text}, io.Discard); err != nil {
+		mu := locks.lock(id)
+		mu.Lock()
+		err := cli.Send(r.Context(), tmux, []string{flagPane, id, "--text", text}, io.Discard)
+		mu.Unlock()
+		if err != nil {
 			http.Error(w, "internal server error", http.StatusInternalServerError)
 			return
 		}
