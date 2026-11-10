@@ -461,8 +461,8 @@ func teammateContent(blocks ...string) string {
 	return teammateLead + strings.Join(blocks, teammateSep) + teammateTrailer
 }
 
-// teammateLine returns a user line with no promptSource and no origin whose string content is content.
-func teammateLine(t *testing.T, content string) string {
+// stringContentLine returns a user line with no promptSource and no origin whose string content is content.
+func stringContentLine(t *testing.T, content string) string {
 	t.Helper()
 	raw, err := json.Marshal(content)
 	if err != nil {
@@ -473,7 +473,7 @@ func teammateLine(t *testing.T, content string) string {
 }
 
 func TestReadTeammateLineGivesTeammateNotice(t *testing.T) {
-	line := teammateLine(t, teammateContent(teammateBlock("Synthetic summary", teammateRequest)))
+	line := stringContentLine(t, teammateContent(teammateBlock("Synthetic summary", teammateRequest)))
 	want := []Item{{Kind: "notice", Time: unixAt(0), Notice: "teammate", Text: "Synthetic summary"}}
 	if got := mustRead(t, writeTranscript(t, line), 10).Items; !reflect.DeepEqual(got, want) {
 		t.Fatalf("Items =\n%+v\nwant\n%+v", got, want)
@@ -487,7 +487,7 @@ func TestReadTeammateSummariesJoinInOrder(t *testing.T) {
 		teammateBlock("Third summary", teammateRequest))
 	want := []Item{{Kind: "notice", Time: unixAt(0), Notice: "teammate",
 		Text: "First summary\nSecond summary\nThird summary"}}
-	if got := mustRead(t, writeTranscript(t, teammateLine(t, content)), 10).Items; !reflect.DeepEqual(got, want) {
+	if got := mustRead(t, writeTranscript(t, stringContentLine(t, content)), 10).Items; !reflect.DeepEqual(got, want) {
 		t.Fatalf("Items =\n%+v\nwant\n%+v", got, want)
 	}
 }
@@ -495,7 +495,7 @@ func TestReadTeammateSummariesJoinInOrder(t *testing.T) {
 func TestReadTeammateSummaryDecodesEntities(t *testing.T) {
 	summary := "a &amp; b &lt;c&gt; &quot;d&quot; &apos;e&apos; &amp;lt;"
 	content := teammateContent(teammateBlock(summary, teammateRequest))
-	items := mustRead(t, writeTranscript(t, teammateLine(t, content)), 10).Items
+	items := mustRead(t, writeTranscript(t, stringContentLine(t, content)), 10).Items
 	if want := `a & b <c> "d" 'e' &lt;`; len(items) != 1 || items[0].Text != want {
 		t.Fatalf("items = %+v, want one teammate notice with text %q", items, want)
 	}
@@ -504,7 +504,7 @@ func TestReadTeammateSummaryDecodesEntities(t *testing.T) {
 func TestReadTeammateSummaryCutsToRunes(t *testing.T) {
 	summary := strings.Repeat("é", 301)
 	content := teammateContent(teammateBlock(summary, teammateRequest))
-	items := mustRead(t, writeTranscript(t, teammateLine(t, content)), 10).Items
+	items := mustRead(t, writeTranscript(t, stringContentLine(t, content)), 10).Items
 	if len(items) != 1 {
 		t.Fatalf("items = %d, want 1", len(items))
 	}
@@ -517,7 +517,7 @@ func TestReadTeammateBlockWithoutColorGivesNotice(t *testing.T) {
 	block := `<teammate-message teammate_id="synthetic-peer" summary="Synthetic summary">` + teammateRequest +
 		"</teammate-message>"
 	want := []Item{{Kind: "notice", Time: unixAt(0), Notice: "teammate", Text: "Synthetic summary"}}
-	line := teammateLine(t, teammateContent(block))
+	line := stringContentLine(t, teammateContent(block))
 	if got := mustRead(t, writeTranscript(t, line), 10).Items; !reflect.DeepEqual(got, want) {
 		t.Fatalf("Items =\n%+v\nwant\n%+v", got, want)
 	}
@@ -526,14 +526,14 @@ func TestReadTeammateBlockWithoutColorGivesNotice(t *testing.T) {
 func TestReadTeammateWithoutSummaryHasEmptyText(t *testing.T) {
 	content := teammateContent(teammateBlock("", teammateRequest))
 	want := []Item{{Kind: "notice", Time: unixAt(0), Notice: "teammate"}}
-	if got := mustRead(t, writeTranscript(t, teammateLine(t, content)), 10).Items; !reflect.DeepEqual(got, want) {
+	if got := mustRead(t, writeTranscript(t, stringContentLine(t, content)), 10).Items; !reflect.DeepEqual(got, want) {
 		t.Fatalf("Items =\n%+v\nwant\n%+v", got, want)
 	}
 }
 
 func TestReadTeammateIdlePingsGiveNoItem(t *testing.T) {
 	content := teammateContent(teammateBlock("", teammateIdle), teammateBlock("", teammateIdle))
-	if got := mustRead(t, writeTranscript(t, teammateLine(t, content)), 10).Items; len(got) != 0 {
+	if got := mustRead(t, writeTranscript(t, stringContentLine(t, content)), 10).Items; len(got) != 0 {
 		t.Fatalf("Items = %+v, want none", got)
 	}
 }
@@ -543,7 +543,7 @@ func TestReadTeammateIdleAndSummarisedBlocksGiveNotice(t *testing.T) {
 		teammateBlock("", teammateIdle),
 		teammateBlock("Synthetic summary", teammateRequest))
 	want := []Item{{Kind: "notice", Time: unixAt(0), Notice: "teammate", Text: "Synthetic summary"}}
-	if got := mustRead(t, writeTranscript(t, teammateLine(t, content)), 10).Items; !reflect.DeepEqual(got, want) {
+	if got := mustRead(t, writeTranscript(t, stringContentLine(t, content)), 10).Items; !reflect.DeepEqual(got, want) {
 		t.Fatalf("Items =\n%+v\nwant\n%+v", got, want)
 	}
 }
@@ -553,7 +553,7 @@ func TestReadTeammateManyBlocksGiveOneNotice(t *testing.T) {
 	for range 14 {
 		blocks = append(blocks, teammateBlock("Synthetic summary", teammateRequest))
 	}
-	line := teammateLine(t, teammateContent(blocks...))
+	line := stringContentLine(t, teammateContent(blocks...))
 	want := []Item{{Kind: "notice", Time: unixAt(0), Notice: "teammate",
 		Text: strings.Repeat("Synthetic summary\n", 13) + "Synthetic summary"}}
 	if got := mustRead(t, writeTranscript(t, line), 10).Items; !reflect.DeepEqual(got, want) {
@@ -577,7 +577,7 @@ func TestReadNonWholeTeammateTextStaysPrompt(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			line := teammateLine(t, tc.content)
+			line := stringContentLine(t, tc.content)
 			want := []Item{{Kind: "prompt", Time: unixAt(0), Text: tc.content}}
 			if got := mustRead(t, writeTranscript(t, line), 10).Items; !reflect.DeepEqual(got, want) {
 				t.Fatalf("Items =\n%+v\nwant\n%+v", got, want)
@@ -596,6 +596,161 @@ func TestReadTypedTeammateLineStaysPrompt(t *testing.T) {
 		`"message":{"role":"user","content":` + string(raw) + `}}`
 	want := []Item{{Kind: "prompt", Time: unixAt(0), Text: content}}
 	if got := mustRead(t, writeTranscript(t, line), 10).Items; !reflect.DeepEqual(got, want) {
+		t.Fatalf("Items =\n%+v\nwant\n%+v", got, want)
+	}
+}
+
+// humanLine returns a user line that Claude Code marks as typed by the human, whose string content is content.
+func humanLine(t *testing.T, content string) string {
+	t.Helper()
+	raw, err := json.Marshal(content)
+	if err != nil {
+		t.Fatalf("marshal content: %v", err)
+	}
+	return `{"type":"user","timestamp":"` + stampAt(0) + `","promptSource":"typed","origin":{"kind":"human"},` +
+		`"message":{"role":"user","content":` + string(raw) + `}}`
+}
+
+const (
+	commandNameElem    = "<command-name>/synthetic</command-name>"
+	commandMessageElem = "<command-message>synthetic</command-message>"
+	commandArgsElem    = "<command-args>one two</command-args>"
+	commandOutput      = "<local-command-stdout>synthetic output</local-command-stdout>"
+)
+
+func TestReadSlashCommandLineGivesPromptOfNameAndArgs(t *testing.T) {
+	tests := []struct {
+		name    string
+		content string
+		want    string
+	}{
+		{"name then message with args", "\n  " + commandNameElem + "\n  " + commandMessageElem + "\n  " +
+			commandArgsElem, "/synthetic one two"},
+		{"message then name with args", commandMessageElem + "\n  " + commandNameElem + "\n  " +
+			commandArgsElem, "/synthetic one two"},
+		{"name then message without args", commandNameElem + "\n" + commandMessageElem, "/synthetic"},
+		{"message then name without args", commandMessageElem + "\n" + commandNameElem, "/synthetic"},
+		{"empty args", commandNameElem + commandMessageElem + "<command-args></command-args>", "/synthetic"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			want := []Item{{Kind: "prompt", Time: unixAt(0), Text: tc.want}}
+			got := mustRead(t, writeTranscript(t, stringContentLine(t, tc.content)), 10).Items
+			if !reflect.DeepEqual(got, want) {
+				t.Fatalf("Items =\n%+v\nwant\n%+v", got, want)
+			}
+		})
+	}
+}
+
+func TestReadCommandRecordThatIsNotWholeOrSlashNamedStaysPrompt(t *testing.T) {
+	tests := []struct {
+		name    string
+		content string
+	}{
+		{"name without slash", "<command-name>synthetic</command-name>\n" + commandMessageElem},
+		{"text before the record", "Preface\n" + commandNameElem + "\n" + commandMessageElem},
+		{"text after the record", commandNameElem + "\n" + commandMessageElem + "\nmore"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			want := []Item{{Kind: "prompt", Time: unixAt(0), Text: tc.content}}
+			got := mustRead(t, writeTranscript(t, stringContentLine(t, tc.content)), 10).Items
+			if !reflect.DeepEqual(got, want) {
+				t.Fatalf("Items =\n%+v\nwant\n%+v", got, want)
+			}
+		})
+	}
+}
+
+func TestReadCommandOutputLineGivesNoItem(t *testing.T) {
+	if got := mustRead(t, writeTranscript(t, stringContentLine(t, commandOutput)), 10).Items; len(got) != 0 {
+		t.Fatalf("Items = %+v, want none", got)
+	}
+}
+
+func TestReadCommandOutputWithSurroundingTextStaysPrompt(t *testing.T) {
+	tests := []struct {
+		name    string
+		content string
+	}{
+		{"text before the output", "Preface\n" + commandOutput},
+		{"text after the output", commandOutput + "\nmore"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			want := []Item{{Kind: "prompt", Time: unixAt(0), Text: tc.content}}
+			got := mustRead(t, writeTranscript(t, stringContentLine(t, tc.content)), 10).Items
+			if !reflect.DeepEqual(got, want) {
+				t.Fatalf("Items =\n%+v\nwant\n%+v", got, want)
+			}
+		})
+	}
+}
+
+func TestReadTypedCommandLinesStayVerbatim(t *testing.T) {
+	tests := []struct {
+		name    string
+		content string
+	}{
+		{"typed command record", commandNameElem + "\n" + commandMessageElem + "\n" + commandArgsElem},
+		{"typed command output", commandOutput},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			want := []Item{{Kind: "prompt", Time: unixAt(0), Text: tc.content}}
+			got := mustRead(t, writeTranscript(t, humanLine(t, tc.content)), 10).Items
+			if !reflect.DeepEqual(got, want) {
+				t.Fatalf("Items =\n%+v\nwant\n%+v", got, want)
+			}
+		})
+	}
+}
+
+func TestReadPastedContentPairsLoseOnlyTheirTags(t *testing.T) {
+	tests := []struct {
+		name    string
+		content string
+		want    string
+	}{
+		{"one pair", `before <pasted_content id="1">synthetic body</pasted_content id="1"> after`,
+			"before synthetic body after"},
+		{"two pairs with different ids",
+			`<pasted_content id="1">one</pasted_content id="1"> and <pasted_content id="2">two</pasted_content id="2">`,
+			"one and two"},
+		{
+			"nested pair",
+			`<pasted_content id="a">x <pasted_content id="b">y</pasted_content id="b"> z</pasted_content id="a">`,
+			"x y z",
+		},
+		{"unpaired opener", `<pasted_content id="1">synthetic body`, `<pasted_content id="1">synthetic body`},
+		{"unpaired closer", `synthetic body</pasted_content id="1">`, `synthetic body</pasted_content id="1">`},
+		{"mismatched ids", `<pasted_content id="1">body</pasted_content id="2">`,
+			`<pasted_content id="1">body</pasted_content id="2">`},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			want := []Item{{Kind: "prompt", Time: unixAt(0), Text: tc.want}}
+			got := mustRead(t, writeTranscript(t, stringContentLine(t, tc.content)), 10).Items
+			if !reflect.DeepEqual(got, want) {
+				t.Fatalf("Items =\n%+v\nwant\n%+v", got, want)
+			}
+		})
+	}
+}
+
+func TestReadTypedPastedContentPairIsStripped(t *testing.T) {
+	content := `Pasted <pasted_content id="1">synthetic</pasted_content id="1"> end`
+	want := []Item{{Kind: "prompt", Time: unixAt(0), Text: "Pasted synthetic end"}}
+	if got := mustRead(t, writeTranscript(t, humanLine(t, content)), 10).Items; !reflect.DeepEqual(got, want) {
+		t.Fatalf("Items =\n%+v\nwant\n%+v", got, want)
+	}
+}
+
+func TestReadTypedReminderTagIsUnchanged(t *testing.T) {
+	content := `<system-reminder>synthetic reminder</system-reminder> typed text`
+	want := []Item{{Kind: "prompt", Time: unixAt(0), Text: content}}
+	if got := mustRead(t, writeTranscript(t, humanLine(t, content)), 10).Items; !reflect.DeepEqual(got, want) {
 		t.Fatalf("Items =\n%+v\nwant\n%+v", got, want)
 	}
 }

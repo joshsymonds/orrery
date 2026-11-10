@@ -217,7 +217,7 @@ func questionText(input json.RawMessage) string {
 
 // userItems returns one result per tool_result block of a user line. A line with no tool_result is one
 // notice when Claude Code marks it as one or sends it as a teammate message, none when it holds only idle
-// teammate pings, and otherwise its prompt.
+// teammate pings or is command output, and otherwise its prompt.
 func userItems(entry transcriptLine, ts int64) []Item {
 	text, blocks := splitContent(entry.Message.Content)
 	var items []Item
@@ -235,7 +235,66 @@ func userItems(entry transcriptLine, ts int64) []Item {
 	if teammate, ok := teammateItems(entry, ts); ok {
 		return teammate
 	}
+	if command, ok := commandItems(entry, ts); ok {
+		return command
+	}
 	return promptItems(text, ts)
+}
+
+// Command record and command output shape. Claude Code writes the record's elements in either order, separated
+// by whitespace, and the args element may be absent.
+const (
+	commandOutputOpen  = "<local-command-stdout>"
+	commandOutputClose = "</local-command-stdout>"
+)
+
+// commandNameFirstPattern and commandMessageFirstPattern match a whole slash-command record in each order.
+// Group 1 is the command name, which starts with a slash, and group 2 is the args, or "" when absent.
+var (
+	commandNameFirstPattern = regexp.MustCompile(
+		`\A\s*<command-name>(/[^<]*)</command-name>\s*<command-message>[^<]*</command-message>` +
+			`(?:\s*<command-args>([^<]*)</command-args>)?\s*\z`)
+	commandMessageFirstPattern = regexp.MustCompile(
+		`\A\s*<command-message>[^<]*</command-message>\s*<command-name>(/[^<]*)</command-name>` +
+			`(?:\s*<command-args>([^<]*)</command-args>)?\s*\z`)
+)
+
+// commandItems returns the item of a line that Claude Code writes as a command record or command output: its
+// whole string content. A record gives a prompt reading /name args, or /name when args are empty, and command
+// output gives no item. A line marked as typed is never a command line. ok is false when the line is neither.
+func commandItems(entry transcriptLine, ts int64) ([]Item, bool) {
+	if typedLine(entry) {
+		return nil, false
+	}
+	var content string
+	if json.Unmarshal(entry.Message.Content, &content) != nil {
+		return nil, false
+	}
+	if isCommandOutput(content) {
+		return nil, true
+	}
+	match := commandNameFirstPattern.FindStringSubmatch(content)
+	if match == nil {
+		match = commandMessageFirstPattern.FindStringSubmatch(content)
+	}
+	if match == nil {
+		return nil, false
+	}
+	text := match[1]
+	if match[2] != "" {
+		text += " " + match[2]
+	}
+	return promptItems(text, ts), true
+}
+
+// isCommandOutput reports whether content is one whole command output element.
+func isCommandOutput(content string) bool {
+	body, ok := strings.CutPrefix(content, commandOutputOpen)
+	if !ok {
+		return false
+	}
+	body, ok = strings.CutSuffix(body, commandOutputClose)
+	return ok && !strings.Contains(body, commandOutputClose)
 }
 
 // teammateBlockPattern matches one teammate block at the start of its input. Group 1 is the escaped summary
@@ -397,8 +456,37 @@ func cutRunes(text string, n int) string {
 	return text
 }
 
-// promptItems returns the prompt item for text, or none when text is empty.
+// pastedOpenPattern matches the opening tag of a pasted content element. Group 1 is its id.
+var pastedOpenPattern = regexp.MustCompile(`<pasted_content id="([^"]*)">`)
+
+// stripPastedContent removes the two tags of each matched pasted content pair from text and keeps the text
+// between them. A pair's closing tag names the same id as its opening tag. An unpaired tag stays.
+func stripPastedContent(text string) string {
+	var out strings.Builder
+	for {
+		loc := pastedOpenPattern.FindStringSubmatchIndex(text)
+		if loc == nil {
+			break
+		}
+		closer := `</pasted_content id="` + text[loc[2]:loc[3]] + `">`
+		end := strings.Index(text[loc[1]:], closer)
+		if end < 0 {
+			out.WriteString(text[:loc[1]])
+			text = text[loc[1]:]
+			continue
+		}
+		out.WriteString(text[:loc[0]])
+		out.WriteString(stripPastedContent(text[loc[1] : loc[1]+end]))
+		text = text[loc[1]+end+len(closer):]
+	}
+	out.WriteString(text)
+	return out.String()
+}
+
+// promptItems returns the prompt item for text, or none when text is empty. Pasted content tags are removed
+// from the text.
 func promptItems(text string, ts int64) []Item {
+	text = stripPastedContent(text)
 	if text == "" {
 		return nil
 	}
