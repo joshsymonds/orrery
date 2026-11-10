@@ -1,0 +1,88 @@
+package io.github.joshsymonds.orrery.ui
+
+import io.github.joshsymonds.orrery.api.ConversationItem
+
+data class ToolCall(val id: String, val name: String, val input: String, val result: String?, val error: Boolean)
+
+sealed interface ConvoEntry {
+    data class Time(val seconds: Long) : ConvoEntry
+    data class Prompt(val text: String) : ConvoEntry
+    data class Reply(val text: String) : ConvoEntry
+    data class Tool(val call: ToolCall) : ConvoEntry
+    data class Group(val calls: List<ToolCall>) : ConvoEntry
+}
+
+private const val MIN_GROUP_SIZE = 3
+
+private class Outcome(val text: String, val error: Boolean)
+
+/**
+ * Folds the server's conversation items, oldest first, into the entries the conversation view
+ * draws. A `result` fills in the earlier call with the same id and is otherwise dropped. Runs of
+ * three or more calls, with only results between them, become one group.
+ */
+fun foldConversation(items: List<ConversationItem>): List<ConvoEntry> {
+    val outcomes = outcomesByCallIndex(items)
+    val entries = mutableListOf<ConvoEntry>()
+    val run = mutableListOf<ToolCall>()
+
+    items.forEachIndexed { index, item ->
+        when (item.kind) {
+            "tool", "question" -> run.add(toolCall(item, outcomes[index]))
+            "result" -> Unit
+            else -> {
+                flushRun(run, entries)
+                when (item.kind) {
+                    "prompt" -> {
+                        if (item.time > 0) entries.add(ConvoEntry.Time(item.time))
+                        entries.add(ConvoEntry.Prompt(item.text))
+                    }
+                    "reply" -> entries.add(ConvoEntry.Reply(item.text))
+                }
+            }
+        }
+    }
+    flushRun(run, entries)
+    return entries
+}
+
+/** Names the calls' tools in order of first appearance, "Name ×N" when a name repeats. */
+fun groupSummary(calls: List<ToolCall>): String {
+    val counts = LinkedHashMap<String, Int>()
+    calls.forEach { counts.merge(it.name, 1, Int::plus) }
+    return counts.entries.joinToString(" · ") { (name, count) ->
+        if (count > 1) "$name ×$count" else name
+    }
+}
+
+private fun outcomesByCallIndex(items: List<ConversationItem>): Map<Int, Outcome> {
+    val callIndexById = HashMap<String, Int>()
+    val outcomes = HashMap<Int, Outcome>()
+    items.forEachIndexed { index, item ->
+        when (item.kind) {
+            "tool", "question" -> callIndexById[item.id] = index
+            "result" -> callIndexById[item.id]?.let { outcomes[it] = Outcome(item.text, item.error) }
+        }
+    }
+    return outcomes
+}
+
+private fun toolCall(item: ConversationItem, outcome: Outcome?): ToolCall {
+    val input = if (item.kind == "question") item.text else item.input
+    return ToolCall(
+        id = item.id,
+        name = item.tool,
+        input = input,
+        result = outcome?.text,
+        error = outcome?.error ?: false,
+    )
+}
+
+private fun flushRun(run: MutableList<ToolCall>, entries: MutableList<ConvoEntry>) {
+    if (run.size >= MIN_GROUP_SIZE) {
+        entries.add(ConvoEntry.Group(run.toList()))
+    } else {
+        run.forEach { entries.add(ConvoEntry.Tool(it)) }
+    }
+    run.clear()
+}
