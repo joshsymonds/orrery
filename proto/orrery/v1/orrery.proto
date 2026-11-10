@@ -8,6 +8,12 @@ service Sessions {
   rpc List(ListRequest) returns (ListResponse);
 }
 
+// Events streams the changes to the tracked sessions, in seq order.
+service Events {
+  // Watch streams every event with a seq greater than the request's after, then each new event as it is stored.
+  rpc Watch(WatchRequest) returns (stream WatchResponse);
+}
+
 // ListRequest asks for every tracked session. It has no fields.
 message ListRequest {}
 
@@ -61,3 +67,78 @@ message Session {
   // The pane's @orrery_transcript option.
   string transcript = 13;
 }
+
+// WatchRequest asks for the events after a store position.
+message WatchRequest {
+  // The seq the stream resumes after. Zero asks for every event the store holds.
+  int64 after = 1;
+}
+
+// WatchResponse is one stored event. Exactly one of the typed event messages is set.
+message WatchResponse {
+  // The event's seq, the store's monotonic position.
+  int64 seq = 1;
+
+  // The session the event is about, the pane's @orrery_id.
+  string session_id = 2;
+
+  // When the event was stored, in unix seconds.
+  int64 at = 3;
+
+  // The typed payload for this event's kind.
+  oneof event {
+    // A pane started being tracked.
+    SessionAdded session_added = 4;
+
+    // One or more of a tracked pane's options changed.
+    SessionChanged session_changed = 5;
+
+    // A tracked pane stopped being tracked.
+    SessionRemoved session_removed = 6;
+  }
+}
+
+// SessionAdded carries the placement of a pane that started being tracked.
+message SessionAdded {
+  // The tmux server the pane lives on: -L <name>, -S <path>, or empty for the default server.
+  string server = 1;
+
+  // The tmux pane id.
+  string pane = 2;
+}
+
+// SessionChanged carries the options that changed on a tracked pane. Each field is set only when its option changed.
+message SessionChanged {
+  // The new @orrery_state value. An empty value means the option was unset.
+  optional string state = 1;
+
+  // The new @orrery_changed value. An empty value means the option was unset.
+  optional string changed = 2;
+
+  // The new @orrery_seen value. An empty value means the option was unset.
+  optional string seen = 3;
+
+  // The new @orrery_question value. An empty value means the option was unset.
+  optional string question = 4;
+
+  // The new @orrery_summary value. An empty value means the option was unset.
+  optional string summary = 5;
+
+  // The new @orrery_label value. An empty value means the option was unset.
+  optional string label = 6;
+
+  // The new @orrery_context value. An empty value means the option was unset.
+  optional string context = 7;
+
+  // The new @orrery_tool value. An empty value means the option was unset.
+  optional string tool = 8;
+
+  // The new @orrery_claude_session value. An empty value means the option was unset.
+  optional string claude_session = 9;
+
+  // The new @orrery_transcript value. An empty value means the option was unset.
+  optional string transcript = 10;
+}
+
+// SessionRemoved records that a tracked pane stopped being tracked. It has no fields.
+message SessionRemoved {}

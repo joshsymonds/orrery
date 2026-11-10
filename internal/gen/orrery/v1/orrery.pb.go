@@ -267,6 +267,402 @@ func (x *Session) GetTranscript() string {
 	return ""
 }
 
+// WatchRequest asks for the events after a store position.
+type WatchRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The seq the stream resumes after. Zero asks for every event the store holds.
+	After         int64 `protobuf:"varint,1,opt,name=after,proto3" json:"after,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *WatchRequest) Reset() {
+	*x = WatchRequest{}
+	mi := &file_orrery_v1_orrery_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *WatchRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*WatchRequest) ProtoMessage() {}
+
+func (x *WatchRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_orrery_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use WatchRequest.ProtoReflect.Descriptor instead.
+func (*WatchRequest) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *WatchRequest) GetAfter() int64 {
+	if x != nil {
+		return x.After
+	}
+	return 0
+}
+
+// WatchResponse is one stored event. Exactly one of the typed event messages is set.
+type WatchResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The event's seq, the store's monotonic position.
+	Seq int64 `protobuf:"varint,1,opt,name=seq,proto3" json:"seq,omitempty"`
+	// The session the event is about, the pane's @orrery_id.
+	SessionId string `protobuf:"bytes,2,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	// When the event was stored, in unix seconds.
+	At int64 `protobuf:"varint,3,opt,name=at,proto3" json:"at,omitempty"`
+	// The typed payload for this event's kind.
+	//
+	// Types that are valid to be assigned to Event:
+	//
+	//	*WatchResponse_SessionAdded
+	//	*WatchResponse_SessionChanged
+	//	*WatchResponse_SessionRemoved
+	Event         isWatchResponse_Event `protobuf_oneof:"event"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *WatchResponse) Reset() {
+	*x = WatchResponse{}
+	mi := &file_orrery_v1_orrery_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *WatchResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*WatchResponse) ProtoMessage() {}
+
+func (x *WatchResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_orrery_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use WatchResponse.ProtoReflect.Descriptor instead.
+func (*WatchResponse) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *WatchResponse) GetSeq() int64 {
+	if x != nil {
+		return x.Seq
+	}
+	return 0
+}
+
+func (x *WatchResponse) GetSessionId() string {
+	if x != nil {
+		return x.SessionId
+	}
+	return ""
+}
+
+func (x *WatchResponse) GetAt() int64 {
+	if x != nil {
+		return x.At
+	}
+	return 0
+}
+
+func (x *WatchResponse) GetEvent() isWatchResponse_Event {
+	if x != nil {
+		return x.Event
+	}
+	return nil
+}
+
+func (x *WatchResponse) GetSessionAdded() *SessionAdded {
+	if x != nil {
+		if x, ok := x.Event.(*WatchResponse_SessionAdded); ok {
+			return x.SessionAdded
+		}
+	}
+	return nil
+}
+
+func (x *WatchResponse) GetSessionChanged() *SessionChanged {
+	if x != nil {
+		if x, ok := x.Event.(*WatchResponse_SessionChanged); ok {
+			return x.SessionChanged
+		}
+	}
+	return nil
+}
+
+func (x *WatchResponse) GetSessionRemoved() *SessionRemoved {
+	if x != nil {
+		if x, ok := x.Event.(*WatchResponse_SessionRemoved); ok {
+			return x.SessionRemoved
+		}
+	}
+	return nil
+}
+
+type isWatchResponse_Event interface {
+	isWatchResponse_Event()
+}
+
+type WatchResponse_SessionAdded struct {
+	// A pane started being tracked.
+	SessionAdded *SessionAdded `protobuf:"bytes,4,opt,name=session_added,json=sessionAdded,proto3,oneof"`
+}
+
+type WatchResponse_SessionChanged struct {
+	// One or more of a tracked pane's options changed.
+	SessionChanged *SessionChanged `protobuf:"bytes,5,opt,name=session_changed,json=sessionChanged,proto3,oneof"`
+}
+
+type WatchResponse_SessionRemoved struct {
+	// A tracked pane stopped being tracked.
+	SessionRemoved *SessionRemoved `protobuf:"bytes,6,opt,name=session_removed,json=sessionRemoved,proto3,oneof"`
+}
+
+func (*WatchResponse_SessionAdded) isWatchResponse_Event() {}
+
+func (*WatchResponse_SessionChanged) isWatchResponse_Event() {}
+
+func (*WatchResponse_SessionRemoved) isWatchResponse_Event() {}
+
+// SessionAdded carries the placement of a pane that started being tracked.
+type SessionAdded struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The tmux server the pane lives on: -L <name>, -S <path>, or empty for the default server.
+	Server string `protobuf:"bytes,1,opt,name=server,proto3" json:"server,omitempty"`
+	// The tmux pane id.
+	Pane          string `protobuf:"bytes,2,opt,name=pane,proto3" json:"pane,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SessionAdded) Reset() {
+	*x = SessionAdded{}
+	mi := &file_orrery_v1_orrery_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SessionAdded) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SessionAdded) ProtoMessage() {}
+
+func (x *SessionAdded) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_orrery_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SessionAdded.ProtoReflect.Descriptor instead.
+func (*SessionAdded) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *SessionAdded) GetServer() string {
+	if x != nil {
+		return x.Server
+	}
+	return ""
+}
+
+func (x *SessionAdded) GetPane() string {
+	if x != nil {
+		return x.Pane
+	}
+	return ""
+}
+
+// SessionChanged carries the options that changed on a tracked pane. Each field is set only when its option changed.
+type SessionChanged struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The new @orrery_state value. An empty value means the option was unset.
+	State *string `protobuf:"bytes,1,opt,name=state,proto3,oneof" json:"state,omitempty"`
+	// The new @orrery_changed value. An empty value means the option was unset.
+	Changed *string `protobuf:"bytes,2,opt,name=changed,proto3,oneof" json:"changed,omitempty"`
+	// The new @orrery_seen value. An empty value means the option was unset.
+	Seen *string `protobuf:"bytes,3,opt,name=seen,proto3,oneof" json:"seen,omitempty"`
+	// The new @orrery_question value. An empty value means the option was unset.
+	Question *string `protobuf:"bytes,4,opt,name=question,proto3,oneof" json:"question,omitempty"`
+	// The new @orrery_summary value. An empty value means the option was unset.
+	Summary *string `protobuf:"bytes,5,opt,name=summary,proto3,oneof" json:"summary,omitempty"`
+	// The new @orrery_label value. An empty value means the option was unset.
+	Label *string `protobuf:"bytes,6,opt,name=label,proto3,oneof" json:"label,omitempty"`
+	// The new @orrery_context value. An empty value means the option was unset.
+	Context *string `protobuf:"bytes,7,opt,name=context,proto3,oneof" json:"context,omitempty"`
+	// The new @orrery_tool value. An empty value means the option was unset.
+	Tool *string `protobuf:"bytes,8,opt,name=tool,proto3,oneof" json:"tool,omitempty"`
+	// The new @orrery_claude_session value. An empty value means the option was unset.
+	ClaudeSession *string `protobuf:"bytes,9,opt,name=claude_session,json=claudeSession,proto3,oneof" json:"claude_session,omitempty"`
+	// The new @orrery_transcript value. An empty value means the option was unset.
+	Transcript    *string `protobuf:"bytes,10,opt,name=transcript,proto3,oneof" json:"transcript,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SessionChanged) Reset() {
+	*x = SessionChanged{}
+	mi := &file_orrery_v1_orrery_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SessionChanged) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SessionChanged) ProtoMessage() {}
+
+func (x *SessionChanged) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_orrery_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SessionChanged.ProtoReflect.Descriptor instead.
+func (*SessionChanged) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *SessionChanged) GetState() string {
+	if x != nil && x.State != nil {
+		return *x.State
+	}
+	return ""
+}
+
+func (x *SessionChanged) GetChanged() string {
+	if x != nil && x.Changed != nil {
+		return *x.Changed
+	}
+	return ""
+}
+
+func (x *SessionChanged) GetSeen() string {
+	if x != nil && x.Seen != nil {
+		return *x.Seen
+	}
+	return ""
+}
+
+func (x *SessionChanged) GetQuestion() string {
+	if x != nil && x.Question != nil {
+		return *x.Question
+	}
+	return ""
+}
+
+func (x *SessionChanged) GetSummary() string {
+	if x != nil && x.Summary != nil {
+		return *x.Summary
+	}
+	return ""
+}
+
+func (x *SessionChanged) GetLabel() string {
+	if x != nil && x.Label != nil {
+		return *x.Label
+	}
+	return ""
+}
+
+func (x *SessionChanged) GetContext() string {
+	if x != nil && x.Context != nil {
+		return *x.Context
+	}
+	return ""
+}
+
+func (x *SessionChanged) GetTool() string {
+	if x != nil && x.Tool != nil {
+		return *x.Tool
+	}
+	return ""
+}
+
+func (x *SessionChanged) GetClaudeSession() string {
+	if x != nil && x.ClaudeSession != nil {
+		return *x.ClaudeSession
+	}
+	return ""
+}
+
+func (x *SessionChanged) GetTranscript() string {
+	if x != nil && x.Transcript != nil {
+		return *x.Transcript
+	}
+	return ""
+}
+
+// SessionRemoved records that a tracked pane stopped being tracked. It has no fields.
+type SessionRemoved struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SessionRemoved) Reset() {
+	*x = SessionRemoved{}
+	mi := &file_orrery_v1_orrery_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SessionRemoved) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SessionRemoved) ProtoMessage() {}
+
+func (x *SessionRemoved) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_orrery_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SessionRemoved.ProtoReflect.Descriptor instead.
+func (*SessionRemoved) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{7}
+}
+
 var File_orrery_v1_orrery_proto protoreflect.FileDescriptor
 
 const file_orrery_v1_orrery_proto_rawDesc = "" +
@@ -292,9 +688,53 @@ const file_orrery_v1_orrery_proto_rawDesc = "" +
 	"\x0eclaude_session\x18\f \x01(\tR\rclaudeSession\x12\x1e\n" +
 	"\n" +
 	"transcript\x18\r \x01(\tR\n" +
-	"transcript2C\n" +
+	"transcript\"$\n" +
+	"\fWatchRequest\x12\x14\n" +
+	"\x05after\x18\x01 \x01(\x03R\x05after\"\xa5\x02\n" +
+	"\rWatchResponse\x12\x10\n" +
+	"\x03seq\x18\x01 \x01(\x03R\x03seq\x12\x1d\n" +
+	"\n" +
+	"session_id\x18\x02 \x01(\tR\tsessionId\x12\x0e\n" +
+	"\x02at\x18\x03 \x01(\x03R\x02at\x12>\n" +
+	"\rsession_added\x18\x04 \x01(\v2\x17.orrery.v1.SessionAddedH\x00R\fsessionAdded\x12D\n" +
+	"\x0fsession_changed\x18\x05 \x01(\v2\x19.orrery.v1.SessionChangedH\x00R\x0esessionChanged\x12D\n" +
+	"\x0fsession_removed\x18\x06 \x01(\v2\x19.orrery.v1.SessionRemovedH\x00R\x0esessionRemovedB\a\n" +
+	"\x05event\":\n" +
+	"\fSessionAdded\x12\x16\n" +
+	"\x06server\x18\x01 \x01(\tR\x06server\x12\x12\n" +
+	"\x04pane\x18\x02 \x01(\tR\x04pane\"\xc0\x03\n" +
+	"\x0eSessionChanged\x12\x19\n" +
+	"\x05state\x18\x01 \x01(\tH\x00R\x05state\x88\x01\x01\x12\x1d\n" +
+	"\achanged\x18\x02 \x01(\tH\x01R\achanged\x88\x01\x01\x12\x17\n" +
+	"\x04seen\x18\x03 \x01(\tH\x02R\x04seen\x88\x01\x01\x12\x1f\n" +
+	"\bquestion\x18\x04 \x01(\tH\x03R\bquestion\x88\x01\x01\x12\x1d\n" +
+	"\asummary\x18\x05 \x01(\tH\x04R\asummary\x88\x01\x01\x12\x19\n" +
+	"\x05label\x18\x06 \x01(\tH\x05R\x05label\x88\x01\x01\x12\x1d\n" +
+	"\acontext\x18\a \x01(\tH\x06R\acontext\x88\x01\x01\x12\x17\n" +
+	"\x04tool\x18\b \x01(\tH\aR\x04tool\x88\x01\x01\x12*\n" +
+	"\x0eclaude_session\x18\t \x01(\tH\bR\rclaudeSession\x88\x01\x01\x12#\n" +
+	"\n" +
+	"transcript\x18\n" +
+	" \x01(\tH\tR\n" +
+	"transcript\x88\x01\x01B\b\n" +
+	"\x06_stateB\n" +
+	"\n" +
+	"\b_changedB\a\n" +
+	"\x05_seenB\v\n" +
+	"\t_questionB\n" +
+	"\n" +
+	"\b_summaryB\b\n" +
+	"\x06_labelB\n" +
+	"\n" +
+	"\b_contextB\a\n" +
+	"\x05_toolB\x11\n" +
+	"\x0f_claude_sessionB\r\n" +
+	"\v_transcript\"\x10\n" +
+	"\x0eSessionRemoved2C\n" +
 	"\bSessions\x127\n" +
-	"\x04List\x12\x16.orrery.v1.ListRequest\x1a\x17.orrery.v1.ListResponseB\xa0\x01\n" +
+	"\x04List\x12\x16.orrery.v1.ListRequest\x1a\x17.orrery.v1.ListResponse2F\n" +
+	"\x06Events\x12<\n" +
+	"\x05Watch\x12\x17.orrery.v1.WatchRequest\x1a\x18.orrery.v1.WatchResponse0\x01B\xa0\x01\n" +
 	"\rcom.orrery.v1B\vOrreryProtoP\x01Z=github.com/joshsymonds/orrery/internal/gen/orrery/v1;orreryv1\xa2\x02\x03OXX\xaa\x02\tOrrery.V1\xca\x02\tOrrery\\V1\xe2\x02\x15Orrery\\V1\\GPBMetadata\xea\x02\n" +
 	"Orrery::V1b\x06proto3"
 
@@ -310,21 +750,31 @@ func file_orrery_v1_orrery_proto_rawDescGZIP() []byte {
 	return file_orrery_v1_orrery_proto_rawDescData
 }
 
-var file_orrery_v1_orrery_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
+var file_orrery_v1_orrery_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
 var file_orrery_v1_orrery_proto_goTypes = []any{
-	(*ListRequest)(nil),  // 0: orrery.v1.ListRequest
-	(*ListResponse)(nil), // 1: orrery.v1.ListResponse
-	(*Session)(nil),      // 2: orrery.v1.Session
+	(*ListRequest)(nil),    // 0: orrery.v1.ListRequest
+	(*ListResponse)(nil),   // 1: orrery.v1.ListResponse
+	(*Session)(nil),        // 2: orrery.v1.Session
+	(*WatchRequest)(nil),   // 3: orrery.v1.WatchRequest
+	(*WatchResponse)(nil),  // 4: orrery.v1.WatchResponse
+	(*SessionAdded)(nil),   // 5: orrery.v1.SessionAdded
+	(*SessionChanged)(nil), // 6: orrery.v1.SessionChanged
+	(*SessionRemoved)(nil), // 7: orrery.v1.SessionRemoved
 }
 var file_orrery_v1_orrery_proto_depIdxs = []int32{
 	2, // 0: orrery.v1.ListResponse.sessions:type_name -> orrery.v1.Session
-	0, // 1: orrery.v1.Sessions.List:input_type -> orrery.v1.ListRequest
-	1, // 2: orrery.v1.Sessions.List:output_type -> orrery.v1.ListResponse
-	2, // [2:3] is the sub-list for method output_type
-	1, // [1:2] is the sub-list for method input_type
-	1, // [1:1] is the sub-list for extension type_name
-	1, // [1:1] is the sub-list for extension extendee
-	0, // [0:1] is the sub-list for field type_name
+	5, // 1: orrery.v1.WatchResponse.session_added:type_name -> orrery.v1.SessionAdded
+	6, // 2: orrery.v1.WatchResponse.session_changed:type_name -> orrery.v1.SessionChanged
+	7, // 3: orrery.v1.WatchResponse.session_removed:type_name -> orrery.v1.SessionRemoved
+	0, // 4: orrery.v1.Sessions.List:input_type -> orrery.v1.ListRequest
+	3, // 5: orrery.v1.Events.Watch:input_type -> orrery.v1.WatchRequest
+	1, // 6: orrery.v1.Sessions.List:output_type -> orrery.v1.ListResponse
+	4, // 7: orrery.v1.Events.Watch:output_type -> orrery.v1.WatchResponse
+	6, // [6:8] is the sub-list for method output_type
+	4, // [4:6] is the sub-list for method input_type
+	4, // [4:4] is the sub-list for extension type_name
+	4, // [4:4] is the sub-list for extension extendee
+	0, // [0:4] is the sub-list for field type_name
 }
 
 func init() { file_orrery_v1_orrery_proto_init() }
@@ -332,15 +782,21 @@ func file_orrery_v1_orrery_proto_init() {
 	if File_orrery_v1_orrery_proto != nil {
 		return
 	}
+	file_orrery_v1_orrery_proto_msgTypes[4].OneofWrappers = []any{
+		(*WatchResponse_SessionAdded)(nil),
+		(*WatchResponse_SessionChanged)(nil),
+		(*WatchResponse_SessionRemoved)(nil),
+	}
+	file_orrery_v1_orrery_proto_msgTypes[6].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_orrery_v1_orrery_proto_rawDesc), len(file_orrery_v1_orrery_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   3,
+			NumMessages:   8,
 			NumExtensions: 0,
-			NumServices:   1,
+			NumServices:   2,
 		},
 		GoTypes:           file_orrery_v1_orrery_proto_goTypes,
 		DependencyIndexes: file_orrery_v1_orrery_proto_depIdxs,

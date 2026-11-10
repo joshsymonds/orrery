@@ -23,6 +23,8 @@ const _ = connect.IsAtLeastVersion1_13_0
 const (
 	// SessionsName is the fully-qualified name of the Sessions service.
 	SessionsName = "orrery.v1.Sessions"
+	// EventsName is the fully-qualified name of the Events service.
+	EventsName = "orrery.v1.Events"
 )
 
 // These constants are the fully-qualified names of the RPCs defined in this package. They're
@@ -35,6 +37,8 @@ const (
 const (
 	// SessionsListProcedure is the fully-qualified name of the Sessions's List RPC.
 	SessionsListProcedure = "/orrery.v1.Sessions/List"
+	// EventsWatchProcedure is the fully-qualified name of the Events's Watch RPC.
+	EventsWatchProcedure = "/orrery.v1.Events/Watch"
 )
 
 // SessionsClient is a client for the orrery.v1.Sessions service.
@@ -107,4 +111,76 @@ type UnimplementedSessionsHandler struct{}
 
 func (UnimplementedSessionsHandler) List(context.Context, *connect.Request[v1.ListRequest]) (*connect.Response[v1.ListResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.v1.Sessions.List is not implemented"))
+}
+
+// EventsClient is a client for the orrery.v1.Events service.
+type EventsClient interface {
+	// Watch streams every event with a seq greater than the request's after, then each new event as it is stored.
+	Watch(context.Context, *connect.Request[v1.WatchRequest]) (*connect.ServerStreamForClient[v1.WatchResponse], error)
+}
+
+// NewEventsClient constructs a client for the orrery.v1.Events service. By default, it uses the
+// Connect protocol with the binary Protobuf Codec, asks for gzipped responses, and sends
+// uncompressed requests. To use the gRPC or gRPC-Web protocols, supply the connect.WithGRPC() or
+// connect.WithGRPCWeb() options.
+//
+// The URL supplied here should be the base URL for the Connect or gRPC server (for example,
+// http://api.acme.com or https://acme.com/grpc).
+func NewEventsClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) EventsClient {
+	baseURL = strings.TrimRight(baseURL, "/")
+	eventsMethods := v1.File_orrery_v1_orrery_proto.Services().ByName("Events").Methods()
+	return &eventsClient{
+		watch: connect.NewClient[v1.WatchRequest, v1.WatchResponse](
+			httpClient,
+			baseURL+EventsWatchProcedure,
+			connect.WithSchema(eventsMethods.ByName("Watch")),
+			connect.WithClientOptions(opts...),
+		),
+	}
+}
+
+// eventsClient implements EventsClient.
+type eventsClient struct {
+	watch *connect.Client[v1.WatchRequest, v1.WatchResponse]
+}
+
+// Watch calls orrery.v1.Events.Watch.
+func (c *eventsClient) Watch(ctx context.Context, req *connect.Request[v1.WatchRequest]) (*connect.ServerStreamForClient[v1.WatchResponse], error) {
+	return c.watch.CallServerStream(ctx, req)
+}
+
+// EventsHandler is an implementation of the orrery.v1.Events service.
+type EventsHandler interface {
+	// Watch streams every event with a seq greater than the request's after, then each new event as it is stored.
+	Watch(context.Context, *connect.Request[v1.WatchRequest], *connect.ServerStream[v1.WatchResponse]) error
+}
+
+// NewEventsHandler builds an HTTP handler from the service implementation. It returns the path on
+// which to mount the handler and the handler itself.
+//
+// By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
+// and JSON codecs. They also support gzip compression.
+func NewEventsHandler(svc EventsHandler, opts ...connect.HandlerOption) (string, http.Handler) {
+	eventsMethods := v1.File_orrery_v1_orrery_proto.Services().ByName("Events").Methods()
+	eventsWatchHandler := connect.NewServerStreamHandler(
+		EventsWatchProcedure,
+		svc.Watch,
+		connect.WithSchema(eventsMethods.ByName("Watch")),
+		connect.WithHandlerOptions(opts...),
+	)
+	return "/orrery.v1.Events/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case EventsWatchProcedure:
+			eventsWatchHandler.ServeHTTP(w, r)
+		default:
+			http.NotFound(w, r)
+		}
+	})
+}
+
+// UnimplementedEventsHandler returns CodeUnimplemented from all methods.
+type UnimplementedEventsHandler struct{}
+
+func (UnimplementedEventsHandler) Watch(context.Context, *connect.Request[v1.WatchRequest], *connect.ServerStream[v1.WatchResponse]) error {
+	return connect.NewError(connect.CodeUnimplemented, errors.New("orrery.v1.Events.Watch is not implemented"))
 }
