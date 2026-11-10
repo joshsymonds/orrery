@@ -20,11 +20,24 @@ jobs:
           extra_nix_config: |
             experimental-features = nix-command flakes
 
+      # devenv's public Cachix cache (read-only, no token), so the devenv CLI
+      # below resolves to a cache pull, not a source build.
+      - uses: cachix/cachix-action@v16
+        with:
+          name: devenv
+
+      # The devenv CLI at the rev devenv.lock pins for the module library, so
+      # the CLI and the library share one devenv. just runs the recipes below,
+      # which load the devenv environment themselves. devenv.lock is present
+      # because this runs after checkout.
+      - name: Install devenv and just
+        run: nix profile add "github:cachix/devenv/$(jq -er '.nodes.devenv.locked.rev' devenv.lock)" nixpkgs#just
+
       - name: Run the repository check
-        run: TMPDIR=/tmp TERM=xterm-256color nix develop -c just check
+        run: TMPDIR=/tmp TERM=xterm-256color just check
 
       - name: Run the flake check
         run: nix flake check
 
       - name: Run the Android lint and unit tests
-        run: nix develop -c just android-test
+        run: just android-test
