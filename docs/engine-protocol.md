@@ -6,7 +6,7 @@ This page records the stream-json protocol observed in a live recording against 
 
 The init line of the two-turns probe reports `claude_code_version` 2.1.321 and `model` `claude-haiku-5-5` (`internal/engine/capture/testdata/two-turns.out.ndjson:4`). The argument vector asks for the `haiku` alias (`internal/engine/capture/probe.go:176`), and the init line shows the resolved model name.
 
-The recording was made by running `enginecapture record -raw DIR`, then `enginecapture sanitize -raw DIR -out DIR` (`internal/engine/capture/cli.go:47` and `internal/engine/capture/cli.go:49`). These two steps are not visible in the fixtures.
+The recording was made by running `enginecapture record -raw DIR`, then `enginecapture sanitize -raw DIR -out DIR` (`internal/engine/capture/cli.go:51` and `internal/engine/capture/cli.go:53`). These two steps are not visible in the fixtures.
 
 Each probe runs with a fixed argument vector (`internal/engine/capture/probe.go:169-190`). It includes `--input-format stream-json`, `--output-format stream-json`, `--include-partial-messages`, `--model haiku`, `--max-turns 2`, `--settings {"disableAllHooks":true}`, `--setting-sources ""`, `--strict-mcp-config`, `--mcp-config {"mcpServers":{}}`, and `--no-session-persistence`. The probe's permission mode and tool list are passed as `--permission-mode` and `--tools`. A probe that answers permission requests adds `--permission-prompt-tool stdio` (`internal/engine/capture/probe.go:186-187`). The child runs in a new empty directory (`internal/engine/capture/probe.go:155`) and receives only the allow-listed environment names `HOME`, `PATH`, `USER`, `LANG`, `TERM`, `XDG_RUNTIME_DIR`, `XDG_CONFIG_HOME`, and `XDG_STATE_HOME` (`internal/engine/capture/probe.go:207`). `HOME` is passed through as the recording machine has it, so each probe runs with the real home directory and user-level plugins, skills, agents and commands load. The init line lists entries under `agents`, `skills`, `plugins` and `slash_commands` (`internal/engine/capture/testdata/two-turns.out.ndjson:4`), but the fixture keeps one redacted entry per key (`internal/engine/capture/sanitise.go:244`), so it shows neither how many entries loaded nor which of them are user-level.
 
@@ -14,7 +14,7 @@ The sanitiser keeps allow-listed values and replaces the rest. A string outside 
 
 Five further rules shape the values. An array whose elements no allow-list entry names keeps only its first element, and the rest are consumed unwritten (`internal/engine/capture/sanitise.go:244`, with the named-element test at `internal/engine/capture/sanitise.go:311`). Durations, `total_cost_usd` and the usage token counts are not on the allow-list (`internal/engine/capture/sanitise.go:356`), so they read 0 (`internal/engine/capture/sanitise.go:169`), as `"duration_api_ms":0` and `"total_cost_usd":0` do at `internal/engine/capture/testdata/two-turns.out.ndjson:13`. `num_turns` stays on the list (`internal/engine/capture/sanitise.go:360`), so `"num_turns":1` at that same line is a recorded value. `credential_expires_at` is left out (`internal/engine/capture/sanitise.go:402`), and the `account` object is written `{}` (`internal/engine/capture/sanitise.go:403`), as at `internal/engine/capture/testdata/two-turns.out.ndjson:1`. Model and tool names are kept only from fixed lists (`internal/engine/capture/sanitise.go:411-413`, checked at `internal/engine/capture/sanitise.go:159`): the model `claude-haiku-5-5` and the tools `AskUserQuestion` and `Write`. So `"name":"AskUserQuestion"` at `internal/engine/capture/testdata/question.out.ndjson:22` is kept, and any other tool name reads `redacted`. `subagent_stats.by_type` is a data-keyed map (`internal/engine/capture/sanitise.go:397`), so its keys become `key_<n>`; the fixtures write it `{}`, as at `internal/engine/capture/testdata/two-turns.out.ndjson:13`, and `modelUsage` in that line shows `key_1`.
 
-To rerun the check, run `just engine-accept` (`justfile:80-81`). It runs `enginecapture accept`, which reruns each probe live into a temporary directory and checks its stdout (`internal/engine/capture/cli.go:108-110`). It writes no fixtures. The fixtures come from `record` and `sanitize`.
+To rerun the check, run `just engine-accept` (`justfile:149`), and pass `-keep DIR` to keep the raw output (the recipe forwards the arguments at `justfile:149`, and the flag is at `internal/engine/capture/cli.go:119`). It runs `enginecapture accept`, which reruns the hooks-off probes live into a temporary directory and checks each probe's stdout (`internal/engine/capture/cli.go:116` and `:148`). It then runs the real-settings probes with the owner's settings (`internal/engine/capture/cli.go:156`, and the probes at `internal/engine/capture/settings.go:19`). With `-keep DIR` the raw output goes into DIR, which is never removed. Accept writes no fixtures. The fixtures come from `record` and `sanitize`.
 
 ## 2. Handshake
 
@@ -80,7 +80,7 @@ The CLI then returns a `tool_result` for `toolu_1`, and its `tool_use_result` ha
 
 ## 7. What reaches the host under bypass
 
-In the question probe, the only `control_request` the CLI sends is the `AskUserQuestion` request at `internal/engine/capture/testdata/question.out.ndjson:23`. The probe's tool list holds only `AskUserQuestion` (`internal/engine/capture/probe.go:104`), so no bypass probe used an ordinary tool. This recording does not show whether ordinary tools prompt under bypass.
+In the question probe, the only `control_request` the CLI sends is the `AskUserQuestion` request at `internal/engine/capture/testdata/question.out.ndjson:23`. The probe's tool list holds only `AskUserQuestion` (`internal/engine/capture/probe.go:104`), so no bypass probe used an ordinary tool. Whether ordinary tools prompt under bypass is answered by the real-settings probes in section 12.
 
 ## 8. Permission allowed under default
 
@@ -124,3 +124,68 @@ This recording has none. Every request in it received a response under the same 
 Control requests share the stream with events, so a host reads both from one stream. Write's `can_use_tool` arrives after `message_stop` (`internal/engine/capture/testdata/permission-allow.out.ndjson:18`, `:19`). AskUserQuestion's `can_use_tool` arrives before `content_block_stop` (`internal/engine/capture/testdata/question.out.ndjson:23`, `:24`).
 
 The CLI chooses request ids and the host must echo them. The CLI's `req_3` at `internal/engine/capture/testdata/question.out.ndjson:23` is answered with `req_3` at `internal/engine/capture/testdata/question.in.ndjson:3`.
+
+## 12. What the real-settings probes showed
+
+The recorded run was on 2026-11-10 on vermissian, with Claude Code 2.1.321. `just engine-accept -keep DIR` exited 0. An earlier run that day failed on a probe defect (see Resume below), fixed before the recorded run. No output of either run is committed, so the values below are shapes with invented values, not recorded output.
+
+### How the probes start
+
+`enginecapture accept` runs the hooks-off probes, then five real-settings probes with the owner's settings: the guard, the resume pair (resume-plant and resume-ask, counted as one), interrupt-prompt, bypass-tool and background (`internal/engine/capture/settings.go:19`, SettingsProbes). All of them run in `bypassPermissions`.
+
+Each one starts through the owner's login shell from a bare environment (`internal/engine/capture/daemon.go:115`, DaemonCommand). The argument vector is `<shell> -l -c 'exec "$@"' orrery-probe <claude> <claude args>` (`daemon.go:133`). The environment holds only PATH (the tmux and claude package directories, as the orreryd unit has them), HOME, USER, LANG, XDG_RUNTIME_DIR, and ORRERY_SUMMARIZER=1 (`daemon.go:166`), which keeps orrery's own hook silent. The claude arguments drop `--settings` and `--setting-sources`, so the owner's settings, hooks and plugins load. MCP servers stay off (`--strict-mcp-config` with an empty config).
+
+If the guard misses in the login form, accept retries it once without `-l` and continues in the form the guard passed in. If neither form refuses, it stops (`internal/engine/capture/cli.go:250`, runProbes). In the recorded run the login form refused, so the fallback did not run.
+
+`accept -keep DIR` keeps the raw output in DIR (`internal/engine/capture/cli.go:119`), and the recipe forwards arguments (`justfile:149`). Raw output of live runs is kept outside the repository.
+
+### Did the guard run, and what does a refusal look like
+
+Yes, in the login form. The tool call never ran. The stream shows the refusal as the tool's result:
+
+```json
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_example1","is_error":true,"content":"PreToolUse:Bash hook error: `git stash drop/clear` is blocked by the destructive-command guard: it is irreversible and has no git or checkpoint to undo it. If the user explicitly wants this, ..."}]}}
+```
+
+The model then replies in text, and the result line has `subtype` success, `is_error` false, and one `permission_denials` entry: `{"tool_name":"Bash","tool_use_id":"toolu_example1","tool_input":{"command":"<the command>","description":"<text>"}}`. No `can_use_tool` request reaches the host for it. The probe passes only on the guard's own reason text (`internal/engine/capture/settings.go:11`, GuardRefusal), never on git's error.
+
+### Do hook events appear in the stream
+
+Yes, but only with `--include-hook-events`, which the guard probe alone passes. Each hook run is a pair of system lines:
+
+```json
+{"type":"system","subtype":"hook_started","hook_id":"hook_example1","hook_name":"PreToolUse:Bash","hook_event":"PreToolUse","session_id":"session_example","uuid":"uuid_example1"}
+{"type":"system","subtype":"hook_response","hook_id":"hook_example1","hook_name":"PreToolUse:Bash","hook_event":"PreToolUse","exit_code":0,"outcome":"success","output":"...","stdout":"...","stderr":"","session_id":"session_example","uuid":"uuid_example2"}
+```
+
+Hook pairs appear for `UserPromptSubmit` (before the init line), for `PreToolUse:Bash` (three hooks start together for one Bash call; their responses can arrive after `message_stop`), and for `Stop` (two hooks, after the last `message_stop` and before the result). The guard's refusal is visible there too: its `hook_response` has `exit_code` 0, `outcome` success, and an `output` holding the guard's JSON `{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"..."}}`. A refusal is a successful hook run whose output denies. It is not a hook failure, although the `tool_result` text begins `PreToolUse:Bash hook error:`; the guard's own label in that text (`` `git stash drop/clear` ``) names its rule, not the command it saw.
+
+Without the flag, the other probes show no hook lines at all, with one exception: the resumed process printed a `hook_started`/`hook_response` pair for `SessionStart:resume` as its first two lines, before the initialize response.
+
+### Does resume work, and does the id change
+
+Yes. A second process started with `--resume <id>` in the first process's directory (persistence on) answered with the word the first one planted. Its init line carried the same `session_id` as the first process, so the id does not change.
+
+Defect found and fixed on the way: the runner used to number prompt uuids from `...0001` in every process. A resumed session that already holds a prompt uuid treats a new prompt with that uuid as done. It printed only `{"type":"command_lifecycle","command_uuid":"<the reused uuid>","state":"completed",...}`, with no queued or started state, no init and no turn, and the process waited. A host must never reuse a uuid within a session. The runner now numbers a resuming probe's uuids from a separate range (`internal/engine/capture/run.go:22`).
+
+### What follows an interrupt
+
+The process lives and answers. The interrupt receipt is a `control_response` with success and `{"still_queued":[]}`. A `user` line carries the text `[Request interrupted by user]`. The result is `error_during_execution`, with `is_error` true and `terminal_reason` `aborted_streaming`, and the command_lifecycle state is `cancelled`. The next prompt then goes `queued`, `started`, a new init line, the turn, and a result `success`.
+
+### Does an ordinary tool ask under bypass
+
+No. With `--permission-mode bypassPermissions` and `--permission-prompt-tool stdio`, Bash running `git --version` sent no `can_use_tool` request. The tool simply ran (`tool_result` with `is_error` false), and the result was `success` with empty `permission_denials`. Together with section 7 of this page, under bypass only AskUserQuestion reached the host.
+
+### What marks a live background task
+
+Prompted to start `sleep 20` with `run_in_background: true`:
+
+- The tool_use input carries `"run_in_background":true`.
+- `{"type":"system","subtype":"background_tasks_changed","tasks":[{"task_id":"task_example","run_id":"run_example","task_type":"local_bash","description":"<text>"}],...}` arrives, then `{"type":"system","subtype":"task_started","task_id":"task_example","run_id":"run_example","task_type":"local_bash","description":"<text>","is_backgrounded":true,"tool_use_id":"toolu_example2",...}`.
+- The tool_result text says the command is running in the background, with its id and an output file under claude's own temp directory.
+- The turn ends normally: result `success`, `result_index` 0, `queued_turn_count` 0. Nothing in the result names the live task, and command_lifecycle is `completed`.
+- While the task lives (stdin kept open), no lines arrive.
+- When it ends, `task_updated` arrives with `"patch":{"status":"completed","end_time":<ms>}`, then `task_notification` with `task_id`, `run_id`, `tool_use_id`, `status` completed, `summary`, and `output_file`, then `background_tasks_changed` with `"tasks":[]`.
+- Claude then starts a turn by itself: a new init line, a status line `requesting` with no `user_message_uuids`, the stream, and a result `success` with `result_index` 1 and `"origin":{"kind":"task-notification","producer":"session-task","runId":"run_example"}`. No command_lifecycle lines belong to that turn.
+
+So the live-task marker is the non-empty `tasks` list in `background_tasks_changed` (with `task_started`). The empty list marks the end.
