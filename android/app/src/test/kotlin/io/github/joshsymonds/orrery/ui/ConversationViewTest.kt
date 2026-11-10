@@ -14,6 +14,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToIndex
 import org.junit.After
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -241,5 +242,55 @@ class ConversationViewTest {
 
         composeRule.onNodeWithText("synthetic reply 01").assertIsDisplayed()
         composeRule.onAllNodesWithText("synthetic reply 41").assertCountEquals(0)
+    }
+
+    @Test
+    fun scrolledUpExpandedRowKeepsItsPlaceWhenTheWindowSlides() {
+        val entries = mutableStateOf(
+            replies(1, 19) + ConvoEntry.Tool(call("keep-1", result = "synthetic kept output")) + replies(21, 50),
+        )
+        composeRule.setContent {
+            MaterialTheme { ConversationView(entries = entries.value) }
+        }
+
+        composeRule.onNodeWithTag("conversation-list").performScrollToIndex(19)
+        composeRule.onNodeWithTag("tool-row:keep-1").performClick()
+        composeRule.onNodeWithText("synthetic kept output").assertIsDisplayed()
+        val before = composeRule.onNodeWithTag("tool-row:keep-1").fetchSemanticsNode().boundsInRoot.top
+
+        // The poll's window slides: the oldest entry drops off and one reply arrives. Without keys
+        // the row at the top position becomes a different entry and the expanded row moves up.
+        composeRule.runOnIdle {
+            entries.value = entries.value.drop(1) + ConvoEntry.Reply("synthetic appended reply")
+        }
+
+        val after = composeRule.onNodeWithTag("tool-row:keep-1").fetchSemanticsNode().boundsInRoot.top
+        assertEquals(before, after, 1f)
+        composeRule.onNodeWithText("synthetic kept output").assertIsDisplayed()
+    }
+
+    @Test
+    fun atTheBottomASlidWindowShowsTheAppendedReply() {
+        val entries = mutableStateOf(replies(1, 50))
+        composeRule.setContent {
+            MaterialTheme { ConversationView(entries = entries.value) }
+        }
+
+        composeRule.onNodeWithText("synthetic reply 50").assertIsDisplayed()
+        composeRule.runOnIdle {
+            entries.value = entries.value.drop(1) + ConvoEntry.Reply("synthetic reply 51")
+        }
+
+        composeRule.onNodeWithText("synthetic reply 51").assertIsDisplayed()
+    }
+
+    @Test
+    fun repliesWithIdenticalTextAndTimeBothDisplay() {
+        setList(
+            replies(1, 39) +
+                listOf(ConvoEntry.Reply("synthetic twin", 300L), ConvoEntry.Reply("synthetic twin", 300L)),
+        )
+
+        composeRule.onAllNodesWithText("synthetic twin").assertCountEquals(2)
     }
 }

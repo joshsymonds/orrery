@@ -48,6 +48,9 @@ import java.time.format.DateTimeFormatter
 
 private val TIME_OF_DAY: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm")
 
+// Entry keys always start with their kind ("reply:", "tool:", ...), so this never equals one.
+private const val FOOTER_KEY = "footer"
+
 private enum class CallMark(val symbol: String, val colour: Color) {
     Done("✓", Mocha.Green),
     Failed("✗", Mocha.Red),
@@ -74,15 +77,15 @@ fun ConversationView(
         expanded = if (id in expanded) expanded - id else expanded + id
     }
     var followBottom by remember { mutableStateOf(true) }
+    val keys = remember(entries) { entryKeys(entries) }
     val lastIndex = entries.size + (if (footer == null) 0 else 1) - 1
+    // Following is decided when a scroll ends, not when the first visible item moves: a slid window
+    // moves it without the reader scrolling.
     LaunchedEffect(listState) {
-        var previousStart: Pair<Int, Int>? = null
-        snapshotFlow { listState.layoutInfo }.collect { info ->
-            val first = info.visibleItemsInfo.firstOrNull() ?: return@collect
-            val start = first.index to first.offset
-            val previous = previousStart
-            previousStart = start
-            if (previous != null && start != previous) followBottom = info.isAtEnd()
+        var wasScrolling = false
+        snapshotFlow { listState.isScrollInProgress }.collect { scrolling ->
+            if (wasScrolling && !scrolling) followBottom = listState.layoutInfo.isAtEnd()
+            wasScrolling = scrolling
         }
     }
     LaunchedEffect(entries, lastIndex) {
@@ -96,7 +99,7 @@ fun ConversationView(
         state = listState,
         contentPadding = contentPadding,
     ) {
-        items(entries.size) { index ->
+        items(count = entries.size, key = { index -> keys[index] }) { index ->
             when (val entry = entries[index]) {
                 is ConvoEntry.Time -> TimeLabel(entry.seconds)
                 is ConvoEntry.Prompt -> PromptBlock(entry.text)
@@ -105,7 +108,7 @@ fun ConversationView(
                 is ConvoEntry.Group -> GroupRow(entry.calls, expanded, toggle)
             }
         }
-        footer?.let { content -> item { content() } }
+        footer?.let { content -> item(key = FOOTER_KEY) { content() } }
     }
 }
 
