@@ -33,6 +33,8 @@ const (
 	replayCount = 250
 	// eventPane is the row id of the pane every test event is about.
 	eventPane = "orrery-1"
+	// eventEngine is the row id of the engine session the engine-event tests write.
+	eventEngine = "engine-1"
 )
 
 // guardedHandler returns the guarded handler that admits allowedLogin and reads events and sessions from the
@@ -338,6 +340,75 @@ func TestWatchDecodesEachKind(t *testing.T) {
 		if got := w.next(t); !proto.Equal(got, wantMsg) {
 			t.Fatalf("event %d: got %v, want %v", i+1, got, wantMsg)
 		}
+	}
+}
+
+// addEngine writes engine session eventEngine, which appends one engine_added event.
+func addEngine(t *testing.T, s *store.Store) {
+	t.Helper()
+	ops := []store.EngineOp{store.EngineAdd{ID: eventEngine, Dir: "/a", State: "idle"}}
+	if err := s.ApplyEngine(t.Context(), ops, time.Unix(eventAt, 0)); err != nil {
+		t.Fatalf("ApplyEngine add: %v", err)
+	}
+}
+
+// promptEngine appends count engine_prompt events for eventEngine in one store write.
+func promptEngine(t *testing.T, s *store.Store, count int) {
+	t.Helper()
+	ops := make([]store.EngineOp, 0, count)
+	for range count {
+		ops = append(ops, store.EnginePrompt{ID: eventEngine, Text: "hi"})
+	}
+	if err := s.ApplyEngine(t.Context(), ops, time.Unix(eventAt, 0)); err != nil {
+		t.Fatalf("ApplyEngine prompts: %v", err)
+	}
+}
+
+func TestWatchSkipsEngineEventsBetweenPaneEvents(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "orrery.db")
+	s := openEventStore(t, path)
+	seedEvents(t, s, 0)
+	addEngine(t, s)
+	writeState(t, s, 1)
+	promptEngine(t, s, 2)
+	writeState(t, s, 2)
+	events := orreryv1connect.NewEventsClient(guardedHTTPClient(), startServer(t, path))
+
+	w := openWatch(t, events, 0)
+	for _, want := range []struct {
+		seq   int64
+		state string
+	}{{1, ""}, {3, "state-1"}, {6, "state-2"}} {
+		msg := w.next(t)
+		if msg.GetSeq() != want.seq {
+			t.Fatalf("message: seq %d, want %d", msg.GetSeq(), want.seq)
+		}
+		if want.state != "" && msg.GetSessionChanged().GetState() != want.state {
+			t.Fatalf("message seq %d: state %q, want %q", want.seq, msg.GetSessionChanged().GetState(), want.state)
+		}
+	}
+}
+
+func TestWatchReachesPaneEventsAfterMoreThanOnePageOfEngineEvents(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "orrery.db")
+	s := openEventStore(t, path)
+	seedEvents(t, s, 0)
+	addEngine(t, s)
+	promptEngine(t, s, replayCount)
+	writeState(t, s, 1)
+	events := orreryv1connect.NewEventsClient(guardedHTTPClient(), startServer(t, path))
+
+	w := openWatch(t, events, 0)
+	if got := w.next(t).GetSeq(); got != 1 {
+		t.Fatalf("first message: seq %d, want 1", got)
+	}
+	if got := w.next(t).GetSeq(); got != replayCount+3 {
+		t.Fatalf("pane event after engine events: seq %d, want %d", got, replayCount+3)
+	}
+
+	writeState(t, s, 2)
+	if got := w.next(t).GetSeq(); got != replayCount+4 {
+		t.Fatalf("followed pane event: seq %d, want %d", got, replayCount+4)
 	}
 }
 

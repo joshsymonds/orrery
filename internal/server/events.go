@@ -39,8 +39,8 @@ type eventsServer struct {
 	shutdown    <-chan struct{}
 }
 
-// Watch sends every event after the request's cursor in seq order, then each event stored after that, polling the
-// store every poll interval. Each page is read in its own store read, so no read is held across a send or a poll.
+// Watch sends every pane event after the request's cursor in seq order, skipping engine events, then each event
+// stored after that, polling the store every poll interval. Each page is read in its own store read, so no read is held across a send or a poll.
 // Each send must complete within sendTimeout, set as a write deadline on the connection, so a send that stays
 // blocked ends this stream and no other. Connect writes the end of the stream after Watch returns, so that write
 // gets the same deadline, armed when Watch returns. Once the shutdown signal has closed, a blocked send and that end
@@ -97,8 +97,9 @@ func (e eventsServer) watch(
 	}
 }
 
-// sendPage sends each event of page after the cursor after in seq order, checking the shutdown signal before each
-// send, and returns the seq of the last event sent, or after when page holds none.
+// sendPage sends each pane event of page after the cursor after in seq order, checking the shutdown signal before
+// each send. An engine event is not sent, but the cursor advances past it. It returns the seq of the last event
+// read, or after when page holds none.
 func (e eventsServer) sendPage(
 	ctx context.Context,
 	stream *connect.ServerStream[orreryv1.WatchResponse],
@@ -108,6 +109,10 @@ func (e eventsServer) sendPage(
 	for _, event := range page.Events {
 		if stopping(e.shutdown) {
 			return after, shutdownError()
+		}
+		if store.IsEngineKind(event.Kind) {
+			after = event.Seq
+			continue
 		}
 		msg, err := watchMessage(event)
 		if err != nil {
