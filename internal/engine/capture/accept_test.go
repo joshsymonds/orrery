@@ -1,0 +1,136 @@
+package capture
+
+import (
+	"reflect"
+	"strings"
+	"testing"
+)
+
+// acceptStream is a clean stream in declared shapes: an init, an assistant turn, a permission request
+// with its success response, and two successful results.
+const acceptStream = `{"type":"system","subtype":"init"}
+{"type":"assistant"}
+{"type":"control_request","request_id":"req_1","request":{"subtype":"can_use_tool"}}
+{"type":"control_response","response":{"subtype":"success","request_id":"req_1"}}
+{"type":"result","subtype":"success"}
+{"type":"result","subtype":"success"}
+`
+
+func acceptCleanExpect() []Expectation {
+	return []Expectation{
+		{Type: "system", Subtype: "init"},
+		{Type: "assistant"},
+		{Type: "control_request", Subtype: "can_use_tool"},
+		{Type: "control_response", Subtype: "success"},
+		{Type: "result", Count: 2},
+	}
+}
+
+func TestCheckCleanStreamReportsNothing(t *testing.T) {
+	t.Parallel()
+	report, err := Check([]byte(acceptStream), acceptCleanExpect())
+	if err != nil {
+		t.Fatalf("Check() error = %v, want nil", err)
+	}
+	if !reflect.DeepEqual(report, Report{}) {
+		t.Errorf("Check() = %+v, want empty Report", report)
+	}
+}
+
+func TestCheckReportsMissingAndUnderCount(t *testing.T) {
+	t.Parallel()
+	stdout := `{"type":"assistant"}
+{"type":"result","subtype":"success"}
+{"type":"control_request","request_id":"req_1","request":{"subtype":"elicitation"}}
+`
+	expect := []Expectation{
+		{Type: "assistant"},
+		{Type: "result", Subtype: "success", Count: 2},
+		{Type: "system", Subtype: "init"},
+		{Type: "control_request", Subtype: "can_use_tool"},
+	}
+	report, err := Check([]byte(stdout), expect)
+	if err != nil {
+		t.Fatalf("Check() error = %v, want nil", err)
+	}
+	want := []Expectation{
+		{Type: "result", Subtype: "success", Count: 2},
+		{Type: "system", Subtype: "init"},
+		{Type: "control_request", Subtype: "can_use_tool"},
+	}
+	if !reflect.DeepEqual(report.Missing, want) {
+		t.Errorf("Check() Missing = %+v, want %+v", report.Missing, want)
+	}
+}
+
+func TestCheckRejectsLineThatIsNotAnEnvelope(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name   string
+		stdout string
+		line   string
+	}{
+		{name: "not JSON", stdout: "{\"type\":\"assistant\"}\nnot json\n", line: "line 2:"},
+		{name: "JSON array", stdout: "[]\n", line: "line 1:"},
+		{name: "missing type", stdout: `{"subtype":"init"}` + "\n", line: "line 1:"},
+		{name: "empty type", stdout: `{"type":""}` + "\n", line: "line 1:"},
+		{name: "non-string type", stdout: `{"type":5}` + "\n", line: "line 1:"},
+		{
+			name:   "blank line before the end",
+			stdout: "{\"type\":\"assistant\"}\n\n{\"type\":\"assistant\"}\n",
+			line:   "line 2:",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			_, err := Check([]byte(test.stdout), nil)
+			if err == nil {
+				t.Fatalf("Check() error = nil, want an error naming %q", test.line)
+			}
+			if !strings.Contains(err.Error(), test.line) {
+				t.Errorf("Check() error = %v, want it to name %q", err, test.line)
+			}
+		})
+	}
+}
+
+func TestCheckIgnoresOnlyATrailingEmptyLine(t *testing.T) {
+	t.Parallel()
+	for _, stdout := range []string{"{\"type\":\"assistant\"}", "{\"type\":\"assistant\"}\n"} {
+		report, err := Check([]byte(stdout), []Expectation{{Type: "assistant"}})
+		if err != nil {
+			t.Fatalf("Check(%q) error = %v, want nil", stdout, err)
+		}
+		if len(report.Missing) != 0 {
+			t.Errorf("Check(%q) Missing = %+v, want none", stdout, report.Missing)
+		}
+	}
+}
+
+func TestCheckListsUnknownTypesOnceSorted(t *testing.T) {
+	t.Parallel()
+	stdout := `{"type":"not_declared_type"}
+{"type":"not_declared_type"}
+{"type":"system","subtype":"not_declared_subtype"}
+{"type":"result","subtype":"not_declared_result"}
+{"type":"control_request","request_id":"req_1","request":{"subtype":"not_declared_control"}}
+{"type":"control_request","request_id":"req_2","request":{"subtype":"can_use_tool"}}
+{"type":"control_response","response":{"subtype":"error","request_id":"req_2"}}
+{"type":"assistant"}
+`
+	report, err := Check([]byte(stdout), nil)
+	if err != nil {
+		t.Fatalf("Check() error = %v, want nil: unknown types never fail a check", err)
+	}
+	want := []string{
+		"control_request/not_declared_control",
+		"control_response/error",
+		"not_declared_type",
+		"result/not_declared_result",
+		"system/not_declared_subtype",
+	}
+	if !reflect.DeepEqual(report.Unknown, want) {
+		t.Errorf("Check() Unknown = %q, want %q", report.Unknown, want)
+	}
+}
