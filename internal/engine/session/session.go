@@ -32,6 +32,7 @@ type Session struct {
 	stopOnce  sync.Once
 	stopErr   error
 	requests  atomic.Uint64
+	pending   *openRequests
 }
 
 // New starts a session on process: it writes the initialize request and starts delivering events.
@@ -44,6 +45,7 @@ func New(process Process) (*Session, error) {
 		events:    make(chan Event),
 		stop:      make(chan struct{}),
 		finished:  make(chan struct{}),
+		pending:   newOpenRequests(),
 	}
 	if err := stream.SendInitialize(session.nextRequestID(), nil); err != nil {
 		return nil, errors.Join(fmt.Errorf("session: send initialize: %w", err), terminate(process, stream))
@@ -105,7 +107,7 @@ func (s *Session) run() {
 	translator := newTranslator()
 	for line := range s.transport.Lines() {
 		for _, event := range translator.translate(line) {
-			if !s.send(event) {
+			if !s.deliver(event) {
 				return
 			}
 		}
