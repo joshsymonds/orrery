@@ -2,6 +2,7 @@ package io.github.joshsymonds.orrery.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -60,9 +61,9 @@ private enum class CallMark(val symbol: String, val colour: Color) {
  * The folded conversation as the phone draws it: time labels, prompt blocks, plain replies, tool
  * rows that expand to their result, and groups of calls that expand to their rows, with an
  * optional footer after the last entry. Which rows are open is kept by tool id (a group by its
- * first call's id), so it survives new entries. It opens at the newest item. While the reader is at
- * the bottom, new entries keep the newest item in view; once they scroll up, new entries leave
- * their position alone.
+ * first call's id), so it survives new entries. It opens at the end of the newest item. While the
+ * reader is at the bottom, new entries keep the end of the newest item in view; once they scroll
+ * up, new entries leave their position alone.
  */
 @Composable
 fun ConversationView(
@@ -89,7 +90,10 @@ fun ConversationView(
         }
     }
     LaunchedEffect(entries, lastIndex) {
-        if (followBottom && lastIndex >= 0) listState.scrollToItem(lastIndex)
+        if (followBottom && lastIndex >= 0) {
+            listState.scrollToItem(lastIndex)
+            listState.scrollToEnd()
+        }
     }
     LazyColumn(
         modifier = modifier
@@ -313,6 +317,14 @@ private fun LazyListLayoutInfo.isAtEnd(): Boolean {
     val last = visibleItemsInfo.lastOrNull() ?: return true
     return last.index == totalItemsCount - 1 &&
         last.offset + last.size <= viewportEndOffset - afterContentPadding
+}
+
+/** Scrolls the rest of the way so the last item's end sits at the viewport's end. */
+private suspend fun LazyListState.scrollToEnd() {
+    val info = layoutInfo
+    val last = info.visibleItemsInfo.lastOrNull() ?: return
+    val overhang = last.offset + last.size - (info.viewportEndOffset - info.afterContentPadding)
+    if (overhang > 0) scrollBy(overhang.toFloat())
 }
 
 private fun toolMark(call: ToolCall): CallMark? = when {

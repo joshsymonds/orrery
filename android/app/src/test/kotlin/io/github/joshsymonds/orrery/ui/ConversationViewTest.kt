@@ -1,8 +1,11 @@
 package io.github.joshsymonds.orrery.ui
 
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
@@ -15,6 +18,7 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToIndex
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -282,6 +286,84 @@ class ConversationViewTest {
         }
 
         composeRule.onNodeWithText("synthetic reply 51").assertIsDisplayed()
+    }
+
+    private lateinit var list: LazyListState
+
+    private fun setHoistedList(entries: MutableState<List<ConvoEntry>>) {
+        composeRule.setContent {
+            MaterialTheme {
+                val state = rememberLazyListState()
+                list = state
+                ConversationView(entries = entries.value, listState = state)
+            }
+        }
+    }
+
+    private fun tallReply(name: String): String =
+        (listOf(name) + List(99) { "synthetic line" }).joinToString("\n")
+
+    /** The list cannot scroll further, and the reply's end is inside the list's bounds. */
+    private fun assertEndOfReplyInView(text: String) {
+        composeRule.waitForIdle()
+        assertFalse("the list can still scroll forward", list.canScrollForward)
+        val listBottom = composeRule.onNodeWithTag("conversation-list").fetchSemanticsNode().boundsInRoot.bottom
+        val replyBottom = composeRule.onNodeWithText(text).fetchSemanticsNode().boundsInRoot.bottom
+        assertTrue("the reply's end is below the list's end", replyBottom <= listBottom + 1f)
+    }
+
+    @Test
+    fun opensWithTheEndOfATallLastReplyInView() {
+        val entries = mutableStateOf(replies(1, 39) + ConvoEntry.Reply(tallReply("synthetic tall A")))
+        setHoistedList(entries)
+
+        assertEndOfReplyInView(tallReply("synthetic tall A"))
+    }
+
+    @Test
+    fun followsANewTallReplyAfterOpeningOnATallReply() {
+        val entries = mutableStateOf(replies(1, 39) + ConvoEntry.Reply(tallReply("synthetic tall A")))
+        setHoistedList(entries)
+        assertEndOfReplyInView(tallReply("synthetic tall A"))
+
+        composeRule.runOnIdle {
+            entries.value = entries.value + ConvoEntry.Reply(tallReply("synthetic tall B"))
+        }
+
+        assertEndOfReplyInView(tallReply("synthetic tall B"))
+    }
+
+    @Test
+    fun followsANewTallReplyInAWindowSlidByOne() {
+        val entries = mutableStateOf(replies(1, 39) + ConvoEntry.Reply(tallReply("synthetic tall A")))
+        setHoistedList(entries)
+        assertEndOfReplyInView(tallReply("synthetic tall A"))
+
+        composeRule.runOnIdle {
+            entries.value = entries.value.drop(1) + ConvoEntry.Reply(tallReply("synthetic tall B"))
+        }
+
+        assertEndOfReplyInView(tallReply("synthetic tall B"))
+    }
+
+    @Test
+    fun aReaderScrolledToATallReplyTopIsNotMovedByANewReply() {
+        val entries = mutableStateOf(replies(1, 39) + ConvoEntry.Reply(tallReply("synthetic tall A")))
+        setHoistedList(entries)
+
+        // Index 39 is already partly visible at the end, so the reader first scrolls to the top.
+        composeRule.onNodeWithTag("conversation-list").performScrollToIndex(0)
+        composeRule.onNodeWithTag("conversation-list").performScrollToIndex(39)
+        composeRule.waitForIdle()
+        assertEquals(39, list.firstVisibleItemIndex)
+        composeRule.onNodeWithText(tallReply("synthetic tall A")).assertIsDisplayed()
+        composeRule.runOnIdle {
+            entries.value = entries.value + ConvoEntry.Reply("synthetic appended reply")
+        }
+
+        composeRule.waitForIdle()
+        assertEquals(39, list.firstVisibleItemIndex)
+        composeRule.onAllNodesWithText("synthetic appended reply").assertCountEquals(0)
     }
 
     @Test
