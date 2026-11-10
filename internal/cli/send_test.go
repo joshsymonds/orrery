@@ -330,6 +330,50 @@ func TestSendTextTypesAtTypeLimit(t *testing.T) {
 	sendTextAwait(t, client, pane, file, text, text+"\r")
 }
 
+// TestSendTextFinishesWhenCallerCancels starts a typed send of 20 short lines under a cancellable context
+// and cancels it once the first bytes reach the pane's input file. The typed send runs on its own bounded
+// context, so Send returns nil and the pane receives every typed byte, then Enter.
+func TestSendTextFinishesWhenCallerCancels(t *testing.T) {
+	lines := make([]string, 0, 20)
+	for i := range 20 {
+		lines = append(lines, fmt.Sprintf("synthetic line %02d", i))
+	}
+	text := strings.Join(lines, "\n")
+
+	client := sendServer(t)
+	pane, file := sendStartPane(t, client, sendBoxScreen())
+	sendSetState(t, client, pane, string(protocol.StateDone))
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	result := make(chan error, 1)
+	go func() {
+		result <- cli.Send(ctx, client, []string{"--pane", pane, "--text", text}, &bytes.Buffer{})
+	}()
+
+	sendPollUntil(t, "first typed bytes in "+file, func() (bool, error) {
+		data, err := os.ReadFile(file)
+		if errors.Is(err, fs.ErrNotExist) {
+			return false, nil
+		}
+		if err != nil {
+			return false, err
+		}
+		return len(data) > 0, nil
+	})
+	cancel()
+
+	select {
+	case err := <-result:
+		if err != nil {
+			t.Fatalf("Send after caller canceled: %v", err)
+		}
+	case <-time.After(sendDeadline):
+		t.Fatalf("Send did not return within %v", sendDeadline)
+	}
+	sendAwaitInput(t, file, text+"\r")
+}
+
 func TestSendKeysDeliversKeys(t *testing.T) {
 	client := sendServer(t)
 	pane, file := sendStartPane(t, client, sendQuestion)

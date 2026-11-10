@@ -32,6 +32,8 @@ const (
 	sendPieceBytes = 400
 	sendTypeGap    = 20 * time.Millisecond
 	sendSettle     = 300 * time.Millisecond
+	// sendTypeBound bounds a started typed send, which runs even when its caller's context is done.
+	sendTypeBound = 15 * time.Second
 	// sendPaneFields is the number of fields in the display-message format sendTypable reads.
 	sendPaneFields = 3
 	sendKeysCmd    = "send-keys"
@@ -214,7 +216,11 @@ func sendText(ctx context.Context, client *tmuxctl.Client, pane, text string) er
 		return err
 	}
 	if typable && sendTypeable(pane, text) {
-		return sendTyped(ctx, client, pane, text)
+		// A started typed send is detached from the caller, so a caller that leaves cannot leave half a
+		// message in the input box.
+		typeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), sendTypeBound)
+		defer cancel()
+		return sendTyped(typeCtx, client, pane, text)
 	}
 	return sendPaste(ctx, client, pane, text)
 }
