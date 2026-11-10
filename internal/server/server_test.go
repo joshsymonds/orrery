@@ -1653,6 +1653,100 @@ func serveBody(t *testing.T, handler http.Handler, path string) string {
 	return rec.Body.String()
 }
 
+// synthGoal is the synthetic goal condition of the goal fixtures.
+const synthGoal = "synthetic goal condition"
+
+// goalRecord returns a goal_status attachment line for condition, met or not met, with its newline.
+func goalRecord(condition string, met bool) string {
+	return fmt.Sprintf(
+		`{"type":"attachment","attachment":{"type":"goal_status","condition":%q,"met":%t,"sentinel":true}}`+"\n",
+		condition, met)
+}
+
+// appendTranscript appends text to the transcript at path.
+func appendTranscript(t *testing.T, path, text string) {
+	t.Helper()
+	file, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatalf("open transcript: %v", err)
+	}
+	if _, err := file.WriteString(text); err != nil {
+		t.Fatalf("append transcript: %v", err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatalf("close transcript: %v", err)
+	}
+}
+
+// overwriteTranscript replaces the first old in the transcript at path with replacement of the same length, in place.
+func overwriteTranscript(t *testing.T, path, old, replacement string) {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read transcript: %v", err)
+	}
+	at := bytes.Index(data, []byte(old))
+	if at < 0 || len(old) != len(replacement) {
+		t.Fatalf("cannot overwrite %q with %q in place", old, replacement)
+	}
+	file, err := os.OpenFile(path, os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatalf("open transcript: %v", err)
+	}
+	if _, err := file.WriteAt([]byte(replacement), int64(at)); err != nil {
+		t.Fatalf("overwrite transcript: %v", err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatalf("close transcript: %v", err)
+	}
+}
+
+// conversationGoal returns the goal key of the conversation answer for pane through handler.
+func conversationGoal(t *testing.T, handler http.Handler, pane string) string {
+	t.Helper()
+	var got conversation.Conversation
+	if err := json.Unmarshal([]byte(serveBody(t, handler, conversationPath(pane, ""))), &got); err != nil {
+		t.Fatalf("decode conversation: %v", err)
+	}
+	return got.Goal
+}
+
+func TestServePaneConversationGoal(t *testing.T) {
+	t.Parallel()
+
+	tmux := newTmuxServer(t)
+	path := writeConversation(t, 1)
+	appendTranscript(t, path, goalRecord(synthGoal, false))
+	pane := conversationPane(t, tmux, liveOptions(path))
+	handler := newHandler(t, tmux)
+
+	if got := conversationGoal(t, handler, pane); got != synthGoal {
+		t.Fatalf("goal = %q, want %q", got, synthGoal)
+	}
+	// The handler remembers how far it has read, so a second request reads only the appended reply and keeps the
+	// goal it read before, though a fresh read would now find the overwritten condition.
+	overwriteTranscript(t, path, synthGoal, strings.Repeat("x", len(synthGoal)))
+	reply := `{"type":"assistant","message":{"content":[{"type":"text","text":"synthetic reply"}]}}`
+	appendTranscript(t, path, reply+"\n")
+	if got := conversationGoal(t, handler, pane); got != synthGoal {
+		t.Fatalf("goal after appended reply = %q, want %q", got, synthGoal)
+	}
+	appendTranscript(t, path, goalRecord(synthGoal, true))
+	if got := conversationGoal(t, handler, pane); got != "" {
+		t.Fatalf("goal after met record = %q, want empty", got)
+	}
+}
+
+func TestServePaneConversationNoGoal(t *testing.T) {
+	t.Parallel()
+
+	tmux := newTmuxServer(t)
+	pane := conversationPane(t, tmux, liveOptions(writeConversation(t, 1)))
+	if got := conversationGoal(t, newHandler(t, tmux), pane); got != "" {
+		t.Fatalf("goal = %q, want empty", got)
+	}
+}
+
 func TestServePaneConversationLimit(t *testing.T) {
 	t.Parallel()
 
