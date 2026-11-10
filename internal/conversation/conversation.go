@@ -67,16 +67,16 @@ const (
 	maxReplyBytes = 32768
 	// originWindowBytes is how far into the transcript the origin prompt is searched.
 	originWindowBytes = 1 << 20
-	// maxOriginRunes caps the origin prompt.
-	maxOriginRunes = 300
-	// maxNoticeRunes caps the summary of a task notice.
-	maxNoticeRunes = 300
+	// maxRunes caps the origin prompt, the text of a notice and the text of a goal.
+	maxRunes = 300
 )
 
-// Conversation is a transcript's opening prompt and its newest items, oldest first.
+// Conversation is a transcript's opening prompt, its newest items, oldest first, and its active goal. Read leaves
+// Goal empty; serve fills it from a Goals.
 type Conversation struct {
 	Origin string `json:"origin"`
 	Items  []Item `json:"items"`
+	Goal   string `json:"goal"`
 }
 
 // Item is one reply, tool call, question, prompt, tool result or notice of a transcript.
@@ -364,7 +364,7 @@ func teammateItems(entry transcriptLine, ts int64) ([]Item, bool) {
 	if !active {
 		return nil, true
 	}
-	text := cutRunes(strings.Join(summaries, "\n"), maxNoticeRunes)
+	text := cutRunes(strings.Join(summaries, "\n"))
 	return []Item{{Kind: kindNotice, Time: ts, Notice: noticeTeammate, Text: text}}, true
 }
 
@@ -446,7 +446,7 @@ func taskItem(text string, ts int64) Item {
 		Kind:   kindNotice,
 		Time:   ts,
 		Notice: noticeTask,
-		Text:   cutRunes(childText(text, "summary"), maxNoticeRunes),
+		Text:   cutRunes(childText(text, "summary")),
 		Error:  status == "failed" || status == "killed",
 	}
 }
@@ -475,11 +475,11 @@ func isInterruption(blocks []contentBlock) bool {
 	return text == interruptedText || text == interruptedToolText
 }
 
-// cutRunes returns the first n runes of text.
-func cutRunes(text string, n int) string {
+// cutRunes returns the first maxRunes runes of text.
+func cutRunes(text string) string {
 	runes := []rune(text)
-	if len(runes) > n {
-		return string(runes[:n])
+	if len(runes) > maxRunes {
+		return string(runes[:maxRunes])
 	}
 	return text
 }
@@ -593,7 +593,7 @@ func cutText(text string, limit int) string {
 }
 
 // originPrompt returns the text of the first prompt item that the item rules give in the first originWindowBytes
-// of the transcript, clipped to maxOriginRunes runes. A line that the window ends inside is ignored.
+// of the transcript, clipped to maxRunes runes. A line that the window ends inside is ignored.
 func originPrompt(src io.ReaderAt, size int64) (string, error) {
 	window := min(size, originWindowBytes)
 	reader := bufio.NewReader(io.NewSectionReader(src, 0, window))
@@ -607,7 +607,7 @@ func originPrompt(src io.ReaderAt, size int64) (string, error) {
 		}
 		for _, item := range lineItems(line) {
 			if item.Kind == kindPrompt {
-				return cutRunes(item.Text, maxOriginRunes), nil
+				return cutRunes(item.Text), nil
 			}
 		}
 		if errors.Is(err, io.EOF) {

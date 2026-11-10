@@ -12,8 +12,10 @@
 # orreryd, ntfy or the phone. Hooks also set the pane's @orrery_state, and with them off the
 # script sets that option by hand before each send.
 #
-# Usage: scripts/typed-live-check.sh
-# Exit status: 0 when every case passes, 1 otherwise.
+# Usage: scripts/typed-live-check.sh [agents]
+# With no argument, runs the three numbered cases. With `agents`, runs only the agent-list case:
+# two forked subtasks, then a nine-line message sent while both are listed.
+# Exit status: 0 when every case passes, 1 when one fails, 2 for a bad argument.
 
 set -euo pipefail
 
@@ -26,6 +28,7 @@ socket=""
 build=""
 workdir=""
 transcript=""
+session_id=""
 pane=""
 failures=0
 started=$(date +%s)
@@ -38,18 +41,26 @@ box_limit=90
 submit_limit=60
 stream_limit=120
 reply_limit=300
+fork_limit=60
+agents_limit=120
 
-# The three cases. Each carries an invented marker word that Claude is asked to echo alone,
-# so the reply can be recognised in the transcript.
+# The three numbered cases and the agent case. Each carries an invented marker word that
+# Claude is asked to echo alone, so the reply can be recognised in the transcript.
 marker_nine=AMBERKITE
 marker_long=BLUEFINCH
 marker_mid=COBALTWREN
+marker_agents=VERMILION
 numbers_request="print the numbers 1 to 2000, one per line, nothing else"
 
 # tm runs tmux on the private server. Every tmux call goes through here so that none can
 # reach a server this script did not create.
 tm() {
     tmux -L "$server" "$@"
+}
+
+# usage prints the usage line to stderr.
+usage() {
+    echo "usage: scripts/typed-live-check.sh [agents]" >&2
 }
 
 # screen prints the pane's visible screen.
@@ -106,14 +117,15 @@ wait_for() {
     done
 }
 
-# find_transcript prints the session transcript: the .jsonl under ~/.claude/projects, modified
-# since this run started, in a directory named after the throwaway directory's unique name,
-# whose lines carry .cwd equal to the throwaway directory. The trailing slash makes find
-# descend when ~/.claude/projects is a symlink; the name filter keeps it off other sessions'
-# transcripts.
+# find_transcript prints the main session's transcript: <session_id>.jsonl directly in a project
+# directory named after the throwaway directory's unique name, modified since this run started,
+# whose lines carry .cwd equal to the throwaway directory. The session id is the one this run
+# passed to claude, so a forked subtask's file under <session_id>/subagents/ is never picked.
+# The trailing slash makes find descend when ~/.claude/projects is a symlink.
 find_transcript() {
     [ -d "$HOME/.claude/projects" ] || return 0
-    find "$HOME/.claude/projects/" -path "*${workdir##*/}*" -name '*.jsonl' -newermt "@$started" 2>/dev/null |
+    find "$HOME/.claude/projects/" -mindepth 2 -maxdepth 2 -name "$session_id.jsonl" \
+        -path "*${workdir##*/}/*" -newermt "@$started" 2>/dev/null |
         while IFS= read -r file; do
             if jq -e -n --arg dir "$workdir" 'first(inputs | select(.cwd == $dir))' "$file" >/dev/null 2>&1; then
                 printf '%s\n' "$file"
@@ -274,6 +286,108 @@ check_whole() {
     fi
 }
 
+# agent_names prints the names of the agent rows under the input box, one per line, leaving out
+# the main row. An agent row is two spaces, a bullet (U+25CF or U+25EF), a space and the name.
+agent_names() {
+    local text
+    text=$(screen)
+    sed -n -E 's/^  (●|◯) +([^[:space:]]+).*$/\2/p' <<<"$text" | grep -vxF -- main || true
+}
+
+# agents_listed succeeds when two or more agent rows besides main are on screen.
+agents_listed() {
+    [ "$(agent_names | grep -c .)" -ge 2 ]
+}
+
+# agents_still_listed NAMES succeeds when NAMES, one name per line, holds at least two names and
+# every one of them is still an agent row on screen.
+agents_still_listed() {
+    local names=$1 name current
+    [ "$(grep -c . <<<"$names")" -ge 2 ] || return 1
+    current=$(agent_names)
+    while IFS= read -r name; do
+        grep -qxF -- "$name" <<<"$current" || return 1
+    done <<<"$names"
+}
+
+# forks_at_least COUNT succeeds when the screen shows at least COUNT "forked" lines, one per
+# /subtask that Claude Code has started.
+forks_at_least() {
+    local text
+    text=$(screen)
+    [ "$(grep -c -- '⑂ forked' <<<"$text")" -ge "$1" ]
+}
+
+# subtask_send TEXT types "/subtask TEXT" at the pane with tmux keys and presses Enter. It is
+# setup for the agent case, not an orrery send, so it leaves the pane's state alone. Enter goes
+# after a pause, as orrery send does, so Claude Code reads it as its own key.
+subtask_send() {
+    tm send-keys -t "$pane" -l "/subtask $1"
+    sleep 0.3
+    tm send-keys -t "$pane" Enter
+}
+
+# agents_nine_text prints nine lines of about 1,100 characters in all with no trailing newline,
+# sent while two agents are listed. Like case 1, it is over 800 characters and three lines, so a
+# paste would be collapsed and fail the typed verdict.
+# The first line starts with x and carries the marker. Every line holds an x inside its words.
+agents_nine_text() {
+    local lines=() i
+    lines+=("x Case 4 of the orrery live check, nine lines while two agents are listed. Reply with only ${marker_agents} and nothing else.")
+    for i in 2 3 4 5 6 7 8 9; do
+        lines+=("Line $i of 9: the next box holds extra text, with six more words that mix in a little filler, lorem ipsum dolor sit amet.")
+    done
+    (IFS=$'\n'; printf '%s' "${lines[*]}")
+}
+
+# agents_case forks two subtasks, checks that two agent rows besides main are listed, sends a
+# nine-line message while they are, and checks that both are still listed right after the send.
+# Each capture is printed. The message verdict comes from the main transcript.
+agents_case() {
+    local names_before text4
+    echo "agents: forking two subtasks with /subtask"
+    subtask_send "Run 1: print the numbers 1 to 6000, one per line, no other text, no tools."
+    wait_for "the first subtask forked" "$fork_limit" forks_at_least 1 || true
+    subtask_send "Run 2: print the numbers 1 to 6000, one per line, no other text, no tools."
+    wait_for "the second subtask forked" "$fork_limit" forks_at_least 2 || true
+    wait_for "two agent rows besides main" "$agents_limit" agents_listed || true
+
+    echo "screen at the send, before the nine-line message:"
+    screen
+    names_before=$(agent_names)
+    if agents_listed; then
+        pass "two agent rows besides main listed at the send: $(tr '\n' ' ' <<<"$names_before")"
+    else
+        fail "fewer than two agent rows besides main listed at the send; listed: $(tr '\n' ' ' <<<"$names_before")"
+    fi
+
+    text4=$(agents_nine_text)
+    echo "agents: sending nine lines, ${#text4} characters, while the agents are listed"
+    send_message "done" "$text4"
+    echo "screen right after the send:"
+    screen
+    if agents_still_listed "$names_before"; then
+        pass "both agents from the send still listed after the send: $(tr '\n' ' ' <<<"$names_before")"
+    else
+        fail "agents from the send not all still listed after the send; at the send: $(tr '\n' ' ' <<<"$names_before")"
+    fi
+
+    wait_for "agent case submitted to the transcript" "$submit_limit" transcript_has_text "$text4"
+    wait_for "agent case reply containing $marker_agents" "$reply_limit" transcript_has_reply "$marker_agents"
+    echo "transcript: $transcript"
+    check_typed "agents case (nine lines containing x, two agents listed)" "$marker_agents" "$text4"
+}
+
+# summarize prints the run's result. It returns 1 when a case failed, which ends the run under
+# set -e with the same status.
+summarize() {
+    if ((failures > 0)); then
+        echo "live check: $failures case(s) failed"
+        return 1
+    fi
+    echo "live check: all cases passed"
+}
+
 # cleanup runs on every exit. It stops the private server, removes its socket file and the
 # build directory, and removes the throwaway directory only when the guard accepts it.
 cleanup() {
@@ -324,6 +438,16 @@ while IFS= read -r name; do
     unset "$name"
 done < <(compgen -e | grep -E '^(CLAUDECODE$|CLAUDE_|STEWARD_|TMUX_PANE$)' || true)
 
+# Arguments are checked before anything is built or started. No argument runs the three
+# numbered cases; `agents` runs only the agent case.
+mode=all
+if [ $# -eq 1 ] && [ "$1" = agents ]; then
+    mode=agents
+elif [ $# -gt 0 ]; then
+    usage
+    exit 2
+fi
+
 echo "build: go build ./cmd/orrery"
 build=$(mktemp -d "$scratch_base/orrery-live-build-XXXXXX")
 (cd "$repo" && go build -o "$build/orrery" ./cmd/orrery)
@@ -332,11 +456,16 @@ workdir=$(mktemp -d "$scratch_base/orrery-live-XXXXXX")
 workdir=$(cd "$workdir" && pwd -P)
 server="orrery-live-$$"
 
+# The session id is chosen here and passed to claude, so the main transcript is the file named
+# by this id. A forked subtask writes under that id's subagents directory instead.
+session_id=$(cat /proc/sys/kernel/random/uuid)
+
 # The first call carries -f /dev/null so the private server reads no user config. The pane
 # runs claude directly, as argv, so no shell quoting touches the settings JSON.
 pane=$(tmux -L "$server" -f /dev/null new-session -d -P -F '#{pane_id}' \
     -s live -x 200 -y 50 -c "$workdir" \
-    claude --model haiku --strict-mcp-config --settings '{"disableAllHooks":true}')
+    claude --model haiku --strict-mcp-config --session-id "$session_id" \
+    --settings '{"disableAllHooks":true}')
 
 # The socket path is read from the running server, so the trap removes exactly that file.
 socket=$(tm display-message -p '#{socket_path}')
@@ -352,6 +481,12 @@ if screen_has "trust"; then
     tm send-keys -t "$pane" Enter
 fi
 wait_for "the input box" "$box_limit" input_box_ready
+
+if [ "$mode" = agents ]; then
+    agents_case
+    summarize
+    exit 0
+fi
 
 # Case 1: nine lines of about 1,000 characters in all, typed as one message.
 text1=$(nine_line_text)
@@ -408,8 +543,4 @@ else
     fail "case 3 (mid-reply): the numbers reply was never seen streaming, so nothing was sent mid-reply"
 fi
 
-if ((failures > 0)); then
-    echo "live check: $failures case(s) failed"
-    exit 1
-fi
-echo "live check: all cases passed"
+summarize

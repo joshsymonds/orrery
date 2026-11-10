@@ -3,13 +3,15 @@ package io.github.joshsymonds.orrery.api
 import io.github.joshsymonds.orrery.ui.ConvoEntry
 import io.github.joshsymonds.orrery.ui.ToolCall
 import io.github.joshsymonds.orrery.ui.foldConversation
+import org.json.JSONObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ConversationContractTest {
     // The conversation route's example response from docs/contract.md, copied byte for byte.
     private val contractBody = """
-{"origin":"Example opening prompt.","items":[{"kind":"prompt","time":1700000000,"text":"Example opening prompt.","tool":"","input":"","id":"","error":false,"notice":""},{"kind":"notice","time":1700000050,"text":"","tool":"","input":"","id":"","error":false,"notice":"compaction"},{"kind":"reply","time":1700000100,"text":"Example reply.","tool":"","input":"","id":"","error":false,"notice":""},{"kind":"tool","time":1700000200,"text":"","tool":"Bash","input":"example command","id":"example-tool-use","error":false,"notice":""},{"kind":"result","time":1700000210,"text":"Example output.","tool":"","input":"","id":"example-tool-use","error":false,"notice":""},{"kind":"notice","time":1700000300,"text":"Example task finished.","tool":"","input":"","id":"","error":false,"notice":"task"}]}
+{"origin":"Example opening prompt.","items":[{"kind":"prompt","time":1700000000,"text":"Example opening prompt.","tool":"","input":"","id":"","error":false,"notice":""},{"kind":"notice","time":1700000050,"text":"","tool":"","input":"","id":"","error":false,"notice":"compaction"},{"kind":"reply","time":1700000100,"text":"Example reply.","tool":"","input":"","id":"","error":false,"notice":""},{"kind":"tool","time":1700000200,"text":"","tool":"Bash","input":"example command","id":"example-tool-use","error":false,"notice":""},{"kind":"result","time":1700000210,"text":"Example output.","tool":"","input":"","id":"example-tool-use","error":false,"notice":""},{"kind":"notice","time":1700000300,"text":"Example task finished.","tool":"","input":"","id":"","error":false,"notice":"task"}],"goal":"Example goal."}
     """
 
     private fun contractConversation(): Conversation =
@@ -34,6 +36,11 @@ class ConversationContractTest {
             ),
             contractConversation(),
         )
+    }
+
+    @Test
+    fun contractExampleCarriesNonEmptyGoal() {
+        assertTrue(JSONObject(contractBody).getString("goal").isNotEmpty())
     }
 
     @Test

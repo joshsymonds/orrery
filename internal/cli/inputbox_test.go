@@ -18,6 +18,12 @@ func TestInputBoxVisible(t *testing.T) {
 	dashed := strings.Repeat("╌", inputBoxTestWidth)
 	noBreak := " "
 	mixedRule := strings.Repeat("─", 19) + "x" + strings.Repeat("─", 20)
+	mode := "  ⏵⏵ invented mode text · ↓ to manage"
+	status := "  invented status line"
+	selectMode := "  ↑/↓ to select"
+	mainRow := "  ● main"
+	agentHollow := "  ◯ invented-agent   Invented description   10s · ↓ 40k tokens"
+	agentFilled := "  ● other-agent   Other invented text   2m · ↓ 1k tokens"
 
 	tests := []struct {
 		name   string
@@ -111,6 +117,68 @@ func TestInputBoxVisible(t *testing.T) {
 			name:   "mark followed by another character",
 			screen: rule + "\n❯1 option\n" + rule + "\n  footer one",
 			want:   false,
+		},
+		{
+			name:   "two-line footer, blank line, main row and one agent",
+			screen: rule + "\n❯ draft\n" + rule + "\n" + status + "\n" + mode + "\n\n" + mainRow + "\n" + agentHollow,
+			want:   true,
+		},
+		{
+			name:   "several agents with filled and hollow dots",
+			screen: rule + "\n❯ draft\n" + rule + "\n" + mode + "\n\n" + mainRow + "\n" + agentHollow + "\n" + agentFilled + "\n" + agentHollow,
+			want:   true,
+		},
+		{
+			name:   "one-line footer with main row and two agents",
+			screen: rule + "\n❯ draft\n" + rule + "\n" + mode + "\n\n" + mainRow + "\n" + agentHollow + "\n" + agentFilled,
+			want:   true,
+		},
+		{
+			name:   "agent rows followed by trailing blank lines",
+			screen: rule + "\n❯ draft\n" + rule + "\n" + mode + "\n\n" + mainRow + "\n" + agentHollow + "\n\n\n",
+			want:   true,
+		},
+		{
+			name:   "selected row in the list",
+			screen: rule + "\n❯ draft\n" + rule + "\n" + status + "\n" + selectMode + "\n\n❯ ● main\n" + agentHollow,
+			want:   false,
+		},
+		{
+			name:   "selected row as the last line",
+			screen: rule + "\n❯ draft\n" + rule + "\n" + selectMode + "\n\n❯ ● main",
+			want:   false,
+		},
+		{
+			name:   "rows with no blank line after the footer",
+			screen: rule + "\n❯ draft\n" + rule + "\n" + mode + "\n" + mainRow + "\n" + agentHollow,
+			want:   false,
+		},
+		{
+			name:   "two blank lines before the rows",
+			screen: rule + "\n❯ draft\n" + rule + "\n" + mode + "\n\n\n" + mainRow + "\n" + agentHollow,
+			want:   false,
+		},
+		{
+			name:   "non-row line after the rows",
+			screen: rule + "\n❯ draft\n" + rule + "\n" + mode + "\n\n" + mainRow + "\n" + agentHollow + "\n  trailing text",
+			want:   false,
+		},
+		{
+			name:   "rows above the footer",
+			screen: rule + "\n❯ draft\n" + rule + "\n" + mainRow + "\n" + agentHollow + "\n\n" + mode,
+			want:   false,
+		},
+		{
+			name:   "four footer lines then a blank and rows",
+			screen: rule + "\n❯ draft\n" + rule + "\n" + status + "\n" + mode + "\n" + status + "\n" + mode + "\n\n" + mainRow + "\n" + agentHollow,
+			want:   false,
+		},
+		{
+			name: "question dialog with agent rows below it",
+			screen: rule + "\n ☐ Header\n\nInvented question?\n\n❯ 1. Option\n   2. Other\n" +
+				rule + "\n  4. Chat about this\n\nEnter to select · ↑/↓ to navigate · Esc to cancel\n\n" +
+				mainRow + "\n" + agentHollow,
+			want: false,
 		},
 		{
 			name:   "empty screen",

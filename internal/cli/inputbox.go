@@ -5,12 +5,16 @@ import (
 	"unicode/utf8"
 )
 
-// inputBoxMaxFooter is the most non-blank lines the screen may show below the input box.
+// inputBoxMaxFooter is the most non-blank footer lines the screen may show below the input box,
+// not counting the background-agent list.
 const inputBoxMaxFooter = 3
 
 // inputBoxVisible reports whether Claude Code's input box is on a captured pane screen.
 // The box is the lowest full-width rule, the rule above it, and a prompt mark on the line
-// between them, followed only by blank or indented continuation lines and at most three footer lines.
+// between them, followed only by blank or indented continuation lines. Below the lower rule
+// the footer is at most three non-blank lines with no agent row. Background agents may follow
+// the footer: a single blank line, then unselected agent rows that end the screen. Anything
+// else below the box is not the box.
 func inputBoxVisible(screen string, width int) bool {
 	lines := strings.Split(screen, "\n")
 
@@ -42,18 +46,73 @@ func inputBoxVisible(screen string, width int) bool {
 		}
 	}
 
-	footer := 0
-	for _, line := range lines[lower+1:] {
+	footer, ok := footerBelowBox(lines[lower+1:])
+	return ok && footerWithinLimit(footer)
+}
+
+// footerBelowBox returns the footer lines under the input box, leaving out a trailing agent list.
+// It reports false when the lines end in agent rows without a blank line and a footer above them.
+func footerBelowBox(below []string) ([]string, bool) {
+	end := len(below)
+	for end > 0 && strings.TrimSpace(below[end-1]) == "" {
+		end--
+	}
+	body := below[:end]
+	if end == 0 || !isAgentRow(body[end-1]) {
+		return body, true
+	}
+
+	start := end - 1
+	for start > 0 && isAgentRow(body[start-1]) {
+		start--
+	}
+	if start < 2 || strings.TrimSpace(body[start-1]) != "" || strings.TrimSpace(body[start-2]) == "" {
+		return nil, false
+	}
+	return body[:start-1], true
+}
+
+// footerWithinLimit reports whether footer has at most inputBoxMaxFooter non-blank lines and no agent or selected row.
+func footerWithinLimit(footer []string) bool {
+	count := 0
+	for _, line := range footer {
+		if isAgentRow(line) || isSelectedAgentRow(line) {
+			return false
+		}
 		if strings.TrimSpace(line) != "" {
-			footer++
+			count++
 		}
 	}
-	return footer <= inputBoxMaxFooter
+	return count <= inputBoxMaxFooter
 }
 
 // isInputBoxRule reports whether line is a non-empty run of U+2500 exactly width runes long.
 func isInputBoxRule(line string, width int) bool {
 	return line != "" && utf8.RuneCountInString(line) == width && strings.Trim(line, "─") == ""
+}
+
+// isAgentRow reports whether line is an unselected background-agent row.
+func isAgentRow(line string) bool {
+	return hasAgentDot(line, "  ")
+}
+
+// isSelectedAgentRow reports whether line is a background-agent row marked as selected.
+func isSelectedAgentRow(line string) bool {
+	return hasAgentDot(line, "❯ ")
+}
+
+// hasAgentDot reports whether line begins with lead, a filled or hollow dot, a space, and at least one more character.
+func hasAgentDot(line, lead string) bool {
+	rest, ok := strings.CutPrefix(line, lead)
+	if !ok {
+		return false
+	}
+	for _, dot := range []string{"●", "◯"} {
+		if text, found := strings.CutPrefix(rest, dot+" "); found && text != "" {
+			return true
+		}
+	}
+	return false
 }
 
 // startsInputPrompt reports whether line begins with the U+276F prompt mark followed by a space,

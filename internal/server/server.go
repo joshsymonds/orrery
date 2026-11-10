@@ -154,12 +154,13 @@ func New(cfg Config) (http.Handler, error) {
 		sendTimeout = defaultEventSendTimeout
 	}
 
+	goals := conversation.NewGoals()
 	textLocks := &paneLocks{locks: make(map[string]*sync.Mutex)}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/panes", servePanes(cfg.Tmux))
 	mux.HandleFunc("POST /v1/panes", serveNewWindow(cfg.Tmux))
 	mux.HandleFunc("GET /v1/panes/{id}/screen", serveScreen(cfg.Tmux))
-	mux.HandleFunc("GET /v1/panes/{id}/conversation", serveConversation(cfg.Tmux))
+	mux.HandleFunc("GET /v1/panes/{id}/conversation", serveConversation(cfg.Tmux, goals))
 	mux.HandleFunc("GET /v1/host", serveHost(cfg.HostStatus))
 	mux.HandleFunc("POST /v1/panes/{id}/text", servePaneText(cfg.Tmux, textLocks))
 	mux.HandleFunc("POST /v1/panes/{id}/keys", servePaneKeys(cfg.Tmux))
@@ -332,9 +333,10 @@ func screenFlags(query url.Values) ([]string, bool) {
 }
 
 // serveConversation answers GET /v1/panes/{id}/conversation with the conversation of the pane's Claude transcript:
-// its opening prompt and its newest limit items. The transcript is the path in the pane's @orrery_transcript option,
+// its opening prompt, its newest limit items and its active goal. The goal comes from goals, which remembers how far
+// each transcript has been read across requests. The transcript is the path in the pane's @orrery_transcript option,
 // never a request value. It answers 404 unless the pane has a live Claude session and that file exists.
-func serveConversation(tmux *tmuxctl.Client) http.HandlerFunc {
+func serveConversation(tmux *tmuxctl.Client, goals *conversation.Goals) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		limit, ok := conversationLimit(r.URL.Query())
 		if !ok {
@@ -360,6 +362,9 @@ func serveConversation(tmux *tmuxctl.Client) http.HandlerFunc {
 			return
 		}
 		conv, err := conversation.Read(path, limit)
+		if err == nil {
+			conv.Goal, err = goals.Goal(path)
+		}
 		switch {
 		case errors.Is(err, fs.ErrNotExist):
 			http.Error(w, "transcript not found", http.StatusNotFound)
