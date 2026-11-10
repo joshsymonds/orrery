@@ -26,11 +26,13 @@ const eventPageSize = 100
 // responseWriterKey is the context key of the ResponseWriter net/http hands the Events handler.
 type responseWriterKey struct{}
 
-// eventsServer answers orrery.v1.Events from the store reader. A nil reader answers unavailable.
+// eventsServer answers orrery.v1.Events from the store reader. A nil reader answers unavailable. Closing shutdown
+// ends every open stream with Unavailable, and a nil shutdown never closes.
 type eventsServer struct {
 	reader      *store.Reader
 	poll        time.Duration
 	sendTimeout time.Duration
+	shutdown    <-chan struct{}
 }
 
 // Watch sends every event after the request's cursor in seq order, then each event stored after that, polling the
@@ -70,15 +72,9 @@ func (e eventsServer) watch(
 		if cursorErr := checkCursor(after, page); cursorErr != nil {
 			return cursorErr
 		}
-		for _, event := range page.Events {
-			msg, msgErr := watchMessage(event)
-			if msgErr != nil {
-				return listError(connect.CodeInternal, "read events")
-			}
-			if sendErr := sendWithin(ctx, e.sendTimeout, stream, msg); sendErr != nil {
-				return fmt.Errorf("send event %d: %w", event.Seq, sendErr)
-			}
-			after = event.Seq
+		after, err = e.sendPage(ctx, stream, after, page)
+		if err != nil {
+			return err
 		}
 		if len(page.Events) == eventPageSize {
 			continue
@@ -86,9 +82,51 @@ func (e eventsServer) watch(
 		select {
 		case <-ctx.Done():
 			return fmt.Errorf("watch events: %w", ctx.Err())
+		case <-e.shutdown:
+			return shutdownError()
 		case <-ticker.C:
 		}
 	}
+}
+
+// sendPage sends each event of page after the cursor after in seq order, checking the shutdown signal before each
+// send, and returns the seq of the last event sent, or after when page holds none.
+func (e eventsServer) sendPage(
+	ctx context.Context,
+	stream *connect.ServerStream[orreryv1.WatchResponse],
+	after int64,
+	page store.EventPage,
+) (int64, error) {
+	for _, event := range page.Events {
+		if stopping(e.shutdown) {
+			return after, shutdownError()
+		}
+		msg, err := watchMessage(event)
+		if err != nil {
+			return after, listError(connect.CodeInternal, "read events")
+		}
+		if sendErr := sendWithin(ctx, e.sendTimeout, stream, msg); sendErr != nil {
+			return after, fmt.Errorf("send event %d: %w", event.Seq, sendErr)
+		}
+		after = event.Seq
+	}
+	return after, nil
+}
+
+// stopping reports whether shutdown has closed. A nil shutdown never has.
+func stopping(shutdown <-chan struct{}) bool {
+	select {
+	case <-shutdown:
+		return true
+	default:
+		return false
+	}
+}
+
+// shutdownError is the Unavailable error that ends a Watch stream when serve shuts down, so a client reconnects
+// with its last seq.
+func shutdownError() error {
+	return listError(connect.CodeUnavailable, "serve is shutting down")
 }
 
 // errNoResponseWriter reports a context that carries no ResponseWriter, which withResponseWriter always adds.
@@ -171,10 +209,14 @@ func watchMessage(event store.Event) (*orreryv1.WatchResponse, error) {
 	return msg, nil
 }
 
-// newEventsHandler returns the path and handler that serve Events.Watch over reader, polling every poll and
-// bounding each send by sendTimeout.
-func newEventsHandler(reader *store.Reader, poll, sendTimeout time.Duration) (string, http.Handler) {
-	service := eventsServer{reader: reader, poll: poll, sendTimeout: sendTimeout}
+// newEventsHandler returns the path and handler that serve Events.Watch over reader, polling every poll, bounding
+// each send by sendTimeout, and ending every stream when shutdown closes.
+func newEventsHandler(
+	reader *store.Reader,
+	poll, sendTimeout time.Duration,
+	shutdown <-chan struct{},
+) (string, http.Handler) {
+	service := eventsServer{reader: reader, poll: poll, sendTimeout: sendTimeout, shutdown: shutdown}
 	path, handler := orreryv1connect.NewEventsHandler(service)
 	return path, withResponseWriter(handler)
 }

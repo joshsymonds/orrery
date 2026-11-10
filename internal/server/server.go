@@ -116,6 +116,8 @@ type Config struct {
 	// EventSendTimeout bounds each Events.Watch send, or is zero for the default. A send that does not complete in
 	// time ends its stream, and no other.
 	EventSendTimeout time.Duration
+	// Shutdown ends every open Events.Watch stream when it closes, or is nil to leave streams open.
+	Shutdown <-chan struct{}
 }
 
 // New returns a handler that admits only the configured logins, and never emits CORS headers. A request to
@@ -164,7 +166,7 @@ func New(cfg Config) (http.Handler, error) {
 	mux.HandleFunc("DELETE /v1/push/register", serveUnregister(cfg.Push))
 	sessionsPath, sessions := newSessionsHandler(cfg.Sessions)
 	mux.Handle(sessionsPath, sessions)
-	eventsPath, events := newEventsHandler(cfg.Sessions, poll, sendTimeout)
+	eventsPath, events := newEventsHandler(cfg.Sessions, poll, sendTimeout, cfg.Shutdown)
 	mux.Handle(eventsPath, events)
 	connectPaths := []string{sessionsPath, eventsPath}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
