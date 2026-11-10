@@ -4,6 +4,15 @@
 
 package sqlcgen
 
+type EngineText struct {
+	SessionID       string
+	MessageID       string
+	BlockIndex      int64
+	ParentToolUseID string
+	Kind            string
+	Text            string
+}
+
 type Event struct {
 	Seq       int64
 	SessionID string
@@ -26,4 +35,7 @@ type Session struct {
 	Tool          string
 	ClaudeSession string
 	Transcript    string
+	Kind          string
+	Dir           string
+	Reason        string
 }

@@ -280,6 +280,40 @@ func TestSyncServerRemovesOnlyAbsentRowsOfItsServer(t *testing.T) {
 	}
 }
 
+func TestSyncServerLeavesEngineRowsOfTheDefaultServer(t *testing.T) {
+	ctx := context.Background()
+	s := openSyncStore(t)
+	t0 := time.Unix(1_700_000_000, 0)
+
+	if err := sqlcgen.New(s.db).InsertEngineSession(ctx, sqlcgen.InsertEngineSessionParams{
+		ID: "engine-1", Dir: "/work", State: "working", Changed: "t0",
+	}); err != nil {
+		t.Fatalf("InsertEngineSession: %v", err)
+	}
+	if err := s.SyncServer(ctx, "", nil, t0.Add(time.Second)); err != nil {
+		t.Fatalf("SyncServer with no panes: %v", err)
+	}
+	if err := s.SyncServer(ctx, "", []Pane{
+		{ID: "orrery-9", Pane: "%9"},
+	}, t0.Add(2*time.Second)); err != nil {
+		t.Fatalf("SyncServer with an unrelated pane: %v", err)
+	}
+
+	row, err := sqlcgen.New(s.db).GetEngineSession(ctx, "engine-1")
+	if err != nil {
+		t.Fatalf("GetEngineSession after SyncServer: %v", err)
+	}
+	want := sqlcgen.Session{ID: "engine-1", Dir: "/work", State: "working", Changed: "t0", Kind: "engine"}
+	if row != want {
+		t.Fatalf("engine row: got %+v, want %+v", row, want)
+	}
+	for _, event := range eventsOf(t, s) {
+		if event.Kind == EventSessionRemoved {
+			t.Fatalf("SyncServer appended %s for a row it does not own: %+v", EventSessionRemoved, event)
+		}
+	}
+}
+
 func TestSyncServerPrunesEventsOlderThanRetention(t *testing.T) {
 	ctx := context.Background()
 	s := openSyncStore(t)
