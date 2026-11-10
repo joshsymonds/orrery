@@ -6,7 +6,9 @@ import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
@@ -33,8 +35,16 @@ private const val SCREEN_PATH = "/v1/panes/%253/screen"
 private const val SEEN_PATH = "/v1/panes/%253/seen"
 private const val PANES_PATH = "/v1/panes"
 private const val KEYS_PATH = "/v1/panes/%253/keys"
+private const val CONVERSATION_PATH = "/v1/panes/%253/conversation"
+private const val HOST_PATH = "/v1/host"
 private const val TIMEOUT_MILLIS = 5_000L
 private const val WIDE_LINE_REPEATS = 30
+private const val FIXED_NOW_SECONDS = 1_800_000_000L
+private const val STATUS_LINE_TAG = "status-line"
+private const val LIVE_RETURN_TAG = "live-return"
+private const val HOST_METERS_TAG = "host-meters"
+private const val HOST_BODY =
+    """{"host":"example-host","stats":[{"label":"cpu","value":"12%","percent":12.0,"level":"ok"}]}"""
 private val wideLine = "synthetic-wide-line ".repeat(WIDE_LINE_REPEATS).trimEnd()
 
 @OptIn(ExperimentalTestApi::class)
@@ -46,13 +56,15 @@ class PaneScreenTest {
 
     private val toolQuestion = """{"tool":"Bash","input":{"command":"echo synthetic"}}"""
 
-    private fun panesJson(question: String): String = """
+    private fun paneListJson(state: String, tool: String = "", question: String = ""): String = """
         [{"id":"%3","host":"example-host","session":"example-session","window":1,"pane":2,
-          "cwd":"/home/user/project","command":"claude","state":"waiting",
+          "cwd":"/home/user/project","command":"claude","state":"$state",
           "summary":"Example summary.","label":"example-label",
           "changed":4102444800,"seen":4102444900,"question":${JSONObject.quote(question)},
-          "question_hash":"abc123"}]
+          "question_hash":"abc123","tool":${JSONObject.quote(tool)}}]
     """.trimIndent()
+
+    private fun panesJson(question: String): String = paneListJson(state = "waiting", question = question)
 
     private fun serve(server: FakeOrreryServer, body: String, question: String = "") {
         server.respond("GET", SCREEN_PATH, 200, body)
@@ -72,6 +84,37 @@ class PaneScreenTest {
 
     private fun seenRequests(server: FakeOrreryServer): Int =
         server.requests.count { it.method == "POST" && it.rawPath == SEEN_PATH }
+
+    private fun conversationRequests(server: FakeOrreryServer): Int =
+        server.requests.count { it.method == "GET" && it.rawPath == CONVERSATION_PATH }
+
+    /** Scripts the pane list and, when given, a 200 conversation. The screen and host routes stay unscripted. */
+    private fun servePane(
+        server: FakeOrreryServer,
+        state: String = "waiting",
+        tool: String = "",
+        question: String = "",
+        conversation: String? = null,
+    ) {
+        server.respond("GET", PANES_PATH, 200, paneListJson(state, tool, question))
+        server.respond("POST", SEEN_PATH, 200)
+        if (conversation != null) {
+            server.respond("GET", CONVERSATION_PATH, 200, conversation)
+        }
+    }
+
+    private fun setClockedScreen(server: FakeOrreryServer) {
+        val client = OrreryClient(server.baseUrl)
+        composeRule.setContent {
+            MaterialTheme { PaneScreen(PANE_ID, client, clock = { FIXED_NOW_SECONDS }) }
+        }
+    }
+
+    private fun conversationItem(kind: String, text: String): String =
+        """{"kind":"$kind","time":0,"text":${JSONObject.quote(text)},"tool":"","input":"","id":"","error":false}"""
+
+    private fun conversationBody(vararg items: String): String =
+        """{"origin":"synthetic origin","items":[${items.joinToString(",")}]}"""
 
     @Test
     fun openingShowsScreenBodyAndMarksSeenOnce() {
@@ -260,6 +303,228 @@ class PaneScreenTest {
             composeRule.waitUntil(TIMEOUT_MILLIS) { terminalText()?.text == "synthetic query body" }
             val request = server.requests.first { it.method == "GET" && it.rawPath == SCREEN_PATH }
             assertEquals("ansi=1&history=500", request.rawQuery)
+        }
+    }
+
+    @Test
+    fun claudePaneShowsItsConversationAndRequestsNoScreen() {
+        FakeOrreryServer().use { server ->
+            servePane(
+                server,
+                conversation = conversationBody(
+                    conversationItem("prompt", "synthetic prompt"),
+                    conversationItem("reply", "synthetic reply"),
+                ),
+            )
+            setScreen(server)
+
+            composeRule.waitUntilExactlyOneExists(hasText("synthetic reply"), TIMEOUT_MILLIS)
+            composeRule.onNodeWithText("synthetic prompt").assertIsDisplayed()
+            composeRule.onAllNodesWithTag(TERMINAL_TEXT_TAG).assertCountEquals(0)
+            assertEquals(0, screenRequests(server))
+        }
+    }
+
+    @Test
+    fun paneWithEmptyStateShowsTerminalAndNeverRequestsConversation() {
+        FakeOrreryServer().use { server ->
+            servePane(
+                server,
+                state = "",
+                conversation = conversationBody(conversationItem("reply", "synthetic reply")),
+            )
+            server.respond("GET", SCREEN_PATH, 200, "synthetic terminal body")
+            setScreen(server)
+
+            composeRule.waitUntil(TIMEOUT_MILLIS) { terminalText()?.text == "synthetic terminal body" }
+            composeRule.onNodeWithTag("pane-header").assertExists()
+            composeRule.onAllNodesWithTag(STATUS_LINE_TAG).assertCountEquals(0)
+            assertEquals(0, conversationRequests(server))
+        }
+    }
+
+    @Test
+    fun paneFlipsBetweenConversationAndTerminalOnEachPoll() {
+        FakeOrreryServer().use { server ->
+            val replyBody = conversationBody(conversationItem("reply", "synthetic reply"))
+            servePane(server, conversation = replyBody)
+            server.respond("GET", SCREEN_PATH, 200, "synthetic flip terminal")
+            setScreen(server)
+            composeRule.waitUntilExactlyOneExists(hasText("synthetic reply"), TIMEOUT_MILLIS)
+
+            server.respond("GET", CONVERSATION_PATH, 404)
+            composeRule.mainClock.advanceTimeBy(1_000)
+            composeRule.waitUntil(TIMEOUT_MILLIS) { terminalText()?.text == "synthetic flip terminal" }
+            composeRule.onNodeWithText("synthetic reply").assertDoesNotExist()
+
+            server.respond("GET", CONVERSATION_PATH, 200, replyBody)
+            composeRule.mainClock.advanceTimeBy(1_000)
+            composeRule.waitUntilExactlyOneExists(hasText("synthetic reply"), TIMEOUT_MILLIS)
+            composeRule.onAllNodesWithTag(TERMINAL_TEXT_TAG).assertCountEquals(0)
+        }
+    }
+
+    @Test
+    fun statusTapOpensLiveScreenAndLiveReturnRestoresConversation() {
+        FakeOrreryServer().use { server ->
+            servePane(server, conversation = conversationBody(conversationItem("reply", "synthetic reply")))
+            server.respond("GET", SCREEN_PATH, 200, "synthetic live body")
+            setClockedScreen(server)
+            composeRule.waitUntilExactlyOneExists(hasText("synthetic reply"), TIMEOUT_MILLIS)
+
+            composeRule.onNodeWithTag(STATUS_LINE_TAG).performClick()
+            composeRule.waitUntil(TIMEOUT_MILLIS) { terminalText()?.text == "synthetic live body" }
+            composeRule.onNodeWithTag(LIVE_RETURN_TAG).assertExists()
+            composeRule.onNodeWithText("synthetic reply").assertDoesNotExist()
+
+            composeRule.onNodeWithTag(LIVE_RETURN_TAG).performClick()
+            composeRule.waitUntilExactlyOneExists(hasText("synthetic reply"), TIMEOUT_MILLIS)
+            composeRule.onAllNodesWithTag(TERMINAL_TEXT_TAG).assertCountEquals(0)
+            composeRule.onAllNodesWithTag(LIVE_RETURN_TAG).assertCountEquals(0)
+        }
+    }
+
+    @Test
+    fun secondStatusTapReturnsFromLiveScreen() {
+        FakeOrreryServer().use { server ->
+            servePane(server, conversation = conversationBody(conversationItem("reply", "synthetic reply")))
+            server.respond("GET", SCREEN_PATH, 200, "synthetic live body")
+            setClockedScreen(server)
+            composeRule.waitUntilExactlyOneExists(hasText("synthetic reply"), TIMEOUT_MILLIS)
+
+            composeRule.onNodeWithTag(STATUS_LINE_TAG).performClick()
+            composeRule.waitUntil(TIMEOUT_MILLIS) { terminalText()?.text == "synthetic live body" }
+            composeRule.onNodeWithTag(STATUS_LINE_TAG).performClick()
+            composeRule.waitUntilExactlyOneExists(hasText("synthetic reply"), TIMEOUT_MILLIS)
+            composeRule.onAllNodesWithTag(TERMINAL_TEXT_TAG).assertCountEquals(0)
+        }
+    }
+
+    @Test
+    fun liveScreenStaysOpenWhenClaudeExitsAndRestarts() {
+        FakeOrreryServer().use { server ->
+            val replyBody = conversationBody(conversationItem("reply", "synthetic reply"))
+            servePane(server, conversation = replyBody)
+            server.respond("GET", SCREEN_PATH, 200, "synthetic live body")
+            setClockedScreen(server)
+            composeRule.waitUntilExactlyOneExists(hasText("synthetic reply"), TIMEOUT_MILLIS)
+            composeRule.onNodeWithTag(STATUS_LINE_TAG).performClick()
+            composeRule.waitUntil(TIMEOUT_MILLIS) { terminalText()?.text == "synthetic live body" }
+
+            server.respond("GET", CONVERSATION_PATH, 404)
+            server.respond("GET", SCREEN_PATH, 200, "synthetic live after exit")
+            composeRule.mainClock.advanceTimeBy(1_000)
+            composeRule.waitUntil(TIMEOUT_MILLIS) { terminalText()?.text == "synthetic live after exit" }
+            composeRule.onNodeWithTag(LIVE_RETURN_TAG).assertExists()
+
+            server.respond("GET", CONVERSATION_PATH, 200, replyBody)
+            server.respond("GET", SCREEN_PATH, 200, "synthetic live after restart")
+            composeRule.mainClock.advanceTimeBy(1_000)
+            composeRule.waitUntil(TIMEOUT_MILLIS) { terminalText()?.text == "synthetic live after restart" }
+            composeRule.onNodeWithTag(LIVE_RETURN_TAG).assertExists()
+            composeRule.onNodeWithText("synthetic reply").assertDoesNotExist()
+        }
+    }
+
+    @Config(sdk = [35], qualifiers = "w400dp-h1000dp")
+    @Test
+    fun questionCardSitsAfterTheLastConversationItem() {
+        FakeOrreryServer().use { server ->
+            servePane(
+                server,
+                question = toolQuestion,
+                conversation = conversationBody(
+                    conversationItem("prompt", "synthetic prompt"),
+                    conversationItem("reply", "synthetic last reply"),
+                ),
+            )
+            setScreen(server)
+
+            composeRule.waitUntilExactlyOneExists(hasText("1 Yes"), TIMEOUT_MILLIS)
+            val reply = composeRule.onNodeWithText("synthetic last reply").fetchSemanticsNode().boundsInRoot
+            val card = composeRule.onNodeWithText("1 Yes").fetchSemanticsNode().boundsInRoot
+            assertTrue(card.top >= reply.bottom)
+        }
+    }
+
+    @Test
+    fun workingStatusShowsElapsedTimeSinceCurrentToolStarted() {
+        FakeOrreryServer().use { server ->
+            val started = FIXED_NOW_SECONDS - 12
+            val tool = """{"id":"synthetic-tool","name":"Bash","input":"echo synthetic","start":$started}"""
+            servePane(
+                server,
+                state = "working",
+                tool = tool,
+                conversation = conversationBody(conversationItem("reply", "synthetic reply")),
+            )
+            setClockedScreen(server)
+
+            composeRule.waitUntilExactlyOneExists(hasText("synthetic reply"), TIMEOUT_MILLIS)
+            composeRule.onNodeWithText("0:12", useUnmergedTree = true).assertExists()
+        }
+    }
+
+    @Test
+    fun conversationFailureKeepsConversationAndSaysCouldNotRefresh() {
+        FakeOrreryServer().use { server ->
+            servePane(server, conversation = conversationBody(conversationItem("reply", "synthetic reply")))
+            server.respond("GET", SCREEN_PATH, 200, "synthetic terminal body")
+            setClockedScreen(server)
+            composeRule.waitUntilExactlyOneExists(hasText("synthetic reply"), TIMEOUT_MILLIS)
+
+            server.respond("GET", CONVERSATION_PATH, 500)
+            composeRule.mainClock.advanceTimeBy(1_000)
+            composeRule.waitUntilExactlyOneExists(hasText("could not refresh"), TIMEOUT_MILLIS)
+            composeRule.onNodeWithText("synthetic reply").assertIsDisplayed()
+            composeRule.onAllNodesWithTag(TERMINAL_TEXT_TAG).assertCountEquals(0)
+        }
+    }
+
+    @Test
+    fun hostStatsShowMeters() {
+        FakeOrreryServer().use { server ->
+            servePane(server)
+            server.respond("GET", HOST_PATH, 200, HOST_BODY)
+            server.respond("GET", SCREEN_PATH, 200, "synthetic terminal body")
+            setClockedScreen(server)
+
+            composeRule.waitUntilExactlyOneExists(hasTestTag(HOST_METERS_TAG), TIMEOUT_MILLIS)
+        }
+    }
+
+    @Test
+    fun hostNotFoundRemovesMeters() {
+        FakeOrreryServer().use { server ->
+            servePane(server)
+            server.respond("GET", HOST_PATH, 200, HOST_BODY)
+            server.respond("GET", SCREEN_PATH, 200, "synthetic terminal body")
+            setClockedScreen(server)
+            composeRule.waitUntilExactlyOneExists(hasTestTag(HOST_METERS_TAG), TIMEOUT_MILLIS)
+
+            server.respond("GET", HOST_PATH, 404)
+            server.respond("GET", SCREEN_PATH, 200, "synthetic terminal after host")
+            composeRule.mainClock.advanceTimeBy(1_000)
+            composeRule.waitUntil(TIMEOUT_MILLIS) { terminalText()?.text == "synthetic terminal after host" }
+            composeRule.onAllNodesWithTag(HOST_METERS_TAG).assertCountEquals(0)
+        }
+    }
+
+    @Test
+    fun failedHostCallKeepsLastMeters() {
+        FakeOrreryServer().use { server ->
+            servePane(server)
+            server.respond("GET", HOST_PATH, 200, HOST_BODY)
+            server.respond("GET", SCREEN_PATH, 200, "synthetic terminal body")
+            setClockedScreen(server)
+            composeRule.waitUntilExactlyOneExists(hasTestTag(HOST_METERS_TAG), TIMEOUT_MILLIS)
+
+            server.respond("GET", HOST_PATH, 500)
+            server.respond("GET", SCREEN_PATH, 200, "synthetic terminal next")
+            composeRule.mainClock.advanceTimeBy(1_000)
+            composeRule.waitUntil(TIMEOUT_MILLIS) { terminalText()?.text == "synthetic terminal next" }
+            composeRule.onAllNodesWithTag(HOST_METERS_TAG).assertCountEquals(1)
+            composeRule.onNodeWithText("could not refresh").assertDoesNotExist()
         }
     }
 }
