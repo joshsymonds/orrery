@@ -112,11 +112,15 @@ func readInTx(ctx context.Context, tx *sql.Tx) (Snapshot, error) {
 }
 
 // unavailable reports whether err is a SQLite busy, locked or cannot-open result, which is how a busy database
-// or a missing file appears.
+// or a missing file appears, or an fstat failure, which is how a file removed while it is open appears. Only the
+// fstat extended code counts: other I/O errors share the primary IOERR code and stay internal.
 func unavailable(err error) bool {
 	var sqliteErr *sqlite.Error
 	if !errors.As(err, &sqliteErr) {
 		return false
+	}
+	if sqliteErr.Code() == sqlite3.SQLITE_IOERR_FSTAT {
+		return true
 	}
 	switch sqliteErr.Code() & primaryCodeMask {
 	case sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED, sqlite3.SQLITE_CANTOPEN:
