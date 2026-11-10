@@ -439,3 +439,163 @@ func TestReadOversizeNewestLineGivesNoItemsWithoutError(t *testing.T) {
 		t.Fatalf("Origin = %q, want %q", conv.Origin, "opening")
 	}
 }
+
+const (
+	teammateRequest = "\nSynthetic request for the peer.\n"
+	teammateIdle    = "\n{\"type\":\"idle_notification\"}\n"
+)
+
+// teammateBlock returns one teammate block with the given escaped summary attribute. An empty summary gives
+// the block no summary attribute.
+func teammateBlock(summary, body string) string {
+	attr := ""
+	if summary != "" {
+		attr = ` summary="` + summary + `"`
+	}
+	return `<teammate-message teammate_id="synthetic-peer" color="blue"` + attr + ">" + body +
+		"</teammate-message>"
+}
+
+// teammateContent returns the whole string content of a teammate line that holds blocks.
+func teammateContent(blocks ...string) string {
+	return teammateLead + strings.Join(blocks, teammateSep) + teammateTrailer
+}
+
+// teammateLine returns a user line with no promptSource and no origin whose string content is content.
+func teammateLine(t *testing.T, content string) string {
+	t.Helper()
+	raw, err := json.Marshal(content)
+	if err != nil {
+		t.Fatalf("marshal content: %v", err)
+	}
+	return `{"type":"user","timestamp":"` + stampAt(0) + `","message":{"role":"user","content":` +
+		string(raw) + `}}`
+}
+
+func TestReadTeammateLineGivesTeammateNotice(t *testing.T) {
+	line := teammateLine(t, teammateContent(teammateBlock("Synthetic summary", teammateRequest)))
+	want := []Item{{Kind: "notice", Time: unixAt(0), Notice: "teammate", Text: "Synthetic summary"}}
+	if got := mustRead(t, writeTranscript(t, line), 10).Items; !reflect.DeepEqual(got, want) {
+		t.Fatalf("Items =\n%+v\nwant\n%+v", got, want)
+	}
+}
+
+func TestReadTeammateSummariesJoinInOrder(t *testing.T) {
+	content := teammateContent(
+		teammateBlock("First summary", teammateRequest),
+		teammateBlock("Second summary", teammateRequest),
+		teammateBlock("Third summary", teammateRequest))
+	want := []Item{{Kind: "notice", Time: unixAt(0), Notice: "teammate",
+		Text: "First summary\nSecond summary\nThird summary"}}
+	if got := mustRead(t, writeTranscript(t, teammateLine(t, content)), 10).Items; !reflect.DeepEqual(got, want) {
+		t.Fatalf("Items =\n%+v\nwant\n%+v", got, want)
+	}
+}
+
+func TestReadTeammateSummaryDecodesEntities(t *testing.T) {
+	summary := "a &amp; b &lt;c&gt; &quot;d&quot; &apos;e&apos; &amp;lt;"
+	content := teammateContent(teammateBlock(summary, teammateRequest))
+	items := mustRead(t, writeTranscript(t, teammateLine(t, content)), 10).Items
+	if want := `a & b <c> "d" 'e' &lt;`; len(items) != 1 || items[0].Text != want {
+		t.Fatalf("items = %+v, want one teammate notice with text %q", items, want)
+	}
+}
+
+func TestReadTeammateSummaryCutsToRunes(t *testing.T) {
+	summary := strings.Repeat("é", 301)
+	content := teammateContent(teammateBlock(summary, teammateRequest))
+	items := mustRead(t, writeTranscript(t, teammateLine(t, content)), 10).Items
+	if len(items) != 1 {
+		t.Fatalf("items = %d, want 1", len(items))
+	}
+	if want := strings.Repeat("é", 300); items[0].Text != want {
+		t.Fatalf("Text has %d runes, want %d runes of é", utf8.RuneCountInString(items[0].Text), 300)
+	}
+}
+
+func TestReadTeammateBlockWithoutColorGivesNotice(t *testing.T) {
+	block := `<teammate-message teammate_id="synthetic-peer" summary="Synthetic summary">` + teammateRequest +
+		"</teammate-message>"
+	want := []Item{{Kind: "notice", Time: unixAt(0), Notice: "teammate", Text: "Synthetic summary"}}
+	line := teammateLine(t, teammateContent(block))
+	if got := mustRead(t, writeTranscript(t, line), 10).Items; !reflect.DeepEqual(got, want) {
+		t.Fatalf("Items =\n%+v\nwant\n%+v", got, want)
+	}
+}
+
+func TestReadTeammateWithoutSummaryHasEmptyText(t *testing.T) {
+	content := teammateContent(teammateBlock("", teammateRequest))
+	want := []Item{{Kind: "notice", Time: unixAt(0), Notice: "teammate"}}
+	if got := mustRead(t, writeTranscript(t, teammateLine(t, content)), 10).Items; !reflect.DeepEqual(got, want) {
+		t.Fatalf("Items =\n%+v\nwant\n%+v", got, want)
+	}
+}
+
+func TestReadTeammateIdlePingsGiveNoItem(t *testing.T) {
+	content := teammateContent(teammateBlock("", teammateIdle), teammateBlock("", teammateIdle))
+	if got := mustRead(t, writeTranscript(t, teammateLine(t, content)), 10).Items; len(got) != 0 {
+		t.Fatalf("Items = %+v, want none", got)
+	}
+}
+
+func TestReadTeammateIdleAndSummarisedBlocksGiveNotice(t *testing.T) {
+	content := teammateContent(
+		teammateBlock("", teammateIdle),
+		teammateBlock("Synthetic summary", teammateRequest))
+	want := []Item{{Kind: "notice", Time: unixAt(0), Notice: "teammate", Text: "Synthetic summary"}}
+	if got := mustRead(t, writeTranscript(t, teammateLine(t, content)), 10).Items; !reflect.DeepEqual(got, want) {
+		t.Fatalf("Items =\n%+v\nwant\n%+v", got, want)
+	}
+}
+
+func TestReadTeammateManyBlocksGiveOneNotice(t *testing.T) {
+	blocks := make([]string, 0, 14)
+	for range 14 {
+		blocks = append(blocks, teammateBlock("Synthetic summary", teammateRequest))
+	}
+	line := teammateLine(t, teammateContent(blocks...))
+	want := []Item{{Kind: "notice", Time: unixAt(0), Notice: "teammate",
+		Text: strings.Repeat("Synthetic summary\n", 13) + "Synthetic summary"}}
+	if got := mustRead(t, writeTranscript(t, line), 10).Items; !reflect.DeepEqual(got, want) {
+		t.Fatalf("Items =\n%+v\nwant\n%+v", got, want)
+	}
+}
+
+func TestReadNonWholeTeammateTextStaysPrompt(t *testing.T) {
+	whole := teammateContent(teammateBlock("Synthetic summary", teammateRequest))
+	tests := []struct {
+		name    string
+		content string
+	}{
+		{"text before the lead-in", "Preface\n" + whole},
+		{"text after the trailer", whole + "\nmore"},
+		{"missing trailer", teammateLead + teammateBlock("Synthetic summary", teammateRequest)},
+		{"same-length tail instead of the trailer", teammateLead + teammateBlock("Synthetic summary", teammateRequest) +
+			strings.Repeat("x", len(teammateTrailer))},
+		{"unclosed block", teammateLead + `<teammate-message teammate_id="synthetic-peer" color="blue">` +
+			teammateRequest + teammateTrailer},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			line := teammateLine(t, tc.content)
+			want := []Item{{Kind: "prompt", Time: unixAt(0), Text: tc.content}}
+			if got := mustRead(t, writeTranscript(t, line), 10).Items; !reflect.DeepEqual(got, want) {
+				t.Fatalf("Items =\n%+v\nwant\n%+v", got, want)
+			}
+		})
+	}
+}
+
+func TestReadTypedTeammateLineStaysPrompt(t *testing.T) {
+	content := teammateContent(teammateBlock("Synthetic summary", teammateRequest))
+	raw, err := json.Marshal(content)
+	if err != nil {
+		t.Fatalf("marshal content: %v", err)
+	}
+	line := `{"type":"user","timestamp":"` + stampAt(0) + `","promptSource":"typed","origin":{"kind":"human"},` +
+		`"message":{"role":"user","content":` + string(raw) + `}}`
+	want := []Item{{Kind: "prompt", Time: unixAt(0), Text: content}}
+	if got := mustRead(t, writeTranscript(t, line), 10).Items; !reflect.DeepEqual(got, want) {
+		t.Fatalf("Items =\n%+v\nwant\n%+v", got, want)
+	}
+}
