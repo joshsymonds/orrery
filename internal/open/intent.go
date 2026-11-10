@@ -64,7 +64,8 @@ one line, "task: yes" if TEXT asks for a task to start in a new pane, or "task: 
 if it does not. Reply with nothing else.
 `
 
-// Intent asks the summary model which actions fit text and returns them ranked, best first. When cfg.Root is absolute
+// Intent asks the summary model which actions fit text and returns them ranked, best first. The model sees each
+// directory relative to cfg.Home when it lies strictly inside it, else by absolute path. When cfg.Root is absolute
 // and no pane action already opens it, the last action is a pane in cfg.Root. It executes nothing.
 func Intent(ctx context.Context, cfg Config, text string) ([]Action, error) {
 	dirs, err := queryZoxide(ctx, cfg)
@@ -76,7 +77,7 @@ func Intent(ctx context.Context, cfg Config, text string) ([]Action, error) {
 	if err != nil {
 		return nil, err
 	}
-	reply, err := runClaude(ctx, cfg.Claude, intentStdin(text, dirs, panes), summary.DefaultTimeout)
+	reply, err := runClaude(ctx, cfg.Claude, intentStdin(text, cfg.Home, dirs, panes), summary.DefaultTimeout)
 	if err != nil {
 		return nil, err
 	}
@@ -118,20 +119,33 @@ func intentPanes(ctx context.Context, cfg Config) ([]protocol.Pane, error) {
 	return panes, nil
 }
 
-// intentStdin is the instruction, then TEXT, then the numbered directory basenames and the pane lines.
-func intentStdin(text string, dirs []string, panes []protocol.Pane) string {
+// intentStdin is the instruction, then TEXT, then the numbered directory labels and the pane lines.
+func intentStdin(text, home string, dirs []string, panes []protocol.Pane) string {
 	var out strings.Builder
 	out.WriteString(intentInstruction)
 	out.WriteString("\nTEXT:\n" + text + "\n")
 	out.WriteString("\nDIRECTORIES:\n")
 	for i, dir := range dirs {
-		fmt.Fprintf(&out, "d%d %s\n", i+1, filepath.Base(dir))
+		fmt.Fprintf(&out, "d%d %s\n", i+1, dirLabel(home, dir))
 	}
 	out.WriteString("\nPANES:\n")
 	for _, p := range panes {
 		fmt.Fprintf(&out, "%s %s: %s\n", p.ID, p.Label, p.Summary)
 	}
 	return out.String()
+}
+
+// dirLabel names dir for the model: relative to home when dir lies strictly inside an absolute home, else dir
+// itself. Home itself, a directory outside it, and an empty or relative home all keep the absolute path.
+func dirLabel(home, dir string) string {
+	if !filepath.IsAbs(home) {
+		return dir
+	}
+	rel, err := filepath.Rel(home, dir)
+	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return dir
+	}
+	return rel
 }
 
 // parseIntent turns the reply into actions in reply order. A line with the wrong shape, or an unlisted pane or

@@ -26,6 +26,7 @@ type Config struct {
 	Claude  string // path of the claude binary run in created panes and by the intent lookup
 	Root    string // default parent directory of new projects
 	Archive string // path of the archive file of closed Claude panes
+	Home    string // the user's home directory; intent names directories strictly inside it relative to it
 }
 
 // Request is one `orrery open` invocation.

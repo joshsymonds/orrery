@@ -124,7 +124,68 @@ func zoxideListing(root string, count int) string {
 }
 
 func intentConfig(client *tmuxctl.Client, zoxide, claude, root string) Config {
-	return Config{Tmux: client, Zoxide: zoxide, Claude: claude, Root: root}
+	return Config{Tmux: client, Zoxide: zoxide, Claude: claude, Root: root, Home: root}
+}
+
+// intentDirLines runs Intent with home as the Config's Home and the zoxide listing, and returns the DIRECTORIES
+// lines of the stdin the model received.
+func intentDirLines(t *testing.T, home, listing string) []string {
+	t.Helper()
+	zoxide := installZoxide(t, listing, 0)
+	claude := installClaude(t, "pane d1\n", 0)
+	cfg := Config{Tmux: newClient(t), Zoxide: zoxide, Claude: claude, Home: home}
+	if _, err := Intent(t.Context(), cfg, "example text"); err != nil {
+		t.Fatalf("Intent: %v", err)
+	}
+	runs := claudeRuns(t, claude)
+	if len(runs) != 1 {
+		t.Fatalf("claude ran %d times, want 1", len(runs))
+	}
+	_, after, found := strings.Cut(runs[0].stdin, "\nDIRECTORIES:\n")
+	if !found {
+		t.Fatalf("stdin has no DIRECTORIES section: %q", runs[0].stdin)
+	}
+	block, _, _ := strings.Cut(after, "\n\nPANES:\n")
+	return strings.Split(strings.TrimSuffix(block, "\n"), "\n")
+}
+
+func TestIntentDirectoryTwoLevelsInsideHomeIsRelative(t *testing.T) {
+	home := t.TempDir()
+	listing := scored(filepath.Join(home, "example-client", "example-project"))
+	got := intentDirLines(t, home, listing)
+	if want := []string{"d1 example-client/example-project"}; !slices.Equal(got, want) {
+		t.Errorf("DIRECTORIES lines = %q, want %q", got, want)
+	}
+}
+
+func TestIntentDirectoryOutsideHomeIsAbsolute(t *testing.T) {
+	home := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "example-outside")
+	got := intentDirLines(t, home, scored(outside))
+	if want := []string{"d1 " + outside}; !slices.Equal(got, want) {
+		t.Errorf("DIRECTORIES lines = %q, want %q", got, want)
+	}
+}
+
+func TestIntentDirectoryHomeItselfIsAbsolute(t *testing.T) {
+	home := t.TempDir()
+	got := intentDirLines(t, home, scored(home))
+	if want := []string{"d1 " + home}; !slices.Equal(got, want) {
+		t.Errorf("DIRECTORIES lines = %q, want %q", got, want)
+	}
+}
+
+func TestIntentDirectoriesAreAbsoluteWhenHomeEmpty(t *testing.T) {
+	root := t.TempDir()
+	listing := scored(filepath.Join(root, "example-client", "example-project")) + scored(filepath.Join(root, "dir-02"))
+	got := intentDirLines(t, "", listing)
+	want := []string{
+		"d1 " + filepath.Join(root, "example-client", "example-project"),
+		"d2 " + filepath.Join(root, "dir-02"),
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("DIRECTORIES lines = %q, want %q", got, want)
+	}
 }
 
 func TestIntentStdinCarriesTextDirectoriesAndEligiblePanes(t *testing.T) {
