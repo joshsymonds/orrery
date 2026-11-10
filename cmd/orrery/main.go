@@ -8,6 +8,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -263,12 +264,14 @@ func runServe(ctx context.Context, opts globals, args []string, getenv func(stri
 	if err != nil {
 		return err
 	}
+	shutdown := make(chan struct{})
 	handler, err := server.New(server.Config{
 		Logins:     logins,
 		Tmux:       tmux,
 		Push:       pushStore,
 		HostStatus: hostStatus,
 		Sessions:   sessions,
+		Shutdown:   shutdown,
 	})
 	if err != nil {
 		return fmt.Errorf("serve: %w", err)
@@ -280,6 +283,12 @@ func runServe(ctx context.Context, opts globals, args []string, getenv func(stri
 	if err != nil {
 		return fmt.Errorf("serve: %w", err)
 	}
+	return serveUntilDone(ctx, ln, handler, shutdown)
+}
+
+// serveUntilDone serves handler on ln until ctx is done, then shuts down and returns nil. It stops the server only
+// when Shutdown returns, which waits for open streams, so it closes shutdown first to end every open Watch stream.
+func serveUntilDone(ctx context.Context, ln net.Listener, handler http.Handler, shutdown chan struct{}) error {
 	httpServer := &http.Server{Handler: handler, ReadHeaderTimeout: serveHeaderTimeout}
 	serving := make(chan error, 1)
 	go func() { serving <- httpServer.Serve(ln) }()
@@ -288,9 +297,10 @@ func runServe(ctx context.Context, opts globals, args []string, getenv func(stri
 		return fmt.Errorf("serve: %w", serveErr)
 	case <-ctx.Done():
 	}
+	close(shutdown)
 	shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), serveShutdownTimeout)
 	defer cancel()
-	if err = httpServer.Shutdown(shutdownCtx); err != nil {
+	if err := httpServer.Shutdown(shutdownCtx); err != nil {
 		return fmt.Errorf("serve: shutdown: %w", err)
 	}
 	return nil
