@@ -99,3 +99,5 @@ The frozen interface between the hook, the CLI, and the daemon is documented in
 ## License
 
 MIT. See [`LICENSE`](LICENSE).
+
+The bundled Orrery Mono font files (`android/app/src/main/res/font/orrery_mono_*.ttf`) are a subset of Maple Mono NF and are licensed under the SIL Open Font License; see [`orrery_mono_ofl.txt`](android/app/src/main/res/raw/orrery_mono_ofl.txt).

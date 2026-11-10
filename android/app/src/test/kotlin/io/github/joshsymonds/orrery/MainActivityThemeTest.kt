@@ -6,6 +6,7 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
+import androidx.core.view.WindowCompat
 import androidx.test.core.app.ApplicationProvider
 import io.github.joshsymonds.orrery.api.FakeOrreryServer
 import org.json.JSONArray
@@ -90,6 +91,27 @@ class MainActivityThemeTest {
         } finally {
             attributes.recycle()
         }
+    }
+
+    @Test
+    @Config(sdk = [35], qualifiers = "w400dp-h1200dp-notnight")
+    fun systemBarIconsStayLightInLightMode() {
+        assertSystemBarIconsAreLight()
+    }
+
+    @Test
+    @Config(sdk = [35], qualifiers = "w400dp-h1200dp-night")
+    fun systemBarIconsStayLightInNightMode() {
+        assertSystemBarIconsAreLight()
+    }
+
+    private fun assertSystemBarIconsAreLight() {
+        val intent = Intent(context, MainActivity::class.java)
+        val activity = Robolectric.buildActivity(MainActivity::class.java, intent).setup().get()
+
+        val controller = WindowCompat.getInsetsController(activity.window, activity.window.decorView)
+        assertFalse("status bar icons must stay light", controller.isAppearanceLightStatusBars)
+        assertFalse("navigation bar icons must stay light", controller.isAppearanceLightNavigationBars)
     }
 
     @Test
