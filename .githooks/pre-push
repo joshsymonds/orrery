@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# Pre-push: run the full quality gate. Shared logic lives in run-check.sh.
+#
+# The push is the verified boundary — deliberately not the commit. There is no
+# pre-commit hook: commits are cheap local history points (per-item checkpoint
+# commits mid-epic), and gating each one on the full gate would make them
+# expensive. GitHub CI runs the same gate as the remote backstop.
+#
+# This hook takes no lock: whoever pushes serializes heavy jobs, and pushes from
+# a checkout whose HEAD is the pushed commit, with main and its tag in one push.
+set -euo pipefail
+exec "$(dirname "$0")/run-check.sh"
