@@ -135,6 +135,9 @@ const (
 	SummarizerValue = "1"
 )
 
+// EnvSession is the marker that names an orrery-started headless session.
+const EnvSession = "ORRERY_SESSION"
+
 // SocketPath resolves the daemon socket: flagValue when non-empty, else ORRERY_SOCKET,
 // else $XDG_RUNTIME_DIR/orrery/orreryd.sock. It returns an error when none of them is set.
 func SocketPath(flagValue string, getenv func(string) string) (string, error) {
