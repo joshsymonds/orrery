@@ -6,8 +6,8 @@ data class ToolCall(val id: String, val name: String, val input: String, val res
 
 sealed interface ConvoEntry {
     data class Time(val seconds: Long) : ConvoEntry
-    data class Prompt(val text: String) : ConvoEntry
-    data class Reply(val text: String) : ConvoEntry
+    data class Prompt(val text: String, val time: Long = 0L) : ConvoEntry
+    data class Reply(val text: String, val time: Long = 0L) : ConvoEntry
     data class Tool(val call: ToolCall) : ConvoEntry
     data class Group(val calls: List<ToolCall>) : ConvoEntry
 }
@@ -35,15 +35,38 @@ fun foldConversation(items: List<ConversationItem>): List<ConvoEntry> {
                 when (item.kind) {
                     "prompt" -> {
                         if (item.time > 0) entries.add(ConvoEntry.Time(item.time))
-                        entries.add(ConvoEntry.Prompt(item.text))
+                        entries.add(ConvoEntry.Prompt(item.text, item.time))
                     }
-                    "reply" -> entries.add(ConvoEntry.Reply(item.text))
+                    "reply" -> entries.add(ConvoEntry.Reply(item.text, item.time))
                 }
             }
         }
     }
     flushRun(run, entries)
     return entries
+}
+
+/**
+ * One key per entry, in order. A key comes from the entry's own content (its time, a hash of its
+ * text, its call ids), never its list position, so it holds while the server's window slides. A
+ * key that repeats gets an occurrence suffix counted from the oldest entry.
+ */
+fun entryKeys(entries: List<ConvoEntry>): List<String> {
+    val seen = HashMap<String, Int>()
+    return entries.map { entry ->
+        val base = baseKey(entry)
+        val occurrence = seen.getOrDefault(base, 0)
+        seen[base] = occurrence + 1
+        if (occurrence == 0) base else "$base#$occurrence"
+    }
+}
+
+private fun baseKey(entry: ConvoEntry): String = when (entry) {
+    is ConvoEntry.Time -> "time:${entry.seconds}"
+    is ConvoEntry.Prompt -> "prompt:${entry.time}:${entry.text.hashCode()}"
+    is ConvoEntry.Reply -> "reply:${entry.time}:${entry.text.hashCode()}"
+    is ConvoEntry.Tool -> "tool:${entry.call.id}"
+    is ConvoEntry.Group -> "group:${entry.calls.first().id}"
 }
 
 /** Names the calls' tools in order of first appearance, "Name ×N" when a name repeats. */
