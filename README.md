@@ -7,6 +7,8 @@ waiting, or done) to a local daemon, `orreryd`, over a Unix socket. The daemon
 records that state in per-pane tmux options, summarizes it, and can notify you
 through ntfy. `orrery list` shows the panes and their states.
 
+![orrery tree: projects with panes marked working, waiting, or done, and a preview of the selected pane](docs/img/tree.png)
+
 ## Binaries
 
 - `cmd/orrery`: the Claude Code hook and the CLI client (`hook`, `list`, `seen`, `send`, `debug summarize`, `shell`, `tree`, `tmux-conf`, `open`, `help`).
