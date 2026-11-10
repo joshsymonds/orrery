@@ -440,7 +440,9 @@ A dropped sync writes no row or event and sets no id. tmux keeps its options as 
 The tidy runs at orreryd start and every 10 s. It tidies:
 
 - the server named by `-L` or `-S`, when either is given;
-- otherwise, every server that a hook frame has named since orreryd started. Without `-L` or `-S`, no server is tidied until a frame has named one.
+- otherwise, the default socket, from the first tidy at start, and every server that a hook frame has named since orreryd started.
+
+The default socket is `-S <dir>/tmux-<uid>/default`, where `dir` is `TMUX_TMPDIR` with symlinks resolved when it is set and resolves, else `/tmp` (resolved). This is the path tmux puts in a pane's `$TMUX`, so a frame from that server names the same server and its panes keep one row.
 
 For each server, the tidy runs one `list-panes -a` that reads every pane. It then:
 
@@ -449,7 +451,7 @@ For each server, the tidy runs one `list-panes -a` that reads every pane. It the
 - deletes the server's rows whose id is not among the listed panes, with one `session_removed` event for each;
 - deletes every event older than 14 days, across all servers.
 
-A failed `list-panes`, or a listing that does not parse, changes nothing. A failed store write rolls back the whole tidy.
+A failed `list-panes`, or a listing that does not parse, changes nothing. orreryd logs `tmux server unreachable` (warning) when a server's `list-panes` starts failing and `tmux server reachable again` (info) at its first success after that, not on every tidy. Other tidy failures are logged as `mirror tidy dropped` each time. A failed store write rolls back the whole tidy.
 
 ### Claude Code hook settings
 
