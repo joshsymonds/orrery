@@ -41,8 +41,16 @@ cover:
     fi
     echo "coverage: ${pct}% (>= 80% OK)"
 
+# Regenerate the store's typed queries (internal/store/sqlcgen) from the migrations and queries.sql.
+generate:
+    sqlc generate
+
+# Fail when the generated store code drifts from its SQL.
+sqlc-diff:
+    sqlc diff
+
 # Lint and coverage gates.
-check: lint cover
+check: lint cover sqlc-diff
 
 # Run the Android lint and JVM unit tests.
 android-test:

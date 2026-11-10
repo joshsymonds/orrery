@@ -47,7 +47,7 @@
           version = "0.0.0";
           src = ./.;
           go = pkgs.go_1_26;
-          vendorHash = "sha256-Qc+8NFF8weEl0jXtk0LKqErGleQU6mxLNKlcNqazI+w=";
+          vendorHash = "sha256-jTS60VdtzeCXeAN43D751oLPCa2VvqY031B3fOpSUtk=";
           subPackages = [
             "cmd/orrery"
             "cmd/orreryd"
@@ -156,7 +156,9 @@
             packages = [
               pkgs.go_1_26
               pkgs.golangci-lint
+              pkgs.goose
               pkgs.just
+              pkgs.sqlc
               pkgs.tmux
               pkgs.util-linux
             ];
