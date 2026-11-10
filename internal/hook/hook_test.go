@@ -2,6 +2,7 @@ package hook
 
 import (
 	"context"
+	"io"
 	"net"
 	"os"
 	"path/filepath"
@@ -250,5 +251,49 @@ func TestHookSentinel(t *testing.T) {
 	case <-dialed:
 		t.Fatal("summarizer hook dialed the daemon")
 	case <-time.After(quietWindow):
+	}
+}
+
+func TestHookSessionMarker(t *testing.T) {
+	path, ln := listen(t)
+
+	dialed := make(chan struct{}, 1)
+	go func() {
+		conn, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		_ = conn.Close()
+		dialed <- struct{}{}
+	}()
+
+	for _, value := range []string{"1", "headless"} {
+		t.Run(value, func(t *testing.T) {
+			// The write end stays open and never writes, so a Run that reads stdin blocks forever.
+			stdin, writer := io.Pipe()
+			t.Cleanup(func() { _ = writer.Close() })
+
+			env := map[string]string{
+				protocol.EnvSession: value,
+				"TMUX_PANE":         testPane,
+			}
+			finished := make(chan struct{})
+			go func() {
+				Run(stdin, testEnv(env), path)
+				close(finished)
+			}()
+
+			select {
+			case <-finished:
+			case <-time.After(frameWait):
+				t.Fatal("Run blocked under the session marker, want it to return without reading stdin")
+			}
+
+			select {
+			case <-dialed:
+				t.Fatal("session-marked hook dialed the daemon")
+			case <-time.After(quietWindow):
+			}
+		})
 	}
 }
