@@ -607,23 +607,39 @@ Details for each route:
 - `GET /v1/panes/{id}/conversation` returns the conversation of the pane's Claude transcript as `{"origin": string, "items": [item...]}`. The transcript is the path in the pane's `@orrery_transcript` option (section 2); no request value names a file. The pane must have `@orrery_state` set, or the answer is 404 "no live session". `@orrery_transcript` must be set and non-empty, or the answer is 404 "no transcript". A transcript file that does not exist answers 404; any other read failure answers 500.
   - The query `limit` is absent for 30, or one decimal integer from 1 to 100. Any other value, including 0, a value over 100, a sign, an empty value, a non-number, or a repeated key, answers 400. The `limit` check runs before the pane ID check.
   - The reader takes the newest `limit` items from the last 4 MiB of the transcript, oldest first. Only whole lines count, so a partial line at either end of that window is skipped. The reader can return fewer than `limit` items. `items` is `[]` when there are none.
-  - `origin` is the text of the first user prompt in the transcript's first 1 MiB, cut to 300 runes, or `""` when there is none. A user line counts as a prompt when it is not meta or sidechain, has no `tool_result` block, and its text is non-empty. A partial last line in that window is ignored.
-  - Lines of a type other than `assistant` or `user`, lines marked `isMeta` or `isSidechain`, and lines that are not JSON give no items.
+  - `origin` is the text of the first prompt that the item rules below give within the transcript's first 1 MiB, cut to 300 runes, or `""` when there is none. Each line is classified without seeing later lines, so a queued message gives the origin even when a later user line repeats its text. A line that the window ends inside is ignored.
+  - Lines of a type other than `assistant`, `user`, or `attachment`, lines marked `isMeta` or `isSidechain`, and lines that are not JSON give no items.
   - An `assistant` line gives one item per content block, in order. A `text` block gives a `reply`. A `tool_use` block gives a `question` when its `name` is `AskUserQuestion`, and a `tool` otherwise. Other blocks, such as thinking blocks, give none.
-  - A `user` line gives one `result` per `tool_result` block when it has any. Otherwise its text gives one `prompt`, when the text is not empty.
-  - Each item has these keys, always present and in this order: `kind`, `time`, `text`, `tool`, `input`, `id`, `error`.
-    - `kind` is `prompt`, `reply`, `tool`, `question`, or `result`.
+  - A `user` line gives items by the first of these rules that applies:
+    1. It has one or more `tool_result` blocks. It gives one `result` per such block, and nothing else.
+    2. It is a notice, as described below. It gives one `notice`.
+    3. Its whole string content is a teammate message, as described below. It gives one `notice` of kind `teammate`, or no item when every block is an idle ping.
+    4. Its whole string content is command output or a command record, as described below. Command output gives no item. A command record gives one `prompt`.
+    5. Otherwise its text gives one `prompt`, when the text is not empty. The text of a line with string content is that string. The text of a line with array content is its `text` blocks joined with newlines.
+  - A typed line is a `user` line whose `promptSource` is `typed`, `queued`, or `suggestion_accepted` and whose `origin.kind` is `human`. Rules 2 to 4 never apply to a typed line, so it gives its `prompt` under rule 5, unless rule 1 applies first.
+  - A notice is a `user` line of one of these kinds, checked in this order:
+    - `compaction` when `isCompactSummary` is true. Its `text` is `""`.
+    - `task` when `origin.kind` is `task-notification` and `promptSource` is `system`. Its `text` is the content of the line's first `summary` element, cut to 300 runes, or `""` when that element is absent or not closed. Its `error` is true when the first `status` element is `failed` or `killed`.
+    - `interrupted` when its content is one `text` block whose text is exactly `[Request interrupted by user]` or `[Request interrupted by user for tool use]`. Its `text` is `""`.
+  - A teammate message is a `user` line whose whole string content is the fixed lead-in `Another Claude session sent a message:` and a newline, then one or more `<teammate-message teammate_id="…">` blocks, each with an optional `color` and an optional `summary` attribute, separated by a blank line, then the fixed trailer Claude Code writes after the last block, which starts with a blank line and the sentence `This came from another Claude session`. A block body starts and ends with a newline. The notice's `text` is the `summary` attribute values of its blocks, in order, joined with a newline, with the XML entities `&lt;`, `&gt;`, `&quot;`, `&apos;`, and `&amp;` decoded. A block without a summary, or with an empty one, adds nothing. The text is cut to 300 runes. A block whose body is a JSON object with type `idle_notification` is an idle ping. A message whose blocks are all idle pings gives no item. Any other message gives one notice, and the summaries of its idle pings still count.
+  - Command output is a `user` line whose whole string content is one `<local-command-stdout>` element, with no second closing tag inside it. It gives no item.
+  - A command record is a `user` line whose whole string content holds a `<command-message>` element and a `<command-name>` element, in either order, separated only by whitespace, followed by an optional `<command-args>` element. The name must start with `/`. Its `prompt` reads the name, then one space and the args when the args are not empty, so `/name args`, or `/name` alone.
+  - Before a `prompt`'s text is kept, each matched `<pasted_content id="X">` … `</pasted_content id="X">` pair in it is removed, keeping the text between its tags. An unpaired tag stays. This applies to every prompt, typed or not. The text is then cut to 4096 bytes. A prompt whose text is empty gives no item.
+  - An `attachment` line whose `attachment` has `type` `queued_command`, `commandMode` `prompt`, and `origin.kind` `human` gives one `prompt` with the attachment's `prompt` text, treated as above, in the line's place in the order. It gives no item when a `user` line later in the transcript, within the 4 MiB window, gave a prompt with the same text. Any other attachment gives no item.
+  - Each item has these keys, always present and in this order: `kind`, `time`, `text`, `tool`, `input`, `id`, `error`, `notice`.
+    - `kind` is `prompt`, `reply`, `tool`, `question`, `result`, or `notice`.
     - `time` is the unix seconds of the line's RFC 3339 `timestamp`, or 0 when it is absent or does not parse.
-    - `text` is at most 4096 bytes, cut at a UTF-8 boundary. It holds the text of a prompt, reply, or result, and the questions of a question joined by newlines. A tool item's `text` is `""`.
+    - `text` is cut at a UTF-8 boundary. A prompt, question, or result holds at most 4096 bytes, a reply at most 32768 bytes, and a notice at most 300 runes. A question's text is its questions joined by newlines. A tool item's `text` is `""`.
     - `tool` is the tool name of a `tool` or `question` item, and `""` otherwise.
     - `input` is the display text of the tool's input (section 2) for a `tool` item. It is `""` for every other kind, including `question`.
     - `id` is the `tool_use_id` of a `tool`, `question`, or `result` item, and `""` otherwise.
-    - `error` is the `is_error` flag of a `result` item, and `false` otherwise.
+    - `error` is the `is_error` flag of a `result` item, true for a `task` notice whose status is `failed` or `killed`, and `false` otherwise.
+    - `notice` is the kind of a `notice` item: `compaction`, `task`, `teammate`, or `interrupted`. It is `""` on every other kind.
 
 Example response. Every value is synthetic:
 
 ```json
-{"origin":"Example opening prompt.","items":[{"kind":"reply","time":1700000100,"text":"Example reply.","tool":"","input":"","id":"","error":false},{"kind":"tool","time":1700000200,"text":"","tool":"Bash","input":"example command","id":"example-tool-use","error":false},{"kind":"result","time":1700000210,"text":"Example output.","tool":"","input":"","id":"example-tool-use","error":false}]}
+{"origin":"Example opening prompt.","items":[{"kind":"prompt","time":1700000000,"text":"Example opening prompt.","tool":"","input":"","id":"","error":false,"notice":""},{"kind":"notice","time":1700000050,"text":"","tool":"","input":"","id":"","error":false,"notice":"compaction"},{"kind":"reply","time":1700000100,"text":"Example reply.","tool":"","input":"","id":"","error":false,"notice":""},{"kind":"tool","time":1700000200,"text":"","tool":"Bash","input":"example command","id":"example-tool-use","error":false,"notice":""},{"kind":"result","time":1700000210,"text":"Example output.","tool":"","input":"","id":"example-tool-use","error":false,"notice":""},{"kind":"notice","time":1700000300,"text":"Example task finished.","tool":"","input":"","id":"","error":false,"notice":"task"}]}
 ```
 
 - `GET /v1/host` runs the `--host-status-cmd` command (section 11) and returns `{"host": string, "stats": [stat...]}`. `host` is the machine's host name, and `stats` holds the command's validated stats in order. Without the flag, the route answers 404.
@@ -730,3 +746,5 @@ orrery v0.7.0 (H1a) added the store file (see [Store](#store)) and the `@orrery_
 The typed API (the `orrery.v1.Sessions` service, see [Connect API](#connect-api)) was added additively. No existing name or value changes.
 
 The event stream (the `orrery.v1.Events` service with `Watch`, see [Connect API](#connect-api)), the `orrery events` command, and serve's shutdown of open streams were added additively. The `List` call also answers `unavailable` for a store removed while it is read, and pruning keeps the newest event. No existing name or value changes.
+
+orrery E12 (conversation items) added the `notice` kind and the `notice` item key to the conversation route, additively. No existing name changes. The same change alters the route's prompt rules, its reply cap, and its origin rule, which are changes and not additive: a user line that was a prompt may now be a notice, a teammate message, command output, or no item; a slash command reads `/name args`; pasted content tags are removed from prompts; queued messages give prompts; a reply keeps up to 32768 bytes where it kept 4096; and `origin` follows the new prompt rules.
