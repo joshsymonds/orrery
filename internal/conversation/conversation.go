@@ -23,6 +23,23 @@ const (
 	kindTool     = "tool"
 	kindQuestion = "question"
 	kindResult   = "result"
+	kindNotice   = "notice"
+)
+
+// Notice kinds.
+const (
+	noticeCompaction  = "compaction"
+	noticeTask        = "task"
+	noticeInterrupted = "interrupted"
+)
+
+// textBlock is the type of a text content block.
+const textBlock = "text"
+
+// interruptedText and interruptedToolText are the whole texts of an interruption line.
+const (
+	interruptedText     = "[Request interrupted by user]"
+	interruptedToolText = "[Request interrupted by user for tool use]"
 )
 
 // askUserQuestionTool is the tool whose tool_use items are questions.
@@ -35,6 +52,8 @@ const (
 	originWindowBytes = 1 << 20
 	// maxOriginRunes caps the origin prompt.
 	maxOriginRunes = 300
+	// maxNoticeRunes caps the summary of a task notice.
+	maxNoticeRunes = 300
 )
 
 // Conversation is a transcript's opening prompt and its newest items, oldest first.
@@ -43,24 +62,30 @@ type Conversation struct {
 	Items  []Item `json:"items"`
 }
 
-// Item is one reply, tool call, question, prompt or tool result of a transcript.
+// Item is one reply, tool call, question, prompt, tool result or notice of a transcript.
 type Item struct {
-	Kind  string `json:"kind"`
-	Time  int64  `json:"time"`
-	Text  string `json:"text"`
-	Tool  string `json:"tool"`
-	Input string `json:"input"`
-	ID    string `json:"id"`
-	Error bool   `json:"error"`
+	Kind   string `json:"kind"`
+	Time   int64  `json:"time"`
+	Text   string `json:"text"`
+	Tool   string `json:"tool"`
+	Input  string `json:"input"`
+	ID     string `json:"id"`
+	Error  bool   `json:"error"`
+	Notice string `json:"notice"`
 }
 
 // transcriptLine holds the fields of one transcript line that the reader uses.
 type transcriptLine struct {
-	Type        string `json:"type"`
-	Timestamp   string `json:"timestamp"`
-	IsMeta      bool   `json:"isMeta"`
-	IsSidechain bool   `json:"isSidechain"`
-	Message     struct {
+	Type             string `json:"type"`
+	Timestamp        string `json:"timestamp"`
+	IsMeta           bool   `json:"isMeta"`
+	IsSidechain      bool   `json:"isSidechain"`
+	IsCompactSummary bool   `json:"isCompactSummary"`
+	PromptSource     string `json:"promptSource"`
+	Origin           struct {
+		Kind string `json:"kind"`
+	} `json:"origin"`
+	Message struct {
 		Content json.RawMessage `json:"content"`
 	} `json:"message"`
 }
@@ -130,7 +155,7 @@ func lineItems(line []byte) []Item {
 	case "assistant":
 		return assistantItems(entry.Message.Content, ts)
 	case "user":
-		return userItems(entry.Message.Content, ts)
+		return userItems(entry, ts)
 	default:
 		return nil
 	}
@@ -143,7 +168,7 @@ func assistantItems(content json.RawMessage, ts int64) []Item {
 	items := make([]Item, 0, len(blocks))
 	for _, block := range blocks {
 		switch stringField(block, "type") {
-		case "text":
+		case textBlock:
 			items = append(items, Item{Kind: kindReply, Time: ts, Text: cutText(stringField(block, "text"))})
 		case "tool_use":
 			items = append(items, toolItem(block, ts))
@@ -175,10 +200,10 @@ func questionText(input json.RawMessage) string {
 	return strings.Join(questions, "\n")
 }
 
-// userItems returns one result per tool_result block of a user message, or its prompt when it holds no
-// tool_result.
-func userItems(content json.RawMessage, ts int64) []Item {
-	text, blocks := splitContent(content)
+// userItems returns one result per tool_result block of a user line. A line with no tool_result is one
+// notice when Claude Code marks it as one, and otherwise its prompt.
+func userItems(entry transcriptLine, ts int64) []Item {
+	text, blocks := splitContent(entry.Message.Content)
 	var items []Item
 	for _, block := range blocks {
 		if stringField(block, "type") == "tool_result" {
@@ -188,7 +213,83 @@ func userItems(content json.RawMessage, ts int64) []Item {
 	if len(items) > 0 {
 		return items
 	}
+	if notice, ok := noticeItem(entry, text, blocks, ts); ok {
+		return []Item{notice}
+	}
 	return promptItems(text, ts)
+}
+
+// noticeItem returns the notice of a user line that Claude Code marks as a compaction, a task notification or
+// an interruption. A line marked as typed, queued or accepted from a suggestion is never a notice.
+func noticeItem(entry transcriptLine, text string, blocks []contentBlock, ts int64) (Item, bool) {
+	if typedLine(entry) {
+		return Item{}, false
+	}
+	switch {
+	case entry.IsCompactSummary:
+		return Item{Kind: kindNotice, Time: ts, Notice: noticeCompaction}, true
+	case entry.Origin.Kind == "task-notification" && entry.PromptSource == "system":
+		return taskItem(text, ts), true
+	case isInterruption(blocks):
+		return Item{Kind: kindNotice, Time: ts, Notice: noticeInterrupted}, true
+	}
+	return Item{}, false
+}
+
+// typedLine reports whether Claude Code marks the line as typed by the human: typed, queued or accepted from a
+// suggestion.
+func typedLine(entry transcriptLine) bool {
+	switch entry.PromptSource {
+	case "typed", "queued", "suggestion_accepted":
+		return entry.Origin.Kind == "human"
+	}
+	return false
+}
+
+// taskItem returns the notice of a task notification: its summary, and an error when its status is failed or
+// killed.
+func taskItem(text string, ts int64) Item {
+	status := childText(text, "status")
+	return Item{
+		Kind:   kindNotice,
+		Time:   ts,
+		Notice: noticeTask,
+		Text:   cutRunes(childText(text, "summary"), maxNoticeRunes),
+		Error:  status == "failed" || status == "killed",
+	}
+}
+
+// childText returns the text of the first tag element in text, or "" when the element is absent or unclosed.
+func childText(text, tag string) string {
+	open := "<" + tag + ">"
+	start := strings.Index(text, open)
+	if start < 0 {
+		return ""
+	}
+	start += len(open)
+	end := strings.Index(text[start:], "</"+tag+">")
+	if end < 0 {
+		return ""
+	}
+	return text[start : start+end]
+}
+
+// isInterruption reports whether blocks is one text block holding a whole interruption text.
+func isInterruption(blocks []contentBlock) bool {
+	if len(blocks) != 1 || stringField(blocks[0], "type") != textBlock {
+		return false
+	}
+	text := stringField(blocks[0], "text")
+	return text == interruptedText || text == interruptedToolText
+}
+
+// cutRunes returns the first n runes of text.
+func cutRunes(text string, n int) string {
+	runes := []rune(text)
+	if len(runes) > n {
+		return string(runes[:n])
+	}
+	return text
 }
 
 // promptItems returns the prompt item for text, or none when text is empty.
@@ -224,7 +325,7 @@ func splitContent(content json.RawMessage) (string, []contentBlock) {
 	}
 	var texts []string
 	for _, block := range blocks {
-		if stringField(block, "type") == "text" {
+		if stringField(block, "type") == textBlock {
 			texts = append(texts, stringField(block, "text"))
 		}
 	}

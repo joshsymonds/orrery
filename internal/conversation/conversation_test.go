@@ -97,6 +97,114 @@ func TestReadItemKinds(t *testing.T) {
 	}
 }
 
+// taskNotification returns the content of a task notification with the given status and summary.
+func taskNotification(status, summary string) string {
+	return "<task-notification><task-id>task_1</task-id><status>" + status + "</status><summary>" +
+		summary + "</summary></task-notification>"
+}
+
+// taskLine returns a user line that Claude Code marks as a task notification with the given content.
+func taskLine(s int, content string) string {
+	return `{"type":"user","timestamp":"` + stampAt(s) + `","promptSource":"system",` +
+		`"origin":{"kind":"task-notification"},"message":{"role":"user","content":` + content + `}}`
+}
+
+func TestReadNoticeKinds(t *testing.T) {
+	path := writeTranscript(t,
+		`{"type":"user","timestamp":"`+stampAt(0)+`","isCompactSummary":true,`+
+			`"message":{"role":"user","content":"synthetic summary of earlier turns"}}`,
+		taskLine(1, `"`+taskNotification("completed", "Synthetic task done")+`"`),
+		`{"type":"user","timestamp":"`+stampAt(2)+`","message":{"role":"user","content":[`+
+			`{"type":"text","text":"[Request interrupted by user]"}]}}`,
+		`{"type":"user","timestamp":"`+stampAt(3)+`","message":{"role":"user","content":[`+
+			`{"type":"text","text":"[Request interrupted by user for tool use]"}]}}`,
+	)
+
+	want := []Item{
+		{Kind: "notice", Time: unixAt(0), Notice: "compaction"},
+		{Kind: "notice", Time: unixAt(1), Notice: "task", Text: "Synthetic task done"},
+		{Kind: "notice", Time: unixAt(2), Notice: "interrupted"},
+		{Kind: "notice", Time: unixAt(3), Notice: "interrupted"},
+	}
+	if got := mustRead(t, path, 100).Items; !reflect.DeepEqual(got, want) {
+		t.Fatalf("Items =\n%+v\nwant\n%+v", got, want)
+	}
+}
+
+func TestReadTaskNoticeErrorFromStatus(t *testing.T) {
+	tests := []struct {
+		status string
+		want   bool
+	}{
+		{"completed", false},
+		{"failed", true},
+		{"killed", true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.status, func(t *testing.T) {
+			path := writeTranscript(t,
+				taskLine(0, `"`+taskNotification(tc.status, "Synthetic summary")+`"`))
+			items := mustRead(t, path, 10).Items
+			if len(items) != 1 {
+				t.Fatalf("items = %d, want 1", len(items))
+			}
+			if items[0].Error != tc.want {
+				t.Fatalf("Error = %t, want %t", items[0].Error, tc.want)
+			}
+		})
+	}
+}
+
+func TestReadTaskNoticeWithoutSummaryHasEmptyText(t *testing.T) {
+	content := `"<task-notification><task-id>task_2</task-id><status>completed</status></task-notification>"`
+	items := mustRead(t, writeTranscript(t, taskLine(0, content)), 10).Items
+	if len(items) != 1 || items[0].Notice != "task" || items[0].Text != "" {
+		t.Fatalf("items = %+v, want one task notice with empty text", items)
+	}
+}
+
+func TestReadTaskNoticeSummaryCutsToRunes(t *testing.T) {
+	summary := strings.Repeat("é", 301)
+	content := `"` + taskNotification("completed", summary) + `"`
+	items := mustRead(t, writeTranscript(t, taskLine(0, content)), 10).Items
+	if len(items) != 1 {
+		t.Fatalf("items = %d, want 1", len(items))
+	}
+	if want := strings.Repeat("é", 300); items[0].Text != want {
+		t.Fatalf("Text has %d runes, want %d runes of é", utf8.RuneCountInString(items[0].Text), 300)
+	}
+}
+
+func TestReadTypedLinesNeverBecomeNotices(t *testing.T) {
+	wrapped := taskNotification("failed", "Synthetic typed summary")
+	tests := []struct {
+		name   string
+		source string
+		origin string
+		text   string
+		prompt string
+	}{
+		{"typed line quoting a task notification", "typed", "human",
+			`"` + wrapped + `"`, wrapped},
+		{"queued line quoting a task notification", "queued", "human",
+			`"` + wrapped + `"`, wrapped},
+		{"suggestion line quoting a task notification", "suggestion_accepted", "human",
+			`"` + wrapped + `"`, wrapped},
+		{"typed line holding a whole interruption string", "typed", "human",
+			`[{"type":"text","text":"[Request interrupted by user]"}]`, "[Request interrupted by user]"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			line := `{"type":"user","timestamp":"` + stampAt(0) + `","promptSource":"` + tc.source +
+				`","origin":{"kind":"` + tc.origin + `"},"message":{"role":"user","content":` + tc.text + `}}`
+			want := []Item{{Kind: "prompt", Time: unixAt(0), Text: tc.prompt}}
+			if got := mustRead(t, writeTranscript(t, line), 10).Items; !reflect.DeepEqual(got, want) {
+				t.Fatalf("Items = %+v, want %+v", got, want)
+			}
+		})
+	}
+}
+
 func TestReadLimitKeepsNewestItemsOldestFirst(t *testing.T) {
 	path := writeTranscript(t,
 		`{"type":"user","message":{"content":"first"}}`,
@@ -156,7 +264,7 @@ func TestItemJSONAlwaysHasEveryKey(t *testing.T) {
 	if err := json.Unmarshal(data, &keys); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	for _, key := range []string{"kind", "time", "text", "tool", "input", "id", "error"} {
+	for _, key := range []string{"kind", "time", "text", "tool", "input", "id", "error", "notice"} {
 		if _, ok := keys[key]; !ok {
 			t.Errorf("zero Item JSON lacks key %q: %s", key, data)
 		}
