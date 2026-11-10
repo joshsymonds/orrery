@@ -59,3 +59,26 @@ func (transport *Transport) SendPermissionDeny(requestID, message string) error 
 	}
 	return transport.SendControlResponse(requestID, body)
 }
+
+// SendControlError refuses a control request the transport cannot answer by writing one error
+// control response under the request's id.
+func (transport *Transport) SendControlError(requestID, message string) error {
+	transport.writeMu.Lock()
+	defer transport.writeMu.Unlock()
+
+	encodedID, err := json.Marshal(requestID)
+	if err != nil {
+		return fmt.Errorf("transport: marshal control error request ID: %w", err)
+	}
+	encodedMessage, err := json.Marshal(message)
+	if err != nil {
+		return fmt.Errorf("transport: marshal control error message: %w", err)
+	}
+	envelope := make([]byte, 0, len(encodedID)+len(encodedMessage)+96)
+	envelope = append(envelope, `{"type":"control_response","response":{"subtype":"error","request_id":`...)
+	envelope = append(envelope, encodedID...)
+	envelope = append(envelope, `,"error":`...)
+	envelope = append(envelope, encodedMessage...)
+	envelope = append(envelope, '}', '}')
+	return transport.writeLocked(append(envelope, '\n'))
+}

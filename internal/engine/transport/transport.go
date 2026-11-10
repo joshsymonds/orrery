@@ -101,21 +101,33 @@ func WithBufferSize(size int) Option {
 	}
 }
 
+// WithRawLines makes the transport deliver every stdout line on Lines without decoding it.
+// Events and Controls then deliver nothing.
+func WithRawLines() Option {
+	return func(options *transportOptions) {
+		options.rawLines = true
+	}
+}
+
 type transportOptions struct {
 	bufferSize    int
 	uuidGenerator func() (string, error)
+	rawLines      bool
 }
 
 // Transport exchanges newline-delimited protocol envelopes over supplied streams.
 //
-// The reader goroutine is the only sender on events and controls, so it is the only goroutine
-// that closes them. Termination closes closing, which wakes a reader waiting on a full channel.
+// The reader goroutine is the only sender on events, controls, and lines, so it is the only
+// goroutine that closes them. Termination closes closing, which wakes a reader waiting on a full
+// channel.
 type Transport struct {
 	stdin  io.Writer
 	stdout io.Reader
 
+	rawLines bool
 	events   chan wire.SDKMessage
 	controls chan ControlMessage
+	lines    chan []byte
 	done     chan error
 
 	stateMu  sync.Mutex
@@ -147,8 +159,10 @@ func New(stdin io.Writer, stdout io.Reader, options ...Option) *Transport {
 	transport := &Transport{
 		stdin:         stdin,
 		stdout:        stdout,
+		rawLines:      configuration.rawLines,
 		events:        make(chan wire.SDKMessage, configuration.bufferSize),
 		controls:      make(chan ControlMessage, configuration.bufferSize),
+		lines:         make(chan []byte, configuration.bufferSize),
 		done:          make(chan error, 1),
 		closing:       make(chan struct{}),
 		readerDone:    make(chan struct{}),
@@ -167,6 +181,12 @@ func (transport *Transport) Events() <-chan wire.SDKMessage {
 // It closes at transport termination.
 func (transport *Transport) Controls() <-chan ControlMessage {
 	return transport.controls
+}
+
+// Lines returns every stdout line as its own copy, without its newline, when the transport was
+// built WithRawLines. Otherwise it delivers nothing. It closes at transport termination.
+func (transport *Transport) Lines() <-chan []byte {
+	return transport.lines
 }
 
 // Done receives the terminal transport error exactly once, then closes.
@@ -318,18 +338,39 @@ func (transport *Transport) readLoop() {
 			return
 		}
 		lineNumber++
-		if demultiplexErr := transport.demultiplex(line, lineNumber); demultiplexErr != nil {
-			transport.finish(demultiplexErr)
+		if dispatchErr := transport.dispatchLine(line, lineNumber); dispatchErr != nil {
+			transport.finish(dispatchErr)
 			return
 		}
 	}
 }
 
-// shutdown runs on the reader goroutine after its last read. It closes both channels, publishes
+// dispatchLine routes one stdout line. A raw-lines transport copies the line and never decodes it,
+// so an undecodable line cannot end it.
+func (transport *Transport) dispatchLine(line []byte, lineNumber uint64) error {
+	if transport.rawLines {
+		return transport.dispatchRawLine(line)
+	}
+	return transport.demultiplex(line, lineNumber)
+}
+
+func (transport *Transport) dispatchRawLine(line []byte) error {
+	// readJSONLine returns a view of the reader's buffer, so the copy is what outlives this read.
+	copied := append([]byte(nil), line...)
+	select {
+	case transport.lines <- copied:
+		return nil
+	case <-transport.closing:
+		return transport.terminalError()
+	}
+}
+
+// shutdown runs on the reader goroutine after its last read. It closes every channel, publishes
 // the terminal error on Done, and then releases Close.
 func (transport *Transport) shutdown() {
 	close(transport.events)
 	close(transport.controls)
+	close(transport.lines)
 	transport.done <- transport.terminalError()
 	close(transport.done)
 	close(transport.readerDone)
@@ -410,7 +451,8 @@ func writeAll(writer io.Writer, data []byte) error {
 }
 
 // finish records the first terminal cause, wakes a reader blocked on a channel send, and
-// closes the streams. It never closes events or controls, which only the reader goroutine closes.
+// closes the streams. It never closes events, controls, or lines, which only the reader
+// goroutine closes.
 func (transport *Transport) finish(cause error) {
 	transport.finishOnce.Do(func() {
 		transport.stateMu.Lock()
