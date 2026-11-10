@@ -10,6 +10,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.gestures.ScrollableState
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -65,6 +66,7 @@ private const val POLL_INTERVAL_MILLIS = 1_000L
 private const val HEADER_SLIDE_MILLIS = 220
 private const val QUICK_KEYS_FOLD_MILLIS = 180
 private val BODY_GAP_BELOW_HEADER = 6.dp
+private val GOAL_STATUS_GAP = 2.dp
 
 /** The draft field never takes more than this share of the screen above the keyboard. */
 private const val COMPOSE_MAX_SHARE = 1f / 3f
@@ -116,7 +118,7 @@ private suspend fun fetchHost(client: OrreryClient): HostRead? =
  * A pane, refreshed every second while the screen is at least started. A Claude pane shows its
  * conversation, with the question card after the last item; any other pane shows its terminal
  * text, with the card below it. A Claude pane's status line sits at the top of the composer band,
- * always in view; tapping it opens the live screen, which shows the terminal text until the
+ * always in view, with the pane's active goal, when it has one, on a line just above it; tapping it opens the live screen, which shows the terminal text until the
  * status line is tapped again or the live-screen bar is tapped. Opening the screen marks the pane
  * seen once.
  *
@@ -307,10 +309,13 @@ fun PaneScreen(
             onDraftPresent = { draftPresent = it },
             status = current?.takeIf { conversation != null }?.let { shown ->
                 {
-                    StatusLine(shown, nowSeconds, onClick = {
-                        liveScreen = !liveScreen
-                        refresh()
-                    })
+                    Column(verticalArrangement = Arrangement.spacedBy(GOAL_STATUS_GAP)) {
+                        GoalLine(conversation?.goal.orEmpty())
+                        StatusLine(shown, nowSeconds, onClick = {
+                            liveScreen = !liveScreen
+                            refresh()
+                        })
+                    }
                 }
             },
         )

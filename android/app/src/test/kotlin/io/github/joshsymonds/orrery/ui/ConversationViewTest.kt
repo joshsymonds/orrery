@@ -7,6 +7,8 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.test.SemanticsNodeInteraction
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -16,6 +18,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToIndex
+import androidx.compose.ui.text.TextLayoutResult
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -374,5 +377,69 @@ class ConversationViewTest {
         )
 
         composeRule.onAllNodesWithText("synthetic twin").assertCountEquals(2)
+    }
+
+    private fun layoutOf(node: SemanticsNodeInteraction): TextLayoutResult {
+        val results = mutableListOf<TextLayoutResult>()
+        node.fetchSemanticsNode().config[SemanticsActions.GetTextLayoutResult].action!!.invoke(results)
+        return results.single()
+    }
+
+    @Test
+    fun eachNoticeShowsItsLabelAndItsText() {
+        setList(
+            listOf(
+                ConvoEntry.Notice("compaction", "", false),
+                ConvoEntry.Notice("interrupted", "", false),
+                ConvoEntry.Notice("task", "synthetic task line", false),
+                ConvoEntry.Notice("teammate", "synthetic summary one\nsynthetic summary two", false),
+            ),
+        )
+
+        composeRule.onNodeWithTag("notice:compaction").assertIsDisplayed()
+        composeRule.onNodeWithText("context compacted").assertIsDisplayed()
+        composeRule.onNodeWithText("interrupted").assertIsDisplayed()
+        composeRule.onNodeWithText("task").assertIsDisplayed()
+        composeRule.onNodeWithText("synthetic task line").assertIsDisplayed()
+        composeRule.onNodeWithText("teammate").assertIsDisplayed()
+        composeRule.onNodeWithText("synthetic summary one\nsynthetic summary two").assertIsDisplayed()
+        composeRule.onAllNodesWithText("✗").assertCountEquals(0)
+    }
+
+    @Test
+    fun failedTaskNoticeShowsCross() {
+        setList(listOf(ConvoEntry.Notice("task", "synthetic failed task", true)))
+
+        composeRule.onNodeWithText("synthetic failed task").assertIsDisplayed()
+        composeRule.onNodeWithText("✗").assertIsDisplayed()
+    }
+
+    @Test
+    fun noticeTextIsShownAsWrittenAndNotAsMarkdown() {
+        val raw = "**synthetic** `task` [link](https://example.com)"
+        setList(listOf(ConvoEntry.Notice("task", raw, false)))
+
+        composeRule.onNodeWithText(raw).assertIsDisplayed()
+    }
+
+    @Test
+    fun longTaskNoticeIsCutToTwoLines() {
+        // Robolectric's text layout does not soft-wrap, so the lines are broken by hand.
+        val long = (1..4).joinToString("\n") { "synthetic task line $it" }
+        setList(listOf(ConvoEntry.Notice("task", long, false)))
+
+        val layout = layoutOf(composeRule.onNodeWithText(long))
+        assertEquals(2, layout.lineCount)
+        assertTrue(layout.hasVisualOverflow)
+    }
+
+    @Test
+    fun teammateNoticeShowsAtMostThreeLines() {
+        val summaries = (1..6).joinToString("\n") { "synthetic summary $it" }
+        setList(listOf(ConvoEntry.Notice("teammate", summaries, false)))
+
+        val layout = layoutOf(composeRule.onNodeWithText(summaries))
+        assertEquals(3, layout.lineCount)
+        assertTrue(layout.hasVisualOverflow)
     }
 }

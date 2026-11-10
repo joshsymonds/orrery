@@ -15,12 +15,14 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListLayoutInfo
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -60,8 +62,8 @@ private enum class CallMark(val symbol: String, val colour: Color) {
 
 /**
  * The folded conversation as the phone draws it: time labels, prompt blocks, markdown replies, tool
- * rows that expand to their result, and groups of calls that expand to their rows, with an
- * optional footer after the last entry. Which rows are open is kept by tool id (a group by its
+ * rows that expand to their result, groups of calls that expand to their rows, and slim notice
+ * rows, with an optional footer after the last entry. Which rows are open is kept by tool id (a group by its
  * first call's id), so it survives new entries. It opens at the end of the newest item. While the
  * reader is at the bottom, new entries keep the end of the newest item in view; once they scroll
  * up, new entries leave their position alone. A change of the viewport's height or top padding
@@ -119,6 +121,7 @@ fun ConversationView(
                 is ConvoEntry.Reply -> ReplyText(entry.text, markdownCache)
                 is ConvoEntry.Tool -> ToolRow(entry.call, expanded, toggle)
                 is ConvoEntry.Group -> GroupRow(entry.calls, expanded, toggle)
+                is ConvoEntry.Notice -> NoticeRow(entry)
             }
         }
         footer?.let { content -> item(key = FOOTER_KEY) { content() } }
@@ -271,6 +274,70 @@ private fun GroupRow(calls: List<ToolCall>, expanded: Set<String>, onToggle: (St
         }
     }
 }
+
+/**
+ * A session event on one quiet line: a small dot and its sort's label, then its text, cut with an
+ * ellipsis (a teammate notice keeps a few of its summary lines). A failed task is red and marked
+ * with a cross. The text is drawn as it comes, never as markdown.
+ */
+@Composable
+private fun NoticeRow(notice: ConvoEntry.Notice) {
+    val accent = if (notice.error) Mocha.Red else Mocha.Overlay1
+    Row(
+        modifier = Modifier
+            .testTag("notice:${notice.sort}")
+            .fillMaxWidth()
+            .padding(start = 4.dp, end = 4.dp, top = 5.dp, bottom = 5.dp),
+        verticalAlignment = Alignment.Top,
+        horizontalArrangement = Arrangement.spacedBy(7.dp),
+    ) {
+        Box(
+            modifier = Modifier
+                .padding(top = NOTICE_DOT_TOP)
+                .size(NOTICE_DOT)
+                .clip(CircleShape)
+                .background(accent.copy(alpha = NOTICE_DOT_ALPHA)),
+        )
+        Text(
+            text = noticeLabel(notice.sort),
+            color = accent,
+            fontWeight = FontWeight.Bold,
+            fontSize = NOTICE_TEXT_SIZE,
+            lineHeight = NOTICE_LINE_HEIGHT,
+            maxLines = 1,
+        )
+        Text(
+            text = notice.text,
+            modifier = Modifier.weight(1f),
+            color = if (notice.error) Mocha.Red.copy(alpha = NOTICE_ERROR_TEXT_ALPHA) else Mocha.Overlay1,
+            fontSize = NOTICE_TEXT_SIZE,
+            lineHeight = NOTICE_LINE_HEIGHT,
+            maxLines = noticeMaxLines(notice.sort),
+            overflow = TextOverflow.Ellipsis,
+        )
+        if (notice.error) MarkText(CallMark.Failed)
+    }
+}
+
+private val NOTICE_DOT = 5.dp
+private val NOTICE_DOT_TOP = 6.dp
+private const val NOTICE_DOT_ALPHA = 0.7f
+private const val NOTICE_ERROR_TEXT_ALPHA = 0.8f
+private val NOTICE_TEXT_SIZE = 12.sp
+private val NOTICE_LINE_HEIGHT = 17.sp
+
+/** The label a notice of [sort] shows before its text. */
+fun noticeLabel(sort: String): String = when (sort) {
+    "compaction" -> "context compacted"
+    "interrupted" -> "interrupted"
+    "task" -> "task"
+    "teammate" -> "teammate"
+    "" -> "notice"
+    else -> sort
+}
+
+/** How many lines of text a notice of [sort] shows before the ellipsis. */
+fun noticeMaxLines(sort: String): Int = if (sort == "teammate") 3 else 2
 
 @Composable
 private fun Caret(isOpen: Boolean) {

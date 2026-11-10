@@ -47,6 +47,8 @@ private const val TIMEOUT_MILLIS = 5_000L
 private const val WIDE_LINE_REPEATS = 30
 private const val FIXED_NOW_SECONDS = 1_800_000_000L
 private const val STATUS_LINE_TAG = "status-line"
+private const val GOAL_LINE_TAG = "goal-line"
+private const val COMPOSER_TAG = "composer"
 private const val LIVE_RETURN_TAG = "live-return"
 private const val HOST_METERS_TAG = "host-meters"
 private const val HOST_BODY =
@@ -133,6 +135,9 @@ class PaneScreenTest {
 
     private fun conversationBody(vararg items: String): String =
         """{"origin":"synthetic origin","items":[${items.joinToString(",")}]}"""
+
+    private fun conversationBodyWithGoal(goal: String, vararg items: String): String =
+        """{"origin":"synthetic origin","items":[${items.joinToString(",")}],"goal":${JSONObject.quote(goal)}}"""
 
     @Test
     fun openingShowsScreenBodyAndMarksSeenOnce() {
@@ -737,6 +742,60 @@ class PaneScreenTest {
                 "first item top ${first.top} should be below header bottom ${header.bottom}",
                 first.top >= header.bottom,
             )
+        }
+    }
+
+    @Test
+    fun goalShowsInTheComposerBandJustAboveTheStatusLine() {
+        FakeOrreryServer().use { server ->
+            servePane(
+                server,
+                state = "working",
+                conversation = conversationBodyWithGoal(
+                    "synthetic goal text",
+                    conversationItem("reply", "synthetic reply"),
+                ),
+            )
+            setClockedScreen(server)
+
+            composeRule.waitUntilExactlyOneExists(hasTestTag(GOAL_LINE_TAG), TIMEOUT_MILLIS)
+            composeRule.onNodeWithText("synthetic goal text", useUnmergedTree = true).assertIsDisplayed()
+            val goal = composeRule.onNodeWithTag(GOAL_LINE_TAG).fetchSemanticsNode().boundsInRoot
+            val status = composeRule.onNodeWithTag(STATUS_LINE_TAG).fetchSemanticsNode().boundsInRoot
+            val composer = composeRule.onNodeWithTag(COMPOSER_TAG).fetchSemanticsNode().boundsInRoot
+            assertTrue(goal.bottom <= status.top + EDGE_TOLERANCE_PX)
+            assertTrue(goal.top >= composer.top - EDGE_TOLERANCE_PX)
+        }
+    }
+
+    @Test
+    fun conversationWithoutGoalDrawsNoGoalLine() {
+        FakeOrreryServer().use { server ->
+            servePane(
+                server,
+                state = "working",
+                conversation = conversationBody(conversationItem("reply", "synthetic reply")),
+            )
+            setClockedScreen(server)
+
+            composeRule.waitUntilExactlyOneExists(hasText("synthetic reply"), TIMEOUT_MILLIS)
+            composeRule.onNodeWithTag(STATUS_LINE_TAG).assertIsDisplayed()
+            composeRule.onAllNodesWithTag(GOAL_LINE_TAG).assertCountEquals(0)
+        }
+    }
+
+    @Test
+    fun emptyGoalDrawsNoGoalLine() {
+        FakeOrreryServer().use { server ->
+            servePane(
+                server,
+                state = "working",
+                conversation = conversationBodyWithGoal("", conversationItem("reply", "synthetic reply")),
+            )
+            setClockedScreen(server)
+
+            composeRule.waitUntilExactlyOneExists(hasText("synthetic reply"), TIMEOUT_MILLIS)
+            composeRule.onAllNodesWithTag(GOAL_LINE_TAG).assertCountEquals(0)
         }
     }
 }

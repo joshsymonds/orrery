@@ -26,13 +26,14 @@ class ConversationContractTest {
             Conversation(
                 origin = "Example opening prompt.",
                 items = listOf(
-                    ConversationItem("prompt", 1700000000L, "Example opening prompt.", "", "", "", false),
-                    ConversationItem("notice", 1700000050L, "", "", "", "", false),
-                    ConversationItem("reply", 1700000100L, "Example reply.", "", "", "", false),
-                    ConversationItem("tool", 1700000200L, "", "Bash", "example command", "example-tool-use", false),
-                    ConversationItem("result", 1700000210L, "Example output.", "", "", "example-tool-use", false),
-                    ConversationItem("notice", 1700000300L, "Example task finished.", "", "", "", false),
+                    ConversationItem("prompt", 1700000000L, "Example opening prompt.", "", "", "", false, ""),
+                    ConversationItem("notice", 1700000050L, "", "", "", "", false, "compaction"),
+                    ConversationItem("reply", 1700000100L, "Example reply.", "", "", "", false, ""),
+                    ConversationItem("tool", 1700000200L, "", "Bash", "example command", "example-tool-use", false, ""),
+                    ConversationItem("result", 1700000210L, "Example output.", "", "", "example-tool-use", false, ""),
+                    ConversationItem("notice", 1700000300L, "Example task finished.", "", "", "", false, "task"),
                 ),
+                goal = "Example goal.",
             ),
             contractConversation(),
         )
@@ -44,16 +45,17 @@ class ConversationContractTest {
     }
 
     @Test
-    fun foldOfContractExampleGivesNoEntryForNoticeItems() {
+    fun foldOfContractExampleDrawsEachNoticeInItsPlace() {
         val items = contractConversation().items
 
-        assertEquals(foldConversation(items.filter { it.kind != "notice" }), foldConversation(items))
         assertEquals(
             listOf(
                 ConvoEntry.Time(1700000000L),
                 ConvoEntry.Prompt("Example opening prompt.", 1700000000L),
+                ConvoEntry.Notice("compaction", "", false, 1700000050L),
                 ConvoEntry.Reply("Example reply.", 1700000100L),
                 ConvoEntry.Tool(ToolCall("example-tool-use", "Bash", "example command", "Example output.", false)),
+                ConvoEntry.Notice("task", "Example task finished.", false, 1700000300L),
             ),
             foldConversation(items),
         )
