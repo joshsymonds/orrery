@@ -4,6 +4,9 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"reflect"
 	"strconv"
 	"strings"
@@ -465,6 +468,47 @@ func TestEveryDecoderKeyHasFixture(t *testing.T) {
 			t.Errorf("system decoder key %q has no fixture line", key)
 		}
 	}
+}
+
+// TestEveryMarkedVariantHasFixture fails when a type carrying the variant marker in variants.go has
+// no fixture whose want is that type. UnknownMessage is exempt because its own test covers it.
+func TestEveryMarkedVariantHasFixture(t *testing.T) {
+	marked, err := markedVariantTypes("variants.go")
+	if err != nil {
+		t.Fatalf("read variant markers: %v", err)
+	}
+	if len(marked) == 0 {
+		t.Fatal("no variant markers found in variants.go")
+	}
+	fixtured := make(map[string]bool, len(variantFixtures()))
+	for _, fixture := range variantFixtures() {
+		fixtured[reflect.TypeOf(fixture.want).Name()] = true
+	}
+	for _, name := range marked {
+		if name == "UnknownMessage" || fixtured[name] {
+			continue
+		}
+		t.Errorf("marked variant %s has no fixture", name)
+	}
+}
+
+// markedVariantTypes returns the receiver type of every isSDKMessageVariant method in the file.
+func markedVariantTypes(path string) ([]string, error) {
+	file, err := parser.ParseFile(token.NewFileSet(), path, nil, parser.SkipObjectResolution)
+	if err != nil {
+		return nil, err
+	}
+	var names []string
+	for _, decl := range file.Decls {
+		fn, ok := decl.(*ast.FuncDecl)
+		if !ok || fn.Recv == nil || fn.Name.Name != "isSDKMessageVariant" || len(fn.Recv.List) != 1 {
+			continue
+		}
+		if receiver, ok := fn.Recv.List[0].Type.(*ast.Ident); ok {
+			names = append(names, receiver.Name)
+		}
+	}
+	return names, nil
 }
 
 func TestUnknownDiscriminatorsKeepTheLine(t *testing.T) {

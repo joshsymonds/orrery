@@ -3,7 +3,6 @@ package wire
 func (SDKAssistantMessage) isSDKMessageVariant()              {}
 func (SDKUserMessage) isSDKMessageVariant()                   {}
 func (SDKUserMessageReplay) isSDKMessageVariant()             {}
-func (SDKResultMessage) isSDKMessageVariant()                 {}
 func (SDKResultSuccess) isSDKMessageVariant()                 {}
 func (SDKResultError) isSDKMessageVariant()                   {}
 func (SDKSystemMessage) isSDKMessageVariant()                 {}
