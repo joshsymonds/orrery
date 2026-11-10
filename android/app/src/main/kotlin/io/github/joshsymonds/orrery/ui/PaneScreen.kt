@@ -1,21 +1,40 @@
 package io.github.joshsymonds.orrery.ui
 
 import android.util.Log
+import androidx.compose.animation.core.animateIntAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.ScrollState
+import androidx.compose.foundation.gestures.ScrollableState
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import io.github.joshsymonds.orrery.api.Conversation
@@ -33,6 +52,8 @@ import org.json.JSONException
 
 private const val TAG = "PaneScreen"
 private const val POLL_INTERVAL_MILLIS = 1_000L
+private const val HEADER_SLIDE_MILLIS = 220
+private val BODY_GAP_BELOW_HEADER = 6.dp
 
 /**
  * One tick's pane reads. `conversation` is null for a terminal pane. `text` is null when the
@@ -80,6 +101,9 @@ private suspend fun fetchHost(client: OrreryClient): HostRead? =
  * text, with the card below it. Tapping the status line opens the live screen, which shows the
  * terminal text until the status line is tapped again or the live-screen bar is tapped. Opening
  * the screen marks the pane seen once.
+ *
+ * The header overlays the body and slides away while the reader scrolls towards newer content;
+ * it returns on a short scroll back, and always shows at the top and the newest end.
  */
 @Composable
 fun PaneScreen(
@@ -152,36 +176,93 @@ fun PaneScreen(
     val refresh: () -> Unit = { refreshRequests.trySend(Unit) }
     val entries = remember(conversation) { foldConversation(conversation?.items.orEmpty()) }
 
+    val density = LocalDensity.current
+    val headerRule = remember(paneId) {
+        with(density) { HeaderScrollRule(HEADER_HIDE_AFTER_DP.dp.toPx(), HEADER_SHOW_AFTER_DP.dp.toPx()) }
+    }
+    val showingConversation = conversation != null && !liveScreen
+    // Keyed by pane, and the terminal's also by view, so a pane switch or a return to the live
+    // screen starts at the newest line instead of where another view was left.
+    val listState = remember(paneId) { LazyListState() }
+    val terminalScroll = remember(paneId, showingConversation) { ScrollState(0) }
+    var headerHeightPx by remember { mutableIntStateOf(0) }
+    val bodyScroll: ScrollableState = if (showingConversation) listState else terminalScroll
+    val headerShift by animateIntAsState(
+        targetValue = if (headerRule.visible) 0 else -headerHeightPx,
+        animationSpec = tween(HEADER_SLIDE_MILLIS),
+        label = "header-shift",
+    )
+    val bodyTop = with(density) { headerHeightPx.toDp() } + BODY_GAP_BELOW_HEADER
+    val bodyReady = current == null || headerHeightPx > 0
+    val headerScroll = remember(headerRule, bodyScroll) {
+        object : NestedScrollConnection {
+            override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
+                headerRule.onScroll(
+                    deltaPx = -consumed.y,
+                    atTop = !bodyScroll.canScrollBackward,
+                    atBottom = !bodyScroll.canScrollForward,
+                )
+                return Offset.Zero
+            }
+        }
+    }
+    LaunchedEffect(headerRule, bodyScroll) {
+        snapshotFlow { bodyScroll.canScrollBackward to bodyScroll.canScrollForward }.collect { (canBack, canForward) ->
+            if (!canBack || !canForward) headerRule.onScroll(0f, atTop = !canBack, atBottom = !canForward)
+        }
+    }
+
     Column(modifier = modifier.fillMaxSize()) {
         if (refreshFailed) {
             Text("could not refresh")
         }
-        current?.let { shown ->
-            PaneHeader(
-                pane = shown,
-                origin = conversation?.origin,
-                stats = stats,
-                nowSeconds = nowSeconds,
-                showStatus = conversation != null,
-                liveScreen = liveScreen,
-                onStatusClick = {
-                    liveScreen = !liveScreen
-                    refresh()
-                },
-                onConversation = { liveScreen = false },
-                onBack = onBack,
-            )
-        }
-        if (conversation != null && !liveScreen) {
-            val footer: (@Composable () -> Unit)? = question?.let { card ->
-                val content: @Composable () -> Unit = { QuestionCard(card, client, onRefresh = refresh) }
-                content
+        Box(modifier = Modifier.weight(1f).fillMaxWidth().nestedScroll(headerScroll)) {
+            // The body waits for the header's height, so its top padding is final before its first
+            // layout. The conversation follows the newest item only on new entries, so a later
+            // change of the padding would push the newest item out of view.
+            if (bodyReady && showingConversation) {
+                val footer: (@Composable () -> Unit)? = question?.let { card ->
+                    val content: @Composable () -> Unit = { QuestionCard(card, client, onRefresh = refresh) }
+                    content
+                }
+                ConversationView(
+                    entries,
+                    listState = listState,
+                    contentPadding = PaddingValues(top = bodyTop),
+                    footer = footer,
+                )
+            } else if (bodyReady) {
+                Column(modifier = Modifier.fillMaxSize()) {
+                    TerminalView(
+                        text,
+                        modifier = Modifier.weight(1f).fillMaxWidth(),
+                        verticalState = terminalScroll,
+                        topPadding = bodyTop,
+                    )
+                    if (question != null) {
+                        QuestionCard(question, client, onRefresh = refresh)
+                    }
+                }
             }
-            ConversationView(entries, modifier = Modifier.weight(1f), footer = footer)
-        } else {
-            TerminalView(text, modifier = Modifier.weight(1f).fillMaxWidth())
-            if (question != null) {
-                QuestionCard(question, client, onRefresh = refresh)
+            current?.let { shown ->
+                PaneHeader(
+                    pane = shown,
+                    origin = conversation?.origin,
+                    stats = stats,
+                    nowSeconds = nowSeconds,
+                    showStatus = conversation != null,
+                    liveScreen = liveScreen,
+                    onStatusClick = {
+                        liveScreen = !liveScreen
+                        refresh()
+                    },
+                    onConversation = { liveScreen = false },
+                    onBack = onBack,
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .onSizeChanged { headerHeightPx = it.height }
+                        .offset { IntOffset(0, headerShift) },
+                )
             }
         }
         ComposeBox(paneId, client)

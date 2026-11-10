@@ -1,8 +1,10 @@
 package io.github.joshsymonds.orrery.ui
 
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
@@ -18,7 +20,10 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.flow.drop
 
 internal const val TERMINAL_VIEWPORT_TAG = "terminal-viewport"
 internal const val TERMINAL_TEXT_TAG = "terminal-text"
@@ -36,23 +41,33 @@ private const val UNMEASURED_MAX = Int.MAX_VALUE
  * both ways, with a pinch setting the text size. It opens at the newest line and the left edge.
  * While the reader is at the bottom, new text keeps the newest line in view; once they scroll
  * away, new text leaves their position alone. The view is display only.
+ *
+ * [verticalState] is the vertical scroll position, which the caller may read; [topPadding] sits
+ * above the first line, inside the scrolling content, so a caller can clear an overlay.
  */
 @Composable
-fun TerminalView(text: String, modifier: Modifier = Modifier) {
+fun TerminalView(
+    text: String,
+    modifier: Modifier = Modifier,
+    verticalState: ScrollState = rememberScrollState(),
+    topPadding: Dp = 0.dp,
+) {
     val styled = remember(text) { parseAnsi(text) }
     var sizeSp by rememberSaveable { mutableFloatStateOf(START_SIZE_SP) }
-    val vertical = rememberScrollState()
     val horizontal = rememberScrollState()
     var followBottom by remember { mutableStateOf(true) }
 
-    LaunchedEffect(vertical) {
-        snapshotFlow { vertical.value }.collect {
-            if (vertical.maxValue != UNMEASURED_MAX) followBottom = it >= vertical.maxValue
+    LaunchedEffect(verticalState) {
+        // The first value is where the view starts, not a move by the reader: when the text is
+        // already there at the first layout, reading it would turn following off before the
+        // view ever reached the newest line.
+        snapshotFlow { verticalState.value }.drop(1).collect {
+            if (verticalState.maxValue != UNMEASURED_MAX) followBottom = it >= verticalState.maxValue
         }
     }
-    LaunchedEffect(vertical) {
-        snapshotFlow { vertical.maxValue }.collect {
-            if (it != UNMEASURED_MAX && followBottom) vertical.scrollTo(it)
+    LaunchedEffect(verticalState) {
+        snapshotFlow { verticalState.maxValue }.collect {
+            if (it != UNMEASURED_MAX && followBottom) verticalState.scrollTo(it)
         }
     }
 
@@ -76,7 +91,7 @@ fun TerminalView(text: String, modifier: Modifier = Modifier) {
                     }
                 }
             }
-            .verticalScroll(vertical)
+            .verticalScroll(verticalState)
             .horizontalScroll(horizontal),
     ) {
         Text(
@@ -84,7 +99,7 @@ fun TerminalView(text: String, modifier: Modifier = Modifier) {
             fontSize = sizeSp.sp,
             lineHeight = (sizeSp * LINE_HEIGHT_RATIO).sp,
             softWrap = false,
-            modifier = Modifier.testTag(TERMINAL_TEXT_TAG),
+            modifier = Modifier.padding(top = topPadding).testTag(TERMINAL_TEXT_TAG),
         )
     }
 }

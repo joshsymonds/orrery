@@ -2,6 +2,8 @@ package io.github.joshsymonds.orrery.ui
 
 import androidx.activity.ComponentActivity
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
@@ -15,8 +17,12 @@ import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollToIndex
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.swipe
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import io.github.joshsymonds.orrery.api.FakeOrreryServer
 import io.github.joshsymonds.orrery.api.OrreryClient
@@ -46,6 +52,18 @@ private const val HOST_METERS_TAG = "host-meters"
 private const val HOST_BODY =
     """{"host":"example-host","stats":[{"label":"cpu","value":"12%","percent":12.0,"level":"ok"}]}"""
 private val wideLine = "synthetic-wide-line ".repeat(WIDE_LINE_REPEATS).trimEnd()
+private const val PANE_HEADER_TAG = "pane-header"
+private const val CONVERSATION_LIST_TAG = "conversation-list"
+private const val REPLY_COUNT = 40
+private const val SHORT_REPLY_COUNT = 3
+private const val TERMINAL_LINES = 200
+private const val OLDER_DRAG_DP = 300f
+private const val NEWER_DRAG_DP = 100f
+// Robolectric's touch slop is 16 px at density 1, so a 20 dp drag delivers only about 4 px of
+// scroll, under the 10 dp show threshold. A 40 dp drag delivers about 24 dp. (A phone's slop is 8 dp.)
+private const val SHORT_DRAG_DP = 40f
+private const val SLOW_SWIPE_MILLIS = 1_000L
+private const val EDGE_TOLERANCE_PX = 0.5f
 
 @OptIn(ExperimentalTestApi::class)
 @RunWith(RobolectricTestRunner::class)
@@ -525,6 +543,200 @@ class PaneScreenTest {
             composeRule.waitUntil(TIMEOUT_MILLIS) { terminalText()?.text == "synthetic terminal next" }
             composeRule.onAllNodesWithTag(HOST_METERS_TAG).assertCountEquals(1)
             composeRule.onNodeWithText("could not refresh").assertDoesNotExist()
+        }
+    }
+
+    private fun numberedReplies(count: Int): String =
+        conversationBody(*(1..count).map { conversationItem("reply", "synthetic reply $it") }.toTypedArray())
+
+    private fun terminalLines(count: Int): String =
+        (1..count).joinToString("\n") { "synthetic line $it" }
+
+    private fun headerBounds(): Rect =
+        composeRule.onNodeWithTag(PANE_HEADER_TAG).fetchSemanticsNode().boundsInRoot
+
+    private fun assertHeaderShown() {
+        assertTrue("header should be on screen, bounds ${headerBounds()}", headerBounds().bottom > 0f)
+    }
+
+    private fun assertHeaderHidden() {
+        assertTrue("header should have slid away, bounds ${headerBounds()}", headerBounds().bottom <= 0f)
+    }
+
+    /** A slow drag over the node. A positive distance moves the finger down, towards older content. */
+    private fun drag(tag: String, fingerDownDp: Float) {
+        val dy = with(composeRule.density) { fingerDownDp.dp.toPx() }
+        composeRule.onNodeWithTag(tag).performTouchInput {
+            swipe(
+                start = Offset(center.x, center.y - dy / 2),
+                end = Offset(center.x, center.y + dy / 2),
+                durationMillis = SLOW_SWIPE_MILLIS,
+            )
+        }
+        composeRule.waitForIdle()
+    }
+
+    @Config(sdk = [35], qualifiers = "w400dp-h1000dp")
+    @Test
+    fun headerIsShownAtNewestReply() {
+        FakeOrreryServer().use { server ->
+            servePane(server, conversation = numberedReplies(REPLY_COUNT))
+            setScreen(server)
+            composeRule.waitUntilExactlyOneExists(hasText("synthetic reply $REPLY_COUNT"), TIMEOUT_MILLIS)
+
+            composeRule.onNodeWithTag(PANE_HEADER_TAG).assertIsDisplayed()
+        }
+    }
+
+    @Config(sdk = [35], qualifiers = "w400dp-h1000dp")
+    @Test
+    fun headerOverlaysTheTopOfTheConversation() {
+        FakeOrreryServer().use { server ->
+            servePane(server, conversation = numberedReplies(REPLY_COUNT))
+            setScreen(server)
+            composeRule.waitUntilExactlyOneExists(hasText("synthetic reply $REPLY_COUNT"), TIMEOUT_MILLIS)
+
+            val list = composeRule.onNodeWithTag(CONVERSATION_LIST_TAG).fetchSemanticsNode().boundsInRoot
+            assertEquals(headerBounds().top, list.top, EDGE_TOLERANCE_PX)
+        }
+    }
+
+    @Config(sdk = [35], qualifiers = "w400dp-h1000dp")
+    @Test
+    fun headerSlidesAwayOnDragTowardNewerContent() {
+        FakeOrreryServer().use { server ->
+            servePane(server, conversation = numberedReplies(REPLY_COUNT))
+            setScreen(server)
+            composeRule.waitUntilExactlyOneExists(hasText("synthetic reply $REPLY_COUNT"), TIMEOUT_MILLIS)
+
+            drag(CONVERSATION_LIST_TAG, OLDER_DRAG_DP)
+            drag(CONVERSATION_LIST_TAG, -NEWER_DRAG_DP)
+
+            assertHeaderHidden()
+        }
+    }
+
+    @Config(sdk = [35], qualifiers = "w400dp-h1000dp")
+    @Test
+    fun shortDragTowardOlderContentShowsHeaderAgain() {
+        FakeOrreryServer().use { server ->
+            servePane(server, conversation = numberedReplies(REPLY_COUNT))
+            setScreen(server)
+            composeRule.waitUntilExactlyOneExists(hasText("synthetic reply $REPLY_COUNT"), TIMEOUT_MILLIS)
+
+            drag(CONVERSATION_LIST_TAG, OLDER_DRAG_DP)
+            drag(CONVERSATION_LIST_TAG, -NEWER_DRAG_DP)
+            assertHeaderHidden()
+
+            drag(CONVERSATION_LIST_TAG, SHORT_DRAG_DP)
+
+            assertHeaderShown()
+        }
+    }
+
+    @Config(sdk = [35], qualifiers = "w400dp-h1000dp")
+    @Test
+    fun hiddenHeaderReturnsWhenScrolledToNewestReply() {
+        FakeOrreryServer().use { server ->
+            servePane(server, conversation = numberedReplies(REPLY_COUNT))
+            setScreen(server)
+            composeRule.waitUntilExactlyOneExists(hasText("synthetic reply $REPLY_COUNT"), TIMEOUT_MILLIS)
+            drag(CONVERSATION_LIST_TAG, OLDER_DRAG_DP)
+            drag(CONVERSATION_LIST_TAG, -NEWER_DRAG_DP)
+            assertHeaderHidden()
+
+            composeRule.onNodeWithTag(CONVERSATION_LIST_TAG).performScrollToIndex(REPLY_COUNT - 1)
+            composeRule.waitForIdle()
+
+            assertHeaderShown()
+        }
+    }
+
+    @Config(sdk = [35], qualifiers = "w400dp-h1000dp")
+    @Test
+    fun hiddenHeaderReturnsWhenScrolledToTopOfConversation() {
+        FakeOrreryServer().use { server ->
+            servePane(server, conversation = numberedReplies(REPLY_COUNT))
+            setScreen(server)
+            composeRule.waitUntilExactlyOneExists(hasText("synthetic reply $REPLY_COUNT"), TIMEOUT_MILLIS)
+            drag(CONVERSATION_LIST_TAG, OLDER_DRAG_DP)
+            drag(CONVERSATION_LIST_TAG, -NEWER_DRAG_DP)
+            assertHeaderHidden()
+
+            composeRule.onNodeWithTag(CONVERSATION_LIST_TAG).performScrollToIndex(0)
+            composeRule.waitForIdle()
+
+            assertHeaderShown()
+        }
+    }
+
+    @Config(sdk = [35], qualifiers = "w400dp-h1000dp")
+    @Test
+    fun liveScreenReopensAtItsNewestLineAfterTheReaderScrolledItUp() {
+        FakeOrreryServer().use { server ->
+            servePane(server, conversation = numberedReplies(SHORT_REPLY_COUNT))
+            val body = terminalLines(TERMINAL_LINES)
+            server.respond("GET", SCREEN_PATH, 200, body)
+            setScreen(server)
+            composeRule.waitUntilExactlyOneExists(hasText("synthetic reply $SHORT_REPLY_COUNT"), TIMEOUT_MILLIS)
+
+            composeRule.onNodeWithTag(STATUS_LINE_TAG).performClick()
+            composeRule.waitUntil(TIMEOUT_MILLIS) { terminalText()?.text == body }
+            drag(TERMINAL_VIEWPORT_TAG, OLDER_DRAG_DP)
+            assertTrue("the drag should leave the newest line", terminalBottomGap() > 1f)
+
+            composeRule.onNodeWithTag(LIVE_RETURN_TAG).performClick()
+            composeRule.waitUntilExactlyOneExists(hasText("synthetic reply $SHORT_REPLY_COUNT"), TIMEOUT_MILLIS)
+            composeRule.onNodeWithTag(STATUS_LINE_TAG).performClick()
+            composeRule.waitUntil(TIMEOUT_MILLIS) { terminalText()?.text == body }
+            composeRule.waitForIdle()
+
+            assertEquals(0f, terminalBottomGap(), 1f)
+        }
+    }
+
+    /** How far the terminal text's last line sits below the bottom of its viewport. */
+    private fun terminalBottomGap(): Float {
+        val viewport = composeRule.onNodeWithTag(TERMINAL_VIEWPORT_TAG).fetchSemanticsNode()
+        val text = composeRule.onNodeWithTag(TERMINAL_TEXT_TAG).fetchSemanticsNode()
+        val viewportBottom = viewport.positionInRoot.y + viewport.size.height
+        val textBottom = text.positionInRoot.y + text.size.height
+        return textBottom - viewportBottom
+    }
+
+    @Config(sdk = [35], qualifiers = "w400dp-h1000dp")
+    @Test
+    fun terminalHeaderSlidesAwayAndReturnsLikeConversation() {
+        FakeOrreryServer().use { server ->
+            servePane(server, state = "")
+            val body = terminalLines(TERMINAL_LINES)
+            server.respond("GET", SCREEN_PATH, 200, body)
+            setScreen(server)
+            composeRule.waitUntil(TIMEOUT_MILLIS) { terminalText()?.text == body }
+
+            drag(TERMINAL_VIEWPORT_TAG, OLDER_DRAG_DP)
+            drag(TERMINAL_VIEWPORT_TAG, -NEWER_DRAG_DP)
+            assertHeaderHidden()
+
+            drag(TERMINAL_VIEWPORT_TAG, SHORT_DRAG_DP)
+            assertHeaderShown()
+        }
+    }
+
+    @Config(sdk = [35], qualifiers = "w400dp-h1000dp")
+    @Test
+    fun firstConversationItemLiesBelowHeaderAtTop() {
+        FakeOrreryServer().use { server ->
+            servePane(server, conversation = numberedReplies(SHORT_REPLY_COUNT))
+            setScreen(server)
+            composeRule.waitUntilExactlyOneExists(hasText("synthetic reply 1"), TIMEOUT_MILLIS)
+
+            val header = headerBounds()
+            val first = composeRule.onNodeWithText("synthetic reply 1").fetchSemanticsNode().boundsInRoot
+            assertTrue(
+                "first item top ${first.top} should be below header bottom ${header.bottom}",
+                first.top >= header.bottom,
+            )
         }
     }
 }
