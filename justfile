@@ -146,8 +146,8 @@ android-font:
     SCRIPT
 
 # Rerun the Claude Code protocol probes live against the claude on PATH (spends Haiku turns on your sign-in; not part of check).
-engine-accept:
-    go run ./internal/engine/capture/cmd/enginecapture accept
+engine-accept *args:
+    go run ./internal/engine/capture/cmd/enginecapture accept {{args}}
 
 # Regenerate docs/img/tree.png: the real `orrery tree`, built from this tree,
 # full-frame in VHS's terminal (Catppuccin Mocha, Maple Mono NF) against the

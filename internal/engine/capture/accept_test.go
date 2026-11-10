@@ -134,3 +134,119 @@ func TestCheckListsUnknownTypesOnceSorted(t *testing.T) {
 		t.Errorf("Check() Unknown = %q, want %q", report.Unknown, want)
 	}
 }
+
+func TestCheckContainsMatchesRawLineText(t *testing.T) {
+	t.Parallel()
+	const guard = "GUARD REFUSED"
+	userGuard := `{"type":"user","message":{"role":"user","content":"` + guard + ` rule 7"}}` + "\n"
+	userFatal := `{"type":"user","message":{"role":"user","content":"fatal: not a git repository"}}` + "\n"
+	assistantGuard := `{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"` + guard + `"}]}}` + "\n"
+	tests := []struct {
+		name    string
+		stdout  string
+		expect  []Expectation
+		missing []Expectation
+	}{
+		{
+			name:   "user line with the wanted text satisfies",
+			stdout: userGuard,
+			expect: []Expectation{{Type: "user", Contains: guard}},
+		},
+		{
+			name:    "user line with other error text is missing",
+			stdout:  userFatal,
+			expect:  []Expectation{{Type: "user", Contains: guard}},
+			missing: []Expectation{{Type: "user", Contains: guard}},
+		},
+		{
+			name:    "wanted text on another type does not count",
+			stdout:  assistantGuard,
+			expect:  []Expectation{{Type: "user", Contains: guard}},
+			missing: []Expectation{{Type: "user", Contains: guard}},
+		},
+		{
+			name:    "count applies to contains matches",
+			stdout:  userGuard + userFatal,
+			expect:  []Expectation{{Type: "user", Contains: guard, Count: 2}},
+			missing: []Expectation{{Type: "user", Contains: guard, Count: 2}},
+		},
+		{
+			name:   "count met by contains matches",
+			stdout: userGuard + userGuard,
+			expect: []Expectation{{Type: "user", Contains: guard, Count: 2}},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			report, err := Check([]byte(test.stdout), test.expect)
+			if err != nil {
+				t.Fatalf("Check() error = %v, want nil", err)
+			}
+			if !reflect.DeepEqual(report.Missing, test.missing) {
+				t.Errorf("Check() Missing = %+v, want %+v", report.Missing, test.missing)
+			}
+		})
+	}
+}
+
+func TestSessionIDReturnsFirstInitLine(t *testing.T) {
+	t.Parallel()
+	stdout := `{"type":"system","subtype":"init","session_id":"sess-first"}
+{"type":"assistant","session_id":"sess-assistant"}
+{"type":"system","subtype":"init","session_id":"sess-second"}
+{"type":"result","subtype":"success","session_id":"sess-result"}
+`
+	id, err := SessionID([]byte(stdout))
+	if err != nil {
+		t.Fatalf("SessionID() error = %v, want nil", err)
+	}
+	if id != "sess-first" {
+		t.Errorf("SessionID() = %q, want %q", id, "sess-first")
+	}
+}
+
+func TestSessionIDErrorsWithoutInitLine(t *testing.T) {
+	t.Parallel()
+	stdout := `{"type":"assistant","session_id":"sess-assistant"}
+{"type":"result","subtype":"success","session_id":"sess-result"}
+`
+	if _, err := SessionID([]byte(stdout)); err == nil {
+		t.Fatal("SessionID() error = nil, want an error for a stream with no system init line")
+	}
+}
+
+func TestSessionIDErrorsWhenInitHasNoSessionID(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name   string
+		stdout string
+	}{
+		{name: "absent", stdout: `{"type":"system","subtype":"init"}` + "\n"},
+		{name: "empty", stdout: `{"type":"system","subtype":"init","session_id":""}` + "\n"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			id, err := SessionID([]byte(test.stdout))
+			if err == nil {
+				t.Fatalf("SessionID() = %q, want an error", id)
+			}
+			if !strings.Contains(err.Error(), "no session_id") {
+				t.Errorf("SessionID() error = %v, want it to say the init line has no session_id", err)
+			}
+		})
+	}
+}
+
+func TestSessionIDErrorsNamingNonJSONLine(t *testing.T) {
+	t.Parallel()
+	stdout := "{\"type\":\"assistant\"}\nnot json\n{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"sess-first\"}\n"
+	_, err := SessionID([]byte(stdout))
+	if err == nil {
+		t.Fatal("SessionID() error = nil, want an error for a line that is not JSON")
+	}
+	if !strings.Contains(err.Error(), "line 2:") {
+		t.Errorf("SessionID() error = %v, want it to name %q", err, "line 2:")
+	}
+}

@@ -21,6 +21,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -974,8 +975,9 @@ func waitForScreen(t *testing.T, tmux *tmuxctl.Client, pane, want string) {
 	}
 }
 
-// awaitInput waits until file holds at least len(want) bytes, then requires it to equal want exactly.
-func awaitInput(t *testing.T, file, want string) {
+// awaitInput waits until file holds as many bytes as the options, then requires it to equal one of them
+// exactly. The options must share one length.
+func awaitInput(t *testing.T, file string, options ...string) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), screenWait)
 	defer cancel()
@@ -986,15 +988,15 @@ func awaitInput(t *testing.T, file, want string) {
 		if err != nil && !errors.Is(err, fs.ErrNotExist) {
 			t.Fatalf("read input: %v", err)
 		}
-		if len(got) >= len(want) {
-			if string(got) != want {
-				t.Fatalf("pane received %q, want %q", got, want)
+		if len(got) >= len(options[0]) {
+			if !slices.Contains(options, string(got)) {
+				t.Fatalf("pane received %q, want one of %q", got, options)
 			}
 			return
 		}
 		select {
 		case <-ctx.Done():
-			t.Fatalf("pane received %q, want %q", got, want)
+			t.Fatalf("pane received %q, want one of %q", got, options)
 		case <-ticker.C:
 		}
 	}
@@ -1008,6 +1010,77 @@ func TestServePaneText(t *testing.T) {
 	rec := postJSON(t, newHandler(t, tmux), paneRoute(pane, "text"), jsonBody(t, map[string]any{"text": synthText}))
 	assertStatus(t, rec, http.StatusNoContent)
 	awaitInput(t, file, "\x1b[200~"+synthText+"\x1b[201~\r")
+}
+
+// synthPrompt is the synthetic text that follows the prompt mark in a typing pane's input box.
+const synthPrompt = "synthetic prompt"
+
+// typingWidth is the column width of a typing pane, which the input box rules span.
+const typingWidth = 80
+
+// typedLineBytes and typedLines size the text of each concurrent send: each line takes several typed
+// pieces, so two sends interleave unless the text route serializes them.
+const (
+	typedLineBytes = 900
+	typedLines     = 4
+)
+
+// typedLinesOf returns typedLines lines of typedLineBytes bytes each, all of letter, joined by line feeds.
+func typedLinesOf(letter string) string {
+	line := strings.Repeat(letter, typedLineBytes)
+	return strings.Repeat(line+"\n", typedLines-1) + line
+}
+
+// startTypingPane starts a pane whose screen is an idle input box typingWidth columns wide, sets its orrery
+// state to done, and returns its pane ID and input file.
+func startTypingPane(t *testing.T, tmux *tmuxctl.Client, session string) (string, string) {
+	t.Helper()
+	rule := strings.Repeat("─", typingWidth)
+	pane, file := startInputPane(t, tmux, session, rule+"\n❯ "+synthPrompt+"\n"+rule)
+	out, err := tmux.Run(t.Context(), "display-message", "-p", "-t", pane, "#{pane_width}")
+	if err != nil {
+		t.Fatalf("display-message %s: %v", pane, err)
+	}
+	if got := strings.TrimSpace(out); got != strconv.Itoa(typingWidth) {
+		t.Fatalf("pane width = %s, want %d", got, typingWidth)
+	}
+	if err := tmux.SetPaneOption(t.Context(), pane, protocol.OptionState, string(protocol.StateDone)); err != nil {
+		t.Fatalf("SetPaneOption: %v", err)
+	}
+	return pane, file
+}
+
+// TestServePaneTextConcurrentSendsDoNotInterleave sends two long texts to one idle input pane at the same
+// time, and requires the pane to receive one whole typed message before the other.
+func TestServePaneTextConcurrentSendsDoNotInterleave(t *testing.T) {
+	t.Parallel()
+
+	tmux := newTmuxServer(t)
+	pane, file := startTypingPane(t, tmux, "s1")
+	handler := newHandler(t, tmux)
+	path := paneRoute(pane, "text")
+	bodies := []string{
+		jsonBody(t, map[string]any{"text": typedLinesOf("a")}),
+		jsonBody(t, map[string]any{"text": typedLinesOf("b")}),
+	}
+
+	recs := make([]*httptest.ResponseRecorder, len(bodies))
+	var wg sync.WaitGroup
+	for i, body := range bodies {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			recs[i] = postJSON(t, handler, path, body)
+		}()
+	}
+	wg.Wait()
+
+	for _, rec := range recs {
+		assertStatus(t, rec, http.StatusNoContent)
+	}
+	first := typedLinesOf("a") + "\r"
+	second := typedLinesOf("b") + "\r"
+	awaitInput(t, file, first+second, second+first)
 }
 
 func TestServePaneKeys(t *testing.T) {
@@ -1651,6 +1724,100 @@ func serveBody(t *testing.T, handler http.Handler, path string) string {
 	rec := get(t, handler, path, allowedLogin)
 	assertStatus(t, rec, http.StatusOK)
 	return rec.Body.String()
+}
+
+// synthGoal is the synthetic goal condition of the goal fixtures.
+const synthGoal = "synthetic goal condition"
+
+// goalRecord returns a goal_status attachment line for condition, met or not met, with its newline.
+func goalRecord(condition string, met bool) string {
+	return fmt.Sprintf(
+		`{"type":"attachment","attachment":{"type":"goal_status","condition":%q,"met":%t,"sentinel":true}}`+"\n",
+		condition, met)
+}
+
+// appendTranscript appends text to the transcript at path.
+func appendTranscript(t *testing.T, path, text string) {
+	t.Helper()
+	file, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatalf("open transcript: %v", err)
+	}
+	if _, err := file.WriteString(text); err != nil {
+		t.Fatalf("append transcript: %v", err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatalf("close transcript: %v", err)
+	}
+}
+
+// overwriteTranscript replaces the first old in the transcript at path with replacement of the same length, in place.
+func overwriteTranscript(t *testing.T, path, old, replacement string) {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read transcript: %v", err)
+	}
+	at := bytes.Index(data, []byte(old))
+	if at < 0 || len(old) != len(replacement) {
+		t.Fatalf("cannot overwrite %q with %q in place", old, replacement)
+	}
+	file, err := os.OpenFile(path, os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatalf("open transcript: %v", err)
+	}
+	if _, err := file.WriteAt([]byte(replacement), int64(at)); err != nil {
+		t.Fatalf("overwrite transcript: %v", err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatalf("close transcript: %v", err)
+	}
+}
+
+// conversationGoal returns the goal key of the conversation answer for pane through handler.
+func conversationGoal(t *testing.T, handler http.Handler, pane string) string {
+	t.Helper()
+	var got conversation.Conversation
+	if err := json.Unmarshal([]byte(serveBody(t, handler, conversationPath(pane, ""))), &got); err != nil {
+		t.Fatalf("decode conversation: %v", err)
+	}
+	return got.Goal
+}
+
+func TestServePaneConversationGoal(t *testing.T) {
+	t.Parallel()
+
+	tmux := newTmuxServer(t)
+	path := writeConversation(t, 1)
+	appendTranscript(t, path, goalRecord(synthGoal, false))
+	pane := conversationPane(t, tmux, liveOptions(path))
+	handler := newHandler(t, tmux)
+
+	if got := conversationGoal(t, handler, pane); got != synthGoal {
+		t.Fatalf("goal = %q, want %q", got, synthGoal)
+	}
+	// The handler remembers how far it has read, so a second request reads only the appended reply and keeps the
+	// goal it read before, though a fresh read would now find the overwritten condition.
+	overwriteTranscript(t, path, synthGoal, strings.Repeat("x", len(synthGoal)))
+	reply := `{"type":"assistant","message":{"content":[{"type":"text","text":"synthetic reply"}]}}`
+	appendTranscript(t, path, reply+"\n")
+	if got := conversationGoal(t, handler, pane); got != synthGoal {
+		t.Fatalf("goal after appended reply = %q, want %q", got, synthGoal)
+	}
+	appendTranscript(t, path, goalRecord(synthGoal, true))
+	if got := conversationGoal(t, handler, pane); got != "" {
+		t.Fatalf("goal after met record = %q, want empty", got)
+	}
+}
+
+func TestServePaneConversationNoGoal(t *testing.T) {
+	t.Parallel()
+
+	tmux := newTmuxServer(t)
+	pane := conversationPane(t, tmux, liveOptions(writeConversation(t, 1)))
+	if got := conversationGoal(t, newHandler(t, tmux), pane); got != "" {
+		t.Fatalf("goal = %q, want empty", got)
+	}
 }
 
 func TestServePaneConversationLimit(t *testing.T) {

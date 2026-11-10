@@ -19,6 +19,9 @@ const (
 	testTimeout  = 5 * time.Second
 	stallWindow  = 200 * time.Millisecond
 	backlogCount = 200
+	// maxLineTimeout is the hang guard for the test that pushes a line of MaxLineBytes through the
+	// transport under the race detector.
+	maxLineTimeout = 60 * time.Second
 
 	fixedUUIDOne = "00000000-0000-4000-8000-000000000001"
 	fixedUUIDTwo = "00000000-0000-4000-8000-000000000002"
@@ -96,6 +99,12 @@ func stdinLines(fake *fakeProcess, count int) <-chan []byte {
 // receive returns the next value from ch, failing the test if none arrives in time.
 func receive[T any](t *testing.T, ch <-chan T) T {
 	t.Helper()
+	return receiveWithin(t, ch, testTimeout)
+}
+
+// receiveWithin returns the next value from ch, failing the test if none arrives within timeout.
+func receiveWithin[T any](t *testing.T, ch <-chan T, timeout time.Duration) T {
+	t.Helper()
 	var zero T
 	select {
 	case value, ok := <-ch:
@@ -103,7 +112,7 @@ func receive[T any](t *testing.T, ch <-chan T) T {
 			t.Fatal("channel closed before a value arrived")
 		}
 		return value
-	case <-time.After(testTimeout):
+	case <-time.After(timeout):
 		t.Fatal("timed out waiting for a value")
 	}
 	return zero
@@ -189,7 +198,7 @@ func TestInboundLineOfMaxLineBytesArrivesWhole(t *testing.T) {
 	line := paddedEvent(MaxLineBytes)
 	emit(fake, line+"\n")
 
-	got := receive(t, transport.Events())
+	got := receiveWithin(t, transport.Events(), maxLineTimeout)
 	if !bytes.Equal(got.RawJSON(), []byte(line)) {
 		t.Fatalf("event has %d bytes, want %d intact bytes", len(got.RawJSON()), len(line))
 	}
