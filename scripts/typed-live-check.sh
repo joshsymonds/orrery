@@ -80,6 +80,13 @@ trust_or_box() {
     grep -qi -- "trust" <<<"$text" || grep -qF -- "❯" <<<"$text"
 }
 
+# trust_yes_selected succeeds when the folder-trust prompt's selector is on its "Yes" choice.
+trust_yes_selected() {
+    local text
+    text=$(screen)
+    grep -qE -- '❯ +Yes, I trust' <<<"$text"
+}
+
 # wait_for DESCRIPTION LIMIT COMMAND [ARG...] polls COMMAND once a second until it succeeds.
 # On timeout it prints what it waited for and the last screen, then fails the run.
 wait_for() {
@@ -334,7 +341,11 @@ echo "server: $server socket: $socket pane: $pane dir: $workdir"
 
 wait_for "the folder-trust prompt or the input box" "$trust_limit" trust_or_box
 if screen_has "trust"; then
-    echo "accepting the folder-trust prompt with Enter"
+    # The prompt opens on "No, exit", and Enter there quits claude. Move to "Yes, I trust this
+    # folder" and confirm it is selected before pressing Enter.
+    echo "accepting the folder-trust prompt: Down to its Yes choice, then Enter"
+    tm send-keys -t "$pane" Down
+    wait_for "the folder-trust prompt's Yes choice selected" 10 trust_yes_selected
     tm send-keys -t "$pane" Enter
 fi
 wait_for "the input box" "$box_limit" input_box_ready
