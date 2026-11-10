@@ -1656,6 +1656,12 @@ func (f fakeTool) setHold(t *testing.T, held bool) {
 	}
 }
 
+// setReply makes each run of the fake print reply from now on.
+func (f fakeTool) setReply(t *testing.T, reply string) {
+	t.Helper()
+	writeFile(t, filepath.Join(f.dir, "reply"), reply, 0o600)
+}
+
 // newSession starts detached session name in dir running sleep, and returns the ID of its first pane.
 func newSession(t *testing.T, client *tmuxctl.Client, name, dir string) string {
 	t.Helper()
@@ -2164,6 +2170,92 @@ func TestOpenPickerEscCreatesNothing(t *testing.T) {
 	}
 	if got := w.claude.runs(t); got != 1 {
 		t.Fatalf("fake claude ran %d times, want only the intent run", got)
+	}
+}
+
+// writeRootsFile points XDG_CONFIG_HOME at a temp directory whose orrery roots file holds content, and returns the
+// roots file's path. Call it before the tmux server starts, since panes inherit the server's environment.
+func writeRootsFile(t *testing.T, content string) string {
+	t.Helper()
+	configHome := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", configHome)
+	if err := os.Mkdir(filepath.Join(configHome, "orrery"), 0o700); err != nil {
+		t.Fatalf("make orrery config directory: %v", err)
+	}
+	path := filepath.Join(configHome, "orrery", "roots")
+	writeFile(t, path, content, 0o600)
+	return path
+}
+
+// makeWorkTree creates the made-up tree HOME/Work/example-client/example-project under the test's HOME and returns
+// the project directory.
+func makeWorkTree(t *testing.T) string {
+	t.Helper()
+	dir := filepath.Join(os.Getenv("HOME"), "Work", "example-client", "example-project")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatalf("make %s: %v", dir, err)
+	}
+	return dir
+}
+
+// assertRootLines waits for an intent run of claude whose stdin lists the made-up tree's directories, and checks that
+// stdin names the client directory as d2 and the project directory as d3.
+func assertRootLines(t *testing.T, claude fakeTool) {
+	t.Helper()
+	run := waitForRunWithStdin(t, claude.dir, "\nd3 Work/example-client/example-project\n")
+	stdin, err := os.ReadFile(filepath.Join(run, "stdin"))
+	if err != nil {
+		t.Fatalf("read run stdin: %v", err)
+	}
+	for _, line := range []string{"\nd2 Work/example-client\n", "\nd3 Work/example-client/example-project\n"} {
+		if !strings.Contains(string(stdin), line) {
+			t.Fatalf("intent stdin lacks %q; stdin:\n%s", strings.TrimPrefix(line, "\n"), stdin)
+		}
+	}
+}
+
+func TestOpenIntentListsRootDirectoriesAndOpensProject(t *testing.T) {
+	writeRootsFile(t, "2 Work\n")
+	w := setupOpen(t, "  9.0 "+filepath.Join(t.TempDir(), "example-zoxide")+"\n")
+	project := makeWorkTree(t)
+	w.claude.setReply(t, "pane d3\ntask: no\n")
+
+	pane := w.runInPane(t, "open --intent 'two words'")
+	assertRootLines(t, w.claude)
+	waitForScreen(t, w.client, pane, "> pane ")
+	w.claude.setHold(t, true)
+	sendKeys(t, w.client, pane, false, "Enter")
+	waitForScreen(t, w.client, pane, "exit 0")
+	waitUntil(t, "claude pane in "+project, func() bool {
+		return paneField(t, w.client, "=example-project:", "#{pane_current_path}") == project
+	})
+}
+
+func TestTreeNIntentListsRootDirectories(t *testing.T) {
+	writeRootsFile(t, "2 Work\n")
+	w := setupTree(t)
+	makeWorkTree(t)
+
+	sendKeys(t, w.client, w.tree, true, "N")
+	waitForScreen(t, w.client, w.tree, "text:")
+	sendKeys(t, w.client, w.tree, true, "example text")
+	sendKeys(t, w.client, w.tree, false, "Enter")
+	assertRootLines(t, w.claude)
+}
+
+func TestOpenIntentMalformedRootsFileRefuses(t *testing.T) {
+	roots := writeRootsFile(t, "x Work\n")
+	claude := installOpenFakes(t, "")
+	client, name := newServer(t)
+	newSession(t, client, "s1", t.TempDir())
+
+	out := runOrrery(t, "", nil, "-L", name, "open", "--intent", "two words")
+	wantExit(t, out, 1)
+	if !strings.Contains(out.stderr, roots) || !strings.Contains(out.stderr, "line 1") {
+		t.Fatalf("stderr %q, want the roots file %s and line 1", out.stderr, roots)
+	}
+	if got := claude.runs(t); got != 0 {
+		t.Fatalf("fake claude ran %d times, want 0", got)
 	}
 }
 

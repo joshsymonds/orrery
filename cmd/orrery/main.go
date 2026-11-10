@@ -651,7 +651,8 @@ func serverFlags(server tmuxctl.Server) []string {
 }
 
 // openConfig returns the picker's configuration: zoxide and claude as absolute paths found on orrery's PATH, $HOME/Personal
-// as the default root of new projects, and the archive of closed Claude panes.
+// as the default root of new projects, $HOME as the directory the intent lookup names relative to, the directory trees
+// of the roots file, and the archive of closed Claude panes.
 func openConfig(client *tmuxctl.Client, getenv func(string) string) (open.Config, error) {
 	zoxide, err := absLookPath("zoxide")
 	if err != nil {
@@ -665,11 +666,18 @@ func openConfig(client *tmuxctl.Client, getenv func(string) string) (open.Config
 	if err != nil {
 		return open.Config{}, fmt.Errorf("archive path: %w", err)
 	}
+	home := getenv("HOME")
+	roots, err := open.ReadRoots(open.RootsPath(getenv), home)
+	if err != nil {
+		return open.Config{}, fmt.Errorf("roots: %w", err)
+	}
 	return open.Config{
 		Tmux:    client,
 		Zoxide:  zoxide,
 		Claude:  claude,
-		Root:    filepath.Join(getenv("HOME"), "Personal"),
+		Root:    filepath.Join(home, "Personal"),
+		Home:    home,
+		Roots:   roots,
 		Archive: archivePath,
 	}, nil
 }
