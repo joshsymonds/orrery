@@ -754,3 +754,163 @@ func TestReadTypedReminderTagIsUnchanged(t *testing.T) {
 		t.Fatalf("Items =\n%+v\nwant\n%+v", got, want)
 	}
 }
+
+// queuedAttachment returns the attachment object of a queued message with the given prompt. Its command mode is
+// prompt and its origin is the human.
+func queuedAttachment(t *testing.T, prompt string) string {
+	t.Helper()
+	raw, err := json.Marshal(prompt)
+	if err != nil {
+		t.Fatalf("marshal prompt: %v", err)
+	}
+	return `{"type":"queued_command","commandMode":"prompt","origin":{"kind":"human"},"prompt":` + string(raw) + `}`
+}
+
+// attachmentLine returns an attachment line at second s whose attachment object is attachment.
+func attachmentLine(s int, attachment string) string {
+	return `{"type":"attachment","timestamp":"` + stampAt(s) + `","attachment":` + attachment + `}`
+}
+
+// userTextLine returns a user line at second s with no promptSource whose string content is text.
+func userTextLine(t *testing.T, s int, text string) string {
+	t.Helper()
+	raw, err := json.Marshal(text)
+	if err != nil {
+		t.Fatalf("marshal text: %v", err)
+	}
+	return `{"type":"user","timestamp":"` + stampAt(s) + `","message":{"role":"user","content":` + string(raw) + `}}`
+}
+
+// replyLine returns an assistant line at second s with one text block holding text.
+func replyLine(s int, text string) string {
+	return `{"type":"assistant","timestamp":"` + stampAt(s) + `","message":{"content":[{"type":"text","text":"` +
+		text + `"}]}}`
+}
+
+func TestReadQueuedPromptGivesPromptInPlaceWithItsTime(t *testing.T) {
+	path := writeTranscript(t,
+		replyLine(0, "Synthetic reply one."),
+		attachmentLine(1, queuedAttachment(t, "Synthetic queued message")),
+		replyLine(2, "Synthetic reply two."),
+	)
+	want := []Item{
+		{Kind: "reply", Time: unixAt(0), Text: "Synthetic reply one."},
+		{Kind: "prompt", Time: unixAt(1), Text: "Synthetic queued message"},
+		{Kind: "reply", Time: unixAt(2), Text: "Synthetic reply two."},
+	}
+	if got := mustRead(t, path, 10).Items; !reflect.DeepEqual(got, want) {
+		t.Fatalf("Items =\n%+v\nwant\n%+v", got, want)
+	}
+}
+
+func TestReadQueuedPromptShowsOnceWhenLaterUserLineRepeatsIt(t *testing.T) {
+	path := writeTranscript(t,
+		attachmentLine(1, queuedAttachment(t, "Synthetic repeated message")),
+		userTextLine(t, 2, "Synthetic repeated message"),
+	)
+	want := []Item{{Kind: "prompt", Time: unixAt(2), Text: "Synthetic repeated message"}}
+	if got := mustRead(t, path, 10).Items; !reflect.DeepEqual(got, want) {
+		t.Fatalf("Items =\n%+v\nwant\n%+v", got, want)
+	}
+}
+
+func TestReadQueuedPromptStaysWhenLaterUserTextDiffers(t *testing.T) {
+	path := writeTranscript(t,
+		attachmentLine(1, queuedAttachment(t, "Synthetic queued message")),
+		userTextLine(t, 2, "Synthetic different message"),
+	)
+	want := []Item{
+		{Kind: "prompt", Time: unixAt(1), Text: "Synthetic queued message"},
+		{Kind: "prompt", Time: unixAt(2), Text: "Synthetic different message"},
+	}
+	if got := mustRead(t, path, 10).Items; !reflect.DeepEqual(got, want) {
+		t.Fatalf("Items =\n%+v\nwant\n%+v", got, want)
+	}
+}
+
+func TestReadQueuedPromptLimitCountsItAsOneItem(t *testing.T) {
+	path := writeTranscript(t,
+		replyLine(0, "Synthetic reply one."),
+		attachmentLine(1, queuedAttachment(t, "Synthetic queued message")),
+		replyLine(2, "Synthetic reply two."),
+	)
+	tests := []struct {
+		name  string
+		limit int
+		want  []Item
+	}{
+		{"limit one gives the newest reply", 1, []Item{
+			{Kind: "reply", Time: unixAt(2), Text: "Synthetic reply two."}}},
+		{"limit two gives the queued prompt and the newest reply", 2, []Item{
+			{Kind: "prompt", Time: unixAt(1), Text: "Synthetic queued message"},
+			{Kind: "reply", Time: unixAt(2), Text: "Synthetic reply two."}}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := mustRead(t, path, tc.limit).Items; !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("Items =\n%+v\nwant\n%+v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestReadQueuedPromptCleansPastedPairsAndCapsText(t *testing.T) {
+	pasted := `Pasted <pasted_content id="1">synthetic</pasted_content id="1"> end`
+	long := strings.Repeat("é", 3000)
+	path := writeTranscript(t,
+		attachmentLine(0, queuedAttachment(t, pasted)),
+		attachmentLine(1, queuedAttachment(t, long)),
+	)
+	want := []Item{
+		{Kind: "prompt", Time: unixAt(0), Text: "Pasted synthetic end"},
+		{Kind: "prompt", Time: unixAt(1), Text: cutText(long)},
+	}
+	if got := mustRead(t, path, 10).Items; !reflect.DeepEqual(got, want) {
+		t.Fatalf("Items =\n%+v\nwant\n%+v", got, want)
+	}
+}
+
+func TestReadOtherAttachmentsGiveNothing(t *testing.T) {
+	tests := []struct {
+		name       string
+		attachment string
+	}{
+		{"task notification command mode", `{"type":"queued_command","commandMode":"task-notification",` +
+			`"origin":{"kind":"human"},"prompt":"Synthetic task text"}`},
+		{"auto-continuation origin", `{"type":"queued_command","commandMode":"prompt",` +
+			`"origin":{"kind":"auto-continuation"},"prompt":"Synthetic continued text"}`},
+		{"peer origin", `{"type":"queued_command","commandMode":"prompt",` +
+			`"origin":{"kind":"peer"},"prompt":"Synthetic peer text"}`},
+		{"no origin", `{"type":"queued_command","commandMode":"prompt","prompt":"Synthetic bare text"}`},
+		{"not a queued command", `{"type":"hook_output","commandMode":"prompt",` +
+			`"origin":{"kind":"human"},"prompt":"Synthetic hook text"}`},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			path := writeTranscript(t, attachmentLine(0, tc.attachment))
+			if got := mustRead(t, path, 10).Items; len(got) != 0 {
+				t.Fatalf("Items = %+v, want none", got)
+			}
+		})
+	}
+}
+
+func TestReadMetaAndSidechainAttachmentsGiveNothing(t *testing.T) {
+	prompt := queuedAttachment(t, "Synthetic queued message")
+	tests := []struct {
+		name string
+		flag string
+	}{
+		{"meta", `"isMeta":true,`},
+		{"sidechain", `"isSidechain":true,`},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			line := `{"type":"attachment",` + tc.flag + `"timestamp":"` + stampAt(0) +
+				`","attachment":` + prompt + `}`
+			if got := mustRead(t, writeTranscript(t, line), 10).Items; len(got) != 0 {
+				t.Fatalf("Items = %+v, want none", got)
+			}
+		})
+	}
+}
