@@ -290,6 +290,8 @@ orrery [-L NAME | -S PATH] serve --listen ADDR --allow-login LOGIN [--allow-logi
 
 Registrations are written to the push store that `orreryd` reads (see `### orreryd`). When neither `XDG_STATE_HOME` nor `HOME` is set, `serve` exits 1.
 
+`serve` also reads the store for the Connect API of section 12. It opens the store file read-only on each call. The rules are in [Connect API](#connect-api).
+
 `--listen` and at least one `--allow-login` are required. Without them `serve` exits 2.
 
 `serve` is meant to sit behind `tailscale serve`, which sets the `Tailscale-User-Login` header that section 12 checks. Do not expose it through Tailscale Funnel.
@@ -381,7 +383,7 @@ Each record has these keys, in this order. The example is synthetic:
 
 ### Store
 
-`orreryd` keeps a SQLite store that mirrors each pane's tmux options. Outside the store's tests, only its own writes read it: a sync reads the pane's row to compare it with the new snapshot, and a tidy also reads the server's rows to find the panes that are gone.
+`orreryd` keeps a SQLite store that mirrors each pane's tmux options. Outside the store's tests, `orreryd`'s own writes read it, and `orrery serve` reads it for the Connect API (section 12). A sync reads the pane's row to compare it with the new snapshot, and a tidy also reads the server's rows to find the panes that are gone. `serve` only reads the store, and never writes it.
 
 The store file is `$XDG_STATE_HOME/orrery/orrery.db` when `XDG_STATE_HOME` is set, else `$HOME/.local/state/orrery/orrery.db`. When neither variable is set, no path resolves.
 
@@ -552,7 +554,9 @@ The guard runs before routing. It checks every request:
 
 - The `Tailscale-User-Login` header must equal one of the `--allow-login` values. Otherwise the response is 403.
 
-Every POST and DELETE must also send:
+Connect paths are those beginning `/orrery.v1.Sessions/` (see [Connect API](#connect-api)). Every request to a Connect path, whatever its method, must also send a non-empty `X-Orrery-Client` header. Otherwise the response is 403. A POST to a Connect path must send `Content-Type` `application/proto`, `application/json`, `application/connect+proto`, or `application/connect+json`. Otherwise the response is 403.
+
+Every POST and DELETE on any other path must also send:
 
 - `Content-Type: application/json`, and
 - a non-empty `X-Orrery-Client` header.
@@ -639,6 +643,37 @@ Example plaintext. The question and its hash are the fixed vector of section 10:
 {"pane":"%1","host":"example-host","project":"example-project","state":"waiting","summary":"Example summary of the pane's work.","label":"example-label","question":"Example question for the user?","question_hash":"7f593eeb8a031e6a99b02a9b65b8e03a17a82a20ca4862ecda37bd06c479a5eb"}
 ```
 
+### Connect API
+
+`orrery serve` also serves a typed API over the Connect protocol. The routes above are unchanged by it. The schema is `proto/orrery/v1/orrery.proto`, package `orrery.v1`. Generated Go lives in `internal/gen`. `just generate` writes it, and `just check` fails when it drifts from the schema.
+
+The service is `orrery.v1.Sessions`. It has one call, `List`.
+
+| Call | Path | Request | Response |
+|---|---|---|---|
+| `List` | `POST /orrery.v1.Sessions/List` | `ListRequest`, empty | `ListResponse` |
+
+`ListResponse` has these fields:
+
+- `sessions` holds one `Session` per row of the `sessions` table (see [Store](#store)), in `id` order. Each `Session` carries the row's thirteen columns under the same names: `id`, `server`, `pane`, `state`, `changed`, `seen`, `question`, `summary`, `label`, `context`, `tool`, `claude_session`, and `transcript`.
+- `seq` is the largest `seq` in the `events` table when the rows were read, in the same read. It is 0 when there are no events.
+
+Two sessions can share `server` and `pane` for up to 10 s after a tmux server restart. `id` is unique.
+
+`serve` reads the store for `List` at the path that the [Store](#store) section names:
+
+- It opens the file read-only on each call and holds no connection between calls. A file that was replaced, or one that has appeared since the last call, is read as it is now.
+- It never writes the database and never creates the file or its directory. SQLite may create the `-wal` and `-shm` files beside an existing store file.
+- When the file is missing or the database is busy, `List` answers with the Connect code `unavailable`. Any other read failure answers `internal`.
+- The `/v1/...` routes never read the store.
+
+| Connect code | When |
+|---|---|
+| `unavailable` | the store file is missing, or the database is busy |
+| `internal` | any other read failure |
+
+The guard's rule for Connect paths is in [Guard](#guard). A request the guard refuses gets 403 before any Connect response.
+
 ## 13. Freeze
 
 The names and values in this document are frozen as of effort 1. Later efforts, including the effort-4 golden test, build on them.
@@ -648,3 +683,5 @@ orrery v0.2.1 (E2b) added the `@orrery_claude_session` and `@orrery_transcript` 
 orrery v0.6.0 (E7a) added the `@orrery_tool` option, the `tool` list field, the `ansi` and `history` screen parameters, the `--host-status-cmd` serve flag, and the `GET /v1/panes/{id}/conversation` and `GET /v1/host` routes, all additively. No existing default response changes.
 
 orrery v0.7.0 (H1a) added the store file (see [Store](#store)) and the `@orrery_id` option, both additively. No existing name or value changes.
+
+The typed API (the `orrery.v1.Sessions` service, see [Connect API](#connect-api)) was added additively. No existing name or value changes.
