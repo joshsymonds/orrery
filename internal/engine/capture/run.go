@@ -19,6 +19,7 @@ const (
 	runModeRequestID      = "req_mode"
 	runInterruptRequestID = "req_interrupt"
 	runUUIDFormat         = "00000000-0000-4000-8000-%012d"
+	runResumeUUIDFormat   = "00000000-0000-4000-8001-%012d"
 	runTypeResult         = "result"
 	runTypeStreamEvent    = "stream_event"
 	runSubtypeCanUseTool  = "can_use_tool"
@@ -61,10 +62,16 @@ func Run(ctx context.Context, probe Probe, cmd Command, sinks Sinks) (Outcome, e
 	}
 	input := &runInput{writer: io.MultiWriter(process.Stdin(), sinks.In), closer: process.Stdin()}
 	output := &runOutput{stream: process.Stdout(), sink: sinks.Out}
+	// A resumed session already holds the uuids its source sent, so a resume probe numbers its own from a
+	// range its source never uses.
+	format := runUUIDFormat
+	if probe.ResumeOf != "" {
+		format = runResumeUUIDFormat
+	}
 	uuids := 0
 	conn := transport.New(input, output, transport.WithUUIDGenerator(func() (string, error) {
 		uuids++
-		return fmt.Sprintf(runUUIDFormat, uuids), nil
+		return fmt.Sprintf(format, uuids), nil
 	}))
 	session := &runSession{probe: probe, process: process, conn: conn, input: input}
 	timer := time.NewTimer(cmd.Timeout)

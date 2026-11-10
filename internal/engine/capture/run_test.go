@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -213,6 +214,26 @@ func TestRunTwoPromptsCopiesBothStreamsExactly(t *testing.T) {
 	runCompare(t, "In", in.String(), runInitLine+runPromptOne+runPromptTwo)
 	runCompare(t, "Out", out.String(),
 		runInitReply+"\n"+runResultLine+"\n"+runResultLine+"\n"+runTrailerLine+"\n")
+}
+
+func TestRunResumeNumbersPromptUUIDsFromOwnRange(t *testing.T) {
+	var in, out bytes.Buffer
+	probe := Probe{Name: "chained", PermissionMode: "default", ResumeOf: "two-turns", Prompts: []string{"ONE", "TWO"}}
+	cmd := runCommand(t, runScript(runUserResult))
+
+	outcome := runExecute(t, probe, cmd, Sinks{In: &in, Out: &out})
+
+	runRequireCompleted(t, outcome)
+	// The repository's leak rule admits only the ordinary uuid form as a literal, so the resume form is
+	// built from its format; it must differ from every uuid an ordinary probe sends.
+	if fmt.Sprintf(runResumeUUIDFormat, 1) == fmt.Sprintf(runUUIDFormat, 1) {
+		t.Fatalf("resume uuid format %q numbers like the ordinary one", runResumeUUIDFormat)
+	}
+	prompt := func(text string, n int) string {
+		return `{"type":"user","message":{"role":"user","content":[{"type":"text","text":"` + text + `"}]},` +
+			`"uuid":"` + fmt.Sprintf(runResumeUUIDFormat, n) + `"}` + "\n"
+	}
+	runCompare(t, "In", in.String(), runInitLine+prompt("ONE", 1)+prompt("TWO", 2))
 }
 
 func TestRunAnswersPermissionRequests(t *testing.T) {
