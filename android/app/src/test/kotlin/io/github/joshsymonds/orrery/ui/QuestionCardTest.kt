@@ -3,6 +3,7 @@ package io.github.joshsymonds.orrery.ui
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.semantics.SemanticsProperties
@@ -133,6 +134,9 @@ class QuestionCardTest {
 
             composeRule.onNodeWithText("1 Yes").performClick()
             composeRule.waitUntil(timeoutMillis = 5_000) { server.requests.isNotEmpty() }
+            composeRule.waitUntil(timeoutMillis = 5_000) {
+                composeRule.onAllNodesWithText("not sent").fetchSemanticsNodes().isNotEmpty()
+            }
             composeRule.onNodeWithText("not sent").assertIsDisplayed()
 
             assertEquals(0, refreshes)
