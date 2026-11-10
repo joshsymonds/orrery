@@ -93,3 +93,61 @@ func TestPermissionSendsAfterCloseReturnTerminalError(t *testing.T) {
 		}
 	}
 }
+
+func TestPermissionSendControlErrorWritesExactEnvelope(t *testing.T) {
+	t.Parallel()
+
+	fake := newFakeProcess(t)
+	transport := startTransport(t, fake)
+	lines := stdinLines(fake, 1)
+
+	if err := transport.SendControlError(fixedUUIDTwo, "tool is unavailable"); err != nil {
+		t.Fatalf("SendControlError() error = %v", err)
+	}
+
+	want := `{"type":"control_response","response":{"subtype":"error",` +
+		`"request_id":"00000000-0000-4000-8000-000000000002",` +
+		`"error":"tool is unavailable"}}` + "\n"
+	if got := string(receive(t, lines)); got != want {
+		t.Fatalf("SendControlError() envelope = %q, want %q", got, want)
+	}
+}
+
+func TestPermissionSendControlErrorEscapesIDAndMessage(t *testing.T) {
+	t.Parallel()
+
+	fake := newFakeProcess(t)
+	transport := startTransport(t, fake)
+	lines := stdinLines(fake, 1)
+
+	requestID := "req \"7\" a\\b\nc"
+	message := "say \"hi\" a\\b\nnext"
+	if err := transport.SendControlError(requestID, message); err != nil {
+		t.Fatalf("SendControlError() error = %v", err)
+	}
+
+	want := `{"type":"control_response","response":{"subtype":"error",` +
+		`"request_id":"req \"7\" a\\b\nc",` +
+		`"error":"say \"hi\" a\\b\nnext"}}` + "\n"
+	if got := string(receive(t, lines)); got != want {
+		t.Fatalf("SendControlError() envelope = %q, want %q", got, want)
+	}
+}
+
+func TestPermissionSendControlErrorAfterCloseWritesNothing(t *testing.T) {
+	t.Parallel()
+
+	fake := newFakeProcess(t)
+	transport := startTransport(t, fake)
+	lines := stdinLines(fake, 1)
+	_ = transport.Close()
+
+	if err := transport.SendControlError(fixedUUIDTwo, "tool is unavailable"); !errors.Is(err, ErrTransportClosed) {
+		t.Fatalf("SendControlError() after Close error = %v, want ErrTransportClosed", err)
+	}
+
+	_ = fake.stdinWriter.Close()
+	if values := receiveAllUntilClosed(t, lines); len(values) != 0 {
+		t.Fatalf("stdin received %d envelope(s) after Close, want none: %q", len(values), values)
+	}
+}
