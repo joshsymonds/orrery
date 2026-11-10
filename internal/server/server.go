@@ -422,7 +422,8 @@ func (p *paneLocks) lock(id string) *sync.Mutex {
 	return mu
 }
 
-// servePaneText answers POST /v1/panes/{id}/text by pasting the body's text into the pane and pressing Enter.
+// servePaneText answers POST /v1/panes/{id}/text by sending the body's text as `orrery send --text` does: typed
+// into a Claude pane showing its input box, else pasted, then Enter.
 // The send holds the pane's lock, so two texts to one pane never interleave.
 func servePaneText(tmux *tmuxctl.Client, locks *paneLocks) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
