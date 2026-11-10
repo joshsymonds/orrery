@@ -155,6 +155,138 @@ func TestSendTextPastesThenEnter(t *testing.T) {
 	sendAwaitInput(t, file, "\x1b[200~synthetic text\x1b[201~\r")
 }
 
+// sendBoxScreen returns a screen whose empty input box is 80 columns wide, below synthetic output.
+func sendBoxScreen() string {
+	rule := strings.Repeat("─", 80)
+	return "synthetic output\n" + rule + "\n❯ \n" + rule + "\n  synthetic footer"
+}
+
+// sendSetState sets pane's @orrery_state option to state.
+func sendSetState(t *testing.T, client *tmuxctl.Client, pane, state string) {
+	t.Helper()
+	sendRun(t, client, "set-option", "-p", "-t", pane, protocol.OptionState, state)
+}
+
+// sendTextAwait sends text with --text and requires the pane to receive want exactly, with no output.
+func sendTextAwait(t *testing.T, client *tmuxctl.Client, pane, file, text, want string) {
+	t.Helper()
+	var out bytes.Buffer
+	if err := cli.Send(t.Context(), client, []string{"--pane", pane, "--text", text}, &out); err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	if out.Len() != 0 {
+		t.Fatalf("Send printed %q, want nothing", out.String())
+	}
+	sendAwaitInput(t, file, want)
+}
+
+// TestSendTextTypesIntoInputBox drives a pane in the working and done states whose screen shows the
+// input box. The text is typed: line breaks arrive as C-j, and no paste markers appear.
+func TestSendTextTypesIntoInputBox(t *testing.T) {
+	for _, state := range []string{string(protocol.StateWorking), string(protocol.StateDone)} {
+		t.Run(state, func(t *testing.T) {
+			client := sendServer(t)
+			pane, file := sendStartPane(t, client, sendBoxScreen())
+			width := strings.TrimSpace(sendRun(t, client, "display-message", "-p", "-t", pane, "#{pane_width}"))
+			if width != "80" {
+				t.Fatalf("pane_width = %q, want 80", width)
+			}
+			sendSetState(t, client, pane, state)
+
+			sendTextAwait(t, client, pane, file, "first line\nsecond line", "first line\nsecond line\r")
+		})
+	}
+}
+
+// TestSendTextTypedBytes checks the exact bytes a typed send delivers. Each text is invented to hit one
+// rule: blank lines, line endings, length, the semicolon and dash handling of tmux, and UTF-8 cuts.
+func TestSendTextTypedBytes(t *testing.T) {
+	emoji := "😀"
+	cases := []struct {
+		name string
+		text string
+		want string
+	}{
+		{name: "blank line", text: "a\n\nb", want: "a\n\nb\r"},
+		{name: "trailing newline", text: "a\n", want: "a\n\r"},
+		{name: "CRLF and CR become LF", text: "a\r\nb\rc", want: "a\nb\nc\r"},
+		{
+			name: "3000-byte line",
+			text: strings.Repeat("abcdefghij", 300),
+			want: strings.Repeat("abcdefghij", 300) + "\r",
+		},
+		{
+			name: "semicolon as the 400th byte",
+			text: strings.Repeat("a", 399) + ";tail",
+			want: strings.Repeat("a", 399) + ";tail\r",
+		},
+		{name: "line ending in semicolon", text: "cmd;", want: "cmd;\r"},
+		{name: "line ending in backslash semicolon", text: `x\;`, want: `x\;` + "\r"},
+		{name: "piece starting with dash", text: "-flag value", want: "-flag value\r"},
+		{
+			name: "cut before a dash",
+			text: strings.Repeat("a", 400) + "-flag",
+			want: strings.Repeat("a", 400) + "-flag\r",
+		},
+		{
+			name: "emoji straddling byte 400",
+			text: strings.Repeat("a", 398) + emoji + "tail",
+			want: strings.Repeat("a", 398) + emoji + "tail\r",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			client := sendServer(t)
+			pane, file := sendStartPane(t, client, sendBoxScreen())
+			sendSetState(t, client, pane, string(protocol.StateDone))
+
+			sendTextAwait(t, client, pane, file, tc.text, tc.want)
+		})
+	}
+}
+
+// TestSendTextPastesOutsideInputBox requires the paste path, with no typed bytes, when the state, the
+// screen, or the pane mode is not one the typed path accepts.
+func TestSendTextPastesOutsideInputBox(t *testing.T) {
+	rule := strings.Repeat("─", 80)
+	dialog := rule + "\n ☐ Header\n\nInvented question?\n\n❯ 1. Option\n   2. Other\n" +
+		rule + "\n  4. Chat about this\n\nEnter to select · ↑/↓ to navigate · Esc to cancel"
+	const paste = "\x1b[200~synthetic text\x1b[201~\r"
+	cases := []struct {
+		name   string
+		screen string
+		state  string // value of @orrery_state; empty means it is never set
+		copy   bool   // enter copy mode before sending
+		want   string // bytes the pane receives
+	}{
+		{name: "no state", screen: sendBoxScreen(), want: paste},
+		{name: "waiting state", screen: sendBoxScreen(), state: string(protocol.StateWaiting), want: paste},
+		{name: "done without box", screen: sendQuestion, state: string(protocol.StateDone), want: paste},
+		{name: "done with question dialog", screen: dialog, state: string(protocol.StateDone), want: paste},
+		// In copy mode the paste arrives as plain text with no bracket markers, and the Enter key is
+		// consumed by copy mode, so the pane receives only the text.
+		{
+			name:   "done in copy mode",
+			screen: sendBoxScreen(), state: string(protocol.StateDone), copy: true,
+			want: "synthetic text",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			client := sendServer(t)
+			pane, file := sendStartPane(t, client, tc.screen)
+			if tc.state != "" {
+				sendSetState(t, client, pane, tc.state)
+			}
+			if tc.copy {
+				sendRun(t, client, "copy-mode", "-t", pane)
+			}
+
+			sendTextAwait(t, client, pane, file, "synthetic text", tc.want)
+		})
+	}
+}
+
 func TestSendKeysDeliversKeys(t *testing.T) {
 	client := sendServer(t)
 	pane, file := sendStartPane(t, client, sendQuestion)

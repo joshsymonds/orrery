@@ -9,7 +9,10 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
+	"time"
+	"unicode/utf8"
 
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
@@ -22,15 +25,27 @@ var ErrQuestionRefused = errors.New("question refused")
 // 80-column pane.
 const questionFragmentRunes = 40
 
+// Typed text is sent in pieces of at most sendPieceBytes bytes, with sendTypeGap between tmux calls
+// and sendSettle before Enter, so that Claude Code reads each piece and submits the whole text.
+const (
+	sendPieceBytes = 400
+	sendTypeGap    = 20 * time.Millisecond
+	sendSettle     = 300 * time.Millisecond
+	// sendPaneFields is the number of fields in the display-message format sendTypable reads.
+	sendPaneFields = 3
+	sendKeysCmd    = "send-keys"
+)
+
 // Send implements `orrery send --pane ID (--text T | --keys K...) [--expect-question H]`.
-// --text pastes T with bracketed paste and then presses Enter as a separate key. --keys sends each
+// --text types T into the pane when its input box is on screen and it is idle or working, else pastes
+// T with bracketed paste; either way it then presses Enter as a separate key. --keys sends each
 // positional argument as one key. With --expect-question, nothing is sent unless the pane's question
 // hashes to H and its display fragment is visible on the pane. Send prints nothing.
 func Send(ctx context.Context, client *tmuxctl.Client, args []string, _ io.Writer) error {
 	flags := flag.NewFlagSet("send", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	pane := flags.String("pane", "", "pane ID to send to")
-	text := flags.String("text", "", "text to paste, then press Enter")
+	text := flags.String("text", "", "text to type or paste, then press Enter")
 	keysMode := flags.Bool("keys", false, "send the positional arguments as keys")
 	expect := flags.String("expect-question", "", "send only if the pane's question hashes to this")
 	if err := flags.Parse(args); err != nil {
@@ -188,8 +203,121 @@ func collapseSpace(s string) string {
 	return strings.Join(strings.Fields(s), " ")
 }
 
-// sendText pastes text into pane through a buffer that only this call uses, then presses Enter.
+// sendText types text into pane when sendTypable allows it, else pastes it, then presses Enter.
 func sendText(ctx context.Context, client *tmuxctl.Client, pane, text string) error {
+	typable, err := sendTypable(ctx, client, pane)
+	if err != nil {
+		return err
+	}
+	if typable {
+		return sendTyped(ctx, client, pane, text)
+	}
+	return sendPaste(ctx, client, pane, text)
+}
+
+// sendTypable reports whether pane may take typed text: it is not in a tmux mode, its orrery state is
+// working or done, and its captured screen shows Claude Code's input box at the pane's width.
+func sendTypable(ctx context.Context, client *tmuxctl.Client, pane string) (bool, error) {
+	out, err := client.Run(ctx, "display-message", "-p", "-t", pane,
+		"#{pane_in_mode}|#{pane_width}|#{@orrery_state}")
+	if err != nil {
+		return false, fmt.Errorf("send: %w", err)
+	}
+	fields := strings.SplitN(strings.TrimSuffix(out, "\n"), "|", sendPaneFields)
+	if len(fields) != sendPaneFields {
+		return false, fmt.Errorf("send: unexpected pane format %q", out)
+	}
+	width, err := strconv.Atoi(fields[1])
+	if err != nil {
+		return false, fmt.Errorf("send: pane width %q: %w", fields[1], err)
+	}
+	state := protocol.State(fields[2])
+	if fields[0] != "0" || (state != protocol.StateWorking && state != protocol.StateDone) {
+		return false, nil
+	}
+	screen, err := client.Run(ctx, "capture-pane", "-p", "-t", pane)
+	if err != nil {
+		return false, fmt.Errorf("send: %w", err)
+	}
+	return inputBoxVisible(screen, width), nil
+}
+
+// sendTyped types text into pane one key, line break, or piece at a time, pauses, then presses Enter.
+func sendTyped(ctx context.Context, client *tmuxctl.Client, pane, text string) error {
+	for i, argv := range typedSteps(pane, text) {
+		if i > 0 {
+			if err := sendPause(ctx, sendTypeGap); err != nil {
+				return err
+			}
+		}
+		if _, err := client.Run(ctx, argv...); err != nil {
+			return fmt.Errorf("send: %w", err)
+		}
+	}
+	if err := sendPause(ctx, sendSettle); err != nil {
+		return err
+	}
+	if _, err := client.Run(ctx, sendKeysCmd, "-t", pane, "Enter"); err != nil {
+		return fmt.Errorf("send: %w", err)
+	}
+	return nil
+}
+
+// typedSteps returns the tmux invocations that type text into pane, in order. CRLF and CR become LF.
+// Each line break is the C-j key, and each piece of a line is one literal send-keys argument.
+func typedSteps(pane, text string) [][]string {
+	text = strings.ReplaceAll(text, "\r\n", "\n")
+	text = strings.ReplaceAll(text, "\r", "\n")
+	var steps [][]string
+	for i, line := range strings.Split(text, "\n") {
+		if i > 0 {
+			steps = append(steps, []string{sendKeysCmd, "-t", pane, "C-j"})
+		}
+		for _, piece := range sendPieces(line) {
+			steps = append(steps, []string{sendKeysCmd, "-t", pane, "-l", "--", piece})
+		}
+	}
+	return steps
+}
+
+// sendPieces cuts line into pieces of at most sendPieceBytes bytes that end on UTF-8 character
+// boundaries. A piece ending in ";" gets a backslash before it, because tmux drops a trailing ";" from
+// an argument and turns a trailing "\;" into ";".
+func sendPieces(line string) []string {
+	var pieces []string
+	for start := 0; start < len(line); {
+		end := start
+		for end < len(line) {
+			_, size := utf8.DecodeRuneInString(line[end:])
+			if end+size-start > sendPieceBytes {
+				break
+			}
+			end += size
+		}
+		piece := line[start:end]
+		if strings.HasSuffix(piece, ";") {
+			piece = piece[:len(piece)-1] + `\;`
+		}
+		pieces = append(pieces, piece)
+		start = end
+	}
+	return pieces
+}
+
+// sendPause waits for d or until ctx is done.
+func sendPause(ctx context.Context, d time.Duration) error {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return fmt.Errorf("send: %w", ctx.Err())
+	case <-timer.C:
+		return nil
+	}
+}
+
+// sendPaste pastes text into pane through a buffer that only this call uses, then presses Enter.
+func sendPaste(ctx context.Context, client *tmuxctl.Client, pane, text string) error {
 	var suffix [8]byte
 	if _, err := rand.Read(suffix[:]); err != nil {
 		return fmt.Errorf("send: buffer name: %w", err)
@@ -202,7 +330,7 @@ func sendText(ctx context.Context, client *tmuxctl.Client, pane, text string) er
 	if _, err := client.Run(ctx, "paste-buffer", "-p", "-d", "-b", buffer, "-t", pane); err != nil {
 		return fmt.Errorf("send: %w", err)
 	}
-	if _, err := client.Run(ctx, "send-keys", "-t", pane, "Enter"); err != nil {
+	if _, err := client.Run(ctx, sendKeysCmd, "-t", pane, "Enter"); err != nil {
 		return fmt.Errorf("send: %w", err)
 	}
 	return nil
@@ -210,7 +338,7 @@ func sendText(ctx context.Context, client *tmuxctl.Client, pane, text string) er
 
 // sendKeys sends each of keys to pane as its own key argument.
 func sendKeys(ctx context.Context, client *tmuxctl.Client, pane string, keys []string) error {
-	argv := append([]string{"send-keys", "-t", pane, "--"}, keys...)
+	argv := append([]string{sendKeysCmd, "-t", pane, "--"}, keys...)
 	if _, err := client.Run(ctx, argv...); err != nil {
 		return fmt.Errorf("send: %w", err)
 	}
