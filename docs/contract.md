@@ -444,6 +444,8 @@ The tidy runs at orreryd start and every 10 s. It tidies:
 
 The default socket is `-S <dir>/tmux-<uid>/default`, where `dir` is `TMUX_TMPDIR` with symlinks resolved when it is set and resolves, else `/tmp` (resolved). This is the path tmux puts in a pane's `$TMUX`, so a frame from that server names the same server and its panes keep one row.
 
+Before each tidy of the default socket, orreryd applies tmux's own check to `<dir>/tmux-<uid>`: it must be a directory, not a symlink, owned by orreryd's uid, with no permission bits for other users. Group bits are allowed. A directory that fails the check, or is missing, is skipped, and no tmux command runs on that socket. The check runs on every tidy, so a directory that changes after orreryd starts is seen. Configured servers (`-L` or `-S`) and servers a frame has named are not checked.
+
 For each server, the tidy runs one `list-panes -a` that reads every pane. It then:
 
 - mints an `@orrery_id` for each pane that has none, and sets it in tmux after the write commits;
@@ -451,7 +453,7 @@ For each server, the tidy runs one `list-panes -a` that reads every pane. It the
 - deletes the server's rows whose id is not among the listed panes, with one `session_removed` event for each;
 - deletes every event older than 14 days, across all servers.
 
-A failed `list-panes`, or a listing that does not parse, changes nothing. orreryd logs `tmux server unreachable` (warning) when a server's `list-panes` starts failing and `tmux server reachable again` (info) at its first success after that, not on every tidy. Other tidy failures are logged as `mirror tidy dropped` each time. A failed store write rolls back the whole tidy.
+A failed `list-panes`, or a listing that does not parse, changes nothing. orreryd logs `tmux server unreachable` (warning) when a server's `list-panes` starts failing and `tmux server reachable again` (info) at its first success after that, not on every tidy. Other tidy failures are logged as `mirror tidy dropped` each time. A failed store write rolls back the whole tidy. A default socket skipped by the directory check logs `tmux default socket skipped` (warning, with `server` and `reason`) when the skip starts and again when its reason changes, not on every tidy.
 
 ### Claude Code hook settings
 

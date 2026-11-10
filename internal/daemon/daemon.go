@@ -30,6 +30,8 @@ const (
 	probeTimeout = time.Second
 	// defaultTidyInterval is the tidy period when Config.TidyInterval is not positive.
 	defaultTidyInterval = 10 * time.Second
+	// defaultSocketSkipMsg is the warning logged when the tidy skips the default socket.
+	defaultSocketSkipMsg = "tmux default socket skipped"
 )
 
 // Config configures Serve.
@@ -156,14 +158,15 @@ func Serve(ctx context.Context, ln net.Listener, cfg Config) error {
 }
 
 // frameHandler applies frames. Its mutex serializes state.Apply and the observer calls for each frame; the store
-// sync runs after the mutex is released. serversMu guards servers, the tmux servers frames have named, which the
-// tidy loop reads.
+// sync runs after the mutex is released. serversMu guards servers, the tmux servers frames have named, and
+// defaultSkipReason, the reason the default socket was last skipped, which the tidy loop reads and writes.
 type frameHandler struct {
-	cfg       Config
-	logger    *slog.Logger
-	mu        sync.Mutex
-	serversMu sync.Mutex
-	servers   map[tmuxctl.Server]bool
+	cfg               Config
+	logger            *slog.Logger
+	mu                sync.Mutex
+	serversMu         sync.Mutex
+	servers           map[tmuxctl.Server]bool
+	defaultSkipReason string
 }
 
 // serveConn reads one frame from conn, applies it, and closes conn; the close tells the sender the frame
@@ -238,7 +241,7 @@ func (h *frameHandler) tidyLoop(ctx context.Context) {
 }
 
 // tidyServers returns the servers to tidy: Config.Server when it is set, else every server a frame has named and
-// Config.DefaultServer when it is set and no frame has named it yet.
+// Config.DefaultServer when it is set, no frame has named it yet, and its directory passes checkDefaultSocket.
 func (h *frameHandler) tidyServers() []tmuxctl.Server {
 	if h.cfg.Server != (tmuxctl.Server{}) {
 		return []tmuxctl.Server{h.cfg.Server}
@@ -246,10 +249,51 @@ func (h *frameHandler) tidyServers() []tmuxctl.Server {
 	h.serversMu.Lock()
 	defer h.serversMu.Unlock()
 	servers := slices.Collect(maps.Keys(h.servers))
-	if h.cfg.DefaultServer != (tmuxctl.Server{}) && !h.servers[h.cfg.DefaultServer] {
+	if h.cfg.DefaultServer != (tmuxctl.Server{}) && !h.servers[h.cfg.DefaultServer] && h.checkDefaultSocket() {
 		servers = append(servers, h.cfg.DefaultServer)
 	}
 	return servers
+}
+
+// checkDefaultSocket reports whether the default socket's directory passes tmux's own check. It logs a skip when
+// the reason differs from the one last logged, and forgets the reason once the check passes. The caller holds
+// serversMu.
+func (h *frameHandler) checkDefaultSocket() bool {
+	reason := defaultSocketProblem(h.cfg.DefaultServer.Socket)
+	if reason == h.defaultSkipReason {
+		return reason == ""
+	}
+	h.defaultSkipReason = reason
+	if reason != "" {
+		h.logger.Warn(defaultSocketSkipMsg, "server", serverValue(h.cfg.DefaultServer), "reason", reason)
+	}
+	return reason == ""
+}
+
+// defaultSocketProblem returns why tmux would refuse the directory that holds socket, or "" when it would accept it.
+// It applies the check of tmux's make_label: the directory must be a real directory (lstat, so a symlink fails), owned
+// by the daemon's uid, with no permission bits for other users.
+func defaultSocketProblem(socket string) string {
+	info, err := os.Lstat(filepath.Dir(socket))
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return "directory missing"
+	case err != nil:
+		return "directory unreadable"
+	case !info.IsDir():
+		return "not a plain directory"
+	}
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		return "owner unknown"
+	}
+	if int(stat.Uid) != os.Getuid() {
+		return "owner is not the daemon user"
+	}
+	if info.Mode().Perm()&0o007 != 0 {
+		return "other users have access"
+	}
+	return ""
 }
 
 // applyLocked runs state.Apply, the context and session writes, and the observers under the mutex. It reports
