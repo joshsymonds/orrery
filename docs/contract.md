@@ -465,7 +465,7 @@ For each server, the tidy runs one `list-panes -a` that reads every pane. It the
 - mints an `@orrery_id` for each pane that has none, and sets it in tmux after the write commits;
 - syncs the row of each listed pane from its snapshot;
 - deletes the server's rows whose id is not among the listed panes, with one `session_removed` event for each;
-- deletes every event older than 14 days, across all servers.
+- deletes every event older than 14 days, across all servers, except the newest event, which it keeps so the newest seq is never lost.
 
 A failed `list-panes`, or a listing that does not parse, changes nothing. orreryd logs `tmux server unreachable` (warning) when a server's `list-panes` starts failing and `tmux server reachable again` (info) at its first success after that, not on every tidy. Other tidy failures are logged as `mirror tidy dropped` each time. A failed store write rolls back the whole tidy. A default socket skipped by the directory check logs `tmux default socket skipped` (warning, with `server` and `reason`) when the skip starts and again when its reason changes, not on every tidy.
 
@@ -703,7 +703,7 @@ Watch behavior:
 
 - Each store read returns up to 100 events with seq above the cursor, in seq order. After a read of 100, the next read follows at once. After a shorter read, the stream waits for the next 250 ms tick, then reads again.
 - Each read opens the store read-only and closes it before the send. Nothing is held between reads or across a send.
-- The cursor is out of range when `after` is above the newest seq. When the log holds events, it is also out of range when `after` is below the oldest kept seq minus one. Events older than 14 days are pruned (see [Store](#store)), so cursor 0 is out of range once the oldest kept seq is 2 or more.
+- The cursor is out of range when `after` is above the newest seq. When the log holds events, it is also out of range when `after` is below the oldest kept seq minus one. Events older than 14 days are pruned, except the newest (see [Store](#store)), so cursor 0 is out of range once the oldest kept seq is 2 or more.
 - Each send must complete within 10 seconds. A send that does not ends that stream only.
 - After serve's shutdown signal, a blocked send gets 1 second, and so does the stream's end. A stream that is waiting for its next read or send ends with `unavailable`, with the message `serve is shutting down`.
 
@@ -729,4 +729,4 @@ orrery v0.7.0 (H1a) added the store file (see [Store](#store)) and the `@orrery_
 
 The typed API (the `orrery.v1.Sessions` service, see [Connect API](#connect-api)) was added additively. No existing name or value changes.
 
-The event stream (the `orrery.v1.Events` service with `Watch`, see [Connect API](#connect-api)), the `orrery events` command, and serve's shutdown of open streams were added additively. The `List` call also answers `unavailable` for a store removed while it is read. No existing name or value changes.
+The event stream (the `orrery.v1.Events` service with `Watch`, see [Connect API](#connect-api)), the `orrery events` command, and serve's shutdown of open streams were added additively. The `List` call also answers `unavailable` for a store removed while it is read, and pruning keeps the newest event. No existing name or value changes.

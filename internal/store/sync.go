@@ -18,7 +18,8 @@ const (
 	EventSessionRemoved = "session_removed"
 )
 
-// EventRetention is how long SyncServer keeps events; older events are pruned.
+// EventRetention is how long SyncServer keeps events; older events are pruned, except the newest, so the largest
+// seq the log has stored is never lost.
 const EventRetention = 14 * 24 * time.Hour
 
 // removedPayload is the fixed payload of a session_removed event.
@@ -105,7 +106,7 @@ func (s *Store) SyncPane(ctx context.Context, server string, pane Pane, now time
 }
 
 // SyncServer syncs every pane of one tmux server, removes the server's rows whose id is absent from panes,
-// and prunes events older than EventRetention.
+// and prunes events older than EventRetention, except the newest event.
 func (s *Store) SyncServer(ctx context.Context, server string, panes []Pane, now time.Time) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
 		present := make(map[string]bool, len(panes))

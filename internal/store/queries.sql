@@ -35,4 +35,4 @@ SELECT CAST(COALESCE(MIN(seq), 0) AS INTEGER) AS seq FROM events;
 SELECT seq, session_id, kind, at, payload FROM events WHERE seq > ? ORDER BY seq LIMIT ?;
 
 -- name: PruneEvents :exec
-DELETE FROM events WHERE at < ?;
+DELETE FROM events WHERE events.at < ? AND events.seq < (SELECT MAX(newest.seq) FROM events AS newest);

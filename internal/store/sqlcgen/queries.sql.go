@@ -255,7 +255,7 @@ func (q *Queries) OldestEventSeq(ctx context.Context) (int64, error) {
 }
 
 const pruneEvents = `-- name: PruneEvents :exec
-DELETE FROM events WHERE at < ?
+DELETE FROM events WHERE events.at < ? AND events.seq < (SELECT MAX(newest.seq) FROM events AS newest)
 `
 
 func (q *Queries) PruneEvents(ctx context.Context, at int64) error {
