@@ -1,6 +1,8 @@
 #!/usr/bin/env -S just --justfile
 
-set shell := ["bash", "-uc"]
+set shell := ["scripts/in-devenv", "-uc"]
+# [script] recipes run through the same script, in bash with the devenv environment loaded.
+set script-interpreter := ["scripts/in-devenv", "-euo", "pipefail"]
 
 # Wall-clock budget (seconds) for the test suite, a hang guard rather than a
 # performance target. Override on the CLI: just TEST_BUDGET=60 check
@@ -17,10 +19,8 @@ lint:
 # Run tests with race and coverage, and enforce at least 80% total coverage
 # excluding cmd/ entry points and the generated code in internal/gen.
 # -coverpkg=./... attributes coverage across package boundaries.
+[script]
 cover:
-    #!/usr/bin/env bash
-    set -euo pipefail
-
     rc=0
     timeout "{{TEST_BUDGET}}" go test -race -covermode=atomic -coverpkg=./... -coverprofile=coverage.out ./... || rc=$?
     if [ "$rc" -eq 124 ]; then
@@ -58,6 +58,11 @@ sqlc-diff:
 gen-diff: generate
     git diff --exit-code -- internal/gen
 
+# Regenerate the devenv environment snapshot now, even when it is fresh.
+[script("scripts/in-devenv", "--refresh")]
+refresh-env:
+    echo "regenerated .devenv-shell-env.sh"
+
 # Lint, coverage, and generated-code gates.
 check: lint proto-lint cover sqlc-diff gen-diff
 
@@ -73,9 +78,8 @@ android-install:
 
 # Regenerate the Orrery Mono subsets (Regular, Bold, Italic) of Maple Mono NF
 # from the flake's pinned nixpkgs, renamed because the OFL reserves the name.
+[script]
 android-font:
-    #!/usr/bin/env bash
-    set -euo pipefail
     src=$(nix build --no-link --print-out-paths --inputs-from . nixpkgs#maple-mono.NF-CN-unhinted)
     tmp=$(mktemp -d)
     trap 'rm -rf "$tmp"' EXIT

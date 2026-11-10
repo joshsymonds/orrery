@@ -1,0 +1,66 @@
+#!/bin/sh
+# Runs its arguments in bash with the devenv environment loaded from the
+# snapshot .devenv-shell-env.sh. The snapshot is regenerated when it is missing
+# or older than devenv.yaml, devenv.lock or a top-level *.nix, and always when
+# called with --refresh.
+#
+# Until the snapshot supplies PATH, only shell builtins run, so this works from
+# a bare PATH that holds nothing but nix, devenv and just. The snapshot is bash
+# syntax, so it is sourced by bash, never by this script.
+
+set -eu
+
+snapshot=.devenv-shell-env.sh
+tmp=.devenv-shell-env.sh.tmp
+callerPath=$PATH
+
+refresh=0
+if [ "${1:-}" = --refresh ]; then
+    refresh=1
+    shift
+fi
+
+# load_devenv_path FILE sets PATH to the devenv PATH on FILE's first PATH='...'
+# line, followed by the caller's PATH as the snapshot itself does. It returns 1
+# and leaves PATH alone when FILE has no such line.
+load_devenv_path() {
+    while IFS= read -r line || [ -n "$line" ]; do
+        case $line in
+        "PATH='"*)
+            devenvPath=${line#"PATH='"}
+            devenvPath=${devenvPath%"'"}
+            PATH=$devenvPath${callerPath:+:$callerPath}
+            return 0
+            ;;
+        esac
+    done < "$1"
+    return 1
+}
+
+# is_stale is true when the snapshot must be regenerated. It leaves PATH on the
+# snapshot's devenv PATH when the snapshot is usable.
+is_stale() {
+    if [ "$refresh" -eq 1 ] || [ ! -f "$snapshot" ]; then
+        return 0
+    fi
+    load_devenv_path "$snapshot" || return 0
+    [ -n "$(find . -maxdepth 1 \( -name devenv.yaml -o -name devenv.lock -o -name '*.nix' \) -newer "$snapshot")" ]
+}
+
+# refresh writes the snapshot to a temporary file and renames it only when
+# devenv succeeds, so a failed evaluation never replaces a usable snapshot.
+refresh_snapshot() {
+    PATH=$callerPath
+    devenv print-dev-env > "$tmp"
+    load_devenv_path "$tmp" || {
+        echo "in-devenv: devenv print-dev-env wrote no PATH; snapshot not updated" >&2
+        exit 1
+    }
+    mv "$tmp" "$snapshot"
+}
+
+if is_stale; then
+    refresh_snapshot
+fi
+
+exec bash -c 'set -a; . "$1"; set +a; shift; exec bash "$@"' in-devenv "$snapshot" "$@"

@@ -6,11 +6,13 @@
   packages = [
     pkgs.buf
     pkgs.delve
+    pkgs.git
     pkgs.go_1_26
     pkgs.golangci-lint
     pkgs.goose
     pkgs.gopls
     pkgs.just
+    pkgs.procps
     pkgs.protoc-gen-connect-go
     pkgs.protoc-gen-go
     pkgs.sqlc
