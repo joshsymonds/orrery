@@ -424,17 +424,17 @@ The tree lists the active projects first. A project is quiet when none of its pa
 The picker is shown by `orrery open` with text, and by the tree's `N` in directory mode.
 
 - With no text, a one-line `text:` prompt asks for it. Enter submits non-empty text, Backspace deletes, and Esc cancels.
-- The text is ranked into actions, best first, and the first row is selected. Each row reads `jump PANE`, `pane DIR`, `project NAME in DIR`, `resume SESSION`, `continue latest in DIR`, or `start fresh in DIR`, with ` (prompt)` added when the action carries a first prompt. A resume row adds `: NOTE` after its session when the archived record has a summary.
+- The text is ranked into actions, best first, and the first row is selected. Each row reads `jump PANE`, `pane DIR`, `resume SESSION`, `continue latest in DIR`, or `start fresh in DIR`, with ` (prompt)` added when the action carries a first prompt. A resume row adds `: NOTE` after its session when the archived record has a summary.
 - The resume rows are the actions that `open` builds for the directory (see its bullet above). A `resume` action runs `claude --resume SESSION`, a `continue` action runs `claude --continue`, and a `start fresh` action runs `claude`. Each opens a Claude pane in the directory, as a `pane` action does.
+- The text picker's last row is `pane ROOT`, where ROOT is `$HOME/Personal`. It carries the text as its first prompt when the model calls the text a task, as every model `pane` row does. It is left out when another row already opens a pane in ROOT. When the model's reply has no valid line, this row is the only row. When `HOME` is not absolute, there is no root row, and a reply with no valid line is an error. A failed model, zoxide or tmux call is an error. The rows that `open` builds for a directory get no root row.
 - In directory mode, the first row is `pane DIR`, and any other row for the same directory is dropped. The prompt is the text when any action has one.
 - Keys typed before the prompt or the list is drawn are discarded.
-- A `pane` action opens a Claude pane in the directory: a new window in the directory's session, or a new session when there is none. A `project` action creates the directory `DIR/NAME` and a session for it. The session is named after `NAME`, with `-2`, `-3`, and so on when the name is taken.
+- A `pane` action opens a Claude pane in the directory: a new window in the directory's session, or a new session when there is none.
 
 | Key | Action |
 |---|---|
 | `j`, `down` | move the cursor down, stopping at the last row |
 | `k`, `up` | move the cursor up, stopping at the first row |
-| `e` | edit a `project` row: its name, then its root, each prefilled; Enter confirms each field. Esc abandons the edit. Other rows ignore `e`. |
 | `Enter` | run the selected action and switch the client to its target. Keys are ignored while it runs |
 | `Esc`, `q` | close the picker without running anything |
 
