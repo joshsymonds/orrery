@@ -107,10 +107,13 @@ wait_for() {
 }
 
 # find_transcript prints the session transcript: the .jsonl under ~/.claude/projects, modified
-# since this run started, whose lines carry .cwd equal to the throwaway directory.
+# since this run started, in a directory named after the throwaway directory's unique name,
+# whose lines carry .cwd equal to the throwaway directory. The trailing slash makes find
+# descend when ~/.claude/projects is a symlink; the name filter keeps it off other sessions'
+# transcripts.
 find_transcript() {
     [ -d "$HOME/.claude/projects" ] || return 0
-    find "$HOME/.claude/projects" -name '*.jsonl' -newermt "@$started" 2>/dev/null |
+    find "$HOME/.claude/projects/" -path "*${workdir##*/}*" -name '*.jsonl' -newermt "@$started" 2>/dev/null |
         while IFS= read -r file; do
             if jq -e -n --arg dir "$workdir" 'first(inputs | select(.cwd == $dir))' "$file" >/dev/null 2>&1; then
                 printf '%s\n' "$file"
@@ -374,28 +377,36 @@ echo "case 3: starting a long reply"
 send_message "done" "$numbers_request"
 wait_for "the numbers request submitted to the transcript" "$submit_limit" transcript_has_text "$numbers_request"
 set_state working
-wait_for "the numbers reply to stream" "$stream_limit" numbers_streaming
-
 text3=$(mid_reply_text)
-sent_at=$(date +%s)
-echo "case 3: sending mid-reply message while the reply streams"
-send_message working "$text3"
-wait_for "case 3 submitted or queued to the transcript" "$reply_limit" transcript_has_any "$text3"
-wait_for "the numbers reply to finish" "$reply_limit" transcript_has_reply "1999"
-wait_for "case 3 reply containing $marker_mid" "$reply_limit" transcript_has_reply "$marker_mid"
-wait_for "the input box after case 3" "$box_limit" input_box_ready
+sent_at=""
+if wait_for "the numbers reply to stream" "$stream_limit" numbers_streaming; then
+    sent_at=$(date +%s)
+    echo "case 3: sending mid-reply message while the reply streams"
+    send_message working "$text3"
+    # These waits only give the mid-reply message time to land; a timeout here still goes on
+    # to the verdicts, which judge from the transcript, so cases 1 and 2 are always reported.
+    wait_for "case 3 submitted or queued to the transcript" "$reply_limit" transcript_has_any "$text3" ||
+        echo "continuing to the verdicts"
+    wait_for "the numbers reply to finish" "$reply_limit" transcript_has_reply "1999" ||
+        echo "continuing to the verdicts"
+    wait_for "case 3 reply containing $marker_mid" "$reply_limit" transcript_has_reply "$marker_mid" ||
+        echo "continuing to the verdicts"
+fi
 
 # Verdicts, read from the transcript.
 echo "transcript: $transcript"
 check_typed "case 1 (nine lines, about 1,000 characters in all)" "$marker_nine" "$text1"
 check_typed "case 2 (one line, 3,000 characters)" "$marker_long" "$text2"
-check_whole "case 3 (mid-reply)" "$marker_mid" "$text3"
-
-# Recorded, not judged: the send went out only after the stream wait saw numbers on screen and
-# no finished numbers reply in the transcript. How Claude Code stamps an assistant line (start
-# or end of the reply) is unmeasured, so this line is evidence for the reader.
-finished_at=$(numbers_finished_at)
-echo "case 3 timing: mid-reply message sent at epoch $sent_at; the numbers reply's assistant line is stamped ${finished_at:-unknown}"
+if [ -n "$sent_at" ]; then
+    check_whole "case 3 (mid-reply)" "$marker_mid" "$text3"
+    # Recorded, not judged: the send went out only after the stream wait saw numbers on screen
+    # and no finished numbers reply in the transcript. How Claude Code stamps an assistant line
+    # (start or end of the reply) is unmeasured, so this line is evidence for the reader.
+    finished_at=$(numbers_finished_at)
+    echo "case 3 timing: mid-reply message sent at epoch $sent_at; the numbers reply's assistant line is stamped ${finished_at:-unknown}"
+else
+    fail "case 3 (mid-reply): the numbers reply was never seen streaming, so nothing was sent mid-reply"
+fi
 
 if ((failures > 0)); then
     echo "live check: $failures case(s) failed"
