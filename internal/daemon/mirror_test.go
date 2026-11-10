@@ -34,6 +34,12 @@ const mirrorCommand = "sleep 300"
 // mirrorIDPattern matches a minted id: 128 random bits in lowercase hex.
 var mirrorIDPattern = regexp.MustCompile(`^[0-9a-f]{32}$`)
 
+// mirrorServerExitBudget bounds how long a restart waits for a killed tmux server to stop accepting connections.
+const mirrorServerExitBudget = 5 * time.Second
+
+// mirrorServerExitPoll is how often a restart re-checks a killed tmux server.
+const mirrorServerExitPoll = 10 * time.Millisecond
+
 // mirrorNow is the clock every mirror in these tests uses.
 func mirrorNow() time.Time { return time.Unix(1700000000, 0) }
 
@@ -72,6 +78,29 @@ func newMirrorSession(t *testing.T, server tmuxctl.Server) mirrorServer {
 		t.Fatalf("list-panes: %v", err)
 	}
 	return mirrorServer{client: client, server: server, pane: strings.Fields(out)[0]}
+}
+
+// awaitMirrorServerGone returns once client's server refuses connections. A client that connects while the
+// killed server is still exiting gets "server exited unexpectedly" and is polled again. Once the server is
+// gone, the socket refuses connections, so a server started on the same name cannot reach the old one.
+func awaitMirrorServerGone(t *testing.T, client *tmuxctl.Client) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), mirrorServerExitBudget)
+	defer cancel()
+	ticker := time.NewTicker(mirrorServerExitPoll)
+	defer ticker.Stop()
+	for {
+		_, err := client.Run(ctx, "list-sessions")
+		if err != nil && strings.Contains(err.Error(), "no server running") {
+			return
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatalf("tmux server still accepts connections %v after kill-server; last result: %v",
+				mirrorServerExitBudget, err)
+		case <-ticker.C:
+		}
+	}
 }
 
 // mirrorServerName returns a unique synthetic tmux server name.
@@ -260,6 +289,7 @@ func TestMirrorReusedPaneGetsNewRow(t *testing.T) {
 	if _, err := ms.client.Run(t.Context(), "kill-server"); err != nil {
 		t.Fatalf("kill-server: %v", err)
 	}
+	awaitMirrorServerGone(t, ms.client)
 	reused := newMirrorSession(t, ms.server)
 	if reused.pane != ms.pane {
 		t.Fatalf("pane id after restart = %s, want reused %s", reused.pane, ms.pane)
