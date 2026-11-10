@@ -48,9 +48,10 @@ type Config struct {
 	Claude  string            // path of the claude binary
 	Models  map[string]string // patchbay context name to summary model, see protocol.SummaryModel
 	Tmux    *tmuxctl.Client
-	Timeout time.Duration    // per-run limit; zero selects DefaultTimeout
-	Now     func() time.Time // clock for the throttle; nil selects time.Now
-	Logger  *slog.Logger     // receives failed runs; nil discards
+	Timeout time.Duration                          // per-run limit; zero selects DefaultTimeout
+	Now     func() time.Time                       // clock for the throttle; nil selects time.Now
+	Logger  *slog.Logger                           // receives failed runs; nil discards
+	OnWrite func(ctx context.Context, pane string) // called with pane after a run writes its options; nil does nothing
 }
 
 // Request is one summary trigger for one pane.
@@ -70,6 +71,7 @@ type Summarizer struct {
 	timeout time.Duration
 	now     func() time.Time
 	logger  *slog.Logger
+	onWrite func(ctx context.Context, pane string)
 	runs    sync.WaitGroup // one count per run in flight
 	writeMu sync.Mutex     // held around each option write and Forget's unset, so a write never lands after Forget
 
@@ -101,6 +103,10 @@ func New(cfg Config) (*Summarizer, error) {
 	if logger == nil {
 		logger = slog.New(slog.DiscardHandler)
 	}
+	onWrite := cfg.OnWrite
+	if onWrite == nil {
+		onWrite = func(context.Context, string) {}
+	}
 	return &Summarizer{
 		claude:          cfg.Claude,
 		models:          cfg.Models,
@@ -108,6 +114,7 @@ func New(cfg Config) (*Summarizer, error) {
 		timeout:         timeout,
 		now:             now,
 		logger:          logger,
+		onWrite:         onWrite,
 		running:         make(map[string]bool),
 		started:         make(map[string]time.Time),
 		waiting:         make(map[string]Request),
@@ -142,21 +149,32 @@ func (s *Summarizer) summarize(ctx context.Context, job Job, epoch int) error {
 		return err
 	}
 
+	wrote, err := s.write(ctx, job.PaneID, epoch, summary, label)
+	if wrote {
+		s.onWrite(ctx, job.PaneID)
+	}
+	return err
+}
+
+// write sets pane's summary and, when label is not empty, its label, unless pane was forgotten since epoch was read.
+// It reports whether an option was written. writeMu is held throughout, so no write lands after Forget; the onWrite
+// call runs after it is released, so a slow store never holds up Forget.
+func (s *Summarizer) write(ctx context.Context, pane string, epoch int, summary, label string) (bool, error) {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
-	if s.paneEpoch(job.PaneID) != epoch {
-		return nil
+	if s.paneEpoch(pane) != epoch {
+		return false, nil
 	}
-	if err = s.tmux.SetPaneOption(ctx, job.PaneID, protocol.OptionSummary, summary); err != nil {
-		return fmt.Errorf("write summary: %w", err)
+	if err := s.tmux.SetPaneOption(ctx, pane, protocol.OptionSummary, summary); err != nil {
+		return false, fmt.Errorf("write summary: %w", err)
 	}
 	if label == "" {
-		return nil
+		return true, nil
 	}
-	if err = s.tmux.SetPaneOption(ctx, job.PaneID, protocol.OptionLabel, label); err != nil {
-		return fmt.Errorf("write label: %w", err)
+	if err := s.tmux.SetPaneOption(ctx, pane, protocol.OptionLabel, label); err != nil {
+		return true, fmt.Errorf("write label: %w", err)
 	}
-	return nil
+	return true, nil
 }
 
 // Forget ends pane's session. Its waiting request is dropped, its options are unset, and its next label run is

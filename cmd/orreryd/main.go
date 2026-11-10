@@ -226,6 +226,11 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 		return fmt.Errorf("daemon socket: %w", err)
 	}
 
+	st := openStore(ctx, getenv, logger)
+	var mirror *daemon.Mirror
+	if st != nil {
+		mirror = daemon.NewMirror(st, time.Now, logger)
+	}
 	hub := &relay{
 		claude:      opts.claude,
 		models:      opts.models,
@@ -233,14 +238,10 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 		logger:      logger,
 		publisher:   publisher,
 		pushes:      pushes,
+		mirror:      mirror,
 		summarizers: make(map[tmuxctl.Server]*summary.Summarizer),
 	}
 	observe := func(transition daemon.Transition) { hub.observe(ctx, transition) }
-	st := openStore(ctx, getenv, logger)
-	var mirror *daemon.Mirror
-	if st != nil {
-		mirror = daemon.NewMirror(st, time.Now, logger)
-	}
 	serveErr := daemon.Serve(ctx, ln, daemon.Config{
 		Server:    opts.server,
 		Observers: []daemon.Observer{observe, autoseen.New(time.Now, logger)},
@@ -285,6 +286,7 @@ type relay struct {
 	logger      *slog.Logger
 	publisher   *ntfy.Publisher // nil when ntfy is off
 	pushes      *push.Publisher
+	mirror      *daemon.Mirror // nil when the store is unavailable
 	summarizers map[tmuxctl.Server]*summary.Summarizer
 	notifying   sync.WaitGroup // one count per notification in flight
 }
@@ -369,12 +371,18 @@ func (r *relay) summarizerFor(server tmuxctl.Server) (*summary.Summarizer, error
 	if err != nil {
 		return nil, fmt.Errorf("tmux server: %w", err)
 	}
-	s, err := summary.New(summary.Config{Claude: r.claude, Models: r.models, Tmux: client, Logger: r.logger})
+	var onWrite func(ctx context.Context, pane string)
+	if r.mirror != nil {
+		onWrite = func(ctx context.Context, pane string) { r.mirror.SyncPane(ctx, server, pane) }
+	}
+	summarizer, err := summary.New(summary.Config{
+		Claude: r.claude, Models: r.models, Tmux: client, Logger: r.logger, OnWrite: onWrite,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("summarizer: %w", err)
 	}
-	r.summarizers[server] = s
-	return s, nil
+	r.summarizers[server] = summarizer
+	return summarizer, nil
 }
 
 // notify posts the transition's notification from a goroutine that wait awaits.
