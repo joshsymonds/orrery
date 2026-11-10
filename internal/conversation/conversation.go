@@ -158,11 +158,8 @@ func Read(path string, limit int) (Conversation, error) {
 // newestItems returns the newest limit items of the transcript, oldest first, from the tail of src.
 func newestItems(src io.ReaderAt, size int64, limit int) ([]Item, error) {
 	newest := []Item{}
-	// userTexts holds the text of each prompt a user line gave. Lines are visited newest first, so a queued prompt
-	// that a later user line repeats finds its text here.
-	userTexts := map[string]bool{}
 	err := ReadTail(src, size, MaxTailBytes, func(line []byte) bool {
-		items := lineItems(line, userTexts)
+		items := lineItems(line)
 		for i := len(items) - 1; i >= 0 && len(newest) < limit; i-- {
 			newest = append(newest, items[i])
 		}
@@ -175,9 +172,8 @@ func newestItems(src io.ReaderAt, size int64, limit int) ([]Item, error) {
 	return newest, nil
 }
 
-// lineItems returns the items of one transcript line in order, or none when the line is skipped. userTexts
-// records the text of each prompt a user line gives.
-func lineItems(line []byte, userTexts map[string]bool) []Item {
+// lineItems returns the items of one transcript line in order, or none when the line is skipped.
+func lineItems(line []byte) []Item {
 	var entry transcriptLine
 	if json.Unmarshal(line, &entry) != nil || entry.IsMeta || entry.IsSidechain {
 		return nil
@@ -187,33 +183,23 @@ func lineItems(line []byte, userTexts map[string]bool) []Item {
 	case "assistant":
 		return assistantItems(entry.Message.Content, ts)
 	case "user":
-		items := userItems(entry, ts)
-		for _, item := range items {
-			if item.Kind == kindPrompt {
-				userTexts[item.Text] = true
-			}
-		}
-		return items
+		return userItems(entry, ts)
 	case "attachment":
-		return attachmentItems(entry.Attachment, ts, userTexts)
+		return attachmentItems(entry.Attachment, ts)
 	default:
 		return nil
 	}
 }
 
 // attachmentItems returns the prompt of a queued command that the person typed while Claude worked. Any other
-// attachment gives none, and so does a queued prompt whose text a later user line already gave.
-func attachmentItems(attachment json.RawMessage, ts int64, userTexts map[string]bool) []Item {
+// attachment gives none.
+func attachmentItems(attachment json.RawMessage, ts int64) []Item {
 	var queued queuedCommand
 	if json.Unmarshal(attachment, &queued) != nil || queued.Type != "queued_command" ||
 		queued.CommandMode != "prompt" || queued.Origin.Kind != "human" {
 		return nil
 	}
-	items := promptItems(queued.Prompt, ts)
-	if len(items) == 1 && userTexts[items[0].Text] {
-		return nil
-	}
-	return items
+	return promptItems(queued.Prompt, ts)
 }
 
 // assistantItems returns one item per content block: a reply per text block and a tool or question per
@@ -607,8 +593,7 @@ func cutText(text string, limit int) string {
 }
 
 // originPrompt returns the text of the first prompt item that the item rules give in the first originWindowBytes
-// of the transcript, clipped to maxOriginRunes runes. A line that the window ends inside is ignored. The origin
-// has no earlier prompt to repeat, so each line is classified with a fresh userTexts map.
+// of the transcript, clipped to maxOriginRunes runes. A line that the window ends inside is ignored.
 func originPrompt(src io.ReaderAt, size int64) (string, error) {
 	window := min(size, originWindowBytes)
 	reader := bufio.NewReader(io.NewSectionReader(src, 0, window))
@@ -620,7 +605,7 @@ func originPrompt(src io.ReaderAt, size int64) (string, error) {
 		if errors.Is(err, io.EOF) && window < size {
 			return "", nil
 		}
-		for _, item := range lineItems(line, map[string]bool{}) {
+		for _, item := range lineItems(line) {
 			if item.Kind == kindPrompt {
 				return cutRunes(item.Text, maxOriginRunes), nil
 			}

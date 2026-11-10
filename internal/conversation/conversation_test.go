@@ -898,6 +898,18 @@ func userTextLine(t *testing.T, s int, text string) string {
 	return `{"type":"user","timestamp":"` + stampAt(s) + `","message":{"role":"user","content":` + string(raw) + `}}`
 }
 
+// typedTextLine returns a user line at second s that the person typed, with promptSource typed and origin human,
+// whose string content is text.
+func typedTextLine(t *testing.T, s int, text string) string {
+	t.Helper()
+	raw, err := json.Marshal(text)
+	if err != nil {
+		t.Fatalf("marshal text: %v", err)
+	}
+	return `{"type":"user","timestamp":"` + stampAt(s) + `","promptSource":"typed","origin":{"kind":"human"},` +
+		`"message":{"role":"user","content":` + string(raw) + `}}`
+}
+
 // replyLine returns an assistant line at second s with one text block holding text.
 func replyLine(s int, text string) string {
 	return `{"type":"assistant","timestamp":"` + stampAt(s) + `","message":{"content":[{"type":"text","text":"` +
@@ -920,12 +932,31 @@ func TestReadQueuedPromptGivesPromptInPlaceWithItsTime(t *testing.T) {
 	}
 }
 
-func TestReadQueuedPromptShowsOnceWhenLaterUserLineRepeatsIt(t *testing.T) {
+func TestReadQueuedPromptStaysWhenLaterTypedLineRepeatsItsText(t *testing.T) {
 	path := writeTranscript(t,
 		attachmentLine(1, queuedAttachment(t, "Synthetic repeated message")),
-		userTextLine(t, 2, "Synthetic repeated message"),
+		replyLine(2, "Synthetic reply."),
+		typedTextLine(t, 3, "Synthetic repeated message"),
 	)
-	want := []Item{{Kind: "prompt", Time: unixAt(2), Text: "Synthetic repeated message"}}
+	want := []Item{
+		{Kind: "prompt", Time: unixAt(1), Text: "Synthetic repeated message"},
+		{Kind: "reply", Time: unixAt(2), Text: "Synthetic reply."},
+		{Kind: "prompt", Time: unixAt(3), Text: "Synthetic repeated message"},
+	}
+	if got := mustRead(t, path, 10).Items; !reflect.DeepEqual(got, want) {
+		t.Fatalf("Items =\n%+v\nwant\n%+v", got, want)
+	}
+}
+
+func TestReadQueuedPromptGivesTwoPromptsWhenNextLineRepeatsIt(t *testing.T) {
+	path := writeTranscript(t,
+		attachmentLine(1, queuedAttachment(t, "Synthetic repeated message")),
+		typedTextLine(t, 2, "Synthetic repeated message"),
+	)
+	want := []Item{
+		{Kind: "prompt", Time: unixAt(1), Text: "Synthetic repeated message"},
+		{Kind: "prompt", Time: unixAt(2), Text: "Synthetic repeated message"},
+	}
 	if got := mustRead(t, path, 10).Items; !reflect.DeepEqual(got, want) {
 		t.Fatalf("Items =\n%+v\nwant\n%+v", got, want)
 	}
