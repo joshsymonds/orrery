@@ -26,6 +26,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/ntfy"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/push"
+	"github.com/joshsymonds/orrery/internal/store"
 	"github.com/joshsymonds/orrery/internal/summary"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
 )
@@ -235,16 +236,43 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 		summarizers: make(map[tmuxctl.Server]*summary.Summarizer),
 	}
 	observe := func(transition daemon.Transition) { hub.observe(ctx, transition) }
+	st := openStore(ctx, getenv, logger)
+	var mirror *daemon.Mirror
+	if st != nil {
+		mirror = daemon.NewMirror(st, time.Now, logger)
+	}
 	serveErr := daemon.Serve(ctx, ln, daemon.Config{
 		Server:    opts.server,
 		Observers: []daemon.Observer{observe, autoseen.New(time.Now, logger)},
 		Logger:    logger,
+		Mirror:    mirror,
 	})
 	hub.wait()
+	if st != nil {
+		if closeErr := st.Close(); closeErr != nil {
+			logger.ErrorContext(ctx, "close store", "error", closeErr)
+		}
+	}
 	if serveErr != nil {
 		return fmt.Errorf("serve: %w", serveErr)
 	}
 	return nil
+}
+
+// openStore opens the store at its resolved path. When the path does not resolve or the store cannot be opened, it
+// logs the error and returns nil, so orreryd serves hooks and notifications without the store.
+func openStore(ctx context.Context, getenv func(string) string, logger *slog.Logger) *store.Store {
+	path, err := store.Path(getenv)
+	if err != nil {
+		logger.ErrorContext(ctx, "store unavailable, serving without it", "error", err)
+		return nil
+	}
+	st, err := store.Open(ctx, path)
+	if err != nil {
+		logger.ErrorContext(ctx, "store unavailable, serving without it", "path", path, "error", err)
+		return nil
+	}
+	return st
 }
 
 // relay turns each state change into summary requests and notifications. Its observe method runs under the
