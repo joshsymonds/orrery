@@ -113,6 +113,9 @@ type Config struct {
 	Sessions *store.Reader
 	// EventPoll is the interval at which Events.Watch polls the store for new events, or zero for the default.
 	EventPoll time.Duration
+	// EventSendTimeout bounds each Events.Watch send, or is zero for the default. A send that does not complete in
+	// time ends its stream, and no other.
+	EventSendTimeout time.Duration
 }
 
 // New returns a handler that admits only the configured logins, and never emits CORS headers. A request to
@@ -143,6 +146,10 @@ func New(cfg Config) (http.Handler, error) {
 	if poll == 0 {
 		poll = defaultEventPoll
 	}
+	sendTimeout := cfg.EventSendTimeout
+	if sendTimeout == 0 {
+		sendTimeout = defaultEventSendTimeout
+	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/panes", servePanes(cfg.Tmux))
@@ -157,7 +164,7 @@ func New(cfg Config) (http.Handler, error) {
 	mux.HandleFunc("DELETE /v1/push/register", serveUnregister(cfg.Push))
 	sessionsPath, sessions := newSessionsHandler(cfg.Sessions)
 	mux.Handle(sessionsPath, sessions)
-	eventsPath, events := newEventsHandler(cfg.Sessions, poll)
+	eventsPath, events := newEventsHandler(cfg.Sessions, poll, sendTimeout)
 	mux.Handle(eventsPath, events)
 	connectPaths := []string{sessionsPath, eventsPath}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
