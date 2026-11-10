@@ -51,6 +51,13 @@ type Probe struct {
 	Answer         Answer
 	Expect         []Expectation
 	Linger         time.Duration
+	// Persist keeps session persistence on, so the session is written to disk instead of discarded.
+	Persist bool
+	// HookEvents includes the hook lifecycle events in the stream.
+	HookEvents bool
+	// ResumeOf names the earlier probe in the same set whose session this probe resumes, in that
+	// probe's directory. DaemonCommand only requires a resume id when it is set.
+	ResumeOf string
 }
 
 // Probes returns the six fixed probes in run order.
