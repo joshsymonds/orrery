@@ -63,6 +63,8 @@ const askUserQuestionTool = "AskUserQuestion"
 const (
 	// maxTextBytes caps the text of one item.
 	maxTextBytes = 4096
+	// maxReplyBytes caps the text of one reply.
+	maxReplyBytes = 32768
 	// originWindowBytes is how far into the transcript the origin prompt is searched.
 	originWindowBytes = 1 << 20
 	// maxOriginRunes caps the origin prompt.
@@ -222,7 +224,8 @@ func assistantItems(content json.RawMessage, ts int64) []Item {
 	for _, block := range blocks {
 		switch stringField(block, "type") {
 		case textBlock:
-			items = append(items, Item{Kind: kindReply, Time: ts, Text: cutText(stringField(block, "text"))})
+			text := stringField(block, "text")
+			items = append(items, Item{Kind: kindReply, Time: ts, Text: cutText(text, maxReplyBytes)})
 		case "tool_use":
 			items = append(items, toolItem(block, ts))
 		}
@@ -235,7 +238,8 @@ func toolItem(block contentBlock, ts int64) Item {
 	name := stringField(block, "name")
 	id := stringField(block, "id")
 	if name == askUserQuestionTool {
-		return Item{Kind: kindQuestion, Time: ts, Text: cutText(questionText(block["input"])), Tool: name, ID: id}
+		text := cutText(questionText(block["input"]), maxTextBytes)
+		return Item{Kind: kindQuestion, Time: ts, Text: text, Tool: name, ID: id}
 	}
 	return Item{Kind: kindTool, Time: ts, Tool: name, Input: protocol.ToolInputText(block["input"]), ID: id}
 }
@@ -528,7 +532,7 @@ func promptItems(text string, ts int64) []Item {
 	if text == "" {
 		return nil
 	}
-	return []Item{{Kind: kindPrompt, Time: ts, Text: cutText(text)}}
+	return []Item{{Kind: kindPrompt, Time: ts, Text: cutText(text, maxTextBytes)}}
 }
 
 // resultItem returns the result item of one tool_result block.
@@ -537,7 +541,7 @@ func resultItem(block contentBlock, ts int64) Item {
 	return Item{
 		Kind:  kindResult,
 		Time:  ts,
-		Text:  cutText(text),
+		Text:  cutText(text, maxTextBytes),
 		ID:    stringField(block, "tool_use_id"),
 		Error: boolField(block, "is_error"),
 	}
@@ -590,12 +594,12 @@ func unixSeconds(stamp string) int64 {
 	return parsed.Unix()
 }
 
-// cutText returns the first maxTextBytes bytes of text, cut back to a UTF-8 rune boundary.
-func cutText(text string) string {
-	if len(text) <= maxTextBytes {
+// cutText returns the first limit bytes of text, cut back to a UTF-8 rune boundary.
+func cutText(text string, limit int) string {
+	if len(text) <= limit {
 		return text
 	}
-	end := maxTextBytes
+	end := limit
 	for end > 0 && !utf8.RuneStart(text[end]) {
 		end--
 	}

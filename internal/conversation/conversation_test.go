@@ -301,6 +301,50 @@ func TestReadCutsTextAtUTF8Boundary(t *testing.T) {
 	}
 }
 
+func TestReadReplyCutsAtUTF8BoundaryAt32KB(t *testing.T) {
+	const cut = 32768
+	tests := []struct {
+		name string
+		text string
+		want string
+	}{
+		{"reply of exactly the cap is whole", strings.Repeat("a", cut), strings.Repeat("a", cut)},
+		{"reply one byte over the cap is cut to the cap", strings.Repeat("a", cut+1), strings.Repeat("a", cut)},
+		{"cut inside a multibyte rune drops the rune", strings.Repeat("a", cut-1) + "é" + "é",
+			strings.Repeat("a", cut-1)},
+		{"cut at a rune start keeps the whole cap", strings.Repeat("a", cut) + "é", strings.Repeat("a", cut)},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			conv := mustRead(t, writeTranscript(t, replyLine(0, tc.text)), 10)
+			if len(conv.Items) != 1 {
+				t.Fatalf("items = %d, want 1", len(conv.Items))
+			}
+			got := conv.Items[0].Text
+			if !utf8.ValidString(got) {
+				t.Fatalf("text is not valid UTF-8: %q", got)
+			}
+			if got != tc.want {
+				t.Fatalf("text has %d bytes, want %d bytes equal to the expected prefix", len(got), len(tc.want))
+			}
+		})
+	}
+}
+
+func TestReadResultStillCutsAt4KB(t *testing.T) {
+	const cut = 4096
+	text := strings.Repeat("a", cut+1)
+	line := `{"type":"user","timestamp":"` + stampAt(0) + `","message":{"content":[` +
+		`{"type":"tool_result","tool_use_id":"toolu_1","content":"` + text + `"}]}}`
+	conv := mustRead(t, writeTranscript(t, line), 10)
+	if len(conv.Items) != 1 || conv.Items[0].Kind != "result" {
+		t.Fatalf("items = %+v, want one result item", conv.Items)
+	}
+	if got := conv.Items[0].Text; got != strings.Repeat("a", cut) {
+		t.Fatalf("result text has %d bytes, want %d", len(got), cut)
+	}
+}
+
 func TestReadOrigin(t *testing.T) {
 	const origin = 300
 	longPrompt := strings.Repeat("é", origin+50)
@@ -863,7 +907,7 @@ func TestReadQueuedPromptCleansPastedPairsAndCapsText(t *testing.T) {
 	)
 	want := []Item{
 		{Kind: "prompt", Time: unixAt(0), Text: "Pasted synthetic end"},
-		{Kind: "prompt", Time: unixAt(1), Text: cutText(long)},
+		{Kind: "prompt", Time: unixAt(1), Text: cutText(long, maxTextBytes)},
 	}
 	if got := mustRead(t, path, 10).Items; !reflect.DeepEqual(got, want) {
 		t.Fatalf("Items =\n%+v\nwant\n%+v", got, want)
