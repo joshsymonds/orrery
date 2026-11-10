@@ -65,6 +65,7 @@ global flags, before the subcommand:
 subcommands:
   hook                                          forward a Claude Code hook event from stdin; exits 0
   list --json                                   print the panes of the tmux server as a JSON array
+  events --url URL [--after N] [--follow]       print the event stream of serve as JSON lines
   seen --pane ID                                mark a pane seen
   send --pane ID [--expect-question H] (--text T | --keys K...)
                                                 send text or keys to a pane; --keys must be last
@@ -130,6 +131,9 @@ func report(stderr io.Writer, err error) int {
 	case errors.As(err, &usage):
 		fmt.Fprintf(stderr, "orrery: %s\n%s", usage.msg, usageText)
 		return exitUsage
+	case errors.Is(err, cli.ErrUsage):
+		fmt.Fprintf(stderr, "orrery: %v\n%s", err, usageText)
+		return exitUsage
 	case errors.Is(err, cli.ErrQuestionRefused):
 		fmt.Fprintf(stderr, "orrery: %v\n", err)
 		return exitRefused
@@ -180,6 +184,8 @@ func dispatch(ctx context.Context, opts globals, rest []string, stdin *os.File, 
 		return openCommand(ctx, client, opts.server, args, stdin, stdout, getenv)
 	case "serve":
 		return runServe(ctx, opts, args, getenv)
+	case "events":
+		return errors.Join(cli.Events(ctx, args, stdout))
 	case "list", "seen", "send", "debug", "shell", "tree":
 		client, err := tmuxctl.New(opts.server)
 		if err != nil {
