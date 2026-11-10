@@ -134,3 +134,58 @@ func TestCheckListsUnknownTypesOnceSorted(t *testing.T) {
 		t.Errorf("Check() Unknown = %q, want %q", report.Unknown, want)
 	}
 }
+
+func TestCheckContainsMatchesRawLineText(t *testing.T) {
+	t.Parallel()
+	const guard = "GUARD REFUSED"
+	userGuard := `{"type":"user","message":{"role":"user","content":"` + guard + ` rule 7"}}` + "\n"
+	userFatal := `{"type":"user","message":{"role":"user","content":"fatal: not a git repository"}}` + "\n"
+	assistantGuard := `{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"` + guard + `"}]}}` + "\n"
+	tests := []struct {
+		name    string
+		stdout  string
+		expect  []Expectation
+		missing []Expectation
+	}{
+		{
+			name:   "user line with the wanted text satisfies",
+			stdout: userGuard,
+			expect: []Expectation{{Type: "user", Contains: guard}},
+		},
+		{
+			name:    "user line with other error text is missing",
+			stdout:  userFatal,
+			expect:  []Expectation{{Type: "user", Contains: guard}},
+			missing: []Expectation{{Type: "user", Contains: guard}},
+		},
+		{
+			name:    "wanted text on another type does not count",
+			stdout:  assistantGuard,
+			expect:  []Expectation{{Type: "user", Contains: guard}},
+			missing: []Expectation{{Type: "user", Contains: guard}},
+		},
+		{
+			name:    "count applies to contains matches",
+			stdout:  userGuard + userFatal,
+			expect:  []Expectation{{Type: "user", Contains: guard, Count: 2}},
+			missing: []Expectation{{Type: "user", Contains: guard, Count: 2}},
+		},
+		{
+			name:   "count met by contains matches",
+			stdout: userGuard + userGuard,
+			expect: []Expectation{{Type: "user", Contains: guard, Count: 2}},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			report, err := Check([]byte(test.stdout), test.expect)
+			if err != nil {
+				t.Fatalf("Check() error = %v, want nil", err)
+			}
+			if !reflect.DeepEqual(report.Missing, test.missing) {
+				t.Errorf("Check() Missing = %+v, want %+v", report.Missing, test.missing)
+			}
+		})
+	}
+}

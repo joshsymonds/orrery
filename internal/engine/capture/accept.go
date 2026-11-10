@@ -25,12 +25,14 @@ const (
 	acceptTypeSystem          = "system"
 )
 
-// acceptLine is one classified stdout line. Its type and subtype are what Expectation matching sees.
-// Its unknown key is empty when the wire package declares the line.
+// acceptLine is one classified stdout line. Its type and subtype are what Expectation matching sees,
+// and its raw bytes are what Expectation.Contains is matched against. Its unknown key is empty when the
+// wire package declares the line.
 type acceptLine struct {
 	typ     string
 	subtype string
 	unknown string
+	raw     []byte
 }
 
 // acceptEnvelope is the discriminator pair that every stdout line carries.
@@ -70,6 +72,7 @@ func acceptLines(stdout []byte) ([]acceptLine, error) {
 		if err != nil {
 			return nil, fmt.Errorf("capture: line %d: %w", index+1, err)
 		}
+		line.raw = raw
 		lines = append(lines, line)
 	}
 	return lines, nil
@@ -148,13 +151,17 @@ func acceptSDKLine(raw []byte, envelope acceptEnvelope) (acceptLine, error) {
 	return line, nil
 }
 
-// acceptMatches counts the lines that satisfy the type and subtype rule of want.
+// acceptMatches counts the lines that satisfy the type, subtype, and text rule of want.
 func acceptMatches(lines []acceptLine, want Expectation) int {
 	count := 0
 	for _, line := range lines {
-		if line.typ == want.Type && (want.Subtype == "" || line.subtype == want.Subtype) {
-			count++
+		if line.typ != want.Type || (want.Subtype != "" && line.subtype != want.Subtype) {
+			continue
 		}
+		if want.Contains != "" && !bytes.Contains(line.raw, []byte(want.Contains)) {
+			continue
+		}
+		count++
 	}
 	return count
 }

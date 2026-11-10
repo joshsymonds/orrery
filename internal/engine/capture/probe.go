@@ -28,12 +28,14 @@ const (
 
 // Expectation names a stdout line that a probe's run must contain. A line matches when its type
 // equals Type and its subtype equals Subtype. For control_request the subtype is request.subtype, and
-// for control_response it is response.subtype. An empty Subtype matches any subtype. The line must
-// appear at least max(Count, 1) times.
+// for control_response it is response.subtype. An empty Subtype matches any subtype. A non-empty
+// Contains also requires the line's raw bytes to contain it; an empty Contains matches any text. The
+// line must appear at least max(Count, 1) times.
 type Expectation struct {
-	Type    string
-	Subtype string
-	Count   int
+	Type     string
+	Subtype  string
+	Contains string
+	Count    int
 }
 
 // Probe is one fixed run of Claude Code: its permission mode, tools, prompts, and how it answers.
