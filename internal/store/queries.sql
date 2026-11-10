@@ -25,5 +25,8 @@ INSERT INTO events (session_id, kind, at, payload) VALUES (?, ?, ?, ?);
 -- name: ListEvents :many
 SELECT * FROM events ORDER BY seq;
 
+-- name: NewestEventSeq :one
+SELECT CAST(COALESCE(MAX(seq), 0) AS INTEGER) AS seq FROM events;
+
 -- name: PruneEvents :exec
 DELETE FROM events WHERE at < ?;

@@ -194,6 +194,17 @@ func (q *Queries) ListSessions(ctx context.Context) ([]Session, error) {
 	return items, nil
 }
 
+const newestEventSeq = `-- name: NewestEventSeq :one
+SELECT CAST(COALESCE(MAX(seq), 0) AS INTEGER) AS seq FROM events
+`
+
+func (q *Queries) NewestEventSeq(ctx context.Context) (int64, error) {
+	row := q.db.QueryRowContext(ctx, newestEventSeq)
+	var seq int64
+	err := row.Scan(&seq)
+	return seq, err
+}
+
 const pruneEvents = `-- name: PruneEvents :exec
 DELETE FROM events WHERE at < ?
 `
