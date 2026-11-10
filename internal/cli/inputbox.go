@@ -11,7 +11,8 @@ const inputBoxMaxFooter = 3
 
 // inputBoxVisible reports whether Claude Code's input box is on a captured pane screen.
 // The box is the lowest full-width rule, the rule above it, and a prompt mark on the line
-// between them, followed only by blank or indented continuation lines. Below the lower rule
+// between them, followed only by blank or indented continuation lines. The rule above may be
+// a titled rule (see isInputBoxTitledRule). Below the lower rule
 // the footer is at most three non-blank lines with no agent row. Background agents may follow
 // the footer: a single blank line, then unselected agent rows that end the screen. Anything
 // else below the box is not the box.
@@ -31,7 +32,7 @@ func inputBoxVisible(screen string, width int) bool {
 
 	upper := -1
 	for i := lower - 1; i >= 0; i-- {
-		if isInputBoxRule(lines[i], width) {
+		if isInputBoxRule(lines[i], width) || isInputBoxTitledRule(lines[i], width) {
 			upper = i
 			break
 		}
@@ -89,6 +90,27 @@ func footerWithinLimit(footer []string) bool {
 // isInputBoxRule reports whether line is a non-empty run of U+2500 exactly width runes long.
 func isInputBoxRule(line string, width int) bool {
 	return line != "" && utf8.RuneCountInString(line) == width && strings.Trim(line, "─") == ""
+}
+
+// isInputBoxTitledRule reports whether line is a titled rule exactly width runes long: one or
+// more U+2500, a space, text with no U+2500, a space, and exactly one U+2500.
+func isInputBoxTitledRule(line string, width int) bool {
+	runes := []rune(line)
+	n := len(runes)
+	if n != width {
+		return false
+	}
+	lead := 0
+	for lead < n && runes[lead] == '─' {
+		lead++
+	}
+	if lead == 0 || lead >= n || runes[lead] != ' ' {
+		return false
+	}
+	if lead+1 >= n-2 || runes[n-2] != ' ' || runes[n-1] != '─' {
+		return false
+	}
+	return !strings.ContainsRune(string(runes[lead+1:n-2]), '─')
 }
 
 // isAgentRow reports whether line is an unselected background-agent row.

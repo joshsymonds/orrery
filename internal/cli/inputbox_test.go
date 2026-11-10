@@ -3,6 +3,7 @@ package cli
 import (
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 const inputBoxTestWidth = 40
@@ -10,6 +11,13 @@ const inputBoxTestWidth = 40
 // inputBoxTestRule returns a full rule line for the test width.
 func inputBoxTestRule() string {
 	return strings.Repeat("─", inputBoxTestWidth)
+}
+
+// inputBoxTestTitledRule returns a titled rule for the test width: rule characters, a space,
+// the title, a space, and one rule character.
+func inputBoxTestTitledRule(title string) string {
+	lead := inputBoxTestWidth - utf8.RuneCountInString(title) - 3
+	return strings.Repeat("─", lead) + " " + title + " ─"
 }
 
 func TestInputBoxVisible(t *testing.T) {
@@ -179,6 +187,54 @@ func TestInputBoxVisible(t *testing.T) {
 				rule + "\n  4. Chat about this\n\nEnter to select · ↑/↓ to navigate · Esc to cancel\n\n" +
 				mainRow + "\n" + agentHollow,
 			want: false,
+		},
+		{
+			name:   "titled upper rule with a short title",
+			screen: inputBoxTestTitledRule("invented") + "\n❯ draft\n" + rule + "\n  footer one",
+			want:   true,
+		},
+		{
+			name: "titled upper rule with a long title",
+			screen: inputBoxTestTitledRule("invented long label for the border") +
+				"\n❯ draft\n" + rule + "\n  footer one",
+			want: true,
+		},
+		{
+			name:   "titled upper rule with a two-word title",
+			screen: inputBoxTestTitledRule("invented label") + "\n❯ draft\n" + rule + "\n  footer one",
+			want:   true,
+		},
+		{
+			name:   "titled upper rule with no leading rule",
+			screen: "invented title" + strings.Repeat(" ", 24) + " ─\n❯ draft\n" + rule + "\n  footer one",
+			want:   false,
+		},
+		{
+			name: "titled upper rule with no trailing rule",
+			screen: strings.Repeat("─", 3) + " invented title" + strings.Repeat(" ", 22) +
+				"\n❯ draft\n" + rule + "\n  footer one",
+			want: false,
+		},
+		{
+			name: "titled upper rule with the title mid-border",
+			screen: strings.Repeat("─", 10) + " invented title " + strings.Repeat("─", 14) +
+				"\n❯ draft\n" + rule + "\n  footer one",
+			want: false,
+		},
+		{
+			name:   "titled upper rule with one wide character filling 40 cells",
+			screen: strings.Repeat("─", 35) + " 漢 ─\n❯ draft\n" + rule + "\n  footer one",
+			want:   false,
+		},
+		{
+			name:   "plain upper rule with a titled lower rule",
+			screen: rule + "\n❯ draft\n" + inputBoxTestTitledRule("invented title") + "\n  footer one",
+			want:   false,
+		},
+		{
+			name:   "dialog whose last row is titled",
+			screen: rule + "\n❯ 1. Option\n  2. Other\n" + inputBoxTestTitledRule("invented title"),
+			want:   false,
 		},
 		{
 			name:   "empty screen",
