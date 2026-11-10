@@ -373,8 +373,9 @@ When neither variable is set, `orreryd` exits 1.
 | `ORRERY_NTFY_TOKEN_FILE` | `orreryd` | file holding the ntfy access token |
 | `ANTHROPIC_BASE_URL` | `orrery` (`hook`, `debug summarize`) | the session's base URL. The hook sends it in each frame (section 9), and each summary runs through its own session's base URL. |
 | `ORRERY_SUMMARIZER` | `orrery` (`hook`) | summarizer sentinel (section 7). `orreryd` sets it on each summary run. Summaries also run with hooks disabled. |
-| `HOME` | `orrery` (`tree`, `open`) | `$HOME/Personal` is the default parent directory of new projects |
+| `HOME` | `orrery` (`tree`, `open`) | `$HOME/Personal` is the default parent directory of new projects. `$HOME` is also the directory that roots are relative to, and the roots file falls back to `$HOME/.config/orrery/roots` (see [Roots](#roots)) |
 | `XDG_STATE_HOME` | `orrery` (`tree`, `open`) | base directory of the archive file (see [Archive](#archive)) |
+| `XDG_CONFIG_HOME` | `orrery` (`tree`, `open`) | base directory of the roots file, `$XDG_CONFIG_HOME/orrery/roots` (see [Roots](#roots)) |
 | `PATH` | `orrery` (`tree`, `open`) | finds `zoxide` and `claude` for the picker and `open` |
 
 ### Archive
@@ -401,6 +402,22 @@ Each record has these keys, in this order. The example is synthetic:
 | `summary` | string | the pane's summary |
 | `closed` | number | unix seconds when the record was written |
 | `claude_session` | string | the Claude Code session id (`@orrery_claude_session`), written last |
+
+### Roots
+
+The roots file declares the directory trees whose directories the picker's model sees (see [Picker](#picker)). Its file is `$XDG_CONFIG_HOME/orrery/roots` when `XDG_CONFIG_HOME` is set to a non-empty value. Otherwise it is `$HOME/.config/orrery/roots`. When neither variable is set, no path resolves and no roots are read.
+
+- `orrery open` and the tree's `N` read the file each time they run. A missing file declares no roots. Any other read failure is an error.
+- Each line that is not blank is `DEPTH PATH`. `DEPTH` is a positive decimal integer with no sign. One space follows it, and `PATH` is the rest of the line, unchanged. `PATH` is relative to `$HOME`, which must be absolute, and must stay inside it: an absolute `PATH`, or one that climbs out with `..`, is an error.
+- Any other line is an error that names its line number, and `open` fails with it. The tree's `N` returns it too.
+- The [home-manager module](#home-manager-module) writes this file from `programs.orrery.roots`.
+
+Example. The names are synthetic:
+
+```
+2 Work
+1 Scratch
+```
 
 ### Store
 
@@ -526,6 +543,7 @@ The tree lists the active projects first. A project is quiet when none of its pa
 The picker is shown by `orrery open` with text, and by the tree's `N` in directory mode.
 
 - With no text, a one-line `text:` prompt asks for it. Enter submits non-empty text, Backspace deletes, and Esc cancels.
+- The model sees at most 300 directories, numbered `d1`, `d2`, and so on, in this order. First come zoxide's top 30. Then each root of the [roots file](#roots), in file order, adds its directories at levels 1 to `DEPTH` below its path, sorted by path, skipping any directory already listed. A directory is written relative to `$HOME` when it lies strictly inside `$HOME`, and by its absolute path otherwise, including `$HOME` itself. Hidden names (beginning with `.`) are left out with everything beneath them, as are symlinks and any directory that cannot be read, with everything beneath it.
 - The text is ranked into actions, best first, and the first row is selected. Each row reads `jump PANE`, `pane DIR`, `resume SESSION`, `continue latest in DIR`, or `start fresh in DIR`, with ` (prompt)` added when the action carries a first prompt. A resume row adds `: NOTE` after its session when the archived record has a summary.
 - The resume rows are the actions that `open` builds for the directory (see its bullet above). A `resume` action runs `claude --resume SESSION`, a `continue` action runs `claude --continue`, and a `start fresh` action runs `claude`. Each opens a Claude pane in the directory, as a `pane` action does.
 - The text picker's last row is `pane ROOT`, where ROOT is `$HOME/Personal`. It carries the text as its first prompt when the model calls the text a task, as every model `pane` row does. It is left out when another row already opens a pane in ROOT. When the model's reply has no valid line, this row is the only row. When `HOME` is not absolute, there is no root row, and a reply with no valid line is an error. A failed model, zoxide or tmux call is an error. The rows that `open` builds for a directory get no root row.
@@ -559,6 +577,7 @@ The flake exports `homeManagerModules.default`. Setting `programs.orrery.enable 
 | `programs.orrery.enable` | bool | `false` | install orrery, `p`, and the tmux plugin |
 | `programs.orrery.package` | package | the flake's `packages.<system>.default` | the orrery package to install and run |
 | `programs.orrery.remoteHost` | nullOr string | `null` | SSH host that `p` opens sessions on |
+| `programs.orrery.roots` | listOf submodule | `[ ]` | directory trees the picker lists, each with `path` (relative to home) and `depth` (a positive integer); written to the roots file (see [Roots](#roots)). An empty list writes no file |
 
 `p` runs as follows:
 
