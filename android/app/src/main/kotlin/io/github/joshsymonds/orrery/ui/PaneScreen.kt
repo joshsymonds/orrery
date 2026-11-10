@@ -1,21 +1,29 @@
 package io.github.joshsymonds.orrery.ui
 
 import android.util.Log
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateIntAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.gestures.ScrollableState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
@@ -33,6 +41,7 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
@@ -53,7 +62,14 @@ import org.json.JSONException
 private const val TAG = "PaneScreen"
 private const val POLL_INTERVAL_MILLIS = 1_000L
 private const val HEADER_SLIDE_MILLIS = 220
+private const val QUICK_KEYS_FOLD_MILLIS = 180
 private val BODY_GAP_BELOW_HEADER = 6.dp
+
+/** The draft field never takes more than this share of the screen above the keyboard. */
+private const val COMPOSE_MAX_SHARE = 1f / 3f
+
+/** Nor less than this, so a very short screen still shows a line or two of the draft. */
+private val COMPOSE_MIN_CAP = 48.dp
 
 /**
  * One tick's pane reads. `conversation` is null for a terminal pane. `text` is null when the
@@ -103,7 +119,10 @@ private suspend fun fetchHost(client: OrreryClient): HostRead? =
  * the screen marks the pane seen once.
  *
  * The header overlays the body and slides away while the reader scrolls towards newer content;
- * it returns on a short scroll back, and always shows at the top and the newest end.
+ * it returns on a short scroll back, and always shows at the top and the newest end. While the
+ * software keyboard is up the header folds to the status line, and the draft field is capped at a
+ * third of the screen above the keyboard, so the conversation keeps the room between them. The
+ * quick keys hide while the draft has text, so a reply in progress is one row above the keyboard.
  */
 @Composable
 fun PaneScreen(
@@ -193,6 +212,15 @@ fun PaneScreen(
         label = "header-shift",
     )
     val bodyTop = with(density) { headerHeightPx.toDp() } + BODY_GAP_BELOW_HEADER
+    val ime = WindowInsets.ime
+    val keyboardUp by remember(ime, density) { derivedStateOf { ime.getBottom(density) > 0 } }
+    var screenHeightPx by remember { mutableIntStateOf(0) }
+    var draftPresent by remember(paneId) { mutableStateOf(false) }
+    val composeCap = if (screenHeightPx > 0) {
+        maxOf(with(density) { screenHeightPx.toDp() } * COMPOSE_MAX_SHARE, COMPOSE_MIN_CAP)
+    } else {
+        Dp.Unspecified
+    }
     val bodyReady = current == null || headerHeightPx > 0
     val headerScroll = remember(headerRule, bodyScroll) {
         object : NestedScrollConnection {
@@ -212,14 +240,14 @@ fun PaneScreen(
         }
     }
 
-    Column(modifier = modifier.fillMaxSize()) {
+    Column(modifier = modifier.fillMaxSize().onSizeChanged { screenHeightPx = it.height }) {
         if (refreshFailed) {
             Text("could not refresh")
         }
         Box(modifier = Modifier.weight(1f).fillMaxWidth().nestedScroll(headerScroll)) {
-            // The body waits for the header's height, so its top padding is final before its first
-            // layout. The conversation follows the newest item only on new entries, so a later
-            // change of the padding would push the newest item out of view.
+            // The body waits for the header's height, so its first layout already clears the header.
+            // Later changes of the padding (the header folding for the keyboard) are followed by
+            // the conversation and the terminal while the reader is at the newest end.
             if (bodyReady && showingConversation) {
                 val footer: (@Composable () -> Unit)? = question?.let { card ->
                     val content: @Composable () -> Unit = { QuestionCard(card, client, onRefresh = refresh) }
@@ -258,6 +286,7 @@ fun PaneScreen(
                     },
                     onConversation = { liveScreen = false },
                     onBack = onBack,
+                    compact = keyboardUp,
                     modifier = Modifier
                         .align(Alignment.TopCenter)
                         .onSizeChanged { headerHeightPx = it.height }
@@ -265,7 +294,24 @@ fun PaneScreen(
                 )
             }
         }
-        ComposeBox(paneId, client)
-        QuickKeys(paneId, client)
+        ComposeBox(
+            paneId,
+            client,
+            maxFieldHeight = composeCap,
+            hint = when {
+                current == null -> ""
+                current.state.isEmpty() -> "Type a command…"
+                else -> "Message Claude…"
+            },
+            onDraftPresent = { draftPresent = it },
+        )
+        AnimatedVisibility(
+            visible = !draftPresent,
+            enter = expandVertically(tween(QUICK_KEYS_FOLD_MILLIS)) + fadeIn(tween(QUICK_KEYS_FOLD_MILLIS)),
+            exit = shrinkVertically(tween(QUICK_KEYS_FOLD_MILLIS)) + fadeOut(tween(QUICK_KEYS_FOLD_MILLIS)),
+            label = "quick-keys",
+        ) {
+            QuickKeys(paneId, client)
+        }
     }
 }

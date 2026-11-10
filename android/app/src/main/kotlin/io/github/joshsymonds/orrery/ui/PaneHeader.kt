@@ -1,5 +1,12 @@
 package io.github.joshsymonds.orrery.ui
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -12,6 +19,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -22,16 +30,22 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.joshsymonds.orrery.api.HostStat
 import io.github.joshsymonds.orrery.api.Pane
 import io.github.joshsymonds.orrery.ui.theme.Mocha
 
+private const val COMPACT_MILLIS = 180
+
 /**
  * A pane's header: a back control and the title, the project and opening prompt (or the cwd) in
  * at most two lines, the status line when asked, the host meters when there are stats, and a bar
  * back to the conversation when the live screen shows.
+ *
+ * [compact] folds the header to the status line alone (and the live-screen bar when it shows):
+ * the title, the origin and the meters fold away, and come back when it clears.
  */
 @Composable
 fun PaneHeader(
@@ -45,49 +59,77 @@ fun PaneHeader(
     onConversation: () -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
+    compact: Boolean = false,
 ) {
+    val fold = tween<Float>(COMPACT_MILLIS)
+    val foldSize = tween<IntSize>(COMPACT_MILLIS)
+    val enter = expandVertically(foldSize, expandFrom = Alignment.Top) + fadeIn(fold)
+    val exit = shrinkVertically(foldSize, shrinkTowards = Alignment.Top) + fadeOut(fold)
+    // A compact header with no status line has nothing to pad.
+    val empty = compact && !showStatus
+    val padTop by animateDpAsState(
+        targetValue = if (empty) 0.dp else if (compact) 6.dp else 8.dp,
+        animationSpec = tween(COMPACT_MILLIS),
+        label = "header-pad-top",
+    )
+    val padBottom by animateDpAsState(
+        targetValue = if (empty) 0.dp else if (compact) 6.dp else 10.dp,
+        animationSpec = tween(COMPACT_MILLIS),
+        label = "header-pad-bottom",
+    )
     Column(
         modifier = modifier
             .testTag("pane-header")
             .fillMaxWidth()
             .background(Mocha.Base),
     ) {
-        Column(modifier = Modifier.padding(start = 14.dp, end = 14.dp, top = 8.dp, bottom = 10.dp)) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                Text(
-                    text = "‹",
-                    modifier = Modifier.testTag("pane-back").clickable(onClick = onBack),
-                    color = Mocha.Subtext0,
-                    fontSize = 24.sp,
-                    lineHeight = 24.sp,
-                )
-                Text(
-                    text = pane.label.ifEmpty { pane.command },
-                    modifier = Modifier.weight(1f).testTag("pane-title"),
-                    color = Mocha.Text,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 15.5.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
+        Column(modifier = Modifier.padding(start = 14.dp, end = 14.dp, top = padTop, bottom = padBottom)) {
+            AnimatedVisibility(visible = !compact, enter = enter, exit = exit, label = "header-identity") {
+                Column(modifier = Modifier.padding(bottom = if (showStatus) 9.dp else 0.dp)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        Text(
+                            text = "‹",
+                            modifier = Modifier.testTag("pane-back").clickable(onClick = onBack),
+                            color = Mocha.Subtext0,
+                            fontSize = 24.sp,
+                            lineHeight = 24.sp,
+                        )
+                        Text(
+                            text = pane.label.ifEmpty { pane.command },
+                            modifier = Modifier.weight(1f).testTag("pane-title"),
+                            color = Mocha.Text,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 15.5.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    Text(
+                        text = originLine(pane, origin),
+                        modifier = Modifier.padding(top = 5.dp).fillMaxWidth().testTag("pane-origin"),
+                        color = Mocha.Subtext0,
+                        fontSize = 12.5.sp,
+                        lineHeight = 18.sp,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
-            Text(
-                text = originLine(pane, origin),
-                modifier = Modifier.padding(top = 5.dp).fillMaxWidth().testTag("pane-origin"),
-                color = Mocha.Subtext0,
-                fontSize = 12.5.sp,
-                lineHeight = 18.sp,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
             if (showStatus) {
-                StatusLine(pane, nowSeconds, onStatusClick, Modifier.padding(top = 9.dp))
+                StatusLine(pane, nowSeconds, onStatusClick)
             }
-            if (stats != null && stats.isNotEmpty()) {
-                HostMeters(stats, Modifier.padding(top = 10.dp, start = 2.dp, end = 2.dp))
+            AnimatedVisibility(
+                visible = !compact && stats != null && stats.isNotEmpty(),
+                enter = enter,
+                exit = exit,
+                label = "header-meters",
+            ) {
+                stats?.takeIf { it.isNotEmpty() }?.let {
+                    HostMeters(it, Modifier.padding(top = 10.dp, start = 2.dp, end = 2.dp))
+                }
             }
         }
         if (liveScreen) {

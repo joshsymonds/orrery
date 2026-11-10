@@ -28,6 +28,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -63,7 +64,8 @@ private enum class CallMark(val symbol: String, val colour: Color) {
  * optional footer after the last entry. Which rows are open is kept by tool id (a group by its
  * first call's id), so it survives new entries. It opens at the end of the newest item. While the
  * reader is at the bottom, new entries keep the end of the newest item in view; once they scroll
- * up, new entries leave their position alone.
+ * up, new entries leave their position alone. A change of the viewport's height or top padding
+ * (the keyboard, a growing draft, the header folding) follows the same way.
  */
 @Composable
 fun ConversationView(
@@ -90,10 +92,16 @@ fun ConversationView(
         }
     }
     LaunchedEffect(entries, lastIndex) {
-        if (followBottom && lastIndex >= 0) {
-            listState.scrollToItem(lastIndex)
-            listState.scrollToEnd()
-        }
+        if (followBottom && lastIndex >= 0) listState.followEnd(lastIndex)
+    }
+    val currentLast by rememberUpdatedState(lastIndex)
+    LaunchedEffect(listState) {
+        snapshotFlow { listState.layoutInfo.let { it.viewportSize.height to it.beforeContentPadding } }
+            .collect { (height, _) ->
+                if (height > 0 && followBottom && currentLast >= 0 && !listState.isScrollInProgress) {
+                    listState.followEnd(currentLast)
+                }
+            }
     }
     LazyColumn(
         modifier = modifier
@@ -317,6 +325,12 @@ private fun LazyListLayoutInfo.isAtEnd(): Boolean {
     val last = visibleItemsInfo.lastOrNull() ?: return true
     return last.index == totalItemsCount - 1 &&
         last.offset + last.size <= viewportEndOffset - afterContentPadding
+}
+
+/** Brings the end of the item at [lastIndex] to the viewport's end. */
+private suspend fun LazyListState.followEnd(lastIndex: Int) {
+    scrollToItem(lastIndex)
+    scrollToEnd()
 }
 
 /** Scrolls the rest of the way so the last item's end sits at the viewport's end. */
