@@ -1,5 +1,3 @@
-// Package session runs headless Claude Code sessions for orreryd: it builds the command that starts a
-// session through the owner's login shell, and speaks the stream-json protocol to it.
 package session
 
 import (
@@ -83,6 +81,20 @@ func Command(cfg Config) (proc.Config, error) {
 		Dir:  cfg.Dir,
 		Env:  env,
 	}, nil
+}
+
+// Start starts a headless session in cfg: it builds the process with Command, starts it and runs a
+// Session on it. When the session cannot open, New has already stopped the process.
+func Start(cfg Config) (*Session, error) {
+	command, err := Command(cfg)
+	if err != nil {
+		return nil, err
+	}
+	process, err := proc.Start(command)
+	if err != nil {
+		return nil, fmt.Errorf("session: start process: %w", err)
+	}
+	return New(process)
 }
 
 // dropsEnv reports whether a session never inherits the environment variable name: the tmux markers,
