@@ -6,6 +6,7 @@
 # tree. Output lands in the recipe's temporary directory, which is the working
 # directory VHS runs from, so the gif never enters the repository.
 Output tree.gif
+Output tree.txt
 Set FontFamily "Maple Mono NF"
 Set FontSize 14
 Set Theme "Catppuccin Mocha"
