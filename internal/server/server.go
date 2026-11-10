@@ -16,6 +16,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/joshsymonds/orrery/internal/cli"
 	"github.com/joshsymonds/orrery/internal/conversation"
@@ -107,9 +108,11 @@ type Config struct {
 	Push *push.Store
 	// HostStatus runs the host status command behind GET /v1/host, or is nil when serve has no command.
 	HostStatus *hoststatus.Runner
-	// Sessions reads the store behind the Sessions Connect API, or is nil when there is no store reader, which
-	// answers unavailable.
+	// Sessions reads the store behind the Sessions and Events Connect APIs, or is nil when there is no store
+	// reader, which answers unavailable.
 	Sessions *store.Reader
+	// EventPoll is the interval at which Events.Watch polls the store for new events, or zero for the default.
+	EventPoll time.Duration
 }
 
 // New returns a handler that admits only the configured logins, and never emits CORS headers. A request to
@@ -133,6 +136,13 @@ func New(cfg Config) (http.Handler, error) {
 		}
 		allowed[login] = struct{}{}
 	}
+	if cfg.EventPoll < 0 {
+		return nil, fmt.Errorf("server: negative event poll interval %v", cfg.EventPoll)
+	}
+	poll := cfg.EventPoll
+	if poll == 0 {
+		poll = defaultEventPoll
+	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/panes", servePanes(cfg.Tmux))
@@ -145,14 +155,17 @@ func New(cfg Config) (http.Handler, error) {
 	mux.HandleFunc("POST /v1/panes/{id}/seen", servePaneSeen(cfg.Tmux))
 	mux.HandleFunc("POST /v1/push/register", servePushRegister(cfg.Push))
 	mux.HandleFunc("DELETE /v1/push/register", serveUnregister(cfg.Push))
-	connectPath, sessions := newSessionsHandler(cfg.Sessions)
-	mux.Handle(connectPath, sessions)
+	sessionsPath, sessions := newSessionsHandler(cfg.Sessions)
+	mux.Handle(sessionsPath, sessions)
+	eventsPath, events := newEventsHandler(cfg.Sessions, poll)
+	mux.Handle(eventsPath, events)
+	connectPaths := []string{sessionsPath, eventsPath}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if _, ok := allowed[r.Header.Get(HeaderLogin)]; !ok {
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
-		if !guardAdmits(r, connectPath) {
+		if !guardAdmits(r, connectPaths) {
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
@@ -636,12 +649,14 @@ func isWrite(method string) bool {
 	return method == http.MethodPost || method == http.MethodDelete
 }
 
-// guardAdmits reports whether the guard passes r past the login check. A request to a path under connectPath
-// needs the client header, and a POST there one of the Connect content types. Any other POST or DELETE needs
-// a JSON content type and the client header. Every other request passes.
-func guardAdmits(r *http.Request, connectPath string) bool {
-	if strings.HasPrefix(r.URL.Path, connectPath) {
-		return r.Header.Get(HeaderClient) != "" && (r.Method != http.MethodPost || isConnectContentType(r))
+// guardAdmits reports whether the guard passes r past the login check. A request to a path under one of
+// connectPaths needs the client header, and a POST there one of the Connect content types. Any other POST or
+// DELETE needs a JSON content type and the client header. Every other request passes.
+func guardAdmits(r *http.Request, connectPaths []string) bool {
+	for _, connectPath := range connectPaths {
+		if strings.HasPrefix(r.URL.Path, connectPath) {
+			return r.Header.Get(HeaderClient) != "" && (r.Method != http.MethodPost || isConnectContentType(r))
+		}
 	}
 	return !isWrite(r.Method) || isJSONWrite(r)
 }
