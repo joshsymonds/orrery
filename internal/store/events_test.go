@@ -146,6 +146,74 @@ func TestEventsDecodesEachKind(t *testing.T) {
 	}
 }
 
+func TestEventsReturnsEngineKindsWithCommonFieldsOnly(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "orrery.db")
+	s := openWriterAt(t, path)
+	now := engineNowAt()
+	if err := s.SyncServer(ctx, "-L a", []Pane{
+		{ID: "orrery-1", Pane: "%1", Fields: Fields{State: "working"}},
+	}, now); err != nil {
+		t.Fatalf("SyncServer: %v", err)
+	}
+	if err := s.ApplyEngine(ctx, []EngineOp{
+		EngineAdd{ID: "e1", Dir: "/a", State: "working"},
+		EnginePrompt{ID: "e1", Text: "hi"},
+	}, now); err != nil {
+		t.Fatalf("ApplyEngine add and prompt: %v", err)
+	}
+	if err := s.SyncPane(
+		ctx,
+		"-L a",
+		Pane{ID: "orrery-1", Pane: "%1", Fields: Fields{State: "idle"}},
+		now,
+	); err != nil {
+		t.Fatalf("SyncPane: %v", err)
+	}
+	if err := s.ApplyEngine(ctx, []EngineOp{EngineTurnEnded{ID: "e1", Subtype: "success"}}, now); err != nil {
+		t.Fatalf("ApplyEngine turn ended: %v", err)
+	}
+
+	page, err := NewReader(path).Events(ctx, 0, 10)
+	if err != nil {
+		t.Fatalf("Events over engine kinds: %v", err)
+	}
+	at := now.Unix()
+	want := []Event{
+		{Seq: 1, SessionID: "orrery-1", Kind: EventSessionAdded, At: at, Server: "-L a", Pane: "%1"},
+		{Seq: 2, SessionID: "orrery-1", Kind: EventSessionChanged, At: at,
+			Changes: FieldChanges{State: strPtr("working")}},
+		{Seq: 3, SessionID: "e1", Kind: EventEngineAdded, At: at},
+		{Seq: 4, SessionID: "e1", Kind: EventEnginePrompt, At: at},
+		{Seq: 5, SessionID: "orrery-1", Kind: EventSessionChanged, At: at,
+			Changes: FieldChanges{State: strPtr("idle")}},
+		{Seq: 6, SessionID: "e1", Kind: EventEngineTurnEnded, At: at},
+	}
+	if !reflect.DeepEqual(page.Events, want) {
+		t.Fatalf("events:\n got %+v\nwant %+v", page.Events, want)
+	}
+}
+
+func TestEventsSkipsEngineKindsWithoutDecodingPayload(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "orrery.db")
+	s := openWriterAt(t, path)
+	if err := sqlcgen.New(s.db).InsertEvent(ctx, sqlcgen.InsertEventParams{
+		SessionID: "e1", Kind: EventEngineBlock, At: 1, Payload: `{"not json`,
+	}); err != nil {
+		t.Fatalf("InsertEvent: %v", err)
+	}
+
+	page, err := NewReader(path).Events(ctx, 0, 10)
+	if err != nil {
+		t.Fatalf("Events of engine row with a malformed payload: %v", err)
+	}
+	want := []Event{{Seq: 1, SessionID: "e1", Kind: EventEngineBlock, At: 1}}
+	if !reflect.DeepEqual(page.Events, want) {
+		t.Fatalf("events:\n got %+v\nwant %+v", page.Events, want)
+	}
+}
+
 func TestEventsBoundsWithNoEventsAreZero(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	openWriterAt(t, path)
