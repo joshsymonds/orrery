@@ -270,7 +270,8 @@ func (x *Session) GetTranscript() string {
 // WatchRequest asks for the events after a store position.
 type WatchRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// The seq the stream resumes after. Zero asks for every event the store holds.
+	// The seq the stream resumes after. A seq past the newest event, or below the oldest kept event minus one, ends
+	// the stream with out_of_range.
 	After         int64 `protobuf:"varint,1,opt,name=after,proto3" json:"after,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

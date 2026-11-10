@@ -70,7 +70,8 @@ message Session {
 
 // WatchRequest asks for the events after a store position.
 message WatchRequest {
-  // The seq the stream resumes after. Zero asks for every event the store holds.
+  // The seq the stream resumes after. A seq past the newest event, or below the oldest kept event minus one, ends
+  // the stream with out_of_range.
   int64 after = 1;
 }
 
