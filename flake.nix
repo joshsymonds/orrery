@@ -1,7 +1,9 @@
 {
   description = "orrery: tmux pane state for Claude Code sessions";
 
-  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+  # devenv.nix/devenv.yaml own the Go dev shell. This flake and devenv.yaml pin
+  # the SAME literal nixpkgs rev, so both share one toolchain. Move both together.
+  inputs.nixpkgs.url = "github:NixOS/nixpkgs/02c087f3fe673c9e317f206a627cb6b910336dbe";
   inputs.home-manager = {
     url = "github:nix-community/home-manager";
     inputs.nixpkgs.follows = "nixpkgs";
@@ -150,36 +152,17 @@
         }
       );
 
-      devShells = nixpkgs.lib.recursiveUpdate
-        (forAllSystems (pkgs: {
-          default = pkgs.mkShell {
-            packages = [
-              pkgs.buf
-              pkgs.go_1_26
-              pkgs.golangci-lint
-              pkgs.goose
-              pkgs.just
-              pkgs.protoc-gen-connect-go
-              pkgs.protoc-gen-go
-              pkgs.sqlc
-              pkgs.tmux
-              pkgs.util-linux
-            ];
-          };
-        }))
-        {
-          x86_64-linux.android = androidPkgs.mkShell {
-            packages = [
-              androidComposition.androidsdk
-              androidPkgs.gradle
-              androidPkgs.jdk17
-            ];
-            ANDROID_HOME = androidSdk;
-            ANDROID_SDK_ROOT = androidSdk;
-            JAVA_HOME = "${androidPkgs.jdk17}";
-            # NixOS has no FHS aapt2, so Gradle must use the SDK's copy.
-            GRADLE_OPTS = "-Dandroid.aapt2FromMavenOverride=${androidAapt2} -Dorg.gradle.project.android.aapt2FromMavenOverride=${androidAapt2}";
-          };
-        };
+      devShells.x86_64-linux.android = androidPkgs.mkShell {
+        packages = [
+          androidComposition.androidsdk
+          androidPkgs.gradle
+          androidPkgs.jdk17
+        ];
+        ANDROID_HOME = androidSdk;
+        ANDROID_SDK_ROOT = androidSdk;
+        JAVA_HOME = "${androidPkgs.jdk17}";
+        # NixOS has no FHS aapt2, so Gradle must use the SDK's copy.
+        GRADLE_OPTS = "-Dandroid.aapt2FromMavenOverride=${androidAapt2} -Dorg.gradle.project.android.aapt2FromMavenOverride=${androidAapt2}";
+      };
     };
 }

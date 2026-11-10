@@ -1,0 +1,5 @@
+inputs:
+  nixpkgs:
+    # This pin and flake.nix's are the SAME literal rev, so devenv and the
+    # flake share one toolchain. Move both together.
+    url: github:NixOS/nixpkgs/02c087f3fe673c9e317f206a627cb6b910336dbe

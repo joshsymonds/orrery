@@ -2,3 +2,9 @@ result
 result-*
 coverage.out
 coverage.cov.out
+
+# devenv
+/.devenv*
+
+# Per-checkout golangci-lint cache (see devenv-base.nix)
+.golangci-cache/
