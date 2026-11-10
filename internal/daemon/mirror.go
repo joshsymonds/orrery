@@ -54,6 +54,9 @@ type Mirror struct {
 	now    func() time.Time
 	logger *slog.Logger
 	lock   chan struct{}
+	// unreachable holds each server whose last list-panes failed, keyed by its store column. Only the lock
+	// holder reads or writes it.
+	unreachable map[string]bool
 }
 
 // NewMirror returns a Mirror that writes to st and stamps events with now. A nil logger discards.
@@ -61,7 +64,13 @@ func NewMirror(st *store.Store, now func() time.Time, logger *slog.Logger) *Mirr
 	if logger == nil {
 		logger = slog.New(slog.DiscardHandler)
 	}
-	return &Mirror{store: st, now: now, logger: logger, lock: make(chan struct{}, 1)}
+	return &Mirror{
+		store:       st,
+		now:         now,
+		logger:      logger,
+		lock:        make(chan struct{}, 1),
+		unreachable: map[string]bool{},
+	}
 }
 
 // SyncPane syncs pane on server into the store. It reads the pane's @orrery_id and mirrored options,
@@ -170,7 +179,8 @@ func fieldsOf(values []string) store.Fields {
 // Tidy matches the store to server's panes: one list-panes -a reads every pane, and SyncServer replaces the
 // server's rows with them. A pane without an @orrery_id gets one minted before the store write, and the option is
 // set only after the write commits. A failed read or write changes nothing; it is logged, and the next tidy repairs
-// it. The lock covers the read and the write, so a sync and a tidy never interleave.
+// it. A failed list-panes is logged as a server transition instead: see noteListPanes. The lock covers the read and
+// the write, so a sync and a tidy never interleave.
 func (m *Mirror) Tidy(ctx context.Context, server tmuxctl.Server) {
 	if !m.acquire() {
 		m.logger.WarnContext(ctx, "mirror tidy dropped", "server", serverValue(server), "reason", "lock wait exceeded")
@@ -178,21 +188,24 @@ func (m *Mirror) Tidy(ctx context.Context, server tmuxctl.Server) {
 	}
 	defer m.release()
 
-	if err := m.tidy(ctx, server); err != nil {
+	client, err := tmuxctl.New(server)
+	if err != nil {
+		m.logger.ErrorContext(ctx, "mirror tidy dropped", "server", serverValue(server),
+			"error", fmt.Errorf("resolve tmux server: %w", err))
+		return
+	}
+	out, err := client.Run(ctx, "list-panes", "-a", "-F", tidyFormat)
+	m.noteListPanes(ctx, server, err)
+	if err != nil {
+		return
+	}
+	if err = m.tidy(ctx, server, client, out); err != nil {
 		m.logger.ErrorContext(ctx, "mirror tidy dropped", "server", serverValue(server), "error", err)
 	}
 }
 
-// tidy runs one tidy. The caller holds m.lock.
-func (m *Mirror) tidy(ctx context.Context, server tmuxctl.Server) error {
-	client, err := tmuxctl.New(server)
-	if err != nil {
-		return fmt.Errorf("resolve tmux server: %w", err)
-	}
-	out, err := client.Run(ctx, "list-panes", "-a", "-F", tidyFormat)
-	if err != nil {
-		return fmt.Errorf("list panes: %w", err)
-	}
+// tidy applies one list-panes listing out to the store. The caller holds m.lock.
+func (m *Mirror) tidy(ctx context.Context, server tmuxctl.Server, client *tmuxctl.Client, out string) error {
 	panes, err := parseTidyPanes(out)
 	if err != nil {
 		return err
@@ -219,6 +232,24 @@ func (m *Mirror) tidy(ctx context.Context, server tmuxctl.Server) error {
 		}
 	}
 	return errors.Join(errs...)
+}
+
+// noteListPanes logs a server's list-panes outcome when it changes that server's state. A failure logs
+// "tmux server unreachable" when the previous list-panes on the server succeeded, and nothing while it keeps
+// failing. The first success after a failure logs "tmux server reachable again". The caller holds m.lock.
+func (m *Mirror) noteListPanes(ctx context.Context, server tmuxctl.Server, err error) {
+	key := serverValue(server)
+	switch {
+	case err != nil:
+		if m.unreachable[key] {
+			return
+		}
+		m.unreachable[key] = true
+		m.logger.WarnContext(ctx, "tmux server unreachable", "server", key, "error", err)
+	case m.unreachable[key]:
+		delete(m.unreachable, key)
+		m.logger.InfoContext(ctx, "tmux server reachable again", "server", key)
+	}
 }
 
 // parseTidyPanes decodes list-panes -a output printed with tidyFormat, one pane per line. The pane's @orrery_id
