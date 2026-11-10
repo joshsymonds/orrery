@@ -401,6 +401,79 @@ func TestReadOrigin(t *testing.T) {
 			},
 			"",
 		},
+		{
+			"skips a compaction summary before the prompt",
+			[]string{
+				`{"type":"user","isCompactSummary":true,"message":{"content":"synthetic summary"}}`,
+				`{"type":"user","message":{"content":"typed after compaction"}}`,
+			},
+			"typed after compaction",
+		},
+		{
+			"skips a task notification before the prompt",
+			[]string{
+				taskLine(0, `"`+taskNotification("completed", "Synthetic summary")+`"`),
+				`{"type":"user","message":{"content":"typed after task"}}`,
+			},
+			"typed after task",
+		},
+		{
+			"skips a teammate message before the prompt",
+			[]string{
+				stringContentLine(t, teammateContent(teammateBlock("Synthetic summary", teammateRequest))),
+				`{"type":"user","message":{"content":"typed after teammate"}}`,
+			},
+			"typed after teammate",
+		},
+		{
+			"skips an interruption before the prompt",
+			[]string{
+				`{"type":"user","message":{"content":[{"type":"text","text":"[Request interrupted by user]"}]}}`,
+				`{"type":"user","message":{"content":"typed after interruption"}}`,
+			},
+			"typed after interruption",
+		},
+		{
+			"skips command output before the prompt",
+			[]string{
+				stringContentLine(t, commandOutput),
+				`{"type":"user","message":{"content":"typed after output"}}`,
+			},
+			"typed after output",
+		},
+		{
+			"reads a slash command opener as its name and args",
+			[]string{
+				stringContentLine(t, commandNameElem+"\n"+commandMessageElem+"\n"+commandArgsElem),
+				replyLine(0, "Synthetic reply."),
+			},
+			"/synthetic one two",
+		},
+		{
+			"strips a pasted pair from the opening prompt",
+			[]string{
+				stringContentLine(t, `Pasted <pasted_content id="1">synthetic</pasted_content id="1"> end`),
+			},
+			"Pasted synthetic end",
+		},
+		{
+			"keeps a typed line quoting command output verbatim",
+			[]string{humanLine(t, commandOutput)},
+			commandOutput,
+		},
+		{
+			"keeps a typed line holding an interruption string as the origin",
+			[]string{
+				`{"type":"user","promptSource":"typed","origin":{"kind":"human"},` +
+					`"message":{"content":[{"type":"text","text":"[Request interrupted by user]"}]}}`,
+			},
+			"[Request interrupted by user]",
+		},
+		{
+			"counts a queued typed message as the origin",
+			[]string{attachmentLine(0, queuedAttachment(t, "Synthetic queued message"))},
+			"Synthetic queued message",
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

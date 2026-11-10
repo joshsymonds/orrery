@@ -606,8 +606,9 @@ func cutText(text string, limit int) string {
 	return text[:end]
 }
 
-// originPrompt returns the first user prompt in the first originWindowBytes of the transcript, clipped to
-// maxOriginRunes runes. A line that the window ends inside is ignored.
+// originPrompt returns the text of the first prompt item that the item rules give in the first originWindowBytes
+// of the transcript, clipped to maxOriginRunes runes. A line that the window ends inside is ignored. The origin
+// has no earlier prompt to repeat, so each line is classified with a fresh userTexts map.
 func originPrompt(src io.ReaderAt, size int64) (string, error) {
 	window := min(size, originWindowBytes)
 	reader := bufio.NewReader(io.NewSectionReader(src, 0, window))
@@ -619,31 +620,13 @@ func originPrompt(src io.ReaderAt, size int64) (string, error) {
 		if errors.Is(err, io.EOF) && window < size {
 			return "", nil
 		}
-		if text := originText(line); text != "" {
-			runes := []rune(text)
-			if len(runes) > maxOriginRunes {
-				text = string(runes[:maxOriginRunes])
+		for _, item := range lineItems(line, map[string]bool{}) {
+			if item.Kind == kindPrompt {
+				return cutRunes(item.Text, maxOriginRunes), nil
 			}
-			return text, nil
 		}
 		if errors.Is(err, io.EOF) {
 			return "", nil
 		}
 	}
-}
-
-// originText returns the prompt of a user line that is not meta or sidechain and holds no tool_result, or
-// "" when the line is none of those.
-func originText(line []byte) string {
-	var entry transcriptLine
-	if json.Unmarshal(line, &entry) != nil || entry.Type != "user" || entry.IsMeta || entry.IsSidechain {
-		return ""
-	}
-	text, blocks := splitContent(entry.Message.Content)
-	for _, block := range blocks {
-		if stringField(block, "type") == "tool_result" {
-			return ""
-		}
-	}
-	return text
 }
