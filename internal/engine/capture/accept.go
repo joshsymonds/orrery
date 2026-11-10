@@ -23,14 +23,17 @@ const (
 	acceptTypeControlResponse = "control_response"
 	acceptTypeResult          = "result"
 	acceptTypeSystem          = "system"
+	acceptSubtypeInit         = "init"
 )
 
-// acceptLine is one classified stdout line. Its type and subtype are what Expectation matching sees.
-// Its unknown key is empty when the wire package declares the line.
+// acceptLine is one classified stdout line. Its type and subtype are what Expectation matching sees,
+// and its raw bytes are what Expectation.Contains is matched against. Its unknown key is empty when the
+// wire package declares the line.
 type acceptLine struct {
 	typ     string
 	subtype string
 	unknown string
+	raw     []byte
 }
 
 // acceptEnvelope is the discriminator pair that every stdout line carries.
@@ -58,6 +61,42 @@ func Check(stdout []byte, expect []Expectation) (Report, error) {
 	return report, nil
 }
 
+// SessionID returns the session_id of the first stdout line that is a system init message. It errors
+// when no such line exists, when its session_id is missing or empty, or when a line of stdout is not a
+// JSON object, naming the 1-based line number as Check does.
+func SessionID(stdout []byte) (string, error) {
+	lines, err := acceptLines(stdout)
+	if err != nil {
+		return "", err
+	}
+	for _, line := range lines {
+		if line.typ == acceptTypeSystem && line.subtype == acceptSubtypeInit {
+			return acceptInitSessionID(line.raw)
+		}
+	}
+	return "", errors.New("capture: no system init line")
+}
+
+// acceptInitSessionID decodes a system init line through the wire package and returns its session_id.
+func acceptInitSessionID(raw []byte) (string, error) {
+	var message wire.SDKMessage
+	if err := json.Unmarshal(raw, &message); err != nil {
+		return "", fmt.Errorf("capture: decode system init: %w", err)
+	}
+	variant, err := message.Variant()
+	if err != nil {
+		return "", fmt.Errorf("capture: decode system init: %w", err)
+	}
+	init, ok := variant.(wire.SDKSystemMessage)
+	if !ok {
+		return "", fmt.Errorf("capture: decode system init: got %T", variant)
+	}
+	if init.SessionID == "" {
+		return "", errors.New("capture: system init line has no session_id")
+	}
+	return init.SessionID, nil
+}
+
 // acceptLines classifies each line of stdout, dropping one trailing empty line.
 func acceptLines(stdout []byte) ([]acceptLine, error) {
 	raws := bytes.Split(stdout, []byte("\n"))
@@ -70,6 +109,7 @@ func acceptLines(stdout []byte) ([]acceptLine, error) {
 		if err != nil {
 			return nil, fmt.Errorf("capture: line %d: %w", index+1, err)
 		}
+		line.raw = raw
 		lines = append(lines, line)
 	}
 	return lines, nil
@@ -148,13 +188,17 @@ func acceptSDKLine(raw []byte, envelope acceptEnvelope) (acceptLine, error) {
 	return line, nil
 }
 
-// acceptMatches counts the lines that satisfy the type and subtype rule of want.
+// acceptMatches counts the lines that satisfy the type, subtype, and text rule of want.
 func acceptMatches(lines []acceptLine, want Expectation) int {
 	count := 0
 	for _, line := range lines {
-		if line.typ == want.Type && (want.Subtype == "" || line.subtype == want.Subtype) {
-			count++
+		if line.typ != want.Type || (want.Subtype != "" && line.subtype != want.Subtype) {
+			continue
 		}
+		if want.Contains != "" && !bytes.Contains(line.raw, []byte(want.Contains)) {
+			continue
+		}
+		count++
 	}
 	return count
 }

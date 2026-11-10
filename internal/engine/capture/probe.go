@@ -28,15 +28,18 @@ const (
 
 // Expectation names a stdout line that a probe's run must contain. A line matches when its type
 // equals Type and its subtype equals Subtype. For control_request the subtype is request.subtype, and
-// for control_response it is response.subtype. An empty Subtype matches any subtype. The line must
-// appear at least max(Count, 1) times.
+// for control_response it is response.subtype. An empty Subtype matches any subtype. A non-empty
+// Contains also requires the line's raw bytes to contain it; an empty Contains matches any text. The
+// line must appear at least max(Count, 1) times.
 type Expectation struct {
-	Type    string
-	Subtype string
-	Count   int
+	Type     string
+	Subtype  string
+	Contains string
+	Count    int
 }
 
-// Probe is one fixed run of Claude Code: its permission mode, tools, prompts, and how it answers.
+// Probe is one fixed run of Claude Code: its permission mode, tools, prompts, and how it answers. Linger,
+// when positive, keeps stdin open that long after the last prompt's result before it closes.
 type Probe struct {
 	Name           string
 	PermissionMode string
@@ -47,6 +50,14 @@ type Probe struct {
 	Interrupt      bool
 	Answer         Answer
 	Expect         []Expectation
+	Linger         time.Duration
+	// Persist keeps session persistence on, so the session is written to disk instead of discarded.
+	Persist bool
+	// HookEvents includes the hook lifecycle events in the stream.
+	HookEvents bool
+	// ResumeOf names the earlier probe in the same set whose session this probe resumes, in that
+	// probe's directory. DaemonCommand only requires a resume id when it is set.
+	ResumeOf string
 }
 
 // Probes returns the six fixed probes in run order.

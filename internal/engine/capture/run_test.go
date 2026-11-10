@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -133,12 +134,12 @@ func runCommand(t *testing.T, script string, args ...string) Command {
 	}
 }
 
-// runWriteFile writes content to a new file in a fresh directory and returns its path.
-func runWriteFile(t *testing.T, name, content string) string {
+// runWriteFile writes content to request.json in a fresh directory and returns its path.
+func runWriteFile(t *testing.T, content string) string {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), name)
+	path := filepath.Join(t.TempDir(), "request.json")
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
-		t.Fatalf("write %s: %v", name, err)
+		t.Fatalf("write request.json: %v", err)
 	}
 	return path
 }
@@ -215,6 +216,26 @@ func TestRunTwoPromptsCopiesBothStreamsExactly(t *testing.T) {
 		runInitReply+"\n"+runResultLine+"\n"+runResultLine+"\n"+runTrailerLine+"\n")
 }
 
+func TestRunResumeNumbersPromptUUIDsFromOwnRange(t *testing.T) {
+	var in, out bytes.Buffer
+	probe := Probe{Name: "chained", PermissionMode: "default", ResumeOf: "two-turns", Prompts: []string{"ONE", "TWO"}}
+	cmd := runCommand(t, runScript(runUserResult))
+
+	outcome := runExecute(t, probe, cmd, Sinks{In: &in, Out: &out})
+
+	runRequireCompleted(t, outcome)
+	// The repository's leak rule admits only the ordinary uuid form as a literal, so the resume form is
+	// built from its format; it must differ from every uuid an ordinary probe sends.
+	if fmt.Sprintf(runResumeUUIDFormat, 1) == fmt.Sprintf(runUUIDFormat, 1) {
+		t.Fatalf("resume uuid format %q numbers like the ordinary one", runResumeUUIDFormat)
+	}
+	prompt := func(text string, n int) string {
+		return `{"type":"user","message":{"role":"user","content":[{"type":"text","text":"` + text + `"}]},` +
+			`"uuid":"` + fmt.Sprintf(runResumeUUIDFormat, n) + `"}` + "\n"
+	}
+	runCompare(t, "In", in.String(), runInitLine+prompt("ONE", 1)+prompt("TWO", 2))
+}
+
 func TestRunAnswersPermissionRequests(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -236,7 +257,7 @@ func TestRunAnswersPermissionRequests(t *testing.T) {
 				Prompts:        []string{"ONE"},
 				Answer:         tc.answer,
 			}
-			cmd := runCommand(t, runScript(runUserAnswer), runWriteFile(t, "request.json", tc.request))
+			cmd := runCommand(t, runScript(runUserAnswer), runWriteFile(t, tc.request))
 
 			outcome := runExecute(t, probe, cmd, Sinks{In: &in, Out: &out})
 
@@ -278,7 +299,7 @@ func TestRunListsUnansweredRequests(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			var in, out bytes.Buffer
 			probe := Probe{Name: tc.name, PermissionMode: "default", PromptTool: true, Prompts: []string{"ONE"}}
-			cmd := runCommand(t, runScript(runUserRequest), runWriteFile(t, "request.json", tc.request))
+			cmd := runCommand(t, runScript(runUserRequest), runWriteFile(t, tc.request))
 
 			outcome := runExecute(t, probe, cmd, Sinks{In: &in, Out: &out})
 
@@ -290,6 +311,55 @@ func TestRunListsUnansweredRequests(t *testing.T) {
 			}
 			runCompare(t, "In", in.String(), runInitLine+runPromptOne)
 		})
+	}
+}
+
+func TestRunListsAnsweredRequests(t *testing.T) {
+	tests := []struct {
+		name           string
+		answer         Answer
+		want           []string
+		wantUnanswered []string
+	}{
+		{name: "allowed", answer: AnswerAllow, want: []string{"can_use_tool Write"}},
+		{name: "denied", answer: AnswerDeny, want: []string{"can_use_tool Write"}},
+		{name: "unanswered", wantUnanswered: []string{"can_use_tool Write"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var in, out bytes.Buffer
+			probe := Probe{
+				Name:           tc.name,
+				PermissionMode: "default",
+				PromptTool:     true,
+				Prompts:        []string{"ONE"},
+				Answer:         tc.answer,
+			}
+			cmd := runCommand(t, runScript(runUserRequest), runWriteFile(t, runWriteRequest))
+
+			outcome := runExecute(t, probe, cmd, Sinks{In: &in, Out: &out})
+
+			runRequireCompleted(t, outcome)
+			if !slices.Equal(outcome.Answered, tc.want) {
+				t.Errorf("Answered = %q, want %q", outcome.Answered, tc.want)
+			}
+			if !slices.Equal(outcome.Unanswered, tc.wantUnanswered) {
+				t.Errorf("Unanswered = %q, want %q", outcome.Unanswered, tc.wantUnanswered)
+			}
+		})
+	}
+}
+
+func TestRunAnsweredEmptyWithoutRequest(t *testing.T) {
+	var in, out bytes.Buffer
+	probe := Probe{Name: "no-request", PermissionMode: "default", Prompts: []string{"ONE"}}
+	cmd := runCommand(t, runScript(runUserResult))
+
+	outcome := runExecute(t, probe, cmd, Sinks{In: &in, Out: &out})
+
+	runRequireCompleted(t, outcome)
+	if len(outcome.Answered) != 0 {
+		t.Errorf("Answered = %q, want none", outcome.Answered)
 	}
 }
 
@@ -343,7 +413,7 @@ func TestRunListsMalformedRequestsAndContinues(t *testing.T) {
 				Prompts:        []string{"ONE"},
 				Answer:         tc.answer,
 			}
-			cmd := runCommand(t, runPIDScript(runUserRequest), runWriteFile(t, "request.json", tc.request), pidPath)
+			cmd := runCommand(t, runPIDScript(runUserRequest), runWriteFile(t, tc.request), pidPath)
 
 			outcome, err := Run(t.Context(), probe, cmd, Sinks{In: &in, Out: &out})
 
@@ -465,6 +535,63 @@ func TestRunWaitsForEachReplyBeforeItsNextLine(t *testing.T) {
 				step.next, gap, step.waitedOn, runReplyGap, runReplyDelay)
 		}
 	}
+}
+
+// runLinger is the Linger of the linger tests: long enough to observe, short enough to keep the tests fast.
+const runLinger = 400 * time.Millisecond
+
+// runUserExtraResult answers a user line with a result, then a second result 100ms later, inside the linger.
+const runUserExtraResult = runUserResult + "\n      sleep 0.1\n" + runUserResult
+
+func TestRunLingerHoldsStdinOpenAfterLastResult(t *testing.T) {
+	out := &runStampedWriter{}
+	var in bytes.Buffer
+	probe := Probe{Name: "linger", PermissionMode: "default", Prompts: []string{"ONE"}, Linger: runLinger}
+
+	outcome := runExecute(t, probe, runCommand(t, runScript(runUserResult)), Sinks{In: &in, Out: out})
+
+	runRequireCompleted(t, outcome)
+	if gap := out.when(t, runTrailerLine).Sub(out.when(t, runResultLine)); gap < runLinger {
+		t.Errorf("trailer written %v after the result, want at least %v (stdin closes after the linger)",
+			gap, runLinger)
+	}
+}
+
+func TestRunLingerCountsExtraResultsAndSendsNothing(t *testing.T) {
+	out := &runStampedWriter{}
+	var in bytes.Buffer
+	probe := Probe{Name: "linger-extra", PermissionMode: "default", Prompts: []string{"ONE"}, Linger: runLinger}
+
+	outcome := runExecute(t, probe, runCommand(t, runScript(runUserExtraResult)), Sinks{In: &in, Out: out})
+
+	runRequireCompleted(t, outcome)
+	runCompare(t, "In", in.String(), runInitLine+runPromptOne)
+	if gap := out.when(t, runTrailerLine).Sub(out.when(t, runResultLine)); gap < runLinger {
+		t.Errorf("trailer written %v after the first result, want at least %v (the extra result must not close stdin)",
+			gap, runLinger)
+	}
+}
+
+func TestRunLingerLongerThanTimeoutStopsProcess(t *testing.T) {
+	pidPath := filepath.Join(t.TempDir(), "pid")
+	cmd := runCommand(t, `printf '%s\n' "$$" > "$1"`+"\n"+runScript(runUserResult), pidPath)
+	cmd.Timeout = runShortTimeout
+	probe := Probe{
+		Name:           "linger-timeout",
+		PermissionMode: "default",
+		Prompts:        []string{"ONE"},
+		Linger:         10 * time.Second,
+	}
+
+	outcome, err := Run(t.Context(), probe, cmd, Sinks{In: io.Discard, Out: io.Discard})
+
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if !outcome.TimedOut {
+		t.Fatalf("outcome = %+v, want TimedOut while lingering", outcome)
+	}
+	runWaitGone(t, runReadPID(t, pidPath))
 }
 
 // runEnvRecord writes what the child sees to the file named by $1: the variable set only in the
