@@ -59,7 +59,7 @@ private enum class CallMark(val symbol: String, val colour: Color) {
 }
 
 /**
- * The folded conversation as the phone draws it: time labels, prompt blocks, plain replies, tool
+ * The folded conversation as the phone draws it: time labels, prompt blocks, markdown replies, tool
  * rows that expand to their result, and groups of calls that expand to their rows, with an
  * optional footer after the last entry. Which rows are open is kept by tool id (a group by its
  * first call's id), so it survives new entries. It opens at the end of the newest item. While the
@@ -80,6 +80,7 @@ fun ConversationView(
         expanded = if (id in expanded) expanded - id else expanded + id
     }
     var followBottom by remember { mutableStateOf(true) }
+    val markdownCache = remember { MarkdownCache() }
     val keys = remember(entries) { entryKeys(entries) }
     val lastIndex = entries.size + (if (footer == null) 0 else 1) - 1
     // Following is decided when a scroll ends, not when the first visible item moves: a slid window
@@ -115,7 +116,7 @@ fun ConversationView(
             when (val entry = entries[index]) {
                 is ConvoEntry.Time -> TimeLabel(entry.seconds)
                 is ConvoEntry.Prompt -> PromptBlock(entry.text)
-                is ConvoEntry.Reply -> ReplyText(entry.text)
+                is ConvoEntry.Reply -> ReplyText(entry.text, markdownCache)
                 is ConvoEntry.Tool -> ToolRow(entry.call, expanded, toggle)
                 is ConvoEntry.Group -> GroupRow(entry.calls, expanded, toggle)
             }
@@ -168,13 +169,13 @@ private fun PromptBlock(text: String) {
     }
 }
 
+/** The reply's markdown, rendered; the parse is kept in [cache] by the reply's text. */
 @Composable
-private fun ReplyText(text: String) {
-    Text(
-        text = text,
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 12.dp),
+private fun ReplyText(text: String, cache: MarkdownCache) {
+    val blocks = remember(text) { cache.blocks(text) }
+    MarkdownBody(
+        blocks = blocks,
+        modifier = Modifier.padding(vertical = 12.dp),
         color = Mocha.Text,
         fontSize = 14.sp,
     )

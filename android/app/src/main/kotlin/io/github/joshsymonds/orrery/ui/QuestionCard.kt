@@ -19,6 +19,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -35,7 +36,8 @@ import org.json.JSONObject
 
 private data class QuestionOption(val label: String, val key: String, val description: String?)
 
-private class ParsedQuestion(val title: String, val options: List<QuestionOption>)
+/** [markdown] is true when the title and options were written by the assistant and are drawn as markdown. */
+private class ParsedQuestion(val title: String, val options: List<QuestionOption>, val markdown: Boolean = false)
 
 private val toolOptions = listOf(
     QuestionOption("1 Yes", "1", null),
@@ -46,8 +48,8 @@ private val toolOptions = listOf(
 /**
  * Reads the stored question. An AskUserQuestion value has one button per option,
  * posting its 1-based number, with the option's description under its label when it
- * has one. Any other value, including a truncated marker or plain text, shows the
- * title and the three permission buttons.
+ * has one; its text is the assistant's markdown. Any other value, including a
+ * truncated marker or plain text, shows the title and the three permission buttons.
  */
 private fun parseQuestion(stored: String): ParsedQuestion {
     val json = try {
@@ -71,6 +73,7 @@ private fun parseQuestion(stored: String): ParsedQuestion {
                     description = entry?.optString("description")?.takeIf { it.isNotEmpty() },
                 )
             },
+            markdown = true,
         )
     }
 
@@ -103,7 +106,15 @@ fun QuestionCard(pane: Pane, client: OrreryClient, onRefresh: () -> Unit, modifi
                 .padding(12.dp),
         ) {
             Text("CLAUDE IS ASKING", color = Mocha.Peach, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-            Text(question.title, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 2.dp))
+            if (question.markdown) {
+                MarkdownBody(
+                    blocks = remember(question.title) { parseMarkdown(question.title) },
+                    modifier = Modifier.padding(top = 2.dp),
+                    fontWeight = FontWeight.Bold,
+                )
+            } else {
+                Text(question.title, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 2.dp))
+            }
             question.options.forEach { option ->
                 Button(
                     onClick = {
@@ -136,9 +147,9 @@ fun QuestionCard(pane: Pane, client: OrreryClient, onRefresh: () -> Unit, modifi
                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
                 ) {
                     Column(modifier = Modifier.fillMaxWidth()) {
-                        Text(option.label)
+                        Text(optionText(option.label, question.markdown))
                         option.description?.let { description ->
-                            Text(description, color = Mocha.Subtext0, fontSize = 12.sp)
+                            Text(optionText(description, question.markdown), color = Mocha.Subtext0, fontSize = 12.sp)
                         }
                     }
                 }
@@ -149,3 +160,7 @@ fun QuestionCard(pane: Pane, client: OrreryClient, onRefresh: () -> Unit, modifi
         }
     }
 }
+
+/** An option's text, its inline markdown styled when the question is the assistant's; links are not tappable inside a button. */
+private fun optionText(text: String, markdown: Boolean): AnnotatedString =
+    if (markdown) parseInline(text, links = false) else AnnotatedString(text)
