@@ -5,12 +5,14 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.semantics.SemanticsProperties
 import io.github.joshsymonds.orrery.api.FakeOrreryServer
 import io.github.joshsymonds.orrery.api.OrreryClient
 import io.github.joshsymonds.orrery.api.Pane
 import io.github.joshsymonds.orrery.api.RecordedRequest
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -154,6 +156,58 @@ class QuestionCardTest {
 
             composeRule.onNodeWithText("Bash").assertIsDisplayed()
             composeRule.onNodeWithText("2 Yes, don't ask again").assertIsDisplayed()
+        }
+    }
+
+    private val describedQuestion = """
+        {"tool":"AskUserQuestion","questions":[{"question":"Pick a described option?",
+         "header":"Pick","options":[{"label":"Described one","description":"Synthetic detail one"},
+         {"label":"Described two","description":"Synthetic detail two"}],"multiSelect":false}]}
+    """.trimIndent()
+
+    private val bareQuestion = """
+        {"tool":"AskUserQuestion","questions":[{"question":"Pick a bare option?",
+         "header":"Pick","options":[{"label":"Bare one"},
+         {"label":"Bare two","description":"Synthetic detail"}],"multiSelect":false}]}
+    """.trimIndent()
+
+    @Test
+    fun questionCardShowsClaudeIsAskingAboveTitle() {
+        FakeOrreryServer().use { server ->
+            setCard(server, askQuestion) {}
+
+            composeRule.onNodeWithText("CLAUDE IS ASKING").assertIsDisplayed()
+            val labelTop = composeRule.onNodeWithText("CLAUDE IS ASKING").fetchSemanticsNode().boundsInRoot.top
+            val titleTop = composeRule.onNodeWithText("Pick a synthetic option?").fetchSemanticsNode().boundsInRoot.top
+            assertTrue(labelTop < titleTop)
+        }
+    }
+
+    @Test
+    fun optionDescriptionsShowUnderLabelsAndTapPostsTappedNumber() {
+        FakeOrreryServer().use { server ->
+            server.respond("POST", keysPath, 200)
+            var refreshes = 0
+            setCard(server, describedQuestion) { refreshes++ }
+
+            composeRule.onNodeWithText("Synthetic detail one").assertIsDisplayed()
+            composeRule.onNodeWithText("Synthetic detail two").assertIsDisplayed()
+            composeRule.onNodeWithText("Described two").performClick()
+            composeRule.waitUntil(timeoutMillis = 5_000) { refreshes == 1 }
+
+            assertEquals(1, server.requests.size)
+            assertKeysRequest(server.requests.single(), """["2"]""")
+        }
+    }
+
+    @Test
+    fun optionWithoutDescriptionShowsOnlyItsLabel() {
+        FakeOrreryServer().use { server ->
+            setCard(server, bareQuestion) {}
+
+            val texts = composeRule.onNodeWithText("Bare one").fetchSemanticsNode()
+                .config[SemanticsProperties.Text].map { it.text }
+            assertEquals(listOf("Bare one"), texts)
         }
     }
 }
