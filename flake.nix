@@ -47,7 +47,7 @@
           version = "0.0.0";
           src = ./.;
           go = pkgs.go_1_26;
-          vendorHash = "sha256-jTS60VdtzeCXeAN43D751oLPCa2VvqY031B3fOpSUtk=";
+          vendorHash = "sha256-GJLFZqDYsRsCeghybw54VR3MYkv/zCsFAOHpzwXr38E=";
           subPackages = [
             "cmd/orrery"
             "cmd/orreryd"
@@ -154,10 +154,13 @@
         (forAllSystems (pkgs: {
           default = pkgs.mkShell {
             packages = [
+              pkgs.buf
               pkgs.go_1_26
               pkgs.golangci-lint
               pkgs.goose
               pkgs.just
+              pkgs.protoc-gen-connect-go
+              pkgs.protoc-gen-go
               pkgs.sqlc
               pkgs.tmux
               pkgs.util-linux

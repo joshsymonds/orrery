@@ -15,7 +15,7 @@ lint:
     golangci-lint run
 
 # Run tests with race and coverage, and enforce at least 80% total coverage
-# excluding cmd/ entry points.
+# excluding cmd/ entry points and the generated code in internal/gen.
 # -coverpkg=./... attributes coverage across package boundaries.
 cover:
     #!/usr/bin/env bash
@@ -30,8 +30,8 @@ cover:
         exit "$rc"
     fi
 
-    # cmd/ holds entry-point glue and is not unit-tested code we author.
-    grep -vE '/cmd/' coverage.out > coverage.cov.out
+    # cmd/ holds entry-point glue and internal/gen holds generated code; neither is unit-tested code we author.
+    grep -vE '/cmd/|/internal/gen/' coverage.out > coverage.cov.out
 
     pct=$(go tool cover -func=coverage.cov.out | awk '/^total:/{gsub(/%/, "", $NF); print $NF}')
     ok=$(awk -v p="$pct" 'BEGIN { print (p+0 >= 80.0) ? "yes" : "no" }')
@@ -41,16 +41,25 @@ cover:
     fi
     echo "coverage: ${pct}% (>= 80% OK)"
 
-# Regenerate the store's typed queries (internal/store/sqlcgen) from the migrations and queries.sql.
+# Lint the protobuf contract in proto/.
+proto-lint:
+    cd proto && buf lint
+
+# Regenerate the store's typed queries (internal/store/sqlcgen) and the typed API (internal/gen) from proto/.
 generate:
     sqlc generate
+    cd proto && buf generate
 
 # Fail when the generated store code drifts from its SQL.
 sqlc-diff:
     sqlc diff
 
-# Lint and coverage gates.
-check: lint cover sqlc-diff
+# Fail when the generated API code drifts from proto/ (regenerates, then diffs).
+gen-diff: generate
+    git diff --exit-code -- internal/gen
+
+# Lint, coverage, and generated-code gates.
+check: lint proto-lint cover sqlc-diff gen-diff
 
 # Run the Android lint and JVM unit tests.
 android-test:

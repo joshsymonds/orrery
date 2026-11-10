@@ -1,0 +1,17 @@
+# Codegen for the orrery module. The .proto carries no go_package option; managed
+# mode computes it from the prefix below.
+version: v2
+managed:
+  enabled: true
+  override:
+    - file_option: go_package_prefix
+      value: github.com/joshsymonds/orrery/internal/gen
+plugins:
+  - local: protoc-gen-go
+    out: ../internal/gen
+    opt:
+      - paths=source_relative
+  - local: protoc-gen-connect-go
+    out: ../internal/gen
+    opt:
+      - paths=source_relative

@@ -1,0 +1,63 @@
+syntax = "proto3";
+
+package orrery.v1;
+
+// Sessions reads the Claude Code sessions that orrery tracks.
+service Sessions {
+  // List returns every tracked session.
+  rpc List(ListRequest) returns (ListResponse);
+}
+
+// ListRequest asks for every tracked session. It has no fields.
+message ListRequest {}
+
+// ListResponse carries the tracked sessions and the store position they reflect.
+message ListResponse {
+  // The sessions, in id order.
+  repeated Session sessions = 1;
+
+  // The newest event seq the sessions reflect, or 0 when the store holds no events.
+  int64 seq = 2;
+}
+
+// Session is one tracked pane. It mirrors one row of the sessions table in docs/contract.md.
+message Session {
+  // The pane's @orrery_id, the primary key.
+  string id = 1;
+
+  // The tmux server the pane lives on: -L <name>, -S <path>, or empty for the default server.
+  string server = 2;
+
+  // The tmux pane id.
+  string pane = 3;
+
+  // The pane's @orrery_state option.
+  string state = 4;
+
+  // The pane's @orrery_changed option.
+  string changed = 5;
+
+  // The pane's @orrery_seen option.
+  string seen = 6;
+
+  // The pane's @orrery_question option.
+  string question = 7;
+
+  // The pane's @orrery_summary option.
+  string summary = 8;
+
+  // The pane's @orrery_label option.
+  string label = 9;
+
+  // The pane's @orrery_context option.
+  string context = 10;
+
+  // The pane's @orrery_tool option.
+  string tool = 11;
+
+  // The pane's @orrery_claude_session option.
+  string claude_session = 12;
+
+  // The pane's @orrery_transcript option.
+  string transcript = 13;
+}

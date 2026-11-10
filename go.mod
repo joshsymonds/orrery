@@ -4,9 +4,11 @@ go 1.26.0
 
 require (
 	charm.land/bubbletea/v2 v2.0.8
+	connectrpc.com/connect v1.21.0
 	github.com/charmbracelet/x/ansi v0.11.7
 	github.com/charmbracelet/x/term v0.2.2
 	github.com/pressly/goose/v3 v3.29.0
+	google.golang.org/protobuf v1.36.12
 	modernc.org/sqlite v1.61.0
 )
 

@@ -1,0 +1,9 @@
+version: v2
+modules:
+  - path: .
+lint:
+  use:
+    - STANDARD
+  except:
+    # The API names its service `Sessions` (docs/contract.md), not `SessionsService`.
+    - SERVICE_SUFFIX
