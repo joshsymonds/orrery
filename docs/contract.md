@@ -38,6 +38,7 @@ Options are set at pane scope with tmux 3.8 `set-option -p`, except `@orrery_dir
 | `protocol.OptionClaudeSession` | `@orrery_claude_session` | the Claude Code session id, the hook payload's `session_id` |
 | `protocol.OptionTranscript` | `@orrery_transcript` | the Claude Code transcript path, the hook payload's `transcript_path` |
 | `protocol.OptionTool` | `@orrery_tool` | compact single-line JSON of the tool a `PreToolUse` started that no end event has cleared, with the keys `id`, `name`, `input`, `start` (see below) |
+| `protocol.OptionID` | `@orrery_id` | the pane's row id in the store: 32 lowercase hex characters from 128 random bits. orreryd mints it once, when the pane has none, and keeps it. It is the `id` key of the `sessions` table (see [Store](#store)) |
 
 orreryd writes each of the two new options from every hook frame whose hook decodes, when the payload value is non-empty. SessionEnd keeps both options, except SessionEnd with reason `clear`, which unsets both. `@orrery_transcript` is not a list field.
 
@@ -333,6 +334,8 @@ Web Push is sent on the same two transitions. On `waiting` and on `done`, `orrer
 
 When neither variable is set, `orreryd` exits 1.
 
+`orreryd` also keeps the store, which mirrors each pane's tmux options (see [Store](#store)). When the store cannot be opened, `orreryd` logs the error and serves hooks and notifications without it. It then mints no `@orrery_id` and syncs no pane. A failure of the push store still exits 1.
+
 `SIGINT` and `SIGTERM` stop `orreryd`.
 
 ### Environment
@@ -341,8 +344,8 @@ When neither variable is set, `orreryd` exits 1.
 |---|---|---|
 | `ORRERY_SOCKET` | `orrery`, `orreryd` | daemon socket path (section 5) |
 | `XDG_RUNTIME_DIR` | `orrery`, `orreryd` | default socket directory when no path is set (section 5) |
-| `XDG_STATE_HOME` | `orrery` (`serve`), `orreryd` | base directory of the push store, `$XDG_STATE_HOME/orrery/push.json` (section 11, orreryd) |
-| `HOME` | `orrery` (`serve`), `orreryd` | used for the push store when `XDG_STATE_HOME` is unset, at `$HOME/.local/state/orrery/push.json` |
+| `XDG_STATE_HOME` | `orrery` (`serve`), `orreryd` | base directory of the push store, `$XDG_STATE_HOME/orrery/push.json` (section 11, orreryd), and of the store, `$XDG_STATE_HOME/orrery/orrery.db` (see [Store](#store)) |
+| `HOME` | `orrery` (`serve`), `orreryd` | used for the push store when `XDG_STATE_HOME` is unset, at `$HOME/.local/state/orrery/push.json`, and for the store, at `$HOME/.local/state/orrery/orrery.db` |
 | `ORRERY_NTFY_URL_FILE` | `orreryd` | file holding the ntfy topic URL; enables ntfy when set |
 | `ORRERY_NTFY_TOKEN_FILE` | `orreryd` | file holding the ntfy access token |
 | `ANTHROPIC_BASE_URL` | `orrery` (`hook`, `debug summarize`) | the session's base URL. The hook sends it in each frame (section 9), and each summary runs through its own session's base URL. |
@@ -375,6 +378,78 @@ Each record has these keys, in this order. The example is synthetic:
 | `summary` | string | the pane's summary |
 | `closed` | number | unix seconds when the record was written |
 | `claude_session` | string | the Claude Code session id (`@orrery_claude_session`), written last |
+
+### Store
+
+`orreryd` keeps a SQLite store that mirrors each pane's tmux options. Outside the store's tests, only its own writes read it: a sync reads the pane's row to compare it with the new snapshot, and a tidy also reads the server's rows to find the panes that are gone.
+
+The store file is `$XDG_STATE_HOME/orrery/orrery.db` when `XDG_STATE_HOME` is set, else `$HOME/.local/state/orrery/orrery.db`. When neither variable is set, no path resolves.
+
+- The `orrery` directory is created with mode `0700` when absent. The database file is created with mode `0600` when absent. SQLite creates its `-wal` and `-shm` files beside it with the database file's mode, `0600`.
+- The database runs in WAL mode. Each connection waits at most 200 ms for a lock.
+- Opening the store applies the migrations embedded in `orreryd`. A database that records a newer migration than the binary embeds fails with `store.ErrTooNew`. It is not migrated, and `orreryd` serves without the store.
+
+The `sessions` table has one row per pane:
+
+| Column | Type | Meaning |
+|---|---|---|
+| `id` | `TEXT`, primary key | the pane's `@orrery_id` |
+| `server` | `TEXT` | `-L <name>`, `-S <path>`, or `""` for the default server |
+| `pane` | `TEXT` | the tmux pane id |
+| `state` | `TEXT` | `@orrery_state` |
+| `changed` | `TEXT` | `@orrery_changed` |
+| `seen` | `TEXT` | `@orrery_seen` |
+| `question` | `TEXT` | `@orrery_question` |
+| `summary` | `TEXT` | `@orrery_summary` |
+| `label` | `TEXT` | `@orrery_label` |
+| `context` | `TEXT` | `@orrery_context` |
+| `tool` | `TEXT` | `@orrery_tool` |
+| `claude_session` | `TEXT` | `@orrery_claude_session` |
+| `transcript` | `TEXT` | `@orrery_transcript` |
+
+The ten option columns are `NOT NULL` and default to `''`. Each holds the option's value as tmux reports it, and `""` means unset.
+
+The `events` table is a log of row changes. Only pruning deletes from it:
+
+| Column | Type | Meaning |
+|---|---|---|
+| `seq` | `INTEGER`, primary key, autoincrement | the order of the event |
+| `session_id` | `TEXT` | the `id` of the row that changed |
+| `kind` | `TEXT` | `session_added`, `session_changed`, or `session_removed` |
+| `at` | `INTEGER` | unix seconds of the sync |
+| `payload` | `TEXT` | JSON for the kind |
+
+The three kinds and their payloads. The examples are synthetic:
+
+- `session_added`: a pane's row is inserted. Payload `{"server":"-L example-server","pane":"%1"}`.
+- `session_changed`: fields of a row differ from the snapshot. The payload holds only the differing fields, under the column names above. Payload `{"fields":{"changed":"1700000300","state":"working"}}`. A new row appends `session_changed` after `session_added` when any of its fields is non-empty.
+- `session_removed`: a tidy deletes the row of a pane that is gone. Payload `{}`.
+
+Each sync writes in one transaction. Three things start a sync:
+
+- An applied hook frame. Its pane is synced after the frame's tmux writes and observers, outside the frame mutex. A frame whose state change fails syncs nothing.
+- A summary run that writes its summary or label. The pane is synced after the write.
+- A tidy.
+
+A sync reads the pane's `@orrery_id` and mirrored options from tmux in one command. When the pane has no `@orrery_id`, the sync mints one and writes the row. It sets `@orrery_id` in tmux only after the store write commits.
+
+One lock covers each sync's tmux read, id mint and store write. A sync waits at most 200 ms for the lock, and a sync that waits longer is logged and dropped. The store write waits at most 200 ms for SQLite's write lock. A write that does not get it fails, rolls back, and is logged.
+
+A dropped sync writes no row or event and sets no id. tmux keeps its options as they were set. The next sync or tidy of the pane writes the difference from the stored row. Events for the values the dropped sync carried are not written. A pane whose id was minted by a dropped sync gets another id on its next sync.
+
+The tidy runs at orreryd start and every 10 s. It tidies:
+
+- the server named by `-L` or `-S`, when either is given;
+- otherwise, every server that a hook frame has named since orreryd started. Without `-L` or `-S`, no server is tidied until a frame has named one.
+
+For each server, the tidy runs one `list-panes -a` that reads every pane. It then:
+
+- mints an `@orrery_id` for each pane that has none, and sets it in tmux after the write commits;
+- syncs the row of each listed pane from its snapshot;
+- deletes the server's rows whose id is not among the listed panes, with one `session_removed` event for each;
+- deletes every event older than 14 days, across all servers.
+
+A failed `list-panes`, or a listing that does not parse, changes nothing. A failed store write rolls back the whole tidy.
 
 ### Claude Code hook settings
 
@@ -567,3 +642,5 @@ The names and values in this document are frozen as of effort 1. Later efforts, 
 orrery v0.2.1 (E2b) added the `@orrery_claude_session` and `@orrery_transcript` options and the `claude_session` and `activity` fields additively.
 
 orrery v0.6.0 (E7a) added the `@orrery_tool` option, the `tool` list field, the `ansi` and `history` screen parameters, the `--host-status-cmd` serve flag, and the `GET /v1/panes/{id}/conversation` and `GET /v1/host` routes, all additively. No existing default response changes.
+
+orrery v0.7.0 (H1a) added the store file (see [Store](#store)) and the `@orrery_id` option, both additively. No existing name or value changes.
