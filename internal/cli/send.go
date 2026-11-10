@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/joshsymonds/orrery/internal/protocol"
@@ -34,6 +35,8 @@ const (
 	// sendPaneFields is the number of fields in the display-message format sendTypable reads.
 	sendPaneFields = 3
 	sendKeysCmd    = "send-keys"
+	// sendTypeLimit is the most typed invocations, before Enter, that sendTypeable accepts.
+	sendTypeLimit = 200
 )
 
 // Send implements `orrery send --pane ID (--text T | --keys K...) [--expect-question H]`.
@@ -203,16 +206,32 @@ func collapseSpace(s string) string {
 	return strings.Join(strings.Fields(s), " ")
 }
 
-// sendText types text into pane when sendTypable allows it, else pastes it, then presses Enter.
+// sendText types text into pane when sendTypable and sendTypeable allow it, else pastes it, then presses
+// Enter.
 func sendText(ctx context.Context, client *tmuxctl.Client, pane, text string) error {
 	typable, err := sendTypable(ctx, client, pane)
 	if err != nil {
 		return err
 	}
-	if typable {
+	if typable && sendTypeable(pane, text) {
 		return sendTyped(ctx, client, pane, text)
 	}
 	return sendPaste(ctx, client, pane, text)
+}
+
+// sendTypeable reports whether typing text delivers it exactly: it is valid UTF-8, holds no control
+// character other than the line feed once CRLF and CR become LF, and needs at most sendTypeLimit typed
+// invocations before Enter.
+func sendTypeable(pane, text string) bool {
+	if !utf8.ValidString(text) {
+		return false
+	}
+	for _, r := range normalizeLineEnds(text) {
+		if r != '\n' && unicode.IsControl(r) {
+			return false
+		}
+	}
+	return len(typedSteps(pane, text)) <= sendTypeLimit
 }
 
 // sendTypable reports whether pane may take typed text: it is not in a tmux mode, its orrery state is
@@ -263,11 +282,16 @@ func sendTyped(ctx context.Context, client *tmuxctl.Client, pane, text string) e
 	return nil
 }
 
+// normalizeLineEnds returns text with CRLF and lone CR replaced by LF.
+func normalizeLineEnds(text string) string {
+	text = strings.ReplaceAll(text, "\r\n", "\n")
+	return strings.ReplaceAll(text, "\r", "\n")
+}
+
 // typedSteps returns the tmux invocations that type text into pane, in order. CRLF and CR become LF.
 // Each line break is the C-j key, and each piece of a line is one literal send-keys argument.
 func typedSteps(pane, text string) [][]string {
-	text = strings.ReplaceAll(text, "\r\n", "\n")
-	text = strings.ReplaceAll(text, "\r", "\n")
+	text = normalizeLineEnds(text)
 	var steps [][]string
 	for i, line := range strings.Split(text, "\n") {
 		if i > 0 {

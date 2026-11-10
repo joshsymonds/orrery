@@ -287,6 +287,49 @@ func TestSendTextPastesOutsideInputBox(t *testing.T) {
 	}
 }
 
+// TestSendTextPastesWhatTypingCannotCarry requires the paste path, with no typed bytes, on a pane whose
+// input box is shown and whose state is done. Each text is invented to fail one typing rule: a control
+// character other than the line feed, invalid UTF-8, and more than 200 typed invocations before Enter.
+// Each want is what tmux's paste-buffer -p delivers today: it shows ESC and a stray 0xff byte in caret
+// form and turns each LF into CR.
+func TestSendTextPastesWhatTypingCannotCarry(t *testing.T) {
+	cases := []struct {
+		name  string
+		text  string
+		paste string // the text as the pane receives it between the paste markers
+	}{
+		{name: "tab", text: "a\tb", paste: "a\tb"},
+		{name: "escape", text: "a\x1bb", paste: "a^[b"},
+		{name: "C1 next line U+0085", text: "a\u0085b", paste: "a\u0085b"},
+		{name: "invalid UTF-8", text: "a\xffb", paste: "aM^?b"},
+		{
+			name:  "201 invocations",
+			text:  strings.Repeat("a\n", 100) + "a",
+			paste: strings.Repeat("a\r", 100) + "a",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			client := sendServer(t)
+			pane, file := sendStartPane(t, client, sendBoxScreen())
+			sendSetState(t, client, pane, string(protocol.StateDone))
+
+			sendTextAwait(t, client, pane, file, tc.text, "\x1b[200~"+tc.paste+"\x1b[201~\r")
+		})
+	}
+}
+
+// TestSendTextTypesAtTypeLimit requires text of exactly 200 typed invocations to be typed: 99 line
+// breaks as C-j and 101 literal pieces, with no paste markers.
+func TestSendTextTypesAtTypeLimit(t *testing.T) {
+	text := strings.Repeat("b\n", 99) + strings.Repeat("c", 401)
+	client := sendServer(t)
+	pane, file := sendStartPane(t, client, sendBoxScreen())
+	sendSetState(t, client, pane, string(protocol.StateDone))
+
+	sendTextAwait(t, client, pane, file, text, text+"\r")
+}
+
 func TestSendKeysDeliversKeys(t *testing.T) {
 	client := sendServer(t)
 	pane, file := sendStartPane(t, client, sendQuestion)
