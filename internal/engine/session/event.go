@@ -90,8 +90,8 @@ const (
 	RequestOther      RequestKind = "other"
 )
 
-// Request is a control request the session waits on its host to answer. Refused reports that the host
-// must decline it.
+// Request is a control request the session waits on its host to answer. Refused reports a request the
+// package cannot answer: the session declines it itself, so the host must not answer it.
 type Request struct {
 	Kind      RequestKind
 	RequestID string

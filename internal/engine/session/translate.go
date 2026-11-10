@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/joshsymonds/orrery/internal/engine/wire"
 )
@@ -29,6 +30,10 @@ const (
 	controlRequest       = "control_request"
 	controlResponse      = "control_response"
 	controlCancelRequest = "control_cancel_request"
+
+	subtypeCanUseTool   = "can_use_tool"
+	toolAskUserQuestion = "AskUserQuestion"
+	outcomeSuccess      = "success"
 )
 
 // translator turns the stdout lines of one session into events. It remembers the message id that
@@ -43,7 +48,7 @@ func newTranslator() *translator {
 
 // translate returns the events one stdout line carries, in order. A line that does not decode or fit
 // the declared messages yields one Unknown, and translation goes on with the next line. Control
-// envelopes and the messages that carry no event yield none.
+// responses and the messages that carry no event yield none.
 func (t *translator) translate(line []byte) []Event {
 	var message wire.SDKMessage
 	if err := json.Unmarshal(line, &message); err != nil {
@@ -53,7 +58,7 @@ func (t *translator) translate(line []byte) []Event {
 	if err != nil {
 		return unknownLine(line, err)
 	}
-	events, err := t.variantEvents(variant)
+	events, err := t.variantEvents(variant, line)
 	if err != nil {
 		return unknownLine(line, err)
 	}
@@ -66,7 +71,7 @@ func unknownLine(line []byte, err error) []Event {
 	return []Event{Unknown{Line: bytes.Clone(line), Err: err}}
 }
 
-func (t *translator) variantEvents(variant wire.SDKMessageVariant) ([]Event, error) {
+func (t *translator) variantEvents(variant wire.SDKMessageVariant, line []byte) ([]Event, error) {
 	switch message := variant.(type) {
 	case wire.SDKSystemMessage:
 		return []Event{Started{SessionID: message.SessionID, PermissionMode: message.PermissionMode}}, nil
@@ -83,12 +88,68 @@ func (t *translator) variantEvents(variant wire.SDKMessageVariant) ([]Event, err
 	case wire.UnknownMessage:
 		return undeclaredEvents(message.Raw)
 	default:
-		return nil, nil
+		return reportEvents(variant, line), nil
 	}
 }
 
-// undeclaredEvents returns the events of a line the wire package does not declare. A control envelope
-// yields none, and any other line is an error that names its type and subtype.
+// reportEvents returns the notice or background task event a declared message reports. The other
+// declared messages yield none.
+func reportEvents(variant wire.SDKMessageVariant, line []byte) []Event {
+	switch message := variant.(type) {
+	case wire.SDKCompactBoundaryMessage:
+		return noticeEvents(NoticeCompaction, message.CompactMetadata.Trigger, line)
+	case wire.SDKAPIRetryMessage:
+		return noticeEvents(NoticeAPIRetry, message.Error, line)
+	case wire.SDKAuthStatusMessage:
+		return noticeEvents(NoticeAuthStatus, authStatusText(message), line)
+	case wire.SDKInformationalMessage:
+		return noticeEvents(NoticeInformational, message.Content, line)
+	case wire.SDKHookResponseMessage:
+		return hookResponseEvents(message, line)
+	case wire.SDKBackgroundTasksChangedMessage:
+		return []Event{backgroundTasks(message.Tasks)}
+	default:
+		return nil
+	}
+}
+
+// noticeEvents returns the one Notice of a kind, with its text and a copy of the line it came from.
+func noticeEvents(kind NoticeKind, text string, line []byte) []Event {
+	return []Event{Notice{Kind: kind, Text: text, Line: bytes.Clone(line)}}
+}
+
+// authStatusText returns the error of an auth status, or else its output lines joined by newlines.
+func authStatusText(message wire.SDKAuthStatusMessage) string {
+	if message.Error != nil {
+		return *message.Error
+	}
+	return strings.Join(message.Output, "\n")
+}
+
+// hookResponseEvents reports a hook whose outcome is not success, by its name. A successful hook
+// yields none.
+func hookResponseEvents(message wire.SDKHookResponseMessage, line []byte) []Event {
+	if message.Outcome == outcomeSuccess {
+		return nil
+	}
+	return noticeEvents(NoticeHookFailed, message.HookName, line)
+}
+
+func backgroundTasks(tasks []wire.SDKBackgroundTask) BackgroundTasks {
+	converted := make([]BackgroundTask, 0, len(tasks))
+	for _, task := range tasks {
+		converted = append(converted, BackgroundTask{
+			TaskID:      task.TaskID,
+			TaskType:    task.TaskType,
+			Description: task.Description,
+		})
+	}
+	return BackgroundTasks{Tasks: converted}
+}
+
+// undeclaredEvents returns the events of a line the wire package does not declare. A control request
+// and a control cancel become their events, a control response yields none, and any other line is an
+// error that names its type and subtype.
 func undeclaredEvents(raw json.RawMessage) ([]Event, error) {
 	var head struct {
 		Type    string `json:"type"`
@@ -98,10 +159,75 @@ func undeclaredEvents(raw json.RawMessage) ([]Event, error) {
 		return nil, fmt.Errorf("decode undeclared message head: %w", err)
 	}
 	switch head.Type {
-	case controlRequest, controlResponse, controlCancelRequest:
+	case controlRequest:
+		return controlRequestEvents(raw)
+	case controlCancelRequest:
+		return cancelEvents(raw)
+	case controlResponse:
 		return nil, nil
 	}
 	return nil, fmt.Errorf("undeclared stream-json message type %q subtype %q", head.Type, head.Subtype)
+}
+
+// controlRequestEvents returns the Request a control_request envelope makes of its host. A request
+// without a request id cannot be answered, so it is an error.
+func controlRequestEvents(raw json.RawMessage) ([]Event, error) {
+	var envelope wire.SDKControlRequest
+	if err := wire.UnmarshalControlJSON(raw, &envelope); err != nil {
+		return nil, fmt.Errorf("decode control_request: %w", err)
+	}
+	if envelope.RequestID == "" {
+		return nil, errors.New("control_request carries no request id")
+	}
+	return []Event{requestOf(envelope.RequestID, envelope.Request)}, nil
+}
+
+// requestOf returns the Request for the body of a control request. A can_use_tool body that decodes is
+// a question when its tool is AskUserQuestion and a permission request otherwise. Any other body is
+// kind other and refused, so that the host declines it instead of the session waiting on it.
+func requestOf(requestID string, body json.RawMessage) Request {
+	subtype := bodySubtype(body)
+	if subtype == subtypeCanUseTool {
+		var permission wire.SDKControlPermissionRequest
+		if err := wire.UnmarshalControlJSON(body, &permission); err == nil {
+			return permissionRequest(requestID, permission)
+		}
+	}
+	return Request{Kind: RequestOther, RequestID: requestID, Subtype: subtype, Refused: true}
+}
+
+// bodySubtype returns the subtype a control request body names, or empty when the body does not read.
+func bodySubtype(body json.RawMessage) string {
+	var head struct {
+		Subtype string `json:"subtype"`
+	}
+	if err := json.Unmarshal(body, &head); err != nil {
+		return ""
+	}
+	return head.Subtype
+}
+
+func permissionRequest(requestID string, permission wire.SDKControlPermissionRequest) Request {
+	request := Request{
+		Kind:      RequestPermission,
+		RequestID: requestID,
+		ToolUseID: permission.ToolUseID,
+		ToolName:  permission.ToolName,
+		Subtype:   permission.Subtype,
+		Input:     permission.Input,
+	}
+	if permission.ToolName == toolAskUserQuestion {
+		request.Kind = RequestQuestion
+	}
+	return request
+}
+
+func cancelEvents(raw json.RawMessage) ([]Event, error) {
+	var envelope wire.SDKControlCancelRequest
+	if err := wire.UnmarshalControlJSON(raw, &envelope); err != nil {
+		return nil, fmt.Errorf("decode control_cancel_request: %w", err)
+	}
+	return []Event{RequestCancelled{RequestID: envelope.RequestID}}, nil
 }
 
 func turnEnded(result wire.SDKResultMessage, text string) TurnEnded {

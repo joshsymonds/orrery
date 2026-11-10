@@ -261,9 +261,7 @@ func TestControlEnvelopesAndNonInitSystemYieldNothing(t *testing.T) {
 	got := translateLines(
 		t,
 		tr,
-		`{"type":"control_request","request_id":"req_1","request":{"subtype":"can_use_tool","tool_name":"Write","input":{},"tool_use_id":"toolu_1"}}`,
 		`{"type":"control_response","response":{"subtype":"success","request_id":"req_1"}}`,
-		`{"type":"control_cancel_request","request_id":"req_1"}`,
 		`{"type":"system","subtype":"status","status":"requesting","session_id":"session_1"}`,
 		`{"type":"command_lifecycle","command_uuid":"uuid_1","state":"queued","session_id":"session_1"}`,
 		`{"type":"user","isReplay":true,"message":{"role":"user","content":"replayed words"},"parent_tool_use_id":null,"uuid":"uuid_2","session_id":"session_1"}`,
