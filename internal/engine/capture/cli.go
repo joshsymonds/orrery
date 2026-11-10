@@ -34,7 +34,7 @@ const (
 	cliFixtureDirMode  = 0o750
 	cliFixtureFileMode = 0o644
 	cliUsage           = "usage: enginecapture record -raw DIR [-probe NAME] | " +
-		"sanitize -raw DIR -out DIR | accept [-probe NAME]"
+		"sanitize -raw DIR -out DIR | accept [-probe NAME] [-keep DIR]"
 )
 
 // Main runs the enginecapture subcommand named by args[0] and returns its exit status. Usage errors
@@ -105,11 +105,14 @@ func cliSanitise(args []string, cfg Config) int {
 	return cliExitOK
 }
 
-// cliAccept reruns the probes into a temporary directory that it removes on every path, checks each
-// probe's stdout, and fails when a probe is incomplete, timed out, malformed, or missing an expectation.
+// cliAccept reruns the probes and checks each probe's stdout, and fails when a probe is incomplete, timed
+// out, malformed, or missing an expectation. The raw output goes into a temporary directory that it
+// removes on every path, or into the directory named by -keep, which it creates when missing and never
+// removes.
 func cliAccept(args []string, cfg Config) (code int) {
 	flags := cliFlags("accept", cfg)
 	name := flags.String("probe", "", "check only the probe with this name")
+	keep := flags.String("keep", "", "directory that receives the raw output and is never removed")
 	if err := flags.Parse(args); err != nil {
 		return cliFlagExit(err)
 	}
@@ -121,16 +124,22 @@ func cliAccept(args []string, cfg Config) (code int) {
 	if err != nil {
 		return cliFail(cfg, err)
 	}
-	dir, err := os.MkdirTemp("", cliTempPattern)
-	if err != nil {
-		return cliFail(cfg, fmt.Errorf("capture: create temporary directory: %w", err))
-	}
-	defer func() {
-		if removeErr := os.RemoveAll(dir); removeErr != nil {
-			fmt.Fprintf(cfg.Stderr, "enginecapture: remove %s: %v\n", dir, removeErr)
-			code = cliExitFail
+	dir := *keep
+	if dir == "" {
+		tmp, mkErr := os.MkdirTemp("", cliTempPattern)
+		if mkErr != nil {
+			return cliFail(cfg, fmt.Errorf("capture: create temporary directory: %w", mkErr))
 		}
-	}()
+		defer func() {
+			if removeErr := os.RemoveAll(tmp); removeErr != nil {
+				fmt.Fprintf(cfg.Stderr, "enginecapture: remove %s: %v\n", tmp, removeErr)
+				code = cliExitFail
+			}
+		}()
+		dir = tmp
+	} else if err = os.MkdirAll(dir, cliRawDirMode); err != nil {
+		return cliFail(cfg, fmt.Errorf("capture: create kept directory: %w", err))
+	}
 	failed := false
 	for _, result := range cliRunAll(probes, binary, dir, cfg) {
 		failed = failed || cliProbeFailed(result)

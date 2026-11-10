@@ -146,5 +146,5 @@ android-font:
     SCRIPT
 
 # Rerun the Claude Code protocol probes live against the claude on PATH (spends Haiku turns on your sign-in; not part of check).
-engine-accept:
-    go run ./internal/engine/capture/cmd/enginecapture accept
+engine-accept *args:
+    go run ./internal/engine/capture/cmd/enginecapture accept {{args}}

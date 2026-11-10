@@ -92,6 +92,18 @@ func cliRequireFile(t *testing.T, path string, perm os.FileMode) {
 	}
 }
 
+// cliRequireDir fails the test unless path is a directory with exactly the given permissions.
+func cliRequireDir(t *testing.T, path string, perm os.FileMode) {
+	t.Helper()
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat %s: %v", path, err)
+	}
+	if !info.IsDir() || info.Mode().Perm() != perm {
+		t.Errorf("%s mode = %v, want directory with %v", path, info.Mode(), perm)
+	}
+}
+
 // cliRequireEmpty fails the test when dir holds any entry.
 func cliRequireEmpty(t *testing.T, dir string) {
 	t.Helper()
@@ -205,6 +217,24 @@ func TestCliAcceptPassesGoodFakeAndRemovesItsDirectory(t *testing.T) {
 		t.Fatalf("Main(accept) = %d, want 0; stdout: %s stderr: %s", code, stdout, stderr)
 	}
 	cliRequireEmpty(t, scratch)
+}
+
+func TestCliAcceptKeepsRawOutputInTheNamedDirectory(t *testing.T) {
+	scratch := t.TempDir()
+	t.Setenv("TMPDIR", scratch)
+	cfg, stdout, stderr := cliConfig(cliFakePath(t, cliFakeClaude("")))
+	keep := filepath.Join(t.TempDir(), "kept")
+
+	if code := Main([]string{"accept", "-keep", keep}, cfg); code != 0 {
+		t.Fatalf("Main(accept -keep) = %d, want 0; stdout: %s stderr: %s", code, stdout, stderr)
+	}
+	cliRequireDir(t, keep, 0o700)
+	cliRequireEmpty(t, scratch)
+	for _, probe := range Probes() {
+		for _, suffix := range []string{".out.ndjson", ".in.ndjson", ".stderr"} {
+			cliRequireFile(t, filepath.Join(keep, probe.Name+suffix), 0o600)
+		}
+	}
 }
 
 func TestCliAcceptFailsOnNonEnvelopeLineAndRemovesItsDirectory(t *testing.T) {
