@@ -69,7 +69,11 @@ class MainActivity : ComponentActivity() {
                             )
                             is Screen.Pane -> {
                                 BackHandler { screen = Screen.Panes }
-                                PaneScreen(paneId = current.id, client = client)
+                                PaneScreen(
+                                    paneId = current.id,
+                                    client = client,
+                                    onBack = { screen = Screen.Panes },
+                                )
                             }
                             Screen.Settings -> {
                                 BackHandler { screen = Screen.Panes }

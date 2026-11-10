@@ -146,6 +146,19 @@ class MainActivityTest {
     }
 
     @Test
+    fun backArrowReturnsFromAPaneToTheList() {
+        launch()
+        awaitNode(hasTestTag("pane-row:%1"))
+        composeRule.onNodeWithTag("pane-row:%1").performClick()
+        awaitNode(hasTestTag("pane-back"))
+
+        composeRule.onNodeWithTag("pane-back").performClick()
+
+        awaitNode(hasTestTag("pane-row:%2"))
+        assertAbsent(hasText("synthetic first body"))
+    }
+
+    @Test
     fun launchWithPaneExtraOpensThatPane() {
         launch(extraPane = "%2")
 
