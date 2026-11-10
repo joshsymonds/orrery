@@ -37,6 +37,7 @@ func ParseState(s string) (State, error) {
 
 // Per-pane tmux option names, set at pane scope. Values are single-line.
 const (
+	OptionID            = "@orrery_id"
 	OptionState         = "@orrery_state"
 	OptionChanged       = "@orrery_changed"
 	OptionSeen          = "@orrery_seen"
