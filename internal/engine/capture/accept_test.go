@@ -189,3 +189,64 @@ func TestCheckContainsMatchesRawLineText(t *testing.T) {
 		})
 	}
 }
+
+func TestSessionIDReturnsFirstInitLine(t *testing.T) {
+	t.Parallel()
+	stdout := `{"type":"system","subtype":"init","session_id":"sess-first"}
+{"type":"assistant","session_id":"sess-assistant"}
+{"type":"system","subtype":"init","session_id":"sess-second"}
+{"type":"result","subtype":"success","session_id":"sess-result"}
+`
+	id, err := SessionID([]byte(stdout))
+	if err != nil {
+		t.Fatalf("SessionID() error = %v, want nil", err)
+	}
+	if id != "sess-first" {
+		t.Errorf("SessionID() = %q, want %q", id, "sess-first")
+	}
+}
+
+func TestSessionIDErrorsWithoutInitLine(t *testing.T) {
+	t.Parallel()
+	stdout := `{"type":"assistant","session_id":"sess-assistant"}
+{"type":"result","subtype":"success","session_id":"sess-result"}
+`
+	if _, err := SessionID([]byte(stdout)); err == nil {
+		t.Fatal("SessionID() error = nil, want an error for a stream with no system init line")
+	}
+}
+
+func TestSessionIDErrorsWhenInitHasNoSessionID(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name   string
+		stdout string
+	}{
+		{name: "absent", stdout: `{"type":"system","subtype":"init"}` + "\n"},
+		{name: "empty", stdout: `{"type":"system","subtype":"init","session_id":""}` + "\n"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			id, err := SessionID([]byte(test.stdout))
+			if err == nil {
+				t.Fatalf("SessionID() = %q, want an error", id)
+			}
+			if !strings.Contains(err.Error(), "no session_id") {
+				t.Errorf("SessionID() error = %v, want it to say the init line has no session_id", err)
+			}
+		})
+	}
+}
+
+func TestSessionIDErrorsNamingNonJSONLine(t *testing.T) {
+	t.Parallel()
+	stdout := "{\"type\":\"assistant\"}\nnot json\n{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"sess-first\"}\n"
+	_, err := SessionID([]byte(stdout))
+	if err == nil {
+		t.Fatal("SessionID() error = nil, want an error for a line that is not JSON")
+	}
+	if !strings.Contains(err.Error(), "line 2:") {
+		t.Errorf("SessionID() error = %v, want it to name %q", err, "line 2:")
+	}
+}

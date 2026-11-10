@@ -23,6 +23,7 @@ const (
 	acceptTypeControlResponse = "control_response"
 	acceptTypeResult          = "result"
 	acceptTypeSystem          = "system"
+	acceptSubtypeInit         = "init"
 )
 
 // acceptLine is one classified stdout line. Its type and subtype are what Expectation matching sees,
@@ -58,6 +59,42 @@ func Check(stdout []byte, expect []Expectation) (Report, error) {
 	}
 	report.Unknown = acceptUnknown(lines)
 	return report, nil
+}
+
+// SessionID returns the session_id of the first stdout line that is a system init message. It errors
+// when no such line exists, when its session_id is missing or empty, or when a line of stdout is not a
+// JSON object, naming the 1-based line number as Check does.
+func SessionID(stdout []byte) (string, error) {
+	lines, err := acceptLines(stdout)
+	if err != nil {
+		return "", err
+	}
+	for _, line := range lines {
+		if line.typ == acceptTypeSystem && line.subtype == acceptSubtypeInit {
+			return acceptInitSessionID(line.raw)
+		}
+	}
+	return "", errors.New("capture: no system init line")
+}
+
+// acceptInitSessionID decodes a system init line through the wire package and returns its session_id.
+func acceptInitSessionID(raw []byte) (string, error) {
+	var message wire.SDKMessage
+	if err := json.Unmarshal(raw, &message); err != nil {
+		return "", fmt.Errorf("capture: decode system init: %w", err)
+	}
+	variant, err := message.Variant()
+	if err != nil {
+		return "", fmt.Errorf("capture: decode system init: %w", err)
+	}
+	init, ok := variant.(wire.SDKSystemMessage)
+	if !ok {
+		return "", fmt.Errorf("capture: decode system init: got %T", variant)
+	}
+	if init.SessionID == "" {
+		return "", errors.New("capture: system init line has no session_id")
+	}
+	return init.SessionID, nil
 }
 
 // acceptLines classifies each line of stdout, dropping one trailing empty line.
