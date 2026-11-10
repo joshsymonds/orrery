@@ -22,6 +22,9 @@ import (
 const (
 	// deadlineSendTimeout is the Watch send deadline the tests inject.
 	deadlineSendTimeout = 300 * time.Millisecond
+	// deadlineStalledSendTimeout is the send deadline of the stalled stream's server in the test that proves a stuck
+	// send leaves other streams alone. It is long enough that the healthy stream's whole replay finishes inside it.
+	deadlineStalledSendTimeout = 4 * time.Second
 	// deadlineSocketBuffer is the kernel buffer, in bytes, of the stalled client's reads and of every accepted
 	// server connection's writes, so a few kilobytes of replayed events fill the path between them.
 	deadlineSocketBuffer = 4096
@@ -58,10 +61,10 @@ func (l smallBufferListener) Accept() (net.Conn, error) {
 	return tcp, nil
 }
 
-// startDeadlineServer serves the guarded handler for the store at path with the send deadline injected and small
-// connection write buffers. It returns the URL, and a channel that receives the remote address of each connection
-// as it closes.
-func startDeadlineServer(t *testing.T, path string) (string, <-chan string) {
+// startDeadlineServer serves the guarded handler for the store at path with sendTimeout injected as the send deadline
+// and small connection write buffers. It returns the URL, and a channel that receives the remote address of each
+// connection as it closes.
+func startDeadlineServer(t *testing.T, path string, sendTimeout time.Duration) (string, <-chan string) {
 	t.Helper()
 	handler, err := server.New(server.Config{
 		Logins:           []string{allowedLogin},
@@ -69,7 +72,7 @@ func startDeadlineServer(t *testing.T, path string) (string, <-chan string) {
 		Push:             newPushStore(t),
 		Sessions:         store.NewReader(path),
 		EventPoll:        eventPoll,
-		EventSendTimeout: deadlineSendTimeout,
+		EventSendTimeout: sendTimeout,
 	})
 	if err != nil {
 		t.Fatalf("New: %v", err)
@@ -164,6 +167,18 @@ func waitClosed(t *testing.T, closed <-chan string, addr string) {
 	}
 }
 
+// assertStillOpen fails the test if the connection with remote address addr has already closed. It does not wait.
+func assertStillOpen(t *testing.T, closed <-chan string, addr string) {
+	t.Helper()
+	select {
+	case got := <-closed:
+		if got == addr {
+			t.Fatalf("stalled connection %s closed before the healthy stream finished", addr)
+		}
+	default:
+	}
+}
+
 // drainUntilEnd receives and discards the messages of w until its stream ends, and returns the error it ended with.
 func drainUntilEnd(t *testing.T, w *watch) error {
 	t.Helper()
@@ -184,10 +199,13 @@ func TestStalledStreamEndsAloneAtSendDeadline(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	s := openEventStore(t, path)
 	seedBigEvents(t, s, deadlineBigEvents)
-	url, closed := startDeadlineServer(t, path)
+	url, closed := startDeadlineServer(t, path, deadlineStalledSendTimeout)
 
 	dialed := make(chan net.Conn, 1)
 	stalledHTTP := &http.Client{Transport: headerTransport{base: stalledTransport(dialed), login: allowedLogin}}
+	// The stalled stream's request has not been sent yet, so its blocked send's deadline starts after this. A healthy
+	// stream that finishes within the deadline from here finished while the stalled send was still blocked.
+	started := time.Now()
 	stalled := openWatch(t, orreryv1connect.NewEventsClient(stalledHTTP, url), 0)
 	stalledAddr := (<-dialed).LocalAddr().String()
 
@@ -202,6 +220,11 @@ func TestStalledStreamEndsAloneAtSendDeadline(t *testing.T) {
 	if got := healthy.next(t).GetSeq(); got != deadlineBigEvents+2 {
 		t.Fatalf("healthy stream message after the stall: seq %d, want %d", got, deadlineBigEvents+2)
 	}
+	if elapsed := time.Since(started); elapsed >= deadlineStalledSendTimeout {
+		t.Fatalf("healthy stream finished %v after the stalled stream started, want inside the %v send deadline",
+			elapsed, deadlineStalledSendTimeout)
+	}
+	assertStillOpen(t, closed, stalledAddr)
 
 	waitClosed(t, closed, stalledAddr)
 	if err := drainUntilEnd(t, stalled); err == nil {
@@ -213,7 +236,7 @@ func TestIdleStreamReceivesEventAfterSeveralDeadlines(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	s := openEventStore(t, path)
 	seedEvents(t, s, 0)
-	url, _ := startDeadlineServer(t, path)
+	url, _ := startDeadlineServer(t, path, deadlineSendTimeout)
 	events := orreryv1connect.NewEventsClient(guardedHTTPClient(), url)
 
 	w := openWatch(t, events, 0)
@@ -235,7 +258,7 @@ func TestIdleStreamStillEndsWithItsCodeAfterSeveralDeadlines(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	s := openEventStore(t, path)
 	seedEvents(t, s, 0)
-	url, _ := startDeadlineServer(t, path)
+	url, _ := startDeadlineServer(t, path, deadlineSendTimeout)
 	events := orreryv1connect.NewEventsClient(guardedHTTPClient(), url)
 
 	w := openWatch(t, events, 0)
