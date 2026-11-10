@@ -18,6 +18,44 @@ func (q *Queries) DeleteSession(ctx context.Context, id string) error {
 	return err
 }
 
+const eventPageAfter = `-- name: EventPageAfter :many
+SELECT seq, session_id, kind, at, payload FROM events WHERE seq > ? ORDER BY seq LIMIT ?
+`
+
+type EventPageAfterParams struct {
+	Seq   int64
+	Limit int64
+}
+
+func (q *Queries) EventPageAfter(ctx context.Context, arg EventPageAfterParams) ([]Event, error) {
+	rows, err := q.db.QueryContext(ctx, eventPageAfter, arg.Seq, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Event
+	for rows.Next() {
+		var i Event
+		if err := rows.Scan(
+			&i.Seq,
+			&i.SessionID,
+			&i.Kind,
+			&i.At,
+			&i.Payload,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getSession = `-- name: GetSession :one
 SELECT id, server, pane, state, changed, seen, question, summary, label, context, tool, claude_session, transcript FROM sessions WHERE id = ?
 `
@@ -200,6 +238,17 @@ SELECT CAST(COALESCE(MAX(seq), 0) AS INTEGER) AS seq FROM events
 
 func (q *Queries) NewestEventSeq(ctx context.Context) (int64, error) {
 	row := q.db.QueryRowContext(ctx, newestEventSeq)
+	var seq int64
+	err := row.Scan(&seq)
+	return seq, err
+}
+
+const oldestEventSeq = `-- name: OldestEventSeq :one
+SELECT CAST(COALESCE(MIN(seq), 0) AS INTEGER) AS seq FROM events
+`
+
+func (q *Queries) OldestEventSeq(ctx context.Context) (int64, error) {
+	row := q.db.QueryRowContext(ctx, oldestEventSeq)
 	var seq int64
 	err := row.Scan(&seq)
 	return seq, err

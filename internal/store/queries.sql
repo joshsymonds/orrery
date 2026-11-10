@@ -28,5 +28,11 @@ SELECT * FROM events ORDER BY seq;
 -- name: NewestEventSeq :one
 SELECT CAST(COALESCE(MAX(seq), 0) AS INTEGER) AS seq FROM events;
 
+-- name: OldestEventSeq :one
+SELECT CAST(COALESCE(MIN(seq), 0) AS INTEGER) AS seq FROM events;
+
+-- name: EventPageAfter :many
+SELECT seq, session_id, kind, at, payload FROM events WHERE seq > ? ORDER BY seq LIMIT ?;
+
 -- name: PruneEvents :exec
 DELETE FROM events WHERE at < ?;
