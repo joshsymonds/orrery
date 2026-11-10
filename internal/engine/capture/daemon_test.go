@@ -267,3 +267,253 @@ func TestDaemonCommandAcceptsResumeOfWithResumeID(t *testing.T) {
 		t.Errorf("Args = %q, want the resume id last", cmd.Args)
 	}
 }
+
+// testPasswd holds synthetic passwd entries; uid 1000 and uid 1001 are both present, so a lookup that
+// takes the first line or a line by position fails.
+const testPasswd = "" +
+	"root:x:0:0:root:/root:/run/current-system/sw/bin/bash\n" +
+	"user:x:1000:100:User:/srv/user:/run/current-system/sw/bin/zsh\n" +
+	"other:x:1001:100:Other:/srv/other:/run/current-system/sw/bin/fish\n"
+
+var (
+	errFakeLookPath     = errors.New("fake lookPath: not found")
+	errFakeEvalSymlinks = errors.New("fake evalSymlinks: no such path")
+)
+
+// fakeLookPath finds only the names in paths and fails the rest with errFakeLookPath.
+func fakeLookPath(paths map[string]string) func(string) (string, error) {
+	return func(name string) (string, error) {
+		if path, ok := paths[name]; ok {
+			return path, nil
+		}
+		return "", errFakeLookPath
+	}
+}
+
+// fakeEvalSymlinks resolves only the paths in links and fails the rest with errFakeEvalSymlinks.
+func fakeEvalSymlinks(links map[string]string) func(string) (string, error) {
+	return func(path string) (string, error) {
+		if resolved, ok := links[path]; ok {
+			return resolved, nil
+		}
+		return "", errFakeEvalSymlinks
+	}
+}
+
+// daemonArgs are the inputs NewDaemon reads.
+type daemonArgs struct {
+	environ      []string
+	lookPath     func(string) (string, error)
+	evalSymlinks func(string) (string, error)
+	passwd       []byte
+	uid          int
+}
+
+// testDaemonArgs are inputs for the unit of a user with uid 1000, every value synthetic. claude and
+// tmux are found in a profile directory, and their symlinks resolve into package store directories.
+func testDaemonArgs() daemonArgs {
+	return daemonArgs{
+		environ: []string{"LANG=C.UTF-8", "XDG_RUNTIME_DIR=/run/user/1000"},
+		lookPath: fakeLookPath(map[string]string{
+			"claude": "/home/user/.nix-profile/bin/claude",
+			"tmux":   "/home/user/.nix-profile/bin/tmux",
+		}),
+		evalSymlinks: fakeEvalSymlinks(map[string]string{
+			"/home/user/.nix-profile/bin/claude": "/nix/store/aaaa-claude-code/bin/claude",
+			"/home/user/.nix-profile/bin/tmux":   "/nix/store/bbbb-tmux/bin/tmux",
+		}),
+		passwd: []byte(testPasswd),
+		uid:    1000,
+	}
+}
+
+func (a daemonArgs) call() (Daemon, error) {
+	return NewDaemon(a.environ, a.lookPath, a.evalSymlinks, a.passwd, a.uid)
+}
+
+func TestNewDaemonFillsEveryField(t *testing.T) {
+	t.Parallel()
+	got, err := testDaemonArgs().call()
+	if err != nil {
+		t.Fatalf("NewDaemon: %v", err)
+	}
+	want := Daemon{
+		Shell:      "/run/current-system/sw/bin/zsh",
+		Claude:     "/nix/store/aaaa-claude-code/bin/claude",
+		Tmux:       "/nix/store/bbbb-tmux/bin/tmux",
+		Home:       "/srv/user",
+		User:       "user",
+		Lang:       "C.UTF-8",
+		RuntimeDir: "/run/user/1000",
+	}
+	if got != want {
+		t.Errorf("NewDaemon = %+v, want %+v", got, want)
+	}
+}
+
+func TestNewDaemonResolvesSymlinksOfLookedUpBinaries(t *testing.T) {
+	t.Parallel()
+	args := testDaemonArgs()
+	var resolved []string
+	args.evalSymlinks = func(path string) (string, error) {
+		resolved = append(resolved, path)
+		return fakeEvalSymlinks(map[string]string{
+			"/home/user/.nix-profile/bin/claude": "/nix/store/aaaa-claude-code/bin/claude",
+			"/home/user/.nix-profile/bin/tmux":   "/nix/store/bbbb-tmux/bin/tmux",
+		})(path)
+	}
+	got, err := args.call()
+	if err != nil {
+		t.Fatalf("NewDaemon: %v", err)
+	}
+	wantResolved := []string{"/home/user/.nix-profile/bin/claude", "/home/user/.nix-profile/bin/tmux"}
+	if !slices.Equal(resolved, wantResolved) {
+		t.Errorf("evalSymlinks called with %q, want %q", resolved, wantResolved)
+	}
+	if got.Claude != "/nix/store/aaaa-claude-code/bin/claude" || got.Tmux != "/nix/store/bbbb-tmux/bin/tmux" {
+		t.Errorf("Claude, Tmux = %q, %q; want the resolved store paths", got.Claude, got.Tmux)
+	}
+}
+
+func TestNewDaemonPasswdEntryChosenByUID(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		uid   int
+		shell string
+		home  string
+		user  string
+	}{
+		{uid: 0, shell: "/run/current-system/sw/bin/bash", home: "/root", user: "root"},
+		{uid: 1000, shell: "/run/current-system/sw/bin/zsh", home: "/srv/user", user: "user"},
+		{uid: 1001, shell: "/run/current-system/sw/bin/fish", home: "/srv/other", user: "other"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.user, func(t *testing.T) {
+			t.Parallel()
+			args := testDaemonArgs()
+			args.uid = tt.uid
+			got, err := args.call()
+			if err != nil {
+				t.Fatalf("NewDaemon(uid %d): %v", tt.uid, err)
+			}
+			if got.Shell != tt.shell || got.Home != tt.home || got.User != tt.user {
+				t.Errorf("NewDaemon(uid %d) Shell, Home, User = %q, %q, %q; want %q, %q, %q",
+					tt.uid, got.Shell, got.Home, got.User, tt.shell, tt.home, tt.user)
+			}
+		})
+	}
+}
+
+func TestNewDaemonRuntimeDirFallsBackToSystemdPath(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		environ []string
+		uid     int
+		want    string
+	}{
+		{name: "absent", environ: []string{"LANG=C.UTF-8"}, uid: 1000, want: "/run/user/1000"},
+		{name: "empty", environ: []string{"XDG_RUNTIME_DIR=", "LANG=C.UTF-8"}, uid: 1001, want: "/run/user/1001"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			args := testDaemonArgs()
+			args.environ = tt.environ
+			args.uid = tt.uid
+			got, err := args.call()
+			if err != nil {
+				t.Fatalf("NewDaemon: %v", err)
+			}
+			if got.RuntimeDir != tt.want {
+				t.Errorf("RuntimeDir = %q, want %q", got.RuntimeDir, tt.want)
+			}
+		})
+	}
+}
+
+func TestNewDaemonErrorsNameWhatIsMissing(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name     string
+		mutate   func(*daemonArgs)
+		wantErr  error
+		wantText string
+	}{
+		{
+			name: "claude not on PATH",
+			mutate: func(a *daemonArgs) {
+				a.lookPath = fakeLookPath(map[string]string{"tmux": "/home/user/.nix-profile/bin/tmux"})
+			},
+			wantErr:  errFakeLookPath,
+			wantText: "claude",
+		},
+		{
+			name: "tmux not on PATH",
+			mutate: func(a *daemonArgs) {
+				a.lookPath = fakeLookPath(map[string]string{"claude": "/home/user/.nix-profile/bin/claude"})
+			},
+			wantErr:  errFakeLookPath,
+			wantText: "tmux",
+		},
+		{
+			name: "claude does not resolve",
+			mutate: func(a *daemonArgs) {
+				a.evalSymlinks = fakeEvalSymlinks(map[string]string{
+					"/home/user/.nix-profile/bin/tmux": "/nix/store/bbbb-tmux/bin/tmux",
+				})
+			},
+			wantErr:  errFakeEvalSymlinks,
+			wantText: "claude",
+		},
+		{
+			name: "tmux does not resolve",
+			mutate: func(a *daemonArgs) {
+				a.evalSymlinks = fakeEvalSymlinks(map[string]string{
+					"/home/user/.nix-profile/bin/claude": "/nix/store/aaaa-claude-code/bin/claude",
+				})
+			},
+			wantErr:  errFakeEvalSymlinks,
+			wantText: "tmux",
+		},
+		{
+			name:     "no passwd entry for uid",
+			mutate:   func(a *daemonArgs) { a.uid = 4242 },
+			wantText: "passwd",
+		},
+		{
+			name: "empty shell field",
+			mutate: func(a *daemonArgs) {
+				a.passwd = []byte("user:x:1000:100:User:/srv/user:\n")
+			},
+			wantText: "shell",
+		},
+		{
+			name: "empty home field",
+			mutate: func(a *daemonArgs) {
+				a.passwd = []byte("user:x:1000:100:User::/run/current-system/sw/bin/zsh\n")
+			},
+			wantText: "home",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			args := testDaemonArgs()
+			tt.mutate(&args)
+			got, err := args.call()
+			if err == nil {
+				t.Fatalf("NewDaemon returned no error and %+v", got)
+			}
+			if tt.wantErr != nil && !errors.Is(err, tt.wantErr) {
+				t.Errorf("error = %v, want wrapping %v", err, tt.wantErr)
+			}
+			if !strings.Contains(err.Error(), tt.wantText) {
+				t.Errorf("error = %q, want it to name %q", err, tt.wantText)
+			}
+			if got != (Daemon{}) {
+				t.Errorf("error case returned a non-zero Daemon: %+v", got)
+			}
+		})
+	}
+}

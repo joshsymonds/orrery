@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/joshsymonds/orrery/internal/engine/proc"
@@ -21,6 +22,88 @@ type Daemon struct {
 	User       string
 	Lang       string
 	RuntimeDir string
+}
+
+// NewDaemon returns what the orreryd user unit gives a session. claude and tmux are found with lookPath
+// and resolved with evalSymlinks, so their directories are the package directories the unit's PATH holds. Shell, Home and User come from the passwd entry
+// whose uid field equals uid. Lang is LANG from environ, and RuntimeDir is XDG_RUNTIME_DIR from environ,
+// else /run/user/<uid> as systemd sets it. An error names the piece that is missing, with no Daemon.
+func NewDaemon(
+	environ []string, lookPath, evalSymlinks func(string) (string, error), passwd []byte, uid int,
+) (Daemon, error) {
+	claude, err := resolveBinary("claude", lookPath, evalSymlinks)
+	if err != nil {
+		return Daemon{}, err
+	}
+	tmux, err := resolveBinary("tmux", lookPath, evalSymlinks)
+	if err != nil {
+		return Daemon{}, err
+	}
+	fields, err := passwdEntry(passwd, uid)
+	if err != nil {
+		return Daemon{}, err
+	}
+	if fields[6] == "" {
+		return Daemon{}, fmt.Errorf("capture: daemon passwd entry for uid %d has no shell", uid)
+	}
+	if fields[5] == "" {
+		return Daemon{}, fmt.Errorf("capture: daemon passwd entry for uid %d has no home", uid)
+	}
+	runtimeDir := environValue(environ, "XDG_RUNTIME_DIR")
+	if runtimeDir == "" {
+		runtimeDir = fmt.Sprintf("/run/user/%d", uid)
+	}
+	return Daemon{
+		Shell:      fields[6],
+		Claude:     claude,
+		Tmux:       tmux,
+		Home:       fields[5],
+		User:       fields[0],
+		Lang:       environValue(environ, "LANG"),
+		RuntimeDir: runtimeDir,
+	}, nil
+}
+
+// resolveBinary finds name with lookPath and returns the path with its symlinks resolved.
+func resolveBinary(name string, lookPath, evalSymlinks func(string) (string, error)) (string, error) {
+	path, err := lookPath(name)
+	if err != nil {
+		return "", fmt.Errorf("capture: daemon find %s: %w", name, err)
+	}
+	resolved, err := evalSymlinks(path)
+	if err != nil {
+		return "", fmt.Errorf("capture: daemon resolve %s %q: %w", name, path, err)
+	}
+	return resolved, nil
+}
+
+// passwdFieldCount is the number of colon-separated fields in a passwd line: name, password, uid, gid,
+// gecos, home and shell.
+const passwdFieldCount = 7
+
+// passwdEntry returns the fields of the passwd line whose uid field equals uid. Lines with fewer than
+// passwdFieldCount fields or a non-numeric uid are skipped.
+func passwdEntry(passwd []byte, uid int) ([]string, error) {
+	for _, line := range strings.Split(string(passwd), "\n") {
+		fields := strings.Split(line, ":")
+		if len(fields) < passwdFieldCount {
+			continue
+		}
+		if entryUID, err := strconv.Atoi(fields[2]); err == nil && entryUID == uid {
+			return fields, nil
+		}
+	}
+	return nil, fmt.Errorf("capture: daemon no passwd entry for uid %d", uid)
+}
+
+// environValue returns the value of name in environ, or "" when it is absent.
+func environValue(environ []string, name string) string {
+	for _, entry := range environ {
+		if value, ok := strings.CutPrefix(entry, name+"="); ok {
+			return value
+		}
+	}
+	return ""
 }
 
 // DaemonCommand returns the command that starts probe the way orreryd starts a session: through the
