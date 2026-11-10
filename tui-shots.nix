@@ -4,9 +4,6 @@
 # `devenv --profile tui-shots`, so the default shell and the snapshot used by
 # every gate stay free of the vhs, ttyd and ffmpeg closure.
 #
-# VHS renders in a headless browser; chromium is listed so it uses the pinned
-# one rather than whatever browser is on PATH or one it would download.
-#
 # Two runtime notes the `just tui-shots` recipe depends on:
 #   - VHS's headless renderer needs its font on the fontconfig path;
 #     ORRERY_TUI_FONT_DIR points at Maple Mono NF's font directory so the
@@ -17,7 +14,6 @@
 {
   packages = [
     pkgs.vhs
-    pkgs.chromium
     pkgs.ttyd
     pkgs.ffmpeg
     pkgs.fontconfig
