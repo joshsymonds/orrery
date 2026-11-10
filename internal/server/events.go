@@ -20,6 +20,10 @@ const defaultEventPoll = 250 * time.Millisecond
 // defaultEventSendTimeout is the Watch send deadline when Config.EventSendTimeout is zero.
 const defaultEventSendTimeout = 10 * time.Second
 
+// shutdownGrace is how long a send or the end-of-stream write may stay blocked once the shutdown signal closes, so
+// serve exits within its shutdown budget.
+const shutdownGrace = time.Second
+
 // eventPageSize is the most events one store read returns to Watch.
 const eventPageSize = 100
 
@@ -39,15 +43,19 @@ type eventsServer struct {
 // store every poll interval. Each page is read in its own store read, so no read is held across a send or a poll.
 // Each send must complete within sendTimeout, set as a write deadline on the connection, so a send that stays
 // blocked ends this stream and no other. Connect writes the end of the stream after Watch returns, so that write
-// gets the same deadline, armed when Watch returns. Store detail never reaches the client: every error message is
-// fixed.
+// gets the same deadline, armed when Watch returns. Once the shutdown signal has closed, a blocked send and that end
+// write get shutdownGrace instead. Store detail never reaches the client: every error message is fixed.
 func (e eventsServer) Watch(
 	ctx context.Context,
 	req *connect.Request[orreryv1.WatchRequest],
 	stream *connect.ServerStream[orreryv1.WatchResponse],
 ) error {
 	err := e.watch(ctx, req.Msg.GetAfter(), stream)
-	return errors.Join(err, armWriteDeadline(ctx, e.sendTimeout))
+	deadline := e.sendTimeout
+	if stopping(e.shutdown) {
+		deadline = shutdownGrace
+	}
+	return errors.Join(err, armWriteDeadline(ctx, deadline))
 }
 
 // watch runs Watch's stream from the cursor after until the stream ends, and returns why it ended.
@@ -105,7 +113,7 @@ func (e eventsServer) sendPage(
 		if err != nil {
 			return after, listError(connect.CodeInternal, "read events")
 		}
-		if sendErr := sendWithin(ctx, e.sendTimeout, stream, msg); sendErr != nil {
+		if sendErr := sendWithin(ctx, e.sendTimeout, e.shutdown, stream, msg); sendErr != nil {
 			return after, fmt.Errorf("send event %d: %w", event.Seq, sendErr)
 		}
 		after = event.Seq
@@ -133,21 +141,50 @@ func shutdownError() error {
 var errNoResponseWriter = errors.New("no response writer on context")
 
 // sendWithin sends msg on stream with a write deadline of timeout from now on the connection under the
-// ResponseWriter on ctx, so a send the client does not read within timeout fails. A send that completes clears the
-// deadline, so a stream that stays quiet for longer than timeout can still write its next message or its end.
+// ResponseWriter on ctx, so a send the client does not read within timeout fails. If shutdown closes while the send
+// is blocked, the deadline becomes shutdownGrace from then. A send that completes clears the deadline, so a stream
+// that stays quiet for longer than timeout can still write its next message or its end.
 func sendWithin(
 	ctx context.Context,
 	timeout time.Duration,
+	shutdown <-chan struct{},
 	stream *connect.ServerStream[orreryv1.WatchResponse],
 	msg *orreryv1.WatchResponse,
 ) error {
 	if err := armWriteDeadline(ctx, timeout); err != nil {
 		return err
 	}
-	if err := stream.Send(msg); err != nil {
-		return fmt.Errorf("send: %w", err)
+	stopGrace := graceOnShutdown(ctx, shutdown)
+	sendErr := stream.Send(msg)
+	if graceErr := stopGrace(); graceErr != nil {
+		return errors.Join(sendErr, graceErr)
+	}
+	if sendErr != nil {
+		return fmt.Errorf("send: %w", sendErr)
 	}
 	return setWriteDeadline(ctx, time.Time{})
+}
+
+// graceOnShutdown starts a goroutine that moves the write deadline of the connection under the ResponseWriter on ctx
+// to shutdownGrace from now when shutdown closes. The returned stop function ends the goroutine and waits for it to
+// exit, so no deadline it sets outlives the send it guards, and returns the error setting the deadline failed with.
+func graceOnShutdown(ctx context.Context, shutdown <-chan struct{}) (stop func() error) {
+	done := make(chan struct{})
+	exited := make(chan struct{})
+	var graceErr error
+	go func() {
+		defer close(exited)
+		select {
+		case <-shutdown:
+			graceErr = setWriteDeadline(ctx, time.Now().Add(shutdownGrace))
+		case <-done:
+		}
+	}()
+	return func() error {
+		close(done)
+		<-exited
+		return graceErr
+	}
 }
 
 // armWriteDeadline sets the write deadline of the connection under the ResponseWriter on ctx to timeout from now.
