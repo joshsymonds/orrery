@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -38,6 +39,13 @@ const mirrorFormat = "#{" + protocol.OptionID + "}" + mirrorSeparator +
 	"#{" + protocol.OptionClaudeSession + "}" + mirrorSeparator +
 	"#{" + protocol.OptionTranscript + "}"
 
+// tidyFieldCount is the number of fields tidyFormat prints: the pane id, then mirrorFormat's fields.
+const tidyFieldCount = mirrorFieldCount + 1
+
+// tidyFormat is the list-panes format for a tidy. It prints each pane's id, then mirrorFormat's fields, separated by
+// mirrorSeparator.
+const tidyFormat = "#{pane_id}" + mirrorSeparator + mirrorFormat
+
 // Mirror syncs tmux panes into the store. Each sync holds one lock across its tmux read, its id mint and
 // its store write, so concurrent syncs never mint two ids for one pane or write a stale snapshot over a
 // newer one.
@@ -61,20 +69,31 @@ func NewMirror(st *store.Store, now func() time.Time, logger *slog.Logger) *Mirr
 // after the store write commits. A sync that waits more than 200 ms for the lock, or whose store write
 // fails, is logged and dropped.
 func (m *Mirror) SyncPane(ctx context.Context, server tmuxctl.Server, pane string) {
-	timer := time.NewTimer(mirrorLockWait)
-	defer timer.Stop()
-	select {
-	case m.lock <- struct{}{}:
-	case <-timer.C:
+	if !m.acquire() {
 		m.logger.WarnContext(ctx, "mirror sync dropped", "pane", pane, "reason", "lock wait exceeded")
 		return
 	}
-	defer func() { <-m.lock }()
+	defer m.release()
 
 	if err := m.sync(ctx, server, pane); err != nil {
 		m.logger.ErrorContext(ctx, "mirror sync dropped", "pane", pane, "error", err)
 	}
 }
+
+// acquire takes the mirror lock, waiting at most mirrorLockWait. It reports false when the wait expires.
+func (m *Mirror) acquire() bool {
+	timer := time.NewTimer(mirrorLockWait)
+	defer timer.Stop()
+	select {
+	case m.lock <- struct{}{}:
+		return true
+	case <-timer.C:
+		return false
+	}
+}
+
+// release frees the mirror lock that acquire took.
+func (m *Mirror) release() { <-m.lock }
 
 // sync runs one pane sync. The caller holds m.lock.
 func (m *Mirror) sync(ctx context.Context, server tmuxctl.Server, pane string) error {
@@ -146,4 +165,75 @@ func fieldsOf(values []string) store.Fields {
 		ClaudeSession: values[8],
 		Transcript:    values[9],
 	}
+}
+
+// Tidy matches the store to server's panes: one list-panes -a reads every pane, and SyncServer replaces the
+// server's rows with them. A pane without an @orrery_id gets one minted before the store write, and the option is
+// set only after the write commits. A failed read or write changes nothing; it is logged, and the next tidy repairs
+// it. The lock covers the read and the write, so a sync and a tidy never interleave.
+func (m *Mirror) Tidy(ctx context.Context, server tmuxctl.Server) {
+	if !m.acquire() {
+		m.logger.WarnContext(ctx, "mirror tidy dropped", "server", serverValue(server), "reason", "lock wait exceeded")
+		return
+	}
+	defer m.release()
+
+	if err := m.tidy(ctx, server); err != nil {
+		m.logger.ErrorContext(ctx, "mirror tidy dropped", "server", serverValue(server), "error", err)
+	}
+}
+
+// tidy runs one tidy. The caller holds m.lock.
+func (m *Mirror) tidy(ctx context.Context, server tmuxctl.Server) error {
+	client, err := tmuxctl.New(server)
+	if err != nil {
+		return fmt.Errorf("resolve tmux server: %w", err)
+	}
+	out, err := client.Run(ctx, "list-panes", "-a", "-F", tidyFormat)
+	if err != nil {
+		return fmt.Errorf("list panes: %w", err)
+	}
+	panes, err := parseTidyPanes(out)
+	if err != nil {
+		return err
+	}
+
+	var minted []store.Pane
+	for i := range panes {
+		if panes[i].ID != "" {
+			continue
+		}
+		if panes[i].ID, err = mintID(); err != nil {
+			return err
+		}
+		minted = append(minted, panes[i])
+	}
+	if err = m.store.SyncServer(ctx, serverValue(server), panes, m.now()); err != nil {
+		return fmt.Errorf("sync server %s: %w", serverValue(server), err)
+	}
+
+	var errs []error
+	for _, pane := range minted {
+		if setErr := client.SetPaneOption(ctx, pane.Pane, protocol.OptionID, pane.ID); setErr != nil {
+			errs = append(errs, fmt.Errorf("set pane %s id: %w", pane.Pane, setErr))
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// parseTidyPanes decodes list-panes -a output printed with tidyFormat, one pane per line. The pane's @orrery_id
+// is empty when the pane has none.
+func parseTidyPanes(out string) ([]store.Pane, error) {
+	var panes []store.Pane
+	for line := range strings.SplitSeq(out, "\n") {
+		if line == "" {
+			continue
+		}
+		values := strings.Split(line, mirrorSeparator)
+		if len(values) != tidyFieldCount {
+			return nil, fmt.Errorf("read panes: got %d fields, want %d", len(values), tidyFieldCount)
+		}
+		panes = append(panes, store.Pane{ID: values[1], Pane: values[0], Fields: fieldsOf(values[2:])})
+	}
+	return panes, nil
 }

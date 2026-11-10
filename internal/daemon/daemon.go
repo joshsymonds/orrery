@@ -8,9 +8,11 @@ import (
 	"fmt"
 	"io/fs"
 	"log/slog"
+	"maps"
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -26,6 +28,8 @@ const (
 	readTimeout = 2 * time.Second
 	// probeTimeout bounds the dial that decides whether a socket file has a live listener.
 	probeTimeout = time.Second
+	// defaultTidyInterval is the tidy period when Config.TidyInterval is not positive.
+	defaultTidyInterval = 10 * time.Second
 )
 
 // Config configures Serve.
@@ -33,8 +37,10 @@ type Config struct {
 	// Server, when non-zero, selects the tmux server for every frame instead of the frame's $TMUX.
 	Server tmuxctl.Server
 	// Mirror, when set, syncs each applied frame's pane to the store after its tmux writes and observers, outside the
-	// frame mutex. Nil skips the sync.
+	// frame mutex, and tidies the store against tmux at start and every TidyInterval. Nil skips both.
 	Mirror *Mirror
+	// TidyInterval is how often Serve tidies with Mirror; zero or negative means 10 s.
+	TidyInterval time.Duration
 	// Observers are called in order, synchronously, for each state change. They must return quickly.
 	Observers []Observer
 	// Logger receives read, resolve and apply errors. Nil discards them.
@@ -102,7 +108,8 @@ func removeStaleSocket(path string) error {
 }
 
 // Serve accepts connections on ln until ctx is done, then closes ln, waits for in-flight connections,
-// and returns nil. Any other accept failure is returned once in-flight connections finish.
+// and returns nil. Any other accept failure is returned once in-flight connections finish. With a Mirror, Serve
+// also runs the tidy loop and returns only after that loop stops.
 func Serve(ctx context.Context, ln net.Listener, cfg Config) error {
 	logger := cfg.Logger
 	if logger == nil {
@@ -115,7 +122,18 @@ func Serve(ctx context.Context, ln net.Listener, cfg Config) error {
 	})
 	defer stop()
 
-	frames := &frameHandler{cfg: cfg, logger: logger}
+	frames := &frameHandler{cfg: cfg, logger: logger, servers: map[tmuxctl.Server]bool{}}
+	var tidies sync.WaitGroup
+	tidyCtx, cancelTidy := context.WithCancel(ctx)
+	defer tidies.Wait()
+	defer cancelTidy()
+	if cfg.Mirror != nil {
+		tidies.Add(1)
+		go func() {
+			defer tidies.Done()
+			frames.tidyLoop(tidyCtx)
+		}()
+	}
 	var wg sync.WaitGroup
 	defer wg.Wait()
 	for {
@@ -135,11 +153,14 @@ func Serve(ctx context.Context, ln net.Listener, cfg Config) error {
 }
 
 // frameHandler applies frames. Its mutex serializes state.Apply and the observer calls for each frame; the store
-// sync runs after the mutex is released.
+// sync runs after the mutex is released. serversMu guards servers, the tmux servers frames have named, which the
+// tidy loop reads.
 type frameHandler struct {
-	cfg    Config
-	logger *slog.Logger
-	mu     sync.Mutex
+	cfg       Config
+	logger    *slog.Logger
+	mu        sync.Mutex
+	serversMu sync.Mutex
+	servers   map[tmuxctl.Server]bool
 }
 
 // serveConn reads one frame from conn, applies it, and closes conn; the close tells the sender the frame
@@ -172,6 +193,7 @@ func (h *frameHandler) serveConn(ctx context.Context, conn net.Conn) {
 // frame's connection and never the frames queued behind it.
 func (h *frameHandler) apply(ctx context.Context, frame protocol.HookFrame) {
 	server := resolveServer(h.cfg.Server, frame.Tmux)
+	h.noteServer(server)
 	client, err := tmuxctl.New(server)
 	if err != nil {
 		h.logger.ErrorContext(ctx, "resolve tmux server", "error", err)
@@ -183,6 +205,43 @@ func (h *frameHandler) apply(ctx context.Context, frame protocol.HookFrame) {
 	if h.cfg.Mirror != nil {
 		h.cfg.Mirror.SyncPane(ctx, server, frame.TmuxPane)
 	}
+}
+
+// noteServer records server as one a frame has named, so the tidy loop tidies it.
+func (h *frameHandler) noteServer(server tmuxctl.Server) {
+	h.serversMu.Lock()
+	defer h.serversMu.Unlock()
+	h.servers[server] = true
+}
+
+// tidyLoop tidies the servers at start and then every TidyInterval until ctx is done.
+func (h *frameHandler) tidyLoop(ctx context.Context) {
+	interval := h.cfg.TidyInterval
+	if interval <= 0 {
+		interval = defaultTidyInterval
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		for _, server := range h.tidyServers() {
+			h.cfg.Mirror.Tidy(ctx, server)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
+}
+
+// tidyServers returns the servers to tidy: Config.Server when it is set, else every server a frame has named.
+func (h *frameHandler) tidyServers() []tmuxctl.Server {
+	if h.cfg.Server != (tmuxctl.Server{}) {
+		return []tmuxctl.Server{h.cfg.Server}
+	}
+	h.serversMu.Lock()
+	defer h.serversMu.Unlock()
+	return slices.Collect(maps.Keys(h.servers))
 }
 
 // applyLocked runs state.Apply, the context and session writes, and the observers under the mutex. It reports
