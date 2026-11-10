@@ -63,8 +63,56 @@ gen-diff: generate
 refresh-env:
     echo "regenerated .devenv-shell-env.sh"
 
-# Lint, coverage, and generated-code gates.
-check: lint proto-lint cover sqlc-diff gen-diff
+# Fail when devenv.lock and flake.lock resolve nixpkgs to different revs.
+pin-check:
+    scripts/check-nix-pin.sh
+
+# Move the shared nixpkgs pin. Rewrites the rev literal in BOTH devenv.yaml and
+# flake.nix, refreshes both locks with their own tools, regenerates the env
+# snapshot, then runs the pin check. This is the ONLY sanctioned way to move
+# the pin: never hand-edit the locks.
+# REF is a 40-char rev used verbatim, or a branch name resolved via git
+# ls-remote against github.com/NixOS/nixpkgs.
+[script]
+bump-nix $ref="nixpkgs-unstable":
+    if [[ "$ref" =~ ^[0-9a-f]{40}$ ]]; then
+        rev="$ref"
+    else
+        rev="$(git ls-remote https://github.com/NixOS/nixpkgs "refs/heads/$ref" | cut -f1)"
+        if [ -z "$rev" ]; then
+            echo "bump-nix: refs/heads/$ref did not resolve on github.com/NixOS/nixpkgs" >&2
+            exit 1
+        fi
+    fi
+    echo "Bumping nixpkgs pin to $rev..."
+
+    # Rewrite each pin file's single URL literal. Refuse unless the anchored
+    # pattern matches exactly once — zero or several means the file's shape
+    # changed and the sed would silently do the wrong thing.
+    rewrite() {
+        local file="$1" pattern="$2" replacement="$3" count
+        count="$(grep -cE "$pattern" "$file" || true)"
+        if [ "$count" -ne 1 ]; then
+            echo "bump-nix: expected exactly 1 line matching $pattern in $file, found $count" >&2
+            exit 1
+        fi
+        sed -i -E "s|$pattern|$replacement|" "$file"
+    }
+    rewrite devenv.yaml \
+        '^    url: github:NixOS/nixpkgs/[^ ]+$' \
+        "    url: github:NixOS/nixpkgs/$rev"
+    rewrite flake.nix \
+        '^  inputs\.nixpkgs\.url = "github:NixOS/nixpkgs/[^"]+";$' \
+        "  inputs.nixpkgs.url = \"github:NixOS/nixpkgs/$rev\";"
+
+    devenv update nixpkgs
+    nix flake update nixpkgs
+    just refresh-env
+
+    scripts/check-nix-pin.sh
+
+# Lint, coverage, and generated-code gates. The pin check runs first.
+check: pin-check lint proto-lint cover sqlc-diff gen-diff
 
 # Run the Android lint and JVM unit tests.
 android-test:

@@ -11,6 +11,7 @@
     pkgs.golangci-lint
     pkgs.goose
     pkgs.gopls
+    pkgs.jq
     pkgs.just
     pkgs.procps
     pkgs.protoc-gen-connect-go
