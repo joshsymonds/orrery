@@ -20,6 +20,7 @@ import (
 type Config struct {
 	Environ        []string
 	LookPath       func(string) (string, error)
+	Daemon         func() (Daemon, error)
 	Stdout, Stderr io.Writer
 }
 
@@ -144,6 +145,13 @@ func cliAccept(args []string, cfg Config) (code int) {
 	for _, result := range cliRunAll(probes, binary, dir, cfg) {
 		failed = failed || cliProbeFailed(result)
 	}
+	if *name == "" {
+		daemon, daemonErr := cfg.Daemon()
+		if daemonErr != nil {
+			return cliFail(cfg, daemonErr)
+		}
+		failed = cliRunSettings(daemon, dir, cfg) || failed
+	}
 	if failed {
 		return cliExitFail
 	}
@@ -154,9 +162,12 @@ func cliAccept(args []string, cfg Config) (code int) {
 type cliProbe struct {
 	name     string
 	started  bool
+	dir      string
 	outcome  Outcome
+	stdout   []byte
 	report   Report
 	checkErr error
+	session  string
 	err      error
 }
 
@@ -174,21 +185,24 @@ func cliRunAll(probes []Probe, binary, dir string, cfg Config) []cliProbe {
 // cliRunProbe runs probe with the claude at binary, keeps its raw output in dir, and checks its stdout.
 // A probe whose run fails keeps the Outcome it observed, and the error is kept beside it.
 func cliRunProbe(probe Probe, binary, dir string, environ []string) cliProbe {
-	result := cliProbe{name: probe.Name}
 	cmd, err := NewCommand(probe, binary, environ)
 	if err != nil {
-		result.err = fmt.Errorf("capture: prepare %s: %w", probe.Name, err)
-		return result
+		return cliProbe{name: probe.Name, err: fmt.Errorf("capture: prepare %s: %w", probe.Name, err)}
 	}
-	result.started = true
+	result := cliExecute(probe, cmd, dir)
+	result.err = errors.Join(result.err, cliRemoveDir(cmd.Dir))
+	return result
+}
+
+// cliExecute runs probe through cmd, keeps its raw output in dir, and checks its stdout. The working
+// directory of cmd is left to the caller.
+func cliExecute(probe Probe, cmd Command, dir string) cliProbe {
+	result := cliProbe{name: probe.Name, started: true, dir: cmd.Dir}
 	var in, out bytes.Buffer
 	outcome, runErr := Run(context.Background(), probe, cmd, Sinks{In: &in, Out: &out})
 	result.outcome = outcome
-	result.err = errors.Join(
-		runErr,
-		cliRemoveDir(cmd.Dir),
-		cliWriteRaw(dir, probe.Name, in.Bytes(), out.Bytes(), outcome.Stderr),
-	)
+	result.stdout = out.Bytes()
+	result.err = errors.Join(runErr, cliWriteRaw(dir, probe.Name, in.Bytes(), out.Bytes(), outcome.Stderr))
 	result.report, result.checkErr = Check(out.Bytes(), probe.Expect)
 	return result
 }
@@ -197,6 +211,93 @@ func cliRunProbe(probe Probe, binary, dir string, environ []string) cliProbe {
 func cliProbeFailed(result cliProbe) bool {
 	return result.err != nil || result.checkErr != nil || !result.outcome.Completed ||
 		result.outcome.TimedOut || len(result.report.Missing) > 0
+}
+
+// cliSettingsSet is the state that the real-settings probes share: the daemon that starts them, the
+// directory that receives their raw output, each probe that has run, and each working directory the set
+// has created.
+type cliSettingsSet struct {
+	daemon  Daemon
+	raw     string
+	ran     map[string]cliProbe
+	created []string
+}
+
+// cliRunSettings runs SettingsProbes in order into raw and prints one summary line per probe. Once the last
+// probe has run, it removes every working directory the set created, and a removal failure is printed. It
+// reports whether the run failed.
+func cliRunSettings(daemon Daemon, raw string, cfg Config) bool {
+	set := &cliSettingsSet{daemon: daemon, raw: raw, ran: map[string]cliProbe{}}
+	failed := false
+	for _, probe := range SettingsProbes() {
+		result := set.run(probe)
+		fmt.Fprintln(cfg.Stdout, cliSummary(result))
+		set.ran[probe.Name] = result
+		failed = failed || cliProbeFailed(result)
+	}
+	for _, dir := range set.created {
+		if err := cliRemoveDir(dir); err != nil {
+			fmt.Fprintf(cfg.Stderr, "enginecapture: %v\n", err)
+			failed = true
+		}
+	}
+	return failed
+}
+
+// run starts one real-settings probe in its working directory through the login shell and checks its
+// stdout. A probe that cannot start is returned with its error and is not run.
+func (set *cliSettingsSet) run(probe Probe) cliProbe {
+	dir, resume, err := set.workingDir(probe)
+	if err != nil {
+		return cliProbe{name: probe.Name, err: err}
+	}
+	cmd, err := DaemonCommand(probe, set.daemon, true, dir, resume)
+	if err != nil {
+		return cliProbe{name: probe.Name, err: fmt.Errorf("capture: prepare %s: %w", probe.Name, err)}
+	}
+	result := cliExecute(probe, cmd, set.raw)
+	if probe.ResumeOf != "" {
+		result.session = cliSessionNote(result.stdout, resume)
+	}
+	return result
+}
+
+// workingDir returns the directory that probe runs in, and the session id it resumes or "" when it starts
+// a session. A probe that starts a session gets a new directory, which must lie outside every git
+// repository. A probe that resumes another runs in that probe's directory, with that probe's session id.
+func (set *cliSettingsSet) workingDir(probe Probe) (dir, resume string, err error) {
+	if probe.ResumeOf != "" {
+		source, ok := set.ran[probe.ResumeOf]
+		if !ok {
+			return "", "", fmt.Errorf("capture: prepare %s: %s did not run", probe.Name, probe.ResumeOf)
+		}
+		resume, err = SessionID(source.stdout)
+		if err != nil {
+			return "", "", fmt.Errorf("capture: prepare %s: %w", probe.Name, err)
+		}
+		return source.dir, resume, nil
+	}
+	dir, err = os.MkdirTemp("", "orrery-probe-")
+	if err != nil {
+		return "", "", fmt.Errorf("capture: create working directory: %w", err)
+	}
+	set.created = append(set.created, dir)
+	if err = OutsideRepository(dir); err != nil {
+		return "", "", fmt.Errorf("capture: prepare %s: %w", probe.Name, err)
+	}
+	return dir, "", nil
+}
+
+// cliSessionNote names whether the session in stdout of a resume probe is the session it resumed.
+func cliSessionNote(stdout []byte, resume string) string {
+	own, err := SessionID(stdout)
+	if err != nil {
+		return "session unknown: " + err.Error()
+	}
+	if own == resume {
+		return "session same"
+	}
+	return "session changed"
 }
 
 // cliRemoveDir removes the working directory of a probe that has run.
@@ -292,7 +393,8 @@ func cliSanitiseStream(sanitiser *Sanitiser, raw []byte) ([]byte, error) {
 }
 
 // cliSummary formats the summary line of one probe. It names the completion, a timeout, the exit status,
-// each missing expectation, each unknown type, each unanswered request, and any error.
+// each missing expectation, each unknown type, each unanswered and answered request, the session of a
+// resume probe, and any error.
 func cliSummary(result cliProbe) string {
 	fields := []string{
 		cliStatus(result.outcome),
@@ -300,6 +402,10 @@ func cliSummary(result cliProbe) string {
 		"missing " + cliExpectations(result.report.Missing),
 		"unknown " + cliStrings(result.report.Unknown),
 		"unanswered " + cliStrings(result.outcome.Unanswered),
+		"answered " + cliStrings(result.outcome.Answered),
+	}
+	if result.session != "" {
+		fields = append(fields, result.session)
 	}
 	if result.checkErr != nil {
 		fields = append(fields, "check: "+result.checkErr.Error())
@@ -345,6 +451,9 @@ func cliExpectations(missing []Expectation) string {
 		text := want.Type
 		if want.Subtype != "" {
 			text += "/" + want.Subtype
+		}
+		if want.Contains != "" {
+			text += " containing " + strconv.Quote(want.Contains)
 		}
 		if want.Count > 1 {
 			text += " x" + strconv.Itoa(want.Count)
