@@ -34,11 +34,13 @@ type Sinks struct {
 }
 
 // Outcome reports what one run of a probe observed. Completed is true when every prompt got its result.
-// TimedOut is true when the process did not end on its own within the command's timeout. Unanswered
-// lists each request the probe did not answer, as its subtype, or as can_use_tool with the tool name.
+// TimedOut is true when the process did not end on its own within the command's timeout. Answered lists
+// each request the probe answered, allowed or denied, in arrival order. Unanswered lists each request the
+// probe did not answer, as its subtype, or as can_use_tool with the tool name. Both use the same form.
 type Outcome struct {
 	Completed  bool
 	TimedOut   bool
+	Answered   []string
 	Unanswered []string
 	Stderr     string
 	ExitErr    error
@@ -73,6 +75,7 @@ func Run(ctx context.Context, probe Probe, cmd Command, sinks Sinks) (Outcome, e
 	outcome := Outcome{
 		Completed:  session.results == len(probe.Prompts),
 		TimedOut:   session.timedOut,
+		Answered:   session.answered,
 		Unanswered: session.unanswered,
 		Stderr:     process.Stderr(),
 		ExitErr:    process.Wait(),
@@ -154,6 +157,7 @@ type runSession struct {
 	results     int
 	interrupted bool
 	timedOut    bool
+	answered    []string
 	unanswered  []string
 }
 
@@ -270,20 +274,25 @@ type runReply struct {
 	decision  Decision
 }
 
-// onRequest sends the probe's answer to a request it answers. Every other request is listed as
-// unanswered, and the run goes on.
+// onRequest sends the probe's answer to a request it answers and lists the request as answered. Every
+// other request is listed as unanswered, and the run goes on.
 func (session *runSession) onRequest(control transport.ControlMessage) error {
 	reply, listing, answered := runJudge(session.probe.Answer, control)
 	if !answered {
 		session.unanswered = append(session.unanswered, listing)
 		return nil
 	}
-	return session.answer(reply.requestID, reply.decision)
+	if err := session.answer(reply.requestID, reply.decision); err != nil {
+		return err
+	}
+	session.answered = append(session.answered, listing)
+	return nil
 }
 
 // runJudge decides how the probe responds to one control request. When the probe answers it, the bool is
-// true and the reply holds what to send. Otherwise the string is the Unanswered entry for the request. A
-// request that does not decode, or whose answer cannot be built, is listed with its error.
+// true, the reply holds what to send, and the string is the Answered entry for the request. Otherwise the
+// string is the Unanswered entry for the request. A request that does not decode, or whose answer cannot
+// be built, is listed with its error.
 func runJudge(answer Answer, control transport.ControlMessage) (runReply, string, bool) {
 	var request wire.SDKControlRequest
 	if err := wire.UnmarshalControlJSON(control.RawJSON(), &request); err != nil {
@@ -309,10 +318,11 @@ func runJudge(answer Answer, control transport.ControlMessage) (runReply, string
 	if !answered {
 		return runReply{}, runListing(runSubtypeCanUseTool, permission.ToolName, nil), false
 	}
-	return runReply{requestID: request.RequestID, decision: decision}, "", true
+	reply := runReply{requestID: request.RequestID, decision: decision}
+	return reply, runListing(runSubtypeCanUseTool, permission.ToolName, nil), true
 }
 
-// runListing formats an Unanswered entry: the subtype, then the tool name when one is known, then the
+// runListing formats an Answered or Unanswered entry: the subtype, then the tool name when one is known, then the
 // error when one is known.
 func runListing(subtype, tool string, err error) string {
 	entry := subtype

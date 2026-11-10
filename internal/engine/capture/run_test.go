@@ -133,12 +133,12 @@ func runCommand(t *testing.T, script string, args ...string) Command {
 	}
 }
 
-// runWriteFile writes content to a new file in a fresh directory and returns its path.
-func runWriteFile(t *testing.T, name, content string) string {
+// runWriteFile writes content to request.json in a fresh directory and returns its path.
+func runWriteFile(t *testing.T, content string) string {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), name)
+	path := filepath.Join(t.TempDir(), "request.json")
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
-		t.Fatalf("write %s: %v", name, err)
+		t.Fatalf("write request.json: %v", err)
 	}
 	return path
 }
@@ -236,7 +236,7 @@ func TestRunAnswersPermissionRequests(t *testing.T) {
 				Prompts:        []string{"ONE"},
 				Answer:         tc.answer,
 			}
-			cmd := runCommand(t, runScript(runUserAnswer), runWriteFile(t, "request.json", tc.request))
+			cmd := runCommand(t, runScript(runUserAnswer), runWriteFile(t, tc.request))
 
 			outcome := runExecute(t, probe, cmd, Sinks{In: &in, Out: &out})
 
@@ -278,7 +278,7 @@ func TestRunListsUnansweredRequests(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			var in, out bytes.Buffer
 			probe := Probe{Name: tc.name, PermissionMode: "default", PromptTool: true, Prompts: []string{"ONE"}}
-			cmd := runCommand(t, runScript(runUserRequest), runWriteFile(t, "request.json", tc.request))
+			cmd := runCommand(t, runScript(runUserRequest), runWriteFile(t, tc.request))
 
 			outcome := runExecute(t, probe, cmd, Sinks{In: &in, Out: &out})
 
@@ -290,6 +290,55 @@ func TestRunListsUnansweredRequests(t *testing.T) {
 			}
 			runCompare(t, "In", in.String(), runInitLine+runPromptOne)
 		})
+	}
+}
+
+func TestRunListsAnsweredRequests(t *testing.T) {
+	tests := []struct {
+		name           string
+		answer         Answer
+		want           []string
+		wantUnanswered []string
+	}{
+		{name: "allowed", answer: AnswerAllow, want: []string{"can_use_tool Write"}},
+		{name: "denied", answer: AnswerDeny, want: []string{"can_use_tool Write"}},
+		{name: "unanswered", wantUnanswered: []string{"can_use_tool Write"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var in, out bytes.Buffer
+			probe := Probe{
+				Name:           tc.name,
+				PermissionMode: "default",
+				PromptTool:     true,
+				Prompts:        []string{"ONE"},
+				Answer:         tc.answer,
+			}
+			cmd := runCommand(t, runScript(runUserRequest), runWriteFile(t, runWriteRequest))
+
+			outcome := runExecute(t, probe, cmd, Sinks{In: &in, Out: &out})
+
+			runRequireCompleted(t, outcome)
+			if !slices.Equal(outcome.Answered, tc.want) {
+				t.Errorf("Answered = %q, want %q", outcome.Answered, tc.want)
+			}
+			if !slices.Equal(outcome.Unanswered, tc.wantUnanswered) {
+				t.Errorf("Unanswered = %q, want %q", outcome.Unanswered, tc.wantUnanswered)
+			}
+		})
+	}
+}
+
+func TestRunAnsweredEmptyWithoutRequest(t *testing.T) {
+	var in, out bytes.Buffer
+	probe := Probe{Name: "no-request", PermissionMode: "default", Prompts: []string{"ONE"}}
+	cmd := runCommand(t, runScript(runUserResult))
+
+	outcome := runExecute(t, probe, cmd, Sinks{In: &in, Out: &out})
+
+	runRequireCompleted(t, outcome)
+	if len(outcome.Answered) != 0 {
+		t.Errorf("Answered = %q, want none", outcome.Answered)
 	}
 }
 
@@ -343,7 +392,7 @@ func TestRunListsMalformedRequestsAndContinues(t *testing.T) {
 				Prompts:        []string{"ONE"},
 				Answer:         tc.answer,
 			}
-			cmd := runCommand(t, runPIDScript(runUserRequest), runWriteFile(t, "request.json", tc.request), pidPath)
+			cmd := runCommand(t, runPIDScript(runUserRequest), runWriteFile(t, tc.request), pidPath)
 
 			outcome, err := Run(t.Context(), probe, cmd, Sinks{In: &in, Out: &out})
 
