@@ -34,6 +34,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
@@ -114,15 +115,17 @@ private suspend fun fetchHost(client: OrreryClient): HostRead? =
 /**
  * A pane, refreshed every second while the screen is at least started. A Claude pane shows its
  * conversation, with the question card after the last item; any other pane shows its terminal
- * text, with the card below it. Tapping the status line opens the live screen, which shows the
- * terminal text until the status line is tapped again or the live-screen bar is tapped. Opening
- * the screen marks the pane seen once.
+ * text, with the card below it. A Claude pane's status line sits at the top of the composer band,
+ * always in view; tapping it opens the live screen, which shows the terminal text until the
+ * status line is tapped again or the live-screen bar is tapped. Opening the screen marks the pane
+ * seen once.
  *
- * The header overlays the body and slides away while the reader scrolls towards newer content;
- * it returns on a short scroll back, and always shows at the top and the newest end. While the
- * software keyboard is up the header folds to the status line, and the draft field is capped at a
- * third of the screen above the keyboard, so the conversation keeps the room between them. The
- * quick keys hide while the draft has text, so a reply in progress is one row above the keyboard.
+ * The header overlays the body, clipped to the body's bounds, and slides away while the reader
+ * scrolls towards newer content; it returns on a short scroll back, and always shows at the top
+ * and the newest end. While the software keyboard is up the header folds away entirely, and the
+ * draft field is capped at a third of the screen above the keyboard, so the conversation keeps the
+ * room between them. The quick keys hide while the draft has text, so a reply in progress is one
+ * row above the keyboard.
  */
 @Composable
 fun PaneScreen(
@@ -205,6 +208,7 @@ fun PaneScreen(
     val listState = remember(paneId) { LazyListState() }
     val terminalScroll = remember(paneId, showingConversation) { ScrollState(0) }
     var headerHeightPx by remember { mutableIntStateOf(0) }
+    var headerMeasured by remember { mutableStateOf(false) }
     val bodyScroll: ScrollableState = if (showingConversation) listState else terminalScroll
     val headerShift by animateIntAsState(
         targetValue = if (headerRule.visible) 0 else -headerHeightPx,
@@ -221,7 +225,7 @@ fun PaneScreen(
     } else {
         Dp.Unspecified
     }
-    val bodyReady = current == null || headerHeightPx > 0
+    val bodyReady = current == null || headerMeasured
     val headerScroll = remember(headerRule, bodyScroll) {
         object : NestedScrollConnection {
             override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
@@ -244,7 +248,7 @@ fun PaneScreen(
         if (refreshFailed) {
             Text("could not refresh")
         }
-        Box(modifier = Modifier.weight(1f).fillMaxWidth().nestedScroll(headerScroll)) {
+        Box(modifier = Modifier.weight(1f).fillMaxWidth().clipToBounds().nestedScroll(headerScroll)) {
             // The body waits for the header's height, so its first layout already clears the header.
             // Later changes of the padding (the header folding for the keyboard) are followed by
             // the conversation and the terminal while the reader is at the newest end.
@@ -277,19 +281,16 @@ fun PaneScreen(
                     pane = shown,
                     origin = conversation?.origin,
                     stats = stats,
-                    nowSeconds = nowSeconds,
-                    showStatus = conversation != null,
                     liveScreen = liveScreen,
-                    onStatusClick = {
-                        liveScreen = !liveScreen
-                        refresh()
-                    },
                     onConversation = { liveScreen = false },
                     onBack = onBack,
                     compact = keyboardUp,
                     modifier = Modifier
                         .align(Alignment.TopCenter)
-                        .onSizeChanged { headerHeightPx = it.height }
+                        .onSizeChanged {
+                            headerHeightPx = it.height
+                            headerMeasured = true
+                        }
                         .offset { IntOffset(0, headerShift) },
                 )
             }
@@ -304,6 +305,14 @@ fun PaneScreen(
                 else -> "Message Claude…"
             },
             onDraftPresent = { draftPresent = it },
+            status = current?.takeIf { conversation != null }?.let { shown ->
+                {
+                    StatusLine(shown, nowSeconds, onClick = {
+                        liveScreen = !liveScreen
+                        refresh()
+                    })
+                }
+            },
         )
         AnimatedVisibility(
             visible = !draftPresent,

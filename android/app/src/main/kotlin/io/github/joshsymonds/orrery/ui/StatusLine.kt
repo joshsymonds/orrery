@@ -28,7 +28,8 @@ import io.github.joshsymonds.orrery.ui.theme.Mocha
 /**
  * What a Claude pane is doing right now, on one tappable line. Working shows the current tool
  * with its input and elapsed time; waiting shows its age; done shows its age. Any other state
- * draws nothing.
+ * draws nothing. While working or waiting the line is tinted with its state's colour, so an
+ * assistant in flight, or one waiting on the reader, shows at a glance.
  */
 @Composable
 fun StatusLine(pane: Pane, nowSeconds: Long, onClick: () -> Unit, modifier: Modifier = Modifier) {
@@ -37,10 +38,10 @@ fun StatusLine(pane: Pane, nowSeconds: Long, onClick: () -> Unit, modifier: Modi
         modifier = modifier
             .testTag("status-line")
             .fillMaxWidth()
-            .clip(RoundedCornerShape(10.dp))
-            .background(Mocha.Mantle)
+            .clip(RoundedCornerShape(8.dp))
+            .background(if (status.tinted) status.colour.copy(alpha = TINT_ALPHA) else Color.Transparent)
             .clickable(onClick = onClick)
-            .padding(horizontal = 10.dp, vertical = 8.dp),
+            .padding(horizontal = 10.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
@@ -79,12 +80,15 @@ fun StatusLine(pane: Pane, nowSeconds: Long, onClick: () -> Unit, modifier: Modi
     }
 }
 
+private const val TINT_ALPHA = 0.12f
+
 private class StatusText(
     val label: String,
     val colour: Color,
     val tool: String,
     val input: String,
     val time: String,
+    val tinted: Boolean,
 )
 
 private fun statusOf(pane: Pane, nowSeconds: Long): StatusText? = when (pane.state) {
@@ -96,10 +100,11 @@ private fun statusOf(pane: Pane, nowSeconds: Long): StatusText? = when (pane.sta
             tool = tool?.name.orEmpty(),
             input = tool?.input.orEmpty(),
             time = clock(nowSeconds - (tool?.start ?: pane.changed)),
+            tinted = true,
         )
     }
-    "waiting" -> StatusText("waiting for you", Mocha.Peach, "", "", age(nowSeconds - pane.changed))
-    "done" -> StatusText("done", Mocha.Green, "", "", "${age(nowSeconds - pane.changed)} ago")
+    "waiting" -> StatusText("waiting for you", Mocha.Peach, "", "", age(nowSeconds - pane.changed), tinted = true)
+    "done" -> StatusText("done", Mocha.Green, "", "", "${age(nowSeconds - pane.changed)} ago", tinted = false)
     else -> null
 }
 

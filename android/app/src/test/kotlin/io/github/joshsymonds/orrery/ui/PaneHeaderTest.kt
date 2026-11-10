@@ -62,9 +62,7 @@ class PaneHeaderTest {
         pane: Pane = pane(),
         origin: String? = prompt,
         stats: List<HostStat>? = null,
-        showStatus: Boolean = false,
         liveScreen: Boolean = false,
-        onStatusClick: () -> Unit = {},
         onConversation: () -> Unit = {},
         onBack: () -> Unit = {},
     ) {
@@ -74,10 +72,7 @@ class PaneHeaderTest {
                     pane = pane,
                     origin = origin,
                     stats = stats,
-                    nowSeconds = now,
-                    showStatus = showStatus,
                     liveScreen = liveScreen,
-                    onStatusClick = onStatusClick,
                     onConversation = onConversation,
                     onBack = onBack,
                 )
@@ -138,27 +133,10 @@ class PaneHeaderTest {
     }
 
     @Test
-    fun statusLineAbsentWhenNotShown() {
-        setHeader(showStatus = false)
+    fun headerHasNoStatusLine() {
+        setHeader()
 
         composeRule.onAllNodesWithTag("status-line").assertCountEquals(0)
-    }
-
-    @Test
-    fun statusLineShownWhenAskedForAWorkingPane() {
-        setHeader(showStatus = true)
-
-        composeRule.onNodeWithTag("status-line").assertIsDisplayed()
-    }
-
-    @Test
-    fun tappingStatusLineCallsOnStatusClick() {
-        var tapped = false
-        setHeader(showStatus = true, onStatusClick = { tapped = true })
-
-        composeRule.onNodeWithTag("status-line").performClick()
-
-        assertTrue(tapped)
     }
 
     @Test

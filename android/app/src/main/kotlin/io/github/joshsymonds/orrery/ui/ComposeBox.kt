@@ -41,6 +41,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.res.ResourcesCompat
+import androidx.core.view.OneShotPreDrawListener
 import io.github.joshsymonds.orrery.R
 import io.github.joshsymonds.orrery.api.OrreryClient
 import io.github.joshsymonds.orrery.ui.theme.Mocha
@@ -74,11 +75,13 @@ private const val FOCUSED_OUTLINE_ALPHA = 0.7f
  * while a send is in flight, so the draft cannot change under the request.
  *
  * The composer is its own band: a hairline above, a mantle bar, and a filled, outlined field whose
- * outline turns mauve while it has focus; a tap anywhere in the field focuses it.
+ * outline turns mauve while it has focus; a tap anywhere in the field focuses it. [status], when
+ * given, sits at the top of the band, above the field.
  *
  * The field grows with the draft up to [COMPOSE_MAX_LINES] lines and never past [maxFieldHeight],
- * then scrolls inside itself. [hint] shows in the empty field. [onDraftPresent] hears whether the
- * draft has any text, each time that changes.
+ * then scrolls inside itself, keeping the cursor's line in view from the first character of a new
+ * line. [hint] shows in the empty field. [onDraftPresent] hears whether the draft has any text,
+ * each time that changes.
  */
 @Composable
 fun ComposeBox(
@@ -88,9 +91,10 @@ fun ComposeBox(
     maxFieldHeight: Dp = Dp.Unspecified,
     hint: String = "",
     onDraftPresent: (Boolean) -> Unit = {},
+    status: (@Composable () -> Unit)? = null,
 ) {
     key(paneId) {
-        ComposeDraft(paneId, client, modifier, maxFieldHeight, hint, onDraftPresent)
+        ComposeDraft(paneId, client, modifier, maxFieldHeight, hint, onDraftPresent, status)
     }
 }
 
@@ -102,6 +106,7 @@ private fun ComposeDraft(
     maxFieldHeight: Dp,
     hint: String,
     onDraftPresent: (Boolean) -> Unit,
+    status: (@Composable () -> Unit)?,
 ) {
     var draft by remember { mutableStateOf("") }
     var sending by remember { mutableStateOf(false) }
@@ -115,6 +120,9 @@ private fun ComposeDraft(
 
     Column(modifier = modifier.testTag("composer").fillMaxWidth().background(Mocha.Mantle)) {
         Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Mocha.Surface0))
+        status?.let { content ->
+            Box(modifier = Modifier.fillMaxWidth().padding(start = 10.dp, end = 10.dp, top = 8.dp)) { content() }
+        }
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = COMPOSER_PAD_V),
             verticalAlignment = Alignment.Bottom,
@@ -160,9 +168,14 @@ private fun ComposeDraft(
 
                                 override fun afterTextChanged(s: Editable?) {
                                     draft = s.toString()
+                                    val field = this@apply
+                                    OneShotPreDrawListener.add(field) { field.revealCursor() }
                                 }
                             },
                         )
+                        addOnLayoutChangeListener { view, _, top, _, bottom, _, oldTop, _, oldBottom ->
+                            if (bottom - top != oldBottom - oldTop) (view as EditText).revealCursor()
+                        }
                     }
                 },
                 update = { view ->
@@ -218,4 +231,25 @@ private fun ComposeDraft(
             )
         }
     }
+}
+
+/**
+ * Scrolls the field so the cursor's whole line is inside its text area, and no further than the
+ * text allows. Run before the draw that follows an edit and again whenever the field's height
+ * changes, so a new line shows at once instead of when the field next happens to scroll.
+ */
+private fun EditText.revealCursor() {
+    val textLayout = layout ?: return
+    val visible = height - extendedPaddingTop - extendedPaddingBottom
+    if (visible <= 0) return
+    val line = textLayout.getLineForOffset(selectionEnd.coerceAtLeast(0))
+    val top = textLayout.getLineTop(line)
+    val bottom = textLayout.getLineBottom(line)
+    val maxScroll = (textLayout.height - visible).coerceAtLeast(0)
+    val target = when {
+        bottom > scrollY + visible -> bottom - visible
+        top < scrollY -> top
+        else -> scrollY
+    }.coerceIn(0, maxScroll)
+    if (target != scrollY) scrollTo(scrollX, target)
 }
