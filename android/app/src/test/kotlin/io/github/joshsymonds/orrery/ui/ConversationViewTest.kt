@@ -12,6 +12,7 @@ import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollToIndex
 import org.junit.After
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -189,5 +190,56 @@ class ConversationViewTest {
         val replyBottom = composeRule.onNodeWithText("synthetic last reply").fetchSemanticsNode().boundsInRoot.bottom
         val footerTop = composeRule.onNodeWithText("synthetic footer").fetchSemanticsNode().boundsInRoot.top
         assertTrue(footerTop >= replyBottom)
+    }
+
+    private fun replies(from: Int, to: Int): List<ConvoEntry> =
+        (from..to).map { ConvoEntry.Reply("synthetic reply %02d".format(it)) }
+
+    @Test
+    fun opensAtTheNewestReplyAndNotTheOldest() {
+        setList(replies(1, 40))
+
+        composeRule.onNodeWithText("synthetic reply 40").assertIsDisplayed()
+        composeRule.onAllNodesWithText("synthetic reply 01").assertCountEquals(0)
+    }
+
+    @Test
+    fun opensWithTheFooterDisplayedBelowATallLastReply() {
+        val tallLastReply = List(100) { "synthetic line" }.joinToString("\n")
+        setList(replies(1, 39) + ConvoEntry.Reply(tallLastReply), footer = { Text("synthetic footer") })
+
+        composeRule.onNodeWithText("synthetic footer").assertIsDisplayed()
+    }
+
+    @Test
+    fun atTheBottomANewReplyComesIntoView() {
+        val entries = mutableStateOf(replies(1, 40))
+        composeRule.setContent {
+            MaterialTheme { ConversationView(entries = entries.value) }
+        }
+
+        composeRule.onNodeWithText("synthetic reply 40").assertIsDisplayed()
+        composeRule.runOnIdle {
+            entries.value = entries.value + ConvoEntry.Reply("synthetic reply 41")
+        }
+
+        composeRule.onNodeWithText("synthetic reply 41").assertIsDisplayed()
+    }
+
+    @Test
+    fun afterTheReaderScrollsToTheTopANewReplyLeavesThePositionAlone() {
+        val entries = mutableStateOf(replies(1, 40))
+        composeRule.setContent {
+            MaterialTheme { ConversationView(entries = entries.value) }
+        }
+
+        composeRule.onNodeWithTag("conversation-list").performScrollToIndex(0)
+        composeRule.onNodeWithText("synthetic reply 01").assertIsDisplayed()
+        composeRule.runOnIdle {
+            entries.value = entries.value + ConvoEntry.Reply("synthetic reply 41")
+        }
+
+        composeRule.onNodeWithText("synthetic reply 01").assertIsDisplayed()
+        composeRule.onAllNodesWithText("synthetic reply 41").assertCountEquals(0)
     }
 }

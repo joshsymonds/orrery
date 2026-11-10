@@ -16,16 +16,19 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListLayoutInfo
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -54,7 +57,9 @@ private enum class CallMark(val symbol: String, val colour: Color) {
  * The folded conversation as the phone draws it: time labels, prompt blocks, plain replies, tool
  * rows that expand to their result, and groups of calls that expand to their rows, with an
  * optional footer after the last entry. Which rows are open is kept by tool id (a group by its
- * first call's id), so it survives new entries.
+ * first call's id), so it survives new entries. It opens at the newest item. While the reader is at
+ * the bottom, new entries keep the newest item in view; once they scroll up, new entries leave
+ * their position alone.
  */
 @Composable
 fun ConversationView(
@@ -67,6 +72,21 @@ fun ConversationView(
     var expanded by remember { mutableStateOf(emptySet<String>()) }
     val toggle: (String) -> Unit = { id ->
         expanded = if (id in expanded) expanded - id else expanded + id
+    }
+    var followBottom by remember { mutableStateOf(true) }
+    val lastIndex = entries.size + (if (footer == null) 0 else 1) - 1
+    LaunchedEffect(listState) {
+        var previousStart: Pair<Int, Int>? = null
+        snapshotFlow { listState.layoutInfo }.collect { info ->
+            val first = info.visibleItemsInfo.firstOrNull() ?: return@collect
+            val start = first.index to first.offset
+            val previous = previousStart
+            previousStart = start
+            if (previous != null && start != previous) followBottom = info.isAtEnd()
+        }
+    }
+    LaunchedEffect(entries, lastIndex) {
+        if (followBottom && lastIndex >= 0) listState.scrollToItem(lastIndex)
     }
     LazyColumn(
         modifier = modifier
@@ -283,6 +303,13 @@ private fun ResultBox(call: ToolCall) {
             softWrap = false,
         )
     }
+}
+
+/** True when the last item's end, with the bottom padding, sits at the viewport's end. */
+private fun LazyListLayoutInfo.isAtEnd(): Boolean {
+    val last = visibleItemsInfo.lastOrNull() ?: return true
+    return last.index == totalItemsCount - 1 &&
+        last.offset + last.size <= viewportEndOffset - afterContentPadding
 }
 
 private fun toolMark(call: ToolCall): CallMark? = when {
