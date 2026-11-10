@@ -38,7 +38,8 @@ type Expectation struct {
 	Count    int
 }
 
-// Probe is one fixed run of Claude Code: its permission mode, tools, prompts, and how it answers.
+// Probe is one fixed run of Claude Code: its permission mode, tools, prompts, and how it answers. Linger,
+// when positive, keeps stdin open that long after the last prompt's result before it closes.
 type Probe struct {
 	Name           string
 	PermissionMode string
@@ -49,6 +50,7 @@ type Probe struct {
 	Interrupt      bool
 	Answer         Answer
 	Expect         []Expectation
+	Linger         time.Duration
 }
 
 // Probes returns the six fixed probes in run order.

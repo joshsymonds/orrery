@@ -516,6 +516,63 @@ func TestRunWaitsForEachReplyBeforeItsNextLine(t *testing.T) {
 	}
 }
 
+// runLinger is the Linger of the linger tests: long enough to observe, short enough to keep the tests fast.
+const runLinger = 400 * time.Millisecond
+
+// runUserExtraResult answers a user line with a result, then a second result 100ms later, inside the linger.
+const runUserExtraResult = runUserResult + "\n      sleep 0.1\n" + runUserResult
+
+func TestRunLingerHoldsStdinOpenAfterLastResult(t *testing.T) {
+	out := &runStampedWriter{}
+	var in bytes.Buffer
+	probe := Probe{Name: "linger", PermissionMode: "default", Prompts: []string{"ONE"}, Linger: runLinger}
+
+	outcome := runExecute(t, probe, runCommand(t, runScript(runUserResult)), Sinks{In: &in, Out: out})
+
+	runRequireCompleted(t, outcome)
+	if gap := out.when(t, runTrailerLine).Sub(out.when(t, runResultLine)); gap < runLinger {
+		t.Errorf("trailer written %v after the result, want at least %v (stdin closes after the linger)",
+			gap, runLinger)
+	}
+}
+
+func TestRunLingerCountsExtraResultsAndSendsNothing(t *testing.T) {
+	out := &runStampedWriter{}
+	var in bytes.Buffer
+	probe := Probe{Name: "linger-extra", PermissionMode: "default", Prompts: []string{"ONE"}, Linger: runLinger}
+
+	outcome := runExecute(t, probe, runCommand(t, runScript(runUserExtraResult)), Sinks{In: &in, Out: out})
+
+	runRequireCompleted(t, outcome)
+	runCompare(t, "In", in.String(), runInitLine+runPromptOne)
+	if gap := out.when(t, runTrailerLine).Sub(out.when(t, runResultLine)); gap < runLinger {
+		t.Errorf("trailer written %v after the first result, want at least %v (the extra result must not close stdin)",
+			gap, runLinger)
+	}
+}
+
+func TestRunLingerLongerThanTimeoutStopsProcess(t *testing.T) {
+	pidPath := filepath.Join(t.TempDir(), "pid")
+	cmd := runCommand(t, `printf '%s\n' "$$" > "$1"`+"\n"+runScript(runUserResult), pidPath)
+	cmd.Timeout = runShortTimeout
+	probe := Probe{
+		Name:           "linger-timeout",
+		PermissionMode: "default",
+		Prompts:        []string{"ONE"},
+		Linger:         10 * time.Second,
+	}
+
+	outcome, err := Run(t.Context(), probe, cmd, Sinks{In: io.Discard, Out: io.Discard})
+
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if !outcome.TimedOut {
+		t.Fatalf("outcome = %+v, want TimedOut while lingering", outcome)
+	}
+	runWaitGone(t, runReadPID(t, pidPath))
+}
+
 // runEnvRecord writes what the child sees to the file named by $1: the variable set only in the
 // command's environment, the variable set only in the test process, and the working directory.
 const runEnvRecord = `printf '%s\n' "$ORRERY_TEST_MARK" "${ORRERY_TEST_PARENT-unset}" "$(pwd -P)" > "$1"` + "\n"

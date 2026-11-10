@@ -33,10 +33,11 @@ type Sinks struct {
 	Out io.Writer
 }
 
-// Outcome reports what one run of a probe observed. Completed is true when every prompt got its result.
-// TimedOut is true when the process did not end on its own within the command's timeout. Answered lists
-// each request the probe answered, allowed or denied, in arrival order. Unanswered lists each request the
-// probe did not answer, as its subtype, or as can_use_tool with the tool name. Both use the same form.
+// Outcome reports what one run of a probe observed. Completed is true when the results seen are at least the
+// number of prompts. TimedOut is true when the process did not end on its own within the command's timeout.
+// Answered lists each request the probe answered, allowed or denied, in arrival order. Unanswered lists each
+// request the probe did not answer, as its subtype, or as can_use_tool with the tool name. Both use the same
+// form.
 type Outcome struct {
 	Completed  bool
 	TimedOut   bool
@@ -73,7 +74,7 @@ func Run(ctx context.Context, probe Probe, cmd Command, sinks Sinks) (Outcome, e
 	stopErr := process.Stop()
 	closeErr := conn.Close()
 	outcome := Outcome{
-		Completed:  session.results == len(probe.Prompts),
+		Completed:  session.results >= len(probe.Prompts),
 		TimedOut:   session.timedOut,
 		Answered:   session.answered,
 		Unanswered: session.unanswered,
@@ -157,6 +158,7 @@ type runSession struct {
 	results     int
 	interrupted bool
 	timedOut    bool
+	linger      <-chan time.Time
 	answered    []string
 	unanswered  []string
 }
@@ -177,6 +179,10 @@ func (session *runSession) play(ctx context.Context, timeout <-chan time.Time) e
 		case <-timeout:
 			session.timedOut = true
 			return nil
+		case <-session.linger:
+			if err := session.input.Close(); err != nil {
+				return err
+			}
 		case message, ok := <-events:
 			if !ok {
 				events = nil
@@ -349,16 +355,28 @@ func (session *runSession) answer(requestID string, decision Decision) error {
 	return nil
 }
 
-// advance sends the next prompt. Once every prompt has been sent, it closes stdin, and the probe ends
+// advance sends the next prompt. Once every prompt has been sent, it ends the prompts, and the probe ends
 // after its last result.
 func (session *runSession) advance() error {
 	if session.sent == len(session.probe.Prompts) {
-		return session.input.Close()
+		return session.endPrompts()
 	}
 	prompt := session.probe.Prompts[session.sent]
 	session.sent++
 	if _, err := session.conn.SendUserMessage(prompt); err != nil {
 		return fmt.Errorf("capture: send prompt: %w", err)
+	}
+	return nil
+}
+
+// endPrompts closes stdin at once when the probe has no linger. Otherwise it starts the linger, once, and
+// play closes stdin when the linger ends. Results that arrive during the linger send nothing.
+func (session *runSession) endPrompts() error {
+	if session.probe.Linger == 0 {
+		return session.input.Close()
+	}
+	if session.linger == nil {
+		session.linger = time.After(session.probe.Linger)
 	}
 	return nil
 }
