@@ -32,6 +32,9 @@ const (
 type Config struct {
 	// Server, when non-zero, selects the tmux server for every frame instead of the frame's $TMUX.
 	Server tmuxctl.Server
+	// Mirror, when set, syncs each applied frame's pane to the store after its tmux writes and observers, outside the
+	// frame mutex. Nil skips the sync.
+	Mirror *Mirror
 	// Observers are called in order, synchronously, for each state change. They must return quickly.
 	Observers []Observer
 	// Logger receives read, resolve and apply errors. Nil discards them.
@@ -131,7 +134,8 @@ func Serve(ctx context.Context, ln net.Listener, cfg Config) error {
 	}
 }
 
-// frameHandler applies frames. Its mutex serializes state.Apply and the observer calls for each frame.
+// frameHandler applies frames. Its mutex serializes state.Apply and the observer calls for each frame; the store
+// sync runs after the mutex is released.
 type frameHandler struct {
 	cfg    Config
 	logger *slog.Logger
@@ -163,7 +167,9 @@ func (h *frameHandler) serveConn(ctx context.Context, conn net.Conn) {
 	h.apply(context.WithoutCancel(ctx), frame)
 }
 
-// apply runs one frame through state.Apply under the mutex and calls every observer when the state changes.
+// apply runs one frame through state.Apply under the mutex and calls every observer when the state changes. With a
+// Mirror, it then syncs the frame's pane to the store outside the mutex, so a slow or locked store delays only this
+// frame's connection and never the frames queued behind it.
 func (h *frameHandler) apply(ctx context.Context, frame protocol.HookFrame) {
 	server := resolveServer(h.cfg.Server, frame.Tmux)
 	client, err := tmuxctl.New(server)
@@ -171,13 +177,25 @@ func (h *frameHandler) apply(ctx context.Context, frame protocol.HookFrame) {
 		h.logger.ErrorContext(ctx, "resolve tmux server", "error", err)
 		return
 	}
+	if !h.applyLocked(ctx, client, server, frame) {
+		return
+	}
+	if h.cfg.Mirror != nil {
+		h.cfg.Mirror.SyncPane(ctx, server, frame.TmuxPane)
+	}
+}
 
+// applyLocked runs state.Apply, the context and session writes, and the observers under the mutex. It reports
+// whether state.Apply succeeded.
+func (h *frameHandler) applyLocked(
+	ctx context.Context, client *tmuxctl.Client, server tmuxctl.Server, frame protocol.HookFrame,
+) bool {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	transition, changed, err := state.Apply(ctx, client, frame.TmuxPane, frame.Hook, time.Now())
 	if err != nil {
 		h.logger.ErrorContext(ctx, "apply hook frame", "pane", frame.TmuxPane, "error", err)
-		return
+		return false
 	}
 	contextName := protocol.SummaryContext(frame.AnthropicBaseURL)
 	err = client.SetPaneOption(ctx, frame.TmuxPane, protocol.OptionContext, contextName)
@@ -188,7 +206,7 @@ func (h *frameHandler) apply(ctx context.Context, frame protocol.HookFrame) {
 		h.logger.ErrorContext(ctx, "record pane session", "pane", frame.TmuxPane, "error", err)
 	}
 	if !changed {
-		return
+		return true
 	}
 	event := Transition{
 		PaneID: frame.TmuxPane,
@@ -200,6 +218,7 @@ func (h *frameHandler) apply(ctx context.Context, frame protocol.HookFrame) {
 	for _, observe := range h.cfg.Observers {
 		observe(event)
 	}
+	return true
 }
 
 // resolveServer returns configured when it is set. Otherwise it returns the socket named by the frame's
