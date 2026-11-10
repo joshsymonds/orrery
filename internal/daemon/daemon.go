@@ -36,6 +36,9 @@ const (
 type Config struct {
 	// Server, when non-zero, selects the tmux server for every frame instead of the frame's $TMUX.
 	Server tmuxctl.Server
+	// DefaultServer, when non-zero and Server is zero, is tidied with the servers frames name, so the default server's
+	// panes have rows from the first tidy. A frame whose $TMUX names the same socket names the same server.
+	DefaultServer tmuxctl.Server
 	// Mirror, when set, syncs each applied frame's pane to the store after its tmux writes and observers, outside the
 	// frame mutex, and tidies the store against tmux at start and every TidyInterval. Nil skips both.
 	Mirror *Mirror
@@ -234,14 +237,19 @@ func (h *frameHandler) tidyLoop(ctx context.Context) {
 	}
 }
 
-// tidyServers returns the servers to tidy: Config.Server when it is set, else every server a frame has named.
+// tidyServers returns the servers to tidy: Config.Server when it is set, else every server a frame has named and
+// Config.DefaultServer when it is set and no frame has named it yet.
 func (h *frameHandler) tidyServers() []tmuxctl.Server {
 	if h.cfg.Server != (tmuxctl.Server{}) {
 		return []tmuxctl.Server{h.cfg.Server}
 	}
 	h.serversMu.Lock()
 	defer h.serversMu.Unlock()
-	return slices.Collect(maps.Keys(h.servers))
+	servers := slices.Collect(maps.Keys(h.servers))
+	if h.cfg.DefaultServer != (tmuxctl.Server{}) && !h.servers[h.cfg.DefaultServer] {
+		servers = append(servers, h.cfg.DefaultServer)
+	}
+	return servers
 }
 
 // applyLocked runs state.Apply, the context and session writes, and the observers under the mutex. It reports

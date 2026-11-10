@@ -83,11 +83,12 @@ func usagef(format string, args ...any) error {
 
 // options holds the parsed command line.
 type options struct {
-	server    tmuxctl.Server
-	socket    string
-	claude    string
-	models    map[string]string
-	pushHosts []string
+	server        tmuxctl.Server
+	defaultServer tmuxctl.Server // the default socket, set only when server is zero
+	socket        string
+	claude        string
+	models        map[string]string
+	pushHosts     []string
 }
 
 // hostFlag is the repeatable --push-host flag. It collects the push relay hosts in the order given.
@@ -187,13 +188,49 @@ func parseFlags(args []string, getenv func(string) string) (options, error) {
 	if len(pushHosts) == 0 {
 		pushHosts = hostFlag{push.DefaultPushHost}
 	}
+	server := tmuxctl.Server{Name: *tmuxName, Socket: *tmuxSocket}
+	var defaultServer tmuxctl.Server
+	if server == (tmuxctl.Server{}) {
+		defaultServer = tmuxctl.Server{Socket: defaultTmuxSocket(getenv)}
+	}
 	return options{
-		server:    tmuxctl.Server{Name: *tmuxName, Socket: *tmuxSocket},
-		socket:    socket,
-		claude:    *claude,
-		models:    models,
-		pushHosts: pushHosts,
+		server:        server,
+		defaultServer: defaultServer,
+		socket:        socket,
+		claude:        *claude,
+		models:        models,
+		pushHosts:     pushHosts,
 	}, nil
+}
+
+// defaultTmuxSocket returns the socket path tmux gives its default server. The directory is the symlink-resolved
+// absolute TMUX_TMPDIR when it is set and resolves, else the resolved /tmp, else /tmp; the socket is tmux-<uid>/default
+// in that directory.
+func defaultTmuxSocket(getenv func(string) string) string {
+	dir := resolveDir(getenv("TMUX_TMPDIR"))
+	if dir == "" {
+		dir = resolveDir("/tmp")
+	}
+	if dir == "" {
+		dir = "/tmp"
+	}
+	return filepath.Join(dir, fmt.Sprintf("tmux-%d", os.Getuid()), "default")
+}
+
+// resolveDir returns the absolute, symlink-resolved path of dir, or "" when dir is empty or does not resolve.
+func resolveDir(dir string) string {
+	if dir == "" {
+		return ""
+	}
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		return ""
+	}
+	resolved, err := filepath.EvalSymlinks(abs)
+	if err != nil {
+		return ""
+	}
+	return resolved
 }
 
 // serve listens on the daemon socket until ctx is done, then waits for the summaries and notifications it started.
@@ -243,10 +280,11 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 	}
 	observe := func(transition daemon.Transition) { hub.observe(ctx, transition) }
 	serveErr := daemon.Serve(ctx, ln, daemon.Config{
-		Server:    opts.server,
-		Observers: []daemon.Observer{observe, autoseen.New(time.Now, logger)},
-		Logger:    logger,
-		Mirror:    mirror,
+		Server:        opts.server,
+		DefaultServer: opts.defaultServer,
+		Observers:     []daemon.Observer{observe, autoseen.New(time.Now, logger)},
+		Logger:        logger,
+		Mirror:        mirror,
 	})
 	hub.wait()
 	if st != nil {
