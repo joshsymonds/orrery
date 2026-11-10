@@ -29,6 +29,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/push"
 	"github.com/joshsymonds/orrery/internal/server"
 	"github.com/joshsymonds/orrery/internal/shell"
+	"github.com/joshsymonds/orrery/internal/store"
 	"github.com/joshsymonds/orrery/internal/summary"
 	"github.com/joshsymonds/orrery/internal/tmuxconf"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
@@ -203,6 +204,24 @@ func (l *listFlag) Set(value string) error {
 	return nil
 }
 
+// openServeStores returns the push store that registration writes and the reader of orreryd's store file that
+// List reads. Both resolve their paths from getenv.
+func openServeStores(getenv func(string) string, pushHosts []string) (*push.Store, *store.Reader, error) {
+	storePath, err := push.DefaultStorePath(getenv)
+	if err != nil {
+		return nil, nil, fmt.Errorf("push store: %w", err)
+	}
+	pushStore, err := push.NewStore(storePath, pushHosts)
+	if err != nil {
+		return nil, nil, fmt.Errorf("push store: %w", err)
+	}
+	dbPath, err := store.Path(getenv)
+	if err != nil {
+		return nil, nil, fmt.Errorf("store: %w", err)
+	}
+	return pushStore, store.NewReader(dbPath), nil
+}
+
 // runServe runs `orrery serve`. It serves the HTTP API for the tmux server named by opts on the loopback address
 // --listen until SIGINT or SIGTERM, then shuts down and returns nil.
 func runServe(ctx context.Context, opts globals, args []string, getenv func(string) string) error {
@@ -240,15 +259,17 @@ func runServe(ctx context.Context, opts globals, args []string, getenv func(stri
 	if err != nil {
 		return fmt.Errorf("tmux server: %w", err)
 	}
-	storePath, err := push.DefaultStorePath(getenv)
+	pushStore, sessions, err := openServeStores(getenv, pushHosts)
 	if err != nil {
-		return fmt.Errorf("push store: %w", err)
+		return err
 	}
-	store, err := push.NewStore(storePath, pushHosts)
-	if err != nil {
-		return fmt.Errorf("push store: %w", err)
-	}
-	handler, err := server.New(server.Config{Logins: logins, Tmux: tmux, Push: store, HostStatus: hostStatus})
+	handler, err := server.New(server.Config{
+		Logins:     logins,
+		Tmux:       tmux,
+		Push:       pushStore,
+		HostStatus: hostStatus,
+		Sessions:   sessions,
+	})
 	if err != nil {
 		return fmt.Errorf("serve: %w", err)
 	}

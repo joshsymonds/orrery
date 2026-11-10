@@ -22,6 +22,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/hoststatus"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/push"
+	"github.com/joshsymonds/orrery/internal/store"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
 )
 
@@ -106,11 +107,15 @@ type Config struct {
 	Push *push.Store
 	// HostStatus runs the host status command behind GET /v1/host, or is nil when serve has no command.
 	HostStatus *hoststatus.Runner
+	// Sessions reads the store behind the Sessions Connect API, or is nil when there is no store reader, which
+	// answers unavailable.
+	Sessions *store.Reader
 }
 
-// New returns a handler that admits only the configured logins, requires a JSON content type and
-// the HeaderClient header on every POST and DELETE, and never emits CORS headers. Requests that pass
-// the guard reach the read and write routes, and every other path answers 404.
+// New returns a handler that admits only the configured logins, and never emits CORS headers. A request to
+// a Connect path must carry the HeaderClient header, and a POST there one of the Connect content types. Every
+// other POST and DELETE must carry a JSON content type and the HeaderClient header. Requests that pass the
+// guard reach the read, write and Connect routes, and every other path answers 404.
 func New(cfg Config) (http.Handler, error) {
 	if len(cfg.Logins) == 0 {
 		return nil, errors.New("server: no allowed logins configured")
@@ -140,12 +145,14 @@ func New(cfg Config) (http.Handler, error) {
 	mux.HandleFunc("POST /v1/panes/{id}/seen", servePaneSeen(cfg.Tmux))
 	mux.HandleFunc("POST /v1/push/register", servePushRegister(cfg.Push))
 	mux.HandleFunc("DELETE /v1/push/register", serveUnregister(cfg.Push))
+	connectPath, sessions := newSessionsHandler(cfg.Sessions)
+	mux.Handle(connectPath, sessions)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if _, ok := allowed[r.Header.Get(HeaderLogin)]; !ok {
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
-		if isWrite(r.Method) && !isJSONWrite(r) {
+		if !guardAdmits(r, connectPath) {
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
@@ -627,6 +634,30 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 // isWrite reports whether method is one the guard checks for a JSON content type and client header.
 func isWrite(method string) bool {
 	return method == http.MethodPost || method == http.MethodDelete
+}
+
+// guardAdmits reports whether the guard passes r past the login check. A request to a path under connectPath
+// needs the client header, and a POST there one of the Connect content types. Any other POST or DELETE needs
+// a JSON content type and the client header. Every other request passes.
+func guardAdmits(r *http.Request, connectPath string) bool {
+	if strings.HasPrefix(r.URL.Path, connectPath) {
+		return r.Header.Get(HeaderClient) != "" && (r.Method != http.MethodPost || isConnectContentType(r))
+	}
+	return !isWrite(r.Method) || isJSONWrite(r)
+}
+
+// isConnectContentType reports whether r carries one of the four content types a Connect POST may send.
+func isConnectContentType(r *http.Request) bool {
+	mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	if err != nil {
+		return false
+	}
+	switch mediaType {
+	case "application/proto", jsonContentType, "application/connect+proto", "application/connect+json":
+		return true
+	default:
+		return false
+	}
 }
 
 // isJSONWrite reports whether r carries an application/json body and the HeaderClient header.
