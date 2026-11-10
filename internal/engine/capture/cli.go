@@ -29,6 +29,9 @@ const (
 	cliExitFail        = 1
 	cliExitUsage       = 2
 	cliCommand         = "claude"
+	cliFormLogin       = "login"
+	cliFormPlain       = "plain"
+	cliGuardPlain      = "guard-plain"
 	cliTempPattern     = "orrery-capture-"
 	cliRawDirMode      = 0o700
 	cliRawFileMode     = 0o600
@@ -168,6 +171,7 @@ type cliProbe struct {
 	report   Report
 	checkErr error
 	session  string
+	form     string
 	err      error
 }
 
@@ -214,27 +218,22 @@ func cliProbeFailed(result cliProbe) bool {
 }
 
 // cliSettingsSet is the state that the real-settings probes share: the daemon that starts them, the
-// directory that receives their raw output, each probe that has run, and each working directory the set
-// has created.
+// directory that receives their raw output, the start form they run in, each probe that has run, and each
+// working directory the set has created.
 type cliSettingsSet struct {
 	daemon  Daemon
 	raw     string
+	form    string
 	ran     map[string]cliProbe
 	created []string
 }
 
-// cliRunSettings runs SettingsProbes in order into raw and prints one summary line per probe. Once the last
-// probe has run, it removes every working directory the set created, and a removal failure is printed. It
-// reports whether the run failed.
+// cliRunSettings runs the real-settings probes into raw and prints one summary line per probe that runs.
+// Once the set has run, it removes every working directory the set created, and a removal failure is
+// printed. It reports whether the run failed.
 func cliRunSettings(daemon Daemon, raw string, cfg Config) bool {
-	set := &cliSettingsSet{daemon: daemon, raw: raw, ran: map[string]cliProbe{}}
-	failed := false
-	for _, probe := range SettingsProbes() {
-		result := set.run(probe)
-		fmt.Fprintln(cfg.Stdout, cliSummary(result))
-		set.ran[probe.Name] = result
-		failed = failed || cliProbeFailed(result)
-	}
+	set := &cliSettingsSet{daemon: daemon, raw: raw, form: cliFormLogin, ran: map[string]cliProbe{}}
+	failed := set.runProbes(cfg)
 	for _, dir := range set.created {
 		if err := cliRemoveDir(dir); err != nil {
 			fmt.Fprintf(cfg.Stderr, "enginecapture: %v\n", err)
@@ -244,14 +243,48 @@ func cliRunSettings(daemon Daemon, raw string, cfg Config) bool {
 	return failed
 }
 
-// run starts one real-settings probe in its working directory through the login shell and checks its
-// stdout. A probe that cannot start is returned with its error and is not run.
+// runProbes runs the guard in the login form. When the guard fails there, it runs the guard once more in
+// the plain form, and when that fails too, it prints the P1 failure and starts no further probe. Otherwise
+// it runs the rest of SettingsProbes in the form the guard passed in. A guard that misses in the login form
+// alone does not fail the run.
+func (set *cliSettingsSet) runProbes(cfg Config) bool {
+	probes := SettingsProbes()
+	if cliProbeFailed(set.report(probes[0], cfg)) {
+		set.form = cliFormPlain
+		plain := probes[0]
+		plain.Name = cliGuardPlain
+		if cliProbeFailed(set.report(plain, cfg)) {
+			fmt.Fprintln(cfg.Stderr, "enginecapture: P1: the guard refused in neither start form")
+			return true
+		}
+	}
+	failed := false
+	for _, probe := range probes[1:] {
+		if cliProbeFailed(set.report(probe, cfg)) {
+			failed = true
+		}
+	}
+	return failed
+}
+
+// report runs probe in the set's form, prints its summary line, and records the result under its name.
+func (set *cliSettingsSet) report(probe Probe, cfg Config) cliProbe {
+	result := set.run(probe)
+	result.form = set.form
+	fmt.Fprintln(cfg.Stdout, cliSummary(result))
+	set.ran[probe.Name] = result
+	return result
+}
+
+// run starts one real-settings probe in its working directory through the shell, in the login form when the
+// set is in that form, and checks its stdout. A probe that cannot start is returned with its error and is
+// not run.
 func (set *cliSettingsSet) run(probe Probe) cliProbe {
 	dir, resume, err := set.workingDir(probe)
 	if err != nil {
 		return cliProbe{name: probe.Name, err: err}
 	}
-	cmd, err := DaemonCommand(probe, set.daemon, true, dir, resume)
+	cmd, err := DaemonCommand(probe, set.daemon, set.form == cliFormLogin, dir, resume)
 	if err != nil {
 		return cliProbe{name: probe.Name, err: fmt.Errorf("capture: prepare %s: %w", probe.Name, err)}
 	}
@@ -393,8 +426,8 @@ func cliSanitiseStream(sanitiser *Sanitiser, raw []byte) ([]byte, error) {
 }
 
 // cliSummary formats the summary line of one probe. It names the completion, a timeout, the exit status,
-// each missing expectation, each unknown type, each unanswered and answered request, the session of a
-// resume probe, and any error.
+// each missing expectation, each unknown type, each unanswered and answered request, the start form of a
+// real-settings probe, the session of a resume probe, and any error.
 func cliSummary(result cliProbe) string {
 	fields := []string{
 		cliStatus(result.outcome),
@@ -403,6 +436,9 @@ func cliSummary(result cliProbe) string {
 		"unknown " + cliStrings(result.report.Unknown),
 		"unanswered " + cliStrings(result.outcome.Unanswered),
 		"answered " + cliStrings(result.outcome.Answered),
+	}
+	if result.form != "" {
+		fields = append(fields, "form "+result.form)
 	}
 	if result.session != "" {
 		fields = append(fields, result.session)

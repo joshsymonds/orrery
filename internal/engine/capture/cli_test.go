@@ -18,18 +18,22 @@ const cliFakeSession = "00000000-0000-4000-8000-000000000009"
 const cliOtherSession = "00000000-0000-4000-8000-000000000001"
 
 // cliFake describes the fake claude. extra is one shell command run after the initialize reply. source is
-// the session id a run without --resume reports, resumed the session id a run with --resume reports, and
-// guard the text the Bash result of the guard prompt carries.
+// the session id a run that does not persist its session reports, persisted the session id a run that
+// persists its session and does not resume reports, resumed the session id a run with --resume reports, and
+// guard the text the Bash result of the guard prompt carries. loginGuard, when set, replaces guard in the
+// login form, which the shell wrapper announces through ORRERY_TEST_FORM.
 type cliFake struct {
-	extra   string
-	guard   string
-	source  string
-	resumed string
+	extra      string
+	guard      string
+	loginGuard string
+	source     string
+	persisted  string
+	resumed    string
 }
 
 // cliWellBehaved() is the fake that answers every probe the way Claude Code does.
 func cliWellBehaved() cliFake {
-	return cliFake{guard: GuardRefusal, source: cliFakeSession, resumed: cliFakeSession}
+	return cliFake{guard: GuardRefusal, source: cliFakeSession, persisted: cliFakeSession, resumed: cliFakeSession}
 }
 
 // cliExtra returns the well-behaved fake with extra run after its initialize reply.
@@ -50,6 +54,8 @@ prompting=no
 tool=Write
 input='{"file_path":"/home/user/note.txt","content":"ok"}'
 session='` + f.source + `'
+guard='` + f.guard + `'
+loginGuard='` + f.loginGuard + `'
 printf '%s|%s|%s|%s\n' "$(pwd -P)" "${ORRERY_SUMMARIZER-unset}" "${TMUX-unset}" "$*" >> "$0.log"
 case "$*" in
   *--permission-prompt-tool*) prompting=yes ;;
@@ -63,6 +69,10 @@ case "$*" in
     tool=Bash
     input='{"command":"echo ok"}'
     ;;
+esac
+case "$*" in
+  *--no-session-persistence*) ;;
+  *) session='` + f.persisted + `' ;;
 esac
 case "$*" in
   *--resume*) session='` + f.resumed + `' ;;
@@ -92,7 +102,9 @@ while IFS= read -r line; do
       reply=DONE
       case "$line" in
         *'empty scratch directory'*)
-          printf '%s\n' '{"type":"user","message":{"role":"user","content":"` + f.guard + `"}}'
+          refusal=$guard
+          if [ "${ORRERY_TEST_FORM-}" = login ] && [ -n "$loginGuard" ]; then refusal=$loginGuard; fi
+          printf '%s\n' '{"type":"user","message":{"role":"user","content":"'"$refusal"'"}}'
           ;;
         *'git --version'*)
           printf '%s\n' '{"type":"user","message":{"role":"user","content":"git version 2.47.0"}}'
@@ -144,7 +156,8 @@ func cliShellLog(path string) string {
 
 // cliDaemon returns the daemon that starts path through the shell sh, with the directory of path as the
 // daemon's home and runtime directory. The shell is a wrapper that logs "login" or "plain" to cliShellLog
-// for each start, according to whether its first argument is -l, and then execs sh with the same arguments.
+// for each start, according to whether its first argument is -l. It exports that form as ORRERY_TEST_FORM
+// and then execs sh with the same arguments, so the fake claude can refuse per form.
 func cliDaemon(path string) (Daemon, error) {
 	shell, err := exec.LookPath("sh")
 	if err != nil {
@@ -155,6 +168,8 @@ func cliDaemon(path string) (Daemon, error) {
 	script := `#!/bin/sh
 if [ "$1" = "-l" ]; then form=login; else form=plain; fi
 printf '%s\n' "$form" >> '` + cliShellLog(path) + `'
+ORRERY_TEST_FORM=$form
+export ORRERY_TEST_FORM
 exec '` + shell + `' "$@"
 `
 	if err := os.WriteFile(wrapper, []byte(script), 0o700); err != nil {
@@ -441,6 +456,122 @@ func TestCliAcceptStartsEverySettingsProbeInLoginForm(t *testing.T) {
 	}
 }
 
+// cliGuardMiss is the Bash result of a guard that misses its refusal: git's own error text.
+const cliGuardMiss = "fatal: not a git repository (or any of the parent directories): .git"
+
+// cliRequireForm fails the test unless the summary line of each named probe in probes names form.
+func cliRequireForm(t *testing.T, stdout, form string, probes []Probe) {
+	t.Helper()
+	for _, probe := range probes {
+		line := cliLine(t, stdout, probe.Name)
+		if !strings.Contains(line, "; form "+form+";") && !strings.HasSuffix(line, "; form "+form) {
+			t.Errorf("%s summary = %q, want it to name form %s", probe.Name, line, form)
+		}
+	}
+}
+
+func TestCliAcceptGuardPassingInLoginNeverRunsGuardPlain(t *testing.T) {
+	t.Setenv("TMPDIR", t.TempDir())
+	cfg, stdout, stderr := cliConfig(cliFakePath(t, cliFakeClaude(cliWellBehaved())))
+	keep := filepath.Join(t.TempDir(), "kept")
+
+	if code := Main([]string{"accept", "-keep", keep}, cfg); code != 0 {
+		t.Fatalf("Main(accept -keep) = %d, want 0; stdout: %s stderr: %s", code, stdout, stderr)
+	}
+	if strings.Contains(stdout.String(), "guard-plain: ") {
+		t.Errorf("summary names guard-plain though the login guard passed:\n%s", stdout)
+	}
+	for _, suffix := range []string{".out.ndjson", ".in.ndjson", ".stderr"} {
+		if _, err := os.Stat(filepath.Join(keep, "guard-plain"+suffix)); !os.IsNotExist(err) {
+			t.Errorf("guard-plain%s stat error = %v, want not exist", suffix, err)
+		}
+	}
+	cliRequireForm(t, stdout.String(), "login", SettingsProbes())
+}
+
+func TestCliAcceptGuardMissingInLoginPassingInPlainRunsRestInPlain(t *testing.T) {
+	t.Setenv("TMPDIR", t.TempDir())
+	fake := cliWellBehaved()
+	fake.loginGuard = cliGuardMiss
+	path := cliFakePath(t, cliFakeClaude(fake))
+	cfg, stdout, stderr := cliConfig(path)
+	keep := filepath.Join(t.TempDir(), "kept")
+
+	if code := Main([]string{"accept", "-keep", keep}, cfg); code != 0 {
+		t.Fatalf("Main(accept -keep) = %d, want 0; stdout: %s stderr: %s", code, stdout, stderr)
+	}
+	if line := cliLine(t, stdout.String(), "guard"); !strings.Contains(line, "missing user containing") ||
+		!strings.Contains(line, "; form login") {
+		t.Errorf("guard summary = %q, want the login miss named in form login", line)
+	}
+	plainLine := cliLine(t, stdout.String(), "guard-plain")
+	if !strings.Contains(plainLine, "completed; exit 0; missing none; ") {
+		t.Errorf("guard-plain summary = %q, want the plain guard completed", plainLine)
+	}
+	if !strings.Contains(plainLine, "; form plain") {
+		t.Errorf("guard-plain summary = %q, want it to name form plain", plainLine)
+	}
+	cliRequireForm(t, stdout.String(), "plain", SettingsProbes()[1:])
+	forms := strings.Split(strings.TrimSuffix(cliReadFile(t, cliShellLog(path)), "\n"), "\n")
+	if len(forms) != len(SettingsProbes())+1 {
+		t.Fatalf("shell starts = %d, want the login guard, the plain guard and %d more",
+			len(forms), len(SettingsProbes())-1)
+	}
+	if forms[0] != "login" {
+		t.Errorf("first shell start began in the %s form, want login", forms[0])
+	}
+	for index, form := range forms[1:] {
+		if form != "plain" {
+			t.Errorf("shell start %d began in the %s form, want plain", index+1, form)
+		}
+	}
+	for _, suffix := range []string{".out.ndjson", ".in.ndjson", ".stderr"} {
+		cliRequireFile(t, filepath.Join(keep, "guard"+suffix), 0o600)
+		cliRequireFile(t, filepath.Join(keep, "guard-plain"+suffix), 0o600)
+	}
+}
+
+func TestCliAcceptGuardRefusedInNeitherFormStopsWithP1(t *testing.T) {
+	t.Setenv("TMPDIR", t.TempDir())
+	fake := cliWellBehaved()
+	fake.guard = cliGuardMiss
+	fake.loginGuard = cliGuardMiss
+	path := cliFakePath(t, cliFakeClaude(fake))
+	cfg, stdout, stderr := cliConfig(path)
+	keep := filepath.Join(t.TempDir(), "kept")
+
+	if code := Main([]string{"accept", "-keep", keep}, cfg); code != 1 {
+		t.Fatalf("Main(accept -keep) = %d, want 1 when the guard is refused in neither form; stdout: %s",
+			code, stdout)
+	}
+	const p1 = "enginecapture: P1: the guard refused in neither start form\n"
+	if stderr.String() != p1 {
+		t.Errorf("stderr = %q, want %q", stderr, p1)
+	}
+	if lines := strings.Count(stdout.String(), "\n"); lines != len(Probes())+2 {
+		t.Errorf("summary has %d lines, want the hooks-off set and the two guard lines (%d):\n%s",
+			lines, len(Probes())+2, stdout)
+	}
+	if line := cliLine(t, stdout.String(), "guard"); !strings.Contains(line, "; form login") {
+		t.Errorf("guard summary = %q, want it to name form login", line)
+	}
+	if line := cliLine(t, stdout.String(), "guard-plain"); !strings.Contains(line, "; form plain") {
+		t.Errorf("guard-plain summary = %q, want it to name form plain", line)
+	}
+	forms := strings.Split(strings.TrimSuffix(cliReadFile(t, cliShellLog(path)), "\n"), "\n")
+	if got := strings.Join(forms, ","); got != "login,plain" {
+		t.Errorf("shell starts = %s, want only the login guard and the plain guard", got)
+	}
+	for _, probe := range SettingsProbes()[1:] {
+		if _, err := os.Stat(filepath.Join(keep, probe.Name+".out.ndjson")); !os.IsNotExist(err) {
+			t.Errorf("%s.out.ndjson stat error = %v, want not exist: no probe after the guard may start",
+				probe.Name, err)
+		}
+	}
+	cliRequireFile(t, filepath.Join(keep, "guard.out.ndjson"), 0o600)
+	cliRequireFile(t, filepath.Join(keep, "guard-plain.out.ndjson"), 0o600)
+}
+
 func TestCliAcceptResumeRunsInSourceDirectoryWithSourceSession(t *testing.T) {
 	t.Setenv("TMPDIR", t.TempDir())
 	path := cliFakePath(t, cliFakeClaude(cliWellBehaved()))
@@ -495,7 +626,7 @@ func TestCliAcceptNamesResumedSessionChangeOrMissingID(t *testing.T) {
 func TestCliAcceptResumeNotStartedWithoutSourceSession(t *testing.T) {
 	t.Setenv("TMPDIR", t.TempDir())
 	fake := cliWellBehaved()
-	fake.source = ""
+	fake.persisted = ""
 	path := cliFakePath(t, cliFakeClaude(fake))
 	cfg, stdout, _ := cliConfig(path)
 
@@ -505,7 +636,7 @@ func TestCliAcceptResumeNotStartedWithoutSourceSession(t *testing.T) {
 	if runs := cliSettingsRuns(cliReadRuns(t, path)); len(runs) != len(SettingsProbes())-1 {
 		t.Errorf("real-settings runs = %d, want %d: resume-ask must not start", len(runs), len(SettingsProbes())-1)
 	}
-	want := "exit not started; missing none; unknown none; unanswered none; answered none; " +
+	want := "exit not started; missing none; unknown none; unanswered none; answered none; form login; " +
 		"error: capture: prepare resume-ask: capture: system init line has no session_id"
 	if line := cliLine(t, stdout.String(), "resume-ask"); !strings.HasSuffix(line, want) {
 		t.Errorf("resume-ask summary = %q, want it to end with %q", line, want)
@@ -515,7 +646,8 @@ func TestCliAcceptResumeNotStartedWithoutSourceSession(t *testing.T) {
 func TestCliAcceptGuardMustNameItsRefusal(t *testing.T) {
 	t.Setenv("TMPDIR", t.TempDir())
 	fake := cliWellBehaved()
-	fake.guard = "fatal: not a git repository (or any of the parent directories): .git"
+	fake.guard = cliGuardMiss
+	fake.loginGuard = cliGuardMiss
 	cfg, stdout, _ := cliConfig(cliFakePath(t, cliFakeClaude(fake)))
 
 	if code := Main([]string{"accept"}, cfg); code != 1 {
@@ -525,8 +657,8 @@ func TestCliAcceptGuardMustNameItsRefusal(t *testing.T) {
 	if line := cliLine(t, stdout.String(), "guard"); !strings.Contains(line, want) {
 		t.Errorf("guard summary = %q, want it to contain %q", line, want)
 	}
-	if line := cliLine(t, stdout.String(), "resume-plant"); !strings.Contains(line, "completed") {
-		t.Errorf("resume-plant summary = %q, want the set to go on after a failing probe", line)
+	if strings.Contains(stdout.String(), "resume-plant: ") {
+		t.Errorf("resume-plant ran after the guard was refused in neither form:\n%s", stdout)
 	}
 }
 
@@ -542,14 +674,17 @@ func TestCliAcceptRefusesSettingsScratchInsideRepository(t *testing.T) {
 	if code := Main([]string{"accept"}, cfg); code != 1 {
 		t.Fatalf("Main(accept) = %d, want 1 when scratch is inside a repository", code)
 	}
-	for _, probe := range SettingsProbes() {
-		line := cliLine(t, stdout.String(), probe.Name)
+	for _, name := range []string{"guard", "guard-plain"} {
+		line := cliLine(t, stdout.String(), name)
 		if !strings.Contains(line, "exit not started") || !strings.Contains(line, "; error: ") {
-			t.Errorf("%s summary = %q, want it not started with an error", probe.Name, line)
+			t.Errorf("%s summary = %q, want it not started with an error", name, line)
 		}
-		if probe.ResumeOf == "" && !strings.Contains(line, "is inside a git repository") {
-			t.Errorf("%s summary = %q, want the refusal as inside a repository", probe.Name, line)
+		if !strings.Contains(line, "is inside a git repository") {
+			t.Errorf("%s summary = %q, want the refusal as inside a repository", name, line)
 		}
+	}
+	if strings.Contains(stdout.String(), "resume-plant: ") {
+		t.Errorf("resume-plant ran after the guard could not start in either form:\n%s", stdout)
 	}
 	if runs := cliSettingsRuns(cliReadRuns(t, path)); len(runs) != 0 {
 		t.Errorf("real-settings runs = %d, want none", len(runs))
