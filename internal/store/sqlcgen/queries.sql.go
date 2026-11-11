@@ -233,6 +233,37 @@ func (q *Queries) GetSession(ctx context.Context, id string) (Session, error) {
 	return i, err
 }
 
+const getStep = `-- name: GetStep :one
+SELECT id, agent, prompt, output_schema, workspace, revision, worktree, done_value, read_only, owned, gate, gate_limit, started, checks, result, status, end_value, reason, ended FROM steps WHERE id = ?
+`
+
+func (q *Queries) GetStep(ctx context.Context, id string) (Step, error) {
+	row := q.db.QueryRowContext(ctx, getStep, id)
+	var i Step
+	err := row.Scan(
+		&i.ID,
+		&i.Agent,
+		&i.Prompt,
+		&i.OutputSchema,
+		&i.Workspace,
+		&i.Revision,
+		&i.Worktree,
+		&i.DoneValue,
+		&i.ReadOnly,
+		&i.Owned,
+		&i.Gate,
+		&i.GateLimit,
+		&i.Started,
+		&i.Checks,
+		&i.Result,
+		&i.Status,
+		&i.EndValue,
+		&i.Reason,
+		&i.Ended,
+	)
+	return i, err
+}
+
 const insertEnginePromptFailed = `-- name: InsertEnginePromptFailed :exec
 INSERT INTO engine_prompt_failed (session_id, prompt_id, reason) VALUES (?, ?, ?)
 ON CONFLICT (session_id, prompt_id) DO NOTHING
@@ -305,6 +336,47 @@ type InsertSessionParams struct {
 
 func (q *Queries) InsertSession(ctx context.Context, arg InsertSessionParams) error {
 	_, err := q.db.ExecContext(ctx, insertSession, arg.ID, arg.Server, arg.Pane)
+	return err
+}
+
+const insertStep = `-- name: InsertStep :exec
+INSERT INTO steps (id, agent, prompt, output_schema, workspace, revision, worktree, done_value, read_only, owned, gate,
+                   gate_limit, started, checks, result, status, end_value, reason, ended)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', '', '', '', '', 0)
+`
+
+type InsertStepParams struct {
+	ID           string
+	Agent        string
+	Prompt       string
+	OutputSchema string
+	Workspace    string
+	Revision     string
+	Worktree     string
+	DoneValue    string
+	ReadOnly     bool
+	Owned        string
+	Gate         string
+	GateLimit    int64
+	Started      int64
+}
+
+func (q *Queries) InsertStep(ctx context.Context, arg InsertStepParams) error {
+	_, err := q.db.ExecContext(ctx, insertStep,
+		arg.ID,
+		arg.Agent,
+		arg.Prompt,
+		arg.OutputSchema,
+		arg.Workspace,
+		arg.Revision,
+		arg.Worktree,
+		arg.DoneValue,
+		arg.ReadOnly,
+		arg.Owned,
+		arg.Gate,
+		arg.GateLimit,
+		arg.Started,
+	)
 	return err
 }
 
@@ -406,6 +478,53 @@ func (q *Queries) ListEvents(ctx context.Context) ([]Event, error) {
 			&i.Kind,
 			&i.At,
 			&i.Payload,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listOpenSteps = `-- name: ListOpenSteps :many
+SELECT id, agent, prompt, output_schema, workspace, revision, worktree, done_value, read_only, owned, gate, gate_limit, started, checks, result, status, end_value, reason, ended FROM steps WHERE end_value = '' ORDER BY id
+`
+
+func (q *Queries) ListOpenSteps(ctx context.Context) ([]Step, error) {
+	rows, err := q.db.QueryContext(ctx, listOpenSteps)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Step
+	for rows.Next() {
+		var i Step
+		if err := rows.Scan(
+			&i.ID,
+			&i.Agent,
+			&i.Prompt,
+			&i.OutputSchema,
+			&i.Workspace,
+			&i.Revision,
+			&i.Worktree,
+			&i.DoneValue,
+			&i.ReadOnly,
+			&i.Owned,
+			&i.Gate,
+			&i.GateLimit,
+			&i.Started,
+			&i.Checks,
+			&i.Result,
+			&i.Status,
+			&i.EndValue,
+			&i.Reason,
+			&i.Ended,
 		); err != nil {
 			return nil, err
 		}
@@ -682,6 +801,44 @@ func (q *Queries) UpdateSessionFields(ctx context.Context, arg UpdateSessionFiel
 		arg.Transcript,
 		arg.ID,
 	)
+	return err
+}
+
+const updateStepEnd = `-- name: UpdateStepEnd :exec
+UPDATE steps SET end_value = ?, status = ?, reason = ?, ended = ? WHERE id = ?
+`
+
+type UpdateStepEndParams struct {
+	EndValue string
+	Status   string
+	Reason   string
+	Ended    int64
+	ID       string
+}
+
+func (q *Queries) UpdateStepEnd(ctx context.Context, arg UpdateStepEndParams) error {
+	_, err := q.db.ExecContext(ctx, updateStepEnd,
+		arg.EndValue,
+		arg.Status,
+		arg.Reason,
+		arg.Ended,
+		arg.ID,
+	)
+	return err
+}
+
+const updateStepReturn = `-- name: UpdateStepReturn :exec
+UPDATE steps SET result = ?, checks = ? WHERE id = ?
+`
+
+type UpdateStepReturnParams struct {
+	Result string
+	Checks string
+	ID     string
+}
+
+func (q *Queries) UpdateStepReturn(ctx context.Context, arg UpdateStepReturnParams) error {
+	_, err := q.db.ExecContext(ctx, updateStepReturn, arg.Result, arg.Checks, arg.ID)
 	return err
 }
 

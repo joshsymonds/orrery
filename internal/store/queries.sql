@@ -111,3 +111,20 @@ ON CONFLICT (session_id, prompt_id) DO NOTHING;
 
 -- name: GetEnginePromptFailure :one
 SELECT reason FROM engine_prompt_failed WHERE session_id = ? AND prompt_id = ?;
+
+-- name: InsertStep :exec
+INSERT INTO steps (id, agent, prompt, output_schema, workspace, revision, worktree, done_value, read_only, owned, gate,
+                   gate_limit, started, checks, result, status, end_value, reason, ended)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', '', '', '', '', 0);
+
+-- name: GetStep :one
+SELECT * FROM steps WHERE id = ?;
+
+-- name: ListOpenSteps :many
+SELECT * FROM steps WHERE end_value = '' ORDER BY id;
+
+-- name: UpdateStepReturn :exec
+UPDATE steps SET result = ?, checks = ? WHERE id = ?;
+
+-- name: UpdateStepEnd :exec
+UPDATE steps SET end_value = ?, status = ?, reason = ?, ended = ? WHERE id = ?;

@@ -45,3 +45,25 @@ type Session struct {
 	Dir           string
 	Reason        string
 }
+
+type Step struct {
+	ID           string
+	Agent        string
+	Prompt       string
+	OutputSchema string
+	Workspace    string
+	Revision     string
+	Worktree     string
+	DoneValue    string
+	ReadOnly     bool
+	Owned        string
+	Gate         string
+	GateLimit    int64
+	Started      int64
+	Checks       string
+	Result       string
+	Status       string
+	EndValue     string
+	Reason       string
+	Ended        int64
+}
