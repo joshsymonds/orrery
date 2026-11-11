@@ -452,14 +452,15 @@ func TestServePanesList(t *testing.T) {
 			t.Fatalf("pane %s question_hash = %q, want %q", id, hash, expected)
 		}
 		delete(pane, "question_hash")
+		delete(pane, "newest_reply")
 		if !reflect.DeepEqual(pane, want[i]) {
 			t.Fatalf("pane %s = %v, want the cli.List fields %v", id, pane, want[i])
 		}
 	}
 }
 
-// listUntilAgreed reads GET /v1/panes and cli.List until the two agree on every field except question_hash.
-// A pane's current command changes while its shell starts, so the two reads can differ until it settles.
+// listUntilAgreed reads GET /v1/panes and cli.List until the two agree on every field except question_hash and
+// newest_reply. A pane's current command changes while its shell starts, so the two reads can differ until it settles.
 func listUntilAgreed(t *testing.T, tmux *tmuxctl.Client, handler http.Handler) ([]map[string]any, []map[string]any) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), screenWait)
@@ -488,7 +489,8 @@ func listUntilAgreed(t *testing.T, tmux *tmuxctl.Client, handler http.Handler) (
 	}
 }
 
-// agreeWithoutHash reports whether got and want hold the same panes in order once question_hash is removed from got.
+// agreeWithoutHash reports whether got and want hold the same panes in order once question_hash and newest_reply
+// are removed from got.
 func agreeWithoutHash(got, want []map[string]any) bool {
 	if len(got) != len(want) {
 		return false
@@ -496,6 +498,7 @@ func agreeWithoutHash(got, want []map[string]any) bool {
 	for i := range got {
 		pane := maps.Clone(got[i])
 		delete(pane, "question_hash")
+		delete(pane, "newest_reply")
 		if !reflect.DeepEqual(pane, want[i]) {
 			return false
 		}

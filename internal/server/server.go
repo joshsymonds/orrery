@@ -38,6 +38,10 @@ const HeaderClient = "X-Orrery-Client"
 // questionHashKey is the key GET /v1/panes adds to each pane, holding protocol.QuestionHash of its question.
 const questionHashKey = "question_hash"
 
+// newestReplyKey is the key GET /v1/panes adds to each pane, holding the unix seconds of the newest reply or
+// question in its transcript, or 0 when it has none.
+const newestReplyKey = "newest_reply"
+
 // Query keys of GET /v1/panes/{id}/screen, and the largest history value the route accepts, in lines.
 const (
 	queryANSI        = "ansi"
@@ -161,11 +165,12 @@ func New(cfg Config) (http.Handler, error) {
 	}
 
 	goals := conversation.NewGoals()
+	newest := conversation.NewNewest()
 	queues := conversation.NewQueues()
 	textLocks := &paneLocks{locks: make(map[string]*sync.Mutex)}
 	seenLocks := &paneLocks{locks: make(map[string]*sync.Mutex)}
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /v1/panes", servePanes(cfg.Tmux))
+	mux.HandleFunc("GET /v1/panes", servePanes(cfg.Tmux, newest))
 	mux.HandleFunc("POST /v1/panes", serveNewWindow(cfg.Tmux))
 	mux.HandleFunc("GET /v1/panes/{id}/screen", serveScreen(cfg.Tmux))
 	mux.HandleFunc("GET /v1/panes/{id}/conversation", serveConversation(cfg.Tmux, goals, queues))
@@ -201,8 +206,9 @@ func New(cfg Config) (http.Handler, error) {
 }
 
 // servePanes answers GET /v1/panes with the array cli.List writes for tmux, each pane carrying the
-// question_hash of its question. With no running server the array is empty.
-func servePanes(tmux *tmuxctl.Client) http.HandlerFunc {
+// question_hash of its question and the newest_reply of its transcript, as paneNewestReply gives it. newest
+// keeps each transcript's newest time across requests. With no running server the array is empty.
+func servePanes(tmux *tmuxctl.Client, newest *conversation.Newest) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var list bytes.Buffer
 		if err := cli.List(r.Context(), tmux, []string{"--json"}, &list); err != nil {
@@ -215,20 +221,76 @@ func servePanes(tmux *tmuxctl.Client) http.HandlerFunc {
 			return
 		}
 		for _, pane := range panes {
-			var question string
-			if err := json.Unmarshal(pane["question"], &question); err != nil {
+			if err := addPaneFields(r.Context(), tmux, newest, pane); err != nil {
 				http.Error(w, "internal server error", http.StatusInternalServerError)
 				return
 			}
-			hash, err := json.Marshal(protocol.QuestionHash(question))
-			if err != nil {
-				http.Error(w, "internal server error", http.StatusInternalServerError)
-				return
-			}
-			pane[questionHashKey] = hash
 		}
 		writeJSON(w, http.StatusOK, panes)
 	}
+}
+
+// addPaneFields sets the questionHashKey and newestReplyKey fields of pane, which holds one pane of cli.List.
+func addPaneFields(
+	ctx context.Context,
+	tmux *tmuxctl.Client,
+	newest *conversation.Newest,
+	pane map[string]json.RawMessage,
+) error {
+	var question, id, state string
+	if err := json.Unmarshal(pane["question"], &question); err != nil {
+		return fmt.Errorf("server: decode pane question: %w", err)
+	}
+	if err := json.Unmarshal(pane["id"], &id); err != nil {
+		return fmt.Errorf("server: decode pane id: %w", err)
+	}
+	if err := json.Unmarshal(pane["state"], &state); err != nil {
+		return fmt.Errorf("server: decode pane state: %w", err)
+	}
+	hash, err := json.Marshal(protocol.QuestionHash(question))
+	if err != nil {
+		return fmt.Errorf("server: encode question hash: %w", err)
+	}
+	at, err := paneNewestReply(ctx, tmux, newest, id, state)
+	if err != nil {
+		return err
+	}
+	newestJSON, err := json.Marshal(at)
+	if err != nil {
+		return fmt.Errorf("server: encode newest reply: %w", err)
+	}
+	pane[questionHashKey] = hash
+	pane[newestReplyKey] = newestJSON
+	return nil
+}
+
+// paneNewestReply returns the unix seconds of the newest reply or question in the transcript that the pane
+// id names in its @orrery_transcript option. It returns 0 when the pane has no state, no transcript option, or
+// a transcript file that does not exist. Any other read error is returned.
+func paneNewestReply(
+	ctx context.Context,
+	tmux *tmuxctl.Client,
+	newest *conversation.Newest,
+	id, state string,
+) (int64, error) {
+	if state == "" {
+		return 0, nil
+	}
+	path, ok, err := tmux.PaneOption(ctx, id, protocol.OptionTranscript)
+	if err != nil {
+		return 0, fmt.Errorf("server: pane %s transcript option: %w", id, err)
+	}
+	if !ok || path == "" {
+		return 0, nil
+	}
+	at, err := newest.Time(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, fmt.Errorf("server: newest reply of pane %s: %w", id, err)
+	}
+	return at, nil
 }
 
 // serveNewWindow answers POST /v1/panes {pane, kind} by opening a window in the pane's session, in the
