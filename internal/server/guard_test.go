@@ -2,6 +2,7 @@ package server_test
 
 import (
 	"net/http"
+	"net/url"
 	"testing"
 
 	"github.com/joshsymonds/orrery/internal/gen/orrery/v1/orreryv1connect"
@@ -25,7 +26,8 @@ func phoneProcedures() []string {
 }
 
 // TestPhoneServicesRequireLoginAndClientHeaderOnEveryPath probes every phone procedure with the requests the guard
-// must refuse, and checks that none of them answers a GET that carries login and the client header.
+// must refuse, and checks that a well-formed Connect GET carrying login and the client header is answered 405 on
+// every path, since none declares NO_SIDE_EFFECTS.
 func TestPhoneServicesRequireLoginAndClientHeaderOnEveryPath(t *testing.T) {
 	handler := newHandler(t, newTmuxClient(t))
 	probes := []struct {
@@ -48,9 +50,10 @@ func TestPhoneServicesRequireLoginAndClientHeaderOnEveryPath(t *testing.T) {
 				t.Fatalf("%s %s with %s: status = %d, want 403", probe.method, path, probe.name, rec.Code)
 			}
 		}
-		rec := serve(t, handler, http.MethodGet, path, connectHeader(allowedLogin, "", true), "")
-		if rec.Code == http.StatusOK {
-			t.Fatalf("GET %s: status = 200, want it not served", path)
+		getPath := path + "?connect=v1&encoding=json&message=" + url.QueryEscape("{}")
+		rec := serve(t, handler, http.MethodGet, getPath, connectHeader(allowedLogin, "", true), "")
+		if rec.Code != http.StatusMethodNotAllowed {
+			t.Fatalf("GET %s with login and client header: status = %d, want 405 (no NO_SIDE_EFFECTS)", path, rec.Code)
 		}
 	}
 }
