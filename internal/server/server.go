@@ -22,6 +22,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/cli"
 	"github.com/joshsymonds/orrery/internal/conversation"
 	"github.com/joshsymonds/orrery/internal/hoststatus"
+	"github.com/joshsymonds/orrery/internal/open"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/push"
 	"github.com/joshsymonds/orrery/internal/store"
@@ -119,6 +120,10 @@ type Config struct {
 	EventSendTimeout time.Duration
 	// Shutdown ends every open Events.Watch stream when it closes, or is nil to leave streams open.
 	Shutdown <-chan struct{}
+	// Picker resolves the open configuration each POST /v1/picker/ask uses, or is nil, which answers 404.
+	Picker func() (open.Config, error)
+	// Now returns the current time, which dates the expiry of each picker token, or is nil for time.Now.
+	Now func() time.Time
 }
 
 // New returns a handler that admits only the configured logins, and never emits CORS headers. A request to
@@ -168,6 +173,12 @@ func New(cfg Config) (http.Handler, error) {
 	mux.HandleFunc("POST /v1/panes/{id}/seen", servePaneSeen(cfg.Tmux))
 	mux.HandleFunc("POST /v1/push/register", servePushRegister(cfg.Push))
 	mux.HandleFunc("DELETE /v1/push/register", serveUnregister(cfg.Push))
+	now := cfg.Now
+	if now == nil {
+		now = time.Now
+	}
+	tokens := &pickerTokens{entries: make(map[string]pickerEntry)}
+	mux.HandleFunc("POST /v1/picker/ask", servePickerAsk(cfg.Picker, tokens, cfg.Tmux, now))
 	sessionsPath, sessions := newSessionsHandler(cfg.Sessions)
 	mux.Handle(sessionsPath, sessions)
 	eventsPath, events := newEventsHandler(cfg.Sessions, poll, sendTimeout, cfg.Shutdown)
