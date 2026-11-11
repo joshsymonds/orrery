@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -295,5 +296,89 @@ func TestHookSessionMarker(t *testing.T) {
 			case <-time.After(quietWindow):
 			}
 		})
+	}
+}
+
+// testSeen is a seen timestamp for the seen-report tests.
+const testSeen int64 = 1_700_000_000_000
+
+func TestReportSeenFrame(t *testing.T) {
+	path, ln := listen(t)
+
+	got := make(chan received, 1)
+	go func() {
+		conn, err := ln.Accept()
+		if err != nil {
+			got <- received{err: err}
+			return
+		}
+		defer func() { _ = conn.Close() }()
+		frame, err := protocol.ReadFrame(conn)
+		got <- received{frame: frame, err: err}
+	}()
+
+	if err := ReportSeen(path, testPane, testSeen); err != nil {
+		t.Fatalf("ReportSeen: %v", err)
+	}
+
+	var result received
+	select {
+	case result = <-got:
+	case <-time.After(frameWait):
+		t.Fatal("daemon received no frame")
+	}
+	if result.err != nil {
+		t.Fatalf("read frame: %v", result.err)
+	}
+	want := protocol.HookFrame{TmuxPane: testPane, Seen: testSeen}
+	if !reflect.DeepEqual(result.frame, want) {
+		t.Errorf("frame = %+v, want %+v", result.frame, want)
+	}
+}
+
+func TestReportSeenNoSocketFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "absent.sock")
+	if err := ReportSeen(path, testPane, testSeen); err != nil {
+		t.Fatalf("ReportSeen with no socket file: %v, want nil", err)
+	}
+}
+
+func TestReportSeenStaleSocket(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "stale.sock")
+	ln, err := net.ListenUnix("unix", &net.UnixAddr{Name: path, Net: "unix"})
+	if err != nil {
+		t.Fatalf("listen %s: %v", path, err)
+	}
+	// Closing leaves the socket file behind, so the path exists with no listener behind it.
+	ln.SetUnlinkOnClose(false)
+	if err := ln.Close(); err != nil {
+		t.Fatalf("close listener: %v", err)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("stale socket file missing: %v", err)
+	}
+
+	if err := ReportSeen(path, testPane, testSeen); err != nil {
+		t.Fatalf("ReportSeen with stale socket: %v, want nil", err)
+	}
+}
+
+func TestReportSeenEmptySocketPath(t *testing.T) {
+	if err := ReportSeen("", testPane, testSeen); err != nil {
+		t.Fatalf("ReportSeen with empty socket path: %v, want nil", err)
+	}
+}
+
+func TestReportSeenFailure(t *testing.T) {
+	// A regular file in place of the socket's directory makes stat fail with ENOTDIR, which is
+	// neither a missing socket nor a refused connection, so it must surface as an error.
+	blocker := filepath.Join(t.TempDir(), "blocker")
+	if err := os.WriteFile(blocker, nil, 0o600); err != nil {
+		t.Fatalf("write blocker: %v", err)
+	}
+	path := filepath.Join(blocker, "h.sock")
+
+	if err := ReportSeen(path, testPane, testSeen); err == nil {
+		t.Fatal("ReportSeen with an unreachable socket path returned nil, want an error")
 	}
 }

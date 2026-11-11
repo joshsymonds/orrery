@@ -171,7 +171,7 @@ func (s panesServer) MarkSeen(
 	if _, err := checkPane(ctx, s.tmux, req.Msg.GetPane()); err != nil {
 		return nil, connectError(paneRouteError(err))
 	}
-	if err := markPaneSeen(ctx, s.tmux, s.seenLocks, req.Msg.GetPane(), req.Msg.ReadUpTo); err != nil {
+	if err := markPaneSeen(ctx, s.tmux, s.seenLocks, nil, req.Msg.GetPane(), req.Msg.ReadUpTo); err != nil {
 		return nil, connectError(err)
 	}
 	return connect.NewResponse(&v1.MarkSeenResponse{}), nil

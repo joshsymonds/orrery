@@ -136,6 +136,7 @@ func pubNotification(question string) Notification {
 		Summary:  "synthetic summary",
 		Label:    "synthetic label",
 		Question: question,
+		Time:     1700000000,
 	}
 }
 
@@ -251,6 +252,7 @@ func TestPushPublishDeliversEncryptedPayload(t *testing.T) {
 		"label":         n.Label,
 		"question":      n.Question,
 		"question_hash": protocol.QuestionHash(n.Question),
+		"time":          strconv.FormatInt(n.Time, 10),
 	}
 	for _, ep := range []*pubEndpoint{first, second} {
 		req := onePush(t, ep)
@@ -287,6 +289,7 @@ func TestPushPublishCarriesSessionKey(t *testing.T) {
 		"label":         n.Label,
 		"question":      n.Question,
 		"question_hash": protocol.QuestionHash(n.Question),
+		"time":          strconv.FormatInt(n.Time, 10),
 		"session":       "s1",
 	}
 	if got := decryptPush(t, onePush(t, ep).body, ep.recipient); !maps.Equal(got, want) {
@@ -312,9 +315,10 @@ func TestPushPublishOmitsSessionKeyWithoutSession(t *testing.T) {
 		"label":         n.Label,
 		"question":      n.Question,
 		"question_hash": protocol.QuestionHash(n.Question),
+		"time":          strconv.FormatInt(n.Time, 10),
 	}
 	if got := decryptPush(t, onePush(t, ep).body, ep.recipient); !maps.Equal(got, want) {
-		t.Errorf("payload = %v, want the eight pane keys %v", got, want)
+		t.Errorf("payload = %v, want the pane keys %v", got, want)
 	}
 }
 
@@ -459,6 +463,80 @@ func TestPushPublishWithNoSubscriptionsSendsNothing(t *testing.T) {
 	}
 	if got := len(unused.received()); got != 0 {
 		t.Errorf("unregistered endpoint received %d requests, want none", got)
+	}
+}
+
+func TestPushPublishClearCarriesPaneKeys(t *testing.T) {
+	ep := newPubEndpoint(t, http.StatusOK)
+	p := newPubPublisher(t, ep.srv.Client(), ep)
+
+	c := Clear{Host: "synthetic-host", Pane: "synthetic-pane", Seen: 1700000500}
+	if err := p.PublishClear(context.Background(), c); err != nil {
+		t.Fatalf("PublishClear: %v", err)
+	}
+
+	req := onePush(t, ep)
+	assertPushHeaders(t, req)
+	want := map[string]string{
+		"kind": "clear",
+		"host": c.Host,
+		"pane": c.Pane,
+		"seen": strconv.FormatInt(c.Seen, 10),
+	}
+	if got := decryptPush(t, req.body, ep.recipient); !maps.Equal(got, want) {
+		t.Errorf("payload = %v, want exactly %v", got, want)
+	}
+}
+
+func TestPushPublishClearCarriesSessionKeys(t *testing.T) {
+	ep := newPubEndpoint(t, http.StatusOK)
+	p := newPubPublisher(t, ep.srv.Client(), ep)
+
+	c := Clear{Host: "synthetic-host", Session: "s1", Seen: 1700000500}
+	if err := p.PublishClear(context.Background(), c); err != nil {
+		t.Fatalf("PublishClear: %v", err)
+	}
+
+	req := onePush(t, ep)
+	assertPushHeaders(t, req)
+	want := map[string]string{
+		"kind":    "clear",
+		"host":    c.Host,
+		"session": c.Session,
+		"seen":    strconv.FormatInt(c.Seen, 10),
+	}
+	if got := decryptPush(t, req.body, ep.recipient); !maps.Equal(got, want) {
+		t.Errorf("payload = %v, want exactly %v", got, want)
+	}
+}
+
+func TestPushPublishClearWithNoSubscriptionsSendsNothing(t *testing.T) {
+	unused := newPubEndpoint(t, http.StatusOK)
+	p := newPubPublisher(t, unused.srv.Client())
+
+	c := Clear{Host: "synthetic-host", Pane: "synthetic-pane", Seen: 1700000500}
+	if err := p.PublishClear(context.Background(), c); err != nil {
+		t.Fatalf("PublishClear with no subscriptions: %v", err)
+	}
+	if got := len(unused.received()); got != 0 {
+		t.Errorf("unregistered endpoint received %d requests, want none", got)
+	}
+}
+
+func TestPushPublishClearDeliversToOthersAfterEndpointFailure(t *testing.T) {
+	failing := newPubEndpoint(t, http.StatusInternalServerError)
+	healthy := newPubEndpoint(t, http.StatusCreated)
+	p := newPubPublisher(t, failing.srv.Client(), failing, healthy)
+
+	c := Clear{Host: "synthetic-host", Pane: "synthetic-pane", Seen: 1700000500}
+	if err := p.PublishClear(context.Background(), c); err == nil {
+		t.Fatal("PublishClear succeeded although an endpoint returned 500")
+	}
+	onePush(t, failing)
+	req := onePush(t, healthy)
+	assertPushHeaders(t, req)
+	if got := decryptPush(t, req.body, healthy.recipient)["pane"]; got != c.Pane {
+		t.Errorf("healthy endpoint pane = %q, want %q", got, c.Pane)
 	}
 }
 

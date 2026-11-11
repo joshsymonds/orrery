@@ -23,6 +23,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/autoseen"
 	"github.com/joshsymonds/orrery/internal/daemon"
 	"github.com/joshsymonds/orrery/internal/enginehost"
+	"github.com/joshsymonds/orrery/internal/notice"
 	"github.com/joshsymonds/orrery/internal/ntfy"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/push"
@@ -279,6 +280,7 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 	if err != nil {
 		return fmt.Errorf("push publisher: %w", err)
 	}
+	notices := notice.New(host, pushes, time.Now, logger)
 	ln, err := daemon.Listen(opts.socket)
 	if err != nil {
 		return fmt.Errorf("daemon socket: %w", err)
@@ -292,10 +294,9 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 	hub := &relay{
 		claude:      opts.claude,
 		models:      opts.models,
-		host:        host,
 		logger:      logger,
 		publisher:   publisher,
-		pushes:      pushes,
+		notices:     notices,
 		mirror:      mirror,
 		summarizers: make(map[tmuxctl.Server]*summary.Summarizer),
 	}
@@ -305,9 +306,8 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 		sessionNtfy = publisher
 	}
 	notifier := enginehost.NewNotifier(enginehost.NotifierConfig{
-		Host:   host,
 		Ntfy:   sessionNtfy,
-		Push:   pushes,
+		Push:   notices,
 		Logger: logger,
 	})
 	var sessions *sessionHost
@@ -321,15 +321,22 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 	serveErr := daemon.Serve(ctx, ln, daemon.Config{
 		Server:        opts.server,
 		DefaultServer: opts.defaultServer,
-		Observers:     []daemon.Observer{observe, autoseen.New(time.Now, logger)},
-		Logger:        logger,
-		Mirror:        mirror,
+		Observers: []daemon.Observer{observe, autoseen.New(time.Now, logger, func(pane string, seen int64) {
+			notices.Seen(ctx, notice.Key{Pane: pane}, seen)
+		})},
+		Seen: func(report daemon.SeenReport) {
+			notices.Seen(ctx, notice.Key{Pane: report.PaneID}, report.Seen)
+		},
+		Logger: logger,
+		Mirror: mirror,
 	})
 	hub.wait()
 	var sessionErr error
 	if sessions != nil {
 		sessionErr = sessions.stop()
 	}
+	// Stopping the sessions can notify an interrupted turn, so the notice record is waited on after it.
+	notices.Wait()
 	closeStore(ctx, st, logger)
 	if serveErr != nil {
 		return errors.Join(fmt.Errorf("serve: %w", serveErr), sessionErr)
@@ -424,8 +431,9 @@ func (h *sessionHost) stop() error {
 	return nil
 }
 
-// shutdown stops the idle check, stops every live session and waits for the notices they started, and ends the writer
-// after its last flush. Without a manager and writer it does nothing.
+// shutdown stops the idle check, stops every live session and waits for the ntfy posts they started, and ends the
+// writer after its last flush. Their Web Push sends are waited on in serve. Without a manager and writer it does
+// nothing.
 func (h *sessionHost) shutdown() {
 	if h.manager != nil {
 		h.stopIdle()
@@ -471,11 +479,10 @@ func closeStore(ctx context.Context, st *store.Store, logger *slog.Logger) {
 type relay struct {
 	claude      string
 	models      map[string]string
-	host        string
 	logger      *slog.Logger
 	publisher   *ntfy.Publisher // nil when ntfy is off
-	pushes      *push.Publisher
-	mirror      *daemon.Mirror // nil when the store is unavailable
+	notices     *notice.Notices // the Web Push notices sent and cleared on this host
+	mirror      *daemon.Mirror  // nil when the store is unavailable
 	summarizers map[tmuxctl.Server]*summary.Summarizer
 	notifying   sync.WaitGroup // one count per notification in flight
 }
@@ -497,8 +504,9 @@ func hookString(hook json.RawMessage, key string) (string, error) {
 	return value, nil
 }
 
-// observe requests a summary for a pane that starts working or finishes, posts a notification when it waits for
-// input or finishes, and forgets the pane's summary when its session ends.
+// observe requests a summary for a pane that starts working or finishes, posts an ntfy notification when it waits for
+// input or finishes, records a Web Push notice for the same transitions when push.Wanted allows, and forgets the
+// pane's summary when its session ends.
 func (r *relay) observe(ctx context.Context, transition daemon.Transition) {
 	if transition.To == "" {
 		r.forget(ctx, transition)
@@ -507,7 +515,10 @@ func (r *relay) observe(ctx context.Context, transition daemon.Transition) {
 		r.summarize(ctx, transition)
 	}
 	if transition.To == protocol.StateWaiting || transition.To == protocol.StateDone {
-		r.notify(ctx, transition)
+		if r.publisher != nil {
+			r.notify(ctx, transition)
+		}
+		r.webPush(ctx, transition)
 	}
 }
 
@@ -574,7 +585,7 @@ func (r *relay) summarizerFor(server tmuxctl.Server) (*summary.Summarizer, error
 	return summarizer, nil
 }
 
-// notify posts the transition's notification from a goroutine that wait awaits.
+// notify posts the transition's ntfy notification from a goroutine that wait awaits. ntfy must be configured.
 func (r *relay) notify(ctx context.Context, transition daemon.Transition) {
 	// A notification accepted before a shutdown signal still goes out. The HTTP client's timeout bounds it.
 	ctx = context.WithoutCancel(ctx)
@@ -585,8 +596,8 @@ func (r *relay) notify(ctx context.Context, transition daemon.Transition) {
 	}()
 }
 
-// publish reads the pane's stored text from its tmux server, then posts the notification to ntfy when it is
-// configured and to every push subscription. Failures are logged and never stop the daemon.
+// publish reads the pane's stored text from its tmux server, then posts the notification to ntfy. The caller starts
+// it only when ntfy is configured. Failures are logged and never stop the daemon.
 func (r *relay) publish(ctx context.Context, transition daemon.Transition) {
 	client, err := tmuxctl.New(transition.Server)
 	if err != nil {
@@ -598,11 +609,7 @@ func (r *relay) publish(ctx context.Context, transition daemon.Transition) {
 		r.logger.ErrorContext(ctx, "read notification text", "pane", transition.PaneID, "error", err)
 		return
 	}
-	project := filepath.Base(transition.Frame.Cwd)
-	if r.publisher != nil {
-		r.publishNtfy(ctx, client, transition, project, text)
-	}
-	r.publishPush(ctx, transition, project, text)
+	r.publishNtfy(ctx, client, transition, filepath.Base(transition.Frame.Cwd), text)
 }
 
 // paneText is the text a notification carries, as stored on its pane.
@@ -653,21 +660,39 @@ func (r *relay) publishNtfy(
 	}
 }
 
-// publishPush posts the notification to every push subscription. The logged error never carries an endpoint URL.
-func (r *relay) publishPush(ctx context.Context, transition daemon.Transition, project string, text paneText) {
-	note := push.Notification{
-		Pane:     transition.PaneID,
-		Host:     r.host,
-		Project:  project,
+// webPush records a Web Push notice for the transition and sends it in the background when push.Wanted allows. A
+// hook that does not decode still sends, and the decode error is logged.
+func (r *relay) webPush(ctx context.Context, transition daemon.Transition) {
+	wanted, err := push.Wanted(transition.To, transition.Frame.Hook)
+	if err != nil {
+		r.logger.WarnContext(ctx, "decide web push", "pane", transition.PaneID, "error", err)
+	}
+	if !wanted {
+		return
+	}
+	r.notices.Notify(ctx, notice.Key{Pane: transition.PaneID}, func(ctx context.Context) (push.Notification, error) {
+		return r.pushNotification(ctx, transition)
+	})
+}
+
+// pushNotification reads the pane's stored text from its tmux server and returns the Web Push notification for the
+// transition. Notices sets the host, pane, session and time.
+func (r *relay) pushNotification(ctx context.Context, transition daemon.Transition) (push.Notification, error) {
+	client, err := tmuxctl.New(transition.Server)
+	if err != nil {
+		return push.Notification{}, fmt.Errorf("resolve tmux server: %w", err)
+	}
+	text, err := readPaneText(ctx, client, transition.PaneID)
+	if err != nil {
+		return push.Notification{}, fmt.Errorf("read notification text: %w", err)
+	}
+	return push.Notification{
+		Project:  filepath.Base(transition.Frame.Cwd),
 		State:    transition.To,
 		Summary:  text.summary,
 		Label:    text.label,
 		Question: text.question,
-	}
-	if err := r.pushes.Publish(ctx, note); err != nil {
-		r.logger.ErrorContext(ctx, "post push notification", "pane", transition.PaneID,
-			"error", push.RedactEndpoints(err))
-	}
+	}, nil
 }
 
 // paneLocation returns the session name and window index of pane.

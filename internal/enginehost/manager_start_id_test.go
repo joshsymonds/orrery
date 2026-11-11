@@ -61,8 +61,10 @@ func TestStartWithKnownIDReturnsItWithoutEffect(t *testing.T) {
 	if _, err := m.Start(t.Context(), StartRequest{ID: chosenID, Dir: dir, Prompt: "hi"}); err != nil {
 		t.Fatalf("first Start: %v", err)
 	}
-	waitHistory(t, path, chosenID, "the first reply block", func(h store.EngineHistory) bool {
-		return hasBlock(t, h, "fake reply 1")
+	// Wait for the first turn to end, not just its reply block: the turn's end and its state change are recorded
+	// after the block, and counting them against the repeat below made this test fail under load.
+	waitHistory(t, path, chosenID, "the first turn's end", func(h store.EngineHistory) bool {
+		return hasBlock(t, h, "fake reply 1") && h.State == "done"
 	})
 
 	// The session is live here, and the cap of one is full, so a start that did not return early would fail.

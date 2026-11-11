@@ -15,9 +15,12 @@ import io.github.joshsymonds.orrery.push.PushNotifier.Companion.EXTRA_KEY
 import io.github.joshsymonds.orrery.push.PushNotifier.Companion.EXTRA_NOTIFICATION_ID
 import io.github.joshsymonds.orrery.push.PushNotifier.Companion.EXTRA_PANE
 import io.github.joshsymonds.orrery.push.PushNotifier.Companion.EXTRA_QUESTION_HASH
+import io.github.joshsymonds.orrery.push.PushNotifier.Companion.EXTRA_SESSION
 import io.github.joshsymonds.orrery.push.PushNotifier.Companion.REMOTE_INPUT_KEY
 import io.github.joshsymonds.orrery.push.PushNotifier.Companion.notificationId
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -37,9 +40,10 @@ class PushNotifierTest {
     private val notifier = PushNotifier(context)
 
     private val pane = "%7"
+    private val host = "devbox"
     private val idleEvent = PushEvent(
         pane = pane,
-        host = "devbox",
+        host = host,
         project = "orrery-demo",
         state = "waiting",
         summary = "Build finished",
@@ -70,7 +74,7 @@ class PushNotifierTest {
     fun postsOneNotificationUnderPaneIdWithTitleAndText() {
         notifier.show(idleEvent)
 
-        val notification = posted(notificationId(pane))
+        val notification = posted(notificationId(host, pane))
         assertEquals("orrery-demo · waiting", notification.extras.getCharSequence(Notification.EXTRA_TITLE).toString())
         assertEquals("Build finished", notification.extras.getCharSequence(Notification.EXTRA_TEXT).toString())
         assertEquals(1, shadowOf(manager).allNotifications.size)
@@ -81,7 +85,7 @@ class PushNotifierTest {
     fun textFallsBackToLabelWhenSummaryIsEmpty() {
         notifier.show(idleEvent.copy(summary = ""))
 
-        val notification = posted(notificationId(pane))
+        val notification = posted(notificationId(host, pane))
         assertEquals("build", notification.extras.getCharSequence(Notification.EXTRA_TEXT).toString())
     }
 
@@ -89,7 +93,7 @@ class PushNotifierTest {
     fun contentIntentOpensMainActivityWithPane() {
         notifier.show(idleEvent)
 
-        val pending = posted(notificationId(pane)).contentIntent
+        val pending = posted(notificationId(host, pane)).contentIntent
         val intent = intentOf(pending)
         assertEquals(MainActivity::class.java.name, intent.component?.className)
         assertEquals(pane, intent.getStringExtra(EXTRA_PANE))
@@ -97,10 +101,27 @@ class PushNotifierTest {
     }
 
     @Test
+    fun sessionContentIntentOpensMainActivityWithSessionNotPane() {
+        notifier.show(idleEvent.copy(pane = "", session = "sess-1"))
+
+        val intent = intentOf(posted(notificationId(host, "sess-1")).contentIntent)
+        assertEquals(MainActivity::class.java.name, intent.component?.className)
+        assertEquals("sess-1", intent.getStringExtra(EXTRA_SESSION))
+        assertFalse(intent.hasExtra(EXTRA_PANE))
+    }
+
+    @Test
+    fun sessionQuestionPostsNoActions() {
+        notifier.show(questionEvent.copy(pane = "", session = "sess-1"))
+
+        assertTrue(posted(notificationId(host, "sess-1")).actions.isNullOrEmpty())
+    }
+
+    @Test
     fun questionOffersKeyActionsOneTwoThreeThenReply() {
         notifier.show(questionEvent)
 
-        val actions = posted(notificationId(pane)).actions.orEmpty()
+        val actions = posted(notificationId(host, pane)).actions.orEmpty()
         assertEquals(4, actions.size)
         listOf("1", "2", "3").forEachIndexed { index, key ->
             val pending = actions[index].actionIntent
@@ -110,7 +131,7 @@ class PushNotifierTest {
             assertEquals(pane, intent.getStringExtra(EXTRA_PANE))
             assertEquals(key, intent.getStringExtra(EXTRA_KEY))
             assertEquals(questionEvent.questionHash, intent.getStringExtra(EXTRA_QUESTION_HASH))
-            assertEquals(notificationId(pane), intent.getIntExtra(EXTRA_NOTIFICATION_ID, -1))
+            assertEquals(notificationId(host, pane), intent.getIntExtra(EXTRA_NOTIFICATION_ID, -1))
             assertTrue(shadowOf(pending).flags and PendingIntent.FLAG_IMMUTABLE != 0)
         }
         assertEquals(1, actions[3].remoteInputs.size)
@@ -121,7 +142,7 @@ class PushNotifierTest {
     fun withoutQuestionOnlyReplyIsOffered() {
         notifier.show(idleEvent)
 
-        val actions = posted(notificationId(pane)).actions.orEmpty()
+        val actions = posted(notificationId(host, pane)).actions.orEmpty()
         assertEquals(1, actions.size)
         assertEquals(REMOTE_INPUT_KEY, actions[0].remoteInputs[0].resultKey)
         val pending = actions[0].actionIntent
@@ -129,7 +150,7 @@ class PushNotifierTest {
         assertEquals(ACTION_REPLY, intent.action)
         assertEquals(context.packageName, intent.`package`)
         assertEquals(pane, intent.getStringExtra(EXTRA_PANE))
-        assertEquals(notificationId(pane), intent.getIntExtra(EXTRA_NOTIFICATION_ID, -1))
+        assertEquals(notificationId(host, pane), intent.getIntExtra(EXTRA_NOTIFICATION_ID, -1))
         assertTrue(shadowOf(pending).flags and PendingIntent.FLAG_MUTABLE != 0)
     }
 
@@ -139,7 +160,7 @@ class PushNotifierTest {
         notifier.show(questionEvent.copy(pane = "%8"))
 
         val codes = listOf(pane, "%8").flatMap { p ->
-            val notification = posted(notificationId(p))
+            val notification = posted(notificationId(host, p))
             listOf(notification.contentIntent) + notification.actions.orEmpty().map { it.actionIntent }
         }.map { shadowOf(it).requestCode }
 
@@ -152,7 +173,7 @@ class PushNotifierTest {
         notifier.show(questionEvent.copy(questionHash = "qh-synthetic-2"))
 
         assertEquals(1, shadowOf(manager).allNotifications.size)
-        val firstKey = posted(notificationId(pane)).actions.orEmpty()[0].actionIntent
+        val firstKey = posted(notificationId(host, pane)).actions.orEmpty()[0].actionIntent
         assertEquals("qh-synthetic-2", intentOf(firstKey).getStringExtra(EXTRA_QUESTION_HASH))
     }
 
@@ -160,9 +181,9 @@ class PushNotifierTest {
     fun showResultReplacesTextAndDropsActions() {
         notifier.show(questionEvent)
 
-        notifier.showResult(notificationId(pane), "Answered: 2")
+        notifier.showResult(notificationId(host, pane), "Answered: 2")
 
-        val notification = posted(notificationId(pane))
+        val notification = posted(notificationId(host, pane))
         assertEquals("Answered: 2", notification.extras.getCharSequence(Notification.EXTRA_TEXT).toString())
         assertEquals("orrery-demo · waiting", notification.extras.getCharSequence(Notification.EXTRA_TITLE).toString())
         assertEquals(MainActivity::class.java.name, intentOf(notification.contentIntent).component?.className)
@@ -171,13 +192,130 @@ class PushNotifierTest {
     }
 
     @Test
+    fun secondEventForSameHostAndPaneLeavesOneNotificationShowingSecond() {
+        notifier.show(idleEvent)
+        notifier.show(idleEvent.copy(summary = "Second summary"))
+
+        assertEquals(1, shadowOf(manager).allNotifications.size)
+        val notification = posted(notificationId(host, pane))
+        assertEquals("Second summary", notification.extras.getCharSequence(Notification.EXTRA_TEXT).toString())
+    }
+
+    @Test
+    fun doneReplacementIsSilent() {
+        notifier.show(idleEvent.copy(state = "done"))
+        notifier.show(idleEvent.copy(state = "done", summary = "Second"))
+
+        assertTrue(posted(notificationId(host, pane)).flags and Notification.FLAG_ONLY_ALERT_ONCE != 0)
+    }
+
+    @Test
+    fun firstDoneEventAlerts() {
+        notifier.show(idleEvent.copy(state = "done"))
+
+        assertEquals(0, posted(notificationId(host, pane)).flags and Notification.FLAG_ONLY_ALERT_ONCE)
+    }
+
+    @Test
+    fun waitingAndFailedReplacementsAlert() {
+        notifier.show(idleEvent.copy(state = "done"))
+
+        notifier.show(idleEvent.copy(state = "waiting"))
+        assertEquals(0, posted(notificationId(host, pane)).flags and Notification.FLAG_ONLY_ALERT_ONCE)
+
+        notifier.show(idleEvent.copy(state = "failed"))
+        assertEquals(0, posted(notificationId(host, pane)).flags and Notification.FLAG_ONLY_ALERT_ONCE)
+    }
+
+    @Test
+    fun onePaneOnTwoHostsGivesTwoNotifications() {
+        notifier.show(idleEvent)
+        notifier.show(idleEvent.copy(host = "otherbox"))
+
+        assertEquals(2, shadowOf(manager).allNotifications.size)
+        val first = posted(notificationId(host, pane))
+        val second = posted(notificationId("otherbox", pane))
+        assertNotEquals(shadowOf(first.contentIntent).requestCode, shadowOf(second.contentIntent).requestCode)
+    }
+
+    @Test
+    fun sessionEventWithEmptyPaneIsKeyedByHostAndSession() {
+        notifier.show(idleEvent.copy(pane = "", session = "sess-1"))
+        notifier.show(idleEvent.copy(pane = "", session = "sess-1", summary = "Second"))
+
+        assertEquals(1, shadowOf(manager).allNotifications.size)
+        val notification = posted(notificationId(host, "sess-1"))
+        assertEquals("Second", notification.extras.getCharSequence(Notification.EXTRA_TEXT).toString())
+    }
+
+    @Test
+    fun clearAtNoticeTimeRemovesIt() {
+        notifier.show(idleEvent.copy(time = 100L))
+
+        notifier.clear(host, pane, "", 100L)
+
+        assertNull(shadowOf(manager).getNotification(null, notificationId(host, pane)))
+    }
+
+    @Test
+    fun clearAfterNoticeTimeRemovesIt() {
+        notifier.show(idleEvent.copy(time = 100L))
+
+        notifier.clear(host, pane, "", 150L)
+
+        assertEquals(0, shadowOf(manager).allNotifications.size)
+    }
+
+    @Test
+    fun clearBeforeNoticeTimeLeavesIt() {
+        notifier.show(idleEvent.copy(time = 100L))
+
+        notifier.clear(host, pane, "", 99L)
+
+        posted(notificationId(host, pane))
+        assertEquals(1, shadowOf(manager).allNotifications.size)
+    }
+
+    @Test
+    fun clearForAnotherHostOrPaneLeavesNotice() {
+        notifier.show(idleEvent.copy(time = 100L))
+
+        notifier.clear("otherbox", pane, "", 200L)
+        notifier.clear(host, "%8", "", 200L)
+
+        posted(notificationId(host, pane))
+        assertEquals(1, shadowOf(manager).allNotifications.size)
+    }
+
+    @Test
+    fun sessionClearRemovesSessionNoticeAndLeavesPaneNotice() {
+        notifier.show(idleEvent.copy(time = 100L))
+        notifier.show(idleEvent.copy(pane = "", session = "sess-1", time = 100L))
+
+        notifier.clear(host, "", "sess-1", 200L)
+
+        posted(notificationId(host, pane))
+        assertEquals(1, shadowOf(manager).allNotifications.size)
+    }
+
+    @Test
+    fun answeredNoticeKeepsItsTimeForClear() {
+        notifier.show(questionEvent.copy(time = 100L))
+        notifier.showResult(notificationId(host, pane), "Answered: 2")
+
+        notifier.clear(host, pane, "", 99L)
+
+        posted(notificationId(host, pane))
+    }
+
+    @Test
     fun deniedPermissionPostsNothing() {
         shadowOf(RuntimeEnvironment.getApplication()).denyPermissions(Manifest.permission.POST_NOTIFICATIONS)
 
         notifier.show(questionEvent)
-        notifier.showResult(notificationId(pane), "Answered: 2")
+        notifier.showResult(notificationId(host, pane), "Answered: 2")
 
         assertEquals(0, shadowOf(manager).allNotifications.size)
-        assertNull(shadowOf(manager).getNotification(null, notificationId(pane)))
+        assertNull(shadowOf(manager).getNotification(null, notificationId(host, pane)))
     }
 }

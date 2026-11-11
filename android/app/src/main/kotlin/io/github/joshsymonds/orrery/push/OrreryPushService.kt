@@ -11,6 +11,7 @@ import org.unifiedpush.android.connector.data.PushEndpoint
 import org.unifiedpush.android.connector.data.PushMessage
 
 private const val TAG = "OrreryPushService"
+private const val CLEAR_KIND = "clear"
 
 class OrreryPushService : PushService() {
     override fun onNewEndpoint(endpoint: PushEndpoint, instance: String) {
@@ -30,7 +31,18 @@ class OrreryPushService : PushService() {
             Log.w(TAG, "dropped push that did not decrypt")
             return
         }
-        val event = parse(message.content) ?: return
+        val json = try {
+            JSONObject(String(message.content, Charsets.UTF_8))
+        } catch (e: JSONException) {
+            Log.w(TAG, "dropped malformed push", e)
+            return
+        }
+        if (json.optString("kind") == CLEAR_KIND) {
+            val clear = parseClear(json) ?: return
+            PushNotifier(this).clear(clear.host, clear.pane, clear.session, clear.seen)
+            return
+        }
+        val event = parse(json) ?: return
         PushNotifier(this).show(event)
     }
 
@@ -42,9 +54,8 @@ class OrreryPushService : PushService() {
         Log.w(TAG, "unregistered by distributor")
     }
 
-    private fun parse(content: ByteArray): PushEvent? {
+    private fun parse(json: JSONObject): PushEvent? {
         val event = try {
-            val json = JSONObject(String(content, Charsets.UTF_8))
             PushEvent(
                 pane = json.getString("pane"),
                 host = json.getString("host"),
@@ -54,15 +65,47 @@ class OrreryPushService : PushService() {
                 label = json.getString("label"),
                 question = json.getString("question"),
                 questionHash = json.getString("question_hash"),
+                session = json.optString("session"),
+                time = optDecimal(json.optString("time")),
             )
         } catch (e: JSONException) {
             Log.w(TAG, "dropped malformed push", e)
             return null
         }
-        if (event.pane.isEmpty()) {
-            Log.w(TAG, "dropped push with an empty pane")
+        if (event.pane.isEmpty() && event.session.isEmpty()) {
+            Log.w(TAG, "dropped push with an empty pane and no session")
             return null
         }
         return event
     }
+
+    private fun parseClear(json: JSONObject): ClearEvent? {
+        val clear = try {
+            ClearEvent(
+                host = json.getString("host"),
+                pane = json.optString("pane"),
+                session = json.optString("session"),
+                seen = decimal(json.getString("seen")),
+            )
+        } catch (e: JSONException) {
+            Log.w(TAG, "dropped malformed clear", e)
+            return null
+        }
+        if (clear.pane.isEmpty() && clear.session.isEmpty()) {
+            Log.w(TAG, "dropped clear with no pane or session")
+            return null
+        }
+        return clear
+    }
+
+    private fun optDecimal(text: String): Long = if (text.isEmpty()) 0L else decimal(text)
+
+    private fun decimal(text: String): Long = text.toLongOrNull() ?: throw JSONException("not decimal: $text")
 }
+
+private data class ClearEvent(
+    val host: String,
+    val pane: String,
+    val session: String,
+    val seen: Long,
+)

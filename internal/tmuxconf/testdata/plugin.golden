@@ -6,6 +6,6 @@ set -g pane-border-format "#{?#{@orrery_state},#{?#{==:#{@orrery_state},working}
 set -g popup-border-lines rounded
 set -g popup-border-style "fg=#b4befe"
 set -g popup-style "bg=#1e1e2e"
-set-hook -ga window-pane-changed "if-shell -F '#{session_attached}' 'run-shell -b \"/synthetic/bin/orrery seen --pane #{pane_id}\"'"
-set-hook -ga session-window-changed "if-shell -F '#{session_attached}' 'run-shell -b \"/synthetic/bin/orrery seen --pane #{pane_id}\"'"
-set-hook -ga client-session-changed "if-shell -F '#{session_attached}' 'run-shell -b \"/synthetic/bin/orrery seen --pane #{pane_id}\"'"
+set-hook -ga window-pane-changed "if-shell -F '#{session_attached}' 'run-shell -b \"/synthetic/bin/orrery seen --pane #{pane_id} --focus\"'"
+set-hook -ga session-window-changed "if-shell -F '#{session_attached}' 'run-shell -b \"/synthetic/bin/orrery seen --pane #{pane_id} --focus\"'"
+set-hook -ga client-session-changed "if-shell -F '#{session_attached}' 'run-shell -b \"/synthetic/bin/orrery seen --pane #{pane_id} --focus\"'"

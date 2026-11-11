@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,17 +13,26 @@ import (
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/engine/session"
+	"github.com/joshsymonds/orrery/internal/notice"
 	"github.com/joshsymonds/orrery/internal/protocol"
+	"github.com/joshsymonds/orrery/internal/push"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
 // Notifier must satisfy the sink the manager is configured with.
 var _ NoticeSink = (*Notifier)(nil)
 
-// fakeSink records the notices a manager sends. Notify runs on the pump goroutines, so it locks.
+// fakeSink records the notices and seen reports a manager sends. Notify runs on the pump goroutines, so it locks.
 type fakeSink struct {
 	mu      sync.Mutex
 	notices []Notice
+	seens   []sinkSeen
+}
+
+// sinkSeen is one Seen call the fake sink received.
+type sinkSeen struct {
+	session string
+	seen    time.Time
 }
 
 func (f *fakeSink) Notify(_ context.Context, notice Notice) {
@@ -31,11 +41,67 @@ func (f *fakeSink) Notify(_ context.Context, notice Notice) {
 	f.notices = append(f.notices, notice)
 }
 
+func (f *fakeSink) Seen(_ context.Context, session string, seen time.Time) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.seens = append(f.seens, sinkSeen{session: session, seen: seen})
+}
+
 // got returns a copy of the notices received so far.
 func (f *fakeSink) got() []Notice {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return append([]Notice(nil), f.notices...)
+}
+
+// seenCalls returns a copy of the Seen calls received so far.
+func (f *fakeSink) seenCalls() []sinkSeen {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]sinkSeen(nil), f.seens...)
+}
+
+// fakeSender records the pushes and clears a notice record sends. Its calls run on background goroutines, so it locks.
+type fakeSender struct {
+	mu     sync.Mutex
+	notes  []push.Notification
+	clears []push.Clear
+}
+
+func (f *fakeSender) Publish(_ context.Context, note push.Notification) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.notes = append(f.notes, note)
+	return nil
+}
+
+func (f *fakeSender) PublishClear(_ context.Context, c push.Clear) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.clears = append(f.clears, c)
+	return nil
+}
+
+// publishes returns a copy of the pushes sent so far.
+func (f *fakeSender) publishes() []push.Notification {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]push.Notification(nil), f.notes...)
+}
+
+// cleared returns a copy of the clears sent so far.
+func (f *fakeSender) cleared() []push.Clear {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]push.Clear(nil), f.clears...)
+}
+
+// droppingApplier fails every write as though the op's session row were gone, so the writer drops the op and the
+// Commit that carries it returns at once.
+type droppingApplier struct{}
+
+func (droppingApplier) ApplyEngine(_ context.Context, _ []store.EngineOp, _ time.Time) error {
+	return &store.EngineOpError{Index: 0, Err: store.ErrNoEngineSession}
 }
 
 // newNoticeManager returns a manager with a cap of one session, like newTestManager, that runs the claude at claude and
@@ -57,6 +123,7 @@ func newNoticeManager(t *testing.T, claude string, sink NoticeSink) (*Manager, s
 		Writer:   writer,
 		Now:      fixedClock,
 		Notifier: sink,
+		Store:    s,
 	})
 	t.Cleanup(m.Close)
 	return m, path
@@ -307,5 +374,74 @@ func TestMainTextIsOnlyMainConversationAssistantText(t *testing.T) {
 				t.Fatalf("mainText = (%q, %v), want (%q, %v)", text, ok, tc.text, tc.ok)
 			}
 		})
+	}
+}
+
+func TestSeenReportsKnownSessionToSink(t *testing.T) {
+	sink := &fakeSink{}
+	m, _ := newNoticeManager(t, fakeClaudePath(t), sink)
+	id, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "hi"})
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if err := m.Seen(t.Context(), id); err != nil {
+		t.Fatalf("Seen: %v", err)
+	}
+
+	got := sink.seenCalls()
+	if len(got) != 1 || got[0].session != id || !got[0].seen.Equal(fixedClock()) {
+		t.Fatalf("Seen calls = %+v, want exactly one for %s at %v", got, id, fixedClock())
+	}
+}
+
+func TestSeenUnknownSessionReportsNothing(t *testing.T) {
+	sink := &fakeSink{}
+	m, _ := newNoticeManager(t, fakeClaudePath(t), sink)
+	err := m.Seen(t.Context(), "0123456789abcdef0123456789abcdef")
+	if !errors.Is(err, ErrNoSession) {
+		t.Fatalf("Seen of an unknown id error = %v, want ErrNoSession", err)
+	}
+	if got := sink.seenCalls(); len(got) != 0 {
+		t.Fatalf("Seen calls for an unknown id = %+v, want none", got)
+	}
+}
+
+func TestSeenFailedWriteReportsNothing(t *testing.T) {
+	sink := &fakeSink{}
+	s, _ := openStore(t)
+	id := "0123456789abcdef0123456789abcdef"
+	addSessions(t, s, id)
+	writer := NewWriter(WriterConfig{Applier: droppingApplier{}, Tick: 5 * time.Millisecond})
+	startRun(t, writer)
+	m := NewManager(Config{Writer: writer, Now: fixedClock, Notifier: sink, Store: s})
+
+	if err := m.Seen(t.Context(), id); err == nil {
+		t.Fatal("Seen with a failed write returned nil, want an error")
+	}
+	if got := sink.seenCalls(); len(got) != 0 {
+		t.Fatalf("Seen calls after a failed write = %+v, want none", got)
+	}
+}
+
+func TestSeenClearsWaitingSessionNotice(t *testing.T) {
+	sender := &fakeSender{}
+	notices := notice.New("orrery-host", sender, fixedClock, slog.New(slog.DiscardHandler))
+	m, _ := newNoticeManager(t, fakeClaudePath(t), NewNotifier(NotifierConfig{Push: notices}))
+	id, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "ASK"})
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	waitUntil(t, "the waiting notice's push", func() bool { return len(sender.publishes()) == 1 })
+	if got := sender.publishes()[0].Session; got != id {
+		t.Fatalf("pushed session = %q, want %q", got, id)
+	}
+
+	if err := m.Seen(t.Context(), id); err != nil {
+		t.Fatalf("Seen: %v", err)
+	}
+	notices.Wait()
+	want := push.Clear{Host: "orrery-host", Session: id, Seen: fixedClock().Unix()}
+	if got := sender.cleared(); len(got) != 1 || got[0] != want {
+		t.Fatalf("clears = %+v, want exactly [%+v]", got, want)
 	}
 }
