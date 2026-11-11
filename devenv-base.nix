@@ -2,6 +2,18 @@
 
 # The orrery Go dev shell. devenv.nix imports this module.
 
+let
+  # Connect-Kotlin's generator, pinned to its Maven Central jar. The jar is self-contained, and the wrapper runs it
+  # on a pinned headless JDK so the generator never picks up the caller's Java.
+  protocGenConnectKotlinJar = pkgs.fetchurl {
+    url = "https://repo1.maven.org/maven2/com/connectrpc/protoc-gen-connect-kotlin/0.10.0/protoc-gen-connect-kotlin-0.10.0.jar";
+    hash = "sha256-MNFmuoe2yaTfpQGiJB8jsMZSOWCCinmLzkUpSYjMxls=";
+  };
+  protoc-gen-connect-kotlin = pkgs.writeShellScriptBin "protoc-gen-connect-kotlin" ''
+    exec ${pkgs.jdk17_headless}/bin/java -jar ${protocGenConnectKotlinJar} "$@"
+  '';
+in
+
 {
   packages = [
     pkgs.buf
@@ -14,11 +26,13 @@
     pkgs.jq
     pkgs.just
     pkgs.procps
+    pkgs.protobuf
     pkgs.protoc-gen-connect-go
     pkgs.protoc-gen-go
     pkgs.sqlc
     pkgs.tmux
     pkgs.util-linux
+    protoc-gen-connect-kotlin
   ];
 
   # Go's module and build caches are shared across worktrees under a common
