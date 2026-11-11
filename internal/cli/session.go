@@ -15,9 +15,9 @@ import (
 	"github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1/enginev1connect"
 )
 
-// sessionBaseURL is the URL the session client sends its RPCs to. The transport dials the session socket for every
+// SessionBaseURL is the URL the session client sends its RPCs to. The transport dials the session socket for every
 // request, so the host name is never resolved.
-const sessionBaseURL = "http://orreryd"
+const SessionBaseURL = "http://orreryd"
 
 // Argument counts of the session verbs that take arguments after the verb.
 const (
@@ -52,7 +52,7 @@ func Session(ctx context.Context, socketPath string, args []string, out io.Write
 	if verb == "watch" {
 		return SessionWatch(ctx, rest, out, getenv)
 	}
-	client := enginev1connect.NewEngineClient(sessionHTTPClient(socketPath), sessionBaseURL)
+	client := enginev1connect.NewEngineClient(SessionHTTPClient(socketPath), SessionBaseURL)
 	switch verb {
 	case "start":
 		return sessionStart(ctx, client, socketPath, rest, out)
@@ -146,8 +146,9 @@ func sessionSeen(ctx context.Context, client enginev1connect.EngineClient, socke
 	return sessionFailure("seen", socketPath, err)
 }
 
-// sessionHTTPClient returns an HTTP client whose every connection dials the unix socket at socketPath.
-func sessionHTTPClient(socketPath string) *http.Client {
+// SessionHTTPClient returns an HTTP client whose every connection dials the unix socket at socketPath, so a socket
+// nothing listens on fails every request with a dial error.
+func SessionHTTPClient(socketPath string) *http.Client {
 	transport := &http.Transport{
 		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
 			var dialer net.Dialer

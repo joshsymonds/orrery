@@ -21,6 +21,7 @@ import (
 
 	"github.com/joshsymonds/orrery/internal/archive"
 	"github.com/joshsymonds/orrery/internal/cli"
+	"github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1/enginev1connect"
 	"github.com/joshsymonds/orrery/internal/help"
 	"github.com/joshsymonds/orrery/internal/hook"
 	"github.com/joshsymonds/orrery/internal/hoststatus"
@@ -283,6 +284,11 @@ func runServe(ctx context.Context, opts globals, args []string, getenv func(stri
 	if err != nil {
 		return err
 	}
+	var engine enginev1connect.EngineClient
+	if daemonSocket, sockErr := protocol.SocketPath(opts.daemonSocket, getenv); sockErr == nil {
+		engine = enginev1connect.NewEngineClient(
+			cli.SessionHTTPClient(protocol.SessionSocketPath(daemonSocket)), cli.SessionBaseURL)
+	}
 	shutdown := make(chan struct{})
 	handler, err := server.New(server.Config{
 		Logins:     logins,
@@ -291,6 +297,8 @@ func runServe(ctx context.Context, opts globals, args []string, getenv func(stri
 		HostStatus: hostStatus,
 		Sessions:   sessions,
 		Shutdown:   shutdown,
+		Engine:     engine,
+		Home:       getenv("HOME"),
 	})
 	if err != nil {
 		return fmt.Errorf("serve: %w", err)
