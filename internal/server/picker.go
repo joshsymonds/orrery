@@ -16,6 +16,9 @@ import (
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
 )
 
+// fieldToken is the key of the token POST /v1/picker/run reads from its body.
+const fieldToken = "token"
+
 // pickerTokenBytes is the size of a picker token: 128 random bits, written as hex.
 const pickerTokenBytes = 16
 
@@ -39,16 +42,38 @@ type pickerAnswer struct {
 }
 
 // pickerEntry is what a token stands for: the open configuration and the action its ask used, valid until expires.
+// pane is the pane the run of the action answered, and is "" until that run succeeds.
 type pickerEntry struct {
 	cfg     open.Config
 	action  open.Action
 	expires time.Time
+	pane    string
 }
 
-// pickerTokens holds the entries of the tokens every ask issued, and is shared by the picker routes.
+// pickerTokens holds the entries of the tokens every ask issued, and is shared by the picker routes. runMu is held
+// for the whole of each run, so the runs of one token are serial and its action runs at most once.
 type pickerTokens struct {
 	mu      sync.Mutex
+	runMu   sync.Mutex
 	entries map[string]pickerEntry
+}
+
+// lookup returns the entry token stands for, and whether there is one.
+func (s *pickerTokens) lookup(token string) (pickerEntry, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	entry, ok := s.entries[token]
+	return entry, ok
+}
+
+// recordRun keeps pane as the answer of token's run, when token still has an entry.
+func (s *pickerTokens) recordRun(token, pane string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if entry, ok := s.entries[token]; ok {
+		entry.pane = pane
+		s.entries[token] = entry
+	}
 }
 
 // store adds entries and drops every entry that has expired at now.
@@ -106,6 +131,80 @@ func servePickerAsk(
 		tokens.store(issued, entries)
 		writeJSON(w, http.StatusOK, answer)
 	}
+}
+
+// pickerRunAnswer is the body of a 200 answer from POST /v1/picker/run.
+type pickerRunAnswer struct {
+	Pane string `json:"pane"`
+}
+
+// servePickerRun answers POST /v1/picker/run by running the action the body's token names, once, and answering the
+// pane it opened or jumped to. A repeat of a run answers the same pane and runs nothing. A body without a token
+// string answers 400, an unissued token 404, and an expired one 410, each running nothing. With no tmux server it
+// answers 409 and starts none. A failed run answers 502 and records nothing.
+func servePickerRun(tokens *pickerTokens, tmux *tmuxctl.Client, now func() time.Time) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		fields, ok := decodeBody(r)
+		if !ok {
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+		token, ok := jsonString(fields[fieldToken])
+		if !ok || strings.TrimSpace(token) == "" {
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+		tokens.runMu.Lock()
+		defer tokens.runMu.Unlock()
+		entry, ok := tokens.lookup(token)
+		if !ok {
+			http.Error(w, "unknown token", http.StatusNotFound)
+			return
+		}
+		if !now().Before(entry.expires) {
+			http.Error(w, "expired token", http.StatusGone)
+			return
+		}
+		if entry.pane == "" {
+			pane, status, err := runPickerEntry(r.Context(), tmux, entry)
+			if err != nil {
+				http.Error(w, err.Error(), status)
+				return
+			}
+			tokens.recordRun(token, pane)
+			entry.pane = pane
+		}
+		writeJSON(w, http.StatusOK, pickerRunAnswer{Pane: entry.pane})
+	}
+}
+
+// runPickerEntry runs the action of entry and returns the pane it answers: the pane the action opened or jumped to,
+// or else the active pane of the session it created. With no tmux server it refuses before running anything, as
+// 409, and any other failure answers 502. The status is meaningful only with the error.
+func runPickerEntry(ctx context.Context, tmux *tmuxctl.Client, entry pickerEntry) (string, int, error) {
+	if _, err := tmux.ListPanes(ctx); err != nil {
+		status := http.StatusBadGateway
+		if strings.Contains(err.Error(), "no server running") || strings.Contains(err.Error(), "error connecting to") {
+			status = http.StatusConflict
+		}
+		return "", status, fmt.Errorf("server: list panes: %w", err)
+	}
+	target, err := open.ExecuteAction(ctx, entry.cfg, entry.action)
+	if err != nil {
+		return "", http.StatusBadGateway, fmt.Errorf("server: picker run: %w", err)
+	}
+	if target.Pane != "" {
+		return target.Pane, http.StatusOK, nil
+	}
+	out, err := tmux.Run(ctx, "display-message", "-p", "-t", "="+target.Session+":", "#{pane_id}")
+	if err != nil {
+		return "", http.StatusBadGateway, fmt.Errorf("server: session %q pane: %w", target.Session, err)
+	}
+	pane := strings.TrimSpace(out)
+	if pane == "" {
+		return "", http.StatusBadGateway, fmt.Errorf("server: session %q has no active pane", target.Session)
+	}
+	return pane, http.StatusOK, nil
 }
 
 // pickerRows returns the rows for actions in rank order, each with a new token, and the entries those tokens

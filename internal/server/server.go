@@ -179,6 +179,7 @@ func New(cfg Config) (http.Handler, error) {
 	}
 	tokens := &pickerTokens{entries: make(map[string]pickerEntry)}
 	mux.HandleFunc("POST /v1/picker/ask", servePickerAsk(cfg.Picker, tokens, cfg.Tmux, now))
+	mux.HandleFunc("POST /v1/picker/run", servePickerRun(tokens, cfg.Tmux, now))
 	sessionsPath, sessions := newSessionsHandler(cfg.Sessions)
 	mux.Handle(sessionsPath, sessions)
 	eventsPath, events := newEventsHandler(cfg.Sessions, poll, sendTimeout, cfg.Shutdown)
