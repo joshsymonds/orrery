@@ -190,6 +190,10 @@ func (f failingStore) EnginePromptSent(context.Context, string, string) (bool, e
 	return false, f.err
 }
 
+func (f failingStore) EnginePromptFailure(context.Context, string, string) (string, bool, error) {
+	return "", false, f.err
+}
+
 func TestReconcileReturnsReadError(t *testing.T) {
 	errRead := errors.New("read failed")
 	writer := NewWriter(WriterConfig{Tick: time.Hour})

@@ -284,6 +284,93 @@ func TestRetryOfSayFailedAfterStoringReturnsItsError(t *testing.T) {
 	}
 }
 
+// TestRetryOfSayFailedBeforeRestartReturnsItsReason fails a keyed Say's send on a stopped session, then restarts the
+// manager over the same store and writer. The retry with the same prompt id returns an error carrying the reason the
+// store recorded for the failure and does nothing else, and a Say with a new prompt id resumes the session.
+func TestRetryOfSayFailedBeforeRestartReturnsItsReason(t *testing.T) {
+	sh, err := exec.LookPath("sh")
+	if err != nil {
+		t.Fatalf("find sh: %v", err)
+	}
+	s, path := openStore(t)
+	writer := NewWriter(WriterConfig{Applier: s, Tick: 5 * time.Millisecond})
+	startRun(t, writer)
+	config := Config{
+		Shell:   sh,
+		Claude:  fakeClaudePath(t),
+		Environ: []string{"PATH=" + os.Getenv("PATH")},
+		Cap:     1,
+		Writer:  writer,
+		Now:     fixedClock,
+		Store:   s,
+	}
+	m := NewManager(config)
+	dir := t.TempDir()
+	id, err := m.Start(t.Context(), StartRequest{Dir: dir, Prompt: "hi"})
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	waitHistory(t, path, id, "the first reply block", func(h store.EngineHistory) bool {
+		return hasBlock(t, h, "fake reply 1")
+	})
+	stopped, err := m.live(id)
+	if err != nil {
+		t.Fatalf("live session %s: %v", id, err)
+	}
+	if err := m.Stop(t.Context(), id); err != nil {
+		t.Fatalf("Stop: %v", err)
+	}
+	m.mu.Lock()
+	m.sessions[id] = stopped
+	m.mu.Unlock()
+
+	if first := m.Say(t.Context(), SayRequest{ID: id, Text: "again", PromptID: "p1"}); first == nil {
+		t.Fatal("Say to the stopped session: got nil, want the send error")
+	}
+	m.mu.Lock()
+	delete(m.sessions, id)
+	m.mu.Unlock()
+	m.Close()
+	row, err := s.EngineSession(t.Context(), id)
+	if err != nil {
+		t.Fatalf("read engine row %s: %v", id, err)
+	}
+	reason := row.Reason
+	if row.State != stateFailed || reason == "" {
+		t.Fatalf("row after the failed Say: state %q reason %q, want %q with a reason", row.State, reason, stateFailed)
+	}
+
+	restarted := NewManager(config)
+	t.Cleanup(restarted.Close)
+	if err := restarted.Reconcile(t.Context()); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	before := historyOf(t, path, id)
+	retry := restarted.Say(t.Context(), SayRequest{ID: id, Text: "again", PromptID: "p1"})
+	if retry == nil || !strings.Contains(retry.Error(), reason) {
+		t.Fatalf("retry Say after restart: got %v, want an error carrying %q", retry, reason)
+	}
+	if after := historyOf(t, path, id); len(after.Events) != len(before.Events) {
+		t.Fatalf("retry Say after restart added %d events, want none", len(after.Events)-len(before.Events))
+	}
+	if got := fakeArgs(t, dir); len(got) != 1 {
+		t.Fatalf("fake claude starts after restart retry = %d, want 1: %q", len(got), got)
+	}
+	if got := promptCount(t, dir); got != 1 {
+		t.Fatalf("prompts the fake claude received after restart retry = %d, want 1", got)
+	}
+
+	if err := restarted.Say(t.Context(), SayRequest{ID: id, Text: "third", PromptID: "p2"}); err != nil {
+		t.Fatalf("Say with a new prompt id after restart: %v", err)
+	}
+	history := waitHistory(t, path, id, "the reply to the resumed prompt", func(h store.EngineHistory) bool {
+		return hasBlock(t, h, "fake reply 2")
+	})
+	if got := promptIDsOf(t, history); !slices.Equal(got, []string{"", "p1", "p2"}) {
+		t.Fatalf("prompt ids after resume = %q, want [\"\" \"p1\" \"p2\"]", got)
+	}
+}
+
 // TestStartRefusedBeforeStoringFreesItsKey refuses a keyed Start whose directory is missing, before it stores anything.
 // Once the directory exists, the retry with the same id starts the session and gets its first reply.
 func TestStartRefusedBeforeStoringFreesItsKey(t *testing.T) {

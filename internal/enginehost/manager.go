@@ -68,11 +68,13 @@ type NoticeSink interface {
 	Notify(ctx context.Context, n Notice)
 }
 
-// Store reads the engine rows Reconcile settles, and the rows Say resumes and Seen marks. *store.Store satisfies it.
+// Store reads the engine rows Reconcile settles, the rows Say resumes, checks and Seen marks, and the failure markers
+// Say checks. *store.Store satisfies it.
 type Store interface {
 	EngineSessions(ctx context.Context) ([]store.EngineRow, error)
 	EngineSession(ctx context.Context, id string) (store.EngineRow, error)
 	EnginePromptSent(ctx context.Context, sessionID, promptID string) (bool, error)
+	EnginePromptFailure(ctx context.Context, sessionID, promptID string) (string, bool, error)
 }
 
 // Config configures a Manager. Shell is the login shell and Claude the claude name, resolved with exec.LookPath at
@@ -146,7 +148,8 @@ type Manager struct {
 	// attemptMu guards attempts. attempts holds the keyed calls running now, by key: a Start that names a session id, or
 	// a Say that names a prompt id. A key's attempt is removed when it ends, so a later call with that key checks the
 	// store as an unkeyed call would. An attempt that failed after it stored its record stays, with its error, so a
-	// later call with that key returns the error.
+	// later call with that key returns the error. A Say whose send failed also stores a failure marker for its prompt,
+	// which a later Say with that key returns after a restart too.
 	attemptMu sync.Mutex
 	attempts  map[attemptKey]*attempt
 }
@@ -352,9 +355,11 @@ type SayRequest struct {
 // Once begun, the attempt finishes even if ctx ends, and a Say whose ctx ends returns ctx's error. With no attempt
 // running, a req.PromptID that an engine_prompt event of the session already carries makes Say return nil and do
 // nothing else; otherwise the stored prompt carries req.PromptID. An attempt that fails after it stores the prompt keeps
-// its error, and a later Say with that prompt id returns the error and does nothing else. It returns ErrEmptyPrompt for
+// its error, and a later Say with that prompt id returns the error and does nothing else. A send that fails is recorded
+// as the session's failed state; with a req.PromptID, the same write stores that prompt's failure marker, so a Say with
+// that prompt id returns the stored reason and does nothing else, even after a restart. It returns ErrEmptyPrompt for
 // empty text, an error wrapping ErrNoSession when no engine row has the id, and the errors of resumeSession when a live
-// session cannot be started. A send that fails is recorded as the session's failed state.
+// session cannot be started.
 func (m *Manager) Say(ctx context.Context, req SayRequest) error {
 	if req.Text == "" {
 		return ErrEmptyPrompt
@@ -366,6 +371,13 @@ func (m *Manager) Say(ctx context.Context, req SayRequest) error {
 		ctx,
 		attemptKey{session: req.ID, prompt: req.PromptID},
 		func(ctx context.Context) (string, error) {
+			reason, failed, err := m.store.EnginePromptFailure(ctx, req.ID, req.PromptID)
+			if err != nil {
+				return "", fmt.Errorf("check failure of prompt %s of session %s: %w", req.PromptID, req.ID, err)
+			}
+			if failed {
+				return "", fmt.Errorf("prompt %s of session %s failed to send: %s", req.PromptID, req.ID, reason)
+			}
 			sent, err := m.store.EnginePromptSent(ctx, req.ID, req.PromptID)
 			if err != nil {
 				return "", fmt.Errorf("check prompt %s of session %s: %w", req.PromptID, req.ID, err)
@@ -404,7 +416,12 @@ func (m *Manager) say(ctx context.Context, req SayRequest) error {
 	}
 	if err = live.sess.Prompt(text); err != nil {
 		m.setTurning(live, false)
-		return fmt.Errorf("say to session %s: %w", id, errors.Join(err, m.recordFailed(ctx, id, live.dir, err)))
+		var marks []store.EngineOp
+		if req.PromptID != "" {
+			marks = append(marks, store.EnginePromptFailed{ID: id, PromptID: req.PromptID, Reason: err.Error()})
+		}
+		recordErr := m.recordFailed(ctx, id, live.dir, err, marks...)
+		return fmt.Errorf("say to session %s: %w", id, errors.Join(err, recordErr))
 	}
 	return nil
 }
@@ -1000,13 +1017,13 @@ func (m *Manager) fail(ctx context.Context, id, dir string, err error) error {
 	return m.recordFailed(ctx, id, dir, err)
 }
 
-// recordFailed writes the failed state of session id in dir with the reason err, then notifies the owner of it. It
-// returns only an error that the write hit.
-func (m *Manager) recordFailed(ctx context.Context, id, dir string, err error) error {
+// recordFailed writes the failed state of session id in dir with the reason err, after marks in the same write, then
+// notifies the owner of it. It returns only an error that the write hit.
+func (m *Manager) recordFailed(ctx context.Context, id, dir string, err error, marks ...store.EngineOp) error {
 	failed := stateFailed
 	reason := err.Error()
-	if writeErr := m.writer.Commit(ctx, id, store.EngineSet{ID: id,
-		Changes: store.EngineChanges{State: &failed, Reason: &reason}}); writeErr != nil {
+	set := store.EngineSet{ID: id, Changes: store.EngineChanges{State: &failed, Reason: &reason}}
+	if writeErr := m.writer.Commit(ctx, id, append(marks, set)...); writeErr != nil {
 		return fmt.Errorf("record session %s failed: %w", id, writeErr)
 	}
 	m.notify(ctx, id, dir, failed, reason)
