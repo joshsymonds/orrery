@@ -13,8 +13,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -22,8 +20,6 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.Layout
-import androidx.compose.ui.platform.LocalUriHandler
-import androidx.compose.ui.platform.UriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
@@ -47,24 +43,10 @@ fun MarkdownBody(
     fontWeight: FontWeight? = null,
 ) {
     val size = if (fontSize.isSpecified) fontSize else LocalTextStyle.current.fontSize
-    val platform = LocalUriHandler.current
-    val safe = remember(platform) { SafeUriHandler(platform) }
-    CompositionLocalProvider(LocalUriHandler provides safe) {
-        Blocks(blocks, modifier, BodyStyle(color, size, fontWeight))
-    }
+    Blocks(blocks, modifier, BodyStyle(color, size, fontWeight))
 }
 
 private class BodyStyle(val color: Color, val size: TextUnit, val weight: FontWeight?)
-
-private class SafeUriHandler(private val inner: UriHandler) : UriHandler {
-    override fun openUri(uri: String) {
-        try {
-            inner.openUri(uri)
-        } catch (e: IllegalArgumentException) {
-            // No app on the phone handles this link; the tap does nothing.
-        }
-    }
-}
 
 @Composable
 private fun Blocks(blocks: List<MdBlock>, modifier: Modifier, style: BodyStyle) {

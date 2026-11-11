@@ -425,7 +425,7 @@ private class InlineParser(
             return i + length
         }
         var content = s.substring(i + length, close).replace('\n', ' ')
-        if (content.length >= 2 && content.startsWith(' ') && content.endsWith(' ') && content.isNotBlank()) {
+        if (content.startsWith(' ') && content.endsWith(' ') && content.isNotBlank()) {
             content = content.substring(1, content.length - 1)
         }
         builder.pushStyle(CODE_STYLE)
