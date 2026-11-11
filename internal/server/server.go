@@ -411,22 +411,31 @@ func serveScreen(tmux *tmuxctl.Client) http.HandlerFunc {
 // prints invalid stats.
 func serveHost(runner *hoststatus.Runner) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if runner == nil {
-			http.NotFound(w, r)
-			return
-		}
-		stats, err := runner.Stats(r.Context())
+		answer, err := hostAnswer(r.Context(), runner)
 		if err != nil {
-			http.Error(w, "host status unavailable", http.StatusBadGateway)
+			writeRouteError(w, err)
 			return
 		}
-		host, err := os.Hostname()
-		if err != nil {
-			http.Error(w, "internal server error", http.StatusInternalServerError)
-			return
-		}
-		writeJSON(w, http.StatusOK, hostResponse{Host: host, Stats: stats})
+		writeJSON(w, http.StatusOK, answer)
 	}
+}
+
+// hostAnswer returns the body GET /v1/host answers: the host's name and the stats runner gives. A nil runner is a
+// routeError with 404, the message http.NotFound writes. A failed command or invalid stats is 502, and a hostname
+// failure is internal.
+func hostAnswer(ctx context.Context, runner *hoststatus.Runner) (hostResponse, error) {
+	if runner == nil {
+		return hostResponse{}, routeError{status: http.StatusNotFound, message: "404 page not found"}
+	}
+	stats, err := runner.Stats(ctx)
+	if err != nil {
+		return hostResponse{}, routeError{status: http.StatusBadGateway, message: "host status unavailable"}
+	}
+	host, err := os.Hostname()
+	if err != nil {
+		return hostResponse{}, internalError()
+	}
+	return hostResponse{Host: host, Stats: stats}, nil
 }
 
 // screenFlags returns the capture-pane arguments for a screen query, and false when ansi or history is not a
