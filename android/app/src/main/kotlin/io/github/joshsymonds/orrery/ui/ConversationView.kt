@@ -51,8 +51,10 @@ import io.github.joshsymonds.orrery.ui.theme.Mocha
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.util.Locale
 
-private val TIME_OF_DAY: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm")
+private val CLOCK_TIME: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm")
+private val MONTH_DAY: DateTimeFormatter = DateTimeFormatter.ofPattern("MMM d", Locale.ENGLISH)
 
 // Entry keys always start with their kind ("reply:", "tool:", ...), so these never equal one.
 private const val FOOTER_KEY = "footer"
@@ -77,6 +79,7 @@ private enum class CallMark(val symbol: String, val colour: Color) {
  * alone. A change of the viewport's height or top padding (the keyboard, a growing draft, the
  * header folding) follows the same way. Each change of [endRequests] brings the end into view and
  * resumes following, even when the reader has scrolled up; the first composition is not a change.
+ * Time rows are read against [now], in unix seconds, and follow it as it changes.
  */
 @Composable
 fun ConversationView(
@@ -88,6 +91,7 @@ fun ConversationView(
     working: Boolean = false,
     waiting: List<WaitingItem> = emptyList(),
     endRequests: Int = 0,
+    now: Long = System.currentTimeMillis() / 1000,
 ) {
     var expanded by remember { mutableStateOf(emptySet<String>()) }
     val toggle: (String) -> Unit = { id ->
@@ -136,7 +140,7 @@ fun ConversationView(
     ) {
         items(count = entries.size, key = { index -> keys[index] }) { index ->
             when (val entry = entries[index]) {
-                is ConvoEntry.Time -> TimeLabel(entry.seconds)
+                is ConvoEntry.Time -> TimeLabel(entry.seconds, now)
                 is ConvoEntry.Prompt -> PromptBlock(entry.text)
                 is ConvoEntry.Reply -> ReplyText(entry.text, markdownCache)
                 is ConvoEntry.Tool -> ToolRow(entry.call, expanded, toggle)
@@ -152,10 +156,29 @@ fun ConversationView(
     }
 }
 
+/**
+ * The label a time row shows for [seconds], read against [now] (both unix seconds) in the device
+ * zone: "just now" under a minute old or dated after now, "N min ago" under an hour old, the clock
+ * time when it is from today, and the date otherwise.
+ */
+fun timeLabel(seconds: Long, now: Long): String {
+    val age = now - seconds
+    return when {
+        age < 60 -> "just now"
+        age < 3_600 -> "${age / 60} min ago"
+        else -> {
+            val zone = ZoneId.systemDefault()
+            val time = Instant.ofEpochSecond(seconds).atZone(zone)
+            val today = Instant.ofEpochSecond(now).atZone(zone).toLocalDate()
+            if (time.toLocalDate() == today) time.format(CLOCK_TIME) else time.format(MONTH_DAY)
+        }
+    }
+}
+
 @Composable
-private fun TimeLabel(seconds: Long) {
+private fun TimeLabel(seconds: Long, now: Long) {
     Text(
-        text = Instant.ofEpochSecond(seconds).atZone(ZoneId.systemDefault()).format(TIME_OF_DAY),
+        text = timeLabel(seconds, now),
         modifier = Modifier
             .fillMaxWidth()
             .padding(top = 10.dp, bottom = 2.dp),

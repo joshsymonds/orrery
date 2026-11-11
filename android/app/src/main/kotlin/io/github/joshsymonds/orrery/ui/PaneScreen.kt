@@ -166,6 +166,9 @@ fun PaneScreen(
                     poller = scope.launch {
                         while (true) {
                             val snapshot = fetchSnapshot(client, paneId, liveScreen)
+                            // Read before the snapshot's conversation is shown, so its time rows
+                            // never see the zero clock the state starts with.
+                            nowSeconds = clock()
                             val host = fetchHost(client)
                             if (snapshot == null) {
                                 refreshFailed = true
@@ -176,7 +179,6 @@ fun PaneScreen(
                                 refreshFailed = false
                             }
                             host?.let { stats = it.stats }
-                            nowSeconds = clock()
                             withTimeoutOrNull(POLL_INTERVAL_MILLIS) { refreshRequests.receive() }
                         }
                     }
@@ -268,6 +270,7 @@ fun PaneScreen(
                     contentPadding = PaddingValues(top = bodyTop),
                     footer = footer,
                     endRequests = endRequests,
+                    now = nowSeconds,
                 )
             } else if (bodyReady) {
                 Column(modifier = Modifier.fillMaxSize()) {

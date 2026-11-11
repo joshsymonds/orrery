@@ -9,6 +9,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.SemanticsActions
@@ -39,6 +40,16 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import java.util.TimeZone
+
+// Unix seconds; the zone is UTC wherever a test says so.
+private const val FIXED_NOW = 1_700_006_399L // 2023-11-14 23:59:59 UTC
+private const val NOV_14_2213_UTC = 1_700_000_000L
+private const val NOV_14_0800_UTC = 1_699_948_800L
+private const val NOV_14_2330_UTC = 1_700_004_600L
+private const val NOV_15_0010_UTC = 1_700_007_000L
+private const val NOV_9_1030_UTC = 1_699_525_800L
+
+private fun inUtc() = TimeZone.setDefault(TimeZone.getTimeZone("UTC"))
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35])
@@ -138,11 +149,78 @@ class ConversationViewTest {
     }
 
     @Test
-    fun timeShowsHourAndMinuteInTheDeviceZone() {
-        TimeZone.setDefault(TimeZone.getTimeZone("UTC"))
-        setList(listOf(ConvoEntry.Time(1_700_000_000L)))
+    fun clockTimeForTodayShowsHourAndMinuteInTheDeviceZone() {
+        inUtc()
+        composeRule.setContent {
+            MaterialTheme {
+                ConversationView(entries = listOf(ConvoEntry.Time(NOV_14_2213_UTC)), now = FIXED_NOW)
+            }
+        }
 
         composeRule.onNodeWithText("22:13").assertIsDisplayed()
+    }
+
+    @Test
+    fun timeRowShowsJustNowUnderAMinuteAndFollowsTheClockAsItAdvances() {
+        inUtc()
+        val now = mutableLongStateOf(FIXED_NOW)
+        composeRule.setContent {
+            MaterialTheme {
+                ConversationView(entries = listOf(ConvoEntry.Time(FIXED_NOW - 30)), now = now.longValue)
+            }
+        }
+
+        composeRule.onNodeWithText("just now").assertIsDisplayed()
+        composeRule.runOnIdle { now.longValue = FIXED_NOW + 600 }
+        composeRule.onNodeWithText("10 min ago").assertIsDisplayed()
+        composeRule.onAllNodesWithText("just now").assertCountEquals(0)
+    }
+
+    @Test
+    fun timeLabelIsJustNowBelowAMinuteIncludingATimeAfterNow() {
+        inUtc()
+        assertEquals("just now", timeLabel(FIXED_NOW, FIXED_NOW))
+        assertEquals("just now", timeLabel(FIXED_NOW - 59, FIXED_NOW))
+        assertEquals("just now", timeLabel(FIXED_NOW + 120, FIXED_NOW))
+    }
+
+    @Test
+    fun timeLabelCountsWholeMinutesFromSixtySecondsToAnHour() {
+        inUtc()
+        assertEquals("1 min ago", timeLabel(FIXED_NOW - 60, FIXED_NOW))
+        assertEquals("59 min ago", timeLabel(FIXED_NOW - 3_540, FIXED_NOW))
+    }
+
+    @Test
+    fun timeLabelFromSixtyMinutesOnIsTheClockTimeWhenItIsToday() {
+        inUtc()
+        assertEquals("22:59", timeLabel(FIXED_NOW - 3_600, FIXED_NOW))
+    }
+
+    @Test
+    fun timeLabelFromEarlierTodayIsTheClockTime() {
+        inUtc()
+        assertEquals("08:00", timeLabel(NOV_14_0800_UTC, FIXED_NOW))
+    }
+
+    @Test
+    fun timeLabelFromAPreviousDayIsTheDateWithoutPadding() {
+        inUtc()
+        assertEquals("Nov 9", timeLabel(NOV_9_1030_UTC, FIXED_NOW))
+    }
+
+    @Test
+    fun timeLabelUnderAnHourAcrossMidnightIsRelative() {
+        inUtc()
+        assertEquals("40 min ago", timeLabel(NOV_14_2330_UTC, NOV_15_0010_UTC))
+    }
+
+    @Test
+    fun timeLabelUsesTheDeviceZoneToDecideToday() {
+        TimeZone.setDefault(TimeZone.getTimeZone("America/Los_Angeles"))
+        // 22:13 UTC on Nov 14 is 14:13 in Los Angeles. Three hours on, it is 01:13 Nov 15 in UTC
+        // but still 17:13 Nov 14 in Los Angeles, so the clock time shows.
+        assertEquals("14:13", timeLabel(NOV_14_2213_UTC, NOV_14_2213_UTC + 10_800))
     }
 
     @Test
