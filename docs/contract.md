@@ -630,7 +630,6 @@ Details for each route:
   - `ansi` absent or `0` gives plain text. `1` adds `-e`, which keeps the color escape sequences. Any other value, or a repeated key, answers 400.
   - `history` absent gives no scrollback. An integer from 0 to 2000 adds `-S -N`, which includes N lines above the visible screen. Any other value, including a sign, an empty value, a number over 2000, or a repeated key, answers 400.
 - `POST /v1/panes/{id}/text` sends the body's `text` the way `orrery send --text` does (section 11). The server holds a lock for each pane, so two text sends to one pane run one after the other. The `orrery` CLI is a separate process and is not covered by that lock.
-  - A send that fails answers 500 with the body `send failed: ` followed by the send's error text, such as the tmux failure, and a newline.
 - `POST /v1/panes/{id}/keys` sends the keys to the pane. When `expect_question` is present, the send is refused with 409 unless the question check passes. That check is the one `orrery send --expect-question` applies (section 11). `expect_question` takes the question hash H from section 10.
 - `POST /v1/push/register` registers a Web Push subscription. `p256dh` and `auth` are the subscription's keys. The endpoint must be `https` and must be on a host named by `--push-host` (section 11).
 - `DELETE /v1/push/register` removes the subscription with that endpoint.
@@ -787,4 +786,4 @@ orrery E12 (conversation items) added the `notice` kind and the `notice` item ke
 
 orrery E13 (conversation goal) added the `goal` key to the conversation route's answer, additively. No existing name or value changes.
 
-orrery E16a (queued messages) added the `waiting` key to the conversation route's answer, additively. No existing name or value changes. The text route's 500 body changed from `internal server error` to `send failed: ` followed by the send's error text. The status is unchanged, and every other answer of the route is unchanged.
+orrery E16a (queued messages) added the `waiting` key to the conversation route's answer, additively. No existing name or value changes.

@@ -458,7 +458,7 @@ func servePaneText(tmux *tmuxctl.Client, locks *paneLocks) http.HandlerFunc {
 		err := cli.Send(r.Context(), tmux, []string{flagPane, id, "--text", text}, io.Discard)
 		mu.Unlock()
 		if err != nil {
-			http.Error(w, "send failed: "+err.Error(), http.StatusInternalServerError)
+			http.Error(w, "internal server error", http.StatusInternalServerError)
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)

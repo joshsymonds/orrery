@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"io/fs"
 	"maps"
 	"net"
@@ -1009,30 +1008,6 @@ func TestServePaneText(t *testing.T) {
 	tmux := newTmuxServer(t)
 	pane, file := startInputPane(t, tmux, "s1", synthScreen)
 	rec := postJSON(t, newHandler(t, tmux), paneRoute(pane, "text"), jsonBody(t, map[string]any{"text": synthText}))
-	assertStatus(t, rec, http.StatusNoContent)
-	awaitInput(t, file, "\x1b[200~"+synthText+"\x1b[201~\r")
-}
-
-func TestServePaneTextSendFailureNamesCause(t *testing.T) {
-	t.Parallel()
-
-	tmux := newTmuxServer(t)
-	pane, file := startInputPane(t, tmux, "s1", synthScreen)
-	handler := newHandler(t, tmux)
-
-	// A NUL byte cannot be an argument to tmux, so the paste fails before the pane is touched.
-	failing := "bad\x00text"
-	rec := postJSON(t, handler, paneRoute(pane, "text"), jsonBody(t, map[string]any{"text": failing}))
-	assertStatus(t, rec, http.StatusInternalServerError)
-	cause := cli.Send(t.Context(), tmux, []string{"--pane", pane, "--text", failing}, io.Discard)
-	if cause == nil {
-		t.Fatal("cli.Send accepted text with a NUL byte, want a failure")
-	}
-	if want := "send failed: " + cause.Error() + "\n"; rec.Body.String() != want {
-		t.Fatalf("body = %q, want %q", rec.Body.String(), want)
-	}
-
-	rec = postJSON(t, handler, paneRoute(pane, "text"), jsonBody(t, map[string]any{"text": synthText}))
 	assertStatus(t, rec, http.StatusNoContent)
 	awaitInput(t, file, "\x1b[200~"+synthText+"\x1b[201~\r")
 }
