@@ -42,11 +42,14 @@ type pickerAnswer struct {
 }
 
 // pickerEntry is what a token stands for: the open configuration and the action its ask used, valid until expires.
-// pane is the pane the run of the action answered, and is "" until that run succeeds.
+// acted is set once the action has run, and target is what it reached. pane is the pane that target answers, and is
+// "" until the pane lookup succeeds.
 type pickerEntry struct {
 	cfg     open.Config
 	action  open.Action
 	expires time.Time
+	acted   bool
+	target  open.Target
 	pane    string
 }
 
@@ -64,6 +67,18 @@ func (s *pickerTokens) lookup(token string) (pickerEntry, bool) {
 	defer s.mu.Unlock()
 	entry, ok := s.entries[token]
 	return entry, ok
+}
+
+// recordAction keeps target as what token's action reached, when token still has an entry, so a retry of the run
+// answers the pane of target without running the action again.
+func (s *pickerTokens) recordAction(token string, target open.Target) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if entry, ok := s.entries[token]; ok {
+		entry.acted = true
+		entry.target = target
+		s.entries[token] = entry
+	}
 }
 
 // recordRun keeps pane as the answer of token's run, when token still has an entry.
@@ -141,7 +156,8 @@ type pickerRunAnswer struct {
 // servePickerRun answers POST /v1/picker/run by running the action the body's token names, once, and answering the
 // pane it opened or jumped to. A repeat of a run answers the same pane and runs nothing. A body without a token
 // string answers 400, an unissued token 404, and an expired one 410, each running nothing. With no tmux server it
-// answers 409 and starts none. A failed run answers 502 and records nothing.
+// answers 409 and starts none. A failed action answers 502 and records nothing. An action that ran but whose pane
+// lookup failed answers 502 and keeps its target, so a retry answers that pane and runs nothing again.
 func servePickerRun(tokens *pickerTokens, tmux *tmuxctl.Client, now func() time.Time) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		fields, ok := decodeBody(r)
@@ -166,33 +182,63 @@ func servePickerRun(tokens *pickerTokens, tmux *tmuxctl.Client, now func() time.
 			return
 		}
 		if entry.pane == "" {
-			pane, status, err := runPickerEntry(r.Context(), tmux, entry)
+			pane, status, err := answerPickerRun(r.Context(), tokens, tmux, token, entry)
 			if err != nil {
 				http.Error(w, err.Error(), status)
 				return
 			}
-			tokens.recordRun(token, pane)
 			entry.pane = pane
 		}
 		writeJSON(w, http.StatusOK, pickerRunAnswer{Pane: entry.pane})
 	}
 }
 
-// runPickerEntry runs the action of entry and returns the pane it answers: the pane the action opened or jumped to,
-// or else the active pane of the session it created. With no tmux server it refuses before running anything, as
-// 409, and any other failure answers 502. The status is meaningful only with the error.
-func runPickerEntry(ctx context.Context, tmux *tmuxctl.Client, entry pickerEntry) (string, int, error) {
+// answerPickerRun returns the pane of token's run, running its action first unless an earlier run already did. The
+// target of a run is kept as soon as its action succeeds, so a run whose pane lookup fails is retried by the lookup
+// alone. The status is meaningful only with the error.
+func answerPickerRun(
+	ctx context.Context,
+	tokens *pickerTokens,
+	tmux *tmuxctl.Client,
+	token string,
+	entry pickerEntry,
+) (string, int, error) {
+	if !entry.acted {
+		target, status, err := runPickerAction(ctx, tmux, entry)
+		if err != nil {
+			return "", status, err
+		}
+		tokens.recordAction(token, target)
+		entry.target = target
+	}
+	pane, status, err := targetPane(ctx, tmux, entry.target)
+	if err != nil {
+		return "", status, err
+	}
+	tokens.recordRun(token, pane)
+	return pane, http.StatusOK, nil
+}
+
+// runPickerAction runs the action of entry once and returns the target it reached. With no tmux server it refuses
+// before running anything, as 409, and any other failure answers 502. The status is meaningful only with the error.
+func runPickerAction(ctx context.Context, tmux *tmuxctl.Client, entry pickerEntry) (open.Target, int, error) {
 	if _, err := tmux.ListPanes(ctx); err != nil {
 		status := http.StatusBadGateway
 		if strings.Contains(err.Error(), "no server running") || strings.Contains(err.Error(), "error connecting to") {
 			status = http.StatusConflict
 		}
-		return "", status, fmt.Errorf("server: list panes: %w", err)
+		return open.Target{}, status, fmt.Errorf("server: list panes: %w", err)
 	}
 	target, err := open.ExecuteAction(ctx, entry.cfg, entry.action)
 	if err != nil {
-		return "", http.StatusBadGateway, fmt.Errorf("server: picker run: %w", err)
+		return open.Target{}, http.StatusBadGateway, fmt.Errorf("server: picker run: %w", err)
 	}
+	return target, http.StatusOK, nil
+}
+
+// targetPane returns the pane target answers: the pane the action opened or jumped to, or else the active pane of
+// the session it created. Any failure answers 502.
+func targetPane(ctx context.Context, tmux *tmuxctl.Client, target open.Target) (string, int, error) {
 	if target.Pane != "" {
 		return target.Pane, http.StatusOK, nil
 	}
