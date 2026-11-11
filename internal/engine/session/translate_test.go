@@ -268,3 +268,40 @@ func TestControlEnvelopesAndNonInitSystemYieldNothing(t *testing.T) {
 	)
 	requireEvents(t, got, []Event{})
 }
+
+func TestTurnEndedCarriesStructuredOutput(t *testing.T) {
+	t.Parallel()
+	tr := newTranslator()
+	got := translateLines(
+		t,
+		tr,
+		`{"type":"result","subtype":"success","is_error":false,"result":"all done","structured_output":{"status":"done","note":"ok"},"terminal_reason":"completed","session_id":"session_1"}`,
+		`{"type":"result","subtype":"success","is_error":false,"result":"all done","structured_output":null,"terminal_reason":"completed","session_id":"session_1"}`,
+		`{"type":"result","subtype":"success","is_error":false,"result":"all done","terminal_reason":"completed","session_id":"session_1"}`,
+		`{"type":"result","subtype":"error_during_execution","is_error":true,"errors":["made-up failure"],"structured_output":{"status":"done"},"session_id":"session_1"}`,
+	)
+	requireEvents(t, got, []Event{
+		TurnEnded{
+			Subtype:          "success",
+			TerminalReason:   "completed",
+			Result:           "all done",
+			StructuredOutput: json.RawMessage(`{"status":"done","note":"ok"}`),
+		},
+		TurnEnded{Subtype: "success", TerminalReason: "completed", Result: "all done"},
+		TurnEnded{Subtype: "success", TerminalReason: "completed", Result: "all done"},
+		TurnEnded{Subtype: "error_during_execution", IsError: true},
+	})
+}
+
+func TestUndeclaredResultSubtypeEndsTurn(t *testing.T) {
+	t.Parallel()
+	tr := newTranslator()
+	got := translateLines(
+		t,
+		tr,
+		`{"type":"result","subtype":"error_future","is_error":true,"terminal_reason":"future_reason","errors":["made-up failure"],"session_id":"session_1"}`,
+	)
+	requireEvents(t, got, []Event{
+		TurnEnded{Subtype: "error_future", IsError: true, TerminalReason: "future_reason"},
+	})
+}

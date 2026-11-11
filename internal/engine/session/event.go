@@ -148,13 +148,15 @@ type BackgroundTasks struct {
 func (BackgroundTasks) isEvent() {}
 
 // TurnEnded reports that a turn finished: its result subtype, whether it failed, the terminal reason
-// claude gave, the result text of a successful turn and the kind of origin that ended it.
+// claude gave, the result text of a successful turn, the structured return of a successful turn (nil
+// when the turn gave none) and the kind of origin that ended it.
 type TurnEnded struct {
-	Subtype        string
-	IsError        bool
-	TerminalReason string
-	Result         string
-	Origin         string
+	Subtype          string
+	IsError          bool
+	TerminalReason   string
+	Result           string
+	StructuredOutput json.RawMessage
+	Origin           string
 }
 
 func (TurnEnded) isEvent() {}

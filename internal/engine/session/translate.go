@@ -82,7 +82,9 @@ func (t *translator) variantEvents(variant wire.SDKMessageVariant, line []byte) 
 	case wire.SDKPartialAssistantMessage:
 		return t.streamEvents(message)
 	case wire.SDKResultSuccess:
-		return []Event{turnEnded(message.SDKResultMessage, message.Result)}, nil
+		ended := turnEnded(message.SDKResultMessage, message.Result)
+		ended.StructuredOutput = structuredOutput(message.StructuredOutput)
+		return []Event{ended}, nil
 	case wire.SDKResultError:
 		return []Event{turnEnded(message.SDKResultMessage, "")}, nil
 	case wire.UnknownMessage:
@@ -165,8 +167,28 @@ func undeclaredEvents(raw json.RawMessage) ([]Event, error) {
 		return cancelEvents(raw)
 	case controlResponse:
 		return nil, nil
+	case "result":
+		return undeclaredResultEvents(raw)
 	}
 	return nil, fmt.Errorf("undeclared stream-json message type %q subtype %q", head.Type, head.Subtype)
+}
+
+// undeclaredResultEvents returns the one TurnEnded of a result line whose subtype the wire package does
+// not declare. It keeps the subtype, the error flag and the terminal reason the line gives.
+func undeclaredResultEvents(raw json.RawMessage) ([]Event, error) {
+	var result struct {
+		Subtype        string  `json:"subtype"`
+		IsError        bool    `json:"isError"        wire:"is_error"`
+		TerminalReason *string `json:"terminalReason" wire:"terminal_reason"`
+	}
+	if err := wire.UnmarshalControlJSON(raw, &result); err != nil {
+		return nil, fmt.Errorf("decode undeclared result: %w", err)
+	}
+	ended := TurnEnded{Subtype: result.Subtype, IsError: result.IsError}
+	if result.TerminalReason != nil {
+		ended.TerminalReason = *result.TerminalReason
+	}
+	return []Event{ended}, nil
 }
 
 // controlRequestEvents returns the Request a control_request envelope makes of its host. A request
@@ -239,6 +261,15 @@ func turnEnded(result wire.SDKResultMessage, text string) TurnEnded {
 		ended.Origin = result.Origin.Kind
 	}
 	return ended
+}
+
+// structuredOutput returns a copy of the structured return a success result carries. An absent or JSON
+// null return is nil.
+func structuredOutput(raw json.RawMessage) json.RawMessage {
+	if len(raw) == 0 || bytes.Equal(raw, []byte("null")) {
+		return nil
+	}
+	return bytes.Clone(raw)
 }
 
 func assistantEvents(message wire.SDKAssistantMessage) ([]Event, error) {
