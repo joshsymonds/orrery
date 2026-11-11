@@ -19,6 +19,8 @@ import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 import androidx.core.content.res.ResourcesCompat
 import io.github.joshsymonds.orrery.R
 import io.github.joshsymonds.orrery.api.FakeOrreryServer
@@ -46,6 +48,8 @@ private const val HINT = "synthetic hint"
 private const val STATUS = "synthetic status line"
 private const val COMPOSER_TAG = "composer"
 private const val SEND_ALIGNMENT_TOLERANCE_PX = 1f
+private const val LONG_DRAFT_LINES = 12
+private val CAPPED_FIELD_HEIGHT = 60.dp
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35])
@@ -182,6 +186,74 @@ class ComposeBoxTest {
     }
 
     @Test
+    fun editorIsCappedAtComposeMaxLines() {
+        setBox()
+
+        assertEquals(COMPOSE_MAX_LINES, editField().maxLines)
+    }
+
+    @Test
+    fun fieldGrowsWithItsDraftButStopsGrowingAtTheLineCap() {
+        setBox()
+        val emptyHeight = fieldBoundsInWindow().height
+
+        setDraft(lines(COMPOSE_MAX_LINES))
+        val fiveLineHeight = fieldBoundsInWindow().height
+        assertTrue(
+            "five-line field $fiveLineHeight should be taller than empty field $emptyHeight",
+            fiveLineHeight > emptyHeight,
+        )
+
+        setDraft(lines(COMPOSE_MAX_LINES + 1))
+        val firstOverCapHeight = fieldBoundsInWindow().height
+        setDraft(lines(LONG_DRAFT_LINES))
+        val longHeight = fieldBoundsInWindow().height
+        assertTrue(
+            "$LONG_DRAFT_LINES-line field $longHeight should match " +
+                "${COMPOSE_MAX_LINES + 1}-line field $firstOverCapHeight",
+            longHeight == firstOverCapHeight,
+        )
+    }
+
+    @Test
+    fun fieldNeverGrowsPastItsMaxHeight() {
+        setBox(maxFieldHeight = CAPPED_FIELD_HEIGHT)
+
+        setDraft(lines(LONG_DRAFT_LINES))
+
+        val capPx = composeRule.density.run { CAPPED_FIELD_HEIGHT.roundToPx() }
+        val height = fieldBoundsInWindow().height
+        assertTrue("field height $height should be at most $capPx", height <= capPx)
+    }
+
+    @Test
+    fun longDraftScrollsSoTheCursorLineStaysInView() {
+        setBox()
+        val draft = lines(LONG_DRAFT_LINES)
+        composeRule.runOnUiThread {
+            editField().apply {
+                setText(draft)
+                setSelection(draft.length)
+            }
+        }
+        composeRule.waitForIdle()
+
+        val field = editField()
+        val textLayout = checkNotNull(field.layout)
+        val line = textLayout.getLineForOffset(field.selectionEnd)
+        val visible = field.height - field.extendedPaddingTop - field.extendedPaddingBottom
+        assertTrue("scrollY ${field.scrollY} should be above 0", field.scrollY > 0)
+        assertTrue(
+            "cursor line bottom ${textLayout.getLineBottom(line)} should sit within the visible window",
+            textLayout.getLineBottom(line) <= field.scrollY + visible,
+        )
+        assertTrue(
+            "cursor line top ${textLayout.getLineTop(line)} should not be scrolled above the field",
+            textLayout.getLineTop(line) >= field.scrollY,
+        )
+    }
+
+    @Test
     fun draftPresenceReportsWhenTextGainsAndLosesIt() {
         val reports = mutableListOf<Boolean>()
         setBox(onDraftPresent = { reports.add(it) })
@@ -197,12 +269,14 @@ class ComposeBoxTest {
         hint: String = "",
         status: (@Composable () -> Unit)? = null,
         onDraftPresent: (Boolean) -> Unit = {},
+        maxFieldHeight: Dp = Dp.Unspecified,
     ) {
         val client = OrreryClient(server.baseUrl)
         composeRule.setContent {
             ComposeBox(
                 paneId = paneId.value,
                 client = client,
+                maxFieldHeight = maxFieldHeight,
                 hint = hint,
                 onDraftPresent = onDraftPresent,
                 status = status,
@@ -210,6 +284,8 @@ class ComposeBoxTest {
         }
         composeRule.waitForIdle()
     }
+
+    private fun lines(count: Int): String = (1..count).joinToString("\n") { "line $it" }
 
     private fun fieldBoundsInWindow(): Rect {
         val field = editField()
