@@ -186,6 +186,10 @@ func (f failingStore) EngineSession(context.Context, string) (store.EngineRow, e
 	return store.EngineRow{}, f.err
 }
 
+func (f failingStore) Step(context.Context, string) (store.StepRow, error) {
+	return store.StepRow{}, f.err
+}
+
 func (f failingStore) EnginePromptSent(context.Context, string, string) (bool, error) {
 	return false, f.err
 }

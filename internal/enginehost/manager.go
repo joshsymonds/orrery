@@ -72,11 +72,12 @@ type NoticeSink interface {
 	Notify(ctx context.Context, n Notice)
 }
 
-// Store reads the engine rows Reconcile settles, the rows Say resumes, checks and Seen marks, and the failure markers
-// Say checks. *store.Store satisfies it.
+// Store reads the engine rows Reconcile settles, the rows Say resumes, checks and Seen marks, the step rows Continue
+// respawns from, and the failure markers Say checks. *store.Store satisfies it.
 type Store interface {
 	EngineSessions(ctx context.Context) ([]store.EngineRow, error)
 	EngineSession(ctx context.Context, id string) (store.EngineRow, error)
+	Step(ctx context.Context, id string) (store.StepRow, error)
 	EnginePromptSent(ctx context.Context, sessionID, promptID string) (bool, error)
 	EnginePromptFailure(ctx context.Context, sessionID, promptID string) (string, bool, error)
 }
@@ -155,7 +156,10 @@ type Manager struct {
 	reserved     int
 	stepLimit    int
 	stepsRunning int
-	closed       bool
+	// stepObservers holds the observer each step was started with, kept after the step stops so a respawn hands its turns
+	// to the same observer.
+	stepObservers map[string]StepObserver
+	closed        bool
 
 	// resumeMu serializes the resume of a session that is not live, so concurrent Says to one id start one process.
 	resumeMu sync.Mutex
@@ -171,18 +175,19 @@ type Manager struct {
 // NewManager returns a Manager for cfg.
 func NewManager(cfg Config) *Manager {
 	manager := &Manager{
-		shell:     cfg.Shell,
-		claude:    cfg.Claude,
-		environ:   cfg.Environ,
-		limit:     cfg.Cap,
-		stepLimit: cfg.StepCap,
-		writer:    cfg.Writer,
-		now:       cfg.Now,
-		notifier:  cfg.Notifier,
-		store:     cfg.Store,
-		logger:    cfg.Logger,
-		sessions:  map[string]*liveSession{},
-		attempts:  map[attemptKey]*attempt{},
+		shell:         cfg.Shell,
+		claude:        cfg.Claude,
+		environ:       cfg.Environ,
+		limit:         cfg.Cap,
+		stepLimit:     cfg.StepCap,
+		writer:        cfg.Writer,
+		now:           cfg.Now,
+		notifier:      cfg.Notifier,
+		store:         cfg.Store,
+		logger:        cfg.Logger,
+		sessions:      map[string]*liveSession{},
+		stepObservers: map[string]StepObserver{},
+		attempts:      map[attemptKey]*attempt{},
 	}
 	if manager.now == nil {
 		manager.now = time.Now
@@ -454,18 +459,76 @@ func (m *Manager) send(ctx context.Context, live *liveSession, req SayRequest) e
 	return nil
 }
 
-// Continue sends text to the live step id as its next prompt, which ends the step's hand-off: the step is busy again
-// until this turn ends. The prompt is recorded as Say records one, and a failed send records the step failed without a
-// notice. It returns an error wrapping ErrNoSession when no live step has id, and ErrEmptyPrompt for empty text.
+// Continue sends text to the step id as its next prompt, which ends the step's hand-off: the step is busy again until this
+// turn ends. A step that is not live, as after an idle stop, is respawned first from its rows (see respawnStep). The
+// prompt is recorded as Say records one, and a failed send records the step failed without a notice. It returns an error
+// wrapping ErrNoSession when id is not a step row, and ErrEmptyPrompt for empty text.
 func (m *Manager) Continue(ctx context.Context, id, text string) error {
 	if text == "" {
 		return ErrEmptyPrompt
 	}
 	live, err := m.claimStep(id)
+	if errors.Is(err, ErrNoSession) {
+		live, err = m.respawnStep(ctx, id)
+	}
 	if err != nil {
 		return fmt.Errorf("continue step %s: %w", id, err)
 	}
 	return m.send(ctx, live, SayRequest{ID: id, Text: text})
+}
+
+// respawnStep starts the step id that is not live again, from its engine row and its steps row: it resumes the row's
+// claude session with the step's agent and schema, registered as a step with the observer it was started with. It takes a
+// step slot under StepCap before reading the rows, so a full cap refuses the respawn before anything is recorded. A
+// directory that is gone, or a spawn that fails, records the step failed without a notice and returns the error. It
+// returns the step claimed with its turn running, as claimStep does. resumeMu makes concurrent calls for one id start a
+// single process. It returns an error wrapping ErrNoSession when id is not a step row.
+func (m *Manager) respawnStep(ctx context.Context, id string) (*liveSession, error) {
+	m.resumeMu.Lock()
+	defer m.resumeMu.Unlock()
+	if live, err := m.claimStep(id); err == nil {
+		return live, nil
+	}
+	if err := m.reserveStep(); err != nil {
+		return nil, err
+	}
+	row, step, err := m.stepLaunch(ctx, id)
+	if err != nil {
+		m.releaseStep()
+		return nil, err
+	}
+	if err = checkDir(row.Dir); err != nil {
+		m.releaseStep()
+		return nil, errors.Join(err, m.writeFailed(ctx, id, err))
+	}
+	m.mu.Lock()
+	observer := m.stepObservers[id]
+	m.mu.Unlock()
+	live, err := m.spawnLive(ctx, id, row.Dir, spawnSpec{claudeSession: row.ClaudeSession, agent: step.Agent,
+		schema: step.Schema, step: true, observer: observer})
+	if err != nil {
+		m.releaseStep()
+		return nil, errors.Join(err, m.writeFailed(ctx, id, err))
+	}
+	m.setTurning(live, true)
+	return live, nil
+}
+
+// stepLaunch returns the engine row and the steps row of the step id that a respawn starts from. It returns an error
+// wrapping ErrNoSession when id is not a step row.
+func (m *Manager) stepLaunch(ctx context.Context, id string) (store.EngineRow, store.StepRow, error) {
+	row, err := m.engineRow(ctx, id)
+	if err != nil {
+		return store.EngineRow{}, store.StepRow{}, err
+	}
+	if row.Kind != store.KindStep {
+		return store.EngineRow{}, store.StepRow{}, fmt.Errorf("%w: %s is not a step session", ErrNoSession, id)
+	}
+	step, err := m.store.Step(ctx, id)
+	if err != nil {
+		return store.EngineRow{}, store.StepRow{}, fmt.Errorf("read step %s: %w", id, err)
+	}
+	return row, step, nil
 }
 
 // Answer answers the open request requestID of the live session id. A question takes one of its option labels. A
