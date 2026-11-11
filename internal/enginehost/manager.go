@@ -31,11 +31,18 @@ var ErrBadDir = errors.New("session directory must be an existing absolute direc
 // ErrEmptyPrompt reports a Start with an empty first prompt.
 var ErrEmptyPrompt = errors.New("session prompt is empty")
 
+// ErrBadAnswer reports an Answer that fits neither the options of the open question nor allow or deny for the open
+// permission request. The request stays open.
+var ErrBadAnswer = errors.New("answer does not fit the open request")
+
 // errManagerClosed reports a Start on a manager that Close has begun closing.
 var errManagerClosed = errors.New("session manager is closed")
 
 // permissionMode is the permission mode every session runs in.
 const permissionMode = "bypassPermissions"
+
+// denyMessage is the message a permission request denied through Answer gives the session.
+const denyMessage = "The orrery host denied this request."
 
 // closeWait bounds how long Close waits for the sessions it stops to record their stop.
 const closeWait = 5 * time.Second
@@ -62,6 +69,9 @@ type liveSession struct {
 	done   chan struct{}
 	cancel context.CancelFunc
 	exited bool
+	// order is held by the pump while it queues an event's ops, and by Answer from its send until it has queued the
+	// working state, so every op an answer causes is queued after that state.
+	order sync.Mutex
 }
 
 // Manager starts, stops and tracks headless sessions. Each running session has a pump goroutine that records its
@@ -190,6 +200,105 @@ func (m *Manager) Seen(ctx context.Context, id string) error {
 	return m.writer.Commit(ctx, id, store.EngineSet{ID: id, Changes: store.EngineChanges{Seen: &seen}})
 }
 
+// Say sends text to the live session id as its next prompt. It records the prompt and the working state before it
+// sends, so the stored conversation has the prompt ahead of its reply. It returns ErrEmptyPrompt for empty text and
+// an error wrapping ErrNoSession when id is not live. A send that fails is recorded as the session's failed state.
+func (m *Manager) Say(ctx context.Context, id, text string) error {
+	if text == "" {
+		return ErrEmptyPrompt
+	}
+	live, err := m.live(id)
+	if err != nil {
+		return fmt.Errorf("say to session %s: %w", id, err)
+	}
+	working := string(protocol.StateWorking)
+	if err = m.writer.Commit(ctx, id, store.EnginePrompt{ID: id, Text: text},
+		store.EngineSet{ID: id, Changes: store.EngineChanges{State: &working}}); err != nil {
+		return fmt.Errorf("record prompt of session %s: %w", id, err)
+	}
+	if err = live.sess.Prompt(text); err != nil {
+		return fmt.Errorf("say to session %s: %w", id, errors.Join(err, m.recordFailed(ctx, id, err)))
+	}
+	return nil
+}
+
+// Answer answers the open request requestID of the live session id. A question takes one of its option labels. A
+// permission request takes allow, which approves it with its own input, or deny, which refuses it with a fixed
+// message. Any other answer returns an error matching ErrBadAnswer and leaves the request open. On success Answer
+// records the session working with no question. It returns an error wrapping ErrNoSession when id is not live.
+func (m *Manager) Answer(ctx context.Context, id, requestID, answer string) error {
+	live, err := m.live(id)
+	if err != nil {
+		return fmt.Errorf("answer session %s: %w", id, err)
+	}
+	// Holding order until the working state is queued keeps the pump from queuing the answer's reply, or the turn's
+	// end, ahead of it.
+	live.order.Lock()
+	defer live.order.Unlock()
+	err = live.sess.AnswerQuestion(requestID, answer)
+	switch {
+	case err == nil:
+	case errors.Is(err, session.ErrUnverifiedAnswer):
+		return fmt.Errorf("answer session %s: %w: %w", id, ErrBadAnswer, err)
+	case errors.Is(err, session.ErrNotQuestion):
+		if err = answerPermission(live.sess, requestID, answer); err != nil {
+			return fmt.Errorf("answer session %s: %w", id, err)
+		}
+	default:
+		return fmt.Errorf("answer session %s: %w", id, err)
+	}
+	working := string(protocol.StateWorking)
+	question := ""
+	if err = m.writer.Put(ctx, id, store.EngineSet{ID: id,
+		Changes: store.EngineChanges{State: &working, Question: &question}}); err != nil {
+		return fmt.Errorf("record answer of session %s: %w", id, err)
+	}
+	return nil
+}
+
+// answerPermission allows or denies the open permission request requestID for answer, which must be allow or deny.
+// It returns ErrBadAnswer, without claiming the request, for any other answer.
+func answerPermission(sess *session.Session, requestID, answer string) error {
+	switch answer {
+	case "allow":
+		if err := sess.Allow(requestID, nil); err != nil {
+			return fmt.Errorf("allow request %s: %w", requestID, err)
+		}
+		return nil
+	case "deny":
+		if err := sess.Deny(requestID, denyMessage); err != nil {
+			return fmt.Errorf("deny request %s: %w", requestID, err)
+		}
+		return nil
+	default:
+		return fmt.Errorf("%w: %q is neither allow nor deny", ErrBadAnswer, answer)
+	}
+}
+
+// Interrupt asks the live session id to end the turn in progress. The turn's end is recorded when the session reports
+// it. It returns an error wrapping ErrNoSession when id is not live.
+func (m *Manager) Interrupt(_ context.Context, id string) error {
+	live, err := m.live(id)
+	if err != nil {
+		return fmt.Errorf("interrupt session %s: %w", id, err)
+	}
+	if err = live.sess.Interrupt(); err != nil {
+		return fmt.Errorf("interrupt session %s: %w", id, err)
+	}
+	return nil
+}
+
+// live returns the live session id, or an error wrapping ErrNoSession when no session with that id is live.
+func (m *Manager) live(id string) (*liveSession, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	live, ok := m.sessions[id]
+	if !ok {
+		return nil, ErrNoSession
+	}
+	return live, nil
+}
+
 // Close stops every live session and waits up to 5 s for each to record its stop. It then cancels any write a pump
 // still has blocked and waits for the pumps to return. Start refuses from the moment Close begins, and later calls
 // to Close return at once.
@@ -301,7 +410,10 @@ func (m *Manager) pump(ctx context.Context, live *liveSession, rec *recorder) {
 			live.exited = true
 		}
 		if ops := rec.ops(event); len(ops) > 0 {
-			if err := m.writer.Put(ctx, live.id, ops...); err != nil {
+			live.order.Lock()
+			err := m.writer.Put(ctx, live.id, ops...)
+			live.order.Unlock()
+			if err != nil {
 				m.logger.WarnContext(ctx, "record session event", "session", live.id, "err", err)
 			}
 		}
