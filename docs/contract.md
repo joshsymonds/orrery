@@ -1032,7 +1032,7 @@ Request fields and what their zero and presence values mean:
 - `AskRequest`: `text` is the route's body field. Blank text is `invalid_argument`.
 - `RunRequest`: `token` is the route's body field. A blank token is `invalid_argument`.
 
-The responses carry the route's answer: `PanesListResponse` the panes of `GET /v1/panes`, `ScreenResponse` the body of the screen route, `HostStatusResponse`, `ConversationResponse`, `AskResponse` and `RunResponse` the same fields as the route's JSON body. `SendTextResponse`, `SendKeysResponse`, `MarkSeenResponse`, `RegisterResponse` and `UnregisterResponse` have no fields, as their routes answer 204 with no body. The screen route's body is plain text, and the `screen` bytes are exactly that body.
+The responses carry the route's answer: `PanesListResponse` the panes of `GET /v1/panes`, `ScreenResponse` the body of the screen route, `HostStatusResponse`, `ConversationResponse`, `AskResponse` and `RunResponse` the same fields as the route's JSON body. `SendTextResponse`, `SendKeysResponse`, `MarkSeenResponse`, `RegisterResponse` and `UnregisterResponse` have no fields, as their routes answer 204 with no body. The screen route's body is plain text, and the `screen` bytes are exactly that body. Each `ConversationItem` of `ConversationResponse` has the `trigger` string and the `tokens` int64 of the route's item keys of those names, and its `kind` string also takes `compaction`. `ConversationResponse` has the `context` field, a `ConversationContext` with the `tokens` and `window` int64 fields, each with the meaning of the route's `context` key of that name.
 
 Connect errors map from the REST status of the route. The table gives each Connect code, the REST status it replaces, and when it applies:
 
