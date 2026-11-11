@@ -2,9 +2,9 @@
 # fakeclaude.sh stands in for the claude binary in the engine host tests. It writes its pid to fakeclaude.pid in its
 # working directory, then answers each user prompt with a scripted turn. The prompt number n counts from 1. A prompt
 # containing ASK asks one AskUserQuestion, PERMIT asks for a Write permission, HANG streams text until an interrupt,
-# FLOOD streams 50 finished text blocks, STALL streams the start of a text block and never finishes it, and any other
-# prompt streams "fake reply n". The turns reproduce the stream lines captured from the real CLI, with only text, ids
-# and the session id changed. It exits at stdin EOF.
+# FLOOD streams 50 finished text blocks, TRICKLE streams 60 finished text blocks about 50 ms apart, STALL streams the
+# start of a text block and never finishes it, and any other prompt streams "fake reply n". The turns reproduce the
+# stream lines captured from the real CLI, with only text, ids and the session id changed. It exits at stdin EOF.
 
 # text_block INDEX FULL DELTA...: a text block that streams each DELTA, then finishes as FULL.
 text_block() {
@@ -85,6 +85,18 @@ flood() {
 	turn_close
 }
 
+# trickle streams 60 finished text blocks, about 50 ms apart, and ends the turn.
+trickle() {
+	turn_open
+	k=1
+	while [ "$k" -le 60 ]; do
+		text_block $((k - 1)) "fake trickle $n.$k" "fake trickle $n.$k"
+		sleep 0.05
+		k=$((k + 1))
+	done
+	turn_close
+}
+
 # stall streams the start of a text block, never finishes it, and reads stdin until it ends.
 stall() {
 	turn_open
@@ -107,6 +119,7 @@ while IFS= read -r line; do
 				*PERMIT*) permit ;;
 				*HANG*) hang ;;
 				*FLOOD*) flood ;;
+				*TRICKLE*) trickle ;;
 				*STALL*) stall ;;
 				*) reply ;;
 			esac
