@@ -865,3 +865,80 @@ func TestPanesMarkSeenErrorParity(t *testing.T) {
 		}
 	}
 }
+
+func TestPanesMarkSeenReportsStoredTime(t *testing.T) {
+	t.Parallel()
+
+	const (
+		reported = int64(1700000100)
+		earlier  = int64(1700000050)
+		later    = int64(1700000200)
+	)
+	tmux := newTmuxServer(t)
+	// The absent read_up_to case needs a pane whose time is unset, and the reported-time cases need their own pane,
+	// since setting now would hold the stored time above every reported time.
+	nowPane, _ := startInputPane(t, tmux, "now", synthScreen)
+	pane, _ := startInputPane(t, tmux, "s1", synthScreen)
+	var calls []seenCall
+	handler := newSeenHandler(t, tmux, seenRecorder(&calls, nil))
+	client := panesClient(t, handler)
+
+	if _, err := client.MarkSeen(t.Context(),
+		connect.NewRequest(&orreryv1.MarkSeenRequest{Pane: nowPane})); err != nil {
+		t.Fatalf("Panes.MarkSeen absent read_up_to: %v", err)
+	}
+	if want := seenOption(t, tmux, nowPane); len(calls) != 1 || calls[0] != (seenCall{pane: nowPane, seen: want}) {
+		t.Fatalf("absent read_up_to: reports = %+v, want one for %s at stored time %d", calls, nowPane, want)
+	}
+
+	steps := []struct {
+		name     string
+		readUpTo int64
+		want     int64
+	}{
+		{"unset takes the reported time", reported, reported},
+		{"earlier time reports the stored time", earlier, reported},
+		{"later time reports itself", later, later},
+	}
+	for _, step := range steps {
+		calls = nil
+		readUpTo := step.readUpTo
+		if _, err := client.MarkSeen(t.Context(),
+			connect.NewRequest(&orreryv1.MarkSeenRequest{Pane: pane, ReadUpTo: &readUpTo})); err != nil {
+			t.Fatalf("%s: Panes.MarkSeen: %v", step.name, err)
+		}
+		if len(calls) != 1 || calls[0] != (seenCall{pane: pane, seen: step.want}) {
+			t.Fatalf("%s: reports = %+v, want one for %s at %d", step.name, calls, pane, step.want)
+		}
+	}
+}
+
+func TestPanesMarkSeenReporterErrorAnswersInternal(t *testing.T) {
+	t.Parallel()
+
+	reported := int64(1700000100)
+	tmux := newTmuxServer(t)
+	pane, _ := startInputPane(t, tmux, "s1", synthScreen)
+	var calls []seenCall
+	handler := newSeenHandler(t, tmux, seenRecorder(&calls, errors.New("daemon unreachable")))
+	client := panesClient(t, handler)
+
+	_, err := client.MarkSeen(t.Context(),
+		connect.NewRequest(&orreryv1.MarkSeenRequest{Pane: pane, ReadUpTo: &reported}))
+	var connectErr *connect.Error
+	if !errors.As(err, &connectErr) {
+		t.Fatalf("Panes.MarkSeen error = %v, want a *connect.Error", err)
+	}
+	if connectErr.Code() != connect.CodeInternal {
+		t.Fatalf("Panes.MarkSeen code = %v, want %v", connectErr.Code(), connect.CodeInternal)
+	}
+	if connectErr.Message() != "internal server error" {
+		t.Fatalf("Panes.MarkSeen message = %q, want %q", connectErr.Message(), "internal server error")
+	}
+	if len(calls) != 1 {
+		t.Fatalf("reports = %d, want 1", len(calls))
+	}
+	if got := seenOption(t, tmux, pane); got != reported {
+		t.Fatalf("%s = %d after reporter error, want the mark kept at %d", protocol.OptionSeen, got, reported)
+	}
+}

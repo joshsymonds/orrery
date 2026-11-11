@@ -10,6 +10,7 @@ import (
 
 	"connectrpc.com/connect"
 
+	"github.com/joshsymonds/orrery/internal/cli"
 	"github.com/joshsymonds/orrery/internal/conversation"
 	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/v1"
 	orreryv1connect "github.com/joshsymonds/orrery/internal/gen/orrery/v1/orreryv1connect"
@@ -24,6 +25,7 @@ type panesServer struct {
 	queues    *conversation.Queues
 	textLocks *paneLocks
 	seenLocks *paneLocks
+	report    cli.SeenReporter
 }
 
 // newPanesHandler returns the path and handler that serve Panes over the instances New shares with the REST pane routes.
@@ -33,6 +35,7 @@ func newPanesHandler(
 	goals *conversation.Goals,
 	queues *conversation.Queues,
 	textLocks, seenLocks *paneLocks,
+	report cli.SeenReporter,
 ) (string, http.Handler) {
 	return orreryv1connect.NewPanesHandler(panesServer{
 		tmux:      tmux,
@@ -41,6 +44,7 @@ func newPanesHandler(
 		queues:    queues,
 		textLocks: textLocks,
 		seenLocks: seenLocks,
+		report:    report,
 	})
 }
 
@@ -171,7 +175,7 @@ func (s panesServer) MarkSeen(
 	if _, err := checkPane(ctx, s.tmux, req.Msg.GetPane()); err != nil {
 		return nil, connectError(paneRouteError(err))
 	}
-	if err := markPaneSeen(ctx, s.tmux, s.seenLocks, nil, req.Msg.GetPane(), req.Msg.ReadUpTo); err != nil {
+	if err := markPaneSeen(ctx, s.tmux, s.seenLocks, s.report, req.Msg.GetPane(), req.Msg.ReadUpTo); err != nil {
 		return nil, connectError(err)
 	}
 	return connect.NewResponse(&v1.MarkSeenResponse{}), nil

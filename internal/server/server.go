@@ -142,8 +142,8 @@ type Config struct {
 	Picker func() (open.Config, error)
 	// Now returns the current time, which dates the expiry of each picker token, or is nil for time.Now.
 	Now func() time.Time
-	// ReportSeen receives the pane and the seen time it holds after each POST /v1/panes/{id}/seen succeeds, or is
-	// nil to report nothing.
+	// ReportSeen receives the pane and the seen time it holds after each POST /v1/panes/{id}/seen or Panes.MarkSeen
+	// succeeds, or is nil to report nothing.
 	ReportSeen cli.SeenReporter
 }
 
@@ -194,7 +194,7 @@ func New(cfg Config) (http.Handler, error) {
 	mux.Handle(eventsPath, events)
 	controlPath, control := newControlHandler(cfg.Engine, cfg.ControlTimeout, cfg.Home)
 	mux.Handle(controlPath, control)
-	panesPath, panesService := newPanesHandler(cfg.Tmux, newest, goals, queues, textLocks, seenLocks)
+	panesPath, panesService := newPanesHandler(cfg.Tmux, newest, goals, queues, textLocks, seenLocks, cfg.ReportSeen)
 	mux.Handle(panesPath, panesService)
 	hostPath, hostService := newHostHandler(cfg.HostStatus)
 	mux.Handle(hostPath, hostService)
