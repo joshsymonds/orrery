@@ -17,6 +17,8 @@ const (
 	testName   = "work-1"
 	testResume = "00000000-0000-4000-8000-000000000001"
 	testModel  = "haiku"
+	testAgent  = "haiku-medium"
+	testSchema = `{"type":"object"}`
 )
 
 // testConfig is a valid session configuration; each case changes one field from it.
@@ -142,6 +144,54 @@ func TestCommandResumedModelSession(t *testing.T) {
 		t.Fatalf("Command: %v", err)
 	}
 	want := append(wantSessionArgs(testClaude, testMode), "--resume", testResume, "--model", testModel)
+	if !slices.Equal(cmd.Args, want) {
+		t.Errorf("Args =\n%q\nwant\n%q", cmd.Args, want)
+	}
+}
+
+func TestCommandAgentSession(t *testing.T) {
+	t.Parallel()
+	cfg := testConfig()
+	cfg.Agent = testAgent
+	cfg.Schema = testSchema
+	cmd, err := Command(cfg)
+	if err != nil {
+		t.Fatalf("Command: %v", err)
+	}
+	want := append(wantSessionArgs(testClaude, testMode),
+		"--agent", testAgent, "--strict-mcp-config", "--json-schema", testSchema)
+	if !slices.Equal(cmd.Args, want) {
+		t.Errorf("Args =\n%q\nwant\n%q", cmd.Args, want)
+	}
+}
+
+func TestCommandAgentResumedModelSession(t *testing.T) {
+	t.Parallel()
+	cfg := testConfig()
+	cfg.Resume = testResume
+	cfg.Model = testModel
+	cfg.Agent = testAgent
+	cfg.Schema = testSchema
+	cmd, err := Command(cfg)
+	if err != nil {
+		t.Fatalf("Command: %v", err)
+	}
+	want := append(wantSessionArgs(testClaude, testMode), "--resume", testResume, "--model", testModel,
+		"--agent", testAgent, "--strict-mcp-config", "--json-schema", testSchema)
+	if !slices.Equal(cmd.Args, want) {
+		t.Errorf("Args =\n%q\nwant\n%q", cmd.Args, want)
+	}
+}
+
+func TestCommandSchemaWithoutAgent(t *testing.T) {
+	t.Parallel()
+	cfg := testConfig()
+	cfg.Schema = testSchema
+	cmd, err := Command(cfg)
+	if err != nil {
+		t.Fatalf("Command: %v", err)
+	}
+	want := append(wantSessionArgs(testClaude, testMode), "--json-schema", testSchema)
 	if !slices.Equal(cmd.Args, want) {
 		t.Errorf("Args =\n%q\nwant\n%q", cmd.Args, want)
 	}

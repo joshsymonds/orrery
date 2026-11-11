@@ -24,7 +24,8 @@ func ShellArgs(login bool, argv0, program string, args ...string) []string {
 
 // Config describes one session start. Shell is the owner's login shell, Claude the claude binary, Dir
 // the working directory, Resume a session id to resume or empty, Model the model alias to run or empty,
-// Name orrery's name for the session, and Environ the daemon's environment.
+// Name orrery's name for the session, Agent the claude agent to run or empty, Schema the JSON schema
+// claude must return its result in or empty, and Environ the daemon's environment.
 type Config struct {
 	Shell          string
 	Claude         string
@@ -32,13 +33,16 @@ type Config struct {
 	PermissionMode string
 	Resume         string
 	Model          string
+	Agent          string
+	Schema         string
 	Name           string
 	Environ        []string
 }
 
 // Command returns the process that starts a headless session: the owner's login shell execs claude in
 // the stream-json form with the permission prompt tool on stdio and the configured permission mode. It
-// resumes Resume when set and runs Model when set. The environment is Environ without the names dropsEnv drops, then the
+// resumes Resume when set, runs Model when set, and runs Agent with a strict MCP config and returns
+// Schema as its result when set. The environment is Environ without the names dropsEnv drops, then the
 // session marker. An error is returned, with no Command, when Shell or Claude is not absolute, or when
 // Dir, PermissionMode or Name is empty.
 func Command(cfg Config) (proc.Config, error) {
@@ -71,6 +75,12 @@ func Command(cfg Config) (proc.Config, error) {
 	}
 	if cfg.Model != "" {
 		args = append(args, "--model", cfg.Model)
+	}
+	if cfg.Agent != "" {
+		args = append(args, "--agent", cfg.Agent, "--strict-mcp-config")
+	}
+	if cfg.Schema != "" {
+		args = append(args, "--json-schema", cfg.Schema)
 	}
 	env := make([]string, 0, len(cfg.Environ)+1)
 	for _, entry := range cfg.Environ {
