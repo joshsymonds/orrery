@@ -306,9 +306,8 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 		sessionNtfy = publisher
 	}
 	notifier := enginehost.NewNotifier(enginehost.NotifierConfig{
-		Host:   host,
 		Ntfy:   sessionNtfy,
-		Push:   pushes,
+		Push:   notices,
 		Logger: logger,
 	})
 	var sessions *sessionHost
@@ -332,11 +331,12 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 		Mirror: mirror,
 	})
 	hub.wait()
-	notices.Wait()
 	var sessionErr error
 	if sessions != nil {
 		sessionErr = sessions.stop()
 	}
+	// Stopping the sessions can notify an interrupted turn, so the notice record is waited on after it.
+	notices.Wait()
 	closeStore(ctx, st, logger)
 	if serveErr != nil {
 		return errors.Join(fmt.Errorf("serve: %w", serveErr), sessionErr)
@@ -431,8 +431,9 @@ func (h *sessionHost) stop() error {
 	return nil
 }
 
-// shutdown stops the idle check, stops every live session and waits for the notices they started, and ends the writer
-// after its last flush. Without a manager and writer it does nothing.
+// shutdown stops the idle check, stops every live session and waits for the ntfy posts they started, and ends the
+// writer after its last flush. Their Web Push sends are waited on in serve. Without a manager and writer it does
+// nothing.
 func (h *sessionHost) shutdown() {
 	if h.manager != nil {
 		h.stopIdle()

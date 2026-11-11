@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/joshsymonds/orrery/internal/notice"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/push"
 )
@@ -18,7 +19,6 @@ const (
 	notifierSession      = "0123456789abcdef0123456789abcdef"
 	notifierShortSession = "01234567"
 	notifierDir          = "/x/proj"
-	notifierHost         = "ultraviolet"
 	notifierProject      = "proj"
 	// notifierGuard bounds each wait for a post. It is a hang guard, never a timing assumption.
 	notifierGuard = 30 * time.Second
@@ -50,26 +50,40 @@ func (f *fakeNtfy) PublishSession(ctx context.Context, project, session, state, 
 	return f.err
 }
 
-// fakePush records the notifications it receives. A non-nil gate holds each post until it is closed.
-type fakePush struct {
-	gate     <-chan struct{}
-	err      error
-	notes    []push.Notification
+// pushNotify is one Notify call the fake notice record received, with the notification its build returned.
+type pushNotify struct {
+	key  notice.Key
+	note push.Notification
+	err  error
+}
+
+// seenReport is one Seen call the fake notice record received.
+type seenReport struct {
+	key  notice.Key
+	seen int64
+}
+
+// fakePushNotices records the notices and seen reports it receives. Notify runs build as the notice record does.
+type fakePushNotices struct {
+	notifies []pushNotify
+	seens    []seenReport
 	canceled bool
 }
 
-func (f *fakePush) Publish(ctx context.Context, note push.Notification) error {
-	if f.gate != nil {
-		<-f.gate
-	}
-	f.notes = append(f.notes, note)
+func (f *fakePushNotices) Notify(ctx context.Context, key notice.Key,
+	build func(context.Context) (push.Notification, error)) {
+	note, err := build(ctx)
+	f.notifies = append(f.notifies, pushNotify{key: key, note: note, err: err})
 	f.canceled = f.canceled || ctx.Err() != nil
-	return f.err
 }
 
-// notifyAndWait posts notice through n and waits for every post to finish.
-func notifyAndWait(n *Notifier, notice Notice) {
-	n.Notify(context.Background(), notice)
+func (f *fakePushNotices) Seen(_ context.Context, key notice.Key, seen int64) {
+	f.seens = append(f.seens, seenReport{key: key, seen: seen})
+}
+
+// notifyAndWait posts event through n and waits for every post to finish.
+func notifyAndWait(n *Notifier, event Notice) {
+	n.Notify(context.Background(), event)
 	n.Wait()
 }
 
@@ -97,39 +111,38 @@ func TestNotifyNtfyPayload(t *testing.T) {
 	}
 }
 
-func TestNotifyPushPayload(t *testing.T) {
+func TestNotifyHandsBuiltPushToNoticeRecord(t *testing.T) {
 	cases := []struct {
 		name, state, body string
 		want              push.Notification
 	}{
 		{
 			name: "waiting carries the body as the question", state: "waiting", body: "which file?",
-			want: push.Notification{Host: notifierHost, Project: notifierProject, Session: notifierSession,
-				State: protocol.StateWaiting, Question: "which file?"},
+			want: push.Notification{Project: notifierProject, State: protocol.StateWaiting, Question: "which file?"},
 		},
 		{
 			name: "waiting with an empty body carries no question", state: "waiting", body: "",
-			want: push.Notification{Host: notifierHost, Project: notifierProject, Session: notifierSession,
-				State: protocol.StateWaiting},
+			want: push.Notification{Project: notifierProject, State: protocol.StateWaiting},
 		},
 		{
 			name: "done carries the body as the summary", state: "done", body: "all tests pass",
-			want: push.Notification{Host: notifierHost, Project: notifierProject, Session: notifierSession,
-				State: protocol.StateDone, Summary: "all tests pass"},
+			want: push.Notification{Project: notifierProject, State: protocol.StateDone, Summary: "all tests pass"},
 		},
 		{
 			name: "failed carries the body as the summary", state: "failed", body: "build broke",
-			want: push.Notification{Host: notifierHost, Project: notifierProject, Session: notifierSession,
-				State: protocol.State("failed"), Summary: "build broke"},
+			want: push.Notification{Project: notifierProject, State: protocol.State("failed"), Summary: "build broke"},
 		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			pushes := &fakePush{}
-			n := NewNotifier(NotifierConfig{Host: notifierHost, Push: pushes})
-			notifyAndWait(n, Notice{Session: notifierSession, Dir: notifierDir, State: tc.state, Body: tc.body})
-			if len(pushes.notes) != 1 || pushes.notes[0] != tc.want {
-				t.Fatalf("push notes = %+v, want exactly [%+v]", pushes.notes, tc.want)
+			pushes := &fakePushNotices{}
+			n := NewNotifier(NotifierConfig{Push: pushes})
+			event := Notice{Session: notifierSession, Dir: notifierDir, State: tc.state, Body: tc.body}
+			n.Notify(context.Background(), event)
+			// The hand-off is synchronous: the record already holds the call, with no Wait.
+			want := pushNotify{key: notice.Key{Session: notifierSession}, note: tc.want}
+			if len(pushes.notifies) != 1 || pushes.notifies[0] != want {
+				t.Fatalf("notice record calls = %+v, want exactly [%+v]", pushes.notifies, want)
 			}
 		})
 	}
@@ -139,11 +152,11 @@ func TestNotifySkipsWorkingAndStopped(t *testing.T) {
 	for _, state := range []string{"working", "stopped"} {
 		t.Run(state, func(t *testing.T) {
 			ntfy := &fakeNtfy{}
-			pushes := &fakePush{}
+			pushes := &fakePushNotices{}
 			n := NewNotifier(NotifierConfig{Ntfy: ntfy, Push: pushes})
 			notifyAndWait(n, Notice{Session: notifierSession, Dir: notifierDir, State: state, Body: "text"})
-			if len(ntfy.posts) != 0 || len(pushes.notes) != 0 {
-				t.Fatalf("state %q posted ntfy=%+v push=%+v, want nothing", state, ntfy.posts, pushes.notes)
+			if len(ntfy.posts) != 0 || len(pushes.notifies) != 0 {
+				t.Fatalf("state %q posted ntfy=%+v push=%+v, want nothing", state, ntfy.posts, pushes.notifies)
 			}
 		})
 	}
@@ -151,11 +164,11 @@ func TestNotifySkipsWorkingAndStopped(t *testing.T) {
 
 func TestNotifyNilChannelIsSkipped(t *testing.T) {
 	t.Run("push only", func(t *testing.T) {
-		pushes := &fakePush{}
-		n := NewNotifier(NotifierConfig{Host: notifierHost, Push: pushes})
+		pushes := &fakePushNotices{}
+		n := NewNotifier(NotifierConfig{Push: pushes})
 		notifyAndWait(n, Notice{Session: notifierSession, Dir: notifierDir, State: "done", Body: "ok"})
-		if len(pushes.notes) != 1 {
-			t.Fatalf("push notes = %d, want 1", len(pushes.notes))
+		if len(pushes.notifies) != 1 {
+			t.Fatalf("notice record calls = %d, want 1", len(pushes.notifies))
 		}
 	})
 	t.Run("ntfy only", func(t *testing.T) {
@@ -165,6 +178,8 @@ func TestNotifyNilChannelIsSkipped(t *testing.T) {
 		if len(ntfy.posts) != 1 {
 			t.Fatalf("ntfy posts = %d, want 1", len(ntfy.posts))
 		}
+		// With no push channel, a seen report has nowhere to go and must not panic.
+		n.Seen(context.Background(), notifierSession, time.Unix(1, 0))
 	})
 }
 
@@ -206,9 +221,22 @@ func TestNotifyReturnsAtOnceAndWaitWaitsForPosts(t *testing.T) {
 	}
 }
 
+func TestNotifySeenForwardsSessionAndUnixTime(t *testing.T) {
+	pushes := &fakePushNotices{}
+	n := NewNotifier(NotifierConfig{Push: pushes})
+
+	seen := time.Unix(1_700_000_123, 500_000_000)
+	n.Seen(context.Background(), notifierSession, seen)
+
+	want := seenReport{key: notice.Key{Session: notifierSession}, seen: 1_700_000_123}
+	if len(pushes.seens) != 1 || pushes.seens[0] != want {
+		t.Fatalf("seen reports = %+v, want exactly [%+v]", pushes.seens, want)
+	}
+}
+
 func TestNotifyIgnoresCancellationOfCallerContext(t *testing.T) {
 	ntfy := &fakeNtfy{}
-	pushes := &fakePush{}
+	pushes := &fakePushNotices{}
 	n := NewNotifier(NotifierConfig{Ntfy: ntfy, Push: pushes})
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -216,48 +244,46 @@ func TestNotifyIgnoresCancellationOfCallerContext(t *testing.T) {
 	n.Notify(ctx, Notice{Session: notifierSession, Dir: notifierDir, State: "done", Body: "ok"})
 	n.Wait()
 
-	if len(ntfy.posts) != 1 || len(pushes.notes) != 1 {
-		t.Fatalf("posts after canceled Notify: ntfy=%d push=%d, want 1 each", len(ntfy.posts), len(pushes.notes))
+	if len(ntfy.posts) != 1 || len(pushes.notifies) != 1 {
+		t.Fatalf("posts after canceled Notify: ntfy=%d push=%d, want 1 each", len(ntfy.posts), len(pushes.notifies))
 	}
 	if ntfy.canceled {
 		t.Fatal("ntfy post saw the caller's cancellation")
 	}
 	if pushes.canceled {
-		t.Fatal("push post saw the caller's cancellation")
+		t.Fatal("push hand-off saw the caller's cancellation")
 	}
 }
 
-func TestNotifyLogsPushFailureWithoutEndpoint(t *testing.T) {
-	const endpoint = "https://push.example.test/send/secret-endpoint-token"
+func TestNotifyLogsNtfyFailureWithoutEndpoint(t *testing.T) {
+	const endpoint = "https://ntfy.example.test/topic/secret-topic-token"
 	var logs bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&logs, nil))
-	pushes := &fakePush{err: &url.Error{Op: "Post", URL: endpoint, Err: errors.New("connection refused")}}
-	ntfy := &fakeNtfy{err: errors.New("ntfy unreachable")}
-	n := NewNotifier(NotifierConfig{Host: notifierHost, Ntfy: ntfy, Push: pushes, Logger: logger})
+	ntfy := &fakeNtfy{err: &url.Error{Op: "Post", URL: endpoint, Err: errors.New("connection refused")}}
+	pushes := &fakePushNotices{}
+	n := NewNotifier(NotifierConfig{Ntfy: ntfy, Push: pushes, Logger: logger})
 
 	notifyAndWait(n, Notice{Session: notifierSession, Dir: notifierDir, State: "waiting", Body: "which file?"})
 
-	if len(pushes.notes) != 1 || len(ntfy.posts) != 1 {
-		t.Fatalf("a failing channel stopped the other: ntfy=%d push=%d, want 1 each",
-			len(ntfy.posts), len(pushes.notes))
+	if len(pushes.notifies) != 1 || len(ntfy.posts) != 1 {
+		t.Fatalf("a failing ntfy stopped the push: ntfy=%d push=%d, want 1 each",
+			len(ntfy.posts), len(pushes.notifies))
 	}
 	out := logs.String()
-	if strings.Contains(out, "secret-endpoint-token") {
-		t.Fatalf("log carries the push endpoint: %s", out)
+	if strings.Contains(out, "secret-topic-token") {
+		t.Fatalf("log carries the ntfy endpoint: %s", out)
 	}
 	if !strings.Contains(out, "connection refused") {
-		t.Fatalf("push failure was not logged: %s", out)
-	}
-	if !strings.Contains(out, "ntfy unreachable") {
 		t.Fatalf("ntfy failure was not logged: %s", out)
 	}
 }
 
 func TestNotifyNilLoggerDiscardsFailures(t *testing.T) {
-	pushes := &fakePush{err: errors.New("push down")}
-	n := NewNotifier(NotifierConfig{Push: pushes})
+	ntfy := &fakeNtfy{err: errors.New("ntfy down")}
+	pushes := &fakePushNotices{}
+	n := NewNotifier(NotifierConfig{Ntfy: ntfy, Push: pushes})
 	notifyAndWait(n, Notice{Session: notifierSession, Dir: notifierDir, State: "done", Body: "ok"})
-	if len(pushes.notes) != 1 {
-		t.Fatalf("push notes = %d, want 1", len(pushes.notes))
+	if len(ntfy.posts) != 1 || len(pushes.notifies) != 1 {
+		t.Fatalf("posts with nil logger: ntfy=%d push=%d, want 1 each", len(ntfy.posts), len(pushes.notifies))
 	}
 }
