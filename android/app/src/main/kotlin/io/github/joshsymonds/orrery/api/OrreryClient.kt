@@ -26,6 +26,8 @@ data class Pane(
     val question: String,
     val questionHash: String,
     val tool: String = "",
+    /** Unix seconds of the pane's newest reply or question; 0 when the server predates the key. */
+    val newestReply: Long = 0L,
 )
 
 data class PaneTool(val id: String, val name: String, val input: String, val start: Long)
@@ -147,6 +149,7 @@ class OrreryClient(
                 question = json.getString("question"),
                 questionHash = json.getString("question_hash"),
                 tool = json.optString("tool", ""),
+                newestReply = json.optLong("newest_reply", 0L),
             )
         }
     }

@@ -16,11 +16,21 @@ class OrreryClientTest {
            "cwd":"/home/user/project","command":"claude","state":"waiting",
            "summary":"Example summary.","label":"example-label",
            "changed":4102444800,"seen":4102444900,"question":"Example question?",
-           "question_hash":"abc123"},
+           "question_hash":"abc123","newest_reply":4102444950},
           {"id":"%4","host":"example-host","session":"other-session","window":0,"pane":0,
            "cwd":"/home/user/other","command":"zsh","state":"",
            "summary":"","label":"","changed":0,"seen":0,"question":"",
-           "question_hash":""}
+           "question_hash":"","newest_reply":null}
+        ]
+    """.trimIndent()
+
+    private val panesJsonWithoutNewestReply = """
+        [
+          {"id":"%3","host":"example-host","session":"example-session","window":1,"pane":2,
+           "cwd":"/home/user/project","command":"claude","state":"waiting",
+           "summary":"Example summary.","label":"example-label",
+           "changed":4102444800,"seen":4102444900,"question":"Example question?",
+           "question_hash":"abc123"}
         ]
     """.trimIndent()
 
@@ -62,6 +72,7 @@ class OrreryClientTest {
                         seen = 4102444900L,
                         question = "Example question?",
                         questionHash = "abc123",
+                        newestReply = 4102444950L,
                     ),
                     Pane(
                         id = "%4",
@@ -78,11 +89,25 @@ class OrreryClientTest {
                         seen = 0L,
                         question = "",
                         questionHash = "",
+                        newestReply = 0L,
                     ),
                 ),
                 panes,
             )
             assertEquals("GET", server.requests.single().method)
+        }
+    }
+
+    @Test
+    fun panesFromPreNewestReplyServerReadZero() {
+        FakeOrreryServer().use { server ->
+            server.respond("GET", "/v1/panes", 200, panesJsonWithoutNewestReply)
+
+            val panes = OrreryClient(server.baseUrl).panes()
+
+            assertEquals(1, panes.size)
+            assertEquals("%3", panes.single().id)
+            assertEquals(0L, panes.single().newestReply)
         }
     }
 
