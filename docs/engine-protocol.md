@@ -226,3 +226,75 @@ The findings of this section come from live probes on Claude Code 2.1.321 with `
 What the step engine does with a null return: the value is nil, and the schema check fails it with `$: missing return value` (`internal/enginehost/steploop.go:97`, `internal/enginehost/schema.go:183`). The return is sent back like any other failed check, and a step whose agent never forces a return ends `checks_failed` after its three send-backs.
 
 A return is taken only from a turn that ends with no background task live. The manager tracks the live background tasks of a session and hands the turn's end over only when none is live (`internal/enginehost/manager.go:1102`). The markers of a live task are in [What marks a live background task](#what-marks-a-live-background-task).
+
+## 14. Step tools
+
+`orrery [--socket PATH] mcp` serves the step tools as an MCP server on stdin and stdout. It serves until stdin closes and exits 0. Arguments after `mcp` exit 2. The transport is stdio only, so the process opens no listener and holds no database. It is a client of the `orrery.engine.v1.Steps` service (`proto/orrery/engine/v1/step.proto:7`) on `sessions.sock`, the socket beside the daemon socket (`internal/protocol/protocol.go:156`, `:159`; `cmd/orreryd/main.go:403`). Each tool call makes one `Steps` RPC: `step_start` calls `StartStep`, `step_status` calls `StepStatus`, `step_stop` calls `StopStep` and `step_wait` calls `WaitSteps` (`internal/stepmcp/tools.go:49`-`:76`).
+
+The package imports the connect client, the generated `Steps` stubs and the MCP server, and no database or listener package (`internal/stepmcp/tools.go:4`-`:18`). The step rows live in the daemon, so a result a caller lost in transit is still in its row (`step.proto:15`).
+
+### Protocol
+
+- The server reports MCP revision `2025-11-25` and the `tools` capability with `listChanged` false (`internal/mcp/server.go:23`, `:434`-`:445`). Messages are newline-delimited JSON-RPC 2.0 (`internal/mcp/server.go:169`-`:170`).
+- `tools/list` and `tools/call` need an initialized connection. Before `notifications/initialized`, a request gets `-32600` `Connection is not initialized` (`internal/mcp/server.go:456`-`:464`).
+- A message longer than 1 MiB, the newline included, is refused with `-32700` and id `null`, and the connection stays open (`internal/mcp/server.go:46`, `:197`-`:198`, `:544`-`:548`).
+- A connection runs at most 8 tool calls at once. A ninth is refused with `-32000` `Server already has 8 tool calls in flight` and is not queued (`internal/mcp/server.go:52`, `:499`-`:503`).
+- An unknown tool name is `-32602` `Unknown tool`. Arguments that are not a JSON object are `-32602` (`internal/mcp/server.go:487`-`:497`). An unknown method is `-32601` (`internal/mcp/server.go:407`-`:410`).
+- A handler error is not a JSON-RPC error. It is a tool result whose single text block is the error's message, with `isError` true (`internal/mcp/server.go:513`-`:517`). Argument errors, refused starts and daemon failures all arrive this way.
+- The server has no handler for `notifications/cancelled`, and a notification gets no reply (`internal/mcp/server.go:407`-`:410`). A handler's context ends only with the connection (`internal/mcp/server.go:60`-`:62`), so a cancelled call keeps its slot until its handler returns.
+
+### Arguments and results
+
+Every tool result is one text block holding JSON. Every argument object refuses unknown keys, so a misspelt key is an error (`internal/stepmcp/tools.go:105`-`:113`).
+
+#### step_start
+
+Arguments (`internal/stepmcp/tools.go:26`-`:37`). Required: `agent`, `prompt`, `workspace`, `schema`. Optional:
+
+- `revision`: the commit the step starts at. Empty means HEAD (`step.proto:36`).
+- `doneValue`: the status the done return carries. Empty means `done` (`step.proto:51`).
+- `readOnly`: a read-only step runs in a detached worktree removed when it ends (`step.proto:39`).
+- `ownedPaths`: the repository-relative paths a writing step may change.
+- `gate`: the gate program and its arguments. Empty runs no gate (`step.proto:45`).
+- `gateLimitSeconds`: an integer of 0 or more. Zero means 30 minutes (`step.proto:48`).
+
+`schema` is a JSON object argument, not a string; the server sends its JSON text to `StartStep` (`internal/stepmcp/tools.go:123`-`:133`). `agent`, `prompt` and `workspace` must be non-empty (`internal/stepmcp/tools.go:147`-`:155`).
+
+Result: `{"id": "<step id>"}`, returned once the step's row exists (`internal/stepmcp/tools.go:175`; `step.proto:8`). A refused start returns the refusal and no id.
+
+#### step_status
+
+Arguments: `id`, required and non-empty (`internal/stepmcp/tools.go:39`-`:40`, `:185`-`:187`). Result: the step object described below (`internal/stepmcp/tools.go:192`).
+
+#### step_stop
+
+Arguments: `id`, required and non-empty. Result: `{"id": "<step id>", "stopped": true}` (`internal/stepmcp/tools.go:208`). The result says `stopped: true` whenever the daemon accepted the call, since `StopStepResponse` has no fields (`step.proto:67`).
+
+#### step_wait
+
+Arguments (`internal/stepmcp/tools.go:42`-`:45`):
+
+- `ids`: a non-empty array of step ids. An empty id is refused (`internal/stepmcp/tools.go:240`-`:245`).
+- `timeoutSeconds`: optional. It must be a whole number of seconds, 0 or more. A fractional or negative value is an error with the text `timeoutSeconds must be a whole number of seconds, 0 or more` (`internal/stepmcp/tools.go:213`-`:221`).
+
+The wait is clamped to `MaxWait`, 25 minutes or 1500 seconds (`internal/stepmcp/tools.go:21`-`:23`). An omitted timeout is 1500 seconds. A timeout at or above 1500 is 1500 (`internal/stepmcp/tools.go:214`-`:224`). The clamp exists so that the call returns inside the time Claude Code allows a tool call, and the caller asks again (`internal/stepmcp/tools.go:21`-`:22`). A timeout of 0 returns at once (`step.proto:87`).
+
+Result: `{"ended": <step or null>, "steps": [<step>, ...]}` (`internal/stepmcp/tools.go:229`-`:265`). `ended` is the first step to end and is `null` when the timeout passes first. `steps` lists every named step in the order the request named them (`step.proto:93`, `:96`). On a timeout the caller reads each step's state from `steps`.
+
+#### The step object
+
+Every tool that reports a step returns these fields (`internal/stepmcp/tools.go:269`-`:284`):
+
+- `id`, `agent`, `workspace`, `revision`, `readOnly`, `worktree`: as the `Step` message defines them (`step.proto:101`-`:118`). `worktree` is empty for a writing step.
+- `end`, `reason`: empty while the step runs (`step.proto:120`, `:132`).
+- `status`: the done value the return carried, or the status the step ended with. `result`: the latest result the return carried (`step.proto:123`-`:127`).
+- `checks`: each `{round, name, ok, detail}` from the rounds the return's checks ran in (`internal/stepmcp/tools.go:287`-`:292`; `step.proto:129`).
+- `started`, `ended`: unix seconds. `ended` is 0 while the step runs (`step.proto:135`-`:138`).
+
+### Caller facts
+
+These are Claude Code 2.1.321 behaviors that the tool shapes answer to. No code or fixture in this repository records them.
+
+- A stdio tool call that stays silent is aborted after 30 minutes (`CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT`). The 25-minute clamp on `step_wait` keeps a wait inside that limit.
+- In an interactive session, a call still running after 120 seconds is moved to the background, unless `CLAUDE_CODE_MCP_AUTO_BACKGROUND_MS=0` is set. Step callers set it to 0.
+- The server ignores `notifications/cancelled`, so a cancelled `step_wait` holds its call slot until its timeout (see Protocol above).
