@@ -182,21 +182,30 @@ func conversationMessage(conv conversation.Conversation) *v1.ConversationRespons
 	items := make([]*v1.ConversationItem, 0, len(conv.Items))
 	for _, item := range conv.Items {
 		items = append(items, &v1.ConversationItem{
-			Kind:   item.Kind,
-			Time:   item.Time,
-			Text:   item.Text,
-			Tool:   item.Tool,
-			Input:  item.Input,
-			Id:     item.ID,
-			Error:  item.Error,
-			Notice: item.Notice,
+			Kind:    item.Kind,
+			Time:    item.Time,
+			Text:    item.Text,
+			Tool:    item.Tool,
+			Input:   item.Input,
+			Id:      item.ID,
+			Error:   item.Error,
+			Notice:  item.Notice,
+			Trigger: item.Trigger,
+			Tokens:  item.Tokens,
 		})
 	}
 	waiting := make([]*v1.WaitingMessage, 0, len(conv.Waiting))
 	for _, msg := range conv.Waiting {
 		waiting = append(waiting, &v1.WaitingMessage{Text: msg.Text, Time: msg.Time, Canceled: msg.Canceled})
 	}
-	return &v1.ConversationResponse{Origin: conv.Origin, Items: items, Goal: conv.Goal, Waiting: waiting}
+	figure := &v1.ConversationContext{Tokens: conv.Context.Tokens, Window: conv.Context.Window}
+	return &v1.ConversationResponse{
+		Origin:  conv.Origin,
+		Items:   items,
+		Goal:    conv.Goal,
+		Waiting: waiting,
+		Context: figure,
+	}
 }
 
 // paneMessages returns the Pane messages of the panes listPanes gives, in order. It reads the same JSON objects

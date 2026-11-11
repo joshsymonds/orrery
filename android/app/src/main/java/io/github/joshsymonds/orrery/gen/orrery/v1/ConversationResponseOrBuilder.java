@@ -101,4 +101,23 @@ public interface ConversationResponseOrBuilder extends
    * <code>repeated .orrery.v1.WaitingMessage waiting = 4 [json_name = "waiting"];</code>
    */
   int getWaitingCount();
+
+  /**
+   * <pre>
+   * The context figure of the conversation: its tokens out of its window.
+   * </pre>
+   *
+   * <code>.orrery.v1.ConversationContext context = 5 [json_name = "context"];</code>
+   * @return Whether the context field is set.
+   */
+  boolean hasContext();
+  /**
+   * <pre>
+   * The context figure of the conversation: its tokens out of its window.
+   * </pre>
+   *
+   * <code>.orrery.v1.ConversationContext context = 5 [json_name = "context"];</code>
+   * @return The context.
+   */
+  io.github.joshsymonds.orrery.gen.orrery.v1.ConversationContext getContext();
 }

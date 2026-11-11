@@ -25,6 +25,7 @@ public  final class ConversationItem extends
     input_ = "";
     id_ = "";
     notice_ = "";
+    trigger_ = "";
   }
   public static final int KIND_FIELD_NUMBER = 1;
   private java.lang.String kind_;
@@ -502,6 +503,111 @@ public  final class ConversationItem extends
     checkByteStringIsUtf8(value);
     notice_ = value.toStringUtf8();
 
+  }
+
+  public static final int TRIGGER_FIELD_NUMBER = 9;
+  private java.lang.String trigger_;
+  /**
+   * <pre>
+   * The trigger of a compaction item, auto or manual, or empty when the item is not a compaction.
+   * </pre>
+   *
+   * <code>string trigger = 9 [json_name = "trigger"];</code>
+   * @return The trigger.
+   */
+  @java.lang.Override
+  public java.lang.String getTrigger() {
+    return trigger_;
+  }
+  /**
+   * <pre>
+   * The trigger of a compaction item, auto or manual, or empty when the item is not a compaction.
+   * </pre>
+   *
+   * <code>string trigger = 9 [json_name = "trigger"];</code>
+   * @return The bytes for trigger.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getTriggerBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(trigger_);
+  }
+  /**
+   * <pre>
+   * The trigger of a compaction item, auto or manual, or empty when the item is not a compaction.
+   * </pre>
+   *
+   * <code>string trigger = 9 [json_name = "trigger"];</code>
+   * @param value The trigger to set.
+   */
+  private void setTrigger(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    trigger_ = value;
+  }
+  /**
+   * <pre>
+   * The trigger of a compaction item, auto or manual, or empty when the item is not a compaction.
+   * </pre>
+   *
+   * <code>string trigger = 9 [json_name = "trigger"];</code>
+   */
+  private void clearTrigger() {
+
+    trigger_ = getDefaultInstance().getTrigger();
+  }
+  /**
+   * <pre>
+   * The trigger of a compaction item, auto or manual, or empty when the item is not a compaction.
+   * </pre>
+   *
+   * <code>string trigger = 9 [json_name = "trigger"];</code>
+   * @param value The bytes for trigger to set.
+   */
+  private void setTriggerBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    trigger_ = value.toStringUtf8();
+
+  }
+
+  public static final int TOKENS_FIELD_NUMBER = 10;
+  private long tokens_;
+  /**
+   * <pre>
+   * The tokens a compaction item held before it was compacted, or 0 when the item is not a compaction.
+   * </pre>
+   *
+   * <code>int64 tokens = 10 [json_name = "tokens"];</code>
+   * @return The tokens.
+   */
+  @java.lang.Override
+  public long getTokens() {
+    return tokens_;
+  }
+  /**
+   * <pre>
+   * The tokens a compaction item held before it was compacted, or 0 when the item is not a compaction.
+   * </pre>
+   *
+   * <code>int64 tokens = 10 [json_name = "tokens"];</code>
+   * @param value The tokens to set.
+   */
+  private void setTokens(long value) {
+    
+    tokens_ = value;
+  }
+  /**
+   * <pre>
+   * The tokens a compaction item held before it was compacted, or 0 when the item is not a compaction.
+   * </pre>
+   *
+   * <code>int64 tokens = 10 [json_name = "tokens"];</code>
+   */
+  private void clearTokens() {
+
+    tokens_ = 0L;
   }
 
   public static io.github.joshsymonds.orrery.gen.orrery.v1.ConversationItem parseFrom(
@@ -1099,6 +1205,115 @@ public  final class ConversationItem extends
       return this;
     }
 
+    /**
+     * <pre>
+     * The trigger of a compaction item, auto or manual, or empty when the item is not a compaction.
+     * </pre>
+     *
+     * <code>string trigger = 9 [json_name = "trigger"];</code>
+     * @return The trigger.
+     */
+    @java.lang.Override
+    public java.lang.String getTrigger() {
+      return instance.getTrigger();
+    }
+    /**
+     * <pre>
+     * The trigger of a compaction item, auto or manual, or empty when the item is not a compaction.
+     * </pre>
+     *
+     * <code>string trigger = 9 [json_name = "trigger"];</code>
+     * @return The bytes for trigger.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getTriggerBytes() {
+      return instance.getTriggerBytes();
+    }
+    /**
+     * <pre>
+     * The trigger of a compaction item, auto or manual, or empty when the item is not a compaction.
+     * </pre>
+     *
+     * <code>string trigger = 9 [json_name = "trigger"];</code>
+     * @param value The trigger to set.
+     * @return This builder for chaining.
+     */
+    public Builder setTrigger(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setTrigger(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The trigger of a compaction item, auto or manual, or empty when the item is not a compaction.
+     * </pre>
+     *
+     * <code>string trigger = 9 [json_name = "trigger"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearTrigger() {
+      copyOnWrite();
+      instance.clearTrigger();
+      return this;
+    }
+    /**
+     * <pre>
+     * The trigger of a compaction item, auto or manual, or empty when the item is not a compaction.
+     * </pre>
+     *
+     * <code>string trigger = 9 [json_name = "trigger"];</code>
+     * @param value The bytes for trigger to set.
+     * @return This builder for chaining.
+     */
+    public Builder setTriggerBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setTriggerBytes(value);
+      return this;
+    }
+
+    /**
+     * <pre>
+     * The tokens a compaction item held before it was compacted, or 0 when the item is not a compaction.
+     * </pre>
+     *
+     * <code>int64 tokens = 10 [json_name = "tokens"];</code>
+     * @return The tokens.
+     */
+    @java.lang.Override
+    public long getTokens() {
+      return instance.getTokens();
+    }
+    /**
+     * <pre>
+     * The tokens a compaction item held before it was compacted, or 0 when the item is not a compaction.
+     * </pre>
+     *
+     * <code>int64 tokens = 10 [json_name = "tokens"];</code>
+     * @param value The tokens to set.
+     * @return This builder for chaining.
+     */
+    public Builder setTokens(long value) {
+      copyOnWrite();
+      instance.setTokens(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The tokens a compaction item held before it was compacted, or 0 when the item is not a compaction.
+     * </pre>
+     *
+     * <code>int64 tokens = 10 [json_name = "tokens"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearTokens() {
+      copyOnWrite();
+      instance.clearTokens();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:orrery.v1.ConversationItem)
   }
   @java.lang.Override
@@ -1123,10 +1338,12 @@ public  final class ConversationItem extends
             "id_",
             "error_",
             "notice_",
+            "trigger_",
+            "tokens_",
           };
           java.lang.String info =
-              "\u0000\b\u0000\u0000\u0001\b\b\u0000\u0000\u0000\u0001\u0208\u0002\u0002\u0003\u0208" +
-              "\u0004\u0208\u0005\u0208\u0006\u0208\u0007\u0007\b\u0208";
+              "\u0000\n\u0000\u0000\u0001\n\n\u0000\u0000\u0000\u0001\u0208\u0002\u0002\u0003\u0208" +
+              "\u0004\u0208\u0005\u0208\u0006\u0208\u0007\u0007\b\u0208\t\u0208\n\u0002";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

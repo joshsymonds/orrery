@@ -24,6 +24,7 @@ public  final class ConversationResponse extends
     goal_ = "";
     waiting_ = emptyProtobufList();
   }
+  private int bitField0_;
   public static final int ORIGIN_FIELD_NUMBER = 1;
   private java.lang.String origin_;
   /**
@@ -432,6 +433,73 @@ public  final class ConversationResponse extends
   private void removeWaiting(int index) {
     ensureWaitingIsMutable();
     waiting_.remove(index);
+  }
+
+  public static final int CONTEXT_FIELD_NUMBER = 5;
+  private io.github.joshsymonds.orrery.gen.orrery.v1.ConversationContext context_;
+  /**
+   * <pre>
+   * The context figure of the conversation: its tokens out of its window.
+   * </pre>
+   *
+   * <code>.orrery.v1.ConversationContext context = 5 [json_name = "context"];</code>
+   */
+  @java.lang.Override
+  public boolean hasContext() {
+    return ((bitField0_ & 0x00000001) != 0);
+  }
+  /**
+   * <pre>
+   * The context figure of the conversation: its tokens out of its window.
+   * </pre>
+   *
+   * <code>.orrery.v1.ConversationContext context = 5 [json_name = "context"];</code>
+   */
+  @java.lang.Override
+  public io.github.joshsymonds.orrery.gen.orrery.v1.ConversationContext getContext() {
+    return context_ == null ? io.github.joshsymonds.orrery.gen.orrery.v1.ConversationContext.getDefaultInstance() : context_;
+  }
+  /**
+   * <pre>
+   * The context figure of the conversation: its tokens out of its window.
+   * </pre>
+   *
+   * <code>.orrery.v1.ConversationContext context = 5 [json_name = "context"];</code>
+   */
+  private void setContext(io.github.joshsymonds.orrery.gen.orrery.v1.ConversationContext value) {
+    java.util.Objects.requireNonNull(value);
+    context_ = value;
+    bitField0_ |= 0x00000001;
+  }
+  /**
+   * <pre>
+   * The context figure of the conversation: its tokens out of its window.
+   * </pre>
+   *
+   * <code>.orrery.v1.ConversationContext context = 5 [json_name = "context"];</code>
+   */
+  @java.lang.SuppressWarnings("ReferenceEquality")
+  private void mergeContext(io.github.joshsymonds.orrery.gen.orrery.v1.ConversationContext value) {
+    java.util.Objects.requireNonNull(value);
+    if (context_ != null &&
+        context_ != io.github.joshsymonds.orrery.gen.orrery.v1.ConversationContext.getDefaultInstance()) {
+      context_ =
+        io.github.joshsymonds.orrery.gen.orrery.v1.ConversationContext.newBuilder(context_).mergeFrom(value).buildPartial();
+    } else {
+      context_ = value;
+    }
+    bitField0_ |= 0x00000001;
+  }
+  /**
+   * <pre>
+   * The context figure of the conversation: its tokens out of its window.
+   * </pre>
+   *
+   * <code>.orrery.v1.ConversationContext context = 5 [json_name = "context"];</code>
+   */
+  private void clearContext() {
+    context_ = null;
+    bitField0_ = (bitField0_ & ~0x00000001);
   }
 
   public static io.github.joshsymonds.orrery.gen.orrery.v1.ConversationResponse parseFrom(
@@ -973,6 +1041,77 @@ public  final class ConversationResponse extends
       return this;
     }
 
+    /**
+     * <pre>
+     * The context figure of the conversation: its tokens out of its window.
+     * </pre>
+     *
+     * <code>.orrery.v1.ConversationContext context = 5 [json_name = "context"];</code>
+     */
+    @java.lang.Override
+    public boolean hasContext() {
+      return instance.hasContext();
+    }
+    /**
+     * <pre>
+     * The context figure of the conversation: its tokens out of its window.
+     * </pre>
+     *
+     * <code>.orrery.v1.ConversationContext context = 5 [json_name = "context"];</code>
+     */
+    @java.lang.Override
+    public io.github.joshsymonds.orrery.gen.orrery.v1.ConversationContext getContext() {
+      return instance.getContext();
+    }
+    /**
+     * <pre>
+     * The context figure of the conversation: its tokens out of its window.
+     * </pre>
+     *
+     * <code>.orrery.v1.ConversationContext context = 5 [json_name = "context"];</code>
+     */
+    public Builder setContext(io.github.joshsymonds.orrery.gen.orrery.v1.ConversationContext value) {
+      copyOnWrite();
+      instance.setContext(value);
+      return this;
+      }
+    /**
+     * <pre>
+     * The context figure of the conversation: its tokens out of its window.
+     * </pre>
+     *
+     * <code>.orrery.v1.ConversationContext context = 5 [json_name = "context"];</code>
+     */
+    public Builder setContext(
+        io.github.joshsymonds.orrery.gen.orrery.v1.ConversationContext.Builder builderForValue) {
+      copyOnWrite();
+      instance.setContext(builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * The context figure of the conversation: its tokens out of its window.
+     * </pre>
+     *
+     * <code>.orrery.v1.ConversationContext context = 5 [json_name = "context"];</code>
+     */
+    public Builder mergeContext(io.github.joshsymonds.orrery.gen.orrery.v1.ConversationContext value) {
+      copyOnWrite();
+      instance.mergeContext(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The context figure of the conversation: its tokens out of its window.
+     * </pre>
+     *
+     * <code>.orrery.v1.ConversationContext context = 5 [json_name = "context"];</code>
+     */
+    public Builder clearContext() {  copyOnWrite();
+      instance.clearContext();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:orrery.v1.ConversationResponse)
   }
   @java.lang.Override
@@ -989,16 +1128,18 @@ public  final class ConversationResponse extends
       }
       case BUILD_MESSAGE_INFO: {
           java.lang.Object[] objects = new java.lang.Object[] {
+            "bitField0_",
             "origin_",
             "items_",
             io.github.joshsymonds.orrery.gen.orrery.v1.ConversationItem.class,
             "goal_",
             "waiting_",
             io.github.joshsymonds.orrery.gen.orrery.v1.WaitingMessage.class,
+            "context_",
           };
           java.lang.String info =
-              "\u0000\u0004\u0000\u0000\u0001\u0004\u0004\u0000\u0002\u0000\u0001\u0208\u0002\u001b" +
-              "\u0003\u0208\u0004\u001b";
+              "\u0000\u0005\u0000\u0001\u0001\u0005\u0005\u0000\u0002\u0000\u0001\u0208\u0002\u001b" +
+              "\u0003\u0208\u0004\u001b\u0005\u1009\u0000";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

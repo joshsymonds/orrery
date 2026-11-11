@@ -381,6 +381,9 @@ const (
 	conversationParityToolID = "synthetic-tool-use"
 	conversationParityResult = "synthetic tool output"
 	conversationParityReply  = "synthetic reply after the tool"
+	conversationParityTrig   = "manual"
+	conversationParitySum    = "synthetic compaction summary"
+	conversationParityAfter  = "synthetic reply after compaction"
 	synthCanceled            = "synthetic canceled message"
 )
 
@@ -390,18 +393,27 @@ type restConversation struct {
 	Items   []restItem       `json:"items"`
 	Goal    string           `json:"goal"`
 	Waiting []restWaitingMsg `json:"waiting"`
+	Context restContext      `json:"context"`
+}
+
+// restContext is the context key of GET /v1/panes/{id}/conversation.
+type restContext struct {
+	Tokens int64 `json:"tokens"`
+	Window int64 `json:"window"`
 }
 
 // restItem is one element of the items array of GET /v1/panes/{id}/conversation.
 type restItem struct {
-	Kind   string `json:"kind"`
-	Time   int64  `json:"time"`
-	Text   string `json:"text"`
-	Tool   string `json:"tool"`
-	Input  string `json:"input"`
-	ID     string `json:"id"`
-	Error  bool   `json:"error"`
-	Notice string `json:"notice"`
+	Kind    string `json:"kind"`
+	Time    int64  `json:"time"`
+	Text    string `json:"text"`
+	Tool    string `json:"tool"`
+	Input   string `json:"input"`
+	ID      string `json:"id"`
+	Error   bool   `json:"error"`
+	Notice  string `json:"notice"`
+	Trigger string `json:"trigger"`
+	Tokens  int64  `json:"tokens"`
 }
 
 // restWaitingMsg is one element of the waiting array of GET /v1/panes/{id}/conversation.
@@ -416,26 +428,36 @@ func (c restConversation) message() *orreryv1.ConversationResponse {
 	items := make([]*orreryv1.ConversationItem, 0, len(c.Items))
 	for _, item := range c.Items {
 		items = append(items, &orreryv1.ConversationItem{
-			Kind:   item.Kind,
-			Time:   item.Time,
-			Text:   item.Text,
-			Tool:   item.Tool,
-			Input:  item.Input,
-			Id:     item.ID,
-			Error:  item.Error,
-			Notice: item.Notice,
+			Kind:    item.Kind,
+			Time:    item.Time,
+			Text:    item.Text,
+			Tool:    item.Tool,
+			Input:   item.Input,
+			Id:      item.ID,
+			Error:   item.Error,
+			Notice:  item.Notice,
+			Trigger: item.Trigger,
+			Tokens:  item.Tokens,
 		})
 	}
 	waiting := make([]*orreryv1.WaitingMessage, 0, len(c.Waiting))
 	for _, msg := range c.Waiting {
 		waiting = append(waiting, &orreryv1.WaitingMessage{Text: msg.Text, Time: msg.Time, Canceled: msg.Canceled})
 	}
-	return &orreryv1.ConversationResponse{Origin: c.Origin, Items: items, Goal: c.Goal, Waiting: waiting}
+	figure := &orreryv1.ConversationContext{Tokens: c.Context.Tokens, Window: c.Context.Window}
+	return &orreryv1.ConversationResponse{
+		Origin:  c.Origin,
+		Items:   items,
+		Goal:    c.Goal,
+		Waiting: waiting,
+		Context: figure,
+	}
 }
 
 // writeParityConversation writes a synthetic transcript to a new file in t.TempDir and returns its path. It holds a
-// prompt, a tool call with its result, a reply, a goal that is not met, a queued message and a canceled one. Each
-// line has its own timestamp, so each item and waiting message has its own time.
+// prompt, a tool call with its result, a reply, a compaction with its boundary, a reply after the compaction whose
+// usage sets the context figure, a goal that is not met, a queued message and a canceled one. Each line has its own
+// timestamp, so each item and waiting message has its own time.
 func writeParityConversation(t *testing.T) string {
 	t.Helper()
 	at := func(second int) string { return fmt.Sprintf("2026-01-02T03:04:%02dZ", second) }
@@ -447,16 +469,38 @@ func writeParityConversation(t *testing.T) string {
 			`"content":%q,"is_error":true}]}}`, at(3), conversationParityToolID, conversationParityResult),
 		fmt.Sprintf(`{"type":"assistant","timestamp":%q,"message":{"content":[{"type":"text","text":%q}]}}`,
 			at(4), conversationParityReply),
+		fmt.Sprintf(`{"type":"system","subtype":"compact_boundary","timestamp":%q,"compactMetadata":`+
+			`{"trigger":%q,"preTokens":91234,"postTokens":4321}}`, at(5), conversationParityTrig),
+		fmt.Sprintf(`{"type":"user","timestamp":%q,"isCompactSummary":true,"message":{"role":"user","content":%q}}`,
+			at(6), conversationParitySum),
+		fmt.Sprintf(`{"type":"assistant","timestamp":%q,"message":{"content":[{"type":"text","text":%q}],`+
+			`"usage":{"input_tokens":1500,"cache_creation_input_tokens":500,"cache_read_input_tokens":2000}}}`,
+			at(7), conversationParityAfter),
 	}, "\n") + "\n" +
 		goalRecord(synthGoal, false) +
-		queueLine("enqueue", synthQueued, at(5), "") +
-		queueLine("enqueue", synthCanceled, at(6), "") +
-		queueLine("remove", synthCanceled, at(7), "cleared_on_cancel")
+		queueLine("enqueue", synthQueued, at(8), "") +
+		queueLine("enqueue", synthCanceled, at(9), "") +
+		queueLine("remove", synthCanceled, at(10), "cleared_on_cancel")
 	path := filepath.Join(t.TempDir(), "transcript.jsonl")
 	if err := os.WriteFile(path, []byte(text), 0o600); err != nil {
 		t.Fatalf("write transcript: %v", err)
 	}
 	return path
+}
+
+// assertCompactionItem fails unless rest holds a compaction item with a trigger and non-zero tokens.
+func assertCompactionItem(t *testing.T, rest restConversation) {
+	t.Helper()
+	for _, item := range rest.Items {
+		if item.Kind != "compaction" {
+			continue
+		}
+		if item.Trigger != conversationParityTrig || item.Tokens == 0 {
+			t.Fatalf("REST compaction item = %+v, want trigger %q and non-zero tokens", item, conversationParityTrig)
+		}
+		return
+	}
+	t.Fatalf("REST answer items = %+v, want a compaction item", rest.Items)
 }
 
 func TestPanesConversationParity(t *testing.T) {
@@ -473,7 +517,7 @@ func TestPanesConversationParity(t *testing.T) {
 		req       *orreryv1.ConversationRequest
 		wantItems int
 	}{
-		{"limit absent", "", &orreryv1.ConversationRequest{Pane: pane}, 4},
+		{"limit absent", "", &orreryv1.ConversationRequest{Pane: pane}, 6},
 		{"limit explicit", "limit=3", &orreryv1.ConversationRequest{Pane: pane, Limit: 3}, 3},
 	}
 	for _, c := range cases {
@@ -489,6 +533,10 @@ func TestPanesConversationParity(t *testing.T) {
 			if len(rest.Items) != c.wantItems || rest.Goal != synthGoal || len(rest.Waiting) != 2 {
 				t.Fatalf("REST answer = %+v, want %d items, goal %q and 2 waiting messages",
 					rest, c.wantItems, synthGoal)
+			}
+			assertCompactionItem(t, rest)
+			if rest.Context.Tokens == 0 {
+				t.Fatalf("REST answer context = %+v, want non-zero tokens", rest.Context)
 			}
 
 			got, err := client.Conversation(t.Context(), connect.NewRequest(c.req))

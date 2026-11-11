@@ -570,6 +570,9 @@ message ConversationResponse {
 
   // The messages waiting to be sent to the conversation.
   repeated WaitingMessage waiting = 4;
+
+  // The context figure of the conversation: its tokens out of its window.
+  ConversationContext context = 5;
 }
 
 // ConversationItem is one item of a conversation.
@@ -597,6 +600,22 @@ message ConversationItem {
 
   // The item's notice, if any.
   string notice = 8;
+
+  // The trigger of a compaction item, auto or manual, or empty when the item is not a compaction.
+  string trigger = 9;
+
+  // The tokens a compaction item held before it was compacted, or 0 when the item is not a compaction.
+  int64 tokens = 10;
+}
+
+// ConversationContext is the context figure of a conversation: its tokens out of the window they are measured
+// against.
+message ConversationContext {
+  // The tokens the newest main-chain assistant line or compaction counts.
+  int64 tokens = 1;
+
+  // The token window the tokens are measured against.
+  int64 window = 2;
 }
 
 // WaitingMessage is a message waiting to be sent to a conversation.

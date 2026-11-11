@@ -149,4 +149,34 @@ public interface ConversationItemOrBuilder extends
    */
   com.google.protobuf.ByteString
       getNoticeBytes();
+
+  /**
+   * <pre>
+   * The trigger of a compaction item, auto or manual, or empty when the item is not a compaction.
+   * </pre>
+   *
+   * <code>string trigger = 9 [json_name = "trigger"];</code>
+   * @return The trigger.
+   */
+  java.lang.String getTrigger();
+  /**
+   * <pre>
+   * The trigger of a compaction item, auto or manual, or empty when the item is not a compaction.
+   * </pre>
+   *
+   * <code>string trigger = 9 [json_name = "trigger"];</code>
+   * @return The bytes for trigger.
+   */
+  com.google.protobuf.ByteString
+      getTriggerBytes();
+
+  /**
+   * <pre>
+   * The tokens a compaction item held before it was compacted, or 0 when the item is not a compaction.
+   * </pre>
+   *
+   * <code>int64 tokens = 10 [json_name = "tokens"];</code>
+   * @return The tokens.
+   */
+  long getTokens();
 }
