@@ -43,6 +43,9 @@ INSERT INTO sessions (id, server, pane, kind, dir, state, changed) VALUES (?, ''
 -- name: GetEngineSession :one
 SELECT * FROM sessions WHERE id = ? AND kind = 'engine';
 
+-- name: ListEngineSessions :many
+SELECT * FROM sessions WHERE kind = 'engine' ORDER BY id;
+
 -- name: UpdateEngineSession :execrows
 UPDATE sessions
 SET state = ?, changed = ?, seen = ?, question = ?, claude_session = ?, reason = ?

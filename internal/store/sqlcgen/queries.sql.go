@@ -200,6 +200,50 @@ func (q *Queries) InsertSession(ctx context.Context, arg InsertSessionParams) er
 	return err
 }
 
+const listEngineSessions = `-- name: ListEngineSessions :many
+SELECT id, server, pane, state, changed, seen, question, summary, label, context, tool, claude_session, transcript, kind, dir, reason FROM sessions WHERE kind = 'engine' ORDER BY id
+`
+
+func (q *Queries) ListEngineSessions(ctx context.Context) ([]Session, error) {
+	rows, err := q.db.QueryContext(ctx, listEngineSessions)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Session
+	for rows.Next() {
+		var i Session
+		if err := rows.Scan(
+			&i.ID,
+			&i.Server,
+			&i.Pane,
+			&i.State,
+			&i.Changed,
+			&i.Seen,
+			&i.Question,
+			&i.Summary,
+			&i.Label,
+			&i.Context,
+			&i.Tool,
+			&i.ClaudeSession,
+			&i.Transcript,
+			&i.Kind,
+			&i.Dir,
+			&i.Reason,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listEngineText = `-- name: ListEngineText :many
 SELECT session_id, message_id, block_index, parent_tool_use_id, kind, text FROM engine_text WHERE session_id = ?
 ORDER BY message_id, parent_tool_use_id, block_index
