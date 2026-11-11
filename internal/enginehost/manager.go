@@ -333,6 +333,17 @@ func (m *Manager) live(id string) (*liveSession, error) {
 	return live, nil
 }
 
+// Live returns the ids of the live sessions. It is safe to call from any goroutine.
+func (m *Manager) Live() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	ids := make([]string, 0, len(m.sessions))
+	for id := range m.sessions {
+		ids = append(ids, id)
+	}
+	return ids
+}
+
 // resumeSession returns the live session id, starting it from its engine row when it is not live. The process starts in
 // the row's directory and resumes the row's claude session, when it has one. It reserves a slot under the cap before it
 // reads the directory, so a full cap refuses the resume before anything is recorded. A directory that is missing or not

@@ -383,6 +383,7 @@ func startSessions(
 			Store:    st,
 			Logger:   logger,
 		})
+		st.SetEngineLive(host.manager.Live)
 		commands = host.manager
 		var writerCtx context.Context
 		writerCtx, host.stopWriter = context.WithCancel(context.WithoutCancel(ctx))
