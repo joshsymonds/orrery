@@ -588,7 +588,7 @@ For each server, the tidy runs one `list-panes -a` that reads every pane. It the
 - syncs the row of each listed pane from its snapshot;
 - deletes the server's pane rows whose id is not among the listed panes, with one `session_removed` event for each;
 - deletes every event older than 14 days, across all servers, except the newest event, which it keeps so the newest seq is never lost;
-- deletes each engine row that has no event at or after the same 14-day cutoff, with its unfinished text, and appends no event. See [Engine sessions in the store](#engine-sessions-in-the-store).
+- deletes each engine row that has no event at or after the same 14-day cutoff and is not live, with its unfinished text, and appends no event. See [Engine sessions in the store](#engine-sessions-in-the-store).
 
 A failed `list-panes`, or a listing that does not parse, changes nothing. orreryd logs `tmux server unreachable` (warning) when a server's `list-panes` starts failing and `tmux server reachable again` (info) at its first success after that, not on every tidy. Other tidy failures are logged as `mirror tidy dropped` each time. A failed store write rolls back the whole tidy. A default socket skipped by the directory check logs `tmux default socket skipped` (warning, with `server` and `reason`) when the skip starts and again when its reason changes, not on every tidy.
 
@@ -630,7 +630,7 @@ The `engine_text` table holds the unfinished text of each streaming block, one r
 
 Its primary key is `session_id`, `message_id`, `block_index` and `parent_tool_use_id`. A row is removed when its block finishes, and every row of a session is removed when a turn ends, the process exits, the session is stopped, orreryd shuts down, or reconcile runs at start. No event is appended for engine text.
 
-The 14-day cutoff of the tidy applies to engine rows too. The cutoff is `now` less 14 days. Each engine row with no event at or after the cutoff is deleted with its `engine_text` rows, and no event is appended. The same tidy pass prunes events older than the cutoff, so the pass runs only while a tmux server's `list-panes` succeeds. The rule does not check whether the session's process is live. A session that waits for an answer with no event for 14 days loses its row.
+The 14-day cutoff of the tidy applies to engine rows too. The cutoff is `now` less 14 days. Each engine row with no event at or after the cutoff is deleted with its `engine_text` rows, and no event is appended, unless its session is live. A session is live from its start or resume until it is stopped, idle-stopped, exits, or `orreryd` shuts down, and a live session keeps its row and its `engine_text` rows through the prune. The same tidy pass prunes events older than the cutoff, so the pass runs only while a tmux server's `list-panes` succeeds. A session that is not live loses its row after 14 days with no event, and a live session that waits for an answer keeps its row.
 
 ### Claude Code hook settings
 
