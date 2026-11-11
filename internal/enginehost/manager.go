@@ -55,10 +55,16 @@ type NoticeSink interface {
 	Notify(ctx context.Context, n Notice)
 }
 
+// Store reads the engine rows Reconcile settles. *store.Store satisfies it.
+type Store interface {
+	EngineSessions(ctx context.Context) ([]store.EngineRow, error)
+	EngineSession(ctx context.Context, id string) (store.EngineRow, error)
+}
+
 // Config configures a Manager. Shell is the login shell and Claude the claude name, resolved with exec.LookPath at
 // each start. Environ is the environment sessions start with, Cap the most live sessions at once, Writer stores their
-// ops, Now stamps them (nil is time.Now), Notifier receives the notices of their state changes (nil sends none) and
-// Logger reports pump errors (nil discards).
+// ops, Now stamps them (nil is time.Now), Notifier receives the notices of their state changes (nil sends none), Store
+// is the engine rows Reconcile reads and Logger reports pump errors (nil discards).
 type Config struct {
 	Shell    string
 	Claude   string
@@ -67,6 +73,7 @@ type Config struct {
 	Writer   *Writer
 	Now      func() time.Time
 	Notifier NoticeSink
+	Store    Store
 	Logger   *slog.Logger
 }
 
@@ -101,6 +108,7 @@ type Manager struct {
 	writer   *Writer
 	now      func() time.Time
 	notifier NoticeSink
+	store    Store
 	logger   *slog.Logger
 
 	pumps sync.WaitGroup
@@ -125,6 +133,7 @@ func NewManager(cfg Config) *Manager {
 		writer:   cfg.Writer,
 		now:      cfg.Now,
 		notifier: cfg.Notifier,
+		store:    cfg.Store,
 		logger:   cfg.Logger,
 		started:  map[string]struct{}{},
 		sessions: map[string]*liveSession{},
