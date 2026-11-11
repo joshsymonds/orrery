@@ -4,7 +4,8 @@
 # containing ASK asks one AskUserQuestion, PERMIT asks for a Write permission, HANG streams text until an interrupt,
 # FLOOD streams 50 finished text blocks, TRICKLE streams 60 finished text blocks about 50 ms apart, STALL streams the
 # start of a text block and never finishes it, DIE streams the same start and writes fake died to stderr before it
-# exits with status 3, and any other prompt streams "fake reply n". The turns reproduce the
+# exits with status 3, BACKGROUND starts a background task and ends its turn while the task runs, BGEND ends that task
+# and then answers as any other prompt does, and any other prompt streams "fake reply n". The turns reproduce the
 # stream lines captured from the real CLI, with only text, ids and the session id changed. It exits at stdin EOF.
 
 # text_block INDEX FULL DELTA...: a text block that streams each DELTA, then finishes as FULL.
@@ -108,6 +109,20 @@ stall() {
 	done
 }
 
+# background starts a background task, streams a text block and ends the turn while the task still runs.
+background() {
+	turn_open
+	printf '%s\n' '{"type":"system","subtype":"background_tasks_changed","tasks":[{"task_id":"task_fake_1","task_type":"local_bash","description":"fake sleep"}],"session_id":"session_1","uuid":"uuid_t1"}'
+	text_block 0 "fake background $n" "fake background $n"
+	turn_close
+}
+
+# bgend reports that the background task has ended, then answers as any other prompt does.
+bgend() {
+	printf '%s\n' '{"type":"system","subtype":"background_tasks_changed","tasks":[],"session_id":"session_1","uuid":"uuid_t2"}'
+	reply
+}
+
 # die streams the start of a text block and one delta of it, writes fake died to stderr and exits with status 3.
 die() {
 	turn_open
@@ -150,6 +165,8 @@ while IFS= read -r line; do
 				*TRICKLE*) trickle ;;
 				*STALL*) stall ;;
 				*DIE*) die ;;
+				*BACKGROUND*) background ;;
+				*BGEND*) bgend ;;
 				*) reply ;;
 			esac
 			;;

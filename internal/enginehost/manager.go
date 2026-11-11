@@ -47,6 +47,12 @@ const denyMessage = "The orrery host denied this request."
 // closeWait bounds how long Close waits for the sessions it stops to record their state.
 const closeWait = 5 * time.Second
 
+// idleCheckEvery is the pause between the checks RunIdle makes.
+const idleCheckEvery = 30 * time.Second
+
+// defaultIdleAfter is how long a session must stay not busy before RunIdle stops it, when Config.IdleAfter is zero.
+const defaultIdleAfter = 10 * time.Minute
+
 // interruptedReason is the reason a session whose turn was running when Close stopped the manager records.
 const interruptedReason = "orreryd stopped during the turn"
 
@@ -64,17 +70,19 @@ type Store interface {
 // Config configures a Manager. Shell is the login shell and Claude the claude name, resolved with exec.LookPath at
 // each start. Environ is the environment sessions start with, Cap the most live sessions at once, Writer stores their
 // ops, Now stamps them (nil is time.Now), Notifier receives the notices of their state changes (nil sends none), Store
-// is the engine rows Reconcile, Say and Seen read and Logger reports pump errors (nil discards).
+// is the engine rows Reconcile, Say and Seen read and Logger reports pump errors (nil discards). IdleAfter is how long a
+// session must stay not busy, by Now, before RunIdle stops it (zero is ten minutes).
 type Config struct {
-	Shell    string
-	Claude   string
-	Environ  []string
-	Cap      int
-	Writer   *Writer
-	Now      func() time.Time
-	Notifier NoticeSink
-	Store    Store
-	Logger   *slog.Logger
+	Shell     string
+	Claude    string
+	Environ   []string
+	Cap       int
+	Writer    *Writer
+	Now       func() time.Time
+	Notifier  NoticeSink
+	Store     Store
+	Logger    *slog.Logger
+	IdleAfter time.Duration
 }
 
 // liveSession is one running session: its directory, its process, the done channel closed when its pump has finished,
@@ -82,7 +90,10 @@ type Config struct {
 // Stop and Close do not record over the state that exit recorded. turning is set while a turn runs, from the send of its
 // prompt or a Started event until its TurnEnded or the process's Exited. interrupting is set by Interrupt while a turn
 // runs, until that turn's end, which then sends no notice. closing is set by Close before it stops the session. The
-// manager's lock guards turning, interrupting and closing, and the pump sets exited under it too.
+// manager's lock guards turning, interrupting, closing, requests, background, idleSince and idleStopped, and the pump sets
+// exited under it too. requests holds the ids of the requests the host has open, background is set while a background
+// task runs, idleSince is when the session last became not busy (zero while it is busy), and idleStopped is set when a
+// check stops the session for being idle.
 type liveSession struct {
 	id           string
 	dir          string
@@ -93,6 +104,10 @@ type liveSession struct {
 	turning      bool
 	interrupting bool
 	closing      bool
+	requests     map[string]struct{}
+	background   bool
+	idleSince    time.Time
+	idleStopped  bool
 	// order is held by the pump while it queues an event's ops, and by Answer from its send until it has queued the
 	// working state, so every op an answer causes is queued after that state.
 	order sync.Mutex
@@ -101,15 +116,16 @@ type liveSession struct {
 // Manager starts, stops and tracks headless sessions. Each running session has a pump goroutine that records its
 // events through the Writer. Close stops every session and waits for the pumps.
 type Manager struct {
-	shell    string
-	claude   string
-	environ  []string
-	limit    int
-	writer   *Writer
-	now      func() time.Time
-	notifier NoticeSink
-	store    Store
-	logger   *slog.Logger
+	shell     string
+	claude    string
+	environ   []string
+	limit     int
+	writer    *Writer
+	now       func() time.Time
+	notifier  NoticeSink
+	store     Store
+	logger    *slog.Logger
+	idleAfter time.Duration
 
 	pumps sync.WaitGroup
 
@@ -143,6 +159,10 @@ func NewManager(cfg Config) *Manager {
 	}
 	if manager.logger == nil {
 		manager.logger = slog.New(slog.DiscardHandler)
+	}
+	manager.idleAfter = cfg.IdleAfter
+	if manager.idleAfter == 0 {
+		manager.idleAfter = defaultIdleAfter
 	}
 	return manager
 }
@@ -217,9 +237,12 @@ func (m *Manager) Say(ctx context.Context, id, text string) error {
 	if text == "" {
 		return ErrEmptyPrompt
 	}
-	live, err := m.live(id)
-	if err != nil {
+	live, err := m.claim(id)
+	if errors.Is(err, ErrNoSession) {
 		live, err = m.resumeSession(ctx, id)
+		if err == nil {
+			m.setTurning(live, true)
+		}
 	}
 	if err != nil {
 		return fmt.Errorf("say to session %s: %w", id, err)
@@ -227,9 +250,9 @@ func (m *Manager) Say(ctx context.Context, id, text string) error {
 	working := string(protocol.StateWorking)
 	if err = m.writer.Commit(ctx, id, store.EnginePrompt{ID: id, Text: text},
 		store.EngineSet{ID: id, Changes: store.EngineChanges{State: &working}}); err != nil {
+		m.setTurning(live, false)
 		return fmt.Errorf("record prompt of session %s: %w", id, err)
 	}
-	m.setTurning(live, true)
 	if err = live.sess.Prompt(text); err != nil {
 		m.setTurning(live, false)
 		return fmt.Errorf("say to session %s: %w", id, errors.Join(err, m.recordFailed(ctx, id, live.dir, err)))
@@ -262,6 +285,7 @@ func (m *Manager) Answer(ctx context.Context, id, requestID, answer string) erro
 	default:
 		return fmt.Errorf("answer session %s: %w", id, err)
 	}
+	m.closeRequest(live, requestID)
 	working := string(protocol.StateWorking)
 	question := ""
 	if err = m.writer.Put(ctx, id, store.EngineSet{ID: id,
@@ -371,12 +395,14 @@ func (m *Manager) spawnLive(ctx context.Context, id, dir, claudeSession string) 
 		return nil, err
 	}
 	pumpCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
-	live := &liveSession{id: id, dir: dir, sess: sess, done: make(chan struct{}), cancel: cancel}
+	live := &liveSession{id: id, dir: dir, sess: sess, done: make(chan struct{}), cancel: cancel,
+		requests: map[string]struct{}{}}
 	m.mu.Lock()
 	closed := m.closed
 	if !closed {
 		m.sessions[id] = live
 		m.pumps.Add(1)
+		m.updateIdleLocked(live)
 	}
 	m.mu.Unlock()
 	if closed {
@@ -423,6 +449,89 @@ func (m *Manager) Close() {
 		live.cancel()
 	}
 	m.pumps.Wait()
+}
+
+// RunIdle stops the sessions that are idle for the idle timeout, checking every 30 s, until ctx ends. See checkIdle.
+func (m *Manager) RunIdle(ctx context.Context) {
+	ticker := time.NewTicker(idleCheckEvery)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			m.checkIdle(ctx)
+		}
+	}
+}
+
+// checkIdle stops each live session that has been not busy for the idle timeout by the clock, and waits for its pump,
+// which frees its slot. A session is busy while a turn runs, a request is open, or a background task runs. The stop
+// records nothing, so the session's row and events stay as they were. The session is taken out of the live set under
+// the lock before it is stopped, and resumeMu is held through the stop, so a Say that finds no live session waits, then
+// resumes it from its row.
+func (m *Manager) checkIdle(ctx context.Context) {
+	m.resumeMu.Lock()
+	defer m.resumeMu.Unlock()
+	now := m.now()
+	m.mu.Lock()
+	var stopping []*liveSession
+	for id, live := range m.sessions {
+		if live.closing || live.busy() || now.Sub(live.idleSince) < m.idleAfter {
+			continue
+		}
+		live.idleStopped = true
+		delete(m.sessions, id)
+		stopping = append(stopping, live)
+	}
+	m.mu.Unlock()
+	for _, live := range stopping {
+		if err := live.sess.Stop(); err != nil {
+			m.logger.WarnContext(ctx, "stop idle session", "session", live.id, "err", err)
+		}
+		if err := m.waitPump(ctx, live); err != nil {
+			m.logger.WarnContext(ctx, "wait for idle session", "session", live.id, "err", err)
+		}
+	}
+}
+
+// busy reports whether live has a turn running, an open request, or a background task. The caller holds the lock.
+func (live *liveSession) busy() bool {
+	return live.turning || live.background || len(live.requests) > 0
+}
+
+// updateIdleLocked clears the idle stamp of live while it is busy, and stamps the time it became not busy. The caller
+// holds the lock.
+func (m *Manager) updateIdleLocked(live *liveSession) {
+	if live.busy() {
+		live.idleSince = time.Time{}
+		return
+	}
+	if live.idleSince.IsZero() {
+		live.idleSince = m.now()
+	}
+}
+
+// claim returns the live session id with its turn marked running, under the lock, so a check cannot stop the session
+// between the lookup and the prompt. It returns ErrNoSession when no session with that id is live.
+func (m *Manager) claim(id string) (*liveSession, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	live, ok := m.sessions[id]
+	if !ok {
+		return nil, ErrNoSession
+	}
+	live.turning = true
+	m.updateIdleLocked(live)
+	return live, nil
+}
+
+// closeRequest removes the open request requestID from live once the session has accepted its answer.
+func (m *Manager) closeRequest(live *liveSession, requestID string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(live.requests, requestID)
+	m.updateIdleLocked(live)
 }
 
 // checkStart reports whether a start's directory and prompt are usable, before anything is stored.
@@ -546,6 +655,7 @@ func (m *Manager) pump(ctx context.Context, live *liveSession, rec *recorder) {
 func (m *Manager) setTurning(live *liveSession, turning bool) {
 	m.mu.Lock()
 	live.turning = turning
+	m.updateIdleLocked(live)
 	m.mu.Unlock()
 }
 
@@ -563,16 +673,28 @@ func (m *Manager) setInterrupting(live *liveSession, interrupting bool) {
 func (m *Manager) noteEvent(live *liveSession, event session.Event) (record, interrupted bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	switch event.(type) {
+	defer m.updateIdleLocked(live)
+	switch ev := event.(type) {
 	case session.Started:
 		live.turning = true
+	case session.Request:
+		if !ev.Refused {
+			live.requests[ev.RequestID] = struct{}{}
+		}
+	case session.RequestCancelled:
+		delete(live.requests, ev.RequestID)
+	case session.BackgroundTasks:
+		live.background = len(ev.Tasks) > 0
 	case session.TurnEnded:
 		live.turning = false
+		clear(live.requests)
 		interrupted = live.interrupting
 		live.interrupting = false
 	case session.Exited:
 		live.turning = false
-		if live.closing {
+		clear(live.requests)
+		live.background = false
+		if live.closing || live.idleStopped {
 			return false, false
 		}
 		live.exited = true
