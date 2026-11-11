@@ -194,16 +194,18 @@ Claude Code hooks send their events to the daemon as frames.
 | Tmux | string | `tmux` | `$TMUX` |
 | Cwd | string | `cwd` | the hook process working directory |
 | AnthropicBaseURL | string | `anthropicBaseUrl` | `$ANTHROPIC_BASE_URL` |
+| Seen | int64 | `seen` | the seen time of a seen report, omitted at zero |
 
 Wire format:
 
 - One frame per connection.
 - One JSON object, terminated by `\n`. The object is written on a single line.
+- A frame with `seen` above zero and no `hook` is a seen report. orreryd sends no state change for it.
 
 Functions:
 
 - `func WriteFrame(w io.Writer, frame HookFrame) error` writes exactly that format.
-- `func ReadFrame(r io.Reader) (HookFrame, error)` decodes one frame. It has no line-length limit, because hook payloads can be large. It returns an error on malformed JSON, and when `hook` is missing, is `null`, or is not a JSON object.
+- `func ReadFrame(r io.Reader) (HookFrame, error)` decodes one frame. It has no line-length limit, because hook payloads can be large. It returns an error on malformed JSON, and on a frame with both `seen` above zero and `hook`. Otherwise it returns an error when `hook` is missing, is `null`, or is not a JSON object, unless the frame is a seen report.
 
 Example frame. Every value is synthetic. The wire form is this object on one line, terminated by `\n`:
 
@@ -244,6 +246,7 @@ Subcommands:
 - `hook` reads one Claude Code hook JSON object on stdin, sends it to `orreryd` as a frame (section 9), and always exits 0 silently.
 - `list --json` prints the pane list defined in section 3.
 - `seen --pane ID` marks the pane as seen.
+- `seen --pane ID --focus` marks the pane as seen only when a client showing the pane's window had input within the last 30 seconds. Otherwise nothing is marked.
 - `send --pane ID [--expect-question H] (--text T | --keys K...)` sends text or keys to the pane. Put the flags before `--keys`. A key that spells a send flag is refused.
   - `--expect-question H` sends only when the pane has a question, H equals its question hash (section 10), and the question's display fragment is visible on the pane. Otherwise nothing is sent and the command exits 3.
     - The display fragment is derived from the stored `@orrery_question` value. For an AskUserQuestion value it is `questions[0].question`. Otherwise, when `input` is an object, it is the first non-empty of `command`, `file_path`, `url`, then the first string field of `input` in document order. Otherwise it is the `tool` value. A stored value that is not a JSON object is its own fragment.
@@ -377,7 +380,11 @@ Web Push is sent on the same two transitions. On `waiting` and on `done`, `orrer
 - `$XDG_STATE_HOME/orrery/push.json` when `XDG_STATE_HOME` is set.
 - Otherwise `$HOME/.local/state/orrery/push.json`.
 
+A `Stop` hook whose `background_tasks` holds a subagent or workflow sends no Web Push (ntfy is unchanged).
+
 Headless session notices go to the same subscriptions, as [Push payload](#push-payload) describes.
+
+`orreryd` keeps, per pane and per session, the time of the last notice it sent. When a seen write sets a seen time at or after that time, `orreryd` sends one clear push for that pane or session and forgets the kept time. Seen writes are `orrery seen` (both forms), autoseen, `POST /v1/panes/{id}/seen`, and the `Seen` call of the session socket. The clear payload is defined in [Clear payload](#clear-payload).
 
 When neither variable is set, `orreryd` exits 1.
 
@@ -460,6 +467,8 @@ ntfy (only when `ORRERY_NTFY_URL_FILE` is set). The title is `<project> · sessi
 | `interrupted` | 3 | `warning` | the reason |
 
 Web Push goes to every subscription, with the payload of [Push payload](#push-payload). The payload's `session` key holds the full session id. `pane` and `label` are `""`. `project` is the base name of the directory. `state` is the session's state. The body is `question` when the state is `waiting`, and `summary` in every other case.
+
+A session notice clears on the session's own seen: the `Seen` call for that session clears it, as [orreryd](#orreryd) describes.
 
 ### Environment
 
@@ -721,7 +730,7 @@ The picker is shown by `orrery open` with text, and by the tree's `N` in directo
 - binds prefix `s` to `orrery shell` for the current pane's directory, on the invoking client.
 - appends to `status-right` the counts of waiting panes and new panes, as ` orrery N waiting M new `. Shell sessions are left out.
 - sets the top pane border, showing each pane's state, label, and summary.
-- runs `orrery seen --pane` for the focused pane on `window-pane-changed`, `session-window-changed`, and `client-session-changed`, only while a client is attached to the session.
+- runs `orrery seen --pane ID --focus` for the focused pane on `window-pane-changed`, `session-window-changed`, and `client-session-changed`, only while a client is attached to the session. A focus change therefore marks the pane seen only under the `--focus` rule of section 11.
 
 ### Home-manager module
 
@@ -863,15 +872,37 @@ When a pane enters `waiting` or `done`, `orreryd` posts to each registered subsc
 
 - The body is one RFC 8291 `aes128gcm` record. The record is at most 4096 bytes.
 - The headers are `Content-Encoding: aes128gcm` and `TTL: 3600`.
-- The plaintext is a JSON object. Every value is a string. The keys are `pane`, `host`, `project`, `state`, `summary`, `label`, `question`, and `question_hash`. A headless session notice also has the key `session`, holding the session id. A pane notice has no `session` key.
+- The plaintext is a JSON object. Every value is a string. The keys are `pane`, `host`, `project`, `state`, `summary`, `label`, `question`, `question_hash`, and `time`. `time` is the notice's time, as decimal unix seconds. A headless session notice also has the key `session`, holding the session id. A pane notice has no `session` key.
 - The plaintext is at most 3993 bytes. When it is longer, the question is cut first, then the summary.
 - `question_hash` always covers the full question, even when the question is cut.
 
 Example plaintext. The question and its hash are the fixed vector of section 10:
 
 ```json
-{"pane":"%1","host":"example-host","project":"example-project","state":"waiting","summary":"Example summary of the pane's work.","label":"example-label","question":"Example question for the user?","question_hash":"7f593eeb8a031e6a99b02a9b65b8e03a17a82a20ca4862ecda37bd06c479a5eb"}
+{"pane":"%1","host":"example-host","project":"example-project","state":"waiting","summary":"Example summary of the pane's work.","label":"example-label","question":"Example question for the user?","question_hash":"7f593eeb8a031e6a99b02a9b65b8e03a17a82a20ca4862ecda37bd06c479a5eb","time":"1700000000"}
 ```
+
+#### Clear payload
+
+A clear is posted when a seen write sets a seen time at or after the time of the kept notice for a pane or session (see [orreryd](#orreryd)). Its headers are the same as a notice's, `Content-Encoding: aes128gcm` and `TTL: 3600`. Its plaintext is a JSON object of string values with exactly these keys:
+
+- `kind`, which is `clear`.
+- `host`, the machine host name.
+- `pane`, the pane id, for a pane notice, or `session`, the full session id, for a session notice. Only the one that applies is set.
+- `seen`, the seen time, as decimal unix seconds.
+
+Example clear plaintext. Every value is synthetic:
+
+```json
+{"kind":"clear","host":"example-host","pane":"%1","seen":"1700000300"}
+```
+
+On the phone, the notices of a host are shown as follows:
+
+- One notification per host and pane or session.
+- A replacement is silent unless its state is `waiting` or `failed`.
+- A clear removes only the notices at or before its `seen` time.
+- Session notices carry no actions.
 
 ### Connect API
 
@@ -1015,3 +1046,5 @@ The picker routes `POST /v1/picker/ask` and `POST /v1/picker/run` were added add
 orrery engine API added, additively: the `orrery.v1.Control` service and its six calls (see [Control API](#control-api)), and `serve`'s reads of `HOME` and the session socket for it; the `WatchResponse` members `engine_added`, `engine_changed`, `engine_prompt`, `engine_block`, `engine_request`, `engine_request_canceled`, `engine_turn_ended` and `engine_text`, and the `EngineText` rule (see [Connect API](#connect-api)); the `model`, `id` and `prompt_id` fields of the engine socket's `Start` and `Say` (see [Session control socket](#session-control-socket)); the `promptId` key of the `engine_prompt` payload; the `engine_prompt_failed` table; and the `orrery session --url` form and `session start --model`. Watch and `orrery events` now send and print the engine events they skipped before. No existing name or value changes.
 
 orrery E19 (pane tree list) added the `newest_reply` key to each pane of `GET /v1/panes`, additively. It is a key of serve's answer only: `orrery list --json` (section 3) is unchanged. No existing name or value changes.
+
+orrery notify quiet added, additively: the `seen` key of HookFrame and the seen-report frame (section 9); the `seen --pane ID --focus` form (section 11); the `time` key of the notice payload and the clear payload (section 12); the clear push and the kept notice times (section 11, orreryd); the session notice clear on the session's own seen; and the suppression of Web Push for a `Stop` whose `background_tasks` holds a subagent or workflow. No existing name or value changes, except the focus-mark change below. The tmux focus hook used to run `seen --pane` with no input check. It now runs `seen --pane ID --focus`, so a focus change marks the pane seen only with input in the last 30 seconds. This is a change, not an addition.
