@@ -175,7 +175,7 @@
       devShells.x86_64-linux.android = androidPkgs.mkShell {
         packages = [
           androidComposition.androidsdk
-          androidPkgs.gradle
+          androidPkgs.gradle_9
           androidPkgs.jdk17
         ];
         ANDROID_HOME = androidSdk;
