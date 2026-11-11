@@ -260,6 +260,9 @@ func (r *stepRun) finish(ctx context.Context, end, status, reason string) bool {
 	if ctx.Err() != nil {
 		return false
 	}
+	// Once the end is decided it is carried out whole: a cancel arriving now, as from a Stop or Close racing this end,
+	// must not cut off the stored end, the session stop or the worktree removal.
+	ctx = context.WithoutCancel(ctx)
 	acted := false
 	r.once.Do(func() {
 		acted = true

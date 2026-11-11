@@ -62,7 +62,8 @@ type StepsConfig struct {
 }
 
 // Steps starts steps and reports their rows. Each started step's loop runs under a context Steps owns: loops holds the
-// cancel of every loop that has not returned, by step id.
+// cancel of every loop that has not returned, and runs holds its stepRun, both by step id. idle is broadcast whenever a
+// loop is removed from loops.
 type Steps struct {
 	sessions  stepSessions
 	store     StepStore
@@ -74,6 +75,8 @@ type Steps struct {
 
 	mu    sync.Mutex
 	loops map[string]context.CancelFunc
+	runs  map[string]*stepRun
+	idle  *sync.Cond
 }
 
 // NewSteps returns a Steps for cfg.
@@ -82,7 +85,7 @@ func NewSteps(cfg StepsConfig) *Steps {
 	if logger == nil {
 		logger = slog.New(slog.DiscardHandler)
 	}
-	return &Steps{
+	steps := &Steps{
 		sessions:  cfg.Sessions,
 		store:     cfg.Store,
 		writer:    cfg.Writer,
@@ -91,7 +94,10 @@ func NewSteps(cfg StepsConfig) *Steps {
 		environ:   cfg.Environ,
 		logger:    logger,
 		loops:     map[string]context.CancelFunc{},
+		runs:      map[string]*stepRun{},
 	}
+	steps.idle = sync.NewCond(&steps.mu)
+	return steps
 }
 
 // Start checks start and resolves its revision, then starts the step under a fresh id and runs its loop. A refusal
@@ -181,12 +187,13 @@ func (s *Steps) Status(ctx context.Context, id string) (store.StepRow, error) {
 }
 
 // runLoop runs run in its own goroutine under a context derived from ctx's values, not its cancellation, so the loop
-// outlives the Start call. The context's cancel is kept in loops until the loop returns, and then it is removed and
-// called.
+// outlives the Start call. The context's cancel and run are kept in loops and runs until the loop returns, and then they
+// are removed and the cancel is called.
 func (s *Steps) runLoop(ctx context.Context, id string, run *stepRun) {
 	loop, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	s.mu.Lock()
 	s.loops[id] = cancel
+	s.runs[id] = run
 	s.mu.Unlock()
 	go func() {
 		defer s.endLoop(id)
@@ -194,11 +201,13 @@ func (s *Steps) runLoop(ctx context.Context, id string, run *stepRun) {
 	}()
 }
 
-// endLoop removes the loop of id from loops and cancels its context.
+// endLoop removes the loop of id from loops and runs, wakes any Close waiting on loops, and cancels the loop's context.
 func (s *Steps) endLoop(id string) {
 	s.mu.Lock()
 	cancel := s.loops[id]
 	delete(s.loops, id)
+	delete(s.runs, id)
+	s.idle.Broadcast()
 	s.mu.Unlock()
 	cancel()
 }
