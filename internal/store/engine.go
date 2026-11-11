@@ -63,10 +63,24 @@ type EngineSet struct {
 	Changes EngineChanges
 }
 
-// EnginePrompt appends engine_prompt for a prompt sent to a session.
+// EnginePrompt appends engine_prompt for a prompt sent to a session. PromptID is the client-chosen id of the
+// prompt, stored only when non-empty.
 type EnginePrompt struct {
-	ID   string
-	Text string
+	ID       string
+	Text     string
+	PromptID string
+}
+
+// EnginePromptSent reports whether an engine_prompt event of the session carries promptID. It reads the writer's
+// database, as EngineSession does.
+func (s *Store) EnginePromptSent(ctx context.Context, sessionID, promptID string) (bool, error) {
+	count, err := sqlcgen.New(s.db).CountEnginePrompts(ctx, sqlcgen.CountEnginePromptsParams{
+		SessionID: sessionID, PromptID: promptID,
+	})
+	if err != nil {
+		return false, fmt.Errorf("count engine prompt %s of session %s: %w", promptID, sessionID, err)
+	}
+	return count > 0, nil
 }
 
 // EngineBlock appends engine_block for a finished block.
@@ -146,7 +160,8 @@ type engineChangedPayload struct {
 }
 
 type enginePromptPayload struct {
-	Text string `json:"text"`
+	Text     string `json:"text"`
+	PromptID string `json:"promptId,omitempty"`
 }
 
 type engineBlockPayload struct {
@@ -268,7 +283,8 @@ func (op EngineSet) applyEngine(ctx context.Context, queries *sqlcgen.Queries, n
 }
 
 func (op EnginePrompt) applyEngine(ctx context.Context, queries *sqlcgen.Queries, now time.Time) error {
-	return appendEnginePayload(ctx, queries, op.ID, EventEnginePrompt, enginePromptPayload{Text: op.Text}, now)
+	return appendEnginePayload(ctx, queries, op.ID, EventEnginePrompt,
+		enginePromptPayload{Text: op.Text, PromptID: op.PromptID}, now)
 }
 
 func (op EngineBlock) applyEngine(ctx context.Context, queries *sqlcgen.Queries, now time.Time) error {

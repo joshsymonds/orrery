@@ -18,6 +18,23 @@ func (q *Queries) ClearEngineText(ctx context.Context, sessionID string) error {
 	return err
 }
 
+const countEnginePrompts = `-- name: CountEnginePrompts :one
+SELECT COUNT(*) FROM events
+WHERE session_id = ?1 AND kind = 'engine_prompt' AND json_extract(payload, '$.promptId') = ?2
+`
+
+type CountEnginePromptsParams struct {
+	SessionID string
+	PromptID  string
+}
+
+func (q *Queries) CountEnginePrompts(ctx context.Context, arg CountEnginePromptsParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countEnginePrompts, arg.SessionID, arg.PromptID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const deleteEngineText = `-- name: DeleteEngineText :exec
 DELETE FROM engine_text
 WHERE session_id = ? AND message_id = ? AND block_index = ? AND parent_tool_use_id = ?

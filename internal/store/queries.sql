@@ -87,3 +87,7 @@ ORDER BY message_id, parent_tool_use_id, block_index;
 SELECT seq, session_id, kind, at, payload FROM events
 WHERE session_id = ? AND seq > ?
 ORDER BY seq LIMIT ?;
+
+-- name: CountEnginePrompts :one
+SELECT COUNT(*) FROM events
+WHERE session_id = sqlc.arg(session_id) AND kind = 'engine_prompt' AND json_extract(payload, '$.promptId') = sqlc.arg(prompt_id);
