@@ -67,6 +67,60 @@ class ConversationViewTest {
     }
 
     @Test
+    fun replyInlineMarkupShowsItsWordsWithoutMarkers() {
+        val raw = "**synthetic bold** and `synthetic code`"
+        setList(listOf(ConvoEntry.Reply(raw)))
+
+        composeRule.onNodeWithText("synthetic bold and synthetic code").assertIsDisplayed()
+        composeRule.onAllNodesWithText(raw).assertCountEquals(0)
+        composeRule.onAllNodesWithText("**", substring = true).assertCountEquals(0)
+        composeRule.onAllNodesWithText("`", substring = true).assertCountEquals(0)
+    }
+
+    @Test
+    fun replyBulletListShowsBulletMarkersAndItemText() {
+        setList(listOf(ConvoEntry.Reply("- synthetic one\n- synthetic two")))
+
+        composeRule.onNodeWithText("synthetic one").assertIsDisplayed()
+        composeRule.onNodeWithText("synthetic two").assertIsDisplayed()
+        composeRule.onAllNodesWithText("•", substring = true).assertCountEquals(2)
+        composeRule.onAllNodesWithText("- synthetic", substring = true).assertCountEquals(0)
+    }
+
+    @Test
+    fun replyFencedCodeShowsItsBodyAndNoFenceLine() {
+        setList(listOf(ConvoEntry.Reply("```\nsynthetic code line\n```")))
+
+        composeRule.onNodeWithText("synthetic code line").assertIsDisplayed()
+        composeRule.onAllNodesWithText("```", substring = true).assertCountEquals(0)
+    }
+
+    @Test
+    fun replyTableShowsEachCellAndNoDelimiterRow() {
+        setList(
+            listOf(
+                ConvoEntry.Reply(
+                    "| synthetic head | synthetic other |\n|---|---|\n| synthetic cell | synthetic value |",
+                ),
+            ),
+        )
+
+        composeRule.onNodeWithText("synthetic head").assertIsDisplayed()
+        composeRule.onNodeWithText("synthetic other").assertIsDisplayed()
+        composeRule.onNodeWithText("synthetic cell").assertIsDisplayed()
+        composeRule.onNodeWithText("synthetic value").assertIsDisplayed()
+        composeRule.onAllNodesWithText("|---", substring = true).assertCountEquals(0)
+    }
+
+    @Test
+    fun promptShowsMarkupVerbatim() {
+        val raw = "**synthetic bold** and `synthetic code`\n- synthetic item"
+        setList(listOf(ConvoEntry.Prompt(raw)))
+
+        composeRule.onNodeWithText(raw).assertIsDisplayed()
+    }
+
+    @Test
     fun timeShowsHourAndMinuteInTheDeviceZone() {
         TimeZone.setDefault(TimeZone.getTimeZone("UTC"))
         setList(listOf(ConvoEntry.Time(1_700_000_000L)))
