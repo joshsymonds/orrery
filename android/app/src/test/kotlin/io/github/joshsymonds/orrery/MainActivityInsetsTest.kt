@@ -110,8 +110,8 @@ class MainActivityInsetsTest {
         return builder.build()
     }
 
-    /** Launches the activity, dispatches the synthetic insets and returns the root and content bounds. */
-    private fun boundsWithInsets(keyboardShown: Boolean): Pair<Rect, Rect> {
+    /** Launches the activity and dispatches the synthetic insets, returning once the pane list shows. */
+    private fun launchWithInsets(keyboardShown: Boolean) {
         val controller = Robolectric.buildActivity(
             MainActivity::class.java,
             Intent(context, MainActivity::class.java),
@@ -124,7 +124,11 @@ class MainActivityInsetsTest {
 
         ViewCompat.dispatchApplyWindowInsets(contentView, syntheticInsets(keyboardShown))
         composeRule.waitForIdle()
+    }
 
+    /** Launches the activity, dispatches the synthetic insets and returns the root and content bounds. */
+    private fun boundsWithInsets(keyboardShown: Boolean): Pair<Rect, Rect> {
+        launchWithInsets(keyboardShown)
         val root = composeRule.onRoot(useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
         val content = composeRule.onNodeWithTag(ROOT_CONTENT_TAG, useUnmergedTree = true)
             .fetchSemanticsNode().boundsInRoot
@@ -239,6 +243,33 @@ class MainActivityInsetsTest {
         assertEquals(STATUS_BAR_PX.toFloat(), content.top, 0f)
         assertEquals(root.right, content.right, 0f)
         assertEquals(root.bottom - NAVIGATION_BAR_PX, content.bottom, 0f)
+    }
+
+    @Test
+    fun topBandCoversTheStatusBarInsetAcrossTheFullWidth() {
+        launchWithInsets(keyboardShown = false)
+        val root = composeRule.onRoot(useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+        val band = composeRule.onNodeWithTag(TOP_BAND_TAG, useUnmergedTree = true)
+            .fetchSemanticsNode().boundsInRoot
+
+        assertEquals(0f, band.left, 0f)
+        assertEquals(0f, band.top, 0f)
+        assertEquals(root.right, band.right, 0f)
+        assertEquals(STATUS_BAR_PX.toFloat(), band.bottom, 0f)
+    }
+
+    @Test
+    fun topBandIsDrawnAfterRootContent() {
+        launchWithInsets(keyboardShown = false)
+        val band = composeRule.onNodeWithTag(TOP_BAND_TAG, useUnmergedTree = true).fetchSemanticsNode()
+        val siblings = checkNotNull(band.parent) { "top band must have a parent in the semantics tree" }.children
+        val bandIndex = siblings.indexOfFirst { it.id == band.id }
+        val contentIndex = siblings.indexOfFirst { hasTestTag(ROOT_CONTENT_TAG).matches(it) }
+
+        assertTrue(
+            "root content index $contentIndex should precede top band index $bandIndex",
+            contentIndex >= 0 && contentIndex < bandIndex,
+        )
     }
 
     @Test
