@@ -20,6 +20,7 @@ import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToIndex
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipe
@@ -144,6 +145,12 @@ class PaneScreenTest {
 
     private fun conversationBodyWithGoal(goal: String, vararg items: String): String =
         """{"origin":"synthetic origin","items":[${items.joinToString(",")}],"goal":${JSONObject.quote(goal)}}"""
+
+    private fun toolItem(id: String, name: String): String =
+        """{"kind":"tool","time":0,"text":"","tool":${JSONObject.quote(name)},"input":"echo synthetic","id":"$id","error":false}"""
+
+    private fun noticeItem(sort: String, text: String): String =
+        """{"kind":"notice","time":0,"text":${JSONObject.quote(text)},"tool":"","input":"","id":"","error":false,"notice":"$sort"}"""
 
     @Test
     fun openingShowsScreenBodyAndMarksSeenOnce() {
@@ -878,6 +885,37 @@ class PaneScreenTest {
 
             composeRule.waitUntilExactlyOneExists(hasText("synthetic reply"), TIMEOUT_MILLIS)
             composeRule.onAllNodesWithTag(GOAL_LINE_TAG).assertCountEquals(0)
+        }
+    }
+
+    @Test
+    fun noticeInsideARunOfToolCallsFollowsTheGroupAsASlimRow() {
+        FakeOrreryServer().use { server ->
+            servePane(
+                server,
+                conversation = conversationBody(
+                    toolItem("synthetic-tool-1", "Read"),
+                    noticeItem("task", "synthetic task notice"),
+                    toolItem("synthetic-tool-2", "Grep"),
+                    toolItem("synthetic-tool-3", "Read"),
+                ),
+            )
+            setScreen(server)
+
+            composeRule.waitUntilExactlyOneExists(hasText("3 tool calls"), TIMEOUT_MILLIS)
+            composeRule.onNodeWithTag("notice:task").assertIsDisplayed()
+            composeRule.onNodeWithText("synthetic task notice").assertIsDisplayed()
+            composeRule.onAllNodesWithTag("tool-row:synthetic-tool-1").assertCountEquals(0)
+            composeRule.onAllNodesWithTag("tool-row:synthetic-tool-2").assertCountEquals(0)
+            composeRule.onAllNodesWithTag("tool-row:synthetic-tool-3").assertCountEquals(0)
+            val group = composeRule.onNodeWithTag("group-row:synthetic-tool-1").fetchSemanticsNode().boundsInRoot
+            val notice = composeRule.onNodeWithTag("notice:task").fetchSemanticsNode().boundsInRoot
+            assertTrue(notice.top >= group.bottom - EDGE_TOLERANCE_PX)
+
+            composeRule.onNodeWithTag("group-row:synthetic-tool-1").performClick()
+            composeRule.onNodeWithTag("tool-row:synthetic-tool-1").performScrollTo().assertIsDisplayed()
+            composeRule.onNodeWithTag("tool-row:synthetic-tool-2").performScrollTo().assertIsDisplayed()
+            composeRule.onNodeWithTag("tool-row:synthetic-tool-3").performScrollTo().assertIsDisplayed()
         }
     }
 }
