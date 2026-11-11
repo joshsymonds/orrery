@@ -270,16 +270,16 @@ class OrreryClientTest {
     }
 
     @Test
-    fun markSeenPostsEmptyBodyWithBothHeaders() {
+    fun markSeenPostsReadUpToWithBothHeaders() {
         FakeOrreryServer().use { server ->
             server.respond("POST", "/v1/panes/%253/seen", 200)
 
-            OrreryClient(server.baseUrl).markSeen("%3")
+            OrreryClient(server.baseUrl).markSeen("%3", 1_700_000_500L)
 
             val request = server.requests.single()
             assertEquals("/v1/panes/%253/seen", request.rawPath)
             assertWriteHeaders(request)
-            assertJsonBody("{}", request.body)
+            assertJsonBody("""{"read_up_to":1700000500}""", request.body)
         }
     }
 
@@ -629,6 +629,100 @@ class OrreryClientTest {
             }
 
             assertEquals(502, error.status)
+        }
+    }
+
+    @Test
+    fun askPostsExactBodyWithBothHeadersAndParsesEveryRowField() {
+        val body = """
+            {"rows":[
+              {"token":"example-token-1","kind":"jump","dir":"/home/user/project","pane":"%7","label":"example-label","note":"example-note","prompt":false},
+              {"token":"example-token-2","kind":"fresh","dir":"/home/user/other","pane":"","label":"","note":"","prompt":true}
+            ]}
+        """.trimIndent()
+        FakeOrreryServer().use { server ->
+            server.respond("POST", "/v1/picker/ask", 200, body)
+
+            val rows = OrreryClient(server.baseUrl).ask("example request")
+
+            assertEquals(
+                listOf(
+                    PickRow("example-token-1", "jump", "/home/user/project", "%7", "example-label", "example-note", false),
+                    PickRow("example-token-2", "fresh", "/home/user/other", "", "", "", true),
+                ),
+                rows,
+            )
+            val request = server.requests.single()
+            assertEquals("POST", request.method)
+            assertEquals("/v1/picker/ask", request.rawPath)
+            assertWriteHeaders(request)
+            assertJsonBody("""{"text":"example request"}""", request.body)
+        }
+    }
+
+    @Test
+    fun askAnsweredAfterTenSecondsSucceeds() {
+        FakeOrreryServer().use { server ->
+            server.respond("POST", "/v1/picker/ask", 200, """{"rows":[]}""", delayMillis = 11_000)
+
+            assertEquals(emptyList<PickRow>(), OrreryClient(server.baseUrl).ask("example request"))
+        }
+    }
+
+    @Test
+    fun runPostsExactBodyWithBothHeadersAndReturnsPane() {
+        FakeOrreryServer().use { server ->
+            server.respond("POST", "/v1/picker/run", 200, """{"pane":"%7"}""")
+
+            assertEquals("%7", OrreryClient(server.baseUrl).run("example-token-1"))
+
+            val request = server.requests.single()
+            assertEquals("POST", request.method)
+            assertEquals("/v1/picker/run", request.rawPath)
+            assertWriteHeaders(request)
+            assertJsonBody("""{"token":"example-token-1"}""", request.body)
+        }
+    }
+
+    @Test
+    fun askServerErrorThrowsHttpExceptionCarryingStatusAndReason() {
+        FakeOrreryServer().use { server ->
+            server.respond("POST", "/v1/picker/ask", 502, "model failed: example reason\n")
+
+            val error = assertThrows(OrreryHttpException::class.java) {
+                OrreryClient(server.baseUrl).ask("example request")
+            }
+
+            assertEquals(502, error.status)
+            assertEquals("model failed: example reason", error.message)
+        }
+    }
+
+    @Test
+    fun runExpiredTokenThrowsHttpExceptionCarryingStatusAndReason() {
+        FakeOrreryServer().use { server ->
+            server.respond("POST", "/v1/picker/run", 410, "token expired")
+
+            val error = assertThrows(OrreryHttpException::class.java) {
+                OrreryClient(server.baseUrl).run("example-token-1")
+            }
+
+            assertEquals(410, error.status)
+            assertEquals("token expired", error.message)
+        }
+    }
+
+    @Test
+    fun pickerErrorWithEmptyBodyFallsBackToStatusMessage() {
+        FakeOrreryServer().use { server ->
+            server.respond("POST", "/v1/picker/run", 404)
+
+            val error = assertThrows(OrreryHttpException::class.java) {
+                OrreryClient(server.baseUrl).run("example-token-1")
+            }
+
+            assertEquals(404, error.status)
+            assertEquals("HTTP 404", error.message)
         }
     }
 }

@@ -1157,6 +1157,108 @@ func TestServePaneSeen(t *testing.T) {
 	}
 }
 
+// postReadUpTo sends a seen write with read_up_to through handler and asserts it answers 204.
+func postReadUpTo(t *testing.T, handler http.Handler, path string, readUpTo int64) {
+	t.Helper()
+	body := jsonBody(t, map[string]any{"read_up_to": readUpTo})
+	assertStatus(t, postJSON(t, handler, path, body), http.StatusNoContent)
+}
+
+// seenOption returns the pane's @orrery_seen time, failing the test when it is unset.
+func seenOption(t *testing.T, tmux *tmuxctl.Client, pane string) int64 {
+	t.Helper()
+	value, ok, err := tmux.PaneOption(t.Context(), pane, protocol.OptionSeen)
+	if err != nil {
+		t.Fatalf("PaneOption: %v", err)
+	}
+	if !ok {
+		t.Fatalf("%s is unset on %s", protocol.OptionSeen, pane)
+	}
+	seen, err := strconv.ParseInt(value, 10, 64)
+	if err != nil {
+		t.Fatalf("%s = %q: %v", protocol.OptionSeen, value, err)
+	}
+	return seen
+}
+
+func TestServePaneSeenReadUpTo(t *testing.T) {
+	t.Parallel()
+
+	const (
+		reported = int64(1700000100)
+		later    = int64(1700000200)
+		earlier  = int64(1700000050)
+	)
+	tmux := newTmuxServer(t)
+	pane, _ := startInputPane(t, tmux, "s1", synthScreen)
+	handler := newHandler(t, tmux)
+	path := paneRoute(pane, "seen")
+
+	// An unset time takes the reported one.
+	postReadUpTo(t, handler, path, reported)
+	if got := seenOption(t, tmux, pane); got != reported {
+		t.Fatalf("after unset: %s = %d, want %d", protocol.OptionSeen, got, reported)
+	}
+
+	// An earlier reported time leaves the stored time where it is.
+	postReadUpTo(t, handler, path, earlier)
+	if got := seenOption(t, tmux, pane); got != reported {
+		t.Fatalf("after earlier time: %s = %d, want %d", protocol.OptionSeen, got, reported)
+	}
+
+	// A later reported time is stored.
+	postReadUpTo(t, handler, path, later)
+	if got := seenOption(t, tmux, pane); got != later {
+		t.Fatalf("after later time: %s = %d, want %d", protocol.OptionSeen, got, later)
+	}
+}
+
+func TestServePaneSeenNoTimeSetsNow(t *testing.T) {
+	t.Parallel()
+
+	tmux := newTmuxServer(t)
+	pane, _ := startInputPane(t, tmux, "s1", synthScreen)
+	handler := newHandler(t, tmux)
+	path := paneRoute(pane, "seen")
+
+	// A stored time in the future does not hold back a post without read_up_to.
+	postReadUpTo(t, handler, path, int64(4102444800))
+
+	for _, body := range []string{"", "{}", `{"other":1}`} {
+		before := time.Now().Unix()
+		assertStatus(t, postJSON(t, handler, path, body), http.StatusNoContent)
+		after := time.Now().Unix()
+		if seen := seenOption(t, tmux, pane); seen < before || seen > after {
+			t.Fatalf("body %q: %s = %d, want a time between %d and %d", body, protocol.OptionSeen, seen, before, after)
+		}
+	}
+}
+
+func TestServePaneSeenRejectsBadReadUpTo(t *testing.T) {
+	t.Parallel()
+
+	tmux := newTmuxServer(t)
+	pane, _ := startInputPane(t, tmux, "s1", synthScreen)
+	handler := newHandler(t, tmux)
+	path := paneRoute(pane, "seen")
+	bodies := []string{
+		`[]`, `null`, `not json`, `"1700000100"`,
+		`{"read_up_to":"1700000100"}`, `{"read_up_to":null}`, `{"read_up_to":-1}`,
+		`{"read_up_to":1.5}`, `{"read_up_to":1e3}`, `{"read_up_to":[1700000100]}`,
+	}
+	for _, body := range bodies {
+		assertStatus(t, postJSON(t, handler, path, body), http.StatusBadRequest)
+	}
+
+	// Nothing from the rejected bodies was stored.
+	if _, ok, err := tmux.PaneOption(t.Context(), pane, protocol.OptionSeen); err != nil || ok {
+		t.Fatalf("%s set = %v (err %v) after rejected bodies, want unset", protocol.OptionSeen, ok, err)
+	}
+
+	// Pane checks still answer first, so an absent pane is 404 whatever the body.
+	assertStatus(t, postJSON(t, handler, paneRoute("%999999", "seen"), `[]`), http.StatusNotFound)
+}
+
 func TestServeWriteRoutesRejectMalformedID(t *testing.T) {
 	t.Parallel()
 

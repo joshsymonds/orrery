@@ -23,6 +23,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/conversation"
 	enginev1connect "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1/enginev1connect"
 	"github.com/joshsymonds/orrery/internal/hoststatus"
+	"github.com/joshsymonds/orrery/internal/open"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/push"
 	"github.com/joshsymonds/orrery/internal/store"
@@ -64,6 +65,7 @@ const (
 	fieldText           = "text"
 	fieldKeys           = "keys"
 	fieldExpectQuestion = "expect_question"
+	fieldReadUpTo       = "read_up_to"
 	fieldPane           = "pane"
 	fieldKind           = "kind"
 	fieldEndpoint       = "endpoint"
@@ -127,6 +129,10 @@ type Config struct {
 	// Home is the home directory a Control start must name a directory under, after symlinks resolve. An empty,
 	// relative or root Home, or one that does not exist, refuses every start.
 	Home string
+	// Picker resolves the open configuration each POST /v1/picker/ask uses, or is nil, which answers 404.
+	Picker func() (open.Config, error)
+	// Now returns the current time, which dates the expiry of each picker token, or is nil for time.Now.
+	Now func() time.Time
 }
 
 // New returns a handler that admits only the configured logins, and never emits CORS headers. A request to
@@ -168,6 +174,7 @@ func New(cfg Config) (http.Handler, error) {
 	goals := conversation.NewGoals()
 	queues := conversation.NewQueues()
 	textLocks := &paneLocks{locks: make(map[string]*sync.Mutex)}
+	seenLocks := &paneLocks{locks: make(map[string]*sync.Mutex)}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/panes", servePanes(cfg.Tmux))
 	mux.HandleFunc("POST /v1/panes", serveNewWindow(cfg.Tmux))
@@ -176,9 +183,16 @@ func New(cfg Config) (http.Handler, error) {
 	mux.HandleFunc("GET /v1/host", serveHost(cfg.HostStatus))
 	mux.HandleFunc("POST /v1/panes/{id}/text", servePaneText(cfg.Tmux, textLocks))
 	mux.HandleFunc("POST /v1/panes/{id}/keys", servePaneKeys(cfg.Tmux))
-	mux.HandleFunc("POST /v1/panes/{id}/seen", servePaneSeen(cfg.Tmux))
+	mux.HandleFunc("POST /v1/panes/{id}/seen", servePaneSeen(cfg.Tmux, seenLocks))
 	mux.HandleFunc("POST /v1/push/register", servePushRegister(cfg.Push))
 	mux.HandleFunc("DELETE /v1/push/register", serveUnregister(cfg.Push))
+	now := cfg.Now
+	if now == nil {
+		now = time.Now
+	}
+	tokens := &pickerTokens{entries: make(map[string]pickerEntry)}
+	mux.HandleFunc("POST /v1/picker/ask", servePickerAsk(cfg.Picker, tokens, cfg.Tmux, now))
+	mux.HandleFunc("POST /v1/picker/run", servePickerRun(tokens, cfg.Tmux, now))
 	sessionsPath, sessions := newSessionsHandler(cfg.Sessions)
 	mux.Handle(sessionsPath, sessions)
 	eventsPath, events := newEventsHandler(cfg.Sessions, poll, sendTimeout, cfg.Shutdown)
@@ -521,20 +535,68 @@ func servePaneKeys(tmux *tmuxctl.Client) http.HandlerFunc {
 	}
 }
 
-// servePaneSeen answers POST /v1/panes/{id}/seen by setting the pane's seen time to now.
-func servePaneSeen(tmux *tmuxctl.Client) http.HandlerFunc {
+// servePaneSeen answers POST /v1/panes/{id}/seen by setting the pane's seen time. The body is optional: with a
+// read_up_to field the time is that one, and otherwise it is now. See markSeen for how the stored time moves.
+// The pane's lock covers the write, so two seen posts to one pane never store an earlier time last.
+func servePaneSeen(tmux *tmuxctl.Client, locks *paneLocks) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := r.PathValue("id")
 		if _, err := checkPane(r.Context(), tmux, id); err != nil {
 			paneError(w, err)
 			return
 		}
-		if err := cli.Seen(r.Context(), tmux, []string{flagPane, id}, io.Discard); err != nil {
+		fields, ok := seenFields(r)
+		if !ok {
+			http.Error(w, "bad request body", http.StatusBadRequest)
+			return
+		}
+		raw, reported := fields[fieldReadUpTo]
+		var readUpTo int64
+		if reported {
+			if readUpTo, ok = unixSeconds(raw); !ok {
+				http.Error(w, "bad request body", http.StatusBadRequest)
+				return
+			}
+		}
+		mu := locks.lock(id)
+		mu.Lock()
+		err := markSeen(r.Context(), tmux, id, readUpTo, reported)
+		mu.Unlock()
+		if err != nil {
 			http.Error(w, "internal server error", http.StatusInternalServerError)
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
 	}
+}
+
+// markSeen sets pane id's seen time. Without a reported time it is now, as `orrery seen` sets it. With one, it is
+// the later of the stored time and the reported one, so the stored time never moves back. An unset stored time
+// counts as 0. The caller holds the pane's lock.
+func markSeen(ctx context.Context, tmux *tmuxctl.Client, id string, reported int64, hasReported bool) error {
+	if !hasReported {
+		if err := cli.Seen(ctx, tmux, []string{flagPane, id}, io.Discard); err != nil {
+			return fmt.Errorf("server: seen: %w", err)
+		}
+		return nil
+	}
+	value, set, err := tmux.PaneOption(ctx, id, protocol.OptionSeen)
+	if err != nil {
+		return fmt.Errorf("server: read seen time: %w", err)
+	}
+	var stored int64
+	if set {
+		if stored, err = strconv.ParseInt(value, 10, 64); err != nil {
+			return fmt.Errorf("server: seen time %q: %w", value, err)
+		}
+	}
+	if reported <= stored {
+		return nil
+	}
+	if err = tmux.SetPaneOption(ctx, id, protocol.OptionSeen, strconv.FormatInt(reported, 10)); err != nil {
+		return fmt.Errorf("server: set seen time: %w", err)
+	}
+	return nil
 }
 
 // paneError answers a failed checkPane: 400 for a malformed pane ID, 404 for an absent pane, else 500.
@@ -622,11 +684,43 @@ func decodeBody(r *http.Request) (map[string]json.RawMessage, bool) {
 	if err != nil {
 		return nil, false
 	}
+	return parseBody(body)
+}
+
+// seenFields returns the fields of a seen request's body. An empty body has no fields. It reports false when the
+// body cannot be read or is neither empty nor a JSON object.
+func seenFields(r *http.Request) (map[string]json.RawMessage, bool) {
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		return nil, false
+	}
+	if len(bytes.TrimSpace(body)) == 0 {
+		return map[string]json.RawMessage{}, true
+	}
+	return parseBody(body)
+}
+
+// parseBody returns the fields of body, which must be one JSON object. It reports false when body is not one,
+// including null.
+func parseBody(body []byte) (map[string]json.RawMessage, bool) {
 	var fields map[string]json.RawMessage
 	if json.Unmarshal(body, &fields) != nil || fields == nil {
 		return nil, false
 	}
 	return fields, true
+}
+
+// unixSeconds returns the non-negative integer raw holds. It reports false when raw is null, not an integer, or
+// negative.
+func unixSeconds(raw json.RawMessage) (int64, bool) {
+	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return 0, false
+	}
+	var n int64
+	if err := json.Unmarshal(raw, &n); err != nil || n < 0 {
+		return 0, false
+	}
+	return n, true
 }
 
 // jsonString returns the string raw holds. It reports false when raw is absent, null, or not a string.

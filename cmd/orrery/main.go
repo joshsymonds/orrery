@@ -309,6 +309,7 @@ func runServe(ctx context.Context, opts globals, args []string, getenv func(stri
 		Shutdown:   shutdown,
 		Engine:     engine,
 		Home:       getenv("HOME"),
+		Picker:     servePickerConfig(tmux, getenv),
 	})
 	if err != nil {
 		return fmt.Errorf("serve: %w", err)
@@ -679,6 +680,12 @@ func serverFlags(server tmuxctl.Server) []string {
 	default:
 		return nil
 	}
+}
+
+// servePickerConfig returns the Picker serve's server uses: each ask resolves the picker's configuration with openConfig
+// for client and getenv, so a missing zoxide or claude fails that ask, not serve's start.
+func servePickerConfig(client *tmuxctl.Client, getenv func(string) string) func() (open.Config, error) {
+	return func() (open.Config, error) { return openConfig(client, getenv) }
 }
 
 // openConfig returns the picker's configuration: zoxide and claude as absolute paths found on orrery's PATH, $HOME/Personal

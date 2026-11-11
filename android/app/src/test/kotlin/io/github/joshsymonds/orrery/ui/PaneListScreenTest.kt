@@ -10,17 +10,21 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTextInput
 import io.github.joshsymonds.orrery.api.FakeOrreryServer
 import io.github.joshsymonds.orrery.api.OrreryClient
 import io.github.joshsymonds.orrery.api.Pane
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import java.util.concurrent.atomic.AtomicReference
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35], qualifiers = "w400dp-h1200dp")
@@ -34,6 +38,7 @@ class PaneListScreenTest {
     val composeRule = createComposeRule()
 
     private var openedPane: Pane? = null
+    private val openedPaneId = AtomicReference<String?>(null)
     private var settingsOpened = 0
 
     private fun pane(
@@ -60,6 +65,21 @@ class PaneListScreenTest {
         .put("question", "")
         .put("question_hash", "")
 
+    private fun pickerRowsBody(): String = JSONObject()
+        .put(
+            "rows",
+            JSONArray().put(
+                JSONObject()
+                    .put("token", "tok-beta")
+                    .put("kind", "jump")
+                    .put("dir", "/home/user/beta")
+                    .put("pane", "%3")
+                    .put("label", "beta-tests")
+                    .put("note", "")
+                    .put("prompt", false),
+            ),
+        ).toString()
+
     private fun panesBody(): String = JSONArray(
         listOf(
             pane("%1", "/home/user/alpha", "alpha-build", "working", "Compiling the synthetic module.", NOW - 30, NOW - 10),
@@ -75,6 +95,7 @@ class PaneListScreenTest {
             PaneListScreen(
                 client = OrreryClient(server.baseUrl),
                 onOpenPane = { openedPane = it },
+                onOpenPaneId = { openedPaneId.set(it) },
                 onOpenSettings = { settingsOpened++ },
                 now = { NOW },
             )
@@ -280,6 +301,71 @@ class PaneListScreenTest {
             setScreen(server)
 
             awaitText("could not load panes")
+        }
+    }
+
+    @Test
+    fun newButtonSitsInTheTopHeaderAboveTheFilters() {
+        FakeOrreryServer().use { server ->
+            server.respond("GET", "/v1/panes", 200, panesBody())
+            setScreen(server)
+            awaitRow("%1")
+
+            val newTop = composeRule.onNodeWithTag("picker-new").fetchSemanticsNode().boundsInRoot.top
+            val filterTop = composeRule.onNodeWithTag("filter-all").fetchSemanticsNode().boundsInRoot.top
+            assertTrue(newTop < filterTop)
+        }
+    }
+
+    @Test
+    fun newButtonOpensThePickerAndARunOpensItsPane() {
+        FakeOrreryServer().use { server ->
+            server.respond("GET", "/v1/panes", 200, panesBody())
+            server.respond("POST", "/v1/picker/ask", 200, pickerRowsBody())
+            server.respond("POST", "/v1/picker/run", 200, """{"pane":"%9"}""")
+            setScreen(server)
+            awaitRow("%1")
+
+            composeRule.onNodeWithTag("picker-new").performClick()
+            composeRule.onNodeWithTag("picker-text").performTextInput("beta")
+            composeRule.onNodeWithTag("picker-ask").performClick()
+            composeRule.waitUntil(TIMEOUT_MS) { countNodes(hasTestTag("picker-row:0")) == 1 }
+            composeRule.onNodeWithTag("picker-row:0").performClick()
+            composeRule.waitUntil(TIMEOUT_MS) { openedPaneId.get() != null }
+
+            assertEquals("%9", openedPaneId.get())
+            assertNull(openedPane)
+            assertEquals(0, countNodes(hasTestTag("picker-text")))
+        }
+    }
+
+    @Test
+    fun paneRowStillOpensItsPaneWhilePickerIsOpen() {
+        FakeOrreryServer().use { server ->
+            server.respond("GET", "/v1/panes", 200, panesBody())
+            setScreen(server)
+            awaitRow("%3")
+
+            composeRule.onNodeWithTag("picker-new").performClick()
+            composeRule.onNodeWithTag("picker-text").assertExists()
+            composeRule.onNodeWithTag("pane-row:%3").performClick()
+
+            assertEquals("%3", openedPane?.id)
+            assertNull(openedPaneId.get())
+        }
+    }
+
+    @Test
+    fun cancelHidesThePicker() {
+        FakeOrreryServer().use { server ->
+            server.respond("GET", "/v1/panes", 200, panesBody())
+            setScreen(server)
+            awaitRow("%1")
+
+            composeRule.onNodeWithTag("picker-new").performClick()
+            composeRule.onNodeWithTag("picker-cancel").performClick()
+
+            assertEquals(0, countNodes(hasTestTag("picker-text")))
         }
     }
 }

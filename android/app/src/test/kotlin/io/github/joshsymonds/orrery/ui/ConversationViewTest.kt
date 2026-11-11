@@ -1,5 +1,6 @@
 package io.github.joshsymonds.orrery.ui
 
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.height
@@ -9,10 +10,16 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.neverEqualPolicy
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.SemanticsNodeInteraction
+import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasAnyDescendant
@@ -29,6 +36,8 @@ import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import io.github.joshsymonds.orrery.api.WaitingItem
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.launch
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -39,6 +48,22 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import java.util.TimeZone
+
+// Unix seconds; the zone is UTC wherever a test says so.
+private const val FIXED_NOW = 1_700_006_399L // 2023-11-14 23:59:59 UTC
+private const val NOV_14_2213_UTC = 1_700_000_000L
+private const val NOV_14_0800_UTC = 1_699_948_800L
+private const val NOV_14_2330_UTC = 1_700_004_600L
+private const val NOV_15_0010_UTC = 1_700_007_000L
+private const val NOV_9_1030_UTC = 1_699_525_800L
+
+// Made-up unix seconds for the new divider: the seen time sits between the two.
+private const val EARLIER_TIME = 1_000L
+private const val SEEN_TIME = 2_000L
+private const val LATER_TIME = 3_000L
+private const val NEW_LABEL = "new"
+
+private fun inUtc() = TimeZone.setDefault(TimeZone.getTimeZone("UTC"))
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35])
@@ -59,7 +84,8 @@ class ConversationViewTest {
         input: String = "synthetic input",
         result: String? = null,
         error: Boolean = false,
-    ) = ToolCall(id, name, input, result, error)
+        time: Long = 0L,
+    ) = ToolCall(id, name, input, result, error, time)
 
     private fun setList(
         entries: List<ConvoEntry>,
@@ -138,11 +164,78 @@ class ConversationViewTest {
     }
 
     @Test
-    fun timeShowsHourAndMinuteInTheDeviceZone() {
-        TimeZone.setDefault(TimeZone.getTimeZone("UTC"))
-        setList(listOf(ConvoEntry.Time(1_700_000_000L)))
+    fun clockTimeForTodayShowsHourAndMinuteInTheDeviceZone() {
+        inUtc()
+        composeRule.setContent {
+            MaterialTheme {
+                ConversationView(entries = listOf(ConvoEntry.Time(NOV_14_2213_UTC)), now = FIXED_NOW)
+            }
+        }
 
         composeRule.onNodeWithText("22:13").assertIsDisplayed()
+    }
+
+    @Test
+    fun timeRowShowsJustNowUnderAMinuteAndFollowsTheClockAsItAdvances() {
+        inUtc()
+        val now = mutableLongStateOf(FIXED_NOW)
+        composeRule.setContent {
+            MaterialTheme {
+                ConversationView(entries = listOf(ConvoEntry.Time(FIXED_NOW - 30)), now = now.longValue)
+            }
+        }
+
+        composeRule.onNodeWithText("just now").assertIsDisplayed()
+        composeRule.runOnIdle { now.longValue = FIXED_NOW + 600 }
+        composeRule.onNodeWithText("10 min ago").assertIsDisplayed()
+        composeRule.onAllNodesWithText("just now").assertCountEquals(0)
+    }
+
+    @Test
+    fun timeLabelIsJustNowBelowAMinuteIncludingATimeAfterNow() {
+        inUtc()
+        assertEquals("just now", timeLabel(FIXED_NOW, FIXED_NOW))
+        assertEquals("just now", timeLabel(FIXED_NOW - 59, FIXED_NOW))
+        assertEquals("just now", timeLabel(FIXED_NOW + 120, FIXED_NOW))
+    }
+
+    @Test
+    fun timeLabelCountsWholeMinutesFromSixtySecondsToAnHour() {
+        inUtc()
+        assertEquals("1 min ago", timeLabel(FIXED_NOW - 60, FIXED_NOW))
+        assertEquals("59 min ago", timeLabel(FIXED_NOW - 3_540, FIXED_NOW))
+    }
+
+    @Test
+    fun timeLabelFromSixtyMinutesOnIsTheClockTimeWhenItIsToday() {
+        inUtc()
+        assertEquals("22:59", timeLabel(FIXED_NOW - 3_600, FIXED_NOW))
+    }
+
+    @Test
+    fun timeLabelFromEarlierTodayIsTheClockTime() {
+        inUtc()
+        assertEquals("08:00", timeLabel(NOV_14_0800_UTC, FIXED_NOW))
+    }
+
+    @Test
+    fun timeLabelFromAPreviousDayIsTheDateWithoutPadding() {
+        inUtc()
+        assertEquals("Nov 9", timeLabel(NOV_9_1030_UTC, FIXED_NOW))
+    }
+
+    @Test
+    fun timeLabelUnderAnHourAcrossMidnightIsRelative() {
+        inUtc()
+        assertEquals("40 min ago", timeLabel(NOV_14_2330_UTC, NOV_15_0010_UTC))
+    }
+
+    @Test
+    fun timeLabelUsesTheDeviceZoneToDecideToday() {
+        TimeZone.setDefault(TimeZone.getTimeZone("America/Los_Angeles"))
+        // 22:13 UTC on Nov 14 is 14:13 in Los Angeles. Three hours on, it is 01:13 Nov 15 in UTC
+        // but still 17:13 Nov 14 in Los Angeles, so the clock time shows.
+        assertEquals("14:13", timeLabel(NOV_14_2213_UTC, NOV_14_2213_UTC + 10_800))
     }
 
     @Test
@@ -253,6 +346,140 @@ class ConversationViewTest {
 
         composeRule.onNodeWithText("synthetic trailing reply").assertIsDisplayed()
         composeRule.onNodeWithText("synthetic kept output").assertIsDisplayed()
+    }
+
+    private fun setSeen(entries: List<ConvoEntry>, seen: Long?) {
+        composeRule.setContent {
+            MaterialTheme { ConversationView(entries = entries, seen = seen, now = FIXED_NOW) }
+        }
+    }
+
+    /** The divider sits between the bottom of entry row [below] - 1 and the top of entry row [below]. */
+    private fun assertDividerBefore(below: Int) {
+        composeRule.onAllNodesWithTag("new-divider").assertCountEquals(1)
+        composeRule.onNodeWithText(NEW_LABEL).assertIsDisplayed()
+        val divider = composeRule.onNodeWithTag("new-divider").fetchSemanticsNode().boundsInRoot
+        val row = composeRule.onNodeWithTag("entry-row:$below").fetchSemanticsNode().boundsInRoot
+        assertTrue("the divider ends above entry row $below", divider.bottom <= row.top + 1f)
+        if (below > 0) {
+            val previous = composeRule.onNodeWithTag("entry-row:${below - 1}").fetchSemanticsNode().boundsInRoot
+            assertTrue("the divider starts below entry row ${below - 1}", divider.top >= previous.bottom - 1f)
+        }
+    }
+
+    /** Entry rows from [from] on carry the new tint; the rows before it do not. */
+    private fun assertTintFromRow(from: Int, count: Int) {
+        for (index in 0 until count) {
+            val row = composeRule.onNodeWithTag("entry-row:$index")
+            if (index >= from) {
+                row.assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, NEW_LABEL))
+            } else {
+                row.assert(SemanticsMatcher.keyNotDefined(SemanticsProperties.StateDescription))
+            }
+        }
+    }
+
+    private fun assertNoDividerAndNoTint(count: Int) {
+        composeRule.onAllNodesWithTag("new-divider").assertCountEquals(0)
+        assertTintFromRow(from = count, count = count)
+    }
+
+    @Test
+    fun newDividerSitsBeforeANewerTimeLabelAndTintsTheRowsFromThereOn() {
+        setSeen(
+            listOf(
+                ConvoEntry.Time(EARLIER_TIME),
+                ConvoEntry.Prompt("synthetic earlier prompt", EARLIER_TIME),
+                ConvoEntry.Time(LATER_TIME),
+                ConvoEntry.Reply("synthetic later reply", LATER_TIME),
+            ),
+            seen = SEEN_TIME,
+        )
+
+        assertDividerBefore(below = 2)
+        assertTintFromRow(from = 2, count = 4)
+    }
+
+    @Test
+    fun newDividerSitsBeforeANewerToolAndTintsOlderRowsAfterIt() {
+        setSeen(
+            listOf(
+                ConvoEntry.Reply("synthetic earlier reply", EARLIER_TIME),
+                ConvoEntry.Tool(call("new-tool", result = "synthetic output", time = LATER_TIME)),
+                ConvoEntry.Reply("synthetic after reply", EARLIER_TIME),
+            ),
+            seen = SEEN_TIME,
+        )
+
+        assertDividerBefore(below = 1)
+        assertTintFromRow(from = 1, count = 3)
+    }
+
+    @Test
+    fun newDividerSitsBeforeAGroupWhoseNewestCallIsNewer() {
+        setSeen(
+            listOf(
+                ConvoEntry.Reply("synthetic earlier reply", EARLIER_TIME),
+                ConvoEntry.Group(
+                    listOf(
+                        call("g-a", time = EARLIER_TIME),
+                        call("g-b", time = LATER_TIME),
+                        call("g-c", time = EARLIER_TIME),
+                    ),
+                ),
+            ),
+            seen = SEEN_TIME,
+        )
+
+        assertDividerBefore(below = 1)
+        assertTintFromRow(from = 1, count = 2)
+    }
+
+    @Test
+    fun noDividerWhenTheSeenTimeIsAtOrAfterTheNewestEntry() {
+        val entries = listOf(
+            ConvoEntry.Reply("synthetic earlier reply", EARLIER_TIME),
+            ConvoEntry.Tool(call("seen-tool", time = LATER_TIME)),
+        )
+        val seen = mutableStateOf<Long?>(LATER_TIME)
+        composeRule.setContent {
+            MaterialTheme { ConversationView(entries = entries, seen = seen.value, now = FIXED_NOW) }
+        }
+        assertNoDividerAndNoTint(count = entries.size)
+
+        composeRule.runOnIdle { seen.value = LATER_TIME + 1_000L }
+        assertNoDividerAndNoTint(count = entries.size)
+    }
+
+    @Test
+    fun noDividerWithoutASeenTime() {
+        val entries = listOf(
+            ConvoEntry.Reply("synthetic earlier reply", EARLIER_TIME),
+            ConvoEntry.Tool(call("unseen-tool", time = LATER_TIME)),
+        )
+        setSeen(entries, seen = null)
+
+        assertNoDividerAndNoTint(count = entries.size)
+    }
+
+    @Test
+    fun aTimeZeroEntryIsNeverNewerEvenPastAnEarlierSeenTime() {
+        val entries = listOf(ConvoEntry.Reply("synthetic untimed reply"), ConvoEntry.Tool(call("untimed-tool")))
+        setSeen(entries, seen = -1L)
+
+        assertNoDividerAndNoTint(count = entries.size)
+    }
+
+    @Test
+    fun aNewDividerDoesNotStopTheViewOpeningAtTheNewestEntry() {
+        val entries = (1..40).map { ConvoEntry.Reply("synthetic reply %02d".format(it), it * 100L) }
+        setSeen(entries, seen = SEEN_TIME)
+
+        composeRule.onNodeWithText("synthetic reply 40").assertIsDisplayed()
+        assertEndInView("synthetic reply 40")
+        // Replies 21 to 40 are newer; the divider rides in item 20 (reply 21), composed once scrolled to.
+        composeRule.onNodeWithTag("conversation-list").performScrollToIndex(20)
+        composeRule.onNodeWithTag("new-divider").assertIsDisplayed()
     }
 
     @Test
@@ -782,5 +1009,178 @@ class ConversationViewTest {
         val layout = layoutOf(composeRule.onNodeWithText(summaries))
         assertEquals(3, layout.lineCount)
         assertTrue(layout.hasVisualOverflow)
+    }
+
+    private lateinit var scope: CoroutineScope
+    private val readWindowHeight = 400.dp
+
+    private fun timedReplies(from: Int, to: Int): List<ConvoEntry> =
+        (from..to).map { ConvoEntry.Reply("synthetic reply %02d".format(it), it * 100L) }
+
+    /** A window of [readWindowHeight] that opens at the end of [entries]; the clock is held still. */
+    private fun setReadList(
+        entries: MutableState<List<ConvoEntry>>,
+        reads: MutableList<Long>,
+        footer: (@Composable () -> Unit)? = null,
+        contentPadding: PaddingValues = PaddingValues(),
+    ) {
+        composeRule.mainClock.autoAdvance = false
+        composeRule.setContent {
+            MaterialTheme {
+                val state = rememberLazyListState()
+                list = state
+                scope = rememberCoroutineScope()
+                Box(modifier = Modifier.height(readWindowHeight)) {
+                    ConversationView(
+                        entries = entries.value,
+                        listState = state,
+                        contentPadding = contentPadding,
+                        footer = footer,
+                        onRead = { reads.add(it) },
+                    )
+                }
+            }
+        }
+        composeRule.waitForIdle()
+    }
+
+    private fun scrollListBy(pixels: Float) {
+        composeRule.runOnIdle { scope.launch { list.scrollBy(pixels) } }
+        composeRule.mainClock.advanceTimeByFrame()
+        composeRule.waitForIdle()
+    }
+
+    @Test
+    fun aRowIsReadAtOneSecondOnScreenAndNotBefore() {
+        val entries = mutableStateOf(listOf<ConvoEntry>(ConvoEntry.Reply("synthetic dwell reply", 500L)))
+        val reads = mutableListOf<Long>()
+        setReadList(entries, reads)
+
+        composeRule.mainClock.advanceTimeBy(999, ignoreFrameDuration = true)
+        assertTrue("unread at 999 ms", reads.isEmpty())
+        composeRule.mainClock.advanceTimeBy(1, ignoreFrameDuration = true)
+        assertEquals(listOf(500L), reads)
+    }
+
+    @Test
+    fun rowsScrolledPastWithinASecondAreNeverReported() {
+        val entries = mutableStateOf(timedReplies(1, 40))
+        val reads = mutableListOf<Long>()
+        setReadList(entries, reads)
+
+        composeRule.mainClock.advanceTimeBy(500)
+        composeRule.runOnIdle { scope.launch { list.scrollToItem(0) } }
+        composeRule.mainClock.advanceTimeBy(1_000)
+
+        assertTrue("the rows at the top, on screen a second, are read", reads.isNotEmpty())
+        assertTrue("no row scrolled past within a second is read", reads.all { it < 3_000L })
+    }
+
+    @Test
+    fun aTallReplyIsReadWhenHalfTheWindowShowsForASecond() {
+        val entries = mutableStateOf(listOf<ConvoEntry>(ConvoEntry.Reply(tallReply("synthetic tall"), 700L)))
+        val reads = mutableListOf<Long>()
+        // The footer leaves 250 dp of the window below the reply: half of it shows.
+        setReadList(entries, reads, footer = { Box(modifier = Modifier.height(150.dp)) })
+
+        composeRule.mainClock.advanceTimeBy(999, ignoreFrameDuration = true)
+        assertTrue("unread at 999 ms", reads.isEmpty())
+        composeRule.mainClock.advanceTimeBy(1, ignoreFrameDuration = true)
+        assertEquals(listOf(700L), reads)
+    }
+
+    @Test
+    fun aTallReplyIsNotReadWhenLessThanHalfTheWindowShows() {
+        val entries = mutableStateOf(listOf<ConvoEntry>(ConvoEntry.Reply(tallReply("synthetic tall"), 700L)))
+        val reads = mutableListOf<Long>()
+        // The footer leaves 150 dp of the window below the reply: less than half of it shows.
+        setReadList(entries, reads, footer = { Box(modifier = Modifier.height(250.dp)) })
+
+        composeRule.mainClock.advanceTimeBy(2_000)
+        assertTrue("less than half shows for two seconds", reads.isEmpty())
+    }
+
+    @Test
+    fun aTallReplyIsReadAgainstTheWindowBetweenTheContentPadding() {
+        val entries = mutableStateOf(listOf<ConvoEntry>(ConvoEntry.Reply(tallReply("synthetic tall"), 700L)))
+        val reads = mutableListOf<Long>()
+        // The top padding leaves a 300 dp window; the footer leaves 160 dp of it to the reply, over half.
+        setReadList(
+            entries,
+            reads,
+            footer = { Box(modifier = Modifier.height(140.dp)) },
+            contentPadding = PaddingValues(top = 100.dp),
+        )
+
+        composeRule.mainClock.advanceTimeBy(1_000, ignoreFrameDuration = true)
+        assertEquals(listOf(700L), reads)
+    }
+
+    @Test
+    fun aShortRowWithUnderHalfShowingIsNotReported() {
+        val entries = mutableStateOf(timedReplies(1, 40))
+        val reads = mutableListOf<Long>()
+        setReadList(entries, reads)
+        composeRule.mainClock.advanceTimeBy(500)
+
+        val rowHeight = composeRule.onNodeWithTag("entry-row:39").fetchSemanticsNode().boundsInRoot.height
+        scrollListBy(-0.75f * rowHeight)
+
+        val row = composeRule.onNodeWithTag("entry-row:39").fetchSemanticsNode().boundsInRoot
+        val window = composeRule.onNodeWithTag("conversation-list").fetchSemanticsNode().boundsInRoot
+        val shown = minOf(row.bottom, window.bottom) - maxOf(row.top, window.top)
+        assertTrue("part of the row still shows", shown > 0f)
+        assertTrue("less than half of the row shows", shown * 2 < rowHeight)
+
+        composeRule.mainClock.advanceTimeBy(2_000)
+        assertFalse("the partly shown row is not read", reads.contains(4_000L))
+    }
+
+    @Test
+    fun anEqualListRedeliveredMidCountDoesNotRestartIt() {
+        // A never-equal policy hands the view a new, equal list on every set; the default would swallow it.
+        val entries = mutableStateOf(
+            listOf<ConvoEntry>(ConvoEntry.Reply("synthetic dwell reply", 500L)),
+            neverEqualPolicy(),
+        )
+        val reads = mutableListOf<Long>()
+        setReadList(entries, reads)
+
+        composeRule.mainClock.advanceTimeBy(600, ignoreFrameDuration = true)
+        composeRule.runOnIdle { entries.value = listOf(ConvoEntry.Reply("synthetic dwell reply", 500L)) }
+        // The view takes the new, equal list on the recomposition that idling runs; the count must carry on to 1000 ms.
+        composeRule.waitForIdle()
+        composeRule.mainClock.advanceTimeBy(999 - composeRule.mainClock.currentTime, ignoreFrameDuration = true)
+        assertTrue("unread at 999 ms", reads.isEmpty())
+        composeRule.mainClock.advanceTimeBy(1, ignoreFrameDuration = true)
+        assertEquals(listOf(500L), reads)
+    }
+
+    @Test
+    fun aTimeLabelAloneIsNeverReported() {
+        val entries = mutableStateOf(listOf<ConvoEntry>(ConvoEntry.Time(500L)))
+        val reads = mutableListOf<Long>()
+        setReadList(entries, reads)
+
+        composeRule.mainClock.advanceTimeBy(3_000)
+        assertTrue(reads.isEmpty())
+    }
+
+    @Test
+    fun readTimesOnlyGrowAndAnUntimedRowIsNeverReported() {
+        val entries = mutableStateOf(
+            listOf<ConvoEntry>(
+                ConvoEntry.Reply("synthetic untimed reply"),
+                ConvoEntry.Reply("synthetic early reply", 300L),
+                ConvoEntry.Reply("synthetic late reply", 900L),
+            ),
+        )
+        val reads = mutableListOf<Long>()
+        setReadList(entries, reads)
+
+        composeRule.mainClock.advanceTimeBy(1_000)
+        assertEquals(900L, reads.lastOrNull())
+        assertTrue("reads only grow", reads.zipWithNext().all { (earlier, later) -> later > earlier })
+        assertFalse("a row with no time is never reported", 0L in reads)
     }
 }

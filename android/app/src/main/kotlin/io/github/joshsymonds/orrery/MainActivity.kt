@@ -70,6 +70,7 @@ class MainActivity : ComponentActivity() {
                                 Screen.Panes -> PaneListScreen(
                                     client = client,
                                     onOpenPane = { screen = Screen.Pane(it.id) },
+                                    onOpenPaneId = { screen = Screen.Pane(it) },
                                     onOpenSettings = { screen = Screen.Settings },
                                 )
                                 is Screen.Pane -> {

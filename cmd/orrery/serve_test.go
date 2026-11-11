@@ -2,9 +2,13 @@ package main
 
 import (
 	"context"
+	"io"
 	"net"
 	"net/http"
+	"net/http/httptest"
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -12,6 +16,7 @@ import (
 
 	orreryv1 "github.com/joshsymonds/orrery/internal/gen/orrery/v1"
 	"github.com/joshsymonds/orrery/internal/gen/orrery/v1/orreryv1connect"
+	"github.com/joshsymonds/orrery/internal/open"
 	"github.com/joshsymonds/orrery/internal/push"
 	"github.com/joshsymonds/orrery/internal/server"
 	"github.com/joshsymonds/orrery/internal/store"
@@ -150,5 +155,102 @@ func TestServeEndsOpenStreamAtShutdown(t *testing.T) {
 		}
 	case <-time.After(serveTestWait):
 		t.Fatalf("Watch stream did not end within %v of shutdown", serveTestWait)
+	}
+}
+
+// servePickerHandler serves the API for the tmux client tmux with picker as its Picker, behind the guard headers the
+// test transport sends, and returns the server's URL.
+func servePickerHandler(t *testing.T, tmux *tmuxctl.Client, picker func() (open.Config, error)) string {
+	t.Helper()
+	pushStore, err := push.NewStore(filepath.Join(t.TempDir(), "push.json"), []string{push.DefaultPushHost})
+	if err != nil {
+		t.Fatalf("push.NewStore: %v", err)
+	}
+	handler, err := server.New(server.Config{
+		Logins: []string{serveTestLogin},
+		Tmux:   tmux,
+		Push:   pushStore,
+		Picker: picker,
+	})
+	if err != nil {
+		t.Fatalf("server.New: %v", err)
+	}
+	srv := httptest.NewServer(handler)
+	t.Cleanup(srv.Close)
+	return srv.URL
+}
+
+// writeServeFakeBinary installs an executable named name in dir.
+func writeServeFakeBinary(t *testing.T, dir, name string) string {
+	t.Helper()
+	path := filepath.Join(dir, name)
+	if err := os.WriteFile(path, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatalf("write fake %s: %v", name, err)
+	}
+	return path
+}
+
+// TestServePickerAskAnswersMissingBinary runs serve's picker with neither zoxide nor claude on PATH. server.New
+// accepts the picker, and an ask through the guard answers 502 with a body naming the missing zoxide.
+func TestServePickerAskAnswersMissingBinary(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	tmux, err := tmuxctl.New(tmuxctl.Server{Name: "orrery-serve-test-unstarted"})
+	if err != nil {
+		t.Fatalf("tmuxctl.New: %v", err)
+	}
+	getenv := func(key string) string { return map[string]string{"HOME": t.TempDir()}[key] }
+	baseURL := servePickerHandler(t, tmux, servePickerConfig(tmux, getenv))
+
+	client := &http.Client{Transport: serveLoginTransport{base: http.DefaultTransport}}
+	resp, err := client.Post(baseURL+"/v1/picker/ask", "application/json", strings.NewReader(`{"text":"example"}`))
+	if err != nil {
+		t.Fatalf("POST ask: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := resp.Body.Close(); err != nil {
+			t.Errorf("Close body: %v", err)
+		}
+	})
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read body: %v", err)
+	}
+	if resp.StatusCode != http.StatusBadGateway {
+		t.Fatalf("ask status = %d, want %d (body %q)", resp.StatusCode, http.StatusBadGateway, body)
+	}
+	if !strings.Contains(string(body), "zoxide") {
+		t.Fatalf("ask body = %q, want it to name zoxide", body)
+	}
+}
+
+// TestServePickerConfigResolvesBinaries runs serve's picker with fake zoxide and claude on PATH. The config carries
+// their absolute paths, serve's tmux client, and the default root $HOME/Personal.
+func TestServePickerConfigResolvesBinaries(t *testing.T) {
+	bin := t.TempDir()
+	zoxide := writeServeFakeBinary(t, bin, "zoxide")
+	claude := writeServeFakeBinary(t, bin, "claude")
+	t.Setenv("PATH", bin)
+	home := t.TempDir()
+	tmux, err := tmuxctl.New(tmuxctl.Server{Name: "orrery-serve-test-unstarted"})
+	if err != nil {
+		t.Fatalf("tmuxctl.New: %v", err)
+	}
+	getenv := func(key string) string { return map[string]string{"HOME": home}[key] }
+
+	cfg, err := servePickerConfig(tmux, getenv)()
+	if err != nil {
+		t.Fatalf("picker: %v", err)
+	}
+	if cfg.Zoxide != zoxide {
+		t.Errorf("Zoxide = %q, want %q", cfg.Zoxide, zoxide)
+	}
+	if cfg.Claude != claude {
+		t.Errorf("Claude = %q, want %q", cfg.Claude, claude)
+	}
+	if cfg.Tmux != tmux {
+		t.Errorf("Tmux is not serve's tmux client")
+	}
+	if want := filepath.Join(home, "Personal"); cfg.Root != want {
+		t.Errorf("Root = %q, want %q", cfg.Root, want)
 	}
 }
