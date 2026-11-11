@@ -78,14 +78,16 @@ type Store interface {
 }
 
 // Config configures a Manager. Shell is the login shell and Claude the claude name, resolved with exec.LookPath at
-// each start. Environ is the environment sessions start with, Cap the most live sessions at once, Writer stores their
-// ops, Now stamps them (nil is time.Now), Notifier receives the notices of their state changes (nil sends none), Store
-// is the engine rows Reconcile, Say and Seen read and Logger reports pump errors (nil discards).
+// each start. Environ is the environment sessions start with, Cap the most live sessions at once, StepCap the most
+// live step sessions at once, counted apart from Cap, Writer stores their ops, Now stamps them (nil is time.Now),
+// Notifier receives the notices of their state changes (nil sends none), Store is the engine rows Reconcile, Say and
+// Seen read and Logger reports pump errors (nil discards).
 type Config struct {
 	Shell    string
 	Claude   string
 	Environ  []string
 	Cap      int
+	StepCap  int
 	Writer   *Writer
 	Now      func() time.Time
 	Notifier NoticeSink
@@ -101,13 +103,15 @@ type Config struct {
 // manager's lock guards turning, interrupting, closing, requests, background, idleSince and idleStopped, and the pump sets
 // exited under it too. requests holds the ids of the requests the host has open, background is set while a background
 // task runs, idleSince is when the session last became not busy (zero while it is busy), and idleStopped is set when a
-// check stops the session for being idle.
+// check stops the session for being idle. step is set for a step session, which sends no notice and frees a step slot
+// rather than a session slot.
 type liveSession struct {
 	id           string
 	dir          string
 	sess         *session.Session
 	done         chan struct{}
 	cancel       context.CancelFunc
+	step         bool
 	exited       bool
 	turning      bool
 	interrupting bool
@@ -139,9 +143,12 @@ type Manager struct {
 	mu sync.Mutex
 	// sessions holds the running sessions whose pump has not finished.
 	sessions map[string]*liveSession
-	// reserved counts the sessions being started or running, which is what the cap limits.
-	reserved int
-	closed   bool
+	// reserved counts the sessions being started or running, which is what the cap limits. stepLimit is the cap on
+	// step sessions, and stepsRunning counts the step sessions being started or running, apart from reserved.
+	reserved     int
+	stepLimit    int
+	stepsRunning int
+	closed       bool
 
 	// resumeMu serializes the resume of a session that is not live, so concurrent Says to one id start one process.
 	resumeMu sync.Mutex
@@ -157,17 +164,18 @@ type Manager struct {
 // NewManager returns a Manager for cfg.
 func NewManager(cfg Config) *Manager {
 	manager := &Manager{
-		shell:    cfg.Shell,
-		claude:   cfg.Claude,
-		environ:  cfg.Environ,
-		limit:    cfg.Cap,
-		writer:   cfg.Writer,
-		now:      cfg.Now,
-		notifier: cfg.Notifier,
-		store:    cfg.Store,
-		logger:   cfg.Logger,
-		sessions: map[string]*liveSession{},
-		attempts: map[attemptKey]*attempt{},
+		shell:     cfg.Shell,
+		claude:    cfg.Claude,
+		environ:   cfg.Environ,
+		limit:     cfg.Cap,
+		stepLimit: cfg.StepCap,
+		writer:    cfg.Writer,
+		now:       cfg.Now,
+		notifier:  cfg.Notifier,
+		store:     cfg.Store,
+		logger:    cfg.Logger,
+		sessions:  map[string]*liveSession{},
+		attempts:  map[attemptKey]*attempt{},
 	}
 	if manager.now == nil {
 		manager.now = time.Now
@@ -299,7 +307,7 @@ func (m *Manager) start(ctx context.Context, id string, req StartRequest) (strin
 		m.release()
 		return "", fmt.Errorf("record session %s: %w", id, err)
 	}
-	live, err := m.spawnLive(ctx, id, req.Dir, "", req.Model)
+	live, err := m.spawnLive(ctx, id, req.Dir, spawnSpec{model: req.Model})
 	if err != nil {
 		return id, m.fail(ctx, id, req.Dir, err)
 	}
@@ -420,7 +428,13 @@ func (m *Manager) say(ctx context.Context, req SayRequest) error {
 		if req.PromptID != "" {
 			marks = append(marks, store.EnginePromptFailed{ID: id, PromptID: req.PromptID, Reason: err.Error()})
 		}
-		recordErr := m.recordFailed(ctx, id, live.dir, err, marks...)
+		// A step sends no notice, so its failed send is recorded without one.
+		var recordErr error
+		if live.step {
+			recordErr = m.writeFailed(ctx, id, err, marks...)
+		} else {
+			recordErr = m.recordFailed(ctx, id, live.dir, err, marks...)
+		}
 		return fmt.Errorf("say to session %s: %w", id, errors.Join(err, recordErr))
 	}
 	return nil
@@ -532,6 +546,9 @@ func (m *Manager) resumeSession(ctx context.Context, id string) (*liveSession, e
 	if err != nil {
 		return nil, err
 	}
+	if row.Kind == store.KindStep {
+		return nil, fmt.Errorf("%w: %s is a step session", ErrNoSession, id)
+	}
 	return m.resume(ctx, row)
 }
 
@@ -544,7 +561,7 @@ func (m *Manager) resume(ctx context.Context, row store.EngineRow) (*liveSession
 	if err := checkDir(row.Dir); err != nil {
 		return nil, errors.Join(err, m.fail(ctx, row.ID, row.Dir, err))
 	}
-	live, err := m.spawnLive(ctx, row.ID, row.Dir, row.ClaudeSession, "")
+	live, err := m.spawnLive(ctx, row.ID, row.Dir, spawnSpec{claudeSession: row.ClaudeSession})
 	if err != nil {
 		return nil, errors.Join(err, m.fail(ctx, row.ID, row.Dir, err))
 	}
@@ -563,18 +580,17 @@ func (m *Manager) engineRow(ctx context.Context, id string) (store.EngineRow, er
 	return row, nil
 }
 
-// spawnLive starts the process for id in dir, resuming claudeSession when it is set and running model when it is set,
-// and registers it as live under a pump that records its events. The caller holds the slot from reserve. A process that
-// starts after the manager closed is stopped, and the error reports the close. An error that returns here leaves
-// nothing registered.
-func (m *Manager) spawnLive(ctx context.Context, id, dir, claudeSession, model string) (*liveSession, error) {
-	sess, err := m.spawn(id, dir, claudeSession, model)
+// spawnLive starts the process for id in dir as sp describes, and registers it as live under a pump that records its
+// events. The caller holds the slot from reserve or reserveStep. A process that starts after the manager closed is
+// stopped, and the error reports the close. An error that returns here leaves nothing registered.
+func (m *Manager) spawnLive(ctx context.Context, id, dir string, sp spawnSpec) (*liveSession, error) {
+	sess, err := m.spawn(id, dir, sp)
 	if err != nil {
 		return nil, err
 	}
 	pumpCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	live := &liveSession{id: id, dir: dir, sess: sess, done: make(chan struct{}), cancel: cancel,
-		requests: map[string]struct{}{}}
+		step: sp.step, requests: map[string]struct{}{}}
 	m.mu.Lock()
 	closed := m.closed
 	if !closed {
@@ -588,7 +604,7 @@ func (m *Manager) spawnLive(ctx context.Context, id, dir, claudeSession, model s
 		return nil, errors.Join(errManagerClosed, sess.Stop())
 	}
 	rec := newRecorder(id)
-	rec.claudeSession = claudeSession
+	rec.claudeSession = sp.claudeSession
 	go m.pump(pumpCtx, live, rec)
 	return live, nil
 }
@@ -819,9 +835,18 @@ func newSessionID() (string, error) {
 	return hex.EncodeToString(raw[:]), nil
 }
 
-// spawn resolves claude and starts the session process for id in dir, resuming claudeSession when it is set and running
-// model when it is set. The prompt is not sent here.
-func (m *Manager) spawn(id, dir, claudeSession, model string) (*session.Session, error) {
+// spawnSpec describes the process a spawn starts: the claude session it resumes, the model it runs, and for a step the
+// agent and schema it runs with. step marks a step session.
+type spawnSpec struct {
+	claudeSession string
+	model         string
+	agent         string
+	schema        string
+	step          bool
+}
+
+// spawn resolves claude and starts the session process for id in dir as sp describes. The prompt is not sent here.
+func (m *Manager) spawn(id, dir string, sp spawnSpec) (*session.Session, error) {
 	claude, err := exec.LookPath(m.claude)
 	if err != nil {
 		return nil, fmt.Errorf("find claude: %w", err)
@@ -831,8 +856,10 @@ func (m *Manager) spawn(id, dir, claudeSession, model string) (*session.Session,
 		Claude:         claude,
 		Dir:            dir,
 		PermissionMode: permissionMode,
-		Resume:         claudeSession,
-		Model:          model,
+		Resume:         sp.claudeSession,
+		Model:          sp.model,
+		Agent:          sp.agent,
+		Schema:         sp.schema,
 		Name:           id,
 		Environ:        m.environ,
 	})
@@ -862,7 +889,7 @@ func (m *Manager) pump(ctx context.Context, live *liveSession, rec *recorder) {
 			live.order.Unlock()
 			if err != nil {
 				m.logger.WarnContext(ctx, "record session event", "session", live.id, "err", err)
-			} else if state, body, notify := eventNotice(event, reply, interrupted); notify {
+			} else if state, body, notify := eventNotice(event, reply, interrupted); notify && !live.step {
 				m.notify(ctx, live.id, live.dir, state, body)
 			}
 		}
@@ -874,7 +901,11 @@ func (m *Manager) pump(ctx context.Context, live *liveSession, rec *recorder) {
 	if m.sessions[live.id] == live {
 		delete(m.sessions, live.id)
 	}
-	m.reserved--
+	if live.step {
+		m.stepsRunning--
+	} else {
+		m.reserved--
+	}
 	m.mu.Unlock()
 	close(live.done)
 	live.cancel()
@@ -992,7 +1023,7 @@ func (m *Manager) recordClosed(ctx context.Context, live *liveSession) error {
 	if err := m.writer.Commit(ctx, live.id, ops...); err != nil {
 		return fmt.Errorf("record session %s closed: %w", live.id, err)
 	}
-	if turning {
+	if turning && !live.step {
 		m.notify(ctx, live.id, live.dir, stateInterrupted, interruptedReason)
 	}
 	return nil
@@ -1017,15 +1048,24 @@ func (m *Manager) fail(ctx context.Context, id, dir string, err error) error {
 	return m.recordFailed(ctx, id, dir, err)
 }
 
-// recordFailed writes the failed state of session id in dir with the reason err, after marks in the same write, then
-// notifies the owner of it. It returns only an error that the write hit.
+// recordFailed writes the failed state of session id in dir with the reason err, then notifies the owner of it. It
+// returns only an error that the write hit, and then notifies nothing.
 func (m *Manager) recordFailed(ctx context.Context, id, dir string, err error, marks ...store.EngineOp) error {
+	if writeErr := m.writeFailed(ctx, id, err, marks...); writeErr != nil {
+		return writeErr
+	}
+	m.notify(ctx, id, dir, stateFailed, err.Error())
+	return nil
+}
+
+// writeFailed writes the failed state of session id with the reason err, after marks in the same write. It sends no
+// notice. It returns only an error that the write hit.
+func (m *Manager) writeFailed(ctx context.Context, id string, err error, marks ...store.EngineOp) error {
 	failed := stateFailed
 	reason := err.Error()
 	set := store.EngineSet{ID: id, Changes: store.EngineChanges{State: &failed, Reason: &reason}}
 	if writeErr := m.writer.Commit(ctx, id, append(marks, set)...); writeErr != nil {
 		return fmt.Errorf("record session %s failed: %w", id, writeErr)
 	}
-	m.notify(ctx, id, dir, failed, reason)
 	return nil
 }
