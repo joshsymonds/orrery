@@ -294,6 +294,7 @@ fun PaneScreen(
                     pane = shown,
                     origin = conversation?.origin,
                     stats = stats,
+                    context = conversation?.context,
                     liveScreen = liveScreen,
                     onConversation = { liveScreen = false },
                     onBack = onBack,
