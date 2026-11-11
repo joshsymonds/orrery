@@ -1,12 +1,15 @@
 package enginehost
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -496,5 +499,96 @@ func TestRunCancelDoesNotCancelATickFlushInFlight(t *testing.T) {
 	}
 	if got, want := promptTexts(t, path, "a"), []string{"once"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("stored texts: got %v, want %v", got, want)
+	}
+}
+
+// waitQueued blocks until the writer's queue holds at least n ops, failing the test after waitTimeout.
+func waitQueued(t *testing.T, w *Writer, n int) {
+	t.Helper()
+	deadline := time.Now().Add(waitTimeout)
+	for {
+		w.mu.Lock()
+		got := len(w.queue)
+		w.mu.Unlock()
+		if got >= n {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("waited for %d queued ops, got %d", n, got)
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
+// A session whose row the retention sync removed must not stall the writer: its op is dropped with a warning, its
+// Commit fails wrapping ErrNoEngineSession, and the other session's op in the same batch is stored that tick.
+func TestMissingEngineSessionDropsItsOpAndStoresTheRest(t *testing.T) {
+	ctx := t.Context()
+	s, path := openStore(t)
+	// Session a's only event is at start. A sync one retention period and a second later removes its row, while session
+	// b's event at that later time keeps b.
+	start := time.Unix(1_700_000_000, 0)
+	addA := store.EngineAdd{ID: "a", Dir: "/work", State: "working"}
+	if err := s.ApplyEngine(ctx, []store.EngineOp{addA}, start); err != nil {
+		t.Fatalf("add session a: %v", err)
+	}
+	now := start.Add(store.EventRetention + time.Second)
+	addB := store.EngineAdd{ID: "b", Dir: "/work", State: "working"}
+	if err := s.ApplyEngine(ctx, []store.EngineOp{addB}, now); err != nil {
+		t.Fatalf("add session b: %v", err)
+	}
+	if err := s.SyncServer(ctx, "orrery-test", nil, now); err != nil {
+		t.Fatalf("SyncServer: %v", err)
+	}
+	if _, err := store.NewReader(path).EngineHistory(ctx, "a", 0, 1); !errors.Is(err, store.ErrNoEngineSession) {
+		t.Fatalf("session a after retention sync: got %v, want ErrNoEngineSession", err)
+	}
+
+	var logs bytes.Buffer
+	applier := &recordingApplier{store: s, notify: make(chan struct{}, 1)}
+	w := NewWriter(WriterConfig{
+		Applier: applier, Tick: time.Hour, Logger: slog.New(slog.NewTextHandler(&logs, nil)),
+	})
+	stop := startRun(t, w)
+
+	// Session b's op is queued first, so the op for the missing row is at index 1 of the batch.
+	if err := w.Put(ctx, "b", prompt("b", "b1")); err != nil {
+		t.Fatalf("Put b: %v", err)
+	}
+	idle := "idle"
+	commitA := make(chan error, 1)
+	go func() {
+		commitA <- w.Commit(ctx, "a", store.EngineSet{ID: "a", Changes: store.EngineChanges{State: &idle}})
+	}()
+	waitQueued(t, w, 2)
+	// The tick is one flush the test makes, so both ops share one batch.
+	w.flush(ctx)
+
+	if err := receive(t, commitA); !errors.Is(err, store.ErrNoEngineSession) {
+		t.Fatalf("Commit for session a: got %v, want an error wrapping ErrNoEngineSession", err)
+	}
+	if got, want := promptTexts(t, path, "b"), []string{"b1"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("session b stored texts: got %v, want %v", got, want)
+	}
+	if !strings.Contains(logs.String(), "level=WARN") || !strings.Contains(logs.String(), "session=a") {
+		t.Fatalf("warning does not name session a: %q", logs.String())
+	}
+
+	calls := applier.callsOf()
+	if len(calls) != 2 {
+		t.Fatalf("ApplyEngine calls: got %d, want 2 (the batch, then the batch without a's op)", len(calls))
+	}
+	if want := []store.EngineOp{prompt("b", "b1")}; !reflect.DeepEqual(calls[1], want) {
+		t.Fatalf("ops in the second call: got %+v, want %+v", calls[1], want)
+	}
+
+	// The dropped op is never sent again, and canceling Run leaves b stored.
+	w.flush(ctx)
+	stop()
+	if got := len(applier.callsOf()); got != 2 {
+		t.Fatalf("ApplyEngine calls after another flush and stop: got %d, want 2", got)
+	}
+	if got, want := promptTexts(t, path, "b"), []string{"b1"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("session b stored texts after stop: got %v, want %v", got, want)
 	}
 }

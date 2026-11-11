@@ -63,6 +63,24 @@ func (p *Publisher) Publish(
 		return err
 	}
 	title := fmt.Sprintf("%s · %s:%d", project, session, window)
+	return p.post(ctx, title, priority, tag, body)
+}
+
+// PublishSession posts a headless session notification. The session name is used as given. States without a notification return an error.
+func (p *Publisher) PublishSession(
+	ctx context.Context,
+	project, session, state, body string,
+) error {
+	priority, tag, err := sessionNotice(state)
+	if err != nil {
+		return err
+	}
+	title := fmt.Sprintf("%s · session %s", project, session)
+	return p.post(ctx, title, priority, tag, body)
+}
+
+// post sends one notification to the topic with the given title, priority and tag.
+func (p *Publisher) post(ctx context.Context, title, priority, tag, body string) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.topicURL, strings.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("build ntfy request: %w", err)
@@ -95,6 +113,22 @@ func notice(state protocol.State) (string, string, error) {
 		return "", "", errors.New("pane state \"working\" has no ntfy notification")
 	default:
 		return "", "", fmt.Errorf("unknown pane state %q", state)
+	}
+}
+
+// sessionNotice returns the ntfy priority and tag for a headless session state.
+func sessionNotice(state string) (string, string, error) {
+	switch state {
+	case "waiting":
+		return "5", "question", nil
+	case "done":
+		return "4", "white_check_mark", nil
+	case "failed":
+		return "4", "x", nil
+	case "interrupted":
+		return "3", "warning", nil
+	default:
+		return "", "", fmt.Errorf("session state %q has no ntfy notification", state)
 	}
 }
 

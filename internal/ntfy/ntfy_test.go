@@ -245,3 +245,96 @@ func TestPublishReportsNonSuccessStatus(t *testing.T) {
 		t.Fatal("Publish returned nil error for a 500 response, want an error")
 	}
 }
+
+func TestPublishSession(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name     string
+		state    string
+		priority string
+		tags     string
+	}{
+		{name: "waiting", state: "waiting", priority: "5", tags: "question," + testHost},
+		{name: "done", state: "done", priority: "4", tags: "white_check_mark," + testHost},
+		{name: "failed", state: "failed", priority: "4", tags: "x," + testHost},
+		{name: "interrupted", state: "interrupted", priority: "3", tags: "warning," + testHost},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			srv, requests := fakeNtfy(t, http.StatusOK)
+			pub, err := ntfy.New(
+				envFor(topicFile(t, srv), writeFile(t, "token", testToken+"\n")),
+				testHost,
+				srv.Client(),
+			)
+			if err != nil {
+				t.Fatalf("New: %v", err)
+			}
+			if err := pub.PublishSession(
+				context.Background(),
+				testProject,
+				testSession,
+				tc.state,
+				testBody,
+			); err != nil {
+				t.Fatalf("PublishSession: %v", err)
+			}
+			got := <-requests
+			if got.method != http.MethodPost {
+				t.Errorf("method = %q, want POST", got.method)
+			}
+			if got.path != topicPath {
+				t.Errorf("path = %q, want %q", got.path, topicPath)
+			}
+			want := map[string]string{
+				"Title":         "example-project · session demo",
+				"Priority":      tc.priority,
+				"Tags":          tc.tags,
+				"Authorization": "Bearer " + testToken,
+			}
+			for key, value := range want {
+				if gotValue := got.header.Get(key); gotValue != value {
+					t.Errorf("header %s = %q, want %q", key, gotValue, value)
+				}
+			}
+			if got.body != testBody {
+				t.Errorf("body = %q, want %q", got.body, testBody)
+			}
+		})
+	}
+}
+
+func TestPublishSessionRejectsUnnotifiedState(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name  string
+		state string
+	}{
+		{name: "working", state: "working"},
+		{name: "stopped", state: "stopped"},
+		{name: "unknown", state: "bogus"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			srv, requests := fakeNtfy(t, http.StatusOK)
+			pub, err := ntfy.New(envFor(topicFile(t, srv), ""), testHost, srv.Client())
+			if err != nil {
+				t.Fatalf("New: %v", err)
+			}
+			if err := pub.PublishSession(
+				context.Background(),
+				testProject,
+				testSession,
+				tc.state,
+				testBody,
+			); err == nil {
+				t.Fatalf("PublishSession(%s) returned nil error, want an error", tc.state)
+			}
+			if n := len(requests); n != 0 {
+				t.Errorf("state %s sent %d requests, want none", tc.state, n)
+			}
+		})
+	}
+}

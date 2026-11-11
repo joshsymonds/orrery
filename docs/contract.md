@@ -21,6 +21,8 @@ The state of a pane is one of three strings:
 
 Go type: `type State string`. `func ParseState(s string) (State, error)` returns the State for exactly those three strings. It returns an error for any other input, including the empty string.
 
+A headless engine session also has the states `stopped`, `failed` and `interrupted`. They are not pane states, and `ParseState` refuses them. See [Headless sessions](#headless-sessions).
+
 ## 2. Per-pane tmux options
 
 Options are set at pane scope with tmux 3.8 `set-option -p`, except `@orrery_dir`, which is the one session-scoped option (see below).
@@ -286,7 +288,15 @@ Subcommands:
 {"seq":"3","sessionId":"example-session","at":"1700000300","sessionChanged":{"state":"working"}}
 ```
 
+  - Engine session events (the `engine_*` kinds of [Store](#store)) are not printed. The cursor moves past them.
   - Usage errors (no `--url`, an unknown flag, an extra argument) exit 2.
+- `session VERB ARGS` drives the headless sessions that `orreryd --sessions` runs (see [Headless sessions](#headless-sessions)). Its verbs are:
+  - `session start DIR PROMPT` makes `DIR` absolute on the client, starts a session there with `PROMPT` as its first message, and prints the new session id on its own line. The session id is the only output.
+  - `session say ID TEXT`, `session answer ID REQUEST_ID ANSWER`, `session interrupt ID`, `session stop ID` and `session seen ID` each make one call of the `orrery.engine.v1.Engine` service (see [Session control socket](#session-control-socket)). They print nothing on success.
+  - `session watch ID` reads the session's events from the store, not from the socket. It prints each event as one JSON line with the keys `seq`, `kind`, `at` and `payload`, the payload being the stored JSON object. It polls the store every 250 ms. It returns with exit 0 once the session's state is `stopped` or `failed` and every stored event has been printed. In any other state it keeps polling.
+  - The verbs other than `watch` reach `orreryd` on the session socket, `sessions.sock` beside the daemon socket. The daemon socket path comes from `--socket`, then `ORRERY_SOCKET`, then `$XDG_RUNTIME_DIR/orrery/orreryd.sock`. When the socket cannot be dialed, the error reads `orreryd takes no session commands on SOCKET; start it with --sessions`, where `SOCKET` is the `sessions.sock` path.
+  - No `session` verb reads a tmux server, so `-L` and `-S` have no effect on them.
+  - A usage error exits 2. A failed call exits 1 and prints the Connect error message, as `session VERB: MESSAGE`.
 
 Exit codes:
 
@@ -328,16 +338,19 @@ orrery serve --listen 127.0.0.1:8080 --allow-login user@example.test
 ### orreryd
 
 ```
-orreryd [-L NAME | -S PATH] [--socket PATH] [--claude PATH] [--summary-model CONTEXT=MODEL]... [--push-host HOST]...
+orreryd [-L NAME | -S PATH] [--socket PATH] [--claude PATH] [--summary-model CONTEXT=MODEL]... [--push-host HOST]... [--sessions] [--session-cap N] [--session-shell PATH]
 ```
 
 - `-L`, `-S`, and `--socket` work as they do for `orrery`.
-- `--claude PATH` sets the `claude` binary the summarizer runs.
+- `--claude PATH` sets the `claude` binary the summarizer runs, and the binary each headless session runs.
 - `--summary-model CONTEXT=MODEL` maps a patchbay context (section 8) to a summary model. Repeat the flag for each context. A context with no mapping uses `claude-haiku-5-5`.
 - Each applied hook frame sets `@orrery_context` on the frame's pane to that frame's context (section 2).
 - `--push-host HOST` names a push relay host that a Web Push subscription may use. Repeat the flag for each host. The default is `ntfy.sh`. A subscription whose endpoint is on another host is refused (section 12).
+- `--sessions` serves the engine session service on `sessions.sock` beside the daemon socket. The headless session manager runs behind it when the store opens. Without `--sessions`, no session socket exists. With it, `--session-shell` must be an absolute path, or the command exits 2.
+- `--session-cap N` is the most live headless sessions at once. The default is 4. A value below 1 exits 2.
+- `--session-shell PATH` is the absolute login shell that starts each session. The default is `$SHELL`.
 
-`orreryd` listens on the unix socket only. It opens no network listener.
+`orreryd` listens on unix sockets only. It opens no network listener. `--sessions` adds the session socket.
 
 Summaries run when a session enters `working` (throttled) and when it becomes `done`.
 
@@ -348,6 +361,8 @@ ntfy notifications are sent only when `ORRERY_NTFY_URL_FILE` is set:
 - The access token comes from `ORRERY_NTFY_TOKEN_FILE`.
 - The host tag is the machine host name.
 
+Headless session notices (`--sessions`) use the same topic, token and host tag, with the title, priority and body that [Headless sessions](#headless-sessions) gives.
+
 When a pane enters `done` while an attached client shows the pane's window and had input in the last 30 seconds, `orreryd` sets `@orrery_seen` on the pane to the current Unix time.
 
 Web Push is sent on the same two transitions. On `waiting` and on `done`, `orreryd` posts an encrypted Web Push to every registered subscription. Section 12 defines the payload. The subscriptions are kept in the push store:
@@ -355,11 +370,88 @@ Web Push is sent on the same two transitions. On `waiting` and on `done`, `orrer
 - `$XDG_STATE_HOME/orrery/push.json` when `XDG_STATE_HOME` is set.
 - Otherwise `$HOME/.local/state/orrery/push.json`.
 
+Headless session notices go to the same subscriptions, as [Push payload](#push-payload) describes.
+
 When neither variable is set, `orreryd` exits 1.
 
 `orreryd` also keeps the store, which mirrors each pane's tmux options (see [Store](#store)). When the store cannot be opened, `orreryd` logs the error and serves hooks and notifications without it. It then mints no `@orrery_id` and syncs no pane. A failure of the push store still exits 1.
 
-`SIGINT` and `SIGTERM` stop `orreryd`.
+`SIGINT` and `SIGTERM` stop `orreryd`. With `--sessions`, the session socket closes first. Then every live headless session is stopped, and its turn, if one is running, is recorded `interrupted`. `orreryd` exits after those notices are sent. See [Headless sessions](#headless-sessions).
+
+### Headless sessions
+
+With `--sessions`, `orreryd` runs headless Claude Code sessions. Each session is one `claude` process in stream-json mode with `-p`, `--permission-mode bypassPermissions` and `--permission-prompt-tool stdio`. It starts through the login shell `--session-shell`, in the directory its row names, with `orreryd`'s environment. The environment drops `TMUX`, `TMUX_PANE`, `ORRERY_SUMMARIZER` and `ORRERY_SESSION`, and then gains `ORRERY_SESSION` set to the session id. A session id is 128 random bits in lowercase hex.
+
+Each session has one row and an event log in the store (see [Engine sessions in the store](#engine-sessions-in-the-store)). Changes to a session go through the Engine service on the session socket, and the session's requests are answered through it.
+
+#### States
+
+A session is in one of these states. `working`, `waiting` and `done` are also pane states. `stopped`, `failed` and `interrupted` are for sessions only.
+
+| State | Set when |
+|---|---|
+| `working` | the session starts, a prompt is sent, an answer is accepted, or the session withdraws its open request |
+| `waiting` | the session sends a request the host must answer. A refused request leaves the state as it was |
+| `done` | a turn ends. A turn that was interrupted with `Interrupt` also ends `done` |
+| `stopped` | the `Stop` call ends the process, or the process exits without an error |
+| `failed` | the process exits with an error, its directory is unusable, its process cannot start, or its prompt cannot be sent. The row's `reason` says why |
+| `interrupted` | `orreryd` shuts down during a turn, or reconcile finds a `working` or `waiting` row at start. The row's `reason` says which |
+
+Idle stop writes no state, so a session it stops keeps the state it had.
+
+#### Session control socket
+
+The session socket is `sessions.sock` in the same directory as the daemon socket. `orreryd` creates it only with `--sessions`, and its mode is `0600`. It serves the `orrery.engine.v1.Engine` service (`proto/orrery/engine/v1/engine.proto`) over Connect.
+
+| Call | Request | Precondition |
+|---|---|---|
+| `Start` | `dir`, `prompt` | `dir` is an absolute path to an existing directory, `prompt` is not empty, and the session cap has room. Returns `id` |
+| `Say` | `id`, `text` | the session has a row, and `text` is not empty. A session that is not live is resumed from its row first |
+| `Answer` | `id`, `request_id`, `answer` | the session is live. `answer` is one of the open question's option labels, or `allow` or `deny` for a permission request |
+| `Interrupt` | `id` | the session is live |
+| `Stop` | `id` | the session is live |
+| `Seen` | `id` | the session has a row |
+
+A call that does not fit its precondition does not change the session. An `Answer` that fits neither the question's options nor `allow` or `deny` leaves the request open.
+
+Errors are Connect codes:
+
+| Connect code | When |
+|---|---|
+| `unavailable` | `orreryd` has no store, so the service has no manager. The message is `session store unavailable` |
+| `resource_exhausted` | a `Start`, or a `Say` that resumes a session, would pass the session cap |
+| `not_found` | `id` has no row, or `Answer`, `Interrupt` or `Stop` names a session that is not live. Also an `Answer` whose `request_id` is not open |
+| `invalid_argument` | a bad `dir`, an empty `prompt` or `text`, or an answer that does not fit the open request |
+| `internal` | any other failure, including a call made while `orreryd` is shutting down |
+
+#### Lifecycle rules
+
+- A live session is one with a running process. Its slot under the cap is held from its start or resume until its process ends. A `Start` or resume past `--session-cap` is refused before anything is recorded.
+- `Start` checks the directory and prompt before it writes anything. It records the row `working`, starts the process, records the prompt, and sends the prompt. If the process cannot start, or the prompt cannot be sent, the row is recorded `failed` with the reason, and `Start` returns the id with no error unless recording that failure fails.
+- `Say` to a session that is not live resumes it from its row. The process resumes the row's Claude session when the row has one, and otherwise starts a new conversation in the row's directory. Concurrent calls for one id start one process. A row whose directory is missing or is not a directory is recorded `failed` with the reason.
+- Idle stop: every 30 seconds, a session that has not been busy for 10 minutes is stopped. A session is busy while a turn runs, a request is open, or a background task runs. The stop writes nothing, so the row and its events stay as they were. The next `Say` resumes the session.
+- Stop signal: stopping a process sends `SIGINT` to its process group, then `SIGKILL` if it has not exited after 2 seconds.
+- `Stop` records `stopped` unless the process's exit has already recorded a state. A process that exits without an error records `stopped`.
+- Failed on death: a process that exits with an error records `failed`. The reason is the exit error and stream error, followed by the last non-blank line of its stderr, and the owner is notified. The exit of a process stopped for idle stop or shutdown records nothing itself.
+- Shutdown: when `orreryd` receives `SIGINT` or `SIGTERM`, the session socket closes first. Then each live session is stopped, and a session whose turn is running is recorded `interrupted` with the reason `orreryd stopped during the turn`. These writes share one 5-second limit, and each interrupted session notifies its owner. The notices are sent before `orreryd` exits.
+- Reconcile at start: before the session socket serves, each engine row with no live process loses its unfinished text. A row that is `working` or `waiting` is recorded `interrupted` with the reason `orreryd restarted during the turn`, its question is cleared, and its owner is notified. Other rows keep their state, and no row is removed. The first read or write error ends the pass. `orreryd` logs it and serves anyway.
+- A turn that `Interrupt` stops ends `done` with no notice. `Interrupt` does not stop the process.
+- `reason` keeps its last value. A later state does not clear it, so a session resumed after a failure shows the old reason until a new failure or interruption sets another.
+
+#### Session notifications
+
+A session notice is sent when a session enters `waiting`, `done`, `failed` or `interrupted`. None is sent for `stopped`, for a refused request, for an idle stop, or for the end of an interrupted turn. A notice for `waiting`, `done`, or a process that exits with an error is sent once its event is queued for the store. A notice for `interrupted`, or for a `failed` start, resume or prompt, is sent after its write is stored. Notices post in the background, and shutdown waits for them.
+
+ntfy (only when `ORRERY_NTFY_URL_FILE` is set). The title is `<project> · session <first 8 characters of the id>`, where `project` is the base name of the directory. The tags are the state's tag and the host name.
+
+| State | Priority | Tag | Body |
+|---|---|---|---|
+| `waiting` | 5 | `question` | the question, or `waiting for input` when there is none |
+| `done` | 4 | `white_check_mark` | the text of the turn's last main-conversation text block, or `done` when there is none |
+| `failed` | 4 | `x` | the reason |
+| `interrupted` | 3 | `warning` | the reason |
+
+Web Push goes to every subscription, with the payload of [Push payload](#push-payload). The payload's `session` key holds the full session id. `pane` and `label` are `""`. `project` is the base name of the directory. `state` is the session's state. The body is `question` when the state is `waiting`, and `summary` in every other case.
 
 ### Environment
 
@@ -373,6 +465,7 @@ When neither variable is set, `orreryd` exits 1.
 | `ORRERY_NTFY_TOKEN_FILE` | `orreryd` | file holding the ntfy access token |
 | `ANTHROPIC_BASE_URL` | `orrery` (`hook`, `debug summarize`) | the session's base URL. The hook sends it in each frame (section 9), and each summary runs through its own session's base URL. |
 | `ORRERY_SUMMARIZER` | `orrery` (`hook`) | summarizer sentinel (section 7). `orreryd` sets it on each summary run. Summaries also run with hooks disabled. |
+| `SHELL` | `orreryd` | the login shell that starts each headless session, when `--session-shell` is not given (see [Headless sessions](#headless-sessions)) |
 | `HOME` | `orrery` (`tree`, `open`) | `$HOME/Personal` is the default parent directory of new projects. `$HOME` is also the directory that roots are relative to, and the roots file falls back to `$HOME/.config/orrery/roots` (see [Roots](#roots)) |
 | `XDG_STATE_HOME` | `orrery` (`tree`, `open`) | base directory of the archive file (see [Archive](#archive)) |
 | `XDG_CONFIG_HOME` | `orrery` (`tree`, `open`) | base directory of the roots file, `$XDG_CONFIG_HOME/orrery/roots` (see [Roots](#roots)) |
@@ -421,7 +514,7 @@ Example. The names are synthetic:
 
 ### Store
 
-`orreryd` keeps a SQLite store that mirrors each pane's tmux options. Outside the store's tests, `orreryd`'s own writes read it, and `orrery serve` reads it for the Connect API (section 12). A sync reads the pane's row to compare it with the new snapshot, and a tidy also reads the server's rows to find the panes that are gone. `serve` only reads the store, and never writes it.
+`orreryd` keeps a SQLite store that mirrors each pane's tmux options, and records each headless engine session (see [Engine sessions in the store](#engine-sessions-in-the-store)). Outside the store's tests, `orreryd`'s own writes read it, and `orrery serve` reads it for the Connect API (section 12). A sync reads the pane's row to compare it with the new snapshot, and a tidy also reads the server's rows to find the panes that are gone. `serve` only reads the store, and never writes it.
 
 The store file is `$XDG_STATE_HOME/orrery/orrery.db` when `XDG_STATE_HOME` is set, else `$HOME/.local/state/orrery/orrery.db`. When neither variable is set, no path resolves.
 
@@ -429,11 +522,11 @@ The store file is `$XDG_STATE_HOME/orrery/orrery.db` when `XDG_STATE_HOME` is se
 - The database runs in WAL mode. Each connection waits at most 200 ms for a lock.
 - Opening the store applies the migrations embedded in `orreryd`. A database that records a newer migration than the binary embeds fails with `store.ErrTooNew`. It is not migrated, and `orreryd` serves without the store.
 
-The `sessions` table has one row per pane:
+The `sessions` table has one row per pane and one row per headless engine session. A pane row has `kind` `""`. An engine row has `kind` `engine`, `server` and `pane` `""`, and `id` the session id. The engine columns are described in [Engine sessions in the store](#engine-sessions-in-the-store).
 
 | Column | Type | Meaning |
 |---|---|---|
-| `id` | `TEXT`, primary key | the pane's `@orrery_id` |
+| `id` | `TEXT`, primary key | the pane's `@orrery_id`, or the session id of an engine row |
 | `server` | `TEXT` | `-L <name>`, `-S <path>`, or `""` for the default server |
 | `pane` | `TEXT` | the tmux pane id |
 | `state` | `TEXT` | `@orrery_state` |
@@ -446,8 +539,11 @@ The `sessions` table has one row per pane:
 | `tool` | `TEXT` | `@orrery_tool` |
 | `claude_session` | `TEXT` | `@orrery_claude_session` |
 | `transcript` | `TEXT` | `@orrery_transcript` |
+| `kind` | `TEXT` | `""` for a pane row, `engine` for an engine row |
+| `dir` | `TEXT` | the absolute directory of an engine row; `""` on a pane row |
+| `reason` | `TEXT` | the reason of an engine row's last `failed` or `interrupted` state; `""` when none |
 
-The ten option columns are `NOT NULL` and default to `''`. Each holds the option's value as tmux reports it, and `""` means unset.
+The ten option columns are `NOT NULL` and default to `''`. Each holds the option's value as tmux reports it, and `""` means unset. `kind`, `dir` and `reason` are `NOT NULL` and default to `''` too.
 
 The `events` table is a log of row changes. Only pruning deletes from it:
 
@@ -455,11 +551,11 @@ The `events` table is a log of row changes. Only pruning deletes from it:
 |---|---|---|
 | `seq` | `INTEGER`, primary key, autoincrement | the order of the event |
 | `session_id` | `TEXT` | the `id` of the row that changed |
-| `kind` | `TEXT` | `session_added`, `session_changed`, or `session_removed` |
+| `kind` | `TEXT` | `session_added`, `session_changed`, or `session_removed`, or one of the engine kinds of [Engine sessions in the store](#engine-sessions-in-the-store) |
 | `at` | `INTEGER` | unix seconds of the sync |
 | `payload` | `TEXT` | JSON for the kind |
 
-The three kinds and their payloads. The examples are synthetic:
+The three pane kinds and their payloads. The examples are synthetic:
 
 - `session_added`: a pane's row is inserted. Payload `{"server":"-L example-server","pane":"%1"}`.
 - `session_changed`: fields of a row differ from the snapshot. The payload holds only the differing fields, under the column names above. Payload `{"fields":{"changed":"1700000300","state":"working"}}`. A new row appends `session_changed` after `session_added` when any of its fields is non-empty.
@@ -490,10 +586,51 @@ For each server, the tidy runs one `list-panes -a` that reads every pane. It the
 
 - mints an `@orrery_id` for each pane that has none, and sets it in tmux after the write commits;
 - syncs the row of each listed pane from its snapshot;
-- deletes the server's rows whose id is not among the listed panes, with one `session_removed` event for each;
-- deletes every event older than 14 days, across all servers, except the newest event, which it keeps so the newest seq is never lost.
+- deletes the server's pane rows whose id is not among the listed panes, with one `session_removed` event for each;
+- deletes every event older than 14 days, across all servers, except the newest event, which it keeps so the newest seq is never lost;
+- deletes each engine row that has no event at or after the same 14-day cutoff and is not live, with its unfinished text, and appends no event. See [Engine sessions in the store](#engine-sessions-in-the-store).
 
 A failed `list-panes`, or a listing that does not parse, changes nothing. orreryd logs `tmux server unreachable` (warning) when a server's `list-panes` starts failing and `tmux server reachable again` (info) at its first success after that, not on every tidy. Other tidy failures are logged as `mirror tidy dropped` each time. A failed store write rolls back the whole tidy. A default socket skipped by the directory check logs `tmux default socket skipped` (warning, with `server` and `reason`) when the skip starts and again when its reason changes, not on every tidy.
+
+#### Engine sessions in the store
+
+An engine row is a `sessions` row with `kind` `engine`. Its columns hold these values:
+
+- `state` is one of the session states of [Headless sessions](#headless-sessions).
+- `changed` is the unix seconds of the last state change.
+- `seen` is the unix seconds of the last `session seen`, or `""`.
+- `question` is the open question while the state is `waiting`, or the tool name of an open permission request. An answer, a withdrawn request, a turn's end and reconcile set it to `""`. A row that becomes `stopped`, `failed` or `interrupted` while it waits keeps the question it had.
+- `claude_session` is the Claude Code session id, once the process has reported it.
+- `dir` is the directory the session runs in. `reason` is described in the table above.
+
+Tidy reads only pane rows, and the typed API's `List` returns only pane rows (see [Connect API](#connect-api)). The engine rows are reached through the Engine service and `session watch`.
+
+The engine kinds of the `events` table are these seven. Each payload is a JSON object with these keys, in camelCase. The examples are synthetic:
+
+- `engine_added`: an engine row is inserted. Payload `{"dir":"/home/user/project","state":"working"}`.
+- `engine_changed`: one or more columns change. Payload `{"fields":{"changed":"1700000300","state":"done"}}`. The keys of `fields` are `state`, `seen`, `question`, `claudeSession` and `reason`, for the columns that changed. `changed` is set with each `state` change.
+- `engine_prompt`: a prompt is sent to the session. Payload `{"text":"Example prompt."}`. The text is not cut.
+- `engine_block`: a finished content block. Payload keys: `kind`, `role`, `messageId`, `parentToolUseId`, `text`, `toolUseId`, `name`, `input`, `content`, `isError`, and `truncated`. `truncated` is present only when true. `text`, `input` and `content` are each cut to 32768 bytes at a UTF-8 boundary, and `truncated` is true when one of them was cut. `kind` is `text`, `thinking`, `tool_call` or `tool_result`.
+- `engine_request`: the session sends a request the host must answer. Payload keys: `kind` (`question`, `permission` or `other`), `requestId`, `toolUseId`, `toolName`, `subtype`, `input` and `refused`. The input is not cut.
+- `engine_request_canceled`: the session withdraws a request. Payload keys `requestId` and `toolUseId`. The kind is spelled with one `l`.
+- `engine_turn_ended`: a turn ends. Payload keys `subtype`, `isError`, `terminalReason`, `result` and `origin`. The result is not cut.
+
+Engine events are kept and pruned like pane events, and are not sent by the Connect `Watch` call.
+
+The `engine_text` table holds the unfinished text of each streaming block, one row per block:
+
+| Column | Type | Meaning |
+|---|---|---|
+| `session_id` | `TEXT` | the engine row's `id` |
+| `message_id` | `TEXT` | the Claude Code message id of the block |
+| `block_index` | `INTEGER` | the block's index in its message |
+| `parent_tool_use_id` | `TEXT` | the tool use the block belongs to, or `""` for the main conversation |
+| `kind` | `TEXT` | `text` or `thinking` |
+| `text` | `TEXT` | the text streamed so far, cut to 32768 bytes |
+
+Its primary key is `session_id`, `message_id`, `block_index` and `parent_tool_use_id`. A row is removed when its block finishes, and every row of a session is removed when a turn ends, the process exits, the session is stopped, orreryd shuts down, or reconcile runs at start. No event is appended for engine text.
+
+The 14-day cutoff of the tidy applies to engine rows too. The cutoff is `now` less 14 days. Each engine row with no event at or after the cutoff is deleted with its `engine_text` rows, and no event is appended, unless its session is live. A session is live from its start or resume until it is stopped, idle-stopped, exits, or `orreryd` shuts down, and a live session keeps its row and its `engine_text` rows through the prune. The same tidy pass prunes events older than the cutoff, so the pass runs only while a tmux server's `list-panes` succeeds. A session that is not live loses its row after 14 days with no event, and a live session that waits for an answer keeps its row.
 
 ### Claude Code hook settings
 
@@ -693,11 +830,11 @@ Example response. Every value is synthetic:
 
 ### Push payload
 
-When a pane enters `waiting` or `done`, `orreryd` posts to each registered subscription:
+When a pane enters `waiting` or `done`, `orreryd` posts to each registered subscription. A headless session notice (see [Session notifications](#session-notifications)) posts to each subscription too, with the same rules.
 
 - The body is one RFC 8291 `aes128gcm` record. The record is at most 4096 bytes.
 - The headers are `Content-Encoding: aes128gcm` and `TTL: 3600`.
-- The plaintext is a JSON object. Every value is a string. The keys are `pane`, `host`, `project`, `state`, `summary`, `label`, `question`, and `question_hash`.
+- The plaintext is a JSON object. Every value is a string. The keys are `pane`, `host`, `project`, `state`, `summary`, `label`, `question`, and `question_hash`. A headless session notice also has the key `session`, holding the session id. A pane notice has no `session` key.
 - The plaintext is at most 3993 bytes. When it is longer, the question is cut first, then the summary.
 - `question_hash` always covers the full question, even when the question is cut.
 
@@ -720,7 +857,7 @@ The services are `orrery.v1.Sessions`, with one call, `List`, and `orrery.v1.Eve
 
 `ListResponse` has these fields:
 
-- `sessions` holds one `Session` per row of the `sessions` table (see [Store](#store)), in `id` order. Each `Session` carries the row's thirteen columns under the same names: `id`, `server`, `pane`, `state`, `changed`, `seen`, `question`, `summary`, `label`, `context`, `tool`, `claude_session`, and `transcript`.
+- `sessions` holds one `Session` per pane row of the `sessions` table (see [Store](#store)), in `id` order. Engine rows are not listed. Each `Session` carries the pane row's thirteen columns under the same names: `id`, `server`, `pane`, `state`, `changed`, `seen`, `question`, `summary`, `label`, `context`, `tool`, `claude_session`, and `transcript`.
 - `seq` is the largest `seq` in the `events` table when the rows were read, in the same read. It is 0 when there are no events.
 
 Two sessions can share `server` and `pane` for up to 10 s after a tmux server restart. `id` is unique.
@@ -748,6 +885,8 @@ Each `WatchResponse` has `seq`, `session_id` (the pane's `@orrery_id`), `at` (un
 | `session_added` | `session_added` | `SessionAdded`: `server`, `pane` |
 | `session_changed` | `session_changed` | `SessionChanged` (below) |
 | `session_removed` | `session_removed` | `SessionRemoved`, no fields |
+
+An engine kind (`engine_*`, see [Engine sessions in the store](#engine-sessions-in-the-store)) has no member. `Watch` sends nothing for it and moves the cursor past it.
 
 `SessionChanged` has ten optional fields: `state`, `changed`, `seen`, `question`, `summary`, `label`, `context`, `tool`, `claude_session`, and `transcript`. An event sets a field only when it changed that option. A set field with the value `""` means the option was unset. A field the event did not change is absent.
 
@@ -788,5 +927,7 @@ orrery E12 (conversation items) added the `notice` kind and the `notice` item ke
 orrery E13 (conversation goal) added the `goal` key to the conversation route's answer, additively. No existing name or value changes.
 
 orrery E16a (queued messages) added the `waiting` key to the conversation route's answer, additively. No existing name or value changes.
+
+orrery headless engine sessions (engine lifecycle) added, additively: the `orreryd` flags `--sessions`, `--session-cap` and `--session-shell`, and the `SHELL` read; the session socket `sessions.sock`, its `orrery.engine.v1.Engine` service and its Connect codes (see [Session control socket](#session-control-socket)); the `orrery session` verbs; the `kind`, `dir` and `reason` columns of `sessions`; the `engine_text` table; the seven `engine_*` event kinds and their payloads; the states `stopped`, `failed` and `interrupted`; the session notices on ntfy and Web Push; and the `session` key of the Push payload; the lifecycle rules of [Lifecycle rules](#lifecycle-rules); the Connect error codes of the session socket; and the removal of engine rows after 14 days. The engine kinds are skipped by `orrery.v1.Events.Watch` and by `orrery events`. No existing name or value changes.
 
 orrery E16b (read-up-to seen time) added the optional `read_up_to` body field to the seen route, additively. With it the stored seen time becomes the later of the stored time and `read_up_to`, so it never moves back. No existing name or value changes.

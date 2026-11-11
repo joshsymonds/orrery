@@ -40,6 +40,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/shell"
 	"github.com/joshsymonds/orrery/internal/tmuxconf"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
+	"github.com/joshsymonds/orrery/internal/tmuxtest"
 )
 
 const (
@@ -249,7 +250,7 @@ func newServer(t *testing.T) (*tmuxctl.Client, string) {
 	}
 	t.Cleanup(func() {
 		groups := paneGroups(t, client)
-		if _, killErr := client.Run(context.Background(), "kill-server"); killErr != nil {
+		if killErr := tmuxtest.Stop(t, tmuxctl.Server{Name: name}); killErr != nil {
 			t.Errorf("kill-server: %v", killErr)
 		}
 		waitGroupsGone(t, groups)
@@ -1549,7 +1550,7 @@ func TestHelpWithoutServerPrintsCardWithoutPrefix(t *testing.T) {
 	}
 	t.Cleanup(func() {
 		// The kill stops a server that a regression started. With no server it errors, which is the passing case.
-		_, _ = client.Run(context.Background(), "kill-server")
+		_ = tmuxtest.Stop(t, tmuxctl.Server{Name: name})
 	})
 
 	out := runOrrery(t, "", nil, "-L", name, "help")

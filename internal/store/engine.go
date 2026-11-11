@@ -2,7 +2,9 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -184,13 +186,29 @@ type engineTurnEndedPayload struct {
 	Origin         string `json:"origin"`
 }
 
+// EngineOpError reports that the op at Index in an ApplyEngine batch failed. The whole batch was rolled back. It
+// unwraps to the op's error.
+type EngineOpError struct {
+	Index int
+	Err   error
+}
+
+func (e *EngineOpError) Error() string {
+	return fmt.Sprintf("engine op %d: %v", e.Index, e.Err)
+}
+
+func (e *EngineOpError) Unwrap() error {
+	return e.Err
+}
+
 // ApplyEngine applies ops in order inside one write transaction. A failed op, or a commit that fails, rolls the
-// whole batch back, so no session, event or unfinished-text row from the batch is kept.
+// whole batch back, so no session, event or unfinished-text row from the batch is kept. The error is an
+// *EngineOpError naming the failed op's index.
 func (s *Store) ApplyEngine(ctx context.Context, ops []EngineOp, now time.Time) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
-		for _, op := range ops {
+		for i, op := range ops {
 			if err := op.applyEngine(ctx, queries, now); err != nil {
-				return err
+				return &EngineOpError{Index: i, Err: err}
 			}
 		}
 		return nil
@@ -209,6 +227,9 @@ func (op EngineAdd) applyEngine(ctx context.Context, queries *sqlcgen.Queries, n
 
 func (op EngineSet) applyEngine(ctx context.Context, queries *sqlcgen.Queries, now time.Time) error {
 	row, err := queries.GetEngineSession(ctx, op.ID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("engine session %s: %w", op.ID, ErrNoEngineSession)
+	}
 	if err != nil {
 		return fmt.Errorf("read engine session %s: %w", op.ID, err)
 	}

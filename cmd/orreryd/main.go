@@ -11,7 +11,6 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
-	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -301,9 +300,19 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 		summarizers: make(map[tmuxctl.Server]*summary.Summarizer),
 	}
 	observe := func(transition daemon.Transition) { hub.observe(ctx, transition) }
+	var sessionNtfy enginehost.SessionPublisher
+	if publisher != nil {
+		sessionNtfy = publisher
+	}
+	notifier := enginehost.NewNotifier(enginehost.NotifierConfig{
+		Host:   host,
+		Ntfy:   sessionNtfy,
+		Push:   pushes,
+		Logger: logger,
+	})
 	var sessions *sessionHost
 	if opts.sessions {
-		sessions, err = startSessions(ctx, opts, st, logger)
+		sessions, err = startSessions(ctx, opts, st, notifier, logger)
 		if err != nil {
 			closeStore(ctx, st, logger)
 			return errors.Join(err, ln.Close())
@@ -330,35 +339,51 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 
 // sessionHost is the engine session service of a --sessions orreryd. The manager runs the sessions, the writer stores
 // their events, and the listener answers the Engine service on sessions.sock. Without a store the manager and writer
-// are nil and every RPC is refused.
+// are nil and every RPC is refused. The notifier receives the manager's notices and is waited on after the manager
+// closes.
 type sessionHost struct {
 	manager    *enginehost.Manager
 	writer     *enginehost.Writer
+	notifier   *enginehost.Notifier
 	stopWriter context.CancelFunc
 	writerDone chan struct{}
+	stopIdle   context.CancelFunc
+	idleDone   chan struct{}
 	stopServe  context.CancelFunc
 	serveDone  chan error
 }
 
 // startSessions listens on sessions.sock beside the daemon socket and serves the Engine service on it until stop. With
-// an open store it also starts the writer and a manager capped at opts.sessionCap.
-func startSessions(ctx context.Context, opts options, st *store.Store, logger *slog.Logger) (*sessionHost, error) {
-	ln, err := enginehost.Listen(protocol.SessionSocketPath(opts.socket))
-	if err != nil {
-		return nil, fmt.Errorf("session socket: %w", err)
+// an open store it also starts the writer and a manager capped at opts.sessionCap that notifies through notifier. The
+// manager reconciles the rows a previous run left before the service serves, and stops idle sessions until stop. A
+// reconcile failure is logged and serving goes on.
+func startSessions(
+	ctx context.Context,
+	opts options,
+	st *store.Store,
+	notifier *enginehost.Notifier,
+	logger *slog.Logger,
+) (*sessionHost, error) {
+	host := &sessionHost{
+		notifier:   notifier,
+		writerDone: make(chan struct{}),
+		idleDone:   make(chan struct{}),
+		serveDone:  make(chan error, 1),
 	}
-	host := &sessionHost{writerDone: make(chan struct{}), serveDone: make(chan error, 1)}
 	var commands enginehost.Commands
 	if st != nil {
 		host.writer = enginehost.NewWriter(enginehost.WriterConfig{Applier: st, Logger: logger})
 		host.manager = enginehost.NewManager(enginehost.Config{
-			Shell:   opts.sessionShell,
-			Claude:  opts.claude,
-			Environ: os.Environ(),
-			Cap:     opts.sessionCap,
-			Writer:  host.writer,
-			Logger:  logger,
+			Shell:    opts.sessionShell,
+			Claude:   opts.claude,
+			Environ:  os.Environ(),
+			Cap:      opts.sessionCap,
+			Writer:   host.writer,
+			Notifier: notifier,
+			Store:    st,
+			Logger:   logger,
 		})
+		st.SetEngineLive(host.manager.Live)
 		commands = host.manager
 		var writerCtx context.Context
 		writerCtx, host.stopWriter = context.WithCancel(context.WithoutCancel(ctx))
@@ -366,6 +391,20 @@ func startSessions(ctx context.Context, opts options, st *store.Store, logger *s
 			host.writer.Run(writerCtx)
 			close(host.writerDone)
 		}()
+		if reconcileErr := host.manager.Reconcile(ctx); reconcileErr != nil {
+			logger.ErrorContext(ctx, "reconcile sessions, serving anyway", "error", reconcileErr)
+		}
+		var idleCtx context.Context
+		idleCtx, host.stopIdle = context.WithCancel(ctx)
+		go func() {
+			host.manager.RunIdle(idleCtx)
+			close(host.idleDone)
+		}()
+	}
+	ln, err := enginehost.Listen(protocol.SessionSocketPath(opts.socket))
+	if err != nil {
+		host.shutdown()
+		return nil, fmt.Errorf("session socket: %w", err)
 	}
 	var serveCtx context.Context
 	serveCtx, host.stopServe = context.WithCancel(ctx)
@@ -373,22 +412,31 @@ func startSessions(ctx context.Context, opts options, st *store.Store, logger *s
 	return host, nil
 }
 
-// stop stops serving the session socket, stops every live session, and ends the writer after its last flush. It
-// returns the error the session service ended with, if any.
+// stop stops serving the session socket and then shuts the sessions down. It returns the error the session service ended
+// with, if any.
 func (h *sessionHost) stop() error {
 	h.stopServe()
 	serveErr := <-h.serveDone
+	h.shutdown()
+	if serveErr != nil {
+		return fmt.Errorf("session service: %w", serveErr)
+	}
+	return nil
+}
+
+// shutdown stops the idle check, stops every live session and waits for the notices they started, and ends the writer
+// after its last flush. Without a manager and writer it does nothing.
+func (h *sessionHost) shutdown() {
 	if h.manager != nil {
+		h.stopIdle()
+		<-h.idleDone
 		h.manager.Close()
+		h.notifier.Wait()
 	}
 	if h.writer != nil {
 		h.stopWriter()
 		<-h.writerDone
 	}
-	if serveErr != nil {
-		return fmt.Errorf("session service: %w", serveErr)
-	}
-	return nil
 }
 
 // openStore opens the store at its resolved path. When the path does not resolve or the store cannot be opened, it
@@ -618,42 +666,8 @@ func (r *relay) publishPush(ctx context.Context, transition daemon.Transition, p
 	}
 	if err := r.pushes.Publish(ctx, note); err != nil {
 		r.logger.ErrorContext(ctx, "post push notification", "pane", transition.PaneID,
-			"error", redactEndpoints(err))
+			"error", push.RedactEndpoints(err))
 	}
-}
-
-// redactEndpoints returns the message of err with the endpoint URL of each failed push request replaced. The
-// request errors quote the URL they posted to.
-func redactEndpoints(err error) string {
-	msg := err.Error()
-	for _, urlErr := range requestErrors(err) {
-		msg = strings.ReplaceAll(msg, strconv.Quote(urlErr.URL), `"<endpoint>"`)
-	}
-	return msg
-}
-
-// requestErrors returns the *url.Error values in the tree of err. A URL error under several wrapping errors is
-// found once per wrapper; redaction treats the repeats as no-ops.
-func requestErrors(err error) []*url.Error {
-	var found []*url.Error
-	var walk func(node error)
-	walk = func(node error) {
-		var urlErr *url.Error
-		if errors.As(node, &urlErr) {
-			found = append(found, urlErr)
-		}
-		if multi, ok := node.(interface{ Unwrap() []error }); ok {
-			for _, child := range multi.Unwrap() {
-				walk(child)
-			}
-			return
-		}
-		if child := errors.Unwrap(node); child != nil {
-			walk(child)
-		}
-	}
-	walk(err)
-	return found
 }
 
 // paneLocation returns the session name and window index of pane.

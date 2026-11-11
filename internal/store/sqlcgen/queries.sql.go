@@ -49,6 +49,43 @@ func (q *Queries) DeleteSession(ctx context.Context, id string) error {
 	return err
 }
 
+const deleteStaleEngineSessions = `-- name: DeleteStaleEngineSessions :exec
+DELETE FROM sessions
+WHERE sessions.kind = 'engine'
+  AND NOT EXISTS (SELECT 1 FROM events WHERE events.session_id = sessions.id AND events.at >= ?1)
+  AND sessions.id NOT IN (SELECT value FROM json_each(?2))
+`
+
+type DeleteStaleEngineSessionsParams struct {
+	Cutoff int64
+	Live   interface{}
+}
+
+func (q *Queries) DeleteStaleEngineSessions(ctx context.Context, arg DeleteStaleEngineSessionsParams) error {
+	_, err := q.db.ExecContext(ctx, deleteStaleEngineSessions, arg.Cutoff, arg.Live)
+	return err
+}
+
+const deleteStaleEngineText = `-- name: DeleteStaleEngineText :exec
+DELETE FROM engine_text
+WHERE session_id IN (
+    SELECT sessions.id FROM sessions
+    WHERE sessions.kind = 'engine'
+      AND NOT EXISTS (SELECT 1 FROM events WHERE events.session_id = sessions.id AND events.at >= ?1)
+      AND sessions.id NOT IN (SELECT value FROM json_each(?2))
+)
+`
+
+type DeleteStaleEngineTextParams struct {
+	Cutoff int64
+	Live   interface{}
+}
+
+func (q *Queries) DeleteStaleEngineText(ctx context.Context, arg DeleteStaleEngineTextParams) error {
+	_, err := q.db.ExecContext(ctx, deleteStaleEngineText, arg.Cutoff, arg.Live)
+	return err
+}
+
 const eventPageAfter = `-- name: EventPageAfter :many
 SELECT seq, session_id, kind, at, payload FROM events WHERE seq > ? ORDER BY seq LIMIT ?
 `
@@ -198,6 +235,50 @@ type InsertSessionParams struct {
 func (q *Queries) InsertSession(ctx context.Context, arg InsertSessionParams) error {
 	_, err := q.db.ExecContext(ctx, insertSession, arg.ID, arg.Server, arg.Pane)
 	return err
+}
+
+const listEngineSessions = `-- name: ListEngineSessions :many
+SELECT id, server, pane, state, changed, seen, question, summary, label, context, tool, claude_session, transcript, kind, dir, reason FROM sessions WHERE kind = 'engine' ORDER BY id
+`
+
+func (q *Queries) ListEngineSessions(ctx context.Context) ([]Session, error) {
+	rows, err := q.db.QueryContext(ctx, listEngineSessions)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Session
+	for rows.Next() {
+		var i Session
+		if err := rows.Scan(
+			&i.ID,
+			&i.Server,
+			&i.Pane,
+			&i.State,
+			&i.Changed,
+			&i.Seen,
+			&i.Question,
+			&i.Summary,
+			&i.Label,
+			&i.Context,
+			&i.Tool,
+			&i.ClaudeSession,
+			&i.Transcript,
+			&i.Kind,
+			&i.Dir,
+			&i.Reason,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listEngineText = `-- name: ListEngineText :many

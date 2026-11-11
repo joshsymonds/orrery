@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"sync"
 	"time"
 
@@ -36,11 +37,18 @@ type WriterConfig struct {
 	Logger  *slog.Logger
 }
 
-// entry is one queued op. stored is closed once the op is in a successful ApplyEngine call.
+// outcome is how one queued op ends. done is closed once the op is stored or dropped. err is set before done is
+// closed, and only for a dropped op.
+type outcome struct {
+	done chan struct{}
+	err  error
+}
+
+// entry is one queued op. result is the op's outcome.
 type entry struct {
 	id     string
 	op     store.EngineOp
-	stored chan struct{}
+	result *outcome
 }
 
 // textKey names the unfinished-text row an EngineText or EngineTextDone op addresses.
@@ -51,7 +59,8 @@ type textKey struct {
 }
 
 // Writer stores queued engine ops. Each tick it sends every queued op, from every session, to Applier in one call.
-// Ops the Applier refuses stay queued in order and are sent again on the next tick.
+// Ops the Applier refuses stay queued in order and are sent again on the next tick, except an op for a session whose
+// row is gone (store.ErrNoEngineSession): that op is dropped, never sent again, and its Commit fails.
 type Writer struct {
 	applier Applier
 	tick    time.Duration
@@ -68,7 +77,7 @@ type Writer struct {
 	queue []entry
 	// unstored counts each session's queued or in-flight non-text ops.
 	unstored map[string]int
-	// changed is closed and replaced whenever a flush stores ops, waking Puts blocked at the limit.
+	// changed is closed and replaced whenever a flush stores or drops ops, waking Puts blocked at the limit.
 	changed chan struct{}
 	// closing is set when Run begins its last flush. From then on nothing would store a newly queued op, so put
 	// refuses it.
@@ -137,23 +146,24 @@ func (w *Writer) Put(ctx context.Context, id string, ops ...store.EngineOp) erro
 	return err
 }
 
-// Commit queues ops for session id like Put, then returns once they are stored.
+// Commit queues ops for session id like Put, then returns once they are stored. It returns an error wrapping
+// store.ErrNoEngineSession when one of the ops was dropped because its session row is gone.
 func (w *Writer) Commit(ctx context.Context, id string, ops ...store.EngineOp) error {
-	stored, err := w.put(ctx, id, ops)
+	results, err := w.put(ctx, id, ops)
 	if err != nil {
 		return err
 	}
-	for _, ch := range stored {
-		if awaitErr := w.await(ctx, ch); awaitErr != nil {
+	for _, result := range results {
+		if awaitErr := w.await(ctx, result); awaitErr != nil {
 			return awaitErr
 		}
 	}
 	return nil
 }
 
-// put queues ops and returns, for each op, the channel closed when that op is stored. A text op coalesced into a
-// queued one returns that op's channel.
-func (w *Writer) put(ctx context.Context, id string, ops []store.EngineOp) ([]chan struct{}, error) {
+// put queues ops and returns, for each op, its outcome. A text op coalesced into a queued one returns that op's
+// outcome.
+func (w *Writer) put(ctx context.Context, id string, ops []store.EngineOp) ([]*outcome, error) {
 	needsRoom := false
 	for _, op := range ops {
 		if !isText(op) {
@@ -180,32 +190,32 @@ func (w *Writer) put(ctx context.Context, id string, ops []store.EngineOp) ([]ch
 		return nil, ErrWriterStopped
 	}
 
-	stored := make([]chan struct{}, 0, len(ops))
+	results := make([]*outcome, 0, len(ops))
 	for _, op := range ops {
-		stored = append(stored, w.enqueueLocked(id, op))
+		results = append(results, w.enqueueLocked(id, op))
 	}
-	return stored, nil
+	return results, nil
 }
 
 // enqueueLocked appends op to the queue, or coalesces an EngineText into the queued one it replaces, and returns the
-// channel closed when op is stored.
-func (w *Writer) enqueueLocked(id string, op store.EngineOp) chan struct{} {
+// outcome of op.
+func (w *Writer) enqueueLocked(id string, op store.EngineOp) *outcome {
 	if text, ok := op.(store.EngineText); ok {
 		if coalesced, done := w.coalesceLocked(id, text); done {
 			return coalesced
 		}
 	}
-	stored := make(chan struct{})
-	w.queue = append(w.queue, entry{id: id, op: op, stored: stored})
+	result := &outcome{done: make(chan struct{})}
+	w.queue = append(w.queue, entry{id: id, op: op, result: result})
 	if !isText(op) {
 		w.unstored[id]++
 	}
-	return stored
+	return result
 }
 
 // coalesceLocked replaces the queued EngineText for the same block with text, when no EngineTextDone or
 // EngineTextClear for that session sits between them in the queue.
-func (w *Writer) coalesceLocked(id string, text store.EngineText) (chan struct{}, bool) {
+func (w *Writer) coalesceLocked(id string, text store.EngineText) (*outcome, bool) {
 	block := blockOf(text.MessageID, text.Index, text.ParentToolUseID)
 	for i := len(w.queue) - 1; i >= 0; i-- {
 		queued := &w.queue[i]
@@ -222,7 +232,7 @@ func (w *Writer) coalesceLocked(id string, text store.EngineText) (chan struct{}
 		case store.EngineText:
 			if blockOf(prev.MessageID, prev.Index, prev.ParentToolUseID) == block {
 				queued.op = text
-				return queued.stored, true
+				return queued.result, true
 			}
 		}
 	}
@@ -234,8 +244,9 @@ func blockOf(messageID string, index int, parentToolUseID string) textKey {
 	return textKey{messageID: messageID, index: index, parentToolUseID: parentToolUseID}
 }
 
-// flush sends every queued op in one ApplyEngine call. On success it wakes the Puts blocked at the limit. On failure
-// it puts the ops back at the front of the queue for the next flush.
+// flush sends every queued op in one ApplyEngine call. An op for a session whose row is gone is dropped, and the rest
+// are sent again in the same flush, so it never holds up the others. On any other failure flush puts the ops back at
+// the front of the queue for the next flush. Each flush that stores or drops ops wakes the Puts blocked at the limit.
 func (w *Writer) flush(ctx context.Context) {
 	w.mu.Lock()
 	batch := w.queue
@@ -245,53 +256,84 @@ func (w *Writer) flush(ctx context.Context) {
 		return
 	}
 
-	ops := make([]store.EngineOp, len(batch))
-	for i, e := range batch {
-		ops[i] = e.op
+	var dropped []entry
+	var err error
+	for len(batch) > 0 {
+		err = w.applier.ApplyEngine(ctx, opsOf(batch), w.now())
+		var opErr *store.EngineOpError
+		if err == nil || !errors.Is(err, store.ErrNoEngineSession) || !errors.As(err, &opErr) {
+			break
+		}
+		gone := batch[opErr.Index]
+		batch = slices.Delete(batch, opErr.Index, opErr.Index+1)
+		w.logger.WarnContext(ctx, "engine op dropped: its session row is gone, so it is not retried",
+			"session", gone.id, "err", err)
+		gone.result.err = fmt.Errorf("op for session %s dropped: %w", gone.id, err)
+		dropped = append(dropped, gone)
+		err = nil
 	}
-	err := w.applier.ApplyEngine(ctx, ops, w.now())
 
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	for _, e := range dropped {
+		w.settleLocked(e)
+	}
 	if err != nil {
 		w.queue = append(batch, w.queue...)
 		if !w.failing {
 			w.logger.WarnContext(ctx, "engine store write failed; ops kept for retry", "ops", len(batch), "err", err)
 		}
 		w.failing = true
-		return
-	}
-	if w.failing {
-		w.logger.InfoContext(ctx, "engine store write recovered", "ops", len(batch))
-	}
-	w.failing = false
-
-	for _, e := range batch {
-		close(e.stored)
-		if !isText(e.op) {
-			w.unstored[e.id]--
-			if w.unstored[e.id] == 0 {
-				delete(w.unstored, e.id)
-			}
+	} else {
+		if w.failing {
+			w.logger.InfoContext(ctx, "engine store write recovered", "ops", len(batch))
+		}
+		w.failing = false
+		for _, e := range batch {
+			w.settleLocked(e)
 		}
 	}
-	close(w.changed)
-	w.changed = make(chan struct{})
+	if err == nil || len(dropped) > 0 {
+		close(w.changed)
+		w.changed = make(chan struct{})
+	}
 }
 
-// await waits for stored to close, or for ctx to end or Run to return without storing the op.
-func (w *Writer) await(ctx context.Context, stored chan struct{}) error {
+// settleLocked closes the outcome of an op that is stored or dropped, and frees its session's slot when it counted
+// against the limit. w.mu must be held.
+func (w *Writer) settleLocked(e entry) {
+	close(e.result.done)
+	if !isText(e.op) {
+		w.unstored[e.id]--
+		if w.unstored[e.id] == 0 {
+			delete(w.unstored, e.id)
+		}
+	}
+}
+
+// await waits for result to settle, or for ctx to end or Run to return without settling it. It returns the op's
+// error when the op was dropped.
+func (w *Writer) await(ctx context.Context, result *outcome) error {
 	select {
-	case <-stored:
-		return nil
+	case <-result.done:
+		return result.err
 	case <-ctx.Done():
 		return fmt.Errorf("wait for stored ops: %w", ctx.Err())
 	case <-w.stopped:
-		if isClosed(stored) {
-			return nil
+		if isClosed(result.done) {
+			return result.err
 		}
 		return ErrWriterStopped
 	}
+}
+
+// opsOf returns the ops of batch, in order.
+func opsOf(batch []entry) []store.EngineOp {
+	ops := make([]store.EngineOp, len(batch))
+	for i, e := range batch {
+		ops[i] = e.op
+	}
+	return ops
 }
 
 // isText reports whether op is one of the unfinished-text ops, which do not count against a session's limit.

@@ -2,7 +2,6 @@ package help_test
 
 import (
 	"bytes"
-	"context"
 	"errors"
 	"fmt"
 	"html"
@@ -18,6 +17,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/keymap"
 	"github.com/joshsymonds/orrery/internal/palette"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
+	"github.com/joshsymonds/orrery/internal/tmuxtest"
 )
 
 const (
@@ -303,7 +303,7 @@ func TestPrefixReadsLiveServerPrefix(t *testing.T) {
 		t.Fatalf("New(Name=%q): %v", name, err)
 	}
 	t.Cleanup(func() {
-		if _, killErr := client.Run(context.Background(), "kill-server"); killErr != nil {
+		if killErr := tmuxtest.Stop(t, tmuxctl.Server{Name: name}); killErr != nil {
 			t.Errorf("kill-server: %v", killErr)
 		}
 	})

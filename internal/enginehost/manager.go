@@ -22,7 +22,7 @@ import (
 // ErrCapReached reports a Start that would exceed the cap of live sessions.
 var ErrCapReached = errors.New("session cap reached")
 
-// ErrNoSession reports a Stop or Seen of an id this manager did not start, or of a session that is not live.
+// ErrNoSession reports an id with no engine row, or a Stop, Answer or Interrupt of a session that is not live.
 var ErrNoSession = errors.New("no such session")
 
 // ErrBadDir reports a Start whose directory is not an absolute path to an existing directory.
@@ -44,31 +44,68 @@ const permissionMode = "bypassPermissions"
 // denyMessage is the message a permission request denied through Answer gives the session.
 const denyMessage = "The orrery host denied this request."
 
-// closeWait bounds how long Close waits for the sessions it stops to record their stop.
+// closeWait bounds how long Close waits for the sessions it stops to record their state.
 const closeWait = 5 * time.Second
+
+// idleCheckEvery is the pause between the checks RunIdle makes.
+const idleCheckEvery = 30 * time.Second
+
+// defaultIdleAfter is how long a session must stay not busy, by the manager's clock, before RunIdle stops it.
+const defaultIdleAfter = 10 * time.Minute
+
+// interruptedReason is the reason a session whose turn was running when Close stopped the manager records.
+const interruptedReason = "orreryd stopped during the turn"
+
+// NoticeSink receives the notices the owner is told about. *Notifier satisfies it.
+type NoticeSink interface {
+	Notify(ctx context.Context, n Notice)
+}
+
+// Store reads the engine rows Reconcile settles, and the rows Say resumes and Seen marks. *store.Store satisfies it.
+type Store interface {
+	EngineSessions(ctx context.Context) ([]store.EngineRow, error)
+	EngineSession(ctx context.Context, id string) (store.EngineRow, error)
+}
 
 // Config configures a Manager. Shell is the login shell and Claude the claude name, resolved with exec.LookPath at
 // each start. Environ is the environment sessions start with, Cap the most live sessions at once, Writer stores their
-// ops, Now stamps them (nil is time.Now) and Logger reports pump errors (nil discards).
+// ops, Now stamps them (nil is time.Now), Notifier receives the notices of their state changes (nil sends none), Store
+// is the engine rows Reconcile, Say and Seen read and Logger reports pump errors (nil discards).
 type Config struct {
-	Shell   string
-	Claude  string
-	Environ []string
-	Cap     int
-	Writer  *Writer
-	Now     func() time.Time
-	Logger  *slog.Logger
+	Shell    string
+	Claude   string
+	Environ  []string
+	Cap      int
+	Writer   *Writer
+	Now      func() time.Time
+	Notifier NoticeSink
+	Store    Store
+	Logger   *slog.Logger
 }
 
-// liveSession is one running session: its process, the done channel closed when its pump has finished, and the cancel
-// that frees a pump blocked on a write. exited is set by the pump when the process exited on its own, so Stop does not
-// record over the state that exit recorded.
+// liveSession is one running session: its directory, its process, the done channel closed when its pump has finished,
+// and the cancel that frees a pump blocked on a write. exited is set by the pump when it records the process's exit, so
+// Stop and Close do not record over the state that exit recorded. turning is set while a turn runs, from the send of its
+// prompt or a Started event until its TurnEnded or the process's Exited. interrupting is set by Interrupt while a turn
+// runs, until that turn's end, which then sends no notice. closing is set by Close before it stops the session. The
+// manager's lock guards turning, interrupting, closing, requests, background, idleSince and idleStopped, and the pump sets
+// exited under it too. requests holds the ids of the requests the host has open, background is set while a background
+// task runs, idleSince is when the session last became not busy (zero while it is busy), and idleStopped is set when a
+// check stops the session for being idle.
 type liveSession struct {
-	id     string
-	sess   *session.Session
-	done   chan struct{}
-	cancel context.CancelFunc
-	exited bool
+	id           string
+	dir          string
+	sess         *session.Session
+	done         chan struct{}
+	cancel       context.CancelFunc
+	exited       bool
+	turning      bool
+	interrupting bool
+	closing      bool
+	requests     map[string]struct{}
+	background   bool
+	idleSince    time.Time
+	idleStopped  bool
 	// order is held by the pump while it queues an event's ops, and by Answer from its send until it has queued the
 	// working state, so every op an answer causes is queued after that state.
 	order sync.Mutex
@@ -77,24 +114,27 @@ type liveSession struct {
 // Manager starts, stops and tracks headless sessions. Each running session has a pump goroutine that records its
 // events through the Writer. Close stops every session and waits for the pumps.
 type Manager struct {
-	shell   string
-	claude  string
-	environ []string
-	limit   int
-	writer  *Writer
-	now     func() time.Time
-	logger  *slog.Logger
+	shell    string
+	claude   string
+	environ  []string
+	limit    int
+	writer   *Writer
+	now      func() time.Time
+	notifier NoticeSink
+	store    Store
+	logger   *slog.Logger
 
 	pumps sync.WaitGroup
 
 	mu sync.Mutex
-	// started holds every id Start committed, so Seen can name sessions that have since stopped.
-	started map[string]struct{}
 	// sessions holds the running sessions whose pump has not finished.
 	sessions map[string]*liveSession
 	// reserved counts the sessions being started or running, which is what the cap limits.
 	reserved int
 	closed   bool
+
+	// resumeMu serializes the resume of a session that is not live, so concurrent Says to one id start one process.
+	resumeMu sync.Mutex
 }
 
 // NewManager returns a Manager for cfg.
@@ -106,8 +146,9 @@ func NewManager(cfg Config) *Manager {
 		limit:    cfg.Cap,
 		writer:   cfg.Writer,
 		now:      cfg.Now,
+		notifier: cfg.Notifier,
+		store:    cfg.Store,
 		logger:   cfg.Logger,
-		started:  map[string]struct{}{},
 		sessions: map[string]*liveSession{},
 	}
 	if manager.now == nil {
@@ -139,33 +180,16 @@ func (m *Manager) Start(ctx context.Context, dir, prompt string) (string, error)
 		m.release()
 		return "", fmt.Errorf("record session %s: %w", id, err)
 	}
-	m.mu.Lock()
-	m.started[id] = struct{}{}
-	m.mu.Unlock()
-
-	sess, err := m.spawn(id, dir)
+	live, err := m.spawnLive(ctx, id, dir, "")
 	if err != nil {
-		return id, m.fail(ctx, id, err)
+		return id, m.fail(ctx, id, dir, err)
 	}
-	pumpCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
-	live := &liveSession{id: id, sess: sess, done: make(chan struct{}), cancel: cancel}
-	m.mu.Lock()
-	closed := m.closed
-	if !closed {
-		m.sessions[id] = live
-		m.pumps.Add(1)
-	}
-	m.mu.Unlock()
-	if closed {
-		cancel()
-		return id, m.fail(ctx, id, errors.Join(errManagerClosed, sess.Stop()))
-	}
-	go m.pump(pumpCtx, live, newRecorder(id))
-
 	if err = m.writer.Put(ctx, id, store.EnginePrompt{ID: id, Text: prompt}); err != nil {
 		return id, m.abandon(ctx, live, err)
 	}
-	if err = sess.Prompt(prompt); err != nil {
+	m.setTurning(live, true)
+	if err = live.sess.Prompt(prompt); err != nil {
+		m.setTurning(live, false)
 		return id, m.abandon(ctx, live, err)
 	}
 	return id, nil
@@ -188,36 +212,43 @@ func (m *Manager) Stop(ctx context.Context, id string) error {
 	return fmt.Errorf("stop session %s: %w", id, errors.Join(stopErr, recordErr))
 }
 
-// Seen marks the session id this manager started as seen now. It returns ErrNoSession for any other id.
+// Seen marks the engine row id as seen now. It returns an error wrapping ErrNoSession when no engine row has that id.
 func (m *Manager) Seen(ctx context.Context, id string) error {
-	m.mu.Lock()
-	_, ok := m.started[id]
-	m.mu.Unlock()
-	if !ok {
-		return fmt.Errorf("mark session %s seen: %w", id, ErrNoSession)
+	if _, err := m.engineRow(ctx, id); err != nil {
+		return fmt.Errorf("mark session %s seen: %w", id, err)
 	}
 	seen := strconv.FormatInt(m.now().Unix(), 10)
 	return m.writer.Commit(ctx, id, store.EngineSet{ID: id, Changes: store.EngineChanges{Seen: &seen}})
 }
 
-// Say sends text to the live session id as its next prompt. It records the prompt and the working state before it
-// sends, so the stored conversation has the prompt ahead of its reply. It returns ErrEmptyPrompt for empty text and
-// an error wrapping ErrNoSession when id is not live. A send that fails is recorded as the session's failed state.
+// Say sends text to the session id as its next prompt. A session that is not live is resumed first, from its engine
+// row (see resumeSession). It records the prompt and the working state before it sends, so the stored conversation has
+// the prompt ahead of its reply. It returns ErrEmptyPrompt for empty text, an error wrapping ErrNoSession when no engine
+// row has id, and the errors of resumeSession when a live session cannot be started. A send that fails is recorded as
+// the session's failed state.
 func (m *Manager) Say(ctx context.Context, id, text string) error {
 	if text == "" {
 		return ErrEmptyPrompt
 	}
-	live, err := m.live(id)
+	live, err := m.claim(id)
+	if errors.Is(err, ErrNoSession) {
+		live, err = m.resumeSession(ctx, id)
+		if err == nil {
+			m.setTurning(live, true)
+		}
+	}
 	if err != nil {
 		return fmt.Errorf("say to session %s: %w", id, err)
 	}
 	working := string(protocol.StateWorking)
 	if err = m.writer.Commit(ctx, id, store.EnginePrompt{ID: id, Text: text},
 		store.EngineSet{ID: id, Changes: store.EngineChanges{State: &working}}); err != nil {
+		m.setTurning(live, false)
 		return fmt.Errorf("record prompt of session %s: %w", id, err)
 	}
 	if err = live.sess.Prompt(text); err != nil {
-		return fmt.Errorf("say to session %s: %w", id, errors.Join(err, m.recordFailed(ctx, id, err)))
+		m.setTurning(live, false)
+		return fmt.Errorf("say to session %s: %w", id, errors.Join(err, m.recordFailed(ctx, id, live.dir, err)))
 	}
 	return nil
 }
@@ -247,6 +278,7 @@ func (m *Manager) Answer(ctx context.Context, id, requestID, answer string) erro
 	default:
 		return fmt.Errorf("answer session %s: %w", id, err)
 	}
+	m.closeRequest(live, requestID)
 	working := string(protocol.StateWorking)
 	question := ""
 	if err = m.writer.Put(ctx, id, store.EngineSet{ID: id,
@@ -276,13 +308,15 @@ func answerPermission(sess *session.Session, requestID, answer string) error {
 }
 
 // Interrupt asks the live session id to end the turn in progress. The turn's end is recorded when the session reports
-// it. It returns an error wrapping ErrNoSession when id is not live.
+// it, and that end sends no notice. It returns an error wrapping ErrNoSession when id is not live.
 func (m *Manager) Interrupt(_ context.Context, id string) error {
 	live, err := m.live(id)
 	if err != nil {
 		return fmt.Errorf("interrupt session %s: %w", id, err)
 	}
+	m.setInterrupting(live, true)
 	if err = live.sess.Interrupt(); err != nil {
+		m.setInterrupting(live, false)
 		return fmt.Errorf("interrupt session %s: %w", id, err)
 	}
 	return nil
@@ -299,9 +333,96 @@ func (m *Manager) live(id string) (*liveSession, error) {
 	return live, nil
 }
 
-// Close stops every live session and waits up to 5 s for each to record its stop. It then cancels any write a pump
-// still has blocked and waits for the pumps to return. Start refuses from the moment Close begins, and later calls
-// to Close return at once.
+// Live returns the ids of the live sessions. It is safe to call from any goroutine.
+func (m *Manager) Live() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	ids := make([]string, 0, len(m.sessions))
+	for id := range m.sessions {
+		ids = append(ids, id)
+	}
+	return ids
+}
+
+// resumeSession returns the live session id, starting it from its engine row when it is not live. The process starts in
+// the row's directory and resumes the row's claude session, when it has one. It reserves a slot under the cap before it
+// reads the directory, so a full cap refuses the resume before anything is recorded. A directory that is missing or not
+// a directory records the session failed and returns an error wrapping ErrBadDir. resumeMu makes concurrent calls for one
+// id start a single process: each call after the first finds the session live.
+func (m *Manager) resumeSession(ctx context.Context, id string) (*liveSession, error) {
+	m.resumeMu.Lock()
+	defer m.resumeMu.Unlock()
+	if live, err := m.live(id); err == nil {
+		return live, nil
+	}
+	row, err := m.engineRow(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	return m.resume(ctx, row)
+}
+
+// resume starts the process of row, an engine row that is not live, and registers it live. It takes a slot under the cap
+// first, then checks the row's directory. A failed check or spawn records the row failed and frees the slot.
+func (m *Manager) resume(ctx context.Context, row store.EngineRow) (*liveSession, error) {
+	if err := m.reserve(); err != nil {
+		return nil, err
+	}
+	if err := checkDir(row.Dir); err != nil {
+		return nil, errors.Join(err, m.fail(ctx, row.ID, row.Dir, err))
+	}
+	live, err := m.spawnLive(ctx, row.ID, row.Dir, row.ClaudeSession)
+	if err != nil {
+		return nil, errors.Join(err, m.fail(ctx, row.ID, row.Dir, err))
+	}
+	return live, nil
+}
+
+// engineRow returns the engine row with id. It returns an error wrapping ErrNoSession when no engine row has that id.
+func (m *Manager) engineRow(ctx context.Context, id string) (store.EngineRow, error) {
+	row, err := m.store.EngineSession(ctx, id)
+	switch {
+	case errors.Is(err, store.ErrNoEngineSession):
+		return store.EngineRow{}, fmt.Errorf("%w: %w", ErrNoSession, err)
+	case err != nil:
+		return store.EngineRow{}, fmt.Errorf("read engine row %s: %w", id, err)
+	}
+	return row, nil
+}
+
+// spawnLive starts the process for id in dir, resuming claudeSession when it is set, and registers it as live under a
+// pump that records its events. The caller holds the slot from reserve. A process that starts after the manager closed
+// is stopped, and the error reports the close. An error that returns here leaves nothing registered.
+func (m *Manager) spawnLive(ctx context.Context, id, dir, claudeSession string) (*liveSession, error) {
+	sess, err := m.spawn(id, dir, claudeSession)
+	if err != nil {
+		return nil, err
+	}
+	pumpCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	live := &liveSession{id: id, dir: dir, sess: sess, done: make(chan struct{}), cancel: cancel,
+		requests: map[string]struct{}{}}
+	m.mu.Lock()
+	closed := m.closed
+	if !closed {
+		m.sessions[id] = live
+		m.pumps.Add(1)
+		m.updateIdleLocked(live)
+	}
+	m.mu.Unlock()
+	if closed {
+		cancel()
+		return nil, errors.Join(errManagerClosed, sess.Stop())
+	}
+	rec := newRecorder(id)
+	rec.claudeSession = claudeSession
+	go m.pump(pumpCtx, live, rec)
+	return live, nil
+}
+
+// Close stops every live session and waits up to 5 s for each to record its state. A session whose turn was running is
+// recorded interrupted, and every session loses its unfinished text. It then cancels any write a pump still has blocked
+// and waits for the pumps to return. Start refuses from the moment Close begins, and later calls to Close return at
+// once.
 func (m *Manager) Close() {
 	m.mu.Lock()
 	if m.closed {
@@ -311,6 +432,7 @@ func (m *Manager) Close() {
 	m.closed = true
 	running := make([]*liveSession, 0, len(m.sessions))
 	for _, live := range m.sessions {
+		live.closing = true
 		running = append(running, live)
 	}
 	m.mu.Unlock()
@@ -323,8 +445,8 @@ func (m *Manager) Close() {
 	ctx, cancel := context.WithTimeout(context.Background(), closeWait)
 	defer cancel()
 	for _, live := range running {
-		if err := m.recordStopped(ctx, live); err != nil {
-			m.logger.Warn("record session stopped on close", "session", live.id, "err", err)
+		if err := m.recordClosed(ctx, live); err != nil {
+			m.logger.Warn("record session closed", "session", live.id, "err", err)
 		}
 	}
 	for _, live := range running {
@@ -333,8 +455,103 @@ func (m *Manager) Close() {
 	m.pumps.Wait()
 }
 
+// RunIdle stops the sessions that are idle for the idle timeout, checking every 30 s, until ctx ends. See checkIdle.
+func (m *Manager) RunIdle(ctx context.Context) {
+	ticker := time.NewTicker(idleCheckEvery)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			m.checkIdle(ctx)
+		}
+	}
+}
+
+// checkIdle stops each live session that has been not busy for the idle timeout by the clock, and waits for its pump,
+// which frees its slot. A session is busy while a turn runs, a request is open, or a background task runs. The stop
+// records nothing, so the session's row and events stay as they were. The session is taken out of the live set under
+// the lock before it is stopped, and resumeMu is held through the stop, so a Say that finds no live session waits, then
+// resumes it from its row.
+func (m *Manager) checkIdle(ctx context.Context) {
+	m.resumeMu.Lock()
+	defer m.resumeMu.Unlock()
+	now := m.now()
+	m.mu.Lock()
+	var stopping []*liveSession
+	for id, live := range m.sessions {
+		if live.closing || live.busy() || now.Sub(live.idleSince) < defaultIdleAfter {
+			continue
+		}
+		live.idleStopped = true
+		delete(m.sessions, id)
+		stopping = append(stopping, live)
+	}
+	m.mu.Unlock()
+	for _, live := range stopping {
+		if err := live.sess.Stop(); err != nil {
+			m.logger.WarnContext(ctx, "stop idle session", "session", live.id, "err", err)
+		}
+		if err := m.waitPump(ctx, live); err != nil {
+			m.logger.WarnContext(ctx, "wait for idle session", "session", live.id, "err", err)
+		}
+	}
+}
+
+// busy reports whether live has a turn running, an open request, or a background task. The caller holds the lock.
+func (live *liveSession) busy() bool {
+	return live.turning || live.background || len(live.requests) > 0
+}
+
+// updateIdleLocked clears the idle stamp of live while it is busy, and stamps the time it became not busy. The caller
+// holds the lock.
+func (m *Manager) updateIdleLocked(live *liveSession) {
+	if live.busy() {
+		live.idleSince = time.Time{}
+		return
+	}
+	if live.idleSince.IsZero() {
+		live.idleSince = m.now()
+	}
+}
+
+// claim returns the live session id with its turn marked running, under the lock, so a check cannot stop the session
+// between the lookup and the prompt. It returns ErrNoSession when no session with that id is live.
+func (m *Manager) claim(id string) (*liveSession, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	live, ok := m.sessions[id]
+	if !ok {
+		return nil, ErrNoSession
+	}
+	live.turning = true
+	m.updateIdleLocked(live)
+	return live, nil
+}
+
+// closeRequest removes the open request requestID from live once the session has accepted its answer.
+func (m *Manager) closeRequest(live *liveSession, requestID string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(live.requests, requestID)
+	m.updateIdleLocked(live)
+}
+
 // checkStart reports whether a start's directory and prompt are usable, before anything is stored.
 func checkStart(dir, prompt string) error {
+	if err := checkDir(dir); err != nil {
+		return err
+	}
+	if prompt == "" {
+		return ErrEmptyPrompt
+	}
+	return nil
+}
+
+// checkDir reports whether dir is an absolute path to an existing directory. It returns an error wrapping ErrBadDir
+// when it is not.
+func checkDir(dir string) error {
 	if !filepath.IsAbs(dir) {
 		return fmt.Errorf("%w: %q is not absolute", ErrBadDir, dir)
 	}
@@ -344,9 +561,6 @@ func checkStart(dir, prompt string) error {
 	}
 	if !info.IsDir() {
 		return fmt.Errorf("%w: %s is not a directory", ErrBadDir, dir)
-	}
-	if prompt == "" {
-		return ErrEmptyPrompt
 	}
 	return nil
 }
@@ -381,8 +595,9 @@ func newSessionID() (string, error) {
 	return hex.EncodeToString(raw[:]), nil
 }
 
-// spawn resolves claude and starts the session process for id in dir. The prompt is not sent here.
-func (m *Manager) spawn(id, dir string) (*session.Session, error) {
+// spawn resolves claude and starts the session process for id in dir, resuming claudeSession when it is set. The prompt
+// is not sent here.
+func (m *Manager) spawn(id, dir, claudeSession string) (*session.Session, error) {
 	claude, err := exec.LookPath(m.claude)
 	if err != nil {
 		return nil, fmt.Errorf("find claude: %w", err)
@@ -392,6 +607,7 @@ func (m *Manager) spawn(id, dir string) (*session.Session, error) {
 		Claude:         claude,
 		Dir:            dir,
 		PermissionMode: permissionMode,
+		Resume:         claudeSession,
 		Name:           id,
 		Environ:        m.environ,
 	})
@@ -401,13 +617,19 @@ func (m *Manager) spawn(id, dir string) (*session.Session, error) {
 	return sess, nil
 }
 
-// pump records the events of one running session, in order, until its events close. It is the only reader of the
-// session's events and the only user of its recorder. When it ends it frees the session's slot.
+// pump records the events of one running session, in order, until its events close, and notifies the owner of each
+// event that calls for it once the event is recorded. It is the only reader of the session's events and the only user
+// of its recorder. When it ends it frees the session's slot and removes its entry, only while that entry is its own.
 func (m *Manager) pump(ctx context.Context, live *liveSession, rec *recorder) {
 	defer m.pumps.Done()
+	reply := ""
 	for event := range live.sess.Events() {
-		if _, ok := event.(session.Exited); ok {
-			live.exited = true
+		record, interrupted := m.noteEvent(live, event)
+		if !record {
+			continue
+		}
+		if text, ok := mainText(event); ok {
+			reply = text
 		}
 		if ops := rec.ops(event); len(ops) > 0 {
 			live.order.Lock()
@@ -415,15 +637,81 @@ func (m *Manager) pump(ctx context.Context, live *liveSession, rec *recorder) {
 			live.order.Unlock()
 			if err != nil {
 				m.logger.WarnContext(ctx, "record session event", "session", live.id, "err", err)
+			} else if state, body, notify := eventNotice(event, reply, interrupted); notify {
+				m.notify(ctx, live.id, live.dir, state, body)
 			}
+		}
+		if _, ended := event.(session.TurnEnded); ended {
+			reply = ""
 		}
 	}
 	m.mu.Lock()
-	delete(m.sessions, live.id)
+	if m.sessions[live.id] == live {
+		delete(m.sessions, live.id)
+	}
 	m.reserved--
 	m.mu.Unlock()
 	close(live.done)
 	live.cancel()
+}
+
+// setTurning sets whether live has a turn running.
+func (m *Manager) setTurning(live *liveSession, turning bool) {
+	m.mu.Lock()
+	live.turning = turning
+	m.updateIdleLocked(live)
+	m.mu.Unlock()
+}
+
+// setInterrupting marks the turn running on live as interrupted, so its end sends no notice. A mark needs a turn that
+// is running, so an interrupt sent between turns marks nothing.
+func (m *Manager) setInterrupting(live *liveSession, interrupting bool) {
+	m.mu.Lock()
+	live.interrupting = interrupting && live.turning
+	m.mu.Unlock()
+}
+
+// noteEvent tracks the turn of live through event. It reports whether the pump records event, and for a turn's end,
+// whether that turn was interrupted through Interrupt, which clears the mark for the next turn. The exit of a session
+// that Close is stopping is not recorded here: recordClosed records that session's state from its turn instead.
+func (m *Manager) noteEvent(live *liveSession, event session.Event) (record, interrupted bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	defer m.updateIdleLocked(live)
+	switch ev := event.(type) {
+	case session.Started:
+		live.turning = true
+	case session.Request:
+		if !ev.Refused {
+			live.requests[ev.RequestID] = struct{}{}
+		}
+	case session.RequestCancelled:
+		delete(live.requests, ev.RequestID)
+	case session.BackgroundTasks:
+		live.background = len(ev.Tasks) > 0
+	case session.TurnEnded:
+		live.turning = false
+		clear(live.requests)
+		interrupted = live.interrupting
+		live.interrupting = false
+	case session.Exited:
+		live.turning = false
+		clear(live.requests)
+		live.background = false
+		if live.closing || live.idleStopped {
+			return false, false
+		}
+		live.exited = true
+	}
+	return true, interrupted
+}
+
+// notify sends the owner a notice of session id in dir, in state with body. It sends nothing without a notifier.
+func (m *Manager) notify(ctx context.Context, id, dir, state, body string) {
+	if m.notifier == nil {
+		return
+	}
+	m.notifier.Notify(ctx, Notice{Session: id, Dir: dir, State: state, Body: body})
 }
 
 // waitPump waits until the pump of live has finished, or until ctx ends.
@@ -455,6 +743,36 @@ func (m *Manager) recordStopped(ctx context.Context, live *liveSession) error {
 	return nil
 }
 
+// recordClosed waits for the pump of live to finish, then records live as Close leaves it: interrupted with the reason
+// when its turn was running, and otherwise in the state its turn gave it. Either way its unfinished text is removed. An
+// interruption notifies the owner. A session whose exit already recorded its state is left alone. It returns the error
+// of the wait or of the write.
+func (m *Manager) recordClosed(ctx context.Context, live *liveSession) error {
+	if err := m.waitPump(ctx, live); err != nil {
+		return err
+	}
+	if live.exited {
+		return nil
+	}
+	m.mu.Lock()
+	turning := live.turning
+	m.mu.Unlock()
+	ops := []store.EngineOp{store.EngineTextClear{ID: live.id}}
+	if turning {
+		interrupted := stateInterrupted
+		reason := interruptedReason
+		ops = append(ops, store.EngineSet{ID: live.id,
+			Changes: store.EngineChanges{State: &interrupted, Reason: &reason}})
+	}
+	if err := m.writer.Commit(ctx, live.id, ops...); err != nil {
+		return fmt.Errorf("record session %s closed: %w", live.id, err)
+	}
+	if turning {
+		m.notify(ctx, live.id, live.dir, stateInterrupted, interruptedReason)
+	}
+	return nil
+}
+
 // abandon stops a session whose first prompt could not be sent, and records it failed with the reason. It returns
 // only an error that recording the failure hit.
 func (m *Manager) abandon(ctx context.Context, live *liveSession, cause error) error {
@@ -465,22 +783,24 @@ func (m *Manager) abandon(ctx context.Context, live *liveSession, cause error) e
 	if live.exited {
 		return nil
 	}
-	return m.recordFailed(ctx, live.id, errors.Join(cause, stopErr))
+	return m.recordFailed(ctx, live.id, live.dir, errors.Join(cause, stopErr))
 }
 
-// fail records a session that never got a running process as failed with the reason err, and frees its slot.
-func (m *Manager) fail(ctx context.Context, id string, err error) error {
+// fail records a session in dir that never got a running process as failed with the reason err, and frees its slot.
+func (m *Manager) fail(ctx context.Context, id, dir string, err error) error {
 	m.release()
-	return m.recordFailed(ctx, id, err)
+	return m.recordFailed(ctx, id, dir, err)
 }
 
-// recordFailed writes the failed state of session id with the reason err. It returns only an error that the write hit.
-func (m *Manager) recordFailed(ctx context.Context, id string, err error) error {
+// recordFailed writes the failed state of session id in dir with the reason err, then notifies the owner of it. It
+// returns only an error that the write hit.
+func (m *Manager) recordFailed(ctx context.Context, id, dir string, err error) error {
 	failed := stateFailed
 	reason := err.Error()
 	if writeErr := m.writer.Commit(ctx, id, store.EngineSet{ID: id,
 		Changes: store.EngineChanges{State: &failed, Reason: &reason}}); writeErr != nil {
 		return fmt.Errorf("record session %s failed: %w", id, writeErr)
 	}
+	m.notify(ctx, id, dir, failed, reason)
 	return nil
 }

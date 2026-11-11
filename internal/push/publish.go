@@ -18,6 +18,7 @@ import (
 // Notification is one pane event sent to every registered subscription.
 type Notification struct {
 	Pane, Host, Project      string
+	Session                  string
 	State                    protocol.State
 	Summary, Label, Question string
 }
@@ -27,6 +28,7 @@ const (
 	keyPane         = "pane"
 	keyHost         = "host"
 	keyProject      = "project"
+	keySession      = "session"
 	keyState        = "state"
 	keySummary      = "summary"
 	keyLabel        = "label"
@@ -91,10 +93,11 @@ func (p *Publisher) Publish(ctx context.Context, note Notification) error {
 
 // boundedPayload returns the JSON payload for note. The question is shortened first, then the summary if
 // the payload still does not fit with an empty question. The question_hash always covers the full question.
+// The session key is present only when note.Session is set, so a pane payload is unchanged.
 func boundedPayload(note Notification) ([]byte, error) {
 	hash := protocol.QuestionHash(note.Question)
 	encode := func(summary, question string) ([]byte, error) {
-		return json.Marshal(map[string]string{
+		fields := map[string]string{
 			keyPane:         note.Pane,
 			keyHost:         note.Host,
 			keyProject:      note.Project,
@@ -103,7 +106,11 @@ func boundedPayload(note Notification) ([]byte, error) {
 			keyLabel:        note.Label,
 			keyQuestion:     question,
 			keyQuestionHash: hash,
-		})
+		}
+		if note.Session != "" {
+			fields[keySession] = note.Session
+		}
+		return json.Marshal(fields)
 	}
 	fits := func(summary, question string) bool {
 		body, err := encode(summary, question)

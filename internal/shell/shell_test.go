@@ -1,7 +1,6 @@
 package shell_test
 
 import (
-	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
@@ -19,6 +18,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/shell"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
+	"github.com/joshsymonds/orrery/internal/tmuxtest"
 )
 
 const (
@@ -58,7 +58,7 @@ func newFixture(t *testing.T) *fixture {
 		t.Fatalf("New(Name=%q): %v", name, err)
 	}
 	t.Cleanup(func() {
-		if _, err := client.Run(context.Background(), "kill-server"); err != nil {
+		if err := tmuxtest.Stop(t, tmuxctl.Server{Name: name}); err != nil {
 			t.Errorf("kill-server: %v", err)
 		}
 	})

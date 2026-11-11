@@ -290,6 +290,12 @@ func TestSyncServerLeavesEngineRowsOfTheDefaultServer(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("InsertEngineSession: %v", err)
 	}
+	// Every engine row has its engine_added event; without one the tidy's 14-day removal would take the row.
+	if err := sqlcgen.New(s.db).InsertEvent(ctx, sqlcgen.InsertEventParams{
+		SessionID: "engine-1", Kind: EventEngineAdded, At: t0.Unix(), Payload: `{"dir":"/work","state":"working"}`,
+	}); err != nil {
+		t.Fatalf("InsertEvent: %v", err)
+	}
 	if err := s.SyncServer(ctx, "", nil, t0.Add(time.Second)); err != nil {
 		t.Fatalf("SyncServer with no panes: %v", err)
 	}
