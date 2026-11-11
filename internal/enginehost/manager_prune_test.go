@@ -12,7 +12,7 @@ import (
 // store that reads the manager's liveness, and that the same prune removes the row once the session has stopped.
 func TestLiveSessionSurvivesPrune(t *testing.T) {
 	m, path := newTestManager(t, 1, fakeClaudePath(t))
-	id, err := m.Start(t.Context(), t.TempDir(), "ASK")
+	id, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "ASK"})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}

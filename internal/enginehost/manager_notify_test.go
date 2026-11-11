@@ -73,7 +73,7 @@ func TestNoticeWaitingCarriesQuestion(t *testing.T) {
 	sink := &fakeSink{}
 	m, _ := newNoticeManager(t, fakeClaudePath(t), sink)
 	dir := t.TempDir()
-	id, err := m.Start(t.Context(), dir, "ASK")
+	id, err := m.Start(t.Context(), StartRequest{Dir: dir, Prompt: "ASK"})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -89,7 +89,7 @@ func TestNoticeDoneCarriesReply(t *testing.T) {
 	sink := &fakeSink{}
 	m, _ := newNoticeManager(t, fakeClaudePath(t), sink)
 	dir := t.TempDir()
-	id, err := m.Start(t.Context(), dir, "hi")
+	id, err := m.Start(t.Context(), StartRequest{Dir: dir, Prompt: "hi"})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -104,7 +104,7 @@ func TestNoticeDoneCarriesReply(t *testing.T) {
 func TestNoticeDoneCarriesLastFinishedBlock(t *testing.T) {
 	sink := &fakeSink{}
 	m, _ := newNoticeManager(t, fakeClaudePath(t), sink)
-	id, err := m.Start(t.Context(), t.TempDir(), "FLOOD")
+	id, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "FLOOD"})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -119,7 +119,7 @@ func TestNoticeInterruptedTurnSendsNothingAndNextTurnNotifies(t *testing.T) {
 	sink := &fakeSink{}
 	m, path := newNoticeManager(t, fakeClaudePath(t), sink)
 	dir := t.TempDir()
-	id, err := m.Start(t.Context(), dir, "HANG")
+	id, err := m.Start(t.Context(), StartRequest{Dir: dir, Prompt: "HANG"})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -148,7 +148,7 @@ func TestNoticeFailedCarriesRecordedReason(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "no-claude")
 	m, path := newNoticeManager(t, missing, sink)
 	dir := t.TempDir()
-	id, err := m.Start(t.Context(), dir, "hi")
+	id, err := m.Start(t.Context(), StartRequest{Dir: dir, Prompt: "hi"})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -173,7 +173,7 @@ func TestNoticeInterruptedOnCloseCarriesReason(t *testing.T) {
 	sink := &fakeSink{}
 	m, path := newNoticeManager(t, fakeClaudePath(t), sink)
 	dir := t.TempDir()
-	id, err := m.Start(t.Context(), dir, "STALL")
+	id, err := m.Start(t.Context(), StartRequest{Dir: dir, Prompt: "STALL"})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -190,7 +190,7 @@ func TestNoticeStopSendsNothing(t *testing.T) {
 	sink := &fakeSink{}
 	m, _ := newNoticeManager(t, fakeClaudePath(t), sink)
 	dir := t.TempDir()
-	id, err := m.Start(t.Context(), dir, "hi")
+	id, err := m.Start(t.Context(), StartRequest{Dir: dir, Prompt: "hi"})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}

@@ -210,7 +210,7 @@ func TestStartRecordsRowThenRunsFirstPrompt(t *testing.T) {
 	m, path := newTestManager(t, 2, fakeClaudePath(t))
 	dir := t.TempDir()
 
-	id, err := m.Start(t.Context(), dir, "hi")
+	id, err := m.Start(t.Context(), StartRequest{Dir: dir, Prompt: "hi"})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -240,15 +240,15 @@ func TestStartRecordsRowThenRunsFirstPrompt(t *testing.T) {
 
 func TestCapRefusesStartPastCapAndAdmitsAfterStop(t *testing.T) {
 	m, _ := newTestManager(t, 2, fakeClaudePath(t))
-	first, err := m.Start(t.Context(), t.TempDir(), "one")
+	first, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "one"})
 	if err != nil {
 		t.Fatalf("first Start: %v", err)
 	}
-	if _, err := m.Start(t.Context(), t.TempDir(), "two"); err != nil {
+	if _, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "two"}); err != nil {
 		t.Fatalf("second Start: %v", err)
 	}
 
-	id, err := m.Start(t.Context(), t.TempDir(), "three")
+	id, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "three"})
 	if !errors.Is(err, ErrCapReached) {
 		t.Fatalf("third Start error = %v, want ErrCapReached", err)
 	}
@@ -262,7 +262,7 @@ func TestCapRefusesStartPastCapAndAdmitsAfterStop(t *testing.T) {
 	if err := m.Stop(t.Context(), first); err != nil {
 		t.Fatalf("Stop first: %v", err)
 	}
-	if _, err := m.Start(t.Context(), t.TempDir(), "three again"); err != nil {
+	if _, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "three again"}); err != nil {
 		t.Fatalf("Start after Stop freed a slot: %v", err)
 	}
 }
@@ -270,7 +270,7 @@ func TestCapRefusesStartPastCapAndAdmitsAfterStop(t *testing.T) {
 func TestStopRecordsStoppedAndEndsProcess(t *testing.T) {
 	m, path := newTestManager(t, 1, fakeClaudePath(t))
 	dir := t.TempDir()
-	id, err := m.Start(t.Context(), dir, "hi")
+	id, err := m.Start(t.Context(), StartRequest{Dir: dir, Prompt: "hi"})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -293,7 +293,7 @@ func TestStopRecordsStoppedAndEndsProcess(t *testing.T) {
 
 func TestStopRemovesUnfinishedText(t *testing.T) {
 	m, path := newTestManager(t, 1, fakeClaudePath(t))
-	id, err := m.Start(t.Context(), t.TempDir(), "STALL")
+	id, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "STALL"})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -309,7 +309,7 @@ func TestStopRemovesUnfinishedText(t *testing.T) {
 
 func TestSeenMarksStartedSession(t *testing.T) {
 	m, path := newTestManager(t, 1, fakeClaudePath(t))
-	id, err := m.Start(t.Context(), t.TempDir(), "hi")
+	id, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "hi"})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -347,7 +347,7 @@ func TestStartRefusesBadInputAndStoresNothing(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			id, err := m.Start(t.Context(), tc.dir, tc.prompt)
+			id, err := m.Start(t.Context(), StartRequest{Dir: tc.dir, Prompt: tc.prompt})
 			if !errors.Is(err, tc.want) {
 				t.Fatalf("Start error = %v, want %v", err, tc.want)
 			}
@@ -367,7 +367,7 @@ func TestStartRefusesBadInputAndStoresNothing(t *testing.T) {
 func TestUnresolvableClaudeRecordsFailedWithReason(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "no-claude")
 	m, path := newTestManager(t, 1, missing)
-	id, err := m.Start(t.Context(), t.TempDir(), "hi")
+	id, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "hi"})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -388,12 +388,12 @@ func TestUnresolvableClaudeRecordsFailedWithReason(t *testing.T) {
 func TestCloseInterruptsRunningTurnAndKeepsEndedTurn(t *testing.T) {
 	m, path := newTestManager(t, 3, fakeClaudePath(t))
 	stalledDir := t.TempDir()
-	stalled, err := m.Start(t.Context(), stalledDir, "STALL")
+	stalled, err := m.Start(t.Context(), StartRequest{Dir: stalledDir, Prompt: "STALL"})
 	if err != nil {
 		t.Fatalf("Start stalled: %v", err)
 	}
 	endedDir := t.TempDir()
-	ended, err := m.Start(t.Context(), endedDir, "hi")
+	ended, err := m.Start(t.Context(), StartRequest{Dir: endedDir, Prompt: "hi"})
 	if err != nil {
 		t.Fatalf("Start ended: %v", err)
 	}
@@ -435,7 +435,7 @@ func TestCloseEndsEverySessionAndRefusesStart(t *testing.T) {
 	pids := make([]int, 0, 2)
 	for i := range 2 {
 		dir := t.TempDir()
-		id, err := m.Start(t.Context(), dir, "hi")
+		id, err := m.Start(t.Context(), StartRequest{Dir: dir, Prompt: "hi"})
 		if err != nil {
 			t.Fatalf("Start %d: %v", i, err)
 		}
@@ -454,7 +454,7 @@ func TestCloseEndsEverySessionAndRefusesStart(t *testing.T) {
 			t.Fatalf("session %d state after Close = %q, want done", i, got)
 		}
 	}
-	if _, err := m.Start(t.Context(), t.TempDir(), "after close"); err == nil {
+	if _, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "after close"}); err == nil {
 		t.Fatalf("Start after Close succeeded, want an error")
 	}
 	m.Close()

@@ -219,7 +219,7 @@ func TestReconcileLeavesLiveSessionAlone(t *testing.T) {
 	startRun(t, writer)
 	sink := &fakeSink{}
 	m := newReconcileManager(t, s, writer, sink)
-	id, err := m.Start(t.Context(), t.TempDir(), "STALL")
+	id, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "STALL"})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}

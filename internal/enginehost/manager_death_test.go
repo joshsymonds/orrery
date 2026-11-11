@@ -24,14 +24,14 @@ func TestDyingSessionFailsAloneAndResumes(t *testing.T) {
 	_, path := openStore(t)
 	m := newManagerOn(t, path, 2, fakeClaudePath(t), sink)
 	deadDir, liveDir := t.TempDir(), t.TempDir()
-	dead, err := m.Start(t.Context(), deadDir, "hi")
+	dead, err := m.Start(t.Context(), StartRequest{Dir: deadDir, Prompt: "hi"})
 	if err != nil {
 		t.Fatalf("Start of the session that dies: %v", err)
 	}
 	waitHistory(t, path, dead, "the dying session's first reply block", func(h store.EngineHistory) bool {
 		return hasBlock(t, h, "fake reply 1")
 	})
-	live, err := m.Start(t.Context(), liveDir, "hi")
+	live, err := m.Start(t.Context(), StartRequest{Dir: liveDir, Prompt: "hi"})
 	if err != nil {
 		t.Fatalf("Start of the session that keeps running: %v", err)
 	}

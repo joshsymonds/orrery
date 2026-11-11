@@ -31,6 +31,10 @@ var ErrBadDir = errors.New("session directory must be an existing absolute direc
 // ErrEmptyPrompt reports a Start with an empty first prompt.
 var ErrEmptyPrompt = errors.New("session prompt is empty")
 
+// ErrBadModel reports a Start whose model is set but is not 1 to 64 bytes of letters, digits and . _ - [ ] : that does
+// not start with -.
+var ErrBadModel = errors.New("session model must be 1 to 64 letters, digits or . _ - [ ] : and not start with -")
+
 // ErrBadAnswer reports an Answer that fits neither the options of the open question nor allow or deny for the open
 // permission request. The request stays open.
 var ErrBadAnswer = errors.New("answer does not fit the open request")
@@ -160,11 +164,19 @@ func NewManager(cfg Config) *Manager {
 	return manager
 }
 
-// Start starts a session in dir with prompt as its first message and returns its id. It records the session as
-// working before it spawns the process. A spawn or prompt failure is recorded as the session's failed state with the
-// reason, and Start returns the id with no error.
-func (m *Manager) Start(ctx context.Context, dir, prompt string) (string, error) {
-	if err := checkStart(dir, prompt); err != nil {
+// StartRequest is what Start needs: the directory the session runs in, its first prompt, and the model alias it runs.
+// An empty Model runs claude's default.
+type StartRequest struct {
+	Dir    string
+	Prompt string
+	Model  string
+}
+
+// Start starts a session as req describes and returns its id. It records the session as working before it spawns the
+// process. A spawn or prompt failure is recorded as the session's failed state with the reason, and Start returns the
+// id with no error.
+func (m *Manager) Start(ctx context.Context, req StartRequest) (string, error) {
+	if err := checkStart(req); err != nil {
 		return "", err
 	}
 	if err := m.reserve(); err != nil {
@@ -175,20 +187,20 @@ func (m *Manager) Start(ctx context.Context, dir, prompt string) (string, error)
 		m.release()
 		return "", err
 	}
-	add := store.EngineAdd{ID: id, Dir: dir, State: string(protocol.StateWorking)}
+	add := store.EngineAdd{ID: id, Dir: req.Dir, State: string(protocol.StateWorking)}
 	if err = m.writer.Commit(ctx, id, add); err != nil {
 		m.release()
 		return "", fmt.Errorf("record session %s: %w", id, err)
 	}
-	live, err := m.spawnLive(ctx, id, dir, "")
+	live, err := m.spawnLive(ctx, id, req.Dir, "", req.Model)
 	if err != nil {
-		return id, m.fail(ctx, id, dir, err)
+		return id, m.fail(ctx, id, req.Dir, err)
 	}
-	if err = m.writer.Put(ctx, id, store.EnginePrompt{ID: id, Text: prompt}); err != nil {
+	if err = m.writer.Put(ctx, id, store.EnginePrompt{ID: id, Text: req.Prompt}); err != nil {
 		return id, m.abandon(ctx, live, err)
 	}
 	m.setTurning(live, true)
-	if err = live.sess.Prompt(prompt); err != nil {
+	if err = live.sess.Prompt(req.Prompt); err != nil {
 		m.setTurning(live, false)
 		return id, m.abandon(ctx, live, err)
 	}
@@ -371,7 +383,7 @@ func (m *Manager) resume(ctx context.Context, row store.EngineRow) (*liveSession
 	if err := checkDir(row.Dir); err != nil {
 		return nil, errors.Join(err, m.fail(ctx, row.ID, row.Dir, err))
 	}
-	live, err := m.spawnLive(ctx, row.ID, row.Dir, row.ClaudeSession)
+	live, err := m.spawnLive(ctx, row.ID, row.Dir, row.ClaudeSession, "")
 	if err != nil {
 		return nil, errors.Join(err, m.fail(ctx, row.ID, row.Dir, err))
 	}
@@ -390,11 +402,12 @@ func (m *Manager) engineRow(ctx context.Context, id string) (store.EngineRow, er
 	return row, nil
 }
 
-// spawnLive starts the process for id in dir, resuming claudeSession when it is set, and registers it as live under a
-// pump that records its events. The caller holds the slot from reserve. A process that starts after the manager closed
-// is stopped, and the error reports the close. An error that returns here leaves nothing registered.
-func (m *Manager) spawnLive(ctx context.Context, id, dir, claudeSession string) (*liveSession, error) {
-	sess, err := m.spawn(id, dir, claudeSession)
+// spawnLive starts the process for id in dir, resuming claudeSession when it is set and running model when it is set,
+// and registers it as live under a pump that records its events. The caller holds the slot from reserve. A process that
+// starts after the manager closed is stopped, and the error reports the close. An error that returns here leaves
+// nothing registered.
+func (m *Manager) spawnLive(ctx context.Context, id, dir, claudeSession, model string) (*liveSession, error) {
+	sess, err := m.spawn(id, dir, claudeSession, model)
 	if err != nil {
 		return nil, err
 	}
@@ -538,15 +551,47 @@ func (m *Manager) closeRequest(live *liveSession, requestID string) {
 	m.updateIdleLocked(live)
 }
 
-// checkStart reports whether a start's directory and prompt are usable, before anything is stored.
-func checkStart(dir, prompt string) error {
-	if err := checkDir(dir); err != nil {
+// checkStart reports whether a start's directory, prompt and model are usable, before anything is stored.
+func checkStart(req StartRequest) error {
+	if err := checkDir(req.Dir); err != nil {
 		return err
 	}
-	if prompt == "" {
+	if req.Prompt == "" {
 		return ErrEmptyPrompt
 	}
+	return checkModel(req.Model)
+}
+
+// maxModelBytes is the longest model alias a start may name.
+const maxModelBytes = 64
+
+// checkModel reports whether model is usable. An empty model runs claude's default. Any other model must be 1 to
+// maxModelBytes bytes of letters, digits and . _ - [ ] :, not starting with -. It returns ErrBadModel otherwise. The
+// model reaches claude's argv, so only these bytes may pass.
+func checkModel(model string) error {
+	if model == "" {
+		return nil
+	}
+	if len(model) > maxModelBytes || model[0] == '-' {
+		return ErrBadModel
+	}
+	for i := range len(model) {
+		if !isModelByte(model[i]) {
+			return ErrBadModel
+		}
+	}
 	return nil
+}
+
+// isModelByte reports whether c may appear in a model alias.
+func isModelByte(c byte) bool {
+	switch {
+	case 'a' <= c && c <= 'z', 'A' <= c && c <= 'Z', '0' <= c && c <= '9':
+		return true
+	case c == '.', c == '_', c == '-', c == '[', c == ']', c == ':':
+		return true
+	}
+	return false
 }
 
 // checkDir reports whether dir is an absolute path to an existing directory. It returns an error wrapping ErrBadDir
@@ -595,9 +640,9 @@ func newSessionID() (string, error) {
 	return hex.EncodeToString(raw[:]), nil
 }
 
-// spawn resolves claude and starts the session process for id in dir, resuming claudeSession when it is set. The prompt
-// is not sent here.
-func (m *Manager) spawn(id, dir, claudeSession string) (*session.Session, error) {
+// spawn resolves claude and starts the session process for id in dir, resuming claudeSession when it is set and running
+// model when it is set. The prompt is not sent here.
+func (m *Manager) spawn(id, dir, claudeSession, model string) (*session.Session, error) {
 	claude, err := exec.LookPath(m.claude)
 	if err != nil {
 		return nil, fmt.Errorf("find claude: %w", err)
@@ -608,6 +653,7 @@ func (m *Manager) spawn(id, dir, claudeSession string) (*session.Session, error)
 		Dir:            dir,
 		PermissionMode: permissionMode,
 		Resume:         claudeSession,
+		Model:          model,
 		Name:           id,
 		Environ:        m.environ,
 	})

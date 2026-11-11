@@ -63,7 +63,7 @@ func fakeArgs(t *testing.T, dir string) []string {
 func TestSayResumesStoppedSession(t *testing.T) {
 	m, path := newTestManager(t, 1, fakeClaudePath(t))
 	dir := t.TempDir()
-	id, err := m.Start(t.Context(), dir, "hi")
+	id, err := m.Start(t.Context(), StartRequest{Dir: dir, Prompt: "hi"})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -93,7 +93,7 @@ func TestSayResumesStoppedSession(t *testing.T) {
 func TestSecondManagerResumesSession(t *testing.T) {
 	first, path := newTestManager(t, 1, fakeClaudePath(t))
 	dir := t.TempDir()
-	id, err := first.Start(t.Context(), dir, "hi")
+	id, err := first.Start(t.Context(), StartRequest{Dir: dir, Prompt: "hi"})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -127,7 +127,7 @@ func TestSecondManagerResumesSession(t *testing.T) {
 func TestSayAtCapRefusesAndStoresNothing(t *testing.T) {
 	m, path := newTestManager(t, 1, fakeClaudePath(t))
 	stoppedDir := t.TempDir()
-	id, err := m.Start(t.Context(), stoppedDir, "hi")
+	id, err := m.Start(t.Context(), StartRequest{Dir: stoppedDir, Prompt: "hi"})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -139,7 +139,7 @@ func TestSayAtCapRefusesAndStoresNothing(t *testing.T) {
 	}
 	before := historyOf(t, path, id)
 
-	other, err := m.Start(t.Context(), t.TempDir(), "hold the slot")
+	other, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "hold the slot"})
 	if err != nil {
 		t.Fatalf("Start of the session that fills the cap: %v", err)
 	}
@@ -186,7 +186,7 @@ func TestSayToBadDirectoryRecordsFailed(t *testing.T) {
 			sink := &fakeSink{}
 			m := newManagerOn(t, path, 1, fakeClaudePath(t), sink)
 			dir := t.TempDir()
-			id, err := m.Start(t.Context(), dir, "hi")
+			id, err := m.Start(t.Context(), StartRequest{Dir: dir, Prompt: "hi"})
 			if err != nil {
 				t.Fatalf("Start: %v", err)
 			}
@@ -230,7 +230,7 @@ func TestSayToBadDirectoryRecordsFailed(t *testing.T) {
 func TestConcurrentSaysStartOneProcess(t *testing.T) {
 	m, path := newTestManager(t, 1, fakeClaudePath(t))
 	dir := t.TempDir()
-	id, err := m.Start(t.Context(), dir, "hi")
+	id, err := m.Start(t.Context(), StartRequest{Dir: dir, Prompt: "hi"})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
