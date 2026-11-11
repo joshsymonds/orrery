@@ -49,6 +49,7 @@ class PaneListColorTest {
         state: String,
         changed: Long,
         seen: Long,
+        newestReply: Long,
     ): JSONObject = JSONObject()
         .put("id", id)
         .put("host", "example-host")
@@ -64,13 +65,14 @@ class PaneListColorTest {
         .put("seen", seen)
         .put("question", "")
         .put("question_hash", "")
+        .put("newest_reply", newestReply)
 
     private fun panesBody(): String = JSONArray(
         listOf(
-            pane("%1", "working-pane", "working", NOW - 30, NOW - 300),
-            pane("%2", "waiting-pane", "waiting", NOW - 300, NOW - 600),
-            pane("%3", "done-pane", "done", NOW - 7200, NOW - 7200),
-            pane("%4", "idle-pane", "idle", 0, 0),
+            pane("%1", "working-pane", "working", NOW - 30, NOW - 300, NOW - 30),
+            pane("%2", "waiting-pane", "waiting", NOW - 300, NOW - 600, NOW - 300),
+            pane("%3", "done-pane", "done", NOW - 7200, NOW - 7200, NOW - 7200),
+            pane("%4", "idle-pane", "idle", 0, 0, 0),
         ),
     ).toString()
 

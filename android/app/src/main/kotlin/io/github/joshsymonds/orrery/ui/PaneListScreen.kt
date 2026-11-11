@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.MaterialTheme
@@ -45,13 +46,7 @@ import java.io.IOException
 private enum class PaneFilter(val label: String, val tag: String) {
     ALL("All", "filter-all"),
     NEW("New", "filter-new"),
-    WAITING("Waiting", "filter-waiting");
-
-    fun keeps(pane: Pane): Boolean = when (this) {
-        ALL -> true
-        NEW -> pane.changed > pane.seen
-        WAITING -> pane.state == "waiting"
-    }
+    WAITING("Waiting", "filter-waiting"),
 }
 
 private sealed interface PaneLoad {
@@ -59,9 +54,6 @@ private sealed interface PaneLoad {
     data object Failed : PaneLoad
     data class Loaded(val panes: List<Pane>) : PaneLoad
 }
-
-/** The project is the last path segment of the pane's cwd, as orreryd names it. */
-private fun projectOf(cwd: String): String = cwd.trimEnd('/').substringAfterLast('/').ifEmpty { "/" }
 
 /** The Mocha colour of a pane's state word; any other state keeps the default text colour. */
 private fun stateColorOf(state: String): Color = when (state) {
@@ -81,10 +73,13 @@ private fun ageOf(seconds: Long): String = when {
 /** The tallest the picker panel grows before it scrolls, so the pane list keeps room below it. */
 private val PICKER_MAX_HEIGHT = 320.dp
 
+/** The indent of one folder level, in dp. */
+private const val INDENT_DP = 16
+
 /**
- * Every pane, grouped by project, with a filter. The New button at the top opens the picker
- * above the filters; a run it answers opens that pane through [onOpenPaneId]. Each project
- * header carries a New button for its first visible pane. Tapping a row opens that pane.
+ * Every pane as a folder tree, or the New and Waiting panes as flat lists, with a filter. The New
+ * button at the top opens the picker above the filters; a run it answers opens that pane through
+ * [onOpenPaneId]. Tapping a folder header collapses or expands it. Tapping a row opens that pane.
  */
 @Composable
 fun PaneListScreen(
@@ -162,64 +157,92 @@ fun PaneListScreen(
                     Text("Retry")
                 }
             }
-            is PaneLoad.Loaded -> PaneGroups(
+            is PaneLoad.Loaded -> PaneRows(
                 panes = current.panes,
                 filter = filter,
                 now = now(),
-                client = client,
                 onOpenPane = onOpenPane,
-                onOpened = { generation++ },
             )
         }
     }
 }
 
 @Composable
-private fun PaneGroups(
+private fun PaneRows(
     panes: List<Pane>,
     filter: PaneFilter,
     now: Long,
-    client: OrreryClient,
     onOpenPane: (Pane) -> Unit,
-    onOpened: () -> Unit,
 ) {
-    val groups = panes.filter(filter::keeps).groupBy { projectOf(it.cwd) }
+    var collapsed by remember { mutableStateOf(emptySet<String>()) }
     LazyColumn(modifier = Modifier.fillMaxSize()) {
-        items(groups.entries.toList(), key = { it.key }) { (project, rows) ->
-            Column(modifier = Modifier.fillMaxWidth().testTag("group:$project")) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(project, style = MaterialTheme.typography.titleSmall)
-                    NewWindowButton(
-                        paneId = rows.first().id,
-                        client = client,
-                        onOpened = onOpened,
-                        modifier = Modifier.testTag("new-window:$project"),
+        when (filter) {
+            PaneFilter.ALL -> items(
+                treeRows(panes, collapsed),
+                key = { row ->
+                    when (row) {
+                        is Folder -> "folder:${row.key}"
+                        is PaneAt -> "pane:${row.pane.id}"
+                    }
+                },
+            ) { row ->
+                when (row) {
+                    is Folder -> FolderRow(
+                        folder = row,
+                        onToggle = {
+                            collapsed = if (row.key in collapsed) collapsed - row.key else collapsed + row.key
+                        },
+                    )
+                    is PaneAt -> PaneRow(
+                        pane = row.pane,
+                        depth = row.depth,
+                        project = null,
+                        now = now,
+                        onOpenPane = onOpenPane,
                     )
                 }
-                rows.forEach { pane ->
-                    PaneRow(pane = pane, now = now, onOpenPane = onOpenPane)
-                }
             }
+            PaneFilter.NEW -> flatRows(newPanes(panes), now, onOpenPane)
+            PaneFilter.WAITING -> flatRows(waitingPanes(panes), now, onOpenPane)
         }
     }
 }
 
+/** The panes as one flat list, each row carrying its project. */
+private fun LazyListScope.flatRows(panes: List<Pane>, now: Long, onOpenPane: (Pane) -> Unit) {
+    items(panes, key = { "pane:${it.id}" }) { pane ->
+        PaneRow(pane = pane, depth = 0, project = projectOf(pane), now = now, onOpenPane = onOpenPane)
+    }
+}
+
 @Composable
-private fun PaneRow(pane: Pane, now: Long, onOpenPane: (Pane) -> Unit) {
+private fun FolderRow(folder: Folder, onToggle: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("folder:${folder.key}")
+            .clickable(onClick = onToggle)
+            .padding(start = 16.dp + (INDENT_DP * folder.depth).dp, end = 16.dp, top = 4.dp, bottom = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(if (folder.collapsed) "\u25B8" else "\u25BE", style = MaterialTheme.typography.titleSmall)
+        Text(folder.name, style = MaterialTheme.typography.titleSmall)
+    }
+}
+
+@Composable
+private fun PaneRow(pane: Pane, depth: Int, project: String?, now: Long, onOpenPane: (Pane) -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .testTag("pane-row:${pane.id}")
             .clickable { onOpenPane(pane) }
-            .padding(horizontal = 16.dp, vertical = 8.dp),
+            .padding(start = 16.dp + (INDENT_DP * depth).dp, end = 16.dp, top = 8.dp, bottom = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.Top,
     ) {
-        if (pane.changed > pane.seen) {
+        if (pane.unread()) {
             Box(
                 modifier = Modifier
                     .padding(top = 6.dp)
@@ -233,6 +256,9 @@ private fun PaneRow(pane: Pane, now: Long, onOpenPane: (Pane) -> Unit) {
         Column(modifier = Modifier.weight(1f)) {
             Text(pane.label, style = MaterialTheme.typography.bodyLarge)
             Text(pane.summary, style = MaterialTheme.typography.bodySmall)
+            if (project != null) {
+                Text(project, style = MaterialTheme.typography.labelSmall)
+            }
         }
         Column(horizontalAlignment = Alignment.End) {
             Text(

@@ -93,11 +93,6 @@ sealed interface KeysResult {
     data object PromptChanged : KeysResult
 }
 
-enum class WindowKind(val wire: String) {
-    CLAUDE("claude"),
-    SHELL("shell"),
-}
-
 /** The string at [key], or "" when the key is absent or null: keys a server may predate. */
 private fun JSONObject.lenientString(key: String): String = if (isNull(key)) "" else optString(key, "")
 
@@ -262,10 +257,6 @@ class OrreryClient(
     /** Reports the pane read through [readUpTo], unix seconds. */
     fun markSeen(paneId: String, readUpTo: Long) {
         post(panePath(paneId, "seen"), JSONObject().put("read_up_to", readUpTo))
-    }
-
-    fun openWindow(paneId: String, kind: WindowKind) {
-        post("/v1/panes", JSONObject().put("pane", paneId).put("kind", kind.wire))
     }
 
     fun registerPush(endpoint: String, p256dh: String, auth: String) {

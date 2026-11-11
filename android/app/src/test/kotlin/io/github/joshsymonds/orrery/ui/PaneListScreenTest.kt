@@ -1,8 +1,9 @@
 package io.github.joshsymonds.orrery.ui
 
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.hasAnyAncestor
-import androidx.compose.ui.test.hasAnyDescendant
+import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
@@ -32,6 +33,8 @@ class PaneListScreenTest {
     private companion object {
         const val NOW = 1_700_000_000L
         const val TIMEOUT_MS = 5_000L
+        const val ALPHA = "/home/user/alpha"
+        const val BETA = "/home/user/beta"
     }
 
     @get:Rule
@@ -49,6 +52,7 @@ class PaneListScreenTest {
         summary: String,
         changed: Long,
         seen: Long,
+        newestReply: Long,
     ): JSONObject = JSONObject()
         .put("id", id)
         .put("host", "example-host")
@@ -64,6 +68,7 @@ class PaneListScreenTest {
         .put("seen", seen)
         .put("question", "")
         .put("question_hash", "")
+        .put("newest_reply", newestReply)
 
     private fun pickerRowsBody(): String = JSONObject()
         .put(
@@ -80,13 +85,15 @@ class PaneListScreenTest {
             ),
         ).toString()
 
+    // %1 changed after it was last seen but its newest reply is older, so it is read: no dot.
+    // %2 and %4 have a reply newer than they were seen, so they are unread.
     private fun panesBody(): String = JSONArray(
         listOf(
-            pane("%1", "/home/user/alpha", "alpha-build", "working", "Compiling the synthetic module.", NOW - 30, NOW - 10),
-            pane("%2", "/home/user/alpha", "alpha-review", "waiting", "Waiting on a synthetic answer.", NOW - 300, NOW - 600),
-            pane("%3", "/home/user/beta", "beta-tests", "idle", "Tests finished.", NOW - 7200, NOW - 7200),
-            pane("%4", "/home/user/beta/", "beta-deploy", "working", "Deploy running.", NOW - 172_800, NOW - 200_000),
-            pane("%5", "/home/user/alpha", "alpha-idle", "idle", "", 0, 0),
+            pane("%1", ALPHA, "alpha-build", "working", "Compiling the synthetic module.", NOW - 30, NOW - 300, NOW - 400),
+            pane("%2", ALPHA, "alpha-review", "waiting", "Waiting on a synthetic answer.", NOW - 300, NOW - 600, NOW - 300),
+            pane("%3", BETA, "beta-tests", "idle", "Tests finished.", NOW - 7200, NOW - 7200, NOW - 7200),
+            pane("%4", "$BETA/", "beta-deploy", "working", "Deploy running.", NOW - 172_800, NOW - 200_000, NOW - 172_800),
+            pane("%5", ALPHA, "alpha-idle", "idle", "", 0, 0, 0),
         ),
     ).toString()
 
@@ -105,6 +112,15 @@ class PaneListScreenTest {
     private fun countNodes(matcher: SemanticsMatcher): Int =
         composeRule.onAllNodes(matcher, useUnmergedTree = true).fetchSemanticsNodes().size
 
+    private fun hasTagPrefix(prefix: String): SemanticsMatcher =
+        SemanticsMatcher("test tag starts with $prefix") {
+            it.config.contains(SemanticsProperties.TestTag) &&
+                it.config[SemanticsProperties.TestTag].startsWith(prefix)
+        }
+
+    private fun nodeOf(matcher: SemanticsMatcher) =
+        composeRule.onNode(matcher, useUnmergedTree = true).fetchSemanticsNode()
+
     private fun awaitRow(id: String) {
         composeRule.waitUntil(TIMEOUT_MS) { countNodes(hasTestTag("pane-row:$id")) == 1 }
     }
@@ -120,35 +136,30 @@ class PaneListScreenTest {
         }
     }
 
-    private fun assertInGroup(project: String, id: String) {
-        assertEquals(
-            "row $id under $project",
-            1,
-            countNodes(hasTestTag("group:$project") and hasAnyDescendant(hasTestTag("pane-row:$id"))),
-        )
+    private fun assertNoFolderHeaders() {
+        assertEquals(0, countNodes(hasTagPrefix("folder:")))
     }
 
     @Test
-    fun groupsRowsUnderProjectHeadersWithDetails() {
+    fun allNestsPanesUnderFolderHeadersAndCollapsesOneOnTap() {
         FakeOrreryServer().use { server ->
             server.respond("GET", "/v1/panes", 200, panesBody())
             setScreen(server)
             awaitRow("%1")
 
-            composeRule.onNodeWithText("alpha").assertExists()
-            composeRule.onNodeWithText("beta").assertExists()
-            assertInGroup("alpha", "%1")
-            assertInGroup("alpha", "%2")
-            assertInGroup("beta", "%3")
-            assertInGroup("beta", "%4")
+            assertEquals(1, countNodes(hasTestTag("folder:$ALPHA")))
+            assertEquals(1, countNodes(hasTestTag("folder:$BETA")))
+            assertTrue(nodeOf(hasTestTag("folder:$ALPHA")).boundsInRoot.top < nodeOf(hasTestTag("pane-row:%1")).boundsInRoot.top)
+            assertTrue(nodeOf(hasTestTag("pane-row:%5")).boundsInRoot.top < nodeOf(hasTestTag("folder:$BETA")).boundsInRoot.top)
+            assertTrue(nodeOf(hasTestTag("folder:$BETA")).boundsInRoot.top < nodeOf(hasTestTag("pane-row:%3")).boundsInRoot.top)
+            assertTrue(nodeOf(hasText("alpha-build")).boundsInRoot.left > nodeOf(hasText("alpha")).boundsInRoot.left)
 
-            composeRule.onNodeWithText("alpha-build").assertExists()
-            assertEquals(2, countNodes(hasText("working")))
-            composeRule.onNodeWithText("Compiling the synthetic module.").assertExists()
-            composeRule.onNodeWithText("30s").assertExists()
-            composeRule.onNodeWithText("5m").assertExists()
-            composeRule.onNodeWithText("2h").assertExists()
-            composeRule.onNodeWithText("2d").assertExists()
+            composeRule.onNodeWithTag("folder:$ALPHA").performClick()
+
+            assertRowsShown("%3", "%4")
+            assertEquals(1, countNodes(hasTestTag("folder:$ALPHA")))
+            composeRule.onNodeWithTag("folder:$ALPHA").performClick()
+            assertRowsShown("%1", "%2", "%3", "%4", "%5")
         }
     }
 
@@ -184,7 +195,7 @@ class PaneListScreenTest {
     }
 
     @Test
-    fun newFilterShowsOnlyUnseenRows() {
+    fun newFilterListsUnreadPanesNewestFirstWithProjectAndNoFolderHeaders() {
         FakeOrreryServer().use { server ->
             server.respond("GET", "/v1/panes", 200, panesBody())
             setScreen(server)
@@ -193,13 +204,15 @@ class PaneListScreenTest {
             composeRule.onNodeWithTag("filter-new").performClick()
 
             assertRowsShown("%2", "%4")
-            composeRule.onNodeWithText("alpha").assertExists()
-            composeRule.onNodeWithText("beta").assertExists()
+            assertNoFolderHeaders()
+            assertTrue(nodeOf(hasTestTag("pane-row:%2")).boundsInRoot.top < nodeOf(hasTestTag("pane-row:%4")).boundsInRoot.top)
+            assertEquals(1, countNodes(hasText("alpha") and hasAnyAncestor(hasTestTag("pane-row:%2"))))
+            assertEquals(1, countNodes(hasText("beta") and hasAnyAncestor(hasTestTag("pane-row:%4"))))
         }
     }
 
     @Test
-    fun waitingFilterShowsOnlyWaitingRowsAndHidesEmptyGroups() {
+    fun waitingFilterListsWaitingPanesFlatWithProjectAndNoFolderHeaders() {
         FakeOrreryServer().use { server ->
             server.respond("GET", "/v1/panes", 200, panesBody())
             setScreen(server)
@@ -208,7 +221,8 @@ class PaneListScreenTest {
             composeRule.onNodeWithTag("filter-waiting").performClick()
 
             assertRowsShown("%2")
-            composeRule.onNodeWithText("alpha").assertExists()
+            assertNoFolderHeaders()
+            assertEquals(1, countNodes(hasText("alpha") and hasAnyAncestor(hasTestTag("pane-row:%2"))))
             assertEquals(0, countNodes(hasText("beta")))
         }
     }
@@ -255,25 +269,28 @@ class PaneListScreenTest {
     }
 
     @Test
-    fun newThenShellOnAlphaPostsFirstVisiblePaneAndReloadsList() {
+    fun pickerNewIsTheOnlyNewButtonInEveryView() {
         FakeOrreryServer().use { server ->
             server.respond("GET", "/v1/panes", 200, panesBody())
-            server.respond("POST", "/v1/panes", 200)
             setScreen(server)
             awaitRow("%1")
 
-            composeRule.onNode(hasText("New") and hasAnyAncestor(hasTestTag("new-window:alpha"))).performClick()
-            composeRule.onNodeWithText("Shell").performClick()
-            composeRule.waitUntil(TIMEOUT_MS) {
-                server.requests.count { it.method == "GET" && it.rawPath == "/v1/panes" } == 2
-            }
+            for (filter in listOf("filter-all", "filter-new", "filter-waiting")) {
+                composeRule.onNodeWithTag(filter).performClick()
 
-            val posts = server.requests.filter { it.method == "POST" }
-            assertEquals(1, posts.size)
-            assertEquals("/v1/panes", posts.single().rawPath)
-            val body = JSONObject(posts.single().body)
-            assertEquals("%1", body.getString("pane"))
-            assertEquals("shell", body.getString("kind"))
+                assertEquals(
+                    "$filter shows picker-new",
+                    1,
+                    countNodes(hasText("New") and hasAnyAncestor(hasTestTag("picker-new"))),
+                )
+                // The filter tab also reads "New"; every other clickable "New" is a New button.
+                val newButtons = hasText("New") and hasClickAction() and !hasTestTag("filter-new")
+                assertEquals(
+                    "$filter has exactly one New button",
+                    1,
+                    composeRule.onAllNodes(newButtons).fetchSemanticsNodes().size,
+                )
+            }
         }
     }
 

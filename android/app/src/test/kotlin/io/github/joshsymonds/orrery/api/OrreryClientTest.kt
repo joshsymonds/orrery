@@ -309,21 +309,6 @@ class OrreryClientTest {
     }
 
     @Test
-    fun openWindowPostsPaneAndKindWithBothHeaders() {
-        FakeOrreryServer().use { server ->
-            server.respond("POST", "/v1/panes", 200)
-
-            OrreryClient(server.baseUrl).openWindow("%3", WindowKind.CLAUDE)
-
-            val request = server.requests.single()
-            assertEquals("POST", request.method)
-            assertEquals("/v1/panes", request.rawPath)
-            assertWriteHeaders(request)
-            assertJsonBody("""{"pane":"%3","kind":"claude"}""", request.body)
-        }
-    }
-
-    @Test
     fun registerPushPostsSubscriptionWithBothHeaders() {
         FakeOrreryServer().use { server ->
             server.respond("POST", "/v1/push/register", 200)
