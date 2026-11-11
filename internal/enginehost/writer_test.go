@@ -592,3 +592,59 @@ func TestMissingEngineSessionDropsItsOpAndStoresTheRest(t *testing.T) {
 		t.Fatalf("session b stored texts after stop: got %v, want %v", got, want)
 	}
 }
+
+// A Commit whose step op names a step with no row must not stall the writer: its op is dropped with a warning naming
+// its session, its Commit fails wrapping ErrNoStep, and the other session's op in the same batch is stored that tick.
+func TestMissingStepDropsItsOpAndStoresTheRest(t *testing.T) {
+	ctx := t.Context()
+	s, path := openStore(t)
+	addSessions(t, s, "a", "b")
+
+	var logs bytes.Buffer
+	applier := &recordingApplier{store: s, notify: make(chan struct{}, 1)}
+	w := NewWriter(WriterConfig{
+		Applier: applier, Tick: time.Hour, Logger: slog.New(slog.NewTextHandler(&logs, nil)),
+	})
+	stop := startRun(t, w)
+
+	// Session a has an engine row but no step row. Session b's op is queued first, so the op for the missing step is at
+	// index 1 of the batch.
+	if err := w.Put(ctx, "b", prompt("b", "b1")); err != nil {
+		t.Fatalf("Put b: %v", err)
+	}
+	commitA := make(chan error, 1)
+	go func() {
+		commitA <- w.Commit(ctx, "a", store.StepEnd{ID: "a", End: "done", Status: "done"})
+	}()
+	waitQueued(t, w, 2)
+	// The tick is one flush the test makes, so both ops share one batch.
+	w.flush(ctx)
+
+	if err := receive(t, commitA); !errors.Is(err, store.ErrNoStep) {
+		t.Fatalf("Commit for session a: got %v, want an error wrapping ErrNoStep", err)
+	}
+	if got, want := promptTexts(t, path, "b"), []string{"b1"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("session b stored texts: got %v, want %v", got, want)
+	}
+	if !strings.Contains(logs.String(), "level=WARN") || !strings.Contains(logs.String(), "session=a") {
+		t.Fatalf("warning does not name session a: %q", logs.String())
+	}
+	if strings.Contains(logs.String(), "ops kept for retry") {
+		t.Fatalf("the batch was requeued for retry: %q", logs.String())
+	}
+
+	calls := applier.callsOf()
+	if len(calls) != 2 {
+		t.Fatalf("ApplyEngine calls: got %d, want 2 (the batch, then the batch without a's op)", len(calls))
+	}
+	if want := []store.EngineOp{prompt("b", "b1")}; !reflect.DeepEqual(calls[1], want) {
+		t.Fatalf("ops in the second call: got %+v, want %+v", calls[1], want)
+	}
+
+	// The dropped op is never sent again.
+	w.flush(ctx)
+	stop()
+	if got := len(applier.callsOf()); got != 2 {
+		t.Fatalf("ApplyEngine calls after another flush and stop: got %d, want 2", got)
+	}
+}

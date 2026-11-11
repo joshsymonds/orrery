@@ -59,8 +59,9 @@ type textKey struct {
 }
 
 // Writer stores queued engine ops. Each tick it sends every queued op, from every session, to Applier in one call.
-// Ops the Applier refuses stay queued in order and are sent again on the next tick, except an op for a session whose
-// row is gone (store.ErrNoEngineSession): that op is dropped, never sent again, and its Commit fails.
+// Ops the Applier refuses stay queued in order and are sent again on the next tick, except an op whose session row is
+// gone (store.ErrNoEngineSession) or whose step row is gone (store.ErrNoStep): that op is dropped, never sent again,
+// and its Commit fails.
 type Writer struct {
 	applier Applier
 	tick    time.Duration
@@ -147,7 +148,8 @@ func (w *Writer) Put(ctx context.Context, id string, ops ...store.EngineOp) erro
 }
 
 // Commit queues ops for session id like Put, then returns once they are stored. It returns an error wrapping
-// store.ErrNoEngineSession when one of the ops was dropped because its session row is gone.
+// store.ErrNoEngineSession or store.ErrNoStep when one of the ops was dropped because its session or step row is
+// gone.
 func (w *Writer) Commit(ctx context.Context, id string, ops ...store.EngineOp) error {
 	results, err := w.put(ctx, id, ops)
 	if err != nil {
@@ -244,9 +246,10 @@ func blockOf(messageID string, index int, parentToolUseID string) textKey {
 	return textKey{messageID: messageID, index: index, parentToolUseID: parentToolUseID}
 }
 
-// flush sends every queued op in one ApplyEngine call. An op for a session whose row is gone is dropped, and the rest
-// are sent again in the same flush, so it never holds up the others. On any other failure flush puts the ops back at
-// the front of the queue for the next flush. Each flush that stores or drops ops wakes the Puts blocked at the limit.
+// flush sends every queued op in one ApplyEngine call. An op whose session or step row is gone is dropped, and the
+// rest are sent again in the same flush, so it never holds up the others. On any other failure flush puts the ops
+// back at the front of the queue for the next flush. Each flush that stores or drops ops wakes the Puts blocked at the
+// limit.
 func (w *Writer) flush(ctx context.Context) {
 	w.mu.Lock()
 	batch := w.queue
@@ -261,12 +264,13 @@ func (w *Writer) flush(ctx context.Context) {
 	for len(batch) > 0 {
 		err = w.applier.ApplyEngine(ctx, opsOf(batch), w.now())
 		var opErr *store.EngineOpError
-		if err == nil || !errors.Is(err, store.ErrNoEngineSession) || !errors.As(err, &opErr) {
+		rowGone := errors.Is(err, store.ErrNoEngineSession) || errors.Is(err, store.ErrNoStep)
+		if err == nil || !rowGone || !errors.As(err, &opErr) {
 			break
 		}
 		gone := batch[opErr.Index]
 		batch = slices.Delete(batch, opErr.Index, opErr.Index+1)
-		w.logger.WarnContext(ctx, "engine op dropped: its session row is gone, so it is not retried",
+		w.logger.WarnContext(ctx, "engine op dropped: its session or step row is gone, so it is not retried",
 			"session", gone.id, "err", err)
 		gone.result.err = fmt.Errorf("op for session %s dropped: %w", gone.id, err)
 		dropped = append(dropped, gone)
