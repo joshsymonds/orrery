@@ -21,6 +21,7 @@ import (
 
 	"github.com/joshsymonds/orrery/internal/cli"
 	"github.com/joshsymonds/orrery/internal/conversation"
+	enginev1connect "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1/enginev1connect"
 	"github.com/joshsymonds/orrery/internal/hoststatus"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/push"
@@ -119,6 +120,10 @@ type Config struct {
 	EventSendTimeout time.Duration
 	// Shutdown ends every open Events.Watch stream when it closes, or is nil to leave streams open.
 	Shutdown <-chan struct{}
+	// Engine forwards the Control API to orreryd's engine socket, or is nil, which answers unavailable.
+	Engine enginev1connect.EngineClient
+	// ControlTimeout bounds each forward to Engine, or is zero for the default.
+	ControlTimeout time.Duration
 }
 
 // New returns a handler that admits only the configured logins, and never emits CORS headers. A request to
@@ -144,6 +149,9 @@ func New(cfg Config) (http.Handler, error) {
 	}
 	if cfg.EventPoll < 0 {
 		return nil, fmt.Errorf("server: negative event poll interval %v", cfg.EventPoll)
+	}
+	if cfg.ControlTimeout < 0 {
+		return nil, fmt.Errorf("server: negative control timeout %v", cfg.ControlTimeout)
 	}
 	poll := cfg.EventPoll
 	if poll == 0 {
@@ -172,7 +180,9 @@ func New(cfg Config) (http.Handler, error) {
 	mux.Handle(sessionsPath, sessions)
 	eventsPath, events := newEventsHandler(cfg.Sessions, poll, sendTimeout, cfg.Shutdown)
 	mux.Handle(eventsPath, events)
-	connectPaths := []string{sessionsPath, eventsPath}
+	controlPath, control := newControlHandler(cfg.Engine, cfg.ControlTimeout)
+	mux.Handle(controlPath, control)
+	connectPaths := []string{sessionsPath, eventsPath, controlPath}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if _, ok := allowed[r.Header.Get(HeaderLogin)]; !ok {
 			http.Error(w, "forbidden", http.StatusForbidden)
