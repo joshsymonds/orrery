@@ -103,7 +103,7 @@ fun firstNewerIndex(entries: List<ConvoEntry>, seen: Long?): Int {
 }
 
 /** The time an entry is read by: a tool by its call, a group by its newest call. */
-private fun entryTime(entry: ConvoEntry): Long = when (entry) {
+internal fun entryTime(entry: ConvoEntry): Long = when (entry) {
     is ConvoEntry.Time -> entry.seconds
     is ConvoEntry.Prompt -> entry.time
     is ConvoEntry.Reply -> entry.time

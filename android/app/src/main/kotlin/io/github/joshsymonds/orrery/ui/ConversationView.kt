@@ -29,6 +29,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -50,6 +51,10 @@ import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import io.github.joshsymonds.orrery.api.WaitingItem
 import io.github.joshsymonds.orrery.ui.theme.Mocha
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -68,6 +73,8 @@ private const val WAITING_ALPHA = 0.6f
 private const val NEW_LABEL = "new"
 private const val NEW_DIVIDER_ALPHA = 0.5f
 private const val NEW_TINT_ALPHA = 0.06f
+// How long an entry must stay on screen, enough of it, to count as read.
+private const val READ_DWELL_MS = 1_000L
 
 private enum class CallMark(val symbol: String, val colour: Color) {
     Done("✓", Mocha.Green),
@@ -87,7 +94,9 @@ private enum class CallMark(val symbol: String, val colour: Color) {
  * resumes following, even when the reader has scrolled up; the first composition is not a change.
  * Time rows are read against [now], in unix seconds, and follow it as it changes. A divider labelled
  * "new" sits before the first entry newer than [seen] (unix seconds, null for none), and every entry
- * from there on carries a faint tint; without a newer entry neither is drawn.
+ * from there on carries a faint tint; without a newer entry neither is drawn. [onRead] receives each
+ * new, larger time of the newest entry read: one that stays on screen for a second, at least half of
+ * it (or of the window, for one taller than the window) between the top and bottom content padding.
  */
 @Composable
 fun ConversationView(
@@ -101,6 +110,7 @@ fun ConversationView(
     endRequests: Int = 0,
     seen: Long? = null,
     now: Long = System.currentTimeMillis() / 1000,
+    onRead: ((Long) -> Unit)? = null,
 ) {
     var expanded by remember { mutableStateOf(emptySet<String>()) }
     val toggle: (String) -> Unit = { id ->
@@ -139,6 +149,30 @@ fun ConversationView(
             followBottom = true
             if (currentLast >= 0) listState.followEnd(currentLast)
         }
+    }
+    // Each entry's dwell is kept by its key, so an equal list re-delivered mid-count leaves it standing.
+    val latestKeys by rememberUpdatedState(keys)
+    val latestEntries by rememberUpdatedState(entries)
+    val reportRead by rememberUpdatedState(onRead)
+    var newestRead by remember { mutableLongStateOf(0L) }
+    LaunchedEffect(listState) {
+        val dwelling = HashMap<String, Job>()
+        snapshotFlow { readingEntries(listState.layoutInfo, latestEntries, latestKeys) }
+            .distinctUntilChanged()
+            .collect { reading ->
+                dwelling.keys.filter { it !in reading }.forEach { dwelling.remove(it)?.cancel() }
+                reading.forEach { (key, time) ->
+                    if (key !in dwelling) {
+                        dwelling[key] = launch {
+                            delay(READ_DWELL_MS)
+                            if (time > newestRead) {
+                                newestRead = time
+                                reportRead?.invoke(time)
+                            }
+                        }
+                    }
+                }
+            }
     }
     LazyColumn(
         modifier = modifier
@@ -555,6 +589,27 @@ private fun ResultBox(call: ToolCall) {
             softWrap = false,
         )
     }
+}
+
+/**
+ * The read-counting entries on screen, by key, with their times: those whose part between the top
+ * and bottom content padding is at least half of the smaller of the row and the window. Time rows
+ * and untimed entries never count.
+ */
+private fun readingEntries(info: LazyListLayoutInfo, entries: List<ConvoEntry>, keys: List<String>): Map<String, Long> {
+    val contentEnd = info.viewportEndOffset - info.afterContentPadding
+    val window = contentEnd
+    val reading = HashMap<String, Long>()
+    for (item in info.visibleItemsInfo) {
+        if (item.index >= entries.size) continue
+        val entry = entries[item.index]
+        if (entry is ConvoEntry.Time) continue
+        val time = entryTime(entry)
+        if (time <= 0L) continue
+        val shown = minOf(item.offset + item.size, contentEnd) - maxOf(item.offset, 0)
+        if (shown > 0 && shown * 2 >= minOf(item.size, window)) reading[keys[item.index]] = time
+    }
+    return reading
 }
 
 /** True when the last item's end, with the bottom padding, sits at the viewport's end. */
