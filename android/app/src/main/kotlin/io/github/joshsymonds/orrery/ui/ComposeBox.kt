@@ -89,7 +89,7 @@ private enum class SendFailure { NOT_SENT, NO_ANSWER }
  * The field grows with the draft up to [COMPOSE_MAX_LINES] lines and never past [maxFieldHeight],
  * then scrolls inside itself, keeping the cursor's line in view from the first character of a new
  * line. [hint] shows in the empty field. [onDraftPresent] hears whether the draft has any text,
- * each time that changes.
+ * each time that changes. [onSend] hears each tap on Send, before the request goes out.
  */
 @Composable
 fun ComposeBox(
@@ -100,9 +100,10 @@ fun ComposeBox(
     hint: String = "",
     onDraftPresent: (Boolean) -> Unit = {},
     status: (@Composable () -> Unit)? = null,
+    onSend: () -> Unit = {},
 ) {
     key(paneId) {
-        ComposeDraft(paneId, client, modifier, maxFieldHeight, hint, onDraftPresent, status)
+        ComposeDraft(paneId, client, modifier, maxFieldHeight, hint, onDraftPresent, status, onSend)
     }
 }
 
@@ -115,6 +116,7 @@ private fun ComposeDraft(
     hint: String,
     onDraftPresent: (Boolean) -> Unit,
     status: (@Composable () -> Unit)?,
+    onSend: () -> Unit,
 ) {
     var draft by remember { mutableStateOf("") }
     var sending by remember { mutableStateOf(false) }
@@ -207,6 +209,7 @@ private fun ComposeDraft(
                 ),
                 onClick = {
                     val text = draft
+                    onSend()
                     sending = true
                     failure = null
                     scope.launch {
