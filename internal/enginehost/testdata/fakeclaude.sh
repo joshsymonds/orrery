@@ -3,7 +3,8 @@
 # working directory, then answers each user prompt with a scripted turn. The prompt number n counts from 1. A prompt
 # containing ASK asks one AskUserQuestion, PERMIT asks for a Write permission, HANG streams text until an interrupt,
 # FLOOD streams 50 finished text blocks, TRICKLE streams 60 finished text blocks about 50 ms apart, STALL streams the
-# start of a text block and never finishes it, and any other prompt streams "fake reply n". The turns reproduce the
+# start of a text block and never finishes it, DIE streams the same start and writes fake died to stderr before it
+# exits with status 3, and any other prompt streams "fake reply n". The turns reproduce the
 # stream lines captured from the real CLI, with only text, ids and the session id changed. It exits at stdin EOF.
 
 # text_block INDEX FULL DELTA...: a text block that streams each DELTA, then finishes as FULL.
@@ -107,6 +108,15 @@ stall() {
 	done
 }
 
+# die streams the start of a text block and one delta of it, writes fake died to stderr and exits with status 3.
+die() {
+	turn_open
+	printf '%s\n' '{"type":"stream_event","event":{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}},"session_id":"session_1","parent_tool_use_id":null,"uuid":"uuid_7","api_message_id":"redacted"}'
+	printf '%s\n' '{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"fake dying '"$n"'"}},"session_id":"session_1","parent_tool_use_id":null,"uuid":"uuid_8","api_message_id":"redacted"}'
+	printf '%s\n' 'fake died' >&2
+	exit 3
+}
+
 echo $$ > fakeclaude.pid.tmp && mv fakeclaude.pid.tmp fakeclaude.pid
 printf '%s\n' "$*" >> fakeclaude.args
 
@@ -139,6 +149,7 @@ while IFS= read -r line; do
 				*FLOOD*) flood ;;
 				*TRICKLE*) trickle ;;
 				*STALL*) stall ;;
+				*DIE*) die ;;
 				*) reply ;;
 			esac
 			;;
