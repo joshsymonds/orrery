@@ -88,7 +88,7 @@ app. Only debug builds are produced; no signing key or keystore is in the tree.
 
 ```sh
 nix develop .#android      # enter the android devShell with the SDK, Gradle, and JDK 17
-just android-test          # run the Android lint and JVM unit tests
+just android-test          # assemble the debug APK, then run the Android lint and JVM unit tests
 just android-install       # build the debug APK and install it on the phone
 ```
 
