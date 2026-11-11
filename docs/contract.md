@@ -478,7 +478,7 @@ A session notice clears on the session's own seen: the `Seen` call for that sess
 
 | Call | Request | Response | Effect |
 |---|---|---|---|
-| `StartStep` | `agent`, `prompt`, `schema`, `workspace`, `revision`, `read_only`, `owned_paths`, `gate`, `gate_limit_seconds`, `done_value` | `id` | checks the request, starts the step and returns its id |
+| `StartStep` | `agent`, `prompt`, `schema`, `workspace`, `revision`, `read_only`, `owned_paths`, `gate`, `gate_limit_seconds`, `done_value`, `model_limit_seconds` | `id` | checks the request, starts the step and returns its id |
 | `StopStep` | `id` | none | ends the step as `stopped` |
 | `StepStatus` | `id` | `step` | returns the step's row |
 | `WaitSteps` | `ids`, `timeout_seconds` | `ended`, `steps` | blocks until the first named step ends or the timeout passes |
@@ -496,10 +496,11 @@ A session notice clears on the session's own seen: the `Seen` call for that sess
 - `gate` is an argv that runs without a shell. Its program is looked up on `PATH` when the step starts, and the start is refused when it is not found. Empty runs no gate.
 - `gate_limit_seconds` of zero means 30 minutes.
 - `done_value` empty means `done`.
+- `model_limit_seconds` of zero means 60 minutes. It is the model time the step may use before the watch ends it `overtime` (see the Watch rule under [Step lifecycle](#step-lifecycle)).
 
 A start refused by one of these checks, by the step cap, or by the workspace rules stores nothing and returns no id. A start that fails after its row is stored returns the error with no id, and the row ends `failed`. The id is not reported on that path.
 
-`StepStatus` and `WaitSteps` return each step as a `Step` message: `id`, `agent`, `workspace`, `revision` (the resolved start commit), `read_only`, `worktree` (empty for a writing step), `end` (empty while the step runs), `status`, `result` (the latest return's JSON text), `checks`, `reason`, `started` and `ended` (unix seconds; `ended` is 0 while the step runs). Each `checks` entry is a `StepCheck`: `round`, `name`, `ok` and `detail`. The row's prompt, schema, done value, owned paths, gate and gate limit are stored (see [Steps in the store](#steps-in-the-store)) but not returned.
+`StepStatus` and `WaitSteps` return each step as a `Step` message: `id`, `agent`, `workspace`, `revision` (the resolved start commit), `read_only`, `worktree` (empty for a writing step), `end` (empty while the step runs), `status`, `result` (the latest return's JSON text), `checks`, `reason`, `started`, `ended` (unix seconds; `ended` is 0 while the step runs) and `doing`, the latest doing line from the step's monitor. Each `checks` entry is a `StepCheck`: `round`, `name`, `ok` and `detail`. The row's prompt, schema, done value, owned paths, gate, gate limit, model limit and verdicts are stored (see [Steps in the store](#steps-in-the-store)) but not returned.
 
 `WaitSteps` returns every named row in the order `ids` gives. `ended` is the named step that ended first, by its end time, and a tie keeps the step listed first. `ended` is unset when the timeout passes before any of them ends. A timeout of zero returns at once. An id with no row fails the whole call with `not_found`.
 
@@ -532,17 +533,25 @@ Errors are Connect codes:
 
   A read-only step, a return that fails `schema`, or a return whose `status` is not `done_value`, has the `schema` check alone.
 - **Gate.** The gate runs in the step's workspace, with its argv and no shell. It holds the first free `--gate-lock` file, taking it with an exclusive non-blocking `flock`. When every lock is held, it tries them again every second. It releases the lock when the gate ends. The gate runs with `orreryd`'s environment, minus `TMUX` and `TMUX_PANE`. It passes when it exits 0 without passing its limit. When the limit passes, its process group is killed with `SIGKILL`, and the check fails with `gate ran past its limit of <limit> and was killed`. A failing check's detail carries the gate's exit status and the last 8 KiB of its output. A gate that cannot start, or cannot take a lock, is an error that ends the step `failed`.
-- **Send-back.** A return with a failed check is sent back by `Continue`, as a message that lists each failed check with its detail. The step may be sent back three times. A fourth failing return ends the step `checks_failed`.
+- **Judge.** A return that passes its checks and whose `status` equals `done_value` is judged by a Haiku call. Without a Haiku caller the step ends `done` with no call. The input is the step's first prompt and the return. A writing step adds the `git diff --stat` from the start commit to the return's commit, and a step with a gate adds the gate check's detail. The reply is `met` or `unmet` with a reason. `met` ends the step `done`. The first `unmet` sends the session back once with the reason, and the next return that passes its checks is judged again. A second `unmet` ends the step `goal_unmet`, and its return is kept. A failed diff stat, call or reply stores its error with no verdict and ends the step `done`. The judge's send-back is not one of the three send-backs.
+- **Watch.** While a turn runs, the loop checks four backstops on each tick, the first one due in this order: `overtime` (model time reaches the step's model limit), `tool_stuck` (a main-conversation tool call open for 30 minutes of wall time, or 60 after its one extension), `silent` (10 minutes of model time with no event) and `periodic` (5 minutes of turn time since the turn began or the last verdict). Each trip makes one Haiku monitor call. Its verdict is `progressing`, `long_command`, `looping` or `wedged`, with a one-line `doing`, and a non-empty `doing` becomes the row's `doing`. The verdict is applied in this order: `overtime` ends the step `overtime`; `looping` or `wedged` nudges the step once, and then ends it with that verdict; a `long_command` on `tool_stuck` extends that call once, and any other verdict on `tool_stuck` ends the step `tool_stuck`; `silent` nudges once, and then ends the step `silent`; `periodic` does nothing. A nudge interrupts the running turn. The interrupted turn is no round: the step is continued with the nudge text instead of being checked. A nudge does not count toward the three send-backs. A failed monitor call stores its error with no verdict, and the trip acts without one: `overtime` and `tool_stuck` end the step, `silent` nudges on its first trip and ends on the next, and `periodic` does nothing. The monitor's argv, its cap and timeout, and the trip policy with its file and line citations are in [section 14 of the engine protocol](engine-protocol.md#14-the-step-watch-and-judge).
+- **Send-back.** A return with a failed check is sent back by `Continue`, as a message that lists each failed check with its detail. The step may be sent back three times. A fourth failing return ends the step `checks_failed`. Nudges and the judge's send-back are counted apart, and they are not among these three.
 - **Ends.** Each step ends once, with one of these end kinds:
 
   | End | Set when | `status` |
   |---|---|---|
-  | `done` | a return passes its checks and its `status` equals `done_value` | `done_value` |
+  | `done` | a return passes its checks, its `status` equals `done_value`, and the judge says `met`, fails to give a verdict, or is not run | `done_value` |
   | `returned` | a return passes its checks and its `status` is another value | that value |
   | `checks_failed` | a fourth return fails a check | empty |
-  | `failed` | the process exits on its own (`the step's process exited` after a clean exit, otherwise the exit's reason), the first prompt cannot be sent, a return cannot be recorded, a gate cannot run, or a `Continue` cannot be sent | empty |
+  | `failed` | the process exits on its own (`the step's process exited` after a clean exit, otherwise the exit's reason), the first prompt cannot be sent, a return or verdict cannot be recorded, a gate cannot run, or a `Continue` cannot be sent | empty |
   | `stopped` | `StopStep` ends the step | empty |
   | `engine_restarted` | `orreryd` starts with the step's row open and no loop for it | empty |
+  | `overtime` | the watch's `overtime` trip: model time reaches the step's model limit | empty |
+  | `tool_stuck` | the watch's `tool_stuck` trip, when its verdict is neither `long_command` nor `looping` or `wedged`, or its call has had its extension | empty |
+  | `silent` | the watch's `silent` trip with a verdict other than `looping` or `wedged`, once the step has been nudged | empty |
+  | `looping` | a `looping` verdict, once the step has been nudged | empty |
+  | `wedged` | a `wedged` verdict, once the step has been nudged | empty |
+  | `goal_unmet` | the judge's second `unmet` verdict; the return is kept | empty |
 
   The end is stored with the reason, and the step's session is stopped and its worktree removed, whatever ended it.
 - **Stop.** `StopStep` cancels the step's loop, which kills a running gate, waits for the loop to return, and then stores `stopped` through the same end path. A step that has already ended is left as it is, and `StopStep` returns success.
@@ -740,7 +749,7 @@ The 14-day cutoff of the tidy applies to engine rows too. The cutoff is `now` le
 
 #### Steps in the store
 
-The `steps` table (migration `00004_steps.sql`) has one row per step. Its `id` is the id of the step's `sessions` row. A row is added when the step starts. Its columns are these:
+The `steps` table (migrations `00004_steps.sql` and `00005_step_watch.sql`) has one row per step. Its `id` is the id of the step's `sessions` row. A row is added when the step starts. Its columns are these:
 
 | Column | Type | Meaning |
 |---|---|---|
@@ -756,9 +765,12 @@ The `steps` table (migration `00004_steps.sql`) has one row per step. Its `id` i
 | `owned` | `TEXT` | the `owned_paths` as a JSON array; `null` when there are none |
 | `gate` | `TEXT` | the gate argv as a JSON array, with its program resolved on `PATH`; `null` for no gate |
 | `gate_limit` | `INTEGER` | the gate limit in nanoseconds |
+| `model_limit` | `INTEGER` | the model-time limit in nanoseconds; `0` for a row added before migration `00005` |
 | `started` | `INTEGER` | unix seconds when the row was added |
 | `checks` | `TEXT` | the checks of every return so far, as a JSON array of `round`, `name`, `ok` and `detail`; `[]` at start |
 | `result` | `TEXT` | the latest return's value, as JSON text |
+| `doing` | `TEXT` | the latest doing line from the step's monitor; `""` until one is given |
+| `verdicts` | `TEXT` | every monitor and judge verdict so far, as a JSON array of `at`, `kind`, `trip`, `round`, `verdict`, `detail`, `error` and `action`; `[]` at start |
 | `status` | `TEXT` | the status the step ended with; `""` while it runs and for the ends that carry none |
 | `end_value` | `TEXT` | the end kind of [Step lifecycle](#step-lifecycle); `""` while the step runs |
 | `reason` | `TEXT` | why the step ended; `""` while it runs |
