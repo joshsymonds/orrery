@@ -42,22 +42,28 @@ func New(now func() time.Time, logger *slog.Logger) daemon.Observer {
 	}
 }
 
+// Viewing reports whether a client of pane's tmux server shows the pane's window and had input within
+// activeWindow before now.
+func Viewing(ctx context.Context, client *tmuxctl.Client, pane string, now time.Time) (bool, error) {
+	window, err := client.Run(ctx, "display", "-p", "-t", pane, "#{window_id}")
+	if err != nil {
+		return false, fmt.Errorf("pane window: %w", err)
+	}
+	clients, err := client.Run(ctx, "list-clients", "-F", "#{client_activity} #{window_id}")
+	if err != nil {
+		return false, fmt.Errorf("list clients: %w", err)
+	}
+	return showsRecentInput(clients, strings.TrimSpace(window), now)
+}
+
 // markSeen sets the seen option on the transition's pane when a recently active client shows its window.
 func markSeen(ctx context.Context, transition daemon.Transition, now func() time.Time) error {
 	client, err := tmuxctl.New(transition.Server)
 	if err != nil {
 		return fmt.Errorf("resolve tmux server: %w", err)
 	}
-	window, err := client.Run(ctx, "display", "-p", "-t", transition.PaneID, "#{window_id}")
-	if err != nil {
-		return fmt.Errorf("pane window: %w", err)
-	}
-	clients, err := client.Run(ctx, "list-clients", "-F", "#{client_activity} #{window_id}")
-	if err != nil {
-		return fmt.Errorf("list clients: %w", err)
-	}
 	current := now()
-	viewing, err := showsRecentInput(clients, strings.TrimSpace(window), current)
+	viewing, err := Viewing(ctx, client, transition.PaneID, current)
 	if err != nil || !viewing {
 		return err
 	}

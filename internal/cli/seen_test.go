@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"fmt"
 	"os"
+	"os/exec"
 	"strconv"
 	"strings"
 	"testing"
@@ -101,6 +102,124 @@ func TestSeen(t *testing.T) {
 	if ok {
 		t.Fatalf("%s set on %s, want it scoped to %s only", protocol.OptionSeen, other, pane)
 	}
+}
+
+// seenWait bounds the wait for a control-mode client to appear in list-clients.
+const seenWait = 5 * time.Second
+
+// seenAttach starts a control-mode client of client's server attached to session, keeps its stdin open until
+// cleanup, and waits until the server lists it. The client connects through the server's socket path.
+func seenAttach(t *testing.T, client *tmuxctl.Client, session string) {
+	t.Helper()
+	socket := strings.TrimSpace(seenRun(t, client, "display", "-p", "#{socket_path}"))
+	cmd := exec.CommandContext(t.Context(), "tmux", "-S", socket, "-C", "attach", "-t", session)
+	cmd.Env = seenEnvWithout("TMUX")
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		t.Fatalf("control client stdin: %v", err)
+	}
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start control client: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = stdin.Close()
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+	})
+
+	deadline := time.Now().Add(seenWait)
+	for strings.TrimSpace(seenRun(t, client, "list-clients", "-F", "#{client_name}")) == "" {
+		if time.Now().After(deadline) {
+			t.Fatalf("no client listed for session %s after %v", session, seenWait)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+// seenEnvWithout returns the test process environment without the variable name, so a tmux client started
+// from a test does not see an enclosing tmux session.
+func seenEnvWithout(name string) []string {
+	var env []string
+	for _, kv := range os.Environ() {
+		if !strings.HasPrefix(kv, name+"=") {
+			env = append(env, kv)
+		}
+	}
+	return env
+}
+
+// seenWantUnset fails t when pane has a seen option.
+func seenWantUnset(t *testing.T, client *tmuxctl.Client, pane string) {
+	t.Helper()
+	got, ok, err := client.PaneOption(t.Context(), pane, protocol.OptionSeen)
+	if err != nil {
+		t.Fatalf("PaneOption(%s): %v", protocol.OptionSeen, err)
+	}
+	if ok {
+		t.Fatalf("%s on %s = %q, want unset", protocol.OptionSeen, pane, got)
+	}
+}
+
+func TestSeenFocusMarksPaneShownByActiveClient(t *testing.T) {
+	client := seenServer(t)
+	pane, other := seenStartPanes(t, client)
+	seenAttach(t, client, "s1")
+
+	before := time.Now().Unix()
+	var out bytes.Buffer
+	if err := cli.Seen(t.Context(), client, []string{"--pane", pane, "--focus"}, &out); err != nil {
+		t.Fatalf("Seen --focus: %v", err)
+	}
+	after := time.Now().Unix()
+
+	if out.Len() != 0 {
+		t.Fatalf("Seen --focus printed %q, want nothing", out.String())
+	}
+	got, ok, err := client.PaneOption(t.Context(), pane, protocol.OptionSeen)
+	if err != nil {
+		t.Fatalf("PaneOption(%s): %v", protocol.OptionSeen, err)
+	}
+	if !ok {
+		t.Fatalf("%s unset on %s after Seen --focus with an active client", protocol.OptionSeen, pane)
+	}
+	ts, err := strconv.ParseInt(got, 10, 64)
+	if err != nil {
+		t.Fatalf("%s = %q, want decimal unix seconds: %v", protocol.OptionSeen, got, err)
+	}
+	if ts < before || ts > after {
+		t.Fatalf("%s = %d, want between %d and %d", protocol.OptionSeen, ts, before, after)
+	}
+	seenWantUnset(t, client, other)
+}
+
+func TestSeenFocusLeavesPaneUnseenWithoutClient(t *testing.T) {
+	client := seenServer(t)
+	pane, _ := seenStartPanes(t, client)
+
+	var out bytes.Buffer
+	if err := cli.Seen(t.Context(), client, []string{"--pane", pane, "--focus"}, &out); err != nil {
+		t.Fatalf("Seen --focus with no client: %v", err)
+	}
+	if out.Len() != 0 {
+		t.Fatalf("Seen --focus printed %q, want nothing", out.String())
+	}
+	seenWantUnset(t, client, pane)
+}
+
+func TestSeenFocusLeavesPaneUnseenWhenClientShowsAnotherWindow(t *testing.T) {
+	client := seenServer(t)
+	pane, _ := seenStartPanes(t, client)
+	seenRun(t, client, "new-window", "-t", "s1", "-c", t.TempDir(), seenCommand)
+	seenAttach(t, client, "s1")
+
+	var out bytes.Buffer
+	if err := cli.Seen(t.Context(), client, []string{"--pane", pane, "--focus"}, &out); err != nil {
+		t.Fatalf("Seen --focus with client on another window: %v", err)
+	}
+	if out.Len() != 0 {
+		t.Fatalf("Seen --focus printed %q, want nothing", out.String())
+	}
+	seenWantUnset(t, client, pane)
 }
 
 func TestSeenRejectsBadArguments(t *testing.T) {
