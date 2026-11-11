@@ -137,6 +137,9 @@ type Config struct {
 	Picker func() (open.Config, error)
 	// Now returns the current time, which dates the expiry of each picker token, or is nil for time.Now.
 	Now func() time.Time
+	// ReportSeen receives the pane and the seen time it holds after each POST /v1/panes/{id}/seen succeeds, or is
+	// nil to report nothing.
+	ReportSeen cli.SeenReporter
 }
 
 // New returns a handler that admits only the configured logins, and never emits CORS headers. A request to
@@ -170,7 +173,7 @@ func New(cfg Config) (http.Handler, error) {
 	mux.HandleFunc("GET /v1/host", serveHost(cfg.HostStatus))
 	mux.HandleFunc("POST /v1/panes/{id}/text", servePaneText(cfg.Tmux, textLocks))
 	mux.HandleFunc("POST /v1/panes/{id}/keys", servePaneKeys(cfg.Tmux))
-	mux.HandleFunc("POST /v1/panes/{id}/seen", servePaneSeen(cfg.Tmux, seenLocks))
+	mux.HandleFunc("POST /v1/panes/{id}/seen", servePaneSeen(cfg.Tmux, seenLocks, cfg.ReportSeen))
 	mux.HandleFunc("POST /v1/push/register", servePushRegister(cfg.Push))
 	mux.HandleFunc("DELETE /v1/push/register", serveUnregister(cfg.Push))
 	now := cfg.Now
@@ -608,8 +611,11 @@ func servePaneKeys(tmux *tmuxctl.Client) http.HandlerFunc {
 
 // servePaneSeen answers POST /v1/panes/{id}/seen by setting the pane's seen time. The body is optional: with a
 // read_up_to field the time is that one, and otherwise it is now. See markSeen for how the stored time moves.
-// The pane's lock covers the write, so two seen posts to one pane never store an earlier time last.
-func servePaneSeen(tmux *tmuxctl.Client, locks *paneLocks) http.HandlerFunc {
+// After the mark is written, report receives the pane and the stored time; a nil report, or a pane that still
+// holds no seen time, reports nothing. A report error answers 500 with the mark kept. The pane's lock covers the
+// write and the report, so two seen posts to one pane never store an earlier time last, and their reports arrive
+// in the order the times were stored.
+func servePaneSeen(tmux *tmuxctl.Client, locks *paneLocks, report cli.SeenReporter) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := r.PathValue("id")
 		if _, err := checkPane(r.Context(), tmux, id); err != nil {
@@ -631,7 +637,10 @@ func servePaneSeen(tmux *tmuxctl.Client, locks *paneLocks) http.HandlerFunc {
 		}
 		mu := locks.lock(id)
 		mu.Lock()
-		err := markSeen(r.Context(), tmux, id, readUpTo, reported)
+		seen, err := markSeen(r.Context(), tmux, id, readUpTo, reported)
+		if err == nil && report != nil && seen > 0 {
+			err = report(id, seen)
+		}
 		mu.Unlock()
 		if err != nil {
 			http.Error(w, "internal server error", http.StatusInternalServerError)
@@ -641,33 +650,39 @@ func servePaneSeen(tmux *tmuxctl.Client, locks *paneLocks) http.HandlerFunc {
 	}
 }
 
-// markSeen sets pane id's seen time. Without a reported time it is now, as `orrery seen` sets it. With one, it is
-// the later of the stored time and the reported one, so the stored time never moves back. An unset stored time
-// counts as 0. The caller holds the pane's lock.
-func markSeen(ctx context.Context, tmux *tmuxctl.Client, id string, reported int64, hasReported bool) error {
+// markSeen sets pane id's seen time and returns the time the pane holds afterwards. Without a reported time it is
+// now, as `orrery seen` sets it. With one, it is the later of the stored time and the reported one, so the stored
+// time never moves back. An unset stored time counts as 0. The caller holds the pane's lock.
+func markSeen(ctx context.Context, tmux *tmuxctl.Client, id string, reported int64, hasReported bool) (int64, error) {
 	if !hasReported {
-		if err := cli.Seen(ctx, tmux, nil, []string{flagPane, id}, io.Discard); err != nil {
-			return fmt.Errorf("server: seen: %w", err)
+		// cli.Seen hands back the time it wrote; the lock keeps the pane at that time until the caller reports it.
+		var written int64
+		capture := func(_ string, seen int64) error {
+			written = seen
+			return nil
 		}
-		return nil
+		if err := cli.Seen(ctx, tmux, capture, []string{flagPane, id}, io.Discard); err != nil {
+			return 0, fmt.Errorf("server: seen: %w", err)
+		}
+		return written, nil
 	}
 	value, set, err := tmux.PaneOption(ctx, id, protocol.OptionSeen)
 	if err != nil {
-		return fmt.Errorf("server: read seen time: %w", err)
+		return 0, fmt.Errorf("server: read seen time: %w", err)
 	}
 	var stored int64
 	if set {
 		if stored, err = strconv.ParseInt(value, 10, 64); err != nil {
-			return fmt.Errorf("server: seen time %q: %w", value, err)
+			return 0, fmt.Errorf("server: seen time %q: %w", value, err)
 		}
 	}
 	if reported <= stored {
-		return nil
+		return stored, nil
 	}
 	if err = tmux.SetPaneOption(ctx, id, protocol.OptionSeen, strconv.FormatInt(reported, 10)); err != nil {
-		return fmt.Errorf("server: set seen time: %w", err)
+		return 0, fmt.Errorf("server: set seen time: %w", err)
 	}
-	return nil
+	return reported, nil
 }
 
 // paneError answers a failed checkPane: 400 for a malformed pane ID, 404 for an absent pane, else 500.

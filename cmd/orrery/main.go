@@ -310,6 +310,7 @@ func runServe(ctx context.Context, opts globals, args []string, getenv func(stri
 		Engine:     engine,
 		Home:       getenv("HOME"),
 		Picker:     servePickerConfig(tmux, getenv),
+		ReportSeen: seenReporter(opts.daemonSocket, getenv),
 	})
 	if err != nil {
 		return fmt.Errorf("serve: %w", err)
