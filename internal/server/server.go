@@ -565,9 +565,8 @@ func (p *paneLocks) lock(id string) *sync.Mutex {
 	return mu
 }
 
-// servePaneText answers POST /v1/panes/{id}/text by sending the body's text as `orrery send --text` does: typed
-// into a Claude pane showing its input box, else pasted, then Enter.
-// The send holds the pane's lock, so two texts to one pane never interleave.
+// servePaneText answers POST /v1/panes/{id}/text: the pane is checked before the body, then the body's text is sent
+// by sendText.
 func servePaneText(tmux *tmuxctl.Client, locks *paneLocks) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := r.PathValue("id")
@@ -585,16 +584,26 @@ func servePaneText(tmux *tmuxctl.Client, locks *paneLocks) http.HandlerFunc {
 			http.Error(w, "bad request body", http.StatusBadRequest)
 			return
 		}
-		mu := locks.lock(id)
-		mu.Lock()
-		err := cli.Send(r.Context(), tmux, []string{flagPane, id, "--text", text}, io.Discard)
-		mu.Unlock()
-		if err != nil {
-			http.Error(w, "internal server error", http.StatusInternalServerError)
+		if err := sendText(r.Context(), tmux, locks, id, text); err != nil {
+			writeRouteError(w, err)
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
 	}
+}
+
+// sendText sends text to pane id as `orrery send --text` does: typed into a Claude pane showing its input box, else
+// pasted, then Enter. The send holds the pane's lock, so two texts to one pane never interleave. A tmux failure is
+// internalError. The caller has checked that the pane exists.
+func sendText(ctx context.Context, tmux *tmuxctl.Client, locks *paneLocks, id, text string) error {
+	mu := locks.lock(id)
+	mu.Lock()
+	err := cli.Send(ctx, tmux, []string{flagPane, id, "--text", text}, io.Discard)
+	mu.Unlock()
+	if err != nil {
+		return internalError()
+	}
+	return nil
 }
 
 // servePaneKeys answers POST /v1/panes/{id}/keys by sending the body's keys to the pane. An expect_question

@@ -565,3 +565,65 @@ func TestPanesConversationErrorParity(t *testing.T) {
 		})
 	}
 }
+
+func TestPanesSendTextParity(t *testing.T) {
+	t.Parallel()
+
+	tmux := newTmuxServer(t)
+	restPane, restFile := startInputPane(t, tmux, "rest", synthScreen)
+	connectPane, connectFile := startInputPane(t, tmux, "connect", synthScreen)
+	handler := newHandler(t, tmux)
+
+	rec := postJSON(t, handler, paneRoute(restPane, "text"), jsonBody(t, map[string]any{"text": synthText}))
+	assertStatus(t, rec, http.StatusNoContent)
+
+	_, err := panesClient(t, handler).SendText(t.Context(),
+		connect.NewRequest(&orreryv1.SendTextRequest{Pane: connectPane, Text: synthText}))
+	if err != nil {
+		t.Fatalf("Panes.SendText: %v", err)
+	}
+
+	want := "\x1b[200~" + synthText + "\x1b[201~\r"
+	awaitInput(t, restFile, want)
+	awaitInput(t, connectFile, want)
+}
+
+func TestPanesSendTextErrorParity(t *testing.T) {
+	t.Parallel()
+
+	tmux := newTmuxServer(t)
+	startSession(t, tmux, panesFixtureSession, longCommand)
+	handler := newHandler(t, tmux)
+	client := panesClient(t, handler)
+
+	cases := []struct {
+		name   string
+		id     string
+		status int
+		code   connect.Code
+	}{
+		{"malformed pane id", "abc", http.StatusBadRequest, connect.CodeInvalidArgument},
+		{"absent pane", "%999999", http.StatusNotFound, connect.CodeNotFound},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			rec := postJSON(t, handler, paneRoute(c.id, "text"), jsonBody(t, map[string]any{"text": synthText}))
+			assertStatus(t, rec, c.status)
+			wantMessage := strings.TrimSuffix(rec.Body.String(), "\n")
+
+			_, err := client.SendText(t.Context(),
+				connect.NewRequest(&orreryv1.SendTextRequest{Pane: c.id, Text: synthText}))
+			var connectErr *connect.Error
+			if !errors.As(err, &connectErr) {
+				t.Fatalf("Panes.SendText error = %v, want a *connect.Error", err)
+			}
+			if connectErr.Code() != c.code {
+				t.Fatalf("Panes.SendText code = %v, want %v", connectErr.Code(), c.code)
+			}
+			if connectErr.Message() != wantMessage {
+				t.Fatalf("Panes.SendText message = %q, want the REST body %q", connectErr.Message(), wantMessage)
+			}
+		})
+	}
+}

@@ -134,6 +134,21 @@ func (s panesServer) Conversation(
 	return connect.NewResponse(conversationMessage(conv)), nil
 }
 
+// SendText answers Panes.SendText with what POST /v1/panes/{id}/text answers. The pane is checked first, as the route
+// checks it before the body, and the text is sent by sendText under the same lock the route uses.
+func (s panesServer) SendText(
+	ctx context.Context,
+	req *connect.Request[v1.SendTextRequest],
+) (*connect.Response[v1.SendTextResponse], error) {
+	if _, err := checkPane(ctx, s.tmux, req.Msg.GetPane()); err != nil {
+		return nil, connectError(paneRouteError(err))
+	}
+	if err := sendText(ctx, s.tmux, s.textLocks, req.Msg.GetPane(), req.Msg.GetText()); err != nil {
+		return nil, connectError(err)
+	}
+	return connect.NewResponse(&v1.SendTextResponse{}), nil
+}
+
 // conversationMessage returns the ConversationResponse of conv, which holds the fields the REST answer writes.
 func conversationMessage(conv conversation.Conversation) *v1.ConversationResponse {
 	items := make([]*v1.ConversationItem, 0, len(conv.Items))
