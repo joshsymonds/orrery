@@ -213,3 +213,16 @@ Prompted to start `sleep 20` with `run_in_background: true`:
 - Claude then starts a turn by itself: a new init line, a status line `requesting` with no `user_message_uuids`, the stream, and a result `success` with `result_index` 1 and `"origin":{"kind":"task-notification","producer":"session-task","runId":"run_example"}`. No command_lifecycle lines belong to that turn.
 
 So the live-task marker is the non-empty `tasks` list in `background_tasks_changed` (with `task_started`). The empty list marks the end.
+
+## 13. Forced returns
+
+The findings of this section come from live probes on Claude Code 2.1.321 with `claude-haiku-5-5`. The probe output is not committed, so these findings cite the code that relies on each one, not fixture lines. A step's structured return depends on them (see [Step lifecycle](contract.md#step-lifecycle) of the shared contract).
+
+- **Structured output.** A `result` carries `structured_output` when the session runs with `--json-schema` and `StructuredOutput` is among its tools. The step engine passes `--json-schema` (`internal/engine/session/command.go:83`). It reads a result's `structured_output` into the turn's end, which is nil when the field is absent or `null` (`internal/engine/session/translate.go:86`, `internal/engine/session/translate.go:268`).
+- **Repeated forcing.** A second user message after a forced return gets another forced return. `--resume` with the same flags is forced too. The step loop sends its second message through `Continue` (`internal/enginehost/steploop.go:238`), and a respawn resumes with the step's agent and schema flags (`internal/enginehost/manager.go:507`, `internal/enginehost/manager.go:508`, `internal/engine/session/command.go:74`).
+- **Agent settings.** `--agent` applies the agent's model, tools and body. The effort is not visible in the init line, so this section cannot confirm the effort an agent runs at. The step engine adds `--agent` with `--strict-mcp-config` (`internal/engine/session/command.go:80`) and passes no `--model`, so the model comes from the agent.
+- **The `StructuredOutput` tool.** An agent whose `tools:` allowlist omits `StructuredOutput` gets no `StructuredOutput` tool. Its turns then return text, with `structured_output` null. `--allowedTools` does not restore the tool, so such an agent must list `StructuredOutput` in `tools:`. An agent that uses `disallowedTools` keeps the tool.
+
+What the step engine does with a null return: the value is nil, and the schema check fails it with `$: missing return value` (`internal/enginehost/steploop.go:97`, `internal/enginehost/schema.go:183`). The return is sent back like any other failed check, and a step whose agent never forces a return ends `checks_failed` after its three send-backs.
+
+A return is taken only from a turn that ends with no background task live. The manager tracks the live background tasks of a session and hands the turn's end over only when none is live (`internal/enginehost/manager.go:1102`). The markers of a live task are in [What marks a live background task](#what-marks-a-live-background-task).

@@ -345,7 +345,7 @@ orrery serve --listen 127.0.0.1:8080 --allow-login user@example.test
 ### orreryd
 
 ```
-orreryd [-L NAME | -S PATH] [--socket PATH] [--claude PATH] [--summary-model CONTEXT=MODEL]... [--push-host HOST]... [--sessions] [--session-cap N] [--session-shell PATH]
+orreryd [-L NAME | -S PATH] [--socket PATH] [--claude PATH] [--summary-model CONTEXT=MODEL]... [--push-host HOST]... [--sessions] [--session-cap N] [--session-shell PATH] [--step-cap N] [--gate-lock PATH]...
 ```
 
 - `-L`, `-S`, and `--socket` work as they do for `orrery`.
@@ -353,9 +353,11 @@ orreryd [-L NAME | -S PATH] [--socket PATH] [--claude PATH] [--summary-model CON
 - `--summary-model CONTEXT=MODEL` maps a patchbay context (section 8) to a summary model. Repeat the flag for each context. A context with no mapping uses `claude-haiku-5-5`.
 - Each applied hook frame sets `@orrery_context` on the frame's pane to that frame's context (section 2).
 - `--push-host HOST` names a push relay host that a Web Push subscription may use. Repeat the flag for each host. The default is `ntfy.sh`. A subscription whose endpoint is on another host is refused (section 12).
-- `--sessions` serves the engine session service on `sessions.sock` beside the daemon socket. The headless session manager runs behind it when the store opens. Without `--sessions`, no session socket exists. With it, `--session-shell` must be an absolute path, or the command exits 2.
+- `--sessions` serves the engine session service and the step service (see [Steps](#steps)) on `sessions.sock` beside the daemon socket. The headless session manager runs behind it when the store opens. Without `--sessions`, no session socket exists. With it, `--session-shell` must be an absolute path, or the command exits 2.
 - `--session-cap N` is the most live headless sessions at once. The default is 4. A value below 1 exits 2.
 - `--session-shell PATH` is the absolute login shell that starts each session. The default is `$SHELL`.
+- `--step-cap N` is the most live step sessions at once. Steps count apart from `--session-cap`. The default is 6. A value below 1 exits 2.
+- `--gate-lock PATH` names a lock file that a step's gate holds while it runs. Repeat the flag for each lock. A gate takes the first lock that is free, in the order given, and when every lock is held it tries again every second. Without the flag, the locks are `/tmp/claude-<uid>/orrery-heavy.lock` and `/tmp/claude-<uid>/orrery-heavy-2.lock`, where `<uid>` is the user id. A path that is not absolute exits 2.
 
 `orreryd` listens on unix sockets only. It opens no network listener. `--sessions` adds the session socket.
 
@@ -408,7 +410,7 @@ Idle stop writes no state, so a session it stops keeps the state it had.
 
 #### Session control socket
 
-The session socket is `sessions.sock` in the same directory as the daemon socket. `orreryd` creates it only with `--sessions`, and its mode is `0600`. It serves the `orrery.engine.v1.Engine` service (`proto/orrery/engine/v1/engine.proto`) over Connect.
+The session socket is `sessions.sock` in the same directory as the daemon socket. `orreryd` creates it only with `--sessions`, and its mode is `0600`. It serves the `orrery.engine.v1.Engine` service (`proto/orrery/engine/v1/engine.proto`) and the `orrery.engine.v1.Steps` service (`proto/orrery/engine/v1/step.proto`, see [Steps](#steps)) over Connect.
 
 | Call | Request | Precondition |
 |---|---|---|
@@ -448,7 +450,7 @@ Errors are Connect codes:
 
 #### Session notifications
 
-A session notice is sent when a session enters `waiting`, `done`, `failed` or `interrupted`. None is sent for `stopped`, for a refused request, for an idle stop, or for the end of an interrupted turn. A notice for `waiting`, `done`, or a process that exits with an error is sent once its event is queued for the store. A notice for `interrupted`, or for a `failed` start, resume or prompt, is sent after its write is stored. Notices post in the background, and shutdown waits for them.
+A session notice is sent when a session enters `waiting`, `done`, `failed` or `interrupted`. None is sent for `stopped`, for a refused request, for an idle stop, or for the end of an interrupted turn. A step session sends no notice in any state (see [Step lifecycle](#step-lifecycle)). A notice for `waiting`, `done`, or a process that exits with an error is sent once its event is queued for the store. A notice for `interrupted`, or for a `failed` start, resume or prompt, is sent after its write is stored. Notices post in the background, and shutdown waits for them.
 
 ntfy (only when `ORRERY_NTFY_URL_FILE` is set). The title is `<project> · session <first 8 characters of the id>`, where `project` is the base name of the directory. The tags are the state's tag and the host name.
 
@@ -460,6 +462,83 @@ ntfy (only when `ORRERY_NTFY_URL_FILE` is set). The title is `<project> · sessi
 | `interrupted` | 3 | `warning` | the reason |
 
 Web Push goes to every subscription, with the payload of [Push payload](#push-payload). The payload's `session` key holds the full session id. `pane` and `label` are `""`. `project` is the base name of the directory. `state` is the session's state. The body is `question` when the state is `waiting`, and `summary` in every other case.
+
+#### Steps
+
+`orreryd` serves the `orrery.engine.v1.Steps` service (`proto/orrery/engine/v1/step.proto`) on the session socket, beside `Engine`, with the same socket mode and Connect rules. It is not on `serve`. A step is an agent loop that ends with a checked status. It runs as one claude process of kind `step` (see [Steps in the store](#steps-in-the-store)), and [Step lifecycle](#step-lifecycle) gives its rules.
+
+| Call | Request | Response | Effect |
+|---|---|---|---|
+| `StartStep` | `agent`, `prompt`, `schema`, `workspace`, `revision`, `read_only`, `owned_paths`, `gate`, `gate_limit_seconds`, `done_value` | `id` | checks the request, starts the step and returns its id |
+| `StopStep` | `id` | none | ends the step as `stopped` |
+| `StepStatus` | `id` | `step` | returns the step's row |
+| `WaitSteps` | `ids`, `timeout_seconds` | `ended`, `steps` | blocks until the first named step ends or the timeout passes |
+
+`StartStep` checks each field as follows:
+
+- `agent` is 1 to 64 bytes of letters, digits and `. _ - [ ] :`, not starting with `-`. Empty is refused.
+- `prompt` is not empty.
+- `schema` is a JSON object schema. Its root `type` is `object`, its `properties` include `status` with type `string`, and every subschema uses only the keywords `type`, `enum`, `required`, `properties`, `items` and `additionalProperties`, or the annotations `title`, `description`, `$schema`, `default` and `examples`.
+- `workspace` is an absolute path to an existing directory.
+- `revision` is resolved to a commit when the step starts. Empty means `HEAD`.
+- `read_only` false runs a writing step in `workspace`. The directory must be inside a linked git worktree. A directory outside any git work tree is refused, and so is one inside a repository's main working tree.
+- `read_only` true runs the step in a detached worktree at its start commit. The worktree is added under `step-worktrees` beside the store file (see [Store](#store)), named by the step id, and removed when the step ends.
+- `owned_paths` are paths relative to the repository. An empty path, an absolute path, or one that leaves the repository is refused.
+- `gate` is an argv that runs without a shell. Its program is looked up on `PATH` when the step starts, and the start is refused when it is not found. Empty runs no gate.
+- `gate_limit_seconds` of zero means 30 minutes.
+- `done_value` empty means `done`.
+
+A start refused by one of these checks, by the step cap, or by the workspace rules stores nothing and returns no id. A start that fails after its row is stored returns the error with no id, and the row ends `failed`. The id is not reported on that path.
+
+`StepStatus` and `WaitSteps` return each step as a `Step` message: `id`, `agent`, `workspace`, `revision` (the resolved start commit), `read_only`, `worktree` (empty for a writing step), `end` (empty while the step runs), `status`, `result` (the latest return's JSON text), `checks`, `reason`, `started` and `ended` (unix seconds; `ended` is 0 while the step runs). Each `checks` entry is a `StepCheck`: `round`, `name`, `ok` and `detail`. The row's prompt, schema, done value, owned paths, gate and gate limit are stored (see [Steps in the store](#steps-in-the-store)) but not returned.
+
+`WaitSteps` returns every named row in the order `ids` gives. `ended` is the named step that ended first, by its end time, and a tie keeps the step listed first. `ended` is unset when the timeout passes before any of them ends. A timeout of zero returns at once. An id with no row fails the whole call with `not_found`.
+
+Errors are Connect codes:
+
+| Connect code | When |
+|---|---|
+| `unavailable` | `orreryd` has no step store. The message is `step store unavailable` |
+| `resource_exhausted` | a `StartStep` would pass the step cap (`--step-cap`) |
+| `not_found` | `StopStep`, `StepStatus` or `WaitSteps` names an id with no row |
+| `invalid_argument` | an empty `prompt`, a bad `schema`, a bad `agent`, a `workspace` that is not an absolute existing directory, a writing step's `workspace` outside a git work tree or in its main working tree, an `owned_paths` entry that is not a relative path inside the repository, or a `gate` program not on `PATH` |
+| `internal` | any other failure, including a `revision` that does not resolve (for a read-only step this includes a `workspace` outside any git work tree), and a `WaitSteps` call whose context ends first |
+
+#### Step lifecycle
+
+- **Launch.** A step's process starts through `--session-shell` as a session does (see [Headless sessions](#headless-sessions)). Its arguments are these, with `<agent>` and `<schema>` from the request:
+
+  ```
+  <session-shell> -l -c 'exec "$@"' orrery-session <claude> -p --input-format stream-json --output-format stream-json --include-partial-messages --verbose --permission-prompt-tool stdio --permission-mode bypassPermissions --agent <agent> --strict-mcp-config --json-schema <schema>
+  ```
+
+  No `--model` is passed, so the agent's model runs. A respawn adds `--resume` with the row's claude session id. The working directory is `workspace`, or the step's worktree for a read-only step. The environment is the session environment, with `ORRERY_SESSION` set to the step id.
+- **Kind and silence.** The row's `kind` is `step`. The typed `List` and the tidy read only pane rows, so step rows are never listed. A step sends no notice in any state, on ntfy or Web Push. Its `engine_*` events are stored and pruned like other engine events, and `orrery.v1.Events.Watch` sends them as their engine members, as it does for engine sessions. A step takes a slot under `--step-cap`, not `--session-cap`.
+- **Requests.** A question or permission request that the session did not refuse is denied at once with `The orrery host does not answer questions in a step. Do not ask; give your answer as the structured return.` The request never opens, so the row does not become `waiting`.
+- **Returns.** A return is the `structured_output` of a turn's result. It is taken only from a turn that ends with no background task live, so a turn that ends while a background task runs is not a return. After a return the step is busy until `Continue` sends its next prompt or the step stops. A result with no structured output has no value, and fails the schema check.
+- **Checks.** Each return is a round, numbered from 1, and its checks are stored with that round in the row's `checks`. The checks run in this order:
+  1. `schema`: the value matches the step's schema. The failure names the first failing path, such as `$.status`.
+  2. For a writing step whose return passes `schema` and whose `status` equals `done_value`, four commit checks run, in this order: `head` (HEAD is the commit the return's top-level `commit` string names; a missing or non-string `commit` fails it), `ancestry` (the start commit is an ancestor of HEAD), `clean` (no tracked change, staged or unstaged, and no untracked file that is not ignored), and `owned` (every path changed from the start commit to the return's commit is in `owned_paths` by exact match, with both sides of a rename checked).
+  3. `gate`: runs only when all four commit checks pass and the step has a gate.
+
+  A read-only step, a return that fails `schema`, or a return whose `status` is not `done_value`, has the `schema` check alone.
+- **Gate.** The gate runs in the step's workspace, with its argv and no shell. It holds the first free `--gate-lock` file, taking it with an exclusive non-blocking `flock`. When every lock is held, it tries them again every second. It releases the lock when the gate ends. The gate runs with `orreryd`'s environment, minus `TMUX` and `TMUX_PANE`. It passes when it exits 0 without passing its limit. When the limit passes, its process group is killed with `SIGKILL`, and the check fails with `gate ran past its limit of <limit> and was killed`. A failing check's detail carries the gate's exit status and the last 8 KiB of its output. A gate that cannot start, or cannot take a lock, is an error that ends the step `failed`.
+- **Send-back.** A return with a failed check is sent back by `Continue`, as a message that lists each failed check with its detail. The step may be sent back three times. A fourth failing return ends the step `checks_failed`.
+- **Ends.** Each step ends once, with one of these end kinds:
+
+  | End | Set when | `status` |
+  |---|---|---|
+  | `done` | a return passes its checks and its `status` equals `done_value` | `done_value` |
+  | `returned` | a return passes its checks and its `status` is another value | that value |
+  | `checks_failed` | a fourth return fails a check | empty |
+  | `failed` | the process exits on its own (`the step's process exited` after a clean exit, otherwise the exit's reason), the first prompt cannot be sent, a return cannot be recorded, a gate cannot run, or a `Continue` cannot be sent | empty |
+  | `stopped` | `StopStep` ends the step | empty |
+  | `engine_restarted` | `orreryd` starts with the step's row open and no loop for it | empty |
+
+  The end is stored with the reason, and the step's session is stopped and its worktree removed, whatever ended it.
+- **Stop.** `StopStep` cancels the step's loop, which kills a running gate, waits for the loop to return, and then stores `stopped` through the same end path. A step that has already ended is left as it is, and `StopStep` returns success.
+- **Restart.** At start, `orreryd` settles each step's engine row as it settles other engine rows: a row that was `working` or `waiting` is recorded `interrupted` with the reason `orreryd restarted during the turn`, and no notice is sent. Each open step row with no loop then ends `engine_restarted`, and its worktree is removed. Nothing resumes a step after a restart. `Continue`, which the loop sends, respawns a step that is not live from its rows: it resumes the row's claude session with the same agent and schema flags, and it takes a step slot first.
+
 
 ### Environment
 
@@ -530,7 +609,7 @@ The store file is `$XDG_STATE_HOME/orrery/orrery.db` when `XDG_STATE_HOME` is se
 - The database runs in WAL mode. Each connection waits at most 200 ms for a lock.
 - Opening the store applies the migrations embedded in `orreryd`. A database that records a newer migration than the binary embeds fails with `store.ErrTooNew`. It is not migrated, and `orreryd` serves without the store.
 
-The `sessions` table has one row per pane and one row per headless engine session. A pane row has `kind` `""`. An engine row has `kind` `engine`, `server` and `pane` `""`, and `id` the session id. The engine columns are described in [Engine sessions in the store](#engine-sessions-in-the-store).
+The `sessions` table has one row per pane and one row per headless engine session. A pane row has `kind` `""`. An engine row has `kind` `engine`, `server` and `pane` `""`, and `id` the session id. The engine columns are described in [Engine sessions in the store](#engine-sessions-in-the-store). A step has a row too, with `kind` `step` (see [Steps in the store](#steps-in-the-store)).
 
 | Column | Type | Meaning |
 |---|---|---|
@@ -547,8 +626,8 @@ The `sessions` table has one row per pane and one row per headless engine sessio
 | `tool` | `TEXT` | `@orrery_tool` |
 | `claude_session` | `TEXT` | `@orrery_claude_session` |
 | `transcript` | `TEXT` | `@orrery_transcript` |
-| `kind` | `TEXT` | `""` for a pane row, `engine` for an engine row |
-| `dir` | `TEXT` | the absolute directory of an engine row; `""` on a pane row |
+| `kind` | `TEXT` | `""` for a pane row, `engine` for an engine row, `step` for a step row |
+| `dir` | `TEXT` | the absolute directory of an engine or step row; `""` on a pane row |
 | `reason` | `TEXT` | the reason of an engine row's last `failed` or `interrupted` state; `""` when none |
 
 The ten option columns are `NOT NULL` and default to `''`. Each holds the option's value as tmux reports it, and `""` means unset. `kind`, `dir` and `reason` are `NOT NULL` and default to `''` too.
@@ -596,7 +675,7 @@ For each server, the tidy runs one `list-panes -a` that reads every pane. It the
 - syncs the row of each listed pane from its snapshot;
 - deletes the server's pane rows whose id is not among the listed panes, with one `session_removed` event for each;
 - deletes every event older than 14 days, across all servers, except the newest event, which it keeps so the newest seq is never lost;
-- deletes each engine row that has no event at or after the same 14-day cutoff and is not live, with its unfinished text and its `engine_prompt_failed` rows, and appends no event. See [Engine sessions in the store](#engine-sessions-in-the-store).
+- deletes each engine row (`kind` `engine`) that has no event at or after the same 14-day cutoff and is not live, with its unfinished text and its `engine_prompt_failed` rows, and appends no event. Step rows are not deleted (see [Steps in the store](#steps-in-the-store)). See [Engine sessions in the store](#engine-sessions-in-the-store).
 
 A failed `list-panes`, or a listing that does not parse, changes nothing. orreryd logs `tmux server unreachable` (warning) when a server's `list-panes` starts failing and `tmux server reachable again` (info) at its first success after that, not on every tidy. Other tidy failures are logged as `mirror tidy dropped` each time. A failed store write rolls back the whole tidy. A default socket skipped by the directory check logs `tmux default socket skipped` (warning, with `server` and `reason`) when the skip starts and again when its reason changes, not on every tidy.
 
@@ -649,6 +728,37 @@ The `engine_prompt_failed` table holds the failure of each `prompt_id` whose sen
 Its primary key is `session_id` and `prompt_id`. A row is written in the same write as the session's `failed` state, and an insert for a key that already has a row keeps the first reason. No event is appended for it, and the Connect `Watch` call does not send it. The 14-day cutoff below removes its rows with their engine row.
 
 The 14-day cutoff of the tidy applies to engine rows too. The cutoff is `now` less 14 days. Each engine row with no event at or after the cutoff is deleted with its `engine_text` and `engine_prompt_failed` rows, and no event is appended, unless its session is live. A session is live from its start or resume until it is stopped, idle-stopped, exits, or `orreryd` shuts down, and a live session keeps its row, its `engine_text` rows and its `engine_prompt_failed` rows through the prune. The same tidy pass prunes events older than the cutoff, so the pass runs only while a tmux server's `list-panes` succeeds. A session that is not live loses its row after 14 days with no event, and a live session that waits for an answer keeps its row.
+
+#### Steps in the store
+
+The `steps` table (migration `00004_steps.sql`) has one row per step. Its `id` is the id of the step's `sessions` row. A row is added when the step starts. Its columns are these:
+
+| Column | Type | Meaning |
+|---|---|---|
+| `id` | `TEXT`, primary key | the step id |
+| `agent` | `TEXT` | the agent the step runs as |
+| `prompt` | `TEXT` | the step's first prompt |
+| `output_schema` | `TEXT` | the schema the return must match |
+| `workspace` | `TEXT` | the directory the step was started in |
+| `revision` | `TEXT` | the start commit |
+| `worktree` | `TEXT` | the read-only step's worktree path; `""` for a writing step |
+| `done_value` | `TEXT` | the status that ends the step `done` |
+| `read_only` | `BOOLEAN` | whether the step is read-only |
+| `owned` | `TEXT` | the `owned_paths` as a JSON array; `null` when there are none |
+| `gate` | `TEXT` | the gate argv as a JSON array, with its program resolved on `PATH`; `null` for no gate |
+| `gate_limit` | `INTEGER` | the gate limit in nanoseconds |
+| `started` | `INTEGER` | unix seconds when the row was added |
+| `checks` | `TEXT` | the checks of every return so far, as a JSON array of `round`, `name`, `ok` and `detail`; `[]` at start |
+| `result` | `TEXT` | the latest return's value, as JSON text |
+| `status` | `TEXT` | the status the step ended with; `""` while it runs and for the ends that carry none |
+| `end_value` | `TEXT` | the end kind of [Step lifecycle](#step-lifecycle); `""` while the step runs |
+| `reason` | `TEXT` | why the step ended; `""` while it runs |
+| `ended` | `INTEGER` | unix seconds when the step ended; `0` while it runs |
+
+The `sessions` row of a step has `kind` `step`, its `dir` (the workspace, or the worktree of a read-only step), and the same state, `reason` and `claude_session` columns as an engine row (see [Engine sessions in the store](#engine-sessions-in-the-store)). Its engine events are the engine kinds of the `events` table.
+
+The `steps` table is never pruned. The 14-day tidy deletes only engine rows (`kind` `engine`), and the unfinished text and `engine_prompt_failed` rows of those rows, so a step's `sessions` row, its `engine_text` rows and its `engine_prompt_failed` rows are kept too. Events of step rows are pruned with the other events, under the same rule.
+
 
 ### Claude Code hook settings
 
@@ -1015,3 +1125,5 @@ The picker routes `POST /v1/picker/ask` and `POST /v1/picker/run` were added add
 orrery engine API added, additively: the `orrery.v1.Control` service and its six calls (see [Control API](#control-api)), and `serve`'s reads of `HOME` and the session socket for it; the `WatchResponse` members `engine_added`, `engine_changed`, `engine_prompt`, `engine_block`, `engine_request`, `engine_request_canceled`, `engine_turn_ended` and `engine_text`, and the `EngineText` rule (see [Connect API](#connect-api)); the `model`, `id` and `prompt_id` fields of the engine socket's `Start` and `Say` (see [Session control socket](#session-control-socket)); the `promptId` key of the `engine_prompt` payload; the `engine_prompt_failed` table; and the `orrery session --url` form and `session start --model`. Watch and `orrery events` now send and print the engine events they skipped before. No existing name or value changes.
 
 orrery E19 (pane tree list) added the `newest_reply` key to each pane of `GET /v1/panes`, additively. It is a key of serve's answer only: `orrery list --json` (section 3) is unchanged. No existing name or value changes.
+
+orrery O1a (steps) added, additively: the `orreryd` flags `--step-cap` and `--gate-lock`, and the `step-worktrees` directory beside the store file; `--sessions` now also serves the step service; the `orrery.engine.v1.Steps` service on `sessions.sock`, its four calls and their Connect codes (see [Steps](#steps)); the `step` value of the `kind` column of `sessions`; the `steps` table (migration `00004_steps.sql`, see [Steps in the store](#steps-in-the-store)); the step end kinds `done`, `returned`, `checks_failed`, `failed`, `stopped` and `engine_restarted`; and the step rules of [Step lifecycle](#step-lifecycle). Step rows are not listed by the typed `List`; their `engine_*` events reach `orrery.v1.Events.Watch` as other engine events do. No existing name or value changes.
