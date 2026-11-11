@@ -208,6 +208,7 @@ fun PaneScreen(
     // Keyed by pane, and the terminal's also by view, so a pane switch or a return to the live
     // screen starts at the newest line instead of where another view was left.
     val listState = remember(paneId) { LazyListState() }
+    var endRequests by remember(paneId) { mutableIntStateOf(0) }
     val terminalScroll = remember(paneId, showingConversation) { ScrollState(0) }
     var headerHeightPx by remember { mutableIntStateOf(0) }
     var headerMeasured by remember { mutableStateOf(false) }
@@ -261,9 +262,12 @@ fun PaneScreen(
                 }
                 ConversationView(
                     entries,
+                    working = current?.state == "working",
+                    waiting = conversation?.waiting.orEmpty(),
                     listState = listState,
                     contentPadding = PaddingValues(top = bodyTop),
                     footer = footer,
+                    endRequests = endRequests,
                 )
             } else if (bodyReady) {
                 Column(modifier = Modifier.fillMaxSize()) {
@@ -307,6 +311,7 @@ fun PaneScreen(
                 else -> "Message Claude…"
             },
             onDraftPresent = { draftPresent = it },
+            onSend = { endRequests++ },
             status = current?.takeIf { conversation != null }?.let { shown ->
                 {
                     Column(verticalArrangement = Arrangement.spacedBy(GOAL_STATUS_GAP)) {

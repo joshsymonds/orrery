@@ -250,7 +250,7 @@ func TestReadItemsAreNeverNull(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
-	if want := `{"origin":"","items":[],"goal":""}`; string(data) != want {
+	if want := `{"origin":"","items":[],"goal":"","waiting":null}`; string(data) != want {
 		t.Fatalf("json = %s, want %s", data, want)
 	}
 }
