@@ -16,10 +16,8 @@ import (
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
 )
 
-// panesServer answers orrery.v1.Panes with the instances the REST pane routes share. The embedded Unimplemented
-// handler answers every method until its method lands.
+// panesServer answers orrery.v1.Panes with the instances the REST pane routes share.
 type panesServer struct {
-	orreryv1connect.UnimplementedPanesHandler
 	tmux      *tmuxctl.Client
 	newest    *conversation.Newest
 	goals     *conversation.Goals
@@ -162,6 +160,21 @@ func (s panesServer) SendKeys(
 		return nil, connectError(err)
 	}
 	return connect.NewResponse(&v1.SendKeysResponse{}), nil
+}
+
+// MarkSeen answers Panes.MarkSeen with what POST /v1/panes/{id}/seen answers. The pane is checked first, as the route
+// checks it before the body, and the seen time is set by markPaneSeen under the same lock the route uses.
+func (s panesServer) MarkSeen(
+	ctx context.Context,
+	req *connect.Request[v1.MarkSeenRequest],
+) (*connect.Response[v1.MarkSeenResponse], error) {
+	if _, err := checkPane(ctx, s.tmux, req.Msg.GetPane()); err != nil {
+		return nil, connectError(paneRouteError(err))
+	}
+	if err := markPaneSeen(ctx, s.tmux, s.seenLocks, req.Msg.GetPane(), req.Msg.ReadUpTo); err != nil {
+		return nil, connectError(err)
+	}
+	return connect.NewResponse(&v1.MarkSeenResponse{}), nil
 }
 
 // conversationMessage returns the ConversationResponse of conv, which holds the fields the REST answer writes.

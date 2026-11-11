@@ -715,3 +715,105 @@ func TestPanesSendKeysErrorParity(t *testing.T) {
 	assertStatus(t, postJSON(t, handler, paneRoute(pane, "keys"), `{"keys":["ok"]}`), http.StatusNoContent)
 	awaitInput(t, file, "ok")
 }
+
+func TestPanesMarkSeenParity(t *testing.T) {
+	t.Parallel()
+
+	const (
+		reported = int64(1700000100)
+		earlier  = int64(1700000050)
+		later    = int64(1700000200)
+	)
+	tmux := newTmuxServer(t)
+	// Two pane pairs: the absent read_up_to case needs panes whose time is unset, and the reported-time cases need
+	// their own, since setting now would hold the stored time above every reported time.
+	restNow, _ := startInputPane(t, tmux, "rest-now", synthScreen)
+	connectNow, _ := startInputPane(t, tmux, "connect-now", synthScreen)
+	restPane, _ := startInputPane(t, tmux, "rest", synthScreen)
+	connectPane, _ := startInputPane(t, tmux, "connect", synthScreen)
+	handler := newHandler(t, tmux)
+	client := panesClient(t, handler)
+
+	// Absent read_up_to is now on both answers. Each stored time lands within the bounds TestServePaneSeen uses.
+	before := time.Now().Unix()
+	assertStatus(t, postJSON(t, handler, paneRoute(restNow, "seen"), "{}"), http.StatusNoContent)
+	if _, err := client.MarkSeen(t.Context(),
+		connect.NewRequest(&orreryv1.MarkSeenRequest{Pane: connectNow})); err != nil {
+		t.Fatalf("Panes.MarkSeen absent read_up_to: %v", err)
+	}
+	after := time.Now().Unix()
+	for _, pane := range []string{restNow, connectNow} {
+		if seen := seenOption(t, tmux, pane); seen < before || seen > after {
+			t.Fatalf("absent read_up_to on %s: %s = %d, want a time between %d and %d",
+				pane, protocol.OptionSeen, seen, before, after)
+		}
+	}
+
+	// A reported time is stored when unset, an earlier one leaves the stored time, and a later one is stored.
+	steps := []struct {
+		name     string
+		readUpTo int64
+		want     int64
+	}{
+		{"unset takes the reported time", reported, reported},
+		{"earlier time leaves the stored time", earlier, reported},
+		{"later time is stored", later, later},
+	}
+	for _, step := range steps {
+		readUpTo := step.readUpTo
+		postReadUpTo(t, handler, paneRoute(restPane, "seen"), readUpTo)
+		if _, err := client.MarkSeen(t.Context(),
+			connect.NewRequest(&orreryv1.MarkSeenRequest{Pane: connectPane, ReadUpTo: &readUpTo})); err != nil {
+			t.Fatalf("%s: Panes.MarkSeen: %v", step.name, err)
+		}
+		if got := seenOption(t, tmux, restPane); got != step.want {
+			t.Fatalf("%s: REST %s = %d, want %d", step.name, protocol.OptionSeen, got, step.want)
+		}
+		if got := seenOption(t, tmux, connectPane); got != step.want {
+			t.Fatalf("%s: Panes.MarkSeen %s = %d, want %d", step.name, protocol.OptionSeen, got, step.want)
+		}
+	}
+}
+
+func TestPanesMarkSeenErrorParity(t *testing.T) {
+	t.Parallel()
+
+	tmux := newTmuxServer(t)
+	pane, _ := startInputPane(t, tmux, "s1", synthScreen)
+	handler := newHandler(t, tmux)
+	client := panesClient(t, handler)
+	negative := int64(-1)
+
+	cases := []struct {
+		name     string
+		id       string
+		body     string
+		readUpTo *int64
+		status   int
+		code     connect.Code
+	}{
+		{"malformed pane id", "abc", "{}", nil, http.StatusBadRequest, connect.CodeInvalidArgument},
+		{"absent pane", "%999999", "{}", nil, http.StatusNotFound, connect.CodeNotFound},
+		{"negative read_up_to", pane, jsonBody(t, map[string]any{"read_up_to": negative}), &negative,
+			http.StatusBadRequest, connect.CodeInvalidArgument},
+	}
+	for _, c := range cases {
+		rec := postJSON(t, handler, paneRoute(c.id, "seen"), c.body)
+		assertStatus(t, rec, c.status)
+		wantMessage := strings.TrimSuffix(rec.Body.String(), "\n")
+
+		_, err := client.MarkSeen(t.Context(),
+			connect.NewRequest(&orreryv1.MarkSeenRequest{Pane: c.id, ReadUpTo: c.readUpTo}))
+		var connectErr *connect.Error
+		if !errors.As(err, &connectErr) {
+			t.Fatalf("%s: Panes.MarkSeen error = %v, want a *connect.Error", c.name, err)
+		}
+		if connectErr.Code() != c.code {
+			t.Fatalf("%s: Panes.MarkSeen code = %v, want %v", c.name, connectErr.Code(), c.code)
+		}
+		if connectErr.Message() != wantMessage {
+			t.Fatalf("%s: Panes.MarkSeen message = %q, want the REST body %q",
+				c.name, connectErr.Message(), wantMessage)
+		}
+	}
+}

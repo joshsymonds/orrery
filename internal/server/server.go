@@ -680,31 +680,46 @@ func servePaneSeen(tmux *tmuxctl.Client, locks *paneLocks) http.HandlerFunc {
 			http.Error(w, "bad request body", http.StatusBadRequest)
 			return
 		}
-		raw, reported := fields[fieldReadUpTo]
-		var readUpTo int64
-		if reported {
-			if readUpTo, ok = unixSeconds(raw); !ok {
+		var readUpTo *int64
+		if raw, reported := fields[fieldReadUpTo]; reported {
+			value, valid := unixSeconds(raw)
+			if !valid {
 				http.Error(w, "bad request body", http.StatusBadRequest)
 				return
 			}
+			readUpTo = &value
 		}
-		mu := locks.lock(id)
-		mu.Lock()
-		err := markSeen(r.Context(), tmux, id, readUpTo, reported)
-		mu.Unlock()
-		if err != nil {
-			http.Error(w, "internal server error", http.StatusInternalServerError)
+		if err := markPaneSeen(r.Context(), tmux, locks, id, readUpTo); err != nil {
+			writeRouteError(w, err)
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
 	}
 }
 
-// markSeen sets pane id's seen time. Without a reported time it is now, as `orrery seen` sets it. With one, it is
-// the later of the stored time and the reported one, so the stored time never moves back. An unset stored time
-// counts as 0. The caller holds the pane's lock.
-func markSeen(ctx context.Context, tmux *tmuxctl.Client, id string, reported int64, hasReported bool) error {
-	if !hasReported {
+// markPaneSeen sets pane id's seen time as POST /v1/panes/{id}/seen does: now when readUpTo is nil, else the time it
+// points to, which must be 0 or more. The pane's lock covers the write, so two seen posts to one pane never store an
+// earlier time last. A negative time is 400 and a failed write is internalError. The caller has checked that the pane
+// exists.
+func markPaneSeen(ctx context.Context, tmux *tmuxctl.Client, locks *paneLocks, id string, readUpTo *int64) error {
+	if readUpTo != nil && *readUpTo < 0 {
+		return routeError{status: http.StatusBadRequest, message: "bad request body"}
+	}
+	mu := locks.lock(id)
+	mu.Lock()
+	err := markSeen(ctx, tmux, id, readUpTo)
+	mu.Unlock()
+	if err != nil {
+		return internalError()
+	}
+	return nil
+}
+
+// markSeen sets pane id's seen time. Without a readUpTo it is now, as `orrery seen` sets it. With one, it is the later
+// of the stored time and that one, so the stored time never moves back. An unset stored time counts as 0. The caller
+// holds the pane's lock.
+func markSeen(ctx context.Context, tmux *tmuxctl.Client, id string, readUpTo *int64) error {
+	if readUpTo == nil {
 		if err := cli.Seen(ctx, tmux, []string{flagPane, id}, io.Discard); err != nil {
 			return fmt.Errorf("server: seen: %w", err)
 		}
@@ -720,10 +735,10 @@ func markSeen(ctx context.Context, tmux *tmuxctl.Client, id string, reported int
 			return fmt.Errorf("server: seen time %q: %w", value, err)
 		}
 	}
-	if reported <= stored {
+	if *readUpTo <= stored {
 		return nil
 	}
-	if err = tmux.SetPaneOption(ctx, id, protocol.OptionSeen, strconv.FormatInt(reported, 10)); err != nil {
+	if err = tmux.SetPaneOption(ctx, id, protocol.OptionSeen, strconv.FormatInt(*readUpTo, 10)); err != nil {
 		return fmt.Errorf("server: set seen time: %w", err)
 	}
 	return nil
