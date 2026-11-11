@@ -215,7 +215,10 @@ private fun TableGrid(table: MdBlock.Table, size: TextUnit) {
         val line = 1.dp.roundToPx().coerceAtLeast(1)
         val widths = IntArray(columns) { c -> (0 until rowCount).maxOf { r -> cells[r * columns + c].width } }
         val heights = IntArray(rowCount) { r -> (0 until columns).maxOf { c -> cells[r * columns + c].height } }
-        val totalWidth = widths.sum() + gap * (columns - 1)
+        // Constraints cannot represent a width above 262142 px, so a wider table is clamped to it.
+        val maxWidth = 262142L
+        val naturalWidth = widths.sumOf { it.toLong() } + gap.toLong() * (columns - 1)
+        val totalWidth = minOf(naturalWidth, maxWidth).toInt()
         val totalHeight = heights.sum() + padY * 2 * rowCount + line * (rowCount - 1)
         val lines = measurables.drop(cellCount).map { it.measure(Constraints.fixed(totalWidth, line)) }
         layout(totalWidth, totalHeight) {

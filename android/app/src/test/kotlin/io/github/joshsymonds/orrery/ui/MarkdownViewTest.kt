@@ -17,6 +17,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import org.robolectric.annotation.GraphicsMode
 
 private class RecordingUriHandler : UriHandler {
     val opened = mutableListOf<String>()
@@ -108,5 +109,28 @@ class MarkdownViewTest {
         composeRule.waitForIdle()
 
         composeRule.onNodeWithText("docs").assertIsDisplayed()
+    }
+
+    @Test
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    @Config(qualifiers = "w411dp-h891dp-420dpi")
+    fun tableWiderThanConstraintsRendersItsBodyRowWithoutThrowing() {
+        val wideX = "x".repeat(14000)
+        val wideY = "y".repeat(14000)
+        setBody("| $wideX | $wideY |\n|---|---|\n| synthetic | cell |")
+
+        composeRule.onAllNodesWithText(wideX).assertCountEquals(1)
+        composeRule.onAllNodesWithText("synthetic").assertCountEquals(1)
+    }
+
+    @Test
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    @Config(qualifiers = "w411dp-h891dp-420dpi")
+    fun headerOnlyWideTableRendersWithoutThrowing() {
+        val wideX = "x".repeat(14000)
+        val wideY = "y".repeat(14000)
+        setBody("| $wideX | $wideY |\n|---|---|")
+
+        composeRule.onAllNodesWithText(wideX).assertCountEquals(1)
     }
 }
