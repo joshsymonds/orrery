@@ -145,3 +145,72 @@ func TestSyncServerEngineCutoffIncludesEventAtCutoff(t *testing.T) {
 		t.Fatalf("engine sessions: got %v, want %v", got, want)
 	}
 }
+
+// seedStaleEngine writes engine sessions eng-a and eng-b, each with one engine_text row, all at t0. Their only
+// events are at t0, so both are stale for any prune at t0 plus EventRetention plus one hour.
+func seedStaleEngine(t *testing.T, s *Store, t0 time.Time) {
+	t.Helper()
+	ctx := context.Background()
+	if err := s.SyncServer(ctx, "-L a", []Pane{{ID: "orrery-1", Pane: "%1"}}, t0); err != nil {
+		t.Fatalf("SyncServer at T: %v", err)
+	}
+	if err := s.ApplyEngine(ctx, []EngineOp{
+		EngineAdd{ID: "eng-a", Dir: "/a", State: "idle"},
+		EngineText{ID: "eng-a", MessageID: "m1", Index: 0, Kind: "text", Text: "partial"},
+		EngineAdd{ID: "eng-b", Dir: "/b", State: "idle"},
+		EngineText{ID: "eng-b", MessageID: "m1", Index: 0, Kind: "text", Text: "partial"},
+	}, t0); err != nil {
+		t.Fatalf("ApplyEngine: %v", err)
+	}
+}
+
+func TestSyncServerKeepsLiveEngineSessionPastRetention(t *testing.T) {
+	ctx := context.Background()
+	s := openSyncStore(t)
+	t0 := time.Unix(1_700_000_000, 0)
+	seedStaleEngine(t, s, t0)
+	s.SetEngineLive(func() []string { return []string{"eng-a"} })
+
+	now := t0.Add(EventRetention + time.Hour)
+	if err := s.SyncServer(ctx, "-L a", []Pane{{ID: "orrery-1", Pane: "%1"}}, now); err != nil {
+		t.Fatalf("SyncServer at T plus 14 days and one hour: %v", err)
+	}
+
+	if got, want := engineIDsOf(t, s), []string{"eng-a"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("engine sessions: got %v, want %v", got, want)
+	}
+	if got := engineTextCountOf(t, s, "eng-a"); got != 1 {
+		t.Fatalf("engine_text rows of live eng-a: got %d, want 1", got)
+	}
+	if got := engineTextCountOf(t, s, "eng-b"); got != 0 {
+		t.Fatalf("engine_text rows of removed eng-b: got %d, want 0", got)
+	}
+}
+
+func TestSyncServerEmptyLiveListStillRemovesStaleEngineSession(t *testing.T) {
+	lives := map[string]func() []string{
+		"empty slice": func() []string { return []string{} },
+		"nil slice":   func() []string { return nil },
+	}
+	for name, live := range lives {
+		t.Run(name, func(t *testing.T) {
+			ctx := context.Background()
+			s := openSyncStore(t)
+			t0 := time.Unix(1_700_000_000, 0)
+			seedStaleEngine(t, s, t0)
+			s.SetEngineLive(live)
+
+			now := t0.Add(EventRetention + time.Hour)
+			if err := s.SyncServer(ctx, "-L a", []Pane{{ID: "orrery-1", Pane: "%1"}}, now); err != nil {
+				t.Fatalf("SyncServer at T plus 14 days and one hour: %v", err)
+			}
+
+			if got := engineIDsOf(t, s); len(got) != 0 {
+				t.Fatalf("engine sessions: got %v, want none", got)
+			}
+			if got := engineTextCountOf(t, s, "eng-a"); got != 0 {
+				t.Fatalf("engine_text rows of removed eng-a: got %d, want 0", got)
+			}
+		})
+	}
+}

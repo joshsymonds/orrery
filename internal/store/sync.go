@@ -107,8 +107,10 @@ func (s *Store) SyncPane(ctx context.Context, server string, pane Pane, now time
 
 // SyncServer syncs every pane of one tmux server, removes the server's rows whose id is absent from panes,
 // prunes events older than EventRetention, except the newest event, and removes each engine session that has
-// no event at or after the same cutoff, with its unfinished text. The removal appends no event.
+// no event at or after the same cutoff, with its unfinished text. A live engine session, as SetEngineLive
+// reports, is kept with its text. The removal appends no event.
 func (s *Store) SyncServer(ctx context.Context, server string, panes []Pane, now time.Time) error {
+	live := s.engineLiveIDs()
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
 		present := make(map[string]bool, len(panes))
 		for _, pane := range panes {
@@ -133,22 +135,30 @@ func (s *Store) SyncServer(ctx context.Context, server string, panes []Pane, now
 				return appendErr
 			}
 		}
-		return pruneRetention(ctx, queries, now)
+		return pruneRetention(ctx, queries, now, live)
 	})
 }
 
 // pruneRetention prunes events older than EventRetention, then removes each engine session with no event at or
-// after the same cutoff, with its unfinished text.
-func pruneRetention(ctx context.Context, queries *sqlcgen.Queries, now time.Time) error {
+// after the same cutoff and no id in live, with its unfinished text.
+func pruneRetention(ctx context.Context, queries *sqlcgen.Queries, now time.Time, live []string) error {
 	cutoff := now.Add(-EventRetention).Unix()
 	if err := queries.PruneEvents(ctx, cutoff); err != nil {
 		return fmt.Errorf("prune events: %w", err)
 	}
+	liveJSON, err := json.Marshal(live)
+	if err != nil {
+		return fmt.Errorf("encode live engine sessions: %w", err)
+	}
 	// Engine text goes first: its delete selects engine sessions that the session delete removes.
-	if err := queries.DeleteStaleEngineText(ctx, cutoff); err != nil {
+	if err = queries.DeleteStaleEngineText(ctx, sqlcgen.DeleteStaleEngineTextParams{
+		Cutoff: cutoff, Live: string(liveJSON),
+	}); err != nil {
 		return fmt.Errorf("delete stale engine text: %w", err)
 	}
-	if err := queries.DeleteStaleEngineSessions(ctx, cutoff); err != nil {
+	if err = queries.DeleteStaleEngineSessions(ctx, sqlcgen.DeleteStaleEngineSessionsParams{
+		Cutoff: cutoff, Live: string(liveJSON),
+	}); err != nil {
 		return fmt.Errorf("delete stale engine sessions: %w", err)
 	}
 	return nil

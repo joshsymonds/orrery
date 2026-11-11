@@ -53,10 +53,16 @@ const deleteStaleEngineSessions = `-- name: DeleteStaleEngineSessions :exec
 DELETE FROM sessions
 WHERE sessions.kind = 'engine'
   AND NOT EXISTS (SELECT 1 FROM events WHERE events.session_id = sessions.id AND events.at >= ?1)
+  AND sessions.id NOT IN (SELECT value FROM json_each(?2))
 `
 
-func (q *Queries) DeleteStaleEngineSessions(ctx context.Context, cutoff int64) error {
-	_, err := q.db.ExecContext(ctx, deleteStaleEngineSessions, cutoff)
+type DeleteStaleEngineSessionsParams struct {
+	Cutoff int64
+	Live   interface{}
+}
+
+func (q *Queries) DeleteStaleEngineSessions(ctx context.Context, arg DeleteStaleEngineSessionsParams) error {
+	_, err := q.db.ExecContext(ctx, deleteStaleEngineSessions, arg.Cutoff, arg.Live)
 	return err
 }
 
@@ -66,11 +72,17 @@ WHERE session_id IN (
     SELECT sessions.id FROM sessions
     WHERE sessions.kind = 'engine'
       AND NOT EXISTS (SELECT 1 FROM events WHERE events.session_id = sessions.id AND events.at >= ?1)
+      AND sessions.id NOT IN (SELECT value FROM json_each(?2))
 )
 `
 
-func (q *Queries) DeleteStaleEngineText(ctx context.Context, cutoff int64) error {
-	_, err := q.db.ExecContext(ctx, deleteStaleEngineText, cutoff)
+type DeleteStaleEngineTextParams struct {
+	Cutoff int64
+	Live   interface{}
+}
+
+func (q *Queries) DeleteStaleEngineText(ctx context.Context, arg DeleteStaleEngineTextParams) error {
+	_, err := q.db.ExecContext(ctx, deleteStaleEngineText, arg.Cutoff, arg.Live)
 	return err
 }
 

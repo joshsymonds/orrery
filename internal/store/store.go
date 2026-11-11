@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"sync"
 
 	"github.com/pressly/goose/v3"
 	// The blank import registers the pure-Go "sqlite" driver with database/sql.
@@ -27,6 +28,31 @@ var ErrTooNew = errors.New("store schema is newer than this binary")
 // Store is an open orrery SQLite store.
 type Store struct {
 	db *sql.DB
+
+	liveMu     sync.Mutex
+	engineLive func() []string
+}
+
+// SetEngineLive sets the function that SyncServer's prune calls, once per run, for the ids of the engine
+// sessions that are live. The prune keeps those sessions and their engine text. It is safe to call while
+// SyncServer runs on other goroutines.
+func (s *Store) SetEngineLive(live func() []string) {
+	s.liveMu.Lock()
+	defer s.liveMu.Unlock()
+	s.engineLive = live
+}
+
+// engineLiveIDs calls the function set by SetEngineLive, outside the lock, and returns its ids. It returns a
+// non-nil empty slice when no function is set or it returns none, so the ids always encode as a JSON array.
+func (s *Store) engineLiveIDs() []string {
+	s.liveMu.Lock()
+	live := s.engineLive
+	s.liveMu.Unlock()
+	ids := []string{}
+	if live != nil {
+		ids = append(ids, live()...)
+	}
+	return ids
 }
 
 // Path resolves the store file: $XDG_STATE_HOME/orrery/orrery.db when XDG_STATE_HOME is set,
