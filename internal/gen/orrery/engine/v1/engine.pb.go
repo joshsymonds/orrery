@@ -27,7 +27,12 @@ type StartRequest struct {
 	// The existing absolute directory the session runs in.
 	Dir string `protobuf:"bytes,1,opt,name=dir,proto3" json:"dir,omitempty"`
 	// The session's first prompt.
-	Prompt        string `protobuf:"bytes,2,opt,name=prompt,proto3" json:"prompt,omitempty"`
+	Prompt string `protobuf:"bytes,2,opt,name=prompt,proto3" json:"prompt,omitempty"`
+	// The model alias the session runs, such as haiku. Empty runs claude's default.
+	Model string `protobuf:"bytes,3,opt,name=model,proto3" json:"model,omitempty"`
+	// A session id the client chooses, 32 lowercase hex digits. Empty means orreryd mints one. A start whose id names
+	// an existing session starts nothing and returns that id.
+	Id            string `protobuf:"bytes,4,opt,name=id,proto3" json:"id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -72,6 +77,20 @@ func (x *StartRequest) GetDir() string {
 func (x *StartRequest) GetPrompt() string {
 	if x != nil {
 		return x.Prompt
+	}
+	return ""
+}
+
+func (x *StartRequest) GetModel() string {
+	if x != nil {
+		return x.Model
+	}
+	return ""
+}
+
+func (x *StartRequest) GetId() string {
+	if x != nil {
+		return x.Id
 	}
 	return ""
 }
@@ -128,7 +147,10 @@ type SayRequest struct {
 	// The session's id.
 	Id string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	// The message text.
-	Text          string `protobuf:"bytes,2,opt,name=text,proto3" json:"text,omitempty"`
+	Text string `protobuf:"bytes,2,opt,name=text,proto3" json:"text,omitempty"`
+	// An id the client chooses for this prompt. Empty means none. A say whose prompt id the session has already recorded
+	// sends nothing and succeeds.
+	PromptId      string `protobuf:"bytes,3,opt,name=prompt_id,json=promptId,proto3" json:"prompt_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -173,6 +195,13 @@ func (x *SayRequest) GetId() string {
 func (x *SayRequest) GetText() string {
 	if x != nil {
 		return x.Text
+	}
+	return ""
+}
+
+func (x *SayRequest) GetPromptId() string {
+	if x != nil {
+		return x.PromptId
 	}
 	return ""
 }
@@ -568,16 +597,19 @@ var File_orrery_engine_v1_engine_proto protoreflect.FileDescriptor
 
 const file_orrery_engine_v1_engine_proto_rawDesc = "" +
 	"\n" +
-	"\x1dorrery/engine/v1/engine.proto\x12\x10orrery.engine.v1\"8\n" +
+	"\x1dorrery/engine/v1/engine.proto\x12\x10orrery.engine.v1\"^\n" +
 	"\fStartRequest\x12\x10\n" +
 	"\x03dir\x18\x01 \x01(\tR\x03dir\x12\x16\n" +
-	"\x06prompt\x18\x02 \x01(\tR\x06prompt\"\x1f\n" +
+	"\x06prompt\x18\x02 \x01(\tR\x06prompt\x12\x14\n" +
+	"\x05model\x18\x03 \x01(\tR\x05model\x12\x0e\n" +
+	"\x02id\x18\x04 \x01(\tR\x02id\"\x1f\n" +
 	"\rStartResponse\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\"0\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\"M\n" +
 	"\n" +
 	"SayRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
-	"\x04text\x18\x02 \x01(\tR\x04text\"\r\n" +
+	"\x04text\x18\x02 \x01(\tR\x04text\x12\x1b\n" +
+	"\tprompt_id\x18\x03 \x01(\tR\bpromptId\"\r\n" +
 	"\vSayResponse\"V\n" +
 	"\rAnswerRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1d\n" +

@@ -6,7 +6,8 @@ package orrery.engine.v1;
 // 0600, and never on the public orrery serve API.
 service Engine {
   // Start starts a headless session in an existing absolute directory with a first prompt and returns once its row
-  // exists and its process is spawned. A start past the session cap is refused with a reason.
+  // exists and its process is spawned. A start past the session cap is refused with a reason. A start that names an
+  // existing session's id returns that id and starts nothing.
   rpc Start(StartRequest) returns (StartResponse);
 
   // Say sends a text message to a session's conversation.
@@ -33,6 +34,13 @@ message StartRequest {
 
   // The session's first prompt.
   string prompt = 2;
+
+  // The model alias the session runs, such as haiku. Empty runs claude's default.
+  string model = 3;
+
+  // A session id the client chooses, 32 lowercase hex digits. Empty means orreryd mints one. A start whose id names
+  // an existing session starts nothing and returns that id.
+  string id = 4;
 }
 
 // StartResponse names the started session.
@@ -48,6 +56,10 @@ message SayRequest {
 
   // The message text.
   string text = 2;
+
+  // An id the client chooses for this prompt. Empty means none. A say whose prompt id the session has already recorded
+  // sends nothing and succeeds.
+  string prompt_id = 3;
 }
 
 // SayResponse acknowledges a message. It has no fields.
