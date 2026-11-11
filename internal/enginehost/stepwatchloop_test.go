@@ -586,3 +586,106 @@ func TestWatchLoopFailedInterruptKeepsWatching(t *testing.T) {
 		t.Fatalf("interrupt attempts = %d, want 2", len(got))
 	}
 }
+
+// A landed silent nudge whose turn never ends still ends silent: the silence count runs from the nudge.
+func TestWatchLoopNudgedTurnEndsSilentWithoutTurnEnd(t *testing.T) {
+	haiku := &watchLoopHaiku{replies: []watchLoopReply{
+		watchLoopVerdict(watchVerdictProgressing, "thinking"),
+		watchLoopVerdict(watchVerdictProgressing, "still thinking"),
+	}}
+	sessions := &stepLoopSessions{}
+	f := newWatchLoopFixture(t, haiku, sessions, watchLoopModelLimit)
+	f.event(0, session.Started{})
+
+	f.tick(t, 10*time.Minute)
+	verdicts := f.waitVerdicts(t, 1)
+	watchLoopWantVerdict(t, verdicts[0], watchTripSilent, watchVerdictProgressing, "thinking", false, "nudge")
+
+	f.tick(t, 20*time.Minute)
+	row := f.waitEnd(t)
+	watchLoopWantVerdict(t, row.Verdicts[1], watchTripSilent, watchVerdictProgressing, "still thinking", false, "end")
+	if row.End != "silent" {
+		t.Fatalf("end = %q, want silent", row.End)
+	}
+	if got := sessions.interruptedIDs(); len(got) != 1 {
+		t.Fatalf("interrupts = %d, want 1", len(got))
+	}
+}
+
+// A landed nudge on a stuck tool call whose turn never ends still ends tool_stuck: the call's clock restarts at the
+// nudge, so the call trips again thirty minutes after it.
+func TestWatchLoopNudgedToolCallEndsToolStuckWithoutTurnEnd(t *testing.T) {
+	haiku := &watchLoopHaiku{replies: []watchLoopReply{
+		watchLoopVerdict(watchVerdictWedged, "stuck on the grep"),
+		watchLoopVerdict(watchVerdictProgressing, "still stuck"),
+	}}
+	sessions := &stepLoopSessions{}
+	f := newWatchLoopFixture(t, haiku, sessions, watchLoopModelLimit)
+	f.event(0, session.Started{})
+	f.event(0, session.ToolCallStarted{ToolUseID: watchToolID, Name: "Bash"})
+
+	f.tick(t, 30*time.Minute)
+	verdicts := f.waitVerdicts(t, 1)
+	watchLoopWantVerdict(t, verdicts[0], watchTripToolStuck, watchVerdictWedged, "stuck on the grep", false, "nudge")
+
+	f.event(31*time.Minute, session.Block{Kind: session.BlockText, Role: "assistant", Text: "still waiting"})
+	f.tick(t, 60*time.Minute)
+	row := f.waitEnd(t)
+	watchLoopWantVerdict(t, row.Verdicts[1], watchTripToolStuck, watchVerdictProgressing, "still stuck", false, "end")
+	if row.End != "tool_stuck" {
+		t.Fatalf("end = %q, want tool_stuck", row.End)
+	}
+	if got := sessions.interruptedIDs(); len(got) != 1 {
+		t.Fatalf("interrupts = %d, want 1", len(got))
+	}
+}
+
+// A landed nudge whose turn never ends still ends overtime at the model-time limit.
+func TestWatchLoopNudgedTurnEndsOvertimeWithoutTurnEnd(t *testing.T) {
+	haiku := &watchLoopHaiku{replies: []watchLoopReply{
+		watchLoopVerdict(watchVerdictProgressing, "thinking"),
+		watchLoopVerdict(watchVerdictProgressing, "still going"),
+	}}
+	sessions := &stepLoopSessions{}
+	f := newWatchLoopFixture(t, haiku, sessions, 20*time.Minute)
+	f.event(0, session.Started{})
+
+	f.tick(t, 10*time.Minute)
+	verdicts := f.waitVerdicts(t, 1)
+	watchLoopWantVerdict(t, verdicts[0], watchTripSilent, watchVerdictProgressing, "thinking", false, "nudge")
+
+	f.event(15*time.Minute, session.Block{Kind: session.BlockText, Role: "assistant", Text: "still thinking"})
+	f.tick(t, 20*time.Minute)
+	row := f.waitEnd(t)
+	watchLoopWantVerdict(t, row.Verdicts[1], watchTripOvertime, watchVerdictProgressing, "still going", false, "end")
+	if row.End != "overtime" {
+		t.Fatalf("end = %q, want overtime", row.End)
+	}
+	if got := sessions.interruptedIDs(); len(got) != 1 {
+		t.Fatalf("interrupts = %d, want 1", len(got))
+	}
+}
+
+// A nudge on a stuck tool call whose interrupt fails leaves the call's clock alone: the call is still past its limit,
+// so the next tick trips tool_stuck again and tries the nudge again.
+func TestWatchLoopFailedInterruptKeepsToolClock(t *testing.T) {
+	haiku := &watchLoopHaiku{replies: []watchLoopReply{
+		watchLoopVerdict(watchVerdictWedged, "stuck on the grep"),
+		watchLoopVerdict(watchVerdictWedged, "still stuck"),
+	}}
+	sessions := &stepLoopSessions{interruptErr: errors.New("interrupt refused")}
+	f := newWatchLoopFixture(t, haiku, sessions, watchLoopModelLimit)
+	f.event(0, session.Started{})
+	f.event(0, session.ToolCallStarted{ToolUseID: watchToolID, Name: "Bash"})
+
+	f.tick(t, 30*time.Minute)
+	verdicts := f.waitVerdicts(t, 1)
+	watchLoopWantVerdict(t, verdicts[0], watchTripToolStuck, watchVerdictWedged, "stuck on the grep", false, "none")
+
+	f.tick(t, 30*time.Minute+5*time.Second)
+	verdicts = f.waitVerdicts(t, 2)
+	watchLoopWantVerdict(t, verdicts[1], watchTripToolStuck, watchVerdictWedged, "still stuck", false, "none")
+	if got := sessions.interruptedIDs(); len(got) != 2 {
+		t.Fatalf("interrupt attempts = %d, want 2", len(got))
+	}
+}

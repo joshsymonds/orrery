@@ -100,9 +100,10 @@ type stepWatch struct {
 	silence time.Duration // model time since the last event
 	check   time.Duration // turn time since the turn began or the last apply
 	calls   map[string]*watchCall
-	nudged  bool // the step has been nudged, which spends its one nudge
-	nudging bool // a nudge has interrupted the running turn; no trip is due until the next turn begins
-	pending bool // a trip was returned and its apply has not come yet
+	nudged  bool      // the step has been nudged, which spends its one nudge
+	nudging bool      // a nudge has interrupted the running turn; no periodic check is due until the next turn begins
+	nudgeAt time.Time // when the nudge interrupted the turn; while nudging, an open call's clock counts from it
+	pending bool      // a trip was returned and its apply has not come yet
 	lines   []watchLine
 }
 
@@ -207,13 +208,13 @@ func watchCut(text string) string {
 }
 
 // due returns the backstop that has tripped at a clock reading, the highest first: overtime, tool_stuck,
-// silent, periodic. It returns false while a turn is not running, a trip awaits its apply, or a nudge has interrupted
-// the turn.
+// silent, periodic. It returns false while a turn is not running or a trip awaits its apply. A nudge that interrupted
+// the turn leaves the other backstops running and turns off the periodic one.
 func (w *stepWatch) due(at time.Time) (watchTrip, bool) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	w.advance(at)
-	if w.pending || w.nudging || !w.running {
+	if w.pending || !w.running {
 		return watchTrip{}, false
 	}
 	var trip watchTrip
@@ -237,7 +238,7 @@ func (w *stepWatch) due(at time.Time) (watchTrip, bool) {
 			Kind: watchTripSilent,
 			Why:  "The step has produced no event for ten minutes of model time; decide whether it is working or stuck.",
 		}
-	case w.check >= watchPeriod:
+	case w.check >= watchPeriod && !w.nudging:
 		trip = watchTrip{
 			Kind: watchTripPeriodic,
 			Why:  "Five minutes of turn time have passed since the last check; decide whether the step is progressing, looping, or wedged.",
@@ -251,7 +252,7 @@ func (w *stepWatch) due(at time.Time) (watchTrip, bool) {
 }
 
 // stuckCall returns the open call that has run past its limit at a clock reading, the earliest-started
-// first, and false when no call has.
+// first, and false when no call has. While a nudge has interrupted the turn, a call's limit counts from the nudge.
 func (w *stepWatch) stuckCall(at time.Time) (string, bool) {
 	best := ""
 	found := false
@@ -260,7 +261,11 @@ func (w *stepWatch) stuckCall(at time.Time) (string, bool) {
 		if call.extended {
 			limit = watchToolExtended
 		}
-		if at.Sub(call.at) < limit {
+		from := call.at
+		if w.nudging && w.nudgeAt.After(from) {
+			from = w.nudgeAt
+		}
+		if at.Sub(from) < limit {
 			continue
 		}
 		if !found || call.at.Before(w.calls[best].at) {
@@ -290,7 +295,7 @@ func (w *stepWatch) apply(at time.Time, trip watchTrip, verdict string) watchAct
 	}
 	if verdict == watchVerdictLooping || verdict == watchVerdictWedged {
 		if !w.nudged {
-			return w.nudge()
+			return w.nudge(at)
 		}
 		return watchAction{Kind: watchActEnd, End: watchEnd(verdict)}
 	}
@@ -303,7 +308,7 @@ func (w *stepWatch) apply(at time.Time, trip watchTrip, verdict string) watchAct
 		return watchAction{Kind: watchActEnd, End: watchEndToolStuck}
 	case watchTripSilent:
 		if !w.nudged {
-			return w.nudge()
+			return w.nudge(at)
 		}
 		return watchAction{Kind: watchActEnd, End: watchEndSilent}
 	default:
@@ -311,10 +316,12 @@ func (w *stepWatch) apply(at time.Time, trip watchTrip, verdict string) watchAct
 	}
 }
 
-// nudge spends the step's one nudge, restarts the silence count, and quiets the watch until the next turn begins.
-func (w *stepWatch) nudge() watchAction {
+// nudge spends the step's one nudge, restarts the silence count and each open call's clock, and turns off the
+// periodic check until the next turn begins.
+func (w *stepWatch) nudge(at time.Time) watchAction {
 	w.nudged = true
 	w.nudging = true
+	w.nudgeAt = at
 	w.silence = 0
 	return watchAction{Kind: watchActNudge}
 }
