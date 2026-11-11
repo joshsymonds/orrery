@@ -149,6 +149,21 @@ func (s panesServer) SendText(
 	return connect.NewResponse(&v1.SendTextResponse{}), nil
 }
 
+// SendKeys answers Panes.SendKeys with what POST /v1/panes/{id}/keys answers. The pane is checked first, as the route
+// checks it before the body, and the keys are sent by sendKeys, which carries the expect_question guard.
+func (s panesServer) SendKeys(
+	ctx context.Context,
+	req *connect.Request[v1.SendKeysRequest],
+) (*connect.Response[v1.SendKeysResponse], error) {
+	if _, err := checkPane(ctx, s.tmux, req.Msg.GetPane()); err != nil {
+		return nil, connectError(paneRouteError(err))
+	}
+	if err := sendKeys(ctx, s.tmux, req.Msg.GetPane(), req.Msg.GetKeys(), req.Msg.ExpectQuestion); err != nil {
+		return nil, connectError(err)
+	}
+	return connect.NewResponse(&v1.SendKeysResponse{}), nil
+}
+
 // conversationMessage returns the ConversationResponse of conv, which holds the fields the REST answer writes.
 func conversationMessage(conv conversation.Conversation) *v1.ConversationResponse {
 	items := make([]*v1.ConversationItem, 0, len(conv.Items))

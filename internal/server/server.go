@@ -625,28 +625,44 @@ func servePaneKeys(tmux *tmuxctl.Client) http.HandlerFunc {
 			http.Error(w, "bad request body", http.StatusBadRequest)
 			return
 		}
-		args := []string{flagPane, id}
+		var expect *string
 		if raw, guarded := fields[fieldExpectQuestion]; guarded {
 			hash, isString := jsonString(raw)
 			if !isString {
 				http.Error(w, "bad request body", http.StatusBadRequest)
 				return
 			}
-			args = append(args, "--expect-question", hash)
+			expect = &hash
 		}
-		// The -- ends flag parsing, so a key spelled like a flag is typed into the pane as a key.
-		args = append(args, "--keys", "--")
-		args = append(args, keys...)
-		switch err := cli.Send(r.Context(), tmux, args, io.Discard); {
-		case errors.Is(err, cli.ErrQuestionRefused):
-			http.Error(w, "question refused", http.StatusConflict)
-			return
-		case err != nil:
-			http.Error(w, "internal server error", http.StatusInternalServerError)
+		if err := sendKeys(r.Context(), tmux, id, keys, expect); err != nil {
+			writeRouteError(w, err)
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
 	}
+}
+
+// sendKeys sends keys to pane id as POST /v1/panes/{id}/keys does. A non-nil expectQuestion makes the send conditional
+// on the pane's question: when that question does not match, nothing is sent and the answer is 409. An empty key list
+// is 400. A tmux failure is internalError. The caller has checked that the pane exists.
+func sendKeys(ctx context.Context, tmux *tmuxctl.Client, id string, keys []string, expectQuestion *string) error {
+	if len(keys) == 0 {
+		return routeError{status: http.StatusBadRequest, message: "bad request body"}
+	}
+	args := []string{flagPane, id}
+	if expectQuestion != nil {
+		args = append(args, "--expect-question", *expectQuestion)
+	}
+	// The -- ends flag parsing, so a key spelled like a flag is typed into the pane as a key.
+	args = append(args, "--keys", "--")
+	args = append(args, keys...)
+	switch err := cli.Send(ctx, tmux, args, io.Discard); {
+	case errors.Is(err, cli.ErrQuestionRefused):
+		return routeError{status: http.StatusConflict, message: "question refused"}
+	case err != nil:
+		return internalError()
+	}
+	return nil
 }
 
 // servePaneSeen answers POST /v1/panes/{id}/seen by setting the pane's seen time. The body is optional: with a

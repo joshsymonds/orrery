@@ -627,3 +627,91 @@ func TestPanesSendTextErrorParity(t *testing.T) {
 		})
 	}
 }
+
+func TestPanesSendKeysParity(t *testing.T) {
+	t.Parallel()
+
+	tmux := newTmuxServer(t)
+	restPane, restFile := startInputPane(t, tmux, "rest", synthQuestion)
+	connectPane, connectFile := startInputPane(t, tmux, "connect", synthQuestion)
+	for _, pane := range []string{restPane, connectPane} {
+		if err := tmux.SetPaneOption(t.Context(), pane, protocol.OptionQuestion, synthQuestion); err != nil {
+			t.Fatalf("SetPaneOption: %v", err)
+		}
+	}
+	handler := newHandler(t, tmux)
+	client := panesClient(t, handler)
+
+	// With expect_question absent, the key reaches each pane the same way.
+	assertStatus(t, postJSON(t, handler, paneRoute(restPane, "keys"), `{"keys":["a"]}`), http.StatusNoContent)
+	if _, err := client.SendKeys(t.Context(),
+		connect.NewRequest(&orreryv1.SendKeysRequest{Pane: connectPane, Keys: []string{"a"}})); err != nil {
+		t.Fatalf("Panes.SendKeys unguarded: %v", err)
+	}
+
+	// With a matching expect_question, the key reaches each pane the same way.
+	hash := protocol.QuestionHash(synthQuestion)
+	guarded := jsonBody(t, map[string]any{"keys": []string{"b"}, "expect_question": hash})
+	assertStatus(t, postJSON(t, handler, paneRoute(restPane, "keys"), guarded), http.StatusNoContent)
+	guardedRequest := &orreryv1.SendKeysRequest{Pane: connectPane, Keys: []string{"b"}, ExpectQuestion: &hash}
+	if _, err := client.SendKeys(t.Context(), connect.NewRequest(guardedRequest)); err != nil {
+		t.Fatalf("Panes.SendKeys guarded: %v", err)
+	}
+
+	awaitInput(t, restFile, "ab")
+	awaitInput(t, connectFile, "ab")
+}
+
+func TestPanesSendKeysErrorParity(t *testing.T) {
+	t.Parallel()
+
+	tmux := newTmuxServer(t)
+	pane, file := startInputPane(t, tmux, "s1", synthScreen)
+	if err := tmux.SetPaneOption(t.Context(), pane, protocol.OptionQuestion, synthQuestion); err != nil {
+		t.Fatalf("SetPaneOption: %v", err)
+	}
+	handler := newHandler(t, tmux)
+	client := panesClient(t, handler)
+	mismatch := protocol.QuestionHash("a different question")
+
+	cases := []struct {
+		name   string
+		id     string
+		keys   []string
+		expect *string
+		status int
+		code   connect.Code
+	}{
+		{"malformed pane id", "abc", []string{"x"}, nil, http.StatusBadRequest, connect.CodeInvalidArgument},
+		{"absent pane", "%999999", []string{"x"}, nil, http.StatusNotFound, connect.CodeNotFound},
+		{"empty key list", pane, []string{}, nil, http.StatusBadRequest, connect.CodeInvalidArgument},
+		{"mismatched expect_question", pane, []string{"x"}, &mismatch, http.StatusConflict, connect.CodeAborted},
+	}
+	for _, c := range cases {
+		fields := map[string]any{"keys": c.keys}
+		if c.expect != nil {
+			fields["expect_question"] = *c.expect
+		}
+		rec := postJSON(t, handler, paneRoute(c.id, "keys"), jsonBody(t, fields))
+		assertStatus(t, rec, c.status)
+		wantMessage := strings.TrimSuffix(rec.Body.String(), "\n")
+
+		_, err := client.SendKeys(t.Context(),
+			connect.NewRequest(&orreryv1.SendKeysRequest{Pane: c.id, Keys: c.keys, ExpectQuestion: c.expect}))
+		var connectErr *connect.Error
+		if !errors.As(err, &connectErr) {
+			t.Fatalf("%s: Panes.SendKeys error = %v, want a *connect.Error", c.name, err)
+		}
+		if connectErr.Code() != c.code {
+			t.Fatalf("%s: Panes.SendKeys code = %v, want %v", c.name, connectErr.Code(), c.code)
+		}
+		if connectErr.Message() != wantMessage {
+			t.Fatalf("%s: Panes.SendKeys message = %q, want the REST body %q",
+				c.name, connectErr.Message(), wantMessage)
+		}
+	}
+
+	// Nothing from the refused sends reached the pane, so the next delivery is exactly its own key.
+	assertStatus(t, postJSON(t, handler, paneRoute(pane, "keys"), `{"keys":["ok"]}`), http.StatusNoContent)
+	awaitInput(t, file, "ok")
+}
