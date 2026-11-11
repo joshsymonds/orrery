@@ -75,7 +75,7 @@ subcommands:
   session stop ID                               end a session's process
   session seen ID                               mark a session's conversation as read
   session watch ID                              print a session's events as JSON lines until it ends
-  seen --pane ID                                mark a pane seen
+  seen --pane ID [--focus]                      mark a pane seen
   send --pane ID [--expect-question H] (--text T | --keys K...)
                                                 send text or keys to a pane; --keys must be last
   debug summarize --pane ID --transcript PATH [--claude PATH]
@@ -210,7 +210,7 @@ func dispatch(ctx context.Context, opts globals, rest []string, stdin *os.File, 
 		if err != nil {
 			return fmt.Errorf("tmux server: %w", err)
 		}
-		return runTmux(ctx, client, name, args, stdin, stdout, getenv)
+		return runTmux(ctx, client, name, args, stdin, stdout, getenv, seenReporter(opts.daemonSocket, getenv))
 	default:
 		return usagef("unknown subcommand %q", name)
 	}
@@ -310,6 +310,7 @@ func runServe(ctx context.Context, opts globals, args []string, getenv func(stri
 		Engine:     engine,
 		Home:       getenv("HOME"),
 		Picker:     servePickerConfig(tmux, getenv),
+		ReportSeen: seenReporter(opts.daemonSocket, getenv),
 	})
 	if err != nil {
 		return fmt.Errorf("serve: %w", err)
@@ -344,16 +345,28 @@ func serveUntilDone(ctx context.Context, ln net.Listener, handler http.Handler, 
 	return nil
 }
 
-// runTmux runs a subcommand that works on the tmux server client talks to.
+// seenReporter returns the reporter that tells the daemon socket protocol.SocketPath resolves about a pane's seen
+// time. It returns nil when no socket resolves, so `seen` still marks the pane.
+func seenReporter(flagSocket string, getenv func(string) string) cli.SeenReporter {
+	socket, err := protocol.SocketPath(flagSocket, getenv)
+	if err != nil {
+		return nil
+	}
+	return func(pane string, seen int64) error {
+		return hook.ReportSeen(socket, pane, seen)
+	}
+}
+
+// runTmux runs a subcommand that works on the tmux server client talks to. report is the seen reporter for seen.
 func runTmux(ctx context.Context, client *tmuxctl.Client, name string, args []string, stdin *os.File,
-	out io.Writer, getenv func(string) string) error {
+	out io.Writer, getenv func(string) string, report cli.SeenReporter) error {
 	// The cli errors already name their subcommand, so errors.Join passes them through unchanged while
 	// keeping errors.Is working for cli.ErrQuestionRefused.
 	switch name {
 	case "list":
 		return errors.Join(cli.List(ctx, client, args, out))
 	case "seen":
-		return errors.Join(cli.Seen(ctx, client, args, out))
+		return errors.Join(cli.Seen(ctx, client, report, args, out))
 	case "send":
 		if err := refuseSendFlagsAfterKeys(args); err != nil {
 			return err
@@ -362,7 +375,7 @@ func runTmux(ctx context.Context, client *tmuxctl.Client, name string, args []st
 	case "shell":
 		return shellOpen(ctx, client, args)
 	case "tree":
-		return tree(ctx, client, args, stdin, out, getenv)
+		return tree(ctx, client, args, stdin, out, getenv, report)
 	default:
 		return runDebug(ctx, client, args, getenv)
 	}
@@ -389,7 +402,7 @@ func shellOpen(ctx context.Context, client *tmuxctl.Client, args []string) error
 // tree runs `orrery tree`, which shows the pane tree on the client at --client. N on a row runs the picker for that
 // row's directory, and the picker's choice switches the same client.
 func tree(ctx context.Context, client *tmuxctl.Client, args []string, stdin *os.File, stdout io.Writer,
-	getenv func(string) string) error {
+	getenv func(string) string, report cli.SeenReporter) error {
 	flags := flag.NewFlagSet("tree", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	clientTTY := flags.String("client", "", "tty of the client that shows the tree")
@@ -422,7 +435,7 @@ func tree(ctx context.Context, client *tmuxctl.Client, args []string, stdin *os.
 	}
 
 	result, err := tui.Run(ctx, tui.Options{Client: client, ClientTTY: *clientTTY, ArchivePath: archivePath,
-		Panes: panes, Input: stdin, Output: stdout})
+		ReportSeen: report, Panes: panes, Input: stdin, Output: stdout})
 	if err != nil {
 		return fmt.Errorf("tree: %w", err)
 	}

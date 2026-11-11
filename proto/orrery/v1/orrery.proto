@@ -412,3 +412,360 @@ message EngineText {
   // The text streamed so far, cut to 32768 bytes at a UTF-8 boundary.
   string text = 5;
 }
+
+// Panes reads and steers the tmux panes orrery tracks, one call for each route the phone uses on a pane.
+service Panes {
+  // List answers GET /v1/panes with every tracked pane.
+  rpc List(PanesListRequest) returns (PanesListResponse);
+
+  // Screen answers GET /v1/panes/{id}/screen with the text one pane shows.
+  rpc Screen(ScreenRequest) returns (ScreenResponse);
+
+  // Conversation answers GET /v1/panes/{id}/conversation with the conversation of one pane's Claude transcript.
+  rpc Conversation(ConversationRequest) returns (ConversationResponse);
+
+  // SendText answers POST /v1/panes/{id}/text by sending text to one pane.
+  rpc SendText(SendTextRequest) returns (SendTextResponse);
+
+  // SendKeys answers POST /v1/panes/{id}/keys by sending keys to one pane.
+  rpc SendKeys(SendKeysRequest) returns (SendKeysResponse);
+
+  // MarkSeen answers POST /v1/panes/{id}/seen by recording that the user has seen one pane.
+  rpc MarkSeen(MarkSeenRequest) returns (MarkSeenResponse);
+}
+
+// Host reads the status of the machine orrery runs on.
+service Host {
+  // Status answers GET /v1/host with the host's name and its stats.
+  rpc Status(HostStatusRequest) returns (HostStatusResponse);
+}
+
+// Push manages the push subscriptions of the phone.
+service Push {
+  // Register answers POST /v1/push/register by storing a push subscription.
+  rpc Register(RegisterRequest) returns (RegisterResponse);
+
+  // Unregister answers DELETE /v1/push/register by removing a push subscription.
+  rpc Unregister(UnregisterRequest) returns (UnregisterResponse);
+}
+
+// Picker finds panes and directories by text and runs the action a found row names.
+service Picker {
+  // Ask answers POST /v1/picker/ask with the rows that match the text, each with a one-time token.
+  rpc Ask(AskRequest) returns (AskResponse);
+
+  // Run answers POST /v1/picker/run by running the action a token names, once.
+  rpc Run(RunRequest) returns (RunResponse);
+}
+
+// PanesListRequest asks for every tracked pane. It has no fields.
+message PanesListRequest {}
+
+// PanesListResponse carries every tracked pane.
+message PanesListResponse {
+  // The tracked panes.
+  repeated Pane panes = 1;
+}
+
+// Pane is one pane of GET /v1/panes: the seventeen keys of `orrery list --json` (docs/contract.md section 3), then
+// question_hash and newest_reply.
+message Pane {
+  // The tmux pane id, such as %3.
+  string id = 1;
+
+  // The name of the machine running the tmux server.
+  string host = 2;
+
+  // The tmux session the pane is in.
+  string session = 3;
+
+  // The tmux window index.
+  int32 window = 4;
+
+  // The tmux pane index within its window.
+  int32 pane = 5;
+
+  // The pane's working directory.
+  string cwd = 6;
+
+  // The pane's running command.
+  string command = 7;
+
+  // The pane's @orrery_state option.
+  string state = 8;
+
+  // The pane's @orrery_summary option.
+  string summary = 9;
+
+  // The pane's @orrery_label option.
+  string label = 10;
+
+  // The pane's @orrery_changed option, in unix seconds.
+  int64 changed = 11;
+
+  // The pane's @orrery_seen option, in unix seconds.
+  int64 seen = 12;
+
+  // The pane's @orrery_question option.
+  string question = 13;
+
+  // The pane's @orrery_context option.
+  string context = 14;
+
+  // The unix seconds of the pane's session's last activity.
+  int64 activity = 15;
+
+  // The pane's @orrery_tool option.
+  string tool = 16;
+
+  // The pane's @orrery_claude_session option.
+  string claude_session = 17;
+
+  // The hash of the pane's question, as protocol.QuestionHash computes it.
+  string question_hash = 18;
+
+  // The unix seconds of the newest reply or question in the pane's transcript, or 0 when it has none.
+  int64 newest_reply = 19;
+}
+
+// ScreenRequest asks for the text of one pane. ansi false is the route's ansi absent or 0, true is ansi=1. history 0
+// adds no scrollback; 1 to 2000 adds that many lines; above 2000 is invalid_argument.
+message ScreenRequest {
+  // The pane's id, % followed by digits.
+  string pane = 1;
+
+  // Whether the text keeps its color escape sequences.
+  bool ansi = 2;
+
+  // The scrollback lines to add above the visible screen.
+  uint32 history = 3;
+}
+
+// ScreenResponse carries the text of one pane.
+message ScreenResponse {
+  // The pane's text, exactly the route's text/plain body.
+  bytes screen = 1;
+}
+
+// ConversationRequest asks for the newest items of one pane's conversation. limit 0 means the route's default, 30;
+// 1 to 100 is that many; above 100 is invalid_argument.
+message ConversationRequest {
+  // The pane's id, % followed by digits.
+  string pane = 1;
+
+  // The number of newest items to answer with.
+  uint32 limit = 2;
+}
+
+// ConversationResponse carries the conversation of one pane's Claude transcript.
+message ConversationResponse {
+  // The text of the transcript's first prompt, cut to 300 runes, or empty when there is none.
+  string origin = 1;
+
+  // The newest items of the conversation.
+  repeated ConversationItem items = 2;
+
+  // The active goal of the conversation.
+  string goal = 3;
+
+  // The messages waiting to be sent to the conversation.
+  repeated WaitingMessage waiting = 4;
+
+  // The context figure of the conversation: its tokens out of its window.
+  ConversationContext context = 5;
+}
+
+// ConversationItem is one item of a conversation.
+message ConversationItem {
+  // The item's kind.
+  string kind = 1;
+
+  // The unix seconds of the item.
+  int64 time = 2;
+
+  // The item's text.
+  string text = 3;
+
+  // The tool name of a tool item.
+  string tool = 4;
+
+  // The tool input of a tool item.
+  string input = 5;
+
+  // The item's id.
+  string id = 6;
+
+  // Whether the item is an error.
+  bool error = 7;
+
+  // The item's notice, if any.
+  string notice = 8;
+
+  // The trigger of a compaction item, auto or manual, or empty when the item is not a compaction.
+  string trigger = 9;
+
+  // The tokens a compaction item held before it was compacted, or 0 when the item is not a compaction.
+  int64 tokens = 10;
+}
+
+// ConversationContext is the context figure of a conversation: its tokens out of the window they are measured
+// against.
+message ConversationContext {
+  // The tokens the newest main-chain assistant line or compaction counts.
+  int64 tokens = 1;
+
+  // The token window the tokens are measured against.
+  int64 window = 2;
+}
+
+// WaitingMessage is a message waiting to be sent to a conversation.
+message WaitingMessage {
+  // The message's text.
+  string text = 1;
+
+  // The unix seconds the message was queued.
+  int64 time = 2;
+
+  // Whether the message was canceled.
+  bool canceled = 3;
+}
+
+// SendTextRequest asks for text to be sent to one pane.
+message SendTextRequest {
+  // The pane's id, % followed by digits.
+  string pane = 1;
+
+  // The text to send.
+  string text = 2;
+}
+
+// SendTextResponse is the reply to a SendText. It has no fields.
+message SendTextResponse {}
+
+// SendKeysRequest asks for keys to be sent to one pane. expect_question present is the route's expect_question field
+// present.
+message SendKeysRequest {
+  // The pane's id, % followed by digits.
+  string pane = 1;
+
+  // The keys to send, in order.
+  repeated string keys = 2;
+
+  // The question the keys answer. When set, the keys are sent only while the pane shows that question.
+  optional string expect_question = 3;
+}
+
+// SendKeysResponse is the reply to a SendKeys. It has no fields.
+message SendKeysResponse {}
+
+// MarkSeenRequest asks for one pane to be marked seen. read_up_to absent means now; present must be 0 or more, else
+// invalid_argument.
+message MarkSeenRequest {
+  // The pane's id, % followed by digits.
+  string pane = 1;
+
+  // The unix seconds the user has read up to, or absent for now.
+  optional int64 read_up_to = 2;
+}
+
+// MarkSeenResponse is the reply to a MarkSeen. It has no fields.
+message MarkSeenResponse {}
+
+// HostStatusRequest asks for the host's status. It has no fields.
+message HostStatusRequest {}
+
+// HostStatusResponse carries the host's name and its stats.
+message HostStatusResponse {
+  // The host's name.
+  string host = 1;
+
+  // The host's stats.
+  repeated HostStat stats = 2;
+}
+
+// HostStat is one stat of the host.
+message HostStat {
+  // The stat's label.
+  string label = 1;
+
+  // The stat's value as text.
+  string value = 2;
+
+  // The stat's percent, when it has one.
+  optional double percent = 3;
+
+  // The stat's level.
+  string level = 4;
+}
+
+// RegisterRequest asks for a push subscription to be stored.
+message RegisterRequest {
+  // The subscription's endpoint URL.
+  string endpoint = 1;
+
+  // The subscription's P-256 public key, base64url without padding.
+  string p256dh = 2;
+
+  // The subscription's auth secret, base64url without padding.
+  string auth = 3;
+}
+
+// RegisterResponse is the reply to a Register. It has no fields.
+message RegisterResponse {}
+
+// UnregisterRequest asks for a push subscription to be removed.
+message UnregisterRequest {
+  // The subscription's endpoint URL.
+  string endpoint = 1;
+}
+
+// UnregisterResponse is the reply to an Unregister. It has no fields.
+message UnregisterResponse {}
+
+// AskRequest asks which panes and directories match a text.
+message AskRequest {
+  // The text to match.
+  string text = 1;
+}
+
+// AskResponse carries the rows that match the text.
+message AskResponse {
+  // The matching rows.
+  repeated PickerRow rows = 1;
+}
+
+// PickerRow is one row of an Ask answer.
+message PickerRow {
+  // The row's one-time token, which a Run names.
+  string token = 1;
+
+  // The row's kind.
+  string kind = 2;
+
+  // The row's directory.
+  string dir = 3;
+
+  // The row's pane, when it has one.
+  string pane = 4;
+
+  // The row's label.
+  string label = 5;
+
+  // The row's note.
+  string note = 6;
+
+  // Whether the row's action carries a first prompt.
+  bool prompt = 7;
+}
+
+// RunRequest asks for the action a token names to run.
+message RunRequest {
+  // The token an Ask issued.
+  string token = 1;
+}
+
+// RunResponse carries the pane the run opened or jumped to.
+message RunResponse {
+  // The pane the run answered.
+  string pane = 1;
+}

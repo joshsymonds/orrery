@@ -13,6 +13,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/joshsymonds/orrery/internal/cli"
 	"github.com/joshsymonds/orrery/internal/closer"
 	"github.com/joshsymonds/orrery/internal/keymap"
 	"github.com/joshsymonds/orrery/internal/palette"
@@ -30,9 +31,11 @@ type Options struct {
 	ClientTTY string
 	// ArchivePath is the archive file a closed Claude pane is appended to.
 	ArchivePath string
-	Panes       Source
-	Input       io.Reader
-	Output      io.Writer
+	// ReportSeen tells orreryd about each pane the tree marks seen. Nil reports nothing.
+	ReportSeen cli.SeenReporter
+	Panes      Source
+	Input      io.Reader
+	Output     io.Writer
 }
 
 // Action is what the user asked for when Run returned.
@@ -81,6 +84,7 @@ func Run(ctx context.Context, opts Options) (Result, error) {
 	)
 	tree.clientTTY = opts.ClientTTY
 	tree.archivePath = opts.ArchivePath
+	tree.reportSeen = opts.ReportSeen
 	tree.invoke = func(fn func(context.Context, *tmuxctl.Client) error) error {
 		return fn(ctx, opts.Client)
 	}
@@ -120,6 +124,7 @@ type model struct {
 	invoke      func(fn func(context.Context, *tmuxctl.Client) error) error
 	clientTTY   string
 	archivePath string
+	reportSeen  cli.SeenReporter
 	closing     *closePrompt
 	groups      []view.Group
 	quiet       []view.Group

@@ -1,12 +1,15 @@
 plugins {
     id("com.android.application")
-    id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
 android {
     namespace = "io.github.joshsymonds.orrery"
-    compileSdk = 36
+    compileSdk {
+        version = release(37) {
+            minorApiLevel = 0
+        }
+    }
     buildToolsVersion = "36.0.0"
 
     defaultConfig {
@@ -51,6 +54,10 @@ androidComponents {
 
 dependencies {
     implementation("androidx.activity:activity-compose:1.10.1")
+    implementation("com.connectrpc:connect-kotlin-okhttp:0.10.0")
+    implementation("com.connectrpc:connect-kotlin-google-javalite-ext:0.10.0")
+    implementation("com.google.protobuf:protobuf-javalite:4.36.2")
+    implementation("com.squareup.okhttp3:okhttp:5.5.0")
     implementation(platform("androidx.compose:compose-bom:2025.04.01"))
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.ui:ui")

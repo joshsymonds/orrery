@@ -4,9 +4,11 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -398,6 +400,16 @@ func serverPaneIDs(t *testing.T, tmux *tmuxctl.Client) []string {
 	return strings.Fields(out)
 }
 
+// sessionPaneIDs returns the IDs of every pane in session, in every window.
+func sessionPaneIDs(t *testing.T, tmux *tmuxctl.Client, session string) []string {
+	t.Helper()
+	out, err := tmux.Run(t.Context(), "list-panes", "-s", "-t", session, "-F", "#{pane_id}")
+	if err != nil {
+		t.Fatalf("list-panes -s -t %s: %v", session, err)
+	}
+	return strings.Fields(out)
+}
+
 // paneSession returns the name of the session pane is in.
 func paneSession(t *testing.T, tmux *tmuxctl.Client, pane string) string {
 	t.Helper()
@@ -481,6 +493,67 @@ func TestPickerRunRowForFolderWithoutSessionCreatesOneAndAnswersItsPane(t *testi
 	pane := runPane(t, runPickerToken(t, handler, rows[0].Token))
 	if got := paneSession(t, tmux, pane); got != "example-dir-c" {
 		t.Errorf("answered pane %s is in session %q, want the new session example-dir-c", pane, got)
+	}
+}
+
+// failPickerLookupOnce puts a tmux first on PATH that fails the first pane lookup of session, and passes every other
+// call to the real tmux. tmuxctl resolves tmux from PATH at each call, so the failure reaches the picker run.
+func failPickerLookupOnce(t *testing.T, session string) {
+	t.Helper()
+	tmuxPath, err := exec.LookPath("tmux")
+	if err != nil {
+		t.Fatalf("find tmux: %v", err)
+	}
+	dir := t.TempDir()
+	marker := filepath.Join(dir, "failed")
+	script := fmt.Sprintf(`#!/bin/sh
+case "$*" in
+*"display-message -p -t =%s: #{pane_id}")
+	if [ ! -e '%s' ]; then
+		: > '%s'
+		echo "example lookup failure" >&2
+		exit 1
+	fi
+	;;
+esac
+exec '%s' "$@"
+`, session, marker, marker, tmuxPath)
+	bin := filepath.Join(dir, "tmux")
+	writePickerFile(t, bin, script)
+	if err := os.Chmod(bin, 0o755); err != nil {
+		t.Fatalf("chmod fake tmux: %v", err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
+func TestPickerRunRetryAfterFailedLookupAnswersCreatedPaneWithoutRunningAgain(t *testing.T) {
+	tmux := newTmuxServer(t)
+	root := t.TempDir()
+	startPickerPane(t, tmux, "example-session-b", t.TempDir())
+	folder := filepath.Join(t.TempDir(), "example-dir-c")
+	if err := os.Mkdir(folder, 0o755); err != nil {
+		t.Fatalf("mkdir %s: %v", folder, err)
+	}
+	claude, _ := installPickerClaude(t, "pane d1\ntask: no\n", false)
+	cfg := pickerConfig(tmux, installPickerZoxide(t, scoredLine(folder)), claude, root)
+	handler := pickerHandler(t, tmux, func() (open.Config, error) { return cfg, nil })
+
+	rows := askRows(t, postJSON(t, handler, pickerAskPath, jsonBody(t, map[string]any{"text": "example text"})))
+	if len(rows) == 0 || rows[0].Kind != "pane" || rows[0].Dir != folder {
+		t.Fatalf("rows = %+v, want a pane row for %s first", rows, folder)
+	}
+	failPickerLookupOnce(t, "example-dir-c")
+	assertStatus(t, runPickerToken(t, handler, rows[0].Token), http.StatusBadGateway)
+	created := sessionPaneIDs(t, tmux, "example-dir-c")
+	if len(created) != 1 {
+		t.Fatalf("after the failed lookup session example-dir-c has panes %v, want the one the action created", created)
+	}
+	pane := runPane(t, runPickerToken(t, handler, rows[0].Token))
+	if pane != created[0] {
+		t.Errorf("retry answered pane %s, want the pane the first run created, %s", pane, created[0])
+	}
+	if after := sessionPaneIDs(t, tmux, "example-dir-c"); !slices.Equal(after, created) {
+		t.Errorf("retry left session example-dir-c with panes %v, want %v: the action ran again", after, created)
 	}
 }
 

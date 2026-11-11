@@ -42,11 +42,14 @@ type pickerAnswer struct {
 }
 
 // pickerEntry is what a token stands for: the open configuration and the action its ask used, valid until expires.
-// pane is the pane the run of the action answered, and is "" until that run succeeds.
+// acted is set once the action has run, and target is what it reached. pane is the pane that target answers, and is
+// "" until the pane lookup succeeds.
 type pickerEntry struct {
 	cfg     open.Config
 	action  open.Action
 	expires time.Time
+	acted   bool
+	target  open.Target
 	pane    string
 }
 
@@ -64,6 +67,18 @@ func (s *pickerTokens) lookup(token string) (pickerEntry, bool) {
 	defer s.mu.Unlock()
 	entry, ok := s.entries[token]
 	return entry, ok
+}
+
+// recordAction keeps target as what token's action reached, when token still has an entry, so a retry of the run
+// answers the pane of target without running the action again.
+func (s *pickerTokens) recordAction(token string, target open.Target) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if entry, ok := s.entries[token]; ok {
+		entry.acted = true
+		entry.target = target
+		s.entries[token] = entry
+	}
 }
 
 // recordRun keeps pane as the answer of token's run, when token still has an entry.
@@ -88,9 +103,8 @@ func (s *pickerTokens) store(now time.Time, entries map[string]pickerEntry) {
 	maps.Copy(s.entries, entries)
 }
 
-// servePickerAsk answers POST /v1/picker/ask with the rows open.Choices offers for the body's text, each row
-// carrying a one-time token. A nil picker answers 404. Blank text or a body without a text string answers 400.
-// A Picker, Choices or pane listing error answers 502 with its reason. The ask executes nothing.
+// servePickerAsk answers POST /v1/picker/ask with the rows of askPicker. A body without a text string asks with
+// blank text, so it answers as blank text does.
 func servePickerAsk(
 	picker func() (open.Config, error),
 	tokens *pickerTokens,
@@ -98,39 +112,49 @@ func servePickerAsk(
 	now func() time.Time,
 ) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if picker == nil {
-			http.NotFound(w, r)
-			return
-		}
-		fields, ok := decodeBody(r)
-		if !ok {
-			http.Error(w, "bad request", http.StatusBadRequest)
-			return
-		}
-		text, ok := jsonString(fields[fieldText])
-		if !ok || strings.TrimSpace(text) == "" {
-			http.Error(w, "bad request", http.StatusBadRequest)
-			return
-		}
-		cfg, err := picker()
+		fields, _ := decodeBody(r)
+		text, _ := jsonString(fields[fieldText])
+		answer, err := askPicker(r.Context(), picker, tokens, tmux, now, text)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadGateway)
+			writeRouteError(w, err)
 			return
 		}
-		actions, err := open.Choices(r.Context(), cfg, text)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadGateway)
-			return
-		}
-		issued := now()
-		answer, entries, err := pickerRows(r.Context(), tmux, cfg, actions, issued.Add(pickerTTL))
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadGateway)
-			return
-		}
-		tokens.store(issued, entries)
 		writeJSON(w, http.StatusOK, answer)
 	}
+}
+
+// askPicker returns the rows open.Choices offers for text, each carrying a new token, and stores the entries those
+// tokens stand for. The ask executes nothing. A nil picker is a 404, blank text a 400, and a Picker, Choices or pane
+// listing failure a 502 with its reason.
+func askPicker(
+	ctx context.Context,
+	picker func() (open.Config, error),
+	tokens *pickerTokens,
+	tmux *tmuxctl.Client,
+	now func() time.Time,
+	text string,
+) (pickerAnswer, error) {
+	if picker == nil {
+		return pickerAnswer{}, routeError{status: http.StatusNotFound, message: "404 page not found"}
+	}
+	if strings.TrimSpace(text) == "" {
+		return pickerAnswer{}, routeError{status: http.StatusBadRequest, message: "bad request"}
+	}
+	cfg, err := picker()
+	if err != nil {
+		return pickerAnswer{}, routeError{status: http.StatusBadGateway, message: err.Error()}
+	}
+	actions, err := open.Choices(ctx, cfg, text)
+	if err != nil {
+		return pickerAnswer{}, routeError{status: http.StatusBadGateway, message: err.Error()}
+	}
+	issued := now()
+	answer, entries, err := pickerRows(ctx, tmux, cfg, actions, issued.Add(pickerTTL))
+	if err != nil {
+		return pickerAnswer{}, routeError{status: http.StatusBadGateway, message: err.Error()}
+	}
+	tokens.store(issued, entries)
+	return answer, nil
 }
 
 // pickerRunAnswer is the body of a 200 answer from POST /v1/picker/run.
@@ -138,61 +162,101 @@ type pickerRunAnswer struct {
 	Pane string `json:"pane"`
 }
 
-// servePickerRun answers POST /v1/picker/run by running the action the body's token names, once, and answering the
-// pane it opened or jumped to. A repeat of a run answers the same pane and runs nothing. A body without a token
-// string answers 400, an unissued token 404, and an expired one 410, each running nothing. With no tmux server it
-// answers 409 and starts none. A failed run answers 502 and records nothing.
+// servePickerRun answers POST /v1/picker/run with the pane runPicker answers. A body without a token string runs
+// with a blank token, so it answers as blank tokens do.
 func servePickerRun(tokens *pickerTokens, tmux *tmuxctl.Client, now func() time.Time) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		fields, ok := decodeBody(r)
-		if !ok {
-			http.Error(w, "bad request", http.StatusBadRequest)
+		fields, _ := decodeBody(r)
+		token, _ := jsonString(fields[fieldToken])
+		pane, err := runPicker(r.Context(), tokens, tmux, now, token)
+		if err != nil {
+			writeRouteError(w, err)
 			return
 		}
-		token, ok := jsonString(fields[fieldToken])
-		if !ok || strings.TrimSpace(token) == "" {
-			http.Error(w, "bad request", http.StatusBadRequest)
-			return
-		}
-		tokens.runMu.Lock()
-		defer tokens.runMu.Unlock()
-		entry, ok := tokens.lookup(token)
-		if !ok {
-			http.Error(w, "unknown token", http.StatusNotFound)
-			return
-		}
-		if !now().Before(entry.expires) {
-			http.Error(w, "expired token", http.StatusGone)
-			return
-		}
-		if entry.pane == "" {
-			pane, status, err := runPickerEntry(r.Context(), tmux, entry)
-			if err != nil {
-				http.Error(w, err.Error(), status)
-				return
-			}
-			tokens.recordRun(token, pane)
-			entry.pane = pane
-		}
-		writeJSON(w, http.StatusOK, pickerRunAnswer{Pane: entry.pane})
+		writeJSON(w, http.StatusOK, pickerRunAnswer{Pane: pane})
 	}
 }
 
-// runPickerEntry runs the action of entry and returns the pane it answers: the pane the action opened or jumped to,
-// or else the active pane of the session it created. With no tmux server it refuses before running anything, as
-// 409, and any other failure answers 502. The status is meaningful only with the error.
-func runPickerEntry(ctx context.Context, tmux *tmuxctl.Client, entry pickerEntry) (string, int, error) {
+// runPicker returns the pane of token's run, the core POST /v1/picker/run and Picker.Run share. A blank token is 400,
+// an unissued one 404, and an expired one 410, each running nothing. Runs are serial under runMu, so the action of
+// a token runs at most once. With no tmux server it answers 409 and starts none. A failed action answers 502 and
+// records nothing. An action that ran but whose pane lookup failed answers 502 and keeps its target, so a retry
+// answers that pane and runs nothing again.
+func runPicker(
+	ctx context.Context,
+	tokens *pickerTokens,
+	tmux *tmuxctl.Client,
+	now func() time.Time,
+	token string,
+) (string, error) {
+	if strings.TrimSpace(token) == "" {
+		return "", routeError{status: http.StatusBadRequest, message: "bad request"}
+	}
+	tokens.runMu.Lock()
+	defer tokens.runMu.Unlock()
+	entry, ok := tokens.lookup(token)
+	if !ok {
+		return "", routeError{status: http.StatusNotFound, message: "unknown token"}
+	}
+	if !now().Before(entry.expires) {
+		return "", routeError{status: http.StatusGone, message: "expired token"}
+	}
+	if entry.pane != "" {
+		return entry.pane, nil
+	}
+	pane, status, err := answerPickerRun(ctx, tokens, tmux, token, entry)
+	if err != nil {
+		return "", routeError{status: status, message: err.Error()}
+	}
+	return pane, nil
+}
+
+// answerPickerRun returns the pane of token's run, running its action first unless an earlier run already did. The
+// target of a run is kept as soon as its action succeeds, so a run whose pane lookup fails is retried by the lookup
+// alone. The status is meaningful only with the error.
+func answerPickerRun(
+	ctx context.Context,
+	tokens *pickerTokens,
+	tmux *tmuxctl.Client,
+	token string,
+	entry pickerEntry,
+) (string, int, error) {
+	if !entry.acted {
+		target, status, err := runPickerAction(ctx, tmux, entry)
+		if err != nil {
+			return "", status, err
+		}
+		tokens.recordAction(token, target)
+		entry.target = target
+	}
+	pane, status, err := targetPane(ctx, tmux, entry.target)
+	if err != nil {
+		return "", status, err
+	}
+	tokens.recordRun(token, pane)
+	return pane, http.StatusOK, nil
+}
+
+// runPickerAction runs the action of entry once and returns the target it reached. With no tmux server it refuses
+// before running anything, as 409, and any other failure answers 502. The status is meaningful only with the error.
+func runPickerAction(ctx context.Context, tmux *tmuxctl.Client, entry pickerEntry) (open.Target, int, error) {
 	if _, err := tmux.ListPanes(ctx); err != nil {
 		status := http.StatusBadGateway
 		if strings.Contains(err.Error(), "no server running") || strings.Contains(err.Error(), "error connecting to") {
 			status = http.StatusConflict
 		}
-		return "", status, fmt.Errorf("server: list panes: %w", err)
+		return open.Target{}, status, fmt.Errorf("server: list panes: %w", err)
 	}
 	target, err := open.ExecuteAction(ctx, entry.cfg, entry.action)
 	if err != nil {
-		return "", http.StatusBadGateway, fmt.Errorf("server: picker run: %w", err)
+		return open.Target{}, http.StatusBadGateway, fmt.Errorf("server: picker run: %w", err)
 	}
+	return target, http.StatusOK, nil
+}
+
+// targetPane returns the pane target answers: the pane the action opened or jumped to, or else the active pane of
+// the session it created. Any failure answers 502.
+func targetPane(ctx context.Context, tmux *tmuxctl.Client, target open.Target) (string, int, error) {
 	if target.Pane != "" {
 		return target.Pane, http.StatusOK, nil
 	}

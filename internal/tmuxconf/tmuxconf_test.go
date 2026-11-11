@@ -140,12 +140,14 @@ func TestPrintRefusesUnsafeOrreryPath(t *testing.T) {
 
 // testServer is a private tmux server started under a unique name and killed at cleanup.
 type testServer struct {
-	name   string
-	client *tmuxctl.Client
+	name    string
+	client  *tmuxctl.Client
+	tempDir string
 }
 
 // startServer starts a private tmux server with -f /dev/null and one session named work, whose pane runs
-// testCommand.
+// testCommand. Its global environment names a daemon socket under the test's temp dir, so no run-shell job of the
+// server, a focus hook's included, can reach the owner's orreryd.
 func startServer(t *testing.T) testServer {
 	t.Helper()
 	var suffix [8]byte
@@ -162,8 +164,9 @@ func startServer(t *testing.T) testServer {
 			t.Errorf("kill-server: %v", err)
 		}
 	})
-	s := testServer{name: name, client: client}
-	s.must(t, "-f", noConfig, "new-session", "-d", "-s", "work", "-c", t.TempDir(), testCommand)
+	s := testServer{name: name, client: client, tempDir: t.TempDir()}
+	s.must(t, "-f", noConfig, "new-session", "-d", "-s", "work", "-c", s.tempDir, testCommand)
+	s.must(t, "set-environment", "-g", protocol.EnvSocket, filepath.Join(s.tempDir, "orreryd.sock"))
 	return s
 }
 
@@ -250,8 +253,35 @@ func TestPluginSourcesCleanly(t *testing.T) {
 	if got := s.must(t, "show-options", "-g", "-v", "pane-border-status"); strings.TrimSpace(got) != "top" {
 		t.Fatalf("pane-border-status = %q, want top", got)
 	}
-	if hooks := s.must(t, "show-hooks", "-g", "window-pane-changed"); !strings.Contains(hooks, "seen --pane") {
-		t.Fatalf("window-pane-changed hook missing seen command: %s", hooks)
+	for _, hook := range []string{"window-pane-changed", "session-window-changed", "client-session-changed"} {
+		if hooks := s.must(t, "show-hooks", "-g", hook); !strings.Contains(hooks, "seen --pane #{pane_id} --focus") {
+			t.Fatalf("%s hook missing the focus seen command: %s", hook, hooks)
+		}
+	}
+}
+
+// TestServerRunShellHasOrreryDaemonSocket checks that run-shell jobs of a test server, the focus hooks' jobs
+// included, see ORRERY_SOCKET under the test's temp dir, so an orrery command a test runs cannot reach the owner's
+// orreryd.
+func TestServerRunShellHasOrreryDaemonSocket(t *testing.T) {
+	s := startServer(t)
+	record := filepath.Join(s.tempDir, "socket")
+	script := fmt.Sprintf(`printf '%%s' "$%s" > '%s.tmp' && mv '%s.tmp' '%s'`,
+		protocol.EnvSocket, record, record, record)
+	s.must(t, "run-shell", "-b", strings.ReplaceAll(script, "#", "##"))
+	waitFor(t, "the run-shell job to record its environment", func() (bool, error) {
+		_, err := os.Stat(record)
+		if errors.Is(err, os.ErrNotExist) {
+			return false, nil
+		}
+		return err == nil, err
+	})
+	got, err := os.ReadFile(record)
+	if err != nil {
+		t.Fatalf("read recorded socket: %v", err)
+	}
+	if want := filepath.Join(s.tempDir, "orreryd.sock"); string(got) != want {
+		t.Fatalf("run-shell %s = %q, want %q", protocol.EnvSocket, got, want)
 	}
 }
 

@@ -1,0 +1,14 @@
+# Codegen for the app's typed client. Only orrery/v1 is generated (see the --path in the justfile's generate recipe).
+version: v2
+managed:
+  enabled: true
+  override:
+    - file_option: java_package_prefix
+      value: io.github.joshsymonds.orrery.gen
+plugins:
+  - protoc_builtin: java
+    out: ../android/app/src/main/java
+    opt:
+      - lite
+  - local: protoc-gen-connect-kotlin
+    out: ../android/app/src/main/java

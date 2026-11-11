@@ -37,7 +37,7 @@
         cmdLineToolsVersion = "20.0";
         platformToolsVersion = "37.0.1";
         buildToolsVersions = [ "36.0.0" ];
-        platformVersions = [ "36" ];
+        platformVersions = [ "37.0" ];
       };
       androidSdk = "${androidComposition.androidsdk}/libexec/android-sdk";
       androidAapt2 = "${androidSdk}/build-tools/36.0.0/aapt2";
@@ -175,7 +175,7 @@
       devShells.x86_64-linux.android = androidPkgs.mkShell {
         packages = [
           androidComposition.androidsdk
-          androidPkgs.gradle
+          androidPkgs.gradle_9
           androidPkgs.jdk17
         ];
         ANDROID_HOME = androidSdk;

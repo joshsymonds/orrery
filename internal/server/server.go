@@ -19,6 +19,8 @@ import (
 	"sync"
 	"time"
 
+	"connectrpc.com/connect"
+
 	"github.com/joshsymonds/orrery/internal/cli"
 	"github.com/joshsymonds/orrery/internal/conversation"
 	enginev1connect "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1/enginev1connect"
@@ -60,6 +62,9 @@ const (
 
 // jsonContentType is the Content-Type of every JSON response.
 const jsonContentType = "application/json"
+
+// badRequestMessage is the message of a 400 answer to a malformed body or an invalid value in one.
+const badRequestMessage = "bad request body"
 
 // textContentType is the Content-Type of the plain-text screen response.
 const textContentType = "text/plain; charset=utf-8"
@@ -137,6 +142,9 @@ type Config struct {
 	Picker func() (open.Config, error)
 	// Now returns the current time, which dates the expiry of each picker token, or is nil for time.Now.
 	Now func() time.Time
+	// ReportSeen receives the pane and the seen time it holds after each POST /v1/panes/{id}/seen or Panes.MarkSeen
+	// succeeds, or is nil to report nothing.
+	ReportSeen cli.SeenReporter
 }
 
 // New returns a handler that admits only the configured logins, and never emits CORS headers. A request to
@@ -170,7 +178,7 @@ func New(cfg Config) (http.Handler, error) {
 	mux.HandleFunc("GET /v1/host", serveHost(cfg.HostStatus))
 	mux.HandleFunc("POST /v1/panes/{id}/text", servePaneText(cfg.Tmux, textLocks))
 	mux.HandleFunc("POST /v1/panes/{id}/keys", servePaneKeys(cfg.Tmux))
-	mux.HandleFunc("POST /v1/panes/{id}/seen", servePaneSeen(cfg.Tmux, seenLocks))
+	mux.HandleFunc("POST /v1/panes/{id}/seen", servePaneSeen(cfg.Tmux, seenLocks, cfg.ReportSeen))
 	mux.HandleFunc("POST /v1/push/register", servePushRegister(cfg.Push))
 	mux.HandleFunc("DELETE /v1/push/register", serveUnregister(cfg.Push))
 	now := cfg.Now
@@ -186,7 +194,15 @@ func New(cfg Config) (http.Handler, error) {
 	mux.Handle(eventsPath, events)
 	controlPath, control := newControlHandler(cfg.Engine, cfg.ControlTimeout, cfg.Home)
 	mux.Handle(controlPath, control)
-	connectPaths := []string{sessionsPath, eventsPath, controlPath}
+	panesPath, panesService := newPanesHandler(cfg.Tmux, newest, goals, queues, textLocks, seenLocks, cfg.ReportSeen)
+	mux.Handle(panesPath, panesService)
+	hostPath, hostService := newHostHandler(cfg.HostStatus)
+	mux.Handle(hostPath, hostService)
+	pushPath, pushService := newPushHandler(cfg.Push)
+	mux.Handle(pushPath, pushService)
+	pickerPath, pickerService := newPickerHandler(cfg.Picker, tokens, cfg.Tmux, now)
+	mux.Handle(pickerPath, pickerService)
+	connectPaths := []string{sessionsPath, eventsPath, controlPath, panesPath, hostPath, pushPath, pickerPath}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if _, ok := allowed[r.Header.Get(HeaderLogin)]; !ok {
 			http.Error(w, "forbidden", http.StatusForbidden)
@@ -227,29 +243,41 @@ func checkConfig(cfg Config) (map[string]struct{}, error) {
 	return allowed, nil
 }
 
-// servePanes answers GET /v1/panes with the array cli.List writes for tmux, each pane carrying the
-// question_hash of its question and the newest_reply of its transcript, as paneNewestReply gives it. newest
-// keeps each transcript's newest time across requests. With no running server the array is empty.
+// servePanes answers GET /v1/panes with the panes listPanes gives, as JSON.
 func servePanes(tmux *tmuxctl.Client, newest *conversation.Newest) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		var list bytes.Buffer
-		if err := cli.List(r.Context(), tmux, []string{"--json"}, &list); err != nil {
-			http.Error(w, "internal server error", http.StatusInternalServerError)
+		panes, err := listPanes(r.Context(), tmux, newest)
+		if err != nil {
+			writeRouteError(w, err)
 			return
-		}
-		var panes []map[string]json.RawMessage
-		if err := json.Unmarshal(list.Bytes(), &panes); err != nil {
-			http.Error(w, "internal server error", http.StatusInternalServerError)
-			return
-		}
-		for _, pane := range panes {
-			if err := addPaneFields(r.Context(), tmux, newest, pane); err != nil {
-				http.Error(w, "internal server error", http.StatusInternalServerError)
-				return
-			}
 		}
 		writeJSON(w, http.StatusOK, panes)
 	}
+}
+
+// listPanes returns the array GET /v1/panes answers: the array cli.List writes for tmux, each pane carrying the
+// question_hash of its question and the newest_reply of its transcript, as paneNewestReply gives it. newest
+// keeps each transcript's newest time across requests. With no running server the array is empty. Any failure is
+// a routeError with status 500.
+func listPanes(
+	ctx context.Context,
+	tmux *tmuxctl.Client,
+	newest *conversation.Newest,
+) ([]map[string]json.RawMessage, error) {
+	var list bytes.Buffer
+	if err := cli.List(ctx, tmux, []string{"--json"}, &list); err != nil {
+		return nil, internalError()
+	}
+	var panes []map[string]json.RawMessage
+	if err := json.Unmarshal(list.Bytes(), &panes); err != nil {
+		return nil, internalError()
+	}
+	for _, pane := range panes {
+		if err := addPaneFields(ctx, tmux, newest, pane); err != nil {
+			return nil, internalError()
+		}
+	}
+	return panes, nil
 }
 
 // addPaneFields sets the questionHashKey and newestReplyKey fields of pane, which holds one pane of cli.List.
@@ -389,22 +417,31 @@ func serveScreen(tmux *tmuxctl.Client) http.HandlerFunc {
 // prints invalid stats.
 func serveHost(runner *hoststatus.Runner) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if runner == nil {
-			http.NotFound(w, r)
-			return
-		}
-		stats, err := runner.Stats(r.Context())
+		answer, err := hostAnswer(r.Context(), runner)
 		if err != nil {
-			http.Error(w, "host status unavailable", http.StatusBadGateway)
+			writeRouteError(w, err)
 			return
 		}
-		host, err := os.Hostname()
-		if err != nil {
-			http.Error(w, "internal server error", http.StatusInternalServerError)
-			return
-		}
-		writeJSON(w, http.StatusOK, hostResponse{Host: host, Stats: stats})
+		writeJSON(w, http.StatusOK, answer)
 	}
+}
+
+// hostAnswer returns the body GET /v1/host answers: the host's name and the stats runner gives. A nil runner is a
+// routeError with 404, the message http.NotFound writes. A failed command or invalid stats is 502, and a hostname
+// failure is internal.
+func hostAnswer(ctx context.Context, runner *hoststatus.Runner) (hostResponse, error) {
+	if runner == nil {
+		return hostResponse{}, routeError{status: http.StatusNotFound, message: "404 page not found"}
+	}
+	stats, err := runner.Stats(ctx)
+	if err != nil {
+		return hostResponse{}, routeError{status: http.StatusBadGateway, message: "host status unavailable"}
+	}
+	host, err := os.Hostname()
+	if err != nil {
+		return hostResponse{}, internalError()
+	}
+	return hostResponse{Host: host, Stats: stats}, nil
 }
 
 // screenFlags returns the capture-pane arguments for a screen query, and false when ansi or history is not a
@@ -431,12 +468,8 @@ func screenFlags(query url.Values) ([]string, bool) {
 	return flags, true
 }
 
-// serveConversation answers GET /v1/panes/{id}/conversation with the conversation of the pane's Claude transcript:
-// its opening prompt, its newest limit items, its active goal and its waiting messages. The goal comes from goals and
-// the waiting messages from queues. Each remembers how far each transcript has been read across requests. When the
-// pane is done, the waiting messages are idle and the answer lists only the canceled ones. The transcript is the path
-// in the pane's @orrery_transcript option, never a request value. It answers 404 unless the pane has a live Claude
-// session and that file exists.
+// serveConversation answers GET /v1/panes/{id}/conversation with the conversation conversationAnswer builds for the
+// pane. The limit query is checked first, and a failure answers its routeError as the route's plain-text body.
 func serveConversation(tmux *tmuxctl.Client, goals *conversation.Goals, queues *conversation.Queues) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		limit, ok := conversationLimit(r.URL.Query())
@@ -444,41 +477,57 @@ func serveConversation(tmux *tmuxctl.Client, goals *conversation.Goals, queues *
 			http.Error(w, "bad request query", http.StatusBadRequest)
 			return
 		}
-		pane, err := checkPane(r.Context(), tmux, r.PathValue("id"))
+		conv, err := conversationAnswer(r.Context(), tmux, goals, queues, r.PathValue("id"), limit)
 		if err != nil {
-			paneError(w, err)
-			return
-		}
-		if pane.State == "" {
-			http.Error(w, "no live session", http.StatusNotFound)
-			return
-		}
-		path, ok, err := tmux.PaneOption(r.Context(), pane.ID, protocol.OptionTranscript)
-		if err != nil {
-			http.Error(w, "internal server error", http.StatusInternalServerError)
-			return
-		}
-		if !ok || path == "" {
-			http.Error(w, "no transcript", http.StatusNotFound)
-			return
-		}
-		conv, err := conversation.Read(path, limit)
-		if err == nil {
-			conv.Goal, err = goals.Goal(path)
-		}
-		if err == nil {
-			conv.Waiting, err = queues.Waiting(path, pane.State == protocol.StateDone)
-		}
-		switch {
-		case errors.Is(err, fs.ErrNotExist):
-			http.Error(w, "transcript not found", http.StatusNotFound)
-			return
-		case err != nil:
-			http.Error(w, "internal server error", http.StatusInternalServerError)
+			writeRouteError(w, err)
 			return
 		}
 		writeJSON(w, http.StatusOK, conv)
 	}
+}
+
+// conversationAnswer returns the conversation of the pane with the ID id: its opening prompt, its newest limit items,
+// its active goal and its waiting messages. The goal comes from goals and the waiting messages from queues. Each
+// remembers how far each transcript has been read across requests. When the pane is done, the waiting messages are
+// idle and the answer lists only the canceled ones. The transcript is the path in the pane's @orrery_transcript
+// option, never a request value. It fails with a routeError: 404 unless the pane has a live Claude session and that
+// file exists, 400 or 404 for a malformed or absent pane, and 500 otherwise.
+func conversationAnswer(
+	ctx context.Context,
+	tmux *tmuxctl.Client,
+	goals *conversation.Goals,
+	queues *conversation.Queues,
+	id string,
+	limit int,
+) (conversation.Conversation, error) {
+	pane, err := checkPane(ctx, tmux, id)
+	if err != nil {
+		return conversation.Conversation{}, paneRouteError(err)
+	}
+	if pane.State == "" {
+		return conversation.Conversation{}, routeError{status: http.StatusNotFound, message: "no live session"}
+	}
+	path, ok, err := tmux.PaneOption(ctx, pane.ID, protocol.OptionTranscript)
+	if err != nil {
+		return conversation.Conversation{}, internalError()
+	}
+	if !ok || path == "" {
+		return conversation.Conversation{}, routeError{status: http.StatusNotFound, message: "no transcript"}
+	}
+	conv, err := conversation.Read(path, limit)
+	if err == nil {
+		conv.Goal, err = goals.Goal(path)
+	}
+	if err == nil {
+		conv.Waiting, err = queues.Waiting(path, pane.State == protocol.StateDone)
+	}
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return conversation.Conversation{}, routeError{status: http.StatusNotFound, message: "transcript not found"}
+	case err != nil:
+		return conversation.Conversation{}, internalError()
+	}
+	return conv, nil
 }
 
 // conversationLimit returns the limit query value, or conversationLimitDefault when limit is absent. It returns
@@ -531,9 +580,8 @@ func (p *paneLocks) lock(id string) *sync.Mutex {
 	return mu
 }
 
-// servePaneText answers POST /v1/panes/{id}/text by sending the body's text as `orrery send --text` does: typed
-// into a Claude pane showing its input box, else pasted, then Enter.
-// The send holds the pane's lock, so two texts to one pane never interleave.
+// servePaneText answers POST /v1/panes/{id}/text: the pane is checked before the body, then the body's text is sent
+// by sendText.
 func servePaneText(tmux *tmuxctl.Client, locks *paneLocks) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := r.PathValue("id")
@@ -551,16 +599,26 @@ func servePaneText(tmux *tmuxctl.Client, locks *paneLocks) http.HandlerFunc {
 			http.Error(w, "bad request body", http.StatusBadRequest)
 			return
 		}
-		mu := locks.lock(id)
-		mu.Lock()
-		err := cli.Send(r.Context(), tmux, []string{flagPane, id, "--text", text}, io.Discard)
-		mu.Unlock()
-		if err != nil {
-			http.Error(w, "internal server error", http.StatusInternalServerError)
+		if err := sendText(r.Context(), tmux, locks, id, text); err != nil {
+			writeRouteError(w, err)
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
 	}
+}
+
+// sendText sends text to pane id as `orrery send --text` does: typed into a Claude pane showing its input box, else
+// pasted, then Enter. The send holds the pane's lock, so two texts to one pane never interleave. A tmux failure is
+// internalError. The caller has checked that the pane exists.
+func sendText(ctx context.Context, tmux *tmuxctl.Client, locks *paneLocks, id, text string) error {
+	mu := locks.lock(id)
+	mu.Lock()
+	err := cli.Send(ctx, tmux, []string{flagPane, id, "--text", text}, io.Discard)
+	mu.Unlock()
+	if err != nil {
+		return internalError()
+	}
+	return nil
 }
 
 // servePaneKeys answers POST /v1/panes/{id}/keys by sending the body's keys to the pane. An expect_question
@@ -582,34 +640,53 @@ func servePaneKeys(tmux *tmuxctl.Client) http.HandlerFunc {
 			http.Error(w, "bad request body", http.StatusBadRequest)
 			return
 		}
-		args := []string{flagPane, id}
+		var expect *string
 		if raw, guarded := fields[fieldExpectQuestion]; guarded {
 			hash, isString := jsonString(raw)
 			if !isString {
 				http.Error(w, "bad request body", http.StatusBadRequest)
 				return
 			}
-			args = append(args, "--expect-question", hash)
+			expect = &hash
 		}
-		// The -- ends flag parsing, so a key spelled like a flag is typed into the pane as a key.
-		args = append(args, "--keys", "--")
-		args = append(args, keys...)
-		switch err := cli.Send(r.Context(), tmux, args, io.Discard); {
-		case errors.Is(err, cli.ErrQuestionRefused):
-			http.Error(w, "question refused", http.StatusConflict)
-			return
-		case err != nil:
-			http.Error(w, "internal server error", http.StatusInternalServerError)
+		if err := sendKeys(r.Context(), tmux, id, keys, expect); err != nil {
+			writeRouteError(w, err)
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
 	}
 }
 
+// sendKeys sends keys to pane id as POST /v1/panes/{id}/keys does. A non-nil expectQuestion makes the send conditional
+// on the pane's question: when that question does not match, nothing is sent and the answer is 409. An empty key list
+// is 400. A tmux failure is internalError. The caller has checked that the pane exists.
+func sendKeys(ctx context.Context, tmux *tmuxctl.Client, id string, keys []string, expectQuestion *string) error {
+	if len(keys) == 0 {
+		return routeError{status: http.StatusBadRequest, message: badRequestMessage}
+	}
+	args := []string{flagPane, id}
+	if expectQuestion != nil {
+		args = append(args, "--expect-question", *expectQuestion)
+	}
+	// The -- ends flag parsing, so a key spelled like a flag is typed into the pane as a key.
+	args = append(args, "--keys", "--")
+	args = append(args, keys...)
+	switch err := cli.Send(ctx, tmux, args, io.Discard); {
+	case errors.Is(err, cli.ErrQuestionRefused):
+		return routeError{status: http.StatusConflict, message: "question refused"}
+	case err != nil:
+		return internalError()
+	}
+	return nil
+}
+
 // servePaneSeen answers POST /v1/panes/{id}/seen by setting the pane's seen time. The body is optional: with a
 // read_up_to field the time is that one, and otherwise it is now. See markSeen for how the stored time moves.
-// The pane's lock covers the write, so two seen posts to one pane never store an earlier time last.
-func servePaneSeen(tmux *tmuxctl.Client, locks *paneLocks) http.HandlerFunc {
+// After the mark is written, report receives the pane and the stored time; a nil report, or a pane that still
+// holds no seen time, reports nothing. A report error answers 500 with the mark kept. The pane's lock covers the
+// write and the report, so two seen posts to one pane never store an earlier time last, and their reports arrive
+// in the order the times were stored.
+func servePaneSeen(tmux *tmuxctl.Client, locks *paneLocks, report cli.SeenReporter) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := r.PathValue("id")
 		if _, err := checkPane(r.Context(), tmux, id); err != nil {
@@ -621,64 +698,103 @@ func servePaneSeen(tmux *tmuxctl.Client, locks *paneLocks) http.HandlerFunc {
 			http.Error(w, "bad request body", http.StatusBadRequest)
 			return
 		}
-		raw, reported := fields[fieldReadUpTo]
-		var readUpTo int64
-		if reported {
-			if readUpTo, ok = unixSeconds(raw); !ok {
+		var readUpTo *int64
+		if raw, reported := fields[fieldReadUpTo]; reported {
+			value, valid := unixSeconds(raw)
+			if !valid {
 				http.Error(w, "bad request body", http.StatusBadRequest)
 				return
 			}
+			readUpTo = &value
 		}
-		mu := locks.lock(id)
-		mu.Lock()
-		err := markSeen(r.Context(), tmux, id, readUpTo, reported)
-		mu.Unlock()
-		if err != nil {
-			http.Error(w, "internal server error", http.StatusInternalServerError)
+		if err := markPaneSeen(r.Context(), tmux, locks, report, id, readUpTo); err != nil {
+			writeRouteError(w, err)
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
 	}
 }
 
-// markSeen sets pane id's seen time. Without a reported time it is now, as `orrery seen` sets it. With one, it is
-// the later of the stored time and the reported one, so the stored time never moves back. An unset stored time
-// counts as 0. The caller holds the pane's lock.
-func markSeen(ctx context.Context, tmux *tmuxctl.Client, id string, reported int64, hasReported bool) error {
-	if !hasReported {
-		if err := cli.Seen(ctx, tmux, []string{flagPane, id}, io.Discard); err != nil {
-			return fmt.Errorf("server: seen: %w", err)
-		}
-		return nil
+// markPaneSeen sets pane id's seen time as POST /v1/panes/{id}/seen does: now when readUpTo is nil, else the time it
+// points to, which must be 0 or more. After the mark is written, report receives the pane and the stored time; a nil
+// report, or a pane that still holds no seen time, reports nothing. The pane's lock covers the write and the report,
+// so two seen posts to one pane never store an earlier time last, and their reports arrive in the order the times
+// were stored. A negative time is 400, and a failed write or report is internalError, with the mark kept. The caller
+// has checked that the pane exists.
+func markPaneSeen(
+	ctx context.Context,
+	tmux *tmuxctl.Client,
+	locks *paneLocks,
+	report cli.SeenReporter,
+	id string,
+	readUpTo *int64,
+) error {
+	if readUpTo != nil && *readUpTo < 0 {
+		return routeError{status: http.StatusBadRequest, message: badRequestMessage}
 	}
-	value, set, err := tmux.PaneOption(ctx, id, protocol.OptionSeen)
+	mu := locks.lock(id)
+	mu.Lock()
+	seen, err := markSeen(ctx, tmux, id, readUpTo)
+	if err == nil && report != nil && seen > 0 {
+		err = report(id, seen)
+	}
+	mu.Unlock()
 	if err != nil {
-		return fmt.Errorf("server: read seen time: %w", err)
-	}
-	var stored int64
-	if set {
-		if stored, err = strconv.ParseInt(value, 10, 64); err != nil {
-			return fmt.Errorf("server: seen time %q: %w", value, err)
-		}
-	}
-	if reported <= stored {
-		return nil
-	}
-	if err = tmux.SetPaneOption(ctx, id, protocol.OptionSeen, strconv.FormatInt(reported, 10)); err != nil {
-		return fmt.Errorf("server: set seen time: %w", err)
+		return internalError()
 	}
 	return nil
 }
 
+// markSeen sets pane id's seen time and returns the time the pane holds afterwards. Without a readUpTo it is now, as
+// `orrery seen` sets it. With one, it is the later of the stored time and that one, so the stored time never moves
+// back. An unset stored time counts as 0. The caller holds the pane's lock.
+func markSeen(ctx context.Context, tmux *tmuxctl.Client, id string, readUpTo *int64) (int64, error) {
+	if readUpTo == nil {
+		// cli.Seen hands back the time it wrote; the lock keeps the pane at that time until the caller reports it.
+		var written int64
+		capture := func(_ string, seen int64) error {
+			written = seen
+			return nil
+		}
+		if err := cli.Seen(ctx, tmux, capture, []string{flagPane, id}, io.Discard); err != nil {
+			return 0, fmt.Errorf("server: seen: %w", err)
+		}
+		return written, nil
+	}
+	value, set, err := tmux.PaneOption(ctx, id, protocol.OptionSeen)
+	if err != nil {
+		return 0, fmt.Errorf("server: read seen time: %w", err)
+	}
+	var stored int64
+	if set {
+		if stored, err = strconv.ParseInt(value, 10, 64); err != nil {
+			return 0, fmt.Errorf("server: seen time %q: %w", value, err)
+		}
+	}
+	if *readUpTo <= stored {
+		return stored, nil
+	}
+	if err = tmux.SetPaneOption(ctx, id, protocol.OptionSeen, strconv.FormatInt(*readUpTo, 10)); err != nil {
+		return 0, fmt.Errorf("server: set seen time: %w", err)
+	}
+	return *readUpTo, nil
+}
+
 // paneError answers a failed checkPane: 400 for a malformed pane ID, 404 for an absent pane, else 500.
 func paneError(w http.ResponseWriter, err error) {
+	writeRouteError(w, paneRouteError(err))
+}
+
+// paneRouteError returns the routeError of a failed checkPane: 400 for a malformed pane ID, 404 for an absent
+// pane, else 500.
+func paneRouteError(err error) routeError {
 	switch {
 	case errors.Is(err, errMalformedPaneID):
-		http.Error(w, "malformed pane id", http.StatusBadRequest)
+		return routeError{status: http.StatusBadRequest, message: "malformed pane id"}
 	case errors.Is(err, errPaneNotFound):
-		http.Error(w, "pane not found", http.StatusNotFound)
+		return routeError{status: http.StatusNotFound, message: "pane not found"}
 	default:
-		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return internalError()
 	}
 }
 
@@ -707,17 +823,12 @@ func servePushRegister(store *push.Store) http.HandlerFunc {
 			http.Error(w, "bad request body", http.StatusBadRequest)
 			return
 		}
-		err := store.Add(push.Subscription{Endpoint: endpoint, P256dh: p256dh, Auth: auth})
-		switch {
-		case err == nil:
-			w.WriteHeader(http.StatusNoContent)
-		case errors.Is(err, push.ErrInvalidSubscription):
-			http.Error(w, "bad request body", http.StatusBadRequest)
-		case errors.Is(err, push.ErrEndpointNotAllowed):
-			http.Error(w, "endpoint not allowed", http.StatusUnprocessableEntity)
-		default:
-			http.Error(w, "internal server error", http.StatusInternalServerError)
+		sub := push.Subscription{Endpoint: endpoint, P256dh: p256dh, Auth: auth}
+		if err := registerSubscription(store, sub); err != nil {
+			writeRouteError(w, err)
+			return
 		}
+		w.WriteHeader(http.StatusNoContent)
 	}
 }
 
@@ -736,15 +847,41 @@ func serveUnregister(store *push.Store) http.HandlerFunc {
 			http.Error(w, "bad request body", http.StatusBadRequest)
 			return
 		}
-		err := store.Remove(endpoint)
-		switch {
-		case err == nil:
-			w.WriteHeader(http.StatusNoContent)
-		case errors.Is(err, push.ErrNotRegistered):
-			http.Error(w, "endpoint not registered", http.StatusNotFound)
-		default:
-			http.Error(w, "internal server error", http.StatusInternalServerError)
+		if err := unregisterSubscription(store, endpoint); err != nil {
+			writeRouteError(w, err)
+			return
 		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+// registerSubscription stores sub for both the REST route and Push.Register. It returns a routeError of 400 for
+// an invalid subscription, 422 for an endpoint the store refuses, and internal for any other store error.
+func registerSubscription(store *push.Store, sub push.Subscription) error {
+	err := store.Add(sub)
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, push.ErrInvalidSubscription):
+		return routeError{status: http.StatusBadRequest, message: badRequestMessage}
+	case errors.Is(err, push.ErrEndpointNotAllowed):
+		return routeError{status: http.StatusUnprocessableEntity, message: "endpoint not allowed"}
+	default:
+		return internalError()
+	}
+}
+
+// unregisterSubscription removes the subscription stored for endpoint for both the REST route and
+// Push.Unregister. It returns a routeError of 404 when none is stored and internal for any other store error.
+func unregisterSubscription(store *push.Store, endpoint string) error {
+	err := store.Remove(endpoint)
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, push.ErrNotRegistered):
+		return routeError{status: http.StatusNotFound, message: "endpoint not registered"}
+	default:
+		return internalError()
 	}
 }
 
@@ -866,6 +1003,60 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", jsonContentType)
 	w.WriteHeader(status)
 	_, _ = w.Write(body)
+}
+
+// routeError is a failure of a route's shared core: the HTTP status and plain-text message its REST answer
+// carries, and the message its Connect twin carries too.
+type routeError struct {
+	status  int
+	message string
+}
+
+// Error returns the message of the failure.
+func (e routeError) Error() string {
+	return e.message
+}
+
+// internalError returns the routeError of a failure no caller can act on: 500 with the internal server error message.
+func internalError() routeError {
+	return routeError{status: http.StatusInternalServerError, message: "internal server error"}
+}
+
+// writeRouteError answers the REST route with err's status and message, as http.Error writes them. An error that
+// is not a routeError is answered as an internal failure.
+func writeRouteError(w http.ResponseWriter, err error) {
+	var route routeError
+	if !errors.As(err, &route) {
+		route = internalError()
+	}
+	http.Error(w, route.message, route.status)
+}
+
+// connectError returns the Connect error of err, carrying err's message. The code follows the routeError's status
+// by the Phone API table of docs/contract.md: 400 and 422 are invalid_argument, 404 is not_found, 409 is aborted,
+// 410 is failed_precondition, 500 is internal, and 502 is unavailable. The status alone decides the code, so every
+// 409 is aborted. An error that is not a routeError is internal.
+func connectError(err error) *connect.Error {
+	var route routeError
+	if !errors.As(err, &route) {
+		route = internalError()
+	}
+	var code connect.Code
+	switch route.status {
+	case http.StatusBadRequest, http.StatusUnprocessableEntity:
+		code = connect.CodeInvalidArgument
+	case http.StatusNotFound:
+		code = connect.CodeNotFound
+	case http.StatusConflict:
+		code = connect.CodeAborted
+	case http.StatusGone:
+		code = connect.CodeFailedPrecondition
+	case http.StatusBadGateway:
+		code = connect.CodeUnavailable
+	default:
+		code = connect.CodeInternal
+	}
+	return connect.NewError(code, errors.New(route.message))
 }
 
 // isWrite reports whether method is one the guard checks for a JSON content type and client header.

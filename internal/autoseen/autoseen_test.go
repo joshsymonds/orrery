@@ -10,8 +10,10 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -47,6 +49,30 @@ type clock struct{ nanos atomic.Int64 }
 func (c *clock) set(t time.Time) { c.nanos.Store(t.UnixNano()) }
 
 func (c *clock) now() time.Time { return time.Unix(0, c.nanos.Load()) }
+
+// seenReport is one call to the report function passed to autoseen.New.
+type seenReport struct {
+	pane string
+	seen int64
+}
+
+// reports records the report calls. The observer makes them in the daemon's connection goroutine.
+type reports struct {
+	mu  sync.Mutex
+	got []seenReport
+}
+
+func (r *reports) record(pane string, seen int64) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.got = append(r.got, seenReport{pane: pane, seen: seen})
+}
+
+func (r *reports) list() []seenReport {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return slices.Clone(r.got)
+}
 
 // tmuxServer is a private tmux server under a unique -L name, killed at cleanup.
 type tmuxServer struct {
@@ -301,8 +327,9 @@ func wantOption(t *testing.T, client *tmuxctl.Client, pane, name, want string) {
 func TestObserverMarksPaneSeenWhenClientIsViewingIt(t *testing.T) {
 	fx := newFixture(t)
 	var clk clock
+	var rep reports
 	socket := serve(t, daemon.Config{
-		Observers: []daemon.Observer{autoseen.New(clk.now, nil)},
+		Observers: []daemon.Observer{autoseen.New(clk.now, nil, rep.record)},
 	})
 	fx.typeIntoClient(t)
 
@@ -320,6 +347,11 @@ func TestObserverMarksPaneSeenWhenClientIsViewingIt(t *testing.T) {
 	sendFrame(t, socket, frameFor(stopHook, fx.paneB, fx.socket))
 	wantOption(t, fx.inner.client, fx.paneB, protocol.OptionState, string(protocol.StateDone))
 	wantOption(t, fx.inner.client, fx.paneB, protocol.OptionSeen, "")
+
+	want := []seenReport{{pane: fx.paneA, seen: stopped.Unix()}}
+	if got := rep.list(); !slices.Equal(got, want) {
+		t.Fatalf("reports = %v, want %v", got, want)
+	}
 }
 
 // TestObserverLeavesPaneUnseenWhenClientInputIsStale stops the viewed pane with the observer's clock 31 s
@@ -327,8 +359,9 @@ func TestObserverMarksPaneSeenWhenClientIsViewingIt(t *testing.T) {
 func TestObserverLeavesPaneUnseenWhenClientInputIsStale(t *testing.T) {
 	fx := newFixture(t)
 	var clk clock
+	var rep reports
 	socket := serve(t, daemon.Config{
-		Observers: []daemon.Observer{autoseen.New(clk.now, nil)},
+		Observers: []daemon.Observer{autoseen.New(clk.now, nil, rep.record)},
 	})
 	fx.typeIntoClient(t)
 
@@ -337,4 +370,7 @@ func TestObserverLeavesPaneUnseenWhenClientInputIsStale(t *testing.T) {
 	sendFrame(t, socket, frameFor(stopHook, fx.paneA, fx.socket))
 	wantOption(t, fx.inner.client, fx.paneA, protocol.OptionState, string(protocol.StateDone))
 	wantOption(t, fx.inner.client, fx.paneA, protocol.OptionSeen, "")
+	if got := rep.list(); len(got) != 0 {
+		t.Fatalf("reports = %v, want none", got)
+	}
 }

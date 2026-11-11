@@ -473,6 +473,46 @@ class OrreryClientTest {
         }
     }
 
+    @Test
+    fun conversationReadsCompactionTriggerTokensAndContext() {
+        val body = """
+            {"origin":"","items":[
+              {"kind":"compaction","time":1700000070,"text":"Example summary.","tool":"","input":"","id":"","error":false,"notice":"","trigger":"auto","tokens":4200}
+            ],"goal":"","context":{"tokens":61000,"window":200000}}
+        """.trimIndent()
+        FakeOrreryServer().use { server ->
+            server.respond("GET", "/v1/panes/%253/conversation", 200, body)
+
+            val conversation = requireNotNull(OrreryClient(server.baseUrl).conversation("%3"))
+
+            assertEquals(
+                listOf(ConversationItem("compaction", 1700000070L, "Example summary.", "", "", "", false, "", "auto", 4200L)),
+                conversation.items,
+            )
+            assertEquals(ConversationContext(tokens = 61000L, window = 200000L), conversation.context)
+        }
+    }
+
+    @Test
+    fun conversationWithoutTriggerTokensOrContextParsesWithDefaults() {
+        val body = """
+            {"origin":"","items":[
+              {"kind":"notice","time":1700000080,"text":"Example summary.","tool":"","input":"","id":"","error":false,"notice":"compaction"}
+            ],"goal":""}
+        """.trimIndent()
+        FakeOrreryServer().use { server ->
+            server.respond("GET", "/v1/panes/%253/conversation", 200, body)
+
+            val conversation = requireNotNull(OrreryClient(server.baseUrl).conversation("%3"))
+
+            assertEquals(
+                listOf(ConversationItem("notice", 1700000080L, "Example summary.", "", "", "", false, "compaction", "", 0L)),
+                conversation.items,
+            )
+            assertNull(conversation.context)
+        }
+    }
+
     private fun conversationGoal(goalJson: String): String {
         val body = """{"origin":"","items":[]$goalJson}"""
         return FakeOrreryServer().use { server ->

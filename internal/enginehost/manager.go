@@ -67,9 +67,11 @@ const defaultIdleAfter = 10 * time.Minute
 // interruptedReason is the reason a session whose turn was running when Close stopped the manager records.
 const interruptedReason = "orreryd stopped during the turn"
 
-// NoticeSink receives the notices the owner is told about. *Notifier satisfies it.
+// NoticeSink receives the notices the owner is told about, and the seen reports that clear them. *Notifier satisfies
+// it.
 type NoticeSink interface {
 	Notify(ctx context.Context, n Notice)
+	Seen(ctx context.Context, session string, seen time.Time)
 }
 
 // Store reads the engine rows Reconcile settles, the rows Say resumes, checks and Seen marks, the step rows Continue
@@ -351,13 +353,21 @@ func (m *Manager) Stop(ctx context.Context, id string) error {
 	return fmt.Errorf("stop session %s: %w", id, errors.Join(stopErr, recordErr))
 }
 
-// Seen marks the engine row id as seen now. It returns an error wrapping ErrNoSession when no engine row has that id.
+// Seen marks the engine row id as seen now, and once that is stored reports the seen time to the notifier, which clears
+// the session's notice. It returns an error wrapping ErrNoSession when no engine row has that id.
 func (m *Manager) Seen(ctx context.Context, id string) error {
 	if _, err := m.engineRow(ctx, id); err != nil {
 		return fmt.Errorf("mark session %s seen: %w", id, err)
 	}
-	seen := strconv.FormatInt(m.now().Unix(), 10)
-	return m.writer.Commit(ctx, id, store.EngineSet{ID: id, Changes: store.EngineChanges{Seen: &seen}})
+	now := m.now()
+	seen := strconv.FormatInt(now.Unix(), 10)
+	if err := m.writer.Commit(ctx, id, store.EngineSet{ID: id, Changes: store.EngineChanges{Seen: &seen}}); err != nil {
+		return err
+	}
+	if m.notifier != nil {
+		m.notifier.Seen(ctx, id, now)
+	}
+	return nil
 }
 
 // SayRequest is what Say needs: the session ID, the text of the prompt, and the client-chosen PromptID. An empty

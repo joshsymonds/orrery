@@ -27,6 +27,14 @@ const (
 	EventsName = "orrery.v1.Events"
 	// ControlName is the fully-qualified name of the Control service.
 	ControlName = "orrery.v1.Control"
+	// PanesName is the fully-qualified name of the Panes service.
+	PanesName = "orrery.v1.Panes"
+	// HostName is the fully-qualified name of the Host service.
+	HostName = "orrery.v1.Host"
+	// PushName is the fully-qualified name of the Push service.
+	PushName = "orrery.v1.Push"
+	// PickerName is the fully-qualified name of the Picker service.
+	PickerName = "orrery.v1.Picker"
 )
 
 // These constants are the fully-qualified names of the RPCs defined in this package. They're
@@ -53,6 +61,28 @@ const (
 	ControlStopProcedure = "/orrery.v1.Control/Stop"
 	// ControlSeenProcedure is the fully-qualified name of the Control's Seen RPC.
 	ControlSeenProcedure = "/orrery.v1.Control/Seen"
+	// PanesListProcedure is the fully-qualified name of the Panes's List RPC.
+	PanesListProcedure = "/orrery.v1.Panes/List"
+	// PanesScreenProcedure is the fully-qualified name of the Panes's Screen RPC.
+	PanesScreenProcedure = "/orrery.v1.Panes/Screen"
+	// PanesConversationProcedure is the fully-qualified name of the Panes's Conversation RPC.
+	PanesConversationProcedure = "/orrery.v1.Panes/Conversation"
+	// PanesSendTextProcedure is the fully-qualified name of the Panes's SendText RPC.
+	PanesSendTextProcedure = "/orrery.v1.Panes/SendText"
+	// PanesSendKeysProcedure is the fully-qualified name of the Panes's SendKeys RPC.
+	PanesSendKeysProcedure = "/orrery.v1.Panes/SendKeys"
+	// PanesMarkSeenProcedure is the fully-qualified name of the Panes's MarkSeen RPC.
+	PanesMarkSeenProcedure = "/orrery.v1.Panes/MarkSeen"
+	// HostStatusProcedure is the fully-qualified name of the Host's Status RPC.
+	HostStatusProcedure = "/orrery.v1.Host/Status"
+	// PushRegisterProcedure is the fully-qualified name of the Push's Register RPC.
+	PushRegisterProcedure = "/orrery.v1.Push/Register"
+	// PushUnregisterProcedure is the fully-qualified name of the Push's Unregister RPC.
+	PushUnregisterProcedure = "/orrery.v1.Push/Unregister"
+	// PickerAskProcedure is the fully-qualified name of the Picker's Ask RPC.
+	PickerAskProcedure = "/orrery.v1.Picker/Ask"
+	// PickerRunProcedure is the fully-qualified name of the Picker's Run RPC.
+	PickerRunProcedure = "/orrery.v1.Picker/Run"
 )
 
 // SessionsClient is a client for the orrery.v1.Sessions service.
@@ -409,4 +439,488 @@ func (UnimplementedControlHandler) Stop(context.Context, *connect.Request[v1.Sto
 
 func (UnimplementedControlHandler) Seen(context.Context, *connect.Request[v1.SeenRequest]) (*connect.Response[v1.SeenResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.v1.Control.Seen is not implemented"))
+}
+
+// PanesClient is a client for the orrery.v1.Panes service.
+type PanesClient interface {
+	// List answers GET /v1/panes with every tracked pane.
+	List(context.Context, *connect.Request[v1.PanesListRequest]) (*connect.Response[v1.PanesListResponse], error)
+	// Screen answers GET /v1/panes/{id}/screen with the text one pane shows.
+	Screen(context.Context, *connect.Request[v1.ScreenRequest]) (*connect.Response[v1.ScreenResponse], error)
+	// Conversation answers GET /v1/panes/{id}/conversation with the conversation of one pane's Claude transcript.
+	Conversation(context.Context, *connect.Request[v1.ConversationRequest]) (*connect.Response[v1.ConversationResponse], error)
+	// SendText answers POST /v1/panes/{id}/text by sending text to one pane.
+	SendText(context.Context, *connect.Request[v1.SendTextRequest]) (*connect.Response[v1.SendTextResponse], error)
+	// SendKeys answers POST /v1/panes/{id}/keys by sending keys to one pane.
+	SendKeys(context.Context, *connect.Request[v1.SendKeysRequest]) (*connect.Response[v1.SendKeysResponse], error)
+	// MarkSeen answers POST /v1/panes/{id}/seen by recording that the user has seen one pane.
+	MarkSeen(context.Context, *connect.Request[v1.MarkSeenRequest]) (*connect.Response[v1.MarkSeenResponse], error)
+}
+
+// NewPanesClient constructs a client for the orrery.v1.Panes service. By default, it uses the
+// Connect protocol with the binary Protobuf Codec, asks for gzipped responses, and sends
+// uncompressed requests. To use the gRPC or gRPC-Web protocols, supply the connect.WithGRPC() or
+// connect.WithGRPCWeb() options.
+//
+// The URL supplied here should be the base URL for the Connect or gRPC server (for example,
+// http://api.acme.com or https://acme.com/grpc).
+func NewPanesClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) PanesClient {
+	baseURL = strings.TrimRight(baseURL, "/")
+	panesMethods := v1.File_orrery_v1_orrery_proto.Services().ByName("Panes").Methods()
+	return &panesClient{
+		list: connect.NewClient[v1.PanesListRequest, v1.PanesListResponse](
+			httpClient,
+			baseURL+PanesListProcedure,
+			connect.WithSchema(panesMethods.ByName("List")),
+			connect.WithClientOptions(opts...),
+		),
+		screen: connect.NewClient[v1.ScreenRequest, v1.ScreenResponse](
+			httpClient,
+			baseURL+PanesScreenProcedure,
+			connect.WithSchema(panesMethods.ByName("Screen")),
+			connect.WithClientOptions(opts...),
+		),
+		conversation: connect.NewClient[v1.ConversationRequest, v1.ConversationResponse](
+			httpClient,
+			baseURL+PanesConversationProcedure,
+			connect.WithSchema(panesMethods.ByName("Conversation")),
+			connect.WithClientOptions(opts...),
+		),
+		sendText: connect.NewClient[v1.SendTextRequest, v1.SendTextResponse](
+			httpClient,
+			baseURL+PanesSendTextProcedure,
+			connect.WithSchema(panesMethods.ByName("SendText")),
+			connect.WithClientOptions(opts...),
+		),
+		sendKeys: connect.NewClient[v1.SendKeysRequest, v1.SendKeysResponse](
+			httpClient,
+			baseURL+PanesSendKeysProcedure,
+			connect.WithSchema(panesMethods.ByName("SendKeys")),
+			connect.WithClientOptions(opts...),
+		),
+		markSeen: connect.NewClient[v1.MarkSeenRequest, v1.MarkSeenResponse](
+			httpClient,
+			baseURL+PanesMarkSeenProcedure,
+			connect.WithSchema(panesMethods.ByName("MarkSeen")),
+			connect.WithClientOptions(opts...),
+		),
+	}
+}
+
+// panesClient implements PanesClient.
+type panesClient struct {
+	list         *connect.Client[v1.PanesListRequest, v1.PanesListResponse]
+	screen       *connect.Client[v1.ScreenRequest, v1.ScreenResponse]
+	conversation *connect.Client[v1.ConversationRequest, v1.ConversationResponse]
+	sendText     *connect.Client[v1.SendTextRequest, v1.SendTextResponse]
+	sendKeys     *connect.Client[v1.SendKeysRequest, v1.SendKeysResponse]
+	markSeen     *connect.Client[v1.MarkSeenRequest, v1.MarkSeenResponse]
+}
+
+// List calls orrery.v1.Panes.List.
+func (c *panesClient) List(ctx context.Context, req *connect.Request[v1.PanesListRequest]) (*connect.Response[v1.PanesListResponse], error) {
+	return c.list.CallUnary(ctx, req)
+}
+
+// Screen calls orrery.v1.Panes.Screen.
+func (c *panesClient) Screen(ctx context.Context, req *connect.Request[v1.ScreenRequest]) (*connect.Response[v1.ScreenResponse], error) {
+	return c.screen.CallUnary(ctx, req)
+}
+
+// Conversation calls orrery.v1.Panes.Conversation.
+func (c *panesClient) Conversation(ctx context.Context, req *connect.Request[v1.ConversationRequest]) (*connect.Response[v1.ConversationResponse], error) {
+	return c.conversation.CallUnary(ctx, req)
+}
+
+// SendText calls orrery.v1.Panes.SendText.
+func (c *panesClient) SendText(ctx context.Context, req *connect.Request[v1.SendTextRequest]) (*connect.Response[v1.SendTextResponse], error) {
+	return c.sendText.CallUnary(ctx, req)
+}
+
+// SendKeys calls orrery.v1.Panes.SendKeys.
+func (c *panesClient) SendKeys(ctx context.Context, req *connect.Request[v1.SendKeysRequest]) (*connect.Response[v1.SendKeysResponse], error) {
+	return c.sendKeys.CallUnary(ctx, req)
+}
+
+// MarkSeen calls orrery.v1.Panes.MarkSeen.
+func (c *panesClient) MarkSeen(ctx context.Context, req *connect.Request[v1.MarkSeenRequest]) (*connect.Response[v1.MarkSeenResponse], error) {
+	return c.markSeen.CallUnary(ctx, req)
+}
+
+// PanesHandler is an implementation of the orrery.v1.Panes service.
+type PanesHandler interface {
+	// List answers GET /v1/panes with every tracked pane.
+	List(context.Context, *connect.Request[v1.PanesListRequest]) (*connect.Response[v1.PanesListResponse], error)
+	// Screen answers GET /v1/panes/{id}/screen with the text one pane shows.
+	Screen(context.Context, *connect.Request[v1.ScreenRequest]) (*connect.Response[v1.ScreenResponse], error)
+	// Conversation answers GET /v1/panes/{id}/conversation with the conversation of one pane's Claude transcript.
+	Conversation(context.Context, *connect.Request[v1.ConversationRequest]) (*connect.Response[v1.ConversationResponse], error)
+	// SendText answers POST /v1/panes/{id}/text by sending text to one pane.
+	SendText(context.Context, *connect.Request[v1.SendTextRequest]) (*connect.Response[v1.SendTextResponse], error)
+	// SendKeys answers POST /v1/panes/{id}/keys by sending keys to one pane.
+	SendKeys(context.Context, *connect.Request[v1.SendKeysRequest]) (*connect.Response[v1.SendKeysResponse], error)
+	// MarkSeen answers POST /v1/panes/{id}/seen by recording that the user has seen one pane.
+	MarkSeen(context.Context, *connect.Request[v1.MarkSeenRequest]) (*connect.Response[v1.MarkSeenResponse], error)
+}
+
+// NewPanesHandler builds an HTTP handler from the service implementation. It returns the path on
+// which to mount the handler and the handler itself.
+//
+// By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
+// and JSON codecs. They also support gzip compression.
+func NewPanesHandler(svc PanesHandler, opts ...connect.HandlerOption) (string, http.Handler) {
+	panesMethods := v1.File_orrery_v1_orrery_proto.Services().ByName("Panes").Methods()
+	panesListHandler := connect.NewUnaryHandler(
+		PanesListProcedure,
+		svc.List,
+		connect.WithSchema(panesMethods.ByName("List")),
+		connect.WithHandlerOptions(opts...),
+	)
+	panesScreenHandler := connect.NewUnaryHandler(
+		PanesScreenProcedure,
+		svc.Screen,
+		connect.WithSchema(panesMethods.ByName("Screen")),
+		connect.WithHandlerOptions(opts...),
+	)
+	panesConversationHandler := connect.NewUnaryHandler(
+		PanesConversationProcedure,
+		svc.Conversation,
+		connect.WithSchema(panesMethods.ByName("Conversation")),
+		connect.WithHandlerOptions(opts...),
+	)
+	panesSendTextHandler := connect.NewUnaryHandler(
+		PanesSendTextProcedure,
+		svc.SendText,
+		connect.WithSchema(panesMethods.ByName("SendText")),
+		connect.WithHandlerOptions(opts...),
+	)
+	panesSendKeysHandler := connect.NewUnaryHandler(
+		PanesSendKeysProcedure,
+		svc.SendKeys,
+		connect.WithSchema(panesMethods.ByName("SendKeys")),
+		connect.WithHandlerOptions(opts...),
+	)
+	panesMarkSeenHandler := connect.NewUnaryHandler(
+		PanesMarkSeenProcedure,
+		svc.MarkSeen,
+		connect.WithSchema(panesMethods.ByName("MarkSeen")),
+		connect.WithHandlerOptions(opts...),
+	)
+	return "/orrery.v1.Panes/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case PanesListProcedure:
+			panesListHandler.ServeHTTP(w, r)
+		case PanesScreenProcedure:
+			panesScreenHandler.ServeHTTP(w, r)
+		case PanesConversationProcedure:
+			panesConversationHandler.ServeHTTP(w, r)
+		case PanesSendTextProcedure:
+			panesSendTextHandler.ServeHTTP(w, r)
+		case PanesSendKeysProcedure:
+			panesSendKeysHandler.ServeHTTP(w, r)
+		case PanesMarkSeenProcedure:
+			panesMarkSeenHandler.ServeHTTP(w, r)
+		default:
+			http.NotFound(w, r)
+		}
+	})
+}
+
+// UnimplementedPanesHandler returns CodeUnimplemented from all methods.
+type UnimplementedPanesHandler struct{}
+
+func (UnimplementedPanesHandler) List(context.Context, *connect.Request[v1.PanesListRequest]) (*connect.Response[v1.PanesListResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.v1.Panes.List is not implemented"))
+}
+
+func (UnimplementedPanesHandler) Screen(context.Context, *connect.Request[v1.ScreenRequest]) (*connect.Response[v1.ScreenResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.v1.Panes.Screen is not implemented"))
+}
+
+func (UnimplementedPanesHandler) Conversation(context.Context, *connect.Request[v1.ConversationRequest]) (*connect.Response[v1.ConversationResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.v1.Panes.Conversation is not implemented"))
+}
+
+func (UnimplementedPanesHandler) SendText(context.Context, *connect.Request[v1.SendTextRequest]) (*connect.Response[v1.SendTextResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.v1.Panes.SendText is not implemented"))
+}
+
+func (UnimplementedPanesHandler) SendKeys(context.Context, *connect.Request[v1.SendKeysRequest]) (*connect.Response[v1.SendKeysResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.v1.Panes.SendKeys is not implemented"))
+}
+
+func (UnimplementedPanesHandler) MarkSeen(context.Context, *connect.Request[v1.MarkSeenRequest]) (*connect.Response[v1.MarkSeenResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.v1.Panes.MarkSeen is not implemented"))
+}
+
+// HostClient is a client for the orrery.v1.Host service.
+type HostClient interface {
+	// Status answers GET /v1/host with the host's name and its stats.
+	Status(context.Context, *connect.Request[v1.HostStatusRequest]) (*connect.Response[v1.HostStatusResponse], error)
+}
+
+// NewHostClient constructs a client for the orrery.v1.Host service. By default, it uses the Connect
+// protocol with the binary Protobuf Codec, asks for gzipped responses, and sends uncompressed
+// requests. To use the gRPC or gRPC-Web protocols, supply the connect.WithGRPC() or
+// connect.WithGRPCWeb() options.
+//
+// The URL supplied here should be the base URL for the Connect or gRPC server (for example,
+// http://api.acme.com or https://acme.com/grpc).
+func NewHostClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) HostClient {
+	baseURL = strings.TrimRight(baseURL, "/")
+	hostMethods := v1.File_orrery_v1_orrery_proto.Services().ByName("Host").Methods()
+	return &hostClient{
+		status: connect.NewClient[v1.HostStatusRequest, v1.HostStatusResponse](
+			httpClient,
+			baseURL+HostStatusProcedure,
+			connect.WithSchema(hostMethods.ByName("Status")),
+			connect.WithClientOptions(opts...),
+		),
+	}
+}
+
+// hostClient implements HostClient.
+type hostClient struct {
+	status *connect.Client[v1.HostStatusRequest, v1.HostStatusResponse]
+}
+
+// Status calls orrery.v1.Host.Status.
+func (c *hostClient) Status(ctx context.Context, req *connect.Request[v1.HostStatusRequest]) (*connect.Response[v1.HostStatusResponse], error) {
+	return c.status.CallUnary(ctx, req)
+}
+
+// HostHandler is an implementation of the orrery.v1.Host service.
+type HostHandler interface {
+	// Status answers GET /v1/host with the host's name and its stats.
+	Status(context.Context, *connect.Request[v1.HostStatusRequest]) (*connect.Response[v1.HostStatusResponse], error)
+}
+
+// NewHostHandler builds an HTTP handler from the service implementation. It returns the path on
+// which to mount the handler and the handler itself.
+//
+// By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
+// and JSON codecs. They also support gzip compression.
+func NewHostHandler(svc HostHandler, opts ...connect.HandlerOption) (string, http.Handler) {
+	hostMethods := v1.File_orrery_v1_orrery_proto.Services().ByName("Host").Methods()
+	hostStatusHandler := connect.NewUnaryHandler(
+		HostStatusProcedure,
+		svc.Status,
+		connect.WithSchema(hostMethods.ByName("Status")),
+		connect.WithHandlerOptions(opts...),
+	)
+	return "/orrery.v1.Host/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case HostStatusProcedure:
+			hostStatusHandler.ServeHTTP(w, r)
+		default:
+			http.NotFound(w, r)
+		}
+	})
+}
+
+// UnimplementedHostHandler returns CodeUnimplemented from all methods.
+type UnimplementedHostHandler struct{}
+
+func (UnimplementedHostHandler) Status(context.Context, *connect.Request[v1.HostStatusRequest]) (*connect.Response[v1.HostStatusResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.v1.Host.Status is not implemented"))
+}
+
+// PushClient is a client for the orrery.v1.Push service.
+type PushClient interface {
+	// Register answers POST /v1/push/register by storing a push subscription.
+	Register(context.Context, *connect.Request[v1.RegisterRequest]) (*connect.Response[v1.RegisterResponse], error)
+	// Unregister answers DELETE /v1/push/register by removing a push subscription.
+	Unregister(context.Context, *connect.Request[v1.UnregisterRequest]) (*connect.Response[v1.UnregisterResponse], error)
+}
+
+// NewPushClient constructs a client for the orrery.v1.Push service. By default, it uses the Connect
+// protocol with the binary Protobuf Codec, asks for gzipped responses, and sends uncompressed
+// requests. To use the gRPC or gRPC-Web protocols, supply the connect.WithGRPC() or
+// connect.WithGRPCWeb() options.
+//
+// The URL supplied here should be the base URL for the Connect or gRPC server (for example,
+// http://api.acme.com or https://acme.com/grpc).
+func NewPushClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) PushClient {
+	baseURL = strings.TrimRight(baseURL, "/")
+	pushMethods := v1.File_orrery_v1_orrery_proto.Services().ByName("Push").Methods()
+	return &pushClient{
+		register: connect.NewClient[v1.RegisterRequest, v1.RegisterResponse](
+			httpClient,
+			baseURL+PushRegisterProcedure,
+			connect.WithSchema(pushMethods.ByName("Register")),
+			connect.WithClientOptions(opts...),
+		),
+		unregister: connect.NewClient[v1.UnregisterRequest, v1.UnregisterResponse](
+			httpClient,
+			baseURL+PushUnregisterProcedure,
+			connect.WithSchema(pushMethods.ByName("Unregister")),
+			connect.WithClientOptions(opts...),
+		),
+	}
+}
+
+// pushClient implements PushClient.
+type pushClient struct {
+	register   *connect.Client[v1.RegisterRequest, v1.RegisterResponse]
+	unregister *connect.Client[v1.UnregisterRequest, v1.UnregisterResponse]
+}
+
+// Register calls orrery.v1.Push.Register.
+func (c *pushClient) Register(ctx context.Context, req *connect.Request[v1.RegisterRequest]) (*connect.Response[v1.RegisterResponse], error) {
+	return c.register.CallUnary(ctx, req)
+}
+
+// Unregister calls orrery.v1.Push.Unregister.
+func (c *pushClient) Unregister(ctx context.Context, req *connect.Request[v1.UnregisterRequest]) (*connect.Response[v1.UnregisterResponse], error) {
+	return c.unregister.CallUnary(ctx, req)
+}
+
+// PushHandler is an implementation of the orrery.v1.Push service.
+type PushHandler interface {
+	// Register answers POST /v1/push/register by storing a push subscription.
+	Register(context.Context, *connect.Request[v1.RegisterRequest]) (*connect.Response[v1.RegisterResponse], error)
+	// Unregister answers DELETE /v1/push/register by removing a push subscription.
+	Unregister(context.Context, *connect.Request[v1.UnregisterRequest]) (*connect.Response[v1.UnregisterResponse], error)
+}
+
+// NewPushHandler builds an HTTP handler from the service implementation. It returns the path on
+// which to mount the handler and the handler itself.
+//
+// By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
+// and JSON codecs. They also support gzip compression.
+func NewPushHandler(svc PushHandler, opts ...connect.HandlerOption) (string, http.Handler) {
+	pushMethods := v1.File_orrery_v1_orrery_proto.Services().ByName("Push").Methods()
+	pushRegisterHandler := connect.NewUnaryHandler(
+		PushRegisterProcedure,
+		svc.Register,
+		connect.WithSchema(pushMethods.ByName("Register")),
+		connect.WithHandlerOptions(opts...),
+	)
+	pushUnregisterHandler := connect.NewUnaryHandler(
+		PushUnregisterProcedure,
+		svc.Unregister,
+		connect.WithSchema(pushMethods.ByName("Unregister")),
+		connect.WithHandlerOptions(opts...),
+	)
+	return "/orrery.v1.Push/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case PushRegisterProcedure:
+			pushRegisterHandler.ServeHTTP(w, r)
+		case PushUnregisterProcedure:
+			pushUnregisterHandler.ServeHTTP(w, r)
+		default:
+			http.NotFound(w, r)
+		}
+	})
+}
+
+// UnimplementedPushHandler returns CodeUnimplemented from all methods.
+type UnimplementedPushHandler struct{}
+
+func (UnimplementedPushHandler) Register(context.Context, *connect.Request[v1.RegisterRequest]) (*connect.Response[v1.RegisterResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.v1.Push.Register is not implemented"))
+}
+
+func (UnimplementedPushHandler) Unregister(context.Context, *connect.Request[v1.UnregisterRequest]) (*connect.Response[v1.UnregisterResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.v1.Push.Unregister is not implemented"))
+}
+
+// PickerClient is a client for the orrery.v1.Picker service.
+type PickerClient interface {
+	// Ask answers POST /v1/picker/ask with the rows that match the text, each with a one-time token.
+	Ask(context.Context, *connect.Request[v1.AskRequest]) (*connect.Response[v1.AskResponse], error)
+	// Run answers POST /v1/picker/run by running the action a token names, once.
+	Run(context.Context, *connect.Request[v1.RunRequest]) (*connect.Response[v1.RunResponse], error)
+}
+
+// NewPickerClient constructs a client for the orrery.v1.Picker service. By default, it uses the
+// Connect protocol with the binary Protobuf Codec, asks for gzipped responses, and sends
+// uncompressed requests. To use the gRPC or gRPC-Web protocols, supply the connect.WithGRPC() or
+// connect.WithGRPCWeb() options.
+//
+// The URL supplied here should be the base URL for the Connect or gRPC server (for example,
+// http://api.acme.com or https://acme.com/grpc).
+func NewPickerClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) PickerClient {
+	baseURL = strings.TrimRight(baseURL, "/")
+	pickerMethods := v1.File_orrery_v1_orrery_proto.Services().ByName("Picker").Methods()
+	return &pickerClient{
+		ask: connect.NewClient[v1.AskRequest, v1.AskResponse](
+			httpClient,
+			baseURL+PickerAskProcedure,
+			connect.WithSchema(pickerMethods.ByName("Ask")),
+			connect.WithClientOptions(opts...),
+		),
+		run: connect.NewClient[v1.RunRequest, v1.RunResponse](
+			httpClient,
+			baseURL+PickerRunProcedure,
+			connect.WithSchema(pickerMethods.ByName("Run")),
+			connect.WithClientOptions(opts...),
+		),
+	}
+}
+
+// pickerClient implements PickerClient.
+type pickerClient struct {
+	ask *connect.Client[v1.AskRequest, v1.AskResponse]
+	run *connect.Client[v1.RunRequest, v1.RunResponse]
+}
+
+// Ask calls orrery.v1.Picker.Ask.
+func (c *pickerClient) Ask(ctx context.Context, req *connect.Request[v1.AskRequest]) (*connect.Response[v1.AskResponse], error) {
+	return c.ask.CallUnary(ctx, req)
+}
+
+// Run calls orrery.v1.Picker.Run.
+func (c *pickerClient) Run(ctx context.Context, req *connect.Request[v1.RunRequest]) (*connect.Response[v1.RunResponse], error) {
+	return c.run.CallUnary(ctx, req)
+}
+
+// PickerHandler is an implementation of the orrery.v1.Picker service.
+type PickerHandler interface {
+	// Ask answers POST /v1/picker/ask with the rows that match the text, each with a one-time token.
+	Ask(context.Context, *connect.Request[v1.AskRequest]) (*connect.Response[v1.AskResponse], error)
+	// Run answers POST /v1/picker/run by running the action a token names, once.
+	Run(context.Context, *connect.Request[v1.RunRequest]) (*connect.Response[v1.RunResponse], error)
+}
+
+// NewPickerHandler builds an HTTP handler from the service implementation. It returns the path on
+// which to mount the handler and the handler itself.
+//
+// By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
+// and JSON codecs. They also support gzip compression.
+func NewPickerHandler(svc PickerHandler, opts ...connect.HandlerOption) (string, http.Handler) {
+	pickerMethods := v1.File_orrery_v1_orrery_proto.Services().ByName("Picker").Methods()
+	pickerAskHandler := connect.NewUnaryHandler(
+		PickerAskProcedure,
+		svc.Ask,
+		connect.WithSchema(pickerMethods.ByName("Ask")),
+		connect.WithHandlerOptions(opts...),
+	)
+	pickerRunHandler := connect.NewUnaryHandler(
+		PickerRunProcedure,
+		svc.Run,
+		connect.WithSchema(pickerMethods.ByName("Run")),
+		connect.WithHandlerOptions(opts...),
+	)
+	return "/orrery.v1.Picker/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case PickerAskProcedure:
+			pickerAskHandler.ServeHTTP(w, r)
+		case PickerRunProcedure:
+			pickerRunHandler.ServeHTTP(w, r)
+		default:
+			http.NotFound(w, r)
+		}
+	})
+}
+
+// UnimplementedPickerHandler returns CodeUnimplemented from all methods.
+type UnimplementedPickerHandler struct{}
+
+func (UnimplementedPickerHandler) Ask(context.Context, *connect.Request[v1.AskRequest]) (*connect.Response[v1.AskResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.v1.Picker.Ask is not implemented"))
+}
+
+func (UnimplementedPickerHandler) Run(context.Context, *connect.Request[v1.RunRequest]) (*connect.Response[v1.RunResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.v1.Picker.Run is not implemented"))
 }

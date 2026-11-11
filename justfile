@@ -62,10 +62,13 @@ cover:
 proto-lint:
     cd proto && buf lint
 
-# Regenerate the store's typed queries (internal/store/sqlcgen) and the typed API (internal/gen) from proto/.
+# Regenerate the store's typed queries (internal/store/sqlcgen), the typed API (internal/gen), and the app's typed
+# client (android/app/src/main/java, orrery.v1 only) from proto/.
 generate:
     sqlc generate
     cd proto && buf generate
+    rm -rf android/app/src/main/java/io/github/joshsymonds/orrery/gen
+    cd proto && buf generate --template buf.gen.android.yaml --path orrery/v1
 
 # Fail when the generated store code drifts from its SQL.
 sqlc-diff:
@@ -74,6 +77,8 @@ sqlc-diff:
 # Fail when the generated API code drifts from proto/ (regenerates, then diffs).
 gen-diff: generate
     git diff --exit-code -- internal/gen
+    git diff --exit-code HEAD -- android/app/src/main/java
+    untracked=$(git ls-files --others --exclude-standard -- android/app/src/main/java); [ -z "$untracked" ] || { echo "generated app files not committed:" >&2; echo "$untracked" >&2; exit 1; }
 
 # Regenerate the devenv environment snapshot now, even when it is fresh.
 [script("scripts/in-devenv", "--refresh")]

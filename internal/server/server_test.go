@@ -1262,6 +1262,140 @@ func TestServePaneSeenRejectsBadReadUpTo(t *testing.T) {
 	assertStatus(t, postJSON(t, handler, paneRoute("%999999", "seen"), `[]`), http.StatusNotFound)
 }
 
+// seenCall is one report a seenRecorder received.
+type seenCall struct {
+	pane string
+	seen int64
+}
+
+// seenRecorder returns a reporter that appends each call to calls and answers err.
+func seenRecorder(calls *[]seenCall, err error) cli.SeenReporter {
+	return func(pane string, seen int64) error {
+		*calls = append(*calls, seenCall{pane: pane, seen: seen})
+		return err
+	}
+}
+
+// newSeenHandler builds the guarded handler that admits only allowedLogin, routes to tmux, and reports seen
+// marks to report.
+func newSeenHandler(t *testing.T, tmux *tmuxctl.Client, report cli.SeenReporter) http.Handler {
+	t.Helper()
+	handler, err := server.New(server.Config{
+		Logins:     []string{allowedLogin},
+		Tmux:       tmux,
+		Push:       newPushStore(t),
+		ReportSeen: report,
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	return handler
+}
+
+func TestServePaneSeenReportsStoredTime(t *testing.T) {
+	t.Parallel()
+
+	tmux := newTmuxServer(t)
+	pane, _ := startInputPane(t, tmux, "s1", synthScreen)
+	var calls []seenCall
+	handler := newSeenHandler(t, tmux, seenRecorder(&calls, nil))
+
+	assertStatus(t, postJSON(t, handler, paneRoute(pane, "seen"), ""), http.StatusNoContent)
+	if len(calls) != 1 {
+		t.Fatalf("reports = %d, want 1", len(calls))
+	}
+	if want := seenOption(t, tmux, pane); calls[0] != (seenCall{pane: pane, seen: want}) {
+		t.Fatalf("report = %+v, want pane %s at stored time %d", calls[0], pane, want)
+	}
+}
+
+func TestServePaneSeenReadUpToReportsStoredTime(t *testing.T) {
+	t.Parallel()
+
+	const (
+		reported = int64(1700000100)
+		later    = int64(1700000200)
+		earlier  = int64(1700000050)
+	)
+	tmux := newTmuxServer(t)
+	pane, _ := startInputPane(t, tmux, "s1", synthScreen)
+	var calls []seenCall
+	handler := newSeenHandler(t, tmux, seenRecorder(&calls, nil))
+	path := paneRoute(pane, "seen")
+
+	// An unset time reports the reported one.
+	postReadUpTo(t, handler, path, reported)
+	if len(calls) != 1 || calls[0] != (seenCall{pane: pane, seen: reported}) {
+		t.Fatalf("after unset: reports = %+v, want one at %d", calls, reported)
+	}
+
+	// An earlier reported time reports the stored time the pane still holds.
+	calls = nil
+	postReadUpTo(t, handler, path, earlier)
+	if len(calls) != 1 || calls[0] != (seenCall{pane: pane, seen: reported}) {
+		t.Fatalf("after earlier time: reports = %+v, want one at stored %d", calls, reported)
+	}
+
+	// A later reported time reports itself.
+	calls = nil
+	postReadUpTo(t, handler, path, later)
+	if len(calls) != 1 || calls[0] != (seenCall{pane: pane, seen: later}) {
+		t.Fatalf("after later time: reports = %+v, want one at %d", calls, later)
+	}
+}
+
+// TestServePaneSeenUnsetZeroReportsNothing posts read_up_to 0 to a pane with no seen time. The pane still holds none,
+// and orreryd refuses a seen of 0, so nothing is reported.
+func TestServePaneSeenUnsetZeroReportsNothing(t *testing.T) {
+	t.Parallel()
+
+	tmux := newTmuxServer(t)
+	pane, _ := startInputPane(t, tmux, "s1", synthScreen)
+	var calls []seenCall
+	handler := newSeenHandler(t, tmux, seenRecorder(&calls, nil))
+
+	postReadUpTo(t, handler, paneRoute(pane, "seen"), 0)
+	if len(calls) != 0 {
+		t.Fatalf("reports = %+v, want none for a pane that holds no seen time", calls)
+	}
+}
+
+func TestServePaneSeenRejectedRequestReportsNothing(t *testing.T) {
+	t.Parallel()
+
+	tmux := newTmuxServer(t)
+	pane, _ := startInputPane(t, tmux, "s1", synthScreen)
+	var calls []seenCall
+	handler := newSeenHandler(t, tmux, seenRecorder(&calls, nil))
+
+	assertStatus(t, postJSON(t, handler, paneRoute(pane, "seen"), `not json`), http.StatusBadRequest)
+	assertStatus(t, postJSON(t, handler, paneRoute(pane, "seen"), `{"read_up_to":"1700000100"}`), http.StatusBadRequest)
+	assertStatus(t, postJSON(t, handler, paneRoute("abc", "seen"), ""), http.StatusBadRequest)
+	assertStatus(t, postJSON(t, handler, paneRoute("%999999", "seen"), ""), http.StatusNotFound)
+	if len(calls) != 0 {
+		t.Fatalf("reports = %+v after rejected requests, want none", calls)
+	}
+}
+
+func TestServePaneSeenReporterErrorAnswers500AndKeepsMark(t *testing.T) {
+	t.Parallel()
+
+	const reported = int64(1700000100)
+	tmux := newTmuxServer(t)
+	pane, _ := startInputPane(t, tmux, "s1", synthScreen)
+	var calls []seenCall
+	handler := newSeenHandler(t, tmux, seenRecorder(&calls, errors.New("daemon unreachable")))
+
+	body := jsonBody(t, map[string]any{"read_up_to": reported})
+	assertStatus(t, postJSON(t, handler, paneRoute(pane, "seen"), body), http.StatusInternalServerError)
+	if len(calls) != 1 {
+		t.Fatalf("reports = %d, want 1", len(calls))
+	}
+	if got := seenOption(t, tmux, pane); got != reported {
+		t.Fatalf("%s = %d after reporter error, want the mark kept at %d", protocol.OptionSeen, got, reported)
+	}
+}
+
 func TestServeWriteRoutesRejectMalformedID(t *testing.T) {
 	t.Parallel()
 
@@ -1819,6 +1953,7 @@ func TestServePaneConversation(t *testing.T) {
 			{Kind: "reply", Text: "synthetic reply 3"},
 		},
 		Waiting: []conversation.Waiting{},
+		Context: conversation.Context{Window: 1000000},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("body = %+v, want %+v", got, want)

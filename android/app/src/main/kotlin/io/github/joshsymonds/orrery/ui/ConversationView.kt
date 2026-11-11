@@ -83,11 +83,12 @@ private enum class CallMark(val symbol: String, val colour: Color) {
 
 /**
  * The folded conversation as the phone draws it: time labels, prompt blocks, markdown replies, tool
- * rows that expand to their result, groups of calls that expand to their rows, and slim notice
- * rows, with an optional footer after the last entry. While [working], a working mark sits after
- * the last entry; the [waiting] rows follow it, one per queued message, and the footer comes last.
- * Which rows are open is kept by tool id (a group by its first call's id), so it survives new
- * entries. The first entries it shows open at the divider's entry, at the top, when a divider is
+ * rows that expand to their result, groups of calls that expand to their rows, compaction bars that
+ * expand to their summary, and slim notice rows, with an optional footer after the last entry. While
+ * [working], a working mark sits after the last entry; the [waiting] rows follow it, one per queued
+ * message, and the footer comes last. Which rows are open is kept by tool id (a group by its first
+ * call's id, a compaction bar by its entry key), so it survives new entries. The first entries it
+ * shows open at the divider's entry, at the top, when a divider is
  * drawn (see below), or at the end of the newest item otherwise. Landing leaves following on only
  * when the end is in view; otherwise the view waits for the reader to reach the end or an end
  * request before following. While the reader is at the
@@ -223,6 +224,7 @@ fun ConversationView(
                         is ConvoEntry.Reply -> ReplyText(entry.text, markdownCache)
                         is ConvoEntry.Tool -> ToolRow(entry.call, expanded, toggle)
                         is ConvoEntry.Group -> GroupRow(entry.calls, expanded, toggle)
+                        is ConvoEntry.Compaction -> CompactionRow(entry, keys[index], expanded, toggle, markdownCache)
                         is ConvoEntry.Notice -> NoticeRow(entry)
                     }
                 }
@@ -464,6 +466,64 @@ private fun GroupRow(calls: List<ToolCall>, expanded: Set<String>, onToggle: (St
                 }
             }
         }
+    }
+}
+
+/**
+ * The label a compaction bar shows: "compacted", then its trigger when set, the context tokens in
+ * thousands when there are any, and the clock time in the device zone when it is known, joined by " · ".
+ */
+fun compactionLabel(entry: ConvoEntry.Compaction): String {
+    val parts = mutableListOf("compacted")
+    if (entry.trigger.isNotEmpty()) parts.add(entry.trigger)
+    if (entry.tokens > 0) parts.add("${entry.tokens / 1_000}k")
+    if (entry.time > 0) parts.add(Instant.ofEpochSecond(entry.time).atZone(ZoneId.systemDefault()).format(CLOCK_TIME))
+    return parts.joinToString(" · ")
+}
+
+/**
+ * A compaction as a thin bar with its label between two rules. A tap opens the summary below it,
+ * as a reply draws it, and a second tap closes it.
+ */
+@Composable
+private fun CompactionRow(
+    entry: ConvoEntry.Compaction,
+    key: String,
+    expanded: Set<String>,
+    onToggle: (String) -> Unit,
+    cache: MarkdownCache,
+) {
+    val isOpen = key in expanded
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .testTag("compaction-bar:$key")
+                .fillMaxWidth()
+                .clickable { onToggle(key) }
+                .padding(top = 10.dp, bottom = 2.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .height(1.dp)
+                    .background(Mocha.Surface0),
+            )
+            Text(
+                text = compactionLabel(entry),
+                color = Mocha.Overlay0,
+                fontSize = 11.sp,
+                maxLines = 1,
+            )
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .height(1.dp)
+                    .background(Mocha.Surface0),
+            )
+        }
+        if (isOpen) ReplyText(entry.text, cache)
     }
 }
 

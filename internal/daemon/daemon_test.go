@@ -326,6 +326,102 @@ func TestDaemonDropsBadFrames(t *testing.T) {
 	wantOption(t, srv, protocol.OptionState, "working")
 }
 
+// seenFrameFor returns a seen report for pane whose $TMUX names socket. It carries no hook.
+func seenFrameFor(pane, socket string, seen int64) protocol.HookFrame {
+	return protocol.HookFrame{
+		TmuxPane: pane,
+		Tmux:     fmt.Sprintf("%s,1234,0", socket),
+		Seen:     seen,
+	}
+}
+
+// unsetPaneOptions checks that none of the options a hook frame writes is set on srv's pane.
+func unsetPaneOptions(t *testing.T, srv testServer) {
+	t.Helper()
+	for _, name := range []string{
+		protocol.OptionState, protocol.OptionQuestion, protocol.OptionContext,
+		protocol.OptionClaudeSession, protocol.OptionTranscript,
+	} {
+		wantOption(t, srv, name, "")
+	}
+}
+
+func TestDaemonSeenReport(t *testing.T) {
+	const seenAt = 1700000000
+	srv := startServer(t)
+	reports := make(chan daemon.SeenReport, 4)
+	socket := serve(t, daemon.Config{
+		Seen: func(report daemon.SeenReport) { reports <- report },
+	})
+
+	sendFrame(t, socket, seenFrameFor(srv.pane, srv.socket, seenAt))
+	got := drain(reports)
+	want := daemon.SeenReport{PaneID: srv.pane, Seen: seenAt}
+	if len(got) != 1 || got[0] != want {
+		t.Fatalf("seen reports = %+v, want exactly [%+v]", got, want)
+	}
+	unsetPaneOptions(t, srv)
+}
+
+func TestDaemonDropsBadSeenReports(t *testing.T) {
+	srv := startServer(t)
+	reports := make(chan daemon.SeenReport, 8)
+	transitions := make(chan daemon.Transition, 4)
+	socket := serve(t, daemon.Config{
+		Seen:      func(report daemon.SeenReport) { reports <- report },
+		Observers: []daemon.Observer{func(transition daemon.Transition) { transitions <- transition }},
+	})
+
+	withHook := frameFor(userPromptSubmitHook, srv.pane, srv.socket)
+	withHook.Seen = 1700000000
+	bad := []struct {
+		name  string
+		frame protocol.HookFrame
+	}{
+		{"empty tmuxPane", seenFrameFor("", srv.socket, 1700000000)},
+		{"seen zero without hook", seenFrameFor(srv.pane, srv.socket, 0)},
+		{"seen negative without hook", seenFrameFor(srv.pane, srv.socket, -1)},
+		{"seen with hook", withHook},
+	}
+	for _, tc := range bad {
+		t.Run(tc.name, func(t *testing.T) {
+			sendFrame(t, socket, tc.frame)
+			if got := drain(reports); len(got) != 0 {
+				t.Fatalf("bad seen report reached Config.Seen: %+v", got)
+			}
+			if got := drain(transitions); len(got) != 0 {
+				t.Fatalf("bad seen report notified observers: %+v", got)
+			}
+			unsetPaneOptions(t, srv)
+		})
+	}
+
+	sendFrame(t, socket, seenFrameFor(srv.pane, srv.socket, 1700000000))
+	if got := drain(reports); len(got) != 1 {
+		t.Fatalf("good seen report after bad ones reached Config.Seen %d times, want 1", len(got))
+	}
+	if got := drain(transitions); len(got) != 0 {
+		t.Fatalf("seen report notified observers: %+v", got)
+	}
+}
+
+func TestDaemonSeenReportWithoutHandler(t *testing.T) {
+	srv := startServer(t)
+	transitions := make(chan daemon.Transition, 4)
+	socket := serve(t, daemon.Config{
+		Observers: []daemon.Observer{func(transition daemon.Transition) { transitions <- transition }},
+	})
+
+	sendFrame(t, socket, seenFrameFor(srv.pane, srv.socket, 1700000000))
+	if got := drain(transitions); len(got) != 0 {
+		t.Fatalf("seen report notified observers: %+v", got)
+	}
+	unsetPaneOptions(t, srv)
+
+	sendFrame(t, socket, frameFor(userPromptSubmitHook, srv.pane, srv.socket))
+	wantOption(t, srv, protocol.OptionState, "working")
+}
+
 // contextObservation is the @orrery_context value an observer read when it ran.
 type contextObservation struct {
 	value string
