@@ -1044,19 +1044,20 @@ func (m *Manager) answerStepRequest(ctx context.Context, live *liveSession, requ
 	}
 }
 
-// observe gives the observer of the step live the event the pump has just recorded: the turn end of a hand-off, or an
-// exit with its failure reason, or stepExitedReason for a clean exit, since a step ends either way. A session without an
-// observer gets nothing.
+// observe gives the observer of the step live the event the pump has just recorded: the event itself, then the turn end
+// of a hand-off, or an exit with its failure reason, or stepExitedReason for a clean exit, since a step ends either way.
+// A session without an observer gets nothing.
 func observe(live *liveSession, event session.Event, handed bool) {
+	if live.observer == nil {
+		return
+	}
+	live.observer.Event(event)
 	switch ev := event.(type) {
 	case session.TurnEnded:
 		if handed {
 			live.observer.Return(ev)
 		}
 	case session.Exited:
-		if live.observer == nil {
-			return
-		}
 		reason, failed := exitFailure(ev)
 		if !failed {
 			reason = stepExitedReason

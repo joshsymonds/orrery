@@ -44,15 +44,18 @@ const stepLoopBuffer = 8
 
 // stepRunConfig is what a stepRun is built from. A writing step may change its worktree: its done return is checked
 // with commitChecks against start and owned in dir, and with gate when every commit check passes and gate is set. A
-// read-only step's done return passes on its schema check alone. A nil cleanup has nothing to run.
+// read-only step's done return passes on its schema check alone. A nil cleanup has nothing to run. The watch reads now
+// as its clock, time.Now when now is nil, and allows the step modelLimit of model time.
 type stepRunConfig struct {
-	id        string
-	schema    string
-	doneValue string
-	sessions  stepSessions
-	writer    *Writer
-	logger    *slog.Logger
-	cleanup   func(context.Context) error
+	id         string
+	schema     string
+	doneValue  string
+	sessions   stepSessions
+	writer     *Writer
+	logger     *slog.Logger
+	cleanup    func(context.Context) error
+	now        func() time.Time
+	modelLimit time.Duration
 
 	writing   bool
 	dir       string
@@ -70,6 +73,8 @@ type stepRunConfig struct {
 type stepRun struct {
 	stepRunConfig
 
+	// watch decides the step's backstops from every event the run is handed.
+	watch   *stepWatch
 	returns chan json.RawMessage
 	exits   chan string
 	// ended is closed once finish has acted.
@@ -81,13 +86,22 @@ type stepRun struct {
 
 // newStepRun returns a stepRun built from cfg that is not running. Call run to start it.
 func newStepRun(cfg stepRunConfig) *stepRun {
+	if cfg.now == nil {
+		cfg.now = time.Now
+	}
 	return &stepRun{
 		stepRunConfig: cfg,
+		watch:         newStepWatch(cfg.now(), cfg.modelLimit),
 		returns:       make(chan json.RawMessage, stepLoopBuffer),
 		exits:         make(chan string, stepLoopBuffer),
 		ended:         make(chan struct{}),
 		runDone:       make(chan struct{}),
 	}
+}
+
+// Event hands an event the session recorded to the watch, with the clock's reading now. It never blocks.
+func (r *stepRun) Event(event session.Event) {
+	r.watch.event(r.now(), event)
 }
 
 // Return hands the structured return of the session's ended turn to run. It returns once run has queued it, the step has

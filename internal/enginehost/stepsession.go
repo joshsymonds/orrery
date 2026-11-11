@@ -10,10 +10,12 @@ import (
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
-// StepObserver receives what a step session hands it. Return receives a turn's end once no background task of the step
-// is live; the step then counts busy until Continue sends its next prompt or the session stops. Exited receives the
-// failure reason when the step's process ends on its own. Both run on the step's pump goroutine.
+// StepObserver receives what a step session hands it. Event receives each event the session records, before that event's
+// hand-off. Return receives a turn's end once no background task of the step is live; the step then counts busy until
+// Continue sends its next prompt or the session stops. Exited receives the failure reason when the step's process ends on
+// its own. All run on the step's pump goroutine and must not block.
 type StepObserver interface {
+	Event(event session.Event)
 	Return(turn session.TurnEnded)
 	Exited(reason string)
 }

@@ -274,6 +274,26 @@ func TestStepLoopFourFailuresEndChecksFailed(t *testing.T) {
 	}
 }
 
+func TestStepRunEventsReachWatch(t *testing.T) {
+	f := newStepLoopFixture(t, nil)
+	clock := newIdleClock()
+	cfg := f.run.stepRunConfig
+	cfg.now = clock.now
+	cfg.modelLimit = time.Hour
+	f.run = newStepRun(cfg)
+
+	f.run.Event(session.Started{})
+	f.run.Event(session.Block{Kind: session.BlockText, Text: "reply text"})
+	if got := f.run.watch.recent(clock.now()); !strings.Contains(got, "reply text") {
+		t.Fatalf("recent = %q, want the reply block", got)
+	}
+	clock.advance(5 * time.Minute)
+	trip, ok := f.run.watch.due(clock.now())
+	if !ok || trip.Kind != watchTripPeriodic {
+		t.Fatalf("due = %+v, %v, want a periodic trip after five minutes of turn time", trip, ok)
+	}
+}
+
 func TestStepLoopExitedEndsFailed(t *testing.T) {
 	f := newStepLoopFixture(t, nil)
 	_, done := f.start(t)
