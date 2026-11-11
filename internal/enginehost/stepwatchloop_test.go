@@ -491,11 +491,20 @@ func TestWatchLoopQuietTickMakesNoCall(t *testing.T) {
 		Subtype: "success", StructuredOutput: json.RawMessage(`{"status":"DONE"}`),
 	})
 	row := f.waitEnd(t)
-	if got := haiku.recorded(); len(got) != 0 {
-		t.Fatalf("monitor calls = %d, want none before any trip", len(got))
+	// The done return is judged by the same caller, so its one call is a judge call, not a monitor call.
+	var monitors int
+	for _, schema := range haiku.recorded() {
+		if schema == stepMonitorSchema {
+			monitors++
+		}
 	}
-	if len(row.Verdicts) != 0 {
-		t.Fatalf("verdicts = %+v, want none", row.Verdicts)
+	if monitors != 0 {
+		t.Fatalf("monitor calls = %d, want none before any trip", monitors)
+	}
+	for _, v := range row.Verdicts {
+		if v.Kind == watchLoopKind {
+			t.Fatalf("verdicts = %+v, want no monitor verdict", row.Verdicts)
+		}
 	}
 	if row.End != stepLoopEndDone {
 		t.Fatalf("end = %q, want done", row.End)

@@ -47,11 +47,13 @@ const stepLoopBuffer = 8
 // with commitChecks against start and owned in dir, and with gate when every commit check passes and gate is set. A
 // read-only step's done return passes on its schema check alone. A nil cleanup has nothing to run. The watch reads now
 // as its clock, time.Now when now is nil, and allows the step modelLimit of model time. Each tick on ticks checks the
-// watch, and a nil ticks never ticks. A nil haiku makes no monitor calls.
+// watch, and a nil ticks never ticks. A nil haiku makes no monitor or judge calls. prompt is the step's first prompt,
+// which the judge is given with each done return.
 type stepRunConfig struct {
 	id         string
 	schema     string
 	doneValue  string
+	prompt     string
 	sessions   stepSessions
 	writer     *Writer
 	logger     *slog.Logger
@@ -84,6 +86,8 @@ type stepRun struct {
 	// nudge is the text the next turn end is continued with when that turn is an error. It is set by a landed nudge's
 	// interrupt and cleared by the next turn end, whatever it is.
 	nudge string
+	// judgeSent is set once the judge has sent the step back, so a second unmet verdict ends goal_unmet.
+	judgeSent bool
 	// ended is closed once finish has acted.
 	ended chan struct{}
 	// runDone is closed when run returns, so Return and Exited never wait on a run that will not drain them.
@@ -165,8 +169,8 @@ func (r *stepRun) run(ctx context.Context) {
 	}
 }
 
-// judge checks the return of round, stores it with its checks, and ends the step or sends the failed checks back. It
-// reports whether the run goes on.
+// judge checks the return of round and stores it with its checks. A done return whose checks all passed is judged; any
+// other return ends the step, or its failed checks are sent back. It reports whether the run goes on.
 func (r *stepRun) judge(ctx context.Context, round int, value json.RawMessage, continues *int) bool {
 	schemaErr := validateReturn(r.schema, value)
 	schema := store.StepCheck{Round: round, Name: stepLoopSchemaName, OK: schemaErr == nil}
@@ -199,11 +203,10 @@ func (r *stepRun) judge(ctx context.Context, round int, value json.RawMessage, c
 	if len(stepLoopFailures(checks)) > 0 {
 		return r.retry(ctx, checks, continues)
 	}
-	end := stepLoopEndReturned
 	if head.Status == r.doneValue {
-		end = stepLoopEndDone
+		return r.judgeReturn(ctx, round, value, stepLoopCommit(head.Commit), head.Status, checks)
 	}
-	r.finish(ctx, end, head.Status, "")
+	r.finish(ctx, stepLoopEndReturned, head.Status, "")
 	return false
 }
 
