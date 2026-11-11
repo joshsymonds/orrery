@@ -117,6 +117,20 @@ func TestPickerPane(t *testing.T) {
 	}
 }
 
+// stopPickerServer kills the private server name, accepting one already gone. Cleanups run last first, so a
+// fixture calls it again after any temp dir a held fake writes into, and the server stops before that dir goes.
+func stopPickerServer(t *testing.T, name string) {
+	t.Helper()
+	err := tmuxtest.Stop(t, tmuxctl.Server{Name: name})
+	if err == nil {
+		return
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "no server running") && !strings.Contains(msg, "error connecting to") {
+		t.Errorf("kill-server: %v", err)
+	}
+}
+
 // newPickerServer returns a client and name for a unique private tmux server, killed at cleanup.
 func newPickerServer(t *testing.T) (*tmuxctl.Client, string) {
 	t.Helper()
@@ -129,16 +143,7 @@ func newPickerServer(t *testing.T) (*tmuxctl.Client, string) {
 	if err != nil {
 		t.Fatalf("New(Name=%q): %v", name, err)
 	}
-	t.Cleanup(func() {
-		err := tmuxtest.Stop(t, tmuxctl.Server{Name: name})
-		if err == nil {
-			return
-		}
-		msg := err.Error()
-		if !strings.Contains(msg, "no server running") && !strings.Contains(msg, "error connecting to") {
-			t.Errorf("kill-server: %v", err)
-		}
-	})
+	t.Cleanup(func() { stopPickerServer(t, name) })
 	return client, name
 }
 
@@ -168,8 +173,8 @@ type fixture struct {
 // claude replies with one pane action, one jump to the target pane, and task: yes.
 func newFixture(t *testing.T, zoxideStatus int) *fixture {
 	t.Helper()
-	client, server := newPickerServer(t)
 	root := t.TempDir()
+	client, server := newPickerServer(t)
 	f := &fixture{
 		client:        client,
 		server:        server,
@@ -194,6 +199,8 @@ func newFixture(t *testing.T, zoxideStatus int) *fixture {
 	reply := fmt.Sprintf("pane d1\njump %s\ntask: yes\n", f.targetPane)
 	f.claude = installFake(t, "fake-claude", "claude", reply, 0)
 	f.hold = filepath.Join(filepath.Dir(f.claude), "hold")
+	// The fakes' dirs were made after the server, so stop it again first: a held fake claude writes into its dir.
+	t.Cleanup(func() { stopPickerServer(t, server) })
 	return f
 }
 
@@ -208,6 +215,8 @@ func (f *fixture) setReply(t *testing.T, reply string) {
 func (f *fixture) startPicker(t *testing.T) {
 	t.Helper()
 	dir := t.TempDir()
+	// The picker writes its result here, so its server stops before this dir is removed.
+	t.Cleanup(func() { stopPickerServer(t, f.server) })
 	f.spec = filepath.Join(dir, "spec.json")
 	f.result = filepath.Join(dir, "result.json")
 	if f.gated {

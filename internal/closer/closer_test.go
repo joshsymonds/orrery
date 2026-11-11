@@ -110,7 +110,8 @@ func attach(t *testing.T, client *tmuxctl.Client, session string) string {
 	if err != nil {
 		t.Fatalf("socket path: %v", err)
 	}
-	command := fmt.Sprintf("stty cols 80 rows 24; tmux -S %s attach -t =%s", strings.TrimSpace(socket), session)
+	// script runs command through $SHELL; quoting the target keeps zsh from reading =name as a command lookup.
+	command := fmt.Sprintf("stty cols 80 rows 24; tmux -S %s attach -t '=%s'", strings.TrimSpace(socket), session)
 	cmd := exec.CommandContext(t.Context(), "script", "-qfc", command, "/dev/null")
 	cmd.Env = withoutEnv(os.Environ(), "TMUX")
 	cmd.Stdout = io.Discard
