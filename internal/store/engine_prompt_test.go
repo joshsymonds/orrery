@@ -67,3 +67,67 @@ func TestEnginePromptSent(t *testing.T) {
 		})
 	}
 }
+
+func TestEnginePromptFailureRecordsFailedPrompt(t *testing.T) {
+	ctx := context.Background()
+	s := openSyncStore(t)
+
+	ops := []EngineOp{
+		EngineAdd{ID: "s1", Dir: "/a", State: "idle"},
+		EngineAdd{ID: "s2", Dir: "/b", State: "idle"},
+		EnginePromptFailed{ID: "s1", PromptID: "p1", Reason: "send failed"},
+	}
+	if err := s.ApplyEngine(ctx, ops, engineNowAt()); err != nil {
+		t.Fatalf("ApplyEngine: %v", err)
+	}
+
+	if got := len(eventsOf(t, s)); got != 2 {
+		t.Fatalf("events: got %d, want 2 (the two adds; the failure marker appends none)", got)
+	}
+
+	cases := []struct {
+		name       string
+		session    string
+		promptID   string
+		wantReason string
+		wantFailed bool
+	}{
+		{name: "failed prompt", session: "s1", promptID: "p1", wantReason: "send failed", wantFailed: true},
+		{name: "other prompt id in same session", session: "s1", promptID: "p2"},
+		{name: "same prompt id in other session", session: "s2", promptID: "p1"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			reason, failed, err := s.EnginePromptFailure(ctx, tc.session, tc.promptID)
+			if err != nil {
+				t.Fatalf("EnginePromptFailure(%s, %q): %v", tc.session, tc.promptID, err)
+			}
+			if reason != tc.wantReason || failed != tc.wantFailed {
+				t.Fatalf("EnginePromptFailure(%s, %q): got (%q, %v), want (%q, %v)",
+					tc.session, tc.promptID, reason, failed, tc.wantReason, tc.wantFailed)
+			}
+		})
+	}
+}
+
+func TestEnginePromptFailureKeepsFirstReason(t *testing.T) {
+	ctx := context.Background()
+	s := openSyncStore(t)
+
+	ops := []EngineOp{
+		EngineAdd{ID: "s1", Dir: "/a", State: "idle"},
+		EnginePromptFailed{ID: "s1", PromptID: "p1", Reason: "send failed"},
+		EnginePromptFailed{ID: "s1", PromptID: "p1", Reason: "timed out"},
+	}
+	if err := s.ApplyEngine(ctx, ops, engineNowAt()); err != nil {
+		t.Fatalf("ApplyEngine: %v", err)
+	}
+
+	reason, failed, err := s.EnginePromptFailure(ctx, "s1", "p1")
+	if err != nil {
+		t.Fatalf("EnginePromptFailure: %v", err)
+	}
+	if !failed || reason != "send failed" {
+		t.Fatalf("EnginePromptFailure: got (%q, %v), want (%q, true)", reason, failed, "send failed")
+	}
+}

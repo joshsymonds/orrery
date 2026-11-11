@@ -141,6 +141,22 @@ func (q *Queries) EventPageAfter(ctx context.Context, arg EventPageAfterParams) 
 	return items, nil
 }
 
+const getEnginePromptFailure = `-- name: GetEnginePromptFailure :one
+SELECT reason FROM engine_prompt_failed WHERE session_id = ? AND prompt_id = ?
+`
+
+type GetEnginePromptFailureParams struct {
+	SessionID string
+	PromptID  string
+}
+
+func (q *Queries) GetEnginePromptFailure(ctx context.Context, arg GetEnginePromptFailureParams) (string, error) {
+	row := q.db.QueryRowContext(ctx, getEnginePromptFailure, arg.SessionID, arg.PromptID)
+	var reason string
+	err := row.Scan(&reason)
+	return reason, err
+}
+
 const getEngineSession = `-- name: GetEngineSession :one
 SELECT id, server, pane, state, changed, seen, question, summary, label, context, tool, claude_session, transcript, kind, dir, reason FROM sessions WHERE id = ? AND kind = 'engine'
 `
@@ -195,6 +211,22 @@ func (q *Queries) GetSession(ctx context.Context, id string) (Session, error) {
 		&i.Reason,
 	)
 	return i, err
+}
+
+const insertEnginePromptFailed = `-- name: InsertEnginePromptFailed :exec
+INSERT INTO engine_prompt_failed (session_id, prompt_id, reason) VALUES (?, ?, ?)
+ON CONFLICT (session_id, prompt_id) DO NOTHING
+`
+
+type InsertEnginePromptFailedParams struct {
+	SessionID string
+	PromptID  string
+	Reason    string
+}
+
+func (q *Queries) InsertEnginePromptFailed(ctx context.Context, arg InsertEnginePromptFailedParams) error {
+	_, err := q.db.ExecContext(ctx, insertEnginePromptFailed, arg.SessionID, arg.PromptID, arg.Reason)
+	return err
 }
 
 const insertEngineSession = `-- name: InsertEngineSession :exec

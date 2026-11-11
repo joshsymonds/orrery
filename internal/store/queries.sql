@@ -95,3 +95,10 @@ ORDER BY seq LIMIT ?;
 -- name: CountEnginePrompts :one
 SELECT COUNT(*) FROM events
 WHERE session_id = sqlc.arg(session_id) AND kind = 'engine_prompt' AND json_extract(payload, '$.promptId') = sqlc.arg(prompt_id);
+
+-- name: InsertEnginePromptFailed :exec
+INSERT INTO engine_prompt_failed (session_id, prompt_id, reason) VALUES (?, ?, ?)
+ON CONFLICT (session_id, prompt_id) DO NOTHING;
+
+-- name: GetEnginePromptFailure :one
+SELECT reason FROM engine_prompt_failed WHERE session_id = ? AND prompt_id = ?;

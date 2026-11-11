@@ -71,6 +71,14 @@ type EnginePrompt struct {
 	PromptID string
 }
 
+// EnginePromptFailed records that a prompt failed to send. The marker keeps the first reason for its session and
+// prompt id, and appends no event.
+type EnginePromptFailed struct {
+	ID       string
+	PromptID string
+	Reason   string
+}
+
 // EnginePromptSent reports whether an engine_prompt event of the session carries promptID. It reads the writer's
 // database, as EngineSession does.
 func (s *Store) EnginePromptSent(ctx context.Context, sessionID, promptID string) (bool, error) {
@@ -81,6 +89,21 @@ func (s *Store) EnginePromptSent(ctx context.Context, sessionID, promptID string
 		return false, fmt.Errorf("count engine prompt %s of session %s: %w", promptID, sessionID, err)
 	}
 	return count > 0, nil
+}
+
+// EnginePromptFailure reports the reason a prompt failed to send, and whether a failure marker exists for it. It
+// reads the writer's database, as EnginePromptSent does.
+func (s *Store) EnginePromptFailure(ctx context.Context, sessionID, promptID string) (string, bool, error) {
+	reason, err := sqlcgen.New(s.db).GetEnginePromptFailure(ctx, sqlcgen.GetEnginePromptFailureParams{
+		SessionID: sessionID, PromptID: promptID,
+	})
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, fmt.Errorf("read failure of engine prompt %s of session %s: %w", promptID, sessionID, err)
+	}
+	return reason, true, nil
 }
 
 // EngineBlock appends engine_block for a finished block.
@@ -285,6 +308,15 @@ func (op EngineSet) applyEngine(ctx context.Context, queries *sqlcgen.Queries, n
 func (op EnginePrompt) applyEngine(ctx context.Context, queries *sqlcgen.Queries, now time.Time) error {
 	return appendEnginePayload(ctx, queries, op.ID, EventEnginePrompt,
 		enginePromptPayload{Text: op.Text, PromptID: op.PromptID}, now)
+}
+
+func (op EnginePromptFailed) applyEngine(ctx context.Context, queries *sqlcgen.Queries, _ time.Time) error {
+	if err := queries.InsertEnginePromptFailed(ctx, sqlcgen.InsertEnginePromptFailedParams{
+		SessionID: op.ID, PromptID: op.PromptID, Reason: op.Reason,
+	}); err != nil {
+		return fmt.Errorf("insert failure of engine prompt %s of session %s: %w", op.PromptID, op.ID, err)
+	}
+	return nil
 }
 
 func (op EngineBlock) applyEngine(ctx context.Context, queries *sqlcgen.Queries, now time.Time) error {
