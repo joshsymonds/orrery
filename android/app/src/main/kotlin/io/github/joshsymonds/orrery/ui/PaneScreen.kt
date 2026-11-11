@@ -119,8 +119,8 @@ private suspend fun fetchHost(client: OrreryClient): HostRead? =
  * conversation, with the question card after the last item; any other pane shows its terminal
  * text, with the card below it. A Claude pane's status line sits at the top of the composer band,
  * always in view, with the pane's active goal, when it has one, on a line just above it; tapping it opens the live screen, which shows the terminal text until the
- * status line is tapped again or the live-screen bar is tapped. Opening the screen marks the pane
- * seen once.
+ * status line is tapped again or the live-screen bar is tapped. Each newer read time the
+ * conversation reports is sent to the server as the pane's read-up-to time.
  *
  * The header overlays the body, clipped to the body's bounds, and slides away while the reader
  * scrolls towards newer content; it returns on a short scroll back, and always shows at the top
@@ -148,16 +148,6 @@ fun PaneScreen(
     val refreshRequests = remember(paneId) { Channel<Unit>(Channel.CONFLATED) }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val scope = rememberCoroutineScope()
-
-    LaunchedEffect(paneId) {
-        withContext(Dispatchers.IO) {
-            try {
-                client.markSeen(paneId)
-            } catch (e: IOException) {
-                Log.w(TAG, "could not mark $paneId seen", e)
-            }
-        }
-    }
 
     DisposableEffect(paneId, lifecycle) {
         var poller: Job? = null
@@ -276,6 +266,15 @@ fun PaneScreen(
                     endRequests = endRequests,
                     seen = seenAtOpen,
                     now = nowSeconds,
+                    onRead = { readUpTo ->
+                        scope.launch(Dispatchers.IO) {
+                            try {
+                                client.markSeen(paneId, readUpTo)
+                            } catch (e: IOException) {
+                                Log.w(TAG, "could not mark $paneId seen", e)
+                            }
+                        }
+                    },
                 )
             } else if (bodyReady) {
                 Column(modifier = Modifier.fillMaxSize()) {

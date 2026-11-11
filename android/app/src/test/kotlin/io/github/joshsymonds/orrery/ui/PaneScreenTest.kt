@@ -128,6 +128,15 @@ class PaneScreenTest {
     private fun seenRequests(server: FakeOrreryServer): Int =
         server.requests.count { it.method == "POST" && it.rawPath == SEEN_PATH }
 
+    /** The read marks sent so far, as their `read_up_to` times, oldest first. */
+    private fun readMarks(server: FakeOrreryServer): List<Long> =
+        server.requests
+            .filter { it.method == "POST" && it.rawPath == SEEN_PATH }
+            .map { JSONObject(it.body).optLong("read_up_to", -1L) }
+
+    private fun timedReply(time: Long, text: String): String =
+        """{"kind":"reply","time":$time,"text":${JSONObject.quote(text)},"tool":"","input":"","id":"","error":false}"""
+
     private fun conversationRequests(server: FakeOrreryServer): Int =
         server.requests.count { it.method == "GET" && it.rawPath == CONVERSATION_PATH }
 
@@ -176,7 +185,7 @@ class PaneScreenTest {
         """{"kind":"notice","time":0,"text":${JSONObject.quote(text)},"tool":"","input":"","id":"","error":false,"notice":"$sort"}"""
 
     @Test
-    fun openingShowsScreenBodyAndMarksSeenOnce() {
+    fun openingShowsScreenBodyAndSendsNoSeenRequest() {
         FakeOrreryServer().use { server ->
             serve(server, "synthetic screen body")
             setScreen(server)
@@ -185,7 +194,7 @@ class PaneScreenTest {
             composeRule.waitForIdle()
 
             composeRule.onNodeWithText("synthetic screen body").assertIsDisplayed()
-            assertEquals(1, seenRequests(server))
+            assertEquals(0, seenRequests(server))
         }
     }
 
@@ -245,6 +254,66 @@ class PaneScreenTest {
 
             composeRule.waitUntilExactlyOneExists(hasText("synthetic newer reply"), TIMEOUT_MILLIS)
             composeRule.onAllNodesWithTag("new-divider").assertCountEquals(0)
+        }
+    }
+
+    @Test
+    fun aTimedReplyShownForASecondSendsItsTimeAfterThePaneRead() {
+        FakeOrreryServer().use { server ->
+            servePane(server, seen = SEEN_BETWEEN_REPLIES, conversation = twoReplies())
+            setScreen(server)
+            composeRule.waitUntilExactlyOneExists(hasText("synthetic newer reply"), TIMEOUT_MILLIS)
+
+            composeRule.mainClock.advanceTimeBy(2_000)
+            composeRule.waitUntil(TIMEOUT_MILLIS) { readMarks(server).size == 1 }
+
+            assertEquals(listOf(NEWER_REPLY_TIME), readMarks(server))
+            val firstPaneRead = server.requests.indexOfFirst { it.method == "GET" && it.rawPath == PANES_PATH }
+            val mark = server.requests.indexOfFirst { it.method == "POST" && it.rawPath == SEEN_PATH }
+            assertTrue("the pane is read before the mark is sent", firstPaneRead in 0 until mark)
+        }
+    }
+
+    @Test
+    fun aLaterNewerReadSendsTheNewerTime() {
+        FakeOrreryServer().use { server ->
+            servePane(
+                server,
+                seen = SEEN_AFTER_REPLIES,
+                conversation = conversationBody(timedReply(OLDER_REPLY_TIME, "synthetic older reply")),
+            )
+            setScreen(server)
+            composeRule.waitUntilExactlyOneExists(hasText("synthetic older reply"), TIMEOUT_MILLIS)
+            composeRule.mainClock.advanceTimeBy(2_000)
+            composeRule.waitUntil(TIMEOUT_MILLIS) { readMarks(server).size == 1 }
+
+            server.respond("GET", CONVERSATION_PATH, 200, twoReplies())
+            composeRule.waitUntilExactlyOneExists(hasText("synthetic newer reply"), TIMEOUT_MILLIS)
+            composeRule.mainClock.advanceTimeBy(2_000)
+            composeRule.waitUntil(TIMEOUT_MILLIS) { readMarks(server).size == 2 }
+
+            assertEquals(listOf(OLDER_REPLY_TIME, NEWER_REPLY_TIME), readMarks(server))
+        }
+    }
+
+    @Test
+    fun aFailingReadMarkLeavesTheScreenWorking() {
+        FakeOrreryServer().use { server ->
+            servePane(server, seen = SEEN_BETWEEN_REPLIES, conversation = twoReplies())
+            server.respond("POST", SEEN_PATH, 500)
+            setScreen(server)
+            composeRule.waitUntilExactlyOneExists(hasText("synthetic newer reply"), TIMEOUT_MILLIS)
+
+            composeRule.mainClock.advanceTimeBy(2_000)
+            composeRule.waitUntil(TIMEOUT_MILLIS) { readMarks(server).size == 1 }
+            composeRule.waitForIdle()
+            assertEquals(listOf(NEWER_REPLY_TIME), readMarks(server))
+            composeRule.onNodeWithText("synthetic newer reply").assertIsDisplayed()
+            composeRule.onAllNodesWithText("could not refresh").assertCountEquals(0)
+
+            server.respond("GET", PANES_PATH, 200, paneListJson(state = "working"))
+            composeRule.mainClock.advanceTimeBy(1_000)
+            composeRule.waitUntilExactlyOneExists(hasTestTag("working-mark"), TIMEOUT_MILLIS)
         }
     }
 

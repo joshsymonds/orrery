@@ -217,8 +217,9 @@ class OrreryClient(baseUrl: String, private val composeReadTimeoutMillis: Int = 
         return KeysResult.Sent
     }
 
-    fun markSeen(paneId: String) {
-        post(panePath(paneId, "seen"), JSONObject())
+    /** Reports the pane read through [readUpTo], unix seconds. */
+    fun markSeen(paneId: String, readUpTo: Long) {
+        post(panePath(paneId, "seen"), JSONObject().put("read_up_to", readUpTo))
     }
 
     fun openWindow(paneId: String, kind: WindowKind) {
