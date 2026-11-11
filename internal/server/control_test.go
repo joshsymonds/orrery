@@ -6,6 +6,8 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -134,9 +136,20 @@ func newFakeOrreryd(t *testing.T, fake *fakeEngine) enginev1connect.EngineClient
 	return enginev1connect.NewEngineClient(http.DefaultClient, srv.URL)
 }
 
-// newControlHandler returns the guarded handler that admits allowedLogin and forwards Control to engine. A nil
-// engine answers unavailable, and a zero timeout is the default.
+// newControlHandler returns the guarded handler that admits allowedLogin, forwards Control to engine, and has a home
+// under t.TempDir(). A nil engine answers unavailable, and a zero timeout is the default.
 func newControlHandler(t *testing.T, engine enginev1connect.EngineClient, timeout time.Duration) http.Handler {
+	t.Helper()
+	return newHomedControlHandler(t, t.TempDir(), engine, timeout)
+}
+
+// newHomedControlHandler is newControlHandler with home as the home directory.
+func newHomedControlHandler(
+	t *testing.T,
+	home string,
+	engine enginev1connect.EngineClient,
+	timeout time.Duration,
+) http.Handler {
 	t.Helper()
 	handler, err := server.New(server.Config{
 		Logins:         []string{allowedLogin},
@@ -144,11 +157,33 @@ func newControlHandler(t *testing.T, engine enginev1connect.EngineClient, timeou
 		Push:           newPushStore(t),
 		Engine:         engine,
 		ControlTimeout: timeout,
+		Home:           home,
 	})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
 	return handler
+}
+
+// sessionUnder creates a session directory under home. It returns the directory as given and resolved through
+// symlinks.
+func sessionUnder(t *testing.T, home string) (string, string) {
+	t.Helper()
+	dir := filepath.Join(home, "session")
+	if err := os.Mkdir(dir, 0o755); err != nil {
+		t.Fatalf("mkdir session: %v", err)
+	}
+	return dir, resolvedPath(t, dir)
+}
+
+// resolvedPath returns path with its symlinks resolved.
+func resolvedPath(t *testing.T, path string) string {
+	t.Helper()
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		t.Fatalf("resolve %s: %v", path, err)
+	}
+	return resolved
 }
 
 // controlClient serves handler on an httptest server and returns a generated Control client whose requests carry
@@ -181,18 +216,19 @@ func replyOf[T any, M interface {
 	return M(resp.Msg), nil
 }
 
-// controlCalls returns the six Control calls, each with every request field set.
-func controlCalls() []controlCall {
+// controlCalls returns the six Control calls, each with every request field set. Start sends dir and expects the
+// engine to receive resolved, the same directory with its symlinks resolved.
+func controlCalls(dir, resolved string) []controlCall {
 	return []controlCall{
 		{
 			name: "Start",
 			call: func(ctx context.Context, c orreryv1connect.ControlClient) (proto.Message, error) {
 				return replyOf(c.Start(ctx, connect.NewRequest(&orreryv1.StartRequest{
-					Dir: "/synthetic/dir", Prompt: "synthetic prompt", Model: "haiku", Id: synthSessionID,
+					Dir: dir, Prompt: "synthetic prompt", Model: "haiku", Id: synthSessionID,
 				})))
 			},
 			engine: &enginev1.StartRequest{
-				Dir: "/synthetic/dir", Prompt: "synthetic prompt", Model: "haiku", Id: synthSessionID,
+				Dir: resolved, Prompt: "synthetic prompt", Model: "haiku", Id: synthSessionID,
 			},
 			reply: &orreryv1.StartResponse{Id: fakeStartedID},
 		},
@@ -269,10 +305,12 @@ func assertConnectError(t *testing.T, err error, code connect.Code, message stri
 }
 
 func TestControlForwardsEveryCall(t *testing.T) {
-	for _, tc := range controlCalls() {
+	home := t.TempDir()
+	dir, resolved := sessionUnder(t, home)
+	for _, tc := range controlCalls(dir, resolved) {
 		t.Run(tc.name, func(t *testing.T) {
 			fake := &fakeEngine{}
-			control := controlClient(t, newControlHandler(t, newFakeOrreryd(t, fake), 0))
+			control := controlClient(t, newHomedControlHandler(t, home, newFakeOrreryd(t, fake), 0))
 
 			got, err := tc.call(t.Context(), control)
 			if err != nil {
@@ -345,8 +383,10 @@ func TestControlAnswersOrreryErrors(t *testing.T) {
 }
 
 func TestControlUnavailableWithoutEngine(t *testing.T) {
-	control := controlClient(t, newControlHandler(t, nil, 0))
-	for _, tc := range controlCalls() {
+	home := t.TempDir()
+	dir, resolved := sessionUnder(t, home)
+	control := controlClient(t, newHomedControlHandler(t, home, nil, 0))
+	for _, tc := range controlCalls(dir, resolved) {
 		_, err := tc.call(t.Context(), control)
 		assertConnectError(t, err, connect.CodeUnavailable, "session service unavailable")
 	}
@@ -357,9 +397,11 @@ func TestControlUnavailableWhenOrreryClosed(t *testing.T) {
 	srv := httptest.NewServer(handler)
 	engine := enginev1connect.NewEngineClient(http.DefaultClient, srv.URL)
 	srv.Close()
-	control := controlClient(t, newControlHandler(t, engine, 0))
+	home := t.TempDir()
+	dir, resolved := sessionUnder(t, home)
+	control := controlClient(t, newHomedControlHandler(t, home, engine, 0))
 
-	for _, tc := range controlCalls() {
+	for _, tc := range controlCalls(dir, resolved) {
 		_, err := tc.call(t.Context(), control)
 		assertConnectError(t, err, connect.CodeUnavailable, "session service unavailable")
 	}
@@ -451,5 +493,168 @@ func TestControlRefusesNegativeTimeout(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("New with negative ControlTimeout: no error")
+	}
+}
+
+// startRefusedMessage is the fixed message for a start whose directory is not an existing directory under the home.
+const startRefusedMessage = "session directory must be an existing directory under the home directory"
+
+// startAt sends a Start for dir through control, with the request fields the start tests do not vary.
+func startAt(
+	t *testing.T,
+	control orreryv1connect.ControlClient,
+	dir string,
+) (*connect.Response[orreryv1.StartResponse], error) {
+	t.Helper()
+	return control.Start(t.Context(), connect.NewRequest(&orreryv1.StartRequest{
+		Dir: dir, Prompt: "synthetic prompt", Id: synthSessionID,
+	}))
+}
+
+// assertStartForwarded starts dir under a handler whose home is home. It fails unless the start forwards exactly one
+// request naming resolved and the answer carries the started id.
+func assertStartForwarded(t *testing.T, home, dir, resolved string) {
+	t.Helper()
+	fake := &fakeEngine{}
+	control := controlClient(t, newHomedControlHandler(t, home, newFakeOrreryd(t, fake), 0))
+
+	resp, err := startAt(t, control, dir)
+	if err != nil {
+		t.Fatalf("Start %s: %v", dir, err)
+	}
+	if got := resp.Msg.GetId(); got != fakeStartedID {
+		t.Fatalf("Start %s id = %q, want %q", dir, got, fakeStartedID)
+	}
+	want := &enginev1.StartRequest{Dir: resolved, Prompt: "synthetic prompt", Id: synthSessionID}
+	calls := fake.recorded()
+	if len(calls) != 1 || !proto.Equal(calls[0], want) {
+		t.Fatalf("Start %s forwarded %v, want one request %v", dir, calls, want)
+	}
+}
+
+func TestControlRefusesStartsOutsideHome(t *testing.T) {
+	home := t.TempDir()
+	outside := t.TempDir()
+	session, _ := sessionUnder(t, home)
+	file := filepath.Join(home, "file")
+	if err := os.WriteFile(file, nil, 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+	escape := filepath.Join(home, "escape")
+	if err := os.Symlink(outside, escape); err != nil {
+		t.Fatalf("symlink escape: %v", err)
+	}
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	relative, err := filepath.Rel(wd, session)
+	if err != nil {
+		t.Fatalf("relative path: %v", err)
+	}
+
+	cases := []struct {
+		name string
+		dir  string
+	}{
+		{"outside", outside},
+		{"missing", filepath.Join(home, "missing")},
+		{"regular file", file},
+		{"relative", relative},
+		{"symlink out", escape},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			fake := &fakeEngine{}
+			control := controlClient(t, newHomedControlHandler(t, home, newFakeOrreryd(t, fake), 0))
+
+			_, err := startAt(t, control, tc.dir)
+			assertConnectError(t, err, connect.CodeInvalidArgument, startRefusedMessage)
+			if calls := fake.recorded(); len(calls) != 0 {
+				t.Fatalf("refused start forwarded %d requests, want none", len(calls))
+			}
+		})
+	}
+}
+
+func TestControlForwardsStartsUnderHome(t *testing.T) {
+	home := t.TempDir()
+	dir, resolved := sessionUnder(t, home)
+	link := filepath.Join(home, "link")
+	if err := os.Symlink(dir, link); err != nil {
+		t.Fatalf("symlink link: %v", err)
+	}
+
+	cases := []struct {
+		name     string
+		dir      string
+		resolved string
+	}{
+		{"home itself", home, resolvedPath(t, home)},
+		{"directory under home", dir, resolved},
+		{"symlink to directory under home", link, resolved},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assertStartForwarded(t, home, tc.dir, tc.resolved)
+		})
+	}
+}
+
+func TestControlAdmitsHomeThroughSymlink(t *testing.T) {
+	realHome := t.TempDir()
+	_, resolved := sessionUnder(t, realHome)
+	homeLink := filepath.Join(t.TempDir(), "home")
+	if err := os.Symlink(realHome, homeLink); err != nil {
+		t.Fatalf("symlink home: %v", err)
+	}
+
+	cases := []struct {
+		name     string
+		dir      string
+		resolved string
+	}{
+		{"home itself", homeLink, resolvedPath(t, realHome)},
+		{"directory under home", filepath.Join(homeLink, "session"), resolved},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assertStartForwarded(t, homeLink, tc.dir, tc.resolved)
+		})
+	}
+}
+
+func TestControlRefusesStartsWithoutUsableHome(t *testing.T) {
+	existing := t.TempDir()
+	realHome := t.TempDir()
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	relative, err := filepath.Rel(wd, realHome)
+	if err != nil {
+		t.Fatalf("relative home: %v", err)
+	}
+
+	cases := []struct {
+		name string
+		home string
+	}{
+		{"empty", ""},
+		{"relative", relative},
+		{"root", string(filepath.Separator)},
+		{"missing", filepath.Join(t.TempDir(), "missing")},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			fake := &fakeEngine{}
+			control := controlClient(t, newHomedControlHandler(t, tc.home, newFakeOrreryd(t, fake), 0))
+
+			_, err := startAt(t, control, existing)
+			assertConnectError(t, err, connect.CodeInvalidArgument, startRefusedMessage)
+			if calls := fake.recorded(); len(calls) != 0 {
+				t.Fatalf("start with home %q forwarded %d requests, want none", tc.home, len(calls))
+			}
+		})
 	}
 }

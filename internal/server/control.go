@@ -5,6 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"connectrpc.com/connect"
@@ -30,21 +33,31 @@ const controlFailed = "session command failed"
 // controlTimedOut is the fixed message for a forward that outlives the control timeout.
 const controlTimedOut = "session command timed out"
 
-// controlServer answers orrery.v1.Control by forwarding each call to engine. A nil engine answers unavailable.
+// controlStartRefused is the fixed message for a start whose directory is not an existing directory under the home.
+const controlStartRefused = "session directory must be an existing directory under the home directory"
+
+// controlServer answers orrery.v1.Control by forwarding each call to engine. A nil engine answers unavailable. Start
+// forwards only a directory under home.
 type controlServer struct {
 	engine  enginev1connect.EngineClient
 	timeout time.Duration
+	home    string
 }
 
-// Start forwards a start to the engine and answers with the started session's id.
+// Start forwards a start to the engine and answers with the started session's id. The directory forwarded is the one
+// resolveSessionDir admits, with its symlinks resolved.
 func (c controlServer) Start(
 	ctx context.Context,
 	req *connect.Request[orreryv1.StartRequest],
 ) (*connect.Response[orreryv1.StartResponse], error) {
+	dir, dirErr := resolveSessionDir(c.home, req.Msg.GetDir())
+	if dirErr != nil {
+		return nil, dirErr
+	}
 	var id string
 	err := c.forward(ctx, func(ctx context.Context, engine enginev1connect.EngineClient) error {
 		resp, err := engine.Start(ctx, connect.NewRequest(&enginev1.StartRequest{
-			Dir:    req.Msg.GetDir(),
+			Dir:    dir,
 			Prompt: req.Msg.GetPrompt(),
 			Model:  req.Msg.GetModel(),
 			Id:     req.Msg.GetId(),
@@ -161,6 +174,42 @@ func (c controlServer) forward(
 	return nil
 }
 
+// resolveSessionDir returns dir with its symlinks resolved when dir is an absolute path to an existing directory equal
+// to or under home, with its symlinks resolved. Any other dir answers invalid_argument, and so does any home that is
+// empty, relative, the root directory, or missing.
+func resolveSessionDir(home, dir string) (string, error) {
+	refused := listError(connect.CodeInvalidArgument, controlStartRefused)
+	root, ok := resolveHome(home)
+	if !ok || !filepath.IsAbs(dir) {
+		return "", refused
+	}
+	resolved, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		return "", refused
+	}
+	info, err := os.Stat(resolved)
+	if err != nil || !info.IsDir() {
+		return "", refused
+	}
+	if resolved != root && !strings.HasPrefix(resolved, root+string(filepath.Separator)) {
+		return "", refused
+	}
+	return resolved, nil
+}
+
+// resolveHome returns home with its symlinks resolved. It reports ok false for an empty or relative home, for the
+// root directory, and for a home that does not resolve.
+func resolveHome(home string) (string, bool) {
+	if !filepath.IsAbs(home) {
+		return "", false
+	}
+	resolved, err := filepath.EvalSymlinks(home)
+	if err != nil || resolved == string(filepath.Separator) {
+		return "", false
+	}
+	return resolved, true
+}
+
 // wrapEngine names the engine call op on err, keeping err reachable for translateError. A nil err stays nil.
 func wrapEngine(op string, err error) error {
 	if err == nil {
@@ -191,13 +240,13 @@ func translateError(err error) error {
 }
 
 // newControlHandler returns the path and handler that serve Control over engine, reading at most maxControlBody
-// bytes of each request. A zero timeout is defaultControlTimeout.
-func newControlHandler(engine enginev1connect.EngineClient, timeout time.Duration) (string, http.Handler) {
+// bytes of each request. A zero timeout is defaultControlTimeout. Start admits only directories under home.
+func newControlHandler(engine enginev1connect.EngineClient, timeout time.Duration, home string) (string, http.Handler) {
 	if timeout == 0 {
 		timeout = defaultControlTimeout
 	}
 	return orreryv1connect.NewControlHandler(
-		controlServer{engine: engine, timeout: timeout},
+		controlServer{engine: engine, timeout: timeout, home: home},
 		connect.WithReadMaxBytes(maxControlBody),
 	)
 }

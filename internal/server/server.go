@@ -124,6 +124,9 @@ type Config struct {
 	Engine enginev1connect.EngineClient
 	// ControlTimeout bounds each forward to Engine, or is zero for the default.
 	ControlTimeout time.Duration
+	// Home is the home directory a Control start must name a directory under, after symlinks resolve. An empty,
+	// relative or root Home, or one that does not exist, refuses every start.
+	Home string
 }
 
 // New returns a handler that admits only the configured logins, and never emits CORS headers. A request to
@@ -180,7 +183,7 @@ func New(cfg Config) (http.Handler, error) {
 	mux.Handle(sessionsPath, sessions)
 	eventsPath, events := newEventsHandler(cfg.Sessions, poll, sendTimeout, cfg.Shutdown)
 	mux.Handle(eventsPath, events)
-	controlPath, control := newControlHandler(cfg.Engine, cfg.ControlTimeout)
+	controlPath, control := newControlHandler(cfg.Engine, cfg.ControlTimeout, cfg.Home)
 	mux.Handle(controlPath, control)
 	connectPaths := []string{sessionsPath, eventsPath, controlPath}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
