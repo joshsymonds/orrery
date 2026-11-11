@@ -11,7 +11,7 @@ import org.junit.Test
 class ConversationContractTest {
     // The conversation route's example response from docs/contract.md, copied byte for byte.
     private val contractBody = """
-{"origin":"Example opening prompt.","items":[{"kind":"prompt","time":1700000000,"text":"Example opening prompt.","tool":"","input":"","id":"","error":false,"notice":""},{"kind":"notice","time":1700000050,"text":"","tool":"","input":"","id":"","error":false,"notice":"compaction"},{"kind":"reply","time":1700000100,"text":"Example reply.","tool":"","input":"","id":"","error":false,"notice":""},{"kind":"tool","time":1700000200,"text":"","tool":"Bash","input":"example command","id":"example-tool-use","error":false,"notice":""},{"kind":"result","time":1700000210,"text":"Example output.","tool":"","input":"","id":"example-tool-use","error":false,"notice":""},{"kind":"notice","time":1700000300,"text":"Example task finished.","tool":"","input":"","id":"","error":false,"notice":"task"}],"goal":"Example goal."}
+{"origin":"Example opening prompt.","items":[{"kind":"prompt","time":1700000000,"text":"Example opening prompt.","tool":"","input":"","id":"","error":false,"notice":""},{"kind":"notice","time":1700000050,"text":"","tool":"","input":"","id":"","error":false,"notice":"compaction"},{"kind":"reply","time":1700000100,"text":"Example reply.","tool":"","input":"","id":"","error":false,"notice":""},{"kind":"tool","time":1700000200,"text":"","tool":"Bash","input":"example command","id":"example-tool-use","error":false,"notice":""},{"kind":"result","time":1700000210,"text":"Example output.","tool":"","input":"","id":"example-tool-use","error":false,"notice":""},{"kind":"notice","time":1700000300,"text":"Example task finished.","tool":"","input":"","id":"","error":false,"notice":"task"}],"goal":"Example goal.","waiting":[{"text":"Example queued message.","time":1700000250,"canceled":false}]}
     """
 
     private fun contractConversation(): Conversation =
@@ -34,6 +34,7 @@ class ConversationContractTest {
                     ConversationItem("notice", 1700000300L, "Example task finished.", "", "", "", false, "task"),
                 ),
                 goal = "Example goal.",
+                waiting = listOf(WaitingItem("Example queued message.", 1700000250L, false)),
             ),
             contractConversation(),
         )

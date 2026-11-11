@@ -57,8 +57,19 @@ data class ConversationItem(
     val notice: String = "",
 )
 
-/** [goal] is the pane's active Claude Code goal, or "" when there is none. */
-data class Conversation(val origin: String, val items: List<ConversationItem>, val goal: String = "")
+/** A message Claude Code's queue holds for the pane. [canceled] is true when Claude Code cleared it on cancel. */
+data class WaitingItem(val text: String, val time: Long, val canceled: Boolean)
+
+/**
+ * [goal] is the pane's active Claude Code goal, or "" when there is none. [waiting] is the
+ * queued messages, oldest first, or empty when there are none.
+ */
+data class Conversation(
+    val origin: String,
+    val items: List<ConversationItem>,
+    val goal: String = "",
+    val waiting: List<WaitingItem> = emptyList(),
+)
 
 data class HostStat(val label: String, val value: String, val percent: Double?, val level: String)
 
@@ -76,6 +87,12 @@ enum class WindowKind(val wire: String) {
 
 /** The string at [key], or "" when the key is absent or null: keys a server may predate. */
 private fun JSONObject.lenientString(key: String): String = if (isNull(key)) "" else optString(key, "")
+
+/** The objects of the array at [key], or none when the key is absent or null: keys a server may predate. */
+private fun JSONObject.lenientArray(key: String): List<JSONObject> {
+    val array = optJSONArray(key) ?: return emptyList()
+    return List(array.length()) { index -> array.getJSONObject(index) }
+}
 
 class OrreryHttpException(val status: Int, message: String) : IOException(message)
 
@@ -135,6 +152,13 @@ class OrreryClient(baseUrl: String) {
                 )
             },
             goal = json.lenientString("goal"),
+            waiting = json.lenientArray("waiting").map { row ->
+                WaitingItem(
+                    text = row.lenientString("text"),
+                    time = row.optLong("time", 0L),
+                    canceled = row.optBoolean("canceled", false),
+                )
+            },
         )
     }
 

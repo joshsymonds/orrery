@@ -397,6 +397,64 @@ class OrreryClientTest {
         assertEquals("", conversationGoal(""","goal":null"""))
     }
 
+    private fun conversationWaiting(waitingJson: String): List<WaitingItem> {
+        val body = """{"origin":"","items":[]$waitingJson}"""
+        return FakeOrreryServer().use { server ->
+            server.respond("GET", "/v1/panes/%253/conversation", 200, body)
+            requireNotNull(OrreryClient(server.baseUrl).conversation("%3")).waiting
+        }
+    }
+
+    @Test
+    fun conversationReadsPresentWaitingRowsInOrder() {
+        val waiting = conversationWaiting(
+            ""","waiting":[""" +
+                """{"text":"Example queued message.","time":1700000250,"canceled":false},""" +
+                """{"text":"Example cleared message.","time":1700000260,"canceled":true}]""",
+        )
+
+        assertEquals(
+            listOf(
+                WaitingItem("Example queued message.", 1700000250L, false),
+                WaitingItem("Example cleared message.", 1700000260L, true),
+            ),
+            waiting,
+        )
+    }
+
+    @Test
+    fun conversationWithoutWaitingKeyHasNoWaitingRows() {
+        assertEquals(emptyList<WaitingItem>(), conversationWaiting(""))
+    }
+
+    @Test
+    fun conversationNullWaitingIsNoWaitingRows() {
+        assertEquals(emptyList<WaitingItem>(), conversationWaiting(""","waiting":null"""))
+    }
+
+    @Test
+    fun conversationEmptyWaitingArrayIsNoWaitingRows() {
+        assertEquals(emptyList<WaitingItem>(), conversationWaiting(""","waiting":[]"""))
+    }
+
+    @Test
+    fun waitingRowWithoutCanceledKeyParsesAsNotCanceled() {
+        val waiting = conversationWaiting(
+            ""","waiting":[{"text":"Example queued message.","time":1700000250}]""",
+        )
+
+        assertEquals(listOf(WaitingItem("Example queued message.", 1700000250L, false)), waiting)
+    }
+
+    @Test
+    fun waitingRowWithoutTimeKeyParsesAsTimeZero() {
+        val waiting = conversationWaiting(
+            ""","waiting":[{"text":"Example queued message.","canceled":true}]""",
+        )
+
+        assertEquals(listOf(WaitingItem("Example queued message.", 0L, true)), waiting)
+    }
+
     @Test
     fun conversationItemWithoutNoticeKeyParsesWithEmptyNotice() {
         val body = """{"origin":"","items":[{"kind":"reply","time":1,"text":"Example reply.","tool":"","input":"","id":"","error":false}]}"""
