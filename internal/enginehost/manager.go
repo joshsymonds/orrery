@@ -44,8 +44,11 @@ const permissionMode = "bypassPermissions"
 // denyMessage is the message a permission request denied through Answer gives the session.
 const denyMessage = "The orrery host denied this request."
 
-// closeWait bounds how long Close waits for the sessions it stops to record their stop.
+// closeWait bounds how long Close waits for the sessions it stops to record their state.
 const closeWait = 5 * time.Second
+
+// interruptedReason is the reason a session whose turn was running when Close stopped the manager records.
+const interruptedReason = "orreryd stopped during the turn"
 
 // Config configures a Manager. Shell is the login shell and Claude the claude name, resolved with exec.LookPath at
 // each start. Environ is the environment sessions start with, Cap the most live sessions at once, Writer stores their
@@ -61,14 +64,18 @@ type Config struct {
 }
 
 // liveSession is one running session: its process, the done channel closed when its pump has finished, and the cancel
-// that frees a pump blocked on a write. exited is set by the pump when the process exited on its own, so Stop does not
-// record over the state that exit recorded.
+// that frees a pump blocked on a write. exited is set by the pump when it records the process's exit, so Stop and Close
+// do not record over the state that exit recorded. turning is set while a turn runs, from the send of its prompt or a
+// Started event until its TurnEnded or the process's Exited. closing is set by Close before it stops the session. The
+// manager's lock guards turning and closing, and the pump sets exited under it too.
 type liveSession struct {
-	id     string
-	sess   *session.Session
-	done   chan struct{}
-	cancel context.CancelFunc
-	exited bool
+	id      string
+	sess    *session.Session
+	done    chan struct{}
+	cancel  context.CancelFunc
+	exited  bool
+	turning bool
+	closing bool
 	// order is held by the pump while it queues an event's ops, and by Answer from its send until it has queued the
 	// working state, so every op an answer causes is queued after that state.
 	order sync.Mutex
@@ -165,7 +172,9 @@ func (m *Manager) Start(ctx context.Context, dir, prompt string) (string, error)
 	if err = m.writer.Put(ctx, id, store.EnginePrompt{ID: id, Text: prompt}); err != nil {
 		return id, m.abandon(ctx, live, err)
 	}
+	m.setTurning(live, true)
 	if err = sess.Prompt(prompt); err != nil {
+		m.setTurning(live, false)
 		return id, m.abandon(ctx, live, err)
 	}
 	return id, nil
@@ -216,7 +225,9 @@ func (m *Manager) Say(ctx context.Context, id, text string) error {
 		store.EngineSet{ID: id, Changes: store.EngineChanges{State: &working}}); err != nil {
 		return fmt.Errorf("record prompt of session %s: %w", id, err)
 	}
+	m.setTurning(live, true)
 	if err = live.sess.Prompt(text); err != nil {
+		m.setTurning(live, false)
 		return fmt.Errorf("say to session %s: %w", id, errors.Join(err, m.recordFailed(ctx, id, err)))
 	}
 	return nil
@@ -299,9 +310,10 @@ func (m *Manager) live(id string) (*liveSession, error) {
 	return live, nil
 }
 
-// Close stops every live session and waits up to 5 s for each to record its stop. It then cancels any write a pump
-// still has blocked and waits for the pumps to return. Start refuses from the moment Close begins, and later calls
-// to Close return at once.
+// Close stops every live session and waits up to 5 s for each to record its state. A session whose turn was running is
+// recorded interrupted, and every session loses its unfinished text. It then cancels any write a pump still has blocked
+// and waits for the pumps to return. Start refuses from the moment Close begins, and later calls to Close return at
+// once.
 func (m *Manager) Close() {
 	m.mu.Lock()
 	if m.closed {
@@ -311,6 +323,7 @@ func (m *Manager) Close() {
 	m.closed = true
 	running := make([]*liveSession, 0, len(m.sessions))
 	for _, live := range m.sessions {
+		live.closing = true
 		running = append(running, live)
 	}
 	m.mu.Unlock()
@@ -323,8 +336,8 @@ func (m *Manager) Close() {
 	ctx, cancel := context.WithTimeout(context.Background(), closeWait)
 	defer cancel()
 	for _, live := range running {
-		if err := m.recordStopped(ctx, live); err != nil {
-			m.logger.Warn("record session stopped on close", "session", live.id, "err", err)
+		if err := m.recordClosed(ctx, live); err != nil {
+			m.logger.Warn("record session closed", "session", live.id, "err", err)
 		}
 	}
 	for _, live := range running {
@@ -406,8 +419,8 @@ func (m *Manager) spawn(id, dir string) (*session.Session, error) {
 func (m *Manager) pump(ctx context.Context, live *liveSession, rec *recorder) {
 	defer m.pumps.Done()
 	for event := range live.sess.Events() {
-		if _, ok := event.(session.Exited); ok {
-			live.exited = true
+		if !m.noteEvent(live, event) {
+			continue
 		}
 		if ops := rec.ops(event); len(ops) > 0 {
 			live.order.Lock()
@@ -424,6 +437,33 @@ func (m *Manager) pump(ctx context.Context, live *liveSession, rec *recorder) {
 	m.mu.Unlock()
 	close(live.done)
 	live.cancel()
+}
+
+// setTurning sets whether live has a turn running.
+func (m *Manager) setTurning(live *liveSession, turning bool) {
+	m.mu.Lock()
+	live.turning = turning
+	m.mu.Unlock()
+}
+
+// noteEvent tracks the turn of live through event and reports whether the pump records event. The exit of a session
+// that Close is stopping is not recorded here: recordClosed records that session's state from its turn instead.
+func (m *Manager) noteEvent(live *liveSession, event session.Event) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	switch event.(type) {
+	case session.Started:
+		live.turning = true
+	case session.TurnEnded:
+		live.turning = false
+	case session.Exited:
+		live.turning = false
+		if live.closing {
+			return false
+		}
+		live.exited = true
+	}
+	return true
 }
 
 // waitPump waits until the pump of live has finished, or until ctx ends.
@@ -451,6 +491,32 @@ func (m *Manager) recordStopped(ctx context.Context, live *liveSession) error {
 		Changes: store.EngineChanges{State: &stopped}})
 	if err != nil {
 		return fmt.Errorf("record session %s stopped: %w", live.id, err)
+	}
+	return nil
+}
+
+// recordClosed waits for the pump of live to finish, then records live as Close leaves it: interrupted with the reason
+// when its turn was running, and otherwise in the state its turn gave it. Either way its unfinished text is removed. A
+// session whose exit already recorded its state is left alone. It returns the error of the wait or of the write.
+func (m *Manager) recordClosed(ctx context.Context, live *liveSession) error {
+	if err := m.waitPump(ctx, live); err != nil {
+		return err
+	}
+	if live.exited {
+		return nil
+	}
+	m.mu.Lock()
+	turning := live.turning
+	m.mu.Unlock()
+	ops := []store.EngineOp{store.EngineTextClear{ID: live.id}}
+	if turning {
+		interrupted := stateInterrupted
+		reason := interruptedReason
+		ops = append(ops, store.EngineSet{ID: live.id,
+			Changes: store.EngineChanges{State: &interrupted, Reason: &reason}})
+	}
+	if err := m.writer.Commit(ctx, live.id, ops...); err != nil {
+		return fmt.Errorf("record session %s closed: %w", live.id, err)
 	}
 	return nil
 }

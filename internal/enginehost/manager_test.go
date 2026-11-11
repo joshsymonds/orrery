@@ -384,6 +384,50 @@ func TestUnresolvableClaudeRecordsFailedWithReason(t *testing.T) {
 	}
 }
 
+func TestCloseInterruptsRunningTurnAndKeepsEndedTurn(t *testing.T) {
+	m, path := newTestManager(t, 3, fakeClaudePath(t))
+	stalledDir := t.TempDir()
+	stalled, err := m.Start(t.Context(), stalledDir, "STALL")
+	if err != nil {
+		t.Fatalf("Start stalled: %v", err)
+	}
+	endedDir := t.TempDir()
+	ended, err := m.Start(t.Context(), endedDir, "hi")
+	if err != nil {
+		t.Fatalf("Start ended: %v", err)
+	}
+	waitHistory(t, path, ended, "the ended turn's done state", func(h store.EngineHistory) bool {
+		return h.State == "done"
+	})
+	waitUntil(t, "the stalled block's unfinished text", func() bool { return countRows(t, path, "engine_text") == 1 })
+	stalledPID := fakePID(t, stalledDir)
+	endedPID := fakePID(t, endedDir)
+
+	m.Close()
+
+	requireGone(t, stalledPID)
+	requireGone(t, endedPID)
+	stalledHistory := historyOf(t, path, stalled)
+	if stalledHistory.State != "interrupted" {
+		t.Fatalf("running session state after Close = %q, want interrupted", stalledHistory.State)
+	}
+	reason := ""
+	for _, fields := range changedFields(t, stalledHistory) {
+		if fields["reason"] != "" {
+			reason = fields["reason"]
+		}
+	}
+	if want := "orreryd stopped during the turn"; reason != want {
+		t.Fatalf("running session reason after Close = %q, want %q", reason, want)
+	}
+	if got := historyOf(t, path, ended).State; got != "done" {
+		t.Fatalf("ended session state after Close = %q, want done", got)
+	}
+	if n := countRows(t, path, "engine_text"); n != 0 {
+		t.Fatalf("unfinished text rows after Close = %d, want 0", n)
+	}
+}
+
 func TestCloseEndsEverySessionAndRefusesStart(t *testing.T) {
 	m, path := newTestManager(t, 3, fakeClaudePath(t))
 	ids := make([]string, 0, 2)
@@ -395,8 +439,9 @@ func TestCloseEndsEverySessionAndRefusesStart(t *testing.T) {
 			t.Fatalf("Start %d: %v", i, err)
 		}
 		ids = append(ids, id)
-		waitHistory(t, path, id, "the first reply block", func(h store.EngineHistory) bool {
-			return hasBlock(t, h, "fake reply 1")
+		// The turn's end, not only its reply, is stored before Close, so Close finds the turn ended.
+		waitHistory(t, path, id, "the first reply block and the turn's end", func(h store.EngineHistory) bool {
+			return hasBlock(t, h, "fake reply 1") && h.State == "done"
 		})
 		pids = append(pids, fakePID(t, dir))
 	}
@@ -404,8 +449,8 @@ func TestCloseEndsEverySessionAndRefusesStart(t *testing.T) {
 	m.Close()
 	for i, pid := range pids {
 		requireGone(t, pid)
-		if got := historyOf(t, path, ids[i]).State; got != "stopped" {
-			t.Fatalf("session %d state after Close = %q, want stopped", i, got)
+		if got := historyOf(t, path, ids[i]).State; got != "done" {
+			t.Fatalf("session %d state after Close = %q, want done", i, got)
 		}
 	}
 	if _, err := m.Start(t.Context(), t.TempDir(), "after close"); err == nil {
