@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"testing"
 	"time"
+
+	"github.com/joshsymonds/orrery/internal/store/sqlcgen"
 )
 
 // openWriterAt opens the daemon's writer at path and closes it when the test ends.
@@ -78,6 +80,32 @@ func TestSnapshotReturnsWrittenRowsAndNewestSeq(t *testing.T) {
 		{ID: "orrery-1", Server: "-L a", Pane: "%1", Fields: Fields{State: "working", Label: "one"}},
 		{ID: "orrery-2", Server: "-L a", Pane: "%1", Fields: Fields{State: "idle", Transcript: "t2"}},
 		{ID: "orrery-3", Server: "-L b", Pane: "%7", Fields: Fields{Question: "q3"}},
+	}, events[len(events)-1].Seq)
+}
+
+func TestSnapshotOmitsEngineRows(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "orrery.db")
+	s := openWriterAt(t, path)
+	now := time.Unix(1_700_000_000, 0)
+
+	if err := sqlcgen.New(s.db).InsertEngineSession(ctx, sqlcgen.InsertEngineSessionParams{
+		ID: "engine-1", Dir: "/work", State: "working", Changed: "t",
+	}); err != nil {
+		t.Fatalf("InsertEngineSession: %v", err)
+	}
+	if err := s.SyncPane(
+		ctx,
+		"-L a",
+		Pane{ID: "orrery-1", Pane: "%1", Fields: Fields{State: "idle"}},
+		now,
+	); err != nil {
+		t.Fatalf("SyncPane: %v", err)
+	}
+	events := eventsOf(t, s)
+
+	assertSnapshot(t, snapshotOf(t, NewReader(path)), []Session{
+		{ID: "orrery-1", Server: "-L a", Pane: "%1", Fields: Fields{State: "idle"}},
 	}, events[len(events)-1].Seq)
 }
 

@@ -21,7 +21,8 @@ type EventPage struct {
 }
 
 // Event is one events row, decoded by its kind. Server and Pane are set for session_added. Changes is set for
-// session_changed. session_removed carries neither.
+// session_changed. session_removed carries neither. An engine kind (IsEngineKind) sets none of them: its payload is
+// not decoded.
 type Event struct {
 	Seq       int64
 	SessionID string
@@ -145,7 +146,8 @@ func readEventPageInTx(ctx context.Context, tx *sql.Tx, after int64, limit int) 
 }
 
 // decodeEvent decodes one events row by its kind. Each payload must fit its kind exactly: no unknown fields, no
-// unknown field names, and no data after the JSON value.
+// unknown field names, and no data after the JSON value. An engine kind is returned with its common fields only, and
+// its payload is not read.
 func decodeEvent(row sqlcgen.Event) (Event, error) {
 	event := Event{Seq: row.Seq, SessionID: row.SessionID, Kind: row.Kind, At: row.At}
 	switch row.Kind {
@@ -170,6 +172,9 @@ func decodeEvent(row sqlcgen.Event) (Event, error) {
 			return Event{}, fmt.Errorf("decode %s event %d: %w", row.Kind, row.Seq, err)
 		}
 	default:
+		if IsEngineKind(row.Kind) {
+			return event, nil
+		}
 		return Event{}, fmt.Errorf("event %d has unknown kind %q", row.Seq, row.Kind)
 	}
 	return event, nil

@@ -23,6 +23,7 @@ import (
 
 	"github.com/joshsymonds/orrery/internal/autoseen"
 	"github.com/joshsymonds/orrery/internal/daemon"
+	"github.com/joshsymonds/orrery/internal/enginehost"
 	"github.com/joshsymonds/orrery/internal/ntfy"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/push"
@@ -46,6 +47,8 @@ const (
 
 const (
 	defaultClaude = "claude"
+	// defaultSessionCap is the most live engine sessions at once when --session-cap is not given.
+	defaultSessionCap = 4
 	// notifyTimeout bounds each notification request.
 	notifyTimeout = 10 * time.Second
 	// waitingBody and doneBody stand in for an empty question or summary.
@@ -54,7 +57,7 @@ const (
 )
 
 const usageText = `usage: orreryd [-L NAME | -S PATH] [--socket PATH] [--claude PATH] [--summary-model CONTEXT=MODEL]...
-               [--push-host HOST]...
+               [--push-host HOST]... [--sessions] [--session-cap N] [--session-shell PATH]
 
 flags:
   -L NAME           tmux server by name (tmux -L)
@@ -65,6 +68,10 @@ flags:
                     summary model for a patchbay context; repeat for each context
   --push-host HOST  push relay host a Web Push subscription may name; repeat for each host
                     (default ntfy.sh)
+  --sessions        serve the engine session service on sessions.sock beside the daemon socket
+  --session-cap N   most live engine sessions at once (default 4)
+  --session-shell PATH
+                    absolute login shell that starts each session (default $SHELL)
 `
 
 // usageError is a command line refused before any work. It exits 2 and prints the usage text.
@@ -89,6 +96,9 @@ type options struct {
 	claude        string
 	models        map[string]string
 	pushHosts     []string
+	sessions      bool
+	sessionCap    int
+	sessionShell  string
 }
 
 // hostFlag is the repeatable --push-host flag. It collects the push relay hosts in the order given.
@@ -169,6 +179,9 @@ func parseFlags(args []string, getenv func(string) string) (options, error) {
 	flags.Var(models, "summary-model", "summary model as CONTEXT=MODEL")
 	var pushHosts hostFlag
 	flags.Var(&pushHosts, "push-host", "push relay host, repeatable")
+	sessions := flags.Bool("sessions", false, "serve the engine session service")
+	sessionCap := flags.Int("session-cap", defaultSessionCap, "most live engine sessions")
+	sessionShell := flags.String("session-shell", getenv("SHELL"), "login shell that starts each session")
 	if err := flags.Parse(args); err != nil {
 		return options{}, usagef("%v", err)
 	}
@@ -180,6 +193,12 @@ func parseFlags(args []string, getenv func(string) string) (options, error) {
 	}
 	if *claude == "" {
 		return options{}, usagef("--claude is empty")
+	}
+	if *sessionCap < 1 {
+		return options{}, usagef("--session-cap must be at least 1, got %d", *sessionCap)
+	}
+	if *sessions && !filepath.IsAbs(*sessionShell) {
+		return options{}, usagef("--sessions needs an absolute --session-shell, got %q", *sessionShell)
 	}
 	socket, err := protocol.SocketPath(*daemonSocket, getenv)
 	if err != nil {
@@ -200,6 +219,9 @@ func parseFlags(args []string, getenv func(string) string) (options, error) {
 		claude:        *claude,
 		models:        models,
 		pushHosts:     pushHosts,
+		sessions:      *sessions,
+		sessionCap:    *sessionCap,
+		sessionShell:  *sessionShell,
 	}, nil
 }
 
@@ -279,6 +301,14 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 		summarizers: make(map[tmuxctl.Server]*summary.Summarizer),
 	}
 	observe := func(transition daemon.Transition) { hub.observe(ctx, transition) }
+	var sessions *sessionHost
+	if opts.sessions {
+		sessions, err = startSessions(ctx, opts, st, logger)
+		if err != nil {
+			closeStore(ctx, st, logger)
+			return errors.Join(err, ln.Close())
+		}
+	}
 	serveErr := daemon.Serve(ctx, ln, daemon.Config{
 		Server:        opts.server,
 		DefaultServer: opts.defaultServer,
@@ -287,13 +317,76 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 		Mirror:        mirror,
 	})
 	hub.wait()
+	var sessionErr error
+	if sessions != nil {
+		sessionErr = sessions.stop()
+	}
+	closeStore(ctx, st, logger)
+	if serveErr != nil {
+		return errors.Join(fmt.Errorf("serve: %w", serveErr), sessionErr)
+	}
+	return sessionErr
+}
+
+// sessionHost is the engine session service of a --sessions orreryd. The manager runs the sessions, the writer stores
+// their events, and the listener answers the Engine service on sessions.sock. Without a store the manager and writer
+// are nil and every RPC is refused.
+type sessionHost struct {
+	manager    *enginehost.Manager
+	writer     *enginehost.Writer
+	stopWriter context.CancelFunc
+	writerDone chan struct{}
+	stopServe  context.CancelFunc
+	serveDone  chan error
+}
+
+// startSessions listens on sessions.sock beside the daemon socket and serves the Engine service on it until stop. With
+// an open store it also starts the writer and a manager capped at opts.sessionCap.
+func startSessions(ctx context.Context, opts options, st *store.Store, logger *slog.Logger) (*sessionHost, error) {
+	ln, err := enginehost.Listen(protocol.SessionSocketPath(opts.socket))
+	if err != nil {
+		return nil, fmt.Errorf("session socket: %w", err)
+	}
+	host := &sessionHost{writerDone: make(chan struct{}), serveDone: make(chan error, 1)}
+	var commands enginehost.Commands
 	if st != nil {
-		if closeErr := st.Close(); closeErr != nil {
-			logger.ErrorContext(ctx, "close store", "error", closeErr)
-		}
+		host.writer = enginehost.NewWriter(enginehost.WriterConfig{Applier: st, Logger: logger})
+		host.manager = enginehost.NewManager(enginehost.Config{
+			Shell:   opts.sessionShell,
+			Claude:  opts.claude,
+			Environ: os.Environ(),
+			Cap:     opts.sessionCap,
+			Writer:  host.writer,
+			Logger:  logger,
+		})
+		commands = host.manager
+		var writerCtx context.Context
+		writerCtx, host.stopWriter = context.WithCancel(context.WithoutCancel(ctx))
+		go func() {
+			host.writer.Run(writerCtx)
+			close(host.writerDone)
+		}()
+	}
+	var serveCtx context.Context
+	serveCtx, host.stopServe = context.WithCancel(ctx)
+	go func() { host.serveDone <- enginehost.Serve(serveCtx, ln, commands) }()
+	return host, nil
+}
+
+// stop stops serving the session socket, stops every live session, and ends the writer after its last flush. It
+// returns the error the session service ended with, if any.
+func (h *sessionHost) stop() error {
+	h.stopServe()
+	serveErr := <-h.serveDone
+	if h.manager != nil {
+		h.manager.Close()
+	}
+	if h.writer != nil {
+		h.stopWriter()
+		<-h.writerDone
 	}
 	if serveErr != nil {
-		return fmt.Errorf("serve: %w", serveErr)
+		return fmt.Errorf("session service: %w", serveErr)
 	}
 	return nil
 }
@@ -312,6 +405,16 @@ func openStore(ctx context.Context, getenv func(string) string, logger *slog.Log
 		return nil
 	}
 	return st
+}
+
+// closeStore closes st when it is open and logs a failed close.
+func closeStore(ctx context.Context, st *store.Store, logger *slog.Logger) {
+	if st == nil {
+		return
+	}
+	if err := st.Close(); err != nil {
+		logger.ErrorContext(ctx, "close store", "error", err)
+	}
 }
 
 // relay turns each state change into summary requests and notifications. Its observe method runs under the

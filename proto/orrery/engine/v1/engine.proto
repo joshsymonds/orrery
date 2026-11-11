@@ -1,0 +1,96 @@
+syntax = "proto3";
+
+package orrery.engine.v1;
+
+// Engine drives headless Claude Code sessions. orreryd serves it on a private socket in the runtime directory, mode
+// 0600, and never on the public orrery serve API.
+service Engine {
+  // Start starts a headless session in an existing absolute directory with a first prompt and returns once its row
+  // exists and its process is spawned. A start past the session cap is refused with a reason.
+  rpc Start(StartRequest) returns (StartResponse);
+
+  // Say sends a text message to a session's conversation.
+  rpc Say(SayRequest) returns (SayResponse);
+
+  // Answer replies to a session's open question. The answer is a question's option label, or allow or deny for a
+  // permission request.
+  rpc Answer(AnswerRequest) returns (AnswerResponse);
+
+  // Interrupt stops a session's current turn.
+  rpc Interrupt(InterruptRequest) returns (InterruptResponse);
+
+  // Stop ends a session's process.
+  rpc Stop(StopRequest) returns (StopResponse);
+
+  // Seen marks a session's conversation as read.
+  rpc Seen(SeenRequest) returns (SeenResponse);
+}
+
+// StartRequest asks for a new headless session.
+message StartRequest {
+  // The existing absolute directory the session runs in.
+  string dir = 1;
+
+  // The session's first prompt.
+  string prompt = 2;
+}
+
+// StartResponse names the started session.
+message StartResponse {
+  // The new session's id.
+  string id = 1;
+}
+
+// SayRequest sends a text message to a session.
+message SayRequest {
+  // The session's id.
+  string id = 1;
+
+  // The message text.
+  string text = 2;
+}
+
+// SayResponse acknowledges a message. It has no fields.
+message SayResponse {}
+
+// AnswerRequest replies to a session's open question.
+message AnswerRequest {
+  // The session's id.
+  string id = 1;
+
+  // The id of the question or permission request being answered.
+  string request_id = 2;
+
+  // The question's option label, or allow or deny for a permission request.
+  string answer = 3;
+}
+
+// AnswerResponse acknowledges an answer. It has no fields.
+message AnswerResponse {}
+
+// InterruptRequest asks for a session's current turn to stop.
+message InterruptRequest {
+  // The session's id.
+  string id = 1;
+}
+
+// InterruptResponse acknowledges an interrupt. It has no fields.
+message InterruptResponse {}
+
+// StopRequest asks for a session's process to end.
+message StopRequest {
+  // The session's id.
+  string id = 1;
+}
+
+// StopResponse acknowledges a stop. It has no fields.
+message StopResponse {}
+
+// SeenRequest marks a session's conversation as read.
+message SeenRequest {
+  // The session's id.
+  string id = 1;
+}
+
+// SeenResponse acknowledges a seen mark. It has no fields.
+message SeenResponse {}

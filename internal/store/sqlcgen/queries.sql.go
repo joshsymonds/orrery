@@ -9,6 +9,37 @@ import (
 	"context"
 )
 
+const clearEngineText = `-- name: ClearEngineText :exec
+DELETE FROM engine_text WHERE session_id = ?
+`
+
+func (q *Queries) ClearEngineText(ctx context.Context, sessionID string) error {
+	_, err := q.db.ExecContext(ctx, clearEngineText, sessionID)
+	return err
+}
+
+const deleteEngineText = `-- name: DeleteEngineText :exec
+DELETE FROM engine_text
+WHERE session_id = ? AND message_id = ? AND block_index = ? AND parent_tool_use_id = ?
+`
+
+type DeleteEngineTextParams struct {
+	SessionID       string
+	MessageID       string
+	BlockIndex      int64
+	ParentToolUseID string
+}
+
+func (q *Queries) DeleteEngineText(ctx context.Context, arg DeleteEngineTextParams) error {
+	_, err := q.db.ExecContext(ctx, deleteEngineText,
+		arg.SessionID,
+		arg.MessageID,
+		arg.BlockIndex,
+		arg.ParentToolUseID,
+	)
+	return err
+}
+
 const deleteSession = `-- name: DeleteSession :exec
 DELETE FROM sessions WHERE id = ?
 `
@@ -56,8 +87,36 @@ func (q *Queries) EventPageAfter(ctx context.Context, arg EventPageAfterParams) 
 	return items, nil
 }
 
+const getEngineSession = `-- name: GetEngineSession :one
+SELECT id, server, pane, state, changed, seen, question, summary, label, context, tool, claude_session, transcript, kind, dir, reason FROM sessions WHERE id = ? AND kind = 'engine'
+`
+
+func (q *Queries) GetEngineSession(ctx context.Context, id string) (Session, error) {
+	row := q.db.QueryRowContext(ctx, getEngineSession, id)
+	var i Session
+	err := row.Scan(
+		&i.ID,
+		&i.Server,
+		&i.Pane,
+		&i.State,
+		&i.Changed,
+		&i.Seen,
+		&i.Question,
+		&i.Summary,
+		&i.Label,
+		&i.Context,
+		&i.Tool,
+		&i.ClaudeSession,
+		&i.Transcript,
+		&i.Kind,
+		&i.Dir,
+		&i.Reason,
+	)
+	return i, err
+}
+
 const getSession = `-- name: GetSession :one
-SELECT id, server, pane, state, changed, seen, question, summary, label, context, tool, claude_session, transcript FROM sessions WHERE id = ?
+SELECT id, server, pane, state, changed, seen, question, summary, label, context, tool, claude_session, transcript, kind, dir, reason FROM sessions WHERE id = ?
 `
 
 func (q *Queries) GetSession(ctx context.Context, id string) (Session, error) {
@@ -77,8 +136,32 @@ func (q *Queries) GetSession(ctx context.Context, id string) (Session, error) {
 		&i.Tool,
 		&i.ClaudeSession,
 		&i.Transcript,
+		&i.Kind,
+		&i.Dir,
+		&i.Reason,
 	)
 	return i, err
+}
+
+const insertEngineSession = `-- name: InsertEngineSession :exec
+INSERT INTO sessions (id, server, pane, kind, dir, state, changed) VALUES (?, '', '', 'engine', ?, ?, ?)
+`
+
+type InsertEngineSessionParams struct {
+	ID      string
+	Dir     string
+	State   string
+	Changed string
+}
+
+func (q *Queries) InsertEngineSession(ctx context.Context, arg InsertEngineSessionParams) error {
+	_, err := q.db.ExecContext(ctx, insertEngineSession,
+		arg.ID,
+		arg.Dir,
+		arg.State,
+		arg.Changed,
+	)
+	return err
 }
 
 const insertEvent = `-- name: InsertEvent :exec
@@ -117,6 +200,41 @@ func (q *Queries) InsertSession(ctx context.Context, arg InsertSessionParams) er
 	return err
 }
 
+const listEngineText = `-- name: ListEngineText :many
+SELECT session_id, message_id, block_index, parent_tool_use_id, kind, text FROM engine_text WHERE session_id = ?
+ORDER BY message_id, parent_tool_use_id, block_index
+`
+
+func (q *Queries) ListEngineText(ctx context.Context, sessionID string) ([]EngineText, error) {
+	rows, err := q.db.QueryContext(ctx, listEngineText, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []EngineText
+	for rows.Next() {
+		var i EngineText
+		if err := rows.Scan(
+			&i.SessionID,
+			&i.MessageID,
+			&i.BlockIndex,
+			&i.ParentToolUseID,
+			&i.Kind,
+			&i.Text,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listEvents = `-- name: ListEvents :many
 SELECT seq, session_id, kind, at, payload FROM events ORDER BY seq
 `
@@ -151,7 +269,7 @@ func (q *Queries) ListEvents(ctx context.Context) ([]Event, error) {
 }
 
 const listServerSessions = `-- name: ListServerSessions :many
-SELECT id, server, pane, state, changed, seen, question, summary, label, context, tool, claude_session, transcript FROM sessions WHERE server = ? ORDER BY id
+SELECT id, server, pane, state, changed, seen, question, summary, label, context, tool, claude_session, transcript, kind, dir, reason FROM sessions WHERE server = ? AND kind = '' ORDER BY id
 `
 
 func (q *Queries) ListServerSessions(ctx context.Context, server string) ([]Session, error) {
@@ -177,6 +295,9 @@ func (q *Queries) ListServerSessions(ctx context.Context, server string) ([]Sess
 			&i.Tool,
 			&i.ClaudeSession,
 			&i.Transcript,
+			&i.Kind,
+			&i.Dir,
+			&i.Reason,
 		); err != nil {
 			return nil, err
 		}
@@ -192,7 +313,7 @@ func (q *Queries) ListServerSessions(ctx context.Context, server string) ([]Sess
 }
 
 const listSessions = `-- name: ListSessions :many
-SELECT id, server, pane, state, changed, seen, question, summary, label, context, tool, claude_session, transcript FROM sessions ORDER BY id
+SELECT id, server, pane, state, changed, seen, question, summary, label, context, tool, claude_session, transcript, kind, dir, reason FROM sessions WHERE kind = '' ORDER BY id
 `
 
 func (q *Queries) ListSessions(ctx context.Context) ([]Session, error) {
@@ -218,6 +339,9 @@ func (q *Queries) ListSessions(ctx context.Context) ([]Session, error) {
 			&i.Tool,
 			&i.ClaudeSession,
 			&i.Transcript,
+			&i.Kind,
+			&i.Dir,
+			&i.Reason,
 		); err != nil {
 			return nil, err
 		}
@@ -263,6 +387,79 @@ func (q *Queries) PruneEvents(ctx context.Context, at int64) error {
 	return err
 }
 
+const sessionEventsAfter = `-- name: SessionEventsAfter :many
+SELECT seq, session_id, kind, at, payload FROM events
+WHERE session_id = ? AND seq > ?
+ORDER BY seq LIMIT ?
+`
+
+type SessionEventsAfterParams struct {
+	SessionID string
+	Seq       int64
+	Limit     int64
+}
+
+func (q *Queries) SessionEventsAfter(ctx context.Context, arg SessionEventsAfterParams) ([]Event, error) {
+	rows, err := q.db.QueryContext(ctx, sessionEventsAfter, arg.SessionID, arg.Seq, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Event
+	for rows.Next() {
+		var i Event
+		if err := rows.Scan(
+			&i.Seq,
+			&i.SessionID,
+			&i.Kind,
+			&i.At,
+			&i.Payload,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const updateEngineSession = `-- name: UpdateEngineSession :execrows
+UPDATE sessions
+SET state = ?, changed = ?, seen = ?, question = ?, claude_session = ?, reason = ?
+WHERE id = ? AND kind = 'engine'
+`
+
+type UpdateEngineSessionParams struct {
+	State         string
+	Changed       string
+	Seen          string
+	Question      string
+	ClaudeSession string
+	Reason        string
+	ID            string
+}
+
+func (q *Queries) UpdateEngineSession(ctx context.Context, arg UpdateEngineSessionParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, updateEngineSession,
+		arg.State,
+		arg.Changed,
+		arg.Seen,
+		arg.Question,
+		arg.ClaudeSession,
+		arg.Reason,
+		arg.ID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const updateSessionFields = `-- name: UpdateSessionFields :exec
 UPDATE sessions
 SET state = ?, changed = ?, seen = ?, question = ?, summary = ?,
@@ -297,6 +494,34 @@ func (q *Queries) UpdateSessionFields(ctx context.Context, arg UpdateSessionFiel
 		arg.ClaudeSession,
 		arg.Transcript,
 		arg.ID,
+	)
+	return err
+}
+
+const upsertEngineText = `-- name: UpsertEngineText :exec
+INSERT INTO engine_text (session_id, message_id, block_index, parent_tool_use_id, kind, text)
+VALUES (?, ?, ?, ?, ?, ?)
+ON CONFLICT (session_id, message_id, block_index, parent_tool_use_id)
+DO UPDATE SET kind = excluded.kind, text = excluded.text
+`
+
+type UpsertEngineTextParams struct {
+	SessionID       string
+	MessageID       string
+	BlockIndex      int64
+	ParentToolUseID string
+	Kind            string
+	Text            string
+}
+
+func (q *Queries) UpsertEngineText(ctx context.Context, arg UpsertEngineTextParams) error {
+	_, err := q.db.ExecContext(ctx, upsertEngineText,
+		arg.SessionID,
+		arg.MessageID,
+		arg.BlockIndex,
+		arg.ParentToolUseID,
+		arg.Kind,
+		arg.Text,
 	)
 	return err
 }

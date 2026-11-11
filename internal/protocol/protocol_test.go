@@ -369,6 +369,23 @@ func TestSocketPathErrorsWhenUnset(t *testing.T) {
 	}
 }
 
+func TestSessionSocketPath(t *testing.T) {
+	cases := []struct {
+		name         string
+		daemonSocket string
+		want         string
+	}{
+		{"default daemon socket", "/run/user/1000/orrery/orreryd.sock", "/run/user/1000/orrery/sessions.sock"},
+		{"custom daemon socket", "/tmp/x/test.sock", "/tmp/x/sessions.sock"},
+	}
+	for _, tc := range cases {
+		got := protocol.SessionSocketPath(tc.daemonSocket)
+		if got != tc.want {
+			t.Errorf("%s: SessionSocketPath(%q) = %q, want %q", tc.name, tc.daemonSocket, got, tc.want)
+		}
+	}
+}
+
 func TestIsSummarizer(t *testing.T) {
 	cases := []struct {
 		value string

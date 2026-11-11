@@ -153,6 +153,12 @@ func SocketPath(flagValue string, getenv func(string) string) (string, error) {
 	return "", fmt.Errorf("no daemon socket: pass --socket, set %s, or set XDG_RUNTIME_DIR", EnvSocket)
 }
 
+// SessionSocketPath names the session control socket: sessions.sock beside the daemon socket,
+// so orreryd and `orrery session` derive the same path from the daemon socket each resolves.
+func SessionSocketPath(daemonSocket string) string {
+	return filepath.Join(filepath.Dir(daemonSocket), "sessions.sock")
+}
+
 // IsSummarizer reports whether this process is the summarizer's own claude subprocess.
 func IsSummarizer(getenv func(string) string) bool {
 	return getenv(EnvSummarizer) == SummarizerValue
