@@ -155,12 +155,13 @@ func New(cfg Config) (http.Handler, error) {
 	}
 
 	goals := conversation.NewGoals()
+	queues := conversation.NewQueues()
 	textLocks := &paneLocks{locks: make(map[string]*sync.Mutex)}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/panes", servePanes(cfg.Tmux))
 	mux.HandleFunc("POST /v1/panes", serveNewWindow(cfg.Tmux))
 	mux.HandleFunc("GET /v1/panes/{id}/screen", serveScreen(cfg.Tmux))
-	mux.HandleFunc("GET /v1/panes/{id}/conversation", serveConversation(cfg.Tmux, goals))
+	mux.HandleFunc("GET /v1/panes/{id}/conversation", serveConversation(cfg.Tmux, goals, queues))
 	mux.HandleFunc("GET /v1/host", serveHost(cfg.HostStatus))
 	mux.HandleFunc("POST /v1/panes/{id}/text", servePaneText(cfg.Tmux, textLocks))
 	mux.HandleFunc("POST /v1/panes/{id}/keys", servePaneKeys(cfg.Tmux))
@@ -333,10 +334,12 @@ func screenFlags(query url.Values) ([]string, bool) {
 }
 
 // serveConversation answers GET /v1/panes/{id}/conversation with the conversation of the pane's Claude transcript:
-// its opening prompt, its newest limit items and its active goal. The goal comes from goals, which remembers how far
-// each transcript has been read across requests. The transcript is the path in the pane's @orrery_transcript option,
-// never a request value. It answers 404 unless the pane has a live Claude session and that file exists.
-func serveConversation(tmux *tmuxctl.Client, goals *conversation.Goals) http.HandlerFunc {
+// its opening prompt, its newest limit items, its active goal and its waiting messages. The goal comes from goals and
+// the waiting messages from queues. Each remembers how far each transcript has been read across requests. When the
+// pane is done, the waiting messages are idle and the answer lists only the canceled ones. The transcript is the path
+// in the pane's @orrery_transcript option, never a request value. It answers 404 unless the pane has a live Claude
+// session and that file exists.
+func serveConversation(tmux *tmuxctl.Client, goals *conversation.Goals, queues *conversation.Queues) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		limit, ok := conversationLimit(r.URL.Query())
 		if !ok {
@@ -364,6 +367,9 @@ func serveConversation(tmux *tmuxctl.Client, goals *conversation.Goals) http.Han
 		conv, err := conversation.Read(path, limit)
 		if err == nil {
 			conv.Goal, err = goals.Goal(path)
+		}
+		if err == nil {
+			conv.Waiting, err = queues.Waiting(path, pane.State == protocol.StateDone)
 		}
 		switch {
 		case errors.Is(err, fs.ErrNotExist):
