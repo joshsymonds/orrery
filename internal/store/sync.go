@@ -106,7 +106,8 @@ func (s *Store) SyncPane(ctx context.Context, server string, pane Pane, now time
 }
 
 // SyncServer syncs every pane of one tmux server, removes the server's rows whose id is absent from panes,
-// and prunes events older than EventRetention, except the newest event.
+// prunes events older than EventRetention, except the newest event, and removes each engine session that has
+// no event at or after the same cutoff, with its unfinished text. The removal appends no event.
 func (s *Store) SyncServer(ctx context.Context, server string, panes []Pane, now time.Time) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
 		present := make(map[string]bool, len(panes))
@@ -132,11 +133,25 @@ func (s *Store) SyncServer(ctx context.Context, server string, panes []Pane, now
 				return appendErr
 			}
 		}
-		if err = queries.PruneEvents(ctx, now.Add(-EventRetention).Unix()); err != nil {
-			return fmt.Errorf("prune events: %w", err)
-		}
-		return nil
+		return pruneRetention(ctx, queries, now)
 	})
+}
+
+// pruneRetention prunes events older than EventRetention, then removes each engine session with no event at or
+// after the same cutoff, with its unfinished text.
+func pruneRetention(ctx context.Context, queries *sqlcgen.Queries, now time.Time) error {
+	cutoff := now.Add(-EventRetention).Unix()
+	if err := queries.PruneEvents(ctx, cutoff); err != nil {
+		return fmt.Errorf("prune events: %w", err)
+	}
+	// Engine text goes first: its delete selects engine sessions that the session delete removes.
+	if err := queries.DeleteStaleEngineText(ctx, cutoff); err != nil {
+		return fmt.Errorf("delete stale engine text: %w", err)
+	}
+	if err := queries.DeleteStaleEngineSessions(ctx, cutoff); err != nil {
+		return fmt.Errorf("delete stale engine sessions: %w", err)
+	}
+	return nil
 }
 
 // syncPane upserts one pane's row and appends its events. A new row appends session_added, then one

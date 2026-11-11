@@ -37,6 +37,19 @@ SELECT seq, session_id, kind, at, payload FROM events WHERE seq > ? ORDER BY seq
 -- name: PruneEvents :exec
 DELETE FROM events WHERE events.at < ? AND events.seq < (SELECT MAX(newest.seq) FROM events AS newest);
 
+-- name: DeleteStaleEngineText :exec
+DELETE FROM engine_text
+WHERE session_id IN (
+    SELECT sessions.id FROM sessions
+    WHERE sessions.kind = 'engine'
+      AND NOT EXISTS (SELECT 1 FROM events WHERE events.session_id = sessions.id AND events.at >= sqlc.arg(cutoff))
+);
+
+-- name: DeleteStaleEngineSessions :exec
+DELETE FROM sessions
+WHERE sessions.kind = 'engine'
+  AND NOT EXISTS (SELECT 1 FROM events WHERE events.session_id = sessions.id AND events.at >= sqlc.arg(cutoff));
+
 -- name: InsertEngineSession :exec
 INSERT INTO sessions (id, server, pane, kind, dir, state, changed) VALUES (?, '', '', 'engine', ?, ?, ?);
 

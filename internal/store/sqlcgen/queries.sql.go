@@ -49,6 +49,31 @@ func (q *Queries) DeleteSession(ctx context.Context, id string) error {
 	return err
 }
 
+const deleteStaleEngineSessions = `-- name: DeleteStaleEngineSessions :exec
+DELETE FROM sessions
+WHERE sessions.kind = 'engine'
+  AND NOT EXISTS (SELECT 1 FROM events WHERE events.session_id = sessions.id AND events.at >= ?1)
+`
+
+func (q *Queries) DeleteStaleEngineSessions(ctx context.Context, cutoff int64) error {
+	_, err := q.db.ExecContext(ctx, deleteStaleEngineSessions, cutoff)
+	return err
+}
+
+const deleteStaleEngineText = `-- name: DeleteStaleEngineText :exec
+DELETE FROM engine_text
+WHERE session_id IN (
+    SELECT sessions.id FROM sessions
+    WHERE sessions.kind = 'engine'
+      AND NOT EXISTS (SELECT 1 FROM events WHERE events.session_id = sessions.id AND events.at >= ?1)
+)
+`
+
+func (q *Queries) DeleteStaleEngineText(ctx context.Context, cutoff int64) error {
+	_, err := q.db.ExecContext(ctx, deleteStaleEngineText, cutoff)
+	return err
+}
+
 const eventPageAfter = `-- name: EventPageAfter :many
 SELECT seq, session_id, kind, at, payload FROM events WHERE seq > ? ORDER BY seq LIMIT ?
 `
