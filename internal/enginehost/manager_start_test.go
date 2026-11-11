@@ -34,7 +34,7 @@ func TestStartPassesModelToClaudeAndResumeOmitsIt(t *testing.T) {
 	if err := m.Stop(t.Context(), id); err != nil {
 		t.Fatalf("Stop: %v", err)
 	}
-	if err := m.Say(t.Context(), id, "again"); err != nil {
+	if err := m.Say(t.Context(), SayRequest{ID: id, Text: "again"}); err != nil {
 		t.Fatalf("Say of a stopped session: %v", err)
 	}
 	waitHistory(t, path, id, "the resumed reply block", func(h store.EngineHistory) bool {

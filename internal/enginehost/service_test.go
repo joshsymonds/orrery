@@ -33,6 +33,7 @@ type call struct {
 	id        string
 	requestID string
 	text      string
+	promptID  string
 	answer    string
 }
 
@@ -72,8 +73,8 @@ func (f *fakeCommands) Start(_ context.Context, req StartRequest) (string, error
 	return f.startID, nil
 }
 
-func (f *fakeCommands) Say(_ context.Context, id, text string) error {
-	return f.record(call{method: "Say", id: id, text: text})
+func (f *fakeCommands) Say(_ context.Context, req SayRequest) error {
+	return f.record(call{method: "Say", id: req.ID, text: req.Text, promptID: req.PromptID})
 }
 
 func (f *fakeCommands) Answer(_ context.Context, id, requestID, answer string) error {
@@ -257,6 +258,27 @@ func TestServeStartForwardsID(t *testing.T) {
 	}
 
 	want := []call{{method: "Start", dir: "/work", prompt: "hello", id: "0123456789abcdef0123456789abcdef"}}
+	if got := fake.recorded(); !slices.Equal(got, want) {
+		t.Fatalf("commands received %+v, want %+v", got, want)
+	}
+}
+
+func TestServeSayForwardsPromptID(t *testing.T) {
+	fake := &fakeCommands{}
+	path, stop := startServer(t, fake)
+	client := newClient(t, path)
+
+	if _, err := client.Say(
+		context.Background(),
+		connect.NewRequest(&v1.SayRequest{Id: "s1", Text: "more", PromptId: "p1"}),
+	); err != nil {
+		t.Fatalf("Say: %v", err)
+	}
+	if err := stop(); err != nil {
+		t.Fatalf("Serve: %v", err)
+	}
+
+	want := []call{{method: "Say", id: "s1", text: "more", promptID: "p1"}}
 	if got := fake.recorded(); !slices.Equal(got, want) {
 		t.Fatalf("commands received %+v, want %+v", got, want)
 	}

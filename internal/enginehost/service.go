@@ -29,7 +29,7 @@ const unavailableMessage = "session store unavailable"
 // Commands is the set of session operations the engine service answers with. Manager satisfies it.
 type Commands interface {
 	Start(ctx context.Context, req StartRequest) (string, error)
-	Say(ctx context.Context, id, text string) error
+	Say(ctx context.Context, req SayRequest) error
 	Answer(ctx context.Context, id, requestID, answer string) error
 	Interrupt(ctx context.Context, id string) error
 	Stop(ctx context.Context, id string) error
@@ -118,7 +118,11 @@ func (s *service) Say(
 	if err := s.ready(); err != nil {
 		return nil, err
 	}
-	if err := s.commands.Say(ctx, req.Msg.GetId(), req.Msg.GetText()); err != nil {
+	if err := s.commands.Say(ctx, SayRequest{
+		ID:       req.Msg.GetId(),
+		Text:     req.Msg.GetText(),
+		PromptID: req.Msg.GetPromptId(),
+	}); err != nil {
 		return nil, commandError(err)
 	}
 	return connect.NewResponse(&v1.SayResponse{}), nil

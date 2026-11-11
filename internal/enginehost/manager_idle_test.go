@@ -93,7 +93,7 @@ func TestIdleStopsFinishedSessionAfterTenMinutes(t *testing.T) {
 		t.Fatalf("state after idle stop = %q, want %q", got, protocol.StateDone)
 	}
 
-	if err := m.Say(t.Context(), id, "again"); err != nil {
+	if err := m.Say(t.Context(), SayRequest{ID: id, Text: "again"}); err != nil {
 		t.Fatalf("Say of an idle-stopped session: %v", err)
 	}
 	waitHistory(t, path, id, "the resumed reply block", func(h store.EngineHistory) bool {
@@ -143,7 +143,7 @@ func TestIdleKeepsBackgroundSessionUntilItEnds(t *testing.T) {
 	m.checkIdle(t.Context())
 	requireRunning(t, m, id, pid)
 
-	if err := m.Say(t.Context(), id, "BGEND"); err != nil {
+	if err := m.Say(t.Context(), SayRequest{ID: id, Text: "BGEND"}); err != nil {
 		t.Fatalf("Say BGEND: %v", err)
 	}
 	waitHistory(t, path, id, "the reply after the background task ended", func(h store.EngineHistory) bool {

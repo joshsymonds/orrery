@@ -72,6 +72,7 @@ type NoticeSink interface {
 type Store interface {
 	EngineSessions(ctx context.Context) ([]store.EngineRow, error)
 	EngineSession(ctx context.Context, id string) (store.EngineRow, error)
+	EnginePromptSent(ctx context.Context, sessionID, promptID string) (bool, error)
 }
 
 // Config configures a Manager. Shell is the login shell and Claude the claude name, resolved with exec.LookPath at
@@ -145,6 +146,9 @@ type Manager struct {
 	// startMu serializes the Starts that name a session id, from the check that the id has no engine row through the
 	// start, so concurrent Starts of one new id store one row and start one process.
 	startMu sync.Mutex
+	// promptMu serializes the Says that name a prompt id, from the check that the id is unsent through the stored prompt
+	// and its send, so concurrent Says with one prompt id send one prompt.
+	promptMu sync.Mutex
 }
 
 // NewManager returns a Manager for cfg.
@@ -262,15 +266,43 @@ func (m *Manager) Seen(ctx context.Context, id string) error {
 	return m.writer.Commit(ctx, id, store.EngineSet{ID: id, Changes: store.EngineChanges{Seen: &seen}})
 }
 
-// Say sends text to the session id as its next prompt. A session that is not live is resumed first, from its engine
-// row (see resumeSession). It records the prompt and the working state before it sends, so the stored conversation has
-// the prompt ahead of its reply. It returns ErrEmptyPrompt for empty text, an error wrapping ErrNoSession when no engine
-// row has id, and the errors of resumeSession when a live session cannot be started. A send that fails is recorded as
-// the session's failed state.
-func (m *Manager) Say(ctx context.Context, id, text string) error {
-	if text == "" {
+// SayRequest is what Say needs: the session ID, the text of the prompt, and the client-chosen PromptID. An empty
+// PromptID is not deduplicated.
+type SayRequest struct {
+	ID       string
+	Text     string
+	PromptID string
+}
+
+// Say sends req.Text to the session req.ID as its next prompt. A session that is not live is resumed first, from its
+// engine row (see resumeSession). It records the prompt and the working state before it sends, so the stored
+// conversation has the prompt ahead of its reply. A non-empty req.PromptID that an engine_prompt event of the session
+// already carries makes Say return nil and do nothing else; otherwise the stored prompt carries req.PromptID. It returns
+// ErrEmptyPrompt for empty text, an error wrapping ErrNoSession when no engine row has the id, and the errors of
+// resumeSession when a live session cannot be started. A send that fails is recorded as the session's failed state.
+func (m *Manager) Say(ctx context.Context, req SayRequest) error {
+	if req.Text == "" {
 		return ErrEmptyPrompt
 	}
+	if req.PromptID == "" {
+		return m.say(ctx, req)
+	}
+	m.promptMu.Lock()
+	defer m.promptMu.Unlock()
+	sent, err := m.store.EnginePromptSent(ctx, req.ID, req.PromptID)
+	if err != nil {
+		return fmt.Errorf("check prompt %s of session %s: %w", req.PromptID, req.ID, err)
+	}
+	if sent {
+		return nil
+	}
+	return m.say(ctx, req)
+}
+
+// say sends the prompt of req as Say does, without the check of its prompt id. The caller holds promptMu when req has a
+// prompt id.
+func (m *Manager) say(ctx context.Context, req SayRequest) error {
+	id, text := req.ID, req.Text
 	live, err := m.claim(id)
 	if errors.Is(err, ErrNoSession) {
 		live, err = m.resumeSession(ctx, id)
@@ -282,7 +314,7 @@ func (m *Manager) Say(ctx context.Context, id, text string) error {
 		return fmt.Errorf("say to session %s: %w", id, err)
 	}
 	working := string(protocol.StateWorking)
-	if err = m.writer.Commit(ctx, id, store.EnginePrompt{ID: id, Text: text},
+	if err = m.writer.Commit(ctx, id, store.EnginePrompt{ID: id, Text: text, PromptID: req.PromptID},
 		store.EngineSet{ID: id, Changes: store.EngineChanges{State: &working}}); err != nil {
 		m.setTurning(live, false)
 		return fmt.Errorf("record prompt of session %s: %w", id, err)

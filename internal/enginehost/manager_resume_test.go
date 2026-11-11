@@ -74,7 +74,7 @@ func TestSayResumesStoppedSession(t *testing.T) {
 		t.Fatalf("Stop: %v", err)
 	}
 
-	if err := m.Say(t.Context(), id, "again"); err != nil {
+	if err := m.Say(t.Context(), SayRequest{ID: id, Text: "again"}); err != nil {
 		t.Fatalf("Say of a stopped session: %v", err)
 	}
 	history := waitHistory(t, path, id, "the resumed reply block", func(h store.EngineHistory) bool {
@@ -103,7 +103,7 @@ func TestSecondManagerResumesSession(t *testing.T) {
 	first.Close()
 
 	second := newManagerOn(t, path, 1, fakeClaudePath(t), &fakeSink{})
-	if err := second.Say(t.Context(), id, "again"); err != nil {
+	if err := second.Say(t.Context(), SayRequest{ID: id, Text: "again"}); err != nil {
 		t.Fatalf("Say on a second manager: %v", err)
 	}
 	waitHistory(t, path, id, "the resumed reply block", func(h store.EngineHistory) bool {
@@ -147,7 +147,7 @@ func TestSayAtCapRefusesAndStoresNothing(t *testing.T) {
 		return hasBlock(t, h, "fake reply 1")
 	})
 
-	if err := m.Say(t.Context(), id, "again"); !errors.Is(err, ErrCapReached) {
+	if err := m.Say(t.Context(), SayRequest{ID: id, Text: "again"}); !errors.Is(err, ErrCapReached) {
 		t.Fatalf("Say at the cap error = %v, want ErrCapReached", err)
 	}
 	if after := historyOf(t, path, id); len(after.Events) != len(before.Events) {
@@ -198,7 +198,7 @@ func TestSayToBadDirectoryRecordsFailed(t *testing.T) {
 			}
 			tc.replace(t, dir)
 
-			if err := m.Say(t.Context(), id, "again"); !errors.Is(err, ErrBadDir) {
+			if err := m.Say(t.Context(), SayRequest{ID: id, Text: "again"}); !errors.Is(err, ErrBadDir) {
 				t.Fatalf("Say to a bad directory error = %v, want ErrBadDir", err)
 			}
 			history := historyOf(t, path, id)
@@ -248,7 +248,7 @@ func TestConcurrentSaysStartOneProcess(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			errs <- m.Say(t.Context(), id, fmt.Sprintf("again %d", i))
+			errs <- m.Say(t.Context(), SayRequest{ID: id, Text: fmt.Sprintf("again %d", i)})
 		}()
 	}
 	wg.Wait()

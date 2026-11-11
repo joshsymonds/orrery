@@ -133,7 +133,7 @@ func TestNoticeInterruptedTurnSendsNothingAndNextTurnNotifies(t *testing.T) {
 		return turnEndsWithError(t, h)
 	})
 
-	if err := m.Say(t.Context(), id, "again"); err != nil {
+	if err := m.Say(t.Context(), SayRequest{ID: id, Text: "again"}); err != nil {
 		t.Fatalf("Say: %v", err)
 	}
 	got := waitNotices(t, sink)

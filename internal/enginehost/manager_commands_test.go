@@ -116,7 +116,7 @@ func TestSayStoresReplyToSecondPrompt(t *testing.T) {
 		return hasBlock(t, h, "fake reply 1")
 	})
 
-	if err := m.Say(t.Context(), id, "again"); err != nil {
+	if err := m.Say(t.Context(), SayRequest{ID: id, Text: "again"}); err != nil {
 		t.Fatalf("Say: %v", err)
 	}
 	history := waitHistory(t, path, id, "the second reply block", func(h store.EngineHistory) bool {
@@ -137,10 +137,10 @@ func TestSayRefusesEmptyTextAndUnknownID(t *testing.T) {
 		return hasBlock(t, h, "fake reply 1")
 	})
 
-	if err := m.Say(t.Context(), id, ""); !errors.Is(err, ErrEmptyPrompt) {
+	if err := m.Say(t.Context(), SayRequest{ID: id, Text: ""}); !errors.Is(err, ErrEmptyPrompt) {
 		t.Fatalf("Say empty text error = %v, want ErrEmptyPrompt", err)
 	}
-	if err := m.Say(t.Context(), unknownID, "hi"); !errors.Is(err, ErrNoSession) {
+	if err := m.Say(t.Context(), SayRequest{ID: unknownID, Text: "hi"}); !errors.Is(err, ErrNoSession) {
 		t.Fatalf("Say of an unknown id error = %v, want ErrNoSession", err)
 	}
 	if got := conversationOf(t, historyOf(t, path, id)); !reflect.DeepEqual(got,
@@ -274,7 +274,7 @@ func TestReplayRebuildsConversationInOrder(t *testing.T) {
 	waitHistory(t, path, id, "the first reply block", func(h store.EngineHistory) bool {
 		return hasBlock(t, h, "fake reply 1")
 	})
-	if err := m.Say(t.Context(), id, "again"); err != nil {
+	if err := m.Say(t.Context(), SayRequest{ID: id, Text: "again"}); err != nil {
 		t.Fatalf("Say: %v", err)
 	}
 	history := waitHistory(t, path, id, "the second reply block", func(h store.EngineHistory) bool {
