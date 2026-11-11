@@ -45,6 +45,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
+import io.github.joshsymonds.orrery.api.WaitingItem
 import io.github.joshsymonds.orrery.ui.theme.Mocha
 import java.time.Instant
 import java.time.ZoneId
@@ -55,6 +56,9 @@ private val TIME_OF_DAY: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm"
 // Entry keys always start with their kind ("reply:", "tool:", ...), so these never equal one.
 private const val FOOTER_KEY = "footer"
 private const val WORKING_KEY = "working"
+// Waiting rows are keyed by their position in the queue, oldest first, so two equal items stay apart.
+private const val WAITING_KEY_PREFIX = "waiting:"
+private const val WAITING_ALPHA = 0.6f
 
 private enum class CallMark(val symbol: String, val colour: Color) {
     Done("✓", Mocha.Green),
@@ -64,12 +68,13 @@ private enum class CallMark(val symbol: String, val colour: Color) {
 /**
  * The folded conversation as the phone draws it: time labels, prompt blocks, markdown replies, tool
  * rows that expand to their result, groups of calls that expand to their rows, and slim notice
- * rows, with an optional footer after the last entry. While [working], a working mark sits after the last
- * entry and before the footer. Which rows are open is kept by tool id (a group by its
- * first call's id), so it survives new entries. It opens at the end of the newest item. While the
- * reader is at the bottom, new entries keep the end of the newest item in view; once they scroll
- * up, new entries leave their position alone. A change of the viewport's height or top padding
- * (the keyboard, a growing draft, the header folding) follows the same way.
+ * rows, with an optional footer after the last entry. While [working], a working mark sits after
+ * the last entry; the [waiting] rows follow it, one per queued message, and the footer comes last.
+ * Which rows are open is kept by tool id (a group by its first call's id), so it survives new
+ * entries. It opens at the end of the newest item. While the reader is at the bottom, new entries
+ * keep the end of the newest item in view; once they scroll up, new entries leave their position
+ * alone. A change of the viewport's height or top padding (the keyboard, a growing draft, the
+ * header folding) follows the same way.
  */
 @Composable
 fun ConversationView(
@@ -79,6 +84,7 @@ fun ConversationView(
     contentPadding: PaddingValues = PaddingValues(),
     footer: (@Composable () -> Unit)? = null,
     working: Boolean = false,
+    waiting: List<WaitingItem> = emptyList(),
 ) {
     var expanded by remember { mutableStateOf(emptySet<String>()) }
     val toggle: (String) -> Unit = { id ->
@@ -87,7 +93,7 @@ fun ConversationView(
     var followBottom by remember { mutableStateOf(true) }
     val markdownCache = remember { MarkdownCache() }
     val keys = remember(entries) { entryKeys(entries) }
-    val lastIndex = entries.size + (if (working) 1 else 0) + (if (footer == null) 0 else 1) - 1
+    val lastIndex = entries.size + (if (working) 1 else 0) + waiting.size + (if (footer == null) 0 else 1) - 1
     // Following is decided when a scroll ends, not when the first visible item moves: a slid window
     // moves it without the reader scrolling.
     LaunchedEffect(listState) {
@@ -128,6 +134,9 @@ fun ConversationView(
             }
         }
         if (working) item(key = WORKING_KEY) { WorkingMark() }
+        waiting.forEachIndexed { index, waitingItem ->
+            item(key = "$WAITING_KEY_PREFIX$index") { WaitingRow(waitingItem) }
+        }
         footer?.let { content -> item(key = FOOTER_KEY) { content() } }
     }
 }
@@ -172,6 +181,39 @@ private fun PromptBlock(text: String) {
                 letterSpacing = 0.1.em,
             )
             Text(text = text, color = Mocha.Text, fontSize = 14.sp)
+        }
+    }
+}
+
+/** A queued message in the prompt's look, dimmed, labelled "waiting" or, once cleared, "not delivered". */
+@Composable
+private fun WaitingRow(item: WaitingItem) {
+    Row(
+        modifier = Modifier
+            .testTag("waiting-row")
+            .fillMaxWidth()
+            .padding(top = 10.dp, bottom = 12.dp)
+            .height(IntrinsicSize.Min)
+            .clip(RoundedCornerShape(topStart = 4.dp, topEnd = 12.dp, bottomEnd = 12.dp, bottomStart = 4.dp))
+            .background(Mocha.Surface0.copy(alpha = WAITING_ALPHA)),
+    ) {
+        Box(
+            modifier = Modifier
+                .width(3.dp)
+                .fillMaxHeight()
+                .background(Mocha.Mauve.copy(alpha = WAITING_ALPHA)),
+        )
+        Column(
+            modifier = Modifier.padding(start = 12.dp, end = 12.dp, top = 9.dp, bottom = 10.dp),
+        ) {
+            Text(
+                text = if (item.canceled) "not delivered" else "waiting",
+                color = Mocha.Overlay1,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 0.1.em,
+            )
+            Text(text = item.text, color = Mocha.Subtext0, fontSize = 14.sp)
         }
     }
 }
