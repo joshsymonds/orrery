@@ -87,8 +87,12 @@ private enum class CallMark(val symbol: String, val colour: Color) {
  * rows, with an optional footer after the last entry. While [working], a working mark sits after
  * the last entry; the [waiting] rows follow it, one per queued message, and the footer comes last.
  * Which rows are open is kept by tool id (a group by its first call's id), so it survives new
- * entries. It opens at the end of the newest item. While the reader is at the bottom, new entries
- * keep the end of the newest item in view; once they scroll up, new entries leave their position
+ * entries. The first entries it shows open at the divider's entry, at the top, when a divider is
+ * drawn (see below), or at the end of the newest item otherwise. Landing leaves following on only
+ * when the end is in view; otherwise the view waits for the reader to reach the end or an end
+ * request before following. While the reader is at the
+ * bottom, new entries keep the end of the newest item in view; once they scroll up, new entries
+ * leave their position
  * alone. A change of the viewport's height or top padding (the keyboard, a growing draft, the
  * header folding) follows the same way. Each change of [endRequests] brings the end into view and
  * resumes following, even when the reader has scrolled up; the first composition is not a change.
@@ -117,9 +121,11 @@ fun ConversationView(
         expanded = if (id in expanded) expanded - id else expanded + id
     }
     var followBottom by remember { mutableStateOf(true) }
+    var landed by remember { mutableStateOf(false) }
     val markdownCache = remember { MarkdownCache() }
     val keys = remember(entries) { entryKeys(entries) }
     val newerAt = remember(entries, seen) { firstNewerIndex(entries, seen) }
+    val currentNewer by rememberUpdatedState(newerAt)
     val lastIndex = entries.size + (if (working) 1 else 0) + waiting.size + (if (footer == null) 0 else 1) - 1
     // Following is decided when a scroll ends, not when the first visible item moves: a slid window
     // moves it without the reader scrolling.
@@ -131,6 +137,16 @@ fun ConversationView(
         }
     }
     LaunchedEffect(entries, lastIndex) {
+        // The first entries land on the divider, when one is drawn; the view follows on only if the end
+        // is then in view. Without a divider the view follows the end as before.
+        if (!landed && entries.isNotEmpty()) {
+            landed = true
+            if (currentNewer >= 0) {
+                listState.scrollToItem(currentNewer)
+                followBottom = listState.layoutInfo.isAtEnd()
+                return@LaunchedEffect
+            }
+        }
         if (followBottom && lastIndex >= 0) listState.followEnd(lastIndex)
     }
     val currentLast by rememberUpdatedState(lastIndex)

@@ -41,6 +41,7 @@ import kotlinx.coroutines.launch
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -471,15 +472,80 @@ class ConversationViewTest {
     }
 
     @Test
-    fun aNewDividerDoesNotStopTheViewOpeningAtTheNewestEntry() {
+    fun opensAtTheNewDividerAndNotTheNewestEntry() {
         val entries = (1..40).map { ConvoEntry.Reply("synthetic reply %02d".format(it), it * 100L) }
         setSeen(entries, seen = SEEN_TIME)
 
-        composeRule.onNodeWithText("synthetic reply 40").assertIsDisplayed()
-        assertEndInView("synthetic reply 40")
-        // Replies 21 to 40 are newer; the divider rides in item 20 (reply 21), composed once scrolled to.
-        composeRule.onNodeWithTag("conversation-list").performScrollToIndex(20)
+        // Replies 21 to 40 are newer; the divider rides in item 20 (reply 21), which opens at the top.
         composeRule.onNodeWithTag("new-divider").assertIsDisplayed()
+        composeRule.onAllNodesWithText("synthetic reply 40").assertCountEquals(0)
+        val listTop = composeRule.onNodeWithTag("conversation-list").fetchSemanticsNode().boundsInRoot.top
+        val dividerTop = composeRule.onNodeWithTag("new-divider").fetchSemanticsNode().boundsInRoot.top
+        assertEquals(listTop, dividerTop, 1f)
+    }
+
+    @Test
+    fun whenEveryEntryIsNewerTheViewOpensAtTheFirstEntry() {
+        val entries = (1..40).map { ConvoEntry.Reply("synthetic reply %02d".format(it), LATER_TIME + it) }
+        setSeen(entries, seen = SEEN_TIME)
+
+        composeRule.onNodeWithTag("new-divider").assertIsDisplayed()
+        composeRule.onNodeWithText("synthetic reply 01").assertIsDisplayed()
+        composeRule.onAllNodesWithText("synthetic reply 40").assertCountEquals(0)
+    }
+
+    @Test
+    fun aLaterEntryOrSeenTimeLeavesTheLandingAlone() {
+        val entries = mutableStateOf((1..40).map { ConvoEntry.Reply("synthetic reply %02d".format(it), it * 100L) })
+        val seen = mutableStateOf<Long?>(SEEN_TIME)
+        composeRule.setContent {
+            MaterialTheme {
+                val state = rememberLazyListState()
+                list = state
+                ConversationView(entries = entries.value, listState = state, seen = seen.value, now = FIXED_NOW)
+            }
+        }
+        composeRule.waitForIdle()
+        assertEquals(20, list.firstVisibleItemIndex)
+        // The reader moves on from the landing; a later entry or seen time must not take them back.
+        composeRule.onNodeWithTag("conversation-list").performScrollToIndex(25)
+        composeRule.waitForIdle()
+        val held = list.firstVisibleItemIndex
+        assertNotEquals(20, held)
+
+        composeRule.runOnIdle {
+            entries.value = entries.value + ConvoEntry.Reply("synthetic reply 41", 4_100L)
+        }
+        composeRule.waitForIdle()
+        assertEquals(held, list.firstVisibleItemIndex)
+
+        composeRule.runOnIdle { seen.value = 2_050L }
+        composeRule.waitForIdle()
+        assertEquals(held, list.firstVisibleItemIndex)
+    }
+
+    @Test
+    fun aShortLandedConversationFollowsANewTallReplyIntoView() {
+        val entries = mutableStateOf(
+            listOf(
+                ConvoEntry.Reply("synthetic reply 01", EARLIER_TIME),
+                ConvoEntry.Reply("synthetic reply 02", LATER_TIME),
+            ),
+        )
+        composeRule.setContent {
+            MaterialTheme {
+                val state = rememberLazyListState()
+                list = state
+                ConversationView(entries = entries.value, listState = state, seen = SEEN_TIME, now = FIXED_NOW)
+            }
+        }
+        composeRule.onNodeWithTag("new-divider").assertIsDisplayed()
+
+        composeRule.runOnIdle {
+            entries.value = entries.value + ConvoEntry.Reply(tallReply("synthetic tall A"), LATER_TIME + 1_000)
+        }
+
+        assertEndOfReplyInView(tallReply("synthetic tall A"))
     }
 
     @Test
