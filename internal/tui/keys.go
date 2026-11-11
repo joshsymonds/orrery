@@ -100,14 +100,15 @@ func (m model) paneAction(action keymap.Action) (model, tea.Cmd) {
 		return m, nil
 	}
 	tty := m.clientTTY
+	report := m.reportSeen
 	switch action {
 	case keymap.ActSwitch:
 		return m, m.action(func(ctx context.Context, client *tmuxctl.Client) error {
-			return switchAndMark(ctx, client, tty, cur.ID)
+			return switchAndMark(ctx, client, tty, cur.ID, report)
 		}, true)
 	case keymap.ActMarkSeen:
 		return m, m.action(func(ctx context.Context, client *tmuxctl.Client) error {
-			return markSeen(ctx, client, cur.ID)
+			return markSeen(ctx, client, cur.ID, report)
 		}, false)
 	case keymap.ActNewClaude:
 		return m, m.action(func(ctx context.Context, client *tmuxctl.Client) error {
@@ -203,16 +204,17 @@ func (m model) closePane(plan closer.Plan) tea.Cmd {
 
 // switchAndMark switches the client at tty to paneID, then marks the pane seen. A pane is
 // marked only once the client has been switched to it.
-func switchAndMark(ctx context.Context, client *tmuxctl.Client, tty, paneID string) error {
+func switchAndMark(ctx context.Context, client *tmuxctl.Client, tty, paneID string, report cli.SeenReporter) error {
 	if _, err := client.Run(ctx, "switch-client", "-c", tty, "-t", paneID); err != nil {
 		return fmt.Errorf("switch client: %w", err)
 	}
-	return markSeen(ctx, client, paneID)
+	return markSeen(ctx, client, paneID, report)
 }
 
-// markSeen sets the @orrery_seen option of paneID to the current time. It reports nothing to orreryd.
-func markSeen(ctx context.Context, client *tmuxctl.Client, paneID string) error {
-	if err := cli.Seen(ctx, client, nil, []string{"--pane", paneID}, io.Discard); err != nil {
+// markSeen sets the @orrery_seen option of paneID to the current time, then reports the pane and
+// that time to orreryd through report. A nil report marks the pane and reports nothing.
+func markSeen(ctx context.Context, client *tmuxctl.Client, paneID string, report cli.SeenReporter) error {
+	if err := cli.Seen(ctx, client, report, []string{"--pane", paneID}, io.Discard); err != nil {
 		return fmt.Errorf("mark seen: %w", err)
 	}
 	return nil

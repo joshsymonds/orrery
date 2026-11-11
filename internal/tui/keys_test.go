@@ -11,12 +11,14 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/joshsymonds/orrery/internal/archive"
+	"github.com/joshsymonds/orrery/internal/cli"
 	"github.com/joshsymonds/orrery/internal/closer"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/shell"
@@ -407,6 +409,63 @@ type actionTree struct {
 	panes    map[string]string
 	invoking string
 	other    string
+	// reports records the seen reports the tree sends. A nil log passes the tree no reporter.
+	reports *seenLog
+}
+
+// seenLog is a fake SeenReporter that records each report in order.
+type seenLog struct {
+	mu      sync.Mutex
+	reports []seenReport
+}
+
+// seenReport is one call to a seenLog.
+type seenReport struct {
+	pane string
+	seen int64
+}
+
+// report records one seen report.
+func (l *seenLog) report(pane string, seen int64) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.reports = append(l.reports, seenReport{pane: pane, seen: seen})
+	return nil
+}
+
+// got returns a copy of the reports so far.
+func (l *seenLog) got() []seenReport {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return slices.Clone(l.reports)
+}
+
+// reporter returns the log's report method, or nil for a nil log.
+func (l *seenLog) reporter() cli.SeenReporter {
+	if l == nil {
+		return nil
+	}
+	return l.report
+}
+
+// reportedOnce returns nil when the log holds exactly one report, for pane, carrying the value of
+// the pane's @orrery_seen option.
+func (a *actionTree) reportedOnce(log *seenLog, pane string) error {
+	reports := log.got()
+	if len(reports) != 1 {
+		return fmt.Errorf("%d seen reports, want 1", len(reports))
+	}
+	if reports[0].pane != pane {
+		return fmt.Errorf("reported pane %s, want %s", reports[0].pane, pane)
+	}
+	stored, _, err := a.client.PaneOption(a.t.Context(), pane, protocol.OptionSeen)
+	if err != nil {
+		return fmt.Errorf("seen of %s: %w", pane, err)
+	}
+	if got := strconv.FormatInt(reports[0].seen, 10); got != stored {
+		return fmt.Errorf("reported seen %s, stored @orrery_seen %s", got, stored)
+	}
+	return nil
 }
 
 // newActionTree builds layout on a fresh private server and attaches the two clients.
@@ -428,6 +487,7 @@ func newLayoutTree(t *testing.T, layout []actionPane) *actionTree {
 		base:    t.TempDir(),
 		archive: filepath.Join(t.TempDir(), "archive.jsonl"),
 		panes:   map[string]string{},
+		reports: &seenLog{},
 	}
 	for _, p := range layout {
 		a.addPane(p)
@@ -731,6 +791,7 @@ func (a *actionTree) start(tty string) *treeRun {
 			Client:      a.client,
 			ClientTTY:   tty,
 			ArchivePath: a.archive,
+			ReportSeen:  a.reports.reporter(),
 			Panes:       a.client.ListPanes,
 			Input:       pr,
 			Output:      run.out,
@@ -847,6 +908,9 @@ func TestEnterSwitchesOnlyInvokingClientAndMarksSeen(t *testing.T) {
 				t.Fatalf("Run action = %q, want %q", got.Action, ActionClose)
 			}
 			waitFor(t, "enter switches and marks seen", func() error { return a.check(tc.session, tc.session) })
+			waitFor(t, "enter reports the switched pane once", func() error {
+				return a.reportedOnce(a.reports, a.panes[tc.session])
+			})
 		})
 	}
 }
@@ -856,6 +920,18 @@ func TestXMarksCursorPaneSeenAndStaysOpen(t *testing.T) {
 	run := a.start(a.invoking)
 	run.send("j", "x")
 	waitFor(t, "x marks the cursor pane seen", func() error { return a.check("s1", "s2") })
+	waitFor(t, "x reports the cursor pane once", func() error { return a.reportedOnce(a.reports, a.panes["s2"]) })
+	run.assertOpen()
+	run.send("q")
+	run.closed()
+}
+
+func TestXWithNilReporterStillMarksSeen(t *testing.T) {
+	a := newActionTree(t, actionLayout())
+	a.reports = nil
+	run := a.start(a.invoking)
+	run.send("j", "x")
+	waitFor(t, "x marks the cursor pane seen without a reporter", func() error { return a.check("s1", "s2") })
 	run.assertOpen()
 	run.send("q")
 	run.closed()
@@ -1038,6 +1114,9 @@ func TestEscAndQCloseWithoutMovingClientsOrMarkingSeen(t *testing.T) {
 				t.Fatalf("Run action = %q, want %q", got.Action, ActionClose)
 			}
 			waitFor(t, "clients and seen unchanged", func() error { return a.check("s1") })
+			if reports := a.reports.got(); len(reports) != 0 {
+				t.Fatalf("seen reports = %v, want none", reports)
+			}
 		})
 	}
 }

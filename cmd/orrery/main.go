@@ -375,7 +375,7 @@ func runTmux(ctx context.Context, client *tmuxctl.Client, name string, args []st
 	case "shell":
 		return shellOpen(ctx, client, args)
 	case "tree":
-		return tree(ctx, client, args, stdin, out, getenv)
+		return tree(ctx, client, args, stdin, out, getenv, report)
 	default:
 		return runDebug(ctx, client, args, getenv)
 	}
@@ -402,7 +402,7 @@ func shellOpen(ctx context.Context, client *tmuxctl.Client, args []string) error
 // tree runs `orrery tree`, which shows the pane tree on the client at --client. N on a row runs the picker for that
 // row's directory, and the picker's choice switches the same client.
 func tree(ctx context.Context, client *tmuxctl.Client, args []string, stdin *os.File, stdout io.Writer,
-	getenv func(string) string) error {
+	getenv func(string) string, report cli.SeenReporter) error {
 	flags := flag.NewFlagSet("tree", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	clientTTY := flags.String("client", "", "tty of the client that shows the tree")
@@ -435,7 +435,7 @@ func tree(ctx context.Context, client *tmuxctl.Client, args []string, stdin *os.
 	}
 
 	result, err := tui.Run(ctx, tui.Options{Client: client, ClientTTY: *clientTTY, ArchivePath: archivePath,
-		Panes: panes, Input: stdin, Output: stdout})
+		ReportSeen: report, Panes: panes, Input: stdin, Output: stdout})
 	if err != nil {
 		return fmt.Errorf("tree: %w", err)
 	}
