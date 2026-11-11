@@ -144,27 +144,9 @@ type Config struct {
 // other POST and DELETE must carry a JSON content type and the HeaderClient header. Requests that pass the
 // guard reach the read, write and Connect routes, and every other path answers 404.
 func New(cfg Config) (http.Handler, error) {
-	if len(cfg.Logins) == 0 {
-		return nil, errors.New("server: no allowed logins configured")
-	}
-	if cfg.Tmux == nil {
-		return nil, errors.New("server: no tmux client configured")
-	}
-	if cfg.Push == nil {
-		return nil, errors.New("server: no push store configured")
-	}
-	allowed := make(map[string]struct{}, len(cfg.Logins))
-	for _, login := range cfg.Logins {
-		if login == "" {
-			return nil, errors.New("server: empty allowed login")
-		}
-		allowed[login] = struct{}{}
-	}
-	if cfg.EventPoll < 0 {
-		return nil, fmt.Errorf("server: negative event poll interval %v", cfg.EventPoll)
-	}
-	if cfg.ControlTimeout < 0 {
-		return nil, fmt.Errorf("server: negative control timeout %v", cfg.ControlTimeout)
+	allowed, err := checkConfig(cfg)
+	if err != nil {
+		return nil, err
 	}
 	poll := cfg.EventPoll
 	if poll == 0 {
@@ -216,6 +198,33 @@ func New(cfg Config) (http.Handler, error) {
 		}
 		mux.ServeHTTP(w, r)
 	}), nil
+}
+
+// checkConfig refuses a Config New cannot serve, and returns its allowed logins as a set.
+func checkConfig(cfg Config) (map[string]struct{}, error) {
+	if len(cfg.Logins) == 0 {
+		return nil, errors.New("server: no allowed logins configured")
+	}
+	if cfg.Tmux == nil {
+		return nil, errors.New("server: no tmux client configured")
+	}
+	if cfg.Push == nil {
+		return nil, errors.New("server: no push store configured")
+	}
+	allowed := make(map[string]struct{}, len(cfg.Logins))
+	for _, login := range cfg.Logins {
+		if login == "" {
+			return nil, errors.New("server: empty allowed login")
+		}
+		allowed[login] = struct{}{}
+	}
+	if cfg.EventPoll < 0 {
+		return nil, fmt.Errorf("server: negative event poll interval %v", cfg.EventPoll)
+	}
+	if cfg.ControlTimeout < 0 {
+		return nil, fmt.Errorf("server: negative control timeout %v", cfg.ControlTimeout)
+	}
+	return allowed, nil
 }
 
 // servePanes answers GET /v1/panes with the array cli.List writes for tmux, each pane carrying the
