@@ -18,6 +18,23 @@ func (q *Queries) ClearEngineText(ctx context.Context, sessionID string) error {
 	return err
 }
 
+const countEnginePrompts = `-- name: CountEnginePrompts :one
+SELECT COUNT(*) FROM events
+WHERE session_id = ?1 AND kind = 'engine_prompt' AND json_extract(payload, '$.promptId') = ?2
+`
+
+type CountEnginePromptsParams struct {
+	SessionID string
+	PromptID  string
+}
+
+func (q *Queries) CountEnginePrompts(ctx context.Context, arg CountEnginePromptsParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countEnginePrompts, arg.SessionID, arg.PromptID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const deleteEngineText = `-- name: DeleteEngineText :exec
 DELETE FROM engine_text
 WHERE session_id = ? AND message_id = ? AND block_index = ? AND parent_tool_use_id = ?
@@ -46,6 +63,26 @@ DELETE FROM sessions WHERE id = ?
 
 func (q *Queries) DeleteSession(ctx context.Context, id string) error {
 	_, err := q.db.ExecContext(ctx, deleteSession, id)
+	return err
+}
+
+const deleteStaleEnginePromptFailures = `-- name: DeleteStaleEnginePromptFailures :exec
+DELETE FROM engine_prompt_failed
+WHERE session_id IN (
+    SELECT sessions.id FROM sessions
+    WHERE sessions.kind = 'engine'
+      AND NOT EXISTS (SELECT 1 FROM events WHERE events.session_id = sessions.id AND events.at >= ?1)
+      AND sessions.id NOT IN (SELECT value FROM json_each(?2))
+)
+`
+
+type DeleteStaleEnginePromptFailuresParams struct {
+	Cutoff int64
+	Live   interface{}
+}
+
+func (q *Queries) DeleteStaleEnginePromptFailures(ctx context.Context, arg DeleteStaleEnginePromptFailuresParams) error {
+	_, err := q.db.ExecContext(ctx, deleteStaleEnginePromptFailures, arg.Cutoff, arg.Live)
 	return err
 }
 
@@ -124,6 +161,22 @@ func (q *Queries) EventPageAfter(ctx context.Context, arg EventPageAfterParams) 
 	return items, nil
 }
 
+const getEnginePromptFailure = `-- name: GetEnginePromptFailure :one
+SELECT reason FROM engine_prompt_failed WHERE session_id = ? AND prompt_id = ?
+`
+
+type GetEnginePromptFailureParams struct {
+	SessionID string
+	PromptID  string
+}
+
+func (q *Queries) GetEnginePromptFailure(ctx context.Context, arg GetEnginePromptFailureParams) (string, error) {
+	row := q.db.QueryRowContext(ctx, getEnginePromptFailure, arg.SessionID, arg.PromptID)
+	var reason string
+	err := row.Scan(&reason)
+	return reason, err
+}
+
 const getEngineSession = `-- name: GetEngineSession :one
 SELECT id, server, pane, state, changed, seen, question, summary, label, context, tool, claude_session, transcript, kind, dir, reason FROM sessions WHERE id = ? AND kind = 'engine'
 `
@@ -178,6 +231,22 @@ func (q *Queries) GetSession(ctx context.Context, id string) (Session, error) {
 		&i.Reason,
 	)
 	return i, err
+}
+
+const insertEnginePromptFailed = `-- name: InsertEnginePromptFailed :exec
+INSERT INTO engine_prompt_failed (session_id, prompt_id, reason) VALUES (?, ?, ?)
+ON CONFLICT (session_id, prompt_id) DO NOTHING
+`
+
+type InsertEnginePromptFailedParams struct {
+	SessionID string
+	PromptID  string
+	Reason    string
+}
+
+func (q *Queries) InsertEnginePromptFailed(ctx context.Context, arg InsertEnginePromptFailedParams) error {
+	_, err := q.db.ExecContext(ctx, insertEnginePromptFailed, arg.SessionID, arg.PromptID, arg.Reason)
+	return err
 }
 
 const insertEngineSession = `-- name: InsertEngineSession :exec
@@ -423,6 +492,41 @@ func (q *Queries) ListSessions(ctx context.Context) ([]Session, error) {
 			&i.Kind,
 			&i.Dir,
 			&i.Reason,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listUnfinishedEngineText = `-- name: ListUnfinishedEngineText :many
+SELECT session_id, message_id, block_index, parent_tool_use_id, kind, text FROM engine_text
+ORDER BY session_id, message_id, parent_tool_use_id, block_index
+`
+
+func (q *Queries) ListUnfinishedEngineText(ctx context.Context) ([]EngineText, error) {
+	rows, err := q.db.QueryContext(ctx, listUnfinishedEngineText)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []EngineText
+	for rows.Next() {
+		var i EngineText
+		if err := rows.Scan(
+			&i.SessionID,
+			&i.MessageID,
+			&i.BlockIndex,
+			&i.ParentToolUseID,
+			&i.Kind,
+			&i.Text,
 		); err != nil {
 			return nil, err
 		}

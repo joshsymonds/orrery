@@ -140,7 +140,7 @@ func (s *Store) SyncServer(ctx context.Context, server string, panes []Pane, now
 }
 
 // pruneRetention prunes events older than EventRetention, then removes each engine session with no event at or
-// after the same cutoff and no id in live, with its unfinished text.
+// after the same cutoff and no id in live, with its unfinished text and failure markers.
 func pruneRetention(ctx context.Context, queries *sqlcgen.Queries, now time.Time, live []string) error {
 	cutoff := now.Add(-EventRetention).Unix()
 	if err := queries.PruneEvents(ctx, cutoff); err != nil {
@@ -150,11 +150,16 @@ func pruneRetention(ctx context.Context, queries *sqlcgen.Queries, now time.Time
 	if err != nil {
 		return fmt.Errorf("encode live engine sessions: %w", err)
 	}
-	// Engine text goes first: its delete selects engine sessions that the session delete removes.
+	// Engine text and failure markers go first: their deletes select engine sessions that the session delete removes.
 	if err = queries.DeleteStaleEngineText(ctx, sqlcgen.DeleteStaleEngineTextParams{
 		Cutoff: cutoff, Live: string(liveJSON),
 	}); err != nil {
 		return fmt.Errorf("delete stale engine text: %w", err)
+	}
+	if err = queries.DeleteStaleEnginePromptFailures(ctx, sqlcgen.DeleteStaleEnginePromptFailuresParams{
+		Cutoff: cutoff, Live: string(liveJSON),
+	}); err != nil {
+		return fmt.Errorf("delete stale engine prompt failures: %w", err)
 	}
 	if err = queries.DeleteStaleEngineSessions(ctx, sqlcgen.DeleteStaleEngineSessionsParams{
 		Cutoff: cutoff, Live: string(liveJSON),

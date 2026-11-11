@@ -4,6 +4,12 @@
 
 package sqlcgen
 
+type EnginePromptFailed struct {
+	SessionID string
+	PromptID  string
+	Reason    string
+}
+
 type EngineText struct {
 	SessionID       string
 	MessageID       string

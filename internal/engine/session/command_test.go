@@ -16,6 +16,7 @@ const (
 	testMode   = "bypassPermissions"
 	testName   = "work-1"
 	testResume = "00000000-0000-4000-8000-000000000001"
+	testModel  = "haiku"
 )
 
 // testConfig is a valid session configuration; each case changes one field from it.
@@ -112,6 +113,35 @@ func TestCommandResumedSession(t *testing.T) {
 		t.Fatalf("Command: %v", err)
 	}
 	want := append(wantSessionArgs(testClaude, testMode), "--resume", testResume)
+	if !slices.Equal(cmd.Args, want) {
+		t.Errorf("Args =\n%q\nwant\n%q", cmd.Args, want)
+	}
+}
+
+func TestCommandModel(t *testing.T) {
+	t.Parallel()
+	cfg := testConfig()
+	cfg.Model = testModel
+	cmd, err := Command(cfg)
+	if err != nil {
+		t.Fatalf("Command: %v", err)
+	}
+	want := append(wantSessionArgs(testClaude, testMode), "--model", testModel)
+	if !slices.Equal(cmd.Args, want) {
+		t.Errorf("Args =\n%q\nwant\n%q", cmd.Args, want)
+	}
+}
+
+func TestCommandResumedModelSession(t *testing.T) {
+	t.Parallel()
+	cfg := testConfig()
+	cfg.Resume = testResume
+	cfg.Model = testModel
+	cmd, err := Command(cfg)
+	if err != nil {
+		t.Fatalf("Command: %v", err)
+	}
+	want := append(wantSessionArgs(testClaude, testMode), "--resume", testResume, "--model", testModel)
 	if !slices.Equal(cmd.Args, want) {
 		t.Errorf("Args =\n%q\nwant\n%q", cmd.Args, want)
 	}

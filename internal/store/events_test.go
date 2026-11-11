@@ -146,7 +146,7 @@ func TestEventsDecodesEachKind(t *testing.T) {
 	}
 }
 
-func TestEventsReturnsEngineKindsWithCommonFieldsOnly(t *testing.T) {
+func TestEventsReturnsEngineKindsWithTheirStoredPayloads(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	s := openWriterAt(t, path)
@@ -183,11 +183,12 @@ func TestEventsReturnsEngineKindsWithCommonFieldsOnly(t *testing.T) {
 		{Seq: 1, SessionID: "orrery-1", Kind: EventSessionAdded, At: at, Server: "-L a", Pane: "%1"},
 		{Seq: 2, SessionID: "orrery-1", Kind: EventSessionChanged, At: at,
 			Changes: FieldChanges{State: strPtr("working")}},
-		{Seq: 3, SessionID: "e1", Kind: EventEngineAdded, At: at},
-		{Seq: 4, SessionID: "e1", Kind: EventEnginePrompt, At: at},
+		{Seq: 3, SessionID: "e1", Kind: EventEngineAdded, At: at, Payload: `{"dir":"/a","state":"working"}`},
+		{Seq: 4, SessionID: "e1", Kind: EventEnginePrompt, At: at, Payload: `{"text":"hi"}`},
 		{Seq: 5, SessionID: "orrery-1", Kind: EventSessionChanged, At: at,
 			Changes: FieldChanges{State: strPtr("idle")}},
-		{Seq: 6, SessionID: "e1", Kind: EventEngineTurnEnded, At: at},
+		{Seq: 6, SessionID: "e1", Kind: EventEngineTurnEnded, At: at,
+			Payload: `{"subtype":"success","isError":false,"terminalReason":"","result":"","origin":""}`},
 	}
 	if !reflect.DeepEqual(page.Events, want) {
 		t.Fatalf("events:\n got %+v\nwant %+v", page.Events, want)
@@ -208,7 +209,7 @@ func TestEventsSkipsEngineKindsWithoutDecodingPayload(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Events of engine row with a malformed payload: %v", err)
 	}
-	want := []Event{{Seq: 1, SessionID: "e1", Kind: EventEngineBlock, At: 1}}
+	want := []Event{{Seq: 1, SessionID: "e1", Kind: EventEngineBlock, At: 1, Payload: `{"not json`}}
 	if !reflect.DeepEqual(page.Events, want) {
 		t.Fatalf("events:\n got %+v\nwant %+v", page.Events, want)
 	}
@@ -314,5 +315,74 @@ func TestEventsRejectsNonPositiveLimit(t *testing.T) {
 		if _, err := r.Events(context.Background(), 0, limit); err == nil {
 			t.Fatalf("Events with limit %d: got no error", limit)
 		}
+	}
+}
+
+func TestEventsListsUnfinishedTextOfEverySessionInOrder(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "orrery.db")
+	s := openWriterAt(t, path)
+	now := engineNowAt()
+	if err := s.ApplyEngine(ctx, []EngineOp{
+		EngineAdd{ID: "e2", Dir: "/b", State: "working"},
+		EngineAdd{ID: "e1", Dir: "/a", State: "working"},
+		EngineText{ID: "e2", MessageID: "m1", Index: 0, Kind: "text", Text: "b0"},
+		EngineText{ID: "e1", MessageID: "m2", Index: 0, Kind: "text", Text: "x"},
+		EngineText{ID: "e1", MessageID: "m1", Index: 1, Kind: "text", Text: "B"},
+		EngineText{ID: "e1", MessageID: "m1", Index: 0, ParentToolUseID: "tool-2", Kind: "text", Text: "T"},
+		EngineText{ID: "e1", MessageID: "m1", Index: 0, Kind: "thinking", Text: "hmm"},
+	}, now); err != nil {
+		t.Fatalf("ApplyEngine: %v", err)
+	}
+
+	page, err := NewReader(path).Events(ctx, 0, 10)
+	if err != nil {
+		t.Fatalf("Events: %v", err)
+	}
+	want := []UnfinishedText{
+		{SessionID: "e1", MessageID: "m1", BlockIndex: 0, Kind: "thinking", Text: "hmm"},
+		{SessionID: "e1", MessageID: "m1", BlockIndex: 1, Kind: "text", Text: "B"},
+		{SessionID: "e1", MessageID: "m1", BlockIndex: 0, ParentToolUseID: "tool-2", Kind: "text", Text: "T"},
+		{SessionID: "e1", MessageID: "m2", BlockIndex: 0, Kind: "text", Text: "x"},
+		{SessionID: "e2", MessageID: "m1", BlockIndex: 0, Kind: "text", Text: "b0"},
+	}
+	if !reflect.DeepEqual(page.Unfinished, want) {
+		t.Fatalf("unfinished:\n got %+v\nwant %+v", page.Unfinished, want)
+	}
+}
+
+func TestEventsUnfinishedDropsFinishedBlocks(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "orrery.db")
+	s := openWriterAt(t, path)
+	now := engineNowAt()
+	if err := s.ApplyEngine(ctx, []EngineOp{
+		EngineAdd{ID: "e1", Dir: "/a", State: "working"},
+		EngineText{ID: "e1", MessageID: "m1", Index: 0, Kind: "text", Text: "done"},
+		EngineText{ID: "e1", MessageID: "m1", Index: 1, Kind: "text", Text: "open"},
+		EngineTextDone{ID: "e1", MessageID: "m1", Index: 0},
+	}, now); err != nil {
+		t.Fatalf("ApplyEngine: %v", err)
+	}
+
+	page, err := NewReader(path).Events(ctx, 0, 10)
+	if err != nil {
+		t.Fatalf("Events: %v", err)
+	}
+	want := []UnfinishedText{{SessionID: "e1", MessageID: "m1", BlockIndex: 1, Kind: "text", Text: "open"}}
+	if !reflect.DeepEqual(page.Unfinished, want) {
+		t.Fatalf("unfinished after a block finished:\n got %+v\nwant %+v", page.Unfinished, want)
+	}
+}
+
+func TestEventsUnfinishedIsNilWithNoRows(t *testing.T) {
+	_, path := eventPageStore(t)
+
+	page, err := NewReader(path).Events(context.Background(), 0, 10)
+	if err != nil {
+		t.Fatalf("Events: %v", err)
+	}
+	if page.Unfinished != nil {
+		t.Fatalf("unfinished with no engine_text rows: got %+v, want nil", page.Unfinished)
 	}
 }

@@ -108,7 +108,7 @@ func conversationOf(t *testing.T, history store.EngineHistory) []string {
 
 func TestSayStoresReplyToSecondPrompt(t *testing.T) {
 	m, path := newTestManager(t, 1, fakeClaudePath(t))
-	id, err := m.Start(t.Context(), t.TempDir(), "hi")
+	id, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "hi"})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -116,7 +116,7 @@ func TestSayStoresReplyToSecondPrompt(t *testing.T) {
 		return hasBlock(t, h, "fake reply 1")
 	})
 
-	if err := m.Say(t.Context(), id, "again"); err != nil {
+	if err := m.Say(t.Context(), SayRequest{ID: id, Text: "again"}); err != nil {
 		t.Fatalf("Say: %v", err)
 	}
 	history := waitHistory(t, path, id, "the second reply block", func(h store.EngineHistory) bool {
@@ -129,7 +129,7 @@ func TestSayStoresReplyToSecondPrompt(t *testing.T) {
 
 func TestSayRefusesEmptyTextAndUnknownID(t *testing.T) {
 	m, path := newTestManager(t, 1, fakeClaudePath(t))
-	id, err := m.Start(t.Context(), t.TempDir(), "hi")
+	id, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "hi"})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -137,10 +137,10 @@ func TestSayRefusesEmptyTextAndUnknownID(t *testing.T) {
 		return hasBlock(t, h, "fake reply 1")
 	})
 
-	if err := m.Say(t.Context(), id, ""); !errors.Is(err, ErrEmptyPrompt) {
+	if err := m.Say(t.Context(), SayRequest{ID: id, Text: ""}); !errors.Is(err, ErrEmptyPrompt) {
 		t.Fatalf("Say empty text error = %v, want ErrEmptyPrompt", err)
 	}
-	if err := m.Say(t.Context(), unknownID, "hi"); !errors.Is(err, ErrNoSession) {
+	if err := m.Say(t.Context(), SayRequest{ID: unknownID, Text: "hi"}); !errors.Is(err, ErrNoSession) {
 		t.Fatalf("Say of an unknown id error = %v, want ErrNoSession", err)
 	}
 	if got := conversationOf(t, historyOf(t, path, id)); !reflect.DeepEqual(got,
@@ -151,7 +151,7 @@ func TestSayRefusesEmptyTextAndUnknownID(t *testing.T) {
 
 func TestAskWaitsAndAnswerResumesTurn(t *testing.T) {
 	m, path := newTestManager(t, 1, fakeClaudePath(t))
-	id, err := m.Start(t.Context(), t.TempDir(), "ASK")
+	id, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "ASK"})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -187,7 +187,7 @@ func TestAskWaitsAndAnswerResumesTurn(t *testing.T) {
 
 func TestAnswerRefusesUnknownRequest(t *testing.T) {
 	m, path := newTestManager(t, 1, fakeClaudePath(t))
-	id, err := m.Start(t.Context(), t.TempDir(), "ASK")
+	id, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "ASK"})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -204,11 +204,11 @@ func TestAnswerRefusesUnknownRequest(t *testing.T) {
 
 func TestPermitAllowAndDeny(t *testing.T) {
 	m, path := newTestManager(t, 2, fakeClaudePath(t))
-	allowID, err := m.Start(t.Context(), t.TempDir(), "PERMIT")
+	allowID, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "PERMIT"})
 	if err != nil {
 		t.Fatalf("Start allow session: %v", err)
 	}
-	denyID, err := m.Start(t.Context(), t.TempDir(), "PERMIT")
+	denyID, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "PERMIT"})
 	if err != nil {
 		t.Fatalf("Start deny session: %v", err)
 	}
@@ -242,7 +242,7 @@ func TestPermitAllowAndDeny(t *testing.T) {
 
 func TestInterruptEndsTurnWithError(t *testing.T) {
 	m, path := newTestManager(t, 1, fakeClaudePath(t))
-	id, err := m.Start(t.Context(), t.TempDir(), "HANG")
+	id, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "HANG"})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -267,14 +267,14 @@ func TestInterruptRefusesUnknownID(t *testing.T) {
 
 func TestReplayRebuildsConversationInOrder(t *testing.T) {
 	m, path := newTestManager(t, 1, fakeClaudePath(t))
-	id, err := m.Start(t.Context(), t.TempDir(), "hi")
+	id, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "hi"})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
 	waitHistory(t, path, id, "the first reply block", func(h store.EngineHistory) bool {
 		return hasBlock(t, h, "fake reply 1")
 	})
-	if err := m.Say(t.Context(), id, "again"); err != nil {
+	if err := m.Say(t.Context(), SayRequest{ID: id, Text: "again"}); err != nil {
 		t.Fatalf("Say: %v", err)
 	}
 	history := waitHistory(t, path, id, "the second reply block", func(h store.EngineHistory) bool {

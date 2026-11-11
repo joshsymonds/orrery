@@ -24,14 +24,14 @@ func TestDyingSessionFailsAloneAndResumes(t *testing.T) {
 	_, path := openStore(t)
 	m := newManagerOn(t, path, 2, fakeClaudePath(t), sink)
 	deadDir, liveDir := t.TempDir(), t.TempDir()
-	dead, err := m.Start(t.Context(), deadDir, "hi")
+	dead, err := m.Start(t.Context(), StartRequest{Dir: deadDir, Prompt: "hi"})
 	if err != nil {
 		t.Fatalf("Start of the session that dies: %v", err)
 	}
 	waitHistory(t, path, dead, "the dying session's first reply block", func(h store.EngineHistory) bool {
 		return hasBlock(t, h, "fake reply 1")
 	})
-	live, err := m.Start(t.Context(), liveDir, "hi")
+	live, err := m.Start(t.Context(), StartRequest{Dir: liveDir, Prompt: "hi"})
 	if err != nil {
 		t.Fatalf("Start of the session that keeps running: %v", err)
 	}
@@ -39,7 +39,7 @@ func TestDyingSessionFailsAloneAndResumes(t *testing.T) {
 		return hasBlock(t, h, "fake reply 1")
 	})
 
-	if err := m.Say(t.Context(), dead, "DIE"); err != nil {
+	if err := m.Say(t.Context(), SayRequest{ID: dead, Text: "DIE"}); err != nil {
 		t.Fatalf("Say DIE: %v", err)
 	}
 	history := waitHistory(t, path, dead, "the dead session's failed state", func(h store.EngineHistory) bool {
@@ -67,7 +67,7 @@ func TestDyingSessionFailsAloneAndResumes(t *testing.T) {
 		return failedNoticeOf(sink.got(), dead, reason)
 	})
 
-	if err := m.Say(t.Context(), live, "again"); err != nil {
+	if err := m.Say(t.Context(), SayRequest{ID: live, Text: "again"}); err != nil {
 		t.Fatalf("Say to the other session: %v", err)
 	}
 	waitHistory(t, path, live, "the other session's reply to its next prompt", func(h store.EngineHistory) bool {
@@ -77,7 +77,7 @@ func TestDyingSessionFailsAloneAndResumes(t *testing.T) {
 		t.Fatalf("other session state after the death = %q, want it undisturbed", state)
 	}
 
-	if err := m.Say(t.Context(), dead, "again"); err != nil {
+	if err := m.Say(t.Context(), SayRequest{ID: dead, Text: "again"}); err != nil {
 		t.Fatalf("Say to the dead session: %v", err)
 	}
 	waitHistory(t, path, dead, "the dead session's reply after resume", func(h store.EngineHistory) bool {

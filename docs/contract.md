@@ -282,21 +282,24 @@ Subcommands:
   - A cursor past the newest seq is an error. The command exits 1 before any `Watch` call and writes nothing.
   - Without `--follow`, the command writes events through the newest seq that `serve` reported at start, then exits 0. When that seq is not past the cursor, it writes nothing and makes no `Watch` call. If the stream ends before that seq, it exits 1.
   - With `--follow`, it writes events until the stream ends, then exits 1 with the stream's error.
-  - Each event is one line: a compact JSON object of the `WatchResponse` message (see [Connect API](#connect-api)), with the JSON names `seq`, `sessionId`, `at`, and one of `sessionAdded`, `sessionChanged`, or `sessionRemoved`. 64-bit numbers are JSON strings. A field at its zero value is left out, except a `sessionChanged` field the event set, which appears even when it is `""`. Example line:
+  - Each event is one line: a compact JSON object of the `WatchResponse` message (see [Connect API](#connect-api)), with the JSON names `seq`, `sessionId`, `at`, and one member of its `event` oneof: `sessionAdded`, `sessionChanged`, `sessionRemoved`, `engineAdded`, `engineChanged`, `enginePrompt`, `engineBlock`, `engineRequest`, `engineRequestCanceled`, `engineTurnEnded`, or `engineText`. 64-bit numbers are JSON strings. A field at its zero value is left out, except a `sessionChanged` field the event set, which appears even when it is `""`. Example line:
 
 ```json
 {"seq":"3","sessionId":"example-session","at":"1700000300","sessionChanged":{"state":"working"}}
 ```
 
-  - Engine session events (the `engine_*` kinds of [Store](#store)) are not printed. The cursor moves past them.
+  - Engine session events (the `engine_*` kinds of [Store](#store)) are printed as the engine members of the stream. The stream also carries `engineText` messages, which are not stored events (see [Connect API](#connect-api)).
   - Usage errors (no `--url`, an unknown flag, an extra argument) exit 2.
-- `session VERB ARGS` drives the headless sessions that `orreryd --sessions` runs (see [Headless sessions](#headless-sessions)). Its verbs are:
-  - `session start DIR PROMPT` makes `DIR` absolute on the client, starts a session there with `PROMPT` as its first message, and prints the new session id on its own line. The session id is the only output.
+- `session [--url URL] VERB ARGS` drives the headless sessions that `orreryd --sessions` runs (see [Headless sessions](#headless-sessions)). Without `--url`, the verbs reach orreryd's session socket. With `--url URL`, they reach `serve` at `URL`, as the bullets below describe. Its verbs are:
+  - `session start [--model MODEL] DIR PROMPT` makes `DIR` absolute on the client, starts a session there with `PROMPT` as its first message, and prints the new session id on its own line. The session id is the only output. `--model MODEL` is the model alias the session's process runs, as `claude --model`. Without it, claude's default model runs. The engine refuses a model outside its rule (see [Session control socket](#session-control-socket)). A process that a later `say` resumes runs claude's default model.
   - `session say ID TEXT`, `session answer ID REQUEST_ID ANSWER`, `session interrupt ID`, `session stop ID` and `session seen ID` each make one call of the `orrery.engine.v1.Engine` service (see [Session control socket](#session-control-socket)). They print nothing on success.
-  - `session watch ID` reads the session's events from the store, not from the socket. It prints each event as one JSON line with the keys `seq`, `kind`, `at` and `payload`, the payload being the stored JSON object. It polls the store every 250 ms. It returns with exit 0 once the session's state is `stopped` or `failed` and every stored event has been printed. In any other state it keeps polling.
-  - The verbs other than `watch` reach `orreryd` on the session socket, `sessions.sock` beside the daemon socket. The daemon socket path comes from `--socket`, then `ORRERY_SOCKET`, then `$XDG_RUNTIME_DIR/orrery/orreryd.sock`. When the socket cannot be dialed, the error reads `orreryd takes no session commands on SOCKET; start it with --sessions`, where `SOCKET` is the `sessions.sock` path.
+  - Without `--url`, `session watch ID` reads the session's events from the store, not from the socket. It prints each event as one JSON line with the keys `seq`, `kind`, `at` and `payload`, the payload being the stored JSON object. It polls the store every 250 ms. It returns with exit 0 once the session's state is `stopped` or `failed` and every stored event has been printed. In any other state it keeps polling.
+  - Without `--url`, the verbs other than `watch` reach `orreryd` on the session socket, `sessions.sock` beside the daemon socket. The daemon socket path comes from `--socket`, then `ORRERY_SOCKET`, then `$XDG_RUNTIME_DIR/orrery/orreryd.sock`. When the socket cannot be dialed, the error reads `orreryd takes no session commands on SOCKET; start it with --sessions`, where `SOCKET` is the `sessions.sock` path.
   - No `session` verb reads a tmux server, so `-L` and `-S` have no effect on them.
   - A usage error exits 2. A failed call exits 1 and prints the Connect error message, as `session VERB: MESSAGE`.
+  - `session --url URL VERB ARGS` sends `start`, `say`, `answer`, `interrupt`, `stop` and `seen` to the `orrery.v1.Control` service of `serve` at `URL` (see [Control API](#control-api)), with the same arguments and output as the socket form, except that `DIR` is not made absolute (see below). It does not dial the session socket, so the client needs no daemon socket and no `--sessions`. Each request carries the `X-Orrery-Client` header that the guard requires. The command sends no `Tailscale-User-Login` header, so the URL must lead through a proxy that sets it, such as `tailscale serve`. `--url` with no URL exits 2.
+  - With `--url`, `DIR` is sent as given, not made absolute. `serve` admits only an absolute directory under its home directory, so a relative `DIR` is refused.
+  - `session --url URL watch ID` lists `serve`'s newest seq with `Sessions.List`, then reads the `orrery.v1.Events` stream from seq 0. It writes each message whose `session_id` is `ID` as one line, in the format of `orrery events`, including the `engineText` messages of that session. If the stream answers `out_of_range` before any message, it reads again from the newest seq. The watch exits 0 once a message whose seq is at or past that newest seq leaves the session `stopped` or `failed`. A stream that ends before then exits 1 with `session watch: stream ended before session ID stopped`.
 
 Exit codes:
 
@@ -322,6 +325,8 @@ orrery [-L NAME | -S PATH] serve --listen ADDR --allow-login LOGIN [--allow-logi
 Registrations are written to the push store that `orreryd` reads (see `### orreryd`). When neither `XDG_STATE_HOME` nor `HOME` is set, `serve` exits 1.
 
 `serve` also reads the store for the Connect API of section 12. It opens the store file read-only on each call. The rules are in [Connect API](#connect-api).
+
+`serve` also serves the `orrery.v1.Control` API of [Control API](#control-api), forwarding each call to orreryd's session socket. The daemon socket path comes from `--socket`, then `ORRERY_SOCKET`, then `$XDG_RUNTIME_DIR/orrery/orreryd.sock`, and the session socket is `sessions.sock` beside it. When no daemon socket path resolves, `serve` has no engine and answers `unavailable` to each Control call that reaches the forward; a `Start` the home rule refuses still answers `invalid_argument`. `serve` also reads `HOME`, the directory that `Control.Start` admits directories under.
 
 The picker routes `POST /v1/picker/ask` and `POST /v1/picker/run` (see [Routes](#routes)) look up `zoxide` and `claude` on serve's PATH at each ask, not at start. A missing one answers that ask 502 and does not stop serve.
 
@@ -407,8 +412,8 @@ The session socket is `sessions.sock` in the same directory as the daemon socket
 
 | Call | Request | Precondition |
 |---|---|---|
-| `Start` | `dir`, `prompt` | `dir` is an absolute path to an existing directory, `prompt` is not empty, and the session cap has room. Returns `id` |
-| `Say` | `id`, `text` | the session has a row, and `text` is not empty. A session that is not live is resumed from its row first |
+| `Start` | `dir`, `prompt`, `model`, `id` | `dir` is an absolute path to an existing directory, `prompt` is not empty, `model` is empty or 1 to 64 bytes of letters, digits and `. _ - [ ] :` not starting with `-`, `id` is empty or 32 lowercase hex digits, and the session cap has room. An `id` that has a row returns that id and starts nothing, unless the attempt for that `id` failed after storing its row, which returns that attempt's error and starts nothing while `orreryd` runs. Returns `id` |
+| `Say` | `id`, `text`, `prompt_id` | the session has a row, and `text` is not empty. A `prompt_id` that an `engine_prompt` event of the session already carries makes the call succeed and send nothing, and a `prompt_id` whose send failed returns an error carrying that failure and sends nothing, also after a restart. A `prompt_id` whose attempt failed in another way after storing the prompt returns that attempt's error and sends nothing while `orreryd` runs. A session that is not live is resumed from its row first |
 | `Answer` | `id`, `request_id`, `answer` | the session is live. `answer` is one of the open question's option labels, or `allow` or `deny` for a permission request |
 | `Interrupt` | `id` | the session is live |
 | `Stop` | `id` | the session is live |
@@ -423,14 +428,15 @@ Errors are Connect codes:
 | `unavailable` | `orreryd` has no store, so the service has no manager. The message is `session store unavailable` |
 | `resource_exhausted` | a `Start`, or a `Say` that resumes a session, would pass the session cap |
 | `not_found` | `id` has no row, or `Answer`, `Interrupt` or `Stop` names a session that is not live. Also an `Answer` whose `request_id` is not open |
-| `invalid_argument` | a bad `dir`, an empty `prompt` or `text`, or an answer that does not fit the open request |
+| `invalid_argument` | a bad `dir`, an empty `prompt` or `text`, a `model` or `id` that does not fit its rule, or an answer that does not fit the open request |
 | `internal` | any other failure, including a call made while `orreryd` is shutting down |
 
 #### Lifecycle rules
 
 - A live session is one with a running process. Its slot under the cap is held from its start or resume until its process ends. A `Start` or resume past `--session-cap` is refused before anything is recorded.
-- `Start` checks the directory and prompt before it writes anything. It records the row `working`, starts the process, records the prompt, and sends the prompt. If the process cannot start, or the prompt cannot be sent, the row is recorded `failed` with the reason, and `Start` returns the id with no error unless recording that failure fails.
-- `Say` to a session that is not live resumes it from its row. The process resumes the row's Claude session when the row has one, and otherwise starts a new conversation in the row's directory. Concurrent calls for one id start one process. A row whose directory is missing or is not a directory is recorded `failed` with the reason.
+- `Start` checks an `id`'s form, then answers with an existing row's id without any other check, unless the attempt for that `id` failed after storing its row, which returns that attempt's error while `orreryd` runs. Otherwise it checks the directory, prompt and model before it writes anything. It records the row `working`, starts the process, records the prompt, and sends the prompt. If the process cannot start, or the prompt cannot be sent, the row is recorded `failed` with the reason, and `Start` returns the id with no error unless recording that failure fails.
+- `Say` to a session that is not live resumes it from its row. The process resumes the row's Claude session when the row has one, and otherwise starts a new conversation in the row's directory. The resumed process runs claude's default model, whatever `model` its `Start` named. Concurrent calls for one id start one process.
+- `Say` with a `prompt_id` that an `engine_prompt` event of the session already carries returns success before it resumes or sends anything. A `prompt_id` whose send failed returns an error carrying that failure, and sends nothing, also after a restart, because the failure is stored in `engine_prompt_failed` (see [Engine sessions in the store](#engine-sessions-in-the-store)). A `prompt_id` whose attempt failed in another way after it stored the prompt returns that attempt's error, and sends nothing, while `orreryd` runs. An empty `text` is refused before that check. A row whose directory is missing or is not a directory is recorded `failed` with the reason.
 - Idle stop: every 30 seconds, a session that has not been busy for 10 minutes is stopped. A session is busy while a turn runs, a request is open, or a background task runs. The stop writes nothing, so the row and its events stay as they were. The next `Say` resumes the session.
 - Stop signal: stopping a process sends `SIGINT` to its process group, then `SIGKILL` if it has not exited after 2 seconds.
 - `Stop` records `stopped` unless the process's exit has already recorded a state. A process that exits without an error records `stopped`.
@@ -462,7 +468,7 @@ Web Push goes to every subscription, with the payload of [Push payload](#push-pa
 | `ORRERY_SOCKET` | `orrery`, `orreryd` | daemon socket path (section 5) |
 | `XDG_RUNTIME_DIR` | `orrery`, `orreryd` | default socket directory when no path is set (section 5) |
 | `XDG_STATE_HOME` | `orrery` (`serve`), `orreryd` | base directory of the push store, `$XDG_STATE_HOME/orrery/push.json` (section 11, orreryd), and of the store, `$XDG_STATE_HOME/orrery/orrery.db` (see [Store](#store)) |
-| `HOME` | `orrery` (`serve`), `orreryd` | used for the push store when `XDG_STATE_HOME` is unset, at `$HOME/.local/state/orrery/push.json`, and for the store, at `$HOME/.local/state/orrery/orrery.db` |
+| `HOME` | `orrery` (`serve`), `orreryd` | used for the push store when `XDG_STATE_HOME` is unset, at `$HOME/.local/state/orrery/push.json`, and for the store, at `$HOME/.local/state/orrery/orrery.db`. `serve` also uses it as the home directory that `Control.Start` admits directories under (see [Control API](#control-api)) |
 | `ORRERY_NTFY_URL_FILE` | `orreryd` | file holding the ntfy topic URL; enables ntfy when set |
 | `ORRERY_NTFY_TOKEN_FILE` | `orreryd` | file holding the ntfy access token |
 | `ANTHROPIC_BASE_URL` | `orrery` (`hook`, `debug summarize`) | the session's base URL. The hook sends it in each frame (section 9), and each summary runs through its own session's base URL. |
@@ -590,7 +596,7 @@ For each server, the tidy runs one `list-panes -a` that reads every pane. It the
 - syncs the row of each listed pane from its snapshot;
 - deletes the server's pane rows whose id is not among the listed panes, with one `session_removed` event for each;
 - deletes every event older than 14 days, across all servers, except the newest event, which it keeps so the newest seq is never lost;
-- deletes each engine row that has no event at or after the same 14-day cutoff and is not live, with its unfinished text, and appends no event. See [Engine sessions in the store](#engine-sessions-in-the-store).
+- deletes each engine row that has no event at or after the same 14-day cutoff and is not live, with its unfinished text and its `engine_prompt_failed` rows, and appends no event. See [Engine sessions in the store](#engine-sessions-in-the-store).
 
 A failed `list-panes`, or a listing that does not parse, changes nothing. orreryd logs `tmux server unreachable` (warning) when a server's `list-panes` starts failing and `tmux server reachable again` (info) at its first success after that, not on every tidy. Other tidy failures are logged as `mirror tidy dropped` each time. A failed store write rolls back the whole tidy. A default socket skipped by the directory check logs `tmux default socket skipped` (warning, with `server` and `reason`) when the skip starts and again when its reason changes, not on every tidy.
 
@@ -605,19 +611,19 @@ An engine row is a `sessions` row with `kind` `engine`. Its columns hold these v
 - `claude_session` is the Claude Code session id, once the process has reported it.
 - `dir` is the directory the session runs in. `reason` is described in the table above.
 
-Tidy reads only pane rows, and the typed API's `List` returns only pane rows (see [Connect API](#connect-api)). The engine rows are reached through the Engine service and `session watch`.
+Tidy reads only pane rows, and the typed API's `List` returns only pane rows (see [Connect API](#connect-api)). The engine rows are reached through the Engine service, `session watch`, and the engine messages of the Events stream (see [Connect API](#connect-api)).
 
 The engine kinds of the `events` table are these seven. Each payload is a JSON object with these keys, in camelCase. The examples are synthetic:
 
 - `engine_added`: an engine row is inserted. Payload `{"dir":"/home/user/project","state":"working"}`.
 - `engine_changed`: one or more columns change. Payload `{"fields":{"changed":"1700000300","state":"done"}}`. The keys of `fields` are `state`, `seen`, `question`, `claudeSession` and `reason`, for the columns that changed. `changed` is set with each `state` change.
-- `engine_prompt`: a prompt is sent to the session. Payload `{"text":"Example prompt."}`. The text is not cut.
+- `engine_prompt`: a prompt is sent to the session. Payload `{"text":"Example prompt."}`. The text is not cut. A `Say` with a `prompt_id` adds the key `promptId` with that id. A `Start` prompt, and a `Say` without a `prompt_id`, have no `promptId` key.
 - `engine_block`: a finished content block. Payload keys: `kind`, `role`, `messageId`, `parentToolUseId`, `text`, `toolUseId`, `name`, `input`, `content`, `isError`, and `truncated`. `truncated` is present only when true. `text`, `input` and `content` are each cut to 32768 bytes at a UTF-8 boundary, and `truncated` is true when one of them was cut. `kind` is `text`, `thinking`, `tool_call` or `tool_result`.
 - `engine_request`: the session sends a request the host must answer. Payload keys: `kind` (`question`, `permission` or `other`), `requestId`, `toolUseId`, `toolName`, `subtype`, `input` and `refused`. The input is not cut.
 - `engine_request_canceled`: the session withdraws a request. Payload keys `requestId` and `toolUseId`. The kind is spelled with one `l`.
 - `engine_turn_ended`: a turn ends. Payload keys `subtype`, `isError`, `terminalReason`, `result` and `origin`. The result is not cut.
 
-Engine events are kept and pruned like pane events, and are not sent by the Connect `Watch` call.
+Engine events are kept and pruned like pane events. The Connect `Watch` call sends each one as its engine member (see [Connect API](#connect-api)).
 
 The `engine_text` table holds the unfinished text of each streaming block, one row per block:
 
@@ -630,9 +636,19 @@ The `engine_text` table holds the unfinished text of each streaming block, one r
 | `kind` | `TEXT` | `text` or `thinking` |
 | `text` | `TEXT` | the text streamed so far, cut to 32768 bytes |
 
-Its primary key is `session_id`, `message_id`, `block_index` and `parent_tool_use_id`. A row is removed when its block finishes, and every row of a session is removed when a turn ends, the process exits, the session is stopped, orreryd shuts down, or reconcile runs at start. No event is appended for engine text.
+Its primary key is `session_id`, `message_id`, `block_index` and `parent_tool_use_id`. A row is removed when its block finishes, and every row of a session is removed when a turn ends, the process exits, the session is stopped, orreryd shuts down, or reconcile runs at start. No event is appended for engine text. The Connect `Watch` call sends these rows as `EngineText` messages, which are not events (see [Connect API](#connect-api)).
 
-The 14-day cutoff of the tidy applies to engine rows too. The cutoff is `now` less 14 days. Each engine row with no event at or after the cutoff is deleted with its `engine_text` rows, and no event is appended, unless its session is live. A session is live from its start or resume until it is stopped, idle-stopped, exits, or `orreryd` shuts down, and a live session keeps its row and its `engine_text` rows through the prune. The same tidy pass prunes events older than the cutoff, so the pass runs only while a tmux server's `list-panes` succeeds. A session that is not live loses its row after 14 days with no event, and a live session that waits for an answer keeps its row.
+The `engine_prompt_failed` table holds the failure of each `prompt_id` whose send failed, one row per session and `prompt_id`:
+
+| Column | Type | Meaning |
+|---|---|---|
+| `session_id` | `TEXT` | the engine row's `id` |
+| `prompt_id` | `TEXT` | the `prompt_id` of the `Say` |
+| `reason` | `TEXT` | the error of the failed send |
+
+Its primary key is `session_id` and `prompt_id`. A row is written in the same write as the session's `failed` state, and an insert for a key that already has a row keeps the first reason. No event is appended for it, and the Connect `Watch` call does not send it. The 14-day cutoff below removes its rows with their engine row.
+
+The 14-day cutoff of the tidy applies to engine rows too. The cutoff is `now` less 14 days. Each engine row with no event at or after the cutoff is deleted with its `engine_text` and `engine_prompt_failed` rows, and no event is appended, unless its session is live. A session is live from its start or resume until it is stopped, idle-stopped, exits, or `orreryd` shuts down, and a live session keeps its row, its `engine_text` rows and its `engine_prompt_failed` rows through the prune. The same tidy pass prunes events older than the cutoff, so the pass runs only while a tmux server's `list-panes` succeeds. A session that is not live loses its row after 14 days with no event, and a live session that waits for an answer keeps its row.
 
 ### Claude Code hook settings
 
@@ -733,7 +749,7 @@ The guard runs before routing. It checks every request:
 
 - The `Tailscale-User-Login` header must equal one of the `--allow-login` values. Otherwise the response is 403.
 
-Connect paths are those beginning `/orrery.v1.Sessions/` or `/orrery.v1.Events/` (see [Connect API](#connect-api)). Every request to a Connect path, whatever its method, must also send a non-empty `X-Orrery-Client` header. Otherwise the response is 403. A POST to a Connect path must send `Content-Type` `application/proto`, `application/json`, `application/connect+proto`, or `application/connect+json`. Otherwise the response is 403.
+Connect paths are those beginning `/orrery.v1.Sessions/`, `/orrery.v1.Events/` or `/orrery.v1.Control/` (see [Connect API](#connect-api) and [Control API](#control-api)). Every request to a Connect path, whatever its method, must also send a non-empty `X-Orrery-Client` header. Otherwise the response is 403. A POST to a Connect path must send `Content-Type` `application/proto`, `application/json`, `application/connect+proto`, or `application/connect+json`. Otherwise the response is 403.
 
 Every POST and DELETE on any other path must also send:
 
@@ -861,12 +877,18 @@ Example plaintext. The question and its hash are the fixed vector of section 10:
 
 `orrery serve` also serves a typed API over the Connect protocol. The routes above are unchanged by it. The schema is `proto/orrery/v1/orrery.proto`, package `orrery.v1`. Generated Go lives in `internal/gen`. `just generate` writes it, and `just check` fails when it drifts from the schema.
 
-The services are `orrery.v1.Sessions`, with one call, `List`, and `orrery.v1.Events`, with one call, `Watch`.
+The services are `orrery.v1.Sessions`, with one call, `List`, `orrery.v1.Events`, with one call, `Watch`, and `orrery.v1.Control`, with six calls, which [Control API](#control-api) describes.
 
 | Call | Path | Request | Response |
 |---|---|---|---|
 | `List` | `POST /orrery.v1.Sessions/List` | `ListRequest`, empty | `ListResponse` |
 | `Watch` (server-streaming) | `POST /orrery.v1.Events/Watch` | `WatchRequest` | stream of `WatchResponse` |
+| `Control.Start` | `POST /orrery.v1.Control/Start` | `StartRequest` | `StartResponse` |
+| `Control.Say` | `POST /orrery.v1.Control/Say` | `SayRequest` | `SayResponse` |
+| `Control.Answer` | `POST /orrery.v1.Control/Answer` | `AnswerRequest` | `AnswerResponse` |
+| `Control.Interrupt` | `POST /orrery.v1.Control/Interrupt` | `InterruptRequest` | `InterruptResponse` |
+| `Control.Stop` | `POST /orrery.v1.Control/Stop` | `StopRequest` | `StopResponse` |
+| `Control.Seen` | `POST /orrery.v1.Control/Seen` | `SeenRequest` | `SeenResponse` |
 
 `ListResponse` has these fields:
 
@@ -887,19 +909,32 @@ Two sessions can share `server` and `pane` for up to 10 s after a tmux server re
 | `unavailable` | the store file is missing, the database is busy, or the file is removed while it is read |
 | `internal` | any other read failure |
 
-`orrery.v1.Events.Watch` streams the events table (see [Store](#store)). `orrery events` (section 11) reads this call.
+`orrery.v1.Events.Watch` streams the events table (see [Store](#store)), and the `EngineText` messages described below. `orrery events` and `orrery session --url ... watch` (section 11) read this call.
 
 `WatchRequest` has `after`, the seq the stream resumes after. It is a cursor, and the cursor rules below apply to it.
 
-Each `WatchResponse` has `seq`, `session_id` (the pane's `@orrery_id`), `at` (unix seconds when the event was stored), and one member of its `event` oneof. The store kinds map to the members as follows:
+Each `WatchResponse` has `seq`, `session_id` (the pane's `@orrery_id`, or the headless session's id), `at` (unix seconds when the event was stored), and one member of its `event` oneof. The store kinds map to the members as follows:
 
 | Store kind | `WatchResponse` member | Payload message |
 |---|---|---|
 | `session_added` | `session_added` | `SessionAdded`: `server`, `pane` |
 | `session_changed` | `session_changed` | `SessionChanged` (below) |
 | `session_removed` | `session_removed` | `SessionRemoved`, no fields |
+| `engine_added` | `engine_added` | `EngineAdded`: `dir`, `state` |
+| `engine_changed` | `engine_changed` | `EngineChanged`: `state`, `changed`, `seen`, `question`, `claude_session`, `reason`, each set only when its column changed |
+| `engine_prompt` | `engine_prompt` | `EnginePrompt`: `text`, `prompt_id` |
+| `engine_block` | `engine_block` | `EngineBlock`: `kind`, `role`, `message_id`, `parent_tool_use_id`, `text`, `tool_use_id`, `name`, `input`, `content`, `is_error`, `truncated` |
+| `engine_request` | `engine_request` | `EngineRequest`: `kind`, `request_id`, `tool_use_id`, `tool_name`, `subtype`, `input`, `refused` |
+| `engine_request_canceled` | `engine_request_canceled` | `EngineRequestCanceled`: `request_id`, `tool_use_id` |
+| `engine_turn_ended` | `engine_turn_ended` | `EngineTurnEnded`: `subtype`, `is_error`, `terminal_reason`, `result`, `origin` |
 
-An engine kind (`engine_*`, see [Engine sessions in the store](#engine-sessions-in-the-store)) has no member. `Watch` sends nothing for it and moves the cursor past it.
+An engine kind (`engine_*`, see [Engine sessions in the store](#engine-sessions-in-the-store)) maps to its member in this table. `Watch` sends one message per stored engine event, with that event's `seq`, `session_id` and `at`, and the payload of its kind decoded into its member (the payload keys of each kind are in [Engine sessions in the store](#engine-sessions-in-the-store)). A stored payload that does not decode into its member ends the stream with `internal`.
+
+`EngineText` is not an event and has no store kind. It is the text so far of one unfinished content block, a row of `engine_text` (see [Engine sessions in the store](#engine-sessions-in-the-store)). It has the fields `message_id`, `index`, `parent_tool_use_id`, `kind` (`text` or `thinking`) and `text`, and its `WatchResponse` has the `session_id` of the block's session. Its `seq` is the newest event seq of the read it came from, and its `at` is 0. A stream sends it as follows:
+
+- After each read that returns fewer than 100 events, the stream sends an `EngineText` for each unfinished block whose text differs from the text that stream last sent for that block. A block whose text is unchanged is not sent again. A block that has left the unfinished set is forgotten, so a block that returns is sent again.
+- Those sends follow the events of that read, and come before the stream waits for its next tick. A read of 100 events sends no `EngineText`.
+- A stream that starts while a block is unfinished sends that block's text on its first caught-up read.
 
 `SessionChanged` has ten optional fields: `state`, `changed`, `seen`, `question`, `summary`, `label`, `context`, `tool`, `claude_session`, and `transcript`. An event sets a field only when it changed that option. A set field with the value `""` means the option was unset. A field the event did not change is absent.
 
@@ -920,6 +955,36 @@ Watch behavior:
 A stream whose send fails, at the 10-second deadline or during a blocked send at shutdown, ends with an error outside this table.
 
 The guard's rule for Connect paths is in [Guard](#guard). A request the guard refuses gets 403 before any Connect response.
+
+### Control API
+
+`orrery.v1.Control` steers the headless sessions of [Headless sessions](#headless-sessions). `serve` answers each call by forwarding it to the Engine service on orreryd's session socket (see [Session control socket](#session-control-socket)). Each call is a Connect POST to the path of [Connect API](#connect-api), with the guard's Connect rules of [Guard](#guard).
+
+The request and response messages are these:
+
+- `StartRequest`: `dir`, `prompt`, `model`, `id`. `StartResponse`: `id`.
+- `SayRequest`: `id`, `text`, `prompt_id`. `SayResponse` has no fields.
+- `AnswerRequest`: `id`, `request_id`, `answer`. `AnswerResponse` has no fields.
+- `InterruptRequest`, `StopRequest` and `SeenRequest`: `id`. Their responses have no fields.
+
+Rules:
+
+- **Home rule.** `Start` admits `dir` only when it is an absolute path to an existing directory whose symlinks resolve to a path equal to the home directory or under it. `serve` forwards the resolved path. The home directory is `HOME` as `serve` reads it (see [Environment](#environment)). An empty, relative or `/` home, or one that does not resolve, refuses every start. The check runs before the forward, so a refused start never reaches orreryd.
+- **Client-chosen ids.** `StartRequest.id` names the new session's id, 32 lowercase hex digits. Empty lets orreryd mint one. A start that names an existing session's id returns that id and starts nothing. `SayRequest.prompt_id` names the prompt. A say whose `prompt_id` an `engine_prompt` event of the session already carries succeeds and sends nothing. A call that names a key with a running attempt waits for that attempt and returns its result. A say whose send failed returns that failure to every later call with its key and sends nothing, also after a restart, because the failure is stored in `engine_prompt_failed`. Any other key whose attempt failed after storing its record returns that attempt's error to every later call with the key, and does nothing else, while `orreryd` runs. A key whose attempt failed before storing its record is free, so a retry runs, unless the record cannot be read after the failure, which keeps the error as a stored record does. Empty means no id and no check.
+- **Model.** `StartRequest.model` is the model alias the started session's process runs, passed to claude as `--model`. Empty runs claude's default. A model outside the rule of [Session control socket](#session-control-socket) is refused with `invalid_argument`. A process that a later `Say` resumes runs claude's default model.
+- **Forward.** Each call that passes the home rule is forwarded to the engine under a deadline. The deadline is 10 seconds, the default for `serve`, which sets no other. The forward reaches the session socket through a unix-socket transport, `sessions.sock` beside the daemon socket. When no daemon socket path resolves, `serve` has no engine and answers `unavailable` without dialing.
+- **Body bound.** A request body over 1 MiB (1048576 bytes) is refused with `resource_exhausted` before it reaches the engine.
+
+Errors are Connect codes. The messages marked fixed are the same whatever orreryd said:
+
+| Connect code | Message | When |
+|---|---|---|
+| `invalid_argument` | `session directory must be an existing directory under the home directory` (fixed) | `Start`'s `dir` fails the home rule. Answered before the forward |
+| `unavailable` | `session service unavailable` (fixed) | no daemon socket path resolves; the session socket cannot be dialed, so orreryd is not taking session commands; or orreryd answers `unavailable`, which it does when it has no store |
+| `deadline_exceeded` | `session command timed out` (fixed) | the forward outlives the 10-second deadline, or the client's own deadline ends the call first |
+| `internal` | `session command failed` (fixed) | orreryd answers `internal` or `unknown`, or the forward fails with an error that is not a Connect error |
+| `resource_exhausted` | the Connect library's message | the request body is over 1 MiB |
+| other codes | orreryd's message, passed through | `invalid_argument` (a bad `model`, `id`, `prompt` or `text`), `not_found` (no row, or an answer whose request is not open), `resource_exhausted` (the session cap) |
 
 ## 13. Freeze
 
@@ -946,5 +1011,7 @@ orrery headless engine sessions (engine lifecycle) added, additively: the `orrer
 orrery E16b (read-up-to seen time) added the optional `read_up_to` body field to the seen route, additively. With it the stored seen time becomes the later of the stored time and `read_up_to`, so it never moves back. No existing name or value changes.
 
 The picker routes `POST /v1/picker/ask` and `POST /v1/picker/run` were added additively, with their tokens held in serve's memory. No existing name or value changes.
+
+orrery engine API added, additively: the `orrery.v1.Control` service and its six calls (see [Control API](#control-api)), and `serve`'s reads of `HOME` and the session socket for it; the `WatchResponse` members `engine_added`, `engine_changed`, `engine_prompt`, `engine_block`, `engine_request`, `engine_request_canceled`, `engine_turn_ended` and `engine_text`, and the `EngineText` rule (see [Connect API](#connect-api)); the `model`, `id` and `prompt_id` fields of the engine socket's `Start` and `Say` (see [Session control socket](#session-control-socket)); the `promptId` key of the `engine_prompt` payload; the `engine_prompt_failed` table; and the `orrery session --url` form and `session start --model`. Watch and `orrery events` now send and print the engine events they skipped before. No existing name or value changes.
 
 orrery E19 (pane tree list) added the `newest_reply` key to each pane of `GET /v1/panes`, additively. It is a key of serve's answer only: `orrery list --json` (section 3) is unchanged. No existing name or value changes.

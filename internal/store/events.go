@@ -13,16 +13,28 @@ import (
 )
 
 // EventPage is one page of the event log, in seq order, with the oldest and newest seq the log holds. Earliest and
-// Newest are 0 when the log has no events.
+// Newest are 0 when the log has no events. Unfinished lists every unfinished engine text block of every engine
+// session, in the order of ListUnfinishedEngineText, and is nil when there are none.
 type EventPage struct {
-	Events   []Event
-	Earliest int64
-	Newest   int64
+	Events     []Event
+	Earliest   int64
+	Newest     int64
+	Unfinished []UnfinishedText
+}
+
+// UnfinishedText is one engine_text row: the text so far of a block that has not finished.
+type UnfinishedText struct {
+	SessionID       string
+	MessageID       string
+	BlockIndex      int64
+	ParentToolUseID string
+	Kind            string
+	Text            string
 }
 
 // Event is one events row, decoded by its kind. Server and Pane are set for session_added. Changes is set for
-// session_changed. session_removed carries neither. An engine kind (IsEngineKind) sets none of them: its payload is
-// not decoded.
+// session_changed. session_removed carries neither. An engine kind (IsEngineKind) sets none of them: its stored
+// payload is kept unchanged in Payload and not decoded. Pane kinds leave Payload empty.
 type Event struct {
 	Seq       int64
 	SessionID string
@@ -31,6 +43,7 @@ type Event struct {
 	Server    string
 	Pane      string
 	Changes   FieldChanges
+	Payload   string
 }
 
 // FieldChanges holds the mirrored fields a session_changed event changed. A field the event does not change is nil,
@@ -142,12 +155,23 @@ func readEventPageInTx(ctx context.Context, tx *sql.Tx, after int64, limit int) 
 		}
 		events = append(events, decoded)
 	}
-	return EventPage{Events: events, Earliest: oldest, Newest: newest}, nil
+	texts, err := queries.ListUnfinishedEngineText(ctx)
+	if err != nil {
+		return EventPage{}, fmt.Errorf("read unfinished engine text: %w", err)
+	}
+	var unfinished []UnfinishedText
+	for _, text := range texts {
+		unfinished = append(unfinished, UnfinishedText{
+			SessionID: text.SessionID, MessageID: text.MessageID, BlockIndex: text.BlockIndex,
+			ParentToolUseID: text.ParentToolUseID, Kind: text.Kind, Text: text.Text,
+		})
+	}
+	return EventPage{Events: events, Earliest: oldest, Newest: newest, Unfinished: unfinished}, nil
 }
 
 // decodeEvent decodes one events row by its kind. Each payload must fit its kind exactly: no unknown fields, no
-// unknown field names, and no data after the JSON value. An engine kind is returned with its common fields only, and
-// its payload is not read.
+// unknown field names, and no data after the JSON value. An engine kind is returned with its common fields and its
+// stored payload, which is not decoded.
 func decodeEvent(row sqlcgen.Event) (Event, error) {
 	event := Event{Seq: row.Seq, SessionID: row.SessionID, Kind: row.Kind, At: row.At}
 	switch row.Kind {
@@ -173,6 +197,7 @@ func decodeEvent(row sqlcgen.Event) (Event, error) {
 		}
 	default:
 		if IsEngineKind(row.Kind) {
+			event.Payload = row.Payload
 			return event, nil
 		}
 		return Event{}, fmt.Errorf("event %d has unknown kind %q", row.Seq, row.Kind)

@@ -214,3 +214,74 @@ func TestSyncServerEmptyLiveListStillRemovesStaleEngineSession(t *testing.T) {
 		})
 	}
 }
+
+// promptFailureOf reports whether the failure marker of promptID in session id exists after a prune.
+func promptFailureOf(t *testing.T, s *Store, id, promptID string) (string, bool) {
+	t.Helper()
+	reason, ok, err := s.EnginePromptFailure(context.Background(), id, promptID)
+	if err != nil {
+		t.Fatalf("EnginePromptFailure %s %s: %v", id, promptID, err)
+	}
+	return reason, ok
+}
+
+func TestSyncServerRemovesPromptFailureWithStaleEngineSession(t *testing.T) {
+	ctx := context.Background()
+	s := openSyncStore(t)
+	t0 := time.Unix(1_700_000_000, 0)
+	seedStaleEngine(t, s, t0)
+	if err := s.ApplyEngine(ctx, []EngineOp{
+		EnginePromptFailed{ID: "eng-a", PromptID: "p1", Reason: "send refused"},
+	}, t0); err != nil {
+		t.Fatalf("ApplyEngine failure marker: %v", err)
+	}
+
+	now := t0.Add(EventRetention + time.Hour)
+	if err := s.SyncServer(ctx, "-L a", []Pane{{ID: "orrery-1", Pane: "%1"}}, now); err != nil {
+		t.Fatalf("SyncServer at T plus 14 days and one hour: %v", err)
+	}
+
+	if got := engineIDsOf(t, s); len(got) != 0 {
+		t.Fatalf("engine sessions: got %v, want none", got)
+	}
+	if reason, ok := promptFailureOf(t, s, "eng-a", "p1"); ok {
+		t.Fatalf("failure marker of removed eng-a: got reason %q, want none", reason)
+	}
+}
+
+func TestSyncServerKeepsPromptFailureOfRetainedEngineSessions(t *testing.T) {
+	ctx := context.Background()
+	s := openSyncStore(t)
+	t0 := time.Unix(1_700_000_000, 0)
+	later := t0.Add(13 * 24 * time.Hour)
+	seedStaleEngine(t, s, t0)
+	if err := s.ApplyEngine(ctx, []EngineOp{
+		EnginePromptFailed{ID: "eng-a", PromptID: "p1", Reason: "send refused"},
+		EnginePromptFailed{ID: "eng-b", PromptID: "p1", Reason: "send refused"},
+		EngineAdd{ID: "eng-c", Dir: "/c", State: "idle"},
+	}, t0); err != nil {
+		t.Fatalf("ApplyEngine failure markers: %v", err)
+	}
+	// eng-a has an event in retention, and eng-b stays live past retention.
+	if err := s.ApplyEngine(ctx, []EngineOp{
+		EnginePrompt{ID: "eng-a", Text: "later", PromptID: "p2"},
+	}, later); err != nil {
+		t.Fatalf("ApplyEngine eng-a later event: %v", err)
+	}
+	s.SetEngineLive(func() []string { return []string{"eng-b"} })
+
+	now := t0.Add(EventRetention + time.Hour)
+	if err := s.SyncServer(ctx, "-L a", []Pane{{ID: "orrery-1", Pane: "%1"}}, now); err != nil {
+		t.Fatalf("SyncServer at T plus 14 days and one hour: %v", err)
+	}
+
+	if got, want := engineIDsOf(t, s), []string{"eng-a", "eng-b"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("engine sessions: got %v, want %v", got, want)
+	}
+	if reason, ok := promptFailureOf(t, s, "eng-a", "p1"); !ok || reason != "send refused" {
+		t.Fatalf("failure marker of retained eng-a: got (%q, %t), want (\"send refused\", true)", reason, ok)
+	}
+	if reason, ok := promptFailureOf(t, s, "eng-b", "p1"); !ok || reason != "send refused" {
+		t.Fatalf("failure marker of live eng-b: got (%q, %t), want (\"send refused\", true)", reason, ok)
+	}
+}

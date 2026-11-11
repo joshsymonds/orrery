@@ -46,6 +46,15 @@ WHERE session_id IN (
       AND sessions.id NOT IN (SELECT value FROM json_each(sqlc.arg(live)))
 );
 
+-- name: DeleteStaleEnginePromptFailures :exec
+DELETE FROM engine_prompt_failed
+WHERE session_id IN (
+    SELECT sessions.id FROM sessions
+    WHERE sessions.kind = 'engine'
+      AND NOT EXISTS (SELECT 1 FROM events WHERE events.session_id = sessions.id AND events.at >= sqlc.arg(cutoff))
+      AND sessions.id NOT IN (SELECT value FROM json_each(sqlc.arg(live)))
+);
+
 -- name: DeleteStaleEngineSessions :exec
 DELETE FROM sessions
 WHERE sessions.kind = 'engine'
@@ -83,7 +92,22 @@ DELETE FROM engine_text WHERE session_id = ?;
 SELECT * FROM engine_text WHERE session_id = ?
 ORDER BY message_id, parent_tool_use_id, block_index;
 
+-- name: ListUnfinishedEngineText :many
+SELECT * FROM engine_text
+ORDER BY session_id, message_id, parent_tool_use_id, block_index;
+
 -- name: SessionEventsAfter :many
 SELECT seq, session_id, kind, at, payload FROM events
 WHERE session_id = ? AND seq > ?
 ORDER BY seq LIMIT ?;
+
+-- name: CountEnginePrompts :one
+SELECT COUNT(*) FROM events
+WHERE session_id = sqlc.arg(session_id) AND kind = 'engine_prompt' AND json_extract(payload, '$.promptId') = sqlc.arg(prompt_id);
+
+-- name: InsertEnginePromptFailed :exec
+INSERT INTO engine_prompt_failed (session_id, prompt_id, reason) VALUES (?, ?, ?)
+ON CONFLICT (session_id, prompt_id) DO NOTHING;
+
+-- name: GetEnginePromptFailure :one
+SELECT reason FROM engine_prompt_failed WHERE session_id = ? AND prompt_id = ?;

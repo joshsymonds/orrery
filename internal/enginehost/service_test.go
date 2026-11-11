@@ -29,9 +29,11 @@ type call struct {
 	method    string
 	dir       string
 	prompt    string
+	model     string
 	id        string
 	requestID string
 	text      string
+	promptID  string
 	answer    string
 }
 
@@ -62,15 +64,17 @@ func (f *fakeCommands) recorded() []call {
 	return slices.Clone(f.calls)
 }
 
-func (f *fakeCommands) Start(_ context.Context, dir, prompt string) (string, error) {
-	if err := f.record(call{method: "Start", dir: dir, prompt: prompt}); err != nil {
+func (f *fakeCommands) Start(_ context.Context, req StartRequest) (string, error) {
+	if err := f.record(call{
+		method: "Start", dir: req.Dir, prompt: req.Prompt, model: req.Model, id: req.ID,
+	}); err != nil {
 		return "", err
 	}
 	return f.startID, nil
 }
 
-func (f *fakeCommands) Say(_ context.Context, id, text string) error {
-	return f.record(call{method: "Say", id: id, text: text})
+func (f *fakeCommands) Say(_ context.Context, req SayRequest) error {
+	return f.record(call{method: "Say", id: req.ID, text: req.Text, promptID: req.PromptID})
 }
 
 func (f *fakeCommands) Answer(_ context.Context, id, requestID, answer string) error {
@@ -217,6 +221,69 @@ func TestServeRoutesEachRPCToCommands(t *testing.T) {
 	}
 }
 
+func TestServeStartForwardsModel(t *testing.T) {
+	fake := &fakeCommands{startID: "0123456789abcdef0123456789abcdef"}
+	path, stop := startServer(t, fake)
+	client := newClient(t, path)
+
+	if _, err := client.Start(
+		context.Background(),
+		connect.NewRequest(&v1.StartRequest{Dir: "/work", Prompt: "hello", Model: "haiku"}),
+	); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if err := stop(); err != nil {
+		t.Fatalf("Serve: %v", err)
+	}
+
+	want := []call{{method: "Start", dir: "/work", prompt: "hello", model: "haiku"}}
+	if got := fake.recorded(); !slices.Equal(got, want) {
+		t.Fatalf("commands received %+v, want %+v", got, want)
+	}
+}
+
+func TestServeStartForwardsID(t *testing.T) {
+	fake := &fakeCommands{startID: "0123456789abcdef0123456789abcdef"}
+	path, stop := startServer(t, fake)
+	client := newClient(t, path)
+
+	if _, err := client.Start(
+		context.Background(),
+		connect.NewRequest(&v1.StartRequest{Dir: "/work", Prompt: "hello", Id: "0123456789abcdef0123456789abcdef"}),
+	); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if err := stop(); err != nil {
+		t.Fatalf("Serve: %v", err)
+	}
+
+	want := []call{{method: "Start", dir: "/work", prompt: "hello", id: "0123456789abcdef0123456789abcdef"}}
+	if got := fake.recorded(); !slices.Equal(got, want) {
+		t.Fatalf("commands received %+v, want %+v", got, want)
+	}
+}
+
+func TestServeSayForwardsPromptID(t *testing.T) {
+	fake := &fakeCommands{}
+	path, stop := startServer(t, fake)
+	client := newClient(t, path)
+
+	if _, err := client.Say(
+		context.Background(),
+		connect.NewRequest(&v1.SayRequest{Id: "s1", Text: "more", PromptId: "p1"}),
+	); err != nil {
+		t.Fatalf("Say: %v", err)
+	}
+	if err := stop(); err != nil {
+		t.Fatalf("Serve: %v", err)
+	}
+
+	want := []call{{method: "Say", id: "s1", text: "more", promptID: "p1"}}
+	if got := fake.recorded(); !slices.Equal(got, want) {
+		t.Fatalf("commands received %+v, want %+v", got, want)
+	}
+}
+
 func TestServeMapsErrorsToConnectCodes(t *testing.T) {
 	cases := []struct {
 		name string
@@ -259,6 +326,18 @@ func TestServeMapsErrorsToConnectCodes(t *testing.T) {
 			err:  ErrEmptyPrompt,
 			code: connect.CodeInvalidArgument,
 			text: ErrEmptyPrompt.Error(),
+		},
+		{
+			name: "bad model",
+			err:  ErrBadModel,
+			code: connect.CodeInvalidArgument,
+			text: ErrBadModel.Error(),
+		},
+		{
+			name: "bad id",
+			err:  ErrBadID,
+			code: connect.CodeInvalidArgument,
+			text: ErrBadID.Error(),
 		},
 		{
 			name: "bad answer",

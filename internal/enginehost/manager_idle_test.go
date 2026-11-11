@@ -65,7 +65,7 @@ func requireRunning(t *testing.T, m *Manager, id string, pid int) {
 func TestIdleStopsFinishedSessionAfterTenMinutes(t *testing.T) {
 	m, path, clock := newIdleManager(t, 1)
 	dir := t.TempDir()
-	id, err := m.Start(t.Context(), dir, "hi")
+	id, err := m.Start(t.Context(), StartRequest{Dir: dir, Prompt: "hi"})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -93,7 +93,7 @@ func TestIdleStopsFinishedSessionAfterTenMinutes(t *testing.T) {
 		t.Fatalf("state after idle stop = %q, want %q", got, protocol.StateDone)
 	}
 
-	if err := m.Say(t.Context(), id, "again"); err != nil {
+	if err := m.Say(t.Context(), SayRequest{ID: id, Text: "again"}); err != nil {
 		t.Fatalf("Say of an idle-stopped session: %v", err)
 	}
 	waitHistory(t, path, id, "the resumed reply block", func(h store.EngineHistory) bool {
@@ -104,11 +104,11 @@ func TestIdleStopsFinishedSessionAfterTenMinutes(t *testing.T) {
 func TestIdleKeepsAskAndHangSessions(t *testing.T) {
 	m, path, clock := newIdleManager(t, 2)
 	askDir, hangDir := t.TempDir(), t.TempDir()
-	askID, err := m.Start(t.Context(), askDir, "ASK")
+	askID, err := m.Start(t.Context(), StartRequest{Dir: askDir, Prompt: "ASK"})
 	if err != nil {
 		t.Fatalf("Start ASK: %v", err)
 	}
-	hangID, err := m.Start(t.Context(), hangDir, "HANG")
+	hangID, err := m.Start(t.Context(), StartRequest{Dir: hangDir, Prompt: "HANG"})
 	if err != nil {
 		t.Fatalf("Start HANG: %v", err)
 	}
@@ -130,7 +130,7 @@ func TestIdleKeepsAskAndHangSessions(t *testing.T) {
 func TestIdleKeepsBackgroundSessionUntilItEnds(t *testing.T) {
 	m, path, clock := newIdleManager(t, 1)
 	dir := t.TempDir()
-	id, err := m.Start(t.Context(), dir, "BACKGROUND")
+	id, err := m.Start(t.Context(), StartRequest{Dir: dir, Prompt: "BACKGROUND"})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -143,7 +143,7 @@ func TestIdleKeepsBackgroundSessionUntilItEnds(t *testing.T) {
 	m.checkIdle(t.Context())
 	requireRunning(t, m, id, pid)
 
-	if err := m.Say(t.Context(), id, "BGEND"); err != nil {
+	if err := m.Say(t.Context(), SayRequest{ID: id, Text: "BGEND"}); err != nil {
 		t.Fatalf("Say BGEND: %v", err)
 	}
 	waitHistory(t, path, id, "the reply after the background task ended", func(h store.EngineHistory) bool {
@@ -161,20 +161,20 @@ func TestIdleKeepsBackgroundSessionUntilItEnds(t *testing.T) {
 
 func TestIdleStopFreesSlotForStart(t *testing.T) {
 	m, path, clock := newIdleManager(t, 1)
-	id, err := m.Start(t.Context(), t.TempDir(), "hi")
+	id, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "hi"})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
 	waitHistory(t, path, id, "the first reply done", func(h store.EngineHistory) bool {
 		return hasBlock(t, h, "fake reply 1") && lastState(t, h) == string(protocol.StateDone)
 	})
-	if _, err := m.Start(t.Context(), t.TempDir(), "hi"); !errors.Is(err, ErrCapReached) {
+	if _, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "hi"}); !errors.Is(err, ErrCapReached) {
 		t.Fatalf("Start at the cap: err = %v, want ErrCapReached", err)
 	}
 
 	clock.advance(10 * time.Minute)
 	m.checkIdle(t.Context())
-	next, err := m.Start(t.Context(), t.TempDir(), "hi")
+	next, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "hi"})
 	if err != nil {
 		t.Fatalf("Start after the idle stop: %v", err)
 	}

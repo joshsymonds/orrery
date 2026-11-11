@@ -31,6 +31,13 @@ var ErrBadDir = errors.New("session directory must be an existing absolute direc
 // ErrEmptyPrompt reports a Start with an empty first prompt.
 var ErrEmptyPrompt = errors.New("session prompt is empty")
 
+// ErrBadModel reports a Start whose model is set but is not 1 to 64 bytes of letters, digits and . _ - [ ] : that does
+// not start with -.
+var ErrBadModel = errors.New("session model must be 1 to 64 letters, digits or . _ - [ ] : and not start with -")
+
+// ErrBadID reports a Start whose id is set but is not 32 lowercase hex digits.
+var ErrBadID = errors.New("session id must be 32 lowercase hex digits")
+
 // ErrBadAnswer reports an Answer that fits neither the options of the open question nor allow or deny for the open
 // permission request. The request stays open.
 var ErrBadAnswer = errors.New("answer does not fit the open request")
@@ -61,10 +68,13 @@ type NoticeSink interface {
 	Notify(ctx context.Context, n Notice)
 }
 
-// Store reads the engine rows Reconcile settles, and the rows Say resumes and Seen marks. *store.Store satisfies it.
+// Store reads the engine rows Reconcile settles, the rows Say resumes, checks and Seen marks, and the failure markers
+// Say checks. *store.Store satisfies it.
 type Store interface {
 	EngineSessions(ctx context.Context) ([]store.EngineRow, error)
 	EngineSession(ctx context.Context, id string) (store.EngineRow, error)
+	EnginePromptSent(ctx context.Context, sessionID, promptID string) (bool, error)
+	EnginePromptFailure(ctx context.Context, sessionID, promptID string) (string, bool, error)
 }
 
 // Config configures a Manager. Shell is the login shell and Claude the claude name, resolved with exec.LookPath at
@@ -135,6 +145,13 @@ type Manager struct {
 
 	// resumeMu serializes the resume of a session that is not live, so concurrent Says to one id start one process.
 	resumeMu sync.Mutex
+	// attemptMu guards attempts. attempts holds the keyed calls running now, by key: a Start that names a session id, or
+	// a Say that names a prompt id. A key's attempt is removed when it ends, so a later call with that key checks the
+	// store as an unkeyed call would. An attempt that failed after it stored its record stays, with its error, so a
+	// later call with that key returns the error. A Say whose send failed also stores a failure marker for its prompt,
+	// which a later Say with that key returns after a restart too.
+	attemptMu sync.Mutex
+	attempts  map[attemptKey]*attempt
 }
 
 // NewManager returns a Manager for cfg.
@@ -150,6 +167,7 @@ func NewManager(cfg Config) *Manager {
 		store:    cfg.Store,
 		logger:   cfg.Logger,
 		sessions: map[string]*liveSession{},
+		attempts: map[attemptKey]*attempt{},
 	}
 	if manager.now == nil {
 		manager.now = time.Now
@@ -160,35 +178,136 @@ func NewManager(cfg Config) *Manager {
 	return manager
 }
 
-// Start starts a session in dir with prompt as its first message and returns its id. It records the session as
-// working before it spawns the process. A spawn or prompt failure is recorded as the session's failed state with the
-// reason, and Start returns the id with no error.
-func (m *Manager) Start(ctx context.Context, dir, prompt string) (string, error) {
-	if err := checkStart(dir, prompt); err != nil {
+// StartRequest is what Start needs: the directory the session runs in, its first prompt, and the model alias it runs.
+// An empty Model runs claude's default. An empty ID mints a session id; a non-empty ID is the id the session takes.
+type StartRequest struct {
+	Dir    string
+	Prompt string
+	Model  string
+	ID     string
+}
+
+// Start starts a session as req describes and returns its id. An empty req.ID mints one. A non-empty req.ID must be 32
+// lowercase hex digits, or Start returns an error matching ErrBadID before it stores anything. A non-empty req.ID runs
+// as one attempt: while an attempt for it runs, a Start with that id waits for the attempt and returns its result, and
+// starts nothing. Once begun, the attempt finishes even if ctx ends, and a Start whose ctx ends returns ctx's error. With
+// no attempt running, a req.ID that already has an engine row returns that id and does nothing else. An attempt that
+// fails after it stores the row keeps its error, and a later Start with that id returns the error and does nothing else.
+// An attempt that fails before it stores the row frees the id. Start records the session as working before it spawns
+// the process. A spawn or prompt failure is recorded as the session's failed state with the reason, and Start returns
+// the id with no error.
+func (m *Manager) Start(ctx context.Context, req StartRequest) (string, error) {
+	if req.ID == "" {
+		id, err := newSessionID()
+		if err != nil {
+			return "", err
+		}
+		return m.start(ctx, id, req)
+	}
+	if err := checkID(req.ID); err != nil {
+		return "", err
+	}
+	return m.keyed(ctx, attemptKey{session: req.ID},
+		func(ctx context.Context) (string, error) {
+			_, err := m.engineRow(ctx, req.ID)
+			switch {
+			case err == nil:
+				return req.ID, nil
+			case !errors.Is(err, ErrNoSession):
+				return "", err
+			}
+			return m.start(ctx, req.ID, req)
+		},
+		func(ctx context.Context) bool {
+			_, err := m.engineRow(ctx, req.ID)
+			return !errors.Is(err, ErrNoSession)
+		},
+	)
+}
+
+// attemptKey names a keyed call: a Start of a session id, which has an empty prompt, or a Say of a prompt id in a
+// session, which has a non-empty one. So a Start and a Say never share a key.
+type attemptKey struct {
+	session string
+	prompt  string
+}
+
+// attempt is a keyed call that is running or has ended. done closes once id and err hold the call's result.
+type attempt struct {
+	done chan struct{}
+	id   string
+	err  error
+}
+
+// keyed runs the keyed call key as one attempt, unless an attempt with key is running or has kept its error, which it
+// waits for or returns instead. run receives a context that ctx's cancellation does not reach, so the attempt finishes
+// its store, spawn or resume, and send even when ctx ends. A caller whose ctx ends first returns ctx's error and leaves
+// the attempt running. recorded reports whether the record of key exists, or cannot be checked, and is asked only of an
+// attempt that returned an error (see execute).
+func (m *Manager) keyed(
+	ctx context.Context,
+	key attemptKey,
+	run func(context.Context) (string, error),
+	recorded func(context.Context) bool,
+) (string, error) {
+	m.attemptMu.Lock()
+	running, ok := m.attempts[key]
+	if !ok {
+		running = &attempt{done: make(chan struct{})}
+		m.attempts[key] = running
+		go m.execute(context.WithoutCancel(ctx), key, running, run, recorded)
+	}
+	m.attemptMu.Unlock()
+	select {
+	case <-running.done:
+		return running.id, running.err
+	case <-ctx.Done():
+		return "", fmt.Errorf("wait for keyed call: %w", ctx.Err())
+	}
+}
+
+// execute runs the attempt at with run, then wakes the callers that wait for it. It frees key unless the attempt
+// failed after it stored its record, which keeps key with the error for later calls. An attempt whose record cannot be
+// checked is kept too.
+func (m *Manager) execute(
+	ctx context.Context,
+	key attemptKey,
+	at *attempt,
+	run func(context.Context) (string, error),
+	recorded func(context.Context) bool,
+) {
+	at.id, at.err = run(ctx)
+	if at.err == nil || !recorded(ctx) {
+		m.attemptMu.Lock()
+		delete(m.attempts, key)
+		m.attemptMu.Unlock()
+	}
+	close(at.done)
+}
+
+// start starts the session id as req describes. It checks req and takes a slot under the cap, records the row, then
+// spawns the process and sends the first prompt. A failure before the row is stored frees the slot.
+func (m *Manager) start(ctx context.Context, id string, req StartRequest) (string, error) {
+	if err := checkStart(req); err != nil {
 		return "", err
 	}
 	if err := m.reserve(); err != nil {
 		return "", err
 	}
-	id, err := newSessionID()
-	if err != nil {
-		m.release()
-		return "", err
-	}
-	add := store.EngineAdd{ID: id, Dir: dir, State: string(protocol.StateWorking)}
-	if err = m.writer.Commit(ctx, id, add); err != nil {
+	add := store.EngineAdd{ID: id, Dir: req.Dir, State: string(protocol.StateWorking)}
+	if err := m.writer.Commit(ctx, id, add); err != nil {
 		m.release()
 		return "", fmt.Errorf("record session %s: %w", id, err)
 	}
-	live, err := m.spawnLive(ctx, id, dir, "")
+	live, err := m.spawnLive(ctx, id, req.Dir, "", req.Model)
 	if err != nil {
-		return id, m.fail(ctx, id, dir, err)
+		return id, m.fail(ctx, id, req.Dir, err)
 	}
-	if err = m.writer.Put(ctx, id, store.EnginePrompt{ID: id, Text: prompt}); err != nil {
+	if err = m.writer.Put(ctx, id, store.EnginePrompt{ID: id, Text: req.Prompt}); err != nil {
 		return id, m.abandon(ctx, live, err)
 	}
 	m.setTurning(live, true)
-	if err = live.sess.Prompt(prompt); err != nil {
+	if err = live.sess.Prompt(req.Prompt); err != nil {
 		m.setTurning(live, false)
 		return id, m.abandon(ctx, live, err)
 	}
@@ -221,15 +340,64 @@ func (m *Manager) Seen(ctx context.Context, id string) error {
 	return m.writer.Commit(ctx, id, store.EngineSet{ID: id, Changes: store.EngineChanges{Seen: &seen}})
 }
 
-// Say sends text to the session id as its next prompt. A session that is not live is resumed first, from its engine
-// row (see resumeSession). It records the prompt and the working state before it sends, so the stored conversation has
-// the prompt ahead of its reply. It returns ErrEmptyPrompt for empty text, an error wrapping ErrNoSession when no engine
-// row has id, and the errors of resumeSession when a live session cannot be started. A send that fails is recorded as
-// the session's failed state.
-func (m *Manager) Say(ctx context.Context, id, text string) error {
-	if text == "" {
+// SayRequest is what Say needs: the session ID, the text of the prompt, and the client-chosen PromptID. An empty
+// PromptID is not deduplicated.
+type SayRequest struct {
+	ID       string
+	Text     string
+	PromptID string
+}
+
+// Say sends req.Text to the session req.ID as its next prompt. A session that is not live is resumed first, from its
+// engine row (see resumeSession). It records the prompt and the working state before it sends, so the stored
+// conversation has the prompt ahead of its reply. A non-empty req.PromptID runs as one attempt per session and prompt
+// id: while an attempt for it runs, a Say with that id waits for the attempt and returns its result, and sends nothing.
+// Once begun, the attempt finishes even if ctx ends, and a Say whose ctx ends returns ctx's error. With no attempt
+// running, a req.PromptID that an engine_prompt event of the session already carries makes Say return nil and do
+// nothing else; otherwise the stored prompt carries req.PromptID. An attempt that fails after it stores the prompt keeps
+// its error, and a later Say with that prompt id returns the error and does nothing else. A send that fails is recorded
+// as the session's failed state; with a req.PromptID, the same write stores that prompt's failure marker, so a Say with
+// that prompt id returns the stored reason and does nothing else, even after a restart. It returns ErrEmptyPrompt for
+// empty text, an error wrapping ErrNoSession when no engine row has the id, and the errors of resumeSession when a live
+// session cannot be started.
+func (m *Manager) Say(ctx context.Context, req SayRequest) error {
+	if req.Text == "" {
 		return ErrEmptyPrompt
 	}
+	if req.PromptID == "" {
+		return m.say(ctx, req)
+	}
+	_, err := m.keyed(
+		ctx,
+		attemptKey{session: req.ID, prompt: req.PromptID},
+		func(ctx context.Context) (string, error) {
+			reason, failed, err := m.store.EnginePromptFailure(ctx, req.ID, req.PromptID)
+			if err != nil {
+				return "", fmt.Errorf("check failure of prompt %s of session %s: %w", req.PromptID, req.ID, err)
+			}
+			if failed {
+				return "", fmt.Errorf("prompt %s of session %s failed to send: %s", req.PromptID, req.ID, reason)
+			}
+			sent, err := m.store.EnginePromptSent(ctx, req.ID, req.PromptID)
+			if err != nil {
+				return "", fmt.Errorf("check prompt %s of session %s: %w", req.PromptID, req.ID, err)
+			}
+			if sent {
+				return "", nil
+			}
+			return "", m.say(ctx, req)
+		},
+		func(ctx context.Context) bool {
+			sent, err := m.store.EnginePromptSent(ctx, req.ID, req.PromptID)
+			return sent || err != nil
+		},
+	)
+	return err
+}
+
+// say sends the prompt of req as Say does, without the check of its prompt id.
+func (m *Manager) say(ctx context.Context, req SayRequest) error {
+	id, text := req.ID, req.Text
 	live, err := m.claim(id)
 	if errors.Is(err, ErrNoSession) {
 		live, err = m.resumeSession(ctx, id)
@@ -241,14 +409,19 @@ func (m *Manager) Say(ctx context.Context, id, text string) error {
 		return fmt.Errorf("say to session %s: %w", id, err)
 	}
 	working := string(protocol.StateWorking)
-	if err = m.writer.Commit(ctx, id, store.EnginePrompt{ID: id, Text: text},
+	if err = m.writer.Commit(ctx, id, store.EnginePrompt{ID: id, Text: text, PromptID: req.PromptID},
 		store.EngineSet{ID: id, Changes: store.EngineChanges{State: &working}}); err != nil {
 		m.setTurning(live, false)
 		return fmt.Errorf("record prompt of session %s: %w", id, err)
 	}
 	if err = live.sess.Prompt(text); err != nil {
 		m.setTurning(live, false)
-		return fmt.Errorf("say to session %s: %w", id, errors.Join(err, m.recordFailed(ctx, id, live.dir, err)))
+		var marks []store.EngineOp
+		if req.PromptID != "" {
+			marks = append(marks, store.EnginePromptFailed{ID: id, PromptID: req.PromptID, Reason: err.Error()})
+		}
+		recordErr := m.recordFailed(ctx, id, live.dir, err, marks...)
+		return fmt.Errorf("say to session %s: %w", id, errors.Join(err, recordErr))
 	}
 	return nil
 }
@@ -371,7 +544,7 @@ func (m *Manager) resume(ctx context.Context, row store.EngineRow) (*liveSession
 	if err := checkDir(row.Dir); err != nil {
 		return nil, errors.Join(err, m.fail(ctx, row.ID, row.Dir, err))
 	}
-	live, err := m.spawnLive(ctx, row.ID, row.Dir, row.ClaudeSession)
+	live, err := m.spawnLive(ctx, row.ID, row.Dir, row.ClaudeSession, "")
 	if err != nil {
 		return nil, errors.Join(err, m.fail(ctx, row.ID, row.Dir, err))
 	}
@@ -390,11 +563,12 @@ func (m *Manager) engineRow(ctx context.Context, id string) (store.EngineRow, er
 	return row, nil
 }
 
-// spawnLive starts the process for id in dir, resuming claudeSession when it is set, and registers it as live under a
-// pump that records its events. The caller holds the slot from reserve. A process that starts after the manager closed
-// is stopped, and the error reports the close. An error that returns here leaves nothing registered.
-func (m *Manager) spawnLive(ctx context.Context, id, dir, claudeSession string) (*liveSession, error) {
-	sess, err := m.spawn(id, dir, claudeSession)
+// spawnLive starts the process for id in dir, resuming claudeSession when it is set and running model when it is set,
+// and registers it as live under a pump that records its events. The caller holds the slot from reserve. A process that
+// starts after the manager closed is stopped, and the error reports the close. An error that returns here leaves
+// nothing registered.
+func (m *Manager) spawnLive(ctx context.Context, id, dir, claudeSession, model string) (*liveSession, error) {
+	sess, err := m.spawn(id, dir, claudeSession, model)
 	if err != nil {
 		return nil, err
 	}
@@ -538,15 +712,65 @@ func (m *Manager) closeRequest(live *liveSession, requestID string) {
 	m.updateIdleLocked(live)
 }
 
-// checkStart reports whether a start's directory and prompt are usable, before anything is stored.
-func checkStart(dir, prompt string) error {
-	if err := checkDir(dir); err != nil {
+// checkStart reports whether a start's directory, prompt and model are usable, before anything is stored.
+func checkStart(req StartRequest) error {
+	if err := checkDir(req.Dir); err != nil {
 		return err
 	}
-	if prompt == "" {
+	if req.Prompt == "" {
 		return ErrEmptyPrompt
 	}
+	return checkModel(req.Model)
+}
+
+// checkID reports whether id is 32 lowercase hex digits, the form newSessionID mints. It returns ErrBadID otherwise.
+func checkID(id string) error {
+	if len(id) != 32 {
+		return ErrBadID
+	}
+	for i := range len(id) {
+		if !isHexByte(id[i]) {
+			return ErrBadID
+		}
+	}
 	return nil
+}
+
+// isHexByte reports whether c is a lowercase hex digit.
+func isHexByte(c byte) bool {
+	return ('0' <= c && c <= '9') || ('a' <= c && c <= 'f')
+}
+
+// maxModelBytes is the longest model alias a start may name.
+const maxModelBytes = 64
+
+// checkModel reports whether model is usable. An empty model runs claude's default. Any other model must be 1 to
+// maxModelBytes bytes of letters, digits and . _ - [ ] :, not starting with -. It returns ErrBadModel otherwise. The
+// model reaches claude's argv, so only these bytes may pass.
+func checkModel(model string) error {
+	if model == "" {
+		return nil
+	}
+	if len(model) > maxModelBytes || model[0] == '-' {
+		return ErrBadModel
+	}
+	for i := range len(model) {
+		if !isModelByte(model[i]) {
+			return ErrBadModel
+		}
+	}
+	return nil
+}
+
+// isModelByte reports whether c may appear in a model alias.
+func isModelByte(c byte) bool {
+	switch {
+	case 'a' <= c && c <= 'z', 'A' <= c && c <= 'Z', '0' <= c && c <= '9':
+		return true
+	case c == '.', c == '_', c == '-', c == '[', c == ']', c == ':':
+		return true
+	}
+	return false
 }
 
 // checkDir reports whether dir is an absolute path to an existing directory. It returns an error wrapping ErrBadDir
@@ -595,9 +819,9 @@ func newSessionID() (string, error) {
 	return hex.EncodeToString(raw[:]), nil
 }
 
-// spawn resolves claude and starts the session process for id in dir, resuming claudeSession when it is set. The prompt
-// is not sent here.
-func (m *Manager) spawn(id, dir, claudeSession string) (*session.Session, error) {
+// spawn resolves claude and starts the session process for id in dir, resuming claudeSession when it is set and running
+// model when it is set. The prompt is not sent here.
+func (m *Manager) spawn(id, dir, claudeSession, model string) (*session.Session, error) {
 	claude, err := exec.LookPath(m.claude)
 	if err != nil {
 		return nil, fmt.Errorf("find claude: %w", err)
@@ -608,6 +832,7 @@ func (m *Manager) spawn(id, dir, claudeSession string) (*session.Session, error)
 		Dir:            dir,
 		PermissionMode: permissionMode,
 		Resume:         claudeSession,
+		Model:          model,
 		Name:           id,
 		Environ:        m.environ,
 	})
@@ -792,13 +1017,13 @@ func (m *Manager) fail(ctx context.Context, id, dir string, err error) error {
 	return m.recordFailed(ctx, id, dir, err)
 }
 
-// recordFailed writes the failed state of session id in dir with the reason err, then notifies the owner of it. It
-// returns only an error that the write hit.
-func (m *Manager) recordFailed(ctx context.Context, id, dir string, err error) error {
+// recordFailed writes the failed state of session id in dir with the reason err, after marks in the same write, then
+// notifies the owner of it. It returns only an error that the write hit.
+func (m *Manager) recordFailed(ctx context.Context, id, dir string, err error, marks ...store.EngineOp) error {
 	failed := stateFailed
 	reason := err.Error()
-	if writeErr := m.writer.Commit(ctx, id, store.EngineSet{ID: id,
-		Changes: store.EngineChanges{State: &failed, Reason: &reason}}); writeErr != nil {
+	set := store.EngineSet{ID: id, Changes: store.EngineChanges{State: &failed, Reason: &reason}}
+	if writeErr := m.writer.Commit(ctx, id, append(marks, set)...); writeErr != nil {
 		return fmt.Errorf("record session %s failed: %w", id, writeErr)
 	}
 	m.notify(ctx, id, dir, failed, reason)

@@ -25,6 +25,8 @@ const (
 	SessionsName = "orrery.v1.Sessions"
 	// EventsName is the fully-qualified name of the Events service.
 	EventsName = "orrery.v1.Events"
+	// ControlName is the fully-qualified name of the Control service.
+	ControlName = "orrery.v1.Control"
 )
 
 // These constants are the fully-qualified names of the RPCs defined in this package. They're
@@ -39,6 +41,18 @@ const (
 	SessionsListProcedure = "/orrery.v1.Sessions/List"
 	// EventsWatchProcedure is the fully-qualified name of the Events's Watch RPC.
 	EventsWatchProcedure = "/orrery.v1.Events/Watch"
+	// ControlStartProcedure is the fully-qualified name of the Control's Start RPC.
+	ControlStartProcedure = "/orrery.v1.Control/Start"
+	// ControlSayProcedure is the fully-qualified name of the Control's Say RPC.
+	ControlSayProcedure = "/orrery.v1.Control/Say"
+	// ControlAnswerProcedure is the fully-qualified name of the Control's Answer RPC.
+	ControlAnswerProcedure = "/orrery.v1.Control/Answer"
+	// ControlInterruptProcedure is the fully-qualified name of the Control's Interrupt RPC.
+	ControlInterruptProcedure = "/orrery.v1.Control/Interrupt"
+	// ControlStopProcedure is the fully-qualified name of the Control's Stop RPC.
+	ControlStopProcedure = "/orrery.v1.Control/Stop"
+	// ControlSeenProcedure is the fully-qualified name of the Control's Seen RPC.
+	ControlSeenProcedure = "/orrery.v1.Control/Seen"
 )
 
 // SessionsClient is a client for the orrery.v1.Sessions service.
@@ -183,4 +197,216 @@ type UnimplementedEventsHandler struct{}
 
 func (UnimplementedEventsHandler) Watch(context.Context, *connect.Request[v1.WatchRequest], *connect.ServerStream[v1.WatchResponse]) error {
 	return connect.NewError(connect.CodeUnimplemented, errors.New("orrery.v1.Events.Watch is not implemented"))
+}
+
+// ControlClient is a client for the orrery.v1.Control service.
+type ControlClient interface {
+	// Start starts a headless session in a directory and sends it its first prompt.
+	Start(context.Context, *connect.Request[v1.StartRequest]) (*connect.Response[v1.StartResponse], error)
+	// Say sends a prompt to a headless session.
+	Say(context.Context, *connect.Request[v1.SayRequest]) (*connect.Response[v1.SayResponse], error)
+	// Answer answers an open question or permission request of a headless session.
+	Answer(context.Context, *connect.Request[v1.AnswerRequest]) (*connect.Response[v1.AnswerResponse], error)
+	// Interrupt interrupts the turn a headless session is running.
+	Interrupt(context.Context, *connect.Request[v1.InterruptRequest]) (*connect.Response[v1.InterruptResponse], error)
+	// Stop stops a headless session.
+	Stop(context.Context, *connect.Request[v1.StopRequest]) (*connect.Response[v1.StopResponse], error)
+	// Seen records that the user has seen a headless session.
+	Seen(context.Context, *connect.Request[v1.SeenRequest]) (*connect.Response[v1.SeenResponse], error)
+}
+
+// NewControlClient constructs a client for the orrery.v1.Control service. By default, it uses the
+// Connect protocol with the binary Protobuf Codec, asks for gzipped responses, and sends
+// uncompressed requests. To use the gRPC or gRPC-Web protocols, supply the connect.WithGRPC() or
+// connect.WithGRPCWeb() options.
+//
+// The URL supplied here should be the base URL for the Connect or gRPC server (for example,
+// http://api.acme.com or https://acme.com/grpc).
+func NewControlClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) ControlClient {
+	baseURL = strings.TrimRight(baseURL, "/")
+	controlMethods := v1.File_orrery_v1_orrery_proto.Services().ByName("Control").Methods()
+	return &controlClient{
+		start: connect.NewClient[v1.StartRequest, v1.StartResponse](
+			httpClient,
+			baseURL+ControlStartProcedure,
+			connect.WithSchema(controlMethods.ByName("Start")),
+			connect.WithClientOptions(opts...),
+		),
+		say: connect.NewClient[v1.SayRequest, v1.SayResponse](
+			httpClient,
+			baseURL+ControlSayProcedure,
+			connect.WithSchema(controlMethods.ByName("Say")),
+			connect.WithClientOptions(opts...),
+		),
+		answer: connect.NewClient[v1.AnswerRequest, v1.AnswerResponse](
+			httpClient,
+			baseURL+ControlAnswerProcedure,
+			connect.WithSchema(controlMethods.ByName("Answer")),
+			connect.WithClientOptions(opts...),
+		),
+		interrupt: connect.NewClient[v1.InterruptRequest, v1.InterruptResponse](
+			httpClient,
+			baseURL+ControlInterruptProcedure,
+			connect.WithSchema(controlMethods.ByName("Interrupt")),
+			connect.WithClientOptions(opts...),
+		),
+		stop: connect.NewClient[v1.StopRequest, v1.StopResponse](
+			httpClient,
+			baseURL+ControlStopProcedure,
+			connect.WithSchema(controlMethods.ByName("Stop")),
+			connect.WithClientOptions(opts...),
+		),
+		seen: connect.NewClient[v1.SeenRequest, v1.SeenResponse](
+			httpClient,
+			baseURL+ControlSeenProcedure,
+			connect.WithSchema(controlMethods.ByName("Seen")),
+			connect.WithClientOptions(opts...),
+		),
+	}
+}
+
+// controlClient implements ControlClient.
+type controlClient struct {
+	start     *connect.Client[v1.StartRequest, v1.StartResponse]
+	say       *connect.Client[v1.SayRequest, v1.SayResponse]
+	answer    *connect.Client[v1.AnswerRequest, v1.AnswerResponse]
+	interrupt *connect.Client[v1.InterruptRequest, v1.InterruptResponse]
+	stop      *connect.Client[v1.StopRequest, v1.StopResponse]
+	seen      *connect.Client[v1.SeenRequest, v1.SeenResponse]
+}
+
+// Start calls orrery.v1.Control.Start.
+func (c *controlClient) Start(ctx context.Context, req *connect.Request[v1.StartRequest]) (*connect.Response[v1.StartResponse], error) {
+	return c.start.CallUnary(ctx, req)
+}
+
+// Say calls orrery.v1.Control.Say.
+func (c *controlClient) Say(ctx context.Context, req *connect.Request[v1.SayRequest]) (*connect.Response[v1.SayResponse], error) {
+	return c.say.CallUnary(ctx, req)
+}
+
+// Answer calls orrery.v1.Control.Answer.
+func (c *controlClient) Answer(ctx context.Context, req *connect.Request[v1.AnswerRequest]) (*connect.Response[v1.AnswerResponse], error) {
+	return c.answer.CallUnary(ctx, req)
+}
+
+// Interrupt calls orrery.v1.Control.Interrupt.
+func (c *controlClient) Interrupt(ctx context.Context, req *connect.Request[v1.InterruptRequest]) (*connect.Response[v1.InterruptResponse], error) {
+	return c.interrupt.CallUnary(ctx, req)
+}
+
+// Stop calls orrery.v1.Control.Stop.
+func (c *controlClient) Stop(ctx context.Context, req *connect.Request[v1.StopRequest]) (*connect.Response[v1.StopResponse], error) {
+	return c.stop.CallUnary(ctx, req)
+}
+
+// Seen calls orrery.v1.Control.Seen.
+func (c *controlClient) Seen(ctx context.Context, req *connect.Request[v1.SeenRequest]) (*connect.Response[v1.SeenResponse], error) {
+	return c.seen.CallUnary(ctx, req)
+}
+
+// ControlHandler is an implementation of the orrery.v1.Control service.
+type ControlHandler interface {
+	// Start starts a headless session in a directory and sends it its first prompt.
+	Start(context.Context, *connect.Request[v1.StartRequest]) (*connect.Response[v1.StartResponse], error)
+	// Say sends a prompt to a headless session.
+	Say(context.Context, *connect.Request[v1.SayRequest]) (*connect.Response[v1.SayResponse], error)
+	// Answer answers an open question or permission request of a headless session.
+	Answer(context.Context, *connect.Request[v1.AnswerRequest]) (*connect.Response[v1.AnswerResponse], error)
+	// Interrupt interrupts the turn a headless session is running.
+	Interrupt(context.Context, *connect.Request[v1.InterruptRequest]) (*connect.Response[v1.InterruptResponse], error)
+	// Stop stops a headless session.
+	Stop(context.Context, *connect.Request[v1.StopRequest]) (*connect.Response[v1.StopResponse], error)
+	// Seen records that the user has seen a headless session.
+	Seen(context.Context, *connect.Request[v1.SeenRequest]) (*connect.Response[v1.SeenResponse], error)
+}
+
+// NewControlHandler builds an HTTP handler from the service implementation. It returns the path on
+// which to mount the handler and the handler itself.
+//
+// By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
+// and JSON codecs. They also support gzip compression.
+func NewControlHandler(svc ControlHandler, opts ...connect.HandlerOption) (string, http.Handler) {
+	controlMethods := v1.File_orrery_v1_orrery_proto.Services().ByName("Control").Methods()
+	controlStartHandler := connect.NewUnaryHandler(
+		ControlStartProcedure,
+		svc.Start,
+		connect.WithSchema(controlMethods.ByName("Start")),
+		connect.WithHandlerOptions(opts...),
+	)
+	controlSayHandler := connect.NewUnaryHandler(
+		ControlSayProcedure,
+		svc.Say,
+		connect.WithSchema(controlMethods.ByName("Say")),
+		connect.WithHandlerOptions(opts...),
+	)
+	controlAnswerHandler := connect.NewUnaryHandler(
+		ControlAnswerProcedure,
+		svc.Answer,
+		connect.WithSchema(controlMethods.ByName("Answer")),
+		connect.WithHandlerOptions(opts...),
+	)
+	controlInterruptHandler := connect.NewUnaryHandler(
+		ControlInterruptProcedure,
+		svc.Interrupt,
+		connect.WithSchema(controlMethods.ByName("Interrupt")),
+		connect.WithHandlerOptions(opts...),
+	)
+	controlStopHandler := connect.NewUnaryHandler(
+		ControlStopProcedure,
+		svc.Stop,
+		connect.WithSchema(controlMethods.ByName("Stop")),
+		connect.WithHandlerOptions(opts...),
+	)
+	controlSeenHandler := connect.NewUnaryHandler(
+		ControlSeenProcedure,
+		svc.Seen,
+		connect.WithSchema(controlMethods.ByName("Seen")),
+		connect.WithHandlerOptions(opts...),
+	)
+	return "/orrery.v1.Control/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case ControlStartProcedure:
+			controlStartHandler.ServeHTTP(w, r)
+		case ControlSayProcedure:
+			controlSayHandler.ServeHTTP(w, r)
+		case ControlAnswerProcedure:
+			controlAnswerHandler.ServeHTTP(w, r)
+		case ControlInterruptProcedure:
+			controlInterruptHandler.ServeHTTP(w, r)
+		case ControlStopProcedure:
+			controlStopHandler.ServeHTTP(w, r)
+		case ControlSeenProcedure:
+			controlSeenHandler.ServeHTTP(w, r)
+		default:
+			http.NotFound(w, r)
+		}
+	})
+}
+
+// UnimplementedControlHandler returns CodeUnimplemented from all methods.
+type UnimplementedControlHandler struct{}
+
+func (UnimplementedControlHandler) Start(context.Context, *connect.Request[v1.StartRequest]) (*connect.Response[v1.StartResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.v1.Control.Start is not implemented"))
+}
+
+func (UnimplementedControlHandler) Say(context.Context, *connect.Request[v1.SayRequest]) (*connect.Response[v1.SayResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.v1.Control.Say is not implemented"))
+}
+
+func (UnimplementedControlHandler) Answer(context.Context, *connect.Request[v1.AnswerRequest]) (*connect.Response[v1.AnswerResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.v1.Control.Answer is not implemented"))
+}
+
+func (UnimplementedControlHandler) Interrupt(context.Context, *connect.Request[v1.InterruptRequest]) (*connect.Response[v1.InterruptResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.v1.Control.Interrupt is not implemented"))
+}
+
+func (UnimplementedControlHandler) Stop(context.Context, *connect.Request[v1.StopRequest]) (*connect.Response[v1.StopResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.v1.Control.Stop is not implemented"))
+}
+
+func (UnimplementedControlHandler) Seen(context.Context, *connect.Request[v1.SeenRequest]) (*connect.Response[v1.SeenResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.v1.Control.Seen is not implemented"))
 }

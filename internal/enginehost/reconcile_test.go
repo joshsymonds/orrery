@@ -186,6 +186,14 @@ func (f failingStore) EngineSession(context.Context, string) (store.EngineRow, e
 	return store.EngineRow{}, f.err
 }
 
+func (f failingStore) EnginePromptSent(context.Context, string, string) (bool, error) {
+	return false, f.err
+}
+
+func (f failingStore) EnginePromptFailure(context.Context, string, string) (string, bool, error) {
+	return "", false, f.err
+}
+
 func TestReconcileReturnsReadError(t *testing.T) {
 	errRead := errors.New("read failed")
 	writer := NewWriter(WriterConfig{Tick: time.Hour})
@@ -219,7 +227,7 @@ func TestReconcileLeavesLiveSessionAlone(t *testing.T) {
 	startRun(t, writer)
 	sink := &fakeSink{}
 	m := newReconcileManager(t, s, writer, sink)
-	id, err := m.Start(t.Context(), t.TempDir(), "STALL")
+	id, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "STALL"})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}

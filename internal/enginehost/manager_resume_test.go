@@ -63,7 +63,7 @@ func fakeArgs(t *testing.T, dir string) []string {
 func TestSayResumesStoppedSession(t *testing.T) {
 	m, path := newTestManager(t, 1, fakeClaudePath(t))
 	dir := t.TempDir()
-	id, err := m.Start(t.Context(), dir, "hi")
+	id, err := m.Start(t.Context(), StartRequest{Dir: dir, Prompt: "hi"})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -74,7 +74,7 @@ func TestSayResumesStoppedSession(t *testing.T) {
 		t.Fatalf("Stop: %v", err)
 	}
 
-	if err := m.Say(t.Context(), id, "again"); err != nil {
+	if err := m.Say(t.Context(), SayRequest{ID: id, Text: "again"}); err != nil {
 		t.Fatalf("Say of a stopped session: %v", err)
 	}
 	history := waitHistory(t, path, id, "the resumed reply block", func(h store.EngineHistory) bool {
@@ -93,7 +93,7 @@ func TestSayResumesStoppedSession(t *testing.T) {
 func TestSecondManagerResumesSession(t *testing.T) {
 	first, path := newTestManager(t, 1, fakeClaudePath(t))
 	dir := t.TempDir()
-	id, err := first.Start(t.Context(), dir, "hi")
+	id, err := first.Start(t.Context(), StartRequest{Dir: dir, Prompt: "hi"})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -103,7 +103,7 @@ func TestSecondManagerResumesSession(t *testing.T) {
 	first.Close()
 
 	second := newManagerOn(t, path, 1, fakeClaudePath(t), &fakeSink{})
-	if err := second.Say(t.Context(), id, "again"); err != nil {
+	if err := second.Say(t.Context(), SayRequest{ID: id, Text: "again"}); err != nil {
 		t.Fatalf("Say on a second manager: %v", err)
 	}
 	waitHistory(t, path, id, "the resumed reply block", func(h store.EngineHistory) bool {
@@ -127,7 +127,7 @@ func TestSecondManagerResumesSession(t *testing.T) {
 func TestSayAtCapRefusesAndStoresNothing(t *testing.T) {
 	m, path := newTestManager(t, 1, fakeClaudePath(t))
 	stoppedDir := t.TempDir()
-	id, err := m.Start(t.Context(), stoppedDir, "hi")
+	id, err := m.Start(t.Context(), StartRequest{Dir: stoppedDir, Prompt: "hi"})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -139,7 +139,7 @@ func TestSayAtCapRefusesAndStoresNothing(t *testing.T) {
 	}
 	before := historyOf(t, path, id)
 
-	other, err := m.Start(t.Context(), t.TempDir(), "hold the slot")
+	other, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "hold the slot"})
 	if err != nil {
 		t.Fatalf("Start of the session that fills the cap: %v", err)
 	}
@@ -147,7 +147,7 @@ func TestSayAtCapRefusesAndStoresNothing(t *testing.T) {
 		return hasBlock(t, h, "fake reply 1")
 	})
 
-	if err := m.Say(t.Context(), id, "again"); !errors.Is(err, ErrCapReached) {
+	if err := m.Say(t.Context(), SayRequest{ID: id, Text: "again"}); !errors.Is(err, ErrCapReached) {
 		t.Fatalf("Say at the cap error = %v, want ErrCapReached", err)
 	}
 	if after := historyOf(t, path, id); len(after.Events) != len(before.Events) {
@@ -186,7 +186,7 @@ func TestSayToBadDirectoryRecordsFailed(t *testing.T) {
 			sink := &fakeSink{}
 			m := newManagerOn(t, path, 1, fakeClaudePath(t), sink)
 			dir := t.TempDir()
-			id, err := m.Start(t.Context(), dir, "hi")
+			id, err := m.Start(t.Context(), StartRequest{Dir: dir, Prompt: "hi"})
 			if err != nil {
 				t.Fatalf("Start: %v", err)
 			}
@@ -198,7 +198,7 @@ func TestSayToBadDirectoryRecordsFailed(t *testing.T) {
 			}
 			tc.replace(t, dir)
 
-			if err := m.Say(t.Context(), id, "again"); !errors.Is(err, ErrBadDir) {
+			if err := m.Say(t.Context(), SayRequest{ID: id, Text: "again"}); !errors.Is(err, ErrBadDir) {
 				t.Fatalf("Say to a bad directory error = %v, want ErrBadDir", err)
 			}
 			history := historyOf(t, path, id)
@@ -230,7 +230,7 @@ func TestSayToBadDirectoryRecordsFailed(t *testing.T) {
 func TestConcurrentSaysStartOneProcess(t *testing.T) {
 	m, path := newTestManager(t, 1, fakeClaudePath(t))
 	dir := t.TempDir()
-	id, err := m.Start(t.Context(), dir, "hi")
+	id, err := m.Start(t.Context(), StartRequest{Dir: dir, Prompt: "hi"})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -248,7 +248,7 @@ func TestConcurrentSaysStartOneProcess(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			errs <- m.Say(t.Context(), id, fmt.Sprintf("again %d", i))
+			errs <- m.Say(t.Context(), SayRequest{ID: id, Text: fmt.Sprintf("again %d", i)})
 		}()
 	}
 	wg.Wait()
