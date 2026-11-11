@@ -93,9 +93,15 @@ func (f *fakeCommands) Seen(_ context.Context, id string) error {
 	return f.record(call{method: "Seen", id: id})
 }
 
-// startServer listens on a socket in a temp directory and serves commands on it. The returned stop cancels the
-// server's context and returns Serve's error. A test that does not call stop gets it through t.Cleanup.
+// startServer listens on a socket in a temp directory and serves commands on it, with no steps. The returned stop
+// cancels the server's context and returns Serve's error. A test that does not call stop gets it through t.Cleanup.
 func startServer(t *testing.T, commands Commands) (string, func() error) {
+	t.Helper()
+	return startServerWithSteps(t, commands, nil)
+}
+
+// startServerWithSteps is startServer with steps served beside commands.
+func startServerWithSteps(t *testing.T, commands Commands, steps StepCommands) (string, func() error) {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "engine.sock")
 	ln, err := Listen(path)
@@ -104,7 +110,7 @@ func startServer(t *testing.T, commands Commands) (string, func() error) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() { done <- Serve(ctx, ln, commands) }()
+	go func() { done <- Serve(ctx, ln, commands, steps) }()
 	var once sync.Once
 	var serveErr error
 	stop := func() error {
@@ -122,8 +128,8 @@ func startServer(t *testing.T, commands Commands) (string, func() error) {
 	return path, stop
 }
 
-// newClient returns an Engine client that dials the socket at path.
-func newClient(t *testing.T, path string) enginev1connect.EngineClient {
+// unixHTTPClient returns an HTTP client that dials the socket at path.
+func unixHTTPClient(t *testing.T, path string) *http.Client {
 	t.Helper()
 	transport := &http.Transport{
 		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
@@ -132,7 +138,13 @@ func newClient(t *testing.T, path string) enginev1connect.EngineClient {
 		},
 	}
 	t.Cleanup(transport.CloseIdleConnections)
-	return enginev1connect.NewEngineClient(&http.Client{Transport: transport}, "http://engine.invalid")
+	return &http.Client{Transport: transport}
+}
+
+// newClient returns an Engine client that dials the socket at path.
+func newClient(t *testing.T, path string) enginev1connect.EngineClient {
+	t.Helper()
+	return enginev1connect.NewEngineClient(unixHTTPClient(t, path), "http://engine.invalid")
 }
 
 // callAll calls each of the six RPCs once with fixed arguments and returns each error in order: Start, Say, Answer,

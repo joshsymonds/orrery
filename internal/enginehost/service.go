@@ -49,12 +49,15 @@ func Listen(socketPath string) (net.Listener, error) {
 	return ln, nil
 }
 
-// Serve answers the engine service on ln with commands until ctx ends. It then shuts down within shutdownWait and
-// returns nil. A nil commands refuses every RPC as unavailable.
-func Serve(ctx context.Context, ln net.Listener, commands Commands) error {
+// Serve answers the engine service on ln with commands and the steps service with steps until ctx ends. It then shuts
+// down within shutdownWait and returns nil. A nil commands refuses every engine RPC as unavailable, and a nil steps
+// refuses every step RPC as unavailable.
+func Serve(ctx context.Context, ln net.Listener, commands Commands, steps StepCommands) error {
 	path, handler := enginev1connect.NewEngineHandler(&service{commands: commands})
+	stepsPath, stepsHandler := enginev1connect.NewStepsHandler(&stepService{steps: steps})
 	mux := http.NewServeMux()
 	mux.Handle(path, handler)
+	mux.Handle(stepsPath, stepsHandler)
 	srv := &http.Server{Handler: mux, ReadHeaderTimeout: readHeaderTimeout}
 
 	done := make(chan error, 1)

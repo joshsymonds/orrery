@@ -408,7 +408,7 @@ func startSessions(
 	}
 	var serveCtx context.Context
 	serveCtx, host.stopServe = context.WithCancel(ctx)
-	go func() { host.serveDone <- enginehost.Serve(serveCtx, ln, commands) }()
+	go func() { host.serveDone <- enginehost.Serve(serveCtx, ln, commands, nil) }()
 	return host, nil
 }
 

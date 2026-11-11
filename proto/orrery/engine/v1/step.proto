@@ -1,0 +1,155 @@
+syntax = "proto3";
+
+package orrery.engine.v1;
+
+// Steps runs steps: agent loops that end with a checked status. orreryd serves it on the same private socket as Engine,
+// mode 0600, and never on the public orrery serve API.
+service Steps {
+  // StartStep starts a step and returns its id once its row exists. A start that is refused returns the refusal and no
+  // id. A writing step runs in its workspace; a read-only step runs in a detached worktree at its revision.
+  rpc StartStep(StartStepRequest) returns (StartStepResponse);
+
+  // StopStep ends a step's loop.
+  rpc StopStep(StopStepRequest) returns (StopStepResponse);
+
+  // StepStatus returns a step's row.
+  rpc StepStatus(StepStatusRequest) returns (StepStatusResponse);
+
+  // WaitSteps blocks until the first of the named steps ends or the timeout passes. A timeout of zero returns at once.
+  rpc WaitSteps(WaitStepsRequest) returns (WaitStepsResponse);
+}
+
+// StartStepRequest asks for a new step.
+message StartStepRequest {
+  // The agent the step runs as.
+  string agent = 1;
+
+  // The step's first prompt.
+  string prompt = 2;
+
+  // The JSON schema the step's done return must match.
+  string schema = 3;
+
+  // The absolute directory the step runs in. A writing step runs in it; a read-only step adds its worktree to it.
+  string workspace = 4;
+
+  // The revision the step starts at. Empty means HEAD.
+  string revision = 5;
+
+  // Whether the step is read-only. A read-only step runs in a detached worktree removed when the step ends.
+  bool read_only = 6;
+
+  // The paths, relative to the repository, a writing step may change.
+  repeated string owned_paths = 7;
+
+  // The gate program and its arguments that the step's return is checked against. Empty runs no gate.
+  repeated string gate = 8;
+
+  // How many seconds the gate may run. Zero means 30 minutes.
+  uint32 gate_limit_seconds = 9;
+
+  // The status the step's done return carries. Empty means "done".
+  string done_value = 10;
+}
+
+// StartStepResponse names the started step.
+message StartStepResponse {
+  // The new step's id.
+  string id = 1;
+}
+
+// StopStepRequest asks for a step's loop to end.
+message StopStepRequest {
+  // The step's id.
+  string id = 1;
+}
+
+// StopStepResponse acknowledges a stop. It has no fields.
+message StopStepResponse {}
+
+// StepStatusRequest asks for a step's row.
+message StepStatusRequest {
+  // The step's id.
+  string id = 1;
+}
+
+// StepStatusResponse carries a step's row.
+message StepStatusResponse {
+  // The step.
+  Step step = 1;
+}
+
+// WaitStepsRequest asks for the first of the named steps to end.
+message WaitStepsRequest {
+  // The ids of the steps to wait for.
+  repeated string ids = 1;
+
+  // How many seconds to wait. Zero returns at once.
+  uint32 timeout_seconds = 2;
+}
+
+// WaitStepsResponse reports the step that ended first, if any, and every named step's row.
+message WaitStepsResponse {
+  // The first step to end. Unset when the timeout passed before any of the steps ended.
+  Step ended = 1;
+
+  // Every named step, in the order the request named them.
+  repeated Step steps = 2;
+}
+
+// Step is a step's row.
+message Step {
+  // The step's id.
+  string id = 1;
+
+  // The agent the step runs as.
+  string agent = 2;
+
+  // The directory the step runs in.
+  string workspace = 3;
+
+  // The commit the step started at.
+  string revision = 4;
+
+  // Whether the step is read-only.
+  bool read_only = 5;
+
+  // The worktree the step runs in. Empty for a writing step, which runs in its workspace.
+  string worktree = 6;
+
+  // How the step ended. Empty while it runs.
+  string end = 7;
+
+  // The step's status: the done value its return carried, or the status it ended with.
+  string status = 8;
+
+  // The step's latest result, as its return carried it.
+  string result = 9;
+
+  // The checks the step's returns ran, in the rounds they ran in.
+  repeated StepCheck checks = 10;
+
+  // Why the step ended. Empty while it runs.
+  string reason = 11;
+
+  // When the step started, in unix seconds.
+  int64 started = 12;
+
+  // When the step ended, in unix seconds. Zero while it runs.
+  int64 ended = 13;
+}
+
+// StepCheck is one check a step's return ran.
+message StepCheck {
+  // The round the check ran in.
+  uint32 round = 1;
+
+  // The check's name.
+  string name = 2;
+
+  // Whether the check passed.
+  bool ok = 3;
+
+  // The check's detail, such as the failure it reported.
+  string detail = 4;
+}
