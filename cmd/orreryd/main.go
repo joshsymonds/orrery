@@ -48,6 +48,8 @@ const (
 	defaultClaude = "claude"
 	// defaultSessionCap is the most live engine sessions at once when --session-cap is not given.
 	defaultSessionCap = 4
+	// defaultStepCap is the most live step sessions at once when --step-cap is not given.
+	defaultStepCap = 6
 	// notifyTimeout bounds each notification request.
 	notifyTimeout = 10 * time.Second
 	// waitingBody and doneBody stand in for an empty question or summary.
@@ -57,6 +59,7 @@ const (
 
 const usageText = `usage: orreryd [-L NAME | -S PATH] [--socket PATH] [--claude PATH] [--summary-model CONTEXT=MODEL]...
                [--push-host HOST]... [--sessions] [--session-cap N] [--session-shell PATH]
+               [--step-cap N] [--gate-lock PATH]...
 
 flags:
   -L NAME           tmux server by name (tmux -L)
@@ -71,6 +74,9 @@ flags:
   --session-cap N   most live engine sessions at once (default 4)
   --session-shell PATH
                     absolute login shell that starts each session (default $SHELL)
+  --step-cap N      most live step sessions at once, counted apart from --session-cap (default 6)
+  --gate-lock PATH  absolute lock file a step gate holds; repeat for each lock
+                    (default the two heavy wrapper slots under /tmp/claude-<uid>)
 `
 
 // usageError is a command line refused before any work. It exits 2 and prints the usage text.
@@ -98,18 +104,20 @@ type options struct {
 	sessions      bool
 	sessionCap    int
 	sessionShell  string
+	stepCap       int
+	gateLocks     []string
 }
 
-// hostFlag is the repeatable --push-host flag. It collects the push relay hosts in the order given.
-type hostFlag []string
+// repeatFlag is a repeatable string flag. It collects the values in the order given.
+type repeatFlag []string
 
 // String implements flag.Value.
-func (h *hostFlag) String() string {
+func (h *repeatFlag) String() string {
 	return strings.Join(*h, ",")
 }
 
 // Set implements flag.Value.
-func (h *hostFlag) Set(value string) error {
+func (h *repeatFlag) Set(value string) error {
 	*h = append(*h, value)
 	return nil
 }
@@ -176,11 +184,14 @@ func parseFlags(args []string, getenv func(string) string) (options, error) {
 	claude := flags.String("claude", defaultClaude, "claude binary to run")
 	models := modelFlag{}
 	flags.Var(models, "summary-model", "summary model as CONTEXT=MODEL")
-	var pushHosts hostFlag
+	var pushHosts repeatFlag
 	flags.Var(&pushHosts, "push-host", "push relay host, repeatable")
 	sessions := flags.Bool("sessions", false, "serve the engine session service")
 	sessionCap := flags.Int("session-cap", defaultSessionCap, "most live engine sessions")
 	sessionShell := flags.String("session-shell", getenv("SHELL"), "login shell that starts each session")
+	stepCap := flags.Int("step-cap", defaultStepCap, "most live step sessions")
+	var gateLocks repeatFlag
+	flags.Var(&gateLocks, "gate-lock", "absolute gate lock file, repeatable")
 	if err := flags.Parse(args); err != nil {
 		return options{}, usagef("%v", err)
 	}
@@ -199,12 +210,21 @@ func parseFlags(args []string, getenv func(string) string) (options, error) {
 	if *sessions && !filepath.IsAbs(*sessionShell) {
 		return options{}, usagef("--sessions needs an absolute --session-shell, got %q", *sessionShell)
 	}
+	if *stepCap < 1 {
+		return options{}, usagef("--step-cap must be at least 1, got %d", *stepCap)
+	}
+	if err := checkGateLocks(gateLocks); err != nil {
+		return options{}, err
+	}
 	socket, err := protocol.SocketPath(*daemonSocket, getenv)
 	if err != nil {
 		return options{}, usagef("%v", err)
 	}
 	if len(pushHosts) == 0 {
-		pushHosts = hostFlag{push.DefaultPushHost}
+		pushHosts = repeatFlag{push.DefaultPushHost}
+	}
+	if len(gateLocks) == 0 {
+		gateLocks = defaultGateLocks()
 	}
 	server := tmuxctl.Server{Name: *tmuxName, Socket: *tmuxSocket}
 	var defaultServer tmuxctl.Server
@@ -221,7 +241,26 @@ func parseFlags(args []string, getenv func(string) string) (options, error) {
 		sessions:      *sessions,
 		sessionCap:    *sessionCap,
 		sessionShell:  *sessionShell,
+		stepCap:       *stepCap,
+		gateLocks:     gateLocks,
 	}, nil
+}
+
+// checkGateLocks refuses a --gate-lock path that is not absolute.
+func checkGateLocks(locks []string) error {
+	for _, lock := range locks {
+		if !filepath.IsAbs(lock) {
+			return usagef("--gate-lock must be an absolute path, got %q", lock)
+		}
+	}
+	return nil
+}
+
+// defaultGateLocks returns the two lock files the heavy wrapper's slots use, so a step gate and a wrapped job share
+// the machine's heavy slots.
+func defaultGateLocks() repeatFlag {
+	dir := fmt.Sprintf("/tmp/claude-%d", os.Getuid())
+	return repeatFlag{filepath.Join(dir, "orrery-heavy.lock"), filepath.Join(dir, "orrery-heavy-2.lock")}
 }
 
 // defaultTmuxSocket returns the socket path tmux gives its default server. The directory is the symlink-resolved
@@ -312,7 +351,7 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 	})
 	var sessions *sessionHost
 	if opts.sessions {
-		sessions, err = startSessions(ctx, opts, st, notifier, logger)
+		sessions, err = startSessions(ctx, opts, st, notifier, logger, getenv)
 		if err != nil {
 			closeStore(ctx, st, logger)
 			return errors.Join(err, ln.Close())
@@ -343,6 +382,7 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 // closes.
 type sessionHost struct {
 	manager    *enginehost.Manager
+	steps      *enginehost.Steps
 	writer     *enginehost.Writer
 	notifier   *enginehost.Notifier
 	stopWriter context.CancelFunc
@@ -353,16 +393,18 @@ type sessionHost struct {
 	serveDone  chan error
 }
 
-// startSessions listens on sessions.sock beside the daemon socket and serves the Engine service on it until stop. With
-// an open store it also starts the writer and a manager capped at opts.sessionCap that notifies through notifier. The
-// manager reconciles the rows a previous run left before the service serves, and stops idle sessions until stop. A
-// reconcile failure is logged and serving goes on.
+// startSessions listens on sessions.sock beside the daemon socket and serves the Engine and Steps services on it until
+// stop. With an open store it also starts the writer, a manager capped at opts.sessionCap that notifies through
+// notifier, and the step engine capped at opts.stepCap whose gates hold opts.gateLocks and whose worktrees go under
+// step-worktrees beside the store file. The manager reconciles the rows a previous run left before the service serves,
+// then the steps do, and the manager stops idle sessions until stop. A reconcile failure is logged and serving goes on.
 func startSessions(
 	ctx context.Context,
 	opts options,
 	st *store.Store,
 	notifier *enginehost.Notifier,
 	logger *slog.Logger,
+	getenv func(string) string,
 ) (*sessionHost, error) {
 	host := &sessionHost{
 		notifier:   notifier,
@@ -371,20 +413,36 @@ func startSessions(
 		serveDone:  make(chan error, 1),
 	}
 	var commands enginehost.Commands
+	var stepCommands enginehost.StepCommands
 	if st != nil {
+		storePath, err := store.Path(getenv)
+		if err != nil {
+			return nil, fmt.Errorf("step worktrees: %w", err)
+		}
 		host.writer = enginehost.NewWriter(enginehost.WriterConfig{Applier: st, Logger: logger})
 		host.manager = enginehost.NewManager(enginehost.Config{
 			Shell:    opts.sessionShell,
 			Claude:   opts.claude,
 			Environ:  os.Environ(),
 			Cap:      opts.sessionCap,
+			StepCap:  opts.stepCap,
 			Writer:   host.writer,
 			Notifier: notifier,
 			Store:    st,
 			Logger:   logger,
 		})
+		host.steps = enginehost.NewSteps(enginehost.StepsConfig{
+			Sessions:  host.manager,
+			Store:     st,
+			Writer:    host.writer,
+			Locks:     opts.gateLocks,
+			Worktrees: filepath.Join(filepath.Dir(storePath), "step-worktrees"),
+			Environ:   os.Environ(),
+			Logger:    logger,
+		})
 		st.SetEngineLive(host.manager.Live)
 		commands = host.manager
+		stepCommands = host.steps
 		var writerCtx context.Context
 		writerCtx, host.stopWriter = context.WithCancel(context.WithoutCancel(ctx))
 		go func() {
@@ -393,6 +451,9 @@ func startSessions(
 		}()
 		if reconcileErr := host.manager.Reconcile(ctx); reconcileErr != nil {
 			logger.ErrorContext(ctx, "reconcile sessions, serving anyway", "error", reconcileErr)
+		}
+		if reconcileErr := host.steps.Reconcile(ctx); reconcileErr != nil {
+			logger.ErrorContext(ctx, "reconcile steps, serving anyway", "error", reconcileErr)
 		}
 		var idleCtx context.Context
 		idleCtx, host.stopIdle = context.WithCancel(ctx)
@@ -408,7 +469,7 @@ func startSessions(
 	}
 	var serveCtx context.Context
 	serveCtx, host.stopServe = context.WithCancel(ctx)
-	go func() { host.serveDone <- enginehost.Serve(serveCtx, ln, commands, nil) }()
+	go func() { host.serveDone <- enginehost.Serve(serveCtx, ln, commands, stepCommands) }()
 	return host, nil
 }
 
@@ -424,12 +485,13 @@ func (h *sessionHost) stop() error {
 	return nil
 }
 
-// shutdown stops the idle check, stops every live session and waits for the notices they started, and ends the writer
-// after its last flush. Without a manager and writer it does nothing.
+// shutdown stops the idle check, ends every step loop, stops every live session and waits for the notices they started,
+// and ends the writer after its last flush. Without a manager and writer it does nothing.
 func (h *sessionHost) shutdown() {
 	if h.manager != nil {
 		h.stopIdle()
 		<-h.idleDone
+		h.steps.Close()
 		h.manager.Close()
 		h.notifier.Wait()
 	}
