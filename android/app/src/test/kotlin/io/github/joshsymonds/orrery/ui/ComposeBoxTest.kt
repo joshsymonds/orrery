@@ -25,6 +25,8 @@ import androidx.core.content.res.ResourcesCompat
 import io.github.joshsymonds.orrery.R
 import io.github.joshsymonds.orrery.api.FakeOrreryServer
 import io.github.joshsymonds.orrery.api.OrreryClient
+import java.net.InetAddress
+import java.net.ServerSocket
 import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -49,6 +51,10 @@ private const val STATUS = "synthetic status line"
 private const val COMPOSER_TAG = "composer"
 private const val SEND_ALIGNMENT_TOLERANCE_PX = 1f
 private const val LONG_DRAFT_LINES = 12
+private const val NOT_SENT_LABEL = "not sent"
+private const val NO_ANSWER_LABEL = "no answer — check before resending"
+private const val COMPOSE_TIMEOUT_MS = 200
+private const val SLOW_ANSWER_MS = 2_000L
 private val CAPPED_FIELD_HEIGHT = 60.dp
 
 @RunWith(RobolectricTestRunner::class)
@@ -117,6 +123,73 @@ class ComposeBoxTest {
         assertEquals(1, server.requests.size)
         assertEquals(DRAFT, editField().text.toString())
         composeRule.onNodeWithText("Send").assertIsEnabled()
+    }
+
+    @Test
+    fun answeredSendShowsNeitherLabel() {
+        server.respond("POST", TEXT_PATH, 204)
+        setBox()
+        setDraft(DRAFT)
+
+        composeRule.onNodeWithText("Send").performClick()
+        composeRule.waitUntil(WAIT_MS) { editField().text.isEmpty() }
+        composeRule.waitForIdle()
+
+        assertNoOutcomeLabel()
+    }
+
+    @Test
+    fun refusedConnectionKeepsDraftAndShowsNotSent() {
+        val closedPort = ServerSocket(0, 0, InetAddress.getByName("127.0.0.1")).use { it.localPort }
+        setBox(client = OrreryClient("http://127.0.0.1:$closedPort"))
+        setDraft(DRAFT)
+
+        composeRule.onNodeWithText("Send").performClick()
+        composeRule.waitUntil(WAIT_MS) {
+            composeRule.onAllNodesWithText(NOT_SENT_LABEL).fetchSemanticsNodes().isNotEmpty()
+        }
+
+        assertEquals(DRAFT, editField().text.toString())
+        assertTrue(composeRule.onAllNodesWithText(NO_ANSWER_LABEL).fetchSemanticsNodes().isEmpty())
+    }
+
+    @Test
+    fun slowSendKeepsDraftAndShowsNoAnswerNotNotSent() {
+        server.respond("POST", TEXT_PATH, 204, delayMillis = SLOW_ANSWER_MS)
+        setBox(client = slowClient())
+        setDraft(DRAFT)
+
+        composeRule.onNodeWithText("Send").performClick()
+        composeRule.waitUntil(WAIT_MS) {
+            composeRule.onAllNodesWithText(NO_ANSWER_LABEL).fetchSemanticsNodes().isNotEmpty()
+        }
+
+        assertEquals(1, server.requests.size)
+        assertEquals(DRAFT, editField().text.toString())
+        assertTrue(composeRule.onAllNodesWithText(NOT_SENT_LABEL).fetchSemanticsNodes().isEmpty())
+        composeRule.onNodeWithText("Send").assertIsEnabled()
+    }
+
+    @Test
+    fun nextSendClearsNoAnswerLabel() {
+        server.respond("POST", TEXT_PATH, 204, delayMillis = SLOW_ANSWER_MS)
+        setBox(client = slowClient())
+        setDraft(DRAFT)
+        composeRule.onNodeWithText("Send").performClick()
+        composeRule.waitUntil(WAIT_MS) {
+            composeRule.onAllNodesWithText(NO_ANSWER_LABEL).fetchSemanticsNodes().isNotEmpty()
+        }
+
+        // FakeOrreryServer answers one request at a time, so the second request would queue behind the
+        // slow answer and miss the compose timeout. Let that answer finish first.
+        Thread.sleep(SLOW_ANSWER_MS)
+        server.respond("POST", TEXT_PATH, 204)
+        composeRule.onNodeWithText("Send").performClick()
+        composeRule.waitUntil(WAIT_MS) { editField().text.isEmpty() }
+        composeRule.waitForIdle()
+
+        assertEquals(2, server.requests.size)
+        assertNoOutcomeLabel()
     }
 
     @Test
@@ -264,14 +337,21 @@ class ComposeBoxTest {
         assertEquals(listOf(false, true, false), reports)
     }
 
+    private fun slowClient(): OrreryClient = OrreryClient(server.baseUrl, composeReadTimeoutMillis = COMPOSE_TIMEOUT_MS)
+
+    private fun assertNoOutcomeLabel() {
+        assertTrue(composeRule.onAllNodesWithText(NOT_SENT_LABEL).fetchSemanticsNodes().isEmpty())
+        assertTrue(composeRule.onAllNodesWithText(NO_ANSWER_LABEL).fetchSemanticsNodes().isEmpty())
+    }
+
     private fun setBox(
         paneId: MutableState<String> = mutableStateOf(PANE_ID),
         hint: String = "",
         status: (@Composable () -> Unit)? = null,
         onDraftPresent: (Boolean) -> Unit = {},
         maxFieldHeight: Dp = Dp.Unspecified,
+        client: OrreryClient = OrreryClient(server.baseUrl),
     ) {
-        val client = OrreryClient(server.baseUrl)
         composeRule.setContent {
             ComposeBox(
                 paneId = paneId.value,

@@ -43,6 +43,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.res.ResourcesCompat
 import androidx.core.view.OneShotPreDrawListener
 import io.github.joshsymonds.orrery.R
+import io.github.joshsymonds.orrery.api.NoAnswerException
 import io.github.joshsymonds.orrery.api.OrreryClient
 import io.github.joshsymonds.orrery.ui.theme.Mocha
 import kotlinx.coroutines.Dispatchers
@@ -69,10 +70,17 @@ private val COMPOSER_PAD_V = 10.dp
 private const val FOCUSED_OUTLINE_ALPHA = 0.7f
 
 /**
+ * Why a send left its draft in the field. [NOT_SENT] is a failed connection or an error answer, so
+ * the server did not take the message. [NO_ANSWER] means the request was written and no answer came
+ * in time, so the server may have taken it.
+ */
+private enum class SendFailure { NOT_SENT, NO_ANSWER }
+
+/**
  * The composer for one pane, laid out like a text message: the draft field takes the row and
  * Send sits at its trailing edge, level with the field's bottom as the field grows. Send posts
- * the whole draft in one call and clears it only after that call succeeds. The field is locked
- * while a send is in flight, so the draft cannot change under the request.
+ * the whole draft in one call and clears it only after the server answers with a success. The
+ * field is locked while a send is in flight, so the draft cannot change under the request.
  *
  * The composer is its own band: a hairline above, a mantle bar, and a filled, outlined field whose
  * outline turns mauve while it has focus; a tap anywhere in the field focuses it. [status], when
@@ -110,7 +118,7 @@ private fun ComposeDraft(
 ) {
     var draft by remember { mutableStateOf("") }
     var sending by remember { mutableStateOf(false) }
-    var failed by remember { mutableStateOf(false) }
+    var failure by remember { mutableStateOf<SendFailure?>(null) }
     var focused by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val density = LocalDensity.current
@@ -200,21 +208,23 @@ private fun ComposeDraft(
                 onClick = {
                     val text = draft
                     sending = true
-                    failed = false
+                    failure = null
                     scope.launch {
-                        val sent = withContext(Dispatchers.IO) {
+                        val outcome = withContext(Dispatchers.IO) {
                             try {
-                                client.sendText(paneId, text)
-                                true
+                                client.sendComposed(paneId, text)
+                                null
+                            } catch (error: NoAnswerException) {
+                                SendFailure.NO_ANSWER
                             } catch (error: IOException) {
-                                false
+                                SendFailure.NOT_SENT
                             }
                         }
                         sending = false
-                        if (sent) {
+                        if (outcome == null) {
                             draft = ""
                         } else {
-                            failed = true
+                            failure = outcome
                         }
                     }
                 },
@@ -222,11 +232,17 @@ private fun ComposeDraft(
                 Text("Send", fontWeight = FontWeight.Bold)
             }
         }
-        if (failed) {
+        failure?.let { reason ->
             Text(
-                "not sent",
+                when (reason) {
+                    SendFailure.NOT_SENT -> "not sent"
+                    SendFailure.NO_ANSWER -> "no answer — check before resending"
+                },
                 modifier = Modifier.padding(start = 14.dp, bottom = 6.dp),
-                color = Mocha.Red,
+                color = when (reason) {
+                    SendFailure.NOT_SENT -> Mocha.Red
+                    SendFailure.NO_ANSWER -> Mocha.Yellow
+                },
                 fontSize = 12.sp,
             )
         }
