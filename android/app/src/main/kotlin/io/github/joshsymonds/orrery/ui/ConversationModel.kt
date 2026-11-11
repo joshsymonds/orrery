@@ -47,7 +47,10 @@ fun foldConversation(items: List<ConversationItem>): List<ConvoEntry> {
                         if (item.time > 0) entries.add(ConvoEntry.Time(item.time))
                         entries.add(ConvoEntry.Prompt(item.text, item.time))
                     }
-                    "reply" -> entries.add(ConvoEntry.Reply(item.text, item.time))
+                    "reply" -> {
+                        if (item.time > 0) entries.add(ConvoEntry.Time(item.time))
+                        entries.add(ConvoEntry.Reply(item.text, item.time))
+                    }
                 }
             }
         }

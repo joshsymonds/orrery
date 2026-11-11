@@ -54,6 +54,7 @@ class ConversationContractTest {
                 ConvoEntry.Time(1700000000L),
                 ConvoEntry.Prompt("Example opening prompt.", 1700000000L),
                 ConvoEntry.Notice("compaction", "", false, 1700000050L),
+                ConvoEntry.Time(1700000100L),
                 ConvoEntry.Reply("Example reply.", 1700000100L),
                 ConvoEntry.Tool(ToolCall("example-tool-use", "Bash", "example command", "Example output.", false)),
                 ConvoEntry.Notice("task", "Example task finished.", false, 1700000300L),
