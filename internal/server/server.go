@@ -19,6 +19,8 @@ import (
 	"sync"
 	"time"
 
+	"connectrpc.com/connect"
+
 	"github.com/joshsymonds/orrery/internal/cli"
 	"github.com/joshsymonds/orrery/internal/conversation"
 	enginev1connect "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1/enginev1connect"
@@ -235,29 +237,41 @@ func checkConfig(cfg Config) (map[string]struct{}, error) {
 	return allowed, nil
 }
 
-// servePanes answers GET /v1/panes with the array cli.List writes for tmux, each pane carrying the
-// question_hash of its question and the newest_reply of its transcript, as paneNewestReply gives it. newest
-// keeps each transcript's newest time across requests. With no running server the array is empty.
+// servePanes answers GET /v1/panes with the panes listPanes gives, as JSON.
 func servePanes(tmux *tmuxctl.Client, newest *conversation.Newest) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		var list bytes.Buffer
-		if err := cli.List(r.Context(), tmux, []string{"--json"}, &list); err != nil {
-			http.Error(w, "internal server error", http.StatusInternalServerError)
+		panes, err := listPanes(r.Context(), tmux, newest)
+		if err != nil {
+			writeRouteError(w, err)
 			return
-		}
-		var panes []map[string]json.RawMessage
-		if err := json.Unmarshal(list.Bytes(), &panes); err != nil {
-			http.Error(w, "internal server error", http.StatusInternalServerError)
-			return
-		}
-		for _, pane := range panes {
-			if err := addPaneFields(r.Context(), tmux, newest, pane); err != nil {
-				http.Error(w, "internal server error", http.StatusInternalServerError)
-				return
-			}
 		}
 		writeJSON(w, http.StatusOK, panes)
 	}
+}
+
+// listPanes returns the array GET /v1/panes answers: the array cli.List writes for tmux, each pane carrying the
+// question_hash of its question and the newest_reply of its transcript, as paneNewestReply gives it. newest
+// keeps each transcript's newest time across requests. With no running server the array is empty. Any failure is
+// a routeError with status 500.
+func listPanes(
+	ctx context.Context,
+	tmux *tmuxctl.Client,
+	newest *conversation.Newest,
+) ([]map[string]json.RawMessage, error) {
+	var list bytes.Buffer
+	if err := cli.List(ctx, tmux, []string{"--json"}, &list); err != nil {
+		return nil, internalError()
+	}
+	var panes []map[string]json.RawMessage
+	if err := json.Unmarshal(list.Bytes(), &panes); err != nil {
+		return nil, internalError()
+	}
+	for _, pane := range panes {
+		if err := addPaneFields(ctx, tmux, newest, pane); err != nil {
+			return nil, internalError()
+		}
+	}
+	return panes, nil
 }
 
 // addPaneFields sets the questionHashKey and newestReplyKey fields of pane, which holds one pane of cli.List.
@@ -874,6 +888,60 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", jsonContentType)
 	w.WriteHeader(status)
 	_, _ = w.Write(body)
+}
+
+// routeError is a failure of a route's shared core: the HTTP status and plain-text message its REST answer
+// carries, and the message its Connect twin carries too.
+type routeError struct {
+	status  int
+	message string
+}
+
+// Error returns the message of the failure.
+func (e routeError) Error() string {
+	return e.message
+}
+
+// internalError returns the routeError of a failure no caller can act on: 500 with the internal server error message.
+func internalError() routeError {
+	return routeError{status: http.StatusInternalServerError, message: "internal server error"}
+}
+
+// writeRouteError answers the REST route with err's status and message, as http.Error writes them. An error that
+// is not a routeError is answered as an internal failure.
+func writeRouteError(w http.ResponseWriter, err error) {
+	var route routeError
+	if !errors.As(err, &route) {
+		route = internalError()
+	}
+	http.Error(w, route.message, route.status)
+}
+
+// connectError returns the Connect error of err, carrying err's message. The code follows the routeError's status
+// by the Phone API table of docs/contract.md: 400 and 422 are invalid_argument, 404 is not_found, 409 is aborted,
+// 410 is failed_precondition, 500 is internal, and 502 is unavailable. The status alone decides the code, so every
+// 409 is aborted. An error that is not a routeError is internal.
+func connectError(err error) *connect.Error {
+	var route routeError
+	if !errors.As(err, &route) {
+		route = internalError()
+	}
+	var code connect.Code
+	switch route.status {
+	case http.StatusBadRequest, http.StatusUnprocessableEntity:
+		code = connect.CodeInvalidArgument
+	case http.StatusNotFound:
+		code = connect.CodeNotFound
+	case http.StatusConflict:
+		code = connect.CodeAborted
+	case http.StatusGone:
+		code = connect.CodeFailedPrecondition
+	case http.StatusBadGateway:
+		code = connect.CodeUnavailable
+	default:
+		code = connect.CodeInternal
+	}
+	return connect.NewError(code, errors.New(route.message))
 }
 
 // isWrite reports whether method is one the guard checks for a JSON content type and client header.
