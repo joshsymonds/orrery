@@ -28,6 +28,9 @@ const stepDefaultGateLimit = 30 * time.Minute
 // stepDefaultModelLimit is how long a step's model time may run when its StepStart names no limit.
 const stepDefaultModelLimit = 60 * time.Minute
 
+// stepDefaultWatchTick is how often a started step's watch is checked when StepsConfig names no tick.
+const stepDefaultWatchTick = 5 * time.Second
+
 // StepStart describes a step to start. A writing step (ReadOnly false) runs in Workspace, a linked worktree, and its
 // done return is checked against its commit and Owned paths and its Gate. A read-only step runs in a detached worktree
 // at Revision, which is removed when the step ends. Revision names the start commit and empty means HEAD. DoneValue
@@ -55,7 +58,9 @@ type StepStore interface {
 
 // StepsConfig configures Steps. Sessions starts and stops the step sessions, Store reads the step rows and Writer
 // stores the ops of the step loops. Locks are the gate lock files and Environ is the environment gates run in.
-// Worktrees is the directory read-only steps' worktrees are added under, one per step id. A nil Logger discards.
+// Worktrees is the directory read-only steps' worktrees are added under, one per step id. A nil Logger discards. Haiku
+// makes the monitor and judge calls of every started step, and nil makes none. Now is the clock each step's watch reads,
+// time.Now when nil. WatchTick is how often each started step's watch is checked, five seconds when zero.
 type StepsConfig struct {
 	Sessions  stepSessions
 	Store     StepStore
@@ -64,6 +69,9 @@ type StepsConfig struct {
 	Worktrees string
 	Environ   []string
 	Logger    *slog.Logger
+	Haiku     *Haiku
+	Now       func() time.Time
+	WatchTick time.Duration
 }
 
 // Steps starts steps and reports their rows. Each started step's loop runs under a context Steps owns: loops holds the
@@ -77,6 +85,9 @@ type Steps struct {
 	worktrees string
 	environ   []string
 	logger    *slog.Logger
+	haiku     *Haiku
+	now       func() time.Time
+	tick      time.Duration
 
 	mu    sync.Mutex
 	loops map[string]context.CancelFunc
@@ -90,6 +101,10 @@ func NewSteps(cfg StepsConfig) *Steps {
 	if logger == nil {
 		logger = slog.New(slog.DiscardHandler)
 	}
+	tick := cfg.WatchTick
+	if tick == 0 {
+		tick = stepDefaultWatchTick
+	}
 	steps := &Steps{
 		sessions:  cfg.Sessions,
 		store:     cfg.Store,
@@ -98,6 +113,9 @@ func NewSteps(cfg StepsConfig) *Steps {
 		worktrees: cfg.Worktrees,
 		environ:   cfg.Environ,
 		logger:    logger,
+		haiku:     cfg.Haiku,
+		now:       cfg.Now,
+		tick:      tick,
 		loops:     map[string]context.CancelFunc{},
 		runs:      map[string]*stepRun{},
 	}
@@ -157,7 +175,10 @@ func (s *Steps) Start(ctx context.Context, start StepStart) (string, error) {
 	cfg := stepRunConfig{
 		id: id, schema: start.Schema, doneValue: doneValue, sessions: s.sessions, writer: s.writer, logger: s.logger,
 		writing: !start.ReadOnly, start: commit, owned: start.Owned, gate: gate, gateLimit: gateLimit, locks: s.locks,
-		environ: s.environ,
+		environ: s.environ, prompt: start.Prompt, now: s.now, modelLimit: modelLimit,
+	}
+	if s.haiku != nil {
+		cfg.haiku = s.haiku
 	}
 	step := StepSession{ID: id, Dir: start.Workspace, Prompt: start.Prompt, Agent: start.Agent, Schema: start.Schema}
 	if start.ReadOnly {
@@ -212,16 +233,20 @@ func (s *Steps) Status(ctx context.Context, id string) (store.StepRow, error) {
 }
 
 // runLoop runs run in its own goroutine under a context derived from ctx's values, not its cancellation, so the loop
-// outlives the Start call. The context's cancel and run are kept in loops and runs until the loop returns, and then they
-// are removed and the cancel is called.
+// outlives the Start call. The run's watch ticks come from a ticker at the Steps' tick, which stops when the loop
+// returns. The context's cancel and run are kept in loops and runs until the loop returns, and then they are removed and
+// the cancel is called.
 func (s *Steps) runLoop(ctx context.Context, id string, run *stepRun) {
 	loop, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	ticker := time.NewTicker(s.tick)
+	run.ticks = ticker.C
 	s.mu.Lock()
 	s.loops[id] = cancel
 	s.runs[id] = run
 	s.mu.Unlock()
 	go func() {
 		defer s.endLoop(id)
+		defer ticker.Stop()
 		run.run(loop)
 	}()
 }
