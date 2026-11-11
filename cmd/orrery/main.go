@@ -66,6 +66,13 @@ subcommands:
   hook                                          forward a Claude Code hook event from stdin; exits 0
   list --json                                   print the panes of the tmux server as a JSON array
   events --url URL [--after N] [--follow]       print the event stream of serve as JSON lines
+  session start DIR PROMPT                      start a headless session in DIR and print its id
+  session say ID TEXT                           send TEXT to a session
+  session answer ID REQUEST_ID ANSWER           answer a session's open question
+  session interrupt ID                          stop a session's current turn
+  session stop ID                               end a session's process
+  session seen ID                               mark a session's conversation as read
+  session watch ID                              print a session's events as JSON lines until it ends
   seen --pane ID                                mark a pane seen
   send --pane ID [--expect-question H] (--text T | --keys K...)
                                                 send text or keys to a pane; --keys must be last
@@ -186,6 +193,12 @@ func dispatch(ctx context.Context, opts globals, rest []string, stdin *os.File, 
 		return runServe(ctx, opts, args, getenv)
 	case "events":
 		return errors.Join(cli.Events(ctx, args, stdout))
+	case "session":
+		socket, err := protocol.SocketPath(opts.daemonSocket, getenv)
+		if err != nil {
+			return fmt.Errorf("session: %w", err)
+		}
+		return errors.Join(cli.Session(ctx, protocol.SessionSocketPath(socket), args, stdout, getenv))
 	case "list", "seen", "send", "debug", "shell", "tree":
 		client, err := tmuxctl.New(opts.server)
 		if err != nil {
