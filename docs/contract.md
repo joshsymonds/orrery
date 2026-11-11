@@ -618,7 +618,7 @@ A pane ID is `%` followed by digits, such as `%3`. The `{id}` segment of a path 
 | `GET /v1/host` | none | 200, JSON host status | 404 no `--host-status-cmd`, 500 host name failure, 502 status command failed or invalid |
 | `POST /v1/panes/{id}/text` | `{"text": "example input"}` | 204 | 400 malformed pane ID or bad body, 404 absent pane, 500 tmux failure |
 | `POST /v1/panes/{id}/keys` | `{"keys": ["Enter"], "expect_question": "H"}`; `expect_question` is optional | 204 | 400 malformed pane ID or bad body, 404 absent pane, 409 question refused, 500 tmux failure |
-| `POST /v1/panes/{id}/seen` | none | 204 | 400 malformed pane ID, 404 absent pane, 500 tmux failure |
+| `POST /v1/panes/{id}/seen` | none, or `{"read_up_to": 1700000100}`; `read_up_to` is optional | 204 | 400 malformed pane ID or bad body, 404 absent pane, 500 tmux failure |
 | `POST /v1/push/register` | `{"endpoint": "https://push.example.test/sub/example", "p256dh": "example-key", "auth": "example-auth"}` | 204 | 400 bad body or keys, 422 endpoint not https on a `--push-host` host, 500 store failure |
 | `DELETE /v1/push/register` | `{"endpoint": "https://push.example.test/sub/example"}` | 204 | 400 bad body, 404 not registered, 500 store failure |
 
@@ -631,6 +631,7 @@ Details for each route:
   - `history` absent gives no scrollback. An integer from 0 to 2000 adds `-S -N`, which includes N lines above the visible screen. Any other value, including a sign, an empty value, a number over 2000, or a repeated key, answers 400.
 - `POST /v1/panes/{id}/text` sends the body's `text` the way `orrery send --text` does (section 11). The server holds a lock for each pane, so two text sends to one pane run one after the other. The `orrery` CLI is a separate process and is not covered by that lock.
 - `POST /v1/panes/{id}/keys` sends the keys to the pane. When `expect_question` is present, the send is refused with 409 unless the question check passes. That check is the one `orrery send --expect-question` applies (section 11). `expect_question` takes the question hash H from section 10.
+- `POST /v1/panes/{id}/seen` sets the pane's `@orrery_seen` (section 2). Without `read_up_to`, the time is now. An empty body, `{}`, and an object without that field all count as without it. With `read_up_to`, a non-negative integer in unix seconds, the time is the later of the stored time and `read_up_to`, so the seen time never moves back. An unset stored time counts as 0. The server holds a lock for each pane across the read and the write. The `orrery` CLI is a separate process and is not covered by that lock. A body that is not a JSON object, or a `read_up_to` that is not a non-negative integer, answers 400 "bad request body". The pane checks run first.
 - `POST /v1/push/register` registers a Web Push subscription. `p256dh` and `auth` are the subscription's keys. The endpoint must be `https` and must be on a host named by `--push-host` (section 11).
 - `DELETE /v1/push/register` removes the subscription with that endpoint.
 - `GET /v1/panes/{id}/conversation` returns the conversation of the pane's Claude transcript as `{"origin": string, "items": [item...], "goal": string, "waiting": [waiting...]}`. The transcript is the path in the pane's `@orrery_transcript` option (section 2); no request value names a file. The pane must have `@orrery_state` set, or the answer is 404 "no live session". `@orrery_transcript` must be set and non-empty, or the answer is 404 "no transcript". A transcript file that does not exist answers 404; any other read failure answers 500.
@@ -787,3 +788,5 @@ orrery E12 (conversation items) added the `notice` kind and the `notice` item ke
 orrery E13 (conversation goal) added the `goal` key to the conversation route's answer, additively. No existing name or value changes.
 
 orrery E16a (queued messages) added the `waiting` key to the conversation route's answer, additively. No existing name or value changes.
+
+orrery E16b (read-up-to seen time) added the optional `read_up_to` body field to the seen route, additively. With it the stored seen time becomes the later of the stored time and `read_up_to`, so it never moves back. No existing name or value changes.
