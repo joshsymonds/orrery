@@ -21,6 +21,14 @@ type Notification struct {
 	Session                  string
 	State                    protocol.State
 	Summary, Label, Question string
+	Time                     int64
+}
+
+// Clear tells the app that a pane or session was seen at Seen (unix seconds), so notices at or before it
+// can be removed. Pane is set for a pane clear and Session for a session clear.
+type Clear struct {
+	Host, Pane, Session string
+	Seen                int64
 }
 
 // Payload keys the app reads.
@@ -34,7 +42,13 @@ const (
 	keyLabel        = "label"
 	keyQuestion     = "question"
 	keyQuestionHash = "question_hash"
+	keyTime         = "time"
+	keyKind         = "kind"
+	keySeen         = "seen"
 )
+
+// kindClear is the kind value of a clear payload.
+const kindClear = "clear"
 
 // pushTTLHeader names the Web Push TTL header.
 const pushTTLHeader = "TTL"
@@ -63,6 +77,18 @@ func NewPublisher(store *Store, client *http.Client) (*Publisher, error) {
 // first POST, so a payload that cannot fit posts nothing. A failed POST does not stop the rest; the
 // returned error joins every failure.
 func (p *Publisher) Publish(ctx context.Context, note Notification) error {
+	return p.publishPayload(ctx, func() ([]byte, error) { return boundedPayload(note) })
+}
+
+// PublishClear sends the clear cleared to every stored subscription, with the same encryption, headers and error
+// handling as Publish.
+func (p *Publisher) PublishClear(ctx context.Context, cleared Clear) error {
+	return p.publishPayload(ctx, func() ([]byte, error) { return clearPayload(cleared) })
+}
+
+// publishPayload builds the payload with build, encrypts it for every stored subscription, and POSTs each body.
+// build runs only when a subscription exists, so an empty store posts nothing and never fails on a payload.
+func (p *Publisher) publishPayload(ctx context.Context, build func() ([]byte, error)) error {
 	subs, err := p.store.List()
 	if err != nil {
 		return fmt.Errorf("list push subscriptions: %w", err)
@@ -70,7 +96,7 @@ func (p *Publisher) Publish(ctx context.Context, note Notification) error {
 	if len(subs) == 0 {
 		return nil
 	}
-	payload, err := boundedPayload(note)
+	payload, err := build()
 	if err != nil {
 		return err
 	}
@@ -91,9 +117,30 @@ func (p *Publisher) Publish(ctx context.Context, note Notification) error {
 	return errors.Join(errs...)
 }
 
+// clearPayload returns the JSON payload for cleared. The pane key is present only when cleared.Pane is set and
+// the session key only when cleared.Session is set. A clear carries no notice keys.
+func clearPayload(cleared Clear) ([]byte, error) {
+	fields := map[string]string{
+		keyKind: kindClear,
+		keyHost: cleared.Host,
+		keySeen: strconv.FormatInt(cleared.Seen, 10),
+	}
+	if cleared.Pane != "" {
+		fields[keyPane] = cleared.Pane
+	}
+	if cleared.Session != "" {
+		fields[keySession] = cleared.Session
+	}
+	body, err := json.Marshal(fields)
+	if err != nil {
+		return nil, fmt.Errorf("encode clear payload: %w", err)
+	}
+	return body, nil
+}
+
 // boundedPayload returns the JSON payload for note. The question is shortened first, then the summary if
 // the payload still does not fit with an empty question. The question_hash always covers the full question.
-// The session key is present only when note.Session is set, so a pane payload is unchanged.
+// The time key is always present. The session key is present only when note.Session is set.
 func boundedPayload(note Notification) ([]byte, error) {
 	hash := protocol.QuestionHash(note.Question)
 	encode := func(summary, question string) ([]byte, error) {
@@ -106,6 +153,7 @@ func boundedPayload(note Notification) ([]byte, error) {
 			keyLabel:        note.Label,
 			keyQuestion:     question,
 			keyQuestionHash: hash,
+			keyTime:         strconv.FormatInt(note.Time, 10),
 		}
 		if note.Session != "" {
 			fields[keySession] = note.Session
