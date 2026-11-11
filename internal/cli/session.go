@@ -19,6 +19,15 @@ import (
 // request, so the host name is never resolved.
 const SessionBaseURL = "http://orreryd"
 
+// sessionURLFlag sends the session verbs to serve at the URL that follows it.
+const sessionURLFlag = "--url"
+
+// sessionVerbUsage is the usage error for a session command that names no verb.
+const sessionVerbUsage = "session: want a verb: start, say, answer, interrupt, stop, seen, or watch"
+
+// sessionStartForm names the arguments of `session start`.
+const sessionStartForm = "[--model MODEL] DIR PROMPT"
+
 // Argument counts of the session verbs that take arguments after the verb.
 const (
 	sessionOneArg    = 1
@@ -41,12 +50,19 @@ func (e sessionDialError) Unwrap() error {
 	return e.err
 }
 
-// Session implements `orrery session VERB ARGS`. Every verb but watch is one RPC over the Engine service on the
-// private session socket at socketPath. Watch reads the session's events from the local store and needs no socket.
-// Start writes the new session's id to out and nothing else.
+// Session implements `orrery session [--url URL] VERB ARGS`. Without --url, every verb but watch is one RPC over the
+// Engine service on the private session socket at socketPath, and watch reads the session's events from the local
+// store. With --url, the verbs go through serve at URL instead, and the socket is not dialed. Start writes the new
+// session's id to out and nothing else.
 func Session(ctx context.Context, socketPath string, args []string, out io.Writer, getenv func(string) string) error {
+	if len(args) > 0 && args[0] == sessionURLFlag {
+		if len(args) < sessionTwoArgs || args[1] == "" {
+			return usageError{msg: "session: --url needs a URL"}
+		}
+		return sessionURL(ctx, args[1], args[2:], out)
+	}
 	if len(args) == 0 {
-		return usageError{msg: "session: want a verb: start, say, answer, interrupt, stop, seen, or watch"}
+		return usageError{msg: sessionVerbUsage}
 	}
 	verb, rest := args[0], args[1:]
 	if verb == "watch" {
@@ -71,18 +87,44 @@ func Session(ctx context.Context, socketPath string, args []string, out io.Write
 	}
 }
 
-// sessionStart sends the start RPC for `session start DIR PROMPT` and writes the new id to out.
+// sessionStartArgs is the parsed arguments of `session start`.
+type sessionStartArgs struct {
+	model  string
+	dir    string
+	prompt string
+}
+
+// parseStartArgs reads `[--model MODEL] DIR PROMPT`. It returns false when args have another form.
+func parseStartArgs(args []string) (sessionStartArgs, bool) {
+	var start sessionStartArgs
+	if len(args) >= sessionTwoArgs && args[0] == "--model" {
+		start.model = args[1]
+		args = args[sessionTwoArgs:]
+	}
+	if len(args) != sessionTwoArgs {
+		return sessionStartArgs{}, false
+	}
+	start.dir, start.prompt = args[0], args[1]
+	return start, true
+}
+
+// sessionStart sends the start RPC for `session start [--model MODEL] DIR PROMPT` and writes the new id to out.
 func sessionStart(
 	ctx context.Context, client enginev1connect.EngineClient, socketPath string, args []string, out io.Writer,
 ) error {
-	if len(args) != sessionTwoArgs {
-		return sessionForm("start", "DIR PROMPT")
+	start, ok := parseStartArgs(args)
+	if !ok {
+		return sessionForm("start", sessionStartForm)
 	}
-	dir, err := filepath.Abs(args[0])
+	dir, err := filepath.Abs(start.dir)
 	if err != nil {
 		return sessionFailure("start", socketPath, err)
 	}
-	resp, err := client.Start(ctx, connect.NewRequest(&v1.StartRequest{Dir: dir, Prompt: args[1]}))
+	resp, err := client.Start(ctx, connect.NewRequest(&v1.StartRequest{
+		Dir:    dir,
+		Prompt: start.prompt,
+		Model:  start.model,
+	}))
 	if err != nil {
 		return sessionFailure("start", socketPath, err)
 	}
@@ -170,13 +212,19 @@ func sessionForm(verb, form string) error {
 // sessionFailure returns the error for verb's failure err, or nil when err is nil. A socket that cannot be dialed
 // means orreryd is not taking session commands, and the error names the --sessions flag that enables them.
 func sessionFailure(verb, socketPath string, err error) error {
-	if err == nil {
-		return nil
-	}
 	var dialErr sessionDialError
 	if errors.As(err, &dialErr) {
 		return fmt.Errorf("session %s: orreryd takes no session commands on %s; start it with --sessions",
 			verb, socketPath)
+	}
+	return sessionRPCFailure(verb, err)
+}
+
+// sessionRPCFailure returns the error for verb's RPC failure err, or nil when err is nil. A Connect error reads with
+// its message.
+func sessionRPCFailure(verb string, err error) error {
+	if err == nil {
+		return nil
 	}
 	var connectErr *connect.Error
 	if errors.As(err, &connectErr) {
