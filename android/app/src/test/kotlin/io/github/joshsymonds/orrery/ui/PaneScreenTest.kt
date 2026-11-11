@@ -1,5 +1,8 @@
 package io.github.joshsymonds.orrery.ui
 
+import android.view.View
+import android.view.ViewGroup
+import android.widget.EditText
 import androidx.activity.ComponentActivity
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.geometry.Offset
@@ -47,6 +50,9 @@ private const val TIMEOUT_MILLIS = 5_000L
 private const val WIDE_LINE_REPEATS = 30
 private const val FIXED_NOW_SECONDS = 1_800_000_000L
 private const val STATUS_LINE_TAG = "status-line"
+private const val SYNTHETIC_DRAFT = "synthetic draft"
+private const val CLAUDE_HINT = "Message Claude…"
+private const val SHELL_HINT = "Type a command…"
 private const val GOAL_LINE_TAG = "goal-line"
 private const val COMPOSER_TAG = "composer"
 private const val LIVE_RETURN_TAG = "live-return"
@@ -260,6 +266,82 @@ class PaneScreenTest {
             composeRule.onNodeWithText("Send").assertIsDisplayed()
             composeRule.onNodeWithText("Esc").assertExists()
         }
+    }
+
+    @Test
+    fun quickKeysHideWhileTheDraftHasTextAndReturnWhenItClears() {
+        FakeOrreryServer().use { server ->
+            serve(server, "synthetic body")
+            setScreen(server)
+            composeRule.waitUntilExactlyOneExists(hasText("synthetic body"), TIMEOUT_MILLIS)
+            composeRule.onNodeWithText("Esc").assertExists()
+
+            setDraft(SYNTHETIC_DRAFT)
+            composeRule.waitUntilDoesNotExist(hasText("Esc"), TIMEOUT_MILLIS)
+
+            setDraft("")
+            composeRule.waitUntilExactlyOneExists(hasText("Esc"), TIMEOUT_MILLIS)
+        }
+    }
+
+    @Test
+    fun claudePaneHintNamesClaude() {
+        FakeOrreryServer().use { server ->
+            servePane(server, conversation = conversationBody(conversationItem("reply", "synthetic reply")))
+            setScreen(server)
+            composeRule.waitUntilExactlyOneExists(hasText("synthetic reply"), TIMEOUT_MILLIS)
+            composeRule.waitForIdle()
+
+            assertEquals(CLAUDE_HINT, editField().hint?.toString())
+        }
+    }
+
+    @Test
+    fun shellPaneHintNamesACommand() {
+        FakeOrreryServer().use { server ->
+            servePane(server, state = "")
+            server.respond("GET", SCREEN_PATH, 200, "synthetic terminal body")
+            setScreen(server)
+            composeRule.waitUntil(TIMEOUT_MILLIS) { terminalText()?.text == "synthetic terminal body" }
+            composeRule.waitForIdle()
+
+            assertEquals(SHELL_HINT, editField().hint?.toString())
+        }
+    }
+
+    @Test
+    fun shellPaneDrawsNoStatusLine() {
+        FakeOrreryServer().use { server ->
+            servePane(server, state = "")
+            server.respond("GET", SCREEN_PATH, 200, "synthetic terminal body")
+            setScreen(server)
+            composeRule.waitUntil(TIMEOUT_MILLIS) { terminalText()?.text == "synthetic terminal body" }
+            composeRule.onNodeWithTag(PANE_HEADER_TAG).assertExists()
+
+            composeRule.onAllNodesWithTag(STATUS_LINE_TAG).assertCountEquals(0)
+        }
+    }
+
+    private fun setDraft(text: String) {
+        composeRule.runOnUiThread { editField().setText(text) }
+        composeRule.waitForIdle()
+    }
+
+    private fun editField(): EditText =
+        checkNotNull(findEditText(composeRule.activity.window.decorView)) {
+            "PaneScreen must host the draft's EditText"
+        }
+
+    private fun findEditText(view: View): EditText? {
+        if (view is EditText) {
+            return view
+        }
+        if (view is ViewGroup) {
+            for (index in 0 until view.childCount) {
+                findEditText(view.getChildAt(index))?.let { return it }
+            }
+        }
+        return null
     }
 
     private fun terminalText(): AnnotatedString? {
