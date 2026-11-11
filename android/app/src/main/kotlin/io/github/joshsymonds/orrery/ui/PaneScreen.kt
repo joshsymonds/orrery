@@ -261,6 +261,8 @@ fun PaneScreen(
                 }
                 ConversationView(
                     entries,
+                    working = current?.state == "working",
+                    waiting = conversation?.waiting.orEmpty(),
                     listState = listState,
                     contentPadding = PaddingValues(top = bodyTop),
                     footer = footer,

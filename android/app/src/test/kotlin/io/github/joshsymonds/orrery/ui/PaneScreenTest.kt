@@ -146,6 +146,12 @@ class PaneScreenTest {
     private fun conversationBodyWithGoal(goal: String, vararg items: String): String =
         """{"origin":"synthetic origin","items":[${items.joinToString(",")}],"goal":${JSONObject.quote(goal)}}"""
 
+    private fun waitingItem(text: String, canceled: Boolean = false): String =
+        """{"text":${JSONObject.quote(text)},"time":0,"canceled":$canceled}"""
+
+    private fun conversationBodyWithWaiting(waiting: List<String>, vararg items: String): String =
+        """{"origin":"synthetic origin","items":[${items.joinToString(",")}],"waiting":[${waiting.joinToString(",")}]}"""
+
     private fun toolItem(id: String, name: String): String =
         """{"kind":"tool","time":0,"text":"","tool":${JSONObject.quote(name)},"input":"echo synthetic","id":"$id","error":false}"""
 
@@ -854,6 +860,64 @@ class PaneScreenTest {
             val composer = composeRule.onNodeWithTag(COMPOSER_TAG).fetchSemanticsNode().boundsInRoot
             assertTrue(goal.bottom <= status.top + EDGE_TOLERANCE_PX)
             assertTrue(goal.top >= composer.top - EDGE_TOLERANCE_PX)
+        }
+    }
+
+    @Test
+    fun workingPaneShowsWorkingMarkThenWaitingRowsBelowTheLastItem() {
+        FakeOrreryServer().use { server ->
+            servePane(
+                server,
+                state = "working",
+                conversation = conversationBodyWithWaiting(
+                    listOf(waitingItem("synthetic queued message")),
+                    conversationItem("reply", "synthetic reply"),
+                ),
+            )
+            setClockedScreen(server)
+
+            composeRule.waitUntilExactlyOneExists(hasText("synthetic queued message"), TIMEOUT_MILLIS)
+            composeRule.onNodeWithTag("working-mark").assertIsDisplayed()
+            composeRule.onNodeWithTag("waiting-row").assertIsDisplayed()
+            composeRule.onNodeWithTag(STATUS_LINE_TAG).assertIsDisplayed()
+            val reply = composeRule.onNodeWithText("synthetic reply").fetchSemanticsNode().boundsInRoot
+            val mark = composeRule.onNodeWithTag("working-mark").fetchSemanticsNode().boundsInRoot
+            val waiting = composeRule.onNodeWithTag("waiting-row").fetchSemanticsNode().boundsInRoot
+            assertTrue(mark.top >= reply.bottom - EDGE_TOLERANCE_PX)
+            assertTrue(waiting.top >= mark.bottom - EDGE_TOLERANCE_PX)
+        }
+    }
+
+    @Test
+    fun donePaneShowsNoWorkingMark() {
+        FakeOrreryServer().use { server ->
+            servePane(
+                server,
+                state = "done",
+                conversation = conversationBody(conversationItem("reply", "synthetic reply")),
+            )
+            setClockedScreen(server)
+
+            composeRule.waitUntilExactlyOneExists(hasText("synthetic reply"), TIMEOUT_MILLIS)
+            composeRule.onAllNodesWithTag("working-mark").assertCountEquals(0)
+        }
+    }
+
+    @Test
+    fun canceledWaitingRowReadsNotDelivered() {
+        FakeOrreryServer().use { server ->
+            servePane(
+                server,
+                state = "working",
+                conversation = conversationBodyWithWaiting(
+                    listOf(waitingItem("synthetic dropped message", canceled = true)),
+                    conversationItem("reply", "synthetic reply"),
+                ),
+            )
+            setClockedScreen(server)
+
+            composeRule.waitUntilExactlyOneExists(hasText("not delivered"), TIMEOUT_MILLIS)
+            composeRule.onNodeWithText("synthetic dropped message").assertIsDisplayed()
         }
     }
 
