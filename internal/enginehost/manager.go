@@ -51,6 +51,10 @@ const permissionMode = "bypassPermissions"
 // denyMessage is the message a permission request denied through Answer gives the session.
 const denyMessage = "The orrery host denied this request."
 
+// stepDenyMessage is the message a step's request is denied with. A step has nobody to answer it, so the
+// message tells the step to give its answer as the structured return.
+const stepDenyMessage = "The orrery host does not answer questions in a step. Do not ask; give your answer as the structured return."
+
 // closeWait bounds how long Close waits for the sessions it stops to record their state.
 const closeWait = 5 * time.Second
 
@@ -917,6 +921,10 @@ func (m *Manager) pump(ctx context.Context, live *liveSession, rec *recorder) {
 	defer m.pumps.Done()
 	reply := ""
 	for event := range live.sess.Events() {
+		if request, ok := event.(session.Request); ok && live.step && !request.Refused {
+			m.answerStepRequest(ctx, live, request)
+			continue
+		}
 		record, interrupted, handed := m.noteEvent(live, event)
 		if !record {
 			continue
@@ -951,6 +959,16 @@ func (m *Manager) pump(ctx context.Context, live *liveSession, rec *recorder) {
 	m.mu.Unlock()
 	close(live.done)
 	live.cancel()
+}
+
+// answerStepRequest denies request, a request of the step live that the session did not refuse, with stepDenyMessage, so
+// the request never opens and the step never waits on it. Only questions and permission requests reach here: the session
+// refuses every other kind itself. A failed answer is logged; the session then stays blocked on the request until its
+// process exits, which the pump records.
+func (m *Manager) answerStepRequest(ctx context.Context, live *liveSession, request session.Request) {
+	if err := live.sess.Deny(request.RequestID, stepDenyMessage); err != nil {
+		m.logger.WarnContext(ctx, "answer step request", "session", live.id, "request", request.RequestID, "err", err)
+	}
 }
 
 // observe gives the observer of the step live the event the pump has just recorded: the turn end of a hand-off, or an
