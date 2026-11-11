@@ -323,6 +323,8 @@ Registrations are written to the push store that `orreryd` reads (see `### orrer
 
 `serve` also reads the store for the Connect API of section 12. It opens the store file read-only on each call. The rules are in [Connect API](#connect-api).
 
+The picker routes `POST /v1/picker/ask` and `POST /v1/picker/run` (see [Routes](#routes)) look up `zoxide` and `claude` on serve's PATH at each ask, not at start. A missing one answers that ask 502 and does not stop serve.
+
 `--listen` and at least one `--allow-login` are required. Without them `serve` exits 2.
 
 `serve` is meant to sit behind `tailscale serve`, which sets the `Tailscale-User-Login` header that section 12 checks. Do not expose it through Tailscale Funnel.
@@ -758,6 +760,8 @@ A pane ID is `%` followed by digits, such as `%3`. The `{id}` segment of a path 
 | `POST /v1/panes/{id}/seen` | none | 204 | 400 malformed pane ID, 404 absent pane, 500 tmux failure |
 | `POST /v1/push/register` | `{"endpoint": "https://push.example.test/sub/example", "p256dh": "example-key", "auth": "example-auth"}` | 204 | 400 bad body or keys, 422 endpoint not https on a `--push-host` host, 500 store failure |
 | `DELETE /v1/push/register` | `{"endpoint": "https://push.example.test/sub/example"}` | 204 | 400 bad body, 404 not registered, 500 store failure |
+| `POST /v1/picker/ask` | `{"text": "example input"}` | 200, `{"rows": [row...]}` | 400 bad body or blank text, 404 no picker configured, 502 picker, text lookup or pane listing failure |
+| `POST /v1/picker/run` | `{"token": "example-token"}` | 200, `{"pane": "%7"}` | 400 bad body or blank token, 404 unknown token, 409 no tmux server, 410 expired token, 502 failed run |
 
 Details for each route:
 
@@ -770,6 +774,15 @@ Details for each route:
 - `POST /v1/panes/{id}/keys` sends the keys to the pane. When `expect_question` is present, the send is refused with 409 unless the question check passes. That check is the one `orrery send --expect-question` applies (section 11). `expect_question` takes the question hash H from section 10.
 - `POST /v1/push/register` registers a Web Push subscription. `p256dh` and `auth` are the subscription's keys. The endpoint must be `https` and must be on a host named by `--push-host` (section 11).
 - `DELETE /v1/push/register` removes the subscription with that endpoint.
+- `POST /v1/picker/ask` and `POST /v1/picker/run` are POSTs, so the guard of [Guard](#guard) applies unchanged: the `Tailscale-User-Login` header must be an allowed login, `Content-Type` must be `application/json`, and `X-Orrery-Client` must be non-empty.
+- `POST /v1/picker/ask` takes the body's `text` and answers the rows that `orrery open TEXT` would offer for it (see [Picker](#picker)). The rows come in rank order. Each row has the keys `token`, `kind`, `dir`, `pane`, `label`, `note`, and `prompt`, all always present. `kind` is `jump`, `pane`, `resume`, `continue`, or `fresh`. A `jump` row takes `dir` from its pane's directory, `pane` as the pane ID, and `label` from the pane's label. Other rows give `""` for `pane` and `label`. `note` is the archived summary of a `resume` row, and `""` otherwise. `prompt` is true when the row's action carries a first prompt. A `jump` row is left out when tmux does not list its pane. The answer can have no rows, as `{"rows": []}`.
+  - Each `token` is 32 hex characters and is one-time: its action runs at most once, and it stays valid for 5 minutes from the ask. Tokens are held in serve's memory. Expired tokens are dropped by the next ask that answers 200, and a restart of serve voids every token. Tokens from earlier asks stay valid until their own expiry.
+  - The ask runs no action. `new NAME` and `.` are plain text for the intent lookup, and no folder or session is created.
+  - A body that is not a JSON object, a body whose `text` is absent or not a string, or text that is blank answers 400 with the reason `bad request` as plain text. With no picker configured, the answer is 404. A failure of the picker's configuration, of the text lookup (zoxide, tmux or the intent model), or of the tmux pane listing answers 502 with the reason as plain text.
+- `POST /v1/picker/run` takes the body's `token` and runs the action that ask issued it for, at most once. A 200 answer gives `pane`: the pane the action opened or jumped to, or else the active pane of the session it created. While the token is valid, a repeat run of the same token answers the same pane and runs nothing. Runs of one token are serial.
+  - A body that is not a JSON object, a body with no `token` string, or a blank token answers 400. A token no ask issued, or one lost by a restart, answers 404. A token at or past its expiry answers 410 until an ask that answers 200 drops it, and 404 after. Each of these refusals runs nothing.
+  - When tmux reports no server running, the answer is 409 with the tmux reason as plain text, and no action starts.
+  - A failed run answers 502 with the reason as plain text and records nothing, so a later run of the same token runs the action again.
 - `GET /v1/panes/{id}/conversation` returns the conversation of the pane's Claude transcript as `{"origin": string, "items": [item...], "goal": string, "waiting": [waiting...]}`. The transcript is the path in the pane's `@orrery_transcript` option (section 2); no request value names a file. The pane must have `@orrery_state` set, or the answer is 404 "no live session". `@orrery_transcript` must be set and non-empty, or the answer is 404 "no transcript". A transcript file that does not exist answers 404; any other read failure answers 500.
   - The query `limit` is absent for 30, or one decimal integer from 1 to 100. Any other value, including 0, a value over 100, a sign, an empty value, a non-number, or a repeated key, answers 400. The `limit` check runs before the pane ID check.
   - The reader takes the newest `limit` items from the last 4 MiB of the transcript, oldest first. Only whole lines count, so a partial line at either end of that window is skipped. The reader can return fewer than `limit` items. `items` is `[]` when there are none.
@@ -928,3 +941,5 @@ orrery E13 (conversation goal) added the `goal` key to the conversation route's 
 orrery E16a (queued messages) added the `waiting` key to the conversation route's answer, additively. No existing name or value changes.
 
 orrery headless engine sessions (engine lifecycle) added, additively: the `orreryd` flags `--sessions`, `--session-cap` and `--session-shell`, and the `SHELL` read; the session socket `sessions.sock`, its `orrery.engine.v1.Engine` service and its Connect codes (see [Session control socket](#session-control-socket)); the `orrery session` verbs; the `kind`, `dir` and `reason` columns of `sessions`; the `engine_text` table; the seven `engine_*` event kinds and their payloads; the states `stopped`, `failed` and `interrupted`; the session notices on ntfy and Web Push; and the `session` key of the Push payload; the lifecycle rules of [Lifecycle rules](#lifecycle-rules); the Connect error codes of the session socket; and the removal of engine rows after 14 days. The engine kinds are skipped by `orrery.v1.Events.Watch` and by `orrery events`. No existing name or value changes.
+
+The picker routes `POST /v1/picker/ask` and `POST /v1/picker/run` were added additively, with their tokens held in serve's memory. No existing name or value changes.
