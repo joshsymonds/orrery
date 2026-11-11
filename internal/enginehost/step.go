@@ -101,9 +101,10 @@ func NewSteps(cfg StepsConfig) *Steps {
 }
 
 // Start checks start and resolves its revision, then starts the step under a fresh id and runs its loop. A refusal
-// returns its error with an empty id and stores nothing. A writing step runs in start.Workspace. A read-only step gets
-// a detached worktree at its start commit under the worktrees directory, which is removed when the step ends. A
-// StartStep error ends the step failed and returns its id with the error.
+// returns its error with an empty id and stores nothing; a read-only step's worktree is removed then too. A writing step
+// runs in start.Workspace. A read-only step gets a detached worktree at its start commit under the worktrees directory,
+// which is removed when the step ends. Any other StartStep error, after the row is written, ends the step failed and
+// returns its id with the error.
 func (s *Steps) Start(ctx context.Context, start StepStart) (string, error) {
 	if err := checkStepStart(start); err != nil {
 		return "", err
@@ -169,12 +170,27 @@ func (s *Steps) Start(ctx context.Context, start StepStart) (string, error) {
 	step.Observer = run
 	step.Ops = []store.EngineOp{add}
 	if err = s.sessions.StartStep(ctx, step); err != nil {
-		// The caller's ctx may have ended the start, so the failed end and the worktree removal run without it.
-		run.finish(context.WithoutCancel(ctx), stepLoopEndFailed, "", err.Error())
-		return id, fmt.Errorf("start step %s: %w", id, err)
+		return s.startFailed(ctx, id, run, err)
 	}
 	s.runLoop(ctx, id, run)
 	return id, nil
+}
+
+// startFailed handles a StartStep error for the step id run runs. A refusal stored nothing, so it removes the step's
+// worktree and returns the refusal with an empty id. Any other error ends the step failed and returns its id with the
+// error. The caller's ctx may have ended the start, so the removal and the failed end run without it.
+func (s *Steps) startFailed(ctx context.Context, id string, run *stepRun, err error) (string, error) {
+	var refused stepRefusedError
+	if errors.As(err, &refused) {
+		if run.cleanup != nil {
+			if cleanErr := run.cleanup(context.WithoutCancel(ctx)); cleanErr != nil {
+				s.logger.ErrorContext(ctx, "clean up refused step", "step", id, "err", cleanErr)
+			}
+		}
+		return "", refused.err
+	}
+	run.finish(context.WithoutCancel(ctx), stepLoopEndFailed, "", err.Error())
+	return id, fmt.Errorf("start step %s: %w", id, err)
 }
 
 // Status returns the step row with id. It returns an error matching store.ErrNoStep when no step has that id.

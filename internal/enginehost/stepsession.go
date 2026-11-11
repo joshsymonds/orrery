@@ -35,16 +35,26 @@ type StepSession struct {
 // does not start with -.
 var ErrBadAgent = errors.New("step agent must be 1 to 64 letters, digits or . _ - [ ] : and not start with -")
 
+// stepRefusedError is a StartStep error for a step refused before its row was written. Steps.Start returns its error
+// without ending the step. Unwrap keeps the error matching its sentinel.
+type stepRefusedError struct{ err error }
+
+func (r stepRefusedError) Error() string { return r.err.Error() }
+
+func (r stepRefusedError) Unwrap() error { return r.err }
+
 // StartStep starts the step session step as step describes. It checks step, takes a slot under StepCap, records the row
 // as working with its Ops in one write, spawns claude with its agent and schema, then records and sends its prompt. A
-// step is listed as a step, never as a session, and sends no notice. A spawn or send failure records the row failed and
-// returns the error. A step's slot frees when its pump ends.
+// step is listed as a step, never as a session, and sends no notice. A step refused before anything is stored, for a
+// bad step, a closed manager or a full step cap, returns its error and stores nothing. A failure after the row is
+// written, a record, spawn or send failure, records the row failed and returns the error. A step's slot frees when its
+// pump ends.
 func (m *Manager) StartStep(ctx context.Context, step StepSession) error {
 	if err := checkStep(step); err != nil {
-		return err
+		return stepRefusedError{err}
 	}
 	if err := m.reserveStep(); err != nil {
-		return err
+		return stepRefusedError{err}
 	}
 	add := store.EngineAdd{ID: step.ID, Dir: step.Dir, State: string(protocol.StateWorking), Kind: store.KindStep}
 	if err := m.writer.Commit(ctx, step.ID, append([]store.EngineOp{add}, step.Ops...)...); err != nil {
