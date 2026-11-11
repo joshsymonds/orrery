@@ -21,6 +21,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
@@ -31,11 +32,13 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import io.github.joshsymonds.orrery.api.ConversationContext
 import io.github.joshsymonds.orrery.api.HostStat
 import io.github.joshsymonds.orrery.api.Pane
 import io.github.joshsymonds.orrery.ui.theme.Mocha
 
 private const val COMPACT_MILLIS = 180
+private const val METER_BLOCKS = 5
 
 /**
  * A pane's header: a back control and the title, the project and opening prompt (or the cwd) in
@@ -49,6 +52,7 @@ fun PaneHeader(
     pane: Pane,
     origin: String?,
     stats: List<HostStat>?,
+    context: ConversationContext?,
     liveScreen: Boolean,
     onConversation: () -> Unit,
     onBack: () -> Unit,
@@ -91,6 +95,14 @@ fun PaneHeader(
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
+                        contextMeter(context)?.let { meter ->
+                            Text(
+                                text = buildAnnotatedString { withStyle(SpanStyle(color = meter.color)) { append(meter.text) } },
+                                modifier = Modifier.testTag("context-meter"),
+                                fontSize = 12.sp,
+                                maxLines = 1,
+                            )
+                        }
                     }
                     Text(
                         text = originLine(pane, origin),
@@ -157,6 +169,29 @@ private fun originLine(pane: Pane, origin: String?): AnnotatedString = buildAnno
     }
     append("  ")
     append(origin ?: pane.cwd)
+}
+
+/** A context meter: its five-block bar and percent as [text], and the band [color] the percent falls in. */
+private class ContextMeter(val text: String, val color: Color)
+
+/**
+ * steward's context meter for [context]: the percent of the window in use, clamped to 0..100, drawn
+ * as blocks rounded to the nearest fifth, and coloured green below 40%, yellow below 60%, peach below
+ * 80% and red from there. Null when there is no figure: no context, or no tokens or window.
+ */
+private fun contextMeter(context: ConversationContext?): ContextMeter? {
+    if (context == null || context.tokens <= 0 || context.window <= 0) return null
+    val percent = (100 * context.tokens / context.window).coerceIn(0L, 100L).toInt()
+    // round(percent / 20) in integers: each block is 20%, and a half rounds up.
+    val filled = minOf(METER_BLOCKS, (2 * percent + 20) / 40)
+    val color = when {
+        percent < 40 -> Mocha.Green
+        percent < 60 -> Mocha.Yellow
+        percent < 80 -> Mocha.Peach
+        else -> Mocha.Red
+    }
+    val blocks = "▰".repeat(filled) + "▱".repeat(METER_BLOCKS - filled)
+    return ContextMeter("$blocks $percent%", color)
 }
 
 /** The project is the last path segment of the pane's cwd, as orreryd names it. */

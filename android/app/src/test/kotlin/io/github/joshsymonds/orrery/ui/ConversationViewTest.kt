@@ -349,6 +349,60 @@ class ConversationViewTest {
         composeRule.onNodeWithText("synthetic kept output").assertIsDisplayed()
     }
 
+    @Test
+    fun compactionBarShowsItsFullLabel() {
+        inUtc()
+        setList(listOf(ConvoEntry.Compaction("auto", 611_000L, "synthetic summary", NOV_14_2213_UTC)))
+
+        composeRule.onNodeWithText("compacted · auto · 611k · 22:13").assertIsDisplayed()
+    }
+
+    @Test
+    fun compactionBarOmitsEmptyParts() {
+        inUtc()
+        setList(
+            listOf(
+                ConvoEntry.Compaction("", 0L, "synthetic summary one"),
+                ConvoEntry.Compaction("manual", 0L, "synthetic summary two"),
+                ConvoEntry.Compaction("", 611_999L, "synthetic summary three"),
+                ConvoEntry.Compaction("", 0L, "synthetic summary four", NOV_14_2213_UTC),
+            ),
+        )
+
+        composeRule.onNodeWithText("compacted").assertIsDisplayed()
+        composeRule.onNodeWithText("compacted · manual").assertIsDisplayed()
+        composeRule.onNodeWithText("compacted · 611k").assertIsDisplayed()
+        composeRule.onNodeWithText("compacted · 22:13").assertIsDisplayed()
+    }
+
+    @Test
+    fun compactionBarOpensItsSummaryOnATapAndClosesOnTheNextTap() {
+        inUtc()
+        val entry = ConvoEntry.Compaction("auto", 611_000L, "synthetic compaction summary", NOV_14_2213_UTC)
+        setList(listOf(entry))
+        val tag = "compaction-bar:${entryKeys(listOf(entry)).single()}"
+
+        composeRule.onAllNodesWithText("synthetic compaction summary").assertCountEquals(0)
+        composeRule.onNodeWithTag(tag).performClick()
+        composeRule.onNodeWithText("synthetic compaction summary").assertIsDisplayed()
+        composeRule.onNodeWithTag(tag).performClick()
+        composeRule.onAllNodesWithText("synthetic compaction summary").assertCountEquals(0)
+    }
+
+    @Test
+    fun newDividerSitsBeforeANewerCompactionBar() {
+        setSeen(
+            listOf(
+                ConvoEntry.Reply("synthetic earlier reply", EARLIER_TIME),
+                ConvoEntry.Compaction("auto", 0L, "synthetic summary", LATER_TIME),
+            ),
+            seen = SEEN_TIME,
+        )
+
+        assertDividerBefore(below = 1)
+        assertTintFromRow(from = 1, count = 2)
+    }
+
     private fun setSeen(entries: List<ConvoEntry>, seen: Long?) {
         composeRule.setContent {
             MaterialTheme { ConversationView(entries = entries, seen = seen, now = FIXED_NOW) }
@@ -1119,6 +1173,18 @@ class ConversationViewTest {
     @Test
     fun aRowIsReadAtOneSecondOnScreenAndNotBefore() {
         val entries = mutableStateOf(listOf<ConvoEntry>(ConvoEntry.Reply("synthetic dwell reply", 500L)))
+        val reads = mutableListOf<Long>()
+        setReadList(entries, reads)
+
+        composeRule.mainClock.advanceTimeBy(999, ignoreFrameDuration = true)
+        assertTrue("unread at 999 ms", reads.isEmpty())
+        composeRule.mainClock.advanceTimeBy(1, ignoreFrameDuration = true)
+        assertEquals(listOf(500L), reads)
+    }
+
+    @Test
+    fun aCompactionBarIsReadAtOneSecondOnScreen() {
+        val entries = mutableStateOf(listOf<ConvoEntry>(ConvoEntry.Compaction("auto", 0L, "synthetic summary", 500L)))
         val reads = mutableListOf<Long>()
         setReadList(entries, reads)
 

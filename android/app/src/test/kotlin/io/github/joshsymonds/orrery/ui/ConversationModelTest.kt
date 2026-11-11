@@ -15,7 +15,9 @@ class ConversationModelTest {
         id: String = "",
         error: Boolean = false,
         notice: String = "",
-    ) = ConversationItem(kind, time, text, tool, input, id, error, notice)
+        trigger: String = "",
+        tokens: Long = 0L,
+    ) = ConversationItem(kind, time, text, tool, input, id, error, notice, trigger, tokens)
 
     private fun notice(sort: String, text: String = "", error: Boolean = false, time: Long = 0L) =
         item("notice", time = time, text = text, error = error, notice = sort)
@@ -131,6 +133,38 @@ class ConversationModelTest {
             ),
             entries,
         )
+    }
+
+    @Test
+    fun compactionItemSplitsARunAndBecomesItsOwnEntry() {
+        val entries = foldConversation(
+            listOf(
+                call("a"),
+                call("b"),
+                item("compaction", time = 1_700_000_000L, text = "synthetic summary", trigger = "auto", tokens = 611_000L),
+                call("c"),
+            ),
+        )
+
+        assertEquals(
+            listOf(
+                toolEntry("a"),
+                toolEntry("b"),
+                ConvoEntry.Compaction("auto", 611_000L, "synthetic summary", 1_700_000_000L),
+                toolEntry("c"),
+            ),
+            entries,
+        )
+    }
+
+    @Test
+    fun compactionKeyHoldsWhenTheWindowSlides() {
+        val compaction = item("compaction", time = 1_700_000_000L, text = "synthetic summary", trigger = "auto", tokens = 611_000L)
+
+        val before = entryKeys(foldConversation(listOf(item("reply", time = 100L, text = "synthetic reply"), compaction)))
+        val after = entryKeys(foldConversation(listOf(compaction)))
+
+        assertEquals(after.single(), before.last())
     }
 
     @Test
