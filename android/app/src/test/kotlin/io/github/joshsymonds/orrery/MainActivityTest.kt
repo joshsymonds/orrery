@@ -71,25 +71,29 @@ class MainActivityTest {
         server.close()
     }
 
-    private fun panesJson(vararg panes: Pair<String, String>): String = JSONArray(
-        panes.map { (id, label) ->
-            JSONObject()
-                .put("id", id)
-                .put("host", "example-host")
-                .put("session", "example-session")
-                .put("window", 1)
-                .put("pane", 0)
-                .put("cwd", "/home/user/alpha")
-                .put("command", "claude")
-                .put("state", "working")
-                .put("summary", "Synthetic summary.")
-                .put("label", label)
-                .put("changed", NOW - 30)
-                .put("seen", NOW - 10)
-                .put("question", "")
-                .put("question_hash", "")
-        },
-    ).toString()
+    private fun paneJson(
+        id: String,
+        label: String,
+        cwd: String = "/home/user/alpha",
+        state: String = "working",
+    ): JSONObject = JSONObject()
+        .put("id", id)
+        .put("host", "example-host")
+        .put("session", "example-session")
+        .put("window", 1)
+        .put("pane", 0)
+        .put("cwd", cwd)
+        .put("command", "claude")
+        .put("state", state)
+        .put("summary", "Synthetic summary.")
+        .put("label", label)
+        .put("changed", NOW - 30)
+        .put("seen", NOW - 10)
+        .put("question", "")
+        .put("question_hash", "")
+
+    private fun panesJson(vararg panes: Pair<String, String>): String =
+        JSONArray(panes.map { (id, label) -> paneJson(id, label) }).toString()
 
     private fun launch(extraPane: String? = null): ActivityController<MainActivity> {
         val intent = Intent(context, MainActivity::class.java)
@@ -156,6 +160,52 @@ class MainActivityTest {
 
         awaitNode(hasTestTag("pane-row:%2"))
         assertAbsent(hasText("synthetic first body"))
+    }
+
+    @Test
+    fun theChosenViewSurvivesOpeningAPane() {
+        server.respond(
+            "GET",
+            PANES_PATH,
+            200,
+            JSONArray(
+                listOf(paneJson("%1", "alpha-build", state = "waiting"), paneJson("%2", "alpha-review")),
+            ).toString(),
+        )
+        val controller = launch()
+        awaitNode(hasTestTag("pane-row:%1"))
+        composeRule.onNodeWithTag("filter-waiting").performClick()
+        assertAbsent(hasTestTag("pane-row:%2"))
+        composeRule.onNodeWithTag("pane-row:%1").performClick()
+        awaitNode(hasText("synthetic first body"))
+
+        controller.get().onBackPressedDispatcher.onBackPressed()
+
+        awaitNode(hasTestTag("pane-row:%1"))
+        assertAbsent(hasTestTag("pane-row:%2"))
+    }
+
+    @Test
+    fun collapsedFoldersSurviveOpeningAPane() {
+        server.respond(
+            "GET",
+            PANES_PATH,
+            200,
+            JSONArray(
+                listOf(paneJson("%1", "alpha-build"), paneJson("%2", "beta-deploy", cwd = "/home/user/beta")),
+            ).toString(),
+        )
+        val controller = launch()
+        awaitNode(hasTestTag("pane-row:%1"))
+        composeRule.onNodeWithTag("folder:/home/user/alpha").performClick()
+        assertAbsent(hasTestTag("pane-row:%1"))
+        composeRule.onNodeWithTag("pane-row:%2").performClick()
+        awaitNode(hasText("synthetic second body"))
+
+        controller.get().onBackPressedDispatcher.onBackPressed()
+
+        awaitNode(hasTestTag("pane-row:%2"))
+        assertAbsent(hasTestTag("pane-row:%1"))
     }
 
     @Test

@@ -43,11 +43,28 @@ import kotlinx.coroutines.withContext
 import org.json.JSONException
 import java.io.IOException
 
-private enum class PaneFilter(val label: String, val tag: String) {
+internal enum class PaneFilter(val label: String, val tag: String) {
     ALL("All", "filter-all"),
     NEW("New", "filter-new"),
     WAITING("Waiting", "filter-waiting"),
 }
+
+/**
+ * The view and the collapsed folders of the pane list. The caller keeps one above the screens it
+ * switches between, so both survive opening a pane and coming back.
+ */
+class PaneListState {
+    internal var filter by mutableStateOf(PaneFilter.ALL)
+    internal var collapsed by mutableStateOf(emptySet<String>())
+
+    internal fun toggleFolder(key: String) {
+        collapsed = if (key in collapsed) collapsed - key else collapsed + key
+    }
+}
+
+/** A [PaneListState] that the composition remembers, for a caller that keeps none of its own. */
+@Composable
+internal fun rememberPaneListState(): PaneListState = remember { PaneListState() }
 
 private sealed interface PaneLoad {
     data object Loading : PaneLoad
@@ -89,9 +106,9 @@ fun PaneListScreen(
     onOpenSettings: () -> Unit,
     modifier: Modifier = Modifier,
     now: () -> Long = { System.currentTimeMillis() / 1000 },
+    state: PaneListState = rememberPaneListState(),
 ) {
     var load by remember { mutableStateOf<PaneLoad>(PaneLoad.Loading) }
-    var filter by remember { mutableStateOf(PaneFilter.ALL) }
     var generation by remember { mutableIntStateOf(0) }
     var picking by remember { mutableStateOf(false) }
 
@@ -139,12 +156,12 @@ fun PaneListScreen(
         Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
             PaneFilter.entries.forEach { option ->
                 TextButton(
-                    onClick = { filter = option },
+                    onClick = { state.filter = option },
                     modifier = Modifier.testTag(option.tag),
                 ) {
                     Text(
                         option.label,
-                        fontWeight = if (option == filter) FontWeight.Bold else FontWeight.Normal,
+                        fontWeight = if (option == state.filter) FontWeight.Bold else FontWeight.Normal,
                     )
                 }
             }
@@ -159,9 +176,11 @@ fun PaneListScreen(
             }
             is PaneLoad.Loaded -> PaneRows(
                 panes = current.panes,
-                filter = filter,
+                filter = state.filter,
+                collapsed = state.collapsed,
                 now = now(),
                 onOpenPane = onOpenPane,
+                onToggleFolder = state::toggleFolder,
             )
         }
     }
@@ -171,10 +190,11 @@ fun PaneListScreen(
 private fun PaneRows(
     panes: List<Pane>,
     filter: PaneFilter,
+    collapsed: Set<String>,
     now: Long,
     onOpenPane: (Pane) -> Unit,
+    onToggleFolder: (String) -> Unit,
 ) {
-    var collapsed by remember { mutableStateOf(emptySet<String>()) }
     LazyColumn(modifier = Modifier.fillMaxSize()) {
         when (filter) {
             PaneFilter.ALL -> items(
@@ -189,9 +209,7 @@ private fun PaneRows(
                 when (row) {
                     is Folder -> FolderRow(
                         folder = row,
-                        onToggle = {
-                            collapsed = if (row.key in collapsed) collapsed - row.key else collapsed + row.key
-                        },
+                        onToggle = { onToggleFolder(row.key) },
                     )
                     is PaneAt -> PaneRow(
                         pane = row.pane,

@@ -30,6 +30,7 @@ import io.github.joshsymonds.orrery.api.OrreryClient
 import io.github.joshsymonds.orrery.push.PushNotifier
 import io.github.joshsymonds.orrery.push.PushSetup
 import io.github.joshsymonds.orrery.ui.PaneListScreen
+import io.github.joshsymonds.orrery.ui.PaneListState
 import io.github.joshsymonds.orrery.ui.PaneScreen
 import io.github.joshsymonds.orrery.ui.SettingsScreen
 import io.github.joshsymonds.orrery.ui.theme.OrreryTheme
@@ -39,6 +40,7 @@ internal const val TOP_BAND_TAG = "top-band"
 
 class MainActivity : ComponentActivity() {
     private var screen by mutableStateOf<Screen>(Screen.Panes)
+    private val paneListState = PaneListState()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -72,6 +74,7 @@ class MainActivity : ComponentActivity() {
                                     onOpenPane = { screen = Screen.Pane(it.id) },
                                     onOpenPaneId = { screen = Screen.Pane(it) },
                                     onOpenSettings = { screen = Screen.Settings },
+                                    state = paneListState,
                                 )
                                 is Screen.Pane -> {
                                     BackHandler { screen = Screen.Panes }
