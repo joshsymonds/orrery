@@ -1,5 +1,8 @@
 package io.github.joshsymonds.orrery.ui
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.MaterialTheme
@@ -7,6 +10,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.SemanticsNodeInteraction
 import androidx.compose.ui.test.assertCountEquals
@@ -19,6 +23,8 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToIndex
 import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -357,6 +363,22 @@ class ConversationViewTest {
         }
     }
 
+    private fun setSizedList(
+        entries: MutableState<List<ConvoEntry>>,
+        height: MutableState<Dp>,
+        padding: MutableState<PaddingValues>,
+    ) {
+        composeRule.setContent {
+            MaterialTheme {
+                val state = rememberLazyListState()
+                list = state
+                Box(modifier = Modifier.height(height.value)) {
+                    ConversationView(entries = entries.value, listState = state, contentPadding = padding.value)
+                }
+            }
+        }
+    }
+
     private fun tallReply(name: String): String =
         (listOf(name) + List(99) { "synthetic line" }).joinToString("\n")
 
@@ -421,6 +443,49 @@ class ConversationViewTest {
         composeRule.waitForIdle()
         assertEquals(39, list.firstVisibleItemIndex)
         composeRule.onAllNodesWithText("synthetic appended reply").assertCountEquals(0)
+    }
+
+    @Test
+    fun shrinkingTheViewportAtTheBottomKeepsTheEndOfTheTallReplyInView() {
+        val entries = mutableStateOf(replies(1, 39) + ConvoEntry.Reply(tallReply("synthetic tall A")))
+        val height = mutableStateOf(300.dp)
+        setSizedList(entries, height, mutableStateOf(PaddingValues()))
+        assertEndOfReplyInView(tallReply("synthetic tall A"))
+
+        composeRule.runOnIdle { height.value = 200.dp }
+
+        assertEndOfReplyInView(tallReply("synthetic tall A"))
+    }
+
+    @Test
+    fun growingTheTopPaddingAtTheBottomKeepsTheEndOfTheTallReplyInView() {
+        val entries = mutableStateOf(replies(1, 39) + ConvoEntry.Reply(tallReply("synthetic tall A")))
+        val padding = mutableStateOf(PaddingValues())
+        setSizedList(entries, mutableStateOf(300.dp), padding)
+        assertEndOfReplyInView(tallReply("synthetic tall A"))
+
+        composeRule.runOnIdle { padding.value = PaddingValues(top = 80.dp) }
+
+        assertEndOfReplyInView(tallReply("synthetic tall A"))
+    }
+
+    @Test
+    fun shrinkingTheViewportWhileScrolledToTheTopLeavesTheFirstItemInPlace() {
+        val entries = mutableStateOf(replies(1, 39) + ConvoEntry.Reply(tallReply("synthetic tall A")))
+        val height = mutableStateOf(300.dp)
+        setSizedList(entries, height, mutableStateOf(PaddingValues()))
+
+        composeRule.onNodeWithTag("conversation-list").performScrollToIndex(0)
+        composeRule.waitForIdle()
+        assertEquals(0, list.firstVisibleItemIndex)
+        val before = composeRule.onNodeWithText("synthetic reply 01").fetchSemanticsNode().boundsInRoot.top
+
+        composeRule.runOnIdle { height.value = 200.dp }
+
+        composeRule.waitForIdle()
+        assertEquals(0, list.firstVisibleItemIndex)
+        val after = composeRule.onNodeWithText("synthetic reply 01").fetchSemanticsNode().boundsInRoot.top
+        assertEquals(before, after, 1f)
     }
 
     @Test
