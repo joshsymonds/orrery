@@ -31,6 +31,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/push"
 	"github.com/joshsymonds/orrery/internal/server"
 	"github.com/joshsymonds/orrery/internal/shell"
+	"github.com/joshsymonds/orrery/internal/stepmcp"
 	"github.com/joshsymonds/orrery/internal/store"
 	"github.com/joshsymonds/orrery/internal/summary"
 	"github.com/joshsymonds/orrery/internal/tmuxconf"
@@ -85,6 +86,7 @@ subcommands:
   open [--remote] [--intent TEXT] [ARGS...]     switch to the plan for ARGS, or to the picker; attach outside tmux
   tmux-conf                                     print the orrery tmux plugin for this binary
   help [--html]                                 print the help card for the tmux server, or the HTML page with --html
+  mcp                                           serve the step tools over MCP on stdio until stdin closes
   serve --listen ADDR --allow-login LOGIN [--allow-login LOGIN]... [--push-host HOST]...
         [--host-status-cmd PATH]
                                                 serve the HTTP API on a loopback address until SIGINT or SIGTERM
@@ -195,6 +197,8 @@ func dispatch(ctx context.Context, opts globals, rest []string, stdin *os.File, 
 		return runServe(ctx, opts, args, getenv)
 	case "events":
 		return errors.Join(cli.Events(ctx, args, stdout))
+	case "mcp":
+		return runMCP(ctx, opts, args, stdin, stdout, getenv)
 	case "session":
 		sessionSocket := ""
 		if !sessionViaURL(args) {
@@ -251,6 +255,29 @@ func openServeStores(getenv func(string) string, pushHosts []string) (*push.Stor
 		return nil, nil, fmt.Errorf("store: %w", err)
 	}
 	return pushStore, store.NewReader(dbPath), nil
+}
+
+// runMCP runs `orrery mcp`. It serves the step tools over MCP on stdin and stdout until stdin closes. The step
+// service is the one on the session socket beside the daemon socket, so the command opens no listener and no store.
+func runMCP(ctx context.Context, opts globals, args []string, stdin io.Reader, stdout io.Writer,
+	getenv func(string) string) error {
+	if len(args) > 0 {
+		return usagef("mcp takes no arguments")
+	}
+	socket, err := protocol.SocketPath(opts.daemonSocket, getenv)
+	if err != nil {
+		return fmt.Errorf("mcp: %w", err)
+	}
+	sessionSocket := protocol.SessionSocketPath(socket)
+	steps := enginev1connect.NewStepsClient(cli.SessionHTTPClient(sessionSocket), cli.SessionBaseURL)
+	server, err := stepmcp.NewServer(steps)
+	if err != nil {
+		return fmt.Errorf("mcp: %w", err)
+	}
+	if err := server.Serve(ctx, stdin, stdout); err != nil {
+		return fmt.Errorf("mcp: %w", err)
+	}
+	return nil
 }
 
 // runServe runs `orrery serve`. It serves the HTTP API for the tmux server named by opts on the loopback address

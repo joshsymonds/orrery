@@ -136,9 +136,9 @@ bump-nix $ref="nixpkgs-unstable":
 # Lint, coverage, and generated-code gates. The pin check runs first.
 check: pin-check lint proto-lint cover sqlc-diff gen-diff
 
-# Run the Android lint and JVM unit tests.
+# Assemble the debug APK, then run the Android lint and JVM unit tests.
 android-test:
-    nix develop .#android -c gradle -p android lintDebug test
+    nix develop .#android -c gradle -p android assembleDebug lintDebug test
 
 # Build the debug APK and install it on the connected device.
 android-install:
