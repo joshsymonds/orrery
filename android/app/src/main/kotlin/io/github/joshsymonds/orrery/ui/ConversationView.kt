@@ -40,6 +40,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -62,6 +64,10 @@ private const val WORKING_KEY = "working"
 // Waiting rows are keyed by their position in the queue, oldest first, so two equal items stay apart.
 private const val WAITING_KEY_PREFIX = "waiting:"
 private const val WAITING_ALPHA = 0.6f
+// The divider and the tint on the rows from it on, both in the lavender of the palette.
+private const val NEW_LABEL = "new"
+private const val NEW_DIVIDER_ALPHA = 0.5f
+private const val NEW_TINT_ALPHA = 0.06f
 
 private enum class CallMark(val symbol: String, val colour: Color) {
     Done("✓", Mocha.Green),
@@ -79,7 +85,9 @@ private enum class CallMark(val symbol: String, val colour: Color) {
  * alone. A change of the viewport's height or top padding (the keyboard, a growing draft, the
  * header folding) follows the same way. Each change of [endRequests] brings the end into view and
  * resumes following, even when the reader has scrolled up; the first composition is not a change.
- * Time rows are read against [now], in unix seconds, and follow it as it changes.
+ * Time rows are read against [now], in unix seconds, and follow it as it changes. A divider labelled
+ * "new" sits before the first entry newer than [seen] (unix seconds, null for none), and every entry
+ * from there on carries a faint tint; without a newer entry neither is drawn.
  */
 @Composable
 fun ConversationView(
@@ -91,6 +99,7 @@ fun ConversationView(
     working: Boolean = false,
     waiting: List<WaitingItem> = emptyList(),
     endRequests: Int = 0,
+    seen: Long? = null,
     now: Long = System.currentTimeMillis() / 1000,
 ) {
     var expanded by remember { mutableStateOf(emptySet<String>()) }
@@ -100,6 +109,7 @@ fun ConversationView(
     var followBottom by remember { mutableStateOf(true) }
     val markdownCache = remember { MarkdownCache() }
     val keys = remember(entries) { entryKeys(entries) }
+    val newerAt = remember(entries, seen) { firstNewerIndex(entries, seen) }
     val lastIndex = entries.size + (if (working) 1 else 0) + waiting.size + (if (footer == null) 0 else 1) - 1
     // Following is decided when a scroll ends, not when the first visible item moves: a slid window
     // moves it without the reader scrolling.
@@ -139,13 +149,33 @@ fun ConversationView(
         contentPadding = contentPadding,
     ) {
         items(count = entries.size, key = { index -> keys[index] }) { index ->
-            when (val entry = entries[index]) {
-                is ConvoEntry.Time -> TimeLabel(entry.seconds, now)
-                is ConvoEntry.Prompt -> PromptBlock(entry.text)
-                is ConvoEntry.Reply -> ReplyText(entry.text, markdownCache)
-                is ConvoEntry.Tool -> ToolRow(entry.call, expanded, toggle)
-                is ConvoEntry.Group -> GroupRow(entry.calls, expanded, toggle)
-                is ConvoEntry.Notice -> NoticeRow(entry)
+            // The divider rides in its entry's item, so the item count, and the end that follows it, stay put.
+            val tinted = newerAt >= 0 && index >= newerAt
+            Column(modifier = Modifier.fillMaxWidth()) {
+                if (index == newerAt) NewDivider()
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("entry-row:$index")
+                        .then(
+                            if (tinted) {
+                                Modifier
+                                    .semantics { stateDescription = NEW_LABEL }
+                                    .background(Mocha.Lavender.copy(alpha = NEW_TINT_ALPHA))
+                            } else {
+                                Modifier
+                            },
+                        ),
+                ) {
+                    when (val entry = entries[index]) {
+                        is ConvoEntry.Time -> TimeLabel(entry.seconds, now)
+                        is ConvoEntry.Prompt -> PromptBlock(entry.text)
+                        is ConvoEntry.Reply -> ReplyText(entry.text, markdownCache)
+                        is ConvoEntry.Tool -> ToolRow(entry.call, expanded, toggle)
+                        is ConvoEntry.Group -> GroupRow(entry.calls, expanded, toggle)
+                        is ConvoEntry.Notice -> NoticeRow(entry)
+                    }
+                }
             }
         }
         if (working) item(key = WORKING_KEY) { WorkingMark() }
@@ -186,6 +216,38 @@ private fun TimeLabel(seconds: Long, now: Long) {
         fontSize = 11.sp,
         textAlign = TextAlign.Center,
     )
+}
+
+/** The line that marks where the entries newer than the seen time begin, labelled "new". */
+@Composable
+private fun NewDivider() {
+    Row(
+        modifier = Modifier
+            .testTag("new-divider")
+            .fillMaxWidth()
+            .padding(top = 6.dp, bottom = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .height(1.dp)
+                .background(Mocha.Lavender.copy(alpha = NEW_DIVIDER_ALPHA)),
+        )
+        Text(
+            text = NEW_LABEL,
+            color = Mocha.Lavender,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold,
+        )
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .height(1.dp)
+                .background(Mocha.Lavender.copy(alpha = NEW_DIVIDER_ALPHA)),
+        )
+    }
 }
 
 @Composable

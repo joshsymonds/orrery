@@ -2,7 +2,14 @@ package io.github.joshsymonds.orrery.ui
 
 import io.github.joshsymonds.orrery.api.ConversationItem
 
-data class ToolCall(val id: String, val name: String, val input: String, val result: String?, val error: Boolean)
+data class ToolCall(
+    val id: String,
+    val name: String,
+    val input: String,
+    val result: String?,
+    val error: Boolean,
+    val time: Long = 0L,
+)
 
 sealed interface ConvoEntry {
     data class Time(val seconds: Long) : ConvoEntry
@@ -83,6 +90,28 @@ private fun baseKey(entry: ConvoEntry): String = when (entry) {
     is ConvoEntry.Notice -> "notice:${entry.time}:${entry.sort}:${entry.text.hashCode()}"
 }
 
+/**
+ * The index of the first entry newer than [seen] (unix seconds), or -1 when none is or [seen] is
+ * null. An entry is newer when its time is above zero and above [seen].
+ */
+fun firstNewerIndex(entries: List<ConvoEntry>, seen: Long?): Int {
+    if (seen == null) return -1
+    return entries.indexOfFirst { entry ->
+        val time = entryTime(entry)
+        time > 0 && time > seen
+    }
+}
+
+/** The time an entry is read by: a tool by its call, a group by its newest call. */
+private fun entryTime(entry: ConvoEntry): Long = when (entry) {
+    is ConvoEntry.Time -> entry.seconds
+    is ConvoEntry.Prompt -> entry.time
+    is ConvoEntry.Reply -> entry.time
+    is ConvoEntry.Tool -> entry.call.time
+    is ConvoEntry.Group -> entry.calls.maxOfOrNull { it.time } ?: 0L
+    is ConvoEntry.Notice -> entry.time
+}
+
 /** Names the calls' tools in order of first appearance, "Name ×N" when a name repeats. */
 fun groupSummary(calls: List<ToolCall>): String {
     val counts = LinkedHashMap<String, Int>()
@@ -112,6 +141,7 @@ private fun toolCall(item: ConversationItem, outcome: Outcome?): ToolCall {
         input = input,
         result = outcome?.text,
         error = outcome?.error ?: false,
+        time = item.time,
     )
 }
 

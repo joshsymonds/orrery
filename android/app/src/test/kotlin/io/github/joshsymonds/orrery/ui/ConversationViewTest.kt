@@ -13,7 +13,10 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.SemanticsNodeInteraction
+import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasAnyDescendant
@@ -49,6 +52,12 @@ private const val NOV_14_2330_UTC = 1_700_004_600L
 private const val NOV_15_0010_UTC = 1_700_007_000L
 private const val NOV_9_1030_UTC = 1_699_525_800L
 
+// Made-up unix seconds for the new divider: the seen time sits between the two.
+private const val EARLIER_TIME = 1_000L
+private const val SEEN_TIME = 2_000L
+private const val LATER_TIME = 3_000L
+private const val NEW_LABEL = "new"
+
 private fun inUtc() = TimeZone.setDefault(TimeZone.getTimeZone("UTC"))
 
 @RunWith(RobolectricTestRunner::class)
@@ -70,7 +79,8 @@ class ConversationViewTest {
         input: String = "synthetic input",
         result: String? = null,
         error: Boolean = false,
-    ) = ToolCall(id, name, input, result, error)
+        time: Long = 0L,
+    ) = ToolCall(id, name, input, result, error, time)
 
     private fun setList(
         entries: List<ConvoEntry>,
@@ -331,6 +341,140 @@ class ConversationViewTest {
 
         composeRule.onNodeWithText("synthetic trailing reply").assertIsDisplayed()
         composeRule.onNodeWithText("synthetic kept output").assertIsDisplayed()
+    }
+
+    private fun setSeen(entries: List<ConvoEntry>, seen: Long?) {
+        composeRule.setContent {
+            MaterialTheme { ConversationView(entries = entries, seen = seen, now = FIXED_NOW) }
+        }
+    }
+
+    /** The divider sits between the bottom of entry row [below] - 1 and the top of entry row [below]. */
+    private fun assertDividerBefore(below: Int) {
+        composeRule.onAllNodesWithTag("new-divider").assertCountEquals(1)
+        composeRule.onNodeWithText(NEW_LABEL).assertIsDisplayed()
+        val divider = composeRule.onNodeWithTag("new-divider").fetchSemanticsNode().boundsInRoot
+        val row = composeRule.onNodeWithTag("entry-row:$below").fetchSemanticsNode().boundsInRoot
+        assertTrue("the divider ends above entry row $below", divider.bottom <= row.top + 1f)
+        if (below > 0) {
+            val previous = composeRule.onNodeWithTag("entry-row:${below - 1}").fetchSemanticsNode().boundsInRoot
+            assertTrue("the divider starts below entry row ${below - 1}", divider.top >= previous.bottom - 1f)
+        }
+    }
+
+    /** Entry rows from [from] on carry the new tint; the rows before it do not. */
+    private fun assertTintFromRow(from: Int, count: Int) {
+        for (index in 0 until count) {
+            val row = composeRule.onNodeWithTag("entry-row:$index")
+            if (index >= from) {
+                row.assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, NEW_LABEL))
+            } else {
+                row.assert(SemanticsMatcher.keyNotDefined(SemanticsProperties.StateDescription))
+            }
+        }
+    }
+
+    private fun assertNoDividerAndNoTint(count: Int) {
+        composeRule.onAllNodesWithTag("new-divider").assertCountEquals(0)
+        assertTintFromRow(from = count, count = count)
+    }
+
+    @Test
+    fun newDividerSitsBeforeANewerTimeLabelAndTintsTheRowsFromThereOn() {
+        setSeen(
+            listOf(
+                ConvoEntry.Time(EARLIER_TIME),
+                ConvoEntry.Prompt("synthetic earlier prompt", EARLIER_TIME),
+                ConvoEntry.Time(LATER_TIME),
+                ConvoEntry.Reply("synthetic later reply", LATER_TIME),
+            ),
+            seen = SEEN_TIME,
+        )
+
+        assertDividerBefore(below = 2)
+        assertTintFromRow(from = 2, count = 4)
+    }
+
+    @Test
+    fun newDividerSitsBeforeANewerToolAndTintsOlderRowsAfterIt() {
+        setSeen(
+            listOf(
+                ConvoEntry.Reply("synthetic earlier reply", EARLIER_TIME),
+                ConvoEntry.Tool(call("new-tool", result = "synthetic output", time = LATER_TIME)),
+                ConvoEntry.Reply("synthetic after reply", EARLIER_TIME),
+            ),
+            seen = SEEN_TIME,
+        )
+
+        assertDividerBefore(below = 1)
+        assertTintFromRow(from = 1, count = 3)
+    }
+
+    @Test
+    fun newDividerSitsBeforeAGroupWhoseNewestCallIsNewer() {
+        setSeen(
+            listOf(
+                ConvoEntry.Reply("synthetic earlier reply", EARLIER_TIME),
+                ConvoEntry.Group(
+                    listOf(
+                        call("g-a", time = EARLIER_TIME),
+                        call("g-b", time = LATER_TIME),
+                        call("g-c", time = EARLIER_TIME),
+                    ),
+                ),
+            ),
+            seen = SEEN_TIME,
+        )
+
+        assertDividerBefore(below = 1)
+        assertTintFromRow(from = 1, count = 2)
+    }
+
+    @Test
+    fun noDividerWhenTheSeenTimeIsAtOrAfterTheNewestEntry() {
+        val entries = listOf(
+            ConvoEntry.Reply("synthetic earlier reply", EARLIER_TIME),
+            ConvoEntry.Tool(call("seen-tool", time = LATER_TIME)),
+        )
+        val seen = mutableStateOf<Long?>(LATER_TIME)
+        composeRule.setContent {
+            MaterialTheme { ConversationView(entries = entries, seen = seen.value, now = FIXED_NOW) }
+        }
+        assertNoDividerAndNoTint(count = entries.size)
+
+        composeRule.runOnIdle { seen.value = LATER_TIME + 1_000L }
+        assertNoDividerAndNoTint(count = entries.size)
+    }
+
+    @Test
+    fun noDividerWithoutASeenTime() {
+        val entries = listOf(
+            ConvoEntry.Reply("synthetic earlier reply", EARLIER_TIME),
+            ConvoEntry.Tool(call("unseen-tool", time = LATER_TIME)),
+        )
+        setSeen(entries, seen = null)
+
+        assertNoDividerAndNoTint(count = entries.size)
+    }
+
+    @Test
+    fun aTimeZeroEntryIsNeverNewerEvenPastAnEarlierSeenTime() {
+        val entries = listOf(ConvoEntry.Reply("synthetic untimed reply"), ConvoEntry.Tool(call("untimed-tool")))
+        setSeen(entries, seen = -1L)
+
+        assertNoDividerAndNoTint(count = entries.size)
+    }
+
+    @Test
+    fun aNewDividerDoesNotStopTheViewOpeningAtTheNewestEntry() {
+        val entries = (1..40).map { ConvoEntry.Reply("synthetic reply %02d".format(it), it * 100L) }
+        setSeen(entries, seen = SEEN_TIME)
+
+        composeRule.onNodeWithText("synthetic reply 40").assertIsDisplayed()
+        assertEndInView("synthetic reply 40")
+        // Replies 21 to 40 are newer; the divider rides in item 20 (reply 21), composed once scrolled to.
+        composeRule.onNodeWithTag("conversation-list").performScrollToIndex(20)
+        composeRule.onNodeWithTag("new-divider").assertIsDisplayed()
     }
 
     @Test
