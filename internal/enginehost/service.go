@@ -103,6 +103,7 @@ func (s *service) Start(
 		Dir:    req.Msg.GetDir(),
 		Prompt: req.Msg.GetPrompt(),
 		Model:  req.Msg.GetModel(),
+		ID:     req.Msg.GetId(),
 	})
 	if err != nil {
 		return nil, commandError(err)
@@ -185,7 +186,7 @@ func commandError(err error) error {
 	case errors.Is(err, ErrNoSession), errors.Is(err, session.ErrNoPendingRequest):
 		code = connect.CodeNotFound
 	case errors.Is(err, ErrBadDir), errors.Is(err, ErrEmptyPrompt), errors.Is(err, ErrBadModel),
-		errors.Is(err, ErrBadAnswer), errors.Is(err, session.ErrUnverifiedAnswer):
+		errors.Is(err, ErrBadID), errors.Is(err, ErrBadAnswer), errors.Is(err, session.ErrUnverifiedAnswer):
 		code = connect.CodeInvalidArgument
 	}
 	return errors.Join(connect.NewError(code, err))

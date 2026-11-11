@@ -35,6 +35,9 @@ var ErrEmptyPrompt = errors.New("session prompt is empty")
 // not start with -.
 var ErrBadModel = errors.New("session model must be 1 to 64 letters, digits or . _ - [ ] : and not start with -")
 
+// ErrBadID reports a Start whose id is set but is not 32 lowercase hex digits.
+var ErrBadID = errors.New("session id must be 32 lowercase hex digits")
+
 // ErrBadAnswer reports an Answer that fits neither the options of the open question nor allow or deny for the open
 // permission request. The request stays open.
 var ErrBadAnswer = errors.New("answer does not fit the open request")
@@ -139,6 +142,9 @@ type Manager struct {
 
 	// resumeMu serializes the resume of a session that is not live, so concurrent Says to one id start one process.
 	resumeMu sync.Mutex
+	// startMu serializes the Starts that name a session id, from the check that the id has no engine row through the
+	// start, so concurrent Starts of one new id store one row and start one process.
+	startMu sync.Mutex
 }
 
 // NewManager returns a Manager for cfg.
@@ -165,30 +171,53 @@ func NewManager(cfg Config) *Manager {
 }
 
 // StartRequest is what Start needs: the directory the session runs in, its first prompt, and the model alias it runs.
-// An empty Model runs claude's default.
+// An empty Model runs claude's default. An empty ID mints a session id; a non-empty ID is the id the session takes.
 type StartRequest struct {
 	Dir    string
 	Prompt string
 	Model  string
+	ID     string
 }
 
-// Start starts a session as req describes and returns its id. It records the session as working before it spawns the
+// Start starts a session as req describes and returns its id. An empty req.ID mints one. A non-empty req.ID must be 32
+// lowercase hex digits, or Start returns an error matching ErrBadID before it stores anything. A req.ID that already has
+// an engine row returns that id and does nothing else. Start records the session as working before it spawns the
 // process. A spawn or prompt failure is recorded as the session's failed state with the reason, and Start returns the
 // id with no error.
 func (m *Manager) Start(ctx context.Context, req StartRequest) (string, error) {
+	if req.ID == "" {
+		id, err := newSessionID()
+		if err != nil {
+			return "", err
+		}
+		return m.start(ctx, id, req)
+	}
+	if err := checkID(req.ID); err != nil {
+		return "", err
+	}
+	m.startMu.Lock()
+	defer m.startMu.Unlock()
+	_, err := m.engineRow(ctx, req.ID)
+	switch {
+	case err == nil:
+		return req.ID, nil
+	case !errors.Is(err, ErrNoSession):
+		return "", err
+	}
+	return m.start(ctx, req.ID, req)
+}
+
+// start starts the session id as req describes. It checks req and takes a slot under the cap, records the row, then
+// spawns the process and sends the first prompt. A failure before the row is stored frees the slot.
+func (m *Manager) start(ctx context.Context, id string, req StartRequest) (string, error) {
 	if err := checkStart(req); err != nil {
 		return "", err
 	}
 	if err := m.reserve(); err != nil {
 		return "", err
 	}
-	id, err := newSessionID()
-	if err != nil {
-		m.release()
-		return "", err
-	}
 	add := store.EngineAdd{ID: id, Dir: req.Dir, State: string(protocol.StateWorking)}
-	if err = m.writer.Commit(ctx, id, add); err != nil {
+	if err := m.writer.Commit(ctx, id, add); err != nil {
 		m.release()
 		return "", fmt.Errorf("record session %s: %w", id, err)
 	}
@@ -560,6 +589,24 @@ func checkStart(req StartRequest) error {
 		return ErrEmptyPrompt
 	}
 	return checkModel(req.Model)
+}
+
+// checkID reports whether id is 32 lowercase hex digits, the form newSessionID mints. It returns ErrBadID otherwise.
+func checkID(id string) error {
+	if len(id) != 32 {
+		return ErrBadID
+	}
+	for i := range len(id) {
+		if !isHexByte(id[i]) {
+			return ErrBadID
+		}
+	}
+	return nil
+}
+
+// isHexByte reports whether c is a lowercase hex digit.
+func isHexByte(c byte) bool {
+	return ('0' <= c && c <= '9') || ('a' <= c && c <= 'f')
 }
 
 // maxModelBytes is the longest model alias a start may name.
