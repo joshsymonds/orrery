@@ -7,6 +7,8 @@ waiting, or done) to a local daemon, `orreryd`, over a Unix socket. The daemon
 records that state in per-pane tmux options, summarizes it, and can notify you
 through ntfy. `orrery list` shows the panes and their states.
 
+![orrery tree: projects with panes marked working, waiting, or done, and a preview of the selected pane](docs/img/tree.png)
+
 ## Binaries
 
 - `cmd/orrery`: the Claude Code hook and the CLI client (`hook`, `list`, `seen`, `send`, `debug summarize`, `shell`, `tree`, `tmux-conf`, `open`, `help`).
@@ -35,7 +37,7 @@ p
   p .           the session for the current directory, else the picker to resume or start fresh
   p WORD        a session named WORD, else a zoxide match, else the picker
   p new NAME    create project directory NAME and a session for it (--root DIR sets the parent)
-  p WORDS...    open the picker with WORDS as the intent
+  p WORDS...    open the picker with WORDS as the intent, over zoxide's and the roots' directories
 
 tmux
   prefix Space  open the tree in a popup
@@ -59,6 +61,8 @@ tree
   ?             show every key
   esc, q        close the tree
 ```
+
+The picker offers zoxide's directories and the directories under the roots declared in the home-manager option `programs.orrery.roots`, shown to the model relative to home. The roots file is documented in [section 11 of `docs/contract.md`](docs/contract.md#11-commands-and-configuration).
 
 ## Phone service
 

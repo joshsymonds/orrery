@@ -148,3 +148,87 @@ android-font:
 # Rerun the Claude Code protocol probes live against the claude on PATH (spends Haiku turns on your sign-in; not part of check).
 engine-accept *args:
     go run ./internal/engine/capture/cmd/enginecapture accept {{args}}
+
+# Regenerate docs/img/tree.png: the real `orrery tree`, built from this tree,
+# full-frame in VHS's terminal (Catppuccin Mocha, Maple Mono NF) against the
+# private tmux server that docs/tui/fixture.sh start builds. Runs under the
+# tui-shots devenv profile, so vhs, ttyd and chromium stay out of the default
+# shell. docs/img/tree.png is replaced only after the frame's text shows every
+# project and pane label of the fixture. Exit stops the fixture server and
+# removes the temporary directory; VHS stops its own ttyd and browser when it
+# exits normally, but a crashed VHS can leave them running.
+[script("devenv", "--profile", "tui-shots", "shell", "--", "bash", "-euo", "pipefail")]
+tui-shots:
+    tmp="$(mktemp -d)"
+    trap 'bash "$PWD/docs/tui/fixture.sh" stop; rm -rf "$tmp"' EXIT
+
+    # Register only Maple Mono NF with fontconfig, in the temporary directory,
+    # and refuse to render unless fc-match resolves it.
+    cat > "$tmp/fonts.conf" <<EOF
+    <?xml version="1.0"?>
+    <!DOCTYPE fontconfig SYSTEM "fonts.dtd">
+    <fontconfig>
+      <dir>$ORRERY_TUI_FONT_DIR</dir>
+      <cachedir>$tmp/fontcache</cachedir>
+      <selectfont>
+        <acceptfont>
+          <pattern>
+            <patelt name="family"><string>Maple Mono NF</string></patelt>
+          </pattern>
+        </acceptfont>
+      </selectfont>
+    </fontconfig>
+    EOF
+    export FONTCONFIG_FILE="$tmp/fonts.conf"
+    family="$(fc-match -f '%{family}' 'Maple Mono NF')"
+    case "$family" in
+        "Maple Mono NF" | "Maple Mono NF,"*) ;;
+        *) echo "tui-shots: fc-match resolves 'Maple Mono NF' to '$family'; ORRERY_TUI_FONT_DIR must hold Maple Mono NF" >&2; exit 1 ;;
+    esac
+
+    # ttyd (VHS's terminal) needs its libwebsockets plugin directory on the library path.
+    lwsdir="$(dirname "$(ldd "$(command -v ttyd)" | awk '/libwebsockets/{print $3}')")"
+    export LD_LIBRARY_PATH="$lwsdir${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+
+    # The tape's shell and VHS's browser keep their temporary files in $tmp.
+    export TMPDIR="$tmp" COLORTERM=truecolor XDG_STATE_HOME=/tmp/orrery-tui-shots/state
+    unset TMUX TMUX_PANE
+
+    mkdir "$tmp/bin"
+    go build -o "$tmp/bin/orrery" ./cmd/orrery
+    export PATH="$tmp/bin:$PATH"
+
+    bash docs/tui/fixture.sh start
+
+    # Read the expected rows from the private server before VHS runs, so the
+    # fixture and this check cannot drift apart.
+    tmux -S /tmp/orrery-tui-shots/tmux.sock list-panes -a -F '#{pane_current_path}' | sort -u > "$tmp/projects.txt"
+    tmux -S /tmp/orrery-tui-shots/tmux.sock list-panes -a -F '#{@orrery_label}' | sort -u > "$tmp/labels.txt"
+    if [ ! -s "$tmp/projects.txt" ] || [ ! -s "$tmp/labels.txt" ]; then
+        echo "tui-shots: the fixture server reports no panes; docs/img/tree.png is unchanged" >&2
+        exit 1
+    fi
+
+    # VHS writes a gif and the frame's text into $tmp; ffmpeg takes the settled
+    # last frame as the PNG, also in $tmp.
+    tape="$PWD/docs/tui/tree.tape"
+    (cd "$tmp" && vhs "$tape")
+
+    # tree.txt holds one block per frame, each closed by a rule of ─. The last
+    # block is the settled frame the PNG is taken from, so the tree rendered
+    # only if that block holds every expected row.
+    awk '/^(─)+$/ { last = block; block = ""; next } { block = block $0 "\n" } END { printf "%s", last }' \
+        "$tmp/tree.txt" > "$tmp/frame.txt"
+    missing=()
+    while IFS= read -r row; do
+        grep -qF -- "$row" "$tmp/frame.txt" || missing+=("$row")
+    done < <(cat "$tmp/projects.txt" "$tmp/labels.txt")
+    if [ "${#missing[@]}" -gt 0 ]; then
+        echo "tui-shots: the rendered frame lacks: ${missing[*]}; docs/img/tree.png is unchanged" >&2
+        exit 1
+    fi
+
+    ffmpeg -y -loglevel error -sseof -0.3 -i "$tmp/tree.gif" -update 1 -frames:v 1 "$tmp/tree.png"
+    mkdir -p docs/img
+    mv -f "$tmp/tree.png" docs/img/tree.png
+    echo "tui-shots: wrote docs/img/tree.png"

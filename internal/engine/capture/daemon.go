@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/joshsymonds/orrery/internal/engine/proc"
+	"github.com/joshsymonds/orrery/internal/engine/session"
 	"github.com/joshsymonds/orrery/internal/protocol"
 )
 
@@ -126,11 +127,7 @@ func DaemonCommand(probe Probe, daemon Daemon, login bool, dir, resume string) (
 	if probe.ResumeOf != "" && resume == "" {
 		return Command{}, fmt.Errorf("capture: probe %s resumes %s without a resume id", probe.Name, probe.ResumeOf)
 	}
-	var args []string
-	if login {
-		args = append(args, "-l")
-	}
-	args = append(args, "-c", `exec "$@"`, "orrery-probe", daemon.Claude, "-p",
+	args := session.ShellArgs(login, "orrery-probe", daemon.Claude, "-p",
 		"--input-format", "stream-json",
 		"--output-format", "stream-json",
 		"--include-partial-messages",

@@ -99,6 +99,20 @@
             package = argvStub;
             remoteHost = "example-host";
           };
+          withRoots = homeFor {
+            package = orrery;
+            roots = [
+              {
+                path = "Work";
+                depth = 2;
+              }
+              {
+                path = "Shared Projects";
+                depth = 1;
+              }
+            ];
+          };
+          localRootsFile = local.config.xdg.configFile."orrery/roots".source or "";
         in
         {
           package = self.packages.${system}.default;
@@ -141,6 +155,12 @@
             [ "$remoteOut" = "$expected" ] || fail "remote command printed [$remoteOut], want [$expected]"
 
             rm -f "$SSH_LOG"
+
+            [ -z "${localRootsFile}" ] || fail "configuration without roots writes an orrery/roots file"
+            printf '%s\n' '2 Work' '1 Shared Projects' > expectedRoots
+            rootsFile=${withRoots.config.xdg.configFile."orrery/roots".source}
+            cmp -s "$rootsFile" expectedRoots || fail "roots file is [$(cat "$rootsFile")], want [2 Work, 1 Shared Projects]"
+
             status=0
             "$p_remote" . 2>err || status=$?
             [ "$status" -eq 2 ] || fail "p . exited $status, want 2"

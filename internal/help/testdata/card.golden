@@ -5,7 +5,7 @@ p
   p .           the session for the current directory, else the picker to resume or start fresh
   p WORD        a session named WORD, else a zoxide match, else the picker
   p new NAME    create project directory NAME and a session for it (--root DIR sets the parent)
-  p WORDS...    open the picker with WORDS as the intent
+  p WORDS...    open the picker with WORDS as the intent, over zoxide's and the roots' directories
 
 tmux (prefix is C-a)
   prefix Space  open the tree in a popup
