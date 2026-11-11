@@ -270,16 +270,16 @@ class OrreryClientTest {
     }
 
     @Test
-    fun markSeenPostsEmptyBodyWithBothHeaders() {
+    fun markSeenPostsReadUpToWithBothHeaders() {
         FakeOrreryServer().use { server ->
             server.respond("POST", "/v1/panes/%253/seen", 200)
 
-            OrreryClient(server.baseUrl).markSeen("%3")
+            OrreryClient(server.baseUrl).markSeen("%3", 1_700_000_500L)
 
             val request = server.requests.single()
             assertEquals("/v1/panes/%253/seen", request.rawPath)
             assertWriteHeaders(request)
-            assertJsonBody("{}", request.body)
+            assertJsonBody("""{"read_up_to":1700000500}""", request.body)
         }
     }
 

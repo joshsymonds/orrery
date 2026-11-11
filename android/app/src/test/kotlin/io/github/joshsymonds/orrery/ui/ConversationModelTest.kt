@@ -151,6 +151,61 @@ class ConversationModelTest {
     }
 
     @Test
+    fun replyWithTimeGetsTimeEntryFirst() {
+        val entries = foldConversation(listOf(item("reply", time = 1_700_000_000L, text = "synthetic reply")))
+
+        assertEquals(
+            listOf(ConvoEntry.Time(1_700_000_000L), ConvoEntry.Reply("synthetic reply", 1_700_000_000L)),
+            entries,
+        )
+    }
+
+    @Test
+    fun replyWithZeroTimeHasNoTimeEntry() {
+        val entries = foldConversation(listOf(item("reply", time = 0L, text = "synthetic reply")))
+
+        assertEquals(listOf(ConvoEntry.Reply("synthetic reply")), entries)
+    }
+
+    @Test
+    fun timeEntryPrecedesEachTimedPromptAndReplyOnly() {
+        val entries = foldConversation(
+            listOf(
+                item("prompt", time = 100L, text = "synthetic prompt one"),
+                call("a"),
+                call("b"),
+                item("reply", time = 105L, text = "synthetic reply one"),
+                notice("task", text = "synthetic task", time = 110L),
+                item("reply", time = 0L, text = "synthetic reply two"),
+                item("prompt", time = 200L, text = "synthetic prompt two"),
+                call("c"),
+                call("d"),
+                call("e"),
+                item("reply", time = 210L, text = "synthetic reply three"),
+            ),
+        )
+
+        assertEquals(
+            listOf(
+                ConvoEntry.Time(100L),
+                ConvoEntry.Prompt("synthetic prompt one", 100L),
+                toolEntry("a"),
+                toolEntry("b"),
+                ConvoEntry.Time(105L),
+                ConvoEntry.Reply("synthetic reply one", 105L),
+                ConvoEntry.Notice("task", "synthetic task", false, 110L),
+                ConvoEntry.Reply("synthetic reply two"),
+                ConvoEntry.Time(200L),
+                ConvoEntry.Prompt("synthetic prompt two", 200L),
+                ConvoEntry.Group(listOf(toolCall("c"), toolCall("d"), toolCall("e"))),
+                ConvoEntry.Time(210L),
+                ConvoEntry.Reply("synthetic reply three", 210L),
+            ),
+            entries,
+        )
+    }
+
+    @Test
     fun orphanResultAndUnknownKindProduceNothing() {
         val entries = foldConversation(
             listOf(
@@ -218,7 +273,7 @@ class ConversationModelTest {
 
         val keys = entryKeys(entries)
 
-        assertEquals(3, entries.size)
+        assertEquals(6, entries.size)
         assertEquals(entries.size, keys.toSet().size)
     }
 
@@ -249,6 +304,7 @@ class ConversationModelTest {
 
         assertEquals(
             listOf(
+                ConvoEntry.Time(300L),
                 ConvoEntry.Reply("synthetic reply", 300L),
                 ConvoEntry.Time(400L),
                 ConvoEntry.Prompt("synthetic prompt", 400L),
