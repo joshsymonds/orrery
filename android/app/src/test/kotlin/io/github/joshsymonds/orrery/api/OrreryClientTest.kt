@@ -2,9 +2,12 @@ package io.github.joshsymonds.orrery.api
 
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
 import org.junit.Test
+import java.io.IOException
+import java.net.SocketTimeoutException
 
 class OrreryClientTest {
     private val panesJson = """
@@ -131,6 +134,97 @@ class OrreryClientTest {
             assertEquals("/v1/panes/%253/text", request.rawPath)
             assertWriteHeaders(request)
             assertJsonBody("""{"text":"echo hi"}""", request.body)
+        }
+    }
+
+    @Test
+    fun sendComposedPostsWhatSendTextPosts() {
+        FakeOrreryServer().use { server ->
+            server.respond("POST", "/v1/panes/%253/text", 200)
+            val client = OrreryClient(server.baseUrl)
+
+            client.sendText("%3", "echo hi")
+            client.sendComposed("%3", "echo hi")
+
+            val (plain, composed) = server.requests
+            assertEquals("POST", composed.method)
+            assertEquals(plain.rawPath, composed.rawPath)
+            assertEquals(plain.rawQuery, composed.rawQuery)
+            assertWriteHeaders(composed)
+            assertEquals(plain.body, composed.body)
+            assertJsonBody("""{"text":"echo hi"}""", composed.body)
+        }
+    }
+
+    @Test
+    fun sendComposedAnsweredAfterTenSecondsSucceeds() {
+        FakeOrreryServer().use { server ->
+            server.respond("POST", "/v1/panes/%253/text", 200, delayMillis = 11_000)
+
+            OrreryClient(server.baseUrl).sendComposed("%3", "echo hi")
+
+            assertEquals(1, server.requests.size)
+        }
+    }
+
+    @Test
+    fun sendTextAnsweredAfterTenSecondsTimesOut() {
+        FakeOrreryServer().use { server ->
+            server.respond("POST", "/v1/panes/%253/text", 200, delayMillis = 11_000)
+
+            assertThrows(SocketTimeoutException::class.java) {
+                OrreryClient(server.baseUrl).sendText("%3", "echo hi")
+            }
+        }
+    }
+
+    @Test
+    fun getAnsweredAfterTenSecondsTimesOut() {
+        FakeOrreryServer().use { server ->
+            server.respond("GET", "/v1/panes", 200, "[]", delayMillis = 11_000)
+
+            assertThrows(SocketTimeoutException::class.java) {
+                OrreryClient(server.baseUrl).panes()
+            }
+        }
+    }
+
+    @Test
+    fun sendComposedWithNoAnswerInTimeThrowsNoAnswerAndSendsOnce() {
+        FakeOrreryServer().use { server ->
+            server.respond("POST", "/v1/panes/%253/text", 200, delayMillis = 1_500)
+
+            assertThrows(NoAnswerException::class.java) {
+                OrreryClient(server.baseUrl, composeReadTimeoutMillis = 300).sendComposed("%3", "echo hi")
+            }
+
+            assertEquals(1, server.requests.size)
+        }
+    }
+
+    @Test
+    fun sendComposedRefusedConnectionThrowsIOExceptionThatIsNotNoAnswer() {
+        val server = FakeOrreryServer()
+        val baseUrl = server.baseUrl
+        server.close()
+
+        val error = assertThrows(IOException::class.java) {
+            OrreryClient(baseUrl).sendComposed("%3", "echo hi")
+        }
+
+        assertFalse(error is NoAnswerException)
+    }
+
+    @Test
+    fun sendComposedServerErrorThrowsHttpExceptionCarryingStatus() {
+        FakeOrreryServer().use { server ->
+            server.respond("POST", "/v1/panes/%253/text", 500, "boom")
+
+            val error = assertThrows(OrreryHttpException::class.java) {
+                OrreryClient(server.baseUrl).sendComposed("%3", "echo hi")
+            }
+
+            assertEquals(500, error.status)
         }
     }
 
