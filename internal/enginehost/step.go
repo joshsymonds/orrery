@@ -25,21 +25,26 @@ const stepDefaultDone = "done"
 // stepDefaultGateLimit is how long a step's gate may run when its StepStart names no limit.
 const stepDefaultGateLimit = 30 * time.Minute
 
+// stepDefaultModelLimit is how long a step's model time may run when its StepStart names no limit.
+const stepDefaultModelLimit = 60 * time.Minute
+
 // StepStart describes a step to start. A writing step (ReadOnly false) runs in Workspace, a linked worktree, and its
 // done return is checked against its commit and Owned paths and its Gate. A read-only step runs in a detached worktree
 // at Revision, which is removed when the step ends. Revision names the start commit and empty means HEAD. DoneValue
-// empty means "done", and GateLimit zero means 30 minutes.
+// empty means "done", GateLimit zero means 30 minutes, and ModelLimit zero means 60 minutes, the model-time limit the
+// step is stored with.
 type StepStart struct {
-	Agent     string
-	Prompt    string
-	Schema    string
-	Workspace string
-	Revision  string
-	ReadOnly  bool
-	Owned     []string
-	Gate      []string
-	GateLimit time.Duration
-	DoneValue string
+	Agent      string
+	Prompt     string
+	Schema     string
+	Workspace  string
+	Revision   string
+	ReadOnly   bool
+	Owned      []string
+	Gate       []string
+	GateLimit  time.Duration
+	ModelLimit time.Duration
+	DoneValue  string
 }
 
 // StepStore reads the step rows Steps reports. *store.Store satisfies it.
@@ -140,10 +145,14 @@ func (s *Steps) Start(ctx context.Context, start StepStart) (string, error) {
 	if gateLimit == 0 {
 		gateLimit = stepDefaultGateLimit
 	}
+	modelLimit := start.ModelLimit
+	if modelLimit == 0 {
+		modelLimit = stepDefaultModelLimit
+	}
 	add := store.StepAdd{
 		ID: id, Agent: start.Agent, Prompt: start.Prompt, Schema: start.Schema, Workspace: start.Workspace,
 		Revision: commit, DoneValue: doneValue, ReadOnly: start.ReadOnly, Owned: start.Owned, Gate: gate,
-		GateLimit: gateLimit,
+		GateLimit: gateLimit, ModelLimit: modelLimit,
 	}
 	cfg := stepRunConfig{
 		id: id, schema: start.Schema, doneValue: doneValue, sessions: s.sessions, writer: s.writer, logger: s.logger,

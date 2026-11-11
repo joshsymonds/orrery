@@ -252,16 +252,17 @@ func TestStepsStartWritingHandsStartStepTheStepAndRunsItsLoop(t *testing.T) {
 		t.Fatal("StartStep got a nil Observer")
 	}
 	want := store.StepAdd{
-		ID:        id,
-		Agent:     start.Agent,
-		Prompt:    start.Prompt,
-		Schema:    start.Schema,
-		Workspace: linked,
-		Revision:  commit,
-		DoneValue: stepLoopDone,
-		Owned:     []string{stepDoneOwned},
-		Gate:      []string{gateProgram, "-c", "exit 0"},
-		GateLimit: 5 * time.Minute,
+		ID:         id,
+		Agent:      start.Agent,
+		Prompt:     start.Prompt,
+		Schema:     start.Schema,
+		Workspace:  linked,
+		Revision:   commit,
+		DoneValue:  stepLoopDone,
+		Owned:      []string{stepDoneOwned},
+		Gate:       []string{gateProgram, "-c", "exit 0"},
+		GateLimit:  5 * time.Minute,
+		ModelLimit: stepDefaultModelLimit,
 	}
 	if len(step.Ops) != 1 || !reflect.DeepEqual(step.Ops[0], want) {
 		t.Fatalf("StartStep ops = %#v, want the one StepAdd %#v", step.Ops, want)
@@ -300,16 +301,17 @@ func TestStepsStartWritingDefaultsDoneValueGateLimitAndRevision(t *testing.T) {
 	}
 
 	want := store.StepAdd{
-		ID:        id,
-		Agent:     start.Agent,
-		Prompt:    start.Prompt,
-		Schema:    start.Schema,
-		Workspace: linked,
-		Revision:  commit,
-		DoneValue: stepDefaultDone,
-		Owned:     []string{stepDoneOwned},
-		Gate:      []string{gateProgram, "-c", "exit 0"},
-		GateLimit: stepDefaultGateLimit,
+		ID:         id,
+		Agent:      start.Agent,
+		Prompt:     start.Prompt,
+		Schema:     start.Schema,
+		Workspace:  linked,
+		Revision:   commit,
+		DoneValue:  stepDefaultDone,
+		Owned:      []string{stepDoneOwned},
+		Gate:       []string{gateProgram, "-c", "exit 0"},
+		GateLimit:  stepDefaultGateLimit,
+		ModelLimit: stepDefaultModelLimit,
 	}
 	got, ok := f.sessions.first(t).Ops[0].(store.StepAdd)
 	if !ok {
