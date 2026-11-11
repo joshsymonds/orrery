@@ -201,13 +201,15 @@ func SummaryModel(baseURL string, models map[string]string) string {
 	return DefaultSummaryModel
 }
 
-// HookFrame is the single frame a Claude Code hook sends to orreryd per connection.
+// HookFrame is the single frame a sender writes to orreryd per connection. A Claude Code hook frame carries Hook.
+// A seen report carries Seen and no Hook.
 type HookFrame struct {
-	Hook             json.RawMessage `json:"hook"`
+	Hook             json.RawMessage `json:"hook,omitempty"`
 	TmuxPane         string          `json:"tmuxPane"`
 	Tmux             string          `json:"tmux"`
 	Cwd              string          `json:"cwd"`
 	AnthropicBaseURL string          `json:"anthropicBaseUrl"`
+	Seen             int64           `json:"seen,omitempty"`
 }
 
 // WriteFrame writes frame to w as one JSON object terminated by a newline.
@@ -218,16 +220,26 @@ func WriteFrame(w io.Writer, frame HookFrame) error {
 	return nil
 }
 
-// ReadFrame decodes one frame from r with no line-length limit. It rejects malformed JSON
-// and a hook that is missing, null, or not a JSON object.
+// ReadFrame decodes one frame from r with no line-length limit. It accepts a hook frame, whose hook is a JSON
+// object, and a seen report, which has a positive seen and no hook. It rejects malformed JSON, a hook that is null
+// or not a JSON object, a frame with neither a hook nor a positive seen, and a frame with both a hook and a seen.
 func ReadFrame(r io.Reader) (HookFrame, error) {
 	var frame HookFrame
 	if err := json.NewDecoder(r).Decode(&frame); err != nil {
 		return HookFrame{}, fmt.Errorf("read hook frame: %w", err)
 	}
+	if frame.Hook == nil {
+		if frame.Seen > 0 {
+			return frame, nil
+		}
+		return HookFrame{}, errors.New("read hook frame: hook must be a JSON object")
+	}
 	hook := bytes.TrimSpace(frame.Hook)
 	if len(hook) == 0 || hook[0] != '{' {
 		return HookFrame{}, errors.New("read hook frame: hook must be a JSON object")
+	}
+	if frame.Seen != 0 {
+		return HookFrame{}, errors.New("read hook frame: a frame carries a hook or a seen report, not both")
 	}
 	return frame, nil
 }

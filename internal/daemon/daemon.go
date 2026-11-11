@@ -48,8 +48,16 @@ type Config struct {
 	TidyInterval time.Duration
 	// Observers are called in order, synchronously, for each state change. They must return quickly.
 	Observers []Observer
+	// Seen receives each seen report whose pane is set, in the connection's goroutine. Nil drops seen reports.
+	Seen func(SeenReport)
 	// Logger receives read, resolve and apply errors. Nil discards them.
 	Logger *slog.Logger
+}
+
+// SeenReport is one seen report: the pane the sender marked seen and the seen time it wrote.
+type SeenReport struct {
+	PaneID string
+	Seen   int64
 }
 
 // Observer receives one state change.
@@ -187,11 +195,28 @@ func (h *frameHandler) serveConn(ctx context.Context, conn net.Conn) {
 		h.logger.WarnContext(ctx, "read hook frame", "error", err)
 		return
 	}
+	if frame.Hook == nil {
+		h.reportSeen(ctx, frame)
+		return
+	}
 	if frame.TmuxPane == "" {
 		h.logger.WarnContext(ctx, "drop hook frame", "reason", "empty tmuxPane")
 		return
 	}
 	h.apply(context.WithoutCancel(ctx), frame)
+}
+
+// reportSeen passes a seen report to Config.Seen. It drops the report when its pane is empty or Config.Seen is nil,
+// and never touches tmux or the pane state.
+func (h *frameHandler) reportSeen(ctx context.Context, frame protocol.HookFrame) {
+	if frame.TmuxPane == "" {
+		h.logger.WarnContext(ctx, "drop seen report", "reason", "empty tmuxPane")
+		return
+	}
+	if h.cfg.Seen == nil {
+		return
+	}
+	h.cfg.Seen(SeenReport{PaneID: frame.TmuxPane, Seen: frame.Seen})
 }
 
 // apply runs one frame through state.Apply under the mutex and calls every observer when the state changes. With a
