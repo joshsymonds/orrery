@@ -314,12 +314,12 @@ func (x *WatchRequest) GetAfter() int64 {
 	return 0
 }
 
-// WatchResponse is one stored event. Exactly one of the typed event messages is set.
+// WatchResponse is one stored event, typed by its kind. Exactly one of the typed event messages is set.
 type WatchResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The event's seq, the store's monotonic position.
 	Seq int64 `protobuf:"varint,1,opt,name=seq,proto3" json:"seq,omitempty"`
-	// The session the event is about, the pane's @orrery_id.
+	// The session the event is about, the pane's @orrery_id, or the headless session's id.
 	SessionId string `protobuf:"bytes,2,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
 	// When the event was stored, in unix seconds.
 	At int64 `protobuf:"varint,3,opt,name=at,proto3" json:"at,omitempty"`
@@ -330,6 +330,14 @@ type WatchResponse struct {
 	//	*WatchResponse_SessionAdded
 	//	*WatchResponse_SessionChanged
 	//	*WatchResponse_SessionRemoved
+	//	*WatchResponse_EngineAdded
+	//	*WatchResponse_EngineChanged
+	//	*WatchResponse_EnginePrompt
+	//	*WatchResponse_EngineBlock
+	//	*WatchResponse_EngineRequest
+	//	*WatchResponse_EngineRequestCanceled
+	//	*WatchResponse_EngineTurnEnded
+	//	*WatchResponse_EngineText
 	Event         isWatchResponse_Event `protobuf_oneof:"event"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -420,6 +428,78 @@ func (x *WatchResponse) GetSessionRemoved() *SessionRemoved {
 	return nil
 }
 
+func (x *WatchResponse) GetEngineAdded() *EngineAdded {
+	if x != nil {
+		if x, ok := x.Event.(*WatchResponse_EngineAdded); ok {
+			return x.EngineAdded
+		}
+	}
+	return nil
+}
+
+func (x *WatchResponse) GetEngineChanged() *EngineChanged {
+	if x != nil {
+		if x, ok := x.Event.(*WatchResponse_EngineChanged); ok {
+			return x.EngineChanged
+		}
+	}
+	return nil
+}
+
+func (x *WatchResponse) GetEnginePrompt() *EnginePrompt {
+	if x != nil {
+		if x, ok := x.Event.(*WatchResponse_EnginePrompt); ok {
+			return x.EnginePrompt
+		}
+	}
+	return nil
+}
+
+func (x *WatchResponse) GetEngineBlock() *EngineBlock {
+	if x != nil {
+		if x, ok := x.Event.(*WatchResponse_EngineBlock); ok {
+			return x.EngineBlock
+		}
+	}
+	return nil
+}
+
+func (x *WatchResponse) GetEngineRequest() *EngineRequest {
+	if x != nil {
+		if x, ok := x.Event.(*WatchResponse_EngineRequest); ok {
+			return x.EngineRequest
+		}
+	}
+	return nil
+}
+
+func (x *WatchResponse) GetEngineRequestCanceled() *EngineRequestCanceled {
+	if x != nil {
+		if x, ok := x.Event.(*WatchResponse_EngineRequestCanceled); ok {
+			return x.EngineRequestCanceled
+		}
+	}
+	return nil
+}
+
+func (x *WatchResponse) GetEngineTurnEnded() *EngineTurnEnded {
+	if x != nil {
+		if x, ok := x.Event.(*WatchResponse_EngineTurnEnded); ok {
+			return x.EngineTurnEnded
+		}
+	}
+	return nil
+}
+
+func (x *WatchResponse) GetEngineText() *EngineText {
+	if x != nil {
+		if x, ok := x.Event.(*WatchResponse_EngineText); ok {
+			return x.EngineText
+		}
+	}
+	return nil
+}
+
 type isWatchResponse_Event interface {
 	isWatchResponse_Event()
 }
@@ -439,11 +519,67 @@ type WatchResponse_SessionRemoved struct {
 	SessionRemoved *SessionRemoved `protobuf:"bytes,6,opt,name=session_removed,json=sessionRemoved,proto3,oneof"`
 }
 
+type WatchResponse_EngineAdded struct {
+	// A headless session row was inserted.
+	EngineAdded *EngineAdded `protobuf:"bytes,7,opt,name=engine_added,json=engineAdded,proto3,oneof"`
+}
+
+type WatchResponse_EngineChanged struct {
+	// One or more of a headless session's columns changed.
+	EngineChanged *EngineChanged `protobuf:"bytes,8,opt,name=engine_changed,json=engineChanged,proto3,oneof"`
+}
+
+type WatchResponse_EnginePrompt struct {
+	// A prompt was sent to a headless session.
+	EnginePrompt *EnginePrompt `protobuf:"bytes,9,opt,name=engine_prompt,json=enginePrompt,proto3,oneof"`
+}
+
+type WatchResponse_EngineBlock struct {
+	// A content block of a headless session finished.
+	EngineBlock *EngineBlock `protobuf:"bytes,10,opt,name=engine_block,json=engineBlock,proto3,oneof"`
+}
+
+type WatchResponse_EngineRequest struct {
+	// A headless session sent a request the host must answer.
+	EngineRequest *EngineRequest `protobuf:"bytes,11,opt,name=engine_request,json=engineRequest,proto3,oneof"`
+}
+
+type WatchResponse_EngineRequestCanceled struct {
+	// A headless session withdrew a request.
+	EngineRequestCanceled *EngineRequestCanceled `protobuf:"bytes,12,opt,name=engine_request_canceled,json=engineRequestCanceled,proto3,oneof"`
+}
+
+type WatchResponse_EngineTurnEnded struct {
+	// A turn of a headless session ended.
+	EngineTurnEnded *EngineTurnEnded `protobuf:"bytes,13,opt,name=engine_turn_ended,json=engineTurnEnded,proto3,oneof"`
+}
+
+type WatchResponse_EngineText struct {
+	// The text so far of one unfinished content block of a headless session.
+	EngineText *EngineText `protobuf:"bytes,14,opt,name=engine_text,json=engineText,proto3,oneof"`
+}
+
 func (*WatchResponse_SessionAdded) isWatchResponse_Event() {}
 
 func (*WatchResponse_SessionChanged) isWatchResponse_Event() {}
 
 func (*WatchResponse_SessionRemoved) isWatchResponse_Event() {}
+
+func (*WatchResponse_EngineAdded) isWatchResponse_Event() {}
+
+func (*WatchResponse_EngineChanged) isWatchResponse_Event() {}
+
+func (*WatchResponse_EnginePrompt) isWatchResponse_Event() {}
+
+func (*WatchResponse_EngineBlock) isWatchResponse_Event() {}
+
+func (*WatchResponse_EngineRequest) isWatchResponse_Event() {}
+
+func (*WatchResponse_EngineRequestCanceled) isWatchResponse_Event() {}
+
+func (*WatchResponse_EngineTurnEnded) isWatchResponse_Event() {}
+
+func (*WatchResponse_EngineText) isWatchResponse_Event() {}
 
 // SessionAdded carries the placement of a pane that started being tracked.
 type SessionAdded struct {
@@ -664,6 +800,1233 @@ func (*SessionRemoved) Descriptor() ([]byte, []int) {
 	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{7}
 }
 
+// StartRequest asks for a new headless session.
+type StartRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The directory the session runs in: an existing absolute directory under serve's home directory, after symlinks resolve.
+	Dir string `protobuf:"bytes,1,opt,name=dir,proto3" json:"dir,omitempty"`
+	// The first prompt.
+	Prompt string `protobuf:"bytes,2,opt,name=prompt,proto3" json:"prompt,omitempty"`
+	// The model alias. Empty runs claude's default.
+	Model string `protobuf:"bytes,3,opt,name=model,proto3" json:"model,omitempty"`
+	// A client-chosen session id, 32 lowercase hex digits. A start that names an existing session's id returns it and starts nothing.
+	Id            string `protobuf:"bytes,4,opt,name=id,proto3" json:"id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *StartRequest) Reset() {
+	*x = StartRequest{}
+	mi := &file_orrery_v1_orrery_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StartRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StartRequest) ProtoMessage() {}
+
+func (x *StartRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_orrery_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StartRequest.ProtoReflect.Descriptor instead.
+func (*StartRequest) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *StartRequest) GetDir() string {
+	if x != nil {
+		return x.Dir
+	}
+	return ""
+}
+
+func (x *StartRequest) GetPrompt() string {
+	if x != nil {
+		return x.Prompt
+	}
+	return ""
+}
+
+func (x *StartRequest) GetModel() string {
+	if x != nil {
+		return x.Model
+	}
+	return ""
+}
+
+func (x *StartRequest) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+// StartResponse carries the id of the started session.
+type StartResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The session's id.
+	Id            string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *StartResponse) Reset() {
+	*x = StartResponse{}
+	mi := &file_orrery_v1_orrery_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StartResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StartResponse) ProtoMessage() {}
+
+func (x *StartResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_orrery_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StartResponse.ProtoReflect.Descriptor instead.
+func (*StartResponse) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *StartResponse) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+// SayRequest asks for a prompt to be sent to a headless session.
+type SayRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The session's id.
+	Id string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	// The prompt text.
+	Text string `protobuf:"bytes,2,opt,name=text,proto3" json:"text,omitempty"`
+	// A client-chosen prompt id. A say whose prompt id the session already recorded sends nothing and succeeds. Empty means none.
+	PromptId      string `protobuf:"bytes,3,opt,name=prompt_id,json=promptId,proto3" json:"prompt_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SayRequest) Reset() {
+	*x = SayRequest{}
+	mi := &file_orrery_v1_orrery_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SayRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SayRequest) ProtoMessage() {}
+
+func (x *SayRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_orrery_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SayRequest.ProtoReflect.Descriptor instead.
+func (*SayRequest) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *SayRequest) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *SayRequest) GetText() string {
+	if x != nil {
+		return x.Text
+	}
+	return ""
+}
+
+func (x *SayRequest) GetPromptId() string {
+	if x != nil {
+		return x.PromptId
+	}
+	return ""
+}
+
+// SayResponse is the reply to a Say. It has no fields.
+type SayResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SayResponse) Reset() {
+	*x = SayResponse{}
+	mi := &file_orrery_v1_orrery_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SayResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SayResponse) ProtoMessage() {}
+
+func (x *SayResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_orrery_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SayResponse.ProtoReflect.Descriptor instead.
+func (*SayResponse) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{11}
+}
+
+// AnswerRequest answers an open request of a headless session.
+type AnswerRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The session's id.
+	Id string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	// The open request this answers, by its id.
+	RequestId string `protobuf:"bytes,2,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	// An option label of a question, or allow or deny for a permission request.
+	Answer        string `protobuf:"bytes,3,opt,name=answer,proto3" json:"answer,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AnswerRequest) Reset() {
+	*x = AnswerRequest{}
+	mi := &file_orrery_v1_orrery_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AnswerRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AnswerRequest) ProtoMessage() {}
+
+func (x *AnswerRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_orrery_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AnswerRequest.ProtoReflect.Descriptor instead.
+func (*AnswerRequest) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *AnswerRequest) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *AnswerRequest) GetRequestId() string {
+	if x != nil {
+		return x.RequestId
+	}
+	return ""
+}
+
+func (x *AnswerRequest) GetAnswer() string {
+	if x != nil {
+		return x.Answer
+	}
+	return ""
+}
+
+// AnswerResponse is the reply to an Answer. It has no fields.
+type AnswerResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AnswerResponse) Reset() {
+	*x = AnswerResponse{}
+	mi := &file_orrery_v1_orrery_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AnswerResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AnswerResponse) ProtoMessage() {}
+
+func (x *AnswerResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_orrery_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AnswerResponse.ProtoReflect.Descriptor instead.
+func (*AnswerResponse) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{13}
+}
+
+// InterruptRequest asks a headless session to interrupt its running turn.
+type InterruptRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The session's id.
+	Id            string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *InterruptRequest) Reset() {
+	*x = InterruptRequest{}
+	mi := &file_orrery_v1_orrery_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *InterruptRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*InterruptRequest) ProtoMessage() {}
+
+func (x *InterruptRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_orrery_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use InterruptRequest.ProtoReflect.Descriptor instead.
+func (*InterruptRequest) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *InterruptRequest) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+// InterruptResponse is the reply to an Interrupt. It has no fields.
+type InterruptResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *InterruptResponse) Reset() {
+	*x = InterruptResponse{}
+	mi := &file_orrery_v1_orrery_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *InterruptResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*InterruptResponse) ProtoMessage() {}
+
+func (x *InterruptResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_orrery_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use InterruptResponse.ProtoReflect.Descriptor instead.
+func (*InterruptResponse) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{15}
+}
+
+// StopRequest asks for a headless session to be stopped.
+type StopRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The session's id.
+	Id            string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *StopRequest) Reset() {
+	*x = StopRequest{}
+	mi := &file_orrery_v1_orrery_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StopRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StopRequest) ProtoMessage() {}
+
+func (x *StopRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_orrery_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StopRequest.ProtoReflect.Descriptor instead.
+func (*StopRequest) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *StopRequest) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+// StopResponse is the reply to a Stop. It has no fields.
+type StopResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *StopResponse) Reset() {
+	*x = StopResponse{}
+	mi := &file_orrery_v1_orrery_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StopResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StopResponse) ProtoMessage() {}
+
+func (x *StopResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_orrery_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StopResponse.ProtoReflect.Descriptor instead.
+func (*StopResponse) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{17}
+}
+
+// SeenRequest records that the user has seen a headless session.
+type SeenRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The session's id.
+	Id            string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SeenRequest) Reset() {
+	*x = SeenRequest{}
+	mi := &file_orrery_v1_orrery_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SeenRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SeenRequest) ProtoMessage() {}
+
+func (x *SeenRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_orrery_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SeenRequest.ProtoReflect.Descriptor instead.
+func (*SeenRequest) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *SeenRequest) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+// SeenResponse is the reply to a Seen. It has no fields.
+type SeenResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SeenResponse) Reset() {
+	*x = SeenResponse{}
+	mi := &file_orrery_v1_orrery_proto_msgTypes[19]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SeenResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SeenResponse) ProtoMessage() {}
+
+func (x *SeenResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_orrery_proto_msgTypes[19]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SeenResponse.ProtoReflect.Descriptor instead.
+func (*SeenResponse) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{19}
+}
+
+// EngineAdded carries the placement of a headless session row that was inserted.
+type EngineAdded struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The directory the session runs in.
+	Dir string `protobuf:"bytes,1,opt,name=dir,proto3" json:"dir,omitempty"`
+	// The session's state when it was inserted.
+	State         string `protobuf:"bytes,2,opt,name=state,proto3" json:"state,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *EngineAdded) Reset() {
+	*x = EngineAdded{}
+	mi := &file_orrery_v1_orrery_proto_msgTypes[20]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EngineAdded) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EngineAdded) ProtoMessage() {}
+
+func (x *EngineAdded) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_orrery_proto_msgTypes[20]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EngineAdded.ProtoReflect.Descriptor instead.
+func (*EngineAdded) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{20}
+}
+
+func (x *EngineAdded) GetDir() string {
+	if x != nil {
+		return x.Dir
+	}
+	return ""
+}
+
+func (x *EngineAdded) GetState() string {
+	if x != nil {
+		return x.State
+	}
+	return ""
+}
+
+// EngineChanged carries the columns that changed on a headless session. Each field is set only when its column changed.
+type EngineChanged struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The new state. Set only when the state changed.
+	State *string `protobuf:"bytes,1,opt,name=state,proto3,oneof" json:"state,omitempty"`
+	// The unix seconds of the last state change. Set with each state change.
+	Changed *string `protobuf:"bytes,2,opt,name=changed,proto3,oneof" json:"changed,omitempty"`
+	// The unix seconds of the last seen, or empty.
+	Seen *string `protobuf:"bytes,3,opt,name=seen,proto3,oneof" json:"seen,omitempty"`
+	// The open question while the state is waiting, or the tool name of an open permission request.
+	Question *string `protobuf:"bytes,4,opt,name=question,proto3,oneof" json:"question,omitempty"`
+	// The Claude Code session id, once the process has reported it.
+	ClaudeSession *string `protobuf:"bytes,5,opt,name=claude_session,json=claudeSession,proto3,oneof" json:"claude_session,omitempty"`
+	// Why the state changed, when the event changed it.
+	Reason        *string `protobuf:"bytes,6,opt,name=reason,proto3,oneof" json:"reason,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *EngineChanged) Reset() {
+	*x = EngineChanged{}
+	mi := &file_orrery_v1_orrery_proto_msgTypes[21]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EngineChanged) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EngineChanged) ProtoMessage() {}
+
+func (x *EngineChanged) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_orrery_proto_msgTypes[21]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EngineChanged.ProtoReflect.Descriptor instead.
+func (*EngineChanged) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{21}
+}
+
+func (x *EngineChanged) GetState() string {
+	if x != nil && x.State != nil {
+		return *x.State
+	}
+	return ""
+}
+
+func (x *EngineChanged) GetChanged() string {
+	if x != nil && x.Changed != nil {
+		return *x.Changed
+	}
+	return ""
+}
+
+func (x *EngineChanged) GetSeen() string {
+	if x != nil && x.Seen != nil {
+		return *x.Seen
+	}
+	return ""
+}
+
+func (x *EngineChanged) GetQuestion() string {
+	if x != nil && x.Question != nil {
+		return *x.Question
+	}
+	return ""
+}
+
+func (x *EngineChanged) GetClaudeSession() string {
+	if x != nil && x.ClaudeSession != nil {
+		return *x.ClaudeSession
+	}
+	return ""
+}
+
+func (x *EngineChanged) GetReason() string {
+	if x != nil && x.Reason != nil {
+		return *x.Reason
+	}
+	return ""
+}
+
+// EnginePrompt carries a prompt sent to a headless session.
+type EnginePrompt struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The prompt text, not cut.
+	Text string `protobuf:"bytes,1,opt,name=text,proto3" json:"text,omitempty"`
+	// The client-chosen prompt id, or empty when none was given.
+	PromptId      string `protobuf:"bytes,2,opt,name=prompt_id,json=promptId,proto3" json:"prompt_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *EnginePrompt) Reset() {
+	*x = EnginePrompt{}
+	mi := &file_orrery_v1_orrery_proto_msgTypes[22]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EnginePrompt) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EnginePrompt) ProtoMessage() {}
+
+func (x *EnginePrompt) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_orrery_proto_msgTypes[22]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EnginePrompt.ProtoReflect.Descriptor instead.
+func (*EnginePrompt) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{22}
+}
+
+func (x *EnginePrompt) GetText() string {
+	if x != nil {
+		return x.Text
+	}
+	return ""
+}
+
+func (x *EnginePrompt) GetPromptId() string {
+	if x != nil {
+		return x.PromptId
+	}
+	return ""
+}
+
+// EngineBlock carries one finished content block of a headless session.
+type EngineBlock struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The block's kind: text, thinking, tool_call or tool_result.
+	Kind string `protobuf:"bytes,1,opt,name=kind,proto3" json:"kind,omitempty"`
+	// The message's role.
+	Role string `protobuf:"bytes,2,opt,name=role,proto3" json:"role,omitempty"`
+	// The Claude Code message id of the block.
+	MessageId string `protobuf:"bytes,3,opt,name=message_id,json=messageId,proto3" json:"message_id,omitempty"`
+	// The tool use the block belongs to, or empty for the main conversation.
+	ParentToolUseId string `protobuf:"bytes,4,opt,name=parent_tool_use_id,json=parentToolUseId,proto3" json:"parent_tool_use_id,omitempty"`
+	// The block's text, cut to 32768 bytes at a UTF-8 boundary.
+	Text string `protobuf:"bytes,5,opt,name=text,proto3" json:"text,omitempty"`
+	// The tool use id of a tool call or tool result.
+	ToolUseId string `protobuf:"bytes,6,opt,name=tool_use_id,json=toolUseId,proto3" json:"tool_use_id,omitempty"`
+	// The tool name of a tool call.
+	Name string `protobuf:"bytes,7,opt,name=name,proto3" json:"name,omitempty"`
+	// The tool input, cut to 32768 bytes at a UTF-8 boundary.
+	Input string `protobuf:"bytes,8,opt,name=input,proto3" json:"input,omitempty"`
+	// The tool result content, cut to 32768 bytes at a UTF-8 boundary.
+	Content string `protobuf:"bytes,9,opt,name=content,proto3" json:"content,omitempty"`
+	// Whether the tool result is an error.
+	IsError bool `protobuf:"varint,10,opt,name=is_error,json=isError,proto3" json:"is_error,omitempty"`
+	// Whether text, input or content was cut.
+	Truncated     bool `protobuf:"varint,11,opt,name=truncated,proto3" json:"truncated,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *EngineBlock) Reset() {
+	*x = EngineBlock{}
+	mi := &file_orrery_v1_orrery_proto_msgTypes[23]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EngineBlock) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EngineBlock) ProtoMessage() {}
+
+func (x *EngineBlock) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_orrery_proto_msgTypes[23]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EngineBlock.ProtoReflect.Descriptor instead.
+func (*EngineBlock) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{23}
+}
+
+func (x *EngineBlock) GetKind() string {
+	if x != nil {
+		return x.Kind
+	}
+	return ""
+}
+
+func (x *EngineBlock) GetRole() string {
+	if x != nil {
+		return x.Role
+	}
+	return ""
+}
+
+func (x *EngineBlock) GetMessageId() string {
+	if x != nil {
+		return x.MessageId
+	}
+	return ""
+}
+
+func (x *EngineBlock) GetParentToolUseId() string {
+	if x != nil {
+		return x.ParentToolUseId
+	}
+	return ""
+}
+
+func (x *EngineBlock) GetText() string {
+	if x != nil {
+		return x.Text
+	}
+	return ""
+}
+
+func (x *EngineBlock) GetToolUseId() string {
+	if x != nil {
+		return x.ToolUseId
+	}
+	return ""
+}
+
+func (x *EngineBlock) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *EngineBlock) GetInput() string {
+	if x != nil {
+		return x.Input
+	}
+	return ""
+}
+
+func (x *EngineBlock) GetContent() string {
+	if x != nil {
+		return x.Content
+	}
+	return ""
+}
+
+func (x *EngineBlock) GetIsError() bool {
+	if x != nil {
+		return x.IsError
+	}
+	return false
+}
+
+func (x *EngineBlock) GetTruncated() bool {
+	if x != nil {
+		return x.Truncated
+	}
+	return false
+}
+
+// EngineRequest carries a request a headless session sent that the host must answer.
+type EngineRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The request's kind: question, permission or other.
+	Kind string `protobuf:"bytes,1,opt,name=kind,proto3" json:"kind,omitempty"`
+	// The request's id, which an Answer names.
+	RequestId string `protobuf:"bytes,2,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	// The tool use the request belongs to.
+	ToolUseId string `protobuf:"bytes,3,opt,name=tool_use_id,json=toolUseId,proto3" json:"tool_use_id,omitempty"`
+	// The tool name the request is about.
+	ToolName string `protobuf:"bytes,4,opt,name=tool_name,json=toolName,proto3" json:"tool_name,omitempty"`
+	// The request's subtype.
+	Subtype string `protobuf:"bytes,5,opt,name=subtype,proto3" json:"subtype,omitempty"`
+	// The request's input, not cut.
+	Input string `protobuf:"bytes,6,opt,name=input,proto3" json:"input,omitempty"`
+	// Whether the request was refused.
+	Refused       bool `protobuf:"varint,7,opt,name=refused,proto3" json:"refused,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *EngineRequest) Reset() {
+	*x = EngineRequest{}
+	mi := &file_orrery_v1_orrery_proto_msgTypes[24]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EngineRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EngineRequest) ProtoMessage() {}
+
+func (x *EngineRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_orrery_proto_msgTypes[24]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EngineRequest.ProtoReflect.Descriptor instead.
+func (*EngineRequest) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{24}
+}
+
+func (x *EngineRequest) GetKind() string {
+	if x != nil {
+		return x.Kind
+	}
+	return ""
+}
+
+func (x *EngineRequest) GetRequestId() string {
+	if x != nil {
+		return x.RequestId
+	}
+	return ""
+}
+
+func (x *EngineRequest) GetToolUseId() string {
+	if x != nil {
+		return x.ToolUseId
+	}
+	return ""
+}
+
+func (x *EngineRequest) GetToolName() string {
+	if x != nil {
+		return x.ToolName
+	}
+	return ""
+}
+
+func (x *EngineRequest) GetSubtype() string {
+	if x != nil {
+		return x.Subtype
+	}
+	return ""
+}
+
+func (x *EngineRequest) GetInput() string {
+	if x != nil {
+		return x.Input
+	}
+	return ""
+}
+
+func (x *EngineRequest) GetRefused() bool {
+	if x != nil {
+		return x.Refused
+	}
+	return false
+}
+
+// EngineRequestCanceled records that a headless session withdrew a request.
+type EngineRequestCanceled struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The withdrawn request's id.
+	RequestId string `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	// The tool use the request belonged to.
+	ToolUseId     string `protobuf:"bytes,2,opt,name=tool_use_id,json=toolUseId,proto3" json:"tool_use_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *EngineRequestCanceled) Reset() {
+	*x = EngineRequestCanceled{}
+	mi := &file_orrery_v1_orrery_proto_msgTypes[25]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EngineRequestCanceled) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EngineRequestCanceled) ProtoMessage() {}
+
+func (x *EngineRequestCanceled) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_orrery_proto_msgTypes[25]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EngineRequestCanceled.ProtoReflect.Descriptor instead.
+func (*EngineRequestCanceled) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{25}
+}
+
+func (x *EngineRequestCanceled) GetRequestId() string {
+	if x != nil {
+		return x.RequestId
+	}
+	return ""
+}
+
+func (x *EngineRequestCanceled) GetToolUseId() string {
+	if x != nil {
+		return x.ToolUseId
+	}
+	return ""
+}
+
+// EngineTurnEnded carries the end of a turn of a headless session.
+type EngineTurnEnded struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The turn's subtype.
+	Subtype string `protobuf:"bytes,1,opt,name=subtype,proto3" json:"subtype,omitempty"`
+	// Whether the turn ended in an error.
+	IsError bool `protobuf:"varint,2,opt,name=is_error,json=isError,proto3" json:"is_error,omitempty"`
+	// Why the turn terminated.
+	TerminalReason string `protobuf:"bytes,3,opt,name=terminal_reason,json=terminalReason,proto3" json:"terminal_reason,omitempty"`
+	// The turn's result, not cut.
+	Result string `protobuf:"bytes,4,opt,name=result,proto3" json:"result,omitempty"`
+	// Where the turn's end came from.
+	Origin        string `protobuf:"bytes,5,opt,name=origin,proto3" json:"origin,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *EngineTurnEnded) Reset() {
+	*x = EngineTurnEnded{}
+	mi := &file_orrery_v1_orrery_proto_msgTypes[26]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EngineTurnEnded) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EngineTurnEnded) ProtoMessage() {}
+
+func (x *EngineTurnEnded) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_orrery_proto_msgTypes[26]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EngineTurnEnded.ProtoReflect.Descriptor instead.
+func (*EngineTurnEnded) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{26}
+}
+
+func (x *EngineTurnEnded) GetSubtype() string {
+	if x != nil {
+		return x.Subtype
+	}
+	return ""
+}
+
+func (x *EngineTurnEnded) GetIsError() bool {
+	if x != nil {
+		return x.IsError
+	}
+	return false
+}
+
+func (x *EngineTurnEnded) GetTerminalReason() string {
+	if x != nil {
+		return x.TerminalReason
+	}
+	return ""
+}
+
+func (x *EngineTurnEnded) GetResult() string {
+	if x != nil {
+		return x.Result
+	}
+	return ""
+}
+
+func (x *EngineTurnEnded) GetOrigin() string {
+	if x != nil {
+		return x.Origin
+	}
+	return ""
+}
+
+// EngineText is the text so far of one unfinished content block of a headless session. It is not a stored event: its
+// WatchResponse seq is the newest event seq of the read it came from, and its at is 0.
+type EngineText struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The Claude Code message id of the block.
+	MessageId string `protobuf:"bytes,1,opt,name=message_id,json=messageId,proto3" json:"message_id,omitempty"`
+	// The block's index in its message.
+	Index int32 `protobuf:"varint,2,opt,name=index,proto3" json:"index,omitempty"`
+	// The tool use the block belongs to, or empty for the main conversation.
+	ParentToolUseId string `protobuf:"bytes,3,opt,name=parent_tool_use_id,json=parentToolUseId,proto3" json:"parent_tool_use_id,omitempty"`
+	// The block's kind: text or thinking.
+	Kind string `protobuf:"bytes,4,opt,name=kind,proto3" json:"kind,omitempty"`
+	// The text streamed so far, cut to 32768 bytes at a UTF-8 boundary.
+	Text          string `protobuf:"bytes,5,opt,name=text,proto3" json:"text,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *EngineText) Reset() {
+	*x = EngineText{}
+	mi := &file_orrery_v1_orrery_proto_msgTypes[27]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EngineText) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EngineText) ProtoMessage() {}
+
+func (x *EngineText) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_orrery_proto_msgTypes[27]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EngineText.ProtoReflect.Descriptor instead.
+func (*EngineText) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{27}
+}
+
+func (x *EngineText) GetMessageId() string {
+	if x != nil {
+		return x.MessageId
+	}
+	return ""
+}
+
+func (x *EngineText) GetIndex() int32 {
+	if x != nil {
+		return x.Index
+	}
+	return 0
+}
+
+func (x *EngineText) GetParentToolUseId() string {
+	if x != nil {
+		return x.ParentToolUseId
+	}
+	return ""
+}
+
+func (x *EngineText) GetKind() string {
+	if x != nil {
+		return x.Kind
+	}
+	return ""
+}
+
+func (x *EngineText) GetText() string {
+	if x != nil {
+		return x.Text
+	}
+	return ""
+}
+
 var File_orrery_v1_orrery_proto protoreflect.FileDescriptor
 
 const file_orrery_v1_orrery_proto_rawDesc = "" +
@@ -691,7 +2054,7 @@ const file_orrery_v1_orrery_proto_rawDesc = "" +
 	"transcript\x18\r \x01(\tR\n" +
 	"transcript\"$\n" +
 	"\fWatchRequest\x12\x14\n" +
-	"\x05after\x18\x01 \x01(\x03R\x05after\"\xa5\x02\n" +
+	"\x05after\x18\x01 \x01(\x03R\x05after\"\xc5\x06\n" +
 	"\rWatchResponse\x12\x10\n" +
 	"\x03seq\x18\x01 \x01(\x03R\x03seq\x12\x1d\n" +
 	"\n" +
@@ -699,7 +2062,17 @@ const file_orrery_v1_orrery_proto_rawDesc = "" +
 	"\x02at\x18\x03 \x01(\x03R\x02at\x12>\n" +
 	"\rsession_added\x18\x04 \x01(\v2\x17.orrery.v1.SessionAddedH\x00R\fsessionAdded\x12D\n" +
 	"\x0fsession_changed\x18\x05 \x01(\v2\x19.orrery.v1.SessionChangedH\x00R\x0esessionChanged\x12D\n" +
-	"\x0fsession_removed\x18\x06 \x01(\v2\x19.orrery.v1.SessionRemovedH\x00R\x0esessionRemovedB\a\n" +
+	"\x0fsession_removed\x18\x06 \x01(\v2\x19.orrery.v1.SessionRemovedH\x00R\x0esessionRemoved\x12;\n" +
+	"\fengine_added\x18\a \x01(\v2\x16.orrery.v1.EngineAddedH\x00R\vengineAdded\x12A\n" +
+	"\x0eengine_changed\x18\b \x01(\v2\x18.orrery.v1.EngineChangedH\x00R\rengineChanged\x12>\n" +
+	"\rengine_prompt\x18\t \x01(\v2\x17.orrery.v1.EnginePromptH\x00R\fenginePrompt\x12;\n" +
+	"\fengine_block\x18\n" +
+	" \x01(\v2\x16.orrery.v1.EngineBlockH\x00R\vengineBlock\x12A\n" +
+	"\x0eengine_request\x18\v \x01(\v2\x18.orrery.v1.EngineRequestH\x00R\rengineRequest\x12Z\n" +
+	"\x17engine_request_canceled\x18\f \x01(\v2 .orrery.v1.EngineRequestCanceledH\x00R\x15engineRequestCanceled\x12H\n" +
+	"\x11engine_turn_ended\x18\r \x01(\v2\x1a.orrery.v1.EngineTurnEndedH\x00R\x0fengineTurnEnded\x128\n" +
+	"\vengine_text\x18\x0e \x01(\v2\x15.orrery.v1.EngineTextH\x00R\n" +
+	"engineTextB\a\n" +
 	"\x05event\":\n" +
 	"\fSessionAdded\x12\x16\n" +
 	"\x06server\x18\x01 \x01(\tR\x06server\x12\x12\n" +
@@ -731,11 +2104,107 @@ const file_orrery_v1_orrery_proto_rawDesc = "" +
 	"\x05_toolB\x11\n" +
 	"\x0f_claude_sessionB\r\n" +
 	"\v_transcript\"\x10\n" +
-	"\x0eSessionRemoved2C\n" +
+	"\x0eSessionRemoved\"^\n" +
+	"\fStartRequest\x12\x10\n" +
+	"\x03dir\x18\x01 \x01(\tR\x03dir\x12\x16\n" +
+	"\x06prompt\x18\x02 \x01(\tR\x06prompt\x12\x14\n" +
+	"\x05model\x18\x03 \x01(\tR\x05model\x12\x0e\n" +
+	"\x02id\x18\x04 \x01(\tR\x02id\"\x1f\n" +
+	"\rStartResponse\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\"M\n" +
+	"\n" +
+	"SayRequest\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
+	"\x04text\x18\x02 \x01(\tR\x04text\x12\x1b\n" +
+	"\tprompt_id\x18\x03 \x01(\tR\bpromptId\"\r\n" +
+	"\vSayResponse\"V\n" +
+	"\rAnswerRequest\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1d\n" +
+	"\n" +
+	"request_id\x18\x02 \x01(\tR\trequestId\x12\x16\n" +
+	"\x06answer\x18\x03 \x01(\tR\x06answer\"\x10\n" +
+	"\x0eAnswerResponse\"\"\n" +
+	"\x10InterruptRequest\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\"\x13\n" +
+	"\x11InterruptResponse\"\x1d\n" +
+	"\vStopRequest\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\"\x0e\n" +
+	"\fStopResponse\"\x1d\n" +
+	"\vSeenRequest\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\"\x0e\n" +
+	"\fSeenResponse\"5\n" +
+	"\vEngineAdded\x12\x10\n" +
+	"\x03dir\x18\x01 \x01(\tR\x03dir\x12\x14\n" +
+	"\x05state\x18\x02 \x01(\tR\x05state\"\x96\x02\n" +
+	"\rEngineChanged\x12\x19\n" +
+	"\x05state\x18\x01 \x01(\tH\x00R\x05state\x88\x01\x01\x12\x1d\n" +
+	"\achanged\x18\x02 \x01(\tH\x01R\achanged\x88\x01\x01\x12\x17\n" +
+	"\x04seen\x18\x03 \x01(\tH\x02R\x04seen\x88\x01\x01\x12\x1f\n" +
+	"\bquestion\x18\x04 \x01(\tH\x03R\bquestion\x88\x01\x01\x12*\n" +
+	"\x0eclaude_session\x18\x05 \x01(\tH\x04R\rclaudeSession\x88\x01\x01\x12\x1b\n" +
+	"\x06reason\x18\x06 \x01(\tH\x05R\x06reason\x88\x01\x01B\b\n" +
+	"\x06_stateB\n" +
+	"\n" +
+	"\b_changedB\a\n" +
+	"\x05_seenB\v\n" +
+	"\t_questionB\x11\n" +
+	"\x0f_claude_sessionB\t\n" +
+	"\a_reason\"?\n" +
+	"\fEnginePrompt\x12\x12\n" +
+	"\x04text\x18\x01 \x01(\tR\x04text\x12\x1b\n" +
+	"\tprompt_id\x18\x02 \x01(\tR\bpromptId\"\xb2\x02\n" +
+	"\vEngineBlock\x12\x12\n" +
+	"\x04kind\x18\x01 \x01(\tR\x04kind\x12\x12\n" +
+	"\x04role\x18\x02 \x01(\tR\x04role\x12\x1d\n" +
+	"\n" +
+	"message_id\x18\x03 \x01(\tR\tmessageId\x12+\n" +
+	"\x12parent_tool_use_id\x18\x04 \x01(\tR\x0fparentToolUseId\x12\x12\n" +
+	"\x04text\x18\x05 \x01(\tR\x04text\x12\x1e\n" +
+	"\vtool_use_id\x18\x06 \x01(\tR\ttoolUseId\x12\x12\n" +
+	"\x04name\x18\a \x01(\tR\x04name\x12\x14\n" +
+	"\x05input\x18\b \x01(\tR\x05input\x12\x18\n" +
+	"\acontent\x18\t \x01(\tR\acontent\x12\x19\n" +
+	"\bis_error\x18\n" +
+	" \x01(\bR\aisError\x12\x1c\n" +
+	"\ttruncated\x18\v \x01(\bR\ttruncated\"\xc9\x01\n" +
+	"\rEngineRequest\x12\x12\n" +
+	"\x04kind\x18\x01 \x01(\tR\x04kind\x12\x1d\n" +
+	"\n" +
+	"request_id\x18\x02 \x01(\tR\trequestId\x12\x1e\n" +
+	"\vtool_use_id\x18\x03 \x01(\tR\ttoolUseId\x12\x1b\n" +
+	"\ttool_name\x18\x04 \x01(\tR\btoolName\x12\x18\n" +
+	"\asubtype\x18\x05 \x01(\tR\asubtype\x12\x14\n" +
+	"\x05input\x18\x06 \x01(\tR\x05input\x12\x18\n" +
+	"\arefused\x18\a \x01(\bR\arefused\"V\n" +
+	"\x15EngineRequestCanceled\x12\x1d\n" +
+	"\n" +
+	"request_id\x18\x01 \x01(\tR\trequestId\x12\x1e\n" +
+	"\vtool_use_id\x18\x02 \x01(\tR\ttoolUseId\"\x9f\x01\n" +
+	"\x0fEngineTurnEnded\x12\x18\n" +
+	"\asubtype\x18\x01 \x01(\tR\asubtype\x12\x19\n" +
+	"\bis_error\x18\x02 \x01(\bR\aisError\x12'\n" +
+	"\x0fterminal_reason\x18\x03 \x01(\tR\x0eterminalReason\x12\x16\n" +
+	"\x06result\x18\x04 \x01(\tR\x06result\x12\x16\n" +
+	"\x06origin\x18\x05 \x01(\tR\x06origin\"\x96\x01\n" +
+	"\n" +
+	"EngineText\x12\x1d\n" +
+	"\n" +
+	"message_id\x18\x01 \x01(\tR\tmessageId\x12\x14\n" +
+	"\x05index\x18\x02 \x01(\x05R\x05index\x12+\n" +
+	"\x12parent_tool_use_id\x18\x03 \x01(\tR\x0fparentToolUseId\x12\x12\n" +
+	"\x04kind\x18\x04 \x01(\tR\x04kind\x12\x12\n" +
+	"\x04text\x18\x05 \x01(\tR\x04text2C\n" +
 	"\bSessions\x127\n" +
 	"\x04List\x12\x16.orrery.v1.ListRequest\x1a\x17.orrery.v1.ListResponse2F\n" +
 	"\x06Events\x12<\n" +
-	"\x05Watch\x12\x17.orrery.v1.WatchRequest\x1a\x18.orrery.v1.WatchResponse0\x01B\xa0\x01\n" +
+	"\x05Watch\x12\x17.orrery.v1.WatchRequest\x1a\x18.orrery.v1.WatchResponse0\x012\xf4\x02\n" +
+	"\aControl\x12:\n" +
+	"\x05Start\x12\x17.orrery.v1.StartRequest\x1a\x18.orrery.v1.StartResponse\x124\n" +
+	"\x03Say\x12\x15.orrery.v1.SayRequest\x1a\x16.orrery.v1.SayResponse\x12=\n" +
+	"\x06Answer\x12\x18.orrery.v1.AnswerRequest\x1a\x19.orrery.v1.AnswerResponse\x12F\n" +
+	"\tInterrupt\x12\x1b.orrery.v1.InterruptRequest\x1a\x1c.orrery.v1.InterruptResponse\x127\n" +
+	"\x04Stop\x12\x16.orrery.v1.StopRequest\x1a\x17.orrery.v1.StopResponse\x127\n" +
+	"\x04Seen\x12\x16.orrery.v1.SeenRequest\x1a\x17.orrery.v1.SeenResponseB\xa0\x01\n" +
 	"\rcom.orrery.v1B\vOrreryProtoP\x01Z=github.com/joshsymonds/orrery/internal/gen/orrery/v1;orreryv1\xa2\x02\x03OXX\xaa\x02\tOrrery.V1\xca\x02\tOrrery\\V1\xe2\x02\x15Orrery\\V1\\GPBMetadata\xea\x02\n" +
 	"Orrery::V1b\x06proto3"
 
@@ -751,31 +2220,71 @@ func file_orrery_v1_orrery_proto_rawDescGZIP() []byte {
 	return file_orrery_v1_orrery_proto_rawDescData
 }
 
-var file_orrery_v1_orrery_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
+var file_orrery_v1_orrery_proto_msgTypes = make([]protoimpl.MessageInfo, 28)
 var file_orrery_v1_orrery_proto_goTypes = []any{
-	(*ListRequest)(nil),    // 0: orrery.v1.ListRequest
-	(*ListResponse)(nil),   // 1: orrery.v1.ListResponse
-	(*Session)(nil),        // 2: orrery.v1.Session
-	(*WatchRequest)(nil),   // 3: orrery.v1.WatchRequest
-	(*WatchResponse)(nil),  // 4: orrery.v1.WatchResponse
-	(*SessionAdded)(nil),   // 5: orrery.v1.SessionAdded
-	(*SessionChanged)(nil), // 6: orrery.v1.SessionChanged
-	(*SessionRemoved)(nil), // 7: orrery.v1.SessionRemoved
+	(*ListRequest)(nil),           // 0: orrery.v1.ListRequest
+	(*ListResponse)(nil),          // 1: orrery.v1.ListResponse
+	(*Session)(nil),               // 2: orrery.v1.Session
+	(*WatchRequest)(nil),          // 3: orrery.v1.WatchRequest
+	(*WatchResponse)(nil),         // 4: orrery.v1.WatchResponse
+	(*SessionAdded)(nil),          // 5: orrery.v1.SessionAdded
+	(*SessionChanged)(nil),        // 6: orrery.v1.SessionChanged
+	(*SessionRemoved)(nil),        // 7: orrery.v1.SessionRemoved
+	(*StartRequest)(nil),          // 8: orrery.v1.StartRequest
+	(*StartResponse)(nil),         // 9: orrery.v1.StartResponse
+	(*SayRequest)(nil),            // 10: orrery.v1.SayRequest
+	(*SayResponse)(nil),           // 11: orrery.v1.SayResponse
+	(*AnswerRequest)(nil),         // 12: orrery.v1.AnswerRequest
+	(*AnswerResponse)(nil),        // 13: orrery.v1.AnswerResponse
+	(*InterruptRequest)(nil),      // 14: orrery.v1.InterruptRequest
+	(*InterruptResponse)(nil),     // 15: orrery.v1.InterruptResponse
+	(*StopRequest)(nil),           // 16: orrery.v1.StopRequest
+	(*StopResponse)(nil),          // 17: orrery.v1.StopResponse
+	(*SeenRequest)(nil),           // 18: orrery.v1.SeenRequest
+	(*SeenResponse)(nil),          // 19: orrery.v1.SeenResponse
+	(*EngineAdded)(nil),           // 20: orrery.v1.EngineAdded
+	(*EngineChanged)(nil),         // 21: orrery.v1.EngineChanged
+	(*EnginePrompt)(nil),          // 22: orrery.v1.EnginePrompt
+	(*EngineBlock)(nil),           // 23: orrery.v1.EngineBlock
+	(*EngineRequest)(nil),         // 24: orrery.v1.EngineRequest
+	(*EngineRequestCanceled)(nil), // 25: orrery.v1.EngineRequestCanceled
+	(*EngineTurnEnded)(nil),       // 26: orrery.v1.EngineTurnEnded
+	(*EngineText)(nil),            // 27: orrery.v1.EngineText
 }
 var file_orrery_v1_orrery_proto_depIdxs = []int32{
-	2, // 0: orrery.v1.ListResponse.sessions:type_name -> orrery.v1.Session
-	5, // 1: orrery.v1.WatchResponse.session_added:type_name -> orrery.v1.SessionAdded
-	6, // 2: orrery.v1.WatchResponse.session_changed:type_name -> orrery.v1.SessionChanged
-	7, // 3: orrery.v1.WatchResponse.session_removed:type_name -> orrery.v1.SessionRemoved
-	0, // 4: orrery.v1.Sessions.List:input_type -> orrery.v1.ListRequest
-	3, // 5: orrery.v1.Events.Watch:input_type -> orrery.v1.WatchRequest
-	1, // 6: orrery.v1.Sessions.List:output_type -> orrery.v1.ListResponse
-	4, // 7: orrery.v1.Events.Watch:output_type -> orrery.v1.WatchResponse
-	6, // [6:8] is the sub-list for method output_type
-	4, // [4:6] is the sub-list for method input_type
-	4, // [4:4] is the sub-list for extension type_name
-	4, // [4:4] is the sub-list for extension extendee
-	0, // [0:4] is the sub-list for field type_name
+	2,  // 0: orrery.v1.ListResponse.sessions:type_name -> orrery.v1.Session
+	5,  // 1: orrery.v1.WatchResponse.session_added:type_name -> orrery.v1.SessionAdded
+	6,  // 2: orrery.v1.WatchResponse.session_changed:type_name -> orrery.v1.SessionChanged
+	7,  // 3: orrery.v1.WatchResponse.session_removed:type_name -> orrery.v1.SessionRemoved
+	20, // 4: orrery.v1.WatchResponse.engine_added:type_name -> orrery.v1.EngineAdded
+	21, // 5: orrery.v1.WatchResponse.engine_changed:type_name -> orrery.v1.EngineChanged
+	22, // 6: orrery.v1.WatchResponse.engine_prompt:type_name -> orrery.v1.EnginePrompt
+	23, // 7: orrery.v1.WatchResponse.engine_block:type_name -> orrery.v1.EngineBlock
+	24, // 8: orrery.v1.WatchResponse.engine_request:type_name -> orrery.v1.EngineRequest
+	25, // 9: orrery.v1.WatchResponse.engine_request_canceled:type_name -> orrery.v1.EngineRequestCanceled
+	26, // 10: orrery.v1.WatchResponse.engine_turn_ended:type_name -> orrery.v1.EngineTurnEnded
+	27, // 11: orrery.v1.WatchResponse.engine_text:type_name -> orrery.v1.EngineText
+	0,  // 12: orrery.v1.Sessions.List:input_type -> orrery.v1.ListRequest
+	3,  // 13: orrery.v1.Events.Watch:input_type -> orrery.v1.WatchRequest
+	8,  // 14: orrery.v1.Control.Start:input_type -> orrery.v1.StartRequest
+	10, // 15: orrery.v1.Control.Say:input_type -> orrery.v1.SayRequest
+	12, // 16: orrery.v1.Control.Answer:input_type -> orrery.v1.AnswerRequest
+	14, // 17: orrery.v1.Control.Interrupt:input_type -> orrery.v1.InterruptRequest
+	16, // 18: orrery.v1.Control.Stop:input_type -> orrery.v1.StopRequest
+	18, // 19: orrery.v1.Control.Seen:input_type -> orrery.v1.SeenRequest
+	1,  // 20: orrery.v1.Sessions.List:output_type -> orrery.v1.ListResponse
+	4,  // 21: orrery.v1.Events.Watch:output_type -> orrery.v1.WatchResponse
+	9,  // 22: orrery.v1.Control.Start:output_type -> orrery.v1.StartResponse
+	11, // 23: orrery.v1.Control.Say:output_type -> orrery.v1.SayResponse
+	13, // 24: orrery.v1.Control.Answer:output_type -> orrery.v1.AnswerResponse
+	15, // 25: orrery.v1.Control.Interrupt:output_type -> orrery.v1.InterruptResponse
+	17, // 26: orrery.v1.Control.Stop:output_type -> orrery.v1.StopResponse
+	19, // 27: orrery.v1.Control.Seen:output_type -> orrery.v1.SeenResponse
+	20, // [20:28] is the sub-list for method output_type
+	12, // [12:20] is the sub-list for method input_type
+	12, // [12:12] is the sub-list for extension type_name
+	12, // [12:12] is the sub-list for extension extendee
+	0,  // [0:12] is the sub-list for field type_name
 }
 
 func init() { file_orrery_v1_orrery_proto_init() }
@@ -787,17 +2296,26 @@ func file_orrery_v1_orrery_proto_init() {
 		(*WatchResponse_SessionAdded)(nil),
 		(*WatchResponse_SessionChanged)(nil),
 		(*WatchResponse_SessionRemoved)(nil),
+		(*WatchResponse_EngineAdded)(nil),
+		(*WatchResponse_EngineChanged)(nil),
+		(*WatchResponse_EnginePrompt)(nil),
+		(*WatchResponse_EngineBlock)(nil),
+		(*WatchResponse_EngineRequest)(nil),
+		(*WatchResponse_EngineRequestCanceled)(nil),
+		(*WatchResponse_EngineTurnEnded)(nil),
+		(*WatchResponse_EngineText)(nil),
 	}
 	file_orrery_v1_orrery_proto_msgTypes[6].OneofWrappers = []any{}
+	file_orrery_v1_orrery_proto_msgTypes[21].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_orrery_v1_orrery_proto_rawDesc), len(file_orrery_v1_orrery_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   8,
+			NumMessages:   28,
 			NumExtensions: 0,
-			NumServices:   2,
+			NumServices:   3,
 		},
 		GoTypes:           file_orrery_v1_orrery_proto_goTypes,
 		DependencyIndexes: file_orrery_v1_orrery_proto_depIdxs,

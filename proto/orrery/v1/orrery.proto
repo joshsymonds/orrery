@@ -8,10 +8,32 @@ service Sessions {
   rpc List(ListRequest) returns (ListResponse);
 }
 
-// Events streams the changes to the tracked sessions, in seq order.
+// Events streams the changes to the tracked sessions, panes and headless sessions alike, in seq order.
 service Events {
   // Watch streams every event with a seq greater than the request's after, then each new event as it is stored.
   rpc Watch(WatchRequest) returns (stream WatchResponse);
+}
+
+// Control steers the headless Claude Code sessions orreryd runs; serve forwards each call to orreryd's session socket
+// and answers unavailable when orreryd is not taking session commands.
+service Control {
+  // Start starts a headless session in a directory and sends it its first prompt.
+  rpc Start(StartRequest) returns (StartResponse);
+
+  // Say sends a prompt to a headless session.
+  rpc Say(SayRequest) returns (SayResponse);
+
+  // Answer answers an open question or permission request of a headless session.
+  rpc Answer(AnswerRequest) returns (AnswerResponse);
+
+  // Interrupt interrupts the turn a headless session is running.
+  rpc Interrupt(InterruptRequest) returns (InterruptResponse);
+
+  // Stop stops a headless session.
+  rpc Stop(StopRequest) returns (StopResponse);
+
+  // Seen records that the user has seen a headless session.
+  rpc Seen(SeenRequest) returns (SeenResponse);
 }
 
 // ListRequest asks for every tracked session. It has no fields.
@@ -75,12 +97,12 @@ message WatchRequest {
   int64 after = 1;
 }
 
-// WatchResponse is one stored event. Exactly one of the typed event messages is set.
+// WatchResponse is one stored event, typed by its kind. Exactly one of the typed event messages is set.
 message WatchResponse {
   // The event's seq, the store's monotonic position.
   int64 seq = 1;
 
-  // The session the event is about, the pane's @orrery_id.
+  // The session the event is about, the pane's @orrery_id, or the headless session's id.
   string session_id = 2;
 
   // When the event was stored, in unix seconds.
@@ -96,6 +118,30 @@ message WatchResponse {
 
     // A tracked pane stopped being tracked.
     SessionRemoved session_removed = 6;
+
+    // A headless session row was inserted.
+    EngineAdded engine_added = 7;
+
+    // One or more of a headless session's columns changed.
+    EngineChanged engine_changed = 8;
+
+    // A prompt was sent to a headless session.
+    EnginePrompt engine_prompt = 9;
+
+    // A content block of a headless session finished.
+    EngineBlock engine_block = 10;
+
+    // A headless session sent a request the host must answer.
+    EngineRequest engine_request = 11;
+
+    // A headless session withdrew a request.
+    EngineRequestCanceled engine_request_canceled = 12;
+
+    // A turn of a headless session ended.
+    EngineTurnEnded engine_turn_ended = 13;
+
+    // The text so far of one unfinished content block of a headless session.
+    EngineText engine_text = 14;
   }
 }
 
@@ -143,3 +189,226 @@ message SessionChanged {
 
 // SessionRemoved records that a tracked pane stopped being tracked. It has no fields.
 message SessionRemoved {}
+
+// StartRequest asks for a new headless session.
+message StartRequest {
+  // The directory the session runs in: an existing absolute directory under serve's home directory, after symlinks resolve.
+  string dir = 1;
+
+  // The first prompt.
+  string prompt = 2;
+
+  // The model alias. Empty runs claude's default.
+  string model = 3;
+
+  // A client-chosen session id, 32 lowercase hex digits. A start that names an existing session's id returns it and starts nothing.
+  string id = 4;
+}
+
+// StartResponse carries the id of the started session.
+message StartResponse {
+  // The session's id.
+  string id = 1;
+}
+
+// SayRequest asks for a prompt to be sent to a headless session.
+message SayRequest {
+  // The session's id.
+  string id = 1;
+
+  // The prompt text.
+  string text = 2;
+
+  // A client-chosen prompt id. A say whose prompt id the session already recorded sends nothing and succeeds. Empty means none.
+  string prompt_id = 3;
+}
+
+// SayResponse is the reply to a Say. It has no fields.
+message SayResponse {}
+
+// AnswerRequest answers an open request of a headless session.
+message AnswerRequest {
+  // The session's id.
+  string id = 1;
+
+  // The open request this answers, by its id.
+  string request_id = 2;
+
+  // An option label of a question, or allow or deny for a permission request.
+  string answer = 3;
+}
+
+// AnswerResponse is the reply to an Answer. It has no fields.
+message AnswerResponse {}
+
+// InterruptRequest asks a headless session to interrupt its running turn.
+message InterruptRequest {
+  // The session's id.
+  string id = 1;
+}
+
+// InterruptResponse is the reply to an Interrupt. It has no fields.
+message InterruptResponse {}
+
+// StopRequest asks for a headless session to be stopped.
+message StopRequest {
+  // The session's id.
+  string id = 1;
+}
+
+// StopResponse is the reply to a Stop. It has no fields.
+message StopResponse {}
+
+// SeenRequest records that the user has seen a headless session.
+message SeenRequest {
+  // The session's id.
+  string id = 1;
+}
+
+// SeenResponse is the reply to a Seen. It has no fields.
+message SeenResponse {}
+
+// EngineAdded carries the placement of a headless session row that was inserted.
+message EngineAdded {
+  // The directory the session runs in.
+  string dir = 1;
+
+  // The session's state when it was inserted.
+  string state = 2;
+}
+
+// EngineChanged carries the columns that changed on a headless session. Each field is set only when its column changed.
+message EngineChanged {
+  // The new state. Set only when the state changed.
+  optional string state = 1;
+
+  // The unix seconds of the last state change. Set with each state change.
+  optional string changed = 2;
+
+  // The unix seconds of the last seen, or empty.
+  optional string seen = 3;
+
+  // The open question while the state is waiting, or the tool name of an open permission request.
+  optional string question = 4;
+
+  // The Claude Code session id, once the process has reported it.
+  optional string claude_session = 5;
+
+  // Why the state changed, when the event changed it.
+  optional string reason = 6;
+}
+
+// EnginePrompt carries a prompt sent to a headless session.
+message EnginePrompt {
+  // The prompt text, not cut.
+  string text = 1;
+
+  // The client-chosen prompt id, or empty when none was given.
+  string prompt_id = 2;
+}
+
+// EngineBlock carries one finished content block of a headless session.
+message EngineBlock {
+  // The block's kind: text, thinking, tool_call or tool_result.
+  string kind = 1;
+
+  // The message's role.
+  string role = 2;
+
+  // The Claude Code message id of the block.
+  string message_id = 3;
+
+  // The tool use the block belongs to, or empty for the main conversation.
+  string parent_tool_use_id = 4;
+
+  // The block's text, cut to 32768 bytes at a UTF-8 boundary.
+  string text = 5;
+
+  // The tool use id of a tool call or tool result.
+  string tool_use_id = 6;
+
+  // The tool name of a tool call.
+  string name = 7;
+
+  // The tool input, cut to 32768 bytes at a UTF-8 boundary.
+  string input = 8;
+
+  // The tool result content, cut to 32768 bytes at a UTF-8 boundary.
+  string content = 9;
+
+  // Whether the tool result is an error.
+  bool is_error = 10;
+
+  // Whether text, input or content was cut.
+  bool truncated = 11;
+}
+
+// EngineRequest carries a request a headless session sent that the host must answer.
+message EngineRequest {
+  // The request's kind: question, permission or other.
+  string kind = 1;
+
+  // The request's id, which an Answer names.
+  string request_id = 2;
+
+  // The tool use the request belongs to.
+  string tool_use_id = 3;
+
+  // The tool name the request is about.
+  string tool_name = 4;
+
+  // The request's subtype.
+  string subtype = 5;
+
+  // The request's input, not cut.
+  string input = 6;
+
+  // Whether the request was refused.
+  bool refused = 7;
+}
+
+// EngineRequestCanceled records that a headless session withdrew a request.
+message EngineRequestCanceled {
+  // The withdrawn request's id.
+  string request_id = 1;
+
+  // The tool use the request belonged to.
+  string tool_use_id = 2;
+}
+
+// EngineTurnEnded carries the end of a turn of a headless session.
+message EngineTurnEnded {
+  // The turn's subtype.
+  string subtype = 1;
+
+  // Whether the turn ended in an error.
+  bool is_error = 2;
+
+  // Why the turn terminated.
+  string terminal_reason = 3;
+
+  // The turn's result, not cut.
+  string result = 4;
+
+  // Where the turn's end came from.
+  string origin = 5;
+}
+
+// EngineText is the text so far of one unfinished content block of a headless session. It is not a stored event: its
+// WatchResponse seq is the newest event seq of the read it came from, and its at is 0.
+message EngineText {
+  // The Claude Code message id of the block.
+  string message_id = 1;
+
+  // The block's index in its message.
+  int32 index = 2;
+
+  // The tool use the block belongs to, or empty for the main conversation.
+  string parent_tool_use_id = 3;
+
+  // The block's kind: text or thinking.
+  string kind = 4;
+
+  // The text streamed so far, cut to 32768 bytes at a UTF-8 boundary.
+  string text = 5;
+}
