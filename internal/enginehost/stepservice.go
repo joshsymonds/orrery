@@ -45,16 +45,17 @@ func (s *stepService) StartStep(
 		return nil, err
 	}
 	id, err := s.steps.Start(ctx, StepStart{
-		Agent:     req.Msg.GetAgent(),
-		Prompt:    req.Msg.GetPrompt(),
-		Schema:    req.Msg.GetSchema(),
-		Workspace: req.Msg.GetWorkspace(),
-		Revision:  req.Msg.GetRevision(),
-		ReadOnly:  req.Msg.GetReadOnly(),
-		Owned:     req.Msg.GetOwnedPaths(),
-		Gate:      req.Msg.GetGate(),
-		GateLimit: time.Duration(req.Msg.GetGateLimitSeconds()) * time.Second,
-		DoneValue: req.Msg.GetDoneValue(),
+		Agent:      req.Msg.GetAgent(),
+		Prompt:     req.Msg.GetPrompt(),
+		Schema:     req.Msg.GetSchema(),
+		Workspace:  req.Msg.GetWorkspace(),
+		Revision:   req.Msg.GetRevision(),
+		ReadOnly:   req.Msg.GetReadOnly(),
+		Owned:      req.Msg.GetOwnedPaths(),
+		Gate:       req.Msg.GetGate(),
+		GateLimit:  time.Duration(req.Msg.GetGateLimitSeconds()) * time.Second,
+		ModelLimit: time.Duration(req.Msg.GetModelLimitSeconds()) * time.Second,
+		DoneValue:  req.Msg.GetDoneValue(),
 	})
 	if err != nil {
 		return nil, stepCommandError(err)
@@ -147,6 +148,7 @@ func stepMessage(row store.StepRow) (*v1.Step, error) {
 		Status:    row.Status,
 		Result:    row.Result,
 		Checks:    checks,
+		Doing:     row.Doing,
 		Reason:    row.Reason,
 		Started:   row.Started.Unix(),
 	}

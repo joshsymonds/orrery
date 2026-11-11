@@ -43,9 +43,11 @@ type StartStepRequest struct {
 	// How many seconds the gate may run. Zero means 30 minutes.
 	GateLimitSeconds uint32 `protobuf:"varint,9,opt,name=gate_limit_seconds,json=gateLimitSeconds,proto3" json:"gate_limit_seconds,omitempty"`
 	// The status the step's done return carries. Empty means "done".
-	DoneValue     string `protobuf:"bytes,10,opt,name=done_value,json=doneValue,proto3" json:"done_value,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	DoneValue string `protobuf:"bytes,10,opt,name=done_value,json=doneValue,proto3" json:"done_value,omitempty"`
+	// How many seconds of model time the step may use. Zero means 60 minutes.
+	ModelLimitSeconds uint32 `protobuf:"varint,11,opt,name=model_limit_seconds,json=modelLimitSeconds,proto3" json:"model_limit_seconds,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *StartStepRequest) Reset() {
@@ -146,6 +148,13 @@ func (x *StartStepRequest) GetDoneValue() string {
 		return x.DoneValue
 	}
 	return ""
+}
+
+func (x *StartStepRequest) GetModelLimitSeconds() uint32 {
+	if x != nil {
+		return x.ModelLimitSeconds
+	}
+	return 0
 }
 
 // StartStepResponse names the started step.
@@ -507,7 +516,9 @@ type Step struct {
 	// When the step started, in unix seconds.
 	Started int64 `protobuf:"varint,12,opt,name=started,proto3" json:"started,omitempty"`
 	// When the step ended, in unix seconds. Zero while it runs.
-	Ended         int64 `protobuf:"varint,13,opt,name=ended,proto3" json:"ended,omitempty"`
+	Ended int64 `protobuf:"varint,13,opt,name=ended,proto3" json:"ended,omitempty"`
+	// The step's latest doing line from its monitor. Empty until the first check.
+	Doing         string `protobuf:"bytes,14,opt,name=doing,proto3" json:"doing,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -633,6 +644,13 @@ func (x *Step) GetEnded() int64 {
 	return 0
 }
 
+func (x *Step) GetDoing() string {
+	if x != nil {
+		return x.Doing
+	}
+	return ""
+}
+
 // StepCheck is one check a step's return ran.
 type StepCheck struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -710,7 +728,7 @@ var File_orrery_engine_v1_step_proto protoreflect.FileDescriptor
 
 const file_orrery_engine_v1_step_proto_rawDesc = "" +
 	"\n" +
-	"\x1borrery/engine/v1/step.proto\x12\x10orrery.engine.v1\"\xb1\x02\n" +
+	"\x1borrery/engine/v1/step.proto\x12\x10orrery.engine.v1\"\xe1\x02\n" +
 	"\x10StartStepRequest\x12\x14\n" +
 	"\x05agent\x18\x01 \x01(\tR\x05agent\x12\x16\n" +
 	"\x06prompt\x18\x02 \x01(\tR\x06prompt\x12\x16\n" +
@@ -724,7 +742,8 @@ const file_orrery_engine_v1_step_proto_rawDesc = "" +
 	"\x12gate_limit_seconds\x18\t \x01(\rR\x10gateLimitSeconds\x12\x1d\n" +
 	"\n" +
 	"done_value\x18\n" +
-	" \x01(\tR\tdoneValue\"#\n" +
+	" \x01(\tR\tdoneValue\x12.\n" +
+	"\x13model_limit_seconds\x18\v \x01(\rR\x11modelLimitSeconds\"#\n" +
 	"\x11StartStepResponse\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\"!\n" +
 	"\x0fStopStepRequest\x12\x0e\n" +
@@ -739,7 +758,7 @@ const file_orrery_engine_v1_step_proto_rawDesc = "" +
 	"\x0ftimeout_seconds\x18\x02 \x01(\rR\x0etimeoutSeconds\"o\n" +
 	"\x11WaitStepsResponse\x12,\n" +
 	"\x05ended\x18\x01 \x01(\v2\x16.orrery.engine.v1.StepR\x05ended\x12,\n" +
-	"\x05steps\x18\x02 \x03(\v2\x16.orrery.engine.v1.StepR\x05steps\"\xde\x02\n" +
+	"\x05steps\x18\x02 \x03(\v2\x16.orrery.engine.v1.StepR\x05steps\"\xf4\x02\n" +
 	"\x04Step\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05agent\x18\x02 \x01(\tR\x05agent\x12\x1c\n" +
@@ -754,7 +773,8 @@ const file_orrery_engine_v1_step_proto_rawDesc = "" +
 	" \x03(\v2\x1b.orrery.engine.v1.StepCheckR\x06checks\x12\x16\n" +
 	"\x06reason\x18\v \x01(\tR\x06reason\x12\x18\n" +
 	"\astarted\x18\f \x01(\x03R\astarted\x12\x14\n" +
-	"\x05ended\x18\r \x01(\x03R\x05ended\"]\n" +
+	"\x05ended\x18\r \x01(\x03R\x05ended\x12\x14\n" +
+	"\x05doing\x18\x0e \x01(\tR\x05doing\"]\n" +
 	"\tStepCheck\x12\x14\n" +
 	"\x05round\x18\x01 \x01(\rR\x05round\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x0e\n" +

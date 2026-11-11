@@ -50,6 +50,9 @@ message StartStepRequest {
 
   // The status the step's done return carries. Empty means "done".
   string done_value = 10;
+
+  // How many seconds of model time the step may use. Zero means 60 minutes.
+  uint32 model_limit_seconds = 11;
 }
 
 // StartStepResponse names the started step.
@@ -137,6 +140,9 @@ message Step {
 
   // When the step ended, in unix seconds. Zero while it runs.
   int64 ended = 13;
+
+  // The step's latest doing line from its monitor. Empty until the first check.
+  string doing = 14;
 }
 
 // StepCheck is one check a step's return ran.
