@@ -161,19 +161,64 @@ func requestQuestion(ev session.Request) string {
 	}
 }
 
-// exitChanges is the state an exited session takes: stopped when it exited cleanly, else failed with the errors that
-// ended it and the last non-empty line of its stderr.
+// eventNotice returns the state and body of the notice event sends the owner, and whether it sends one. reply is the
+// text of the turn's last finished main-conversation text block, and interrupted reports that the turn was interrupted
+// through Interrupt, so its end sends nothing.
+func eventNotice(event session.Event, reply string, interrupted bool) (state, body string, ok bool) {
+	switch ev := event.(type) {
+	case session.Request:
+		if ev.Refused {
+			return "", "", false
+		}
+		return string(protocol.StateWaiting), requestQuestion(ev), true
+	case session.TurnEnded:
+		if interrupted {
+			return "", "", false
+		}
+		return string(protocol.StateDone), reply, true
+	case session.Exited:
+		reason, failed := exitFailure(ev)
+		if !failed {
+			return "", "", false
+		}
+		return stateFailed, reason, true
+	default:
+		return "", "", false
+	}
+}
+
+// mainText returns the text of event when it is a finished assistant text block of the main conversation.
+func mainText(event session.Event) (string, bool) {
+	block, ok := event.(session.Block)
+	if !ok || block.Kind != session.BlockText || block.Role != "assistant" || block.ParentToolUseID != "" {
+		return "", false
+	}
+	return block.Text, true
+}
+
+// exitChanges is the state an exited session takes: stopped when it exited cleanly, else failed with the reason of
+// exitFailure.
 func exitChanges(ev session.Exited) store.EngineChanges {
-	if ev.ExitErr == nil && ev.StreamErr == nil {
+	reason, failed := exitFailure(ev)
+	if !failed {
 		stopped := stateStopped
 		return store.EngineChanges{State: &stopped}
+	}
+	state := stateFailed
+	return store.EngineChanges{State: &state, Reason: &reason}
+}
+
+// exitFailure returns the reason a failed exit records: the errors that ended it and the last non-empty line of its
+// stderr. It reports false for a clean exit.
+func exitFailure(ev session.Exited) (string, bool) {
+	if ev.ExitErr == nil && ev.StreamErr == nil {
+		return "", false
 	}
 	reason := errors.Join(ev.ExitErr, ev.StreamErr).Error()
 	if line := lastStderrLine(ev.Stderr); line != "" {
 		reason += ": " + line
 	}
-	failed := stateFailed
-	return store.EngineChanges{State: &failed, Reason: &reason}
+	return reason, true
 }
 
 // lastStderrLine returns the last line of stderr that is not blank, trimmed, or "" when every line is blank.

@@ -50,32 +50,42 @@ const closeWait = 5 * time.Second
 // interruptedReason is the reason a session whose turn was running when Close stopped the manager records.
 const interruptedReason = "orreryd stopped during the turn"
 
-// Config configures a Manager. Shell is the login shell and Claude the claude name, resolved with exec.LookPath at
-// each start. Environ is the environment sessions start with, Cap the most live sessions at once, Writer stores their
-// ops, Now stamps them (nil is time.Now) and Logger reports pump errors (nil discards).
-type Config struct {
-	Shell   string
-	Claude  string
-	Environ []string
-	Cap     int
-	Writer  *Writer
-	Now     func() time.Time
-	Logger  *slog.Logger
+// NoticeSink receives the notices the owner is told about. *Notifier satisfies it.
+type NoticeSink interface {
+	Notify(ctx context.Context, n Notice)
 }
 
-// liveSession is one running session: its process, the done channel closed when its pump has finished, and the cancel
-// that frees a pump blocked on a write. exited is set by the pump when it records the process's exit, so Stop and Close
-// do not record over the state that exit recorded. turning is set while a turn runs, from the send of its prompt or a
-// Started event until its TurnEnded or the process's Exited. closing is set by Close before it stops the session. The
-// manager's lock guards turning and closing, and the pump sets exited under it too.
+// Config configures a Manager. Shell is the login shell and Claude the claude name, resolved with exec.LookPath at
+// each start. Environ is the environment sessions start with, Cap the most live sessions at once, Writer stores their
+// ops, Now stamps them (nil is time.Now), Notifier receives the notices of their state changes (nil sends none) and
+// Logger reports pump errors (nil discards).
+type Config struct {
+	Shell    string
+	Claude   string
+	Environ  []string
+	Cap      int
+	Writer   *Writer
+	Now      func() time.Time
+	Notifier NoticeSink
+	Logger   *slog.Logger
+}
+
+// liveSession is one running session: its directory, its process, the done channel closed when its pump has finished,
+// and the cancel that frees a pump blocked on a write. exited is set by the pump when it records the process's exit, so
+// Stop and Close do not record over the state that exit recorded. turning is set while a turn runs, from the send of its
+// prompt or a Started event until its TurnEnded or the process's Exited. interrupting is set by Interrupt while a turn
+// runs, until that turn's end, which then sends no notice. closing is set by Close before it stops the session. The
+// manager's lock guards turning, interrupting and closing, and the pump sets exited under it too.
 type liveSession struct {
-	id      string
-	sess    *session.Session
-	done    chan struct{}
-	cancel  context.CancelFunc
-	exited  bool
-	turning bool
-	closing bool
+	id           string
+	dir          string
+	sess         *session.Session
+	done         chan struct{}
+	cancel       context.CancelFunc
+	exited       bool
+	turning      bool
+	interrupting bool
+	closing      bool
 	// order is held by the pump while it queues an event's ops, and by Answer from its send until it has queued the
 	// working state, so every op an answer causes is queued after that state.
 	order sync.Mutex
@@ -84,13 +94,14 @@ type liveSession struct {
 // Manager starts, stops and tracks headless sessions. Each running session has a pump goroutine that records its
 // events through the Writer. Close stops every session and waits for the pumps.
 type Manager struct {
-	shell   string
-	claude  string
-	environ []string
-	limit   int
-	writer  *Writer
-	now     func() time.Time
-	logger  *slog.Logger
+	shell    string
+	claude   string
+	environ  []string
+	limit    int
+	writer   *Writer
+	now      func() time.Time
+	notifier NoticeSink
+	logger   *slog.Logger
 
 	pumps sync.WaitGroup
 
@@ -113,6 +124,7 @@ func NewManager(cfg Config) *Manager {
 		limit:    cfg.Cap,
 		writer:   cfg.Writer,
 		now:      cfg.Now,
+		notifier: cfg.Notifier,
 		logger:   cfg.Logger,
 		started:  map[string]struct{}{},
 		sessions: map[string]*liveSession{},
@@ -152,10 +164,10 @@ func (m *Manager) Start(ctx context.Context, dir, prompt string) (string, error)
 
 	sess, err := m.spawn(id, dir)
 	if err != nil {
-		return id, m.fail(ctx, id, err)
+		return id, m.fail(ctx, id, dir, err)
 	}
 	pumpCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
-	live := &liveSession{id: id, sess: sess, done: make(chan struct{}), cancel: cancel}
+	live := &liveSession{id: id, dir: dir, sess: sess, done: make(chan struct{}), cancel: cancel}
 	m.mu.Lock()
 	closed := m.closed
 	if !closed {
@@ -165,7 +177,7 @@ func (m *Manager) Start(ctx context.Context, dir, prompt string) (string, error)
 	m.mu.Unlock()
 	if closed {
 		cancel()
-		return id, m.fail(ctx, id, errors.Join(errManagerClosed, sess.Stop()))
+		return id, m.fail(ctx, id, dir, errors.Join(errManagerClosed, sess.Stop()))
 	}
 	go m.pump(pumpCtx, live, newRecorder(id))
 
@@ -228,7 +240,7 @@ func (m *Manager) Say(ctx context.Context, id, text string) error {
 	m.setTurning(live, true)
 	if err = live.sess.Prompt(text); err != nil {
 		m.setTurning(live, false)
-		return fmt.Errorf("say to session %s: %w", id, errors.Join(err, m.recordFailed(ctx, id, err)))
+		return fmt.Errorf("say to session %s: %w", id, errors.Join(err, m.recordFailed(ctx, id, live.dir, err)))
 	}
 	return nil
 }
@@ -287,13 +299,15 @@ func answerPermission(sess *session.Session, requestID, answer string) error {
 }
 
 // Interrupt asks the live session id to end the turn in progress. The turn's end is recorded when the session reports
-// it. It returns an error wrapping ErrNoSession when id is not live.
+// it, and that end sends no notice. It returns an error wrapping ErrNoSession when id is not live.
 func (m *Manager) Interrupt(_ context.Context, id string) error {
 	live, err := m.live(id)
 	if err != nil {
 		return fmt.Errorf("interrupt session %s: %w", id, err)
 	}
+	m.setInterrupting(live, true)
 	if err = live.sess.Interrupt(); err != nil {
+		m.setInterrupting(live, false)
 		return fmt.Errorf("interrupt session %s: %w", id, err)
 	}
 	return nil
@@ -414,13 +428,19 @@ func (m *Manager) spawn(id, dir string) (*session.Session, error) {
 	return sess, nil
 }
 
-// pump records the events of one running session, in order, until its events close. It is the only reader of the
-// session's events and the only user of its recorder. When it ends it frees the session's slot.
+// pump records the events of one running session, in order, until its events close, and notifies the owner of each
+// event that calls for it once the event is recorded. It is the only reader of the session's events and the only user
+// of its recorder. When it ends it frees the session's slot.
 func (m *Manager) pump(ctx context.Context, live *liveSession, rec *recorder) {
 	defer m.pumps.Done()
+	reply := ""
 	for event := range live.sess.Events() {
-		if !m.noteEvent(live, event) {
+		record, interrupted := m.noteEvent(live, event)
+		if !record {
 			continue
+		}
+		if text, ok := mainText(event); ok {
+			reply = text
 		}
 		if ops := rec.ops(event); len(ops) > 0 {
 			live.order.Lock()
@@ -428,7 +448,12 @@ func (m *Manager) pump(ctx context.Context, live *liveSession, rec *recorder) {
 			live.order.Unlock()
 			if err != nil {
 				m.logger.WarnContext(ctx, "record session event", "session", live.id, "err", err)
+			} else if state, body, notify := eventNotice(event, reply, interrupted); notify {
+				m.notify(ctx, live.id, live.dir, state, body)
 			}
+		}
+		if _, ended := event.(session.TurnEnded); ended {
+			reply = ""
 		}
 	}
 	m.mu.Lock()
@@ -446,9 +471,18 @@ func (m *Manager) setTurning(live *liveSession, turning bool) {
 	m.mu.Unlock()
 }
 
-// noteEvent tracks the turn of live through event and reports whether the pump records event. The exit of a session
+// setInterrupting marks the turn running on live as interrupted, so its end sends no notice. A mark needs a turn that
+// is running, so an interrupt sent between turns marks nothing.
+func (m *Manager) setInterrupting(live *liveSession, interrupting bool) {
+	m.mu.Lock()
+	live.interrupting = interrupting && live.turning
+	m.mu.Unlock()
+}
+
+// noteEvent tracks the turn of live through event. It reports whether the pump records event, and for a turn's end,
+// whether that turn was interrupted through Interrupt, which clears the mark for the next turn. The exit of a session
 // that Close is stopping is not recorded here: recordClosed records that session's state from its turn instead.
-func (m *Manager) noteEvent(live *liveSession, event session.Event) bool {
+func (m *Manager) noteEvent(live *liveSession, event session.Event) (record, interrupted bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	switch event.(type) {
@@ -456,14 +490,24 @@ func (m *Manager) noteEvent(live *liveSession, event session.Event) bool {
 		live.turning = true
 	case session.TurnEnded:
 		live.turning = false
+		interrupted = live.interrupting
+		live.interrupting = false
 	case session.Exited:
 		live.turning = false
 		if live.closing {
-			return false
+			return false, false
 		}
 		live.exited = true
 	}
-	return true
+	return true, interrupted
+}
+
+// notify sends the owner a notice of session id in dir, in state with body. It sends nothing without a notifier.
+func (m *Manager) notify(ctx context.Context, id, dir, state, body string) {
+	if m.notifier == nil {
+		return
+	}
+	m.notifier.Notify(ctx, Notice{Session: id, Dir: dir, State: state, Body: body})
 }
 
 // waitPump waits until the pump of live has finished, or until ctx ends.
@@ -496,8 +540,9 @@ func (m *Manager) recordStopped(ctx context.Context, live *liveSession) error {
 }
 
 // recordClosed waits for the pump of live to finish, then records live as Close leaves it: interrupted with the reason
-// when its turn was running, and otherwise in the state its turn gave it. Either way its unfinished text is removed. A
-// session whose exit already recorded its state is left alone. It returns the error of the wait or of the write.
+// when its turn was running, and otherwise in the state its turn gave it. Either way its unfinished text is removed. An
+// interruption notifies the owner. A session whose exit already recorded its state is left alone. It returns the error
+// of the wait or of the write.
 func (m *Manager) recordClosed(ctx context.Context, live *liveSession) error {
 	if err := m.waitPump(ctx, live); err != nil {
 		return err
@@ -518,6 +563,9 @@ func (m *Manager) recordClosed(ctx context.Context, live *liveSession) error {
 	if err := m.writer.Commit(ctx, live.id, ops...); err != nil {
 		return fmt.Errorf("record session %s closed: %w", live.id, err)
 	}
+	if turning {
+		m.notify(ctx, live.id, live.dir, stateInterrupted, interruptedReason)
+	}
 	return nil
 }
 
@@ -531,22 +579,24 @@ func (m *Manager) abandon(ctx context.Context, live *liveSession, cause error) e
 	if live.exited {
 		return nil
 	}
-	return m.recordFailed(ctx, live.id, errors.Join(cause, stopErr))
+	return m.recordFailed(ctx, live.id, live.dir, errors.Join(cause, stopErr))
 }
 
-// fail records a session that never got a running process as failed with the reason err, and frees its slot.
-func (m *Manager) fail(ctx context.Context, id string, err error) error {
+// fail records a session in dir that never got a running process as failed with the reason err, and frees its slot.
+func (m *Manager) fail(ctx context.Context, id, dir string, err error) error {
 	m.release()
-	return m.recordFailed(ctx, id, err)
+	return m.recordFailed(ctx, id, dir, err)
 }
 
-// recordFailed writes the failed state of session id with the reason err. It returns only an error that the write hit.
-func (m *Manager) recordFailed(ctx context.Context, id string, err error) error {
+// recordFailed writes the failed state of session id in dir with the reason err, then notifies the owner of it. It
+// returns only an error that the write hit.
+func (m *Manager) recordFailed(ctx context.Context, id, dir string, err error) error {
 	failed := stateFailed
 	reason := err.Error()
 	if writeErr := m.writer.Commit(ctx, id, store.EngineSet{ID: id,
 		Changes: store.EngineChanges{State: &failed, Reason: &reason}}); writeErr != nil {
 		return fmt.Errorf("record session %s failed: %w", id, writeErr)
 	}
+	m.notify(ctx, id, dir, failed, reason)
 	return nil
 }
