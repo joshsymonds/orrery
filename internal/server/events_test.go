@@ -364,7 +364,7 @@ func promptEngine(t *testing.T, s *store.Store, count int) {
 	}
 }
 
-func TestWatchSkipsEngineEventsBetweenPaneEvents(t *testing.T) {
+func TestWatchSendsEngineEventsBetweenPaneEvents(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	s := openEventStore(t, path)
 	seedEvents(t, s, 0)
@@ -374,18 +374,55 @@ func TestWatchSkipsEngineEventsBetweenPaneEvents(t *testing.T) {
 	writeState(t, s, 2)
 	events := orreryv1connect.NewEventsClient(guardedHTTPClient(), startServer(t, path))
 
+	at := int64(eventAt)
+	paneAdded := &orreryv1.WatchResponse{
+		Seq:       1,
+		SessionId: eventPane,
+		At:        at,
+		Event: &orreryv1.WatchResponse_SessionAdded{
+			SessionAdded: &orreryv1.SessionAdded{Server: "-L a", Pane: "%1"},
+		},
+	}
+	engineAdded := &orreryv1.WatchResponse{
+		Seq:       2,
+		SessionId: eventEngine,
+		At:        at,
+		Event: &orreryv1.WatchResponse_EngineAdded{
+			EngineAdded: &orreryv1.EngineAdded{Dir: "/a", State: "idle"},
+		},
+	}
+	paneState := func(seq int64, state string) *orreryv1.WatchResponse {
+		return &orreryv1.WatchResponse{
+			Seq:       seq,
+			SessionId: eventPane,
+			At:        at,
+			Event: &orreryv1.WatchResponse_SessionChanged{
+				SessionChanged: &orreryv1.SessionChanged{State: optional(state)},
+			},
+		}
+	}
+	prompt := func(seq int64) *orreryv1.WatchResponse {
+		return &orreryv1.WatchResponse{
+			Seq:       seq,
+			SessionId: eventEngine,
+			At:        at,
+			Event: &orreryv1.WatchResponse_EnginePrompt{
+				EnginePrompt: &orreryv1.EnginePrompt{Text: "hi"},
+			},
+		}
+	}
+	want := []*orreryv1.WatchResponse{
+		paneAdded,
+		engineAdded,
+		paneState(3, "state-1"),
+		prompt(4),
+		prompt(5),
+		paneState(6, "state-2"),
+	}
+
 	w := openWatch(t, events, 0)
-	for _, want := range []struct {
-		seq   int64
-		state string
-	}{{1, ""}, {3, "state-1"}, {6, "state-2"}} {
-		msg := w.next(t)
-		if msg.GetSeq() != want.seq {
-			t.Fatalf("message: seq %d, want %d", msg.GetSeq(), want.seq)
-		}
-		if want.state != "" && msg.GetSessionChanged().GetState() != want.state {
-			t.Fatalf("message seq %d: state %q, want %q", want.seq, msg.GetSessionChanged().GetState(), want.state)
-		}
+	for _, wantMsg := range want {
+		wantMessage(t, w.next(t), wantMsg)
 	}
 }
 
@@ -401,6 +438,12 @@ func TestWatchReachesPaneEventsAfterMoreThanOnePageOfEngineEvents(t *testing.T) 
 	w := openWatch(t, events, 0)
 	if got := w.next(t).GetSeq(); got != 1 {
 		t.Fatalf("first message: seq %d, want 1", got)
+	}
+	// The engine events, the engine_added and replayCount prompts, are sent in seq order across more than one page.
+	for want := int64(2); want <= replayCount+2; want++ {
+		if got := w.next(t).GetSeq(); got != want {
+			t.Fatalf("engine event: seq %d, want %d", got, want)
+		}
 	}
 	if got := w.next(t).GetSeq(); got != replayCount+3 {
 		t.Fatalf("pane event after engine events: seq %d, want %d", got, replayCount+3)

@@ -2,12 +2,15 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"time"
 
 	"connectrpc.com/connect"
+	"google.golang.org/protobuf/encoding/protojson"
 
 	orreryv1 "github.com/joshsymonds/orrery/internal/gen/orrery/v1"
 	"github.com/joshsymonds/orrery/internal/gen/orrery/v1/orreryv1connect"
@@ -39,8 +42,10 @@ type eventsServer struct {
 	shutdown    <-chan struct{}
 }
 
-// Watch sends every pane event after the request's cursor in seq order, skipping engine events, then each event
-// stored after that, polling the store every poll interval. Each page is read in its own store read, so no read is held across a send or a poll.
+// Watch sends every event after the request's cursor in seq order as its typed message, then each event stored after
+// that, polling the store every poll interval. After each read that is not a full page, it also sends the text so far
+// of each unfinished engine block whose text this stream has not sent yet (see sendTexts). Each page is read in its
+// own store read, so no read is held across a send or a poll.
 // Each send must complete within sendTimeout, set as a write deadline on the connection, so a send that stays
 // blocked ends this stream and no other. Connect writes the end of the stream after Watch returns, so that write
 // gets the same deadline, armed when Watch returns. Once the shutdown signal has closed, a blocked send and that end
@@ -69,6 +74,7 @@ func (e eventsServer) watch(
 	}
 	ticker := time.NewTicker(e.poll)
 	defer ticker.Stop()
+	sent := map[textKey]string{}
 	for {
 		page, err := e.reader.Events(ctx, after, eventPageSize)
 		if errors.Is(err, store.ErrUnavailable) {
@@ -87,6 +93,10 @@ func (e eventsServer) watch(
 		if len(page.Events) == eventPageSize {
 			continue
 		}
+		sent, err = e.sendTexts(ctx, stream, sent, page)
+		if err != nil {
+			return err
+		}
 		select {
 		case <-ctx.Done():
 			return fmt.Errorf("watch events: %w", ctx.Err())
@@ -97,9 +107,8 @@ func (e eventsServer) watch(
 	}
 }
 
-// sendPage sends each pane event of page after the cursor after in seq order, checking the shutdown signal before
-// each send. An engine event is not sent, but the cursor advances past it. It returns the seq of the last event
-// read, or after when page holds none.
+// sendPage sends each event of page after the cursor after in seq order as its typed message, checking the shutdown
+// signal before each send. It returns the seq of the last event read, or after when page holds none.
 func (e eventsServer) sendPage(
 	ctx context.Context,
 	stream *connect.ServerStream[orreryv1.WatchResponse],
@@ -109,10 +118,6 @@ func (e eventsServer) sendPage(
 	for _, event := range page.Events {
 		if stopping(e.shutdown) {
 			return after, shutdownError()
-		}
-		if store.IsEngineKind(event.Kind) {
-			after = event.Seq
-			continue
 		}
 		msg, err := watchMessage(event)
 		if err != nil {
@@ -124,6 +129,57 @@ func (e eventsServer) sendPage(
 		after = event.Seq
 	}
 	return after, nil
+}
+
+// textKey identifies one unfinished block by the columns that key its engine_text row.
+type textKey struct {
+	sessionID       string
+	messageID       string
+	index           int64
+	parentToolUseID string
+}
+
+// sendTexts sends an EngineText, with the page's newest seq and at 0, for each unfinished block of page whose text
+// differs from the text this stream last sent for it in sent, checking the shutdown signal before each send. It
+// returns the text each block of page now has been sent, so a block that left Unfinished is forgotten.
+func (e eventsServer) sendTexts(
+	ctx context.Context,
+	stream *connect.ServerStream[orreryv1.WatchResponse],
+	sent map[textKey]string,
+	page store.EventPage,
+) (map[textKey]string, error) {
+	next := make(map[textKey]string, len(page.Unfinished))
+	for _, block := range page.Unfinished {
+		key := textKey{
+			sessionID: block.SessionID, messageID: block.MessageID, index: block.BlockIndex,
+			parentToolUseID: block.ParentToolUseID,
+		}
+		if text, ok := sent[key]; ok && text == block.Text {
+			next[key] = text
+			continue
+		}
+		if stopping(e.shutdown) {
+			return sent, shutdownError()
+		}
+		if block.BlockIndex < math.MinInt32 || block.BlockIndex > math.MaxInt32 {
+			return sent, listError(connect.CodeInternal, "read events")
+		}
+		msg := &orreryv1.WatchResponse{
+			Seq:       page.Newest,
+			SessionId: block.SessionID,
+			Event: &orreryv1.WatchResponse_EngineText{
+				EngineText: &orreryv1.EngineText{
+					MessageId: block.MessageID, Index: int32(block.BlockIndex), ParentToolUseId: block.ParentToolUseID,
+					Kind: block.Kind, Text: block.Text,
+				},
+			},
+		}
+		if err := sendWithin(ctx, e.sendTimeout, e.shutdown, stream, msg); err != nil {
+			return sent, fmt.Errorf("send unfinished text of %s: %w", block.SessionID, err)
+		}
+		next[key] = block.Text
+	}
+	return next, nil
 }
 
 // stopping reports whether shutdown has closed. A nil shutdown never has.
@@ -246,9 +302,80 @@ func watchMessage(event store.Event) (*orreryv1.WatchResponse, error) {
 	case store.EventSessionRemoved:
 		msg.Event = &orreryv1.WatchResponse_SessionRemoved{SessionRemoved: &orreryv1.SessionRemoved{}}
 	default:
-		return nil, fmt.Errorf("event %d has unknown kind %q", event.Seq, event.Kind)
+		if err := setEngineEvent(msg, event); err != nil {
+			return nil, err
+		}
 	}
 	return msg, nil
+}
+
+// setEngineEvent sets the typed payload of msg from the stored payload of an engine event. The payload must decode
+// exactly into its message, so a key the message lacks is an error.
+func setEngineEvent(msg *orreryv1.WatchResponse, event store.Event) error {
+	switch event.Kind {
+	case store.EventEngineAdded:
+		body := &orreryv1.EngineAdded{}
+		if err := protojson.Unmarshal([]byte(event.Payload), body); err != nil {
+			return fmt.Errorf("decode %s event %d: %w", event.Kind, event.Seq, err)
+		}
+		msg.Event = &orreryv1.WatchResponse_EngineAdded{EngineAdded: body}
+	case store.EventEngineChanged:
+		body, err := engineChanged(event.Payload)
+		if err != nil {
+			return fmt.Errorf("decode %s event %d: %w", event.Kind, event.Seq, err)
+		}
+		msg.Event = &orreryv1.WatchResponse_EngineChanged{EngineChanged: body}
+	case store.EventEnginePrompt:
+		body := &orreryv1.EnginePrompt{}
+		if err := protojson.Unmarshal([]byte(event.Payload), body); err != nil {
+			return fmt.Errorf("decode %s event %d: %w", event.Kind, event.Seq, err)
+		}
+		msg.Event = &orreryv1.WatchResponse_EnginePrompt{EnginePrompt: body}
+	case store.EventEngineBlock:
+		body := &orreryv1.EngineBlock{}
+		if err := protojson.Unmarshal([]byte(event.Payload), body); err != nil {
+			return fmt.Errorf("decode %s event %d: %w", event.Kind, event.Seq, err)
+		}
+		msg.Event = &orreryv1.WatchResponse_EngineBlock{EngineBlock: body}
+	case store.EventEngineRequest:
+		body := &orreryv1.EngineRequest{}
+		if err := protojson.Unmarshal([]byte(event.Payload), body); err != nil {
+			return fmt.Errorf("decode %s event %d: %w", event.Kind, event.Seq, err)
+		}
+		msg.Event = &orreryv1.WatchResponse_EngineRequest{EngineRequest: body}
+	case store.EventEngineRequestCancelled:
+		body := &orreryv1.EngineRequestCanceled{}
+		if err := protojson.Unmarshal([]byte(event.Payload), body); err != nil {
+			return fmt.Errorf("decode %s event %d: %w", event.Kind, event.Seq, err)
+		}
+		msg.Event = &orreryv1.WatchResponse_EngineRequestCanceled{EngineRequestCanceled: body}
+	case store.EventEngineTurnEnded:
+		body := &orreryv1.EngineTurnEnded{}
+		if err := protojson.Unmarshal([]byte(event.Payload), body); err != nil {
+			return fmt.Errorf("decode %s event %d: %w", event.Kind, event.Seq, err)
+		}
+		msg.Event = &orreryv1.WatchResponse_EngineTurnEnded{EngineTurnEnded: body}
+	default:
+		return fmt.Errorf("event %d has unknown kind %q", event.Seq, event.Kind)
+	}
+	return nil
+}
+
+// engineChanged decodes an engine_changed payload, whose only key is fields, into its EngineChanged message.
+func engineChanged(payload string) (*orreryv1.EngineChanged, error) {
+	var envelope map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(payload), &envelope); err != nil {
+		return nil, fmt.Errorf("decode payload: %w", err)
+	}
+	fields, ok := envelope["fields"]
+	if !ok || len(envelope) != 1 {
+		return nil, errors.New("payload is not a fields object")
+	}
+	body := &orreryv1.EngineChanged{}
+	if err := protojson.Unmarshal(fields, body); err != nil {
+		return nil, fmt.Errorf("decode fields: %w", err)
+	}
+	return body, nil
 }
 
 // newEventsHandler returns the path and handler that serve Events.Watch over reader, polling every poll, bounding
