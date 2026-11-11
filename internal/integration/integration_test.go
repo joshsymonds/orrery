@@ -487,12 +487,19 @@ func TestListJSONPrintsPanes(t *testing.T) {
 	}
 }
 
+// seenDaemonEnv points orreryd's socket under the test's temp dir, so `orrery seen` never reaches the owner's
+// live daemon. The socket has no listener here, which ReportSeen treats as no daemon.
+func seenDaemonEnv(t *testing.T) []string {
+	t.Helper()
+	return []string{"ORRERY_SOCKET=" + filepath.Join(t.TempDir(), "orreryd.sock")}
+}
+
 func TestSeenSetsOption(t *testing.T) {
 	client, name := newServer(t)
 	pane := startPane(t, client, "sleep 300")
 
 	before := time.Now().Unix()
-	wantExit(t, runOrrery(t, "", nil, "-L", name, "seen", "--pane", pane), 0)
+	wantExit(t, runOrrery(t, "", seenDaemonEnv(t), "-L", name, "seen", "--pane", pane), 0)
 	after := time.Now().Unix()
 
 	got, ok, err := client.PaneOption(t.Context(), pane, protocol.OptionSeen)
@@ -508,6 +515,60 @@ func TestSeenSetsOption(t *testing.T) {
 	}
 	if seen < before || seen > after {
 		t.Fatalf("%s = %d, want between %d and %d", protocol.OptionSeen, seen, before, after)
+	}
+}
+
+func TestSeenReportsSeenFrame(t *testing.T) {
+	client, name := newServer(t)
+	pane := startPane(t, client, "sleep 300")
+
+	socket := filepath.Join(t.TempDir(), "orreryd.sock")
+	listener, err := net.Listen("unix", socket)
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	t.Cleanup(func() { listener.Close() })
+
+	frames := make(chan protocol.HookFrame, 1)
+	failures := make(chan error, 1)
+	go func() {
+		conn, acceptErr := listener.Accept()
+		if acceptErr != nil {
+			failures <- acceptErr
+			return
+		}
+		defer conn.Close()
+		frame, readErr := protocol.ReadFrame(conn)
+		if readErr != nil {
+			failures <- readErr
+			return
+		}
+		frames <- frame
+	}()
+
+	wantExit(t, runOrrery(t, "", []string{"ORRERY_SOCKET=" + socket}, "-L", name, "seen", "--pane", pane), 0)
+
+	got, ok, err := client.PaneOption(t.Context(), pane, protocol.OptionSeen)
+	if err != nil {
+		t.Fatalf("read %s: %v", protocol.OptionSeen, err)
+	}
+	if !ok {
+		t.Fatalf("%s is unset after seen", protocol.OptionSeen)
+	}
+	wrote, err := strconv.ParseInt(got, 10, 64)
+	if err != nil {
+		t.Fatalf("%s = %q, not a unix time: %v", protocol.OptionSeen, got, err)
+	}
+
+	select {
+	case frame := <-frames:
+		if frame.TmuxPane != pane || frame.Seen != wrote {
+			t.Fatalf("seen frame pane %q seen %d, want pane %q seen %d", frame.TmuxPane, frame.Seen, pane, wrote)
+		}
+	case err = <-failures:
+		t.Fatalf("read seen frame: %v", err)
+	case <-time.After(waitLimit):
+		t.Fatal("orreryd received no seen frame")
 	}
 }
 

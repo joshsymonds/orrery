@@ -75,7 +75,7 @@ subcommands:
   session stop ID                               end a session's process
   session seen ID                               mark a session's conversation as read
   session watch ID                              print a session's events as JSON lines until it ends
-  seen --pane ID                                mark a pane seen
+  seen --pane ID [--focus]                      mark a pane seen
   send --pane ID [--expect-question H] (--text T | --keys K...)
                                                 send text or keys to a pane; --keys must be last
   debug summarize --pane ID --transcript PATH [--claude PATH]
@@ -210,7 +210,7 @@ func dispatch(ctx context.Context, opts globals, rest []string, stdin *os.File, 
 		if err != nil {
 			return fmt.Errorf("tmux server: %w", err)
 		}
-		return runTmux(ctx, client, name, args, stdin, stdout, getenv)
+		return runTmux(ctx, client, name, args, stdin, stdout, getenv, seenReporter(opts.daemonSocket, getenv))
 	default:
 		return usagef("unknown subcommand %q", name)
 	}
@@ -344,16 +344,28 @@ func serveUntilDone(ctx context.Context, ln net.Listener, handler http.Handler, 
 	return nil
 }
 
-// runTmux runs a subcommand that works on the tmux server client talks to.
+// seenReporter returns the reporter that tells the daemon socket protocol.SocketPath resolves about a pane's seen
+// time. It returns nil when no socket resolves, so `seen` still marks the pane.
+func seenReporter(flagSocket string, getenv func(string) string) cli.SeenReporter {
+	socket, err := protocol.SocketPath(flagSocket, getenv)
+	if err != nil {
+		return nil
+	}
+	return func(pane string, seen int64) error {
+		return hook.ReportSeen(socket, pane, seen)
+	}
+}
+
+// runTmux runs a subcommand that works on the tmux server client talks to. report is the seen reporter for seen.
 func runTmux(ctx context.Context, client *tmuxctl.Client, name string, args []string, stdin *os.File,
-	out io.Writer, getenv func(string) string) error {
+	out io.Writer, getenv func(string) string, report cli.SeenReporter) error {
 	// The cli errors already name their subcommand, so errors.Join passes them through unchanged while
 	// keeping errors.Is working for cli.ErrQuestionRefused.
 	switch name {
 	case "list":
 		return errors.Join(cli.List(ctx, client, args, out))
 	case "seen":
-		return errors.Join(cli.Seen(ctx, client, args, out))
+		return errors.Join(cli.Seen(ctx, client, report, args, out))
 	case "send":
 		if err := refuseSendFlagsAfterKeys(args); err != nil {
 			return err

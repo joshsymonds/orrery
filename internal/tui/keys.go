@@ -210,9 +210,9 @@ func switchAndMark(ctx context.Context, client *tmuxctl.Client, tty, paneID stri
 	return markSeen(ctx, client, paneID)
 }
 
-// markSeen sets the @orrery_seen option of paneID to the current time.
+// markSeen sets the @orrery_seen option of paneID to the current time. It reports nothing to orreryd.
 func markSeen(ctx context.Context, client *tmuxctl.Client, paneID string) error {
-	if err := cli.Seen(ctx, client, []string{"--pane", paneID}, io.Discard); err != nil {
+	if err := cli.Seen(ctx, client, nil, []string{"--pane", paneID}, io.Discard); err != nil {
 		return fmt.Errorf("mark seen: %w", err)
 	}
 	return nil

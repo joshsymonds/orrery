@@ -646,7 +646,7 @@ func servePaneSeen(tmux *tmuxctl.Client, locks *paneLocks) http.HandlerFunc {
 // counts as 0. The caller holds the pane's lock.
 func markSeen(ctx context.Context, tmux *tmuxctl.Client, id string, reported int64, hasReported bool) error {
 	if !hasReported {
-		if err := cli.Seen(ctx, tmux, []string{flagPane, id}, io.Discard); err != nil {
+		if err := cli.Seen(ctx, tmux, nil, []string{flagPane, id}, io.Discard); err != nil {
 			return fmt.Errorf("server: seen: %w", err)
 		}
 		return nil
