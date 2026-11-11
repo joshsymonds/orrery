@@ -25,8 +25,9 @@ const (
 
 // New returns a daemon observer that marks a pane seen when it enters done while a client of its tmux
 // server shows the pane's window and had input within activeWindow. The seen time is now().Unix(). Other
-// transitions change nothing. Tmux failures are logged to logger, which may be nil.
-func New(now func() time.Time, logger *slog.Logger) daemon.Observer {
+// transitions change nothing. Tmux failures are logged to logger, which may be nil. After it marks a pane
+// seen, it calls report with the pane and the seen time it wrote.
+func New(now func() time.Time, logger *slog.Logger, report func(pane string, seen int64)) daemon.Observer {
 	if logger == nil {
 		logger = slog.New(slog.DiscardHandler)
 	}
@@ -36,7 +37,7 @@ func New(now func() time.Time, logger *slog.Logger) daemon.Observer {
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), observerTimeout)
 		defer cancel()
-		if err := markSeen(ctx, transition, now); err != nil {
+		if err := markSeen(ctx, transition, now, report); err != nil {
 			logger.ErrorContext(ctx, "mark pane seen", "pane", transition.PaneID, "error", err)
 		}
 	}
@@ -56,8 +57,14 @@ func Viewing(ctx context.Context, client *tmuxctl.Client, pane string, now time.
 	return showsRecentInput(clients, strings.TrimSpace(window), now)
 }
 
-// markSeen sets the seen option on the transition's pane when a recently active client shows its window.
-func markSeen(ctx context.Context, transition daemon.Transition, now func() time.Time) error {
+// markSeen sets the seen option on the transition's pane when a recently active client shows its window,
+// then calls report with the pane and the seen time it wrote.
+func markSeen(
+	ctx context.Context,
+	transition daemon.Transition,
+	now func() time.Time,
+	report func(pane string, seen int64),
+) error {
 	client, err := tmuxctl.New(transition.Server)
 	if err != nil {
 		return fmt.Errorf("resolve tmux server: %w", err)
@@ -67,10 +74,12 @@ func markSeen(ctx context.Context, transition daemon.Transition, now func() time
 	if err != nil || !viewing {
 		return err
 	}
-	err = client.SetPaneOption(ctx, transition.PaneID, protocol.OptionSeen, strconv.FormatInt(current.Unix(), 10))
+	seen := current.Unix()
+	err = client.SetPaneOption(ctx, transition.PaneID, protocol.OptionSeen, strconv.FormatInt(seen, 10))
 	if err != nil {
 		return fmt.Errorf("set seen: %w", err)
 	}
+	report(transition.PaneID, seen)
 	return nil
 }
 
