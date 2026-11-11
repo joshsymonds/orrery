@@ -67,7 +67,8 @@ subcommands:
   hook                                          forward a Claude Code hook event from stdin; exits 0
   list --json                                   print the panes of the tmux server as a JSON array
   events --url URL [--after N] [--follow]       print the event stream of serve as JSON lines
-  session start DIR PROMPT                      start a headless session in DIR and print its id
+  session [--url URL] VERB ...                  run a session VERB below through serve at URL, not orreryd's socket
+  session start [--model MODEL] DIR PROMPT      start a headless session in DIR and print its id
   session say ID TEXT                           send TEXT to a session
   session answer ID REQUEST_ID ANSWER           answer a session's open question
   session interrupt ID                          stop a session's current turn
@@ -195,11 +196,15 @@ func dispatch(ctx context.Context, opts globals, rest []string, stdin *os.File, 
 	case "events":
 		return errors.Join(cli.Events(ctx, args, stdout))
 	case "session":
-		socket, err := protocol.SocketPath(opts.daemonSocket, getenv)
-		if err != nil {
-			return fmt.Errorf("session: %w", err)
+		sessionSocket := ""
+		if !sessionViaURL(args) {
+			socket, err := protocol.SocketPath(opts.daemonSocket, getenv)
+			if err != nil {
+				return fmt.Errorf("session: %w", err)
+			}
+			sessionSocket = protocol.SessionSocketPath(socket)
 		}
-		return errors.Join(cli.Session(ctx, protocol.SessionSocketPath(socket), args, stdout, getenv))
+		return errors.Join(cli.Session(ctx, sessionSocket, args, stdout, getenv))
 	case "list", "seen", "send", "debug", "shell", "tree":
 		client, err := tmuxctl.New(opts.server)
 		if err != nil {
@@ -209,6 +214,11 @@ func dispatch(ctx context.Context, opts globals, rest []string, stdin *os.File, 
 	default:
 		return usagef("unknown subcommand %q", name)
 	}
+}
+
+// sessionViaURL reports whether a session command line names serve with --url, which needs no daemon socket.
+func sessionViaURL(args []string) bool {
+	return len(args) > 0 && args[0] == "--url"
 }
 
 // listFlag is a repeatable string flag. It collects the values in the order given.
