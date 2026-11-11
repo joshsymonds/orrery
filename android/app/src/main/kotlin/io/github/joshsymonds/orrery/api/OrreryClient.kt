@@ -75,6 +75,17 @@ data class HostStat(val label: String, val value: String, val percent: Double?, 
 
 data class HostStatus(val host: String, val stats: List<HostStat>)
 
+/** One candidate the picker offers for the text it was asked. [prompt] is true when the row starts Claude with that text. */
+data class PickRow(
+    val token: String,
+    val kind: String,
+    val dir: String,
+    val pane: String,
+    val label: String,
+    val note: String,
+    val prompt: Boolean,
+)
+
 sealed interface KeysResult {
     data object Sent : KeysResult
     data object PromptChanged : KeysResult
@@ -107,7 +118,11 @@ class NoAnswerException(cause: IOException) : IOException("no answer to the requ
  * Blocking client for the orrery phone API. Each call is one request on its
  * own connection; nothing is kept open between calls.
  */
-class OrreryClient(baseUrl: String, private val composeReadTimeoutMillis: Int = 25_000) {
+class OrreryClient(
+    baseUrl: String,
+    private val composeReadTimeoutMillis: Int = 25_000,
+    private val pickerReadTimeoutMillis: Int = 90_000,
+) {
     private val root = baseUrl.removeSuffix("/")
 
     private class Response(val status: Int, val body: String)
@@ -217,6 +232,30 @@ class OrreryClient(baseUrl: String, private val composeReadTimeoutMillis: Int = 
         return KeysResult.Sent
     }
 
+    fun ask(text: String): List<PickRow> {
+        val response = send("POST", "/v1/picker/ask", JSONObject().put("text", text), pickerReadTimeoutMillis)
+        checkAnswered(response)
+        val array = JSONObject(response.body).getJSONArray("rows")
+        return List(array.length()) { index ->
+            val row = array.getJSONObject(index)
+            PickRow(
+                token = row.getString("token"),
+                kind = row.getString("kind"),
+                dir = row.getString("dir"),
+                pane = row.getString("pane"),
+                label = row.getString("label"),
+                note = row.getString("note"),
+                prompt = row.getBoolean("prompt"),
+            )
+        }
+    }
+
+    fun run(token: String): String {
+        val response = send("POST", "/v1/picker/run", JSONObject().put("token", token))
+        checkAnswered(response)
+        return JSONObject(response.body).getString("pane")
+    }
+
     fun markSeen(paneId: String) {
         post(panePath(paneId, "seen"), JSONObject())
     }
@@ -266,12 +305,19 @@ class OrreryClient(baseUrl: String, private val composeReadTimeoutMillis: Int = 
         }
     }
 
-    private fun send(method: String, path: String, body: JSONObject?): Response {
+    /** The picker's non-2xx answers carry a plain-text reason; it is the message, or the status when the body is empty. */
+    private fun checkAnswered(response: Response) {
+        if (response.status !in 200..299) {
+            throw OrreryHttpException(response.status, response.body.trim().ifEmpty { "HTTP ${response.status}" })
+        }
+    }
+
+    private fun send(method: String, path: String, body: JSONObject?, readTimeoutMillis: Int = TIMEOUT_MS): Response {
         val connection = URL(root + path).openConnection() as HttpURLConnection
         try {
             connection.requestMethod = method
             connection.connectTimeout = TIMEOUT_MS
-            connection.readTimeout = TIMEOUT_MS
+            connection.readTimeout = readTimeoutMillis
             if (body != null) {
                 connection.doOutput = true
                 connection.setRequestProperty("Content-Type", "application/json")
