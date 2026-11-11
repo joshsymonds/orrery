@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -370,5 +371,197 @@ func TestPanesScreenInternalErrorParity(t *testing.T) {
 	}
 	if connectErr.Message() != wantMessage {
 		t.Fatalf("Panes.Screen message = %q, want the REST body %q", connectErr.Message(), wantMessage)
+	}
+}
+
+// Fixture values of the conversation that the conversation parity tests read. Each differs from the others, so a
+// swapped field fails the parity test.
+const (
+	conversationParityTool   = "Bash"
+	conversationParityToolID = "synthetic-tool-use"
+	conversationParityResult = "synthetic tool output"
+	conversationParityReply  = "synthetic reply after the tool"
+	synthCanceled            = "synthetic canceled message"
+)
+
+// restConversation is the GET /v1/panes/{id}/conversation body, read by the keys the route writes.
+type restConversation struct {
+	Origin  string           `json:"origin"`
+	Items   []restItem       `json:"items"`
+	Goal    string           `json:"goal"`
+	Waiting []restWaitingMsg `json:"waiting"`
+}
+
+// restItem is one element of the items array of GET /v1/panes/{id}/conversation.
+type restItem struct {
+	Kind   string `json:"kind"`
+	Time   int64  `json:"time"`
+	Text   string `json:"text"`
+	Tool   string `json:"tool"`
+	Input  string `json:"input"`
+	ID     string `json:"id"`
+	Error  bool   `json:"error"`
+	Notice string `json:"notice"`
+}
+
+// restWaitingMsg is one element of the waiting array of GET /v1/panes/{id}/conversation.
+type restWaitingMsg struct {
+	Text     string `json:"text"`
+	Time     int64  `json:"time"`
+	Canceled bool   `json:"canceled"`
+}
+
+// message returns the ConversationResponse that holds the same fields as c.
+func (c restConversation) message() *orreryv1.ConversationResponse {
+	items := make([]*orreryv1.ConversationItem, 0, len(c.Items))
+	for _, item := range c.Items {
+		items = append(items, &orreryv1.ConversationItem{
+			Kind:   item.Kind,
+			Time:   item.Time,
+			Text:   item.Text,
+			Tool:   item.Tool,
+			Input:  item.Input,
+			Id:     item.ID,
+			Error:  item.Error,
+			Notice: item.Notice,
+		})
+	}
+	waiting := make([]*orreryv1.WaitingMessage, 0, len(c.Waiting))
+	for _, msg := range c.Waiting {
+		waiting = append(waiting, &orreryv1.WaitingMessage{Text: msg.Text, Time: msg.Time, Canceled: msg.Canceled})
+	}
+	return &orreryv1.ConversationResponse{Origin: c.Origin, Items: items, Goal: c.Goal, Waiting: waiting}
+}
+
+// writeParityConversation writes a synthetic transcript to a new file in t.TempDir and returns its path. It holds a
+// prompt, a tool call with its result, a reply, a goal that is not met, a queued message and a canceled one. Each
+// line has its own timestamp, so each item and waiting message has its own time.
+func writeParityConversation(t *testing.T) string {
+	t.Helper()
+	at := func(second int) string { return fmt.Sprintf("2026-01-02T03:04:%02dZ", second) }
+	text := strings.Join([]string{
+		fmt.Sprintf(`{"type":"user","timestamp":%q,"message":{"role":"user","content":%q}}`, at(1), synthOrigin),
+		fmt.Sprintf(`{"type":"assistant","timestamp":%q,"message":{"content":[{"type":"tool_use","id":%q,`+
+			`"name":%q,"input":{"command":"echo synthetic"}}]}}`, at(2), conversationParityToolID, conversationParityTool),
+		fmt.Sprintf(`{"type":"user","timestamp":%q,"message":{"content":[{"type":"tool_result","tool_use_id":%q,`+
+			`"content":%q,"is_error":true}]}}`, at(3), conversationParityToolID, conversationParityResult),
+		fmt.Sprintf(`{"type":"assistant","timestamp":%q,"message":{"content":[{"type":"text","text":%q}]}}`,
+			at(4), conversationParityReply),
+	}, "\n") + "\n" +
+		goalRecord(synthGoal, false) +
+		queueLine("enqueue", synthQueued, at(5), "") +
+		queueLine("enqueue", synthCanceled, at(6), "") +
+		queueLine("remove", synthCanceled, at(7), "cleared_on_cancel")
+	path := filepath.Join(t.TempDir(), "transcript.jsonl")
+	if err := os.WriteFile(path, []byte(text), 0o600); err != nil {
+		t.Fatalf("write transcript: %v", err)
+	}
+	return path
+}
+
+func TestPanesConversationParity(t *testing.T) {
+	t.Parallel()
+
+	tmux := newTmuxServer(t)
+	pane := conversationPane(t, tmux, liveOptions(writeParityConversation(t)))
+	handler := newHandler(t, tmux)
+	client := panesClient(t, handler)
+
+	cases := []struct {
+		name      string
+		query     string
+		req       *orreryv1.ConversationRequest
+		wantItems int
+	}{
+		{"limit absent", "", &orreryv1.ConversationRequest{Pane: pane}, 4},
+		{"limit explicit", "limit=3", &orreryv1.ConversationRequest{Pane: pane, Limit: 3}, 3},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			rec := get(t, handler, conversationPath(pane, c.query), allowedLogin)
+			assertStatus(t, rec, http.StatusOK)
+			assertJSON(t, rec)
+			var rest restConversation
+			if err := json.Unmarshal(rec.Body.Bytes(), &rest); err != nil {
+				t.Fatalf("decode %q: %v", rec.Body.String(), err)
+			}
+			if len(rest.Items) != c.wantItems || rest.Goal != synthGoal || len(rest.Waiting) != 2 {
+				t.Fatalf("REST answer = %+v, want %d items, goal %q and 2 waiting messages",
+					rest, c.wantItems, synthGoal)
+			}
+
+			got, err := client.Conversation(t.Context(), connect.NewRequest(c.req))
+			if err != nil {
+				t.Fatalf("Panes.Conversation: %v", err)
+			}
+			if !proto.Equal(rest.message(), got.Msg) {
+				t.Fatalf("Panes.Conversation = %v, want the REST answer %v", got.Msg, rest.message())
+			}
+		})
+	}
+}
+
+func TestPanesConversationErrorParity(t *testing.T) {
+	t.Parallel()
+
+	tmux := newTmuxServer(t)
+	path := writeParityConversation(t)
+	sessions := map[string]map[string]string{
+		"live":          liveOptions(path),
+		"unlive":        {protocol.OptionTranscript: path},
+		"untranscribed": {protocol.OptionState: string(protocol.StateWorking)},
+	}
+	ids := make(map[string]string, len(sessions))
+	for name, options := range sessions {
+		startSession(t, tmux, name, longCommand)
+		ids[name] = paneID(t, tmux, name)
+		for option, value := range options {
+			if err := tmux.SetPaneOption(t.Context(), ids[name], option, value); err != nil {
+				t.Fatalf("SetPaneOption(%s, %s): %v", ids[name], option, err)
+			}
+		}
+	}
+	handler := newHandler(t, tmux)
+	client := panesClient(t, handler)
+
+	cases := []struct {
+		name   string
+		id     string
+		query  string
+		req    *orreryv1.ConversationRequest
+		status int
+		code   connect.Code
+	}{
+		{"limit above 100", ids["live"], "limit=101", &orreryv1.ConversationRequest{Pane: ids["live"], Limit: 101},
+			http.StatusBadRequest, connect.CodeInvalidArgument},
+		{"malformed pane id", "abc", "", &orreryv1.ConversationRequest{Pane: "abc"},
+			http.StatusBadRequest, connect.CodeInvalidArgument},
+		{"absent pane", "%999999", "", &orreryv1.ConversationRequest{Pane: "%999999"},
+			http.StatusNotFound, connect.CodeNotFound},
+		{"no live session", ids["unlive"], "", &orreryv1.ConversationRequest{Pane: ids["unlive"]},
+			http.StatusNotFound, connect.CodeNotFound},
+		{"no transcript", ids["untranscribed"], "", &orreryv1.ConversationRequest{Pane: ids["untranscribed"]},
+			http.StatusNotFound, connect.CodeNotFound},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			rec := get(t, handler, conversationPath(c.id, c.query), allowedLogin)
+			assertStatus(t, rec, c.status)
+			wantMessage := strings.TrimSuffix(rec.Body.String(), "\n")
+
+			_, err := client.Conversation(t.Context(), connect.NewRequest(c.req))
+			var connectErr *connect.Error
+			if !errors.As(err, &connectErr) {
+				t.Fatalf("Panes.Conversation error = %v, want a *connect.Error", err)
+			}
+			if connectErr.Code() != c.code {
+				t.Fatalf("Panes.Conversation code = %v, want %v", connectErr.Code(), c.code)
+			}
+			if connectErr.Message() != wantMessage {
+				t.Fatalf("Panes.Conversation message = %q, want the REST body %q", connectErr.Message(), wantMessage)
+			}
+		})
 	}
 }

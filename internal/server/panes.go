@@ -112,6 +112,50 @@ func (s panesServer) Screen(
 	return connect.NewResponse(&v1.ScreenResponse{Screen: []byte(screen)}), nil
 }
 
+// Conversation answers Panes.Conversation with the conversation GET /v1/panes/{id}/conversation answers. The limit
+// field is encoded as the route's query, so conversationLimit validates it as the route does. Limit 0 is absent from
+// that query, which is the route's default.
+func (s panesServer) Conversation(
+	ctx context.Context,
+	req *connect.Request[v1.ConversationRequest],
+) (*connect.Response[v1.ConversationResponse], error) {
+	query := url.Values{}
+	if req.Msg.GetLimit() != 0 {
+		query.Set(queryLimit, strconv.FormatUint(uint64(req.Msg.GetLimit()), 10))
+	}
+	limit, ok := conversationLimit(query)
+	if !ok {
+		return nil, connectError(routeError{status: http.StatusBadRequest, message: "bad request query"})
+	}
+	conv, err := conversationAnswer(ctx, s.tmux, s.goals, s.queues, req.Msg.GetPane(), limit)
+	if err != nil {
+		return nil, connectError(err)
+	}
+	return connect.NewResponse(conversationMessage(conv)), nil
+}
+
+// conversationMessage returns the ConversationResponse of conv, which holds the fields the REST answer writes.
+func conversationMessage(conv conversation.Conversation) *v1.ConversationResponse {
+	items := make([]*v1.ConversationItem, 0, len(conv.Items))
+	for _, item := range conv.Items {
+		items = append(items, &v1.ConversationItem{
+			Kind:   item.Kind,
+			Time:   item.Time,
+			Text:   item.Text,
+			Tool:   item.Tool,
+			Input:  item.Input,
+			Id:     item.ID,
+			Error:  item.Error,
+			Notice: item.Notice,
+		})
+	}
+	waiting := make([]*v1.WaitingMessage, 0, len(conv.Waiting))
+	for _, msg := range conv.Waiting {
+		waiting = append(waiting, &v1.WaitingMessage{Text: msg.Text, Time: msg.Time, Canceled: msg.Canceled})
+	}
+	return &v1.ConversationResponse{Origin: conv.Origin, Items: items, Goal: conv.Goal, Waiting: waiting}
+}
+
 // paneMessages returns the Pane messages of the panes listPanes gives, in order. It reads the same JSON objects
 // GET /v1/panes writes, so the two answers hold the same fields.
 func paneMessages(panes []map[string]json.RawMessage) ([]*v1.Pane, error) {

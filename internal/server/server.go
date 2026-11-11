@@ -453,12 +453,8 @@ func screenFlags(query url.Values) ([]string, bool) {
 	return flags, true
 }
 
-// serveConversation answers GET /v1/panes/{id}/conversation with the conversation of the pane's Claude transcript:
-// its opening prompt, its newest limit items, its active goal and its waiting messages. The goal comes from goals and
-// the waiting messages from queues. Each remembers how far each transcript has been read across requests. When the
-// pane is done, the waiting messages are idle and the answer lists only the canceled ones. The transcript is the path
-// in the pane's @orrery_transcript option, never a request value. It answers 404 unless the pane has a live Claude
-// session and that file exists.
+// serveConversation answers GET /v1/panes/{id}/conversation with the conversation conversationAnswer builds for the
+// pane. The limit query is checked first, and a failure answers its routeError as the route's plain-text body.
 func serveConversation(tmux *tmuxctl.Client, goals *conversation.Goals, queues *conversation.Queues) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		limit, ok := conversationLimit(r.URL.Query())
@@ -466,41 +462,57 @@ func serveConversation(tmux *tmuxctl.Client, goals *conversation.Goals, queues *
 			http.Error(w, "bad request query", http.StatusBadRequest)
 			return
 		}
-		pane, err := checkPane(r.Context(), tmux, r.PathValue("id"))
+		conv, err := conversationAnswer(r.Context(), tmux, goals, queues, r.PathValue("id"), limit)
 		if err != nil {
-			paneError(w, err)
-			return
-		}
-		if pane.State == "" {
-			http.Error(w, "no live session", http.StatusNotFound)
-			return
-		}
-		path, ok, err := tmux.PaneOption(r.Context(), pane.ID, protocol.OptionTranscript)
-		if err != nil {
-			http.Error(w, "internal server error", http.StatusInternalServerError)
-			return
-		}
-		if !ok || path == "" {
-			http.Error(w, "no transcript", http.StatusNotFound)
-			return
-		}
-		conv, err := conversation.Read(path, limit)
-		if err == nil {
-			conv.Goal, err = goals.Goal(path)
-		}
-		if err == nil {
-			conv.Waiting, err = queues.Waiting(path, pane.State == protocol.StateDone)
-		}
-		switch {
-		case errors.Is(err, fs.ErrNotExist):
-			http.Error(w, "transcript not found", http.StatusNotFound)
-			return
-		case err != nil:
-			http.Error(w, "internal server error", http.StatusInternalServerError)
+			writeRouteError(w, err)
 			return
 		}
 		writeJSON(w, http.StatusOK, conv)
 	}
+}
+
+// conversationAnswer returns the conversation of the pane with the ID id: its opening prompt, its newest limit items,
+// its active goal and its waiting messages. The goal comes from goals and the waiting messages from queues. Each
+// remembers how far each transcript has been read across requests. When the pane is done, the waiting messages are
+// idle and the answer lists only the canceled ones. The transcript is the path in the pane's @orrery_transcript
+// option, never a request value. It fails with a routeError: 404 unless the pane has a live Claude session and that
+// file exists, 400 or 404 for a malformed or absent pane, and 500 otherwise.
+func conversationAnswer(
+	ctx context.Context,
+	tmux *tmuxctl.Client,
+	goals *conversation.Goals,
+	queues *conversation.Queues,
+	id string,
+	limit int,
+) (conversation.Conversation, error) {
+	pane, err := checkPane(ctx, tmux, id)
+	if err != nil {
+		return conversation.Conversation{}, paneRouteError(err)
+	}
+	if pane.State == "" {
+		return conversation.Conversation{}, routeError{status: http.StatusNotFound, message: "no live session"}
+	}
+	path, ok, err := tmux.PaneOption(ctx, pane.ID, protocol.OptionTranscript)
+	if err != nil {
+		return conversation.Conversation{}, internalError()
+	}
+	if !ok || path == "" {
+		return conversation.Conversation{}, routeError{status: http.StatusNotFound, message: "no transcript"}
+	}
+	conv, err := conversation.Read(path, limit)
+	if err == nil {
+		conv.Goal, err = goals.Goal(path)
+	}
+	if err == nil {
+		conv.Waiting, err = queues.Waiting(path, pane.State == protocol.StateDone)
+	}
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return conversation.Conversation{}, routeError{status: http.StatusNotFound, message: "transcript not found"}
+	case err != nil:
+		return conversation.Conversation{}, internalError()
+	}
+	return conv, nil
 }
 
 // conversationLimit returns the limit query value, or conversationLimitDefault when limit is absent. It returns
