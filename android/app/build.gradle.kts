@@ -61,7 +61,12 @@ dependencies {
     implementation(platform("androidx.compose:compose-bom:2025.04.01"))
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.ui:ui")
-    implementation("org.unifiedpush.android:connector:3.0.10")
+    implementation("org.unifiedpush.android:connector:3.0.10") {
+        // The connector's Tink pulls protobuf-java, which clashes with
+        // protobuf-javalite. tink-android is Tink built for protobuf-lite.
+        exclude(group = "com.google.crypto.tink", module = "tink")
+    }
+    implementation("com.google.crypto.tink:tink-android:1.17.0")
 
     testImplementation(platform("androidx.compose:compose-bom:2025.04.01"))
     testImplementation("androidx.compose.ui:ui-test-junit4")
