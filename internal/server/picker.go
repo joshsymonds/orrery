@@ -162,44 +162,53 @@ type pickerRunAnswer struct {
 	Pane string `json:"pane"`
 }
 
-// servePickerRun answers POST /v1/picker/run by running the action the body's token names, once, and answering the
-// pane it opened or jumped to. A repeat of a run answers the same pane and runs nothing. A body without a token
-// string answers 400, an unissued token 404, and an expired one 410, each running nothing. With no tmux server it
-// answers 409 and starts none. A failed action answers 502 and records nothing. An action that ran but whose pane
-// lookup failed answers 502 and keeps its target, so a retry answers that pane and runs nothing again.
+// servePickerRun answers POST /v1/picker/run with the pane runPicker answers. A body without a token string runs
+// with a blank token, so it answers as blank tokens do.
 func servePickerRun(tokens *pickerTokens, tmux *tmuxctl.Client, now func() time.Time) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		fields, ok := decodeBody(r)
-		if !ok {
-			http.Error(w, "bad request", http.StatusBadRequest)
+		fields, _ := decodeBody(r)
+		token, _ := jsonString(fields[fieldToken])
+		pane, err := runPicker(r.Context(), tokens, tmux, now, token)
+		if err != nil {
+			writeRouteError(w, err)
 			return
 		}
-		token, ok := jsonString(fields[fieldToken])
-		if !ok || strings.TrimSpace(token) == "" {
-			http.Error(w, "bad request", http.StatusBadRequest)
-			return
-		}
-		tokens.runMu.Lock()
-		defer tokens.runMu.Unlock()
-		entry, ok := tokens.lookup(token)
-		if !ok {
-			http.Error(w, "unknown token", http.StatusNotFound)
-			return
-		}
-		if !now().Before(entry.expires) {
-			http.Error(w, "expired token", http.StatusGone)
-			return
-		}
-		if entry.pane == "" {
-			pane, status, err := answerPickerRun(r.Context(), tokens, tmux, token, entry)
-			if err != nil {
-				http.Error(w, err.Error(), status)
-				return
-			}
-			entry.pane = pane
-		}
-		writeJSON(w, http.StatusOK, pickerRunAnswer{Pane: entry.pane})
+		writeJSON(w, http.StatusOK, pickerRunAnswer{Pane: pane})
 	}
+}
+
+// runPicker returns the pane of token's run, the core POST /v1/picker/run and Picker.Run share. A blank token is 400,
+// an unissued one 404, and an expired one 410, each running nothing. Runs are serial under runMu, so the action of
+// a token runs at most once. With no tmux server it answers 409 and starts none. A failed action answers 502 and
+// records nothing. An action that ran but whose pane lookup failed answers 502 and keeps its target, so a retry
+// answers that pane and runs nothing again.
+func runPicker(
+	ctx context.Context,
+	tokens *pickerTokens,
+	tmux *tmuxctl.Client,
+	now func() time.Time,
+	token string,
+) (string, error) {
+	if strings.TrimSpace(token) == "" {
+		return "", routeError{status: http.StatusBadRequest, message: "bad request"}
+	}
+	tokens.runMu.Lock()
+	defer tokens.runMu.Unlock()
+	entry, ok := tokens.lookup(token)
+	if !ok {
+		return "", routeError{status: http.StatusNotFound, message: "unknown token"}
+	}
+	if !now().Before(entry.expires) {
+		return "", routeError{status: http.StatusGone, message: "expired token"}
+	}
+	if entry.pane != "" {
+		return entry.pane, nil
+	}
+	pane, status, err := answerPickerRun(ctx, tokens, tmux, token, entry)
+	if err != nil {
+		return "", routeError{status: status, message: err.Error()}
+	}
+	return pane, nil
 }
 
 // answerPickerRun returns the pane of token's run, running its action first unless an earlier run already did. The

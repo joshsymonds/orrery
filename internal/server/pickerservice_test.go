@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"connectrpc.com/connect"
 
@@ -156,6 +157,170 @@ func TestPickerAskErrorParity(t *testing.T) {
 			}
 			if want := strings.TrimSuffix(rec.Body.String(), "\n"); connectErr.Message() != want {
 				t.Errorf("Picker.Ask message = %q, want the REST body %q", connectErr.Message(), want)
+			}
+		})
+	}
+}
+
+// TestPickerRunParity runs a token through Picker.Run and an equivalent token through POST /v1/picker/run on one
+// fixture. Each answers a pane of the fixture's session, and the two panes differ because each run opens its own
+// window. A repeat through the other twin answers the same pane, and runs nothing, so neither the window count nor
+// the claude run count moves.
+func TestPickerRunParity(t *testing.T) {
+	tmux := newTmuxServer(t)
+	root := t.TempDir()
+	paneDir := t.TempDir()
+	startPickerDirSession(t, tmux, paneDir)
+	claude, runs := installPickerClaude(t, "pane d1\ntask: no\n", false)
+	cfg := pickerConfig(tmux, installPickerZoxide(t, scoredLine(paneDir)), claude, root)
+	handler := pickerHandler(t, tmux, func() (open.Config, error) { return cfg, nil })
+
+	first := askRows(t, postJSON(t, handler, pickerAskPath, jsonBody(t, map[string]any{"text": "example text"})))
+	second := askRows(t, postJSON(t, handler, pickerAskPath, jsonBody(t, map[string]any{"text": "example text"})))
+	if len(first) == 0 || first[0].Kind != "pane" || len(second) == 0 || second[0].Kind != "pane" {
+		t.Fatalf("rows = %+v and %+v, want a pane row first in each ask", first, second)
+	}
+
+	answer, err := pickerClient(t, handler).Run(
+		t.Context(),
+		connect.NewRequest(&orreryv1.RunRequest{Token: first[0].Token}),
+	)
+	if err != nil {
+		t.Fatalf("Picker.Run: %v", err)
+	}
+	connectPane := answer.Msg.GetPane()
+	restPane := runPane(t, runPickerToken(t, handler, second[0].Token))
+	if connectPane == "" || restPane == "" || connectPane == restPane {
+		t.Fatalf("Picker.Run pane %q and REST pane %q, want two distinct panes", connectPane, restPane)
+	}
+	for _, pane := range []string{connectPane, restPane} {
+		if got := paneSession(t, tmux, pane); got != pickerDirSession {
+			t.Errorf("pane %s is in session %q, want %q", pane, got, pickerDirSession)
+		}
+	}
+
+	panes := serverPaneIDs(t, tmux)
+	ran := claudeRuns(t, runs)
+	repeat := runPane(t, runPickerToken(t, handler, first[0].Token))
+	if repeat != connectPane {
+		t.Errorf("REST repeat of the Picker.Run token answered pane %q, want %q", repeat, connectPane)
+	}
+	repeatAnswer, err := pickerClient(t, handler).Run(
+		t.Context(),
+		connect.NewRequest(&orreryv1.RunRequest{Token: second[0].Token}),
+	)
+	if err != nil {
+		t.Fatalf("Picker.Run repeat: %v", err)
+	}
+	if got := repeatAnswer.Msg.GetPane(); got != restPane {
+		t.Errorf("Picker.Run repeat of the REST token answered pane %q, want %q", got, restPane)
+	}
+	if after := serverPaneIDs(t, tmux); len(after) != len(panes) {
+		t.Errorf("repeats changed the pane count from %d to %d", len(panes), len(after))
+	}
+	if got := claudeRuns(t, runs); got != ran {
+		t.Errorf("repeats ran claude %d times, want none", got-ran)
+	}
+}
+
+// TestPickerRunErrorParity answers each error of Picker.Run with the code of the status table and the REST body as
+// its message.
+func TestPickerRunErrorParity(t *testing.T) {
+	cases := map[string]struct {
+		build  func(t *testing.T) (http.Handler, string)
+		status int
+		code   connect.Code
+	}{
+		"blank token": {
+			build: func(t *testing.T) (http.Handler, string) {
+				t.Helper()
+				return pickerHandler(t, newTmuxClient(t), nil), " \t "
+			},
+			status: http.StatusBadRequest,
+			code:   connect.CodeInvalidArgument,
+		},
+		"unknown token": {
+			build: func(t *testing.T) (http.Handler, string) {
+				t.Helper()
+				return pickerHandler(t, newTmuxClient(t), nil), unissuedToken
+			},
+			status: http.StatusNotFound,
+			code:   connect.CodeNotFound,
+		},
+		"expired token": {
+			build: func(t *testing.T) (http.Handler, string) {
+				t.Helper()
+				tmux := newTmuxServer(t)
+				paneDir := t.TempDir()
+				startPickerDirSession(t, tmux, paneDir)
+				claude, _ := installPickerClaude(t, "pane d1\ntask: no\n", false)
+				cfg := pickerConfig(tmux, installPickerZoxide(t, scoredLine(paneDir)), claude, t.TempDir())
+				issued := time.Date(2026, time.November, 11, 12, 0, 0, 0, time.UTC)
+				clock := issued
+				picker := func() (open.Config, error) { return cfg, nil }
+				handler := pickerHandlerAt(t, tmux, picker, func() time.Time { return clock })
+				body := jsonBody(t, map[string]any{"text": "example text"})
+				rows := askRows(t, postJSON(t, handler, pickerAskPath, body))
+				clock = issued.Add(5 * time.Minute)
+				return handler, rows[0].Token
+			},
+			status: http.StatusGone,
+			code:   connect.CodeFailedPrecondition,
+		},
+		"no tmux server": {
+			build: func(t *testing.T) (http.Handler, string) {
+				t.Helper()
+				tmux := newTmuxClient(t)
+				claude, _ := installPickerClaude(t, "pane d1\ntask: no\n", false)
+				cfg := pickerConfig(tmux, installPickerZoxide(t, scoredLine(t.TempDir())), claude, t.TempDir())
+				handler := pickerHandler(t, tmux, func() (open.Config, error) { return cfg, nil })
+				body := jsonBody(t, map[string]any{"text": "example text"})
+				rows := askRows(t, postJSON(t, handler, pickerAskPath, body))
+				return handler, rows[0].Token
+			},
+			status: http.StatusConflict,
+			code:   connect.CodeFailedPrecondition,
+		},
+		"failed action": {
+			build: func(t *testing.T) (http.Handler, string) {
+				t.Helper()
+				tmux := newTmuxServer(t)
+				pane := startPickerPane(t, tmux, "example-session-a", t.TempDir())
+				startPickerPane(t, tmux, "example-session-b", t.TempDir())
+				claude, _ := installPickerClaude(t, "jump "+pane+"\ntask: no\n", false)
+				cfg := pickerConfig(tmux, installPickerZoxide(t, ""), claude, t.TempDir())
+				handler := pickerHandler(t, tmux, func() (open.Config, error) { return cfg, nil })
+				body := jsonBody(t, map[string]any{"text": "example text"})
+				rows := askRows(t, postJSON(t, handler, pickerAskPath, body))
+				if len(rows) == 0 || rows[0].Kind != "jump" {
+					t.Fatalf("rows = %+v, want a jump row first", rows)
+				}
+				if _, err := tmux.Run(t.Context(), "kill-pane", "-t", pane); err != nil {
+					t.Fatalf("kill-pane %s: %v", pane, err)
+				}
+				return handler, rows[0].Token
+			},
+			status: http.StatusBadGateway,
+			code:   connect.CodeUnavailable,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			handler, token := tc.build(t)
+
+			rec := runPickerToken(t, handler, token)
+			assertStatus(t, rec, tc.status)
+
+			_, err := pickerClient(t, handler).Run(t.Context(), connect.NewRequest(&orreryv1.RunRequest{Token: token}))
+			var connectErr *connect.Error
+			if !errors.As(err, &connectErr) {
+				t.Fatalf("Picker.Run error = %v, want a *connect.Error", err)
+			}
+			if connectErr.Code() != tc.code {
+				t.Errorf("Picker.Run code = %v, want %v", connectErr.Code(), tc.code)
+			}
+			if want := strings.TrimSuffix(rec.Body.String(), "\n"); connectErr.Message() != want {
+				t.Errorf("Picker.Run message = %q, want the REST body %q", connectErr.Message(), want)
 			}
 		})
 	}

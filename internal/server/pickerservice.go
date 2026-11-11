@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"time"
 
@@ -14,9 +15,8 @@ import (
 )
 
 // pickerServer answers orrery.v1.Picker with the configuration, token store, tmux client and clock the REST picker
-// routes share. The embedded Unimplemented handler answers every method until its method lands.
+// routes share.
 type pickerServer struct {
-	orreryv1connect.UnimplementedPickerHandler
 	picker func() (open.Config, error)
 	tokens *pickerTokens
 	tmux   *tmuxctl.Client
@@ -56,4 +56,26 @@ func (s pickerServer) Ask(
 		})
 	}
 	return connect.NewResponse(&v1.AskResponse{Rows: rows}), nil
+}
+
+// Run answers Picker.Run with the pane POST /v1/picker/run answers.
+func (s pickerServer) Run(
+	ctx context.Context,
+	req *connect.Request[v1.RunRequest],
+) (*connect.Response[v1.RunResponse], error) {
+	pane, err := runPicker(ctx, s.tokens, s.tmux, s.now, req.Msg.GetToken())
+	if err != nil {
+		return nil, pickerRunError(err)
+	}
+	return connect.NewResponse(&v1.RunResponse{Pane: pane}), nil
+}
+
+// pickerRunError returns the Connect error of a Picker.Run failure. Its 409, no tmux server, is failed_precondition
+// as the table of docs/contract.md gives it; connectError answers every 409 as aborted, which is SendKeys' code.
+func pickerRunError(err error) *connect.Error {
+	var route routeError
+	if errors.As(err, &route) && route.status == http.StatusConflict {
+		return connect.NewError(connect.CodeFailedPrecondition, errors.New(route.message))
+	}
+	return connectError(err)
 }
