@@ -749,7 +749,7 @@ The guard runs before routing. It checks every request:
 
 - The `Tailscale-User-Login` header must equal one of the `--allow-login` values. Otherwise the response is 403.
 
-Connect paths are those beginning `/orrery.v1.Sessions/`, `/orrery.v1.Events/` or `/orrery.v1.Control/` (see [Connect API](#connect-api) and [Control API](#control-api)). Every request to a Connect path, whatever its method, must also send a non-empty `X-Orrery-Client` header. Otherwise the response is 403. A POST to a Connect path must send `Content-Type` `application/proto`, `application/json`, `application/connect+proto`, or `application/connect+json`. Otherwise the response is 403.
+Connect paths are those beginning `/orrery.v1.Sessions/`, `/orrery.v1.Events/`, `/orrery.v1.Control/`, `/orrery.v1.Panes/`, `/orrery.v1.Host/`, `/orrery.v1.Push/` or `/orrery.v1.Picker/` (see [Connect API](#connect-api), [Control API](#control-api) and [Phone API](#phone-api)). Every request to a Connect path, whatever its method, must also send a non-empty `X-Orrery-Client` header. Otherwise the response is 403. A POST to a Connect path must send `Content-Type` `application/proto`, `application/json`, `application/connect+proto`, or `application/connect+json`. Otherwise the response is 403.
 
 Every POST and DELETE on any other path must also send:
 
@@ -799,7 +799,8 @@ Details for each route:
 - `POST /v1/picker/run` takes the body's `token` and runs the action that ask issued it for, at most once. A 200 answer gives `pane`: the pane the action opened or jumped to, or else the active pane of the session it created. While the token is valid, a repeat run of the same token answers the same pane and runs nothing. Runs of one token are serial.
   - A body that is not a JSON object, a body with no `token` string, or a blank token answers 400. A token no ask issued, or one lost by a restart, answers 404. A token at or past its expiry answers 410 until an ask that answers 200 drops it, and 404 after. Each of these refusals runs nothing.
   - When tmux reports no server running, the answer is 409 with the tmux reason as plain text, and no action starts.
-  - A failed run answers 502 with the reason as plain text and records nothing, so a later run of the same token runs the action again.
+  - A run whose action fails answers 502 with the reason as plain text and records nothing, so a later run of the same token runs the action again.
+  - A run whose action succeeded but whose pane lookup then failed answers 502 with the reason as plain text. It keeps the action's target, so a later run of the same token runs no action and looks the pane up again.
 - `GET /v1/panes/{id}/conversation` returns the conversation of the pane's Claude transcript as `{"origin": string, "items": [item...], "goal": string, "waiting": [waiting...]}`. The transcript is the path in the pane's `@orrery_transcript` option (section 2); no request value names a file. The pane must have `@orrery_state` set, or the answer is 404 "no live session". `@orrery_transcript` must be set and non-empty, or the answer is 404 "no transcript". A transcript file that does not exist answers 404; any other read failure answers 500.
   - The query `limit` is absent for 30, or one decimal integer from 1 to 100. Any other value, including 0, a value over 100, a sign, an empty value, a non-number, or a repeated key, answers 400. The `limit` check runs before the pane ID check.
   - The reader takes the newest `limit` items from the last 4 MiB of the transcript, oldest first. Only whole lines count, so a partial line at either end of that window is skipped. The reader can return fewer than `limit` items. `items` is `[]` when there are none.
@@ -875,9 +876,9 @@ Example plaintext. The question and its hash are the fixed vector of section 10:
 
 ### Connect API
 
-`orrery serve` also serves a typed API over the Connect protocol. The routes above are unchanged by it. The schema is `proto/orrery/v1/orrery.proto`, package `orrery.v1`. Generated Go lives in `internal/gen`. `just generate` writes it, and `just check` fails when it drifts from the schema.
+`orrery serve` also serves a typed API over the Connect protocol. The routes above are unchanged by it. The schema is `proto/orrery/v1/orrery.proto`, package `orrery.v1`. Generated Go lives in `internal/gen`. `just generate` writes it, and `just check` fails when it drifts from the schema. The same `just generate` also writes the generated Kotlin into `android/app/src/main/java`, from the template `proto/buf.gen.android.yaml`. `just gen-diff` diffs that directory and `internal/gen`.
 
-The services are `orrery.v1.Sessions`, with one call, `List`, `orrery.v1.Events`, with one call, `Watch`, and `orrery.v1.Control`, with six calls, which [Control API](#control-api) describes.
+The services are `orrery.v1.Sessions`, with one call, `List`, `orrery.v1.Events`, with one call, `Watch`, `orrery.v1.Control`, with six calls, which [Control API](#control-api) describes, and the four phone services `orrery.v1.Panes`, `orrery.v1.Host`, `orrery.v1.Push` and `orrery.v1.Picker`, with eleven calls, which [Phone API](#phone-api) describes.
 
 | Call | Path | Request | Response |
 |---|---|---|---|
@@ -889,6 +890,17 @@ The services are `orrery.v1.Sessions`, with one call, `List`, `orrery.v1.Events`
 | `Control.Interrupt` | `POST /orrery.v1.Control/Interrupt` | `InterruptRequest` | `InterruptResponse` |
 | `Control.Stop` | `POST /orrery.v1.Control/Stop` | `StopRequest` | `StopResponse` |
 | `Control.Seen` | `POST /orrery.v1.Control/Seen` | `SeenRequest` | `SeenResponse` |
+| `Panes.List` | `POST /orrery.v1.Panes/List` | `PanesListRequest`, empty | `PanesListResponse` |
+| `Panes.Screen` | `POST /orrery.v1.Panes/Screen` | `ScreenRequest` | `ScreenResponse` |
+| `Panes.Conversation` | `POST /orrery.v1.Panes/Conversation` | `ConversationRequest` | `ConversationResponse` |
+| `Panes.SendText` | `POST /orrery.v1.Panes/SendText` | `SendTextRequest` | `SendTextResponse` |
+| `Panes.SendKeys` | `POST /orrery.v1.Panes/SendKeys` | `SendKeysRequest` | `SendKeysResponse` |
+| `Panes.MarkSeen` | `POST /orrery.v1.Panes/MarkSeen` | `MarkSeenRequest` | `MarkSeenResponse` |
+| `Host.Status` | `POST /orrery.v1.Host/Status` | `HostStatusRequest`, empty | `HostStatusResponse` |
+| `Push.Register` | `POST /orrery.v1.Push/Register` | `RegisterRequest` | `RegisterResponse` |
+| `Push.Unregister` | `POST /orrery.v1.Push/Unregister` | `UnregisterRequest` | `UnregisterResponse` |
+| `Picker.Ask` | `POST /orrery.v1.Picker/Ask` | `AskRequest` | `AskResponse` |
+| `Picker.Run` | `POST /orrery.v1.Picker/Run` | `RunRequest` | `RunResponse` |
 
 `ListResponse` has these fields:
 
@@ -986,6 +998,54 @@ Errors are Connect codes. The messages marked fixed are the same whatever orrery
 | `resource_exhausted` | the Connect library's message | the request body is over 1 MiB |
 | other codes | orreryd's message, passed through | `invalid_argument` (a bad `model`, `id`, `prompt` or `text`), `not_found` (no row, or an answer whose request is not open), `resource_exhausted` (the session cap) |
 
+### Phone API
+
+The phone's calls are the four services `orrery.v1.Panes`, `orrery.v1.Host`, `orrery.v1.Push` and `orrery.v1.Picker` of [Connect API](#connect-api). Each call is the Connect twin of one REST route, and it answers what that route answers. The Connect rules of [Guard](#guard) apply to each call. Each call is a Connect POST to its path in [Connect API](#connect-api). No call is marked free of side effects, so none answers GET.
+
+| Call | REST twin |
+|---|---|
+| `Panes.List` | `GET /v1/panes` |
+| `Panes.Screen` | `GET /v1/panes/{id}/screen` |
+| `Panes.Conversation` | `GET /v1/panes/{id}/conversation` |
+| `Panes.SendText` | `POST /v1/panes/{id}/text` |
+| `Panes.SendKeys` | `POST /v1/panes/{id}/keys` |
+| `Panes.MarkSeen` | `POST /v1/panes/{id}/seen` |
+| `Host.Status` | `GET /v1/host` |
+| `Push.Register` | `POST /v1/push/register` |
+| `Push.Unregister` | `DELETE /v1/push/register` |
+| `Picker.Ask` | `POST /v1/picker/ask` |
+| `Picker.Run` | `POST /v1/picker/run` |
+
+Request fields and what their zero and presence values mean:
+
+- `PanesListRequest` and `HostStatusRequest` have no fields.
+- `ScreenRequest`: `pane` is the pane ID, such as `%3`. A value that is not `%` followed by digits is a malformed pane ID. `ansi` false is the route's `ansi` absent or `0`, and true is `ansi=1`. `history` 0 adds no scrollback. A value from 1 to 2000 adds that many lines, and a value above 2000 is `invalid_argument`.
+- `ConversationRequest`: `pane` is as for `ScreenRequest`. `limit` 0 means the route's default of 30. A value from 1 to 100 is that many items, and a value above 100 is `invalid_argument`.
+- `SendTextRequest`: `pane` is as for `ScreenRequest`, and `text` is the text the route sends.
+- `SendKeysRequest`: `pane` is as for `ScreenRequest`, and `keys` is the list of keys the route sends. `expect_question` is present when the route's `expect_question` field is present. When it is present, the question check of the route applies.
+- `MarkSeenRequest`: `pane` is as for `ScreenRequest`. `read_up_to` absent means now. When present, it must be 0 or more, or the call is `invalid_argument`.
+- `RegisterRequest`: `endpoint`, `p256dh` and `auth` are the route's body fields. The endpoint must be `https` and on a host named by `--push-host`.
+- `UnregisterRequest`: `endpoint` is the route's body field.
+- `AskRequest`: `text` is the route's body field. Blank text is `invalid_argument`.
+- `RunRequest`: `token` is the route's body field. A blank token is `invalid_argument`.
+
+The responses carry the route's answer: `PanesListResponse` the panes of `GET /v1/panes`, `ScreenResponse` the body of the screen route, `HostStatusResponse`, `ConversationResponse`, `AskResponse` and `RunResponse` the same fields as the route's JSON body. `SendTextResponse`, `SendKeysResponse`, `MarkSeenResponse`, `RegisterResponse` and `UnregisterResponse` have no fields, as their routes answer 204 with no body. The screen route's body is plain text, and the `screen` bytes are exactly that body.
+
+Connect errors map from the REST status of the route. The table gives each Connect code, the REST status it replaces, and when it applies:
+
+| Connect code | REST status | When |
+|---|---|---|
+| `invalid_argument` | 400 | every bad body, bad query or field value, malformed pane ID, blank picker text or token |
+| `not_found` | 404 | absent pane; no live session, no transcript, or transcript not found; host or picker not configured; push endpoint not registered; unknown picker token |
+| `aborted` | 409 | `Panes.SendKeys`: question refused |
+| `failed_precondition` | 409 | `Picker.Run`: no tmux server |
+| `failed_precondition` | 410 | `Picker.Run`: expired token |
+| `invalid_argument` | 422 | `Push.Register`: endpoint not allowed |
+| `internal` | 500 | tmux, store, transcript or host name failure |
+| `unavailable` | 502 | host status command failed or invalid; picker, text lookup, pane listing or run failure |
+
+The message rule: the Connect error message is exactly the REST answer's plain-text body without its trailing newline. Picker reasons therefore carry through unchanged.
+
 ## 13. Freeze
 
 The names and values in this document are frozen as of effort 1. Later efforts, including the effort-4 golden test, build on them.
@@ -1015,3 +1075,7 @@ The picker routes `POST /v1/picker/ask` and `POST /v1/picker/run` were added add
 orrery engine API added, additively: the `orrery.v1.Control` service and its six calls (see [Control API](#control-api)), and `serve`'s reads of `HOME` and the session socket for it; the `WatchResponse` members `engine_added`, `engine_changed`, `engine_prompt`, `engine_block`, `engine_request`, `engine_request_canceled`, `engine_turn_ended` and `engine_text`, and the `EngineText` rule (see [Connect API](#connect-api)); the `model`, `id` and `prompt_id` fields of the engine socket's `Start` and `Say` (see [Session control socket](#session-control-socket)); the `promptId` key of the `engine_prompt` payload; the `engine_prompt_failed` table; and the `orrery session --url` form and `session start --model`. Watch and `orrery events` now send and print the engine events they skipped before. No existing name or value changes.
 
 orrery E19 (pane tree list) added the `newest_reply` key to each pane of `GET /v1/panes`, additively. It is a key of serve's answer only: `orrery list --json` (section 3) is unchanged. No existing name or value changes.
+
+orrery H3-0a (phone API) added, additively: the `orrery.v1.Panes`, `orrery.v1.Host`, `orrery.v1.Push` and `orrery.v1.Picker` services and their eleven calls (see [Connect API](#connect-api) and [Phone API](#phone-api)); the Connect path prefixes of [Guard](#guard); and the generated Kotlin in `android/app/src/main/java` (see [Connect API](#connect-api)). No existing name or value changes.
+
+The picker run's failed-run rule changed in the same effort, and this is a change, not an addition. A run whose action succeeded but whose pane lookup then failed used to record nothing, so a later run ran the action again. Such a run now answers 502 and keeps the action's target, so a later run of the same token runs no action and looks the pane up again. The status and reason of a failed run are unchanged.
