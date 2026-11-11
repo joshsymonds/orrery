@@ -694,13 +694,19 @@ func markSeen(ctx context.Context, tmux *tmuxctl.Client, id string, reported int
 
 // paneError answers a failed checkPane: 400 for a malformed pane ID, 404 for an absent pane, else 500.
 func paneError(w http.ResponseWriter, err error) {
+	writeRouteError(w, paneRouteError(err))
+}
+
+// paneRouteError returns the routeError of a failed checkPane: 400 for a malformed pane ID, 404 for an absent
+// pane, else 500.
+func paneRouteError(err error) routeError {
 	switch {
 	case errors.Is(err, errMalformedPaneID):
-		http.Error(w, "malformed pane id", http.StatusBadRequest)
+		return routeError{status: http.StatusBadRequest, message: "malformed pane id"}
 	case errors.Is(err, errPaneNotFound):
-		http.Error(w, "pane not found", http.StatusNotFound)
+		return routeError{status: http.StatusNotFound, message: "pane not found"}
 	default:
-		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return internalError()
 	}
 }
 

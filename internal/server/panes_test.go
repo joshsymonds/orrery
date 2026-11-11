@@ -1,13 +1,16 @@
 package server_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -219,5 +222,153 @@ func TestPanesListErrorParity(t *testing.T) {
 	}
 	if connectErr.Message() != wantMessage {
 		t.Fatalf("Panes.List message = %q, want the REST body %q", connectErr.Message(), wantMessage)
+	}
+}
+
+// screenParityCommand prints historyCount numbered lines, then the synthetic color marker in red, then keeps the
+// pane alive. The marker is the last line on the visible screen, so ansi=1 changes what the screen shows, and the
+// first numbered line is in scrollback, so history=N changes it too.
+const screenParityCommand = `i=1; while [ $i -le 60 ]; do echo "synthetic history line $i"; i=$((i+1)); done; ` +
+	`printf '\033[31m` + synthColor + `\033[0m\n'; ` + longCommand
+
+func TestPanesScreenParity(t *testing.T) {
+	t.Parallel()
+
+	tmux := newTmuxServer(t)
+	startSession(t, tmux, panesFixtureSession, screenParityCommand)
+	pane := paneID(t, tmux, panesFixtureSession)
+	handler := newHandler(t, tmux)
+	path := "/v1/panes/" + url.PathEscape(pane) + "/screen"
+	pollScreen(t, handler, path, synthColor)
+	client := panesClient(t, handler)
+	count := strconv.Itoa(historyCount)
+
+	cases := []struct {
+		name     string
+		query    string
+		req      *orreryv1.ScreenRequest
+		contains []string
+	}{
+		{"plain", "", &orreryv1.ScreenRequest{Pane: pane}, []string{synthColor}},
+		{"ansi", "ansi=1", &orreryv1.ScreenRequest{Pane: pane, Ansi: true}, []string{synthRed + synthColor}},
+		{"history", "history=" + count, &orreryv1.ScreenRequest{Pane: pane, History: historyCount},
+			[]string{historyLine(1), synthColor}},
+		{"ansi and history", "ansi=1&history=" + count,
+			&orreryv1.ScreenRequest{Pane: pane, Ansi: true, History: historyCount},
+			[]string{historyLine(1), synthRed + synthColor}},
+		{"history zero", "history=0", &orreryv1.ScreenRequest{Pane: pane, History: 0}, []string{synthColor}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			target := path
+			if c.query != "" {
+				target += "?" + c.query
+			}
+			rec := get(t, handler, target, allowedLogin)
+			assertStatus(t, rec, http.StatusOK)
+			for _, want := range c.contains {
+				if !strings.Contains(rec.Body.String(), want) {
+					t.Fatalf("REST body = %q, want it to contain %q", rec.Body.String(), want)
+				}
+			}
+			got, err := client.Screen(t.Context(), connect.NewRequest(c.req))
+			if err != nil {
+				t.Fatalf("Panes.Screen: %v", err)
+			}
+			if !bytes.Equal(got.Msg.GetScreen(), rec.Body.Bytes()) {
+				t.Fatalf("Panes.Screen = %q, want the REST body %q", got.Msg.GetScreen(), rec.Body.String())
+			}
+		})
+	}
+}
+
+func TestPanesScreenErrorParity(t *testing.T) {
+	t.Parallel()
+
+	tmux := newTmuxServer(t)
+	startSession(t, tmux, panesFixtureSession, longCommand)
+	pane := paneID(t, tmux, panesFixtureSession)
+	handler := newHandler(t, tmux)
+	client := panesClient(t, handler)
+
+	cases := []struct {
+		name   string
+		id     string
+		query  string
+		req    *orreryv1.ScreenRequest
+		status int
+		code   connect.Code
+	}{
+		{"malformed pane id", "abc", "", &orreryv1.ScreenRequest{Pane: "abc"},
+			http.StatusBadRequest, connect.CodeInvalidArgument},
+		{"absent pane", "%999999", "", &orreryv1.ScreenRequest{Pane: "%999999"},
+			http.StatusNotFound, connect.CodeNotFound},
+		{"history above 2000", pane, "history=2001", &orreryv1.ScreenRequest{Pane: pane, History: 2001},
+			http.StatusBadRequest, connect.CodeInvalidArgument},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			target := "/v1/panes/" + url.PathEscape(c.id) + "/screen"
+			if c.query != "" {
+				target += "?" + c.query
+			}
+			rec := get(t, handler, target, allowedLogin)
+			assertStatus(t, rec, c.status)
+			wantMessage := strings.TrimSuffix(rec.Body.String(), "\n")
+
+			_, err := client.Screen(t.Context(), connect.NewRequest(c.req))
+			var connectErr *connect.Error
+			if !errors.As(err, &connectErr) {
+				t.Fatalf("Panes.Screen error = %v, want a *connect.Error", err)
+			}
+			if connectErr.Code() != c.code {
+				t.Fatalf("Panes.Screen code = %v, want %v", connectErr.Code(), c.code)
+			}
+			if connectErr.Message() != wantMessage {
+				t.Fatalf("Panes.Screen message = %q, want the REST body %q", connectErr.Message(), wantMessage)
+			}
+		})
+	}
+}
+
+func TestPanesScreenInternalErrorParity(t *testing.T) {
+	t.Parallel()
+
+	// A socket inside a directory no one may enter makes tmux fail with a permission error, so checkPane fails and
+	// both routes answer their internal error, as TestPanesListErrorParity arranges.
+	dir := filepath.Join(t.TempDir(), "locked")
+	if err := os.Mkdir(dir, 0o700); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chmod(dir, 0o700); err != nil {
+			t.Errorf("restore %s: %v", dir, err)
+		}
+	})
+	if err := os.Chmod(dir, 0o000); err != nil {
+		t.Fatalf("chmod %s: %v", dir, err)
+	}
+	tmux, err := tmuxctl.New(tmuxctl.Server{Socket: filepath.Join(dir, "tmux.sock")})
+	if err != nil {
+		t.Fatalf("New(Socket): %v", err)
+	}
+	handler := newHandler(t, tmux)
+
+	rec := get(t, handler, "/v1/panes/"+url.PathEscape("%1")+"/screen", allowedLogin)
+	assertStatus(t, rec, http.StatusInternalServerError)
+	wantMessage := strings.TrimSuffix(rec.Body.String(), "\n")
+
+	_, err = panesClient(t, handler).Screen(t.Context(), connect.NewRequest(&orreryv1.ScreenRequest{Pane: "%1"}))
+	var connectErr *connect.Error
+	if !errors.As(err, &connectErr) {
+		t.Fatalf("Panes.Screen error = %v, want a *connect.Error", err)
+	}
+	if connectErr.Code() != connect.CodeInternal {
+		t.Fatalf("Panes.Screen code = %v, want %v", connectErr.Code(), connect.CodeInternal)
+	}
+	if connectErr.Message() != wantMessage {
+		t.Fatalf("Panes.Screen message = %q, want the REST body %q", connectErr.Message(), wantMessage)
 	}
 }

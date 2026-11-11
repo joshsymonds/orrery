@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
+	"strconv"
 
 	"connectrpc.com/connect"
 
@@ -83,6 +85,31 @@ func (s panesServer) List(
 		return nil, connectError(err)
 	}
 	return connect.NewResponse(&v1.PanesListResponse{Panes: out}), nil
+}
+
+// Screen answers Panes.Screen with the screen GET /v1/panes/{id}/screen answers. The request fields are encoded as
+// the route's query, so screenFlags validates them and builds the capture arguments exactly as the route does.
+func (s panesServer) Screen(
+	ctx context.Context,
+	req *connect.Request[v1.ScreenRequest],
+) (*connect.Response[v1.ScreenResponse], error) {
+	query := url.Values{queryHistory: {strconv.FormatUint(uint64(req.Msg.GetHistory()), 10)}}
+	if req.Msg.GetAnsi() {
+		query.Set(queryANSI, "1")
+	}
+	flags, ok := screenFlags(query)
+	if !ok {
+		return nil, connectError(routeError{status: http.StatusBadRequest, message: "bad request query"})
+	}
+	pane, err := checkPane(ctx, s.tmux, req.Msg.GetPane())
+	if err != nil {
+		return nil, connectError(paneRouteError(err))
+	}
+	screen, err := s.tmux.Run(ctx, append(flags, "-t", pane.ID)...)
+	if err != nil {
+		return nil, connectError(internalError())
+	}
+	return connect.NewResponse(&v1.ScreenResponse{Screen: []byte(screen)}), nil
 }
 
 // paneMessages returns the Pane messages of the panes listPanes gives, in order. It reads the same JSON objects
