@@ -111,16 +111,20 @@ func (w *Writer) Run(ctx context.Context) {
 	defer close(w.stopped)
 	ticker := time.NewTicker(w.tick)
 	defer ticker.Stop()
+	// No flush runs on a context ctx's cancellation reaches: a store write canceled during its commit can report an
+	// error for a batch SQLite committed, which would queue that batch and store it twice. The store's busy timeout
+	// bounds each write instead.
+	flushCtx := context.WithoutCancel(ctx)
 	for {
 		select {
 		case <-ctx.Done():
 			w.mu.Lock()
 			w.closing = true
 			w.mu.Unlock()
-			w.flush(context.WithoutCancel(ctx))
+			w.flush(flushCtx)
 			return
 		case <-ticker.C:
-			w.flush(ctx)
+			w.flush(flushCtx)
 		}
 	}
 }

@@ -446,3 +446,55 @@ func TestPutDuringTheLastFlushReturnsErrWriterStopped(t *testing.T) {
 		t.Fatalf("stored texts: got %v, want %v", got, want)
 	}
 }
+
+// ctxApplier records whether the context of its first ApplyEngine call was canceled while that call was in flight.
+// The first call signals entered and waits for release, so a test can cancel Run during a tick flush.
+type ctxApplier struct {
+	store    *store.Store
+	once     sync.Once
+	entered  chan struct{}
+	release  chan struct{}
+	canceled chan bool
+}
+
+func (a *ctxApplier) ApplyEngine(ctx context.Context, ops []store.EngineOp, now time.Time) error {
+	a.once.Do(func() {
+		close(a.entered)
+		<-a.release
+		a.canceled <- ctx.Err() != nil
+	})
+	return a.store.ApplyEngine(ctx, ops, now)
+}
+
+// A store write that is canceled mid-commit can report an error although SQLite committed it, and the writer would
+// queue and store it again, so no flush may run on a context that Run's cancellation reaches.
+func TestRunCancelDoesNotCancelATickFlushInFlight(t *testing.T) {
+	s, path := openStore(t)
+	addSessions(t, s, "a")
+	applier := &ctxApplier{
+		store: s, entered: make(chan struct{}), release: make(chan struct{}), canceled: make(chan bool, 1),
+	}
+	w := NewWriter(WriterConfig{Applier: applier, Tick: 5 * time.Millisecond})
+	ctx, cancel := context.WithCancel(t.Context())
+	stopped := make(chan struct{})
+	go func() {
+		defer close(stopped)
+		w.Run(ctx)
+	}()
+
+	if err := w.Put(t.Context(), "a", prompt("a", "once")); err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+	receive(t, applier.entered)
+	cancel()
+	close(applier.release)
+	canceled := receive(t, applier.canceled)
+	receive(t, stopped)
+
+	if canceled {
+		t.Fatal("the tick flush in flight saw Run's cancellation")
+	}
+	if got, want := promptTexts(t, path, "a"), []string{"once"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("stored texts: got %v, want %v", got, want)
+	}
+}
