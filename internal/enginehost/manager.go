@@ -100,11 +100,12 @@ type Config struct {
 // Stop and Close do not record over the state that exit recorded. turning is set while a turn runs, from the send of its
 // prompt or a Started event until its TurnEnded or the process's Exited. interrupting is set by Interrupt while a turn
 // runs, until that turn's end, which then sends no notice. closing is set by Close before it stops the session. The
-// manager's lock guards turning, interrupting, closing, requests, background, idleSince and idleStopped, and the pump sets
-// exited under it too. requests holds the ids of the requests the host has open, background is set while a background
-// task runs, idleSince is when the session last became not busy (zero while it is busy), and idleStopped is set when a
-// check stops the session for being idle. step is set for a step session, which sends no notice and frees a step slot
-// rather than a session slot.
+// manager's lock guards turning, interrupting, closing, requests, background, returned, idleSince and idleStopped, and
+// the pump sets exited under it too. requests holds the ids of the requests the host has open, background is set while a
+// background task runs, idleSince is when the session last became not busy (zero while it is busy), and idleStopped is
+// set when a check stops the session for being idle. step is set for a step session, which sends no notice and frees a
+// step slot rather than a session slot. observer receives the hand-offs of a step, which the pump makes, and returned is
+// set from a hand-off until Continue sends the step's next prompt, so the step stays busy meanwhile.
 type liveSession struct {
 	id           string
 	dir          string
@@ -112,12 +113,14 @@ type liveSession struct {
 	done         chan struct{}
 	cancel       context.CancelFunc
 	step         bool
+	observer     StepObserver
 	exited       bool
 	turning      bool
 	interrupting bool
 	closing      bool
 	requests     map[string]struct{}
 	background   bool
+	returned     bool
 	idleSince    time.Time
 	idleStopped  bool
 	// order is held by the pump while it queues an event's ops, and by Answer from its send until it has queued the
@@ -405,24 +408,31 @@ func (m *Manager) Say(ctx context.Context, req SayRequest) error {
 
 // say sends the prompt of req as Say does, without the check of its prompt id.
 func (m *Manager) say(ctx context.Context, req SayRequest) error {
-	id, text := req.ID, req.Text
-	live, err := m.claim(id)
+	live, err := m.claim(req.ID)
 	if errors.Is(err, ErrNoSession) {
-		live, err = m.resumeSession(ctx, id)
+		live, err = m.resumeSession(ctx, req.ID)
 		if err == nil {
 			m.setTurning(live, true)
 		}
 	}
 	if err != nil {
-		return fmt.Errorf("say to session %s: %w", id, err)
+		return fmt.Errorf("say to session %s: %w", req.ID, err)
 	}
+	return m.send(ctx, live, req)
+}
+
+// send records req.Text as the next prompt of live, with the working state, and then sends it. live must have its turn
+// marked running. A failed send records the session failed with the send's error, and with a req.PromptID the same write
+// stores that prompt's failure marker. A step sends no notice, so its failed send is recorded without one.
+func (m *Manager) send(ctx context.Context, live *liveSession, req SayRequest) error {
+	id, text := req.ID, req.Text
 	working := string(protocol.StateWorking)
-	if err = m.writer.Commit(ctx, id, store.EnginePrompt{ID: id, Text: text, PromptID: req.PromptID},
+	if err := m.writer.Commit(ctx, id, store.EnginePrompt{ID: id, Text: text, PromptID: req.PromptID},
 		store.EngineSet{ID: id, Changes: store.EngineChanges{State: &working}}); err != nil {
 		m.setTurning(live, false)
 		return fmt.Errorf("record prompt of session %s: %w", id, err)
 	}
-	if err = live.sess.Prompt(text); err != nil {
+	if err := live.sess.Prompt(text); err != nil {
 		m.setTurning(live, false)
 		var marks []store.EngineOp
 		if req.PromptID != "" {
@@ -435,9 +445,23 @@ func (m *Manager) say(ctx context.Context, req SayRequest) error {
 		} else {
 			recordErr = m.recordFailed(ctx, id, live.dir, err, marks...)
 		}
-		return fmt.Errorf("say to session %s: %w", id, errors.Join(err, recordErr))
+		return fmt.Errorf("send prompt to session %s: %w", id, errors.Join(err, recordErr))
 	}
 	return nil
+}
+
+// Continue sends text to the live step id as its next prompt, which ends the step's hand-off: the step is busy again
+// until this turn ends. The prompt is recorded as Say records one, and a failed send records the step failed without a
+// notice. It returns an error wrapping ErrNoSession when no live step has id, and ErrEmptyPrompt for empty text.
+func (m *Manager) Continue(ctx context.Context, id, text string) error {
+	if text == "" {
+		return ErrEmptyPrompt
+	}
+	live, err := m.claimStep(id)
+	if err != nil {
+		return fmt.Errorf("continue step %s: %w", id, err)
+	}
+	return m.send(ctx, live, SayRequest{ID: id, Text: text})
 }
 
 // Answer answers the open request requestID of the live session id. A question takes one of its option labels. A
@@ -590,7 +614,7 @@ func (m *Manager) spawnLive(ctx context.Context, id, dir string, sp spawnSpec) (
 	}
 	pumpCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	live := &liveSession{id: id, dir: dir, sess: sess, done: make(chan struct{}), cancel: cancel,
-		step: sp.step, requests: map[string]struct{}{}}
+		step: sp.step, observer: sp.observer, requests: map[string]struct{}{}}
 	m.mu.Lock()
 	closed := m.closed
 	if !closed {
@@ -689,9 +713,10 @@ func (m *Manager) checkIdle(ctx context.Context) {
 	}
 }
 
-// busy reports whether live has a turn running, an open request, or a background task. The caller holds the lock.
+// busy reports whether live has a turn running, an open request, a background task, or a hand-off the next prompt has
+// not yet answered. The caller holds the lock.
 func (live *liveSession) busy() bool {
-	return live.turning || live.background || len(live.requests) > 0
+	return live.turning || live.background || live.returned || len(live.requests) > 0
 }
 
 // updateIdleLocked clears the idle stamp of live while it is busy, and stamps the time it became not busy. The caller
@@ -716,6 +741,21 @@ func (m *Manager) claim(id string) (*liveSession, error) {
 		return nil, ErrNoSession
 	}
 	live.turning = true
+	m.updateIdleLocked(live)
+	return live, nil
+}
+
+// claimStep returns the live step id with its turn marked running and its hand-off ended, under the lock, so a check
+// cannot stop the step between the lookup and the prompt. It returns ErrNoSession when no live step has that id.
+func (m *Manager) claimStep(id string) (*liveSession, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	live, ok := m.sessions[id]
+	if !ok || !live.step {
+		return nil, ErrNoSession
+	}
+	live.turning = true
+	live.returned = false
 	m.updateIdleLocked(live)
 	return live, nil
 }
@@ -836,13 +876,14 @@ func newSessionID() (string, error) {
 }
 
 // spawnSpec describes the process a spawn starts: the claude session it resumes, the model it runs, and for a step the
-// agent and schema it runs with. step marks a step session.
+// agent and schema it runs with, and the observer of its hand-offs. step marks a step session.
 type spawnSpec struct {
 	claudeSession string
 	model         string
 	agent         string
 	schema        string
 	step          bool
+	observer      StepObserver
 }
 
 // spawn resolves claude and starts the session process for id in dir as sp describes. The prompt is not sent here.
@@ -876,7 +917,7 @@ func (m *Manager) pump(ctx context.Context, live *liveSession, rec *recorder) {
 	defer m.pumps.Done()
 	reply := ""
 	for event := range live.sess.Events() {
-		record, interrupted := m.noteEvent(live, event)
+		record, interrupted, handed := m.noteEvent(live, event)
 		if !record {
 			continue
 		}
@@ -896,6 +937,7 @@ func (m *Manager) pump(ctx context.Context, live *liveSession, rec *recorder) {
 		if _, ended := event.(session.TurnEnded); ended {
 			reply = ""
 		}
+		observe(live, event, handed)
 	}
 	m.mu.Lock()
 	if m.sessions[live.id] == live {
@@ -910,6 +952,30 @@ func (m *Manager) pump(ctx context.Context, live *liveSession, rec *recorder) {
 	close(live.done)
 	live.cancel()
 }
+
+// observe gives the observer of the step live the event the pump has just recorded: the turn end of a hand-off, or an
+// exit with its failure reason, or stepExitedReason for a clean exit, since a step ends either way. A session without an
+// observer gets nothing.
+func observe(live *liveSession, event session.Event, handed bool) {
+	switch ev := event.(type) {
+	case session.TurnEnded:
+		if handed {
+			live.observer.Return(ev)
+		}
+	case session.Exited:
+		if live.observer == nil {
+			return
+		}
+		reason, failed := exitFailure(ev)
+		if !failed {
+			reason = stepExitedReason
+		}
+		live.observer.Exited(reason)
+	}
+}
+
+// stepExitedReason is the reason a step's observer gets when the step's process exits cleanly on its own.
+const stepExitedReason = "the step's process exited"
 
 // setTurning sets whether live has a turn running.
 func (m *Manager) setTurning(live *liveSession, turning bool) {
@@ -928,9 +994,11 @@ func (m *Manager) setInterrupting(live *liveSession, interrupting bool) {
 }
 
 // noteEvent tracks the turn of live through event. It reports whether the pump records event, and for a turn's end,
-// whether that turn was interrupted through Interrupt, which clears the mark for the next turn. The exit of a session
-// that Close is stopping is not recorded here: recordClosed records that session's state from its turn instead.
-func (m *Manager) noteEvent(live *liveSession, event session.Event) (record, interrupted bool) {
+// whether that turn was interrupted through Interrupt, which clears the mark for the next turn, and whether the turn is
+// handed to the step's observer: a step's turn that ends with no background task live. The hand-off makes the step busy
+// in the same lock hold. The exit of a session that Close is stopping is not recorded here: recordClosed records that
+// session's state from its turn instead.
+func (m *Manager) noteEvent(live *liveSession, event session.Event) (record, interrupted, handed bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	defer m.updateIdleLocked(live)
@@ -950,16 +1018,20 @@ func (m *Manager) noteEvent(live *liveSession, event session.Event) (record, int
 		clear(live.requests)
 		interrupted = live.interrupting
 		live.interrupting = false
+		if live.observer != nil && !live.background {
+			live.returned = true
+			handed = true
+		}
 	case session.Exited:
 		live.turning = false
 		clear(live.requests)
 		live.background = false
 		if live.closing || live.idleStopped {
-			return false, false
+			return false, false, false
 		}
 		live.exited = true
 	}
-	return true, interrupted
+	return true, interrupted, handed
 }
 
 // notify sends the owner a notice of session id in dir, in state with body. It sends nothing without a notifier.

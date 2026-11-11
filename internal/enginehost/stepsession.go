@@ -5,19 +5,30 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/joshsymonds/orrery/internal/engine/session"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
-// StepSession is one step session: its id, its directory, the prompt it starts with, the claude agent it runs and the
-// JSON schema its result must match, and the engine ops written with its row.
+// StepObserver receives what a step session hands it. Return receives a turn's end once no background task of the step
+// is live; the step then counts busy until Continue sends its next prompt or the session stops. Exited receives the
+// failure reason when the step's process ends on its own. Both run on the step's pump goroutine.
+type StepObserver interface {
+	Return(turn session.TurnEnded)
+	Exited(reason string)
+}
+
+// StepSession is one step session: its id, its directory, the prompt it starts with, the claude agent it runs, the JSON
+// schema its result must match, the engine ops written with its row, and the observer of its hand-offs. A nil Observer
+// receives nothing.
 type StepSession struct {
-	ID     string
-	Dir    string
-	Prompt string
-	Agent  string
-	Schema string
-	Ops    []store.EngineOp
+	ID       string
+	Dir      string
+	Prompt   string
+	Agent    string
+	Schema   string
+	Ops      []store.EngineOp
+	Observer StepObserver
 }
 
 // ErrBadAgent reports a StartStep whose agent is empty or is not 1 to 64 bytes of letters, digits and . _ - [ ] : that
@@ -40,7 +51,8 @@ func (m *Manager) StartStep(ctx context.Context, step StepSession) error {
 		m.releaseStep()
 		return fmt.Errorf("record step %s: %w", step.ID, err)
 	}
-	live, err := m.spawnLive(ctx, step.ID, step.Dir, spawnSpec{agent: step.Agent, schema: step.Schema, step: true})
+	live, err := m.spawnLive(ctx, step.ID, step.Dir,
+		spawnSpec{agent: step.Agent, schema: step.Schema, step: true, observer: step.Observer})
 	if err != nil {
 		m.releaseStep()
 		recordErr := m.writeFailed(ctx, step.ID, err)
