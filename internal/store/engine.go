@@ -17,6 +17,9 @@ import (
 // KindEngine is the sessions.kind of a headless engine session. Pane sessions have kind "".
 const KindEngine = "engine"
 
+// KindStep is the sessions.kind of a step session. It is an engine-style row that the Reader never lists.
+const KindStep = "step"
+
 // Engine event kinds appended to the events table. Each payload is a JSON object fixed per kind.
 const (
 	EventEngineAdded            = "engine_added"
@@ -41,11 +44,12 @@ type EngineOp interface {
 	applyEngine(ctx context.Context, queries *sqlcgen.Queries, now time.Time) error
 }
 
-// EngineAdd inserts an engine session row and appends engine_added.
+// EngineAdd inserts a session row of Kind and appends engine_added. Kind is KindEngine or KindStep; empty is KindEngine.
 type EngineAdd struct {
 	ID    string
 	Dir   string
 	State string
+	Kind  string
 }
 
 // EngineChanges holds the fields an EngineSet may change. A nil field is left as it is.
@@ -254,8 +258,12 @@ func (s *Store) ApplyEngine(ctx context.Context, ops []EngineOp, now time.Time) 
 }
 
 func (op EngineAdd) applyEngine(ctx context.Context, queries *sqlcgen.Queries, now time.Time) error {
+	kind := op.Kind
+	if kind == "" {
+		kind = KindEngine
+	}
 	if err := queries.InsertEngineSession(ctx, sqlcgen.InsertEngineSessionParams{
-		ID: op.ID, Dir: op.Dir, State: op.State, Changed: engineStamp(now),
+		ID: op.ID, Kind: kind, Dir: op.Dir, State: op.State, Changed: engineStamp(now),
 	}); err != nil {
 		return fmt.Errorf("insert engine session %s: %w", op.ID, err)
 	}

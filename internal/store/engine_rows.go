@@ -17,9 +17,10 @@ type EngineRow struct {
 	Question      string
 	ClaudeSession string
 	Reason        string
+	Kind          string
 }
 
-// EngineSessions returns every engine session row, ordered by id.
+// EngineSessions returns every engine and step session row, ordered by id.
 func (s *Store) EngineSessions(ctx context.Context) ([]EngineRow, error) {
 	rows, err := sqlcgen.New(s.db).ListEngineSessions(ctx)
 	if err != nil {
@@ -48,6 +49,6 @@ func (s *Store) EngineSession(ctx context.Context, id string) (EngineRow, error)
 func toEngineRow(row sqlcgen.Session) EngineRow {
 	return EngineRow{
 		ID: row.ID, Dir: row.Dir, State: row.State, Question: row.Question,
-		ClaudeSession: row.ClaudeSession, Reason: row.Reason,
+		ClaudeSession: row.ClaudeSession, Reason: row.Reason, Kind: row.Kind,
 	}
 }

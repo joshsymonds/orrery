@@ -178,7 +178,7 @@ func (q *Queries) GetEnginePromptFailure(ctx context.Context, arg GetEnginePromp
 }
 
 const getEngineSession = `-- name: GetEngineSession :one
-SELECT id, server, pane, state, changed, seen, question, summary, label, context, tool, claude_session, transcript, kind, dir, reason FROM sessions WHERE id = ? AND kind = 'engine'
+SELECT id, server, pane, state, changed, seen, question, summary, label, context, tool, claude_session, transcript, kind, dir, reason FROM sessions WHERE id = ? AND kind IN ('engine', 'step')
 `
 
 func (q *Queries) GetEngineSession(ctx context.Context, id string) (Session, error) {
@@ -250,11 +250,12 @@ func (q *Queries) InsertEnginePromptFailed(ctx context.Context, arg InsertEngine
 }
 
 const insertEngineSession = `-- name: InsertEngineSession :exec
-INSERT INTO sessions (id, server, pane, kind, dir, state, changed) VALUES (?, '', '', 'engine', ?, ?, ?)
+INSERT INTO sessions (id, server, pane, kind, dir, state, changed) VALUES (?, '', '', ?, ?, ?, ?)
 `
 
 type InsertEngineSessionParams struct {
 	ID      string
+	Kind    string
 	Dir     string
 	State   string
 	Changed string
@@ -263,6 +264,7 @@ type InsertEngineSessionParams struct {
 func (q *Queries) InsertEngineSession(ctx context.Context, arg InsertEngineSessionParams) error {
 	_, err := q.db.ExecContext(ctx, insertEngineSession,
 		arg.ID,
+		arg.Kind,
 		arg.Dir,
 		arg.State,
 		arg.Changed,
@@ -307,7 +309,7 @@ func (q *Queries) InsertSession(ctx context.Context, arg InsertSessionParams) er
 }
 
 const listEngineSessions = `-- name: ListEngineSessions :many
-SELECT id, server, pane, state, changed, seen, question, summary, label, context, tool, claude_session, transcript, kind, dir, reason FROM sessions WHERE kind = 'engine' ORDER BY id
+SELECT id, server, pane, state, changed, seen, question, summary, label, context, tool, claude_session, transcript, kind, dir, reason FROM sessions WHERE kind IN ('engine', 'step') ORDER BY id
 `
 
 func (q *Queries) ListEngineSessions(ctx context.Context) ([]Session, error) {
@@ -616,7 +618,7 @@ func (q *Queries) SessionEventsAfter(ctx context.Context, arg SessionEventsAfter
 const updateEngineSession = `-- name: UpdateEngineSession :execrows
 UPDATE sessions
 SET state = ?, changed = ?, seen = ?, question = ?, claude_session = ?, reason = ?
-WHERE id = ? AND kind = 'engine'
+WHERE id = ? AND kind IN ('engine', 'step')
 `
 
 type UpdateEngineSessionParams struct {

@@ -286,7 +286,7 @@ func TestSyncServerLeavesEngineRowsOfTheDefaultServer(t *testing.T) {
 	t0 := time.Unix(1_700_000_000, 0)
 
 	if err := sqlcgen.New(s.db).InsertEngineSession(ctx, sqlcgen.InsertEngineSessionParams{
-		ID: "engine-1", Dir: "/work", State: "working", Changed: "t0",
+		ID: "engine-1", Kind: KindEngine, Dir: "/work", State: "working", Changed: "t0",
 	}); err != nil {
 		t.Fatalf("InsertEngineSession: %v", err)
 	}

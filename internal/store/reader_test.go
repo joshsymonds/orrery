@@ -90,7 +90,7 @@ func TestSnapshotOmitsEngineRows(t *testing.T) {
 	now := time.Unix(1_700_000_000, 0)
 
 	if err := sqlcgen.New(s.db).InsertEngineSession(ctx, sqlcgen.InsertEngineSessionParams{
-		ID: "engine-1", Dir: "/work", State: "working", Changed: "t",
+		ID: "engine-1", Kind: KindEngine, Dir: "/work", State: "working", Changed: "t",
 	}); err != nil {
 		t.Fatalf("InsertEngineSession: %v", err)
 	}

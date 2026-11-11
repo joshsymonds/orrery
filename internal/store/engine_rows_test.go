@@ -30,8 +30,9 @@ func TestEngineRowsReadEngineRowsOnly(t *testing.T) {
 	}
 
 	wantAll := []EngineRow{
-		{ID: "e1", Dir: "/a", State: "waiting", Question: "deploy?", ClaudeSession: "claude-1", Reason: "blocked"},
-		{ID: "e2", Dir: "/b", State: "idle"},
+		{ID: "e1", Dir: "/a", State: "waiting", Question: "deploy?", ClaudeSession: "claude-1", Reason: "blocked",
+			Kind: KindEngine},
+		{ID: "e2", Dir: "/b", State: "idle", Kind: KindEngine},
 	}
 	got, err := s.EngineSessions(ctx)
 	if err != nil {

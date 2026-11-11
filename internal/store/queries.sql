@@ -62,18 +62,18 @@ WHERE sessions.kind = 'engine'
   AND sessions.id NOT IN (SELECT value FROM json_each(sqlc.arg(live)));
 
 -- name: InsertEngineSession :exec
-INSERT INTO sessions (id, server, pane, kind, dir, state, changed) VALUES (?, '', '', 'engine', ?, ?, ?);
+INSERT INTO sessions (id, server, pane, kind, dir, state, changed) VALUES (?, '', '', ?, ?, ?, ?);
 
 -- name: GetEngineSession :one
-SELECT * FROM sessions WHERE id = ? AND kind = 'engine';
+SELECT * FROM sessions WHERE id = ? AND kind IN ('engine', 'step');
 
 -- name: ListEngineSessions :many
-SELECT * FROM sessions WHERE kind = 'engine' ORDER BY id;
+SELECT * FROM sessions WHERE kind IN ('engine', 'step') ORDER BY id;
 
 -- name: UpdateEngineSession :execrows
 UPDATE sessions
 SET state = ?, changed = ?, seen = ?, question = ?, claude_session = ?, reason = ?
-WHERE id = ? AND kind = 'engine';
+WHERE id = ? AND kind IN ('engine', 'step');
 
 -- name: UpsertEngineText :exec
 INSERT INTO engine_text (session_id, message_id, block_index, parent_tool_use_id, kind, text)
