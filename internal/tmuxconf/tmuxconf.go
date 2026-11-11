@@ -133,9 +133,9 @@ func shellCommand(orrery string) string {
 }
 
 // seenHook returns the command a focus hook runs. It marks the hook's pane seen in the background, and only while a
-// client is attached to the session.
+// client is attached to the session and a recently active client shows the pane (seen --focus).
 func seenHook(orrery string) string {
-	return `if-shell -F '#{session_attached}' 'run-shell -b \"` + orrery + ` seen --pane #{pane_id}\"'`
+	return `if-shell -F '#{session_attached}' 'run-shell -b \"` + orrery + ` seen --pane #{pane_id} --focus\"'`
 }
 
 // waitingPane expands to "w" for a waiting pane and to nothing otherwise.
