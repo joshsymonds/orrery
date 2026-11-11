@@ -13,10 +13,11 @@ import (
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
-// stepSessions is what a step run drives: its session starts, takes a follow-up message, and stops. Manager satisfies
-// it once Continue lands.
+// stepSessions is what a step run drives: its session starts, is interrupted, takes a follow-up message, and stops.
+// Manager satisfies it.
 type stepSessions interface {
 	StartStep(ctx context.Context, step StepSession) error
+	Interrupt(ctx context.Context, id string) error
 	Continue(ctx context.Context, id, text string) error
 	Stop(ctx context.Context, id string) error
 }
@@ -45,7 +46,8 @@ const stepLoopBuffer = 8
 // stepRunConfig is what a stepRun is built from. A writing step may change its worktree: its done return is checked
 // with commitChecks against start and owned in dir, and with gate when every commit check passes and gate is set. A
 // read-only step's done return passes on its schema check alone. A nil cleanup has nothing to run. The watch reads now
-// as its clock, time.Now when now is nil, and allows the step modelLimit of model time.
+// as its clock, time.Now when now is nil, and allows the step modelLimit of model time. Each tick on ticks checks the
+// watch, and a nil ticks never ticks. A nil haiku makes no monitor calls.
 type stepRunConfig struct {
 	id         string
 	schema     string
@@ -56,6 +58,8 @@ type stepRunConfig struct {
 	cleanup    func(context.Context) error
 	now        func() time.Time
 	modelLimit time.Duration
+	haiku      haikuCaller
+	ticks      <-chan time.Time
 
 	writing   bool
 	dir       string
@@ -75,8 +79,11 @@ type stepRun struct {
 
 	// watch decides the step's backstops from every event the run is handed.
 	watch   *stepWatch
-	returns chan json.RawMessage
+	returns chan session.TurnEnded
 	exits   chan string
+	// nudge is the text the next turn end is continued with when that turn is an error. It is set by a landed nudge's
+	// interrupt and cleared by the next turn end, whatever it is.
+	nudge string
 	// ended is closed once finish has acted.
 	ended chan struct{}
 	// runDone is closed when run returns, so Return and Exited never wait on a run that will not drain them.
@@ -92,7 +99,7 @@ func newStepRun(cfg stepRunConfig) *stepRun {
 	return &stepRun{
 		stepRunConfig: cfg,
 		watch:         newStepWatch(cfg.now(), cfg.modelLimit),
-		returns:       make(chan json.RawMessage, stepLoopBuffer),
+		returns:       make(chan session.TurnEnded, stepLoopBuffer),
 		exits:         make(chan string, stepLoopBuffer),
 		ended:         make(chan struct{}),
 		runDone:       make(chan struct{}),
@@ -108,7 +115,7 @@ func (r *stepRun) Event(event session.Event) {
 // ended, or run has returned.
 func (r *stepRun) Return(ended session.TurnEnded) {
 	select {
-	case r.returns <- ended.StructuredOutput:
+	case r.returns <- ended:
 	case <-r.ended:
 	case <-r.runDone:
 	}
@@ -136,9 +143,22 @@ func (r *stepRun) run(ctx context.Context) {
 		case reason := <-r.exits:
 			r.finish(ctx, stepLoopEndFailed, "", reason)
 			return
-		case value := <-r.returns:
+		case <-r.ticks:
+			if !r.watchTick(ctx) {
+				return
+			}
+		case ended := <-r.returns:
+			nudge := r.nudge
+			r.nudge = ""
+			if nudge != "" && ended.IsError {
+				if err := r.sessions.Continue(ctx, r.id, nudge); err != nil {
+					r.finish(ctx, stepLoopEndFailed, "", fmt.Sprintf("continue step %s: %v", r.id, err))
+					return
+				}
+				continue
+			}
 			round++
-			if !r.judge(ctx, round, value, &continues) {
+			if !r.judge(ctx, round, ended.StructuredOutput, &continues) {
 				return
 			}
 		}

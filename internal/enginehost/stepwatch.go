@@ -319,6 +319,15 @@ func (w *stepWatch) nudge() watchAction {
 	return watchAction{Kind: watchActNudge}
 }
 
+// dropNudge undoes the nudge apply just returned when it could not be sent: the step keeps its one nudge and the watch
+// trips again in the running turn.
+func (w *stepWatch) dropNudge() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.nudged = false
+	w.nudging = false
+}
+
 // recent renders the kept blocks and notices, oldest first, one per line, each with its age at a clock
 // reading.
 func (w *stepWatch) recent(at time.Time) string {

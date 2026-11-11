@@ -46,6 +46,10 @@ func (f *stepStartSessions) StartStep(ctx context.Context, step StepSession) err
 	return f.startErr
 }
 
+func (f *stepStartSessions) Interrupt(context.Context, string) error {
+	return errors.New("stepStartSessions: Interrupt is not used")
+}
+
 func (f *stepStartSessions) Continue(context.Context, string, string) error {
 	return errors.New("stepStartSessions: Continue is not used")
 }
