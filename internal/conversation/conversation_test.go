@@ -111,8 +111,6 @@ func taskLine(s int, content string) string {
 
 func TestReadNoticeKinds(t *testing.T) {
 	path := writeTranscript(t,
-		`{"type":"user","timestamp":"`+stampAt(0)+`","isCompactSummary":true,`+
-			`"message":{"role":"user","content":"synthetic summary of earlier turns"}}`,
 		taskLine(1, `"`+taskNotification("completed", "Synthetic task done")+`"`),
 		`{"type":"user","timestamp":"`+stampAt(2)+`","message":{"role":"user","content":[`+
 			`{"type":"text","text":"[Request interrupted by user]"}]}}`,
@@ -121,12 +119,116 @@ func TestReadNoticeKinds(t *testing.T) {
 	)
 
 	want := []Item{
-		{Kind: "notice", Time: unixAt(0), Notice: "compaction"},
 		{Kind: "notice", Time: unixAt(1), Notice: "task", Text: "Synthetic task done"},
 		{Kind: "notice", Time: unixAt(2), Notice: "interrupted"},
 		{Kind: "notice", Time: unixAt(3), Notice: "interrupted"},
 	}
 	if got := mustRead(t, path, 100).Items; !reflect.DeepEqual(got, want) {
+		t.Fatalf("Items =\n%+v\nwant\n%+v", got, want)
+	}
+}
+
+// compactBoundary returns a main-chain compact_boundary line at second s with the given trigger and
+// pre-compaction token count.
+func compactBoundary(s int, trigger, tokens string) string {
+	return `{"type":"system","subtype":"compact_boundary","timestamp":"` + stampAt(s) +
+		`","compactMetadata":{"trigger":"` + trigger + `","preTokens":` + tokens + `,"postTokens":900}}`
+}
+
+// teammateLine returns a user line at second s that holds one teammate message with the given summary.
+func teammateLine(t *testing.T, s int, summary string) string {
+	t.Helper()
+	raw, err := json.Marshal(teammateContent(teammateBlock(summary, teammateRequest)))
+	if err != nil {
+		t.Fatalf("marshal content: %v", err)
+	}
+	return `{"type":"user","timestamp":"` + stampAt(s) + `","message":{"role":"user","content":` + string(raw) + `}}`
+}
+
+func TestReadFlaggedSummaryIsCompactionItem(t *testing.T) {
+	const cut = 32768
+	tests := []struct {
+		name string
+		line string
+		want []Item
+	}{
+		{
+			"plain flagged line",
+			`{"type":"user","timestamp":"` + stampAt(0) + `","isCompactSummary":true,` +
+				`"message":{"role":"user","content":"synthetic summary"}}`,
+			[]Item{{Kind: "compaction", Time: unixAt(0), Text: "synthetic summary"}},
+		},
+		{
+			"typed flagged line",
+			`{"type":"user","timestamp":"` + stampAt(0) + `","promptSource":"typed","origin":{"kind":"human"},` +
+				`"isCompactSummary":true,"message":{"role":"user","content":"synthetic summary"}}`,
+			[]Item{{Kind: "compaction", Time: unixAt(0), Text: "synthetic summary"}},
+		},
+		{
+			"flag wins over a tool result",
+			`{"type":"user","timestamp":"` + stampAt(0) + `","isCompactSummary":true,"message":{"role":"user",` +
+				`"content":[{"type":"text","text":"synthetic summary"},` +
+				`{"type":"tool_result","tool_use_id":"toolu_3","content":"ok"}]}}`,
+			[]Item{{Kind: "compaction", Time: unixAt(0), Text: "synthetic summary"}},
+		},
+		{
+			"text over the cap is cut inside a multibyte rune",
+			`{"type":"user","timestamp":"` + stampAt(0) + `","isCompactSummary":true,"message":{"content":"` +
+				strings.Repeat("a", cut-1) + "éé" + `"}}`,
+			[]Item{{Kind: "compaction", Time: unixAt(0), Text: strings.Repeat("a", cut-1)}},
+		},
+		{
+			"text over the cap cut at a rune start keeps the whole cap",
+			`{"type":"user","timestamp":"` + stampAt(0) + `","isCompactSummary":true,"message":{"content":"` +
+				strings.Repeat("a", cut) + "é" + `"}}`,
+			[]Item{{Kind: "compaction", Time: unixAt(0), Text: strings.Repeat("a", cut)}},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := mustRead(t, writeTranscript(t, tc.line), 10).Items; !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("Items has %d entries, want %d: got %+v", len(got), len(tc.want), got)
+			}
+		})
+	}
+}
+
+func TestReadCompactionTakesNearestEarlierBoundary(t *testing.T) {
+	path := writeTranscript(t,
+		compactBoundary(0, "auto", "180000"),
+		teammateLine(t, 1, "Synthetic note"),
+		`{"type":"system","isSidechain":true,"subtype":"compact_boundary","timestamp":"`+stampAt(2)+
+			`","compactMetadata":{"trigger":"manual","preTokens":5}}`,
+		`{"type":"system","isMeta":true,"subtype":"compact_boundary","timestamp":"`+stampAt(3)+
+			`","compactMetadata":{"trigger":"manual","preTokens":6}}`,
+		`{"type":"user","timestamp":"`+stampAt(4)+`","isCompactSummary":true,`+
+			`"message":{"role":"user","content":"synthetic summary one"}}`,
+		`{"type":"user","timestamp":"`+stampAt(5)+`","isCompactSummary":true,`+
+			`"message":{"role":"user","content":"synthetic summary two"}}`,
+	)
+
+	want := []Item{
+		{Kind: "notice", Time: unixAt(1), Notice: "teammate", Text: "Synthetic note"},
+		{Kind: "compaction", Time: unixAt(4), Text: "synthetic summary one", Trigger: "auto", Tokens: 180000},
+		{Kind: "compaction", Time: unixAt(5), Text: "synthetic summary two", Trigger: "auto", Tokens: 180000},
+	}
+	if got := mustRead(t, path, 100).Items; !reflect.DeepEqual(got, want) {
+		t.Fatalf("Items =\n%+v\nwant\n%+v", got, want)
+	}
+}
+
+func TestReadCompactionBoundaryCutOffByWindow(t *testing.T) {
+	// The boundary starts before the window's first byte and ends inside it, so ReadTail never visits it.
+	// The filler is one line that does not parse, which gives no item and fills the window.
+	boundary := compactBoundary(0, "auto", "180000") + "\n"
+	summary := `{"type":"user","timestamp":"` + stampAt(4) + `","isCompactSummary":true,` +
+		`"message":{"role":"user","content":"synthetic summary"}}` + "\n"
+	filler := strings.Repeat("x", MaxTailBytes-len(boundary)-len(summary))
+	path := filepath.Join(t.TempDir(), "transcript.jsonl")
+	writeFile(t, path, boundary+filler+"\n"+summary)
+
+	want := []Item{{Kind: "compaction", Time: unixAt(4), Text: "synthetic summary"}}
+	if got := mustRead(t, path, 10).Items; !reflect.DeepEqual(got, want) {
 		t.Fatalf("Items =\n%+v\nwant\n%+v", got, want)
 	}
 }
@@ -250,7 +352,8 @@ func TestReadItemsAreNeverNull(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
-	if want := `{"origin":"","items":[],"goal":"","waiting":null}`; string(data) != want {
+	want := `{"origin":"","items":[],"goal":"","waiting":null,"context":{"tokens":0,"window":1000000}}`
+	if string(data) != want {
 		t.Fatalf("json = %s, want %s", data, want)
 	}
 }
@@ -264,7 +367,7 @@ func TestItemJSONAlwaysHasEveryKey(t *testing.T) {
 	if err := json.Unmarshal(data, &keys); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	for _, key := range []string{"kind", "time", "text", "tool", "input", "id", "error", "notice"} {
+	for _, key := range []string{"kind", "time", "text", "tool", "input", "id", "error", "notice", "trigger", "tokens"} {
 		if _, ok := keys[key]; !ok {
 			t.Errorf("zero Item JSON lacks key %q: %s", key, data)
 		}

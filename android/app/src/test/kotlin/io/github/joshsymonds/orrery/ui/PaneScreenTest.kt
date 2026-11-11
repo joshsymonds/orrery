@@ -15,6 +15,7 @@ import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
@@ -183,6 +184,19 @@ class PaneScreenTest {
 
     private fun noticeItem(sort: String, text: String): String =
         """{"kind":"notice","time":0,"text":${JSONObject.quote(text)},"tool":"","input":"","id":"","error":false,"notice":"$sort"}"""
+
+    @Test
+    fun answerCarryingContextShowsTheContextMeterInTheHeader() {
+        FakeOrreryServer().use { server ->
+            val items = conversationItem("reply", "synthetic reply")
+            val body = """{"origin":"synthetic origin","items":[$items],"context":{"tokens":400000,"window":1000000}}"""
+            servePane(server, state = "done", conversation = body)
+            setScreen(server)
+
+            composeRule.waitUntilExactlyOneExists(hasTestTag("context-meter"), TIMEOUT_MILLIS)
+            composeRule.onNodeWithTag("context-meter").assertTextEquals("▰▰▱▱▱ 40%")
+        }
+    }
 
     @Test
     fun openingShowsScreenBodyAndSendsNoSeenRequest() {

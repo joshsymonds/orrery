@@ -1953,6 +1953,7 @@ func TestServePaneConversation(t *testing.T) {
 			{Kind: "reply", Text: "synthetic reply 3"},
 		},
 		Waiting: []conversation.Waiting{},
+		Context: conversation.Context{Window: 1000000},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("body = %+v, want %+v", got, want)

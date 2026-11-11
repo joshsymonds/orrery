@@ -18,6 +18,9 @@ sealed interface ConvoEntry {
     data class Tool(val call: ToolCall) : ConvoEntry
     data class Group(val calls: List<ToolCall>) : ConvoEntry
 
+    /** A compaction: its [trigger] ("auto", "manual", or ""), the context [tokens] before it, and its summary [text]. */
+    data class Compaction(val trigger: String, val tokens: Long, val text: String, val time: Long = 0L) : ConvoEntry
+
     /** A session event: [sort] is the item's `notice` value, [error] marks a failed or killed task. */
     data class Notice(val sort: String, val text: String, val error: Boolean, val time: Long = 0L) : ConvoEntry
 }
@@ -58,6 +61,7 @@ fun foldConversation(items: List<ConversationItem>): List<ConvoEntry> {
                         if (item.time > 0) entries.add(ConvoEntry.Time(item.time))
                         entries.add(ConvoEntry.Reply(item.text, item.time))
                     }
+                    "compaction" -> entries.add(ConvoEntry.Compaction(item.trigger, item.tokens, item.text, item.time))
                 }
             }
         }
@@ -87,6 +91,7 @@ private fun baseKey(entry: ConvoEntry): String = when (entry) {
     is ConvoEntry.Reply -> "reply:${entry.time}:${entry.text.hashCode()}"
     is ConvoEntry.Tool -> "tool:${entry.call.id}"
     is ConvoEntry.Group -> "group:${entry.calls.first().id}"
+    is ConvoEntry.Compaction -> "compaction:${entry.time}:${entry.trigger}:${entry.tokens}:${entry.text.hashCode()}"
     is ConvoEntry.Notice -> "notice:${entry.time}:${entry.sort}:${entry.text.hashCode()}"
 }
 
@@ -109,6 +114,7 @@ internal fun entryTime(entry: ConvoEntry): Long = when (entry) {
     is ConvoEntry.Reply -> entry.time
     is ConvoEntry.Tool -> entry.call.time
     is ConvoEntry.Group -> entry.calls.maxOfOrNull { it.time } ?: 0L
+    is ConvoEntry.Compaction -> entry.time
     is ConvoEntry.Notice -> entry.time
 }
 

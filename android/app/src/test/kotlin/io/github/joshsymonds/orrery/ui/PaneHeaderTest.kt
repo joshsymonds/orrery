@@ -2,6 +2,7 @@ package io.github.joshsymonds.orrery.ui
 
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.assertCountEquals
@@ -16,8 +17,10 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.unit.dp
+import io.github.joshsymonds.orrery.api.ConversationContext
 import io.github.joshsymonds.orrery.api.HostStat
 import io.github.joshsymonds.orrery.api.Pane
+import io.github.joshsymonds.orrery.ui.theme.Mocha
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -27,6 +30,8 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
+
+private const val METER_WINDOW = 1_000_000L
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35], qualifiers = "w400dp-h800dp")
@@ -65,6 +70,7 @@ class PaneHeaderTest {
         pane: Pane = pane(),
         origin: String? = prompt,
         stats: List<HostStat>? = null,
+        context: ConversationContext? = null,
         liveScreen: Boolean = false,
         compact: Boolean = false,
         onConversation: () -> Unit = {},
@@ -76,6 +82,7 @@ class PaneHeaderTest {
                     pane = pane,
                     origin = origin,
                     stats = stats,
+                    context = context,
                     liveScreen = liveScreen,
                     onConversation = onConversation,
                     onBack = onBack,
@@ -166,6 +173,69 @@ class PaneHeaderTest {
         composeRule.onNodeWithText("CPU").assertIsDisplayed()
     }
 
+    private fun meterSpanColors(): List<Color?> = composeRule.onNodeWithTag("context-meter")
+        .fetchSemanticsNode()
+        .config[SemanticsProperties.Text]
+        .single()
+        .spanStyles
+        .map { it.item.color }
+
+    private fun assertMeter(tokens: Long, text: String, color: Color) {
+        setHeader(context = ConversationContext(tokens = tokens, window = METER_WINDOW))
+
+        composeRule.onNodeWithTag("context-meter").assertTextEquals(text)
+        assertEquals(listOf(color), meterSpanColors())
+    }
+
+    @Test
+    fun contextMeterAtZeroPercentShowsEmptyBlocksInGreen() {
+        assertMeter(tokens = 1L, text = "▱▱▱▱▱ 0%", color = Mocha.Green)
+    }
+
+    @Test
+    fun contextMeterAt39PercentIsGreen() {
+        assertMeter(tokens = 390_000L, text = "▰▰▱▱▱ 39%", color = Mocha.Green)
+    }
+
+    @Test
+    fun contextMeterAt40PercentIsYellow() {
+        assertMeter(tokens = 400_000L, text = "▰▰▱▱▱ 40%", color = Mocha.Yellow)
+    }
+
+    @Test
+    fun contextMeterAt79PercentIsPeach() {
+        assertMeter(tokens = 790_000L, text = "▰▰▰▰▱ 79%", color = Mocha.Peach)
+    }
+
+    @Test
+    fun contextMeterAt80PercentIsRed() {
+        assertMeter(tokens = 800_000L, text = "▰▰▰▰▱ 80%", color = Mocha.Red)
+    }
+
+    @Test
+    fun contextMeterAt100PercentIsFullAndRed() {
+        assertMeter(tokens = METER_WINDOW, text = "▰▰▰▰▰ 100%", color = Mocha.Red)
+    }
+
+    @Test
+    fun contextMeterAboveWindowReadsOneHundredPercent() {
+        assertMeter(tokens = METER_WINDOW + 500_000L, text = "▰▰▰▰▰ 100%", color = Mocha.Red)
+    }
+
+    @Test
+    fun contextMeterAbsentWithoutContext() {
+        setHeader(context = null)
+
+        composeRule.onAllNodesWithTag("context-meter").assertCountEquals(0)
+    }
+
+    @Test
+    fun contextMeterAbsentWithZeroTokens() {
+        setHeader(context = ConversationContext(tokens = 0L, window = METER_WINDOW))
+
+        composeRule.onAllNodesWithTag("context-meter").assertCountEquals(0)
+    }
+
     @Test
     fun liveReturnAbsentWithoutLiveScreen() {
         setHeader(liveScreen = false)
@@ -219,6 +289,7 @@ class PaneHeaderTest {
                     pane = pane(),
                     origin = prompt,
                     stats = null,
+                    context = null,
                     liveScreen = false,
                     onConversation = {},
                     onBack = {},
