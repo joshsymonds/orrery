@@ -103,9 +103,8 @@ func (s *pickerTokens) store(now time.Time, entries map[string]pickerEntry) {
 	maps.Copy(s.entries, entries)
 }
 
-// servePickerAsk answers POST /v1/picker/ask with the rows open.Choices offers for the body's text, each row
-// carrying a one-time token. A nil picker answers 404. Blank text or a body without a text string answers 400.
-// A Picker, Choices or pane listing error answers 502 with its reason. The ask executes nothing.
+// servePickerAsk answers POST /v1/picker/ask with the rows of askPicker. A body without a text string asks with
+// blank text, so it answers as blank text does.
 func servePickerAsk(
 	picker func() (open.Config, error),
 	tokens *pickerTokens,
@@ -113,39 +112,49 @@ func servePickerAsk(
 	now func() time.Time,
 ) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if picker == nil {
-			http.NotFound(w, r)
-			return
-		}
-		fields, ok := decodeBody(r)
-		if !ok {
-			http.Error(w, "bad request", http.StatusBadRequest)
-			return
-		}
-		text, ok := jsonString(fields[fieldText])
-		if !ok || strings.TrimSpace(text) == "" {
-			http.Error(w, "bad request", http.StatusBadRequest)
-			return
-		}
-		cfg, err := picker()
+		fields, _ := decodeBody(r)
+		text, _ := jsonString(fields[fieldText])
+		answer, err := askPicker(r.Context(), picker, tokens, tmux, now, text)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadGateway)
+			writeRouteError(w, err)
 			return
 		}
-		actions, err := open.Choices(r.Context(), cfg, text)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadGateway)
-			return
-		}
-		issued := now()
-		answer, entries, err := pickerRows(r.Context(), tmux, cfg, actions, issued.Add(pickerTTL))
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadGateway)
-			return
-		}
-		tokens.store(issued, entries)
 		writeJSON(w, http.StatusOK, answer)
 	}
+}
+
+// askPicker returns the rows open.Choices offers for text, each carrying a new token, and stores the entries those
+// tokens stand for. The ask executes nothing. A nil picker is a 404, blank text a 400, and a Picker, Choices or pane
+// listing failure a 502 with its reason.
+func askPicker(
+	ctx context.Context,
+	picker func() (open.Config, error),
+	tokens *pickerTokens,
+	tmux *tmuxctl.Client,
+	now func() time.Time,
+	text string,
+) (pickerAnswer, error) {
+	if picker == nil {
+		return pickerAnswer{}, routeError{status: http.StatusNotFound, message: "404 page not found"}
+	}
+	if strings.TrimSpace(text) == "" {
+		return pickerAnswer{}, routeError{status: http.StatusBadRequest, message: "bad request"}
+	}
+	cfg, err := picker()
+	if err != nil {
+		return pickerAnswer{}, routeError{status: http.StatusBadGateway, message: err.Error()}
+	}
+	actions, err := open.Choices(ctx, cfg, text)
+	if err != nil {
+		return pickerAnswer{}, routeError{status: http.StatusBadGateway, message: err.Error()}
+	}
+	issued := now()
+	answer, entries, err := pickerRows(ctx, tmux, cfg, actions, issued.Add(pickerTTL))
+	if err != nil {
+		return pickerAnswer{}, routeError{status: http.StatusBadGateway, message: err.Error()}
+	}
+	tokens.store(issued, entries)
+	return answer, nil
 }
 
 // pickerRunAnswer is the body of a 200 answer from POST /v1/picker/run.
