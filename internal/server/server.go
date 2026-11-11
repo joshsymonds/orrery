@@ -186,7 +186,15 @@ func New(cfg Config) (http.Handler, error) {
 	mux.Handle(eventsPath, events)
 	controlPath, control := newControlHandler(cfg.Engine, cfg.ControlTimeout, cfg.Home)
 	mux.Handle(controlPath, control)
-	connectPaths := []string{sessionsPath, eventsPath, controlPath}
+	panesPath, panesService := newPanesHandler(cfg.Tmux, newest, goals, queues, textLocks, seenLocks)
+	mux.Handle(panesPath, panesService)
+	hostPath, hostService := newHostHandler(cfg.HostStatus)
+	mux.Handle(hostPath, hostService)
+	pushPath, pushService := newPushHandler(cfg.Push)
+	mux.Handle(pushPath, pushService)
+	pickerPath, pickerService := newPickerHandler(cfg.Picker, tokens, cfg.Tmux, now)
+	mux.Handle(pickerPath, pickerService)
+	connectPaths := []string{sessionsPath, eventsPath, controlPath, panesPath, hostPath, pushPath, pickerPath}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if _, ok := allowed[r.Header.Get(HeaderLogin)]; !ok {
 			http.Error(w, "forbidden", http.StatusForbidden)

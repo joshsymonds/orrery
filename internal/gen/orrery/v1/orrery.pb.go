@@ -2027,6 +2027,1631 @@ func (x *EngineText) GetText() string {
 	return ""
 }
 
+// PanesListRequest asks for every tracked pane. It has no fields.
+type PanesListRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PanesListRequest) Reset() {
+	*x = PanesListRequest{}
+	mi := &file_orrery_v1_orrery_proto_msgTypes[28]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PanesListRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PanesListRequest) ProtoMessage() {}
+
+func (x *PanesListRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_orrery_proto_msgTypes[28]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PanesListRequest.ProtoReflect.Descriptor instead.
+func (*PanesListRequest) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{28}
+}
+
+// PanesListResponse carries every tracked pane.
+type PanesListResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The tracked panes.
+	Panes         []*Pane `protobuf:"bytes,1,rep,name=panes,proto3" json:"panes,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PanesListResponse) Reset() {
+	*x = PanesListResponse{}
+	mi := &file_orrery_v1_orrery_proto_msgTypes[29]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PanesListResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PanesListResponse) ProtoMessage() {}
+
+func (x *PanesListResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_orrery_proto_msgTypes[29]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PanesListResponse.ProtoReflect.Descriptor instead.
+func (*PanesListResponse) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{29}
+}
+
+func (x *PanesListResponse) GetPanes() []*Pane {
+	if x != nil {
+		return x.Panes
+	}
+	return nil
+}
+
+// Pane is one pane of GET /v1/panes: the seventeen keys of `orrery list --json` (docs/contract.md section 3), then
+// question_hash and newest_reply.
+type Pane struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The tmux pane id, such as %3.
+	Id string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	// The name of the machine running the tmux server.
+	Host string `protobuf:"bytes,2,opt,name=host,proto3" json:"host,omitempty"`
+	// The tmux session the pane is in.
+	Session string `protobuf:"bytes,3,opt,name=session,proto3" json:"session,omitempty"`
+	// The tmux window index.
+	Window int32 `protobuf:"varint,4,opt,name=window,proto3" json:"window,omitempty"`
+	// The tmux pane index within its window.
+	Pane int32 `protobuf:"varint,5,opt,name=pane,proto3" json:"pane,omitempty"`
+	// The pane's working directory.
+	Cwd string `protobuf:"bytes,6,opt,name=cwd,proto3" json:"cwd,omitempty"`
+	// The pane's running command.
+	Command string `protobuf:"bytes,7,opt,name=command,proto3" json:"command,omitempty"`
+	// The pane's @orrery_state option.
+	State string `protobuf:"bytes,8,opt,name=state,proto3" json:"state,omitempty"`
+	// The pane's @orrery_summary option.
+	Summary string `protobuf:"bytes,9,opt,name=summary,proto3" json:"summary,omitempty"`
+	// The pane's @orrery_label option.
+	Label string `protobuf:"bytes,10,opt,name=label,proto3" json:"label,omitempty"`
+	// The pane's @orrery_changed option, in unix seconds.
+	Changed int64 `protobuf:"varint,11,opt,name=changed,proto3" json:"changed,omitempty"`
+	// The pane's @orrery_seen option, in unix seconds.
+	Seen int64 `protobuf:"varint,12,opt,name=seen,proto3" json:"seen,omitempty"`
+	// The pane's @orrery_question option.
+	Question string `protobuf:"bytes,13,opt,name=question,proto3" json:"question,omitempty"`
+	// The pane's @orrery_context option.
+	Context string `protobuf:"bytes,14,opt,name=context,proto3" json:"context,omitempty"`
+	// The unix seconds of the pane's session's last activity.
+	Activity int64 `protobuf:"varint,15,opt,name=activity,proto3" json:"activity,omitempty"`
+	// The pane's @orrery_tool option.
+	Tool string `protobuf:"bytes,16,opt,name=tool,proto3" json:"tool,omitempty"`
+	// The pane's @orrery_claude_session option.
+	ClaudeSession string `protobuf:"bytes,17,opt,name=claude_session,json=claudeSession,proto3" json:"claude_session,omitempty"`
+	// The hash of the pane's question, as protocol.QuestionHash computes it.
+	QuestionHash string `protobuf:"bytes,18,opt,name=question_hash,json=questionHash,proto3" json:"question_hash,omitempty"`
+	// The unix seconds of the newest reply or question in the pane's transcript, or 0 when it has none.
+	NewestReply   int64 `protobuf:"varint,19,opt,name=newest_reply,json=newestReply,proto3" json:"newest_reply,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Pane) Reset() {
+	*x = Pane{}
+	mi := &file_orrery_v1_orrery_proto_msgTypes[30]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Pane) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Pane) ProtoMessage() {}
+
+func (x *Pane) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_orrery_proto_msgTypes[30]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Pane.ProtoReflect.Descriptor instead.
+func (*Pane) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{30}
+}
+
+func (x *Pane) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *Pane) GetHost() string {
+	if x != nil {
+		return x.Host
+	}
+	return ""
+}
+
+func (x *Pane) GetSession() string {
+	if x != nil {
+		return x.Session
+	}
+	return ""
+}
+
+func (x *Pane) GetWindow() int32 {
+	if x != nil {
+		return x.Window
+	}
+	return 0
+}
+
+func (x *Pane) GetPane() int32 {
+	if x != nil {
+		return x.Pane
+	}
+	return 0
+}
+
+func (x *Pane) GetCwd() string {
+	if x != nil {
+		return x.Cwd
+	}
+	return ""
+}
+
+func (x *Pane) GetCommand() string {
+	if x != nil {
+		return x.Command
+	}
+	return ""
+}
+
+func (x *Pane) GetState() string {
+	if x != nil {
+		return x.State
+	}
+	return ""
+}
+
+func (x *Pane) GetSummary() string {
+	if x != nil {
+		return x.Summary
+	}
+	return ""
+}
+
+func (x *Pane) GetLabel() string {
+	if x != nil {
+		return x.Label
+	}
+	return ""
+}
+
+func (x *Pane) GetChanged() int64 {
+	if x != nil {
+		return x.Changed
+	}
+	return 0
+}
+
+func (x *Pane) GetSeen() int64 {
+	if x != nil {
+		return x.Seen
+	}
+	return 0
+}
+
+func (x *Pane) GetQuestion() string {
+	if x != nil {
+		return x.Question
+	}
+	return ""
+}
+
+func (x *Pane) GetContext() string {
+	if x != nil {
+		return x.Context
+	}
+	return ""
+}
+
+func (x *Pane) GetActivity() int64 {
+	if x != nil {
+		return x.Activity
+	}
+	return 0
+}
+
+func (x *Pane) GetTool() string {
+	if x != nil {
+		return x.Tool
+	}
+	return ""
+}
+
+func (x *Pane) GetClaudeSession() string {
+	if x != nil {
+		return x.ClaudeSession
+	}
+	return ""
+}
+
+func (x *Pane) GetQuestionHash() string {
+	if x != nil {
+		return x.QuestionHash
+	}
+	return ""
+}
+
+func (x *Pane) GetNewestReply() int64 {
+	if x != nil {
+		return x.NewestReply
+	}
+	return 0
+}
+
+// ScreenRequest asks for the text of one pane. ansi false is the route's ansi absent or 0, true is ansi=1. history 0
+// adds no scrollback; 1 to 2000 adds that many lines; above 2000 is invalid_argument.
+type ScreenRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The pane's id, % followed by digits.
+	Pane string `protobuf:"bytes,1,opt,name=pane,proto3" json:"pane,omitempty"`
+	// Whether the text keeps its color escape sequences.
+	Ansi bool `protobuf:"varint,2,opt,name=ansi,proto3" json:"ansi,omitempty"`
+	// The scrollback lines to add above the visible screen.
+	History       uint32 `protobuf:"varint,3,opt,name=history,proto3" json:"history,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ScreenRequest) Reset() {
+	*x = ScreenRequest{}
+	mi := &file_orrery_v1_orrery_proto_msgTypes[31]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ScreenRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ScreenRequest) ProtoMessage() {}
+
+func (x *ScreenRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_orrery_proto_msgTypes[31]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ScreenRequest.ProtoReflect.Descriptor instead.
+func (*ScreenRequest) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{31}
+}
+
+func (x *ScreenRequest) GetPane() string {
+	if x != nil {
+		return x.Pane
+	}
+	return ""
+}
+
+func (x *ScreenRequest) GetAnsi() bool {
+	if x != nil {
+		return x.Ansi
+	}
+	return false
+}
+
+func (x *ScreenRequest) GetHistory() uint32 {
+	if x != nil {
+		return x.History
+	}
+	return 0
+}
+
+// ScreenResponse carries the text of one pane.
+type ScreenResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The pane's text, exactly the route's text/plain body.
+	Screen        []byte `protobuf:"bytes,1,opt,name=screen,proto3" json:"screen,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ScreenResponse) Reset() {
+	*x = ScreenResponse{}
+	mi := &file_orrery_v1_orrery_proto_msgTypes[32]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ScreenResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ScreenResponse) ProtoMessage() {}
+
+func (x *ScreenResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_orrery_proto_msgTypes[32]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ScreenResponse.ProtoReflect.Descriptor instead.
+func (*ScreenResponse) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{32}
+}
+
+func (x *ScreenResponse) GetScreen() []byte {
+	if x != nil {
+		return x.Screen
+	}
+	return nil
+}
+
+// ConversationRequest asks for the newest items of one pane's conversation. limit 0 means the route's default, 30;
+// 1 to 100 is that many; above 100 is invalid_argument.
+type ConversationRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The pane's id, % followed by digits.
+	Pane string `protobuf:"bytes,1,opt,name=pane,proto3" json:"pane,omitempty"`
+	// The number of newest items to answer with.
+	Limit         uint32 `protobuf:"varint,2,opt,name=limit,proto3" json:"limit,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ConversationRequest) Reset() {
+	*x = ConversationRequest{}
+	mi := &file_orrery_v1_orrery_proto_msgTypes[33]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ConversationRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ConversationRequest) ProtoMessage() {}
+
+func (x *ConversationRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_orrery_proto_msgTypes[33]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ConversationRequest.ProtoReflect.Descriptor instead.
+func (*ConversationRequest) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{33}
+}
+
+func (x *ConversationRequest) GetPane() string {
+	if x != nil {
+		return x.Pane
+	}
+	return ""
+}
+
+func (x *ConversationRequest) GetLimit() uint32 {
+	if x != nil {
+		return x.Limit
+	}
+	return 0
+}
+
+// ConversationResponse carries the conversation of one pane's Claude transcript.
+type ConversationResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The text of the transcript's first prompt, cut to 300 runes, or empty when there is none.
+	Origin string `protobuf:"bytes,1,opt,name=origin,proto3" json:"origin,omitempty"`
+	// The newest items of the conversation.
+	Items []*ConversationItem `protobuf:"bytes,2,rep,name=items,proto3" json:"items,omitempty"`
+	// The active goal of the conversation.
+	Goal string `protobuf:"bytes,3,opt,name=goal,proto3" json:"goal,omitempty"`
+	// The messages waiting to be sent to the conversation.
+	Waiting       []*WaitingMessage `protobuf:"bytes,4,rep,name=waiting,proto3" json:"waiting,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ConversationResponse) Reset() {
+	*x = ConversationResponse{}
+	mi := &file_orrery_v1_orrery_proto_msgTypes[34]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ConversationResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ConversationResponse) ProtoMessage() {}
+
+func (x *ConversationResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_orrery_proto_msgTypes[34]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ConversationResponse.ProtoReflect.Descriptor instead.
+func (*ConversationResponse) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{34}
+}
+
+func (x *ConversationResponse) GetOrigin() string {
+	if x != nil {
+		return x.Origin
+	}
+	return ""
+}
+
+func (x *ConversationResponse) GetItems() []*ConversationItem {
+	if x != nil {
+		return x.Items
+	}
+	return nil
+}
+
+func (x *ConversationResponse) GetGoal() string {
+	if x != nil {
+		return x.Goal
+	}
+	return ""
+}
+
+func (x *ConversationResponse) GetWaiting() []*WaitingMessage {
+	if x != nil {
+		return x.Waiting
+	}
+	return nil
+}
+
+// ConversationItem is one item of a conversation.
+type ConversationItem struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The item's kind.
+	Kind string `protobuf:"bytes,1,opt,name=kind,proto3" json:"kind,omitempty"`
+	// The unix seconds of the item.
+	Time int64 `protobuf:"varint,2,opt,name=time,proto3" json:"time,omitempty"`
+	// The item's text.
+	Text string `protobuf:"bytes,3,opt,name=text,proto3" json:"text,omitempty"`
+	// The tool name of a tool item.
+	Tool string `protobuf:"bytes,4,opt,name=tool,proto3" json:"tool,omitempty"`
+	// The tool input of a tool item.
+	Input string `protobuf:"bytes,5,opt,name=input,proto3" json:"input,omitempty"`
+	// The item's id.
+	Id string `protobuf:"bytes,6,opt,name=id,proto3" json:"id,omitempty"`
+	// Whether the item is an error.
+	Error bool `protobuf:"varint,7,opt,name=error,proto3" json:"error,omitempty"`
+	// The item's notice, if any.
+	Notice        string `protobuf:"bytes,8,opt,name=notice,proto3" json:"notice,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ConversationItem) Reset() {
+	*x = ConversationItem{}
+	mi := &file_orrery_v1_orrery_proto_msgTypes[35]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ConversationItem) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ConversationItem) ProtoMessage() {}
+
+func (x *ConversationItem) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_orrery_proto_msgTypes[35]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ConversationItem.ProtoReflect.Descriptor instead.
+func (*ConversationItem) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{35}
+}
+
+func (x *ConversationItem) GetKind() string {
+	if x != nil {
+		return x.Kind
+	}
+	return ""
+}
+
+func (x *ConversationItem) GetTime() int64 {
+	if x != nil {
+		return x.Time
+	}
+	return 0
+}
+
+func (x *ConversationItem) GetText() string {
+	if x != nil {
+		return x.Text
+	}
+	return ""
+}
+
+func (x *ConversationItem) GetTool() string {
+	if x != nil {
+		return x.Tool
+	}
+	return ""
+}
+
+func (x *ConversationItem) GetInput() string {
+	if x != nil {
+		return x.Input
+	}
+	return ""
+}
+
+func (x *ConversationItem) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *ConversationItem) GetError() bool {
+	if x != nil {
+		return x.Error
+	}
+	return false
+}
+
+func (x *ConversationItem) GetNotice() string {
+	if x != nil {
+		return x.Notice
+	}
+	return ""
+}
+
+// WaitingMessage is a message waiting to be sent to a conversation.
+type WaitingMessage struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The message's text.
+	Text string `protobuf:"bytes,1,opt,name=text,proto3" json:"text,omitempty"`
+	// The unix seconds the message was queued.
+	Time int64 `protobuf:"varint,2,opt,name=time,proto3" json:"time,omitempty"`
+	// Whether the message was canceled.
+	Canceled      bool `protobuf:"varint,3,opt,name=canceled,proto3" json:"canceled,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *WaitingMessage) Reset() {
+	*x = WaitingMessage{}
+	mi := &file_orrery_v1_orrery_proto_msgTypes[36]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *WaitingMessage) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*WaitingMessage) ProtoMessage() {}
+
+func (x *WaitingMessage) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_orrery_proto_msgTypes[36]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use WaitingMessage.ProtoReflect.Descriptor instead.
+func (*WaitingMessage) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{36}
+}
+
+func (x *WaitingMessage) GetText() string {
+	if x != nil {
+		return x.Text
+	}
+	return ""
+}
+
+func (x *WaitingMessage) GetTime() int64 {
+	if x != nil {
+		return x.Time
+	}
+	return 0
+}
+
+func (x *WaitingMessage) GetCanceled() bool {
+	if x != nil {
+		return x.Canceled
+	}
+	return false
+}
+
+// SendTextRequest asks for text to be sent to one pane.
+type SendTextRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The pane's id, % followed by digits.
+	Pane string `protobuf:"bytes,1,opt,name=pane,proto3" json:"pane,omitempty"`
+	// The text to send.
+	Text          string `protobuf:"bytes,2,opt,name=text,proto3" json:"text,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SendTextRequest) Reset() {
+	*x = SendTextRequest{}
+	mi := &file_orrery_v1_orrery_proto_msgTypes[37]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SendTextRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SendTextRequest) ProtoMessage() {}
+
+func (x *SendTextRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_orrery_proto_msgTypes[37]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SendTextRequest.ProtoReflect.Descriptor instead.
+func (*SendTextRequest) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{37}
+}
+
+func (x *SendTextRequest) GetPane() string {
+	if x != nil {
+		return x.Pane
+	}
+	return ""
+}
+
+func (x *SendTextRequest) GetText() string {
+	if x != nil {
+		return x.Text
+	}
+	return ""
+}
+
+// SendTextResponse is the reply to a SendText. It has no fields.
+type SendTextResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SendTextResponse) Reset() {
+	*x = SendTextResponse{}
+	mi := &file_orrery_v1_orrery_proto_msgTypes[38]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SendTextResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SendTextResponse) ProtoMessage() {}
+
+func (x *SendTextResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_orrery_proto_msgTypes[38]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SendTextResponse.ProtoReflect.Descriptor instead.
+func (*SendTextResponse) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{38}
+}
+
+// SendKeysRequest asks for keys to be sent to one pane. expect_question present is the route's expect_question field
+// present.
+type SendKeysRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The pane's id, % followed by digits.
+	Pane string `protobuf:"bytes,1,opt,name=pane,proto3" json:"pane,omitempty"`
+	// The keys to send, in order.
+	Keys []string `protobuf:"bytes,2,rep,name=keys,proto3" json:"keys,omitempty"`
+	// The question the keys answer. When set, the keys are sent only while the pane shows that question.
+	ExpectQuestion *string `protobuf:"bytes,3,opt,name=expect_question,json=expectQuestion,proto3,oneof" json:"expect_question,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *SendKeysRequest) Reset() {
+	*x = SendKeysRequest{}
+	mi := &file_orrery_v1_orrery_proto_msgTypes[39]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SendKeysRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SendKeysRequest) ProtoMessage() {}
+
+func (x *SendKeysRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_orrery_proto_msgTypes[39]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SendKeysRequest.ProtoReflect.Descriptor instead.
+func (*SendKeysRequest) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{39}
+}
+
+func (x *SendKeysRequest) GetPane() string {
+	if x != nil {
+		return x.Pane
+	}
+	return ""
+}
+
+func (x *SendKeysRequest) GetKeys() []string {
+	if x != nil {
+		return x.Keys
+	}
+	return nil
+}
+
+func (x *SendKeysRequest) GetExpectQuestion() string {
+	if x != nil && x.ExpectQuestion != nil {
+		return *x.ExpectQuestion
+	}
+	return ""
+}
+
+// SendKeysResponse is the reply to a SendKeys. It has no fields.
+type SendKeysResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SendKeysResponse) Reset() {
+	*x = SendKeysResponse{}
+	mi := &file_orrery_v1_orrery_proto_msgTypes[40]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SendKeysResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SendKeysResponse) ProtoMessage() {}
+
+func (x *SendKeysResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_orrery_proto_msgTypes[40]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SendKeysResponse.ProtoReflect.Descriptor instead.
+func (*SendKeysResponse) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{40}
+}
+
+// MarkSeenRequest asks for one pane to be marked seen. read_up_to absent means now; present must be 0 or more, else
+// invalid_argument.
+type MarkSeenRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The pane's id, % followed by digits.
+	Pane string `protobuf:"bytes,1,opt,name=pane,proto3" json:"pane,omitempty"`
+	// The unix seconds the user has read up to, or absent for now.
+	ReadUpTo      *int64 `protobuf:"varint,2,opt,name=read_up_to,json=readUpTo,proto3,oneof" json:"read_up_to,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *MarkSeenRequest) Reset() {
+	*x = MarkSeenRequest{}
+	mi := &file_orrery_v1_orrery_proto_msgTypes[41]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MarkSeenRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MarkSeenRequest) ProtoMessage() {}
+
+func (x *MarkSeenRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_orrery_proto_msgTypes[41]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MarkSeenRequest.ProtoReflect.Descriptor instead.
+func (*MarkSeenRequest) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{41}
+}
+
+func (x *MarkSeenRequest) GetPane() string {
+	if x != nil {
+		return x.Pane
+	}
+	return ""
+}
+
+func (x *MarkSeenRequest) GetReadUpTo() int64 {
+	if x != nil && x.ReadUpTo != nil {
+		return *x.ReadUpTo
+	}
+	return 0
+}
+
+// MarkSeenResponse is the reply to a MarkSeen. It has no fields.
+type MarkSeenResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *MarkSeenResponse) Reset() {
+	*x = MarkSeenResponse{}
+	mi := &file_orrery_v1_orrery_proto_msgTypes[42]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MarkSeenResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MarkSeenResponse) ProtoMessage() {}
+
+func (x *MarkSeenResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_orrery_proto_msgTypes[42]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use MarkSeenResponse.ProtoReflect.Descriptor instead.
+func (*MarkSeenResponse) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{42}
+}
+
+// HostStatusRequest asks for the host's status. It has no fields.
+type HostStatusRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *HostStatusRequest) Reset() {
+	*x = HostStatusRequest{}
+	mi := &file_orrery_v1_orrery_proto_msgTypes[43]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *HostStatusRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*HostStatusRequest) ProtoMessage() {}
+
+func (x *HostStatusRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_orrery_proto_msgTypes[43]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use HostStatusRequest.ProtoReflect.Descriptor instead.
+func (*HostStatusRequest) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{43}
+}
+
+// HostStatusResponse carries the host's name and its stats.
+type HostStatusResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The host's name.
+	Host string `protobuf:"bytes,1,opt,name=host,proto3" json:"host,omitempty"`
+	// The host's stats.
+	Stats         []*HostStat `protobuf:"bytes,2,rep,name=stats,proto3" json:"stats,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *HostStatusResponse) Reset() {
+	*x = HostStatusResponse{}
+	mi := &file_orrery_v1_orrery_proto_msgTypes[44]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *HostStatusResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*HostStatusResponse) ProtoMessage() {}
+
+func (x *HostStatusResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_orrery_proto_msgTypes[44]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use HostStatusResponse.ProtoReflect.Descriptor instead.
+func (*HostStatusResponse) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{44}
+}
+
+func (x *HostStatusResponse) GetHost() string {
+	if x != nil {
+		return x.Host
+	}
+	return ""
+}
+
+func (x *HostStatusResponse) GetStats() []*HostStat {
+	if x != nil {
+		return x.Stats
+	}
+	return nil
+}
+
+// HostStat is one stat of the host.
+type HostStat struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The stat's label.
+	Label string `protobuf:"bytes,1,opt,name=label,proto3" json:"label,omitempty"`
+	// The stat's value as text.
+	Value string `protobuf:"bytes,2,opt,name=value,proto3" json:"value,omitempty"`
+	// The stat's percent, when it has one.
+	Percent *float64 `protobuf:"fixed64,3,opt,name=percent,proto3,oneof" json:"percent,omitempty"`
+	// The stat's level.
+	Level         string `protobuf:"bytes,4,opt,name=level,proto3" json:"level,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *HostStat) Reset() {
+	*x = HostStat{}
+	mi := &file_orrery_v1_orrery_proto_msgTypes[45]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *HostStat) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*HostStat) ProtoMessage() {}
+
+func (x *HostStat) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_orrery_proto_msgTypes[45]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use HostStat.ProtoReflect.Descriptor instead.
+func (*HostStat) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{45}
+}
+
+func (x *HostStat) GetLabel() string {
+	if x != nil {
+		return x.Label
+	}
+	return ""
+}
+
+func (x *HostStat) GetValue() string {
+	if x != nil {
+		return x.Value
+	}
+	return ""
+}
+
+func (x *HostStat) GetPercent() float64 {
+	if x != nil && x.Percent != nil {
+		return *x.Percent
+	}
+	return 0
+}
+
+func (x *HostStat) GetLevel() string {
+	if x != nil {
+		return x.Level
+	}
+	return ""
+}
+
+// RegisterRequest asks for a push subscription to be stored.
+type RegisterRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The subscription's endpoint URL.
+	Endpoint string `protobuf:"bytes,1,opt,name=endpoint,proto3" json:"endpoint,omitempty"`
+	// The subscription's P-256 public key, base64url without padding.
+	P256Dh string `protobuf:"bytes,2,opt,name=p256dh,proto3" json:"p256dh,omitempty"`
+	// The subscription's auth secret, base64url without padding.
+	Auth          string `protobuf:"bytes,3,opt,name=auth,proto3" json:"auth,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RegisterRequest) Reset() {
+	*x = RegisterRequest{}
+	mi := &file_orrery_v1_orrery_proto_msgTypes[46]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RegisterRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RegisterRequest) ProtoMessage() {}
+
+func (x *RegisterRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_orrery_proto_msgTypes[46]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RegisterRequest.ProtoReflect.Descriptor instead.
+func (*RegisterRequest) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{46}
+}
+
+func (x *RegisterRequest) GetEndpoint() string {
+	if x != nil {
+		return x.Endpoint
+	}
+	return ""
+}
+
+func (x *RegisterRequest) GetP256Dh() string {
+	if x != nil {
+		return x.P256Dh
+	}
+	return ""
+}
+
+func (x *RegisterRequest) GetAuth() string {
+	if x != nil {
+		return x.Auth
+	}
+	return ""
+}
+
+// RegisterResponse is the reply to a Register. It has no fields.
+type RegisterResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RegisterResponse) Reset() {
+	*x = RegisterResponse{}
+	mi := &file_orrery_v1_orrery_proto_msgTypes[47]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RegisterResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RegisterResponse) ProtoMessage() {}
+
+func (x *RegisterResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_orrery_proto_msgTypes[47]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RegisterResponse.ProtoReflect.Descriptor instead.
+func (*RegisterResponse) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{47}
+}
+
+// UnregisterRequest asks for a push subscription to be removed.
+type UnregisterRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The subscription's endpoint URL.
+	Endpoint      string `protobuf:"bytes,1,opt,name=endpoint,proto3" json:"endpoint,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UnregisterRequest) Reset() {
+	*x = UnregisterRequest{}
+	mi := &file_orrery_v1_orrery_proto_msgTypes[48]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UnregisterRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UnregisterRequest) ProtoMessage() {}
+
+func (x *UnregisterRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_orrery_proto_msgTypes[48]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UnregisterRequest.ProtoReflect.Descriptor instead.
+func (*UnregisterRequest) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{48}
+}
+
+func (x *UnregisterRequest) GetEndpoint() string {
+	if x != nil {
+		return x.Endpoint
+	}
+	return ""
+}
+
+// UnregisterResponse is the reply to an Unregister. It has no fields.
+type UnregisterResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UnregisterResponse) Reset() {
+	*x = UnregisterResponse{}
+	mi := &file_orrery_v1_orrery_proto_msgTypes[49]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UnregisterResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UnregisterResponse) ProtoMessage() {}
+
+func (x *UnregisterResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_orrery_proto_msgTypes[49]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UnregisterResponse.ProtoReflect.Descriptor instead.
+func (*UnregisterResponse) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{49}
+}
+
+// AskRequest asks which panes and directories match a text.
+type AskRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The text to match.
+	Text          string `protobuf:"bytes,1,opt,name=text,proto3" json:"text,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AskRequest) Reset() {
+	*x = AskRequest{}
+	mi := &file_orrery_v1_orrery_proto_msgTypes[50]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AskRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AskRequest) ProtoMessage() {}
+
+func (x *AskRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_orrery_proto_msgTypes[50]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AskRequest.ProtoReflect.Descriptor instead.
+func (*AskRequest) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{50}
+}
+
+func (x *AskRequest) GetText() string {
+	if x != nil {
+		return x.Text
+	}
+	return ""
+}
+
+// AskResponse carries the rows that match the text.
+type AskResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The matching rows.
+	Rows          []*PickerRow `protobuf:"bytes,1,rep,name=rows,proto3" json:"rows,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AskResponse) Reset() {
+	*x = AskResponse{}
+	mi := &file_orrery_v1_orrery_proto_msgTypes[51]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AskResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AskResponse) ProtoMessage() {}
+
+func (x *AskResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_orrery_proto_msgTypes[51]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AskResponse.ProtoReflect.Descriptor instead.
+func (*AskResponse) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{51}
+}
+
+func (x *AskResponse) GetRows() []*PickerRow {
+	if x != nil {
+		return x.Rows
+	}
+	return nil
+}
+
+// PickerRow is one row of an Ask answer.
+type PickerRow struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The row's one-time token, which a Run names.
+	Token string `protobuf:"bytes,1,opt,name=token,proto3" json:"token,omitempty"`
+	// The row's kind.
+	Kind string `protobuf:"bytes,2,opt,name=kind,proto3" json:"kind,omitempty"`
+	// The row's directory.
+	Dir string `protobuf:"bytes,3,opt,name=dir,proto3" json:"dir,omitempty"`
+	// The row's pane, when it has one.
+	Pane string `protobuf:"bytes,4,opt,name=pane,proto3" json:"pane,omitempty"`
+	// The row's label.
+	Label string `protobuf:"bytes,5,opt,name=label,proto3" json:"label,omitempty"`
+	// The row's note.
+	Note string `protobuf:"bytes,6,opt,name=note,proto3" json:"note,omitempty"`
+	// Whether the row's action carries a first prompt.
+	Prompt        bool `protobuf:"varint,7,opt,name=prompt,proto3" json:"prompt,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PickerRow) Reset() {
+	*x = PickerRow{}
+	mi := &file_orrery_v1_orrery_proto_msgTypes[52]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PickerRow) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PickerRow) ProtoMessage() {}
+
+func (x *PickerRow) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_orrery_proto_msgTypes[52]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PickerRow.ProtoReflect.Descriptor instead.
+func (*PickerRow) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{52}
+}
+
+func (x *PickerRow) GetToken() string {
+	if x != nil {
+		return x.Token
+	}
+	return ""
+}
+
+func (x *PickerRow) GetKind() string {
+	if x != nil {
+		return x.Kind
+	}
+	return ""
+}
+
+func (x *PickerRow) GetDir() string {
+	if x != nil {
+		return x.Dir
+	}
+	return ""
+}
+
+func (x *PickerRow) GetPane() string {
+	if x != nil {
+		return x.Pane
+	}
+	return ""
+}
+
+func (x *PickerRow) GetLabel() string {
+	if x != nil {
+		return x.Label
+	}
+	return ""
+}
+
+func (x *PickerRow) GetNote() string {
+	if x != nil {
+		return x.Note
+	}
+	return ""
+}
+
+func (x *PickerRow) GetPrompt() bool {
+	if x != nil {
+		return x.Prompt
+	}
+	return false
+}
+
+// RunRequest asks for the action a token names to run.
+type RunRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The token an Ask issued.
+	Token         string `protobuf:"bytes,1,opt,name=token,proto3" json:"token,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RunRequest) Reset() {
+	*x = RunRequest{}
+	mi := &file_orrery_v1_orrery_proto_msgTypes[53]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RunRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RunRequest) ProtoMessage() {}
+
+func (x *RunRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_orrery_proto_msgTypes[53]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RunRequest.ProtoReflect.Descriptor instead.
+func (*RunRequest) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{53}
+}
+
+func (x *RunRequest) GetToken() string {
+	if x != nil {
+		return x.Token
+	}
+	return ""
+}
+
+// RunResponse carries the pane the run opened or jumped to.
+type RunResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The pane the run answered.
+	Pane          string `protobuf:"bytes,1,opt,name=pane,proto3" json:"pane,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RunResponse) Reset() {
+	*x = RunResponse{}
+	mi := &file_orrery_v1_orrery_proto_msgTypes[54]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RunResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RunResponse) ProtoMessage() {}
+
+func (x *RunResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_orrery_proto_msgTypes[54]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RunResponse.ProtoReflect.Descriptor instead.
+func (*RunResponse) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{54}
+}
+
+func (x *RunResponse) GetPane() string {
+	if x != nil {
+		return x.Pane
+	}
+	return ""
+}
+
 var File_orrery_v1_orrery_proto protoreflect.FileDescriptor
 
 const file_orrery_v1_orrery_proto_rawDesc = "" +
@@ -2193,7 +3818,111 @@ const file_orrery_v1_orrery_proto_rawDesc = "" +
 	"\x05index\x18\x02 \x01(\x05R\x05index\x12+\n" +
 	"\x12parent_tool_use_id\x18\x03 \x01(\tR\x0fparentToolUseId\x12\x12\n" +
 	"\x04kind\x18\x04 \x01(\tR\x04kind\x12\x12\n" +
-	"\x04text\x18\x05 \x01(\tR\x04text2C\n" +
+	"\x04text\x18\x05 \x01(\tR\x04text\"\x12\n" +
+	"\x10PanesListRequest\":\n" +
+	"\x11PanesListResponse\x12%\n" +
+	"\x05panes\x18\x01 \x03(\v2\x0f.orrery.v1.PaneR\x05panes\"\xe5\x03\n" +
+	"\x04Pane\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
+	"\x04host\x18\x02 \x01(\tR\x04host\x12\x18\n" +
+	"\asession\x18\x03 \x01(\tR\asession\x12\x16\n" +
+	"\x06window\x18\x04 \x01(\x05R\x06window\x12\x12\n" +
+	"\x04pane\x18\x05 \x01(\x05R\x04pane\x12\x10\n" +
+	"\x03cwd\x18\x06 \x01(\tR\x03cwd\x12\x18\n" +
+	"\acommand\x18\a \x01(\tR\acommand\x12\x14\n" +
+	"\x05state\x18\b \x01(\tR\x05state\x12\x18\n" +
+	"\asummary\x18\t \x01(\tR\asummary\x12\x14\n" +
+	"\x05label\x18\n" +
+	" \x01(\tR\x05label\x12\x18\n" +
+	"\achanged\x18\v \x01(\x03R\achanged\x12\x12\n" +
+	"\x04seen\x18\f \x01(\x03R\x04seen\x12\x1a\n" +
+	"\bquestion\x18\r \x01(\tR\bquestion\x12\x18\n" +
+	"\acontext\x18\x0e \x01(\tR\acontext\x12\x1a\n" +
+	"\bactivity\x18\x0f \x01(\x03R\bactivity\x12\x12\n" +
+	"\x04tool\x18\x10 \x01(\tR\x04tool\x12%\n" +
+	"\x0eclaude_session\x18\x11 \x01(\tR\rclaudeSession\x12#\n" +
+	"\rquestion_hash\x18\x12 \x01(\tR\fquestionHash\x12!\n" +
+	"\fnewest_reply\x18\x13 \x01(\x03R\vnewestReply\"Q\n" +
+	"\rScreenRequest\x12\x12\n" +
+	"\x04pane\x18\x01 \x01(\tR\x04pane\x12\x12\n" +
+	"\x04ansi\x18\x02 \x01(\bR\x04ansi\x12\x18\n" +
+	"\ahistory\x18\x03 \x01(\rR\ahistory\"(\n" +
+	"\x0eScreenResponse\x12\x16\n" +
+	"\x06screen\x18\x01 \x01(\fR\x06screen\"?\n" +
+	"\x13ConversationRequest\x12\x12\n" +
+	"\x04pane\x18\x01 \x01(\tR\x04pane\x12\x14\n" +
+	"\x05limit\x18\x02 \x01(\rR\x05limit\"\xaa\x01\n" +
+	"\x14ConversationResponse\x12\x16\n" +
+	"\x06origin\x18\x01 \x01(\tR\x06origin\x121\n" +
+	"\x05items\x18\x02 \x03(\v2\x1b.orrery.v1.ConversationItemR\x05items\x12\x12\n" +
+	"\x04goal\x18\x03 \x01(\tR\x04goal\x123\n" +
+	"\awaiting\x18\x04 \x03(\v2\x19.orrery.v1.WaitingMessageR\awaiting\"\xb6\x01\n" +
+	"\x10ConversationItem\x12\x12\n" +
+	"\x04kind\x18\x01 \x01(\tR\x04kind\x12\x12\n" +
+	"\x04time\x18\x02 \x01(\x03R\x04time\x12\x12\n" +
+	"\x04text\x18\x03 \x01(\tR\x04text\x12\x12\n" +
+	"\x04tool\x18\x04 \x01(\tR\x04tool\x12\x14\n" +
+	"\x05input\x18\x05 \x01(\tR\x05input\x12\x0e\n" +
+	"\x02id\x18\x06 \x01(\tR\x02id\x12\x14\n" +
+	"\x05error\x18\a \x01(\bR\x05error\x12\x16\n" +
+	"\x06notice\x18\b \x01(\tR\x06notice\"T\n" +
+	"\x0eWaitingMessage\x12\x12\n" +
+	"\x04text\x18\x01 \x01(\tR\x04text\x12\x12\n" +
+	"\x04time\x18\x02 \x01(\x03R\x04time\x12\x1a\n" +
+	"\bcanceled\x18\x03 \x01(\bR\bcanceled\"9\n" +
+	"\x0fSendTextRequest\x12\x12\n" +
+	"\x04pane\x18\x01 \x01(\tR\x04pane\x12\x12\n" +
+	"\x04text\x18\x02 \x01(\tR\x04text\"\x12\n" +
+	"\x10SendTextResponse\"{\n" +
+	"\x0fSendKeysRequest\x12\x12\n" +
+	"\x04pane\x18\x01 \x01(\tR\x04pane\x12\x12\n" +
+	"\x04keys\x18\x02 \x03(\tR\x04keys\x12,\n" +
+	"\x0fexpect_question\x18\x03 \x01(\tH\x00R\x0eexpectQuestion\x88\x01\x01B\x12\n" +
+	"\x10_expect_question\"\x12\n" +
+	"\x10SendKeysResponse\"W\n" +
+	"\x0fMarkSeenRequest\x12\x12\n" +
+	"\x04pane\x18\x01 \x01(\tR\x04pane\x12!\n" +
+	"\n" +
+	"read_up_to\x18\x02 \x01(\x03H\x00R\breadUpTo\x88\x01\x01B\r\n" +
+	"\v_read_up_to\"\x12\n" +
+	"\x10MarkSeenResponse\"\x13\n" +
+	"\x11HostStatusRequest\"S\n" +
+	"\x12HostStatusResponse\x12\x12\n" +
+	"\x04host\x18\x01 \x01(\tR\x04host\x12)\n" +
+	"\x05stats\x18\x02 \x03(\v2\x13.orrery.v1.HostStatR\x05stats\"w\n" +
+	"\bHostStat\x12\x14\n" +
+	"\x05label\x18\x01 \x01(\tR\x05label\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value\x12\x1d\n" +
+	"\apercent\x18\x03 \x01(\x01H\x00R\apercent\x88\x01\x01\x12\x14\n" +
+	"\x05level\x18\x04 \x01(\tR\x05levelB\n" +
+	"\n" +
+	"\b_percent\"Y\n" +
+	"\x0fRegisterRequest\x12\x1a\n" +
+	"\bendpoint\x18\x01 \x01(\tR\bendpoint\x12\x16\n" +
+	"\x06p256dh\x18\x02 \x01(\tR\x06p256dh\x12\x12\n" +
+	"\x04auth\x18\x03 \x01(\tR\x04auth\"\x12\n" +
+	"\x10RegisterResponse\"/\n" +
+	"\x11UnregisterRequest\x12\x1a\n" +
+	"\bendpoint\x18\x01 \x01(\tR\bendpoint\"\x14\n" +
+	"\x12UnregisterResponse\" \n" +
+	"\n" +
+	"AskRequest\x12\x12\n" +
+	"\x04text\x18\x01 \x01(\tR\x04text\"7\n" +
+	"\vAskResponse\x12(\n" +
+	"\x04rows\x18\x01 \x03(\v2\x14.orrery.v1.PickerRowR\x04rows\"\x9d\x01\n" +
+	"\tPickerRow\x12\x14\n" +
+	"\x05token\x18\x01 \x01(\tR\x05token\x12\x12\n" +
+	"\x04kind\x18\x02 \x01(\tR\x04kind\x12\x10\n" +
+	"\x03dir\x18\x03 \x01(\tR\x03dir\x12\x12\n" +
+	"\x04pane\x18\x04 \x01(\tR\x04pane\x12\x14\n" +
+	"\x05label\x18\x05 \x01(\tR\x05label\x12\x12\n" +
+	"\x04note\x18\x06 \x01(\tR\x04note\x12\x16\n" +
+	"\x06prompt\x18\a \x01(\bR\x06prompt\"\"\n" +
+	"\n" +
+	"RunRequest\x12\x14\n" +
+	"\x05token\x18\x01 \x01(\tR\x05token\"!\n" +
+	"\vRunResponse\x12\x12\n" +
+	"\x04pane\x18\x01 \x01(\tR\x04pane2C\n" +
 	"\bSessions\x127\n" +
 	"\x04List\x12\x16.orrery.v1.ListRequest\x1a\x17.orrery.v1.ListResponse2F\n" +
 	"\x06Events\x12<\n" +
@@ -2204,7 +3933,23 @@ const file_orrery_v1_orrery_proto_rawDesc = "" +
 	"\x06Answer\x12\x18.orrery.v1.AnswerRequest\x1a\x19.orrery.v1.AnswerResponse\x12F\n" +
 	"\tInterrupt\x12\x1b.orrery.v1.InterruptRequest\x1a\x1c.orrery.v1.InterruptResponse\x127\n" +
 	"\x04Stop\x12\x16.orrery.v1.StopRequest\x1a\x17.orrery.v1.StopResponse\x127\n" +
-	"\x04Seen\x12\x16.orrery.v1.SeenRequest\x1a\x17.orrery.v1.SeenResponseB\xa0\x01\n" +
+	"\x04Seen\x12\x16.orrery.v1.SeenRequest\x1a\x17.orrery.v1.SeenResponse2\xa9\x03\n" +
+	"\x05Panes\x12A\n" +
+	"\x04List\x12\x1b.orrery.v1.PanesListRequest\x1a\x1c.orrery.v1.PanesListResponse\x12=\n" +
+	"\x06Screen\x12\x18.orrery.v1.ScreenRequest\x1a\x19.orrery.v1.ScreenResponse\x12O\n" +
+	"\fConversation\x12\x1e.orrery.v1.ConversationRequest\x1a\x1f.orrery.v1.ConversationResponse\x12C\n" +
+	"\bSendText\x12\x1a.orrery.v1.SendTextRequest\x1a\x1b.orrery.v1.SendTextResponse\x12C\n" +
+	"\bSendKeys\x12\x1a.orrery.v1.SendKeysRequest\x1a\x1b.orrery.v1.SendKeysResponse\x12C\n" +
+	"\bMarkSeen\x12\x1a.orrery.v1.MarkSeenRequest\x1a\x1b.orrery.v1.MarkSeenResponse2M\n" +
+	"\x04Host\x12E\n" +
+	"\x06Status\x12\x1c.orrery.v1.HostStatusRequest\x1a\x1d.orrery.v1.HostStatusResponse2\x96\x01\n" +
+	"\x04Push\x12C\n" +
+	"\bRegister\x12\x1a.orrery.v1.RegisterRequest\x1a\x1b.orrery.v1.RegisterResponse\x12I\n" +
+	"\n" +
+	"Unregister\x12\x1c.orrery.v1.UnregisterRequest\x1a\x1d.orrery.v1.UnregisterResponse2t\n" +
+	"\x06Picker\x124\n" +
+	"\x03Ask\x12\x15.orrery.v1.AskRequest\x1a\x16.orrery.v1.AskResponse\x124\n" +
+	"\x03Run\x12\x15.orrery.v1.RunRequest\x1a\x16.orrery.v1.RunResponseB\xa0\x01\n" +
 	"\rcom.orrery.v1B\vOrreryProtoP\x01Z=github.com/joshsymonds/orrery/internal/gen/orrery/v1;orreryv1\xa2\x02\x03OXX\xaa\x02\tOrrery.V1\xca\x02\tOrrery\\V1\xe2\x02\x15Orrery\\V1\\GPBMetadata\xea\x02\n" +
 	"Orrery::V1b\x06proto3"
 
@@ -2220,7 +3965,7 @@ func file_orrery_v1_orrery_proto_rawDescGZIP() []byte {
 	return file_orrery_v1_orrery_proto_rawDescData
 }
 
-var file_orrery_v1_orrery_proto_msgTypes = make([]protoimpl.MessageInfo, 28)
+var file_orrery_v1_orrery_proto_msgTypes = make([]protoimpl.MessageInfo, 55)
 var file_orrery_v1_orrery_proto_goTypes = []any{
 	(*ListRequest)(nil),           // 0: orrery.v1.ListRequest
 	(*ListResponse)(nil),          // 1: orrery.v1.ListResponse
@@ -2250,6 +3995,33 @@ var file_orrery_v1_orrery_proto_goTypes = []any{
 	(*EngineRequestCanceled)(nil), // 25: orrery.v1.EngineRequestCanceled
 	(*EngineTurnEnded)(nil),       // 26: orrery.v1.EngineTurnEnded
 	(*EngineText)(nil),            // 27: orrery.v1.EngineText
+	(*PanesListRequest)(nil),      // 28: orrery.v1.PanesListRequest
+	(*PanesListResponse)(nil),     // 29: orrery.v1.PanesListResponse
+	(*Pane)(nil),                  // 30: orrery.v1.Pane
+	(*ScreenRequest)(nil),         // 31: orrery.v1.ScreenRequest
+	(*ScreenResponse)(nil),        // 32: orrery.v1.ScreenResponse
+	(*ConversationRequest)(nil),   // 33: orrery.v1.ConversationRequest
+	(*ConversationResponse)(nil),  // 34: orrery.v1.ConversationResponse
+	(*ConversationItem)(nil),      // 35: orrery.v1.ConversationItem
+	(*WaitingMessage)(nil),        // 36: orrery.v1.WaitingMessage
+	(*SendTextRequest)(nil),       // 37: orrery.v1.SendTextRequest
+	(*SendTextResponse)(nil),      // 38: orrery.v1.SendTextResponse
+	(*SendKeysRequest)(nil),       // 39: orrery.v1.SendKeysRequest
+	(*SendKeysResponse)(nil),      // 40: orrery.v1.SendKeysResponse
+	(*MarkSeenRequest)(nil),       // 41: orrery.v1.MarkSeenRequest
+	(*MarkSeenResponse)(nil),      // 42: orrery.v1.MarkSeenResponse
+	(*HostStatusRequest)(nil),     // 43: orrery.v1.HostStatusRequest
+	(*HostStatusResponse)(nil),    // 44: orrery.v1.HostStatusResponse
+	(*HostStat)(nil),              // 45: orrery.v1.HostStat
+	(*RegisterRequest)(nil),       // 46: orrery.v1.RegisterRequest
+	(*RegisterResponse)(nil),      // 47: orrery.v1.RegisterResponse
+	(*UnregisterRequest)(nil),     // 48: orrery.v1.UnregisterRequest
+	(*UnregisterResponse)(nil),    // 49: orrery.v1.UnregisterResponse
+	(*AskRequest)(nil),            // 50: orrery.v1.AskRequest
+	(*AskResponse)(nil),           // 51: orrery.v1.AskResponse
+	(*PickerRow)(nil),             // 52: orrery.v1.PickerRow
+	(*RunRequest)(nil),            // 53: orrery.v1.RunRequest
+	(*RunResponse)(nil),           // 54: orrery.v1.RunResponse
 }
 var file_orrery_v1_orrery_proto_depIdxs = []int32{
 	2,  // 0: orrery.v1.ListResponse.sessions:type_name -> orrery.v1.Session
@@ -2264,27 +4036,54 @@ var file_orrery_v1_orrery_proto_depIdxs = []int32{
 	25, // 9: orrery.v1.WatchResponse.engine_request_canceled:type_name -> orrery.v1.EngineRequestCanceled
 	26, // 10: orrery.v1.WatchResponse.engine_turn_ended:type_name -> orrery.v1.EngineTurnEnded
 	27, // 11: orrery.v1.WatchResponse.engine_text:type_name -> orrery.v1.EngineText
-	0,  // 12: orrery.v1.Sessions.List:input_type -> orrery.v1.ListRequest
-	3,  // 13: orrery.v1.Events.Watch:input_type -> orrery.v1.WatchRequest
-	8,  // 14: orrery.v1.Control.Start:input_type -> orrery.v1.StartRequest
-	10, // 15: orrery.v1.Control.Say:input_type -> orrery.v1.SayRequest
-	12, // 16: orrery.v1.Control.Answer:input_type -> orrery.v1.AnswerRequest
-	14, // 17: orrery.v1.Control.Interrupt:input_type -> orrery.v1.InterruptRequest
-	16, // 18: orrery.v1.Control.Stop:input_type -> orrery.v1.StopRequest
-	18, // 19: orrery.v1.Control.Seen:input_type -> orrery.v1.SeenRequest
-	1,  // 20: orrery.v1.Sessions.List:output_type -> orrery.v1.ListResponse
-	4,  // 21: orrery.v1.Events.Watch:output_type -> orrery.v1.WatchResponse
-	9,  // 22: orrery.v1.Control.Start:output_type -> orrery.v1.StartResponse
-	11, // 23: orrery.v1.Control.Say:output_type -> orrery.v1.SayResponse
-	13, // 24: orrery.v1.Control.Answer:output_type -> orrery.v1.AnswerResponse
-	15, // 25: orrery.v1.Control.Interrupt:output_type -> orrery.v1.InterruptResponse
-	17, // 26: orrery.v1.Control.Stop:output_type -> orrery.v1.StopResponse
-	19, // 27: orrery.v1.Control.Seen:output_type -> orrery.v1.SeenResponse
-	20, // [20:28] is the sub-list for method output_type
-	12, // [12:20] is the sub-list for method input_type
-	12, // [12:12] is the sub-list for extension type_name
-	12, // [12:12] is the sub-list for extension extendee
-	0,  // [0:12] is the sub-list for field type_name
+	30, // 12: orrery.v1.PanesListResponse.panes:type_name -> orrery.v1.Pane
+	35, // 13: orrery.v1.ConversationResponse.items:type_name -> orrery.v1.ConversationItem
+	36, // 14: orrery.v1.ConversationResponse.waiting:type_name -> orrery.v1.WaitingMessage
+	45, // 15: orrery.v1.HostStatusResponse.stats:type_name -> orrery.v1.HostStat
+	52, // 16: orrery.v1.AskResponse.rows:type_name -> orrery.v1.PickerRow
+	0,  // 17: orrery.v1.Sessions.List:input_type -> orrery.v1.ListRequest
+	3,  // 18: orrery.v1.Events.Watch:input_type -> orrery.v1.WatchRequest
+	8,  // 19: orrery.v1.Control.Start:input_type -> orrery.v1.StartRequest
+	10, // 20: orrery.v1.Control.Say:input_type -> orrery.v1.SayRequest
+	12, // 21: orrery.v1.Control.Answer:input_type -> orrery.v1.AnswerRequest
+	14, // 22: orrery.v1.Control.Interrupt:input_type -> orrery.v1.InterruptRequest
+	16, // 23: orrery.v1.Control.Stop:input_type -> orrery.v1.StopRequest
+	18, // 24: orrery.v1.Control.Seen:input_type -> orrery.v1.SeenRequest
+	28, // 25: orrery.v1.Panes.List:input_type -> orrery.v1.PanesListRequest
+	31, // 26: orrery.v1.Panes.Screen:input_type -> orrery.v1.ScreenRequest
+	33, // 27: orrery.v1.Panes.Conversation:input_type -> orrery.v1.ConversationRequest
+	37, // 28: orrery.v1.Panes.SendText:input_type -> orrery.v1.SendTextRequest
+	39, // 29: orrery.v1.Panes.SendKeys:input_type -> orrery.v1.SendKeysRequest
+	41, // 30: orrery.v1.Panes.MarkSeen:input_type -> orrery.v1.MarkSeenRequest
+	43, // 31: orrery.v1.Host.Status:input_type -> orrery.v1.HostStatusRequest
+	46, // 32: orrery.v1.Push.Register:input_type -> orrery.v1.RegisterRequest
+	48, // 33: orrery.v1.Push.Unregister:input_type -> orrery.v1.UnregisterRequest
+	50, // 34: orrery.v1.Picker.Ask:input_type -> orrery.v1.AskRequest
+	53, // 35: orrery.v1.Picker.Run:input_type -> orrery.v1.RunRequest
+	1,  // 36: orrery.v1.Sessions.List:output_type -> orrery.v1.ListResponse
+	4,  // 37: orrery.v1.Events.Watch:output_type -> orrery.v1.WatchResponse
+	9,  // 38: orrery.v1.Control.Start:output_type -> orrery.v1.StartResponse
+	11, // 39: orrery.v1.Control.Say:output_type -> orrery.v1.SayResponse
+	13, // 40: orrery.v1.Control.Answer:output_type -> orrery.v1.AnswerResponse
+	15, // 41: orrery.v1.Control.Interrupt:output_type -> orrery.v1.InterruptResponse
+	17, // 42: orrery.v1.Control.Stop:output_type -> orrery.v1.StopResponse
+	19, // 43: orrery.v1.Control.Seen:output_type -> orrery.v1.SeenResponse
+	29, // 44: orrery.v1.Panes.List:output_type -> orrery.v1.PanesListResponse
+	32, // 45: orrery.v1.Panes.Screen:output_type -> orrery.v1.ScreenResponse
+	34, // 46: orrery.v1.Panes.Conversation:output_type -> orrery.v1.ConversationResponse
+	38, // 47: orrery.v1.Panes.SendText:output_type -> orrery.v1.SendTextResponse
+	40, // 48: orrery.v1.Panes.SendKeys:output_type -> orrery.v1.SendKeysResponse
+	42, // 49: orrery.v1.Panes.MarkSeen:output_type -> orrery.v1.MarkSeenResponse
+	44, // 50: orrery.v1.Host.Status:output_type -> orrery.v1.HostStatusResponse
+	47, // 51: orrery.v1.Push.Register:output_type -> orrery.v1.RegisterResponse
+	49, // 52: orrery.v1.Push.Unregister:output_type -> orrery.v1.UnregisterResponse
+	51, // 53: orrery.v1.Picker.Ask:output_type -> orrery.v1.AskResponse
+	54, // 54: orrery.v1.Picker.Run:output_type -> orrery.v1.RunResponse
+	36, // [36:55] is the sub-list for method output_type
+	17, // [17:36] is the sub-list for method input_type
+	17, // [17:17] is the sub-list for extension type_name
+	17, // [17:17] is the sub-list for extension extendee
+	0,  // [0:17] is the sub-list for field type_name
 }
 
 func init() { file_orrery_v1_orrery_proto_init() }
@@ -2307,15 +4106,18 @@ func file_orrery_v1_orrery_proto_init() {
 	}
 	file_orrery_v1_orrery_proto_msgTypes[6].OneofWrappers = []any{}
 	file_orrery_v1_orrery_proto_msgTypes[21].OneofWrappers = []any{}
+	file_orrery_v1_orrery_proto_msgTypes[39].OneofWrappers = []any{}
+	file_orrery_v1_orrery_proto_msgTypes[41].OneofWrappers = []any{}
+	file_orrery_v1_orrery_proto_msgTypes[45].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_orrery_v1_orrery_proto_rawDesc), len(file_orrery_v1_orrery_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   28,
+			NumMessages:   55,
 			NumExtensions: 0,
-			NumServices:   3,
+			NumServices:   7,
 		},
 		GoTypes:           file_orrery_v1_orrery_proto_goTypes,
 		DependencyIndexes: file_orrery_v1_orrery_proto_depIdxs,
