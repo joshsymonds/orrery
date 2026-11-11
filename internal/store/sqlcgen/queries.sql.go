@@ -454,6 +454,41 @@ func (q *Queries) ListSessions(ctx context.Context) ([]Session, error) {
 	return items, nil
 }
 
+const listUnfinishedEngineText = `-- name: ListUnfinishedEngineText :many
+SELECT session_id, message_id, block_index, parent_tool_use_id, kind, text FROM engine_text
+ORDER BY session_id, message_id, parent_tool_use_id, block_index
+`
+
+func (q *Queries) ListUnfinishedEngineText(ctx context.Context) ([]EngineText, error) {
+	rows, err := q.db.QueryContext(ctx, listUnfinishedEngineText)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []EngineText
+	for rows.Next() {
+		var i EngineText
+		if err := rows.Scan(
+			&i.SessionID,
+			&i.MessageID,
+			&i.BlockIndex,
+			&i.ParentToolUseID,
+			&i.Kind,
+			&i.Text,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const newestEventSeq = `-- name: NewestEventSeq :one
 SELECT CAST(COALESCE(MAX(seq), 0) AS INTEGER) AS seq FROM events
 `

@@ -83,6 +83,10 @@ DELETE FROM engine_text WHERE session_id = ?;
 SELECT * FROM engine_text WHERE session_id = ?
 ORDER BY message_id, parent_tool_use_id, block_index;
 
+-- name: ListUnfinishedEngineText :many
+SELECT * FROM engine_text
+ORDER BY session_id, message_id, parent_tool_use_id, block_index;
+
 -- name: SessionEventsAfter :many
 SELECT seq, session_id, kind, at, payload FROM events
 WHERE session_id = ? AND seq > ?
