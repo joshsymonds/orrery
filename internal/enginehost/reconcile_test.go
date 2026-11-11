@@ -251,3 +251,35 @@ func TestReconcileLeavesLiveSessionAlone(t *testing.T) {
 		t.Fatalf("notices after Reconcile of a live session = %+v, want none", got)
 	}
 }
+
+func TestReconcileSettlesStepRowSilently(t *testing.T) {
+	s, path := openStore(t)
+	if err := s.ApplyEngine(t.Context(), []store.EngineOp{
+		store.EngineAdd{ID: "step", Dir: "/work", State: "working", Kind: store.KindStep},
+		store.EngineText{ID: "step", MessageID: "m1", Index: 0, Kind: "text", Text: "partial"},
+		store.EngineAdd{ID: "engine", Dir: "/work", State: "working", Kind: store.KindEngine},
+		store.EngineText{ID: "engine", MessageID: "m1", Index: 0, Kind: "text", Text: "partial"},
+	}, time.Unix(1, 0)); err != nil {
+		t.Fatalf("seed engine rows: %v", err)
+	}
+	writer := NewWriter(WriterConfig{Applier: s, Tick: 5 * time.Millisecond})
+	startRun(t, writer)
+	sink := &fakeSink{}
+	m := newReconcileManager(t, s, writer, sink)
+
+	if err := m.Reconcile(t.Context()); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+
+	requireEngineRows(t, s, map[string]restartRow{
+		"step":   {state: "interrupted", reason: "orreryd restarted during the turn"},
+		"engine": {state: "interrupted", reason: "orreryd restarted during the turn"},
+	})
+	if n := countRows(t, path, "engine_text"); n != 0 {
+		t.Fatalf("unfinished text rows after Reconcile = %d, want 0", n)
+	}
+	want := Notice{Session: "engine", Dir: "/work", State: "interrupted", Body: "orreryd restarted during the turn"}
+	if got := sink.got(); len(got) != 1 || got[0] != want {
+		t.Fatalf("notices = %+v, want exactly [%+v]", got, want)
+	}
+}

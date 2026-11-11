@@ -13,8 +13,8 @@ const restartedReason = "orreryd restarted during the turn"
 
 // Reconcile settles the engine rows that have no process in this manager, as a restart leaves them. Each such row loses
 // its unfinished text. A row whose turn was running, working or waiting, is recorded interrupted with restartedReason
-// and no question, and the owner is notified of it. A row in any other state keeps its state. No row is removed. It
-// returns the first read or write error.
+// and no question. The owner is notified of an engine row's interruption; a step row is settled without a notice. A
+// row in any other state keeps its state. No row is removed. It returns the first read or write error.
 func (m *Manager) Reconcile(ctx context.Context) error {
 	rows, err := m.store.EngineSessions(ctx)
 	if err != nil {
@@ -35,7 +35,7 @@ func (m *Manager) Reconcile(ctx context.Context) error {
 }
 
 // reconcileRow removes the unfinished text of row and, when row's turn was running, records it interrupted and notifies
-// the owner. It returns the error of the write.
+// the owner of an engine row. It returns the error of the write.
 func (m *Manager) reconcileRow(ctx context.Context, row store.EngineRow) error {
 	ops := []store.EngineOp{store.EngineTextClear{ID: row.ID}}
 	turning := row.State == string(protocol.StateWorking) || row.State == string(protocol.StateWaiting)
@@ -49,7 +49,7 @@ func (m *Manager) reconcileRow(ctx context.Context, row store.EngineRow) error {
 	if err := m.writer.Commit(ctx, row.ID, ops...); err != nil {
 		return fmt.Errorf("reconcile session %s: %w", row.ID, err)
 	}
-	if turning {
+	if turning && row.Kind == store.KindEngine {
 		m.notify(ctx, row.ID, row.Dir, stateInterrupted, restartedReason)
 	}
 	return nil
