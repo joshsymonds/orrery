@@ -46,6 +46,15 @@ WHERE session_id IN (
       AND sessions.id NOT IN (SELECT value FROM json_each(sqlc.arg(live)))
 );
 
+-- name: DeleteStaleEnginePromptFailures :exec
+DELETE FROM engine_prompt_failed
+WHERE session_id IN (
+    SELECT sessions.id FROM sessions
+    WHERE sessions.kind = 'engine'
+      AND NOT EXISTS (SELECT 1 FROM events WHERE events.session_id = sessions.id AND events.at >= sqlc.arg(cutoff))
+      AND sessions.id NOT IN (SELECT value FROM json_each(sqlc.arg(live)))
+);
+
 -- name: DeleteStaleEngineSessions :exec
 DELETE FROM sessions
 WHERE sessions.kind = 'engine'

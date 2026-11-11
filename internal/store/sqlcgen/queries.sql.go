@@ -66,6 +66,26 @@ func (q *Queries) DeleteSession(ctx context.Context, id string) error {
 	return err
 }
 
+const deleteStaleEnginePromptFailures = `-- name: DeleteStaleEnginePromptFailures :exec
+DELETE FROM engine_prompt_failed
+WHERE session_id IN (
+    SELECT sessions.id FROM sessions
+    WHERE sessions.kind = 'engine'
+      AND NOT EXISTS (SELECT 1 FROM events WHERE events.session_id = sessions.id AND events.at >= ?1)
+      AND sessions.id NOT IN (SELECT value FROM json_each(?2))
+)
+`
+
+type DeleteStaleEnginePromptFailuresParams struct {
+	Cutoff int64
+	Live   interface{}
+}
+
+func (q *Queries) DeleteStaleEnginePromptFailures(ctx context.Context, arg DeleteStaleEnginePromptFailuresParams) error {
+	_, err := q.db.ExecContext(ctx, deleteStaleEnginePromptFailures, arg.Cutoff, arg.Live)
+	return err
+}
+
 const deleteStaleEngineSessions = `-- name: DeleteStaleEngineSessions :exec
 DELETE FROM sessions
 WHERE sessions.kind = 'engine'
