@@ -22,7 +22,7 @@ import (
 // ErrCapReached reports a Start that would exceed the cap of live sessions.
 var ErrCapReached = errors.New("session cap reached")
 
-// ErrNoSession reports a Stop or Seen of an id this manager did not start, or of a session that is not live.
+// ErrNoSession reports an id with no engine row, or a Stop, Answer or Interrupt of a session that is not live.
 var ErrNoSession = errors.New("no such session")
 
 // ErrBadDir reports a Start whose directory is not an absolute path to an existing directory.
@@ -55,7 +55,7 @@ type NoticeSink interface {
 	Notify(ctx context.Context, n Notice)
 }
 
-// Store reads the engine rows Reconcile settles. *store.Store satisfies it.
+// Store reads the engine rows Reconcile settles, and the rows Say resumes and Seen marks. *store.Store satisfies it.
 type Store interface {
 	EngineSessions(ctx context.Context) ([]store.EngineRow, error)
 	EngineSession(ctx context.Context, id string) (store.EngineRow, error)
@@ -64,7 +64,7 @@ type Store interface {
 // Config configures a Manager. Shell is the login shell and Claude the claude name, resolved with exec.LookPath at
 // each start. Environ is the environment sessions start with, Cap the most live sessions at once, Writer stores their
 // ops, Now stamps them (nil is time.Now), Notifier receives the notices of their state changes (nil sends none), Store
-// is the engine rows Reconcile reads and Logger reports pump errors (nil discards).
+// is the engine rows Reconcile, Say and Seen read and Logger reports pump errors (nil discards).
 type Config struct {
 	Shell    string
 	Claude   string
@@ -114,13 +114,14 @@ type Manager struct {
 	pumps sync.WaitGroup
 
 	mu sync.Mutex
-	// started holds every id Start committed, so Seen can name sessions that have since stopped.
-	started map[string]struct{}
 	// sessions holds the running sessions whose pump has not finished.
 	sessions map[string]*liveSession
 	// reserved counts the sessions being started or running, which is what the cap limits.
 	reserved int
 	closed   bool
+
+	// resumeMu serializes the resume of a session that is not live, so concurrent Says to one id start one process.
+	resumeMu sync.Mutex
 }
 
 // NewManager returns a Manager for cfg.
@@ -135,7 +136,6 @@ func NewManager(cfg Config) *Manager {
 		notifier: cfg.Notifier,
 		store:    cfg.Store,
 		logger:   cfg.Logger,
-		started:  map[string]struct{}{},
 		sessions: map[string]*liveSession{},
 	}
 	if manager.now == nil {
@@ -167,34 +167,15 @@ func (m *Manager) Start(ctx context.Context, dir, prompt string) (string, error)
 		m.release()
 		return "", fmt.Errorf("record session %s: %w", id, err)
 	}
-	m.mu.Lock()
-	m.started[id] = struct{}{}
-	m.mu.Unlock()
-
-	sess, err := m.spawn(id, dir)
+	live, err := m.spawnLive(ctx, id, dir, "")
 	if err != nil {
 		return id, m.fail(ctx, id, dir, err)
 	}
-	pumpCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
-	live := &liveSession{id: id, dir: dir, sess: sess, done: make(chan struct{}), cancel: cancel}
-	m.mu.Lock()
-	closed := m.closed
-	if !closed {
-		m.sessions[id] = live
-		m.pumps.Add(1)
-	}
-	m.mu.Unlock()
-	if closed {
-		cancel()
-		return id, m.fail(ctx, id, dir, errors.Join(errManagerClosed, sess.Stop()))
-	}
-	go m.pump(pumpCtx, live, newRecorder(id))
-
 	if err = m.writer.Put(ctx, id, store.EnginePrompt{ID: id, Text: prompt}); err != nil {
 		return id, m.abandon(ctx, live, err)
 	}
 	m.setTurning(live, true)
-	if err = sess.Prompt(prompt); err != nil {
+	if err = live.sess.Prompt(prompt); err != nil {
 		m.setTurning(live, false)
 		return id, m.abandon(ctx, live, err)
 	}
@@ -218,26 +199,28 @@ func (m *Manager) Stop(ctx context.Context, id string) error {
 	return fmt.Errorf("stop session %s: %w", id, errors.Join(stopErr, recordErr))
 }
 
-// Seen marks the session id this manager started as seen now. It returns ErrNoSession for any other id.
+// Seen marks the engine row id as seen now. It returns an error wrapping ErrNoSession when no engine row has that id.
 func (m *Manager) Seen(ctx context.Context, id string) error {
-	m.mu.Lock()
-	_, ok := m.started[id]
-	m.mu.Unlock()
-	if !ok {
-		return fmt.Errorf("mark session %s seen: %w", id, ErrNoSession)
+	if _, err := m.engineRow(ctx, id); err != nil {
+		return fmt.Errorf("mark session %s seen: %w", id, err)
 	}
 	seen := strconv.FormatInt(m.now().Unix(), 10)
 	return m.writer.Commit(ctx, id, store.EngineSet{ID: id, Changes: store.EngineChanges{Seen: &seen}})
 }
 
-// Say sends text to the live session id as its next prompt. It records the prompt and the working state before it
-// sends, so the stored conversation has the prompt ahead of its reply. It returns ErrEmptyPrompt for empty text and
-// an error wrapping ErrNoSession when id is not live. A send that fails is recorded as the session's failed state.
+// Say sends text to the session id as its next prompt. A session that is not live is resumed first, from its engine
+// row (see resumeSession). It records the prompt and the working state before it sends, so the stored conversation has
+// the prompt ahead of its reply. It returns ErrEmptyPrompt for empty text, an error wrapping ErrNoSession when no engine
+// row has id, and the errors of resumeSession when a live session cannot be started. A send that fails is recorded as
+// the session's failed state.
 func (m *Manager) Say(ctx context.Context, id, text string) error {
 	if text == "" {
 		return ErrEmptyPrompt
 	}
 	live, err := m.live(id)
+	if err != nil {
+		live, err = m.resumeSession(ctx, id)
+	}
 	if err != nil {
 		return fmt.Errorf("say to session %s: %w", id, err)
 	}
@@ -333,6 +316,79 @@ func (m *Manager) live(id string) (*liveSession, error) {
 	return live, nil
 }
 
+// resumeSession returns the live session id, starting it from its engine row when it is not live. The process starts in
+// the row's directory and resumes the row's claude session, when it has one. It reserves a slot under the cap before it
+// reads the directory, so a full cap refuses the resume before anything is recorded. A directory that is missing or not
+// a directory records the session failed and returns an error wrapping ErrBadDir. resumeMu makes concurrent calls for one
+// id start a single process: each call after the first finds the session live.
+func (m *Manager) resumeSession(ctx context.Context, id string) (*liveSession, error) {
+	m.resumeMu.Lock()
+	defer m.resumeMu.Unlock()
+	if live, err := m.live(id); err == nil {
+		return live, nil
+	}
+	row, err := m.engineRow(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	return m.resume(ctx, row)
+}
+
+// resume starts the process of row, an engine row that is not live, and registers it live. It takes a slot under the cap
+// first, then checks the row's directory. A failed check or spawn records the row failed and frees the slot.
+func (m *Manager) resume(ctx context.Context, row store.EngineRow) (*liveSession, error) {
+	if err := m.reserve(); err != nil {
+		return nil, err
+	}
+	if err := checkDir(row.Dir); err != nil {
+		return nil, errors.Join(err, m.fail(ctx, row.ID, row.Dir, err))
+	}
+	live, err := m.spawnLive(ctx, row.ID, row.Dir, row.ClaudeSession)
+	if err != nil {
+		return nil, errors.Join(err, m.fail(ctx, row.ID, row.Dir, err))
+	}
+	return live, nil
+}
+
+// engineRow returns the engine row with id. It returns an error wrapping ErrNoSession when no engine row has that id.
+func (m *Manager) engineRow(ctx context.Context, id string) (store.EngineRow, error) {
+	row, err := m.store.EngineSession(ctx, id)
+	switch {
+	case errors.Is(err, store.ErrNoEngineSession):
+		return store.EngineRow{}, fmt.Errorf("%w: %w", ErrNoSession, err)
+	case err != nil:
+		return store.EngineRow{}, fmt.Errorf("read engine row %s: %w", id, err)
+	}
+	return row, nil
+}
+
+// spawnLive starts the process for id in dir, resuming claudeSession when it is set, and registers it as live under a
+// pump that records its events. The caller holds the slot from reserve. A process that starts after the manager closed
+// is stopped, and the error reports the close. An error that returns here leaves nothing registered.
+func (m *Manager) spawnLive(ctx context.Context, id, dir, claudeSession string) (*liveSession, error) {
+	sess, err := m.spawn(id, dir, claudeSession)
+	if err != nil {
+		return nil, err
+	}
+	pumpCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	live := &liveSession{id: id, dir: dir, sess: sess, done: make(chan struct{}), cancel: cancel}
+	m.mu.Lock()
+	closed := m.closed
+	if !closed {
+		m.sessions[id] = live
+		m.pumps.Add(1)
+	}
+	m.mu.Unlock()
+	if closed {
+		cancel()
+		return nil, errors.Join(errManagerClosed, sess.Stop())
+	}
+	rec := newRecorder(id)
+	rec.claudeSession = claudeSession
+	go m.pump(pumpCtx, live, rec)
+	return live, nil
+}
+
 // Close stops every live session and waits up to 5 s for each to record its state. A session whose turn was running is
 // recorded interrupted, and every session loses its unfinished text. It then cancels any write a pump still has blocked
 // and waits for the pumps to return. Start refuses from the moment Close begins, and later calls to Close return at
@@ -371,6 +427,18 @@ func (m *Manager) Close() {
 
 // checkStart reports whether a start's directory and prompt are usable, before anything is stored.
 func checkStart(dir, prompt string) error {
+	if err := checkDir(dir); err != nil {
+		return err
+	}
+	if prompt == "" {
+		return ErrEmptyPrompt
+	}
+	return nil
+}
+
+// checkDir reports whether dir is an absolute path to an existing directory. It returns an error wrapping ErrBadDir
+// when it is not.
+func checkDir(dir string) error {
 	if !filepath.IsAbs(dir) {
 		return fmt.Errorf("%w: %q is not absolute", ErrBadDir, dir)
 	}
@@ -380,9 +448,6 @@ func checkStart(dir, prompt string) error {
 	}
 	if !info.IsDir() {
 		return fmt.Errorf("%w: %s is not a directory", ErrBadDir, dir)
-	}
-	if prompt == "" {
-		return ErrEmptyPrompt
 	}
 	return nil
 }
@@ -417,8 +482,9 @@ func newSessionID() (string, error) {
 	return hex.EncodeToString(raw[:]), nil
 }
 
-// spawn resolves claude and starts the session process for id in dir. The prompt is not sent here.
-func (m *Manager) spawn(id, dir string) (*session.Session, error) {
+// spawn resolves claude and starts the session process for id in dir, resuming claudeSession when it is set. The prompt
+// is not sent here.
+func (m *Manager) spawn(id, dir, claudeSession string) (*session.Session, error) {
 	claude, err := exec.LookPath(m.claude)
 	if err != nil {
 		return nil, fmt.Errorf("find claude: %w", err)
@@ -428,6 +494,7 @@ func (m *Manager) spawn(id, dir string) (*session.Session, error) {
 		Claude:         claude,
 		Dir:            dir,
 		PermissionMode: permissionMode,
+		Resume:         claudeSession,
 		Name:           id,
 		Environ:        m.environ,
 	})
@@ -439,7 +506,7 @@ func (m *Manager) spawn(id, dir string) (*session.Session, error) {
 
 // pump records the events of one running session, in order, until its events close, and notifies the owner of each
 // event that calls for it once the event is recorded. It is the only reader of the session's events and the only user
-// of its recorder. When it ends it frees the session's slot.
+// of its recorder. When it ends it frees the session's slot and removes its entry, only while that entry is its own.
 func (m *Manager) pump(ctx context.Context, live *liveSession, rec *recorder) {
 	defer m.pumps.Done()
 	reply := ""
@@ -466,7 +533,9 @@ func (m *Manager) pump(ctx context.Context, live *liveSession, rec *recorder) {
 		}
 	}
 	m.mu.Lock()
-	delete(m.sessions, live.id)
+	if m.sessions[live.id] == live {
+		delete(m.sessions, live.id)
+	}
 	m.reserved--
 	m.mu.Unlock()
 	close(live.done)

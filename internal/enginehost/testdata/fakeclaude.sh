@@ -108,12 +108,30 @@ stall() {
 }
 
 echo $$ > fakeclaude.pid.tmp && mv fakeclaude.pid.tmp fakeclaude.pid
+printf '%s\n' "$*" >> fakeclaude.args
 
+# A start with --resume continues the prompt count of the earlier start, and only resumes session_1.
+resume=
+prev=
+for arg in "$@"; do
+	if [ "$prev" = --resume ]; then
+		resume=$arg
+	fi
+	prev=$arg
+done
 n=0
+if [ -n "$resume" ]; then
+	if [ "$resume" != session_1 ]; then
+		echo "fake claude: no conversation with id $resume" >&2
+		exit 1
+	fi
+	n=$(cat fakeclaude.n 2>/dev/null || echo 0)
+fi
 while IFS= read -r line; do
 	case $line in
 		*'"type":"user"'*)
 			n=$((n + 1))
+			printf '%s\n' "$n" > fakeclaude.n
 			case $line in
 				*ASK*) ask ;;
 				*PERMIT*) permit ;;

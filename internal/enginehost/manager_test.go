@@ -65,6 +65,7 @@ func newTestManager(t *testing.T, limit int, claude string) (*Manager, string) {
 		Cap:     limit,
 		Writer:  writer,
 		Now:     fixedClock,
+		Store:   s,
 	})
 	t.Cleanup(m.Close)
 	return m, path

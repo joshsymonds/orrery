@@ -356,6 +356,7 @@ func startSessions(ctx context.Context, opts options, st *store.Store, logger *s
 			Environ: os.Environ(),
 			Cap:     opts.sessionCap,
 			Writer:  host.writer,
+			Store:   st,
 			Logger:  logger,
 		})
 		commands = host.manager
