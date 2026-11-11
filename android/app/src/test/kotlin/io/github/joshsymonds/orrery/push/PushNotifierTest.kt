@@ -230,6 +230,66 @@ class PushNotifierTest {
     }
 
     @Test
+    fun clearAtNoticeTimeRemovesIt() {
+        notifier.show(idleEvent.copy(time = 100L))
+
+        notifier.clear(host, pane, "", 100L)
+
+        assertNull(shadowOf(manager).getNotification(null, notificationId(host, pane)))
+    }
+
+    @Test
+    fun clearAfterNoticeTimeRemovesIt() {
+        notifier.show(idleEvent.copy(time = 100L))
+
+        notifier.clear(host, pane, "", 150L)
+
+        assertEquals(0, shadowOf(manager).allNotifications.size)
+    }
+
+    @Test
+    fun clearBeforeNoticeTimeLeavesIt() {
+        notifier.show(idleEvent.copy(time = 100L))
+
+        notifier.clear(host, pane, "", 99L)
+
+        posted(notificationId(host, pane))
+        assertEquals(1, shadowOf(manager).allNotifications.size)
+    }
+
+    @Test
+    fun clearForAnotherHostOrPaneLeavesNotice() {
+        notifier.show(idleEvent.copy(time = 100L))
+
+        notifier.clear("otherbox", pane, "", 200L)
+        notifier.clear(host, "%8", "", 200L)
+
+        posted(notificationId(host, pane))
+        assertEquals(1, shadowOf(manager).allNotifications.size)
+    }
+
+    @Test
+    fun sessionClearRemovesSessionNoticeAndLeavesPaneNotice() {
+        notifier.show(idleEvent.copy(time = 100L))
+        notifier.show(idleEvent.copy(pane = "", session = "sess-1", time = 100L))
+
+        notifier.clear(host, "", "sess-1", 200L)
+
+        posted(notificationId(host, pane))
+        assertEquals(1, shadowOf(manager).allNotifications.size)
+    }
+
+    @Test
+    fun answeredNoticeKeepsItsTimeForClear() {
+        notifier.show(questionEvent.copy(time = 100L))
+        notifier.showResult(notificationId(host, pane), "Answered: 2")
+
+        notifier.clear(host, pane, "", 99L)
+
+        posted(notificationId(host, pane))
+    }
+
+    @Test
     fun deniedPermissionPostsNothing() {
         shadowOf(RuntimeEnvironment.getApplication()).denyPermissions(Manifest.permission.POST_NOTIFICATIONS)
 
