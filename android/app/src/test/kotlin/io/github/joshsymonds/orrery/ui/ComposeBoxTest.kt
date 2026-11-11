@@ -6,12 +6,17 @@ import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
 import android.widget.EditText
 import androidx.activity.ComponentActivity
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.core.content.res.ResourcesCompat
@@ -37,6 +42,10 @@ private const val OTHER_PANE_TEXT_PATH = "/v1/panes/%252/text"
 private const val WAIT_MS = 5_000L
 private const val DRAFT = "first line\nsecond line"
 private const val OTHER_DRAFT = "text for the other pane"
+private const val HINT = "synthetic hint"
+private const val STATUS = "synthetic status line"
+private const val COMPOSER_TAG = "composer"
+private const val SEND_ALIGNMENT_TOLERANCE_PX = 1f
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35])
@@ -138,10 +147,79 @@ class ComposeBoxTest {
         assertEquals(OTHER_DRAFT, JSONObject(request.body).getString("text"))
     }
 
-    private fun setBox(paneId: MutableState<String> = mutableStateOf(PANE_ID)) {
+    @Test
+    fun sendSitsInTheFieldRowAtItsTrailingEdge() {
+        setBox()
+        setDraft(DRAFT)
+
+        val field = fieldBoundsInWindow()
+        val send = composeRule.onNodeWithText("Send").fetchSemanticsNode().boundsInWindow
+        assertTrue("Send left ${send.left} should be right of field right ${field.right}", send.left > field.right)
+        assertEquals(field.bottom, send.bottom, SEND_ALIGNMENT_TOLERANCE_PX)
+    }
+
+    @Test
+    fun hintShowsInTheEmptyField() {
+        setBox(hint = HINT)
+
+        assertEquals(HINT, editField().hint.toString())
+    }
+
+    @Test
+    fun statusDrawsInsideComposerAboveField() {
+        setBox(status = { Text(STATUS) })
+
+        composeRule.onNodeWithText(STATUS).assertIsDisplayed()
+        val composer = composeRule.onNodeWithTag(COMPOSER_TAG).fetchSemanticsNode().boundsInWindow
+        val status = composeRule.onNodeWithText(STATUS).fetchSemanticsNode().boundsInWindow
+        val field = fieldBoundsInWindow()
+        assertTrue(
+            "status $status should sit inside composer $composer",
+            status.left >= composer.left && status.top >= composer.top &&
+                status.right <= composer.right && status.bottom <= composer.bottom,
+        )
+        assertTrue("status bottom ${status.bottom} should be above field top ${field.top}", status.bottom <= field.top)
+    }
+
+    @Test
+    fun draftPresenceReportsWhenTextGainsAndLosesIt() {
+        val reports = mutableListOf<Boolean>()
+        setBox(onDraftPresent = { reports.add(it) })
+
+        setDraft(DRAFT)
+        setDraft("")
+
+        assertEquals(listOf(false, true, false), reports)
+    }
+
+    private fun setBox(
+        paneId: MutableState<String> = mutableStateOf(PANE_ID),
+        hint: String = "",
+        status: (@Composable () -> Unit)? = null,
+        onDraftPresent: (Boolean) -> Unit = {},
+    ) {
         val client = OrreryClient(server.baseUrl)
-        composeRule.setContent { ComposeBox(paneId = paneId.value, client = client) }
+        composeRule.setContent {
+            ComposeBox(
+                paneId = paneId.value,
+                client = client,
+                hint = hint,
+                onDraftPresent = onDraftPresent,
+                status = status,
+            )
+        }
         composeRule.waitForIdle()
+    }
+
+    private fun fieldBoundsInWindow(): Rect {
+        val field = editField()
+        val origin = IntArray(2).also { field.getLocationInWindow(it) }
+        return Rect(
+            origin[0].toFloat(),
+            origin[1].toFloat(),
+            (origin[0] + field.width).toFloat(),
+            (origin[1] + field.height).toFloat(),
+        )
     }
 
     private fun setDraft(text: String) {
