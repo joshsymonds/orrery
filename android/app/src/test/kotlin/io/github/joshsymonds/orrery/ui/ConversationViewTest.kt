@@ -474,6 +474,66 @@ class ConversationViewTest {
     }
 
     @Test
+    fun aChangedEndRequestBringsTheEndIntoViewFromTheTop() {
+        val requests = mutableStateOf(0)
+        composeRule.setContent {
+            MaterialTheme { ConversationView(entries = replies(1, 40), endRequests = requests.value) }
+        }
+
+        composeRule.onNodeWithTag("conversation-list").performScrollToIndex(0)
+        composeRule.onNodeWithText("synthetic reply 01").assertIsDisplayed()
+        composeRule.runOnIdle { requests.value += 1 }
+
+        composeRule.onNodeWithText("synthetic reply 40").assertIsDisplayed()
+        composeRule.onAllNodesWithText("synthetic reply 01").assertCountEquals(0)
+        assertEndInView("synthetic reply 40")
+    }
+
+    @Test
+    fun followingResumesAfterAnEndRequestSoANewReplyComesIntoView() {
+        val entries = mutableStateOf(replies(1, 40))
+        val requests = mutableStateOf(0)
+        composeRule.setContent {
+            MaterialTheme { ConversationView(entries = entries.value, endRequests = requests.value) }
+        }
+
+        composeRule.onNodeWithTag("conversation-list").performScrollToIndex(0)
+        composeRule.runOnIdle { requests.value += 1 }
+        composeRule.onNodeWithText("synthetic reply 40").assertIsDisplayed()
+        composeRule.runOnIdle {
+            entries.value = entries.value + ConvoEntry.Reply("synthetic reply 41")
+        }
+
+        composeRule.onNodeWithText("synthetic reply 41").assertIsDisplayed()
+        assertEndInView("synthetic reply 41")
+    }
+
+    @Test
+    fun anUnchangedEndRequestMovesNothingWhenANewReplyArrives() {
+        val entries = mutableStateOf(replies(1, 40))
+        val requests = mutableStateOf(0)
+        composeRule.setContent {
+            MaterialTheme { ConversationView(entries = entries.value, endRequests = requests.value) }
+        }
+
+        composeRule.onNodeWithTag("conversation-list").performScrollToIndex(0)
+        composeRule.onNodeWithText("synthetic reply 01").assertIsDisplayed()
+        composeRule.runOnIdle {
+            entries.value = entries.value + ConvoEntry.Reply("synthetic reply 41")
+        }
+
+        composeRule.onNodeWithText("synthetic reply 01").assertIsDisplayed()
+        composeRule.onAllNodesWithText("synthetic reply 41").assertCountEquals(0)
+    }
+
+    /** The text's node ends within the conversation list's visible bottom edge. */
+    private fun assertEndInView(text: String) {
+        val listBottom = composeRule.onNodeWithTag("conversation-list").fetchSemanticsNode().boundsInRoot.bottom
+        val textBottom = composeRule.onNodeWithText(text).fetchSemanticsNode().boundsInRoot.bottom
+        assertTrue("the end of '$text' is below the list's end", textBottom <= listBottom + 1f)
+    }
+
+    @Test
     fun scrolledUpExpandedRowKeepsItsPlaceWhenTheWindowSlides() {
         val entries = mutableStateOf(
             replies(1, 19) + ConvoEntry.Tool(call("keep-1", result = "synthetic kept output")) + replies(21, 50),

@@ -28,6 +28,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -74,7 +75,8 @@ private enum class CallMark(val symbol: String, val colour: Color) {
  * entries. It opens at the end of the newest item. While the reader is at the bottom, new entries
  * keep the end of the newest item in view; once they scroll up, new entries leave their position
  * alone. A change of the viewport's height or top padding (the keyboard, a growing draft, the
- * header folding) follows the same way.
+ * header folding) follows the same way. Each change of [endRequests] brings the end into view and
+ * resumes following, even when the reader has scrolled up; the first composition is not a change.
  */
 @Composable
 fun ConversationView(
@@ -85,6 +87,7 @@ fun ConversationView(
     footer: (@Composable () -> Unit)? = null,
     working: Boolean = false,
     waiting: List<WaitingItem> = emptyList(),
+    endRequests: Int = 0,
 ) {
     var expanded by remember { mutableStateOf(emptySet<String>()) }
     val toggle: (String) -> Unit = { id ->
@@ -114,6 +117,14 @@ fun ConversationView(
                     listState.followEnd(currentLast)
                 }
             }
+    }
+    var handledEndRequests by remember { mutableIntStateOf(endRequests) }
+    LaunchedEffect(endRequests) {
+        if (endRequests != handledEndRequests) {
+            handledEndRequests = endRequests
+            followBottom = true
+            if (currentLast >= 0) listState.followEnd(currentLast)
+        }
     }
     LazyColumn(
         modifier = modifier
