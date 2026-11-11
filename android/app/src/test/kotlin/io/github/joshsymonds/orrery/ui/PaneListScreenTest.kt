@@ -335,6 +335,21 @@ class PaneListScreenTest {
     }
 
     @Test
+    fun titleRowShowsTheIconAsADiscLeftOfPanes() {
+        FakeOrreryServer().use { server ->
+            server.respond("GET", "/v1/panes", 200, panesBody())
+            setScreen(server)
+            awaitRow("%1")
+
+            val mark = nodeOf(hasTestTag("title-mark")).boundsInRoot
+            val title = nodeOf(hasText("Panes")).boundsInRoot
+            assertTrue(mark.right <= title.left)
+            assertEquals(title.center.y.toDouble(), mark.center.y.toDouble(), 1.0)
+            assertEquals(title.height.toDouble(), mark.height.toDouble(), 1.0)
+        }
+    }
+
+    @Test
     fun newButtonOpensThePickerAndARunOpensItsPane() {
         FakeOrreryServer().use { server ->
             server.respond("GET", "/v1/panes", 200, panesBody())
