@@ -57,20 +57,29 @@ data class ConversationItem(
     val error: Boolean,
     /** A `notice` item's sort (`compaction`, `task`, `teammate`, `interrupted`); "" on other kinds. */
     val notice: String = "",
+    /** A `compaction` item's trigger (`auto` or `manual`); "" when its boundary was not read, on other kinds, or from an older server. */
+    val trigger: String = "",
+    /** A `compaction` item's context tokens before it compacted; 0 when its boundary was not read, on other kinds, or from an older server. */
+    val tokens: Long = 0L,
 )
 
 /** A message Claude Code's queue holds for the pane. [canceled] is true when Claude Code cleared it on cancel. */
 data class WaitingItem(val text: String, val time: Long, val canceled: Boolean)
 
+/** The pane's context usage: [tokens] in use out of a [window] of tokens. */
+data class ConversationContext(val tokens: Long, val window: Long)
+
 /**
  * [goal] is the pane's active Claude Code goal, or "" when there is none. [waiting] is the
- * queued messages, oldest first, or empty when there are none.
+ * queued messages, oldest first, or empty when there are none. [context] is the pane's
+ * context usage, or null when the server predates it.
  */
 data class Conversation(
     val origin: String,
     val items: List<ConversationItem>,
     val goal: String = "",
     val waiting: List<WaitingItem> = emptyList(),
+    val context: ConversationContext? = null,
 )
 
 data class HostStat(val label: String, val value: String, val percent: Double?, val level: String)
@@ -169,6 +178,8 @@ class OrreryClient(
                     id = item.getString("id"),
                     error = item.getBoolean("error"),
                     notice = item.lenientString("notice"),
+                    trigger = item.lenientString("trigger"),
+                    tokens = item.optLong("tokens", 0L),
                 )
             },
             goal = json.lenientString("goal"),
@@ -177,6 +188,12 @@ class OrreryClient(
                     text = row.lenientString("text"),
                     time = row.optLong("time", 0L),
                     canceled = row.optBoolean("canceled", false),
+                )
+            },
+            context = json.optJSONObject("context")?.let { context ->
+                ConversationContext(
+                    tokens = context.optLong("tokens", 0L),
+                    window = context.optLong("window", 0L),
                 )
             },
         )
