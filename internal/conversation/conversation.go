@@ -71,6 +71,8 @@ const (
 	originWindowBytes = 1 << 20
 	// maxRunes caps the origin prompt, the text of a notice and the text of a goal.
 	maxRunes = 300
+	// contextWindow is the token window the context figure is measured against.
+	contextWindow = 1_000_000
 )
 
 // Conversation is a transcript's opening prompt, its newest items, oldest first, its active goal, and its waiting
@@ -80,6 +82,14 @@ type Conversation struct {
 	Items   []Item    `json:"items"`
 	Goal    string    `json:"goal"`
 	Waiting []Waiting `json:"waiting"`
+	Context Context   `json:"context"`
+}
+
+// Context is the context figure of a session: the tokens its newest main-chain assistant line or boundary
+// counts, out of a window of Window tokens. Tokens is 0 when the read finds no such line.
+type Context struct {
+	Tokens int64 `json:"tokens"`
+	Window int64 `json:"window"`
 }
 
 // Item is one reply, tool call, question, prompt, tool result, notice or compaction of a transcript. A compaction
@@ -111,13 +121,16 @@ type transcriptLine struct {
 	} `json:"origin"`
 	Message struct {
 		Content json.RawMessage `json:"content"`
+		// Usage is set on an assistant line. Its keys are read by name, as contentBlock's are.
+		Usage contentBlock `json:"usage"`
 	} `json:"message"`
 	Attachment json.RawMessage `json:"attachment"`
 	Subtype    string          `json:"subtype"`
 	// CompactMetadata is set on a compact_boundary line.
 	CompactMetadata struct {
-		Trigger   string `json:"trigger"`
-		PreTokens int64  `json:"preTokens"`
+		Trigger    string `json:"trigger"`
+		PreTokens  int64  `json:"preTokens"`
+		PostTokens int64  `json:"postTokens"`
 	} `json:"compactMetadata"`
 }
 
@@ -157,7 +170,7 @@ func Read(path string, limit int) (Conversation, error) {
 	}
 	size := info.Size()
 
-	items, err := newestItems(file, size, limit)
+	items, tokens, err := newestItems(file, size, limit)
 	if err != nil {
 		return Conversation{}, err
 	}
@@ -165,50 +178,94 @@ func Read(path string, limit int) (Conversation, error) {
 	if err != nil {
 		return Conversation{}, err
 	}
-	return Conversation{Origin: origin, Items: items}, nil
+	return Conversation{Origin: origin, Items: items, Context: Context{Tokens: tokens, Window: contextWindow}}, nil
 }
 
-// newestItems returns the newest limit items of the transcript, oldest first, from the tail of src. The scan
-// goes newest first, so a compaction waits for the first compact_boundary line before it and takes that line's
-// trigger and tokens. It keeps scanning past limit only while a compaction still waits, and then adds no items.
-func newestItems(src io.ReaderAt, size int64, limit int) ([]Item, error) {
-	newest := []Item{}
-	// awaiting holds the indexes in newest of the compactions whose boundary is not read yet.
-	var awaiting []int
-	err := ReadTail(src, size, MaxTailBytes, func(line []byte) bool {
-		if trigger, tokens, ok := boundaryOf(line); ok {
-			for _, i := range awaiting {
-				newest[i].Trigger = trigger
-				newest[i].Tokens = tokens
-			}
-			awaiting = nil
-			return len(newest) < limit
+// newestScan holds the state of a newest-first read of a transcript: the newest items, the indexes of the
+// compactions still waiting for their boundary, and the context figure once one is found.
+type newestScan struct {
+	limit    int
+	newest   []Item
+	awaiting []int
+	tokens   int64
+	found    bool
+}
+
+// visit takes one transcript line, newest first, and reports whether the read should go on.
+func (s *newestScan) visit(line []byte) bool {
+	if trigger, pre, post, ok := boundaryOf(line); ok {
+		s.boundary(trigger, pre, post)
+	} else {
+		if !s.found {
+			s.tokens, s.found = assistantTokens(line)
 		}
-		items := lineItems(line)
-		for i := len(items) - 1; i >= 0 && len(newest) < limit; i-- {
-			newest = append(newest, items[i])
-			if items[i].Kind == kindCompaction {
-				awaiting = append(awaiting, len(newest)-1)
-			}
-		}
-		return len(newest) < limit || len(awaiting) > 0
-	})
-	if err != nil {
-		return nil, err
+		s.addItems(lineItems(line))
 	}
-	slices.Reverse(newest)
-	return newest, nil
+	return len(s.newest) < s.limit || len(s.awaiting) > 0 || !s.found
 }
 
-// boundaryOf returns the trigger and pre-compaction token count of a main-chain compact_boundary line. ok is
-// false for any other line, including a sidechain or meta boundary.
-func boundaryOf(line []byte) (trigger string, tokens int64, ok bool) {
+// boundary gives a compaction the trigger and pre-compaction tokens of its boundary, and takes the boundary's
+// post-compaction tokens as the context figure when none is found yet.
+func (s *newestScan) boundary(trigger string, pre, post int64) {
+	for _, i := range s.awaiting {
+		s.newest[i].Trigger = trigger
+		s.newest[i].Tokens = pre
+	}
+	s.awaiting = nil
+	if !s.found {
+		s.tokens, s.found = post, true
+	}
+}
+
+// addItems adds the items of one line, newest first, up to the limit, and records the compactions among them as
+// waiting for their boundary.
+func (s *newestScan) addItems(items []Item) {
+	for i := len(items) - 1; i >= 0 && len(s.newest) < s.limit; i-- {
+		s.newest = append(s.newest, items[i])
+		if items[i].Kind == kindCompaction {
+			s.awaiting = append(s.awaiting, len(s.newest)-1)
+		}
+	}
+}
+
+// newestItems returns the newest limit items of the transcript, oldest first, and its context tokens, from the tail
+// of src. The scan goes newest first, so a compaction waits for the first compact_boundary line before it and takes
+// that line's trigger and tokens. The context tokens are those of the first line that carries them, a boundary's
+// post-compaction tokens or an assistant line's usage. The scan keeps reading past limit until both the context
+// tokens are found and no compaction waits, and it adds no items past limit.
+func newestItems(src io.ReaderAt, size int64, limit int) ([]Item, int64, error) {
+	scan := &newestScan{limit: limit, newest: []Item{}}
+	err := ReadTail(src, size, MaxTailBytes, scan.visit)
+	if err != nil {
+		return nil, 0, err
+	}
+	slices.Reverse(scan.newest)
+	return scan.newest, scan.tokens, nil
+}
+
+// boundaryOf returns the trigger, pre-compaction and post-compaction token counts of a main-chain compact_boundary
+// line. ok is false for any other line, including a sidechain or meta boundary.
+func boundaryOf(line []byte) (trigger string, pre, post int64, ok bool) {
 	var entry transcriptLine
 	if json.Unmarshal(line, &entry) != nil || entry.IsMeta || entry.IsSidechain ||
 		entry.Type != "system" || entry.Subtype != "compact_boundary" {
-		return "", 0, false
+		return "", 0, 0, false
 	}
-	return entry.CompactMetadata.Trigger, entry.CompactMetadata.PreTokens, true
+	meta := entry.CompactMetadata
+	return meta.Trigger, meta.PreTokens, meta.PostTokens, true
+}
+
+// assistantTokens returns the input and cache token counts of a main-chain assistant line whose usage sums above
+// 0. A missing count is 0. ok is false for any other line.
+func assistantTokens(line []byte) (int64, bool) {
+	var entry transcriptLine
+	if json.Unmarshal(line, &entry) != nil || entry.IsMeta || entry.IsSidechain || entry.Type != "assistant" {
+		return 0, false
+	}
+	usage := entry.Message.Usage
+	tokens := intField(usage, "input_tokens") + intField(usage, "cache_creation_input_tokens") +
+		intField(usage, "cache_read_input_tokens")
+	return tokens, tokens > 0
 }
 
 // lineItems returns the items of one transcript line in order, or none when the line is skipped.
@@ -599,6 +656,15 @@ func stringField(block contentBlock, key string) string {
 	var value string
 	if json.Unmarshal(block[key], &value) != nil {
 		return ""
+	}
+	return value
+}
+
+// intField returns the integer value of key in block, or 0 when the key is absent or not an integer.
+func intField(block contentBlock, key string) int64 {
+	var value int64
+	if json.Unmarshal(block[key], &value) != nil {
+		return 0
 	}
 	return value
 }
