@@ -1,6 +1,7 @@
 package server_test
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -200,6 +201,8 @@ func TestPickerRunParity(t *testing.T) {
 	}
 
 	panes := serverPaneIDs(t, tmux)
+	// Two asks run claude synchronously, and each pane run opens a window whose claude starts asynchronously.
+	awaitClaudeRuns(t, runs, 4)
 	ran := claudeRuns(t, runs)
 	repeat := runPane(t, runPickerToken(t, handler, first[0].Token))
 	if repeat != connectPane {
@@ -220,6 +223,27 @@ func TestPickerRunParity(t *testing.T) {
 	}
 	if got := claudeRuns(t, runs); got != ran {
 		t.Errorf("repeats ran claude %d times, want none", got-ran)
+	}
+}
+
+// awaitClaudeRuns waits until the fake claude has run want times, and fails at the screenWait deadline
+// naming the count it reached.
+func awaitClaudeRuns(t *testing.T, runs string, want int) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), screenWait)
+	defer cancel()
+	ticker := time.NewTicker(screenPoll)
+	defer ticker.Stop()
+	for {
+		got := claudeRuns(t, runs)
+		if got == want {
+			return
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatalf("claude ran %d times, want %d", got, want)
+		case <-ticker.C:
+		}
 	}
 }
 
