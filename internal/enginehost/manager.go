@@ -50,7 +50,7 @@ const closeWait = 5 * time.Second
 // idleCheckEvery is the pause between the checks RunIdle makes.
 const idleCheckEvery = 30 * time.Second
 
-// defaultIdleAfter is how long a session must stay not busy before RunIdle stops it, when Config.IdleAfter is zero.
+// defaultIdleAfter is how long a session must stay not busy, by the manager's clock, before RunIdle stops it.
 const defaultIdleAfter = 10 * time.Minute
 
 // interruptedReason is the reason a session whose turn was running when Close stopped the manager records.
@@ -70,19 +70,17 @@ type Store interface {
 // Config configures a Manager. Shell is the login shell and Claude the claude name, resolved with exec.LookPath at
 // each start. Environ is the environment sessions start with, Cap the most live sessions at once, Writer stores their
 // ops, Now stamps them (nil is time.Now), Notifier receives the notices of their state changes (nil sends none), Store
-// is the engine rows Reconcile, Say and Seen read and Logger reports pump errors (nil discards). IdleAfter is how long a
-// session must stay not busy, by Now, before RunIdle stops it (zero is ten minutes).
+// is the engine rows Reconcile, Say and Seen read and Logger reports pump errors (nil discards).
 type Config struct {
-	Shell     string
-	Claude    string
-	Environ   []string
-	Cap       int
-	Writer    *Writer
-	Now       func() time.Time
-	Notifier  NoticeSink
-	Store     Store
-	Logger    *slog.Logger
-	IdleAfter time.Duration
+	Shell    string
+	Claude   string
+	Environ  []string
+	Cap      int
+	Writer   *Writer
+	Now      func() time.Time
+	Notifier NoticeSink
+	Store    Store
+	Logger   *slog.Logger
 }
 
 // liveSession is one running session: its directory, its process, the done channel closed when its pump has finished,
@@ -116,16 +114,15 @@ type liveSession struct {
 // Manager starts, stops and tracks headless sessions. Each running session has a pump goroutine that records its
 // events through the Writer. Close stops every session and waits for the pumps.
 type Manager struct {
-	shell     string
-	claude    string
-	environ   []string
-	limit     int
-	writer    *Writer
-	now       func() time.Time
-	notifier  NoticeSink
-	store     Store
-	logger    *slog.Logger
-	idleAfter time.Duration
+	shell    string
+	claude   string
+	environ  []string
+	limit    int
+	writer   *Writer
+	now      func() time.Time
+	notifier NoticeSink
+	store    Store
+	logger   *slog.Logger
 
 	pumps sync.WaitGroup
 
@@ -159,10 +156,6 @@ func NewManager(cfg Config) *Manager {
 	}
 	if manager.logger == nil {
 		manager.logger = slog.New(slog.DiscardHandler)
-	}
-	manager.idleAfter = cfg.IdleAfter
-	if manager.idleAfter == 0 {
-		manager.idleAfter = defaultIdleAfter
 	}
 	return manager
 }
@@ -477,7 +470,7 @@ func (m *Manager) checkIdle(ctx context.Context) {
 	m.mu.Lock()
 	var stopping []*liveSession
 	for id, live := range m.sessions {
-		if live.closing || live.busy() || now.Sub(live.idleSince) < m.idleAfter {
+		if live.closing || live.busy() || now.Sub(live.idleSince) < defaultIdleAfter {
 			continue
 		}
 		live.idleStopped = true
