@@ -15,9 +15,11 @@ import io.github.joshsymonds.orrery.push.PushNotifier.Companion.EXTRA_KEY
 import io.github.joshsymonds.orrery.push.PushNotifier.Companion.EXTRA_NOTIFICATION_ID
 import io.github.joshsymonds.orrery.push.PushNotifier.Companion.EXTRA_PANE
 import io.github.joshsymonds.orrery.push.PushNotifier.Companion.EXTRA_QUESTION_HASH
+import io.github.joshsymonds.orrery.push.PushNotifier.Companion.EXTRA_SESSION
 import io.github.joshsymonds.orrery.push.PushNotifier.Companion.REMOTE_INPUT_KEY
 import io.github.joshsymonds.orrery.push.PushNotifier.Companion.notificationId
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -96,6 +98,23 @@ class PushNotifierTest {
         assertEquals(MainActivity::class.java.name, intent.component?.className)
         assertEquals(pane, intent.getStringExtra(EXTRA_PANE))
         assertTrue(shadowOf(pending).flags and PendingIntent.FLAG_IMMUTABLE != 0)
+    }
+
+    @Test
+    fun sessionContentIntentOpensMainActivityWithSessionNotPane() {
+        notifier.show(idleEvent.copy(pane = "", session = "sess-1"))
+
+        val intent = intentOf(posted(notificationId(host, "sess-1")).contentIntent)
+        assertEquals(MainActivity::class.java.name, intent.component?.className)
+        assertEquals("sess-1", intent.getStringExtra(EXTRA_SESSION))
+        assertFalse(intent.hasExtra(EXTRA_PANE))
+    }
+
+    @Test
+    fun sessionQuestionPostsNoActions() {
+        notifier.show(questionEvent.copy(pane = "", session = "sess-1"))
+
+        assertTrue(posted(notificationId(host, "sess-1")).actions.isNullOrEmpty())
     }
 
     @Test

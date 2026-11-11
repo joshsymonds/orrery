@@ -52,10 +52,12 @@ class PushNotifier(private val context: Context) {
             .setContentIntent(contentIntent(event, tag))
             .setOnlyAlertOnce(replacing && event.state !in ALERTING_STATES)
             .setExtras(timeExtras(event.time))
-        if (event.question.isNotEmpty()) {
-            KEYS.forEach { key -> builder.addAction(keyAction(event, tag, key, id)) }
+        if (event.session.isEmpty()) {
+            if (event.question.isNotEmpty()) {
+                KEYS.forEach { key -> builder.addAction(keyAction(event, tag, key, id)) }
+            }
+            builder.addAction(replyAction(event, tag, id))
         }
-        builder.addAction(replyAction(event, tag, id))
         manager.notify(id, builder.build())
     }
 
@@ -87,7 +89,12 @@ class PushNotifier(private val context: Context) {
     }
 
     private fun contentIntent(event: PushEvent, tag: String): PendingIntent {
-        val intent = Intent(context, MainActivity::class.java).putExtra(EXTRA_PANE, event.pane)
+        val intent = Intent(context, MainActivity::class.java)
+        if (event.session.isNotEmpty()) {
+            intent.putExtra(EXTRA_SESSION, event.session)
+        } else {
+            intent.putExtra(EXTRA_PANE, event.pane)
+        }
         return PendingIntent.getActivity(
             context,
             requestCode(event.host, tag, "content"),
@@ -138,6 +145,7 @@ class PushNotifier(private val context: Context) {
         const val ACTION_KEY = "io.github.joshsymonds.orrery.action.KEY"
         const val ACTION_REPLY = "io.github.joshsymonds.orrery.action.REPLY"
         const val EXTRA_PANE = "io.github.joshsymonds.orrery.extra.PANE"
+        const val EXTRA_SESSION = "io.github.joshsymonds.orrery.extra.SESSION"
         const val EXTRA_KEY = "io.github.joshsymonds.orrery.extra.KEY"
         const val EXTRA_QUESTION_HASH = "io.github.joshsymonds.orrery.extra.QUESTION_HASH"
         const val EXTRA_NOTIFICATION_ID = "io.github.joshsymonds.orrery.extra.NOTIFICATION_ID"
