@@ -19,17 +19,17 @@ import (
 
 // Item kinds.
 const (
-	kindPrompt   = "prompt"
-	kindReply    = "reply"
-	kindTool     = "tool"
-	kindQuestion = "question"
-	kindResult   = "result"
-	kindNotice   = "notice"
+	kindPrompt     = "prompt"
+	kindReply      = "reply"
+	kindTool       = "tool"
+	kindQuestion   = "question"
+	kindResult     = "result"
+	kindNotice     = "notice"
+	kindCompaction = "compaction"
 )
 
 // Notice kinds.
 const (
-	noticeCompaction  = "compaction"
 	noticeTask        = "task"
 	noticeInterrupted = "interrupted"
 	noticeTeammate    = "teammate"
@@ -65,6 +65,8 @@ const (
 	maxTextBytes = 4096
 	// maxReplyBytes caps the text of one reply.
 	maxReplyBytes = 32768
+	// maxSummaryBytes caps the text of one compaction summary.
+	maxSummaryBytes = 32768
 	// originWindowBytes is how far into the transcript the origin prompt is searched.
 	originWindowBytes = 1 << 20
 	// maxRunes caps the origin prompt, the text of a notice and the text of a goal.
@@ -80,16 +82,20 @@ type Conversation struct {
 	Waiting []Waiting `json:"waiting"`
 }
 
-// Item is one reply, tool call, question, prompt, tool result or notice of a transcript.
+// Item is one reply, tool call, question, prompt, tool result, notice or compaction of a transcript. A compaction
+// takes its trigger and tokens from the compact_boundary line before it, and both stay empty when that line is
+// not read.
 type Item struct {
-	Kind   string `json:"kind"`
-	Time   int64  `json:"time"`
-	Text   string `json:"text"`
-	Tool   string `json:"tool"`
-	Input  string `json:"input"`
-	ID     string `json:"id"`
-	Error  bool   `json:"error"`
-	Notice string `json:"notice"`
+	Kind    string `json:"kind"`
+	Time    int64  `json:"time"`
+	Text    string `json:"text"`
+	Tool    string `json:"tool"`
+	Input   string `json:"input"`
+	ID      string `json:"id"`
+	Error   bool   `json:"error"`
+	Notice  string `json:"notice"`
+	Trigger string `json:"trigger"`
+	Tokens  int64  `json:"tokens"`
 }
 
 // transcriptLine holds the fields of one transcript line that the reader uses.
@@ -107,6 +113,12 @@ type transcriptLine struct {
 		Content json.RawMessage `json:"content"`
 	} `json:"message"`
 	Attachment json.RawMessage `json:"attachment"`
+	Subtype    string          `json:"subtype"`
+	// CompactMetadata is set on a compact_boundary line.
+	CompactMetadata struct {
+		Trigger   string `json:"trigger"`
+		PreTokens int64  `json:"preTokens"`
+	} `json:"compactMetadata"`
 }
 
 // queuedCommand holds the fields of a queued command attachment that the reader uses.
@@ -156,21 +168,47 @@ func Read(path string, limit int) (Conversation, error) {
 	return Conversation{Origin: origin, Items: items}, nil
 }
 
-// newestItems returns the newest limit items of the transcript, oldest first, from the tail of src.
+// newestItems returns the newest limit items of the transcript, oldest first, from the tail of src. The scan
+// goes newest first, so a compaction waits for the first compact_boundary line before it and takes that line's
+// trigger and tokens. It keeps scanning past limit only while a compaction still waits, and then adds no items.
 func newestItems(src io.ReaderAt, size int64, limit int) ([]Item, error) {
 	newest := []Item{}
+	// awaiting holds the indexes in newest of the compactions whose boundary is not read yet.
+	var awaiting []int
 	err := ReadTail(src, size, MaxTailBytes, func(line []byte) bool {
+		if trigger, tokens, ok := boundaryOf(line); ok {
+			for _, i := range awaiting {
+				newest[i].Trigger = trigger
+				newest[i].Tokens = tokens
+			}
+			awaiting = nil
+			return len(newest) < limit
+		}
 		items := lineItems(line)
 		for i := len(items) - 1; i >= 0 && len(newest) < limit; i-- {
 			newest = append(newest, items[i])
+			if items[i].Kind == kindCompaction {
+				awaiting = append(awaiting, len(newest)-1)
+			}
 		}
-		return len(newest) < limit
+		return len(newest) < limit || len(awaiting) > 0
 	})
 	if err != nil {
 		return nil, err
 	}
 	slices.Reverse(newest)
 	return newest, nil
+}
+
+// boundaryOf returns the trigger and pre-compaction token count of a main-chain compact_boundary line. ok is
+// false for any other line, including a sidechain or meta boundary.
+func boundaryOf(line []byte) (trigger string, tokens int64, ok bool) {
+	var entry transcriptLine
+	if json.Unmarshal(line, &entry) != nil || entry.IsMeta || entry.IsSidechain ||
+		entry.Type != "system" || entry.Subtype != "compact_boundary" {
+		return "", 0, false
+	}
+	return entry.CompactMetadata.Trigger, entry.CompactMetadata.PreTokens, true
 }
 
 // lineItems returns the items of one transcript line in order, or none when the line is skipped.
@@ -244,11 +282,15 @@ func questionText(input json.RawMessage) string {
 	return strings.Join(questions, "\n")
 }
 
-// userItems returns one result per tool_result block of a user line. A line with no tool_result is one
+// userItems returns the compaction of a line that Claude Code flags as a compaction summary, whatever else the line
+// holds. Otherwise it returns one result per tool_result block of a user line. A line with no tool_result is one
 // notice when Claude Code marks it as one or sends it as a teammate message, none when it holds only idle
 // teammate pings or is command output, and otherwise its prompt.
 func userItems(entry transcriptLine, ts int64) []Item {
 	text, blocks := splitContent(entry.Message.Content)
+	if entry.IsCompactSummary {
+		return []Item{{Kind: kindCompaction, Time: ts, Text: cutText(text, maxSummaryBytes)}}
+	}
 	var items []Item
 	for _, block := range blocks {
 		if stringField(block, "type") == "tool_result" {
@@ -412,15 +454,13 @@ func isIdle(body string) bool {
 	return json.Unmarshal([]byte(strings.TrimSpace(body)), &ping) == nil && ping.Type == "idle_notification"
 }
 
-// noticeItem returns the notice of a user line that Claude Code marks as a compaction, a task notification or
-// an interruption. A line marked as typed, queued or accepted from a suggestion is never a notice.
+// noticeItem returns the notice of a user line that Claude Code marks as a task notification or an interruption.
+// A line marked as typed, queued or accepted from a suggestion is never a notice.
 func noticeItem(entry transcriptLine, text string, blocks []contentBlock, ts int64) (Item, bool) {
 	if typedLine(entry) {
 		return Item{}, false
 	}
 	switch {
-	case entry.IsCompactSummary:
-		return Item{Kind: kindNotice, Time: ts, Notice: noticeCompaction}, true
 	case entry.Origin.Kind == "task-notification" && entry.PromptSource == "system":
 		return taskItem(text, ts), true
 	case isInterruption(blocks):
