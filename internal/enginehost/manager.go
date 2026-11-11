@@ -145,7 +145,8 @@ type Manager struct {
 	resumeMu sync.Mutex
 	// attemptMu guards attempts. attempts holds the keyed calls running now, by key: a Start that names a session id, or
 	// a Say that names a prompt id. A key's attempt is removed when it ends, so a later call with that key checks the
-	// store as an unkeyed call would.
+	// store as an unkeyed call would. An attempt that failed after it stored its record stays, with its error, so a
+	// later call with that key returns the error.
 	attemptMu sync.Mutex
 	attempts  map[attemptKey]*attempt
 }
@@ -187,9 +188,11 @@ type StartRequest struct {
 // lowercase hex digits, or Start returns an error matching ErrBadID before it stores anything. A non-empty req.ID runs
 // as one attempt: while an attempt for it runs, a Start with that id waits for the attempt and returns its result, and
 // starts nothing. Once begun, the attempt finishes even if ctx ends, and a Start whose ctx ends returns ctx's error. With
-// no attempt running, a req.ID that already has an engine row returns that id and does nothing else. Start records the
-// session as working before it spawns the process. A spawn or prompt failure is recorded as the session's failed state
-// with the reason, and Start returns the id with no error.
+// no attempt running, a req.ID that already has an engine row returns that id and does nothing else. An attempt that
+// fails after it stores the row keeps its error, and a later Start with that id returns the error and does nothing else.
+// An attempt that fails before it stores the row frees the id. Start records the session as working before it spawns
+// the process. A spawn or prompt failure is recorded as the session's failed state with the reason, and Start returns
+// the id with no error.
 func (m *Manager) Start(ctx context.Context, req StartRequest) (string, error) {
 	if req.ID == "" {
 		id, err := newSessionID()
@@ -201,16 +204,22 @@ func (m *Manager) Start(ctx context.Context, req StartRequest) (string, error) {
 	if err := checkID(req.ID); err != nil {
 		return "", err
 	}
-	return m.keyed(ctx, attemptKey{session: req.ID}, func(ctx context.Context) (string, error) {
-		_, err := m.engineRow(ctx, req.ID)
-		switch {
-		case err == nil:
-			return req.ID, nil
-		case !errors.Is(err, ErrNoSession):
-			return "", err
-		}
-		return m.start(ctx, req.ID, req)
-	})
+	return m.keyed(ctx, attemptKey{session: req.ID},
+		func(ctx context.Context) (string, error) {
+			_, err := m.engineRow(ctx, req.ID)
+			switch {
+			case err == nil:
+				return req.ID, nil
+			case !errors.Is(err, ErrNoSession):
+				return "", err
+			}
+			return m.start(ctx, req.ID, req)
+		},
+		func(ctx context.Context) bool {
+			_, err := m.engineRow(ctx, req.ID)
+			return !errors.Is(err, ErrNoSession)
+		},
+	)
 }
 
 // attemptKey names a keyed call: a Start of a session id, which has an empty prompt, or a Say of a prompt id in a
@@ -227,20 +236,23 @@ type attempt struct {
 	err  error
 }
 
-// keyed runs the keyed call key as one attempt, unless an attempt with key is running, which it waits for instead. run
-// receives a context that ctx's cancellation does not reach, so the attempt finishes its store, spawn or resume, and
-// send even when ctx ends. A caller whose ctx ends first returns ctx's error and leaves the attempt running.
+// keyed runs the keyed call key as one attempt, unless an attempt with key is running or has kept its error, which it
+// waits for or returns instead. run receives a context that ctx's cancellation does not reach, so the attempt finishes
+// its store, spawn or resume, and send even when ctx ends. A caller whose ctx ends first returns ctx's error and leaves
+// the attempt running. recorded reports whether the record of key exists, or cannot be checked, and is asked only of an
+// attempt that returned an error (see execute).
 func (m *Manager) keyed(
 	ctx context.Context,
 	key attemptKey,
 	run func(context.Context) (string, error),
+	recorded func(context.Context) bool,
 ) (string, error) {
 	m.attemptMu.Lock()
 	running, ok := m.attempts[key]
 	if !ok {
 		running = &attempt{done: make(chan struct{})}
 		m.attempts[key] = running
-		go m.execute(context.WithoutCancel(ctx), key, running, run)
+		go m.execute(context.WithoutCancel(ctx), key, running, run, recorded)
 	}
 	m.attemptMu.Unlock()
 	select {
@@ -251,12 +263,22 @@ func (m *Manager) keyed(
 	}
 }
 
-// execute runs the attempt at with run, frees its key, and then wakes the callers that wait for it.
-func (m *Manager) execute(ctx context.Context, key attemptKey, at *attempt, run func(context.Context) (string, error)) {
+// execute runs the attempt at with run, then wakes the callers that wait for it. It frees key unless the attempt
+// failed after it stored its record, which keeps key with the error for later calls. An attempt whose record cannot be
+// checked is kept too.
+func (m *Manager) execute(
+	ctx context.Context,
+	key attemptKey,
+	at *attempt,
+	run func(context.Context) (string, error),
+	recorded func(context.Context) bool,
+) {
 	at.id, at.err = run(ctx)
-	m.attemptMu.Lock()
-	delete(m.attempts, key)
-	m.attemptMu.Unlock()
+	if at.err == nil || !recorded(ctx) {
+		m.attemptMu.Lock()
+		delete(m.attempts, key)
+		m.attemptMu.Unlock()
+	}
 	close(at.done)
 }
 
@@ -329,9 +351,10 @@ type SayRequest struct {
 // id: while an attempt for it runs, a Say with that id waits for the attempt and returns its result, and sends nothing.
 // Once begun, the attempt finishes even if ctx ends, and a Say whose ctx ends returns ctx's error. With no attempt
 // running, a req.PromptID that an engine_prompt event of the session already carries makes Say return nil and do
-// nothing else; otherwise the stored prompt carries req.PromptID. It returns ErrEmptyPrompt for empty text, an error
-// wrapping ErrNoSession when no engine row has the id, and the errors of resumeSession when a live session cannot be
-// started. A send that fails is recorded as the session's failed state.
+// nothing else; otherwise the stored prompt carries req.PromptID. An attempt that fails after it stores the prompt keeps
+// its error, and a later Say with that prompt id returns the error and does nothing else. It returns ErrEmptyPrompt for
+// empty text, an error wrapping ErrNoSession when no engine row has the id, and the errors of resumeSession when a live
+// session cannot be started. A send that fails is recorded as the session's failed state.
 func (m *Manager) Say(ctx context.Context, req SayRequest) error {
 	if req.Text == "" {
 		return ErrEmptyPrompt
@@ -351,6 +374,10 @@ func (m *Manager) Say(ctx context.Context, req SayRequest) error {
 				return "", nil
 			}
 			return "", m.say(ctx, req)
+		},
+		func(ctx context.Context) bool {
+			sent, err := m.store.EnginePromptSent(ctx, req.ID, req.PromptID)
+			return sent || err != nil
 		},
 	)
 	return err

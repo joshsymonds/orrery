@@ -7,6 +7,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -217,4 +219,104 @@ func TestRetryWhileAttemptHeldWaitsForItsResult(t *testing.T) {
 	if got := conversationOf(t, history); !slices.Equal(got, want) {
 		t.Fatalf("conversation = %q, want %q", got, want)
 	}
+}
+
+// TestRetryOfSayFailedAfterStoringReturnsItsError stops a live session, then plants its stopped entry back in the live
+// set, so the next Say claims it and its prompt fails on the closed transport after the prompt is stored. The retry with
+// the same prompt id returns that error and does nothing else, and a Say with a new prompt id resumes the session.
+func TestRetryOfSayFailedAfterStoringReturnsItsError(t *testing.T) {
+	m, path := newTestManager(t, 1, fakeClaudePath(t))
+	dir := t.TempDir()
+	id, err := m.Start(t.Context(), StartRequest{Dir: dir, Prompt: "hi"})
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	waitHistory(t, path, id, "the first reply block", func(h store.EngineHistory) bool {
+		return hasBlock(t, h, "fake reply 1")
+	})
+	stopped, err := m.live(id)
+	if err != nil {
+		t.Fatalf("live session %s: %v", id, err)
+	}
+	if err := m.Stop(t.Context(), id); err != nil {
+		t.Fatalf("Stop: %v", err)
+	}
+	// Stop waits for the pump, which removes the session, so the planted entry is the only one.
+	m.mu.Lock()
+	m.sessions[id] = stopped
+	m.mu.Unlock()
+
+	first := m.Say(t.Context(), SayRequest{ID: id, Text: "again", PromptID: "p1"})
+	if first == nil {
+		t.Fatal("Say to the stopped session: got nil, want the send error")
+	}
+	if got := promptIDsOf(t, historyOf(t, path, id)); !slices.Equal(got, []string{"", "p1"}) {
+		t.Fatalf("prompt ids after failed Say = %q, want [\"\" \"p1\"]", got)
+	}
+	before := historyOf(t, path, id)
+
+	retry := m.Say(t.Context(), SayRequest{ID: id, Text: "again", PromptID: "p1"})
+	if !errors.Is(retry, first) {
+		t.Fatalf("retry Say: got %v, want the first error %v", retry, first)
+	}
+	if after := historyOf(t, path, id); len(after.Events) != len(before.Events) {
+		t.Fatalf("retry Say added %d events, want none", len(after.Events)-len(before.Events))
+	}
+	if got := fakeArgs(t, dir); len(got) != 1 {
+		t.Fatalf("fake claude starts after retry = %d, want 1: %q", len(got), got)
+	}
+	if got := promptCount(t, dir); got != 1 {
+		t.Fatalf("prompts the fake claude received after retry = %d, want 1", got)
+	}
+
+	// The planted entry is removed before the resume below, so the resume starts a process as it does for any row.
+	m.mu.Lock()
+	delete(m.sessions, id)
+	m.mu.Unlock()
+	if err := m.Say(t.Context(), SayRequest{ID: id, Text: "third", PromptID: "p2"}); err != nil {
+		t.Fatalf("Say with a new prompt id: %v", err)
+	}
+	history := waitHistory(t, path, id, "the reply to the resumed prompt", func(h store.EngineHistory) bool {
+		return hasBlock(t, h, "fake reply 2")
+	})
+	if got := promptIDsOf(t, history); !slices.Equal(got, []string{"", "p1", "p2"}) {
+		t.Fatalf("prompt ids after resume = %q, want [\"\" \"p1\" \"p2\"]", got)
+	}
+}
+
+// TestStartRefusedBeforeStoringFreesItsKey refuses a keyed Start whose directory is missing, before it stores anything.
+// Once the directory exists, the retry with the same id starts the session and gets its first reply.
+func TestStartRefusedBeforeStoringFreesItsKey(t *testing.T) {
+	m, path := newTestManager(t, 1, fakeClaudePath(t))
+	dir := filepath.Join(t.TempDir(), "later")
+	if _, err := m.Start(t.Context(), StartRequest{ID: chosenID, Dir: dir, Prompt: "hi"}); !errors.Is(err, ErrBadDir) {
+		t.Fatalf("Start into a missing directory: got %v, want ErrBadDir", err)
+	}
+	if err := os.Mkdir(dir, 0o755); err != nil {
+		t.Fatalf("create directory: %v", err)
+	}
+	id, err := m.Start(t.Context(), StartRequest{ID: chosenID, Dir: dir, Prompt: "hi"})
+	if err != nil {
+		t.Fatalf("retry Start: %v", err)
+	}
+	if id != chosenID {
+		t.Fatalf("retry Start id = %q, want %q", id, chosenID)
+	}
+	waitHistory(t, path, chosenID, "the first reply block", func(h store.EngineHistory) bool {
+		return hasBlock(t, h, "fake reply 1")
+	})
+}
+
+// promptCount returns how many prompts the fake claude in dir has received, from its count file.
+func promptCount(t *testing.T, dir string) int {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(dir, "fakeclaude.n"))
+	if err != nil {
+		t.Fatalf("read fake claude prompt count: %v", err)
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil {
+		t.Fatalf("parse fake claude prompt count %q: %v", data, err)
+	}
+	return n
 }
