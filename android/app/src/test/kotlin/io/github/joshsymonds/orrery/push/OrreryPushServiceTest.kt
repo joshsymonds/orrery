@@ -81,7 +81,7 @@ class OrreryPushServiceTest {
     }
 
     private fun posted(): Notification {
-        val notification = shadowOf(manager).getNotification(null, notificationId(pane))
+        val notification = shadowOf(manager).getNotification(null, notificationId("synthetic-host", pane))
         assertNotNull("expected a notification for pane $pane", notification)
         return notification
     }

@@ -40,7 +40,7 @@ class ReplyReceiverTest {
     private val server = FakeOrreryServer()
 
     private val pane = "%3"
-    private val id = notificationId(pane)
+    private val id = notificationId("devbox", pane)
     private val questionHash = "h"
     private val keysPath = "/v1/panes/%253/keys"
     private val textPath = "/v1/panes/%253/text"

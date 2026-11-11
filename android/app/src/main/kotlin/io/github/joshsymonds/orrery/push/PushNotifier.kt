@@ -30,6 +30,7 @@ data class PushEvent(
     val label: String,
     val question: String,
     val questionHash: String,
+    val session: String = "",
 )
 
 class PushNotifier(private val context: Context) {
@@ -38,16 +39,19 @@ class PushNotifier(private val context: Context) {
     fun show(event: PushEvent) {
         if (context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
         ensureChannel()
-        val id = notificationId(event.pane)
+        val tag = event.session.ifEmpty { event.pane }
+        val id = notificationId(event.host, tag)
+        val replacing = manager.activeNotifications.any { it.id == id }
         val builder = Notification.Builder(context, CHANNEL_ID)
             .setSmallIcon(SMALL_ICON)
             .setContentTitle("${event.project} · ${event.state}")
             .setContentText(event.summary.ifEmpty { event.label })
-            .setContentIntent(contentIntent(event.pane))
+            .setContentIntent(contentIntent(event, tag))
+            .setOnlyAlertOnce(replacing && event.state !in ALERTING_STATES)
         if (event.question.isNotEmpty()) {
-            KEYS.forEach { key -> builder.addAction(keyAction(event, key, id)) }
+            KEYS.forEach { key -> builder.addAction(keyAction(event, tag, key, id)) }
         }
-        builder.addAction(replyAction(event.pane, id))
+        builder.addAction(replyAction(event, tag, id))
         manager.notify(id, builder.build())
     }
 
@@ -71,17 +75,17 @@ class PushNotifier(private val context: Context) {
         )
     }
 
-    private fun contentIntent(pane: String): PendingIntent {
-        val intent = Intent(context, MainActivity::class.java).putExtra(EXTRA_PANE, pane)
+    private fun contentIntent(event: PushEvent, tag: String): PendingIntent {
+        val intent = Intent(context, MainActivity::class.java).putExtra(EXTRA_PANE, event.pane)
         return PendingIntent.getActivity(
             context,
-            requestCode(pane, "content"),
+            requestCode(event.host, tag, "content"),
             intent,
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
     }
 
-    private fun keyAction(event: PushEvent, key: String, id: Int): Notification.Action {
+    private fun keyAction(event: PushEvent, tag: String, key: String, id: Int): Notification.Action {
         val intent = Intent(ACTION_KEY)
             .setPackage(context.packageName)
             .putExtra(EXTRA_PANE, event.pane)
@@ -90,21 +94,21 @@ class PushNotifier(private val context: Context) {
             .putExtra(EXTRA_NOTIFICATION_ID, id)
         val pending = PendingIntent.getBroadcast(
             context,
-            requestCode(event.pane, key),
+            requestCode(event.host, tag, key),
             intent,
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
         return Notification.Action.Builder(Icon.createWithResource(context, SMALL_ICON), key, pending).build()
     }
 
-    private fun replyAction(pane: String, id: Int): Notification.Action {
+    private fun replyAction(event: PushEvent, tag: String, id: Int): Notification.Action {
         val intent = Intent(ACTION_REPLY)
             .setPackage(context.packageName)
-            .putExtra(EXTRA_PANE, pane)
+            .putExtra(EXTRA_PANE, event.pane)
             .putExtra(EXTRA_NOTIFICATION_ID, id)
         val pending = PendingIntent.getBroadcast(
             context,
-            requestCode(pane, "reply"),
+            requestCode(event.host, tag, "reply"),
             intent,
             PendingIntent.FLAG_MUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
@@ -114,7 +118,7 @@ class PushNotifier(private val context: Context) {
             .build()
     }
 
-    private fun requestCode(pane: String, slot: String): Int = "$pane|$slot".hashCode()
+    private fun requestCode(host: String, tag: String, slot: String): Int = "$host|$tag|$slot".hashCode()
 
     companion object {
         const val CHANNEL_ID = "panes"
@@ -126,8 +130,9 @@ class PushNotifier(private val context: Context) {
         const val EXTRA_NOTIFICATION_ID = "io.github.joshsymonds.orrery.extra.NOTIFICATION_ID"
         const val REMOTE_INPUT_KEY = "reply"
         private val KEYS = listOf("1", "2", "3")
+        private val ALERTING_STATES = setOf("waiting", "failed")
         private val SMALL_ICON = android.R.drawable.ic_dialog_info
 
-        fun notificationId(pane: String): Int = pane.hashCode()
+        fun notificationId(host: String, key: String): Int = "$host|$key".hashCode()
     }
 }
