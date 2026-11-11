@@ -1,5 +1,8 @@
 package io.github.joshsymonds.orrery.ui
 
+import android.view.View
+import android.view.ViewGroup
+import android.widget.EditText
 import androidx.activity.ComponentActivity
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.geometry.Offset
@@ -17,6 +20,7 @@ import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToIndex
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipe
@@ -47,6 +51,11 @@ private const val TIMEOUT_MILLIS = 5_000L
 private const val WIDE_LINE_REPEATS = 30
 private const val FIXED_NOW_SECONDS = 1_800_000_000L
 private const val STATUS_LINE_TAG = "status-line"
+private const val SYNTHETIC_DRAFT = "synthetic draft"
+private const val CLAUDE_HINT = "Message Claude…"
+private const val SHELL_HINT = "Type a command…"
+private const val GOAL_LINE_TAG = "goal-line"
+private const val COMPOSER_TAG = "composer"
 private const val LIVE_RETURN_TAG = "live-return"
 private const val HOST_METERS_TAG = "host-meters"
 private const val HOST_BODY =
@@ -133,6 +142,15 @@ class PaneScreenTest {
 
     private fun conversationBody(vararg items: String): String =
         """{"origin":"synthetic origin","items":[${items.joinToString(",")}]}"""
+
+    private fun conversationBodyWithGoal(goal: String, vararg items: String): String =
+        """{"origin":"synthetic origin","items":[${items.joinToString(",")}],"goal":${JSONObject.quote(goal)}}"""
+
+    private fun toolItem(id: String, name: String): String =
+        """{"kind":"tool","time":0,"text":"","tool":${JSONObject.quote(name)},"input":"echo synthetic","id":"$id","error":false}"""
+
+    private fun noticeItem(sort: String, text: String): String =
+        """{"kind":"notice","time":0,"text":${JSONObject.quote(text)},"tool":"","input":"","id":"","error":false,"notice":"$sort"}"""
 
     @Test
     fun openingShowsScreenBodyAndMarksSeenOnce() {
@@ -255,6 +273,82 @@ class PaneScreenTest {
             composeRule.onNodeWithText("Send").assertIsDisplayed()
             composeRule.onNodeWithText("Esc").assertExists()
         }
+    }
+
+    @Test
+    fun quickKeysHideWhileTheDraftHasTextAndReturnWhenItClears() {
+        FakeOrreryServer().use { server ->
+            serve(server, "synthetic body")
+            setScreen(server)
+            composeRule.waitUntilExactlyOneExists(hasText("synthetic body"), TIMEOUT_MILLIS)
+            composeRule.onNodeWithText("Esc").assertExists()
+
+            setDraft(SYNTHETIC_DRAFT)
+            composeRule.waitUntilDoesNotExist(hasText("Esc"), TIMEOUT_MILLIS)
+
+            setDraft("")
+            composeRule.waitUntilExactlyOneExists(hasText("Esc"), TIMEOUT_MILLIS)
+        }
+    }
+
+    @Test
+    fun claudePaneHintNamesClaude() {
+        FakeOrreryServer().use { server ->
+            servePane(server, conversation = conversationBody(conversationItem("reply", "synthetic reply")))
+            setScreen(server)
+            composeRule.waitUntilExactlyOneExists(hasText("synthetic reply"), TIMEOUT_MILLIS)
+            composeRule.waitForIdle()
+
+            assertEquals(CLAUDE_HINT, editField().hint?.toString())
+        }
+    }
+
+    @Test
+    fun shellPaneHintNamesACommand() {
+        FakeOrreryServer().use { server ->
+            servePane(server, state = "")
+            server.respond("GET", SCREEN_PATH, 200, "synthetic terminal body")
+            setScreen(server)
+            composeRule.waitUntil(TIMEOUT_MILLIS) { terminalText()?.text == "synthetic terminal body" }
+            composeRule.waitForIdle()
+
+            assertEquals(SHELL_HINT, editField().hint?.toString())
+        }
+    }
+
+    @Test
+    fun shellPaneDrawsNoStatusLine() {
+        FakeOrreryServer().use { server ->
+            servePane(server, state = "")
+            server.respond("GET", SCREEN_PATH, 200, "synthetic terminal body")
+            setScreen(server)
+            composeRule.waitUntil(TIMEOUT_MILLIS) { terminalText()?.text == "synthetic terminal body" }
+            composeRule.onNodeWithTag(PANE_HEADER_TAG).assertExists()
+
+            composeRule.onAllNodesWithTag(STATUS_LINE_TAG).assertCountEquals(0)
+        }
+    }
+
+    private fun setDraft(text: String) {
+        composeRule.runOnUiThread { editField().setText(text) }
+        composeRule.waitForIdle()
+    }
+
+    private fun editField(): EditText =
+        checkNotNull(findEditText(composeRule.activity.window.decorView)) {
+            "PaneScreen must host the draft's EditText"
+        }
+
+    private fun findEditText(view: View): EditText? {
+        if (view is EditText) {
+            return view
+        }
+        if (view is ViewGroup) {
+            for (index in 0 until view.childCount) {
+                findEditText(view.getChildAt(index))?.let { return it }
+            }
+        }
+        return null
     }
 
     private fun terminalText(): AnnotatedString? {
@@ -737,6 +831,91 @@ class PaneScreenTest {
                 "first item top ${first.top} should be below header bottom ${header.bottom}",
                 first.top >= header.bottom,
             )
+        }
+    }
+
+    @Test
+    fun goalShowsInTheComposerBandJustAboveTheStatusLine() {
+        FakeOrreryServer().use { server ->
+            servePane(
+                server,
+                state = "working",
+                conversation = conversationBodyWithGoal(
+                    "synthetic goal text",
+                    conversationItem("reply", "synthetic reply"),
+                ),
+            )
+            setClockedScreen(server)
+
+            composeRule.waitUntilExactlyOneExists(hasTestTag(GOAL_LINE_TAG), TIMEOUT_MILLIS)
+            composeRule.onNodeWithText("synthetic goal text", useUnmergedTree = true).assertIsDisplayed()
+            val goal = composeRule.onNodeWithTag(GOAL_LINE_TAG).fetchSemanticsNode().boundsInRoot
+            val status = composeRule.onNodeWithTag(STATUS_LINE_TAG).fetchSemanticsNode().boundsInRoot
+            val composer = composeRule.onNodeWithTag(COMPOSER_TAG).fetchSemanticsNode().boundsInRoot
+            assertTrue(goal.bottom <= status.top + EDGE_TOLERANCE_PX)
+            assertTrue(goal.top >= composer.top - EDGE_TOLERANCE_PX)
+        }
+    }
+
+    @Test
+    fun conversationWithoutGoalDrawsNoGoalLine() {
+        FakeOrreryServer().use { server ->
+            servePane(
+                server,
+                state = "working",
+                conversation = conversationBody(conversationItem("reply", "synthetic reply")),
+            )
+            setClockedScreen(server)
+
+            composeRule.waitUntilExactlyOneExists(hasText("synthetic reply"), TIMEOUT_MILLIS)
+            composeRule.onNodeWithTag(STATUS_LINE_TAG).assertIsDisplayed()
+            composeRule.onAllNodesWithTag(GOAL_LINE_TAG).assertCountEquals(0)
+        }
+    }
+
+    @Test
+    fun emptyGoalDrawsNoGoalLine() {
+        FakeOrreryServer().use { server ->
+            servePane(
+                server,
+                state = "working",
+                conversation = conversationBodyWithGoal("", conversationItem("reply", "synthetic reply")),
+            )
+            setClockedScreen(server)
+
+            composeRule.waitUntilExactlyOneExists(hasText("synthetic reply"), TIMEOUT_MILLIS)
+            composeRule.onAllNodesWithTag(GOAL_LINE_TAG).assertCountEquals(0)
+        }
+    }
+
+    @Test
+    fun noticeInsideARunOfToolCallsFollowsTheGroupAsASlimRow() {
+        FakeOrreryServer().use { server ->
+            servePane(
+                server,
+                conversation = conversationBody(
+                    toolItem("synthetic-tool-1", "Read"),
+                    noticeItem("task", "synthetic task notice"),
+                    toolItem("synthetic-tool-2", "Grep"),
+                    toolItem("synthetic-tool-3", "Read"),
+                ),
+            )
+            setScreen(server)
+
+            composeRule.waitUntilExactlyOneExists(hasText("3 tool calls"), TIMEOUT_MILLIS)
+            composeRule.onNodeWithTag("notice:task").assertIsDisplayed()
+            composeRule.onNodeWithText("synthetic task notice").assertIsDisplayed()
+            composeRule.onAllNodesWithTag("tool-row:synthetic-tool-1").assertCountEquals(0)
+            composeRule.onAllNodesWithTag("tool-row:synthetic-tool-2").assertCountEquals(0)
+            composeRule.onAllNodesWithTag("tool-row:synthetic-tool-3").assertCountEquals(0)
+            val group = composeRule.onNodeWithTag("group-row:synthetic-tool-1").fetchSemanticsNode().boundsInRoot
+            val notice = composeRule.onNodeWithTag("notice:task").fetchSemanticsNode().boundsInRoot
+            assertTrue(notice.top >= group.bottom - EDGE_TOLERANCE_PX)
+
+            composeRule.onNodeWithTag("group-row:synthetic-tool-1").performClick()
+            composeRule.onNodeWithTag("tool-row:synthetic-tool-1").performScrollTo().assertIsDisplayed()
+            composeRule.onNodeWithTag("tool-row:synthetic-tool-2").performScrollTo().assertIsDisplayed()
+            composeRule.onNodeWithTag("tool-row:synthetic-tool-3").performScrollTo().assertIsDisplayed()
         }
     }
 }

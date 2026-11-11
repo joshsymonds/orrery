@@ -51,6 +51,40 @@ in
         When null, `p` runs `orrery open` locally.
       '';
     };
+
+    roots = lib.mkOption {
+      type = lib.types.listOf (
+        lib.types.submodule {
+          options = {
+            path = lib.mkOption {
+              type = lib.types.str;
+              example = "Work";
+              description = "Directory relative to the home directory.";
+            };
+
+            depth = lib.mkOption {
+              type = lib.types.ints.positive;
+              example = 2;
+              description = "Levels of subdirectories below `path` that the intent picker lists.";
+            };
+          };
+        }
+      );
+      default = [ ];
+      example = [
+        {
+          path = "Work";
+          depth = 2;
+        }
+      ];
+      description = ''
+        Directory trees the intent picker lists. For each root, `p` lists its
+        subdirectories down to `depth` levels, after the directories zoxide
+        ranks, capped at 300 entries. Written to `$XDG_CONFIG_HOME/orrery/roots`
+        (or `~/.config/orrery/roots`), which `orrery open` and the tree's `N`
+        read. Empty writes no roots file.
+      '';
+    };
   };
 
   config = lib.mkIf cfg.enable {
@@ -60,5 +94,9 @@ in
     ];
 
     programs.tmux.extraConfig = "source-file ${tmuxConf}";
+
+    xdg.configFile."orrery/roots" = lib.mkIf (cfg.roots != [ ]) {
+      text = lib.concatMapStrings (root: "${toString root.depth} ${root.path}\n") cfg.roots;
+    };
   };
 }

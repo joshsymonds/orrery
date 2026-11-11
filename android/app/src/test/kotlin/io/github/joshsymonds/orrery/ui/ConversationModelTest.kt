@@ -14,7 +14,11 @@ class ConversationModelTest {
         input: String = "",
         id: String = "",
         error: Boolean = false,
-    ) = ConversationItem(kind, time, text, tool, input, id, error)
+        notice: String = "",
+    ) = ConversationItem(kind, time, text, tool, input, id, error, notice)
+
+    private fun notice(sort: String, text: String = "", error: Boolean = false, time: Long = 0L) =
+        item("notice", time = time, text = text, error = error, notice = sort)
 
     private fun call(id: String, name: String = "Read", input: String = "synthetic input") =
         item("tool", tool = name, input = input, id = id)
@@ -251,5 +255,173 @@ class ConversationModelTest {
             ),
             entries,
         )
+    }
+
+    @Test
+    fun eachNoticeSortBecomesANoticeEntryWithItsTextErrorAndTime() {
+        val entries = foldConversation(
+            listOf(
+                notice("compaction", time = 10L),
+                notice("task", text = "synthetic task", time = 20L),
+                notice("task", text = "synthetic failed task", error = true, time = 30L),
+                notice("teammate", text = "synthetic summary one\nsynthetic summary two", time = 40L),
+                notice("interrupted", time = 50L),
+            ),
+        )
+
+        assertEquals(
+            listOf(
+                ConvoEntry.Notice("compaction", "", false, 10L),
+                ConvoEntry.Notice("task", "synthetic task", false, 20L),
+                ConvoEntry.Notice("task", "synthetic failed task", true, 30L),
+                ConvoEntry.Notice("teammate", "synthetic summary one\nsynthetic summary two", false, 40L),
+                ConvoEntry.Notice("interrupted", "", false, 50L),
+            ),
+            entries,
+        )
+    }
+
+    @Test
+    fun noticeBetweenRepliesStaysInPlace() {
+        val entries = foldConversation(
+            listOf(
+                item("reply", text = "synthetic reply one"),
+                notice("compaction"),
+                item("reply", text = "synthetic reply two"),
+            ),
+        )
+
+        assertEquals(
+            listOf(
+                ConvoEntry.Reply("synthetic reply one"),
+                ConvoEntry.Notice("compaction", "", false),
+                ConvoEntry.Reply("synthetic reply two"),
+            ),
+            entries,
+        )
+    }
+
+    @Test
+    fun noticeInsideARunOfThreeKeepsOneGroupAndFollowsIt() {
+        val entries = foldConversation(
+            listOf(
+                call("a"),
+                notice("task", text = "synthetic task"),
+                call("b"),
+                call("c"),
+            ),
+        )
+
+        assertEquals(
+            listOf(
+                ConvoEntry.Group(listOf(toolCall("a"), toolCall("b"), toolCall("c"))),
+                ConvoEntry.Notice("task", "synthetic task", false),
+            ),
+            entries,
+        )
+    }
+
+    @Test
+    fun noticesAndResultsInsideARunKeepTheGroupAndTheNoticesKeepTheirOrder() {
+        val entries = foldConversation(
+            listOf(
+                call("a"),
+                result("a", text = "out a"),
+                notice("task", text = "synthetic task one"),
+                call("b"),
+                notice("teammate", text = "synthetic summary"),
+                result("b", text = "out b"),
+                call("c"),
+                notice("task", text = "synthetic task two", error = true),
+                item("reply", text = "synthetic reply"),
+            ),
+        )
+
+        assertEquals(
+            listOf(
+                ConvoEntry.Group(
+                    listOf(
+                        toolCall("a", result = "out a"),
+                        toolCall("b", result = "out b"),
+                        toolCall("c"),
+                    ),
+                ),
+                ConvoEntry.Notice("task", "synthetic task one", false),
+                ConvoEntry.Notice("teammate", "synthetic summary", false),
+                ConvoEntry.Notice("task", "synthetic task two", true),
+                ConvoEntry.Reply("synthetic reply"),
+            ),
+            entries,
+        )
+    }
+
+    @Test
+    fun noticeInsideARunOfTwoKeepsItsPlaceBetweenTheRows() {
+        val entries = foldConversation(
+            listOf(
+                call("a"),
+                notice("task", text = "synthetic task"),
+                call("b"),
+                item("reply", text = "synthetic reply"),
+            ),
+        )
+
+        assertEquals(
+            listOf(
+                toolEntry("a"),
+                ConvoEntry.Notice("task", "synthetic task", false),
+                toolEntry("b"),
+                ConvoEntry.Reply("synthetic reply"),
+            ),
+            entries,
+        )
+    }
+
+    @Test
+    fun aReplyStillSplitsARunThatNoticesDoNot() {
+        val entries = foldConversation(
+            listOf(
+                call("a"),
+                notice("task", text = "synthetic task"),
+                call("b"),
+                item("reply", text = "synthetic reply"),
+                call("c"),
+                call("d"),
+                notice("interrupted"),
+            ),
+        )
+
+        assertEquals(
+            listOf(
+                toolEntry("a"),
+                ConvoEntry.Notice("task", "synthetic task", false),
+                toolEntry("b"),
+                ConvoEntry.Reply("synthetic reply"),
+                toolEntry("c"),
+                toolEntry("d"),
+                ConvoEntry.Notice("interrupted", "", false),
+            ),
+            entries,
+        )
+    }
+
+    @Test
+    fun noticesWithTheSameSortTextAndTimeGetDistinctKeys() {
+        val entries = foldConversation(listOf(notice("interrupted", time = 5L), notice("interrupted", time = 5L)))
+
+        val keys = entryKeys(entries)
+
+        assertEquals(2, entries.size)
+        assertEquals(2, keys.toSet().size)
+    }
+
+    @Test
+    fun aNoticeKeyHoldsWhenItMovesBehindAGroup() {
+        val alone = entryKeys(foldConversation(listOf(notice("task", text = "synthetic task", time = 7L))))
+        val behindGroup = entryKeys(
+            foldConversation(listOf(call("a"), notice("task", text = "synthetic task", time = 7L), call("b"), call("c"))),
+        )
+
+        assertEquals(alone.single(), behindGroup.last())
     }
 }

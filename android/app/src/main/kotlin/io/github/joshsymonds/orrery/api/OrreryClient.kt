@@ -53,9 +53,12 @@ data class ConversationItem(
     val input: String,
     val id: String,
     val error: Boolean,
+    /** A `notice` item's sort (`compaction`, `task`, `teammate`, `interrupted`); "" on other kinds. */
+    val notice: String = "",
 )
 
-data class Conversation(val origin: String, val items: List<ConversationItem>)
+/** [goal] is the pane's active Claude Code goal, or "" when there is none. */
+data class Conversation(val origin: String, val items: List<ConversationItem>, val goal: String = "")
 
 data class HostStat(val label: String, val value: String, val percent: Double?, val level: String)
 
@@ -70,6 +73,9 @@ enum class WindowKind(val wire: String) {
     CLAUDE("claude"),
     SHELL("shell"),
 }
+
+/** The string at [key], or "" when the key is absent or null: keys a server may predate. */
+private fun JSONObject.lenientString(key: String): String = if (isNull(key)) "" else optString(key, "")
 
 class OrreryHttpException(val status: Int, message: String) : IOException(message)
 
@@ -125,8 +131,10 @@ class OrreryClient(baseUrl: String) {
                     input = item.getString("input"),
                     id = item.getString("id"),
                     error = item.getBoolean("error"),
+                    notice = item.lenientString("notice"),
                 )
             },
+            goal = json.lenientString("goal"),
         )
     }
 

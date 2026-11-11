@@ -1,9 +1,11 @@
 package io.github.joshsymonds.orrery.ui
 
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.assertHeightIsEqualTo
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.assertTextEquals
@@ -13,6 +15,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.unit.dp
 import io.github.joshsymonds.orrery.api.HostStat
 import io.github.joshsymonds.orrery.api.Pane
 import org.junit.Assert.assertEquals
@@ -62,9 +65,8 @@ class PaneHeaderTest {
         pane: Pane = pane(),
         origin: String? = prompt,
         stats: List<HostStat>? = null,
-        showStatus: Boolean = false,
         liveScreen: Boolean = false,
-        onStatusClick: () -> Unit = {},
+        compact: Boolean = false,
         onConversation: () -> Unit = {},
         onBack: () -> Unit = {},
     ) {
@@ -74,12 +76,10 @@ class PaneHeaderTest {
                     pane = pane,
                     origin = origin,
                     stats = stats,
-                    nowSeconds = now,
-                    showStatus = showStatus,
                     liveScreen = liveScreen,
-                    onStatusClick = onStatusClick,
                     onConversation = onConversation,
                     onBack = onBack,
+                    compact = compact,
                 )
             }
         }
@@ -138,27 +138,10 @@ class PaneHeaderTest {
     }
 
     @Test
-    fun statusLineAbsentWhenNotShown() {
-        setHeader(showStatus = false)
+    fun headerHasNoStatusLine() {
+        setHeader()
 
         composeRule.onAllNodesWithTag("status-line").assertCountEquals(0)
-    }
-
-    @Test
-    fun statusLineShownWhenAskedForAWorkingPane() {
-        setHeader(showStatus = true)
-
-        composeRule.onNodeWithTag("status-line").assertIsDisplayed()
-    }
-
-    @Test
-    fun tappingStatusLineCallsOnStatusClick() {
-        var tapped = false
-        setHeader(showStatus = true, onStatusClick = { tapped = true })
-
-        composeRule.onNodeWithTag("status-line").performClick()
-
-        assertTrue(tapped)
     }
 
     @Test
@@ -209,5 +192,48 @@ class PaneHeaderTest {
         composeRule.onNodeWithTag("pane-back").performClick()
 
         assertTrue(backed)
+    }
+
+    @Test
+    fun compactHeaderFoldsAwayTitleBackOriginMetersAndHairline() {
+        setHeader(
+            stats = listOf(HostStat("cpu", "42%", 42.0, "ok")),
+            liveScreen = true,
+            compact = true,
+        )
+
+        composeRule.onNodeWithTag("pane-header").assertHeightIsEqualTo(0.dp)
+        composeRule.onAllNodesWithTag("pane-title").assertCountEquals(0)
+        composeRule.onAllNodesWithTag("pane-back").assertCountEquals(0)
+        composeRule.onAllNodesWithTag("pane-origin").assertCountEquals(0)
+        composeRule.onAllNodesWithTag("host-meters").assertCountEquals(0)
+        composeRule.onAllNodesWithTag("live-return").assertCountEquals(0)
+    }
+
+    @Test
+    fun headerStartedCompactReturnsWhenCompactClears() {
+        val compact = mutableStateOf(true)
+        composeRule.setContent {
+            MaterialTheme {
+                PaneHeader(
+                    pane = pane(),
+                    origin = prompt,
+                    stats = null,
+                    liveScreen = false,
+                    onConversation = {},
+                    onBack = {},
+                    compact = compact.value,
+                )
+            }
+        }
+        composeRule.onAllNodesWithTag("pane-title").assertCountEquals(0)
+
+        composeRule.runOnIdle { compact.value = false }
+        composeRule.waitForIdle()
+
+        composeRule.onNodeWithTag("pane-title").assertTextEquals("example-label")
+        composeRule.onNodeWithTag("pane-origin")
+            .assertTextContains("example-project", substring = true)
+            .assertTextContains(prompt, substring = true)
     }
 }

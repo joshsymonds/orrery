@@ -8,13 +8,16 @@ import androidx.activity.SystemBarStyle
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.windowInsetsTopHeight
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.getValue
@@ -32,6 +35,7 @@ import io.github.joshsymonds.orrery.ui.SettingsScreen
 import io.github.joshsymonds.orrery.ui.theme.OrreryTheme
 
 internal const val ROOT_CONTENT_TAG = "root-content"
+internal const val TOP_BAND_TAG = "top-band"
 
 class MainActivity : ComponentActivity() {
     private var screen by mutableStateOf<Screen>(Screen.Panes)
@@ -55,37 +59,48 @@ class MainActivity : ComponentActivity() {
                     color = MaterialTheme.colorScheme.background,
                 ) {
                     var client by remember { mutableStateOf(OrreryClient(settings.serverUrl)) }
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .windowInsetsPadding(WindowInsets.safeDrawing.union(WindowInsets.ime))
-                            .testTag(ROOT_CONTENT_TAG),
-                    ) {
-                        when (val current = screen) {
-                            Screen.Panes -> PaneListScreen(
-                                client = client,
-                                onOpenPane = { screen = Screen.Pane(it.id) },
-                                onOpenSettings = { screen = Screen.Settings },
-                            )
-                            is Screen.Pane -> {
-                                BackHandler { screen = Screen.Panes }
-                                PaneScreen(
-                                    paneId = current.id,
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .windowInsetsPadding(WindowInsets.safeDrawing.union(WindowInsets.ime))
+                                .testTag(ROOT_CONTENT_TAG),
+                        ) {
+                            when (val current = screen) {
+                                Screen.Panes -> PaneListScreen(
                                     client = client,
-                                    onBack = { screen = Screen.Panes },
+                                    onOpenPane = { screen = Screen.Pane(it.id) },
+                                    onOpenSettings = { screen = Screen.Settings },
                                 )
-                            }
-                            Screen.Settings -> {
-                                BackHandler { screen = Screen.Panes }
-                                SettingsScreen(
-                                    settings = settings,
-                                    onSaved = {
-                                        client = OrreryClient(settings.serverUrl)
-                                        screen = Screen.Panes
-                                    },
-                                )
+                                is Screen.Pane -> {
+                                    BackHandler { screen = Screen.Panes }
+                                    PaneScreen(
+                                        paneId = current.id,
+                                        client = client,
+                                        onBack = { screen = Screen.Panes },
+                                    )
+                                }
+                                Screen.Settings -> {
+                                    BackHandler { screen = Screen.Panes }
+                                    SettingsScreen(
+                                        settings = settings,
+                                        onSaved = {
+                                            client = OrreryClient(settings.serverUrl)
+                                            screen = Screen.Panes
+                                        },
+                                    )
+                                }
                             }
                         }
+                        // A solid band over the status bar's inset, drawn last so nothing that
+                        // scrolls or slides up from the content shows behind the clock and battery.
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .windowInsetsTopHeight(WindowInsets.safeDrawing)
+                                .background(MaterialTheme.colorScheme.background)
+                                .testTag(TOP_BAND_TAG),
+                        )
                     }
                 }
             }

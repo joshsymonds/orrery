@@ -1,5 +1,8 @@
 package io.github.joshsymonds.orrery.ui
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.MaterialTheme
@@ -7,6 +10,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.test.SemanticsNodeInteraction
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -16,6 +22,9 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToIndex
+import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -61,6 +70,60 @@ class ConversationViewTest {
         composeRule.onNodeWithText("YOU").assertIsDisplayed()
         composeRule.onNodeWithText("synthetic prompt").assertIsDisplayed()
         composeRule.onNodeWithText("synthetic reply").assertIsDisplayed()
+    }
+
+    @Test
+    fun replyInlineMarkupShowsItsWordsWithoutMarkers() {
+        val raw = "**synthetic bold** and `synthetic code`"
+        setList(listOf(ConvoEntry.Reply(raw)))
+
+        composeRule.onNodeWithText("synthetic bold and synthetic code").assertIsDisplayed()
+        composeRule.onAllNodesWithText(raw).assertCountEquals(0)
+        composeRule.onAllNodesWithText("**", substring = true).assertCountEquals(0)
+        composeRule.onAllNodesWithText("`", substring = true).assertCountEquals(0)
+    }
+
+    @Test
+    fun replyBulletListShowsBulletMarkersAndItemText() {
+        setList(listOf(ConvoEntry.Reply("- synthetic one\n- synthetic two")))
+
+        composeRule.onNodeWithText("synthetic one").assertIsDisplayed()
+        composeRule.onNodeWithText("synthetic two").assertIsDisplayed()
+        composeRule.onAllNodesWithText("•", substring = true).assertCountEquals(2)
+        composeRule.onAllNodesWithText("- synthetic", substring = true).assertCountEquals(0)
+    }
+
+    @Test
+    fun replyFencedCodeShowsItsBodyAndNoFenceLine() {
+        setList(listOf(ConvoEntry.Reply("```\nsynthetic code line\n```")))
+
+        composeRule.onNodeWithText("synthetic code line").assertIsDisplayed()
+        composeRule.onAllNodesWithText("```", substring = true).assertCountEquals(0)
+    }
+
+    @Test
+    fun replyTableShowsEachCellAndNoDelimiterRow() {
+        setList(
+            listOf(
+                ConvoEntry.Reply(
+                    "| synthetic head | synthetic other |\n|---|---|\n| synthetic cell | synthetic value |",
+                ),
+            ),
+        )
+
+        composeRule.onNodeWithText("synthetic head").assertIsDisplayed()
+        composeRule.onNodeWithText("synthetic other").assertIsDisplayed()
+        composeRule.onNodeWithText("synthetic cell").assertIsDisplayed()
+        composeRule.onNodeWithText("synthetic value").assertIsDisplayed()
+        composeRule.onAllNodesWithText("|---", substring = true).assertCountEquals(0)
+    }
+
+    @Test
+    fun promptShowsMarkupVerbatim() {
+        val raw = "**synthetic bold** and `synthetic code`\n- synthetic item"
+        setList(listOf(ConvoEntry.Prompt(raw)))
+
+        composeRule.onNodeWithText(raw).assertIsDisplayed()
     }
 
     @Test
@@ -300,6 +363,22 @@ class ConversationViewTest {
         }
     }
 
+    private fun setSizedList(
+        entries: MutableState<List<ConvoEntry>>,
+        height: MutableState<Dp>,
+        padding: MutableState<PaddingValues>,
+    ) {
+        composeRule.setContent {
+            MaterialTheme {
+                val state = rememberLazyListState()
+                list = state
+                Box(modifier = Modifier.height(height.value)) {
+                    ConversationView(entries = entries.value, listState = state, contentPadding = padding.value)
+                }
+            }
+        }
+    }
+
     private fun tallReply(name: String): String =
         (listOf(name) + List(99) { "synthetic line" }).joinToString("\n")
 
@@ -367,6 +446,49 @@ class ConversationViewTest {
     }
 
     @Test
+    fun shrinkingTheViewportAtTheBottomKeepsTheEndOfTheTallReplyInView() {
+        val entries = mutableStateOf(replies(1, 39) + ConvoEntry.Reply(tallReply("synthetic tall A")))
+        val height = mutableStateOf(300.dp)
+        setSizedList(entries, height, mutableStateOf(PaddingValues()))
+        assertEndOfReplyInView(tallReply("synthetic tall A"))
+
+        composeRule.runOnIdle { height.value = 200.dp }
+
+        assertEndOfReplyInView(tallReply("synthetic tall A"))
+    }
+
+    @Test
+    fun growingTheTopPaddingAtTheBottomKeepsTheEndOfTheTallReplyInView() {
+        val entries = mutableStateOf(replies(1, 39) + ConvoEntry.Reply(tallReply("synthetic tall A")))
+        val padding = mutableStateOf(PaddingValues())
+        setSizedList(entries, mutableStateOf(300.dp), padding)
+        assertEndOfReplyInView(tallReply("synthetic tall A"))
+
+        composeRule.runOnIdle { padding.value = PaddingValues(top = 80.dp) }
+
+        assertEndOfReplyInView(tallReply("synthetic tall A"))
+    }
+
+    @Test
+    fun shrinkingTheViewportWhileScrolledToTheTopLeavesTheFirstItemInPlace() {
+        val entries = mutableStateOf(replies(1, 39) + ConvoEntry.Reply(tallReply("synthetic tall A")))
+        val height = mutableStateOf(300.dp)
+        setSizedList(entries, height, mutableStateOf(PaddingValues()))
+
+        composeRule.onNodeWithTag("conversation-list").performScrollToIndex(0)
+        composeRule.waitForIdle()
+        assertEquals(0, list.firstVisibleItemIndex)
+        val before = composeRule.onNodeWithText("synthetic reply 01").fetchSemanticsNode().boundsInRoot.top
+
+        composeRule.runOnIdle { height.value = 200.dp }
+
+        composeRule.waitForIdle()
+        assertEquals(0, list.firstVisibleItemIndex)
+        val after = composeRule.onNodeWithText("synthetic reply 01").fetchSemanticsNode().boundsInRoot.top
+        assertEquals(before, after, 1f)
+    }
+
+    @Test
     fun repliesWithIdenticalTextAndTimeBothDisplay() {
         setList(
             replies(1, 39) +
@@ -374,5 +496,69 @@ class ConversationViewTest {
         )
 
         composeRule.onAllNodesWithText("synthetic twin").assertCountEquals(2)
+    }
+
+    private fun layoutOf(node: SemanticsNodeInteraction): TextLayoutResult {
+        val results = mutableListOf<TextLayoutResult>()
+        node.fetchSemanticsNode().config[SemanticsActions.GetTextLayoutResult].action!!.invoke(results)
+        return results.single()
+    }
+
+    @Test
+    fun eachNoticeShowsItsLabelAndItsText() {
+        setList(
+            listOf(
+                ConvoEntry.Notice("compaction", "", false),
+                ConvoEntry.Notice("interrupted", "", false),
+                ConvoEntry.Notice("task", "synthetic task line", false),
+                ConvoEntry.Notice("teammate", "synthetic summary one\nsynthetic summary two", false),
+            ),
+        )
+
+        composeRule.onNodeWithTag("notice:compaction").assertIsDisplayed()
+        composeRule.onNodeWithText("context compacted").assertIsDisplayed()
+        composeRule.onNodeWithText("interrupted").assertIsDisplayed()
+        composeRule.onNodeWithText("task").assertIsDisplayed()
+        composeRule.onNodeWithText("synthetic task line").assertIsDisplayed()
+        composeRule.onNodeWithText("teammate").assertIsDisplayed()
+        composeRule.onNodeWithText("synthetic summary one\nsynthetic summary two").assertIsDisplayed()
+        composeRule.onAllNodesWithText("✗").assertCountEquals(0)
+    }
+
+    @Test
+    fun failedTaskNoticeShowsCross() {
+        setList(listOf(ConvoEntry.Notice("task", "synthetic failed task", true)))
+
+        composeRule.onNodeWithText("synthetic failed task").assertIsDisplayed()
+        composeRule.onNodeWithText("✗").assertIsDisplayed()
+    }
+
+    @Test
+    fun noticeTextIsShownAsWrittenAndNotAsMarkdown() {
+        val raw = "**synthetic** `task` [link](https://example.com)"
+        setList(listOf(ConvoEntry.Notice("task", raw, false)))
+
+        composeRule.onNodeWithText(raw).assertIsDisplayed()
+    }
+
+    @Test
+    fun longTaskNoticeIsCutToTwoLines() {
+        // Robolectric's text layout does not soft-wrap, so the lines are broken by hand.
+        val long = (1..4).joinToString("\n") { "synthetic task line $it" }
+        setList(listOf(ConvoEntry.Notice("task", long, false)))
+
+        val layout = layoutOf(composeRule.onNodeWithText(long))
+        assertEquals(2, layout.lineCount)
+        assertTrue(layout.hasVisualOverflow)
+    }
+
+    @Test
+    fun teammateNoticeShowsAtMostThreeLines() {
+        val summaries = (1..6).joinToString("\n") { "synthetic summary $it" }
+        setList(listOf(ConvoEntry.Notice("teammate", summaries, false)))
+
+        val layout = layoutOf(composeRule.onNodeWithText(summaries))
+        assertEquals(3, layout.lineCount)
+        assertTrue(layout.hasVisualOverflow)
     }
 }

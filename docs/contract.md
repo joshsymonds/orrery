@@ -248,7 +248,7 @@ Subcommands:
     - The fragment is its first non-blank line, with whitespace runs collapsed to one space, trimmed, cut to its first 40 runes, and trimmed again. The screen from `capture-pane -p -J` is compared with its whitespace runs collapsed to one space. An empty fragment refuses.
   - `--text T` types T into the pane when all of these hold. Otherwise T is pasted.
     - The pane's `@orrery_state` is `working` or `done`, and `#{pane_in_mode}` is 0.
-    - Claude Code's input box is on the visible screen, as `capture-pane -p` shows it. The lower rule is the lowest line made only of `─` (U+2500) that is exactly as wide as the pane. The upper rule is the nearest such line above it. The line directly under the upper rule starts with `❯` (U+276F) followed by a space, a no-break space (U+00A0), or nothing. Apart from the prompt line, the lines between the rules are blank or indented by two spaces. Below the lower rule, trailing blank lines are dropped first. An agent row is a line that starts with two spaces, then `●` (U+25CF) or `◯` (U+25EF), then a space, then at least one more character. If the last remaining line is an agent row, the trailing agent rows must have exactly one blank line above them, and a non-blank line above that blank line, both below the lower rule. The footer is then the lines below the lower rule down to that blank line, which leaves out the lower rule and the agent rows. Otherwise the footer is every line below the lower rule. The footer holds at most 3 non-blank lines and no agent row. A selected row starts with `❯` and a space in place of an agent row's two leading spaces. It is not an agent row, so a screen with a selected row anywhere below the lower rule does not match.
+    - Claude Code's input box is on the visible screen, as `capture-pane -p` shows it. The lower rule is the lowest line made only of `─` (U+2500) that is exactly as wide as the pane. The upper rule is the nearest line above it that is either a plain rule, made only of `─` and exactly as wide as the pane, or a titled rule. A titled rule is one or more `─`, a space, text of at least one character with no `─`, a space, and exactly one `─`. Its width and the width of a plain rule are counted in runes. The line directly under the upper rule starts with `❯` (U+276F) followed by a space, a no-break space (U+00A0), or nothing. Apart from the prompt line, the lines between the rules are blank or indented by two spaces. Below the lower rule, trailing blank lines are dropped first. An overflow row is a line that starts with two spaces, then `↓` (U+2193), a space, one or more ASCII digits, and ` more`. If the last remaining line is an overflow row directly under an agent row, that overflow row is left out. An overflow row anywhere else below the lower rule does not match. An agent row is a line that starts with two spaces, then `●` (U+25CF) or `◯` (U+25EF), then a space, then at least one more character. If the last remaining line is an agent row, the trailing agent rows must have exactly one blank line above them, and a non-blank line above that blank line, both below the lower rule. The footer is then the lines below the lower rule down to that blank line, which leaves out the lower rule and the agent rows. Otherwise the footer is every line below the lower rule. The footer holds at most 3 non-blank lines and no agent row or overflow row. A selected row starts with `❯` and a space in place of an agent row's two leading spaces. It is not an agent row, so a screen with a selected row anywhere below the lower rule does not match.
     - Claude Code's feedback survey draws its question and the options keyed `1`, `2`, `3` and `0` above the input box. The input-box rule above still matches while the survey is on. With the draft empty, a typed reply whose first character is one of those digits has that key taken as a survey answer. A pasted reply is not affected. Set `CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY=1`, for example in the `env` block of Claude Code's settings, to turn the survey off; typed delivery expects it off. orrery does not detect the survey.
     - The text, after CRLF and then CR become LF, is valid UTF-8. It holds no control character other than LF, so no tab. It needs at most 200 `send-keys` calls before Enter, and each line break is one of them.
     - Text sent to a `working` pane is typed in the same way. Claude Code queues it until the reply ends.
@@ -373,8 +373,9 @@ When neither variable is set, `orreryd` exits 1.
 | `ORRERY_NTFY_TOKEN_FILE` | `orreryd` | file holding the ntfy access token |
 | `ANTHROPIC_BASE_URL` | `orrery` (`hook`, `debug summarize`) | the session's base URL. The hook sends it in each frame (section 9), and each summary runs through its own session's base URL. |
 | `ORRERY_SUMMARIZER` | `orrery` (`hook`) | summarizer sentinel (section 7). `orreryd` sets it on each summary run. Summaries also run with hooks disabled. |
-| `HOME` | `orrery` (`tree`, `open`) | `$HOME/Personal` is the default parent directory of new projects |
+| `HOME` | `orrery` (`tree`, `open`) | `$HOME/Personal` is the default parent directory of new projects. `$HOME` is also the directory that roots are relative to, and the roots file falls back to `$HOME/.config/orrery/roots` (see [Roots](#roots)) |
 | `XDG_STATE_HOME` | `orrery` (`tree`, `open`) | base directory of the archive file (see [Archive](#archive)) |
+| `XDG_CONFIG_HOME` | `orrery` (`tree`, `open`) | base directory of the roots file, `$XDG_CONFIG_HOME/orrery/roots` (see [Roots](#roots)) |
 | `PATH` | `orrery` (`tree`, `open`) | finds `zoxide` and `claude` for the picker and `open` |
 
 ### Archive
@@ -401,6 +402,22 @@ Each record has these keys, in this order. The example is synthetic:
 | `summary` | string | the pane's summary |
 | `closed` | number | unix seconds when the record was written |
 | `claude_session` | string | the Claude Code session id (`@orrery_claude_session`), written last |
+
+### Roots
+
+The roots file declares the directory trees whose directories the picker's model sees (see [Picker](#picker)). Its file is `$XDG_CONFIG_HOME/orrery/roots` when `XDG_CONFIG_HOME` is set to a non-empty value. Otherwise it is `$HOME/.config/orrery/roots`. When neither variable is set, no path resolves and no roots are read.
+
+- `orrery open` and the tree's `N` read the file each time they run. A missing file declares no roots. Any other read failure is an error.
+- Each line that is not blank is `DEPTH PATH`. `DEPTH` is a positive decimal integer with no sign. One space follows it, and `PATH` is the rest of the line, unchanged. `PATH` is relative to `$HOME`, which must be absolute, and must stay inside it: an absolute `PATH`, or one that climbs out with `..`, is an error.
+- Any other line is an error that names its line number, and `open` fails with it. The tree's `N` returns it too.
+- The [home-manager module](#home-manager-module) writes this file from `programs.orrery.roots`.
+
+Example. The names are synthetic:
+
+```
+2 Work
+1 Scratch
+```
 
 ### Store
 
@@ -526,6 +543,7 @@ The tree lists the active projects first. A project is quiet when none of its pa
 The picker is shown by `orrery open` with text, and by the tree's `N` in directory mode.
 
 - With no text, a one-line `text:` prompt asks for it. Enter submits non-empty text, Backspace deletes, and Esc cancels.
+- The model sees at most 300 directories, numbered `d1`, `d2`, and so on, in this order. First come zoxide's top 30. Then each root of the [roots file](#roots), in file order, adds its directories at levels 1 to `DEPTH` below its path, sorted by path, skipping any directory already listed. A directory is written relative to `$HOME` when it lies strictly inside `$HOME`, and by its absolute path otherwise, including `$HOME` itself. Hidden names (beginning with `.`) are left out with everything beneath them, as are symlinks and any directory that cannot be read, with everything beneath it.
 - The text is ranked into actions, best first, and the first row is selected. Each row reads `jump PANE`, `pane DIR`, `resume SESSION`, `continue latest in DIR`, or `start fresh in DIR`, with ` (prompt)` added when the action carries a first prompt. A resume row adds `: NOTE` after its session when the archived record has a summary.
 - The resume rows are the actions that `open` builds for the directory (see its bullet above). A `resume` action runs `claude --resume SESSION`, a `continue` action runs `claude --continue`, and a `start fresh` action runs `claude`. Each opens a Claude pane in the directory, as a `pane` action does.
 - The text picker's last row is `pane ROOT`, where ROOT is `$HOME/Personal`. It carries the text as its first prompt when the model calls the text a task, as every model `pane` row does. It is left out when another row already opens a pane in ROOT. When the model's reply has no valid line, this row is the only row. When `HOME` is not absolute, there is no root row, and a reply with no valid line is an error. A failed model, zoxide or tmux call is an error. The rows that `open` builds for a directory get no root row.
@@ -559,6 +577,7 @@ The flake exports `homeManagerModules.default`. Setting `programs.orrery.enable 
 | `programs.orrery.enable` | bool | `false` | install orrery, `p`, and the tmux plugin |
 | `programs.orrery.package` | package | the flake's `packages.<system>.default` | the orrery package to install and run |
 | `programs.orrery.remoteHost` | nullOr string | `null` | SSH host that `p` opens sessions on |
+| `programs.orrery.roots` | listOf submodule | `[ ]` | directory trees the picker lists, each with `path` (relative to home) and `depth` (a positive integer); written to the roots file (see [Roots](#roots)). An empty list writes no file |
 
 `p` runs as follows:
 

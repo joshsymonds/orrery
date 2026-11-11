@@ -15,12 +15,14 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListLayoutInfo
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -28,6 +30,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -58,12 +61,13 @@ private enum class CallMark(val symbol: String, val colour: Color) {
 }
 
 /**
- * The folded conversation as the phone draws it: time labels, prompt blocks, plain replies, tool
- * rows that expand to their result, and groups of calls that expand to their rows, with an
- * optional footer after the last entry. Which rows are open is kept by tool id (a group by its
+ * The folded conversation as the phone draws it: time labels, prompt blocks, markdown replies, tool
+ * rows that expand to their result, groups of calls that expand to their rows, and slim notice
+ * rows, with an optional footer after the last entry. Which rows are open is kept by tool id (a group by its
  * first call's id), so it survives new entries. It opens at the end of the newest item. While the
  * reader is at the bottom, new entries keep the end of the newest item in view; once they scroll
- * up, new entries leave their position alone.
+ * up, new entries leave their position alone. A change of the viewport's height or top padding
+ * (the keyboard, a growing draft, the header folding) follows the same way.
  */
 @Composable
 fun ConversationView(
@@ -78,6 +82,7 @@ fun ConversationView(
         expanded = if (id in expanded) expanded - id else expanded + id
     }
     var followBottom by remember { mutableStateOf(true) }
+    val markdownCache = remember { MarkdownCache() }
     val keys = remember(entries) { entryKeys(entries) }
     val lastIndex = entries.size + (if (footer == null) 0 else 1) - 1
     // Following is decided when a scroll ends, not when the first visible item moves: a slid window
@@ -90,10 +95,16 @@ fun ConversationView(
         }
     }
     LaunchedEffect(entries, lastIndex) {
-        if (followBottom && lastIndex >= 0) {
-            listState.scrollToItem(lastIndex)
-            listState.scrollToEnd()
-        }
+        if (followBottom && lastIndex >= 0) listState.followEnd(lastIndex)
+    }
+    val currentLast by rememberUpdatedState(lastIndex)
+    LaunchedEffect(listState) {
+        snapshotFlow { listState.layoutInfo.let { it.viewportSize.height to it.beforeContentPadding } }
+            .collect { (height, _) ->
+                if (height > 0 && followBottom && currentLast >= 0 && !listState.isScrollInProgress) {
+                    listState.followEnd(currentLast)
+                }
+            }
     }
     LazyColumn(
         modifier = modifier
@@ -107,9 +118,10 @@ fun ConversationView(
             when (val entry = entries[index]) {
                 is ConvoEntry.Time -> TimeLabel(entry.seconds)
                 is ConvoEntry.Prompt -> PromptBlock(entry.text)
-                is ConvoEntry.Reply -> ReplyText(entry.text)
+                is ConvoEntry.Reply -> ReplyText(entry.text, markdownCache)
                 is ConvoEntry.Tool -> ToolRow(entry.call, expanded, toggle)
                 is ConvoEntry.Group -> GroupRow(entry.calls, expanded, toggle)
+                is ConvoEntry.Notice -> NoticeRow(entry)
             }
         }
         footer?.let { content -> item(key = FOOTER_KEY) { content() } }
@@ -160,13 +172,13 @@ private fun PromptBlock(text: String) {
     }
 }
 
+/** The reply's markdown, rendered; the parse is kept in [cache] by the reply's text. */
 @Composable
-private fun ReplyText(text: String) {
-    Text(
-        text = text,
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 12.dp),
+private fun ReplyText(text: String, cache: MarkdownCache) {
+    val blocks = remember(text) { cache.blocks(text) }
+    MarkdownBody(
+        blocks = blocks,
+        modifier = Modifier.padding(vertical = 12.dp),
         color = Mocha.Text,
         fontSize = 14.sp,
     )
@@ -263,6 +275,70 @@ private fun GroupRow(calls: List<ToolCall>, expanded: Set<String>, onToggle: (St
     }
 }
 
+/**
+ * A session event on one quiet line: a small dot and its sort's label, then its text, cut with an
+ * ellipsis (a teammate notice keeps a few of its summary lines). A failed task is red and marked
+ * with a cross. The text is drawn as it comes, never as markdown.
+ */
+@Composable
+private fun NoticeRow(notice: ConvoEntry.Notice) {
+    val accent = if (notice.error) Mocha.Red else Mocha.Overlay1
+    Row(
+        modifier = Modifier
+            .testTag("notice:${notice.sort}")
+            .fillMaxWidth()
+            .padding(start = 4.dp, end = 4.dp, top = 5.dp, bottom = 5.dp),
+        verticalAlignment = Alignment.Top,
+        horizontalArrangement = Arrangement.spacedBy(7.dp),
+    ) {
+        Box(
+            modifier = Modifier
+                .padding(top = NOTICE_DOT_TOP)
+                .size(NOTICE_DOT)
+                .clip(CircleShape)
+                .background(accent.copy(alpha = NOTICE_DOT_ALPHA)),
+        )
+        Text(
+            text = noticeLabel(notice.sort),
+            color = accent,
+            fontWeight = FontWeight.Bold,
+            fontSize = NOTICE_TEXT_SIZE,
+            lineHeight = NOTICE_LINE_HEIGHT,
+            maxLines = 1,
+        )
+        Text(
+            text = notice.text,
+            modifier = Modifier.weight(1f),
+            color = if (notice.error) Mocha.Red.copy(alpha = NOTICE_ERROR_TEXT_ALPHA) else Mocha.Overlay1,
+            fontSize = NOTICE_TEXT_SIZE,
+            lineHeight = NOTICE_LINE_HEIGHT,
+            maxLines = noticeMaxLines(notice.sort),
+            overflow = TextOverflow.Ellipsis,
+        )
+        if (notice.error) MarkText(CallMark.Failed)
+    }
+}
+
+private val NOTICE_DOT = 5.dp
+private val NOTICE_DOT_TOP = 6.dp
+private const val NOTICE_DOT_ALPHA = 0.7f
+private const val NOTICE_ERROR_TEXT_ALPHA = 0.8f
+private val NOTICE_TEXT_SIZE = 12.sp
+private val NOTICE_LINE_HEIGHT = 17.sp
+
+/** The label a notice of [sort] shows before its text. */
+fun noticeLabel(sort: String): String = when (sort) {
+    "compaction" -> "context compacted"
+    "interrupted" -> "interrupted"
+    "task" -> "task"
+    "teammate" -> "teammate"
+    "" -> "notice"
+    else -> sort
+}
+
+/** How many lines of text a notice of [sort] shows before the ellipsis. */
+fun noticeMaxLines(sort: String): Int = if (sort == "teammate") 3 else 2
+
 @Composable
 private fun Caret(isOpen: Boolean) {
     Text(
@@ -317,6 +393,12 @@ private fun LazyListLayoutInfo.isAtEnd(): Boolean {
     val last = visibleItemsInfo.lastOrNull() ?: return true
     return last.index == totalItemsCount - 1 &&
         last.offset + last.size <= viewportEndOffset - afterContentPadding
+}
+
+/** Brings the end of the item at [lastIndex] to the viewport's end. */
+private suspend fun LazyListState.followEnd(lastIndex: Int) {
+    scrollToItem(lastIndex)
+    scrollToEnd()
 }
 
 /** Scrolls the rest of the way so the last item's end sits at the viewport's end. */

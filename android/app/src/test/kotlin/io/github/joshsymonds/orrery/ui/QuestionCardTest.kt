@@ -1,6 +1,7 @@
 package io.github.joshsymonds.orrery.ui
 
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
@@ -212,6 +213,53 @@ class QuestionCardTest {
             val texts = composeRule.onNodeWithText("Bare one").fetchSemanticsNode()
                 .config[SemanticsProperties.Text].map { it.text }
             assertEquals(listOf("Bare one"), texts)
+        }
+    }
+
+    private val markupTitleQuestion = """
+        {"tool":"AskUserQuestion","questions":[{"question":"**synthetic bold** and `synthetic code`?",
+         "header":"Pick","options":[{"label":"Synthetic one","description":"d"},
+         {"label":"Synthetic two","description":"d"}],"multiSelect":false}]}
+    """.trimIndent()
+
+    private val markupOptionQuestion = """
+        {"tool":"AskUserQuestion","questions":[{"question":"Pick a styled option?",
+         "header":"Pick","options":[{"label":"**Styled one**","description":"`Synthetic detail`"},
+         {"label":"Styled two","description":"d"}],"multiSelect":false}]}
+    """.trimIndent()
+
+    private val markupPlainQuestion = "**synthetic bold** and `synthetic code`?"
+
+    @Test
+    fun askUserQuestionTitleDrawsMarkdownWithoutMarkers() {
+        FakeOrreryServer().use { server ->
+            setCard(server, markupTitleQuestion) {}
+
+            composeRule.onNodeWithText("synthetic bold and synthetic code?").assertIsDisplayed()
+            composeRule.onAllNodesWithText("**", substring = true).assertCountEquals(0)
+            composeRule.onAllNodesWithText("`", substring = true).assertCountEquals(0)
+        }
+    }
+
+    @Test
+    fun askUserQuestionOptionMarkupShowsWithoutMarkers() {
+        FakeOrreryServer().use { server ->
+            setCard(server, markupOptionQuestion) {}
+
+            composeRule.onNodeWithText("Styled one").assertIsDisplayed()
+            composeRule.onNodeWithText("Synthetic detail").assertIsDisplayed()
+            composeRule.onAllNodesWithText("**", substring = true).assertCountEquals(0)
+            composeRule.onAllNodesWithText("`", substring = true).assertCountEquals(0)
+        }
+    }
+
+    @Test
+    fun plainTextQuestionKeepsMarkupVerbatim() {
+        FakeOrreryServer().use { server ->
+            setCard(server, markupPlainQuestion) {}
+
+            composeRule.onNodeWithText(markupPlainQuestion).assertIsDisplayed()
+            composeRule.onNodeWithText("3 No").assertIsDisplayed()
         }
     }
 }

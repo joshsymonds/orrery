@@ -124,7 +124,68 @@ func zoxideListing(root string, count int) string {
 }
 
 func intentConfig(client *tmuxctl.Client, zoxide, claude, root string) Config {
-	return Config{Tmux: client, Zoxide: zoxide, Claude: claude, Root: root}
+	return Config{Tmux: client, Zoxide: zoxide, Claude: claude, Root: root, Home: root}
+}
+
+// intentDirLines runs Intent with home as the Config's Home and the zoxide listing, and returns the DIRECTORIES
+// lines of the stdin the model received.
+func intentDirLines(t *testing.T, home, listing string) []string {
+	t.Helper()
+	zoxide := installZoxide(t, listing, 0)
+	claude := installClaude(t, "pane d1\n", 0)
+	cfg := Config{Tmux: newClient(t), Zoxide: zoxide, Claude: claude, Home: home}
+	if _, err := Intent(t.Context(), cfg, "example text"); err != nil {
+		t.Fatalf("Intent: %v", err)
+	}
+	runs := claudeRuns(t, claude)
+	if len(runs) != 1 {
+		t.Fatalf("claude ran %d times, want 1", len(runs))
+	}
+	_, after, found := strings.Cut(runs[0].stdin, "\nDIRECTORIES:\n")
+	if !found {
+		t.Fatalf("stdin has no DIRECTORIES section: %q", runs[0].stdin)
+	}
+	block, _, _ := strings.Cut(after, "\n\nPANES:\n")
+	return strings.Split(strings.TrimSuffix(block, "\n"), "\n")
+}
+
+func TestIntentDirectoryTwoLevelsInsideHomeIsRelative(t *testing.T) {
+	home := t.TempDir()
+	listing := scored(filepath.Join(home, "example-client", "example-project"))
+	got := intentDirLines(t, home, listing)
+	if want := []string{"d1 example-client/example-project"}; !slices.Equal(got, want) {
+		t.Errorf("DIRECTORIES lines = %q, want %q", got, want)
+	}
+}
+
+func TestIntentDirectoryOutsideHomeIsAbsolute(t *testing.T) {
+	home := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "example-outside")
+	got := intentDirLines(t, home, scored(outside))
+	if want := []string{"d1 " + outside}; !slices.Equal(got, want) {
+		t.Errorf("DIRECTORIES lines = %q, want %q", got, want)
+	}
+}
+
+func TestIntentDirectoryHomeItselfIsAbsolute(t *testing.T) {
+	home := t.TempDir()
+	got := intentDirLines(t, home, scored(home))
+	if want := []string{"d1 " + home}; !slices.Equal(got, want) {
+		t.Errorf("DIRECTORIES lines = %q, want %q", got, want)
+	}
+}
+
+func TestIntentDirectoriesAreAbsoluteWhenHomeEmpty(t *testing.T) {
+	root := t.TempDir()
+	listing := scored(filepath.Join(root, "example-client", "example-project")) + scored(filepath.Join(root, "dir-02"))
+	got := intentDirLines(t, "", listing)
+	want := []string{
+		"d1 " + filepath.Join(root, "example-client", "example-project"),
+		"d2 " + filepath.Join(root, "dir-02"),
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("DIRECTORIES lines = %q, want %q", got, want)
+	}
 }
 
 func TestIntentStdinCarriesTextDirectoriesAndEligiblePanes(t *testing.T) {
@@ -793,4 +854,206 @@ func TestExecuteActionArgumentsReachTmuxLiterally(t *testing.T) {
 		}
 		assertLiteralRun(t, client, claude, "example-session", dir)
 	})
+}
+
+// mkdirAll creates path and its missing parents, failing the test on error.
+func mkdirAll(t *testing.T, path string) {
+	t.Helper()
+	if err := os.MkdirAll(path, 0o755); err != nil {
+		t.Fatalf("mkdir %s: %v", path, err)
+	}
+}
+
+// intentDirLinesWithRoots is intentDirLines with roots declared in the Config.
+func intentDirLinesWithRoots(t *testing.T, home string, roots []Root, listing string) []string {
+	t.Helper()
+	zoxide := installZoxide(t, listing, 0)
+	claude := installClaude(t, "pane d1\n", 0)
+	cfg := Config{Tmux: newClient(t), Zoxide: zoxide, Claude: claude, Home: home, Roots: roots}
+	if _, err := Intent(t.Context(), cfg, "example text"); err != nil {
+		t.Fatalf("Intent: %v", err)
+	}
+	runs := claudeRuns(t, claude)
+	if len(runs) != 1 {
+		t.Fatalf("claude ran %d times, want 1", len(runs))
+	}
+	_, after, found := strings.Cut(runs[0].stdin, "\nDIRECTORIES:\n")
+	if !found {
+		t.Fatalf("stdin has no DIRECTORIES section: %q", runs[0].stdin)
+	}
+	block, _, _ := strings.Cut(after, "\n\nPANES:\n")
+	return strings.Split(strings.TrimSuffix(block, "\n"), "\n")
+}
+
+// elsewhereListing is a zoxide listing of one directory outside every root, so the DIRECTORIES block is never empty.
+func elsewhereListing(home string) string {
+	return scored(filepath.Join(home, "example-elsewhere"))
+}
+
+func TestIntentRootListsDepthLevels(t *testing.T) {
+	home := t.TempDir()
+	mkdirAll(t, filepath.Join(home, "Work", "example-client", "example-project", "example-deep"))
+	roots := []Root{{Dir: filepath.Join(home, "Work"), Depth: 2}}
+	got := intentDirLinesWithRoots(t, home, roots, elsewhereListing(home))
+	want := []string{"d1 example-elsewhere", "d2 Work/example-client", "d3 Work/example-client/example-project"}
+	if !slices.Equal(got, want) {
+		t.Errorf("DIRECTORIES lines = %q, want %q", got, want)
+	}
+}
+
+func TestIntentRootListsDirectoriesByPathAcrossLevels(t *testing.T) {
+	home := t.TempDir()
+	mkdirAll(t, filepath.Join(home, "Work", "example-a", "example-x"))
+	mkdirAll(t, filepath.Join(home, "Work", "example-b"))
+	roots := []Root{{Dir: filepath.Join(home, "Work"), Depth: 2}}
+	got := intentDirLinesWithRoots(t, home, roots, elsewhereListing(home))
+	want := []string{"d1 example-elsewhere", "d2 Work/example-a", "d3 Work/example-a/example-x", "d4 Work/example-b"}
+	if !slices.Equal(got, want) {
+		t.Errorf("DIRECTORIES lines = %q, want %q", got, want)
+	}
+}
+
+func TestIntentRootDepthOneListsOnlyFirstLevel(t *testing.T) {
+	home := t.TempDir()
+	mkdirAll(t, filepath.Join(home, "Work", "example-client", "example-project"))
+	roots := []Root{{Dir: filepath.Join(home, "Work"), Depth: 1}}
+	got := intentDirLinesWithRoots(t, home, roots, elsewhereListing(home))
+	want := []string{"d1 example-elsewhere", "d2 Work/example-client"}
+	if !slices.Equal(got, want) {
+		t.Errorf("DIRECTORIES lines = %q, want %q", got, want)
+	}
+}
+
+func TestIntentRootSkipsHiddenNamesWithTheirSubtree(t *testing.T) {
+	home := t.TempDir()
+	mkdirAll(t, filepath.Join(home, "Work", ".example-hidden", "example-child"))
+	mkdirAll(t, filepath.Join(home, "Work", "example-visible"))
+	roots := []Root{{Dir: filepath.Join(home, "Work"), Depth: 2}}
+	got := intentDirLinesWithRoots(t, home, roots, elsewhereListing(home))
+	want := []string{"d1 example-elsewhere", "d2 Work/example-visible"}
+	if !slices.Equal(got, want) {
+		t.Errorf("DIRECTORIES lines = %q, want %q", got, want)
+	}
+}
+
+func TestIntentRootNeitherListsNorFollowsSymlinks(t *testing.T) {
+	home := t.TempDir()
+	mkdirAll(t, filepath.Join(home, "example-target", "example-inner"))
+	mkdirAll(t, filepath.Join(home, "Work", "example-client"))
+	link := filepath.Join(home, "Work", "example-link")
+	if err := os.Symlink(filepath.Join(home, "example-target"), link); err != nil {
+		t.Fatalf("symlink: %v", err)
+	}
+	roots := []Root{{Dir: filepath.Join(home, "Work"), Depth: 2}}
+	got := intentDirLinesWithRoots(t, home, roots, elsewhereListing(home))
+	want := []string{"d1 example-elsewhere", "d2 Work/example-client"}
+	if !slices.Equal(got, want) {
+		t.Errorf("DIRECTORIES lines = %q, want %q", got, want)
+	}
+}
+
+func TestIntentRootSkipsUnreadableDirectoryWithoutError(t *testing.T) {
+	home := t.TempDir()
+	locked := filepath.Join(home, "Work", "example-locked")
+	mkdirAll(t, filepath.Join(locked, "example-child"))
+	mkdirAll(t, filepath.Join(home, "Work", "example-client"))
+	if err := os.Chmod(locked, 0); err != nil {
+		t.Fatalf("chmod: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chmod(locked, 0o700); err != nil {
+			t.Errorf("restore %s: %v", locked, err)
+		}
+	})
+	roots := []Root{{Dir: filepath.Join(home, "Work"), Depth: 2}}
+	got := intentDirLinesWithRoots(t, home, roots, elsewhereListing(home))
+	want := []string{"d1 example-elsewhere", "d2 Work/example-client"}
+	if !slices.Equal(got, want) {
+		t.Errorf("DIRECTORIES lines = %q, want %q", got, want)
+	}
+}
+
+func TestIntentMissingRootListsNothing(t *testing.T) {
+	home := t.TempDir()
+	roots := []Root{{Dir: filepath.Join(home, "Work-missing"), Depth: 2}}
+	got := intentDirLinesWithRoots(t, home, roots, elsewhereListing(home))
+	if want := []string{"d1 example-elsewhere"}; !slices.Equal(got, want) {
+		t.Errorf("DIRECTORIES lines = %q, want %q", got, want)
+	}
+}
+
+func TestIntentRootsKeepConfigOrder(t *testing.T) {
+	home := t.TempDir()
+	mkdirAll(t, filepath.Join(home, "Zeta", "example-z"))
+	mkdirAll(t, filepath.Join(home, "Alpha", "example-a"))
+	roots := []Root{{Dir: filepath.Join(home, "Zeta"), Depth: 1}, {Dir: filepath.Join(home, "Alpha"), Depth: 1}}
+	got := intentDirLinesWithRoots(t, home, roots, elsewhereListing(home))
+	want := []string{"d1 example-elsewhere", "d2 Zeta/example-z", "d3 Alpha/example-a"}
+	if !slices.Equal(got, want) {
+		t.Errorf("DIRECTORIES lines = %q, want %q", got, want)
+	}
+}
+
+func TestIntentZoxideDirectoryInsideRootAppearsOnce(t *testing.T) {
+	home := t.TempDir()
+	mkdirAll(t, filepath.Join(home, "Work", "example-client"))
+	mkdirAll(t, filepath.Join(home, "Work", "example-other"))
+	roots := []Root{{Dir: filepath.Join(home, "Work"), Depth: 1}}
+	listing := scored(filepath.Join(home, "Work", "example-client"))
+	got := intentDirLinesWithRoots(t, home, roots, listing)
+	want := []string{"d1 Work/example-client", "d2 Work/example-other"}
+	if !slices.Equal(got, want) {
+		t.Errorf("DIRECTORIES lines = %q, want %q", got, want)
+	}
+}
+
+func TestIntentDirectoryListStopsAt300(t *testing.T) {
+	home := t.TempDir()
+	for i := 1; i <= 280; i++ {
+		mkdirAll(t, filepath.Join(home, "Work", fmt.Sprintf("example-%03d", i)))
+	}
+	roots := []Root{{Dir: filepath.Join(home, "Work"), Depth: 1}}
+	got := intentDirLinesWithRoots(t, home, roots, zoxideListing(home, 32))
+	var want []string
+	for i := 1; i <= intentDirLimit; i++ {
+		want = append(want, fmt.Sprintf("d%d dir-%02d", i, i))
+	}
+	for i := 1; i <= intentDirTotal-intentDirLimit; i++ {
+		want = append(want, fmt.Sprintf("d%d Work/example-%03d", intentDirLimit+i, i))
+	}
+	if len(got) != len(want) {
+		t.Fatalf("DIRECTORIES has %d lines, want %d", len(got), len(want))
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("DIRECTORIES lines differ from %q", want)
+	}
+}
+
+func TestIntentRootDirectoryReplyOpensAbsolutePaneFirst(t *testing.T) {
+	client := newClient(t)
+	home := t.TempDir()
+	project := filepath.Join(home, "Work", "example-client", "example-project")
+	mkdirAll(t, project)
+	defaultRoot := filepath.Join(t.TempDir(), "example-default")
+	zoxide := installZoxide(t, "", 0)
+	claude := installClaude(t, "pane d2\n", 0)
+	cfg := Config{
+		Tmux:   client,
+		Zoxide: zoxide,
+		Claude: claude,
+		Root:   defaultRoot,
+		Home:   home,
+		Roots:  []Root{{Dir: filepath.Join(home, "Work"), Depth: 2}},
+	}
+	got, err := Intent(t.Context(), cfg, "example text")
+	if err != nil {
+		t.Fatalf("Intent: %v", err)
+	}
+	want := []Action{
+		{Kind: ActionPane, Dir: project},
+		{Kind: ActionPane, Dir: defaultRoot},
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("Intent() = %+v, want %+v", got, want)
+	}
 }

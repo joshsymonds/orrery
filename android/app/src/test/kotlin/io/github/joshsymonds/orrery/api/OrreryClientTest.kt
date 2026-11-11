@@ -339,6 +339,77 @@ class OrreryClientTest {
     }
 
     @Test
+    fun conversationNoticeItemsKeepTheirSortAndErrorFlag() {
+        val body = """
+            {"origin":"","items":[
+              {"kind":"notice","time":1700000010,"text":"","tool":"","input":"","id":"","error":false,"notice":"compaction"},
+              {"kind":"notice","time":1700000020,"text":"Example task ran.","tool":"","input":"","id":"","error":false,"notice":"task"},
+              {"kind":"notice","time":1700000030,"text":"Example task broke.","tool":"","input":"","id":"","error":true,"notice":"task"},
+              {"kind":"notice","time":1700000040,"text":"Example summary one.\nExample summary two.","tool":"","input":"","id":"","error":false,"notice":"teammate"},
+              {"kind":"notice","time":1700000050,"text":"","tool":"","input":"","id":"","error":false,"notice":"interrupted"},
+              {"kind":"reply","time":1700000060,"text":"Example reply.","tool":"","input":"","id":"","error":false,"notice":""}
+            ],"goal":""}
+        """.trimIndent()
+        FakeOrreryServer().use { server ->
+            server.respond("GET", "/v1/panes/%253/conversation", 200, body)
+
+            val items = requireNotNull(OrreryClient(server.baseUrl).conversation("%3")).items
+
+            assertEquals(
+                listOf(
+                    ConversationItem("notice", 1700000010L, "", "", "", "", false, "compaction"),
+                    ConversationItem("notice", 1700000020L, "Example task ran.", "", "", "", false, "task"),
+                    ConversationItem("notice", 1700000030L, "Example task broke.", "", "", "", true, "task"),
+                    ConversationItem("notice", 1700000040L, "Example summary one.\nExample summary two.", "", "", "", false, "teammate"),
+                    ConversationItem("notice", 1700000050L, "", "", "", "", false, "interrupted"),
+                    ConversationItem("reply", 1700000060L, "Example reply.", "", "", "", false, ""),
+                ),
+                items,
+            )
+        }
+    }
+
+    private fun conversationGoal(goalJson: String): String {
+        val body = """{"origin":"","items":[]$goalJson}"""
+        return FakeOrreryServer().use { server ->
+            server.respond("GET", "/v1/panes/%253/conversation", 200, body)
+            requireNotNull(OrreryClient(server.baseUrl).conversation("%3")).goal
+        }
+    }
+
+    @Test
+    fun conversationReadsAPresentGoal() {
+        assertEquals("Example goal text.", conversationGoal(""","goal":"Example goal text.""""))
+    }
+
+    @Test
+    fun conversationEmptyGoalIsNone() {
+        assertEquals("", conversationGoal(""","goal":"""""))
+    }
+
+    @Test
+    fun conversationWithoutGoalKeyParsesWithNoGoal() {
+        assertEquals("", conversationGoal(""))
+    }
+
+    @Test
+    fun conversationNullGoalIsNone() {
+        assertEquals("", conversationGoal(""","goal":null"""))
+    }
+
+    @Test
+    fun conversationItemWithoutNoticeKeyParsesWithEmptyNotice() {
+        val body = """{"origin":"","items":[{"kind":"reply","time":1,"text":"Example reply.","tool":"","input":"","id":"","error":false}]}"""
+        FakeOrreryServer().use { server ->
+            server.respond("GET", "/v1/panes/%253/conversation", 200, body)
+
+            val item = requireNotNull(OrreryClient(server.baseUrl).conversation("%3")).items.single()
+
+            assertEquals("", item.notice)
+        }
+    }
+
+    @Test
     fun conversation404ReturnsNull() {
         FakeOrreryServer().use { server ->
             server.respond("GET", "/v1/panes/%253/conversation", 404)

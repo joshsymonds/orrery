@@ -67,7 +67,10 @@ func content(prefix string) document {
 						Label: "p new NAME",
 						Text:  "create project directory NAME and a session for it (--root DIR sets the parent)",
 					},
-					{Label: "p WORDS...", Text: "open the picker with WORDS as the intent"},
+					{
+						Label: "p WORDS...",
+						Text:  "open the picker with WORDS as the intent, over zoxide's and the roots' directories",
+					},
 				},
 			},
 			tmux,

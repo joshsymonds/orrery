@@ -10,6 +10,9 @@ sealed interface ConvoEntry {
     data class Reply(val text: String, val time: Long = 0L) : ConvoEntry
     data class Tool(val call: ToolCall) : ConvoEntry
     data class Group(val calls: List<ToolCall>) : ConvoEntry
+
+    /** A session event: [sort] is the item's `notice` value, [error] marks a failed or killed task. */
+    data class Notice(val sort: String, val text: String, val error: Boolean, val time: Long = 0L) : ConvoEntry
 }
 
 private const val MIN_GROUP_SIZE = 3
@@ -19,17 +22,24 @@ private class Outcome(val text: String, val error: Boolean)
 /**
  * Folds the server's conversation items, oldest first, into the entries the conversation view
  * draws. A `result` fills in the earlier call with the same id and is otherwise dropped. Runs of
- * three or more calls, with only results between them, become one group.
+ * three or more calls, with only results and notices between them, become one group, and the
+ * notices that fell inside the run follow the group. A shorter run keeps its calls and notices in
+ * their own order.
  */
 fun foldConversation(items: List<ConversationItem>): List<ConvoEntry> {
     val outcomes = outcomesByCallIndex(items)
     val entries = mutableListOf<ConvoEntry>()
-    val run = mutableListOf<ToolCall>()
+    // The open run: its calls as Tool entries, with the notices that arrived inside it, in order.
+    val run = mutableListOf<ConvoEntry>()
 
     items.forEachIndexed { index, item ->
         when (item.kind) {
-            "tool", "question" -> run.add(toolCall(item, outcomes[index]))
+            "tool", "question" -> run.add(ConvoEntry.Tool(toolCall(item, outcomes[index])))
             "result" -> Unit
+            "notice" -> {
+                val notice = ConvoEntry.Notice(item.notice, item.text, item.error, item.time)
+                if (run.isEmpty()) entries.add(notice) else run.add(notice)
+            }
             else -> {
                 flushRun(run, entries)
                 when (item.kind) {
@@ -67,6 +77,7 @@ private fun baseKey(entry: ConvoEntry): String = when (entry) {
     is ConvoEntry.Reply -> "reply:${entry.time}:${entry.text.hashCode()}"
     is ConvoEntry.Tool -> "tool:${entry.call.id}"
     is ConvoEntry.Group -> "group:${entry.calls.first().id}"
+    is ConvoEntry.Notice -> "notice:${entry.time}:${entry.sort}:${entry.text.hashCode()}"
 }
 
 /** Names the calls' tools in order of first appearance, "Name ×N" when a name repeats. */
@@ -101,11 +112,13 @@ private fun toolCall(item: ConversationItem, outcome: Outcome?): ToolCall {
     )
 }
 
-private fun flushRun(run: MutableList<ToolCall>, entries: MutableList<ConvoEntry>) {
-    if (run.size >= MIN_GROUP_SIZE) {
-        entries.add(ConvoEntry.Group(run.toList()))
+private fun flushRun(run: MutableList<ConvoEntry>, entries: MutableList<ConvoEntry>) {
+    val calls = run.filterIsInstance<ConvoEntry.Tool>().map { it.call }
+    if (calls.size >= MIN_GROUP_SIZE) {
+        entries.add(ConvoEntry.Group(calls))
+        entries.addAll(run.filterIsInstance<ConvoEntry.Notice>())
     } else {
-        run.forEach { entries.add(ConvoEntry.Tool(it)) }
+        entries.addAll(run)
     }
     run.clear()
 }
