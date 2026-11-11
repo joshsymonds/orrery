@@ -103,8 +103,10 @@ func newStepLoopFixture(t *testing.T, continueErr error) *stepLoopFixture {
 		fixture.cleaned++
 		return nil
 	}
-	fixture.run = newStepRun(stepLoopID, stepLoopSchema, stepLoopDone, fixture.sessions, writer,
-		slog.New(slog.DiscardHandler), cleanup)
+	fixture.run = newStepRun(stepRunConfig{
+		id: stepLoopID, schema: stepLoopSchema, doneValue: stepLoopDone, sessions: fixture.sessions, writer: writer,
+		logger: slog.New(slog.DiscardHandler), cleanup: cleanup,
+	})
 	return fixture
 }
 
