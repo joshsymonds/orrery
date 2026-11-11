@@ -32,6 +32,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/push"
 	"github.com/joshsymonds/orrery/internal/server"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
+	"github.com/joshsymonds/orrery/internal/tmuxtest"
 )
 
 const (
@@ -56,6 +57,13 @@ const (
 // newTmuxClient returns a client for a unique private tmux server name. The server is not started.
 func newTmuxClient(t *testing.T) *tmuxctl.Client {
 	t.Helper()
+	_, tmux := newNamedTmuxClient(t)
+	return tmux
+}
+
+// newNamedTmuxClient returns the name of a unique private tmux server and a client for it. The server is not started.
+func newNamedTmuxClient(t *testing.T) (string, *tmuxctl.Client) {
+	t.Helper()
 	var suffix [8]byte
 	if _, err := rand.Read(suffix[:]); err != nil {
 		t.Fatalf("random server name: %v", err)
@@ -65,15 +73,15 @@ func newTmuxClient(t *testing.T) *tmuxctl.Client {
 	if err != nil {
 		t.Fatalf("New(Name=%q): %v", name, err)
 	}
-	return tmux
+	return name, tmux
 }
 
 // newTmuxServer returns a client for a unique private tmux server and kills that server at cleanup.
 func newTmuxServer(t *testing.T) *tmuxctl.Client {
 	t.Helper()
-	tmux := newTmuxClient(t)
+	name, tmux := newNamedTmuxClient(t)
 	t.Cleanup(func() {
-		if _, err := tmux.Run(context.Background(), "kill-server"); err != nil {
+		if err := tmuxtest.Stop(t, tmuxctl.Server{Name: name}); err != nil {
 			t.Errorf("kill-server: %v", err)
 		}
 	})
@@ -1705,6 +1713,7 @@ func TestServePaneConversation(t *testing.T) {
 			{Kind: "reply", Text: "synthetic reply 2"},
 			{Kind: "reply", Text: "synthetic reply 3"},
 		},
+		Waiting: []conversation.Waiting{},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("body = %+v, want %+v", got, want)
@@ -1817,6 +1826,77 @@ func TestServePaneConversationNoGoal(t *testing.T) {
 	pane := conversationPane(t, tmux, liveOptions(writeConversation(t, 1)))
 	if got := conversationGoal(t, newHandler(t, tmux), pane); got != "" {
 		t.Fatalf("goal = %q, want empty", got)
+	}
+}
+
+// synthQueued is the synthetic text of the queued message of the waiting fixtures.
+const synthQueued = "synthetic queued message"
+
+// queueLine returns a queue-operation line with operation, text and at as its RFC 3339 timestamp, with its newline.
+// A reason of "" leaves the reason out.
+func queueLine(operation, text, at, reason string) string {
+	line := fmt.Sprintf(`{"type":"queue-operation","operation":%q,"timestamp":%q,"sessionId":"s","content":%q`,
+		operation, at, text)
+	if reason != "" {
+		line += fmt.Sprintf(`,"reason":%q`, reason)
+	}
+	return line + "}\n"
+}
+
+// conversationWaiting returns the body of the conversation answer for pane through handler and the decoded waiting
+// key of that answer.
+func conversationWaiting(t *testing.T, handler http.Handler, pane string) (string, []conversation.Waiting) {
+	t.Helper()
+	body := serveBody(t, handler, conversationPath(pane, ""))
+	var got conversation.Conversation
+	if err := json.Unmarshal([]byte(body), &got); err != nil {
+		t.Fatalf("decode conversation: %v", err)
+	}
+	return body, got.Waiting
+}
+
+func TestServePaneConversationWaiting(t *testing.T) {
+	t.Parallel()
+
+	const at = "2026-01-02T03:04:05Z"
+	tmux := newTmuxServer(t)
+	path := writeConversation(t, 1)
+	pane := conversationPane(t, tmux, liveOptions(path))
+	handler := newHandler(t, tmux)
+
+	body, got := conversationWaiting(t, handler, pane)
+	if !strings.Contains(body, `"waiting":[]`) || len(got) != 0 {
+		t.Fatalf("no queued message: body = %q, waiting = %+v, want an empty waiting array", body, got)
+	}
+	appendTranscript(t, path, queueLine("enqueue", synthQueued, at, ""))
+	_, got = conversationWaiting(t, handler, pane)
+	want := []conversation.Waiting{{Text: synthQueued, Time: time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC).Unix()}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("waiting = %+v, want %+v", got, want)
+	}
+	appendTranscript(t, path, queueLine("remove", synthQueued, at, "absorbed_mid_turn"))
+	body, got = conversationWaiting(t, handler, pane)
+	if !strings.Contains(body, `"waiting":[]`) || len(got) != 0 {
+		t.Fatalf("after the remove record: body = %q, waiting = %+v, want an empty waiting array", body, got)
+	}
+}
+
+func TestServePaneConversationWaitingIdle(t *testing.T) {
+	t.Parallel()
+
+	const at = "2026-01-02T03:04:05Z"
+	tmux := newTmuxServer(t)
+	path := writeConversation(t, 1)
+	appendTranscript(t, path, queueLine("enqueue", synthQueued, at, ""))
+	options := map[string]string{
+		protocol.OptionState:      string(protocol.StateDone),
+		protocol.OptionTranscript: path,
+	}
+	pane := conversationPane(t, tmux, options)
+
+	body, got := conversationWaiting(t, newHandler(t, tmux), pane)
+	if !strings.Contains(body, `"waiting":[]`) || len(got) != 0 {
+		t.Fatalf("done pane: body = %q, waiting = %+v, want an empty waiting array", body, got)
 	}
 }
 

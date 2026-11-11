@@ -15,6 +15,9 @@ import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.SemanticsNodeInteraction
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.hasAnyDescendant
+import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
@@ -25,6 +28,7 @@ import androidx.compose.ui.test.performScrollToIndex
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import io.github.joshsymonds.orrery.api.WaitingItem
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -57,9 +61,16 @@ class ConversationViewTest {
         error: Boolean = false,
     ) = ToolCall(id, name, input, result, error)
 
-    private fun setList(entries: List<ConvoEntry>, footer: (@Composable () -> Unit)? = null) {
+    private fun setList(
+        entries: List<ConvoEntry>,
+        footer: (@Composable () -> Unit)? = null,
+        working: Boolean = false,
+        waiting: List<WaitingItem> = emptyList(),
+    ) {
         composeRule.setContent {
-            MaterialTheme { ConversationView(entries = entries, footer = footer) }
+            MaterialTheme {
+                ConversationView(entries = entries, footer = footer, working = working, waiting = waiting)
+            }
         }
     }
 
@@ -260,6 +271,157 @@ class ConversationViewTest {
         assertTrue(footerTop >= replyBottom)
     }
 
+    @Test
+    fun workingMarkShowsBelowTheLastEntryAndAboveTheFooter() {
+        composeRule.setContent {
+            MaterialTheme {
+                ConversationView(
+                    entries = listOf(ConvoEntry.Reply("synthetic last reply")),
+                    working = true,
+                    footer = { Text("synthetic footer") },
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("working-mark").assertIsDisplayed()
+        val replyBottom = composeRule.onNodeWithText("synthetic last reply").fetchSemanticsNode().boundsInRoot.bottom
+        val mark = composeRule.onNodeWithTag("working-mark").fetchSemanticsNode().boundsInRoot
+        val footerTop = composeRule.onNodeWithText("synthetic footer").fetchSemanticsNode().boundsInRoot.top
+        assertTrue(mark.top >= replyBottom)
+        assertTrue(footerTop >= mark.bottom)
+    }
+
+    @Test
+    fun noWorkingMarkWhenNotWorking() {
+        setList(listOf(ConvoEntry.Reply("synthetic last reply")))
+
+        composeRule.onAllNodesWithTag("working-mark").assertCountEquals(0)
+    }
+
+    @Test
+    fun atTheBottomTheWorkingMarkComesIntoView() {
+        val working = mutableStateOf(false)
+        val entries = mutableStateOf(replies(1, 39) + ConvoEntry.Reply(tallReply("synthetic tall A")))
+        composeRule.setContent {
+            MaterialTheme {
+                val state = rememberLazyListState()
+                list = state
+                ConversationView(entries = entries.value, listState = state, working = working.value)
+            }
+        }
+        assertEndOfReplyInView(tallReply("synthetic tall A"))
+
+        composeRule.runOnIdle { working.value = true }
+
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("working-mark").assertIsDisplayed()
+        assertFalse("the list can still scroll forward", list.canScrollForward)
+        val listBottom = composeRule.onNodeWithTag("conversation-list").fetchSemanticsNode().boundsInRoot.bottom
+        val markBottom = composeRule.onNodeWithTag("working-mark").fetchSemanticsNode().boundsInRoot.bottom
+        assertTrue("the mark's end is below the list's end", markBottom <= listBottom + 1f)
+    }
+
+    private fun waitingRow(text: String, label: String): SemanticsNodeInteraction =
+        composeRule.onNode(
+            hasTestTag("waiting-row") and hasAnyDescendant(hasText(text)) and hasAnyDescendant(hasText(label)),
+        )
+
+    @Test
+    fun waitingRowsDrawInOrderBelowTheWorkingMarkAndAboveTheFooter() {
+        setList(
+            listOf(ConvoEntry.Reply("synthetic last reply")),
+            footer = { Text("synthetic footer") },
+            working = true,
+            waiting = listOf(
+                WaitingItem("synthetic first queued", 300L, false),
+                WaitingItem("synthetic second queued", 301L, false),
+            ),
+        )
+
+        composeRule.onAllNodesWithTag("waiting-row").assertCountEquals(2)
+        composeRule.onAllNodesWithText("waiting").assertCountEquals(2)
+        val mark = composeRule.onNodeWithTag("working-mark").fetchSemanticsNode().boundsInRoot
+        val first = waitingRow("synthetic first queued", "waiting").fetchSemanticsNode().boundsInRoot
+        val second = waitingRow("synthetic second queued", "waiting").fetchSemanticsNode().boundsInRoot
+        val footerTop = composeRule.onNodeWithText("synthetic footer").fetchSemanticsNode().boundsInRoot.top
+        assertTrue(first.top >= mark.bottom)
+        assertTrue(second.top >= first.bottom)
+        assertTrue(footerTop >= second.bottom)
+    }
+
+    @Test
+    fun waitingRowsWithNoWorkingMarkSitBelowTheLastEntry() {
+        setList(
+            listOf(ConvoEntry.Reply("synthetic last reply")),
+            waiting = listOf(
+                WaitingItem("synthetic first queued", 300L, false),
+                WaitingItem("synthetic second queued", 301L, false),
+            ),
+        )
+
+        composeRule.onAllNodesWithTag("working-mark").assertCountEquals(0)
+        val replyBottom = composeRule.onNodeWithText("synthetic last reply").fetchSemanticsNode().boundsInRoot.bottom
+        val first = waitingRow("synthetic first queued", "waiting").fetchSemanticsNode().boundsInRoot
+        val second = waitingRow("synthetic second queued", "waiting").fetchSemanticsNode().boundsInRoot
+        assertTrue(first.top >= replyBottom)
+        assertTrue(second.top >= first.bottom)
+    }
+
+    @Test
+    fun canceledWaitingItemReadsNotDeliveredAndNotWaiting() {
+        setList(
+            listOf(ConvoEntry.Reply("synthetic last reply")),
+            waiting = listOf(WaitingItem("synthetic cleared", 300L, true)),
+        )
+
+        waitingRow("synthetic cleared", "not delivered").assertIsDisplayed()
+        composeRule.onAllNodesWithText("waiting").assertCountEquals(0)
+    }
+
+    @Test
+    fun noWaitingRowWhenNothingIsQueued() {
+        setList(listOf(ConvoEntry.Reply("synthetic last reply")), waiting = emptyList())
+
+        composeRule.onAllNodesWithTag("waiting-row").assertCountEquals(0)
+    }
+
+    @Test
+    fun waitingItemsWithIdenticalTextAndTimeBothDisplay() {
+        setList(
+            listOf(ConvoEntry.Reply("synthetic last reply")),
+            waiting = listOf(
+                WaitingItem("synthetic twin", 300L, false),
+                WaitingItem("synthetic twin", 300L, false),
+            ),
+        )
+
+        composeRule.onAllNodesWithText("synthetic twin").assertCountEquals(2)
+    }
+
+    @Test
+    fun atTheBottomANewWaitingRowComesIntoView() {
+        val entries = replies(1, 40)
+        val waiting = mutableStateOf(emptyList<WaitingItem>())
+        composeRule.setContent {
+            MaterialTheme {
+                val state = rememberLazyListState()
+                list = state
+                ConversationView(entries = entries, listState = state, waiting = waiting.value)
+            }
+        }
+
+        composeRule.onNodeWithText("synthetic reply 40").assertIsDisplayed()
+        composeRule.runOnIdle {
+            waiting.value = listOf(WaitingItem("synthetic queued", 300L, false))
+        }
+
+        composeRule.waitForIdle()
+        assertFalse("the list can still scroll forward", list.canScrollForward)
+        val listBottom = composeRule.onNodeWithTag("conversation-list").fetchSemanticsNode().boundsInRoot.bottom
+        val rowBottom = waitingRow("synthetic queued", "waiting").fetchSemanticsNode().boundsInRoot.bottom
+        assertTrue("the new row's end is below the list's end", rowBottom <= listBottom + 1f)
+    }
+
     private fun replies(from: Int, to: Int): List<ConvoEntry> =
         (from..to).map { ConvoEntry.Reply("synthetic reply %02d".format(it)) }
 
@@ -309,6 +471,66 @@ class ConversationViewTest {
 
         composeRule.onNodeWithText("synthetic reply 01").assertIsDisplayed()
         composeRule.onAllNodesWithText("synthetic reply 41").assertCountEquals(0)
+    }
+
+    @Test
+    fun aChangedEndRequestBringsTheEndIntoViewFromTheTop() {
+        val requests = mutableStateOf(0)
+        composeRule.setContent {
+            MaterialTheme { ConversationView(entries = replies(1, 40), endRequests = requests.value) }
+        }
+
+        composeRule.onNodeWithTag("conversation-list").performScrollToIndex(0)
+        composeRule.onNodeWithText("synthetic reply 01").assertIsDisplayed()
+        composeRule.runOnIdle { requests.value += 1 }
+
+        composeRule.onNodeWithText("synthetic reply 40").assertIsDisplayed()
+        composeRule.onAllNodesWithText("synthetic reply 01").assertCountEquals(0)
+        assertEndInView("synthetic reply 40")
+    }
+
+    @Test
+    fun followingResumesAfterAnEndRequestSoANewReplyComesIntoView() {
+        val entries = mutableStateOf(replies(1, 40))
+        val requests = mutableStateOf(0)
+        composeRule.setContent {
+            MaterialTheme { ConversationView(entries = entries.value, endRequests = requests.value) }
+        }
+
+        composeRule.onNodeWithTag("conversation-list").performScrollToIndex(0)
+        composeRule.runOnIdle { requests.value += 1 }
+        composeRule.onNodeWithText("synthetic reply 40").assertIsDisplayed()
+        composeRule.runOnIdle {
+            entries.value = entries.value + ConvoEntry.Reply("synthetic reply 41")
+        }
+
+        composeRule.onNodeWithText("synthetic reply 41").assertIsDisplayed()
+        assertEndInView("synthetic reply 41")
+    }
+
+    @Test
+    fun anUnchangedEndRequestMovesNothingWhenANewReplyArrives() {
+        val entries = mutableStateOf(replies(1, 40))
+        val requests = mutableStateOf(0)
+        composeRule.setContent {
+            MaterialTheme { ConversationView(entries = entries.value, endRequests = requests.value) }
+        }
+
+        composeRule.onNodeWithTag("conversation-list").performScrollToIndex(0)
+        composeRule.onNodeWithText("synthetic reply 01").assertIsDisplayed()
+        composeRule.runOnIdle {
+            entries.value = entries.value + ConvoEntry.Reply("synthetic reply 41")
+        }
+
+        composeRule.onNodeWithText("synthetic reply 01").assertIsDisplayed()
+        composeRule.onAllNodesWithText("synthetic reply 41").assertCountEquals(0)
+    }
+
+    /** The text's node ends within the conversation list's visible bottom edge. */
+    private fun assertEndInView(text: String) {
+        val listBottom = composeRule.onNodeWithTag("conversation-list").fetchSemanticsNode().boundsInRoot.bottom
+        val textBottom = composeRule.onNodeWithText(text).fetchSemanticsNode().boundsInRoot.bottom
+        assertTrue("the end of '$text' is below the list's end", textBottom <= listBottom + 1f)
     }
 
     @Test

@@ -19,7 +19,7 @@ data class RecordedRequest(
  * A route with no script answers 404.
  */
 class FakeOrreryServer : AutoCloseable {
-    private data class Scripted(val status: Int, val body: String)
+    private data class Scripted(val status: Int, val body: String, val delayMillis: Long)
 
     private val server: HttpServer =
         HttpServer.create(InetSocketAddress(InetAddress.getByName("127.0.0.1"), 0), 0)
@@ -36,8 +36,9 @@ class FakeOrreryServer : AutoCloseable {
         server.start()
     }
 
-    fun respond(method: String, rawPath: String, status: Int, body: String = "") {
-        routes["$method $rawPath"] = Scripted(status, body)
+    /** Scripts the answer to [method] [rawPath], sent after [delayMillis] has passed since the request arrived. */
+    fun respond(method: String, rawPath: String, status: Int, body: String = "", delayMillis: Long = 0L) {
+        routes["$method $rawPath"] = Scripted(status, body, delayMillis)
     }
 
     override fun close() {
@@ -56,7 +57,8 @@ class FakeOrreryServer : AutoCloseable {
             )
         }
 
-        val scripted = routes["${exchange.requestMethod} $rawPath"] ?: Scripted(404, "")
+        val scripted = routes["${exchange.requestMethod} $rawPath"] ?: Scripted(404, "", 0L)
+        Thread.sleep(scripted.delayMillis)
         val bytes = scripted.body.toByteArray(Charsets.UTF_8)
         if (bytes.isEmpty()) {
             exchange.sendResponseHeaders(scripted.status, -1)

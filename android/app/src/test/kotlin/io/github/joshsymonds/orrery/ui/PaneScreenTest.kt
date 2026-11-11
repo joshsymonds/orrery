@@ -17,6 +17,7 @@ import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -33,6 +34,7 @@ import io.github.joshsymonds.orrery.api.OrreryClient
 import io.github.joshsymonds.orrery.ui.theme.MochaTerminal
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -45,6 +47,7 @@ private const val SCREEN_PATH = "/v1/panes/%253/screen"
 private const val SEEN_PATH = "/v1/panes/%253/seen"
 private const val PANES_PATH = "/v1/panes"
 private const val KEYS_PATH = "/v1/panes/%253/keys"
+private const val SEND_PATH = "/v1/panes/%253/text"
 private const val CONVERSATION_PATH = "/v1/panes/%253/conversation"
 private const val HOST_PATH = "/v1/host"
 private const val TIMEOUT_MILLIS = 5_000L
@@ -145,6 +148,12 @@ class PaneScreenTest {
 
     private fun conversationBodyWithGoal(goal: String, vararg items: String): String =
         """{"origin":"synthetic origin","items":[${items.joinToString(",")}],"goal":${JSONObject.quote(goal)}}"""
+
+    private fun waitingItem(text: String, canceled: Boolean = false): String =
+        """{"text":${JSONObject.quote(text)},"time":0,"canceled":$canceled}"""
+
+    private fun conversationBodyWithWaiting(waiting: List<String>, vararg items: String): String =
+        """{"origin":"synthetic origin","items":[${items.joinToString(",")}],"waiting":[${waiting.joinToString(",")}]}"""
 
     private fun toolItem(id: String, name: String): String =
         """{"kind":"tool","time":0,"text":"","tool":${JSONObject.quote(name)},"input":"echo synthetic","id":"$id","error":false}"""
@@ -858,6 +867,64 @@ class PaneScreenTest {
     }
 
     @Test
+    fun workingPaneShowsWorkingMarkThenWaitingRowsBelowTheLastItem() {
+        FakeOrreryServer().use { server ->
+            servePane(
+                server,
+                state = "working",
+                conversation = conversationBodyWithWaiting(
+                    listOf(waitingItem("synthetic queued message")),
+                    conversationItem("reply", "synthetic reply"),
+                ),
+            )
+            setClockedScreen(server)
+
+            composeRule.waitUntilExactlyOneExists(hasText("synthetic queued message"), TIMEOUT_MILLIS)
+            composeRule.onNodeWithTag("working-mark").assertIsDisplayed()
+            composeRule.onNodeWithTag("waiting-row").assertIsDisplayed()
+            composeRule.onNodeWithTag(STATUS_LINE_TAG).assertIsDisplayed()
+            val reply = composeRule.onNodeWithText("synthetic reply").fetchSemanticsNode().boundsInRoot
+            val mark = composeRule.onNodeWithTag("working-mark").fetchSemanticsNode().boundsInRoot
+            val waiting = composeRule.onNodeWithTag("waiting-row").fetchSemanticsNode().boundsInRoot
+            assertTrue(mark.top >= reply.bottom - EDGE_TOLERANCE_PX)
+            assertTrue(waiting.top >= mark.bottom - EDGE_TOLERANCE_PX)
+        }
+    }
+
+    @Test
+    fun donePaneShowsNoWorkingMark() {
+        FakeOrreryServer().use { server ->
+            servePane(
+                server,
+                state = "done",
+                conversation = conversationBody(conversationItem("reply", "synthetic reply")),
+            )
+            setClockedScreen(server)
+
+            composeRule.waitUntilExactlyOneExists(hasText("synthetic reply"), TIMEOUT_MILLIS)
+            composeRule.onAllNodesWithTag("working-mark").assertCountEquals(0)
+        }
+    }
+
+    @Test
+    fun canceledWaitingRowReadsNotDelivered() {
+        FakeOrreryServer().use { server ->
+            servePane(
+                server,
+                state = "working",
+                conversation = conversationBodyWithWaiting(
+                    listOf(waitingItem("synthetic dropped message", canceled = true)),
+                    conversationItem("reply", "synthetic reply"),
+                ),
+            )
+            setClockedScreen(server)
+
+            composeRule.waitUntilExactlyOneExists(hasText("not delivered"), TIMEOUT_MILLIS)
+            composeRule.onNodeWithText("synthetic dropped message").assertIsDisplayed()
+        }
+    }
+
+    @Test
     fun conversationWithoutGoalDrawsNoGoalLine() {
         FakeOrreryServer().use { server ->
             servePane(
@@ -916,6 +983,54 @@ class PaneScreenTest {
             composeRule.onNodeWithTag("tool-row:synthetic-tool-1").performScrollTo().assertIsDisplayed()
             composeRule.onNodeWithTag("tool-row:synthetic-tool-2").performScrollTo().assertIsDisplayed()
             composeRule.onNodeWithTag("tool-row:synthetic-tool-3").performScrollTo().assertIsDisplayed()
+        }
+    }
+
+    /** Whether the reply's whole text sits inside the conversation's visible list. */
+    private fun replyInView(text: String): Boolean {
+        val reply = composeRule.onAllNodesWithText(text)
+            .fetchSemanticsNodes(atLeastOneRootRequired = false)
+            .singleOrNull()?.boundsInRoot ?: return false
+        val list = composeRule.onNodeWithTag(CONVERSATION_LIST_TAG).fetchSemanticsNode().boundsInRoot
+        return reply.top >= list.top && reply.bottom <= list.bottom
+    }
+
+    @Config(sdk = [35], qualifiers = "w400dp-h1000dp")
+    @Test
+    fun sendScrollsConversationToItsEndFromTheTop() {
+        FakeOrreryServer().use { server ->
+            servePane(server, conversation = numberedReplies(REPLY_COUNT))
+            server.respond("POST", SEND_PATH, 204)
+            setScreen(server)
+            composeRule.waitUntilExactlyOneExists(hasText("synthetic reply $REPLY_COUNT"), TIMEOUT_MILLIS)
+            composeRule.onNodeWithTag(CONVERSATION_LIST_TAG).performScrollToIndex(0)
+            composeRule.waitForIdle()
+            assertFalse(replyInView("synthetic reply $REPLY_COUNT"))
+
+            setDraft(SYNTHETIC_DRAFT)
+            composeRule.onNodeWithText("Send").performClick()
+
+            composeRule.waitUntil(TIMEOUT_MILLIS) { replyInView("synthetic reply $REPLY_COUNT") }
+        }
+    }
+
+    @Config(sdk = [35], qualifiers = "w400dp-h1000dp")
+    @Test
+    fun replyArrivingAfterASendComesIntoViewOnItsOwn() {
+        FakeOrreryServer().use { server ->
+            servePane(server, conversation = numberedReplies(REPLY_COUNT))
+            server.respond("POST", SEND_PATH, 204)
+            setScreen(server)
+            composeRule.waitUntilExactlyOneExists(hasText("synthetic reply $REPLY_COUNT"), TIMEOUT_MILLIS)
+            composeRule.onNodeWithTag(CONVERSATION_LIST_TAG).performScrollToIndex(0)
+            composeRule.waitForIdle()
+            setDraft(SYNTHETIC_DRAFT)
+            composeRule.onNodeWithText("Send").performClick()
+            composeRule.waitUntil(TIMEOUT_MILLIS) { replyInView("synthetic reply $REPLY_COUNT") }
+
+            server.respond("GET", CONVERSATION_PATH, 200, numberedReplies(REPLY_COUNT + 1))
+            composeRule.mainClock.advanceTimeBy(1_000)
+            composeRule.waitUntil(TIMEOUT_MILLIS) { replyInView("synthetic reply ${REPLY_COUNT + 1}") }
         }
     }
 }

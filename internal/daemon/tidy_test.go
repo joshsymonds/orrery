@@ -1,12 +1,10 @@
 package daemon_test
 
 import (
-	"context"
 	"crypto/rand"
 	"database/sql"
 	"errors"
 	"fmt"
-	"io/fs"
 	"os"
 	"reflect"
 	"strings"
@@ -18,6 +16,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/store"
 	"github.com/joshsymonds/orrery/internal/store/sqlcgen"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
+	"github.com/joshsymonds/orrery/internal/tmuxtest"
 )
 
 // tidyPollInterval is how often waitForPaneID re-reads a pane's @orrery_id.
@@ -44,18 +43,11 @@ func startTidyServer(t *testing.T) testServer {
 	if err != nil {
 		t.Fatalf("New(%+v): %v", server, err)
 	}
-	var socket string
 	t.Cleanup(func() {
-		_, err := client.Run(context.Background(), "kill-server")
+		err := tmuxtest.Stop(t, server)
 		if err != nil && !strings.Contains(err.Error(), "no server running") &&
 			!strings.Contains(err.Error(), "error connecting to") {
 			t.Errorf("kill-server: %v", err)
-		}
-		// kill-server leaves the socket file behind, so the test removes it.
-		if socket != "" {
-			if err := os.Remove(socket); err != nil && !errors.Is(err, fs.ErrNotExist) {
-				t.Errorf("remove socket: %v", err)
-			}
 		}
 	})
 	if _, err := client.Run(t.Context(), "-f", noConfig, "new-session", "-d", "-s", "s1",
@@ -70,7 +62,7 @@ func startTidyServer(t *testing.T) testServer {
 	if err != nil {
 		t.Fatalf("display socket_path: %v", err)
 	}
-	socket = strings.TrimSpace(path)
+	socket := strings.TrimSpace(path)
 	return testServer{
 		client: client,
 		server: server,

@@ -57,8 +57,19 @@ data class ConversationItem(
     val notice: String = "",
 )
 
-/** [goal] is the pane's active Claude Code goal, or "" when there is none. */
-data class Conversation(val origin: String, val items: List<ConversationItem>, val goal: String = "")
+/** A message Claude Code's queue holds for the pane. [canceled] is true when Claude Code cleared it on cancel. */
+data class WaitingItem(val text: String, val time: Long, val canceled: Boolean)
+
+/**
+ * [goal] is the pane's active Claude Code goal, or "" when there is none. [waiting] is the
+ * queued messages, oldest first, or empty when there are none.
+ */
+data class Conversation(
+    val origin: String,
+    val items: List<ConversationItem>,
+    val goal: String = "",
+    val waiting: List<WaitingItem> = emptyList(),
+)
 
 data class HostStat(val label: String, val value: String, val percent: Double?, val level: String)
 
@@ -77,13 +88,26 @@ enum class WindowKind(val wire: String) {
 /** The string at [key], or "" when the key is absent or null: keys a server may predate. */
 private fun JSONObject.lenientString(key: String): String = if (isNull(key)) "" else optString(key, "")
 
+/** The objects of the array at [key], or none when the key is absent or null: keys a server may predate. */
+private fun JSONObject.lenientArray(key: String): List<JSONObject> {
+    val array = optJSONArray(key) ?: return emptyList()
+    return List(array.length()) { index -> array.getJSONObject(index) }
+}
+
+/** The server answered with a non-2xx [status]. */
 class OrreryHttpException(val status: Int, message: String) : IOException(message)
+
+/**
+ * The request was written, but no answer came within the compose read timeout, or the
+ * connection dropped while waiting. The server may still have acted on the request.
+ */
+class NoAnswerException(cause: IOException) : IOException("no answer to the request", cause)
 
 /**
  * Blocking client for the orrery phone API. Each call is one request on its
  * own connection; nothing is kept open between calls.
  */
-class OrreryClient(baseUrl: String) {
+class OrreryClient(baseUrl: String, private val composeReadTimeoutMillis: Int = 25_000) {
     private val root = baseUrl.removeSuffix("/")
 
     private class Response(val status: Int, val body: String)
@@ -135,6 +159,13 @@ class OrreryClient(baseUrl: String) {
                 )
             },
             goal = json.lenientString("goal"),
+            waiting = json.lenientArray("waiting").map { row ->
+                WaitingItem(
+                    text = row.lenientString("text"),
+                    time = row.optLong("time", 0L),
+                    canceled = row.optBoolean("canceled", false),
+                )
+            },
         )
     }
 
@@ -158,6 +189,18 @@ class OrreryClient(baseUrl: String) {
 
     fun sendText(paneId: String, text: String) {
         post(panePath(paneId, "text"), JSONObject().put("text", text))
+    }
+
+    /**
+     * Posts the same request as [sendText], but waits up to [composeReadTimeoutMillis] for the answer.
+     * Throws [OrreryHttpException] for a non-2xx answer, [NoAnswerException] when the request was
+     * written and no answer came, and any other [IOException] when the connection failed before the
+     * request was written.
+     */
+    fun sendComposed(paneId: String, text: String) {
+        val path = panePath(paneId, "text")
+        val response = sendAwaitingAnswer(path, JSONObject().put("text", text))
+        checkOk("POST", path, response)
     }
 
     fun sendKeys(paneId: String, keys: List<String>, expectQuestion: String?): KeysResult {
@@ -235,12 +278,42 @@ class OrreryClient(baseUrl: String) {
                 connection.setRequestProperty("X-Orrery-Client", CLIENT_HEADER)
                 connection.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
             }
-            val status = connection.responseCode
-            val stream = if (status in 200..299) connection.inputStream else connection.errorStream
-            val text = stream?.use { it.readBytes().toString(Charsets.UTF_8) }.orEmpty()
-            return Response(status, text)
+            return readResponse(connection)
         } finally {
             connection.disconnect()
         }
+    }
+
+    /**
+     * Like [send] for a POST with a body, but the body is streamed at a fixed length so it is on the
+     * wire once the stream closes, and the read timeout is [composeReadTimeoutMillis].
+     */
+    private fun sendAwaitingAnswer(path: String, body: JSONObject): Response {
+        val bytes = body.toString().toByteArray(Charsets.UTF_8)
+        val connection = URL(root + path).openConnection() as HttpURLConnection
+        try {
+            connection.requestMethod = "POST"
+            connection.connectTimeout = TIMEOUT_MS
+            connection.readTimeout = composeReadTimeoutMillis
+            connection.doOutput = true
+            connection.setFixedLengthStreamingMode(bytes.size)
+            connection.setRequestProperty("Content-Type", "application/json")
+            connection.setRequestProperty("X-Orrery-Client", CLIENT_HEADER)
+            connection.outputStream.use { it.write(bytes) }
+            try {
+                return readResponse(connection)
+            } catch (e: IOException) {
+                throw NoAnswerException(e)
+            }
+        } finally {
+            connection.disconnect()
+        }
+    }
+
+    private fun readResponse(connection: HttpURLConnection): Response {
+        val status = connection.responseCode
+        val stream = if (status in 200..299) connection.inputStream else connection.errorStream
+        val text = stream?.use { it.readBytes().toString(Charsets.UTF_8) }.orEmpty()
+        return Response(status, text)
     }
 }

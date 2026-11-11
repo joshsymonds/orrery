@@ -21,14 +21,31 @@ lint:
 # -coverpkg=./... attributes coverage across package boundaries.
 [script]
 cover:
+    dir=$(mktemp -d /tmp/orrery-tmux.XXXXXX)
+    trap 'rm -rf "$dir"' EXIT
     rc=0
-    timeout "{{TEST_BUDGET}}" go test -race -covermode=atomic -coverpkg=./... -coverprofile=coverage.out ./... || rc=$?
+    env -u TMUX -u TMUX_PANE TMUX_TMPDIR="$dir" timeout "{{TEST_BUDGET}}" go test -count=1 -race -covermode=atomic -coverpkg=./... -coverprofile=coverage.out ./... || rc=$?
     if [ "$rc" -eq 124 ]; then
         echo "tests exceeded {{TEST_BUDGET}}s budget" >&2
         exit 124
     elif [ "$rc" -ne 0 ]; then
         exit "$rc"
     fi
+
+    # A test that kills its -L server without tmuxtest.Stop leaves the socket file in this directory. -count=1
+    # above keeps a cached pass from skipping a leaking test on a rerun.
+    sock_dir="$dir/tmux-$(id -u)"
+    if [ ! -d "$sock_dir" ]; then
+        echo "tmux socket directory $sock_dir is missing" >&2
+        exit 1
+    fi
+    leftover=$(find "$sock_dir" -mindepth 1 -maxdepth 1 -type s)
+    if [ -n "$leftover" ]; then
+        echo "tests left tmux sockets behind (stop each -L server with tmuxtest.Stop):" >&2
+        echo "$leftover" >&2
+        exit 1
+    fi
+    echo "tmux socket check: no sockets left in $sock_dir"
 
     # cmd/ holds entry-point glue and internal/gen holds generated code; neither is unit-tested code we author.
     grep -vE '/cmd/|/internal/gen/' coverage.out > coverage.cov.out
