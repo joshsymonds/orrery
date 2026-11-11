@@ -144,6 +144,7 @@ fun PaneScreen(
     var nowSeconds by remember(paneId) { mutableLongStateOf(0L) }
     var liveScreen by remember(paneId) { mutableStateOf(false) }
     var refreshFailed by remember(paneId) { mutableStateOf(false) }
+    var seenAtOpen by remember(paneId) { mutableStateOf<Long?>(null) }
     val refreshRequests = remember(paneId) { Channel<Unit>(Channel.CONFLATED) }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val scope = rememberCoroutineScope()
@@ -174,6 +175,9 @@ fun PaneScreen(
                                 refreshFailed = true
                             } else {
                                 pane = snapshot.pane
+                                // Kept from the first read that finds the pane, so a later read's newer
+                                // seen time does not move the divider.
+                                seenAtOpen = seenAtOpen ?: snapshot.pane?.seen
                                 conversation = snapshot.conversation
                                 snapshot.text?.let { text = it }
                                 refreshFailed = false
@@ -270,6 +274,7 @@ fun PaneScreen(
                     contentPadding = PaddingValues(top = bodyTop),
                     footer = footer,
                     endRequests = endRequests,
+                    seen = seenAtOpen,
                     now = nowSeconds,
                 )
             } else if (bodyReady) {

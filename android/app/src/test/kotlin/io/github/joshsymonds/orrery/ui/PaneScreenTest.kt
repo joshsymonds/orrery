@@ -11,6 +11,8 @@ import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasTestTag
@@ -53,6 +55,12 @@ private const val HOST_PATH = "/v1/host"
 private const val TIMEOUT_MILLIS = 5_000L
 private const val WIDE_LINE_REPEATS = 30
 private const val FIXED_NOW_SECONDS = 1_800_000_000L
+private const val FIXTURE_SEEN = 4102444900L
+// Made-up unix seconds for the seen-at-open tests: the pane's seen time sits between the two replies.
+private const val OLDER_REPLY_TIME = 1_700_000_000L
+private const val NEWER_REPLY_TIME = 1_700_001_000L
+private const val SEEN_BETWEEN_REPLIES = 1_700_000_500L
+private const val SEEN_AFTER_REPLIES = 1_700_002_000L
 private const val STATUS_LINE_TAG = "status-line"
 private const val SYNTHETIC_DRAFT = "synthetic draft"
 private const val CLAUDE_HINT = "Message Claude…"
@@ -86,11 +94,16 @@ class PaneScreenTest {
 
     private val toolQuestion = """{"tool":"Bash","input":{"command":"echo synthetic"}}"""
 
-    private fun paneListJson(state: String, tool: String = "", question: String = ""): String = """
+    private fun paneListJson(
+        state: String,
+        tool: String = "",
+        question: String = "",
+        seen: Long = FIXTURE_SEEN,
+    ): String = """
         [{"id":"%3","host":"example-host","session":"example-session","window":1,"pane":2,
           "cwd":"/home/user/project","command":"claude","state":"$state",
           "summary":"Example summary.","label":"example-label",
-          "changed":4102444800,"seen":4102444900,"question":${JSONObject.quote(question)},
+          "changed":4102444800,"seen":$seen,"question":${JSONObject.quote(question)},
           "question_hash":"abc123","tool":${JSONObject.quote(tool)}}]
     """.trimIndent()
 
@@ -125,8 +138,9 @@ class PaneScreenTest {
         tool: String = "",
         question: String = "",
         conversation: String? = null,
+        seen: Long = FIXTURE_SEEN,
     ) {
-        server.respond("GET", PANES_PATH, 200, paneListJson(state, tool, question))
+        server.respond("GET", PANES_PATH, 200, paneListJson(state, tool, question, seen))
         server.respond("POST", SEEN_PATH, 200)
         if (conversation != null) {
             server.respond("GET", CONVERSATION_PATH, 200, conversation)
@@ -172,6 +186,65 @@ class PaneScreenTest {
 
             composeRule.onNodeWithText("synthetic screen body").assertIsDisplayed()
             assertEquals(1, seenRequests(server))
+        }
+    }
+
+    private fun twoReplies(): String = conversationBody(
+        """{"kind":"reply","time":$OLDER_REPLY_TIME,"text":"synthetic older reply","tool":"","input":"","id":"","error":false}""",
+        """{"kind":"reply","time":$NEWER_REPLY_TIME,"text":"synthetic newer reply","tool":"","input":"","id":"","error":false}""",
+    )
+
+    /** The divider sits between the bottom of entry row [below] - 1 and the top of entry row [below]. */
+    private fun assertDividerBeforeRow(below: Int) {
+        composeRule.onAllNodesWithTag("new-divider").assertCountEquals(1)
+        val divider = composeRule.onNodeWithTag("new-divider").fetchSemanticsNode().boundsInRoot
+        val row = composeRule.onNodeWithTag("entry-row:$below").fetchSemanticsNode().boundsInRoot
+        assertTrue("the divider ends above entry row $below", divider.bottom <= row.top + 1f)
+        val previous = composeRule.onNodeWithTag("entry-row:${below - 1}").fetchSemanticsNode().boundsInRoot
+        assertTrue("the divider starts below entry row ${below - 1}", divider.top >= previous.bottom - 1f)
+    }
+
+    @Test
+    fun dividerSitsBeforeTheFirstReplyNewerThanTheSeenTimeReadOnOpen() {
+        FakeOrreryServer().use { server ->
+            servePane(server, seen = SEEN_BETWEEN_REPLIES, conversation = twoReplies())
+            setScreen(server)
+
+            composeRule.waitUntilExactlyOneExists(hasTestTag("new-divider"), TIMEOUT_MILLIS)
+            assertDividerBeforeRow(below = 2)
+            composeRule.onNodeWithTag("entry-row:2")
+                .assert(SemanticsMatcher.expectValue(SemanticsProperties.StateDescription, "new"))
+            composeRule.onNodeWithTag("entry-row:1")
+                .assert(SemanticsMatcher.keyNotDefined(SemanticsProperties.StateDescription))
+        }
+    }
+
+    @Test
+    fun laterPollWithNewerSeenTimeLeavesTheDividerWhereItWasOnOpen() {
+        FakeOrreryServer().use { server ->
+            servePane(server, seen = SEEN_BETWEEN_REPLIES, conversation = twoReplies())
+            setScreen(server)
+            composeRule.waitUntilExactlyOneExists(hasTestTag("new-divider"), TIMEOUT_MILLIS)
+            assertDividerBeforeRow(below = 2)
+
+            // The later poll also turns the pane to working. Its working mark is drawn from the same
+            // state write that would move the seen time, so the mark shows the later poll has landed.
+            server.respond("GET", PANES_PATH, 200, paneListJson(state = "working", seen = SEEN_AFTER_REPLIES))
+            composeRule.mainClock.advanceTimeBy(1_000)
+            composeRule.waitUntilExactlyOneExists(hasTestTag("working-mark"), TIMEOUT_MILLIS)
+
+            assertDividerBeforeRow(below = 2)
+        }
+    }
+
+    @Test
+    fun seenTimeAtTheNewestReplyShowsNoDivider() {
+        FakeOrreryServer().use { server ->
+            servePane(server, seen = NEWER_REPLY_TIME, conversation = twoReplies())
+            setScreen(server)
+
+            composeRule.waitUntilExactlyOneExists(hasText("synthetic newer reply"), TIMEOUT_MILLIS)
+            composeRule.onAllNodesWithTag("new-divider").assertCountEquals(0)
         }
     }
 
