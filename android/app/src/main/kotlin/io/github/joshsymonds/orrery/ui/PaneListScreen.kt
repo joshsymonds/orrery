@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -77,14 +78,19 @@ private fun ageOf(seconds: Long): String = when {
     else -> "${seconds / 86_400}d"
 }
 
+/** The tallest the picker panel grows before it scrolls, so the pane list keeps room below it. */
+private val PICKER_MAX_HEIGHT = 320.dp
+
 /**
- * Every pane, grouped by project, with a filter. Each project header carries a
- * New button for its first visible pane. Tapping a row opens that pane.
+ * Every pane, grouped by project, with a filter. The New button at the top opens the picker
+ * above the filters; a run it answers opens that pane through [onOpenPaneId]. Each project
+ * header carries a New button for its first visible pane. Tapping a row opens that pane.
  */
 @Composable
 fun PaneListScreen(
     client: OrreryClient,
     onOpenPane: (Pane) -> Unit,
+    onOpenPaneId: (String) -> Unit,
     onOpenSettings: () -> Unit,
     modifier: Modifier = Modifier,
     now: () -> Long = { System.currentTimeMillis() / 1000 },
@@ -92,6 +98,7 @@ fun PaneListScreen(
     var load by remember { mutableStateOf<PaneLoad>(PaneLoad.Loading) }
     var filter by remember { mutableStateOf(PaneFilter.ALL) }
     var generation by remember { mutableIntStateOf(0) }
+    var picking by remember { mutableStateOf(false) }
 
     LaunchedEffect(client, generation) {
         load = PaneLoad.Loading
@@ -111,9 +118,28 @@ fun PaneListScreen(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text("Panes", style = MaterialTheme.typography.titleLarge)
-            TextButton(onClick = onOpenSettings) {
-                Text("Settings")
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                TextButton(
+                    onClick = { picking = true },
+                    modifier = Modifier.testTag("picker-new"),
+                ) {
+                    Text("New")
+                }
+                TextButton(onClick = onOpenSettings) {
+                    Text("Settings")
+                }
             }
+        }
+        if (picking) {
+            PickerPanel(
+                client = client,
+                onOpened = { paneId ->
+                    picking = false
+                    onOpenPaneId(paneId)
+                },
+                onClose = { picking = false },
+                modifier = Modifier.heightIn(max = PICKER_MAX_HEIGHT),
+            )
         }
         Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp)) {
             PaneFilter.entries.forEach { option ->
