@@ -2,7 +2,6 @@ package picker
 
 import (
 	"bytes"
-	"context"
 	"crypto/rand"
 	"encoding/json"
 	"fmt"
@@ -18,6 +17,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/open"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
+	"github.com/joshsymonds/orrery/internal/tmuxtest"
 )
 
 const (
@@ -130,8 +130,7 @@ func newPickerServer(t *testing.T) (*tmuxctl.Client, string) {
 		t.Fatalf("New(Name=%q): %v", name, err)
 	}
 	t.Cleanup(func() {
-		// t.Context is canceled before Cleanup runs, so the kill uses a background context.
-		_, err := client.Run(context.Background(), "kill-server")
+		err := tmuxtest.Stop(t, tmuxctl.Server{Name: name})
 		if err == nil {
 			return
 		}

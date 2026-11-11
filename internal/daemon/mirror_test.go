@@ -20,6 +20,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/store"
 	"github.com/joshsymonds/orrery/internal/store/sqlcgen"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
+	"github.com/joshsymonds/orrery/internal/tmuxtest"
 )
 
 // mirrorBudget is the one-second bound a dropped sync must meet.
@@ -53,9 +54,10 @@ type mirrorServer struct {
 // startMirrorServer starts a private tmux server under a random name and kills it at cleanup.
 func startMirrorServer(t *testing.T) mirrorServer {
 	t.Helper()
-	ms := newMirrorSession(t, tmuxctl.Server{Name: mirrorServerName(t)})
+	server := tmuxctl.Server{Name: mirrorServerName(t)}
+	ms := newMirrorSession(t, server)
 	t.Cleanup(func() {
-		if _, err := ms.client.Run(context.Background(), "kill-server"); err != nil {
+		if err := tmuxtest.Stop(t, server); err != nil {
 			t.Errorf("kill-server: %v", err)
 		}
 	})

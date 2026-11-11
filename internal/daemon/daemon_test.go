@@ -17,6 +17,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/daemon"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
+	"github.com/joshsymonds/orrery/internal/tmuxtest"
 )
 
 // Every test server starts with -f /dev/null so the user's tmux config never applies.
@@ -57,7 +58,7 @@ func startServer(t *testing.T) testServer {
 		t.Fatalf("New(%+v): %v", server, err)
 	}
 	t.Cleanup(func() {
-		if _, err := client.Run(context.Background(), "kill-server"); err != nil {
+		if err := tmuxtest.Stop(t, server); err != nil {
 			t.Errorf("kill-server: %v", err)
 		}
 	})

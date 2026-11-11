@@ -1,7 +1,6 @@
 package open
 
 import (
-	"context"
 	"crypto/rand"
 	"fmt"
 	"os"
@@ -15,6 +14,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/archive"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
+	"github.com/joshsymonds/orrery/internal/tmuxtest"
 )
 
 // Every test tmux server starts with -f /dev/null so the user's tmux config never applies.
@@ -38,7 +38,7 @@ func newClient(t *testing.T) *tmuxctl.Client {
 		t.Fatalf("New(Name=%q): %v", name, err)
 	}
 	t.Cleanup(func() {
-		_, err := client.Run(context.Background(), "kill-server")
+		err := tmuxtest.Stop(t, tmuxctl.Server{Name: name})
 		if err == nil {
 			return
 		}

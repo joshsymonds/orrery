@@ -14,6 +14,7 @@ import (
 
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
+	"github.com/joshsymonds/orrery/internal/tmuxtest"
 )
 
 // Every test server starts with -f /dev/null so the user's tmux config never applies.
@@ -37,14 +38,14 @@ func newServer(t *testing.T) *tmuxctl.Client {
 	if err != nil {
 		t.Fatalf("New(Name=%q): %v", name, err)
 	}
-	stopServerAtCleanup(t, client)
+	stopServerAtCleanup(t, tmuxctl.Server{Name: name})
 	return client
 }
 
-func stopServerAtCleanup(t *testing.T, client *tmuxctl.Client) {
+func stopServerAtCleanup(t *testing.T, server tmuxctl.Server) {
 	t.Helper()
 	t.Cleanup(func() {
-		if _, err := client.Run(context.Background(), "kill-server"); err != nil {
+		if err := tmuxtest.Stop(t, server); err != nil {
 			t.Errorf("kill-server: %v", err)
 		}
 	})
@@ -154,7 +155,7 @@ func TestSocketServer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New(Socket=%q): %v", socket, err)
 	}
-	stopServerAtCleanup(t, client)
+	stopServerAtCleanup(t, tmuxctl.Server{Socket: socket})
 
 	startSession(t, client, "s1", t.TempDir())
 	if got := mustRun(t, client, "display-message", "-p", "-t", "s1", "#{session_name}"); got != "s1\n" {

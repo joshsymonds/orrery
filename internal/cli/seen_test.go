@@ -2,7 +2,6 @@ package cli_test
 
 import (
 	"bytes"
-	"context"
 	"crypto/rand"
 	"fmt"
 	"os"
@@ -14,6 +13,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/cli"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
+	"github.com/joshsymonds/orrery/internal/tmuxtest"
 )
 
 // Every test server starts with -f /dev/null so the user's tmux config never applies.
@@ -35,7 +35,7 @@ func seenServer(t *testing.T) *tmuxctl.Client {
 		t.Fatalf("New(Name=%q): %v", name, err)
 	}
 	t.Cleanup(func() {
-		if _, err := client.Run(context.Background(), "kill-server"); err != nil {
+		if err := tmuxtest.Stop(t, tmuxctl.Server{Name: name}); err != nil {
 			t.Errorf("kill-server: %v", err)
 		}
 	})

@@ -32,6 +32,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/push"
 	"github.com/joshsymonds/orrery/internal/server"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
+	"github.com/joshsymonds/orrery/internal/tmuxtest"
 )
 
 const (
@@ -56,6 +57,13 @@ const (
 // newTmuxClient returns a client for a unique private tmux server name. The server is not started.
 func newTmuxClient(t *testing.T) *tmuxctl.Client {
 	t.Helper()
+	_, tmux := newNamedTmuxClient(t)
+	return tmux
+}
+
+// newNamedTmuxClient returns the name of a unique private tmux server and a client for it. The server is not started.
+func newNamedTmuxClient(t *testing.T) (string, *tmuxctl.Client) {
+	t.Helper()
 	var suffix [8]byte
 	if _, err := rand.Read(suffix[:]); err != nil {
 		t.Fatalf("random server name: %v", err)
@@ -65,15 +73,15 @@ func newTmuxClient(t *testing.T) *tmuxctl.Client {
 	if err != nil {
 		t.Fatalf("New(Name=%q): %v", name, err)
 	}
-	return tmux
+	return name, tmux
 }
 
 // newTmuxServer returns a client for a unique private tmux server and kills that server at cleanup.
 func newTmuxServer(t *testing.T) *tmuxctl.Client {
 	t.Helper()
-	tmux := newTmuxClient(t)
+	name, tmux := newNamedTmuxClient(t)
 	t.Cleanup(func() {
-		if _, err := tmux.Run(context.Background(), "kill-server"); err != nil {
+		if err := tmuxtest.Stop(t, tmuxctl.Server{Name: name}); err != nil {
 			t.Errorf("kill-server: %v", err)
 		}
 	})
