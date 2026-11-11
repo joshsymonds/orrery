@@ -22,20 +22,42 @@ type StepCheck struct {
 	Detail string `json:"detail"`
 }
 
+// StepVerdict is one Haiku verdict on a step: a monitor call on a trip, or a judge call on a done return. Verdict is
+// empty when the call failed, and Error then says why. At is the unix second the verdict was recorded.
+type StepVerdict struct {
+	At      int64  `json:"at"`
+	Kind    string `json:"kind"`
+	Trip    string `json:"trip"`
+	Round   int    `json:"round"`
+	Verdict string `json:"verdict"`
+	Detail  string `json:"detail"`
+	Error   string `json:"error"`
+	Action  string `json:"action"`
+}
+
 // StepAdd inserts a step row, started now. The row is never pruned.
 type StepAdd struct {
-	ID        string
-	Agent     string
-	Prompt    string
-	Schema    string
-	Workspace string
-	Revision  string
-	Worktree  string
-	DoneValue string
-	ReadOnly  bool
-	Owned     []string
-	Gate      []string
-	GateLimit time.Duration
+	ID         string
+	Agent      string
+	Prompt     string
+	Schema     string
+	Workspace  string
+	Revision   string
+	Worktree   string
+	DoneValue  string
+	ReadOnly   bool
+	Owned      []string
+	Gate       []string
+	GateLimit  time.Duration
+	ModelLimit time.Duration
+}
+
+// StepWatch appends Verdict to a step's verdicts, stamped with the write time, and sets its doing line to Doing when
+// Doing is not empty.
+type StepWatch struct {
+	ID      string
+	Verdict StepVerdict
+	Doing   string
 }
 
 // StepReturn sets a step's latest result and appends its checks to the ones already recorded.
@@ -55,25 +77,28 @@ type StepEnd struct {
 
 // StepRow is a step row. Ended is zero while End is empty.
 type StepRow struct {
-	ID        string
-	Agent     string
-	Prompt    string
-	Schema    string
-	Workspace string
-	Revision  string
-	Worktree  string
-	DoneValue string
-	ReadOnly  bool
-	Owned     []string
-	Gate      []string
-	GateLimit time.Duration
-	Started   time.Time
-	Checks    []StepCheck
-	Result    string
-	Status    string
-	End       string
-	Reason    string
-	Ended     time.Time
+	ID         string
+	Agent      string
+	Prompt     string
+	Schema     string
+	Workspace  string
+	Revision   string
+	Worktree   string
+	DoneValue  string
+	ReadOnly   bool
+	Owned      []string
+	Gate       []string
+	GateLimit  time.Duration
+	ModelLimit time.Duration
+	Started    time.Time
+	Checks     []StepCheck
+	Doing      string
+	Verdicts   []StepVerdict
+	Result     string
+	Status     string
+	End        string
+	Reason     string
+	Ended      time.Time
 }
 
 func (op StepAdd) applyEngine(ctx context.Context, queries *sqlcgen.Queries, now time.Time) error {
@@ -88,7 +113,8 @@ func (op StepAdd) applyEngine(ctx context.Context, queries *sqlcgen.Queries, now
 	if err = queries.InsertStep(ctx, sqlcgen.InsertStepParams{
 		ID: op.ID, Agent: op.Agent, Prompt: op.Prompt, OutputSchema: op.Schema, Workspace: op.Workspace,
 		Revision: op.Revision, Worktree: op.Worktree, DoneValue: op.DoneValue, ReadOnly: op.ReadOnly,
-		Owned: string(owned), Gate: string(gate), GateLimit: int64(op.GateLimit), Started: now.Unix(),
+		Owned: string(owned), Gate: string(gate), GateLimit: int64(op.GateLimit),
+		ModelLimit: int64(op.ModelLimit), Started: now.Unix(),
 	}); err != nil {
 		return fmt.Errorf("insert step %s: %w", op.ID, err)
 	}
@@ -113,6 +139,34 @@ func (op StepReturn) applyEngine(ctx context.Context, queries *sqlcgen.Queries, 
 		Result: op.Result, Checks: string(encoded), ID: op.ID,
 	}); err != nil {
 		return fmt.Errorf("update return of step %s: %w", op.ID, err)
+	}
+	return nil
+}
+
+func (op StepWatch) applyEngine(ctx context.Context, queries *sqlcgen.Queries, now time.Time) error {
+	row, err := requireStep(ctx, queries, op.ID)
+	if err != nil {
+		return err
+	}
+	verdicts, err := decodeStepVerdicts(row.Verdicts)
+	if err != nil {
+		return fmt.Errorf("decode verdicts of step %s: %w", op.ID, err)
+	}
+	verdict := op.Verdict
+	verdict.At = now.Unix()
+	verdicts = append(verdicts, verdict)
+	encoded, err := json.Marshal(verdicts)
+	if err != nil {
+		return fmt.Errorf("encode verdicts of step %s: %w", op.ID, err)
+	}
+	doing := row.Doing
+	if op.Doing != "" {
+		doing = op.Doing
+	}
+	if err = queries.UpdateStepWatch(ctx, sqlcgen.UpdateStepWatchParams{
+		Verdicts: string(encoded), Doing: doing, ID: op.ID,
+	}); err != nil {
+		return fmt.Errorf("update watch of step %s: %w", op.ID, err)
 	}
 	return nil
 }
@@ -183,6 +237,10 @@ func toStepRow(row sqlcgen.Step) (StepRow, error) {
 	if err != nil {
 		return StepRow{}, fmt.Errorf("decode checks of step %s: %w", row.ID, err)
 	}
+	verdicts, err := decodeStepVerdicts(row.Verdicts)
+	if err != nil {
+		return StepRow{}, fmt.Errorf("decode verdicts of step %s: %w", row.ID, err)
+	}
 	var ended time.Time
 	if row.EndValue != "" {
 		ended = time.Unix(row.Ended, 0)
@@ -190,9 +248,9 @@ func toStepRow(row sqlcgen.Step) (StepRow, error) {
 	return StepRow{
 		ID: row.ID, Agent: row.Agent, Prompt: row.Prompt, Schema: row.OutputSchema, Workspace: row.Workspace,
 		Revision: row.Revision, Worktree: row.Worktree, DoneValue: row.DoneValue, ReadOnly: row.ReadOnly,
-		Owned: owned, Gate: gate, GateLimit: time.Duration(row.GateLimit),
-		Started: time.Unix(row.Started, 0), Checks: checks, Result: row.Result, Status: row.Status,
-		End: row.EndValue, Reason: row.Reason, Ended: ended,
+		Owned: owned, Gate: gate, GateLimit: time.Duration(row.GateLimit), ModelLimit: time.Duration(row.ModelLimit),
+		Started: time.Unix(row.Started, 0), Checks: checks, Doing: row.Doing, Verdicts: verdicts,
+		Result: row.Result, Status: row.Status, End: row.EndValue, Reason: row.Reason, Ended: ended,
 	}, nil
 }
 
@@ -208,6 +266,14 @@ func decodeStepChecks(raw string) ([]StepCheck, error) {
 	var out []StepCheck
 	if err := json.Unmarshal([]byte(raw), &out); err != nil {
 		return nil, fmt.Errorf("decode step checks: %w", err)
+	}
+	return out, nil
+}
+
+func decodeStepVerdicts(raw string) ([]StepVerdict, error) {
+	var out []StepVerdict
+	if err := json.Unmarshal([]byte(raw), &out); err != nil {
+		return nil, fmt.Errorf("decode step verdicts: %w", err)
 	}
 	return out, nil
 }

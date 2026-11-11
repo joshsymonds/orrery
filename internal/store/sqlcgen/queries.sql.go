@@ -234,7 +234,7 @@ func (q *Queries) GetSession(ctx context.Context, id string) (Session, error) {
 }
 
 const getStep = `-- name: GetStep :one
-SELECT id, agent, prompt, output_schema, workspace, revision, worktree, done_value, read_only, owned, gate, gate_limit, started, checks, result, status, end_value, reason, ended FROM steps WHERE id = ?
+SELECT id, agent, prompt, output_schema, workspace, revision, worktree, done_value, read_only, owned, gate, gate_limit, started, checks, result, status, end_value, reason, ended, model_limit, doing, verdicts FROM steps WHERE id = ?
 `
 
 func (q *Queries) GetStep(ctx context.Context, id string) (Step, error) {
@@ -260,6 +260,9 @@ func (q *Queries) GetStep(ctx context.Context, id string) (Step, error) {
 		&i.EndValue,
 		&i.Reason,
 		&i.Ended,
+		&i.ModelLimit,
+		&i.Doing,
+		&i.Verdicts,
 	)
 	return i, err
 }
@@ -341,8 +344,8 @@ func (q *Queries) InsertSession(ctx context.Context, arg InsertSessionParams) er
 
 const insertStep = `-- name: InsertStep :exec
 INSERT INTO steps (id, agent, prompt, output_schema, workspace, revision, worktree, done_value, read_only, owned, gate,
-                   gate_limit, started, checks, result, status, end_value, reason, ended)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', '', '', '', '', 0)
+                   gate_limit, model_limit, started, checks, result, status, end_value, reason, ended, doing, verdicts)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', '', '', '', '', 0, '', '[]')
 `
 
 type InsertStepParams struct {
@@ -358,6 +361,7 @@ type InsertStepParams struct {
 	Owned        string
 	Gate         string
 	GateLimit    int64
+	ModelLimit   int64
 	Started      int64
 }
 
@@ -375,6 +379,7 @@ func (q *Queries) InsertStep(ctx context.Context, arg InsertStepParams) error {
 		arg.Owned,
 		arg.Gate,
 		arg.GateLimit,
+		arg.ModelLimit,
 		arg.Started,
 	)
 	return err
@@ -493,7 +498,7 @@ func (q *Queries) ListEvents(ctx context.Context) ([]Event, error) {
 }
 
 const listOpenSteps = `-- name: ListOpenSteps :many
-SELECT id, agent, prompt, output_schema, workspace, revision, worktree, done_value, read_only, owned, gate, gate_limit, started, checks, result, status, end_value, reason, ended FROM steps WHERE end_value = '' ORDER BY id
+SELECT id, agent, prompt, output_schema, workspace, revision, worktree, done_value, read_only, owned, gate, gate_limit, started, checks, result, status, end_value, reason, ended, model_limit, doing, verdicts FROM steps WHERE end_value = '' ORDER BY id
 `
 
 func (q *Queries) ListOpenSteps(ctx context.Context) ([]Step, error) {
@@ -525,6 +530,9 @@ func (q *Queries) ListOpenSteps(ctx context.Context) ([]Step, error) {
 			&i.EndValue,
 			&i.Reason,
 			&i.Ended,
+			&i.ModelLimit,
+			&i.Doing,
+			&i.Verdicts,
 		); err != nil {
 			return nil, err
 		}
@@ -839,6 +847,21 @@ type UpdateStepReturnParams struct {
 
 func (q *Queries) UpdateStepReturn(ctx context.Context, arg UpdateStepReturnParams) error {
 	_, err := q.db.ExecContext(ctx, updateStepReturn, arg.Result, arg.Checks, arg.ID)
+	return err
+}
+
+const updateStepWatch = `-- name: UpdateStepWatch :exec
+UPDATE steps SET verdicts = ?, doing = ? WHERE id = ?
+`
+
+type UpdateStepWatchParams struct {
+	Verdicts string
+	Doing    string
+	ID       string
+}
+
+func (q *Queries) UpdateStepWatch(ctx context.Context, arg UpdateStepWatchParams) error {
+	_, err := q.db.ExecContext(ctx, updateStepWatch, arg.Verdicts, arg.Doing, arg.ID)
 	return err
 }
 

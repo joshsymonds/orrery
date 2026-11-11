@@ -14,7 +14,71 @@ func stepAddOf(id string) StepAdd {
 		ID: id, Agent: "implementer", Prompt: "do it", Schema: `{"type":"object"}`,
 		Workspace: "/ws/" + id, Revision: "abc123", Worktree: "/wt/" + id, DoneValue: "DONE",
 		ReadOnly: true, Owned: []string{"a.go", "b.go"}, Gate: []string{"go test ./..."},
-		GateLimit: 90 * time.Second,
+		GateLimit: 90 * time.Second, ModelLimit: 60 * time.Minute,
+	}
+}
+
+func TestStepVerdictJSONNames(t *testing.T) {
+	raw, err := json.Marshal(StepVerdict{
+		At: 1700000000, Kind: "monitor", Trip: "silent", Round: 0, Verdict: "looping",
+		Detail: "editing", Error: "", Action: "nudge",
+	})
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	want := `{"at":1700000000,"kind":"monitor","trip":"silent","round":0,"verdict":"looping",` +
+		`"detail":"editing","error":"","action":"nudge"}`
+	if got := string(raw); got != want {
+		t.Fatalf("StepVerdict JSON: got %s, want %s", got, want)
+	}
+}
+
+func TestStepWatchAppendsVerdictsInOrderAndKeepsDoing(t *testing.T) {
+	ctx := context.Background()
+	s := openSyncStore(t)
+	t0 := engineNowAt()
+	if err := s.ApplyEngine(ctx, []EngineOp{stepAddOf("s1")}, t0); err != nil {
+		t.Fatalf("ApplyEngine add: %v", err)
+	}
+	fresh, err := s.Step(ctx, "s1")
+	if err != nil {
+		t.Fatalf("Step after add: %v", err)
+	}
+	if fresh.Doing != "" || len(fresh.Verdicts) != 0 || fresh.ModelLimit != 60*time.Minute {
+		t.Fatalf("new step: got Doing %q Verdicts %+v ModelLimit %v, want empty, none and 60m",
+			fresh.Doing, fresh.Verdicts, fresh.ModelLimit)
+	}
+
+	t1 := t0.Add(time.Minute)
+	first := StepVerdict{Kind: "monitor", Trip: "silent", Verdict: "looping", Detail: "editing", Action: "nudge"}
+	if err := s.ApplyEngine(
+		ctx,
+		[]EngineOp{StepWatch{ID: "s1", Verdict: first, Doing: "running tests"}},
+		t1,
+	); err != nil {
+		t.Fatalf("ApplyEngine first watch: %v", err)
+	}
+
+	t2 := t1.Add(time.Minute)
+	second := StepVerdict{Kind: "judge", Round: 1, Verdict: "", Error: "timeout", Action: "continue"}
+	if err := s.ApplyEngine(ctx, []EngineOp{StepWatch{ID: "s1", Verdict: second}}, t2); err != nil {
+		t.Fatalf("ApplyEngine second watch: %v", err)
+	}
+
+	got, err := s.Step(ctx, "s1")
+	if err != nil {
+		t.Fatalf("Step: %v", err)
+	}
+	first.At = t1.Unix()
+	second.At = t2.Unix()
+	if want := []StepVerdict{first, second}; !reflect.DeepEqual(got.Verdicts, want) {
+		t.Fatalf("Verdicts: got %+v, want %+v", got.Verdicts, want)
+	}
+	if got.Doing != "running tests" {
+		t.Fatalf("Doing: got %q, want running tests kept by the op with no Doing", got.Doing)
+	}
+	if got.ModelLimit != 60*time.Minute || got.Result != "" || got.End != "" {
+		t.Fatalf("other fields changed: ModelLimit %v Result %q End %q", got.ModelLimit, got.Result, got.End)
 	}
 }
 
@@ -44,7 +108,8 @@ func TestStepAddStoresEveryFieldWithEndEmpty(t *testing.T) {
 		ID: "s1", Agent: "implementer", Prompt: "do it", Schema: `{"type":"object"}`,
 		Workspace: "/ws/s1", Revision: "abc123", Worktree: "/wt/s1", DoneValue: "DONE",
 		ReadOnly: true, Owned: []string{"a.go", "b.go"}, Gate: []string{"go test ./..."},
-		GateLimit: 90 * time.Second, Started: now, Checks: []StepCheck{},
+		GateLimit: 90 * time.Second, ModelLimit: 60 * time.Minute, Started: now, Checks: []StepCheck{},
+		Verdicts: []StepVerdict{},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("Step: got %+v, want %+v", got, want)
@@ -160,6 +225,16 @@ func TestStepUnknownIDMatchesErrNoStep(t *testing.T) {
 	) {
 		t.Fatalf("StepEnd of unknown id: got %v, want ErrNoStep", err)
 	}
+	if err := s.ApplyEngine(
+		ctx,
+		[]EngineOp{StepWatch{ID: "missing", Verdict: StepVerdict{Kind: "monitor"}, Doing: "x"}},
+		engineNowAt(),
+	); !errors.Is(
+		err,
+		ErrNoStep,
+	) {
+		t.Fatalf("StepWatch of unknown id: got %v, want ErrNoStep", err)
+	}
 }
 
 func TestStepOpsAppendNoEvent(t *testing.T) {
@@ -168,6 +243,7 @@ func TestStepOpsAppendNoEvent(t *testing.T) {
 	ops := []EngineOp{
 		stepAddOf("s1"),
 		StepReturn{ID: "s1", Result: "r", Checks: []StepCheck{{Round: 1, Name: "gate", OK: true}}},
+		StepWatch{ID: "s1", Verdict: StepVerdict{Kind: "monitor", Verdict: "progressing", Action: "none"}, Doing: "x"},
 		StepEnd{ID: "s1", End: "done", Status: "passed"},
 	}
 	if err := s.ApplyEngine(ctx, ops, engineNowAt()); err != nil {
