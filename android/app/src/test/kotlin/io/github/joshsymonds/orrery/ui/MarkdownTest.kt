@@ -4,6 +4,8 @@ import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotSame
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -62,6 +64,35 @@ class MarkdownTest {
         assertEquals("Title", (blocks[0] as MdBlock.Heading).text.text)
         assertTrue(blocks[1] is MdBlock.Rule)
         assertEquals("quoted bit", ((blocks[2] as MdBlock.Quote).blocks.single() as MdBlock.Paragraph).text.text)
+    }
+
+    @Test
+    fun repeatedTextReturnsTheStoredParse() {
+        val cache = MarkdownCache()
+        val first = cache.blocks("**hello** `world`")
+        assertSame(first, cache.blocks("**hello** `world`"))
+    }
+
+    @Test
+    fun leastRecentlyUsedTextIsParsedAgainOnceEvicted() {
+        val cache = MarkdownCache(capacity = 2)
+        val a = cache.blocks("alpha")
+        cache.blocks("beta")
+        val c = cache.blocks("gamma")
+        assertNotSame(a, cache.blocks("alpha"))
+        assertSame(c, cache.blocks("gamma"))
+    }
+
+    @Test
+    fun readingATextKeepsItAndEvictsTheLeastRecentlyUsed() {
+        val cache = MarkdownCache(capacity = 2)
+        val a = cache.blocks("alpha")
+        val b = cache.blocks("beta")
+        assertSame(a, cache.blocks("alpha"))
+        val c = cache.blocks("gamma")
+        assertSame(a, cache.blocks("alpha"))
+        assertSame(c, cache.blocks("gamma"))
+        assertNotSame(b, cache.blocks("beta"))
     }
 
     @Test
