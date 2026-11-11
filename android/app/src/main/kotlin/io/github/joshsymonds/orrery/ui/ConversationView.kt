@@ -52,8 +52,9 @@ import java.time.format.DateTimeFormatter
 
 private val TIME_OF_DAY: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm")
 
-// Entry keys always start with their kind ("reply:", "tool:", ...), so this never equals one.
+// Entry keys always start with their kind ("reply:", "tool:", ...), so these never equal one.
 private const val FOOTER_KEY = "footer"
+private const val WORKING_KEY = "working"
 
 private enum class CallMark(val symbol: String, val colour: Color) {
     Done("✓", Mocha.Green),
@@ -63,7 +64,8 @@ private enum class CallMark(val symbol: String, val colour: Color) {
 /**
  * The folded conversation as the phone draws it: time labels, prompt blocks, markdown replies, tool
  * rows that expand to their result, groups of calls that expand to their rows, and slim notice
- * rows, with an optional footer after the last entry. Which rows are open is kept by tool id (a group by its
+ * rows, with an optional footer after the last entry. While [working], a working mark sits after the last
+ * entry and before the footer. Which rows are open is kept by tool id (a group by its
  * first call's id), so it survives new entries. It opens at the end of the newest item. While the
  * reader is at the bottom, new entries keep the end of the newest item in view; once they scroll
  * up, new entries leave their position alone. A change of the viewport's height or top padding
@@ -76,6 +78,7 @@ fun ConversationView(
     listState: LazyListState = rememberLazyListState(),
     contentPadding: PaddingValues = PaddingValues(),
     footer: (@Composable () -> Unit)? = null,
+    working: Boolean = false,
 ) {
     var expanded by remember { mutableStateOf(emptySet<String>()) }
     val toggle: (String) -> Unit = { id ->
@@ -84,7 +87,7 @@ fun ConversationView(
     var followBottom by remember { mutableStateOf(true) }
     val markdownCache = remember { MarkdownCache() }
     val keys = remember(entries) { entryKeys(entries) }
-    val lastIndex = entries.size + (if (footer == null) 0 else 1) - 1
+    val lastIndex = entries.size + (if (working) 1 else 0) + (if (footer == null) 0 else 1) - 1
     // Following is decided when a scroll ends, not when the first visible item moves: a slid window
     // moves it without the reader scrolling.
     LaunchedEffect(listState) {
@@ -124,6 +127,7 @@ fun ConversationView(
                 is ConvoEntry.Notice -> NoticeRow(entry)
             }
         }
+        if (working) item(key = WORKING_KEY) { WorkingMark() }
         footer?.let { content -> item(key = FOOTER_KEY) { content() } }
     }
 }
@@ -291,13 +295,7 @@ private fun NoticeRow(notice: ConvoEntry.Notice) {
         verticalAlignment = Alignment.Top,
         horizontalArrangement = Arrangement.spacedBy(7.dp),
     ) {
-        Box(
-            modifier = Modifier
-                .padding(top = NOTICE_DOT_TOP)
-                .size(NOTICE_DOT)
-                .clip(CircleShape)
-                .background(accent.copy(alpha = NOTICE_DOT_ALPHA)),
-        )
+        NoticeDot(accent)
         Text(
             text = noticeLabel(notice.sort),
             color = accent,
@@ -317,6 +315,39 @@ private fun NoticeRow(notice: ConvoEntry.Notice) {
         )
         if (notice.error) MarkText(CallMark.Failed)
     }
+}
+
+/** The mark that Claude is still working: a quiet notice-style line after the last entry. */
+@Composable
+private fun WorkingMark() {
+    Row(
+        modifier = Modifier
+            .testTag("working-mark")
+            .fillMaxWidth()
+            .padding(start = 4.dp, end = 4.dp, top = 5.dp, bottom = 5.dp),
+        verticalAlignment = Alignment.Top,
+        horizontalArrangement = Arrangement.spacedBy(7.dp),
+    ) {
+        NoticeDot(Mocha.Overlay1)
+        Text(
+            text = "Claude is still working",
+            color = Mocha.Overlay1,
+            fontSize = NOTICE_TEXT_SIZE,
+            lineHeight = NOTICE_LINE_HEIGHT,
+            maxLines = 1,
+        )
+    }
+}
+
+@Composable
+private fun NoticeDot(accent: Color) {
+    Box(
+        modifier = Modifier
+            .padding(top = NOTICE_DOT_TOP)
+            .size(NOTICE_DOT)
+            .clip(CircleShape)
+            .background(accent.copy(alpha = NOTICE_DOT_ALPHA)),
+    )
 }
 
 private val NOTICE_DOT = 5.dp

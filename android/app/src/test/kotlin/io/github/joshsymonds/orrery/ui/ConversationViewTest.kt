@@ -260,6 +260,56 @@ class ConversationViewTest {
         assertTrue(footerTop >= replyBottom)
     }
 
+    @Test
+    fun workingMarkShowsBelowTheLastEntryAndAboveTheFooter() {
+        composeRule.setContent {
+            MaterialTheme {
+                ConversationView(
+                    entries = listOf(ConvoEntry.Reply("synthetic last reply")),
+                    working = true,
+                    footer = { Text("synthetic footer") },
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag("working-mark").assertIsDisplayed()
+        val replyBottom = composeRule.onNodeWithText("synthetic last reply").fetchSemanticsNode().boundsInRoot.bottom
+        val mark = composeRule.onNodeWithTag("working-mark").fetchSemanticsNode().boundsInRoot
+        val footerTop = composeRule.onNodeWithText("synthetic footer").fetchSemanticsNode().boundsInRoot.top
+        assertTrue(mark.top >= replyBottom)
+        assertTrue(footerTop >= mark.bottom)
+    }
+
+    @Test
+    fun noWorkingMarkWhenNotWorking() {
+        setList(listOf(ConvoEntry.Reply("synthetic last reply")))
+
+        composeRule.onAllNodesWithTag("working-mark").assertCountEquals(0)
+    }
+
+    @Test
+    fun atTheBottomTheWorkingMarkComesIntoView() {
+        val working = mutableStateOf(false)
+        val entries = mutableStateOf(replies(1, 39) + ConvoEntry.Reply(tallReply("synthetic tall A")))
+        composeRule.setContent {
+            MaterialTheme {
+                val state = rememberLazyListState()
+                list = state
+                ConversationView(entries = entries.value, listState = state, working = working.value)
+            }
+        }
+        assertEndOfReplyInView(tallReply("synthetic tall A"))
+
+        composeRule.runOnIdle { working.value = true }
+
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("working-mark").assertIsDisplayed()
+        assertFalse("the list can still scroll forward", list.canScrollForward)
+        val listBottom = composeRule.onNodeWithTag("conversation-list").fetchSemanticsNode().boundsInRoot.bottom
+        val markBottom = composeRule.onNodeWithTag("working-mark").fetchSemanticsNode().boundsInRoot.bottom
+        assertTrue("the mark's end is below the list's end", markBottom <= listBottom + 1f)
+    }
+
     private fun replies(from: Int, to: Int): List<ConvoEntry> =
         (from..to).map { ConvoEntry.Reply("synthetic reply %02d".format(it)) }
 
