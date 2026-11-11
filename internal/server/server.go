@@ -63,6 +63,9 @@ const (
 // jsonContentType is the Content-Type of every JSON response.
 const jsonContentType = "application/json"
 
+// badRequestMessage is the message of a 400 answer to a malformed body or an invalid value in one.
+const badRequestMessage = "bad request body"
+
 // textContentType is the Content-Type of the plain-text screen response.
 const textContentType = "text/plain; charset=utf-8"
 
@@ -656,7 +659,7 @@ func servePaneKeys(tmux *tmuxctl.Client) http.HandlerFunc {
 // is 400. A tmux failure is internalError. The caller has checked that the pane exists.
 func sendKeys(ctx context.Context, tmux *tmuxctl.Client, id string, keys []string, expectQuestion *string) error {
 	if len(keys) == 0 {
-		return routeError{status: http.StatusBadRequest, message: "bad request body"}
+		return routeError{status: http.StatusBadRequest, message: badRequestMessage}
 	}
 	args := []string{flagPane, id}
 	if expectQuestion != nil {
@@ -712,7 +715,7 @@ func servePaneSeen(tmux *tmuxctl.Client, locks *paneLocks) http.HandlerFunc {
 // exists.
 func markPaneSeen(ctx context.Context, tmux *tmuxctl.Client, locks *paneLocks, id string, readUpTo *int64) error {
 	if readUpTo != nil && *readUpTo < 0 {
-		return routeError{status: http.StatusBadRequest, message: "bad request body"}
+		return routeError{status: http.StatusBadRequest, message: badRequestMessage}
 	}
 	mu := locks.lock(id)
 	mu.Lock()
@@ -796,17 +799,12 @@ func servePushRegister(store *push.Store) http.HandlerFunc {
 			http.Error(w, "bad request body", http.StatusBadRequest)
 			return
 		}
-		err := store.Add(push.Subscription{Endpoint: endpoint, P256dh: p256dh, Auth: auth})
-		switch {
-		case err == nil:
-			w.WriteHeader(http.StatusNoContent)
-		case errors.Is(err, push.ErrInvalidSubscription):
-			http.Error(w, "bad request body", http.StatusBadRequest)
-		case errors.Is(err, push.ErrEndpointNotAllowed):
-			http.Error(w, "endpoint not allowed", http.StatusUnprocessableEntity)
-		default:
-			http.Error(w, "internal server error", http.StatusInternalServerError)
+		sub := push.Subscription{Endpoint: endpoint, P256dh: p256dh, Auth: auth}
+		if err := registerSubscription(store, sub); err != nil {
+			writeRouteError(w, err)
+			return
 		}
+		w.WriteHeader(http.StatusNoContent)
 	}
 }
 
@@ -825,15 +823,41 @@ func serveUnregister(store *push.Store) http.HandlerFunc {
 			http.Error(w, "bad request body", http.StatusBadRequest)
 			return
 		}
-		err := store.Remove(endpoint)
-		switch {
-		case err == nil:
-			w.WriteHeader(http.StatusNoContent)
-		case errors.Is(err, push.ErrNotRegistered):
-			http.Error(w, "endpoint not registered", http.StatusNotFound)
-		default:
-			http.Error(w, "internal server error", http.StatusInternalServerError)
+		if err := unregisterSubscription(store, endpoint); err != nil {
+			writeRouteError(w, err)
+			return
 		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+// registerSubscription stores sub for both the REST route and Push.Register. It returns a routeError of 400 for
+// an invalid subscription, 422 for an endpoint the store refuses, and internal for any other store error.
+func registerSubscription(store *push.Store, sub push.Subscription) error {
+	err := store.Add(sub)
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, push.ErrInvalidSubscription):
+		return routeError{status: http.StatusBadRequest, message: badRequestMessage}
+	case errors.Is(err, push.ErrEndpointNotAllowed):
+		return routeError{status: http.StatusUnprocessableEntity, message: "endpoint not allowed"}
+	default:
+		return internalError()
+	}
+}
+
+// unregisterSubscription removes the subscription stored for endpoint for both the REST route and
+// Push.Unregister. It returns a routeError of 404 when none is stored and internal for any other store error.
+func unregisterSubscription(store *push.Store, endpoint string) error {
+	err := store.Remove(endpoint)
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, push.ErrNotRegistered):
+		return routeError{status: http.StatusNotFound, message: "endpoint not registered"}
+	default:
+		return internalError()
 	}
 }
 
