@@ -104,7 +104,8 @@ private const val INDENT_DP = 16
 /**
  * Every pane as a folder tree, or the New and Waiting panes as flat lists, with a filter. The New
  * button at the top opens the picker above the filters; a run it answers opens that pane through
- * [onOpenPaneId]. Tapping a folder header collapses or expands it. Tapping a row opens that pane.
+ * [onOpenPaneId]. The Pools button opens the pools view through [onOpenPools]. Tapping a folder
+ * header collapses or expands it. Tapping a row opens that pane.
  */
 @Composable
 fun PaneListScreen(
@@ -112,6 +113,7 @@ fun PaneListScreen(
     onOpenPane: (Pane) -> Unit,
     onOpenPaneId: (String) -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenPools: () -> Unit = {},
     modifier: Modifier = Modifier,
     now: () -> Long = { System.currentTimeMillis() / 1000 },
     state: PaneListState = rememberPaneListState(),
@@ -149,6 +151,12 @@ fun PaneListScreen(
                     modifier = Modifier.testTag("picker-new"),
                 ) {
                     Text("New")
+                }
+                TextButton(
+                    onClick = onOpenPools,
+                    modifier = Modifier.testTag("open-pools"),
+                ) {
+                    Text("Pools")
                 }
                 TextButton(onClick = onOpenSettings) {
                     Text("Settings")

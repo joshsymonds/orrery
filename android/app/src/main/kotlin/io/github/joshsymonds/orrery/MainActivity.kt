@@ -32,6 +32,7 @@ import io.github.joshsymonds.orrery.push.PushSetup
 import io.github.joshsymonds.orrery.ui.PaneListScreen
 import io.github.joshsymonds.orrery.ui.PaneListState
 import io.github.joshsymonds.orrery.ui.PaneScreen
+import io.github.joshsymonds.orrery.ui.PoolsScreen
 import io.github.joshsymonds.orrery.ui.SessionScreen
 import io.github.joshsymonds.orrery.ui.SettingsScreen
 import io.github.joshsymonds.orrery.ui.theme.OrreryTheme
@@ -77,6 +78,7 @@ class MainActivity : ComponentActivity() {
                                     },
                                     onOpenPaneId = { screen = Screen.Pane(it) },
                                     onOpenSettings = { screen = Screen.Settings },
+                                    onOpenPools = { screen = Screen.Pools },
                                     state = paneListState,
                                 )
                                 is Screen.Pane -> {
@@ -91,6 +93,13 @@ class MainActivity : ComponentActivity() {
                                     BackHandler { screen = Screen.Panes }
                                     SessionScreen(
                                         sessionId = current.id,
+                                        client = client,
+                                        onBack = { screen = Screen.Panes },
+                                    )
+                                }
+                                Screen.Pools -> {
+                                    BackHandler { screen = Screen.Panes }
+                                    PoolsScreen(
                                         client = client,
                                         onBack = { screen = Screen.Panes },
                                     )
@@ -135,6 +144,7 @@ class MainActivity : ComponentActivity() {
     private sealed interface Screen {
         data object Panes : Screen
         data object Settings : Screen
+        data object Pools : Screen
         data class Pane(val id: String) : Screen
         data class Session(val id: String) : Screen
     }
