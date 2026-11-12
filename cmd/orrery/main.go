@@ -88,6 +88,8 @@ subcommands:
   tmux-conf                                     print the orrery tmux plugin for this binary
   help [--html]                                 print the help card for the tmux server, or the HTML page with --html
   mcp                                           serve the step tools over MCP on stdio until stdin closes
+  run --needs POOL=N [--needs POOL=N]... -- CMD [ARGS]
+                                                run CMD under a grant of pool members from orreryd
   serve --listen ADDR --allow-login LOGIN [--allow-login LOGIN]... [--push-host HOST]...
         [--host-status-cmd PATH]
                                                 serve the HTTP API on a loopback address until SIGINT or SIGTERM
@@ -107,6 +109,16 @@ func usagef(format string, args ...any) error {
 	return usageError{msg: fmt.Sprintf(format, args...)}
 }
 
+// statusError is a command that ended with a status of its own. What it wanted said is already written, so report
+// returns the status without a message.
+type statusError struct {
+	code int
+}
+
+func (e statusError) Error() string {
+	return fmt.Sprintf("exit status %d", e.code)
+}
+
 // globals holds the flags that come before the subcommand.
 type globals struct {
 	server       tmuxctl.Server // -L and -S
@@ -121,7 +133,7 @@ func main() {
 func run(args []string, stdin *os.File, stdout, stderr io.Writer, getenv func(string) string) int {
 	opts, rest, err := parseGlobal(args)
 	if err == nil && len(rest) > 0 {
-		return report(stderr, dispatch(context.Background(), opts, rest, stdin, stdout, getenv))
+		return report(stderr, dispatch(context.Background(), opts, rest, stdin, stdout, stderr, getenv))
 	}
 	// A hook must never fail a Claude Code turn. A refused command line that names hook exits 0 silently
 	// and forwards nothing.
@@ -137,6 +149,7 @@ func run(args []string, stdin *os.File, stdout, stderr io.Writer, getenv func(st
 // report prints err to stderr and returns the exit code it maps to. A nil err exits 0 silently.
 func report(stderr io.Writer, err error) int {
 	var usage usageError
+	var status statusError
 	switch {
 	case err == nil:
 		return exitOK
@@ -149,6 +162,8 @@ func report(stderr io.Writer, err error) int {
 	case errors.Is(err, cli.ErrQuestionRefused):
 		fmt.Fprintf(stderr, "orrery: %v\n", err)
 		return exitRefused
+	case errors.As(err, &status):
+		return status.code
 	default:
 		fmt.Fprintf(stderr, "orrery: %v\n", err)
 		return exitFailure
@@ -173,7 +188,7 @@ func parseGlobal(args []string) (globals, []string, error) {
 }
 
 // dispatch runs the subcommand named by rest[0] with the arguments after it.
-func dispatch(ctx context.Context, opts globals, rest []string, stdin *os.File, stdout io.Writer,
+func dispatch(ctx context.Context, opts globals, rest []string, stdin *os.File, stdout, stderr io.Writer,
 	getenv func(string) string) error {
 	name, args := rest[0], rest[1:]
 	switch name {
@@ -200,14 +215,12 @@ func dispatch(ctx context.Context, opts globals, rest []string, stdin *os.File, 
 		return errors.Join(cli.Events(ctx, args, stdout))
 	case "mcp":
 		return runMCP(ctx, opts, args, stdin, stdout, getenv)
+	case "run":
+		return runCommand(ctx, opts, args, stdin, stdout, stderr, getenv)
 	case "session":
-		sessionSocket := ""
-		if !sessionViaURL(args) {
-			socket, err := protocol.SocketPath(opts.daemonSocket, getenv)
-			if err != nil {
-				return fmt.Errorf("session: %w", err)
-			}
-			sessionSocket = protocol.SessionSocketPath(socket)
+		sessionSocket, err := sessionSocketPath(opts, args, getenv)
+		if err != nil {
+			return err
 		}
 		return errors.Join(cli.Session(ctx, sessionSocket, args, stdout, getenv))
 	case "list", "seen", "send", "debug", "shell", "tree":
@@ -224,6 +237,19 @@ func dispatch(ctx context.Context, opts globals, rest []string, stdin *os.File, 
 // sessionViaURL reports whether a session command line names serve with --url, which needs no daemon socket.
 func sessionViaURL(args []string) bool {
 	return len(args) > 0 && args[0] == "--url"
+}
+
+// sessionSocketPath returns the session socket a session command line talks to. It is "" when the line names serve
+// with --url and needs no socket.
+func sessionSocketPath(opts globals, args []string, getenv func(string) string) (string, error) {
+	if sessionViaURL(args) {
+		return "", nil
+	}
+	socket, err := protocol.SocketPath(opts.daemonSocket, getenv)
+	if err != nil {
+		return "", fmt.Errorf("session: %w", err)
+	}
+	return protocol.SessionSocketPath(socket), nil
 }
 
 // listFlag is a repeatable string flag. It collects the values in the order given.

@@ -63,6 +63,7 @@
             ];
             nativeBuildInputs = [ pkgs.esbuild ];
             nativeCheckInputs = [
+              pkgs.git
               pkgs.tmux
               pkgs.util-linux
             ];
