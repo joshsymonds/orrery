@@ -31,6 +31,8 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.SeenRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.SeenResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.SendKeysRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.SendTextRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.StartRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.StartResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.StopRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.StopResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.UnregisterRequest
@@ -493,6 +495,57 @@ class OrreryClientTest {
     }
 
     @Test
+    fun startPostsExactRequestWithBothHeadersAndReturnsTheAnsweredId() {
+        FakeOrreryServer().use { server ->
+            server.respond(CONTROL_START, StartResponse.newBuilder().setId(ANSWERED_ID).build())
+
+            val id = OrreryClient(server.baseUrl).start("/home/user/project", "echo hi", SESSION_ID)
+
+            val request = server.requests.single()
+            assertConnectRequest(CONTROL_START, request)
+            assertEquals(
+                StartRequest.newBuilder()
+                    .setDir("/home/user/project")
+                    .setPrompt("echo hi")
+                    .setId(SESSION_ID)
+                    .build(),
+                StartRequest.parseFrom(request.body),
+            )
+            assertEquals(ANSWERED_ID, id)
+        }
+    }
+
+    @Test
+    fun startAnsweredAfterElevenSecondsSucceeds() {
+        FakeOrreryServer().use { server ->
+            server.respond(
+                CONTROL_START,
+                StartResponse.newBuilder().setId(SESSION_ID).build(),
+                delayMillis = 11_000,
+            )
+
+            val id = OrreryClient(server.baseUrl).start("/home/user/project", "echo hi", SESSION_ID)
+
+            assertEquals(SESSION_ID, id)
+            assertEquals(1, server.requests.size)
+        }
+    }
+
+    @Test
+    fun startServerErrorSurfacesCallExceptionCarryingCodeAndMessage() {
+        FakeOrreryServer().use { server ->
+            server.fail(CONTROL_START, Code.RESOURCE_EXHAUSTED, "cap reached")
+
+            val error = assertThrows(OrreryCallException::class.java) {
+                OrreryClient(server.baseUrl).start("/home/user/project", "echo hi", SESSION_ID)
+            }
+
+            assertEquals(Code.RESOURCE_EXHAUSTED, error.code)
+            assertEquals("cap reached", error.message)
+        }
+    }
+
+    @Test
     fun answerPostsExactMessageWithBothHeaders() {
         FakeOrreryServer().use { server ->
             server.respond(CONTROL_ANSWER, AnswerResponse.getDefaultInstance())
@@ -572,6 +625,13 @@ class OrreryClientTest {
     @Test
     fun writeCallsNeverRetryAfterAConnectionDropsSay() {
         assertDroppedWriteIsNoAnswerAndSentOnce(CONTROL_SAY) { it.say("session-1", "echo hi", "prompt-1") }
+    }
+
+    @Test
+    fun writeCallsNeverRetryAfterAConnectionDropsStart() {
+        assertDroppedWriteIsNoAnswerAndSentOnce(CONTROL_START) {
+            it.start("/home/user/project", "echo hi", SESSION_ID)
+        }
     }
 
     @Test
@@ -1110,7 +1170,10 @@ class OrreryClientTest {
         const val PUSH_UNREGISTER = "/orrery.v1.Push/Unregister"
         const val PICKER_ASK = "/orrery.v1.Picker/Ask"
         const val PICKER_RUN = "/orrery.v1.Picker/Run"
+        const val CONTROL_START = "/orrery.v1.Control/Start"
         const val CONTROL_SAY = "/orrery.v1.Control/Say"
+        const val SESSION_ID = "0123456789abcdef0123456789abcdef"
+        const val ANSWERED_ID = "fedcba9876543210fedcba9876543210"
         const val CONTROL_ANSWER = "/orrery.v1.Control/Answer"
         const val CONTROL_INTERRUPT = "/orrery.v1.Control/Interrupt"
         const val CONTROL_STOP = "/orrery.v1.Control/Stop"

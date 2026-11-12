@@ -38,6 +38,7 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.SessionsClient
 import io.github.joshsymonds.orrery.gen.orrery.v1.SessionsWatchConversationRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.SessionsWatchConversationResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.SendTextRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.StartRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.StopRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.UnregisterRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.WaitingMessage
@@ -459,6 +460,16 @@ class OrreryClient(
     fun say(sessionId: String, text: String, promptId: String) {
         val request = SayRequest.newBuilder().setId(sessionId).setText(text).setPromptId(promptId).build()
         call(write = true) { compose.control.say(request, CLIENT_HEADERS) }
+    }
+
+    /**
+     * Starts a headless session in [dir] with [prompt] as its first message, under the client-chosen [id], and
+     * waits up to [composeReadTimeoutMillis] for the answer. Returns the id the server answers. Failures are as
+     * for [say].
+     */
+    fun start(dir: String, prompt: String, id: String): String {
+        val request = StartRequest.newBuilder().setDir(dir).setPrompt(prompt).setId(id).build()
+        return call(write = true) { compose.control.start(request, CLIENT_HEADERS) }.id
     }
 
     /** Answers the open request [requestId] of a headless session with [answer]. */
