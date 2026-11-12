@@ -8,6 +8,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -22,6 +23,8 @@ import (
 	"github.com/joshsymonds/orrery/internal/archive"
 	"github.com/joshsymonds/orrery/internal/cli"
 	"github.com/joshsymonds/orrery/internal/conversation"
+	"github.com/joshsymonds/orrery/internal/desk"
+	"github.com/joshsymonds/orrery/internal/deskstream"
 	"github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1/enginev1connect"
 	"github.com/joshsymonds/orrery/internal/help"
 	"github.com/joshsymonds/orrery/internal/hook"
@@ -68,6 +71,9 @@ global flags, before the subcommand:
 
 subcommands:
   hook                                          forward a Claude Code hook event from stdin; exits 0
+  notices                                       print desk notices as JSON lines on stdout; relay activity from stdin
+  desk --sound FILE [--host HOST]...            show each notice as a popup and play FILE with it, from this machine
+                                                and each HOST's notices, until SIGINT or SIGTERM
   list --json                                   print the panes of the tmux server as a JSON array
   events --url URL [--after N] [--follow]       print the event stream of serve as JSON lines
   session [--url URL] VERB ...                  run a session VERB below through serve at URL, not orreryd's socket
@@ -201,18 +207,14 @@ func dispatch(ctx context.Context, opts globals, rest []string, stdin *os.File, 
 		return runServe(ctx, opts, args, getenv)
 	case "events":
 		return errors.Join(cli.Events(ctx, args, stdout))
+	case "notices":
+		return runNotices(ctx, opts, args, stdin, stdout, getenv)
+	case "desk":
+		return runDesk(ctx, opts, args)
 	case "mcp":
 		return runMCP(ctx, opts, args, stdin, stdout, getenv)
 	case "session":
-		sessionSocket := ""
-		if !sessionViaURL(args) {
-			socket, err := protocol.SocketPath(opts.daemonSocket, getenv)
-			if err != nil {
-				return fmt.Errorf("session: %w", err)
-			}
-			sessionSocket = protocol.SessionSocketPath(socket)
-		}
-		return errors.Join(cli.Session(ctx, sessionSocket, args, stdout, getenv))
+		return runSession(ctx, opts, args, stdout, getenv)
 	case "list", "seen", "send", "debug", "shell", "tree":
 		client, err := tmuxctl.New(opts.server)
 		if err != nil {
@@ -222,6 +224,74 @@ func dispatch(ctx context.Context, opts globals, rest []string, stdin *os.File, 
 	default:
 		return usagef("unknown subcommand %q", name)
 	}
+}
+
+// runSession runs `orrery session` with the session socket beside the daemon socket, unless the command names serve
+// with --url.
+func runSession(ctx context.Context, opts globals, args []string, stdout io.Writer, getenv func(string) string) error {
+	sessionSocket := ""
+	if !sessionViaURL(args) {
+		socket, err := protocol.SocketPath(opts.daemonSocket, getenv)
+		if err != nil {
+			return fmt.Errorf("session: %w", err)
+		}
+		sessionSocket = protocol.SessionSocketPath(socket)
+	}
+	return errors.Join(cli.Session(ctx, sessionSocket, args, stdout, getenv))
+}
+
+// runNotices runs `orrery notices` against the notices socket beside the daemon socket.
+func runNotices(ctx context.Context, opts globals, args []string, stdin io.Reader, stdout io.Writer,
+	getenv func(string) string) error {
+	socket, err := protocol.SocketPath(opts.daemonSocket, getenv)
+	if err != nil {
+		return fmt.Errorf("notices: %w", err)
+	}
+	return errors.Join(cli.Notices(ctx, deskstream.SocketPath(socket), args, stdin, stdout))
+}
+
+// runDesk runs `orrery desk`. It keeps this machine's notice stream and each --host's open, shows each notice as a
+// popup that plays --sound, and returns nil on SIGINT or SIGTERM once the streams have closed.
+func runDesk(ctx context.Context, opts globals, args []string) error {
+	flags := flag.NewFlagSet("orrery desk", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	sound := flags.String("sound", "", "sound file played with each popup")
+	var hosts listFlag
+	flags.Var(&hosts, "host", "host whose notice stream the desk keeps, repeatable")
+	if err := flags.Parse(args); err != nil {
+		return usagef("desk: %v", err)
+	}
+	if flags.NArg() > 0 {
+		return usagef("desk: unexpected argument %q", flags.Arg(0))
+	}
+	if *sound == "" {
+		return usagef("desk: --sound is required")
+	}
+	tmux, err := tmuxctl.New(opts.server)
+	if err != nil {
+		return fmt.Errorf("tmux server: %w", err)
+	}
+	executable, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("desk: %w", err)
+	}
+	ctx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	err = desk.Run(ctx, desk.Config{
+		Orrery: executable,
+		Socket: opts.daemonSocket,
+		Hosts:  hosts,
+		Sound:  *sound,
+		Input: func(ctx context.Context) (int64, bool, error) {
+			return desk.NewestInput(ctx, tmux)
+		},
+		Clock:  desk.SystemClock{},
+		Logger: slog.New(slog.NewTextHandler(os.Stderr, nil)),
+	})
+	if err != nil {
+		return fmt.Errorf("desk: %w", err)
+	}
+	return nil
 }
 
 // sessionViaURL reports whether a session command line names serve with --url, which needs no daemon socket.

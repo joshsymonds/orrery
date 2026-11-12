@@ -118,8 +118,6 @@ Example output with one pane. Every value is synthetic:
 | Go constant | Variable | Meaning |
 |---|---|---|
 | `protocol.EnvSocket` | `ORRERY_SOCKET` | daemon socket path override |
-| `protocol.EnvNtfyURLFile` | `ORRERY_NTFY_URL_FILE` | path of a file holding the ntfy topic URL |
-| `protocol.EnvNtfyAuthFile` | `ORRERY_NTFY_TOKEN_FILE` | path of a file holding the ntfy access token |
 | `protocol.EnvSummarizer` | `ORRERY_SUMMARIZER` | summarizer sentinel, see section 7 |
 
 ## 5. Daemon socket path
@@ -138,6 +136,8 @@ $XDG_RUNTIME_DIR/orrery/orreryd.sock
 4. If all three are empty, `SocketPath` returns an error.
 
 `orrery` and `orreryd` both accept `--socket <path>`, resolved through `protocol.SocketPath`.
+
+The desk stream listens on `notices.sock` in the same directory as the daemon socket. See [Desk stream](#desk-stream).
 
 ## 6. tmux server override
 
@@ -244,6 +244,8 @@ orrery [-L NAME | -S PATH] [--socket PATH] SUBCOMMAND
 Subcommands:
 
 - `hook` reads one Claude Code hook JSON object on stdin, sends it to `orreryd` as a frame (section 9), and always exits 0 silently.
+- `notices` relays the desk stream of `orreryd`: it prints each line on stdout and sends each stdin line to the stream. See [orrery notices](#orrery-notices).
+- `desk --sound FILE [--host HOST]...` shows the notices of this machine and of each `HOST` as desktop popups. See [orrery desk](#orrery-desk).
 - `list --json` prints the pane list defined in section 3.
 - `seen --pane ID` marks the pane as seen.
 - `seen --pane ID --focus` marks the pane as seen only when a client showing the pane's window had input within the last 30 seconds. Otherwise nothing is marked.
@@ -365,18 +367,18 @@ orreryd [-L NAME | -S PATH] [--socket PATH] [--claude PATH] [--summary-model CON
 - `--step-cap N` is the most live step sessions at once. Steps count apart from `--session-cap`. The default is 6. A value below 1 exits 2.
 - `--gate-lock PATH` names a lock file that a step's gate holds while it runs. Repeat the flag for each lock. A gate takes the first lock that is free, in the order given, and when every lock is held it tries again every second. Without the flag, the locks are `/tmp/claude-<uid>/orrery-heavy.lock` and `/tmp/claude-<uid>/orrery-heavy-2.lock`, where `<uid>` is the user id. A path that is not absolute exits 2.
 
-`orreryd` listens on unix sockets only. It opens no network listener. `--sessions` adds the session socket.
+`orreryd` listens on unix sockets only. It opens no network listener. `--sessions` adds the session socket. The desk stream is served on `notices.sock` beside the daemon socket, as [Desk stream](#desk-stream) describes.
 
 Summaries run when a session enters `working` (throttled) and when it becomes `done`.
 
-ntfy notifications are sent only when `ORRERY_NTFY_URL_FILE` is set:
+The desk stream carries a notice on each pane transition to `waiting` or `done`:
 
 - On `waiting`, the body is the question.
 - On `done`, the body is the latest summary.
-- The access token comes from `ORRERY_NTFY_TOKEN_FILE`.
-- The host tag is the machine host name.
+- The title is `<project> · <session>:<window>`, as [Desk stream](#desk-stream) gives it.
+- The line's `host` is the machine host name.
 
-Headless session notices (`--sessions`) use the same topic, token and host tag, with the title, priority and body that [Headless sessions](#headless-sessions) gives.
+Headless session notices (`--sessions`) go to the desk stream too, with the title and body that [Headless sessions](#headless-sessions) gives.
 
 When a pane enters `done` while an attached client shows the pane's window and had input in the last 30 seconds, `orreryd` sets `@orrery_seen` on the pane to the current Unix time.
 
@@ -385,7 +387,7 @@ Web Push is sent on the same two transitions. On `waiting` and on `done`, `orrer
 - `$XDG_STATE_HOME/orrery/push.json` when `XDG_STATE_HOME` is set.
 - Otherwise `$HOME/.local/state/orrery/push.json`.
 
-A `Stop` hook whose `background_tasks` holds a subagent or workflow sends no Web Push (ntfy is unchanged).
+A `Stop` hook whose `background_tasks` holds a subagent or workflow sends no Web Push (the desk stream still carries it).
 
 Headless session notices go to the same subscriptions, as [Push payload](#push-payload) describes.
 
@@ -395,7 +397,7 @@ When neither variable is set, `orreryd` exits 1.
 
 `orreryd` also keeps the store, which mirrors each pane's tmux options (see [Store](#store)). When the store cannot be opened, `orreryd` logs the error and serves hooks and notifications without it. It then mints no `@orrery_id` and syncs no pane. A failure of the push store still exits 1.
 
-`SIGINT` and `SIGTERM` stop `orreryd`. With `--sessions`, the session socket closes first. Then every live headless session is stopped, and its turn, if one is running, is recorded `interrupted`. `orreryd` exits after those notices are sent. See [Headless sessions](#headless-sessions).
+`SIGINT` and `SIGTERM` stop `orreryd`. With `--sessions`, the session socket closes first. Then every live headless session is stopped, and its turn, if one is running, is recorded `interrupted`. `orreryd` exits after those notices are sent. The desk stream closes last, after the notices that post to it. See [Headless sessions](#headless-sessions) and [Desk stream](#desk-stream).
 
 ### Headless sessions
 
@@ -465,14 +467,14 @@ Errors are Connect codes:
 
 A session notice is sent when a session enters `waiting`, `done`, `failed` or `interrupted`. None is sent for `stopped`, for a refused request, for an idle stop, or for the end of an interrupted turn. A step session sends no notice in any state (see [Step lifecycle](#step-lifecycle)). A notice for `waiting`, `done`, or a process that exits with an error is sent once its event is queued for the store. A notice for `interrupted`, or for a `failed` start, resume or prompt, is sent after its write is stored. Notices post in the background, and shutdown waits for them.
 
-ntfy (only when `ORRERY_NTFY_URL_FILE` is set). The title is `<project> · session <first 8 characters of the id>`, where `project` is the base name of the directory. The tags are the state's tag and the host name.
+On the desk stream (see [Desk stream](#desk-stream)), the line's `state` is the session's state, and its `title` is `<project> · session <first 8 characters of the id>`, where `project` is the base name of the directory. The body is:
 
-| State | Priority | Tag | Body |
-|---|---|---|---|
-| `waiting` | 5 | `question` | the question, or `waiting for input` when there is none |
-| `done` | 4 | `white_check_mark` | the text of the turn's last main-conversation text block, or `done` when there is none |
-| `failed` | 4 | `x` | the reason |
-| `interrupted` | 3 | `warning` | the reason |
+| State | Body |
+|---|---|
+| `waiting` | the question, or `waiting for input` when there is none |
+| `done` | the text of the turn's last main-conversation text block, or `done` when there is none |
+| `failed` | the reason |
+| `interrupted` | the reason |
 
 Web Push goes to every subscription, with the payload of [Push payload](#push-payload). The payload's `session` key holds the full session id. `pane` and `label` are `""`. `project` is the base name of the directory. `state` is the session's state. The body is `question` when the state is `waiting`, and `summary` in every other case.
 
@@ -538,7 +540,7 @@ Errors are Connect codes:
   ```
 
   No `--model` is passed, so the agent's model runs. A respawn adds `--resume` with the row's claude session id. The working directory is `workspace`, or the step's worktree for a read-only step. The environment is the session environment, with `ORRERY_SESSION` set to the step id.
-- **Kind and silence.** The row's `kind` is `step`. The typed `List` and the tidy read only pane rows, so step rows are never listed. A step sends no notice in any state, on ntfy or Web Push. Its `engine_*` events are stored and pruned like other engine events, and `orrery.v1.Events.Watch` sends them as their engine members, as it does for engine sessions. A step takes a slot under `--step-cap`, not `--session-cap`.
+- **Kind and silence.** The row's `kind` is `step`. The typed `List` and the tidy read only pane rows, so step rows are never listed. A step sends no notice in any state, on the desk stream or Web Push. Its `engine_*` events are stored and pruned like other engine events, and `orrery.v1.Events.Watch` sends them as their engine members, as it does for engine sessions. A step takes a slot under `--step-cap`, not `--session-cap`.
 - **Requests.** A question or permission request that the session did not refuse is denied at once with `The orrery host does not answer questions in a step. Do not ask; give your answer as the structured return.` The request never opens, so the row does not become `waiting`.
 - **Returns.** A return is the `structured_output` of a turn's result. It is taken only from a turn that ends with no background task live, so a turn that ends while a background task runs is not a return. After a return the step is busy until `Continue` sends its next prompt or the step stops. A result with no structured output has no value, and fails the schema check.
 - **Checks.** Each return is a round, numbered from 1, and its checks are stored with that round in the row's `checks`. The checks run in this order:
@@ -575,6 +577,82 @@ Errors are Connect codes:
 - **Restart.** At start, `orreryd` settles each step's engine row as it settles other engine rows: a row that was `working` or `waiting` is recorded `interrupted` with the reason `orreryd restarted during the turn`, and no notice is sent. Each open step row with no loop then ends `engine_restarted`, and its worktree is removed. Nothing resumes a step after a restart. `Continue`, which the loop sends, respawns a step that is not live from its rows: it resumes the row's claude session with the same agent and schema flags, and it takes a step slot first.
 
 
+### Desk stream
+
+`orreryd` serves the desk stream on `notices.sock`, beside the daemon socket (section 5). The socket's directory is created with mode 0700 when it is absent. `orrery notices` reads the stream, and `orrery desk` reads it on this machine and over ssh. Nothing here opens a network listener. `orreryd`, `orrery notices` and `orrery desk` use unix sockets, and a host's notices leave it only through the ssh session that `orrery desk` starts.
+
+The stream is JSON lines. Each line is one object and ends with a newline.
+
+- `hello` is the first line of every stream: `{"kind":"hello","host":"example-host"}`.
+- `notice` carries one notice: `{"kind":"notice","host":"example-host","state":"waiting","title":"example-project · example-session:1","body":"Which file should I edit?"}`. `state`, `title` and `body` are left out when empty.
+- The desk sends activity lines, which hold only `input`: `{"input":1700000000}`. `input` is the unix time in seconds of the desk's newest input. A line whose `input` is zero or less is ignored, and so is a line that is not JSON.
+
+Each stream gets `hello` first, then each notice posted while it is open, in the order posted. The stream keeps no backlog, so a notice posted while no stream is open is dropped. A stream that falls 64 lines behind is closed. On shutdown, queued lines get up to 2 seconds to reach their streams, and then open streams are closed.
+
+The desk is present while a stream is open and an activity line arrived within the last 90 seconds. `orreryd` keeps the input of the last activity line it received.
+
+The notices on the stream are these:
+
+- A pane notice, on a pane's transition to `waiting` or `done` (section 11, orreryd). Its title is `<project> · <session>:<window>`, where `project` is the base name of the pane's directory, `session` is the tmux session's name, and `window` is the window's index.
+- A session notice, on a headless session's transition to `waiting`, `done`, `failed` or `interrupted` (see [Session notifications](#session-notifications)).
+
+### orrery notices
+
+```
+orrery [--socket PATH] notices
+```
+
+- `notices` takes no arguments. An argument exits 2.
+- It dials `notices.sock` at the path section 5 gives, from `--socket`, then `ORRERY_SOCKET`, then the default. It needs no tmux server, so `-L` and `-S` have no effect on it.
+- Every byte the socket sends goes to stdout. Each line from stdin goes to the socket, newline included.
+- When stdin ends, it closes the socket and exits 0.
+- When the stream ends first, or the socket stops taking lines, it prints `notices: stream ended` and exits 1.
+- When the socket cannot be dialed, it prints `notices: orreryd serves no notices on SOCKET` and exits 1, where `SOCKET` is the `notices.sock` path.
+- A failed write to stdout prints `notices: write stdout: ...` and exits 1.
+
+### orrery desk
+
+```
+orrery [-L NAME | -S PATH] [--socket PATH] desk --sound FILE [--host HOST]...
+```
+
+- `-L NAME` and `-S PATH` select the desk's tmux server, whose clients' input the activity lines carry, as section 6 defines.
+
+- `--sound FILE` is required. Without it, `desk` exits 2. `FILE` is the sound that each popup plays.
+- `--host HOST` adds a link to `HOST`. Repeat the flag for each host. Without it, the desk has only the local link.
+- `desk` runs until `SIGINT` or `SIGTERM`. It then exits 0 once every link has returned.
+
+Each link runs one command, starts it again when it ends, and keeps it running until the desk stops:
+
+- The local link runs the `orrery` binary as `orrery notices`, or as `orrery --socket PATH notices` when `desk` was given `--socket PATH`.
+- Each `--host` link runs this command, with no shell:
+
+```
+ssh -T -o BatchMode=yes -o ControlMaster=no -o ControlPath=none -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -- HOST orrery notices
+```
+
+  `BatchMode=yes` stops ssh from prompting, so a connection that would prompt fails. `ControlMaster=no` and `ControlPath=none` give each link its own connection. ssh ends the connection when three keepalives, 15 seconds apart, go unanswered.
+
+A link reads the lines its command prints, and it writes activity lines to the command's stdin:
+
+- A `hello` makes the stream live. The link writes an activity line at once and then every 30 seconds while the stream is live. The line holds the newest input of the clients attached to the desk's tmux server, in unix seconds. When no client is attached, no line is written.
+- A `notice` pops up (see Popups).
+- When the command exits, or fails to start, the link waits and then runs the command again. The wait starts at 1 second and doubles after each restart, up to 60 seconds. A `hello` resets it to 1 second.
+- When a host has no live stream for 5 minutes, `desk` pops up a lost notice for it. The five minutes start when `desk` starts, or when a live stream ends. A `hello` before they end cancels them. Each stretch without a live stream gets one lost notice.
+
+Popups:
+
+- A notice pops up with `notify-send -a "Coding Agent" -u URGENCY -h boolean:suppress-sound:true -- TITLE BODY`. `URGENCY` is `critical` when the state is `waiting`, and `normal` otherwise. Then `pw-play FILE` plays the sound. The sound plays even when the notice fails.
+- The lost notice has the title `orrery desk`, the body `HOST unreachable for 5 minutes`, `critical` urgency, and the same sound.
+- Both programs run from `PATH` with no shell, and each is limited to 10 seconds.
+- Popups run one at a time, in the order received. A popup that is running holds up no link.
+
+Example. Every name and path is synthetic:
+
+```
+orrery desk --sound /example/sounds/notice.oga --host example-host
+```
+
 ### Environment
 
 | Variable | Read by | Meaning |
@@ -583,15 +661,13 @@ Errors are Connect codes:
 | `XDG_RUNTIME_DIR` | `orrery`, `orreryd` | default socket directory when no path is set (section 5) |
 | `XDG_STATE_HOME` | `orrery` (`serve`), `orreryd` | base directory of the push store, `$XDG_STATE_HOME/orrery/push.json` (section 11, orreryd), and of the store, `$XDG_STATE_HOME/orrery/orrery.db` (see [Store](#store)) |
 | `HOME` | `orrery` (`serve`), `orreryd` | used for the push store when `XDG_STATE_HOME` is unset, at `$HOME/.local/state/orrery/push.json`, and for the store, at `$HOME/.local/state/orrery/orrery.db`. `serve` also uses it as the home directory that `Control.Start` admits directories under (see [Control API](#control-api)) |
-| `ORRERY_NTFY_URL_FILE` | `orreryd` | file holding the ntfy topic URL; enables ntfy when set |
-| `ORRERY_NTFY_TOKEN_FILE` | `orreryd` | file holding the ntfy access token |
 | `ANTHROPIC_BASE_URL` | `orrery` (`hook`, `debug summarize`) | the session's base URL. The hook sends it in each frame (section 9), and each summary runs through its own session's base URL. |
 | `ORRERY_SUMMARIZER` | `orrery` (`hook`) | summarizer sentinel (section 7). `orreryd` sets it on each summary run. Summaries also run with hooks disabled. |
 | `SHELL` | `orreryd` | the login shell that starts each headless session, when `--session-shell` is not given (see [Headless sessions](#headless-sessions)) |
 | `HOME` | `orrery` (`tree`, `open`) | `$HOME/Personal` is the default parent directory of new projects. `$HOME` is also the directory that roots are relative to, and the roots file falls back to `$HOME/.config/orrery/roots` (see [Roots](#roots)) |
 | `XDG_STATE_HOME` | `orrery` (`tree`, `open`) | base directory of the archive file (see [Archive](#archive)) |
 | `XDG_CONFIG_HOME` | `orrery` (`tree`, `open`) | base directory of the roots file, `$XDG_CONFIG_HOME/orrery/roots` (see [Roots](#roots)) |
-| `PATH` | `orrery` (`tree`, `open`) | finds `zoxide` and `claude` for the picker and `open` |
+| `PATH` | `orrery` (`tree`, `open`, `desk`) | finds `zoxide` and `claude` for the picker and `open`, and `ssh`, `notify-send` and `pw-play` for `desk` (see [orrery desk](#orrery-desk)) |
 
 ### Archive
 
@@ -1333,3 +1409,7 @@ orrery O1a (steps) added, additively: the `orreryd` flags `--step-cap` and `--ga
 orrery removed the REST routes of the phone API: `GET /v1/panes`, `POST /v1/panes`, `GET /v1/panes/{id}/screen`, `GET /v1/panes/{id}/conversation`, `GET /v1/host`, `POST /v1/panes/{id}/text`, `POST /v1/panes/{id}/keys`, `POST /v1/panes/{id}/seen`, `POST /v1/push/register`, `DELETE /v1/push/register`, `POST /v1/picker/ask` and `POST /v1/picker/run`. `POST /v1/panes`, which opened a window, is removed with them and has no replacement. Each other route is answered by the Connect call of [Phone API](#phone-api) that replaced it, and that section states the rules the route had. The guard's rule for non-Connect POST and DELETE paths went with the routes, so every path other than a Connect path answers 404 after the login check (see [Guard](#guard)). This is a removal, and it changes serve's HTTP surface. No Connect name or value changes.
 
 orrery H3b (conversation stream) added, additively: the `orrery.v1.Panes.WatchConversation` call, its messages `WatchConversationRequest`, `WatchConversationResponse` and `ConversationState`, and the `unfinished` field of `WatchConversationResponse`, which holds `EngineText` values that pane streams never set (see [Conversation stream](#conversation-stream)). The phone API now has twelve calls where it had eleven (see [Phone API](#phone-api)). The guard's Connect prefixes already covered the stream, so the guard is unchanged. No existing name or value changes.
+
+orrery desk notices (effort 1) added, additively: the desk stream on `notices.sock` beside the daemon socket, with its `hello`, `notice` and activity lines (see [Desk stream](#desk-stream)); the `orrery notices` and `orrery desk` commands and the `--sound` and `--host` flags of `desk` (see [orrery notices](#orrery-notices) and [orrery desk](#orrery-desk)); the desk presence of the stream; the pane notices and the session notices on the stream; and the `PATH` lookups of `ssh`, `notify-send` and `pw-play` by `desk`. No existing name or value changes, except the removal below.
+
+orrery desk notices (effort 1) removed the ntfy topic. The variables `ORRERY_NTFY_URL_FILE` and `ORRERY_NTFY_TOKEN_FILE`, their constants `protocol.EnvNtfyURLFile` and `protocol.EnvNtfyAuthFile`, the `internal/ntfy` package, and every ntfy post of `orreryd`, including the session notices, are gone. The notices those posts carried are on the desk stream, which `orrery notices` reads, and the `orrery desk` popups show them. `--push-host` and its default `ntfy.sh` are unchanged, because they name the Web Push relay (section 11). This is a removal, not an addition: a setup that set either variable receives no ntfy notice, and reads the desk stream instead.

@@ -3,6 +3,7 @@
 package integration_test
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/aes"
@@ -35,6 +36,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/joshsymonds/orrery/internal/archive"
+	"github.com/joshsymonds/orrery/internal/deskstream"
 	orreryv1 "github.com/joshsymonds/orrery/internal/gen/orrery/v1"
 	"github.com/joshsymonds/orrery/internal/gen/orrery/v1/orreryv1connect"
 	"github.com/joshsymonds/orrery/internal/help"
@@ -787,12 +789,11 @@ func TestUsageAndFailureExitCodes(t *testing.T) {
 	}
 }
 
-// Synthetic values for the end-to-end test. The patchbay context and the topic are invented.
+// Synthetic values for the end-to-end test. The patchbay context is invented.
 const (
 	exampleContextName = "example-context"
 	examplePatchbayURL = "https://patchbay.example.com/ctx/" + exampleContextName
 	exampleModel       = "example-model"
-	exampleTopic       = "demo-topic"
 	exampleProjectName = "example-project"
 	exampleTitle       = exampleProjectName + " · s1:0"
 	exampleSummary     = "example summary"
@@ -829,41 +830,135 @@ printf 'summary: example summary\nlabel: example label\n'
 `
 )
 
-// notice is one ntfy request the fake server received.
+// notice is one notice the desk stream carried: its state, title and body.
 type notice struct {
-	priority string
-	title    string
-	body     string
+	state string
+	title string
+	body  string
 }
 
-// fakeNtfy starts an httptest ntfy server, returns its topic URL, and delivers each notification on the channel.
-func fakeNtfy(t *testing.T) (string, chan notice) {
+// noticeReader is an `orrery notices` process relaying one daemon's notices socket. Its stdin is a pipe the test holds
+// open, so the process keeps relaying until the reader closes it. Each line it prints is queued on lines in order, and
+// lines closes once the process has exited, which it does when the stream ends.
+type noticeReader struct {
+	lines chan []byte
+}
+
+// startNoticeReader starts `orrery --socket socket notices` with env, waits for the stream's hello line, and stops the
+// process at cleanup.
+func startNoticeReader(t *testing.T, env []string, socket string) *noticeReader {
 	t.Helper()
-	notices := make(chan notice, 8)
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		body, err := io.ReadAll(req.Body)
-		if err != nil {
-			t.Errorf("read ntfy body: %v", err)
-			w.WriteHeader(http.StatusBadRequest)
-			return
+	stdinR, stdinW, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("make notices stdin: %v", err)
+	}
+	stdoutR, stdoutW, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("make notices stdout: %v", err)
+	}
+	cmd := exec.Command(filepath.Join(os.Getenv(binDirEnv), "orrery"), "--socket", socket, "notices")
+	cmd.Env = env
+	cmd.Stdin = stdinR
+	cmd.Stdout = stdoutW
+	err = cmd.Start()
+	// The child holds its own copies of these ends, so the parent's are closed here.
+	if closeErr := errors.Join(stdinR.Close(), stdoutW.Close()); closeErr != nil {
+		t.Fatalf("close notices pipe ends: %v", closeErr)
+	}
+	if err != nil {
+		t.Fatalf("start orrery notices: %v", err)
+	}
+	done := make(chan struct{})
+	go func() {
+		// The exit status is not asserted: the stream's end is what tests wait for, and it is read from lines.
+		_ = cmd.Wait()
+		close(done)
+	}()
+	lines := make(chan []byte, 16)
+	go func() {
+		defer close(lines)
+		defer stdoutR.Close()
+		scanner := bufio.NewScanner(stdoutR)
+		for scanner.Scan() {
+			lines <- append([]byte(nil), scanner.Bytes()...)
 		}
-		notices <- notice{priority: req.Header.Get("Priority"), title: req.Header.Get("Title"), body: string(body)}
-		w.WriteHeader(http.StatusOK)
-	}))
-	t.Cleanup(srv.Close)
-	return srv.URL + "/" + exampleTopic, notices
+	}()
+	t.Cleanup(func() {
+		if closeErr := stdinW.Close(); closeErr != nil {
+			t.Errorf("close notices stdin: %v", closeErr)
+		}
+		select {
+		case <-done:
+		case <-time.After(waitLimit):
+			_ = cmd.Process.Kill()
+			<-done
+		}
+	})
+	r := &noticeReader{lines: lines}
+	if hello := r.receive(t, waitLimit); hello.Kind != deskstream.KindHello {
+		t.Fatalf("first notices line %+v, want kind %q", hello, deskstream.KindHello)
+	}
+	return r
 }
 
-// nextNotice returns the next notification the fake ntfy server received, failing the test after waitLimit.
-func nextNotice(t *testing.T, notices chan notice) notice {
+// receive returns the next line the stream sent, failing the test if none arrives within limit or the stream ends
+// first.
+func (r *noticeReader) receive(t *testing.T, limit time.Duration) deskstream.Line {
 	t.Helper()
 	select {
-	case got := <-notices:
-		return got
-	case <-time.After(waitLimit):
-		t.Fatal("no ntfy notification within the wait limit")
+	case raw, ok := <-r.lines:
+		if !ok {
+			t.Fatal("notices stream ended before its next line")
+		}
+		return decodeLine(t, raw)
+	case <-time.After(limit):
+		t.Fatalf("no notices line within %v", limit)
 	}
-	return notice{}
+	return deskstream.Line{}
+}
+
+// finish waits until the stream has ended, failing the test after waitLimit, and returns the notices not yet read.
+// A test calls it after orreryd exits, since orreryd's streams end when it does.
+func (r *noticeReader) finish(t *testing.T) []notice {
+	t.Helper()
+	var got []notice
+	deadline := time.After(waitLimit)
+	for {
+		select {
+		case raw, ok := <-r.lines:
+			if !ok {
+				return got
+			}
+			got = append(got, noticeOf(t, decodeLine(t, raw)))
+		case <-deadline:
+			t.Fatal("notices stream did not end within the wait limit")
+		}
+	}
+}
+
+// decodeLine decodes one line of the desk stream.
+func decodeLine(t *testing.T, raw []byte) deskstream.Line {
+	t.Helper()
+	var line deskstream.Line
+	if err := json.Unmarshal(raw, &line); err != nil {
+		t.Fatalf("decode notices line %q: %v", raw, err)
+	}
+	return line
+}
+
+// noticeOf returns the notice a stream line carries, failing the test if the line is not a notice.
+func noticeOf(t *testing.T, line deskstream.Line) notice {
+	t.Helper()
+	if line.Kind != deskstream.KindNotice {
+		t.Fatalf("notices line %+v, want kind %q", line, deskstream.KindNotice)
+	}
+	return notice{state: line.State, title: line.Title, body: line.Body}
+}
+
+// nextNotice returns the next notice the stream sent, failing the test after waitLimit.
+func nextNotice(t *testing.T, r *noticeReader) notice {
+	t.Helper()
+	return noticeOf(t, r.receive(t, waitLimit))
 }
 
 // readOption returns the pane-scoped option name on pane, or "" when it is unset.
@@ -1018,11 +1113,6 @@ func TestOrrerydDrivesHooksEndToEnd(t *testing.T) {
 	if err := os.WriteFile(fakeClaude, []byte(fakeClaudeScript), 0o700); err != nil {
 		t.Fatalf("write fake claude: %v", err)
 	}
-	ntfyURL, notices := fakeNtfy(t)
-	urlFile := filepath.Join(dir, "ntfy-url")
-	if err := os.WriteFile(urlFile, []byte(ntfyURL+"\n"), 0o600); err != nil {
-		t.Fatalf("write ntfy URL file: %v", err)
-	}
 	project := filepath.Join(dir, exampleProjectName)
 	if err := os.Mkdir(project, 0o700); err != nil {
 		t.Fatalf("make project: %v", err)
@@ -1033,10 +1123,11 @@ func TestOrrerydDrivesHooksEndToEnd(t *testing.T) {
 	}
 	socket := filepath.Join(dir, "orreryd.sock")
 
-	daemon := startBinary(t, "orreryd", scrubbedEnv("ORRERY_NTFY_URL_FILE="+urlFile, "XDG_STATE_HOME="+t.TempDir()),
+	daemon := startBinary(t, "orreryd", scrubbedEnv("XDG_STATE_HOME="+t.TempDir()),
 		"-L", name, "--socket", socket,
 		"--claude", fakeClaude, "--summary-model", exampleContextName+"="+exampleModel)
 	daemon.waitForListener(t, "unix", socket)
+	notices := startNoticeReader(t, scrubbedEnv(), socket)
 
 	sendHook(t, socket, pane, project, map[string]any{
 		"hook_event_name": "UserPromptSubmit",
@@ -1057,8 +1148,9 @@ func TestOrrerydDrivesHooksEndToEnd(t *testing.T) {
 	})
 	waiting := nextNotice(t, notices)
 	question := readOption(t, client, pane, protocol.OptionQuestion)
-	if question == "" || waiting != (notice{priority: "5", title: exampleTitle, body: question}) {
-		t.Fatalf("waiting notice %+v, want priority 5, title %q, body %q", waiting, exampleTitle, question)
+	want := notice{state: string(protocol.StateWaiting), title: exampleTitle, body: question}
+	if question == "" || waiting != want {
+		t.Fatalf("waiting notice %+v, want state waiting, title %q, body %q", waiting, exampleTitle, question)
 	}
 
 	sendHook(t, socket, pane, project, map[string]any{
@@ -1067,8 +1159,8 @@ func TestOrrerydDrivesHooksEndToEnd(t *testing.T) {
 		"last_assistant_message": exampleLastMessage,
 	})
 	done := nextNotice(t, notices)
-	if done != (notice{priority: "4", title: exampleTitle, body: exampleSummary}) {
-		t.Fatalf("done notice %+v, want priority 4, title %q, body %q", done, exampleTitle, exampleSummary)
+	if done != (notice{state: string(protocol.StateDone), title: exampleTitle, body: exampleSummary}) {
+		t.Fatalf("done notice %+v, want state done, title %q, body %q", done, exampleTitle, exampleSummary)
 	}
 	waitForRunWithStdin(t, dir, exampleLastMessage)
 
@@ -1089,19 +1181,11 @@ func TestOrrerydDrivesHooksEndToEnd(t *testing.T) {
 	})
 	waitForOption(t, client, sentinelPane, protocol.OptionState, string(protocol.StateWaiting))
 
-	// Every notice is delivered before its handler responds, and orreryd awaits every notification before it exits.
-	// After a clean shutdown the fake holds every notice the run produced, whatever the order of their bodies.
+	// orreryd writes every queued notice to its open streams before it exits, so once the stream has ended the reader
+	// holds every notice the run produced, whatever the order of their bodies.
 	wantExit(t, daemon.stop(t), 0)
-	var got []notice
-	for drained := false; !drained; {
-		select {
-		case n := <-notices:
-			got = append(got, n)
-		default:
-			drained = true
-		}
-	}
-	if len(got) != 1 || got[0].priority != "5" || got[0].title != exampleTitle ||
+	got := notices.finish(t)
+	if len(got) != 1 || got[0].state != string(protocol.StateWaiting) || got[0].title != exampleTitle ||
 		!strings.Contains(got[0].body, "example-sentinel-tool") {
 		t.Fatalf("notices after the summarizer and sentinel hooks %+v, want exactly the sentinel question", got)
 	}

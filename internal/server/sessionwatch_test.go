@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -60,11 +61,12 @@ func sessionsWatchClient(t *testing.T, handler http.Handler) orreryv1connect.Ses
 }
 
 // sessionStream reads one Sessions.WatchConversation stream on its own goroutine. Messages reach msgs one at a time,
-// so a test that stops reading leaves the stream unread.
+// so a test that stops reading leaves the stream unread. last is the newest message next returned.
 type sessionStream struct {
 	msgs chan *orreryv1.SessionsWatchConversationResponse
 	done chan struct{}
 	err  error
+	last *orreryv1.SessionsWatchConversationResponse
 }
 
 // openSessionStream starts WatchConversation for req. The stream's context is canceled at cleanup, and the reader
@@ -121,11 +123,34 @@ func (s *sessionStream) next(t *testing.T) *orreryv1.SessionsWatchConversationRe
 		if !ok {
 			t.Fatalf("stream ended before the next message: %v", s.err)
 		}
+		s.last = msg
 		return msg
 	case <-time.After(watchWait):
 		t.Fatalf("no message within %v", watchWait)
 	}
 	return nil
+}
+
+// nextDelta returns the next message that is not a keepalive. A keepalive has no items, no state, and the unfinished
+// set of the message before it, so the stream sends one when no delta is due. The skipped keepalives share one
+// watchWait: a stream that only ever sends keepalives fails the test instead of holding it.
+func (s *sessionStream) nextDelta(t *testing.T) *orreryv1.SessionsWatchConversationResponse {
+	t.Helper()
+	deadline := time.Now().Add(watchWait)
+	for {
+		prev := s.last
+		msg := s.next(t)
+		keepalive := len(msg.GetItems()) == 0 && msg.GetState() == nil &&
+			slices.EqualFunc(msg.GetUnfinished(), prev.GetUnfinished(), func(a, b *orreryv1.EngineText) bool {
+				return proto.Equal(a, b)
+			})
+		if !keepalive {
+			return msg
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("no delta within %v, only keepalives", watchWait)
+		}
+	}
 }
 
 // end waits for the stream to end without sending another message, and returns the error it ended with.
@@ -242,7 +267,7 @@ func TestSessionWatchSendsNewBlockAsDelta(t *testing.T) {
 	stream.next(t)
 
 	applyEngineOps(t, s, replyBlock(4))
-	wantStreamMessage(t, stream.next(t), &orreryv1.SessionsWatchConversationResponse{
+	wantStreamMessage(t, stream.nextDelta(t), &orreryv1.SessionsWatchConversationResponse{
 		Transcript: eventEngine,
 		Seq:        6,
 		Items:      []*orreryv1.ConversationItem{reply(4)},
@@ -274,7 +299,7 @@ func TestSessionWatchStreamsUnfinishedTextUntilItFinishes(t *testing.T) {
 	applyEngineOps(t, s, store.EngineText{
 		ID: eventEngine, MessageID: "msg-1", Index: 0, Kind: "text", Text: "partial",
 	})
-	wantStreamMessage(t, stream.next(t), &orreryv1.SessionsWatchConversationResponse{
+	wantStreamMessage(t, stream.nextDelta(t), &orreryv1.SessionsWatchConversationResponse{
 		Transcript: eventEngine,
 		Seq:        1,
 		Unfinished: unfinished("partial"),
@@ -284,7 +309,7 @@ func TestSessionWatchStreamsUnfinishedTextUntilItFinishes(t *testing.T) {
 		store.EngineBlock{ID: eventEngine, Kind: "text", Role: "assistant", MessageID: "msg-1", Text: "partial done"},
 		store.EngineTextDone{ID: eventEngine, MessageID: "msg-1", Index: 0},
 	)
-	wantStreamMessage(t, stream.next(t), &orreryv1.SessionsWatchConversationResponse{
+	wantStreamMessage(t, stream.nextDelta(t), &orreryv1.SessionsWatchConversationResponse{
 		Transcript: eventEngine,
 		Seq:        2,
 		Items: []*orreryv1.ConversationItem{

@@ -22,19 +22,14 @@ const mirrorDroppedLog = "mirror sync dropped"
 // corruptStoreBytes is not a SQLite database. A store file holding it must stay byte-identical.
 const corruptStoreBytes = "this is not a sqlite database, it is plain text kept for the test\n"
 
-// noticeWithin returns the next ntfy notice, failing the test unless it arrives within limit of since.
-func noticeWithin(t *testing.T, notices chan notice, since time.Time, limit time.Duration) notice {
+// noticeWithin returns the next notice the stream sent, failing the test unless it arrives within limit of since.
+func noticeWithin(t *testing.T, r *noticeReader, since time.Time, limit time.Duration) notice {
 	t.Helper()
-	select {
-	case got := <-notices:
-		if elapsed := time.Since(since); elapsed > limit {
-			t.Fatalf("notice arrived after %v, want within %v", elapsed, limit)
-		}
-		return got
-	case <-time.After(limit - time.Since(since)):
-		t.Fatalf("no ntfy notice within %v of the hook", limit)
+	got := noticeOf(t, r.receive(t, time.Until(since.Add(limit))))
+	if elapsed := time.Since(since); elapsed > limit {
+		t.Fatalf("notice arrived after %v, want within %v", elapsed, limit)
 	}
-	return notice{}
+	return got
 }
 
 // assertHooksStillReach sends a PermissionRequest and fails unless the pane reads waiting and its waiting notice
@@ -46,8 +41,9 @@ func (f *storeFixture) assertHooksStillReach(t *testing.T) {
 	waitForOption(t, f.client, f.pane, protocol.OptionState, string(protocol.StateWaiting))
 	waiting := noticeWithin(t, f.notices, sent, time.Second)
 	question := readOption(t, f.client, f.pane, protocol.OptionQuestion)
-	if question == "" || waiting != (notice{priority: "5", title: exampleTitle, body: question}) {
-		t.Fatalf("waiting notice %+v, want priority 5, title %q, body %q", waiting, exampleTitle, question)
+	want := notice{state: string(protocol.StateWaiting), title: exampleTitle, body: question}
+	if question == "" || waiting != want {
+		t.Fatalf("waiting notice %+v, want state waiting, title %q, body %q", waiting, exampleTitle, question)
 	}
 
 	f.hook(t, f.stopHook())
