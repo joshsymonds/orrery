@@ -29,6 +29,7 @@ import androidx.compose.ui.platform.testTag
 import io.github.joshsymonds.orrery.api.OrreryClient
 import io.github.joshsymonds.orrery.push.PushNotifier
 import io.github.joshsymonds.orrery.push.PushSetup
+import io.github.joshsymonds.orrery.ui.EpicScreen
 import io.github.joshsymonds.orrery.ui.PaneListScreen
 import io.github.joshsymonds.orrery.ui.PaneListState
 import io.github.joshsymonds.orrery.ui.PaneScreen
@@ -76,9 +77,27 @@ class MainActivity : ComponentActivity() {
                                         screen = if (it.headless) Screen.Session(it.id) else Screen.Pane(it.id)
                                     },
                                     onOpenPaneId = { screen = Screen.Pane(it) },
+                                    onOpenEpic = { screen = Screen.Epic(it) },
                                     onOpenSettings = { screen = Screen.Settings },
                                     state = paneListState,
                                 )
+                                is Screen.Epic -> {
+                                    BackHandler { screen = Screen.Panes }
+                                    EpicScreen(
+                                        client = client,
+                                        epicId = current.id,
+                                        onBack = { screen = Screen.Panes },
+                                        onOpenStep = { screen = Screen.Step(it.id, epicId = current.id) },
+                                    )
+                                }
+                                is Screen.Step -> {
+                                    BackHandler { screen = Screen.Epic(current.epicId) }
+                                    SessionScreen(
+                                        sessionId = current.id,
+                                        client = client,
+                                        onBack = { screen = Screen.Epic(current.epicId) },
+                                    )
+                                }
                                 is Screen.Pane -> {
                                     BackHandler { screen = Screen.Panes }
                                     PaneScreen(
@@ -137,5 +156,9 @@ class MainActivity : ComponentActivity() {
         data object Settings : Screen
         data class Pane(val id: String) : Screen
         data class Session(val id: String) : Screen
+        data class Epic(val id: String) : Screen
+
+        /** A step's session, reached through its epic: back returns to [epicId]. */
+        data class Step(val id: String, val epicId: String) : Screen
     }
 }
