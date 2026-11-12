@@ -126,6 +126,12 @@ SELECT seq, session_id, kind, at, payload FROM events
 WHERE session_id = ? AND seq > ?
 ORDER BY seq LIMIT ?;
 
+-- name: LastTurnEnds :many
+SELECT events.session_id, CAST(MAX(events.at) AS INTEGER) AS at FROM events
+WHERE events.kind = 'session_changed' AND json_extract(events.payload, '$.fields.state') = 'done'
+GROUP BY events.session_id
+ORDER BY events.session_id;
+
 -- name: CountEnginePrompts :one
 SELECT COUNT(*) FROM events
 WHERE session_id = sqlc.arg(session_id) AND kind = 'engine_prompt' AND json_extract(payload, '$.promptId') = sqlc.arg(prompt_id);

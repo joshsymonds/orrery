@@ -2587,7 +2587,9 @@ type Pane struct {
 	// The hash of the pane's question, as protocol.QuestionHash computes it.
 	QuestionHash string `protobuf:"bytes,18,opt,name=question_hash,json=questionHash,proto3" json:"question_hash,omitempty"`
 	// The unix seconds of the newest reply or question in the pane's transcript, or 0 when it has none.
-	NewestReply   int64 `protobuf:"varint,19,opt,name=newest_reply,json=newestReply,proto3" json:"newest_reply,omitempty"`
+	NewestReply int64 `protobuf:"varint,19,opt,name=newest_reply,json=newestReply,proto3" json:"newest_reply,omitempty"`
+	// The unix seconds the pane's last turn ended, or 0 when unknown.
+	LastTurnEnd   int64 `protobuf:"varint,20,opt,name=last_turn_end,json=lastTurnEnd,proto3" json:"last_turn_end,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2751,6 +2753,13 @@ func (x *Pane) GetQuestionHash() string {
 func (x *Pane) GetNewestReply() int64 {
 	if x != nil {
 		return x.NewestReply
+	}
+	return 0
+}
+
+func (x *Pane) GetLastTurnEnd() int64 {
+	if x != nil {
+		return x.LastTurnEnd
 	}
 	return 0
 }
@@ -4734,7 +4743,7 @@ const file_orrery_v1_orrery_proto_rawDesc = "" +
 	"\x04text\x18\x05 \x01(\tR\x04text\"\x12\n" +
 	"\x10PanesListRequest\":\n" +
 	"\x11PanesListResponse\x12%\n" +
-	"\x05panes\x18\x01 \x03(\v2\x0f.orrery.v1.PaneR\x05panes\"\xe5\x03\n" +
+	"\x05panes\x18\x01 \x03(\v2\x0f.orrery.v1.PaneR\x05panes\"\x89\x04\n" +
 	"\x04Pane\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04host\x18\x02 \x01(\tR\x04host\x12\x18\n" +
@@ -4755,7 +4764,8 @@ const file_orrery_v1_orrery_proto_rawDesc = "" +
 	"\x04tool\x18\x10 \x01(\tR\x04tool\x12%\n" +
 	"\x0eclaude_session\x18\x11 \x01(\tR\rclaudeSession\x12#\n" +
 	"\rquestion_hash\x18\x12 \x01(\tR\fquestionHash\x12!\n" +
-	"\fnewest_reply\x18\x13 \x01(\x03R\vnewestReply\"Q\n" +
+	"\fnewest_reply\x18\x13 \x01(\x03R\vnewestReply\x12\"\n" +
+	"\rlast_turn_end\x18\x14 \x01(\x03R\vlastTurnEnd\"Q\n" +
 	"\rScreenRequest\x12\x12\n" +
 	"\x04pane\x18\x01 \x01(\tR\x04pane\x12\x12\n" +
 	"\x04ansi\x18\x02 \x01(\bR\x04ansi\x12\x18\n" +

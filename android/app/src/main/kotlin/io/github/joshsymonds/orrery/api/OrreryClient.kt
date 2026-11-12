@@ -90,6 +90,8 @@ data class Pane(
     val tool: String = "",
     /** Unix seconds of the pane's newest reply or question; 0 when the server predates the key. */
     val newestReply: Long = 0L,
+    /** Unix seconds the pane's last turn ended; 0 when unknown or when the server predates the key. */
+    val lastTurnEnd: Long = 0L,
     /** True for a headless session, whose [id] is the session's id; false for a tmux pane. */
     val headless: Boolean = false,
 )
@@ -654,6 +656,7 @@ class OrreryClient(
             questionHash = questionHash,
             tool = tool,
             newestReply = newestReply,
+            lastTurnEnd = lastTurnEnd,
         )
 
     /** A headless session as the pane list shows it: its id is the session's, and it has no tmux pane. */

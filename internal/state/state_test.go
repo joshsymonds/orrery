@@ -213,7 +213,7 @@ func TestPaneStateTransitions(t *testing.T) {
 		if transition != (state.Transition{From: protocol.StateWorking, To: ""}) || !changed {
 			t.Fatalf("SessionEnd transition = %+v changed = %v", transition, changed)
 		}
-		// The six per-pane options SessionEnd unsets.
+		// The seven per-pane options SessionEnd unsets. The turn start is the one UserPromptSubmit set above.
 		for _, name := range []string{
 			protocol.OptionState,
 			protocol.OptionChanged,
@@ -221,6 +221,7 @@ func TestPaneStateTransitions(t *testing.T) {
 			protocol.OptionQuestion,
 			protocol.OptionSummary,
 			protocol.OptionLabel,
+			"@orrery_turn_start",
 		} {
 			if got, ok := option(t, client, pane, name); ok {
 				t.Fatalf("%s after SessionEnd = %q, want unset", name, got)
@@ -913,5 +914,172 @@ func TestToolState(t *testing.T) {
 		}
 		wantToolID(t, client, pane, "")
 		wantState(t, client, pane, "")
+	})
+}
+
+// endInterrupted runs state.EndInterruptedTurn and fails the test on error.
+func endInterrupted(t *testing.T, client *tmuxctl.Client, pane string, interrupted int64, now time.Time) bool {
+	t.Helper()
+	ended, err := state.EndInterruptedTurn(t.Context(), client, pane, interrupted, now)
+	if err != nil {
+		t.Fatalf("EndInterruptedTurn(%d): %v", interrupted, err)
+	}
+	return ended
+}
+
+// startTurn starts a turn at at with a tool in progress. A working pane holds no question through hooks,
+// so the test sets one, to show that ending the turn clears it.
+func startTurn(t *testing.T, client *tmuxctl.Client, pane string, at time.Time) {
+	t.Helper()
+	apply(t, client, pane, userPromptSubmitHook, at)
+	apply(t, client, pane, toolHook(t, "PreToolUse", "synthetic-1", "echo synthetic"), at)
+	if err := client.SetPaneOption(t.Context(), pane, protocol.OptionQuestion, "synthetic question"); err != nil {
+		t.Fatalf("SetPaneOption(%s): %v", protocol.OptionQuestion, err)
+	}
+}
+
+func TestEndInterruptedTurn(t *testing.T) {
+	t0 := time.Unix(1700000000, 0)
+
+	t.Run("interruption after the turn started ends it as a Stop does", func(t *testing.T) {
+		client, pane := startPane(t)
+		startTurn(t, client, pane, t0)
+		wantToolID(t, client, pane, "synthetic-1")
+		wantQuestion(t, client, pane, "synthetic question")
+
+		now := t0.Add(2 * time.Second)
+		if !endInterrupted(t, client, pane, t0.Unix()+1, now) {
+			t.Fatal("EndInterruptedTurn one second after changed = false, want true")
+		}
+		wantState(t, client, pane, protocol.StateDone)
+		if got, _ := option(t, client, pane, protocol.OptionChanged); got != fmt.Sprint(now.Unix()) {
+			t.Fatalf("%s = %q, want the end time %d", protocol.OptionChanged, got, now.Unix())
+		}
+		wantToolID(t, client, pane, "")
+		wantQuestion(t, client, pane, "")
+	})
+
+	t.Run("interruption at or before the turn start leaves the pane alone", func(t *testing.T) {
+		for _, tc := range []struct {
+			name        string
+			interrupted int64
+		}{
+			{"no interruption", 0},
+			{"interruption at changed", t0.Unix()},
+			{"older interruption", t0.Unix() - 1},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				client, pane := startPane(t)
+				startTurn(t, client, pane, t0)
+
+				if endInterrupted(t, client, pane, tc.interrupted, t0.Add(2*time.Second)) {
+					t.Fatalf("EndInterruptedTurn(%d) = true, want false", tc.interrupted)
+				}
+				wantState(t, client, pane, protocol.StateWorking)
+				if got, _ := option(t, client, pane, protocol.OptionChanged); got != "1700000000" {
+					t.Fatalf("%s = %q, want 1700000000", protocol.OptionChanged, got)
+				}
+				wantToolID(t, client, pane, "synthetic-1")
+				wantQuestion(t, client, pane, "synthetic question")
+			})
+		}
+	})
+
+	t.Run("interruption from an earlier turn leaves a later turn alone", func(t *testing.T) {
+		client, pane := startPane(t)
+		startTurn(t, client, pane, t0)
+		apply(t, client, pane, stopHook, t0.Add(5*time.Second))
+		startTurn(t, client, pane, t0.Add(10*time.Second))
+
+		// The interruption is inside the first turn, before the second turn started.
+		if endInterrupted(t, client, pane, t0.Unix()+3, t0.Add(12*time.Second)) {
+			t.Fatal("EndInterruptedTurn on a later turn = true, want false")
+		}
+		wantState(t, client, pane, protocol.StateWorking)
+		if got, _ := option(t, client, pane, protocol.OptionChanged); got != "1700000010" {
+			t.Fatalf("%s = %q, want 1700000010", protocol.OptionChanged, got)
+		}
+		wantToolID(t, client, pane, "synthetic-1")
+		wantQuestion(t, client, pane, "synthetic question")
+	})
+
+	t.Run("interruption before a re-prompt on a working pane leaves the new turn alone", func(t *testing.T) {
+		client, pane := startPane(t)
+		startTurn(t, client, pane, t0)
+		// A re-prompt on a working pane changes no state, so @orrery_changed stays at the first prompt.
+		apply(t, client, pane, userPromptSubmitHook, t0.Add(time.Minute))
+		wantState(t, client, pane, protocol.StateWorking)
+
+		// The interruption is after the first prompt and before the re-prompt, so it belongs to the first turn.
+		if endInterrupted(t, client, pane, t0.Unix()+1, t0.Add(2*time.Minute)) {
+			t.Fatal("EndInterruptedTurn before the re-prompt = true, want false")
+		}
+		wantState(t, client, pane, protocol.StateWorking)
+		if got, _ := option(t, client, pane, protocol.OptionChanged); got != "1700000000" {
+			t.Fatalf("%s = %q, want 1700000000", protocol.OptionChanged, got)
+		}
+		wantToolID(t, client, pane, "synthetic-1")
+	})
+
+	t.Run("waiting pane is left alone", func(t *testing.T) {
+		client, pane := startPane(t)
+		apply(t, client, pane, userPromptSubmitHook, t0)
+		apply(t, client, pane, permissionHook, t0.Add(time.Second))
+		wantQuestion(t, client, pane, `{"tool":"Bash","input":{"command":"echo synthetic"}}`)
+
+		if endInterrupted(t, client, pane, t0.Unix()+2, t0.Add(3*time.Second)) {
+			t.Fatal("EndInterruptedTurn on a waiting pane = true, want false")
+		}
+		wantState(t, client, pane, protocol.StateWaiting)
+		if got, _ := option(t, client, pane, protocol.OptionChanged); got != "1700000001" {
+			t.Fatalf("%s = %q, want 1700000001", protocol.OptionChanged, got)
+		}
+		wantQuestion(t, client, pane, `{"tool":"Bash","input":{"command":"echo synthetic"}}`)
+	})
+
+	t.Run("done pane is left alone", func(t *testing.T) {
+		client, pane := startPane(t)
+		startTurn(t, client, pane, t0)
+		apply(t, client, pane, stopHook, t0.Add(4*time.Second))
+
+		if endInterrupted(t, client, pane, t0.Unix()+5, t0.Add(6*time.Second)) {
+			t.Fatal("EndInterruptedTurn on a done pane = true, want false")
+		}
+		wantState(t, client, pane, protocol.StateDone)
+		if got, _ := option(t, client, pane, protocol.OptionChanged); got != "1700000004" {
+			t.Fatalf("%s = %q, want the Stop time 1700000004", protocol.OptionChanged, got)
+		}
+	})
+
+	t.Run("unset changed reads as zero", func(t *testing.T) {
+		client, pane := startPane(t)
+		setPaneState(t, client, pane, protocol.StateWorking)
+
+		if endInterrupted(t, client, pane, 0, t0) {
+			t.Fatal("EndInterruptedTurn(0) with unset changed = true, want false")
+		}
+		wantState(t, client, pane, protocol.StateWorking)
+
+		now := t0.Add(time.Second)
+		if !endInterrupted(t, client, pane, 1, now) {
+			t.Fatal("EndInterruptedTurn(1) with unset changed = false, want true")
+		}
+		wantState(t, client, pane, protocol.StateDone)
+		if got, _ := option(t, client, pane, protocol.OptionChanged); got != fmt.Sprint(now.Unix()) {
+			t.Fatalf("%s = %q, want %d", protocol.OptionChanged, got, now.Unix())
+		}
+	})
+
+	t.Run("malformed changed is an error and writes nothing", func(t *testing.T) {
+		client, pane := startPane(t)
+		setPaneState(t, client, pane, protocol.StateWorking)
+		if err := client.SetPaneOption(t.Context(), pane, protocol.OptionChanged, "synthetic"); err != nil {
+			t.Fatalf("SetPaneOption(%s): %v", protocol.OptionChanged, err)
+		}
+
+		if _, err := state.EndInterruptedTurn(t.Context(), client, pane, t0.Unix()+1, t0); err == nil {
+			t.Fatal("EndInterruptedTurn with malformed changed: want error, got nil")
+		}
+		wantState(t, client, pane, protocol.StateWorking)
 	})
 }

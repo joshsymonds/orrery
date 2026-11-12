@@ -636,6 +636,9 @@ message Pane {
 
   // The unix seconds of the newest reply or question in the pane's transcript, or 0 when it has none.
   int64 newest_reply = 19;
+
+  // The unix seconds the pane's last turn ended, or 0 when unknown.
+  int64 last_turn_end = 20;
 }
 
 // ScreenRequest asks for the text of one pane. ansi false gives plain text, and true keeps the color escape

@@ -23,6 +23,8 @@ Go type: `type State string`. `func ParseState(s string) (State, error)` returns
 
 A headless engine session also has the states `stopped`, `failed` and `interrupted`. They are not pane states, and `ParseState` refuses them. See [Headless sessions](#headless-sessions).
 
+No hook fires when the person interrupts a turn, so serve ends that turn. When serve lists panes (`Panes.List`, and the pane read of `Panes.WatchConversation`), each `working` pane whose `@orrery_transcript` file exists is checked for an interruption line, `[Request interrupted by user]`, written after its `@orrery_changed`. A pane with one becomes `done`, with `@orrery_changed` set to the time of the listing and `@orrery_tool` and `@orrery_question` unset, as a `Stop` leaves it. The listing shows the pane after that change. A transcript file that does not exist is skipped, and any other read or tmux error fails the listing.
+
 ## 2. Per-pane tmux options
 
 Options are set at pane scope with tmux 3.8 `set-option -p`, except `@orrery_dir`, which is the one session-scoped option (see below).
@@ -1233,9 +1235,10 @@ Request fields and what their zero and presence values mean:
 
 The answers:
 
-- `PanesListResponse` carries the tracked panes of `orrery list --json` (section 3), in order. Each pane has the seventeen keys of section 3, then `question_hash` and `newest_reply`. A tmux failure is `internal`. With no tmux server running, the list is empty.
+- `PanesListResponse` carries the tracked panes of `orrery list --json` (section 3), in order. Each pane has the seventeen keys of section 3, then `question_hash`, `newest_reply` and `last_turn_end`. A tmux failure is `internal`. With no tmux server running, the list is empty.
   - `question_hash` is the question hash of section 10 for the pane's `question`.
   - `newest_reply` is the unix seconds of the newest reply or question in the transcript that the pane's `@orrery_transcript` option names (section 2). It counts the `reply` and `question` items of `Panes.Conversation` (below), with their line timestamps, over the whole transcript file rather than the conversation's 4 MiB window. Tool calls, prompts, results, notices and compactions do not count, and neither do sidechain or meta lines. `newest_reply` is 0 when the pane has no `@orrery_state`, when `@orrery_transcript` is unset or empty, when the transcript file does not exist, or when it has no reply or question with a timestamp. Any other transcript read error is `internal`, as is a tmux failure. Serve remembers, for each transcript path, how far it has read and the newest time that read left. A later request reads only the complete lines appended since, and reads the file again from its start when it shrank or was replaced.
+  - `last_turn_end` is the unix seconds of the newest store event that set the pane's `state` to `done`, within the store's 14-day event retention. It is 0 when serve has no store, when the store cannot be read, or when there is no such event.
 - `ScreenResponse` carries the pane's screen as plain text, the output of `capture-pane -p -J`, with `-e` added when `ansi` is true and `-S -N` added when `history` is N. The `screen` bytes are exactly that text. The `ansi` and `history` values are validated as described under `ScreenRequest` above.
 - `ConversationResponse` carries the conversation of the pane's Claude transcript, with the fields `origin`, `items`, `goal`, `waiting` and `context`. The transcript is the path in the pane's `@orrery_transcript` option (section 2); no request value names a file. The pane must have `@orrery_state` set, or the answer is `not_found` "no live session". `@orrery_transcript` must be set and non-empty, or the answer is `not_found` "no transcript". A transcript file that does not exist is `not_found` "transcript not found"; any other read failure is `internal`.
   - The reader takes the newest `limit` items from the last 4 MiB of the transcript, oldest first. Only whole lines count, so a partial line at either end of that window is skipped. The reader can return fewer than `limit` items. `items` is empty when there are none.
@@ -1437,6 +1440,10 @@ The picker routes `POST /v1/picker/ask` and `POST /v1/picker/run` were added add
 orrery engine API added, additively: the `orrery.v1.Control` service and its six calls (see [Control API](#control-api)), and `serve`'s reads of `HOME` and the session socket for it; the `WatchResponse` members `engine_added`, `engine_changed`, `engine_prompt`, `engine_block`, `engine_request`, `engine_request_canceled`, `engine_turn_ended` and `engine_text`, and the `EngineText` rule (see [Connect API](#connect-api)); the `model`, `id` and `prompt_id` fields of the engine socket's `Start` and `Say` (see [Session control socket](#session-control-socket)); the `promptId` key of the `engine_prompt` payload; the `engine_prompt_failed` table; and the `orrery session --url` form and `session start --model`. Watch and `orrery events` now send and print the engine events they skipped before. No existing name or value changes.
 
 orrery E19 (pane tree list) added the `newest_reply` key to each pane of `GET /v1/panes`, additively. It is a key of serve's answer only: `orrery list --json` (section 3) is unchanged. No existing name or value changes.
+
+orrery E27a (turn end field) added the `last_turn_end` key to each pane of `GET /v1/panes`, additively. It is a key of serve's answer only: `orrery list --json` (section 3) is unchanged. No existing name or value changes.
+
+orrery E27a (interrupt end) changed serve's answer, and the change is not additive. A `working` pane whose transcript holds an interruption line after its `@orrery_changed` now lists as `done`, with no tool and a new `@orrery_changed`, and serve writes those options when it lists panes (section 1). No existing name or value changes.
 
 orrery E21 (compaction item) changed the conversation route, and the change is not additive. A compaction is now a `compaction` item, with the `trigger` and `tokens` keys of its boundary, where it was a `notice` item of kind `compaction`. The `compaction` notice is no longer sent, so a reader that matched it must read the item instead. The item keys `trigger` and `tokens` and the answer's `context` key were added additively. No other existing name or value changes.
 
