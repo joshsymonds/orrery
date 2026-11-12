@@ -8,10 +8,13 @@ import com.connectrpc.extensions.GoogleJavaLiteProtobufStrategy
 import com.connectrpc.impl.ProtocolClient
 import com.connectrpc.okhttp.ConnectOkHttpClient
 import com.connectrpc.protocols.NetworkProtocol
+import io.github.joshsymonds.orrery.gen.orrery.v1.AnswerRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.AskRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.ControlClient
 import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.HostClient
 import io.github.joshsymonds.orrery.gen.orrery.v1.HostStatusRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.InterruptRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.MarkSeenRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.PanesClient
 import io.github.joshsymonds.orrery.gen.orrery.v1.PanesListRequest
@@ -19,9 +22,12 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.PickerClient
 import io.github.joshsymonds.orrery.gen.orrery.v1.PushClient
 import io.github.joshsymonds.orrery.gen.orrery.v1.RegisterRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.RunRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.SayRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.ScreenRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.SeenRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.SendKeysRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.SendTextRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.StopRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.UnregisterRequest
 import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
@@ -181,6 +187,7 @@ class OrreryClient(
         val host = HostClient(protocol)
         val push = PushClient(protocol)
         val picker = PickerClient(protocol)
+        val control = ControlClient(protocol)
     }
 
     /**
@@ -338,6 +345,39 @@ class OrreryClient(
     fun markSeen(paneId: String, readUpTo: Long) {
         val request = MarkSeenRequest.newBuilder().setPane(paneId).setReadUpTo(readUpTo).build()
         call(write = true) { standard.panes.markSeen(request, CLIENT_HEADERS) }
+    }
+
+    /**
+     * Sends [text] to a headless session as a prompt named [promptId], and waits up to
+     * [composeReadTimeoutMillis] for the answer. Failures are as for [sendComposed].
+     */
+    fun say(sessionId: String, text: String, promptId: String) {
+        val request = SayRequest.newBuilder().setId(sessionId).setText(text).setPromptId(promptId).build()
+        call(write = true) { compose.control.say(request, CLIENT_HEADERS) }
+    }
+
+    /** Answers the open request [requestId] of a headless session with [answer]. */
+    fun answer(sessionId: String, requestId: String, answer: String) {
+        val request = AnswerRequest.newBuilder().setId(sessionId).setRequestId(requestId).setAnswer(answer).build()
+        call(write = true) { standard.control.answer(request, CLIENT_HEADERS) }
+    }
+
+    /** Interrupts the turn a headless session is running. */
+    fun interrupt(sessionId: String) {
+        val request = InterruptRequest.newBuilder().setId(sessionId).build()
+        call(write = true) { standard.control.interrupt(request, CLIENT_HEADERS) }
+    }
+
+    /** Stops a headless session. */
+    fun stop(sessionId: String) {
+        val request = StopRequest.newBuilder().setId(sessionId).build()
+        call(write = true) { standard.control.stop(request, CLIENT_HEADERS) }
+    }
+
+    /** Records that the user has seen a headless session. */
+    fun sessionSeen(sessionId: String) {
+        val request = SeenRequest.newBuilder().setId(sessionId).build()
+        call(write = true) { standard.control.seen(request, CLIENT_HEADERS) }
     }
 
     fun registerPush(endpoint: String, p256dh: String, auth: String) {
