@@ -175,8 +175,13 @@ web-check:
     esbuild $tests --bundle --platform=node --format=esm --outbase=web/src --outdir=web/build --out-extension:.js=.mjs --log-level=warning
     node --test $(find web/build -name '*.test.mjs' | sort)
 
+# Bundle the web page into web/build/page, the directory the flake package embeds. scripts/build-web.sh holds the
+# bundle command, which the flake calls too.
+web-page:
+    scripts/build-web.sh web/build/page
+
 # Lint, coverage, typed-client, and generated-code gates. The pin check runs first.
-check: pin-check lint proto-lint proto-breaking cover sqlc-diff gen-diff web-check
+check: pin-check lint proto-lint proto-breaking cover sqlc-diff gen-diff web-check web-page
 
 # Assemble the debug APK, then run the Android lint and JVM unit tests.
 android-test:

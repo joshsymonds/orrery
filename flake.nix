@@ -43,26 +43,44 @@
       androidAapt2 = "${androidSdk}/build-tools/36.0.0/aapt2";
     in
     {
-      packages = forAllSystems (pkgs: {
-        default = pkgs.buildGoModule {
-          pname = "orrery";
-          version = "0.0.0";
-          src = ./.;
-          go = pkgs.go_1_26;
-          vendorHash = "sha256-GJLFZqDYsRsCeghybw54VR3MYkv/zCsFAOHpzwXr38E=";
-          subPackages = [
-            "cmd/orrery"
-            "cmd/orreryd"
-          ];
-          nativeCheckInputs = [
-            pkgs.tmux
-            pkgs.util-linux
-          ];
-          preCheck = ''
-            export TMUX_TMPDIR="$TMPDIR"
-          '';
-        };
-      });
+      packages = forAllSystems (
+        pkgs:
+        let
+          webNodeModules = (import ./nix/web-node-modules.nix) pkgs;
+        in
+        {
+          # The web page is bundled before the Go build and replaces the committed stub in the build's own copy of
+          # internal/webui/dist, so the binary embeds the built page. scripts/build-web.sh is the one bundle command.
+          default = pkgs.buildGoModule {
+            pname = "orrery";
+            version = "0.0.0";
+            src = ./.;
+            go = pkgs.go_1_26;
+            vendorHash = "sha256-GJLFZqDYsRsCeghybw54VR3MYkv/zCsFAOHpzwXr38E=";
+            subPackages = [
+              "cmd/orrery"
+              "cmd/orreryd"
+            ];
+            nativeBuildInputs = [ pkgs.esbuild ];
+            nativeCheckInputs = [
+              pkgs.tmux
+              pkgs.util-linux
+            ];
+            preBuild = ''
+              ln -s ${webNodeModules}/node_modules web/node_modules
+              bash scripts/build-web.sh web/build/page
+              cp -r web/build/page/. internal/webui/dist/
+            '';
+            preCheck = ''
+              export TMUX_TMPDIR="$TMPDIR"
+            '';
+            # The default check covers only subPackages, so the webui tests run here against the embedded page.
+            postCheck = ''
+              go test ./internal/webui
+            '';
+          };
+        }
+      );
 
       homeManagerModules.default = import ./nix/home-manager.nix { inherit self; };
 
