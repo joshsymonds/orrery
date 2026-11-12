@@ -62,6 +62,30 @@ cover:
 proto-lint:
     cd proto && buf lint
 
+# Fail when proto/ breaks wire compatibility with the newest tag in HEAD's history that does not point at HEAD. CI
+# fetches tags, and a checkout with no such tag fails here rather than skipping the check.
+[script]
+proto-breaking:
+    head=$(git rev-parse HEAD)
+    previous=""
+    for tag in $(git tag --list --merged HEAD --sort=-v:refname); do
+        if [ "$(git rev-list -n 1 "$tag")" != "$head" ]; then
+            previous="$tag"
+            break
+        fi
+    done
+    if [ -z "$previous" ]; then
+        echo "proto-breaking: no tag other than HEAD's exists to compare against; fetch tags (CI needs fetch-tags)" >&2
+        exit 1
+    fi
+
+    # buf reads the previous tag's module from a directory, so the check does not depend on a .git path, which is a
+    # file in a linked worktree.
+    dir=$(mktemp -d /tmp/orrery-breaking.XXXXXX)
+    trap 'rm -rf "$dir"' EXIT
+    git archive "$previous" proto | tar -x -C "$dir"
+    cd proto && buf breaking --against "$dir/proto"
+
 # Regenerate the store's typed queries (internal/store/sqlcgen), the typed API (internal/gen), and the app's typed
 # client (android/app/src/main/java, orrery.v1 only) from proto/.
 generate:
@@ -134,7 +158,7 @@ bump-nix $ref="nixpkgs-unstable":
     scripts/check-nix-pin.sh
 
 # Lint, coverage, and generated-code gates. The pin check runs first.
-check: pin-check lint proto-lint cover sqlc-diff gen-diff
+check: pin-check lint proto-lint proto-breaking cover sqlc-diff gen-diff
 
 # Assemble the debug APK, then run the Android lint and JVM unit tests.
 android-test:

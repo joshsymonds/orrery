@@ -13,7 +13,11 @@ jobs:
   gate:
     runs-on: ubuntu-latest
     steps:
+      # Full history and tags, so proto-breaking can compare against the newest release tag.
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          fetch-tags: true
 
       - uses: cachix/install-nix-action@v31
         with:
