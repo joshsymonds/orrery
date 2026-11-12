@@ -321,6 +321,16 @@ Subcommands:
     - `127`: `CMD` is not on `PATH`. Nothing is requested.
     - `126`: `CMD` is on `PATH` but cannot start after the grant. The grant ends with the run.
     - `1`: the exit status of `CMD` cannot be read.
+- `gate [--gates FILE] NAME` runs the named gate `NAME` under a grant of its needs from `orreryd`. `NAME` is resolved as [Gate files](#gate-files) gives: from `FILE` first when `--gates` names one, then from the project file for the working directory. A relative `FILE` is read from the working directory. `gate` reads the pool files for the working directory, as `run` does (see [Pool files](#pool-files)), and reaches `orreryd` on `sessions.sock` as `run` does.
+  - The argv runs through the same `RunWithGrant` path as `run`'s command (`cmd/orrery/gate.go:71`-`:86`). It runs without a shell, in the working directory, with `gate`'s standard input, output and error. Its environment is `gate`'s, plus `ORRERY_GRANT` and one `ORRERY_POOL_<POOL>` for each pool in its needs, as `run` sets them. Its limit counts from the start of each run under its grant, not from the queue (`internal/cli/run.go:67`-`:69`).
+  - The lines `run` writes to stderr while its command queues, is stopped, loses its grant or passes its limit are written by `gate` too, with the prefix `orrery run:` (`internal/cli/run.go:165`, `:364`, `:380`, `:430`).
+  - After the argv's run has ended or has failed to start, `gate` writes one line to stderr: `orrery gate: NAME from SOURCE FILE: argv ARGV needing POOL=N,...; exit STATUS`. `SOURCE` is `epic` or `project`, `FILE` is the file that defines the gate, `ARGV` is the argv as a JSON array, and `STATUS` is the status `gate` exits with (`cmd/orrery/gate.go:87`-`:88`).
+  - Exit statuses:
+    - `2`: a usage error. That is a `--gates` with no file, no `NAME`, more than one argument, or a flag other than `--gates`.
+    - `75`: the gate did not run. Before the grant, that covers a `NAME` that no file defines, an epic gates file or project file that cannot be read or does not parse, a project that cannot be found (no `git` on `PATH`, or neither `XDG_CONFIG_HOME` nor `HOME` set), a need for a pool that the pool files do not declare, pool files that cannot be read, parsed or merged, and no daemon socket that can be named. `gate` writes `orrery gate: MESSAGE` to stderr for these. After the grant request, it covers what `run` gives 75 for: a request `orreryd` refuses, an unreachable `orreryd`, a signal that arrives while the request waits, and a refused reclaim.
+    - `124`: the gate's limit passed, and the argv was killed with `SIGKILL`.
+    - Otherwise, the argv's own status, as `run` gives it for `CMD`: its exit code, or 128 plus the signal number when a signal ended it. `127` means `argv[0]` is not an executable file, and nothing is requested. `126` means it cannot start after the grant. `1` means its status cannot be read.
+  - `SIGINT`, `SIGTERM` and `SIGHUP` stop `gate` as they stop `run`: after the argv has started, the argv gets `SIGTERM` and `gate` returns its status. While the request waits, the signal ends the run with 75 (`cmd/orrery/gate.go:68`-`:69`).
 
 Exit codes:
 
@@ -331,7 +341,7 @@ Exit codes:
 | 2 | usage error |
 | 3 | question refused (`send --expect-question`: no question, hash mismatch, empty display fragment, or fragment not visible) |
 
-`run` exits with the statuses listed in its bullet above, which are not in this table.
+`run` and `gate` exit with the statuses listed in their bullets above, which are not in this table.
 
 ### orrery serve
 
@@ -370,7 +380,7 @@ orrery serve --listen 127.0.0.1:8080 --allow-login user@example.test
 ### orreryd
 
 ```
-orreryd [-L NAME | -S PATH] [--socket PATH] [--claude PATH] [--summary-model CONTEXT=MODEL]... [--push-host HOST]... [--sessions] [--session-cap N] [--session-shell PATH] [--step-cap N] [--gate-lock PATH]...
+orreryd [-L NAME | -S PATH] [--socket PATH] [--claude PATH] [--summary-model CONTEXT=MODEL]... [--push-host HOST]... [--sessions] [--session-cap N] [--session-shell PATH] [--step-cap N]
 ```
 
 - `-L`, `-S`, and `--socket` work as they do for `orrery`.
@@ -382,7 +392,6 @@ orreryd [-L NAME | -S PATH] [--socket PATH] [--claude PATH] [--summary-model CON
 - `--session-cap N` is the most live headless sessions at once. The default is 4. A value below 1 exits 2.
 - `--session-shell PATH` is the absolute login shell that starts each session. The default is `$SHELL`.
 - `--step-cap N` is the most live step sessions at once. Steps count apart from `--session-cap`. The default is 6. A value below 1 exits 2.
-- `--gate-lock PATH` names a lock file that a step's gate holds while it runs. Repeat the flag for each lock. A gate takes the first lock that is free, in the order given, and when every lock is held it tries again every second. Without the flag, the locks are `/tmp/claude-<uid>/orrery-heavy.lock` and `/tmp/claude-<uid>/orrery-heavy-2.lock`, where `<uid>` is the user id. A path that is not absolute exits 2.
 
 `orreryd` listens on unix sockets only. It opens no network listener. `--sessions` adds the session socket. The desk stream is served on `notices.sock` beside the daemon socket, as [Desk stream](#desk-stream) describes.
 
@@ -503,7 +512,7 @@ A session notice clears on the session's own seen: the `Seen` call for that sess
 
 | Call | Request | Response | Effect |
 |---|---|---|---|
-| `StartStep` | `agent`, `prompt`, `schema`, `workspace`, `revision`, `read_only`, `owned_paths`, `gate`, `gate_limit_seconds`, `done_value`, `model_limit_seconds`, `epic`, `task` | `id` | checks the request, starts the step and returns its id |
+| `StartStep` | `agent`, `prompt`, `schema`, `workspace`, `revision`, `read_only`, `owned_paths`, `gate_name`, `gates_file`, `done_value`, `model_limit_seconds`, `epic`, `task` | `id` | checks the request, starts the step and returns its id |
 | `StopStep` | `id` | none | ends the step as `stopped`, whether it is held or running |
 | `StepStatus` | `id` | `step` | returns the step's row |
 | `WaitSteps` | `ids`, `timeout_seconds` | `ended`, `steps` | blocks until the first named step ends or the timeout passes |
@@ -521,19 +530,21 @@ A session notice clears on the session's own seen: the `Seen` call for that sess
 - `read_only` false runs a writing step in `workspace`. The directory must be inside a linked git worktree. A directory outside any git work tree is refused, and so is one inside a repository's main working tree.
 - `read_only` true runs the step in a detached worktree at its start commit. The worktree is added under `step-worktrees` beside the store file (see [Store](#store)), named by the step id, and removed when the step ends.
 - `owned_paths` are paths relative to the repository. An empty path, an absolute path, or one that leaves the repository is refused.
-- `gate` is an argv that runs without a shell. Its program is looked up on `PATH` when the step starts, and the start is refused when it is not found. Empty runs no gate.
-- `gate_limit_seconds` of zero means 30 minutes.
+- `gate_name` names the gate the step's return is checked against. Empty runs no gate. Otherwise the name is resolved once, when the step starts, as [Gate files](#gate-files) gives: from `gates_file` first when it is set, then from the project file for `workspace`. A name that neither file defines is refused. The step takes the gate's argv, limit and needs as its definition gives them then (`internal/enginehost/step.go:146`-`:155`, `:335`-`:369`).
+- `gates_file` is the absolute path of the epic's gates file. Empty reads only the project file. It is refused when it is not absolute, when `gate_name` is empty, and when the file is missing or does not parse (`internal/enginehost/step.go:336`-`:349`).
+- Each pool a gate needs must be declared by a pool file for `workspace`, or the start is refused (`internal/enginehost/step.go:350`-`:361`).
+- `gate` and `gate_limit_seconds`, fields 8 and 9 of the request, are refused with `invalid_argument`. A step names its gate by `gate_name` (`internal/enginehost/stepservice.go:51`-`:54`).
 - `done_value` empty means `done`.
 - `model_limit_seconds` of zero means 60 minutes. It is the model time the step may use before the watch ends it `overtime` (see the Watch rule under [Step lifecycle](#step-lifecycle)).
-- `epic` and `task` are stored as given, and nothing checks them. The format that `proto/orrery/engine/v1/step.proto:69`-`:70` names for `epic` is not enforced (`internal/enginehost/stepservice.go:63`-`:64`, `internal/enginehost/step.go:177`, `internal/store/steps.go:122`). An empty `epic` leaves the step unlabelled, and `ListSteps` never lists it (`internal/enginehost/step.go:38`-`:39`). An empty `task` means the step works on no one task.
+- `epic` and `task` are stored as given, and nothing checks them. The format that `proto/orrery/engine/v1/step.proto:69`-`:70` names for `epic` is not enforced (`internal/enginehost/stepservice.go:67`-`:68`, `internal/enginehost/step.go:194`, `internal/store/steps.go:140`). An empty `epic` leaves the step unlabelled, and `ListSteps` never lists it (`internal/enginehost/step.go:47`, `internal/store/queries.sql:154`). An empty `task` means the step works on no one task.
 
 A start refused by one of these checks, by the step cap, or by the workspace rules stores nothing and returns no id. A start that fails after its row is stored returns the error with no id, and the row ends `failed`. The id is not reported on that path.
 
-`StepStatus`, `WaitSteps` and `ListSteps` return each step as a `Step` message: `id`, `agent`, `workspace`, `revision` (the resolved start commit), `read_only`, `worktree` (empty for a writing step), `end` (empty while the step runs), `status`, `result` (the latest return's JSON text), `checks`, `reason`, `started`, `ended` (unix seconds; `ended` is 0 while the step runs), `doing`, the latest doing line from the step's monitor, `epic` and `task`, the labels the step was started with, and `held`, which is true while an owner hold holds the step (`internal/enginehost/stepservice.go:194`-`:199`). Each `checks` entry is a `StepCheck`: `round`, `name`, `ok` and `detail`. The row's prompt, schema, done value, owned paths, gate, gate limit, model limit and verdicts are stored (see [Steps in the store](#steps-in-the-store)) but not returned. `held` is loop state and has no column: it is read from the step's loop, and a step with no loop is not held (`internal/enginehost/stepowner.go:125`-`:131`).
+`StepStatus`, `WaitSteps` and `ListSteps` return each step as a `Step` message: `id`, `agent`, `workspace`, `revision` (the resolved start commit), `read_only`, `worktree` (empty for a writing step), `end` (empty while the step runs), `status`, `result` (the latest return's JSON text), `checks`, `reason`, `started`, `ended` (unix seconds; `ended` is 0 while the step runs), `doing`, the latest doing line from the step's monitor, `epic` and `task`, the labels the step was started with, and `held`, which is true while an owner hold holds the step (`internal/enginehost/stepservice.go:185`-`:218`). Each `checks` entry is a `StepCheck`: `round`, `name`, `ok` and `detail`. The row's prompt, schema, done value, owned paths, gate, gate name, gate source, gate needs, gate limit, model limit and verdicts are stored (see [Steps in the store](#steps-in-the-store)) but not returned. `held` is loop state and has no column: it is read from the step's loop, and a step with no loop is not held (`internal/enginehost/stepowner.go:125`-`:131`).
 
 `WaitSteps` returns every named row in the order `ids` gives. `ended` is the named step that ended first, by its end time, and a tie keeps the step listed first. `ended` is unset when the timeout passes before any of them ends. A timeout of zero returns at once. An id with no row fails the whole call with `not_found`.
 
-`ListSteps` returns the rows whose `epic` is not empty, narrowed to rows whose `epic` is the request's `epic` when that is not empty, and to rows whose `task` is the request's `task` when that is not empty. They are ordered by start time, then id (`internal/store/queries.sql:127`-`:131`, `internal/store/steps.go:212`-`:220`).
+`ListSteps` returns the rows whose `epic` is not empty, narrowed to rows whose `epic` is the request's `epic` when that is not empty, and to rows whose `task` is the request's `task` when that is not empty. They are ordered by start time, then id (`internal/store/queries.sql:152`-`:156`, `internal/store/steps.go:230`-`:238`).
 
 `HoldStep` and `NudgeStep` return no fields. Their rules are in [Step lifecycle](#step-lifecycle).
 
@@ -544,8 +555,8 @@ Errors are Connect codes:
 | `unavailable` | `orreryd` has no step store. The message is `step store unavailable` |
 | `resource_exhausted` | a `StartStep` would pass the step cap (`--step-cap`) |
 | `not_found` | `StopStep`, `StepStatus`, `WaitSteps`, `HoldStep` or `NudgeStep` names an id with no row |
-| `invalid_argument` | an empty `prompt`, a bad `schema`, a bad `agent`, a `workspace` that is not an absolute existing directory, a writing step's `workspace` outside a git work tree or in its main working tree, an `owned_paths` entry that is not a relative path inside the repository, a `gate` program not on `PATH`, or an empty `text` on `NudgeStep` (`internal/enginehost/stepservice.go:229`-`:232`) |
-| `failed_precondition` | `HoldStep` finds the step already held or no turn running, or `HoldStep` or `NudgeStep` finds the step running its gate, ended, or with no loop, or `NudgeStep` finds no turn running and the step not held (`internal/enginehost/stepservice.go:226`-`:228`) |
+| `invalid_argument` | an empty `prompt`, a bad `schema`, a bad `agent`, a `workspace` that is not an absolute existing directory, a writing step's `workspace` outside a git work tree or in its main working tree, an `owned_paths` entry that is not a relative path inside the repository, a `gate` or `gate_limit_seconds` field, a `gate_name` that no file defines, a `gates_file` that is not absolute, is set without `gate_name`, is missing or does not parse, a gate need for a pool that no pool file declares, or an empty `text` on `NudgeStep` (`internal/enginehost/stepservice.go:233`-`:236`) |
+| `failed_precondition` | `HoldStep` finds the step already held or no turn running, or `HoldStep` or `NudgeStep` finds the step running its gate, ended, or with no loop, or `NudgeStep` finds no turn running and the step not held (`internal/enginehost/stepservice.go:230`-`:232`) |
 | `internal` | any other failure, including a `revision` that does not resolve (for a read-only step this includes a `workspace` outside any git work tree), a `WaitSteps` call whose context ends first, and a `HoldStep` or `NudgeStep` call whose context ends before the step's loop takes it |
 
 #### Step lifecycle
@@ -566,7 +577,7 @@ Errors are Connect codes:
   3. `gate`: runs only when all four commit checks pass and the step has a gate.
 
   A read-only step, a return that fails `schema`, or a return whose `status` is not `done_value`, has the `schema` check alone.
-- **Gate.** The gate runs in the step's workspace, with its argv and no shell. It holds the first free `--gate-lock` file, taking it with an exclusive non-blocking `flock`. When every lock is held, it tries them again every second. It releases the lock when the gate ends. The gate runs with `orreryd`'s environment, minus `TMUX` and `TMUX_PANE`. It passes when it exits 0 without passing its limit. When the limit passes, its process group is killed with `SIGKILL`, and the check fails with `gate ran past its limit of <limit> and was killed`. A failing check's detail carries the gate's exit status and the last 8 KiB of its output. A gate that cannot start, or cannot take a lock, is an error that ends the step `failed`.
+- **Gate.** A writing step's gate runs only on a done return whose commit checks all pass. It runs in the step's workspace, with its argv and no shell, and it holds the pool members its needs name. It queues through `orreryd`'s Pools service, runs once its grant holds those members, and keeps the grant until its process group has exited. Its limit counts from the grant, not from the queue. It runs with `orreryd`'s environment, minus `TMUX` and `TMUX_PANE`. A hold placed on one of its members (`orrery hold`) stops the gate. Its process group is killed, that run records nothing, and the grant is requeued. The gate runs again from its start once the broker grants it again. A requeued request waits like any other, and a held member is not granted until it is freed (`internal/enginehost/gate.go:71`-`:76`, `internal/grants/broker.go:575`-`:595`, `cmd/orrery/hold.go:19`). The gate passes when it exits 0 without passing its limit. When the limit passes, its process group is killed with `SIGKILL`, and the check fails with `gate ran past its limit of <limit> and was killed`. The check's detail opens with the record `gate <name> from <source> ran <argv as a JSON array> holding <POOL:MEMBER,...>; `. It then gives `gate exited <status>` or the limit text, and when the gate printed any output, `; output tail: ` and its last 8 KiB (`internal/enginehost/steploop.go:330`-`:343`, `:376`-`:389`). A gate that cannot start, or whose grant ends before or while it runs, is an error that ends the step `failed` (`internal/enginehost/gate.go:127`-`:135`).
 - **Judge.** A return that passes its checks and whose `status` equals `done_value` is judged by a Haiku call. Without a Haiku caller the step ends `done` with no call. The input is the step's first prompt and the return. A writing step adds the `git diff --stat` from the start commit to the return's commit, and a step with a gate adds the gate check's detail. The reply is `met` or `unmet` with a reason. `met` ends the step `done`. The first `unmet` sends the session back once with the reason, and the next return that passes its checks is judged again. A second `unmet` ends the step `goal_unmet`, and its return is kept. A failed diff stat, call or reply stores its error with no verdict and ends the step `done`. The judge's send-back is not one of the three send-backs.
 - **Watch.** While a turn runs, the loop checks four backstops on each tick, the first one due in this order: `overtime` (model time reaches the step's model limit), `tool_stuck` (a main-conversation tool call open for 30 minutes of wall time, or 60 after its one extension), `silent` (10 minutes of model time with no event) and `periodic` (5 minutes of turn time since the turn began or the last verdict). Each trip makes one Haiku monitor call. Its verdict is `progressing`, `long_command`, `looping` or `wedged`, with a one-line `doing`, and a non-empty `doing` becomes the row's `doing`. The verdict is applied in this order: `overtime` ends the step `overtime`; `looping` or `wedged` nudges the step once, and then ends it with that verdict; a `long_command` on `tool_stuck` extends that call once, and any other verdict on `tool_stuck` ends the step `tool_stuck`; `silent` nudges once, and then ends the step `silent`; `periodic` does nothing. A nudge interrupts the running turn. The interrupted turn is no round: the step is continued with the nudge text instead of being checked. A nudge does not count toward the three send-backs. A failed monitor call stores its error with no verdict, and the trip acts without one: `overtime` and `tool_stuck` end the step, `silent` nudges on its first trip and ends on the next, and `periodic` does nothing. The monitor's argv, its cap and timeout, and the trip policy with its file and line citations are in [section 15 of the engine protocol](engine-protocol.md#15-the-step-watch-and-judge).
 - **Send-back.** A return with a failed check is sent back by `Continue`, as a message that lists each failed check with its detail. The step may be sent back three times. A fourth failing return ends the step `checks_failed`. Nudges and the judge's send-back are counted apart, and they are not among these three.
@@ -577,7 +588,7 @@ Errors are Connect codes:
   | `done` | a return passes its checks, its `status` equals `done_value`, and the judge says `met`, fails to give a verdict, or is not run | `done_value` |
   | `returned` | a return passes its checks and its `status` is another value | that value |
   | `checks_failed` | a fourth return fails a check | empty |
-  | `failed` | the process exits on its own (`the step's process exited` after a clean exit, otherwise the exit's reason), the first prompt cannot be sent, a return or verdict cannot be recorded, a gate cannot run, or a `Continue` cannot be sent | empty |
+  | `failed` | the process exits on its own (`the step's process exited` after a clean exit, otherwise the exit's reason), the first prompt cannot be sent, a return or verdict cannot be recorded, a gate cannot run or its grant ends before or while it runs, or a `Continue` cannot be sent | empty |
   | `stopped` | `StopStep` ends the step | empty |
   | `engine_restarted` | `orreryd` starts with the step's row open and no loop for it | empty |
   | `overtime` | the watch's `overtime` trip: model time reaches the step's model limit | empty |
@@ -589,8 +600,8 @@ Errors are Connect codes:
 
   The end is stored with the reason, and the step's session is stopped and its worktree removed, whatever ended it.
 - **Stop.** `StopStep` cancels the step's loop, which kills a running gate, waits for the loop to return, and then stores `stopped` through the same end path. A step that has already ended is left as it is, and `StopStep` returns success. A held step ends `stopped` the same way (`internal/enginehost/stepctl.go:25`-`:45`).
-- **Hold.** `HoldStep` interrupts the step's running turn and marks the step held (`internal/enginehost/stepowner.go:55`-`:69`, `:112`-`:123`). It is refused with `failed_precondition` when the step is already held, when no turn is running, and when the step is running its gate (`internal/enginehost/stepowner.go:56`-`:60`, `:34`-`:37`). A failed interrupt is returned as `internal`, and the step stays unheld. A landed hold drops any nudge pending for the turn, the watchdog's and the owner's (`internal/enginehost/stepowner.go:65`-`:66`). A held step's loop skips each tick, so the watch checks nothing (`internal/enginehost/steploop.go:170`-`:173`). A held step's turn end is no round, and it continues nothing (`internal/enginehost/steploop.go:192`-`:196`).
-- **Owner nudge.** `NudgeStep` sends the owner's text to the step (`internal/enginehost/stepowner.go:133`-`:154`). Empty text is `invalid_argument`, and it is refused before the step is looked up (`internal/enginehost/stepowner.go:140`-`:142`). It is refused with `failed_precondition` when the step is running its gate, and when the step is not held and no turn is running (`internal/enginehost/stepowner.go:86`-`:88`, `:34`-`:37`). On a held step, the text resumes the step at once when the held turn has already ended. Otherwise it waits for that turn's end, which is no round, and is continued then (`internal/enginehost/stepowner.go:77`-`:85`, `internal/enginehost/steploop.go:192`-`:199`). On a running turn, the turn is interrupted, and its end is continued with any pending watchdog text followed by the owner's text, in place of a round (`internal/enginehost/stepowner.go:89`-`:97`, `internal/enginehost/steploop.go:201`-`:203`). Owner text sent while a nudge is pending is joined to it, one line per text (`internal/enginehost/stepowner.go:89`-`:92`, `internal/enginehost/steploop.go:255`-`:256`). A nudge neither spends nor replaces the watchdog's nudge, and an OK reply means the nudge landed (`internal/enginehost/stepowner.go:133`-`:138`).
+- **Hold.** `HoldStep` interrupts the step's running turn and marks the step held (`internal/enginehost/stepowner.go:55`-`:69`, `:112`-`:123`). It is refused with `failed_precondition` when the step is already held, when no turn is running, and when the step is running its gate (`internal/enginehost/stepowner.go:56`-`:60`, `:34`-`:37`). A failed interrupt is returned as `internal`, and the step stays unheld. A landed hold drops any nudge pending for the turn, the watchdog's and the owner's (`internal/enginehost/stepowner.go:65`-`:66`). A held step's loop skips each tick, so the watch checks nothing (`internal/enginehost/steploop.go:180`-`:183`). A held step's turn end is no round, and it continues nothing (`internal/enginehost/steploop.go:202`-`:205`).
+- **Owner nudge.** `NudgeStep` sends the owner's text to the step (`internal/enginehost/stepowner.go:133`-`:154`). Empty text is `invalid_argument`, and it is refused before the step is looked up (`internal/enginehost/stepowner.go:140`-`:142`). It is refused with `failed_precondition` when the step is running its gate, and when the step is not held and no turn is running (`internal/enginehost/stepowner.go:86`-`:88`, `:34`-`:37`). On a held step, the text resumes the step at once when the held turn has already ended. Otherwise it waits for that turn's end, which is no round, and is continued then (`internal/enginehost/stepowner.go:77`-`:85`, `internal/enginehost/steploop.go:202`-`:209`). On a running turn, the turn is interrupted, and its end is continued with any pending watchdog text followed by the owner's text, in place of a round (`internal/enginehost/stepowner.go:89`-`:97`, `internal/enginehost/steploop.go:211`-`:212`). Owner text sent while a nudge is pending is joined to it, one line per text (`internal/enginehost/stepowner.go:89`-`:92`, `internal/enginehost/steploop.go:266`-`:273`). A nudge neither spends nor replaces the watchdog's nudge, and an OK reply means the nudge landed (`internal/enginehost/stepowner.go:133`-`:138`).
 - **Restart.** At start, `orreryd` settles each step's engine row as it settles other engine rows: a row that was `working` or `waiting` is recorded `interrupted` with the reason `orreryd restarted during the turn`, and no notice is sent. Each open step row with no loop then ends `engine_restarted`, and its worktree is removed. Nothing resumes a step after a restart. `Continue`, which the loop sends, respawns a step that is not live from its rows: it resumes the row's claude session with the same agent and schema flags, and it takes a step slot first.
 
 
@@ -816,7 +827,7 @@ Example. The names are synthetic:
 
 ### Pool files
 
-`orrery run` reads two TOML files that declare pools: a project file and a machine file. Both are read on each run. A file that does not exist declares no pools.
+`orrery run` and `orrery gate` read two TOML files that declare pools: a project file and a machine file. Both are read on each run. A file that does not exist declares no pools. A step's start reads the same two files for the pools its gate needs (see [Steps](#steps)). Where a rule below names `orrery run`, `orrery gate` follows it too.
 
 - The project file is `.orrery/project.toml`. Inside a git work tree, it is at the top of the work tree the command runs in, so each worktree of a repository reads its own file. Outside git, it is the nearest `.orrery/project.toml` at or above the working directory.
 - The machine file is `$XDG_CONFIG_HOME/orrery/pools.toml` when `XDG_CONFIG_HOME` is set and not empty. Otherwise it is `$HOME/.config/orrery/pools.toml`. When neither variable is set, `orrery run` exits 75.
@@ -836,6 +847,7 @@ Each file holds `[pools.NAME]` tables. Every table has all nine keys below, and 
 - A pool name matches `[a-z][a-z0-9_]*`. A member name matches `[A-Za-z0-9][A-Za-z0-9._-]*`.
 - A member belongs to one pool. `orrery run` refuses a run whose merged files put one member in two pools.
 - Keys match exactly. A file with an unknown key, an unknown table, or a missing required key is refused.
+- A project file may also hold a `[gates]` table, which [Gate files](#gate-files) defines. Here it is refused only when `gates` is not a table. The machine file's `[gates]` table is not read for gates.
 - `orrery run` merges the two files. A pool defined the same way in both is kept once. A pool defined differently in the two files refuses the run with exit 75.
 
 Example. Every name in it is synthetic:
@@ -851,6 +863,64 @@ status = ["example-status"]
 status_limit = 30
 admit = ["example-admit"]
 admit_limit = 30
+```
+
+### Gate files
+
+A gate is a named `[gates.NAME]` table in one of two TOML files. `orrery gate` and a step's gate both run the gate they resolve (see [orrery](#orrery) and [Step lifecycle](#step-lifecycle)).
+
+- The epic's gates file is named by the caller: `gates_file` in `StartStep` (see [Steps](#steps)), or `--gates FILE` in `orrery gate`. By convention it is `gates.toml` in the epic's record directory, `~/.gambit/<repo-id>/<slug>/`. It holds a `[gates]` table, which may hold no gates, and no other top-level key.
+- The project file is `.orrery/project.toml`, the file of [Pool files](#pool-files). Its `[gates]` table is optional.
+- The machine file, `pools.toml`, holds no gates. Its `[gates]` table, if it has one, is not read for gates.
+
+A name resolves in this order (`internal/gates/resolve.go:36`-`:66`):
+
+1. When an epic gates file is named, it is read first, in full. A missing, unreadable or invalid file is an error, even when the name is in the project file.
+2. When that file does not define the name, or no file is named, the project file is read. A missing project file defines no gates. The project file is found as [Pool files](#pool-files) gives.
+3. A name that neither file defines is refused. The error names every file searched, or says that there were none.
+
+The gate's source is `epic` or `project`, the file that defines it.
+
+Each `[gates.NAME]` table has these keys:
+
+| Key | Type | Meaning |
+|---|---|---|
+| `argv` | array of strings | required. The gate's program and its arguments, run without a shell. The array may not be empty, and no element may be empty. `argv[0]` must contain a `/`, and it is never looked up on `PATH` |
+| `limit` | integer seconds, 1 to 9223372036 | required. How long the gate may run. The count starts when the gate's grant is granted, not when it queues |
+| `needs` | table of pool names to integers | optional. The pool members the gate holds while it runs, as `POOL = COUNT`. A gate with no `needs` holds one member of the pool `gate`. The table may not be empty |
+
+- A gate name matches `[a-z][a-z0-9_]*`, and so does each pool name in `needs`. Each count is 1 to 2147483647.
+- Each pool in `needs` must be declared by a pool file for the directory the gate is resolved in: the working directory for `orrery gate`, the step's workspace for a step. Otherwise the gate is refused (see [Pool files](#pool-files)).
+- Keys match exactly. A file with a top-level key other than `gates` (or `pools` in a project file), a gate with a key other than `argv`, `limit` and `needs`, or a gate without `argv` or `limit` is refused.
+
+A changed file reaches only steps started after it. A step resolves its gate once, when it starts, and keeps the argv, limit and needs that resolution gave (see [Steps in the store](#steps-in-the-store)). `orrery gate` reads both files on each run.
+
+Example. Every name in them is synthetic. The epic's gates file, `gates.toml`:
+
+```toml
+[gates]
+
+[gates.check]
+argv = ["/opt/example/bin/check"]
+limit = 600
+needs = { builds = 1 }
+
+[gates.lint]
+argv = ["/opt/example/bin/lint", "--strict"]
+limit = 120
+```
+
+The project file, `.orrery/project.toml`, which may also hold `[pools]` tables:
+
+```toml
+[gates.integration]
+argv = ["/opt/example/bin/integration"]
+limit = 1800
+needs = { builds = 1 }
+
+[gates.smoke]
+argv = ["/opt/example/bin/smoke"]
+limit = 300  # no needs: one member of the pool gate
 ```
 
 ### Store
@@ -985,7 +1055,7 @@ The 14-day cutoff of the tidy applies to engine rows too. The cutoff is `now` le
 
 #### Steps in the store
 
-The `steps` table (migrations `00004_steps.sql`, `00005_step_watch.sql` and `00006_step_labels.sql`) has one row per step. Its `id` is the id of the step's `sessions` row. A row is added when the step starts. Its columns are these:
+The `steps` table (migrations `00004_steps.sql`, `00005_step_watch.sql`, `00006_step_labels.sql` and `00009_step_gate.sql`) has one row per step. Its `id` is the id of the step's `sessions` row. A row is added when the step starts. Its columns are these:
 
 | Column | Type | Meaning |
 |---|---|---|
@@ -999,8 +1069,8 @@ The `steps` table (migrations `00004_steps.sql`, `00005_step_watch.sql` and `000
 | `done_value` | `TEXT` | the status that ends the step `done` |
 | `read_only` | `BOOLEAN` | whether the step is read-only |
 | `owned` | `TEXT` | the `owned_paths` as a JSON array; `null` when there are none |
-| `gate` | `TEXT` | the gate argv as a JSON array, with its program resolved on `PATH`; `null` for no gate |
-| `gate_limit` | `INTEGER` | the gate limit in nanoseconds |
+| `gate` | `TEXT` | the gate argv as a JSON array, as its definition gives it; `null` for no gate |
+| `gate_limit` | `INTEGER` | the gate limit in nanoseconds; 30 minutes for a step that names no gate |
 | `model_limit` | `INTEGER` | the model-time limit in nanoseconds; `0` for a row added before migration `00005` |
 | `started` | `INTEGER` | unix seconds when the row was added |
 | `checks` | `TEXT` | the checks of every return so far, as a JSON array of `round`, `name`, `ok` and `detail`; `[]` at start |
@@ -1013,6 +1083,9 @@ The `steps` table (migrations `00004_steps.sql`, `00005_step_watch.sql` and `000
 | `ended` | `INTEGER` | unix seconds when the step ended; `0` while it runs |
 | `epic` | `TEXT` | the epic the step was started with, as migration `00006_step_labels.sql` adds it; `""` for an unlabelled step, and for a row added before that migration |
 | `task` | `TEXT` | the task slug the step was started with, as migration `00006_step_labels.sql` adds it; `""` when it works on no one task, and for a row added before that migration |
+| `gate_name` | `TEXT` | the name the step's gate was resolved by, as migration `00009_step_gate.sql` adds it; `""` for a step that names no gate, and for a row added before that migration |
+| `gate_source` | `TEXT` | `epic` or `project`, the kind of file the gate was defined in, as migration `00009_step_gate.sql` adds it; `""` for a step that names no gate, and for a row added before that migration |
+| `gate_needs` | `TEXT` | the gate's needs as a JSON array of `{"pool", "count"}` objects, as migration `00009_step_gate.sql` adds it; `null` for a step that names no gate, and `[]` for a row added before that migration |
 
 The `sessions` row of a step has `kind` `step`, its `dir` (the workspace, or the worktree of a read-only step), and the same state, `reason` and `claude_session` columns as an engine row (see [Engine sessions in the store](#engine-sessions-in-the-store)). Its engine events are the engine kinds of the `events` table.
 
@@ -1583,3 +1656,5 @@ orrery desk notices (effort 1) added, additively: the desk stream on `notices.so
 orrery desk notices (effort 1) removed the ntfy topic. The variables `ORRERY_NTFY_URL_FILE` and `ORRERY_NTFY_TOKEN_FILE`, their constants `protocol.EnvNtfyURLFile` and `protocol.EnvNtfyAuthFile`, the `internal/ntfy` package, and every ntfy post of `orreryd`, including the session notices, are gone. The notices those posts carried are on the desk stream, which `orrery notices` reads, and the `orrery desk` popups show them. `--push-host` and its default `ntfy.sh` are unchanged, because they name the Web Push relay (section 11). This is a removal, not an addition: a setup that set either variable receives no ntfy notice, and reads the desk stream instead.
 
 orrery L1a1 (pools) added, additively: the `orrery run` subcommand, its `--needs` flags, its environment variables and its exit statuses (see [orrery](#orrery)); the project file, the machine file and the project naming rule (see [Pool files](#pool-files)); the `orrery.engine.v1.Pools` service on `sessions.sock`, its `Acquire` call and its Connect codes, and the broker's restore at start and its 60-second status tick (see [Pools](#pools)); the member states, the grant order and the member commands, with their `ORRERY_POOL` and `ORRERY_MEMBER` variables (see [Pool members](#pool-members)); and the `grants` and `grant_members` tables (migration `00007_grants.sql`, see [Grants in the store](#grants-in-the-store)). `--sessions` now also serves the Pools service. No existing name or value changes.
+
+orrery named gates added, additively: the `orrery gate` subcommand and its exit statuses (see [orrery](#orrery)); the gates file and the `[gates]` table of the project file (see [Gate files](#gate-files)); the `gate_name` and `gates_file` fields of `StartStep` (`proto/orrery/engine/v1/step.proto` fields 14 and 15) and the `gateName` and `gatesFile` arguments of `step_start` (see [Steps](#steps) and [step_start](engine-protocol.md#step_start)); and the `gate_name`, `gate_source` and `gate_needs` columns of the `steps` table (migration `00009_step_gate.sql`, see [Steps in the store](#steps-in-the-store)). This is a removal too, and it is not additive: the `orreryd` flag `--gate-lock` is gone, and the `gate` and `gate_limit_seconds` fields of `StartStep` are refused with `invalid_argument`; the `gate` and `gateLimitSeconds` arguments of `step_start` are refused as unknown keys.
