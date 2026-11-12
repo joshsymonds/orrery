@@ -54,7 +54,8 @@ img { max-width: 100%; }
 }
 
 /* The list and its columns sit abreast from a desktop width, and stack on a phone. A hidden column takes no place, so
-   the epic column takes the reader's place beside the list, and beside the pin when one is open. */
+   the epic column takes the reader's place beside the list, and beside the pin when one is open. On a step entry the
+   reader and the epic column both show, so with-step adds a column; with a pin as well, the grid has four. */
 .panes { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; align-items: start; }
 .list, .read, .side { min-width: 0; }
 .read { display: flex; flex-direction: column; gap: 8px; }
@@ -64,7 +65,8 @@ img { max-width: 100%; }
 .pin-reply { min-width: 0; }
 @media (min-width: 760px) {
   .panes { grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); }
-  .panes.split { grid-template-columns: minmax(0, 2fr) minmax(0, 3fr) minmax(0, 3fr); }
+  .panes.split, .panes.with-step { grid-template-columns: minmax(0, 2fr) minmax(0, 3fr) minmax(0, 3fr); }
+  .panes.split.with-step { grid-template-columns: minmax(0, 2fr) minmax(0, 3fr) minmax(0, 3fr) minmax(0, 3fr); }
 }
 
 .rows { min-width: 0; }

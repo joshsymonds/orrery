@@ -15,11 +15,12 @@ import {
   withEpicsGroup,
 } from "./epics";
 import { EpicView } from "./epicview";
-import { follow } from "./follow";
+import { type Followed, follow } from "./follow";
 import { type ParsedQuestion, parseQuestion } from "./question";
 import { Reader } from "./reader";
 import { byAttention, byProject, type Row } from "./rows";
 import { type SeenClock, type SeenWindow, watchSeen } from "./seen";
+import { StepBox } from "./stepbox";
 import { ReplyText } from "./text";
 
 type View = "attention" | "project";
@@ -49,6 +50,9 @@ const answerFailedText = "no answer was sent";
 const secondsPerMinute = 60;
 const minutesPerHour = 60;
 const hoursPerDay = 24;
+
+// A step keeps no seen mark. Infinity makes no item newer than it, so the step's reader draws no since-you-looked rule.
+const stepSeenAt = Number.POSITIVE_INFINITY;
 
 const helpEntries: [string[], string][] = [
   [["j", "k", "↓", "↑"], "move the cursor one row up or down"],
@@ -95,8 +99,11 @@ export function App({
   // The rows the cursor has rested on, each with its own composer, so a draft waits where it was typed. A row stays
   // here while it is missing from the list, as it is for a poll whose list call failed, so its draft is not lost.
   const [visited, setVisited] = useState<Row[]>([]);
+  // The steps the cursor has rested on, each with its own step box, kept as the visited rows are so a draft survives.
+  const [visitedSteps, setVisitedSteps] = useState<StepItem[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
   const composerInputs = useRef(new Map<string, HTMLTextAreaElement>());
+  const stepInputs = useRef(new Map<string, HTMLTextAreaElement>());
   // The row | pinned beside the list, with its own stream. The rows that have been pinned each keep a composer, as the
   // visited rows do, so a draft or a failed send survives the pin's close and its reopening on that row.
   const [pinned, setPinned] = useState<Row | null>(null);
@@ -126,14 +133,21 @@ export function App({
   const flat = sections.flatMap(entriesOf);
   const index = resolveIndex(flat, cursor);
   const cursorItem = index >= 0 ? flat[index] : null;
-  // The cursor's row, which an epic or step entry never has: the reader, composer and seen watch follow only a row.
+  // The cursor's row, which an epic or step entry never has: the composer and seen watch follow only a row.
   const cursorRow = cursorItem !== null && isRow(cursorItem) ? cursorItem : null;
   const cursorKey = cursorItem?.key ?? "";
   const cursorRowKey = cursorRow?.key ?? "";
+  // The cursor's step, whose reader follows its session and whose step box it shows. An epic entry is no step.
+  const cursorStep = cursorItem?.kind === "step" ? cursorItem : null;
+  const cursorStepKey = cursorStep?.key ?? "";
+  // The entry the reader follows: the cursor's row or step. Its stream is kept under this key, so a stream never
+  // shows under another entry.
+  const readerKey = cursorRowKey !== "" ? cursorRowKey : cursorStepKey;
   // The cursor's epic or step entry, which the right column draws whether or not a row is pinned. A step entry draws
   // the epic it belongs to, with the step marked; an epic entry marks no step.
   const cursorEpic = cursorItem !== null && !isRow(cursorItem) ? cursorItem : null;
   const cursorStepId = cursorEpic?.kind === "step" ? cursorEpic.id : "";
+  const stepEntries = flat.filter((item): item is StepItem => item.kind === "step");
   const epicDetail = cursorEpic === null ? undefined : epics.details.get(epicIdOf(cursorEpic));
   const shownIndex = Math.max(index, 0);
 
@@ -144,22 +158,31 @@ export function App({
     }
   }, [cursor, cursorKey, shownIndex]);
 
-  // The cursor's row is followed while the cursor rests on it: a move to another row, or an unmount, stops the stream.
+  // The cursor's row or step is followed while the cursor rests on it: a move to another entry, or an unmount, stops the
+  // stream. A step is followed as its session, by its id.
   useEffect(() => {
-    if (cursorRow === null) {
+    let target: Followed | null = null;
+    if (cursorRow !== null) {
+      target = { kind: cursorRow.kind, id: cursorRow.id };
+    } else if (cursorStep !== null) {
+      target = { kind: "session", id: cursorStep.id };
+    }
+    if (target === null) {
       return undefined;
     }
-    return follow(clients, { kind: cursorRow.kind, id: cursorRow.id }, (conversation) =>
-      setStream({ key: cursorRowKey, conversation }),
-    );
-  }, [cursorRowKey, clients]);
+    return follow(clients, target, (conversation) => setStream({ key: readerKey, conversation }));
+  }, [readerKey, clients]);
 
   useEffect(() => {
-    setVisited((previous) => keepRows(previous, rows, cursorRow));
+    setVisited((previous) => keepEntries(previous, rows, cursorRow));
   }, [rows, cursorRowKey]);
 
   useEffect(() => {
-    setPinnedRows((previous) => keepRows(previous, rows, pinned));
+    setVisitedSteps((previous) => keepEntries(previous, stepEntries, cursorStep));
+  }, [epics, cursorStepKey]);
+
+  useEffect(() => {
+    setPinnedRows((previous) => keepEntries(previous, rows, pinned));
   }, [rows, pinned]);
 
   // The pinned row is followed while it stays pinned: its close, or an unmount, stops the stream.
@@ -230,8 +253,8 @@ export function App({
     );
   });
 
-  // The conversation the cursor's reader holds, only when its stream belongs to the cursor's row.
-  const cursorConversation = stream !== null && stream.key === cursorRowKey ? stream.conversation : null;
+  // The conversation the cursor's reader holds, only when its stream belongs to the entry the cursor rests on.
+  const cursorConversation = stream !== null && stream.key === readerKey ? stream.conversation : null;
   const toggleOpen = () => setOpen((value) => !value);
 
   const moveTo = (target: number) => {
@@ -273,7 +296,11 @@ export function App({
       return;
     }
     // Keys typed in the reply box are text: only Escape leaves it.
-    const composerBoxes = [...composerInputs.current.values(), ...pinnedInputs.current.values()];
+    const composerBoxes = [
+      ...composerInputs.current.values(),
+      ...pinnedInputs.current.values(),
+      ...stepInputs.current.values(),
+    ];
     const focusedComposer = composerBoxes.find((box) => box === document.activeElement);
     if (focusedComposer !== undefined) {
       if (event.key === "Escape") {
@@ -339,7 +366,11 @@ export function App({
         inputRef.current?.focus();
         break;
       case "i":
-        composerInputs.current.get(cursorRowKey)?.focus();
+        if (cursorStep !== null) {
+          stepInputs.current.get(cursorStepKey)?.focus();
+        } else {
+          composerInputs.current.get(cursorRowKey)?.focus();
+        }
         break;
       case "1":
         answerCursor(1);
@@ -423,7 +454,7 @@ export function App({
           {answerError}
         </p>
       )}
-      <div class={pinned === null ? "panes" : "panes split"}>
+      <div class={panesClass(pinned !== null, cursorStep !== null)}>
         <div class="list">
           <div class="rows" data-list={view}>
             {sections.map((section) => (
@@ -501,7 +532,7 @@ export function App({
             </section>
           )}
         </div>
-        <section class="read" aria-label="reader" hidden={cursorRow === null}>
+        <section class="read" aria-label="reader" hidden={cursorRow === null && cursorStep === null}>
           {cursorRow !== null && (
             <Reader
               conversation={cursorConversation}
@@ -512,23 +543,51 @@ export function App({
               onToggleOpen={toggleOpen}
             />
           )}
+          {cursorStep !== null && (
+            <Reader
+              conversation={cursorConversation}
+              seenAt={stepSeenAt}
+              open={open}
+              onToggleOpen={toggleOpen}
+            />
+          )}
           {composerRows(visited, cursorRow).map((row) => (
-              <div key={row.key} class="reply" hidden={row.key !== cursorRowKey}>
-                <Composer
-                  label={row.label}
-                  send={(text, promptId) => actions.send(clients, row, text, promptId)}
-                  pull={row.kind === "pane" ? () => actions.pullQueued(clients, row) : null}
-                  newPromptId={actions.newPromptId}
+            <div key={row.key} class="reply" hidden={row.key !== cursorRowKey}>
+              <Composer
+                label={row.label}
+                send={(text, promptId) => actions.send(clients, row, text, promptId)}
+                pull={row.kind === "pane" ? () => actions.pullQueued(clients, row) : null}
+                newPromptId={actions.newPromptId}
+                inputRef={(element) => {
+                  if (element === null) {
+                    composerInputs.current.delete(row.key);
+                  } else {
+                    composerInputs.current.set(row.key, element);
+                  }
+                }}
+              />
+            </div>
+          ))}
+          {composerRows(visitedSteps, cursorStep).map((step) => {
+            const calls = stepCalls(clients, step.id);
+            return (
+              <div key={step.id} class="reply" hidden={step.key !== cursorStepKey}>
+                <StepBox
+                  label={step.label}
+                  nudge={calls.nudge}
+                  hold={calls.hold}
+                  stop={calls.stop}
                   inputRef={(element) => {
                     if (element === null) {
-                      composerInputs.current.delete(row.key);
+                      stepInputs.current.delete(step.key);
                     } else {
-                      composerInputs.current.set(row.key, element);
+                      stepInputs.current.set(step.key, element);
                     }
                   }}
                 />
               </div>
-            ))}
+            );
+          })}
         </section>
         <section class="read pinned" aria-label="pinned reader" hidden={pinned === null}>
           {pinned !== null && <div class="pin-head">{`pinned · ${pinned.label}`}</div>}
@@ -595,25 +654,47 @@ function readAsSeen(row: Row, written: Map<string, number>): Row {
   return row.unseen && writtenAt !== undefined && row.changed <= writtenAt ? { ...row, unseen: false } : row;
 }
 
-// keepRows adds the row to the rows that keep a composer and refreshes each kept row from the list. A row missing from
-// the list is kept as it was. It returns previous itself when nothing changes, so an unchanged list does not render
-// again.
-function keepRows(previous: Row[], rows: Row[], added: Row | null): Row[] {
-  const kept = previous.map((held) => rows.find((row) => row.key === held.key) ?? held);
-  if (added !== null && !kept.some((row) => row.key === added.key)) {
+// keepEntries adds the entry to the entries that keep a box and refreshes each kept entry from the latest list. An
+// entry missing from the list is kept as it was. It returns previous itself when nothing changes, so an unchanged list
+// does not render again.
+function keepEntries<T extends { key: string }>(previous: T[], latest: T[], added: T | null): T[] {
+  const kept = previous.map((held) => latest.find((entry) => entry.key === held.key) ?? held);
+  if (added !== null && !kept.some((entry) => entry.key === added.key)) {
     kept.push(added);
   }
-  const unchanged = kept.length === previous.length && kept.every((row, position) => row === previous[position]);
+  const unchanged = kept.length === previous.length && kept.every((entry, position) => entry === previous[position]);
   return unchanged ? previous : kept;
 }
 
-// composerRows returns the rows that render a composer: the kept rows, and the shown row before the effect has added
+// composerRows returns the entries that render a box: the kept entries, and the shown entry before the effect has added
 // it.
-function composerRows(kept: Row[], shown: Row | null): Row[] {
-  if (shown === null || kept.some((row) => row.key === shown.key)) {
+function composerRows<T extends { key: string }>(kept: T[], shown: T | null): T[] {
+  if (shown === null || kept.some((entry) => entry.key === shown.key)) {
     return kept;
   }
   return [...kept, shown];
+}
+
+// panesClass names the grid the columns sit in: split when a row is pinned, and with-step when a step's reader and its
+// epic column both show.
+function panesClass(split: boolean, withStep: boolean): string {
+  return `panes${split ? " split" : ""}${withStep ? " with-step" : ""}`;
+}
+
+// stepCalls are the owner's calls on one step, each naming the step by its id: Steps.Nudge with the text, Steps.Hold,
+// and Steps.Stop. The page has no other call on a step.
+function stepCalls(clients: Clients, id: string) {
+  return {
+    nudge: async (text: string): Promise<void> => {
+      await clients.steps.nudge({ id, text });
+    },
+    hold: async (): Promise<void> => {
+      await clients.steps.hold({ id });
+    },
+    stop: async (): Promise<void> => {
+      await clients.steps.stop({ id });
+    },
+  };
 }
 
 // resolveIndex finds the cursor's entry, or the index it sat at, clamped into the entries; -1 when there are none.

@@ -35,6 +35,10 @@ const seenFailedText = "could not mark seen";
 const sendKeysPath = "/orrery.v1.Panes/SendKeys";
 const answerPath = "/orrery.v1.Control/Answer";
 const answerFailedText = "no answer was sent";
+const nudgePath = "/orrery.v1.Steps/Nudge";
+const holdPath = "/orrery.v1.Steps/Hold";
+const stopStepPath = "/orrery.v1.Steps/Stop";
+const refusedNudgeText = "step is not running";
 
 type Clients = ReturnType<typeof createClients>;
 
@@ -63,6 +67,8 @@ class FakeServer {
   readonly calls: Call[] = [];
   // failNext holds the unary paths whose next call the server refuses with a Connect error, once each.
   readonly failNext = new Set<string>();
+  // refuseNext maps a unary path to the message its next call is refused with as failed_precondition, once each.
+  readonly refuseNext = new Map<string, string>();
   // seen is the page the seen watch reads: the test emits its input, sets its focus, and advances its clock.
   readonly seen = fakeSeen();
 
@@ -75,6 +81,14 @@ class FakeServer {
       if (this.failNext.delete(path)) {
         return new Response(JSON.stringify({ code: "unavailable", message: "queue unreachable" }), {
           status: 503,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      const refusal = this.refuseNext.get(path);
+      if (refusal !== undefined) {
+        this.refuseNext.delete(path);
+        return new Response(JSON.stringify({ code: "failed_precondition", message: refusal }), {
+          status: 400,
           headers: { "content-type": "application/json" },
         });
       }
@@ -1564,7 +1578,7 @@ test("an unmatched epic with no repository name is titled no directory in projec
   });
 });
 
-test("j and k reach epic and step entries, and the reader is hidden on them", () => {
+test("j and k reach epic and step entries; the reader is hidden on an epic and shown on a step", () => {
   return withApp({ epics: oneEpic() }, async (container, fake) => {
     await until(() => fake.callsTo(paneWatchPath).length === 1, "the pane stream for a");
     const [stream] = fake.callsTo(paneWatchPath);
@@ -1573,11 +1587,12 @@ test("j and k reach epic and step entries, and the reader is hidden on them", ()
     assert.equal(cursorKey(container), `epic:${widgetsRepo}/first`);
     assert.equal(readerHidden(container), true);
     assert.equal(stream.signal.aborted, true, "moving onto the epic stops a's stream");
+    assert.equal(fake.calls.length, before, "no call is made for an epic entry");
     await press("j");
     assert.equal(cursorKey(container), "step:s1");
+    assert.equal(readerHidden(container), false, "a step shows the reader");
     await press("j");
     assert.equal(cursorKey(container), "step:s2");
-    assert.equal(fake.calls.length, before, "no call is made for an epic or step entry");
     await press("j");
     assert.equal(cursorKey(container), "c");
     assert.equal(readerHidden(container), false);
@@ -1606,21 +1621,17 @@ test("w and n skip the epic and step entries", () => {
   });
 });
 
-test("x, Enter, e, i, 1, 2, 3 and | on an epic or step entry call nothing and pin nothing", () => {
+test("x, Enter, e, i, 1, 2, 3 and | on an epic entry call nothing and pin nothing", () => {
   return withApp({ epics: oneEpic() }, async (container, fake) => {
     await until(() => fake.callsTo(paneWatchPath).length === 1, "the pane stream for a");
     const before = fake.calls.length;
-    const keys = ["x", "Enter", "e", "i", "1", "2", "3", "|"];
     await press("j");
     assert.equal(cursorKey(container), `epic:${widgetsRepo}/first`);
-    await pressEach(keys);
-    await press("j");
-    assert.equal(cursorKey(container), "step:s1");
-    await pressEach(keys);
+    await pressEach(["x", "Enter", "e", "i", "1", "2", "3", "|"]);
     await settle();
     assert.equal(fake.calls.length, before, "no call reaches the server");
     assert.equal(container.querySelector(".panes")?.classList.contains("split"), false, "| pinned nothing");
-    assert.equal(cursorKey(container), "step:s1");
+    assert.equal(cursorKey(container), `epic:${widgetsRepo}/first`);
   });
 });
 
@@ -1816,3 +1827,228 @@ test("with a row pinned, the right column follows the cursor from one epic's ste
     assert.ok(pinnedColumn(container), "the pinned column stays open");
   });
 });
+
+// onStepOne moves the cursor from row a down to the first step of oneEpic, s1, and waits for its stream to start.
+async function onStepOne(container: HTMLElement, fake: FakeServer): Promise<void> {
+  await press("j");
+  await press("j");
+  assert.equal(cursorKey(container), "step:s1");
+  await until(() => fake.callsTo(sessionWatchPath).length === 1, "the step stream");
+}
+
+// stepButton is the button of the cursor's step box with the given label.
+function stepButton(container: HTMLElement, label: string): HTMLButtonElement {
+  const button = [...container.querySelectorAll<HTMLButtonElement>(".reply:not([hidden]) .stepbox-actions button")].find(
+    (element) => element.textContent === label,
+  );
+  assert.ok(button, `the step box has a ${label} button`);
+  return button;
+}
+
+async function clickIn(element: Element): Promise<void> {
+  await act(() => {
+    element.dispatchEvent(clickEvent());
+  });
+}
+
+test("a step entry streams Sessions.WatchConversation by its id, and the reader draws its reply as text", () =>
+  withApp({ epics: oneEpic() }, async (container, fake) => {
+    await onStepOne(container, fake);
+    const [stream] = fake.callsTo(sessionWatchPath);
+    assert.equal(stream.body.id, "s1");
+    fake.emit(stream, {
+      transcript: "t1",
+      seq: "1",
+      reset: true,
+      items: [{ kind: "assistant", text: "the step reply" }],
+    });
+    await until(() => readerText(container).includes("the step reply"), "the step reply");
+    assert.equal(readerHidden(container), false, "the reader shows on a step");
+    assert.equal(container.querySelector(".question-card"), null, "a step draws no question");
+    assert.equal(container.querySelector(".reader .option"), null, "a step draws no answer");
+  }));
+
+test("Enter in a step's box calls Steps.Nudge once with its id and text, and clears the draft when it lands", () =>
+  withApp({ epics: oneEpic() }, async (container, fake) => {
+    await onStepOne(container, fake);
+    await press("i");
+    const box = composer(container);
+    assert.equal(document.activeElement, box);
+    await typeInto(box, "try the other route");
+    await pressIn(box, "Enter");
+    await until(() => fake.callsTo(nudgePath).length === 1, "the nudge");
+    assert.deepEqual(fake.callsTo(nudgePath)[0].body, { id: "s1", text: "try the other route" });
+    await until(() => box.value === "", "the landed draft cleared");
+    await settle();
+    assert.equal(fake.callsTo(nudgePath).length, 1, "the nudge was sent once");
+  }));
+
+test("a refused nudge keeps the step's draft and shows the refusal", () =>
+  withApp({ epics: oneEpic() }, async (container, fake) => {
+    fake.refuseNext.set(nudgePath, refusedNudgeText);
+    await onStepOne(container, fake);
+    await press("i");
+    await typeInto(composer(container), "try again");
+    await pressIn(composer(container), "Enter");
+    await until(() => alertTexts(container).includes(`nudge refused: ${refusedNudgeText}`), "the refusal line");
+    assert.equal(composer(container).value, "try again", "the draft is kept");
+  }));
+
+test("an unknown nudge outcome shows not known, keeps the draft, and Enter does not resend it", () =>
+  withApp({ epics: oneEpic() }, async (container, fake) => {
+    fake.failNext.add(nudgePath);
+    await onStepOne(container, fake);
+    await press("i");
+    await typeInto(composer(container), "try again");
+    await pressIn(composer(container), "Enter");
+    await until(() => alertTexts(container).some((text) => text.startsWith("nudge not known")), "the unknown line");
+    assert.equal(composer(container).value, "try again", "the draft is kept");
+    await pressIn(composer(container), "Enter");
+    await settle();
+    assert.equal(fake.callsTo(nudgePath).length, 1, "the nudge was not resent");
+  }));
+
+test("Interrupt calls Steps.Hold with the step's id", () =>
+  withApp({ epics: oneEpic() }, async (container, fake) => {
+    await onStepOne(container, fake);
+    await clickIn(stepButton(container, "Interrupt"));
+    await until(() => fake.callsTo(holdPath).length === 1, "the hold");
+    assert.deepEqual(fake.callsTo(holdPath)[0].body, { id: "s1" });
+  }));
+
+test("Stop asks first: Cancel sends nothing, and Confirm stop calls Steps.Stop with the step's id", () =>
+  withApp({ epics: oneEpic() }, async (container, fake) => {
+    await onStepOne(container, fake);
+    await clickIn(stepButton(container, "Stop"));
+    assert.equal(fake.callsTo(stopStepPath).length, 0, "Stop alone sends nothing");
+    await clickIn(stepButton(container, "Cancel"));
+    await settle();
+    assert.equal(fake.callsTo(stopStepPath).length, 0, "Cancel sends nothing");
+    await clickIn(stepButton(container, "Stop"));
+    await clickIn(stepButton(container, "Confirm stop"));
+    await until(() => fake.callsTo(stopStepPath).length === 1, "the stop");
+    assert.deepEqual(fake.callsTo(stopStepPath)[0].body, { id: "s1" });
+  }));
+
+test("a draft stays with its step across cursor moves, and each step keeps its own box", () =>
+  withApp({ epics: oneEpic() }, async (container, fake) => {
+    await onStepOne(container, fake);
+    await press("i");
+    await typeInto(composer(container), "for one");
+    await pressIn(composer(container), "Escape");
+    await press("j");
+    assert.equal(cursorKey(container), "step:s2");
+    assert.equal(composer(container).value, "", "s2 has its own empty box");
+    await press("k");
+    assert.equal(cursorKey(container), "step:s1");
+    assert.equal(composer(container).value, "for one", "the draft survived");
+  }));
+
+test("a step's draft survives a poll that no longer lists the step", () =>
+  withApp({ epics: oneEpic() }, async (container, fake) => {
+    await onStepOne(container, fake);
+    await press("i");
+    await typeInto(composer(container), "keep going");
+    await pressIn(composer(container), "Escape");
+    const withoutSteps = epicsView([makeEpic(widgetsRepo, "first")], new Map());
+    await mount(container, { rows: fixture(), error: "", now, clients: fake.clients, seen: fake.seen, epics: withoutSteps });
+    await mount(container, { rows: fixture(), error: "", now, clients: fake.clients, seen: fake.seen, epics: oneEpic() });
+    await press("g");
+    await press("g");
+    await onStepOne(container, fake);
+    assert.equal(composer(container).value, "keep going", "the draft survived the poll");
+  }));
+
+test("i focuses the step's box, its keys are text, and Escape leaves it", () =>
+  withApp({ epics: oneEpic() }, async (container, fake) => {
+    await onStepOne(container, fake);
+    await press("i");
+    const box = composer(container);
+    assert.equal(document.activeElement, box);
+    await pressIn(box, "j");
+    await pressIn(box, "?");
+    assert.equal(cursorKey(container), "step:s1");
+    assert.equal(container.querySelector('[aria-label="keys"]'), null);
+    await pressIn(box, "Escape");
+    assert.notEqual(document.activeElement, box);
+    await press("j");
+    assert.equal(cursorKey(container), "step:s2");
+  }));
+
+test("1, x, e, Enter and | on a step entry call nothing and pin nothing", () =>
+  withApp({ epics: oneEpic() }, async (container, fake) => {
+    await onStepOne(container, fake);
+    const before = fake.calls.length;
+    await pressEach(["x", "Enter", "e", "1", "2", "3", "|"]);
+    await settle();
+    assert.equal(fake.calls.length, before, "no call reaches the server");
+    assert.equal(container.querySelector(".panes")?.classList.contains("split"), false, "| pinned nothing");
+    assert.equal(cursorKey(container), "step:s1");
+  }));
+
+test("no Control or Panes call names a step, and no call starts a step", () =>
+  withApp({ epics: oneEpic() }, async (container, fake) => {
+    await onStepOne(container, fake);
+    await pressEach(["x", "Enter", "e", "1", "2", "3", "|"]);
+    await press("i");
+    await typeInto(composer(container), "keep going");
+    await pressIn(composer(container), "Enter");
+    await until(() => fake.callsTo(nudgePath).length === 1, "the nudge");
+    await clickIn(stepButton(container, "Interrupt"));
+    await until(() => fake.callsTo(holdPath).length === 1, "the hold");
+    await clickIn(stepButton(container, "Stop"));
+    await clickIn(stepButton(container, "Confirm stop"));
+    await until(() => fake.callsTo(stopStepPath).length === 1, "the stop");
+    for (const call of fake.calls) {
+      assert.equal(call.path.includes("StartStep"), false, `${call.path} is not a start`);
+      if (call.path.startsWith("/orrery.v1.Panes/") || call.path.startsWith("/orrery.v1.Control/")) {
+        const names = Object.values(call.body).some((value) => value === "s1" || value === "s2");
+        assert.equal(names, false, `${call.path} names no step`);
+      }
+    }
+  }));
+
+test("leaving a step stops its stream, and the stream follows the cursor's step", () =>
+  withApp({ epics: oneEpic() }, async (container, fake) => {
+    await onStepOne(container, fake);
+    const [first] = fake.callsTo(sessionWatchPath);
+    await press("j");
+    assert.equal(cursorKey(container), "step:s2");
+    assert.equal(first.signal.aborted, true, "moving to s2 stops s1's stream");
+    await until(() => fake.callsTo(sessionWatchPath).length === 2, "the s2 stream");
+    assert.equal(fake.callsTo(sessionWatchPath)[1].body.id, "s2");
+    await press("j");
+    assert.equal(cursorKey(container), "c");
+    assert.equal(fake.callsTo(sessionWatchPath)[1].signal.aborted, true, "moving to a row stops s2's stream");
+  }));
+
+test("a step entry shows the reader beside the epic column, and a pin adds its column with the step class", () =>
+  withApp({ epics: oneEpic() }, async (container, fake) => {
+    await press("g");
+    await press("g");
+    await press("|");
+    await onStepOne(container, fake);
+    const panes = container.querySelector(".panes");
+    assert.equal(panes?.classList.contains("split"), true, "row a is pinned");
+    assert.equal(panes?.classList.contains("with-step"), true, "the reader and column share the panes");
+    assert.ok(shownEpicColumn(container), "the epic column shows");
+    assert.equal(readerHidden(container), false, "the reader shows");
+    await press("k");
+    assert.equal(cursorKey(container), `epic:${widgetsRepo}/first`);
+    assert.equal(
+      container.querySelector(".panes")?.classList.contains("with-step"),
+      false,
+      "an epic entry is not a step",
+    );
+  }));
+
+test("without a pin, a step entry's panes carry the step class; a row's do not", () =>
+  withApp({ epics: oneEpic() }, async (container, fake) => {
+    await onStepOne(container, fake);
+    assert.equal(container.querySelector(".panes")?.classList.contains("with-step"), true);
+    assert.equal(container.querySelector(".panes")?.classList.contains("split"), false);
+    await press("g");
+    await press("g");
+    assert.equal(cursorKey(container), "a");
+    assert.equal(container.querySelector(".panes")?.classList.contains("with-step"), false);
+  }));
