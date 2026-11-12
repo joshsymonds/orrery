@@ -1,0 +1,15 @@
+{
+  "name": "orrery-web",
+  "private": true,
+  "version": "0.0.0",
+  "dependencies": {
+    "@bufbuild/protobuf": "2.12.0",
+    "@connectrpc/connect": "2.1.1",
+    "@connectrpc/connect-web": "2.1.1",
+    "preact": "10.26.4"
+  },
+  "devDependencies": {
+    "@types/node": "24.10.1",
+    "happy-dom": "20.0.0"
+  }
+}
