@@ -11,6 +11,7 @@ import (
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/proto"
 
+	enginev1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
 	orreryv1 "github.com/joshsymonds/orrery/internal/gen/orrery/v1"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/store"
@@ -19,11 +20,12 @@ import (
 // originRunes is the most runes a session's origin keeps.
 const originRunes = 300
 
-// WatchConversation answers Sessions.WatchConversation with the stream of one headless session. The limit is checked
-// as Panes.WatchConversation checks it. The stream sends its first delta at once, then a delta for each poll that
-// finds new main-thread items, a changed state or a changed unfinished set, and a keepalive once keepalive has passed
-// without a delta. The stream ends with the error the session read gives, when serve shuts down, or when a send stays
-// blocked past the send deadline. Its send and end-of-stream writes are bounded as Events.Watch's are (see endWithin).
+// WatchConversation answers Sessions.WatchConversation with the stream of one headless session or one labeled step.
+// The limit is checked as Panes.WatchConversation checks it. The stream sends its first delta at once, then a delta for
+// each poll that finds new main-thread items, a changed state or a changed unfinished set, and a keepalive once
+// keepalive has passed without a delta. A step session is admitted once, by StepStatus, before its first delta. The
+// stream ends with the error the session read gives, when serve shuts down, or when a send stays blocked past the send
+// deadline. Its send and end-of-stream writes are bounded as Events.Watch's are (see endWithin).
 func (s sessionsServer) WatchConversation(
 	ctx context.Context,
 	req *connect.Request[orreryv1.SessionsWatchConversationRequest],
@@ -38,6 +40,7 @@ func (s sessionsServer) WatchConversation(
 	}
 	watch := &sessionWatch{
 		reader: s.reader,
+		steps:  s.steps,
 		id:     req.Msg.GetId(),
 		limit:  limit,
 		after:  req.Msg.GetAfter(),
@@ -83,8 +86,11 @@ func (s sessionsServer) runWatch(
 // sessionWatch is one WatchConversation call: the session it watches and the position its stream has reached.
 type sessionWatch struct {
 	reader *store.Reader
-	id     string
-	limit  int
+	// steps is asked about a step session. stepAdmitted is set once StepStatus has found the step labeled.
+	steps        StepClient
+	stepAdmitted bool
+	id           string
+	limit        int
 	// after is the seq the client holds. The first read answers with the items above it, or with a reset when it is 0.
 	after int64
 	// seq is the seq of the newest session event the stream has read.
@@ -162,8 +168,8 @@ func (w *sessionWatch) read(
 		if err != nil {
 			return nil, store.EngineHistory{}, sessionReadError(err)
 		}
-		if page.Kind != store.KindEngine {
-			return nil, store.EngineHistory{}, sessionNotFound()
+		if admitErr := w.admit(ctx, page.Kind); admitErr != nil {
+			return nil, store.EngineHistory{}, admitErr
 		}
 		for _, event := range page.Events {
 			items, err = w.collect(items, event, first, reset)
@@ -179,6 +185,42 @@ func (w *sessionWatch) read(
 			return items, page, nil
 		}
 	}
+}
+
+// admit returns nil for an engine session and for a step session StepStatus admits. Any other kind is not found.
+func (w *sessionWatch) admit(ctx context.Context, kind string) error {
+	switch kind {
+	case store.KindEngine:
+		return nil
+	case store.KindStep:
+		return w.checkStep(ctx)
+	default:
+		return sessionNotFound()
+	}
+}
+
+// checkStep asks StepStatus about the step session, once per stream, and admits it when the row carries an epic label.
+// A nil client, a step that is not found and a step with no label answer not_found. Any other StepStatus error answers
+// unavailable, and a refused check leaves the stream with nothing sent.
+func (w *sessionWatch) checkStep(ctx context.Context) error {
+	if w.stepAdmitted {
+		return nil
+	}
+	if w.steps == nil {
+		return sessionNotFound()
+	}
+	resp, err := w.steps.StepStatus(ctx, connect.NewRequest(&enginev1.StepStatusRequest{Id: w.id}))
+	var connectErr *connect.Error
+	switch {
+	case err != nil && errors.As(err, &connectErr) && connectErr.Code() == connect.CodeNotFound:
+		return sessionNotFound()
+	case err != nil:
+		return listError(connect.CodeUnavailable, stepsUnavailable)
+	case resp.Msg.GetStep().GetEpic() == "":
+		return sessionNotFound()
+	}
+	w.stepAdmitted = true
+	return nil
 }
 
 // collect tracks one event and appends its main-thread item to items when the delta carries it. first and reset are
