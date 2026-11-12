@@ -1,7 +1,6 @@
 package io.github.joshsymonds.orrery.ui
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -26,13 +25,13 @@ import io.github.joshsymonds.orrery.api.currentTool
 import io.github.joshsymonds.orrery.ui.theme.Mocha
 
 /**
- * What a Claude pane is doing right now, on one tappable line. Working shows the current tool
+ * What a Claude pane is doing right now, on one line. Working shows the current tool
  * with its input and elapsed time; waiting shows its age; done shows its age. Any other state
  * draws nothing. While working or waiting the line is tinted with its state's colour, so an
  * assistant in flight, or one waiting on the reader, shows at a glance.
  */
 @Composable
-fun StatusLine(pane: Pane, nowSeconds: Long, onClick: () -> Unit, modifier: Modifier = Modifier) {
+fun StatusLine(pane: Pane, nowSeconds: Long, modifier: Modifier = Modifier) {
     val status = statusOf(pane, nowSeconds) ?: return
     Row(
         modifier = modifier
@@ -40,7 +39,6 @@ fun StatusLine(pane: Pane, nowSeconds: Long, onClick: () -> Unit, modifier: Modi
             .fillMaxWidth()
             .clip(RoundedCornerShape(8.dp))
             .background(if (status.tinted) status.colour.copy(alpha = TINT_ALPHA) else Color.Transparent)
-            .clickable(onClick = onClick)
             .padding(horizontal = 10.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -76,7 +74,6 @@ fun StatusLine(pane: Pane, nowSeconds: Long, onClick: () -> Unit, modifier: Modi
             fontSize = 12.5.sp,
             maxLines = 1,
         )
-        Text(text = "›", color = Mocha.Overlay1, fontSize = 12.5.sp, maxLines = 1)
     }
 }
 

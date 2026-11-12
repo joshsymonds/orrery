@@ -19,7 +19,6 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.PickerClient
 import io.github.joshsymonds.orrery.gen.orrery.v1.PushClient
 import io.github.joshsymonds.orrery.gen.orrery.v1.RegisterRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.RunRequest
-import io.github.joshsymonds.orrery.gen.orrery.v1.ScreenRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.SendKeysRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.SendTextRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.UnregisterRequest
@@ -227,12 +226,6 @@ class OrreryClient(
                 newestReply = proto.newestReply,
             )
         }
-    }
-
-    fun screen(paneId: String): String {
-        val request = ScreenRequest.newBuilder().setPane(paneId).setAnsi(true).setHistory(500).build()
-        val response = call(write = false) { standard.panes.screen(request, CLIENT_HEADERS) }
-        return response.screen.toString(Charsets.UTF_8)
     }
 
     fun conversation(paneId: String): Conversation? {
