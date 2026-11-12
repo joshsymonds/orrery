@@ -409,6 +409,7 @@ func runServe(ctx context.Context, opts globals, args []string, getenv func(stri
 		Home:       getenv("HOME"),
 		Picker:     servePickerConfig(tmux, getenv),
 		ReportSeen: seenReporter(opts.daemonSocket, getenv),
+		ReportRead: readReporter(opts.daemonSocket, getenv),
 		Web:        webui.FS(),
 	})
 	if err != nil {
@@ -453,6 +454,26 @@ func seenReporter(flagSocket string, getenv func(string) string) cli.SeenReporte
 	}
 	return func(pane string, seen int64) error {
 		return hook.ReportSeen(socket, pane, seen)
+	}
+}
+
+// readReporter returns the reporter that tells the daemon socket protocol.SocketPath resolves that the phone read a
+// pane at a time. It returns nil when no socket resolves, so the read still answers. A failed report is written to
+// standard error and never fails the read.
+func readReporter(flagSocket string, getenv func(string) string) server.ReadReporter {
+	return readReporterTo(flagSocket, getenv, os.Stderr)
+}
+
+// readReporterTo is readReporter with the writer that receives each failed report.
+func readReporterTo(flagSocket string, getenv func(string) string, errs io.Writer) server.ReadReporter {
+	socket, err := protocol.SocketPath(flagSocket, getenv)
+	if err != nil {
+		return nil
+	}
+	return func(pane string, at int64) {
+		if err := hook.ReportRead(socket, pane, at); err != nil {
+			fmt.Fprintf(errs, "orrery serve: report read: %v\n", err)
+		}
 	}
 }
 
