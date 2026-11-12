@@ -43,6 +43,13 @@ public interface PanesClientInterface {
   public suspend fun markSeen(request: MarkSeenRequest, headers: Headers = emptyMap()): ResponseMessage<MarkSeenResponse>
 
   /**
+   *  PullQueued takes back the messages Claude Code's queue holds for one pane, as its up-arrow does. Aborted means
+   *  Claude Code's input box holds text: typed text that refused the pull, or the pulled text when emptying the box
+   *  failed.
+   */
+  public suspend fun pullQueued(request: PullQueuedRequest, headers: Headers = emptyMap()): ResponseMessage<PullQueuedResponse>
+
+  /**
    *  WatchConversation streams the conversation of one pane's Claude transcript: a reset delta with the newest items
    *  and the whole state, then the deltas that follow each change.
    */

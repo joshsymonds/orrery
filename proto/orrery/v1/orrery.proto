@@ -534,6 +534,11 @@ service Panes {
   // MarkSeen records that the user has seen one pane.
   rpc MarkSeen(MarkSeenRequest) returns (MarkSeenResponse);
 
+  // PullQueued takes back the messages Claude Code's queue holds for one pane, as its up-arrow does. Aborted means
+  // Claude Code's input box holds text: typed text that refused the pull, or the pulled text when emptying the box
+  // failed.
+  rpc PullQueued(PullQueuedRequest) returns (PullQueuedResponse);
+
   // WatchConversation streams the conversation of one pane's Claude transcript: a reset delta with the newest items
   // and the whole state, then the deltas that follow each change.
   rpc WatchConversation(WatchConversationRequest) returns (stream WatchConversationResponse);
@@ -840,6 +845,18 @@ message MarkSeenRequest {
 
 // MarkSeenResponse is the reply to a MarkSeen. It has no fields.
 message MarkSeenResponse {}
+
+// PullQueuedRequest asks for the messages waiting in one pane's Claude Code queue to be taken back into its input box.
+message PullQueuedRequest {
+  // The pane's id, % followed by digits.
+  string pane = 1;
+}
+
+// PullQueuedResponse is the reply to a PullQueued.
+message PullQueuedResponse {
+  // The text taken back: the queued messages, oldest first, joined by line breaks.
+  string text = 1;
+}
 
 // HostStatusRequest asks for the host's status. It has no fields.
 message HostStatusRequest {}
