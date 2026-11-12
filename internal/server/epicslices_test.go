@@ -65,25 +65,25 @@ func TestEpicSlicesRingCells(t *testing.T) {
 		{
 			name: "red test",
 			step: sliceStep("", sliceRedOnly),
-			want: &orreryv1.EpicSlice{Task: "t", Hue: "dispatched", RedTest: true, Working: true, At: 1},
+			want: &orreryv1.EpicSlice{Task: "t", Hue: "dispatched", RedTest: true, Working: true, At: 2},
 		},
 		{
 			name: "tests pass",
 			step: sliceStep("", sliceRedGreen),
 			want: &orreryv1.EpicSlice{
-				Task: "t", Hue: "dispatched", RedTest: true, Working: true, TestsPass: true, At: 1,
+				Task: "t", Hue: "dispatched", RedTest: true, Working: true, TestsPass: true, At: 3,
 			},
 		},
 		{
 			name: "tests pass without a red test",
 			step: sliceStep("", `{"green_evidence":"synthetic green"}`),
-			want: &orreryv1.EpicSlice{Task: "t", Hue: "dispatched", Working: true, TestsPass: true, At: 2},
+			want: &orreryv1.EpicSlice{Task: "t", Hue: "dispatched", Working: true, TestsPass: true, At: 3},
 		},
 		{
 			name: "checks with a gate in the last round",
 			step: sliceStep("", sliceRedGreen, sliceCheck(1, "schema", true), sliceCheck(2, "gate", true)),
 			want: &orreryv1.EpicSlice{
-				Task: "t", Hue: "dispatched", RedTest: true, Working: true, TestsPass: true, Checks: true, At: 1,
+				Task: "t", Hue: "dispatched", RedTest: true, Working: true, TestsPass: true, Checks: true, At: 4,
 			},
 		},
 		{
@@ -197,8 +197,8 @@ func TestEpicSlicesHueAndRing(t *testing.T) {
 		hue  string
 		at   int32
 	}{
-		{name: "running", end: "", hue: "dispatched", at: 1},
-		{name: "held", end: "", held: true, hue: "dispatched", at: 1},
+		{name: "running", end: "", hue: "dispatched", at: 4},
+		{name: "held", end: "", held: true, hue: "dispatched", at: 4},
 		{name: "done", end: "done", hue: "done", at: 0},
 		{name: "failed", end: "failed", hue: "gap", at: 0},
 		{name: "returned", end: "returned", hue: "gap", at: 0},

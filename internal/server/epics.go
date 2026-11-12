@@ -229,7 +229,7 @@ func epicSliceMessage(label string, step *enginev1.Step) *orreryv1.EpicSlice {
 		TestsPass:    testsPass,
 		Checks:       checks,
 		GateAccepted: step.GetEnd() == epicEndDone,
-		At:           epicSliceAt(step.GetEnd(), redTest),
+		At:           epicSliceAt(step.GetEnd(), testsPass, checks),
 	}
 }
 
@@ -245,21 +245,24 @@ func epicSliceHue(end string) string {
 	}
 }
 
-// The rings a running slice can be at, numbered as the proto numbers them. red_test is the innermost ring, and working,
-// the next, is always reached.
+// The rings a running slice can be at, numbered as the proto numbers them from red_test, the outermost, in to
+// gate_accepted, the innermost. The innermost reached ring is the furthest phase reached. working is always reached,
+// so red_test is never the innermost reached ring, and gate_accepted needs an end.
 const (
-	ringRedTest int32 = 1
-	ringWorking int32 = 2
+	ringWorking   int32 = 2
+	ringTestsPass int32 = 3
+	ringChecks    int32 = 4
 )
 
-// epicSliceAt is the innermost ring reached while a step runs or is held, 0 once it ended. working is always reached,
-// so the slice is at red_test when the step's result carries red evidence, and at working otherwise.
-func epicSliceAt(end string, redTest bool) int32 {
+// epicSliceAt is the innermost ring reached while a step runs or is held, 0 once it ended.
+func epicSliceAt(end string, testsPass, checks bool) int32 {
 	switch {
 	case end != "":
 		return 0
-	case redTest:
-		return ringRedTest
+	case checks:
+		return ringChecks
+	case testsPass:
+		return ringTestsPass
 	default:
 		return ringWorking
 	}
