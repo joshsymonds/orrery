@@ -10,7 +10,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file orrery/v1/epics.proto.
  */
 export const file_orrery_v1_epics: GenFile = /*@__PURE__*/
-  fileDesc("ChVvcnJlcnkvdjEvZXBpY3MucHJvdG8SCW9ycmVyeS52MSISChBFcGljc0xpc3RSZXF1ZXN0IjMKEUVwaWNzTGlzdFJlc3BvbnNlEh4KBWVwaWNzGAEgAygLMg8ub3JyZXJ5LnYxLkVwaWMiHQoPRXBpY3NHZXRSZXF1ZXN0EgoKAmlkGAEgASgJInkKEEVwaWNzR2V0UmVzcG9uc2USHQoEZXBpYxgBIAEoCzIPLm9ycmVyeS52MS5FcGljEiIKBXRhc2tzGAIgAygLMhMub3JyZXJ5LnYxLkVwaWNUYXNrEiIKBXN0ZXBzGAMgAygLMhMub3JyZXJ5LnYxLkVwaWNTdGVwIrYBCgRFcGljEgoKAmlkGAEgASgJEhIKCnJlcG9zaXRvcnkYAiABKAkSDAoEc2x1ZxgDIAEoCRIPCgdvdXRjb21lGAQgASgJEg8KB2NoYW5nZWQYBSABKAMSDAoEbGl2ZRgGIAEoCBIqCg1ydW5uaW5nX3N0ZXBzGAcgAygLMhMub3JyZXJ5LnYxLkVwaWNTdGVwEhMKC2VuZGVkX3N0ZXBzGAggASgFEg8KB3Byb2JsZW0YCSABKAkiSQoIRXBpY1Rhc2sSDgoGZWZmb3J0GAEgASgFEgwKBHNsdWcYAiABKAkSDwoHc3ViamVjdBgDIAEoCRIOCgZzdGF0dXMYBCABKAkixwEKCEVwaWNTdGVwEgoKAmlkGAEgASgJEgwKBHRhc2sYAiABKAkSDQoFYWdlbnQYAyABKAkSCwoDZW5kGAQgASgJEg4KBnN0YXR1cxgFIAEoCRIMCgRoZWxkGAYgASgIEg8KB3N0YXJ0ZWQYByABKAMSDQoFZW5kZWQYCCABKAMSDQoFZG9pbmcYCSABKAkSKAoGY2hlY2tzGAogAygLMhgub3JyZXJ5LnYxLkVwaWNTdGVwQ2hlY2sSDgoGcmVhc29uGAsgASgJIjgKDUVwaWNTdGVwQ2hlY2sSDQoFcm91bmQYASABKA0SDAoEbmFtZRgCIAEoCRIKCgJvaxgDIAEoCCIeChBTdGVwc0hvbGRSZXF1ZXN0EgoKAmlkGAEgASgJIhMKEVN0ZXBzSG9sZFJlc3BvbnNlIi0KEVN0ZXBzTnVkZ2VSZXF1ZXN0EgoKAmlkGAEgASgJEgwKBHRleHQYAiABKAkiFAoSU3RlcHNOdWRnZVJlc3BvbnNlIh4KEFN0ZXBzU3RvcFJlcXVlc3QSCgoCaWQYASABKAkiEwoRU3RlcHNTdG9wUmVzcG9uc2UyigEKBUVwaWNzEkEKBExpc3QSGy5vcnJlcnkudjEuRXBpY3NMaXN0UmVxdWVzdBocLm9ycmVyeS52MS5FcGljc0xpc3RSZXNwb25zZRI+CgNHZXQSGi5vcnJlcnkudjEuRXBpY3NHZXRSZXF1ZXN0Ghsub3JyZXJ5LnYxLkVwaWNzR2V0UmVzcG9uc2Uy0wEKBVN0ZXBzEkEKBEhvbGQSGy5vcnJlcnkudjEuU3RlcHNIb2xkUmVxdWVzdBocLm9ycmVyeS52MS5TdGVwc0hvbGRSZXNwb25zZRJECgVOdWRnZRIcLm9ycmVyeS52MS5TdGVwc051ZGdlUmVxdWVzdBodLm9ycmVyeS52MS5TdGVwc051ZGdlUmVzcG9uc2USQQoEU3RvcBIbLm9ycmVyeS52MS5TdGVwc1N0b3BSZXF1ZXN0Ghwub3JyZXJ5LnYxLlN0ZXBzU3RvcFJlc3BvbnNlYgZwcm90bzM");
+  fileDesc("ChVvcnJlcnkvdjEvZXBpY3MucHJvdG8SCW9ycmVyeS52MSISChBFcGljc0xpc3RSZXF1ZXN0IjMKEUVwaWNzTGlzdFJlc3BvbnNlEh4KBWVwaWNzGAEgAygLMg8ub3JyZXJ5LnYxLkVwaWMiHQoPRXBpY3NHZXRSZXF1ZXN0EgoKAmlkGAEgASgJIp8BChBFcGljc0dldFJlc3BvbnNlEh0KBGVwaWMYASABKAsyDy5vcnJlcnkudjEuRXBpYxIiCgV0YXNrcxgCIAMoCzITLm9ycmVyeS52MS5FcGljVGFzaxIiCgVzdGVwcxgDIAMoCzITLm9ycmVyeS52MS5FcGljU3RlcBIkCgZzbGljZXMYBCADKAsyFC5vcnJlcnkudjEuRXBpY1NsaWNlIrYBCgRFcGljEgoKAmlkGAEgASgJEhIKCnJlcG9zaXRvcnkYAiABKAkSDAoEc2x1ZxgDIAEoCRIPCgdvdXRjb21lGAQgASgJEg8KB2NoYW5nZWQYBSABKAMSDAoEbGl2ZRgGIAEoCBIqCg1ydW5uaW5nX3N0ZXBzGAcgAygLMhMub3JyZXJ5LnYxLkVwaWNTdGVwEhMKC2VuZGVkX3N0ZXBzGAggASgFEg8KB3Byb2JsZW0YCSABKAkiSQoIRXBpY1Rhc2sSDgoGZWZmb3J0GAEgASgFEgwKBHNsdWcYAiABKAkSDwoHc3ViamVjdBgDIAEoCRIOCgZzdGF0dXMYBCABKAkixwEKCEVwaWNTdGVwEgoKAmlkGAEgASgJEgwKBHRhc2sYAiABKAkSDQoFYWdlbnQYAyABKAkSCwoDZW5kGAQgASgJEg4KBnN0YXR1cxgFIAEoCRIMCgRoZWxkGAYgASgIEg8KB3N0YXJ0ZWQYByABKAMSDQoFZW5kZWQYCCABKAMSDQoFZG9pbmcYCSABKAkSKAoGY2hlY2tzGAogAygLMhgub3JyZXJ5LnYxLkVwaWNTdGVwQ2hlY2sSDgoGcmVhc29uGAsgASgJIjgKDUVwaWNTdGVwQ2hlY2sSDQoFcm91bmQYASABKA0SDAoEbmFtZRgCIAEoCRIKCgJvaxgDIAEoCCKQAQoJRXBpY1NsaWNlEgwKBHRhc2sYASABKAkSCwoDaHVlGAIgASgJEhAKCHJlZF90ZXN0GAMgASgIEg8KB3dvcmtpbmcYBCABKAgSEgoKdGVzdHNfcGFzcxgFIAEoCBIOCgZjaGVja3MYBiABKAgSFQoNZ2F0ZV9hY2NlcHRlZBgHIAEoCBIKCgJhdBgIIAEoBSIeChBTdGVwc0hvbGRSZXF1ZXN0EgoKAmlkGAEgASgJIhMKEVN0ZXBzSG9sZFJlc3BvbnNlIi0KEVN0ZXBzTnVkZ2VSZXF1ZXN0EgoKAmlkGAEgASgJEgwKBHRleHQYAiABKAkiFAoSU3RlcHNOdWRnZVJlc3BvbnNlIh4KEFN0ZXBzU3RvcFJlcXVlc3QSCgoCaWQYASABKAkiEwoRU3RlcHNTdG9wUmVzcG9uc2UyigEKBUVwaWNzEkEKBExpc3QSGy5vcnJlcnkudjEuRXBpY3NMaXN0UmVxdWVzdBocLm9ycmVyeS52MS5FcGljc0xpc3RSZXNwb25zZRI+CgNHZXQSGi5vcnJlcnkudjEuRXBpY3NHZXRSZXF1ZXN0Ghsub3JyZXJ5LnYxLkVwaWNzR2V0UmVzcG9uc2Uy0wEKBVN0ZXBzEkEKBEhvbGQSGy5vcnJlcnkudjEuU3RlcHNIb2xkUmVxdWVzdBocLm9ycmVyeS52MS5TdGVwc0hvbGRSZXNwb25zZRJECgVOdWRnZRIcLm9ycmVyeS52MS5TdGVwc051ZGdlUmVxdWVzdBodLm9ycmVyeS52MS5TdGVwc051ZGdlUmVzcG9uc2USQQoEU3RvcBIbLm9ycmVyeS52MS5TdGVwc1N0b3BSZXF1ZXN0Ghwub3JyZXJ5LnYxLlN0ZXBzU3RvcFJlc3BvbnNlYgZwcm90bzM");
 
 /**
  * EpicsListRequest asks for every epic. It has no fields.
@@ -95,6 +95,14 @@ export type EpicsGetResponse = Message<"orrery.v1.EpicsGetResponse"> & {
    * @generated from field: repeated orrery.v1.EpicStep steps = 3;
    */
   steps: EpicStep[];
+
+  /**
+   * A slice per task label among the epic's labelled writing steps, in order of each label's first start. Read-only
+   * steps and steps with no task label add none.
+   *
+   * @generated from field: repeated orrery.v1.EpicSlice slices = 4;
+   */
+  slices: EpicSlice[];
 };
 
 /**
@@ -351,6 +359,80 @@ export const EpicStepCheckSchema: GenMessage<EpicStepCheck> = /*@__PURE__*/
   messageDesc(file_orrery_v1_epics, 7);
 
 /**
+ * EpicSlice is one task's rings, read from the task's latest writing step. The rings, innermost first, are red_test,
+ * working, tests_pass, checks and gate_accepted. Evidence that is empty, unparsable, or starts NOT RUN (trimmed, any
+ * case) counts for nothing.
+ *
+ * @generated from message orrery.v1.EpicSlice
+ */
+export type EpicSlice = Message<"orrery.v1.EpicSlice"> & {
+  /**
+   * The task label.
+   *
+   * @generated from field: string task = 1;
+   */
+  task: string;
+
+  /**
+   * "dispatched" while the label's latest writing step runs or is held, "done" when it ended done, "gap" for any other
+   * end.
+   *
+   * @generated from field: string hue = 2;
+   */
+  hue: string;
+
+  /**
+   * Whether the latest writing step's result carries red_evidence.
+   *
+   * @generated from field: bool red_test = 3;
+   */
+  redTest: boolean;
+
+  /**
+   * Whether the latest writing step has run.
+   *
+   * @generated from field: bool working = 4;
+   */
+  working: boolean;
+
+  /**
+   * Whether the latest writing step's result carries green_evidence.
+   *
+   * @generated from field: bool tests_pass = 5;
+   */
+  testsPass: boolean;
+
+  /**
+   * Whether the latest writing step's last round's checks all passed, a gate check among them.
+   *
+   * @generated from field: bool checks = 6;
+   */
+  checks: boolean;
+
+  /**
+   * Whether the latest writing step ended done.
+   *
+   * @generated from field: bool gate_accepted = 7;
+   */
+  gateAccepted: boolean;
+
+  /**
+   * The ring the yellow dot is on, 1 for red_test through 5 for gate_accepted: the innermost ring reached while the step
+   * runs or is held, 0 once it ended.
+   *
+   * @generated from field: int32 at = 8;
+   */
+  at: number;
+};
+
+/**
+ * Describes the message orrery.v1.EpicSlice.
+ * Use `create(EpicSliceSchema)` to create a new message.
+ */
+export const EpicSliceSchema: GenMessage<EpicSlice> = /*@__PURE__*/
+  messageDesc(file_orrery_v1_epics, 8);
+
+/**
  * StepsHoldRequest names the step to hold.
  *
  * @generated from message orrery.v1.StepsHoldRequest
@@ -369,7 +451,7 @@ export type StepsHoldRequest = Message<"orrery.v1.StepsHoldRequest"> & {
  * Use `create(StepsHoldRequestSchema)` to create a new message.
  */
 export const StepsHoldRequestSchema: GenMessage<StepsHoldRequest> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_epics, 8);
+  messageDesc(file_orrery_v1_epics, 9);
 
 /**
  * StepsHoldResponse confirms a held step.
@@ -384,7 +466,7 @@ export type StepsHoldResponse = Message<"orrery.v1.StepsHoldResponse"> & {
  * Use `create(StepsHoldResponseSchema)` to create a new message.
  */
 export const StepsHoldResponseSchema: GenMessage<StepsHoldResponse> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_epics, 9);
+  messageDesc(file_orrery_v1_epics, 10);
 
 /**
  * StepsNudgeRequest names the step to nudge and the text to send it.
@@ -412,7 +494,7 @@ export type StepsNudgeRequest = Message<"orrery.v1.StepsNudgeRequest"> & {
  * Use `create(StepsNudgeRequestSchema)` to create a new message.
  */
 export const StepsNudgeRequestSchema: GenMessage<StepsNudgeRequest> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_epics, 10);
+  messageDesc(file_orrery_v1_epics, 11);
 
 /**
  * StepsNudgeResponse confirms a nudge that landed.
@@ -427,7 +509,7 @@ export type StepsNudgeResponse = Message<"orrery.v1.StepsNudgeResponse"> & {
  * Use `create(StepsNudgeResponseSchema)` to create a new message.
  */
 export const StepsNudgeResponseSchema: GenMessage<StepsNudgeResponse> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_epics, 11);
+  messageDesc(file_orrery_v1_epics, 12);
 
 /**
  * StepsStopRequest names the step to stop.
@@ -448,7 +530,7 @@ export type StepsStopRequest = Message<"orrery.v1.StepsStopRequest"> & {
  * Use `create(StepsStopRequestSchema)` to create a new message.
  */
 export const StepsStopRequestSchema: GenMessage<StepsStopRequest> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_epics, 12);
+  messageDesc(file_orrery_v1_epics, 13);
 
 /**
  * StepsStopResponse confirms a stopped step.
@@ -463,7 +545,7 @@ export type StepsStopResponse = Message<"orrery.v1.StepsStopResponse"> & {
  * Use `create(StepsStopResponseSchema)` to create a new message.
  */
 export const StepsStopResponseSchema: GenMessage<StepsStopResponse> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_epics, 13);
+  messageDesc(file_orrery_v1_epics, 14);
 
 /**
  * Epics reads the epics under the gambit record root.

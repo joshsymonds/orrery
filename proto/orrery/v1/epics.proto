@@ -48,6 +48,10 @@ message EpicsGetResponse {
 
   // Every step labelled with the epic, oldest first.
   repeated EpicStep steps = 3;
+
+  // A slice per task label among the epic's labelled writing steps, in order of each label's first start. Read-only
+  // steps and steps with no task label add none.
+  repeated EpicSlice slices = 4;
 }
 
 // Epic is one epic under the record root.
@@ -142,6 +146,37 @@ message EpicStepCheck {
 
   // Whether the check passed.
   bool ok = 3;
+}
+
+// EpicSlice is one task's rings, read from the task's latest writing step. The rings, innermost first, are red_test,
+// working, tests_pass, checks and gate_accepted. Evidence that is empty, unparsable, or starts NOT RUN (trimmed, any
+// case) counts for nothing.
+message EpicSlice {
+  // The task label.
+  string task = 1;
+
+  // "dispatched" while the label's latest writing step runs or is held, "done" when it ended done, "gap" for any other
+  // end.
+  string hue = 2;
+
+  // Whether the latest writing step's result carries red_evidence.
+  bool red_test = 3;
+
+  // Whether the latest writing step has run.
+  bool working = 4;
+
+  // Whether the latest writing step's result carries green_evidence.
+  bool tests_pass = 5;
+
+  // Whether the latest writing step's last round's checks all passed, a gate check among them.
+  bool checks = 6;
+
+  // Whether the latest writing step ended done.
+  bool gate_accepted = 7;
+
+  // The ring the yellow dot is on, 1 for red_test through 5 for gate_accepted: the innermost ring reached while the step
+  // runs or is held, 0 once it ended.
+  int32 at = 8;
 }
 
 // StepsHoldRequest names the step to hold.
