@@ -556,10 +556,10 @@ linters:
           - gosec
         text: 'G204'
 
-      # The desk popup runs notify-send and pw-play from PATH with argv and no shell, the notice text
-      # after --, and a desk link runs its stream command with argv and no shell, so the G204 finding
-      # is the intended design, as for tmuxctl (effort-1 decisions E6, E7).
-      - path: 'internal/desk/(popup|link)\.go'
+      # A desk link runs its caller-supplied stream command (ssh with the host after --, or the
+      # configured orrery) with argv and no shell; granted by the Director in orrery-desk-notices
+      # review DL-R2, as for hoststatus.
+      - path: 'internal/desk/link\.go'
         linters:
           - gosec
         text: 'G204'

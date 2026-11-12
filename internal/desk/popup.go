@@ -22,12 +22,16 @@ func Popup(ctx context.Context, title, body string, waiting bool, sound string) 
 
 	notifyCtx, cancelNotify := context.WithTimeout(ctx, commandTimeout)
 	defer cancelNotify()
-	notifyErr := exec.CommandContext(notifyCtx, "notify-send", "-a", "Coding Agent", "-u", urgency,
-		"-h", "boolean:suppress-sound:true", "--", title, body).Run()
+	notify := exec.CommandContext(notifyCtx, "notify-send")
+	notify.Args = append(notify.Args, "-a", "Coding Agent", "-u", urgency,
+		"-h", "boolean:suppress-sound:true", "--", title, body)
+	notifyErr := notify.Run()
 
 	playCtx, cancelPlay := context.WithTimeout(ctx, commandTimeout)
 	defer cancelPlay()
-	playErr := exec.CommandContext(playCtx, "pw-play", sound).Run()
+	play := exec.CommandContext(playCtx, "pw-play")
+	play.Args = append(play.Args, sound)
+	playErr := play.Run()
 
 	return errors.Join(named("notify-send", notifyErr), named("pw-play", playErr))
 }
