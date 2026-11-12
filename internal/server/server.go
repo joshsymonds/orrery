@@ -46,6 +46,10 @@ const questionHashKey = "question_hash"
 // question in its transcript, or 0 when it has none.
 const newestReplyKey = "newest_reply"
 
+// lastTurnEndKey is the key listPanes adds to each pane, holding the unix seconds its @orrery_id session last went
+// done according to the store, or 0 when it is unknown.
+const lastTurnEndKey = "last_turn_end"
+
 // Query keys screenFlags reads, and the largest history value it accepts, in lines.
 const (
 	queryANSI        = "ansi"
@@ -95,8 +99,8 @@ type Config struct {
 	Push *push.Store
 	// HostStatus runs the host status command behind Host.Status, or is nil when serve has no command.
 	HostStatus *hoststatus.Runner
-	// Sessions reads the store behind the Sessions and Events Connect APIs, or is nil when there is no store
-	// reader, which answers unavailable.
+	// Sessions reads the store behind the Sessions and Events Connect APIs and the turn ends of Panes, or is nil
+	// when there is no store reader: Sessions and Events answer unavailable, and Panes report no turn ends.
 	Sessions *store.Reader
 	// EventPoll is the interval at which Events.Watch polls the store for new events, or zero for the default.
 	EventPoll time.Duration
@@ -176,7 +180,7 @@ func New(cfg Config) (http.Handler, error) {
 	controlPath, control := newControlHandler(cfg.Engine, cfg.ControlTimeout, cfg.Home)
 	mux.Handle(controlPath, control)
 	panesPath, panesService := newPanesHandler(
-		cfg.Tmux, newest, goals, queues, textLocks, seenLocks, cfg.ReportSeen,
+		cfg.Tmux, cfg.Sessions, newest, goals, queues, textLocks, seenLocks, cfg.ReportSeen,
 		conversationPoll, conversationKeepalive, sendTimeout, cfg.Shutdown,
 	)
 	mux.Handle(panesPath, panesService)
@@ -265,15 +269,17 @@ func checkConfig(cfg Config) (map[string]struct{}, error) {
 	return allowed, nil
 }
 
-// listPanes returns the array cli.List writes for tmux, each pane carrying the
-// question_hash of its question and the newest_reply of its transcript, as paneNewestReply gives it. Working panes
-// whose transcripts show an interruption after their turn started are ended first, by endInterruptedTurns, so the
-// array shows them as done. newest keeps each transcript's newest time across requests. With no running server the array is empty. Any
-// failure is a routeError with status 500.
+// listPanes returns the array cli.List writes for tmux, each pane carrying the question_hash of its question, the
+// newest_reply of its transcript, as paneNewestReply gives it, and the last_turn_end of its @orrery_id session, as
+// paneTurnEnd gives it. Working panes whose transcripts show an interruption after their turn started are ended
+// first, by endInterruptedTurns, so the array shows them as done. newest keeps each transcript's newest time across
+// requests, and reader is the store the turn ends are read from once per listing. With no running server the array
+// is empty. Any failure is a routeError with status 500.
 func listPanes(
 	ctx context.Context,
 	tmux *tmuxctl.Client,
 	newest *conversation.Newest,
+	reader *store.Reader,
 ) ([]map[string]json.RawMessage, error) {
 	panes, err := listedPanes(ctx, tmux)
 	if err != nil {
@@ -289,12 +295,26 @@ func listPanes(
 			return nil, internalError()
 		}
 	}
+	ends := turnEnds(ctx, reader)
 	for _, pane := range panes {
-		if err = addPaneFields(ctx, tmux, newest, pane); err != nil {
+		if err = addPaneFields(ctx, tmux, newest, ends, pane); err != nil {
 			return nil, internalError()
 		}
 	}
 	return panes, nil
+}
+
+// turnEnds returns the turn ends reader reads from the store, keyed by session id. A nil reader, or a store read
+// that fails for any reason, gives nil, so every pane's last_turn_end is 0 and the listing still answers.
+func turnEnds(ctx context.Context, reader *store.Reader) map[string]int64 {
+	if reader == nil {
+		return nil
+	}
+	ends, err := reader.LastTurnEnds(ctx)
+	if err != nil {
+		return nil
+	}
+	return ends
 }
 
 // listedPanes returns the pane objects cli.List writes for tmux, each decoded one level deep.
@@ -357,11 +377,13 @@ func endInterruptedTurns(
 	return ended, nil
 }
 
-// addPaneFields sets the questionHashKey and newestReplyKey fields of pane, which holds one pane of cli.List.
+// addPaneFields sets the questionHashKey, newestReplyKey and lastTurnEndKey fields of pane, which holds one pane of
+// cli.List. ends holds the turn ends turnEnds reads for the listing.
 func addPaneFields(
 	ctx context.Context,
 	tmux *tmuxctl.Client,
 	newest *conversation.Newest,
+	ends map[string]int64,
 	pane map[string]json.RawMessage,
 ) error {
 	var question, id, state string
@@ -386,9 +408,31 @@ func addPaneFields(
 	if err != nil {
 		return fmt.Errorf("server: encode newest reply: %w", err)
 	}
+	turnEnd, err := paneTurnEnd(ctx, tmux, ends, id)
+	if err != nil {
+		return err
+	}
+	turnEndJSON, err := json.Marshal(turnEnd)
+	if err != nil {
+		return fmt.Errorf("server: encode last turn end: %w", err)
+	}
 	pane[questionHashKey] = hash
 	pane[newestReplyKey] = newestJSON
+	pane[lastTurnEndKey] = turnEndJSON
 	return nil
+}
+
+// paneTurnEnd returns the turn end of the pane with the ID id: its @orrery_id option's entry in ends, or 0 when the
+// pane has no @orrery_id option or ends has no entry for it. A failed read of the option is an error.
+func paneTurnEnd(ctx context.Context, tmux *tmuxctl.Client, ends map[string]int64, id string) (int64, error) {
+	orreryID, ok, err := tmux.PaneOption(ctx, id, protocol.OptionID)
+	if err != nil {
+		return 0, fmt.Errorf("server: pane %s id option: %w", id, err)
+	}
+	if !ok || orreryID == "" {
+		return 0, nil
+	}
+	return ends[orreryID], nil
 }
 
 // paneNewestReply returns the unix seconds of the newest reply or question in the transcript that the pane
