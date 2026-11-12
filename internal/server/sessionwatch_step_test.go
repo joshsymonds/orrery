@@ -194,7 +194,7 @@ func TestSessionWatchAsksStepStatusOncePerStream(t *testing.T) {
 	applyEngineOps(t, s, store.EngineBlock{
 		ID: stepSessionName, Kind: "text", Role: "assistant", MessageID: "msg-2", Text: "reply 2",
 	})
-	wantStreamMessage(t, stream.next(t), &orreryv1.SessionsWatchConversationResponse{
+	wantStreamMessage(t, stream.nextDelta(t), &orreryv1.SessionsWatchConversationResponse{
 		Transcript: stepSessionName,
 		Seq:        4,
 		Items:      []*orreryv1.ConversationItem{reply(2)},
