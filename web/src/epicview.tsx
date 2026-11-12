@@ -3,7 +3,8 @@ import type { JSX } from "preact";
 import type { EpicSlice, EpicStep, EpicsGetResponse } from "./gen/orrery/v1/epics_pb";
 import { taskStateOf } from "./taskstatus";
 
-// The chart's rings, innermost first. Each slice has one cell per ring: the field it reads and the name its title gives.
+// The chart's rings, outermost first, so a task's progress moves inward. Each slice has one cell per ring: the field it
+// reads and the name its title gives.
 const rings = [
   { field: "redTest", name: "red test" },
   { field: "working", name: "working" },
@@ -92,11 +93,11 @@ function SliceChart(props: { slices: EpicSlice[]; cursorTask: string | undefined
         const dot =
           dotRing === undefined
             ? undefined
-            : pointAt(hole + dotRing * ringWidth + ringWidth / 2, start + span / 2);
+            : pointAt(ringInner(dotRing) + ringWidth / 2, start + span / 2);
         return (
           <g key={index} class={slice.task === cursorTask ? "slice cur" : "slice"}>
             {rings.map((ring, ringIndex) => {
-              const inner = hole + ringIndex * ringWidth;
+              const inner = ringInner(ringIndex);
               const reached = slice[ring.field];
               return (
                 <path
@@ -114,6 +115,11 @@ function SliceChart(props: { slices: EpicSlice[]; cursorTask: string | undefined
       })}
     </svg>
   );
+}
+
+// ringInner is the inner radius of the ring at index, the first ring outermost.
+function ringInner(index: number): number {
+  return hole + (rings.length - 1 - index) * ringWidth;
 }
 
 // pointAt is the point at radius r and angle a, in radians clockwise from the top of the chart.

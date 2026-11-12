@@ -37,7 +37,7 @@ const steps = [
 ];
 
 // syntheticSlices makes count slices labelled 1-task, 2-task and so on. Slice 1 is running: its red test and working
-// cells are reached and its dot is on the tests pass ring, the innermost ring not reached. The rest are done.
+// cells are reached and its dot is on the working ring, the innermost ring it reached. The rest are done.
 function syntheticSlices(count: number) {
   return Array.from({ length: count }, (_, index) => {
     const running = index === 0;
@@ -49,7 +49,7 @@ function syntheticSlices(count: number) {
       testsPass: !running,
       checks: !running,
       gateAccepted: !running,
-      at: running ? 3 : 0,
+      at: running ? 2 : 0,
     };
   });
 }
@@ -118,7 +118,7 @@ function pointOfDot(dot: Element): Point {
   return { x: Number(dot.getAttribute("cx")), y: Number(dot.getAttribute("cy")) };
 }
 
-// cellsOf is a slice's cells, innermost ring first.
+// cellsOf is a slice's cells, outermost ring first.
 function cellsOf(slice: Element): Element[] {
   return [...slice.querySelectorAll(".cell")];
 }
@@ -170,7 +170,7 @@ test("a reached cell carries its slice's hue class and an unreached cell the tra
 
 // Each ring's field is set by its own pattern across three slices (red test 1-0-0, working 0-1-0, tests pass 1-1-0,
 // checks 0-0-1, gate accepted 1-0-1), so a ring that reads another ring's field draws a different class somewhere.
-test("each ring reads its own field, innermost first", () =>
+test("each ring reads its own field, outermost first", () =>
   withView(
     {
       detail: detail({
@@ -224,6 +224,23 @@ test("each cell's title names its task, its ring and whether it is reached", () 
     );
   }));
 
+test("the rings run from red test outermost in to gate accepted innermost", () =>
+  withView({ detail: detail({ epic, slices: syntheticSlices(3) }), cursorStep: "" }, (container) => {
+    const chart = container.querySelector(".chart");
+    assert.ok(chart, "a chart is drawn");
+    const centre = centreOf(chart);
+    const [running] = [...container.querySelectorAll(".chart .slice")];
+    const cells = cellsOf(running);
+    assert.deepEqual(
+      cells.map((cell) => cell.querySelector("title")?.textContent?.split(":")[0]),
+      ["1-task red test", "1-task working", "1-task tests pass", "1-task checks", "1-task gate accepted"],
+    );
+    const inner = cells.map((cell) => Math.min(...pathOf(cell).map((point) => radiusOf(point, centre))));
+    for (let index = 1; index < inner.length; index++) {
+      assert.ok(inner[index] < inner[index - 1], `ring ${index} sits inside ring ${index - 1}: ${inner}`);
+    }
+  }));
+
 test("the running slice's dot sits on the ring its at names, and on no other", () =>
   withView({ detail: detail({ epic, slices: syntheticSlices(35) }), cursorStep: "" }, (container) => {
     const chart = container.querySelector(".chart");
@@ -237,7 +254,7 @@ test("the running slice's dot sits on the ring its at names, and on no other", (
       const radii = pathOf(cell).map((point) => radiusOf(point, centre));
       return Math.min(...radii) < radius && radius < Math.max(...radii);
     });
-    assert.deepEqual(onRing, [false, false, true, false, false], "at 3 is the tests pass ring");
+    assert.deepEqual(onRing, [false, true, false, false, false], "at 2 is the working ring");
   }));
 
 for (const count of [1, 3, 35, 150]) {
