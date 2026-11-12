@@ -50,11 +50,17 @@ fun QuickKeys(paneId: String, client: OrreryClient, modifier: Modifier = Modifie
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             QUICK_KEYS.forEach { (label, key) ->
-                Button(onClick = {
-                    scope.launch {
-                        notSent = !sendKey(client, paneId, key)
-                    }
-                }) {
+                val feedback = rememberTapFeedback()
+                Button(
+                    onClick = {
+                        feedback.tap()
+                        scope.launch {
+                            notSent = !sendKey(client, paneId, key)
+                        }
+                    },
+                    modifier = Modifier.tapFeedback(feedback),
+                    colors = tapFeedbackColors(feedback),
+                ) {
                     Text(label)
                 }
             }
