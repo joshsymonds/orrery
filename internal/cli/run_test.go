@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -36,6 +37,8 @@ const (
 	runSocketEnv = "ORRERY_RUN_TEST_SOCKET"
 	// runTimeout bounds every wait on a process or on the fake server.
 	runTimeout = 10 * time.Second
+	// testRetry is the reconnect interval every run test uses, so a broken stream is reclaimed quickly.
+	testRetry = 10 * time.Millisecond
 	// pollInterval is how often a wait checks whether a process has exited.
 	pollInterval = 10 * time.Millisecond
 	// helperExitStatus is the status the exit helper ends with.
@@ -74,6 +77,8 @@ func runHelper(mode string) int {
 		fmt.Fprintf(os.Stdout, "ready %d\n", os.Getpid())
 		time.Sleep(time.Hour)
 		return 0
+	case "stop":
+		return helperStop()
 	case "client":
 		return helperClient()
 	default:
@@ -93,6 +98,17 @@ func helperEnv() int {
 		return 1
 	}
 	fmt.Fprintf(os.Stdout, "pgid %d pid %d\n", pgid, os.Getpid())
+	return 0
+}
+
+// helperStop prints a ready line with SIGTERM already caught, then on SIGTERM keeps running until its stdin closes and
+// returns 0. The test decides when the command exits after it was told to stop.
+func helperStop() int {
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, syscall.SIGTERM)
+	fmt.Fprintf(os.Stdout, "ready %d\n", os.Getpid())
+	<-signals
+	_, _ = io.Copy(io.Discard, os.Stdin)
 	return 0
 }
 
@@ -123,28 +139,38 @@ func helperArgv() ([]string, error) {
 	return []string{exe, "-test.run=^TestRunHelperProcess$"}, nil
 }
 
-// poolsFake is an in-process Pools with one scripted Acquire. It records each request, sends its events in order, then
-// returns fail if it is set, or otherwise returns, or when hold is set keeps the stream open until the client closes it.
-type poolsFake struct {
+// acquireStep is how the fake answers one Acquire. When gate is set it first waits for gate to close. It sends its
+// events in order, then returns fail if it is set, or otherwise returns, or when hold is set keeps the stream open
+// until the client closes it.
+type acquireStep struct {
+	gate   <-chan struct{}
 	fail   error
 	events []*v1.AcquireResponse
 	hold   bool
-	held   chan struct{} // closed once the stream is held open
-	ended  chan struct{} // closed when Acquire returns
+}
+
+// poolsFake is an in-process Pools. It answers the first Acquire with steps[0], the second with steps[1], and so on,
+// and the last step answers every Acquire after the steps run out. It records each request.
+type poolsFake struct {
+	steps []acquireStep
+	held  chan struct{} // closed once a step holds its stream open
+	ended chan struct{} // closed when the first Acquire returns
+
+	heldOnce  sync.Once
+	endedOnce sync.Once
 
 	mu       sync.Mutex
 	requests []*v1.AcquireRequest
 }
 
-// newPoolsFake returns a fake that sends events in order, then behaves as described on poolsFake.
+// newPoolsFake returns a fake whose every Acquire behaves as one step: fail, events, hold.
 func newPoolsFake(fail error, hold bool, events ...*v1.AcquireResponse) *poolsFake {
-	return &poolsFake{
-		fail:   fail,
-		events: events,
-		hold:   hold,
-		held:   make(chan struct{}),
-		ended:  make(chan struct{}),
-	}
+	return newPoolsFakeSteps(acquireStep{fail: fail, events: events, hold: hold})
+}
+
+// newPoolsFakeSteps returns a fake that answers its Acquires with steps in order.
+func newPoolsFakeSteps(steps ...acquireStep) *poolsFake {
+	return &poolsFake{steps: steps, held: make(chan struct{}), ended: make(chan struct{})}
 }
 
 // received returns the requests received so far.
@@ -160,24 +186,68 @@ func (f *poolsFake) Acquire(
 	req *connect.Request[v1.AcquireRequest],
 	stream *connect.ServerStream[v1.AcquireResponse],
 ) error {
-	defer close(f.ended)
+	defer f.endedOnce.Do(func() { close(f.ended) })
 	f.mu.Lock()
+	step := f.steps[min(len(f.requests), len(f.steps)-1)]
 	f.requests = append(f.requests, req.Msg)
 	f.mu.Unlock()
-	if f.fail != nil {
-		return f.fail
+	if step.gate != nil {
+		select {
+		case <-step.gate:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
 	}
-	for _, event := range f.events {
+	if step.fail != nil {
+		return step.fail
+	}
+	for _, event := range step.events {
 		if err := stream.Send(event); err != nil {
 			return err
 		}
 	}
-	if !f.hold {
+	if !step.hold {
 		return nil
 	}
-	close(f.held)
+	f.heldOnce.Do(func() { close(f.held) })
 	<-ctx.Done()
 	return nil
+}
+
+// grantThenBreak is the first Acquire of a reclaim test: it grants grantID, then ends the stream.
+func grantThenBreak(grantID string) acquireStep {
+	return acquireStep{events: []*v1.AcquireResponse{grantedWith(grantID, poolMembers("builds", "m1"))}}
+}
+
+// grantedHeld is a reclaim step that grants grantID and holds the stream open.
+func grantedHeld(grantID string) acquireStep {
+	return acquireStep{events: []*v1.AcquireResponse{grantedWith(grantID, poolMembers("builds", "m1"))}, hold: true}
+}
+
+// refusedWith is a step that refuses the Acquire with code.
+func refusedWith(code connect.Code) acquireStep {
+	return acquireStep{fail: connect.NewError(code, errors.New("orreryd refused the grant"))}
+}
+
+// refusedAfter is a step that refuses the Acquire with code once gate closes. A test closes gate after the command is
+// ready, so the refusal cannot reach a command that has not started yet.
+func refusedAfter(gate <-chan struct{}, code connect.Code) acquireStep {
+	step := refusedWith(code)
+	step.gate = gate
+	return step
+}
+
+// awaitRequests fails the test unless fake receives n requests within runTimeout.
+func awaitRequests(t *testing.T, fake *poolsFake, n int) {
+	t.Helper()
+	deadline := time.After(runTimeout)
+	for len(fake.received()) < n {
+		select {
+		case <-deadline:
+			t.Fatalf("fake received %d requests, want %d", len(fake.received()), n)
+		case <-time.After(pollInterval):
+		}
+	}
 }
 
 // runServe serves fake as Pools on a unix socket at the session socket path beside a daemon socket in a short temp
@@ -210,6 +280,13 @@ func testRequest() *v1.AcquireRequest {
 	}
 }
 
+// reclaimOf returns the request that reclaims grantID: testRequest with its grant_id set.
+func reclaimOf(grantID string) *v1.AcquireRequest {
+	req := testRequest()
+	req.GrantId = grantID
+	return req
+}
+
 // runConfig returns the RunConfig that asks testRequest of the Pools at socket and runs the helper in mode, with the
 // given stdout and stderr.
 func runConfig(t *testing.T, socket, mode string, stdout, stderr io.Writer) cli.RunConfig {
@@ -225,6 +302,7 @@ func runConfig(t *testing.T, socket, mode string, stdout, stderr io.Writer) cli.
 		Environ: []string{runHelperEnv + "=" + mode, "KEEP=1"},
 		Stdout:  stdout,
 		Stderr:  stderr,
+		Retry:   testRetry,
 	}
 }
 
@@ -570,15 +648,31 @@ func TestRunWithGrantStopsCommandWhenContextEnds(t *testing.T) {
 }
 
 func TestRunWithGrantStopsCommandWhenGrantEnds(t *testing.T) {
-	fake := newPoolsFake(nil, false, grantedWith("grant-ended", poolMembers("builds", "m1")))
+	// The stream ends after the grant, and orreryd refuses to reclaim the grant by its id once the command runs.
+	gate := make(chan struct{})
+	fake := newPoolsFakeSteps(
+		grantThenBreak("grant-ended"),
+		refusedAfter(gate, connect.CodeNotFound),
+	)
 	socket := runServe(t, fake)
+	ready, w := stdoutPipe(t)
 	var stderr bytes.Buffer
-	status := awaitStatus(t, runAsync(context.Background(), runConfig(t, socket, "sleep", io.Discard, &stderr)))
-	if status != cli.ExitNoGrant {
-		t.Errorf("RunWithGrant = %d, want ExitNoGrant %d", status, cli.ExitNoGrant)
+	status := runAsync(context.Background(), runConfig(t, socket, "sleep", w, &stderr))
+	pid := readyPID(t, awaitReady(t, ready))
+	close(gate)
+	if got := awaitStatus(t, status); got != cli.ExitNoGrant {
+		t.Errorf("RunWithGrant = %d, want ExitNoGrant %d", got, cli.ExitNoGrant)
 	}
+	waitGone(t, pid)
 	if !strings.Contains(stderr.String(), "the grant ended while CMD ran") {
 		t.Errorf("stderr = %q, want it to say the grant ended while the command ran", stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "refused") {
+		t.Errorf("stderr = %q, want it to say orreryd refused the reclaim", stderr.String())
+	}
+	got := fake.received()
+	if len(got) != 2 || !proto.Equal(got[1], reclaimOf("grant-ended")) {
+		t.Errorf("Acquire requests = %v, want the first request then its reclaim by grant id", got)
 	}
 }
 
