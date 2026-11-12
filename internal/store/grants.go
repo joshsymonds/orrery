@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -21,13 +22,16 @@ type GrantMember struct {
 }
 
 // GrantRow is a live grant. ClientStart is the client's start time from /proc, which tells the client's process from
-// another that later takes its pid. Pools is opaque JSON the caller writes. Granted is stored at whole-second precision.
+// another that later takes its pid. Pools is opaque JSON the caller writes. Command is the argv the client runs under
+// the grant; a nil Command is stored as an empty array and reads back as an empty slice. Granted is stored at
+// whole-second precision.
 type GrantRow struct {
 	ID          string
 	Project     string
 	ClientPID   int
 	ClientStart int64
 	Pools       string
+	Command     []string
 	Members     []GrantMember
 	Granted     time.Time
 }
@@ -36,10 +40,18 @@ type GrantRow struct {
 // and writes nothing, when a live grant already holds one of the members. The write lock that the transaction takes
 // up front keeps the check and the insert atomic against other writers.
 func (s *Store) AddGrant(ctx context.Context, row GrantRow) error {
+	command := row.Command
+	if command == nil {
+		command = []string{}
+	}
+	encoded, encodeErr := json.Marshal(command)
+	if encodeErr != nil {
+		return fmt.Errorf("encode command of grant %s: %w", row.ID, encodeErr)
+	}
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
 		if err := queries.InsertGrant(ctx, sqlcgen.InsertGrantParams{
 			ID: row.ID, Project: row.Project, ClientPid: int64(row.ClientPID), ClientStart: row.ClientStart,
-			Pools: row.Pools, Granted: row.Granted.Unix(),
+			Pools: row.Pools, Command: string(encoded), Granted: row.Granted.Unix(),
 		}); err != nil {
 			return fmt.Errorf("insert grant %s: %w", row.ID, err)
 		}
@@ -101,9 +113,13 @@ func (s *Store) Grants(ctx context.Context) ([]GrantRow, error) {
 	}
 	out := make([]GrantRow, 0, len(grants))
 	for _, grant := range grants {
+		var command []string
+		if decodeErr := json.Unmarshal([]byte(grant.Command), &command); decodeErr != nil {
+			return nil, fmt.Errorf("decode command of grant %s: %w", grant.ID, decodeErr)
+		}
 		out = append(out, GrantRow{
 			ID: grant.ID, Project: grant.Project, ClientPID: int(grant.ClientPid), ClientStart: grant.ClientStart,
-			Pools: grant.Pools, Members: byGrant[grant.ID], Granted: time.Unix(grant.Granted, 0),
+			Pools: grant.Pools, Command: command, Members: byGrant[grant.ID], Granted: time.Unix(grant.Granted, 0),
 		})
 	}
 	return out, nil

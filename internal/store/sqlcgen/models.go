@@ -34,6 +34,7 @@ type Grant struct {
 	ClientStart int64
 	Pools       string
 	Granted     int64
+	Command     string
 }
 
 type GrantMember struct {
@@ -41,6 +42,11 @@ type GrantMember struct {
 	GrantID  string
 	Pool     string
 	Position int64
+}
+
+type Hold struct {
+	Member string
+	Since  int64
 }
 
 type Session struct {
