@@ -6,6 +6,7 @@ package io.github.joshsymonds.orrery.gen.orrery.v1
 
 import com.connectrpc.Headers
 import com.connectrpc.ResponseMessage
+import com.connectrpc.ServerOnlyStreamInterface
 
 /**
  *  Panes reads and steers the tmux panes orrery tracks, one call for each thing the phone does with a pane.
@@ -40,4 +41,10 @@ public interface PanesClientInterface {
    *  MarkSeen records that the user has seen one pane.
    */
   public suspend fun markSeen(request: MarkSeenRequest, headers: Headers = emptyMap()): ResponseMessage<MarkSeenResponse>
+
+  /**
+   *  WatchConversation streams the conversation of one pane's Claude transcript: a reset delta with the newest items
+   *  and the whole state, then the deltas that follow each change.
+   */
+  public suspend fun watchConversation(headers: Headers = emptyMap()): ServerOnlyStreamInterface<WatchConversationRequest, WatchConversationResponse>
 }

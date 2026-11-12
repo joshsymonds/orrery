@@ -66,6 +66,9 @@ const jsonContentType = "application/json"
 // badRequestMessage is the message of a 400 answer to a malformed body or an invalid value in one.
 const badRequestMessage = "bad request body"
 
+// badQueryMessage is the message of a 400 answer to a malformed query, such as a conversation limit out of range.
+const badQueryMessage = "bad request query"
+
 // flagPane is the cli.Send and cli.Seen flag that names the target pane.
 const flagPane = "--pane"
 
@@ -96,10 +99,17 @@ type Config struct {
 	Sessions *store.Reader
 	// EventPoll is the interval at which Events.Watch polls the store for new events, or zero for the default.
 	EventPoll time.Duration
-	// EventSendTimeout bounds each Events.Watch send, or is zero for the default. A send that does not complete in
-	// time ends its stream, and no other.
+	// EventSendTimeout bounds each Events.Watch, Panes.WatchConversation and Sessions.WatchConversation send, or is
+	// zero for the default. A send that does not complete in time ends its stream, and no other.
 	EventSendTimeout time.Duration
-	// Shutdown ends every open Events.Watch stream when it closes, or is nil to leave streams open.
+	// ConversationPoll is the interval at which Panes.WatchConversation and Sessions.WatchConversation poll their
+	// pane or session and transcript, or zero for the default.
+	ConversationPoll time.Duration
+	// ConversationKeepalive is the time without a delta after which Panes.WatchConversation and
+	// Sessions.WatchConversation send a keepalive, or zero for the default.
+	ConversationKeepalive time.Duration
+	// Shutdown ends every open Events.Watch, Panes.WatchConversation and Sessions.WatchConversation stream when it
+	// closes, or is nil to leave streams open.
 	Shutdown <-chan struct{}
 	// Engine forwards the Control API to orreryd's engine socket, or is nil, which answers unavailable.
 	Engine enginev1connect.EngineClient
@@ -136,6 +146,14 @@ func New(cfg Config) (http.Handler, error) {
 	if sendTimeout == 0 {
 		sendTimeout = defaultEventSendTimeout
 	}
+	conversationPoll := cfg.ConversationPoll
+	if conversationPoll == 0 {
+		conversationPoll = defaultConversationPoll
+	}
+	conversationKeepalive := cfg.ConversationKeepalive
+	if conversationKeepalive == 0 {
+		conversationKeepalive = defaultConversationKeepalive
+	}
 
 	goals := conversation.NewGoals()
 	newest := conversation.NewNewest()
@@ -148,13 +166,18 @@ func New(cfg Config) (http.Handler, error) {
 		now = time.Now
 	}
 	tokens := &pickerTokens{entries: make(map[string]pickerEntry)}
-	sessionsPath, sessions := newSessionsHandler(cfg.Sessions)
+	sessionsPath, sessions := newSessionsHandler(
+		cfg.Sessions, conversationPoll, conversationKeepalive, sendTimeout, cfg.Shutdown,
+	)
 	mux.Handle(sessionsPath, sessions)
 	eventsPath, events := newEventsHandler(cfg.Sessions, poll, sendTimeout, cfg.Shutdown)
 	mux.Handle(eventsPath, events)
 	controlPath, control := newControlHandler(cfg.Engine, cfg.ControlTimeout, cfg.Home)
 	mux.Handle(controlPath, control)
-	panesPath, panesService := newPanesHandler(cfg.Tmux, newest, goals, queues, textLocks, seenLocks, cfg.ReportSeen)
+	panesPath, panesService := newPanesHandler(
+		cfg.Tmux, newest, goals, queues, textLocks, seenLocks, cfg.ReportSeen,
+		conversationPoll, conversationKeepalive, sendTimeout, cfg.Shutdown,
+	)
 	mux.Handle(panesPath, panesService)
 	hostPath, hostService := newHostHandler(cfg.HostStatus)
 	mux.Handle(hostPath, hostService)
@@ -228,6 +251,12 @@ func checkConfig(cfg Config) (map[string]struct{}, error) {
 	}
 	if cfg.EventPoll < 0 {
 		return nil, fmt.Errorf("server: negative event poll interval %v", cfg.EventPoll)
+	}
+	if cfg.ConversationPoll < 0 {
+		return nil, fmt.Errorf("server: negative conversation poll interval %v", cfg.ConversationPoll)
+	}
+	if cfg.ConversationKeepalive < 0 {
+		return nil, fmt.Errorf("server: negative conversation keepalive interval %v", cfg.ConversationKeepalive)
 	}
 	if cfg.ControlTimeout < 0 {
 		return nil, fmt.Errorf("server: negative control timeout %v", cfg.ControlTimeout)

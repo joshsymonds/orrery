@@ -47,6 +47,11 @@ const (
 const (
 	// SessionsListProcedure is the fully-qualified name of the Sessions's List RPC.
 	SessionsListProcedure = "/orrery.v1.Sessions/List"
+	// SessionsListHeadlessProcedure is the fully-qualified name of the Sessions's ListHeadless RPC.
+	SessionsListHeadlessProcedure = "/orrery.v1.Sessions/ListHeadless"
+	// SessionsWatchConversationProcedure is the fully-qualified name of the Sessions's
+	// WatchConversation RPC.
+	SessionsWatchConversationProcedure = "/orrery.v1.Sessions/WatchConversation"
 	// EventsWatchProcedure is the fully-qualified name of the Events's Watch RPC.
 	EventsWatchProcedure = "/orrery.v1.Events/Watch"
 	// ControlStartProcedure is the fully-qualified name of the Control's Start RPC.
@@ -73,6 +78,8 @@ const (
 	PanesSendKeysProcedure = "/orrery.v1.Panes/SendKeys"
 	// PanesMarkSeenProcedure is the fully-qualified name of the Panes's MarkSeen RPC.
 	PanesMarkSeenProcedure = "/orrery.v1.Panes/MarkSeen"
+	// PanesWatchConversationProcedure is the fully-qualified name of the Panes's WatchConversation RPC.
+	PanesWatchConversationProcedure = "/orrery.v1.Panes/WatchConversation"
 	// HostStatusProcedure is the fully-qualified name of the Host's Status RPC.
 	HostStatusProcedure = "/orrery.v1.Host/Status"
 	// PushRegisterProcedure is the fully-qualified name of the Push's Register RPC.
@@ -89,6 +96,11 @@ const (
 type SessionsClient interface {
 	// List returns every tracked session.
 	List(context.Context, *connect.Request[v1.ListRequest]) (*connect.Response[v1.ListResponse], error)
+	// ListHeadless returns the headless sessions of the last 14 days, each row's text derived when it is read.
+	ListHeadless(context.Context, *connect.Request[v1.ListHeadlessRequest]) (*connect.Response[v1.ListHeadlessResponse], error)
+	// WatchConversation streams the conversation of one headless session in the deltas Panes.WatchConversation sends:
+	// a reset with the newest items when the client holds none, then the deltas that follow each change.
+	WatchConversation(context.Context, *connect.Request[v1.SessionsWatchConversationRequest]) (*connect.ServerStreamForClient[v1.SessionsWatchConversationResponse], error)
 }
 
 // NewSessionsClient constructs a client for the orrery.v1.Sessions service. By default, it uses the
@@ -108,12 +120,26 @@ func NewSessionsClient(httpClient connect.HTTPClient, baseURL string, opts ...co
 			connect.WithSchema(sessionsMethods.ByName("List")),
 			connect.WithClientOptions(opts...),
 		),
+		listHeadless: connect.NewClient[v1.ListHeadlessRequest, v1.ListHeadlessResponse](
+			httpClient,
+			baseURL+SessionsListHeadlessProcedure,
+			connect.WithSchema(sessionsMethods.ByName("ListHeadless")),
+			connect.WithClientOptions(opts...),
+		),
+		watchConversation: connect.NewClient[v1.SessionsWatchConversationRequest, v1.SessionsWatchConversationResponse](
+			httpClient,
+			baseURL+SessionsWatchConversationProcedure,
+			connect.WithSchema(sessionsMethods.ByName("WatchConversation")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // sessionsClient implements SessionsClient.
 type sessionsClient struct {
-	list *connect.Client[v1.ListRequest, v1.ListResponse]
+	list              *connect.Client[v1.ListRequest, v1.ListResponse]
+	listHeadless      *connect.Client[v1.ListHeadlessRequest, v1.ListHeadlessResponse]
+	watchConversation *connect.Client[v1.SessionsWatchConversationRequest, v1.SessionsWatchConversationResponse]
 }
 
 // List calls orrery.v1.Sessions.List.
@@ -121,10 +147,25 @@ func (c *sessionsClient) List(ctx context.Context, req *connect.Request[v1.ListR
 	return c.list.CallUnary(ctx, req)
 }
 
+// ListHeadless calls orrery.v1.Sessions.ListHeadless.
+func (c *sessionsClient) ListHeadless(ctx context.Context, req *connect.Request[v1.ListHeadlessRequest]) (*connect.Response[v1.ListHeadlessResponse], error) {
+	return c.listHeadless.CallUnary(ctx, req)
+}
+
+// WatchConversation calls orrery.v1.Sessions.WatchConversation.
+func (c *sessionsClient) WatchConversation(ctx context.Context, req *connect.Request[v1.SessionsWatchConversationRequest]) (*connect.ServerStreamForClient[v1.SessionsWatchConversationResponse], error) {
+	return c.watchConversation.CallServerStream(ctx, req)
+}
+
 // SessionsHandler is an implementation of the orrery.v1.Sessions service.
 type SessionsHandler interface {
 	// List returns every tracked session.
 	List(context.Context, *connect.Request[v1.ListRequest]) (*connect.Response[v1.ListResponse], error)
+	// ListHeadless returns the headless sessions of the last 14 days, each row's text derived when it is read.
+	ListHeadless(context.Context, *connect.Request[v1.ListHeadlessRequest]) (*connect.Response[v1.ListHeadlessResponse], error)
+	// WatchConversation streams the conversation of one headless session in the deltas Panes.WatchConversation sends:
+	// a reset with the newest items when the client holds none, then the deltas that follow each change.
+	WatchConversation(context.Context, *connect.Request[v1.SessionsWatchConversationRequest], *connect.ServerStream[v1.SessionsWatchConversationResponse]) error
 }
 
 // NewSessionsHandler builds an HTTP handler from the service implementation. It returns the path on
@@ -140,10 +181,26 @@ func NewSessionsHandler(svc SessionsHandler, opts ...connect.HandlerOption) (str
 		connect.WithSchema(sessionsMethods.ByName("List")),
 		connect.WithHandlerOptions(opts...),
 	)
+	sessionsListHeadlessHandler := connect.NewUnaryHandler(
+		SessionsListHeadlessProcedure,
+		svc.ListHeadless,
+		connect.WithSchema(sessionsMethods.ByName("ListHeadless")),
+		connect.WithHandlerOptions(opts...),
+	)
+	sessionsWatchConversationHandler := connect.NewServerStreamHandler(
+		SessionsWatchConversationProcedure,
+		svc.WatchConversation,
+		connect.WithSchema(sessionsMethods.ByName("WatchConversation")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/orrery.v1.Sessions/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case SessionsListProcedure:
 			sessionsListHandler.ServeHTTP(w, r)
+		case SessionsListHeadlessProcedure:
+			sessionsListHeadlessHandler.ServeHTTP(w, r)
+		case SessionsWatchConversationProcedure:
+			sessionsWatchConversationHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -155,6 +212,14 @@ type UnimplementedSessionsHandler struct{}
 
 func (UnimplementedSessionsHandler) List(context.Context, *connect.Request[v1.ListRequest]) (*connect.Response[v1.ListResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.v1.Sessions.List is not implemented"))
+}
+
+func (UnimplementedSessionsHandler) ListHeadless(context.Context, *connect.Request[v1.ListHeadlessRequest]) (*connect.Response[v1.ListHeadlessResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.v1.Sessions.ListHeadless is not implemented"))
+}
+
+func (UnimplementedSessionsHandler) WatchConversation(context.Context, *connect.Request[v1.SessionsWatchConversationRequest], *connect.ServerStream[v1.SessionsWatchConversationResponse]) error {
+	return connect.NewError(connect.CodeUnimplemented, errors.New("orrery.v1.Sessions.WatchConversation is not implemented"))
 }
 
 // EventsClient is a client for the orrery.v1.Events service.
@@ -455,6 +520,9 @@ type PanesClient interface {
 	SendKeys(context.Context, *connect.Request[v1.SendKeysRequest]) (*connect.Response[v1.SendKeysResponse], error)
 	// MarkSeen records that the user has seen one pane.
 	MarkSeen(context.Context, *connect.Request[v1.MarkSeenRequest]) (*connect.Response[v1.MarkSeenResponse], error)
+	// WatchConversation streams the conversation of one pane's Claude transcript: a reset delta with the newest items
+	// and the whole state, then the deltas that follow each change.
+	WatchConversation(context.Context, *connect.Request[v1.WatchConversationRequest]) (*connect.ServerStreamForClient[v1.WatchConversationResponse], error)
 }
 
 // NewPanesClient constructs a client for the orrery.v1.Panes service. By default, it uses the
@@ -504,17 +572,24 @@ func NewPanesClient(httpClient connect.HTTPClient, baseURL string, opts ...conne
 			connect.WithSchema(panesMethods.ByName("MarkSeen")),
 			connect.WithClientOptions(opts...),
 		),
+		watchConversation: connect.NewClient[v1.WatchConversationRequest, v1.WatchConversationResponse](
+			httpClient,
+			baseURL+PanesWatchConversationProcedure,
+			connect.WithSchema(panesMethods.ByName("WatchConversation")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // panesClient implements PanesClient.
 type panesClient struct {
-	list         *connect.Client[v1.PanesListRequest, v1.PanesListResponse]
-	screen       *connect.Client[v1.ScreenRequest, v1.ScreenResponse]
-	conversation *connect.Client[v1.ConversationRequest, v1.ConversationResponse]
-	sendText     *connect.Client[v1.SendTextRequest, v1.SendTextResponse]
-	sendKeys     *connect.Client[v1.SendKeysRequest, v1.SendKeysResponse]
-	markSeen     *connect.Client[v1.MarkSeenRequest, v1.MarkSeenResponse]
+	list              *connect.Client[v1.PanesListRequest, v1.PanesListResponse]
+	screen            *connect.Client[v1.ScreenRequest, v1.ScreenResponse]
+	conversation      *connect.Client[v1.ConversationRequest, v1.ConversationResponse]
+	sendText          *connect.Client[v1.SendTextRequest, v1.SendTextResponse]
+	sendKeys          *connect.Client[v1.SendKeysRequest, v1.SendKeysResponse]
+	markSeen          *connect.Client[v1.MarkSeenRequest, v1.MarkSeenResponse]
+	watchConversation *connect.Client[v1.WatchConversationRequest, v1.WatchConversationResponse]
 }
 
 // List calls orrery.v1.Panes.List.
@@ -547,6 +622,11 @@ func (c *panesClient) MarkSeen(ctx context.Context, req *connect.Request[v1.Mark
 	return c.markSeen.CallUnary(ctx, req)
 }
 
+// WatchConversation calls orrery.v1.Panes.WatchConversation.
+func (c *panesClient) WatchConversation(ctx context.Context, req *connect.Request[v1.WatchConversationRequest]) (*connect.ServerStreamForClient[v1.WatchConversationResponse], error) {
+	return c.watchConversation.CallServerStream(ctx, req)
+}
+
 // PanesHandler is an implementation of the orrery.v1.Panes service.
 type PanesHandler interface {
 	// List returns every tracked pane.
@@ -561,6 +641,9 @@ type PanesHandler interface {
 	SendKeys(context.Context, *connect.Request[v1.SendKeysRequest]) (*connect.Response[v1.SendKeysResponse], error)
 	// MarkSeen records that the user has seen one pane.
 	MarkSeen(context.Context, *connect.Request[v1.MarkSeenRequest]) (*connect.Response[v1.MarkSeenResponse], error)
+	// WatchConversation streams the conversation of one pane's Claude transcript: a reset delta with the newest items
+	// and the whole state, then the deltas that follow each change.
+	WatchConversation(context.Context, *connect.Request[v1.WatchConversationRequest], *connect.ServerStream[v1.WatchConversationResponse]) error
 }
 
 // NewPanesHandler builds an HTTP handler from the service implementation. It returns the path on
@@ -606,6 +689,12 @@ func NewPanesHandler(svc PanesHandler, opts ...connect.HandlerOption) (string, h
 		connect.WithSchema(panesMethods.ByName("MarkSeen")),
 		connect.WithHandlerOptions(opts...),
 	)
+	panesWatchConversationHandler := connect.NewServerStreamHandler(
+		PanesWatchConversationProcedure,
+		svc.WatchConversation,
+		connect.WithSchema(panesMethods.ByName("WatchConversation")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/orrery.v1.Panes/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case PanesListProcedure:
@@ -620,6 +709,8 @@ func NewPanesHandler(svc PanesHandler, opts ...connect.HandlerOption) (string, h
 			panesSendKeysHandler.ServeHTTP(w, r)
 		case PanesMarkSeenProcedure:
 			panesMarkSeenHandler.ServeHTTP(w, r)
+		case PanesWatchConversationProcedure:
+			panesWatchConversationHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -651,6 +742,10 @@ func (UnimplementedPanesHandler) SendKeys(context.Context, *connect.Request[v1.S
 
 func (UnimplementedPanesHandler) MarkSeen(context.Context, *connect.Request[v1.MarkSeenRequest]) (*connect.Response[v1.MarkSeenResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.v1.Panes.MarkSeen is not implemented"))
+}
+
+func (UnimplementedPanesHandler) WatchConversation(context.Context, *connect.Request[v1.WatchConversationRequest], *connect.ServerStream[v1.WatchConversationResponse]) error {
+	return connect.NewError(connect.CodeUnimplemented, errors.New("orrery.v1.Panes.WatchConversation is not implemented"))
 }
 
 // HostClient is a client for the orrery.v1.Host service.

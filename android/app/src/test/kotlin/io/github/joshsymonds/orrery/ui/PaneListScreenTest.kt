@@ -18,6 +18,8 @@ import com.connectrpc.Code
 import io.github.joshsymonds.orrery.api.Pane
 import io.github.joshsymonds.orrery.api.Reply
 import io.github.joshsymonds.orrery.gen.orrery.v1.AskResponse
+import io.github.joshsymonds.orrery.gen.orrery.v1.HeadlessSession
+import io.github.joshsymonds.orrery.gen.orrery.v1.ListHeadlessResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.Pane as PaneProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.PanesListResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.PickerRow
@@ -43,6 +45,10 @@ class PaneListScreenTest {
         const val PANES_LIST = "/orrery.v1.Panes/List"
         const val PICKER_ASK = "/orrery.v1.Picker/Ask"
         const val PICKER_RUN = "/orrery.v1.Picker/Run"
+        const val LIST_HEADLESS = "/orrery.v1.Sessions/ListHeadless"
+        const val HEADLESS_ID = "a1b2c3d4e5f60718293a4b5c6d7e8f90"
+        const val HEADLESS_LABEL = "alpha-agent · a1b2c3d4"
+        const val HEADLESS_SUMMARY = "Waiting on a synthetic plan."
     }
 
     @get:Rule
@@ -77,6 +83,22 @@ class PaneListScreenTest {
         .setQuestion("")
         .setQuestionHash("")
         .setNewestReply(newestReply)
+        .build()
+
+    /** A waiting headless session in ALPHA, unseen: its newest reply is after it was last seen. */
+    private fun headlessBody(): ListHeadlessResponse = ListHeadlessResponse.newBuilder()
+        .addSessions(
+            HeadlessSession.newBuilder()
+                .setId(HEADLESS_ID)
+                .setDir(ALPHA)
+                .setLabel(HEADLESS_LABEL)
+                .setState("waiting")
+                .setChanged(NOW - 60)
+                .setSeen(0)
+                .setSummary(HEADLESS_SUMMARY)
+                .setQuestion("Proceed with the synthetic plan?")
+                .setNewestReply(NOW - 60),
+        )
         .build()
 
     private fun pickerRowsResponse(): AskResponse = AskResponse.newBuilder()
@@ -257,6 +279,109 @@ class PaneListScreenTest {
 
             assertEquals("%3", openedPane?.id)
             assertEquals("beta-tests", openedPane?.label)
+        }
+    }
+
+    @Test
+    fun headlessSessionJoinsTheAllTreeUnderItsDirFolder() {
+        FakeOrreryServer().use { server ->
+            server.respond(PANES_LIST, panesBody())
+            server.respond(LIST_HEADLESS, headlessBody())
+            setScreen(server)
+            awaitRow(HEADLESS_ID)
+
+            assertRowsShown("%1", "%2", "%3", "%4", "%5")
+            assertEquals(1, countNodes(hasTestTag("folder:$ALPHA")))
+            assertTrue(nodeOf(hasTestTag("folder:$ALPHA")).boundsInRoot.top < nodeOf(hasTestTag("pane-row:$HEADLESS_ID")).boundsInRoot.top)
+            assertEquals(1, countNodes(hasText(HEADLESS_LABEL) and hasAnyAncestor(hasTestTag("pane-row:$HEADLESS_ID"))))
+            assertEquals(1, countNodes(hasText(HEADLESS_SUMMARY) and hasAnyAncestor(hasTestTag("pane-row:$HEADLESS_ID"))))
+            assertEquals(1, countNodes(hasText("waiting") and hasAnyAncestor(hasTestTag("pane-row:$HEADLESS_ID"))))
+            assertEquals(
+                1,
+                countNodes(hasContentDescription("unseen") and hasAnyAncestor(hasTestTag("pane-row:$HEADLESS_ID"))),
+            )
+        }
+    }
+
+    @Test
+    fun waitingFilterListsTheHeadlessWaitingSessionWithThePanes() {
+        FakeOrreryServer().use { server ->
+            server.respond(PANES_LIST, panesBody())
+            server.respond(LIST_HEADLESS, headlessBody())
+            setScreen(server)
+            awaitRow(HEADLESS_ID)
+
+            composeRule.onNodeWithTag("filter-waiting").performClick()
+
+            assertRowsShown("%2")
+            assertEquals(1, countNodes(hasTestTag("pane-row:$HEADLESS_ID")))
+            assertNoFolderHeaders()
+        }
+    }
+
+    @Test
+    fun tappingHeadlessRowOpensItsSessionAsAHeadlessPane() {
+        FakeOrreryServer().use { server ->
+            server.respond(PANES_LIST, panesBody())
+            server.respond(LIST_HEADLESS, headlessBody())
+            setScreen(server)
+            awaitRow(HEADLESS_ID)
+
+            composeRule.onNodeWithTag("pane-row:$HEADLESS_ID").performClick()
+
+            assertEquals(HEADLESS_ID, openedPane?.id)
+            assertEquals(true, openedPane?.headless)
+            assertNull(openedPaneId.get())
+        }
+    }
+
+    @Test
+    fun unimplementedHeadlessListLeavesThePanesAlone() {
+        FakeOrreryServer().use { server ->
+            server.respond(PANES_LIST, panesBody())
+            server.fail(LIST_HEADLESS, Code.UNIMPLEMENTED, "no headless sessions here")
+            setScreen(server)
+
+            awaitRow("%1")
+            assertRowsShown("%1", "%2", "%3", "%4", "%5")
+            assertEquals(0, countNodes(hasText("could not load panes")))
+        }
+    }
+
+    @Test
+    fun unavailableHeadlessListLeavesThePanesAlone() {
+        FakeOrreryServer().use { server ->
+            server.respond(PANES_LIST, panesBody())
+            server.fail(LIST_HEADLESS, Code.UNAVAILABLE, "orreryd is not taking session commands")
+            setScreen(server)
+
+            awaitRow("%1")
+            assertRowsShown("%1", "%2", "%3", "%4", "%5")
+            assertEquals(0, countNodes(hasText("could not load panes")))
+        }
+    }
+
+    @Test
+    fun unscriptedHeadlessListNotFoundLeavesThePanesAlone() {
+        FakeOrreryServer().use { server ->
+            server.respond(PANES_LIST, panesBody())
+            setScreen(server)
+
+            awaitRow("%1")
+            assertRowsShown("%1", "%2", "%3", "%4", "%5")
+            assertEquals(0, countNodes(hasText("could not load panes")))
+        }
+    }
+
+    @Test
+    fun internalHeadlessListErrorShowsCouldNotLoadPanes() {
+        FakeOrreryServer().use { server ->
+            server.respond(PANES_LIST, panesBody())
+            server.fail(LIST_HEADLESS, Code.INTERNAL_ERROR, "boom")
+            setScreen(server)
+
+            awaitText("could not load panes")
+            assertEquals(0, countNodes(hasTestTag("pane-row:%1")))
         }
     }
 

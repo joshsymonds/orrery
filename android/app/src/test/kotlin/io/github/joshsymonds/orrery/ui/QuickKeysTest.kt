@@ -1,6 +1,8 @@
 package io.github.joshsymonds.orrery.ui
 
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
@@ -31,17 +33,25 @@ class QuickKeysTest {
     val composeRule = createComposeRule()
 
     private val labelToKey = listOf(
-        "1" to "1",
-        "2" to "2",
-        "3" to "3",
         "Esc" to "Escape",
         "Ctrl-C" to "C-c",
+        "Enter" to "Enter",
         "←" to "Left",
         "↑" to "Up",
         "↓" to "Down",
         "→" to "Right",
-        "Tab" to "Tab",
     )
+
+    @Test
+    fun rowLabelsAreTheSevenKeysInOrder() {
+        FakeOrreryServer().use { server ->
+            setQuickKeys(server)
+            val labels = composeRule.onAllNodes(hasClickAction()).fetchSemanticsNodes().map { node ->
+                node.config[SemanticsProperties.Text].joinToString("") { it.text }
+            }
+            assertEquals(labelToKey.map { it.first }, labels)
+        }
+    }
 
     @Test
     fun eachButtonPostsItsKeyWithoutExpectQuestion() {
@@ -69,7 +79,7 @@ class QuickKeysTest {
             server.fail(KEYS_PATH, Code.INTERNAL_ERROR, "boom")
             setQuickKeys(server)
 
-            composeRule.onNodeWithText("Tab").performScrollTo().performClick()
+            composeRule.onNodeWithText("Enter").performScrollTo().performClick()
             composeRule.waitUntil(TIMEOUT_MILLIS) { notSentShown() }
             composeRule.onNodeWithText(NOT_SENT).assertIsDisplayed()
         }

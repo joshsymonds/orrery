@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"os"
 	"time"
 
 	"connectrpc.com/connect"
@@ -37,15 +36,12 @@ type Commands interface {
 	Seen(ctx context.Context, id string) error
 }
 
-// Listen returns a listener on the engine socket at socketPath. It creates the socket directory as daemon.Listen
-// does, and makes the socket file mode 0600 so only its owner can send commands.
+// Listen returns a listener on the engine socket at socketPath. daemon.Listen creates the socket directory and
+// makes the socket file mode 0600 so only its owner can send commands.
 func Listen(socketPath string) (net.Listener, error) {
 	ln, err := daemon.Listen(socketPath)
 	if err != nil {
 		return nil, fmt.Errorf("listen engine: %w", err)
-	}
-	if err = os.Chmod(socketPath, 0o600); err != nil {
-		return nil, errors.Join(fmt.Errorf("restrict engine socket: %w", err), ln.Close())
 	}
 	return ln, nil
 }

@@ -556,6 +556,14 @@ linters:
           - gosec
         text: 'G204'
 
+      # A desk link runs its caller-supplied stream command (ssh with the host after --, or the
+      # configured orrery) with argv and no shell; granted by the Director in orrery-desk-notices
+      # review DL-R2, as for hoststatus.
+      - path: 'internal/desk/link\.go'
+        linters:
+          - gosec
+        text: 'G204'
+
 run:
   timeout: 5m
   concurrency: 0

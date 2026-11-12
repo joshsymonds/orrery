@@ -74,6 +74,7 @@ type Transition struct {
 
 // Listen returns a listener on the unix socket socketPath. It creates the parent directory with mode
 // 0700 when absent, replaces a stale socket file, and returns an error when a live listener holds the path.
+// It makes the socket file mode 0600 whatever the umask, so only its owner can connect.
 func Listen(socketPath string) (net.Listener, error) {
 	if err := os.MkdirAll(filepath.Dir(socketPath), 0o700); err != nil {
 		return nil, fmt.Errorf("create socket directory: %w", err)
@@ -85,6 +86,9 @@ func Listen(socketPath string) (net.Listener, error) {
 	ln, err := lc.Listen(context.Background(), "unix", socketPath)
 	if err != nil {
 		return nil, fmt.Errorf("listen on %s: %w", socketPath, err)
+	}
+	if err = os.Chmod(socketPath, 0o600); err != nil {
+		return nil, errors.Join(fmt.Errorf("restrict socket %s: %w", socketPath, err), ln.Close())
 	}
 	return ln, nil
 }

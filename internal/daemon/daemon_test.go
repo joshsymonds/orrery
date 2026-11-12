@@ -7,10 +7,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"net"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -608,6 +610,31 @@ func TestListen(t *testing.T) {
 		data, err := os.ReadFile(path)
 		if err != nil || string(data) != "synthetic" {
 			t.Fatalf("regular file after Listen = %q, %v; want unchanged", data, err)
+		}
+	})
+
+	t.Run("socket_mode_ignores_umask", func(t *testing.T) {
+		previous := syscall.Umask(0)
+		t.Cleanup(func() { syscall.Umask(previous) })
+		socketPath := filepath.Join(t.TempDir(), "orreryd.sock")
+		ln, err := daemon.Listen(socketPath)
+		if err != nil {
+			t.Fatalf("Listen: %v", err)
+		}
+		t.Cleanup(func() {
+			if err := ln.Close(); err != nil {
+				t.Errorf("close listener: %v", err)
+			}
+		})
+		info, err := os.Stat(socketPath)
+		if err != nil {
+			t.Fatalf("stat socket: %v", err)
+		}
+		if info.Mode().Type() != fs.ModeSocket {
+			t.Fatalf("socket file type = %v, want socket", info.Mode().Type())
+		}
+		if perm := info.Mode().Perm(); perm != 0o600 {
+			t.Fatalf("socket mode = %o, want 600", perm)
 		}
 	})
 

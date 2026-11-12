@@ -8,6 +8,7 @@ import com.connectrpc.Headers
 import com.connectrpc.MethodSpec
 import com.connectrpc.ProtocolClientInterface
 import com.connectrpc.ResponseMessage
+import com.connectrpc.ServerOnlyStreamInterface
 import com.connectrpc.StreamType
 
 /**
@@ -102,6 +103,21 @@ public class PanesClient(
       io.github.joshsymonds.orrery.gen.orrery.v1.MarkSeenRequest::class,
       io.github.joshsymonds.orrery.gen.orrery.v1.MarkSeenResponse::class,
       StreamType.UNARY,
+    ),
+  )
+
+
+  /**
+   *  WatchConversation streams the conversation of one pane's Claude transcript: a reset delta with the newest items
+   *  and the whole state, then the deltas that follow each change.
+   */
+  override suspend fun watchConversation(headers: Headers): ServerOnlyStreamInterface<WatchConversationRequest, WatchConversationResponse> = client.serverStream(
+    headers,
+    MethodSpec(
+    "orrery.v1.Panes/WatchConversation",
+      io.github.joshsymonds.orrery.gen.orrery.v1.WatchConversationRequest::class,
+      io.github.joshsymonds.orrery.gen.orrery.v1.WatchConversationResponse::class,
+      StreamType.SERVER,
     ),
   )
 

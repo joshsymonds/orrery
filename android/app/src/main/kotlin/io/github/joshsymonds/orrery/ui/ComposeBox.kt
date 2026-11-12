@@ -89,7 +89,9 @@ private enum class SendFailure { NOT_SENT, NO_ANSWER }
  * The field grows with the draft up to [COMPOSE_MAX_LINES] lines and never past [maxFieldHeight],
  * then scrolls inside itself, keeping the cursor's line in view from the first character of a new
  * line. [hint] shows in the empty field. [onDraftPresent] hears whether the draft has any text,
- * each time that changes. [onSend] hears each tap on Send, before the request goes out.
+ * each time that changes. [onSend] hears each tap on Send, before the request goes out. [send]
+ * takes the whole draft off the main thread; it defaults to posting the draft to [paneId]. A
+ * throw of [IOException] keeps the draft and shows the failure label, as a failed post does.
  */
 @Composable
 fun ComposeBox(
@@ -101,22 +103,22 @@ fun ComposeBox(
     onDraftPresent: (Boolean) -> Unit = {},
     status: (@Composable () -> Unit)? = null,
     onSend: () -> Unit = {},
+    send: (String) -> Unit = { text -> client.sendComposed(paneId, text) },
 ) {
     key(paneId) {
-        ComposeDraft(paneId, client, modifier, maxFieldHeight, hint, onDraftPresent, status, onSend)
+        ComposeDraft(modifier, maxFieldHeight, hint, onDraftPresent, status, onSend, send)
     }
 }
 
 @Composable
 private fun ComposeDraft(
-    paneId: String,
-    client: OrreryClient,
     modifier: Modifier,
     maxFieldHeight: Dp,
     hint: String,
     onDraftPresent: (Boolean) -> Unit,
     status: (@Composable () -> Unit)?,
     onSend: () -> Unit,
+    send: (String) -> Unit,
 ) {
     var draft by remember { mutableStateOf("") }
     var sending by remember { mutableStateOf(false) }
@@ -215,7 +217,7 @@ private fun ComposeDraft(
                     scope.launch {
                         val outcome = withContext(Dispatchers.IO) {
                             try {
-                                client.sendComposed(paneId, text)
+                                send(text)
                                 null
                             } catch (error: NoAnswerException) {
                                 SendFailure.NO_ANSWER

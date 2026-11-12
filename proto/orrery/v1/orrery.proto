@@ -6,6 +6,13 @@ package orrery.v1;
 service Sessions {
   // List returns every tracked session.
   rpc List(ListRequest) returns (ListResponse);
+
+  // ListHeadless returns the headless sessions of the last 14 days, each row's text derived when it is read.
+  rpc ListHeadless(ListHeadlessRequest) returns (ListHeadlessResponse);
+
+  // WatchConversation streams the conversation of one headless session in the deltas Panes.WatchConversation sends:
+  // a reset with the newest items when the client holds none, then the deltas that follow each change.
+  rpc WatchConversation(SessionsWatchConversationRequest) returns (stream SessionsWatchConversationResponse);
 }
 
 // Events streams the changes to the tracked sessions, panes and headless sessions alike, in seq order.
@@ -88,6 +95,100 @@ message Session {
 
   // The pane's @orrery_transcript option.
   string transcript = 13;
+}
+
+// ListHeadlessRequest asks for the headless sessions of the last 14 days. It has no fields.
+message ListHeadlessRequest {}
+
+// ListHeadlessResponse carries the headless sessions of the last 14 days.
+message ListHeadlessResponse {
+  // The sessions, in id order.
+  repeated HeadlessSession sessions = 1;
+}
+
+// HeadlessSession is one headless session as the phone lists it: a row of kind engine with an event in the last 14
+// days, its label and summary derived when it is read.
+message HeadlessSession {
+  // The session's id, 32 lowercase hex digits.
+  string id = 1;
+
+  // The directory the session runs in.
+  string dir = 2;
+
+  // The row's label: the base name of dir, " · ", then the first 8 characters of the id.
+  string label = 3;
+
+  // The session's state.
+  string state = 4;
+
+  // The unix seconds of the last state change.
+  int64 changed = 5;
+
+  // The unix seconds of the last seen, or 0 when the session was never seen.
+  int64 seen = 6;
+
+  // The question while the state is waiting, else the reason of a failed or interrupted session, else the text of the
+  // newest main-conversation reply, cut to 300 runes. Unset in a ConversationState.
+  string summary = 7;
+
+  // The open question while the state is waiting, or the tool name of an open permission request.
+  string question = 8;
+
+  // The unix seconds of the newest main-conversation reply or unrefused request, or 0 when it has none. Unset in a
+  // ConversationState.
+  int64 newest_reply = 9;
+}
+
+// SessionsWatchConversationRequest asks for the conversation of one headless session. limit follows
+// ConversationRequest: 0 means the default, 30; 1 to 100 is that many; above 100 is invalid_argument.
+message SessionsWatchConversationRequest {
+  // The session's id.
+  string id = 1;
+
+  // The number of newest items a reset delta sends.
+  uint32 limit = 2;
+
+  // The seq the client holds: 0 asks for a reset, and any other value for the deltas after it.
+  int64 after = 3;
+}
+
+// SessionsWatchConversationResponse is one step of a headless session's WatchConversation stream. It carries the
+// fields of WatchConversationResponse, with the same numbers, types and meaning.
+message SessionsWatchConversationResponse {
+  // The id of the headless session the delta belongs to.
+  string transcript = 1;
+
+  // The seq of the newest session event the delta covers. A later SessionsWatchConversationRequest resumes after it.
+  int64 seq = 2;
+
+  // Whether the delta replaces what the client holds: the newest limit items and the whole state.
+  bool reset = 3;
+
+  // The new items, oldest first.
+  repeated ConversationItem items = 4;
+
+  // The state of the conversation. It is set on the first delta of a stream and when a state field changed, and
+  // unset otherwise.
+  ConversationState state = 5;
+
+  // The whole main-conversation unfinished set: the text so far of each unfinished block. It is sent with every delta.
+  repeated EngineText unfinished = 6;
+}
+
+// OpenRequest is the request a headless session waits on.
+message OpenRequest {
+  // The request's id, which an Answer names.
+  string id = 1;
+
+  // The request's kind: question or permission.
+  string kind = 2;
+
+  // The question's text, or the tool name of a permission request.
+  string question = 3;
+
+  // The answers the phone may send: the option labels of a request with one question that is not multiSelect, allow
+  // and deny for a permission request, and none for any other shape, which the phone cannot answer.
+  repeated string options = 4;
 }
 
 // WatchRequest asks for the events after a store position.
@@ -432,6 +533,10 @@ service Panes {
 
   // MarkSeen records that the user has seen one pane.
   rpc MarkSeen(MarkSeenRequest) returns (MarkSeenResponse);
+
+  // WatchConversation streams the conversation of one pane's Claude transcript: a reset delta with the newest items
+  // and the whole state, then the deltas that follow each change.
+  rpc WatchConversation(WatchConversationRequest) returns (stream WatchConversationResponse);
 }
 
 // Host reads the status of the machine orrery runs on.
@@ -629,6 +734,70 @@ message WaitingMessage {
 
   // Whether the message was canceled.
   bool canceled = 3;
+}
+
+// WatchConversationRequest asks for the conversation of one pane, streamed from the newest items the client holds.
+// limit follows ConversationRequest: 0 means the default, 30; 1 to 100 is that many; above 100 is invalid_argument.
+message WatchConversationRequest {
+  // The pane's id, % followed by digits.
+  string pane = 1;
+
+  // The number of newest items a reset delta sends.
+  uint32 limit = 2;
+
+  // The id of the transcript the client holds, or empty when it holds none.
+  string transcript = 3;
+
+  // The seq the client holds for that transcript: the stream answers with the deltas after it.
+  int64 after = 4;
+}
+
+// WatchConversationResponse is one step of a WatchConversation stream. A delta with only transcript and seq set is a
+// keepalive.
+message WatchConversationResponse {
+  // The id of the transcript the delta belongs to.
+  string transcript = 1;
+
+  // The position just past what this delta covers. A later WatchConversationRequest resumes after it.
+  int64 seq = 2;
+
+  // Whether the delta replaces what the client holds: the newest limit items and the whole state.
+  bool reset = 3;
+
+  // The new items, oldest first.
+  repeated ConversationItem items = 4;
+
+  // The state of the conversation. It is set on the first delta of a stream and when a state field changed, and
+  // unset otherwise.
+  ConversationState state = 5;
+
+  // The text so far of each unfinished block. Pane streams never set it.
+  repeated EngineText unfinished = 6;
+}
+
+// ConversationState is the state of a conversation that a WatchConversationResponse carries.
+message ConversationState {
+  // The text of the transcript's first prompt, cut to 300 runes, or empty when there is none.
+  string origin = 1;
+
+  // The active goal of the conversation.
+  string goal = 2;
+
+  // The messages waiting to be sent to the conversation.
+  repeated WaitingMessage waiting = 3;
+
+  // The context figure of the conversation: its tokens out of its window.
+  ConversationContext context = 4;
+
+  // The pane as Panes.List gives it.
+  Pane pane = 5;
+
+  // The headless session as Sessions.ListHeadless gives it, without summary and newest_reply. Pane streams never set
+  // it.
+  HeadlessSession session = 6;
+
+  // The request the headless session waits on, unset when none is open. Pane streams never set it.
+  OpenRequest request = 7;
 }
 
 // SendTextRequest asks for text to be sent to one pane.
