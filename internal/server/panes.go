@@ -29,12 +29,14 @@ type panesServer struct {
 	report                cli.SeenReporter
 	conversationPoll      time.Duration
 	conversationKeepalive time.Duration
+	sendTimeout           time.Duration
+	shutdown              <-chan struct{}
 }
 
 // newPanesHandler returns the path and handler that serve Panes over the tmux client, conversation state, locks and
 // seen reporter it is given. WatchConversation polls every conversationPoll and sends a keepalive after
-// conversationKeepalive without a delta. The handler runs under withResponseWriter, so the stream reaches its
-// connection.
+// conversationKeepalive without a delta. Its sends are bounded by sendTimeout, and its streams end when shutdown
+// closes. The handler runs under withResponseWriter, so the stream reaches its connection.
 func newPanesHandler(
 	tmux *tmuxctl.Client,
 	newest *conversation.Newest,
@@ -42,7 +44,8 @@ func newPanesHandler(
 	queues *conversation.Queues,
 	textLocks, seenLocks *paneLocks,
 	report cli.SeenReporter,
-	conversationPoll, conversationKeepalive time.Duration,
+	conversationPoll, conversationKeepalive, sendTimeout time.Duration,
+	shutdown <-chan struct{},
 ) (string, http.Handler) {
 	path, handler := orreryv1connect.NewPanesHandler(panesServer{
 		tmux:                  tmux,
@@ -54,6 +57,8 @@ func newPanesHandler(
 		report:                report,
 		conversationPoll:      conversationPoll,
 		conversationKeepalive: conversationKeepalive,
+		sendTimeout:           sendTimeout,
+		shutdown:              shutdown,
 	})
 	return path, withResponseWriter(handler)
 }

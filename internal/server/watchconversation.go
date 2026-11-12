@@ -30,7 +30,8 @@ const defaultConversationKeepalive = 5 * time.Second
 // pane are checked as Conversation checks them. The stream sends its first delta at once, then one delta for each
 // poll that finds new complete transcript lines or a changed state, and a keepalive once conversationKeepalive has
 // passed without a delta. The stream ends with the error Conversation gives for the pane or its transcript, and
-// returns when the client leaves.
+// returns when the client leaves, when serve shuts down, or when a send stays blocked past the send deadline. Its
+// send and end-of-stream writes are bounded as Events.Watch's are (see endWithin).
 func (s panesServer) WatchConversation(
 	ctx context.Context,
 	req *connect.Request[v1.WatchConversationRequest],
@@ -54,11 +55,12 @@ func (s panesServer) WatchConversation(
 		held:  req.Msg.GetTranscript(),
 		after: req.Msg.GetAfter(),
 	}
-	return s.runWatch(ctx, watch, stream)
+	return endWithin(ctx, s.runWatch(ctx, watch, stream), s.sendTimeout, s.shutdown)
 }
 
-// runWatch sends the deltas of watch on stream until the client leaves or the pane's conversation ends. It steps
-// watch every conversationPoll, and sends a keepalive once conversationKeepalive has passed since the last message.
+// runWatch sends the deltas of watch on stream until the client leaves, the pane's conversation ends, serve shuts
+// down, or a send stays blocked past the send deadline. It steps watch every conversationPoll, and sends a keepalive
+// once conversationKeepalive has passed since the last message.
 func (s panesServer) runWatch(
 	ctx context.Context,
 	watch *conversationWatch,
@@ -68,6 +70,9 @@ func (s panesServer) runWatch(
 	defer ticker.Stop()
 	lastSent := time.Now()
 	for {
+		if stopping(s.shutdown) {
+			return shutdownError()
+		}
 		msg, send, err := watch.step(ctx)
 		if err != nil {
 			return connectError(err)
@@ -76,7 +81,7 @@ func (s panesServer) runWatch(
 			msg, send = &v1.WatchConversationResponse{Transcript: watch.id, Seq: watch.seq}, true
 		}
 		if send {
-			if sendErr := stream.Send(msg); sendErr != nil {
+			if sendErr := sendWithin(ctx, s.sendTimeout, s.shutdown, stream, msg); sendErr != nil {
 				return fmt.Errorf("send conversation delta: %w", sendErr)
 			}
 			lastSent = time.Now()
@@ -84,6 +89,8 @@ func (s panesServer) runWatch(
 		select {
 		case <-ctx.Done():
 			return fmt.Errorf("watch conversation: %w", ctx.Err())
+		case <-s.shutdown:
+			return shutdownError()
 		case <-ticker.C:
 		}
 	}

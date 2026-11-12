@@ -99,8 +99,8 @@ type Config struct {
 	Sessions *store.Reader
 	// EventPoll is the interval at which Events.Watch polls the store for new events, or zero for the default.
 	EventPoll time.Duration
-	// EventSendTimeout bounds each Events.Watch send, or is zero for the default. A send that does not complete in
-	// time ends its stream, and no other.
+	// EventSendTimeout bounds each Events.Watch and Panes.WatchConversation send, or is zero for the default. A send
+	// that does not complete in time ends its stream, and no other.
 	EventSendTimeout time.Duration
 	// ConversationPoll is the interval at which Panes.WatchConversation polls its pane and transcript, or zero for
 	// the default.
@@ -108,7 +108,8 @@ type Config struct {
 	// ConversationKeepalive is the time without a delta after which Panes.WatchConversation sends a keepalive, or
 	// zero for the default.
 	ConversationKeepalive time.Duration
-	// Shutdown ends every open Events.Watch stream when it closes, or is nil to leave streams open.
+	// Shutdown ends every open Events.Watch and Panes.WatchConversation stream when it closes, or is nil to leave
+	// streams open.
 	Shutdown <-chan struct{}
 	// Engine forwards the Control API to orreryd's engine socket, or is nil, which answers unavailable.
 	Engine enginev1connect.EngineClient
@@ -169,7 +170,8 @@ func New(cfg Config) (http.Handler, error) {
 	controlPath, control := newControlHandler(cfg.Engine, cfg.ControlTimeout, cfg.Home)
 	mux.Handle(controlPath, control)
 	panesPath, panesService := newPanesHandler(
-		cfg.Tmux, newest, goals, queues, textLocks, seenLocks, cfg.ReportSeen, conversationPoll, conversationKeepalive,
+		cfg.Tmux, newest, goals, queues, textLocks, seenLocks, cfg.ReportSeen,
+		conversationPoll, conversationKeepalive, sendTimeout, cfg.Shutdown,
 	)
 	mux.Handle(panesPath, panesService)
 	hostPath, hostService := newHostHandler(cfg.HostStatus)

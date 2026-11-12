@@ -55,12 +55,7 @@ func (e eventsServer) Watch(
 	req *connect.Request[orreryv1.WatchRequest],
 	stream *connect.ServerStream[orreryv1.WatchResponse],
 ) error {
-	err := e.watch(ctx, req.Msg.GetAfter(), stream)
-	deadline := e.sendTimeout
-	if stopping(e.shutdown) {
-		deadline = shutdownGrace
-	}
-	return errors.Join(err, armWriteDeadline(ctx, deadline))
+	return endWithin(ctx, e.watch(ctx, req.Msg.GetAfter(), stream), e.sendTimeout, e.shutdown)
 }
 
 // watch runs Watch's stream from the cursor after until the stream ends, and returns why it ended.
@@ -201,16 +196,26 @@ func shutdownError() error {
 // errNoResponseWriter reports a context that carries no ResponseWriter, which withResponseWriter always adds.
 var errNoResponseWriter = errors.New("no response writer on context")
 
+// endWithin returns err joined with the arming of the end-of-stream write deadline: Connect writes the end of a stream
+// after its handler returns, so that write gets the send deadline timeout, or shutdownGrace once shutdown has closed.
+func endWithin(ctx context.Context, err error, timeout time.Duration, shutdown <-chan struct{}) error {
+	deadline := timeout
+	if stopping(shutdown) {
+		deadline = shutdownGrace
+	}
+	return errors.Join(err, armWriteDeadline(ctx, deadline))
+}
+
 // sendWithin sends msg on stream with a write deadline of timeout from now on the connection under the
 // ResponseWriter on ctx, so a send the client does not read within timeout fails. If shutdown closes while the send
 // is blocked, the deadline becomes shutdownGrace from then. A send that completes clears the deadline, so a stream
 // that stays quiet for longer than timeout can still write its next message or its end.
-func sendWithin(
+func sendWithin[T any](
 	ctx context.Context,
 	timeout time.Duration,
 	shutdown <-chan struct{},
-	stream *connect.ServerStream[orreryv1.WatchResponse],
-	msg *orreryv1.WatchResponse,
+	stream *connect.ServerStream[T],
+	msg *T,
 ) error {
 	if err := armWriteDeadline(ctx, timeout); err != nil {
 		return err
