@@ -2831,11 +2831,10 @@ func startServe(t *testing.T, stateHome, name, addr string, logins ...string) *o
 	return p
 }
 
-// apiResponse is the status, Content-Type, and body of one answer from the serve API.
+// apiResponse is the status and body of one answer from the serve API.
 type apiResponse struct {
-	status      int
-	contentType string
-	body        string
+	status int
+	body   string
 }
 
 // apiDo sends one request with headers to target and returns the answer.
@@ -2858,7 +2857,7 @@ func apiDo(t *testing.T, method, target, body string, headers map[string]string)
 	if err != nil {
 		t.Fatalf("read %s %s: %v", method, target, err)
 	}
-	return apiResponse{status: resp.StatusCode, contentType: resp.Header.Get("Content-Type"), body: string(raw)}
+	return apiResponse{status: resp.StatusCode, body: string(raw)}
 }
 
 // guardHeaders returns the headers of a Connect request from login that carries the client header the guard needs.
