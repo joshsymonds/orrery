@@ -143,6 +143,8 @@ type Config struct {
 	// Steps is orreryd's Steps client, which Control asks before it forwards a session command, or is nil, which
 	// forwards every session command as before.
 	Steps StepClient
+	// Records is the gambit record root the Epics service reads, or empty to list nothing.
+	Records string
 	// Home is the home directory a Control start must name a directory under, after symlinks resolve. An empty,
 	// relative or root Home, or one that does not exist, refuses every start.
 	Home string
@@ -199,6 +201,10 @@ func New(cfg Config) (http.Handler, error) {
 	mux.Handle(eventsPath, events)
 	controlPath, control := newControlHandler(cfg.Engine, cfg.ControlTimeout, cfg.Home, cfg.Steps)
 	mux.Handle(controlPath, control)
+	epicsPath, epicsService := newEpicsHandler(cfg.Records, cfg.Steps, cfg.ControlTimeout, now)
+	mux.Handle(epicsPath, epicsService)
+	stepsPath, stepsService := newStepsHandler(cfg.Steps, cfg.ControlTimeout)
+	mux.Handle(stepsPath, stepsService)
 	panesPath, panesService := newPanesHandler(
 		cfg.Tmux, newest, goals, queues, textLocks, seenLocks, cfg.ReportSeen,
 		conversationPoll, conversationKeepalive, sendTimeout, cfg.Shutdown,
@@ -210,7 +216,9 @@ func New(cfg Config) (http.Handler, error) {
 	mux.Handle(pushPath, pushService)
 	pickerPath, pickerService := newPickerHandler(cfg.Picker, tokens, cfg.Tmux, now)
 	mux.Handle(pickerPath, pickerService)
-	connectPaths := []string{sessionsPath, eventsPath, controlPath, panesPath, hostPath, pushPath, pickerPath}
+	connectPaths := []string{
+		sessionsPath, eventsPath, controlPath, epicsPath, stepsPath, panesPath, hostPath, pushPath, pickerPath,
+	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if _, ok := allowed[r.Header.Get(HeaderLogin)]; !ok {
 			http.Error(w, "forbidden", http.StatusForbidden)
