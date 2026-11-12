@@ -1,15 +1,16 @@
 package io.github.joshsymonds.orrery.ui
 
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
-import androidx.compose.ui.test.performClick
 import io.github.joshsymonds.orrery.api.Pane
-import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -46,9 +47,9 @@ class StatusLineTest {
     private fun toolStartedAt(start: Long): String =
         """{"id":"tool-1","name":"Bash","input":"$toolInput","start":$start}"""
 
-    private fun setLine(pane: Pane, onClick: () -> Unit = {}) {
+    private fun setLine(pane: Pane) {
         composeRule.setContent {
-            MaterialTheme { StatusLine(pane, now, onClick) }
+            MaterialTheme { StatusLine(pane, now) }
         }
     }
 
@@ -130,12 +131,9 @@ class StatusLineTest {
     }
 
     @Test
-    fun tappingTheLineCallsOnClickOnce() {
-        var taps = 0
-        setLine(pane("waiting", changed = now - 60)) { taps++ }
+    fun theLineHasNoClickAction() {
+        setLine(pane("waiting", changed = now - 60))
 
-        composeRule.onNodeWithTag("status-line").performClick()
-
-        assertEquals(1, taps)
+        composeRule.onNodeWithTag("status-line").assert(SemanticsMatcher.keyNotDefined(SemanticsActions.OnClick))
     }
 }

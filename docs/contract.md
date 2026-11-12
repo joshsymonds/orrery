@@ -942,7 +942,7 @@ On the phone, the notices of a host are shown as follows:
 
 `orrery serve` also serves a typed API over the Connect protocol. The schema is `proto/orrery/v1/orrery.proto`, package `orrery.v1`. Generated Go lives in `internal/gen`. `just generate` writes it, and `just check` fails when it drifts from the schema. The same `just generate` also writes the generated Kotlin into `android/app/src/main/java`, from the template `proto/buf.gen.android.yaml`. `just gen-diff` diffs that directory and `internal/gen`.
 
-The services are `orrery.v1.Sessions`, with one call, `List`, `orrery.v1.Events`, with one call, `Watch`, `orrery.v1.Control`, with six calls, which [Control API](#control-api) describes, and the four phone services `orrery.v1.Panes`, `orrery.v1.Host`, `orrery.v1.Push` and `orrery.v1.Picker`, with eleven calls, which [Phone API](#phone-api) describes.
+The services are `orrery.v1.Sessions`, with one call, `List`, `orrery.v1.Events`, with one call, `Watch`, `orrery.v1.Control`, with six calls, which [Control API](#control-api) describes, and the four phone services `orrery.v1.Panes`, `orrery.v1.Host`, `orrery.v1.Push` and `orrery.v1.Picker`, with twelve calls, which [Phone API](#phone-api) describes.
 
 | Call | Path | Request | Response |
 |---|---|---|---|
@@ -957,6 +957,7 @@ The services are `orrery.v1.Sessions`, with one call, `List`, `orrery.v1.Events`
 | `Panes.List` | `POST /orrery.v1.Panes/List` | `PanesListRequest`, empty | `PanesListResponse` |
 | `Panes.Screen` | `POST /orrery.v1.Panes/Screen` | `ScreenRequest` | `ScreenResponse` |
 | `Panes.Conversation` | `POST /orrery.v1.Panes/Conversation` | `ConversationRequest` | `ConversationResponse` |
+| `Panes.WatchConversation` (server-streaming) | `POST /orrery.v1.Panes/WatchConversation` | `WatchConversationRequest` | stream of `WatchConversationResponse` |
 | `Panes.SendText` | `POST /orrery.v1.Panes/SendText` | `SendTextRequest` | `SendTextResponse` |
 | `Panes.SendKeys` | `POST /orrery.v1.Panes/SendKeys` | `SendKeysRequest` | `SendKeysResponse` |
 | `Panes.MarkSeen` | `POST /orrery.v1.Panes/MarkSeen` | `MarkSeenRequest` | `MarkSeenResponse` |
@@ -1063,13 +1064,14 @@ Errors are Connect codes. The messages marked fixed are the same whatever orrery
 
 ### Phone API
 
-The phone's calls are the four services `orrery.v1.Panes`, `orrery.v1.Host`, `orrery.v1.Push` and `orrery.v1.Picker` of [Connect API](#connect-api), with eleven calls. Each call is a Connect POST to its path in [Connect API](#connect-api), and the Connect rules of [Guard](#guard) apply to it. This section states each call's request meaning, answer and errors. The error table at the end gives each error code with its message.
+The phone's calls are the four services `orrery.v1.Panes`, `orrery.v1.Host`, `orrery.v1.Push` and `orrery.v1.Picker` of [Connect API](#connect-api), with twelve calls. Each call is a Connect POST to its path in [Connect API](#connect-api), and the Connect rules of [Guard](#guard) apply to it. This section states each call's request meaning, answer and errors. The error table at the end gives each error code with its message.
 
 Request fields and what their zero and presence values mean:
 
 - `PanesListRequest` and `HostStatusRequest` have no fields.
 - `ScreenRequest`: `pane` is the pane ID, `%` followed by digits, such as `%3`. Any other value is a malformed pane ID. `ansi` false gives plain text, and `ansi` true keeps the color escape sequences. `history` 0 adds no scrollback. A value from 1 to 2000 adds that many lines above the visible screen, and a value above 2000 is `invalid_argument`. The `ansi` and `history` checks run before the pane ID check, so a `history` above 2000 is `invalid_argument` even for an absent pane.
 - `ConversationRequest`: `pane` is as for `ScreenRequest`. `limit` 0 means the default of 30. A value from 1 to 100 is that many items, and a value above 100 is `invalid_argument`. The `limit` check runs before the pane ID check.
+- `WatchConversationRequest`: `pane` is as for `ScreenRequest`. `limit` is as for `ConversationRequest`, and it is the number of newest items a reset sends. `transcript` is the id of the transcript the client holds, or empty when it holds none. `after` is the `seq` the client holds for that transcript. The `limit` check runs before the pane ID check.
 - `SendTextRequest`: `pane` is as for `ScreenRequest`, and `text` is the text sent.
 - `SendKeysRequest`: `pane` is as for `ScreenRequest`, and `keys` is the list of keys sent, in order. `expect_question` is present when the field is set. When it is present, the question check applies.
 - `MarkSeenRequest`: `pane` is as for `ScreenRequest`. `read_up_to` absent means now. When present, it must be 0 or more, or the call is `invalid_argument`.
@@ -1130,6 +1132,7 @@ Example `Panes.Conversation` answer, written with the field names of `Conversati
 {"origin":"Example opening prompt.","items":[{"kind":"prompt","time":1700000000,"text":"Example opening prompt.","tool":"","input":"","id":"","error":false,"notice":"","trigger":"","tokens":0},{"kind":"compaction","time":1700000050,"text":"Example summary.","tool":"","input":"","id":"","error":false,"notice":"","trigger":"auto","tokens":611000},{"kind":"reply","time":1700000100,"text":"Example reply.","tool":"","input":"","id":"","error":false,"notice":"","trigger":"","tokens":0},{"kind":"tool","time":1700000200,"text":"","tool":"Bash","input":"example command","id":"example-tool-use","error":false,"notice":"","trigger":"","tokens":0},{"kind":"result","time":1700000210,"text":"Example output.","tool":"","input":"","id":"example-tool-use","error":false,"notice":"","trigger":"","tokens":0},{"kind":"notice","time":1700000300,"text":"Example task finished.","tool":"","input":"","id":"","error":false,"notice":"task","trigger":"","tokens":0}],"goal":"Example goal.","waiting":[{"text":"Example queued message.","time":1700000250,"canceled":false}],"context":{"tokens":240000,"window":1000000}}
 ```
 
+- `WatchConversationResponse` is one message of the stream. The stream and its rules are in [Conversation stream](#conversation-stream).
 - `HostStatusResponse` carries `host` and `stats`. `host` is the machine's host name, and `stats` holds the command's validated stats in order. Without `--host-status-cmd`, the answer is `not_found` "404 page not found".
   - Each stat has the fields `label`, `value`, `percent` (unset when the command gave none), and `level`.
   - The command's output must be a JSON array of at most 12 objects. Each object has a non-empty string `label`, a string `value`, a `level` of `ok`, `warn`, or `crit`, and an optional `percent` that is a number from 0 to 100 (`null` counts as absent). An empty array is valid. Any other output is invalid: a top-level value that is not an array, data after the array, a stat with an unknown key, or a stat with a missing or mistyped field.
@@ -1159,17 +1162,52 @@ Example `Host.Status` answer, shown as JSON. Every value is synthetic:
   - A run whose action fails is `unavailable` with the failure's reason as the message, and records nothing, so a later run of the same token runs the action again.
   - A run whose action succeeded but whose pane lookup then failed is `unavailable` with the failure's reason as the message. It keeps the action's target, so a later run of the same token runs no action and looks the pane up again.
 
+#### Conversation stream
+
+`Panes.WatchConversation` streams the conversation of one pane. It is a server-streaming call, and each message it sends is a `WatchConversationResponse`, which is either a delta or a keepalive. The stream starts with a reset or with the deltas after the client's `seq`, as the reset and resume rules below say, and then sends a delta for each change. The items of a delta follow the item rules of `ConversationResponse` above.
+
+The fields of a `WatchConversationResponse` are these:
+
+- `transcript` is the id of the transcript the delta belongs to. It is the base name of the pane's `@orrery_transcript` path (section 2), so no file path is sent.
+- `seq` is a byte offset into that transcript, not a line number. It is the position just past the last complete line the delta covers. A later request resumes with the `transcript` and `seq` that it holds.
+- `reset` is true when the delta replaces what the client holds. A reset holds the newest `limit` items, oldest first, and the whole state. A delta that is not a reset holds the items of the lines it covers, oldest first, and that can be none.
+- `items` holds the items of the delta, under the item rules of `ConversationResponse`.
+- `state` is a `ConversationState`. It has `origin`, `goal`, `waiting` and `context`, as `ConversationResponse` has them, and `pane`, the pane as `Panes.List` gives it. `state` is set on the first delta of every stream and on each delta where a state field changed. Otherwise it is unset.
+- `unfinished` holds the text so far of each unfinished content block, as an `EngineText` has it. It is kept for headless sessions (see [Engine sessions in the store](#engine-sessions-in-the-store)). A pane stream never sets `unfinished`.
+
+Reset and resume:
+
+- The first delta is a reset when `transcript` is empty or differs from the id of the pane's transcript, and when `after` is negative, past the end of that transcript, or neither 0 nor just after a newline.
+- Otherwise the first delta holds the complete lines after `after`, with `reset` false. An `after` of 0 sends every complete line of the transcript.
+- Later in the stream, a reset is sent when the pane's `@orrery_transcript` names another transcript, and when the stream's `seq` is no longer just after a newline of its transcript because the file shrank or was replaced. That reset holds the newest `limit` items of the pane's transcript at that time.
+
+Timing:
+
+- The stream checks the pane every 500 ms. A delta is sent when the transcript has gained complete lines or the state has changed.
+- After 5 seconds without a message, the stream sends a keepalive: a message with only `transcript` and `seq` set. While nothing changes, it sends one about every 5 seconds, on the 500 ms ticks.
+
+The stream ends in one of these ways:
+
+- When the client leaves the stream, by cancelling the call or closing the connection. This is not an error.
+- With an error from the error table, when the pane is absent, has no live session, has no transcript, or has a transcript file that is missing. This applies at start and mid-stream.
+- When serve shuts down. On serve's shutdown, a blocked send of the stream gets 1 second, and so does the stream's end. A stream waiting for its next tick or send at shutdown ends with `unavailable`, with the message `serve is shutting down`.
+- When a send stalls. A send of the stream still blocked after 10 seconds ends that stream only, with an error outside the error table.
+
+The guard covers the stream. The rules of [Guard](#guard) apply to `/orrery.v1.Panes/WatchConversation` as they do to every Connect path. A GET to the stream answers 405.
+
+#### Phone API errors
+
 Errors are Connect codes. The message column gives the text of each error exactly. Where the message is "the failure's reason", the text is the reason of the failure as the server gives it, and the message carries it unchanged.
 
 | Connect code | When | Message |
 |---|---|---|
 | `invalid_argument` | a malformed pane ID | `malformed pane id` |
-| `invalid_argument` | `Panes.Screen` with a `history` above 2000; `Panes.Conversation` with a `limit` above 100 | `bad request query` |
+| `invalid_argument` | `Panes.Screen` with a `history` above 2000; `Panes.Conversation` or `Panes.WatchConversation` with a `limit` above 100 | `bad request query` |
 | `invalid_argument` | `Panes.SendKeys` with no keys; `Panes.MarkSeen` with a negative `read_up_to`; `Push.Register` with keys that do not decode | `bad request body` |
 | `invalid_argument` | `Push.Register` with an endpoint that is not allowed | `endpoint not allowed` |
 | `invalid_argument` | `Picker.Ask` with blank text; `Picker.Run` with a blank token | `bad request` |
-| `not_found` | an absent pane | `pane not found` |
-| `not_found` | `Panes.Conversation` with no live session, no transcript, or a transcript file that is missing | `no live session`, `no transcript`, or `transcript not found` |
+| `not_found` | an absent pane, including a pane that goes away during `Panes.WatchConversation` | `pane not found` |
+| `not_found` | `Panes.Conversation` with no live session, no transcript, or a transcript file that is missing; `Panes.WatchConversation` with the same cases, at start or mid-stream | `no live session`, `no transcript`, or `transcript not found` |
 | `not_found` | `Host.Status` with no `--host-status-cmd`; `Picker.Ask` with no picker configured | `404 page not found` |
 | `not_found` | `Push.Unregister` for an endpoint that is not registered | `endpoint not registered` |
 | `not_found` | `Picker.Run` with a token no ask issued, or one lost by a restart | `unknown token` |
@@ -1177,6 +1215,7 @@ Errors are Connect codes. The message column gives the text of each error exactl
 | `failed_precondition` | `Picker.Run` with no tmux server running | the tmux reason |
 | `failed_precondition` | `Picker.Run` with an expired token | `expired token` |
 | `unavailable` | `Host.Status` with a status command that failed or gave invalid stats | `host status unavailable` |
+| `unavailable` | `Panes.WatchConversation` while serve shuts down | `serve is shutting down` |
 | `unavailable` | `Picker.Ask` with a picker configuration, text lookup, or pane listing failure | the failure's reason |
 | `unavailable` | `Picker.Run` with a failed action, or an action whose pane lookup failed | the failure's reason |
 | `internal` | a tmux failure, a store failure, a transcript read failure, a host name failure, or a failed seen report | `internal server error` |
@@ -1222,3 +1261,5 @@ The picker run's failed-run rule changed in the same effort, and this is a chang
 orrery O1a (steps) added, additively: the `orreryd` flags `--step-cap` and `--gate-lock`, and the `step-worktrees` directory beside the store file; `--sessions` now also serves the step service; the `orrery.engine.v1.Steps` service on `sessions.sock`, its four calls and their Connect codes (see [Steps](#steps)); the `step` value of the `kind` column of `sessions`; the `steps` table (migration `00004_steps.sql`, see [Steps in the store](#steps-in-the-store)); the step end kinds `done`, `returned`, `checks_failed`, `failed`, `stopped` and `engine_restarted`; and the step rules of [Step lifecycle](#step-lifecycle). Step rows are not listed by the typed `List`; their `engine_*` events reach `orrery.v1.Events.Watch` as other engine events do. No existing name or value changes.
 
 orrery removed the REST routes of the phone API: `GET /v1/panes`, `POST /v1/panes`, `GET /v1/panes/{id}/screen`, `GET /v1/panes/{id}/conversation`, `GET /v1/host`, `POST /v1/panes/{id}/text`, `POST /v1/panes/{id}/keys`, `POST /v1/panes/{id}/seen`, `POST /v1/push/register`, `DELETE /v1/push/register`, `POST /v1/picker/ask` and `POST /v1/picker/run`. `POST /v1/panes`, which opened a window, is removed with them and has no replacement. Each other route is answered by the Connect call of [Phone API](#phone-api) that replaced it, and that section states the rules the route had. The guard's rule for non-Connect POST and DELETE paths went with the routes, so every path other than a Connect path answers 404 after the login check (see [Guard](#guard)). This is a removal, and it changes serve's HTTP surface. No Connect name or value changes.
+
+orrery H3b (conversation stream) added, additively: the `orrery.v1.Panes.WatchConversation` call, its messages `WatchConversationRequest`, `WatchConversationResponse` and `ConversationState`, and the `unfinished` field of `WatchConversationResponse`, which holds `EngineText` values that pane streams never set (see [Conversation stream](#conversation-stream)). The phone API now has twelve calls where it had eleven (see [Phone API](#phone-api)). The guard's Connect prefixes already covered the stream, so the guard is unchanged. No existing name or value changes.

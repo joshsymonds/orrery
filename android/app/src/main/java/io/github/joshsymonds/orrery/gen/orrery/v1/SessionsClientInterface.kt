@@ -6,6 +6,7 @@ package io.github.joshsymonds.orrery.gen.orrery.v1
 
 import com.connectrpc.Headers
 import com.connectrpc.ResponseMessage
+import com.connectrpc.ServerOnlyStreamInterface
 
 /**
  *  Sessions reads the Claude Code sessions that orrery tracks.
@@ -15,4 +16,15 @@ public interface SessionsClientInterface {
    *  List returns every tracked session.
    */
   public suspend fun list(request: ListRequest, headers: Headers = emptyMap()): ResponseMessage<ListResponse>
+
+  /**
+   *  ListHeadless returns the headless sessions of the last 14 days, each row's text derived when it is read.
+   */
+  public suspend fun listHeadless(request: ListHeadlessRequest, headers: Headers = emptyMap()): ResponseMessage<ListHeadlessResponse>
+
+  /**
+   *  WatchConversation streams the conversation of one headless session in the deltas Panes.WatchConversation sends:
+   *  a reset with the newest items when the client holds none, then the deltas that follow each change.
+   */
+  public suspend fun watchConversation(headers: Headers = emptyMap()): ServerOnlyStreamInterface<SessionsWatchConversationRequest, SessionsWatchConversationResponse>
 }

@@ -504,6 +504,77 @@ func (q *Queries) ListEvents(ctx context.Context) ([]Event, error) {
 	return items, nil
 }
 
+const listHeadlessSessions = `-- name: ListHeadlessSessions :many
+SELECT
+    sessions.id, sessions.dir, sessions.state, sessions.changed, sessions.seen, sessions.question, sessions.reason,
+    CAST(COALESCE((
+        SELECT json_extract(events.payload, '$.text') FROM events
+        WHERE events.session_id = sessions.id AND events.kind = 'engine_block'
+          AND json_extract(events.payload, '$.kind') = 'text'
+          AND json_extract(events.payload, '$.role') = 'assistant'
+          AND IFNULL(json_extract(events.payload, '$.parentToolUseId'), '') = ''
+        ORDER BY events.at DESC, events.seq DESC LIMIT 1
+    ), '') AS TEXT) AS reply,
+    CAST(COALESCE((
+        SELECT MAX(events.at) FROM events
+        WHERE events.session_id = sessions.id AND (
+            (events.kind = 'engine_block' AND json_extract(events.payload, '$.kind') = 'text'
+             AND json_extract(events.payload, '$.role') = 'assistant'
+             AND IFNULL(json_extract(events.payload, '$.parentToolUseId'), '') = '')
+            OR (events.kind = 'engine_request' AND json_extract(events.payload, '$.refused') IS NOT 1)
+        )
+    ), 0) AS INTEGER) AS newest_reply
+FROM sessions
+WHERE sessions.kind = 'engine'
+  AND EXISTS (SELECT 1 FROM events WHERE events.session_id = sessions.id AND events.at >= ?1)
+ORDER BY sessions.id
+`
+
+type ListHeadlessSessionsRow struct {
+	ID          string
+	Dir         string
+	State       string
+	Changed     string
+	Seen        string
+	Question    string
+	Reason      string
+	Reply       string
+	NewestReply int64
+}
+
+func (q *Queries) ListHeadlessSessions(ctx context.Context, cutoff int64) ([]ListHeadlessSessionsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listHeadlessSessions, cutoff)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListHeadlessSessionsRow
+	for rows.Next() {
+		var i ListHeadlessSessionsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Dir,
+			&i.State,
+			&i.Changed,
+			&i.Seen,
+			&i.Question,
+			&i.Reason,
+			&i.Reply,
+			&i.NewestReply,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listLabelledSteps = `-- name: ListLabelledSteps :many
 SELECT id, agent, prompt, output_schema, workspace, revision, worktree, done_value, read_only, owned, gate, gate_limit, started, checks, result, status, end_value, reason, ended, model_limit, doing, verdicts, epic, task FROM steps
 WHERE epic <> '' AND (CAST(?1 AS TEXT) = '' OR epic = CAST(?1 AS TEXT))
