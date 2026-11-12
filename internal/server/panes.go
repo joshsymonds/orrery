@@ -3,11 +3,11 @@ package server
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
 	"strconv"
+	"time"
 
 	"connectrpc.com/connect"
 
@@ -20,17 +20,21 @@ import (
 
 // panesServer answers orrery.v1.Panes with the tmux client, conversation state, locks and seen reporter it holds.
 type panesServer struct {
-	tmux      *tmuxctl.Client
-	newest    *conversation.Newest
-	goals     *conversation.Goals
-	queues    *conversation.Queues
-	textLocks *paneLocks
-	seenLocks *paneLocks
-	report    cli.SeenReporter
+	tmux                  *tmuxctl.Client
+	newest                *conversation.Newest
+	goals                 *conversation.Goals
+	queues                *conversation.Queues
+	textLocks             *paneLocks
+	seenLocks             *paneLocks
+	report                cli.SeenReporter
+	conversationPoll      time.Duration
+	conversationKeepalive time.Duration
 }
 
 // newPanesHandler returns the path and handler that serve Panes over the tmux client, conversation state, locks and
-// seen reporter it is given.
+// seen reporter it is given. WatchConversation polls every conversationPoll and sends a keepalive after
+// conversationKeepalive without a delta. The handler runs under withResponseWriter, so the stream reaches its
+// connection.
 func newPanesHandler(
 	tmux *tmuxctl.Client,
 	newest *conversation.Newest,
@@ -38,16 +42,20 @@ func newPanesHandler(
 	queues *conversation.Queues,
 	textLocks, seenLocks *paneLocks,
 	report cli.SeenReporter,
+	conversationPoll, conversationKeepalive time.Duration,
 ) (string, http.Handler) {
-	return orreryv1connect.NewPanesHandler(panesServer{
-		tmux:      tmux,
-		newest:    newest,
-		goals:     goals,
-		queues:    queues,
-		textLocks: textLocks,
-		seenLocks: seenLocks,
-		report:    report,
+	path, handler := orreryv1connect.NewPanesHandler(panesServer{
+		tmux:                  tmux,
+		newest:                newest,
+		goals:                 goals,
+		queues:                queues,
+		textLocks:             textLocks,
+		seenLocks:             seenLocks,
+		report:                report,
+		conversationPoll:      conversationPoll,
+		conversationKeepalive: conversationKeepalive,
 	})
+	return path, withResponseWriter(handler)
 }
 
 // Keys of a pane object that are read by constant rather than struct tag, since their snake case is not the
@@ -103,7 +111,7 @@ func (s panesServer) Screen(
 	}
 	flags, ok := screenFlags(query)
 	if !ok {
-		return nil, connectError(routeError{status: http.StatusBadRequest, message: "bad request query"})
+		return nil, connectError(routeError{status: http.StatusBadRequest, message: badQueryMessage})
 	}
 	pane, err := checkPane(ctx, s.tmux, req.Msg.GetPane())
 	if err != nil {
@@ -129,7 +137,7 @@ func (s panesServer) Conversation(
 	}
 	limit, ok := conversationLimit(query)
 	if !ok {
-		return nil, connectError(routeError{status: http.StatusBadRequest, message: "bad request query"})
+		return nil, connectError(routeError{status: http.StatusBadRequest, message: badQueryMessage})
 	}
 	conv, err := conversationAnswer(ctx, s.tmux, s.goals, s.queues, req.Msg.GetPane(), limit)
 	if err != nil {
@@ -183,23 +191,23 @@ func (s panesServer) MarkSeen(
 	return connect.NewResponse(&v1.MarkSeenResponse{}), nil
 }
 
-// WatchConversation answers Panes.WatchConversation as unimplemented. A later change implements the stream.
-func (s panesServer) WatchConversation(
-	_ context.Context,
-	_ *connect.Request[v1.WatchConversationRequest],
-	_ *connect.ServerStream[v1.WatchConversationResponse],
-) error {
-	return errors.Join(connect.NewError(
-		connect.CodeUnimplemented,
-		errors.New("WatchConversation is not implemented yet"),
-	))
-}
-
 // conversationMessage returns the ConversationResponse of conv.
 func conversationMessage(conv conversation.Conversation) *v1.ConversationResponse {
-	items := make([]*v1.ConversationItem, 0, len(conv.Items))
-	for _, item := range conv.Items {
-		items = append(items, &v1.ConversationItem{
+	figure := &v1.ConversationContext{Tokens: conv.Context.Tokens, Window: conv.Context.Window}
+	return &v1.ConversationResponse{
+		Origin:  conv.Origin,
+		Items:   conversationItems(conv.Items),
+		Goal:    conv.Goal,
+		Waiting: waitingMessages(conv.Waiting),
+		Context: figure,
+	}
+}
+
+// conversationItems returns the ConversationItem message of each of items, in order.
+func conversationItems(items []conversation.Item) []*v1.ConversationItem {
+	out := make([]*v1.ConversationItem, 0, len(items))
+	for _, item := range items {
+		out = append(out, &v1.ConversationItem{
 			Kind:    item.Kind,
 			Time:    item.Time,
 			Text:    item.Text,
@@ -212,18 +220,16 @@ func conversationMessage(conv conversation.Conversation) *v1.ConversationRespons
 			Tokens:  item.Tokens,
 		})
 	}
-	waiting := make([]*v1.WaitingMessage, 0, len(conv.Waiting))
-	for _, msg := range conv.Waiting {
-		waiting = append(waiting, &v1.WaitingMessage{Text: msg.Text, Time: msg.Time, Canceled: msg.Canceled})
+	return out
+}
+
+// waitingMessages returns the WaitingMessage message of each of waiting, in order.
+func waitingMessages(waiting []conversation.Waiting) []*v1.WaitingMessage {
+	out := make([]*v1.WaitingMessage, 0, len(waiting))
+	for _, msg := range waiting {
+		out = append(out, &v1.WaitingMessage{Text: msg.Text, Time: msg.Time, Canceled: msg.Canceled})
 	}
-	figure := &v1.ConversationContext{Tokens: conv.Context.Tokens, Window: conv.Context.Window}
-	return &v1.ConversationResponse{
-		Origin:  conv.Origin,
-		Items:   items,
-		Goal:    conv.Goal,
-		Waiting: waiting,
-		Context: figure,
-	}
+	return out
 }
 
 // paneMessages returns the Pane messages of the panes listPanes gives, in order. It reads the same JSON objects
