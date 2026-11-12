@@ -37,11 +37,14 @@ import java.util.UUID
 
 private enum class PickerWork { IDLE, ASKING, RUNNING, STARTING }
 
+/** A pane or fresh row's start form: the folder it starts in and the first message it sends. */
+private data class StartForm(val dir: String, val message: String)
+
 /**
- * A pane or fresh row's start form: the folder it starts in, the first message it sends, and the session id
- * every Start of this form sends, so a Start retried after a dropped answer cannot start a second session.
+ * The last Start sent: its folder, its message, and the session id it sent with them. A Start of the same folder and
+ * message sends that id again, so a retry after a refusal or a dropped answer starts nothing new.
  */
-private data class StartForm(val dir: String, val message: String, val id: String)
+private data class PendingStart(val dir: String, val message: String, val id: String)
 
 /** The message a failed call shows, or a fixed phrase when the failure carries none. */
 private fun Exception.reason(): String = message ?: "request failed"
@@ -72,6 +75,7 @@ fun PickerPanel(
     var work by remember { mutableStateOf(PickerWork.IDLE) }
     var failure by remember { mutableStateOf<String?>(null) }
     var form by remember { mutableStateOf<StartForm?>(null) }
+    var pending by remember { mutableStateOf<PendingStart?>(null) }
     val scope = rememberCoroutineScope()
     val canAsk = text.isNotBlank() && work == PickerWork.IDLE
 
@@ -111,23 +115,21 @@ fun PickerPanel(
     fun open(row: PickRow) {
         if (row.kind == "pane" || row.kind == "fresh") {
             failure = null
-            form = StartForm(
-                dir = row.dir,
-                message = if (row.prompt) askedText else "",
-                id = newSessionId(),
-            )
+            form = StartForm(dir = row.dir, message = if (row.prompt) askedText else "")
         } else {
             run(row)
         }
     }
 
     fun start(current: StartForm) {
+        val id = pending?.takeIf { it.dir == current.dir && it.message == current.message }?.id ?: newSessionId()
+        pending = PendingStart(current.dir, current.message, id)
         work = PickerWork.STARTING
         failure = null
         scope.launch {
             var answer: String? = null
             try {
-                answer = withContext(Dispatchers.IO) { client.start(current.dir, current.message, current.id) }
+                answer = withContext(Dispatchers.IO) { client.start(current.dir, current.message, id) }
             } catch (error: IOException) {
                 failure = error.reason()
             }

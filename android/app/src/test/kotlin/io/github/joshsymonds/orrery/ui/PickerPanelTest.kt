@@ -14,6 +14,7 @@ import io.github.joshsymonds.orrery.api.FakeOrreryServer
 import io.github.joshsymonds.orrery.api.OrreryClient
 import com.connectrpc.Code
 import io.github.joshsymonds.orrery.api.RecordedRequest
+import io.github.joshsymonds.orrery.api.Reply
 import io.github.joshsymonds.orrery.gen.orrery.v1.AskRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.AskResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.PickerRow
@@ -23,6 +24,7 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.StartRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.StartResponse
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -42,6 +44,7 @@ class PickerPanelTest {
         const val RUN_PATH = "/orrery.v1.Picker/Run"
         const val START_PATH = "/orrery.v1.Control/Start"
         const val FULL_FOLDER = "/home/user/projects/synthetic-workspace/nested/deeper/folder-that-is-long"
+        const val OTHER_FOLDER = "/home/user/projects/synthetic-workspace/another-folder"
         const val ANSWERED_ID = "fedcba9876543210fedcba9876543210"
         val ID_FORM = Regex("^[0-9a-f]{32}$")
     }
@@ -109,6 +112,16 @@ class PickerPanelTest {
         )
         .build()
 
+    private fun freshRow(token: String, dir: String): PickerRow = PickerRow.newBuilder()
+        .setToken(token)
+        .setKind("fresh")
+        .setDir(dir)
+        .setPane("")
+        .setLabel("")
+        .setNote("")
+        .setPrompt(false)
+        .build()
+
     private fun setPanel(server: FakeOrreryServer) {
         composeRule.setContent {
             PickerPanel(
@@ -146,6 +159,12 @@ class PickerPanelTest {
 
     private fun postsTo(server: FakeOrreryServer, path: String): List<RecordedRequest> =
         server.requests.filter { it.method == "POST" && it.rawPath == path }
+
+    private fun startIds(server: FakeOrreryServer): List<String> =
+        postsTo(server, START_PATH).map { StartRequest.parseFrom(it.body).id }
+
+    private fun errorShown(): Boolean =
+        composeRule.onAllNodesWithTag("picker-error").fetchSemanticsNodes().isNotEmpty()
 
     @Test
     fun submitShowsWorkingThenRowsWithKindFolderLabelNoteAndPromptFlag() {
@@ -327,6 +346,131 @@ class PickerPanelTest {
             composeRule.onNodeWithTag("picker-error").assertTextEquals("the folder is not stamped")
             assertEquals("start it", fieldText("start-message"))
             assertEquals(null, started.get())
+        }
+    }
+
+    @Test
+    fun aRefusedStartRetriedWithTheSameMessagePostsTheSameId() {
+        FakeOrreryServer().use { server ->
+            openStartForm(server, row = 1)
+            server.fail(START_PATH, Code.FAILED_PRECONDITION, "the folder is not stamped")
+            composeRule.onNodeWithTag("start-message").performTextInput("start it")
+
+            composeRule.onNodeWithTag("start-submit").performClick()
+            composeRule.waitUntil(TIMEOUT_MS) { errorShown() }
+            composeRule.onNodeWithTag("start-submit").performClick()
+            composeRule.waitUntil(TIMEOUT_MS) { startIds(server).size == 2 }
+
+            val ids = startIds(server)
+            assertTrue(ID_FORM.matches(ids[0]))
+            assertEquals(ids[0], ids[1])
+        }
+    }
+
+    @Test
+    fun aDroppedStartRetriedWithTheSameMessagePostsTheSameId() {
+        FakeOrreryServer().use { server ->
+            openStartForm(server, row = 1)
+            val answers = AtomicInteger(0)
+            server.route(START_PATH) {
+                if (answers.incrementAndGet() == 1) {
+                    Reply.Drop
+                } else {
+                    Reply.Message(StartResponse.newBuilder().setId(ANSWERED_ID).build(), 0L)
+                }
+            }
+            composeRule.onNodeWithTag("start-message").performTextInput("start it")
+
+            composeRule.onNodeWithTag("start-submit").performClick()
+            composeRule.waitUntil(TIMEOUT_MS) { errorShown() }
+            composeRule.onNodeWithTag("start-submit").performClick()
+            composeRule.waitUntil(TIMEOUT_MS) { started.get() != null }
+
+            val ids = startIds(server)
+            assertEquals(2, ids.size)
+            assertTrue(ID_FORM.matches(ids[0]))
+            assertEquals(ids[0], ids[1])
+        }
+    }
+
+    @Test
+    fun aStartAfterAnEditedMessagePostsANewId() {
+        FakeOrreryServer().use { server ->
+            openStartForm(server, row = 1)
+            server.fail(START_PATH, Code.FAILED_PRECONDITION, "the folder is not stamped")
+            composeRule.onNodeWithTag("start-message").performTextInput("start it")
+
+            composeRule.onNodeWithTag("start-submit").performClick()
+            composeRule.waitUntil(TIMEOUT_MS) { errorShown() }
+            composeRule.onNodeWithTag("start-message").performTextInput(" now")
+            composeRule.onNodeWithTag("start-submit").performClick()
+            composeRule.waitUntil(TIMEOUT_MS) { startIds(server).size == 2 }
+
+            val starts = postsTo(server, START_PATH).map { StartRequest.parseFrom(it.body) }
+            assertEquals("start it now", starts[1].prompt)
+            assertTrue(ID_FORM.matches(starts[1].id))
+            assertNotEquals(starts[0].id, starts[1].id)
+        }
+    }
+
+    @Test
+    fun aStartAfterAnAnsweredStartForTheSameFolderAndMessageReusesItsId() {
+        FakeOrreryServer().use { server ->
+            openStartForm(server, row = 1)
+            server.respond(START_PATH, StartResponse.newBuilder().setId(ANSWERED_ID).build())
+            composeRule.onNodeWithTag("start-message").performTextInput("start it")
+            composeRule.onNodeWithTag("start-submit").performClick()
+            composeRule.waitUntil(TIMEOUT_MS) { started.get() != null }
+
+            composeRule.onNodeWithTag("picker-row:1").performClick()
+            composeRule.waitUntil(TIMEOUT_MS) {
+                composeRule.onAllNodesWithTag("start-form").fetchSemanticsNodes().isNotEmpty()
+            }
+            composeRule.onNodeWithTag("start-message").performTextInput("start it")
+            composeRule.onNodeWithTag("start-submit").performClick()
+            composeRule.waitUntil(TIMEOUT_MS) { startIds(server).size == 2 }
+
+            val ids = startIds(server)
+            assertTrue(ID_FORM.matches(ids[0]))
+            assertEquals(ids[0], ids[1])
+        }
+    }
+
+    @Test
+    fun aStartForAnotherFolderAfterARefusedStartPostsANewId() {
+        FakeOrreryServer().use { server ->
+            server.respond(
+                ASK_PATH,
+                AskResponse.newBuilder()
+                    .addRows(freshRow("tok-first", FULL_FOLDER))
+                    .addRows(freshRow("tok-second", OTHER_FOLDER))
+                    .build(),
+            )
+            server.fail(START_PATH, Code.FAILED_PRECONDITION, "the folder is not stamped")
+            setPanel(server)
+
+            submit("fix the test")
+            composeRule.waitUntil(TIMEOUT_MS) { rowExists(1) }
+            composeRule.onNodeWithTag("picker-row:0").performClick()
+            composeRule.waitUntil(TIMEOUT_MS) {
+                composeRule.onAllNodesWithTag("start-form").fetchSemanticsNodes().isNotEmpty()
+            }
+            composeRule.onNodeWithTag("start-message").performTextInput("start it")
+            composeRule.onNodeWithTag("start-submit").performClick()
+            composeRule.waitUntil(TIMEOUT_MS) { errorShown() }
+
+            composeRule.onNodeWithTag("picker-row:1").performClick()
+            composeRule.waitForIdle()
+            composeRule.onNodeWithTag("start-dir").assertTextEquals(OTHER_FOLDER)
+            composeRule.onNodeWithTag("start-message").performTextInput("start it")
+            composeRule.onNodeWithTag("start-submit").performClick()
+            composeRule.waitUntil(TIMEOUT_MS) { startIds(server).size == 2 }
+
+            val starts = postsTo(server, START_PATH).map { StartRequest.parseFrom(it.body) }
+            assertEquals(FULL_FOLDER, starts[0].dir)
+            assertEquals(OTHER_FOLDER, starts[1].dir)
+            assertTrue(ID_FORM.matches(starts[1].id))
+            assertNotEquals(starts[0].id, starts[1].id)
         }
     }
 
