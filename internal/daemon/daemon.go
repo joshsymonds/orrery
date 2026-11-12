@@ -50,6 +50,8 @@ type Config struct {
 	Observers []Observer
 	// Seen receives each seen report whose pane is set, in the connection's goroutine. Nil drops seen reports.
 	Seen func(SeenReport)
+	// Read receives each read report whose pane is set, in the connection's goroutine. Nil drops read reports.
+	Read func(ReadReport)
 	// Logger receives read, resolve and apply errors. Nil discards them.
 	Logger *slog.Logger
 }
@@ -58,6 +60,12 @@ type Config struct {
 type SeenReport struct {
 	PaneID string
 	Seen   int64
+}
+
+// ReadReport is one read report: the pane the phone read and the read time serve wrote.
+type ReadReport struct {
+	PaneID string
+	Read   int64
 }
 
 // Observer receives one state change.
@@ -200,6 +208,10 @@ func (h *frameHandler) serveConn(ctx context.Context, conn net.Conn) {
 		return
 	}
 	if frame.Hook == nil {
+		if frame.Read != 0 {
+			h.reportRead(ctx, frame)
+			return
+		}
 		h.reportSeen(ctx, frame)
 		return
 	}
@@ -221,6 +233,19 @@ func (h *frameHandler) reportSeen(ctx context.Context, frame protocol.HookFrame)
 		return
 	}
 	h.cfg.Seen(SeenReport{PaneID: frame.TmuxPane, Seen: frame.Seen})
+}
+
+// reportRead passes a read report to Config.Read. It drops the report when its pane is empty or Config.Read is nil,
+// and never touches tmux, the pane state, the observers or Config.Seen.
+func (h *frameHandler) reportRead(ctx context.Context, frame protocol.HookFrame) {
+	if frame.TmuxPane == "" {
+		h.logger.WarnContext(ctx, "drop read report", "reason", "empty tmuxPane")
+		return
+	}
+	if h.cfg.Read == nil {
+		return
+	}
+	h.cfg.Read(ReadReport{PaneID: frame.TmuxPane, Read: frame.Read})
 }
 
 // apply runs one frame through state.Apply under the mutex and calls every observer when the state changes. With a

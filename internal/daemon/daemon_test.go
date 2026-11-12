@@ -352,8 +352,10 @@ func TestDaemonSeenReport(t *testing.T) {
 	const seenAt = 1700000000
 	srv := startServer(t)
 	reports := make(chan daemon.SeenReport, 4)
+	reads := make(chan daemon.ReadReport, 4)
 	socket := serve(t, daemon.Config{
 		Seen: func(report daemon.SeenReport) { reports <- report },
+		Read: func(report daemon.ReadReport) { reads <- report },
 	})
 
 	sendFrame(t, socket, seenFrameFor(srv.pane, srv.socket, seenAt))
@@ -361,6 +363,9 @@ func TestDaemonSeenReport(t *testing.T) {
 	want := daemon.SeenReport{PaneID: srv.pane, Seen: seenAt}
 	if len(got) != 1 || got[0] != want {
 		t.Fatalf("seen reports = %+v, want exactly [%+v]", got, want)
+	}
+	if got := drain(reads); len(got) != 0 {
+		t.Fatalf("seen report reached Config.Read: %+v", got)
 	}
 	unsetPaneOptions(t, srv)
 }
@@ -417,6 +422,109 @@ func TestDaemonSeenReportWithoutHandler(t *testing.T) {
 	sendFrame(t, socket, seenFrameFor(srv.pane, srv.socket, 1700000000))
 	if got := drain(transitions); len(got) != 0 {
 		t.Fatalf("seen report notified observers: %+v", got)
+	}
+	unsetPaneOptions(t, srv)
+
+	sendFrame(t, socket, frameFor(userPromptSubmitHook, srv.pane, srv.socket))
+	wantOption(t, srv, protocol.OptionState, "working")
+}
+
+// readAt is the synthetic read time every read report in these tests carries.
+const readAt = 1700000000
+
+// readFrameFor returns a read report for pane whose $TMUX names socket. It carries no hook and no seen.
+func readFrameFor(pane, socket string) protocol.HookFrame {
+	return protocol.HookFrame{
+		TmuxPane: pane,
+		Tmux:     fmt.Sprintf("%s,1234,0", socket),
+		Read:     readAt,
+	}
+}
+
+func TestDaemonReadReport(t *testing.T) {
+	srv := startServer(t)
+	reads := make(chan daemon.ReadReport, 4)
+	seens := make(chan daemon.SeenReport, 4)
+	transitions := make(chan daemon.Transition, 4)
+	socket := serve(t, daemon.Config{
+		Read:      func(report daemon.ReadReport) { reads <- report },
+		Seen:      func(report daemon.SeenReport) { seens <- report },
+		Observers: []daemon.Observer{func(transition daemon.Transition) { transitions <- transition }},
+	})
+
+	sendFrame(t, socket, readFrameFor(srv.pane, srv.socket))
+	got := drain(reads)
+	want := daemon.ReadReport{PaneID: srv.pane, Read: readAt}
+	if len(got) != 1 || got[0] != want {
+		t.Fatalf("read reports = %+v, want exactly [%+v]", got, want)
+	}
+	if got := drain(seens); len(got) != 0 {
+		t.Fatalf("read report reached Config.Seen: %+v", got)
+	}
+	if got := drain(transitions); len(got) != 0 {
+		t.Fatalf("read report notified observers: %+v", got)
+	}
+	unsetPaneOptions(t, srv)
+}
+
+func TestDaemonDropsBadReadReports(t *testing.T) {
+	srv := startServer(t)
+	reads := make(chan daemon.ReadReport, 8)
+	seens := make(chan daemon.SeenReport, 8)
+	transitions := make(chan daemon.Transition, 4)
+	socket := serve(t, daemon.Config{
+		Read:      func(report daemon.ReadReport) { reads <- report },
+		Seen:      func(report daemon.SeenReport) { seens <- report },
+		Observers: []daemon.Observer{func(transition daemon.Transition) { transitions <- transition }},
+	})
+
+	withHook := frameFor(userPromptSubmitHook, srv.pane, srv.socket)
+	withHook.Read = readAt
+	bad := []struct {
+		name  string
+		frame protocol.HookFrame
+	}{
+		{"empty tmuxPane", readFrameFor("", srv.socket)},
+		{"read with hook", withHook},
+	}
+	for _, tc := range bad {
+		t.Run(tc.name, func(t *testing.T) {
+			sendFrame(t, socket, tc.frame)
+			if got := drain(reads); len(got) != 0 {
+				t.Fatalf("bad read report reached Config.Read: %+v", got)
+			}
+			if got := drain(seens); len(got) != 0 {
+				t.Fatalf("bad read report reached Config.Seen: %+v", got)
+			}
+			if got := drain(transitions); len(got) != 0 {
+				t.Fatalf("bad read report notified observers: %+v", got)
+			}
+			unsetPaneOptions(t, srv)
+		})
+	}
+
+	sendFrame(t, socket, readFrameFor(srv.pane, srv.socket))
+	if got := drain(reads); len(got) != 1 {
+		t.Fatalf("good read report after bad ones reached Config.Read %d times, want 1", len(got))
+	}
+	if got := drain(seens); len(got) != 0 {
+		t.Fatalf("read report reached Config.Seen: %+v", got)
+	}
+	if got := drain(transitions); len(got) != 0 {
+		t.Fatalf("read report notified observers: %+v", got)
+	}
+}
+
+func TestDaemonReadReportWithoutHandler(t *testing.T) {
+	srv := startServer(t)
+	transitions := make(chan daemon.Transition, 4)
+	socket := serve(t, daemon.Config{
+		Observers: []daemon.Observer{func(transition daemon.Transition) { transitions <- transition }},
+	})
+
+	sendFrame(t, socket, readFrameFor(srv.pane, srv.socket))
+	if got := drain(transitions); len(got) != 0 {
+		t.Fatalf("read report notified observers: %+v", got)
 	}
 	unsetPaneOptions(t, srv)
 
