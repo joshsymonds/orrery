@@ -129,8 +129,6 @@ func (p *Pane) UnmarshalJSON(data []byte) error {
 // Environment variable names and the value that marks a summarizer process.
 const (
 	EnvSocket       = "ORRERY_SOCKET"
-	EnvNtfyURLFile  = "ORRERY_NTFY_URL_FILE"
-	EnvNtfyAuthFile = "ORRERY_NTFY_TOKEN_FILE"
 	EnvSummarizer   = "ORRERY_SUMMARIZER"
 	SummarizerValue = "1"
 )

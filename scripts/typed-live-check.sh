@@ -9,7 +9,7 @@
 #
 # Isolation: Claude Code runs on a private tmux server (its own -L name, -f /dev/null) in a
 # fresh throwaway directory, with hooks disabled through --settings, so nothing reaches
-# orreryd, ntfy or the phone. Hooks also set the pane's @orrery_state, and with them off the
+# orreryd, the desk or the phone. Hooks also set the pane's @orrery_state, and with them off the
 # script sets that option by hand before each send.
 #
 # Usage: scripts/typed-live-check.sh [agents|titled|overflow]

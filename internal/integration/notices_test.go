@@ -30,7 +30,7 @@ func nextDeskLine(t *testing.T, conn net.Conn, r *bufio.Reader) deskstream.Line 
 	return line
 }
 
-func TestOrrerydStreamsNoticesWithoutNtfy(t *testing.T) {
+func TestOrrerydStreamsNoticesToTheDesk(t *testing.T) {
 	client, name := newServer(t)
 	pane := startPane(t, client, "sleep 300")
 	daemon, socket, dir := startSummaryDaemon(t, name, fakeClaudeScript)

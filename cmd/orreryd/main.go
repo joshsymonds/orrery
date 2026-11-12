@@ -1,5 +1,5 @@
 // Command orreryd is the orrery daemon. It listens on a unix socket for hook frames, applies each one to the pane
-// it names, starts summaries, and posts waiting and done notifications to the desk stream, through ntfy and Web Push.
+// it names, starts summaries, and posts waiting and done notifications to the desk stream and Web Push.
 package main
 
 import (
@@ -26,7 +26,6 @@ import (
 	"github.com/joshsymonds/orrery/internal/deskstream"
 	"github.com/joshsymonds/orrery/internal/enginehost"
 	"github.com/joshsymonds/orrery/internal/notice"
-	"github.com/joshsymonds/orrery/internal/ntfy"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/push"
 	"github.com/joshsymonds/orrery/internal/store"
@@ -331,10 +330,6 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 	if host == "" {
 		return errors.New("host name is empty")
 	}
-	publisher, err := ntfy.New(getenv, host, &http.Client{Timeout: notifyTimeout})
-	if err != nil && !errors.Is(err, ntfy.ErrNotConfigured) {
-		return fmt.Errorf("ntfy: %w", err)
-	}
 	storePath, err := push.DefaultStorePath(getenv)
 	if err != nil {
 		return fmt.Errorf("push store: %w", err)
@@ -365,22 +360,15 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 		claude:      opts.claude,
 		models:      opts.models,
 		logger:      logger,
-		publisher:   publisher,
 		desk:        desk,
 		notices:     notices,
 		mirror:      mirror,
 		summarizers: make(map[tmuxctl.Server]*summary.Summarizer),
 	}
 	observe := func(transition daemon.Transition) { hub.observe(ctx, transition) }
-	var sessionNtfy enginehost.SessionPublisher
-	if publisher != nil {
-		sessionNtfy = publisher
-	}
 	notifier := enginehost.NewNotifier(enginehost.NotifierConfig{
-		Ntfy:   sessionNtfy,
-		Push:   notices,
-		Desk:   desk,
-		Logger: logger,
+		Push: notices,
+		Desk: desk,
 	})
 	var sessions *sessionHost
 	if opts.sessions {
@@ -418,13 +406,11 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 
 // sessionHost is the engine session service of a --sessions orreryd. The manager runs the sessions, the writer stores
 // their events, and the listener answers the Engine service on sessions.sock. Without a store the manager and writer
-// are nil and every RPC is refused. The notifier receives the manager's notices and is waited on after the manager
-// closes.
+// are nil and every RPC is refused.
 type sessionHost struct {
 	manager    *enginehost.Manager
 	steps      *enginehost.Steps
 	writer     *enginehost.Writer
-	notifier   *enginehost.Notifier
 	stopWriter context.CancelFunc
 	writerDone chan struct{}
 	stopIdle   context.CancelFunc
@@ -447,7 +433,6 @@ func startSessions(
 	getenv func(string) string,
 ) (*sessionHost, error) {
 	host := &sessionHost{
-		notifier:   notifier,
 		writerDone: make(chan struct{}),
 		idleDone:   make(chan struct{}),
 		serveDone:  make(chan error, 1),
@@ -526,16 +511,14 @@ func (h *sessionHost) stop() error {
 	return nil
 }
 
-// shutdown stops the idle check, ends every step loop, stops every live session and waits for the ntfy posts and
-// notices they started, and ends the writer after its last flush. Their Web Push sends are waited on in serve. Without
-// a manager and writer it does nothing.
+// shutdown stops the idle check, ends every step loop, stops every live session, and ends the writer after its last
+// flush. The notices the sessions started are waited on in serve. Without a manager and writer it does nothing.
 func (h *sessionHost) shutdown() {
 	if h.manager != nil {
 		h.stopIdle()
 		<-h.idleDone
 		h.steps.Close()
 		h.manager.Close()
-		h.notifier.Wait()
 	}
 	if h.writer != nil {
 		h.stopWriter()
@@ -576,7 +559,6 @@ type relay struct {
 	claude      string
 	models      map[string]string
 	logger      *slog.Logger
-	publisher   *ntfy.Publisher // nil when ntfy is off
 	desk        *deskstream.Hub
 	notices     *notice.Notices // the Web Push notices sent and cleared on this host
 	mirror      *daemon.Mirror  // nil when the store is unavailable
@@ -601,8 +583,8 @@ func hookString(hook json.RawMessage, key string) (string, error) {
 	return value, nil
 }
 
-// observe requests a summary for a pane that starts working or finishes, posts a notification to the desk stream and
-// to ntfy when it waits for input or finishes, records a Web Push notice for the same transitions when push.Wanted
+// observe requests a summary for a pane that starts working or finishes, posts a notification to the desk stream when
+// it waits for input or finishes, records a Web Push notice for the same transitions when push.Wanted
 // allows, and forgets the pane's summary when its session ends.
 func (r *relay) observe(ctx context.Context, transition daemon.Transition) {
 	if transition.To == "" {
@@ -682,7 +664,7 @@ func (r *relay) summarizerFor(server tmuxctl.Server) (*summary.Summarizer, error
 
 // notify posts the transition's notification from a goroutine that wait awaits.
 func (r *relay) notify(ctx context.Context, transition daemon.Transition) {
-	// A notification accepted before a shutdown signal still goes out. The HTTP client's timeout bounds it.
+	// A notification accepted before a shutdown signal still goes out.
 	ctx = context.WithoutCancel(ctx)
 	r.notifying.Add(1)
 	go func() {
@@ -732,8 +714,8 @@ func readPaneText(ctx context.Context, client *tmuxctl.Client, pane string) (pan
 	return text, nil
 }
 
-// postNotice posts the notification to the desk stream and, when ntfy is configured, to ntfy. Its body is the question
-// when the pane waits and the summary when it is done, and the session and window come from tmux.
+// postNotice posts the notification to the desk stream. Its body is the question when the pane waits and the summary
+// when it is done, and the session and window come from tmux.
 func (r *relay) postNotice(
 	ctx context.Context, client *tmuxctl.Client, transition daemon.Transition, project string, text paneText,
 ) {
@@ -754,13 +736,6 @@ func (r *relay) postNotice(
 		Title: deskstream.PaneTitle(project, session, window),
 		Body:  body,
 	})
-	if r.publisher == nil {
-		return
-	}
-	err = r.publisher.Publish(ctx, project, session, window, transition.To, body)
-	if err != nil {
-		r.logger.ErrorContext(ctx, "post notification", "pane", transition.PaneID, "error", err)
-	}
 }
 
 // webPush records a Web Push notice for the transition and sends it in the background when push.Wanted allows. A
