@@ -41,8 +41,9 @@ type Config struct {
 	Logger  *slog.Logger
 }
 
-// Request asks for members of pools for Project. Pools holds the pool definitions the client's merged files give, and
-// every needed pool must be among them. ClientPID is the process the grant lasts with. GrantID names a grant to reclaim.
+// Request asks for members of pools for Project. Pools holds the pool definitions the client's merged files give,
+// and every needed pool must be among them. ClientPID is the process the grant lasts with. GrantID names a grant to
+// reclaim.
 type Request struct {
 	Project   string
 	Pools     []pools.Pool
@@ -109,12 +110,14 @@ func (u *poolUse) held() bool {
 	return false
 }
 
-// memberRec is a member as the broker records it: its state, and the grant holding it, empty when it is free.
+// memberRec is a member as the broker records it: its state, the grant holding it (empty when free), and whether a
+// member command runs for it.
 type memberRec struct {
 	name    string
 	state   MemberState
 	grant   string
 	project string
+	busy    bool
 }
 
 // waiter is a request in the queue or a grant. decided is closed when the request is granted or fails; then grant or
@@ -176,6 +179,45 @@ func NewBroker(cfg Config) *Broker {
 		broker.logger = slog.New(slog.DiscardHandler)
 	}
 	return broker
+}
+
+// Run runs the status of each member of each pool in use on each tick of tick, and returns when ctx ends, when the
+// broker closes, or when tick closes. A member whose command still runs gets no status on a tick, so no member has two
+// commands at once. Each status applies its outcome when it ends, which reconsiders the waiting requests.
+func (b *Broker) Run(ctx context.Context, tick <-chan time.Time) {
+	// Member commands run on a context that never ends, as Acquire's do: Close, not the caller leaving, ends them.
+	cmdCtx := context.WithoutCancel(ctx)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-b.done:
+			return
+		case _, ok := <-tick:
+			if !ok {
+				return
+			}
+			b.statusTick(cmdCtx)
+		}
+	}
+}
+
+// statusTick starts the status of each member of each pool in use that no command runs for. It does nothing once the
+// broker is closed.
+func (b *Broker) statusTick(ctx context.Context) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.closed {
+		return
+	}
+	for _, use := range b.pools {
+		for _, name := range use.def.Members {
+			member := use.members[name]
+			if !member.busy {
+				b.startLocked(ctx, use, member, opStatus, use.def.Status, use.def.StatusLimit)
+			}
+		}
+	}
 }
 
 // Acquire queues req and blocks until its grant ends. A request that cannot be granted returns ErrBadNeed, ErrRefused
@@ -392,12 +434,15 @@ func (b *Broker) waitingViewsLocked() []Waiting {
 }
 
 // prepareLocked starts the command that moves a member Plan reserved toward admitted. An asleep member is woken, and
-// the settle that follows the wake admits it if a request still needs it. An awake member is admitted now. Plan
-// prepares only awake and asleep members, and a member with a command running is in neither state, so no member has
-// two commands at once.
+// the settle that follows the wake admits it if a request still needs it. An awake member is admitted now. A member
+// whose status runs is left alone, since Plan may reserve it while its state is still awake or asleep: that status ends
+// in a settle, which prepares the member then.
 func (b *Broker) prepareLocked(ctx context.Context, reserved Member) {
 	use := b.pools[reserved.Pool]
 	member := use.members[reserved.Name]
+	if member.busy {
+		return
+	}
 	if member.state == Asleep {
 		member.state = Waking
 		b.startLocked(ctx, use, member, opWake, use.def.Wake, use.def.WakeLimit)
@@ -505,7 +550,8 @@ func (b *Broker) queuedNeedLocked(name string) bool {
 }
 
 // startLocked runs argv under limit as op's command for member of use, in its own goroutine. The caller has already set
-// member to the state the command is in progress from. finish applies the outcome when the command ends.
+// member to the state the command is in progress from, if it has one; a status keeps the state it finds. finish applies
+// the outcome when the command ends.
 func (b *Broker) startLocked(
 	ctx context.Context, use *poolUse, member *memberRec, op operation, argv []string, limit time.Duration,
 ) {
@@ -514,6 +560,7 @@ func (b *Broker) startLocked(
 	cmd := command{id: b.seq, use: use, member: member, op: op}
 	b.cancels[cmd.id] = cancel
 	use.running++
+	member.busy = true
 	env := append(slices.Clone(b.environ), "ORRERY_POOL="+use.def.Name, "ORRERY_MEMBER="+member.name)
 	b.commands.Go(func() {
 		outcome, err := RunCommand(cmdCtx, argv, limit, env)
@@ -529,7 +576,8 @@ func (b *Broker) finish(ctx context.Context, cmd command, outcome Outcome, err e
 	b.cancels[cmd.id]()
 	delete(b.cancels, cmd.id)
 	cmd.use.running--
-	cmd.member.state = settledState(cmd.op, outcome)
+	cmd.member.busy = false
+	cmd.member.state = settledState(cmd.op, cmd.member.state, outcome)
 	if cmd.member.state == Unavailable {
 		b.logger.WarnContext(ctx, "member unavailable",
 			"pool", cmd.use.def.Name, "member", cmd.member.name, "err", err)
@@ -537,16 +585,20 @@ func (b *Broker) finish(ctx context.Context, cmd command, outcome Outcome, err e
 	b.settleLocked(ctx)
 }
 
-// settledState is the state a member command leaves its member in. A status that exits 0 leaves the member awake, and
-// one that exits nonzero leaves it asleep. A wake that exits 0 leaves it awake, and an admit that exits 0 leaves it
-// admitted. Any command that fails to start, passes its limit, or exits nonzero when it should not leaves it unavailable.
-func settledState(op operation, outcome Outcome) MemberState {
+// settledState is the state a member command leaves its member in. prior is the member's state before the command
+// ended. A status that exits 0 leaves an admitted member admitted and any other member awake. A status that exits
+// nonzero leaves its member asleep, unless the member was unavailable, which only a status that exits 0 changes. A wake
+// that exits 0 leaves its member awake, and an admit that exits 0 leaves it admitted. Any command that fails to start,
+// passes its limit, or exits nonzero when it should not leaves its member unavailable.
+func settledState(op operation, prior MemberState, outcome Outcome) MemberState {
 	switch {
 	case outcome == Succeeded && op == opAdmit:
 		return Admitted
+	case op == opStatus && outcome == Succeeded && prior == Admitted:
+		return Admitted
 	case outcome == Succeeded:
 		return Awake
-	case outcome == Exited && op == opStatus:
+	case op == opStatus && outcome == Exited && prior != Unavailable:
 		return Asleep
 	default:
 		return Unavailable
