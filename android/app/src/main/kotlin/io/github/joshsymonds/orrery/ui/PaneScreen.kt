@@ -59,7 +59,6 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
-import org.json.JSONException
 
 private const val TAG = "PaneScreen"
 private const val POLL_INTERVAL_MILLIS = 1_000L
@@ -80,7 +79,7 @@ private val COMPOSE_MIN_CAP = 48.dp
  */
 private class Snapshot(val pane: Pane?, val conversation: Conversation?, val text: String?)
 
-/** A `/v1/host` read. `stats` is null when the host answers 404, which clears the meters. */
+/** A `Host.Status` read. `stats` is null when the host answers not_found, which clears the meters. */
 private class HostRead(val stats: List<HostStat>?)
 
 /**
@@ -97,19 +96,15 @@ private suspend fun fetchSnapshot(client: OrreryClient, paneId: String, liveScre
             Snapshot(pane, conversation, text)
         } catch (e: IOException) {
             null
-        } catch (e: JSONException) {
-            null
         }
     }
 
-/** One `/v1/host` read. Null when the call fails, so the meters keep their last stats. */
+/** One `Host.Status` read. Null when the call fails, so the meters keep their last stats. */
 private suspend fun fetchHost(client: OrreryClient): HostRead? =
     withContext(Dispatchers.IO) {
         try {
             HostRead(client.host()?.stats)
         } catch (e: IOException) {
-            null
-        } catch (e: JSONException) {
             null
         }
     }

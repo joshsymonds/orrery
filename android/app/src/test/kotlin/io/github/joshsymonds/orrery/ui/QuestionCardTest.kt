@@ -10,9 +10,11 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.semantics.SemanticsProperties
 import io.github.joshsymonds.orrery.api.FakeOrreryServer
 import io.github.joshsymonds.orrery.api.OrreryClient
+import com.connectrpc.Code
 import io.github.joshsymonds.orrery.api.Pane
 import io.github.joshsymonds.orrery.api.RecordedRequest
-import org.json.JSONObject
+import io.github.joshsymonds.orrery.gen.orrery.v1.SendKeysRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.SendKeysResponse
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -27,7 +29,7 @@ class QuestionCardTest {
     @get:Rule
     val composeRule = createComposeRule()
 
-    private val keysPath = "/v1/panes/%253/keys"
+    private val keysPath = "/orrery.v1.Panes/SendKeys"
     private val toolQuestion = """{"tool":"Bash","input":{"command":"echo synthetic"}}"""
     private val askQuestion = """
         {"tool":"AskUserQuestion","questions":[{"question":"Pick a synthetic option?",
@@ -59,12 +61,13 @@ class QuestionCardTest {
         }
     }
 
-    private fun assertKeysRequest(request: RecordedRequest, keys: String) {
+    private fun assertKeysRequest(request: RecordedRequest, key: String) {
         assertEquals("POST", request.method)
         assertEquals(keysPath, request.rawPath)
-        val body = JSONObject(request.body)
-        assertEquals(keys, body.getJSONArray("keys").toString())
-        assertEquals("abc123", body.getString("expect_question"))
+        assertEquals(
+            SendKeysRequest.newBuilder().setPane("%3").addKeys(key).setExpectQuestion("abc123").build(),
+            SendKeysRequest.parseFrom(request.body),
+        )
     }
 
     @Test
@@ -82,7 +85,7 @@ class QuestionCardTest {
     @Test
     fun tappingToolOptionPostsKeyWithHashAndRefreshes() {
         FakeOrreryServer().use { server ->
-            server.respond("POST", keysPath, 200)
+            server.respond(keysPath, SendKeysResponse.getDefaultInstance())
             var refreshes = 0
             setCard(server, toolQuestion) { refreshes++ }
 
@@ -90,14 +93,14 @@ class QuestionCardTest {
             composeRule.waitUntil(timeoutMillis = 5_000) { refreshes == 1 }
 
             assertEquals(1, server.requests.size)
-            assertKeysRequest(server.requests.single(), """["1"]""")
+            assertKeysRequest(server.requests.single(), "1")
         }
     }
 
     @Test
     fun askUserQuestionRendersLabelsAndPostsTappedNumber() {
         FakeOrreryServer().use { server ->
-            server.respond("POST", keysPath, 200)
+            server.respond(keysPath, SendKeysResponse.getDefaultInstance())
             var refreshes = 0
             setCard(server, askQuestion) { refreshes++ }
 
@@ -107,14 +110,14 @@ class QuestionCardTest {
             composeRule.waitUntil(timeoutMillis = 5_000) { refreshes == 1 }
 
             assertEquals(1, server.requests.size)
-            assertKeysRequest(server.requests.single(), """["2"]""")
+            assertKeysRequest(server.requests.single(), "2")
         }
     }
 
     @Test
     fun promptChangedShowsMessageAndRefreshes() {
         FakeOrreryServer().use { server ->
-            server.respond("POST", keysPath, 409)
+            server.fail(keysPath, Code.ABORTED, "question refused")
             var refreshes = 0
             setCard(server, toolQuestion) { refreshes++ }
 
@@ -122,14 +125,14 @@ class QuestionCardTest {
             composeRule.waitUntil(timeoutMillis = 5_000) { refreshes == 1 }
 
             composeRule.onNodeWithText("prompt changed").assertIsDisplayed()
-            assertKeysRequest(server.requests.single(), """["1"]""")
+            assertKeysRequest(server.requests.single(), "1")
         }
     }
 
     @Test
     fun serverErrorShowsNotSentAndDoesNotRefresh() {
         FakeOrreryServer().use { server ->
-            server.respond("POST", keysPath, 500)
+            server.fail(keysPath, Code.INTERNAL_ERROR, "boom")
             var refreshes = 0
             setCard(server, toolQuestion) { refreshes++ }
 
@@ -191,7 +194,7 @@ class QuestionCardTest {
     @Test
     fun optionDescriptionsShowUnderLabelsAndTapPostsTappedNumber() {
         FakeOrreryServer().use { server ->
-            server.respond("POST", keysPath, 200)
+            server.respond(keysPath, SendKeysResponse.getDefaultInstance())
             var refreshes = 0
             setCard(server, describedQuestion) { refreshes++ }
 
@@ -201,7 +204,7 @@ class QuestionCardTest {
             composeRule.waitUntil(timeoutMillis = 5_000) { refreshes == 1 }
 
             assertEquals(1, server.requests.size)
-            assertKeysRequest(server.requests.single(), """["2"]""")
+            assertKeysRequest(server.requests.single(), "2")
         }
     }
 

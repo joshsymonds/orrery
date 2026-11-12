@@ -32,7 +32,6 @@ import io.github.joshsymonds.orrery.ui.theme.Mocha
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import org.json.JSONException
 import java.io.IOException
 
 private enum class PickerWork { IDLE, ASKING, RUNNING }
@@ -71,8 +70,6 @@ fun PickerPanel(
                 answer = withContext(Dispatchers.IO) { client.ask(asked) }
             } catch (error: IOException) {
                 failure = error.reason()
-            } catch (error: JSONException) {
-                failure = error.reason()
             }
             rows = answer
             work = PickerWork.IDLE
@@ -87,8 +84,6 @@ fun PickerPanel(
             try {
                 pane = withContext(Dispatchers.IO) { client.run(row.token) }
             } catch (error: IOException) {
-                failure = error.reason()
-            } catch (error: JSONException) {
                 failure = error.reason()
             }
             work = PickerWork.IDLE

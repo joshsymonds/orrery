@@ -15,9 +15,9 @@ import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.text.TextLayoutResult
 import io.github.joshsymonds.orrery.api.FakeOrreryServer
 import io.github.joshsymonds.orrery.api.OrreryClient
+import io.github.joshsymonds.orrery.gen.orrery.v1.Pane as PaneProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.PanesListResponse
 import io.github.joshsymonds.orrery.ui.theme.OrreryTheme
-import org.json.JSONArray
-import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -34,6 +34,7 @@ class PaneListColorTest {
     private companion object {
         const val NOW = 1_700_000_000L
         const val TIMEOUT_MS = 5_000L
+        const val PANES_LIST = "/orrery.v1.Panes/List"
         const val MAUVE_ARGB = 0xFFCBA6F7.toInt()
         val YELLOW = Color(0xFFF9E2AF)
         val PEACH = Color(0xFFFAB387)
@@ -50,31 +51,30 @@ class PaneListColorTest {
         changed: Long,
         seen: Long,
         newestReply: Long,
-    ): JSONObject = JSONObject()
-        .put("id", id)
-        .put("host", "example-host")
-        .put("session", "example-session")
-        .put("window", 1)
-        .put("pane", 0)
-        .put("cwd", "/home/user/alpha")
-        .put("command", "claude")
-        .put("state", state)
-        .put("summary", "Synthetic summary.")
-        .put("label", label)
-        .put("changed", changed)
-        .put("seen", seen)
-        .put("question", "")
-        .put("question_hash", "")
-        .put("newest_reply", newestReply)
+    ): PaneProto = PaneProto.newBuilder()
+        .setId(id)
+        .setHost("example-host")
+        .setSession("example-session")
+        .setWindow(1)
+        .setPane(0)
+        .setCwd("/home/user/alpha")
+        .setCommand("claude")
+        .setState(state)
+        .setSummary("Synthetic summary.")
+        .setLabel(label)
+        .setChanged(changed)
+        .setSeen(seen)
+        .setQuestion("")
+        .setQuestionHash("")
+        .setNewestReply(newestReply)
+        .build()
 
-    private fun panesBody(): String = JSONArray(
-        listOf(
-            pane("%1", "working-pane", "working", NOW - 30, NOW - 300, NOW - 30),
-            pane("%2", "waiting-pane", "waiting", NOW - 300, NOW - 600, NOW - 300),
-            pane("%3", "done-pane", "done", NOW - 7200, NOW - 7200, NOW - 7200),
-            pane("%4", "idle-pane", "idle", 0, 0, 0),
-        ),
-    ).toString()
+    private fun panesBody(): PanesListResponse = PanesListResponse.newBuilder()
+        .addPanes(pane("%1", "working-pane", "working", NOW - 30, NOW - 300, NOW - 30))
+        .addPanes(pane("%2", "waiting-pane", "waiting", NOW - 300, NOW - 600, NOW - 300))
+        .addPanes(pane("%3", "done-pane", "done", NOW - 7200, NOW - 7200, NOW - 7200))
+        .addPanes(pane("%4", "idle-pane", "idle", 0, 0, 0))
+        .build()
 
     private fun setScreen(server: FakeOrreryServer) {
         composeRule.setContent {
@@ -121,7 +121,7 @@ class PaneListColorTest {
     @Test
     fun stateWordsRenderTheirMochaColours() {
         FakeOrreryServer().use { server ->
-            server.respond("GET", "/v1/panes", 200, panesBody())
+            server.respond(PANES_LIST, panesBody())
             setScreen(server)
             awaitRow("%1")
 
@@ -134,7 +134,7 @@ class PaneListColorTest {
     @Test
     fun otherStateWordKeepsDefaultTextColour() {
         FakeOrreryServer().use { server ->
-            server.respond("GET", "/v1/panes", 200, panesBody())
+            server.respond(PANES_LIST, panesBody())
             setScreen(server)
             awaitRow("%4")
 
@@ -145,7 +145,7 @@ class PaneListColorTest {
     @Test
     fun unseenDotRendersMauve() {
         FakeOrreryServer().use { server ->
-            server.respond("GET", "/v1/panes", 200, panesBody())
+            server.respond(PANES_LIST, panesBody())
             setScreen(server)
             awaitRow("%1")
 

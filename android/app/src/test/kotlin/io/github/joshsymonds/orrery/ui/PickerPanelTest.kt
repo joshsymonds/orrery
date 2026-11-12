@@ -10,9 +10,13 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
 import io.github.joshsymonds.orrery.api.FakeOrreryServer
 import io.github.joshsymonds.orrery.api.OrreryClient
+import com.connectrpc.Code
 import io.github.joshsymonds.orrery.api.RecordedRequest
-import org.json.JSONArray
-import org.json.JSONObject
+import io.github.joshsymonds.orrery.gen.orrery.v1.AskRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.AskResponse
+import io.github.joshsymonds.orrery.gen.orrery.v1.PickerRow
+import io.github.joshsymonds.orrery.gen.orrery.v1.RunRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.RunResponse
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -30,8 +34,8 @@ class PickerPanelTest {
     private companion object {
         const val TIMEOUT_MS = 5_000L
         const val ASK_DELAY_MS = 800L
-        const val ASK_PATH = "/v1/picker/ask"
-        const val RUN_PATH = "/v1/picker/run"
+        const val ASK_PATH = "/orrery.v1.Picker/Ask"
+        const val RUN_PATH = "/orrery.v1.Picker/Run"
     }
 
     @get:Rule
@@ -40,30 +44,28 @@ class PickerPanelTest {
     private val opened = AtomicReference<String?>(null)
     private val closed = AtomicInteger(0)
 
-    private fun rowsBody(): String {
-        val rows = JSONArray()
-            .put(
-                JSONObject()
-                    .put("token", "tok-jump")
-                    .put("kind", "jump")
-                    .put("dir", "/work/alpha")
-                    .put("pane", "%4")
-                    .put("label", "alpha window")
-                    .put("note", "")
-                    .put("prompt", false),
-            )
-            .put(
-                JSONObject()
-                    .put("token", "tok-resume")
-                    .put("kind", "resume")
-                    .put("dir", "/work/beta")
-                    .put("pane", "")
-                    .put("label", "")
-                    .put("note", "fix the flaky test")
-                    .put("prompt", true),
-            )
-        return JSONObject().put("rows", rows).toString()
-    }
+    private fun rowsResponse(): AskResponse = AskResponse.newBuilder()
+        .addRows(
+            PickerRow.newBuilder()
+                .setToken("tok-jump")
+                .setKind("jump")
+                .setDir("/work/alpha")
+                .setPane("%4")
+                .setLabel("alpha window")
+                .setNote("")
+                .setPrompt(false),
+        )
+        .addRows(
+            PickerRow.newBuilder()
+                .setToken("tok-resume")
+                .setKind("resume")
+                .setDir("/work/beta")
+                .setPane("")
+                .setLabel("")
+                .setNote("fix the flaky test")
+                .setPrompt(true),
+        )
+        .build()
 
     private fun setPanel(server: FakeOrreryServer) {
         composeRule.setContent {
@@ -93,7 +95,7 @@ class PickerPanelTest {
     @Test
     fun submitShowsWorkingThenRowsWithKindFolderLabelNoteAndPromptFlag() {
         FakeOrreryServer().use { server ->
-            server.respond("POST", ASK_PATH, 200, rowsBody(), delayMillis = ASK_DELAY_MS)
+            server.respond(ASK_PATH, rowsResponse(), delayMillis = ASK_DELAY_MS)
             setPanel(server)
 
             submit("fix the test")
@@ -104,7 +106,7 @@ class PickerPanelTest {
 
             val asks = postsTo(server, ASK_PATH)
             assertEquals(1, asks.size)
-            assertEquals("fix the test", JSONObject(asks.single().body).getString("text"))
+            assertEquals(AskRequest.newBuilder().setText("fix the test").build(), AskRequest.parseFrom(asks.single().body))
 
             assertTrue(rowText(0).contains("jump"))
             assertTrue(rowText(0).contains("/work/alpha"))
@@ -121,8 +123,8 @@ class PickerPanelTest {
     @Test
     fun tappingSecondRowRunsItsTokenAndReportsItsPane() {
         FakeOrreryServer().use { server ->
-            server.respond("POST", ASK_PATH, 200, rowsBody())
-            server.respond("POST", RUN_PATH, 200, JSONObject().put("pane", "%9").toString())
+            server.respond(ASK_PATH, rowsResponse())
+            server.respond(RUN_PATH, RunResponse.newBuilder().setPane("%9").build())
             setPanel(server)
 
             submit("fix the test")
@@ -133,14 +135,14 @@ class PickerPanelTest {
             assertEquals("%9", opened.get())
             val runs = postsTo(server, RUN_PATH)
             assertEquals(1, runs.size)
-            assertEquals("tok-resume", JSONObject(runs.single().body).getString("token"))
+            assertEquals(RunRequest.newBuilder().setToken("tok-resume").build(), RunRequest.parseFrom(runs.single().body))
         }
     }
 
     @Test
     fun askFailureShowsItsReasonAndTheTextCanBeResubmitted() {
         FakeOrreryServer().use { server ->
-            server.respond("POST", ASK_PATH, 502, "no answer from the host")
+            server.fail(ASK_PATH, Code.UNAVAILABLE, "no answer from the host")
             setPanel(server)
 
             submit("fix the test")
@@ -150,7 +152,7 @@ class PickerPanelTest {
             composeRule.onNodeWithTag("picker-error").assertTextEquals("no answer from the host")
             assertFalse(rowExists(0))
 
-            server.respond("POST", ASK_PATH, 200, rowsBody())
+            server.respond(ASK_PATH, rowsResponse())
             composeRule.onNodeWithTag("picker-ask").performClick()
             composeRule.waitUntil(TIMEOUT_MS) { rowExists(0) }
 
@@ -162,8 +164,8 @@ class PickerPanelTest {
     @Test
     fun runFailureShowsItsReasonAndTheRowsStay() {
         FakeOrreryServer().use { server ->
-            server.respond("POST", ASK_PATH, 200, rowsBody())
-            server.respond("POST", RUN_PATH, 409, "the session is gone")
+            server.respond(ASK_PATH, rowsResponse())
+            server.fail(RUN_PATH, Code.FAILED_PRECONDITION, "the session is gone")
             setPanel(server)
 
             submit("fix the test")

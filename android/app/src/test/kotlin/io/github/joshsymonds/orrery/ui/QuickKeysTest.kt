@@ -8,7 +8,9 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import io.github.joshsymonds.orrery.api.FakeOrreryServer
 import io.github.joshsymonds.orrery.api.OrreryClient
-import org.json.JSONObject
+import com.connectrpc.Code
+import io.github.joshsymonds.orrery.gen.orrery.v1.SendKeysRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.SendKeysResponse
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Rule
@@ -18,7 +20,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
 private const val PANE_ID = "%3"
-private const val KEYS_PATH = "/v1/panes/%253/keys"
+private const val KEYS_PATH = "/orrery.v1.Panes/SendKeys"
 private const val NOT_SENT = "key not sent"
 private const val TIMEOUT_MILLIS = 5_000L
 
@@ -44,7 +46,7 @@ class QuickKeysTest {
     @Test
     fun eachButtonPostsItsKeyWithoutExpectQuestion() {
         FakeOrreryServer().use { server ->
-            server.respond("POST", KEYS_PATH, 200)
+            server.respond(KEYS_PATH, SendKeysResponse.getDefaultInstance())
             setQuickKeys(server)
 
             labelToKey.forEachIndexed { index, (label, key) ->
@@ -54,11 +56,9 @@ class QuickKeysTest {
                 val request = server.requests[index]
                 assertEquals("POST", request.method)
                 assertEquals(KEYS_PATH, request.rawPath)
-                val json = JSONObject(request.body)
-                val keys = json.getJSONArray("keys")
-                assertEquals("keys for $label", 1, keys.length())
-                assertEquals("keys for $label", key, keys.getString(0))
-                assertFalse("expect_question for $label", json.has("expect_question"))
+                val decoded = SendKeysRequest.parseFrom(request.body)
+                assertEquals("keys for $label", listOf(key), decoded.keysList)
+                assertFalse("expect_question for $label", decoded.hasExpectQuestion())
             }
         }
     }
@@ -66,7 +66,7 @@ class QuickKeysTest {
     @Test
     fun showsKeyNotSentWhenServerFails() {
         FakeOrreryServer().use { server ->
-            server.respond("POST", KEYS_PATH, 500)
+            server.fail(KEYS_PATH, Code.INTERNAL_ERROR, "boom")
             setQuickKeys(server)
 
             composeRule.onNodeWithText("Tab").performScrollTo().performClick()
@@ -78,7 +78,7 @@ class QuickKeysTest {
     @Test
     fun showsKeyNotSentWhenPromptChanged() {
         FakeOrreryServer().use { server ->
-            server.respond("POST", KEYS_PATH, 409)
+            server.fail(KEYS_PATH, Code.ABORTED, "question refused")
             setQuickKeys(server)
 
             composeRule.onNodeWithText("Esc").performClick()

@@ -24,10 +24,12 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.res.ResourcesCompat
 import io.github.joshsymonds.orrery.R
 import io.github.joshsymonds.orrery.api.FakeOrreryServer
+import com.connectrpc.Code
 import io.github.joshsymonds.orrery.api.OrreryClient
+import io.github.joshsymonds.orrery.gen.orrery.v1.SendTextRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.SendTextResponse
 import java.net.InetAddress
 import java.net.ServerSocket
-import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -40,9 +42,8 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
 private const val PANE_ID = "%3"
-private const val TEXT_PATH = "/v1/panes/%253/text"
+private const val TEXT_PATH = "/orrery.v1.Panes/SendText"
 private const val OTHER_PANE_ID = "%2"
-private const val OTHER_PANE_TEXT_PATH = "/v1/panes/%252/text"
 private const val WAIT_MS = 5_000L
 private const val DRAFT = "first line\nsecond line"
 private const val OTHER_DRAFT = "text for the other pane"
@@ -95,7 +96,7 @@ class ComposeBoxTest {
 
     @Test
     fun sendPostsWholeDraftInOneCallAndClearsOnSuccess() {
-        server.respond("POST", TEXT_PATH, 204)
+        server.respond(TEXT_PATH, SendTextResponse.getDefaultInstance())
         setBox()
         setDraft(DRAFT)
 
@@ -106,12 +107,15 @@ class ComposeBoxTest {
         val request = server.requests.single()
         assertEquals("POST", request.method)
         assertEquals(TEXT_PATH, request.rawPath)
-        assertEquals(DRAFT, JSONObject(request.body).getString("text"))
+        assertEquals(
+            SendTextRequest.newBuilder().setPane(PANE_ID).setText(DRAFT).build(),
+            SendTextRequest.parseFrom(request.body),
+        )
     }
 
     @Test
     fun failedSendKeepsDraftAndShowsNotSent() {
-        server.respond("POST", TEXT_PATH, 500)
+        server.fail(TEXT_PATH, Code.INTERNAL_ERROR, "boom")
         setBox()
         setDraft(DRAFT)
 
@@ -127,7 +131,7 @@ class ComposeBoxTest {
 
     @Test
     fun answeredSendShowsNeitherLabel() {
-        server.respond("POST", TEXT_PATH, 204)
+        server.respond(TEXT_PATH, SendTextResponse.getDefaultInstance())
         setBox()
         setDraft(DRAFT)
 
@@ -155,7 +159,7 @@ class ComposeBoxTest {
 
     @Test
     fun slowSendKeepsDraftAndShowsNoAnswerNotNotSent() {
-        server.respond("POST", TEXT_PATH, 204, delayMillis = SLOW_ANSWER_MS)
+        server.respond(TEXT_PATH, SendTextResponse.getDefaultInstance(), delayMillis = SLOW_ANSWER_MS)
         setBox(client = slowClient())
         setDraft(DRAFT)
 
@@ -172,7 +176,7 @@ class ComposeBoxTest {
 
     @Test
     fun nextSendClearsNoAnswerLabel() {
-        server.respond("POST", TEXT_PATH, 204, delayMillis = SLOW_ANSWER_MS)
+        server.respond(TEXT_PATH, SendTextResponse.getDefaultInstance(), delayMillis = SLOW_ANSWER_MS)
         setBox(client = slowClient())
         setDraft(DRAFT)
         composeRule.onNodeWithText("Send").performClick()
@@ -183,7 +187,7 @@ class ComposeBoxTest {
         // FakeOrreryServer answers one request at a time, so the second request would queue behind the
         // slow answer and miss the compose timeout. Let that answer finish first.
         Thread.sleep(SLOW_ANSWER_MS)
-        server.respond("POST", TEXT_PATH, 204)
+        server.respond(TEXT_PATH, SendTextResponse.getDefaultInstance())
         composeRule.onNodeWithText("Send").performClick()
         composeRule.waitUntil(WAIT_MS) { editField().text.isEmpty() }
         composeRule.waitForIdle()
@@ -204,7 +208,7 @@ class ComposeBoxTest {
 
     @Test
     fun draftDoesNotFollowPaneChange() {
-        server.respond("POST", OTHER_PANE_TEXT_PATH, 204)
+        server.respond(TEXT_PATH, SendTextResponse.getDefaultInstance())
         val paneId = mutableStateOf(PANE_ID)
         setBox(paneId)
         setDraft(DRAFT)
@@ -220,8 +224,11 @@ class ComposeBoxTest {
 
         assertEquals(1, server.requests.size)
         val request = server.requests.single()
-        assertEquals(OTHER_PANE_TEXT_PATH, request.rawPath)
-        assertEquals(OTHER_DRAFT, JSONObject(request.body).getString("text"))
+        assertEquals(TEXT_PATH, request.rawPath)
+        assertEquals(
+            SendTextRequest.newBuilder().setPane(OTHER_PANE_ID).setText(OTHER_DRAFT).build(),
+            SendTextRequest.parseFrom(request.body),
+        )
     }
 
     @Test

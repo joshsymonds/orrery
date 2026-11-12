@@ -8,8 +8,13 @@ import android.content.Intent
 import android.os.Bundle
 import android.os.Looper
 import androidx.test.core.app.ApplicationProvider
+import com.connectrpc.Code
 import io.github.joshsymonds.orrery.ServerSettings
 import io.github.joshsymonds.orrery.api.FakeOrreryServer
+import io.github.joshsymonds.orrery.gen.orrery.v1.SendKeysRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.SendKeysResponse
+import io.github.joshsymonds.orrery.gen.orrery.v1.SendTextRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.SendTextResponse
 import io.github.joshsymonds.orrery.push.PushNotifier.Companion.ACTION_KEY
 import io.github.joshsymonds.orrery.push.PushNotifier.Companion.ACTION_REPLY
 import io.github.joshsymonds.orrery.push.PushNotifier.Companion.EXTRA_KEY
@@ -18,8 +23,6 @@ import io.github.joshsymonds.orrery.push.PushNotifier.Companion.EXTRA_PANE
 import io.github.joshsymonds.orrery.push.PushNotifier.Companion.EXTRA_QUESTION_HASH
 import io.github.joshsymonds.orrery.push.PushNotifier.Companion.REMOTE_INPUT_KEY
 import io.github.joshsymonds.orrery.push.PushNotifier.Companion.notificationId
-import org.json.JSONArray
-import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -42,8 +45,8 @@ class ReplyReceiverTest {
     private val pane = "%3"
     private val id = notificationId("devbox", pane)
     private val questionHash = "h"
-    private val keysPath = "/v1/panes/%253/keys"
-    private val textPath = "/v1/panes/%253/text"
+    private val keysPath = "/orrery.v1.Panes/SendKeys"
+    private val textPath = "/orrery.v1.Panes/SendText"
 
     @Before
     fun setUp() {
@@ -70,7 +73,7 @@ class ReplyReceiverTest {
 
     @Test
     fun keyActionPostsOneKeysRequestWithExpectedQuestionAndCancels() {
-        server.respond("POST", keysPath, 200)
+        server.respond(keysPath, SendKeysResponse.getDefaultInstance())
 
         deliverKey("2")
         awaitSettled { server.requests.isNotEmpty() && !isShowing() }
@@ -79,15 +82,16 @@ class ReplyReceiverTest {
         val request = server.requests.single()
         assertEquals("POST", request.method)
         assertEquals(keysPath, request.rawPath)
-        val body = JSONObject(request.body)
-        assertEquals(listOf("2"), body.getJSONArray("keys").toStringList())
-        assertEquals(questionHash, body.getString("expect_question"))
+        assertEquals(
+            SendKeysRequest.newBuilder().setPane(pane).addKeys("2").setExpectQuestion(questionHash).build(),
+            SendKeysRequest.parseFrom(request.body),
+        )
         assertFalse(isShowing())
     }
 
     @Test
     fun keyActionOnPromptChangedShowsPromptChangedAndKeepsNotification() {
-        server.respond("POST", keysPath, 409)
+        server.fail(keysPath, Code.ABORTED, "question refused")
 
         deliverKey("2")
         awaitSettled { shownText() == "prompt changed" }
@@ -98,7 +102,7 @@ class ReplyReceiverTest {
 
     @Test
     fun replyPostsTypedTextOnceAndCancels() {
-        server.respond("POST", textPath, 200)
+        server.respond(textPath, SendTextResponse.getDefaultInstance())
 
         deliverReply("synthetic reply")
         awaitSettled { server.requests.isNotEmpty() && !isShowing() }
@@ -107,13 +111,16 @@ class ReplyReceiverTest {
         val request = server.requests.single()
         assertEquals("POST", request.method)
         assertEquals(textPath, request.rawPath)
-        assertEquals("synthetic reply", JSONObject(request.body).getString("text"))
+        assertEquals(
+            SendTextRequest.newBuilder().setPane(pane).setText("synthetic reply").build(),
+            SendTextRequest.parseFrom(request.body),
+        )
         assertFalse(isShowing())
     }
 
     @Test
     fun replyFailureShowsNotSentAndKeepsNotification() {
-        server.respond("POST", textPath, 500)
+        server.fail(textPath, Code.INTERNAL_ERROR, "boom")
 
         deliverReply("synthetic reply")
         awaitSettled { shownText() == "not sent" }
@@ -179,8 +186,6 @@ class ReplyReceiverTest {
             Thread.sleep(POLL_MS)
         }
     }
-
-    private fun JSONArray.toStringList(): List<String> = List(length()) { getString(it) }
 
     private companion object {
         const val TIMEOUT_MS = 5_000L

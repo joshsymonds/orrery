@@ -1,6 +1,33 @@
 package io.github.joshsymonds.orrery.api
 
-import org.json.JSONObject
+import com.connectrpc.Code
+import com.google.protobuf.ByteString
+import io.github.joshsymonds.orrery.gen.orrery.v1.AskRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.AskResponse
+import io.github.joshsymonds.orrery.gen.orrery.v1.MarkSeenResponse
+import io.github.joshsymonds.orrery.gen.orrery.v1.RegisterResponse
+import io.github.joshsymonds.orrery.gen.orrery.v1.SendKeysResponse
+import io.github.joshsymonds.orrery.gen.orrery.v1.SendTextResponse
+import io.github.joshsymonds.orrery.gen.orrery.v1.UnregisterResponse
+import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationContext as ConversationContextProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationItem as ConversationItemProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationResponse
+import io.github.joshsymonds.orrery.gen.orrery.v1.HostStat as HostStatProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.HostStatusResponse
+import io.github.joshsymonds.orrery.gen.orrery.v1.MarkSeenRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.Pane as PaneProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.PanesListResponse
+import io.github.joshsymonds.orrery.gen.orrery.v1.PickerRow
+import io.github.joshsymonds.orrery.gen.orrery.v1.RegisterRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.RunRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.RunResponse
+import io.github.joshsymonds.orrery.gen.orrery.v1.ScreenRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.ScreenResponse
+import io.github.joshsymonds.orrery.gen.orrery.v1.SendKeysRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.SendTextRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.UnregisterRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.WaitingMessage
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -10,48 +37,84 @@ import java.io.IOException
 import java.net.SocketTimeoutException
 
 class OrreryClientTest {
-    private val panesJson = """
-        [
-          {"id":"%3","host":"example-host","session":"example-session","window":1,"pane":2,
-           "cwd":"/home/user/project","command":"claude","state":"waiting",
-           "summary":"Example summary.","label":"example-label",
-           "changed":4102444800,"seen":4102444900,"question":"Example question?",
-           "question_hash":"abc123","newest_reply":4102444950},
-          {"id":"%4","host":"example-host","session":"other-session","window":0,"pane":0,
-           "cwd":"/home/user/other","command":"zsh","state":"",
-           "summary":"","label":"","changed":0,"seen":0,"question":"",
-           "question_hash":"","newest_reply":null}
-        ]
-    """.trimIndent()
+    private val panesProto = PanesListResponse.newBuilder()
+        .addPanes(
+            PaneProto.newBuilder()
+                .setId("%3")
+                .setHost("example-host")
+                .setSession("example-session")
+                .setWindow(1)
+                .setPane(2)
+                .setCwd("/home/user/project")
+                .setCommand("claude")
+                .setState("waiting")
+                .setSummary("Example summary.")
+                .setLabel("example-label")
+                .setChanged(4102444800L)
+                .setSeen(4102444900L)
+                .setQuestion("Example question?")
+                .setQuestionHash("abc123")
+                .setNewestReply(4102444950L),
+        )
+        .addPanes(
+            PaneProto.newBuilder()
+                .setId("%4")
+                .setHost("example-host")
+                .setSession("other-session")
+                .setWindow(0)
+                .setPane(0)
+                .setCwd("/home/user/other")
+                .setCommand("zsh"),
+        )
+        .build()
 
-    private val panesJsonWithoutNewestReply = """
-        [
-          {"id":"%3","host":"example-host","session":"example-session","window":1,"pane":2,
-           "cwd":"/home/user/project","command":"claude","state":"waiting",
-           "summary":"Example summary.","label":"example-label",
-           "changed":4102444800,"seen":4102444900,"question":"Example question?",
-           "question_hash":"abc123"}
-        ]
-    """.trimIndent()
+    private fun paneWithTool(tool: String): PanesListResponse =
+        PanesListResponse.newBuilder()
+            .addPanes(
+                PaneProto.newBuilder()
+                    .setId("%3")
+                    .setHost("example-host")
+                    .setSession("example-session")
+                    .setWindow(1)
+                    .setPane(2)
+                    .setCwd("/home/user/project")
+                    .setCommand("claude")
+                    .setState("working")
+                    .setTool(tool),
+            )
+            .build()
 
-    private fun assertWriteHeaders(request: RecordedRequest) {
-        assertEquals("application/json", request.headers["content-type"])
+    private fun assertConnectRequest(procedure: String, request: RecordedRequest) {
+        assertEquals("POST", request.method)
+        assertEquals(procedure, request.rawPath)
+        assertEquals("application/proto", request.headers["content-type"])
         assertEquals("orrery-android", request.headers["x-orrery-client"])
     }
 
-    private fun assertJsonBody(expected: String, actual: String) {
-        val want = JSONObject(expected)
-        val got = JSONObject(actual)
-        assertEquals(want.keys().asSequence().toSet(), got.keys().asSequence().toSet())
-        for (key in want.keys().asSequence()) {
-            assertEquals("field $key of $actual", want.get(key).toString(), got.get(key).toString())
+    /**
+     * Runs [call] after a read has left a keep-alive connection in the pool, so the write travels on
+     * that pooled connection, the one a retry would resend on. The server reads the write and closes
+     * the connection unanswered.
+     */
+    private fun assertDroppedWriteIsNoAnswerAndSentOnce(procedure: String, call: (OrreryClient) -> Unit) {
+        FakeOrreryServer().use { server ->
+            server.respond(PANES_LIST, PanesListResponse.getDefaultInstance())
+            server.drop(procedure)
+            val client = OrreryClient(server.baseUrl)
+            client.panes()
+
+            assertThrows(NoAnswerException::class.java) {
+                call(client)
+            }
+
+            assertEquals(1, server.requests.count { it.rawPath == procedure })
         }
     }
 
     @Test
     fun panesParsesEveryField() {
         FakeOrreryServer().use { server ->
-            server.respond("GET", "/v1/panes", 200, panesJson)
+            server.respond(PANES_LIST, panesProto)
 
             val panes = OrreryClient(server.baseUrl).panes()
 
@@ -94,14 +157,17 @@ class OrreryClientTest {
                 ),
                 panes,
             )
-            assertEquals("GET", server.requests.single().method)
+            assertConnectRequest(PANES_LIST, server.requests.single())
         }
     }
 
     @Test
-    fun panesFromPreNewestReplyServerReadZero() {
+    fun panesUnsetNewestReplyReadsZero() {
         FakeOrreryServer().use { server ->
-            server.respond("GET", "/v1/panes", 200, panesJsonWithoutNewestReply)
+            server.respond(
+                PANES_LIST,
+                PanesListResponse.newBuilder().addPanes(PaneProto.newBuilder().setId("%3").setPane(2)).build(),
+            )
 
             val panes = OrreryClient(server.baseUrl).panes()
 
@@ -115,76 +181,84 @@ class OrreryClientTest {
     fun screenAsksForColouredHistoryAndReturnsBodyVerbatim() {
         val screen = "\u001B[38;2;166;227;161mline one\u001B[0m  \nline two\n\tindent ✓\n"
         FakeOrreryServer().use { server ->
-            server.respond("GET", "/v1/panes/%253/screen", 200, screen)
+            server.respond(SCREEN, ScreenResponse.newBuilder().setScreen(ByteString.copyFromUtf8(screen)).build())
 
             assertEquals(screen, OrreryClient(server.baseUrl).screen("%3"))
 
             val request = server.requests.single()
-            assertEquals("GET", request.method)
-            assertEquals("/v1/panes/%253/screen", request.rawPath)
-            assertEquals("ansi=1&history=500", request.rawQuery)
+            assertConnectRequest(SCREEN, request)
+            assertEquals(
+                ScreenRequest.newBuilder().setPane("%3").setAnsi(true).setHistory(500).build(),
+                ScreenRequest.parseFrom(request.body),
+            )
         }
     }
 
     @Test
-    fun screenFromPreV060ServerReturnsPlainTextUnchanged() {
+    fun screenFromPlainTextBodyReturnsItUnchanged() {
         val screen = "plain line\nsecond line\n"
         FakeOrreryServer().use { server ->
-            server.respond("GET", "/v1/panes/%253/screen", 200, screen)
+            server.respond(SCREEN, ScreenResponse.newBuilder().setScreen(ByteString.copyFromUtf8(screen)).build())
 
             assertEquals(screen, OrreryClient(server.baseUrl).screen("%3"))
-            assertEquals("ansi=1&history=500", server.requests.single().rawQuery)
+            assertEquals(
+                ScreenRequest.newBuilder().setPane("%3").setAnsi(true).setHistory(500).build(),
+                ScreenRequest.parseFrom(server.requests.single().body),
+            )
         }
     }
 
     @Test
     fun trailingSlashOnBaseUrlIsIgnored() {
         FakeOrreryServer().use { server ->
-            server.respond("GET", "/v1/panes", 200, "[]")
+            server.respond(PANES_LIST, PanesListResponse.getDefaultInstance())
 
             assertEquals(emptyList<Pane>(), OrreryClient("${server.baseUrl}/").panes())
-            assertEquals("/v1/panes", server.requests.single().rawPath)
+            assertEquals(PANES_LIST, server.requests.single().rawPath)
         }
     }
 
     @Test
-    fun sendTextPostsExactBodyWithBothHeaders() {
+    fun sendTextPostsExactMessageWithBothHeaders() {
         FakeOrreryServer().use { server ->
-            server.respond("POST", "/v1/panes/%253/text", 200)
+            server.respond(SEND_TEXT, SendTextResponse.getDefaultInstance())
 
             OrreryClient(server.baseUrl).sendText("%3", "echo hi")
 
             val request = server.requests.single()
-            assertEquals("POST", request.method)
-            assertEquals("/v1/panes/%253/text", request.rawPath)
-            assertWriteHeaders(request)
-            assertJsonBody("""{"text":"echo hi"}""", request.body)
+            assertConnectRequest(SEND_TEXT, request)
+            assertEquals(
+                SendTextRequest.newBuilder().setPane("%3").setText("echo hi").build(),
+                SendTextRequest.parseFrom(request.body),
+            )
         }
     }
 
     @Test
     fun sendComposedPostsWhatSendTextPosts() {
         FakeOrreryServer().use { server ->
-            server.respond("POST", "/v1/panes/%253/text", 200)
+            server.respond(SEND_TEXT, SendTextResponse.getDefaultInstance())
             val client = OrreryClient(server.baseUrl)
 
             client.sendText("%3", "echo hi")
             client.sendComposed("%3", "echo hi")
 
             val (plain, composed) = server.requests
-            assertEquals("POST", composed.method)
+            assertConnectRequest(SEND_TEXT, composed)
             assertEquals(plain.rawPath, composed.rawPath)
-            assertEquals(plain.rawQuery, composed.rawQuery)
-            assertWriteHeaders(composed)
-            assertEquals(plain.body, composed.body)
-            assertJsonBody("""{"text":"echo hi"}""", composed.body)
+
+            assertEquals(plain.body.toList(), composed.body.toList())
         }
     }
 
     @Test
     fun sendComposedAnsweredAfterTenSecondsSucceeds() {
         FakeOrreryServer().use { server ->
-            server.respond("POST", "/v1/panes/%253/text", 200, delayMillis = 11_000)
+            server.respond(
+                SEND_TEXT,
+                SendTextResponse.getDefaultInstance(),
+                delayMillis = 11_000,
+            )
 
             OrreryClient(server.baseUrl).sendComposed("%3", "echo hi")
 
@@ -193,20 +267,24 @@ class OrreryClientTest {
     }
 
     @Test
-    fun sendTextAnsweredAfterTenSecondsTimesOut() {
+    fun sendTextAnsweredAfterTenSecondsIsNoAnswer() {
         FakeOrreryServer().use { server ->
-            server.respond("POST", "/v1/panes/%253/text", 200, delayMillis = 11_000)
+            server.respond(
+                SEND_TEXT,
+                SendTextResponse.getDefaultInstance(),
+                delayMillis = 11_000,
+            )
 
-            assertThrows(SocketTimeoutException::class.java) {
+            assertThrows(NoAnswerException::class.java) {
                 OrreryClient(server.baseUrl).sendText("%3", "echo hi")
             }
         }
     }
 
     @Test
-    fun getAnsweredAfterTenSecondsTimesOut() {
+    fun panesAnsweredAfterTenSecondsTimesOut() {
         FakeOrreryServer().use { server ->
-            server.respond("GET", "/v1/panes", 200, "[]", delayMillis = 11_000)
+            server.respond(PANES_LIST, PanesListResponse.getDefaultInstance(), delayMillis = 11_000)
 
             assertThrows(SocketTimeoutException::class.java) {
                 OrreryClient(server.baseUrl).panes()
@@ -217,7 +295,11 @@ class OrreryClientTest {
     @Test
     fun sendComposedWithNoAnswerInTimeThrowsNoAnswerAndSendsOnce() {
         FakeOrreryServer().use { server ->
-            server.respond("POST", "/v1/panes/%253/text", 200, delayMillis = 1_500)
+            server.respond(
+                SEND_TEXT,
+                SendTextResponse.getDefaultInstance(),
+                delayMillis = 1_500,
+            )
 
             assertThrows(NoAnswerException::class.java) {
                 OrreryClient(server.baseUrl, composeReadTimeoutMillis = 300).sendComposed("%3", "echo hi")
@@ -241,52 +323,55 @@ class OrreryClientTest {
     }
 
     @Test
-    fun sendComposedServerErrorThrowsHttpExceptionCarryingStatus() {
+    fun sendComposedServerErrorThrowsCallExceptionCarryingCode() {
         FakeOrreryServer().use { server ->
-            server.respond("POST", "/v1/panes/%253/text", 500, "boom")
+            server.fail(SEND_TEXT, Code.INTERNAL_ERROR, "boom")
 
-            val error = assertThrows(OrreryHttpException::class.java) {
+            val error = assertThrows(OrreryCallException::class.java) {
                 OrreryClient(server.baseUrl).sendComposed("%3", "echo hi")
             }
 
-            assertEquals(500, error.status)
+            assertEquals(Code.INTERNAL_ERROR, error.code)
+            assertEquals("boom", error.message)
         }
     }
 
     @Test
     fun sendKeysOmitsExpectQuestionWhenUnguarded() {
         FakeOrreryServer().use { server ->
-            server.respond("POST", "/v1/panes/%253/keys", 200)
+            server.respond(SEND_KEYS, SendKeysResponse.getDefaultInstance())
 
             val result = OrreryClient(server.baseUrl).sendKeys("%3", listOf("Enter", "Down"), null)
 
             assertEquals(KeysResult.Sent, result)
             val request = server.requests.single()
-            assertEquals("POST", request.method)
-            assertEquals("/v1/panes/%253/keys", request.rawPath)
-            assertWriteHeaders(request)
-            assertJsonBody("""{"keys":["Enter","Down"]}""", request.body)
+            assertConnectRequest(SEND_KEYS, request)
+            assertEquals(
+                SendKeysRequest.newBuilder().setPane("%3").addKeys("Enter").addKeys("Down").build(),
+                SendKeysRequest.parseFrom(request.body),
+            )
         }
     }
 
     @Test
     fun sendKeysSendsExpectQuestionWhenGiven() {
         FakeOrreryServer().use { server ->
-            server.respond("POST", "/v1/panes/%253/keys", 200)
+            server.respond(SEND_KEYS, SendKeysResponse.getDefaultInstance())
 
             val result = OrreryClient(server.baseUrl).sendKeys("%3", listOf("1"), "abc123")
 
             assertEquals(KeysResult.Sent, result)
-            val request = server.requests.single()
-            assertWriteHeaders(request)
-            assertJsonBody("""{"keys":["1"],"expect_question":"abc123"}""", request.body)
+            assertEquals(
+                SendKeysRequest.newBuilder().setPane("%3").addKeys("1").setExpectQuestion("abc123").build(),
+                SendKeysRequest.parseFrom(server.requests.single().body),
+            )
         }
     }
 
     @Test
-    fun sendKeysReturnsPromptChangedOn409() {
+    fun sendKeysReturnsPromptChangedOnAborted() {
         FakeOrreryServer().use { server ->
-            server.respond("POST", "/v1/panes/%253/keys", 409)
+            server.fail(SEND_KEYS, Code.ABORTED, "question refused")
 
             val result = OrreryClient(server.baseUrl).sendKeys("%3", listOf("1"), "stale")
 
@@ -297,21 +382,23 @@ class OrreryClientTest {
     @Test
     fun markSeenPostsReadUpToWithBothHeaders() {
         FakeOrreryServer().use { server ->
-            server.respond("POST", "/v1/panes/%253/seen", 200)
+            server.respond(MARK_SEEN, MarkSeenResponse.getDefaultInstance())
 
             OrreryClient(server.baseUrl).markSeen("%3", 1_700_000_500L)
 
             val request = server.requests.single()
-            assertEquals("/v1/panes/%253/seen", request.rawPath)
-            assertWriteHeaders(request)
-            assertJsonBody("""{"read_up_to":1700000500}""", request.body)
+            assertConnectRequest(MARK_SEEN, request)
+            assertEquals(
+                MarkSeenRequest.newBuilder().setPane("%3").setReadUpTo(1_700_000_500L).build(),
+                MarkSeenRequest.parseFrom(request.body),
+            )
         }
     }
 
     @Test
     fun registerPushPostsSubscriptionWithBothHeaders() {
         FakeOrreryServer().use { server ->
-            server.respond("POST", "/v1/push/register", 200)
+            server.respond(PUSH_REGISTER, RegisterResponse.getDefaultInstance())
 
             OrreryClient(server.baseUrl).registerPush(
                 endpoint = "https://push.example.com/send/abc",
@@ -320,12 +407,14 @@ class OrreryClientTest {
             )
 
             val request = server.requests.single()
-            assertEquals("POST", request.method)
-            assertEquals("/v1/push/register", request.rawPath)
-            assertWriteHeaders(request)
-            assertJsonBody(
-                """{"endpoint":"https://push.example.com/send/abc","p256dh":"example-p256dh","auth":"example-auth"}""",
-                request.body,
+            assertConnectRequest(PUSH_REGISTER, request)
+            assertEquals(
+                RegisterRequest.newBuilder()
+                    .setEndpoint("https://push.example.com/send/abc")
+                    .setP256Dh("example-p256dh")
+                    .setAuth("example-auth")
+                    .build(),
+                RegisterRequest.parseFrom(request.body),
             )
         }
     }
@@ -333,42 +422,77 @@ class OrreryClientTest {
     @Test
     fun unregisterPushDeletesEndpointWithBothHeaders() {
         FakeOrreryServer().use { server ->
-            server.respond("DELETE", "/v1/push/register", 200)
+            server.respond(PUSH_UNREGISTER, UnregisterResponse.getDefaultInstance())
 
             OrreryClient(server.baseUrl).unregisterPush("https://push.example.com/send/abc")
 
             val request = server.requests.single()
-            assertEquals("DELETE", request.method)
-            assertEquals("/v1/push/register", request.rawPath)
-            assertWriteHeaders(request)
-            assertJsonBody("""{"endpoint":"https://push.example.com/send/abc"}""", request.body)
+            assertConnectRequest(PUSH_UNREGISTER, request)
+            assertEquals(
+                UnregisterRequest.newBuilder().setEndpoint("https://push.example.com/send/abc").build(),
+                UnregisterRequest.parseFrom(request.body),
+            )
         }
     }
 
     @Test
-    fun serverErrorThrowsHttpExceptionCarryingStatus() {
-        FakeOrreryServer().use { server ->
-            server.respond("GET", "/v1/panes", 500, "boom")
+    fun writeCallsNeverRetryAfterAConnectionDropsSendSendText() {
+        assertDroppedWriteIsNoAnswerAndSentOnce(SEND_TEXT) { it.sendText("%3", "echo hi") }
+    }
 
-            val error = assertThrows(OrreryHttpException::class.java) {
+    @Test
+    fun writeCallsNeverRetryAfterAConnectionDropsSendComposed() {
+        assertDroppedWriteIsNoAnswerAndSentOnce(SEND_TEXT) { it.sendComposed("%3", "echo hi") }
+    }
+
+    @Test
+    fun writeCallsNeverRetryAfterAConnectionDropsSendKeys() {
+        assertDroppedWriteIsNoAnswerAndSentOnce(SEND_KEYS) { it.sendKeys("%3", listOf("1"), null) }
+    }
+
+    @Test
+    fun writeCallsNeverRetryAfterAConnectionDropsMarkSeen() {
+        assertDroppedWriteIsNoAnswerAndSentOnce(MARK_SEEN) { it.markSeen("%3", 1_700_000_500L) }
+    }
+
+    @Test
+    fun writeCallsNeverRetryAfterAConnectionDropsRegisterPush() {
+        assertDroppedWriteIsNoAnswerAndSentOnce(PUSH_REGISTER) { it.registerPush("https://push.example.com/send/abc", "p", "a") }
+    }
+
+    @Test
+    fun writeCallsNeverRetryAfterAConnectionDropsUnregisterPush() {
+        assertDroppedWriteIsNoAnswerAndSentOnce(PUSH_UNREGISTER) { it.unregisterPush("https://push.example.com/send/abc") }
+    }
+
+    @Test
+    fun writeCallsNeverRetryAfterAConnectionDropsAsk() {
+        assertDroppedWriteIsNoAnswerAndSentOnce(PICKER_ASK) { it.ask("example request") }
+    }
+
+    @Test
+    fun writeCallsNeverRetryAfterAConnectionDropsRun() {
+        assertDroppedWriteIsNoAnswerAndSentOnce(PICKER_RUN) { it.run("example-token-1") }
+    }
+
+    @Test
+    fun panesServerErrorThrowsCallExceptionCarryingCode() {
+        FakeOrreryServer().use { server ->
+            server.fail(PANES_LIST, Code.INTERNAL_ERROR, "boom")
+
+            val error = assertThrows(OrreryCallException::class.java) {
                 OrreryClient(server.baseUrl).panes()
             }
 
-            assertEquals(500, error.status)
+            assertEquals(Code.INTERNAL_ERROR, error.code)
         }
     }
-
-    private fun paneJsonWithTool(tool: String): String =
-        """[{"id":"%3","host":"example-host","session":"example-session","window":1,"pane":2,
-           "cwd":"/home/user/project","command":"claude","state":"working",
-           "summary":"","label":"","changed":0,"seen":0,"question":"",
-           "question_hash":"","tool":${JSONObject.quote(tool)}}]"""
 
     @Test
     fun panesReadsToolAndCurrentToolDecodesEveryField() {
         val tool = """{"id":"example-tool-use","name":"Bash","input":"example command","start":1700000250}"""
         FakeOrreryServer().use { server ->
-            server.respond("GET", "/v1/panes", 200, paneJsonWithTool(tool))
+            server.respond(PANES_LIST, paneWithTool(tool))
 
             val pane = OrreryClient(server.baseUrl).panes().single()
 
@@ -381,9 +505,9 @@ class OrreryClientTest {
     }
 
     @Test
-    fun panesWithoutToolKeyHaveEmptyToolAndNoCurrentTool() {
+    fun panesWithoutToolHaveEmptyToolAndNoCurrentTool() {
         FakeOrreryServer().use { server ->
-            server.respond("GET", "/v1/panes", 200, panesJson)
+            server.respond(PANES_LIST, panesProto)
 
             val panes = OrreryClient(server.baseUrl).panes()
 
@@ -396,12 +520,12 @@ class OrreryClientTest {
     @Test
     fun malformedOrNonObjectToolTextHasNoCurrentTool() {
         FakeOrreryServer().use { server ->
-            server.respond("GET", "/v1/panes", 200, paneJsonWithTool("{not json"))
+            server.respond(PANES_LIST, paneWithTool("{not json"))
             val malformed = OrreryClient(server.baseUrl).panes().single()
             assertEquals("{not json", malformed.tool)
             assertNull(malformed.currentTool())
 
-            server.respond("GET", "/v1/panes", 200, paneJsonWithTool("[1]"))
+            server.respond(PANES_LIST, paneWithTool("[1]"))
             val notObject = OrreryClient(server.baseUrl).panes().single()
             assertEquals("[1]", notObject.tool)
             assertNull(notObject.currentTool())
@@ -410,16 +534,35 @@ class OrreryClientTest {
 
     @Test
     fun conversationParsesOriginAndEveryItemFieldAndAsksForFiftyItems() {
-        val body = """
-            {"origin":"Example opening prompt.","items":[
-              {"kind":"prompt","time":1700000000,"text":"Example prompt.","tool":"","input":"","id":"","error":false},
-              {"kind":"tool","time":1700000200,"text":"","tool":"Bash","input":"example command","id":"example-tool-use","error":false},
-              {"kind":"result","time":1700000210,"text":"Example output.","tool":"","input":"","id":"example-tool-use","error":false},
-              {"kind":"result","time":1700000220,"text":"Example failure.","tool":"","input":"","id":"example-tool-use-2","error":true}
-            ]}
-        """.trimIndent()
+        val response = ConversationResponse.newBuilder()
+            .setOrigin("Example opening prompt.")
+            .addItems(ConversationItemProto.newBuilder().setKind("prompt").setTime(1700000000L).setText("Example prompt."))
+            .addItems(
+                ConversationItemProto.newBuilder()
+                    .setKind("tool")
+                    .setTime(1700000200L)
+                    .setTool("Bash")
+                    .setInput("example command")
+                    .setId("example-tool-use"),
+            )
+            .addItems(
+                ConversationItemProto.newBuilder()
+                    .setKind("result")
+                    .setTime(1700000210L)
+                    .setText("Example output.")
+                    .setId("example-tool-use"),
+            )
+            .addItems(
+                ConversationItemProto.newBuilder()
+                    .setKind("result")
+                    .setTime(1700000220L)
+                    .setText("Example failure.")
+                    .setId("example-tool-use-2")
+                    .setError(true),
+            )
+            .build()
         FakeOrreryServer().use { server ->
-            server.respond("GET", "/v1/panes/%253/conversation", 200, body)
+            server.respond(CONVERSATION, response)
 
             val conversation = OrreryClient(server.baseUrl).conversation("%3")
 
@@ -436,26 +579,45 @@ class OrreryClientTest {
                 conversation,
             )
             val request = server.requests.single()
-            assertEquals("GET", request.method)
-            assertEquals("/v1/panes/%253/conversation", request.rawPath)
-            assertEquals("limit=50", request.rawQuery)
+            assertConnectRequest(CONVERSATION, request)
+            assertEquals(
+                ConversationRequest.newBuilder().setPane("%3").setLimit(50).build(),
+                ConversationRequest.parseFrom(request.body),
+            )
         }
     }
 
     @Test
     fun conversationNoticeItemsKeepTheirSortAndErrorFlag() {
-        val body = """
-            {"origin":"","items":[
-              {"kind":"notice","time":1700000010,"text":"","tool":"","input":"","id":"","error":false,"notice":"compaction"},
-              {"kind":"notice","time":1700000020,"text":"Example task ran.","tool":"","input":"","id":"","error":false,"notice":"task"},
-              {"kind":"notice","time":1700000030,"text":"Example task broke.","tool":"","input":"","id":"","error":true,"notice":"task"},
-              {"kind":"notice","time":1700000040,"text":"Example summary one.\nExample summary two.","tool":"","input":"","id":"","error":false,"notice":"teammate"},
-              {"kind":"notice","time":1700000050,"text":"","tool":"","input":"","id":"","error":false,"notice":"interrupted"},
-              {"kind":"reply","time":1700000060,"text":"Example reply.","tool":"","input":"","id":"","error":false,"notice":""}
-            ],"goal":""}
-        """.trimIndent()
+        val response = ConversationResponse.newBuilder()
+            .addItems(ConversationItemProto.newBuilder().setKind("notice").setTime(1700000010L).setNotice("compaction"))
+            .addItems(
+                ConversationItemProto.newBuilder()
+                    .setKind("notice")
+                    .setTime(1700000020L)
+                    .setText("Example task ran.")
+                    .setNotice("task"),
+            )
+            .addItems(
+                ConversationItemProto.newBuilder()
+                    .setKind("notice")
+                    .setTime(1700000030L)
+                    .setText("Example task broke.")
+                    .setError(true)
+                    .setNotice("task"),
+            )
+            .addItems(
+                ConversationItemProto.newBuilder()
+                    .setKind("notice")
+                    .setTime(1700000040L)
+                    .setText("Example summary one.\nExample summary two.")
+                    .setNotice("teammate"),
+            )
+            .addItems(ConversationItemProto.newBuilder().setKind("notice").setTime(1700000050L).setNotice("interrupted"))
+            .addItems(ConversationItemProto.newBuilder().setKind("reply").setTime(1700000060L).setText("Example reply."))
+            .build()
         FakeOrreryServer().use { server ->
-            server.respond("GET", "/v1/panes/%253/conversation", 200, body)
+            server.respond(CONVERSATION, response)
 
             val items = requireNotNull(OrreryClient(server.baseUrl).conversation("%3")).items
 
@@ -475,13 +637,19 @@ class OrreryClientTest {
 
     @Test
     fun conversationReadsCompactionTriggerTokensAndContext() {
-        val body = """
-            {"origin":"","items":[
-              {"kind":"compaction","time":1700000070,"text":"Example summary.","tool":"","input":"","id":"","error":false,"notice":"","trigger":"auto","tokens":4200}
-            ],"goal":"","context":{"tokens":61000,"window":200000}}
-        """.trimIndent()
+        val response = ConversationResponse.newBuilder()
+            .addItems(
+                ConversationItemProto.newBuilder()
+                    .setKind("compaction")
+                    .setTime(1700000070L)
+                    .setText("Example summary.")
+                    .setTrigger("auto")
+                    .setTokens(4200L),
+            )
+            .setContext(ConversationContextProto.newBuilder().setTokens(61000L).setWindow(200000L))
+            .build()
         FakeOrreryServer().use { server ->
-            server.respond("GET", "/v1/panes/%253/conversation", 200, body)
+            server.respond(CONVERSATION, response)
 
             val conversation = requireNotNull(OrreryClient(server.baseUrl).conversation("%3"))
 
@@ -495,13 +663,17 @@ class OrreryClientTest {
 
     @Test
     fun conversationWithoutTriggerTokensOrContextParsesWithDefaults() {
-        val body = """
-            {"origin":"","items":[
-              {"kind":"notice","time":1700000080,"text":"Example summary.","tool":"","input":"","id":"","error":false,"notice":"compaction"}
-            ],"goal":""}
-        """.trimIndent()
+        val response = ConversationResponse.newBuilder()
+            .addItems(
+                ConversationItemProto.newBuilder()
+                    .setKind("notice")
+                    .setTime(1700000080L)
+                    .setText("Example summary.")
+                    .setNotice("compaction"),
+            )
+            .build()
         FakeOrreryServer().use { server ->
-            server.respond("GET", "/v1/panes/%253/conversation", 200, body)
+            server.respond(CONVERSATION, response)
 
             val conversation = requireNotNull(OrreryClient(server.baseUrl).conversation("%3"))
 
@@ -513,48 +685,33 @@ class OrreryClientTest {
         }
     }
 
-    private fun conversationGoal(goalJson: String): String {
-        val body = """{"origin":"","items":[]$goalJson}"""
-        return FakeOrreryServer().use { server ->
-            server.respond("GET", "/v1/panes/%253/conversation", 200, body)
+    private fun conversationGoal(goal: String): String =
+        FakeOrreryServer().use { server ->
+            server.respond(CONVERSATION, ConversationResponse.newBuilder().setGoal(goal).build())
             requireNotNull(OrreryClient(server.baseUrl).conversation("%3")).goal
         }
-    }
 
     @Test
     fun conversationReadsAPresentGoal() {
-        assertEquals("Example goal text.", conversationGoal(""","goal":"Example goal text.""""))
+        assertEquals("Example goal text.", conversationGoal("Example goal text."))
     }
 
     @Test
     fun conversationEmptyGoalIsNone() {
-        assertEquals("", conversationGoal(""","goal":"""""))
-    }
-
-    @Test
-    fun conversationWithoutGoalKeyParsesWithNoGoal() {
         assertEquals("", conversationGoal(""))
     }
 
-    @Test
-    fun conversationNullGoalIsNone() {
-        assertEquals("", conversationGoal(""","goal":null"""))
-    }
-
-    private fun conversationWaiting(waitingJson: String): List<WaitingItem> {
-        val body = """{"origin":"","items":[]$waitingJson}"""
-        return FakeOrreryServer().use { server ->
-            server.respond("GET", "/v1/panes/%253/conversation", 200, body)
+    private fun conversationWaiting(vararg rows: WaitingMessage): List<WaitingItem> =
+        FakeOrreryServer().use { server ->
+            server.respond(CONVERSATION, ConversationResponse.newBuilder().addAllWaiting(rows.toList()).build())
             requireNotNull(OrreryClient(server.baseUrl).conversation("%3")).waiting
         }
-    }
 
     @Test
     fun conversationReadsPresentWaitingRowsInOrder() {
         val waiting = conversationWaiting(
-            ""","waiting":[""" +
-                """{"text":"Example queued message.","time":1700000250,"canceled":false},""" +
-                """{"text":"Example cleared message.","time":1700000260,"canceled":true}]""",
+            WaitingMessage.newBuilder().setText("Example queued message.").setTime(1700000250L).setCanceled(false).build(),
+            WaitingMessage.newBuilder().setText("Example cleared message.").setTime(1700000260L).setCanceled(true).build(),
         )
 
         assertEquals(
@@ -567,43 +724,35 @@ class OrreryClientTest {
     }
 
     @Test
-    fun conversationWithoutWaitingKeyHasNoWaitingRows() {
-        assertEquals(emptyList<WaitingItem>(), conversationWaiting(""))
+    fun conversationWithoutWaitingRowsHasNoWaitingRows() {
+        assertEquals(emptyList<WaitingItem>(), conversationWaiting())
     }
 
     @Test
-    fun conversationNullWaitingIsNoWaitingRows() {
-        assertEquals(emptyList<WaitingItem>(), conversationWaiting(""","waiting":null"""))
-    }
-
-    @Test
-    fun conversationEmptyWaitingArrayIsNoWaitingRows() {
-        assertEquals(emptyList<WaitingItem>(), conversationWaiting(""","waiting":[]"""))
-    }
-
-    @Test
-    fun waitingRowWithoutCanceledKeyParsesAsNotCanceled() {
+    fun waitingRowWithoutCanceledParsesAsNotCanceled() {
         val waiting = conversationWaiting(
-            ""","waiting":[{"text":"Example queued message.","time":1700000250}]""",
+            WaitingMessage.newBuilder().setText("Example queued message.").setTime(1700000250L).build(),
         )
 
         assertEquals(listOf(WaitingItem("Example queued message.", 1700000250L, false)), waiting)
     }
 
     @Test
-    fun waitingRowWithoutTimeKeyParsesAsTimeZero() {
+    fun waitingRowWithoutTimeParsesAsTimeZero() {
         val waiting = conversationWaiting(
-            ""","waiting":[{"text":"Example queued message.","canceled":true}]""",
+            WaitingMessage.newBuilder().setText("Example queued message.").setCanceled(true).build(),
         )
 
         assertEquals(listOf(WaitingItem("Example queued message.", 0L, true)), waiting)
     }
 
     @Test
-    fun conversationItemWithoutNoticeKeyParsesWithEmptyNotice() {
-        val body = """{"origin":"","items":[{"kind":"reply","time":1,"text":"Example reply.","tool":"","input":"","id":"","error":false}]}"""
+    fun conversationItemWithoutNoticeParsesWithEmptyNotice() {
+        val response = ConversationResponse.newBuilder()
+            .addItems(ConversationItemProto.newBuilder().setKind("reply").setTime(1).setText("Example reply."))
+            .build()
         FakeOrreryServer().use { server ->
-            server.respond("GET", "/v1/panes/%253/conversation", 200, body)
+            server.respond(CONVERSATION, response)
 
             val item = requireNotNull(OrreryClient(server.baseUrl).conversation("%3")).items.single()
 
@@ -612,37 +761,36 @@ class OrreryClientTest {
     }
 
     @Test
-    fun conversation404ReturnsNull() {
+    fun conversationNotFoundReturnsNull() {
         FakeOrreryServer().use { server ->
-            server.respond("GET", "/v1/panes/%253/conversation", 404)
+            server.fail(CONVERSATION, Code.NOT_FOUND)
 
             assertNull(OrreryClient(server.baseUrl).conversation("%3"))
         }
     }
 
     @Test
-    fun conversationServerErrorThrowsHttpExceptionCarryingStatus() {
+    fun conversationServerErrorThrowsCallExceptionCarryingCode() {
         FakeOrreryServer().use { server ->
-            server.respond("GET", "/v1/panes/%253/conversation", 500, "boom")
+            server.fail(CONVERSATION, Code.INTERNAL_ERROR, "boom")
 
-            val error = assertThrows(OrreryHttpException::class.java) {
+            val error = assertThrows(OrreryCallException::class.java) {
                 OrreryClient(server.baseUrl).conversation("%3")
             }
 
-            assertEquals(500, error.status)
+            assertEquals(Code.INTERNAL_ERROR, error.code)
         }
     }
 
     @Test
     fun hostParsesStatsWithAndWithoutPercent() {
-        val body = """
-            {"host":"example-host","stats":[
-              {"label":"example-cpu","value":"12%","percent":12,"level":"ok"},
-              {"label":"example-disk","value":"example-value","level":"warn"}
-            ]}
-        """.trimIndent()
+        val response = HostStatusResponse.newBuilder()
+            .setHost("example-host")
+            .addStats(HostStatProto.newBuilder().setLabel("example-cpu").setValue("12%").setPercent(12.0).setLevel("ok"))
+            .addStats(HostStatProto.newBuilder().setLabel("example-disk").setValue("example-value").setLevel("warn"))
+            .build()
         FakeOrreryServer().use { server ->
-            server.respond("GET", "/v1/host", 200, body)
+            server.respond(HOST_STATUS, response)
 
             val status = OrreryClient(server.baseUrl).host()
 
@@ -656,42 +804,56 @@ class OrreryClientTest {
                 ),
                 status,
             )
-            assertEquals("GET", server.requests.single().method)
+            assertConnectRequest(HOST_STATUS, server.requests.single())
         }
     }
 
     @Test
-    fun host404ReturnsNull() {
+    fun hostNotFoundReturnsNull() {
         FakeOrreryServer().use { server ->
-            server.respond("GET", "/v1/host", 404)
+            server.fail(HOST_STATUS, Code.NOT_FOUND)
 
             assertNull(OrreryClient(server.baseUrl).host())
         }
     }
 
     @Test
-    fun hostBadGatewayThrowsHttpExceptionCarryingStatus() {
+    fun hostUnavailableThrowsCallExceptionCarryingCodeAndMessage() {
         FakeOrreryServer().use { server ->
-            server.respond("GET", "/v1/host", 502, "bad status")
+            server.fail(HOST_STATUS, Code.UNAVAILABLE, "bad status")
 
-            val error = assertThrows(OrreryHttpException::class.java) {
+            val error = assertThrows(OrreryCallException::class.java) {
                 OrreryClient(server.baseUrl).host()
             }
 
-            assertEquals(502, error.status)
+            assertEquals(Code.UNAVAILABLE, error.code)
+            assertEquals("bad status", error.message)
         }
     }
 
     @Test
-    fun askPostsExactBodyWithBothHeadersAndParsesEveryRowField() {
-        val body = """
-            {"rows":[
-              {"token":"example-token-1","kind":"jump","dir":"/home/user/project","pane":"%7","label":"example-label","note":"example-note","prompt":false},
-              {"token":"example-token-2","kind":"fresh","dir":"/home/user/other","pane":"","label":"","note":"","prompt":true}
-            ]}
-        """.trimIndent()
+    fun askPostsExactMessageWithBothHeadersAndParsesEveryRowField() {
+        val response = AskResponse.newBuilder()
+            .addRows(
+                PickerRow.newBuilder()
+                    .setToken("example-token-1")
+                    .setKind("jump")
+                    .setDir("/home/user/project")
+                    .setPane("%7")
+                    .setLabel("example-label")
+                    .setNote("example-note")
+                    .setPrompt(false),
+            )
+            .addRows(
+                PickerRow.newBuilder()
+                    .setToken("example-token-2")
+                    .setKind("fresh")
+                    .setDir("/home/user/other")
+                    .setPrompt(true),
+            )
+            .build()
         FakeOrreryServer().use { server ->
-            server.respond("POST", "/v1/picker/ask", 200, body)
+            server.respond(PICKER_ASK, response)
 
             val rows = OrreryClient(server.baseUrl).ask("example request")
 
@@ -703,76 +865,132 @@ class OrreryClientTest {
                 rows,
             )
             val request = server.requests.single()
-            assertEquals("POST", request.method)
-            assertEquals("/v1/picker/ask", request.rawPath)
-            assertWriteHeaders(request)
-            assertJsonBody("""{"text":"example request"}""", request.body)
+            assertConnectRequest(PICKER_ASK, request)
+            assertEquals(
+                AskRequest.newBuilder().setText("example request").build(),
+                AskRequest.parseFrom(request.body),
+            )
         }
     }
 
     @Test
     fun askAnsweredAfterTenSecondsSucceeds() {
         FakeOrreryServer().use { server ->
-            server.respond("POST", "/v1/picker/ask", 200, """{"rows":[]}""", delayMillis = 11_000)
+            server.respond(
+                PICKER_ASK,
+                AskResponse.getDefaultInstance(),
+                delayMillis = 11_000,
+            )
 
             assertEquals(emptyList<PickRow>(), OrreryClient(server.baseUrl).ask("example request"))
         }
     }
 
     @Test
-    fun runPostsExactBodyWithBothHeadersAndReturnsPane() {
+    fun runPostsExactMessageWithBothHeadersAndReturnsPane() {
         FakeOrreryServer().use { server ->
-            server.respond("POST", "/v1/picker/run", 200, """{"pane":"%7"}""")
+            server.respond(PICKER_RUN, RunResponse.newBuilder().setPane("%7").build())
 
             assertEquals("%7", OrreryClient(server.baseUrl).run("example-token-1"))
 
             val request = server.requests.single()
-            assertEquals("POST", request.method)
-            assertEquals("/v1/picker/run", request.rawPath)
-            assertWriteHeaders(request)
-            assertJsonBody("""{"token":"example-token-1"}""", request.body)
+            assertConnectRequest(PICKER_RUN, request)
+            assertEquals(
+                RunRequest.newBuilder().setToken("example-token-1").build(),
+                RunRequest.parseFrom(request.body),
+            )
         }
     }
 
     @Test
-    fun askServerErrorThrowsHttpExceptionCarryingStatusAndReason() {
+    fun askServerErrorThrowsCallExceptionCarryingReason() {
         FakeOrreryServer().use { server ->
-            server.respond("POST", "/v1/picker/ask", 502, "model failed: example reason\n")
+            server.fail(PICKER_ASK, Code.UNAVAILABLE, "model failed: example reason")
 
-            val error = assertThrows(OrreryHttpException::class.java) {
+            val error = assertThrows(OrreryCallException::class.java) {
                 OrreryClient(server.baseUrl).ask("example request")
             }
 
-            assertEquals(502, error.status)
+            assertEquals(Code.UNAVAILABLE, error.code)
             assertEquals("model failed: example reason", error.message)
         }
     }
 
     @Test
-    fun runExpiredTokenThrowsHttpExceptionCarryingStatusAndReason() {
+    fun runExpiredTokenThrowsCallExceptionCarryingReason() {
         FakeOrreryServer().use { server ->
-            server.respond("POST", "/v1/picker/run", 410, "token expired")
+            server.fail(PICKER_RUN, Code.FAILED_PRECONDITION, "token expired")
 
-            val error = assertThrows(OrreryHttpException::class.java) {
+            val error = assertThrows(OrreryCallException::class.java) {
                 OrreryClient(server.baseUrl).run("example-token-1")
             }
 
-            assertEquals(410, error.status)
+            assertEquals(Code.FAILED_PRECONDITION, error.code)
             assertEquals("token expired", error.message)
         }
     }
 
     @Test
-    fun pickerErrorWithEmptyBodyFallsBackToStatusMessage() {
+    fun pickerErrorWithEmptyMessageFallsBackToCodeName() {
         FakeOrreryServer().use { server ->
-            server.respond("POST", "/v1/picker/run", 404)
+            server.fail(PICKER_RUN, Code.NOT_FOUND)
 
-            val error = assertThrows(OrreryHttpException::class.java) {
+            val error = assertThrows(OrreryCallException::class.java) {
                 OrreryClient(server.baseUrl).run("example-token-1")
             }
 
-            assertEquals(404, error.status)
-            assertEquals("HTTP 404", error.message)
+            assertEquals(Code.NOT_FOUND, error.code)
+            assertEquals("not_found", error.message)
         }
+    }
+
+    /**
+     * A saved address the client cannot use must not crash its construction. Every call on it raises
+     * an IOException, so the screens' IOException handling applies.
+     */
+    private fun assertUnusableAddressConstructsAndEveryCallRaisesIOException(address: String) {
+        val client = OrreryClient(address)
+
+        assertThrows(IOException::class.java) { client.panes() }
+        assertThrows(IOException::class.java) { client.sendText("%3", "example") }
+    }
+
+    @Test
+    fun ftpSchemeConstructsAndEveryCallRaisesIOException() {
+        assertUnusableAddressConstructsAndEveryCallRaisesIOException("ftp://example")
+    }
+
+    @Test
+    fun schemeLessAddressConstructsAndEveryCallRaisesIOException() {
+        assertUnusableAddressConstructsAndEveryCallRaisesIOException("vermissian.example:8490")
+    }
+
+    @Test
+    fun notAUrlConstructsAndEveryCallRaisesIOException() {
+        assertUnusableAddressConstructsAndEveryCallRaisesIOException("not a url")
+    }
+
+    @Test
+    fun nonNumericPortConstructsAndEveryCallRaisesIOException() {
+        assertUnusableAddressConstructsAndEveryCallRaisesIOException("http://example-host:abc")
+    }
+
+    @Test
+    fun spaceInHostConstructsAndEveryCallRaisesIOException() {
+        assertUnusableAddressConstructsAndEveryCallRaisesIOException("https://example host:8490")
+    }
+
+    private companion object {
+        const val PANES_LIST = "/orrery.v1.Panes/List"
+        const val SCREEN = "/orrery.v1.Panes/Screen"
+        const val CONVERSATION = "/orrery.v1.Panes/Conversation"
+        const val SEND_TEXT = "/orrery.v1.Panes/SendText"
+        const val SEND_KEYS = "/orrery.v1.Panes/SendKeys"
+        const val MARK_SEEN = "/orrery.v1.Panes/MarkSeen"
+        const val HOST_STATUS = "/orrery.v1.Host/Status"
+        const val PUSH_REGISTER = "/orrery.v1.Push/Register"
+        const val PUSH_UNREGISTER = "/orrery.v1.Push/Unregister"
+        const val PICKER_ASK = "/orrery.v1.Picker/Ask"
+        const val PICKER_RUN = "/orrery.v1.Picker/Run"
     }
 }

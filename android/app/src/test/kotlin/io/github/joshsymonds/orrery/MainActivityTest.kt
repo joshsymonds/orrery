@@ -15,11 +15,17 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextReplacement
 import androidx.test.core.app.ApplicationProvider
+import com.google.protobuf.ByteString
 import io.github.joshsymonds.orrery.api.FakeOrreryServer
+import io.github.joshsymonds.orrery.api.RecordedRequest
+import io.github.joshsymonds.orrery.api.Reply
+import io.github.joshsymonds.orrery.gen.orrery.v1.MarkSeenResponse
+import io.github.joshsymonds.orrery.gen.orrery.v1.Pane as PaneProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.PanesListResponse
+import io.github.joshsymonds.orrery.gen.orrery.v1.ScreenRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.ScreenResponse
 import io.github.joshsymonds.orrery.push.OrreryPushService
 import io.github.joshsymonds.orrery.push.PushNotifier
-import org.json.JSONArray
-import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -37,11 +43,9 @@ import org.robolectric.android.controller.ActivityController
 
 private const val TIMEOUT_MS = 5_000L
 private const val NOW = 1_700_000_000L
-private const val PANES_PATH = "/v1/panes"
-private const val FIRST_SCREEN_PATH = "/v1/panes/%251/screen"
-private const val SECOND_SCREEN_PATH = "/v1/panes/%252/screen"
-private const val FIRST_SEEN_PATH = "/v1/panes/%251/seen"
-private const val SECOND_SEEN_PATH = "/v1/panes/%252/seen"
+private const val PANES_PATH = "/orrery.v1.Panes/List"
+private const val SCREEN_PATH = "/orrery.v1.Panes/Screen"
+private const val SEEN_PATH = "/orrery.v1.Panes/MarkSeen"
 private const val PUSH_EVENT_ACTION = "org.unifiedpush.android.connector.PUSH_EVENT"
 
 @RunWith(RobolectricTestRunner::class)
@@ -59,11 +63,9 @@ class MainActivityTest {
         context.getSharedPreferences("orrery-settings", Context.MODE_PRIVATE).edit().clear().commit()
         server = FakeOrreryServer()
         ServerSettings(context).saveServerUrl(server.baseUrl)
-        server.respond("GET", PANES_PATH, 200, panesJson("%1" to "alpha-build", "%2" to "alpha-review"))
-        server.respond("GET", FIRST_SCREEN_PATH, 200, "synthetic first body")
-        server.respond("GET", SECOND_SCREEN_PATH, 200, "synthetic second body")
-        server.respond("POST", FIRST_SEEN_PATH, 200)
-        server.respond("POST", SECOND_SEEN_PATH, 200)
+        server.respond(PANES_PATH, panesProto("%1" to "alpha-build", "%2" to "alpha-review"))
+        server.route(SCREEN_PATH, screensByPane("%1" to "synthetic first body", "%2" to "synthetic second body"))
+        server.respond(SEEN_PATH, MarkSeenResponse.getDefaultInstance())
     }
 
     @After
@@ -71,29 +73,42 @@ class MainActivityTest {
         server.close()
     }
 
-    private fun paneJson(
+    private fun paneProto(
         id: String,
         label: String,
         cwd: String = "/home/user/alpha",
         state: String = "working",
-    ): JSONObject = JSONObject()
-        .put("id", id)
-        .put("host", "example-host")
-        .put("session", "example-session")
-        .put("window", 1)
-        .put("pane", 0)
-        .put("cwd", cwd)
-        .put("command", "claude")
-        .put("state", state)
-        .put("summary", "Synthetic summary.")
-        .put("label", label)
-        .put("changed", NOW - 30)
-        .put("seen", NOW - 10)
-        .put("question", "")
-        .put("question_hash", "")
+    ): PaneProto = PaneProto.newBuilder()
+        .setId(id)
+        .setHost("example-host")
+        .setSession("example-session")
+        .setWindow(1)
+        .setPane(0)
+        .setCwd(cwd)
+        .setCommand("claude")
+        .setState(state)
+        .setSummary("Synthetic summary.")
+        .setLabel(label)
+        .setChanged(NOW - 30)
+        .setSeen(NOW - 10)
+        .setQuestion("")
+        .setQuestionHash("")
+        .build()
 
-    private fun panesJson(vararg panes: Pair<String, String>): String =
-        JSONArray(panes.map { (id, label) -> paneJson(id, label) }).toString()
+    private fun panesOf(vararg panes: PaneProto): PanesListResponse =
+        PanesListResponse.newBuilder().addAllPanes(panes.toList()).build()
+
+    private fun panesProto(vararg panes: Pair<String, String>): PanesListResponse =
+        panesOf(*panes.map { (id, label) -> paneProto(id, label) }.toTypedArray())
+
+    /** A route that answers each screen request with the body of its pane. */
+    private fun screensByPane(vararg bodies: Pair<String, String>): (RecordedRequest) -> Reply {
+        val byPane = bodies.toMap()
+        return { request ->
+            val body = byPane.getValue(ScreenRequest.parseFrom(request.body).pane)
+            Reply.Message(ScreenResponse.newBuilder().setScreen(ByteString.copyFromUtf8(body)).build(), 0L)
+        }
+    }
 
     private fun launch(extraPane: String? = null): ActivityController<MainActivity> {
         val intent = Intent(context, MainActivity::class.java)
@@ -165,12 +180,8 @@ class MainActivityTest {
     @Test
     fun theChosenViewSurvivesOpeningAPane() {
         server.respond(
-            "GET",
             PANES_PATH,
-            200,
-            JSONArray(
-                listOf(paneJson("%1", "alpha-build", state = "waiting"), paneJson("%2", "alpha-review")),
-            ).toString(),
+            panesOf(paneProto("%1", "alpha-build", state = "waiting"), paneProto("%2", "alpha-review")),
         )
         val controller = launch()
         awaitNode(hasTestTag("pane-row:%1"))
@@ -188,12 +199,8 @@ class MainActivityTest {
     @Test
     fun collapsedFoldersSurviveOpeningAPane() {
         server.respond(
-            "GET",
             PANES_PATH,
-            200,
-            JSONArray(
-                listOf(paneJson("%1", "alpha-build"), paneJson("%2", "beta-deploy", cwd = "/home/user/beta")),
-            ).toString(),
+            panesOf(paneProto("%1", "alpha-build"), paneProto("%2", "beta-deploy", cwd = "/home/user/beta")),
         )
         val controller = launch()
         awaitNode(hasTestTag("pane-row:%1"))
@@ -243,7 +250,7 @@ class MainActivityTest {
     fun settingsSaveReloadsTheListFromTheNewAddress() {
         val second = FakeOrreryServer()
         try {
-            second.respond("GET", PANES_PATH, 200, panesJson("%9" to "beta-deploy"))
+            second.respond(PANES_PATH, panesProto("%9" to "beta-deploy"))
             launch()
             awaitNode(hasTestTag("pane-row:%1"))
 

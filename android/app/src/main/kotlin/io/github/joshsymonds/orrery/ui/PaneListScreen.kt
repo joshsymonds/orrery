@@ -49,7 +49,6 @@ import io.github.joshsymonds.orrery.api.Pane
 import io.github.joshsymonds.orrery.ui.theme.Mocha
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import org.json.JSONException
 import java.io.IOException
 
 internal enum class PaneFilter(val label: String, val tag: String) {
@@ -126,8 +125,6 @@ fun PaneListScreen(
         load = try {
             PaneLoad.Loaded(withContext(Dispatchers.IO) { client.panes() })
         } catch (error: IOException) {
-            PaneLoad.Failed
-        } catch (error: JSONException) {
             PaneLoad.Failed
         }
     }

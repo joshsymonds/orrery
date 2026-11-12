@@ -1,14 +1,40 @@
 package io.github.joshsymonds.orrery.api
 
-import org.json.JSONArray
+import com.connectrpc.Code
+import com.connectrpc.ConnectException
+import com.connectrpc.ProtocolClientConfig
+import com.connectrpc.ResponseMessage
+import com.connectrpc.extensions.GoogleJavaLiteProtobufStrategy
+import com.connectrpc.impl.ProtocolClient
+import com.connectrpc.okhttp.ConnectOkHttpClient
+import com.connectrpc.protocols.NetworkProtocol
+import io.github.joshsymonds.orrery.gen.orrery.v1.AskRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.HostClient
+import io.github.joshsymonds.orrery.gen.orrery.v1.HostStatusRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.MarkSeenRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.PanesClient
+import io.github.joshsymonds.orrery.gen.orrery.v1.PanesListRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.PickerClient
+import io.github.joshsymonds.orrery.gen.orrery.v1.PushClient
+import io.github.joshsymonds.orrery.gen.orrery.v1.RegisterRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.RunRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.ScreenRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.SendKeysRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.SendTextRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.UnregisterRequest
+import kotlinx.coroutines.runBlocking
+import okhttp3.OkHttpClient
 import org.json.JSONException
 import org.json.JSONObject
 import java.io.IOException
-import java.net.HttpURLConnection
-import java.net.URL
+import java.net.MalformedURLException
+import java.util.concurrent.TimeUnit
+import kotlin.time.Duration
 
 private const val TIMEOUT_MS = 10_000
 private const val CLIENT_HEADER = "orrery-android"
+private val CLIENT_HEADERS: Map<String, List<String>> = mapOf("X-Orrery-Client" to listOf(CLIENT_HEADER))
 
 data class Pane(
     val id: String,
@@ -102,27 +128,21 @@ sealed interface KeysResult {
     data object PromptChanged : KeysResult
 }
 
-/** The string at [key], or "" when the key is absent or null: keys a server may predate. */
-private fun JSONObject.lenientString(key: String): String = if (isNull(key)) "" else optString(key, "")
-
-/** The objects of the array at [key], or none when the key is absent or null: keys a server may predate. */
-private fun JSONObject.lenientArray(key: String): List<JSONObject> {
-    val array = optJSONArray(key) ?: return emptyList()
-    return List(array.length()) { index -> array.getJSONObject(index) }
-}
-
-/** The server answered with a non-2xx [status]. */
-class OrreryHttpException(val status: Int, message: String) : IOException(message)
+/** The server answered a call with the Connect [code]. [message] is its message, or the code name when it has none. */
+class OrreryCallException(val code: Code, message: String) : IOException(message)
 
 /**
- * The request was written, but no answer came within the compose read timeout, or the
- * connection dropped while waiting. The server may still have acted on the request.
+ * The request was written, but no answer came within the read timeout, or the connection dropped
+ * while waiting. The server may still have acted on the request.
  */
 class NoAnswerException(cause: IOException) : IOException("no answer to the request", cause)
 
+/** A transport failure after the connection opened: the request may have reached the server. */
+private class RequestSentException(val transport: IOException) : IOException(transport)
+
 /**
- * Blocking client for the orrery phone API. Each call is one request on its
- * own connection; nothing is kept open between calls.
+ * Blocking client for the orrery phone API over Connect. Each call is one unary request. A write
+ * call is never retried, so a dropped connection cannot send it twice.
  */
 class OrreryClient(
     baseUrl: String,
@@ -131,247 +151,237 @@ class OrreryClient(
 ) {
     private val root = baseUrl.removeSuffix("/")
 
-    private class Response(val status: Int, val body: String)
+    private val http: OkHttpClient = OkHttpClient.Builder()
+        .connectTimeout(TIMEOUT_MS.toLong(), TimeUnit.MILLISECONDS)
+        .retryOnConnectionFailure(false)
+        .addNetworkInterceptor { chain ->
+            try {
+                chain.proceed(chain.request())
+            } catch (e: IOException) {
+                throw RequestSentException(e)
+            }
+        }
+        .build()
+
+    /**
+     * The generated clients, with the read timeout of one tier of calls. connect-kotlin's default
+     * call deadline is 10 s on every call, so it is turned off: the tier's read timeout is the limit.
+     */
+    private inner class Services(readTimeoutMillis: Int) {
+        private val protocol = ProtocolClient(
+            ConnectOkHttpClient(http.newBuilder().readTimeout(readTimeoutMillis.toLong(), TimeUnit.MILLISECONDS).build()),
+            ProtocolClientConfig(
+                root,
+                GoogleJavaLiteProtobufStrategy(),
+                NetworkProtocol.CONNECT,
+                timeoutOracle = { Duration.INFINITE },
+            ),
+        )
+        val panes = PanesClient(protocol)
+        val host = HostClient(protocol)
+        val push = PushClient(protocol)
+        val picker = PickerClient(protocol)
+    }
+
+    /**
+     * Built on first use: connect-kotlin rejects an unusable address when a tier is built, with
+     * IllegalArgumentException for a scheme other than http or https and ktor's URLParserException
+     * (an IllegalStateException) for an address it cannot parse, and that must not crash the
+     * constructor. Each use of an unusable address raises [MalformedURLException].
+     */
+    private val standardTier = lazy { Services(TIMEOUT_MS) }
+    private val composeTier = lazy { Services(composeReadTimeoutMillis) }
+    private val pickingTier = lazy { Services(pickerReadTimeoutMillis) }
+    private val standard: Services get() = built(standardTier)
+    private val compose: Services get() = built(composeTier)
+    private val picking: Services get() = built(pickingTier)
+
+    private fun built(tier: Lazy<Services>): Services =
+        try {
+            tier.value
+        } catch (e: IllegalArgumentException) {
+            throw MalformedURLException(e.message.orEmpty()).apply { initCause(e) }
+        } catch (e: IllegalStateException) {
+            throw MalformedURLException(e.message.orEmpty()).apply { initCause(e) }
+        }
 
     fun panes(): List<Pane> {
-        val array = JSONArray(getOk("/v1/panes"))
-        return List(array.length()) { index ->
-            val json = array.getJSONObject(index)
+        val response = call(write = false) { standard.panes.list(PanesListRequest.getDefaultInstance(), CLIENT_HEADERS) }
+        return response.panesList.map { proto ->
             Pane(
-                id = json.getString("id"),
-                host = json.getString("host"),
-                session = json.getString("session"),
-                window = json.getInt("window"),
-                pane = json.getInt("pane"),
-                cwd = json.getString("cwd"),
-                command = json.getString("command"),
-                state = json.getString("state"),
-                summary = json.getString("summary"),
-                label = json.getString("label"),
-                changed = json.getLong("changed"),
-                seen = json.getLong("seen"),
-                question = json.getString("question"),
-                questionHash = json.getString("question_hash"),
-                tool = json.optString("tool", ""),
-                newestReply = json.optLong("newest_reply", 0L),
+                id = proto.id,
+                host = proto.host,
+                session = proto.session,
+                window = proto.window,
+                pane = proto.pane,
+                cwd = proto.cwd,
+                command = proto.command,
+                state = proto.state,
+                summary = proto.summary,
+                label = proto.label,
+                changed = proto.changed,
+                seen = proto.seen,
+                question = proto.question,
+                questionHash = proto.questionHash,
+                tool = proto.tool,
+                newestReply = proto.newestReply,
             )
         }
     }
 
-    fun screen(paneId: String): String =
-        getOk(panePath(paneId, "screen") + "?ansi=1&history=500")
+    fun screen(paneId: String): String {
+        val request = ScreenRequest.newBuilder().setPane(paneId).setAnsi(true).setHistory(500).build()
+        val response = call(write = false) { standard.panes.screen(request, CLIENT_HEADERS) }
+        return response.screen.toString(Charsets.UTF_8)
+    }
 
     fun conversation(paneId: String): Conversation? {
-        val body = getOrNotFound(panePath(paneId, "conversation") + "?limit=50") ?: return null
-        val json = JSONObject(body)
-        val array = json.getJSONArray("items")
+        val request = ConversationRequest.newBuilder().setPane(paneId).setLimit(50).build()
+        val response = notFoundAsNull { call(write = false) { standard.panes.conversation(request, CLIENT_HEADERS) } }
+            ?: return null
         return Conversation(
-            origin = json.getString("origin"),
-            items = List(array.length()) { index ->
-                val item = array.getJSONObject(index)
+            origin = response.origin,
+            items = response.itemsList.map { item ->
                 ConversationItem(
-                    kind = item.getString("kind"),
-                    time = item.getLong("time"),
-                    text = item.getString("text"),
-                    tool = item.getString("tool"),
-                    input = item.getString("input"),
-                    id = item.getString("id"),
-                    error = item.getBoolean("error"),
-                    notice = item.lenientString("notice"),
-                    trigger = item.lenientString("trigger"),
-                    tokens = item.optLong("tokens", 0L),
+                    kind = item.kind,
+                    time = item.time,
+                    text = item.text,
+                    tool = item.tool,
+                    input = item.input,
+                    id = item.id,
+                    error = item.error,
+                    notice = item.notice,
+                    trigger = item.trigger,
+                    tokens = item.tokens,
                 )
             },
-            goal = json.lenientString("goal"),
-            waiting = json.lenientArray("waiting").map { row ->
-                WaitingItem(
-                    text = row.lenientString("text"),
-                    time = row.optLong("time", 0L),
-                    canceled = row.optBoolean("canceled", false),
-                )
+            goal = response.goal,
+            waiting = response.waitingList.map { row ->
+                WaitingItem(text = row.text, time = row.time, canceled = row.canceled)
             },
-            context = json.optJSONObject("context")?.let { context ->
-                ConversationContext(
-                    tokens = context.optLong("tokens", 0L),
-                    window = context.optLong("window", 0L),
-                )
+            context = if (response.hasContext()) {
+                ConversationContext(tokens = response.context.tokens, window = response.context.window)
+            } else {
+                null
             },
         )
     }
 
     fun host(): HostStatus? {
-        val body = getOrNotFound("/v1/host") ?: return null
-        val json = JSONObject(body)
-        val array = json.getJSONArray("stats")
+        val response = notFoundAsNull {
+            call(write = false) { standard.host.status(HostStatusRequest.getDefaultInstance(), CLIENT_HEADERS) }
+        } ?: return null
         return HostStatus(
-            host = json.getString("host"),
-            stats = List(array.length()) { index ->
-                val stat = array.getJSONObject(index)
+            host = response.host,
+            stats = response.statsList.map { stat ->
                 HostStat(
-                    label = stat.getString("label"),
-                    value = stat.getString("value"),
-                    percent = if (stat.isNull("percent")) null else stat.getDouble("percent"),
-                    level = stat.getString("level"),
+                    label = stat.label,
+                    value = stat.value,
+                    percent = if (stat.hasPercent()) stat.percent else null,
+                    level = stat.level,
                 )
             },
         )
     }
 
     fun sendText(paneId: String, text: String) {
-        post(panePath(paneId, "text"), JSONObject().put("text", text))
+        val request = textRequest(paneId, text)
+        call(write = true) { standard.panes.sendText(request, CLIENT_HEADERS) }
     }
 
     /**
-     * Posts the same request as [sendText], but waits up to [composeReadTimeoutMillis] for the answer.
-     * Throws [OrreryHttpException] for a non-2xx answer, [NoAnswerException] when the request was
-     * written and no answer came, and any other [IOException] when the connection failed before the
-     * request was written.
+     * Sends the same request as [sendText], but waits up to [composeReadTimeoutMillis] for the answer.
+     * Throws [OrreryCallException] for an error answer, [NoAnswerException] when the request was
+     * written and no answer came, and the transport's [IOException] when it never reached the server.
      */
     fun sendComposed(paneId: String, text: String) {
-        val path = panePath(paneId, "text")
-        val response = sendAwaitingAnswer(path, JSONObject().put("text", text))
-        checkOk("POST", path, response)
+        val request = textRequest(paneId, text)
+        call(write = true) { compose.panes.sendText(request, CLIENT_HEADERS) }
     }
 
     fun sendKeys(paneId: String, keys: List<String>, expectQuestion: String?): KeysResult {
-        val path = panePath(paneId, "keys")
-        val body = JSONObject().put("keys", JSONArray(keys))
-        if (expectQuestion != null) {
-            body.put("expect_question", expectQuestion)
+        val request = SendKeysRequest.newBuilder()
+            .setPane(paneId)
+            .addAllKeys(keys)
+            .also { builder -> if (expectQuestion != null) builder.setExpectQuestion(expectQuestion) }
+            .build()
+        return try {
+            call(write = true) { standard.panes.sendKeys(request, CLIENT_HEADERS) }
+            KeysResult.Sent
+        } catch (e: OrreryCallException) {
+            if (e.code == Code.ABORTED) KeysResult.PromptChanged else throw e
         }
-        val response = send("POST", path, body)
-        if (response.status == 409) {
-            return KeysResult.PromptChanged
-        }
-        checkOk("POST", path, response)
-        return KeysResult.Sent
     }
 
     fun ask(text: String): List<PickRow> {
-        val response = send("POST", "/v1/picker/ask", JSONObject().put("text", text), pickerReadTimeoutMillis)
-        checkAnswered(response)
-        val array = JSONObject(response.body).getJSONArray("rows")
-        return List(array.length()) { index ->
-            val row = array.getJSONObject(index)
+        val request = AskRequest.newBuilder().setText(text).build()
+        val response = call(write = true) { picking.picker.ask(request, CLIENT_HEADERS) }
+        return response.rowsList.map { row ->
             PickRow(
-                token = row.getString("token"),
-                kind = row.getString("kind"),
-                dir = row.getString("dir"),
-                pane = row.getString("pane"),
-                label = row.getString("label"),
-                note = row.getString("note"),
-                prompt = row.getBoolean("prompt"),
+                token = row.token,
+                kind = row.kind,
+                dir = row.dir,
+                pane = row.pane,
+                label = row.label,
+                note = row.note,
+                prompt = row.prompt,
             )
         }
     }
 
     fun run(token: String): String {
-        val response = send("POST", "/v1/picker/run", JSONObject().put("token", token))
-        checkAnswered(response)
-        return JSONObject(response.body).getString("pane")
+        val request = RunRequest.newBuilder().setToken(token).build()
+        return call(write = true) { standard.picker.run(request, CLIENT_HEADERS) }.pane
     }
 
     /** Reports the pane read through [readUpTo], unix seconds. */
     fun markSeen(paneId: String, readUpTo: Long) {
-        post(panePath(paneId, "seen"), JSONObject().put("read_up_to", readUpTo))
+        val request = MarkSeenRequest.newBuilder().setPane(paneId).setReadUpTo(readUpTo).build()
+        call(write = true) { standard.panes.markSeen(request, CLIENT_HEADERS) }
     }
 
     fun registerPush(endpoint: String, p256dh: String, auth: String) {
-        post(
-            "/v1/push/register",
-            JSONObject().put("endpoint", endpoint).put("p256dh", p256dh).put("auth", auth),
-        )
+        val request = RegisterRequest.newBuilder().setEndpoint(endpoint).setP256Dh(p256dh).setAuth(auth).build()
+        call(write = true) { standard.push.register(request, CLIENT_HEADERS) }
     }
 
     fun unregisterPush(endpoint: String) {
-        val response = send("DELETE", "/v1/push/register", JSONObject().put("endpoint", endpoint))
-        checkOk("DELETE", "/v1/push/register", response)
+        val request = UnregisterRequest.newBuilder().setEndpoint(endpoint).build()
+        call(write = true) { standard.push.unregister(request, CLIENT_HEADERS) }
     }
 
-    private fun panePath(paneId: String, suffix: String): String =
-        "/v1/panes/${paneId.replace("%", "%25")}/$suffix"
-
-    private fun getOk(path: String): String {
-        val response = send("GET", path, null)
-        checkOk("GET", path, response)
-        return response.body
-    }
-
-    private fun getOrNotFound(path: String): String? {
-        val response = send("GET", path, null)
-        if (response.status == 404) {
-            return null
-        }
-        checkOk("GET", path, response)
-        return response.body
-    }
-
-    private fun post(path: String, body: JSONObject) {
-        val response = send("POST", path, body)
-        checkOk("POST", path, response)
-    }
-
-    private fun checkOk(method: String, path: String, response: Response) {
-        if (response.status !in 200..299) {
-            throw OrreryHttpException(response.status, "HTTP ${response.status} from $method $path")
-        }
-    }
-
-    /** The picker's non-2xx answers carry a plain-text reason; it is the message, or the status when the body is empty. */
-    private fun checkAnswered(response: Response) {
-        if (response.status !in 200..299) {
-            throw OrreryHttpException(response.status, response.body.trim().ifEmpty { "HTTP ${response.status}" })
-        }
-    }
-
-    private fun send(method: String, path: String, body: JSONObject?, readTimeoutMillis: Int = TIMEOUT_MS): Response {
-        val connection = URL(root + path).openConnection() as HttpURLConnection
-        try {
-            connection.requestMethod = method
-            connection.connectTimeout = TIMEOUT_MS
-            connection.readTimeout = readTimeoutMillis
-            if (body != null) {
-                connection.doOutput = true
-                connection.setRequestProperty("Content-Type", "application/json")
-                connection.setRequestProperty("X-Orrery-Client", CLIENT_HEADER)
-                connection.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
-            }
-            return readResponse(connection)
-        } finally {
-            connection.disconnect()
-        }
-    }
+    private fun textRequest(paneId: String, text: String): SendTextRequest =
+        SendTextRequest.newBuilder().setPane(paneId).setText(text).build()
 
     /**
-     * Like [send] for a POST with a body, but the body is streamed at a fixed length so it is on the
-     * wire once the stream closes, and the read timeout is [composeReadTimeoutMillis].
+     * Runs one Connect call and returns its message, or throws the exception its failure describes.
+     * A tier that cannot be built, because the saved address is not a usable http or https URL, throws
+     * an IOException before any request is written, as a bad address did at the base.
      */
-    private fun sendAwaitingAnswer(path: String, body: JSONObject): Response {
-        val bytes = body.toString().toByteArray(Charsets.UTF_8)
-        val connection = URL(root + path).openConnection() as HttpURLConnection
-        try {
-            connection.requestMethod = "POST"
-            connection.connectTimeout = TIMEOUT_MS
-            connection.readTimeout = composeReadTimeoutMillis
-            connection.doOutput = true
-            connection.setFixedLengthStreamingMode(bytes.size)
-            connection.setRequestProperty("Content-Type", "application/json")
-            connection.setRequestProperty("X-Orrery-Client", CLIENT_HEADER)
-            connection.outputStream.use { it.write(bytes) }
-            try {
-                return readResponse(connection)
-            } catch (e: IOException) {
-                throw NoAnswerException(e)
-            }
-        } finally {
-            connection.disconnect()
+    private fun <T> call(write: Boolean, rpc: suspend () -> ResponseMessage<T>): T =
+        when (val response = runBlocking { rpc() }) {
+            is ResponseMessage.Success -> response.message
+            is ResponseMessage.Failure -> throw failure(response.cause, write)
+        }
+
+    /**
+     * The exception for a failed call. A transport failure is the IOException itself, except that a
+     * write whose request was sent is a [NoAnswerException]. A server answer is an [OrreryCallException].
+     */
+    private fun failure(error: ConnectException, write: Boolean): IOException {
+        val transport = error.exception
+        return when {
+            transport is RequestSentException -> if (write) NoAnswerException(transport.transport) else transport.transport
+            transport is IOException -> transport
+            else -> OrreryCallException(error.code, error.message.orEmpty().ifEmpty { error.code.codeName })
         }
     }
 
-    private fun readResponse(connection: HttpURLConnection): Response {
-        val status = connection.responseCode
-        val stream = if (status in 200..299) connection.inputStream else connection.errorStream
-        val text = stream?.use { it.readBytes().toString(Charsets.UTF_8) }.orEmpty()
-        return Response(status, text)
-    }
+    /** The answer, or null when the server answered not_found. */
+    private inline fun <T> notFoundAsNull(read: () -> T): T? =
+        try {
+            read()
+        } catch (e: OrreryCallException) {
+            if (e.code == Code.NOT_FOUND) null else throw e
+        }
 }

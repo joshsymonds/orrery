@@ -14,9 +14,14 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
 import io.github.joshsymonds.orrery.api.FakeOrreryServer
 import io.github.joshsymonds.orrery.api.OrreryClient
+import com.connectrpc.Code
 import io.github.joshsymonds.orrery.api.Pane
-import org.json.JSONArray
-import org.json.JSONObject
+import io.github.joshsymonds.orrery.api.Reply
+import io.github.joshsymonds.orrery.gen.orrery.v1.AskResponse
+import io.github.joshsymonds.orrery.gen.orrery.v1.Pane as PaneProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.PanesListResponse
+import io.github.joshsymonds.orrery.gen.orrery.v1.PickerRow
+import io.github.joshsymonds.orrery.gen.orrery.v1.RunResponse
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -35,6 +40,9 @@ class PaneListScreenTest {
         const val TIMEOUT_MS = 5_000L
         const val ALPHA = "/home/user/alpha"
         const val BETA = "/home/user/beta"
+        const val PANES_LIST = "/orrery.v1.Panes/List"
+        const val PICKER_ASK = "/orrery.v1.Picker/Ask"
+        const val PICKER_RUN = "/orrery.v1.Picker/Run"
     }
 
     @get:Rule
@@ -53,49 +61,46 @@ class PaneListScreenTest {
         changed: Long,
         seen: Long,
         newestReply: Long,
-    ): JSONObject = JSONObject()
-        .put("id", id)
-        .put("host", "example-host")
-        .put("session", "example-session")
-        .put("window", 1)
-        .put("pane", 0)
-        .put("cwd", cwd)
-        .put("command", "claude")
-        .put("state", state)
-        .put("summary", summary)
-        .put("label", label)
-        .put("changed", changed)
-        .put("seen", seen)
-        .put("question", "")
-        .put("question_hash", "")
-        .put("newest_reply", newestReply)
+    ): PaneProto = PaneProto.newBuilder()
+        .setId(id)
+        .setHost("example-host")
+        .setSession("example-session")
+        .setWindow(1)
+        .setPane(0)
+        .setCwd(cwd)
+        .setCommand("claude")
+        .setState(state)
+        .setSummary(summary)
+        .setLabel(label)
+        .setChanged(changed)
+        .setSeen(seen)
+        .setQuestion("")
+        .setQuestionHash("")
+        .setNewestReply(newestReply)
+        .build()
 
-    private fun pickerRowsBody(): String = JSONObject()
-        .put(
-            "rows",
-            JSONArray().put(
-                JSONObject()
-                    .put("token", "tok-beta")
-                    .put("kind", "jump")
-                    .put("dir", "/home/user/beta")
-                    .put("pane", "%3")
-                    .put("label", "beta-tests")
-                    .put("note", "")
-                    .put("prompt", false),
-            ),
-        ).toString()
+    private fun pickerRowsResponse(): AskResponse = AskResponse.newBuilder()
+        .addRows(
+            PickerRow.newBuilder()
+                .setToken("tok-beta")
+                .setKind("jump")
+                .setDir("/home/user/beta")
+                .setPane("%3")
+                .setLabel("beta-tests")
+                .setNote("")
+                .setPrompt(false),
+        )
+        .build()
 
     // %1 changed after it was last seen but its newest reply is older, so it is read: no dot.
     // %2 and %4 have a reply newer than they were seen, so they are unread.
-    private fun panesBody(): String = JSONArray(
-        listOf(
-            pane("%1", ALPHA, "alpha-build", "working", "Compiling the synthetic module.", NOW - 30, NOW - 300, NOW - 400),
-            pane("%2", ALPHA, "alpha-review", "waiting", "Waiting on a synthetic answer.", NOW - 300, NOW - 600, NOW - 300),
-            pane("%3", BETA, "beta-tests", "idle", "Tests finished.", NOW - 7200, NOW - 7200, NOW - 7200),
-            pane("%4", "$BETA/", "beta-deploy", "working", "Deploy running.", NOW - 172_800, NOW - 200_000, NOW - 172_800),
-            pane("%5", ALPHA, "alpha-idle", "idle", "", 0, 0, 0),
-        ),
-    ).toString()
+    private fun panesBody(): PanesListResponse = PanesListResponse.newBuilder()
+        .addPanes(pane("%1", ALPHA, "alpha-build", "working", "Compiling the synthetic module.", NOW - 30, NOW - 300, NOW - 400))
+        .addPanes(pane("%2", ALPHA, "alpha-review", "waiting", "Waiting on a synthetic answer.", NOW - 300, NOW - 600, NOW - 300))
+        .addPanes(pane("%3", BETA, "beta-tests", "idle", "Tests finished.", NOW - 7200, NOW - 7200, NOW - 7200))
+        .addPanes(pane("%4", "$BETA/", "beta-deploy", "working", "Deploy running.", NOW - 172_800, NOW - 200_000, NOW - 172_800))
+        .addPanes(pane("%5", ALPHA, "alpha-idle", "idle", "", 0, 0, 0))
+        .build()
 
     private fun setScreen(server: FakeOrreryServer) {
         composeRule.setContent {
@@ -143,7 +148,7 @@ class PaneListScreenTest {
     @Test
     fun allNestsPanesUnderFolderHeadersAndCollapsesOneOnTap() {
         FakeOrreryServer().use { server ->
-            server.respond("GET", "/v1/panes", 200, panesBody())
+            server.respond(PANES_LIST, panesBody())
             setScreen(server)
             awaitRow("%1")
 
@@ -166,7 +171,7 @@ class PaneListScreenTest {
     @Test
     fun rowWithoutChangeTimeShowsNoAge() {
         FakeOrreryServer().use { server ->
-            server.respond("GET", "/v1/panes", 200, panesBody())
+            server.respond(PANES_LIST, panesBody())
             setScreen(server)
             awaitRow("%5")
 
@@ -178,7 +183,7 @@ class PaneListScreenTest {
     @Test
     fun unseenDotAppearsOnlyOnUnseenRows() {
         FakeOrreryServer().use { server ->
-            server.respond("GET", "/v1/panes", 200, panesBody())
+            server.respond(PANES_LIST, panesBody())
             setScreen(server)
             awaitRow("%1")
 
@@ -197,7 +202,7 @@ class PaneListScreenTest {
     @Test
     fun newFilterListsUnreadPanesNewestFirstWithProjectAndNoFolderHeaders() {
         FakeOrreryServer().use { server ->
-            server.respond("GET", "/v1/panes", 200, panesBody())
+            server.respond(PANES_LIST, panesBody())
             setScreen(server)
             awaitRow("%1")
 
@@ -214,7 +219,7 @@ class PaneListScreenTest {
     @Test
     fun waitingFilterListsWaitingPanesFlatWithProjectAndNoFolderHeaders() {
         FakeOrreryServer().use { server ->
-            server.respond("GET", "/v1/panes", 200, panesBody())
+            server.respond(PANES_LIST, panesBody())
             setScreen(server)
             awaitRow("%1")
 
@@ -230,7 +235,7 @@ class PaneListScreenTest {
     @Test
     fun allFilterRestoresEveryRow() {
         FakeOrreryServer().use { server ->
-            server.respond("GET", "/v1/panes", 200, panesBody())
+            server.respond(PANES_LIST, panesBody())
             setScreen(server)
             awaitRow("%1")
 
@@ -244,7 +249,7 @@ class PaneListScreenTest {
     @Test
     fun tappingRowOpensThatPane() {
         FakeOrreryServer().use { server ->
-            server.respond("GET", "/v1/panes", 200, panesBody())
+            server.respond(PANES_LIST, panesBody())
             setScreen(server)
             awaitRow("%3")
 
@@ -258,7 +263,7 @@ class PaneListScreenTest {
     @Test
     fun settingsButtonRunsOnOpenSettings() {
         FakeOrreryServer().use { server ->
-            server.respond("GET", "/v1/panes", 200, panesBody())
+            server.respond(PANES_LIST, panesBody())
             setScreen(server)
             awaitRow("%1")
 
@@ -271,7 +276,7 @@ class PaneListScreenTest {
     @Test
     fun pickerNewIsTheOnlyNewButtonInEveryView() {
         FakeOrreryServer().use { server ->
-            server.respond("GET", "/v1/panes", 200, panesBody())
+            server.respond(PANES_LIST, panesBody())
             setScreen(server)
             awaitRow("%1")
 
@@ -297,13 +302,13 @@ class PaneListScreenTest {
     @Test
     fun serverErrorShowsCouldNotLoadPanesAndRetryReloads() {
         FakeOrreryServer().use { server ->
-            server.respond("GET", "/v1/panes", 500)
+            server.fail(PANES_LIST, Code.INTERNAL_ERROR, "boom")
             setScreen(server)
 
             awaitText("could not load panes")
             composeRule.onNodeWithText("Retry").assertExists()
 
-            server.respond("GET", "/v1/panes", 200, panesBody())
+            server.respond(PANES_LIST, panesBody())
             composeRule.onNodeWithText("Retry").performClick()
 
             awaitRow("%1")
@@ -314,7 +319,7 @@ class PaneListScreenTest {
     @Test
     fun malformedBodyShowsCouldNotLoadPanes() {
         FakeOrreryServer().use { server ->
-            server.respond("GET", "/v1/panes", 200, "not json")
+            server.route(PANES_LIST) { Reply.Raw("not json".toByteArray(Charsets.UTF_8)) }
             setScreen(server)
 
             awaitText("could not load panes")
@@ -324,7 +329,7 @@ class PaneListScreenTest {
     @Test
     fun newButtonSitsInTheTopHeaderAboveTheFilters() {
         FakeOrreryServer().use { server ->
-            server.respond("GET", "/v1/panes", 200, panesBody())
+            server.respond(PANES_LIST, panesBody())
             setScreen(server)
             awaitRow("%1")
 
@@ -337,7 +342,7 @@ class PaneListScreenTest {
     @Test
     fun titleRowShowsTheIconAsADiscLeftOfPanes() {
         FakeOrreryServer().use { server ->
-            server.respond("GET", "/v1/panes", 200, panesBody())
+            server.respond(PANES_LIST, panesBody())
             setScreen(server)
             awaitRow("%1")
 
@@ -352,9 +357,9 @@ class PaneListScreenTest {
     @Test
     fun newButtonOpensThePickerAndARunOpensItsPane() {
         FakeOrreryServer().use { server ->
-            server.respond("GET", "/v1/panes", 200, panesBody())
-            server.respond("POST", "/v1/picker/ask", 200, pickerRowsBody())
-            server.respond("POST", "/v1/picker/run", 200, """{"pane":"%9"}""")
+            server.respond(PANES_LIST, panesBody())
+            server.respond(PICKER_ASK, pickerRowsResponse())
+            server.respond(PICKER_RUN, RunResponse.newBuilder().setPane("%9").build())
             setScreen(server)
             awaitRow("%1")
 
@@ -374,7 +379,7 @@ class PaneListScreenTest {
     @Test
     fun paneRowStillOpensItsPaneWhilePickerIsOpen() {
         FakeOrreryServer().use { server ->
-            server.respond("GET", "/v1/panes", 200, panesBody())
+            server.respond(PANES_LIST, panesBody())
             setScreen(server)
             awaitRow("%3")
 
@@ -390,7 +395,7 @@ class PaneListScreenTest {
     @Test
     fun cancelHidesThePicker() {
         FakeOrreryServer().use { server ->
-            server.respond("GET", "/v1/panes", 200, panesBody())
+            server.respond(PANES_LIST, panesBody())
             setScreen(server)
             awaitRow("%1")
 

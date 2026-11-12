@@ -8,9 +8,15 @@ import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.core.view.WindowCompat
 import androidx.test.core.app.ApplicationProvider
+import com.google.protobuf.ByteString
 import io.github.joshsymonds.orrery.api.FakeOrreryServer
-import org.json.JSONArray
-import org.json.JSONObject
+import io.github.joshsymonds.orrery.api.RecordedRequest
+import io.github.joshsymonds.orrery.api.Reply
+import io.github.joshsymonds.orrery.gen.orrery.v1.MarkSeenResponse
+import io.github.joshsymonds.orrery.gen.orrery.v1.Pane as PaneProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.PanesListResponse
+import io.github.joshsymonds.orrery.gen.orrery.v1.ScreenRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.ScreenResponse
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -25,11 +31,9 @@ import org.robolectric.annotation.GraphicsMode
 
 private const val TIMEOUT_MS = 5_000L
 private const val NOW = 1_700_000_000L
-private const val PANES_PATH = "/v1/panes"
-private const val FIRST_SCREEN_PATH = "/v1/panes/%251/screen"
-private const val SECOND_SCREEN_PATH = "/v1/panes/%252/screen"
-private const val FIRST_SEEN_PATH = "/v1/panes/%251/seen"
-private const val SECOND_SEEN_PATH = "/v1/panes/%252/seen"
+private const val PANES_PATH = "/orrery.v1.Panes/List"
+private const val SCREEN_PATH = "/orrery.v1.Panes/Screen"
+private const val SEEN_PATH = "/orrery.v1.Panes/MarkSeen"
 private const val MOCHA_BASE_ARGB = 0xFF1E1E2E.toInt()
 
 @RunWith(RobolectricTestRunner::class)
@@ -48,11 +52,9 @@ class MainActivityThemeTest {
         context.getSharedPreferences("orrery-settings", Context.MODE_PRIVATE).edit().clear().commit()
         server = FakeOrreryServer()
         ServerSettings(context).saveServerUrl(server.baseUrl)
-        server.respond("GET", PANES_PATH, 200, panesJson("%1" to "alpha-build", "%2" to "alpha-review"))
-        server.respond("GET", FIRST_SCREEN_PATH, 200, "synthetic first body")
-        server.respond("GET", SECOND_SCREEN_PATH, 200, "synthetic second body")
-        server.respond("POST", FIRST_SEEN_PATH, 200)
-        server.respond("POST", SECOND_SEEN_PATH, 200)
+        server.respond(PANES_PATH, panesProto("%1" to "alpha-build", "%2" to "alpha-review"))
+        server.route(SCREEN_PATH, screensByPane("%1" to "synthetic first body", "%2" to "synthetic second body"))
+        server.respond(SEEN_PATH, MarkSeenResponse.getDefaultInstance())
     }
 
     @After
@@ -60,25 +62,36 @@ class MainActivityThemeTest {
         server.close()
     }
 
-    private fun panesJson(vararg panes: Pair<String, String>): String = JSONArray(
-        panes.map { (id, label) ->
-            JSONObject()
-                .put("id", id)
-                .put("host", "example-host")
-                .put("session", "example-session")
-                .put("window", 1)
-                .put("pane", 0)
-                .put("cwd", "/home/user/alpha")
-                .put("command", "claude")
-                .put("state", "working")
-                .put("summary", "Synthetic summary.")
-                .put("label", label)
-                .put("changed", NOW - 30)
-                .put("seen", NOW - 10)
-                .put("question", "")
-                .put("question_hash", "")
-        },
-    ).toString()
+    private fun panesProto(vararg panes: Pair<String, String>): PanesListResponse =
+        PanesListResponse.newBuilder().addAllPanes(
+            panes.map { (id, label) ->
+                PaneProto.newBuilder()
+                    .setId(id)
+                    .setHost("example-host")
+                    .setSession("example-session")
+                    .setWindow(1)
+                    .setPane(0)
+                    .setCwd("/home/user/alpha")
+                    .setCommand("claude")
+                    .setState("working")
+                    .setSummary("Synthetic summary.")
+                    .setLabel(label)
+                    .setChanged(NOW - 30)
+                    .setSeen(NOW - 10)
+                    .setQuestion("")
+                    .setQuestionHash("")
+                    .build()
+            },
+        ).build()
+
+    /** A route that answers each screen request with the body of its pane. */
+    private fun screensByPane(vararg bodies: Pair<String, String>): (RecordedRequest) -> Reply {
+        val byPane = bodies.toMap()
+        return { request ->
+            val body = byPane.getValue(ScreenRequest.parseFrom(request.body).pane)
+            Reply.Message(ScreenResponse.newBuilder().setScreen(ByteString.copyFromUtf8(body)).build(), 0L)
+        }
+    }
 
     @Test
     fun activityThemeIsDark() {

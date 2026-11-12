@@ -8,11 +8,13 @@ import androidx.test.core.app.ApplicationProvider
 import io.github.joshsymonds.orrery.ServerSettings
 import io.github.joshsymonds.orrery.api.FakeOrreryServer
 import io.github.joshsymonds.orrery.api.RecordedRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.RegisterRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.RegisterResponse
+import org.json.JSONObject
 import io.github.joshsymonds.orrery.push.PushNotifier.Companion.EXTRA_KEY
 import io.github.joshsymonds.orrery.push.PushNotifier.Companion.EXTRA_QUESTION_HASH
 import io.github.joshsymonds.orrery.push.PushNotifier.Companion.EXTRA_TIME
 import io.github.joshsymonds.orrery.push.PushNotifier.Companion.notificationId
-import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -48,11 +50,12 @@ class OrreryPushServiceTest {
     private val session = "synthetic-session"
     private val noticeTime = "1700000200"
     private val olderSeen = "1700000100"
+    private val registerPath = "/orrery.v1.Push/Register"
 
     @Before
     fun setUp() {
         ServerSettings(application).saveServerUrl(server.baseUrl)
-        server.respond("POST", "/v1/push/register", 204)
+        server.respond(registerPath, RegisterResponse.getDefaultInstance())
         shadowOf(RuntimeEnvironment.getApplication()).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
     }
 
@@ -124,12 +127,11 @@ class OrreryPushServiceTest {
         assertEquals(1, requests.size)
         val request = requests.single()
         assertEquals("POST", request.method)
-        assertEquals("/v1/push/register", request.rawPath)
-        val body = JSONObject(request.body)
-        assertEquals(setOf("endpoint", "p256dh", "auth"), body.keys().asSequence().toSet())
-        assertEquals(endpointUrl, body.getString("endpoint"))
-        assertEquals(publicKey, body.getString("p256dh"))
-        assertEquals(authSecret, body.getString("auth"))
+        assertEquals(registerPath, request.rawPath)
+        assertEquals(
+            RegisterRequest.newBuilder().setEndpoint(endpointUrl).setP256Dh(publicKey).setAuth(authSecret).build(),
+            RegisterRequest.parseFrom(request.body),
+        )
     }
 
     @Test

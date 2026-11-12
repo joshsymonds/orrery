@@ -1,22 +1,60 @@
 package io.github.joshsymonds.orrery.api
 
+import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationContext as ConversationContextProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationItem as ConversationItemProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationResponse
+import io.github.joshsymonds.orrery.gen.orrery.v1.WaitingMessage
 import io.github.joshsymonds.orrery.ui.ConvoEntry
 import io.github.joshsymonds.orrery.ui.ToolCall
 import io.github.joshsymonds.orrery.ui.foldConversation
-import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ConversationContractTest {
-    // The conversation route's example response from docs/contract.md, copied byte for byte.
-    private val contractBody = """
-{"origin":"Example opening prompt.","items":[{"kind":"prompt","time":1700000000,"text":"Example opening prompt.","tool":"","input":"","id":"","error":false,"notice":"","trigger":"","tokens":0},{"kind":"compaction","time":1700000050,"text":"Example summary.","tool":"","input":"","id":"","error":false,"notice":"","trigger":"auto","tokens":611000},{"kind":"reply","time":1700000100,"text":"Example reply.","tool":"","input":"","id":"","error":false,"notice":"","trigger":"","tokens":0},{"kind":"tool","time":1700000200,"text":"","tool":"Bash","input":"example command","id":"example-tool-use","error":false,"notice":"","trigger":"","tokens":0},{"kind":"result","time":1700000210,"text":"Example output.","tool":"","input":"","id":"example-tool-use","error":false,"notice":"","trigger":"","tokens":0},{"kind":"notice","time":1700000300,"text":"Example task finished.","tool":"","input":"","id":"","error":false,"notice":"task","trigger":"","tokens":0}],"goal":"Example goal.","waiting":[{"text":"Example queued message.","time":1700000250,"canceled":false}],"context":{"tokens":240000,"window":1000000}}
-    """
+    // The conversation route's example response from docs/contract.md, as the Connect answer carries it.
+    private val contractResponse: ConversationResponse = ConversationResponse.newBuilder()
+        .setOrigin("Example opening prompt.")
+        .addItems(ConversationItemProto.newBuilder().setKind("prompt").setTime(1700000000L).setText("Example opening prompt."))
+        .addItems(
+            ConversationItemProto.newBuilder()
+                .setKind("compaction")
+                .setTime(1700000050L)
+                .setText("Example summary.")
+                .setTrigger("auto")
+                .setTokens(611000L),
+        )
+        .addItems(ConversationItemProto.newBuilder().setKind("reply").setTime(1700000100L).setText("Example reply."))
+        .addItems(
+            ConversationItemProto.newBuilder()
+                .setKind("tool")
+                .setTime(1700000200L)
+                .setTool("Bash")
+                .setInput("example command")
+                .setId("example-tool-use"),
+        )
+        .addItems(
+            ConversationItemProto.newBuilder()
+                .setKind("result")
+                .setTime(1700000210L)
+                .setText("Example output.")
+                .setId("example-tool-use"),
+        )
+        .addItems(
+            ConversationItemProto.newBuilder()
+                .setKind("notice")
+                .setTime(1700000300L)
+                .setText("Example task finished.")
+                .setNotice("task"),
+        )
+        .setGoal("Example goal.")
+        .addWaiting(WaitingMessage.newBuilder().setText("Example queued message.").setTime(1700000250L).setCanceled(false))
+        .setContext(ConversationContextProto.newBuilder().setTokens(240000L).setWindow(1000000L))
+        .build()
 
     private fun contractConversation(): Conversation =
         FakeOrreryServer().use { server ->
-            server.respond("GET", "/v1/panes/%253/conversation", 200, contractBody)
+            server.respond(CONVERSATION, contractResponse)
             requireNotNull(OrreryClient(server.baseUrl).conversation("%3"))
         }
 
@@ -43,7 +81,7 @@ class ConversationContractTest {
 
     @Test
     fun contractExampleCarriesNonEmptyGoal() {
-        assertTrue(JSONObject(contractBody).getString("goal").isNotEmpty())
+        assertTrue(contractResponse.goal.isNotEmpty())
     }
 
     @Test
@@ -62,5 +100,9 @@ class ConversationContractTest {
             ),
             foldConversation(items),
         )
+    }
+
+    private companion object {
+        const val CONVERSATION = "/orrery.v1.Panes/Conversation"
     }
 }
