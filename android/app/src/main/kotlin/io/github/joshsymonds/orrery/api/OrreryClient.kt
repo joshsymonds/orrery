@@ -43,6 +43,7 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.UnregisterRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.WaitingMessage
 import io.github.joshsymonds.orrery.gen.orrery.v1.WatchConversationRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.WatchConversationResponse
+import kotlinx.coroutines.channels.ReceiveChannel
 import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
 import org.json.JSONException
@@ -359,7 +360,7 @@ class OrreryClient(
     }
 
     /** Sends [request] on [stream], then hands each message of the answer to [onDelta] as a delta. */
-    private suspend fun <Req : Any, Resp : Any> streamDeltas(
+    internal suspend fun <Req : Any, Resp : Any> streamDeltas(
         stream: ServerOnlyStreamInterface<Req, Resp>,
         request: Req,
         toDelta: (Resp) -> ConversationDelta,
@@ -368,7 +369,9 @@ class OrreryClient(
         val responses = stream.responseChannel()
         // The finally also covers the send, so a cancel or a failure while the request is sent closes the stream.
         try {
-            stream.sendAndClose(request).onFailure { throw streamFailure(it) }
+            stream.sendAndClose(request).onFailure {
+                throw if (it is IllegalStateException) closedFailure(responses) else streamFailure(it)
+            }
             for (message in responses) {
                 onDelta(toDelta(message))
             }
@@ -641,6 +644,18 @@ class OrreryClient(
     /** The failure a stream's send raised, as a call's failure is: a server answer, or the transport's IOException. */
     private fun streamFailure(error: Throwable): Throwable =
         if (error is ConnectException) failure(error, write = false) else error
+
+    /**
+     * The failure of a send that raised IllegalStateException because its stream was already closed. The stream
+     * closes with the failure of the connection, so this waits for that close and maps its cause as [streamFailure]
+     * does; a close with no cause is an IOException. No answer can arrive for a request that was not sent.
+     */
+    private suspend fun closedFailure(responses: ReceiveChannel<*>): Throwable {
+        var result = responses.receiveCatching()
+        while (!result.isClosed) result = responses.receiveCatching()
+        val cause = result.exceptionOrNull() ?: return IOException("the stream closed before its request was sent")
+        return streamFailure(cause)
+    }
 
     /** The answer, or null when the server answered not_found. */
     private inline fun <T> notFoundAsNull(read: () -> T): T? =
