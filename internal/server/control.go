@@ -43,6 +43,14 @@ const controlStartRefused = "session directory must be an existing directory und
 // its %s.
 const controlBelowStamp = "session directory has no context stamp of its own and is below a context-stamped folder (%s)"
 
+// controlWorktreeStamp is the message for a start in a folder with no stamp of its own, in a linked git worktree whose
+// checkout is at or below the stamped folder named by its %s.
+const controlWorktreeStamp = "session directory has no context stamp of its own and is a linked git worktree of a checkout at or below a context-stamped folder (%s)"
+
+// controlGitUnreadable is the message for a start whose git file or common directory pointer exists but cannot be
+// read; its %s is the file's path.
+const controlGitUnreadable = "session directory's git file %s cannot be read"
+
 // controlStampUnreadable is the message for a start whose stamp settings file exists but cannot be read; its %s is the
 // file's path.
 const controlStampUnreadable = "session directory's context stamp %s cannot be read"
@@ -225,8 +233,9 @@ func resolveHome(home string) (string, bool) {
 }
 
 // refuseUnstampedBelowStamp returns the refusal for a start in dir, a directory resolveSessionDir admitted under home,
-// when dir has no context stamp of its own and a folder between dir and home has one. Home's own files never count,
-// so a start in home, or in a folder with no stamped folder above it below home, is admitted.
+// when dir has no context stamp of its own and either a folder between dir and home has one, or dir lies in a linked
+// git worktree whose checkout is stamped or sits below a stamped folder. Home's own files never count, so a start in
+// home, or in a folder with no stamped folder above it below home, is admitted.
 func refuseUnstampedBelowStamp(home, dir string) error {
 	root, ok := resolveHome(home)
 	if !ok {
@@ -242,17 +251,105 @@ func refuseUnstampedBelowStamp(home, dir string) error {
 	if own {
 		return nil
 	}
+	stamped, stampErr := stampedFrom(root, filepath.Dir(dir))
+	if stampErr != nil {
+		return stampErr
+	}
+	if stamped != "" {
+		return listError(connect.CodeInvalidArgument, fmt.Sprintf(controlBelowStamp, stamped))
+	}
+	return refuseWorktreeBelowStamp(root, dir)
+}
+
+// stampedFrom returns the nearest of folder and the folders above it that is stamped, or "" when none is. The walk
+// stops at root, which never counts, and a folder outside root is checked alone.
+func stampedFrom(root, folder string) (string, error) {
 	below := root + string(filepath.Separator)
-	for ancestor := filepath.Dir(dir); strings.HasPrefix(ancestor, below); ancestor = filepath.Dir(ancestor) {
-		stamped, stampErr := folderStamped(ancestor)
-		if stampErr != nil {
-			return stampErr
+	for current := folder; ; current = filepath.Dir(current) {
+		if current == root {
+			return "", nil
+		}
+		stamped, err := folderStamped(current)
+		if err != nil {
+			return "", err
 		}
 		if stamped {
-			return listError(connect.CodeInvalidArgument, fmt.Sprintf(controlBelowStamp, ancestor))
+			return current, nil
+		}
+		if !strings.HasPrefix(current, below) {
+			return "", nil
 		}
 	}
-	return nil
+}
+
+// refuseWorktreeBelowStamp returns the refusal for a start in dir, a directory with no stamp of its own, when dir lies
+// in a linked git worktree whose primary checkout is stamped or sits below a stamped folder under root.
+func refuseWorktreeBelowStamp(root, dir string) error {
+	primary, err := linkedWorktreePrimary(root, dir)
+	if err != nil || primary == "" {
+		return err
+	}
+	stamped, stampErr := stampedFrom(root, primary)
+	if stampErr != nil || stamped == "" {
+		return stampErr
+	}
+	return listError(connect.CodeInvalidArgument, fmt.Sprintf(controlWorktreeStamp, stamped))
+}
+
+// linkedWorktreePrimary returns the primary checkout of the linked worktree dir lies in. It looks for a .git entry in
+// dir or a folder above it below root, and the nearest one decides: a .git directory is an ordinary checkout and ends
+// the search with no worktree. It returns "" when no linked worktree is named.
+func linkedWorktreePrimary(root, dir string) (string, error) {
+	below := root + string(filepath.Separator)
+	for folder := dir; strings.HasPrefix(folder, below); folder = filepath.Dir(folder) {
+		entry := filepath.Join(folder, ".git")
+		info, err := os.Lstat(entry)
+		if errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ENOTDIR) {
+			continue
+		}
+		if err != nil {
+			return "", listError(connect.CodeInvalidArgument, fmt.Sprintf(controlGitUnreadable, entry))
+		}
+		if !info.Mode().IsRegular() {
+			return "", nil
+		}
+		return worktreePrimary(entry)
+	}
+	return "", nil
+}
+
+// worktreePrimary returns the primary checkout of the linked worktree whose .git file is entry: the parent of the
+// common git directory that the gitdir line names. A file that does not name a gitdir with a commondir names no
+// worktree, and returns "".
+func worktreePrimary(entry string) (string, error) {
+	data, err := os.ReadFile(filepath.Clean(entry))
+	if err != nil {
+		return "", listError(connect.CodeInvalidArgument, fmt.Sprintf(controlGitUnreadable, entry))
+	}
+	line, ok := strings.CutPrefix(strings.TrimSpace(string(data)), "gitdir:")
+	gitdir := strings.TrimSpace(line)
+	if !ok || gitdir == "" {
+		return "", nil
+	}
+	if !filepath.IsAbs(gitdir) {
+		gitdir = filepath.Join(filepath.Dir(entry), gitdir)
+	}
+	common, err := fs.ReadFile(os.DirFS(gitdir), "commondir")
+	if errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ENOTDIR) {
+		return "", nil
+	}
+	if err != nil {
+		commonPath := filepath.Join(gitdir, "commondir")
+		return "", listError(connect.CodeInvalidArgument, fmt.Sprintf(controlGitUnreadable, commonPath))
+	}
+	shared := strings.TrimSpace(string(common))
+	if shared == "" {
+		return "", nil
+	}
+	if !filepath.IsAbs(shared) {
+		shared = filepath.Join(gitdir, shared)
+	}
+	return filepath.Dir(shared), nil
 }
 
 // folderStamped reports whether folder is stamped: either of its settings files, .claude/settings.json or
@@ -324,7 +421,7 @@ func translateError(err error) error {
 
 // newControlHandler returns the path and handler that serve Control over engine, reading at most maxControlBody
 // bytes of each request. A zero timeout is defaultControlTimeout. Start admits only directories under home that are
-// stamped or sit under no stamped folder below home.
+// stamped, or that sit under no stamped folder below home and in no linked worktree of a stamped checkout.
 func newControlHandler(engine enginev1connect.EngineClient, timeout time.Duration, home string) (string, http.Handler) {
 	if timeout == 0 {
 		timeout = defaultControlTimeout

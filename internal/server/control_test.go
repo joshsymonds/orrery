@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -842,6 +843,135 @@ func TestControlRefusesStartsWithUnreadableStamp(t *testing.T) {
 			if calls := fake.recorded(); len(calls) != 0 {
 				t.Fatalf("refused start forwarded %d requests, want none", len(calls))
 			}
+		})
+	}
+}
+
+// gitIn runs git in dir with a synthetic identity, and fails the test when git fails.
+func gitIn(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	full := append([]string{
+		"-c", "user.name=synthetic", "-c", "user.email=synthetic@example.invalid", "-c", "commit.gpgsign=false",
+	}, args...)
+	cmd := exec.Command("git", full...)
+	cmd.Dir = dir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git %v in %s: %v\n%s", args, dir, err, out)
+	}
+}
+
+// makeCheckout makes folder a git repository with one empty commit, and returns folder.
+func makeCheckout(t *testing.T, folder string) string {
+	t.Helper()
+	makeDir(t, folder)
+	gitIn(t, folder, "init", "-q")
+	gitIn(t, folder, "commit", "-q", "--allow-empty", "-m", "synthetic")
+	return folder
+}
+
+// makeWorktree adds a linked worktree of checkout at folder, and returns folder.
+func makeWorktree(t *testing.T, checkout, folder string) string {
+	t.Helper()
+	gitIn(t, checkout, "worktree", "add", "-q", folder)
+	return folder
+}
+
+// worktreeStampMessage is the refusal for a start in a folder with no stamp of its own, in a linked worktree whose
+// checkout is at or below the stamped folder.
+func worktreeStampMessage(stamped string) string {
+	return "session directory has no context stamp of its own and is a linked git worktree of a checkout at or below a context-stamped folder (" + stamped + ")"
+}
+
+func TestControlRefusesStartsInWorktreeOfStampedCheckout(t *testing.T) {
+	for _, name := range stampFileNames() {
+		t.Run(name, func(t *testing.T) {
+			home := t.TempDir()
+			checkout := makeCheckout(t, filepath.Join(home, "repo"))
+			writeSettings(t, checkout, name, stampSettings)
+			worktree := makeWorktree(t, checkout, filepath.Join(home, "repo-wt"))
+			cases := []struct {
+				name string
+				dir  string
+			}{
+				{"worktree root", worktree},
+				{"subfolder of worktree", makeDir(t, filepath.Join(worktree, "sub"))},
+			}
+			want := worktreeStampMessage(resolvedPath(t, checkout))
+			for _, tc := range cases {
+				t.Run(tc.name, func(t *testing.T) {
+					fake := &fakeEngine{}
+					control := controlClient(t, newHomedControlHandler(t, home, newFakeOrreryd(t, fake), 0))
+
+					_, err := startAt(t, control, tc.dir)
+					assertConnectError(t, err, connect.CodeInvalidArgument, want)
+					if calls := fake.recorded(); len(calls) != 0 {
+						t.Fatalf("refused start forwarded %d requests, want none", len(calls))
+					}
+				})
+			}
+		})
+	}
+}
+
+func TestControlRefusesStartsInWorktreeOfCheckoutBelowStampedFolder(t *testing.T) {
+	home := t.TempDir()
+	stamped := makeDir(t, filepath.Join(home, "stamped"))
+	writeSettings(t, stamped, "settings.json", stampSettings)
+	checkout := makeCheckout(t, filepath.Join(stamped, "repo"))
+	worktree := makeWorktree(t, checkout, filepath.Join(home, "repo-wt"))
+	cases := []struct {
+		name string
+		dir  string
+	}{
+		{"worktree root", worktree},
+		{"subfolder of worktree", makeDir(t, filepath.Join(worktree, "sub"))},
+	}
+	want := worktreeStampMessage(resolvedPath(t, stamped))
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			fake := &fakeEngine{}
+			control := controlClient(t, newHomedControlHandler(t, home, newFakeOrreryd(t, fake), 0))
+
+			_, err := startAt(t, control, tc.dir)
+			assertConnectError(t, err, connect.CodeInvalidArgument, want)
+			if calls := fake.recorded(); len(calls) != 0 {
+				t.Fatalf("refused start forwarded %d requests, want none", len(calls))
+			}
+		})
+	}
+}
+
+func TestControlForwardsStartsInWorktreesThatNameNoStampedCheckout(t *testing.T) {
+	home := t.TempDir()
+	plain := makeCheckout(t, filepath.Join(home, "plain"))
+	plainWorktree := makeWorktree(t, plain, filepath.Join(home, "plain-wt"))
+	ownWorktree := makeWorktree(t, plain, filepath.Join(home, "own-wt"))
+	writeSettings(t, ownWorktree, "settings.local.json", stampSettings)
+	stamped := makeCheckout(t, filepath.Join(home, "stamped"))
+	writeSettings(t, stamped, "settings.json", stampSettings)
+	garbled := makeDir(t, filepath.Join(home, "garbled"))
+	if err := os.WriteFile(filepath.Join(garbled, ".git"), []byte("not a gitdir\n"), 0o644); err != nil {
+		t.Fatalf("write garbled .git: %v", err)
+	}
+	missing := makeDir(t, filepath.Join(home, "missing"))
+	gitdir := filepath.Join(home, "absent", ".git", "worktrees", "missing")
+	if err := os.WriteFile(filepath.Join(missing, ".git"), []byte("gitdir: "+gitdir+"\n"), 0o644); err != nil {
+		t.Fatalf("write missing .git: %v", err)
+	}
+	cases := []struct {
+		name string
+		dir  string
+	}{
+		{"worktree of unstamped checkout", plainWorktree},
+		{"subfolder of worktree of unstamped checkout", makeDir(t, filepath.Join(plainWorktree, "sub"))},
+		{"worktree with its own stamp", ownWorktree},
+		{"stamped checkout itself", stamped},
+		{"git file that is not a gitdir", garbled},
+		{"git file naming no checkout", missing},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assertStartForwarded(t, home, tc.dir, resolvedPath(t, tc.dir))
 		})
 	}
 }
