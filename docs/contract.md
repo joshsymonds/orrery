@@ -303,6 +303,22 @@ Subcommands:
   - `session --url URL VERB ARGS` sends `start`, `say`, `answer`, `interrupt`, `stop` and `seen` to the `orrery.v1.Control` service of `serve` at `URL` (see [Control API](#control-api)), with the same arguments and output as the socket form, except that `DIR` is not made absolute (see below). It does not dial the session socket, so the client needs no daemon socket and no `--sessions`. Each request carries the `X-Orrery-Client` header that the guard requires. The command sends no `Tailscale-User-Login` header, so the URL must lead through a proxy that sets it, such as `tailscale serve`. `--url` with no URL exits 2.
   - With `--url`, `DIR` is sent as given, not made absolute. `serve` admits only an absolute directory under its home directory, so a relative `DIR` is refused.
   - `session --url URL watch ID` lists `serve`'s newest seq with `Sessions.List`, then reads the `orrery.v1.Events` stream from seq 0. It writes each message whose `session_id` is `ID` as one line, in the format of `orrery events`, including the `engineText` messages of that session. If the stream answers `out_of_range` before any message, it reads again from the newest seq. The watch exits 0 once a message whose seq is at or past that newest seq leaves the session `stopped` or `failed`. A stream that ends before then exits 1 with `session watch: stream ended before session ID stopped`.
+- `run --needs POOL=N [--needs POOL=N]... -- CMD [ARGS]` asks `orreryd` for members of pools and runs `CMD` under that grant. Every flag comes before `--`. `--needs` is required, and a pool may be named once.
+  - `POOL` is a pool name as [Pool files](#pool-files) spells it. `N` is a whole number of 1 or more. A pool that the project's pool files do not declare exits 75.
+  - `run` reads the pool files for the working directory (see [Pool files](#pool-files)) and sends the project's name and the merged pool definitions with the request. It reaches `orreryd` on `sessions.sock` beside the daemon socket, as the session verbs do. `-L` and `-S` have no effect on `run`.
+  - `CMD` is looked up on `PATH` before the request is sent. It runs without a shell, in its own process group, with `run`'s standard input, output and error. Its environment is `run`'s, plus `ORRERY_GRANT`, the grant id, and one `ORRERY_POOL_<POOL>` for each pool named. `<POOL>` is the pool name in upper case, and its value is the granted members, comma-separated. For pool `builds` with members `build-1` and `build-2`: `ORRERY_POOL_BUILDS=build-1,build-2`.
+  - While the request waits, `run` writes `orrery run: queued at position N` to stderr when it queues.
+  - When `run` receives SIGINT, SIGTERM or SIGHUP after `CMD` has started, it sends SIGTERM to `CMD`'s process group. It returns `CMD`'s status once `CMD` exits. A signal that arrives while the request waits ends the run with 75, and `CMD` does not run.
+  - `CMD` must stop its remote work when it gets SIGTERM. `run` sends the signal and stops nothing else.
+  - If `run` is killed with SIGKILL, the kernel sends SIGKILL to `CMD`. Processes that `CMD` left in its group are not signalled when `CMD` exits on its own, or when `run` is killed, so they can outlive the grant.
+  - When the grant's stream breaks while `CMD` runs, `run` asks for the grant by its id once a second, and `CMD` keeps running. A reclaim that fails with `not_found` or `failed_precondition` is a refusal: `run` sends SIGTERM to `CMD`'s process group and exits 75. Any other failure, such as `orreryd` being unreachable, is tried again. `orreryd` answers a reclaim for a grant it does not keep with `not_found` (see [Pools](#pools)).
+  - Exit statuses:
+    - `CMD`'s status. When a signal ended `CMD`, the status is 128 plus the signal number.
+    - `75`: `CMD` did not run for want of a grant. That covers a request that `orreryd` refuses, an unreachable `orreryd`, no daemon socket that can be named, a need for a pool that the files do not declare, pool files that cannot be read, do not parse or do not merge, a pool whose cap is too large to send, neither `XDG_CONFIG_HOME` nor `HOME` set, no `git` on `PATH`, a stream that ends or a signal that arrives while the request waits, and a refused reclaim.
+    - `2`: a usage error. That is a missing `--needs`, a `--needs` that is not `POOL=N` with a lowercase pool name, a pool named twice, an argument before `--`, or no `CMD` after `--`.
+    - `127`: `CMD` is not on `PATH`. Nothing is requested.
+    - `126`: `CMD` is on `PATH` but cannot start after the grant. The grant ends with the run.
+    - `1`: the exit status of `CMD` cannot be read.
 
 Exit codes:
 
@@ -312,6 +328,8 @@ Exit codes:
 | 1 | error |
 | 2 | usage error |
 | 3 | question refused (`send --expect-question`: no question, hash mismatch, empty display fragment, or fragment not visible) |
+
+`run` exits with the statuses listed in its bullet above, which are not in this table.
 
 ### orrery serve
 
@@ -358,7 +376,7 @@ orreryd [-L NAME | -S PATH] [--socket PATH] [--claude PATH] [--summary-model CON
 - `--summary-model CONTEXT=MODEL` maps a patchbay context (section 8) to a summary model. Repeat the flag for each context. A context with no mapping uses `claude-haiku-5-5`.
 - Each applied hook frame sets `@orrery_context` on the frame's pane to that frame's context (section 2).
 - `--push-host HOST` names a push relay host that a Web Push subscription may use. Repeat the flag for each host. The default is `ntfy.sh`. A subscription whose endpoint is on another host is refused (section 12).
-- `--sessions` serves the engine session service and the step service (see [Steps](#steps)) on `sessions.sock` beside the daemon socket. The headless session manager runs behind it when the store opens. Without `--sessions`, no session socket exists. With it, `--session-shell` must be an absolute path, or the command exits 2.
+- `--sessions` serves the engine session service, the step service (see [Steps](#steps)) and the Pools service (see [Pools](#pools)) on `sessions.sock` beside the daemon socket. The headless session manager runs behind it when the store opens. Without `--sessions`, no session socket exists. With it, `--session-shell` must be an absolute path, or the command exits 2.
 - `--session-cap N` is the most live headless sessions at once. The default is 4. A value below 1 exits 2.
 - `--session-shell PATH` is the absolute login shell that starts each session. The default is `$SHELL`.
 - `--step-cap N` is the most live step sessions at once. Steps count apart from `--session-cap`. The default is 6. A value below 1 exits 2.
@@ -394,7 +412,7 @@ When neither variable is set, `orreryd` exits 1.
 
 `orreryd` also keeps the store, which mirrors each pane's tmux options (see [Store](#store)). When the store cannot be opened, `orreryd` logs the error and serves hooks and notifications without it. It then mints no `@orrery_id` and syncs no pane. A failure of the push store still exits 1.
 
-`SIGINT` and `SIGTERM` stop `orreryd`. With `--sessions`, the session socket closes first. Then every live headless session is stopped, and its turn, if one is running, is recorded `interrupted`. `orreryd` exits after those notices are sent. See [Headless sessions](#headless-sessions).
+`SIGINT` and `SIGTERM` stop `orreryd`. With `--sessions`, the Pools broker closes first (see [Pools](#pools)), then the session socket closes. Then every live headless session is stopped, and its turn, if one is running, is recorded `interrupted`. `orreryd` exits after those notices are sent. See [Headless sessions](#headless-sessions).
 
 ### Headless sessions
 
@@ -419,7 +437,7 @@ Idle stop writes no state, so a session it stops keeps the state it had.
 
 #### Session control socket
 
-The session socket is `sessions.sock` in the same directory as the daemon socket. `orreryd` creates it only with `--sessions`, and its mode is `0600`. It serves the `orrery.engine.v1.Engine` service (`proto/orrery/engine/v1/engine.proto`) and the `orrery.engine.v1.Steps` service (`proto/orrery/engine/v1/step.proto`, see [Steps](#steps)) over Connect.
+The session socket is `sessions.sock` in the same directory as the daemon socket. `orreryd` creates it only with `--sessions`, and its mode is `0600`. It serves the `orrery.engine.v1.Engine` service (`proto/orrery/engine/v1/engine.proto`), the `orrery.engine.v1.Steps` service (`proto/orrery/engine/v1/step.proto`, see [Steps](#steps)) and the `orrery.engine.v1.Pools` service (`proto/orrery/engine/v1/pool.proto`, see [Pools](#pools)) over Connect.
 
 | Call | Request | Precondition |
 |---|---|---|
@@ -574,6 +592,89 @@ Errors are Connect codes:
 - **Restart.** At start, `orreryd` settles each step's engine row as it settles other engine rows: a row that was `working` or `waiting` is recorded `interrupted` with the reason `orreryd restarted during the turn`, and no notice is sent. Each open step row with no loop then ends `engine_restarted`, and its worktree is removed. Nothing resumes a step after a restart. `Continue`, which the loop sends, respawns a step that is not live from its rows: it resumes the row's claude session with the same agent and schema flags, and it takes a step slot first.
 
 
+#### Pools
+
+`orreryd` serves the `orrery.engine.v1.Pools` service on the session socket, beside `Engine` and `Steps`, with the same socket mode and Connect rules. It is not on `serve`. The service has one call, `Acquire`. Its request asks for members, and its response stream sends the request's place in line and then its grant. How members are chosen and granted is in [Pool members](#pool-members).
+
+`Acquire` takes these fields:
+
+| Field | Meaning |
+|---|---|
+| `project` | the project's absolute path, as [Pool files](#pool-files) names it |
+| `pools` | the pool definitions of the project's merged files. Each limit is in whole seconds |
+| `needs` | one entry per pool, with `pool` and `count`. Each `pool` names one of `pools` |
+| `client_pid` | the process id of the client that holds the grant |
+| `grant_id` | empty for a new request. Set only to reclaim a grant that a restarted `orreryd` kept (see Restart below) |
+
+A new request, with no `grant_id`:
+
+- It is checked before it queues. A request that fails a check queues nothing and changes nothing. Its refusal is one of the codes below.
+- It queues. The stream sends `queued` with the request's place in the queue, counted from 1. The place is sent once, when the request queues, even when the request is granted at once.
+- The stream sends `granted` once the grant is stored. That message has the grant's id, and its members for each pool a need named.
+- A request that waits has no time limit. It waits until it is granted or until its stream ends.
+
+| Connect code | When |
+|---|---|
+| `failed_precondition` | a needed pool whose host is not `orreryd`'s host; a needed pool defined differently from the pool of that name in use; a needed pool that shares a member with another pool in use |
+| `invalid_argument` | a request with no needs; a need for a pool the request does not define; a need whose `count` is below 1, above the pool's cap, or above its member count; a `client_pid` below 1 |
+| `not_found` | a `grant_id` that `orreryd` did not keep for that `client_pid` |
+| `unavailable` | `orreryd` has no store; its restore at start failed; or `orreryd` is shutting down |
+
+A request with a `grant_id` does not queue, and its needs and pools are not checked. When `orreryd` kept that grant for that `client_pid`, the stream sends `granted` at once, with the grant's id and members. Otherwise the call is `not_found`.
+
+A grant lasts while its response stream is open. When the stream ends, because the client closes it or its connection breaks, `orreryd` deletes the grant's rows and frees its members, and then runs the pass of [Pool members](#pool-members) again.
+
+Restart:
+
+- On shutdown, the Pools broker closes before the session socket closes. Each open `Acquire` ends `unavailable`, and each stored grant stays for the next start. Member commands in flight are cancelled.
+- At start, `orreryd` restores the stored grants before it serves Pools. A grant whose `client_pid` has no process is ended in the store at once. A process is gone when a signal 0 to its pid fails with ESRCH. Each other grant keeps its members, and waits for its client to reclaim it. Its pools come back into use, so each of their members gets a status run.
+- On each 60-second tick, a kept grant whose client has no process is ended the same way.
+- If the restore fails, `orreryd` logs the error, and Pools refuses every call as `unavailable` until `orreryd` restarts. No grant is made from a partly restored broker.
+
+#### Pool members
+
+A pool in use has a state for each member:
+
+| State | Meaning |
+|---|---|
+| `unknown` | no member command has set the state since the pool came into use. Unknown members are never reserved |
+| `asleep` | the last status exited nonzero |
+| `awake` | the last status or wake exited 0 |
+| `waking` | a wake command is running |
+| `admitting` | an admit command is running |
+| `admitted` | an admit exited 0, or a status exited 0 while the member was admitted |
+| `unavailable` | a command failed to start or passed its limit, or a wake or admit exited nonzero. Only a status that exits 0 leaves this state |
+
+Member commands:
+
+- Each pool's `wake`, `status` and `admit` argv (see [Pool files](#pool-files)) runs the same way. It runs without a shell: the first element is found on the `PATH` of `orreryd`, and the rest are its arguments. It runs in its own process group, with no standard input, and its output is discarded.
+- The environment is `orreryd`'s own, plus `ORRERY_POOL=<pool>` and `ORRERY_MEMBER=<member>`. The argv is never changed, so the member is named only by `ORRERY_MEMBER`.
+- Each command runs under its limit. A command that passes its limit has its process group killed.
+- A member runs at most one command at a time.
+
+Outcomes:
+
+- `status` exits 0: the member is `awake`, or stays `admitted` when it was admitted.
+- `status` exits nonzero: the member is `asleep`. An `unavailable` member stays `unavailable`.
+- `status` fails to start or passes its limit: `unavailable`.
+- `wake` exits 0: `awake`. Any other end: `unavailable`.
+- `admit` exits 0: `admitted`. Any other end: `unavailable`.
+
+Status runs:
+
+- Each member gets a status run when a request first brings its pool into use, and when the restore at start brings a pool into use.
+- Every 60 seconds, each member with no command running gets a status run.
+- A pool that no grant holds, no waiting request needs, and no command runs for is forgotten. When it is used again, its members start at `unknown`.
+
+Grant order:
+
+A change to the broker runs the pass again: a request queues or leaves, a member command ends, or a dead client's grant ends. The pass goes through the waiting requests in arrival order.
+
+1. A request whose project would pass a pool's cap reserves nothing. The project's count for a pool is the members it holds from that pool, plus the members that earlier waiting requests of the same project reserve in this pass, plus the request's own need for that pool.
+2. Otherwise, for each need in order, the request reserves free members of the pool that no earlier request reserved. It takes admitted members first, then waking and admitting members, then awake members, then asleep members. Within each state, members keep their declared order. Unknown and unavailable members are never reserved.
+3. A request whose every need is covered by admitted members is granted all its reserved members at once, in need order. Its grant is stored before its client is told.
+4. Any other request keeps its reservations, so a later request cannot take them. Each of its reserved awake members is admitted, and each reserved asleep member is woken. A member whose command is still running is left alone. When that command ends, the pass runs again, and a woken member is admitted if a waiting request still needs it.
+
 ### Environment
 
 | Variable | Read by | Meaning |
@@ -587,10 +688,14 @@ Errors are Connect codes:
 | `ANTHROPIC_BASE_URL` | `orrery` (`hook`, `debug summarize`) | the session's base URL. The hook sends it in each frame (section 9), and each summary runs through its own session's base URL. |
 | `ORRERY_SUMMARIZER` | `orrery` (`hook`) | summarizer sentinel (section 7). `orreryd` sets it on each summary run. Summaries also run with hooks disabled. |
 | `SHELL` | `orreryd` | the login shell that starts each headless session, when `--session-shell` is not given (see [Headless sessions](#headless-sessions)) |
-| `HOME` | `orrery` (`tree`, `open`) | `$HOME/Personal` is the default parent directory of new projects. `$HOME` is also the directory that roots are relative to, and the roots file falls back to `$HOME/.config/orrery/roots` (see [Roots](#roots)) |
+| `HOME` | `orrery` (`tree`, `open`, `run`) | `$HOME/Personal` is the default parent directory of new projects. `$HOME` is also the directory that roots are relative to, and the roots file falls back to `$HOME/.config/orrery/roots` (see [Roots](#roots)). The machine pool file falls back to `$HOME/.config/orrery/pools.toml` (see [Pool files](#pool-files)) |
 | `XDG_STATE_HOME` | `orrery` (`tree`, `open`) | base directory of the archive file (see [Archive](#archive)) |
-| `XDG_CONFIG_HOME` | `orrery` (`tree`, `open`) | base directory of the roots file, `$XDG_CONFIG_HOME/orrery/roots` (see [Roots](#roots)) |
-| `PATH` | `orrery` (`tree`, `open`) | finds `zoxide` and `claude` for the picker and `open` |
+| `XDG_CONFIG_HOME` | `orrery` (`tree`, `open`, `run`) | base directory of the roots file, `$XDG_CONFIG_HOME/orrery/roots` (see [Roots](#roots)), and of the machine pool file, `$XDG_CONFIG_HOME/orrery/pools.toml` (see [Pool files](#pool-files)) |
+| `PATH` | `orrery` (`tree`, `open`, `run`), `orreryd` | finds `zoxide` and `claude` for the picker and `open`. `run` finds `CMD` and `git`, and `orreryd` finds the program of each member command (see [Pool members](#pool-members)) |
+| `ORRERY_GRANT` | set by `orrery run` for `CMD` | the id of the grant `CMD` runs under (see [orrery](#orrery)) |
+| `ORRERY_POOL_<POOL>` | set by `orrery run` for `CMD`, once for each pool named | the members granted from pool `<POOL>`, comma-separated |
+| `ORRERY_POOL` | set by `orreryd` for each member command | the pool the member command runs for |
+| `ORRERY_MEMBER` | set by `orreryd` for each member command | the member the command runs for |
 
 ### Archive
 
@@ -633,9 +738,48 @@ Example. The names are synthetic:
 1 Scratch
 ```
 
+### Pool files
+
+`orrery run` reads two TOML files that declare pools: a project file and a machine file. Both are read on each run. A file that does not exist declares no pools.
+
+- The project file is `.orrery/project.toml`. Inside a git work tree, it is at the top of the work tree the command runs in, so each worktree of a repository reads its own file. Outside git, it is the nearest `.orrery/project.toml` at or above the working directory.
+- The machine file is `$XDG_CONFIG_HOME/orrery/pools.toml` when `XDG_CONFIG_HOME` is set and not empty. Otherwise it is `$HOME/.config/orrery/pools.toml`. When neither variable is set, `orrery run` exits 75.
+- A project is named by its absolute directory path. Inside git, that is the parent of the repository's common git directory, so every worktree of one repository names the same project. Outside git, it is the directory that holds the project file, or the working directory when there is no project file.
+- `orrery run` needs `git` on `PATH` for every run, because it asks git for the project's name. Without it, the run exits 75.
+
+Each file holds `[pools.NAME]` tables. Every table has all nine keys below, and each key is required:
+
+| Key | Type | Meaning |
+|---|---|---|
+| `host` | string | the machine that owns the pool. `orreryd` refuses a pool whose `host` is not its own host name |
+| `cap` | integer, 1 or more | the most members one project may hold from the pool at once |
+| `members` | array of strings | the member names. The list may not be empty, and may not repeat a name |
+| `wake`, `status`, `admit` | array of strings | the argv of each member command, run without a shell. The first element is the program and the rest are its arguments. The list may not be empty, and no element may be empty |
+| `wake_limit`, `status_limit`, `admit_limit` | integer seconds, 1 or more | how long the matching command may run |
+
+- A pool name matches `[a-z][a-z0-9_]*`. A member name matches `[A-Za-z0-9][A-Za-z0-9._-]*`.
+- A member belongs to one pool. `orrery run` refuses a run whose merged files put one member in two pools.
+- Keys match exactly. A file with an unknown key, an unknown table, or a missing required key is refused.
+- `orrery run` merges the two files. A pool defined the same way in both is kept once. A pool defined differently in the two files refuses the run with exit 75.
+
+Example. Every name in it is synthetic:
+
+```toml
+[pools.builds]
+host = "box"
+cap = 1
+members = ["build-1", "build-2"]
+wake = ["example-wake"]
+wake_limit = 300
+status = ["example-status"]
+status_limit = 30
+admit = ["example-admit"]
+admit_limit = 30
+```
+
 ### Store
 
-`orreryd` keeps a SQLite store that mirrors each pane's tmux options, and records each headless engine session (see [Engine sessions in the store](#engine-sessions-in-the-store)). Outside the store's tests, `orreryd`'s own writes read it, and `orrery serve` reads it for the Connect API (section 12). A sync reads the pane's row to compare it with the new snapshot, and a tidy also reads the server's rows to find the panes that are gone. `serve` only reads the store, and never writes it.
+`orreryd` keeps a SQLite store that mirrors each pane's tmux options, records each headless engine session (see [Engine sessions in the store](#engine-sessions-in-the-store)), and keeps the live grants of the Pools service (see [Grants in the store](#grants-in-the-store)). Outside the store's tests, `orreryd`'s own writes read it, and `orrery serve` reads it for the Connect API (section 12). A sync reads the pane's row to compare it with the new snapshot, and a tidy also reads the server's rows to find the panes that are gone. `serve` only reads the store, and never writes it.
 
 The store file is `$XDG_STATE_HOME/orrery/orrery.db` when `XDG_STATE_HOME` is set, else `$HOME/.local/state/orrery/orrery.db`. When neither variable is set, no path resolves.
 
@@ -798,6 +942,31 @@ The `sessions` row of a step has `kind` `step`, its `dir` (the workspace, or the
 
 The `steps` table is never pruned. The 14-day tidy deletes only engine rows (`kind` `engine`), and the unfinished text and `engine_prompt_failed` rows of those rows, so a step's `sessions` row, its `engine_text` rows and its `engine_prompt_failed` rows are kept too. Events of step rows are pruned with the other events, under the same rule.
 
+
+#### Grants in the store
+
+The `grants` and `grant_members` tables (migration `00007_grants.sql`) hold the live grants of the Pools service (see [Pools](#pools)). A grant's rows are written before its client is told of the grant, and ending the grant deletes them. The tidy does not delete grants.
+
+`grants` has these columns:
+
+| Column | Type | Meaning |
+|---|---|---|
+| `id` | `TEXT`, primary key | the grant id |
+| `project` | `TEXT` | the project's absolute path |
+| `client_pid` | `INTEGER` | the process id of the client that holds the grant |
+| `pools` | `TEXT` | the definitions of the pools the request needed, as a JSON array. Each has the keys `name`, `host`, `cap`, `members`, `wake`, `wakeLimit`, `status`, `statusLimit`, `admit` and `admitLimit`. The limits are in nanoseconds |
+| `granted` | `INTEGER` | unix seconds when the grant was stored |
+
+`grant_members` has these columns:
+
+| Column | Type | Meaning |
+|---|---|---|
+| `member` | `TEXT`, primary key | the member's name |
+| `grant_id` | `TEXT` | the grant the member belongs to |
+| `pool` | `TEXT` | the pool the member belongs to |
+| `position` | `INTEGER` | the member's place in its grant, counted from 0 |
+
+The primary key of `grant_members` is the member's name, so a member is in at most one stored grant. The store also refuses a grant that includes a member a live grant already has.
 
 ### Claude Code hook settings
 
@@ -1224,3 +1393,5 @@ The picker run's failed-run rule changed in the same effort, and this is a chang
 orrery O1a (steps) added, additively: the `orreryd` flags `--step-cap` and `--gate-lock`, and the `step-worktrees` directory beside the store file; `--sessions` now also serves the step service; the `orrery.engine.v1.Steps` service on `sessions.sock`, its four calls and their Connect codes (see [Steps](#steps)); the `step` value of the `kind` column of `sessions`; the `steps` table (migration `00004_steps.sql`, see [Steps in the store](#steps-in-the-store)); the step end kinds `done`, `returned`, `checks_failed`, `failed`, `stopped` and `engine_restarted`; and the step rules of [Step lifecycle](#step-lifecycle). Step rows are not listed by the typed `List`; their `engine_*` events reach `orrery.v1.Events.Watch` as other engine events do. No existing name or value changes.
 
 orrery removed the REST routes of the phone API: `GET /v1/panes`, `POST /v1/panes`, `GET /v1/panes/{id}/screen`, `GET /v1/panes/{id}/conversation`, `GET /v1/host`, `POST /v1/panes/{id}/text`, `POST /v1/panes/{id}/keys`, `POST /v1/panes/{id}/seen`, `POST /v1/push/register`, `DELETE /v1/push/register`, `POST /v1/picker/ask` and `POST /v1/picker/run`. `POST /v1/panes`, which opened a window, is removed with them and has no replacement. Each other route is answered by the Connect call of [Phone API](#phone-api) that replaced it, and that section states the rules the route had. The guard's rule for non-Connect POST and DELETE paths went with the routes, so every path other than a Connect path answers 404 after the login check (see [Guard](#guard)). This is a removal, and it changes serve's HTTP surface. No Connect name or value changes.
+
+orrery L1a1 (pools) added, additively: the `orrery run` subcommand, its `--needs` flags, its environment variables and its exit statuses (see [orrery](#orrery)); the project file, the machine file and the project naming rule (see [Pool files](#pool-files)); the `orrery.engine.v1.Pools` service on `sessions.sock`, its `Acquire` call and its Connect codes, and the broker's restore at start and its 60-second status tick (see [Pools](#pools)); the member states, the grant order and the member commands, with their `ORRERY_POOL` and `ORRERY_MEMBER` variables (see [Pool members](#pool-members)); and the `grants` and `grant_members` tables (migration `00007_grants.sql`, see [Grants in the store](#grants-in-the-store)). `--sessions` now also serves the Pools service. No existing name or value changes.
