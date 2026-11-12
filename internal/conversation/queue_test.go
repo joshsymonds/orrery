@@ -68,6 +68,25 @@ func queuedUserLine(t *testing.T, s int, text string) string {
 		`"message":{"role":"user","content":` + quoted(t, text) + `}}`
 }
 
+// userContentLine returns a user line at second s with string content text and the extra JSON fields, each written
+// with a leading comma.
+func userContentLine(t *testing.T, s int, extra, text string) string {
+	t.Helper()
+	return `{"type":"user","timestamp":"` + stampAt(s) + `"` + extra + `,"message":{"role":"user","content":` +
+		quoted(t, text) + `}}`
+}
+
+// systemLine returns a system line at second s with the given subtype and extra JSON fields, each written with a
+// leading comma.
+func systemLine(s int, subtype, extra string) string {
+	return `{"type":"system","subtype":"` + subtype + `","timestamp":"` + stampAt(s) + `"` + extra + `}`
+}
+
+// turnDurationLine returns the turn_duration record that Claude Code writes at the end of a turn at second s.
+func turnDurationLine(s int) string {
+	return systemLine(s, "turn_duration", `,"durationMs":1000`)
+}
+
 // waitingAt returns what queues reports for path, failing the test on error.
 func waitingAt(t *testing.T, queues *Queues, path string, idle bool) []Waiting {
 	t.Helper()
@@ -103,6 +122,83 @@ func TestQueueTurnEndMessageWaitsAfterDequeueUntilQueuedLine(t *testing.T) {
 
 	appendText(t, path, queuedUserLine(t, 2, "synthetic turn end")+"\n")
 	assertWaiting(t, queues, path, []Waiting{})
+}
+
+func TestQueueSystemSourcedCopyAfterDequeueClosesRow(t *testing.T) {
+	path := writeTranscript(t,
+		enqueueLine(t, 0, "/compact"),
+		dequeueLine(1),
+		userContentLine(t, 2, `,"promptSource":"system","isMeta":true`, "/compact"),
+	)
+	assertWaiting(t, NewQueues(), path, []Waiting{})
+}
+
+func TestQueueUserLineWithoutPromptSourceAfterDequeueClosesRow(t *testing.T) {
+	path := writeTranscript(t, enqueueLine(t, 0, "synthetic bare"), dequeueLine(1),
+		userContentLine(t, 2, "", "synthetic bare"))
+	assertWaiting(t, NewQueues(), path, []Waiting{})
+}
+
+func TestQueueExactLineWithoutDequeueKeepsRow(t *testing.T) {
+	path := writeTranscript(t, enqueueLine(t, 0, "synthetic kept"),
+		userContentLine(t, 1, `,"promptSource":"system"`, "synthetic kept"),
+		userContentLine(t, 2, "", "synthetic kept"))
+	assertWaiting(t, NewQueues(), path, []Waiting{{Text: "synthetic kept", Time: unixAt(0)}})
+}
+
+func TestQueueRowEnqueuedAfterDequeueNeedsAnotherDequeue(t *testing.T) {
+	path := writeTranscript(t, enqueueLine(t, 0, "synthetic late"), dequeueLine(1),
+		userContentLine(t, 2, "", "synthetic late"),
+		enqueueLine(t, 3, "synthetic late"),
+		userContentLine(t, 4, "", "synthetic late"))
+	assertWaiting(t, NewQueues(), path, []Waiting{{Text: "synthetic late", Time: unixAt(3)}})
+}
+
+func TestQueueTypedLineClosesEveryRowItContains(t *testing.T) {
+	path := writeTranscript(t,
+		enqueueLine(t, 0, "synthetic first"),
+		enqueueLine(t, 1, "synthetic second"),
+		enqueueLine(t, 2, "synthetic third"),
+		typedTextLine(t, 3, "synthetic first\nsynthetic second"),
+	)
+	assertWaiting(t, NewQueues(), path, []Waiting{{Text: "synthetic third", Time: unixAt(2)}})
+}
+
+func TestQueueTypedLineClosesOldestRowOfEachContainedText(t *testing.T) {
+	path := writeTranscript(t,
+		enqueueLine(t, 0, "synthetic same"),
+		enqueueLine(t, 1, "synthetic same"),
+		typedTextLine(t, 2, "synthetic same and more"),
+	)
+	assertWaiting(t, NewQueues(), path, []Waiting{{Text: "synthetic same", Time: unixAt(1)}})
+}
+
+func TestQueueTurnEndClosesRowsOpenAfterDequeue(t *testing.T) {
+	path := writeTranscript(t, enqueueLine(t, 0, "synthetic turn"), dequeueLine(1),
+		enqueueLine(t, 2, "synthetic next"), turnDurationLine(3))
+	assertWaiting(t, NewQueues(), path, []Waiting{{Text: "synthetic next", Time: unixAt(2)}})
+}
+
+func TestQueueTurnDurationWithoutDequeueKeepsRow(t *testing.T) {
+	path := writeTranscript(t, enqueueLine(t, 0, "synthetic kept"), turnDurationLine(1))
+	assertWaiting(t, NewQueues(), path, []Waiting{{Text: "synthetic kept", Time: unixAt(0)}})
+}
+
+func TestQueueStopHookSummaryAfterDequeueKeepsRow(t *testing.T) {
+	path := writeTranscript(t, enqueueLine(t, 0, "synthetic kept"), dequeueLine(1),
+		systemLine(2, "stop_hook_summary", ""))
+	assertWaiting(t, NewQueues(), path, []Waiting{{Text: "synthetic kept", Time: unixAt(0)}})
+}
+
+func TestQueueTurnEndKeepsCanceledRow(t *testing.T) {
+	canceled := []Waiting{{Text: "synthetic canceled", Time: unixAt(0), Canceled: true}}
+	path := writeTranscript(t,
+		enqueueLine(t, 0, "synthetic canceled"),
+		removeLine(t, 1, "synthetic canceled", "cleared_on_cancel"),
+		dequeueLine(2),
+		turnDurationLine(3),
+	)
+	assertWaiting(t, NewQueues(), path, canceled)
 }
 
 func TestQueueTwoMessagesCloseOneAtATimeInOrder(t *testing.T) {
