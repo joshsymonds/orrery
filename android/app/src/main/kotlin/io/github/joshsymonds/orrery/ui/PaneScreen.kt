@@ -48,20 +48,27 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import com.connectrpc.Code
 import io.github.joshsymonds.orrery.api.Conversation
 import io.github.joshsymonds.orrery.api.HostStat
+import io.github.joshsymonds.orrery.api.OrreryCallException
 import io.github.joshsymonds.orrery.api.OrreryClient
 import io.github.joshsymonds.orrery.api.Pane
 import java.io.IOException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
 private const val TAG = "PaneScreen"
 private const val POLL_INTERVAL_MILLIS = 1_000L
+private const val STREAM_RECONNECT_MILLIS = 1_000L
+/** Consecutive streams that fail without a delta before the screen polls until its next start. */
+private const val STREAM_FAILURES_BEFORE_POLL = 3
 private const val HEADER_SLIDE_MILLIS = 220
 private const val QUICK_KEYS_FOLD_MILLIS = 180
 private val BODY_GAP_BELOW_HEADER = 6.dp
@@ -105,7 +112,8 @@ private suspend fun fetchHost(client: OrreryClient): HostRead? =
     }
 
 /**
- * A pane, refreshed every second while the screen is at least started. A pane with a conversation
+ * A pane, followed while the screen is at least started: its conversation stream delivers each change,
+ * and once that stream gives up for this start, the pane is read every second instead. A pane with a conversation
  * shows it, with the question card after the last item; a pane without one shows a line saying so,
  * with the card below it. A pane with a conversation shows its status line at the top of the
  * composer band, always in view, with the pane's active goal, when it has one, on a line just
@@ -133,6 +141,8 @@ fun PaneScreen(
     var nowSeconds by remember(paneId) { mutableLongStateOf(0L) }
     var refreshFailed by remember(paneId) { mutableStateOf(false) }
     var seenAtOpen by remember(paneId) { mutableStateOf<Long?>(null) }
+    // What the stream holds, kept across starts so the next start resumes from its transcript and seq.
+    var held by remember(paneId) { mutableStateOf<StreamedConversation?>(null) }
     val refreshRequests = remember(paneId) { Channel<Unit>(Channel.CONFLATED) }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val scope = rememberCoroutineScope()
@@ -143,24 +153,70 @@ fun PaneScreen(
             when (event) {
                 Lifecycle.Event.ON_START -> {
                     poller = scope.launch {
-                        while (true) {
-                            val snapshot = fetchSnapshot(client, paneId)
-                            // Read before the snapshot's conversation is shown, so its time rows
-                            // never see the zero clock the state starts with.
-                            nowSeconds = clock()
-                            val host = fetchHost(client)
-                            if (snapshot == null) {
-                                refreshFailed = true
-                            } else {
-                                pane = snapshot.pane
-                                // Kept from the first read that finds the pane, so a later read's newer
-                                // seen time does not move the divider.
-                                seenAtOpen = seenAtOpen ?: snapshot.pane?.seen
-                                conversation = snapshot.conversation
-                                refreshFailed = false
+                        // Set once the stream gives up; the rest of this start polls.
+                        var polling = false
+                        coroutineScope {
+                            launch {
+                                var failures = 0
+                                while (!polling) {
+                                    // The stream's end comes back as a value, as fetchSnapshot and fetchHost return
+                                    // theirs, so this coroutine resumes from the IO hop the same way they do.
+                                    val ended: IOException? = withContext(Dispatchers.IO) {
+                                        try {
+                                            client.watchConversation(paneId, held?.transcript.orEmpty(), held?.seq ?: 0L) { delta ->
+                                                withContext(Dispatchers.Main) {
+                                                    failures = 0
+                                                    refreshFailed = false
+                                                    // Read before the delta's conversation is shown, as the poll reads its clock.
+                                                    nowSeconds = clock()
+                                                    val next = held.applyDelta(delta)
+                                                    held = next
+                                                    pane = next.pane
+                                                    seenAtOpen = seenAtOpen ?: next.pane?.seen
+                                                    conversation = next.conversation.takeIf { next.pane?.state?.isNotEmpty() == true }
+                                                }
+                                            }
+                                            null
+                                        } catch (e: IOException) {
+                                            e
+                                        }
+                                    }
+                                    val gaveUp = ended is OrreryCallException && ended.code == Code.NOT_FOUND
+                                    if (!gaveUp) failures++
+                                    if (gaveUp || failures >= STREAM_FAILURES_BEFORE_POLL) {
+                                        // The poll shows the pane from now on, so what the stream held is stale.
+                                        held = null
+                                        polling = true
+                                        refreshRequests.trySend(Unit)
+                                    } else {
+                                        delay(STREAM_RECONNECT_MILLIS)
+                                    }
+                                }
                             }
-                            host?.let { stats = it.stats }
-                            withTimeoutOrNull(POLL_INTERVAL_MILLIS) { refreshRequests.receive() }
+                            launch {
+                                while (true) {
+                                    val polled = polling
+                                    val snapshot = if (polled) fetchSnapshot(client, paneId) else null
+                                    // Read before the snapshot's conversation is shown, so its time rows
+                                    // never see the zero clock the state starts with.
+                                    nowSeconds = clock()
+                                    val host = fetchHost(client)
+                                    if (polled) {
+                                        if (snapshot == null) {
+                                            refreshFailed = true
+                                        } else {
+                                            pane = snapshot.pane
+                                            // Kept from the first read that finds the pane, so a later read's newer
+                                            // seen time does not move the divider.
+                                            seenAtOpen = seenAtOpen ?: snapshot.pane?.seen
+                                            conversation = snapshot.conversation
+                                            refreshFailed = false
+                                        }
+                                    }
+                                    host?.let { stats = it.stats }
+                                    withTimeoutOrNull(POLL_INTERVAL_MILLIS) { refreshRequests.receive() }
+                                }
+                            }
                         }
                     }
                 }
