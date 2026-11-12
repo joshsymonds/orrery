@@ -1,10 +1,10 @@
 package server_test
 
 import (
+	"encoding/base64"
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 
 	"connectrpc.com/connect"
@@ -40,97 +40,131 @@ func storedSubscription(t *testing.T, store *push.Store, endpoint string) push.S
 	return push.Subscription{}
 }
 
-// TestPushRegisterParity registers one subscription through the REST route and one through Push.Register on one
-// store. Both are stored with the same key material, and each registration is removed through the other twin.
+// connectRegister registers endpoint with fresh keys through Push.Register and fails the test on error.
+func connectRegister(t *testing.T, client orreryv1connect.PushClient, endpoint string) {
+	t.Helper()
+	p256dh, auth := pushKeys(t)
+	if _, err := client.Register(t.Context(), connect.NewRequest(&orreryv1.RegisterRequest{
+		Endpoint: endpoint, P256Dh: p256dh, Auth: auth,
+	})); err != nil {
+		t.Fatalf("Push.Register %q: %v", endpoint, err)
+	}
+}
+
+// TestPushRegisterParity registers one subscription through Push.Register and checks that the store holds it with
+// the key material sent. Push.Unregister then removes it, and the store is empty.
 func TestPushRegisterParity(t *testing.T) {
 	t.Parallel()
 
 	store := newPushStore(t)
-	handler := newHandlerWithStore(t, newTmuxClient(t), store)
-	restEndpoint := "https://" + pushHost + "/synthetic-topic-parity-rest"
-	connectEndpoint := "https://" + pushHost + "/synthetic-topic-parity-connect"
+	client := pushConnectClient(t, newHandlerWithStore(t, newTmuxClient(t), store))
+	endpoint := "https://" + pushHost + "/synthetic-topic-parity-connect"
 	p256dh, auth := pushKeys(t)
 
-	assertStatus(t, postJSON(t, handler, pushPath, jsonBody(t, map[string]any{
-		"endpoint": restEndpoint, "p256dh": p256dh, "auth": auth,
-	})), http.StatusNoContent)
-	if _, err := pushConnectClient(t, handler).Register(t.Context(), connect.NewRequest(&orreryv1.RegisterRequest{
-		Endpoint: connectEndpoint, P256Dh: p256dh, Auth: auth,
+	if _, err := client.Register(t.Context(), connect.NewRequest(&orreryv1.RegisterRequest{
+		Endpoint: endpoint, P256Dh: p256dh, Auth: auth,
 	})); err != nil {
 		t.Fatalf("Push.Register: %v", err)
 	}
-	assertStored(t, store, restEndpoint, connectEndpoint)
-
-	restStored := storedSubscription(t, store, restEndpoint)
-	connectStored := storedSubscription(t, store, connectEndpoint)
-	if connectStored.P256dh != restStored.P256dh || connectStored.Auth != restStored.Auth {
-		t.Fatalf("Push.Register stored %+v, want the REST route's key material %+v", connectStored, restStored)
-	}
-	if connectStored.P256dh != p256dh || connectStored.Auth != auth {
-		t.Fatalf("Push.Register stored keys %q and %q, want %q and %q",
-			connectStored.P256dh, connectStored.Auth, p256dh, auth)
+	assertStored(t, store, endpoint)
+	stored := storedSubscription(t, store, endpoint)
+	if stored.P256dh != p256dh || stored.Auth != auth {
+		t.Fatalf("Push.Register stored keys %q and %q, want %q and %q", stored.P256dh, stored.Auth, p256dh, auth)
 	}
 
-	// The REST route removes what Push.Register stored, and the store then holds the REST registration alone.
-	assertStatus(t, serve(t, handler, http.MethodDelete, pushPath, writeHeader(),
-		unregisterBody(t, connectEndpoint)), http.StatusNoContent)
-	assertStored(t, store, restEndpoint)
+	if _, err := client.Unregister(t.Context(), connect.NewRequest(&orreryv1.UnregisterRequest{
+		Endpoint: endpoint,
+	})); err != nil {
+		t.Fatalf("Push.Unregister: %v", err)
+	}
+	assertStored(t, store)
 }
 
-// TestPushUnregisterParity registers two subscriptions through the REST route, removes one through Push.Unregister
-// and the other through the REST route, and checks the store after each removal.
+// TestPushUnregisterParity registers two subscriptions through Push.Register, removes one through Push.Unregister,
+// and checks the store after each removal.
 func TestPushUnregisterParity(t *testing.T) {
 	t.Parallel()
 
 	store := newPushStore(t)
-	handler := newHandlerWithStore(t, newTmuxClient(t), store)
-	connectEndpoint := "https://" + pushHost + "/synthetic-topic-parity-unregister-connect"
-	restEndpoint := "https://" + pushHost + "/synthetic-topic-parity-unregister-rest"
-	assertStatus(t, postJSON(t, handler, pushPath, registerBody(t, connectEndpoint)), http.StatusNoContent)
-	assertStatus(t, postJSON(t, handler, pushPath, registerBody(t, restEndpoint)), http.StatusNoContent)
-	assertStored(t, store, connectEndpoint, restEndpoint)
+	client := pushConnectClient(t, newHandlerWithStore(t, newTmuxClient(t), store))
+	removed := "https://" + pushHost + "/synthetic-topic-parity-unregister-removed"
+	kept := "https://" + pushHost + "/synthetic-topic-parity-unregister-kept"
+	connectRegister(t, client, removed)
+	connectRegister(t, client, kept)
+	assertStored(t, store, removed, kept)
 
-	if _, err := pushConnectClient(t, handler).Unregister(t.Context(), connect.NewRequest(&orreryv1.UnregisterRequest{
-		Endpoint: connectEndpoint,
+	if _, err := client.Unregister(t.Context(), connect.NewRequest(&orreryv1.UnregisterRequest{
+		Endpoint: removed,
 	})); err != nil {
 		t.Fatalf("Push.Unregister: %v", err)
 	}
-	assertStored(t, store, restEndpoint)
+	assertStored(t, store, kept)
 
-	assertStatus(t, serve(t, handler, http.MethodDelete, pushPath, writeHeader(),
-		unregisterBody(t, restEndpoint)), http.StatusNoContent)
+	if _, err := client.Unregister(t.Context(), connect.NewRequest(&orreryv1.UnregisterRequest{
+		Endpoint: kept,
+	})); err != nil {
+		t.Fatalf("Push.Unregister: %v", err)
+	}
 	assertStored(t, store)
 }
 
-// TestPushRegisterErrorParity checks that each REST status Push.Register answers carries the table's Connect code
-// and the REST body without its trailing newline as its message.
+// TestPushRegisterErrorParity checks that each refused Push.Register carries its concrete Connect code and message,
+// and that nothing is stored.
 func TestPushRegisterErrorParity(t *testing.T) {
 	t.Parallel()
 
 	p256dh, auth := pushKeys(t)
+	endpoint := "https://" + pushHost + "/synthetic-topic-parity-bad"
+	shortValue := base64.RawURLEncoding.EncodeToString([]byte("short"))
+	offCurve := base64.RawURLEncoding.EncodeToString(append([]byte{0x04}, make([]byte, 64)...))
+	const badBody = "bad request body"
 	cases := []struct {
 		name     string
 		endpoint string
 		p256dh   string
 		auth     string
-		status   int
 		code     connect.Code
+		message  string
 	}{
 		{
-			name:     "invalid keys",
-			endpoint: "https://" + pushHost + "/synthetic-topic-parity-invalid",
-			p256dh:   "!!",
-			auth:     auth,
-			status:   http.StatusBadRequest,
-			code:     connect.CodeInvalidArgument,
+			name: "invalid keys", endpoint: endpoint, p256dh: "!!", auth: auth,
+			code: connect.CodeInvalidArgument, message: badBody,
 		},
 		{
-			name:     "endpoint not allowed",
-			endpoint: "http://" + pushHost + "/synthetic-topic-parity-refused",
-			p256dh:   p256dh,
-			auth:     auth,
-			status:   http.StatusUnprocessableEntity,
-			code:     connect.CodeInvalidArgument,
+			name: "short p256dh", endpoint: endpoint, p256dh: shortValue, auth: auth,
+			code: connect.CodeInvalidArgument, message: badBody,
+		},
+		{
+			name: "off-curve p256dh", endpoint: endpoint, p256dh: offCurve, auth: auth,
+			code: connect.CodeInvalidArgument, message: badBody,
+		},
+		{
+			name: "short auth", endpoint: endpoint, p256dh: p256dh, auth: shortValue,
+			code: connect.CodeInvalidArgument, message: badBody,
+		},
+		{
+			name: "missing p256dh", endpoint: endpoint, p256dh: "", auth: auth,
+			code: connect.CodeInvalidArgument, message: badBody,
+		},
+		{
+			name: "missing auth", endpoint: endpoint, p256dh: p256dh, auth: "",
+			code: connect.CodeInvalidArgument, message: badBody,
+		},
+		{
+			name: "endpoint not allowed", endpoint: "http://" + pushHost + "/synthetic-topic-parity-refused",
+			p256dh: p256dh, auth: auth, code: connect.CodeInvalidArgument, message: "endpoint not allowed",
+		},
+		{
+			name: "endpoint on another host", endpoint: "https://other.example.test/synthetic-topic-parity-refused",
+			p256dh: p256dh, auth: auth, code: connect.CodeInvalidArgument, message: "endpoint not allowed",
+		},
+		{
+			name: "missing endpoint", endpoint: "", p256dh: p256dh, auth: auth,
+			code: connect.CodeInvalidArgument, message: "endpoint not allowed",
+		},
+		{
+			name: "empty request", endpoint: "", p256dh: "", auth: "",
+			code: connect.CodeInvalidArgument, message: "endpoint not allowed",
 		},
 	}
 	for _, tc := range cases {
@@ -138,43 +172,48 @@ func TestPushRegisterErrorParity(t *testing.T) {
 			t.Parallel()
 
 			store := newPushStore(t)
-			handler := newHandlerWithStore(t, newTmuxClient(t), store)
-			rec := postJSON(t, handler, pushPath, jsonBody(t, map[string]any{
-				"endpoint": tc.endpoint, "p256dh": tc.p256dh, "auth": tc.auth,
-			}))
-			assertStatus(t, rec, tc.status)
-			wantMessage := strings.TrimSuffix(rec.Body.String(), "\n")
-
-			_, err := pushConnectClient(t, handler).Register(t.Context(), connect.NewRequest(&orreryv1.RegisterRequest{
+			client := pushConnectClient(t, newHandlerWithStore(t, newTmuxClient(t), store))
+			_, err := client.Register(t.Context(), connect.NewRequest(&orreryv1.RegisterRequest{
 				Endpoint: tc.endpoint, P256Dh: tc.p256dh, Auth: tc.auth,
 			}))
-			pushConnectError(t, "Push.Register", err, tc.code, wantMessage)
+			assertRPCError(t, "Push.Register", err, tc.code, tc.message)
 			assertStored(t, store)
 		})
 	}
 }
 
-// TestPushUnregisterErrorParity checks that unregistering an unknown endpoint answers the REST 404 as Connect
-// not_found with the REST body without its trailing newline as its message.
+// TestPushUnregisterErrorParity checks that each Push.Unregister for an endpoint with no stored subscription answers
+// not_found with the message "endpoint not registered", and that the stored subscription is kept.
 func TestPushUnregisterErrorParity(t *testing.T) {
 	t.Parallel()
 
-	store := newPushStore(t)
-	handler := newHandlerWithStore(t, newTmuxClient(t), store)
-	endpoint := "https://" + pushHost + "/synthetic-topic-parity-unknown"
-	rec := serve(t, handler, http.MethodDelete, pushPath, writeHeader(), unregisterBody(t, endpoint))
-	assertStatus(t, rec, http.StatusNotFound)
-	wantMessage := strings.TrimSuffix(rec.Body.String(), "\n")
+	cases := []struct {
+		name     string
+		endpoint string
+	}{
+		{name: "unknown endpoint", endpoint: "https://" + pushHost + "/synthetic-topic-parity-unknown"},
+		{name: "missing endpoint", endpoint: ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 
-	_, err := pushConnectClient(t, handler).Unregister(t.Context(), connect.NewRequest(&orreryv1.UnregisterRequest{
-		Endpoint: endpoint,
-	}))
-	pushConnectError(t, "Push.Unregister", err, connect.CodeNotFound, wantMessage)
-	assertStored(t, store)
+			store := newPushStore(t)
+			client := pushConnectClient(t, newHandlerWithStore(t, newTmuxClient(t), store))
+			kept := "https://" + pushHost + "/synthetic-topic-parity-kept"
+			connectRegister(t, client, kept)
+
+			_, err := client.Unregister(t.Context(), connect.NewRequest(&orreryv1.UnregisterRequest{
+				Endpoint: tc.endpoint,
+			}))
+			assertRPCError(t, "Push.Unregister", err, connect.CodeNotFound, "endpoint not registered")
+			assertStored(t, store, kept)
+		})
+	}
 }
 
-// pushConnectError fails the test unless err is a *connect.Error with code and message.
-func pushConnectError(t *testing.T, method string, err error, code connect.Code, message string) {
+// assertRPCError fails the test unless err is a *connect.Error with code and message.
+func assertRPCError(t *testing.T, method string, err error, code connect.Code, message string) {
 	t.Helper()
 	var connectErr *connect.Error
 	if !errors.As(err, &connectErr) {
@@ -184,6 +223,6 @@ func pushConnectError(t *testing.T, method string, err error, code connect.Code,
 		t.Fatalf("%s code = %v, want %v", method, connectErr.Code(), code)
 	}
 	if connectErr.Message() != message {
-		t.Fatalf("%s message = %q, want the REST body %q", method, connectErr.Message(), message)
+		t.Fatalf("%s message = %q, want %q", method, connectErr.Message(), message)
 	}
 }

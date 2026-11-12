@@ -1,27 +1,19 @@
 package server_test
 
 import (
-	"encoding/json"
-	"errors"
 	"net/http"
 	"net/http/httptest"
-	"reflect"
-	"strings"
+	"os"
 	"testing"
 	"time"
 
 	"connectrpc.com/connect"
+	"google.golang.org/protobuf/proto"
 
 	orreryv1 "github.com/joshsymonds/orrery/internal/gen/orrery/v1"
 	"github.com/joshsymonds/orrery/internal/gen/orrery/v1/orreryv1connect"
 	"github.com/joshsymonds/orrery/internal/hoststatus"
 )
-
-// hostBody is the GET /v1/host body, decoded by the keys its JSON tags name.
-type hostBody struct {
-	Host  string            `json:"host"`
-	Stats []hoststatus.Stat `json:"stats"`
-}
 
 // hostFixtureOutput is the host status command output of the parity fixture: one stat with a percent and one
 // without, so the percent is present on the first and absent on the second.
@@ -37,85 +29,67 @@ func hostClient(t *testing.T, handler http.Handler) orreryv1connect.HostClient {
 	return orreryv1connect.NewHostClient(httpClient, srv.URL)
 }
 
-// TestHostStatusParity answers one fixture through one handler on both the REST route and Host.Status. The host
-// and every stat field agree, and the percent is present exactly where the command gave one.
+// TestHostStatusParity answers the fixture through Host.Status and checks the whole response against the
+// fixture's concrete values: the machine's host name, and each stat with its percent present exactly where the
+// command gave one.
 func TestHostStatusParity(t *testing.T) {
-	handler := newHostHandler(t, hoststatus.New(writeHostStatusScript(t, hostFixtureOutput, 0), time.Now))
-
-	rec := get(t, handler, hostPath, allowedLogin)
-	assertStatus(t, rec, http.StatusOK)
-	var rest hostBody
-	if err := json.Unmarshal(rec.Body.Bytes(), &rest); err != nil {
-		t.Fatalf("decode GET /v1/host %q: %v", rec.Body.String(), err)
+	host, err := os.Hostname()
+	if err != nil {
+		t.Fatalf("Hostname: %v", err)
 	}
+	handler := newHostHandler(t, hoststatus.New(writeHostStatusScript(t, hostFixtureOutput, 0), time.Now))
 
 	got, err := hostClient(t, handler).Status(t.Context(), connect.NewRequest(&orreryv1.HostStatusRequest{}))
 	if err != nil {
 		t.Fatalf("Host.Status: %v", err)
 	}
-	msg := got.Msg
-	if msg.GetHost() != rest.Host {
-		t.Fatalf("Host.Status host = %q, want the REST host %q", msg.GetHost(), rest.Host)
+	percent := 12.5
+	want := &orreryv1.HostStatusResponse{
+		Host: host,
+		Stats: []*orreryv1.HostStat{
+			{Label: "cpu", Value: "12%", Percent: &percent, Level: "ok"},
+			{Label: "uptime", Value: "3d", Level: "warn"},
+		},
 	}
-	if len(msg.GetStats()) != len(rest.Stats) {
-		t.Fatalf("Host.Status has %d stats, want the REST %d", len(msg.GetStats()), len(rest.Stats))
-	}
-	for i, want := range rest.Stats {
-		stat := msg.GetStats()[i]
-		if stat.GetLabel() != want.Label || stat.GetValue() != want.Value || stat.GetLevel() != want.Level {
-			t.Fatalf("Host.Status stat %d = %+v, want the REST stat %+v", i, stat, want)
-		}
-		if !reflect.DeepEqual(stat.Percent, want.Percent) {
-			t.Fatalf("Host.Status stat %d percent = %v, want the REST percent %v", i, stat.Percent, want.Percent)
-		}
-	}
-	if rest.Stats[0].Percent == nil || rest.Stats[1].Percent != nil {
-		t.Fatalf("fixture percents = %v and %v, want a percent on the first stat only",
-			rest.Stats[0].Percent, rest.Stats[1].Percent)
+	if !proto.Equal(want, got.Msg) {
+		t.Fatalf("Host.Status = %v, want %v", got.Msg, want)
 	}
 }
 
-// TestHostStatusErrorParity checks that each REST status Host.Status can answer in a test carries the table's
-// Connect code and the REST body without its trailing newline as its message.
+// TestHostStatusErrorParity checks that each failure Host.Status answers carries its concrete Connect code and
+// message.
 func TestHostStatusErrorParity(t *testing.T) {
 	cases := []struct {
-		name   string
-		runner *hoststatus.Runner
-		status int
-		code   connect.Code
+		name    string
+		runner  *hoststatus.Runner
+		code    connect.Code
+		message string
 	}{
 		{
-			name:   "no host status command configured",
-			runner: nil,
-			status: http.StatusNotFound,
-			code:   connect.CodeNotFound,
+			name:    "no host status command configured",
+			runner:  nil,
+			code:    connect.CodeNotFound,
+			message: "404 page not found",
 		},
 		{
-			name:   "host status command exits non-zero",
-			runner: hoststatus.New(writeHostStatusScript(t, "", 3), time.Now),
-			status: http.StatusBadGateway,
-			code:   connect.CodeUnavailable,
+			name:    "host status command exits non-zero",
+			runner:  hoststatus.New(writeHostStatusScript(t, "", 3), time.Now),
+			code:    connect.CodeUnavailable,
+			message: "host status unavailable",
+		},
+		{
+			name:    "host status command prints invalid stats",
+			runner:  hoststatus.New(writeHostStatusScript(t, "not json", 0), time.Now),
+			code:    connect.CodeUnavailable,
+			message: "host status unavailable",
 		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			handler := newHostHandler(t, tc.runner)
 
-			rec := get(t, handler, hostPath, allowedLogin)
-			assertStatus(t, rec, tc.status)
-			wantMessage := strings.TrimSuffix(rec.Body.String(), "\n")
-
 			_, err := hostClient(t, handler).Status(t.Context(), connect.NewRequest(&orreryv1.HostStatusRequest{}))
-			var connectErr *connect.Error
-			if !errors.As(err, &connectErr) {
-				t.Fatalf("Host.Status error = %v, want a *connect.Error", err)
-			}
-			if connectErr.Code() != tc.code {
-				t.Fatalf("Host.Status code = %v, want %v", connectErr.Code(), tc.code)
-			}
-			if connectErr.Message() != wantMessage {
-				t.Fatalf("Host.Status message = %q, want the REST body %q", connectErr.Message(), wantMessage)
-			}
+			assertRPCError(t, "Host.Status", err, tc.code, tc.message)
 		})
 	}
 }
