@@ -536,13 +536,23 @@ func (x *SessionsWatchConversationRequest) GetAfter() int64 {
 	return 0
 }
 
-// SessionsWatchConversationResponse is one step of a headless session's WatchConversation stream.
+// SessionsWatchConversationResponse is one step of a headless session's WatchConversation stream. It carries the
+// fields of WatchConversationResponse, with the same numbers, types and meaning.
 type SessionsWatchConversationResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// The delta, in the shape Panes.WatchConversation sends. Its transcript is the session id, its seq the seq of the
-	// newest session event it covers, and its unfinished the whole main-conversation unfinished set, sent with every
-	// delta.
-	Delta         *WatchConversationResponse `protobuf:"bytes,1,opt,name=delta,proto3" json:"delta,omitempty"`
+	// The id of the headless session the delta belongs to.
+	Transcript string `protobuf:"bytes,1,opt,name=transcript,proto3" json:"transcript,omitempty"`
+	// The seq of the newest session event the delta covers. A later SessionsWatchConversationRequest resumes after it.
+	Seq int64 `protobuf:"varint,2,opt,name=seq,proto3" json:"seq,omitempty"`
+	// Whether the delta replaces what the client holds: the newest limit items and the whole state.
+	Reset_ bool `protobuf:"varint,3,opt,name=reset,proto3" json:"reset,omitempty"`
+	// The new items, oldest first.
+	Items []*ConversationItem `protobuf:"bytes,4,rep,name=items,proto3" json:"items,omitempty"`
+	// The state of the conversation. It is set on the first delta of a stream and when a state field changed, and
+	// unset otherwise.
+	State *ConversationState `protobuf:"bytes,5,opt,name=state,proto3" json:"state,omitempty"`
+	// The whole main-conversation unfinished set: the text so far of each unfinished block. It is sent with every delta.
+	Unfinished    []*EngineText `protobuf:"bytes,6,rep,name=unfinished,proto3" json:"unfinished,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -577,9 +587,44 @@ func (*SessionsWatchConversationResponse) Descriptor() ([]byte, []int) {
 	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{7}
 }
 
-func (x *SessionsWatchConversationResponse) GetDelta() *WatchConversationResponse {
+func (x *SessionsWatchConversationResponse) GetTranscript() string {
 	if x != nil {
-		return x.Delta
+		return x.Transcript
+	}
+	return ""
+}
+
+func (x *SessionsWatchConversationResponse) GetSeq() int64 {
+	if x != nil {
+		return x.Seq
+	}
+	return 0
+}
+
+func (x *SessionsWatchConversationResponse) GetReset_() bool {
+	if x != nil {
+		return x.Reset_
+	}
+	return false
+}
+
+func (x *SessionsWatchConversationResponse) GetItems() []*ConversationItem {
+	if x != nil {
+		return x.Items
+	}
+	return nil
+}
+
+func (x *SessionsWatchConversationResponse) GetState() *ConversationState {
+	if x != nil {
+		return x.State
+	}
+	return nil
+}
+
+func (x *SessionsWatchConversationResponse) GetUnfinished() []*EngineText {
+	if x != nil {
+		return x.Unfinished
 	}
 	return nil
 }
@@ -4437,9 +4482,18 @@ const file_orrery_v1_orrery_proto_rawDesc = "" +
 	" SessionsWatchConversationRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05limit\x18\x02 \x01(\rR\x05limit\x12\x14\n" +
-	"\x05after\x18\x03 \x01(\x03R\x05after\"_\n" +
-	"!SessionsWatchConversationResponse\x12:\n" +
-	"\x05delta\x18\x01 \x01(\v2$.orrery.v1.WatchConversationResponseR\x05delta\"g\n" +
+	"\x05after\x18\x03 \x01(\x03R\x05after\"\x89\x02\n" +
+	"!SessionsWatchConversationResponse\x12\x1e\n" +
+	"\n" +
+	"transcript\x18\x01 \x01(\tR\n" +
+	"transcript\x12\x10\n" +
+	"\x03seq\x18\x02 \x01(\x03R\x03seq\x12\x14\n" +
+	"\x05reset\x18\x03 \x01(\bR\x05reset\x121\n" +
+	"\x05items\x18\x04 \x03(\v2\x1b.orrery.v1.ConversationItemR\x05items\x122\n" +
+	"\x05state\x18\x05 \x01(\v2\x1c.orrery.v1.ConversationStateR\x05state\x125\n" +
+	"\n" +
+	"unfinished\x18\x06 \x03(\v2\x15.orrery.v1.EngineTextR\n" +
+	"unfinished\"g\n" +
 	"\vOpenRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04kind\x18\x02 \x01(\tR\x04kind\x12\x1a\n" +
@@ -4839,81 +4893,83 @@ var file_orrery_v1_orrery_proto_goTypes = []any{
 var file_orrery_v1_orrery_proto_depIdxs = []int32{
 	2,  // 0: orrery.v1.ListResponse.sessions:type_name -> orrery.v1.Session
 	5,  // 1: orrery.v1.ListHeadlessResponse.sessions:type_name -> orrery.v1.HeadlessSession
-	45, // 2: orrery.v1.SessionsWatchConversationResponse.delta:type_name -> orrery.v1.WatchConversationResponse
-	11, // 3: orrery.v1.WatchResponse.session_added:type_name -> orrery.v1.SessionAdded
-	12, // 4: orrery.v1.WatchResponse.session_changed:type_name -> orrery.v1.SessionChanged
-	13, // 5: orrery.v1.WatchResponse.session_removed:type_name -> orrery.v1.SessionRemoved
-	26, // 6: orrery.v1.WatchResponse.engine_added:type_name -> orrery.v1.EngineAdded
-	27, // 7: orrery.v1.WatchResponse.engine_changed:type_name -> orrery.v1.EngineChanged
-	28, // 8: orrery.v1.WatchResponse.engine_prompt:type_name -> orrery.v1.EnginePrompt
-	29, // 9: orrery.v1.WatchResponse.engine_block:type_name -> orrery.v1.EngineBlock
-	30, // 10: orrery.v1.WatchResponse.engine_request:type_name -> orrery.v1.EngineRequest
-	31, // 11: orrery.v1.WatchResponse.engine_request_canceled:type_name -> orrery.v1.EngineRequestCanceled
-	32, // 12: orrery.v1.WatchResponse.engine_turn_ended:type_name -> orrery.v1.EngineTurnEnded
-	33, // 13: orrery.v1.WatchResponse.engine_text:type_name -> orrery.v1.EngineText
-	36, // 14: orrery.v1.PanesListResponse.panes:type_name -> orrery.v1.Pane
-	41, // 15: orrery.v1.ConversationResponse.items:type_name -> orrery.v1.ConversationItem
-	43, // 16: orrery.v1.ConversationResponse.waiting:type_name -> orrery.v1.WaitingMessage
-	42, // 17: orrery.v1.ConversationResponse.context:type_name -> orrery.v1.ConversationContext
-	41, // 18: orrery.v1.WatchConversationResponse.items:type_name -> orrery.v1.ConversationItem
-	46, // 19: orrery.v1.WatchConversationResponse.state:type_name -> orrery.v1.ConversationState
-	33, // 20: orrery.v1.WatchConversationResponse.unfinished:type_name -> orrery.v1.EngineText
-	43, // 21: orrery.v1.ConversationState.waiting:type_name -> orrery.v1.WaitingMessage
-	42, // 22: orrery.v1.ConversationState.context:type_name -> orrery.v1.ConversationContext
-	36, // 23: orrery.v1.ConversationState.pane:type_name -> orrery.v1.Pane
-	5,  // 24: orrery.v1.ConversationState.session:type_name -> orrery.v1.HeadlessSession
-	8,  // 25: orrery.v1.ConversationState.request:type_name -> orrery.v1.OpenRequest
-	55, // 26: orrery.v1.HostStatusResponse.stats:type_name -> orrery.v1.HostStat
-	62, // 27: orrery.v1.AskResponse.rows:type_name -> orrery.v1.PickerRow
-	0,  // 28: orrery.v1.Sessions.List:input_type -> orrery.v1.ListRequest
-	3,  // 29: orrery.v1.Sessions.ListHeadless:input_type -> orrery.v1.ListHeadlessRequest
-	6,  // 30: orrery.v1.Sessions.WatchConversation:input_type -> orrery.v1.SessionsWatchConversationRequest
-	9,  // 31: orrery.v1.Events.Watch:input_type -> orrery.v1.WatchRequest
-	14, // 32: orrery.v1.Control.Start:input_type -> orrery.v1.StartRequest
-	16, // 33: orrery.v1.Control.Say:input_type -> orrery.v1.SayRequest
-	18, // 34: orrery.v1.Control.Answer:input_type -> orrery.v1.AnswerRequest
-	20, // 35: orrery.v1.Control.Interrupt:input_type -> orrery.v1.InterruptRequest
-	22, // 36: orrery.v1.Control.Stop:input_type -> orrery.v1.StopRequest
-	24, // 37: orrery.v1.Control.Seen:input_type -> orrery.v1.SeenRequest
-	34, // 38: orrery.v1.Panes.List:input_type -> orrery.v1.PanesListRequest
-	37, // 39: orrery.v1.Panes.Screen:input_type -> orrery.v1.ScreenRequest
-	39, // 40: orrery.v1.Panes.Conversation:input_type -> orrery.v1.ConversationRequest
-	47, // 41: orrery.v1.Panes.SendText:input_type -> orrery.v1.SendTextRequest
-	49, // 42: orrery.v1.Panes.SendKeys:input_type -> orrery.v1.SendKeysRequest
-	51, // 43: orrery.v1.Panes.MarkSeen:input_type -> orrery.v1.MarkSeenRequest
-	44, // 44: orrery.v1.Panes.WatchConversation:input_type -> orrery.v1.WatchConversationRequest
-	53, // 45: orrery.v1.Host.Status:input_type -> orrery.v1.HostStatusRequest
-	56, // 46: orrery.v1.Push.Register:input_type -> orrery.v1.RegisterRequest
-	58, // 47: orrery.v1.Push.Unregister:input_type -> orrery.v1.UnregisterRequest
-	60, // 48: orrery.v1.Picker.Ask:input_type -> orrery.v1.AskRequest
-	63, // 49: orrery.v1.Picker.Run:input_type -> orrery.v1.RunRequest
-	1,  // 50: orrery.v1.Sessions.List:output_type -> orrery.v1.ListResponse
-	4,  // 51: orrery.v1.Sessions.ListHeadless:output_type -> orrery.v1.ListHeadlessResponse
-	7,  // 52: orrery.v1.Sessions.WatchConversation:output_type -> orrery.v1.SessionsWatchConversationResponse
-	10, // 53: orrery.v1.Events.Watch:output_type -> orrery.v1.WatchResponse
-	15, // 54: orrery.v1.Control.Start:output_type -> orrery.v1.StartResponse
-	17, // 55: orrery.v1.Control.Say:output_type -> orrery.v1.SayResponse
-	19, // 56: orrery.v1.Control.Answer:output_type -> orrery.v1.AnswerResponse
-	21, // 57: orrery.v1.Control.Interrupt:output_type -> orrery.v1.InterruptResponse
-	23, // 58: orrery.v1.Control.Stop:output_type -> orrery.v1.StopResponse
-	25, // 59: orrery.v1.Control.Seen:output_type -> orrery.v1.SeenResponse
-	35, // 60: orrery.v1.Panes.List:output_type -> orrery.v1.PanesListResponse
-	38, // 61: orrery.v1.Panes.Screen:output_type -> orrery.v1.ScreenResponse
-	40, // 62: orrery.v1.Panes.Conversation:output_type -> orrery.v1.ConversationResponse
-	48, // 63: orrery.v1.Panes.SendText:output_type -> orrery.v1.SendTextResponse
-	50, // 64: orrery.v1.Panes.SendKeys:output_type -> orrery.v1.SendKeysResponse
-	52, // 65: orrery.v1.Panes.MarkSeen:output_type -> orrery.v1.MarkSeenResponse
-	45, // 66: orrery.v1.Panes.WatchConversation:output_type -> orrery.v1.WatchConversationResponse
-	54, // 67: orrery.v1.Host.Status:output_type -> orrery.v1.HostStatusResponse
-	57, // 68: orrery.v1.Push.Register:output_type -> orrery.v1.RegisterResponse
-	59, // 69: orrery.v1.Push.Unregister:output_type -> orrery.v1.UnregisterResponse
-	61, // 70: orrery.v1.Picker.Ask:output_type -> orrery.v1.AskResponse
-	64, // 71: orrery.v1.Picker.Run:output_type -> orrery.v1.RunResponse
-	50, // [50:72] is the sub-list for method output_type
-	28, // [28:50] is the sub-list for method input_type
-	28, // [28:28] is the sub-list for extension type_name
-	28, // [28:28] is the sub-list for extension extendee
-	0,  // [0:28] is the sub-list for field type_name
+	41, // 2: orrery.v1.SessionsWatchConversationResponse.items:type_name -> orrery.v1.ConversationItem
+	46, // 3: orrery.v1.SessionsWatchConversationResponse.state:type_name -> orrery.v1.ConversationState
+	33, // 4: orrery.v1.SessionsWatchConversationResponse.unfinished:type_name -> orrery.v1.EngineText
+	11, // 5: orrery.v1.WatchResponse.session_added:type_name -> orrery.v1.SessionAdded
+	12, // 6: orrery.v1.WatchResponse.session_changed:type_name -> orrery.v1.SessionChanged
+	13, // 7: orrery.v1.WatchResponse.session_removed:type_name -> orrery.v1.SessionRemoved
+	26, // 8: orrery.v1.WatchResponse.engine_added:type_name -> orrery.v1.EngineAdded
+	27, // 9: orrery.v1.WatchResponse.engine_changed:type_name -> orrery.v1.EngineChanged
+	28, // 10: orrery.v1.WatchResponse.engine_prompt:type_name -> orrery.v1.EnginePrompt
+	29, // 11: orrery.v1.WatchResponse.engine_block:type_name -> orrery.v1.EngineBlock
+	30, // 12: orrery.v1.WatchResponse.engine_request:type_name -> orrery.v1.EngineRequest
+	31, // 13: orrery.v1.WatchResponse.engine_request_canceled:type_name -> orrery.v1.EngineRequestCanceled
+	32, // 14: orrery.v1.WatchResponse.engine_turn_ended:type_name -> orrery.v1.EngineTurnEnded
+	33, // 15: orrery.v1.WatchResponse.engine_text:type_name -> orrery.v1.EngineText
+	36, // 16: orrery.v1.PanesListResponse.panes:type_name -> orrery.v1.Pane
+	41, // 17: orrery.v1.ConversationResponse.items:type_name -> orrery.v1.ConversationItem
+	43, // 18: orrery.v1.ConversationResponse.waiting:type_name -> orrery.v1.WaitingMessage
+	42, // 19: orrery.v1.ConversationResponse.context:type_name -> orrery.v1.ConversationContext
+	41, // 20: orrery.v1.WatchConversationResponse.items:type_name -> orrery.v1.ConversationItem
+	46, // 21: orrery.v1.WatchConversationResponse.state:type_name -> orrery.v1.ConversationState
+	33, // 22: orrery.v1.WatchConversationResponse.unfinished:type_name -> orrery.v1.EngineText
+	43, // 23: orrery.v1.ConversationState.waiting:type_name -> orrery.v1.WaitingMessage
+	42, // 24: orrery.v1.ConversationState.context:type_name -> orrery.v1.ConversationContext
+	36, // 25: orrery.v1.ConversationState.pane:type_name -> orrery.v1.Pane
+	5,  // 26: orrery.v1.ConversationState.session:type_name -> orrery.v1.HeadlessSession
+	8,  // 27: orrery.v1.ConversationState.request:type_name -> orrery.v1.OpenRequest
+	55, // 28: orrery.v1.HostStatusResponse.stats:type_name -> orrery.v1.HostStat
+	62, // 29: orrery.v1.AskResponse.rows:type_name -> orrery.v1.PickerRow
+	0,  // 30: orrery.v1.Sessions.List:input_type -> orrery.v1.ListRequest
+	3,  // 31: orrery.v1.Sessions.ListHeadless:input_type -> orrery.v1.ListHeadlessRequest
+	6,  // 32: orrery.v1.Sessions.WatchConversation:input_type -> orrery.v1.SessionsWatchConversationRequest
+	9,  // 33: orrery.v1.Events.Watch:input_type -> orrery.v1.WatchRequest
+	14, // 34: orrery.v1.Control.Start:input_type -> orrery.v1.StartRequest
+	16, // 35: orrery.v1.Control.Say:input_type -> orrery.v1.SayRequest
+	18, // 36: orrery.v1.Control.Answer:input_type -> orrery.v1.AnswerRequest
+	20, // 37: orrery.v1.Control.Interrupt:input_type -> orrery.v1.InterruptRequest
+	22, // 38: orrery.v1.Control.Stop:input_type -> orrery.v1.StopRequest
+	24, // 39: orrery.v1.Control.Seen:input_type -> orrery.v1.SeenRequest
+	34, // 40: orrery.v1.Panes.List:input_type -> orrery.v1.PanesListRequest
+	37, // 41: orrery.v1.Panes.Screen:input_type -> orrery.v1.ScreenRequest
+	39, // 42: orrery.v1.Panes.Conversation:input_type -> orrery.v1.ConversationRequest
+	47, // 43: orrery.v1.Panes.SendText:input_type -> orrery.v1.SendTextRequest
+	49, // 44: orrery.v1.Panes.SendKeys:input_type -> orrery.v1.SendKeysRequest
+	51, // 45: orrery.v1.Panes.MarkSeen:input_type -> orrery.v1.MarkSeenRequest
+	44, // 46: orrery.v1.Panes.WatchConversation:input_type -> orrery.v1.WatchConversationRequest
+	53, // 47: orrery.v1.Host.Status:input_type -> orrery.v1.HostStatusRequest
+	56, // 48: orrery.v1.Push.Register:input_type -> orrery.v1.RegisterRequest
+	58, // 49: orrery.v1.Push.Unregister:input_type -> orrery.v1.UnregisterRequest
+	60, // 50: orrery.v1.Picker.Ask:input_type -> orrery.v1.AskRequest
+	63, // 51: orrery.v1.Picker.Run:input_type -> orrery.v1.RunRequest
+	1,  // 52: orrery.v1.Sessions.List:output_type -> orrery.v1.ListResponse
+	4,  // 53: orrery.v1.Sessions.ListHeadless:output_type -> orrery.v1.ListHeadlessResponse
+	7,  // 54: orrery.v1.Sessions.WatchConversation:output_type -> orrery.v1.SessionsWatchConversationResponse
+	10, // 55: orrery.v1.Events.Watch:output_type -> orrery.v1.WatchResponse
+	15, // 56: orrery.v1.Control.Start:output_type -> orrery.v1.StartResponse
+	17, // 57: orrery.v1.Control.Say:output_type -> orrery.v1.SayResponse
+	19, // 58: orrery.v1.Control.Answer:output_type -> orrery.v1.AnswerResponse
+	21, // 59: orrery.v1.Control.Interrupt:output_type -> orrery.v1.InterruptResponse
+	23, // 60: orrery.v1.Control.Stop:output_type -> orrery.v1.StopResponse
+	25, // 61: orrery.v1.Control.Seen:output_type -> orrery.v1.SeenResponse
+	35, // 62: orrery.v1.Panes.List:output_type -> orrery.v1.PanesListResponse
+	38, // 63: orrery.v1.Panes.Screen:output_type -> orrery.v1.ScreenResponse
+	40, // 64: orrery.v1.Panes.Conversation:output_type -> orrery.v1.ConversationResponse
+	48, // 65: orrery.v1.Panes.SendText:output_type -> orrery.v1.SendTextResponse
+	50, // 66: orrery.v1.Panes.SendKeys:output_type -> orrery.v1.SendKeysResponse
+	52, // 67: orrery.v1.Panes.MarkSeen:output_type -> orrery.v1.MarkSeenResponse
+	45, // 68: orrery.v1.Panes.WatchConversation:output_type -> orrery.v1.WatchConversationResponse
+	54, // 69: orrery.v1.Host.Status:output_type -> orrery.v1.HostStatusResponse
+	57, // 70: orrery.v1.Push.Register:output_type -> orrery.v1.RegisterResponse
+	59, // 71: orrery.v1.Push.Unregister:output_type -> orrery.v1.UnregisterResponse
+	61, // 72: orrery.v1.Picker.Ask:output_type -> orrery.v1.AskResponse
+	64, // 73: orrery.v1.Picker.Run:output_type -> orrery.v1.RunResponse
+	52, // [52:74] is the sub-list for method output_type
+	30, // [30:52] is the sub-list for method input_type
+	30, // [30:30] is the sub-list for extension type_name
+	30, // [30:30] is the sub-list for extension extendee
+	0,  // [0:30] is the sub-list for field type_name
 }
 
 func init() { file_orrery_v1_orrery_proto_init() }

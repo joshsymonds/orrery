@@ -152,12 +152,27 @@ message SessionsWatchConversationRequest {
   int64 after = 3;
 }
 
-// SessionsWatchConversationResponse is one step of a headless session's WatchConversation stream.
+// SessionsWatchConversationResponse is one step of a headless session's WatchConversation stream. It carries the
+// fields of WatchConversationResponse, with the same numbers, types and meaning.
 message SessionsWatchConversationResponse {
-  // The delta, in the shape Panes.WatchConversation sends. Its transcript is the session id, its seq the seq of the
-  // newest session event it covers, and its unfinished the whole main-conversation unfinished set, sent with every
-  // delta.
-  WatchConversationResponse delta = 1;
+  // The id of the headless session the delta belongs to.
+  string transcript = 1;
+
+  // The seq of the newest session event the delta covers. A later SessionsWatchConversationRequest resumes after it.
+  int64 seq = 2;
+
+  // Whether the delta replaces what the client holds: the newest limit items and the whole state.
+  bool reset = 3;
+
+  // The new items, oldest first.
+  repeated ConversationItem items = 4;
+
+  // The state of the conversation. It is set on the first delta of a stream and when a state field changed, and
+  // unset otherwise.
+  ConversationState state = 5;
+
+  // The whole main-conversation unfinished set: the text so far of each unfinished block. It is sent with every delta.
+  repeated EngineText unfinished = 6;
 }
 
 // OpenRequest is the request a headless session waits on.

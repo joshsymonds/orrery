@@ -12,24 +12,114 @@ public interface SessionsWatchConversationResponseOrBuilder extends
 
   /**
    * <pre>
-   * The delta, in the shape Panes.WatchConversation sends. Its transcript is the session id, its seq the seq of the
-   * newest session event it covers, and its unfinished the whole main-conversation unfinished set, sent with every
-   * delta.
+   * The id of the headless session the delta belongs to.
    * </pre>
    *
-   * <code>.orrery.v1.WatchConversationResponse delta = 1 [json_name = "delta"];</code>
-   * @return Whether the delta field is set.
+   * <code>string transcript = 1 [json_name = "transcript"];</code>
+   * @return The transcript.
    */
-  boolean hasDelta();
+  java.lang.String getTranscript();
   /**
    * <pre>
-   * The delta, in the shape Panes.WatchConversation sends. Its transcript is the session id, its seq the seq of the
-   * newest session event it covers, and its unfinished the whole main-conversation unfinished set, sent with every
-   * delta.
+   * The id of the headless session the delta belongs to.
    * </pre>
    *
-   * <code>.orrery.v1.WatchConversationResponse delta = 1 [json_name = "delta"];</code>
-   * @return The delta.
+   * <code>string transcript = 1 [json_name = "transcript"];</code>
+   * @return The bytes for transcript.
    */
-  io.github.joshsymonds.orrery.gen.orrery.v1.WatchConversationResponse getDelta();
+  com.google.protobuf.ByteString
+      getTranscriptBytes();
+
+  /**
+   * <pre>
+   * The seq of the newest session event the delta covers. A later SessionsWatchConversationRequest resumes after it.
+   * </pre>
+   *
+   * <code>int64 seq = 2 [json_name = "seq"];</code>
+   * @return The seq.
+   */
+  long getSeq();
+
+  /**
+   * <pre>
+   * Whether the delta replaces what the client holds: the newest limit items and the whole state.
+   * </pre>
+   *
+   * <code>bool reset = 3 [json_name = "reset"];</code>
+   * @return The reset.
+   */
+  boolean getReset();
+
+  /**
+   * <pre>
+   * The new items, oldest first.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.ConversationItem items = 4 [json_name = "items"];</code>
+   */
+  java.util.List<io.github.joshsymonds.orrery.gen.orrery.v1.ConversationItem> 
+      getItemsList();
+  /**
+   * <pre>
+   * The new items, oldest first.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.ConversationItem items = 4 [json_name = "items"];</code>
+   */
+  io.github.joshsymonds.orrery.gen.orrery.v1.ConversationItem getItems(int index);
+  /**
+   * <pre>
+   * The new items, oldest first.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.ConversationItem items = 4 [json_name = "items"];</code>
+   */
+  int getItemsCount();
+
+  /**
+   * <pre>
+   * The state of the conversation. It is set on the first delta of a stream and when a state field changed, and
+   * unset otherwise.
+   * </pre>
+   *
+   * <code>.orrery.v1.ConversationState state = 5 [json_name = "state"];</code>
+   * @return Whether the state field is set.
+   */
+  boolean hasState();
+  /**
+   * <pre>
+   * The state of the conversation. It is set on the first delta of a stream and when a state field changed, and
+   * unset otherwise.
+   * </pre>
+   *
+   * <code>.orrery.v1.ConversationState state = 5 [json_name = "state"];</code>
+   * @return The state.
+   */
+  io.github.joshsymonds.orrery.gen.orrery.v1.ConversationState getState();
+
+  /**
+   * <pre>
+   * The whole main-conversation unfinished set: the text so far of each unfinished block. It is sent with every delta.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EngineText unfinished = 6 [json_name = "unfinished"];</code>
+   */
+  java.util.List<io.github.joshsymonds.orrery.gen.orrery.v1.EngineText> 
+      getUnfinishedList();
+  /**
+   * <pre>
+   * The whole main-conversation unfinished set: the text so far of each unfinished block. It is sent with every delta.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EngineText unfinished = 6 [json_name = "unfinished"];</code>
+   */
+  io.github.joshsymonds.orrery.gen.orrery.v1.EngineText getUnfinished(int index);
+  /**
+   * <pre>
+   * The whole main-conversation unfinished set: the text so far of each unfinished block. It is sent with every delta.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EngineText unfinished = 6 [json_name = "unfinished"];</code>
+   */
+  int getUnfinishedCount();
 }
