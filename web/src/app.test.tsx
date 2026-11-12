@@ -267,7 +267,7 @@ function fixture(): Row[] {
   ];
 }
 
-const keysHelpList = ["j", "k", "↓", "↑", "gg", "G", "a", "p", "w", "n", "x", "Enter", "e", "/", "i", "1", "2", "3", "o", "?", "Esc"];
+const keysHelpList = ["j", "k", "↓", "↑", "gg", "G", "a", "p", "w", "n", "x", "Enter", "e", "/", "i", "1", "2", "3", "o", "|", "?", "Esc"];
 
 async function mount(container: HTMLElement, props: Props): Promise<void> {
   await act(() => {
@@ -1113,4 +1113,137 @@ test("1 2 and 3 do nothing while the filter or a composer has focus", () =>
     await pressIn(composer(container), "2");
     await settle();
     assert.equal(fake.callsTo(sendKeysPath).length, 0, "a digit in the reply box answers nothing");
+  }));
+
+// pinnedColumn is the second reader column that | pins beside the list, or null when no row is pinned. The column
+// stays mounted while closed, so its composers keep their drafts; a closed column is hidden.
+function pinnedColumn(container: HTMLElement): HTMLElement | null {
+  return container.querySelector<HTMLElement>('[aria-label="pinned reader"]:not([hidden])');
+}
+
+// pinnedComposer is the reply box of the open pin: each pinned row keeps its own, and only the open pin's is not hidden.
+function pinnedComposer(container: HTMLElement): HTMLTextAreaElement {
+  const box = pinnedColumn(container)?.querySelector<HTMLTextAreaElement>(".pin-reply:not([hidden]) .composer textarea");
+  assert.ok(box, "the pinned column has a composer");
+  return box;
+}
+
+test("| pins the cursor's row in a second column that streams it while the cursor moves on", () =>
+  withApp({}, async (container, fake) => {
+    await until(() => fake.callsTo(paneWatchPath).length === 1, "the cursor's stream");
+    await press("|");
+    await until(() => fake.callsTo(paneWatchPath).length === 2, "the pinned stream");
+    assert.ok(pinnedColumn(container), "the pinned column is shown");
+    const [cursorStream, pinnedStream] = fake.callsTo(paneWatchPath);
+    assert.equal(pinnedStream.body.pane, "a");
+    fake.emit(pinnedStream, {
+      transcript: "t1",
+      seq: "1",
+      reset: true,
+      items: [{ kind: "assistant", text: "pinned reply" }],
+    });
+    await until(() => pinnedColumn(container)?.textContent?.includes("pinned reply") === true, "the pinned reply");
+
+    await press("j");
+    assert.equal(cursorKey(container), "c");
+    await until(() => fake.callsTo(paneWatchPath).some((call) => call.body.pane === "c"), "the cursor's stream on c");
+    assert.equal(cursorStream.signal.aborted, true, "the cursor's stream on a was aborted");
+    assert.equal(pinnedStream.signal.aborted, false, "the pinned stream on a stays open");
+    assert.ok(pinnedColumn(container)?.textContent?.includes("api"), "the pinned column still names row a");
+  }));
+
+test("the pinned column's draft survives the cursor's moves, and Enter sends it to the pinned row only", () =>
+  withApp({}, async (container, fake) => {
+    await press("|");
+    await until(() => fake.callsTo(paneWatchPath).length === 2, "the pinned stream");
+    await typeInto(pinnedComposer(container), "keep going");
+    await press("j");
+    assert.equal(cursorKey(container), "c");
+    assert.equal(pinnedComposer(container).value, "keep going", "the draft survives the cursor's move");
+    await act(() => {
+      pinnedComposer(container).focus();
+    });
+    await pressIn(pinnedComposer(container), "Enter");
+    await until(() => fake.callsTo(sendTextPath).length === 1, "the send");
+    assert.deepEqual(fake.callsTo(sendTextPath)[0].body, { pane: "a", text: "keep going" });
+    await until(() => pinnedComposer(container).value === "", "the sent draft cleared");
+    assert.equal(fake.callsTo(markPanePath).length, 0, "the send writes no seen for the cursor's row");
+  }));
+
+test("| again removes the pinned column and aborts its stream, and the cursor's stream stays", () =>
+  withApp({}, async (container, fake) => {
+    await press("|");
+    await until(() => fake.callsTo(paneWatchPath).length === 2, "the pinned stream");
+    const [cursorStream, pinnedStream] = fake.callsTo(paneWatchPath);
+    await press("|");
+    assert.equal(pinnedColumn(container), null, "the pinned column is removed");
+    assert.equal(pinnedStream.signal.aborted, true, "the pinned stream was aborted");
+    assert.equal(cursorStream.signal.aborted, false, "the cursor's stream stays open");
+  }));
+
+test("leaving the page stops the pinned stream as well", () =>
+  withApp({}, async (container, fake) => {
+    await press("|");
+    await until(() => fake.callsTo(paneWatchPath).length === 2, "the pinned stream");
+    const [, pinnedStream] = fake.callsTo(paneWatchPath);
+    await act(() => {
+      render(null, container);
+    });
+    assert.equal(pinnedStream.signal.aborted, true, "the pinned stream was aborted on unmount");
+  }));
+
+test("with the pinned reply box focused, | is text; after it blurs, i focuses the cursor's reply box", () =>
+  withApp({}, async (container, fake) => {
+    await press("|");
+    await until(() => fake.callsTo(paneWatchPath).length === 2, "the pinned stream");
+    await act(() => {
+      pinnedComposer(container).focus();
+    });
+    await pressIn(pinnedComposer(container), "|");
+    assert.ok(pinnedColumn(container), "a | typed in the pinned reply box does not close the pin");
+    await pressIn(pinnedComposer(container), "Escape");
+    assert.notEqual(document.activeElement, pinnedComposer(container), "Escape leaves the pinned reply box");
+    await press("i");
+    assert.equal(document.activeElement, composer(container), "i focuses the cursor's reply box");
+  }));
+
+test("a pinned column's draft survives closing the pin and reopening it on the same row", () =>
+  withApp({}, async (container, fake) => {
+    await press("|");
+    await until(() => fake.callsTo(paneWatchPath).length === 2, "the pinned stream");
+    await act(() => {
+      pinnedComposer(container).focus();
+    });
+    await typeInto(pinnedComposer(container), "half a thought");
+    await pressIn(pinnedComposer(container), "Escape");
+    await press("|");
+    assert.equal(pinnedColumn(container), null, "the pin is closed");
+    await press("|");
+    assert.equal(cursorKey(container), "a");
+    assert.equal(pinnedComposer(container).value, "half a thought", "the draft survived the close");
+  }));
+
+test("a failed send in the pinned column keeps its prompt id through a close and reopen", () =>
+  withApp({ rows: [paneRow, sessionRow] }, async (container, fake) => {
+    await press("j");
+    assert.equal(cursorKey(container), "s1");
+    fake.failNext.add(sayPath);
+    await press("|");
+    assert.ok(pinnedColumn(container), "the pinned column is shown");
+    await act(() => {
+      pinnedComposer(container).focus();
+    });
+    await typeInto(pinnedComposer(container), "keep going");
+    await pressIn(pinnedComposer(container), "Enter");
+    await until(() => fake.callsTo(sayPath).length === 1, "the failed say");
+    await until(() => pinnedColumn(container)?.querySelector('[role="alert"]') !== null, "the failed send's line");
+    await pressIn(pinnedComposer(container), "Escape");
+    await press("|");
+    await press("|");
+    assert.equal(pinnedComposer(container).value, "keep going", "the draft survived the close");
+    await pressIn(pinnedComposer(container), "Enter");
+    await until(() => fake.callsTo(sayPath).length === 2, "the second say");
+    const [first, second] = fake.callsTo(sayPath);
+    assert.equal(second.body.text, "keep going");
+    assert.equal(second.body.promptId, first.body.promptId, "the retry reused the prompt id");
   }));

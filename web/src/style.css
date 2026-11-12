@@ -57,9 +57,13 @@ img { max-width: 100%; }
 .panes { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; align-items: start; }
 .list, .read { min-width: 0; }
 .read { display: flex; flex-direction: column; gap: 8px; }
+.read[hidden] { display: none; }
 .reply { min-width: 0; }
+.pin-head { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 700 10.5px/16px var(--mono); letter-spacing: .13em; text-transform: uppercase; color: var(--overlay1); }
+.pin-reply { min-width: 0; }
 @media (min-width: 760px) {
   .panes { grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); }
+  .panes.split { grid-template-columns: minmax(0, 2fr) minmax(0, 3fr) minmax(0, 3fr); }
 }
 
 .rows { min-width: 0; }

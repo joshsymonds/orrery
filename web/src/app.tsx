@@ -47,6 +47,7 @@ const helpEntries: [string[], string][] = [
   [["i"], "focus the reply box"],
   [["1", "2", "3"], "answer the cursor's waiting question with that choice"],
   [["o"], "open or close a compaction's summary"],
+  [["|"], "pin the cursor's row in a second column, or close the pin"],
   [["?"], "toggle this help"],
   [["Esc"], "close this help"],
 ];
@@ -77,6 +78,12 @@ export function App({
   const [visited, setVisited] = useState<Row[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
   const composerInputs = useRef(new Map<string, HTMLTextAreaElement>());
+  // The row | pinned beside the list, with its own stream. The rows that have been pinned each keep a composer, as the
+  // visited rows do, so a draft or a failed send survives the pin's close and its reopening on that row.
+  const [pinned, setPinned] = useState<Row | null>(null);
+  const [pinStream, setPinStream] = useState<Stream | null>(null);
+  const [pinnedRows, setPinnedRows] = useState<Row[]>([]);
+  const pinnedInputs = useRef(new Map<string, HTMLTextAreaElement>());
   const pendingG = useRef(false);
   const handler = useRef<(event: KeyboardEvent) => void>();
   // The changed time each row had when its seen write succeeded. A row reads as seen until its changed time moves past it.
@@ -118,8 +125,28 @@ export function App({
   }, [cursorRowKey, clients]);
 
   useEffect(() => {
-    setVisited((previous) => keepVisited(previous, rows, cursorRow));
+    setVisited((previous) => keepRows(previous, rows, cursorRow));
   }, [rows, cursorRowKey]);
+
+  useEffect(() => {
+    setPinnedRows((previous) => keepRows(previous, rows, pinned));
+  }, [rows, pinned]);
+
+  // The pinned row is followed while it stays pinned: its close, or an unmount, stops the stream.
+  const pinnedKey = pinned?.key ?? "";
+  useEffect(() => {
+    if (pinned === null) {
+      return undefined;
+    }
+    return follow(clients, { kind: pinned.kind, id: pinned.id }, (conversation) =>
+      setPinStream({ key: pinned.key, conversation }),
+    );
+  }, [pinnedKey, clients]);
+
+  // A pinned row keeps its last shape while it is missing from the list, as a visited row does.
+  useEffect(() => {
+    setPinned((previous) => (previous === null ? null : (rows.find((row) => row.key === previous.key) ?? previous)));
+  }, [rows]);
 
   // writeSeen marks a row seen through actions.markSeen. A success reads the row as seen; a failure leaves it unseen and
   // shows a fixed line.
@@ -206,7 +233,8 @@ export function App({
       return;
     }
     // Keys typed in the reply box are text: only Escape leaves it.
-    const focusedComposer = [...composerInputs.current.values()].find((box) => box === document.activeElement);
+    const composerBoxes = [...composerInputs.current.values(), ...pinnedInputs.current.values()];
+    const focusedComposer = composerBoxes.find((box) => box === document.activeElement);
     if (focusedComposer !== undefined) {
       if (event.key === "Escape") {
         focusedComposer.blur();
@@ -285,6 +313,15 @@ export function App({
       case "o":
         setOpen((value) => !value);
         break;
+      case "|":
+        if (pinned !== null) {
+          setPinned(null);
+          setPinStream(null);
+        } else if (cursorRow !== null) {
+          setPinned(cursorRow);
+          setPinStream(null);
+        }
+        break;
       case "?":
         setHelpOpen((open) => !open);
         break;
@@ -342,7 +379,7 @@ export function App({
           {answerError}
         </p>
       )}
-      <div class="panes">
+      <div class={pinned === null ? "panes" : "panes split"}>
         <div class="list">
           <div class="rows" data-list={view}>
             {sections.map((section) => (
@@ -418,6 +455,33 @@ export function App({
               </div>
             ))}
         </section>
+        <section class="read pinned" aria-label="pinned reader" hidden={pinned === null}>
+          {pinned !== null && <div class="pin-head">{`pinned · ${pinned.label}`}</div>}
+          {pinned !== null && (
+            <Reader
+              conversation={pinStream !== null && pinStream.key === pinned.key ? pinStream.conversation : null}
+              seenAt={pinned.seen}
+              open={false}
+            />
+          )}
+          {composerRows(pinnedRows, pinned).map((row) => (
+            <div key={row.key} class="pin-reply" hidden={row.key !== pinnedKey}>
+              <Composer
+                label={row.label}
+                send={(text, promptId) => actions.send(clients, row, text, promptId)}
+                pull={row.kind === "pane" ? () => actions.pullQueued(clients, row) : null}
+                newPromptId={actions.newPromptId}
+                inputRef={(element) => {
+                  if (element === null) {
+                    pinnedInputs.current.delete(row.key);
+                  } else {
+                    pinnedInputs.current.set(row.key, element);
+                  }
+                }}
+              />
+            </div>
+          ))}
+        </section>
       </div>
     </main>
   );
@@ -435,25 +499,25 @@ function readAsSeen(row: Row, written: Map<string, number>): Row {
   return row.unseen && writtenAt !== undefined && row.changed <= writtenAt ? { ...row, unseen: false } : row;
 }
 
-// keepVisited adds the cursor's row to the rows that keep a composer and refreshes each kept row from the list. A row
-// missing from the list is kept as it was. It returns previous itself when nothing changes, so an unchanged list does
-// not render again.
-function keepVisited(previous: Row[], rows: Row[], cursorRow: Row | null): Row[] {
+// keepRows adds the row to the rows that keep a composer and refreshes each kept row from the list. A row missing from
+// the list is kept as it was. It returns previous itself when nothing changes, so an unchanged list does not render
+// again.
+function keepRows(previous: Row[], rows: Row[], added: Row | null): Row[] {
   const kept = previous.map((held) => rows.find((row) => row.key === held.key) ?? held);
-  if (cursorRow !== null && !kept.some((row) => row.key === cursorRow.key)) {
-    kept.push(cursorRow);
+  if (added !== null && !kept.some((row) => row.key === added.key)) {
+    kept.push(added);
   }
   const unchanged = kept.length === previous.length && kept.every((row, position) => row === previous[position]);
   return unchanged ? previous : kept;
 }
 
-// composerRows returns the rows that render a composer: the visited rows, and the cursor's row before the effect has
-// added it.
-function composerRows(visited: Row[], cursorRow: Row | null): Row[] {
-  if (cursorRow === null || visited.some((row) => row.key === cursorRow.key)) {
-    return visited;
+// composerRows returns the rows that render a composer: the kept rows, and the shown row before the effect has added
+// it.
+function composerRows(kept: Row[], shown: Row | null): Row[] {
+  if (shown === null || kept.some((row) => row.key === shown.key)) {
+    return kept;
   }
-  return [...visited, cursorRow];
+  return [...kept, shown];
 }
 
 // resolveIndex finds the cursor's row, or the index it sat at, clamped into the rows; -1 when there are none.
