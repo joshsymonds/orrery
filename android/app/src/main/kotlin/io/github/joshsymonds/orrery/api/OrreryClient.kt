@@ -16,8 +16,10 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationItem as Conversati
 import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationState as ConversationStateProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.HostClient
+import io.github.joshsymonds.orrery.gen.orrery.v1.HeadlessSession as HeadlessSessionProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.HostStatusRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.InterruptRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.ListHeadlessRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.MarkSeenRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.Pane as PaneProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.PanesClient
@@ -29,6 +31,7 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.RunRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.SayRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.SeenRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.SendKeysRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.SessionsClient
 import io.github.joshsymonds.orrery.gen.orrery.v1.SendTextRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.StopRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.UnregisterRequest
@@ -48,6 +51,9 @@ private const val TIMEOUT_MS = 10_000
 private const val CLIENT_HEADER = "orrery-android"
 private val CLIENT_HEADERS: Map<String, List<String>> = mapOf("X-Orrery-Client" to listOf(CLIENT_HEADER))
 
+/** The answers to ListHeadless that mean the server has no headless sessions to list. */
+private val HEADLESS_ABSENT = setOf(Code.UNAVAILABLE, Code.UNIMPLEMENTED, Code.NOT_FOUND)
+
 data class Pane(
     val id: String,
     val host: String,
@@ -66,6 +72,8 @@ data class Pane(
     val tool: String = "",
     /** Unix seconds of the pane's newest reply or question; 0 when the server predates the key. */
     val newestReply: Long = 0L,
+    /** True for a headless session, whose [id] is the session's id; false for a tmux pane. */
+    val headless: Boolean = false,
 )
 
 data class PaneTool(val id: String, val name: String, val input: String, val start: Long)
@@ -219,6 +227,7 @@ class OrreryClient(
         val push = PushClient(protocol)
         val picker = PickerClient(protocol)
         val control = ControlClient(protocol)
+        val sessions = SessionsClient(protocol)
     }
 
     /**
@@ -248,6 +257,20 @@ class OrreryClient(
     fun panes(): List<Pane> {
         val response = call(write = false) { standard.panes.list(PanesListRequest.getDefaultInstance(), CLIENT_HEADERS) }
         return response.panesList.map { it.toPane() }
+    }
+
+    /**
+     * The headless sessions of the last 14 days, each as a pane with [Pane.headless] set. A server that answers
+     * unavailable, unimplemented or not_found has none to list, so it gives an empty list.
+     */
+    fun headless(): List<Pane> {
+        val response = try {
+            call(write = false) { standard.sessions.listHeadless(ListHeadlessRequest.getDefaultInstance(), CLIENT_HEADERS) }
+        } catch (e: OrreryCallException) {
+            if (e.code in HEADLESS_ABSENT) return emptyList()
+            throw e
+        }
+        return response.sessionsList.map { it.toHeadlessPane() }
     }
 
     fun conversation(paneId: String): Conversation? {
@@ -433,6 +456,27 @@ class OrreryClient(
             questionHash = questionHash,
             tool = tool,
             newestReply = newestReply,
+        )
+
+    /** A headless session as the pane list shows it: its id is the session's, and it has no tmux pane. */
+    private fun HeadlessSessionProto.toHeadlessPane(): Pane =
+        Pane(
+            id = id,
+            host = "",
+            session = "",
+            window = 0,
+            pane = 0,
+            cwd = dir,
+            command = "",
+            state = state,
+            summary = summary,
+            label = label,
+            changed = changed,
+            seen = seen,
+            question = question,
+            questionHash = "",
+            newestReply = newestReply,
+            headless = true,
         )
 
     private fun ConversationItemProto.toConversationItem(): ConversationItem =
