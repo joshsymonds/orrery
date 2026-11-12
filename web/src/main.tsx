@@ -2,6 +2,8 @@ import { render } from "preact";
 
 import { App } from "./app";
 import { createClients, createTransport } from "./client";
+import { type EpicsView, epicsView, noEpics } from "./epics";
+import { loadEpics } from "./loadepics";
 import { loadRows } from "./load";
 import type { Row } from "./rows";
 
@@ -16,28 +18,52 @@ const pageRootId = "app";
 interface Loaded {
   rows: Row[];
   error: string;
+  epics: EpicsView;
+  epicsError: string;
 }
 
-// start renders App into root and reloads the rows. Each load that reports a seq above 0 opens Events.Watch from it,
-// and every event schedules one reload. While the stream is open each poll tick only moves the age labels to the
-// current time; once the stream ends or fails, the poll reloads, and the next successful load reopens the stream.
-// A tick or event that lands while a reload is in flight never starts a second one: an event waits for the reload in
-// flight, then reloads again. The returned function stops reloading, aborts the stream and unmounts App.
+// start renders App into root and reloads the rows and the epics. Each load that reports a seq above 0 opens
+// Events.Watch from it, and every event schedules one reload. While the stream is open each poll tick loads the epics
+// and moves the age labels to the current time, and the rows wait for the stream's events; once the stream ends or
+// fails, the poll reloads the rows, and the next successful load reopens the stream. A tick or event that lands while
+// a reload is in flight never starts a second one: an event waits for the reload in flight, then reloads again. The
+// epics load has its own guard: a tick or event that lands while it is in flight is left to the next tick. The
+// returned function stops reloading, aborts the stream and unmounts App.
 export function start(
   root: HTMLElement,
   clients: ReturnType<typeof createClients>,
   intervalMs = defaultIntervalMs,
 ): () => void {
-  let loaded: Loaded = { rows: [], error: "" };
+  let loaded: Loaded = { rows: [], error: "", epics: noEpics, epicsError: "" };
   let now = 0;
   let stopped = false;
   let loading = false;
+  let epicsLoading = false;
   let rerun = false;
   let eventTimer: ReturnType<typeof setTimeout> | undefined;
   let stream: AbortController | null = null;
 
   const draw = () => {
-    render(<App rows={loaded.rows} error={loaded.error} now={now} clients={clients} />, root);
+    const error = [loaded.error, loaded.epicsError].filter((text) => text !== "").join("; ");
+    render(<App rows={loaded.rows} error={error} epics={loaded.epics} now={now} clients={clients} />, root);
+  };
+
+  const loadEpicsView = async () => {
+    if (epicsLoading) {
+      return;
+    }
+    epicsLoading = true;
+    try {
+      const next = await loadEpics(clients);
+      if (stopped) {
+        return;
+      }
+      loaded = { ...loaded, epics: epicsView(next.epics, next.details), epicsError: next.error };
+      now = Math.floor(Date.now() / 1000);
+      draw();
+    } finally {
+      epicsLoading = false;
+    }
   };
 
   const reload = async () => {
@@ -45,12 +71,13 @@ export function start(
       return;
     }
     loading = true;
+    void loadEpicsView();
     try {
       const next = await loadRows(clients);
       if (stopped) {
         return;
       }
-      loaded = next;
+      loaded = { ...loaded, rows: next.rows, error: next.error };
       now = Math.floor(Date.now() / 1000);
       draw();
       // A seq of 0 is a failed Sessions.List or an empty store; a stream from 0 would replay every stored event, so
@@ -112,6 +139,7 @@ export function start(
       void reload();
       return;
     }
+    void loadEpicsView();
     now = Math.floor(Date.now() / 1000);
     draw();
   }, intervalMs);
