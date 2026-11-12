@@ -21,9 +21,13 @@ const (
 	DeskWindow = 2 * time.Minute
 	// Escalation is how long a notice at the desk waits unseen before the phone is pushed.
 	Escalation = 5 * time.Minute
+	// JudgeDelay is how long a judged notice waits unwatched before it is judged.
+	JudgeDelay = 10 * time.Second
+	// JudgeTimeout is how long a judge may run before its context is canceled. A judge still running then is late.
+	JudgeTimeout = 15 * time.Second
 )
 
-// Reasons written to the log. A reason that gains a clause appends it after "; ".
+// Reasons written to the log. Clauses join with "; ", and a verdict's Why follows its word after ": ".
 const (
 	reasonAtDesk         = "at the desk"
 	reasonAway           = "away"
@@ -32,9 +36,20 @@ const (
 	reasonChanged        = "changed"
 	reasonSeen           = "seen"
 	reasonShutdown       = "shutdown"
+	reasonUnneeded       = "unneeded"
+	reasonNeeded         = "needed"
+	reasonJudgeFailed    = "judge failed"
+	reasonJudgeLate      = "judge late"
 	reasonDeskFailed     = "desk notice failed"
 	reasonNoSubscription = "no push subscription"
 )
+
+// Verdict is Judge's answer on a notice. Needed routes the notice as usual. Why, when not empty, is written to the
+// log.
+type Verdict struct {
+	Needed bool
+	Why    string
+}
 
 // DeskSink posts notices to the desk and reports whether the desk is present. *deskstream.Hub satisfies it.
 type DeskSink interface {
@@ -54,12 +69,13 @@ type Recorder interface {
 }
 
 // Notice is one waiting or done notice to route. A non-empty Silent is the reason it goes nowhere. A nil
-// Watching is never watched.
+// Watching is never watched. A nil Judge is never judged.
 type Notice struct {
 	Key      notice.Key
 	State    string
 	Silent   string
 	Watching func(context.Context) (bool, error)
+	Judge    func(context.Context) (Verdict, error)
 	Desk     func(context.Context) (deskstream.Notice, error)
 	Push     func(context.Context) (push.Notification, error)
 }
@@ -98,6 +114,7 @@ type entry struct {
 	at          int64
 	ended       bool
 	watchLogged bool
+	delayed     bool
 	stop        func() bool
 }
 
@@ -206,13 +223,64 @@ func (r *Router) finish() {
 	}
 }
 
-// decide routes ent: it holds ent while the pane is watched, and otherwise routes it.
+// decide routes ent: it holds ent while the pane is watched. A judged notice that is not watched waits JudgeDelay
+// and is judged. Any other notice routes at once.
 func (r *Router) decide(ctx context.Context, ent *entry) {
 	if ent.n.Watching != nil && r.watching(ctx, ent) {
 		r.hold(ctx, ent)
 		return
 	}
-	r.route(ctx, ent)
+	if ent.n.Judge == nil {
+		r.route(ctx, ent, "")
+		return
+	}
+	if r.delayServed(ctx, ent) {
+		r.judge(ctx, ent)
+	}
+}
+
+// delayServed reports whether ent has served its JudgeDelay. The first call arms the wait and reports false, and
+// the wait's end decides ent again. Later calls report true, so the delay is never served twice. It reports false
+// once ent has ended.
+func (r *Router) delayServed(ctx context.Context, ent *entry) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if ent.ended {
+		return false
+	}
+	if ent.delayed {
+		return true
+	}
+	ent.delayed = true
+	r.laterLocked(ent, JudgeDelay, func() { r.decide(ctx, ent) })
+	return false
+}
+
+// judge asks ent's Judge under a context that JudgeTimeout cancels, and routes ent by the answer. A judge that
+// fails or runs late routes ent as needed, and the reason says so.
+func (r *Router) judge(ctx context.Context, ent *entry) {
+	jctx, cancel := context.WithCancel(ctx)
+	stop := r.cfg.After(JudgeTimeout, cancel)
+	verdict, err := ent.n.Judge(jctx)
+	late := !stop()
+	cancel()
+	switch {
+	case late:
+		r.route(ctx, ent, "; "+reasonJudgeLate)
+	case err != nil:
+		r.route(ctx, ent, "; "+reasonJudgeFailed+": "+err.Error())
+	case !verdict.Needed:
+		r.unneeded(ctx, ent, verdict.Why)
+	default:
+		r.route(ctx, ent, "; "+reasonNeeded+whyClause(verdict.Why))
+	}
+}
+
+// unneeded sends ent to the desk quietly and to the phone silently, at once. Nothing escalates it.
+func (r *Router) unneeded(ctx context.Context, ent *entry, why string) {
+	dn, built := r.buildDesk(ctx, ent)
+	dn.Quiet = true
+	r.deliver(ctx, ent, dn, built, silent(ent.n.Push), reasonUnneeded+whyClause(why))
 }
 
 // hold keeps ent pending. It writes the watching line the first time and checks ent again after WatchRecheck.
@@ -229,8 +297,9 @@ func (r *Router) hold(ctx context.Context, ent *entry) {
 	r.laterLocked(ent, WatchRecheck, func() { r.decide(ctx, ent) })
 }
 
-// route sends ent to the desk when the desk is at hand, and away otherwise.
-func (r *Router) route(ctx context.Context, ent *entry) {
+// route sends ent to the desk when the desk is at hand, and away otherwise. clause is added to the reason of the
+// line route writes.
+func (r *Router) route(ctx context.Context, ent *entry, clause string) {
 	input, present := r.cfg.Desk.Desk()
 	if local, ok := r.localInput(ctx); ok && local > input {
 		input = local
@@ -238,34 +307,34 @@ func (r *Router) route(ctx context.Context, ent *entry) {
 	atDesk := present && input >= r.cfg.Now().Add(-DeskWindow).Unix()
 	dn, built := r.buildDesk(ctx, ent)
 	if atDesk && built {
-		r.atDesk(ctx, ent, dn)
+		r.atDesk(ctx, ent, dn, clause)
 		return
 	}
-	r.away(ctx, ent, dn, built)
+	r.deliver(ctx, ent, dn, built, ent.n.Push, reasonAway+clause)
 }
 
 // atDesk posts the desk notice and arms the escalation that pushes the phone if ent stays unseen.
-func (r *Router) atDesk(ctx context.Context, ent *entry, dn deskstream.Notice) {
+func (r *Router) atDesk(ctx context.Context, ent *entry, dn deskstream.Notice, clause string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if ent.ended {
 		return
 	}
 	r.cfg.Desk.Post(dn)
-	r.lineLocked(ent.n.Key, ent.n.State, Desk, reasonAtDesk)
+	r.lineLocked(ent.n.Key, ent.n.State, Desk, reasonAtDesk+clause)
 	r.laterLocked(ent, Escalation, func() { r.escalate(ctx, ent) })
 }
 
-// away posts the desk notice when one was built and hands the push to the phone when a subscription exists. It
-// ends ent.
-func (r *Router) away(ctx context.Context, ent *entry, dn deskstream.Notice, built bool) {
+// deliver posts the desk notice when one was built and hands build to the phone when a subscription exists. It ends
+// ent with reason, plus a clause for each of those that does not happen.
+func (r *Router) deliver(ctx context.Context, ent *entry, dn deskstream.Notice, built bool,
+	build func(context.Context) (push.Notification, error), reason string) {
 	subscribed := r.subscribed()
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if ent.ended {
 		return
 	}
-	reason := reasonAway
 	onDesk := false
 	if built {
 		r.cfg.Desk.Post(dn)
@@ -275,7 +344,7 @@ func (r *Router) away(ctx context.Context, ent *entry, dn deskstream.Notice, bui
 	}
 	toPhone := false
 	if subscribed {
-		r.cfg.Phone.Notify(ctx, ent.n.Key, ent.n.Push)
+		r.cfg.Phone.Notify(ctx, ent.n.Key, build)
 		toPhone = true
 	} else {
 		reason += "; " + reasonNoSubscription
@@ -390,6 +459,23 @@ func routeOf(onDesk, toPhone bool) string {
 		return Phone
 	default:
 		return None
+	}
+}
+
+// whyClause is the ": why" that follows a verdict's word in a reason, or nothing when why is empty.
+func whyClause(why string) string {
+	if why == "" {
+		return ""
+	}
+	return ": " + why
+}
+
+// silent wraps build so the notification it makes is silent.
+func silent(build func(context.Context) (push.Notification, error)) func(context.Context) (push.Notification, error) {
+	return func(ctx context.Context) (push.Notification, error) {
+		note, err := build(ctx)
+		note.Silent = true
+		return note, err
 	}
 }
 
