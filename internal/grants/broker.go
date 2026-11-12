@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strconv"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/pools"
@@ -32,13 +33,15 @@ var ErrClosed = errors.New("broker closed")
 
 // Config is what a Broker runs with. Host is the host a pool must name to be granted here. Store keeps the live grants.
 // Environ is the environment each member command runs in, plus ORRERY_POOL and ORRERY_MEMBER. Now stamps grants, and
-// nil means time.Now. Logger receives the broker's warnings, and nil discards them.
+// nil means time.Now. Logger receives the broker's warnings, and nil discards them. Alive reports whether the process
+// with a pid lives, for the clients of kept grants, and nil means a signal 0 kill does not fail with ESRCH.
 type Config struct {
 	Host    string
 	Store   *store.Store
 	Environ []string
 	Now     func() time.Time
 	Logger  *slog.Logger
+	Alive   func(pid int) bool
 }
 
 // Request asks for members of pools for Project. Pools holds the pool definitions the client's merged files give,
@@ -74,6 +77,7 @@ type Broker struct {
 	environ []string
 	now     func() time.Time
 	logger  *slog.Logger
+	alive   func(pid int) bool
 
 	// commands counts the member commands in flight, which Close waits for.
 	commands sync.WaitGroup
@@ -89,6 +93,9 @@ type Broker struct {
 	pools map[string]*poolUse
 	// waiting holds the queued requests in arrival order.
 	waiting []*waiter
+	// detached holds the grants Restore kept, by grant id. Each holds its members while it waits for its client to
+	// reclaim it, and is in no queue.
+	detached map[string]*waiter
 	// cancels holds the cancel of each member command in flight, by command id.
 	cancels map[uint64]context.CancelFunc
 }
@@ -167,10 +174,11 @@ type command struct {
 // NewBroker returns a Broker for cfg. It runs no command until a request arrives.
 func NewBroker(cfg Config) *Broker {
 	broker := &Broker{
-		host: cfg.Host, store: cfg.Store, environ: cfg.Environ, now: cfg.Now, logger: cfg.Logger,
-		done:    make(chan struct{}),
-		pools:   make(map[string]*poolUse),
-		cancels: make(map[uint64]context.CancelFunc),
+		host: cfg.Host, store: cfg.Store, environ: cfg.Environ, now: cfg.Now, logger: cfg.Logger, alive: cfg.Alive,
+		done:     make(chan struct{}),
+		pools:    make(map[string]*poolUse),
+		detached: make(map[string]*waiter),
+		cancels:  make(map[uint64]context.CancelFunc),
 	}
 	if broker.now == nil {
 		broker.now = time.Now
@@ -178,12 +186,22 @@ func NewBroker(cfg Config) *Broker {
 	if broker.logger == nil {
 		broker.logger = slog.New(slog.DiscardHandler)
 	}
+	if broker.alive == nil {
+		broker.alive = processAlive
+	}
 	return broker
 }
 
+// processAlive reports whether a process has pid. Signal 0 sends nothing, and fails with ESRCH only when no process has
+// pid.
+func processAlive(pid int) bool {
+	return !errors.Is(syscall.Kill(pid, 0), syscall.ESRCH)
+}
+
 // Run runs the status of each member of each pool in use on each tick of tick, and returns when ctx ends, when the
-// broker closes, or when tick closes. A member whose command still runs gets no status on a tick, so no member has two
-// commands at once. Each status applies its outcome when it ends, which reconsiders the waiting requests.
+// broker closes, or when tick closes. On each tick a kept grant whose client is no longer alive ends. A member whose
+// command still runs gets no status on a tick, so no member has two commands at once. Each status applies its outcome
+// when it ends, which reconsiders the waiting requests.
 func (b *Broker) Run(ctx context.Context, tick <-chan time.Time) {
 	// Member commands run on a context that never ends, as Acquire's do: Close, not the caller leaving, ends them.
 	cmdCtx := context.WithoutCancel(ctx)
@@ -202,14 +220,15 @@ func (b *Broker) Run(ctx context.Context, tick <-chan time.Time) {
 	}
 }
 
-// statusTick starts the status of each member of each pool in use that no command runs for. It does nothing once the
-// broker is closed.
+// statusTick ends the kept grants whose client is gone, then starts the status of each member of each pool in use that
+// no command runs for. It does nothing once the broker is closed.
 func (b *Broker) statusTick(ctx context.Context) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.closed {
 		return
 	}
+	b.endDeadLocked(ctx)
 	for _, use := range b.pools {
 		for _, name := range use.def.Members {
 			member := use.members[name]
@@ -220,14 +239,115 @@ func (b *Broker) statusTick(ctx context.Context) {
 	}
 }
 
-// Acquire queues req and blocks until its grant ends. A request that cannot be granted returns ErrBadNeed, ErrRefused
-// or ErrNoGrant before it queues, without calling send. Otherwise send receives the queue position, counted from 1, and
-// then the grant once the store holds it. The grant lasts until ctx ends: Acquire then ends the grant and returns ctx's
-// error. Close returns ErrClosed to a call still blocked, and leaves its grant stored.
+// endDeadLocked ends each detached grant whose client is no longer alive, then reconsiders the queue. A grant whose row
+// the store cannot remove still frees its members, as releaseLocked does, and the failure is logged.
+func (b *Broker) endDeadLocked(ctx context.Context) {
+	ended := false
+	for id, held := range b.detached {
+		if b.alive(held.req.ClientPID) {
+			continue
+		}
+		delete(b.detached, id)
+		if err := b.releaseLocked(ctx, held.grant); err != nil {
+			b.logger.WarnContext(ctx, "end grant of dead client", "grant", id, "err", err)
+		}
+		ended = true
+	}
+	if ended {
+		b.settleLocked(ctx)
+	}
+}
+
+// Restore brings back the grants an earlier broker stored, before this broker serves. A stored grant whose client is
+// not alive ends in the store at once. Each other grant's pools come back into use and its members are held again, and
+// the grant waits detached until its client reclaims it by id and pid. A detached grant whose client dies ends on a
+// tick.
+func (b *Broker) Restore(ctx context.Context) error {
+	rows, err := b.store.Grants(ctx)
+	if err != nil {
+		return fmt.Errorf("read stored grants: %w", err)
+	}
+	// Member commands run on a context that never ends, as Acquire's do.
+	storeCtx := context.WithoutCancel(ctx)
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for _, row := range rows {
+		if !b.alive(row.ClientPID) {
+			err = b.store.EndGrant(storeCtx, row.ID)
+			if err != nil {
+				return fmt.Errorf("end grant %s of dead client %d: %w", row.ID, row.ClientPID, err)
+			}
+			continue
+		}
+		err = b.restoreLocked(storeCtx, row)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// restoreLocked keeps a stored grant whose client is alive: it brings each pool the grant names into use, marks each of
+// its members granted, and records the grant as detached.
+func (b *Broker) restoreLocked(ctx context.Context, row store.GrantRow) error {
+	defs, err := decodePools(row.Pools)
+	if err != nil {
+		return fmt.Errorf("grant %s: %w", row.ID, err)
+	}
+	for _, def := range defs {
+		b.useLocked(ctx, def)
+	}
+	kept := &Grant{ID: row.ID}
+	for _, stored := range row.Members {
+		use, ok := b.pools[stored.Pool]
+		if !ok {
+			return fmt.Errorf("grant %s holds a member of pool %q, which the grant does not name", row.ID, stored.Pool)
+		}
+		member, ok := use.members[stored.Member]
+		if !ok {
+			return fmt.Errorf("grant %s holds member %q, which pool %q does not define",
+				row.ID, stored.Member, stored.Pool)
+		}
+		member.grant = row.ID
+		member.project = row.Project
+		kept.Members = append(kept.Members, Member{Pool: stored.Pool, Name: stored.Member})
+	}
+	b.detached[row.ID] = &waiter{req: Request{Project: row.Project, ClientPID: row.ClientPID}, grant: kept}
+	return nil
+}
+
+// decodePools returns the pool definitions a grant row records, the inverse of encodePools.
+func decodePools(encoded string) ([]pools.Pool, error) {
+	var stored []storedPool
+	if err := json.Unmarshal([]byte(encoded), &stored); err != nil {
+		return nil, fmt.Errorf("decode pools of grant: %w", err)
+	}
+	defs := make([]pools.Pool, 0, len(stored))
+	for _, s := range stored {
+		defs = append(defs, pools.Pool{
+			Name: s.Name, Host: s.Host, Cap: s.Cap, Members: s.Members, Wake: s.Wake, WakeLimit: s.WakeLimit,
+			Status: s.Status, StatusLimit: s.StatusLimit, Admit: s.Admit, AdmitLimit: s.AdmitLimit,
+		})
+	}
+	return defs, nil
+}
+
+// Acquire queues req and blocks until its grant ends. A request with a GrantID reclaims a grant Restore kept, and
+// send receives that grant with its members at once. Any other request queues: send receives its queue position,
+// counted from 1, and then the grant once the store holds it. A request that cannot be granted returns ErrBadNeed,
+// ErrRefused or ErrNoGrant before it queues, without calling send. The grant lasts until ctx ends: Acquire then ends
+// the grant and returns ctx's error. Close returns ErrClosed to a call still blocked, and leaves its grant stored.
 func (b *Broker) Acquire(ctx context.Context, req Request, send func(Event) error) error {
 	// The store writes and the member commands run on storeCtx, which never ends: a grant is ended after ctx has ended,
 	// and the broker's own work must not be cut short by the caller leaving.
 	storeCtx := context.WithoutCancel(ctx)
+	if req.GrantID != "" {
+		kept, err := b.reattach(req)
+		if err != nil {
+			return err
+		}
+		return b.hold(ctx, storeCtx, kept, send)
+	}
 	queued, position, err := b.enqueue(storeCtx, req)
 	if err != nil {
 		return err
@@ -245,15 +365,37 @@ func (b *Broker) Acquire(ctx context.Context, req Request, send func(Event) erro
 	if queued.err != nil {
 		return queued.err
 	}
-	if err = send(Event{Grant: queued.grant}); err != nil {
-		return b.leave(storeCtx, queued, err)
+	return b.hold(ctx, storeCtx, queued, send)
+}
+
+// hold sends the grant that granted holds, then holds it until ctx ends. Acquire ends the grant then, or returns
+// ErrClosed when the broker closes first.
+func (b *Broker) hold(ctx, storeCtx context.Context, granted *waiter, send func(Event) error) error {
+	if err := send(Event{Grant: granted.grant}); err != nil {
+		return b.leave(storeCtx, granted, err)
 	}
 	select {
 	case <-ctx.Done():
-		return b.leave(storeCtx, queued, ctx.Err())
+		return b.leave(storeCtx, granted, ctx.Err())
 	case <-b.done:
 		return ErrClosed
 	}
+}
+
+// reattach takes the detached grant that req reclaims, for the client req names, so the call that reclaims it holds it.
+// It returns ErrClosed after Close, and ErrNoGrant for a grant that is not detached or a client that is not its own.
+func (b *Broker) reattach(req Request) (*waiter, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.closed {
+		return nil, ErrClosed
+	}
+	kept, ok := b.detached[req.GrantID]
+	if !ok || kept.req.ClientPID != req.ClientPID {
+		return nil, fmt.Errorf("grant %s: %w", req.GrantID, ErrNoGrant)
+	}
+	delete(b.detached, req.GrantID)
+	return kept, nil
 }
 
 // Close stops the broker: calls still blocked return ErrClosed, stored grants stay for the next broker, and Close waits
@@ -280,9 +422,6 @@ func (b *Broker) enqueue(ctx context.Context, req Request) (*waiter, int, error)
 	defer b.mu.Unlock()
 	if b.closed {
 		return nil, 0, ErrClosed
-	}
-	if req.GrantID != "" {
-		return nil, 0, fmt.Errorf("grant %s: %w", req.GrantID, ErrNoGrant)
 	}
 	needed, err := b.checkLocked(req)
 	if err != nil {
