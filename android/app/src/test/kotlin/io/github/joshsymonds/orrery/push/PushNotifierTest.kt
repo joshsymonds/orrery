@@ -17,6 +17,7 @@ import io.github.joshsymonds.orrery.push.PushNotifier.Companion.EXTRA_PANE
 import io.github.joshsymonds.orrery.push.PushNotifier.Companion.EXTRA_QUESTION_HASH
 import io.github.joshsymonds.orrery.push.PushNotifier.Companion.EXTRA_SESSION
 import io.github.joshsymonds.orrery.push.PushNotifier.Companion.REMOTE_INPUT_KEY
+import io.github.joshsymonds.orrery.push.PushNotifier.Companion.SILENT_CHANNEL_ID
 import io.github.joshsymonds.orrery.push.PushNotifier.Companion.notificationId
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -214,6 +215,33 @@ class PushNotifierTest {
         notifier.show(idleEvent.copy(state = "done"))
 
         assertEquals(0, posted(notificationId(host, pane)).flags and Notification.FLAG_ONLY_ALERT_ONCE)
+    }
+
+    @Test
+    fun silentDoneEventPostsOnSilentChannelWithTitleAndText() {
+        notifier.show(idleEvent.copy(state = "done", silent = true))
+
+        assertEquals(1, shadowOf(manager).allNotifications.size)
+        val notification = posted(notificationId(host, pane))
+        assertEquals("orrery-demo · done", notification.extras.getCharSequence(Notification.EXTRA_TITLE).toString())
+        assertEquals("Build finished", notification.extras.getCharSequence(Notification.EXTRA_TEXT).toString())
+        assertEquals(SILENT_CHANNEL_ID, notification.channelId)
+    }
+
+    @Test
+    fun silentChannelHasLowImportance() {
+        notifier.show(idleEvent.copy(state = "done", silent = true))
+
+        val channel = manager.getNotificationChannel(SILENT_CHANNEL_ID)
+        assertNotNull(channel)
+        assertEquals(NotificationManager.IMPORTANCE_LOW, channel.importance)
+    }
+
+    @Test
+    fun doneEventWithoutSilentPostsOnAlertingChannel() {
+        notifier.show(idleEvent.copy(state = "done"))
+
+        assertEquals(CHANNEL_ID, posted(notificationId(host, pane)).channelId)
     }
 
     @Test
