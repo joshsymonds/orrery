@@ -197,22 +197,30 @@ Claude Code hooks send their events to the daemon as frames.
 | Cwd | string | `cwd` | the hook process working directory |
 | AnthropicBaseURL | string | `anthropicBaseUrl` | `$ANTHROPIC_BASE_URL` |
 | Seen | int64 | `seen` | the seen time of a seen report, omitted at zero |
+| Read | int64 | `read` | the read time of a read report, omitted at zero |
 
 Wire format:
 
 - One frame per connection.
 - One JSON object, terminated by `\n`. The object is written on a single line.
 - A frame with `seen` above zero and no `hook` is a seen report. orreryd sends no state change for it.
+- A frame with `read` above zero and neither `hook` nor `seen` is a read report: serve's word that the phone read the pane at that time. orreryd sends no state change for it. It keeps the time as the pane's newest read (see [Notice routing](#notice-routing)), and it drops a report whose `tmuxPane` is empty.
 
 Functions:
 
 - `func WriteFrame(w io.Writer, frame HookFrame) error` writes exactly that format.
-- `func ReadFrame(r io.Reader) (HookFrame, error)` decodes one frame. It has no line-length limit, because hook payloads can be large. It returns an error on malformed JSON, and on a frame with both `seen` above zero and `hook`. Otherwise it returns an error when `hook` is missing, is `null`, or is not a JSON object, unless the frame is a seen report.
+- `func ReadFrame(r io.Reader) (HookFrame, error)` decodes one frame. It has no line-length limit, because hook payloads can be large. It returns an error on malformed JSON, on a frame with both `seen` above zero and `hook`, on a frame whose `read` is below zero, and on a frame with `read` above zero together with `hook` or `seen`. Otherwise it returns an error when `hook` is missing, is `null`, or is not a JSON object, unless the frame is a seen report or a read report.
 
 Example frame. Every value is synthetic. The wire form is this object on one line, terminated by `\n`:
 
 ```json
 {"hook":{"hook_event_name":"Stop","session_id":"example-session"},"tmuxPane":"%1","tmux":"/tmp/example-tmux,1234,0","cwd":"/home/user/project","anthropicBaseUrl":"https://patchbay.example.com/ctx/example-context"}
+```
+
+Example read report. The value is synthetic. The wire form is this object on one line, terminated by `\n`:
+
+```json
+{"tmuxPane":"%1","tmux":"","cwd":"","anthropicBaseUrl":"","read":1700000000}
 ```
 
 ## 10. Question hash
@@ -308,6 +316,22 @@ Subcommands:
   - `session --url URL VERB ARGS` sends `start`, `say`, `answer`, `interrupt`, `stop` and `seen` to the `orrery.v1.Control` service of `serve` at `URL` (see [Control API](#control-api)), with the same arguments and output as the socket form, except that `DIR` is not made absolute (see below). It does not dial the session socket, so the client needs no daemon socket and no `--sessions`. Each request carries the `X-Orrery-Client` header that the guard requires. The command sends no `Tailscale-User-Login` header, so the URL must lead through a proxy that sets it, such as `tailscale serve`. `--url` with no URL exits 2.
   - With `--url`, `DIR` is sent as given, not made absolute. `serve` admits only an absolute directory under its home directory, so a relative `DIR` is refused.
   - `session --url URL watch ID` lists `serve`'s newest seq with `Sessions.List`, then reads the `orrery.v1.Events` stream from seq 0. It writes each message whose `session_id` is `ID` as one line, in the format of `orrery events`, including the `engineText` messages of that session. If the stream answers `out_of_range` before any message, it reads again from the newest seq. The watch exits 0 once a message whose seq is at or past that newest seq leaves the session `stopped` or `failed`. A stream that ends before then exits 1 with `session watch: stream ended before session ID stopped`.
+- `run --needs POOL=N [--needs POOL=N]... -- CMD [ARGS]` asks `orreryd` for members of pools and runs `CMD` under that grant. Every flag comes before `--`. `--needs` is required, and a pool may be named once.
+  - `POOL` is a pool name as [Pool files](#pool-files) spells it. `N` is a whole number of 1 or more. A pool that the project's pool files do not declare exits 75.
+  - `run` reads the pool files for the working directory (see [Pool files](#pool-files)) and sends the project's name and the merged pool definitions with the request. It reaches `orreryd` on `sessions.sock` beside the daemon socket, as the session verbs do. `-L` and `-S` have no effect on `run`.
+  - `CMD` is looked up on `PATH` before the request is sent. It runs without a shell, in its own process group, with `run`'s standard input, output and error. Its environment is `run`'s, plus `ORRERY_GRANT`, the grant id, and one `ORRERY_POOL_<POOL>` for each pool named. `<POOL>` is the pool name in upper case, and its value is the granted members, comma-separated. For pool `builds` with members `build-1` and `build-2`: `ORRERY_POOL_BUILDS=build-1,build-2`.
+  - While the request waits, `run` writes `orrery run: queued at position N` to stderr when it queues.
+  - When `run` receives SIGINT, SIGTERM or SIGHUP after `CMD` has started, it sends SIGTERM to `CMD`'s process group. It returns `CMD`'s status once `CMD` exits. A signal that arrives while the request waits ends the run with 75, and `CMD` does not run.
+  - `CMD` must stop its remote work when it gets SIGTERM. `run` sends the signal and stops nothing else.
+  - If `run` is killed with SIGKILL, the kernel sends SIGKILL to `CMD`. Processes that `CMD` left in its group are not signalled when `CMD` exits on its own, or when `run` is killed, so they can outlive the grant.
+  - When the grant's stream breaks while `CMD` runs, `run` asks for the grant by its id once a second, and `CMD` keeps running. A reclaim that fails with `not_found` or `failed_precondition` is a refusal: `run` sends SIGTERM to `CMD`'s process group and exits 75. Any other failure, such as `orreryd` being unreachable, is tried again. `orreryd` answers a reclaim for a grant it does not keep with `not_found` (see [Pools](#pools)).
+  - Exit statuses:
+    - `CMD`'s status. When a signal ended `CMD`, the status is 128 plus the signal number.
+    - `75`: `CMD` did not run for want of a grant. That covers a request that `orreryd` refuses, an unreachable `orreryd`, no daemon socket that can be named, a need for a pool that the files do not declare, pool files that cannot be read, do not parse or do not merge, a pool whose cap is too large to send, neither `XDG_CONFIG_HOME` nor `HOME` set, no `git` on `PATH`, a stream that ends or a signal that arrives while the request waits, and a refused reclaim.
+    - `2`: a usage error. That is a missing `--needs`, a `--needs` that is not `POOL=N` with a lowercase pool name, a pool named twice, an argument before `--`, or no `CMD` after `--`.
+    - `127`: `CMD` is not on `PATH`. Nothing is requested.
+    - `126`: `CMD` is on `PATH` but cannot start after the grant. The grant ends with the run.
+    - `1`: the exit status of `CMD` cannot be read.
 
 Exit codes:
 
@@ -317,6 +341,8 @@ Exit codes:
 | 1 | error |
 | 2 | usage error |
 | 3 | question refused (`send --expect-question`: no question, hash mismatch, empty display fragment, or fragment not visible) |
+
+`run` exits with the statuses listed in its bullet above, which are not in this table.
 
 ### orrery serve
 
@@ -342,6 +368,8 @@ Registrations are written to the push store that `orreryd` reads (see `### orrer
 
 The picker call `Picker.Ask` (see [Phone API](#phone-api)) looks up `zoxide` and `claude` on serve's PATH at each ask, not at start. A missing one answers that ask `unavailable` and does not stop serve.
 
+`serve` also sends `orreryd` a read report (section 9) with the pane and the time of each read it answers. It sends one after each successful `Panes.Conversation` or `Panes.Screen` answer. While a `Panes.WatchConversation` stream stays open, it sends one at the stream's first successful step, and again each time the keepalive interval has passed since the last report. That interval is 5 seconds by default. The report goes to the daemon socket (section 5). When no `orreryd` listens there, the report is dropped.
+
 `--listen` and at least one `--allow-login` are required. Without them `serve` exits 2.
 
 `serve` is meant to sit behind `tailscale serve`, which sets the `Tailscale-User-Login` header that section 12 checks. Do not expose it through Tailscale Funnel.
@@ -362,10 +390,10 @@ orreryd [-L NAME | -S PATH] [--socket PATH] [--claude PATH] [--summary-model CON
 
 - `-L`, `-S`, and `--socket` work as they do for `orrery`.
 - `--claude PATH` sets the `claude` binary the summarizer runs, and the binary each headless session runs.
-- `--summary-model CONTEXT=MODEL` maps a patchbay context (section 8) to a summary model. Repeat the flag for each context. A context with no mapping uses `claude-haiku-5-5`.
+- `--summary-model CONTEXT=MODEL` maps a patchbay context (section 8) to a summary model. Repeat the flag for each context. A context with no mapping uses `claude-haiku-5-5`. The done judge (see [Notice routing](#notice-routing)) uses the same map.
 - Each applied hook frame sets `@orrery_context` on the frame's pane to that frame's context (section 2).
 - `--push-host HOST` names a push relay host that a Web Push subscription may use. Repeat the flag for each host. The default is `ntfy.sh`. A subscription whose endpoint is on another host is refused (section 12).
-- `--sessions` serves the engine session service and the step service (see [Steps](#steps)) on `sessions.sock` beside the daemon socket. The headless session manager runs behind it when the store opens. Without `--sessions`, no session socket exists. With it, `--session-shell` must be an absolute path, or the command exits 2.
+- `--sessions` serves the engine session service, the step service (see [Steps](#steps)) and the Pools service (see [Pools](#pools)) on `sessions.sock` beside the daemon socket. The headless session manager runs behind it when the store opens. Without `--sessions`, no session socket exists. With it, `--session-shell` must be an absolute path, or the command exits 2.
 - `--session-cap N` is the most live headless sessions at once. The default is 4. A value below 1 exits 2.
 - `--session-shell PATH` is the absolute login shell that starts each session. The default is `$SHELL`.
 - `--step-cap N` is the most live step sessions at once. Steps count apart from `--session-cap`. The default is 6. A value below 1 exits 2.
@@ -375,25 +403,21 @@ orreryd [-L NAME | -S PATH] [--socket PATH] [--claude PATH] [--summary-model CON
 
 Summaries run when a session enters `working` (throttled) and when it becomes `done`.
 
-The desk stream carries a notice on each pane transition to `waiting` or `done`:
+Each pane transition to `waiting` or `done` makes a pane notice. [Notice routing](#notice-routing) sends it to the desk stream, to Web Push, to both, or to neither. The desk notice has these parts:
 
 - On `waiting`, the body is the question.
 - On `done`, the body is the latest summary.
 - The title is `<project> · <session>:<window>`, as [Desk stream](#desk-stream) gives it.
 - The line's `host` is the machine host name.
 
-Headless session notices (`--sessions`) go to the desk stream too, with the title and body that [Headless sessions](#headless-sessions) gives.
+Headless session notices (`--sessions`) are routed the same way, with the title and body that [Headless sessions](#headless-sessions) gives.
 
 When a pane enters `done` while an attached client shows the pane's window and had input in the last 30 seconds, `orreryd` sets `@orrery_seen` on the pane to the current Unix time.
 
-Web Push is sent on the same two transitions. On `waiting` and on `done`, `orreryd` posts an encrypted Web Push to every registered subscription. Section 12 defines the payload. The subscriptions are kept in the push store:
+When the router sends a notice to the phone, `orreryd` posts it as an encrypted Web Push to every registered subscription. Section 12 defines the payload. The subscriptions are kept in the push store:
 
 - `$XDG_STATE_HOME/orrery/push.json` when `XDG_STATE_HOME` is set.
 - Otherwise `$HOME/.local/state/orrery/push.json`.
-
-A `Stop` hook whose `background_tasks` holds a subagent or workflow sends no Web Push (the desk stream still carries it).
-
-Headless session notices go to the same subscriptions, as [Push payload](#push-payload) describes.
 
 `orreryd` keeps, per pane and per session, the time of the last notice it sent. When a seen write sets a seen time at or after that time, `orreryd` sends one clear push for that pane or session and forgets the kept time. Seen writes are `orrery seen` (both forms), the tree's switch and mark-read keys, autoseen, the `Panes.MarkSeen` call of [Phone API](#phone-api), and the `Seen` call of the session socket. `orrery seen`, the tree and `Panes.MarkSeen` send `orreryd` a seen report (section 9) with the time they wrote; autoseen and the session `Seen` call run inside `orreryd`. The clear payload is defined in [Clear payload](#clear-payload).
 
@@ -401,7 +425,29 @@ When neither variable is set, `orreryd` exits 1.
 
 `orreryd` also keeps the store, which mirrors each pane's tmux options (see [Store](#store)). When the store cannot be opened, `orreryd` logs the error and serves hooks and notifications without it. It then mints no `@orrery_id` and syncs no pane. A failure of the push store still exits 1.
 
-`SIGINT` and `SIGTERM` stop `orreryd`. With `--sessions`, the session socket closes first. Then every live headless session is stopped, and its turn, if one is running, is recorded `interrupted`. `orreryd` exits after those notices are sent. The desk stream closes last, after the notices that post to it. See [Headless sessions](#headless-sessions) and [Desk stream](#desk-stream).
+`SIGINT` and `SIGTERM` stop `orreryd`. With `--sessions`, the Pools broker closes first (see [Pools](#pools)), then the session socket closes. Then every live headless session is stopped, and its turn, if one is running, is recorded `interrupted`. `orreryd` exits after those notices are routed (see [Notice routing](#notice-routing)). The desk stream closes last, after the notices that post to it. See [Headless sessions](#headless-sessions) and [Desk stream](#desk-stream).
+
+#### Notice routing
+
+`orreryd` routes each pane notice, a transition to `waiting` or `done`, and each headless session notice (see [Session notifications](#session-notifications)). A notice stays pending until one of the rules below ends it. The rules apply in this order, and each event writes one line to the [notice log](#notice-log).
+
+1. **Background work.** A pane's `done` whose `Stop` hook has a `background_tasks` holding a subagent or workflow goes nowhere. It is posted to neither the desk stream nor Web Push, and the log records a silence with reason `background work`. A hook whose `background_tasks` does not decode is logged, and its notice routes by the rules below.
+2. **Watching.** A pane notice is held while its pane is watched. The pane is watched when either of these holds:
+   - a tmux client of the pane's server shows the pane's window and had input in the last 30 seconds;
+   - a read report for the pane, sent by `serve` (see [orrery serve](#orrery-serve)), arrived in the last 30 seconds.
+
+   A held notice goes to neither sink. The first hold writes a line with reason `watching`, and orreryd checks the watch again every 5 seconds. A failed check reads as not watched. A session notice is never watched, so it is never held.
+
+**Done judge.** A pane's `done` that rule 1 does not silence is judged, with or without `--sessions`. The first time its pane is found unwatched, the notice waits 10 seconds, sending nothing and writing no line. A change, a seen write, a newer notice or shutdown in that time ends it as rule 7 says. Each later check is made as rule 2 makes it: a watched pane holds the notice with no judge call, and an unwatched pane is judged at once. The judge is Haiku. It reads the `last_assistant_message` of the `Stop` hook's input (section 9), runs through the pane's own `ANTHROPIC_BASE_URL` (section 9) with the summary model that section 8 gives its patchbay context, and answers `needed` (true or false) with a `why`. It must answer within 15 seconds, or it is late. A judge that errors fails, and so does a notice with no or an empty `last_assistant_message`. Waiting notices (questions and permission prompts) and session notices are never judged.
+
+- **Unneeded.** The judge answers not needed, with no error and no late answer. At once, whether or not the desk is at hand, the desk stream gets the notice as a quiet notice and Web Push gets it as a silent notice. Rule 5 applies to the phone part. Nothing escalates the notice, and it ends with that line. Its route names the sinks it reached, as for `away`, and its reason is `unneeded`, with `: <why>` when the judge gave a why. A desk notice that cannot be built is not posted, and the reason gains `; desk notice failed` as rule 6 says, but the silent phone notice is still sent.
+- **Needed, failed or late.** The notice routes by rules 3 to 6, and its reason gains `needed` (with its why), `judge failed: <error>` or `judge late`, whichever applies (see the [clauses](#notice-log)).
+
+3. **At the desk.** The desk is at hand when the desk stream is present (see [Desk stream](#desk-stream)) and either the desk's newest input or this host's newest tmux client input is within the last 2 minutes. A failed input read reads as no local input. The notice then goes to the desk stream only, with route `desk` and reason `at the desk`, and stays pending. If it is still unseen and unchanged 5 minutes later, it goes to the phone, with route `phone` and reason `unseen after 5 minutes`, and ends.
+4. **Away.** Otherwise the notice goes to the desk stream and to the phone at once, with route `desk+phone` and reason `away`.
+5. **Push subscription.** The phone gets a notice only when the push store lists at least one subscription. Without one, the phone part is dropped: the route names what remains, and the reason gains `; no push subscription`. An escalation with no subscription ends the notice with route `none` and reason `unseen after 5 minutes; no push subscription`. A failed subscription check reads as a subscription, so the push is attempted.
+6. **Desk notice failure.** A desk notice that cannot be built is not posted. The notice then routes as away, and its reason gains `; desk notice failed` before any `; no push subscription`.
+7. **Ending.** A newer notice for the same pane or session ends the pending one, and so does a pane's or a session's transition to a state other than `waiting` or `done`. Each ends with route `none` and reason `changed`. A seen write at or after the notice's time ends it with `none` and `seen`, and the seen write still clears any notice already sent to the phone (see [orreryd](#orreryd)). At shutdown, each pending notice ends with `none` and `shutdown`, and is not sent.
 
 ### Headless sessions
 
@@ -426,7 +472,7 @@ Idle stop writes no state, so a session it stops keeps the state it had.
 
 #### Session control socket
 
-The session socket is `sessions.sock` in the same directory as the daemon socket. `orreryd` creates it only with `--sessions`, and its mode is `0600`. It serves the `orrery.engine.v1.Engine` service (`proto/orrery/engine/v1/engine.proto`) and the `orrery.engine.v1.Steps` service (`proto/orrery/engine/v1/step.proto`, see [Steps](#steps)) over Connect.
+The session socket is `sessions.sock` in the same directory as the daemon socket. `orreryd` creates it only with `--sessions`, and its mode is `0600`. It serves the `orrery.engine.v1.Engine` service (`proto/orrery/engine/v1/engine.proto`), the `orrery.engine.v1.Steps` service (`proto/orrery/engine/v1/step.proto`, see [Steps](#steps)) and the `orrery.engine.v1.Pools` service (`proto/orrery/engine/v1/pool.proto`, see [Pools](#pools)) over Connect.
 
 | Call | Request | Precondition |
 |---|---|---|
@@ -462,14 +508,14 @@ Errors are Connect codes:
 - Stop signal: stopping a process sends `SIGINT` to its process group, then `SIGKILL` if it has not exited after 2 seconds.
 - `Stop` records `stopped` unless the process's exit has already recorded a state. A process that exits without an error records `stopped`.
 - Failed on death: a process that exits with an error records `failed`. The reason is the exit error and stream error, followed by the last non-blank line of its stderr, and the owner is notified. The exit of a process stopped for idle stop or shutdown records nothing itself.
-- Shutdown: when `orreryd` receives `SIGINT` or `SIGTERM`, the session socket closes first. Then each live session is stopped, and a session whose turn is running is recorded `interrupted` with the reason `orreryd stopped during the turn`. These writes share one 5-second limit, and each interrupted session notifies its owner. The notices are sent before `orreryd` exits.
+- Shutdown: when `orreryd` receives `SIGINT` or `SIGTERM`, the session socket closes first. Then each live session is stopped, and a session whose turn is running is recorded `interrupted` with the reason `orreryd stopped during the turn`. These writes share one 5-second limit, and each interrupted session notifies its owner. The notices are routed before `orreryd` exits, and a notice still pending then is not sent (see [Notice routing](#notice-routing)).
 - Reconcile at start: before the session socket serves, each engine row with no live process loses its unfinished text. A row that is `working` or `waiting` is recorded `interrupted` with the reason `orreryd restarted during the turn`, its question is cleared, and its owner is notified. Other rows keep their state, and no row is removed. The first read or write error ends the pass. `orreryd` logs it and serves anyway.
 - A turn that `Interrupt` stops ends `done` with no notice. `Interrupt` does not stop the process.
 - `reason` keeps its last value. A later state does not clear it, so a session resumed after a failure shows the old reason until a new failure or interruption sets another.
 
 #### Session notifications
 
-A session notice is sent when a session enters `waiting`, `done`, `failed` or `interrupted`. None is sent for `stopped`, for a refused request, for an idle stop, or for the end of an interrupted turn. A step session sends no notice in any state (see [Step lifecycle](#step-lifecycle)). A notice for `waiting`, `done`, or a process that exits with an error is sent once its event is queued for the store. A notice for `interrupted`, or for a `failed` start, resume or prompt, is sent after its write is stored. Notices post in the background, and shutdown waits for them.
+A session notice is routed when a session enters `waiting`, `done`, `failed` or `interrupted`. None is routed for `stopped`, for a refused request, for an idle stop, or for the end of an interrupted turn. A step session sends no notice in any state (see [Step lifecycle](#step-lifecycle)). A notice for `waiting`, `done`, or a process that exits with an error is routed once its event is queued for the store. A notice for `interrupted`, or for a `failed` start, resume or prompt, is routed after its write is stored. Routing runs in the background, and shutdown waits for it. A session notice follows the rules of [Notice routing](#notice-routing), except that it is never watched and never judged.
 
 On the desk stream (see [Desk stream](#desk-stream)), the line's `state` is the session's state, and its `title` is `<project> · session <first 8 characters of the id>`, where `project` is the base name of the directory. The body is:
 
@@ -480,7 +526,7 @@ On the desk stream (see [Desk stream](#desk-stream)), the line's `state` is the 
 | `failed` | the reason |
 | `interrupted` | the reason |
 
-Web Push goes to every subscription, with the payload of [Push payload](#push-payload). The payload's `session` key holds the full session id. `pane` and `label` are `""`. `project` is the base name of the directory. `state` is the session's state. The body is `question` when the state is `waiting`, and `summary` in every other case.
+When the router sends the notice to the phone, Web Push goes to every subscription, with the payload of [Push payload](#push-payload). The payload's `session` key holds the full session id. `pane` and `label` are `""`. `project` is the base name of the directory. `state` is the session's state. The body is `question` when the state is `waiting`, and `summary` in every other case.
 
 A session notice clears on the session's own seen: the `Seen` call for that session clears it, as [orreryd](#orreryd) describes.
 
@@ -581,6 +627,89 @@ Errors are Connect codes:
 - **Restart.** At start, `orreryd` settles each step's engine row as it settles other engine rows: a row that was `working` or `waiting` is recorded `interrupted` with the reason `orreryd restarted during the turn`, and no notice is sent. Each open step row with no loop then ends `engine_restarted`, and its worktree is removed. Nothing resumes a step after a restart. `Continue`, which the loop sends, respawns a step that is not live from its rows: it resumes the row's claude session with the same agent and schema flags, and it takes a step slot first.
 
 
+#### Pools
+
+`orreryd` serves the `orrery.engine.v1.Pools` service on the session socket, beside `Engine` and `Steps`, with the same socket mode and Connect rules. It is not on `serve`. The service has one call, `Acquire`. Its request asks for members, and its response stream sends the request's place in line and then its grant. How members are chosen and granted is in [Pool members](#pool-members).
+
+`Acquire` takes these fields:
+
+| Field | Meaning |
+|---|---|
+| `project` | the project's absolute path, as [Pool files](#pool-files) names it |
+| `pools` | the pool definitions of the project's merged files. Each limit is in whole seconds |
+| `needs` | one entry per pool, with `pool` and `count`. Each `pool` names one of `pools` |
+| `client_pid` | the process id of the client that holds the grant |
+| `grant_id` | empty for a new request. Set only to reclaim a grant that a restarted `orreryd` kept (see Restart below) |
+
+A new request, with no `grant_id`:
+
+- It is checked before it queues. A request that fails a check queues nothing and changes nothing. Its refusal is one of the codes below.
+- It queues. The stream sends `queued` with the request's place in the queue, counted from 1. The place is sent once, when the request queues, even when the request is granted at once.
+- The stream sends `granted` once the grant is stored. That message has the grant's id, and its members for each pool a need named.
+- A request that waits has no time limit. It waits until it is granted or until its stream ends.
+
+| Connect code | When |
+|---|---|
+| `failed_precondition` | a needed pool whose host is not `orreryd`'s host; a needed pool defined differently from the pool of that name in use; a needed pool that shares a member with another pool in use |
+| `invalid_argument` | a request with no needs; a need for a pool the request does not define; a need whose `count` is below 1, above the pool's cap, or above its member count; a `client_pid` below 1 |
+| `not_found` | a `grant_id` that `orreryd` did not keep for that `client_pid` |
+| `unavailable` | `orreryd` has no store; its restore at start failed; or `orreryd` is shutting down |
+
+A request with a `grant_id` does not queue, and its needs and pools are not checked. When `orreryd` kept that grant for that `client_pid`, the stream sends `granted` at once, with the grant's id and members. Otherwise the call is `not_found`.
+
+A grant lasts while its response stream is open. When the stream ends, because the client closes it or its connection breaks, `orreryd` deletes the grant's rows and frees its members, and then runs the pass of [Pool members](#pool-members) again.
+
+Restart:
+
+- On shutdown, the Pools broker closes before the session socket closes. Each open `Acquire` ends `unavailable`, and each stored grant stays for the next start. Member commands in flight are cancelled.
+- At start, `orreryd` restores the stored grants before it serves Pools. A grant whose `client_pid` has no process is ended in the store at once. A process is gone when a signal 0 to its pid fails with ESRCH. Each other grant keeps its members, and waits for its client to reclaim it. Its pools come back into use, so each of their members gets a status run.
+- On each 60-second tick, a kept grant whose client has no process is ended the same way.
+- If the restore fails, `orreryd` logs the error, and Pools refuses every call as `unavailable` until `orreryd` restarts. No grant is made from a partly restored broker.
+
+#### Pool members
+
+A pool in use has a state for each member:
+
+| State | Meaning |
+|---|---|
+| `unknown` | no member command has set the state since the pool came into use. Unknown members are never reserved |
+| `asleep` | the last status exited nonzero |
+| `awake` | the last status or wake exited 0 |
+| `waking` | a wake command is running |
+| `admitting` | an admit command is running |
+| `admitted` | an admit exited 0, or a status exited 0 while the member was admitted |
+| `unavailable` | a command failed to start or passed its limit, or a wake or admit exited nonzero. Only a status that exits 0 leaves this state |
+
+Member commands:
+
+- Each pool's `wake`, `status` and `admit` argv (see [Pool files](#pool-files)) runs the same way. It runs without a shell: the first element is found on the `PATH` of `orreryd`, and the rest are its arguments. It runs in its own process group, with no standard input, and its output is discarded.
+- The environment is `orreryd`'s own, plus `ORRERY_POOL=<pool>` and `ORRERY_MEMBER=<member>`. The argv is never changed, so the member is named only by `ORRERY_MEMBER`.
+- Each command runs under its limit. A command that passes its limit has its process group killed.
+- A member runs at most one command at a time.
+
+Outcomes:
+
+- `status` exits 0: the member is `awake`, or stays `admitted` when it was admitted.
+- `status` exits nonzero: the member is `asleep`. An `unavailable` member stays `unavailable`.
+- `status` fails to start or passes its limit: `unavailable`.
+- `wake` exits 0: `awake`. Any other end: `unavailable`.
+- `admit` exits 0: `admitted`. Any other end: `unavailable`.
+
+Status runs:
+
+- Each member gets a status run when a request first brings its pool into use, and when the restore at start brings a pool into use.
+- Every 60 seconds, each member with no command running gets a status run.
+- A pool that no grant holds, no waiting request needs, and no command runs for is forgotten. When it is used again, its members start at `unknown`.
+
+Grant order:
+
+A change to the broker runs the pass again: a request queues or leaves, a member command ends, or a dead client's grant ends. The pass goes through the waiting requests in arrival order.
+
+1. A request whose project would pass a pool's cap reserves nothing. The project's count for a pool is the members it holds from that pool, plus the members that earlier waiting requests of the same project reserve in this pass, plus the request's own need for that pool.
+2. Otherwise, for each need in order, the request reserves free members of the pool that no earlier request reserved. It takes admitted members first, then waking and admitting members, then awake members, then asleep members. Within each state, members keep their declared order. Unknown and unavailable members are never reserved.
+3. A request whose every need is covered by admitted members is granted all its reserved members at once, in need order. Its grant is stored before its client is told.
+4. Any other request keeps its reservations, so a later request cannot take them. Each of its reserved awake members is admitted, and each reserved asleep member is woken. A member whose command is still running is left alone. When that command ends, the pass runs again, and a woken member is admitted if a waiting request still needs it.
+
 ### Desk stream
 
 `orreryd` serves the desk stream on `notices.sock`, beside the daemon socket (section 5). The socket's directory is created with mode 0700 when it is absent. `orrery notices` reads the stream, and `orrery desk` reads it on this machine and over ssh. Nothing here opens a network listener. `orreryd`, `orrery notices` and `orrery desk` use unix sockets, and a host's notices leave it only through the ssh session that `orrery desk` starts.
@@ -588,7 +717,7 @@ Errors are Connect codes:
 The stream is JSON lines. Each line is one object and ends with a newline.
 
 - `hello` is the first line of every stream: `{"kind":"hello","host":"example-host"}`.
-- `notice` carries one notice: `{"kind":"notice","host":"example-host","state":"waiting","title":"example-project · example-session:1","body":"Which file should I edit?"}`. `state`, `title` and `body` are left out when empty.
+- `notice` carries one notice: `{"kind":"notice","host":"example-host","state":"waiting","title":"example-project · example-session:1","body":"Which file should I edit?"}`. `state`, `title` and `body` are left out when empty. `quiet` is `true` on a quiet notice, which the judge found unneeded (see [Notice routing](#notice-routing)), and absent otherwise. A quiet notice: `{"kind":"notice","host":"example-host","state":"done","title":"example-project · example-session:1","body":"Example summary of the work.","quiet":true}`.
 - The desk sends activity lines, which hold only `input`: `{"input":1700000000}`. `input` is the unix time in seconds of the desk's newest input. A line whose `input` is zero or less is ignored, and so is a line that is not JSON.
 
 Each stream gets `hello` first, then each notice posted while it is open, in the order posted. The stream keeps no backlog, so a notice posted while no stream is open is dropped. A stream that falls 64 lines behind is closed. On shutdown, queued lines get up to 2 seconds to reach their streams, and then open streams are closed.
@@ -599,6 +728,8 @@ The notices on the stream are these:
 
 - A pane notice, on a pane's transition to `waiting` or `done` (section 11, orreryd). Its title is `<project> · <session>:<window>`, where `project` is the base name of the pane's directory, `session` is the tmux session's name, and `window` is the window's index.
 - A session notice, on a headless session's transition to `waiting`, `done`, `failed` or `interrupted` (see [Session notifications](#session-notifications)).
+
+The stream carries a pane or session notice only when [Notice routing](#notice-routing) posts it there. A `done` whose `Stop` hook holds a subagent or workflow is never posted, on the stream or to Web Push.
 
 ### orrery notices
 
@@ -622,7 +753,7 @@ orrery [-L NAME | -S PATH] [--socket PATH] desk --sound FILE [--host HOST]...
 
 - `-L NAME` and `-S PATH` select the desk's tmux server, whose clients' input the activity lines carry, as section 6 defines.
 
-- `--sound FILE` is required. Without it, `desk` exits 2. `FILE` is the sound that each popup plays.
+- `--sound FILE` is required. Without it, `desk` exits 2. `FILE` is the sound that each popup plays, except a quiet notice's popup (see [Popups](#orrery-desk)).
 - `--host HOST` adds a link to `HOST`. Repeat the flag for each host. Without it, the desk has only the local link.
 - `desk` runs until `SIGINT` or `SIGTERM`. It then exits 0 once every link has returned.
 
@@ -646,7 +777,7 @@ A link reads the lines its command prints, and it writes activity lines to the c
 
 Popups:
 
-- A notice pops up with `notify-send -a "Coding Agent" -u URGENCY -h boolean:suppress-sound:true -- TITLE BODY`. `URGENCY` is `critical` when the state is `waiting`, and `normal` otherwise. Then `pw-play FILE` plays the sound. The sound plays even when the notice fails.
+- A notice pops up with `notify-send -a "Coding Agent" -u URGENCY -h boolean:suppress-sound:true -- TITLE BODY`. `URGENCY` is `critical` when the state is `waiting`, and `normal` otherwise. Then `pw-play FILE` plays the sound. The sound plays even when the notice fails. A quiet notice's popup runs `notify-send` as any other and does not run `pw-play`.
 - The lost notice has the title `orrery desk`, the body `HOST unreachable for 5 minutes`, `critical` urgency, and the same sound.
 - Both programs run from `PATH` with no shell, and each is limited to 10 seconds.
 - Popups run one at a time, in the order received. A popup that is running holds up no link.
@@ -663,15 +794,19 @@ orrery desk --sound /example/sounds/notice.oga --host example-host
 |---|---|---|
 | `ORRERY_SOCKET` | `orrery`, `orreryd` | daemon socket path (section 5) |
 | `XDG_RUNTIME_DIR` | `orrery`, `orreryd` | default socket directory when no path is set (section 5) |
-| `XDG_STATE_HOME` | `orrery` (`serve`), `orreryd` | base directory of the push store, `$XDG_STATE_HOME/orrery/push.json` (section 11, orreryd), and of the store, `$XDG_STATE_HOME/orrery/orrery.db` (see [Store](#store)) |
-| `HOME` | `orrery` (`serve`), `orreryd` | used for the push store when `XDG_STATE_HOME` is unset, at `$HOME/.local/state/orrery/push.json`, and for the store, at `$HOME/.local/state/orrery/orrery.db`. `serve` also uses it as the home directory that `Control.Start` admits directories under (see [Control API](#control-api)) |
-| `ANTHROPIC_BASE_URL` | `orrery` (`hook`, `debug summarize`) | the session's base URL. The hook sends it in each frame (section 9), and each summary runs through its own session's base URL. |
+| `XDG_STATE_HOME` | `orrery` (`serve`), `orreryd` | base directory of the push store, `$XDG_STATE_HOME/orrery/push.json` (section 11, orreryd), of the notice log, `$XDG_STATE_HOME/orrery/notices.jsonl` (see [Notice log](#notice-log)), and of the store, `$XDG_STATE_HOME/orrery/orrery.db` (see [Store](#store)) |
+| `HOME` | `orrery` (`serve`), `orreryd` | used for the push store when `XDG_STATE_HOME` is unset, at `$HOME/.local/state/orrery/push.json`, and for the notice log and the store, at `$HOME/.local/state/orrery/notices.jsonl` and `$HOME/.local/state/orrery/orrery.db`. `serve` also uses it as the home directory that `Control.Start` admits directories under (see [Control API](#control-api)) |
+| `ANTHROPIC_BASE_URL` | `orrery` (`hook`, `debug summarize`) | the session's base URL. The hook sends it in each frame (section 9), and each summary and each done judge (see [Notice routing](#notice-routing)) runs through its own session's base URL. |
 | `ORRERY_SUMMARIZER` | `orrery` (`hook`) | summarizer sentinel (section 7). `orreryd` sets it on each summary run. Summaries also run with hooks disabled. |
 | `SHELL` | `orreryd` | the login shell that starts each headless session, when `--session-shell` is not given (see [Headless sessions](#headless-sessions)) |
-| `HOME` | `orrery` (`tree`, `open`) | `$HOME/Personal` is the default parent directory of new projects. `$HOME` is also the directory that roots are relative to, and the roots file falls back to `$HOME/.config/orrery/roots` (see [Roots](#roots)) |
+| `HOME` | `orrery` (`tree`, `open`, `run`) | `$HOME/Personal` is the default parent directory of new projects. `$HOME` is also the directory that roots are relative to, and the roots file falls back to `$HOME/.config/orrery/roots` (see [Roots](#roots)). The machine pool file falls back to `$HOME/.config/orrery/pools.toml` (see [Pool files](#pool-files)) |
 | `XDG_STATE_HOME` | `orrery` (`tree`, `open`) | base directory of the archive file (see [Archive](#archive)) |
-| `XDG_CONFIG_HOME` | `orrery` (`tree`, `open`) | base directory of the roots file, `$XDG_CONFIG_HOME/orrery/roots` (see [Roots](#roots)) |
-| `PATH` | `orrery` (`tree`, `open`, `desk`) | finds `zoxide` and `claude` for the picker and `open`, and `ssh`, `notify-send` and `pw-play` for `desk` (see [orrery desk](#orrery-desk)) |
+| `XDG_CONFIG_HOME` | `orrery` (`tree`, `open`, `run`) | base directory of the roots file, `$XDG_CONFIG_HOME/orrery/roots` (see [Roots](#roots)), and of the machine pool file, `$XDG_CONFIG_HOME/orrery/pools.toml` (see [Pool files](#pool-files)) |
+| `PATH` | `orrery` (`tree`, `open`, `desk`, `run`), `orreryd` | finds `zoxide` and `claude` for the picker and `open`, and `ssh`, `notify-send` and `pw-play` for `desk` (see [orrery desk](#orrery-desk)). `run` finds `CMD` and `git`, and `orreryd` finds the program of each member command (see [Pool members](#pool-members)) |
+| `ORRERY_GRANT` | set by `orrery run` for `CMD` | the id of the grant `CMD` runs under (see [orrery](#orrery)) |
+| `ORRERY_POOL_<POOL>` | set by `orrery run` for `CMD`, once for each pool named | the members granted from pool `<POOL>`, comma-separated |
+| `ORRERY_POOL` | set by `orreryd` for each member command | the pool the member command runs for |
+| `ORRERY_MEMBER` | set by `orreryd` for each member command | the member the command runs for |
 
 ### Archive
 
@@ -698,6 +833,62 @@ Each record has these keys, in this order. The example is synthetic:
 | `closed` | number | unix seconds when the record was written |
 | `claude_session` | string | the Claude Code session id (`@orrery_claude_session`), written last |
 
+### Notice log
+
+`orreryd` appends one JSON line for each event in the routing of a notice (see [Notice routing](#notice-routing)): a silence, the start of a hold, a route to a sink, or an end that sends nothing. The file is `$XDG_STATE_HOME/orrery/notices.jsonl` when `XDG_STATE_HOME` is set, and `$HOME/.local/state/orrery/notices.jsonl` otherwise. It sits beside the push store (section 11, orreryd). A log that cannot be opened makes `orreryd` exit 1, as a push store failure does.
+
+- The directory is created with mode `0700` and the file with mode `0600` when absent. `orreryd` appends to the file, and never rewrites or deletes a line.
+- The file is JSON lines: one object per line, with these keys in this order:
+
+| Key | Type | Meaning |
+|---|---|---|
+| `time` | number | unix seconds of the event |
+| `host` | string | the machine host name |
+| `pane` | string | the tmux pane id, for a pane notice; absent for a session notice |
+| `session` | string | the session id, for a session notice; absent for a pane notice |
+| `state` | string | the notice's state: `waiting`, `done`, `failed` or `interrupted` |
+| `route` | string | where the notice went, as below |
+| `reason` | string | why, as below |
+
+Example line. Every value is synthetic:
+
+```json
+{"time":1700000000,"host":"example-host","pane":"%1","state":"waiting","route":"desk+phone","reason":"away"}
+```
+
+The `route` values are these:
+
+- `none`: nothing was sent.
+- `desk`: posted to the desk stream.
+- `phone`: sent to Web Push.
+- `desk+phone`: posted to the desk stream and sent to Web Push.
+
+A route names what `orreryd` handed to each sink. The desk stream drops a notice posted while no stream is open (see [Desk stream](#desk-stream)), so `desk` does not show that anyone read it. A notice at the desk writes two lines: `desk` with `at the desk` when it is posted, and the line that ends it.
+
+The `reason` values are these. A reason that gains a clause adds it after `; `:
+
+| Reason | Route | When |
+|---|---|---|
+| `background work` | `none` | a `done` whose `Stop` hook holds a subagent or workflow |
+| `watching` | `none` | the notice is held; written the first time it is held |
+| `at the desk` | `desk` | posted to the desk stream; the notice stays pending |
+| `unseen after 5 minutes` | `phone`, or `none` with `no push subscription` | escalated after 5 minutes at the desk, unseen and unchanged |
+| `away` | `desk+phone`, `desk`, `phone` or `none` | routed away from the desk |
+| `unneeded` | `desk+phone`, `desk`, `phone` or `none` | the judge found the notice unneeded: posted to the desk stream as a quiet notice and sent to Web Push as a silent notice, then ended (see [Notice routing](#notice-routing)) |
+| `changed` | `none` | a newer notice for its key, or the pane or session moved to another state |
+| `seen` | `none` | a seen write at or after the notice's time |
+| `shutdown` | `none` | `orreryd` shut down while the notice was pending |
+
+The clauses are these:
+
+- `needed`: the judge found the notice needed. It takes `: <why>` when the judge gave a why.
+- `judge failed: <error>`: the judge failed, or the notice had no or an empty `last_assistant_message`. `<error>` is the judge's error text.
+- `judge late`: the judge did not answer within 15 seconds.
+- `desk notice failed`: the desk notice could not be built, so none was posted.
+- `no push subscription`: the push store lists no subscription, so the phone part was dropped.
+
+The judge clauses follow the route word, and `desk notice failed` and `no push subscription` follow them, so a reason can read `away; needed: <why>; no push subscription`.
+
 ### Roots
 
 The roots file declares the directory trees whose directories the picker's model sees (see [Picker](#picker)). Its file is `$XDG_CONFIG_HOME/orrery/roots` when `XDG_CONFIG_HOME` is set to a non-empty value. Otherwise it is `$HOME/.config/orrery/roots`. When neither variable is set, no path resolves and no roots are read.
@@ -714,9 +905,48 @@ Example. The names are synthetic:
 1 Scratch
 ```
 
+### Pool files
+
+`orrery run` reads two TOML files that declare pools: a project file and a machine file. Both are read on each run. A file that does not exist declares no pools.
+
+- The project file is `.orrery/project.toml`. Inside a git work tree, it is at the top of the work tree the command runs in, so each worktree of a repository reads its own file. Outside git, it is the nearest `.orrery/project.toml` at or above the working directory.
+- The machine file is `$XDG_CONFIG_HOME/orrery/pools.toml` when `XDG_CONFIG_HOME` is set and not empty. Otherwise it is `$HOME/.config/orrery/pools.toml`. When neither variable is set, `orrery run` exits 75.
+- A project is named by its absolute directory path. Inside git, that is the parent of the repository's common git directory, so every worktree of one repository names the same project. Outside git, it is the directory that holds the project file, or the working directory when there is no project file.
+- `orrery run` needs `git` on `PATH` for every run, because it asks git for the project's name. Without it, the run exits 75.
+
+Each file holds `[pools.NAME]` tables. Every table has all nine keys below, and each key is required:
+
+| Key | Type | Meaning |
+|---|---|---|
+| `host` | string | the machine that owns the pool. `orreryd` refuses a pool whose `host` is not its own host name |
+| `cap` | integer, 1 or more | the most members one project may hold from the pool at once |
+| `members` | array of strings | the member names. The list may not be empty, and may not repeat a name |
+| `wake`, `status`, `admit` | array of strings | the argv of each member command, run without a shell. The first element is the program and the rest are its arguments. The list may not be empty, and no element may be empty |
+| `wake_limit`, `status_limit`, `admit_limit` | integer seconds, 1 or more | how long the matching command may run |
+
+- A pool name matches `[a-z][a-z0-9_]*`. A member name matches `[A-Za-z0-9][A-Za-z0-9._-]*`.
+- A member belongs to one pool. `orrery run` refuses a run whose merged files put one member in two pools.
+- Keys match exactly. A file with an unknown key, an unknown table, or a missing required key is refused.
+- `orrery run` merges the two files. A pool defined the same way in both is kept once. A pool defined differently in the two files refuses the run with exit 75.
+
+Example. Every name in it is synthetic:
+
+```toml
+[pools.builds]
+host = "box"
+cap = 1
+members = ["build-1", "build-2"]
+wake = ["example-wake"]
+wake_limit = 300
+status = ["example-status"]
+status_limit = 30
+admit = ["example-admit"]
+admit_limit = 30
+```
+
 ### Store
 
-`orreryd` keeps a SQLite store that mirrors each pane's tmux options, and records each headless engine session (see [Engine sessions in the store](#engine-sessions-in-the-store)). Outside the store's tests, `orreryd`'s own writes read it, and `orrery serve` reads it for the Connect API (section 12). A sync reads the pane's row to compare it with the new snapshot, and a tidy also reads the server's rows to find the panes that are gone. `serve` only reads the store, and never writes it.
+`orreryd` keeps a SQLite store that mirrors each pane's tmux options, records each headless engine session (see [Engine sessions in the store](#engine-sessions-in-the-store)), and keeps the live grants of the Pools service (see [Grants in the store](#grants-in-the-store)). Outside the store's tests, `orreryd`'s own writes read it, and `orrery serve` reads it for the Connect API (section 12). A sync reads the pane's row to compare it with the new snapshot, and a tidy also reads the server's rows to find the panes that are gone. `serve` only reads the store, and never writes it.
 
 The store file is `$XDG_STATE_HOME/orrery/orrery.db` when `XDG_STATE_HOME` is set, else `$HOME/.local/state/orrery/orrery.db`. When neither variable is set, no path resolves.
 
@@ -880,6 +1110,31 @@ The `sessions` row of a step has `kind` `step`, its `dir` (the workspace, or the
 The `steps` table is never pruned. The 14-day tidy deletes only engine rows (`kind` `engine`), and the unfinished text and `engine_prompt_failed` rows of those rows, so a step's `sessions` row, its `engine_text` rows and its `engine_prompt_failed` rows are kept too. Events of step rows are pruned with the other events, under the same rule.
 
 
+#### Grants in the store
+
+The `grants` and `grant_members` tables (migration `00007_grants.sql`) hold the live grants of the Pools service (see [Pools](#pools)). A grant's rows are written before its client is told of the grant, and ending the grant deletes them. The tidy does not delete grants.
+
+`grants` has these columns:
+
+| Column | Type | Meaning |
+|---|---|---|
+| `id` | `TEXT`, primary key | the grant id |
+| `project` | `TEXT` | the project's absolute path |
+| `client_pid` | `INTEGER` | the process id of the client that holds the grant |
+| `pools` | `TEXT` | the definitions of the pools the request needed, as a JSON array. Each has the keys `name`, `host`, `cap`, `members`, `wake`, `wakeLimit`, `status`, `statusLimit`, `admit` and `admitLimit`. The limits are in nanoseconds |
+| `granted` | `INTEGER` | unix seconds when the grant was stored |
+
+`grant_members` has these columns:
+
+| Column | Type | Meaning |
+|---|---|---|
+| `member` | `TEXT`, primary key | the member's name |
+| `grant_id` | `TEXT` | the grant the member belongs to |
+| `pool` | `TEXT` | the pool the member belongs to |
+| `position` | `INTEGER` | the member's place in its grant, counted from 0 |
+
+The primary key of `grant_members` is the member's name, so a member is in at most one stored grant. The store also refuses a grant that includes a member a live grant already has.
+
 ### Claude Code hook settings
 
 Register `orrery hook` for each hook event that reports state. The path below is synthetic:
@@ -985,11 +1240,11 @@ The web page is the one exception to the 404 rule. After the login check, GET an
 
 ### Push payload
 
-When a pane enters `waiting` or `done`, `orreryd` posts to each registered subscription. A headless session notice (see [Session notifications](#session-notifications)) posts to each subscription too, with the same rules.
+When [Notice routing](#notice-routing) sends a pane's `waiting` or `done` notice to the phone, `orreryd` posts it to each registered subscription. A headless session notice (see [Session notifications](#session-notifications)) is posted to each subscription the same way when it goes to the phone.
 
 - The body is one RFC 8291 `aes128gcm` record. The record is at most 4096 bytes.
 - The headers are `Content-Encoding: aes128gcm` and `TTL: 3600`.
-- The plaintext is a JSON object. Every value is a string. The keys are `pane`, `host`, `project`, `state`, `summary`, `label`, `question`, `question_hash`, and `time`. `time` is the notice's time, as decimal unix seconds. A headless session notice also has the key `session`, holding the session id. A pane notice has no `session` key.
+- The plaintext is a JSON object. Every value is a string. The keys are `pane`, `host`, `project`, `state`, `summary`, `label`, `question`, `question_hash`, and `time`. `time` is the notice's time, as decimal unix seconds. A headless session notice also has the key `session`, holding the session id. A pane notice has no `session` key. A silent notice (see [Notice routing](#notice-routing)) also has the key `silent`, holding `"true"`. No other notice has a `silent` key.
 - The plaintext is at most 3993 bytes. When it is longer, the question is cut first, then the summary.
 - `question_hash` always covers the full question, even when the question is cut.
 
@@ -1020,6 +1275,7 @@ On the phone, the notices of a host are shown as follows:
 - A replacement is silent unless its state is `waiting` or `failed`.
 - A clear removes only the notices at or before its `seen` time.
 - Session notices carry no actions.
+- A silent notice shows on the app's silent channel, with no sound or vibration.
 
 ### Connect API
 
@@ -1216,7 +1472,7 @@ Errors are Connect codes. The messages marked fixed are the same whatever orrery
 
 ### Phone API
 
-The phone's calls are the four services `orrery.v1.Panes`, `orrery.v1.Host`, `orrery.v1.Push` and `orrery.v1.Picker` of [Connect API](#connect-api), with thirteen calls. Each call is a Connect POST to its path in [Connect API](#connect-api), and the Connect rules of [Guard](#guard) apply to it. This section states each call's request meaning, answer and errors. The error table at the end gives each error code with its message.
+The phone's calls are the four services `orrery.v1.Panes`, `orrery.v1.Host`, `orrery.v1.Push` and `orrery.v1.Picker` of [Connect API](#connect-api), with thirteen calls. Each call is a Connect POST to its path in [Connect API](#connect-api), and the Connect rules of [Guard](#guard) apply to it. This section states each call's request meaning, answer and errors. The error table at the end gives each error code with its message. A successful `Panes.Screen` or `Panes.Conversation` answer reports the read to `orreryd`, and an open `Panes.WatchConversation` stream reports it at its first successful step and once per keepalive interval after that (see [orrery serve](#orrery-serve)).
 
 Request fields and what their zero and presence values mean:
 
@@ -1462,6 +1718,16 @@ orrery H3b (conversation stream) added, additively: the `orrery.v1.Panes.WatchCo
 orrery desk notices (effort 1) added, additively: the desk stream on `notices.sock` beside the daemon socket, with its `hello`, `notice` and activity lines (see [Desk stream](#desk-stream)); the `orrery notices` and `orrery desk` commands and the `--sound` and `--host` flags of `desk` (see [orrery notices](#orrery-notices) and [orrery desk](#orrery-desk)); the desk presence of the stream; the pane notices and the session notices on the stream; and the `PATH` lookups of `ssh`, `notify-send` and `pw-play` by `desk`. No existing name or value changes, except the removal below.
 
 orrery desk notices (effort 1) removed the ntfy topic. The variables `ORRERY_NTFY_URL_FILE` and `ORRERY_NTFY_TOKEN_FILE`, their constants `protocol.EnvNtfyURLFile` and `protocol.EnvNtfyAuthFile`, the `internal/ntfy` package, and every ntfy post of `orreryd`, including the session notices, are gone. The notices those posts carried are on the desk stream, which `orrery notices` reads, and the `orrery desk` popups show them. `--push-host` and its default `ntfy.sh` are unchanged, because they name the Web Push relay (section 11). This is a removal, not an addition: a setup that set either variable receives no ntfy notice, and reads the desk stream instead.
+
+orrery L1a1 (pools) added, additively: the `orrery run` subcommand, its `--needs` flags, its environment variables and its exit statuses (see [orrery](#orrery)); the project file, the machine file and the project naming rule (see [Pool files](#pool-files)); the `orrery.engine.v1.Pools` service on `sessions.sock`, its `Acquire` call and its Connect codes, and the broker's restore at start and its 60-second status tick (see [Pools](#pools)); the member states, the grant order and the member commands, with their `ORRERY_POOL` and `ORRERY_MEMBER` variables (see [Pool members](#pool-members)); and the `grants` and `grant_members` tables (migration `00007_grants.sql`, see [Grants in the store](#grants-in-the-store)). `--sessions` now also serves the Pools service. No existing name or value changes.
+
+orrery notice routing (effort 1, N1b2a) added, additively: the `read` key of HookFrame and the read report (section 9); the read reports that `serve` sends (section 11, `orrery serve`) and the Phone API reads that carry them; and the notice log, its keys, route values and reasons (see [Notice log](#notice-log)). No existing name or value changes.
+
+Notice routing (see [Notice routing](#notice-routing)) is a change, not an addition. Before it, every pane notice of a transition to `waiting` or `done` was posted to the desk stream, every headless session notice went to the desk stream and to Web Push, and every notice went to Web Push unless its `Stop` held a subagent or workflow. A `Stop` whose `background_tasks` holds a subagent or workflow now goes nowhere, where the desk stream used to carry it. The routing rules now decide each notice: a notice held for a watched pane reaches neither sink until the watch lapses, and then goes to the desk stream, to Web Push, or to both, by where the user is.
+
+orrery done judge (effort 1, N1b2b) added, additively: the `quiet` key of a desk stream notice line (see [Desk stream](#desk-stream)); the `silent` key of the Push payload (see [Push payload](#push-payload)); and the `unneeded` reason and the `needed`, `judge failed` and `judge late` clauses of the notice log (see [Notice log](#notice-log)). No existing name or value changes.
+
+Plain pane dones now wait 10 seconds once they are unwatched, and an unneeded one may arrive quiet on the desk and silent on the phone. That is a change, not an addition, and [Notice routing](#notice-routing) states the rules.
 
 orrery H3e2 (epics and steps) added, additively: the `orrery.v1.Epics` and `orrery.v1.Steps` services and their five calls (see [Epics and Steps](#epics-and-steps)); the Connect path prefixes `/orrery.v1.Epics/` and `/orrery.v1.Steps/` of [Guard](#guard); serve's read of the record root `$HOME/.gambit`; and serve's calls of orreryd's `ListSteps`, `StepStatus`, `HoldStep`, `NudgeStep` and `StopStep`. `Sessions.WatchConversation` also streams a step with an epic label, through serve's `StepStatus` call (see [Headless session stream](#headless-session-stream)). A change, not an addition: `Say`, `Answer`, `Interrupt` and `Stop` on a step id now answer `failed_precondition` (see [Control API](#control-api)), where they forwarded the call before. No other existing name or value changes.
 

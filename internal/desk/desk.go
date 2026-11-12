@@ -22,7 +22,7 @@ const (
 
 // Config is what Run needs. Orrery is the orrery binary the local link runs, and Socket is the --socket path it
 // passes on, or empty for the default. Hosts are the other machines whose streams the desk keeps. Sound is the file
-// pw-play plays for each popup. Input reports the desk's newest input, and Clock times the links.
+// pw-play plays for each popup that is not quiet. Input reports the desk's newest input, and Clock times the links.
 type Config struct {
 	Orrery string
 	Socket string
@@ -61,7 +61,8 @@ func SSHCommand(host string) []string {
 }
 
 // Run keeps a stream open to the local machine and to each of cfg.Hosts, and shows each notice and each lost host as a
-// popup with cfg.Sound. It returns nil once ctx has ended and every link has returned.
+// popup with cfg.Sound, except that a quiet notice plays no sound. It returns nil once ctx has ended and every link has
+// returned.
 func Run(ctx context.Context, cfg Config) error {
 	logger := cfg.Logger
 	if logger == nil {
@@ -119,6 +120,7 @@ func newLink(host string, command []string, cfg Config, queue *popupQueue, logge
 type popup struct {
 	title, body string
 	waiting     bool
+	quiet       bool
 }
 
 // popupQueue shows popups one at a time in the order they were added. Adding never waits, so a link is never held up
@@ -144,9 +146,10 @@ func (q *popupQueue) add(p popup) {
 	}
 }
 
-// notify queues the popup for a notice line. A waiting notice is critical.
+// notify queues the popup for a notice line. A waiting notice is critical, and a quiet notice plays no sound.
 func (q *popupQueue) notify(line deskstream.Line) {
-	q.add(popup{title: line.Title, body: line.Body, waiting: line.State == string(protocol.StateWaiting)})
+	waiting := line.State == string(protocol.StateWaiting)
+	q.add(popup{title: line.Title, body: line.Body, waiting: waiting, quiet: line.Quiet})
 }
 
 // lost queues the popup for a host whose stream has been down for five minutes.
@@ -173,7 +176,11 @@ func (q *popupQueue) run(ctx context.Context) {
 		next := q.pending[0]
 		q.pending = q.pending[1:]
 		q.mu.Unlock()
-		if err := Popup(ctx, next.title, next.body, next.waiting, q.sound); err != nil {
+		sound := q.sound
+		if next.quiet {
+			sound = ""
+		}
+		if err := Popup(ctx, next.title, next.body, next.waiting, sound); err != nil {
 			q.logger.WarnContext(ctx, "show popup", "title", next.title, "error", err)
 		}
 	}

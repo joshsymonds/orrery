@@ -9,6 +9,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/notice"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/push"
+	"github.com/joshsymonds/orrery/internal/route"
 )
 
 const (
@@ -18,169 +19,208 @@ const (
 	notifierDeskTitle = "proj · session 01234567"
 )
 
-// fakeDesk records the notices it is posted.
-type fakeDesk struct {
-	posts []deskstream.Notice
-}
-
-func (f *fakeDesk) Post(n deskstream.Notice) {
-	f.posts = append(f.posts, n)
-}
-
-// pushNotify is one Notify call the fake notice record received, with the notification its build returned.
-type pushNotify struct {
-	key  notice.Key
-	note push.Notification
-	err  error
-}
-
-// seenReport is one Seen call the fake notice record received.
+// seenReport is one Seen call the fake Router received.
 type seenReport struct {
 	key  notice.Key
 	seen int64
 }
 
-// fakePushNotices records the notices and seen reports it receives. Notify runs build as the notice record does.
-type fakePushNotices struct {
-	notifies []pushNotify
+// fakeRouter records the notices, changes and seen reports it receives. canceled reports whether any Notify call saw
+// its context canceled.
+type fakeRouter struct {
+	notices  []route.Notice
+	changes  []notice.Key
 	seens    []seenReport
 	canceled bool
 }
 
-func (f *fakePushNotices) Notify(ctx context.Context, key notice.Key,
-	build func(context.Context) (push.Notification, error)) {
-	note, err := build(ctx)
-	f.notifies = append(f.notifies, pushNotify{key: key, note: note, err: err})
+func (f *fakeRouter) Notify(ctx context.Context, n route.Notice) {
+	f.notices = append(f.notices, n)
 	f.canceled = f.canceled || ctx.Err() != nil
 }
 
-func (f *fakePushNotices) Seen(_ context.Context, key notice.Key, seen int64) {
+func (f *fakeRouter) Changed(key notice.Key) {
+	f.changes = append(f.changes, key)
+}
+
+func (f *fakeRouter) Seen(_ context.Context, key notice.Key, seen int64) {
 	f.seens = append(f.seens, seenReport{key: key, seen: seen})
 }
 
-func TestNotifyDeskPayload(t *testing.T) {
-	cases := []struct {
-		name, state, body, want string
-	}{
-		{"waiting with question", "waiting", "which file?", "which file?"},
-		{"waiting without question", "waiting", "", "waiting for input"},
-		{"done with summary", "done", "all tests pass", "all tests pass"},
-		{"done without summary", "done", "", "done"},
-		{"failed without body", "failed", "", "failed"},
-		{"interrupted without body", "interrupted", "", "interrupted"},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			desk := &fakeDesk{}
-			n := NewNotifier(NotifierConfig{Desk: desk})
-			event := Notice{Session: notifierSession, Dir: notifierDir, State: tc.state, Body: tc.body}
-			n.Notify(context.Background(), event)
-			want := deskstream.Notice{State: tc.state, Title: notifierDeskTitle, Body: tc.want}
-			if len(desk.posts) != 1 || desk.posts[0] != want {
-				t.Fatalf("desk posts = %+v, want exactly [%+v]", desk.posts, want)
-			}
-		})
+func TestNotifyChangedHandsRouterSessionKey(t *testing.T) {
+	router := &fakeRouter{}
+	n := NewNotifier(NotifierConfig{Route: router})
+
+	n.Changed(context.Background(), notifierSession)
+
+	want := notice.Key{Session: notifierSession}
+	if len(router.changes) != 1 || router.changes[0] != want {
+		t.Fatalf("changes = %+v, want exactly [%+v]", router.changes, want)
 	}
 }
 
-func TestNotifyHandsBuiltPushToNoticeRecord(t *testing.T) {
+func TestNotifyHandsSessionNoticeToRouter(t *testing.T) {
 	cases := []struct {
 		name, state, body string
-		want              push.Notification
+		wantBody          string
+		wantPush          push.Notification
 	}{
 		{
-			name: "waiting carries the body as the question", state: "waiting", body: "which file?",
-			want: push.Notification{Project: notifierProject, State: protocol.StateWaiting, Question: "which file?"},
+			name:     "waiting with question",
+			state:    "waiting",
+			body:     "which file?",
+			wantBody: "which file?",
+			wantPush: push.Notification{
+				Project:  notifierProject,
+				State:    protocol.StateWaiting,
+				Question: "which file?",
+			},
 		},
 		{
-			name: "waiting with an empty body carries no question", state: "waiting", body: "",
-			want: push.Notification{Project: notifierProject, State: protocol.StateWaiting},
+			name:     "waiting without question",
+			state:    "waiting",
+			body:     "",
+			wantBody: "waiting for input",
+			wantPush: push.Notification{Project: notifierProject, State: protocol.StateWaiting},
 		},
 		{
-			name: "done carries the body as the summary", state: "done", body: "all tests pass",
-			want: push.Notification{Project: notifierProject, State: protocol.StateDone, Summary: "all tests pass"},
+			name:     "done with summary",
+			state:    "done",
+			body:     "all tests pass",
+			wantBody: "all tests pass",
+			wantPush: push.Notification{
+				Project: notifierProject,
+				State:   protocol.StateDone,
+				Summary: "all tests pass",
+			},
 		},
 		{
-			name: "failed carries the body as the summary", state: "failed", body: "build broke",
-			want: push.Notification{Project: notifierProject, State: protocol.State("failed"), Summary: "build broke"},
+			name: "done without summary", state: "done", body: "", wantBody: "done",
+			wantPush: push.Notification{Project: notifierProject, State: protocol.StateDone},
+		},
+		{
+			name:     "failed with reason",
+			state:    "failed",
+			body:     "build broke",
+			wantBody: "build broke",
+			wantPush: push.Notification{
+				Project: notifierProject,
+				State:   protocol.State("failed"),
+				Summary: "build broke",
+			},
+		},
+		{
+			name: "failed without body", state: "failed", body: "", wantBody: "failed",
+			wantPush: push.Notification{Project: notifierProject, State: protocol.State("failed")},
+		},
+		{
+			name:     "interrupted without body",
+			state:    "interrupted",
+			body:     "",
+			wantBody: "interrupted",
+			wantPush: push.Notification{
+				Project: notifierProject,
+				State:   protocol.State("interrupted"),
+			},
 		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			pushes := &fakePushNotices{}
-			n := NewNotifier(NotifierConfig{Push: pushes})
-			event := Notice{Session: notifierSession, Dir: notifierDir, State: tc.state, Body: tc.body}
+			router := &fakeRouter{}
+			n := NewNotifier(NotifierConfig{Route: router})
+			event := Notice{
+				Session: notifierSession,
+				Dir:     notifierDir,
+				State:   tc.state,
+				Body:    tc.body,
+			}
 			n.Notify(context.Background(), event)
-			// The hand-off is synchronous: the record already holds the call.
-			want := pushNotify{key: notice.Key{Session: notifierSession}, note: tc.want}
-			if len(pushes.notifies) != 1 || pushes.notifies[0] != want {
-				t.Fatalf("notice record calls = %+v, want exactly [%+v]", pushes.notifies, want)
+
+			if len(router.notices) != 1 {
+				t.Fatalf("Notify calls = %d, want 1", len(router.notices))
+			}
+			got := router.notices[0]
+			if got.Key != (notice.Key{Session: notifierSession}) || got.State != tc.state {
+				t.Fatalf(
+					"notice key and state = %+v and %q, want session key and %q",
+					got.Key,
+					got.State,
+					tc.state,
+				)
+			}
+			if got.Silent != "" || got.Watching != nil {
+				t.Fatalf(
+					"notice Silent = %q, Watching set = %t, want neither",
+					got.Silent,
+					got.Watching != nil,
+				)
+			}
+			wantDesk := deskstream.Notice{
+				State: tc.state,
+				Title: notifierDeskTitle,
+				Body:  tc.wantBody,
+			}
+			desk, err := got.Desk(context.Background())
+			if err != nil || desk != wantDesk {
+				t.Fatalf("desk notice = %+v, %v, want %+v", desk, err, wantDesk)
+			}
+			note, err := got.Push(context.Background())
+			if err != nil || note != tc.wantPush {
+				t.Fatalf("push notification = %+v, %v, want %+v", note, err, tc.wantPush)
 			}
 		})
 	}
 }
 
-func TestNotifySkipsWorkingAndStopped(t *testing.T) {
+func TestNotifyHandsRouterNothingForWorkingAndStopped(t *testing.T) {
 	for _, state := range []string{"working", "stopped"} {
 		t.Run(state, func(t *testing.T) {
-			pushes := &fakePushNotices{}
-			desk := &fakeDesk{}
-			n := NewNotifier(NotifierConfig{Push: pushes, Desk: desk})
+			router := &fakeRouter{}
+			n := NewNotifier(NotifierConfig{Route: router})
 			event := Notice{Session: notifierSession, Dir: notifierDir, State: state, Body: "text"}
 			n.Notify(context.Background(), event)
-			if len(pushes.notifies) != 0 || len(desk.posts) != 0 {
-				t.Fatalf("state %q posted push=%+v desk=%+v, want nothing", state, pushes.notifies, desk.posts)
+			if len(router.notices) != 0 {
+				t.Fatalf("state %q handed the router %+v, want nothing", state, router.notices)
 			}
 		})
 	}
 }
 
-func TestNotifyNilChannelIsSkipped(t *testing.T) {
-	t.Run("push only", func(t *testing.T) {
-		pushes := &fakePushNotices{}
-		n := NewNotifier(NotifierConfig{Push: pushes})
-		n.Notify(context.Background(), Notice{Session: notifierSession, Dir: notifierDir, State: "done", Body: "ok"})
-		if len(pushes.notifies) != 1 {
-			t.Fatalf("notice record calls = %d, want 1", len(pushes.notifies))
-		}
-	})
-	t.Run("desk only", func(t *testing.T) {
-		desk := &fakeDesk{}
-		n := NewNotifier(NotifierConfig{Desk: desk})
-		n.Notify(context.Background(), Notice{Session: notifierSession, Dir: notifierDir, State: "done", Body: "ok"})
-		if len(desk.posts) != 1 {
-			t.Fatalf("desk posts = %d, want 1", len(desk.posts))
-		}
-		// With no push channel, a seen report has nowhere to go and must not panic.
-		n.Seen(context.Background(), notifierSession, time.Unix(1, 0))
-	})
+func TestNotifyNilRouteIsSkipped(t *testing.T) {
+	n := NewNotifier(NotifierConfig{})
+	n.Notify(
+		t.Context(),
+		Notice{Session: notifierSession, Dir: notifierDir, State: "done", Body: "ok"},
+	)
+	n.Seen(t.Context(), notifierSession, time.Unix(1, 0))
+	n.Changed(t.Context(), notifierSession)
 }
 
 func TestNotifySeenForwardsSessionAndUnixTime(t *testing.T) {
-	pushes := &fakePushNotices{}
-	n := NewNotifier(NotifierConfig{Push: pushes})
+	router := &fakeRouter{}
+	n := NewNotifier(NotifierConfig{Route: router})
 
 	seen := time.Unix(1_700_000_123, 500_000_000)
 	n.Seen(context.Background(), notifierSession, seen)
 
 	want := seenReport{key: notice.Key{Session: notifierSession}, seen: 1_700_000_123}
-	if len(pushes.seens) != 1 || pushes.seens[0] != want {
-		t.Fatalf("seen reports = %+v, want exactly [%+v]", pushes.seens, want)
+	if len(router.seens) != 1 || router.seens[0] != want {
+		t.Fatalf("seen reports = %+v, want exactly [%+v]", router.seens, want)
 	}
 }
 
 func TestNotifyIgnoresCancellationOfCallerContext(t *testing.T) {
-	pushes := &fakePushNotices{}
-	n := NewNotifier(NotifierConfig{Push: pushes})
+	router := &fakeRouter{}
+	n := NewNotifier(NotifierConfig{Route: router})
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	n.Notify(ctx, Notice{Session: notifierSession, Dir: notifierDir, State: "done", Body: "ok"})
 
-	if len(pushes.notifies) != 1 {
-		t.Fatalf("notice record calls after canceled Notify = %d, want 1", len(pushes.notifies))
+	if len(router.notices) != 1 {
+		t.Fatalf("Notify calls after canceled Notify = %d, want 1", len(router.notices))
 	}
-	if pushes.canceled {
-		t.Fatal("push hand-off saw the caller's cancellation")
+	if router.canceled {
+		t.Fatal("router saw the caller's cancellation")
 	}
 }

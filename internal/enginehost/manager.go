@@ -69,10 +69,11 @@ const defaultIdleAfter = 10 * time.Minute
 // interruptedReason is the reason a session whose turn was running when Close stopped the manager records.
 const interruptedReason = "orreryd stopped during the turn"
 
-// NoticeSink receives the notices the owner is told about, and the seen reports that clear them. *Notifier satisfies
-// it.
+// NoticeSink receives the notices the owner is told about, the changes that end them, and the seen reports that clear
+// them. *Notifier satisfies it.
 type NoticeSink interface {
 	Notify(ctx context.Context, n Notice)
+	Changed(ctx context.Context, session string)
 	Seen(ctx context.Context, session string, seen time.Time)
 }
 
@@ -453,6 +454,9 @@ func (m *Manager) send(ctx context.Context, live *liveSession, req SayRequest) e
 		m.setTurning(live, false)
 		return fmt.Errorf("record prompt of session %s: %w", id, err)
 	}
+	if !live.step {
+		m.changed(ctx, id)
+	}
 	if err := live.sess.Prompt(text); err != nil {
 		m.setTurning(live, false)
 		var marks []store.EngineOp
@@ -574,6 +578,9 @@ func (m *Manager) Answer(ctx context.Context, id, requestID, answer string) erro
 	if err = m.writer.Put(ctx, id, store.EngineSet{ID: id,
 		Changes: store.EngineChanges{State: &working, Question: &question}}); err != nil {
 		return fmt.Errorf("record answer of session %s: %w", id, err)
+	}
+	if !live.step {
+		m.changed(ctx, id)
 	}
 	return nil
 }
@@ -1040,9 +1047,9 @@ func stampHome(environ []string) (string, error) {
 	return home, nil
 }
 
-// pump records the events of one running session, in order, until its events close, and notifies the owner of each
-// event that calls for it once the event is recorded. It is the only reader of the session's events and the only user
-// of its recorder. When it ends it frees the session's slot and removes its entry, only while that entry is its own.
+// pump records the events of one running session, in order, until its events close, and tells the owner of each event
+// once it is recorded. It is the only reader of the session's events and the only user of its recorder. When it ends
+// it frees the session's slot and removes its entry, only while that entry is its own.
 func (m *Manager) pump(ctx context.Context, live *liveSession, rec *recorder) {
 	defer m.pumps.Done()
 	reply := ""
@@ -1064,8 +1071,8 @@ func (m *Manager) pump(ctx context.Context, live *liveSession, rec *recorder) {
 			live.order.Unlock()
 			if err != nil {
 				m.logger.WarnContext(ctx, "record session event", "session", live.id, "err", err)
-			} else if state, body, notify := eventNotice(event, reply, interrupted); notify && !live.step {
-				m.notify(ctx, live.id, live.dir, state, body)
+			} else {
+				m.tellOwner(ctx, live, event, reply, interrupted)
 			}
 		}
 		if _, ended := event.(session.TurnEnded); ended {
@@ -1187,6 +1194,43 @@ func (m *Manager) notify(ctx context.Context, id, dir, state, body string) {
 	m.notifier.Notify(ctx, Notice{Session: id, Dir: dir, State: state, Body: body})
 }
 
+// tellOwner tells the owner of recorded event of live: a notice when the event calls for one, and otherwise that the
+// session changed when the event ends its pending notice. A step tells the owner nothing.
+func (m *Manager) tellOwner(
+	ctx context.Context, live *liveSession, event session.Event, reply string, interrupted bool,
+) {
+	if live.step {
+		return
+	}
+	if state, body, notify := eventNotice(event, reply, interrupted); notify {
+		m.notify(ctx, live.id, live.dir, state, body)
+	} else if endsNotice(event) {
+		m.changed(ctx, live.id)
+	}
+}
+
+// changed tells the notifier that session id left the state its pending notice was about. It sends nothing without a
+// notifier.
+func (m *Manager) changed(ctx context.Context, id string) {
+	if m.notifier == nil {
+		return
+	}
+	m.notifier.Changed(ctx, id)
+}
+
+// endsNotice reports whether a recorded event records a session working or stopped, which ends its pending notice as
+// a pane's transition does. A failed exit records failed, which notifies instead.
+func endsNotice(event session.Event) bool {
+	switch ev := event.(type) {
+	case session.RequestCancelled:
+		return true
+	case session.Exited:
+		_, failed := exitFailure(ev)
+		return !failed
+	}
+	return false
+}
+
 // waitPump waits until the pump of live has finished, or until ctx ends.
 func (m *Manager) waitPump(ctx context.Context, live *liveSession) error {
 	select {
@@ -1199,7 +1243,7 @@ func (m *Manager) waitPump(ctx context.Context, live *liveSession) error {
 
 // recordStopped waits for the pump of live to finish, then records live stopped, with its unfinished text removed,
 // unless its exit already recorded both. A stopped session's turn has ended, and a stopped process delivers no exit
-// of its own. It returns the error of the wait or of the write.
+// of its own. The stop tells the owner the session changed. It returns the error of the wait or of the write.
 func (m *Manager) recordStopped(ctx context.Context, live *liveSession) error {
 	if err := m.waitPump(ctx, live); err != nil {
 		return err
@@ -1212,6 +1256,9 @@ func (m *Manager) recordStopped(ctx context.Context, live *liveSession) error {
 		Changes: store.EngineChanges{State: &stopped}})
 	if err != nil {
 		return fmt.Errorf("record session %s stopped: %w", live.id, err)
+	}
+	if !live.step {
+		m.changed(ctx, live.id)
 	}
 	return nil
 }

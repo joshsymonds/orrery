@@ -303,11 +303,43 @@ func TestReadFrameRejects(t *testing.T) {
 		"boolean hook":     `{"hook":true}`,
 		"non-object root":  `["hook"]`,
 		"wrong field type": `{"hook":{},"tmuxPane":7}`,
+		"read with hook":   `{"hook":{},"tmuxPane":"%1","read":1700000000}`,
+		"read with seen":   `{"tmuxPane":"%1","seen":1700000000,"read":1700000000}`,
+		"read zero":        `{"tmuxPane":"%1","read":0}`,
+		"read negative":    `{"tmuxPane":"%1","read":-1}`,
 	}
 	for name, input := range cases {
 		if _, err := protocol.ReadFrame(strings.NewReader(input)); err == nil {
 			t.Errorf("%s: ReadFrame(%q) returned no error", name, input)
 		}
+	}
+}
+
+func TestReadFrameAcceptsReadReport(t *testing.T) {
+	got, err := protocol.ReadFrame(strings.NewReader(`{"tmuxPane":"%1","read":1700000000}`))
+	if err != nil {
+		t.Fatalf("ReadFrame: %v", err)
+	}
+	if got.TmuxPane != "%1" || got.Read != 1700000000 {
+		t.Errorf("TmuxPane = %q, Read = %d, want %%1 and 1700000000", got.TmuxPane, got.Read)
+	}
+	if got.Hook != nil || got.Seen != 0 {
+		t.Errorf("Hook = %s, Seen = %d, want no hook and no seen", got.Hook, got.Seen)
+	}
+}
+
+func TestReadReportRoundTrip(t *testing.T) {
+	want := protocol.HookFrame{TmuxPane: "%4", Read: 1700000100}
+	var buf bytes.Buffer
+	if err := protocol.WriteFrame(&buf, want); err != nil {
+		t.Fatalf("WriteFrame: %v", err)
+	}
+	got, err := protocol.ReadFrame(&buf)
+	if err != nil {
+		t.Fatalf("ReadFrame: %v", err)
+	}
+	if got.TmuxPane != want.TmuxPane || got.Read != want.Read || got.Hook != nil || got.Seen != 0 {
+		t.Errorf("round trip = %+v, want %+v", got, want)
 	}
 }
 

@@ -114,6 +114,10 @@ type StepClient interface {
 	) (*connect.Response[enginev1.StopStepResponse], error)
 }
 
+// ReadReporter receives the pane ID and the unix seconds of each read of a pane the phone makes through
+// Panes.Conversation or Panes.Screen.
+type ReadReporter func(pane string, at int64)
+
 // Config holds the guard settings for New.
 type Config struct {
 	// Logins lists the Tailscale logins admitted by the guard, matched exactly.
@@ -160,6 +164,9 @@ type Config struct {
 	// ReportSeen receives the pane and the seen time it holds after each Panes.MarkSeen succeeds, or is nil to
 	// report nothing.
 	ReportSeen cli.SeenReporter
+	// ReportRead receives the pane and the read time after each Panes.Conversation or Panes.Screen answers, dated by
+	// Now, or is nil to report nothing.
+	ReportRead ReadReporter
 	// Web holds the built page, with index.html at its root and its assets beside it, or is nil for no page.
 	// After the login check, GET and HEAD answer a file of Web at its path, and "/" answers index.html.
 	Web fs.FS
@@ -214,7 +221,7 @@ func New(cfg Config) (http.Handler, error) {
 	stepsPath, stepsService := newStepsHandler(cfg.Steps, cfg.ControlTimeout)
 	mux.Handle(stepsPath, stepsService)
 	panesPath, panesService := newPanesHandler(
-		cfg.Tmux, cfg.Sessions, newest, goals, queues, textLocks, seenLocks, cfg.ReportSeen,
+		cfg.Tmux, cfg.Sessions, newest, goals, queues, textLocks, seenLocks, cfg.ReportSeen, cfg.ReportRead, now,
 		conversationPoll, conversationKeepalive, sendTimeout, cfg.Shutdown,
 	)
 	mux.Handle(panesPath, panesService)

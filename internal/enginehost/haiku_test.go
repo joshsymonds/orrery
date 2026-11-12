@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -89,6 +90,18 @@ func haikuRuns(t *testing.T, dir string) int {
 		t.Fatalf("read runs: %v", err)
 	}
 	return strings.Count(string(data), "run\n")
+}
+
+// haikuBaseURLEntries returns the ANTHROPIC_BASE_URL entries of the env the fake claude recorded in dir.
+func haikuBaseURLEntries(t *testing.T, dir string) []string {
+	t.Helper()
+	var entries []string
+	for line := range strings.SplitSeq(haikuReadFile(t, dir, "env"), "\n") {
+		if strings.HasPrefix(line, "ANTHROPIC_BASE_URL=") {
+			entries = append(entries, line)
+		}
+	}
+	return entries
 }
 
 // haikuDir returns a fresh directory for one fake's files.
@@ -468,6 +481,78 @@ sleep 30`, status: 0})
 	case <-held:
 	case <-time.After(5 * time.Second):
 		t.Fatalf("holding call did not end after its context ended")
+	}
+}
+
+// haikuCallViaBaseURL and haikuCallViaModel are the base URL and model the CallVia tests pass.
+const (
+	haikuCallViaBaseURL = "http://patchbay.invalid/ctx/example"
+	haikuCallViaModel   = "example-model"
+)
+
+// TestHaikuCallViaRunsClaudeWithBaseURLAndModel checks that CallVia runs claude with the given model and with
+// exactly one ANTHROPIC_BASE_URL, the given one, although the caller's environ holds a different base URL.
+func TestHaikuCallViaRunsClaudeWithBaseURLAndModel(t *testing.T) {
+	dir := haikuDir(t)
+	claude := haikuWriteFake(t, dir, haikuFake{stdout: haikuSuccessLine, status: 0})
+	h := NewHaiku(HaikuConfig{Claude: claude, Environ: haikuEnviron()})
+
+	out, err := h.CallVia(context.Background(), haikuCallViaBaseURL, haikuCallViaModel, haikuSchema, "input")
+	if err != nil {
+		t.Fatalf("CallVia: %v", err)
+	}
+	if got, want := string(out), `{"verdict":"ok"}`; got != want {
+		t.Fatalf("structured_output = %s, want %s", got, want)
+	}
+
+	wantArgv := []string{
+		"-p",
+		"--model", haikuCallViaModel,
+		"--settings", `{"disableAllHooks":true}`,
+		"--no-session-persistence",
+		"--tools", "",
+		"--max-turns", "1",
+		"--output-format", "json",
+		"--json-schema", haikuSchema,
+	}
+	wantArgvText := strings.Join(wantArgv, "\n") + "\n"
+	if got := haikuReadFile(t, dir, "argv"); got != wantArgvText {
+		t.Fatalf("argv:\n%s\nwant:\n%s", got, wantArgvText)
+	}
+
+	wantBase := []string{"ANTHROPIC_BASE_URL=" + haikuCallViaBaseURL}
+	if got := haikuBaseURLEntries(t, dir); !slices.Equal(got, wantBase) {
+		t.Fatalf("ANTHROPIC_BASE_URL entries = %q, want %q", got, wantBase)
+	}
+}
+
+// TestHaikuCallViaEmptyBaseURLLeavesNoBaseURL checks that CallVia with no base URL drops the caller's
+// ANTHROPIC_BASE_URL and sets none.
+func TestHaikuCallViaEmptyBaseURLLeavesNoBaseURL(t *testing.T) {
+	dir := haikuDir(t)
+	claude := haikuWriteFake(t, dir, haikuFake{stdout: haikuSuccessLine, status: 0})
+	h := NewHaiku(HaikuConfig{Claude: claude, Environ: haikuEnviron()})
+
+	if _, err := h.CallVia(context.Background(), "", haikuCallViaModel, haikuSchema, "input"); err != nil {
+		t.Fatalf("CallVia: %v", err)
+	}
+	if got := haikuBaseURLEntries(t, dir); len(got) != 0 {
+		t.Fatalf("ANTHROPIC_BASE_URL entries = %q, want none", got)
+	}
+}
+
+// TestHaikuCallViaEmptyModelRunsDefaultModel checks that CallVia with no model runs the default summary model.
+func TestHaikuCallViaEmptyModelRunsDefaultModel(t *testing.T) {
+	dir := haikuDir(t)
+	claude := haikuWriteFake(t, dir, haikuFake{stdout: haikuSuccessLine, status: 0})
+	h := NewHaiku(HaikuConfig{Claude: claude, Environ: haikuEnviron()})
+
+	if _, err := h.CallVia(context.Background(), haikuCallViaBaseURL, "", haikuSchema, "input"); err != nil {
+		t.Fatalf("CallVia: %v", err)
+	}
+	argv := haikuReadFile(t, dir, "argv")
+	if want := "--model\n" + protocol.DefaultSummaryModel + "\n"; !strings.Contains(argv, want) {
+		t.Fatalf("argv does not carry %q:\n%s", want, argv)
 	}
 }
 

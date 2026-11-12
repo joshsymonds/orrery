@@ -75,6 +75,9 @@ class MainActivityTest {
     private lateinit var context: Context
     private lateinit var server: FakeOrreryServer
 
+    /** Every activity a test launched, destroyed after it so no screen keeps composing into the next test. */
+    private val launched = mutableListOf<ActivityController<MainActivity>>()
+
     @Before
     fun pointSettingsAtFakeServer() {
         context = ApplicationProvider.getApplicationContext()
@@ -87,6 +90,7 @@ class MainActivityTest {
 
     @After
     fun closeServer() {
+        launched.forEach { it.pause().stop().destroy() }
         server.close()
     }
 
@@ -174,7 +178,7 @@ class MainActivityTest {
         if (extraSession != null) {
             intent.putExtra(PushNotifier.EXTRA_SESSION, extraSession)
         }
-        return Robolectric.buildActivity(MainActivity::class.java, intent).setup()
+        return Robolectric.buildActivity(MainActivity::class.java, intent).setup().also { launched += it }
     }
 
     private fun awaitNode(matcher: SemanticsMatcher) {

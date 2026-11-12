@@ -37,11 +37,12 @@ type deskRig struct {
 // record, and concurrent fakes cannot interleave their records.
 const recordEnd = `\n`
 
-// rigTool is a fake named name that records its argv and then runs body.
+// rigTool is a fake named name that records its argv and its start in order, and then runs body.
 func rigTool(dir, name, body string) string {
 	return "#!/bin/sh\n" +
 		"dir='" + dir + "'\n" +
 		"printf '%s\\0' \"$@\" '" + recordEnd + "' >> \"$dir/" + name + ".calls\"\n" +
+		"echo " + name + " >> \"$dir/order\"\n" +
 		body
 }
 
@@ -150,6 +151,21 @@ func (r *deskRig) calls(name string) [][]string {
 	return out
 }
 
+// order returns the notify-send and pw-play runs in the order they started.
+func (r *deskRig) order() []string {
+	data, err := os.ReadFile(filepath.Join(r.dir, "order"))
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for name := range strings.FieldsSeq(string(data)) {
+		if name == "notify-send" || name == "pw-play" {
+			out = append(out, name)
+		}
+	}
+	return out
+}
+
 // notifyArgv is the notify-send argv for one popup.
 func notifyArgv(urgency, title, body string) []string {
 	return []string{
@@ -168,6 +184,13 @@ func hello(host string) string {
 // notice is a notice line from host in state.
 func notice(host, state, title, body string) string {
 	return marshalLine(deskstream.Line{Kind: deskstream.KindNotice, Host: host, State: state, Title: title, Body: body})
+}
+
+// quietNotice is a quiet notice line from host in state.
+func quietNotice(host, state, title, body string) string {
+	line := deskstream.Line{Kind: deskstream.KindNotice, Host: host, State: state, Title: title, Body: body}
+	line.Quiet = true
+	return marshalLine(line)
 }
 
 func marshalLine(line deskstream.Line) string {
@@ -265,6 +288,33 @@ func TestRunPopsUpEachStreamsNotices(t *testing.T) {
 	rig.finish()
 }
 
+func TestRunPopsUpQuietNoticeWithoutSound(t *testing.T) {
+	rig := newDeskRig(t)
+	rig.live("local", hello("local"))
+	rig.live("box", hello("box"),
+		quietNotice("box", "done", "quiet done", "no tick"),
+		notice("box", "done", "loud done", "tick"))
+	rig.run(rig.config("box"))
+
+	waitFor(t, "two popups and one sound", func() bool { return len(rig.order()) == 3 })
+	if got, want := rig.order(), []string{"notify-send", "notify-send", "pw-play"}; !slices.Equal(got, want) {
+		t.Fatalf("run order = %q, want %q: only the loud popup plays a sound", got, want)
+	}
+	notifies := rig.calls("notify-send")
+	for _, want := range [][]string{
+		notifyArgv("normal", "quiet done", "no tick"),
+		notifyArgv("normal", "loud done", "tick"),
+	} {
+		if !containsArgv(notifies, want) {
+			t.Fatalf("no popup with argv %q; notify-send ran %q", want, notifies)
+		}
+	}
+	if got := rig.calls("pw-play"); len(got) != 1 || !slices.Equal(got[0], []string{deskSound}) {
+		t.Fatalf("pw-play runs = %q, want one run with %q", got, []string{deskSound})
+	}
+	rig.finish()
+}
+
 func TestRunPopsUpNoticesInOrderOneAtATime(t *testing.T) {
 	rig := newDeskRig(t)
 	rig.live("local", hello("local"))
@@ -286,6 +336,7 @@ func TestRunPopsUpNoticesInOrderOneAtATime(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(rig.dir, "overlap")); err == nil {
 		t.Fatal("two popups were shown at once")
 	}
+	waitFor(t, "three sounds", func() bool { return len(rig.calls("pw-play")) == 3 })
 	rig.finish()
 }
 
@@ -307,6 +358,12 @@ func TestRunPopsUpLostHost(t *testing.T) {
 		want := notifyArgv("critical", "orrery desk", host+" unreachable for 5 minutes")
 		if !containsArgv(notifies, want) {
 			t.Fatalf("no lost popup with argv %q; notify-send ran %q", want, notifies)
+		}
+	}
+	waitFor(t, "two lost sounds", func() bool { return len(rig.calls("pw-play")) == 2 })
+	for _, argv := range rig.calls("pw-play") {
+		if !slices.Equal(argv, []string{deskSound}) {
+			t.Fatalf("pw-play argv = %q, want %q", argv, []string{deskSound})
 		}
 	}
 	rig.finish()

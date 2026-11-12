@@ -19,8 +19,8 @@ import (
 // not hold up the Claude Code hook.
 const forwardDeadline = 20 * time.Millisecond
 
-// seenDeadline bounds the dial and the write of one seen report.
-const seenDeadline = time.Second
+// reportDeadline bounds the dial and the write of one seen or read report.
+const reportDeadline = time.Second
 
 // Run forwards the hook JSON read from stdin, with the pane, tmux, working directory and
 // patchbay base URL, to the daemon listening on socketPath. It writes nothing to stdout or
@@ -80,15 +80,27 @@ func Run(stdin io.Reader, getenv func(string) string, socketPath string) {
 // socket file or a refused connection means no daemon is listening and holds no notice, so both return nil. An empty
 // socketPath sends nothing. Any other dial or write failure is returned.
 func ReportSeen(socketPath, pane string, seen int64) error {
+	return sendReport(socketPath, protocol.HookFrame{TmuxPane: pane, Seen: seen})
+}
+
+// ReportRead tells orreryd that the phone read pane at read. It shares ReportSeen's nil and error rules.
+func ReportRead(socketPath, pane string, read int64) error {
+	return sendReport(socketPath, protocol.HookFrame{TmuxPane: pane, Read: read})
+}
+
+// sendReport writes frame, a seen or read report, to the daemon listening on socketPath. A missing socket file or a
+// refused connection means no daemon is listening and so holds nothing to update, so both return nil. An empty
+// socketPath sends nothing. Any other dial or write failure is returned.
+func sendReport(socketPath string, frame protocol.HookFrame) error {
 	if socketPath == "" {
 		return nil
 	}
 	var payload bytes.Buffer
-	if err := protocol.WriteFrame(&payload, protocol.HookFrame{TmuxPane: pane, Seen: seen}); err != nil {
-		return fmt.Errorf("encode seen report: %w", err)
+	if err := protocol.WriteFrame(&payload, frame); err != nil {
+		return fmt.Errorf("encode report: %w", err)
 	}
 
-	deadline := time.Now().Add(seenDeadline)
+	deadline := time.Now().Add(reportDeadline)
 	ctx, cancel := context.WithDeadline(context.Background(), deadline)
 	defer cancel()
 	var dialer net.Dialer
@@ -106,10 +118,10 @@ func ReportSeen(socketPath, pane string, seen int64) error {
 		}
 	}()
 	if err = conn.SetDeadline(deadline); err != nil {
-		return fmt.Errorf("set seen deadline: %w", err)
+		return fmt.Errorf("set report deadline: %w", err)
 	}
 	if _, err = conn.Write(payload.Bytes()); err != nil {
-		return fmt.Errorf("write seen report: %w", err)
+		return fmt.Errorf("write report: %w", err)
 	}
 	return nil
 }

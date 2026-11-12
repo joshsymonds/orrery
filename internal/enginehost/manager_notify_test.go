@@ -12,20 +12,24 @@ import (
 	"testing"
 	"time"
 
+	"github.com/joshsymonds/orrery/internal/deskstream"
 	"github.com/joshsymonds/orrery/internal/engine/session"
 	"github.com/joshsymonds/orrery/internal/notice"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/push"
+	"github.com/joshsymonds/orrery/internal/route"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
 // Notifier must satisfy the sink the manager is configured with.
 var _ NoticeSink = (*Notifier)(nil)
 
-// fakeSink records the notices and seen reports a manager sends. Notify runs on the pump goroutines, so it locks.
+// fakeSink records the notices, changes and seen reports a manager sends. Notify runs on the pump goroutines, so it
+// locks.
 type fakeSink struct {
 	mu      sync.Mutex
 	notices []Notice
+	changes []string
 	seens   []sinkSeen
 }
 
@@ -41,10 +45,23 @@ func (f *fakeSink) Notify(_ context.Context, notice Notice) {
 	f.notices = append(f.notices, notice)
 }
 
+func (f *fakeSink) Changed(_ context.Context, session string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.changes = append(f.changes, session)
+}
+
 func (f *fakeSink) Seen(_ context.Context, session string, seen time.Time) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.seens = append(f.seens, sinkSeen{session: session, seen: seen})
+}
+
+// changedCalls returns a copy of the sessions Changed was called for so far.
+func (f *fakeSink) changedCalls() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.changes...)
 }
 
 // got returns a copy of the notices received so far.
@@ -423,10 +440,56 @@ func TestSeenFailedWriteReportsNothing(t *testing.T) {
 	}
 }
 
+// absentDesk is a desk the owner is not at. It takes posts and reports no input.
+type absentDesk struct{}
+
+func (absentDesk) Post(deskstream.Notice) {}
+
+func (absentDesk) Desk() (int64, bool) { return 0, false }
+
+// fakeRouteLog records the lines the Router writes. Write runs on the Router's goroutines, so it locks.
+type fakeRouteLog struct {
+	mu    sync.Mutex
+	lines []route.Line
+}
+
+func (f *fakeRouteLog) Write(line route.Line) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.lines = append(f.lines, line)
+	return nil
+}
+
+// got returns a copy of the lines written so far.
+func (f *fakeRouteLog) got() []route.Line {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]route.Line(nil), f.lines...)
+}
+
+const sessionTestHost = "orrery-host"
+
+// newSessionRouter returns a real Router for a host whose desk the owner is not at, with a subscribed phone at phone
+// and lines written to log. Its Close runs when the test ends.
+func newSessionRouter(t *testing.T, phone route.PhoneSink, log route.Recorder) *route.Router {
+	t.Helper()
+	router := route.New(route.Config{
+		Host:       sessionTestHost,
+		Now:        fixedClock,
+		Desk:       absentDesk{},
+		Phone:      phone,
+		Subscribed: func() (bool, error) { return true, nil },
+		Log:        log,
+	})
+	t.Cleanup(router.Close)
+	return router
+}
+
 func TestSeenClearsWaitingSessionNotice(t *testing.T) {
 	sender := &fakeSender{}
-	notices := notice.New("orrery-host", sender, fixedClock, slog.New(slog.DiscardHandler))
-	m, _ := newNoticeManager(t, fakeClaudePath(t), NewNotifier(NotifierConfig{Push: notices}))
+	notices := notice.New(sessionTestHost, sender, fixedClock, slog.New(slog.DiscardHandler))
+	router := newSessionRouter(t, notices, &fakeRouteLog{})
+	m, _ := newNoticeManager(t, fakeClaudePath(t), NewNotifier(NotifierConfig{Route: router}))
 	id, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "ASK"})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
@@ -440,8 +503,180 @@ func TestSeenClearsWaitingSessionNotice(t *testing.T) {
 		t.Fatalf("Seen: %v", err)
 	}
 	notices.Wait()
-	want := push.Clear{Host: "orrery-host", Session: id, Seen: fixedClock().Unix()}
+	want := push.Clear{Host: sessionTestHost, Session: id, Seen: fixedClock().Unix()}
 	if got := sender.cleared(); len(got) != 1 || got[0] != want {
 		t.Fatalf("clears = %+v, want exactly [%+v]", got, want)
+	}
+}
+
+func TestNoticeLogsSessionPingWithSessionKey(t *testing.T) {
+	sender := &fakeSender{}
+	notices := notice.New(sessionTestHost, sender, fixedClock, slog.New(slog.DiscardHandler))
+	log := &fakeRouteLog{}
+	router := newSessionRouter(t, notices, log)
+	m, _ := newNoticeManager(t, fakeClaudePath(t), NewNotifier(NotifierConfig{Route: router}))
+	id, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "ASK"})
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	waitUntil(t, "the waiting notice's line", func() bool { return len(log.got()) == 1 })
+
+	want := route.Line{
+		Time:    fixedClock().Unix(),
+		Host:    sessionTestHost,
+		Session: id,
+		State:   string(protocol.StateWaiting),
+		Route:   route.DeskPhone,
+		Reason:  "away",
+	}
+	if got := log.got(); len(got) != 1 || got[0] != want {
+		t.Fatalf("lines = %+v, want exactly [%+v]", got, want)
+	}
+}
+
+func TestSayCallsSinkChangedForSession(t *testing.T) {
+	sink := &fakeSink{}
+	m, _ := newNoticeManager(t, fakeClaudePath(t), sink)
+	id, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "hi"})
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	waitNotices(t, sink)
+	if got := sink.changedCalls(); len(got) != 0 {
+		t.Fatalf("Changed calls before the prompt = %v, want none", got)
+	}
+
+	if err := m.Say(t.Context(), SayRequest{ID: id, Text: "again"}); err != nil {
+		t.Fatalf("Say: %v", err)
+	}
+	if got := sink.changedCalls(); len(got) != 1 || got[0] != id {
+		t.Fatalf("Changed calls after the prompt = %v, want exactly [%s]", got, id)
+	}
+}
+
+func TestStopCallsSinkChangedForSession(t *testing.T) {
+	sink := &fakeSink{}
+	m, _ := newNoticeManager(t, fakeClaudePath(t), sink)
+	id, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "hi"})
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	waitNotices(t, sink)
+
+	if err := m.Stop(t.Context(), id); err != nil {
+		t.Fatalf("Stop: %v", err)
+	}
+	if got := sink.changedCalls(); len(got) != 1 || got[0] != id {
+		t.Fatalf("Changed calls after Stop = %v, want exactly [%s]", got, id)
+	}
+}
+
+func TestEndsNoticeMapsEvents(t *testing.T) {
+	cases := []struct {
+		name  string
+		event session.Event
+		want  bool
+	}{
+		{name: "canceled request records working", event: session.RequestCancelled{}, want: true},
+		{name: "clean exit records stopped", event: session.Exited{}, want: true},
+		{
+			name:  "failed exit notifies failed instead",
+			event: session.Exited{ExitErr: errors.New("exit status 1")},
+		},
+		{name: "turn end records done", event: session.TurnEnded{}},
+		{name: "request notifies waiting instead", event: session.Request{Kind: session.RequestPermission}},
+		{name: "streamed text changes nothing", event: session.TextDelta{Text: "fake"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := endsNotice(tc.event); got != tc.want {
+				t.Fatalf("endsNotice = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// presentDesk is a desk the owner is at. It takes posts and reports its newest input as input.
+type presentDesk struct {
+	input int64
+}
+
+func (presentDesk) Post(deskstream.Notice) {}
+
+func (d presentDesk) Desk() (int64, bool) { return d.input, true }
+
+// fakeAfter holds the timers a Router arms, so a test fires them itself. The Router arms them under its own lock on
+// other goroutines, so it locks.
+type fakeAfter struct {
+	mu  sync.Mutex
+	fns []func()
+}
+
+func (a *fakeAfter) After(_ time.Duration, f func()) func() bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.fns = append(a.fns, f)
+	return func() bool { return true }
+}
+
+// armed returns how many timers the Router has armed.
+func (a *fakeAfter) armed() int {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return len(a.fns)
+}
+
+// fire runs the i-th timer the Router armed.
+func (a *fakeAfter) fire(i int) {
+	a.mu.Lock()
+	f := a.fns[i]
+	a.mu.Unlock()
+	f()
+}
+
+func TestAnsweredWaitingNoticeAtDeskEndsChanged(t *testing.T) {
+	sender := &fakeSender{}
+	notices := notice.New(sessionTestHost, sender, fixedClock, slog.New(slog.DiscardHandler))
+	log := &fakeRouteLog{}
+	after := &fakeAfter{}
+	router := route.New(route.Config{
+		Host:       sessionTestHost,
+		Now:        fixedClock,
+		After:      after.After,
+		Desk:       presentDesk{input: fixedClock().Unix()},
+		Phone:      notices,
+		Subscribed: func() (bool, error) { return true, nil },
+		Log:        log,
+	})
+	t.Cleanup(router.Close)
+	m, path := newNoticeManager(t, fakeClaudePath(t), NewNotifier(NotifierConfig{Route: router}))
+	id, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "ASK"})
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	waitUntil(t, "the waiting notice at the desk", func() bool {
+		return len(log.got()) == 1 && after.armed() == 1
+	})
+	waiting := waitHistory(t, path, id, "the waiting state", func(h store.EngineHistory) bool {
+		return h.State == "waiting"
+	})
+
+	if err := m.Answer(t.Context(), id, requestIDOf(t, waiting), "red"); err != nil {
+		t.Fatalf("Answer red: %v", err)
+	}
+	atDesk := route.Line{
+		Time: fixedClock().Unix(), Host: sessionTestHost, Session: id,
+		State: string(protocol.StateWaiting), Route: route.Desk, Reason: "at the desk",
+	}
+	ended := atDesk
+	ended.Route, ended.Reason = route.None, "changed"
+	if got := log.got(); len(got) < 2 || got[0] != atDesk || got[1] != ended {
+		t.Fatalf("lines after Answer = %+v, want [%+v] then [%+v]", got, atDesk, ended)
+	}
+
+	after.fire(0)
+	notices.Wait()
+	if got := sender.publishes(); len(got) != 0 {
+		t.Fatalf("pushes after the escalation of an answered notice = %+v, want none", got)
 	}
 }

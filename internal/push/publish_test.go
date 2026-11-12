@@ -355,6 +355,73 @@ func TestPushPublishKeepsSessionWhenSummaryShortened(t *testing.T) {
 	}
 }
 
+func TestPushPublishCarriesSilentKey(t *testing.T) {
+	ep := newPubEndpoint(t, http.StatusOK)
+	p := newPubPublisher(t, ep.srv.Client(), ep)
+
+	n := pubNotification("synthetic question?")
+	n.Silent = true
+	if err := p.Publish(context.Background(), n); err != nil {
+		t.Fatalf("Publish: %v", err)
+	}
+
+	want := map[string]string{
+		"pane":          n.Pane,
+		"host":          n.Host,
+		"project":       n.Project,
+		"state":         string(n.State),
+		"summary":       n.Summary,
+		"label":         n.Label,
+		"question":      n.Question,
+		"question_hash": protocol.QuestionHash(n.Question),
+		"time":          strconv.FormatInt(n.Time, 10),
+		"silent":        "true",
+	}
+	if got := decryptPush(t, onePush(t, ep).body, ep.recipient); !maps.Equal(got, want) {
+		t.Errorf("payload = %v, want %v", got, want)
+	}
+}
+
+func TestPushPublishOmitsSilentKeyWithoutSilent(t *testing.T) {
+	ep := newPubEndpoint(t, http.StatusOK)
+	p := newPubPublisher(t, ep.srv.Client(), ep)
+
+	n := pubNotification("synthetic question?")
+	if err := p.Publish(context.Background(), n); err != nil {
+		t.Fatalf("Publish: %v", err)
+	}
+
+	payload := decryptPush(t, onePush(t, ep).body, ep.recipient)
+	if value, ok := payload["silent"]; ok {
+		t.Errorf("payload carries silent = %q, want no silent key", value)
+	}
+}
+
+func TestPushPublishKeepsSilentWhenSummaryShortened(t *testing.T) {
+	ep := newPubEndpoint(t, http.StatusOK)
+	p := newPubPublisher(t, ep.srv.Client(), ep)
+
+	n := pubNotification("synthetic question?")
+	n.Silent = true
+	n.Summary = pubEscapedQuestion(3000)
+	if err := p.Publish(context.Background(), n); err != nil {
+		t.Fatalf("Publish: %v", err)
+	}
+
+	req := onePush(t, ep)
+	assertPushHeaders(t, req)
+	if len(req.body) > pubRecordSize {
+		t.Errorf("body is %d bytes, want at most %d", len(req.body), pubRecordSize)
+	}
+	payload := decryptPush(t, req.body, ep.recipient)
+	if payload["silent"] != "true" {
+		t.Errorf("silent = %q, want %q after the summary is shortened", payload["silent"], "true")
+	}
+	if got := payload["summary"]; len(got) >= len(n.Summary) {
+		t.Errorf("summary is %d bytes, want it shortened from %d", len(got), len(n.Summary))
+	}
+}
+
 func TestPushPublishTruncatesQuestionToFitRecord(t *testing.T) {
 	first := newPubEndpoint(t, http.StatusOK)
 	second := newPubEndpoint(t, http.StatusOK)

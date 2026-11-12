@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"fmt"
 	"io"
 	"io/fs"
 	"net"
@@ -9,6 +11,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -18,10 +21,12 @@ import (
 	orreryv1 "github.com/joshsymonds/orrery/internal/gen/orrery/v1"
 	"github.com/joshsymonds/orrery/internal/gen/orrery/v1/orreryv1connect"
 	"github.com/joshsymonds/orrery/internal/open"
+	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/push"
 	"github.com/joshsymonds/orrery/internal/server"
 	"github.com/joshsymonds/orrery/internal/store"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
+	"github.com/joshsymonds/orrery/internal/tmuxtest"
 	"github.com/joshsymonds/orrery/internal/webui"
 )
 
@@ -320,6 +325,241 @@ func TestServeAnswersPageAtRoot(t *testing.T) {
 	}
 	if string(body) != string(want) {
 		t.Fatalf("GET /: body = %q, want the embedded index.html %q", body, want)
+	}
+
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("runServe returned %v, want nil", err)
+		}
+	case <-time.After(serveTestWait):
+		t.Fatalf("runServe did not return within %v of cancel", serveTestWait)
+	}
+}
+
+// serveTestRead is the synthetic read time, in unix seconds, the read reporter tests send.
+const serveTestRead int64 = 1_700_000_001
+
+// servePane is the synthetic pane the read reporter tests name.
+const servePane = "%7"
+
+// serveQuietWait bounds how long a test waits to see whether a second connection reaches the daemon socket. A
+// connection already queued is accepted at once, so this wait only runs out when no connection is queued.
+const serveQuietWait = 200 * time.Millisecond
+
+// serveReceived is one frame a test daemon read, or the error that stopped the read.
+type serveReceived struct {
+	frame protocol.HookFrame
+	err   error
+}
+
+// serveNoEnv is a getenv that sets nothing, so no daemon socket resolves from the environment.
+func serveNoEnv(string) string { return "" }
+
+// listenDaemon listens on a fresh unix socket that stands in for orreryd, and returns its path and listener.
+func listenDaemon(t *testing.T) (string, *net.UnixListener) {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "orreryd.sock")
+	ln, err := net.ListenUnix("unix", &net.UnixAddr{Name: path, Net: "unix"})
+	if err != nil {
+		t.Fatalf("listen %s: %v", path, err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	return path, ln
+}
+
+// receiveFrame accepts one connection on ln and reads its frame in the background. The result arrives on the
+// returned channel.
+func receiveFrame(ln net.Listener) <-chan serveReceived {
+	got := make(chan serveReceived, 1)
+	go func() {
+		conn, err := ln.Accept()
+		if err != nil {
+			got <- serveReceived{err: err}
+			return
+		}
+		defer func() { _ = conn.Close() }()
+		frame, err := protocol.ReadFrame(conn)
+		got <- serveReceived{frame: frame, err: err}
+	}()
+	return got
+}
+
+// TestReadReporterSendsOneReadReport runs the reporter against a daemon socket a test listener holds. It sends one
+// read report that names the pane and the read time, and no second connection follows.
+func TestReadReporterSendsOneReadReport(t *testing.T) {
+	path, ln := listenDaemon(t)
+	got := receiveFrame(ln)
+
+	report := readReporter(path, serveNoEnv)
+	if report == nil {
+		t.Fatal("readReporter returned nil for a resolvable socket, want a reporter")
+	}
+	report(servePane, serveTestRead)
+
+	var result serveReceived
+	select {
+	case result = <-got:
+	case <-time.After(serveTestWait):
+		t.Fatalf("daemon received no frame within %v", serveTestWait)
+	}
+	if result.err != nil {
+		t.Fatalf("read frame: %v", result.err)
+	}
+	want := protocol.HookFrame{TmuxPane: servePane, Read: serveTestRead}
+	if !reflect.DeepEqual(result.frame, want) {
+		t.Fatalf("frame = %+v, want %+v", result.frame, want)
+	}
+
+	// The reporter returns after its write, so a second connection would already be queued and Accept would return it.
+	if err := ln.SetDeadline(time.Now().Add(serveQuietWait)); err != nil {
+		t.Fatalf("set deadline: %v", err)
+	}
+	if conn, err := ln.Accept(); err == nil {
+		_ = conn.Close()
+		t.Fatal("daemon received a second connection, want exactly one read report")
+	}
+}
+
+// TestReadReporterNilWithoutSocket leaves the reporter nil when neither the flag nor the environment names a socket.
+func TestReadReporterNilWithoutSocket(t *testing.T) {
+	if report := readReporter("", serveNoEnv); report != nil {
+		t.Fatal("readReporter returned a reporter with no daemon socket, want nil")
+	}
+}
+
+// TestReadReporterFailureWritesStderr points the reporter at a socket whose directory is a regular file. The dial fails
+// for a reason other than absence, so the reporter returns normally and writes the error to the writer readReporter
+// gives standard error.
+func TestReadReporterFailureWritesStderr(t *testing.T) {
+	// A regular file in place of the socket's directory makes the dial fail with ENOTDIR.
+	blocker := filepath.Join(t.TempDir(), "blocker")
+	if err := os.WriteFile(blocker, nil, 0o600); err != nil {
+		t.Fatalf("write blocker: %v", err)
+	}
+	capturePath := filepath.Join(t.TempDir(), "stderr")
+	capture, err := os.Create(capturePath)
+	if err != nil {
+		t.Fatalf("create stderr capture: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := capture.Close(); err != nil {
+			t.Errorf("close stderr capture: %v", err)
+		}
+	})
+	report := readReporterTo(filepath.Join(blocker, "orreryd.sock"), serveNoEnv, capture)
+	if report == nil {
+		t.Fatal("readReporterTo returned nil for a resolvable socket, want a reporter")
+	}
+
+	report(servePane, serveTestRead)
+
+	out, err := os.ReadFile(capturePath)
+	if err != nil {
+		t.Fatalf("read stderr capture: %v", err)
+	}
+	const prefix = "orrery serve: report read: "
+	if !strings.HasPrefix(string(out), prefix) || !strings.HasSuffix(string(out), "\n") {
+		t.Fatalf("stderr = %q, want one line starting %q", out, prefix)
+	}
+}
+
+// serveNewTmux returns a unique private tmux server and kills it at cleanup.
+func serveNewTmux(t *testing.T) tmuxctl.Server {
+	t.Helper()
+	var suffix [8]byte
+	if _, err := rand.Read(suffix[:]); err != nil {
+		t.Fatalf("random server name: %v", err)
+	}
+	tmuxServer := tmuxctl.Server{Name: fmt.Sprintf("orrery-serve-read-%d-%x", os.Getpid(), suffix)}
+	t.Cleanup(func() {
+		if err := tmuxtest.Stop(t, tmuxServer); err != nil {
+			t.Errorf("kill-server: %v", err)
+		}
+	})
+	return tmuxServer
+}
+
+// serveStartPane starts a detached session on tmuxServer and returns the ID of its one pane.
+func serveStartPane(t *testing.T, tmuxServer tmuxctl.Server) string {
+	t.Helper()
+	client, err := tmuxctl.New(tmuxServer)
+	if err != nil {
+		t.Fatalf("tmuxctl.New: %v", err)
+	}
+	if _, err := client.Run(t.Context(), "-f", "/dev/null", "new-session", "-d", "-s", "serve",
+		"-c", t.TempDir(), "sleep 300"); err != nil {
+		t.Fatalf("new-session: %v", err)
+	}
+	out, err := client.Run(t.Context(), "list-panes", "-t", "serve", "-F", "#{pane_id}")
+	if err != nil {
+		t.Fatalf("list-panes: %v", err)
+	}
+	return strings.TrimSpace(out)
+}
+
+// TestServeReportsPaneReadToDaemon runs orrery serve through runServe against a live tmux pane and a test daemon
+// socket. A Panes.Screen read of the pane answers the phone and sends one read report naming the pane and the time of
+// the read.
+func TestServeReportsPaneReadToDaemon(t *testing.T) {
+	// tmux prints the list-panes field separator as "_" without a UTF-8 locale, as in the nix build sandbox, and
+	// serve's pane check then fails. The tmux server and clients this test starts inherit this locale.
+	t.Setenv("LC_ALL", "C.UTF-8")
+	tmuxServer := serveNewTmux(t)
+	pane := serveStartPane(t, tmuxServer)
+	daemonSocket, daemon := listenDaemon(t)
+	got := receiveFrame(daemon)
+
+	addr := serveFreeLoopbackAddr(t)
+	state := t.TempDir()
+	getenv := func(key string) string { return map[string]string{"XDG_STATE_HOME": state}[key] }
+	opts := globals{server: tmuxServer, daemonSocket: daemonSocket}
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		done <- runServe(ctx, opts, []string{"--listen", addr, "--allow-login", serveTestLogin}, getenv)
+	}()
+
+	panes := orreryv1connect.NewPanesClient(
+		&http.Client{Transport: serveLoginTransport{base: http.DefaultTransport}}, "http://"+addr)
+	screen := connect.NewRequest(&orreryv1.ScreenRequest{Pane: pane})
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	deadline := time.After(serveTestWait)
+	before := time.Now().Unix()
+	for {
+		callCtx, cancelCall := context.WithTimeout(ctx, serveTestWait)
+		_, err := panes.Screen(callCtx, screen)
+		cancelCall()
+		if err == nil {
+			break
+		}
+		select {
+		case serveErr := <-done:
+			t.Fatalf("runServe returned before serving: %v", serveErr)
+		case <-deadline:
+			t.Fatalf("Panes.Screen on %s: %v", pane, err)
+		case <-ticker.C:
+		}
+	}
+	after := time.Now().Unix()
+
+	var result serveReceived
+	select {
+	case result = <-got:
+	case <-time.After(serveTestWait):
+		t.Fatalf("daemon received no read report within %v", serveTestWait)
+	}
+	if result.err != nil {
+		t.Fatalf("read frame: %v", result.err)
+	}
+	if result.frame.TmuxPane != pane {
+		t.Fatalf("read report pane = %q, want %q", result.frame.TmuxPane, pane)
+	}
+	if result.frame.Read < before || result.frame.Read > after {
+		t.Fatalf("read report time = %d, want within [%d, %d]", result.frame.Read, before, after)
 	}
 
 	cancel()

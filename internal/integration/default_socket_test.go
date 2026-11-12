@@ -225,6 +225,8 @@ func TestDefaultSocketOneRow(t *testing.T) {
 
 	f.hook(t)
 	waitForState(t, db, id, protocol.StateWorking)
+	// The summary run that working starts writes into f.dir; it must finish before the test's directories are removed.
+	waitForFinishedRuns(t, f.dir, 1)
 
 	sessions, err := sqlcgen.New(db).ListSessions(t.Context())
 	if err != nil {

@@ -169,3 +169,24 @@ UPDATE steps SET verdicts = ?, doing = ? WHERE id = ?;
 
 -- name: UpdateStepEnd :exec
 UPDATE steps SET end_value = ?, status = ?, reason = ?, ended = ? WHERE id = ?;
+
+-- name: InsertGrant :exec
+INSERT INTO grants (id, project, client_pid, client_start, pools, granted) VALUES (?, ?, ?, ?, ?, ?);
+
+-- name: InsertGrantMember :exec
+INSERT INTO grant_members (member, grant_id, pool, position) VALUES (?, ?, ?, ?);
+
+-- name: CountMemberGrants :one
+SELECT COUNT(*) FROM grant_members WHERE member = ?;
+
+-- name: DeleteGrantMembers :exec
+DELETE FROM grant_members WHERE grant_id = ?;
+
+-- name: DeleteGrant :exec
+DELETE FROM grants WHERE id = ?;
+
+-- name: ListGrants :many
+SELECT * FROM grants ORDER BY granted, id;
+
+-- name: ListGrantMembers :many
+SELECT * FROM grant_members ORDER BY grant_id, position;
