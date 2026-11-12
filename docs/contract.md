@@ -367,7 +367,7 @@ orreryd [-L NAME | -S PATH] [--socket PATH] [--claude PATH] [--summary-model CON
 
 - `-L`, `-S`, and `--socket` work as they do for `orrery`.
 - `--claude PATH` sets the `claude` binary the summarizer runs, and the binary each headless session runs.
-- `--summary-model CONTEXT=MODEL` maps a patchbay context (section 8) to a summary model. Repeat the flag for each context. A context with no mapping uses `claude-haiku-5-5`.
+- `--summary-model CONTEXT=MODEL` maps a patchbay context (section 8) to a summary model. Repeat the flag for each context. A context with no mapping uses `claude-haiku-5-5`. The done judge (see [Notice routing](#notice-routing)) uses the same map.
 - Each applied hook frame sets `@orrery_context` on the frame's pane to that frame's context (section 2).
 - `--push-host HOST` names a push relay host that a Web Push subscription may use. Repeat the flag for each host. The default is `ntfy.sh`. A subscription whose endpoint is on another host is refused (section 12).
 - `--sessions` serves the engine session service and the step service (see [Steps](#steps)) on `sessions.sock` beside the daemon socket. The headless session manager runs behind it when the store opens. Without `--sessions`, no session socket exists. With it, `--session-shell` must be an absolute path, or the command exits 2.
@@ -414,6 +414,12 @@ When neither variable is set, `orreryd` exits 1.
    - a read report for the pane, sent by `serve` (see [orrery serve](#orrery-serve)), arrived in the last 30 seconds.
 
    A held notice goes to neither sink. The first hold writes a line with reason `watching`, and orreryd checks the watch again every 5 seconds. A failed check reads as not watched. A session notice is never watched, so it is never held.
+
+**Done judge.** A pane's `done` that rule 1 does not silence is judged, with or without `--sessions`. The first time its pane is found unwatched, the notice waits 10 seconds, sending nothing and writing no line. A change, a seen write, a newer notice or shutdown in that time ends it as rule 7 says. Each later check is made as rule 2 makes it: a watched pane holds the notice with no judge call, and an unwatched pane is judged at once. The judge is Haiku. It reads the `last_assistant_message` of the `Stop` hook's input (section 9), runs through the pane's own `ANTHROPIC_BASE_URL` (section 9) with the summary model that section 8 gives its patchbay context, and answers `needed` (true or false) with a `why`. It must answer within 15 seconds, or it is late. A judge that errors fails, and so does a notice with no or an empty `last_assistant_message`. Waiting notices (questions and permission prompts) and session notices are never judged.
+
+- **Unneeded.** The judge answers not needed, with no error and no late answer. At once, whether or not the desk is at hand, the desk stream gets the notice as a quiet notice and Web Push gets it as a silent notice. Rule 5 applies to the phone part. Nothing escalates the notice, and it ends with that line. Its route names the sinks it reached, as for `away`, and its reason is `unneeded`, with `: <why>` when the judge gave a why. A desk notice that cannot be built is not posted, and the reason gains `; desk notice failed` as rule 6 says, but the silent phone notice is still sent.
+- **Needed, failed or late.** The notice routes by rules 3 to 6, and its reason gains `needed` (with its why), `judge failed: <error>` or `judge late`, whichever applies (see the [clauses](#notice-log)).
+
 3. **At the desk.** The desk is at hand when the desk stream is present (see [Desk stream](#desk-stream)) and either the desk's newest input or this host's newest tmux client input is within the last 2 minutes. A failed input read reads as no local input. The notice then goes to the desk stream only, with route `desk` and reason `at the desk`, and stays pending. If it is still unseen and unchanged 5 minutes later, it goes to the phone, with route `phone` and reason `unseen after 5 minutes`, and ends.
 4. **Away.** Otherwise the notice goes to the desk stream and to the phone at once, with route `desk+phone` and reason `away`.
 5. **Push subscription.** The phone gets a notice only when the push store lists at least one subscription. Without one, the phone part is dropped: the route names what remains, and the reason gains `; no push subscription`. An escalation with no subscription ends the notice with route `none` and reason `unseen after 5 minutes; no push subscription`. A failed subscription check reads as a subscription, so the push is attempted.
@@ -486,7 +492,7 @@ Errors are Connect codes:
 
 #### Session notifications
 
-A session notice is routed when a session enters `waiting`, `done`, `failed` or `interrupted`. None is routed for `stopped`, for a refused request, for an idle stop, or for the end of an interrupted turn. A step session sends no notice in any state (see [Step lifecycle](#step-lifecycle)). A notice for `waiting`, `done`, or a process that exits with an error is routed once its event is queued for the store. A notice for `interrupted`, or for a `failed` start, resume or prompt, is routed after its write is stored. Routing runs in the background, and shutdown waits for it. A session notice follows the rules of [Notice routing](#notice-routing), except that it is never watched.
+A session notice is routed when a session enters `waiting`, `done`, `failed` or `interrupted`. None is routed for `stopped`, for a refused request, for an idle stop, or for the end of an interrupted turn. A step session sends no notice in any state (see [Step lifecycle](#step-lifecycle)). A notice for `waiting`, `done`, or a process that exits with an error is routed once its event is queued for the store. A notice for `interrupted`, or for a `failed` start, resume or prompt, is routed after its write is stored. Routing runs in the background, and shutdown waits for it. A session notice follows the rules of [Notice routing](#notice-routing), except that it is never watched and never judged.
 
 On the desk stream (see [Desk stream](#desk-stream)), the line's `state` is the session's state, and its `title` is `<project> · session <first 8 characters of the id>`, where `project` is the base name of the directory. The body is:
 
@@ -605,7 +611,7 @@ Errors are Connect codes:
 The stream is JSON lines. Each line is one object and ends with a newline.
 
 - `hello` is the first line of every stream: `{"kind":"hello","host":"example-host"}`.
-- `notice` carries one notice: `{"kind":"notice","host":"example-host","state":"waiting","title":"example-project · example-session:1","body":"Which file should I edit?"}`. `state`, `title` and `body` are left out when empty.
+- `notice` carries one notice: `{"kind":"notice","host":"example-host","state":"waiting","title":"example-project · example-session:1","body":"Which file should I edit?"}`. `state`, `title` and `body` are left out when empty. `quiet` is `true` on a quiet notice, which the judge found unneeded (see [Notice routing](#notice-routing)), and absent otherwise. A quiet notice: `{"kind":"notice","host":"example-host","state":"done","title":"example-project · example-session:1","body":"Example summary of the work.","quiet":true}`.
 - The desk sends activity lines, which hold only `input`: `{"input":1700000000}`. `input` is the unix time in seconds of the desk's newest input. A line whose `input` is zero or less is ignored, and so is a line that is not JSON.
 
 Each stream gets `hello` first, then each notice posted while it is open, in the order posted. The stream keeps no backlog, so a notice posted while no stream is open is dropped. A stream that falls 64 lines behind is closed. On shutdown, queued lines get up to 2 seconds to reach their streams, and then open streams are closed.
@@ -641,7 +647,7 @@ orrery [-L NAME | -S PATH] [--socket PATH] desk --sound FILE [--host HOST]...
 
 - `-L NAME` and `-S PATH` select the desk's tmux server, whose clients' input the activity lines carry, as section 6 defines.
 
-- `--sound FILE` is required. Without it, `desk` exits 2. `FILE` is the sound that each popup plays.
+- `--sound FILE` is required. Without it, `desk` exits 2. `FILE` is the sound that each popup plays, except a quiet notice's popup (see [Popups](#orrery-desk)).
 - `--host HOST` adds a link to `HOST`. Repeat the flag for each host. Without it, the desk has only the local link.
 - `desk` runs until `SIGINT` or `SIGTERM`. It then exits 0 once every link has returned.
 
@@ -665,7 +671,7 @@ A link reads the lines its command prints, and it writes activity lines to the c
 
 Popups:
 
-- A notice pops up with `notify-send -a "Coding Agent" -u URGENCY -h boolean:suppress-sound:true -- TITLE BODY`. `URGENCY` is `critical` when the state is `waiting`, and `normal` otherwise. Then `pw-play FILE` plays the sound. The sound plays even when the notice fails.
+- A notice pops up with `notify-send -a "Coding Agent" -u URGENCY -h boolean:suppress-sound:true -- TITLE BODY`. `URGENCY` is `critical` when the state is `waiting`, and `normal` otherwise. Then `pw-play FILE` plays the sound. The sound plays even when the notice fails. A quiet notice's popup runs `notify-send` as any other and does not run `pw-play`.
 - The lost notice has the title `orrery desk`, the body `HOST unreachable for 5 minutes`, `critical` urgency, and the same sound.
 - Both programs run from `PATH` with no shell, and each is limited to 10 seconds.
 - Popups run one at a time, in the order received. A popup that is running holds up no link.
@@ -684,7 +690,7 @@ orrery desk --sound /example/sounds/notice.oga --host example-host
 | `XDG_RUNTIME_DIR` | `orrery`, `orreryd` | default socket directory when no path is set (section 5) |
 | `XDG_STATE_HOME` | `orrery` (`serve`), `orreryd` | base directory of the push store, `$XDG_STATE_HOME/orrery/push.json` (section 11, orreryd), of the notice log, `$XDG_STATE_HOME/orrery/notices.jsonl` (see [Notice log](#notice-log)), and of the store, `$XDG_STATE_HOME/orrery/orrery.db` (see [Store](#store)) |
 | `HOME` | `orrery` (`serve`), `orreryd` | used for the push store when `XDG_STATE_HOME` is unset, at `$HOME/.local/state/orrery/push.json`, and for the notice log and the store, at `$HOME/.local/state/orrery/notices.jsonl` and `$HOME/.local/state/orrery/orrery.db`. `serve` also uses it as the home directory that `Control.Start` admits directories under (see [Control API](#control-api)) |
-| `ANTHROPIC_BASE_URL` | `orrery` (`hook`, `debug summarize`) | the session's base URL. The hook sends it in each frame (section 9), and each summary runs through its own session's base URL. |
+| `ANTHROPIC_BASE_URL` | `orrery` (`hook`, `debug summarize`) | the session's base URL. The hook sends it in each frame (section 9), and each summary and each done judge (see [Notice routing](#notice-routing)) runs through its own session's base URL. |
 | `ORRERY_SUMMARIZER` | `orrery` (`hook`) | summarizer sentinel (section 7). `orreryd` sets it on each summary run. Summaries also run with hooks disabled. |
 | `SHELL` | `orreryd` | the login shell that starts each headless session, when `--session-shell` is not given (see [Headless sessions](#headless-sessions)) |
 | `HOME` | `orrery` (`tree`, `open`) | `$HOME/Personal` is the default parent directory of new projects. `$HOME` is also the directory that roots are relative to, and the roots file falls back to `$HOME/.config/orrery/roots` (see [Roots](#roots)) |
@@ -758,14 +764,20 @@ The `reason` values are these. A reason that gains a clause adds it after `; `:
 | `at the desk` | `desk` | posted to the desk stream; the notice stays pending |
 | `unseen after 5 minutes` | `phone`, or `none` with `no push subscription` | escalated after 5 minutes at the desk, unseen and unchanged |
 | `away` | `desk+phone`, `desk`, `phone` or `none` | routed away from the desk |
+| `unneeded` | `desk+phone`, `desk`, `phone` or `none` | the judge found the notice unneeded: posted to the desk stream as a quiet notice and sent to Web Push as a silent notice, then ended (see [Notice routing](#notice-routing)) |
 | `changed` | `none` | a newer notice for its key, or the pane or session moved to another state |
 | `seen` | `none` | a seen write at or after the notice's time |
 | `shutdown` | `none` | `orreryd` shut down while the notice was pending |
 
 The clauses are these:
 
+- `needed`: the judge found the notice needed. It takes `: <why>` when the judge gave a why.
+- `judge failed: <error>`: the judge failed, or the notice had no or an empty `last_assistant_message`. `<error>` is the judge's error text.
+- `judge late`: the judge did not answer within 15 seconds.
 - `desk notice failed`: the desk notice could not be built, so none was posted.
 - `no push subscription`: the push store lists no subscription, so the phone part was dropped.
+
+The judge clauses follow the route word, and `desk notice failed` and `no push subscription` follow them, so a reason can read `away; needed: <why>; no push subscription`.
 
 ### Roots
 
@@ -1058,7 +1070,7 @@ When [Notice routing](#notice-routing) sends a pane's `waiting` or `done` notice
 
 - The body is one RFC 8291 `aes128gcm` record. The record is at most 4096 bytes.
 - The headers are `Content-Encoding: aes128gcm` and `TTL: 3600`.
-- The plaintext is a JSON object. Every value is a string. The keys are `pane`, `host`, `project`, `state`, `summary`, `label`, `question`, `question_hash`, and `time`. `time` is the notice's time, as decimal unix seconds. A headless session notice also has the key `session`, holding the session id. A pane notice has no `session` key.
+- The plaintext is a JSON object. Every value is a string. The keys are `pane`, `host`, `project`, `state`, `summary`, `label`, `question`, `question_hash`, and `time`. `time` is the notice's time, as decimal unix seconds. A headless session notice also has the key `session`, holding the session id. A pane notice has no `session` key. A silent notice (see [Notice routing](#notice-routing)) also has the key `silent`, holding `"true"`. No other notice has a `silent` key.
 - The plaintext is at most 3993 bytes. When it is longer, the question is cut first, then the summary.
 - `question_hash` always covers the full question, even when the question is cut.
 
@@ -1089,6 +1101,7 @@ On the phone, the notices of a host are shown as follows:
 - A replacement is silent unless its state is `waiting` or `failed`.
 - A clear removes only the notices at or before its `seen` time.
 - Session notices carry no actions.
+- A silent notice shows on the app's silent channel, with no sound or vibration.
 
 ### Connect API
 
@@ -1490,3 +1503,7 @@ orrery desk notices (effort 1) removed the ntfy topic. The variables `ORRERY_NTF
 orrery notice routing (effort 1, N1b2a) added, additively: the `read` key of HookFrame and the read report (section 9); the read reports that `serve` sends (section 11, `orrery serve`) and the Phone API reads that carry them; and the notice log, its keys, route values and reasons (see [Notice log](#notice-log)). No existing name or value changes.
 
 Notice routing (see [Notice routing](#notice-routing)) is a change, not an addition. Before it, every pane notice of a transition to `waiting` or `done` was posted to the desk stream, every headless session notice went to the desk stream and to Web Push, and every notice went to Web Push unless its `Stop` held a subagent or workflow. A `Stop` whose `background_tasks` holds a subagent or workflow now goes nowhere, where the desk stream used to carry it. The routing rules now decide each notice: a notice held for a watched pane reaches neither sink until the watch lapses, and then goes to the desk stream, to Web Push, or to both, by where the user is.
+
+orrery done judge (effort 1, N1b2b) added, additively: the `quiet` key of a desk stream notice line (see [Desk stream](#desk-stream)); the `silent` key of the Push payload (see [Push payload](#push-payload)); and the `unneeded` reason and the `needed`, `judge failed` and `judge late` clauses of the notice log (see [Notice log](#notice-log)). No existing name or value changes.
+
+Plain pane dones now wait 10 seconds once they are unwatched, and an unneeded one may arrive quiet on the desk and silent on the phone. That is a change, not an addition, and [Notice routing](#notice-routing) states the rules.
