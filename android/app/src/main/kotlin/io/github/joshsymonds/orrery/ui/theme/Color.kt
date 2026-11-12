@@ -21,25 +21,3 @@ object Mocha {
     val Peach = Color(0xFFFAB387)
     val Green = Color(0xFFA6E3A1)
 }
-
-/** The 16 ANSI colours of the Catppuccin Mocha terminal palette, indexed as SGR 30-37 and 90-97 are. */
-object MochaTerminal {
-    val Ansi: List<Color> = listOf(
-        Color(0xFF45475A),
-        Color(0xFFF38BA8),
-        Color(0xFFA6E3A1),
-        Color(0xFFF9E2AF),
-        Color(0xFF89B4FA),
-        Color(0xFFF5C2E7),
-        Color(0xFF94E2D5),
-        Color(0xFFBAC2DE),
-        Color(0xFF585B70),
-        Color(0xFFF38BA8),
-        Color(0xFFA6E3A1),
-        Color(0xFFF9E2AF),
-        Color(0xFF89B4FA),
-        Color(0xFFF5C2E7),
-        Color(0xFF94E2D5),
-        Color(0xFFA6ADC8),
-    )
-}
