@@ -82,11 +82,14 @@ type heldGrant struct {
 	end     context.CancelFunc
 }
 
-// holdResult is how holdGrant ended: with a stop and the stream that carried it, or with the error that refused a
-// reclaim.
+// holdResult is how holdGrant ended: with a stop and the stream that carried it, with the first event of a reclaim that
+// did not give back the original grant intact and the reclaim's stream, or with the error that refused a reclaim.
 type holdResult struct {
 	stream *connect.ServerStreamForClient[v1.AcquireResponse]
 	stop   *v1.AcquireStop
+	// answer is the first event of a reclaim that lost the original grant: a queued position, or a grant with another
+	// id. stream is the reclaim's stream, which holds the place in line the reclaim took.
+	answer *v1.AcquireResponse
 	err    error
 }
 
@@ -95,10 +98,11 @@ type holdResult struct {
 // granted pool whose value is its members, comma-separated. The grant lasts while the command runs. A command that did
 // not run for want of a grant returns ExitNoGrant. When ctx ends, the command gets SIGTERM and RunWithGrant returns its
 // status once it exits. When the grant's stream breaks while the command runs, the grant is reclaimed by its id every
-// Retry until orreryd grants it again, and the command keeps running. When a member of the grant is held, the command
-// gets SIGTERM, then SIGKILL once StopGrace has passed, and the grant is reclaimed by its id to wait at its place in
-// line; the command then runs again under the grant orreryd grants. When orreryd refuses a reclaim, the command gets
-// SIGTERM and ExitNoGrant is returned.
+// Retry until orreryd answers. A reclaim whose first answer grants the same id keeps the command running. When a member
+// of the grant is held, or a reclaim's first answer is a queued position or a grant with another id, the grant is lost:
+// the command gets SIGTERM, then SIGKILL once StopGrace has passed, and the grant is reclaimed by its id to wait at its
+// place in line; the command then runs again under the grant orreryd grants. When orreryd refuses a reclaim, the command
+// gets SIGTERM and ExitNoGrant is returned.
 func RunWithGrant(ctx context.Context, cfg RunConfig) int {
 	if len(cfg.Argv) == 0 {
 		fmt.Fprintln(cfg.Stderr, "orrery run: no command to run")
@@ -151,15 +155,46 @@ func awaitGrant(
 	stream *connect.ServerStreamForClient[v1.AcquireResponse],
 	stderr io.Writer,
 ) (*v1.AcquireGranted, error) {
+	for {
+		event, err := nextEvent(stream, stderr)
+		if err != nil {
+			return nil, err
+		}
+		if granted := event.GetGranted(); granted != nil {
+			return granted, nil
+		}
+	}
+}
+
+// nextEvent reads the acquire stream's next queued or granted event, writing a queued position to stderr. It returns an
+// error when the stream ends before such an event.
+func nextEvent(
+	stream *connect.ServerStreamForClient[v1.AcquireResponse],
+	stderr io.Writer,
+) (*v1.AcquireResponse, error) {
 	for stream.Receive() {
-		switch event := stream.Msg().GetEvent().(type) {
-		case *v1.AcquireResponse_Queued:
-			fmt.Fprintf(stderr, "orrery run: queued at position %d\n", event.Queued.GetPosition())
-		case *v1.AcquireResponse_Granted:
-			return event.Granted, nil
+		event := stream.Msg()
+		if queued := event.GetQueued(); queued != nil {
+			fmt.Fprintf(stderr, "orrery run: queued at position %d\n", queued.GetPosition())
+			return event, nil
+		}
+		if event.GetGranted() != nil {
+			return event, nil
 		}
 	}
 	return nil, endError(stream.Err())
+}
+
+// grantFrom returns the grant that answer grants. When answer only queues the request, it waits on stream for the grant.
+func grantFrom(
+	answer *v1.AcquireResponse,
+	stream *connect.ServerStreamForClient[v1.AcquireResponse],
+	stderr io.Writer,
+) (*v1.AcquireGranted, error) {
+	if granted := answer.GetGranted(); granted != nil {
+		return granted, nil
+	}
+	return awaitGrant(stream, stderr)
 }
 
 // endError returns why a stream ended: its error, or errStreamEnded when it ended without one.
@@ -171,8 +206,10 @@ func endError(err error) error {
 }
 
 // holdGrant holds the grant while the command runs. It reads the grant's stream until a stop arrives, or until the
-// stream ends. When the stream ends, it reclaims the grant by grantID and reads the reclaimed stream the same way. It
-// returns the stop with the stream that carried it, or the error that refused a reclaim, or ctx's error once ctx ends.
+// stream ends. When the stream ends, it reclaims the grant by grantID. A reclaim whose first answer grants grantID
+// again is read the same way. Any other first answer means the grant is lost, and holdGrant returns it with the
+// reclaim's stream without reading on. It returns the stop with the stream that carried it, or the lost grant's answer,
+// or the error that refused a reclaim, or ctx's error once ctx ends.
 func holdGrant(
 	ctx context.Context,
 	cfg RunConfig,
@@ -186,11 +223,15 @@ func holdGrant(
 			}
 		}
 		closeStream(stream, cfg.Stderr)
-		_, reclaimed, err := reclaim(ctx, cfg, grantID)
+		answer, reclaimed, err := reclaim(ctx, cfg, grantID)
 		if err != nil {
 			return holdResult{err: err}
 		}
-		stream = reclaimed
+		if granted := answer.GetGranted(); granted != nil && granted.GetGrantId() == grantID {
+			stream = reclaimed
+			continue
+		}
+		return holdResult{stream: reclaimed, answer: answer}
 	}
 }
 
@@ -200,7 +241,7 @@ func holdGrant(
 func rejoin(ctx context.Context, cfg RunConfig, grantID string) (context.Context, heldGrant, error) {
 	waitCtx, endWait := context.WithCancel(context.WithoutCancel(ctx))
 	stopWait := context.AfterFunc(ctx, endWait)
-	granted, stream, err := reclaim(waitCtx, cfg, grantID)
+	granted, stream, err := reclaimUntilGranted(waitCtx, cfg, grantID)
 	if !stopWait() && err == nil {
 		closeStream(stream, cfg.Stderr)
 		err = fmt.Errorf("wait for the grant: %w", ctx.Err())
@@ -212,14 +253,35 @@ func rejoin(ctx context.Context, cfg RunConfig, grantID string) (context.Context
 	return waitCtx, heldGrant{granted: granted, stream: stream, end: endWait}, nil
 }
 
-// reclaim asks orreryd for the grant by grantID, every Retry, until it grants it again, and returns the grant and the
-// stream that holds it. The reclaim is cfg.Request with its grant_id set. It returns the error that refused the
+// reclaimUntilGranted reclaims grantID until orreryd grants it, and returns the grant and the stream that holds it. A
+// reclaim whose stream ends before its grant is reclaimed again. It returns the error that refused a reclaim, or ctx's
+// error when ctx ends first.
+func reclaimUntilGranted(
+	ctx context.Context,
+	cfg RunConfig,
+	grantID string,
+) (*v1.AcquireGranted, *connect.ServerStreamForClient[v1.AcquireResponse], error) {
+	for {
+		answer, stream, err := reclaim(ctx, cfg, grantID)
+		if err != nil {
+			return nil, nil, err
+		}
+		granted, err := grantFrom(answer, stream, cfg.Stderr)
+		if err == nil {
+			return granted, stream, nil
+		}
+		closeStream(stream, cfg.Stderr)
+	}
+}
+
+// reclaim asks orreryd for the grant by grantID, every Retry, until its stream answers with an event, and returns that
+// first event with the stream. The reclaim is cfg.Request with its grant_id set. It returns the error that refused the
 // reclaim, or ctx's error when ctx ends first. Any other failure is retried.
 func reclaim(
 	ctx context.Context,
 	cfg RunConfig,
 	grantID string,
-) (*v1.AcquireGranted, *connect.ServerStreamForClient[v1.AcquireResponse], error) {
+) (*v1.AcquireResponse, *connect.ServerStreamForClient[v1.AcquireResponse], error) {
 	req := proto.CloneOf(cfg.Request)
 	req.GrantId = grantID
 	for {
@@ -228,9 +290,9 @@ func reclaim(
 			return nil, nil, fmt.Errorf("reclaim the grant: %w", ctx.Err())
 		case <-time.After(cfg.Retry):
 		}
-		granted, stream, err := reclaimOnce(ctx, cfg, req)
+		answer, stream, err := reclaimOnce(ctx, cfg, req)
 		if err == nil {
-			return granted, stream, nil
+			return answer, stream, nil
 		}
 		if refusedReclaim(err) {
 			return nil, nil, err
@@ -238,23 +300,23 @@ func reclaim(
 	}
 }
 
-// reclaimOnce sends one reclaim and returns the grant and its stream once orreryd grants it. A reclaim that fails closes
-// its stream.
+// reclaimOnce sends one reclaim and returns the first event its stream answers with, and the stream. A reclaim that
+// fails before an event closes its stream.
 func reclaimOnce(
 	ctx context.Context,
 	cfg RunConfig,
 	req *v1.AcquireRequest,
-) (*v1.AcquireGranted, *connect.ServerStreamForClient[v1.AcquireResponse], error) {
+) (*v1.AcquireResponse, *connect.ServerStreamForClient[v1.AcquireResponse], error) {
 	stream, err := cfg.Pools.Acquire(ctx, connect.NewRequest(req))
 	if err != nil {
 		return nil, nil, fmt.Errorf("reclaim the grant: %w", err)
 	}
-	granted, err := awaitGrant(stream, cfg.Stderr)
+	answer, err := nextEvent(stream, cfg.Stderr)
 	if err != nil {
 		closeStream(stream, cfg.Stderr)
 		return nil, nil, err
 	}
-	return granted, stream, nil
+	return answer, stream, nil
 }
 
 // refusedReclaim reports whether err is orreryd refusing a reclaim: not_found for a grant it does not store, or
@@ -277,14 +339,24 @@ func closeStream(stream *connect.ServerStreamForClient[v1.AcquireResponse], stde
 
 // runUnderGrant runs path under held and returns its exit status. grantCtx is the context held's stream is open under.
 // When the grant stops, CMD is stopped, the grant is reclaimed by its id to wait at its place in line, and CMD runs
-// again under the grant orreryd grants then. The grant that is held when runUnderGrant returns is ended first, after
-// its command has exited.
+// again under the grant orreryd grants then. When the grant is lost, CMD is stopped and the reclaim that lost it waits
+// at its place in line, and CMD runs again under the grant that reclaim is granted. The grant that is held when
+// runUnderGrant returns is ended first, after its command has exited.
 func runUnderGrant(ctx, grantCtx context.Context, cfg RunConfig, path string, held heldGrant) int {
 	status, stopped := runOnce(ctx, grantCtx, cfg, path, held)
-	if !stopped {
+	if stopped == nil {
 		return status
 	}
-	nextCtx, next, err := rejoin(ctx, cfg, held.granted.GetGrantId())
+	var (
+		nextCtx context.Context
+		next    heldGrant
+		err     error
+	)
+	if stopped.answer == nil {
+		nextCtx, next, err = rejoin(ctx, cfg, held.granted.GetGrantId())
+	} else {
+		nextCtx, next, err = resumeLost(ctx, grantCtx, cfg, held, stopped)
+	}
 	if err != nil {
 		if refusedReclaim(err) {
 			fmt.Fprintf(cfg.Stderr, "orrery run: CMD stopped, and orreryd refused to reclaim its grant: %v\n", err)
@@ -296,11 +368,38 @@ func runUnderGrant(ctx, grantCtx context.Context, cfg RunConfig, path string, he
 	return runUnderGrant(ctx, nextCtx, cfg, path, next)
 }
 
+// resumeLost waits for the grant that a lost reclaim holds, once CMD has been stopped. The reclaim's stream is open
+// under grantCtx, so grantCtx is not ended until the grant is taken or ctx ends. A stream that ends before its grant is
+// reclaimed by the grant's id, as rejoin does. It returns the granted grant with the context its stream is open under.
+func resumeLost(
+	ctx, grantCtx context.Context,
+	cfg RunConfig,
+	held heldGrant,
+	lost *holdResult,
+) (context.Context, heldGrant, error) {
+	stopWait := context.AfterFunc(ctx, held.end)
+	granted, err := grantFrom(lost.answer, lost.stream, cfg.Stderr)
+	if !stopWait() {
+		// ctx ended while the place was waited on, so the grant is closed and not taken.
+		if err == nil {
+			closeStream(lost.stream, cfg.Stderr)
+		}
+		return nil, heldGrant{}, fmt.Errorf("wait for the grant: %w", ctx.Err())
+	}
+	if err != nil {
+		closeStream(lost.stream, cfg.Stderr)
+		held.end()
+		return rejoin(ctx, cfg, held.granted.GetGrantId())
+	}
+	return grantCtx, heldGrant{granted: granted, stream: lost.stream, end: held.end}, nil
+}
+
 // runOnce starts path under held and holds the grant while it runs. grantCtx is the context held's stream is open under.
-// It returns CMD's exit status, and true when the grant stopped: then CMD has been stopped and has exited, and the grant
-// is ended. When ctx ends, CMD gets SIGTERM and its status is returned. When orreryd refuses a reclaim, CMD gets SIGTERM
-// and ExitNoGrant is returned.
-func runOnce(ctx, grantCtx context.Context, cfg RunConfig, path string, held heldGrant) (int, bool) {
+// It returns CMD's exit status, and the holdResult that stopped CMD when the grant stopped, or nil. When the grant
+// stopped, CMD has been stopped and has exited. A stop ends the grant. A lost grant does not end grantCtx, since the
+// reclaim's stream is open under it. When ctx ends, CMD gets SIGTERM and its status is returned. When orreryd refuses a
+// reclaim, CMD gets SIGTERM and ExitNoGrant is returned.
+func runOnce(ctx, grantCtx context.Context, cfg RunConfig, path string, held heldGrant) (int, *holdResult) {
 	pgid, exited, err := startCommand(&exec.Cmd{
 		Path:        path,
 		Args:        cfg.Argv,
@@ -313,7 +412,7 @@ func runOnce(ctx, grantCtx context.Context, cfg RunConfig, path string, held hel
 	if err != nil {
 		held.end()
 		fmt.Fprintf(cfg.Stderr, "orrery run: start %s: %v\n", cfg.Argv[0], err)
-		return exitCannotRun, false
+		return exitCannotRun, nil
 	}
 	result := make(chan holdResult, 1)
 	go func() { result <- holdGrant(grantCtx, cfg, held.granted.GetGrantId(), held.stream) }()
@@ -321,7 +420,7 @@ func runOnce(ctx, grantCtx context.Context, cfg RunConfig, path string, held hel
 	case end := <-exited:
 		held.end()
 		<-result
-		return end.report(cfg.Stderr), false
+		return end.report(cfg.Stderr), nil
 	case <-ctx.Done():
 		stopErr := signalGroup(pgid, syscall.SIGTERM)
 		finished := <-exited
@@ -331,9 +430,9 @@ func runOnce(ctx, grantCtx context.Context, cfg RunConfig, path string, held hel
 		if stopErr != nil {
 			fmt.Fprintf(cfg.Stderr, "orrery run: %v\n", stopErr)
 		}
-		return finished.report(cfg.Stderr), false
+		return finished.report(cfg.Stderr), nil
 	case res := <-result:
-		if res.stop == nil {
+		if res.err != nil {
 			stopErr := signalGroup(pgid, syscall.SIGTERM)
 			finished := <-exited
 			held.end()
@@ -346,18 +445,22 @@ func runOnce(ctx, grantCtx context.Context, cfg RunConfig, path string, held hel
 				"orrery run: the grant ended while CMD ran: orreryd refused to reclaim it: %v\n",
 				res.err,
 			)
-			return ExitNoGrant, false
+			return ExitNoGrant, nil
 		}
 		// The stop is written after CMD has exited, because CMD's output may still be copying to stderr until then.
 		end, stopErr := stopCommand(pgid, exited, cfg.StopGrace, cfg.After)
-		closeStream(res.stream, cfg.Stderr)
-		held.end()
 		if stopErr != nil {
 			fmt.Fprintf(cfg.Stderr, "orrery run: %v\n", stopErr)
 		}
+		if res.answer != nil {
+			fmt.Fprintln(cfg.Stderr, "orrery run: the grant was not reclaimed intact: stopped CMD")
+			return end.report(cfg.Stderr), &res
+		}
+		closeStream(res.stream, cfg.Stderr)
+		held.end()
 		members := strings.Join(res.stop.GetMembers(), ", ")
 		fmt.Fprintf(cfg.Stderr, "orrery run: members %s were held: stopped CMD\n", members)
-		return end.report(cfg.Stderr), true
+		return end.report(cfg.Stderr), &res
 	}
 }
 
