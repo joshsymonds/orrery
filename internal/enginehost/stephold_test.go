@@ -90,7 +90,7 @@ func newStepHoldFixture(t *testing.T) *stepHoldFixture {
 	startRun(t, writer)
 	sessions := &holdSessions{stepStartSessions: &stepStartSessions{writer: writer}}
 	worktrees := t.TempDir()
-	steps := NewSteps(StepsConfig{
+	steps, err := NewSteps(StepsConfig{
 		Sessions:  sessions,
 		Store:     s,
 		Writer:    writer,
@@ -99,6 +99,9 @@ func newStepHoldFixture(t *testing.T) *stepHoldFixture {
 		Environ:   []string{"PATH=" + os.Getenv("PATH")},
 		Logger:    slog.New(slog.DiscardHandler),
 	})
+	if err != nil {
+		t.Fatalf("NewSteps: %v", err)
+	}
 	t.Cleanup(steps.Close)
 	return &stepHoldFixture{steps: steps, sessions: sessions, store: s, writer: writer, worktrees: worktrees}
 }
