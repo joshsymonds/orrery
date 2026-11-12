@@ -359,15 +359,16 @@ func (q *Queries) InsertEvent(ctx context.Context, arg InsertEventParams) error 
 }
 
 const insertGrant = `-- name: InsertGrant :exec
-INSERT INTO grants (id, project, client_pid, pools, granted) VALUES (?, ?, ?, ?, ?)
+INSERT INTO grants (id, project, client_pid, client_start, pools, granted) VALUES (?, ?, ?, ?, ?, ?)
 `
 
 type InsertGrantParams struct {
-	ID        string
-	Project   string
-	ClientPid int64
-	Pools     string
-	Granted   int64
+	ID          string
+	Project     string
+	ClientPid   int64
+	ClientStart int64
+	Pools       string
+	Granted     int64
 }
 
 func (q *Queries) InsertGrant(ctx context.Context, arg InsertGrantParams) error {
@@ -375,6 +376,7 @@ func (q *Queries) InsertGrant(ctx context.Context, arg InsertGrantParams) error 
 		arg.ID,
 		arg.Project,
 		arg.ClientPid,
+		arg.ClientStart,
 		arg.Pools,
 		arg.Granted,
 	)
@@ -610,7 +612,7 @@ func (q *Queries) ListGrantMembers(ctx context.Context) ([]GrantMember, error) {
 }
 
 const listGrants = `-- name: ListGrants :many
-SELECT id, project, client_pid, pools, granted FROM grants ORDER BY granted, id
+SELECT id, project, client_pid, client_start, pools, granted FROM grants ORDER BY granted, id
 `
 
 func (q *Queries) ListGrants(ctx context.Context) ([]Grant, error) {
@@ -626,6 +628,7 @@ func (q *Queries) ListGrants(ctx context.Context) ([]Grant, error) {
 			&i.ID,
 			&i.Project,
 			&i.ClientPid,
+			&i.ClientStart,
 			&i.Pools,
 			&i.Granted,
 		); err != nil {

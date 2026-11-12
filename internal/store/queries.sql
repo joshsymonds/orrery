@@ -165,7 +165,7 @@ UPDATE steps SET verdicts = ?, doing = ? WHERE id = ?;
 UPDATE steps SET end_value = ?, status = ?, reason = ?, ended = ? WHERE id = ?;
 
 -- name: InsertGrant :exec
-INSERT INTO grants (id, project, client_pid, pools, granted) VALUES (?, ?, ?, ?, ?);
+INSERT INTO grants (id, project, client_pid, client_start, pools, granted) VALUES (?, ?, ?, ?, ?, ?);
 
 -- name: InsertGrantMember :exec
 INSERT INTO grant_members (member, grant_id, pool, position) VALUES (?, ?, ?, ?);

@@ -3,6 +3,7 @@ CREATE TABLE grants (
     id TEXT PRIMARY KEY,
     project TEXT NOT NULL,
     client_pid INTEGER NOT NULL,
+    client_start INTEGER NOT NULL,
     pools TEXT NOT NULL,
     granted INTEGER NOT NULL
 );

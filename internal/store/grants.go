@@ -20,14 +20,16 @@ type GrantMember struct {
 	Member string
 }
 
-// GrantRow is a live grant. Pools is opaque JSON the caller writes. Granted is stored at whole-second precision.
+// GrantRow is a live grant. ClientStart is the client's start time from /proc, which tells the client's process from
+// another that later takes its pid. Pools is opaque JSON the caller writes. Granted is stored at whole-second precision.
 type GrantRow struct {
-	ID        string
-	Project   string
-	ClientPID int
-	Pools     string
-	Members   []GrantMember
-	Granted   time.Time
+	ID          string
+	Project     string
+	ClientPID   int
+	ClientStart int64
+	Pools       string
+	Members     []GrantMember
+	Granted     time.Time
 }
 
 // AddGrant stores row and its members in one write transaction. It returns an error matching ErrMemberGranted,
@@ -36,8 +38,8 @@ type GrantRow struct {
 func (s *Store) AddGrant(ctx context.Context, row GrantRow) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
 		if err := queries.InsertGrant(ctx, sqlcgen.InsertGrantParams{
-			ID: row.ID, Project: row.Project, ClientPid: int64(row.ClientPID), Pools: row.Pools,
-			Granted: row.Granted.Unix(),
+			ID: row.ID, Project: row.Project, ClientPid: int64(row.ClientPID), ClientStart: row.ClientStart,
+			Pools: row.Pools, Granted: row.Granted.Unix(),
 		}); err != nil {
 			return fmt.Errorf("insert grant %s: %w", row.ID, err)
 		}
@@ -100,8 +102,8 @@ func (s *Store) Grants(ctx context.Context) ([]GrantRow, error) {
 	out := make([]GrantRow, 0, len(grants))
 	for _, grant := range grants {
 		out = append(out, GrantRow{
-			ID: grant.ID, Project: grant.Project, ClientPID: int(grant.ClientPid), Pools: grant.Pools,
-			Members: byGrant[grant.ID], Granted: time.Unix(grant.Granted, 0),
+			ID: grant.ID, Project: grant.Project, ClientPID: int(grant.ClientPid), ClientStart: grant.ClientStart,
+			Pools: grant.Pools, Members: byGrant[grant.ID], Granted: time.Unix(grant.Granted, 0),
 		})
 	}
 	return out, nil

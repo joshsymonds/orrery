@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -122,6 +124,58 @@ func (c *call) finish(t *testing.T) error {
 		t.Fatal("Acquire did not return within the guard")
 	}
 	return nil
+}
+
+// startTimeOf returns the start time /proc records for the process with pid, read by the test itself: field 22 of its
+// stat, which is the 20th field after the comm's closing parenthesis.
+func startTimeOf(t *testing.T, pid int) int64 {
+	t.Helper()
+	stat, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "stat"))
+	if err != nil {
+		t.Fatalf("read stat of process %d: %v", pid, err)
+	}
+	text := string(stat)
+	fields := strings.Fields(text[strings.LastIndexByte(text, ')')+1:])
+	if len(fields) < 20 {
+		t.Fatalf("stat of process %d has %d fields after comm, want at least 20", pid, len(fields))
+	}
+	start, err := strconv.ParseInt(fields[19], 10, 64)
+	if err != nil {
+		t.Fatalf("parse start time of process %d: %v", pid, err)
+	}
+	return start
+}
+
+// TestGrantStoresClientStartBesideClientPID checks that a grant stores its client's start time beside the client's pid.
+// A restore compares that start time with the process that holds the pid later. The test process is the client.
+func TestGrantStoresClientStartBesideClientPID(t *testing.T) {
+	b, s := newBroker(t)
+	p := awakePool(t, "p", 1, "m1")
+	grantTo(t, b, p, "a", os.Getpid())
+	rows := storedGrants(t, s)
+	want := startTimeOf(t, os.Getpid())
+	if len(rows) != 1 || rows[0].ClientPID != os.Getpid() || rows[0].ClientStart != want {
+		t.Fatalf("stored grants = %+v, want one grant of client pid %d with start time %d", rows, os.Getpid(), want)
+	}
+}
+
+// TestParseStartTimeCountsFromTheCommsClosingParenthesis checks that the start time is field 22 of a stat line whose
+// comm holds spaces and parentheses, and that a line too short for field 22 is refused.
+func TestParseStartTimeCountsFromTheCommsClosingParenthesis(t *testing.T) {
+	// Fields 3 through 21 are 1, field 22 is 777, and the line goes on past it.
+	rest := "S " + strings.Repeat("1 ", 18) + "777 1 1 1"
+	for _, comm := range []string{"sleep", "a) b", "(x) y"} {
+		got, err := parseStartTime("4242 (" + comm + ") " + rest)
+		if err != nil || got != 777 {
+			t.Fatalf("parseStartTime with comm %q = %d, %v; want 777", comm, got, err)
+		}
+	}
+	if _, err := parseStartTime("4242 (sleep) S 1 1"); err == nil {
+		t.Fatal("parseStartTime of a line with no field 22 succeeded")
+	}
+	if _, err := parseStartTime("4242 sleep S"); err == nil {
+		t.Fatal("parseStartTime of a line with no comm parentheses succeeded")
+	}
 }
 
 // makeFifo creates the named pipe at path, which a fake command writes to and the test reads.

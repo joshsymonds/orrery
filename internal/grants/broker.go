@@ -6,11 +6,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
+	"os"
 	"slices"
 	"strconv"
+	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/pools"
@@ -34,14 +36,14 @@ var ErrClosed = errors.New("broker closed")
 // Config is what a Broker runs with. Host is the host a pool must name to be granted here. Store keeps the live grants.
 // Environ is the environment each member command runs in, plus ORRERY_POOL and ORRERY_MEMBER. Now stamps grants, and
 // nil means time.Now. Logger receives the broker's warnings, and nil discards them. Alive reports whether the process
-// with a pid lives, for the clients of kept grants, and nil means a signal 0 kill does not fail with ESRCH.
+// with a pid lives under the start time its grant recorded, for the clients of kept grants, and nil means processAlive.
 type Config struct {
 	Host    string
 	Store   *store.Store
 	Environ []string
 	Now     func() time.Time
 	Logger  *slog.Logger
-	Alive   func(pid int) bool
+	Alive   func(pid int, start int64) bool
 }
 
 // Request asks for members of pools for Project. Pools holds the pool definitions the client's merged files give,
@@ -77,7 +79,7 @@ type Broker struct {
 	environ []string
 	now     func() time.Time
 	logger  *slog.Logger
-	alive   func(pid int) bool
+	alive   func(pid int, start int64) bool
 
 	// commands counts the member commands in flight, which Close waits for.
 	commands sync.WaitGroup
@@ -136,6 +138,9 @@ type waiter struct {
 	decided   chan struct{}
 	grant     *Grant
 	err       error
+	// clientStart is the start time the grant stored for its client. Only a detached grant reads it, to check the
+	// client's liveness.
+	clientStart int64
 }
 
 // storedPool is a pool definition as a grant row records it. Its JSON names are the ones a restore reads back.
@@ -192,10 +197,46 @@ func NewBroker(cfg Config) *Broker {
 	return broker
 }
 
-// processAlive reports whether a process has pid. Signal 0 sends nothing, and fails with ESRCH only when no process has
-// pid.
-func processAlive(pid int) bool {
-	return !errors.Is(syscall.Kill(pid, 0), syscall.ESRCH)
+// processAlive reports whether the process with pid lives and started at start, the start time its grant recorded. A
+// pid whose /proc entry cannot be read counts as gone, so a pid reused by another process is not the client.
+func processAlive(pid int, start int64) bool {
+	now, err := readStart(pid)
+	return err == nil && now == start
+}
+
+// readStart returns the start time of the process with pid, which is field 22 of /proc/<pid>/stat: the clock ticks after
+// boot when the process started.
+func readStart(pid int) (int64, error) {
+	stat, err := fs.ReadFile(os.DirFS("/proc"), strconv.Itoa(pid)+"/stat")
+	if err != nil {
+		return 0, fmt.Errorf("read stat of process %d: %w", pid, err)
+	}
+	start, err := parseStartTime(string(stat))
+	if err != nil {
+		return 0, fmt.Errorf("stat of process %d: %w", pid, err)
+	}
+	return start, nil
+}
+
+// startTimeIndex is the index of field 22, the start time, among the stat fields after comm, which begin at field 3.
+const startTimeIndex = 22 - 3
+
+// parseStartTime returns the start time in a /proc/<pid>/stat line. Comm, the second field, is in parentheses and may
+// hold spaces and parentheses itself, so the fields are counted from its last closing parenthesis.
+func parseStartTime(stat string) (int64, error) {
+	end := strings.LastIndexByte(stat, ')')
+	if end < 0 {
+		return 0, errors.New("no comm field")
+	}
+	fields := strings.Fields(stat[end+1:])
+	if len(fields) <= startTimeIndex {
+		return 0, fmt.Errorf("%d fields after comm, want at least %d", len(fields), startTimeIndex+1)
+	}
+	start, err := strconv.ParseInt(fields[startTimeIndex], 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("parse start time: %w", err)
+	}
+	return start, nil
 }
 
 // Run runs the status of each member of each pool in use on each tick of tick, and returns when ctx ends, when the
@@ -244,7 +285,7 @@ func (b *Broker) statusTick(ctx context.Context) {
 func (b *Broker) endDeadLocked(ctx context.Context) {
 	ended := false
 	for id, held := range b.detached {
-		if b.alive(held.req.ClientPID) {
+		if b.alive(held.req.ClientPID, held.clientStart) {
 			continue
 		}
 		delete(b.detached, id)
@@ -272,7 +313,7 @@ func (b *Broker) Restore(ctx context.Context) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	for _, row := range rows {
-		if !b.alive(row.ClientPID) {
+		if !b.alive(row.ClientPID, row.ClientStart) {
 			err = b.store.EndGrant(storeCtx, row.ID)
 			if err != nil {
 				return fmt.Errorf("end grant %s of dead client %d: %w", row.ID, row.ClientPID, err)
@@ -312,7 +353,9 @@ func (b *Broker) restoreLocked(ctx context.Context, row store.GrantRow) error {
 		member.project = row.Project
 		kept.Members = append(kept.Members, Member{Pool: stored.Pool, Name: stored.Member})
 	}
-	b.detached[row.ID] = &waiter{req: Request{Project: row.Project, ClientPID: row.ClientPID}, grant: kept}
+	b.detached[row.ID] = &waiter{
+		req: Request{Project: row.Project, ClientPID: row.ClientPID}, grant: kept, clientStart: row.ClientStart,
+	}
 	return nil
 }
 
@@ -600,9 +643,16 @@ func (b *Broker) grantLocked(ctx context.Context, assignment Assignment) {
 	for _, m := range assignment.Members {
 		stored = append(stored, store.GrantMember{Pool: m.Pool, Member: m.Name})
 	}
+	clientStart, startErr := readStart(queued.req.ClientPID)
+	if startErr != nil {
+		// A client whose /proc entry is unreadable is already gone. It is stored with start time 0, which no process
+		// has, so the next restore ends its grant.
+		b.logger.WarnContext(ctx, "client start time unreadable", "client", queued.req.ClientPID, "err", startErr)
+		clientStart = 0
+	}
 	row := store.GrantRow{
-		ID: id, Project: queued.req.Project, ClientPID: queued.req.ClientPID, Pools: queued.poolsJSON,
-		Members: stored, Granted: b.now(),
+		ID: id, Project: queued.req.Project, ClientPID: queued.req.ClientPID, ClientStart: clientStart,
+		Pools: queued.poolsJSON, Members: stored, Granted: b.now(),
 	}
 	if err := b.store.AddGrant(ctx, row); err != nil {
 		b.failLocked(queued, fmt.Errorf("store grant %s: %w", id, err))

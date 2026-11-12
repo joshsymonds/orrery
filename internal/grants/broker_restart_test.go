@@ -27,8 +27,9 @@ type pidSet struct {
 	live map[int]bool
 }
 
-// alive reports whether pid is in the set.
-func (s *pidSet) alive(pid int) bool {
+// alive reports whether pid is in the set. It ignores the start time: these tests check the death of clients, and
+// TestRestartEndsGrantWhosePidNowBelongsToAnotherProcess checks the start time with the real Alive.
+func (s *pidSet) alive(pid int, _ int64) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.live[pid]
@@ -58,7 +59,7 @@ func openStore(t *testing.T) *store.Store {
 
 // brokerOn returns a broker on s whose clients are alive as alive reports, closed when the test ends. Cleanups run last
 // in first out, so the broker is closed before the store it shares.
-func brokerOn(t *testing.T, s *store.Store, alive func(int) bool) *Broker {
+func brokerOn(t *testing.T, s *store.Store, alive func(int, int64) bool) *Broker {
 	t.Helper()
 	b := NewBroker(Config{
 		Host: testHost, Store: s, Environ: commandEnv(), Now: fixedNow,
@@ -243,18 +244,77 @@ func TestTickEndsKeptGrantWhoseClientDies(t *testing.T) {
 	}
 }
 
-// TestDefaultAliveReportsOwnAndReapedProcesses checks the Alive a Config without one gets: a process is alive while it
-// runs, and a child that has been waited for is not.
-func TestDefaultAliveReportsOwnAndReapedProcesses(t *testing.T) {
+// TestRestartEndsGrantWhosePidNowBelongsToAnotherProcess checks a restart against pid reuse. A stored grant whose client
+// pid a live, unrelated process now holds is not kept: the start time stored for the client differs from the process's,
+// so the client is gone. The grant ends at the restart, a tick leaves it ended, and its member is free for a request.
+func TestRestartEndsGrantWhosePidNowBelongsToAnotherProcess(t *testing.T) {
+	s := openStore(t)
+	p := awakePool(t, "p", 1, "m1")
+	unrelated := exec.Command("sleep", "60")
+	if err := unrelated.Start(); err != nil {
+		t.Fatalf("start unrelated process: %v", err)
+	}
+	t.Cleanup(func() {
+		// The process is killed, so Wait reports its signal, which the test does not check.
+		_ = unrelated.Process.Kill()
+		_ = unrelated.Wait()
+	})
+	defsJSON, err := encodePools([]pools.Pool{p})
+	if err != nil {
+		t.Fatalf("encode pools: %v", err)
+	}
+	// No process has a negative start time, so the stored start differs from the unrelated process's.
+	const reusedStart = -1
+	row := store.GrantRow{
+		ID: "reused", Project: "a", ClientPID: unrelated.Process.Pid, ClientStart: reusedStart, Pools: defsJSON,
+		Members: []store.GrantMember{{Pool: "p", Member: "m1"}}, Granted: fixedNow(),
+	}
+	if err := s.AddGrant(t.Context(), row); err != nil {
+		t.Fatalf("AddGrant: %v", err)
+	}
+
+	after := brokerOn(t, s, nil)
+	if err := after.Restore(t.Context()); err != nil {
+		t.Fatalf("Restore: %v", err)
+	}
+	if rows := storedGrants(t, s); len(rows) != 0 {
+		t.Fatalf("stored grants after Restore = %+v, want none: the pid belongs to another process", rows)
+	}
+	tick := runTicks(t, after)
+	tick.send(t)
+	if rows := storedGrants(t, s); len(rows) != 0 {
+		t.Fatalf("stored grants after a tick = %+v, want none", rows)
+	}
+	waiter := start(t.Context(), after, request("b", p, 1))
+	if e := waiter.next(t); e.Position != 1 {
+		t.Fatalf("waiter event = %+v, want position 1", e)
+	}
+	granted := waiter.next(t).Grant
+	if granted == nil || !slices.Equal(granted.Members, []Member{{Pool: "p", Name: "m1"}}) {
+		t.Fatalf("waiter got %+v, want m1, free once the reused grant ends", granted)
+	}
+}
+
+// TestDefaultAliveNeedsPIDAndItsStartTime checks the Alive a Config without one gets: a process is alive while it runs
+// with the start time /proc records for it, and a child that has been waited for is not alive with its start time.
+func TestDefaultAliveNeedsPIDAndItsStartTime(t *testing.T) {
 	b := NewBroker(Config{})
-	if !b.alive(os.Getpid()) {
+	self, selfStart := os.Getpid(), startTimeOf(t, os.Getpid())
+	if !b.alive(self, selfStart) {
 		t.Fatal("this process reported dead")
 	}
+	if b.alive(self, selfStart+1) {
+		t.Fatal("this process reported alive with another start time")
+	}
 	child := exec.Command(os.Args[0], "-test.run=^$")
-	if err := child.Run(); err != nil {
+	if err := child.Start(); err != nil {
+		t.Fatalf("start child: %v", err)
+	}
+	childStart := startTimeOf(t, child.Process.Pid)
+	if err := child.Wait(); err != nil {
 		t.Fatalf("run child: %v", err)
 	}
-	if b.alive(child.Process.Pid) {
+	if b.alive(child.Process.Pid, childStart) {
 		t.Fatalf("reaped child %d reported alive", child.Process.Pid)
 	}
 }

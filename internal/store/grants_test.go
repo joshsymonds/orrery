@@ -11,7 +11,7 @@ import (
 
 func grantRowOf(id string, granted time.Time, members ...GrantMember) GrantRow {
 	return GrantRow{
-		ID: id, Project: "/proj/" + id, ClientPID: 4242, Pools: `{"build":["a"]}`,
+		ID: id, Project: "/proj/" + id, ClientPID: 4242, ClientStart: 987654, Pools: `{"build":["a"]}`,
 		Members: members, Granted: granted,
 	}
 }

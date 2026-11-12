@@ -28,11 +28,12 @@ type Event struct {
 }
 
 type Grant struct {
-	ID        string
-	Project   string
-	ClientPid int64
-	Pools     string
-	Granted   int64
+	ID          string
+	Project     string
+	ClientPid   int64
+	ClientStart int64
+	Pools       string
+	Granted     int64
 }
 
 type GrantMember struct {
