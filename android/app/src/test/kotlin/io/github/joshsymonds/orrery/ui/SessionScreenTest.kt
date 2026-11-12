@@ -8,9 +8,11 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -28,6 +30,7 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationItem as Conversati
 import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationState
 import io.github.joshsymonds.orrery.gen.orrery.v1.EngineText
 import io.github.joshsymonds.orrery.gen.orrery.v1.HeadlessSession
+import io.github.joshsymonds.orrery.gen.orrery.v1.InterruptResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.OpenRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.SayRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.SayResponse
@@ -35,9 +38,12 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.SeenRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.SeenResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.SessionsWatchConversationRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.SessionsWatchConversationResponse
+import io.github.joshsymonds.orrery.gen.orrery.v1.StopResponse
 import java.nio.ByteBuffer
+import java.util.concurrent.Semaphore
 import java.util.concurrent.atomic.AtomicInteger
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -50,6 +56,8 @@ private const val WATCH_PATH = "/orrery.v1.Sessions/WatchConversation"
 private const val SAY_PATH = "/orrery.v1.Control/Say"
 private const val ANSWER_PATH = "/orrery.v1.Control/Answer"
 private const val SEEN_PATH = "/orrery.v1.Control/Seen"
+private const val INTERRUPT_PATH = "/orrery.v1.Control/Interrupt"
+private const val STOP_PATH = "/orrery.v1.Control/Stop"
 private const val TIMEOUT_MILLIS = 5_000L
 private const val FIXTURE_CHANGED = 4102444800L
 private const val FIXTURE_SEEN = 4102444900L
@@ -66,7 +74,11 @@ private const val REFRESH_FAILED = "could not refresh"
 private const val NOT_SENT = "not sent"
 private const val INTERRUPT_TAG = "session-interrupt"
 private const val STOP_TAG = "session-stop"
+private const val CONFIRM_TAG = "session-stop-confirm"
 private const val REQUEST_TAG = "session-request"
+private const val RESULT_TAG = "session-result"
+private const val RESULT_TEXT = "Interrupted"
+private const val COMPOSER_TAG = "composer"
 
 @OptIn(ExperimentalTestApi::class)
 @RunWith(RobolectricTestRunner::class)
@@ -84,15 +96,21 @@ class SessionScreenTest {
 
     /**
      * Scripts the watch stream: the first request gets streams[0], the second streams[1], and so on. A
-     * request past the script gets a stream that sends nothing and ends cleanly after a few seconds.
+     * request past the script gets a stream that sends nothing and ends cleanly after a few seconds. With
+     * [gate], each request after the first waits for a permit before it is answered, so a test reads the
+     * screen between two streamed states.
      */
-    private fun serveStreams(server: FakeOrreryServer, vararg streams: Reply) {
+    private fun serveStreams(server: FakeOrreryServer, vararg streams: Reply, gate: Semaphore? = null) {
         val requests = AtomicInteger()
         server.route(WATCH_PATH) { _ ->
             val index = requests.getAndIncrement()
+            if (index > 0) gate?.acquire()
             if (index < streams.size) streams[index] else Reply.Stream(emptyList(), StreamEnd.Silent)
         }
     }
+
+    private fun shown(tag: String): Boolean =
+        composeRule.onAllNodesWithTag(tag).fetchSemanticsNodes().isNotEmpty()
 
     private fun stateOf(state: String, request: OpenRequest? = null): ConversationState {
         val builder = ConversationState.newBuilder()
@@ -355,6 +373,124 @@ class SessionScreenTest {
             val reconnect = watchRequests(server)[1]
             assertEquals(SESSION_ID, reconnect.id)
             assertEquals(7L, reconnect.after)
+        }
+    }
+
+    @Test
+    fun interruptedShowsOnceTheTurnLeavesWorking() {
+        FakeOrreryServer().use { server ->
+            val gate = Semaphore(0)
+            serveStreams(
+                server,
+                streamOf(delta(seq = 1L, state = stateOf("working")), end = StreamEnd.Clean),
+                streamOf(delta(seq = 2L, state = stateOf("done")), end = StreamEnd.Held),
+                gate = gate,
+            )
+            server.respond(INTERRUPT_PATH, InterruptResponse.getDefaultInstance())
+            setScreen(server)
+            composeRule.waitUntilExactlyOneExists(hasTestTag(INTERRUPT_TAG), TIMEOUT_MILLIS)
+
+            composeRule.onNodeWithTag(INTERRUPT_TAG).performClick()
+            composeRule.waitUntil(TIMEOUT_MILLIS) { countPosts(server, INTERRUPT_PATH) == 1 }
+            composeRule.waitForIdle()
+            assertFalse("still working, so nothing is shown yet", shown(RESULT_TAG))
+
+            gate.release()
+            composeRule.waitUntilExactlyOneExists(hasTestTag(RESULT_TAG), TIMEOUT_MILLIS)
+            composeRule.onNodeWithTag(RESULT_TAG).assertTextEquals(RESULT_TEXT)
+            assertFalse("the controls are gone once the turn is done", shown(INTERRUPT_TAG))
+            assertFalse("the controls are gone once the turn is done", shown(STOP_TAG))
+
+            val result = composeRule.onNodeWithTag(RESULT_TAG).fetchSemanticsNode().boundsInRoot
+            val composer = composeRule.onNodeWithTag(COMPOSER_TAG).fetchSemanticsNode().boundsInRoot
+            assertTrue("Interrupted sits above the compose box", result.bottom <= composer.top)
+        }
+    }
+
+    @Test
+    fun failedInterruptThenDoneShowsNoInterrupted() {
+        FakeOrreryServer().use { server ->
+            val gate = Semaphore(0)
+            serveStreams(
+                server,
+                streamOf(delta(seq = 1L, state = stateOf("working")), end = StreamEnd.Clean),
+                streamOf(delta(seq = 2L, state = stateOf("done")), end = StreamEnd.Held),
+                gate = gate,
+            )
+            server.fail(INTERRUPT_PATH, Code.INTERNAL_ERROR, "synthetic failure")
+            setScreen(server)
+            composeRule.waitUntilExactlyOneExists(hasTestTag(INTERRUPT_TAG), TIMEOUT_MILLIS)
+
+            composeRule.onNodeWithTag(INTERRUPT_TAG).performClick()
+            composeRule.waitUntilExactlyOneExists(hasText(NOT_SENT), TIMEOUT_MILLIS)
+
+            gate.release()
+            composeRule.waitUntil(TIMEOUT_MILLIS) { !shown(INTERRUPT_TAG) }
+            composeRule.waitForIdle()
+            assertFalse(shown(RESULT_TAG))
+        }
+    }
+
+    @Test
+    fun stopThenStoppedShowsNoInterrupted() {
+        FakeOrreryServer().use { server ->
+            val gate = Semaphore(0)
+            serveStreams(
+                server,
+                streamOf(delta(seq = 1L, state = stateOf("working")), end = StreamEnd.Clean),
+                streamOf(delta(seq = 2L, state = stateOf("stopped")), end = StreamEnd.Held),
+                gate = gate,
+            )
+            server.respond(STOP_PATH, StopResponse.getDefaultInstance())
+            setScreen(server)
+            composeRule.waitUntilExactlyOneExists(hasTestTag(STOP_TAG), TIMEOUT_MILLIS)
+
+            composeRule.onNodeWithTag(STOP_TAG).performClick()
+            composeRule.waitForIdle()
+            composeRule.onNodeWithTag(CONFIRM_TAG).performClick()
+            composeRule.waitUntil(TIMEOUT_MILLIS) { countPosts(server, STOP_PATH) == 1 }
+            composeRule.waitForIdle()
+
+            gate.release()
+            composeRule.waitUntil(TIMEOUT_MILLIS) { !shown(STOP_TAG) }
+            composeRule.waitForIdle()
+            assertFalse(shown(RESULT_TAG))
+        }
+    }
+
+    @Test
+    fun interruptedClearsWhenTheSessionWorksAgain() {
+        FakeOrreryServer().use { server ->
+            val gate = Semaphore(0)
+            serveStreams(
+                server,
+                streamOf(delta(seq = 1L, state = stateOf("working")), end = StreamEnd.Clean),
+                streamOf(delta(seq = 2L, state = stateOf("done")), end = StreamEnd.Clean),
+                streamOf(delta(seq = 3L, state = stateOf("working")), end = StreamEnd.Clean),
+                streamOf(delta(seq = 4L, state = stateOf("done")), end = StreamEnd.Held),
+                gate = gate,
+            )
+            server.respond(INTERRUPT_PATH, InterruptResponse.getDefaultInstance())
+            setScreen(server)
+            composeRule.waitUntilExactlyOneExists(hasTestTag(INTERRUPT_TAG), TIMEOUT_MILLIS)
+
+            composeRule.onNodeWithTag(INTERRUPT_TAG).performClick()
+            composeRule.waitUntil(TIMEOUT_MILLIS) { countPosts(server, INTERRUPT_PATH) == 1 }
+            composeRule.waitForIdle()
+
+            gate.release()
+            composeRule.waitUntilExactlyOneExists(hasTestTag(RESULT_TAG), TIMEOUT_MILLIS)
+            assertFalse(shown(INTERRUPT_TAG))
+
+            gate.release()
+            composeRule.waitUntilExactlyOneExists(hasTestTag(INTERRUPT_TAG), TIMEOUT_MILLIS)
+            composeRule.waitForIdle()
+            assertFalse("working again clears Interrupted", shown(RESULT_TAG))
+
+            gate.release()
+            composeRule.waitUntil(TIMEOUT_MILLIS) { !shown(INTERRUPT_TAG) }
+            composeRule.waitForIdle()
+            assertFalse("a later done does not bring back the cleared Interrupted", shown(RESULT_TAG))
         }
     }
 }

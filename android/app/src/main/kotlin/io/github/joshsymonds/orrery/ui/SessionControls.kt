@@ -34,7 +34,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-private val LIVE_STATES = setOf("working", "waiting")
+internal val LIVE_STATES = setOf("working", "waiting")
+
+/** The control call a tap made. */
+enum class LiveCall { INTERRUPT, STOP }
 
 /** How a control call ended. [SENT] is the server taking it; the rest are the failures the screen names. */
 private enum class ControlOutcome { SENT, NOT_ANSWERABLE, STOPPED, NOT_SENT }
@@ -127,11 +130,18 @@ fun SessionRequestCard(
 /**
  * Interrupt and Stop for a headless session, shown only while it is working or waiting. Stop
  * asks for a second tap on its confirm button before it posts. A not_found answer to either
- * reads as stopped, and [onChanged] runs after an answer that moved the session. A tap on any
- * button gives its feedback at once; the confirm button stays on screen until its flash ends.
+ * reads as stopped, and [onChanged] runs after an answer that moved the session. [onTaken] runs
+ * with the call a tap made once the server takes it. A tap on any button gives its feedback at
+ * once; the confirm button stays on screen until its flash ends.
  */
 @Composable
-fun SessionActions(sessionId: String, state: String, client: OrreryClient, onChanged: () -> Unit) {
+fun SessionActions(
+    sessionId: String,
+    state: String,
+    client: OrreryClient,
+    onChanged: () -> Unit,
+    onTaken: (LiveCall) -> Unit = {},
+) {
     val scope = rememberCoroutineScope()
     var outcome by remember(sessionId) { mutableStateOf<ControlOutcome?>(null) }
     var confirming by remember(sessionId) { mutableStateOf(false) }
@@ -140,25 +150,28 @@ fun SessionActions(sessionId: String, state: String, client: OrreryClient, onCha
     val confirmFeedback = rememberTapFeedback()
     if (state !in LIVE_STATES) return
 
-    fun post(call: (String) -> Unit) {
+    fun post(kind: LiveCall, call: (String) -> Unit) {
         scope.launch {
             val result = withContext(Dispatchers.IO) {
                 liveCallOutcome { call(sessionId) }
             }
             outcome = result
+            if (result == ControlOutcome.SENT) onTaken(kind)
             if (result == ControlOutcome.SENT || result == ControlOutcome.STOPPED) onChanged()
         }
     }
 
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            ControlButton("Interrupt", "session-interrupt", interruptFeedback) { post(client::interrupt) }
+            ControlButton("Interrupt", "session-interrupt", interruptFeedback) {
+                post(LiveCall.INTERRUPT, client::interrupt)
+            }
             ControlButton("Stop", "session-stop", stopFeedback) { confirming = true }
             if (confirming || confirmFeedback.flashing) {
                 ControlButton("Confirm stop", "session-stop-confirm", confirmFeedback) {
                     if (confirming) {
                         confirming = false
-                        post(client::stop)
+                        post(LiveCall.STOP, client::stop)
                     }
                 }
             }

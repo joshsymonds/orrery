@@ -19,6 +19,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -34,6 +35,8 @@ private const val RECONNECT_DELAY_MILLIS = 1_000L
 private const val CLOCK_TICK_MILLIS = 1_000L
 private const val REFRESH_FAILED = "could not refresh"
 private const val WORKING_STATE = "working"
+private const val RESULT_TAG = "session-result"
+private const val RESULT_TEXT = "Interrupted"
 private const val TEXT_KIND = "text"
 private const val COMPOSE_HINT = "Message Claude…"
 
@@ -52,14 +55,17 @@ private fun currentSeconds(): Long = System.currentTimeMillis() / 1000
  *
  * The screen shows the session's header, its conversation with each unfinished main-thread text block
  * as a reply after the items, and the open request as a card after the last item. Interrupt and Stop
- * sit above the compose box while the session is working or waiting. Send posts the draft as a prompt
- * through [SessionSender]. Reading the conversation marks the session seen.
+ * sit above the compose box while the session is working or waiting. Once an Interrupt is taken, the
+ * screen shows Interrupted above the compose box after the session leaves working and waiting, until it
+ * works again. Send posts the draft as a prompt through [SessionSender]. Reading the conversation marks
+ * the session seen.
  */
 @Composable
 fun SessionScreen(sessionId: String, client: OrreryClient, onBack: () -> Unit = {}) {
     var streamed by remember(sessionId) { mutableStateOf<StreamedConversation?>(null) }
     var refreshFailed by remember(sessionId) { mutableStateOf(false) }
     var seenAtOpen by remember(sessionId) { mutableStateOf<Long?>(null) }
+    var interruptTaken by remember(sessionId) { mutableStateOf(false) }
     var nowSeconds by remember { mutableLongStateOf(currentSeconds()) }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val scope = rememberCoroutineScope()
@@ -110,6 +116,10 @@ fun SessionScreen(sessionId: String, client: OrreryClient, onBack: () -> Unit = 
     val held = streamed
     val conversation = held?.conversation
     val pane = held?.pane
+    val state = pane?.state.orEmpty()
+    LaunchedEffect(sessionId, state) {
+        if (state == WORKING_STATE) interruptTaken = false
+    }
     val entries = remember(held) {
         held?.let { foldConversation(it.conversation.items) + unfinishedReplies(it) }.orEmpty()
     }
@@ -155,7 +165,16 @@ fun SessionScreen(sessionId: String, client: OrreryClient, onBack: () -> Unit = 
             }
         }
         Box(modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp)) {
-            SessionActions(sessionId, pane?.state.orEmpty(), client, onChanged = {})
+            SessionActions(
+                sessionId,
+                state,
+                client,
+                onChanged = {},
+                onTaken = { call -> if (call == LiveCall.INTERRUPT) interruptTaken = true },
+            )
+        }
+        if (interruptTaken && pane != null && state !in LIVE_STATES) {
+            Text(RESULT_TEXT, modifier = Modifier.testTag(RESULT_TAG).padding(horizontal = 14.dp))
         }
         // The compose key is the session's id; its sends go through the session sender.
         ComposeBox(
