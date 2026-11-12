@@ -2,6 +2,7 @@ package io.github.joshsymonds.orrery.api
 
 import com.connectrpc.Code
 import io.github.joshsymonds.orrery.gen.orrery.v1.Epic
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicSlice
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicStep
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicStepCheck
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicTask
@@ -135,6 +136,7 @@ class OrreryClientEpicsTest {
                             status = "DONE?  as written ",
                         ),
                     ),
+                    slices = emptyList(),
                     steps = listOf(
                         runningStepRow,
                         StepRow(
@@ -157,6 +159,86 @@ class OrreryClientEpicsTest {
             val request = server.requests.single { it.rawPath == EPICS_GET }
             assertConnectRequest(EPICS_GET, request)
             assertEquals("example-repo/example-epic", EpicsGetRequest.parseFrom(request.body).id)
+        }
+    }
+
+    @Test
+    fun epicMapsEverySliceFieldInServeOrder() {
+        FakeOrreryServer().use { server ->
+            server.respond(
+                EPICS_GET,
+                EpicsGetResponse.newBuilder()
+                    .setEpic(epicProto)
+                    .addSlices(
+                        EpicSlice.newBuilder()
+                            .setTask("example-task-a")
+                            .setHue("dispatched")
+                            .setRedTest(true)
+                            .setWorking(true)
+                            .setTestsPass(true)
+                            .setChecks(true)
+                            .setGateAccepted(false)
+                            .setAt(4),
+                    )
+                    .addSlices(
+                        EpicSlice.newBuilder()
+                            .setTask("example-task-b")
+                            .setHue("gap")
+                            .setWorking(true)
+                            .setTestsPass(true)
+                            .setAt(0),
+                    )
+                    .addSlices(
+                        EpicSlice.newBuilder()
+                            .setTask("example-task-c")
+                            .setHue("done")
+                            .setRedTest(false)
+                            .setWorking(true)
+                            .setTestsPass(false)
+                            .setChecks(true)
+                            .setGateAccepted(true)
+                            .setAt(0),
+                    )
+                    .build(),
+            )
+
+            val detail = OrreryClient(server.baseUrl).epic("example-repo/example-epic")
+
+            assertEquals(
+                listOf(
+                    EpicSliceRow(
+                        task = "example-task-a",
+                        hue = "dispatched",
+                        redTest = true,
+                        working = true,
+                        testsPass = true,
+                        checks = true,
+                        gateAccepted = false,
+                        at = 4,
+                    ),
+                    EpicSliceRow(
+                        task = "example-task-b",
+                        hue = "gap",
+                        redTest = false,
+                        working = true,
+                        testsPass = true,
+                        checks = false,
+                        gateAccepted = false,
+                        at = 0,
+                    ),
+                    EpicSliceRow(
+                        task = "example-task-c",
+                        hue = "done",
+                        redTest = false,
+                        working = true,
+                        testsPass = false,
+                        checks = true,
+                        gateAccepted = true,
+                        at = 0,
+                    ),
+                ),
+                detail?.slices,
+            )
         }
     }
 

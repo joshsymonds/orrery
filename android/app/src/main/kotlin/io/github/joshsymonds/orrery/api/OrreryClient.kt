@@ -18,6 +18,7 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationState as ConversationStateProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.EngineText as EngineTextProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.Epic as EpicProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicSlice as EpicSliceProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicStep as EpicStepProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicStepCheck as EpicStepCheckProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicTask as EpicTaskProto
@@ -265,8 +266,20 @@ data class EpicRow(
 
 data class EpicTaskRow(val effort: Int, val slug: String, val subject: String, val status: String)
 
-/** One epic with its tasks and every step labelled with it, oldest step first. */
-data class EpicDetail(val epic: EpicRow, val tasks: List<EpicTaskRow>, val steps: List<StepRow>)
+/** One task's slice of the epic chart as serve sends it: rings outermost first, [at] the ring the dot is on, 0 for none. */
+data class EpicSliceRow(
+    val task: String,
+    val hue: String,
+    val redTest: Boolean,
+    val working: Boolean,
+    val testsPass: Boolean,
+    val checks: Boolean,
+    val gateAccepted: Boolean,
+    val at: Int,
+)
+
+/** One epic with its tasks, its [slices] in serve's order, and every step labelled with it, oldest step first. */
+data class EpicDetail(val epic: EpicRow, val tasks: List<EpicTaskRow>, val slices: List<EpicSliceRow>, val steps: List<StepRow>)
 
 /** What a hold, nudge or stop came to: it landed, or orreryd refused it with its reason. */
 sealed interface StepCallResult {
@@ -498,6 +511,7 @@ class OrreryClient(
         return EpicDetail(
             epic = response.epic.toEpicRow(),
             tasks = response.tasksList.map { it.toEpicTaskRow() },
+            slices = response.slicesList.map { it.toEpicSliceRow() },
             steps = response.stepsList.map { it.toStepRow() },
         )
     }
@@ -686,6 +700,18 @@ class OrreryClient(
 
     private fun EpicTaskProto.toEpicTaskRow(): EpicTaskRow =
         EpicTaskRow(effort = effort, slug = slug, subject = subject, status = status)
+
+    private fun EpicSliceProto.toEpicSliceRow(): EpicSliceRow =
+        EpicSliceRow(
+            task = task,
+            hue = hue,
+            redTest = redTest,
+            working = working,
+            testsPass = testsPass,
+            checks = checks,
+            gateAccepted = gateAccepted,
+            at = at,
+        )
 
     private fun PoolStatusProto.toPool(): Pool =
         Pool(
