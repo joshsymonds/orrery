@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"io"
+	"io/fs"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -20,6 +22,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/server"
 	"github.com/joshsymonds/orrery/internal/store"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
+	"github.com/joshsymonds/orrery/internal/webui"
 )
 
 const (
@@ -242,5 +245,90 @@ func TestServePickerConfigResolvesBinaries(t *testing.T) {
 	}
 	if want := filepath.Join(home, "Personal"); cfg.Root != want {
 		t.Errorf("Root = %q, want %q", cfg.Root, want)
+	}
+}
+
+// serveFreeLoopbackAddr returns a loopback address with a port nothing listens on, for runServe to bind.
+func serveFreeLoopbackAddr(t *testing.T) string {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("net.Listen: %v", err)
+	}
+	addr := ln.Addr().String()
+	if err := ln.Close(); err != nil {
+		t.Fatalf("close probe listener: %v", err)
+	}
+	return addr
+}
+
+// TestServeAnswersPageAtRoot runs orrery serve through runServe on a free loopback port. GET / with the allowed login
+// and no client header answers the embedded page, with the page's CSP and nosniff headers, and the page's bytes.
+func TestServeAnswersPageAtRoot(t *testing.T) {
+	state := t.TempDir()
+	getenv := func(key string) string { return map[string]string{"XDG_STATE_HOME": state}[key] }
+	addr := serveFreeLoopbackAddr(t)
+	opts := globals{server: tmuxctl.Server{Name: "orrery-serve-test-unstarted"}}
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		done <- runServe(ctx, opts, []string{"--listen", addr, "--allow-login", serveTestLogin}, getenv)
+	}()
+
+	var resp *http.Response
+	deadline := time.After(serveTestWait)
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	for resp == nil {
+		select {
+		case err := <-done:
+			t.Fatalf("runServe returned before serving: %v", err)
+		case <-deadline:
+			t.Fatalf("no answer from runServe on %s within %v", addr, serveTestWait)
+		case <-ticker.C:
+		}
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+addr+"/", nil)
+		if err != nil {
+			t.Fatalf("NewRequest: %v", err)
+		}
+		req.Header.Set(server.HeaderLogin, serveTestLogin)
+		if next, err := http.DefaultClient.Do(req); err == nil {
+			resp = next
+		}
+	}
+	body, err := io.ReadAll(resp.Body)
+	if closeErr := resp.Body.Close(); closeErr != nil {
+		t.Errorf("close body: %v", closeErr)
+	}
+	if err != nil {
+		t.Fatalf("read body: %v", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /: status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+	if got := resp.Header.Get("Content-Security-Policy"); got != "default-src 'self'; frame-ancestors 'none'" {
+		t.Fatalf("GET /: Content-Security-Policy = %q, want the page CSP", got)
+	}
+	if got := resp.Header.Get("X-Content-Type-Options"); got != "nosniff" {
+		t.Fatalf("GET /: X-Content-Type-Options = %q, want nosniff", got)
+	}
+	want, err := fs.ReadFile(webui.FS(), "index.html")
+	if err != nil {
+		t.Fatalf("read embedded index.html: %v", err)
+	}
+	if string(body) != string(want) {
+		t.Fatalf("GET /: body = %q, want the embedded index.html %q", body, want)
+	}
+
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("runServe returned %v, want nil", err)
+		}
+	case <-time.After(serveTestWait):
+		t.Fatalf("runServe did not return within %v of cancel", serveTestWait)
 	}
 }

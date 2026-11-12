@@ -1,0 +1,7 @@
+# Codegen for the web client. Only orrery/v1 is generated (see the --path in the justfile's generate recipe).
+version: v2
+plugins:
+  - local: protoc-gen-es
+    out: ../web/src/gen
+    opt:
+      - target=ts

@@ -12,12 +12,15 @@ let
   protoc-gen-connect-kotlin = pkgs.writeShellScriptBin "protoc-gen-connect-kotlin" ''
     exec ${pkgs.jdk17_headless}/bin/java -jar ${protocGenConnectKotlinJar} "$@"
   '';
+  webNodeModules = (import ./nix/web-node-modules.nix) pkgs;
+  linkNodeModules = "${pkgs.path}/pkgs/build-support/node/import-npm-lock/hooks/link-node-modules.js";
 in
 
 {
   packages = [
     pkgs.buf
     pkgs.delve
+    pkgs.esbuild
     pkgs.git
     pkgs.go_1_26
     pkgs.golangci-lint
@@ -25,12 +28,15 @@ in
     pkgs.gopls
     pkgs.jq
     pkgs.just
+    pkgs.nodejs
     pkgs.procps
     pkgs.protobuf
     pkgs.protoc-gen-connect-go
+    pkgs.protoc-gen-es
     pkgs.protoc-gen-go
     pkgs.sqlc
     pkgs.tmux
+    pkgs.typescript
     pkgs.util-linux
     protoc-gen-connect-kotlin
   ];
@@ -48,8 +54,12 @@ in
   # `nix develop` exported SHELL as bash. Tests that attach tmux clients through
   # script(1) run their command with $SHELL, so keep it bash rather than the
   # caller's login shell. devenv drops SHELL from env.*, so export it here.
+  #
+  # web/node_modules is a directory of symlinks into webNodeModules, linked the way importNpmLock's
+  # linkNodeModulesHook links it. Entering the shell rebuilds the links, so a changed lockfile is picked up.
   enterShell = ''
     mkdir -p "$GOMODCACHE" "$GOCACHE" "$GOLANGCI_LINT_CACHE"
     export SHELL=${pkgs.bashInteractive}/bin/bash
+    (cd "${config.devenv.root}/web" && ${pkgs.nodejs}/bin/node ${linkNodeModules} ${builtins.storeDir} ${webNodeModules}/node_modules)
   '';
 }
