@@ -6,11 +6,24 @@ package orrery.engine.v1;
 // and never on the public orrery serve API.
 service Pools {
   // Acquire asks for every need at once and streams the request's place in line until it is granted. The grant lives
-  // while the response stream is open and ends when it closes. A member is in at most one grant at a time. A request
-  // refuses with failed_precondition for a pool another host owns, or for a pool or member defined two ways, with
-  // invalid_argument for a bad need, with not_found for a grant_id that names no stored grant, and with unavailable
-  // when orreryd has no store to keep grants in.
+  // while the response stream is open and ends when it closes. A member is in at most one grant at a time. A hold on a
+  // member a grant holds sends that grant a stop event, see AcquireStop. A request refuses with failed_precondition
+  // for a pool another host owns, or for a pool or member defined two ways, with invalid_argument for a bad need, with
+  // not_found for a grant_id that names no stored grant, and with unavailable when orreryd has no store to keep grants
+  // in.
   rpc Acquire(AcquireRequest) returns (stream AcquireResponse);
+
+  // Status reports the pools in use, each with its members and the requests waiting for it, and every owner hold.
+  rpc Status(PoolsStatusRequest) returns (PoolsStatusResponse);
+
+  // Hold holds a member by name. A held member is never granted. A hold on a granted member stops its grant, and a hold
+  // on a member of no pool in use is accepted. Hold of a held member succeeds and keeps the first hold's since. A member
+  // name outside [A-Za-z0-9][A-Za-z0-9._-]* is invalid_argument. With no store to keep holds in, Hold is unavailable.
+  rpc Hold(PoolsHoldRequest) returns (PoolsHoldResponse);
+
+  // Free releases a held member. Free of a member not held is not_found. A member name outside
+  // [A-Za-z0-9][A-Za-z0-9._-]* is invalid_argument. With no store to keep holds in, Free is unavailable.
+  rpc Free(PoolsFreeRequest) returns (PoolsFreeResponse);
 }
 
 // AcquireRequest asks for the members of every need at once.
@@ -30,6 +43,9 @@ message AcquireRequest {
   // The grant_id an earlier AcquireGranted carried, set only to reclaim that grant after orreryd restarted. Empty for a
   // new request.
   string grant_id = 5;
+
+  // The argv of the command the grant is for, as Status shows it. Empty when the client sends none.
+  repeated string command = 6;
 }
 
 // PoolDefinition is one pool as a project's or the machine's files define it.
@@ -77,7 +93,7 @@ message PoolNeed {
   int32 count = 2;
 }
 
-// AcquireResponse is one event in an acquire: the request waiting in line, or granted.
+// AcquireResponse is one event in an acquire: the request waiting in line, granted, or stopped.
 message AcquireResponse {
   oneof event {
     // The request waits for its members.
@@ -85,6 +101,9 @@ message AcquireResponse {
 
     // The request holds its members until the response stream closes.
     AcquireGranted granted = 2;
+
+    // The grant stops because one of its members is held.
+    AcquireStop stop = 3;
   }
 }
 
@@ -111,3 +130,118 @@ message PoolMembers {
   // The members granted, by name.
   repeated string members = 2;
 }
+
+// AcquireStop says the grant stops because one of its members is held. The client stops its command, closes the
+// stream, and reclaims the grant by its grant_id to wait at its place in line.
+message AcquireStop {
+  // The members of the grant that are held. The grant ends when its stream closes, and its members are freed then.
+  repeated string members = 1;
+}
+
+// PoolsStatusRequest asks for the pools in use and the owner holds. It has no fields.
+message PoolsStatusRequest {}
+
+// PoolsStatusResponse carries the pools in use and the owner holds.
+message PoolsStatusResponse {
+  // The pools in use, sorted by name.
+  repeated PoolStatus pools = 1;
+
+  // Every owner hold, sorted by member. It covers holds on members of no pool in use.
+  repeated PoolHold holds = 2;
+}
+
+// PoolStatus is one pool in use: its cap, its members, and the requests waiting for it.
+message PoolStatus {
+  // The pool's name.
+  string name = 1;
+
+  // How many of the pool's members one project may hold at once.
+  int32 cap = 2;
+
+  // The pool's members, in the order its definition declares them.
+  repeated PoolMemberStatus members = 3;
+
+  // The requests waiting for the pool, in queue order.
+  repeated PoolWaiter waiters = 4;
+}
+
+// PoolMemberStatus is one member of a pool in use.
+message PoolMemberStatus {
+  // The member's name.
+  string name = 1;
+
+  // The member's state: unknown, asleep, awake, waking, admitting, admitted, or unavailable.
+  string state = 2;
+
+  // The grant that holds the member, unset when no grant holds it.
+  PoolHolder holder = 3;
+
+  // The unix seconds the member was held, or 0 when it is not held.
+  int64 held_since = 4;
+}
+
+// PoolHolder is the grant that holds a member.
+message PoolHolder {
+  // The grant's id.
+  string grant_id = 1;
+
+  // The absolute path of the grant's project.
+  string project = 2;
+
+  // The client's process id.
+  int32 client_pid = 3;
+
+  // The argv of the grant's command. Empty when the client sent none.
+  repeated string command = 4;
+
+  // The unix seconds the grant was granted.
+  int64 since = 5;
+
+  // Whether the grant is stopping, because one of its members is held.
+  bool stopping = 6;
+}
+
+// PoolWaiter is one request waiting for a pool.
+message PoolWaiter {
+  // The request's place in line, counting from 1.
+  int32 position = 1;
+
+  // The absolute path of the request's project.
+  string project = 2;
+
+  // The argv of the request's command. Empty when the client sent none.
+  repeated string command = 3;
+
+  // How many of the pool's members the request needs.
+  int32 count = 4;
+
+  // The unix seconds the request began waiting.
+  int64 since = 5;
+}
+
+// PoolHold is one owner hold: a member that no grant may take.
+message PoolHold {
+  // The held member's name.
+  string member = 1;
+
+  // The unix seconds the member was held.
+  int64 since = 2;
+}
+
+// PoolsHoldRequest asks for a member to be held.
+message PoolsHoldRequest {
+  // The member's name, of the form [A-Za-z0-9][A-Za-z0-9._-]*.
+  string member = 1;
+}
+
+// PoolsHoldResponse is the reply to a Hold. It has no fields.
+message PoolsHoldResponse {}
+
+// PoolsFreeRequest asks for a held member to be freed.
+message PoolsFreeRequest {
+  // The member's name, of the form [A-Za-z0-9][A-Za-z0-9._-]*.
+  string member = 1;
+}
+
+// PoolsFreeResponse is the reply to a Free. It has no fields.
+message PoolsFreeResponse {}

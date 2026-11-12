@@ -325,6 +325,9 @@ func TestRunPopsUpNoticesInOrderOneAtATime(t *testing.T) {
 	rig.run(rig.config("box"))
 
 	waitFor(t, "three popups", func() bool { return len(rig.calls("notify-send")) == 3 })
+	// pw-play runs only once notify-send has exited, so its third call means no popup command still writes in the rig's
+	// directory when the test ends and the directory is removed.
+	waitFor(t, "three sounds", func() bool { return len(rig.calls("pw-play")) == 3 })
 	calls := rig.calls("notify-send")
 	titles := make([]string, 0, len(calls))
 	for _, argv := range calls {
@@ -353,6 +356,9 @@ func TestRunPopsUpLostHost(t *testing.T) {
 	waitFor(t, "both lost waits", func() bool { return rig.clock.callCount(lostWait) == 2 })
 	rig.clock.Advance(lostWait)
 	waitFor(t, "two lost popups", func() bool { return len(rig.calls("notify-send")) == 2 })
+	// pw-play runs only once notify-send has exited, so its second call means no popup command still writes in the rig's
+	// directory when the test ends and the directory is removed.
+	waitFor(t, "two lost sounds", func() bool { return len(rig.calls("pw-play")) == 2 })
 	notifies := rig.calls("notify-send")
 	for _, host := range []string{hostname, "gone"} {
 		want := notifyArgv("critical", "orrery desk", host+" unreachable for 5 minutes")

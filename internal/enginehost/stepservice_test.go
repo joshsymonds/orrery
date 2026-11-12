@@ -5,6 +5,7 @@ import (
 	"errors"
 	"reflect"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -251,8 +252,8 @@ func TestStepStartForwardsEveryField(t *testing.T) {
 		Revision:          "abc123",
 		ReadOnly:          true,
 		OwnedPaths:        []string{"a.go", "b/c.go"},
-		Gate:              []string{"go", "test"},
-		GateLimitSeconds:  90,
+		GateName:          "lint",
+		GatesFile:         "/repo/gates.toml",
 		DoneValue:         "pass",
 		ModelLimitSeconds: 90,
 		Epic:              "orrery",
@@ -276,8 +277,8 @@ func TestStepStartForwardsEveryField(t *testing.T) {
 		Revision:   "abc123",
 		ReadOnly:   true,
 		Owned:      []string{"a.go", "b/c.go"},
-		Gate:       []string{"go", "test"},
-		GateLimit:  90 * time.Second,
+		GateName:   "lint",
+		GatesFile:  "/repo/gates.toml",
 		ModelLimit: 90 * time.Second,
 		DoneValue:  "pass",
 		Epic:       "orrery",
@@ -285,6 +286,42 @@ func TestStepStartForwardsEveryField(t *testing.T) {
 	}}
 	if got := fake.recordedStarts(); !reflect.DeepEqual(got, want) {
 		t.Fatalf("StartStep reached commands as %+v, want %+v", got, want)
+	}
+}
+
+func TestStartStepRefusesGateArgvAndGateLimit(t *testing.T) {
+	cases := []struct {
+		name  string
+		gate  []string
+		limit uint32
+	}{
+		{name: "gate argv", gate: []string{"go", "test"}},
+		{name: "gate limit", limit: 90},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			fake := &fakeStepCommands{startID: "0123456789abcdef0123456789abcdef"}
+			path, stop := startServerWithSteps(t, nil, fake)
+			client := newStepClient(t, path)
+
+			_, err := client.StartStep(context.Background(), connect.NewRequest(&v1.StartStepRequest{
+				Agent: "reviewer", Prompt: "check", Schema: "{}", Workspace: "/work",
+				Gate: tc.gate, GateLimitSeconds: tc.limit,
+			}))
+			if stopErr := stop(); stopErr != nil {
+				t.Fatalf("Serve: %v", stopErr)
+			}
+			if got := connect.CodeOf(err); got != connect.CodeInvalidArgument {
+				t.Fatalf("StartStep code = %v, want %v (error %v)", got, connect.CodeInvalidArgument, err)
+			}
+			var connectErr *connect.Error
+			if !errors.As(err, &connectErr) || !strings.Contains(connectErr.Message(), ErrBadGate.Error()) {
+				t.Fatalf("StartStep error = %v, want a connect error naming %q", err, ErrBadGate)
+			}
+			if got := fake.recordedStarts(); len(got) != 0 {
+				t.Fatalf("refused StartStep reached commands as %+v, want no start", got)
+			}
+		})
 	}
 }
 

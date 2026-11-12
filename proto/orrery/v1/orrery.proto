@@ -568,6 +568,23 @@ service Picker {
   rpc Run(RunRequest) returns (RunResponse);
 }
 
+// Pools shows the pools orreryd runs, holds a member so no grant takes it, and frees a held member. serve forwards each
+// call of the service to orreryd.
+service Pools {
+  // Status returns the pools in use, each with its members and waiting requests, and every owner hold.
+  rpc Status(PoolsStatusRequest) returns (PoolsStatusResponse);
+
+  // Hold holds a member by name. A held member is never granted. A hold on a granted member stops its grant, and a
+  // hold on a member of no pool in use is accepted. Hold of a held member succeeds and keeps the first hold's since. A
+  // member name outside [A-Za-z0-9][A-Za-z0-9._-]* is invalid_argument. With no store to keep holds in, Hold is
+  // unavailable.
+  rpc Hold(PoolsHoldRequest) returns (PoolsHoldResponse);
+
+  // Free releases a held member. Free of a member not held is not_found. A member name outside
+  // [A-Za-z0-9][A-Za-z0-9._-]* is invalid_argument. With no store to keep holds in, Free is unavailable.
+  rpc Free(PoolsFreeRequest) returns (PoolsFreeResponse);
+}
+
 // PanesListRequest asks for every tracked pane. It has no fields.
 message PanesListRequest {}
 
@@ -959,3 +976,105 @@ message RunResponse {
   // The pane the run answered.
   string pane = 1;
 }
+
+// PoolsStatusRequest asks for the pools in use and the owner holds. It has no fields.
+message PoolsStatusRequest {}
+
+// PoolsStatusResponse carries the pools in use and the owner holds.
+message PoolsStatusResponse {
+  // The pools in use, sorted by name.
+  repeated PoolStatus pools = 1;
+
+  // Every owner hold, sorted by member. It covers holds on members of no pool in use.
+  repeated PoolHold holds = 2;
+}
+
+// PoolStatus is one pool in use: its cap, its members, and the requests waiting for it.
+message PoolStatus {
+  // The pool's name.
+  string name = 1;
+
+  // How many of the pool's members one project may hold at once.
+  int32 cap = 2;
+
+  // The pool's members, in the order its definition declares them.
+  repeated PoolMemberStatus members = 3;
+
+  // The requests waiting for the pool, in queue order.
+  repeated PoolWaiter waiters = 4;
+}
+
+// PoolMemberStatus is one member of a pool in use.
+message PoolMemberStatus {
+  // The member's name.
+  string name = 1;
+
+  // The member's state: unknown, asleep, awake, waking, admitting, admitted, or unavailable.
+  string state = 2;
+
+  // The grant that holds the member, unset when no grant holds it.
+  PoolHolder holder = 3;
+
+  // The unix seconds the member was held, or 0 when it is not held.
+  int64 held_since = 4;
+}
+
+// PoolHolder is the grant that holds a member.
+message PoolHolder {
+  // The absolute path of the grant's project.
+  string project = 1;
+
+  // The argv of the grant's command. Empty when the client sent none.
+  repeated string command = 2;
+
+  // The unix seconds the grant was granted.
+  int64 since = 3;
+
+  // Whether the grant is stopping, because one of its members is held.
+  bool stopping = 4;
+}
+
+// PoolWaiter is one request waiting for a pool.
+message PoolWaiter {
+  // The request's place in line, counting from 1.
+  int32 position = 1;
+
+  // The absolute path of the request's project.
+  string project = 2;
+
+  // The argv of the request's command. Empty when the client sent none.
+  repeated string command = 3;
+
+  // How many of the pool's members the request needs.
+  int32 count = 4;
+
+  // The unix seconds the request began waiting.
+  int64 since = 5;
+}
+
+// PoolHold is one owner hold: a member that no grant may take.
+message PoolHold {
+  // The held member's name.
+  string member = 1;
+
+  // The unix seconds the member was held.
+  int64 since = 2;
+}
+
+// PoolsHoldRequest asks for a member to be held.
+message PoolsHoldRequest {
+  // The member's name, of the form [A-Za-z0-9][A-Za-z0-9._-]*.
+  string member = 1;
+}
+
+// PoolsHoldResponse is the reply to a Hold. It has no fields.
+message PoolsHoldResponse {}
+
+// PoolsFreeRequest asks for a held member to be freed.
+message PoolsFreeRequest {
+  // The member's name, of the form [A-Za-z0-9][A-Za-z0-9._-]*.
+  string member = 1;
+}
+
+// PoolsFreeResponse is the reply to a Free. It has no fields.
+message PoolsFreeResponse {}

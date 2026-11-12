@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -128,6 +129,8 @@ func helperArgv(t *testing.T, mode string) []string {
 // Otherwise it grants each need its count of members named pool-1 to pool-count, then holds the stream until the
 // client ends it.
 type fakePools struct {
+	enginev1connect.UnimplementedPoolsHandler
+
 	refuse connect.Code
 	ended  chan struct{} // closed once an Acquire that granted has returned
 
@@ -424,9 +427,32 @@ func TestRunSendsProjectPoolsAndNeeds(t *testing.T) {
 		Pools:     []*v1.PoolDefinition{buildsDefinition(), testsDefinition()},
 		Needs:     []*v1.PoolNeed{{Pool: "tests", Count: 1}, {Pool: "builds", Count: 2}},
 		ClientPid: int32(os.Getpid()),
+		Command:   helperArgv(t, "print"),
 	}
 	if !proto.Equal(got[0], want) {
 		t.Errorf("request\n%v\nwant\n%v", got[0], want)
+	}
+}
+
+// TestRunSendsCommandArgv sends the argv after -- as the request's command, exactly as given, so status can show what
+// the grant runs.
+func TestRunSendsCommandArgv(t *testing.T) {
+	setupProject(t, buildsPoolFile, "")
+	fake := newFakePools(0)
+	daemon := startPools(t, fake)
+	var stdout bytes.Buffer
+	args := append([]string{"--socket", daemon}, runCommandArgs(t, "print", "builds=1")...)
+	res := awaitOrrery(t, startOrrery(t, &stdout, args...))
+	if res.code != 0 {
+		t.Fatalf("exit status %d, want 0; stderr %q", res.code, res.stderr)
+	}
+	got := fake.received()
+	if len(got) != 1 {
+		t.Fatalf("pools received %d requests, want 1", len(got))
+	}
+	want := helperArgv(t, "print")
+	if !slices.Equal(got[0].GetCommand(), want) {
+		t.Errorf("command %q, want %q", got[0].GetCommand(), want)
 	}
 }
 

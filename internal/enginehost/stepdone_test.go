@@ -29,8 +29,8 @@ func stepDoneScript(t *testing.T, body string) string {
 }
 
 // stepDoneWriting returns a configure func that makes the fixture's step a writing step in dir, starting at start,
-// that owns stepDoneOwned and runs gate under lock with limit.
-func stepDoneWriting(dir, start string, gate []string, limit time.Duration, lock string) func(*stepRunConfig) {
+// that owns stepDoneOwned and runs gate with limit, holding the grant of its needs from pools.
+func stepDoneWriting(dir, start string, gate []string, limit time.Duration, pools *fakeGatePools) func(*stepRunConfig) {
 	return func(cfg *stepRunConfig) {
 		cfg.writing = true
 		cfg.dir = dir
@@ -38,7 +38,8 @@ func stepDoneWriting(dir, start string, gate []string, limit time.Duration, lock
 		cfg.owned = []string{stepDoneOwned}
 		cfg.gate = gate
 		cfg.gateLimit = limit
-		cfg.locks = []string{lock}
+		cfg.pools = pools
+		cfg.grant = gateGrantRequest()
 		cfg.environ = gateEnv("TMUX=/tmp/unused,1,0", "TMUX_PANE=%1")
 	}
 }
@@ -104,8 +105,8 @@ func TestStepDoneCleanOwnedCommitAndGreenGateEndDone(t *testing.T) {
 	commit := stepGitTestCommit(t, dir, map[string]string{stepDoneOwned: "owned\n"})
 	marker := filepath.Join(t.TempDir(), "environ")
 	gate := stepDoneScript(t, fmt.Sprintf(`printf '%%s\n' "${TMUX-unset}" > %q; echo green`, marker))
-	lock := filepath.Join(t.TempDir(), "slot")
-	f := newStepDoneFixture(t, stepDoneWriting(dir, start, []string{gate}, time.Minute, lock))
+	pools := &fakeGatePools{}
+	f := newStepDoneFixture(t, stepDoneWriting(dir, start, []string{gate}, time.Minute, pools))
 	_, done := f.start(t)
 
 	f.run.Return(stepDoneReturn(commit))
@@ -136,8 +137,12 @@ func TestStepDoneCleanOwnedCommitAndGreenGateEndDone(t *testing.T) {
 	if strings.TrimSpace(string(environ)) != "unset" {
 		t.Errorf("gate saw TMUX = %q, want it removed", environ)
 	}
-	if _, err := os.Stat(lock); err != nil {
-		t.Errorf("gate did not hold its lock file %s: %v", lock, err)
+	requests := pools.requested()
+	if len(requests) != 1 {
+		t.Fatalf("Acquire called %d times for the gate, want 1", len(requests))
+	}
+	if want := gateGrantRequest().Needs; !reflect.DeepEqual(requests[0].Needs, want) {
+		t.Errorf("gate requested Needs %v, want %v", requests[0].Needs, want)
 	}
 }
 
@@ -147,8 +152,7 @@ func TestStepDoneGateRedThenGreenContinuesOnceNamingGate(t *testing.T) {
 	marker := filepath.Join(t.TempDir(), "ran-once")
 	gate := stepDoneScript(t, fmt.Sprintf(`if [ -e %[1]q ]; then echo green; exit 0; fi
 touch %[1]q; echo red; exit 1`, marker))
-	lock := filepath.Join(t.TempDir(), "slot")
-	f := newStepDoneFixture(t, stepDoneWriting(dir, start, []string{gate}, time.Minute, lock))
+	f := newStepDoneFixture(t, stepDoneWriting(dir, start, []string{gate}, time.Minute, &fakeGatePools{}))
 	_, done := f.start(t)
 
 	f.run.Return(stepDoneReturn(commit))
@@ -185,8 +189,7 @@ func TestStepDoneUnownedPathSendsBackOwnedAndRunsNoGate(t *testing.T) {
 	commit := stepGitTestCommit(t, dir, map[string]string{"other/outside.txt": "stray\n"})
 	sentinel := filepath.Join(t.TempDir(), "gate-ran")
 	gate := stepDoneScript(t, fmt.Sprintf("touch %q", sentinel))
-	lock := filepath.Join(t.TempDir(), "slot")
-	f := newStepDoneFixture(t, stepDoneWriting(dir, start, []string{gate}, time.Minute, lock))
+	f := newStepDoneFixture(t, stepDoneWriting(dir, start, []string{gate}, time.Minute, &fakeGatePools{}))
 	_, done := f.start(t)
 
 	for range stepLoopMaxContinues + 1 {
@@ -225,8 +228,7 @@ func TestStepDoneGateOverLimitFailsGateNamingLimit(t *testing.T) {
 	dir, start := stepDoneRepo(t)
 	commit := stepGitTestCommit(t, dir, map[string]string{stepDoneOwned: "owned\n"})
 	gate := stepDoneScript(t, "sleep 30")
-	lock := filepath.Join(t.TempDir(), "slot")
-	f := newStepDoneFixture(t, stepDoneWriting(dir, start, []string{gate}, 200*time.Millisecond, lock))
+	f := newStepDoneFixture(t, stepDoneWriting(dir, start, []string{gate}, 200*time.Millisecond, &fakeGatePools{}))
 	_, done := f.start(t)
 
 	for range stepLoopMaxContinues + 1 {
@@ -249,7 +251,7 @@ func TestStepDoneGateOverLimitFailsGateNamingLimit(t *testing.T) {
 
 func TestStepDoneReadOnlyDoneReturnEndsDoneWithSchemaCheckOnly(t *testing.T) {
 	gate := stepDoneScript(t, "exit 1")
-	lock := filepath.Join(t.TempDir(), "slot")
+	pools := &fakeGatePools{}
 	f := newStepDoneFixture(t, func(cfg *stepRunConfig) {
 		cfg.writing = false
 		cfg.dir = "/nonexistent/not-a-repo"
@@ -257,7 +259,8 @@ func TestStepDoneReadOnlyDoneReturnEndsDoneWithSchemaCheckOnly(t *testing.T) {
 		cfg.owned = []string{stepDoneOwned}
 		cfg.gate = []string{gate}
 		cfg.gateLimit = time.Minute
-		cfg.locks = []string{lock}
+		cfg.pools = pools
+		cfg.grant = gateGrantRequest()
 	})
 	_, done := f.start(t)
 
@@ -272,8 +275,38 @@ func TestStepDoneReadOnlyDoneReturnEndsDoneWithSchemaCheckOnly(t *testing.T) {
 	if !reflect.DeepEqual(row.Checks, want) {
 		t.Errorf("checks = %+v, want only the schema check %+v", row.Checks, want)
 	}
-	if _, err := os.Stat(lock); err == nil {
-		t.Error("read-only done return took the gate lock, want no gate run")
+	if got := pools.requested(); len(got) != 0 {
+		t.Errorf("read-only done return requested %d grants, want no gate run", len(got))
+	}
+}
+
+func TestStepDoneGateWithoutPoolsEndsFailedBeforeRunning(t *testing.T) {
+	dir, start := stepDoneRepo(t)
+	commit := stepGitTestCommit(t, dir, map[string]string{stepDoneOwned: "owned\n"})
+	sentinel := filepath.Join(t.TempDir(), "gate-ran")
+	gate := stepDoneScript(t, fmt.Sprintf("touch %q", sentinel))
+	f := newStepDoneFixture(t, func(cfg *stepRunConfig) {
+		cfg.writing = true
+		cfg.dir = dir
+		cfg.start = start
+		cfg.owned = []string{stepDoneOwned}
+		cfg.gate = []string{gate}
+		cfg.gateLimit = time.Minute
+	})
+	_, done := f.start(t)
+
+	f.run.Return(stepDoneReturn(commit))
+	waitRunEnd(t, done)
+
+	if _, err := os.Stat(sentinel); err == nil {
+		t.Fatal("gate ran with no pools, want it refused")
+	}
+	row := f.row(t)
+	if row.End != stepLoopEndFailed {
+		t.Fatalf("end = %q, want failed", row.End)
+	}
+	if !strings.Contains(row.Reason, errGateNoPools.Error()) {
+		t.Errorf("reason %q does not name the missing pools %q", row.Reason, errGateNoPools)
 	}
 }
 
@@ -282,8 +315,7 @@ func TestStepDoneGateErrorFromEndedCtxStoresNoEnd(t *testing.T) {
 	commit := stepGitTestCommit(t, dir, map[string]string{stepDoneOwned: "owned\n"})
 	started := filepath.Join(t.TempDir(), "started")
 	gate := stepDoneScript(t, fmt.Sprintf("echo started > %q; sleep 30", started))
-	lock := filepath.Join(t.TempDir(), "slot")
-	f := newStepDoneFixture(t, stepDoneWriting(dir, start, []string{gate}, time.Minute, lock))
+	f := newStepDoneFixture(t, stepDoneWriting(dir, start, []string{gate}, time.Minute, &fakeGatePools{}))
 	ctx, cancel := context.WithCancel(t.Context())
 	t.Cleanup(cancel)
 	done := f.runOn(ctx)
@@ -298,8 +330,7 @@ func TestStepDoneGateErrorFromEndedCtxStoresNoEnd(t *testing.T) {
 
 func TestStepDoneNonStringCommitSendsBackHeadAndReadOnlyIgnoresIt(t *testing.T) {
 	dir, start := stepDoneRepo(t)
-	lock := filepath.Join(t.TempDir(), "slot")
-	f := newStepDoneFixture(t, stepDoneWriting(dir, start, nil, time.Minute, lock))
+	f := newStepDoneFixture(t, stepDoneWriting(dir, start, nil, time.Minute, &fakeGatePools{}))
 	_, done := f.start(t)
 
 	bad := session.TurnEnded{StructuredOutput: json.RawMessage(`{"status":"DONE","commit":123}`)}

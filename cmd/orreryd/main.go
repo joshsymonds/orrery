@@ -77,7 +77,7 @@ const (
 
 const usageText = `usage: orreryd [-L NAME | -S PATH] [--socket PATH] [--claude PATH] [--summary-model CONTEXT=MODEL]...
                [--push-host HOST]... [--sessions] [--session-cap N] [--session-shell PATH]
-               [--step-cap N] [--gate-lock PATH]...
+               [--step-cap N]
 
 flags:
   -L NAME           tmux server by name (tmux -L)
@@ -93,8 +93,6 @@ flags:
   --session-shell PATH
                     absolute login shell that starts each session (default $SHELL)
   --step-cap N      most live step sessions at once, counted apart from --session-cap (default 6)
-  --gate-lock PATH  absolute lock file a step gate holds; repeat for each lock
-                    (default the two heavy wrapper slots under /tmp/claude-<uid>)
 `
 
 // usageError is a command line refused before any work. It exits 2 and prints the usage text.
@@ -123,7 +121,6 @@ type options struct {
 	sessionCap    int
 	sessionShell  string
 	stepCap       int
-	gateLocks     []string
 }
 
 // repeatFlag is a repeatable string flag. It collects the values in the order given.
@@ -208,8 +205,6 @@ func parseFlags(args []string, getenv func(string) string) (options, error) {
 	sessionCap := flags.Int("session-cap", defaultSessionCap, "most live engine sessions")
 	sessionShell := flags.String("session-shell", getenv("SHELL"), "login shell that starts each session")
 	stepCap := flags.Int("step-cap", defaultStepCap, "most live step sessions")
-	var gateLocks repeatFlag
-	flags.Var(&gateLocks, "gate-lock", "absolute gate lock file, repeatable")
 	if err := flags.Parse(args); err != nil {
 		return options{}, usagef("%v", err)
 	}
@@ -231,18 +226,12 @@ func parseFlags(args []string, getenv func(string) string) (options, error) {
 	if *stepCap < 1 {
 		return options{}, usagef("--step-cap must be at least 1, got %d", *stepCap)
 	}
-	if err := checkGateLocks(gateLocks); err != nil {
-		return options{}, err
-	}
 	socket, err := protocol.SocketPath(*daemonSocket, getenv)
 	if err != nil {
 		return options{}, usagef("%v", err)
 	}
 	if len(pushHosts) == 0 {
 		pushHosts = repeatFlag{push.DefaultPushHost}
-	}
-	if len(gateLocks) == 0 {
-		gateLocks = defaultGateLocks()
 	}
 	server := tmuxctl.Server{Name: *tmuxName, Socket: *tmuxSocket}
 	var defaultServer tmuxctl.Server
@@ -260,25 +249,7 @@ func parseFlags(args []string, getenv func(string) string) (options, error) {
 		sessionCap:    *sessionCap,
 		sessionShell:  *sessionShell,
 		stepCap:       *stepCap,
-		gateLocks:     gateLocks,
 	}, nil
-}
-
-// checkGateLocks refuses a --gate-lock path that is not absolute.
-func checkGateLocks(locks []string) error {
-	for _, lock := range locks {
-		if !filepath.IsAbs(lock) {
-			return usagef("--gate-lock must be an absolute path, got %q", lock)
-		}
-	}
-	return nil
-}
-
-// defaultGateLocks returns the two lock files the heavy wrapper's slots use, so a step gate and a wrapped job share
-// the machine's heavy slots.
-func defaultGateLocks() repeatFlag {
-	dir := fmt.Sprintf("/tmp/claude-%d", os.Getuid())
-	return repeatFlag{filepath.Join(dir, "orrery-heavy.lock"), filepath.Join(dir, "orrery-heavy-2.lock")}
 }
 
 // defaultTmuxSocket returns the socket path tmux gives its default server. The directory is the symlink-resolved
@@ -464,11 +435,11 @@ type sessionHost struct {
 
 // startSessions listens on sessions.sock beside the daemon socket and serves the Engine, Steps and Pools services on it
 // until stop. With an open store it also starts the writer, a manager capped at opts.sessionCap that notifies through
-// notifier, and the step engine capped at opts.stepCap whose gates hold opts.gateLocks and whose worktrees go under
-// step-worktrees beside the store file. The manager reconciles the rows a previous run left before the service serves,
-// then the steps do, and the manager stops idle sessions until stop. The grants broker for hostName restores the grants
-// a previous run stored, then ticks every brokerTick until stop. A reconcile or restore failure is logged and serving
-// goes on; a failed restore serves no Pools, which refuse as unavailable.
+// notifier, the grants broker for hostName, which restores the grants a previous run stored and then ticks every
+// brokerTick until stop, and the step engine capped at opts.stepCap whose worktrees go under step-worktrees beside the
+// store file. The manager reconciles the rows a previous run left before the service serves, then the steps do, and
+// the manager stops idle sessions until stop. A reconcile or restore failure is logged and serving goes on; a failed
+// restore serves no Pools, which refuse as unavailable, and the gates fail for want of pools.
 func startSessions(
 	ctx context.Context,
 	opts options,
@@ -502,17 +473,20 @@ func startSessions(
 			Store:    st,
 			Logger:   logger,
 		})
+		host.startBroker(ctx, hostName, st, logger)
+		// host.pools is nil when the broker's restore failed, which leaves the gates no pools to run under.
 		steps, err := enginehost.NewSteps(enginehost.StepsConfig{
 			Sessions:  host.manager,
 			Store:     st,
 			Writer:    host.writer,
-			Locks:     opts.gateLocks,
+			Pools:     host.pools,
 			Worktrees: filepath.Join(filepath.Dir(storePath), "step-worktrees"),
 			Environ:   os.Environ(),
 			Logger:    logger,
 			Haiku:     enginehost.NewHaiku(enginehost.HaikuConfig{Claude: opts.claude, Environ: os.Environ()}),
 		})
 		if err != nil {
+			host.stopBroker()
 			return nil, fmt.Errorf("step engine: %w", err)
 		}
 		host.steps = steps
@@ -537,7 +511,6 @@ func startSessions(
 			host.manager.RunIdle(idleCtx)
 			close(host.idleDone)
 		}()
-		host.startBroker(ctx, hostName, st, logger)
 	}
 	ln, err := enginehost.Listen(protocol.SessionSocketPath(opts.socket))
 	if err != nil {

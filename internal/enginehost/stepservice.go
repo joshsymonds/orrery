@@ -48,6 +48,10 @@ func (s *stepService) StartStep(
 	if err := s.ready(); err != nil {
 		return nil, err
 	}
+	if len(req.Msg.GetGate()) > 0 || req.Msg.GetGateLimitSeconds() != 0 {
+		return nil, stepCommandError(fmt.Errorf(
+			"%w: a step names its gate with gate_name and gates_file, not gate or gate_limit_seconds", ErrBadGate))
+	}
 	id, err := s.steps.Start(ctx, StepStart{
 		Agent:      req.Msg.GetAgent(),
 		Prompt:     req.Msg.GetPrompt(),
@@ -56,8 +60,8 @@ func (s *stepService) StartStep(
 		Revision:   req.Msg.GetRevision(),
 		ReadOnly:   req.Msg.GetReadOnly(),
 		Owned:      req.Msg.GetOwnedPaths(),
-		Gate:       req.Msg.GetGate(),
-		GateLimit:  time.Duration(req.Msg.GetGateLimitSeconds()) * time.Second,
+		GateName:   req.Msg.GetGateName(),
+		GatesFile:  req.Msg.GetGatesFile(),
 		ModelLimit: time.Duration(req.Msg.GetModelLimitSeconds()) * time.Second,
 		DoneValue:  req.Msg.GetDoneValue(),
 		Epic:       req.Msg.GetEpic(),

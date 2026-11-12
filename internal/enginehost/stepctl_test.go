@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/engine/session"
+	"github.com/joshsymonds/orrery/internal/gates"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -48,20 +49,25 @@ type stepCtlFixture struct {
 	store     *store.Store
 	writer    *Writer
 	worktrees string
-	locks     []string
+	pools     *fakeGatePools
+	environ   []string
 }
 
-// newStepCtlFixture returns a fixture with one Steps over a real store and writer.
+// newStepCtlFixture returns a fixture with one Steps over a real store and writer. Its environment names a config home
+// whose machine pool file declares the pools stepGateFileText's gate needs and the default gate pool.
 func newStepCtlFixture(t *testing.T) *stepCtlFixture {
 	t.Helper()
 	s, _ := openStore(t)
 	writer := NewWriter(WriterConfig{Applier: s, Tick: 5 * time.Millisecond})
 	startRun(t, writer)
+	home := t.TempDir()
+	stepGateMachinePoolsFile(t, home, "pool_a", "pool_b", gates.DefaultPool)
 	f := &stepCtlFixture{
 		store:     s,
 		writer:    writer,
 		worktrees: t.TempDir(),
-		locks:     []string{filepath.Join(t.TempDir(), "gate.lock")},
+		pools:     &fakeGatePools{},
+		environ:   []string{"PATH=" + os.Getenv("PATH"), "HOME=" + home, "XDG_CONFIG_HOME=" + home},
 		sessions:  &stepCtlSessions{stepStartSessions: &stepStartSessions{writer: writer}},
 	}
 	f.steps = f.newSteps(t)
@@ -75,9 +81,9 @@ func (f *stepCtlFixture) newSteps(t *testing.T) *Steps {
 		Sessions:  f.sessions,
 		Store:     f.store,
 		Writer:    f.writer,
-		Locks:     f.locks,
+		Pools:     f.pools,
 		Worktrees: f.worktrees,
-		Environ:   []string{"PATH=" + os.Getenv("PATH"), "HOME=" + t.TempDir()},
+		Environ:   f.environ,
 		Logger:    slog.New(slog.DiscardHandler),
 	})
 	if err != nil {
@@ -112,13 +118,15 @@ func (f *stepCtlFixture) startReadOnly(t *testing.T, repo string) string {
 	return id
 }
 
-// startGated starts a writing step in linked whose gate writes its pid to pidFile and sleeps a minute. Its done return
-// names the workspace's HEAD, so every commit check passes and the gate runs.
+// startGated starts a writing step in linked that names gate unit from a gates file in t.TempDir(). The gate writes its
+// pid to pidFile and sleeps a minute. Its done return names the workspace's HEAD, so every commit check passes and the
+// gate runs.
 func (f *stepCtlFixture) startGated(t *testing.T, linked, pidFile string) string {
 	t.Helper()
-	start := stepStartWriting(linked)
-	start.Gate = []string{"sh", "-c", `echo $$ > "$0"; sleep 60`, pidFile}
-	id, err := f.steps.Start(t.Context(), start)
+	gatesFile := filepath.Join(t.TempDir(), "gates.toml")
+	script := fmt.Sprintf(`echo $$ > %q; sleep 60`, pidFile)
+	stepGateWriteFile(t, gatesFile, stepGateFileText(stepGateShell(t), script, 300))
+	id, err := f.steps.Start(t.Context(), stepGateNamedStart(linked, "unit", gatesFile))
 	if err != nil {
 		t.Fatalf("Start writing step: %v", err)
 	}

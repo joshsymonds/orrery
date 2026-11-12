@@ -161,8 +161,21 @@ func valueRefusals() []refusal {
 	return slices.Concat(boundRefusals(), memberRefusals(), argvRefusals())
 }
 
+// gatesRefusals are other top-level keys and tables refused beside a [gates] table, which pools leaves to
+// internal/gates.
+func gatesRefusals() []refusal {
+	gates := gateTables()
+	return []refusal{
+		{"unknown top-level key beside gates", "version = 1\n" + gates, []string{"version"}},
+		{"unknown section beside gates", gates + table("other", "x = 1"), []string{"other"}},
+		{"gates as a value", "gates = 1\n" + table("pools.alpha", poolKeys()...), []string{"gates"}},
+		{"section named like gates beside gates", gates + table("gate.unit", `argv = ["/bin/true"]`),
+			[]string{"gate"}},
+	}
+}
+
 func refusals() []refusal {
-	return slices.Concat(keyRefusals(), typeRefusals(), valueRefusals())
+	return slices.Concat(keyRefusals(), typeRefusals(), valueRefusals(), gatesRefusals())
 }
 
 func TestParseRefusesBadFiles(t *testing.T) {
@@ -200,6 +213,42 @@ func TestParseReadsEveryKey(t *testing.T) {
 	}}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("Parse = %+v, want %+v", got, want)
+	}
+}
+
+// gateTables is a project file's [gates] table with one gate that names argv, limit and an inline needs table.
+func gateTables() string {
+	return table("gates") + table("gates.unit", `argv = ["/bin/true"]`, `limit = 5`, `needs = { alpha = 1 }`)
+}
+
+func TestParseLeavesGatesTablesToGates(t *testing.T) {
+	pools := table("pools.alpha", poolKeys()...)
+	want, err := Parse(testPath, []byte(pools))
+	if err != nil {
+		t.Fatalf("Parse without gates: %v", err)
+	}
+	if len(want) != 1 {
+		t.Fatalf("Parse without gates returned %d pools, want 1", len(want))
+	}
+	got, err := Parse(testPath, []byte(gateTables()+pools))
+	if err != nil {
+		t.Fatalf("Parse with gates: %v", err)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("Parse with gates = %+v, want %+v", got, want)
+	}
+}
+
+func TestParseReadsGatesOnlyFileAsNoPools(t *testing.T) {
+	gate := table("gates.unit", `argv = ["/bin/true"]`, `limit = 5`, `needs = { alpha = 1 }`)
+	for _, text := range []string{gateTables(), gate} {
+		got, err := Parse(testPath, []byte(text))
+		if err != nil {
+			t.Fatalf("Parse: %v", err)
+		}
+		if len(got) != 0 {
+			t.Fatalf("Parse = %+v, want no pools", got)
+		}
 	}
 }
 

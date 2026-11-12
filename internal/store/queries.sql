@@ -145,9 +145,9 @@ SELECT reason FROM engine_prompt_failed WHERE session_id = ? AND prompt_id = ?;
 
 -- name: InsertStep :exec
 INSERT INTO steps (id, agent, prompt, output_schema, workspace, revision, worktree, done_value, read_only, owned, gate,
-                   gate_limit, model_limit, started, checks, result, status, end_value, reason, ended, doing, verdicts,
-                   epic, task)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', '', '', '', '', 0, '', '[]', ?, ?);
+                   gate_name, gate_source, gate_needs, gate_limit, model_limit, started, checks, result, status,
+                   end_value, reason, ended, doing, verdicts, epic, task)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', '', '', '', '', 0, '', '[]', ?, ?);
 
 -- name: GetStep :one
 SELECT * FROM steps WHERE id = ?;
@@ -171,7 +171,7 @@ UPDATE steps SET verdicts = ?, doing = ? WHERE id = ?;
 UPDATE steps SET end_value = ?, status = ?, reason = ?, ended = ? WHERE id = ?;
 
 -- name: InsertGrant :exec
-INSERT INTO grants (id, project, client_pid, client_start, pools, granted) VALUES (?, ?, ?, ?, ?, ?);
+INSERT INTO grants (id, project, client_pid, client_start, pools, command, granted) VALUES (?, ?, ?, ?, ?, ?, ?);
 
 -- name: InsertGrantMember :exec
 INSERT INTO grant_members (member, grant_id, pool, position) VALUES (?, ?, ?, ?);
@@ -190,3 +190,12 @@ SELECT * FROM grants ORDER BY granted, id;
 
 -- name: ListGrantMembers :many
 SELECT * FROM grant_members ORDER BY grant_id, position;
+
+-- name: InsertHold :exec
+INSERT OR IGNORE INTO holds (member, since) VALUES (?, ?);
+
+-- name: DeleteHold :exec
+DELETE FROM holds WHERE member = ?;
+
+-- name: ListHolds :many
+SELECT * FROM holds ORDER BY member;

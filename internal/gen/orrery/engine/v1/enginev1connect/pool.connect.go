@@ -35,16 +35,32 @@ const (
 const (
 	// PoolsAcquireProcedure is the fully-qualified name of the Pools's Acquire RPC.
 	PoolsAcquireProcedure = "/orrery.engine.v1.Pools/Acquire"
+	// PoolsStatusProcedure is the fully-qualified name of the Pools's Status RPC.
+	PoolsStatusProcedure = "/orrery.engine.v1.Pools/Status"
+	// PoolsHoldProcedure is the fully-qualified name of the Pools's Hold RPC.
+	PoolsHoldProcedure = "/orrery.engine.v1.Pools/Hold"
+	// PoolsFreeProcedure is the fully-qualified name of the Pools's Free RPC.
+	PoolsFreeProcedure = "/orrery.engine.v1.Pools/Free"
 )
 
 // PoolsClient is a client for the orrery.engine.v1.Pools service.
 type PoolsClient interface {
 	// Acquire asks for every need at once and streams the request's place in line until it is granted. The grant lives
-	// while the response stream is open and ends when it closes. A member is in at most one grant at a time. A request
-	// refuses with failed_precondition for a pool another host owns, or for a pool or member defined two ways, with
-	// invalid_argument for a bad need, with not_found for a grant_id that names no stored grant, and with unavailable
-	// when orreryd has no store to keep grants in.
+	// while the response stream is open and ends when it closes. A member is in at most one grant at a time. A hold on a
+	// member a grant holds sends that grant a stop event, see AcquireStop. A request refuses with failed_precondition
+	// for a pool another host owns, or for a pool or member defined two ways, with invalid_argument for a bad need, with
+	// not_found for a grant_id that names no stored grant, and with unavailable when orreryd has no store to keep grants
+	// in.
 	Acquire(context.Context, *connect.Request[v1.AcquireRequest]) (*connect.ServerStreamForClient[v1.AcquireResponse], error)
+	// Status reports the pools in use, each with its members and the requests waiting for it, and every owner hold.
+	Status(context.Context, *connect.Request[v1.PoolsStatusRequest]) (*connect.Response[v1.PoolsStatusResponse], error)
+	// Hold holds a member by name. A held member is never granted. A hold on a granted member stops its grant, and a hold
+	// on a member of no pool in use is accepted. Hold of a held member succeeds and keeps the first hold's since. A member
+	// name outside [A-Za-z0-9][A-Za-z0-9._-]* is invalid_argument. With no store to keep holds in, Hold is unavailable.
+	Hold(context.Context, *connect.Request[v1.PoolsHoldRequest]) (*connect.Response[v1.PoolsHoldResponse], error)
+	// Free releases a held member. Free of a member not held is not_found. A member name outside
+	// [A-Za-z0-9][A-Za-z0-9._-]* is invalid_argument. With no store to keep holds in, Free is unavailable.
+	Free(context.Context, *connect.Request[v1.PoolsFreeRequest]) (*connect.Response[v1.PoolsFreeResponse], error)
 }
 
 // NewPoolsClient constructs a client for the orrery.engine.v1.Pools service. By default, it uses
@@ -64,12 +80,33 @@ func NewPoolsClient(httpClient connect.HTTPClient, baseURL string, opts ...conne
 			connect.WithSchema(poolsMethods.ByName("Acquire")),
 			connect.WithClientOptions(opts...),
 		),
+		status: connect.NewClient[v1.PoolsStatusRequest, v1.PoolsStatusResponse](
+			httpClient,
+			baseURL+PoolsStatusProcedure,
+			connect.WithSchema(poolsMethods.ByName("Status")),
+			connect.WithClientOptions(opts...),
+		),
+		hold: connect.NewClient[v1.PoolsHoldRequest, v1.PoolsHoldResponse](
+			httpClient,
+			baseURL+PoolsHoldProcedure,
+			connect.WithSchema(poolsMethods.ByName("Hold")),
+			connect.WithClientOptions(opts...),
+		),
+		free: connect.NewClient[v1.PoolsFreeRequest, v1.PoolsFreeResponse](
+			httpClient,
+			baseURL+PoolsFreeProcedure,
+			connect.WithSchema(poolsMethods.ByName("Free")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // poolsClient implements PoolsClient.
 type poolsClient struct {
 	acquire *connect.Client[v1.AcquireRequest, v1.AcquireResponse]
+	status  *connect.Client[v1.PoolsStatusRequest, v1.PoolsStatusResponse]
+	hold    *connect.Client[v1.PoolsHoldRequest, v1.PoolsHoldResponse]
+	free    *connect.Client[v1.PoolsFreeRequest, v1.PoolsFreeResponse]
 }
 
 // Acquire calls orrery.engine.v1.Pools.Acquire.
@@ -77,14 +114,39 @@ func (c *poolsClient) Acquire(ctx context.Context, req *connect.Request[v1.Acqui
 	return c.acquire.CallServerStream(ctx, req)
 }
 
+// Status calls orrery.engine.v1.Pools.Status.
+func (c *poolsClient) Status(ctx context.Context, req *connect.Request[v1.PoolsStatusRequest]) (*connect.Response[v1.PoolsStatusResponse], error) {
+	return c.status.CallUnary(ctx, req)
+}
+
+// Hold calls orrery.engine.v1.Pools.Hold.
+func (c *poolsClient) Hold(ctx context.Context, req *connect.Request[v1.PoolsHoldRequest]) (*connect.Response[v1.PoolsHoldResponse], error) {
+	return c.hold.CallUnary(ctx, req)
+}
+
+// Free calls orrery.engine.v1.Pools.Free.
+func (c *poolsClient) Free(ctx context.Context, req *connect.Request[v1.PoolsFreeRequest]) (*connect.Response[v1.PoolsFreeResponse], error) {
+	return c.free.CallUnary(ctx, req)
+}
+
 // PoolsHandler is an implementation of the orrery.engine.v1.Pools service.
 type PoolsHandler interface {
 	// Acquire asks for every need at once and streams the request's place in line until it is granted. The grant lives
-	// while the response stream is open and ends when it closes. A member is in at most one grant at a time. A request
-	// refuses with failed_precondition for a pool another host owns, or for a pool or member defined two ways, with
-	// invalid_argument for a bad need, with not_found for a grant_id that names no stored grant, and with unavailable
-	// when orreryd has no store to keep grants in.
+	// while the response stream is open and ends when it closes. A member is in at most one grant at a time. A hold on a
+	// member a grant holds sends that grant a stop event, see AcquireStop. A request refuses with failed_precondition
+	// for a pool another host owns, or for a pool or member defined two ways, with invalid_argument for a bad need, with
+	// not_found for a grant_id that names no stored grant, and with unavailable when orreryd has no store to keep grants
+	// in.
 	Acquire(context.Context, *connect.Request[v1.AcquireRequest], *connect.ServerStream[v1.AcquireResponse]) error
+	// Status reports the pools in use, each with its members and the requests waiting for it, and every owner hold.
+	Status(context.Context, *connect.Request[v1.PoolsStatusRequest]) (*connect.Response[v1.PoolsStatusResponse], error)
+	// Hold holds a member by name. A held member is never granted. A hold on a granted member stops its grant, and a hold
+	// on a member of no pool in use is accepted. Hold of a held member succeeds and keeps the first hold's since. A member
+	// name outside [A-Za-z0-9][A-Za-z0-9._-]* is invalid_argument. With no store to keep holds in, Hold is unavailable.
+	Hold(context.Context, *connect.Request[v1.PoolsHoldRequest]) (*connect.Response[v1.PoolsHoldResponse], error)
+	// Free releases a held member. Free of a member not held is not_found. A member name outside
+	// [A-Za-z0-9][A-Za-z0-9._-]* is invalid_argument. With no store to keep holds in, Free is unavailable.
+	Free(context.Context, *connect.Request[v1.PoolsFreeRequest]) (*connect.Response[v1.PoolsFreeResponse], error)
 }
 
 // NewPoolsHandler builds an HTTP handler from the service implementation. It returns the path on
@@ -100,10 +162,34 @@ func NewPoolsHandler(svc PoolsHandler, opts ...connect.HandlerOption) (string, h
 		connect.WithSchema(poolsMethods.ByName("Acquire")),
 		connect.WithHandlerOptions(opts...),
 	)
+	poolsStatusHandler := connect.NewUnaryHandler(
+		PoolsStatusProcedure,
+		svc.Status,
+		connect.WithSchema(poolsMethods.ByName("Status")),
+		connect.WithHandlerOptions(opts...),
+	)
+	poolsHoldHandler := connect.NewUnaryHandler(
+		PoolsHoldProcedure,
+		svc.Hold,
+		connect.WithSchema(poolsMethods.ByName("Hold")),
+		connect.WithHandlerOptions(opts...),
+	)
+	poolsFreeHandler := connect.NewUnaryHandler(
+		PoolsFreeProcedure,
+		svc.Free,
+		connect.WithSchema(poolsMethods.ByName("Free")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/orrery.engine.v1.Pools/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case PoolsAcquireProcedure:
 			poolsAcquireHandler.ServeHTTP(w, r)
+		case PoolsStatusProcedure:
+			poolsStatusHandler.ServeHTTP(w, r)
+		case PoolsHoldProcedure:
+			poolsHoldHandler.ServeHTTP(w, r)
+		case PoolsFreeProcedure:
+			poolsFreeHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -115,4 +201,16 @@ type UnimplementedPoolsHandler struct{}
 
 func (UnimplementedPoolsHandler) Acquire(context.Context, *connect.Request[v1.AcquireRequest], *connect.ServerStream[v1.AcquireResponse]) error {
 	return connect.NewError(connect.CodeUnimplemented, errors.New("orrery.engine.v1.Pools.Acquire is not implemented"))
+}
+
+func (UnimplementedPoolsHandler) Status(context.Context, *connect.Request[v1.PoolsStatusRequest]) (*connect.Response[v1.PoolsStatusResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.engine.v1.Pools.Status is not implemented"))
+}
+
+func (UnimplementedPoolsHandler) Hold(context.Context, *connect.Request[v1.PoolsHoldRequest]) (*connect.Response[v1.PoolsHoldResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.engine.v1.Pools.Hold is not implemented"))
+}
+
+func (UnimplementedPoolsHandler) Free(context.Context, *connect.Request[v1.PoolsFreeRequest]) (*connect.Response[v1.PoolsFreeResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.engine.v1.Pools.Free is not implemented"))
 }

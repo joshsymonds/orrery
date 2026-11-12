@@ -147,7 +147,9 @@ type Config struct {
 	Shutdown <-chan struct{}
 	// Engine forwards the Control API to orreryd's engine socket, or is nil, which answers unavailable.
 	Engine enginev1connect.EngineClient
-	// ControlTimeout bounds each forward to Engine, or is zero for the default.
+	// Pools forwards the Pools API to orreryd's engine Pools service, or is nil, which answers unavailable.
+	Pools enginev1connect.PoolsClient
+	// ControlTimeout bounds each forward to Engine and Pools, or is zero for the default.
 	ControlTimeout time.Duration
 	// Steps is orreryd's Steps client, which Control asks before it forwards a session command, or is nil, which
 	// forwards every session command as before.
@@ -220,6 +222,8 @@ func New(cfg Config) (http.Handler, error) {
 	mux.Handle(epicsPath, epicsService)
 	stepsPath, stepsService := newStepsHandler(cfg.Steps, cfg.ControlTimeout)
 	mux.Handle(stepsPath, stepsService)
+	poolsPath, pools := newPoolsHandler(cfg.Pools, cfg.ControlTimeout)
+	mux.Handle(poolsPath, pools)
 	panesPath, panesService := newPanesHandler(
 		cfg.Tmux, cfg.Sessions, newest, goals, queues, textLocks, seenLocks, cfg.ReportSeen, cfg.ReportRead, now,
 		conversationPoll, conversationKeepalive, sendTimeout, cfg.Shutdown,
@@ -235,7 +239,8 @@ func New(cfg Config) (http.Handler, error) {
 		mux.Handle("/", newPageHandler(cfg.Web))
 	}
 	connectPaths := []string{
-		sessionsPath, eventsPath, controlPath, epicsPath, stepsPath, panesPath, hostPath, pushPath, pickerPath,
+		sessionsPath, eventsPath, controlPath, epicsPath, stepsPath, poolsPath, panesPath, hostPath, pushPath,
+		pickerPath,
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if _, ok := allowed[r.Header.Get(HeaderLogin)]; !ok {

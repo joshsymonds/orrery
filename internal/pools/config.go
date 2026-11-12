@@ -44,6 +44,9 @@ const maxLimitSeconds = math.MaxInt64 / int64(time.Second)
 // sectionPools is the top-level table that holds every pool.
 const sectionPools = "pools"
 
+// sectionGates is the top-level table that holds every gate. internal/gates reads it, so pools leaves it alone.
+const sectionGates = "gates"
+
 // poolFile is one [pools.NAME] table as the file spells it. Whether a key is present is read from the metadata,
 // since a zero value cannot tell a missing key from one set to zero.
 type poolFile struct {
@@ -93,10 +96,16 @@ func Parse(path string, data []byte) ([]Pool, error) {
 }
 
 // checkKeys refuses any key the format does not define. Keys match exactly, so HOST is refused rather than read as
-// host.
+// host. The [gates] table of a project file and every key under it belong to internal/gates, so they pass here; a
+// gates key that is not a table is refused.
 func checkKeys(md toml.MetaData) error {
 	for _, key := range md.Keys() {
 		switch {
+		case len(key) == 1 && key[0] == sectionGates:
+			if t := md.Type(sectionGates); t != "" && t != "Hash" {
+				return fmt.Errorf("%s must be a table, not %s", sectionGates, t)
+			}
+		case key[0] == sectionGates:
 		case len(key) == 1 && key[0] == sectionPools:
 		case len(key) == 2 && key[0] == sectionPools:
 			if !poolNamePattern.MatchString(key[1]) {

@@ -105,8 +105,9 @@ private const val INDENT_DP = 16
 /**
  * Every pane as a folder tree, or the New and Waiting panes as flat lists, with a filter. The New
  * button at the top opens the picker above the filters; a run it answers opens that pane through
- * [onOpenPaneId], and a start it answers opens that session through [onStartedSession]. Tapping a folder
- * header collapses or expands it. Tapping a row opens that pane.
+ * [onOpenPaneId], and a start it answers opens that session through [onStartedSession]. The Pools
+ * button opens the pools view through [onOpenPools]. Tapping a folder header collapses or expands
+ * it. Tapping a row opens that pane.
  * The Epics group sits above the rows and opens an epic through [onOpenEpic]. An epics load that
  * fails shows no group and leaves the panes as they are.
  */
@@ -117,6 +118,7 @@ fun PaneListScreen(
     onOpenPaneId: (String) -> Unit,
     onStartedSession: (String) -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenPools: () -> Unit = {},
     modifier: Modifier = Modifier,
     onOpenEpic: (String) -> Unit = {},
     now: () -> Long = { System.currentTimeMillis() / 1000 },
@@ -165,6 +167,12 @@ fun PaneListScreen(
                     modifier = Modifier.testTag("picker-new"),
                 ) {
                     Text("New")
+                }
+                TextButton(
+                    onClick = onOpenPools,
+                    modifier = Modifier.testTag("open-pools"),
+                ) {
+                    Text("Pools")
                 }
                 TextButton(onClick = onOpenSettings) {
                     Text("Settings")

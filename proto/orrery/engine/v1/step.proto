@@ -55,10 +55,10 @@ message StartStepRequest {
   // The paths, relative to the repository, a writing step may change.
   repeated string owned_paths = 7;
 
-  // The gate program and its arguments that the step's return is checked against. Empty runs no gate.
+  // Refused: StartStep returns invalid_argument when this is set. A step names its gate with gate_name.
   repeated string gate = 8;
 
-  // How many seconds the gate may run. Zero means 30 minutes.
+  // Refused: StartStep returns invalid_argument when this is set. A step names its gate with gate_name.
   uint32 gate_limit_seconds = 9;
 
   // The status the step's done return carries. Empty means "done".
@@ -73,6 +73,12 @@ message StartStepRequest {
 
   // The slug of the epic's task the step works on. Empty when it works on no one task.
   string task = 13;
+
+  // The name of the gate the step's return is checked against, resolved once when the step starts. Empty runs no gate.
+  string gate_name = 14;
+
+  // The absolute path of the epic's gates file. Empty reads only the project file.
+  string gates_file = 15;
 }
 
 // StartStepResponse names the started step.

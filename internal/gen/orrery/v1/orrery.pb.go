@@ -4541,6 +4541,620 @@ func (x *RunResponse) GetPane() string {
 	return ""
 }
 
+// PoolsStatusRequest asks for the pools in use and the owner holds. It has no fields.
+type PoolsStatusRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PoolsStatusRequest) Reset() {
+	*x = PoolsStatusRequest{}
+	mi := &file_orrery_v1_orrery_proto_msgTypes[67]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PoolsStatusRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PoolsStatusRequest) ProtoMessage() {}
+
+func (x *PoolsStatusRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_orrery_proto_msgTypes[67]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PoolsStatusRequest.ProtoReflect.Descriptor instead.
+func (*PoolsStatusRequest) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{67}
+}
+
+// PoolsStatusResponse carries the pools in use and the owner holds.
+type PoolsStatusResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The pools in use, sorted by name.
+	Pools []*PoolStatus `protobuf:"bytes,1,rep,name=pools,proto3" json:"pools,omitempty"`
+	// Every owner hold, sorted by member. It covers holds on members of no pool in use.
+	Holds         []*PoolHold `protobuf:"bytes,2,rep,name=holds,proto3" json:"holds,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PoolsStatusResponse) Reset() {
+	*x = PoolsStatusResponse{}
+	mi := &file_orrery_v1_orrery_proto_msgTypes[68]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PoolsStatusResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PoolsStatusResponse) ProtoMessage() {}
+
+func (x *PoolsStatusResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_orrery_proto_msgTypes[68]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PoolsStatusResponse.ProtoReflect.Descriptor instead.
+func (*PoolsStatusResponse) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{68}
+}
+
+func (x *PoolsStatusResponse) GetPools() []*PoolStatus {
+	if x != nil {
+		return x.Pools
+	}
+	return nil
+}
+
+func (x *PoolsStatusResponse) GetHolds() []*PoolHold {
+	if x != nil {
+		return x.Holds
+	}
+	return nil
+}
+
+// PoolStatus is one pool in use: its cap, its members, and the requests waiting for it.
+type PoolStatus struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The pool's name.
+	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	// How many of the pool's members one project may hold at once.
+	Cap int32 `protobuf:"varint,2,opt,name=cap,proto3" json:"cap,omitempty"`
+	// The pool's members, in the order its definition declares them.
+	Members []*PoolMemberStatus `protobuf:"bytes,3,rep,name=members,proto3" json:"members,omitempty"`
+	// The requests waiting for the pool, in queue order.
+	Waiters       []*PoolWaiter `protobuf:"bytes,4,rep,name=waiters,proto3" json:"waiters,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PoolStatus) Reset() {
+	*x = PoolStatus{}
+	mi := &file_orrery_v1_orrery_proto_msgTypes[69]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PoolStatus) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PoolStatus) ProtoMessage() {}
+
+func (x *PoolStatus) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_orrery_proto_msgTypes[69]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PoolStatus.ProtoReflect.Descriptor instead.
+func (*PoolStatus) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{69}
+}
+
+func (x *PoolStatus) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *PoolStatus) GetCap() int32 {
+	if x != nil {
+		return x.Cap
+	}
+	return 0
+}
+
+func (x *PoolStatus) GetMembers() []*PoolMemberStatus {
+	if x != nil {
+		return x.Members
+	}
+	return nil
+}
+
+func (x *PoolStatus) GetWaiters() []*PoolWaiter {
+	if x != nil {
+		return x.Waiters
+	}
+	return nil
+}
+
+// PoolMemberStatus is one member of a pool in use.
+type PoolMemberStatus struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The member's name.
+	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	// The member's state: unknown, asleep, awake, waking, admitting, admitted, or unavailable.
+	State string `protobuf:"bytes,2,opt,name=state,proto3" json:"state,omitempty"`
+	// The grant that holds the member, unset when no grant holds it.
+	Holder *PoolHolder `protobuf:"bytes,3,opt,name=holder,proto3" json:"holder,omitempty"`
+	// The unix seconds the member was held, or 0 when it is not held.
+	HeldSince     int64 `protobuf:"varint,4,opt,name=held_since,json=heldSince,proto3" json:"held_since,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PoolMemberStatus) Reset() {
+	*x = PoolMemberStatus{}
+	mi := &file_orrery_v1_orrery_proto_msgTypes[70]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PoolMemberStatus) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PoolMemberStatus) ProtoMessage() {}
+
+func (x *PoolMemberStatus) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_orrery_proto_msgTypes[70]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PoolMemberStatus.ProtoReflect.Descriptor instead.
+func (*PoolMemberStatus) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{70}
+}
+
+func (x *PoolMemberStatus) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *PoolMemberStatus) GetState() string {
+	if x != nil {
+		return x.State
+	}
+	return ""
+}
+
+func (x *PoolMemberStatus) GetHolder() *PoolHolder {
+	if x != nil {
+		return x.Holder
+	}
+	return nil
+}
+
+func (x *PoolMemberStatus) GetHeldSince() int64 {
+	if x != nil {
+		return x.HeldSince
+	}
+	return 0
+}
+
+// PoolHolder is the grant that holds a member.
+type PoolHolder struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The absolute path of the grant's project.
+	Project string `protobuf:"bytes,1,opt,name=project,proto3" json:"project,omitempty"`
+	// The argv of the grant's command. Empty when the client sent none.
+	Command []string `protobuf:"bytes,2,rep,name=command,proto3" json:"command,omitempty"`
+	// The unix seconds the grant was granted.
+	Since int64 `protobuf:"varint,3,opt,name=since,proto3" json:"since,omitempty"`
+	// Whether the grant is stopping, because one of its members is held.
+	Stopping      bool `protobuf:"varint,4,opt,name=stopping,proto3" json:"stopping,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PoolHolder) Reset() {
+	*x = PoolHolder{}
+	mi := &file_orrery_v1_orrery_proto_msgTypes[71]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PoolHolder) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PoolHolder) ProtoMessage() {}
+
+func (x *PoolHolder) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_orrery_proto_msgTypes[71]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PoolHolder.ProtoReflect.Descriptor instead.
+func (*PoolHolder) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{71}
+}
+
+func (x *PoolHolder) GetProject() string {
+	if x != nil {
+		return x.Project
+	}
+	return ""
+}
+
+func (x *PoolHolder) GetCommand() []string {
+	if x != nil {
+		return x.Command
+	}
+	return nil
+}
+
+func (x *PoolHolder) GetSince() int64 {
+	if x != nil {
+		return x.Since
+	}
+	return 0
+}
+
+func (x *PoolHolder) GetStopping() bool {
+	if x != nil {
+		return x.Stopping
+	}
+	return false
+}
+
+// PoolWaiter is one request waiting for a pool.
+type PoolWaiter struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The request's place in line, counting from 1.
+	Position int32 `protobuf:"varint,1,opt,name=position,proto3" json:"position,omitempty"`
+	// The absolute path of the request's project.
+	Project string `protobuf:"bytes,2,opt,name=project,proto3" json:"project,omitempty"`
+	// The argv of the request's command. Empty when the client sent none.
+	Command []string `protobuf:"bytes,3,rep,name=command,proto3" json:"command,omitempty"`
+	// How many of the pool's members the request needs.
+	Count int32 `protobuf:"varint,4,opt,name=count,proto3" json:"count,omitempty"`
+	// The unix seconds the request began waiting.
+	Since         int64 `protobuf:"varint,5,opt,name=since,proto3" json:"since,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PoolWaiter) Reset() {
+	*x = PoolWaiter{}
+	mi := &file_orrery_v1_orrery_proto_msgTypes[72]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PoolWaiter) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PoolWaiter) ProtoMessage() {}
+
+func (x *PoolWaiter) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_orrery_proto_msgTypes[72]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PoolWaiter.ProtoReflect.Descriptor instead.
+func (*PoolWaiter) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{72}
+}
+
+func (x *PoolWaiter) GetPosition() int32 {
+	if x != nil {
+		return x.Position
+	}
+	return 0
+}
+
+func (x *PoolWaiter) GetProject() string {
+	if x != nil {
+		return x.Project
+	}
+	return ""
+}
+
+func (x *PoolWaiter) GetCommand() []string {
+	if x != nil {
+		return x.Command
+	}
+	return nil
+}
+
+func (x *PoolWaiter) GetCount() int32 {
+	if x != nil {
+		return x.Count
+	}
+	return 0
+}
+
+func (x *PoolWaiter) GetSince() int64 {
+	if x != nil {
+		return x.Since
+	}
+	return 0
+}
+
+// PoolHold is one owner hold: a member that no grant may take.
+type PoolHold struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The held member's name.
+	Member string `protobuf:"bytes,1,opt,name=member,proto3" json:"member,omitempty"`
+	// The unix seconds the member was held.
+	Since         int64 `protobuf:"varint,2,opt,name=since,proto3" json:"since,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PoolHold) Reset() {
+	*x = PoolHold{}
+	mi := &file_orrery_v1_orrery_proto_msgTypes[73]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PoolHold) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PoolHold) ProtoMessage() {}
+
+func (x *PoolHold) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_orrery_proto_msgTypes[73]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PoolHold.ProtoReflect.Descriptor instead.
+func (*PoolHold) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{73}
+}
+
+func (x *PoolHold) GetMember() string {
+	if x != nil {
+		return x.Member
+	}
+	return ""
+}
+
+func (x *PoolHold) GetSince() int64 {
+	if x != nil {
+		return x.Since
+	}
+	return 0
+}
+
+// PoolsHoldRequest asks for a member to be held.
+type PoolsHoldRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The member's name, of the form [A-Za-z0-9][A-Za-z0-9._-]*.
+	Member        string `protobuf:"bytes,1,opt,name=member,proto3" json:"member,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PoolsHoldRequest) Reset() {
+	*x = PoolsHoldRequest{}
+	mi := &file_orrery_v1_orrery_proto_msgTypes[74]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PoolsHoldRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PoolsHoldRequest) ProtoMessage() {}
+
+func (x *PoolsHoldRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_orrery_proto_msgTypes[74]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PoolsHoldRequest.ProtoReflect.Descriptor instead.
+func (*PoolsHoldRequest) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{74}
+}
+
+func (x *PoolsHoldRequest) GetMember() string {
+	if x != nil {
+		return x.Member
+	}
+	return ""
+}
+
+// PoolsHoldResponse is the reply to a Hold. It has no fields.
+type PoolsHoldResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PoolsHoldResponse) Reset() {
+	*x = PoolsHoldResponse{}
+	mi := &file_orrery_v1_orrery_proto_msgTypes[75]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PoolsHoldResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PoolsHoldResponse) ProtoMessage() {}
+
+func (x *PoolsHoldResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_orrery_proto_msgTypes[75]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PoolsHoldResponse.ProtoReflect.Descriptor instead.
+func (*PoolsHoldResponse) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{75}
+}
+
+// PoolsFreeRequest asks for a held member to be freed.
+type PoolsFreeRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The member's name, of the form [A-Za-z0-9][A-Za-z0-9._-]*.
+	Member        string `protobuf:"bytes,1,opt,name=member,proto3" json:"member,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PoolsFreeRequest) Reset() {
+	*x = PoolsFreeRequest{}
+	mi := &file_orrery_v1_orrery_proto_msgTypes[76]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PoolsFreeRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PoolsFreeRequest) ProtoMessage() {}
+
+func (x *PoolsFreeRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_orrery_proto_msgTypes[76]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PoolsFreeRequest.ProtoReflect.Descriptor instead.
+func (*PoolsFreeRequest) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{76}
+}
+
+func (x *PoolsFreeRequest) GetMember() string {
+	if x != nil {
+		return x.Member
+	}
+	return ""
+}
+
+// PoolsFreeResponse is the reply to a Free. It has no fields.
+type PoolsFreeResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PoolsFreeResponse) Reset() {
+	*x = PoolsFreeResponse{}
+	mi := &file_orrery_v1_orrery_proto_msgTypes[77]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PoolsFreeResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PoolsFreeResponse) ProtoMessage() {}
+
+func (x *PoolsFreeResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_orrery_proto_msgTypes[77]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PoolsFreeResponse.ProtoReflect.Descriptor instead.
+func (*PoolsFreeResponse) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{77}
+}
+
 var File_orrery_v1_orrery_proto protoreflect.FileDescriptor
 
 const file_orrery_v1_orrery_proto_rawDesc = "" +
@@ -4882,7 +5496,45 @@ const file_orrery_v1_orrery_proto_rawDesc = "" +
 	"RunRequest\x12\x14\n" +
 	"\x05token\x18\x01 \x01(\tR\x05token\"!\n" +
 	"\vRunResponse\x12\x12\n" +
-	"\x04pane\x18\x01 \x01(\tR\x04pane2\x86\x02\n" +
+	"\x04pane\x18\x01 \x01(\tR\x04pane\"\x14\n" +
+	"\x12PoolsStatusRequest\"m\n" +
+	"\x13PoolsStatusResponse\x12+\n" +
+	"\x05pools\x18\x01 \x03(\v2\x15.orrery.v1.PoolStatusR\x05pools\x12)\n" +
+	"\x05holds\x18\x02 \x03(\v2\x13.orrery.v1.PoolHoldR\x05holds\"\x9a\x01\n" +
+	"\n" +
+	"PoolStatus\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x10\n" +
+	"\x03cap\x18\x02 \x01(\x05R\x03cap\x125\n" +
+	"\amembers\x18\x03 \x03(\v2\x1b.orrery.v1.PoolMemberStatusR\amembers\x12/\n" +
+	"\awaiters\x18\x04 \x03(\v2\x15.orrery.v1.PoolWaiterR\awaiters\"\x8a\x01\n" +
+	"\x10PoolMemberStatus\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
+	"\x05state\x18\x02 \x01(\tR\x05state\x12-\n" +
+	"\x06holder\x18\x03 \x01(\v2\x15.orrery.v1.PoolHolderR\x06holder\x12\x1d\n" +
+	"\n" +
+	"held_since\x18\x04 \x01(\x03R\theldSince\"r\n" +
+	"\n" +
+	"PoolHolder\x12\x18\n" +
+	"\aproject\x18\x01 \x01(\tR\aproject\x12\x18\n" +
+	"\acommand\x18\x02 \x03(\tR\acommand\x12\x14\n" +
+	"\x05since\x18\x03 \x01(\x03R\x05since\x12\x1a\n" +
+	"\bstopping\x18\x04 \x01(\bR\bstopping\"\x88\x01\n" +
+	"\n" +
+	"PoolWaiter\x12\x1a\n" +
+	"\bposition\x18\x01 \x01(\x05R\bposition\x12\x18\n" +
+	"\aproject\x18\x02 \x01(\tR\aproject\x12\x18\n" +
+	"\acommand\x18\x03 \x03(\tR\acommand\x12\x14\n" +
+	"\x05count\x18\x04 \x01(\x05R\x05count\x12\x14\n" +
+	"\x05since\x18\x05 \x01(\x03R\x05since\"8\n" +
+	"\bPoolHold\x12\x16\n" +
+	"\x06member\x18\x01 \x01(\tR\x06member\x12\x14\n" +
+	"\x05since\x18\x02 \x01(\x03R\x05since\"*\n" +
+	"\x10PoolsHoldRequest\x12\x16\n" +
+	"\x06member\x18\x01 \x01(\tR\x06member\"\x13\n" +
+	"\x11PoolsHoldResponse\"*\n" +
+	"\x10PoolsFreeRequest\x12\x16\n" +
+	"\x06member\x18\x01 \x01(\tR\x06member\"\x13\n" +
+	"\x11PoolsFreeResponse2\x86\x02\n" +
 	"\bSessions\x127\n" +
 	"\x04List\x12\x16.orrery.v1.ListRequest\x1a\x17.orrery.v1.ListResponse\x12O\n" +
 	"\fListHeadless\x12\x1e.orrery.v1.ListHeadlessRequest\x1a\x1f.orrery.v1.ListHeadlessResponse\x12p\n" +
@@ -4914,7 +5566,11 @@ const file_orrery_v1_orrery_proto_rawDesc = "" +
 	"Unregister\x12\x1c.orrery.v1.UnregisterRequest\x1a\x1d.orrery.v1.UnregisterResponse2t\n" +
 	"\x06Picker\x124\n" +
 	"\x03Ask\x12\x15.orrery.v1.AskRequest\x1a\x16.orrery.v1.AskResponse\x124\n" +
-	"\x03Run\x12\x15.orrery.v1.RunRequest\x1a\x16.orrery.v1.RunResponseB\xa0\x01\n" +
+	"\x03Run\x12\x15.orrery.v1.RunRequest\x1a\x16.orrery.v1.RunResponse2\xd6\x01\n" +
+	"\x05Pools\x12G\n" +
+	"\x06Status\x12\x1d.orrery.v1.PoolsStatusRequest\x1a\x1e.orrery.v1.PoolsStatusResponse\x12A\n" +
+	"\x04Hold\x12\x1b.orrery.v1.PoolsHoldRequest\x1a\x1c.orrery.v1.PoolsHoldResponse\x12A\n" +
+	"\x04Free\x12\x1b.orrery.v1.PoolsFreeRequest\x1a\x1c.orrery.v1.PoolsFreeResponseB\xa0\x01\n" +
 	"\rcom.orrery.v1B\vOrreryProtoP\x01Z=github.com/joshsymonds/orrery/internal/gen/orrery/v1;orreryv1\xa2\x02\x03OXX\xaa\x02\tOrrery.V1\xca\x02\tOrrery\\V1\xe2\x02\x15Orrery\\V1\\GPBMetadata\xea\x02\n" +
 	"Orrery::V1b\x06proto3"
 
@@ -4930,7 +5586,7 @@ func file_orrery_v1_orrery_proto_rawDescGZIP() []byte {
 	return file_orrery_v1_orrery_proto_rawDescData
 }
 
-var file_orrery_v1_orrery_proto_msgTypes = make([]protoimpl.MessageInfo, 67)
+var file_orrery_v1_orrery_proto_msgTypes = make([]protoimpl.MessageInfo, 78)
 var file_orrery_v1_orrery_proto_goTypes = []any{
 	(*ListRequest)(nil),                       // 0: orrery.v1.ListRequest
 	(*ListResponse)(nil),                      // 1: orrery.v1.ListResponse
@@ -4999,6 +5655,17 @@ var file_orrery_v1_orrery_proto_goTypes = []any{
 	(*PickerRow)(nil),                         // 64: orrery.v1.PickerRow
 	(*RunRequest)(nil),                        // 65: orrery.v1.RunRequest
 	(*RunResponse)(nil),                       // 66: orrery.v1.RunResponse
+	(*PoolsStatusRequest)(nil),                // 67: orrery.v1.PoolsStatusRequest
+	(*PoolsStatusResponse)(nil),               // 68: orrery.v1.PoolsStatusResponse
+	(*PoolStatus)(nil),                        // 69: orrery.v1.PoolStatus
+	(*PoolMemberStatus)(nil),                  // 70: orrery.v1.PoolMemberStatus
+	(*PoolHolder)(nil),                        // 71: orrery.v1.PoolHolder
+	(*PoolWaiter)(nil),                        // 72: orrery.v1.PoolWaiter
+	(*PoolHold)(nil),                          // 73: orrery.v1.PoolHold
+	(*PoolsHoldRequest)(nil),                  // 74: orrery.v1.PoolsHoldRequest
+	(*PoolsHoldResponse)(nil),                 // 75: orrery.v1.PoolsHoldResponse
+	(*PoolsFreeRequest)(nil),                  // 76: orrery.v1.PoolsFreeRequest
+	(*PoolsFreeResponse)(nil),                 // 77: orrery.v1.PoolsFreeResponse
 }
 var file_orrery_v1_orrery_proto_depIdxs = []int32{
 	2,  // 0: orrery.v1.ListResponse.sessions:type_name -> orrery.v1.Session
@@ -5031,57 +5698,68 @@ var file_orrery_v1_orrery_proto_depIdxs = []int32{
 	8,  // 27: orrery.v1.ConversationState.request:type_name -> orrery.v1.OpenRequest
 	57, // 28: orrery.v1.HostStatusResponse.stats:type_name -> orrery.v1.HostStat
 	64, // 29: orrery.v1.AskResponse.rows:type_name -> orrery.v1.PickerRow
-	0,  // 30: orrery.v1.Sessions.List:input_type -> orrery.v1.ListRequest
-	3,  // 31: orrery.v1.Sessions.ListHeadless:input_type -> orrery.v1.ListHeadlessRequest
-	6,  // 32: orrery.v1.Sessions.WatchConversation:input_type -> orrery.v1.SessionsWatchConversationRequest
-	9,  // 33: orrery.v1.Events.Watch:input_type -> orrery.v1.WatchRequest
-	14, // 34: orrery.v1.Control.Start:input_type -> orrery.v1.StartRequest
-	16, // 35: orrery.v1.Control.Say:input_type -> orrery.v1.SayRequest
-	18, // 36: orrery.v1.Control.Answer:input_type -> orrery.v1.AnswerRequest
-	20, // 37: orrery.v1.Control.Interrupt:input_type -> orrery.v1.InterruptRequest
-	22, // 38: orrery.v1.Control.Stop:input_type -> orrery.v1.StopRequest
-	24, // 39: orrery.v1.Control.Seen:input_type -> orrery.v1.SeenRequest
-	34, // 40: orrery.v1.Panes.List:input_type -> orrery.v1.PanesListRequest
-	37, // 41: orrery.v1.Panes.Screen:input_type -> orrery.v1.ScreenRequest
-	39, // 42: orrery.v1.Panes.Conversation:input_type -> orrery.v1.ConversationRequest
-	47, // 43: orrery.v1.Panes.SendText:input_type -> orrery.v1.SendTextRequest
-	49, // 44: orrery.v1.Panes.SendKeys:input_type -> orrery.v1.SendKeysRequest
-	51, // 45: orrery.v1.Panes.MarkSeen:input_type -> orrery.v1.MarkSeenRequest
-	53, // 46: orrery.v1.Panes.PullQueued:input_type -> orrery.v1.PullQueuedRequest
-	44, // 47: orrery.v1.Panes.WatchConversation:input_type -> orrery.v1.WatchConversationRequest
-	55, // 48: orrery.v1.Host.Status:input_type -> orrery.v1.HostStatusRequest
-	58, // 49: orrery.v1.Push.Register:input_type -> orrery.v1.RegisterRequest
-	60, // 50: orrery.v1.Push.Unregister:input_type -> orrery.v1.UnregisterRequest
-	62, // 51: orrery.v1.Picker.Ask:input_type -> orrery.v1.AskRequest
-	65, // 52: orrery.v1.Picker.Run:input_type -> orrery.v1.RunRequest
-	1,  // 53: orrery.v1.Sessions.List:output_type -> orrery.v1.ListResponse
-	4,  // 54: orrery.v1.Sessions.ListHeadless:output_type -> orrery.v1.ListHeadlessResponse
-	7,  // 55: orrery.v1.Sessions.WatchConversation:output_type -> orrery.v1.SessionsWatchConversationResponse
-	10, // 56: orrery.v1.Events.Watch:output_type -> orrery.v1.WatchResponse
-	15, // 57: orrery.v1.Control.Start:output_type -> orrery.v1.StartResponse
-	17, // 58: orrery.v1.Control.Say:output_type -> orrery.v1.SayResponse
-	19, // 59: orrery.v1.Control.Answer:output_type -> orrery.v1.AnswerResponse
-	21, // 60: orrery.v1.Control.Interrupt:output_type -> orrery.v1.InterruptResponse
-	23, // 61: orrery.v1.Control.Stop:output_type -> orrery.v1.StopResponse
-	25, // 62: orrery.v1.Control.Seen:output_type -> orrery.v1.SeenResponse
-	35, // 63: orrery.v1.Panes.List:output_type -> orrery.v1.PanesListResponse
-	38, // 64: orrery.v1.Panes.Screen:output_type -> orrery.v1.ScreenResponse
-	40, // 65: orrery.v1.Panes.Conversation:output_type -> orrery.v1.ConversationResponse
-	48, // 66: orrery.v1.Panes.SendText:output_type -> orrery.v1.SendTextResponse
-	50, // 67: orrery.v1.Panes.SendKeys:output_type -> orrery.v1.SendKeysResponse
-	52, // 68: orrery.v1.Panes.MarkSeen:output_type -> orrery.v1.MarkSeenResponse
-	54, // 69: orrery.v1.Panes.PullQueued:output_type -> orrery.v1.PullQueuedResponse
-	45, // 70: orrery.v1.Panes.WatchConversation:output_type -> orrery.v1.WatchConversationResponse
-	56, // 71: orrery.v1.Host.Status:output_type -> orrery.v1.HostStatusResponse
-	59, // 72: orrery.v1.Push.Register:output_type -> orrery.v1.RegisterResponse
-	61, // 73: orrery.v1.Push.Unregister:output_type -> orrery.v1.UnregisterResponse
-	63, // 74: orrery.v1.Picker.Ask:output_type -> orrery.v1.AskResponse
-	66, // 75: orrery.v1.Picker.Run:output_type -> orrery.v1.RunResponse
-	53, // [53:76] is the sub-list for method output_type
-	30, // [30:53] is the sub-list for method input_type
-	30, // [30:30] is the sub-list for extension type_name
-	30, // [30:30] is the sub-list for extension extendee
-	0,  // [0:30] is the sub-list for field type_name
+	69, // 30: orrery.v1.PoolsStatusResponse.pools:type_name -> orrery.v1.PoolStatus
+	73, // 31: orrery.v1.PoolsStatusResponse.holds:type_name -> orrery.v1.PoolHold
+	70, // 32: orrery.v1.PoolStatus.members:type_name -> orrery.v1.PoolMemberStatus
+	72, // 33: orrery.v1.PoolStatus.waiters:type_name -> orrery.v1.PoolWaiter
+	71, // 34: orrery.v1.PoolMemberStatus.holder:type_name -> orrery.v1.PoolHolder
+	0,  // 35: orrery.v1.Sessions.List:input_type -> orrery.v1.ListRequest
+	3,  // 36: orrery.v1.Sessions.ListHeadless:input_type -> orrery.v1.ListHeadlessRequest
+	6,  // 37: orrery.v1.Sessions.WatchConversation:input_type -> orrery.v1.SessionsWatchConversationRequest
+	9,  // 38: orrery.v1.Events.Watch:input_type -> orrery.v1.WatchRequest
+	14, // 39: orrery.v1.Control.Start:input_type -> orrery.v1.StartRequest
+	16, // 40: orrery.v1.Control.Say:input_type -> orrery.v1.SayRequest
+	18, // 41: orrery.v1.Control.Answer:input_type -> orrery.v1.AnswerRequest
+	20, // 42: orrery.v1.Control.Interrupt:input_type -> orrery.v1.InterruptRequest
+	22, // 43: orrery.v1.Control.Stop:input_type -> orrery.v1.StopRequest
+	24, // 44: orrery.v1.Control.Seen:input_type -> orrery.v1.SeenRequest
+	34, // 45: orrery.v1.Panes.List:input_type -> orrery.v1.PanesListRequest
+	37, // 46: orrery.v1.Panes.Screen:input_type -> orrery.v1.ScreenRequest
+	39, // 47: orrery.v1.Panes.Conversation:input_type -> orrery.v1.ConversationRequest
+	47, // 48: orrery.v1.Panes.SendText:input_type -> orrery.v1.SendTextRequest
+	49, // 49: orrery.v1.Panes.SendKeys:input_type -> orrery.v1.SendKeysRequest
+	51, // 50: orrery.v1.Panes.MarkSeen:input_type -> orrery.v1.MarkSeenRequest
+	53, // 51: orrery.v1.Panes.PullQueued:input_type -> orrery.v1.PullQueuedRequest
+	44, // 52: orrery.v1.Panes.WatchConversation:input_type -> orrery.v1.WatchConversationRequest
+	55, // 53: orrery.v1.Host.Status:input_type -> orrery.v1.HostStatusRequest
+	58, // 54: orrery.v1.Push.Register:input_type -> orrery.v1.RegisterRequest
+	60, // 55: orrery.v1.Push.Unregister:input_type -> orrery.v1.UnregisterRequest
+	62, // 56: orrery.v1.Picker.Ask:input_type -> orrery.v1.AskRequest
+	65, // 57: orrery.v1.Picker.Run:input_type -> orrery.v1.RunRequest
+	67, // 58: orrery.v1.Pools.Status:input_type -> orrery.v1.PoolsStatusRequest
+	74, // 59: orrery.v1.Pools.Hold:input_type -> orrery.v1.PoolsHoldRequest
+	76, // 60: orrery.v1.Pools.Free:input_type -> orrery.v1.PoolsFreeRequest
+	1,  // 61: orrery.v1.Sessions.List:output_type -> orrery.v1.ListResponse
+	4,  // 62: orrery.v1.Sessions.ListHeadless:output_type -> orrery.v1.ListHeadlessResponse
+	7,  // 63: orrery.v1.Sessions.WatchConversation:output_type -> orrery.v1.SessionsWatchConversationResponse
+	10, // 64: orrery.v1.Events.Watch:output_type -> orrery.v1.WatchResponse
+	15, // 65: orrery.v1.Control.Start:output_type -> orrery.v1.StartResponse
+	17, // 66: orrery.v1.Control.Say:output_type -> orrery.v1.SayResponse
+	19, // 67: orrery.v1.Control.Answer:output_type -> orrery.v1.AnswerResponse
+	21, // 68: orrery.v1.Control.Interrupt:output_type -> orrery.v1.InterruptResponse
+	23, // 69: orrery.v1.Control.Stop:output_type -> orrery.v1.StopResponse
+	25, // 70: orrery.v1.Control.Seen:output_type -> orrery.v1.SeenResponse
+	35, // 71: orrery.v1.Panes.List:output_type -> orrery.v1.PanesListResponse
+	38, // 72: orrery.v1.Panes.Screen:output_type -> orrery.v1.ScreenResponse
+	40, // 73: orrery.v1.Panes.Conversation:output_type -> orrery.v1.ConversationResponse
+	48, // 74: orrery.v1.Panes.SendText:output_type -> orrery.v1.SendTextResponse
+	50, // 75: orrery.v1.Panes.SendKeys:output_type -> orrery.v1.SendKeysResponse
+	52, // 76: orrery.v1.Panes.MarkSeen:output_type -> orrery.v1.MarkSeenResponse
+	54, // 77: orrery.v1.Panes.PullQueued:output_type -> orrery.v1.PullQueuedResponse
+	45, // 78: orrery.v1.Panes.WatchConversation:output_type -> orrery.v1.WatchConversationResponse
+	56, // 79: orrery.v1.Host.Status:output_type -> orrery.v1.HostStatusResponse
+	59, // 80: orrery.v1.Push.Register:output_type -> orrery.v1.RegisterResponse
+	61, // 81: orrery.v1.Push.Unregister:output_type -> orrery.v1.UnregisterResponse
+	63, // 82: orrery.v1.Picker.Ask:output_type -> orrery.v1.AskResponse
+	66, // 83: orrery.v1.Picker.Run:output_type -> orrery.v1.RunResponse
+	68, // 84: orrery.v1.Pools.Status:output_type -> orrery.v1.PoolsStatusResponse
+	75, // 85: orrery.v1.Pools.Hold:output_type -> orrery.v1.PoolsHoldResponse
+	77, // 86: orrery.v1.Pools.Free:output_type -> orrery.v1.PoolsFreeResponse
+	61, // [61:87] is the sub-list for method output_type
+	35, // [35:61] is the sub-list for method input_type
+	35, // [35:35] is the sub-list for extension type_name
+	35, // [35:35] is the sub-list for extension extendee
+	0,  // [0:35] is the sub-list for field type_name
 }
 
 func init() { file_orrery_v1_orrery_proto_init() }
@@ -5113,9 +5791,9 @@ func file_orrery_v1_orrery_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_orrery_v1_orrery_proto_rawDesc), len(file_orrery_v1_orrery_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   67,
+			NumMessages:   78,
 			NumExtensions: 0,
-			NumServices:   7,
+			NumServices:   8,
 		},
 		GoTypes:           file_orrery_v1_orrery_proto_goTypes,
 		DependencyIndexes: file_orrery_v1_orrery_proto_depIdxs,
