@@ -661,6 +661,76 @@ func TestDebugSummarizeWritesSummaryAndLabel(t *testing.T) {
 	}
 }
 
+func TestDebugQueueReplayPrintsCountsOnly(t *testing.T) {
+	root := t.TempDir()
+	project := filepath.Join(root, "example-project")
+	if err := os.Mkdir(project, 0o700); err != nil {
+		t.Fatalf("make project directory: %v", err)
+	}
+	// One interactive transcript: a typed enqueue that a remove delivers, then a turn end.
+	transcriptLines := `{"type":"queue-operation","operation":"enqueue","timestamp":"2026-01-01T00:00:00Z",` +
+		`"sessionId":"example-session","content":"example queued text"}` + "\n" +
+		`{"type":"queue-operation","operation":"remove","timestamp":"2026-01-01T00:00:01Z",` +
+		`"sessionId":"example-session","content":"example queued text","reason":"delivered_to_agent"}` + "\n" +
+		`{"type":"system","subtype":"turn_duration","timestamp":"2026-01-01T00:00:02Z","durationMs":1000}` + "\n"
+	if err := os.WriteFile(filepath.Join(project, "transcript.jsonl"), []byte(transcriptLines), 0o600); err != nil {
+		t.Fatalf("write transcript: %v", err)
+	}
+
+	out := runOrrery(t, "", nil, "debug", "queue-replay", "--before", "2026-01-01T00:00:00Z", "--root", root)
+	wantExit(t, out, 0)
+	if out.stderr != "" {
+		t.Fatalf("debug queue-replay stderr %q, want nothing", out.stderr)
+	}
+	want := "transcripts 1\n" +
+		"typed 1\n" +
+		"closed 1\n" +
+		"never_taken_before 0\n" +
+		"never_taken_after 0\n" +
+		"other 0\n" +
+		"falsified 0\n" +
+		"open_at_turn_end_delivered 0\n" +
+		"notices_typed 0\n"
+	if out.stdout != want {
+		t.Fatalf("debug queue-replay stdout %q, want %q", out.stdout, want)
+	}
+}
+
+func TestDebugQueueReplayExitCodes(t *testing.T) {
+	const before = "2026-01-01T00:00:00Z"
+	missingRoot := filepath.Join(t.TempDir(), "missing")
+	cases := []struct {
+		name string
+		env  []string
+		args []string
+		code int
+	}{
+		{
+			name: "no --root and HOME empty",
+			env:  []string{"HOME="},
+			args: []string{"debug", "queue-replay", "--before", before},
+			code: 2,
+		},
+		{
+			name: "root cannot be read",
+			args: []string{"debug", "queue-replay", "--before", before, "--root", missingRoot},
+			code: 1,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			out := runOrrery(t, "", tc.env, tc.args...)
+			wantExit(t, out, tc.code)
+			if !strings.HasPrefix(out.stderr, "orrery: ") {
+				t.Fatalf("stderr %q, want orrery: prefix", out.stderr)
+			}
+			if out.stdout != "" {
+				t.Fatalf("failed debug queue-replay printed stdout %q, want nothing", out.stdout)
+			}
+		})
+	}
+}
+
 func TestHookExitSilenceIsLimitedToHookCommands(t *testing.T) {
 	cases := []struct {
 		name string
@@ -693,6 +763,17 @@ func TestUsageAndFailureExitCodes(t *testing.T) {
 		{name: "both -L and -S", args: []string{"-L", name, "-S", "/dev/null", "list", "--json"}, code: 2},
 		{name: "debug without subcommand", args: []string{"debug"}, code: 2},
 		{name: "debug summarize without flags", args: []string{"debug", "summarize"}, code: 2},
+		{name: "debug queue-replay without --before", args: []string{"debug", "queue-replay"}, code: 2},
+		{
+			name: "debug queue-replay with unparseable --before",
+			args: []string{"debug", "queue-replay", "--before", "yesterday"},
+			code: 2,
+		},
+		{
+			name: "debug queue-replay with an extra argument",
+			args: []string{"debug", "queue-replay", "--before", "2026-01-01T00:00:00Z", "extra"},
+			code: 2,
+		},
 		{name: "list without --json is a runtime error", args: []string{"-L", name, "list"}, code: 1},
 	}
 	for _, tc := range cases {

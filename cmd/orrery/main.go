@@ -21,6 +21,7 @@ import (
 
 	"github.com/joshsymonds/orrery/internal/archive"
 	"github.com/joshsymonds/orrery/internal/cli"
+	"github.com/joshsymonds/orrery/internal/conversation"
 	"github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1/enginev1connect"
 	"github.com/joshsymonds/orrery/internal/help"
 	"github.com/joshsymonds/orrery/internal/hook"
@@ -82,6 +83,8 @@ subcommands:
                                                 send text or keys to a pane; --keys must be last
   debug summarize --pane ID --transcript PATH [--claude PATH]
                                                 write a pane's summary and label
+  debug queue-replay --before TIME [--root DIR]
+                                                print the queue replay counts over the transcripts under DIR
   shell --dir DIR --client TTY                  open DIR's shell popup on the client at TTY
   tree --client TTY                             show the pane tree on the client at TTY; N picks a pane
   open [--remote] [--intent TEXT] [ARGS...]     switch to the plan for ARGS, or to the picker; attach outside tmux
@@ -406,7 +409,7 @@ func runTmux(ctx context.Context, client *tmuxctl.Client, name string, args []st
 	case "tree":
 		return tree(ctx, client, args, stdin, out, getenv, report)
 	default:
-		return runDebug(ctx, client, args, getenv)
+		return runDebug(ctx, client, args, out, getenv)
 	}
 }
 
@@ -895,12 +898,58 @@ func isSendFlag(name string) bool {
 	}
 }
 
-// runDebug runs `orrery debug summarize`, the only debug subcommand.
-func runDebug(ctx context.Context, client *tmuxctl.Client, args []string, getenv func(string) string) error {
-	if len(args) == 0 || args[0] != "summarize" {
-		return usagef("debug: want subcommand summarize")
+// runDebug runs `orrery debug`, whose subcommands are summarize and queue-replay.
+func runDebug(ctx context.Context, client *tmuxctl.Client, args []string, out io.Writer,
+	getenv func(string) string) error {
+	if len(args) == 0 {
+		return usagef("debug: want subcommand summarize or queue-replay")
 	}
-	return debugSummarize(ctx, client, args[1:], getenv)
+	switch args[0] {
+	case "summarize":
+		return debugSummarize(ctx, client, args[1:], getenv)
+	case "queue-replay":
+		return debugQueueReplay(args[1:], out, getenv)
+	default:
+		return usagef("debug: want subcommand summarize or queue-replay")
+	}
+}
+
+// debugQueueReplay writes the queue replay counts over the transcripts under --root, and nothing else. The counts hold
+// no message text.
+func debugQueueReplay(args []string, out io.Writer, getenv func(string) string) error {
+	flags := flag.NewFlagSet("debug queue-replay", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	before := flags.String("before", "", "RFC 3339 time that splits never taken rows into before and after")
+	root := flags.String("root", "", "directory of Claude projects (default $HOME/.claude/projects)")
+	if err := flags.Parse(args); err != nil {
+		return usagef("debug queue-replay: %v", err)
+	}
+	if flags.NArg() > 0 {
+		return usagef("debug queue-replay: unexpected argument %q", flags.Arg(0))
+	}
+	if *before == "" {
+		return usagef("debug queue-replay: --before is required")
+	}
+	cutoff, err := time.Parse(time.RFC3339, *before)
+	if err != nil {
+		return usagef("debug queue-replay: --before is not an RFC 3339 time")
+	}
+	dir := *root
+	if dir == "" {
+		home := getenv("HOME")
+		if home == "" {
+			return usagef("debug queue-replay: --root is required when HOME is empty")
+		}
+		dir = filepath.Join(home, ".claude", "projects")
+	}
+	replay, err := conversation.ReplayQueues(dir, cutoff)
+	if err != nil {
+		return fmt.Errorf("debug queue-replay: %w", err)
+	}
+	if err = replay.Write(out); err != nil {
+		return fmt.Errorf("debug queue-replay: %w", err)
+	}
+	return nil
 }
 
 // debugSummarize writes the pane's summary and label from one transcript, running the claude binary once.
