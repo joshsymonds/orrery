@@ -110,7 +110,7 @@ func startServerWithSteps(t *testing.T, commands Commands, steps StepCommands) (
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() { done <- Serve(ctx, ln, commands, steps) }()
+	go func() { done <- Serve(ctx, ln, commands, steps, nil) }()
 	var once sync.Once
 	var serveErr error
 	stop := func() error {

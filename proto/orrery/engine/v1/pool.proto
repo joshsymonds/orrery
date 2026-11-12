@@ -1,0 +1,113 @@
+syntax = "proto3";
+
+package orrery.engine.v1;
+
+// Pools grants pool members to a client. orreryd serves it on the same private socket as Engine and Steps, mode 0600,
+// and never on the public orrery serve API.
+service Pools {
+  // Acquire asks for every need at once and streams the request's place in line until it is granted. The grant lives
+  // while the response stream is open and ends when it closes. A member is in at most one grant at a time. A request
+  // refuses with failed_precondition for a pool another host owns, or for a pool or member defined two ways, with
+  // invalid_argument for a bad need, with not_found for a grant_id that names no stored grant, and with unavailable
+  // when orreryd has no store to keep grants in.
+  rpc Acquire(AcquireRequest) returns (stream AcquireResponse);
+}
+
+// AcquireRequest asks for the members of every need at once.
+message AcquireRequest {
+  // The absolute path of the project the request is for. Members a project holds from a pool count against its cap.
+  string project = 1;
+
+  // The pools the project's files define. Each need names one of them.
+  repeated PoolDefinition pools = 2;
+
+  // The members the command needs, one entry per pool.
+  repeated PoolNeed needs = 3;
+
+  // The client's process id. orreryd ends the grant when this process is gone.
+  int32 client_pid = 4;
+
+  // The grant_id an earlier AcquireGranted carried, set only to reclaim that grant after orreryd restarted. Empty for a
+  // new request.
+  string grant_id = 5;
+}
+
+// PoolDefinition is one pool as a project's or the machine's files define it.
+message PoolDefinition {
+  // The pool's name. A need names the pool by it.
+  string name = 1;
+
+  // The host that owns the pool. orreryd refuses a pool whose host is not its own.
+  string host = 2;
+
+  // How many of the pool's members one project may hold at once.
+  int32 cap = 3;
+
+  // The pool's members, by name. A member belongs to one pool.
+  repeated string members = 4;
+
+  // The argv, run without a shell, that wakes a member. It must exit 0 once the member is awake.
+  repeated string wake = 5;
+
+  // How many seconds the wake command may run. A wake that does not exit 0 in time leaves the member unavailable.
+  int64 wake_limit_seconds = 6;
+
+  // The argv, run without a shell, that reports a member's state: exit 0 when it is awake, nonzero when it is asleep.
+  // orreryd runs it when the pool is first used and every 60 seconds after. A member left unavailable by a failed wake,
+  // admit or status comes back only when a later status run exits 0.
+  repeated string status = 7;
+
+  // How many seconds the status command may run. A status command that fails to start or passes this limit leaves the
+  // member unavailable.
+  int64 status_limit_seconds = 8;
+
+  // The argv, run without a shell, that admits an awake member for grants. It must exit 0 once the member is admitted.
+  repeated string admit = 9;
+
+  // How many seconds the admit command may run. An admit that does not exit 0 in time leaves the member unavailable.
+  int64 admit_limit_seconds = 10;
+}
+
+// PoolNeed asks for a count of one pool's members.
+message PoolNeed {
+  // The pool, by the name its definition gives.
+  string pool = 1;
+
+  // How many of the pool's members the command needs. Must be at least one, and no more than the pool's cap.
+  int32 count = 2;
+}
+
+// AcquireResponse is one event in an acquire: the request waiting in line, or granted.
+message AcquireResponse {
+  oneof event {
+    // The request waits for its members.
+    AcquireQueued queued = 1;
+
+    // The request holds its members until the response stream closes.
+    AcquireGranted granted = 2;
+  }
+}
+
+// AcquireQueued says the request waits for its members.
+message AcquireQueued {
+  // The request's place in line, counting from 1. One is next.
+  int32 position = 1;
+}
+
+// AcquireGranted says the request holds its members.
+message AcquireGranted {
+  // The grant's id. A client that reconnects after orreryd restarts gives it back in grant_id to reclaim the grant.
+  string grant_id = 1;
+
+  // The members granted, for each pool a need named.
+  repeated PoolMembers pools = 2;
+}
+
+// PoolMembers names the members granted from one pool.
+message PoolMembers {
+  // The pool the members belong to.
+  string pool = 1;
+
+  // The members granted, by name.
+  repeated string members = 2;
+}
