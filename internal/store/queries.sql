@@ -139,9 +139,9 @@ SELECT reason FROM engine_prompt_failed WHERE session_id = ? AND prompt_id = ?;
 
 -- name: InsertStep :exec
 INSERT INTO steps (id, agent, prompt, output_schema, workspace, revision, worktree, done_value, read_only, owned, gate,
-                   gate_limit, model_limit, started, checks, result, status, end_value, reason, ended, doing, verdicts,
-                   epic, task)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', '', '', '', '', 0, '', '[]', ?, ?);
+                   gate_name, gate_source, gate_needs, gate_limit, model_limit, started, checks, result, status,
+                   end_value, reason, ended, doing, verdicts, epic, task)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', '', '', '', '', 0, '', '[]', ?, ?);
 
 -- name: GetStep :one
 SELECT * FROM steps WHERE id = ?;

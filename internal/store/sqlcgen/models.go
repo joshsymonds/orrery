@@ -93,4 +93,7 @@ type Step struct {
 	Verdicts     string
 	Epic         string
 	Task         string
+	GateName     string
+	GateSource   string
+	GateNeeds    string
 }

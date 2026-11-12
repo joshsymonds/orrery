@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 )
@@ -96,7 +97,11 @@ func TestStepAddStoresEveryFieldWithEndEmpty(t *testing.T) {
 	ctx := context.Background()
 	s := openSyncStore(t)
 	now := engineNowAt()
-	if err := s.ApplyEngine(ctx, []EngineOp{stepAddOf("s1")}, now); err != nil {
+	add := stepAddOf("s1")
+	add.GateName = "lint"
+	add.GateSource = "gates.toml"
+	add.GateNeeds = []StepNeed{{Pool: "pool-a", Count: 2}, {Pool: "pool-b", Count: 1}}
+	if err := s.ApplyEngine(ctx, []EngineOp{add}, now); err != nil {
 		t.Fatalf("ApplyEngine: %v", err)
 	}
 
@@ -109,10 +114,114 @@ func TestStepAddStoresEveryFieldWithEndEmpty(t *testing.T) {
 		Workspace: "/ws/s1", Revision: "abc123", Worktree: "/wt/s1", DoneValue: "DONE",
 		ReadOnly: true, Owned: []string{"a.go", "b.go"}, Gate: []string{"go test ./..."},
 		GateLimit: 90 * time.Second, ModelLimit: 60 * time.Minute, Started: now, Checks: []StepCheck{},
-		Verdicts: []StepVerdict{},
+		Verdicts: []StepVerdict{}, GateName: "lint", GateSource: "gates.toml",
+		GateNeeds: []StepNeed{{Pool: "pool-a", Count: 2}, {Pool: "pool-b", Count: 1}},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("Step: got %+v, want %+v", got, want)
+	}
+}
+
+func TestStepGateReadsBackThroughEveryReader(t *testing.T) {
+	ctx := context.Background()
+	s := openSyncStore(t)
+	add := labelledStepOf("s1", "E1", "T1")
+	add.GateName = "lint"
+	add.GateSource = "gates.toml"
+	add.GateNeeds = []StepNeed{{Pool: "pool-a", Count: 2}, {Pool: "pool-b", Count: 1}}
+	if err := s.ApplyEngine(ctx, []EngineOp{add}, engineNowAt()); err != nil {
+		t.Fatalf("ApplyEngine: %v", err)
+	}
+
+	got, err := s.Step(ctx, "s1")
+	if err != nil {
+		t.Fatalf("Step: %v", err)
+	}
+	if got.GateName != "lint" || got.GateSource != "gates.toml" || !reflect.DeepEqual(got.GateNeeds, add.GateNeeds) {
+		t.Fatalf("Step gate: got name %q source %q needs %+v, want lint, gates.toml and %+v",
+			got.GateName, got.GateSource, got.GateNeeds, add.GateNeeds)
+	}
+
+	open, err := s.OpenSteps(ctx)
+	if err != nil {
+		t.Fatalf("OpenSteps: %v", err)
+	}
+	if len(open) != 1 || !reflect.DeepEqual(open[0], got) {
+		t.Fatalf("OpenSteps: got %+v, want the row Step read %+v", open, got)
+	}
+
+	labeled, err := s.LabelledSteps(ctx, "", "")
+	if err != nil {
+		t.Fatalf("LabelledSteps: %v", err)
+	}
+	if len(labeled) != 1 || !reflect.DeepEqual(labeled[0], got) {
+		t.Fatalf("LabelledSteps: got %+v, want the row Step read %+v", labeled, got)
+	}
+}
+
+func TestStepWithoutGateReadsBackEmptyGate(t *testing.T) {
+	ctx := context.Background()
+	s := openSyncStore(t)
+	if err := s.ApplyEngine(ctx, []EngineOp{stepAddOf("s1")}, engineNowAt()); err != nil {
+		t.Fatalf("ApplyEngine: %v", err)
+	}
+
+	got, err := s.Step(ctx, "s1")
+	if err != nil {
+		t.Fatalf("Step: %v", err)
+	}
+	if got.GateName != "" || got.GateSource != "" || len(got.GateNeeds) != 0 {
+		t.Fatalf("step without a gate: got name %q source %q needs %+v, want empty, empty and none",
+			got.GateName, got.GateSource, got.GateNeeds)
+	}
+}
+
+func TestStepRowWrittenBeforeGateColumnsTakesTheirDefaults(t *testing.T) {
+	ctx := context.Background()
+	s := openSyncStore(t)
+	// This insert names no gate column, the way a row written before migration 00009 was written.
+	if _, err := s.db.ExecContext(ctx, `INSERT INTO steps (id, agent, prompt, output_schema, workspace, revision,
+		worktree, done_value, read_only, owned, gate, gate_limit, started, checks, result, status, end_value, reason,
+		ended) VALUES ('old', 'implementer', 'do it', '{}', '/ws/old', 'abc123', '/wt/old', 'DONE', 1, '[]', '[]', 0,
+		0, '[]', '', '', '', '', 0)`); err != nil {
+		t.Fatalf("insert row without gate columns: %v", err)
+	}
+
+	var name, source, needs string
+	if err := s.db.QueryRowContext(ctx,
+		`SELECT gate_name, gate_source, gate_needs FROM steps WHERE id = 'old'`,
+	).Scan(&name, &source, &needs); err != nil {
+		t.Fatalf("read gate columns: %v", err)
+	}
+	if name != "" || source != "" || needs != "[]" {
+		t.Fatalf("gate column defaults: got name %q source %q needs %q, want empty, empty and []", name, source, needs)
+	}
+
+	got, err := s.Step(ctx, "old")
+	if err != nil {
+		t.Fatalf("Step: %v", err)
+	}
+	if got.GateName != "" || got.GateSource != "" || len(got.GateNeeds) != 0 {
+		t.Fatalf("pre-migration step: got name %q source %q needs %+v, want empty, empty and none",
+			got.GateName, got.GateSource, got.GateNeeds)
+	}
+}
+
+func TestStepGateNeedsThatIsNotJSONFailsTheRead(t *testing.T) {
+	ctx := context.Background()
+	s := openSyncStore(t)
+	if err := s.ApplyEngine(ctx, []EngineOp{stepAddOf("s1")}, engineNowAt()); err != nil {
+		t.Fatalf("ApplyEngine: %v", err)
+	}
+	if _, err := s.db.ExecContext(ctx, `UPDATE steps SET gate_needs = 'not json' WHERE id = 's1'`); err != nil {
+		t.Fatalf("corrupt gate needs: %v", err)
+	}
+
+	if _, err := s.Step(ctx, "s1"); err == nil || !strings.Contains(err.Error(), "step s1") {
+		t.Fatalf("Step with corrupt gate needs: got %v, want an error naming step s1", err)
+	}
+	if _, err := s.OpenSteps(ctx); err == nil || !strings.Contains(err.Error(), "step s1") {
+		t.Fatalf("OpenSteps with corrupt gate needs: got %v, want an error naming step s1", err)
 	}
 }
 

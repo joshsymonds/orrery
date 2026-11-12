@@ -272,7 +272,7 @@ func (q *Queries) GetSession(ctx context.Context, id string) (Session, error) {
 }
 
 const getStep = `-- name: GetStep :one
-SELECT id, agent, prompt, output_schema, workspace, revision, worktree, done_value, read_only, owned, gate, gate_limit, started, checks, result, status, end_value, reason, ended, model_limit, doing, verdicts, epic, task FROM steps WHERE id = ?
+SELECT id, agent, prompt, output_schema, workspace, revision, worktree, done_value, read_only, owned, gate, gate_limit, started, checks, result, status, end_value, reason, ended, model_limit, doing, verdicts, epic, task, gate_name, gate_source, gate_needs FROM steps WHERE id = ?
 `
 
 func (q *Queries) GetStep(ctx context.Context, id string) (Step, error) {
@@ -303,6 +303,9 @@ func (q *Queries) GetStep(ctx context.Context, id string) (Step, error) {
 		&i.Verdicts,
 		&i.Epic,
 		&i.Task,
+		&i.GateName,
+		&i.GateSource,
+		&i.GateNeeds,
 	)
 	return i, err
 }
@@ -446,9 +449,9 @@ func (q *Queries) InsertSession(ctx context.Context, arg InsertSessionParams) er
 
 const insertStep = `-- name: InsertStep :exec
 INSERT INTO steps (id, agent, prompt, output_schema, workspace, revision, worktree, done_value, read_only, owned, gate,
-                   gate_limit, model_limit, started, checks, result, status, end_value, reason, ended, doing, verdicts,
-                   epic, task)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', '', '', '', '', 0, '', '[]', ?, ?)
+                   gate_name, gate_source, gate_needs, gate_limit, model_limit, started, checks, result, status,
+                   end_value, reason, ended, doing, verdicts, epic, task)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', '', '', '', '', 0, '', '[]', ?, ?)
 `
 
 type InsertStepParams struct {
@@ -463,6 +466,9 @@ type InsertStepParams struct {
 	ReadOnly     bool
 	Owned        string
 	Gate         string
+	GateName     string
+	GateSource   string
+	GateNeeds    string
 	GateLimit    int64
 	ModelLimit   int64
 	Started      int64
@@ -483,6 +489,9 @@ func (q *Queries) InsertStep(ctx context.Context, arg InsertStepParams) error {
 		arg.ReadOnly,
 		arg.Owned,
 		arg.Gate,
+		arg.GateName,
+		arg.GateSource,
+		arg.GateNeeds,
 		arg.GateLimit,
 		arg.ModelLimit,
 		arg.Started,
@@ -770,7 +779,7 @@ func (q *Queries) ListHolds(ctx context.Context) ([]Hold, error) {
 }
 
 const listLabelledSteps = `-- name: ListLabelledSteps :many
-SELECT id, agent, prompt, output_schema, workspace, revision, worktree, done_value, read_only, owned, gate, gate_limit, started, checks, result, status, end_value, reason, ended, model_limit, doing, verdicts, epic, task FROM steps
+SELECT id, agent, prompt, output_schema, workspace, revision, worktree, done_value, read_only, owned, gate, gate_limit, started, checks, result, status, end_value, reason, ended, model_limit, doing, verdicts, epic, task, gate_name, gate_source, gate_needs FROM steps
 WHERE epic <> '' AND (CAST(?1 AS TEXT) = '' OR epic = CAST(?1 AS TEXT))
   AND (CAST(?2 AS TEXT) = '' OR task = CAST(?2 AS TEXT))
 ORDER BY started, id
@@ -815,6 +824,9 @@ func (q *Queries) ListLabelledSteps(ctx context.Context, arg ListLabelledStepsPa
 			&i.Verdicts,
 			&i.Epic,
 			&i.Task,
+			&i.GateName,
+			&i.GateSource,
+			&i.GateNeeds,
 		); err != nil {
 			return nil, err
 		}
@@ -830,7 +842,7 @@ func (q *Queries) ListLabelledSteps(ctx context.Context, arg ListLabelledStepsPa
 }
 
 const listOpenSteps = `-- name: ListOpenSteps :many
-SELECT id, agent, prompt, output_schema, workspace, revision, worktree, done_value, read_only, owned, gate, gate_limit, started, checks, result, status, end_value, reason, ended, model_limit, doing, verdicts, epic, task FROM steps WHERE end_value = '' ORDER BY id
+SELECT id, agent, prompt, output_schema, workspace, revision, worktree, done_value, read_only, owned, gate, gate_limit, started, checks, result, status, end_value, reason, ended, model_limit, doing, verdicts, epic, task, gate_name, gate_source, gate_needs FROM steps WHERE end_value = '' ORDER BY id
 `
 
 func (q *Queries) ListOpenSteps(ctx context.Context) ([]Step, error) {
@@ -867,6 +879,9 @@ func (q *Queries) ListOpenSteps(ctx context.Context) ([]Step, error) {
 			&i.Verdicts,
 			&i.Epic,
 			&i.Task,
+			&i.GateName,
+			&i.GateSource,
+			&i.GateNeeds,
 		); err != nil {
 			return nil, err
 		}

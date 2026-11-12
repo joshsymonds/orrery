@@ -35,8 +35,15 @@ type StepVerdict struct {
 	Action  string `json:"action"`
 }
 
+// StepNeed is one pool hold a gate needs: Count members of Pool.
+type StepNeed struct {
+	Pool  string `json:"pool"`
+	Count int    `json:"count"`
+}
+
 // StepAdd inserts a step row, started now. The row is never pruned. Epic and Task are optional labels; a step with
-// an empty Epic is never listed by LabelledSteps.
+// an empty Epic is never listed by LabelledSteps. Gate and GateLimit are the resolved argv and limit of the gate the
+// step runs; GateName, GateSource and GateNeeds say which named gate that was, where it was declared and what it held.
 type StepAdd struct {
 	ID         string
 	Agent      string
@@ -49,6 +56,9 @@ type StepAdd struct {
 	ReadOnly   bool
 	Owned      []string
 	Gate       []string
+	GateName   string
+	GateSource string
+	GateNeeds  []StepNeed
 	GateLimit  time.Duration
 	ModelLimit time.Duration
 	Epic       string
@@ -91,6 +101,9 @@ type StepRow struct {
 	ReadOnly   bool
 	Owned      []string
 	Gate       []string
+	GateName   string
+	GateSource string
+	GateNeeds  []StepNeed
 	GateLimit  time.Duration
 	ModelLimit time.Duration
 	Started    time.Time
@@ -115,10 +128,15 @@ func (op StepAdd) applyEngine(ctx context.Context, queries *sqlcgen.Queries, now
 	if err != nil {
 		return fmt.Errorf("encode gate of step %s: %w", op.ID, err)
 	}
+	gateNeeds, err := json.Marshal(op.GateNeeds)
+	if err != nil {
+		return fmt.Errorf("encode gate needs of step %s: %w", op.ID, err)
+	}
 	if err = queries.InsertStep(ctx, sqlcgen.InsertStepParams{
 		ID: op.ID, Agent: op.Agent, Prompt: op.Prompt, OutputSchema: op.Schema, Workspace: op.Workspace,
 		Revision: op.Revision, Worktree: op.Worktree, DoneValue: op.DoneValue, ReadOnly: op.ReadOnly,
-		Owned: string(owned), Gate: string(gate), GateLimit: int64(op.GateLimit),
+		Owned: string(owned), Gate: string(gate), GateName: op.GateName, GateSource: op.GateSource,
+		GateNeeds: string(gateNeeds), GateLimit: int64(op.GateLimit),
 		ModelLimit: int64(op.ModelLimit), Started: now.Unix(), Epic: op.Epic, Task: op.Task,
 	}); err != nil {
 		return fmt.Errorf("insert step %s: %w", op.ID, err)
@@ -252,6 +270,10 @@ func toStepRow(row sqlcgen.Step) (StepRow, error) {
 	if err != nil {
 		return StepRow{}, fmt.Errorf("decode gate of step %s: %w", row.ID, err)
 	}
+	gateNeeds, err := decodeStepNeeds(row.GateNeeds)
+	if err != nil {
+		return StepRow{}, fmt.Errorf("decode gate needs of step %s: %w", row.ID, err)
+	}
 	checks, err := decodeStepChecks(row.Checks)
 	if err != nil {
 		return StepRow{}, fmt.Errorf("decode checks of step %s: %w", row.ID, err)
@@ -267,7 +289,8 @@ func toStepRow(row sqlcgen.Step) (StepRow, error) {
 	return StepRow{
 		ID: row.ID, Agent: row.Agent, Prompt: row.Prompt, Schema: row.OutputSchema, Workspace: row.Workspace,
 		Revision: row.Revision, Worktree: row.Worktree, DoneValue: row.DoneValue, ReadOnly: row.ReadOnly,
-		Owned: owned, Gate: gate, GateLimit: time.Duration(row.GateLimit), ModelLimit: time.Duration(row.ModelLimit),
+		Owned: owned, Gate: gate, GateName: row.GateName, GateSource: row.GateSource, GateNeeds: gateNeeds,
+		GateLimit: time.Duration(row.GateLimit), ModelLimit: time.Duration(row.ModelLimit),
 		Started: time.Unix(row.Started, 0), Checks: checks, Doing: row.Doing, Verdicts: verdicts,
 		Result: row.Result, Status: row.Status, End: row.EndValue, Reason: row.Reason, Ended: ended,
 		Epic: row.Epic, Task: row.Task,
@@ -278,6 +301,14 @@ func decodeStrings(raw string) ([]string, error) {
 	var out []string
 	if err := json.Unmarshal([]byte(raw), &out); err != nil {
 		return nil, fmt.Errorf("decode string list: %w", err)
+	}
+	return out, nil
+}
+
+func decodeStepNeeds(raw string) ([]StepNeed, error) {
+	var out []StepNeed
+	if err := json.Unmarshal([]byte(raw), &out); err != nil {
+		return nil, fmt.Errorf("decode step needs: %w", err)
 	}
 	return out, nil
 }
