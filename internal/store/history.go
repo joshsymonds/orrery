@@ -21,10 +21,19 @@ type EngineEvent struct {
 	Payload string
 }
 
-// EngineHistory is a headless engine session's current state and the events after a cursor, in seq order.
+// EngineHistory is a headless engine session's row, the events after a cursor in seq order, and the session's
+// unfinished text in ListEngineText order. Kind is KindEngine or KindStep. Unfinished is empty when the session has no
+// unfinished block.
 type EngineHistory struct {
-	State  string
-	Events []EngineEvent
+	Kind       string
+	Dir        string
+	State      string
+	Changed    string
+	Seen       string
+	Question   string
+	Reason     string
+	Events     []EngineEvent
+	Unfinished []UnfinishedText
 }
 
 // EngineHistory reads the engine session id: its current state, and at most limit events with seq greater than
@@ -53,7 +62,7 @@ func (r *Reader) EngineHistory(ctx context.Context, id string, after int64, limi
 	return history, nil
 }
 
-// readEngineHistory runs the state read and the event read in one read transaction, so the state and the events
+// readEngineHistory runs the row read, the event read and the unfinished text read in one read transaction, so they
 // describe the same moment.
 func readEngineHistory(ctx context.Context, db *sql.DB, id string, after int64, limit int) (EngineHistory, error) {
 	tx, err := db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
@@ -89,5 +98,20 @@ func readEngineHistoryInTx(ctx context.Context, tx *sql.Tx, id string, after int
 	for _, row := range rows {
 		events = append(events, EngineEvent{Seq: row.Seq, Kind: row.Kind, At: row.At, Payload: row.Payload})
 	}
-	return EngineHistory{State: session.State, Events: events}, nil
+	texts, err := queries.ListEngineText(ctx, id)
+	if err != nil {
+		return EngineHistory{}, fmt.Errorf("read unfinished text of engine session %s: %w", id, err)
+	}
+	unfinished := make([]UnfinishedText, 0, len(texts))
+	for _, text := range texts {
+		unfinished = append(unfinished, UnfinishedText{
+			SessionID: text.SessionID, MessageID: text.MessageID, BlockIndex: text.BlockIndex,
+			ParentToolUseID: text.ParentToolUseID, Kind: text.Kind, Text: text.Text,
+		})
+	}
+	return EngineHistory{
+		Kind: session.Kind, Dir: session.Dir, State: session.State, Changed: session.Changed,
+		Seen: session.Seen, Question: session.Question, Reason: session.Reason,
+		Events: events, Unfinished: unfinished,
+	}, nil
 }
