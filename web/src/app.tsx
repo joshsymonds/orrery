@@ -1,9 +1,21 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 
+import * as actions from "./actions";
+import type { Clients } from "./actions";
+import { Composer } from "./composer";
+import type { Conversation } from "./conversation";
+import { follow } from "./follow";
+import { Reader } from "./reader";
 import { byAttention, byProject, type Row, type Section } from "./rows";
 import { ReplyText } from "./text";
 
 type View = "attention" | "project";
+
+// The conversation the reader holds, with the row key it belongs to, so a row never shows another row's transcript.
+interface Stream {
+  key: string;
+  conversation: Conversation;
+}
 
 // The cursor is held by row key, so it survives new rows. index is where it sat, used when its row leaves.
 interface Cursor {
@@ -27,16 +39,34 @@ const helpEntries: [string[], string][] = [
   [["w"], "first waiting row"],
   [["n"], "next unseen row, wrapping"],
   [["/"], "filter: Enter leaves it, Esc clears it"],
+  [["i"], "focus the reply box"],
+  [["o"], "open or close a compaction's summary"],
   [["?"], "toggle this help"],
   [["Esc"], "close this help"],
 ];
 
-export function App({ rows, error, now }: { rows: Row[]; error: string; now: number }) {
+export function App({
+  rows,
+  error,
+  now,
+  clients,
+}: {
+  rows: Row[];
+  error: string;
+  now: number;
+  clients: Clients;
+}) {
   const [view, setView] = useState<View>("attention");
   const [cursor, setCursor] = useState<Cursor>({ key: "", index: 0 });
   const [filter, setFilter] = useState("");
   const [helpOpen, setHelpOpen] = useState(false);
+  const [open, setOpen] = useState(false);
+  const [stream, setStream] = useState<Stream | null>(null);
+  // The rows the cursor has rested on, each with its own composer, so a draft waits where it was typed. A row stays
+  // here while it is missing from the list, as it is for a poll whose list call failed, so its draft is not lost.
+  const [visited, setVisited] = useState<Row[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
+  const composerInputs = useRef(new Map<string, HTMLTextAreaElement>());
   const pendingG = useRef(false);
   const handler = useRef<(event: KeyboardEvent) => void>();
 
@@ -48,7 +78,8 @@ export function App({ rows, error, now }: { rows: Row[]; error: string; now: num
   const sections = view === "attention" ? byAttention(matching) : byProject(matching);
   const flat = sections.flatMap((section) => section.rows);
   const index = resolveIndex(flat, cursor);
-  const cursorRowKey = index >= 0 ? flat[index].key : "";
+  const cursorRow = index >= 0 ? flat[index] : null;
+  const cursorRowKey = cursorRow?.key ?? "";
   const shownIndex = Math.max(index, 0);
 
   // The held cursor follows the row shown, so a first render or a clamp does not leave it on a stale key.
@@ -57,6 +88,20 @@ export function App({ rows, error, now }: { rows: Row[]; error: string; now: num
       setCursor({ key: cursorRowKey, index: shownIndex });
     }
   }, [cursor, cursorRowKey, shownIndex]);
+
+  // The cursor's row is followed while the cursor rests on it: a move to another row, or an unmount, stops the stream.
+  useEffect(() => {
+    if (cursorRow === null) {
+      return undefined;
+    }
+    return follow(clients, { kind: cursorRow.kind, id: cursorRow.id }, (conversation) =>
+      setStream({ key: cursorRowKey, conversation }),
+    );
+  }, [cursorRowKey, clients]);
+
+  useEffect(() => {
+    setVisited((previous) => keepVisited(previous, rows, cursorRow));
+  }, [rows, cursorRowKey]);
 
   const moveTo = (target: number) => {
     if (flat.length === 0) {
@@ -87,6 +132,14 @@ export function App({ rows, error, now }: { rows: Row[]; error: string; now: num
       } else if (event.key === "Escape") {
         setFilter("");
         input.blur();
+      }
+      return;
+    }
+    // Keys typed in the reply box are text: only Escape leaves it.
+    const focusedComposer = [...composerInputs.current.values()].find((box) => box === document.activeElement);
+    if (focusedComposer !== undefined) {
+      if (event.key === "Escape") {
+        focusedComposer.blur();
       }
       return;
     }
@@ -135,6 +188,12 @@ export function App({ rows, error, now }: { rows: Row[]; error: string; now: num
       case "/":
         inputRef.current?.focus();
         break;
+      case "i":
+        composerInputs.current.get(cursorRowKey)?.focus();
+        break;
+      case "o":
+        setOpen((value) => !value);
+        break;
       case "?":
         setHelpOpen((open) => !open);
         break;
@@ -182,53 +241,83 @@ export function App({ rows, error, now }: { rows: Row[]; error: string; now: num
           {error}
         </p>
       )}
-      <div class="rows" data-list={view}>
-        {sections.map((section) => (
-          <div class="section">
-            <div class="b-sec">{sectionTitle(section)}</div>
-            {section.rows.map((item) => (
-              <div
-                key={item.key}
-                class={item.key === cursorRowKey ? "b-row cur" : "b-row"}
-                data-row=""
-                data-key={item.key}
-                data-unseen={item.unseen ? "" : undefined}
-                aria-current={item.key === cursorRowKey ? "true" : undefined}
-              >
-                <span class="dot" />
-                <span class={`g g-${item.state}`} aria-hidden="true" />
-                <div class="main">
-                  <div class="l1">
-                    <span class={`state st-${item.state}`}>{item.state}</span>
-                    <span class="label">{item.label}</span>
-                    <span class="proj">{lastPathElement(item.project)}</span>
-                    <span class="age">{ageText(item.changed, now)}</span>
+      <div class="panes">
+        <div class="list">
+          <div class="rows" data-list={view}>
+            {sections.map((section) => (
+              <div class="section">
+                <div class="b-sec">{sectionTitle(section)}</div>
+                {section.rows.map((item) => (
+                  <div
+                    key={item.key}
+                    class={item.key === cursorRowKey ? "b-row cur" : "b-row"}
+                    data-row=""
+                    data-key={item.key}
+                    data-unseen={item.unseen ? "" : undefined}
+                    aria-current={item.key === cursorRowKey ? "true" : undefined}
+                  >
+                    <span class="dot" />
+                    <span class={`g g-${item.state}`} aria-hidden="true" />
+                    <div class="main">
+                      <div class="l1">
+                        <span class={`state st-${item.state}`}>{item.state}</span>
+                        <span class="label">{item.label}</span>
+                        <span class="proj">{lastPathElement(item.project)}</span>
+                        <span class="age">{ageText(item.changed, now)}</span>
+                      </div>
+                      <div class="l2">
+                        <ReplyText text={item.state === stateWaiting && item.question !== "" ? item.question : item.summary} />
+                      </div>
+                    </div>
                   </div>
-                  <div class="l2">
-                    <ReplyText text={item.state === stateWaiting && item.question !== "" ? item.question : item.summary} />
-                  </div>
-                </div>
+                ))}
               </div>
             ))}
           </div>
-        ))}
-      </div>
-      {helpOpen && (
-        <section class="keys" aria-label="keys">
-          <dl>
-            {helpEntries.map(([keys, text]) => (
-              <div key={text} class="key">
-                <dt>
-                  {keys.map((key) => (
-                    <kbd key={key}>{key}</kbd>
-                  ))}
-                </dt>
-                <dd>{text}</dd>
+          {helpOpen && (
+            <section class="keys" aria-label="keys">
+              <dl>
+                {helpEntries.map(([keys, text]) => (
+                  <div key={text} class="key">
+                    <dt>
+                      {keys.map((key) => (
+                        <kbd key={key}>{key}</kbd>
+                      ))}
+                    </dt>
+                    <dd>{text}</dd>
+                  </div>
+                ))}
+              </dl>
+            </section>
+          )}
+        </div>
+        <section class="read" aria-label="reader" hidden={cursorRow === null}>
+          {cursorRow !== null && (
+            <Reader
+              conversation={stream !== null && stream.key === cursorRowKey ? stream.conversation : null}
+              seenAt={cursorRow.seen}
+              open={open}
+            />
+          )}
+          {composerRows(visited, cursorRow).map((row) => (
+              <div key={row.key} class="reply" hidden={row.key !== cursorRowKey}>
+                <Composer
+                  label={row.label}
+                  send={(text, promptId) => actions.send(clients, row, text, promptId)}
+                  pull={row.kind === "pane" ? () => actions.pullQueued(clients, row) : null}
+                  newPromptId={actions.newPromptId}
+                  inputRef={(element) => {
+                    if (element === null) {
+                      composerInputs.current.delete(row.key);
+                    } else {
+                      composerInputs.current.set(row.key, element);
+                    }
+                  }}
+                />
               </div>
             ))}
-          </dl>
         </section>
-      )}
+      </div>
     </main>
   );
 }
@@ -237,6 +326,27 @@ export function App({ rows, error, now }: { rows: Row[]; error: string; now: num
 function matchesFilter(row: Row, words: string[]): boolean {
   const haystack = [row.label, row.project, row.host, row.state, row.summary].join(" ").toLowerCase();
   return words.every((word) => haystack.includes(word));
+}
+
+// keepVisited adds the cursor's row to the rows that keep a composer and refreshes each kept row from the list. A row
+// missing from the list is kept as it was. It returns previous itself when nothing changes, so an unchanged list does
+// not render again.
+function keepVisited(previous: Row[], rows: Row[], cursorRow: Row | null): Row[] {
+  const kept = previous.map((held) => rows.find((row) => row.key === held.key) ?? held);
+  if (cursorRow !== null && !kept.some((row) => row.key === cursorRow.key)) {
+    kept.push(cursorRow);
+  }
+  const unchanged = kept.length === previous.length && kept.every((row, position) => row === previous[position]);
+  return unchanged ? previous : kept;
+}
+
+// composerRows returns the rows that render a composer: the visited rows, and the cursor's row before the effect has
+// added it.
+function composerRows(visited: Row[], cursorRow: Row | null): Row[] {
+  if (cursorRow === null || visited.some((row) => row.key === cursorRow.key)) {
+    return visited;
+  }
+  return [...visited, cursorRow];
 }
 
 // resolveIndex finds the cursor's row, or the index it sat at, clamped into the rows; -1 when there are none.

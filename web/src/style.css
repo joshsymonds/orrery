@@ -27,7 +27,7 @@ kbd {
 :focus-visible { outline: 1px solid var(--mauve); outline-offset: 1px; }
 img { max-width: 100%; }
 
-.app { min-width: 0; max-width: 560px; }
+.app { min-width: 0; max-width: 1200px; }
 .top { padding-bottom: 10px; }
 .brand { font: 700 14px/22px var(--mono); }
 .filter {
@@ -51,6 +51,15 @@ img { max-width: 100%; }
 .error {
   margin: 0 0 8px; padding: 4px 10px; border-radius: 6px; color: var(--red);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* The list and the reader sit abreast from a desktop width, and stack on a phone. */
+.panes { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; align-items: start; }
+.list, .read { min-width: 0; }
+.read { display: flex; flex-direction: column; gap: 8px; }
+.reply { min-width: 0; }
+@media (min-width: 760px) {
+  .panes { grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); }
 }
 
 .rows { min-width: 0; }

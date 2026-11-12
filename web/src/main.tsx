@@ -28,7 +28,7 @@ export function start(
   let loading = false;
 
   const draw = () => {
-    render(<App rows={loaded.rows} error={loaded.error} now={now} />, root);
+    render(<App rows={loaded.rows} error={loaded.error} now={now} clients={clients} />, root);
   };
 
   const reload = async () => {

@@ -5,15 +5,116 @@ import { render } from "preact";
 import { act } from "preact/test-utils";
 
 import { App } from "./app";
+import { createClients, createTransport } from "./client";
 import type { Row } from "./rows";
 import { installTestDom, removeTestDom } from "./testdom";
 
 const now = 1000;
 
+const paneWatchPath = "/orrery.v1.Panes/WatchConversation";
+const sessionWatchPath = "/orrery.v1.Sessions/WatchConversation";
+const sendTextPath = "/orrery.v1.Panes/SendText";
+const sayPath = "/orrery.v1.Control/Say";
+const pullPath = "/orrery.v1.Panes/PullQueued";
+const queuedText = "queued words";
+const intervalMs = 2;
+
+type Clients = ReturnType<typeof createClients>;
+
 interface Props {
   rows: Row[];
   error: string;
   now: number;
+  clients: Clients;
+}
+
+// One request the fake server received. A unary call has no controller; a stream call has one until it ends.
+interface Call {
+  path: string;
+  body: Record<string, unknown>;
+  signal: AbortSignal;
+  controller: ReadableStreamDefaultController<Uint8Array> | null;
+}
+
+// FakeServer answers the App's calls on the Connect wire: unary calls with JSON, and WatchConversation with a stream
+// the test feeds through emit. Every call is recorded, and closeStreams ends the ones still open.
+class FakeServer {
+  readonly calls: Call[] = [];
+  // failNext holds the unary paths whose next call the server refuses with a Connect error, once each.
+  readonly failNext = new Set<string>();
+
+  readonly fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    const request = new Request(input, init);
+    const path = new URL(request.url).pathname;
+    const bytes = new Uint8Array(await request.arrayBuffer());
+    if (!path.endsWith("/WatchConversation")) {
+      this.calls.push({ path, body: decodeUnary(bytes), signal: request.signal, controller: null });
+      if (this.failNext.delete(path)) {
+        return new Response(JSON.stringify({ code: "unavailable", message: "queue unreachable" }), {
+          status: 503,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      return json(path === pullPath ? { text: queuedText } : {});
+    }
+    const call: Call = { path, body: decodeEnvelope(bytes), signal: request.signal, controller: null };
+    this.calls.push(call);
+    request.signal.addEventListener("abort", () => {
+      call.controller = null;
+    });
+    const body = new ReadableStream<Uint8Array>({
+      start: (controller) => {
+        call.controller = controller;
+      },
+    });
+    return new Response(body, { status: 200, headers: { "content-type": "application/connect+json" } });
+  };
+
+  readonly clients: Clients = createClients(createTransport({ baseUrl: "https://orrery.test", fetch: this.fetch }));
+
+  callsTo(path: string): Call[] {
+    return this.calls.filter((call) => call.path === path);
+  }
+
+  emit(call: Call, message: object): void {
+    if (call.controller === null) {
+      throw new Error(`the stream to ${call.path} has ended`);
+    }
+    call.controller.enqueue(envelope(0, message));
+  }
+
+  closeStreams(): void {
+    for (const call of this.calls) {
+      if (call.controller !== null) {
+        call.controller.enqueue(envelope(2, {}));
+        call.controller.close();
+        call.controller = null;
+      }
+    }
+  }
+}
+
+function json(body: unknown): Response {
+  return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
+}
+
+function decodeUnary(bytes: Uint8Array): Record<string, unknown> {
+  return bytes.byteLength === 0 ? {} : JSON.parse(new TextDecoder().decode(bytes));
+}
+
+// decodeEnvelope reads the one message of a streamed request: a flag byte, a 4-byte length, and the JSON payload.
+function decodeEnvelope(bytes: Uint8Array): Record<string, unknown> {
+  const length = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(1);
+  return JSON.parse(new TextDecoder().decode(bytes.subarray(5, 5 + length)));
+}
+
+function envelope(flag: number, message: object): Uint8Array {
+  const payload = new TextEncoder().encode(JSON.stringify(message));
+  const bytes = new Uint8Array(5 + payload.byteLength);
+  bytes[0] = flag;
+  new DataView(bytes.buffer).setUint32(1, payload.byteLength);
+  bytes.set(payload, 5);
+  return bytes;
 }
 
 function row(init: Partial<Row> & Pick<Row, "key">): Row {
@@ -72,32 +173,88 @@ function fixture(): Row[] {
   ];
 }
 
-const keysHelpList = ["j", "k", "↓", "↑", "gg", "G", "a", "p", "w", "n", "/", "?", "Esc"];
+const keysHelpList = ["j", "k", "↓", "↑", "gg", "G", "a", "p", "w", "n", "/", "i", "o", "?", "Esc"];
 
 async function mount(container: HTMLElement, props: Props): Promise<void> {
   await act(() => {
-    render(<App rows={props.rows} error={props.error} now={props.now} />, container);
+    render(<App rows={props.rows} error={props.error} now={props.now} clients={props.clients} />, container);
   });
 }
 
 async function withApp(
-  props: Partial<Props>,
-  check: (container: HTMLElement) => void | Promise<void>,
+  props: Partial<Omit<Props, "clients">>,
+  check: (container: HTMLElement, fake: FakeServer) => void | Promise<void>,
 ): Promise<void> {
   const window = installTestDom();
   const container = document.createElement("div");
   document.body.append(container);
+  const fake = new FakeServer();
   try {
-    await mount(container, { rows: fixture(), error: "", now, ...props });
-    await check(container);
+    await mount(container, { rows: fixture(), error: "", now, clients: fake.clients, ...props });
+    await check(container, fake);
   } finally {
     await act(() => {
       render(null, container);
     });
+    fake.closeStreams();
     container.remove();
     await removeTestDom(window);
   }
 }
+
+async function until(check: () => boolean, what: string): Promise<void> {
+  const deadline = Date.now() + 2000;
+  while (!check()) {
+    if (Date.now() > deadline) {
+      throw new Error(`timed out waiting for ${what}`);
+    }
+    await act(() => new Promise((resolve) => setTimeout(resolve, 2)));
+  }
+}
+
+async function pressIn(element: Element, key: string): Promise<void> {
+  await act(() => {
+    element.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }));
+  });
+}
+
+async function typeInto(box: HTMLTextAreaElement, text: string): Promise<void> {
+  await act(() => {
+    box.value = text;
+    box.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+}
+
+// composer is the reply box the cursor's row shows: each row keeps its own, and only the cursor's is not hidden.
+function composer(container: HTMLElement): HTMLTextAreaElement {
+  const box = container.querySelector<HTMLTextAreaElement>(".reply:not([hidden]) .composer textarea");
+  assert.ok(box, "the reader has a composer");
+  return box;
+}
+
+function readerText(container: HTMLElement): string {
+  return container.querySelector(".reader")?.textContent ?? "";
+}
+
+const paneRow = row({
+  key: "a",
+  label: "api",
+  state: "waiting",
+  question: "Ship it?",
+  changed: 300,
+  seen: 100,
+  unseen: true,
+});
+
+const sessionRow = row({
+  key: "s1",
+  id: "s1",
+  kind: "session",
+  label: "notes",
+  state: "working",
+  changed: 30,
+  seen: 30,
+});
 
 async function press(key: string, modifiers: KeyboardEventInit = {}): Promise<KeyboardEvent> {
   const event = new KeyboardEvent("keydown", { key, cancelable: true, ...modifiers });
@@ -212,13 +369,13 @@ test("p shows rows by project and keeps the cursor's row", () =>
   }));
 
 test("w goes to the first waiting row and does nothing when no row waits", () =>
-  withApp({}, async (container) => {
+  withApp({}, async (container, fake) => {
     await press("G");
     assert.equal(cursorKey(container), "d");
     await press("w");
     assert.equal(cursorKey(container), "a");
 
-    await mount(container, { rows: fixture().slice(1), error: "", now });
+    await mount(container, { rows: fixture().slice(1), error: "", now, clients: fake.clients });
     await press("G");
     await press("w");
     assert.equal(cursorKey(container), "d");
@@ -328,36 +485,36 @@ test("u, N and Enter outside the filter change nothing", () =>
   }));
 
 test("the cursor keeps its row across new rows and clamps when its row leaves", () =>
-  withApp({}, async (container) => {
+  withApp({}, async (container, fake) => {
     await press("j");
     await press("j");
     assert.equal(cursorKey(container), "b");
 
     const added = row({ key: "e", label: "new", state: "waiting", changed: 900, seen: 1, unseen: true });
-    await mount(container, { rows: [...fixture(), added], error: "", now });
+    await mount(container, { rows: [...fixture(), added], error: "", now, clients: fake.clients });
     assert.equal(cursorKey(container), "b");
 
-    await mount(container, { rows: fixture().filter((item) => item.key !== "b"), error: "", now });
+    await mount(container, { rows: fixture().filter((item) => item.key !== "b"), error: "", now, clients: fake.clients });
     assert.equal(cursorKey(container), "d");
   }));
 
 test("an unmoved cursor keeps its row when a row sorts in above it", () =>
-  withApp({}, async (container) => {
+  withApp({}, async (container, fake) => {
     assert.equal(cursorKey(container), "a");
     const added = row({ key: "e", label: "new", state: "waiting", changed: 900, seen: 1, unseen: true });
-    await mount(container, { rows: [...fixture(), added], error: "", now });
+    await mount(container, { rows: [...fixture(), added], error: "", now, clients: fake.clients });
     assert.equal(cursorKey(container), "a");
   }));
 
 test("a clamped cursor keeps the row it moved to", () =>
-  withApp({}, async (container) => {
+  withApp({}, async (container, fake) => {
     await press("j");
     await press("j");
     assert.equal(cursorKey(container), "b");
-    await mount(container, { rows: fixture().filter((item) => item.key !== "b"), error: "", now });
+    await mount(container, { rows: fixture().filter((item) => item.key !== "b"), error: "", now, clients: fake.clients });
     assert.equal(cursorKey(container), "d");
     const added = row({ key: "e", label: "new", state: "waiting", changed: 900, seen: 1, unseen: true });
-    await mount(container, { rows: [...fixture().filter((item) => item.key !== "b"), added], error: "", now });
+    await mount(container, { rows: [...fixture().filter((item) => item.key !== "b"), added], error: "", now, clients: fake.clients });
     assert.equal(cursorKey(container), "d");
   }));
 
@@ -424,4 +581,182 @@ test("a non-empty error shows one line above the list", () =>
 test("no error line shows when the error is empty", () =>
   withApp({ error: "" }, (container) => {
     assert.equal(container.querySelector('[role="alert"]'), null);
+  }));
+
+test("the cursor's pane row opens its conversation, and the reader shows the streamed reply as text", () =>
+  withApp({}, async (container, fake) => {
+    await until(() => fake.callsTo(paneWatchPath).length === 1, "the pane stream");
+    const [stream] = fake.callsTo(paneWatchPath);
+    assert.equal(stream.body.pane, "a");
+    fake.emit(stream, {
+      transcript: "t1",
+      seq: "1",
+      reset: true,
+      items: [{ kind: "assistant", text: "the streamed reply" }],
+    });
+    await until(() => readerText(container).includes("the streamed reply"), "the streamed reply");
+  }));
+
+test("moving the cursor to a session row aborts the pane's stream and opens the session's", () =>
+  withApp({ rows: [paneRow, sessionRow] }, async (container, fake) => {
+    await until(() => fake.callsTo(paneWatchPath).length === 1, "the pane stream");
+    const [pane] = fake.callsTo(paneWatchPath);
+    await press("j");
+    assert.equal(cursorKey(container), "s1");
+    assert.equal(pane.signal.aborted, true, "the pane stream was aborted");
+    await until(() => fake.callsTo(sessionWatchPath).length === 1, "the session stream");
+    assert.equal(fake.callsTo(sessionWatchPath)[0].body.id, "s1");
+  }));
+
+test("leaving the page stops the cursor's stream", () =>
+  withApp({}, async (container, fake) => {
+    await until(() => fake.callsTo(paneWatchPath).length === 1, "the pane stream");
+    const [stream] = fake.callsTo(paneWatchPath);
+    await act(() => {
+      render(null, container);
+    });
+    assert.equal(stream.signal.aborted, true, "the stream was aborted on unmount");
+  }));
+
+test("Enter in the composer sends the text to the pane with Panes.SendText", () =>
+  withApp({}, async (container, fake) => {
+    await press("i");
+    const box = composer(container);
+    assert.equal(document.activeElement, box);
+    await typeInto(box, "keep going");
+    await pressIn(box, "Enter");
+    await until(() => fake.callsTo(sendTextPath).length === 1, "the send");
+    assert.deepEqual(fake.callsTo(sendTextPath)[0].body, { pane: "a", text: "keep going" });
+    await until(() => box.value === "", "the sent draft cleared");
+  }));
+
+test("Enter in a session's composer sends the text with Control.Say and a prompt id", () =>
+  withApp({ rows: [sessionRow] }, async (container, fake) => {
+    await press("i");
+    const box = composer(container);
+    await typeInto(box, "keep going");
+    await pressIn(box, "Enter");
+    await until(() => fake.callsTo(sayPath).length === 1, "the say");
+    const [say] = fake.callsTo(sayPath);
+    assert.equal(say.body.id, "s1");
+    assert.equal(say.body.text, "keep going");
+    assert.match(String(say.body.promptId), /^[0-9a-f-]{36}$/);
+  }));
+
+test("a draft survives moving the cursor away and back", () =>
+  withApp({}, async (container) => {
+    await press("i");
+    const box = composer(container);
+    await typeInto(box, "half a thought");
+    await pressIn(box, "Escape");
+    await press("j");
+    assert.equal(cursorKey(container), "c");
+    await press("k");
+    assert.equal(cursorKey(container), "a");
+    assert.equal(composer(container).value, "half a thought");
+  }));
+
+test("a failed send keeps its prompt id when the cursor moves away and back", () =>
+  withApp({ rows: [paneRow, sessionRow] }, async (container, fake) => {
+    fake.failNext.add(sayPath);
+    await press("j");
+    assert.equal(cursorKey(container), "s1");
+    await press("i");
+    const box = composer(container);
+    await typeInto(box, "keep going");
+    await pressIn(box, "Enter");
+    await until(() => container.querySelector('[role="alert"]') !== null, "the failed send's line");
+    await pressIn(box, "Escape");
+    await press("k");
+    assert.equal(cursorKey(container), "a");
+    await press("j");
+    assert.equal(cursorKey(container), "s1");
+    assert.equal(composer(container).value, "keep going", "the draft survived");
+    await pressIn(composer(container), "Enter");
+    await until(() => fake.callsTo(sayPath).length === 2, "the second say");
+    const [first, second] = fake.callsTo(sayPath);
+    assert.equal(second.body.text, "keep going");
+    assert.equal(second.body.promptId, first.body.promptId, "the retry reused the prompt id");
+  }));
+
+test("a failed send keeps its draft and prompt id through a poll that lists no sessions", () =>
+  withApp({ rows: [paneRow, sessionRow] }, async (container, fake) => {
+    fake.failNext.add(sayPath);
+    await press("j");
+    assert.equal(cursorKey(container), "s1");
+    await press("i");
+    await typeInto(composer(container), "keep going");
+    await pressIn(composer(container), "Enter");
+    await until(() => container.querySelector('[role="alert"]') !== null, "the failed send's line");
+    await pressIn(composer(container), "Escape");
+    // A poll whose Sessions.List failed lists the panes only; the next poll lists the session again.
+    await mount(container, { rows: [paneRow], error: "", now, clients: fake.clients });
+    await mount(container, { rows: [paneRow, sessionRow], error: "", now, clients: fake.clients });
+    if (cursorKey(container) !== "s1") {
+      await press("j");
+    }
+    assert.equal(cursorKey(container), "s1");
+    assert.equal(composer(container).value, "keep going", "the draft survived the poll");
+    await pressIn(composer(container), "Enter");
+    await until(() => fake.callsTo(sayPath).length === 2, "the second say");
+    const [first, second] = fake.callsTo(sayPath);
+    assert.equal(second.body.promptId, first.body.promptId, "the retry reused the prompt id");
+  }));
+
+test("keys typed in the composer never act as list keys, and Escape leaves it", () =>
+  withApp({}, async (container) => {
+    await press("i");
+    const box = composer(container);
+    await pressIn(box, "j");
+    await pressIn(box, "G");
+    await pressIn(box, "?");
+    await pressIn(box, "/");
+    assert.equal(cursorKey(container), "a");
+    assert.equal(container.querySelector('[aria-label="keys"]'), null);
+    assert.notEqual(document.activeElement, filterInput(container));
+    assert.equal(document.activeElement, box);
+    await pressIn(box, "Escape");
+    assert.notEqual(document.activeElement, box);
+    await press("j");
+    assert.equal(cursorKey(container), "c");
+  }));
+
+test("i focuses the composer, and o opens and closes a compaction's summary", () =>
+  withApp({}, async (container, fake) => {
+    await until(() => fake.callsTo(paneWatchPath).length === 1, "the pane stream");
+    fake.emit(fake.callsTo(paneWatchPath)[0], {
+      transcript: "t1",
+      seq: "1",
+      reset: true,
+      items: [{ kind: "compaction", text: "the summary text", trigger: "auto", tokens: "611000" }],
+    });
+    await until(() => container.querySelector(".compaction") !== null, "the compaction");
+    assert.equal(container.querySelector(".summary"), null, "the summary is hidden at first");
+
+    await press("o");
+    assert.equal(container.querySelector(".summary")?.textContent, "the summary text");
+    await press("o");
+    assert.equal(container.querySelector(".summary"), null);
+
+    await press("i");
+    assert.equal(document.activeElement, composer(container));
+  }));
+
+test("ArrowUp in an empty pane composer pulls the queued text back", () =>
+  withApp({}, async (container, fake) => {
+    await press("i");
+    const box = composer(container);
+    await pressIn(box, "ArrowUp");
+    await until(() => box.value === queuedText, "the pulled text");
+    assert.equal(fake.callsTo(pullPath).length, 1);
+  }));
+
+test("ArrowUp in a session's composer pulls nothing", () =>
+  withApp({ rows: [sessionRow] }, async (container, fake) => {
+    await press("i");
+    const box = composer(container);
+    await pressIn(box, "ArrowUp");
+    await until(() => fake.callsTo(sessionWatchPath).length === 1, "the session stream");
+    assert.equal(fake.callsTo(pullPath).length, 0, "a session has no queue to pull");
+    assert.equal(box.value, "");
   }));
