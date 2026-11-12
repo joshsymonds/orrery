@@ -234,7 +234,7 @@ func (q *Queries) GetSession(ctx context.Context, id string) (Session, error) {
 }
 
 const getStep = `-- name: GetStep :one
-SELECT id, agent, prompt, output_schema, workspace, revision, worktree, done_value, read_only, owned, gate, gate_limit, started, checks, result, status, end_value, reason, ended, model_limit, doing, verdicts FROM steps WHERE id = ?
+SELECT id, agent, prompt, output_schema, workspace, revision, worktree, done_value, read_only, owned, gate, gate_limit, started, checks, result, status, end_value, reason, ended, model_limit, doing, verdicts, epic, task FROM steps WHERE id = ?
 `
 
 func (q *Queries) GetStep(ctx context.Context, id string) (Step, error) {
@@ -263,6 +263,8 @@ func (q *Queries) GetStep(ctx context.Context, id string) (Step, error) {
 		&i.ModelLimit,
 		&i.Doing,
 		&i.Verdicts,
+		&i.Epic,
+		&i.Task,
 	)
 	return i, err
 }
@@ -344,8 +346,9 @@ func (q *Queries) InsertSession(ctx context.Context, arg InsertSessionParams) er
 
 const insertStep = `-- name: InsertStep :exec
 INSERT INTO steps (id, agent, prompt, output_schema, workspace, revision, worktree, done_value, read_only, owned, gate,
-                   gate_limit, model_limit, started, checks, result, status, end_value, reason, ended, doing, verdicts)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', '', '', '', '', 0, '', '[]')
+                   gate_limit, model_limit, started, checks, result, status, end_value, reason, ended, doing, verdicts,
+                   epic, task)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', '', '', '', '', 0, '', '[]', ?, ?)
 `
 
 type InsertStepParams struct {
@@ -363,6 +366,8 @@ type InsertStepParams struct {
 	GateLimit    int64
 	ModelLimit   int64
 	Started      int64
+	Epic         string
+	Task         string
 }
 
 func (q *Queries) InsertStep(ctx context.Context, arg InsertStepParams) error {
@@ -381,6 +386,8 @@ func (q *Queries) InsertStep(ctx context.Context, arg InsertStepParams) error {
 		arg.GateLimit,
 		arg.ModelLimit,
 		arg.Started,
+		arg.Epic,
+		arg.Task,
 	)
 	return err
 }
@@ -568,8 +575,68 @@ func (q *Queries) ListHeadlessSessions(ctx context.Context, cutoff int64) ([]Lis
 	return items, nil
 }
 
+const listLabelledSteps = `-- name: ListLabelledSteps :many
+SELECT id, agent, prompt, output_schema, workspace, revision, worktree, done_value, read_only, owned, gate, gate_limit, started, checks, result, status, end_value, reason, ended, model_limit, doing, verdicts, epic, task FROM steps
+WHERE epic <> '' AND (CAST(?1 AS TEXT) = '' OR epic = CAST(?1 AS TEXT))
+  AND (CAST(?2 AS TEXT) = '' OR task = CAST(?2 AS TEXT))
+ORDER BY started, id
+`
+
+type ListLabelledStepsParams struct {
+	Epic string
+	Task string
+}
+
+func (q *Queries) ListLabelledSteps(ctx context.Context, arg ListLabelledStepsParams) ([]Step, error) {
+	rows, err := q.db.QueryContext(ctx, listLabelledSteps, arg.Epic, arg.Task)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Step
+	for rows.Next() {
+		var i Step
+		if err := rows.Scan(
+			&i.ID,
+			&i.Agent,
+			&i.Prompt,
+			&i.OutputSchema,
+			&i.Workspace,
+			&i.Revision,
+			&i.Worktree,
+			&i.DoneValue,
+			&i.ReadOnly,
+			&i.Owned,
+			&i.Gate,
+			&i.GateLimit,
+			&i.Started,
+			&i.Checks,
+			&i.Result,
+			&i.Status,
+			&i.EndValue,
+			&i.Reason,
+			&i.Ended,
+			&i.ModelLimit,
+			&i.Doing,
+			&i.Verdicts,
+			&i.Epic,
+			&i.Task,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listOpenSteps = `-- name: ListOpenSteps :many
-SELECT id, agent, prompt, output_schema, workspace, revision, worktree, done_value, read_only, owned, gate, gate_limit, started, checks, result, status, end_value, reason, ended, model_limit, doing, verdicts FROM steps WHERE end_value = '' ORDER BY id
+SELECT id, agent, prompt, output_schema, workspace, revision, worktree, done_value, read_only, owned, gate, gate_limit, started, checks, result, status, end_value, reason, ended, model_limit, doing, verdicts, epic, task FROM steps WHERE end_value = '' ORDER BY id
 `
 
 func (q *Queries) ListOpenSteps(ctx context.Context) ([]Step, error) {
@@ -604,6 +671,8 @@ func (q *Queries) ListOpenSteps(ctx context.Context) ([]Step, error) {
 			&i.ModelLimit,
 			&i.Doing,
 			&i.Verdicts,
+			&i.Epic,
+			&i.Task,
 		); err != nil {
 			return nil, err
 		}

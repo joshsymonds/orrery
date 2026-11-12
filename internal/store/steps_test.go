@@ -316,3 +316,121 @@ func stepIDsOf(rows []StepRow) []string {
 	}
 	return ids
 }
+
+func labelledStepOf(id, epic, task string) StepAdd {
+	add := stepAddOf(id)
+	add.Epic = epic
+	add.Task = task
+	return add
+}
+
+func TestStepAddStoresLabelsAndLabelledStepsReadsThem(t *testing.T) {
+	ctx := context.Background()
+	s := openSyncStore(t)
+	now := engineNowAt()
+	if err := s.ApplyEngine(ctx, []EngineOp{labelledStepOf("s1", "orrery-epic", "store-labels")}, now); err != nil {
+		t.Fatalf("ApplyEngine: %v", err)
+	}
+
+	got, err := s.Step(ctx, "s1")
+	if err != nil {
+		t.Fatalf("Step: %v", err)
+	}
+	if got.Epic != "orrery-epic" || got.Task != "store-labels" {
+		t.Fatalf("Step labels: got epic %q task %q, want orrery-epic and store-labels", got.Epic, got.Task)
+	}
+
+	labeled, err := s.LabelledSteps(ctx, "", "")
+	if err != nil {
+		t.Fatalf("LabelledSteps: %v", err)
+	}
+	if len(labeled) != 1 || labeled[0].ID != "s1" || labeled[0].Epic != "orrery-epic" ||
+		labeled[0].Task != "store-labels" || !reflect.DeepEqual(labeled[0].Owned, []string{"a.go", "b.go"}) {
+		t.Fatalf("LabelledSteps: got %+v, want the labeled s1 row with its labels and owned paths", labeled)
+	}
+}
+
+func TestLabelledStepsLeavesOutUnlabelledRows(t *testing.T) {
+	ctx := context.Background()
+	s := openSyncStore(t)
+	now := engineNowAt()
+	if err := s.ApplyEngine(ctx, []EngineOp{stepAddOf("plain"), labelledStepOf("tagged", "e", "t")}, now); err != nil {
+		t.Fatalf("ApplyEngine: %v", err)
+	}
+
+	plain, err := s.Step(ctx, "plain")
+	if err != nil {
+		t.Fatalf("Step of unlabelled row: %v", err)
+	}
+	if plain.Epic != "" || plain.Task != "" {
+		t.Fatalf("unlabelled row: got epic %q task %q, want empty and empty", plain.Epic, plain.Task)
+	}
+
+	labeled, err := s.LabelledSteps(ctx, "", "")
+	if err != nil {
+		t.Fatalf("LabelledSteps: %v", err)
+	}
+	if got := stepIDsOf(labeled); !reflect.DeepEqual(got, []string{"tagged"}) {
+		t.Fatalf("LabelledSteps unfiltered: got %v, want [tagged]", got)
+	}
+}
+
+func TestLabelledStepsFiltersByEpicAndTask(t *testing.T) {
+	ctx := context.Background()
+	s := openSyncStore(t)
+	now := engineNowAt()
+	if err := s.ApplyEngine(ctx, []EngineOp{
+		labelledStepOf("s1", "E1", "T1"),
+		labelledStepOf("s2", "E1", "T2"),
+		labelledStepOf("s3", "E2", "T1"),
+		stepAddOf("s4"),
+	}, now); err != nil {
+		t.Fatalf("ApplyEngine: %v", err)
+	}
+
+	cases := []struct {
+		name        string
+		epic, task  string
+		wantStepIDs []string
+	}{
+		{name: "epic only", epic: "E1", wantStepIDs: []string{"s1", "s2"}},
+		{name: "task only", task: "T1", wantStepIDs: []string{"s1", "s3"}},
+		{name: "epic and task", epic: "E1", task: "T1", wantStepIDs: []string{"s1"}},
+		{name: "unknown epic", epic: "E9", wantStepIDs: []string{}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rows, err := s.LabelledSteps(ctx, tc.epic, tc.task)
+			if err != nil {
+				t.Fatalf("LabelledSteps(%q, %q): %v", tc.epic, tc.task, err)
+			}
+			if got := stepIDsOf(rows); !reflect.DeepEqual(got, tc.wantStepIDs) {
+				t.Fatalf("LabelledSteps(%q, %q): got %v, want %v", tc.epic, tc.task, got, tc.wantStepIDs)
+			}
+		})
+	}
+}
+
+func TestLabelledStepsOrdersByStartedThenID(t *testing.T) {
+	ctx := context.Background()
+	s := openSyncStore(t)
+	t0 := engineNowAt()
+	later := t0.Add(time.Minute)
+	if err := s.ApplyEngine(ctx, []EngineOp{labelledStepOf("b", "e", "t")}, later); err != nil {
+		t.Fatalf("ApplyEngine b: %v", err)
+	}
+	if err := s.ApplyEngine(ctx, []EngineOp{labelledStepOf("c", "e", "t")}, t0); err != nil {
+		t.Fatalf("ApplyEngine c: %v", err)
+	}
+	if err := s.ApplyEngine(ctx, []EngineOp{labelledStepOf("a", "e", "t")}, t0); err != nil {
+		t.Fatalf("ApplyEngine a: %v", err)
+	}
+
+	rows, err := s.LabelledSteps(ctx, "e", "t")
+	if err != nil {
+		t.Fatalf("LabelledSteps: %v", err)
+	}
+	if got, want := stepIDsOf(rows), []string{"a", "c", "b"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("LabelledSteps order: got %v, want %v (started, then id)", got, want)
+	}
+}

@@ -9,7 +9,7 @@ service Steps {
   // id. A writing step runs in its workspace; a read-only step runs in a detached worktree at its revision.
   rpc StartStep(StartStepRequest) returns (StartStepResponse);
 
-  // StopStep ends a step's loop.
+  // StopStep ends a step's loop. A held or running step ends as stopped.
   rpc StopStep(StopStepRequest) returns (StopStepResponse);
 
   // StepStatus returns a step's row.
@@ -17,6 +17,18 @@ service Steps {
 
   // WaitSteps blocks until the first of the named steps ends or the timeout passes. A timeout of zero returns at once.
   rpc WaitSteps(WaitStepsRequest) returns (WaitStepsResponse);
+
+  // ListSteps lists the labelled steps, oldest first. An unlabelled step is never listed.
+  rpc ListSteps(ListStepsRequest) returns (ListStepsResponse);
+
+  // HoldStep interrupts the step's running turn and holds the step until a nudge or a stop. The interrupted turn is no
+  // round. A step with no turn running, one already held, or one running its gate refuses with failed_precondition.
+  rpc HoldStep(HoldStepRequest) returns (HoldStepResponse);
+
+  // NudgeStep sends the owner's text to the step. A held step resumes with it. A running turn is interrupted and the
+  // step continued with the text instead of a round. A step with no turn running, or one running its gate, refuses with
+  // failed_precondition. OK means the nudge landed; it neither spends nor replaces the watchdog's nudge.
+  rpc NudgeStep(NudgeStepRequest) returns (NudgeStepResponse);
 }
 
 // StartStepRequest asks for a new step.
@@ -53,6 +65,13 @@ message StartStepRequest {
 
   // How many seconds of model time the step may use. Zero means 60 minutes.
   uint32 model_limit_seconds = 11;
+
+  // The epic the step belongs to, as `<repo-id>/<epic-slug>`. Empty leaves the step unlabelled, and an unlabelled step is
+  // never listed.
+  string epic = 12;
+
+  // The slug of the epic's task the step works on. Empty when it works on no one task.
+  string task = 13;
 }
 
 // StartStepResponse names the started step.
@@ -143,7 +162,52 @@ message Step {
 
   // The step's latest doing line from its monitor. Empty until the first check.
   string doing = 14;
+
+  // The epic the step belongs to, as started. Empty when the step is unlabelled.
+  string epic = 15;
+
+  // The slug of the epic's task the step works on, as started. Empty when it works on no one task.
+  string task = 16;
+
+  // Whether an owner hold interrupted the step's turn and it waits for a nudge or a stop.
+  bool held = 17;
 }
+
+// ListStepsRequest asks for the labelled steps.
+message ListStepsRequest {
+  // Only steps with this epic. Empty means every labelled step.
+  string epic = 1;
+
+  // Only steps with this task. Empty means any task.
+  string task = 2;
+}
+
+// ListStepsResponse carries the matching steps, oldest first.
+message ListStepsResponse {
+  // The matching steps.
+  repeated Step steps = 1;
+}
+
+// HoldStepRequest asks for a step to be held.
+message HoldStepRequest {
+  // The step's id.
+  string id = 1;
+}
+
+// HoldStepResponse acknowledges a hold. It has no fields.
+message HoldStepResponse {}
+
+// NudgeStepRequest asks for the owner's text to be sent to a step.
+message NudgeStepRequest {
+  // The step's id.
+  string id = 1;
+
+  // The owner's text.
+  string text = 2;
+}
+
+// NudgeStepResponse acknowledges a nudge. It has no fields.
+message NudgeStepResponse {}
 
 // StepCheck is one check a step's return ran.
 message StepCheck {

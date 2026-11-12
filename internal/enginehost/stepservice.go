@@ -22,6 +22,10 @@ type StepCommands interface {
 	Stop(ctx context.Context, id string) error
 	Status(ctx context.Context, id string) (store.StepRow, error)
 	Wait(ctx context.Context, ids []string, timeout time.Duration) (*store.StepRow, []store.StepRow, error)
+	List(ctx context.Context, epic, task string) ([]store.StepRow, error)
+	Hold(ctx context.Context, id string) error
+	Held(id string) bool
+	Nudge(ctx context.Context, id, text string) error
 }
 
 // stepService implements the Steps RPCs over steps.
@@ -56,6 +60,8 @@ func (s *stepService) StartStep(
 		GateLimit:  time.Duration(req.Msg.GetGateLimitSeconds()) * time.Second,
 		ModelLimit: time.Duration(req.Msg.GetModelLimitSeconds()) * time.Second,
 		DoneValue:  req.Msg.GetDoneValue(),
+		Epic:       req.Msg.GetEpic(),
+		Task:       req.Msg.GetTask(),
 	})
 	if err != nil {
 		return nil, stepCommandError(err)
@@ -87,7 +93,7 @@ func (s *stepService) StepStatus(
 	if err != nil {
 		return nil, stepCommandError(err)
 	}
-	step, err := stepMessage(row)
+	step, err := stepMessage(row, s.steps.Held(row.ID))
 	if err != nil {
 		return nil, stepCommandError(err)
 	}
@@ -108,13 +114,13 @@ func (s *stepService) WaitSteps(
 	}
 	resp := &v1.WaitStepsResponse{Steps: make([]*v1.Step, 0, len(rows))}
 	if ended != nil {
-		if resp.Ended, err = stepMessage(*ended); err != nil {
+		if resp.Ended, err = stepMessage(*ended, s.steps.Held(ended.ID)); err != nil {
 			return nil, stepCommandError(err)
 		}
 	}
 	for _, row := range rows {
 		var step *v1.Step
-		if step, err = stepMessage(row); err != nil {
+		if step, err = stepMessage(row, s.steps.Held(row.ID)); err != nil {
 			return nil, stepCommandError(err)
 		}
 		resp.Steps = append(resp.Steps, step)
@@ -122,9 +128,57 @@ func (s *stepService) WaitSteps(
 	return connect.NewResponse(resp), nil
 }
 
-// stepMessage returns the Step message of row. Ended is zero while the step runs. A check round outside uint32 is an
-// error, since the reply cannot carry it.
-func stepMessage(row store.StepRow) (*v1.Step, error) {
+func (s *stepService) ListSteps(
+	ctx context.Context,
+	req *connect.Request[v1.ListStepsRequest],
+) (*connect.Response[v1.ListStepsResponse], error) {
+	if err := s.ready(); err != nil {
+		return nil, err
+	}
+	rows, err := s.steps.List(ctx, req.Msg.GetEpic(), req.Msg.GetTask())
+	if err != nil {
+		return nil, stepCommandError(err)
+	}
+	resp := &v1.ListStepsResponse{Steps: make([]*v1.Step, 0, len(rows))}
+	for _, row := range rows {
+		var step *v1.Step
+		if step, err = stepMessage(row, s.steps.Held(row.ID)); err != nil {
+			return nil, stepCommandError(err)
+		}
+		resp.Steps = append(resp.Steps, step)
+	}
+	return connect.NewResponse(resp), nil
+}
+
+func (s *stepService) HoldStep(
+	ctx context.Context,
+	req *connect.Request[v1.HoldStepRequest],
+) (*connect.Response[v1.HoldStepResponse], error) {
+	if err := s.ready(); err != nil {
+		return nil, err
+	}
+	if err := s.steps.Hold(ctx, req.Msg.GetId()); err != nil {
+		return nil, stepCommandError(err)
+	}
+	return connect.NewResponse(&v1.HoldStepResponse{}), nil
+}
+
+func (s *stepService) NudgeStep(
+	ctx context.Context,
+	req *connect.Request[v1.NudgeStepRequest],
+) (*connect.Response[v1.NudgeStepResponse], error) {
+	if err := s.ready(); err != nil {
+		return nil, err
+	}
+	if err := s.steps.Nudge(ctx, req.Msg.GetId(), req.Msg.GetText()); err != nil {
+		return nil, stepCommandError(err)
+	}
+	return connect.NewResponse(&v1.NudgeStepResponse{}), nil
+}
+
+// stepMessage returns the Step message of row, with held as its held flag. Ended is zero while the step runs. A check
+// round outside uint32 is an error, since the reply cannot carry it.
+func stepMessage(row store.StepRow, held bool) (*v1.Step, error) {
 	checks := make([]*v1.StepCheck, 0, len(row.Checks))
 	for _, check := range row.Checks {
 		if int64(check.Round) < 0 || int64(check.Round) > math.MaxUint32 {
@@ -140,6 +194,9 @@ func stepMessage(row store.StepRow) (*v1.Step, error) {
 	step := &v1.Step{
 		Id:        row.ID,
 		Agent:     row.Agent,
+		Epic:      row.Epic,
+		Task:      row.Task,
+		Held:      held,
 		Workspace: row.Workspace,
 		Revision:  row.Revision,
 		ReadOnly:  row.ReadOnly,
@@ -166,6 +223,9 @@ func stepCommandError(err error) error {
 		code = connect.CodeResourceExhausted
 	case errors.Is(err, store.ErrNoStep):
 		code = connect.CodeNotFound
+	case errors.Is(err, ErrStepNoTurn), errors.Is(err, ErrStepHeld), errors.Is(err, ErrStepGating),
+		errors.Is(err, ErrStepNotRunning):
+		code = connect.CodeFailedPrecondition
 	case errors.Is(err, ErrEmptyPrompt), errors.Is(err, ErrBadSchema), errors.Is(err, ErrBadAgent),
 		errors.Is(err, ErrBadDir), errors.Is(err, ErrBadOwned), errors.Is(err, ErrBadGate),
 		errors.Is(err, ErrNotGit), errors.Is(err, ErrMainWorktree):

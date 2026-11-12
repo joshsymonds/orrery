@@ -46,8 +46,13 @@ type StartStepRequest struct {
 	DoneValue string `protobuf:"bytes,10,opt,name=done_value,json=doneValue,proto3" json:"done_value,omitempty"`
 	// How many seconds of model time the step may use. Zero means 60 minutes.
 	ModelLimitSeconds uint32 `protobuf:"varint,11,opt,name=model_limit_seconds,json=modelLimitSeconds,proto3" json:"model_limit_seconds,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	// The epic the step belongs to, as `<repo-id>/<epic-slug>`. Empty leaves the step unlabelled, and an unlabelled step is
+	// never listed.
+	Epic string `protobuf:"bytes,12,opt,name=epic,proto3" json:"epic,omitempty"`
+	// The slug of the epic's task the step works on. Empty when it works on no one task.
+	Task          string `protobuf:"bytes,13,opt,name=task,proto3" json:"task,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *StartStepRequest) Reset() {
@@ -155,6 +160,20 @@ func (x *StartStepRequest) GetModelLimitSeconds() uint32 {
 		return x.ModelLimitSeconds
 	}
 	return 0
+}
+
+func (x *StartStepRequest) GetEpic() string {
+	if x != nil {
+		return x.Epic
+	}
+	return ""
+}
+
+func (x *StartStepRequest) GetTask() string {
+	if x != nil {
+		return x.Task
+	}
+	return ""
 }
 
 // StartStepResponse names the started step.
@@ -518,7 +537,13 @@ type Step struct {
 	// When the step ended, in unix seconds. Zero while it runs.
 	Ended int64 `protobuf:"varint,13,opt,name=ended,proto3" json:"ended,omitempty"`
 	// The step's latest doing line from its monitor. Empty until the first check.
-	Doing         string `protobuf:"bytes,14,opt,name=doing,proto3" json:"doing,omitempty"`
+	Doing string `protobuf:"bytes,14,opt,name=doing,proto3" json:"doing,omitempty"`
+	// The epic the step belongs to, as started. Empty when the step is unlabelled.
+	Epic string `protobuf:"bytes,15,opt,name=epic,proto3" json:"epic,omitempty"`
+	// The slug of the epic's task the step works on, as started. Empty when it works on no one task.
+	Task string `protobuf:"bytes,16,opt,name=task,proto3" json:"task,omitempty"`
+	// Whether an owner hold interrupted the step's turn and it waits for a nudge or a stop.
+	Held          bool `protobuf:"varint,17,opt,name=held,proto3" json:"held,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -651,6 +676,303 @@ func (x *Step) GetDoing() string {
 	return ""
 }
 
+func (x *Step) GetEpic() string {
+	if x != nil {
+		return x.Epic
+	}
+	return ""
+}
+
+func (x *Step) GetTask() string {
+	if x != nil {
+		return x.Task
+	}
+	return ""
+}
+
+func (x *Step) GetHeld() bool {
+	if x != nil {
+		return x.Held
+	}
+	return false
+}
+
+// ListStepsRequest asks for the labelled steps.
+type ListStepsRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Only steps with this epic. Empty means every labelled step.
+	Epic string `protobuf:"bytes,1,opt,name=epic,proto3" json:"epic,omitempty"`
+	// Only steps with this task. Empty means any task.
+	Task          string `protobuf:"bytes,2,opt,name=task,proto3" json:"task,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListStepsRequest) Reset() {
+	*x = ListStepsRequest{}
+	mi := &file_orrery_engine_v1_step_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListStepsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListStepsRequest) ProtoMessage() {}
+
+func (x *ListStepsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_engine_v1_step_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListStepsRequest.ProtoReflect.Descriptor instead.
+func (*ListStepsRequest) Descriptor() ([]byte, []int) {
+	return file_orrery_engine_v1_step_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *ListStepsRequest) GetEpic() string {
+	if x != nil {
+		return x.Epic
+	}
+	return ""
+}
+
+func (x *ListStepsRequest) GetTask() string {
+	if x != nil {
+		return x.Task
+	}
+	return ""
+}
+
+// ListStepsResponse carries the matching steps, oldest first.
+type ListStepsResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The matching steps.
+	Steps         []*Step `protobuf:"bytes,1,rep,name=steps,proto3" json:"steps,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListStepsResponse) Reset() {
+	*x = ListStepsResponse{}
+	mi := &file_orrery_engine_v1_step_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListStepsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListStepsResponse) ProtoMessage() {}
+
+func (x *ListStepsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_engine_v1_step_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListStepsResponse.ProtoReflect.Descriptor instead.
+func (*ListStepsResponse) Descriptor() ([]byte, []int) {
+	return file_orrery_engine_v1_step_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *ListStepsResponse) GetSteps() []*Step {
+	if x != nil {
+		return x.Steps
+	}
+	return nil
+}
+
+// HoldStepRequest asks for a step to be held.
+type HoldStepRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The step's id.
+	Id            string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *HoldStepRequest) Reset() {
+	*x = HoldStepRequest{}
+	mi := &file_orrery_engine_v1_step_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *HoldStepRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*HoldStepRequest) ProtoMessage() {}
+
+func (x *HoldStepRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_engine_v1_step_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use HoldStepRequest.ProtoReflect.Descriptor instead.
+func (*HoldStepRequest) Descriptor() ([]byte, []int) {
+	return file_orrery_engine_v1_step_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *HoldStepRequest) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+// HoldStepResponse acknowledges a hold. It has no fields.
+type HoldStepResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *HoldStepResponse) Reset() {
+	*x = HoldStepResponse{}
+	mi := &file_orrery_engine_v1_step_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *HoldStepResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*HoldStepResponse) ProtoMessage() {}
+
+func (x *HoldStepResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_engine_v1_step_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use HoldStepResponse.ProtoReflect.Descriptor instead.
+func (*HoldStepResponse) Descriptor() ([]byte, []int) {
+	return file_orrery_engine_v1_step_proto_rawDescGZIP(), []int{12}
+}
+
+// NudgeStepRequest asks for the owner's text to be sent to a step.
+type NudgeStepRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The step's id.
+	Id string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	// The owner's text.
+	Text          string `protobuf:"bytes,2,opt,name=text,proto3" json:"text,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *NudgeStepRequest) Reset() {
+	*x = NudgeStepRequest{}
+	mi := &file_orrery_engine_v1_step_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *NudgeStepRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*NudgeStepRequest) ProtoMessage() {}
+
+func (x *NudgeStepRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_engine_v1_step_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use NudgeStepRequest.ProtoReflect.Descriptor instead.
+func (*NudgeStepRequest) Descriptor() ([]byte, []int) {
+	return file_orrery_engine_v1_step_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *NudgeStepRequest) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *NudgeStepRequest) GetText() string {
+	if x != nil {
+		return x.Text
+	}
+	return ""
+}
+
+// NudgeStepResponse acknowledges a nudge. It has no fields.
+type NudgeStepResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *NudgeStepResponse) Reset() {
+	*x = NudgeStepResponse{}
+	mi := &file_orrery_engine_v1_step_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *NudgeStepResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*NudgeStepResponse) ProtoMessage() {}
+
+func (x *NudgeStepResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_engine_v1_step_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use NudgeStepResponse.ProtoReflect.Descriptor instead.
+func (*NudgeStepResponse) Descriptor() ([]byte, []int) {
+	return file_orrery_engine_v1_step_proto_rawDescGZIP(), []int{14}
+}
+
 // StepCheck is one check a step's return ran.
 type StepCheck struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -668,7 +990,7 @@ type StepCheck struct {
 
 func (x *StepCheck) Reset() {
 	*x = StepCheck{}
-	mi := &file_orrery_engine_v1_step_proto_msgTypes[9]
+	mi := &file_orrery_engine_v1_step_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -680,7 +1002,7 @@ func (x *StepCheck) String() string {
 func (*StepCheck) ProtoMessage() {}
 
 func (x *StepCheck) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_engine_v1_step_proto_msgTypes[9]
+	mi := &file_orrery_engine_v1_step_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -693,7 +1015,7 @@ func (x *StepCheck) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StepCheck.ProtoReflect.Descriptor instead.
 func (*StepCheck) Descriptor() ([]byte, []int) {
-	return file_orrery_engine_v1_step_proto_rawDescGZIP(), []int{9}
+	return file_orrery_engine_v1_step_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *StepCheck) GetRound() uint32 {
@@ -728,7 +1050,7 @@ var File_orrery_engine_v1_step_proto protoreflect.FileDescriptor
 
 const file_orrery_engine_v1_step_proto_rawDesc = "" +
 	"\n" +
-	"\x1borrery/engine/v1/step.proto\x12\x10orrery.engine.v1\"\xe1\x02\n" +
+	"\x1borrery/engine/v1/step.proto\x12\x10orrery.engine.v1\"\x89\x03\n" +
 	"\x10StartStepRequest\x12\x14\n" +
 	"\x05agent\x18\x01 \x01(\tR\x05agent\x12\x16\n" +
 	"\x06prompt\x18\x02 \x01(\tR\x06prompt\x12\x16\n" +
@@ -743,7 +1065,9 @@ const file_orrery_engine_v1_step_proto_rawDesc = "" +
 	"\n" +
 	"done_value\x18\n" +
 	" \x01(\tR\tdoneValue\x12.\n" +
-	"\x13model_limit_seconds\x18\v \x01(\rR\x11modelLimitSeconds\"#\n" +
+	"\x13model_limit_seconds\x18\v \x01(\rR\x11modelLimitSeconds\x12\x12\n" +
+	"\x04epic\x18\f \x01(\tR\x04epic\x12\x12\n" +
+	"\x04task\x18\r \x01(\tR\x04task\"#\n" +
 	"\x11StartStepResponse\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\"!\n" +
 	"\x0fStopStepRequest\x12\x0e\n" +
@@ -758,7 +1082,7 @@ const file_orrery_engine_v1_step_proto_rawDesc = "" +
 	"\x0ftimeout_seconds\x18\x02 \x01(\rR\x0etimeoutSeconds\"o\n" +
 	"\x11WaitStepsResponse\x12,\n" +
 	"\x05ended\x18\x01 \x01(\v2\x16.orrery.engine.v1.StepR\x05ended\x12,\n" +
-	"\x05steps\x18\x02 \x03(\v2\x16.orrery.engine.v1.StepR\x05steps\"\xf4\x02\n" +
+	"\x05steps\x18\x02 \x03(\v2\x16.orrery.engine.v1.StepR\x05steps\"\xb0\x03\n" +
 	"\x04Step\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
 	"\x05agent\x18\x02 \x01(\tR\x05agent\x12\x1c\n" +
@@ -774,18 +1098,36 @@ const file_orrery_engine_v1_step_proto_rawDesc = "" +
 	"\x06reason\x18\v \x01(\tR\x06reason\x12\x18\n" +
 	"\astarted\x18\f \x01(\x03R\astarted\x12\x14\n" +
 	"\x05ended\x18\r \x01(\x03R\x05ended\x12\x14\n" +
-	"\x05doing\x18\x0e \x01(\tR\x05doing\"]\n" +
+	"\x05doing\x18\x0e \x01(\tR\x05doing\x12\x12\n" +
+	"\x04epic\x18\x0f \x01(\tR\x04epic\x12\x12\n" +
+	"\x04task\x18\x10 \x01(\tR\x04task\x12\x12\n" +
+	"\x04held\x18\x11 \x01(\bR\x04held\":\n" +
+	"\x10ListStepsRequest\x12\x12\n" +
+	"\x04epic\x18\x01 \x01(\tR\x04epic\x12\x12\n" +
+	"\x04task\x18\x02 \x01(\tR\x04task\"A\n" +
+	"\x11ListStepsResponse\x12,\n" +
+	"\x05steps\x18\x01 \x03(\v2\x16.orrery.engine.v1.StepR\x05steps\"!\n" +
+	"\x0fHoldStepRequest\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\"\x12\n" +
+	"\x10HoldStepResponse\"6\n" +
+	"\x10NudgeStepRequest\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
+	"\x04text\x18\x02 \x01(\tR\x04text\"\x13\n" +
+	"\x11NudgeStepResponse\"]\n" +
 	"\tStepCheck\x12\x14\n" +
 	"\x05round\x18\x01 \x01(\rR\x05round\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x0e\n" +
 	"\x02ok\x18\x03 \x01(\bR\x02ok\x12\x16\n" +
-	"\x06detail\x18\x04 \x01(\tR\x06detail2\xdf\x02\n" +
+	"\x06detail\x18\x04 \x01(\tR\x06detail2\xde\x04\n" +
 	"\x05Steps\x12T\n" +
 	"\tStartStep\x12\".orrery.engine.v1.StartStepRequest\x1a#.orrery.engine.v1.StartStepResponse\x12Q\n" +
 	"\bStopStep\x12!.orrery.engine.v1.StopStepRequest\x1a\".orrery.engine.v1.StopStepResponse\x12W\n" +
 	"\n" +
 	"StepStatus\x12#.orrery.engine.v1.StepStatusRequest\x1a$.orrery.engine.v1.StepStatusResponse\x12T\n" +
-	"\tWaitSteps\x12\".orrery.engine.v1.WaitStepsRequest\x1a#.orrery.engine.v1.WaitStepsResponseB\xc9\x01\n" +
+	"\tWaitSteps\x12\".orrery.engine.v1.WaitStepsRequest\x1a#.orrery.engine.v1.WaitStepsResponse\x12T\n" +
+	"\tListSteps\x12\".orrery.engine.v1.ListStepsRequest\x1a#.orrery.engine.v1.ListStepsResponse\x12Q\n" +
+	"\bHoldStep\x12!.orrery.engine.v1.HoldStepRequest\x1a\".orrery.engine.v1.HoldStepResponse\x12T\n" +
+	"\tNudgeStep\x12\".orrery.engine.v1.NudgeStepRequest\x1a#.orrery.engine.v1.NudgeStepResponseB\xc9\x01\n" +
 	"\x14com.orrery.engine.v1B\tStepProtoP\x01ZDgithub.com/joshsymonds/orrery/internal/gen/orrery/engine/v1;enginev1\xa2\x02\x03OEX\xaa\x02\x10Orrery.Engine.V1\xca\x02\x10Orrery\\Engine\\V1\xe2\x02\x1cOrrery\\Engine\\V1\\GPBMetadata\xea\x02\x12Orrery::Engine::V1b\x06proto3"
 
 var (
@@ -800,7 +1142,7 @@ func file_orrery_engine_v1_step_proto_rawDescGZIP() []byte {
 	return file_orrery_engine_v1_step_proto_rawDescData
 }
 
-var file_orrery_engine_v1_step_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
+var file_orrery_engine_v1_step_proto_msgTypes = make([]protoimpl.MessageInfo, 16)
 var file_orrery_engine_v1_step_proto_goTypes = []any{
 	(*StartStepRequest)(nil),   // 0: orrery.engine.v1.StartStepRequest
 	(*StartStepResponse)(nil),  // 1: orrery.engine.v1.StartStepResponse
@@ -811,26 +1153,39 @@ var file_orrery_engine_v1_step_proto_goTypes = []any{
 	(*WaitStepsRequest)(nil),   // 6: orrery.engine.v1.WaitStepsRequest
 	(*WaitStepsResponse)(nil),  // 7: orrery.engine.v1.WaitStepsResponse
 	(*Step)(nil),               // 8: orrery.engine.v1.Step
-	(*StepCheck)(nil),          // 9: orrery.engine.v1.StepCheck
+	(*ListStepsRequest)(nil),   // 9: orrery.engine.v1.ListStepsRequest
+	(*ListStepsResponse)(nil),  // 10: orrery.engine.v1.ListStepsResponse
+	(*HoldStepRequest)(nil),    // 11: orrery.engine.v1.HoldStepRequest
+	(*HoldStepResponse)(nil),   // 12: orrery.engine.v1.HoldStepResponse
+	(*NudgeStepRequest)(nil),   // 13: orrery.engine.v1.NudgeStepRequest
+	(*NudgeStepResponse)(nil),  // 14: orrery.engine.v1.NudgeStepResponse
+	(*StepCheck)(nil),          // 15: orrery.engine.v1.StepCheck
 }
 var file_orrery_engine_v1_step_proto_depIdxs = []int32{
-	8, // 0: orrery.engine.v1.StepStatusResponse.step:type_name -> orrery.engine.v1.Step
-	8, // 1: orrery.engine.v1.WaitStepsResponse.ended:type_name -> orrery.engine.v1.Step
-	8, // 2: orrery.engine.v1.WaitStepsResponse.steps:type_name -> orrery.engine.v1.Step
-	9, // 3: orrery.engine.v1.Step.checks:type_name -> orrery.engine.v1.StepCheck
-	0, // 4: orrery.engine.v1.Steps.StartStep:input_type -> orrery.engine.v1.StartStepRequest
-	2, // 5: orrery.engine.v1.Steps.StopStep:input_type -> orrery.engine.v1.StopStepRequest
-	4, // 6: orrery.engine.v1.Steps.StepStatus:input_type -> orrery.engine.v1.StepStatusRequest
-	6, // 7: orrery.engine.v1.Steps.WaitSteps:input_type -> orrery.engine.v1.WaitStepsRequest
-	1, // 8: orrery.engine.v1.Steps.StartStep:output_type -> orrery.engine.v1.StartStepResponse
-	3, // 9: orrery.engine.v1.Steps.StopStep:output_type -> orrery.engine.v1.StopStepResponse
-	5, // 10: orrery.engine.v1.Steps.StepStatus:output_type -> orrery.engine.v1.StepStatusResponse
-	7, // 11: orrery.engine.v1.Steps.WaitSteps:output_type -> orrery.engine.v1.WaitStepsResponse
-	8, // [8:12] is the sub-list for method output_type
-	4, // [4:8] is the sub-list for method input_type
-	4, // [4:4] is the sub-list for extension type_name
-	4, // [4:4] is the sub-list for extension extendee
-	0, // [0:4] is the sub-list for field type_name
+	8,  // 0: orrery.engine.v1.StepStatusResponse.step:type_name -> orrery.engine.v1.Step
+	8,  // 1: orrery.engine.v1.WaitStepsResponse.ended:type_name -> orrery.engine.v1.Step
+	8,  // 2: orrery.engine.v1.WaitStepsResponse.steps:type_name -> orrery.engine.v1.Step
+	15, // 3: orrery.engine.v1.Step.checks:type_name -> orrery.engine.v1.StepCheck
+	8,  // 4: orrery.engine.v1.ListStepsResponse.steps:type_name -> orrery.engine.v1.Step
+	0,  // 5: orrery.engine.v1.Steps.StartStep:input_type -> orrery.engine.v1.StartStepRequest
+	2,  // 6: orrery.engine.v1.Steps.StopStep:input_type -> orrery.engine.v1.StopStepRequest
+	4,  // 7: orrery.engine.v1.Steps.StepStatus:input_type -> orrery.engine.v1.StepStatusRequest
+	6,  // 8: orrery.engine.v1.Steps.WaitSteps:input_type -> orrery.engine.v1.WaitStepsRequest
+	9,  // 9: orrery.engine.v1.Steps.ListSteps:input_type -> orrery.engine.v1.ListStepsRequest
+	11, // 10: orrery.engine.v1.Steps.HoldStep:input_type -> orrery.engine.v1.HoldStepRequest
+	13, // 11: orrery.engine.v1.Steps.NudgeStep:input_type -> orrery.engine.v1.NudgeStepRequest
+	1,  // 12: orrery.engine.v1.Steps.StartStep:output_type -> orrery.engine.v1.StartStepResponse
+	3,  // 13: orrery.engine.v1.Steps.StopStep:output_type -> orrery.engine.v1.StopStepResponse
+	5,  // 14: orrery.engine.v1.Steps.StepStatus:output_type -> orrery.engine.v1.StepStatusResponse
+	7,  // 15: orrery.engine.v1.Steps.WaitSteps:output_type -> orrery.engine.v1.WaitStepsResponse
+	10, // 16: orrery.engine.v1.Steps.ListSteps:output_type -> orrery.engine.v1.ListStepsResponse
+	12, // 17: orrery.engine.v1.Steps.HoldStep:output_type -> orrery.engine.v1.HoldStepResponse
+	14, // 18: orrery.engine.v1.Steps.NudgeStep:output_type -> orrery.engine.v1.NudgeStepResponse
+	12, // [12:19] is the sub-list for method output_type
+	5,  // [5:12] is the sub-list for method input_type
+	5,  // [5:5] is the sub-list for extension type_name
+	5,  // [5:5] is the sub-list for extension extendee
+	0,  // [0:5] is the sub-list for field type_name
 }
 
 func init() { file_orrery_engine_v1_step_proto_init() }
@@ -844,7 +1199,7 @@ func file_orrery_engine_v1_step_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_orrery_engine_v1_step_proto_rawDesc), len(file_orrery_engine_v1_step_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   10,
+			NumMessages:   16,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
