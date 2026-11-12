@@ -3,7 +3,8 @@ syntax = "proto3";
 package orrery.engine.v1;
 
 // Steps runs steps: agent loops that end with a checked status. orreryd serves it on the same private socket as Engine,
-// mode 0600, and never on the public orrery serve API.
+// mode 0600. serve reads ListSteps and StepStatus and forwards the owner's HoldStep, NudgeStep and StopStep through
+// orrery.v1.Steps, and never calls StartStep or WaitSteps.
 service Steps {
   // StartStep starts a step and returns its id once its row exists. A start that is refused returns the refusal and no
   // id. A writing step runs in its workspace; a read-only step runs in a detached worktree at its revision.

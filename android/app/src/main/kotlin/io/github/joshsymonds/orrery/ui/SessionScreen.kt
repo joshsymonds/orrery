@@ -36,6 +36,8 @@ private const val REFRESH_FAILED = "could not refresh"
 private const val WORKING_STATE = "working"
 private const val TEXT_KIND = "text"
 private const val COMPOSE_HINT = "Message Claude…"
+private const val NUDGE_HINT = "Nudge the step…"
+private const val NUDGE_NOTE = "A message to a step is a nudge."
 
 /** The unfinished main-thread text blocks that have text so far, each as a reply after the items. */
 private fun unfinishedReplies(held: StreamedConversation): List<ConvoEntry> =
@@ -46,6 +48,12 @@ private fun unfinishedReplies(held: StreamedConversation): List<ConvoEntry> =
 private fun currentSeconds(): Long = System.currentTimeMillis() / 1000
 
 /**
+ * A labelled step's session on the step screen: its owner's calls are Hold and Stop, and a message to it
+ * is a nudge. [held] is the step's held state, so a held step shows no Hold button.
+ */
+data class StepMode(val held: Boolean)
+
+/**
  * A headless session's screen: its conversation, streamed while the screen is started. Each delta is
  * folded into what the screen holds, and a failed stream reconnects after the seq it holds, so the
  * conversation resumes where it stopped. A stream that ends without error reconnects the same way.
@@ -54,9 +62,12 @@ private fun currentSeconds(): Long = System.currentTimeMillis() / 1000
  * as a reply after the items, and the open request as a card after the last item. Interrupt and Stop
  * sit above the compose box while the session is working or waiting. Send posts the draft as a prompt
  * through [SessionSender]. Reading the conversation marks the session seen.
+ *
+ * With [step] set the screen is a step's: Hold and Stop replace Interrupt and Stop and post to the
+ * step, the open request card is not drawn, and Send posts the draft as a nudge through [StepCalls].
  */
 @Composable
-fun SessionScreen(sessionId: String, client: OrreryClient, onBack: () -> Unit = {}) {
+fun SessionScreen(sessionId: String, client: OrreryClient, onBack: () -> Unit = {}, step: StepMode? = null) {
     var streamed by remember(sessionId) { mutableStateOf<StreamedConversation?>(null) }
     var refreshFailed by remember(sessionId) { mutableStateOf(false) }
     var seenAtOpen by remember(sessionId) { mutableStateOf<Long?>(null) }
@@ -64,6 +75,7 @@ fun SessionScreen(sessionId: String, client: OrreryClient, onBack: () -> Unit = 
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val scope = rememberCoroutineScope()
     val sender = remember(sessionId) { SessionSender(client, sessionId) }
+    val stepCalls = remember(sessionId) { StepCalls(client, sessionId) }
 
     LaunchedEffect(Unit) {
         while (true) {
@@ -113,12 +125,14 @@ fun SessionScreen(sessionId: String, client: OrreryClient, onBack: () -> Unit = 
     val entries = remember(held) {
         held?.let { foldConversation(it.conversation.items) + unfinishedReplies(it) }.orEmpty()
     }
-    val footer: (@Composable () -> Unit)? = held?.request?.let { open ->
+    val footer: (@Composable () -> Unit)? = held?.request?.takeIf { step == null }?.let { open ->
         val content: @Composable () -> Unit = {
             SessionRequestCard(sessionId, open.id, open.question, open.options, client, onAnswered = {})
         }
         content
     }
+
+    val nudgeNote: @Composable () -> Unit = { Text(NUDGE_NOTE) }
 
     Column(modifier = Modifier.fillMaxSize()) {
         if (refreshFailed) {
@@ -155,14 +169,19 @@ fun SessionScreen(sessionId: String, client: OrreryClient, onBack: () -> Unit = 
             }
         }
         Box(modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp)) {
-            SessionActions(sessionId, pane?.state.orEmpty(), client, onChanged = {})
+            if (step != null) {
+                StepActions(stepCalls, step.held)
+            } else {
+                SessionActions(sessionId, pane?.state.orEmpty(), client, onChanged = {})
+            }
         }
-        // The compose key is the session's id; its sends go through the session sender.
+        // The compose key is the session's id; its sends go through the session sender, or a step's nudge.
         ComposeBox(
             sessionId,
             client,
-            hint = COMPOSE_HINT,
-            send = { text -> sender.send(text) },
+            hint = if (step != null) NUDGE_HINT else COMPOSE_HINT,
+            status = if (step != null) nudgeNote else null,
+            send = { text -> if (step != null) stepCalls.nudge(text) else sender.send(text) },
         )
     }
 }

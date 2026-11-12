@@ -23,6 +23,7 @@ import (
 
 	"github.com/joshsymonds/orrery/internal/cli"
 	"github.com/joshsymonds/orrery/internal/conversation"
+	enginev1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
 	enginev1connect "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1/enginev1connect"
 	"github.com/joshsymonds/orrery/internal/hoststatus"
 	"github.com/joshsymonds/orrery/internal/open"
@@ -84,6 +85,30 @@ type hostResponse struct {
 	Stats []hoststatus.Stat `json:"stats"`
 }
 
+// StepClient is the part of orreryd's Steps service serve uses. It has no StartStep, so serve cannot start a step.
+type StepClient interface {
+	StepStatus(
+		context.Context,
+		*connect.Request[enginev1.StepStatusRequest],
+	) (*connect.Response[enginev1.StepStatusResponse], error)
+	ListSteps(
+		context.Context,
+		*connect.Request[enginev1.ListStepsRequest],
+	) (*connect.Response[enginev1.ListStepsResponse], error)
+	HoldStep(
+		context.Context,
+		*connect.Request[enginev1.HoldStepRequest],
+	) (*connect.Response[enginev1.HoldStepResponse], error)
+	NudgeStep(
+		context.Context,
+		*connect.Request[enginev1.NudgeStepRequest],
+	) (*connect.Response[enginev1.NudgeStepResponse], error)
+	StopStep(
+		context.Context,
+		*connect.Request[enginev1.StopStepRequest],
+	) (*connect.Response[enginev1.StopStepResponse], error)
+}
+
 // Config holds the guard settings for New.
 type Config struct {
 	// Logins lists the Tailscale logins admitted by the guard, matched exactly.
@@ -115,6 +140,11 @@ type Config struct {
 	Engine enginev1connect.EngineClient
 	// ControlTimeout bounds each forward to Engine, or is zero for the default.
 	ControlTimeout time.Duration
+	// Steps is orreryd's Steps client, which Control asks before it forwards a session command, or is nil, which
+	// forwards every session command as before.
+	Steps StepClient
+	// Records is the gambit record root the Epics service reads, or empty to list nothing.
+	Records string
 	// Home is the home directory a Control start must name a directory under, after symlinks resolve. An empty,
 	// relative or root Home, or one that does not exist, refuses every start.
 	Home string
@@ -167,13 +197,17 @@ func New(cfg Config) (http.Handler, error) {
 	}
 	tokens := &pickerTokens{entries: make(map[string]pickerEntry)}
 	sessionsPath, sessions := newSessionsHandler(
-		cfg.Sessions, conversationPoll, conversationKeepalive, sendTimeout, cfg.Shutdown,
+		cfg.Sessions, cfg.Steps, conversationPoll, conversationKeepalive, sendTimeout, cfg.Shutdown,
 	)
 	mux.Handle(sessionsPath, sessions)
 	eventsPath, events := newEventsHandler(cfg.Sessions, poll, sendTimeout, cfg.Shutdown)
 	mux.Handle(eventsPath, events)
-	controlPath, control := newControlHandler(cfg.Engine, cfg.ControlTimeout, cfg.Home)
+	controlPath, control := newControlHandler(cfg.Engine, cfg.ControlTimeout, cfg.Home, cfg.Steps)
 	mux.Handle(controlPath, control)
+	epicsPath, epicsService := newEpicsHandler(cfg.Records, cfg.Steps, cfg.ControlTimeout, now)
+	mux.Handle(epicsPath, epicsService)
+	stepsPath, stepsService := newStepsHandler(cfg.Steps, cfg.ControlTimeout)
+	mux.Handle(stepsPath, stepsService)
 	panesPath, panesService := newPanesHandler(
 		cfg.Tmux, newest, goals, queues, textLocks, seenLocks, cfg.ReportSeen,
 		conversationPoll, conversationKeepalive, sendTimeout, cfg.Shutdown,
@@ -188,7 +222,9 @@ func New(cfg Config) (http.Handler, error) {
 	if cfg.Web != nil {
 		mux.Handle("/", newPageHandler(cfg.Web))
 	}
-	connectPaths := []string{sessionsPath, eventsPath, controlPath, panesPath, hostPath, pushPath, pickerPath}
+	connectPaths := []string{
+		sessionsPath, eventsPath, controlPath, epicsPath, stepsPath, panesPath, hostPath, pushPath, pickerPath,
+	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if _, ok := allowed[r.Header.Get(HeaderLogin)]; !ok {
 			http.Error(w, "forbidden", http.StatusForbidden)

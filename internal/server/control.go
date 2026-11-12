@@ -42,6 +42,7 @@ type controlServer struct {
 	engine  enginev1connect.EngineClient
 	timeout time.Duration
 	home    string
+	steps   StepClient
 }
 
 // Start forwards a start to the engine and answers with the started session's id. The directory forwarded is the one
@@ -74,11 +75,14 @@ func (c controlServer) Start(
 	return connect.NewResponse(&orreryv1.StartResponse{Id: id}), nil
 }
 
-// Say forwards a message to the engine.
+// Say forwards a message to the engine, unless its id names a step.
 func (c controlServer) Say(
 	ctx context.Context,
 	req *connect.Request[orreryv1.SayRequest],
 ) (*connect.Response[orreryv1.SayResponse], error) {
+	if err := c.refuseStep(ctx, req.Msg.GetId()); err != nil {
+		return nil, err
+	}
 	err := c.forward(ctx, func(ctx context.Context, engine enginev1connect.EngineClient) error {
 		_, err := engine.Say(ctx, connect.NewRequest(&enginev1.SayRequest{
 			Id:       req.Msg.GetId(),
@@ -93,11 +97,14 @@ func (c controlServer) Say(
 	return connect.NewResponse(&orreryv1.SayResponse{}), nil
 }
 
-// Answer forwards an answer to the engine.
+// Answer forwards an answer to the engine, unless its id names a step.
 func (c controlServer) Answer(
 	ctx context.Context,
 	req *connect.Request[orreryv1.AnswerRequest],
 ) (*connect.Response[orreryv1.AnswerResponse], error) {
+	if err := c.refuseStep(ctx, req.Msg.GetId()); err != nil {
+		return nil, err
+	}
 	err := c.forward(ctx, func(ctx context.Context, engine enginev1connect.EngineClient) error {
 		_, err := engine.Answer(ctx, connect.NewRequest(&enginev1.AnswerRequest{
 			Id:        req.Msg.GetId(),
@@ -112,11 +119,14 @@ func (c controlServer) Answer(
 	return connect.NewResponse(&orreryv1.AnswerResponse{}), nil
 }
 
-// Interrupt forwards an interrupt to the engine.
+// Interrupt forwards an interrupt to the engine, unless its id names a step.
 func (c controlServer) Interrupt(
 	ctx context.Context,
 	req *connect.Request[orreryv1.InterruptRequest],
 ) (*connect.Response[orreryv1.InterruptResponse], error) {
+	if err := c.refuseStep(ctx, req.Msg.GetId()); err != nil {
+		return nil, err
+	}
 	err := c.forward(ctx, func(ctx context.Context, engine enginev1connect.EngineClient) error {
 		_, err := engine.Interrupt(ctx, connect.NewRequest(&enginev1.InterruptRequest{Id: req.Msg.GetId()}))
 		return wrapEngine("interrupt", err)
@@ -127,11 +137,14 @@ func (c controlServer) Interrupt(
 	return connect.NewResponse(&orreryv1.InterruptResponse{}), nil
 }
 
-// Stop forwards a stop to the engine.
+// Stop forwards a stop to the engine, unless its id names a step.
 func (c controlServer) Stop(
 	ctx context.Context,
 	req *connect.Request[orreryv1.StopRequest],
 ) (*connect.Response[orreryv1.StopResponse], error) {
+	if err := c.refuseStep(ctx, req.Msg.GetId()); err != nil {
+		return nil, err
+	}
 	err := c.forward(ctx, func(ctx context.Context, engine enginev1connect.EngineClient) error {
 		_, err := engine.Stop(ctx, connect.NewRequest(&enginev1.StopRequest{Id: req.Msg.GetId()}))
 		return wrapEngine("stop", err)
@@ -172,6 +185,27 @@ func (c controlServer) forward(
 		return translateError(err)
 	}
 	return nil
+}
+
+// refuseStep answers failed_precondition when id names a step, so a session command cannot drive a step around its own
+// loop. A nil steps client, or a StepStatus that answers not_found, returns nil and lets the command forward. Any other
+// StepStatus error answers as translateError does. The lookup runs under the control timeout.
+func (c controlServer) refuseStep(ctx context.Context, id string) error {
+	if c.steps == nil {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, c.timeout)
+	defer cancel()
+	_, err := c.steps.StepStatus(ctx, connect.NewRequest(&enginev1.StepStatusRequest{Id: id}))
+	var connectErr *connect.Error
+	switch {
+	case err == nil:
+		return listError(connect.CodeFailedPrecondition, fmt.Sprintf("%s is a step: drive it through Steps", id))
+	case errors.As(err, &connectErr) && connectErr.Code() == connect.CodeNotFound:
+		return nil
+	default:
+		return translateError(err)
+	}
 }
 
 // resolveSessionDir returns dir with its symlinks resolved when dir is an absolute path to an existing directory equal
@@ -242,12 +276,17 @@ func translateError(err error) error {
 // newControlHandler returns the path and handler that serve Control over engine, reading at most maxControlBody
 // bytes of each request. A zero timeout is defaultControlTimeout. Start forwards only directories under home that
 // resolveSessionDir admits.
-func newControlHandler(engine enginev1connect.EngineClient, timeout time.Duration, home string) (string, http.Handler) {
+func newControlHandler(
+	engine enginev1connect.EngineClient,
+	timeout time.Duration,
+	home string,
+	steps StepClient,
+) (string, http.Handler) {
 	if timeout == 0 {
 		timeout = defaultControlTimeout
 	}
 	return orreryv1connect.NewControlHandler(
-		controlServer{engine: engine, timeout: timeout, home: home},
+		controlServer{engine: engine, timeout: timeout, home: home, steps: steps},
 		connect.WithReadMaxBytes(maxControlBody),
 	)
 }
