@@ -392,6 +392,41 @@ func (q *Queries) InsertStep(ctx context.Context, arg InsertStepParams) error {
 	return err
 }
 
+const lastTurnEnds = `-- name: LastTurnEnds :many
+SELECT events.session_id, CAST(MAX(events.at) AS INTEGER) AS at FROM events
+WHERE events.kind = 'session_changed' AND json_extract(events.payload, '$.fields.state') = 'done'
+GROUP BY events.session_id
+ORDER BY events.session_id
+`
+
+type LastTurnEndsRow struct {
+	SessionID string
+	At        int64
+}
+
+func (q *Queries) LastTurnEnds(ctx context.Context) ([]LastTurnEndsRow, error) {
+	rows, err := q.db.QueryContext(ctx, lastTurnEnds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []LastTurnEndsRow
+	for rows.Next() {
+		var i LastTurnEndsRow
+		if err := rows.Scan(&i.SessionID, &i.At); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listEngineSessions = `-- name: ListEngineSessions :many
 SELECT id, server, pane, state, changed, seen, question, summary, label, context, tool, claude_session, transcript, kind, dir, reason FROM sessions WHERE kind IN ('engine', 'step') ORDER BY id
 `
