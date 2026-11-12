@@ -41,6 +41,12 @@ const (
 	StepsStepStatusProcedure = "/orrery.engine.v1.Steps/StepStatus"
 	// StepsWaitStepsProcedure is the fully-qualified name of the Steps's WaitSteps RPC.
 	StepsWaitStepsProcedure = "/orrery.engine.v1.Steps/WaitSteps"
+	// StepsListStepsProcedure is the fully-qualified name of the Steps's ListSteps RPC.
+	StepsListStepsProcedure = "/orrery.engine.v1.Steps/ListSteps"
+	// StepsHoldStepProcedure is the fully-qualified name of the Steps's HoldStep RPC.
+	StepsHoldStepProcedure = "/orrery.engine.v1.Steps/HoldStep"
+	// StepsNudgeStepProcedure is the fully-qualified name of the Steps's NudgeStep RPC.
+	StepsNudgeStepProcedure = "/orrery.engine.v1.Steps/NudgeStep"
 )
 
 // StepsClient is a client for the orrery.engine.v1.Steps service.
@@ -48,12 +54,21 @@ type StepsClient interface {
 	// StartStep starts a step and returns its id once its row exists. A start that is refused returns the refusal and no
 	// id. A writing step runs in its workspace; a read-only step runs in a detached worktree at its revision.
 	StartStep(context.Context, *connect.Request[v1.StartStepRequest]) (*connect.Response[v1.StartStepResponse], error)
-	// StopStep ends a step's loop.
+	// StopStep ends a step's loop. A held or running step ends as stopped.
 	StopStep(context.Context, *connect.Request[v1.StopStepRequest]) (*connect.Response[v1.StopStepResponse], error)
 	// StepStatus returns a step's row.
 	StepStatus(context.Context, *connect.Request[v1.StepStatusRequest]) (*connect.Response[v1.StepStatusResponse], error)
 	// WaitSteps blocks until the first of the named steps ends or the timeout passes. A timeout of zero returns at once.
 	WaitSteps(context.Context, *connect.Request[v1.WaitStepsRequest]) (*connect.Response[v1.WaitStepsResponse], error)
+	// ListSteps lists the labelled steps, oldest first. An unlabelled step is never listed.
+	ListSteps(context.Context, *connect.Request[v1.ListStepsRequest]) (*connect.Response[v1.ListStepsResponse], error)
+	// HoldStep interrupts the step's running turn and holds the step until a nudge or a stop. The interrupted turn is no
+	// round. A step with no turn running, one already held, or one running its gate refuses with failed_precondition.
+	HoldStep(context.Context, *connect.Request[v1.HoldStepRequest]) (*connect.Response[v1.HoldStepResponse], error)
+	// NudgeStep sends the owner's text to the step. A held step resumes with it. A running turn is interrupted and the
+	// step continued with the text instead of a round. A step with no turn running, or one running its gate, refuses with
+	// failed_precondition. OK means the nudge landed; it neither spends nor replaces the watchdog's nudge.
+	NudgeStep(context.Context, *connect.Request[v1.NudgeStepRequest]) (*connect.Response[v1.NudgeStepResponse], error)
 }
 
 // NewStepsClient constructs a client for the orrery.engine.v1.Steps service. By default, it uses
@@ -91,6 +106,24 @@ func NewStepsClient(httpClient connect.HTTPClient, baseURL string, opts ...conne
 			connect.WithSchema(stepsMethods.ByName("WaitSteps")),
 			connect.WithClientOptions(opts...),
 		),
+		listSteps: connect.NewClient[v1.ListStepsRequest, v1.ListStepsResponse](
+			httpClient,
+			baseURL+StepsListStepsProcedure,
+			connect.WithSchema(stepsMethods.ByName("ListSteps")),
+			connect.WithClientOptions(opts...),
+		),
+		holdStep: connect.NewClient[v1.HoldStepRequest, v1.HoldStepResponse](
+			httpClient,
+			baseURL+StepsHoldStepProcedure,
+			connect.WithSchema(stepsMethods.ByName("HoldStep")),
+			connect.WithClientOptions(opts...),
+		),
+		nudgeStep: connect.NewClient[v1.NudgeStepRequest, v1.NudgeStepResponse](
+			httpClient,
+			baseURL+StepsNudgeStepProcedure,
+			connect.WithSchema(stepsMethods.ByName("NudgeStep")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -100,6 +133,9 @@ type stepsClient struct {
 	stopStep   *connect.Client[v1.StopStepRequest, v1.StopStepResponse]
 	stepStatus *connect.Client[v1.StepStatusRequest, v1.StepStatusResponse]
 	waitSteps  *connect.Client[v1.WaitStepsRequest, v1.WaitStepsResponse]
+	listSteps  *connect.Client[v1.ListStepsRequest, v1.ListStepsResponse]
+	holdStep   *connect.Client[v1.HoldStepRequest, v1.HoldStepResponse]
+	nudgeStep  *connect.Client[v1.NudgeStepRequest, v1.NudgeStepResponse]
 }
 
 // StartStep calls orrery.engine.v1.Steps.StartStep.
@@ -122,17 +158,41 @@ func (c *stepsClient) WaitSteps(ctx context.Context, req *connect.Request[v1.Wai
 	return c.waitSteps.CallUnary(ctx, req)
 }
 
+// ListSteps calls orrery.engine.v1.Steps.ListSteps.
+func (c *stepsClient) ListSteps(ctx context.Context, req *connect.Request[v1.ListStepsRequest]) (*connect.Response[v1.ListStepsResponse], error) {
+	return c.listSteps.CallUnary(ctx, req)
+}
+
+// HoldStep calls orrery.engine.v1.Steps.HoldStep.
+func (c *stepsClient) HoldStep(ctx context.Context, req *connect.Request[v1.HoldStepRequest]) (*connect.Response[v1.HoldStepResponse], error) {
+	return c.holdStep.CallUnary(ctx, req)
+}
+
+// NudgeStep calls orrery.engine.v1.Steps.NudgeStep.
+func (c *stepsClient) NudgeStep(ctx context.Context, req *connect.Request[v1.NudgeStepRequest]) (*connect.Response[v1.NudgeStepResponse], error) {
+	return c.nudgeStep.CallUnary(ctx, req)
+}
+
 // StepsHandler is an implementation of the orrery.engine.v1.Steps service.
 type StepsHandler interface {
 	// StartStep starts a step and returns its id once its row exists. A start that is refused returns the refusal and no
 	// id. A writing step runs in its workspace; a read-only step runs in a detached worktree at its revision.
 	StartStep(context.Context, *connect.Request[v1.StartStepRequest]) (*connect.Response[v1.StartStepResponse], error)
-	// StopStep ends a step's loop.
+	// StopStep ends a step's loop. A held or running step ends as stopped.
 	StopStep(context.Context, *connect.Request[v1.StopStepRequest]) (*connect.Response[v1.StopStepResponse], error)
 	// StepStatus returns a step's row.
 	StepStatus(context.Context, *connect.Request[v1.StepStatusRequest]) (*connect.Response[v1.StepStatusResponse], error)
 	// WaitSteps blocks until the first of the named steps ends or the timeout passes. A timeout of zero returns at once.
 	WaitSteps(context.Context, *connect.Request[v1.WaitStepsRequest]) (*connect.Response[v1.WaitStepsResponse], error)
+	// ListSteps lists the labelled steps, oldest first. An unlabelled step is never listed.
+	ListSteps(context.Context, *connect.Request[v1.ListStepsRequest]) (*connect.Response[v1.ListStepsResponse], error)
+	// HoldStep interrupts the step's running turn and holds the step until a nudge or a stop. The interrupted turn is no
+	// round. A step with no turn running, one already held, or one running its gate refuses with failed_precondition.
+	HoldStep(context.Context, *connect.Request[v1.HoldStepRequest]) (*connect.Response[v1.HoldStepResponse], error)
+	// NudgeStep sends the owner's text to the step. A held step resumes with it. A running turn is interrupted and the
+	// step continued with the text instead of a round. A step with no turn running, or one running its gate, refuses with
+	// failed_precondition. OK means the nudge landed; it neither spends nor replaces the watchdog's nudge.
+	NudgeStep(context.Context, *connect.Request[v1.NudgeStepRequest]) (*connect.Response[v1.NudgeStepResponse], error)
 }
 
 // NewStepsHandler builds an HTTP handler from the service implementation. It returns the path on
@@ -166,6 +226,24 @@ func NewStepsHandler(svc StepsHandler, opts ...connect.HandlerOption) (string, h
 		connect.WithSchema(stepsMethods.ByName("WaitSteps")),
 		connect.WithHandlerOptions(opts...),
 	)
+	stepsListStepsHandler := connect.NewUnaryHandler(
+		StepsListStepsProcedure,
+		svc.ListSteps,
+		connect.WithSchema(stepsMethods.ByName("ListSteps")),
+		connect.WithHandlerOptions(opts...),
+	)
+	stepsHoldStepHandler := connect.NewUnaryHandler(
+		StepsHoldStepProcedure,
+		svc.HoldStep,
+		connect.WithSchema(stepsMethods.ByName("HoldStep")),
+		connect.WithHandlerOptions(opts...),
+	)
+	stepsNudgeStepHandler := connect.NewUnaryHandler(
+		StepsNudgeStepProcedure,
+		svc.NudgeStep,
+		connect.WithSchema(stepsMethods.ByName("NudgeStep")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/orrery.engine.v1.Steps/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case StepsStartStepProcedure:
@@ -176,6 +254,12 @@ func NewStepsHandler(svc StepsHandler, opts ...connect.HandlerOption) (string, h
 			stepsStepStatusHandler.ServeHTTP(w, r)
 		case StepsWaitStepsProcedure:
 			stepsWaitStepsHandler.ServeHTTP(w, r)
+		case StepsListStepsProcedure:
+			stepsListStepsHandler.ServeHTTP(w, r)
+		case StepsHoldStepProcedure:
+			stepsHoldStepHandler.ServeHTTP(w, r)
+		case StepsNudgeStepProcedure:
+			stepsNudgeStepHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -199,4 +283,16 @@ func (UnimplementedStepsHandler) StepStatus(context.Context, *connect.Request[v1
 
 func (UnimplementedStepsHandler) WaitSteps(context.Context, *connect.Request[v1.WaitStepsRequest]) (*connect.Response[v1.WaitStepsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.engine.v1.Steps.WaitSteps is not implemented"))
+}
+
+func (UnimplementedStepsHandler) ListSteps(context.Context, *connect.Request[v1.ListStepsRequest]) (*connect.Response[v1.ListStepsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.engine.v1.Steps.ListSteps is not implemented"))
+}
+
+func (UnimplementedStepsHandler) HoldStep(context.Context, *connect.Request[v1.HoldStepRequest]) (*connect.Response[v1.HoldStepResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.engine.v1.Steps.HoldStep is not implemented"))
+}
+
+func (UnimplementedStepsHandler) NudgeStep(context.Context, *connect.Request[v1.NudgeStepRequest]) (*connect.Response[v1.NudgeStepResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.engine.v1.Steps.NudgeStep is not implemented"))
 }

@@ -1,0 +1,7 @@
+-- +goose Up
+ALTER TABLE steps ADD COLUMN epic TEXT NOT NULL DEFAULT '';
+ALTER TABLE steps ADD COLUMN task TEXT NOT NULL DEFAULT '';
+
+-- +goose Down
+ALTER TABLE steps DROP COLUMN task;
+ALTER TABLE steps DROP COLUMN epic;

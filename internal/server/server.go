@@ -125,11 +125,14 @@ type Config struct {
 	// ReportSeen receives the pane and the seen time it holds after each Panes.MarkSeen succeeds, or is nil to
 	// report nothing.
 	ReportSeen cli.SeenReporter
+	// Web holds the built page, with index.html at its root and its assets beside it, or is nil for no page.
+	// After the login check, GET and HEAD answer a file of Web at its path, and "/" answers index.html.
+	Web fs.FS
 }
 
 // New returns a handler that admits only the configured logins, and never emits CORS headers. A request to
 // a Connect path must carry the HeaderClient header, and a POST there one of the Connect content types. Requests
-// that pass the guard reach the Connect services, and every other path answers 404.
+// that pass the guard reach the Connect services or, when cfg.Web is set, the page, and every other path answers 404.
 func New(cfg Config) (http.Handler, error) {
 	allowed, err := checkConfig(cfg)
 	if err != nil {
@@ -182,6 +185,9 @@ func New(cfg Config) (http.Handler, error) {
 	mux.Handle(pushPath, pushService)
 	pickerPath, pickerService := newPickerHandler(cfg.Picker, tokens, cfg.Tmux, now)
 	mux.Handle(pickerPath, pickerService)
+	if cfg.Web != nil {
+		mux.Handle("/", newPageHandler(cfg.Web))
+	}
 	connectPaths := []string{sessionsPath, eventsPath, controlPath, panesPath, hostPath, pushPath, pickerPath}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if _, ok := allowed[r.Header.Get(HeaderLogin)]; !ok {
@@ -194,6 +200,35 @@ func New(cfg Config) (http.Handler, error) {
 		}
 		mux.ServeHTTP(w, r)
 	}), nil
+}
+
+// newPageHandler returns the handler that answers GET and HEAD of a file of web, with "/" answering index.html.
+// A path web lacks, a directory, and any other method answer 404. Every answer carries the page's CSP and nosniff
+// headers.
+func newPageHandler(web fs.FS) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; frame-ancestors 'none'")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			http.NotFound(w, r)
+			return
+		}
+		name := strings.TrimPrefix(r.URL.Path, "/")
+		if name == "" {
+			name = "index.html"
+		}
+		info, err := fs.Stat(web, name)
+		if err != nil || info.IsDir() {
+			http.NotFound(w, r)
+			return
+		}
+		body, err := fs.ReadFile(web, name)
+		if err != nil {
+			http.Error(w, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		http.ServeContent(w, r, name, time.Time{}, bytes.NewReader(body))
+	})
 }
 
 // checkConfig refuses a Config New cannot serve, and returns its allowed logins as a set.

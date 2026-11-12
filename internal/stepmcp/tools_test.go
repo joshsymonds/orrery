@@ -74,6 +74,23 @@ func (f *fakeSteps) Wait(
 	return f.ended, f.rows, f.err
 }
 
+func (f *fakeSteps) List(context.Context, string, string) ([]store.StepRow, error) {
+	return nil, errors.New("stepmcp test: List is not expected")
+}
+
+func (f *fakeSteps) Hold(context.Context, string) error {
+	return errors.New("stepmcp test: Hold is not expected")
+}
+
+// Held is called by Status to report the row, and the row is not held.
+func (f *fakeSteps) Held(string) bool {
+	return false
+}
+
+func (f *fakeSteps) Nudge(context.Context, string, string) error {
+	return errors.New("stepmcp test: Nudge is not expected")
+}
+
 // fakeCalls is a copy of what the fake recorded.
 type fakeCalls struct {
 	starts   []enginehost.StepStart
@@ -310,7 +327,9 @@ func TestStepStartDeliversEveryFieldAndReturnsID(t *testing.T) {
 		"readOnly": true,
 		"ownedPaths": ["a.go", "b/c.go"],
 		"gate": ["go", "test"],
-		"gateLimitSeconds": 90
+		"gateLimitSeconds": 90,
+		"epic": "repo-1/epic-one",
+		"task": "task-two"
 	}`)
 
 	if outcome.isError {
@@ -330,9 +349,73 @@ func TestStepStartDeliversEveryFieldAndReturnsID(t *testing.T) {
 		Gate:      []string{"go", "test"},
 		GateLimit: 90 * time.Second,
 		DoneValue: "pass",
+		Epic:      "repo-1/epic-one",
+		Task:      "task-two",
 	}}
 	if got := fake.calls().starts; !reflect.DeepEqual(got, want) {
 		t.Fatalf("step_start reached the daemon as %+v, want %+v", got, want)
+	}
+}
+
+func TestStepStartWithoutLabelsReachesTheDaemonUnlabelled(t *testing.T) {
+	fake := &fakeSteps{startID: "0123456789abcdef0123456789abcdef"}
+	p := newPeer(t, startDaemon(t, fake))
+
+	outcome := p.tool("step_start", `{
+		"agent": "reviewer",
+		"prompt": "check the change",
+		"workspace": "/work",
+		"schema": {"type":"object"}
+	}`)
+
+	if outcome.isError {
+		t.Fatalf("step_start reported an error: %s", outcome.text)
+	}
+	starts := fake.calls().starts
+	if len(starts) != 1 {
+		t.Fatalf("step_start reached the daemon %d times, want once", len(starts))
+	}
+	if starts[0].Epic != "" || starts[0].Task != "" {
+		t.Fatalf("unlabelled step_start reached the daemon with epic %q and task %q, want both empty",
+			starts[0].Epic, starts[0].Task)
+	}
+}
+
+func TestStepStartSchemaListsLabelsAsOptionalStrings(t *testing.T) {
+	p := newPeer(t, startDaemon(t, &fakeSteps{}))
+
+	reply := p.call("tools/list", map[string]any{})
+	var listed struct {
+		Tools []struct {
+			Name        string `json:"name"`
+			InputSchema struct {
+				Properties map[string]struct {
+					Type string `json:"type"`
+				} `json:"properties"`
+				Required []string `json:"required"`
+			} `json:"inputSchema"`
+		} `json:"tools"`
+	}
+	if err := json.Unmarshal(reply.Result, &listed); err != nil {
+		t.Fatalf("decode tools/list: %v", err)
+	}
+	found := false
+	for _, tool := range listed.Tools {
+		if tool.Name != "step_start" {
+			continue
+		}
+		found = true
+		for _, field := range []string{"epic", "task"} {
+			if got := tool.InputSchema.Properties[field].Type; got != "string" {
+				t.Errorf("step_start %s type = %q, want string", field, got)
+			}
+			if slices.Contains(tool.InputSchema.Required, field) {
+				t.Errorf("step_start schema requires %s, want it optional", field)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("tools/list has no step_start tool")
 	}
 }
 

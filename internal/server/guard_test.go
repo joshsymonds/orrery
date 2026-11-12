@@ -61,3 +61,26 @@ func TestPhoneServicesRequireLoginAndClientHeaderOnEveryPath(t *testing.T) {
 		}
 	}
 }
+
+// TestPageRequiresLoginAndNoClientHeader probes "/" with the requests the guard decides on a non-Connect path: no
+// login and a stranger login are refused, and the allowed login is admitted with no client header, since the page
+// is not a Connect path.
+func TestPageRequiresLoginAndNoClientHeader(t *testing.T) {
+	t.Parallel()
+	handler := newWebHandler(t, pageFS())
+	probes := []struct {
+		name   string
+		header http.Header
+		want   int
+	}{
+		{"no login", connectHeader("", "", false), http.StatusForbidden},
+		{"stranger login", connectHeader(otherLogin, "", false), http.StatusForbidden},
+		{"allowed login no client header", connectHeader(allowedLogin, "", false), http.StatusOK},
+	}
+	for _, probe := range probes {
+		rec := serve(t, handler, http.MethodGet, "/", probe.header, "")
+		if rec.Code != probe.want {
+			t.Fatalf("GET / with %s: status = %d, want %d", probe.name, rec.Code, probe.want)
+		}
+	}
+}

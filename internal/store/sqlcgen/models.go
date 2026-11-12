@@ -69,4 +69,6 @@ type Step struct {
 	ModelLimit   int64
 	Doing        string
 	Verdicts     string
+	Epic         string
+	Task         string
 }

@@ -15,6 +15,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/engine/session"
 	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
 	"github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1/enginev1connect"
+	"github.com/joshsymonds/orrery/internal/store"
 )
 
 // shutdownWait bounds how long Serve waits for in-flight requests once its context ends.
@@ -51,9 +52,10 @@ func Listen(socketPath string) (net.Listener, error) {
 
 // Serve answers the engine service on ln with commands and the steps service with steps until ctx ends. It then shuts
 // down within shutdownWait and returns nil. A nil commands refuses every engine RPC as unavailable, and a nil steps
-// refuses every step RPC as unavailable.
+// refuses every step RPC as unavailable. With steps served, the engine refuses Say, Answer, Interrupt and Stop on a
+// step id, since a step is driven only through the Steps service.
 func Serve(ctx context.Context, ln net.Listener, commands Commands, steps StepCommands) error {
-	path, handler := enginev1connect.NewEngineHandler(&service{commands: commands})
+	path, handler := enginev1connect.NewEngineHandler(&service{commands: commands, steps: steps})
 	stepsPath, stepsHandler := enginev1connect.NewStepsHandler(&stepService{steps: steps})
 	mux := http.NewServeMux()
 	mux.Handle(path, handler)
@@ -82,9 +84,10 @@ func Serve(ctx context.Context, ln net.Listener, commands Commands, steps StepCo
 	return nil
 }
 
-// service implements the Engine RPCs over commands.
+// service implements the Engine RPCs over commands. steps, when set, names the step ids the engine refuses.
 type service struct {
 	commands Commands
+	steps    StepCommands
 }
 
 // ready returns the refusal every RPC gets when there is no session store.
@@ -93,6 +96,27 @@ func (s *service) ready() error {
 		return errors.Join(connect.NewError(connect.CodeUnavailable, errors.New(unavailableMessage)))
 	}
 	return nil
+}
+
+// refuseStep returns the refusal for a session command on id when id names a step. A step runs its own loop, and a raw
+// session command on it would drive the step around that loop. It returns nil when id is not a step or there is no step
+// store, and an internal error when the step lookup itself fails.
+func (s *service) refuseStep(ctx context.Context, id string) error {
+	if s.steps == nil {
+		return nil
+	}
+	_, err := s.steps.Status(ctx, id)
+	switch {
+	case err == nil:
+		return errors.Join(connect.NewError(
+			connect.CodeFailedPrecondition,
+			fmt.Errorf("%s is a step: drive it through the Steps service", id),
+		))
+	case errors.Is(err, store.ErrNoStep):
+		return nil
+	default:
+		return errors.Join(connect.NewError(connect.CodeInternal, err))
+	}
 }
 
 func (s *service) Start(
@@ -121,6 +145,9 @@ func (s *service) Say(
 	if err := s.ready(); err != nil {
 		return nil, err
 	}
+	if err := s.refuseStep(ctx, req.Msg.GetId()); err != nil {
+		return nil, err
+	}
 	if err := s.commands.Say(ctx, SayRequest{
 		ID:       req.Msg.GetId(),
 		Text:     req.Msg.GetText(),
@@ -138,6 +165,9 @@ func (s *service) Answer(
 	if err := s.ready(); err != nil {
 		return nil, err
 	}
+	if err := s.refuseStep(ctx, req.Msg.GetId()); err != nil {
+		return nil, err
+	}
 	err := s.commands.Answer(ctx, req.Msg.GetId(), req.Msg.GetRequestId(), req.Msg.GetAnswer())
 	if err != nil {
 		return nil, commandError(err)
@@ -152,6 +182,9 @@ func (s *service) Interrupt(
 	if err := s.ready(); err != nil {
 		return nil, err
 	}
+	if err := s.refuseStep(ctx, req.Msg.GetId()); err != nil {
+		return nil, err
+	}
 	if err := s.commands.Interrupt(ctx, req.Msg.GetId()); err != nil {
 		return nil, commandError(err)
 	}
@@ -163,6 +196,9 @@ func (s *service) Stop(
 	req *connect.Request[v1.StopRequest],
 ) (*connect.Response[v1.StopResponse], error) {
 	if err := s.ready(); err != nil {
+		return nil, err
+	}
+	if err := s.refuseStep(ctx, req.Msg.GetId()); err != nil {
 		return nil, err
 	}
 	if err := s.commands.Stop(ctx, req.Msg.GetId()); err != nil {
