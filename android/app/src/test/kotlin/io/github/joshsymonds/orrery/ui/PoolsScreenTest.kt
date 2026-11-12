@@ -201,10 +201,11 @@ class PoolsScreenTest {
 
             composeRule.onNodeWithTag("outside-hold-action:$ORPHAN").performClick()
 
-            composeRule.waitUntil(TIMEOUT_MS) { countNodes(hasTestTag("outside-hold:$ORPHAN")) == 0 }
+            // The reload shows Loading first, which also hides the hold, so wait for the reloaded members.
+            composeRule.waitUntil(TIMEOUT_MS) { statusCalls(server) == 2 && countNodes(hasTestTag("member:$FREE")) == 1 }
+            assertEquals(0, countNodes(hasTestTag("outside-hold:$ORPHAN")))
             val free = server.requests.single { it.rawPath == POOLS_FREE }
             assertEquals(ORPHAN, PoolsFreeRequest.parseFrom(free.body).member)
-            assertEquals(2, statusCalls(server))
         }
     }
 
