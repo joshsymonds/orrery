@@ -434,6 +434,8 @@ The session socket is `sessions.sock` in the same directory as the daemon socket
 
 A call that does not fit its precondition does not change the session. An `Answer` that fits neither the question's options nor `allow` or `deny` leaves the request open.
 
+`Say`, `Answer`, `Interrupt` and `Stop` refuse an `id` that names a step, before their own checks. The refusal is `failed_precondition` with the message `<id> is a step: drive it through the Steps service`. A step lookup that fails is `internal`. With no step store, the check is skipped (`internal/enginehost/service.go:104`-`:120`, `internal/enginehost/service.go:148`, `:168`, `:185`, `:201`). A step runs its own loop, so a raw session command on it would drive the step around that loop (`internal/enginehost/service.go:101`-`:103`, and see [Steps](#steps)).
+
 Errors are Connect codes:
 
 | Connect code | When |
@@ -442,6 +444,7 @@ Errors are Connect codes:
 | `resource_exhausted` | a `Start`, or a `Say` that resumes a session, would pass the session cap |
 | `not_found` | `id` has no row, or `Answer`, `Interrupt` or `Stop` names a session that is not live. Also an `Answer` whose `request_id` is not open |
 | `invalid_argument` | a bad `dir`, an empty `prompt` or `text`, a `model` or `id` that does not fit its rule, or an answer that does not fit the open request |
+| `failed_precondition` | `Say`, `Answer`, `Interrupt` or `Stop` names a step id (see the paragraph above the table) |
 | `internal` | any other failure, including a call made while `orreryd` is shutting down |
 
 #### Lifecycle rules
@@ -482,10 +485,13 @@ A session notice clears on the session's own seen: the `Seen` call for that sess
 
 | Call | Request | Response | Effect |
 |---|---|---|---|
-| `StartStep` | `agent`, `prompt`, `schema`, `workspace`, `revision`, `read_only`, `owned_paths`, `gate`, `gate_limit_seconds`, `done_value`, `model_limit_seconds` | `id` | checks the request, starts the step and returns its id |
-| `StopStep` | `id` | none | ends the step as `stopped` |
+| `StartStep` | `agent`, `prompt`, `schema`, `workspace`, `revision`, `read_only`, `owned_paths`, `gate`, `gate_limit_seconds`, `done_value`, `model_limit_seconds`, `epic`, `task` | `id` | checks the request, starts the step and returns its id |
+| `StopStep` | `id` | none | ends the step as `stopped`, whether it is held or running |
 | `StepStatus` | `id` | `step` | returns the step's row |
 | `WaitSteps` | `ids`, `timeout_seconds` | `ended`, `steps` | blocks until the first named step ends or the timeout passes |
+| `ListSteps` | `epic`, `task` | `steps` | lists the labelled steps, oldest first, narrowed to `epic` and to `task` when each is not empty |
+| `HoldStep` | `id` | none | interrupts the step's running turn and holds the step (see [Step lifecycle](#step-lifecycle)) |
+| `NudgeStep` | `id`, `text` | none | sends the owner's text to the step (see [Step lifecycle](#step-lifecycle)) |
 
 `StartStep` checks each field as follows:
 
@@ -501,12 +507,17 @@ A session notice clears on the session's own seen: the `Seen` call for that sess
 - `gate_limit_seconds` of zero means 30 minutes.
 - `done_value` empty means `done`.
 - `model_limit_seconds` of zero means 60 minutes. It is the model time the step may use before the watch ends it `overtime` (see the Watch rule under [Step lifecycle](#step-lifecycle)).
+- `epic` and `task` are stored as given, and nothing checks them. The format that `proto/orrery/engine/v1/step.proto:69`-`:70` names for `epic` is not enforced (`internal/enginehost/stepservice.go:63`-`:64`, `internal/enginehost/step.go:177`, `internal/store/steps.go:122`). An empty `epic` leaves the step unlabelled, and `ListSteps` never lists it (`internal/enginehost/step.go:38`-`:39`). An empty `task` means the step works on no one task.
 
 A start refused by one of these checks, by the step cap, or by the workspace rules stores nothing and returns no id. A start that fails after its row is stored returns the error with no id, and the row ends `failed`. The id is not reported on that path.
 
-`StepStatus` and `WaitSteps` return each step as a `Step` message: `id`, `agent`, `workspace`, `revision` (the resolved start commit), `read_only`, `worktree` (empty for a writing step), `end` (empty while the step runs), `status`, `result` (the latest return's JSON text), `checks`, `reason`, `started`, `ended` (unix seconds; `ended` is 0 while the step runs) and `doing`, the latest doing line from the step's monitor. Each `checks` entry is a `StepCheck`: `round`, `name`, `ok` and `detail`. The row's prompt, schema, done value, owned paths, gate, gate limit, model limit and verdicts are stored (see [Steps in the store](#steps-in-the-store)) but not returned.
+`StepStatus`, `WaitSteps` and `ListSteps` return each step as a `Step` message: `id`, `agent`, `workspace`, `revision` (the resolved start commit), `read_only`, `worktree` (empty for a writing step), `end` (empty while the step runs), `status`, `result` (the latest return's JSON text), `checks`, `reason`, `started`, `ended` (unix seconds; `ended` is 0 while the step runs), `doing`, the latest doing line from the step's monitor, `epic` and `task`, the labels the step was started with, and `held`, which is true while an owner hold holds the step (`internal/enginehost/stepservice.go:194`-`:199`). Each `checks` entry is a `StepCheck`: `round`, `name`, `ok` and `detail`. The row's prompt, schema, done value, owned paths, gate, gate limit, model limit and verdicts are stored (see [Steps in the store](#steps-in-the-store)) but not returned. `held` is loop state and has no column: it is read from the step's loop, and a step with no loop is not held (`internal/enginehost/stepowner.go:125`-`:131`).
 
 `WaitSteps` returns every named row in the order `ids` gives. `ended` is the named step that ended first, by its end time, and a tie keeps the step listed first. `ended` is unset when the timeout passes before any of them ends. A timeout of zero returns at once. An id with no row fails the whole call with `not_found`.
+
+`ListSteps` returns the rows whose `epic` is not empty, narrowed to rows whose `epic` is the request's `epic` when that is not empty, and to rows whose `task` is the request's `task` when that is not empty. They are ordered by start time, then id (`internal/store/queries.sql:127`-`:131`, `internal/store/steps.go:212`-`:220`).
+
+`HoldStep` and `NudgeStep` return no fields. Their rules are in [Step lifecycle](#step-lifecycle).
 
 Errors are Connect codes:
 
@@ -514,9 +525,10 @@ Errors are Connect codes:
 |---|---|
 | `unavailable` | `orreryd` has no step store. The message is `step store unavailable` |
 | `resource_exhausted` | a `StartStep` would pass the step cap (`--step-cap`) |
-| `not_found` | `StopStep`, `StepStatus` or `WaitSteps` names an id with no row |
-| `invalid_argument` | an empty `prompt`, a bad `schema`, a bad `agent`, a `workspace` that is not an absolute existing directory, a writing step's `workspace` outside a git work tree or in its main working tree, an `owned_paths` entry that is not a relative path inside the repository, or a `gate` program not on `PATH` |
-| `internal` | any other failure, including a `revision` that does not resolve (for a read-only step this includes a `workspace` outside any git work tree), and a `WaitSteps` call whose context ends first |
+| `not_found` | `StopStep`, `StepStatus`, `WaitSteps`, `HoldStep` or `NudgeStep` names an id with no row |
+| `invalid_argument` | an empty `prompt`, a bad `schema`, a bad `agent`, a `workspace` that is not an absolute existing directory, a writing step's `workspace` outside a git work tree or in its main working tree, an `owned_paths` entry that is not a relative path inside the repository, a `gate` program not on `PATH`, or an empty `text` on `NudgeStep` (`internal/enginehost/stepservice.go:229`-`:232`) |
+| `failed_precondition` | `HoldStep` finds the step already held or no turn running, or `HoldStep` or `NudgeStep` finds the step running its gate, ended, or with no loop, or `NudgeStep` finds no turn running and the step not held (`internal/enginehost/stepservice.go:226`-`:228`) |
+| `internal` | any other failure, including a `revision` that does not resolve (for a read-only step this includes a `workspace` outside any git work tree), a `WaitSteps` call whose context ends first, and a `HoldStep` or `NudgeStep` call whose context ends before the step's loop takes it |
 
 #### Step lifecycle
 
@@ -558,7 +570,9 @@ Errors are Connect codes:
   | `goal_unmet` | the judge's second `unmet` verdict; the return is kept | empty |
 
   The end is stored with the reason, and the step's session is stopped and its worktree removed, whatever ended it.
-- **Stop.** `StopStep` cancels the step's loop, which kills a running gate, waits for the loop to return, and then stores `stopped` through the same end path. A step that has already ended is left as it is, and `StopStep` returns success.
+- **Stop.** `StopStep` cancels the step's loop, which kills a running gate, waits for the loop to return, and then stores `stopped` through the same end path. A step that has already ended is left as it is, and `StopStep` returns success. A held step ends `stopped` the same way (`internal/enginehost/stepctl.go:25`-`:45`).
+- **Hold.** `HoldStep` interrupts the step's running turn and marks the step held (`internal/enginehost/stepowner.go:55`-`:69`, `:112`-`:123`). It is refused with `failed_precondition` when the step is already held, when no turn is running, and when the step is running its gate (`internal/enginehost/stepowner.go:56`-`:60`, `:34`-`:37`). A failed interrupt is returned as `internal`, and the step stays unheld. A landed hold drops any nudge pending for the turn, the watchdog's and the owner's (`internal/enginehost/stepowner.go:65`-`:66`). A held step's loop skips each tick, so the watch checks nothing (`internal/enginehost/steploop.go:170`-`:173`). A held step's turn end is no round, and it continues nothing (`internal/enginehost/steploop.go:192`-`:196`).
+- **Owner nudge.** `NudgeStep` sends the owner's text to the step (`internal/enginehost/stepowner.go:133`-`:154`). Empty text is `invalid_argument`, and it is refused before the step is looked up (`internal/enginehost/stepowner.go:140`-`:142`). It is refused with `failed_precondition` when the step is running its gate, and when the step is not held and no turn is running (`internal/enginehost/stepowner.go:86`-`:88`, `:34`-`:37`). On a held step, the text resumes the step at once when the held turn has already ended. Otherwise it waits for that turn's end, which is no round, and is continued then (`internal/enginehost/stepowner.go:77`-`:85`, `internal/enginehost/steploop.go:192`-`:199`). On a running turn, the turn is interrupted, and its end is continued with any pending watchdog text followed by the owner's text, in place of a round (`internal/enginehost/stepowner.go:89`-`:97`, `internal/enginehost/steploop.go:201`-`:203`). Owner text sent while a nudge is pending is joined to it, one line per text (`internal/enginehost/stepowner.go:89`-`:92`, `internal/enginehost/steploop.go:255`-`:256`). A nudge neither spends nor replaces the watchdog's nudge, and an OK reply means the nudge landed (`internal/enginehost/stepowner.go:133`-`:138`).
 - **Restart.** At start, `orreryd` settles each step's engine row as it settles other engine rows: a row that was `working` or `waiting` is recorded `interrupted` with the reason `orreryd restarted during the turn`, and no notice is sent. Each open step row with no loop then ends `engine_restarted`, and its worktree is removed. Nothing resumes a step after a restart. `Continue`, which the loop sends, respawns a step that is not live from its rows: it resumes the row's claude session with the same agent and schema flags, and it takes a step slot first.
 
 
@@ -827,7 +841,7 @@ The 14-day cutoff of the tidy applies to engine rows too. The cutoff is `now` le
 
 #### Steps in the store
 
-The `steps` table (migrations `00004_steps.sql` and `00005_step_watch.sql`) has one row per step. Its `id` is the id of the step's `sessions` row. A row is added when the step starts. Its columns are these:
+The `steps` table (migrations `00004_steps.sql`, `00005_step_watch.sql` and `00006_step_labels.sql`) has one row per step. Its `id` is the id of the step's `sessions` row. A row is added when the step starts. Its columns are these:
 
 | Column | Type | Meaning |
 |---|---|---|
@@ -853,6 +867,8 @@ The `steps` table (migrations `00004_steps.sql` and `00005_step_watch.sql`) has 
 | `end_value` | `TEXT` | the end kind of [Step lifecycle](#step-lifecycle); `""` while the step runs |
 | `reason` | `TEXT` | why the step ended; `""` while it runs |
 | `ended` | `INTEGER` | unix seconds when the step ended; `0` while it runs |
+| `epic` | `TEXT` | the epic the step was started with, as migration `00006_step_labels.sql` adds it; `""` for an unlabelled step, and for a row added before that migration |
+| `task` | `TEXT` | the task slug the step was started with, as migration `00006_step_labels.sql` adds it; `""` when it works on no one task, and for a row added before that migration |
 
 The `sessions` row of a step has `kind` `step`, its `dir` (the workspace, or the worktree of a read-only step), and the same state, `reason` and `claude_session` columns as an engine row (see [Engine sessions in the store](#engine-sessions-in-the-store)). Its engine events are the engine kinds of the `events` table.
 
@@ -1004,11 +1020,13 @@ On the phone, the notices of a host are shown as follows:
 
 `orrery serve` also serves a typed API over the Connect protocol. The schema is `proto/orrery/v1/orrery.proto`, package `orrery.v1`. Generated Go lives in `internal/gen`. `just generate` writes it, and `just check` fails when it drifts from the schema. The same `just generate` also writes the generated Kotlin into `android/app/src/main/java`, from the template `proto/buf.gen.android.yaml`. `just gen-diff` diffs that directory and `internal/gen`.
 
-The services are `orrery.v1.Sessions`, with one call, `List`, `orrery.v1.Events`, with one call, `Watch`, `orrery.v1.Control`, with six calls, which [Control API](#control-api) describes, and the four phone services `orrery.v1.Panes`, `orrery.v1.Host`, `orrery.v1.Push` and `orrery.v1.Picker`, with eleven calls, which [Phone API](#phone-api) describes.
+The services are `orrery.v1.Sessions`, with three calls, `List`, `ListHeadless` and `WatchConversation`, `orrery.v1.Events`, with one call, `Watch`, `orrery.v1.Control`, with six calls, which [Control API](#control-api) describes, and the four phone services `orrery.v1.Panes`, `orrery.v1.Host`, `orrery.v1.Push` and `orrery.v1.Picker`, with twelve calls, which [Phone API](#phone-api) describes.
 
 | Call | Path | Request | Response |
 |---|---|---|---|
 | `List` | `POST /orrery.v1.Sessions/List` | `ListRequest`, empty | `ListResponse` |
+| `ListHeadless` | `POST /orrery.v1.Sessions/ListHeadless` | `ListHeadlessRequest`, empty | `ListHeadlessResponse` |
+| `WatchConversation` (server-streaming) | `POST /orrery.v1.Sessions/WatchConversation` | `SessionsWatchConversationRequest` | stream of `SessionsWatchConversationResponse` |
 | `Watch` (server-streaming) | `POST /orrery.v1.Events/Watch` | `WatchRequest` | stream of `WatchResponse` |
 | `Control.Start` | `POST /orrery.v1.Control/Start` | `StartRequest` | `StartResponse` |
 | `Control.Say` | `POST /orrery.v1.Control/Say` | `SayRequest` | `SayResponse` |
@@ -1019,6 +1037,7 @@ The services are `orrery.v1.Sessions`, with one call, `List`, `orrery.v1.Events`
 | `Panes.List` | `POST /orrery.v1.Panes/List` | `PanesListRequest`, empty | `PanesListResponse` |
 | `Panes.Screen` | `POST /orrery.v1.Panes/Screen` | `ScreenRequest` | `ScreenResponse` |
 | `Panes.Conversation` | `POST /orrery.v1.Panes/Conversation` | `ConversationRequest` | `ConversationResponse` |
+| `Panes.WatchConversation` (server-streaming) | `POST /orrery.v1.Panes/WatchConversation` | `WatchConversationRequest` | stream of `WatchConversationResponse` |
 | `Panes.SendText` | `POST /orrery.v1.Panes/SendText` | `SendTextRequest` | `SendTextResponse` |
 | `Panes.SendKeys` | `POST /orrery.v1.Panes/SendKeys` | `SendKeysRequest` | `SendKeysResponse` |
 | `Panes.MarkSeen` | `POST /orrery.v1.Panes/MarkSeen` | `MarkSeenRequest` | `MarkSeenResponse` |
@@ -1093,6 +1112,65 @@ A stream whose send fails, at the 10-second deadline or during a blocked send at
 
 The guard's rule for Connect paths is in [Guard](#guard). A request the guard refuses gets 403 before any Connect response.
 
+#### Headless session list
+
+`Sessions.ListHeadless` answers the headless engine sessions with an event in the last 14 days. `ListHeadlessRequest` has no fields. `ListHeadlessResponse` has `sessions`, one `HeadlessSession` for each row, in `id` order.
+
+The rows are the `sessions` rows of kind `engine` that have an event whose `at` is at or after the time of the call less 14 days. Pane rows and step rows are not listed. The call reads the store in one read transaction, and it never writes it.
+
+Each `HeadlessSession` has these fields:
+
+- `id` and `dir` are the row's `id` and `dir`.
+- `label` is the base name of `dir`, then ` · `, then the first 8 characters of `id`.
+- `state`, `changed` and `seen` are the row's state and its unix-seconds times. `changed` and `seen` are 0 when the row has none. `seen` is 0 when the session was never seen.
+- `question` is the row's `question` column, not cut.
+- `summary` is the first of these that applies: the `question` while `state` is `waiting` and the question is not empty; the `reason` while `state` is `failed` or `interrupted` and the reason is not empty; the text of the newest main-conversation reply. The newest reply is the text of the assistant's newest text block with no parent tool use. A `summary` is cut to 300 runes. It is `""` when the session has no reply and neither of the other two applies.
+- `newest_reply` is the unix seconds of the newest main-conversation reply or unrefused request, or 0 when there is none.
+
+A row whose `changed` or `seen` is not unix seconds fails the whole call with `internal`. Its errors are in the [Phone API errors](#phone-api-errors) table.
+
+The guard covers `/orrery.v1.Sessions/ListHeadless` as it covers every Connect path (see [Guard](#guard)).
+
+#### Headless session stream
+
+`Sessions.WatchConversation` streams the conversation of one headless engine session. It is a server-streaming call. Its request is a `SessionsWatchConversationRequest`, and each message it sends is a `SessionsWatchConversationResponse`, which is either a delta or a keepalive. Its timing and end rules are those of the [Conversation stream](#conversation-stream), and its reset rules and messages differ as set out below.
+
+The request fields are these:
+
+- `id` is the session's id. An id that is missing, or that names a step or a pane, ends the stream with `not_found` and `session not found`, at start or mid-stream.
+- `limit` is the number of newest items a reset holds. It follows `ConversationRequest`: 0 means 30, 1 to 100 is that many, and above 100 is `invalid_argument` with `bad request query`. The check runs before any read.
+- `after` is 0 to ask for a reset, or the seq the client holds to ask for the items after it.
+
+Reset and resume:
+
+- When `after` is 0, the first delta is a reset. It holds the newest `limit` main-thread items, oldest first, and the whole state, with `reset` true.
+- When `after` is not 0, the first delta holds every main-thread item with a seq above `after`, oldest first, with `reset` false. `limit` does not apply to it. A negative `after` holds every item. An `after` past the newest event holds no items.
+- No delta after the first is a reset. A stream never replaces what the client holds after its first delta.
+
+Each message has these fields:
+
+- `transcript` is the session's id.
+- `seq` is the seq of the newest session event the stream has read, or 0 when it has read none. A later request resumes after it.
+- `reset` is true only on a reset (see above).
+- `items` holds the main-thread items of the delta. An event makes an item only when it has no parent tool use. A prompt is a `prompt` item with `text`. An assistant text block is a `reply` item with `text`. A tool call is a `tool` item with `tool` set to the tool name, `input` set to the tool input as text, and `id` set to the tool use id. A tool result is a `result` item with `id` set to the tool use id, `text` set to the result's content, and `error` set to whether the result failed. A block of any other kind, and a text block of any other role, make no item. Each item's `time` is the time of its event.
+- `state` is a `ConversationState`. It is set on the first delta and when `origin`, `session` or `request` changed, and it is unset otherwise. It has `origin`, the text of the session's first prompt cut to 300 runes, or `""` before a prompt. It has `session`, the `HeadlessSession` of the session with `id`, `dir`, `label`, `state`, `changed`, `seen` and `question` set and `summary` and `newest_reply` unset. It has `request` only while `state` is `waiting`, and then it is the newest unrefused permission or question request the stream has read. `goal`, `waiting`, `context` and `pane` are unset.
+- `request` is an `OpenRequest` with `id`, `kind` (`permission` or `question`), and `question`. For a permission, `question` is the tool name and `options` is `allow` and `deny`. For a question, `question` is the question's text, and `options` holds the labels when the input has one question that is not `multiSelect`, and no options otherwise.
+- `unfinished` holds the text so far of each unfinished block of the main conversation, as an `EngineText` with `message_id`, `index`, `kind` and `text`. It is sent with every message, keepalives included. The blocks are in message id order, then block index order.
+
+Timing:
+
+- The stream checks the session every 500 ms. A delta is sent when a read finds a main-thread item, when `state` changed, or when `unfinished` changed. A read that moves `seq` without any of these sends no delta.
+- After 5 seconds without a message, the stream sends a keepalive: a message with `transcript`, `seq` and `unfinished` set, and no items or state. While nothing changes, it sends one about every 5 seconds, on the 500 ms ticks.
+
+The stream ends in one of these ways:
+
+- When the client leaves the stream, by cancelling the call or closing the connection. This is not an error.
+- With an error from the error table, when the session is missing or is not an engine session, or when the store is unavailable or a read or decode fails. This applies at start and mid-stream.
+- When serve shuts down. A blocked send of the stream gets 1 second, and so does the stream's end. A stream waiting for its next tick or send at shutdown ends with `unavailable`, with the message `serve is shutting down`.
+- When a send stalls. A send still blocked after 10 seconds ends that stream only, with an error outside the error table.
+
+The guard covers `/orrery.v1.Sessions/WatchConversation` as it covers every Connect path (see [Guard](#guard)).
+
 ### Control API
 
 `orrery.v1.Control` steers the headless sessions of [Headless sessions](#headless-sessions). `serve` answers each call by forwarding it to the Engine service on orreryd's session socket (see [Session control socket](#session-control-socket)). Each call is a Connect POST to the path of [Connect API](#connect-api), with the guard's Connect rules of [Guard](#guard).
@@ -1125,13 +1203,14 @@ Errors are Connect codes. The messages marked fixed are the same whatever orrery
 
 ### Phone API
 
-The phone's calls are the four services `orrery.v1.Panes`, `orrery.v1.Host`, `orrery.v1.Push` and `orrery.v1.Picker` of [Connect API](#connect-api), with eleven calls. Each call is a Connect POST to its path in [Connect API](#connect-api), and the Connect rules of [Guard](#guard) apply to it. This section states each call's request meaning, answer and errors. The error table at the end gives each error code with its message.
+The phone's calls are the four services `orrery.v1.Panes`, `orrery.v1.Host`, `orrery.v1.Push` and `orrery.v1.Picker` of [Connect API](#connect-api), with twelve calls. Each call is a Connect POST to its path in [Connect API](#connect-api), and the Connect rules of [Guard](#guard) apply to it. This section states each call's request meaning, answer and errors. The error table at the end gives each error code with its message.
 
 Request fields and what their zero and presence values mean:
 
 - `PanesListRequest` and `HostStatusRequest` have no fields.
 - `ScreenRequest`: `pane` is the pane ID, `%` followed by digits, such as `%3`. Any other value is a malformed pane ID. `ansi` false gives plain text, and `ansi` true keeps the color escape sequences. `history` 0 adds no scrollback. A value from 1 to 2000 adds that many lines above the visible screen, and a value above 2000 is `invalid_argument`. The `ansi` and `history` checks run before the pane ID check, so a `history` above 2000 is `invalid_argument` even for an absent pane.
 - `ConversationRequest`: `pane` is as for `ScreenRequest`. `limit` 0 means the default of 30. A value from 1 to 100 is that many items, and a value above 100 is `invalid_argument`. The `limit` check runs before the pane ID check.
+- `WatchConversationRequest`: `pane` is as for `ScreenRequest`. `limit` is as for `ConversationRequest`, and it is the number of newest items a reset sends. `transcript` is the id of the transcript the client holds, or empty when it holds none. `after` is the `seq` the client holds for that transcript. The `limit` check runs before the pane ID check.
 - `SendTextRequest`: `pane` is as for `ScreenRequest`, and `text` is the text sent.
 - `SendKeysRequest`: `pane` is as for `ScreenRequest`, and `keys` is the list of keys sent, in order. `expect_question` is present when the field is set. When it is present, the question check applies.
 - `MarkSeenRequest`: `pane` is as for `ScreenRequest`. `read_up_to` absent means now. When present, it must be 0 or more, or the call is `invalid_argument`.
@@ -1192,6 +1271,7 @@ Example `Panes.Conversation` answer, written with the field names of `Conversati
 {"origin":"Example opening prompt.","items":[{"kind":"prompt","time":1700000000,"text":"Example opening prompt.","tool":"","input":"","id":"","error":false,"notice":"","trigger":"","tokens":0},{"kind":"compaction","time":1700000050,"text":"Example summary.","tool":"","input":"","id":"","error":false,"notice":"","trigger":"auto","tokens":611000},{"kind":"reply","time":1700000100,"text":"Example reply.","tool":"","input":"","id":"","error":false,"notice":"","trigger":"","tokens":0},{"kind":"tool","time":1700000200,"text":"","tool":"Bash","input":"example command","id":"example-tool-use","error":false,"notice":"","trigger":"","tokens":0},{"kind":"result","time":1700000210,"text":"Example output.","tool":"","input":"","id":"example-tool-use","error":false,"notice":"","trigger":"","tokens":0},{"kind":"notice","time":1700000300,"text":"Example task finished.","tool":"","input":"","id":"","error":false,"notice":"task","trigger":"","tokens":0}],"goal":"Example goal.","waiting":[{"text":"Example queued message.","time":1700000250,"canceled":false}],"context":{"tokens":240000,"window":1000000}}
 ```
 
+- `WatchConversationResponse` is one message of the stream. The stream and its rules are in [Conversation stream](#conversation-stream).
 - `HostStatusResponse` carries `host` and `stats`. `host` is the machine's host name, and `stats` holds the command's validated stats in order. Without `--host-status-cmd`, the answer is `not_found` "404 page not found".
   - Each stat has the fields `label`, `value`, `percent` (unset when the command gave none), and `level`.
   - The command's output must be a JSON array of at most 12 objects. Each object has a non-empty string `label`, a string `value`, a `level` of `ok`, `warn`, or `crit`, and an optional `percent` that is a number from 0 to 100 (`null` counts as absent). An empty array is valid. Any other output is invalid: a top-level value that is not an array, data after the array, a stat with an unknown key, or a stat with a missing or mistyped field.
@@ -1221,17 +1301,52 @@ Example `Host.Status` answer, shown as JSON. Every value is synthetic:
   - A run whose action fails is `unavailable` with the failure's reason as the message, and records nothing, so a later run of the same token runs the action again.
   - A run whose action succeeded but whose pane lookup then failed is `unavailable` with the failure's reason as the message. It keeps the action's target, so a later run of the same token runs no action and looks the pane up again.
 
+#### Conversation stream
+
+`Panes.WatchConversation` streams the conversation of one pane. It is a server-streaming call, and each message it sends is a `WatchConversationResponse`, which is either a delta or a keepalive. The stream starts with a reset or with the deltas after the client's `seq`, as the reset and resume rules below say, and then sends a delta for each change. The items of a delta follow the item rules of `ConversationResponse` above.
+
+The fields of a `WatchConversationResponse` are these:
+
+- `transcript` is the id of the transcript the delta belongs to. It is the base name of the pane's `@orrery_transcript` path (section 2), so no file path is sent.
+- `seq` is a byte offset into that transcript, not a line number. It is the position just past the last complete line the delta covers. A later request resumes with the `transcript` and `seq` that it holds.
+- `reset` is true when the delta replaces what the client holds. A reset holds the newest `limit` items, oldest first, and the whole state. A delta that is not a reset holds the items of the lines it covers, oldest first, and that can be none.
+- `items` holds the items of the delta, under the item rules of `ConversationResponse`.
+- `state` is a `ConversationState`. It has `origin`, `goal`, `waiting` and `context`, as `ConversationResponse` has them, and `pane`, the pane as `Panes.List` gives it. `state` is set on the first delta of every stream and on each delta where a state field changed. Otherwise it is unset.
+- `unfinished` holds the text so far of each unfinished content block, as an `EngineText` has it. It is kept for headless sessions (see [Engine sessions in the store](#engine-sessions-in-the-store)). A pane stream never sets `unfinished`.
+
+Reset and resume:
+
+- The first delta is a reset when `transcript` is empty or differs from the id of the pane's transcript, and when `after` is negative, past the end of that transcript, or neither 0 nor just after a newline.
+- Otherwise the first delta holds the complete lines after `after`, with `reset` false. An `after` of 0 sends every complete line of the transcript.
+- Later in the stream, a reset is sent when the pane's `@orrery_transcript` names another transcript, and when the stream's `seq` is no longer just after a newline of its transcript because the file shrank or was replaced. That reset holds the newest `limit` items of the pane's transcript at that time.
+
+Timing:
+
+- The stream checks the pane every 500 ms. A delta is sent when the transcript has gained complete lines or the state has changed.
+- After 5 seconds without a message, the stream sends a keepalive: a message with only `transcript` and `seq` set. While nothing changes, it sends one about every 5 seconds, on the 500 ms ticks.
+
+The stream ends in one of these ways:
+
+- When the client leaves the stream, by cancelling the call or closing the connection. This is not an error.
+- With an error from the error table, when the pane is absent, has no live session, has no transcript, or has a transcript file that is missing. This applies at start and mid-stream.
+- When serve shuts down. On serve's shutdown, a blocked send of the stream gets 1 second, and so does the stream's end. A stream waiting for its next tick or send at shutdown ends with `unavailable`, with the message `serve is shutting down`.
+- When a send stalls. A send of the stream still blocked after 10 seconds ends that stream only, with an error outside the error table.
+
+The guard covers the stream. The rules of [Guard](#guard) apply to `/orrery.v1.Panes/WatchConversation` as they do to every Connect path. A GET to the stream answers 405.
+
+#### Phone API errors
+
 Errors are Connect codes. The message column gives the text of each error exactly. Where the message is "the failure's reason", the text is the reason of the failure as the server gives it, and the message carries it unchanged.
 
 | Connect code | When | Message |
 |---|---|---|
 | `invalid_argument` | a malformed pane ID | `malformed pane id` |
-| `invalid_argument` | `Panes.Screen` with a `history` above 2000; `Panes.Conversation` with a `limit` above 100 | `bad request query` |
+| `invalid_argument` | `Panes.Screen` with a `history` above 2000; `Panes.Conversation` or `Panes.WatchConversation` with a `limit` above 100 | `bad request query` |
 | `invalid_argument` | `Panes.SendKeys` with no keys; `Panes.MarkSeen` with a negative `read_up_to`; `Push.Register` with keys that do not decode | `bad request body` |
 | `invalid_argument` | `Push.Register` with an endpoint that is not allowed | `endpoint not allowed` |
 | `invalid_argument` | `Picker.Ask` with blank text; `Picker.Run` with a blank token | `bad request` |
-| `not_found` | an absent pane | `pane not found` |
-| `not_found` | `Panes.Conversation` with no live session, no transcript, or a transcript file that is missing | `no live session`, `no transcript`, or `transcript not found` |
+| `not_found` | an absent pane, including a pane that goes away during `Panes.WatchConversation` | `pane not found` |
+| `not_found` | `Panes.Conversation` with no live session, no transcript, or a transcript file that is missing; `Panes.WatchConversation` with the same cases, at start or mid-stream | `no live session`, `no transcript`, or `transcript not found` |
 | `not_found` | `Host.Status` with no `--host-status-cmd`; `Picker.Ask` with no picker configured | `404 page not found` |
 | `not_found` | `Push.Unregister` for an endpoint that is not registered | `endpoint not registered` |
 | `not_found` | `Picker.Run` with a token no ask issued, or one lost by a restart | `unknown token` |
@@ -1239,8 +1354,15 @@ Errors are Connect codes. The message column gives the text of each error exactl
 | `failed_precondition` | `Picker.Run` with no tmux server running | the tmux reason |
 | `failed_precondition` | `Picker.Run` with an expired token | `expired token` |
 | `unavailable` | `Host.Status` with a status command that failed or gave invalid stats | `host status unavailable` |
+| `unavailable` | `Panes.WatchConversation` while serve shuts down | `serve is shutting down` |
 | `unavailable` | `Picker.Ask` with a picker configuration, text lookup, or pane listing failure | the failure's reason |
 | `unavailable` | `Picker.Run` with a failed action, or an action whose pane lookup failed | the failure's reason |
+| `invalid_argument` | `Sessions.WatchConversation` with a `limit` above 100 | `bad request query` |
+| `not_found` | `Sessions.WatchConversation` with an id that is missing or is not an engine session, including a step, at start or mid-stream | `session not found` |
+| `unavailable` | `Sessions.ListHeadless` or `Sessions.WatchConversation` with the store file missing, the database busy, the file removed while it is read, or no store reader | `store unavailable` |
+| `unavailable` | `Sessions.WatchConversation` while serve shuts down | `serve is shutting down` |
+| `internal` | `Sessions.ListHeadless` with a read failure, or a row whose `changed` or `seen` is not unix seconds | `read headless sessions` |
+| `internal` | `Sessions.WatchConversation` with a read failure, or a stored value that does not decode | `read sessions` |
 | `internal` | a tmux failure, a store failure, a transcript read failure, a host name failure, or a failed seen report | `internal server error` |
 
 ## 13. Freeze
@@ -1284,6 +1406,8 @@ The picker run's failed-run rule changed in the same effort, and this is a chang
 orrery O1a (steps) added, additively: the `orreryd` flags `--step-cap` and `--gate-lock`, and the `step-worktrees` directory beside the store file; `--sessions` now also serves the step service; the `orrery.engine.v1.Steps` service on `sessions.sock`, its four calls and their Connect codes (see [Steps](#steps)); the `step` value of the `kind` column of `sessions`; the `steps` table (migration `00004_steps.sql`, see [Steps in the store](#steps-in-the-store)); the step end kinds `done`, `returned`, `checks_failed`, `failed`, `stopped` and `engine_restarted`; and the step rules of [Step lifecycle](#step-lifecycle). Step rows are not listed by the typed `List`; their `engine_*` events reach `orrery.v1.Events.Watch` as other engine events do. No existing name or value changes.
 
 orrery removed the REST routes of the phone API: `GET /v1/panes`, `POST /v1/panes`, `GET /v1/panes/{id}/screen`, `GET /v1/panes/{id}/conversation`, `GET /v1/host`, `POST /v1/panes/{id}/text`, `POST /v1/panes/{id}/keys`, `POST /v1/panes/{id}/seen`, `POST /v1/push/register`, `DELETE /v1/push/register`, `POST /v1/picker/ask` and `POST /v1/picker/run`. `POST /v1/panes`, which opened a window, is removed with them and has no replacement. Each other route is answered by the Connect call of [Phone API](#phone-api) that replaced it, and that section states the rules the route had. The guard's rule for non-Connect POST and DELETE paths went with the routes, so every path other than a Connect path answers 404 after the login check (see [Guard](#guard)). This is a removal, and it changes serve's HTTP surface. No Connect name or value changes.
+
+orrery H3b (conversation stream) added, additively: the `orrery.v1.Panes.WatchConversation` call, its messages `WatchConversationRequest`, `WatchConversationResponse` and `ConversationState`, and the `unfinished` field of `WatchConversationResponse`, which holds `EngineText` values that pane streams never set (see [Conversation stream](#conversation-stream)). The phone API now has twelve calls where it had eleven (see [Phone API](#phone-api)). The guard's Connect prefixes already covered the stream, so the guard is unchanged. No existing name or value changes.
 
 orrery desk notices (effort 1) added, additively: the desk stream on `notices.sock` beside the daemon socket, with its `hello`, `notice` and activity lines (see [Desk stream](#desk-stream)); the `orrery notices` and `orrery desk` commands and the `--sound` and `--host` flags of `desk` (see [orrery notices](#orrery-notices) and [orrery desk](#orrery-desk)); the desk presence of the stream; the pane notices and the session notices on the stream; and the `PATH` lookups of `ssh`, `notify-send` and `pw-play` by `desk`. No existing name or value changes, except the removal below.
 

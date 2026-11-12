@@ -94,7 +94,7 @@ func (f *fixture) attach(cols, rows int) string {
 	}
 	command := fmt.Sprintf("stty cols %d rows %d; tmux -S %s attach -t base", cols, rows, socket)
 	cmd := exec.CommandContext(f.t.Context(), "script", "-qfc", command, "/dev/null")
-	cmd.Env = withoutEnv(os.Environ(), "TMUX")
+	cmd.Env = append(withoutEnv(os.Environ(), "TMUX"), "TERM=xterm-256color")
 	cmd.Stdout = io.Discard
 	cmd.Stderr = io.Discard
 	stdin, err := cmd.StdinPipe()

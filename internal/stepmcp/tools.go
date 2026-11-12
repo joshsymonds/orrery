@@ -33,7 +33,9 @@ const (
 		`"readOnly":{"type":"boolean"},` +
 		`"ownedPaths":{"type":"array","items":{"type":"string"}},` +
 		`"gate":{"type":"array","items":{"type":"string"}},` +
-		`"gateLimitSeconds":{"type":"integer","minimum":0}` +
+		`"gateLimitSeconds":{"type":"integer","minimum":0},` +
+		`"epic":{"type":"string"},` +
+		`"task":{"type":"string"}` +
 		`},"required":["agent","prompt","workspace","schema"],"additionalProperties":false}`
 
 	idSchema = `{"type":"object","properties":{"id":{"type":"string"}},` +
@@ -91,6 +93,8 @@ type startArgs struct {
 	OwnedPaths       []string        `json:"ownedPaths"`
 	Gate             []string        `json:"gate"`
 	GateLimitSeconds uint32          `json:"gateLimitSeconds"`
+	Epic             string          `json:"epic"`
+	Task             string          `json:"task"`
 }
 
 type idArgs struct {
@@ -168,6 +172,8 @@ func startHandler(steps enginev1connect.StepsClient) mcp.ToolHandler {
 			Gate:             args.Gate,
 			GateLimitSeconds: args.GateLimitSeconds,
 			DoneValue:        args.DoneValue,
+			Epic:             args.Epic,
+			Task:             args.Task,
 		}))
 		if err != nil {
 			return toolFailure(err), nil

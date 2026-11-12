@@ -92,7 +92,7 @@ func newStepStartFixture(t *testing.T) *stepStartFixture {
 	startRun(t, writer)
 	sessions := &stepStartSessions{writer: writer}
 	worktrees := t.TempDir()
-	steps := NewSteps(StepsConfig{
+	steps, err := NewSteps(StepsConfig{
 		Sessions:  sessions,
 		Store:     s,
 		Writer:    writer,
@@ -101,6 +101,9 @@ func newStepStartFixture(t *testing.T) *stepStartFixture {
 		Environ:   []string{"PATH=" + os.Getenv("PATH")},
 		Logger:    slog.New(slog.DiscardHandler),
 	})
+	if err != nil {
+		t.Fatalf("NewSteps: %v", err)
+	}
 	t.Cleanup(func() {
 		steps.mu.Lock()
 		defer steps.mu.Unlock()
@@ -421,5 +424,25 @@ func TestStepsStartCanceledStartStepStillEndsFailedAndRemovesWorktree(t *testing
 	}
 	if wt := filepath.Join(f.worktrees, id); !stepStartGone(wt) {
 		t.Errorf("worktree %s still exists after the start's context ended", wt)
+	}
+}
+
+func TestNewStepsNegativeWatchTickReturnsErrorAndNoSteps(t *testing.T) {
+	steps, err := NewSteps(StepsConfig{WatchTick: -time.Second})
+	if !errors.Is(err, ErrBadWatchTick) {
+		t.Fatalf("NewSteps error = %v, want it to match %v", err, ErrBadWatchTick)
+	}
+	if steps != nil {
+		t.Errorf("NewSteps returned Steps with the error, want nil")
+	}
+}
+
+func TestNewStepsZeroWatchTickKeepsDefault(t *testing.T) {
+	steps, err := NewSteps(StepsConfig{})
+	if err != nil {
+		t.Fatalf("NewSteps: %v", err)
+	}
+	if steps.tick != stepDefaultWatchTick {
+		t.Errorf("tick = %v, want the default %v", steps.tick, stepDefaultWatchTick)
 	}
 }

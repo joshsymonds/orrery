@@ -8,15 +8,19 @@ import (
 	"github.com/joshsymonds/orrery/internal/gen/orrery/v1/orreryv1connect"
 )
 
-// phoneProcedures lists the Connect procedures of the phone services: Panes, Host, Push and Picker.
+// phoneProcedures lists the Connect procedures of the phone services: Sessions (including the WatchConversation
+// stream), Panes (including the WatchConversation stream), Host, Push and Picker.
 func phoneProcedures() []string {
 	return []string{
+		orreryv1connect.SessionsListHeadlessProcedure,
+		orreryv1connect.SessionsWatchConversationProcedure,
 		orreryv1connect.PanesListProcedure,
 		orreryv1connect.PanesScreenProcedure,
 		orreryv1connect.PanesConversationProcedure,
 		orreryv1connect.PanesSendTextProcedure,
 		orreryv1connect.PanesSendKeysProcedure,
 		orreryv1connect.PanesMarkSeenProcedure,
+		orreryv1connect.PanesWatchConversationProcedure,
 		orreryv1connect.HostStatusProcedure,
 		orreryv1connect.PushRegisterProcedure,
 		orreryv1connect.PushUnregisterProcedure,

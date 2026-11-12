@@ -35,7 +35,8 @@ type StepVerdict struct {
 	Action  string `json:"action"`
 }
 
-// StepAdd inserts a step row, started now. The row is never pruned.
+// StepAdd inserts a step row, started now. The row is never pruned. Epic and Task are optional labels; a step with
+// an empty Epic is never listed by LabelledSteps.
 type StepAdd struct {
 	ID         string
 	Agent      string
@@ -50,6 +51,8 @@ type StepAdd struct {
 	Gate       []string
 	GateLimit  time.Duration
 	ModelLimit time.Duration
+	Epic       string
+	Task       string
 }
 
 // StepWatch appends Verdict to a step's verdicts, stamped with the write time, and sets its doing line to Doing when
@@ -99,6 +102,8 @@ type StepRow struct {
 	End        string
 	Reason     string
 	Ended      time.Time
+	Epic       string
+	Task       string
 }
 
 func (op StepAdd) applyEngine(ctx context.Context, queries *sqlcgen.Queries, now time.Time) error {
@@ -114,7 +119,7 @@ func (op StepAdd) applyEngine(ctx context.Context, queries *sqlcgen.Queries, now
 		ID: op.ID, Agent: op.Agent, Prompt: op.Prompt, OutputSchema: op.Schema, Workspace: op.Workspace,
 		Revision: op.Revision, Worktree: op.Worktree, DoneValue: op.DoneValue, ReadOnly: op.ReadOnly,
 		Owned: string(owned), Gate: string(gate), GateLimit: int64(op.GateLimit),
-		ModelLimit: int64(op.ModelLimit), Started: now.Unix(),
+		ModelLimit: int64(op.ModelLimit), Started: now.Unix(), Epic: op.Epic, Task: op.Task,
 	}); err != nil {
 		return fmt.Errorf("insert step %s: %w", op.ID, err)
 	}
@@ -201,15 +206,17 @@ func (s *Store) OpenSteps(ctx context.Context) ([]StepRow, error) {
 	if err != nil {
 		return nil, fmt.Errorf("list open steps: %w", err)
 	}
-	out := make([]StepRow, 0, len(rows))
-	for _, row := range rows {
-		step, convErr := toStepRow(row)
-		if convErr != nil {
-			return nil, convErr
-		}
-		out = append(out, step)
+	return toStepRows(rows)
+}
+
+// LabelledSteps returns the step rows with a non-empty epic, narrowed to rows whose epic is epic when epic is not
+// empty and to rows whose task is task when task is not empty, ordered by start time then id.
+func (s *Store) LabelledSteps(ctx context.Context, epic, task string) ([]StepRow, error) {
+	rows, err := sqlcgen.New(s.db).ListLabelledSteps(ctx, sqlcgen.ListLabelledStepsParams{Epic: epic, Task: task})
+	if err != nil {
+		return nil, fmt.Errorf("list labeled steps: %w", err)
 	}
-	return out, nil
+	return toStepRows(rows)
 }
 
 // requireStep returns the step row with id, or an error matching ErrNoStep when there is none.
@@ -222,6 +229,18 @@ func requireStep(ctx context.Context, queries *sqlcgen.Queries, id string) (sqlc
 		return sqlcgen.Step{}, fmt.Errorf("read step %s: %w", id, err)
 	}
 	return row, nil
+}
+
+func toStepRows(rows []sqlcgen.Step) ([]StepRow, error) {
+	out := make([]StepRow, 0, len(rows))
+	for _, row := range rows {
+		step, err := toStepRow(row)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, step)
+	}
+	return out, nil
 }
 
 func toStepRow(row sqlcgen.Step) (StepRow, error) {
@@ -251,6 +270,7 @@ func toStepRow(row sqlcgen.Step) (StepRow, error) {
 		Owned: owned, Gate: gate, GateLimit: time.Duration(row.GateLimit), ModelLimit: time.Duration(row.ModelLimit),
 		Started: time.Unix(row.Started, 0), Checks: checks, Doing: row.Doing, Verdicts: verdicts,
 		Result: row.Result, Status: row.Status, End: row.EndValue, Reason: row.Reason, Ended: ended,
+		Epic: row.Epic, Task: row.Task,
 	}, nil
 }
 

@@ -113,7 +113,7 @@ func attach(t *testing.T, client *tmuxctl.Client, session string) string {
 	// script runs command through $SHELL; quoting the target keeps zsh from reading =name as a command lookup.
 	command := fmt.Sprintf("stty cols 80 rows 24; tmux -S %s attach -t '=%s'", strings.TrimSpace(socket), session)
 	cmd := exec.CommandContext(t.Context(), "script", "-qfc", command, "/dev/null")
-	cmd.Env = withoutEnv(os.Environ(), "TMUX")
+	cmd.Env = append(withoutEnv(os.Environ(), "TMUX"), "TERM=xterm-256color")
 	cmd.Stdout = io.Discard
 	cmd.Stderr = io.Discard
 	stdin, err := cmd.StdinPipe()

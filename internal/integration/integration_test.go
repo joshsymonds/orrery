@@ -408,7 +408,9 @@ func TestHookForwardsFrameSilently(t *testing.T) {
 		frames <- frame
 	}()
 
-	out := runOrrery(t, exampleHookJSON, []string{"TMUX_PANE=%7"}, "--socket", socket, "hook")
+	// A developer shell inside an orrery session exports ORRERY_SESSION, which makes the hook send nothing.
+	env := []string{"TMUX_PANE=%7", protocol.EnvSession + "="}
+	out := runOrrery(t, exampleHookJSON, env, "--socket", socket, "hook")
 	wantExit(t, out, 0)
 	if out.stdout != "" || out.stderr != "" {
 		t.Fatalf("hook printed stdout %q stderr %q, want nothing", out.stdout, out.stderr)
@@ -1444,7 +1446,7 @@ func waitForNewClient(t *testing.T, client *tmuxctl.Client, session string, know
 func startScript(t *testing.T, command string) {
 	t.Helper()
 	cmd := exec.CommandContext(t.Context(), "script", "-qfc", command, "/dev/null")
-	cmd.Env = scrubbedEnv()
+	cmd.Env = scrubbedEnv("TERM=xterm-256color")
 	cmd.Stdout = io.Discard
 	cmd.Stderr = io.Discard
 	stdin, err := cmd.StdinPipe()

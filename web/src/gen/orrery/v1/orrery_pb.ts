@@ -10,7 +10,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file orrery/v1/orrery.proto.
  */
 export const file_orrery_v1_orrery: GenFile = /*@__PURE__*/
-  fileDesc("ChZvcnJlcnkvdjEvb3JyZXJ5LnByb3RvEglvcnJlcnkudjEiDQoLTGlzdFJlcXVlc3QiQQoMTGlzdFJlc3BvbnNlEiQKCHNlc3Npb25zGAEgAygLMhIub3JyZXJ5LnYxLlNlc3Npb24SCwoDc2VxGAIgASgDIt4BCgdTZXNzaW9uEgoKAmlkGAEgASgJEg4KBnNlcnZlchgCIAEoCRIMCgRwYW5lGAMgASgJEg0KBXN0YXRlGAQgASgJEg8KB2NoYW5nZWQYBSABKAkSDAoEc2VlbhgGIAEoCRIQCghxdWVzdGlvbhgHIAEoCRIPCgdzdW1tYXJ5GAggASgJEg0KBWxhYmVsGAkgASgJEg8KB2NvbnRleHQYCiABKAkSDAoEdG9vbBgLIAEoCRIWCg5jbGF1ZGVfc2Vzc2lvbhgMIAEoCRISCgp0cmFuc2NyaXB0GA0gASgJIh0KDFdhdGNoUmVxdWVzdBINCgVhZnRlchgBIAEoAyKJBQoNV2F0Y2hSZXNwb25zZRILCgNzZXEYASABKAMSEgoKc2Vzc2lvbl9pZBgCIAEoCRIKCgJhdBgDIAEoAxIwCg1zZXNzaW9uX2FkZGVkGAQgASgLMhcub3JyZXJ5LnYxLlNlc3Npb25BZGRlZEgAEjQKD3Nlc3Npb25fY2hhbmdlZBgFIAEoCzIZLm9ycmVyeS52MS5TZXNzaW9uQ2hhbmdlZEgAEjQKD3Nlc3Npb25fcmVtb3ZlZBgGIAEoCzIZLm9ycmVyeS52MS5TZXNzaW9uUmVtb3ZlZEgAEi4KDGVuZ2luZV9hZGRlZBgHIAEoCzIWLm9ycmVyeS52MS5FbmdpbmVBZGRlZEgAEjIKDmVuZ2luZV9jaGFuZ2VkGAggASgLMhgub3JyZXJ5LnYxLkVuZ2luZUNoYW5nZWRIABIwCg1lbmdpbmVfcHJvbXB0GAkgASgLMhcub3JyZXJ5LnYxLkVuZ2luZVByb21wdEgAEi4KDGVuZ2luZV9ibG9jaxgKIAEoCzIWLm9ycmVyeS52MS5FbmdpbmVCbG9ja0gAEjIKDmVuZ2luZV9yZXF1ZXN0GAsgASgLMhgub3JyZXJ5LnYxLkVuZ2luZVJlcXVlc3RIABJDChdlbmdpbmVfcmVxdWVzdF9jYW5jZWxlZBgMIAEoCzIgLm9ycmVyeS52MS5FbmdpbmVSZXF1ZXN0Q2FuY2VsZWRIABI3ChFlbmdpbmVfdHVybl9lbmRlZBgNIAEoCzIaLm9ycmVyeS52MS5FbmdpbmVUdXJuRW5kZWRIABIsCgtlbmdpbmVfdGV4dBgOIAEoCzIVLm9ycmVyeS52MS5FbmdpbmVUZXh0SABCBwoFZXZlbnQiLAoMU2Vzc2lvbkFkZGVkEg4KBnNlcnZlchgBIAEoCRIMCgRwYW5lGAIgASgJIuYCCg5TZXNzaW9uQ2hhbmdlZBISCgVzdGF0ZRgBIAEoCUgAiAEBEhQKB2NoYW5nZWQYAiABKAlIAYgBARIRCgRzZWVuGAMgASgJSAKIAQESFQoIcXVlc3Rpb24YBCABKAlIA4gBARIUCgdzdW1tYXJ5GAUgASgJSASIAQESEgoFbGFiZWwYBiABKAlIBYgBARIUCgdjb250ZXh0GAcgASgJSAaIAQESEQoEdG9vbBgIIAEoCUgHiAEBEhsKDmNsYXVkZV9zZXNzaW9uGAkgASgJSAiIAQESFwoKdHJhbnNjcmlwdBgKIAEoCUgJiAEBQggKBl9zdGF0ZUIKCghfY2hhbmdlZEIHCgVfc2VlbkILCglfcXVlc3Rpb25CCgoIX3N1bW1hcnlCCAoGX2xhYmVsQgoKCF9jb250ZXh0QgcKBV90b29sQhEKD19jbGF1ZGVfc2Vzc2lvbkINCgtfdHJhbnNjcmlwdCIQCg5TZXNzaW9uUmVtb3ZlZCJGCgxTdGFydFJlcXVlc3QSCwoDZGlyGAEgASgJEg4KBnByb21wdBgCIAEoCRINCgVtb2RlbBgDIAEoCRIKCgJpZBgEIAEoCSIbCg1TdGFydFJlc3BvbnNlEgoKAmlkGAEgASgJIjkKClNheVJlcXVlc3QSCgoCaWQYASABKAkSDAoEdGV4dBgCIAEoCRIRCglwcm9tcHRfaWQYAyABKAkiDQoLU2F5UmVzcG9uc2UiPwoNQW5zd2VyUmVxdWVzdBIKCgJpZBgBIAEoCRISCgpyZXF1ZXN0X2lkGAIgASgJEg4KBmFuc3dlchgDIAEoCSIQCg5BbnN3ZXJSZXNwb25zZSIeChBJbnRlcnJ1cHRSZXF1ZXN0EgoKAmlkGAEgASgJIhMKEUludGVycnVwdFJlc3BvbnNlIhkKC1N0b3BSZXF1ZXN0EgoKAmlkGAEgASgJIg4KDFN0b3BSZXNwb25zZSIZCgtTZWVuUmVxdWVzdBIKCgJpZBgBIAEoCSIOCgxTZWVuUmVzcG9uc2UiKQoLRW5naW5lQWRkZWQSCwoDZGlyGAEgASgJEg0KBXN0YXRlGAIgASgJIt8BCg1FbmdpbmVDaGFuZ2VkEhIKBXN0YXRlGAEgASgJSACIAQESFAoHY2hhbmdlZBgCIAEoCUgBiAEBEhEKBHNlZW4YAyABKAlIAogBARIVCghxdWVzdGlvbhgEIAEoCUgDiAEBEhsKDmNsYXVkZV9zZXNzaW9uGAUgASgJSASIAQESEwoGcmVhc29uGAYgASgJSAWIAQFCCAoGX3N0YXRlQgoKCF9jaGFuZ2VkQgcKBV9zZWVuQgsKCV9xdWVzdGlvbkIRCg9fY2xhdWRlX3Nlc3Npb25CCQoHX3JlYXNvbiIvCgxFbmdpbmVQcm9tcHQSDAoEdGV4dBgBIAEoCRIRCglwcm9tcHRfaWQYAiABKAkizwEKC0VuZ2luZUJsb2NrEgwKBGtpbmQYASABKAkSDAoEcm9sZRgCIAEoCRISCgptZXNzYWdlX2lkGAMgASgJEhoKEnBhcmVudF90b29sX3VzZV9pZBgEIAEoCRIMCgR0ZXh0GAUgASgJEhMKC3Rvb2xfdXNlX2lkGAYgASgJEgwKBG5hbWUYByABKAkSDQoFaW5wdXQYCCABKAkSDwoHY29udGVudBgJIAEoCRIQCghpc19lcnJvchgKIAEoCBIRCgl0cnVuY2F0ZWQYCyABKAgiigEKDUVuZ2luZVJlcXVlc3QSDAoEa2luZBgBIAEoCRISCgpyZXF1ZXN0X2lkGAIgASgJEhMKC3Rvb2xfdXNlX2lkGAMgASgJEhEKCXRvb2xfbmFtZRgEIAEoCRIPCgdzdWJ0eXBlGAUgASgJEg0KBWlucHV0GAYgASgJEg8KB3JlZnVzZWQYByABKAgiQAoVRW5naW5lUmVxdWVzdENhbmNlbGVkEhIKCnJlcXVlc3RfaWQYASABKAkSEwoLdG9vbF91c2VfaWQYAiABKAkibQoPRW5naW5lVHVybkVuZGVkEg8KB3N1YnR5cGUYASABKAkSEAoIaXNfZXJyb3IYAiABKAgSFwoPdGVybWluYWxfcmVhc29uGAMgASgJEg4KBnJlc3VsdBgEIAEoCRIOCgZvcmlnaW4YBSABKAkiZwoKRW5naW5lVGV4dBISCgptZXNzYWdlX2lkGAEgASgJEg0KBWluZGV4GAIgASgFEhoKEnBhcmVudF90b29sX3VzZV9pZBgDIAEoCRIMCgRraW5kGAQgASgJEgwKBHRleHQYBSABKAkiEgoQUGFuZXNMaXN0UmVxdWVzdCIzChFQYW5lc0xpc3RSZXNwb25zZRIeCgVwYW5lcxgBIAMoCzIPLm9ycmVyeS52MS5QYW5lIsMCCgRQYW5lEgoKAmlkGAEgASgJEgwKBGhvc3QYAiABKAkSDwoHc2Vzc2lvbhgDIAEoCRIOCgZ3aW5kb3cYBCABKAUSDAoEcGFuZRgFIAEoBRILCgNjd2QYBiABKAkSDwoHY29tbWFuZBgHIAEoCRINCgVzdGF0ZRgIIAEoCRIPCgdzdW1tYXJ5GAkgASgJEg0KBWxhYmVsGAogASgJEg8KB2NoYW5nZWQYCyABKAMSDAoEc2VlbhgMIAEoAxIQCghxdWVzdGlvbhgNIAEoCRIPCgdjb250ZXh0GA4gASgJEhAKCGFjdGl2aXR5GA8gASgDEgwKBHRvb2wYECABKAkSFgoOY2xhdWRlX3Nlc3Npb24YESABKAkSFQoNcXVlc3Rpb25faGFzaBgSIAEoCRIUCgxuZXdlc3RfcmVwbHkYEyABKAMiPAoNU2NyZWVuUmVxdWVzdBIMCgRwYW5lGAEgASgJEgwKBGFuc2kYAiABKAgSDwoHaGlzdG9yeRgDIAEoDSIgCg5TY3JlZW5SZXNwb25zZRIOCgZzY3JlZW4YASABKAwiMgoTQ29udmVyc2F0aW9uUmVxdWVzdBIMCgRwYW5lGAEgASgJEg0KBWxpbWl0GAIgASgNIr0BChRDb252ZXJzYXRpb25SZXNwb25zZRIOCgZvcmlnaW4YASABKAkSKgoFaXRlbXMYAiADKAsyGy5vcnJlcnkudjEuQ29udmVyc2F0aW9uSXRlbRIMCgRnb2FsGAMgASgJEioKB3dhaXRpbmcYBCADKAsyGS5vcnJlcnkudjEuV2FpdGluZ01lc3NhZ2USLwoHY29udGV4dBgFIAEoCzIeLm9ycmVyeS52MS5Db252ZXJzYXRpb25Db250ZXh0IqUBChBDb252ZXJzYXRpb25JdGVtEgwKBGtpbmQYASABKAkSDAoEdGltZRgCIAEoAxIMCgR0ZXh0GAMgASgJEgwKBHRvb2wYBCABKAkSDQoFaW5wdXQYBSABKAkSCgoCaWQYBiABKAkSDQoFZXJyb3IYByABKAgSDgoGbm90aWNlGAggASgJEg8KB3RyaWdnZXIYCSABKAkSDgoGdG9rZW5zGAogASgDIjUKE0NvbnZlcnNhdGlvbkNvbnRleHQSDgoGdG9rZW5zGAEgASgDEg4KBndpbmRvdxgCIAEoAyI+Cg5XYWl0aW5nTWVzc2FnZRIMCgR0ZXh0GAEgASgJEgwKBHRpbWUYAiABKAMSEAoIY2FuY2VsZWQYAyABKAgiLQoPU2VuZFRleHRSZXF1ZXN0EgwKBHBhbmUYASABKAkSDAoEdGV4dBgCIAEoCSISChBTZW5kVGV4dFJlc3BvbnNlIl8KD1NlbmRLZXlzUmVxdWVzdBIMCgRwYW5lGAEgASgJEgwKBGtleXMYAiADKAkSHAoPZXhwZWN0X3F1ZXN0aW9uGAMgASgJSACIAQFCEgoQX2V4cGVjdF9xdWVzdGlvbiISChBTZW5kS2V5c1Jlc3BvbnNlIkcKD01hcmtTZWVuUmVxdWVzdBIMCgRwYW5lGAEgASgJEhcKCnJlYWRfdXBfdG8YAiABKANIAIgBAUINCgtfcmVhZF91cF90byISChBNYXJrU2VlblJlc3BvbnNlIhMKEUhvc3RTdGF0dXNSZXF1ZXN0IkYKEkhvc3RTdGF0dXNSZXNwb25zZRIMCgRob3N0GAEgASgJEiIKBXN0YXRzGAIgAygLMhMub3JyZXJ5LnYxLkhvc3RTdGF0IlkKCEhvc3RTdGF0Eg0KBWxhYmVsGAEgASgJEg0KBXZhbHVlGAIgASgJEhQKB3BlcmNlbnQYAyABKAFIAIgBARINCgVsZXZlbBgEIAEoCUIKCghfcGVyY2VudCJBCg9SZWdpc3RlclJlcXVlc3QSEAoIZW5kcG9pbnQYASABKAkSDgoGcDI1NmRoGAIgASgJEgwKBGF1dGgYAyABKAkiEgoQUmVnaXN0ZXJSZXNwb25zZSIlChFVbnJlZ2lzdGVyUmVxdWVzdBIQCghlbmRwb2ludBgBIAEoCSIUChJVbnJlZ2lzdGVyUmVzcG9uc2UiGgoKQXNrUmVxdWVzdBIMCgR0ZXh0GAEgASgJIjEKC0Fza1Jlc3BvbnNlEiIKBHJvd3MYASADKAsyFC5vcnJlcnkudjEuUGlja2VyUm93InAKCVBpY2tlclJvdxINCgV0b2tlbhgBIAEoCRIMCgRraW5kGAIgASgJEgsKA2RpchgDIAEoCRIMCgRwYW5lGAQgASgJEg0KBWxhYmVsGAUgASgJEgwKBG5vdGUYBiABKAkSDgoGcHJvbXB0GAcgASgIIhsKClJ1blJlcXVlc3QSDQoFdG9rZW4YASABKAkiGwoLUnVuUmVzcG9uc2USDAoEcGFuZRgBIAEoCTJDCghTZXNzaW9ucxI3CgRMaXN0EhYub3JyZXJ5LnYxLkxpc3RSZXF1ZXN0Ghcub3JyZXJ5LnYxLkxpc3RSZXNwb25zZTJGCgZFdmVudHMSPAoFV2F0Y2gSFy5vcnJlcnkudjEuV2F0Y2hSZXF1ZXN0Ghgub3JyZXJ5LnYxLldhdGNoUmVzcG9uc2UwATL0AgoHQ29udHJvbBI6CgVTdGFydBIXLm9ycmVyeS52MS5TdGFydFJlcXVlc3QaGC5vcnJlcnkudjEuU3RhcnRSZXNwb25zZRI0CgNTYXkSFS5vcnJlcnkudjEuU2F5UmVxdWVzdBoWLm9ycmVyeS52MS5TYXlSZXNwb25zZRI9CgZBbnN3ZXISGC5vcnJlcnkudjEuQW5zd2VyUmVxdWVzdBoZLm9ycmVyeS52MS5BbnN3ZXJSZXNwb25zZRJGCglJbnRlcnJ1cHQSGy5vcnJlcnkudjEuSW50ZXJydXB0UmVxdWVzdBocLm9ycmVyeS52MS5JbnRlcnJ1cHRSZXNwb25zZRI3CgRTdG9wEhYub3JyZXJ5LnYxLlN0b3BSZXF1ZXN0Ghcub3JyZXJ5LnYxLlN0b3BSZXNwb25zZRI3CgRTZWVuEhYub3JyZXJ5LnYxLlNlZW5SZXF1ZXN0Ghcub3JyZXJ5LnYxLlNlZW5SZXNwb25zZTKpAwoFUGFuZXMSQQoETGlzdBIbLm9ycmVyeS52MS5QYW5lc0xpc3RSZXF1ZXN0Ghwub3JyZXJ5LnYxLlBhbmVzTGlzdFJlc3BvbnNlEj0KBlNjcmVlbhIYLm9ycmVyeS52MS5TY3JlZW5SZXF1ZXN0Ghkub3JyZXJ5LnYxLlNjcmVlblJlc3BvbnNlEk8KDENvbnZlcnNhdGlvbhIeLm9ycmVyeS52MS5Db252ZXJzYXRpb25SZXF1ZXN0Gh8ub3JyZXJ5LnYxLkNvbnZlcnNhdGlvblJlc3BvbnNlEkMKCFNlbmRUZXh0Ehoub3JyZXJ5LnYxLlNlbmRUZXh0UmVxdWVzdBobLm9ycmVyeS52MS5TZW5kVGV4dFJlc3BvbnNlEkMKCFNlbmRLZXlzEhoub3JyZXJ5LnYxLlNlbmRLZXlzUmVxdWVzdBobLm9ycmVyeS52MS5TZW5kS2V5c1Jlc3BvbnNlEkMKCE1hcmtTZWVuEhoub3JyZXJ5LnYxLk1hcmtTZWVuUmVxdWVzdBobLm9ycmVyeS52MS5NYXJrU2VlblJlc3BvbnNlMk0KBEhvc3QSRQoGU3RhdHVzEhwub3JyZXJ5LnYxLkhvc3RTdGF0dXNSZXF1ZXN0Gh0ub3JyZXJ5LnYxLkhvc3RTdGF0dXNSZXNwb25zZTKWAQoEUHVzaBJDCghSZWdpc3RlchIaLm9ycmVyeS52MS5SZWdpc3RlclJlcXVlc3QaGy5vcnJlcnkudjEuUmVnaXN0ZXJSZXNwb25zZRJJCgpVbnJlZ2lzdGVyEhwub3JyZXJ5LnYxLlVucmVnaXN0ZXJSZXF1ZXN0Gh0ub3JyZXJ5LnYxLlVucmVnaXN0ZXJSZXNwb25zZTJ0CgZQaWNrZXISNAoDQXNrEhUub3JyZXJ5LnYxLkFza1JlcXVlc3QaFi5vcnJlcnkudjEuQXNrUmVzcG9uc2USNAoDUnVuEhUub3JyZXJ5LnYxLlJ1blJlcXVlc3QaFi5vcnJlcnkudjEuUnVuUmVzcG9uc2ViBnByb3RvMw");
+  fileDesc("ChZvcnJlcnkvdjEvb3JyZXJ5LnByb3RvEglvcnJlcnkudjEiDQoLTGlzdFJlcXVlc3QiQQoMTGlzdFJlc3BvbnNlEiQKCHNlc3Npb25zGAEgAygLMhIub3JyZXJ5LnYxLlNlc3Npb24SCwoDc2VxGAIgASgDIt4BCgdTZXNzaW9uEgoKAmlkGAEgASgJEg4KBnNlcnZlchgCIAEoCRIMCgRwYW5lGAMgASgJEg0KBXN0YXRlGAQgASgJEg8KB2NoYW5nZWQYBSABKAkSDAoEc2VlbhgGIAEoCRIQCghxdWVzdGlvbhgHIAEoCRIPCgdzdW1tYXJ5GAggASgJEg0KBWxhYmVsGAkgASgJEg8KB2NvbnRleHQYCiABKAkSDAoEdG9vbBgLIAEoCRIWCg5jbGF1ZGVfc2Vzc2lvbhgMIAEoCRISCgp0cmFuc2NyaXB0GA0gASgJIhUKE0xpc3RIZWFkbGVzc1JlcXVlc3QiRAoUTGlzdEhlYWRsZXNzUmVzcG9uc2USLAoIc2Vzc2lvbnMYASADKAsyGi5vcnJlcnkudjEuSGVhZGxlc3NTZXNzaW9uIqABCg9IZWFkbGVzc1Nlc3Npb24SCgoCaWQYASABKAkSCwoDZGlyGAIgASgJEg0KBWxhYmVsGAMgASgJEg0KBXN0YXRlGAQgASgJEg8KB2NoYW5nZWQYBSABKAMSDAoEc2VlbhgGIAEoAxIPCgdzdW1tYXJ5GAcgASgJEhAKCHF1ZXN0aW9uGAggASgJEhQKDG5ld2VzdF9yZXBseRgJIAEoAyJMCiBTZXNzaW9uc1dhdGNoQ29udmVyc2F0aW9uUmVxdWVzdBIKCgJpZBgBIAEoCRINCgVsaW1pdBgCIAEoDRINCgVhZnRlchgDIAEoAyLXAQohU2Vzc2lvbnNXYXRjaENvbnZlcnNhdGlvblJlc3BvbnNlEhIKCnRyYW5zY3JpcHQYASABKAkSCwoDc2VxGAIgASgDEg0KBXJlc2V0GAMgASgIEioKBWl0ZW1zGAQgAygLMhsub3JyZXJ5LnYxLkNvbnZlcnNhdGlvbkl0ZW0SKwoFc3RhdGUYBSABKAsyHC5vcnJlcnkudjEuQ29udmVyc2F0aW9uU3RhdGUSKQoKdW5maW5pc2hlZBgGIAMoCzIVLm9ycmVyeS52MS5FbmdpbmVUZXh0IkoKC09wZW5SZXF1ZXN0EgoKAmlkGAEgASgJEgwKBGtpbmQYAiABKAkSEAoIcXVlc3Rpb24YAyABKAkSDwoHb3B0aW9ucxgEIAMoCSIdCgxXYXRjaFJlcXVlc3QSDQoFYWZ0ZXIYASABKAMiiQUKDVdhdGNoUmVzcG9uc2USCwoDc2VxGAEgASgDEhIKCnNlc3Npb25faWQYAiABKAkSCgoCYXQYAyABKAMSMAoNc2Vzc2lvbl9hZGRlZBgEIAEoCzIXLm9ycmVyeS52MS5TZXNzaW9uQWRkZWRIABI0Cg9zZXNzaW9uX2NoYW5nZWQYBSABKAsyGS5vcnJlcnkudjEuU2Vzc2lvbkNoYW5nZWRIABI0Cg9zZXNzaW9uX3JlbW92ZWQYBiABKAsyGS5vcnJlcnkudjEuU2Vzc2lvblJlbW92ZWRIABIuCgxlbmdpbmVfYWRkZWQYByABKAsyFi5vcnJlcnkudjEuRW5naW5lQWRkZWRIABIyCg5lbmdpbmVfY2hhbmdlZBgIIAEoCzIYLm9ycmVyeS52MS5FbmdpbmVDaGFuZ2VkSAASMAoNZW5naW5lX3Byb21wdBgJIAEoCzIXLm9ycmVyeS52MS5FbmdpbmVQcm9tcHRIABIuCgxlbmdpbmVfYmxvY2sYCiABKAsyFi5vcnJlcnkudjEuRW5naW5lQmxvY2tIABIyCg5lbmdpbmVfcmVxdWVzdBgLIAEoCzIYLm9ycmVyeS52MS5FbmdpbmVSZXF1ZXN0SAASQwoXZW5naW5lX3JlcXVlc3RfY2FuY2VsZWQYDCABKAsyIC5vcnJlcnkudjEuRW5naW5lUmVxdWVzdENhbmNlbGVkSAASNwoRZW5naW5lX3R1cm5fZW5kZWQYDSABKAsyGi5vcnJlcnkudjEuRW5naW5lVHVybkVuZGVkSAASLAoLZW5naW5lX3RleHQYDiABKAsyFS5vcnJlcnkudjEuRW5naW5lVGV4dEgAQgcKBWV2ZW50IiwKDFNlc3Npb25BZGRlZBIOCgZzZXJ2ZXIYASABKAkSDAoEcGFuZRgCIAEoCSLmAgoOU2Vzc2lvbkNoYW5nZWQSEgoFc3RhdGUYASABKAlIAIgBARIUCgdjaGFuZ2VkGAIgASgJSAGIAQESEQoEc2VlbhgDIAEoCUgCiAEBEhUKCHF1ZXN0aW9uGAQgASgJSAOI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bW1hbmQYByABKAkSDQoFc3RhdGUYCCABKAkSDwoHc3VtbWFyeRgJIAEoCRINCgVsYWJlbBgKIAEoCRIPCgdjaGFuZ2VkGAsgASgDEgwKBHNlZW4YDCABKAMSEAoIcXVlc3Rpb24YDSABKAkSDwoHY29udGV4dBgOIAEoCRIQCghhY3Rpdml0eRgPIAEoAxIMCgR0b29sGBAgASgJEhYKDmNsYXVkZV9zZXNzaW9uGBEgASgJEhUKDXF1ZXN0aW9uX2hhc2gYEiABKAkSFAoMbmV3ZXN0X3JlcGx5GBMgASgDIjwKDVNjcmVlblJlcXVlc3QSDAoEcGFuZRgBIAEoCRIMCgRhbnNpGAIgASgIEg8KB2hpc3RvcnkYAyABKA0iIAoOU2NyZWVuUmVzcG9uc2USDgoGc2NyZWVuGAEgASgMIjIKE0NvbnZlcnNhdGlvblJlcXVlc3QSDAoEcGFuZRgBIAEoCRINCgVsaW1pdBgCIAEoDSK9AQoUQ29udmVyc2F0aW9uUmVzcG9uc2USDgoGb3JpZ2luGAEgASgJEioKBWl0ZW1zGAIgAygLMhsub3JyZXJ5LnYxLkNvbnZlcnNhdGlvbkl0ZW0SDAoEZ29hbBgDIAEoCRIqCgd3YWl0aW5nGAQgAygLMhkub3JyZXJ5LnYxLldhaXRpbmdNZXNzYWdlEi8KB2NvbnRleHQYBSABKAsyHi5vcnJlcnkudjEuQ29udmVyc2F0aW9uQ29udGV4dCKlAQoQQ29udmVyc2F0aW9uSXRlbRIMCgRraW5kGAEgASgJEgwKBHRpbWUYAiABKAMSDAoEdGV4dBgDIAEoCRIMCgR0b29sGAQgASgJEg0KBWlucHV0GAUgASgJEgoKAmlkGAYgASgJEg0KBWVycm9yGAcgASgIEg4KBm5vdGljZRgIIAEoCRIPCgd0cmlnZ2VyGAkgASgJEg4KBnRva2VucxgKIAEoAyI1ChNDb252ZXJzYXRpb25Db250ZXh0Eg4KBnRva2VucxgBIAEoAxIOCgZ3aW5kb3cYAiABKAMiPgoOV2FpdGluZ01lc3NhZ2USDAoEdGV4dBgBIAEoCRIMCgR0aW1lGAIgASgDEhAKCGNhbmNlbGVkGAMgASgIIloKGFdhdGNoQ29udmVyc2F0aW9uUmVxdWVzdBIMCgRwYW5lGAEgASgJEg0KBWxpbWl0GAIgASgNEhIKCnRyYW5zY3JpcHQYAyABKAkSDQoFYWZ0ZXIYBCABKAMizwEKGVdhdGNoQ29udmVyc2F0aW9uUmVzcG9uc2USEgoKdHJhbnNjcmlwdBgBIAEoCRILCgNzZXEYAiABKAMSDQoFcmVzZXQYAyABKAgSKgoFaXRlbXMYBCADKAsyGy5vcnJlcnkudjEuQ29udmVyc2F0aW9uSXRlbRIrCgVzdGF0ZRgFIAEoCzIcLm9ycmVyeS52MS5Db252ZXJzYXRpb25TdGF0ZRIpCgp1bmZpbmlzaGVkGAYgAygLMhUub3JyZXJ5LnYxLkVuZ2luZVRleHQigwIKEUNvbnZlcnNhdGlvblN0YXRlEg4KBm9yaWdpbhgBIAEoCRIMCgRnb2FsGAIgASgJEioKB3dhaXRpbmcYAyADKAsyGS5vcnJlcnkudjEuV2FpdGluZ01lc3NhZ2USLwoHY29udGV4dBgEIAEoCzIeLm9ycmVyeS52MS5Db252ZXJzYXRpb25Db250ZXh0Eh0KBHBhbmUYBSABKAsyDy5vcnJlcnkudjEuUGFuZRIrCgdzZXNzaW9uGAYgASgLMhoub3JyZXJ5LnYxLkhlYWRsZXNzU2Vzc2lvbhInCgdyZXF1ZXN0GAcgASgLMhYub3JyZXJ5LnYxLk9wZW5SZXF1ZXN0Ii0KD1NlbmRUZXh0UmVxdWVzdBIMCgRwYW5lGAEgASgJEgwKBHRleHQYAiABKAkiEgoQU2VuZFRleHRSZXNwb25zZSJfCg9TZW5kS2V5c1JlcXVlc3QSDAoEcGFuZRgBIAEoCRIMCgRrZXlzGAIgAygJEhwKD2V4cGVjdF9xdWVzdGlvbhgDIAEoCUgAiAEBQhIKEF9leHBlY3RfcXVlc3Rpb24iEgoQU2VuZEtleXNSZXNwb25zZSJHCg9NYXJrU2VlblJlcXVlc3QSDAoEcGFuZRgBIAEoCRIXCgpyZWFkX3VwX3RvGAIgASgDSACIAQFCDQoLX3JlYWRfdXBfdG8iEgoQTWFya1NlZW5SZXNwb25zZSITChFIb3N0U3RhdHVzUmVxdWVzdCJGChJIb3N0U3RhdHVzUmVzcG9uc2USDAoEaG9zdBgBIAEoCRIiCgVzdGF0cxgCIAMoCzITLm9ycmVyeS52MS5Ib3N0U3RhdCJZCghIb3N0U3RhdBINCgVsYWJlbBgBIAEoCRINCgV2YWx1ZRgCIAEoCRIUCgdwZXJjZW50GAMgASgBSACIAQESDQoFbGV2ZWwYBCABKAlCCgoIX3BlcmNlbnQiQQoPUmVnaXN0ZXJSZXF1ZXN0EhAKCGVuZHBvaW50GAEgASgJEg4KBnAyNTZkaBgCIAEoCRIMCgRhdXRoGAMgASgJIhIKEFJlZ2lzdGVyUmVzcG9uc2UiJQoRVW5yZWdpc3RlclJlcXVlc3QSEAoIZW5kcG9pbnQYASABKAkiFAoSVW5yZWdpc3RlclJlc3BvbnNlIhoKCkFza1JlcXVlc3QSDAoEdGV4dBgBIAEoCSIxCgtBc2tSZXNwb25zZRIiCgRyb3dzGAEgAygLMhQub3JyZXJ5LnYxLlBpY2tlclJvdyJwCglQaWNrZXJSb3cSDQoFdG9rZW4YASABKAkSDAoEa2luZBgCIAEoCRILCgNkaXIYAyABKAkSDAoEcGFuZRgEIAEoCRINCgVsYWJlbBgFIAEoCRIMCgRub3RlGAYgASgJEg4KBnByb21wdBgHIAEoCCIbCgpSdW5SZXF1ZXN0Eg0KBXRva2VuGAEgASgJIhsKC1J1blJlc3BvbnNlEgwKBHBhbmUYASABKAkyhgIKCFNlc3Npb25zEjcKBExpc3QSFi5vcnJlcnkudjEuTGlzdFJlcXVlc3QaFy5vcnJlcnkudjEuTGlzdFJlc3BvbnNlEk8KDExpc3RIZWFkbGVzcxIeLm9ycmVyeS52MS5MaXN0SGVhZGxlc3NSZXF1ZXN0Gh8ub3JyZXJ5LnYxLkxpc3RIZWFkbGVzc1Jlc3BvbnNlEnAKEVdhdGNoQ29udmVyc2F0aW9uEisub3JyZXJ5LnYxLlNlc3Npb25zV2F0Y2hDb252ZXJzYXRpb25SZXF1ZXN0Giwub3JyZXJ5LnYxLlNlc3Npb25zV2F0Y2hDb252ZXJzYXRpb25SZXNwb25zZTABMkYKBkV2ZW50cxI8CgVXYXRjaBIXLm9ycmVyeS52MS5XYXRjaFJlcXVlc3QaGC5vcnJlcnkudjEuV2F0Y2hSZXNwb25zZTABMvQCCgdDb250cm9sEjoKBVN0YXJ0Ehcub3JyZXJ5LnYxLlN0YXJ0UmVxdWVzdBoYLm9ycmVyeS52MS5TdGFydFJlc3BvbnNlEjQKA1NheRIVLm9ycmVyeS52MS5TYXlSZXF1ZXN0GhYub3JyZXJ5LnYxLlNheVJlc3BvbnNlEj0KBkFuc3dlchIYLm9ycmVyeS52MS5BbnN3ZXJSZXF1ZXN0Ghkub3JyZXJ5LnYxLkFuc3dlclJlc3BvbnNlEkYKCUludGVycnVwdBIbLm9ycmVyeS52MS5JbnRlcnJ1cHRSZXF1ZXN0Ghwub3JyZXJ5LnYxLkludGVycnVwdFJlc3BvbnNlEjcKBFN0b3ASFi5vcnJlcnkudjEuU3RvcFJlcXVlc3QaFy5vcnJlcnkudjEuU3RvcFJlc3BvbnNlEjcKBFNlZW4SFi5vcnJlcnkudjEuU2VlblJlcXVlc3QaFy5vcnJlcnkudjEuU2VlblJlc3BvbnNlMosECgVQYW5lcxJBCgRMaXN0Ehsub3JyZXJ5LnYxLlBhbmVzTGlzdFJlcXVlc3QaHC5vcnJlcnkudjEuUGFuZXNMaXN0UmVzcG9uc2USPQoGU2NyZWVuEhgub3JyZXJ5LnYxLlNjcmVlblJlcXVlc3QaGS5vcnJlcnkudjEuU2NyZWVuUmVzcG9uc2USTwoMQ29udmVyc2F0aW9uEh4ub3JyZXJ5LnYxLkNvbnZlcnNhdGlvblJlcXVlc3QaHy5vcnJlcnkudjEuQ29udmVyc2F0aW9uUmVzcG9uc2USQwoIU2VuZFRleHQSGi5vcnJlcnkudjEuU2VuZFRleHRSZXF1ZXN0Ghsub3JyZXJ5LnYxLlNlbmRUZXh0UmVzcG9uc2USQwoIU2VuZEtleXMSGi5vcnJlcnkudjEuU2VuZEtleXNSZXF1ZXN0Ghsub3JyZXJ5LnYxLlNlbmRLZXlzUmVzcG9uc2USQwoITWFya1NlZW4SGi5vcnJlcnkudjEuTWFya1NlZW5SZXF1ZXN0Ghsub3JyZXJ5LnYxLk1hcmtTZWVuUmVzcG9uc2USYAoRV2F0Y2hDb252ZXJzYXRpb24SIy5vcnJlcnkudjEuV2F0Y2hDb252ZXJzYXRpb25SZXF1ZXN0GiQub3JyZXJ5LnYxLldhdGNoQ29udmVyc2F0aW9uUmVzcG9uc2UwATJNCgRIb3N0EkUKBlN0YXR1cxIcLm9ycmVyeS52MS5Ib3N0U3RhdHVzUmVxdWVzdBodLm9ycmVyeS52MS5Ib3N0U3RhdHVzUmVzcG9uc2UylgEKBFB1c2gSQwoIUmVnaXN0ZXISGi5vcnJlcnkudjEuUmVnaXN0ZXJSZXF1ZXN0Ghsub3JyZXJ5LnYxLlJlZ2lzdGVyUmVzcG9uc2USSQoKVW5yZWdpc3RlchIcLm9ycmVyeS52MS5VbnJlZ2lzdGVyUmVxdWVzdBodLm9ycmVyeS52MS5VbnJlZ2lzdGVyUmVzcG9uc2UydAoGUGlja2VyEjQKA0FzaxIVLm9ycmVyeS52MS5Bc2tSZXF1ZXN0GhYub3JyZXJ5LnYxLkFza1Jlc3BvbnNlEjQKA1J1bhIVLm9ycmVyeS52MS5SdW5SZXF1ZXN0GhYub3JyZXJ5LnYxLlJ1blJlc3BvbnNlYgZwcm90bzM");
 
 /**
  * ListRequest asks for every tracked session. It has no fields.
@@ -161,6 +161,259 @@ export const SessionSchema: GenMessage<Session> = /*@__PURE__*/
   messageDesc(file_orrery_v1_orrery, 2);
 
 /**
+ * ListHeadlessRequest asks for the headless sessions of the last 14 days. It has no fields.
+ *
+ * @generated from message orrery.v1.ListHeadlessRequest
+ */
+export type ListHeadlessRequest = Message<"orrery.v1.ListHeadlessRequest"> & {
+};
+
+/**
+ * Describes the message orrery.v1.ListHeadlessRequest.
+ * Use `create(ListHeadlessRequestSchema)` to create a new message.
+ */
+export const ListHeadlessRequestSchema: GenMessage<ListHeadlessRequest> = /*@__PURE__*/
+  messageDesc(file_orrery_v1_orrery, 3);
+
+/**
+ * ListHeadlessResponse carries the headless sessions of the last 14 days.
+ *
+ * @generated from message orrery.v1.ListHeadlessResponse
+ */
+export type ListHeadlessResponse = Message<"orrery.v1.ListHeadlessResponse"> & {
+  /**
+   * The sessions, in id order.
+   *
+   * @generated from field: repeated orrery.v1.HeadlessSession sessions = 1;
+   */
+  sessions: HeadlessSession[];
+};
+
+/**
+ * Describes the message orrery.v1.ListHeadlessResponse.
+ * Use `create(ListHeadlessResponseSchema)` to create a new message.
+ */
+export const ListHeadlessResponseSchema: GenMessage<ListHeadlessResponse> = /*@__PURE__*/
+  messageDesc(file_orrery_v1_orrery, 4);
+
+/**
+ * HeadlessSession is one headless session as the phone lists it: a row of kind engine with an event in the last 14
+ * days, its label and summary derived when it is read.
+ *
+ * @generated from message orrery.v1.HeadlessSession
+ */
+export type HeadlessSession = Message<"orrery.v1.HeadlessSession"> & {
+  /**
+   * The session's id, 32 lowercase hex digits.
+   *
+   * @generated from field: string id = 1;
+   */
+  id: string;
+
+  /**
+   * The directory the session runs in.
+   *
+   * @generated from field: string dir = 2;
+   */
+  dir: string;
+
+  /**
+   * The row's label: the base name of dir, " · ", then the first 8 characters of the id.
+   *
+   * @generated from field: string label = 3;
+   */
+  label: string;
+
+  /**
+   * The session's state.
+   *
+   * @generated from field: string state = 4;
+   */
+  state: string;
+
+  /**
+   * The unix seconds of the last state change.
+   *
+   * @generated from field: int64 changed = 5;
+   */
+  changed: bigint;
+
+  /**
+   * The unix seconds of the last seen, or 0 when the session was never seen.
+   *
+   * @generated from field: int64 seen = 6;
+   */
+  seen: bigint;
+
+  /**
+   * The question while the state is waiting, else the reason of a failed or interrupted session, else the text of the
+   * newest main-conversation reply, cut to 300 runes. Unset in a ConversationState.
+   *
+   * @generated from field: string summary = 7;
+   */
+  summary: string;
+
+  /**
+   * The open question while the state is waiting, or the tool name of an open permission request.
+   *
+   * @generated from field: string question = 8;
+   */
+  question: string;
+
+  /**
+   * The unix seconds of the newest main-conversation reply or unrefused request, or 0 when it has none. Unset in a
+   * ConversationState.
+   *
+   * @generated from field: int64 newest_reply = 9;
+   */
+  newestReply: bigint;
+};
+
+/**
+ * Describes the message orrery.v1.HeadlessSession.
+ * Use `create(HeadlessSessionSchema)` to create a new message.
+ */
+export const HeadlessSessionSchema: GenMessage<HeadlessSession> = /*@__PURE__*/
+  messageDesc(file_orrery_v1_orrery, 5);
+
+/**
+ * SessionsWatchConversationRequest asks for the conversation of one headless session. limit follows
+ * ConversationRequest: 0 means the default, 30; 1 to 100 is that many; above 100 is invalid_argument.
+ *
+ * @generated from message orrery.v1.SessionsWatchConversationRequest
+ */
+export type SessionsWatchConversationRequest = Message<"orrery.v1.SessionsWatchConversationRequest"> & {
+  /**
+   * The session's id.
+   *
+   * @generated from field: string id = 1;
+   */
+  id: string;
+
+  /**
+   * The number of newest items a reset delta sends.
+   *
+   * @generated from field: uint32 limit = 2;
+   */
+  limit: number;
+
+  /**
+   * The seq the client holds: 0 asks for a reset, and any other value for the deltas after it.
+   *
+   * @generated from field: int64 after = 3;
+   */
+  after: bigint;
+};
+
+/**
+ * Describes the message orrery.v1.SessionsWatchConversationRequest.
+ * Use `create(SessionsWatchConversationRequestSchema)` to create a new message.
+ */
+export const SessionsWatchConversationRequestSchema: GenMessage<SessionsWatchConversationRequest> = /*@__PURE__*/
+  messageDesc(file_orrery_v1_orrery, 6);
+
+/**
+ * SessionsWatchConversationResponse is one step of a headless session's WatchConversation stream. It carries the
+ * fields of WatchConversationResponse, with the same numbers, types and meaning.
+ *
+ * @generated from message orrery.v1.SessionsWatchConversationResponse
+ */
+export type SessionsWatchConversationResponse = Message<"orrery.v1.SessionsWatchConversationResponse"> & {
+  /**
+   * The id of the headless session the delta belongs to.
+   *
+   * @generated from field: string transcript = 1;
+   */
+  transcript: string;
+
+  /**
+   * The seq of the newest session event the delta covers. A later SessionsWatchConversationRequest resumes after it.
+   *
+   * @generated from field: int64 seq = 2;
+   */
+  seq: bigint;
+
+  /**
+   * Whether the delta replaces what the client holds: the newest limit items and the whole state.
+   *
+   * @generated from field: bool reset = 3;
+   */
+  reset: boolean;
+
+  /**
+   * The new items, oldest first.
+   *
+   * @generated from field: repeated orrery.v1.ConversationItem items = 4;
+   */
+  items: ConversationItem[];
+
+  /**
+   * The state of the conversation. It is set on the first delta of a stream and when a state field changed, and
+   * unset otherwise.
+   *
+   * @generated from field: orrery.v1.ConversationState state = 5;
+   */
+  state?: ConversationState | undefined;
+
+  /**
+   * The whole main-conversation unfinished set: the text so far of each unfinished block. It is sent with every delta.
+   *
+   * @generated from field: repeated orrery.v1.EngineText unfinished = 6;
+   */
+  unfinished: EngineText[];
+};
+
+/**
+ * Describes the message orrery.v1.SessionsWatchConversationResponse.
+ * Use `create(SessionsWatchConversationResponseSchema)` to create a new message.
+ */
+export const SessionsWatchConversationResponseSchema: GenMessage<SessionsWatchConversationResponse> = /*@__PURE__*/
+  messageDesc(file_orrery_v1_orrery, 7);
+
+/**
+ * OpenRequest is the request a headless session waits on.
+ *
+ * @generated from message orrery.v1.OpenRequest
+ */
+export type OpenRequest = Message<"orrery.v1.OpenRequest"> & {
+  /**
+   * The request's id, which an Answer names.
+   *
+   * @generated from field: string id = 1;
+   */
+  id: string;
+
+  /**
+   * The request's kind: question or permission.
+   *
+   * @generated from field: string kind = 2;
+   */
+  kind: string;
+
+  /**
+   * The question's text, or the tool name of a permission request.
+   *
+   * @generated from field: string question = 3;
+   */
+  question: string;
+
+  /**
+   * The answers the phone may send: the option labels of a request with one question that is not multiSelect, allow
+   * and deny for a permission request, and none for any other shape, which the phone cannot answer.
+   *
+   * @generated from field: repeated string options = 4;
+   */
+  options: string[];
+};
+
+/**
+ * Describes the message orrery.v1.OpenRequest.
+ * Use `create(OpenRequestSchema)` to create a new message.
+ */
+export const OpenRequestSchema: GenMessage<OpenRequest> = /*@__PURE__*/
+  messageDesc(file_orrery_v1_orrery, 8);
+
+/**
  * WatchRequest asks for the events after a store position.
  *
  * @generated from message orrery.v1.WatchRequest
@@ -180,7 +433,7 @@ export type WatchRequest = Message<"orrery.v1.WatchRequest"> & {
  * Use `create(WatchRequestSchema)` to create a new message.
  */
 export const WatchRequestSchema: GenMessage<WatchRequest> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_orrery, 3);
+  messageDesc(file_orrery_v1_orrery, 9);
 
 /**
  * WatchResponse is one stored event, typed by its kind. Exactly one of the typed event messages is set.
@@ -310,7 +563,7 @@ export type WatchResponse = Message<"orrery.v1.WatchResponse"> & {
  * Use `create(WatchResponseSchema)` to create a new message.
  */
 export const WatchResponseSchema: GenMessage<WatchResponse> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_orrery, 4);
+  messageDesc(file_orrery_v1_orrery, 10);
 
 /**
  * SessionAdded carries the placement of a pane that started being tracked.
@@ -338,7 +591,7 @@ export type SessionAdded = Message<"orrery.v1.SessionAdded"> & {
  * Use `create(SessionAddedSchema)` to create a new message.
  */
 export const SessionAddedSchema: GenMessage<SessionAdded> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_orrery, 5);
+  messageDesc(file_orrery_v1_orrery, 11);
 
 /**
  * SessionChanged carries the options that changed on a tracked pane. Each field is set only when its option changed.
@@ -422,7 +675,7 @@ export type SessionChanged = Message<"orrery.v1.SessionChanged"> & {
  * Use `create(SessionChangedSchema)` to create a new message.
  */
 export const SessionChangedSchema: GenMessage<SessionChanged> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_orrery, 6);
+  messageDesc(file_orrery_v1_orrery, 12);
 
 /**
  * SessionRemoved records that a tracked pane stopped being tracked. It has no fields.
@@ -437,7 +690,7 @@ export type SessionRemoved = Message<"orrery.v1.SessionRemoved"> & {
  * Use `create(SessionRemovedSchema)` to create a new message.
  */
 export const SessionRemovedSchema: GenMessage<SessionRemoved> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_orrery, 7);
+  messageDesc(file_orrery_v1_orrery, 13);
 
 /**
  * StartRequest asks for a new headless session.
@@ -479,7 +732,7 @@ export type StartRequest = Message<"orrery.v1.StartRequest"> & {
  * Use `create(StartRequestSchema)` to create a new message.
  */
 export const StartRequestSchema: GenMessage<StartRequest> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_orrery, 8);
+  messageDesc(file_orrery_v1_orrery, 14);
 
 /**
  * StartResponse carries the id of the started session.
@@ -500,7 +753,7 @@ export type StartResponse = Message<"orrery.v1.StartResponse"> & {
  * Use `create(StartResponseSchema)` to create a new message.
  */
 export const StartResponseSchema: GenMessage<StartResponse> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_orrery, 9);
+  messageDesc(file_orrery_v1_orrery, 15);
 
 /**
  * SayRequest asks for a prompt to be sent to a headless session.
@@ -535,7 +788,7 @@ export type SayRequest = Message<"orrery.v1.SayRequest"> & {
  * Use `create(SayRequestSchema)` to create a new message.
  */
 export const SayRequestSchema: GenMessage<SayRequest> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_orrery, 10);
+  messageDesc(file_orrery_v1_orrery, 16);
 
 /**
  * SayResponse is the reply to a Say. It has no fields.
@@ -550,7 +803,7 @@ export type SayResponse = Message<"orrery.v1.SayResponse"> & {
  * Use `create(SayResponseSchema)` to create a new message.
  */
 export const SayResponseSchema: GenMessage<SayResponse> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_orrery, 11);
+  messageDesc(file_orrery_v1_orrery, 17);
 
 /**
  * AnswerRequest answers an open request of a headless session.
@@ -585,7 +838,7 @@ export type AnswerRequest = Message<"orrery.v1.AnswerRequest"> & {
  * Use `create(AnswerRequestSchema)` to create a new message.
  */
 export const AnswerRequestSchema: GenMessage<AnswerRequest> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_orrery, 12);
+  messageDesc(file_orrery_v1_orrery, 18);
 
 /**
  * AnswerResponse is the reply to an Answer. It has no fields.
@@ -600,7 +853,7 @@ export type AnswerResponse = Message<"orrery.v1.AnswerResponse"> & {
  * Use `create(AnswerResponseSchema)` to create a new message.
  */
 export const AnswerResponseSchema: GenMessage<AnswerResponse> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_orrery, 13);
+  messageDesc(file_orrery_v1_orrery, 19);
 
 /**
  * InterruptRequest asks a headless session to interrupt its running turn.
@@ -621,7 +874,7 @@ export type InterruptRequest = Message<"orrery.v1.InterruptRequest"> & {
  * Use `create(InterruptRequestSchema)` to create a new message.
  */
 export const InterruptRequestSchema: GenMessage<InterruptRequest> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_orrery, 14);
+  messageDesc(file_orrery_v1_orrery, 20);
 
 /**
  * InterruptResponse is the reply to an Interrupt. It has no fields.
@@ -636,7 +889,7 @@ export type InterruptResponse = Message<"orrery.v1.InterruptResponse"> & {
  * Use `create(InterruptResponseSchema)` to create a new message.
  */
 export const InterruptResponseSchema: GenMessage<InterruptResponse> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_orrery, 15);
+  messageDesc(file_orrery_v1_orrery, 21);
 
 /**
  * StopRequest asks for a headless session to be stopped.
@@ -657,7 +910,7 @@ export type StopRequest = Message<"orrery.v1.StopRequest"> & {
  * Use `create(StopRequestSchema)` to create a new message.
  */
 export const StopRequestSchema: GenMessage<StopRequest> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_orrery, 16);
+  messageDesc(file_orrery_v1_orrery, 22);
 
 /**
  * StopResponse is the reply to a Stop. It has no fields.
@@ -672,7 +925,7 @@ export type StopResponse = Message<"orrery.v1.StopResponse"> & {
  * Use `create(StopResponseSchema)` to create a new message.
  */
 export const StopResponseSchema: GenMessage<StopResponse> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_orrery, 17);
+  messageDesc(file_orrery_v1_orrery, 23);
 
 /**
  * SeenRequest records that the user has seen a headless session.
@@ -693,7 +946,7 @@ export type SeenRequest = Message<"orrery.v1.SeenRequest"> & {
  * Use `create(SeenRequestSchema)` to create a new message.
  */
 export const SeenRequestSchema: GenMessage<SeenRequest> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_orrery, 18);
+  messageDesc(file_orrery_v1_orrery, 24);
 
 /**
  * SeenResponse is the reply to a Seen. It has no fields.
@@ -708,7 +961,7 @@ export type SeenResponse = Message<"orrery.v1.SeenResponse"> & {
  * Use `create(SeenResponseSchema)` to create a new message.
  */
 export const SeenResponseSchema: GenMessage<SeenResponse> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_orrery, 19);
+  messageDesc(file_orrery_v1_orrery, 25);
 
 /**
  * EngineAdded carries the placement of a headless session row that was inserted.
@@ -736,7 +989,7 @@ export type EngineAdded = Message<"orrery.v1.EngineAdded"> & {
  * Use `create(EngineAddedSchema)` to create a new message.
  */
 export const EngineAddedSchema: GenMessage<EngineAdded> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_orrery, 20);
+  messageDesc(file_orrery_v1_orrery, 26);
 
 /**
  * EngineChanged carries the columns that changed on a headless session. Each field is set only when its column changed.
@@ -792,7 +1045,7 @@ export type EngineChanged = Message<"orrery.v1.EngineChanged"> & {
  * Use `create(EngineChangedSchema)` to create a new message.
  */
 export const EngineChangedSchema: GenMessage<EngineChanged> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_orrery, 21);
+  messageDesc(file_orrery_v1_orrery, 27);
 
 /**
  * EnginePrompt carries a prompt sent to a headless session.
@@ -820,7 +1073,7 @@ export type EnginePrompt = Message<"orrery.v1.EnginePrompt"> & {
  * Use `create(EnginePromptSchema)` to create a new message.
  */
 export const EnginePromptSchema: GenMessage<EnginePrompt> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_orrery, 22);
+  messageDesc(file_orrery_v1_orrery, 28);
 
 /**
  * EngineBlock carries one finished content block of a headless session.
@@ -911,7 +1164,7 @@ export type EngineBlock = Message<"orrery.v1.EngineBlock"> & {
  * Use `create(EngineBlockSchema)` to create a new message.
  */
 export const EngineBlockSchema: GenMessage<EngineBlock> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_orrery, 23);
+  messageDesc(file_orrery_v1_orrery, 29);
 
 /**
  * EngineRequest carries a request a headless session sent that the host must answer.
@@ -974,7 +1227,7 @@ export type EngineRequest = Message<"orrery.v1.EngineRequest"> & {
  * Use `create(EngineRequestSchema)` to create a new message.
  */
 export const EngineRequestSchema: GenMessage<EngineRequest> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_orrery, 24);
+  messageDesc(file_orrery_v1_orrery, 30);
 
 /**
  * EngineRequestCanceled records that a headless session withdrew a request.
@@ -1002,7 +1255,7 @@ export type EngineRequestCanceled = Message<"orrery.v1.EngineRequestCanceled"> &
  * Use `create(EngineRequestCanceledSchema)` to create a new message.
  */
 export const EngineRequestCanceledSchema: GenMessage<EngineRequestCanceled> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_orrery, 25);
+  messageDesc(file_orrery_v1_orrery, 31);
 
 /**
  * EngineTurnEnded carries the end of a turn of a headless session.
@@ -1051,7 +1304,7 @@ export type EngineTurnEnded = Message<"orrery.v1.EngineTurnEnded"> & {
  * Use `create(EngineTurnEndedSchema)` to create a new message.
  */
 export const EngineTurnEndedSchema: GenMessage<EngineTurnEnded> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_orrery, 26);
+  messageDesc(file_orrery_v1_orrery, 32);
 
 /**
  * EngineText is the text so far of one unfinished content block of a headless session. It is not a stored event: its
@@ -1101,7 +1354,7 @@ export type EngineText = Message<"orrery.v1.EngineText"> & {
  * Use `create(EngineTextSchema)` to create a new message.
  */
 export const EngineTextSchema: GenMessage<EngineText> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_orrery, 27);
+  messageDesc(file_orrery_v1_orrery, 33);
 
 /**
  * PanesListRequest asks for every tracked pane. It has no fields.
@@ -1116,7 +1369,7 @@ export type PanesListRequest = Message<"orrery.v1.PanesListRequest"> & {
  * Use `create(PanesListRequestSchema)` to create a new message.
  */
 export const PanesListRequestSchema: GenMessage<PanesListRequest> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_orrery, 28);
+  messageDesc(file_orrery_v1_orrery, 34);
 
 /**
  * PanesListResponse carries every tracked pane.
@@ -1137,7 +1390,7 @@ export type PanesListResponse = Message<"orrery.v1.PanesListResponse"> & {
  * Use `create(PanesListResponseSchema)` to create a new message.
  */
 export const PanesListResponseSchema: GenMessage<PanesListResponse> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_orrery, 29);
+  messageDesc(file_orrery_v1_orrery, 35);
 
 /**
  * Pane is one tracked pane: the seventeen keys of `orrery list --json` (docs/contract.md section 3), then
@@ -1285,7 +1538,7 @@ export type Pane = Message<"orrery.v1.Pane"> & {
  * Use `create(PaneSchema)` to create a new message.
  */
 export const PaneSchema: GenMessage<Pane> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_orrery, 30);
+  messageDesc(file_orrery_v1_orrery, 36);
 
 /**
  * ScreenRequest asks for the text of one pane. ansi false gives plain text, and true keeps the color escape
@@ -1322,7 +1575,7 @@ export type ScreenRequest = Message<"orrery.v1.ScreenRequest"> & {
  * Use `create(ScreenRequestSchema)` to create a new message.
  */
 export const ScreenRequestSchema: GenMessage<ScreenRequest> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_orrery, 31);
+  messageDesc(file_orrery_v1_orrery, 37);
 
 /**
  * ScreenResponse carries the text of one pane.
@@ -1343,7 +1596,7 @@ export type ScreenResponse = Message<"orrery.v1.ScreenResponse"> & {
  * Use `create(ScreenResponseSchema)` to create a new message.
  */
 export const ScreenResponseSchema: GenMessage<ScreenResponse> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_orrery, 32);
+  messageDesc(file_orrery_v1_orrery, 38);
 
 /**
  * ConversationRequest asks for the newest items of one pane's conversation. limit 0 means the default, 30;
@@ -1372,7 +1625,7 @@ export type ConversationRequest = Message<"orrery.v1.ConversationRequest"> & {
  * Use `create(ConversationRequestSchema)` to create a new message.
  */
 export const ConversationRequestSchema: GenMessage<ConversationRequest> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_orrery, 33);
+  messageDesc(file_orrery_v1_orrery, 39);
 
 /**
  * ConversationResponse carries the conversation of one pane's Claude transcript.
@@ -1421,7 +1674,7 @@ export type ConversationResponse = Message<"orrery.v1.ConversationResponse"> & {
  * Use `create(ConversationResponseSchema)` to create a new message.
  */
 export const ConversationResponseSchema: GenMessage<ConversationResponse> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_orrery, 34);
+  messageDesc(file_orrery_v1_orrery, 40);
 
 /**
  * ConversationItem is one item of a conversation.
@@ -1505,7 +1758,7 @@ export type ConversationItem = Message<"orrery.v1.ConversationItem"> & {
  * Use `create(ConversationItemSchema)` to create a new message.
  */
 export const ConversationItemSchema: GenMessage<ConversationItem> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_orrery, 35);
+  messageDesc(file_orrery_v1_orrery, 41);
 
 /**
  * ConversationContext is the context figure of a conversation: its tokens out of the window they are measured
@@ -1534,7 +1787,7 @@ export type ConversationContext = Message<"orrery.v1.ConversationContext"> & {
  * Use `create(ConversationContextSchema)` to create a new message.
  */
 export const ConversationContextSchema: GenMessage<ConversationContext> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_orrery, 36);
+  messageDesc(file_orrery_v1_orrery, 42);
 
 /**
  * WaitingMessage is a message waiting to be sent to a conversation.
@@ -1569,7 +1822,172 @@ export type WaitingMessage = Message<"orrery.v1.WaitingMessage"> & {
  * Use `create(WaitingMessageSchema)` to create a new message.
  */
 export const WaitingMessageSchema: GenMessage<WaitingMessage> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_orrery, 37);
+  messageDesc(file_orrery_v1_orrery, 43);
+
+/**
+ * WatchConversationRequest asks for the conversation of one pane, streamed from the newest items the client holds.
+ * limit follows ConversationRequest: 0 means the default, 30; 1 to 100 is that many; above 100 is invalid_argument.
+ *
+ * @generated from message orrery.v1.WatchConversationRequest
+ */
+export type WatchConversationRequest = Message<"orrery.v1.WatchConversationRequest"> & {
+  /**
+   * The pane's id, % followed by digits.
+   *
+   * @generated from field: string pane = 1;
+   */
+  pane: string;
+
+  /**
+   * The number of newest items a reset delta sends.
+   *
+   * @generated from field: uint32 limit = 2;
+   */
+  limit: number;
+
+  /**
+   * The id of the transcript the client holds, or empty when it holds none.
+   *
+   * @generated from field: string transcript = 3;
+   */
+  transcript: string;
+
+  /**
+   * The seq the client holds for that transcript: the stream answers with the deltas after it.
+   *
+   * @generated from field: int64 after = 4;
+   */
+  after: bigint;
+};
+
+/**
+ * Describes the message orrery.v1.WatchConversationRequest.
+ * Use `create(WatchConversationRequestSchema)` to create a new message.
+ */
+export const WatchConversationRequestSchema: GenMessage<WatchConversationRequest> = /*@__PURE__*/
+  messageDesc(file_orrery_v1_orrery, 44);
+
+/**
+ * WatchConversationResponse is one step of a WatchConversation stream. A delta with only transcript and seq set is a
+ * keepalive.
+ *
+ * @generated from message orrery.v1.WatchConversationResponse
+ */
+export type WatchConversationResponse = Message<"orrery.v1.WatchConversationResponse"> & {
+  /**
+   * The id of the transcript the delta belongs to.
+   *
+   * @generated from field: string transcript = 1;
+   */
+  transcript: string;
+
+  /**
+   * The position just past what this delta covers. A later WatchConversationRequest resumes after it.
+   *
+   * @generated from field: int64 seq = 2;
+   */
+  seq: bigint;
+
+  /**
+   * Whether the delta replaces what the client holds: the newest limit items and the whole state.
+   *
+   * @generated from field: bool reset = 3;
+   */
+  reset: boolean;
+
+  /**
+   * The new items, oldest first.
+   *
+   * @generated from field: repeated orrery.v1.ConversationItem items = 4;
+   */
+  items: ConversationItem[];
+
+  /**
+   * The state of the conversation. It is set on the first delta of a stream and when a state field changed, and
+   * unset otherwise.
+   *
+   * @generated from field: orrery.v1.ConversationState state = 5;
+   */
+  state?: ConversationState | undefined;
+
+  /**
+   * The text so far of each unfinished block. Pane streams never set it.
+   *
+   * @generated from field: repeated orrery.v1.EngineText unfinished = 6;
+   */
+  unfinished: EngineText[];
+};
+
+/**
+ * Describes the message orrery.v1.WatchConversationResponse.
+ * Use `create(WatchConversationResponseSchema)` to create a new message.
+ */
+export const WatchConversationResponseSchema: GenMessage<WatchConversationResponse> = /*@__PURE__*/
+  messageDesc(file_orrery_v1_orrery, 45);
+
+/**
+ * ConversationState is the state of a conversation that a WatchConversationResponse carries.
+ *
+ * @generated from message orrery.v1.ConversationState
+ */
+export type ConversationState = Message<"orrery.v1.ConversationState"> & {
+  /**
+   * The text of the transcript's first prompt, cut to 300 runes, or empty when there is none.
+   *
+   * @generated from field: string origin = 1;
+   */
+  origin: string;
+
+  /**
+   * The active goal of the conversation.
+   *
+   * @generated from field: string goal = 2;
+   */
+  goal: string;
+
+  /**
+   * The messages waiting to be sent to the conversation.
+   *
+   * @generated from field: repeated orrery.v1.WaitingMessage waiting = 3;
+   */
+  waiting: WaitingMessage[];
+
+  /**
+   * The context figure of the conversation: its tokens out of its window.
+   *
+   * @generated from field: orrery.v1.ConversationContext context = 4;
+   */
+  context?: ConversationContext | undefined;
+
+  /**
+   * The pane as Panes.List gives it.
+   *
+   * @generated from field: orrery.v1.Pane pane = 5;
+   */
+  pane?: Pane | undefined;
+
+  /**
+   * The headless session as Sessions.ListHeadless gives it, without summary and newest_reply. Pane streams never set
+   * it.
+   *
+   * @generated from field: orrery.v1.HeadlessSession session = 6;
+   */
+  session?: HeadlessSession | undefined;
+
+  /**
+   * The request the headless session waits on, unset when none is open. Pane streams never set it.
+   *
+   * @generated from field: orrery.v1.OpenRequest request = 7;
+   */
+  request?: OpenRequest | undefined;
+};
+
+/**
+ * Describes the message orrery.v1.ConversationState.
+ * Use `create(ConversationStateSchema)` to create a new message.
+ */
+export const ConversationStateSchema: GenMessage<ConversationState> = /*@__PURE__*/
+  messageDesc(file_orrery_v1_orrery, 46);
 
 /**
  * SendTextRequest asks for text to be sent to one pane.
@@ -1597,7 +2015,7 @@ export type SendTextRequest = Message<"orrery.v1.SendTextRequest"> & {
  * Use `create(SendTextRequestSchema)` to create a new message.
  */
 export const SendTextRequestSchema: GenMessage<SendTextRequest> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_orrery, 38);
+  messageDesc(file_orrery_v1_orrery, 47);
 
 /**
  * SendTextResponse is the reply to a SendText. It has no fields.
@@ -1612,7 +2030,7 @@ export type SendTextResponse = Message<"orrery.v1.SendTextResponse"> & {
  * Use `create(SendTextResponseSchema)` to create a new message.
  */
 export const SendTextResponseSchema: GenMessage<SendTextResponse> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_orrery, 39);
+  messageDesc(file_orrery_v1_orrery, 48);
 
 /**
  * SendKeysRequest asks for keys to be sent to one pane. When expect_question is present, the keys are sent only
@@ -1648,7 +2066,7 @@ export type SendKeysRequest = Message<"orrery.v1.SendKeysRequest"> & {
  * Use `create(SendKeysRequestSchema)` to create a new message.
  */
 export const SendKeysRequestSchema: GenMessage<SendKeysRequest> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_orrery, 40);
+  messageDesc(file_orrery_v1_orrery, 49);
 
 /**
  * SendKeysResponse is the reply to a SendKeys. It has no fields.
@@ -1663,7 +2081,7 @@ export type SendKeysResponse = Message<"orrery.v1.SendKeysResponse"> & {
  * Use `create(SendKeysResponseSchema)` to create a new message.
  */
 export const SendKeysResponseSchema: GenMessage<SendKeysResponse> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_orrery, 41);
+  messageDesc(file_orrery_v1_orrery, 50);
 
 /**
  * MarkSeenRequest asks for one pane to be marked seen. read_up_to absent means now; present must be 0 or more, else
@@ -1692,7 +2110,7 @@ export type MarkSeenRequest = Message<"orrery.v1.MarkSeenRequest"> & {
  * Use `create(MarkSeenRequestSchema)` to create a new message.
  */
 export const MarkSeenRequestSchema: GenMessage<MarkSeenRequest> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_orrery, 42);
+  messageDesc(file_orrery_v1_orrery, 51);
 
 /**
  * MarkSeenResponse is the reply to a MarkSeen. It has no fields.
@@ -1707,7 +2125,7 @@ export type MarkSeenResponse = Message<"orrery.v1.MarkSeenResponse"> & {
  * Use `create(MarkSeenResponseSchema)` to create a new message.
  */
 export const MarkSeenResponseSchema: GenMessage<MarkSeenResponse> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_orrery, 43);
+  messageDesc(file_orrery_v1_orrery, 52);
 
 /**
  * HostStatusRequest asks for the host's status. It has no fields.
@@ -1722,7 +2140,7 @@ export type HostStatusRequest = Message<"orrery.v1.HostStatusRequest"> & {
  * Use `create(HostStatusRequestSchema)` to create a new message.
  */
 export const HostStatusRequestSchema: GenMessage<HostStatusRequest> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_orrery, 44);
+  messageDesc(file_orrery_v1_orrery, 53);
 
 /**
  * HostStatusResponse carries the host's name and its stats.
@@ -1750,7 +2168,7 @@ export type HostStatusResponse = Message<"orrery.v1.HostStatusResponse"> & {
  * Use `create(HostStatusResponseSchema)` to create a new message.
  */
 export const HostStatusResponseSchema: GenMessage<HostStatusResponse> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_orrery, 45);
+  messageDesc(file_orrery_v1_orrery, 54);
 
 /**
  * HostStat is one stat of the host.
@@ -1792,7 +2210,7 @@ export type HostStat = Message<"orrery.v1.HostStat"> & {
  * Use `create(HostStatSchema)` to create a new message.
  */
 export const HostStatSchema: GenMessage<HostStat> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_orrery, 46);
+  messageDesc(file_orrery_v1_orrery, 55);
 
 /**
  * RegisterRequest asks for a push subscription to be stored.
@@ -1827,7 +2245,7 @@ export type RegisterRequest = Message<"orrery.v1.RegisterRequest"> & {
  * Use `create(RegisterRequestSchema)` to create a new message.
  */
 export const RegisterRequestSchema: GenMessage<RegisterRequest> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_orrery, 47);
+  messageDesc(file_orrery_v1_orrery, 56);
 
 /**
  * RegisterResponse is the reply to a Register. It has no fields.
@@ -1842,7 +2260,7 @@ export type RegisterResponse = Message<"orrery.v1.RegisterResponse"> & {
  * Use `create(RegisterResponseSchema)` to create a new message.
  */
 export const RegisterResponseSchema: GenMessage<RegisterResponse> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_orrery, 48);
+  messageDesc(file_orrery_v1_orrery, 57);
 
 /**
  * UnregisterRequest asks for a push subscription to be removed.
@@ -1863,7 +2281,7 @@ export type UnregisterRequest = Message<"orrery.v1.UnregisterRequest"> & {
  * Use `create(UnregisterRequestSchema)` to create a new message.
  */
 export const UnregisterRequestSchema: GenMessage<UnregisterRequest> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_orrery, 49);
+  messageDesc(file_orrery_v1_orrery, 58);
 
 /**
  * UnregisterResponse is the reply to an Unregister. It has no fields.
@@ -1878,7 +2296,7 @@ export type UnregisterResponse = Message<"orrery.v1.UnregisterResponse"> & {
  * Use `create(UnregisterResponseSchema)` to create a new message.
  */
 export const UnregisterResponseSchema: GenMessage<UnregisterResponse> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_orrery, 50);
+  messageDesc(file_orrery_v1_orrery, 59);
 
 /**
  * AskRequest asks which panes and directories match a text.
@@ -1899,7 +2317,7 @@ export type AskRequest = Message<"orrery.v1.AskRequest"> & {
  * Use `create(AskRequestSchema)` to create a new message.
  */
 export const AskRequestSchema: GenMessage<AskRequest> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_orrery, 51);
+  messageDesc(file_orrery_v1_orrery, 60);
 
 /**
  * AskResponse carries the rows that match the text.
@@ -1920,7 +2338,7 @@ export type AskResponse = Message<"orrery.v1.AskResponse"> & {
  * Use `create(AskResponseSchema)` to create a new message.
  */
 export const AskResponseSchema: GenMessage<AskResponse> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_orrery, 52);
+  messageDesc(file_orrery_v1_orrery, 61);
 
 /**
  * PickerRow is one row of an Ask answer.
@@ -1983,7 +2401,7 @@ export type PickerRow = Message<"orrery.v1.PickerRow"> & {
  * Use `create(PickerRowSchema)` to create a new message.
  */
 export const PickerRowSchema: GenMessage<PickerRow> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_orrery, 53);
+  messageDesc(file_orrery_v1_orrery, 62);
 
 /**
  * RunRequest asks for the action a token names to run.
@@ -2004,7 +2422,7 @@ export type RunRequest = Message<"orrery.v1.RunRequest"> & {
  * Use `create(RunRequestSchema)` to create a new message.
  */
 export const RunRequestSchema: GenMessage<RunRequest> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_orrery, 54);
+  messageDesc(file_orrery_v1_orrery, 63);
 
 /**
  * RunResponse carries the pane the run opened or jumped to.
@@ -2025,7 +2443,7 @@ export type RunResponse = Message<"orrery.v1.RunResponse"> & {
  * Use `create(RunResponseSchema)` to create a new message.
  */
 export const RunResponseSchema: GenMessage<RunResponse> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_orrery, 55);
+  messageDesc(file_orrery_v1_orrery, 64);
 
 /**
  * Sessions reads the Claude Code sessions that orrery tracks.
@@ -2042,6 +2460,27 @@ export const Sessions: GenService<{
     methodKind: "unary";
     input: typeof ListRequestSchema;
     output: typeof ListResponseSchema;
+  },
+  /**
+   * ListHeadless returns the headless sessions of the last 14 days, each row's text derived when it is read.
+   *
+   * @generated from rpc orrery.v1.Sessions.ListHeadless
+   */
+  listHeadless: {
+    methodKind: "unary";
+    input: typeof ListHeadlessRequestSchema;
+    output: typeof ListHeadlessResponseSchema;
+  },
+  /**
+   * WatchConversation streams the conversation of one headless session in the deltas Panes.WatchConversation sends:
+   * a reset with the newest items when the client holds none, then the deltas that follow each change.
+   *
+   * @generated from rpc orrery.v1.Sessions.WatchConversation
+   */
+  watchConversation: {
+    methodKind: "server_streaming";
+    input: typeof SessionsWatchConversationRequestSchema;
+    output: typeof SessionsWatchConversationResponseSchema;
   },
 }> = /*@__PURE__*/
   serviceDesc(file_orrery_v1_orrery, 0);
@@ -2200,6 +2639,17 @@ export const Panes: GenService<{
     methodKind: "unary";
     input: typeof MarkSeenRequestSchema;
     output: typeof MarkSeenResponseSchema;
+  },
+  /**
+   * WatchConversation streams the conversation of one pane's Claude transcript: a reset delta with the newest items
+   * and the whole state, then the deltas that follow each change.
+   *
+   * @generated from rpc orrery.v1.Panes.WatchConversation
+   */
+  watchConversation: {
+    methodKind: "server_streaming";
+    input: typeof WatchConversationRequestSchema;
+    output: typeof WatchConversationResponseSchema;
   },
 }> = /*@__PURE__*/
   serviceDesc(file_orrery_v1_orrery, 3);

@@ -32,6 +32,7 @@ import io.github.joshsymonds.orrery.push.PushSetup
 import io.github.joshsymonds.orrery.ui.PaneListScreen
 import io.github.joshsymonds.orrery.ui.PaneListState
 import io.github.joshsymonds.orrery.ui.PaneScreen
+import io.github.joshsymonds.orrery.ui.SessionScreen
 import io.github.joshsymonds.orrery.ui.SettingsScreen
 import io.github.joshsymonds.orrery.ui.theme.OrreryTheme
 
@@ -52,7 +53,7 @@ class MainActivity : ComponentActivity() {
         if (savedInstanceState == null) {
             pushSetup.start()
         }
-        paneExtra(intent)?.let { screen = Screen.Pane(it) }
+        openExtra(intent)?.let { screen = it }
         val settings = ServerSettings(this)
         setContent {
             OrreryTheme {
@@ -71,7 +72,9 @@ class MainActivity : ComponentActivity() {
                             when (val current = screen) {
                                 Screen.Panes -> PaneListScreen(
                                     client = client,
-                                    onOpenPane = { screen = Screen.Pane(it.id) },
+                                    onOpenPane = {
+                                        screen = if (it.headless) Screen.Session(it.id) else Screen.Pane(it.id)
+                                    },
                                     onOpenPaneId = { screen = Screen.Pane(it) },
                                     onOpenSettings = { screen = Screen.Settings },
                                     state = paneListState,
@@ -80,6 +83,14 @@ class MainActivity : ComponentActivity() {
                                     BackHandler { screen = Screen.Panes }
                                     PaneScreen(
                                         paneId = current.id,
+                                        client = client,
+                                        onBack = { screen = Screen.Panes },
+                                    )
+                                }
+                                is Screen.Session -> {
+                                    BackHandler { screen = Screen.Panes }
+                                    SessionScreen(
+                                        sessionId = current.id,
                                         client = client,
                                         onBack = { screen = Screen.Panes },
                                     )
@@ -113,14 +124,18 @@ class MainActivity : ComponentActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        paneExtra(intent)?.let { screen = Screen.Pane(it) }
+        openExtra(intent)?.let { screen = it }
     }
 
-    private fun paneExtra(intent: Intent): String? = intent.getStringExtra(PushNotifier.EXTRA_PANE)
+    /** The screen a notice's intent opens: its pane, or its headless session. */
+    private fun openExtra(intent: Intent): Screen? =
+        intent.getStringExtra(PushNotifier.EXTRA_PANE)?.let { Screen.Pane(it) }
+            ?: intent.getStringExtra(PushNotifier.EXTRA_SESSION)?.let { Screen.Session(it) }
 
     private sealed interface Screen {
         data object Panes : Screen
         data object Settings : Screen
         data class Pane(val id: String) : Screen
+        data class Session(val id: String) : Screen
     }
 }

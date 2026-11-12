@@ -456,7 +456,7 @@ func startSessions(
 			Store:    st,
 			Logger:   logger,
 		})
-		host.steps = enginehost.NewSteps(enginehost.StepsConfig{
+		steps, err := enginehost.NewSteps(enginehost.StepsConfig{
 			Sessions:  host.manager,
 			Store:     st,
 			Writer:    host.writer,
@@ -466,6 +466,10 @@ func startSessions(
 			Logger:    logger,
 			Haiku:     enginehost.NewHaiku(enginehost.HaikuConfig{Claude: opts.claude, Environ: os.Environ()}),
 		})
+		if err != nil {
+			return nil, fmt.Errorf("step engine: %w", err)
+		}
+		host.steps = steps
 		st.SetEngineLive(host.manager.Live)
 		commands = host.manager
 		stepCommands = host.steps

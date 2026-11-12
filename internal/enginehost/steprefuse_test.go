@@ -65,11 +65,14 @@ func newRefusalFixture(t *testing.T, stepCap int) *refusalFixture {
 	})
 	t.Cleanup(manager.Close)
 	worktrees := t.TempDir()
-	steps := NewSteps(StepsConfig{
+	steps, err := NewSteps(StepsConfig{
 		Sessions: manager, Store: s, Writer: writer,
 		Locks:     []string{filepath.Join(t.TempDir(), "gate.lock")},
 		Worktrees: worktrees, Environ: []string{"PATH=" + os.Getenv("PATH")}, Logger: logger,
 	})
+	if err != nil {
+		t.Fatalf("NewSteps: %v", err)
+	}
 	t.Cleanup(func() {
 		steps.mu.Lock()
 		defer steps.mu.Unlock()

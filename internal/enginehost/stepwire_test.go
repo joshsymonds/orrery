@@ -49,7 +49,7 @@ func newStepWireFixture(t *testing.T, haiku *Haiku) *stepWireFixture {
 	startRun(t, writer)
 	clock := &watchLoopClock{at: watchEpoch()}
 	sessions := &stepWireSessions{stepStartSessions: &stepStartSessions{writer: writer}}
-	steps := NewSteps(StepsConfig{
+	steps, err := NewSteps(StepsConfig{
 		Sessions:  sessions,
 		Store:     s,
 		Writer:    writer,
@@ -61,6 +61,9 @@ func newStepWireFixture(t *testing.T, haiku *Haiku) *stepWireFixture {
 		Now:       clock.now,
 		WatchTick: stepWireWatchTick,
 	})
+	if err != nil {
+		t.Fatalf("NewSteps: %v", err)
+	}
 	t.Cleanup(func() {
 		steps.mu.Lock()
 		defer steps.mu.Unlock()

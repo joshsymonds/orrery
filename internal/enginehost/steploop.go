@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/engine/session"
@@ -86,13 +87,28 @@ type stepRun struct {
 	// nudge is the text the next turn end is continued with when that turn is an error. It is set by a landed nudge's
 	// interrupt and cleared by the next turn end, whatever it is.
 	nudge string
+	// ownerNudge is the owner's text the next turn end is continued with, whatever that turn end is. It is set by a
+	// landed owner nudge and cleared by the next turn end. It is joined after nudge when it is sent.
+	ownerNudge string
+	// heldEnded is set when a held run's turn end has been handled, so an owner nudge continues the step at once.
+	heldEnded bool
 	// judgeSent is set once the judge has sent the step back, so a second unmet verdict ends goal_unmet.
 	judgeSent bool
 	// ended is closed once finish has acted.
 	ended chan struct{}
 	// runDone is closed when run returns, so Return and Exited never wait on a run that will not drain them.
 	runDone chan struct{}
-	once    sync.Once
+	// calls hands owner actions to run, which runs each in its goroutine and replies with its error.
+	calls chan stepOwnerCall
+	// held is set when a hold lands. A held run checks nothing: its ticks are skipped, and its turn ends are no round.
+	// Run sets it and Steps.Held reads it.
+	held atomic.Bool
+	// gateMu guards gating and gateStart. gateStart is closed when a gate begins, which releases every owner action
+	// waiting for the loop, and replaced when the gate ends.
+	gateMu    sync.Mutex
+	gating    bool
+	gateStart chan struct{}
+	once      sync.Once
 }
 
 // newStepRun returns a stepRun built from cfg that is not running. Call run to start it.
@@ -107,6 +123,8 @@ func newStepRun(cfg stepRunConfig) *stepRun {
 		exits:         make(chan string, stepLoopBuffer),
 		ended:         make(chan struct{}),
 		runDone:       make(chan struct{}),
+		calls:         make(chan stepOwnerCall),
+		gateStart:     make(chan struct{}),
 	}
 }
 
@@ -147,26 +165,107 @@ func (r *stepRun) run(ctx context.Context) {
 		case reason := <-r.exits:
 			r.finish(ctx, stepLoopEndFailed, "", reason)
 			return
+		case call := <-r.calls:
+			call.reply <- call.act(ctx)
+			select {
+			case <-r.ended:
+				return
+			default:
+			}
 		case <-r.ticks:
+			if r.held.Load() {
+				continue
+			}
 			if !r.watchTick(ctx) {
 				return
 			}
 		case ended := <-r.returns:
-			nudge := r.nudge
-			r.nudge = ""
-			if nudge != "" && ended.IsError {
-				if err := r.sessions.Continue(ctx, r.id, nudge); err != nil {
-					r.finish(ctx, stepLoopEndFailed, "", fmt.Sprintf("continue step %s: %v", r.id, err))
-					return
-				}
-				continue
-			}
-			round++
-			if !r.judge(ctx, round, ended.StructuredOutput, &continues) {
+			if !r.turnEnded(ctx, ended, &round, &continues) {
 				return
 			}
 		}
 	}
+}
+
+// turnEnded handles a turn end the run takes. Whatever it is, it clears the pending nudges. A held step's turn end is no
+// round and continues nothing, unless an owner nudge is pending, which resumes the step with it. An owner nudge pending
+// continues the step with it, error or not. A pending watchdog nudge is sent back with an error turn end. Any other turn
+// end is the next round, which judge checks. It reports whether the run goes on.
+func (r *stepRun) turnEnded(ctx context.Context, ended session.TurnEnded, round, continues *int) bool {
+	nudge, owner := r.nudge, r.ownerNudge
+	r.nudge, r.ownerNudge = "", ""
+	if r.held.Load() {
+		if owner == "" {
+			r.heldEnded = true
+			return true
+		}
+		r.held.Store(false)
+		r.heldEnded = false
+		return r.continueWith(ctx, joinNudges(nudge, owner))
+	}
+	if owner != "" {
+		return r.continueWith(ctx, joinNudges(nudge, owner))
+	}
+	if nudge != "" && ended.IsError {
+		return r.continueWith(ctx, nudge)
+	}
+	*round++
+	return r.judge(ctx, *round, ended.StructuredOutput, continues)
+}
+
+// continueWith sends text to the session as its next message. A failed send ends the step failed. It reports whether
+// the run goes on.
+func (r *stepRun) continueWith(ctx context.Context, text string) bool {
+	if err := r.continueStep(ctx, text); err != nil {
+		return false
+	}
+	return true
+}
+
+// continueStep sends text to the session as its next message. A failed send ends the step failed and returns the error.
+func (r *stepRun) continueStep(ctx context.Context, text string) error {
+	if err := r.sessions.Continue(ctx, r.id, text); err != nil {
+		err = fmt.Errorf("continue step %s: %w", r.id, err)
+		r.finish(ctx, stepLoopEndFailed, "", err.Error())
+		return err
+	}
+	return nil
+}
+
+// gateState returns the channel a gate start closes and whether a gate is running now. A caller that sees no gate
+// running waits on the channel while it asks the loop for an action.
+func (r *stepRun) gateState() (<-chan struct{}, bool) {
+	r.gateMu.Lock()
+	defer r.gateMu.Unlock()
+	return r.gateStart, r.gating
+}
+
+// beginGate marks the run as running its gate and releases every owner action waiting for the loop. It runs in the
+// loop goroutine, and endGate ends it.
+func (r *stepRun) beginGate() {
+	r.gateMu.Lock()
+	defer r.gateMu.Unlock()
+	r.gating = true
+	close(r.gateStart)
+}
+
+// endGate ends the gate beginGate marked and makes the channel the next gate start closes.
+func (r *stepRun) endGate() {
+	r.gateMu.Lock()
+	defer r.gateMu.Unlock()
+	r.gating = false
+	r.gateStart = make(chan struct{})
+}
+
+// joinNudges returns the texts that are not empty, the first before the second, one per line.
+func joinNudges(first, second string) string {
+	switch {
+	case first == "":
+		return second
+	case second == "":
+		return first
+	}
+	return first + "\n" + second
 }
 
 // judge checks the return of round and stores it with its checks. A done return whose checks all passed is judged; any
@@ -222,9 +321,11 @@ func (r *stepRun) doneChecks(ctx context.Context, round int, commit string,
 	if !passed || len(r.gate) == 0 {
 		return checks, nil
 	}
+	r.beginGate()
 	result, err := runGate(ctx, gateRun{
 		Argv: r.gate, Dir: r.dir, Limit: r.gateLimit, Locks: r.locks, Environ: r.environ,
 	})
+	r.endGate()
 	if err != nil {
 		return checks, fmt.Errorf("run gate of step %s: %w", r.id, err)
 	}

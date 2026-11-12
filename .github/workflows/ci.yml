@@ -38,7 +38,7 @@ jobs:
         run: nix profile add "github:cachix/devenv/$(jq -er '.nodes.devenv.locked.rev' devenv.lock)" nixpkgs#just
 
       - name: Run the repository check
-        run: TMPDIR=/tmp TERM=xterm-256color just check
+        run: TMPDIR=/tmp just check
 
       - name: Run the flake check
         run: nix flake check

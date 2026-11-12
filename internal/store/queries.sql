@@ -70,6 +70,31 @@ SELECT * FROM sessions WHERE id = ? AND kind IN ('engine', 'step');
 -- name: ListEngineSessions :many
 SELECT * FROM sessions WHERE kind IN ('engine', 'step') ORDER BY id;
 
+-- name: ListHeadlessSessions :many
+SELECT
+    sessions.id, sessions.dir, sessions.state, sessions.changed, sessions.seen, sessions.question, sessions.reason,
+    CAST(COALESCE((
+        SELECT json_extract(events.payload, '$.text') FROM events
+        WHERE events.session_id = sessions.id AND events.kind = 'engine_block'
+          AND json_extract(events.payload, '$.kind') = 'text'
+          AND json_extract(events.payload, '$.role') = 'assistant'
+          AND IFNULL(json_extract(events.payload, '$.parentToolUseId'), '') = ''
+        ORDER BY events.at DESC, events.seq DESC LIMIT 1
+    ), '') AS TEXT) AS reply,
+    CAST(COALESCE((
+        SELECT MAX(events.at) FROM events
+        WHERE events.session_id = sessions.id AND (
+            (events.kind = 'engine_block' AND json_extract(events.payload, '$.kind') = 'text'
+             AND json_extract(events.payload, '$.role') = 'assistant'
+             AND IFNULL(json_extract(events.payload, '$.parentToolUseId'), '') = '')
+            OR (events.kind = 'engine_request' AND json_extract(events.payload, '$.refused') IS NOT 1)
+        )
+    ), 0) AS INTEGER) AS newest_reply
+FROM sessions
+WHERE sessions.kind = 'engine'
+  AND EXISTS (SELECT 1 FROM events WHERE events.session_id = sessions.id AND events.at >= sqlc.arg(cutoff))
+ORDER BY sessions.id;
+
 -- name: UpdateEngineSession :execrows
 UPDATE sessions
 SET state = ?, changed = ?, seen = ?, question = ?, claude_session = ?, reason = ?
@@ -114,14 +139,21 @@ SELECT reason FROM engine_prompt_failed WHERE session_id = ? AND prompt_id = ?;
 
 -- name: InsertStep :exec
 INSERT INTO steps (id, agent, prompt, output_schema, workspace, revision, worktree, done_value, read_only, owned, gate,
-                   gate_limit, model_limit, started, checks, result, status, end_value, reason, ended, doing, verdicts)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', '', '', '', '', 0, '', '[]');
+                   gate_limit, model_limit, started, checks, result, status, end_value, reason, ended, doing, verdicts,
+                   epic, task)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', '', '', '', '', 0, '', '[]', ?, ?);
 
 -- name: GetStep :one
 SELECT * FROM steps WHERE id = ?;
 
 -- name: ListOpenSteps :many
 SELECT * FROM steps WHERE end_value = '' ORDER BY id;
+
+-- name: ListLabelledSteps :many
+SELECT * FROM steps
+WHERE epic <> '' AND (CAST(sqlc.arg(epic) AS TEXT) = '' OR epic = CAST(sqlc.arg(epic) AS TEXT))
+  AND (CAST(sqlc.arg(task) AS TEXT) = '' OR task = CAST(sqlc.arg(task) AS TEXT))
+ORDER BY started, id;
 
 -- name: UpdateStepReturn :exec
 UPDATE steps SET result = ?, checks = ? WHERE id = ?;
