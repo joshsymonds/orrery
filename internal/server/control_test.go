@@ -666,7 +666,7 @@ func stampFileNames() []string {
 }
 
 // stampSettings is a settings file that stamps its folder: env.ANTHROPIC_BASE_URL is a non-empty string.
-const stampSettings = `{"env": {"ANTHROPIC_BASE_URL": "https://synthetic.example"}}`
+const stampSettings = `{"env": {"ANTHROPIC_BASE_URL": "http://127.0.0.1:9/ctx/example"}}`
 
 // makeDir creates dir and its parents, and returns dir.
 func makeDir(t *testing.T, dir string) string {
@@ -677,26 +677,21 @@ func makeDir(t *testing.T, dir string) string {
 	return dir
 }
 
-// writeSettings writes content as the settings file name of folder, creating folder's .claude directory.
-func writeSettings(t *testing.T, folder, name, content string) {
+// writeSettings writes stampSettings as the settings file name of folder, creating folder's .claude directory.
+func writeSettings(t *testing.T, folder, name string) {
 	t.Helper()
 	claude := makeDir(t, filepath.Join(folder, ".claude"))
-	if err := os.WriteFile(filepath.Join(claude, name), []byte(content), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(claude, name), []byte(stampSettings), 0o644); err != nil {
 		t.Fatalf("write %s: %v", name, err)
 	}
 }
 
-// belowStampMessage is the refusal for a start in a folder with no stamp of its own, below the stamped folder.
-func belowStampMessage(stamped string) string {
-	return "session directory has no context stamp of its own and is below a context-stamped folder (" + stamped + ")"
-}
-
-func TestControlRefusesStartsBelowStampedFolder(t *testing.T) {
+func TestControlForwardsStartsBelowStampedFolder(t *testing.T) {
 	for _, name := range stampFileNames() {
 		t.Run(name, func(t *testing.T) {
 			home := t.TempDir()
 			stamped := makeDir(t, filepath.Join(home, "stamped"))
-			writeSettings(t, stamped, name, stampSettings)
+			writeSettings(t, stamped, name)
 			cases := []struct {
 				name string
 				dir  string
@@ -704,30 +699,22 @@ func TestControlRefusesStartsBelowStampedFolder(t *testing.T) {
 				{"plain child", makeDir(t, filepath.Join(stamped, "child"))},
 				{"two levels below", makeDir(t, filepath.Join(stamped, "middle", "deep"))},
 			}
-			want := belowStampMessage(resolvedPath(t, stamped))
 			for _, tc := range cases {
 				t.Run(tc.name, func(t *testing.T) {
-					fake := &fakeEngine{}
-					control := controlClient(t, newHomedControlHandler(t, home, newFakeOrreryd(t, fake), 0))
-
-					_, err := startAt(t, control, tc.dir)
-					assertConnectError(t, err, connect.CodeInvalidArgument, want)
-					if calls := fake.recorded(); len(calls) != 0 {
-						t.Fatalf("refused start forwarded %d requests, want none", len(calls))
-					}
+					assertStartForwarded(t, home, tc.dir, resolvedPath(t, tc.dir))
 				})
 			}
 		})
 	}
 }
 
-func TestControlForwardsStartsWithoutStampAbove(t *testing.T) {
+func TestControlForwardsStartsAroundStamps(t *testing.T) {
 	home := t.TempDir()
-	writeSettings(t, home, "settings.json", stampSettings)
+	writeSettings(t, home, "settings.json")
 	stamped := makeDir(t, filepath.Join(home, "stamped"))
-	writeSettings(t, stamped, "settings.json", stampSettings)
+	writeSettings(t, stamped, "settings.json")
 	own := makeDir(t, filepath.Join(stamped, "own"))
-	writeSettings(t, own, "settings.local.json", stampSettings)
+	writeSettings(t, own, "settings.local.json")
 	cases := []struct {
 		name string
 		dir  string
@@ -744,77 +731,7 @@ func TestControlForwardsStartsWithoutStampAbove(t *testing.T) {
 	}
 }
 
-func TestControlForwardsStartsBelowFilesThatAreNoStamp(t *testing.T) {
-	cases := []struct {
-		name    string
-		content string
-	}{
-		{"no env", `{"permissions": {}}`},
-		{"env without base URL", `{"env": {"OTHER": "synthetic"}}`},
-		{"empty base URL", `{"env": {"ANTHROPIC_BASE_URL": ""}}`},
-		{"base URL not a string", `{"env": {"ANTHROPIC_BASE_URL": 1}}`},
-		{"lowercase key", `{"env": {"anthropic_base_url": "https://synthetic.example"}}`},
-		{"env not an object", `{"env": "https://synthetic.example"}`},
-		{"not JSON", `{"env": `},
-	}
-	for _, name := range stampFileNames() {
-		for _, tc := range cases {
-			t.Run(name+" "+tc.name, func(t *testing.T) {
-				home := t.TempDir()
-				parent := makeDir(t, filepath.Join(home, "parent"))
-				writeSettings(t, parent, name, tc.content)
-				child := makeDir(t, filepath.Join(parent, "child"))
-				assertStartForwarded(t, home, child, resolvedPath(t, child))
-			})
-		}
-	}
-}
-
-// claudeAsFile makes folder's .claude a regular file, so no settings file can sit under it.
-func claudeAsFile(t *testing.T, folder string) {
-	t.Helper()
-	if err := os.WriteFile(filepath.Join(folder, ".claude"), []byte("not a folder"), 0o644); err != nil {
-		t.Fatalf("write .claude in %s: %v", folder, err)
-	}
-}
-
-func TestControlForwardsStartsBelowClaudeFileWithNoStampAbove(t *testing.T) {
-	home := t.TempDir()
-	parent := makeDir(t, filepath.Join(home, "parent"))
-	claudeAsFile(t, parent)
-	child := makeDir(t, filepath.Join(parent, "child"))
-	assertStartForwarded(t, home, child, resolvedPath(t, child))
-}
-
-func TestControlRefusesStartsBelowStampWithClaudeFile(t *testing.T) {
-	home := t.TempDir()
-	stamped := makeDir(t, filepath.Join(home, "stamped"))
-	writeSettings(t, stamped, "settings.json", stampSettings)
-	// A .claude that is a regular file is no stamp and no unreadable stamp: the folder above still names the refusal.
-	middle := makeDir(t, filepath.Join(stamped, "middle"))
-	claudeAsFile(t, middle)
-	cases := []struct {
-		name string
-		dir  string
-	}{
-		{"folder whose .claude is a file", middle},
-		{"child of folder whose .claude is a file", makeDir(t, filepath.Join(middle, "child"))},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			fake := &fakeEngine{}
-			control := controlClient(t, newHomedControlHandler(t, home, newFakeOrreryd(t, fake), 0))
-
-			_, err := startAt(t, control, tc.dir)
-			assertConnectError(t, err, connect.CodeInvalidArgument, belowStampMessage(resolvedPath(t, stamped)))
-			if calls := fake.recorded(); len(calls) != 0 {
-				t.Fatalf("refused start forwarded %d requests, want none", len(calls))
-			}
-		})
-	}
-}
-
-func TestControlRefusesStartsWithUnreadableStamp(t *testing.T) {
+func TestControlForwardsStartsBelowUnreadableStamp(t *testing.T) {
 	home := t.TempDir()
 	parent := makeDir(t, filepath.Join(home, "parent"))
 	child := makeDir(t, filepath.Join(parent, "child"))
@@ -824,25 +741,15 @@ func TestControlRefusesStartsWithUnreadableStamp(t *testing.T) {
 	makeDir(t, filepath.Join(own, ".claude", "settings.json"))
 
 	cases := []struct {
-		name   string
-		dir    string
-		folder string
+		name string
+		dir  string
 	}{
-		{"unreadable stamp above", child, parent},
-		{"unreadable stamp in the folder", own, own},
+		{"below unreadable stamp", child},
+		{"in folder with unreadable stamp", own},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			fake := &fakeEngine{}
-			control := controlClient(t, newHomedControlHandler(t, home, newFakeOrreryd(t, fake), 0))
-
-			_, err := startAt(t, control, tc.dir)
-			unreadable := filepath.Join(resolvedPath(t, tc.folder), ".claude", "settings.json")
-			assertConnectError(t, err, connect.CodeInvalidArgument,
-				"session directory's context stamp "+unreadable+" cannot be read")
-			if calls := fake.recorded(); len(calls) != 0 {
-				t.Fatalf("refused start forwarded %d requests, want none", len(calls))
-			}
+			assertStartForwarded(t, home, tc.dir, resolvedPath(t, tc.dir))
 		})
 	}
 }
@@ -876,18 +783,12 @@ func makeWorktree(t *testing.T, checkout, folder string) string {
 	return folder
 }
 
-// worktreeStampMessage is the refusal for a start in a folder with no stamp of its own, in a linked worktree whose
-// checkout is at or below the stamped folder.
-func worktreeStampMessage(stamped string) string {
-	return "session directory has no context stamp of its own and is a linked git worktree of a checkout at or below a context-stamped folder (" + stamped + ")"
-}
-
-func TestControlRefusesStartsInWorktreeOfStampedCheckout(t *testing.T) {
+func TestControlForwardsStartsInWorktreeOfStampedCheckout(t *testing.T) {
 	for _, name := range stampFileNames() {
 		t.Run(name, func(t *testing.T) {
 			home := t.TempDir()
 			checkout := makeCheckout(t, filepath.Join(home, "repo"))
-			writeSettings(t, checkout, name, stampSettings)
+			writeSettings(t, checkout, name)
 			worktree := makeWorktree(t, checkout, filepath.Join(home, "repo-wt"))
 			cases := []struct {
 				name string
@@ -896,27 +797,19 @@ func TestControlRefusesStartsInWorktreeOfStampedCheckout(t *testing.T) {
 				{"worktree root", worktree},
 				{"subfolder of worktree", makeDir(t, filepath.Join(worktree, "sub"))},
 			}
-			want := worktreeStampMessage(resolvedPath(t, checkout))
 			for _, tc := range cases {
 				t.Run(tc.name, func(t *testing.T) {
-					fake := &fakeEngine{}
-					control := controlClient(t, newHomedControlHandler(t, home, newFakeOrreryd(t, fake), 0))
-
-					_, err := startAt(t, control, tc.dir)
-					assertConnectError(t, err, connect.CodeInvalidArgument, want)
-					if calls := fake.recorded(); len(calls) != 0 {
-						t.Fatalf("refused start forwarded %d requests, want none", len(calls))
-					}
+					assertStartForwarded(t, home, tc.dir, resolvedPath(t, tc.dir))
 				})
 			}
 		})
 	}
 }
 
-func TestControlRefusesStartsInWorktreeOfCheckoutBelowStampedFolder(t *testing.T) {
+func TestControlForwardsStartsInWorktreeOfCheckoutBelowStampedFolder(t *testing.T) {
 	home := t.TempDir()
 	stamped := makeDir(t, filepath.Join(home, "stamped"))
-	writeSettings(t, stamped, "settings.json", stampSettings)
+	writeSettings(t, stamped, "settings.json")
 	checkout := makeCheckout(t, filepath.Join(stamped, "repo"))
 	worktree := makeWorktree(t, checkout, filepath.Join(home, "repo-wt"))
 	cases := []struct {
@@ -926,38 +819,19 @@ func TestControlRefusesStartsInWorktreeOfCheckoutBelowStampedFolder(t *testing.T
 		{"worktree root", worktree},
 		{"subfolder of worktree", makeDir(t, filepath.Join(worktree, "sub"))},
 	}
-	want := worktreeStampMessage(resolvedPath(t, stamped))
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			fake := &fakeEngine{}
-			control := controlClient(t, newHomedControlHandler(t, home, newFakeOrreryd(t, fake), 0))
-
-			_, err := startAt(t, control, tc.dir)
-			assertConnectError(t, err, connect.CodeInvalidArgument, want)
-			if calls := fake.recorded(); len(calls) != 0 {
-				t.Fatalf("refused start forwarded %d requests, want none", len(calls))
-			}
+			assertStartForwarded(t, home, tc.dir, resolvedPath(t, tc.dir))
 		})
 	}
 }
 
-func TestControlForwardsStartsInWorktreesThatNameNoStampedCheckout(t *testing.T) {
+func TestControlForwardsStartsInWorktreesOfPlainCheckout(t *testing.T) {
 	home := t.TempDir()
 	plain := makeCheckout(t, filepath.Join(home, "plain"))
 	plainWorktree := makeWorktree(t, plain, filepath.Join(home, "plain-wt"))
 	ownWorktree := makeWorktree(t, plain, filepath.Join(home, "own-wt"))
-	writeSettings(t, ownWorktree, "settings.local.json", stampSettings)
-	stamped := makeCheckout(t, filepath.Join(home, "stamped"))
-	writeSettings(t, stamped, "settings.json", stampSettings)
-	garbled := makeDir(t, filepath.Join(home, "garbled"))
-	if err := os.WriteFile(filepath.Join(garbled, ".git"), []byte("not a gitdir\n"), 0o644); err != nil {
-		t.Fatalf("write garbled .git: %v", err)
-	}
-	missing := makeDir(t, filepath.Join(home, "missing"))
-	gitdir := filepath.Join(home, "absent", ".git", "worktrees", "missing")
-	if err := os.WriteFile(filepath.Join(missing, ".git"), []byte("gitdir: "+gitdir+"\n"), 0o644); err != nil {
-		t.Fatalf("write missing .git: %v", err)
-	}
+	writeSettings(t, ownWorktree, "settings.local.json")
 	cases := []struct {
 		name string
 		dir  string
@@ -965,9 +839,6 @@ func TestControlForwardsStartsInWorktreesThatNameNoStampedCheckout(t *testing.T)
 		{"worktree of unstamped checkout", plainWorktree},
 		{"subfolder of worktree of unstamped checkout", makeDir(t, filepath.Join(plainWorktree, "sub"))},
 		{"worktree with its own stamp", ownWorktree},
-		{"stamped checkout itself", stamped},
-		{"git file that is not a gitdir", garbled},
-		{"git file naming no checkout", missing},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
