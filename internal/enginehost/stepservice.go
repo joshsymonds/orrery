@@ -10,6 +10,7 @@ import (
 	"connectrpc.com/connect"
 
 	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
+	"github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1/enginev1connect"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -24,8 +25,11 @@ type StepCommands interface {
 	Wait(ctx context.Context, ids []string, timeout time.Duration) (*store.StepRow, []store.StepRow, error)
 }
 
-// stepService implements the Steps RPCs over steps.
+// stepService implements the Steps RPCs over steps. The embedded handler answers the RPCs this file does not implement
+// yet with Unimplemented.
 type stepService struct {
+	enginev1connect.UnimplementedStepsHandler
+
 	steps StepCommands
 }
 
