@@ -2,30 +2,20 @@ package enginehost
 
 import (
 	"context"
-	"log/slog"
 	"path/filepath"
-	"sync"
 	"time"
 
+	"github.com/joshsymonds/orrery/internal/deskstream"
 	"github.com/joshsymonds/orrery/internal/notice"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/push"
 )
 
-const (
-	stateInterrupted = "interrupted"
-	// shortSessionLen is how many leading characters of a session id ntfy shows.
-	shortSessionLen = 8
-)
+const stateInterrupted = "interrupted"
 
 // Notice is one headless session event the owner is told about.
 type Notice struct {
 	Session, Dir, State, Body string
-}
-
-// SessionPublisher posts a headless session notification to ntfy. *ntfy.Publisher satisfies it.
-type SessionPublisher interface {
-	PublishSession(ctx context.Context, project, session, state, body string) error
 }
 
 // PushNotices is the notice record that sends push notifications and clears them when a session is seen.
@@ -35,44 +25,43 @@ type PushNotices interface {
 	Seen(ctx context.Context, key notice.Key, seen int64)
 }
 
-// NotifierConfig configures a Notifier. A nil Ntfy or Push skips that channel, and a nil Logger discards.
-type NotifierConfig struct {
-	Ntfy   SessionPublisher
-	Push   PushNotices
-	Logger *slog.Logger
+// DeskPoster posts a notice to the desk stream. *deskstream.Hub satisfies it.
+type DeskPoster interface {
+	Post(deskstream.Notice)
 }
 
-// Notifier tells the owner about headless session events. Each ntfy post runs in a goroutine that Wait awaits.
+// NotifierConfig configures a Notifier. A nil Push or Desk skips that channel.
+type NotifierConfig struct {
+	Push PushNotices
+	Desk DeskPoster
+}
+
+// Notifier tells the owner about headless session events.
 type Notifier struct {
-	ntfy   SessionPublisher
-	push   PushNotices
-	logger *slog.Logger
-	posts  sync.WaitGroup
+	push PushNotices
+	desk DeskPoster
 }
 
 // NewNotifier returns a Notifier that posts through the channels cfg names.
 func NewNotifier(cfg NotifierConfig) *Notifier {
-	logger := cfg.Logger
-	if logger == nil {
-		logger = slog.New(slog.DiscardHandler)
-	}
-	return &Notifier{ntfy: cfg.Ntfy, push: cfg.Push, logger: logger}
+	return &Notifier{push: cfg.Push, desk: cfg.Desk}
 }
 
-// Notify starts the ntfy post for event and hands its push to the notice record, and returns at once. Only waiting,
-// done, failed and interrupted notify. The posts ignore ctx's cancellation, so a notification accepted before a
-// shutdown still goes out.
+// Notify posts event to the desk stream and hands its push to the notice record, and returns at once. Only waiting,
+// done, failed and interrupted notify. The push hand-off ignores ctx's cancellation, so a notification accepted before
+// a shutdown still goes out.
 func (n *Notifier) Notify(ctx context.Context, event Notice) {
 	if !notifies(event.State) {
 		return
 	}
 	ctx = context.WithoutCancel(ctx)
-	if n.ntfy != nil {
-		n.posts.Add(1)
-		go func() {
-			defer n.posts.Done()
-			n.postNtfy(ctx, event)
-		}()
+	if n.desk != nil {
+		project := filepath.Base(event.Dir)
+		n.desk.Post(deskstream.Notice{
+			State: event.State,
+			Title: deskstream.SessionTitle(project, event.Session),
+			Body:  noticeBody(event),
+		})
 	}
 	if n.push != nil {
 		build := func(context.Context) (push.Notification, error) {
@@ -91,11 +80,6 @@ func (n *Notifier) Seen(ctx context.Context, session string, seen time.Time) {
 	n.push.Seen(ctx, notice.Key{Session: session}, seen.Unix())
 }
 
-// Wait returns once every ntfy post started by Notify has finished.
-func (n *Notifier) Wait() {
-	n.posts.Wait()
-}
-
 // notifies reports whether a session in state gets a notification.
 func notifies(state string) bool {
 	switch state {
@@ -103,23 +87,6 @@ func notifies(state string) bool {
 		return true
 	}
 	return false
-}
-
-// postNtfy posts event to ntfy. The body falls back to a fixed word when empty.
-func (n *Notifier) postNtfy(ctx context.Context, event Notice) {
-	session := event.Session
-	if len(session) > shortSessionLen {
-		session = session[:shortSessionLen]
-	}
-	body := event.Body
-	if body == "" {
-		body = fallbackBody(event.State)
-	}
-	project := filepath.Base(event.Dir)
-	if err := n.ntfy.PublishSession(ctx, project, session, event.State, body); err != nil {
-		n.logger.ErrorContext(ctx, "post session notification", "session", event.Session,
-			"error", push.RedactEndpoints(err))
-	}
 }
 
 // pushNotification is the push for event. The body is the question when the session waits and the summary
@@ -135,6 +102,14 @@ func pushNotification(event Notice) push.Notification {
 		note.Summary = event.Body
 	}
 	return note
+}
+
+// noticeBody is the body event shows on the desk stream: the event's body, or a fixed word when it is empty.
+func noticeBody(event Notice) string {
+	if event.Body != "" {
+		return event.Body
+	}
+	return fallbackBody(event.State)
 }
 
 // fallbackBody stands in for an empty body: a prompt for waiting, and the state name otherwise.

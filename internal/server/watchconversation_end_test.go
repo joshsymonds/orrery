@@ -156,11 +156,16 @@ func TestWatchConversationEndsStalledReaderAtSendDeadline(t *testing.T) {
 	url, closed, obs := startConvDeadlineServer(t, convEndHandler(t, tmux, nil, deadlineStalledSendTimeout))
 	req := &orreryv1.WatchConversationRequest{Pane: pane, Limit: convLargeReplies}
 
+	// The stalled connection is the only one accepted while the hold is on: the healthy stream dials after the stalled
+	// send is blocked. The stalled send's deadline stays unapplied until the healthy stream has been checked, and
+	// release applies it as already due.
+	obs.setHold(true)
 	dialed := make(chan net.Conn, 1)
 	stalledHTTP := &http.Client{Transport: headerTransport{base: stalledTransport(dialed), login: allowedLogin}}
 	stalled := openConversation(t, orreryv1connect.NewPanesClient(stalledHTTP, url), req)
 	stalledAddr := (<-dialed).LocalAddr().String()
 	waitStalledWrite(t, obs)
+	obs.setHold(false)
 
 	healthy := openConversation(t, orreryv1connect.NewPanesClient(guardedHTTPClient(), url), req)
 	if first := healthy.next(t); !first.GetReset_() {
@@ -170,6 +175,9 @@ func TestWatchConversationEndsStalledReaderAtSendDeadline(t *testing.T) {
 	assertTexts(t, healthy.nextDelta(t).GetItems(), "synthetic reply 41")
 	assertStillOpen(t, closed, stalledAddr)
 
+	if err := obs.releaseAll(); err != nil {
+		t.Fatalf("release stalled connection: %v", err)
+	}
 	waitClosed(t, closed, stalledAddr)
 	if err := stalled.end(t); err == nil {
 		t.Fatal("stalled stream ended cleanly, want a transport error with no end-of-stream message")

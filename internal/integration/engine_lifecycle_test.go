@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/joshsymonds/orrery/internal/deskstream"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/store"
 	"github.com/joshsymonds/orrery/internal/store/sqlcgen"
@@ -71,16 +72,13 @@ func sessionReason(t *testing.T, dbPath, id string) string {
 }
 
 // TestEngineSigtermInterruptsStalledTurn proves that stopping orreryd during a turn ends its fake claude, records the
-// session interrupted with no unfinished text, and posts the interruption to ntfy. After a restart the session is still
-// there, and say resumes it by its id.
+// session interrupted with no unfinished text, and posts the interruption to the desk stream. After a restart the
+// session is still there, and say resumes it by its id.
 func TestEngineSigtermInterruptsStalledTurn(t *testing.T) {
 	f := newEngineFixture(t)
-	ntfyURL, notices := fakeNtfy(t)
-	urlFile := filepath.Join(f.root, "ntfy-url")
-	writeFile(t, urlFile, ntfyURL+"\n", 0o600)
-	f.env = append(f.env, "ORRERY_NTFY_URL_FILE="+urlFile)
 
 	daemon := f.startOrreryd(t, true)
+	notices := startNoticeReader(t, f.env, f.socket)
 	dir := f.sessionDir(t, "sigterm")
 	id := f.start(t, dir, stallPrompt)
 	f.waitForUnfinishedText(t, id)
@@ -94,10 +92,14 @@ func TestEngineSigtermInterruptsStalledTurn(t *testing.T) {
 	if n := engineTextRows(t, f.dbPath, id); n != 0 {
 		t.Fatalf("session %s keeps %d unfinished text rows", id, n)
 	}
-	got := nextNotice(t, notices)
-	if got.priority != "3" || got.body != stoppedDuringTurnBody {
-		t.Fatalf("ntfy notice priority %q body %q, want priority 3 body %q",
-			got.priority, got.body, stoppedDuringTurnBody)
+	got := notices.finish(t)
+	want := notice{
+		state: "interrupted",
+		title: deskstream.SessionTitle(filepath.Base(dir), id),
+		body:  stoppedDuringTurnBody,
+	}
+	if len(got) != 1 || got[0] != want {
+		t.Fatalf("notices after SIGTERM %+v, want exactly %+v", got, want)
 	}
 
 	restarted := f.startOrreryd(t, true)

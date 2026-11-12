@@ -4,14 +4,15 @@ orrery is a tmux-aware status board for Claude Code sessions.
 
 A Claude Code hook run through `orrery` reports each session's state (working,
 waiting, or done) to a local daemon, `orreryd`, over a Unix socket. The daemon
-records that state in per-pane tmux options, summarizes it, and can notify you
-through ntfy. `orrery list` shows the panes and their states.
+records that state in per-pane tmux options, summarizes it, and streams a notice
+for each pane that waits or finishes to the desk. `orrery list` shows the panes
+and their states.
 
 ![orrery tree: projects with panes marked working, waiting, or done, and a preview of the selected pane](docs/img/tree.png)
 
 ## Binaries
 
-- `cmd/orrery`: the Claude Code hook and the CLI client (`hook`, `list`, `seen`, `send`, `debug summarize`, `shell`, `tree`, `tmux-conf`, `open`, `help`).
+- `cmd/orrery`: the Claude Code hook and the CLI client (`hook`, `notices`, `desk`, `list`, `seen`, `send`, `debug summarize`, `shell`, `tree`, `tmux-conf`, `open`, `help`).
 - `cmd/orreryd`: the local daemon that holds session state and listens on a unix socket only.
 
 ## Usage
@@ -24,6 +25,15 @@ directory shell, and the home-manager module (`programs.orrery`) installs
 orrery and the `p` launcher. Command lines, flags, environment variables, exit
 codes, key tables, and a settings example are documented in
 [section 11 of `docs/contract.md`](docs/contract.md#11-commands-and-configuration).
+
+## Desk
+
+`orrery desk --sound FILE [--host HOST]...` runs on the machine you sit at. It
+shows each notice from this machine's `orreryd`, and from `orreryd` on each
+`--host` reached over ssh, as a desktop popup, and plays FILE with `pw-play`.
+The remote side runs `orrery notices` over ssh, and nothing listens on the
+network. The popups, reconnects, and command lines are documented in
+[section 11 of `docs/contract.md`](docs/contract.md#orrery-desk).
 
 ## Daily use
 

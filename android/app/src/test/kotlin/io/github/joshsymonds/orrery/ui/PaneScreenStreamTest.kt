@@ -115,7 +115,8 @@ class PaneScreenStreamTest {
      * Moves the virtual clock [VIRTUAL_STEP_MILLIS] at a time until [condition] holds. The screen's reconnect delays and
      * poll intervals run on that clock, so they pass by these steps rather than by the frames a waitUntil loop must
      * reach them in, and the steps needed do not depend on how fast frames run. The real pause between steps lets the
-     * requests in flight finish; [TIMEOUT_MILLIS] bounds that real wait.
+     * requests in flight finish; [TIMEOUT_MILLIS] bounds that real wait. Each step then idles the main looper, so the
+     * deltas the screen hops to the main thread are applied before [condition] is checked.
      */
     private fun advanceUntil(condition: () -> Boolean) {
         val deadline = System.nanoTime() + TIMEOUT_MILLIS * NANOS_PER_MILLI
@@ -123,6 +124,7 @@ class PaneScreenStreamTest {
             check(System.nanoTime() < deadline) { "condition not met within $TIMEOUT_MILLIS ms" }
             composeRule.mainClock.advanceTimeBy(VIRTUAL_STEP_MILLIS)
             Thread.sleep(REAL_PAUSE_MILLIS)
+            composeRule.waitForIdle()
         }
     }
 

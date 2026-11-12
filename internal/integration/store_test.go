@@ -19,8 +19,8 @@ import (
 // exampleSessionID is the Claude Code session id every fixture hook carries.
 const exampleSessionID = "example-session"
 
-// storeFixture is one private tmux server with a pane, a fake claude, a fake ntfy topic, and the socket and project
-// a hook needs. orreryd started from it keeps its store under stateHome.
+// storeFixture is one private tmux server with a pane, a fake claude, and the socket and project a hook needs.
+// orreryd started from it keeps its store under stateHome, and its notices are read from notices once it listens.
 type storeFixture struct {
 	client     *tmuxctl.Client
 	server     string
@@ -29,13 +29,12 @@ type storeFixture struct {
 	project    string
 	transcript string
 	fakeClaude string
-	urlFile    string
 	stateHome  string
 	dbPath     string
-	notices    chan notice
+	notices    *noticeReader
 }
 
-// newStoreFixture starts the pane and writes the fake claude, ntfy URL file, project and transcript a daemon needs.
+// newStoreFixture starts the pane and writes the fake claude, project and transcript a daemon needs.
 func newStoreFixture(t *testing.T) *storeFixture {
 	t.Helper()
 	client, name := newServer(t)
@@ -51,17 +50,11 @@ func newStoreFixture(t *testing.T) *storeFixture {
 		project:    filepath.Join(dir, exampleProjectName),
 		transcript: filepath.Join(dir, "transcript.jsonl"),
 		fakeClaude: filepath.Join(dir, "fake-claude.sh"),
-		urlFile:    filepath.Join(dir, "ntfy-url"),
 		stateHome:  stateHome,
 		dbPath:     filepath.Join(stateHome, "orrery", "orrery.db"),
 	}
 	if err := os.WriteFile(f.fakeClaude, []byte(fakeClaudeScript), 0o700); err != nil {
 		t.Fatalf("write fake claude: %v", err)
-	}
-	ntfyURL, notices := fakeNtfy(t)
-	f.notices = notices
-	if err := os.WriteFile(f.urlFile, []byte(ntfyURL+"\n"), 0o600); err != nil {
-		t.Fatalf("write ntfy URL file: %v", err)
 	}
 	if err := os.Mkdir(f.project, 0o700); err != nil {
 		t.Fatalf("make project: %v", err)
@@ -72,15 +65,16 @@ func newStoreFixture(t *testing.T) *storeFixture {
 	return f
 }
 
-// startOrreryd starts orreryd against the fixture's tmux server with XDG_STATE_HOME set to its state home, and waits
-// for its socket to listen.
+// startOrreryd starts orreryd against the fixture's tmux server with XDG_STATE_HOME set to its state home, waits for
+// its socket to listen, and starts reading its notices.
 func (f *storeFixture) startOrreryd(t *testing.T) *orreryProcess {
 	t.Helper()
 	daemon := startBinary(t, "orreryd",
-		scrubbedEnv("ORRERY_NTFY_URL_FILE="+f.urlFile, "XDG_STATE_HOME="+f.stateHome),
+		scrubbedEnv("XDG_STATE_HOME="+f.stateHome),
 		"-L", f.server, "--socket", f.socket,
 		"--claude", f.fakeClaude, "--summary-model", exampleContextName+"="+exampleModel)
 	daemon.waitForListener(t, "unix", f.socket)
+	f.notices = startNoticeReader(t, scrubbedEnv(), f.socket)
 	return daemon
 }
 

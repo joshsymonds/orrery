@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -55,6 +56,8 @@ type convStream struct {
 	msgs chan *orreryv1.WatchConversationResponse
 	done chan struct{}
 	err  error
+	// command is the pane command of the last state the test has read from the stream.
+	command string
 }
 
 // openConversation starts WatchConversation with req. The stream's context is canceled at cleanup, and the call is
@@ -109,6 +112,9 @@ func (s *convStream) next(t *testing.T) *orreryv1.WatchConversationResponse {
 		if !ok {
 			t.Fatalf("stream ended before the next message: %v", s.err)
 		}
+		if state := msg.GetState(); state != nil {
+			s.command = state.GetPane().GetCommand()
+		}
 		return msg
 	case <-time.After(watchWait):
 		t.Fatalf("no message within %v", watchWait)
@@ -134,15 +140,20 @@ func (s *convStream) nextDelta(t *testing.T) *orreryv1.WatchConversationResponse
 	return nil
 }
 
-// settle reads the messages the stream sends while the pane's session is still starting, up to the first keepalive.
-// The pane's command and session activity can each change once after the session starts, and each change is a state
-// delta, so a test that expects a quiet stream settles first.
+// settle reads the messages the stream sends while the pane's session is still starting, up to the first keepalive
+// sent after the stream reports the pane running the program longCommand starts. A pane reports its command only after
+// its shell has exec'd it. The pane's command and session activity can each change once after the session starts, and
+// each change is a state delta, so a test that expects a quiet stream settles first.
 func (s *convStream) settle(t *testing.T) {
 	t.Helper()
-	msg := s.next(t)
-	for !isKeepalive(msg) {
-		msg = s.next(t)
+	ready := strings.Fields(longCommand)[0]
+	deadline := time.Now().Add(watchWait)
+	for time.Now().Before(deadline) {
+		if msg := s.next(t); s.command == ready && isKeepalive(msg) {
+			return
+		}
 	}
+	t.Fatalf("pane never reported %q within %v", ready, watchWait)
 }
 
 // end waits for the stream to end, skipping any message it sends first, and returns the error it ended with. It
