@@ -55,8 +55,6 @@ func TestFrozenNames(t *testing.T) {
 		{"OptionTool", protocol.OptionTool, "@orrery_tool"},
 		{"ShellSessionPrefix", protocol.ShellSessionPrefix, "_orrery-shell-"},
 		{"EnvSocket", protocol.EnvSocket, "ORRERY_SOCKET"},
-		{"EnvNtfyURLFile", protocol.EnvNtfyURLFile, "ORRERY_NTFY_URL_FILE"},
-		{"EnvNtfyAuthFile", protocol.EnvNtfyAuthFile, "ORRERY_NTFY_TOKEN_FILE"},
 		{"EnvSummarizer", protocol.EnvSummarizer, "ORRERY_SUMMARIZER"},
 		{"SummarizerValue", protocol.SummarizerValue, "1"},
 		{"DefaultSummaryModel", protocol.DefaultSummaryModel, "claude-haiku-5-5"},
