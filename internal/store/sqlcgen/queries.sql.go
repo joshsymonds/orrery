@@ -35,6 +35,17 @@ func (q *Queries) CountEnginePrompts(ctx context.Context, arg CountEnginePrompts
 	return count, err
 }
 
+const countMemberGrants = `-- name: CountMemberGrants :one
+SELECT COUNT(*) FROM grant_members WHERE member = ?
+`
+
+func (q *Queries) CountMemberGrants(ctx context.Context, member string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countMemberGrants, member)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const deleteEngineText = `-- name: DeleteEngineText :exec
 DELETE FROM engine_text
 WHERE session_id = ? AND message_id = ? AND block_index = ? AND parent_tool_use_id = ?
@@ -54,6 +65,24 @@ func (q *Queries) DeleteEngineText(ctx context.Context, arg DeleteEngineTextPara
 		arg.BlockIndex,
 		arg.ParentToolUseID,
 	)
+	return err
+}
+
+const deleteGrant = `-- name: DeleteGrant :exec
+DELETE FROM grants WHERE id = ?
+`
+
+func (q *Queries) DeleteGrant(ctx context.Context, id string) error {
+	_, err := q.db.ExecContext(ctx, deleteGrant, id)
+	return err
+}
+
+const deleteGrantMembers = `-- name: DeleteGrantMembers :exec
+DELETE FROM grant_members WHERE grant_id = ?
+`
+
+func (q *Queries) DeleteGrantMembers(ctx context.Context, grantID string) error {
+	_, err := q.db.ExecContext(ctx, deleteGrantMembers, grantID)
 	return err
 }
 
@@ -329,6 +358,50 @@ func (q *Queries) InsertEvent(ctx context.Context, arg InsertEventParams) error 
 	return err
 }
 
+const insertGrant = `-- name: InsertGrant :exec
+INSERT INTO grants (id, project, client_pid, pools, granted) VALUES (?, ?, ?, ?, ?)
+`
+
+type InsertGrantParams struct {
+	ID        string
+	Project   string
+	ClientPid int64
+	Pools     string
+	Granted   int64
+}
+
+func (q *Queries) InsertGrant(ctx context.Context, arg InsertGrantParams) error {
+	_, err := q.db.ExecContext(ctx, insertGrant,
+		arg.ID,
+		arg.Project,
+		arg.ClientPid,
+		arg.Pools,
+		arg.Granted,
+	)
+	return err
+}
+
+const insertGrantMember = `-- name: InsertGrantMember :exec
+INSERT INTO grant_members (member, grant_id, pool, position) VALUES (?, ?, ?, ?)
+`
+
+type InsertGrantMemberParams struct {
+	Member   string
+	GrantID  string
+	Pool     string
+	Position int64
+}
+
+func (q *Queries) InsertGrantMember(ctx context.Context, arg InsertGrantMemberParams) error {
+	_, err := q.db.ExecContext(ctx, insertGrantMember,
+		arg.Member,
+		arg.GrantID,
+		arg.Pool,
+		arg.Position,
+	)
+	return err
+}
+
 const insertSession = `-- name: InsertSession :exec
 INSERT INTO sessions (id, server, pane) VALUES (?, ?, ?)
 `
@@ -490,6 +563,71 @@ func (q *Queries) ListEvents(ctx context.Context) ([]Event, error) {
 			&i.Kind,
 			&i.At,
 			&i.Payload,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listGrantMembers = `-- name: ListGrantMembers :many
+SELECT member, grant_id, pool, position FROM grant_members ORDER BY grant_id, position
+`
+
+func (q *Queries) ListGrantMembers(ctx context.Context) ([]GrantMember, error) {
+	rows, err := q.db.QueryContext(ctx, listGrantMembers)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GrantMember
+	for rows.Next() {
+		var i GrantMember
+		if err := rows.Scan(
+			&i.Member,
+			&i.GrantID,
+			&i.Pool,
+			&i.Position,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listGrants = `-- name: ListGrants :many
+SELECT id, project, client_pid, pools, granted FROM grants ORDER BY granted, id
+`
+
+func (q *Queries) ListGrants(ctx context.Context) ([]Grant, error) {
+	rows, err := q.db.QueryContext(ctx, listGrants)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Grant
+	for rows.Next() {
+		var i Grant
+		if err := rows.Scan(
+			&i.ID,
+			&i.Project,
+			&i.ClientPid,
+			&i.Pools,
+			&i.Granted,
 		); err != nil {
 			return nil, err
 		}

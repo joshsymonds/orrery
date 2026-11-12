@@ -27,6 +27,21 @@ type Event struct {
 	Payload   string
 }
 
+type Grant struct {
+	ID        string
+	Project   string
+	ClientPid int64
+	Pools     string
+	Granted   int64
+}
+
+type GrantMember struct {
+	Member   string
+	GrantID  string
+	Pool     string
+	Position int64
+}
+
 type Session struct {
 	ID            string
 	Server        string
