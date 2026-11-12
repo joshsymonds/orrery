@@ -390,10 +390,7 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 		summarizers: make(map[tmuxctl.Server]*summary.Summarizer),
 	}
 	observe := func(transition daemon.Transition) { hub.observe(ctx, transition) }
-	notifier := enginehost.NewNotifier(enginehost.NotifierConfig{
-		Push: notices,
-		Desk: desk,
-	})
+	notifier := enginehost.NewNotifier(enginehost.NotifierConfig{Route: router})
 	var sessions *sessionHost
 	if opts.sessions {
 		sessions, err = startSessions(ctx, opts, st, notifier, logger, getenv)

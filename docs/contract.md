@@ -418,7 +418,7 @@ When neither variable is set, `orreryd` exits 1.
 4. **Away.** Otherwise the notice goes to the desk stream and to the phone at once, with route `desk+phone` and reason `away`.
 5. **Push subscription.** The phone gets a notice only when the push store lists at least one subscription. Without one, the phone part is dropped: the route names what remains, and the reason gains `; no push subscription`. An escalation with no subscription ends the notice with route `none` and reason `unseen after 5 minutes; no push subscription`. A failed subscription check reads as a subscription, so the push is attempted.
 6. **Desk notice failure.** A desk notice that cannot be built is not posted. The notice then routes as away, and its reason gains `; desk notice failed` before any `; no push subscription`.
-7. **Ending.** A newer notice for the same pane or session ends the pending one, and so does a pane's transition to a state other than `waiting` or `done`. Each ends with route `none` and reason `changed`. A seen write at or after the notice's time ends it with `none` and `seen`, and the seen write still clears any notice already sent to the phone (see [orreryd](#orreryd)). At shutdown, each pending notice ends with `none` and `shutdown`, and is not sent.
+7. **Ending.** A newer notice for the same pane or session ends the pending one, and so does a pane's or a session's transition to a state other than `waiting` or `done`. Each ends with route `none` and reason `changed`. A seen write at or after the notice's time ends it with `none` and `seen`, and the seen write still clears any notice already sent to the phone (see [orreryd](#orreryd)). At shutdown, each pending notice ends with `none` and `shutdown`, and is not sent.
 
 ### Headless sessions
 
@@ -758,7 +758,7 @@ The `reason` values are these. A reason that gains a clause adds it after `; `:
 | `at the desk` | `desk` | posted to the desk stream; the notice stays pending |
 | `unseen after 5 minutes` | `phone`, or `none` with `no push subscription` | escalated after 5 minutes at the desk, unseen and unchanged |
 | `away` | `desk+phone`, `desk`, `phone` or `none` | routed away from the desk |
-| `changed` | `none` | a newer notice for its key, or the pane moved to another state |
+| `changed` | `none` | a newer notice for its key, or the pane or session moved to another state |
 | `seen` | `none` | a seen write at or after the notice's time |
 | `shutdown` | `none` | `orreryd` shut down while the notice was pending |
 
