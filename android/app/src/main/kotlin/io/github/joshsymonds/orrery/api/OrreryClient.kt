@@ -27,7 +27,6 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.PushClient
 import io.github.joshsymonds.orrery.gen.orrery.v1.RegisterRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.RunRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.SayRequest
-import io.github.joshsymonds.orrery.gen.orrery.v1.ScreenRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.SeenRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.SendKeysRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.SendTextRequest
@@ -249,12 +248,6 @@ class OrreryClient(
     fun panes(): List<Pane> {
         val response = call(write = false) { standard.panes.list(PanesListRequest.getDefaultInstance(), CLIENT_HEADERS) }
         return response.panesList.map { it.toPane() }
-    }
-
-    fun screen(paneId: String): String {
-        val request = ScreenRequest.newBuilder().setPane(paneId).setAnsi(true).setHistory(500).build()
-        val response = call(write = false) { standard.panes.screen(request, CLIENT_HEADERS) }
-        return response.screen.toString(Charsets.UTF_8)
     }
 
     fun conversation(paneId: String): Conversation? {

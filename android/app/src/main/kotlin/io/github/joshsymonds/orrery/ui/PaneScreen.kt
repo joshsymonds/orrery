@@ -8,8 +8,6 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
-import androidx.compose.foundation.ScrollState
-import androidx.compose.foundation.gestures.ScrollableState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -43,6 +42,7 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -73,27 +73,22 @@ private const val COMPOSE_MAX_SHARE = 1f / 3f
 /** Nor less than this, so a very short screen still shows a line or two of the draft. */
 private val COMPOSE_MIN_CAP = 48.dp
 
-/**
- * One tick's pane reads. `conversation` is null for a terminal pane. `text` is null when the
- * screen was not needed this tick.
- */
-private class Snapshot(val pane: Pane?, val conversation: Conversation?, val text: String?)
+/** One tick's pane reads. `conversation` is null when the pane has none. */
+private class Snapshot(val pane: Pane?, val conversation: Conversation?)
 
 /** A `Host.Status` read. `stats` is null when the host answers not_found, which clears the meters. */
 private class HostRead(val stats: List<HostStat>?)
 
 /**
- * One tick's pane reads: the pane list, then the conversation when the pane's state is non-empty,
- * then the screen when it shows as text (a terminal pane, or the live screen). Null when a call
- * fails, so the tick keeps what was shown.
+ * One tick's pane reads: the pane list, then the conversation when the pane's state is non-empty.
+ * Null when a call fails, so the tick keeps what was shown.
  */
-private suspend fun fetchSnapshot(client: OrreryClient, paneId: String, liveScreen: Boolean): Snapshot? =
+private suspend fun fetchSnapshot(client: OrreryClient, paneId: String): Snapshot? =
     withContext(Dispatchers.IO) {
         try {
             val pane = client.panes().firstOrNull { it.id == paneId }
             val conversation = if (pane == null || pane.state.isEmpty()) null else client.conversation(paneId)
-            val text = if (liveScreen || conversation == null) client.screen(paneId) else null
-            Snapshot(pane, conversation, text)
+            Snapshot(pane, conversation)
         } catch (e: IOException) {
             null
         }
@@ -110,12 +105,12 @@ private suspend fun fetchHost(client: OrreryClient): HostRead? =
     }
 
 /**
- * A pane, refreshed every second while the screen is at least started. A Claude pane shows its
- * conversation, with the question card after the last item; any other pane shows its terminal
- * text, with the card below it. A Claude pane's status line sits at the top of the composer band,
- * always in view, with the pane's active goal, when it has one, on a line just above it; tapping it opens the live screen, which shows the terminal text until the
- * status line is tapped again or the live-screen bar is tapped. Each newer read time the
- * conversation reports is sent to the server as the pane's read-up-to time.
+ * A pane, refreshed every second while the screen is at least started. A pane with a conversation
+ * shows it, with the question card after the last item; a pane without one shows a line saying so,
+ * with the card below it. A pane with a conversation shows its status line at the top of the
+ * composer band, always in view, with the pane's active goal, when it has one, on a line just
+ * above it. Each newer read time the conversation reports is sent to the server as the pane's
+ * read-up-to time.
  *
  * The header overlays the body, clipped to the body's bounds, and slides away while the reader
  * scrolls towards newer content; it returns on a short scroll back, and always shows at the top
@@ -132,12 +127,10 @@ fun PaneScreen(
     onBack: () -> Unit = {},
     clock: () -> Long = { System.currentTimeMillis() / 1000 },
 ) {
-    var text by remember(paneId) { mutableStateOf("") }
     var pane by remember(paneId) { mutableStateOf<Pane?>(null) }
     var conversation by remember(paneId) { mutableStateOf<Conversation?>(null) }
     var stats by remember(paneId) { mutableStateOf<List<HostStat>?>(null) }
     var nowSeconds by remember(paneId) { mutableLongStateOf(0L) }
-    var liveScreen by remember(paneId) { mutableStateOf(false) }
     var refreshFailed by remember(paneId) { mutableStateOf(false) }
     var seenAtOpen by remember(paneId) { mutableStateOf<Long?>(null) }
     val refreshRequests = remember(paneId) { Channel<Unit>(Channel.CONFLATED) }
@@ -151,7 +144,7 @@ fun PaneScreen(
                 Lifecycle.Event.ON_START -> {
                     poller = scope.launch {
                         while (true) {
-                            val snapshot = fetchSnapshot(client, paneId, liveScreen)
+                            val snapshot = fetchSnapshot(client, paneId)
                             // Read before the snapshot's conversation is shown, so its time rows
                             // never see the zero clock the state starts with.
                             nowSeconds = clock()
@@ -164,7 +157,6 @@ fun PaneScreen(
                                 // seen time does not move the divider.
                                 seenAtOpen = seenAtOpen ?: snapshot.pane?.seen
                                 conversation = snapshot.conversation
-                                snapshot.text?.let { text = it }
                                 refreshFailed = false
                             }
                             host?.let { stats = it.stats }
@@ -195,15 +187,12 @@ fun PaneScreen(
     val headerRule = remember(paneId) {
         with(density) { HeaderScrollRule(HEADER_HIDE_AFTER_DP.dp.toPx(), HEADER_SHOW_AFTER_DP.dp.toPx()) }
     }
-    val showingConversation = conversation != null && !liveScreen
-    // Keyed by pane, and the terminal's also by view, so a pane switch or a return to the live
-    // screen starts at the newest line instead of where another view was left.
+    val showingConversation = conversation != null
+    // Keyed by pane, so a pane switch starts at the newest line instead of where another pane was left.
     val listState = remember(paneId) { LazyListState() }
     var endRequests by remember(paneId) { mutableIntStateOf(0) }
-    val terminalScroll = remember(paneId, showingConversation) { ScrollState(0) }
     var headerHeightPx by remember { mutableIntStateOf(0) }
     var headerMeasured by remember { mutableStateOf(false) }
-    val bodyScroll: ScrollableState = if (showingConversation) listState else terminalScroll
     val headerShift by animateIntAsState(
         targetValue = if (headerRule.visible) 0 else -headerHeightPx,
         animationSpec = tween(HEADER_SLIDE_MILLIS),
@@ -220,20 +209,20 @@ fun PaneScreen(
         Dp.Unspecified
     }
     val bodyReady = current == null || headerMeasured
-    val headerScroll = remember(headerRule, bodyScroll) {
+    val headerScroll = remember(headerRule, listState) {
         object : NestedScrollConnection {
             override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
                 headerRule.onScroll(
                     deltaPx = -consumed.y,
-                    atTop = !bodyScroll.canScrollBackward,
-                    atBottom = !bodyScroll.canScrollForward,
+                    atTop = !listState.canScrollBackward,
+                    atBottom = !listState.canScrollForward,
                 )
                 return Offset.Zero
             }
         }
     }
-    LaunchedEffect(headerRule, bodyScroll) {
-        snapshotFlow { bodyScroll.canScrollBackward to bodyScroll.canScrollForward }.collect { (canBack, canForward) ->
+    LaunchedEffect(headerRule, listState) {
+        snapshotFlow { listState.canScrollBackward to listState.canScrollForward }.collect { (canBack, canForward) ->
             if (!canBack || !canForward) headerRule.onScroll(0f, atTop = !canBack, atBottom = !canForward)
         }
     }
@@ -245,7 +234,7 @@ fun PaneScreen(
         Box(modifier = Modifier.weight(1f).fillMaxWidth().clipToBounds().nestedScroll(headerScroll)) {
             // The body waits for the header's height, so its first layout already clears the header.
             // Later changes of the padding (the header folding for the keyboard) are followed by
-            // the conversation and the terminal while the reader is at the newest end.
+            // the conversation while the reader is at the newest end.
             if (bodyReady && showingConversation) {
                 val footer: (@Composable () -> Unit)? = question?.let { card ->
                     val content: @Composable () -> Unit = { QuestionCard(card, client, onRefresh = refresh) }
@@ -271,13 +260,15 @@ fun PaneScreen(
                         }
                     },
                 )
-            } else if (bodyReady) {
+            } else if (bodyReady && current != null) {
                 Column(modifier = Modifier.fillMaxSize()) {
-                    TerminalView(
-                        text,
-                        modifier = Modifier.weight(1f).fillMaxWidth(),
-                        verticalState = terminalScroll,
-                        topPadding = bodyTop,
+                    Text(
+                        text = "no conversation",
+                        modifier = Modifier
+                            .testTag("no-conversation")
+                            .weight(1f)
+                            .fillMaxWidth()
+                            .padding(start = 14.dp, end = 14.dp, top = bodyTop),
                     )
                     if (question != null) {
                         QuestionCard(question, client, onRefresh = refresh)
@@ -290,8 +281,6 @@ fun PaneScreen(
                     origin = conversation?.origin,
                     stats = stats,
                     context = conversation?.context,
-                    liveScreen = liveScreen,
-                    onConversation = { liveScreen = false },
                     onBack = onBack,
                     compact = keyboardUp,
                     modifier = Modifier
@@ -319,10 +308,7 @@ fun PaneScreen(
                 {
                     Column(verticalArrangement = Arrangement.spacedBy(GOAL_STATUS_GAP)) {
                         GoalLine(conversation?.goal.orEmpty())
-                        StatusLine(shown, nowSeconds, onClick = {
-                            liveScreen = !liveScreen
-                            refresh()
-                        })
+                        StatusLine(shown, nowSeconds)
                     }
                 }
             },

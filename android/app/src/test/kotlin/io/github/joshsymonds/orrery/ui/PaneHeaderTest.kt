@@ -71,9 +71,7 @@ class PaneHeaderTest {
         origin: String? = prompt,
         stats: List<HostStat>? = null,
         context: ConversationContext? = null,
-        liveScreen: Boolean = false,
         compact: Boolean = false,
-        onConversation: () -> Unit = {},
         onBack: () -> Unit = {},
     ) {
         composeRule.setContent {
@@ -83,8 +81,6 @@ class PaneHeaderTest {
                     origin = origin,
                     stats = stats,
                     context = context,
-                    liveScreen = liveScreen,
-                    onConversation = onConversation,
                     onBack = onBack,
                     compact = compact,
                 )
@@ -237,24 +233,6 @@ class PaneHeaderTest {
     }
 
     @Test
-    fun liveReturnAbsentWithoutLiveScreen() {
-        setHeader(liveScreen = false)
-
-        composeRule.onAllNodesWithTag("live-return").assertCountEquals(0)
-    }
-
-    @Test
-    fun liveScreenBarShowsConversationControlAndTapCallsOnConversation() {
-        var returned = false
-        setHeader(liveScreen = true, onConversation = { returned = true })
-
-        composeRule.onNodeWithTag("live-return").assertTextEquals("‹ conversation").performClick()
-        composeRule.onNodeWithText("live screen").assertIsDisplayed()
-
-        assertTrue(returned)
-    }
-
-    @Test
     fun tappingBackCallsOnBack() {
         var backed = false
         setHeader(onBack = { backed = true })
@@ -268,7 +246,6 @@ class PaneHeaderTest {
     fun compactHeaderFoldsAwayTitleBackOriginMetersAndHairline() {
         setHeader(
             stats = listOf(HostStat("cpu", "42%", 42.0, "ok")),
-            liveScreen = true,
             compact = true,
         )
 
@@ -277,7 +254,6 @@ class PaneHeaderTest {
         composeRule.onAllNodesWithTag("pane-back").assertCountEquals(0)
         composeRule.onAllNodesWithTag("pane-origin").assertCountEquals(0)
         composeRule.onAllNodesWithTag("host-meters").assertCountEquals(0)
-        composeRule.onAllNodesWithTag("live-return").assertCountEquals(0)
     }
 
     @Test
@@ -290,8 +266,6 @@ class PaneHeaderTest {
                     origin = prompt,
                     stats = null,
                     context = null,
-                    liveScreen = false,
-                    onConversation = {},
                     onBack = {},
                     compact = compact.value,
                 )

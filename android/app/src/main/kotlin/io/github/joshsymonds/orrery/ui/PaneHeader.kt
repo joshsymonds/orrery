@@ -15,12 +15,10 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.AnnotatedString
@@ -42,8 +40,7 @@ private const val METER_BLOCKS = 5
 
 /**
  * A pane's header: a back control and the title, the project and opening prompt (or the cwd) in
- * at most two lines, the host meters when there are stats, and a bar back to the conversation
- * when the live screen shows.
+ * at most two lines, and the host meters when there are stats.
  *
  * [compact] folds the whole header away, to nothing, and brings it back when it clears.
  */
@@ -53,8 +50,6 @@ fun PaneHeader(
     origin: String?,
     stats: List<HostStat>?,
     context: ConversationContext?,
-    liveScreen: Boolean,
-    onConversation: () -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
     compact: Boolean = false,
@@ -117,43 +112,9 @@ fun PaneHeader(
                         HostMeters(it, Modifier.padding(top = 10.dp, start = 2.dp, end = 2.dp))
                     }
                 }
-                if (liveScreen) {
-                    HairLine()
-                    LiveScreenBar(onConversation)
-                }
                 HairLine()
             }
         }
-    }
-}
-
-@Composable
-private fun LiveScreenBar(onConversation: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 14.dp, vertical = 5.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        Text(
-            text = "‹ conversation",
-            modifier = Modifier
-                .testTag("live-return")
-                .clip(RoundedCornerShape(6.dp))
-                .background(Mocha.Surface0)
-                .clickable(onClick = onConversation)
-                .padding(horizontal = 9.dp, vertical = 2.dp),
-            color = Mocha.Mauve,
-            fontSize = 12.sp,
-            maxLines = 1,
-        )
-        Text(
-            text = "live screen",
-            color = Mocha.Overlay1,
-            fontSize = 11.sp,
-            maxLines = 1,
-        )
     }
 }
 

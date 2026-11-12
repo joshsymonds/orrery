@@ -1,7 +1,6 @@
 package io.github.joshsymonds.orrery.api
 
 import com.connectrpc.Code
-import com.google.protobuf.ByteString
 import io.github.joshsymonds.orrery.gen.orrery.v1.AnswerRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.AnswerResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.AskRequest
@@ -28,8 +27,6 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.RunRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.RunResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.SayRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.SayResponse
-import io.github.joshsymonds.orrery.gen.orrery.v1.ScreenRequest
-import io.github.joshsymonds.orrery.gen.orrery.v1.ScreenResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.SeenRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.SeenResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.SendKeysRequest
@@ -184,37 +181,6 @@ class OrreryClientTest {
             assertEquals(1, panes.size)
             assertEquals("%3", panes.single().id)
             assertEquals(0L, panes.single().newestReply)
-        }
-    }
-
-    @Test
-    fun screenAsksForColouredHistoryAndReturnsBodyVerbatim() {
-        val screen = "\u001B[38;2;166;227;161mline one\u001B[0m  \nline two\n\tindent ✓\n"
-        FakeOrreryServer().use { server ->
-            server.respond(SCREEN, ScreenResponse.newBuilder().setScreen(ByteString.copyFromUtf8(screen)).build())
-
-            assertEquals(screen, OrreryClient(server.baseUrl).screen("%3"))
-
-            val request = server.requests.single()
-            assertConnectRequest(SCREEN, request)
-            assertEquals(
-                ScreenRequest.newBuilder().setPane("%3").setAnsi(true).setHistory(500).build(),
-                ScreenRequest.parseFrom(request.body),
-            )
-        }
-    }
-
-    @Test
-    fun screenFromPlainTextBodyReturnsItUnchanged() {
-        val screen = "plain line\nsecond line\n"
-        FakeOrreryServer().use { server ->
-            server.respond(SCREEN, ScreenResponse.newBuilder().setScreen(ByteString.copyFromUtf8(screen)).build())
-
-            assertEquals(screen, OrreryClient(server.baseUrl).screen("%3"))
-            assertEquals(
-                ScreenRequest.newBuilder().setPane("%3").setAnsi(true).setHistory(500).build(),
-                ScreenRequest.parseFrom(server.requests.single().body),
-            )
         }
     }
 
@@ -1135,7 +1101,6 @@ class OrreryClientTest {
 
     private companion object {
         const val PANES_LIST = "/orrery.v1.Panes/List"
-        const val SCREEN = "/orrery.v1.Panes/Screen"
         const val CONVERSATION = "/orrery.v1.Panes/Conversation"
         const val SEND_TEXT = "/orrery.v1.Panes/SendText"
         const val SEND_KEYS = "/orrery.v1.Panes/SendKeys"
