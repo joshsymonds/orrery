@@ -27,6 +27,7 @@ func treeOrder() []struct {
 		{"c", keymap.ActNewClaude},
 		{"s", keymap.ActShell},
 		{"N", keymap.ActPicker},
+		{"p", keymap.ActPools},
 		{"X", keymap.ActClosePane},
 		{"D", keymap.ActCloseProject},
 		{"?", keymap.ActHelp},

@@ -1,0 +1,10 @@
+[38;2;203;166;247mgpu[39m  [38;2;108;112;134mcap 2[39m
+[48;2;49;50;68m> gpu-1            [38;2;108;112;134madmitted[39m    [38;2;166;227;161mgranted[39m  /home/user/src/alpha   [38;2;108;112;134mclaude --resume[39m      12m             [49m
+  gpu-2            [38;2;108;112;134mawake[39m       [38;2;203;166;247mheld[39m     -                      [38;2;108;112;134m-[39m                    3m
+  gpu-3            [38;2;108;112;134madmitted[39m    [38;2;250;179;135mstopping[39m /home/user/src/gamma   [38;2;108;112;134mnpm test[39m             20s
+  gpu-4            [38;2;108;112;134masleep[39m      [38;2;108;112;134mfree[39m     -                      [38;2;108;112;134m-[39m                    -
+[38;2;108;112;134m  waiting[39m
+    1  /home/user/src/beta    [38;2;108;112;134mcargo build[39m          count 1  4m
+    2  /home/user/src/delta   [38;2;108;112;134mmake[39m                 count 2  1m
+[38;2;203;166;247mholds[39m
+  box-9            [38;2;108;112;134m-[39m           [38;2;203;166;247mheld[39m     -                      [38;2;108;112;134m-[39m                    5m

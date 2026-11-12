@@ -28,6 +28,7 @@ const (
 	ActNewClaude    Action = "new-claude"
 	ActShell        Action = "shell"
 	ActPicker       Action = "picker"
+	ActPools        Action = "pools"
 	ActClosePane    Action = "close-pane"
 	ActCloseProject Action = "close-project"
 	ActHelp         Action = "help"
@@ -69,6 +70,13 @@ func table() []Binding {
 		{Tree, []string{"s"}, ActShell, "open the shell popup for the row's directory, and close the tree"},
 		{Tree, []string{"N"}, ActPicker, "close the tree and run the picker for the row's directory; the picker's " +
 			"choice switches the client"},
+		{
+			Tree,
+			[]string{"p"},
+			ActPools,
+			"show the pools view: each member's state and holder, the waiters, and the holds; p again returns to " +
+				"the panes",
+		},
 		{
 			Tree,
 			[]string{"X"},
