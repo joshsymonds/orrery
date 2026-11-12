@@ -115,6 +115,40 @@ func Apply(
 	return transition, from != to, nil
 }
 
+// EndInterruptedTurn ends a working pane's turn when the transcript shows an interruption after the turn
+// started. interrupted is the unix seconds of the newest interruption line, 0 when there is none. When the
+// pane is working and interrupted is later than its @orrery_changed, the pane becomes done as a Stop leaves
+// it, and the call returns true. Otherwise nothing is written and the call returns false.
+func EndInterruptedTurn(
+	ctx context.Context,
+	client *tmuxctl.Client,
+	paneID string,
+	interrupted int64,
+	now time.Time,
+) (bool, error) {
+	from, err := currentState(ctx, client, paneID)
+	if err != nil {
+		return false, err
+	}
+	if from != protocol.StateWorking {
+		return false, nil
+	}
+	started, _, err := changedSecond(ctx, client, paneID)
+	if err != nil {
+		return false, err
+	}
+	if interrupted <= started {
+		return false, nil
+	}
+	// The Stop path reads no hook fields, so no hook is passed.
+	transition := Transition{From: from, To: protocol.StateDone}
+	err = writeTransition(ctx, client, paneID, nil, eventStop, transition, now)
+	if err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 // RecordSession records the Claude Code session id and transcript path that one hook event carries,
 // so a later close can archive them. A SessionEnd with reason clear unsets both options. Any other
 // event sets each option whose hook value is non-empty; an absent or empty value leaves it unchanged.
@@ -202,18 +236,31 @@ func isLateToolEvent(
 	paneID string,
 	now time.Time,
 ) (bool, error) {
-	value, ok, err := client.PaneOption(ctx, paneID, protocol.OptionChanged)
+	stopped, ok, err := changedSecond(ctx, client, paneID)
 	if err != nil {
-		return false, fmt.Errorf("read %s: %w", protocol.OptionChanged, err)
+		return false, err
 	}
 	if !ok {
 		return false, nil
 	}
-	stopped, err := strconv.ParseInt(value, 10, 64)
-	if err != nil {
-		return false, fmt.Errorf("parse %s: %w", protocol.OptionChanged, err)
-	}
 	return now.Sub(time.Unix(stopped, 0)) < stopGraceWindow, nil
+}
+
+// changedSecond reads @orrery_changed as unix seconds. ok is false when the option is unset, and a value
+// that is not an integer is an error.
+func changedSecond(ctx context.Context, client *tmuxctl.Client, paneID string) (int64, bool, error) {
+	value, ok, err := client.PaneOption(ctx, paneID, protocol.OptionChanged)
+	if err != nil {
+		return 0, false, fmt.Errorf("read %s: %w", protocol.OptionChanged, err)
+	}
+	if !ok {
+		return 0, false, nil
+	}
+	seconds, err := strconv.ParseInt(value, 10, 64)
+	if err != nil {
+		return 0, false, fmt.Errorf("parse %s: %w", protocol.OptionChanged, err)
+	}
+	return seconds, true, nil
 }
 
 // isToolEvent reports whether event is a tool-use event.
