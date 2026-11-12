@@ -45,14 +45,14 @@ class PushNotifier(private val context: Context) {
         ensureChannels()
         val tag = event.session.ifEmpty { event.pane }
         val id = notificationId(event.host, tag)
-        val replacing = manager.activeNotifications.any { it.id == id }
+        val replacedChannelId = manager.activeNotifications.firstOrNull { it.id == id }?.notification?.channelId
         val channelId = if (event.silent) SILENT_CHANNEL_ID else CHANNEL_ID
         val builder = Notification.Builder(context, channelId)
             .setSmallIcon(SMALL_ICON)
             .setContentTitle("${event.project} · ${event.state}")
             .setContentText(event.summary.ifEmpty { event.label })
             .setContentIntent(contentIntent(event, tag))
-            .setOnlyAlertOnce(replacing && event.state !in ALERTING_STATES)
+            .setOnlyAlertOnce(replacedChannelId == channelId && event.state !in ALERTING_STATES)
             .setExtras(timeExtras(event.time))
         if (event.session.isEmpty()) {
             if (event.question.isNotEmpty()) {

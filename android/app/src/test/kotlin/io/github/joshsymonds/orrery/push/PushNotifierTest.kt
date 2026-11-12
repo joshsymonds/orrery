@@ -211,6 +211,17 @@ class PushNotifierTest {
     }
 
     @Test
+    fun noisyDoneReplacingSilentDoneAlerts() {
+        notifier.show(idleEvent.copy(state = "done", silent = true))
+
+        notifier.show(idleEvent.copy(state = "done", summary = "Needed", silent = false))
+
+        val notification = posted(notificationId(host, pane))
+        assertEquals(CHANNEL_ID, notification.channelId)
+        assertEquals(0, notification.flags and Notification.FLAG_ONLY_ALERT_ONCE)
+    }
+
+    @Test
     fun firstDoneEventAlerts() {
         notifier.show(idleEvent.copy(state = "done"))
 
