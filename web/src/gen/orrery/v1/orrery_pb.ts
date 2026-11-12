@@ -10,7 +10,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file orrery/v1/orrery.proto.
  */
 export const file_orrery_v1_orrery: GenFile = /*@__PURE__*/
-  fileDesc("ChZvcnJlcnkvdjEvb3JyZXJ5LnByb3RvEglvcnJlcnkudjEiDQoLTGlzdFJlcXVlc3QiQQoMTGlzdFJlc3BvbnNlEiQKCHNlc3Npb25zGAEgAygLMhIub3JyZXJ5LnYxLlNlc3Npb24SCwoDc2VxGAIgASgDIt4BCgdTZXNzaW9uEgoKAmlkGAEgASgJEg4KBnNlcnZlchgCIAEoCRIMCgRwYW5lGAMgASgJEg0KBXN0YXRlGAQgASgJEg8KB2NoYW5nZWQYBSABKAkSDAoEc2VlbhgGIAEoCRIQCghxdWVzdGlvbhgHIAEoCRIPCgdzdW1tYXJ5GAggASgJEg0KBWxhYmVsGAkgASgJEg8KB2NvbnRleHQYCiABKAkSDAoEdG9vbBgLIAEoCRIWCg5jbGF1ZGVfc2Vzc2lvbhgMIAEoCRISCgp0cmFuc2NyaXB0GA0gASgJIhUKE0xpc3RIZWFkbGVzc1JlcXVlc3QiRAoUTGlzdEhlYWRsZXNzUmVzcG9uc2USLAoIc2Vzc2lvbnMYASADKAsyGi5vcnJlcnkudjEuSGVhZGxlc3NTZXNzaW9uIqABCg9IZWFkbGVzc1Nlc3Npb24SCgoCaWQYASABKAkSCwoDZGlyGAIgASgJEg0KBWxhYmVsGAMgASgJEg0KBXN0YXRlGAQgASgJEg8KB2NoYW5nZWQYBSABKAMSDAoEc2VlbhgGIAEoAxIPCgdzdW1tYXJ5GAcgASgJEhAKCHF1ZXN0aW9uGAggASgJEhQKDG5ld2VzdF9yZXBseRgJIAEoAyJMCiBTZXNzaW9uc1dhdGNoQ29udmVyc2F0aW9uUmVxdWVzdBIKCgJpZBgBIAEoCRINCgVsaW1pdBgCIAEoDRINCgVhZnRlchgDIAEoAyLXAQohU2Vzc2lvbnNXYXRjaENvbnZlcnNhdGlvblJlc3BvbnNlEhIKCnRyYW5zY3JpcHQYASABKAkSCwoDc2VxGAIgASgDEg0KBXJlc2V0GAMgASgIEioKBWl0ZW1zGAQgAygLMhsub3JyZXJ5LnYxLkNvbnZlcnNhdGlvbkl0ZW0SKwoFc3RhdGUYBSABKAsyHC5vcnJlcnkudjEuQ29udmVyc2F0aW9uU3RhdGUSKQoKdW5maW5pc2hlZBgGIAMoCzIVLm9ycmVyeS52MS5FbmdpbmVUZXh0IkoKC09wZW5SZXF1ZXN0EgoKAmlkGAEgASgJEgwKBGtpbmQYAiABKAkSEAoIcXVlc3Rpb24YAyABKAkSDwoHb3B0aW9ucxgEIAMoCSIdCgxXYXRjaFJlcXVlc3QSDQoFYWZ0ZXIYASABKAMiiQUKDVdhdGNoUmVzcG9uc2USCwoDc2VxGAEgASgDEhIKCnNlc3Npb25faWQYAiABKAkSCgoCYXQYAyABKAMSMAoNc2Vzc2lvbl9hZGRlZBgEIAEoCzIXLm9ycmVyeS52MS5TZXNzaW9uQWRkZWRIABI0Cg9zZXNzaW9uX2NoYW5nZWQYBSABKAsyGS5vcnJlcnkudjEuU2Vzc2lvbkNoYW5nZWRIABI0Cg9zZXNzaW9uX3JlbW92ZWQYBiABKAsyGS5vcnJlcnkudjEuU2Vzc2lvblJlbW92ZWRIABIuCgxlbmdpbmVfYWRkZWQYByABKAsyFi5vcnJlcnkudjEuRW5naW5lQWRkZWRIABIyCg5lbmdpbmVfY2hhbmdlZBgIIAEoCzIYLm9ycmVyeS52MS5FbmdpbmVDaGFuZ2VkSAASMAoNZW5naW5lX3Byb21wdBgJIAEoCzIXLm9ycmVyeS52MS5FbmdpbmVQcm9tcHRIABIuCgxlbmdpbmVfYmxvY2sYCiABKAsyFi5vcnJlcnkudjEuRW5naW5lQmxvY2tIABIyCg5lbmdpbmVfcmVxdWVzdBgLIAEoCzIYLm9ycmVyeS52MS5FbmdpbmVSZXF1ZXN0SAASQwoXZW5naW5lX3JlcXVlc3RfY2FuY2VsZWQYDCABKAsyIC5vcnJlcnkudjEuRW5naW5lUmVxdWVzdENhbmNlbGVkSAASNwoRZW5naW5lX3R1cm5fZW5kZWQYDSABKAsyGi5vcnJlcnkudjEuRW5naW5lVHVybkVuZGVkSAASLAoLZW5naW5lX3RleHQYDiABKAsyFS5vcnJlcnkudjEuRW5naW5lVGV4dEgAQgcKBWV2ZW50IiwKDFNlc3Npb25BZGRlZBIOCgZzZXJ2ZXIYASABKAkSDAoEcGFuZRgCIAEoCSLmAgoOU2Vzc2lvbkNoYW5nZWQSEgoFc3RhdGUYASABKAlIAIgBARIUCgdjaGFuZ2VkGAIgASgJSAGIAQESEQoEc2VlbhgDIAEoCUgCiAEBEhUKCHF1ZXN0aW9uGAQgASgJSAOI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bW1hbmQYByABKAkSDQoFc3RhdGUYCCABKAkSDwoHc3VtbWFyeRgJIAEoCRINCgVsYWJlbBgKIAEoCRIPCgdjaGFuZ2VkGAsgASgDEgwKBHNlZW4YDCABKAMSEAoIcXVlc3Rpb24YDSABKAkSDwoHY29udGV4dBgOIAEoCRIQCghhY3Rpdml0eRgPIAEoAxIMCgR0b29sGBAgASgJEhYKDmNsYXVkZV9zZXNzaW9uGBEgASgJEhUKDXF1ZXN0aW9uX2hhc2gYEiABKAkSFAoMbmV3ZXN0X3JlcGx5GBMgASgDIjwKDVNjcmVlblJlcXVlc3QSDAoEcGFuZRgBIAEoCRIMCgRhbnNpGAIgASgIEg8KB2hpc3RvcnkYAyABKA0iIAoOU2NyZWVuUmVzcG9uc2USDgoGc2NyZWVuGAEgASgMIjIKE0NvbnZlcnNhdGlvblJlcXVlc3QSDAoEcGFuZRgBIAEoCRINCgVsaW1pdBgCIAEoDSK9AQoUQ29udmVyc2F0aW9uUmVzcG9uc2USDgoGb3JpZ2luGAEgASgJEioKBWl0ZW1zGAIgAygLMhsub3JyZXJ5LnYxLkNvbnZlcnNhdGlvbkl0ZW0SDAoEZ29hbBgDIAEoCRIqCgd3YWl0aW5nGAQgAygLMhkub3JyZXJ5LnYxLldhaXRpbmdNZXNzYWdlEi8KB2NvbnRleHQYBSABKAsyHi5vcnJlcnkudjEuQ29udmVyc2F0aW9uQ29udGV4dCKlAQoQQ29udmVyc2F0aW9uSXRlbRIMCgRraW5kGAEgASgJEgwKBHRpbWUYAiABKAMSDAoEdGV4dBgDIAEoCRIMCgR0b29sGAQgASgJEg0KBWlucHV0GAUgASgJEgoKAmlkGAYgASgJEg0KBWVycm9yGAcgASgIEg4KBm5vdGljZRgIIAEoCRIPCgd0cmlnZ2VyGAkgASgJEg4KBnRva2VucxgKIAEoAyI1ChNDb252ZXJzYXRpb25Db250ZXh0Eg4KBnRva2VucxgBIAEoAxIOCgZ3aW5kb3cYAiABKAMiPgoOV2FpdGluZ01lc3NhZ2USDAoEdGV4dBgBIAEoCRIMCgR0aW1lGAIgASgDEhAKCGNhbmNlbGVkGAMgASgIIloKGFdhdGNoQ29udmVyc2F0aW9uUmVxdWVzdBIMCgRwYW5lGAEgASgJEg0KBWxpbWl0GAIgASgNEhIKCnRyYW5zY3JpcHQYAyABKAkSDQoFYWZ0ZXIYBCABKAMizwEKGVdhdGNoQ29udmVyc2F0aW9uUmVzcG9uc2USEgoKdHJhbnNjcmlwdBgBIAEoCRILCgNzZXEYAiABKAMSDQoFcmVzZXQYAyABKAgSKgoFaXRlbXMYBCADKAsyGy5vcnJlcnkudjEuQ29udmVyc2F0aW9uSXRlbRIrCgVzdGF0ZRgFIAEoCzIcLm9ycmVyeS52MS5Db252ZXJzYXRpb25TdGF0ZRIpCgp1bmZpbmlzaGVkGAYgAygLMhUub3JyZXJ5LnYxLkVuZ2luZVRleHQigwIKEUNvbnZlcnNhdGlvblN0YXRlEg4KBm9yaWdpbhgBIAEoCRIMCgRnb2FsGAIgASgJEioKB3dhaXRpbmcYAyADKAsyGS5vcnJlcnkudjEuV2FpdGluZ01lc3NhZ2USLwoHY29udGV4dBgEIAEoCzIeLm9ycmVyeS52MS5Db252ZXJzYXRpb25Db250ZXh0Eh0KBHBhbmUYBSABKAsyDy5vcnJlcnkudjEuUGFuZRIrCgdzZXNzaW9uGAYgASgLMhoub3JyZXJ5LnYxLkhlYWRsZXNzU2Vzc2lvbhInCgdyZXF1ZXN0GAcgASgLMhYub3JyZXJ5LnYxLk9wZW5SZXF1ZXN0Ii0KD1NlbmRUZXh0UmVxdWVzdBIMCgRwYW5lGAEgASgJEgwKBHRleHQYAiABKAkiEgoQU2VuZFRleHRSZXNwb25zZSJfCg9TZW5kS2V5c1JlcXVlc3QSDAoEcGFuZRgBIAEoCRIMCgRrZXlzGAIgAygJEhwKD2V4cGVjdF9xdWVzdGlvbhgDIAEoCUgAiAEBQhIKEF9leHBlY3RfcXVlc3Rpb24iEgoQU2VuZEtleXNSZXNwb25zZSJHCg9NYXJrU2VlblJlcXVlc3QSDAoEcGFuZRgBIAEoCRIXCgpyZWFkX3VwX3RvGAIgASgDSACIAQFCDQoLX3JlYWRfdXBfdG8iEgoQTWFya1NlZW5SZXNwb25zZSITChFIb3N0U3RhdHVzUmVxdWVzdCJGChJIb3N0U3RhdHVzUmVzcG9uc2USDAoEaG9zdBgBIAEoCRIiCgVzdGF0cxgCIAMoCzITLm9ycmVyeS52MS5Ib3N0U3RhdCJZCghIb3N0U3RhdBINCgVsYWJlbBgBIAEoCRINCgV2YWx1ZRgCIAEoCRIUCgdwZXJjZW50GAMgASgBSACIAQESDQoFbGV2ZWwYBCABKAlCCgoIX3BlcmNlbnQiQQoPUmVnaXN0ZXJSZXF1ZXN0EhAKCGVuZHBvaW50GAEgASgJEg4KBnAyNTZkaBgCIAEoCRIMCgRhdXRoGAMgASgJIhIKEFJlZ2lzdGVyUmVzcG9uc2UiJQoRVW5yZWdpc3RlclJlcXVlc3QSEAoIZW5kcG9pbnQYASABKAkiFAoSVW5yZWdpc3RlclJlc3BvbnNlIhoKCkFza1JlcXVlc3QSDAoEdGV4dBgBIAEoCSIxCgtBc2tSZXNwb25zZRIiCgRyb3dzGAEgAygLMhQub3JyZXJ5LnYxLlBpY2tlclJvdyJwCglQaWNrZXJSb3cSDQoFdG9rZW4YASABKAkSDAoEa2luZBgCIAEoCRILCgNkaXIYAyABKAkSDAoEcGFuZRgEIAEoCRINCgVsYWJlbBgFIAEoCRIMCgRub3RlGAYgASgJEg4KBnByb21wdBgHIAEoCCIbCgpSdW5SZXF1ZXN0Eg0KBXRva2VuGAEgASgJIhsKC1J1blJlc3BvbnNlEgwKBHBhbmUYASABKAkyhgIKCFNlc3Npb25zEjcKBExpc3QSFi5vcnJlcnkudjEuTGlzdFJlcXVlc3QaFy5vcnJlcnkudjEuTGlzdFJlc3BvbnNlEk8KDExpc3RIZWFkbGVzcxIeLm9ycmVyeS52MS5MaXN0SGVhZGxlc3NSZXF1ZXN0Gh8ub3JyZXJ5LnYxLkxpc3RIZWFkbGVzc1Jlc3BvbnNlEnAKEVdhdGNoQ29udmVyc2F0aW9uEisub3JyZXJ5LnYxLlNlc3Npb25zV2F0Y2hDb252ZXJzYXRpb25SZXF1ZXN0Giwub3JyZXJ5LnYxLlNlc3Npb25zV2F0Y2hDb252ZXJzYXRpb25SZXNwb25zZTABMkYKBkV2ZW50cxI8CgVXYXRjaBIXLm9ycmVyeS52MS5XYXRjaFJlcXVlc3QaGC5vcnJlcnkudjEuV2F0Y2hSZXNwb25zZTABMvQCCgdDb250cm9sEjoKBVN0YXJ0Ehcub3JyZXJ5LnYxLlN0YXJ0UmVxdWVzdBoYLm9ycmVyeS52MS5TdGFydFJlc3BvbnNlEjQKA1NheRIVLm9ycmVyeS52MS5TYXlSZXF1ZXN0GhYub3JyZXJ5LnYxLlNheVJlc3BvbnNlEj0KBkFuc3dlchIYLm9ycmVyeS52MS5BbnN3ZXJSZXF1ZXN0Ghkub3JyZXJ5LnYxLkFuc3dlclJlc3BvbnNlEkYKCUludGVycnVwdBIbLm9ycmVyeS52MS5JbnRlcnJ1cHRSZXF1ZXN0Ghwub3JyZXJ5LnYxLkludGVycnVwdFJlc3BvbnNlEjcKBFN0b3ASFi5vcnJlcnkudjEuU3RvcFJlcXVlc3QaFy5vcnJlcnkudjEuU3RvcFJlc3BvbnNlEjcKBFNlZW4SFi5vcnJlcnkudjEuU2VlblJlcXVlc3QaFy5vcnJlcnkudjEuU2VlblJlc3BvbnNlMosECgVQYW5lcxJBCgRMaXN0Ehsub3JyZXJ5LnYxLlBhbmVzTGlzdFJlcXVlc3QaHC5vcnJlcnkudjEuUGFuZXNMaXN0UmVzcG9uc2USPQoGU2NyZWVuEhgub3JyZXJ5LnYxLlNjcmVlblJlcXVlc3QaGS5vcnJlcnkudjEuU2NyZWVuUmVzcG9uc2USTwoMQ29udmVyc2F0aW9uEh4ub3JyZXJ5LnYxLkNvbnZlcnNhdGlvblJlcXVlc3QaHy5vcnJlcnkudjEuQ29udmVyc2F0aW9uUmVzcG9uc2USQwoIU2VuZFRleHQSGi5vcnJlcnkudjEuU2VuZFRleHRSZXF1ZXN0Ghsub3JyZXJ5LnYxLlNlbmRUZXh0UmVzcG9uc2USQwoIU2VuZEtleXMSGi5vcnJlcnkudjEuU2VuZEtleXNSZXF1ZXN0Ghsub3JyZXJ5LnYxLlNlbmRLZXlzUmVzcG9uc2USQwoITWFya1NlZW4SGi5vcnJlcnkudjEuTWFya1NlZW5SZXF1ZXN0Ghsub3JyZXJ5LnYxLk1hcmtTZWVuUmVzcG9uc2USYAoRV2F0Y2hDb252ZXJzYXRpb24SIy5vcnJlcnkudjEuV2F0Y2hDb252ZXJzYXRpb25SZXF1ZXN0GiQub3JyZXJ5LnYxLldhdGNoQ29udmVyc2F0aW9uUmVzcG9uc2UwATJNCgRIb3N0EkUKBlN0YXR1cxIcLm9ycmVyeS52MS5Ib3N0U3RhdHVzUmVxdWVzdBodLm9ycmVyeS52MS5Ib3N0U3RhdHVzUmVzcG9uc2UylgEKBFB1c2gSQwoIUmVnaXN0ZXISGi5vcnJlcnkudjEuUmVnaXN0ZXJSZXF1ZXN0Ghsub3JyZXJ5LnYxLlJlZ2lzdGVyUmVzcG9uc2USSQoKVW5yZWdpc3RlchIcLm9ycmVyeS52MS5VbnJlZ2lzdGVyUmVxdWVzdBodLm9ycmVyeS52MS5VbnJlZ2lzdGVyUmVzcG9uc2UydAoGUGlja2VyEjQKA0FzaxIVLm9ycmVyeS52MS5Bc2tSZXF1ZXN0GhYub3JyZXJ5LnYxLkFza1Jlc3BvbnNlEjQKA1J1bhIVLm9ycmVyeS52MS5SdW5SZXF1ZXN0GhYub3JyZXJ5LnYxLlJ1blJlc3BvbnNlYgZwcm90bzM");
+  fileDesc("ChZvcnJlcnkvdjEvb3JyZXJ5LnByb3RvEglvcnJlcnkudjEiDQoLTGlzdFJlcXVlc3QiQQoMTGlzdFJlc3BvbnNlEiQKCHNlc3Npb25zGAEgAygLMhIub3JyZXJ5LnYxLlNlc3Npb24SCwoDc2VxGAIgASgDIt4BCgdTZXNzaW9uEgoKAmlkGAEgASgJEg4KBnNlcnZlchgCIAEoCRIMCgRwYW5lGAMgASgJEg0KBXN0YXRlGAQgASgJEg8KB2NoYW5nZWQYBSABKAkSDAoEc2VlbhgGIAEoCRIQCghxdWVzdGlvbhgHIAEoCRIPCgdzdW1tYXJ5GAggASgJEg0KBWxhYmVsGAkgASgJEg8KB2NvbnRleHQYCiABKAkSDAoEdG9vbBgLIAEoCRIWCg5jbGF1ZGVfc2Vzc2lvbhgMIAEoCRISCgp0cmFuc2NyaXB0GA0gASgJIhUKE0xpc3RIZWFkbGVzc1JlcXVlc3QiRAoUTGlzdEhlYWRsZXNzUmVzcG9uc2USLAoIc2Vzc2lvbnMYASADKAsyGi5vcnJlcnkudjEuSGVhZGxlc3NTZXNzaW9uIqABCg9IZWFkbGVzc1Nlc3Npb24SCgoCaWQYASABKAkSCwoDZGlyGAIgASgJEg0KBWxhYmVsGAMgASgJEg0KBXN0YXRlGAQgASgJEg8KB2NoYW5nZWQYBSABKAMSDAoEc2VlbhgGIAEoAxIPCgdzdW1tYXJ5GAcgASgJEhAKCHF1ZXN0aW9uGAggASgJEhQKDG5ld2VzdF9yZXBseRgJIAEoAyJMCiBTZXNzaW9uc1dhdGNoQ29udmVyc2F0aW9uUmVxdWVzdBIKCgJpZBgBIAEoCRINCgVsaW1pdBgCIAEoDRINCgVhZnRlchgDIAEoAyLXAQohU2Vzc2lvbnNXYXRjaENvbnZlcnNhdGlvblJlc3BvbnNlEhIKCnRyYW5zY3JpcHQYASABKAkSCwoDc2VxGAIgASgDEg0KBXJlc2V0GAMgASgIEioKBWl0ZW1zGAQgAygLMhsub3JyZXJ5LnYxLkNvbnZlcnNhdGlvbkl0ZW0SKwoFc3RhdGUYBSABKAsyHC5vcnJlcnkudjEuQ29udmVyc2F0aW9uU3RhdGUSKQoKdW5maW5pc2hlZBgGIAMoCzIVLm9ycmVyeS52MS5FbmdpbmVUZXh0IkoKC09wZW5SZXF1ZXN0EgoKAmlkGAEgASgJEgwKBGtpbmQYAiABKAkSEAoIcXVlc3Rpb24YAyABKAkSDwoHb3B0aW9ucxgEIAMoCSIdCgxXYXRjaFJlcXVlc3QSDQoFYWZ0ZXIYASABKAMiiQUKDVdhdGNoUmVzcG9uc2USCwoDc2VxGAEgASgDEhIKCnNlc3Npb25faWQYAiABKAkSCgoCYXQYAyABKAMSMAoNc2Vzc2lvbl9hZGRlZBgEIAEoCzIXLm9ycmVyeS52MS5TZXNzaW9uQWRkZWRIABI0Cg9zZXNzaW9uX2NoYW5nZWQYBSABKAsyGS5vcnJlcnkudjEuU2Vzc2lvbkNoYW5nZWRIABI0Cg9zZXNzaW9uX3JlbW92ZWQYBiABKAsyGS5vcnJlcnkudjEuU2Vzc2lvblJlbW92ZWRIABIuCgxlbmdpbmVfYWRkZWQYByABKAsyFi5vcnJlcnkudjEuRW5naW5lQWRkZWRIABIyCg5lbmdpbmVfY2hhbmdlZBgIIAEoCzIYLm9ycmVyeS52MS5FbmdpbmVDaGFuZ2VkSAASMAoNZW5naW5lX3Byb21wdBgJIAEoCzIXLm9ycmVyeS52MS5FbmdpbmVQcm9tcHRIABIuCgxlbmdpbmVfYmxvY2sYCiABKAsyFi5vcnJlcnkudjEuRW5naW5lQmxvY2tIABIyCg5lbmdpbmVfcmVxdWVzdBgLIAEoCzIYLm9ycmVyeS52MS5FbmdpbmVSZXF1ZXN0SAASQwoXZW5naW5lX3JlcXVlc3RfY2FuY2VsZWQYDCABKAsyIC5vcnJlcnkudjEuRW5naW5lUmVxdWVzdENhbmNlbGVkSAASNwoRZW5naW5lX3R1cm5fZW5kZWQYDSABKAsyGi5vcnJlcnkudjEuRW5naW5lVHVybkVuZGVkSAASLAoLZW5naW5lX3RleHQYDiABKAsyFS5vcnJlcnkudjEuRW5naW5lVGV4dEgAQgcKBWV2ZW50IiwKDFNlc3Npb25BZGRlZBIOCgZzZXJ2ZXIYASABKAkSDAoEcGFuZRgCIAEoCSLmAgoOU2Vzc2lvbkNoYW5nZWQSEgoFc3RhdGUYASABKAlIAIgBARIUCgdjaGFuZ2VkGAIgASgJSAGIAQESEQoEc2VlbhgDIAEoCUgCiAEBEhUKCHF1ZXN0aW9uGAQgASgJSAOI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bW1hbmQYByABKAkSDQoFc3RhdGUYCCABKAkSDwoHc3VtbWFyeRgJIAEoCRINCgVsYWJlbBgKIAEoCRIPCgdjaGFuZ2VkGAsgASgDEgwKBHNlZW4YDCABKAMSEAoIcXVlc3Rpb24YDSABKAkSDwoHY29udGV4dBgOIAEoCRIQCghhY3Rpdml0eRgPIAEoAxIMCgR0b29sGBAgASgJEhYKDmNsYXVkZV9zZXNzaW9uGBEgASgJEhUKDXF1ZXN0aW9uX2hhc2gYEiABKAkSFAoMbmV3ZXN0X3JlcGx5GBMgASgDIjwKDVNjcmVlblJlcXVlc3QSDAoEcGFuZRgBIAEoCRIMCgRhbnNpGAIgASgIEg8KB2hpc3RvcnkYAyABKA0iIAoOU2NyZWVuUmVzcG9uc2USDgoGc2NyZWVuGAEgASgMIjIKE0NvbnZlcnNhdGlvblJlcXVlc3QSDAoEcGFuZRgBIAEoCRINCgVsaW1pdBgCIAEoDSK9AQoUQ29udmVyc2F0aW9uUmVzcG9uc2USDgoGb3JpZ2luGAEgASgJEioKBWl0ZW1zGAIgAygLMhsub3JyZXJ5LnYxLkNvbnZlcnNhdGlvbkl0ZW0SDAoEZ29hbBgDIAEoCRIqCgd3YWl0aW5nGAQgAygLMhkub3JyZXJ5LnYxLldhaXRpbmdNZXNzYWdlEi8KB2NvbnRleHQYBSABKAsyHi5vcnJlcnkudjEuQ29udmVyc2F0aW9uQ29udGV4dCKlAQoQQ29udmVyc2F0aW9uSXRlbRIMCgRraW5kGAEgASgJEgwKBHRpbWUYAiABKAMSDAoEdGV4dBgDIAEoCRIMCgR0b29sGAQgASgJEg0KBWlucHV0GAUgASgJEgoKAmlkGAYgASgJEg0KBWVycm9yGAcgASgIEg4KBm5vdGljZRgIIAEoCRIPCgd0cmlnZ2VyGAkgASgJEg4KBnRva2VucxgKIAEoAyI1ChNDb252ZXJzYXRpb25Db250ZXh0Eg4KBnRva2VucxgBIAEoAxIOCgZ3aW5kb3cYAiABKAMiPgoOV2FpdGluZ01lc3NhZ2USDAoEdGV4dBgBIAEoCRIMCgR0aW1lGAIgASgDEhAKCGNhbmNlbGVkGAMgASgIIloKGFdhdGNoQ29udmVyc2F0aW9uUmVxdWVzdBIMCgRwYW5lGAEgASgJEg0KBWxpbWl0GAIgASgNEhIKCnRyYW5zY3JpcHQYAyABKAkSDQoFYWZ0ZXIYBCABKAMizwEKGVdhdGNoQ29udmVyc2F0aW9uUmVzcG9uc2USEgoKdHJhbnNjcmlwdBgBIAEoCRILCgNzZXEYAiABKAMSDQoFcmVzZXQYAyABKAgSKgoFaXRlbXMYBCADKAsyGy5vcnJlcnkudjEuQ29udmVyc2F0aW9uSXRlbRIrCgVzdGF0ZRgFIAEoCzIcLm9ycmVyeS52MS5Db252ZXJzYXRpb25TdGF0ZRIpCgp1bmZpbmlzaGVkGAYgAygLMhUub3JyZXJ5LnYxLkVuZ2luZVRleHQigwIKEUNvbnZlcnNhdGlvblN0YXRlEg4KBm9yaWdpbhgBIAEoCRIMCgRnb2FsGAIgASgJEioKB3dhaXRpbmcYAyADKAsyGS5vcnJlcnkudjEuV2FpdGluZ01lc3NhZ2USLwoHY29udGV4dBgEIAEoCzIeLm9ycmVyeS52MS5Db252ZXJzYXRpb25Db250ZXh0Eh0KBHBhbmUYBSABKAsyDy5vcnJlcnkudjEuUGFuZRIrCgdzZXNzaW9uGAYgASgLMhoub3JyZXJ5LnYxLkhlYWRsZXNzU2Vzc2lvbhInCgdyZXF1ZXN0GAcgASgLMhYub3JyZXJ5LnYxLk9wZW5SZXF1ZXN0Ii0KD1NlbmRUZXh0UmVxdWVzdBIMCgRwYW5lGAEgASgJEgwKBHRleHQYAiABKAkiEgoQU2VuZFRleHRSZXNwb25zZSJfCg9TZW5kS2V5c1JlcXVlc3QSDAoEcGFuZRgBIAEoCRIMCgRrZXlzGAIgAygJEhwKD2V4cGVjdF9xdWVzdGlvbhgDIAEoCUgAiAEBQhIKEF9leHBlY3RfcXVlc3Rpb24iEgoQU2VuZEtleXNSZXNwb25zZSJHCg9NYXJrU2VlblJlcXVlc3QSDAoEcGFuZRgBIAEoCRIXCgpyZWFkX3VwX3RvGAIgASgDSACIAQFCDQoLX3JlYWRfdXBfdG8iEgoQTWFya1NlZW5SZXNwb25zZSITChFIb3N0U3RhdHVzUmVxdWVzdCJGChJIb3N0U3RhdHVzUmVzcG9uc2USDAoEaG9zdBgBIAEoCRIiCgVzdGF0cxgCIAMoCzITLm9ycmVyeS52MS5Ib3N0U3RhdCJZCghIb3N0U3RhdBINCgVsYWJlbBgBIAEoCRINCgV2YWx1ZRgCIAEoCRIUCgdwZXJjZW50GAMgASgBSACIAQESDQoFbGV2ZWwYBCABKAlCCgoIX3BlcmNlbnQiQQoPUmVnaXN0ZXJSZXF1ZXN0EhAKCGVuZHBvaW50GAEgASgJEg4KBnAyNTZkaBgCIAEoCRIMCgRhdXRoGAMgASgJIhIKEFJlZ2lzdGVyUmVzcG9uc2UiJQoRVW5yZWdpc3RlclJlcXVlc3QSEAoIZW5kcG9pbnQYASABKAkiFAoSVW5yZWdpc3RlclJlc3BvbnNlIhoKCkFza1JlcXVlc3QSDAoEdGV4dBgBIAEoCSIxCgtBc2tSZXNwb25zZRIiCgRyb3dzGAEgAygLMhQub3JyZXJ5LnYxLlBpY2tlclJvdyJwCglQaWNrZXJSb3cSDQoFdG9rZW4YASABKAkSDAoEa2luZBgCIAEoCRILCgNkaXIYAyABKAkSDAoEcGFuZRgEIAEoCRINCgVsYWJlbBgFIAEoCRIMCgRub3RlGAYgASgJEg4KBnByb21wdBgHIAEoCCIbCgpSdW5SZXF1ZXN0Eg0KBXRva2VuGAEgASgJIhsKC1J1blJlc3BvbnNlEgwKBHBhbmUYASABKAkiFAoSUG9vbHNTdGF0dXNSZXF1ZXN0Il8KE1Bvb2xzU3RhdHVzUmVzcG9uc2USJAoFcG9vbHMYASADKAsyFS5vcnJlcnkudjEuUG9vbFN0YXR1cxIiCgVob2xkcxgCIAMoCzITLm9ycmVyeS52MS5Qb29sSG9sZCJ9CgpQb29sU3RhdHVzEgwKBG5hbWUYASABKAkSCwoDY2FwGAIgASgFEiwKB21lbWJlcnMYAyADKAsyGy5vcnJlcnkudjEuUG9vbE1lbWJlclN0YXR1cxImCgd3YWl0ZXJzGAQgAygLMhUub3JyZXJ5LnYxLlBvb2xXYWl0ZXIiagoQUG9vbE1lbWJlclN0YXR1cxIMCgRuYW1lGAEgASgJEg0KBXN0YXRlGAIgASgJEiUKBmhvbGRlchgDIAEoCzIVLm9ycmVyeS52MS5Qb29sSG9sZGVyEhIKCmhlbGRfc2luY2UYBCABKAMiTwoKUG9vbEhvbGRlchIPCgdwcm9qZWN0GAEgASgJEg8KB2NvbW1hbmQYAiADKAkSDQoFc2luY2UYAyABKAMSEAoIc3RvcHBpbmcYBCABKAgiXgoKUG9vbFdhaXRlchIQCghwb3NpdGlvbhgBIAEoBRIPCgdwcm9qZWN0GAIgASgJEg8KB2NvbW1hbmQYAyADKAkSDQoFY291bnQYBCABKAUSDQoFc2luY2UYBSABKAMiKQoIUG9vbEhvbGQSDgoGbWVtYmVyGAEgASgJEg0KBXNpbmNlGAIgASgDIiIKEFBvb2xzSG9sZFJlcXVlc3QSDgoGbWVtYmVyGAEgASgJIhMKEVBvb2xzSG9sZFJlc3BvbnNlIiIKEFBvb2xzRnJlZVJlcXVlc3QSDgoGbWVtYmVyGAEgASgJIhMKEVBvb2xzRnJlZVJlc3BvbnNlMoYCCghTZXNzaW9ucxI3CgRMaXN0EhYub3JyZXJ5LnYxLkxpc3RSZXF1ZXN0Ghcub3JyZXJ5LnYxLkxpc3RSZXNwb25zZRJPCgxMaXN0SGVhZGxlc3MSHi5vcnJlcnkudjEuTGlzdEhlYWRsZXNzUmVxdWVzdBofLm9ycmVyeS52MS5MaXN0SGVhZGxlc3NSZXNwb25zZRJwChFXYXRjaENvbnZlcnNhdGlvbhIrLm9ycmVyeS52MS5TZXNzaW9uc1dhdGNoQ29udmVyc2F0aW9uUmVxdWVzdBosLm9ycmVyeS52MS5TZXNzaW9uc1dhdGNoQ29udmVyc2F0aW9uUmVzcG9uc2UwATJGCgZFdmVudHMSPAoFV2F0Y2gSFy5vcnJlcnkudjEuV2F0Y2hSZXF1ZXN0Ghgub3JyZXJ5LnYxLldhdGNoUmVzcG9uc2UwATL0AgoHQ29udHJvbBI6CgVTdGFydBIXLm9ycmVyeS52MS5TdGFydFJlcXVlc3QaGC5vcnJlcnkudjEuU3RhcnRSZXNwb25zZRI0CgNTYXkSFS5vcnJlcnkudjEuU2F5UmVxdWVzdBoWLm9ycmVyeS52MS5TYXlSZXNwb25zZRI9CgZBbnN3ZXISGC5vcnJlcnkudjEuQW5zd2VyUmVxdWVzdBoZLm9ycmVyeS52MS5BbnN3ZXJSZXNwb25zZRJGCglJbnRlcnJ1cHQSGy5vcnJlcnkudjEuSW50ZXJydXB0UmVxdWVzdBocLm9ycmVyeS52MS5JbnRlcnJ1cHRSZXNwb25zZRI3CgRTdG9wEhYub3JyZXJ5LnYxLlN0b3BSZXF1ZXN0Ghcub3JyZXJ5LnYxLlN0b3BSZXNwb25zZRI3CgRTZWVuEhYub3JyZXJ5LnYxLlNlZW5SZXF1ZXN0Ghcub3JyZXJ5LnYxLlNlZW5SZXNwb25zZTKLBAoFUGFuZXMSQQoETGlzdBIbLm9ycmVyeS52MS5QYW5lc0xpc3RSZXF1ZXN0Ghwub3JyZXJ5LnYxLlBhbmVzTGlzdFJlc3BvbnNlEj0KBlNjcmVlbhIYLm9ycmVyeS52MS5TY3JlZW5SZXF1ZXN0Ghkub3JyZXJ5LnYxLlNjcmVlblJlc3BvbnNlEk8KDENvbnZlcnNhdGlvbhIeLm9ycmVyeS52MS5Db252ZXJzYXRpb25SZXF1ZXN0Gh8ub3JyZXJ5LnYxLkNvbnZlcnNhdGlvblJlc3BvbnNlEkMKCFNlbmRUZXh0Ehoub3JyZXJ5LnYxLlNlbmRUZXh0UmVxdWVzdBobLm9ycmVyeS52MS5TZW5kVGV4dFJlc3BvbnNlEkMKCFNlbmRLZXlzEhoub3JyZXJ5LnYxLlNlbmRLZXlzUmVxdWVzdBobLm9ycmVyeS52MS5TZW5kS2V5c1Jlc3BvbnNlEkMKCE1hcmtTZWVuEhoub3JyZXJ5LnYxLk1hcmtTZWVuUmVxdWVzdBobLm9ycmVyeS52MS5NYXJrU2VlblJlc3BvbnNlEmAKEVdhdGNoQ29udmVyc2F0aW9uEiMub3JyZXJ5LnYxLldhdGNoQ29udmVyc2F0aW9uUmVxdWVzdBokLm9ycmVyeS52MS5XYXRjaENvbnZlcnNhdGlvblJlc3BvbnNlMAEyTQoESG9zdBJFCgZTdGF0dXMSHC5vcnJlcnkudjEuSG9zdFN0YXR1c1JlcXVlc3QaHS5vcnJlcnkudjEuSG9zdFN0YXR1c1Jlc3BvbnNlMpYBCgRQdXNoEkMKCFJlZ2lzdGVyEhoub3JyZXJ5LnYxLlJlZ2lzdGVyUmVxdWVzdBobLm9ycmVyeS52MS5SZWdpc3RlclJlc3BvbnNlEkkKClVucmVnaXN0ZXISHC5vcnJlcnkudjEuVW5yZWdpc3RlclJlcXVlc3QaHS5vcnJlcnkudjEuVW5yZWdpc3RlclJlc3BvbnNlMnQKBlBpY2tlchI0CgNBc2sSFS5vcnJlcnkudjEuQXNrUmVxdWVzdBoWLm9ycmVyeS52MS5Bc2tSZXNwb25zZRI0CgNSdW4SFS5vcnJlcnkudjEuUnVuUmVxdWVzdBoWLm9ycmVyeS52MS5SdW5SZXNwb25zZTLWAQoFUG9vbHMSRwoGU3RhdHVzEh0ub3JyZXJ5LnYxLlBvb2xzU3RhdHVzUmVxdWVzdBoeLm9ycmVyeS52MS5Qb29sc1N0YXR1c1Jlc3BvbnNlEkEKBEhvbGQSGy5vcnJlcnkudjEuUG9vbHNIb2xkUmVxdWVzdBocLm9ycmVyeS52MS5Qb29sc0hvbGRSZXNwb25zZRJBCgRGcmVlEhsub3JyZXJ5LnYxLlBvb2xzRnJlZVJlcXVlc3QaHC5vcnJlcnkudjEuUG9vbHNGcmVlUmVzcG9uc2ViBnByb3RvMw");
 
 /**
  * ListRequest asks for every tracked session. It has no fields.
@@ -2446,6 +2446,324 @@ export const RunResponseSchema: GenMessage<RunResponse> = /*@__PURE__*/
   messageDesc(file_orrery_v1_orrery, 64);
 
 /**
+ * PoolsStatusRequest asks for the pools in use and the owner holds. It has no fields.
+ *
+ * @generated from message orrery.v1.PoolsStatusRequest
+ */
+export type PoolsStatusRequest = Message<"orrery.v1.PoolsStatusRequest"> & {
+};
+
+/**
+ * Describes the message orrery.v1.PoolsStatusRequest.
+ * Use `create(PoolsStatusRequestSchema)` to create a new message.
+ */
+export const PoolsStatusRequestSchema: GenMessage<PoolsStatusRequest> = /*@__PURE__*/
+  messageDesc(file_orrery_v1_orrery, 65);
+
+/**
+ * PoolsStatusResponse carries the pools in use and the owner holds.
+ *
+ * @generated from message orrery.v1.PoolsStatusResponse
+ */
+export type PoolsStatusResponse = Message<"orrery.v1.PoolsStatusResponse"> & {
+  /**
+   * The pools in use, sorted by name.
+   *
+   * @generated from field: repeated orrery.v1.PoolStatus pools = 1;
+   */
+  pools: PoolStatus[];
+
+  /**
+   * Every owner hold, sorted by member. It covers holds on members of no pool in use.
+   *
+   * @generated from field: repeated orrery.v1.PoolHold holds = 2;
+   */
+  holds: PoolHold[];
+};
+
+/**
+ * Describes the message orrery.v1.PoolsStatusResponse.
+ * Use `create(PoolsStatusResponseSchema)` to create a new message.
+ */
+export const PoolsStatusResponseSchema: GenMessage<PoolsStatusResponse> = /*@__PURE__*/
+  messageDesc(file_orrery_v1_orrery, 66);
+
+/**
+ * PoolStatus is one pool in use: its cap, its members, and the requests waiting for it.
+ *
+ * @generated from message orrery.v1.PoolStatus
+ */
+export type PoolStatus = Message<"orrery.v1.PoolStatus"> & {
+  /**
+   * The pool's name.
+   *
+   * @generated from field: string name = 1;
+   */
+  name: string;
+
+  /**
+   * How many of the pool's members one project may hold at once.
+   *
+   * @generated from field: int32 cap = 2;
+   */
+  cap: number;
+
+  /**
+   * The pool's members, in the order its definition declares them.
+   *
+   * @generated from field: repeated orrery.v1.PoolMemberStatus members = 3;
+   */
+  members: PoolMemberStatus[];
+
+  /**
+   * The requests waiting for the pool, in queue order.
+   *
+   * @generated from field: repeated orrery.v1.PoolWaiter waiters = 4;
+   */
+  waiters: PoolWaiter[];
+};
+
+/**
+ * Describes the message orrery.v1.PoolStatus.
+ * Use `create(PoolStatusSchema)` to create a new message.
+ */
+export const PoolStatusSchema: GenMessage<PoolStatus> = /*@__PURE__*/
+  messageDesc(file_orrery_v1_orrery, 67);
+
+/**
+ * PoolMemberStatus is one member of a pool in use.
+ *
+ * @generated from message orrery.v1.PoolMemberStatus
+ */
+export type PoolMemberStatus = Message<"orrery.v1.PoolMemberStatus"> & {
+  /**
+   * The member's name.
+   *
+   * @generated from field: string name = 1;
+   */
+  name: string;
+
+  /**
+   * The member's state: unknown, asleep, awake, waking, admitting, admitted, or unavailable.
+   *
+   * @generated from field: string state = 2;
+   */
+  state: string;
+
+  /**
+   * The grant that holds the member, unset when no grant holds it.
+   *
+   * @generated from field: orrery.v1.PoolHolder holder = 3;
+   */
+  holder?: PoolHolder | undefined;
+
+  /**
+   * The unix seconds the member was held, or 0 when it is not held.
+   *
+   * @generated from field: int64 held_since = 4;
+   */
+  heldSince: bigint;
+};
+
+/**
+ * Describes the message orrery.v1.PoolMemberStatus.
+ * Use `create(PoolMemberStatusSchema)` to create a new message.
+ */
+export const PoolMemberStatusSchema: GenMessage<PoolMemberStatus> = /*@__PURE__*/
+  messageDesc(file_orrery_v1_orrery, 68);
+
+/**
+ * PoolHolder is the grant that holds a member.
+ *
+ * @generated from message orrery.v1.PoolHolder
+ */
+export type PoolHolder = Message<"orrery.v1.PoolHolder"> & {
+  /**
+   * The absolute path of the grant's project.
+   *
+   * @generated from field: string project = 1;
+   */
+  project: string;
+
+  /**
+   * The argv of the grant's command. Empty when the client sent none.
+   *
+   * @generated from field: repeated string command = 2;
+   */
+  command: string[];
+
+  /**
+   * The unix seconds the grant was granted.
+   *
+   * @generated from field: int64 since = 3;
+   */
+  since: bigint;
+
+  /**
+   * Whether the grant is stopping, because one of its members is held.
+   *
+   * @generated from field: bool stopping = 4;
+   */
+  stopping: boolean;
+};
+
+/**
+ * Describes the message orrery.v1.PoolHolder.
+ * Use `create(PoolHolderSchema)` to create a new message.
+ */
+export const PoolHolderSchema: GenMessage<PoolHolder> = /*@__PURE__*/
+  messageDesc(file_orrery_v1_orrery, 69);
+
+/**
+ * PoolWaiter is one request waiting for a pool.
+ *
+ * @generated from message orrery.v1.PoolWaiter
+ */
+export type PoolWaiter = Message<"orrery.v1.PoolWaiter"> & {
+  /**
+   * The request's place in line, counting from 1.
+   *
+   * @generated from field: int32 position = 1;
+   */
+  position: number;
+
+  /**
+   * The absolute path of the request's project.
+   *
+   * @generated from field: string project = 2;
+   */
+  project: string;
+
+  /**
+   * The argv of the request's command. Empty when the client sent none.
+   *
+   * @generated from field: repeated string command = 3;
+   */
+  command: string[];
+
+  /**
+   * How many of the pool's members the request needs.
+   *
+   * @generated from field: int32 count = 4;
+   */
+  count: number;
+
+  /**
+   * The unix seconds the request began waiting.
+   *
+   * @generated from field: int64 since = 5;
+   */
+  since: bigint;
+};
+
+/**
+ * Describes the message orrery.v1.PoolWaiter.
+ * Use `create(PoolWaiterSchema)` to create a new message.
+ */
+export const PoolWaiterSchema: GenMessage<PoolWaiter> = /*@__PURE__*/
+  messageDesc(file_orrery_v1_orrery, 70);
+
+/**
+ * PoolHold is one owner hold: a member that no grant may take.
+ *
+ * @generated from message orrery.v1.PoolHold
+ */
+export type PoolHold = Message<"orrery.v1.PoolHold"> & {
+  /**
+   * The held member's name.
+   *
+   * @generated from field: string member = 1;
+   */
+  member: string;
+
+  /**
+   * The unix seconds the member was held.
+   *
+   * @generated from field: int64 since = 2;
+   */
+  since: bigint;
+};
+
+/**
+ * Describes the message orrery.v1.PoolHold.
+ * Use `create(PoolHoldSchema)` to create a new message.
+ */
+export const PoolHoldSchema: GenMessage<PoolHold> = /*@__PURE__*/
+  messageDesc(file_orrery_v1_orrery, 71);
+
+/**
+ * PoolsHoldRequest asks for a member to be held.
+ *
+ * @generated from message orrery.v1.PoolsHoldRequest
+ */
+export type PoolsHoldRequest = Message<"orrery.v1.PoolsHoldRequest"> & {
+  /**
+   * The member's name, of the form [A-Za-z0-9][A-Za-z0-9._-]*.
+   *
+   * @generated from field: string member = 1;
+   */
+  member: string;
+};
+
+/**
+ * Describes the message orrery.v1.PoolsHoldRequest.
+ * Use `create(PoolsHoldRequestSchema)` to create a new message.
+ */
+export const PoolsHoldRequestSchema: GenMessage<PoolsHoldRequest> = /*@__PURE__*/
+  messageDesc(file_orrery_v1_orrery, 72);
+
+/**
+ * PoolsHoldResponse is the reply to a Hold. It has no fields.
+ *
+ * @generated from message orrery.v1.PoolsHoldResponse
+ */
+export type PoolsHoldResponse = Message<"orrery.v1.PoolsHoldResponse"> & {
+};
+
+/**
+ * Describes the message orrery.v1.PoolsHoldResponse.
+ * Use `create(PoolsHoldResponseSchema)` to create a new message.
+ */
+export const PoolsHoldResponseSchema: GenMessage<PoolsHoldResponse> = /*@__PURE__*/
+  messageDesc(file_orrery_v1_orrery, 73);
+
+/**
+ * PoolsFreeRequest asks for a held member to be freed.
+ *
+ * @generated from message orrery.v1.PoolsFreeRequest
+ */
+export type PoolsFreeRequest = Message<"orrery.v1.PoolsFreeRequest"> & {
+  /**
+   * The member's name, of the form [A-Za-z0-9][A-Za-z0-9._-]*.
+   *
+   * @generated from field: string member = 1;
+   */
+  member: string;
+};
+
+/**
+ * Describes the message orrery.v1.PoolsFreeRequest.
+ * Use `create(PoolsFreeRequestSchema)` to create a new message.
+ */
+export const PoolsFreeRequestSchema: GenMessage<PoolsFreeRequest> = /*@__PURE__*/
+  messageDesc(file_orrery_v1_orrery, 74);
+
+/**
+ * PoolsFreeResponse is the reply to a Free. It has no fields.
+ *
+ * @generated from message orrery.v1.PoolsFreeResponse
+ */
+export type PoolsFreeResponse = Message<"orrery.v1.PoolsFreeResponse"> & {
+};
+
+/**
+ * Describes the message orrery.v1.PoolsFreeResponse.
+ * Use `create(PoolsFreeResponseSchema)` to create a new message.
+ */
+export const PoolsFreeResponseSchema: GenMessage<PoolsFreeResponse> = /*@__PURE__*/
+  messageDesc(file_orrery_v1_orrery, 75);
+
+/**
  * Sessions reads the Claude Code sessions that orrery tracks.
  *
  * @generated from service orrery.v1.Sessions
@@ -2730,4 +3048,48 @@ export const Picker: GenService<{
   },
 }> = /*@__PURE__*/
   serviceDesc(file_orrery_v1_orrery, 6);
+
+/**
+ * Pools shows the pools orreryd runs, holds a member so no grant takes it, and frees a held member. serve forwards each
+ * call of the service to orreryd.
+ *
+ * @generated from service orrery.v1.Pools
+ */
+export const Pools: GenService<{
+  /**
+   * Status returns the pools in use, each with its members and waiting requests, and every owner hold.
+   *
+   * @generated from rpc orrery.v1.Pools.Status
+   */
+  status: {
+    methodKind: "unary";
+    input: typeof PoolsStatusRequestSchema;
+    output: typeof PoolsStatusResponseSchema;
+  },
+  /**
+   * Hold holds a member by name. A held member is never granted. A hold on a granted member stops its grant, and a
+   * hold on a member of no pool in use is accepted. Hold of a held member succeeds and keeps the first hold's since. A
+   * member name outside [A-Za-z0-9][A-Za-z0-9._-]* is invalid_argument. With no store to keep holds in, Hold is
+   * unavailable.
+   *
+   * @generated from rpc orrery.v1.Pools.Hold
+   */
+  hold: {
+    methodKind: "unary";
+    input: typeof PoolsHoldRequestSchema;
+    output: typeof PoolsHoldResponseSchema;
+  },
+  /**
+   * Free releases a held member. Free of a member not held is not_found. A member name outside
+   * [A-Za-z0-9][A-Za-z0-9._-]* is invalid_argument. With no store to keep holds in, Free is unavailable.
+   *
+   * @generated from rpc orrery.v1.Pools.Free
+   */
+  free: {
+    methodKind: "unary";
+    input: typeof PoolsFreeRequestSchema;
+    output: typeof PoolsFreeResponseSchema;
+  },
+}> = /*@__PURE__*/
+  serviceDesc(file_orrery_v1_orrery, 7);
 

@@ -11,6 +11,7 @@ import (
 	"connectrpc.com/connect"
 
 	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
+	"github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1/enginev1connect"
 	"github.com/joshsymonds/orrery/internal/grants"
 	"github.com/joshsymonds/orrery/internal/pools"
 )
@@ -25,6 +26,8 @@ const maxLimitSeconds = math.MaxInt64 / int64(time.Second)
 
 // poolService implements the Pools RPCs over pools. A nil pools refuses every Acquire as unavailable.
 type poolService struct {
+	enginev1connect.UnimplementedPoolsHandler
+
 	pools PoolCommands
 }
 

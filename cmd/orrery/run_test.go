@@ -128,6 +128,8 @@ func helperArgv(t *testing.T, mode string) []string {
 // Otherwise it grants each need its count of members named pool-1 to pool-count, then holds the stream until the
 // client ends it.
 type fakePools struct {
+	enginev1connect.UnimplementedPoolsHandler
+
 	refuse connect.Code
 	ended  chan struct{} // closed once an Acquire that granted has returned
 

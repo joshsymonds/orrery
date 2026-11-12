@@ -152,6 +152,8 @@ type acquireStep struct {
 // poolsFake is an in-process Pools. It answers the first Acquire with steps[0], the second with steps[1], and so on,
 // and the last step answers every Acquire after the steps run out. It records each request.
 type poolsFake struct {
+	enginev1connect.UnimplementedPoolsHandler
+
 	steps []acquireStep
 	held  chan struct{} // closed once a step holds its stream open
 	ended chan struct{} // closed when the first Acquire returns
