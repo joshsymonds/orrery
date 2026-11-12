@@ -26,16 +26,13 @@ private const val NOT_SENT = "key not sent"
 
 /** Label shown on the button, paired with the tmux key name it posts. */
 private val QUICK_KEYS = listOf(
-    "1" to "1",
-    "2" to "2",
-    "3" to "3",
     "Esc" to "Escape",
     "Ctrl-C" to "C-c",
+    "Enter" to "Enter",
     "←" to "Left",
     "↑" to "Up",
     "↓" to "Down",
     "→" to "Right",
-    "Tab" to "Tab",
 )
 
 /**
