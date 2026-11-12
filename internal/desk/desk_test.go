@@ -286,6 +286,7 @@ func TestRunPopsUpNoticesInOrderOneAtATime(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(rig.dir, "overlap")); err == nil {
 		t.Fatal("two popups were shown at once")
 	}
+	waitFor(t, "three sounds", func() bool { return len(rig.calls("pw-play")) == 3 })
 	rig.finish()
 }
 
@@ -309,6 +310,7 @@ func TestRunPopsUpLostHost(t *testing.T) {
 			t.Fatalf("no lost popup with argv %q; notify-send ran %q", want, notifies)
 		}
 	}
+	waitFor(t, "two lost sounds", func() bool { return len(rig.calls("pw-play")) == 2 })
 	rig.finish()
 }
 
