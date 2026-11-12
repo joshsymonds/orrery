@@ -7,17 +7,20 @@ import (
 	"log/slog"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/joshsymonds/orrery/internal/gates"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
 // ErrBadOwned reports a step whose owned path is absolute or reaches outside the repository.
 var ErrBadOwned = errors.New("step owned path must be a relative path inside the repository")
 
-// ErrBadGate reports a step whose gate program is not found on PATH.
-var ErrBadGate = errors.New("step gate program is not found on PATH")
+// ErrBadGate reports a step whose gate is refused: a named gate that does not resolve, a gates file that is not
+// absolute or is set without a name, a name set together with an argv, or an argv program not found on PATH.
+var ErrBadGate = errors.New("step gate is refused")
 
 // ErrBadWatchTick reports a StepsConfig whose WatchTick is negative.
 var ErrBadWatchTick = errors.New("step watch tick must not be negative")
@@ -40,6 +43,10 @@ const stepDefaultWatchTick = 5 * time.Second
 // empty means "done", GateLimit zero means 30 minutes, and ModelLimit zero means 60 minutes, the model-time limit the
 // step is stored with. Epic and Task are optional labels the step is stored with; a step with an empty Epic is never
 // listed by List.
+//
+// GateName names a gate to resolve once at start, from GatesFile when it is set and else from the project file for
+// Workspace. GatesFile must be absolute and needs GateName. A named gate takes its argv and limit from its definition,
+// so GateLimit and Gate are not read, and GateName with Gate is refused.
 type StepStart struct {
 	Agent      string
 	Prompt     string
@@ -49,6 +56,8 @@ type StepStart struct {
 	ReadOnly   bool
 	Owned      []string
 	Gate       []string
+	GateName   string
+	GatesFile  string
 	GateLimit  time.Duration
 	ModelLimit time.Duration
 	DoneValue  string
@@ -64,7 +73,8 @@ type StepStore interface {
 }
 
 // StepsConfig configures Steps. Sessions starts and stops the step sessions, Store reads the step rows and Writer
-// stores the ops of the step loops. Locks are the gate lock files and Environ is the environment gates run in.
+// stores the ops of the step loops. Locks are the gate lock files and Environ is the environment gates run in, and the
+// one a named gate is resolved under.
 // Worktrees is the directory read-only steps' worktrees are added under, one per step id. A nil Logger discards. Haiku
 // makes the monitor and judge calls of every started step, and nil makes none. Now is the clock each step's watch reads,
 // time.Now when nil. WatchTick is how often each started step's watch is checked, five seconds when zero.
@@ -133,16 +143,16 @@ func NewSteps(cfg StepsConfig) (*Steps, error) {
 	return steps, nil
 }
 
-// Start checks start and resolves its revision, then starts the step under a fresh id and runs its loop. A refusal
-// returns its error with an empty id and stores nothing; a read-only step's worktree is removed then too. A writing step
-// runs in start.Workspace. A read-only step gets a detached worktree at its start commit under the worktrees directory,
-// which is removed when the step ends. Any other StartStep error, after the row is written, ends the step failed and
-// returns its id with the error.
+// Start checks start, resolves its gate and its revision, then starts the step under a fresh id and runs its loop. A
+// refusal returns its error with an empty id and stores nothing; a read-only step's worktree is removed then too. A
+// writing step runs in start.Workspace. A read-only step gets a detached worktree at its start commit under the worktrees
+// directory, which is removed when the step ends. Any other StartStep error, after the row is written, ends the step
+// failed and returns its id with the error.
 func (s *Steps) Start(ctx context.Context, start StepStart) (string, error) {
 	if err := checkStepStart(start); err != nil {
 		return "", err
 	}
-	gate, err := stepGateProgram(start.Gate)
+	gate, err := s.resolveStepGate(ctx, start)
 	if err != nil {
 		return "", err
 	}
@@ -169,7 +179,7 @@ func (s *Steps) Start(ctx context.Context, start StepStart) (string, error) {
 	if doneValue == "" {
 		doneValue = stepDefaultDone
 	}
-	gateLimit := start.GateLimit
+	gateLimit := gate.limit
 	if gateLimit == 0 {
 		gateLimit = stepDefaultGateLimit
 	}
@@ -179,13 +189,14 @@ func (s *Steps) Start(ctx context.Context, start StepStart) (string, error) {
 	}
 	add := store.StepAdd{
 		ID: id, Agent: start.Agent, Prompt: start.Prompt, Schema: start.Schema, Workspace: start.Workspace,
-		Revision: commit, DoneValue: doneValue, ReadOnly: start.ReadOnly, Owned: start.Owned, Gate: gate,
-		GateLimit: gateLimit, ModelLimit: modelLimit, Epic: start.Epic, Task: start.Task,
+		Revision: commit, DoneValue: doneValue, ReadOnly: start.ReadOnly, Owned: start.Owned, Gate: gate.argv,
+		GateName: gate.name, GateSource: gate.source, GateNeeds: gate.needs, GateLimit: gateLimit,
+		ModelLimit: modelLimit, Epic: start.Epic, Task: start.Task,
 	}
 	cfg := stepRunConfig{
 		id: id, schema: start.Schema, doneValue: doneValue, sessions: s.sessions, writer: s.writer, logger: s.logger,
-		writing: !start.ReadOnly, start: commit, owned: start.Owned, gate: gate, gateLimit: gateLimit, locks: s.locks,
-		environ: s.environ, prompt: start.Prompt, now: s.now, modelLimit: modelLimit,
+		writing: !start.ReadOnly, start: commit, owned: start.Owned, gate: gate.argv, gateLimit: gateLimit,
+		locks: s.locks, environ: s.environ, prompt: start.Prompt, now: s.now, modelLimit: modelLimit,
 	}
 	if s.haiku != nil {
 		cfg.haiku = s.haiku
@@ -313,4 +324,67 @@ func stepGateProgram(gate []string) ([]string, error) {
 		return nil, fmt.Errorf("%w: %s: %w", ErrBadGate, gate[0], err)
 	}
 	return append([]string{program}, gate[1:]...), nil
+}
+
+// stepGate is the gate a step runs: its argv and limit. A named gate also carries the name it was resolved from, the
+// file that declares it and the pool members it holds; an argv gate leaves those empty.
+type stepGate struct {
+	argv   []string
+	limit  time.Duration
+	name   string
+	source string
+	needs  []store.StepNeed
+}
+
+// resolveStepGate returns the gate start runs. A named gate is resolved once, from start.GatesFile or else the project
+// file for start.Workspace. It is refused with an error matching ErrBadGate when the name does not resolve, when
+// GatesFile is not absolute or is set without GateName, and when GateName is set with Gate. Without GateName the gate
+// is start.Gate, its program looked up on PATH, and start.GateLimit.
+func (s *Steps) resolveStepGate(ctx context.Context, start StepStart) (stepGate, error) {
+	if start.GateName == "" {
+		if start.GatesFile != "" {
+			return stepGate{}, fmt.Errorf("%w: gates file %s is set without a gate name", ErrBadGate, start.GatesFile)
+		}
+		argv, err := stepGateProgram(start.Gate)
+		if err != nil {
+			return stepGate{}, err
+		}
+		return stepGate{argv: argv, limit: start.GateLimit}, nil
+	}
+	if len(start.Gate) != 0 {
+		return stepGate{}, fmt.Errorf("%w: gate %s is named and also has an argv", ErrBadGate, start.GateName)
+	}
+	if start.GatesFile != "" && !filepath.IsAbs(start.GatesFile) {
+		return stepGate{}, fmt.Errorf("%w: gates file %s is not an absolute path", ErrBadGate, start.GatesFile)
+	}
+	resolved, err := gates.Resolve(ctx, start.GateName, start.GatesFile, start.Workspace, stepGetenv(s.environ))
+	if err != nil {
+		return stepGate{}, fmt.Errorf("%w: %w", ErrBadGate, err)
+	}
+	return stepGate{
+		argv: resolved.Argv, limit: resolved.Limit, name: start.GateName, source: resolved.Source,
+		needs: stepNeeds(resolved.Needs),
+	}, nil
+}
+
+// stepNeeds returns needs as the store records them.
+func stepNeeds(needs []gates.Need) []store.StepNeed {
+	out := make([]store.StepNeed, 0, len(needs))
+	for _, need := range needs {
+		out = append(out, store.StepNeed{Pool: need.Pool, Count: need.Count})
+	}
+	return out
+}
+
+// stepGetenv returns a lookup of name in environ. The last entry for name wins, as it does in a process's environment.
+func stepGetenv(environ []string) func(string) string {
+	return func(name string) string {
+		value := ""
+		for _, entry := range environ {
+			if key, val, found := strings.Cut(entry, "="); found && key == name {
+				value = val
+			}
+		}
+		return value
+	}
 }
