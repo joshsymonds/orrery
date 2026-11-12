@@ -33,8 +33,10 @@ type Waiting struct {
 }
 
 // queueRow is a message that the queue holds. Its text is the full text, which matching uses. dequeued is set when a
-// dequeue record comes while the row waits.
+// dequeue record comes while the row waits. seq is the row's place among the rows its transcript enqueued, so a caller
+// can tell rows apart as they leave the queue.
 type queueRow struct {
+	seq      int
 	text     string
 	time     int64
 	canceled bool
@@ -54,9 +56,10 @@ type queueLine struct {
 // queueFile is what Queues remembers of one transcript: the file it read, how many of its bytes were read, and the
 // rows that those bytes leave waiting, oldest first.
 type queueFile struct {
-	info   fs.FileInfo
-	offset int64
-	rows   []queueRow
+	info    fs.FileInfo
+	offset  int64
+	nextSeq int
+	rows    []queueRow
 }
 
 // Queues reports the waiting messages of transcripts. For each path it remembers how far it has read and the rows
@@ -121,10 +124,16 @@ func (s *queueFile) scan(file *os.File, size int64) error {
 			return fmt.Errorf("read transcript: %w", err)
 		}
 		s.offset += int64(len(line))
-		if bytes.Contains(line, []byte(queueOperation)) || bytes.Contains(line, []byte(`"user"`)) ||
-			bytes.Contains(line, []byte(turnDurationSubtype)) {
-			s.apply(line)
-		}
+		s.feed(line)
+	}
+}
+
+// feed applies one complete line to the rows. Only a queue record, a user line or a turn end can change them, so any
+// other line is skipped before it is parsed. The replay feeds its lines through here too, so both apply one rule.
+func (s *queueFile) feed(line []byte) {
+	if bytes.Contains(line, []byte(queueOperation)) || bytes.Contains(line, []byte(`"user"`)) ||
+		bytes.Contains(line, []byte(turnDurationSubtype)) {
+		s.apply(line)
 	}
 }
 
@@ -151,7 +160,8 @@ func (s *queueFile) applyOperation(entry queueLine) {
 	case "enqueue":
 		if entry.Content != "" && !fromOthers(entry.Content) {
 			s.dropCanceled()
-			s.rows = append(s.rows, queueRow{text: entry.Content, time: unixSeconds(entry.Timestamp)})
+			s.rows = append(s.rows, queueRow{seq: s.nextSeq, text: entry.Content, time: unixSeconds(entry.Timestamp)})
+			s.nextSeq++
 		}
 	case "remove":
 		if entry.Reason == "cleared_on_cancel" {
