@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/engine/session"
@@ -92,7 +93,12 @@ type stepRun struct {
 	ended chan struct{}
 	// runDone is closed when run returns, so Return and Exited never wait on a run that will not drain them.
 	runDone chan struct{}
-	once    sync.Once
+	// calls hands owner actions to run, which runs each in its goroutine and replies with its error.
+	calls chan stepOwnerCall
+	// held is set when a hold lands. A held run checks nothing: its ticks are skipped, and its turn ends are no round.
+	// Run sets it and Steps.Held reads it.
+	held atomic.Bool
+	once sync.Once
 }
 
 // newStepRun returns a stepRun built from cfg that is not running. Call run to start it.
@@ -107,6 +113,7 @@ func newStepRun(cfg stepRunConfig) *stepRun {
 		exits:         make(chan string, stepLoopBuffer),
 		ended:         make(chan struct{}),
 		runDone:       make(chan struct{}),
+		calls:         make(chan stepOwnerCall),
 	}
 }
 
@@ -147,26 +154,41 @@ func (r *stepRun) run(ctx context.Context) {
 		case reason := <-r.exits:
 			r.finish(ctx, stepLoopEndFailed, "", reason)
 			return
+		case call := <-r.calls:
+			call.reply <- call.act(ctx)
 		case <-r.ticks:
+			if r.held.Load() {
+				continue
+			}
 			if !r.watchTick(ctx) {
 				return
 			}
 		case ended := <-r.returns:
-			nudge := r.nudge
-			r.nudge = ""
-			if nudge != "" && ended.IsError {
-				if err := r.sessions.Continue(ctx, r.id, nudge); err != nil {
-					r.finish(ctx, stepLoopEndFailed, "", fmt.Sprintf("continue step %s: %v", r.id, err))
-					return
-				}
-				continue
-			}
-			round++
-			if !r.judge(ctx, round, ended.StructuredOutput, &continues) {
+			if !r.turnEnded(ctx, ended, &round, &continues) {
 				return
 			}
 		}
 	}
+}
+
+// turnEnded handles a turn end the run takes. Whatever it is, it clears the pending nudge. A held step's turn end is no
+// round and continues nothing. A pending nudge is sent back with an error turn end. Any other turn end is the next round,
+// which judge checks. It reports whether the run goes on.
+func (r *stepRun) turnEnded(ctx context.Context, ended session.TurnEnded, round, continues *int) bool {
+	nudge := r.nudge
+	r.nudge = ""
+	if r.held.Load() {
+		return true
+	}
+	if nudge != "" && ended.IsError {
+		if err := r.sessions.Continue(ctx, r.id, nudge); err != nil {
+			r.finish(ctx, stepLoopEndFailed, "", fmt.Sprintf("continue step %s: %v", r.id, err))
+			return false
+		}
+		return true
+	}
+	*round++
+	return r.judge(ctx, *round, ended.StructuredOutput, continues)
 }
 
 // judge checks the return of round and stores it with its checks. A done return whose checks all passed is judged; any
