@@ -53,17 +53,20 @@ img { max-width: 100%; }
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 
-/* The list and the reader sit abreast from a desktop width, and stack on a phone. */
+/* The list and its columns sit abreast from a desktop width, and stack on a phone. A hidden column takes no place, so
+   the epic column takes the reader's place beside the list, and beside the pin when one is open. On a step entry the
+   reader and the epic column both show, so with-step adds a column; with a pin as well, the grid has four. */
 .panes { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; align-items: start; }
-.list, .read { min-width: 0; }
+.list, .read, .side { min-width: 0; }
 .read { display: flex; flex-direction: column; gap: 8px; }
-.read[hidden] { display: none; }
+.read[hidden], .side[hidden] { display: none; }
 .reply { min-width: 0; }
 .pin-head { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 700 10.5px/16px var(--mono); letter-spacing: .13em; text-transform: uppercase; color: var(--overlay1); }
 .pin-reply { min-width: 0; }
 @media (min-width: 760px) {
   .panes { grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); }
-  .panes.split { grid-template-columns: minmax(0, 2fr) minmax(0, 3fr) minmax(0, 3fr); }
+  .panes.split, .panes.with-step { grid-template-columns: minmax(0, 2fr) minmax(0, 3fr) minmax(0, 3fr); }
+  .panes.split.with-step { grid-template-columns: minmax(0, 2fr) minmax(0, 3fr) minmax(0, 3fr) minmax(0, 3fr); }
 }
 
 .rows { min-width: 0; }
@@ -109,6 +112,24 @@ img { max-width: 100%; }
   border-radius: 0 2px 2px 0; background: var(--mauve);
 }
 .reply a { color: var(--blue); }
+
+/* The Epics group: an epic's line with its gauge and count, and each step's line under it, indented from the epic's. */
+.b-row.epic { display: flex; align-items: center; gap: 9px; }
+.b-row.epic .label { flex: 0 1 auto; white-space: nowrap; font-weight: 700; color: var(--text); }
+.b-row.epic .proj { flex: 1 1 auto; }
+.b-row .count { flex: none; margin-left: auto; font: 11.5px/20px var(--mono); color: var(--overlay0); }
+.gauge { flex: none; width: 16px; height: 16px; transform: rotate(-90deg); }
+.gauge circle { fill: none; stroke-width: 4px; }
+.gauge-rest { stroke: var(--surface1); }
+.gauge-done { stroke: var(--green); }
+.b-row.step { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 8px; padding-left: 26px; }
+.b-row.step .label { flex: 0 1 auto; white-space: nowrap; }
+.b-row .held { flex: none; font: 700 9.5px/20px var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--peach); }
+.b-row.step .reply {
+  flex: 1 1 100%; min-width: 0; font: 13.5px/1.45 var(--reply); color: var(--overlay1);
+  overflow: hidden; display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow-wrap: anywhere;
+}
+.b-more { padding: 2px 10px; font: 11.5px/20px var(--mono); color: var(--overlay0); }
 
 .keys {
   margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--surface0);
@@ -186,7 +207,52 @@ img { max-width: 100%; }
   overflow-wrap: anywhere;
 }
 
+/* The step box under a step's reader: the nudge composer, then Interrupt and Stop, then the outcome line. */
+.stepbox-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 0; }
+.stepbox-actions button {
+  padding: 5px 12px; border: 0; border-radius: 8px; cursor: pointer;
+  background: var(--surface0); color: var(--text); font: 13.5px/1.45 var(--reply);
+  appearance: none; -webkit-appearance: none;
+}
+.stepbox-actions button.stop-confirm { background: color-mix(in srgb, var(--red) 22%, var(--surface0)); color: var(--red); }
+.stepbox-notice { margin: 8px 0 0; padding: 4px 10px; border-radius: 6px; color: var(--green); overflow-wrap: anywhere; }
+.stepbox-notice.err { color: var(--red); }
+
 /* The live line's caret, after the wireframe. */
 @keyframes blink { 0%, 55% { opacity: 1; } 56%, 100% { opacity: 0; } }
 .caret { display: inline-block; width: .6em; height: 1.05em; margin-left: 1px; vertical-align: -0.18em; background: var(--text); animation: blink 1.1s steps(1) infinite; }
 .caret.soft { width: 2px; background: var(--mauve); }
+
+/* The epic column. A task's state sets --ts, the colour of its ring and its mark, in the order of the phone's ringOf:
+   pending is dashed there too, and an unknown status is neutral. */
+.ts-done { --ts: var(--green); }
+.ts-dispatched { --ts: var(--yellow); }
+.ts-gated { --ts: var(--peach); }
+.ts-pending { --ts: var(--overlay0); }
+.ts-gap { --ts: var(--red); }
+.ts-split { --ts: var(--blue); }
+.ts-unknown { --ts: var(--subtext0); }
+.epic-view { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.epic-head { min-width: 0; }
+.epic-head .slug { margin: 0; font: 700 14px/22px var(--mono); overflow-wrap: anywhere; }
+.epic-head p { margin: 0; color: var(--subtext0); overflow-wrap: anywhere; }
+.epic-head .problem { color: var(--red); }
+.epic-view ul, .epic-view ol { margin: 0; padding: 0; list-style: none; }
+.epic-view .rings { display: block; width: 100%; max-width: 160px; height: auto; }
+.epic-view .ring { fill: none; stroke: var(--ts); stroke-width: 4px; }
+.epic-view .ring.ts-pending { stroke-dasharray: 4 4; }
+.epic-view .ring.cur { stroke-width: 6px; }
+.epic-view .task, .epic-view .step {
+  display: flex; align-items: center; gap: 8px; min-width: 0; padding: 4px 6px; border-radius: 6px;
+}
+.epic-view .mark { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--ts); }
+.epic-view .task .slug { min-width: 0; overflow-wrap: anywhere; }
+.epic-view .task .status { min-width: 0; overflow-wrap: anywhere; color: var(--overlay1); }
+.epic-view .step.cur { background: var(--surface0); box-shadow: 0 0 0 1px var(--mauve); }
+.epic-view .step .label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.epic-view .pips { display: flex; flex: none; gap: 4px; align-items: center; }
+.epic-view .pip { width: 8px; height: 8px; border-radius: 50%; }
+.epic-view .pip.ok { background: var(--green); }
+.epic-view .pip.bad { background: var(--red); }
+.epic-view .end { flex: none; color: var(--overlay1); }
+.side-note { margin: 0; color: var(--overlay1); overflow-wrap: anywhere; }

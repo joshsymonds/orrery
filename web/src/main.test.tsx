@@ -8,6 +8,8 @@ import { installTestDom, removeTestDom } from "./testdom";
 const panesPath = "/orrery.v1.Panes/List";
 const sessionsPath = "/orrery.v1.Sessions/List";
 const watchPath = "/orrery.v1.Events/Watch";
+const epicsListPath = "/orrery.v1.Epics/List";
+const epicsGetPath = "/orrery.v1.Epics/Get";
 const clientHeader = "X-Orrery-Client";
 const clientValue = "orrery web";
 const intervalMs = 5;
@@ -49,6 +51,32 @@ const sessionBody = {
   ],
 };
 
+// One live epic with one running step, as Epics.List answers it. The step's task is the label a test can change.
+function liveEpic(task: string) {
+  return {
+    id: "repo-a/alpha",
+    repository: "repo-a",
+    slug: "alpha",
+    outcome: "",
+    changed: "100",
+    live: true,
+    runningSteps: [{ id: "step-1", task, agent: "agent-a" }],
+    endedSteps: 0,
+  };
+}
+
+// Epics.Get's answer for an epic: one done task and one pending, so the count reads 1/2.
+function epicDetail(epic: ReturnType<typeof liveEpic>) {
+  return {
+    epic,
+    tasks: [
+      { effort: 1, slug: "a", subject: "first", status: "done" },
+      { effort: 1, slug: "b", subject: "second", status: "pending" },
+    ],
+    steps: [],
+  };
+}
+
 // One Events.Watch call the fake server received. The test decides what its stream sends and when it ends.
 interface Watch {
   // The seq the call resumes after.
@@ -74,15 +102,26 @@ interface FakeServer {
   storeSeq: bigint;
   // The Events.Watch calls, in order. Only a server built with streaming answers them.
   watches: Watch[];
+  // The epics Epics.List answers with. Epics.Get answers the one whose id it is asked for, and 404s any other.
+  epics: ReturnType<typeof liveEpic>[];
+  // While set, Epics.List waits for it before answering.
+  epicsGate: Promise<void> | null;
+  epicsListCalls: number;
+  epicsInFlight: number;
+  maxEpicsInFlight: number;
+  // Every path the page has called.
+  paths: Set<string>;
 }
 
-// fakeServer answers both Connect lists from its fields, so a test can change what the next reload shows. Without
-// streaming, Events.Watch answers 404, so the stream is down and the poll alone reloads.
+// fakeServer answers the lists from its fields, so a test can change what the next reload shows. It starts with no
+// epics, so a test that does not ask for one sees the same page as before epics existed. Without streaming,
+// Events.Watch answers 404, so the stream is down and the poll alone reloads.
 function fakeServer(paneLabel: string, streaming = false): FakeServer {
   const server: FakeServer = {
     fetch: async (input, init) => {
       const request = new Request(input, init);
       const path = new URL(request.url).pathname;
+      server.paths.add(path);
       if (path === sessionsPath) {
         return json({ ...sessionBody, seq: String(server.storeSeq) });
       }
@@ -101,6 +140,27 @@ function fakeServer(paneLabel: string, streaming = false): FakeServer {
         });
         server.watches.push(watch);
         return new Response(stream, { status: 200, headers: { "content-type": "application/connect+json" } });
+      }
+      if (path === epicsListPath) {
+        server.epicsListCalls++;
+        server.epicsInFlight++;
+        server.maxEpicsInFlight = Math.max(server.maxEpicsInFlight, server.epicsInFlight);
+        try {
+          if (server.epicsGate) {
+            await server.epicsGate;
+          }
+          return json({ epics: server.epics });
+        } finally {
+          server.epicsInFlight--;
+        }
+      }
+      if (path === epicsGetPath) {
+        const body = (await request.json()) as { id?: string };
+        const epic = server.epics.find((candidate) => candidate.id === body.id);
+        if (epic === undefined) {
+          return new Response("{}", { status: 404, headers: { "content-type": "application/json" } });
+        }
+        return json(epicDetail(epic));
       }
       if (path !== panesPath) {
         return new Response("{}", { status: 404, headers: { "content-type": "application/json" } });
@@ -127,12 +187,32 @@ function fakeServer(paneLabel: string, streaming = false): FakeServer {
     maxPanesInFlight: 0,
     storeSeq: 7n,
     watches: [],
+    epics: [],
+    epicsGate: null,
+    epicsListCalls: 0,
+    epicsInFlight: 0,
+    maxEpicsInFlight: 0,
+    paths: new Set(),
   };
   return server;
 }
 
 function json(body: unknown): Response {
   return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
+}
+
+// failing answers each path in failed with a server error that carries server text, and every other call from server.
+function failing(server: FakeServer, failed: string[]): typeof globalThis.fetch {
+  return async (input, init) => {
+    const path = new URL(new Request(input, init).url).pathname;
+    if (failed.includes(path)) {
+      return new Response(JSON.stringify({ code: "internal", message: "server detail" }), {
+        status: 500,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    return server.fetch(input, init);
+  };
 }
 
 function clientsFor(server: FakeServer): ReturnType<typeof createClients> {
@@ -432,6 +512,118 @@ test("stop aborts the open stream", () =>
       stop();
       assert.ok(server.watches[0].signal.aborted, "stop left the stream open");
     } finally {
+      stop();
+    }
+  }));
+
+test("a live epic from Epics.List and Get shows in the list with its count", () =>
+  withPage(async (root) => {
+    const server = fakeServer("api");
+    server.epics = [liveEpic("draft")];
+    const stop = start(root, clientsFor(server), intervalMs);
+    try {
+      await until(() => labels(root).includes("alpha") && labels(root).includes("api"), "the epic and the pane row");
+      const epicRow = root.querySelector('[data-key="epic:repo-a/alpha"]');
+      assert.ok(epicRow !== null, `no epic row; labels were ${JSON.stringify(labels(root))}`);
+      assert.equal(epicRow.querySelector(".count")?.textContent, "1/2", "the count did not come from Epics.Get");
+      assert.ok(labels(root).includes("draft"), `labels were ${JSON.stringify(labels(root))}`);
+      assert.ok(labels(root).includes("api"), "the pane row is missing beside the epic");
+    } finally {
+      stop();
+    }
+  }));
+
+test("the page calls only the list, get and watch paths it reads", () =>
+  withPage(async (root) => {
+    const server = fakeServer("api", true);
+    server.epics = [liveEpic("draft")];
+    const stop = start(root, clientsFor(server), intervalMs);
+    try {
+      await until(() => labels(root).includes("alpha") && server.watches.length === 1, "the epic and the stream");
+      assert.deepEqual(
+        [...server.paths].sort(),
+        [epicsGetPath, epicsListPath, panesPath, sessionsPath, watchPath].sort(),
+      );
+    } finally {
+      stop();
+    }
+  }));
+
+test("with the event stream open, a poll tick reloads the epics and shows a changed step", () =>
+  withPage(async (root) => {
+    const server = fakeServer("api", true);
+    server.epics = [liveEpic("draft")];
+    const stop = start(root, clientsFor(server), intervalMs);
+    try {
+      await until(() => server.watches.length === 1 && labels(root).includes("draft"), "the first step and the stream");
+      const panesBefore = server.panesCalls;
+      server.epics = [liveEpic("review")];
+      await until(() => labels(root).includes("review") && !labels(root).includes("draft"), "the changed step");
+      assert.equal(server.panesCalls, panesBefore, "the tick reloaded the rows while the stream was open");
+      assert.equal(server.watches.length, 1, "the stream was reopened while it was open");
+    } finally {
+      stop();
+    }
+  }));
+
+test("a failed Epics.List shows the fixed epics error and no epics, beside the rows", () =>
+  withPage(async (root) => {
+    const server = fakeServer("api");
+    server.epics = [liveEpic("draft")];
+    const clients = createClients(
+      createTransport({ baseUrl: "https://orrery.test", fetch: failing(server, [epicsListPath]) }),
+    );
+    const stop = start(root, clients, intervalMs);
+    try {
+      await until(
+        () => root.querySelector(".error") !== null && labels(root).includes("api"),
+        "the error line and the pane row",
+      );
+      assert.equal(root.querySelector(".error")?.textContent, "epics unavailable");
+      assert.ok(!(root.textContent ?? "").includes("server detail"), "the page showed server text");
+      assert.ok(!labels(root).includes("alpha"), `an epic was drawn; labels were ${JSON.stringify(labels(root))}`);
+      assert.ok(labels(root).includes("api"), `the pane row is missing; labels were ${JSON.stringify(labels(root))}`);
+    } finally {
+      stop();
+    }
+  }));
+
+test("a failed Panes.List and a failed Epics.List join their fixed errors in that order", () =>
+  withPage(async (root) => {
+    const server = fakeServer("api");
+    const clients = createClients(
+      createTransport({ baseUrl: "https://orrery.test", fetch: failing(server, [panesPath, epicsListPath]) }),
+    );
+    const stop = start(root, clients, intervalMs);
+    try {
+      await until(
+        () => root.querySelector(".error")?.textContent === "panes unavailable; epics unavailable",
+        "the joined error line",
+      );
+    } finally {
+      stop();
+    }
+  }));
+
+test("a second tick during a slow epics load starts no second load", () =>
+  withPage(async (root) => {
+    const server = fakeServer("api", true);
+    server.epics = [liveEpic("draft")];
+    let release: () => void = () => {};
+    server.epicsGate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const stop = start(root, clientsFor(server), intervalMs);
+    try {
+      await until(() => server.epicsListCalls === 1, "the first epics load");
+      await until(() => server.watches.length === 1, "the stream while epics are loading");
+      await sleep(intervalMs * 40);
+      assert.equal(server.epicsListCalls, 1, "a tick started a second epics load while the first was in flight");
+      assert.equal(server.maxEpicsInFlight, 1);
+      release();
+      await until(() => labels(root).includes("alpha"), "the epic after release");
+    } finally {
+      release();
       stop();
     }
   }));
