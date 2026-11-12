@@ -1,6 +1,7 @@
 package server_test
 
 import (
+	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -26,12 +27,14 @@ const stallSamples = 5
 const closeBudget = 5 * time.Second
 
 // observedConn records the writes of an accepted connection: whether one is in progress, and the bytes of the
-// writes that have completed.
+// writes that have completed. While held, it records the write deadline the server sets instead of applying it.
 type observedConn struct {
 	net.Conn
 	mu      sync.Mutex
 	writing bool
 	written int64
+	held    bool // whether write deadlines are recorded instead of applied
+	armed   bool // whether a deadline recorded while held is in force
 }
 
 // Write writes p to the connection and records the write as in progress until it returns.
@@ -47,10 +50,37 @@ func (c *observedConn) Write(p []byte) (int, error) {
 	return n, err
 }
 
-// observedListener wraps each accepted connection in an observedConn.
+// SetWriteDeadline applies deadline to the connection. While the connection is held it records the deadline instead:
+// a non-zero deadline stays in force until release, and the zero time clears it.
+func (c *observedConn) SetWriteDeadline(deadline time.Time) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.held {
+		c.armed = !deadline.IsZero()
+		return nil
+	}
+	return c.Conn.SetWriteDeadline(deadline)
+}
+
+// release lifts the hold. A deadline in force from the hold is applied as already due, so a write it governs that is
+// blocked fails at once. A connection held from accept has applied no deadline, so no other state needs restoring.
+func (c *observedConn) release() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.held = false
+	if !c.armed {
+		return nil
+	}
+	c.armed = false
+	return c.Conn.SetWriteDeadline(time.Now())
+}
+
+// observedListener wraps each accepted connection in an observedConn. Connections accepted while the listener holds
+// are held from the start, so no deadline the server sets on them is applied before release.
 type observedListener struct {
 	net.Listener
 	mu    sync.Mutex
+	hold  bool
 	conns []*observedConn
 }
 
@@ -60,11 +90,32 @@ func (l *observedListener) Accept() (net.Conn, error) {
 	if err != nil {
 		return nil, err
 	}
-	obs := &observedConn{Conn: conn}
 	l.mu.Lock()
+	obs := &observedConn{Conn: conn, held: l.hold}
 	l.conns = append(l.conns, obs)
 	l.mu.Unlock()
 	return obs, nil
+}
+
+// setHold sets whether connections accepted from now on hold their write deadlines.
+func (l *observedListener) setHold(hold bool) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.hold = hold
+}
+
+// releaseAll releases every connection, applying each deadline in force from a hold as already due. A connection
+// that is not held has no such deadline, so its release changes nothing.
+func (l *observedListener) releaseAll() error {
+	l.mu.Lock()
+	conns := append([]*observedConn(nil), l.conns...)
+	l.mu.Unlock()
+	for _, c := range conns {
+		if err := c.release(); err != nil {
+			return fmt.Errorf("release %v: %w", c.RemoteAddr(), err)
+		}
+	}
+	return nil
 }
 
 // writeState reports whether any accepted connection has a write in progress, and the total bytes of the writes
