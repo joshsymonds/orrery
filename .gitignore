@@ -8,3 +8,5 @@ coverage.cov.out
 
 # Per-checkout golangci-lint cache (see devenv-base.nix)
 .golangci-cache/
+web/node_modules/
+web/build/

@@ -93,6 +93,8 @@ generate:
     cd proto && buf generate
     rm -rf android/app/src/main/java/io/github/joshsymonds/orrery/gen
     cd proto && buf generate --template buf.gen.android.yaml --path orrery/v1
+    rm -rf web/src/gen
+    cd proto && buf generate --template buf.gen.web.yaml --path orrery/v1
 
 # Fail when the generated store code drifts from its SQL.
 sqlc-diff:
@@ -103,6 +105,8 @@ gen-diff: generate
     git diff --exit-code -- internal/gen
     git diff --exit-code HEAD -- android/app/src/main/java
     untracked=$(git ls-files --others --exclude-standard -- android/app/src/main/java); [ -z "$untracked" ] || { echo "generated app files not committed:" >&2; echo "$untracked" >&2; exit 1; }
+    git diff --exit-code HEAD -- web/src/gen
+    untracked=$(git ls-files --others --exclude-standard -- web/src/gen); [ -z "$untracked" ] || { echo "generated web files not committed:" >&2; echo "$untracked" >&2; exit 1; }
 
 # Regenerate the devenv environment snapshot now, even when it is fresh.
 [script("scripts/in-devenv", "--refresh")]
@@ -157,8 +161,22 @@ bump-nix $ref="nixpkgs-unstable":
 
     scripts/check-nix-pin.sh
 
-# Lint, coverage, and generated-code gates. The pin check runs first.
-check: pin-check lint proto-lint proto-breaking cover sqlc-diff gen-diff
+# Typecheck the web client, then compile its tests with esbuild and run them with node --test. Offline: the
+# dependencies come from the web/node_modules the devenv shell links from nix.
+[script]
+web-check:
+    tsc --noEmit -p web
+    rm -rf web/build
+    tests=$(find web/src \( -name '*.test.ts' -o -name '*.test.tsx' \) | sort)
+    if [ -z "$tests" ]; then
+        echo "web-check: no tests under web/src" >&2
+        exit 1
+    fi
+    esbuild $tests --bundle --platform=node --format=esm --outbase=web/src --outdir=web/build --out-extension:.js=.mjs --log-level=warning
+    node --test $(find web/build -name '*.test.mjs' | sort)
+
+# Lint, coverage, typed-client, and generated-code gates. The pin check runs first.
+check: pin-check lint proto-lint proto-breaking cover sqlc-diff gen-diff web-check
 
 # Assemble the debug APK, then run the Android lint and JVM unit tests.
 android-test:
