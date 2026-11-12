@@ -2,22 +2,30 @@ import type { JSX } from "preact";
 
 import type { Conversation } from "./conversation";
 import type { ConversationItem, WaitingMessage } from "./gen/orrery/v1/orrery_pb";
+import type { ParsedQuestion } from "./question";
 import { ReplyText } from "./text";
 
 const tokensPerThousand = 1000;
 const secondsToMillis = 1000;
+const answerChoices = [1, 2, 3] as const;
 
 // Reader draws one conversation: its items, the "since you looked" rule before the first item newer than seenAt, the
-// session's unfinished text, and the queue of waiting messages. Every text is drawn through ReplyText, so no markup
-// in a transcript becomes an element.
+// pane's question with a button per answer, the session's unfinished text, and the queue of waiting messages. Every
+// text is drawn as text: through ReplyText, or as a plain child of a button, so no markup becomes an element.
 export function Reader({
   conversation,
   seenAt,
   open,
+  question = null,
+  onAnswer,
+  onToggleOpen,
 }: {
   conversation: Conversation | null;
   seenAt: number;
   open: boolean;
+  question?: ParsedQuestion | null;
+  onAnswer?: (choice: 1 | 2 | 3) => void;
+  onToggleOpen?: () => void;
 }): JSX.Element {
   if (conversation === null) {
     return (
@@ -32,8 +40,9 @@ export function Reader({
     if (index === newIndex) {
       rows.push(<NewRule key="new-rule" />);
     }
-    rows.push(<ItemRow key={index} item={item} open={open} />);
+    rows.push(<ItemRow key={index} item={item} open={open} onToggleOpen={onToggleOpen} />);
   });
+  const questionCard = question === null ? null : <QuestionCard question={question} onAnswer={onAnswer} />;
   const live = conversation.unfinished
     .filter((block) => block.kind === "text")
     .map((block, index) => (
@@ -49,6 +58,7 @@ export function Reader({
   return (
     <div class="reader">
       {rows}
+      {questionCard}
       {live}
       {waiting.map((message, index) => (
         <QueuedRow key={`queued-${index}`} message={message} />
@@ -68,18 +78,74 @@ function NewRule() {
   );
 }
 
-function ItemRow({ item, open }: { item: ConversationItem; open: boolean }) {
+function QuestionCard({
+  question,
+  onAnswer,
+}: {
+  question: ParsedQuestion;
+  onAnswer?: (choice: 1 | 2 | 3) => void;
+}) {
   return (
     <div class="t">
-      <span class="gut">{clock(item.time)}</span>
-      <div class="body">
-        <ItemBody item={item} open={open} />
+      <span class="gut" />
+      <div class="body question-card">
+        <div class="question">
+          <ReplyText text={question.title} />
+        </div>
+        {question.options.map((option, index) => {
+          const label = (
+            <>
+              <span class="option-label">{option.label}</span>
+              {option.description !== "" && <span class="option-description">{option.description}</span>}
+            </>
+          );
+          const choice = answerChoices[index];
+          if (choice === undefined) {
+            return (
+              <div class="option" key={index}>
+                {label}
+              </div>
+            );
+          }
+          return (
+            <button type="button" class="option" key={index} onClick={() => onAnswer?.(choice)}>
+              {label}
+            </button>
+          );
+        })}
       </div>
     </div>
   );
 }
 
-function ItemBody({ item, open }: { item: ConversationItem; open: boolean }) {
+function ItemRow({
+  item,
+  open,
+  onToggleOpen,
+}: {
+  item: ConversationItem;
+  open: boolean;
+  onToggleOpen?: () => void;
+}) {
+  return (
+    <div class="t">
+      <span class="gut">{clock(item.time)}</span>
+      <div class="body">
+        <ItemBody item={item} open={open} onToggleOpen={onToggleOpen} />
+      </div>
+    </div>
+  );
+}
+
+function ItemBody({
+  item,
+  open,
+  onToggleOpen,
+}: {
+  item: ConversationItem;
+  open: boolean;
+  onToggleOpen?: () => void;
+}) {
   switch (item.kind) {
     case "prompt":
       return (
@@ -118,13 +184,21 @@ function ItemBody({ item, open }: { item: ConversationItem; open: boolean }) {
         </div>
       );
     case "compaction":
-      return <Compaction item={item} open={open} />;
+      return <Compaction item={item} open={open} onToggleOpen={onToggleOpen} />;
     default:
       return <ReplyText text={item.text} />;
   }
 }
 
-function Compaction({ item, open }: { item: ConversationItem; open: boolean }) {
+function Compaction({
+  item,
+  open,
+  onToggleOpen,
+}: {
+  item: ConversationItem;
+  open: boolean;
+  onToggleOpen?: () => void;
+}) {
   const parts = ["compacted"];
   if (item.trigger !== "") {
     parts.push(item.trigger);
@@ -132,9 +206,16 @@ function Compaction({ item, open }: { item: ConversationItem; open: boolean }) {
   if (item.tokens > 0n) {
     parts.push(`${Math.round(Number(item.tokens) / tokensPerThousand)}k`);
   }
+  const rule = parts.join(" · ");
   return (
     <div class={open ? "compaction open" : "compaction"}>
-      <div class="rule">{parts.join(" · ")}</div>
+      {onToggleOpen ? (
+        <button type="button" class="rule" onClick={() => onToggleOpen()}>
+          {rule}
+        </button>
+      ) : (
+        <div class="rule">{rule}</div>
+      )}
       {open && (
         <div class="summary">
           <ReplyText text={item.text} />

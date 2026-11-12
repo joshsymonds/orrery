@@ -13,6 +13,7 @@ import {
   type EngineText,
 } from "./gen/orrery/v1/orrery_pb";
 import type { Conversation } from "./conversation";
+import type { ParsedQuestion } from "./question";
 import { Reader } from "./reader";
 import { installTestDom, removeTestDom } from "./testdom";
 
@@ -39,6 +40,9 @@ interface Props {
   conversation: Conversation | null;
   seenAt: number;
   open: boolean;
+  question?: ParsedQuestion | null;
+  onAnswer?: (choice: 1 | 2 | 3) => void;
+  onToggleOpen?: () => void;
 }
 
 async function withReader(props: Props, check: (container: HTMLElement) => void): Promise<void> {
@@ -219,3 +223,96 @@ test("a null conversation draws a loading line", () =>
   withReader({ conversation: null, seenAt: 0, open: false }, (container) => {
     assert.ok(container.textContent?.includes("loading"));
   }));
+
+const askQuestion: ParsedQuestion = {
+  title: "Which beacon schedule?",
+  options: [
+    { label: "1 Hourly", description: "Synthetic hourly option" },
+    { label: "2 Daily", description: "Synthetic daily option" },
+    { label: "3 Weekly", description: "Synthetic weekly option" },
+    { label: "4 Never", description: "Synthetic fourth option" },
+  ],
+};
+
+test("a question draws its title and labels as text, one button per first three options", async () => {
+  const answers: number[] = [];
+  await withReader(
+    {
+      conversation: conversation(),
+      seenAt: 0,
+      open: false,
+      question: askQuestion,
+      onAnswer: (choice) => answers.push(choice),
+    },
+    (container) => {
+      const card = container.querySelector(".question-card");
+      assert.ok(card?.textContent?.includes("Which beacon schedule?"));
+      assert.ok(card?.textContent?.includes("1 Hourly"));
+      assert.ok(card?.textContent?.includes("Synthetic fourth option"));
+
+      const buttons = [...container.querySelectorAll<HTMLButtonElement>("button")];
+      assert.equal(buttons.length, 3);
+      assert.ok(buttons[1].textContent?.includes("2 Daily"));
+      assert.ok(buttons[1].textContent?.includes("Synthetic daily option"));
+      assert.equal(
+        buttons.some((button) => button.textContent?.includes("4 Never")),
+        false,
+      );
+      assert.ok(container.textContent?.includes("4 Never"));
+
+      buttons[1].click();
+      assert.deepEqual(answers, [2]);
+    },
+  );
+});
+
+test("a question holding markup draws its title and labels as text with no element", () =>
+  withReader(
+    {
+      conversation: conversation(),
+      seenAt: 0,
+      open: false,
+      question: {
+        title: "<b>bold</b> <img src=x onerror=alert(1)>",
+        options: [{ label: "<script>alert(1)</script>", description: "<a href=x>link</a>" }],
+      },
+      onAnswer: () => {},
+    },
+    (container) => {
+      assert.equal(container.querySelector("b"), null);
+      assert.equal(container.querySelector("img"), null);
+      assert.equal(container.querySelector("script"), null);
+      assert.equal(container.querySelector("a"), null);
+      assert.ok(container.textContent?.includes("<b>bold</b> <img src=x onerror=alert(1)>"));
+      assert.ok(container.textContent?.includes("<script>alert(1)</script>"));
+      assert.ok(container.textContent?.includes("<a href=x>link</a>"));
+    },
+  ));
+
+test("the compaction rule is a button that calls onToggleOpen, and a plain rule without it", async () => {
+  const compaction = item({ kind: "compaction", time: 100n, text: "Synthetic summary text.", trigger: "auto" });
+  let toggles = 0;
+
+  await withReader({ conversation: conversation({ items: [compaction] }), seenAt: 0, open: false }, (container) => {
+    assert.equal(container.querySelector("button"), null);
+    assert.ok(container.querySelector(".compaction .rule") !== null);
+  });
+
+  await withReader(
+    {
+      conversation: conversation({ items: [compaction] }),
+      seenAt: 0,
+      open: false,
+      onToggleOpen: () => {
+        toggles += 1;
+      },
+    },
+    (container) => {
+      const rule = container.querySelector<HTMLButtonElement>("button.rule");
+      assert.ok(rule !== null);
+      assert.ok(rule.textContent?.includes("compacted"));
+      rule.click();
+      assert.equal(toggles, 1);
+    },
+  );
+});
