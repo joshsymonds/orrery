@@ -62,6 +62,12 @@ sealed interface StreamEnd {
      * means the client closed the connection.
      */
     data object Held : StreamEnd
+
+    /**
+     * No end envelope: the stream sends [keepalive] every 50 ms until a write fails, which means the client closed the
+     * connection. A keepalive carries the transcript and seq the stream is at, as the server's keepalives do.
+     */
+    class HeldWith(val keepalive: MessageLite) : StreamEnd
 }
 
 /**
@@ -162,16 +168,17 @@ class FakeOrreryServer : AutoCloseable {
                     Thread.sleep(SILENT_STREAM_MILLIS)
                     body.writeEnvelope(ENVELOPE_END_FLAG, "{}".toByteArray(Charsets.UTF_8))
                 }
-                StreamEnd.Held -> holdUntilClientCloses(exchange, body)
+                StreamEnd.Held -> holdUntilClientCloses(exchange, body, ByteArray(0))
+                is StreamEnd.HeldWith -> holdUntilClientCloses(exchange, body, end.keepalive.toByteArray())
             }
         }
     }
 
-    private fun holdUntilClientCloses(exchange: HttpExchange, body: OutputStream) {
+    private fun holdUntilClientCloses(exchange: HttpExchange, body: OutputStream, keepalive: ByteArray) {
         try {
             while (true) {
                 Thread.sleep(HELD_STREAM_INTERVAL_MILLIS)
-                body.writeEnvelope(ENVELOPE_MESSAGE_FLAG, ByteArray(0))
+                body.writeEnvelope(ENVELOPE_MESSAGE_FLAG, keepalive)
             }
         } catch (e: IOException) {
             streamsClosedByClient.add(exchange.requestURI.rawPath)
