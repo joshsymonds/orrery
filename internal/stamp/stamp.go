@@ -29,8 +29,9 @@ func (s Stamp) BaseURL() string {
 // stamped when its .claude/settings.local.json or .claude/settings.json sets env.ANTHROPIC_BASE_URL to a non-empty
 // string, and the nearest stamping file wins with its whole env. When no folder stamps and dir lies in a linked git
 // worktree, the search continues from the worktree's primary checkout. An empty or relative home, an empty or relative
-// dir, and a dir that is not below home have no stamp. A settings or git file that exists but cannot be read, and a
-// settings file that does not parse, are errors that name the file.
+// dir, and a dir that is not below home have no stamp. A settings or git file that exists but cannot be read, including
+// a dangling symlink, and a settings file that does not parse or whose env has the wrong shape, are errors that name the
+// file.
 func Find(home, dir string) (Stamp, error) {
 	root, ok := resolveHome(home)
 	if !ok || !filepath.IsAbs(dir) {
@@ -101,15 +102,19 @@ func stampFrom(root, folder string) (Stamp, error) {
 }
 
 // folderStamp returns folder's stamp: its .claude/settings.local.json is read before its .claude/settings.json, and the
-// first of them that sets env.ANTHROPIC_BASE_URL to a non-empty string stamps the folder. A settings path that does not
-// exist, or has a component above it that is not a directory, is skipped.
+// first of them that sets env.ANTHROPIC_BASE_URL to a non-empty string stamps the folder. A settings path that Lstat does
+// not find, or has a component above it that is not a directory, is skipped. One that Lstat finds, including a symlink
+// whose target is missing, must be readable.
 func folderStamp(folder string) (Stamp, error) {
 	for _, name := range []string{"settings.local.json", "settings.json"} {
 		path := filepath.Join(folder, ".claude", name)
-		data, err := os.ReadFile(filepath.Clean(path))
-		if errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ENOTDIR) {
-			continue
+		if _, err := os.Lstat(path); err != nil {
+			if errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ENOTDIR) {
+				continue
+			}
+			return Stamp{}, fmt.Errorf("stamp: read %s: %w", path, err)
 		}
+		data, err := os.ReadFile(filepath.Clean(path))
 		if err != nil {
 			return Stamp{}, fmt.Errorf("stamp: read %s: %w", path, err)
 		}
@@ -125,36 +130,49 @@ func folderStamp(folder string) (Stamp, error) {
 }
 
 // settingsEnv returns the env of a settings file's data and whether that file stamps: env.ANTHROPIC_BASE_URL is a
-// non-empty string. Data that is not a JSON object is an error. An env that is not an object, or a base URL that is
-// absent or not a non-empty string, is no stamp. A stamping file whose env holds a value that is not a string is an
-// error, since the env is carried whole into the session.
+// non-empty string. Data that is not a JSON object is an error, and so is a stamping env with a value that is not a
+// string, since the env is carried whole into the session. An absent env, or an env without ANTHROPIC_BASE_URL, is no
+// stamp.
 func settingsEnv(data []byte) (map[string]string, bool, error) {
 	var settings map[string]json.RawMessage
 	if err := json.Unmarshal(data, &settings); err != nil {
 		return nil, false, fmt.Errorf("settings: %w", err)
 	}
-	if !stampsEnv(settings["env"]) {
-		return nil, false, nil
+	stamps, err := stampsEnv(settings["env"])
+	if err != nil || !stamps {
+		return nil, false, err
 	}
 	var values map[string]string
-	if err := json.Unmarshal(settings["env"], &values); err != nil {
+	if err = json.Unmarshal(settings["env"], &values); err != nil {
 		return nil, false, fmt.Errorf("env: %w", err)
 	}
 	return values, true, nil
 }
 
-// stampsEnv reports whether raw, the env value of a settings file, is an object whose ANTHROPIC_BASE_URL is a non-empty
-// string. An absent env is raw nil, which is no stamp.
-func stampsEnv(raw json.RawMessage) bool {
-	var env map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &env); err != nil {
-		return false
+// stampsEnv reports whether raw, the env value of a settings file, stamps: it is an object whose ANTHROPIC_BASE_URL is a
+// non-empty string. An absent env, or an env without ANTHROPIC_BASE_URL, is no stamp. An env that is present but not an
+// object, and a base URL that is present but not a string, are errors, including JSON null.
+func stampsEnv(raw json.RawMessage) (bool, error) {
+	if raw == nil {
+		return false, nil
 	}
-	var baseURL string
-	if err := json.Unmarshal(env["ANTHROPIC_BASE_URL"], &baseURL); err != nil {
-		return false
+	var value any
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return false, fmt.Errorf("env: %w", err)
 	}
-	return baseURL != ""
+	env, ok := value.(map[string]any)
+	if !ok {
+		return false, errors.New("env: not an object")
+	}
+	base, present := env["ANTHROPIC_BASE_URL"]
+	if !present {
+		return false, nil
+	}
+	baseURL, ok := base.(string)
+	if !ok {
+		return false, errors.New("env: ANTHROPIC_BASE_URL is not a string")
+	}
+	return baseURL != "", nil
 }
 
 // linkedWorktreePrimary returns the primary checkout of the linked worktree that dir lies in. It looks for a .git entry

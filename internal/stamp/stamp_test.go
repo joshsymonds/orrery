@@ -295,13 +295,17 @@ func TestFindUnreadableGitFileErrors(t *testing.T) {
 	assertErrorNames(t, err, filepath.Join(gitdir, "commondir"))
 }
 
-func TestFindUnparseableSettingsFileErrors(t *testing.T) {
+func TestFindUnusableSettingsFileErrors(t *testing.T) {
 	cases := []struct {
 		name    string
 		content string
 	}{
 		{"not JSON", `{"env": `},
 		{"env value not a string", `{"env": {"ANTHROPIC_BASE_URL": "` + urlOuter + `", "SYNTHETIC": 1}}`},
+		{"base URL not a string", `{"env": {"ANTHROPIC_BASE_URL": 5}}`},
+		{"base URL null", `{"env": {"ANTHROPIC_BASE_URL": null}}`},
+		{"env not an object", `{"env": "x"}`},
+		{"env null", `{"env": null}`},
 	}
 	for _, name := range []string{"settings.json", "settings.local.json"} {
 		for _, tc := range cases {
@@ -316,6 +320,30 @@ func TestFindUnparseableSettingsFileErrors(t *testing.T) {
 			})
 		}
 	}
+}
+
+func TestFindDanglingSettingsSymlinkErrors(t *testing.T) {
+	home := t.TempDir()
+	parent := makeDir(t, filepath.Join(home, "parent"))
+	child := makeDir(t, filepath.Join(parent, "child"))
+	claude := makeDir(t, filepath.Join(parent, ".claude"))
+	link := filepath.Join(claude, "settings.json")
+	if err := os.Symlink(filepath.Join(home, "missing.json"), link); err != nil {
+		t.Fatalf("symlink %s: %v", link, err)
+	}
+
+	_, err := Find(home, child)
+	assertErrorNames(t, err, filepath.Join(resolved(t, parent), ".claude", "settings.json"))
+}
+
+func TestFindSkipsFileWithoutEnv(t *testing.T) {
+	home := t.TempDir()
+	stamped := makeDir(t, filepath.Join(home, "stamped"))
+	writeSettings(t, stamped, "settings.json", stampJSON(urlOuter))
+	child := makeDir(t, filepath.Join(stamped, "child"))
+	writeSettings(t, child, "settings.local.json", `{"disableAllHooks": true}`)
+
+	assertStamp(t, findStamp(t, home, child), resolved(t, stamped), urlOuter)
 }
 
 func TestFindRefusesDirOutsideHome(t *testing.T) {
