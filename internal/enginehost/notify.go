@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/joshsymonds/orrery/internal/deskstream"
 	"github.com/joshsymonds/orrery/internal/notice"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/push"
@@ -35,10 +36,16 @@ type PushNotices interface {
 	Seen(ctx context.Context, key notice.Key, seen int64)
 }
 
-// NotifierConfig configures a Notifier. A nil Ntfy or Push skips that channel, and a nil Logger discards.
+// DeskPoster posts a notice to the desk stream. *deskstream.Hub satisfies it.
+type DeskPoster interface {
+	Post(deskstream.Notice)
+}
+
+// NotifierConfig configures a Notifier. A nil Ntfy, Push or Desk skips that channel, and a nil Logger discards.
 type NotifierConfig struct {
 	Ntfy   SessionPublisher
 	Push   PushNotices
+	Desk   DeskPoster
 	Logger *slog.Logger
 }
 
@@ -46,6 +53,7 @@ type NotifierConfig struct {
 type Notifier struct {
 	ntfy   SessionPublisher
 	push   PushNotices
+	desk   DeskPoster
 	logger *slog.Logger
 	posts  sync.WaitGroup
 }
@@ -56,12 +64,12 @@ func NewNotifier(cfg NotifierConfig) *Notifier {
 	if logger == nil {
 		logger = slog.New(slog.DiscardHandler)
 	}
-	return &Notifier{ntfy: cfg.Ntfy, push: cfg.Push, logger: logger}
+	return &Notifier{ntfy: cfg.Ntfy, push: cfg.Push, desk: cfg.Desk, logger: logger}
 }
 
-// Notify starts the ntfy post for event and hands its push to the notice record, and returns at once. Only waiting,
-// done, failed and interrupted notify. The posts ignore ctx's cancellation, so a notification accepted before a
-// shutdown still goes out.
+// Notify starts the ntfy post for event, posts it to the desk stream, and hands its push to the notice record, and
+// returns at once. Only waiting, done, failed and interrupted notify. The posts ignore ctx's cancellation, so a
+// notification accepted before a shutdown still goes out.
 func (n *Notifier) Notify(ctx context.Context, event Notice) {
 	if !notifies(event.State) {
 		return
@@ -73,6 +81,14 @@ func (n *Notifier) Notify(ctx context.Context, event Notice) {
 			defer n.posts.Done()
 			n.postNtfy(ctx, event)
 		}()
+	}
+	if n.desk != nil {
+		project := filepath.Base(event.Dir)
+		n.desk.Post(deskstream.Notice{
+			State: event.State,
+			Title: deskstream.SessionTitle(project, event.Session),
+			Body:  noticeBody(event),
+		})
 	}
 	if n.push != nil {
 		build := func(context.Context) (push.Notification, error) {
@@ -105,16 +121,13 @@ func notifies(state string) bool {
 	return false
 }
 
-// postNtfy posts event to ntfy. The body falls back to a fixed word when empty.
+// postNtfy posts event to ntfy.
 func (n *Notifier) postNtfy(ctx context.Context, event Notice) {
 	session := event.Session
 	if len(session) > shortSessionLen {
 		session = session[:shortSessionLen]
 	}
-	body := event.Body
-	if body == "" {
-		body = fallbackBody(event.State)
-	}
+	body := noticeBody(event)
 	project := filepath.Base(event.Dir)
 	if err := n.ntfy.PublishSession(ctx, project, session, event.State, body); err != nil {
 		n.logger.ErrorContext(ctx, "post session notification", "session", event.Session,
@@ -135,6 +148,14 @@ func pushNotification(event Notice) push.Notification {
 		note.Summary = event.Body
 	}
 	return note
+}
+
+// noticeBody is the body event shows on ntfy and the desk stream: the event's body, or a fixed word when it is empty.
+func noticeBody(event Notice) string {
+	if event.Body != "" {
+		return event.Body
+	}
+	return fallbackBody(event.State)
 }
 
 // fallbackBody stands in for an empty body: a prompt for waiting, and the state name otherwise.

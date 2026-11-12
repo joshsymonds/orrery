@@ -1,5 +1,5 @@
 // Command orreryd is the orrery daemon. It listens on a unix socket for hook frames, applies each one to the pane
-// it names, starts summaries, and posts waiting and done notifications through ntfy and Web Push.
+// it names, starts summaries, and posts waiting and done notifications to the desk stream, through ntfy and Web Push.
 package main
 
 import (
@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -22,6 +23,7 @@ import (
 
 	"github.com/joshsymonds/orrery/internal/autoseen"
 	"github.com/joshsymonds/orrery/internal/daemon"
+	"github.com/joshsymonds/orrery/internal/deskstream"
 	"github.com/joshsymonds/orrery/internal/enginehost"
 	"github.com/joshsymonds/orrery/internal/notice"
 	"github.com/joshsymonds/orrery/internal/ntfy"
@@ -294,6 +296,32 @@ func resolveDir(dir string) string {
 	return resolved
 }
 
+// listenSockets listens on the daemon socket and on the notices socket beside it. When the second listen fails it
+// closes the first.
+func listenSockets(socket string) (net.Listener, net.Listener, error) {
+	ln, err := daemon.Listen(socket)
+	if err != nil {
+		return nil, nil, fmt.Errorf("daemon socket: %w", err)
+	}
+	deskLn, err := daemon.Listen(deskstream.SocketPath(socket))
+	if err != nil {
+		return nil, nil, errors.Join(fmt.Errorf("desk socket: %w", err), ln.Close())
+	}
+	return ln, deskLn, nil
+}
+
+// startDesk returns a hub for host that serves the desk stream on deskLn in the background. A failure to serve is
+// logged. The caller closes the hub.
+func startDesk(ctx context.Context, host string, deskLn net.Listener, logger *slog.Logger) *deskstream.Hub {
+	desk := deskstream.NewHub(host, time.Now, logger)
+	go func() {
+		if err := desk.Serve(deskLn); err != nil {
+			logger.ErrorContext(ctx, "serve desk stream", "error", err)
+		}
+	}()
+	return desk
+}
+
 // serve listens on the daemon socket until ctx is done, then waits for the summaries and notifications it started.
 func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(string) string) error {
 	host, err := os.Hostname()
@@ -320,10 +348,13 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 		return fmt.Errorf("push publisher: %w", err)
 	}
 	notices := notice.New(host, pushes, time.Now, logger)
-	ln, err := daemon.Listen(opts.socket)
+	ln, deskLn, err := listenSockets(opts.socket)
 	if err != nil {
-		return fmt.Errorf("daemon socket: %w", err)
+		return err
 	}
+	desk := startDesk(ctx, host, deskLn, logger)
+	// The hub closes last, after the sessions and notices that post to it have stopped.
+	defer desk.Close()
 
 	st := openStore(ctx, getenv, logger)
 	var mirror *daemon.Mirror
@@ -335,6 +366,7 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 		models:      opts.models,
 		logger:      logger,
 		publisher:   publisher,
+		desk:        desk,
 		notices:     notices,
 		mirror:      mirror,
 		summarizers: make(map[tmuxctl.Server]*summary.Summarizer),
@@ -347,6 +379,7 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 	notifier := enginehost.NewNotifier(enginehost.NotifierConfig{
 		Ntfy:   sessionNtfy,
 		Push:   notices,
+		Desk:   desk,
 		Logger: logger,
 	})
 	var sessions *sessionHost
@@ -544,6 +577,7 @@ type relay struct {
 	models      map[string]string
 	logger      *slog.Logger
 	publisher   *ntfy.Publisher // nil when ntfy is off
+	desk        *deskstream.Hub
 	notices     *notice.Notices // the Web Push notices sent and cleared on this host
 	mirror      *daemon.Mirror  // nil when the store is unavailable
 	summarizers map[tmuxctl.Server]*summary.Summarizer
@@ -567,9 +601,9 @@ func hookString(hook json.RawMessage, key string) (string, error) {
 	return value, nil
 }
 
-// observe requests a summary for a pane that starts working or finishes, posts an ntfy notification when it waits for
-// input or finishes, records a Web Push notice for the same transitions when push.Wanted allows, and forgets the
-// pane's summary when its session ends.
+// observe requests a summary for a pane that starts working or finishes, posts a notification to the desk stream and
+// to ntfy when it waits for input or finishes, records a Web Push notice for the same transitions when push.Wanted
+// allows, and forgets the pane's summary when its session ends.
 func (r *relay) observe(ctx context.Context, transition daemon.Transition) {
 	if transition.To == "" {
 		r.forget(ctx, transition)
@@ -578,9 +612,7 @@ func (r *relay) observe(ctx context.Context, transition daemon.Transition) {
 		r.summarize(ctx, transition)
 	}
 	if transition.To == protocol.StateWaiting || transition.To == protocol.StateDone {
-		if r.publisher != nil {
-			r.notify(ctx, transition)
-		}
+		r.notify(ctx, transition)
 		r.webPush(ctx, transition)
 	}
 }
@@ -648,7 +680,7 @@ func (r *relay) summarizerFor(server tmuxctl.Server) (*summary.Summarizer, error
 	return summarizer, nil
 }
 
-// notify posts the transition's ntfy notification from a goroutine that wait awaits. ntfy must be configured.
+// notify posts the transition's notification from a goroutine that wait awaits.
 func (r *relay) notify(ctx context.Context, transition daemon.Transition) {
 	// A notification accepted before a shutdown signal still goes out. The HTTP client's timeout bounds it.
 	ctx = context.WithoutCancel(ctx)
@@ -659,8 +691,8 @@ func (r *relay) notify(ctx context.Context, transition daemon.Transition) {
 	}()
 }
 
-// publish reads the pane's stored text from its tmux server, then posts the notification to ntfy. The caller starts
-// it only when ntfy is configured. Failures are logged and never stop the daemon.
+// publish reads the pane's stored text from its tmux server, then posts the notification. Failures are logged and
+// never stop the daemon.
 func (r *relay) publish(ctx context.Context, transition daemon.Transition) {
 	client, err := tmuxctl.New(transition.Server)
 	if err != nil {
@@ -672,7 +704,7 @@ func (r *relay) publish(ctx context.Context, transition daemon.Transition) {
 		r.logger.ErrorContext(ctx, "read notification text", "pane", transition.PaneID, "error", err)
 		return
 	}
-	r.publishNtfy(ctx, client, transition, filepath.Base(transition.Frame.Cwd), text)
+	r.postNotice(ctx, client, transition, filepath.Base(transition.Frame.Cwd), text)
 }
 
 // paneText is the text a notification carries, as stored on its pane.
@@ -700,9 +732,9 @@ func readPaneText(ctx context.Context, client *tmuxctl.Client, pane string) (pan
 	return text, nil
 }
 
-// publishNtfy posts the notification to ntfy. Its body is the question when the pane waits and the summary when
-// it is done, and the session and window come from tmux.
-func (r *relay) publishNtfy(
+// postNotice posts the notification to the desk stream and, when ntfy is configured, to ntfy. Its body is the question
+// when the pane waits and the summary when it is done, and the session and window come from tmux.
+func (r *relay) postNotice(
 	ctx context.Context, client *tmuxctl.Client, transition daemon.Transition, project string, text paneText,
 ) {
 	session, window, err := paneLocation(ctx, client, transition.PaneID)
@@ -716,6 +748,14 @@ func (r *relay) publishNtfy(
 	}
 	if body == "" {
 		body = fallback
+	}
+	r.desk.Post(deskstream.Notice{
+		State: string(transition.To),
+		Title: deskstream.PaneTitle(project, session, window),
+		Body:  body,
+	})
+	if r.publisher == nil {
+		return
 	}
 	err = r.publisher.Publish(ctx, project, session, window, transition.To, body)
 	if err != nil {

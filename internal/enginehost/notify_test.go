@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/joshsymonds/orrery/internal/deskstream"
 	"github.com/joshsymonds/orrery/internal/notice"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/push"
@@ -20,6 +21,7 @@ const (
 	notifierShortSession = "01234567"
 	notifierDir          = "/x/proj"
 	notifierProject      = "proj"
+	notifierDeskTitle    = "proj · session 01234567"
 	// notifierGuard bounds each wait for a post. It is a hang guard, never a timing assumption.
 	notifierGuard = 30 * time.Second
 	// notifierHoldWindow is how long Wait is observed blocked while a post is still held open.
@@ -48,6 +50,15 @@ func (f *fakeNtfy) PublishSession(ctx context.Context, project, session, state, 
 	f.canceled = f.canceled || ctx.Err() != nil
 	f.finished++
 	return f.err
+}
+
+// fakeDesk records the notices it is posted.
+type fakeDesk struct {
+	posts []deskstream.Notice
+}
+
+func (f *fakeDesk) Post(n deskstream.Notice) {
+	f.posts = append(f.posts, n)
 }
 
 // pushNotify is one Notify call the fake notice record received, with the notification its build returned.
@@ -111,6 +122,43 @@ func TestNotifyNtfyPayload(t *testing.T) {
 	}
 }
 
+func TestNotifyDeskPayload(t *testing.T) {
+	cases := []struct {
+		name, state, body, want string
+	}{
+		{"waiting with question", "waiting", "which file?", "which file?"},
+		{"waiting without question", "waiting", "", "waiting for input"},
+		{"done with summary", "done", "all tests pass", "all tests pass"},
+		{"done without summary", "done", "", "done"},
+		{"failed without body", "failed", "", "failed"},
+		{"interrupted without body", "interrupted", "", "interrupted"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			desk := &fakeDesk{}
+			n := NewNotifier(NotifierConfig{Desk: desk})
+			notifyAndWait(n, Notice{Session: notifierSession, Dir: notifierDir, State: tc.state, Body: tc.body})
+			want := deskstream.Notice{State: tc.state, Title: notifierDeskTitle, Body: tc.want}
+			if len(desk.posts) != 1 || desk.posts[0] != want {
+				t.Fatalf("desk posts = %+v, want exactly [%+v]", desk.posts, want)
+			}
+		})
+	}
+}
+
+func TestNotifyDeskAndNtfyCarrySameBody(t *testing.T) {
+	ntfy := &fakeNtfy{}
+	desk := &fakeDesk{}
+	n := NewNotifier(NotifierConfig{Ntfy: ntfy, Desk: desk})
+	notifyAndWait(n, Notice{Session: notifierSession, Dir: notifierDir, State: "waiting", Body: ""})
+	if len(ntfy.posts) != 1 || len(desk.posts) != 1 {
+		t.Fatalf("posts: ntfy=%d desk=%d, want 1 each", len(ntfy.posts), len(desk.posts))
+	}
+	if ntfy.posts[0].body != desk.posts[0].Body {
+		t.Fatalf("ntfy body %q, desk body %q, want the same", ntfy.posts[0].body, desk.posts[0].Body)
+	}
+}
+
 func TestNotifyHandsBuiltPushToNoticeRecord(t *testing.T) {
 	cases := []struct {
 		name, state, body string
@@ -153,10 +201,12 @@ func TestNotifySkipsWorkingAndStopped(t *testing.T) {
 		t.Run(state, func(t *testing.T) {
 			ntfy := &fakeNtfy{}
 			pushes := &fakePushNotices{}
-			n := NewNotifier(NotifierConfig{Ntfy: ntfy, Push: pushes})
+			desk := &fakeDesk{}
+			n := NewNotifier(NotifierConfig{Ntfy: ntfy, Push: pushes, Desk: desk})
 			notifyAndWait(n, Notice{Session: notifierSession, Dir: notifierDir, State: state, Body: "text"})
-			if len(ntfy.posts) != 0 || len(pushes.notifies) != 0 {
-				t.Fatalf("state %q posted ntfy=%+v push=%+v, want nothing", state, ntfy.posts, pushes.notifies)
+			if len(ntfy.posts) != 0 || len(pushes.notifies) != 0 || len(desk.posts) != 0 {
+				t.Fatalf("state %q posted ntfy=%+v push=%+v desk=%+v, want nothing",
+					state, ntfy.posts, pushes.notifies, desk.posts)
 			}
 		})
 	}
@@ -169,6 +219,14 @@ func TestNotifyNilChannelIsSkipped(t *testing.T) {
 		notifyAndWait(n, Notice{Session: notifierSession, Dir: notifierDir, State: "done", Body: "ok"})
 		if len(pushes.notifies) != 1 {
 			t.Fatalf("notice record calls = %d, want 1", len(pushes.notifies))
+		}
+	})
+	t.Run("desk only", func(t *testing.T) {
+		desk := &fakeDesk{}
+		n := NewNotifier(NotifierConfig{Desk: desk})
+		notifyAndWait(n, Notice{Session: notifierSession, Dir: notifierDir, State: "done", Body: "ok"})
+		if len(desk.posts) != 1 {
+			t.Fatalf("desk posts = %d, want 1", len(desk.posts))
 		}
 	})
 	t.Run("ntfy only", func(t *testing.T) {
