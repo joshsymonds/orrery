@@ -65,9 +65,19 @@ func NewHaiku(cfg HaikuConfig) *Haiku {
 	}
 }
 
-// Call runs claude once against schema with input on stdin and returns the result's structured_output. The
-// timeout covers the wait for a call slot and the run together.
+// Call runs claude once against schema with input on stdin, with the default summary model and no base URL, and
+// returns the result's structured_output. The timeout covers the wait for a call slot and the run together.
 func (h *Haiku) Call(ctx context.Context, schema, input string) (json.RawMessage, error) {
+	return h.CallVia(ctx, "", protocol.DefaultSummaryModel, schema, input)
+}
+
+// CallVia runs claude once against schema with input on stdin, using model (the default summary model when
+// empty) and, when baseURL is non-empty, claude's API base URL set to baseURL. It returns the result's
+// structured_output. The timeout covers the wait for a call slot and the run together.
+func (h *Haiku) CallVia(ctx context.Context, baseURL, model, schema, input string) (json.RawMessage, error) {
+	if model == "" {
+		model = protocol.DefaultSummaryModel
+	}
 	ctx, cancel := context.WithTimeout(ctx, h.timeout)
 	defer cancel()
 
@@ -78,11 +88,11 @@ func (h *Haiku) Call(ctx context.Context, schema, input string) (json.RawMessage
 	}
 	defer func() { <-h.slots }()
 
-	return h.run(ctx, schema, input)
+	return h.run(ctx, baseURL, model, schema, input)
 }
 
 // run executes claude once and parses its result line.
-func (h *Haiku) run(ctx context.Context, schema, input string) (json.RawMessage, error) {
+func (h *Haiku) run(ctx context.Context, baseURL, model, schema, input string) (json.RawMessage, error) {
 	path, err := exec.LookPath(h.claude)
 	if err != nil {
 		return nil, fmt.Errorf("haiku: find claude: %w", err)
@@ -90,9 +100,9 @@ func (h *Haiku) run(ctx context.Context, schema, input string) (json.RawMessage,
 	var stdout, stderr bytes.Buffer
 	cmd := &exec.Cmd{
 		Path:        path,
-		Args:        append([]string{path}, haikuArgv(schema)...),
+		Args:        append([]string{path}, haikuArgv(model, schema)...),
 		Dir:         "/",
-		Env:         haikuEnv(h.environ),
+		Env:         haikuEnv(h.environ, baseURL),
 		Stdin:       strings.NewReader(input),
 		Stdout:      &stdout,
 		Stderr:      &stderr,
@@ -169,11 +179,11 @@ func haikuDecodeField(fields map[string]json.RawMessage, key string, dst any) er
 	return nil
 }
 
-// haikuArgv is the argv after the claude binary: one structured turn with hooks disabled, no tools, no saved
-// session.
-func haikuArgv(schema string) []string {
+// haikuArgv is the argv after the claude binary: one structured turn on model with hooks disabled, no tools, no
+// saved session.
+func haikuArgv(model, schema string) []string {
 	return []string{
-		"-p", "--model", protocol.DefaultSummaryModel,
+		"-p", "--model", model,
 		"--settings", `{"disableAllHooks":true}`,
 		"--no-session-persistence",
 		"--tools", "",
@@ -183,14 +193,18 @@ func haikuArgv(schema string) []string {
 	}
 }
 
-// haikuEnv returns environ without ANTHROPIC_BASE_URL and ORRERY_SUMMARIZER, plus the summarizer sentinel.
-func haikuEnv(environ []string) []string {
-	env := make([]string, 0, len(environ)+1)
+// haikuEnv returns environ without ANTHROPIC_BASE_URL and ORRERY_SUMMARIZER, plus baseURL as ANTHROPIC_BASE_URL
+// when it is set and the summarizer sentinel.
+func haikuEnv(environ []string, baseURL string) []string {
+	env := make([]string, 0, len(environ)+2)
 	for _, entry := range environ {
 		if strings.HasPrefix(entry, haikuBaseURLPrefix) || strings.HasPrefix(entry, protocol.EnvSummarizer+"=") {
 			continue
 		}
 		env = append(env, entry)
+	}
+	if baseURL != "" {
+		env = append(env, haikuBaseURLPrefix+baseURL)
 	}
 	return append(env, protocol.EnvSummarizer+"="+protocol.SummarizerValue)
 }

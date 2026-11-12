@@ -12,6 +12,7 @@ import org.unifiedpush.android.connector.data.PushMessage
 
 private const val TAG = "OrreryPushService"
 private const val CLEAR_KIND = "clear"
+private const val SILENT_TRUE = "true"
 
 class OrreryPushService : PushService() {
     override fun onNewEndpoint(endpoint: PushEndpoint, instance: String) {
@@ -67,6 +68,7 @@ class OrreryPushService : PushService() {
                 questionHash = json.getString("question_hash"),
                 session = json.optString("session"),
                 time = optDecimal(json.optString("time")),
+                silent = json.opt("silent") == SILENT_TRUE,
             )
         } catch (e: JSONException) {
             Log.w(TAG, "dropped malformed push", e)

@@ -24,6 +24,7 @@ const (
 	testTitle    = "synthetic title"
 	testBody     = "synthetic body"
 	testSummary  = "synthetic summary"
+	testWhy      = "synthetic why"
 	waitLimit    = 5 * time.Second
 )
 
@@ -705,4 +706,462 @@ func TestCloseWritesShutdownForEachPendingNoticeAndStopsTimers(t *testing.T) {
 		lineOf(otherPane, clockStart, stateDone, route.None, "shutdown"),
 	}, []deskstream.Notice{deskPost(stateDone)}, nil)
 	f.checkActiveTimers(t, 0)
+}
+
+// canned is a Judge that answers with one verdict and one error, and counts its calls.
+type canned struct {
+	mu      sync.Mutex
+	calls   int
+	verdict route.Verdict
+	err     error
+}
+
+func (c *canned) judge(context.Context) (route.Verdict, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.calls++
+	return c.verdict, c.err
+}
+
+func (c *canned) checkCalls(t *testing.T, want int) {
+	t.Helper()
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.calls != want {
+		t.Errorf("judge calls = %d, want %d", c.calls, want)
+	}
+}
+
+// fireAsync runs fire for d on its own goroutine, for a timer whose callback blocks until the test releases it. The
+// returned channel closes when the callback returns.
+func fireAsync(t *testing.T, f *fake, d time.Duration) <-chan struct{} {
+	t.Helper()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		f.fire(t, d)
+	}()
+	return done
+}
+
+// quietDonePost is the quiet desk notice an unneeded done posts.
+func quietDonePost() deskstream.Notice {
+	n := deskPost(stateDone)
+	n.Quiet = true
+	return n
+}
+
+// silentDonePush is the silent push an unneeded done sends for testPane.
+func silentDonePush() push.Notification {
+	n := phonePush(testPane, stateDone)
+	n.Silent = true
+	return n
+}
+
+func TestJudgeNoCallBeforeDelayThenNeededRoutesAsToday(t *testing.T) {
+	f := newFake()
+	c := &canned{verdict: route.Verdict{Needed: true}}
+	r := newRouter(t, f)
+
+	n := f.notice(testPane, stateDone, false)
+	n.Judge = c.judge
+	r.Notify(t.Context(), n)
+	r.Wait()
+	c.checkCalls(t, 0)
+	f.check(t, nil, nil, nil)
+	f.checkActiveTimers(t, 1)
+
+	f.fire(t, route.JudgeDelay)
+	r.Wait()
+	c.checkCalls(t, 1)
+	f.check(t, []route.Line{lineOf(testPane, clockStart+10, stateDone, route.DeskPhone, "away; needed")},
+		[]deskstream.Notice{deskPost(stateDone)}, []push.Notification{phonePush(testPane, stateDone)})
+	f.checkActiveTimers(t, 0)
+}
+
+func TestJudgeUnneededGoesQuietToDeskAndSilentToPhone(t *testing.T) {
+	cases := []struct {
+		name       string
+		why        string
+		subscribed bool
+		deskFails  bool
+		atDesk     bool
+		routed     string
+		reason     string
+		posts      []deskstream.Notice
+		pushes     []push.Notification
+	}{
+		{
+			name:       "with why and a subscription",
+			why:        testWhy,
+			subscribed: true,
+			routed:     route.DeskPhone,
+			reason:     "unneeded: synthetic why",
+			posts:      []deskstream.Notice{quietDonePost()},
+			pushes:     []push.Notification{silentDonePush()},
+		},
+		{
+			name:       "without why",
+			subscribed: true,
+			routed:     route.DeskPhone,
+			reason:     "unneeded",
+			posts:      []deskstream.Notice{quietDonePost()},
+			pushes:     []push.Notification{silentDonePush()},
+		},
+		{
+			name:   "without a subscription the push is dropped",
+			why:    testWhy,
+			routed: route.Desk,
+			reason: "unneeded: synthetic why; no push subscription",
+			posts:  []deskstream.Notice{quietDonePost()},
+		},
+		{
+			name:       "at the desk it still goes to both at once",
+			why:        testWhy,
+			subscribed: true,
+			atDesk:     true,
+			routed:     route.DeskPhone,
+			reason:     "unneeded: synthetic why",
+			posts:      []deskstream.Notice{quietDonePost()},
+			pushes:     []push.Notification{silentDonePush()},
+		},
+		{
+			name:       "a failed desk build sends the push alone",
+			why:        testWhy,
+			subscribed: true,
+			deskFails:  true,
+			routed:     route.Phone,
+			reason:     "unneeded: synthetic why; desk notice failed",
+			pushes:     []push.Notification{silentDonePush()},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFake()
+			f.setSubscribed(tc.subscribed, nil)
+			if tc.atDesk {
+				f.setDesk(true, clockStart)
+			}
+			c := &canned{verdict: route.Verdict{Needed: false, Why: tc.why}}
+			r := newRouter(t, f)
+
+			n := f.notice(testPane, stateDone, false)
+			n.Judge = c.judge
+			if tc.deskFails {
+				n.Desk = func(context.Context) (deskstream.Notice, error) {
+					return deskstream.Notice{}, errors.New("synthetic desk build failure")
+				}
+			}
+			r.Notify(t.Context(), n)
+			r.Wait()
+			f.fire(t, route.JudgeDelay)
+			r.Wait()
+
+			c.checkCalls(t, 1)
+			f.check(t, []route.Line{lineOf(testPane, clockStart+10, stateDone, tc.routed, tc.reason)},
+				tc.posts, tc.pushes)
+			f.checkActiveTimers(t, 0)
+		})
+	}
+}
+
+func TestJudgeNeededRoutesAsTodayWithVerdictClause(t *testing.T) {
+	cases := []struct {
+		name      string
+		why       string
+		deskFails bool
+		routed    string
+		reason    string
+		posts     []deskstream.Notice
+		pushes    []push.Notification
+	}{
+		{
+			name:   "away with why",
+			why:    testWhy,
+			routed: route.DeskPhone,
+			reason: "away; needed: synthetic why",
+			posts:  []deskstream.Notice{deskPost(stateDone)},
+			pushes: []push.Notification{phonePush(testPane, stateDone)},
+		},
+		{
+			name:   "away without why",
+			routed: route.DeskPhone,
+			reason: "away; needed",
+			posts:  []deskstream.Notice{deskPost(stateDone)},
+			pushes: []push.Notification{phonePush(testPane, stateDone)},
+		},
+		{
+			name:      "failed desk build keeps the clause",
+			why:       testWhy,
+			deskFails: true,
+			routed:    route.Phone,
+			reason:    "away; needed: synthetic why; desk notice failed",
+			pushes:    []push.Notification{phonePush(testPane, stateDone)},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFake()
+			c := &canned{verdict: route.Verdict{Needed: true, Why: tc.why}}
+			r := newRouter(t, f)
+
+			n := f.notice(testPane, stateDone, false)
+			n.Judge = c.judge
+			if tc.deskFails {
+				n.Desk = func(context.Context) (deskstream.Notice, error) {
+					return deskstream.Notice{}, errors.New("synthetic desk build failure")
+				}
+			}
+			r.Notify(t.Context(), n)
+			r.Wait()
+			f.fire(t, route.JudgeDelay)
+			r.Wait()
+
+			c.checkCalls(t, 1)
+			f.check(t, []route.Line{lineOf(testPane, clockStart+10, stateDone, tc.routed, tc.reason)},
+				tc.posts, tc.pushes)
+			f.checkActiveTimers(t, 0)
+		})
+	}
+}
+
+func TestJudgeNeededAtDeskEscalatesAsToday(t *testing.T) {
+	f := newFake()
+	f.setDesk(true, clockStart)
+	c := &canned{verdict: route.Verdict{Needed: true, Why: testWhy}}
+	r := newRouter(t, f)
+
+	n := f.notice(testPane, stateDone, false)
+	n.Judge = c.judge
+	r.Notify(t.Context(), n)
+	r.Wait()
+	f.fire(t, route.JudgeDelay)
+	r.Wait()
+	f.check(
+		t,
+		[]route.Line{lineOf(testPane, clockStart+10, stateDone, route.Desk, "at the desk; needed: synthetic why")},
+		[]deskstream.Notice{deskPost(stateDone)},
+		nil,
+	)
+
+	f.fire(t, route.Escalation)
+	r.Wait()
+	f.check(t, []route.Line{
+		lineOf(testPane, clockStart+10, stateDone, route.Desk, "at the desk; needed: synthetic why"),
+		lineOf(testPane, clockStart+310, stateDone, route.Phone, "unseen after 5 minutes"),
+	}, []deskstream.Notice{deskPost(stateDone)}, []push.Notification{phonePush(testPane, stateDone)})
+	f.checkActiveTimers(t, 0)
+}
+
+func TestJudgeFailureRoutesAsNeededWithReason(t *testing.T) {
+	f := newFake()
+	c := &canned{err: errors.New("synthetic judge failure")}
+	r := newRouter(t, f)
+
+	n := f.notice(testPane, stateDone, false)
+	n.Judge = c.judge
+	r.Notify(t.Context(), n)
+	r.Wait()
+	f.fire(t, route.JudgeDelay)
+	r.Wait()
+
+	c.checkCalls(t, 1)
+	f.check(
+		t,
+		[]route.Line{
+			lineOf(testPane, clockStart+10, stateDone, route.DeskPhone, "away; judge failed: synthetic judge failure"),
+		},
+		[]deskstream.Notice{deskPost(stateDone)},
+		[]push.Notification{phonePush(testPane, stateDone)},
+	)
+	f.checkActiveTimers(t, 0)
+}
+
+func TestJudgeLateRoutesAsNeededWithReasonWhateverJudgeReturned(t *testing.T) {
+	started := make(chan struct{})
+	f := newFake()
+	r := newRouter(t, f)
+
+	n := f.notice(testPane, stateDone, false)
+	n.Judge = func(ctx context.Context) (route.Verdict, error) {
+		close(started)
+		select {
+		case <-ctx.Done():
+			return route.Verdict{Needed: false, Why: testWhy}, nil
+		case <-time.After(waitLimit):
+			return route.Verdict{}, errors.New("synthetic context never canceled")
+		}
+	}
+	r.Notify(t.Context(), n)
+	r.Wait()
+	done := fireAsync(t, f, route.JudgeDelay)
+	select {
+	case <-started:
+	case <-time.After(waitLimit):
+		t.Fatal("judge never started")
+	}
+	f.fire(t, route.JudgeTimeout)
+	<-done
+	r.Wait()
+
+	f.check(t, []route.Line{lineOf(testPane, clockStart+25, stateDone, route.DeskPhone, "away; judge late")},
+		[]deskstream.Notice{deskPost(stateDone)}, []push.Notification{phonePush(testPane, stateDone)})
+	f.checkActiveTimers(t, 0)
+}
+
+func TestJudgeTimeoutCancelsJudgeContext(t *testing.T) {
+	started := make(chan struct{})
+	canceled := make(chan error, 1)
+	f := newFake()
+	r := newRouter(t, f)
+
+	n := f.notice(testPane, stateDone, false)
+	n.Judge = func(ctx context.Context) (route.Verdict, error) {
+		close(started)
+		select {
+		case <-ctx.Done():
+			canceled <- ctx.Err()
+			return route.Verdict{}, ctx.Err()
+		case <-time.After(waitLimit):
+			return route.Verdict{}, errors.New("synthetic context never canceled")
+		}
+	}
+	r.Notify(t.Context(), n)
+	r.Wait()
+	done := fireAsync(t, f, route.JudgeDelay)
+	select {
+	case <-started:
+	case <-time.After(waitLimit):
+		t.Fatal("judge never started")
+	}
+	f.fire(t, route.JudgeTimeout)
+	<-done
+	r.Wait()
+
+	select {
+	case err := <-canceled:
+		if !errors.Is(err, context.Canceled) {
+			t.Errorf("judge context error = %v, want %v", err, context.Canceled)
+		}
+	default:
+		t.Error("judge context was not canceled")
+	}
+	f.check(t, []route.Line{lineOf(testPane, clockStart+25, stateDone, route.DeskPhone, "away; judge late")},
+		[]deskstream.Notice{deskPost(stateDone)}, []push.Notification{phonePush(testPane, stateDone)})
+}
+
+func TestJudgeEndedWhileRunningWritesNothingMore(t *testing.T) {
+	started := make(chan struct{})
+	release := make(chan struct{})
+	f := newFake()
+	r := newRouter(t, f)
+
+	n := f.notice(testPane, stateDone, false)
+	n.Judge = func(context.Context) (route.Verdict, error) {
+		close(started)
+		<-release
+		return route.Verdict{Needed: false, Why: testWhy}, nil
+	}
+	r.Notify(t.Context(), n)
+	r.Wait()
+	done := fireAsync(t, f, route.JudgeDelay)
+	select {
+	case <-started:
+	case <-time.After(waitLimit):
+		t.Fatal("judge never started")
+	}
+	r.Changed(notice.Key{Pane: testPane})
+	close(release)
+	<-done
+	r.Wait()
+
+	f.check(t, []route.Line{lineOf(testPane, clockStart+10, stateDone, route.None, "changed")}, nil, nil)
+	f.checkActiveTimers(t, 0)
+}
+
+func TestJudgeWatchedAfterDelayHoldsWithoutCallThenJudgedWithoutSecondDelay(t *testing.T) {
+	f := newFake()
+	c := &canned{verdict: route.Verdict{Needed: true}}
+	r := newRouter(t, f)
+
+	n := f.notice(testPane, stateDone, true)
+	n.Judge = c.judge
+	r.Notify(t.Context(), n)
+	r.Wait()
+	f.checkActiveTimers(t, 1)
+
+	f.setWatching(true, nil)
+	f.fire(t, route.JudgeDelay)
+	r.Wait()
+	c.checkCalls(t, 0)
+	f.check(t, []route.Line{lineOf(testPane, clockStart+10, stateDone, route.None, "watching")}, nil, nil)
+	f.checkActiveTimers(t, 1)
+
+	f.setWatching(false, nil)
+	f.fire(t, route.WatchRecheck)
+	r.Wait()
+	c.checkCalls(t, 1)
+	f.check(t, []route.Line{
+		lineOf(testPane, clockStart+10, stateDone, route.None, "watching"),
+		lineOf(testPane, clockStart+15, stateDone, route.DeskPhone, "away; needed"),
+	}, []deskstream.Notice{deskPost(stateDone)}, []push.Notification{phonePush(testPane, stateDone)})
+	f.checkActiveTimers(t, 0)
+}
+
+func TestJudgeWaitEndedAsToday(t *testing.T) {
+	cases := []struct {
+		name string
+		end  func(ctx context.Context, r *route.Router, key notice.Key)
+		want []route.Line
+	}{
+		{
+			name: "changed",
+			end: func(_ context.Context, r *route.Router, key notice.Key) {
+				r.Changed(key)
+			},
+			want: []route.Line{lineOf(testPane, clockStart, stateDone, route.None, "changed")},
+		},
+		{
+			name: "seen",
+			end: func(ctx context.Context, r *route.Router, key notice.Key) {
+				r.Seen(ctx, key, clockStart)
+			},
+			want: []route.Line{lineOf(testPane, clockStart, stateDone, route.None, "seen")},
+		},
+		{
+			name: "superseded",
+			end: func(ctx context.Context, r *route.Router, key notice.Key) {
+				r.Notify(ctx, route.Notice{Key: key, State: stateDone, Silent: quietReason})
+			},
+			want: []route.Line{
+				lineOf(testPane, clockStart, stateDone, route.None, "changed"),
+				lineOf(testPane, clockStart, stateDone, route.None, quietReason),
+			},
+		},
+		{
+			name: "closed",
+			end: func(_ context.Context, r *route.Router, _ notice.Key) {
+				r.Close()
+			},
+			want: []route.Line{lineOf(testPane, clockStart, stateDone, route.None, "shutdown")},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFake()
+			c := &canned{verdict: route.Verdict{Needed: false}}
+			r := newRouter(t, f)
+
+			n := f.notice(testPane, stateDone, false)
+			n.Judge = c.judge
+			r.Notify(t.Context(), n)
+			r.Wait()
+			tc.end(t.Context(), r, notice.Key{Pane: testPane})
+			r.Wait()
+
+			c.checkCalls(t, 0)
+			f.check(t, tc.want, nil, nil)
+			f.checkActiveTimers(t, 0)
+		})
+	}
 }

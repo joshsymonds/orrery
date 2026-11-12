@@ -25,6 +25,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/daemon"
 	"github.com/joshsymonds/orrery/internal/desk"
 	"github.com/joshsymonds/orrery/internal/deskstream"
+	"github.com/joshsymonds/orrery/internal/donejudge"
 	"github.com/joshsymonds/orrery/internal/enginehost"
 	"github.com/joshsymonds/orrery/internal/grants"
 	"github.com/joshsymonds/orrery/internal/notice"
@@ -384,10 +385,14 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 		Logger:     logger,
 	})
 	hub := &relay{
-		claude:      opts.claude,
-		models:      opts.models,
-		logger:      logger,
-		router:      router,
+		claude: opts.claude,
+		models: opts.models,
+		logger: logger,
+		router: router,
+		judge: donejudge.New(
+			enginehost.NewHaiku(enginehost.HaikuConfig{Claude: opts.claude, Environ: os.Environ()}),
+			opts.models,
+		),
 		reads:       newReadTimes(),
 		mirror:      mirror,
 		summarizers: make(map[tmuxctl.Server]*summary.Summarizer),
@@ -703,9 +708,10 @@ type relay struct {
 	claude      string
 	models      map[string]string
 	logger      *slog.Logger
-	router      *route.Router  // routes the waiting and done notices to the desk and the phone
-	reads       *readTimes     // each pane's newest read report
-	mirror      *daemon.Mirror // nil when the store is unavailable
+	router      *route.Router    // routes the waiting and done notices to the desk and the phone
+	judge       *donejudge.Judge // decides whether a plain done needs the user before it routes
+	reads       *readTimes       // each pane's newest read report
+	mirror      *daemon.Mirror   // nil when the store is unavailable
 	summarizers map[tmuxctl.Server]*summary.Summarizer
 }
 
@@ -869,7 +875,8 @@ func readPaneText(ctx context.Context, client *tmuxctl.Client, pane string) (pan
 }
 
 // notify hands the transition's notice to the router. A done notice whose Stop left a subagent or workflow running is
-// silent. A hook that does not decode still routes, and its decode error is logged.
+// silent. Any other done is judged before it routes. A hook that does not decode still routes, and its decode error is
+// logged.
 func (r *relay) notify(ctx context.Context, transition daemon.Transition) {
 	wanted, err := push.Wanted(transition.To, transition.Frame.Hook)
 	if err != nil {
@@ -879,14 +886,34 @@ func (r *relay) notify(ctx context.Context, transition daemon.Transition) {
 	if !wanted {
 		silent = silentBackground
 	}
-	r.router.Notify(ctx, route.Notice{
+	incoming := route.Notice{
 		Key:      notice.Key{Pane: transition.PaneID},
 		State:    string(transition.To),
 		Silent:   silent,
 		Watching: func(ctx context.Context) (bool, error) { return r.watching(ctx, transition) },
 		Desk:     func(ctx context.Context) (deskstream.Notice, error) { return r.deskNotice(ctx, transition) },
 		Push:     func(ctx context.Context) (push.Notification, error) { return r.pushNotification(ctx, transition) },
-	})
+	}
+	if transition.To == protocol.StateDone && silent == "" {
+		incoming.Judge = r.judgeDone(ctx, transition)
+	}
+	r.router.Notify(ctx, incoming)
+}
+
+// judgeDone returns the Judge of a done transition: the verdict on the Stop hook's last assistant message, asked
+// through the pane's base URL. A last message that does not decode is logged and judged as empty, which fails the
+// judge.
+func (r *relay) judgeDone(
+	ctx context.Context,
+	transition daemon.Transition,
+) func(context.Context) (route.Verdict, error) {
+	message, err := hookString(transition.Frame.Hook, keyLastAssistantMessage)
+	if err != nil {
+		r.logger.WarnContext(ctx, "read last assistant message", "pane", transition.PaneID, "error", err)
+	}
+	return func(ctx context.Context) (route.Verdict, error) {
+		return r.judge.Done(ctx, transition.Frame.AnthropicBaseURL, message)
+	}
 }
 
 // watching reports whether the transition's pane is watched: a read report named it within readWindow, or a client of

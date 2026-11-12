@@ -33,18 +33,20 @@ const (
 	socketName = "notices.sock"
 )
 
-// Notice is one notice to show on the desk.
+// Notice is one notice to show on the desk. A quiet notice shows without a sound.
 type Notice struct {
 	State, Title, Body string
+	Quiet              bool
 }
 
-// Line is one line of the stream. State, Title and Body are omitted when empty.
+// Line is one line of the stream. State, Title, Body and Quiet are omitted when empty or false.
 type Line struct {
 	Kind  string `json:"kind"`
 	Host  string `json:"host"`
 	State string `json:"state,omitempty"`
 	Title string `json:"title,omitempty"`
 	Body  string `json:"body,omitempty"`
+	Quiet bool   `json:"quiet,omitempty"`
 }
 
 // Activity is a line the desk sends when its user gives it input. Input is unix seconds.
@@ -129,7 +131,9 @@ func (h *Hub) Serve(ln net.Listener) error {
 
 // Post queues n on every open stream and returns without waiting. A stream whose queue is full is closed.
 func (h *Hub) Post(n Notice) {
-	line, err := encode(Line{Kind: KindNotice, Host: h.host, State: n.State, Title: n.Title, Body: n.Body})
+	line, err := encode(
+		Line{Kind: KindNotice, Host: h.host, State: n.State, Title: n.Title, Body: n.Body, Quiet: n.Quiet},
+	)
 	if err != nil {
 		h.logger.Error("encode desk notice", "error", err)
 		return
