@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { test, type TestContext } from "node:test";
 
 import { create, type MessageInitShape } from "@bufbuild/protobuf";
 import { render } from "preact";
+import { act } from "preact/test-utils";
 
 import {
   ConversationItemSchema,
@@ -13,6 +14,7 @@ import {
   type EngineText,
 } from "./gen/orrery/v1/orrery_pb";
 import type { Conversation } from "./conversation";
+import { flashMillis } from "./flash";
 import type { ParsedQuestion } from "./question";
 import { Reader } from "./reader";
 import { installTestDom, removeTestDom } from "./testdom";
@@ -45,16 +47,34 @@ interface Props {
   onToggleOpen?: () => void;
 }
 
-async function withReader(props: Props, check: (container: HTMLElement) => void): Promise<void> {
+async function withReader(props: Props, check: (container: HTMLElement) => void | Promise<void>): Promise<void> {
   const window = installTestDom();
   const container = document.createElement("div");
   try {
     render(<Reader {...props} />, container);
-    check(container);
+    await check(container);
   } finally {
     render(null, container);
     await removeTestDom(window);
   }
+}
+
+// clickControl clicks a control inside act, so the render its click causes has run before the next check.
+async function clickControl(control: HTMLElement): Promise<void> {
+  await act(() => {
+    control.click();
+  });
+}
+
+// advance moves the mocked clock forward by ms and flushes the renders its timers cause.
+async function advance(t: TestContext, ms: number): Promise<void> {
+  await act(() => {
+    t.mock.timers.tick(ms);
+  });
+}
+
+function flashing(control: HTMLElement): boolean {
+  return control.classList.contains("flash");
 }
 
 // rowTexts returns the text of each row of the reader, in order.
@@ -313,6 +333,78 @@ test("the compaction rule is a button that calls onToggleOpen, and a plain rule 
       assert.ok(rule.textContent?.includes("compacted"));
       rule.click();
       assert.equal(toggles, 1);
+    },
+  );
+});
+
+test("an option flashes for 300 ms after a click, restarts on a second click, and still answers", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const answers: number[] = [];
+  await withReader(
+    {
+      conversation: conversation(),
+      seenAt: 0,
+      open: false,
+      question: askQuestion,
+      onAnswer: (choice) => answers.push(choice),
+    },
+    async (container) => {
+      const buttons = [...container.querySelectorAll<HTMLButtonElement>("button")];
+      assert.equal(flashing(buttons[1]), false, "not flashing before any click");
+
+      await clickControl(buttons[1]);
+      assert.deepEqual(answers, [2]);
+      assert.equal(flashing(buttons[1]), true, "flashing at once after the click");
+      assert.equal(flashing(buttons[0]), false, "the option before it does not flash");
+      assert.equal(flashing(buttons[2]), false, "the option after it does not flash");
+      await advance(t, flashMillis - 1);
+      assert.equal(flashing(buttons[1]), true, "still flashing 1 ms before the window ends");
+      await advance(t, 1);
+      assert.equal(flashing(buttons[1]), false, "cleared 300 ms after the click");
+
+      await clickControl(buttons[1]);
+      await advance(t, 200);
+      await clickControl(buttons[1]);
+      await advance(t, 200);
+      assert.equal(
+        flashing(buttons[1]),
+        true,
+        "still flashing 200 ms after the second click, inside the restarted window",
+      );
+      await advance(t, 99);
+      assert.equal(flashing(buttons[1]), true, "still flashing 1 ms before the restarted window ends");
+      await advance(t, 1);
+      assert.equal(flashing(buttons[1]), false, "cleared 300 ms after the second click");
+      assert.deepEqual(answers, [2, 2, 2]);
+    },
+  );
+});
+
+test("the compaction rule flashes for 300 ms after a click and still toggles", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const compaction = item({ kind: "compaction", time: 100n, text: "Synthetic summary text.", trigger: "auto" });
+  let toggles = 0;
+  await withReader(
+    {
+      conversation: conversation({ items: [compaction] }),
+      seenAt: 0,
+      open: false,
+      onToggleOpen: () => {
+        toggles += 1;
+      },
+    },
+    async (container) => {
+      const rule = container.querySelector<HTMLButtonElement>("button.rule");
+      assert.ok(rule !== null);
+      assert.equal(flashing(rule), false, "not flashing before any click");
+
+      await clickControl(rule);
+      assert.equal(toggles, 1);
+      assert.equal(flashing(rule), true, "flashing at once after the click");
+      await advance(t, flashMillis - 1);
+      assert.equal(flashing(rule), true, "still flashing 1 ms before the window ends");
+      await advance(t, 1);
+      assert.equal(flashing(rule), false, "cleared 300 ms after the click");
     },
   );
 });

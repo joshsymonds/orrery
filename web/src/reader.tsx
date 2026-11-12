@@ -1,6 +1,7 @@
 import type { JSX } from "preact";
 
 import type { Conversation } from "./conversation";
+import { useFlash } from "./flash";
 import type { ConversationItem, WaitingMessage } from "./gen/orrery/v1/orrery_pb";
 import type { ParsedQuestion } from "./question";
 import { ReplyText } from "./text";
@@ -107,14 +108,35 @@ function QuestionCard({
               </div>
             );
           }
-          return (
-            <button type="button" class="option" key={index} onClick={() => onAnswer?.(choice)}>
-              {label}
-            </button>
-          );
+          return <OptionButton key={index} choice={choice} label={label} onAnswer={onAnswer} />;
         })}
       </div>
     </div>
+  );
+}
+
+// OptionButton answers its choice on click and flashes for flashMillis, so each option flashes on its own.
+function OptionButton({
+  choice,
+  label,
+  onAnswer,
+}: {
+  choice: 1 | 2 | 3;
+  label: JSX.Element;
+  onAnswer?: (choice: 1 | 2 | 3) => void;
+}) {
+  const [flashing, flash] = useFlash();
+  return (
+    <button
+      type="button"
+      class={flashing ? "option flash" : "option"}
+      onClick={() => {
+        flash();
+        onAnswer?.(choice);
+      }}
+    >
+      {label}
+    </button>
   );
 }
 
@@ -207,10 +229,18 @@ function Compaction({
     parts.push(`${Math.round(Number(item.tokens) / tokensPerThousand)}k`);
   }
   const rule = parts.join(" · ");
+  const [flashing, flash] = useFlash();
   return (
     <div class={open ? "compaction open" : "compaction"}>
       {onToggleOpen ? (
-        <button type="button" class="rule" onClick={() => onToggleOpen()}>
+        <button
+          type="button"
+          class={flashing ? "rule flash" : "rule"}
+          onClick={() => {
+            flash();
+            onToggleOpen();
+          }}
+        >
           {rule}
         </button>
       ) : (

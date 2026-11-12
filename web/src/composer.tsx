@@ -1,6 +1,8 @@
 import type { JSX, Ref } from "preact";
 import { useRef, useState } from "preact/hooks";
 
+import { useFlash } from "./flash";
+
 const sendFailedLine = "Not sent. Your draft is kept; press Enter to try again.";
 const pullFailedLine = "Could not pull the message back.";
 
@@ -23,11 +25,13 @@ export function Composer(props: {
   const [error, setError] = useState("");
   const inFlight = useRef(false);
   const failed = useRef<FailedSend | null>(null);
+  const [flashing, flash] = useFlash();
 
   async function submit(): Promise<void> {
     if (inFlight.current || text.trim() === "") {
       return;
     }
+    flash();
     const sent = text;
     const pending = failed.current;
     const promptId = pending !== null && pending.text === sent ? pending.promptId : newPromptId();
@@ -50,6 +54,7 @@ export function Composer(props: {
     if (pull === null) {
       return;
     }
+    flash();
     try {
       const pulled = await pull();
       // Text typed while the pull was in flight follows the pulled text.
@@ -71,7 +76,7 @@ export function Composer(props: {
   }
 
   return (
-    <div class="composer">
+    <div class={flashing ? "composer flash" : "composer"}>
       <textarea
         ref={inputRef}
         placeholder={`Reply to ${label}`}
