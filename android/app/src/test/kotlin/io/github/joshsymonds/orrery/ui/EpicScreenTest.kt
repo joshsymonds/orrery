@@ -1,6 +1,5 @@
 package io.github.joshsymonds.orrery.ui
 
-import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasTestTag
@@ -111,12 +110,6 @@ class EpicScreenTest {
     private fun countNodes(matcher: SemanticsMatcher): Int =
         composeRule.onAllNodes(matcher, useUnmergedTree = true).fetchSemanticsNodes().size
 
-    private fun hasTagPrefix(prefix: String): SemanticsMatcher =
-        SemanticsMatcher("test tag starts with $prefix") {
-            it.config.contains(SemanticsProperties.TestTag) &&
-                it.config[SemanticsProperties.TestTag].startsWith(prefix)
-        }
-
     private fun awaitText(text: String) {
         composeRule.waitUntil(TIMEOUT_MS) { countNodes(hasText(text)) > 0 }
     }
@@ -126,72 +119,33 @@ class EpicScreenTest {
     }
 
     @Test
-    fun oneRingPerTaskDrawsItsOwnStateAndAnUnknownStatusStaysRaw() {
-        FakeOrreryServer().use { server ->
-            server.respond(
-                EPICS_GET,
-                body(
-                    tasks = listOf(
-                        task(1, "example-a", "Subject A", "done"),
-                        task(2, "example-b", "Subject B", "dispatched"),
-                        task(3, "example-c", "Subject C", "gated"),
-                        task(4, "example-d", "Subject D", "pending"),
-                        task(5, "example-e", "Subject E", "gap"),
-                        task(6, "example-f", "Subject F", "split"),
-                        task(7, "example-g", "Subject G", "Reviewing: 2 of 3"),
-                    ),
-                ),
-            )
-            setScreen(server)
-            awaitText("Subject G")
-
-            for (state in listOf("done", "dispatched", "gated", "pending", "gap", "split", "neutral")) {
-                assertEquals("ring $state", 1, countNodes(hasTestTag("task-ring:$state")))
-            }
-            assertEquals(7, countNodes(hasTagPrefix("task-ring:")))
-            assertEquals(1, countNodes(hasText("Reviewing: 2 of 3")))
-        }
-    }
-
-    @Test
-    fun ringsFollowTheStatusWordsWithoutCaseAndUnknownTextStaysRaw() {
-        FakeOrreryServer().use { server ->
-            server.respond(
-                EPICS_GET,
-                body(
-                    tasks = listOf(
-                        task(1, "example-a", "Subject A", "integrated"),
-                        task(2, "example-b", "Subject B", "DONE"),
-                        task(3, "example-c", "Subject C", "Integrated"),
-                        task(4, "example-d", "Subject D", "Gated"),
-                        task(5, "example-e", "Subject E", "done at 3f9c2e1"),
-                        task(6, "example-f", "Subject F", "integrated (e2cb5e4)"),
-                    ),
-                ),
-            )
-            setScreen(server)
-            awaitText("Subject F")
-
-            assertEquals(3, countNodes(hasTestTag("task-ring:done")))
-            assertEquals(1, countNodes(hasTestTag("task-ring:gated")))
-            assertEquals(2, countNodes(hasTestTag("task-ring:neutral")))
-            assertEquals(1, countNodes(hasText("done at 3f9c2e1")))
-            assertEquals(1, countNodes(hasText("integrated (e2cb5e4)")))
-        }
-    }
-
-    @Test
     fun taskRowShowsSlugSubjectAndRawStatus() {
+        val rows = listOf(
+            Triple("example-a", "Subject A", "done"),
+            Triple("example-b", "Subject B", "Integrated"),
+            Triple("example-c", "Subject C", "Gated"),
+            Triple("example-d", "Subject D", "done at 3f9c2e1"),
+            Triple("example-e", "Subject E", "integrated (e2cb5e4)"),
+            Triple("example-f", "Subject F", "Reviewing: 2 of 3"),
+            Triple("example-task", "Example subject", "DONE?  as written"),
+        )
         FakeOrreryServer().use { server ->
             server.respond(
                 EPICS_GET,
-                body(tasks = listOf(task(1, "example-task", "Example subject", "DONE?  as written"))),
+                body(
+                    tasks = rows.mapIndexed { index, (slug, subject, status) ->
+                        task(index + 1, slug, subject, status)
+                    },
+                ),
             )
             setScreen(server)
             awaitText("Example subject")
 
-            assertEquals(1, countNodes(hasText("example-task")))
-            assertEquals(1, countNodes(hasText("DONE?  as written")))
+            for ((slug, subject, status) in rows) {
+                assertEquals(1, countNodes(hasText(slug)))
+                assertEquals(1, countNodes(hasText(subject)))
+                assertEquals(1, countNodes(hasText(status)))
+            }
         }
     }
 
@@ -212,7 +166,6 @@ class EpicScreenTest {
             setScreen(server)
             awaitText("Subject D")
 
-            assertEquals(4, countNodes(hasTagPrefix("task-ring:")))
             for (subject in listOf("Subject A", "Subject B", "Subject C", "Subject D")) {
                 assertEquals(1, countNodes(hasText(subject)))
             }

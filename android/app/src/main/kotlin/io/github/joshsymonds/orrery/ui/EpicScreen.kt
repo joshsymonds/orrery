@@ -1,6 +1,5 @@
 package io.github.joshsymonds.orrery.ui
 
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -27,9 +26,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.PathEffect
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -51,24 +47,8 @@ private sealed interface EpicLoad {
     data class Loaded(val detail: EpicDetail) : EpicLoad
 }
 
-/** How a task's ring is drawn: its state, its colour, and whether it is dashed. */
-private class TaskRingStyle(val state: TaskState, val color: Color, val dashed: Boolean = false) {
-    /** The test tag: the state's name in lower case, and "neutral" for an unknown status. */
-    val tag: String get() = if (state == TaskState.UNKNOWN) "neutral" else state.name.lowercase()
-}
-
-private fun ringOf(state: TaskState): TaskRingStyle = when (state) {
-    TaskState.DONE -> TaskRingStyle(state, Mocha.Green)
-    TaskState.DISPATCHED -> TaskRingStyle(state, Mocha.Yellow)
-    TaskState.GATED -> TaskRingStyle(state, Mocha.Peach)
-    TaskState.PENDING -> TaskRingStyle(state, Mocha.Overlay0, dashed = true)
-    TaskState.GAP -> TaskRingStyle(state, Mocha.Red)
-    TaskState.SPLIT -> TaskRingStyle(state, Mocha.Blue)
-    TaskState.UNKNOWN -> TaskRingStyle(state, Mocha.Subtext0)
-}
-
 /**
- * One epic: its tasks as a ring each with the status as recorded, and its steps one line each.
+ * One epic: its tasks, each with the status as recorded, and its steps one line each.
  * Ended steps fold into one line that opens. Tapping a step calls [onOpenStep] with it. The back
  * button calls [onBack].
  */
@@ -175,32 +155,10 @@ private fun SectionHeading(title: String) {
 
 @Composable
 private fun TaskRow(task: EpicTaskRow) {
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        verticalAlignment = Alignment.Top,
-    ) {
-        TaskRing(ringOf(taskStateOf(task.status)))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(task.slug, style = MaterialTheme.typography.bodyLarge)
-            Text(task.subject, style = MaterialTheme.typography.bodySmall)
-            Text(task.status, style = MaterialTheme.typography.labelMedium)
-        }
-    }
-}
-
-@Composable
-private fun TaskRing(ring: TaskRingStyle) {
-    Canvas(modifier = Modifier.size(20.dp).testTag("task-ring:${ring.tag}")) {
-        val strokeWidth = 3.dp.toPx()
-        drawCircle(
-            color = ring.color,
-            radius = (size.minDimension - strokeWidth) / 2,
-            style = Stroke(
-                width = strokeWidth,
-                pathEffect = if (ring.dashed) PathEffect.dashPathEffect(floatArrayOf(4f, 4f)) else null,
-            ),
-        )
+    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)) {
+        Text(task.slug, style = MaterialTheme.typography.bodyLarge)
+        Text(task.subject, style = MaterialTheme.typography.bodySmall)
+        Text(task.status, style = MaterialTheme.typography.labelMedium)
     }
 }
 
