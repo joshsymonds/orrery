@@ -18,6 +18,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import io.github.joshsymonds.orrery.api.KeysResult
 import io.github.joshsymonds.orrery.api.OrreryClient
+import io.github.joshsymonds.orrery.api.Pane
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -26,6 +27,7 @@ import kotlinx.coroutines.withContext
 import java.io.IOException
 
 private const val NOT_SENT = "key not sent"
+private const val NOTHING_CHANGED = "nothing changed"
 private const val WINDOW_MILLIS = 5_000L
 
 /** Keys whose Sent answer opens a window in which a change of the pane shows. */
@@ -49,7 +51,8 @@ private val QUICK_KEYS = listOf(
  * Unguarded quick-key row for a pane. Each button sends its key with no
  * expect_question, so it is not tied to the prompt currently shown. After Esc or
  * Ctrl-C is sent, a change of the pane's state or changed time within the window
- * shows what the pane is now.
+ * shows what the pane is now. When the window ends with no change seen, one read
+ * of the pane shows nothing changed, or what the pane is now.
  */
 @Composable
 fun QuickKeys(paneId: String, client: OrreryClient, state: String, changed: Long, modifier: Modifier = Modifier) {
@@ -78,6 +81,9 @@ fun QuickKeys(paneId: String, client: OrreryClient, state: String, changed: Long
                 Button(
                     onClick = {
                         feedback.tap()
+                        result = null
+                        window = null
+                        windowClose?.cancel()
                         val sentAt = ReadWindow(state, changed)
                         scope.launch {
                             val sent = sendKey(client, paneId, key)
@@ -88,6 +94,7 @@ fun QuickKeys(paneId: String, client: OrreryClient, state: String, changed: Long
                                 windowClose = scope.launch {
                                     delay(WINDOW_MILLIS)
                                     window = null
+                                    result = readEnd(client, paneId, sentAt)
                                 }
                             }
                         }
@@ -111,6 +118,28 @@ private fun resultFor(state: String): String = when (state) {
     "waiting" -> "now waiting for you"
     else -> "now $state"
 }
+
+/**
+ * The line a window shows when it ends with no change seen: nothing changed when the pane's state and changed
+ * time are the window's, else what the pane is now. Null when the read fails or the pane is gone.
+ */
+private suspend fun readEnd(client: OrreryClient, paneId: String, sentAt: ReadWindow): String? {
+    val pane = readPane(client, paneId) ?: return null
+    return if (pane.state == sentAt.state && pane.changed == sentAt.changed) {
+        NOTHING_CHANGED
+    } else {
+        resultFor(pane.state)
+    }
+}
+
+private suspend fun readPane(client: OrreryClient, paneId: String): Pane? =
+    withContext(Dispatchers.IO) {
+        try {
+            client.panes().firstOrNull { it.id == paneId }
+        } catch (e: IOException) {
+            null
+        }
+    }
 
 private suspend fun sendKey(client: OrreryClient, paneId: String, key: String): Boolean =
     withContext(Dispatchers.IO) {

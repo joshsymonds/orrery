@@ -44,6 +44,7 @@ private const val FLASH_MILLIS = 300L
 private const val WINDOW_MILLIS = 5_000L
 private const val CHANGED_AT = 1_000L
 private const val LATER = 2_000L
+private const val READ_SETTLE_MILLIS = 1_000L
 
 /** The results a window can show, none of them the send's "key not sent". */
 private val RESULTS = listOf(NOTHING_CHANGED, "now done", "now working", "now waiting for you", "now ended")
@@ -285,6 +286,158 @@ class QuickKeysTest {
     }
 
     @Test
+    fun ctrlCWithNoChangeReadsNothingChangedOnlyAfterFiveSeconds() {
+        FakeOrreryServer().use { server ->
+            server.respond(KEYS_PATH, SendKeysResponse.getDefaultInstance())
+            servePane(server, state = "working", changed = CHANGED_AT)
+            setQuickKeys(server)
+
+            composeRule.onNodeWithText("Ctrl-C").performClick()
+            composeRule.waitUntil(TIMEOUT_MILLIS) { keyRequests(server) == 1 }
+            composeRule.mainClock.autoAdvance = false
+
+            composeRule.mainClock.advanceTimeBy(WINDOW_MILLIS - 1, ignoreFrameDuration = true)
+            settleReads()
+            assertEquals("no read before 5 s", 0, panesRequests(server))
+            assertFalse("no result before 5 s", resultShown(NOTHING_CHANGED))
+
+            composeRule.mainClock.advanceTimeBy(1, ignoreFrameDuration = true)
+            composeRule.mainClock.autoAdvance = true
+            composeRule.waitUntilExactlyOneExists(hasText(NOTHING_CHANGED), TIMEOUT_MILLIS)
+            assertEquals("one read at 5 s", 1, panesRequests(server))
+        }
+    }
+
+    @Test
+    fun unchangedReadAfterWindowWithoutInsideChangeReadsNothingChanged() {
+        FakeOrreryServer().use { server ->
+            server.respond(KEYS_PATH, SendKeysResponse.getDefaultInstance())
+            servePane(server, state = "working", changed = CHANGED_AT)
+            setQuickKeys(server)
+
+            composeRule.onNodeWithText("Esc").performClick()
+            composeRule.waitUntil(TIMEOUT_MILLIS) { keyRequests(server) == 1 }
+            composeRule.mainClock.autoAdvance = false
+
+            composeRule.mainClock.advanceTimeBy(WINDOW_MILLIS, ignoreFrameDuration = true)
+            composeRule.mainClock.autoAdvance = true
+            composeRule.waitUntilExactlyOneExists(hasText(NOTHING_CHANGED), TIMEOUT_MILLIS)
+        }
+    }
+
+    @Test
+    fun readFindingTheStateMovedReadsItsNowText() {
+        FakeOrreryServer().use { server ->
+            server.respond(KEYS_PATH, SendKeysResponse.getDefaultInstance())
+            servePane(server, state = "done", changed = CHANGED_AT)
+            setQuickKeys(server)
+
+            composeRule.onNodeWithText("Esc").performClick()
+            composeRule.waitUntil(TIMEOUT_MILLIS) { keyRequests(server) == 1 }
+            composeRule.mainClock.autoAdvance = false
+
+            // The shown pane is still "working"; the read finds the pane "done".
+            composeRule.mainClock.advanceTimeBy(WINDOW_MILLIS, ignoreFrameDuration = true)
+            composeRule.mainClock.autoAdvance = true
+            composeRule.waitUntilExactlyOneExists(hasText("now done"), TIMEOUT_MILLIS)
+        }
+    }
+
+    @Test
+    fun failedPaneReadShowsNothing() {
+        FakeOrreryServer().use { server ->
+            server.respond(KEYS_PATH, SendKeysResponse.getDefaultInstance())
+            server.fail(PANES_PATH, Code.INTERNAL_ERROR, "boom")
+            setQuickKeys(server)
+
+            composeRule.onNodeWithText("Esc").performClick()
+            composeRule.waitUntil(TIMEOUT_MILLIS) { keyRequests(server) == 1 }
+            composeRule.mainClock.autoAdvance = false
+
+            composeRule.mainClock.advanceTimeBy(WINDOW_MILLIS, ignoreFrameDuration = true)
+            composeRule.mainClock.autoAdvance = true
+            composeRule.waitUntil(TIMEOUT_MILLIS) { panesRequests(server) == 1 }
+            settleReads()
+            assertNoResultShown("a failed read")
+            assertFalse("a failed read is not a send failure", notSentShown())
+        }
+    }
+
+    @Test
+    fun secondEscAtThreeSecondsRestartsTheWindow() {
+        FakeOrreryServer().use { server ->
+            server.respond(KEYS_PATH, SendKeysResponse.getDefaultInstance())
+            servePane(server, state = "working", changed = CHANGED_AT)
+            setQuickKeys(server)
+
+            composeRule.onNodeWithText("Esc").performClick()
+            composeRule.waitUntil(TIMEOUT_MILLIS) { keyRequests(server) == 1 }
+            composeRule.mainClock.autoAdvance = false
+
+            composeRule.mainClock.advanceTimeBy(3_000, ignoreFrameDuration = true)
+            composeRule.mainClock.autoAdvance = true
+            composeRule.onNodeWithText("Esc").performClick()
+            composeRule.waitUntil(TIMEOUT_MILLIS) { keyRequests(server) == 2 }
+            composeRule.mainClock.autoAdvance = false
+
+            composeRule.mainClock.advanceTimeBy(2_000, ignoreFrameDuration = true)
+            // The first window's close fires at exactly 5 s; its read starts on the frame after.
+            composeRule.mainClock.advanceTimeByFrame()
+            settleReads()
+            assertEquals("the first window is gone at 5 s", 0, panesRequests(server))
+            assertFalse("no result at 5 s", resultShown(NOTHING_CHANGED))
+
+            composeRule.mainClock.autoAdvance = true
+            composeRule.waitUntilExactlyOneExists(hasText(NOTHING_CHANGED), TIMEOUT_MILLIS)
+            assertEquals("one read, at 8 s", 1, panesRequests(server))
+        }
+    }
+
+    @Test
+    fun aTapClearsAShownResult() {
+        FakeOrreryServer().use { server ->
+            server.respond(KEYS_PATH, SendKeysResponse.getDefaultInstance())
+            servePane(server, state = "working", changed = CHANGED_AT)
+            setQuickKeys(server)
+
+            composeRule.onNodeWithText("Esc").performClick()
+            composeRule.waitUntil(TIMEOUT_MILLIS) { keyRequests(server) == 1 }
+            composeRule.mainClock.autoAdvance = false
+            composeRule.mainClock.advanceTimeBy(WINDOW_MILLIS, ignoreFrameDuration = true)
+            composeRule.mainClock.autoAdvance = true
+            composeRule.waitUntilExactlyOneExists(hasText(NOTHING_CHANGED), TIMEOUT_MILLIS)
+
+            composeRule.onNodeWithText("Enter").performScrollTo().performClick()
+            composeRule.waitUntil(TIMEOUT_MILLIS) { keyRequests(server) == 2 }
+            assertFalse("the tap clears the result", resultShown(NOTHING_CHANGED))
+        }
+    }
+
+    @Test
+    fun aTapCancelsAnOpenWindow() {
+        FakeOrreryServer().use { server ->
+            server.respond(KEYS_PATH, SendKeysResponse.getDefaultInstance())
+            servePane(server, state = "working", changed = CHANGED_AT)
+            setQuickKeys(server)
+
+            composeRule.onNodeWithText("Esc").performClick()
+            composeRule.waitUntil(TIMEOUT_MILLIS) { keyRequests(server) == 1 }
+            composeRule.mainClock.autoAdvance = false
+            composeRule.mainClock.advanceTimeBy(3_000, ignoreFrameDuration = true)
+
+            composeRule.mainClock.autoAdvance = true
+            composeRule.onNodeWithText("Enter").performScrollTo().performClick()
+            composeRule.waitUntil(TIMEOUT_MILLIS) { keyRequests(server) == 2 }
+            composeRule.mainClock.autoAdvance = false
+
+            composeRule.mainClock.advanceTimeBy(WINDOW_MILLIS, ignoreFrameDuration = true)
+            settleReads()
+            assertEquals("the cancelled window never reads", 0, panesRequests(server))
+            assertNoResultShown("a cancelled window")
+        }
+    }
+
+    @Test
     fun otherKeysNeverShowAResult() {
         FakeOrreryServer().use { server ->
             server.respond(KEYS_PATH, SendKeysResponse.getDefaultInstance())
@@ -321,6 +474,16 @@ class QuickKeysTest {
 
     private fun panesRequests(server: FakeOrreryServer): Int =
         server.requests.count { it.method == "POST" && it.rawPath == PANES_PATH }
+
+    /**
+     * Lets a read the stopped clock started reach the server and its answer reach the screen, so a negative
+     * check on reads or on what shows does not pass before the read has run.
+     */
+    private fun settleReads() {
+        composeRule.waitForIdle()
+        Thread.sleep(READ_SETTLE_MILLIS)
+        composeRule.waitForIdle()
+    }
 
     private fun notSentShown(): Boolean =
         composeRule.onAllNodesWithText(NOT_SENT).fetchSemanticsNodes().isNotEmpty()
