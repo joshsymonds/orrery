@@ -15,10 +15,19 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextReplacement
 import androidx.test.core.app.ApplicationProvider
+import com.connectrpc.Code
 import io.github.joshsymonds.orrery.api.FakeOrreryServer
+import io.github.joshsymonds.orrery.api.RecordedRequest
+import io.github.joshsymonds.orrery.api.Reply
+import io.github.joshsymonds.orrery.api.StreamEnd
+import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationState
+import io.github.joshsymonds.orrery.gen.orrery.v1.HeadlessSession
+import io.github.joshsymonds.orrery.gen.orrery.v1.ListHeadlessResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.MarkSeenResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.Pane as PaneProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.PanesListResponse
+import io.github.joshsymonds.orrery.gen.orrery.v1.SessionsWatchConversationRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.SessionsWatchConversationResponse
 import io.github.joshsymonds.orrery.push.OrreryPushService
 import io.github.joshsymonds.orrery.push.PushNotifier
 import org.junit.After
@@ -35,12 +44,18 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import org.robolectric.android.controller.ActivityController
+import java.nio.ByteBuffer
 
 private const val TIMEOUT_MS = 5_000L
 private const val NOW = 1_700_000_000L
 private const val PANES_PATH = "/orrery.v1.Panes/List"
 private const val SEEN_PATH = "/orrery.v1.Panes/MarkSeen"
+private const val HEADLESS_PATH = "/orrery.v1.Sessions/ListHeadless"
+private const val WATCH_PATH = "/orrery.v1.Sessions/WatchConversation"
 private const val PUSH_EVENT_ACTION = "org.unifiedpush.android.connector.PUSH_EVENT"
+private const val SESSION_ALPHA = "0123456789abcdef0123456789abcdef"
+private const val SESSION_BETA = "fedcba9876543210fedcba9876543210"
+private const val ENVELOPE_HEADER_BYTES = 5
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35], qualifiers = "w400dp-h1200dp")
@@ -97,10 +112,58 @@ class MainActivityTest {
     /** The header of the open pane, by its label. */
     private fun titled(label: String): SemanticsMatcher = hasTestTag("pane-title").and(hasText(label))
 
-    private fun launch(extraPane: String? = null): ActivityController<MainActivity> {
+    /** A headless session as the list and the watch stream report it. */
+    private fun headlessSession(id: String, label: String): HeadlessSession = HeadlessSession.newBuilder()
+        .setId(id)
+        .setDir("/home/user/alpha")
+        .setLabel(label)
+        .setState("working")
+        .setChanged(NOW - 30)
+        .setSeen(NOW - 10)
+        .build()
+
+    /** Lists [sessions] as the headless sessions, and streams each one's state when its screen opens. */
+    private fun serveSessions(vararg sessions: HeadlessSession) {
+        server.respond(
+            HEADLESS_PATH,
+            ListHeadlessResponse.newBuilder().addAllSessions(sessions.toList()).build(),
+        )
+        server.route(WATCH_PATH) { request ->
+            val session = sessions.firstOrNull { it.id == watchedId(request) }
+            if (session == null) {
+                Reply.Failure(Code.NOT_FOUND, "", 0L)
+            } else {
+                Reply.Stream(listOf(stateDelta(session)), StreamEnd.Silent)
+            }
+        }
+    }
+
+    private fun stateDelta(session: HeadlessSession): SessionsWatchConversationResponse =
+        SessionsWatchConversationResponse.newBuilder()
+            .setTranscript(session.id)
+            .setSeq(1L)
+            .setState(
+                ConversationState.newBuilder()
+                    .setOrigin("synthetic origin")
+                    .setSession(session),
+            )
+            .build()
+
+    /** The id a watch request names: its enveloped body, one flag byte, a big-endian length, then the payload. */
+    private fun watchedId(request: RecordedRequest): String {
+        val length = ByteBuffer.wrap(request.body, 1, 4).int
+        return SessionsWatchConversationRequest.parseFrom(
+            request.body.copyOfRange(ENVELOPE_HEADER_BYTES, ENVELOPE_HEADER_BYTES + length),
+        ).id
+    }
+
+    private fun launch(extraPane: String? = null, extraSession: String? = null): ActivityController<MainActivity> {
         val intent = Intent(context, MainActivity::class.java)
         if (extraPane != null) {
             intent.putExtra(PushNotifier.EXTRA_PANE, extraPane)
+        }
+        if (extraSession != null) {
+            intent.putExtra(PushNotifier.EXTRA_SESSION, extraSession)
         }
         return Robolectric.buildActivity(MainActivity::class.java, intent).setup()
     }
@@ -219,6 +282,57 @@ class MainActivityTest {
 
         awaitNode(titled("alpha-review"))
         assertAbsent(titled("alpha-build"))
+    }
+
+    @Test
+    fun launchWithSessionExtraOpensThatSession() {
+        serveSessions(headlessSession(SESSION_ALPHA, "alpha-session"))
+
+        launch(extraSession = SESSION_ALPHA)
+
+        awaitNode(titled("alpha-session"))
+    }
+
+    @Test
+    fun newIntentWithAnotherSessionSwitchesToIt() {
+        serveSessions(
+            headlessSession(SESSION_ALPHA, "alpha-session"),
+            headlessSession(SESSION_BETA, "beta-session"),
+        )
+        val controller = launch(extraSession = SESSION_ALPHA)
+        awaitNode(titled("alpha-session"))
+
+        val next = Intent(context, MainActivity::class.java).putExtra(PushNotifier.EXTRA_SESSION, SESSION_BETA)
+        controller.newIntent(next)
+
+        awaitNode(titled("beta-session"))
+        assertAbsent(titled("alpha-session"))
+    }
+
+    @Test
+    fun tappingAHeadlessRowOpensItsSession() {
+        serveSessions(headlessSession(SESSION_ALPHA, "alpha-session"))
+        launch()
+        awaitNode(hasTestTag("pane-row:$SESSION_ALPHA"))
+
+        composeRule.onNodeWithTag("pane-row:$SESSION_ALPHA").performClick()
+
+        awaitNode(titled("alpha-session"))
+        assertAbsent(hasTestTag("pane-row:%1"))
+    }
+
+    @Test
+    fun backReturnsFromASessionToTheList() {
+        serveSessions(headlessSession(SESSION_ALPHA, "alpha-session"))
+        val controller = launch()
+        awaitNode(hasTestTag("pane-row:$SESSION_ALPHA"))
+        composeRule.onNodeWithTag("pane-row:$SESSION_ALPHA").performClick()
+        awaitNode(titled("alpha-session"))
+
+        controller.get().onBackPressedDispatcher.onBackPressed()
+
+        awaitNode(hasTestTag("pane-row:%1"))
+        assertAbsent(hasTestTag("pane-title"))
     }
 
     @Test
