@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -166,12 +167,18 @@ func (s *queueFile) applyUser(entry queueLine) {
 	}
 }
 
-// fromOthers reports whether an enqueue's text belongs to a task notification, an agent message or a cross-session
-// message rather than to the person.
+// stoppedAgentsPattern matches the plain notice that Claude Code enqueues when it stops background agents: one or more
+// digits and the fixed phrase, at the start of the text.
+var stoppedAgentsPattern = regexp.MustCompile(`\A[0-9]+ background agents were stopped`)
+
+// fromOthers reports whether an enqueue's text belongs to a task notification, an agent message, a cross-session
+// message, a teammate message or the stopped-agents notice rather than to the person.
 func fromOthers(text string) bool {
 	return strings.HasPrefix(text, "<task-notification>") ||
 		strings.HasPrefix(text, "<agent-message") ||
-		strings.HasPrefix(text, "<cross-session-message")
+		strings.HasPrefix(text, "<cross-session-message") ||
+		strings.HasPrefix(text, "<teammate-message") ||
+		stoppedAgentsPattern.MatchString(text)
 }
 
 // find returns the index of the oldest row that is not canceled and whose text is text, or -1 when there is none.

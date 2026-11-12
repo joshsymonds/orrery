@@ -199,15 +199,44 @@ func TestQueueIdleDropsUnmatchedRowsForGood(t *testing.T) {
 	assertWaiting(t, queues, path, []Waiting{{Text: "synthetic later", Time: unixAt(1)}})
 }
 
-func TestQueueTaskAgentAndCrossSessionEnqueuesGiveNoRow(t *testing.T) {
+func TestQueueSystemEnqueuesGiveNoRow(t *testing.T) {
+	forms := []struct {
+		name string
+		text string
+	}{
+		{"task notification", "<task-notification>synthetic task tail"},
+		{"agent message", "<agent-message synthetic agent tail"},
+		{"cross-session message", "<cross-session-message synthetic peer tail"},
+		{"teammate message", `<teammate-message teammate_id="synthetic-peer" color="blue">` +
+			"synthetic body tail</teammate-message>"},
+		{"stopped agents notice", "3 background agents were stopped; synthetic tail"},
+	}
+	for _, form := range forms {
+		t.Run(form.name, func(t *testing.T) {
+			path := writeTranscript(t, enqueueLine(t, 0, form.text))
+			assertWaiting(t, NewQueues(), path, []Waiting{})
+		})
+	}
+}
+
+func TestQueueTypedMessageHoldingFormLaterStillWaits(t *testing.T) {
 	path := writeTranscript(t,
-		enqueueLine(t, 0, "synthetic own"),
-		enqueueLine(t, 1, "<task-notification>synthetic task"),
-		enqueueLine(t, 2, "<agent-message synthetic agent"),
-		enqueueLine(t, 3, "<cross-session-message synthetic peer"),
-		enqueueLine(t, 4, ""),
+		enqueueLine(t, 0, "synthetic own <task-notification>synthetic later"),
+		enqueueLine(t, 1, "synthetic own <agent-message synthetic later"),
+		enqueueLine(t, 2, "synthetic own <cross-session-message synthetic later"),
+		enqueueLine(t, 3, `synthetic own <teammate-message teammate_id="synthetic-peer">synthetic later`),
+		enqueueLine(t, 4, "synthetic own 3 background agents were stopped"),
+		enqueueLine(t, 5, "background agents were stopped by synthetic"),
+		enqueueLine(t, 6, ""),
 	)
-	assertWaiting(t, NewQueues(), path, []Waiting{{Text: "synthetic own", Time: unixAt(0)}})
+	assertWaiting(t, NewQueues(), path, []Waiting{
+		{Text: "synthetic own <task-notification>synthetic later", Time: unixAt(0)},
+		{Text: "synthetic own <agent-message synthetic later", Time: unixAt(1)},
+		{Text: "synthetic own <cross-session-message synthetic later", Time: unixAt(2)},
+		{Text: `synthetic own <teammate-message teammate_id="synthetic-peer">synthetic later`, Time: unixAt(3)},
+		{Text: "synthetic own 3 background agents were stopped", Time: unixAt(4)},
+		{Text: "background agents were stopped by synthetic", Time: unixAt(5)},
+	})
 }
 
 func TestQueueDroppedRemoveClosesNothing(t *testing.T) {
