@@ -2,12 +2,15 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"connectrpc.com/connect"
@@ -36,8 +39,16 @@ const controlTimedOut = "session command timed out"
 // controlStartRefused is the fixed message for a start whose directory is not an existing directory under the home.
 const controlStartRefused = "session directory must be an existing directory under the home directory"
 
+// controlBelowStamp is the message for a start in a folder with no stamp of its own, below the stamped folder named by
+// its %s.
+const controlBelowStamp = "session directory has no context stamp of its own and is below a context-stamped folder (%s)"
+
+// controlStampUnreadable is the message for a start whose stamp settings file exists but cannot be read; its %s is the
+// file's path.
+const controlStampUnreadable = "session directory's context stamp %s cannot be read"
+
 // controlServer answers orrery.v1.Control by forwarding each call to engine. A nil engine answers unavailable. Start
-// forwards only a directory under home.
+// forwards only a directory under home that refuseUnstampedBelowStamp admits.
 type controlServer struct {
 	engine  enginev1connect.EngineClient
 	timeout time.Duration
@@ -45,7 +56,7 @@ type controlServer struct {
 }
 
 // Start forwards a start to the engine and answers with the started session's id. The directory forwarded is the one
-// resolveSessionDir admits, with its symlinks resolved.
+// resolveSessionDir admits, with its symlinks resolved, and only when refuseUnstampedBelowStamp admits it too.
 func (c controlServer) Start(
 	ctx context.Context,
 	req *connect.Request[orreryv1.StartRequest],
@@ -53,6 +64,9 @@ func (c controlServer) Start(
 	dir, dirErr := resolveSessionDir(c.home, req.Msg.GetDir())
 	if dirErr != nil {
 		return nil, dirErr
+	}
+	if stampErr := refuseUnstampedBelowStamp(c.home, dir); stampErr != nil {
+		return nil, stampErr
 	}
 	var id string
 	err := c.forward(ctx, func(ctx context.Context, engine enginev1connect.EngineClient) error {
@@ -210,6 +224,75 @@ func resolveHome(home string) (string, bool) {
 	return resolved, true
 }
 
+// refuseUnstampedBelowStamp returns the refusal for a start in dir, a directory resolveSessionDir admitted under home,
+// when dir has no context stamp of its own and a folder between dir and home has one. Home's own files never count,
+// so a start in home, or in a folder with no stamped folder above it below home, is admitted.
+func refuseUnstampedBelowStamp(home, dir string) error {
+	root, ok := resolveHome(home)
+	if !ok {
+		return listError(connect.CodeInvalidArgument, controlStartRefused)
+	}
+	if dir == root {
+		return nil
+	}
+	own, ownErr := folderStamped(dir)
+	if ownErr != nil {
+		return ownErr
+	}
+	if own {
+		return nil
+	}
+	below := root + string(filepath.Separator)
+	for ancestor := filepath.Dir(dir); strings.HasPrefix(ancestor, below); ancestor = filepath.Dir(ancestor) {
+		stamped, stampErr := folderStamped(ancestor)
+		if stampErr != nil {
+			return stampErr
+		}
+		if stamped {
+			return listError(connect.CodeInvalidArgument, fmt.Sprintf(controlBelowStamp, ancestor))
+		}
+	}
+	return nil
+}
+
+// folderStamped reports whether folder is stamped: either of its settings files, .claude/settings.json or
+// .claude/settings.local.json, sets env.ANTHROPIC_BASE_URL to a non-empty string. A settings path that is not a file,
+// whether it does not exist or a component above it is not a directory, is no stamp. A settings file that exists but
+// cannot be read answers the refusal for it.
+func folderStamped(folder string) (bool, error) {
+	stamped := false
+	for _, name := range []string{"settings.json", "settings.local.json"} {
+		path := filepath.Join(folder, ".claude", name)
+		data, err := os.ReadFile(filepath.Clean(path))
+		if errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ENOTDIR) {
+			continue
+		}
+		if err != nil {
+			return false, listError(connect.CodeInvalidArgument, fmt.Sprintf(controlStampUnreadable, path))
+		}
+		stamped = stamped || settingsStamp(data)
+	}
+	return stamped, nil
+}
+
+// settingsStamp reports whether a settings file's data sets env.ANTHROPIC_BASE_URL to a non-empty string. Data that is
+// not JSON, or whose env is not an object, is no stamp.
+func settingsStamp(data []byte) bool {
+	var settings map[string]json.RawMessage
+	if json.Unmarshal(data, &settings) != nil {
+		return false
+	}
+	var env map[string]json.RawMessage
+	if json.Unmarshal(settings["env"], &env) != nil {
+		return false
+	}
+	var baseURL string
+	if json.Unmarshal(env["ANTHROPIC_BASE_URL"], &baseURL) != nil {
+		return false
+	}
+	return baseURL != ""
+}
+
 // wrapEngine names the engine call op on err, keeping err reachable for translateError. A nil err stays nil.
 func wrapEngine(op string, err error) error {
 	if err == nil {
@@ -240,7 +323,8 @@ func translateError(err error) error {
 }
 
 // newControlHandler returns the path and handler that serve Control over engine, reading at most maxControlBody
-// bytes of each request. A zero timeout is defaultControlTimeout. Start admits only directories under home.
+// bytes of each request. A zero timeout is defaultControlTimeout. Start admits only directories under home that are
+// stamped or sit under no stamped folder below home.
 func newControlHandler(engine enginev1connect.EngineClient, timeout time.Duration, home string) (string, http.Handler) {
 	if timeout == 0 {
 		timeout = defaultControlTimeout

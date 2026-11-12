@@ -658,3 +658,190 @@ func TestControlRefusesStartsWithoutUsableHome(t *testing.T) {
 		})
 	}
 }
+
+// stampFileNames returns the two settings files that can stamp a folder.
+func stampFileNames() []string {
+	return []string{"settings.json", "settings.local.json"}
+}
+
+// stampSettings is a settings file that stamps its folder: env.ANTHROPIC_BASE_URL is a non-empty string.
+const stampSettings = `{"env": {"ANTHROPIC_BASE_URL": "https://synthetic.example"}}`
+
+// makeDir creates dir and its parents, and returns dir.
+func makeDir(t *testing.T, dir string) string {
+	t.Helper()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir %s: %v", dir, err)
+	}
+	return dir
+}
+
+// writeSettings writes content as the settings file name of folder, creating folder's .claude directory.
+func writeSettings(t *testing.T, folder, name, content string) {
+	t.Helper()
+	claude := makeDir(t, filepath.Join(folder, ".claude"))
+	if err := os.WriteFile(filepath.Join(claude, name), []byte(content), 0o644); err != nil {
+		t.Fatalf("write %s: %v", name, err)
+	}
+}
+
+// belowStampMessage is the refusal for a start in a folder with no stamp of its own, below the stamped folder.
+func belowStampMessage(stamped string) string {
+	return "session directory has no context stamp of its own and is below a context-stamped folder (" + stamped + ")"
+}
+
+func TestControlRefusesStartsBelowStampedFolder(t *testing.T) {
+	for _, name := range stampFileNames() {
+		t.Run(name, func(t *testing.T) {
+			home := t.TempDir()
+			stamped := makeDir(t, filepath.Join(home, "stamped"))
+			writeSettings(t, stamped, name, stampSettings)
+			cases := []struct {
+				name string
+				dir  string
+			}{
+				{"plain child", makeDir(t, filepath.Join(stamped, "child"))},
+				{"two levels below", makeDir(t, filepath.Join(stamped, "middle", "deep"))},
+			}
+			want := belowStampMessage(resolvedPath(t, stamped))
+			for _, tc := range cases {
+				t.Run(tc.name, func(t *testing.T) {
+					fake := &fakeEngine{}
+					control := controlClient(t, newHomedControlHandler(t, home, newFakeOrreryd(t, fake), 0))
+
+					_, err := startAt(t, control, tc.dir)
+					assertConnectError(t, err, connect.CodeInvalidArgument, want)
+					if calls := fake.recorded(); len(calls) != 0 {
+						t.Fatalf("refused start forwarded %d requests, want none", len(calls))
+					}
+				})
+			}
+		})
+	}
+}
+
+func TestControlForwardsStartsWithoutStampAbove(t *testing.T) {
+	home := t.TempDir()
+	writeSettings(t, home, "settings.json", stampSettings)
+	stamped := makeDir(t, filepath.Join(home, "stamped"))
+	writeSettings(t, stamped, "settings.json", stampSettings)
+	own := makeDir(t, filepath.Join(stamped, "own"))
+	writeSettings(t, own, "settings.local.json", stampSettings)
+	cases := []struct {
+		name string
+		dir  string
+	}{
+		{"stamped folder itself", stamped},
+		{"own stamp under stamped parent", own},
+		{"under unstamped parent", makeDir(t, filepath.Join(home, "plain", "child"))},
+		{"under stamped home", makeDir(t, filepath.Join(home, "session"))},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assertStartForwarded(t, home, tc.dir, resolvedPath(t, tc.dir))
+		})
+	}
+}
+
+func TestControlForwardsStartsBelowFilesThatAreNoStamp(t *testing.T) {
+	cases := []struct {
+		name    string
+		content string
+	}{
+		{"no env", `{"permissions": {}}`},
+		{"env without base URL", `{"env": {"OTHER": "synthetic"}}`},
+		{"empty base URL", `{"env": {"ANTHROPIC_BASE_URL": ""}}`},
+		{"base URL not a string", `{"env": {"ANTHROPIC_BASE_URL": 1}}`},
+		{"lowercase key", `{"env": {"anthropic_base_url": "https://synthetic.example"}}`},
+		{"env not an object", `{"env": "https://synthetic.example"}`},
+		{"not JSON", `{"env": `},
+	}
+	for _, name := range stampFileNames() {
+		for _, tc := range cases {
+			t.Run(name+" "+tc.name, func(t *testing.T) {
+				home := t.TempDir()
+				parent := makeDir(t, filepath.Join(home, "parent"))
+				writeSettings(t, parent, name, tc.content)
+				child := makeDir(t, filepath.Join(parent, "child"))
+				assertStartForwarded(t, home, child, resolvedPath(t, child))
+			})
+		}
+	}
+}
+
+// claudeAsFile makes folder's .claude a regular file, so no settings file can sit under it.
+func claudeAsFile(t *testing.T, folder string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(folder, ".claude"), []byte("not a folder"), 0o644); err != nil {
+		t.Fatalf("write .claude in %s: %v", folder, err)
+	}
+}
+
+func TestControlForwardsStartsBelowClaudeFileWithNoStampAbove(t *testing.T) {
+	home := t.TempDir()
+	parent := makeDir(t, filepath.Join(home, "parent"))
+	claudeAsFile(t, parent)
+	child := makeDir(t, filepath.Join(parent, "child"))
+	assertStartForwarded(t, home, child, resolvedPath(t, child))
+}
+
+func TestControlRefusesStartsBelowStampWithClaudeFile(t *testing.T) {
+	home := t.TempDir()
+	stamped := makeDir(t, filepath.Join(home, "stamped"))
+	writeSettings(t, stamped, "settings.json", stampSettings)
+	// A .claude that is a regular file is no stamp and no unreadable stamp: the folder above still names the refusal.
+	middle := makeDir(t, filepath.Join(stamped, "middle"))
+	claudeAsFile(t, middle)
+	cases := []struct {
+		name string
+		dir  string
+	}{
+		{"folder whose .claude is a file", middle},
+		{"child of folder whose .claude is a file", makeDir(t, filepath.Join(middle, "child"))},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			fake := &fakeEngine{}
+			control := controlClient(t, newHomedControlHandler(t, home, newFakeOrreryd(t, fake), 0))
+
+			_, err := startAt(t, control, tc.dir)
+			assertConnectError(t, err, connect.CodeInvalidArgument, belowStampMessage(resolvedPath(t, stamped)))
+			if calls := fake.recorded(); len(calls) != 0 {
+				t.Fatalf("refused start forwarded %d requests, want none", len(calls))
+			}
+		})
+	}
+}
+
+func TestControlRefusesStartsWithUnreadableStamp(t *testing.T) {
+	home := t.TempDir()
+	parent := makeDir(t, filepath.Join(home, "parent"))
+	child := makeDir(t, filepath.Join(parent, "child"))
+	own := makeDir(t, filepath.Join(home, "own"))
+	// A settings file that is a directory exists but cannot be read as a file.
+	makeDir(t, filepath.Join(parent, ".claude", "settings.json"))
+	makeDir(t, filepath.Join(own, ".claude", "settings.json"))
+
+	cases := []struct {
+		name   string
+		dir    string
+		folder string
+	}{
+		{"unreadable stamp above", child, parent},
+		{"unreadable stamp in the folder", own, own},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			fake := &fakeEngine{}
+			control := controlClient(t, newHomedControlHandler(t, home, newFakeOrreryd(t, fake), 0))
+
+			_, err := startAt(t, control, tc.dir)
+			unreadable := filepath.Join(resolvedPath(t, tc.folder), ".claude", "settings.json")
+			assertConnectError(t, err, connect.CodeInvalidArgument,
+				"session directory's context stamp "+unreadable+" cannot be read")
+			if calls := fake.recorded(); len(calls) != 0 {
+				t.Fatalf("refused start forwarded %d requests, want none", len(calls))
+			}
+		})
+	}
+}
