@@ -68,6 +68,9 @@ class MainActivityInsetsTest {
     private lateinit var context: Context
     private lateinit var server: FakeOrreryServer
 
+    /** Every activity a test launched, destroyed after it so no screen keeps composing into the next test. */
+    private val launched = mutableListOf<ActivityController<MainActivity>>()
+
     @Before
     fun pointSettingsAtFakeServer() {
         context = ApplicationProvider.getApplicationContext()
@@ -79,6 +82,7 @@ class MainActivityInsetsTest {
 
     @After
     fun closeServer() {
+        launched.forEach { it.pause().stop().destroy() }
         server.close()
     }
 
@@ -122,7 +126,7 @@ class MainActivityInsetsTest {
         val controller = Robolectric.buildActivity(
             MainActivity::class.java,
             Intent(context, MainActivity::class.java),
-        ).setup()
+        ).setup().also { launched += it }
         composeRule.waitUntil(TIMEOUT_MS) {
             composeRule.onAllNodes(hasTestTag("pane-row:%1"), useUnmergedTree = true)
                 .fetchSemanticsNodes().isNotEmpty()
@@ -149,7 +153,7 @@ class MainActivityInsetsTest {
         val controller = Robolectric.buildActivity(
             MainActivity::class.java,
             Intent(context, MainActivity::class.java),
-        ).setup()
+        ).setup().also { launched += it }
         composeRule.waitUntil(TIMEOUT_MS) {
             composeRule.onAllNodes(hasTestTag(PANE_ROW_TAG), useUnmergedTree = true)
                 .fetchSemanticsNodes().isNotEmpty()
