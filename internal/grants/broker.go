@@ -162,6 +162,10 @@ type waiter struct {
 	decided   chan struct{}
 	grant     *Grant
 	err       error
+	// queuedAt is when the request queued, and grantedAt is when its grant was stored, which a restored grant keeps from
+	// the store. A requeued request keeps queuedAt, since it keeps its place.
+	queuedAt  time.Time
+	grantedAt time.Time
 	// clientStart is the start time the grant stored for its client. A grant reads it to check its client's liveness,
 	// and so does a requeued request.
 	clientStart int64
@@ -409,6 +413,8 @@ func (b *Broker) restoreLocked(ctx context.Context, row store.GrantRow) error {
 		},
 		poolsJSON:   row.Pools,
 		grant:       kept,
+		queuedAt:    row.Granted,
+		grantedAt:   row.Granted,
 		clientStart: row.ClientStart,
 		stop:        make(chan struct{}),
 		requeued:    make(chan struct{}),
@@ -699,6 +705,7 @@ func (b *Broker) enqueue(ctx context.Context, req Request) (*waiter, int, error)
 	b.seq++
 	queued := &waiter{
 		id: strconv.FormatUint(b.seq, 10), seq: b.seq, req: req, poolsJSON: poolsJSON, decided: make(chan struct{}),
+		queuedAt: b.now(),
 	}
 	b.waiting = append(b.waiting, queued)
 	position := len(b.waiting)
@@ -878,9 +885,10 @@ func (b *Broker) grantLocked(ctx context.Context, assignment Assignment) {
 		b.logger.WarnContext(ctx, "client start time unreadable", "client", queued.req.ClientPID, "err", startErr)
 		clientStart = 0
 	}
+	granted := b.now()
 	row := store.GrantRow{
 		ID: id, Project: queued.req.Project, ClientPID: queued.req.ClientPID, ClientStart: clientStart,
-		Pools: queued.poolsJSON, Command: queued.req.Command, Members: stored, Granted: b.now(),
+		Pools: queued.poolsJSON, Command: queued.req.Command, Members: stored, Granted: granted,
 	}
 	if err := b.store.AddGrant(ctx, row); err != nil {
 		b.failLocked(queued, fmt.Errorf("store grant %s: %w", id, err))
@@ -892,6 +900,7 @@ func (b *Broker) grantLocked(ctx context.Context, assignment Assignment) {
 		member.project = queued.req.Project
 	}
 	queued.grant = &Grant{ID: id, Members: assignment.Members}
+	queued.grantedAt = granted
 	queued.clientStart = clientStart
 	queued.stop = make(chan struct{})
 	queued.requeued = make(chan struct{})
