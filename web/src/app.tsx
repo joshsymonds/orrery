@@ -1,13 +1,23 @@
+import { Fragment } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 
 import * as actions from "./actions";
 import type { Clients } from "./actions";
 import { Composer } from "./composer";
 import type { Conversation } from "./conversation";
+import {
+  type EpicItem,
+  type EpicSection,
+  type EpicsView,
+  noEpics,
+  placeEpics,
+  type StepItem,
+  withEpicsGroup,
+} from "./epics";
 import { follow } from "./follow";
 import { type ParsedQuestion, parseQuestion } from "./question";
 import { Reader } from "./reader";
-import { byAttention, byProject, type Row, type Section } from "./rows";
+import { byAttention, byProject, type Row } from "./rows";
 import { type SeenClock, type SeenWindow, watchSeen } from "./seen";
 import { ReplyText } from "./text";
 
@@ -19,14 +29,18 @@ interface Stream {
   conversation: Conversation;
 }
 
-// The cursor is held by row key, so it survives new rows. index is where it sat, used when its row leaves.
+// The cursor is held by entry key, so it survives new entries. index is where it sat, used when its entry leaves.
 interface Cursor {
   key: string;
   index: number;
 }
 
+// An entry the list shows and the cursor can rest on: a row, or an epic or step of the Epics group.
+type Item = Row | EpicItem | StepItem;
+
 const stateWaiting = "waiting";
 const noDirectoryTitle = "no directory";
+const tasksUnavailableText = "tasks unavailable";
 const seenFailedText = "could not mark seen";
 const answerFailedText = "no answer was sent";
 
@@ -60,6 +74,7 @@ export function App({
   clients,
   seenClock,
   seenWindow,
+  epics = noEpics,
 }: {
   rows: Row[];
   error: string;
@@ -67,6 +82,7 @@ export function App({
   clients: Clients;
   seenClock?: SeenClock;
   seenWindow?: SeenWindow;
+  epics?: EpicsView;
 }) {
   const [view, setView] = useState<View>("attention");
   const [cursor, setCursor] = useState<Cursor>({ key: "", index: 0 });
@@ -101,19 +117,25 @@ export function App({
     .filter((word) => word !== "");
   const shownRows = rows.map((row) => readAsSeen(row, seenWritten));
   const matching = shownRows.filter((row) => matchesFilter(row, words));
-  const sections = view === "attention" ? byAttention(matching) : byProject(matching);
-  const flat = sections.flatMap((section) => section.rows);
+  const sections =
+    view === "attention"
+      ? withEpicsGroup(byAttention(matching), epics)
+      : placeEpics(byProject(matching), epics.blocks);
+  const flat = sections.flatMap(entriesOf);
   const index = resolveIndex(flat, cursor);
-  const cursorRow = index >= 0 ? flat[index] : null;
+  const cursorItem = index >= 0 ? flat[index] : null;
+  // The cursor's row, which an epic or step entry never has: the reader, composer and seen watch follow only a row.
+  const cursorRow = cursorItem !== null && isRow(cursorItem) ? cursorItem : null;
+  const cursorKey = cursorItem?.key ?? "";
   const cursorRowKey = cursorRow?.key ?? "";
   const shownIndex = Math.max(index, 0);
 
-  // The held cursor follows the row shown, so a first render or a clamp does not leave it on a stale key.
+  // The held cursor follows the entry shown, so a first render or a clamp does not leave it on a stale key.
   useEffect(() => {
-    if (cursor.key !== cursorRowKey || cursor.index !== shownIndex) {
-      setCursor({ key: cursorRowKey, index: shownIndex });
+    if (cursor.key !== cursorKey || cursor.index !== shownIndex) {
+      setCursor({ key: cursorKey, index: shownIndex });
     }
-  }, [cursor, cursorRowKey, shownIndex]);
+  }, [cursor, cursorKey, shownIndex]);
 
   // The cursor's row is followed while the cursor rests on it: a move to another row, or an unmount, stops the stream.
   useEffect(() => {
@@ -213,15 +235,16 @@ export function App({
     setCursor({ key: flat[next].key, index: next });
   };
 
-  // selectRow moves the cursor to a row the list shows, as a click on that row does.
-  const selectRow = (row: Row) => {
-    moveTo(flat.findIndex((candidate) => candidate.key === row.key));
+  // selectItem moves the cursor to an entry the list shows, as a click on that entry does.
+  const selectItem = (item: Item) => {
+    moveTo(flat.findIndex((candidate) => candidate.key === item.key));
   };
 
   const nextUnseen = () => {
     for (let step = 1; step <= flat.length; step++) {
       const target = (index + step) % flat.length;
-      if (flat[target].unseen) {
+      const item = flat[target];
+      if (isRow(item) && item.unseen) {
         moveTo(target);
         return;
       }
@@ -284,7 +307,7 @@ export function App({
         setView("project");
         break;
       case "w": {
-        const waiting = flat.findIndex((row) => row.state === stateWaiting);
+        const waiting = flat.findIndex((item) => isRow(item) && item.state === stateWaiting);
         if (waiting >= 0) {
           moveTo(waiting);
         }
@@ -324,6 +347,10 @@ export function App({
         toggleOpen();
         break;
       case "|":
+        // An epic or step entry pins nothing and closes nothing: the pin is a row's.
+        if (cursorRow === null && cursorItem !== null) {
+          break;
+        }
         if (pinned !== null) {
           setPinned(null);
           setPinStream(null);
@@ -395,6 +422,16 @@ export function App({
             {sections.map((section) => (
               <div class="section">
                 <div class="b-sec">{sectionTitle(section)}</div>
+                {section.epics.map((block) => (
+                  <Fragment key={block.epic.key}>
+                    <EpicEntry epic={block.epic} current={block.epic.key === cursorKey} onSelect={selectItem} />
+                    {block.steps.map((step) => (
+                      <StepEntry key={step.key} step={step} current={step.key === cursorKey} onSelect={selectItem} />
+                    ))}
+                    {block.more > 0 && <div class="b-more">{`${block.more} more`}</div>}
+                    {block.ended > 0 && <div class="b-more">{`${block.ended} ended`}</div>}
+                  </Fragment>
+                ))}
                 {section.rows.map((item) => (
                   <div
                     key={item.key}
@@ -405,12 +442,12 @@ export function App({
                     aria-current={item.key === cursorRowKey ? "true" : undefined}
                     onClick={(event) => {
                       if (!isLinkClick(event)) {
-                        selectRow(item);
+                        selectItem(item);
                       }
                     }}
                     onDblClick={(event) => {
                       if (!isLinkClick(event)) {
-                        selectRow(item);
+                        selectItem(item);
                         void writeSeen(item);
                       }
                     }}
@@ -436,6 +473,7 @@ export function App({
                     </div>
                   </div>
                 ))}
+                {section.folded > 0 && <div class="b-more">{`${section.folded} folded`}</div>}
               </div>
             ))}
           </div>
@@ -563,13 +601,93 @@ function composerRows(kept: Row[], shown: Row | null): Row[] {
   return [...kept, shown];
 }
 
-// resolveIndex finds the cursor's row, or the index it sat at, clamped into the rows; -1 when there are none.
-function resolveIndex(rows: Row[], cursor: Cursor): number {
-  if (rows.length === 0) {
+// resolveIndex finds the cursor's entry, or the index it sat at, clamped into the entries; -1 when there are none.
+function resolveIndex(items: Item[], cursor: Cursor): number {
+  if (items.length === 0) {
     return -1;
   }
-  const found = rows.findIndex((row) => row.key === cursor.key);
-  return found >= 0 ? found : clamp(cursor.index, rows.length);
+  const found = items.findIndex((item) => item.key === cursor.key);
+  return found >= 0 ? found : clamp(cursor.index, items.length);
+}
+
+// isRow tells a row from an epic or step entry by its kind.
+function isRow(item: Item): item is Row {
+  return item.kind === "pane" || item.kind === "session";
+}
+
+// entriesOf lists a section's entries in the order they are drawn: each epic with its steps, then the rows.
+function entriesOf(section: EpicSection): Item[] {
+  return [...section.epics.flatMap((block) => [block.epic, ...block.steps]), ...section.rows];
+}
+
+// EpicEntry draws an epic's line: its gauge, slug, repository, and done of total tasks, or tasks unavailable.
+function EpicEntry({
+  epic,
+  current,
+  onSelect,
+}: {
+  epic: EpicItem;
+  current: boolean;
+  onSelect: (item: Item) => void;
+}) {
+  return (
+    <div
+      class={current ? "b-row epic cur" : "b-row epic"}
+      data-row=""
+      data-key={epic.key}
+      aria-current={current ? "true" : undefined}
+      onClick={(event) => {
+        if (!isLinkClick(event)) {
+          onSelect(epic);
+        }
+      }}
+    >
+      {epic.known && <Gauge done={epic.done} total={epic.total} />}
+      <span class="label">{epic.slug}</span>
+      <span class="proj">{epic.repository}</span>
+      <span class="count">{epic.known ? `${epic.done}/${epic.total}` : tasksUnavailableText}</span>
+    </div>
+  );
+}
+
+// StepEntry draws a step's line: its label, held when it is held, and its doing text as text.
+function StepEntry({
+  step,
+  current,
+  onSelect,
+}: {
+  step: StepItem;
+  current: boolean;
+  onSelect: (item: Item) => void;
+}) {
+  return (
+    <div
+      class={current ? "b-row step cur" : "b-row step"}
+      data-row=""
+      data-key={step.key}
+      aria-current={current ? "true" : undefined}
+      onClick={(event) => {
+        if (!isLinkClick(event)) {
+          onSelect(step);
+        }
+      }}
+    >
+      <span class="label">{step.label}</span>
+      {step.held && <span class="held">held</span>}
+      <ReplyText text={step.doing} />
+    </div>
+  );
+}
+
+// Gauge draws the done share of the tasks as an arc over a full circle. A circle of no tasks gets no arc.
+function Gauge({ done, total }: { done: number; total: number }) {
+  const share = total === 0 ? 0 : done / total;
+  return (
+    <svg class="gauge" aria-hidden="true" viewBox="0 0 36 36">
+      <circle class="gauge-rest" cx="18" cy="18" r="16" pathLength="1" />
+      <circle class="gauge-done" cx="18" cy="18" r="16" pathLength="1" stroke-dasharray={`${share} 1`} />
+    </svg>
+  );
 }
 
 // isLinkClick reports whether a click or double click landed on a link, which opens it and moves nothing else.
@@ -581,11 +699,11 @@ function clamp(index: number, length: number): number {
   return Math.min(Math.max(index, 0), length - 1);
 }
 
-function sectionTitle(section: Section): string {
+function sectionTitle(section: EpicSection): string {
   if (section.title !== "") {
     return section.title;
   }
-  return section.rows[0].host || noDirectoryTitle;
+  return section.rows[0]?.host || noDirectoryTitle;
 }
 
 function lastPathElement(path: string): string {

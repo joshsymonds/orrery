@@ -1,11 +1,21 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
+import { create, type MessageInitShape } from "@bufbuild/protobuf";
 import { render } from "preact";
 import { act } from "preact/test-utils";
 
 import { App } from "./app";
 import { createClients, createTransport } from "./client";
+import { type EpicsView, epicsView } from "./epics";
+import {
+  type Epic,
+  EpicSchema,
+  type EpicStep,
+  EpicStepSchema,
+  type EpicsGetResponse,
+  EpicsGetResponseSchema,
+} from "./gen/orrery/v1/epics_pb";
 import type { Row } from "./rows";
 import type { SeenClock, SeenWindow } from "./seen";
 import { installTestDom, removeTestDom } from "./testdom";
@@ -36,6 +46,7 @@ interface Props {
   now: number;
   clients: Clients;
   seen: Seen;
+  epics?: EpicsView;
 }
 
 // One request the fake server received. A unary call has no controller; a stream call has one until it ends.
@@ -279,6 +290,7 @@ async function mount(container: HTMLElement, props: Props): Promise<void> {
         clients={props.clients}
         seenClock={props.seen.clock}
         seenWindow={props.seen.window}
+        epics={props.epics}
       />,
       container,
     );
@@ -1428,3 +1440,230 @@ test("a click on a link in the reader opens the link and moves the cursor nowher
     assert.equal(click.defaultPrevented, false, "the link keeps its default action");
     assert.equal(cursorKey(container), "a");
   }));
+
+const widgetsRepo = "widgets-5d0c1a7";
+const gadgetsRepo = "gadgets-1a2b3c4";
+
+// makeEpic is a synthetic epic whose id is its repository and slug joined, as the record names it.
+function makeEpic(repository: string, slug: string, init: MessageInitShape<typeof EpicSchema> = {}): Epic {
+  return create(EpicSchema, { id: `${repository}/${slug}`, repository, slug, outcome: "", live: true, ...init });
+}
+
+function makeStep(id: string, init: MessageInitShape<typeof EpicStepSchema> = {}): EpicStep {
+  return create(EpicStepSchema, { id, task: id, agent: "builder", doing: "", held: false, ...init });
+}
+
+// detailOf is the Get response for an epic whose tasks carry the given statuses, one task per status.
+function detailOf(epic: Epic, statuses: string[]): EpicsGetResponse {
+  return create(EpicsGetResponseSchema, {
+    epic,
+    tasks: statuses.map((status, index) => ({ effort: 1, slug: `task-${index}`, subject: `Subject ${index}`, status })),
+  });
+}
+
+function epicKey(epic: Epic): string {
+  return `epic:${epic.id}`;
+}
+
+// oneEpic is a live epic with two running steps, and no detail.
+function oneEpic(): EpicsView {
+  const epic = makeEpic(widgetsRepo, "first", { runningSteps: [makeStep("s1"), makeStep("s2")] });
+  return epicsView([epic], new Map());
+}
+
+function readerHidden(container: HTMLElement): boolean {
+  const reader = container.querySelector('section[aria-label="reader"]');
+  assert.ok(reader, "the reader is rendered");
+  return reader.hasAttribute("hidden");
+}
+
+function sectionOf(container: HTMLElement, title: string): HTMLElement {
+  const section = [...container.querySelectorAll<HTMLElement>(".section")].find(
+    (element) => element.querySelector(".b-sec")?.textContent === title,
+  );
+  assert.ok(section, `section ${title} is rendered`);
+  return section;
+}
+
+test("the Epics group follows Needs you, and an epic shows its gauge and count, or tasks unavailable", () => {
+  const first = makeEpic(widgetsRepo, "first");
+  const second = makeEpic(gadgetsRepo, "second");
+  const epics = epicsView([first, second], new Map([[first.id, detailOf(first, ["done", "integrated", "pending"])]]));
+  return withApp({ epics }, (container) => {
+    assert.deepEqual(sectionTitles(container), ["Needs you", "Epics", "New since you looked", "Working", "Seen"]);
+    assert.deepEqual(rowKeys(container), ["a", epicKey(first), epicKey(second), "c", "b", "d"]);
+
+    const known = rowElement(container, epicKey(first));
+    assert.ok(known.classList.contains("b-row") && known.classList.contains("epic"));
+    assert.equal(known.querySelector(".label")?.textContent, "first");
+    assert.equal(known.querySelector(".proj")?.textContent, widgetsRepo);
+    assert.equal(known.querySelector(".count")?.textContent, "2/3", "the integrated task counts as done");
+    const gauge = known.querySelector("svg.gauge");
+    assert.ok(gauge, "the epic draws its gauge");
+    assert.equal(gauge.getAttribute("aria-hidden"), "true");
+    assert.ok(gauge.querySelector("circle.gauge-rest"), "the gauge draws its rest circle");
+    const done = gauge.querySelector("circle.gauge-done");
+    assert.ok(done, "the gauge draws its done arc");
+    const [arc, circle] = (done.getAttribute("stroke-dasharray") ?? "").split(/\s+/).map(Number);
+    assert.ok(Math.abs(arc / circle - 2 / 3) < 1e-9, "the arc covers two of three tasks");
+
+    const unknown = rowElement(container, epicKey(second));
+    assert.equal(unknown.querySelector(".count")?.textContent, "tasks unavailable");
+    assert.equal(unknown.querySelector("svg"), null, "no gauge is drawn without detail");
+  });
+});
+
+test("an epic shows four running steps with the held one marked, then its more, ended and folded lines", () => {
+  const steps = ["one", "two", "three", "four", "five"].map((name) => makeStep(name, { held: name === "two" }));
+  const busy = makeEpic(widgetsRepo, "busy", { runningSteps: steps, endedSteps: 3 });
+  const folded = [makeEpic(widgetsRepo, "old", { live: false }), makeEpic(gadgetsRepo, "older", { live: false })];
+  const epics = epicsView([busy, ...folded], new Map());
+  return withApp({ epics }, (container) => {
+    const section = sectionOf(container, "Epics");
+    assert.deepEqual(
+      [...section.children].map((child) => child.className),
+      ["b-sec", "b-row epic", "b-row step", "b-row step", "b-row step", "b-row step", "b-more", "b-more", "b-more"],
+    );
+    const entries = [...section.querySelectorAll(".b-row.step")];
+    assert.deepEqual(
+      entries.map((entry) => entry.querySelector(".label")?.textContent),
+      ["one", "two", "three", "four"],
+    );
+    assert.deepEqual(
+      entries.map((entry) => entry.querySelector(".held")?.textContent ?? null),
+      [null, "held", null, null],
+    );
+    assert.deepEqual(
+      [...section.querySelectorAll(".b-more")].map((line) => line.textContent),
+      ["1 more", "3 ended", "2 folded"],
+    );
+  });
+});
+
+test("by project, an epic sits atop its folder, and an epic with no folder gets a section of its own", () => {
+  const rows = [
+    row({ key: "p", project: "/work/orrery", state: "working" }),
+    row({ key: "q", project: "/work/api", state: "working" }),
+  ];
+  const shipping = makeEpic("orrery-5d0c1a7", "ship");
+  const stray = makeEpic(gadgetsRepo, "second");
+  const epics = epicsView([shipping, stray], new Map());
+  return withApp({ rows, epics }, async (container) => {
+    await press("p");
+    assert.deepEqual(sectionTitles(container), ["/work/api", "/work/orrery", gadgetsRepo]);
+    assert.deepEqual(rowKeys(container), ["q", epicKey(shipping), "p", epicKey(stray)]);
+  });
+});
+
+test("an unmatched epic with no repository name is titled no directory in project view", () => {
+  const epics = epicsView([makeEpic("", "loose")], new Map());
+  return withApp({ rows: [], epics }, async (container) => {
+    await press("p");
+    assert.deepEqual(sectionTitles(container), ["no directory"]);
+  });
+});
+
+test("j and k reach epic and step entries, and the reader is hidden on them", () => {
+  return withApp({ epics: oneEpic() }, async (container, fake) => {
+    await until(() => fake.callsTo(paneWatchPath).length === 1, "the pane stream for a");
+    const [stream] = fake.callsTo(paneWatchPath);
+    const before = fake.calls.length;
+    await press("j");
+    assert.equal(cursorKey(container), `epic:${widgetsRepo}/first`);
+    assert.equal(readerHidden(container), true);
+    assert.equal(stream.signal.aborted, true, "moving onto the epic stops a's stream");
+    await press("j");
+    assert.equal(cursorKey(container), "step:s1");
+    await press("j");
+    assert.equal(cursorKey(container), "step:s2");
+    assert.equal(fake.calls.length, before, "no call is made for an epic or step entry");
+    await press("j");
+    assert.equal(cursorKey(container), "c");
+    assert.equal(readerHidden(container), false);
+    await press("k");
+    assert.equal(cursorKey(container), "step:s2");
+    await press("k");
+    assert.equal(cursorKey(container), "step:s1");
+    await press("k");
+    assert.equal(cursorKey(container), `epic:${widgetsRepo}/first`);
+    await press("k");
+    assert.equal(cursorKey(container), "a");
+    assert.equal(readerHidden(container), false);
+  });
+});
+
+test("w and n skip the epic and step entries", () => {
+  return withApp({ epics: oneEpic() }, async (container) => {
+    await press("j");
+    assert.equal(cursorKey(container), `epic:${widgetsRepo}/first`);
+    await press("w");
+    assert.equal(cursorKey(container), "a", "w goes to the waiting row");
+    await press("n");
+    assert.equal(cursorKey(container), "c", "n goes past the epic and its steps to the next unseen row");
+    await press("n");
+    assert.equal(cursorKey(container), "a", "n wraps to the unseen row a");
+  });
+});
+
+test("x, Enter, e, i, 1, 2, 3 and | on an epic or step entry call nothing and pin nothing", () => {
+  return withApp({ epics: oneEpic() }, async (container, fake) => {
+    await until(() => fake.callsTo(paneWatchPath).length === 1, "the pane stream for a");
+    const before = fake.calls.length;
+    const keys = ["x", "Enter", "e", "i", "1", "2", "3", "|"];
+    await press("j");
+    assert.equal(cursorKey(container), `epic:${widgetsRepo}/first`);
+    await pressEach(keys);
+    await press("j");
+    assert.equal(cursorKey(container), "step:s1");
+    await pressEach(keys);
+    await settle();
+    assert.equal(fake.calls.length, before, "no call reaches the server");
+    assert.equal(container.querySelector(".panes")?.classList.contains("split"), false, "| pinned nothing");
+    assert.equal(cursorKey(container), "step:s1");
+  });
+});
+
+test("resting on an epic or step writes no seen, even with input on the page", () => {
+  return withApp({ epics: oneEpic() }, async (_container, fake) => {
+    fake.seen.input.emit("keydown");
+    await press("j");
+    fake.seen.advance(5000);
+    await press("j");
+    fake.seen.advance(5000);
+    await settle();
+    assert.equal(fake.callsTo(markPanePath).length, 0, "a's dwell was cancelled when the cursor left it");
+    assert.equal(fake.callsTo(markSessionPath).length, 0);
+  });
+});
+
+test("a step's doing text draws as text, never as markup", () => {
+  const text = "<img src=x onerror=alert(1)> and <b>bold</b>";
+  const running = makeStep("s1", { doing: text });
+  const epics = epicsView([makeEpic(widgetsRepo, "first", { runningSteps: [running] })], new Map());
+  return withApp({ epics }, (container) => {
+    const step = rowElement(container, "step:s1");
+    assert.equal(step.querySelector("img, b"), null);
+    assert.equal(step.querySelector(".reply")?.textContent, text);
+  });
+});
+
+test("a click on a step moves the cursor to it, and a click on a link in its text moves nothing", () => {
+  const doing = "see https://example.com/notes";
+  const epics = epicsView([makeEpic(widgetsRepo, "first", { runningSteps: [makeStep("s1", { doing })] })], new Map());
+  return withApp({ epics }, async (container, fake) => {
+    await until(() => fake.callsTo(paneWatchPath).length === 1, "the pane stream for a");
+    const step = rowElement(container, "step:s1");
+    const link = step.querySelector("a");
+    assert.ok(link, "the step shows its link");
+    await act(() => {
+      link.dispatchEvent(clickEvent());
+    });
+    assert.equal(cursorKey(container), "a", "a link click moves nothing");
+    await act(() => {
+      step.dispatchEvent(clickEvent());
+    });
+    assert.equal(cursorKey(container), "step:s1");
+    await settle();
+    assert.equal(fake.callsTo(markPanePath).length, 0, "a click writes no seen");
+  });
+});
