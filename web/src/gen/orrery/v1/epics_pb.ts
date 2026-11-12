@@ -359,9 +359,9 @@ export const EpicStepCheckSchema: GenMessage<EpicStepCheck> = /*@__PURE__*/
   messageDesc(file_orrery_v1_epics, 7);
 
 /**
- * EpicSlice is one task's rings, read from the task's latest writing step. The rings, innermost first, are red_test,
- * working, tests_pass, checks and gate_accepted. Evidence that is empty, unparsable, or starts NOT RUN (trimmed, any
- * case) counts for nothing.
+ * EpicSlice is one task's rings, read from the task's latest writing step. The rings, outermost first, are red_test,
+ * working, tests_pass, checks and gate_accepted, so progress moves inward. Evidence that is empty, unparsable, or starts
+ * NOT RUN (trimmed, any case) counts for nothing.
  *
  * @generated from message orrery.v1.EpicSlice
  */
@@ -417,8 +417,8 @@ export type EpicSlice = Message<"orrery.v1.EpicSlice"> & {
   gateAccepted: boolean;
 
   /**
-   * The ring the yellow dot is on, 1 for red_test through 5 for gate_accepted: the innermost ring reached while the step
-   * runs or is held, 0 once it ended.
+   * The ring the yellow dot is on, 1 for red_test through 5 for gate_accepted: the innermost ring reached, the furthest
+   * phase, while the step runs or is held, 0 once it ended.
    *
    * @generated from field: int32 at = 8;
    */

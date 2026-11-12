@@ -7,9 +7,9 @@ package io.github.joshsymonds.orrery.gen.orrery.v1;
 
 /**
  * <pre>
- * EpicSlice is one task's rings, read from the task's latest writing step. The rings, innermost first, are red_test,
- * working, tests_pass, checks and gate_accepted. Evidence that is empty, unparsable, or starts NOT RUN (trimmed, any
- * case) counts for nothing.
+ * EpicSlice is one task's rings, read from the task's latest writing step. The rings, outermost first, are red_test,
+ * working, tests_pass, checks and gate_accepted, so progress moves inward. Evidence that is empty, unparsable, or starts
+ * NOT RUN (trimmed, any case) counts for nothing.
  * </pre>
  *
  * Protobuf type {@code orrery.v1.EpicSlice}
@@ -357,8 +357,8 @@ public  final class EpicSlice extends
   private int at_;
   /**
    * <pre>
-   * The ring the yellow dot is on, 1 for red_test through 5 for gate_accepted: the innermost ring reached while the step
-   * runs or is held, 0 once it ended.
+   * The ring the yellow dot is on, 1 for red_test through 5 for gate_accepted: the innermost ring reached, the furthest
+   * phase, while the step runs or is held, 0 once it ended.
    * </pre>
    *
    * <code>int32 at = 8 [json_name = "at"];</code>
@@ -370,8 +370,8 @@ public  final class EpicSlice extends
   }
   /**
    * <pre>
-   * The ring the yellow dot is on, 1 for red_test through 5 for gate_accepted: the innermost ring reached while the step
-   * runs or is held, 0 once it ended.
+   * The ring the yellow dot is on, 1 for red_test through 5 for gate_accepted: the innermost ring reached, the furthest
+   * phase, while the step runs or is held, 0 once it ended.
    * </pre>
    *
    * <code>int32 at = 8 [json_name = "at"];</code>
@@ -383,8 +383,8 @@ public  final class EpicSlice extends
   }
   /**
    * <pre>
-   * The ring the yellow dot is on, 1 for red_test through 5 for gate_accepted: the innermost ring reached while the step
-   * runs or is held, 0 once it ended.
+   * The ring the yellow dot is on, 1 for red_test through 5 for gate_accepted: the innermost ring reached, the furthest
+   * phase, while the step runs or is held, 0 once it ended.
    * </pre>
    *
    * <code>int32 at = 8 [json_name = "at"];</code>
@@ -479,9 +479,9 @@ public  final class EpicSlice extends
 
   /**
    * <pre>
-   * EpicSlice is one task's rings, read from the task's latest writing step. The rings, innermost first, are red_test,
-   * working, tests_pass, checks and gate_accepted. Evidence that is empty, unparsable, or starts NOT RUN (trimmed, any
-   * case) counts for nothing.
+   * EpicSlice is one task's rings, read from the task's latest writing step. The rings, outermost first, are red_test,
+   * working, tests_pass, checks and gate_accepted, so progress moves inward. Evidence that is empty, unparsable, or starts
+   * NOT RUN (trimmed, any case) counts for nothing.
    * </pre>
    *
    * Protobuf type {@code orrery.v1.EpicSlice}
@@ -842,8 +842,8 @@ public  final class EpicSlice extends
 
     /**
      * <pre>
-     * The ring the yellow dot is on, 1 for red_test through 5 for gate_accepted: the innermost ring reached while the step
-     * runs or is held, 0 once it ended.
+     * The ring the yellow dot is on, 1 for red_test through 5 for gate_accepted: the innermost ring reached, the furthest
+     * phase, while the step runs or is held, 0 once it ended.
      * </pre>
      *
      * <code>int32 at = 8 [json_name = "at"];</code>
@@ -855,8 +855,8 @@ public  final class EpicSlice extends
     }
     /**
      * <pre>
-     * The ring the yellow dot is on, 1 for red_test through 5 for gate_accepted: the innermost ring reached while the step
-     * runs or is held, 0 once it ended.
+     * The ring the yellow dot is on, 1 for red_test through 5 for gate_accepted: the innermost ring reached, the furthest
+     * phase, while the step runs or is held, 0 once it ended.
      * </pre>
      *
      * <code>int32 at = 8 [json_name = "at"];</code>
@@ -870,8 +870,8 @@ public  final class EpicSlice extends
     }
     /**
      * <pre>
-     * The ring the yellow dot is on, 1 for red_test through 5 for gate_accepted: the innermost ring reached while the step
-     * runs or is held, 0 once it ended.
+     * The ring the yellow dot is on, 1 for red_test through 5 for gate_accepted: the innermost ring reached, the furthest
+     * phase, while the step runs or is held, 0 once it ended.
      * </pre>
      *
      * <code>int32 at = 8 [json_name = "at"];</code>

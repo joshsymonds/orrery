@@ -104,8 +104,8 @@ public interface EpicSliceOrBuilder extends
 
   /**
    * <pre>
-   * The ring the yellow dot is on, 1 for red_test through 5 for gate_accepted: the innermost ring reached while the step
-   * runs or is held, 0 once it ended.
+   * The ring the yellow dot is on, 1 for red_test through 5 for gate_accepted: the innermost ring reached, the furthest
+   * phase, while the step runs or is held, 0 once it ended.
    * </pre>
    *
    * <code>int32 at = 8 [json_name = "at"];</code>
