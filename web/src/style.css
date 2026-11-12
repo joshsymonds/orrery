@@ -256,3 +256,6 @@ img { max-width: 100%; }
 .epic-view .pip.bad { background: var(--red); }
 .epic-view .end { flex: none; color: var(--overlay1); }
 .side-note { margin: 0; color: var(--overlay1); overflow-wrap: anywhere; }
+
+/* A control that carries .flash shows a mauve ring for a moment after a use; flash.ts adds and removes the class. */
+.flash { outline: 2px solid var(--mauve); outline-offset: 2px; }
