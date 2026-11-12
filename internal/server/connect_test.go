@@ -34,8 +34,8 @@ func connectHeader(login, contentType string, withClient bool) http.Header {
 	return header
 }
 
-// newConnectHandler returns the guarded handler that admits allowedLogin, routes REST paths to a client with
-// no running server, and reads Sessions from reader.
+// newConnectHandler returns the guarded handler that admits allowedLogin, routes Panes and Push to a tmux client
+// with no running server, and reads Sessions from reader.
 func newConnectHandler(t *testing.T, reader *store.Reader) http.Handler {
 	t.Helper()
 	handler, err := server.New(server.Config{
@@ -245,33 +245,6 @@ func TestConnectRejectsOtherContentTypes(t *testing.T) {
 	}
 }
 
-func TestConnectOnlyContentTypesRefusedOnRESTWrites(t *testing.T) {
-	pushStore := newPushStore(t)
-	handler, err := server.New(server.Config{
-		Logins: []string{allowedLogin},
-		Tmux:   newTmuxClient(t),
-		Push:   pushStore,
-	})
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
-	endpoint := "https://" + pushHost + "/synthetic-connect-refused"
-	body := registerBody(t, endpoint)
-
-	// The Connect-only types a REST write route must refuse.
-	for _, contentType := range []string{"application/proto", "application/connect+proto", "application/connect+json"} {
-		rec := serve(t, handler, http.MethodPost, pushPath, connectHeader(allowedLogin, contentType, true), body)
-		if rec.Code != http.StatusForbidden {
-			t.Fatalf("REST POST with Content-Type %q: status = %d, want 403", contentType, rec.Code)
-		}
-	}
-	assertStored(t, pushStore)
-
-	rec := serve(t, handler, http.MethodPost, pushPath, connectHeader(allowedLogin, "application/json", true), body)
-	assertStatus(t, rec, http.StatusNoContent)
-	assertStored(t, pushStore, endpoint)
-}
-
 func TestConnectListThroughGeneratedClient(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	seq := seedSessionStore(t, path)
@@ -304,7 +277,7 @@ func TestConnectListUnavailableWhenStoreIsMissing(t *testing.T) {
 	if got := connect.CodeOf(err); got != connect.CodeUnavailable {
 		t.Fatalf("List code: got %v (%v), want %v", got, err, connect.CodeUnavailable)
 	}
-	assertRESTStillAnswers(t, handler)
+	assertPhoneStillAnswers(t, handler)
 }
 
 func TestConnectListUnavailableWhileStoreIsBusy(t *testing.T) {
@@ -320,20 +293,35 @@ func TestConnectListUnavailableWhileStoreIsBusy(t *testing.T) {
 	if got := connect.CodeOf(err); got != connect.CodeUnavailable {
 		t.Fatalf("List code: got %v (%v), want %v", got, err, connect.CodeUnavailable)
 	}
-	assertRESTStillAnswers(t, handler)
+	assertPhoneStillAnswers(t, handler)
 }
 
-// assertRESTStillAnswers checks that a REST read and a REST write answer as they do without a store: GET
-// /v1/panes answers 200 with an empty array when no tmux server runs, and a push registration answers 204.
-func assertRESTStillAnswers(t *testing.T, handler http.Handler) {
+// assertPhoneStillAnswers checks that a Panes read and a Push write answer as they do without a store: Panes.List
+// answers an empty list when no tmux server runs, and Push.Register stores the subscription.
+func assertPhoneStillAnswers(t *testing.T, handler http.Handler) {
 	t.Helper()
-	rec := get(t, handler, "/v1/panes", allowedLogin)
-	assertStatus(t, rec, http.StatusOK)
-	if body := rec.Body.String(); body != "[]" {
-		t.Fatalf("GET /v1/panes body = %q, want []", body)
+	srv := httptest.NewServer(handler)
+	t.Cleanup(srv.Close)
+	httpClient := &http.Client{Transport: headerTransport{base: http.DefaultTransport, login: allowedLogin}}
+
+	list, err := orreryv1connect.NewPanesClient(httpClient, srv.URL).List(
+		t.Context(),
+		connect.NewRequest(&orreryv1.PanesListRequest{}),
+	)
+	if err != nil {
+		t.Fatalf("Panes.List: %v", err)
+	}
+	if got := list.Msg.GetPanes(); len(got) != 0 {
+		t.Fatalf("Panes.List panes = %v, want none", got)
 	}
 
-	endpoint := "https://" + pushHost + "/synthetic-connect-rest"
-	rec = serve(t, handler, http.MethodPost, pushPath, writeHeader(), registerBody(t, endpoint))
-	assertStatus(t, rec, http.StatusNoContent)
+	p256dh, auth := pushKeys(t)
+	endpoint := "https://" + pushHost + "/synthetic-connect-still"
+	_, err = orreryv1connect.NewPushClient(httpClient, srv.URL).Register(
+		t.Context(),
+		connect.NewRequest(&orreryv1.RegisterRequest{Endpoint: endpoint, P256Dh: p256dh, Auth: auth}),
+	)
+	if err != nil {
+		t.Fatalf("Push.Register: %v", err)
+	}
 }

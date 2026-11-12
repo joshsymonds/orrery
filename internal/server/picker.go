@@ -16,16 +16,13 @@ import (
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
 )
 
-// fieldToken is the key of the token POST /v1/picker/run reads from its body.
-const fieldToken = "token"
-
 // pickerTokenBytes is the size of a picker token: 128 random bits, written as hex.
 const pickerTokenBytes = 16
 
 // pickerTTL is how long a token from an ask stays valid after the ask.
 const pickerTTL = 5 * time.Minute
 
-// pickerRow is one row of a 200 answer from POST /v1/picker/ask.
+// pickerRow is one row of the answer Picker.Ask gives.
 type pickerRow struct {
 	Token  string `json:"token"`
 	Kind   string `json:"kind"`
@@ -36,7 +33,7 @@ type pickerRow struct {
 	Prompt bool   `json:"prompt"`
 }
 
-// pickerAnswer is the body of a 200 answer from POST /v1/picker/ask.
+// pickerAnswer is the rows askPicker returns.
 type pickerAnswer struct {
 	Rows []pickerRow `json:"rows"`
 }
@@ -53,7 +50,7 @@ type pickerEntry struct {
 	pane    string
 }
 
-// pickerTokens holds the entries of the tokens every ask issued, and is shared by the picker routes. runMu is held
+// pickerTokens holds the entries of the tokens every ask issued, and is shared by Ask and Run. runMu is held
 // for the whole of each run, so the runs of one token are serial and its action runs at most once.
 type pickerTokens struct {
 	mu      sync.Mutex
@@ -103,26 +100,6 @@ func (s *pickerTokens) store(now time.Time, entries map[string]pickerEntry) {
 	maps.Copy(s.entries, entries)
 }
 
-// servePickerAsk answers POST /v1/picker/ask with the rows of askPicker. A body without a text string asks with
-// blank text, so it answers as blank text does.
-func servePickerAsk(
-	picker func() (open.Config, error),
-	tokens *pickerTokens,
-	tmux *tmuxctl.Client,
-	now func() time.Time,
-) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		fields, _ := decodeBody(r)
-		text, _ := jsonString(fields[fieldText])
-		answer, err := askPicker(r.Context(), picker, tokens, tmux, now, text)
-		if err != nil {
-			writeRouteError(w, err)
-			return
-		}
-		writeJSON(w, http.StatusOK, answer)
-	}
-}
-
 // askPicker returns the rows open.Choices offers for text, each carrying a new token, and stores the entries those
 // tokens stand for. The ask executes nothing. A nil picker is a 404, blank text a 400, and a Picker, Choices or pane
 // listing failure a 502 with its reason.
@@ -157,27 +134,7 @@ func askPicker(
 	return answer, nil
 }
 
-// pickerRunAnswer is the body of a 200 answer from POST /v1/picker/run.
-type pickerRunAnswer struct {
-	Pane string `json:"pane"`
-}
-
-// servePickerRun answers POST /v1/picker/run with the pane runPicker answers. A body without a token string runs
-// with a blank token, so it answers as blank tokens do.
-func servePickerRun(tokens *pickerTokens, tmux *tmuxctl.Client, now func() time.Time) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		fields, _ := decodeBody(r)
-		token, _ := jsonString(fields[fieldToken])
-		pane, err := runPicker(r.Context(), tokens, tmux, now, token)
-		if err != nil {
-			writeRouteError(w, err)
-			return
-		}
-		writeJSON(w, http.StatusOK, pickerRunAnswer{Pane: pane})
-	}
-}
-
-// runPicker returns the pane of token's run, the core POST /v1/picker/run and Picker.Run share. A blank token is 400,
+// runPicker returns the pane of token's run, the core of Picker.Run. A blank token is 400,
 // an unissued one 404, and an expired one 410, each running nothing. Runs are serial under runMu, so the action of
 // a token runs at most once. With no tmux server it answers 409 and starts none. A failed action answers 502 and
 // records nothing. An action that ran but whose pane lookup failed answers 502 and keeps its target, so a retry

@@ -17,7 +17,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
 )
 
-// panesServer answers orrery.v1.Panes with the instances the REST pane routes share.
+// panesServer answers orrery.v1.Panes with the tmux client, conversation state, locks and seen reporter it holds.
 type panesServer struct {
 	tmux      *tmuxctl.Client
 	newest    *conversation.Newest
@@ -28,7 +28,8 @@ type panesServer struct {
 	report    cli.SeenReporter
 }
 
-// newPanesHandler returns the path and handler that serve Panes over the instances New shares with the REST pane routes.
+// newPanesHandler returns the path and handler that serve Panes over the tmux client, conversation state, locks and
+// seen reporter it is given.
 func newPanesHandler(
 	tmux *tmuxctl.Client,
 	newest *conversation.Newest,
@@ -48,11 +49,11 @@ func newPanesHandler(
 	})
 }
 
-// Keys of GET /v1/panes that are read by constant rather than struct tag, since their snake case is not the
+// Keys of a pane object that are read by constant rather than struct tag, since their snake case is not the
 // camel case the tag linter asks for. claudeSessionKey is the key protocol.Pane writes for ClaudeSession.
 const claudeSessionKey = "claude_session"
 
-// paneJSON is one element of the GET /v1/panes array, decoded by the keys its tags name. The keys
+// paneJSON is one element of the array listPanes returns, decoded by the keys its tags name. The keys
 // claudeSessionKey, questionHashKey and newestReplyKey are read from the same object by paneField.
 type paneJSON struct {
 	ID       string `json:"id"`
@@ -73,7 +74,7 @@ type paneJSON struct {
 	Tool     string `json:"tool"`
 }
 
-// List answers Panes.List with the panes GET /v1/panes answers.
+// List answers Panes.List with the panes listPanes gives.
 func (s panesServer) List(
 	ctx context.Context,
 	_ *connect.Request[v1.PanesListRequest],
@@ -89,8 +90,8 @@ func (s panesServer) List(
 	return connect.NewResponse(&v1.PanesListResponse{Panes: out}), nil
 }
 
-// Screen answers Panes.Screen with the screen GET /v1/panes/{id}/screen answers. The request fields are encoded as
-// the route's query, so screenFlags validates them and builds the capture arguments exactly as the route does.
+// Screen answers Panes.Screen with the screen of the pane. The request fields are encoded as the query screenFlags
+// reads, so screenFlags validates them and builds the capture arguments.
 func (s panesServer) Screen(
 	ctx context.Context,
 	req *connect.Request[v1.ScreenRequest],
@@ -114,9 +115,9 @@ func (s panesServer) Screen(
 	return connect.NewResponse(&v1.ScreenResponse{Screen: []byte(screen)}), nil
 }
 
-// Conversation answers Panes.Conversation with the conversation GET /v1/panes/{id}/conversation answers. The limit
-// field is encoded as the route's query, so conversationLimit validates it as the route does. Limit 0 is absent from
-// that query, which is the route's default.
+// Conversation answers Panes.Conversation with the conversation conversationAnswer builds. The limit field is
+// encoded as the query conversationLimit reads, so conversationLimit validates it. Limit 0 is absent from that query,
+// which is the default.
 func (s panesServer) Conversation(
 	ctx context.Context,
 	req *connect.Request[v1.ConversationRequest],
@@ -136,8 +137,8 @@ func (s panesServer) Conversation(
 	return connect.NewResponse(conversationMessage(conv)), nil
 }
 
-// SendText answers Panes.SendText with what POST /v1/panes/{id}/text answers. The pane is checked first, as the route
-// checks it before the body, and the text is sent by sendText under the same lock the route uses.
+// SendText answers Panes.SendText. The pane is checked first, and the text is sent by sendText under the pane's text
+// lock.
 func (s panesServer) SendText(
 	ctx context.Context,
 	req *connect.Request[v1.SendTextRequest],
@@ -151,8 +152,8 @@ func (s panesServer) SendText(
 	return connect.NewResponse(&v1.SendTextResponse{}), nil
 }
 
-// SendKeys answers Panes.SendKeys with what POST /v1/panes/{id}/keys answers. The pane is checked first, as the route
-// checks it before the body, and the keys are sent by sendKeys, which carries the expect_question guard.
+// SendKeys answers Panes.SendKeys. The pane is checked first, and the keys are sent by sendKeys, which carries the
+// expect_question guard.
 func (s panesServer) SendKeys(
 	ctx context.Context,
 	req *connect.Request[v1.SendKeysRequest],
@@ -166,8 +167,8 @@ func (s panesServer) SendKeys(
 	return connect.NewResponse(&v1.SendKeysResponse{}), nil
 }
 
-// MarkSeen answers Panes.MarkSeen with what POST /v1/panes/{id}/seen answers. The pane is checked first, as the route
-// checks it before the body, and the seen time is set by markPaneSeen under the same lock the route uses.
+// MarkSeen answers Panes.MarkSeen. The pane is checked first, and the seen time is set by markPaneSeen under the
+// pane's seen lock.
 func (s panesServer) MarkSeen(
 	ctx context.Context,
 	req *connect.Request[v1.MarkSeenRequest],
@@ -181,7 +182,7 @@ func (s panesServer) MarkSeen(
 	return connect.NewResponse(&v1.MarkSeenResponse{}), nil
 }
 
-// conversationMessage returns the ConversationResponse of conv, which holds the fields the REST answer writes.
+// conversationMessage returns the ConversationResponse of conv.
 func conversationMessage(conv conversation.Conversation) *v1.ConversationResponse {
 	items := make([]*v1.ConversationItem, 0, len(conv.Items))
 	for _, item := range conv.Items {
@@ -213,7 +214,7 @@ func conversationMessage(conv conversation.Conversation) *v1.ConversationRespons
 }
 
 // paneMessages returns the Pane messages of the panes listPanes gives, in order. It reads the same JSON objects
-// GET /v1/panes writes, so the two answers hold the same fields.
+// listPanes gives, so the two answers hold the same fields.
 func paneMessages(panes []map[string]json.RawMessage) ([]*v1.Pane, error) {
 	out := make([]*v1.Pane, 0, len(panes))
 	for _, fields := range panes {
@@ -254,7 +255,7 @@ func paneMessages(panes []map[string]json.RawMessage) ([]*v1.Pane, error) {
 	return out, nil
 }
 
-// paneExtras returns the claude_session, question_hash and newest_reply of one pane of GET /v1/panes, which
+// paneExtras returns the claude_session, question_hash and newest_reply of one pane object of listPanes, which
 // paneJSON does not tag.
 func paneExtras(fields map[string]json.RawMessage) (string, string, int64, error) {
 	var claudeSession, questionHash string

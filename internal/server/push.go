@@ -11,7 +11,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/push"
 )
 
-// pushServer answers orrery.v1.Push from the subscription store the REST push routes share.
+// pushServer answers orrery.v1.Push from the subscription store.
 type pushServer struct {
 	store *push.Store
 }
@@ -21,7 +21,7 @@ func newPushHandler(store *push.Store) (string, http.Handler) {
 	return orreryv1connect.NewPushHandler(pushServer{store: store})
 }
 
-// Register answers Push.Register with what POST /v1/push/register answers. The error codes follow
+// Register answers Push.Register by storing the subscription registerSubscription stores. The error codes follow
 // registerSubscription's routeError.
 func (s pushServer) Register(
 	_ context.Context,
@@ -38,8 +38,8 @@ func (s pushServer) Register(
 	return connect.NewResponse(&v1.RegisterResponse{}), nil
 }
 
-// Unregister answers Push.Unregister with what DELETE /v1/push/register answers. The error codes follow
-// unregisterSubscription's routeError.
+// Unregister answers Push.Unregister by removing the subscription unregisterSubscription removes. The error codes
+// follow unregisterSubscription's routeError.
 func (s pushServer) Unregister(
 	_ context.Context,
 	req *connect.Request[v1.UnregisterRequest],

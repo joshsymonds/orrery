@@ -31,6 +31,7 @@ import (
 	orreryv1 "github.com/joshsymonds/orrery/internal/gen/orrery/v1"
 	"github.com/joshsymonds/orrery/internal/gen/orrery/v1/orreryv1connect"
 	"github.com/joshsymonds/orrery/internal/hoststatus"
+	"github.com/joshsymonds/orrery/internal/open"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/push"
 	"github.com/joshsymonds/orrery/internal/server"
@@ -42,7 +43,6 @@ const (
 	allowedLogin = "user@example.test"
 	otherLogin   = "stranger@example.test"
 	jsonType     = "application/json"
-	textType     = "text/plain; charset=utf-8"
 	client       = "synthetic-client"
 
 	// noConfig keeps the user's tmux config away from every test server.
@@ -51,7 +51,7 @@ const (
 	longCommand = "sleep 300"
 	// synthQuestion is the synthetic value set on one pane's @orrery_question option.
 	synthQuestion = "synthetic question for the list route?"
-	// synthScreen is the synthetic text one pane prints for the screen route to return.
+	// synthScreen is the synthetic text one pane prints for Panes.Screen to return.
 	synthScreen = "synthetic screen marker"
 	screenWait  = 10 * time.Second
 	screenPoll  = 10 * time.Millisecond
@@ -130,9 +130,6 @@ func newHandlerWithStore(t *testing.T, tmux *tmuxctl.Client, store *push.Store) 
 // pushHost is the synthetic push host the test store allows.
 const pushHost = "push.example.test"
 
-// pushPath is the push registration route.
-const pushPath = "/v1/push/register"
-
 // newPushStore returns a store under a fresh temporary directory that allows only pushHost.
 func newPushStore(t *testing.T) *push.Store {
 	t.Helper()
@@ -156,13 +153,6 @@ func pushKeys(t *testing.T) (string, string) {
 	}
 	return base64.RawURLEncoding.EncodeToString(priv.PublicKey().Bytes()),
 		base64.RawURLEncoding.EncodeToString(secret)
-}
-
-// registerBody returns a POST body that registers endpoint with fresh keys.
-func registerBody(t *testing.T, endpoint string) string {
-	t.Helper()
-	p256dh, auth := pushKeys(t)
-	return jsonBody(t, map[string]any{"endpoint": endpoint, "p256dh": p256dh, "auth": auth})
 }
 
 // assertStored fails the test unless store holds exactly the subscriptions for endpoints, in any order.
@@ -312,6 +302,52 @@ func TestServeAuth(t *testing.T) {
 	}
 }
 
+// TestServeHasNoRESTRoutes checks that every route serve answered before the phone API moved to Connect is gone:
+// each answers 404 to a request the guard admits, an allowed login with the client header and a JSON body.
+func TestServeHasNoRESTRoutes(t *testing.T) {
+	t.Parallel()
+
+	// The host runner and picker are configured, so every route would answer before its removal.
+	handler, err := server.New(server.Config{
+		Logins:     []string{allowedLogin},
+		Tmux:       newTmuxClient(t),
+		Push:       newPushStore(t),
+		HostStatus: hoststatus.New(writeHostStatusScript(t, "", 0), time.Now),
+		Picker: func() (open.Config, error) {
+			return open.Config{}, errors.New("synthetic picker")
+		},
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	routes := []struct {
+		method string
+		path   string
+	}{
+		{http.MethodGet, "/v1/panes"},
+		{http.MethodPost, "/v1/panes"},
+		{http.MethodGet, "/v1/panes/p1/screen"},
+		{http.MethodGet, "/v1/panes/p1/conversation"},
+		{http.MethodGet, "/v1/host"},
+		{http.MethodPost, "/v1/panes/p1/text"},
+		{http.MethodPost, "/v1/panes/p1/keys"},
+		{http.MethodPost, "/v1/panes/p1/seen"},
+		{http.MethodPost, "/v1/push/register"},
+		{http.MethodDelete, "/v1/push/register"},
+		{http.MethodPost, "/v1/picker/ask"},
+		{http.MethodPost, "/v1/picker/run"},
+	}
+	for _, route := range routes {
+		t.Run(route.method+" "+route.path, func(t *testing.T) {
+			t.Parallel()
+			rec := serve(t, handler, route.method, route.path, writeHeader(), `{"pane":"%1","text":"synthetic"}`)
+			assertStatus(t, rec, http.StatusNotFound)
+		})
+	}
+}
+
+// TestServeCrossOrigin checks that the guard refuses a cross-origin write to a phone path unless it carries the
+// client header and a Connect content type, and that a preflight gets no CORS headers.
 func TestServeCrossOrigin(t *testing.T) {
 	t.Parallel()
 
@@ -347,14 +383,14 @@ func TestServeCrossOrigin(t *testing.T) {
 			method:      http.MethodPost,
 			contentType: jsonType,
 			client:      client,
-			want:        http.StatusNotFound,
+			want:        http.StatusOK,
 		},
 		{
 			name:        "JSON with charset POST with client header",
 			method:      http.MethodPost,
 			contentType: "application/json; charset=utf-8",
 			client:      client,
-			want:        http.StatusNotFound,
+			want:        http.StatusOK,
 		},
 		{
 			name:        "form DELETE without client header",
@@ -363,24 +399,10 @@ func TestServeCrossOrigin(t *testing.T) {
 			want:        http.StatusForbidden,
 		},
 		{
-			name:        "text/plain DELETE with client header",
-			method:      http.MethodDelete,
-			contentType: "text/plain",
-			client:      client,
-			want:        http.StatusForbidden,
-		},
-		{
 			name:        "JSON DELETE without client header",
 			method:      http.MethodDelete,
 			contentType: jsonType,
 			want:        http.StatusForbidden,
-		},
-		{
-			name:        "JSON DELETE with client header",
-			method:      http.MethodDelete,
-			contentType: jsonType,
-			client:      client,
-			want:        http.StatusNotFound,
 		},
 	}
 	for _, tc := range cases {
@@ -392,7 +414,7 @@ func TestServeCrossOrigin(t *testing.T) {
 			if tc.client != "" {
 				header.Set(server.HeaderClient, tc.client)
 			}
-			rec := serve(t, handler, tc.method, "/", header, "{}")
+			rec := serve(t, handler, tc.method, orreryv1connect.PanesListProcedure, header, "{}")
 			assertStatus(t, rec, tc.want)
 			assertNoCORS(t, rec)
 		})
@@ -405,7 +427,7 @@ func TestServeCrossOrigin(t *testing.T) {
 		header.Set("Origin", "https://attacker.example.test")
 		header.Set("Access-Control-Request-Method", http.MethodPost)
 		header.Set("Access-Control-Request-Headers", server.HeaderClient)
-		rec := serve(t, handler, http.MethodOptions, "/", header, "")
+		rec := serve(t, handler, http.MethodOptions, orreryv1connect.PanesListProcedure, header, "")
 		assertNoCORS(t, rec)
 	})
 }
@@ -456,7 +478,7 @@ func TestServeRequiresPush(t *testing.T) {
 // inputReady is printed by an input pane once its line discipline is off, so the test may type into it.
 const inputReady = "input ready"
 
-// synthText is the synthetic text the text route pastes.
+// synthText is the synthetic text Panes.SendText pastes.
 const synthText = "synthetic text"
 
 // writeHeader returns the headers of a request the guard admits for a write.
@@ -556,7 +578,7 @@ const synthPrompt = "synthetic prompt"
 const typingWidth = 80
 
 // typedLineBytes and typedLines size the text of each concurrent send: each line takes several typed
-// pieces, so two sends interleave unless the text route serializes them.
+// pieces, so two sends interleave unless Panes.SendText serializes them.
 const (
 	typedLineBytes = 900
 	typedLines     = 4

@@ -291,7 +291,7 @@ func runServe(ctx context.Context, opts globals, args []string, getenv func(stri
 	var pushHosts listFlag
 	flags.Var(&pushHosts, "push-host", "push relay host a subscription may name, repeatable")
 	var hostStatus *hoststatus.Runner
-	flags.Func("host-status-cmd", "absolute path of the command GET /v1/host runs", func(value string) error {
+	flags.Func("host-status-cmd", "absolute path of the command Host.Status runs", func(value string) error {
 		if !filepath.IsAbs(value) {
 			return errors.New("host status command must be an absolute path")
 		}

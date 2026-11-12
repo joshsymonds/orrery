@@ -14,8 +14,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
 )
 
-// pickerServer answers orrery.v1.Picker with the configuration, token store, tmux client and clock the REST picker
-// routes share.
+// pickerServer answers orrery.v1.Picker with the configuration, token store, tmux client and clock.
 type pickerServer struct {
 	picker func() (open.Config, error)
 	tokens *pickerTokens
@@ -23,8 +22,8 @@ type pickerServer struct {
 	now    func() time.Time
 }
 
-// newPickerHandler returns the path and handler that serve Picker over the instances New shares with the REST picker
-// routes.
+// newPickerHandler returns the path and handler that serve Picker over the configuration, token store, tmux client
+// and clock it is given.
 func newPickerHandler(
 	picker func() (open.Config, error),
 	tokens *pickerTokens,
@@ -34,7 +33,7 @@ func newPickerHandler(
 	return orreryv1connect.NewPickerHandler(pickerServer{picker: picker, tokens: tokens, tmux: tmux, now: now})
 }
 
-// Ask answers Picker.Ask with the rows POST /v1/picker/ask answers.
+// Ask answers Picker.Ask with the rows askPicker returns.
 func (s pickerServer) Ask(
 	ctx context.Context,
 	req *connect.Request[v1.AskRequest],
@@ -58,7 +57,7 @@ func (s pickerServer) Ask(
 	return connect.NewResponse(&v1.AskResponse{Rows: rows}), nil
 }
 
-// Run answers Picker.Run with the pane POST /v1/picker/run answers.
+// Run answers Picker.Run with the pane runPicker returns.
 func (s pickerServer) Run(
 	ctx context.Context,
 	req *connect.Request[v1.RunRequest],
