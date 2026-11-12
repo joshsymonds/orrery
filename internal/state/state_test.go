@@ -213,7 +213,7 @@ func TestPaneStateTransitions(t *testing.T) {
 		if transition != (state.Transition{From: protocol.StateWorking, To: ""}) || !changed {
 			t.Fatalf("SessionEnd transition = %+v changed = %v", transition, changed)
 		}
-		// The six per-pane options SessionEnd unsets.
+		// The seven per-pane options SessionEnd unsets. The turn start is the one UserPromptSubmit set above.
 		for _, name := range []string{
 			protocol.OptionState,
 			protocol.OptionChanged,
@@ -221,6 +221,7 @@ func TestPaneStateTransitions(t *testing.T) {
 			protocol.OptionQuestion,
 			protocol.OptionSummary,
 			protocol.OptionLabel,
+			"@orrery_turn_start",
 		} {
 			if got, ok := option(t, client, pane, name); ok {
 				t.Fatalf("%s after SessionEnd = %q, want unset", name, got)
@@ -1000,6 +1001,24 @@ func TestEndInterruptedTurn(t *testing.T) {
 		}
 		wantToolID(t, client, pane, "synthetic-1")
 		wantQuestion(t, client, pane, "synthetic question")
+	})
+
+	t.Run("interruption before a re-prompt on a working pane leaves the new turn alone", func(t *testing.T) {
+		client, pane := startPane(t)
+		startTurn(t, client, pane, t0)
+		// A re-prompt on a working pane changes no state, so @orrery_changed stays at the first prompt.
+		apply(t, client, pane, userPromptSubmitHook, t0.Add(time.Minute))
+		wantState(t, client, pane, protocol.StateWorking)
+
+		// The interruption is after the first prompt and before the re-prompt, so it belongs to the first turn.
+		if endInterrupted(t, client, pane, t0.Unix()+1, t0.Add(2*time.Minute)) {
+			t.Fatal("EndInterruptedTurn before the re-prompt = true, want false")
+		}
+		wantState(t, client, pane, protocol.StateWorking)
+		if got, _ := option(t, client, pane, protocol.OptionChanged); got != "1700000000" {
+			t.Fatalf("%s = %q, want 1700000000", protocol.OptionChanged, got)
+		}
+		wantToolID(t, client, pane, "synthetic-1")
 	})
 
 	t.Run("waiting pane is left alone", func(t *testing.T) {

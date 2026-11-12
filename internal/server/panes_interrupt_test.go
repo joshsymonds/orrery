@@ -1,6 +1,7 @@
 package server_test
 
 import (
+	"encoding/json"
 	"net/http"
 	"path/filepath"
 	"strconv"
@@ -9,6 +10,7 @@ import (
 
 	orreryv1 "github.com/joshsymonds/orrery/internal/gen/orrery/v1"
 	"github.com/joshsymonds/orrery/internal/protocol"
+	"github.com/joshsymonds/orrery/internal/state"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
 )
 
@@ -116,6 +118,36 @@ func TestServePanesInterruptOlderLeavesLaterTurn(t *testing.T) {
 	}
 	if got, _ := paneOption(t, tmux, pane, protocol.OptionChanged); got != strconv.FormatInt(newestUnix0905, 10) {
 		t.Fatalf("%s = %q, want %d", protocol.OptionChanged, got, newestUnix0905)
+	}
+}
+
+// userPromptSubmitHook is the hook Claude Code sends when the person submits a prompt.
+const userPromptSubmitHook = `{"hook_event_name":"UserPromptSubmit","prompt":"synthetic prompt"}`
+
+func TestServePanesInterruptRepromptStartsTurn(t *testing.T) {
+	t.Parallel()
+
+	tmux := newTmuxServer(t)
+	// The working turn started at 09:00 and was interrupted at 09:05. The person re-prompts at 09:06 while the
+	// pane is still working. That prompt starts a new turn, and the 09:05 interruption belongs to the old one.
+	path := writeNewestTranscript(t,
+		newestToolLine(newestStamp0900),
+		interruptLine(newestStamp0905))
+	pane := conversationPane(t, tmux, workingTurnOptions(path, newestUnix0900))
+	reprompt := time.Unix(newestUnix0905+60, 0)
+	if _, _, err := state.Apply(t.Context(), tmux, pane, json.RawMessage(userPromptSubmitHook), reprompt); err != nil {
+		t.Fatalf("Apply(UserPromptSubmit): %v", err)
+	}
+
+	listed := listedPane(t, newHandler(t, tmux), pane)
+	if listed.GetState() != string(protocol.StateWorking) {
+		t.Fatalf("state = %q, want %q", listed.GetState(), protocol.StateWorking)
+	}
+	if listed.GetChanged() != newestUnix0900 {
+		t.Fatalf("changed = %d, want %d", listed.GetChanged(), newestUnix0900)
+	}
+	if got, _ := paneOption(t, tmux, pane, protocol.OptionState); got != string(protocol.StateWorking) {
+		t.Fatalf("%s = %q, want %q", protocol.OptionState, got, protocol.StateWorking)
 	}
 }
 

@@ -30,6 +30,11 @@ const maxQuestionBytes = 8192
 // from the finished turn. A tool event at or after it means Claude continued the turn.
 const stopGraceWindow = 5 * time.Second
 
+// optionTurnStart holds the unix seconds of the newest UserPromptSubmit. The state options move only when the
+// state changes, so a prompt sent to a pane that is already working leaves @orrery_changed at the earlier
+// turn's start. This option moves on every prompt.
+const optionTurnStart = "@orrery_turn_start"
+
 // Hook JSON keys and values the state machine reads.
 const (
 	keyEventName        = "hook_event_name"
@@ -116,9 +121,10 @@ func Apply(
 }
 
 // EndInterruptedTurn ends a working pane's turn when the transcript shows an interruption after the turn
-// started. interrupted is the unix seconds of the newest interruption line, 0 when there is none. When the
-// pane is working and interrupted is later than its @orrery_changed, the pane becomes done as a Stop leaves
-// it, and the call returns true. Otherwise nothing is written and the call returns false.
+// started. interrupted is the unix seconds of the newest interruption line, 0 when there is none. The turn
+// started at the later of @orrery_changed and the newest prompt's @orrery_turn_start. When the pane is working
+// and interrupted is later than that, the pane becomes done as a Stop leaves it, and the call returns true.
+// Otherwise nothing is written and the call returns false.
 func EndInterruptedTurn(
 	ctx context.Context,
 	client *tmuxctl.Client,
@@ -133,10 +139,15 @@ func EndInterruptedTurn(
 	if from != protocol.StateWorking {
 		return false, nil
 	}
-	started, _, err := changedSecond(ctx, client, paneID)
+	changed, _, err := optionSecond(ctx, client, paneID, protocol.OptionChanged)
 	if err != nil {
 		return false, err
 	}
+	turnStart, _, err := optionSecond(ctx, client, paneID, optionTurnStart)
+	if err != nil {
+		return false, err
+	}
+	started := max(changed, turnStart)
 	if interrupted <= started {
 		return false, nil
 	}
@@ -236,7 +247,7 @@ func isLateToolEvent(
 	paneID string,
 	now time.Time,
 ) (bool, error) {
-	stopped, ok, err := changedSecond(ctx, client, paneID)
+	stopped, ok, err := optionSecond(ctx, client, paneID, protocol.OptionChanged)
 	if err != nil {
 		return false, err
 	}
@@ -246,19 +257,19 @@ func isLateToolEvent(
 	return now.Sub(time.Unix(stopped, 0)) < stopGraceWindow, nil
 }
 
-// changedSecond reads @orrery_changed as unix seconds. ok is false when the option is unset, and a value
+// optionSecond reads the pane option name as unix seconds. ok is false when the option is unset, and a value
 // that is not an integer is an error.
-func changedSecond(ctx context.Context, client *tmuxctl.Client, paneID string) (int64, bool, error) {
-	value, ok, err := client.PaneOption(ctx, paneID, protocol.OptionChanged)
+func optionSecond(ctx context.Context, client *tmuxctl.Client, paneID, name string) (int64, bool, error) {
+	value, ok, err := client.PaneOption(ctx, paneID, name)
 	if err != nil {
-		return 0, false, fmt.Errorf("read %s: %w", protocol.OptionChanged, err)
+		return 0, false, fmt.Errorf("read %s: %w", name, err)
 	}
 	if !ok {
 		return 0, false, nil
 	}
 	seconds, err := strconv.ParseInt(value, 10, 64)
 	if err != nil {
-		return 0, false, fmt.Errorf("parse %s: %w", protocol.OptionChanged, err)
+		return 0, false, fmt.Errorf("parse %s: %w", name, err)
 	}
 	return seconds, true, nil
 }
@@ -272,9 +283,10 @@ func isToolEvent(event string) bool {
 	return false
 }
 
-// writeTransition writes the tool, the question, then the state and its change time. The state options
-// are written only when the state changes; the tool and the question are written whenever their event
-// applies. The tool is written first, so a malformed tool field fails before any option changes.
+// writeTransition writes the tool, the question, the turn start, then the state and its change time. The
+// state options are written only when the state changes; the tool, the question and the turn start are
+// written whenever their event applies. The tool is written first, so a malformed tool field fails before
+// any option changes.
 func writeTransition(
 	ctx context.Context,
 	client *tmuxctl.Client,
@@ -289,6 +301,11 @@ func writeTransition(
 	}
 	if err := writeQuestion(ctx, client, paneID, fields, event, transition.To); err != nil {
 		return err
+	}
+	if event == eventUserPromptSubmit {
+		if err := client.SetPaneOption(ctx, paneID, optionTurnStart, strconv.FormatInt(now.Unix(), 10)); err != nil {
+			return fmt.Errorf("set %s: %w", optionTurnStart, err)
+		}
 	}
 	if transition.From == transition.To {
 		return nil
@@ -420,7 +437,7 @@ func unsetTool(ctx context.Context, client *tmuxctl.Client, paneID string) error
 	return nil
 }
 
-// unsetSession removes all seven per-pane options for SessionEnd.
+// unsetSession removes all eight per-pane options for SessionEnd.
 func unsetSession(ctx context.Context, client *tmuxctl.Client, paneID string) error {
 	for _, name := range []string{
 		protocol.OptionState,
@@ -430,6 +447,7 @@ func unsetSession(ctx context.Context, client *tmuxctl.Client, paneID string) er
 		protocol.OptionSummary,
 		protocol.OptionLabel,
 		protocol.OptionTool,
+		optionTurnStart,
 	} {
 		if err := client.UnsetPaneOption(ctx, paneID, name); err != nil {
 			return fmt.Errorf("unset %s: %w", name, err)
