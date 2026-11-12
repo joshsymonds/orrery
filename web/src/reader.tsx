@@ -1,4 +1,5 @@
 import type { JSX } from "preact";
+import { useLayoutEffect, useRef } from "preact/hooks";
 
 import type { Conversation } from "./conversation";
 import { useFlash } from "./flash";
@@ -9,10 +10,13 @@ import { ReplyText } from "./text";
 const tokensPerThousand = 1000;
 const secondsToMillis = 1000;
 const answerChoices = [1, 2, 3] as const;
+const nearBottomPixels = 4;
 
 // Reader draws one conversation: its items, the "since you looked" rule before the first item newer than seenAt, the
 // pane's question with a button per answer, the session's unfinished text, and the queue of waiting messages. Every
-// text is drawn as text: through ReplyText, or as a plain child of a button, so no markup becomes an element.
+// text is drawn as text: through ReplyText, or as a plain child of a button, so no markup becomes an element. The
+// reader is its own scroll container: a conversation that replaces a null one opens at its bottom, and any other
+// render keeps the bottom only for a reader that sat within nearBottomPixels of it.
 export function Reader({
   conversation,
   seenAt,
@@ -28,20 +32,34 @@ export function Reader({
   onAnswer?: (choice: 1 | 2 | 3) => void;
   onToggleOpen?: () => void;
 }): JSX.Element {
+  const root = useRef<HTMLDivElement>(null);
+  const drewConversation = useRef(false);
+  // The position is read before this render changes the DOM, so it is where the reader sat before the new items.
+  const element = root.current;
+  const atBottom = element !== null && distanceFromBottom(element) <= nearBottomPixels;
+  const opening = conversation !== null && !drewConversation.current;
+  useLayoutEffect(() => {
+    drewConversation.current = conversation !== null;
+    const reader = root.current;
+    if (reader !== null && (opening || atBottom)) {
+      reader.scrollTop = reader.scrollHeight;
+    }
+  });
   if (conversation === null) {
     return (
-      <div class="reader">
+      <div class="reader" ref={root}>
         <p class="reader-loading">loading…</p>
       </div>
     );
   }
   const newIndex = conversation.items.findIndex((item) => Number(item.time) > seenAt);
+  const keys = itemKeys(conversation.items);
   const rows: JSX.Element[] = [];
   conversation.items.forEach((item, index) => {
     if (index === newIndex) {
       rows.push(<NewRule key="new-rule" />);
     }
-    rows.push(<ItemRow key={index} item={item} open={open} onToggleOpen={onToggleOpen} />);
+    rows.push(<ItemRow key={keys[index]} item={item} open={open} onToggleOpen={onToggleOpen} />);
   });
   const questionCard = question === null ? null : <QuestionCard question={question} onAnswer={onAnswer} />;
   const live = conversation.unfinished
@@ -57,7 +75,7 @@ export function Reader({
     ));
   const waiting = conversation.state?.waiting ?? [];
   return (
-    <div class="reader">
+    <div class="reader" ref={root}>
       {rows}
       {questionCard}
       {live}
@@ -265,6 +283,34 @@ function QueuedRow({ message }: { message: WaitingMessage }) {
       </div>
     </div>
   );
+}
+
+// distanceFromBottom is how far the element's scroll sits above its bottom.
+function distanceFromBottom(element: HTMLElement): number {
+  return element.scrollHeight - element.scrollTop - element.clientHeight;
+}
+
+// itemKeys keys each item by its content, so a row keeps its key while the window drops items from the top. An item
+// whose content repeats an older one takes an occurrence suffix counted from the oldest, as the phone's entryKeys does.
+function itemKeys(items: ConversationItem[]): string[] {
+  const seen = new Map<string, number>();
+  return items.map((item) => {
+    const base = JSON.stringify([
+      item.kind,
+      String(item.time),
+      item.text,
+      item.tool,
+      item.input,
+      item.id,
+      item.error,
+      item.notice,
+      item.trigger,
+      String(item.tokens),
+    ]);
+    const occurrence = seen.get(base) ?? 0;
+    seen.set(base, occurrence + 1);
+    return occurrence === 0 ? base : `${base}#${occurrence}`;
+  });
 }
 
 function clock(time: bigint): string {

@@ -82,6 +82,86 @@ function rowTexts(container: HTMLElement): string[] {
   return [...container.querySelectorAll(".reader > .t")].map((row) => row.textContent ?? "");
 }
 
+const rowPixels = 100;
+const viewportPixels = 300;
+
+// readerOf returns the reader's root element, the scroll container of its conversation.
+function readerOf(container: HTMLElement): HTMLElement {
+  const reader = container.querySelector<HTMLElement>(".reader");
+  assert.ok(reader !== null, "the reader is drawn");
+  return reader;
+}
+
+// stubLayout gives the reader the layout a browser would: each row is rowPixels tall, the viewport is viewportPixels
+// tall, and scrollTop clamps to the content. happy-dom has no layout, so the stub reads the rows the DOM holds.
+function stubLayout(reader: HTMLElement): void {
+  let top = 0;
+  const furthest = () => Math.max(0, reader.scrollHeight - viewportPixels);
+  Object.defineProperties(reader, {
+    scrollHeight: { configurable: true, get: () => reader.children.length * rowPixels },
+    clientHeight: { configurable: true, value: viewportPixels },
+    scrollTop: {
+      configurable: true,
+      get: () => Math.min(top, furthest()),
+      set: (value: number) => {
+        top = Math.min(Math.max(value, 0), furthest());
+      },
+    },
+  });
+}
+
+// withScrollingReader mounts a reader the way the app does, from a null conversation to its conversation, with its
+// layout stubbed. The check gets the container and a rerender that draws new props into the same mounted reader.
+async function withScrollingReader(
+  props: Props,
+  check: (container: HTMLElement, rerender: (next: Props) => Promise<void>) => void | Promise<void>,
+): Promise<void> {
+  const window = installTestDom();
+  const container = document.createElement("div");
+  const rerender = (next: Props) =>
+    act(() => {
+      render(<Reader {...next} />, container);
+    });
+  try {
+    render(<Reader {...props} conversation={null} />, container);
+    stubLayout(readerOf(container));
+    await rerender(props);
+    await check(container, rerender);
+  } finally {
+    render(null, container);
+    await removeTestDom(window);
+  }
+}
+
+// readerProps is the props of a reader that holds items, all read: no item is newer than seenAt.
+function readerProps(items: ConversationItem[]): Props {
+  return { conversation: conversation({ items }), seenAt: 10_000, open: false };
+}
+
+// heldItems returns the replies from first to last, each one's text naming its number.
+function heldItems(first: number, last: number): ConversationItem[] {
+  const list: ConversationItem[] = [];
+  for (let n = first; n <= last; n += 1) {
+    list.push(item({ kind: "reply", time: BigInt(100 + n), text: `held-${n}` }));
+  }
+  return list;
+}
+
+// distanceFromBottom is how far the reader's scroll sits above its bottom, by the stubbed layout.
+function distanceFromBottom(container: HTMLElement): number {
+  const reader = readerOf(container);
+  return reader.scrollHeight - reader.scrollTop - reader.clientHeight;
+}
+
+// rowWith returns the row of the reader whose text includes label.
+function rowWith(container: HTMLElement, label: string): HTMLElement {
+  const row = [...container.querySelectorAll<HTMLElement>(".reader > .t")].find((candidate) =>
+    (candidate.textContent ?? "").includes(label),
+  );
+  assert.ok(row !== undefined, `a row draws ${label}`);
+  return row;
+}
+
 test("a reply holding script markup draws as text with no element", () =>
   withReader(
     {
@@ -408,3 +488,36 @@ test("the compaction rule flashes for 300 ms after a click and still toggles", a
     },
   );
 });
+
+test("a conversation opening from null shows its bottom", () =>
+  withScrollingReader(readerProps(heldItems(1, 20)), (container) => {
+    assert.equal(distanceFromBottom(container), 0);
+  }));
+
+test("a new item while the reader sits at its bottom follows to the new bottom", () =>
+  withScrollingReader(readerProps(heldItems(1, 20)), async (container, rerender) => {
+    const reader = readerOf(container);
+    reader.scrollTop = reader.scrollHeight;
+    assert.equal(distanceFromBottom(container), 0, "the reader starts at its bottom");
+
+    await rerender(readerProps(heldItems(1, 21)));
+    assert.equal(distanceFromBottom(container), 0);
+  }));
+
+test("a new item while the reader is scrolled up leaves its scroll place alone", () =>
+  withScrollingReader(readerProps(heldItems(1, 20)), async (container, rerender) => {
+    const reader = readerOf(container);
+    reader.scrollTop = 500;
+
+    await rerender(readerProps(heldItems(1, 21)));
+    assert.equal(reader.scrollTop, 500);
+  }));
+
+test("at the 50-item cap, appending one item and dropping the oldest keeps a held row's node", () =>
+  withScrollingReader(readerProps(heldItems(1, 50)), async (container, rerender) => {
+    const held = rowWith(container, "held-25");
+
+    await rerender(readerProps(heldItems(2, 51)));
+    assert.equal(readerOf(container).querySelectorAll(".reader > .t").length, 50);
+    assert.ok(rowWith(container, "held-25") === held, "the held row keeps its DOM node");
+  }));
