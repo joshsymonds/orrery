@@ -28,6 +28,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/open"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/push"
+	"github.com/joshsymonds/orrery/internal/state"
 	"github.com/joshsymonds/orrery/internal/store"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
 )
@@ -265,28 +266,95 @@ func checkConfig(cfg Config) (map[string]struct{}, error) {
 }
 
 // listPanes returns the array cli.List writes for tmux, each pane carrying the
-// question_hash of its question and the newest_reply of its transcript, as paneNewestReply gives it. newest
-// keeps each transcript's newest time across requests. With no running server the array is empty. Any failure is
-// a routeError with status 500.
+// question_hash of its question and the newest_reply of its transcript, as paneNewestReply gives it. Working panes
+// whose transcripts show an interruption after their turn started are ended first, by endInterruptedTurns, so the
+// array shows them as done. newest keeps each transcript's newest time across requests. With no running server the array is empty. Any
+// failure is a routeError with status 500.
 func listPanes(
 	ctx context.Context,
 	tmux *tmuxctl.Client,
 	newest *conversation.Newest,
 ) ([]map[string]json.RawMessage, error) {
-	var list bytes.Buffer
-	if err := cli.List(ctx, tmux, []string{"--json"}, &list); err != nil {
+	panes, err := listedPanes(ctx, tmux)
+	if err != nil {
 		return nil, internalError()
 	}
-	var panes []map[string]json.RawMessage
-	if err := json.Unmarshal(list.Bytes(), &panes); err != nil {
+	ended, err := endInterruptedTurns(ctx, tmux, newest, panes)
+	if err != nil {
 		return nil, internalError()
+	}
+	if ended {
+		panes, err = listedPanes(ctx, tmux)
+		if err != nil {
+			return nil, internalError()
+		}
 	}
 	for _, pane := range panes {
-		if err := addPaneFields(ctx, tmux, newest, pane); err != nil {
+		if err = addPaneFields(ctx, tmux, newest, pane); err != nil {
 			return nil, internalError()
 		}
 	}
 	return panes, nil
+}
+
+// listedPanes returns the pane objects cli.List writes for tmux, each decoded one level deep.
+func listedPanes(ctx context.Context, tmux *tmuxctl.Client) ([]map[string]json.RawMessage, error) {
+	var list bytes.Buffer
+	if err := cli.List(ctx, tmux, []string{"--json"}, &list); err != nil {
+		return nil, fmt.Errorf("server: list panes: %w", err)
+	}
+	var panes []map[string]json.RawMessage
+	if err := json.Unmarshal(list.Bytes(), &panes); err != nil {
+		return nil, fmt.Errorf("server: decode panes: %w", err)
+	}
+	return panes, nil
+}
+
+// endInterruptedTurns passes each working pane of panes whose @orrery_transcript file exists to
+// state.EndInterruptedTurn, with the newest interruption time of that transcript and now. A transcript file that
+// does not exist is skipped, and any other error is returned. It reports whether any pane's turn ended.
+func endInterruptedTurns(
+	ctx context.Context,
+	tmux *tmuxctl.Client,
+	newest *conversation.Newest,
+	panes []map[string]json.RawMessage,
+) (bool, error) {
+	now := time.Now()
+	ended := false
+	for _, pane := range panes {
+		var id, paneState string
+		if err := json.Unmarshal(pane["id"], &id); err != nil {
+			return false, fmt.Errorf("server: decode pane id: %w", err)
+		}
+		if err := json.Unmarshal(pane["state"], &paneState); err != nil {
+			return false, fmt.Errorf("server: decode pane state: %w", err)
+		}
+		if protocol.State(paneState) != protocol.StateWorking {
+			continue
+		}
+		path, ok, err := tmux.PaneOption(ctx, id, protocol.OptionTranscript)
+		if err != nil {
+			return false, fmt.Errorf("server: pane %s transcript option: %w", id, err)
+		}
+		if !ok || path == "" {
+			continue
+		}
+		interrupted, err := newest.Interrupted(path)
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return false, fmt.Errorf("server: interruption of pane %s: %w", id, err)
+		}
+		done, err := state.EndInterruptedTurn(ctx, tmux, id, interrupted, now)
+		if err != nil {
+			return false, fmt.Errorf("server: end interrupted turn of pane %s: %w", id, err)
+		}
+		if done {
+			ended = true
+		}
+	}
+	return ended, nil
 }
 
 // addPaneFields sets the questionHashKey and newestReplyKey fields of pane, which holds one pane of cli.List.

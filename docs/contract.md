@@ -23,6 +23,8 @@ Go type: `type State string`. `func ParseState(s string) (State, error)` returns
 
 A headless engine session also has the states `stopped`, `failed` and `interrupted`. They are not pane states, and `ParseState` refuses them. See [Headless sessions](#headless-sessions).
 
+No hook fires when the person interrupts a turn, so serve ends that turn. When serve lists panes (`Panes.List`, and the pane read of `Panes.WatchConversation`), each `working` pane whose `@orrery_transcript` file exists is checked for an interruption line, `[Request interrupted by user]`, written after its `@orrery_changed`. A pane with one becomes `done`, with `@orrery_changed` set to the time of the listing and `@orrery_tool` and `@orrery_question` unset, as a `Stop` leaves it. The listing shows the pane after that change. A transcript file that does not exist is skipped, and any other read or tmux error fails the listing.
+
 ## 2. Per-pane tmux options
 
 Options are set at pane scope with tmux 3.8 `set-option -p`, except `@orrery_dir`, which is the one session-scoped option (see below).
@@ -1397,6 +1399,8 @@ orrery engine API added, additively: the `orrery.v1.Control` service and its six
 orrery E19 (pane tree list) added the `newest_reply` key to each pane of `GET /v1/panes`, additively. It is a key of serve's answer only: `orrery list --json` (section 3) is unchanged. No existing name or value changes.
 
 orrery E27a (turn end field) added the `last_turn_end` key to each pane of `GET /v1/panes`, additively. It is a key of serve's answer only: `orrery list --json` (section 3) is unchanged. No existing name or value changes.
+
+orrery E27a (interrupt end) changed serve's answer, and the change is not additive. A `working` pane whose transcript holds an interruption line after its `@orrery_changed` now lists as `done`, with no tool and a new `@orrery_changed`, and serve writes those options when it lists panes (section 1). No existing name or value changes.
 
 orrery E21 (compaction item) changed the conversation route, and the change is not additive. A compaction is now a `compaction` item, with the `trigger` and `tokens` keys of its boundary, where it was a `notice` item of kind `compaction`. The `compaction` notice is no longer sent, so a reader that matched it must read the item instead. The item keys `trigger` and `tokens` and the answer's `context` key were added additively. No other existing name or value changes.
 
