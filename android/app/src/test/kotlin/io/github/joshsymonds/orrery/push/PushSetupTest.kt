@@ -9,6 +9,7 @@ import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
 import androidx.activity.ComponentActivity
 import androidx.test.core.app.ApplicationProvider
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -18,6 +19,7 @@ import org.junit.runner.RunWith
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows.shadowOf
+import org.robolectric.android.controller.ActivityController
 import org.robolectric.annotation.Config
 import org.unifiedpush.android.connector.data.PublicKeySet
 import org.unifiedpush.android.connector.keys.KeyManager
@@ -42,8 +44,19 @@ class PushSetupTest {
         override fun delete(instance: String) {}
     }
 
-    private fun createdActivity(): ComponentActivity =
-        Robolectric.buildActivity(ComponentActivity::class.java).create().get()
+    /** Every activity a test created, destroyed after it so no activity outlives its test. */
+    private val launched = mutableListOf<ActivityController<ComponentActivity>>()
+
+    @After
+    fun destroyActivities() {
+        launched.forEach { it.destroy() }
+    }
+
+    private fun createdActivity(): ComponentActivity {
+        val controller = Robolectric.buildActivity(ComponentActivity::class.java).create()
+        launched += controller
+        return controller.get()
+    }
 
     private fun pushSetup(activity: ComponentActivity): PushSetup =
         PushSetup(activity, keyManager = FakeKeyManager())
