@@ -16,6 +16,7 @@ import (
 
 	"github.com/joshsymonds/orrery/internal/archive"
 	"github.com/joshsymonds/orrery/internal/protocol"
+	"github.com/joshsymonds/orrery/internal/stamp"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
 )
 
@@ -54,8 +55,8 @@ type Target struct {
 }
 
 // Execute carries out plan and returns the Target the caller attaches. A plan without Dir names an
-// existing session. A plan with Dir creates the session, and creates Dir first when MakeDir. A Text
-// plan is an error that creates nothing.
+// existing session. A plan with Dir creates the session, and creates Dir first when MakeDir. The Claude pane runs
+// the stamp in effect for Dir, if any. A Text plan is an error that creates nothing.
 func Execute(ctx context.Context, cfg Config, plan Plan) (Target, error) {
 	switch {
 	case plan.Text != "":
@@ -68,7 +69,12 @@ func Execute(ctx context.Context, cfg Config, plan Plan) (Target, error) {
 			return Target{}, fmt.Errorf("open: create directory: %w", err)
 		}
 	}
-	if err := createSession(ctx, cfg, plan.Session, plan.Dir, claudeCommand(cfg.Claude, "")); err != nil {
+	argv, err := stampedArgv(cfg, plan.Dir, claudeCommand(cfg.Claude, ""))
+	if err != nil {
+		return Target{}, err
+	}
+	err = createSession(ctx, cfg, plan.Session, plan.Dir, argv)
+	if err != nil {
 		return Target{}, err
 	}
 	return Target{Session: plan.Session}, nil
@@ -180,6 +186,21 @@ func claudeCommand(claude, prompt string) []string {
 		return []string{claude}
 	}
 	return []string{claude, "--", tmuxLiteral(prompt)}
+}
+
+// stampedArgv returns the argv of a Claude pane in dir with the stamp in effect for dir, if any, inserted after the
+// claude binary: --settings and the stamp's whole env as one settings document. A folder with no stamp keeps argv.
+// A stamp that cannot be read is an error, so no pane starts without its settings.
+func stampedArgv(cfg Config, dir string, argv []string) ([]string, error) {
+	found, err := stamp.Find(cfg.Home, dir)
+	if err != nil {
+		return nil, fmt.Errorf("open: find stamp for %s: %w", dir, err)
+	}
+	if found.Folder == "" {
+		return argv, nil
+	}
+	settings := tmuxLiteral(stamp.Settings(false, found.Env))
+	return slices.Concat(argv[:1], []string{"--settings", settings}, argv[1:]), nil
 }
 
 // tmuxLiteral returns value as an argument that tmux reads back as value. tmux ends a command at an argument
