@@ -21,6 +21,7 @@ import (
 
 	"github.com/joshsymonds/orrery/internal/archive"
 	"github.com/joshsymonds/orrery/internal/cli"
+	"github.com/joshsymonds/orrery/internal/deskstream"
 	"github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1/enginev1connect"
 	"github.com/joshsymonds/orrery/internal/help"
 	"github.com/joshsymonds/orrery/internal/hook"
@@ -67,6 +68,7 @@ global flags, before the subcommand:
 
 subcommands:
   hook                                          forward a Claude Code hook event from stdin; exits 0
+  notices                                       print desk notices as JSON lines on stdout; relay activity from stdin
   list --json                                   print the panes of the tmux server as a JSON array
   events --url URL [--after N] [--follow]       print the event stream of serve as JSON lines
   session [--url URL] VERB ...                  run a session VERB below through serve at URL, not orreryd's socket
@@ -198,18 +200,12 @@ func dispatch(ctx context.Context, opts globals, rest []string, stdin *os.File, 
 		return runServe(ctx, opts, args, getenv)
 	case "events":
 		return errors.Join(cli.Events(ctx, args, stdout))
+	case "notices":
+		return runNotices(ctx, opts, args, stdin, stdout, getenv)
 	case "mcp":
 		return runMCP(ctx, opts, args, stdin, stdout, getenv)
 	case "session":
-		sessionSocket := ""
-		if !sessionViaURL(args) {
-			socket, err := protocol.SocketPath(opts.daemonSocket, getenv)
-			if err != nil {
-				return fmt.Errorf("session: %w", err)
-			}
-			sessionSocket = protocol.SessionSocketPath(socket)
-		}
-		return errors.Join(cli.Session(ctx, sessionSocket, args, stdout, getenv))
+		return runSession(ctx, opts, args, stdout, getenv)
 	case "list", "seen", "send", "debug", "shell", "tree":
 		client, err := tmuxctl.New(opts.server)
 		if err != nil {
@@ -219,6 +215,30 @@ func dispatch(ctx context.Context, opts globals, rest []string, stdin *os.File, 
 	default:
 		return usagef("unknown subcommand %q", name)
 	}
+}
+
+// runSession runs `orrery session` with the session socket beside the daemon socket, unless the command names serve
+// with --url.
+func runSession(ctx context.Context, opts globals, args []string, stdout io.Writer, getenv func(string) string) error {
+	sessionSocket := ""
+	if !sessionViaURL(args) {
+		socket, err := protocol.SocketPath(opts.daemonSocket, getenv)
+		if err != nil {
+			return fmt.Errorf("session: %w", err)
+		}
+		sessionSocket = protocol.SessionSocketPath(socket)
+	}
+	return errors.Join(cli.Session(ctx, sessionSocket, args, stdout, getenv))
+}
+
+// runNotices runs `orrery notices` against the notices socket beside the daemon socket.
+func runNotices(ctx context.Context, opts globals, args []string, stdin io.Reader, stdout io.Writer,
+	getenv func(string) string) error {
+	socket, err := protocol.SocketPath(opts.daemonSocket, getenv)
+	if err != nil {
+		return fmt.Errorf("notices: %w", err)
+	}
+	return errors.Join(cli.Notices(ctx, deskstream.SocketPath(socket), args, stdin, stdout))
 }
 
 // sessionViaURL reports whether a session command line names serve with --url, which needs no daemon socket.
