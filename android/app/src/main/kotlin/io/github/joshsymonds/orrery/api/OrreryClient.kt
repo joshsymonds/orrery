@@ -17,6 +17,13 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationItem as Conversati
 import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationState as ConversationStateProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.EngineText as EngineTextProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.Epic as EpicProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicStep as EpicStepProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicStepCheck as EpicStepCheckProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicTask as EpicTaskProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsClient
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsGetRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsListRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.HostClient
 import io.github.joshsymonds.orrery.gen.orrery.v1.HeadlessSession as HeadlessSessionProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.OpenRequest as OpenRequestProto
@@ -38,6 +45,10 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.SessionsClient
 import io.github.joshsymonds.orrery.gen.orrery.v1.SessionsWatchConversationRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.SessionsWatchConversationResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.SendTextRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.StepsClient
+import io.github.joshsymonds.orrery.gen.orrery.v1.StepsHoldRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.StepsNudgeRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.StepsStopRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.StopRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.UnregisterRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.WaitingMessage
@@ -191,6 +202,47 @@ data class PickRow(
     val prompt: Boolean,
 )
 
+data class StepCheckRow(val round: Int, val name: String, val ok: Boolean)
+
+/** One labelled step as the epics view shows it. [end] is "" while the step runs. */
+data class StepRow(
+    val id: String,
+    val task: String,
+    val agent: String,
+    val end: String,
+    val status: String,
+    val held: Boolean,
+    val started: Long,
+    val ended: Long,
+    val doing: String,
+    val checks: List<StepCheckRow>,
+    val reason: String,
+)
+
+/** One epic of the record root. [runningSteps] are the epic's steps with no end yet, held ones included. */
+data class EpicRow(
+    val id: String,
+    val repository: String,
+    val slug: String,
+    val outcome: String,
+    val changed: Long,
+    val live: Boolean,
+    val runningSteps: List<StepRow>,
+    val endedSteps: Int,
+    val problem: String,
+)
+
+data class EpicTaskRow(val effort: Int, val slug: String, val subject: String, val status: String)
+
+/** One epic with its tasks and every step labelled with it, oldest step first. */
+data class EpicDetail(val epic: EpicRow, val tasks: List<EpicTaskRow>, val steps: List<StepRow>)
+
+/** What a hold, nudge or stop came to: it landed, or orreryd refused it with its reason. */
+sealed interface StepCallResult {
+    data object Landed : StepCallResult
+    data class Refused(val message: String) : StepCallResult
+}
+
 sealed interface KeysResult {
     data object Sent : KeysResult
     data object PromptChanged : KeysResult
@@ -252,6 +304,8 @@ class OrreryClient(
         val picker = PickerClient(protocol)
         val control = ControlClient(protocol)
         val sessions = SessionsClient(protocol)
+        val epics = EpicsClient(protocol)
+        val steps = StepsClient(protocol)
     }
 
     /**
@@ -396,6 +450,24 @@ class OrreryClient(
         )
     }
 
+    /** Every epic under the record root, live or folded, sorted by id. */
+    fun epics(): List<EpicRow> {
+        val response = call(write = false) { standard.epics.list(EpicsListRequest.getDefaultInstance(), CLIENT_HEADERS) }
+        return response.epicsList.map { it.toEpicRow() }
+    }
+
+    /** One epic with its tasks and steps, or null when no epic has [id]. */
+    fun epic(id: String): EpicDetail? {
+        val request = EpicsGetRequest.newBuilder().setId(id).build()
+        val response = notFoundAsNull { call(write = false) { standard.epics.get(request, CLIENT_HEADERS) } }
+            ?: return null
+        return EpicDetail(
+            epic = response.epic.toEpicRow(),
+            tasks = response.tasksList.map { it.toEpicTaskRow() },
+            steps = response.stepsList.map { it.toStepRow() },
+        )
+    }
+
     fun sendText(paneId: String, text: String) {
         val request = textRequest(paneId, text)
         call(write = true) { standard.panes.sendText(request, CLIENT_HEADERS) }
@@ -485,6 +557,24 @@ class OrreryClient(
         call(write = true) { standard.control.seen(request, CLIENT_HEADERS) }
     }
 
+    /** Holds the labelled step [id]. A refused hold answers [StepCallResult.Refused] with the server's reason. */
+    fun holdStep(id: String): StepCallResult {
+        val request = StepsHoldRequest.newBuilder().setId(id).build()
+        return stepCall { call(write = true) { standard.steps.hold(request, CLIENT_HEADERS) } }
+    }
+
+    /** Sends [text] to the labelled step [id] as a nudge. A refused nudge answers [StepCallResult.Refused]. */
+    fun nudgeStep(id: String, text: String): StepCallResult {
+        val request = StepsNudgeRequest.newBuilder().setId(id).setText(text).build()
+        return stepCall { call(write = true) { standard.steps.nudge(request, CLIENT_HEADERS) } }
+    }
+
+    /** Stops the labelled step [id]. A refused stop answers [StepCallResult.Refused] with the server's reason. */
+    fun stopStep(id: String): StepCallResult {
+        val request = StepsStopRequest.newBuilder().setId(id).build()
+        return stepCall { call(write = true) { standard.steps.stop(request, CLIENT_HEADERS) } }
+    }
+
     fun registerPush(endpoint: String, p256dh: String, auth: String) {
         val request = RegisterRequest.newBuilder().setEndpoint(endpoint).setP256Dh(p256dh).setAuth(auth).build()
         call(write = true) { standard.push.register(request, CLIENT_HEADERS) }
@@ -497,6 +587,40 @@ class OrreryClient(
 
     private fun textRequest(paneId: String, text: String): SendTextRequest =
         SendTextRequest.newBuilder().setPane(paneId).setText(text).build()
+
+    private fun EpicProto.toEpicRow(): EpicRow =
+        EpicRow(
+            id = id,
+            repository = repository,
+            slug = slug,
+            outcome = outcome,
+            changed = changed,
+            live = live,
+            runningSteps = runningStepsList.map { it.toStepRow() },
+            endedSteps = endedSteps,
+            problem = problem,
+        )
+
+    private fun EpicStepProto.toStepRow(): StepRow =
+        StepRow(
+            id = id,
+            task = task,
+            agent = agent,
+            end = end,
+            status = status,
+            held = held,
+            started = started,
+            ended = ended,
+            doing = doing,
+            checks = checksList.map { it.toStepCheckRow() },
+            reason = reason,
+        )
+
+    private fun EpicStepCheckProto.toStepCheckRow(): StepCheckRow =
+        StepCheckRow(round = round, name = name, ok = ok)
+
+    private fun EpicTaskProto.toEpicTaskRow(): EpicTaskRow =
+        EpicTaskRow(effort = effort, slug = slug, subject = subject, status = status)
 
     private fun PaneProto.toPane(): Pane =
         Pane(
@@ -641,6 +765,18 @@ class OrreryClient(
     /** The failure a stream's send raised, as a call's failure is: a server answer, or the transport's IOException. */
     private fun streamFailure(error: Throwable): Throwable =
         if (error is ConnectException) failure(error, write = false) else error
+
+    /**
+     * The answer of a step call: [Refused] when the server answered failed_precondition, which carries the
+     * reason a hold, nudge or stop was refused. Any other failure is thrown as [call] throws it.
+     */
+    private fun stepCall(rpc: () -> Any): StepCallResult =
+        try {
+            rpc()
+            StepCallResult.Landed
+        } catch (e: OrreryCallException) {
+            if (e.code == Code.FAILED_PRECONDITION) StepCallResult.Refused(e.message.orEmpty()) else throw e
+        }
 
     /** The answer, or null when the server answered not_found. */
     private inline fun <T> notFoundAsNull(read: () -> T): T? =

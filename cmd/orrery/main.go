@@ -393,9 +393,18 @@ func runServe(ctx context.Context, opts globals, args []string, getenv func(stri
 		return err
 	}
 	var engine enginev1connect.EngineClient
+	var steps server.StepClient
 	if daemonSocket, sockErr := protocol.SocketPath(opts.daemonSocket, getenv); sockErr == nil {
-		engine = enginev1connect.NewEngineClient(
-			cli.SessionHTTPClient(protocol.SessionSocketPath(daemonSocket)), cli.SessionBaseURL)
+		sessionSocket := protocol.SessionSocketPath(daemonSocket)
+		engine = enginev1connect.NewEngineClient(cli.SessionHTTPClient(sessionSocket), cli.SessionBaseURL)
+		steps = enginev1connect.NewStepsClient(cli.SessionHTTPClient(sessionSocket), cli.SessionBaseURL)
+	}
+	// Without a HOME the record root stays empty: os.DirFS refuses an empty root, so Epics fails its reads rather than
+	// reading the working directory's .gambit.
+	var records string
+	home := getenv("HOME")
+	if home != "" {
+		records = filepath.Join(home, ".gambit")
 	}
 	shutdown := make(chan struct{})
 	handler, err := server.New(server.Config{
@@ -406,7 +415,9 @@ func runServe(ctx context.Context, opts globals, args []string, getenv func(stri
 		Sessions:   sessions,
 		Shutdown:   shutdown,
 		Engine:     engine,
-		Home:       getenv("HOME"),
+		Steps:      steps,
+		Records:    records,
+		Home:       home,
 		Picker:     servePickerConfig(tmux, getenv),
 		ReportSeen: seenReporter(opts.daemonSocket, getenv),
 		Web:        webui.FS(),
