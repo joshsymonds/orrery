@@ -926,11 +926,13 @@ On the phone, the notices of a host are shown as follows:
 
 `orrery serve` also serves a typed API over the Connect protocol. The schema is `proto/orrery/v1/orrery.proto`, package `orrery.v1`. Generated Go lives in `internal/gen`. `just generate` writes it, and `just check` fails when it drifts from the schema. The same `just generate` also writes the generated Kotlin into `android/app/src/main/java`, from the template `proto/buf.gen.android.yaml`. `just gen-diff` diffs that directory and `internal/gen`.
 
-The services are `orrery.v1.Sessions`, with one call, `List`, `orrery.v1.Events`, with one call, `Watch`, `orrery.v1.Control`, with six calls, which [Control API](#control-api) describes, and the four phone services `orrery.v1.Panes`, `orrery.v1.Host`, `orrery.v1.Push` and `orrery.v1.Picker`, with twelve calls, which [Phone API](#phone-api) describes.
+The services are `orrery.v1.Sessions`, with three calls, `List`, `ListHeadless` and `WatchConversation`, `orrery.v1.Events`, with one call, `Watch`, `orrery.v1.Control`, with six calls, which [Control API](#control-api) describes, and the four phone services `orrery.v1.Panes`, `orrery.v1.Host`, `orrery.v1.Push` and `orrery.v1.Picker`, with twelve calls, which [Phone API](#phone-api) describes.
 
 | Call | Path | Request | Response |
 |---|---|---|---|
 | `List` | `POST /orrery.v1.Sessions/List` | `ListRequest`, empty | `ListResponse` |
+| `ListHeadless` | `POST /orrery.v1.Sessions/ListHeadless` | `ListHeadlessRequest`, empty | `ListHeadlessResponse` |
+| `WatchConversation` (server-streaming) | `POST /orrery.v1.Sessions/WatchConversation` | `SessionsWatchConversationRequest` | stream of `SessionsWatchConversationResponse` |
 | `Watch` (server-streaming) | `POST /orrery.v1.Events/Watch` | `WatchRequest` | stream of `WatchResponse` |
 | `Control.Start` | `POST /orrery.v1.Control/Start` | `StartRequest` | `StartResponse` |
 | `Control.Say` | `POST /orrery.v1.Control/Say` | `SayRequest` | `SayResponse` |
@@ -1015,6 +1017,65 @@ Watch behavior:
 A stream whose send fails, at the 10-second deadline or during a blocked send at shutdown, ends with an error outside this table.
 
 The guard's rule for Connect paths is in [Guard](#guard). A request the guard refuses gets 403 before any Connect response.
+
+#### Headless session list
+
+`Sessions.ListHeadless` answers the headless engine sessions with an event in the last 14 days. `ListHeadlessRequest` has no fields. `ListHeadlessResponse` has `sessions`, one `HeadlessSession` for each row, in `id` order.
+
+The rows are the `sessions` rows of kind `engine` that have an event whose `at` is at or after the time of the call less 14 days. Pane rows and step rows are not listed. The call reads the store in one read transaction, and it never writes it.
+
+Each `HeadlessSession` has these fields:
+
+- `id` and `dir` are the row's `id` and `dir`.
+- `label` is the base name of `dir`, then ` · `, then the first 8 characters of `id`.
+- `state`, `changed` and `seen` are the row's state and its unix-seconds times. `changed` and `seen` are 0 when the row has none. `seen` is 0 when the session was never seen.
+- `question` is the row's `question` column, not cut.
+- `summary` is the first of these that applies: the `question` while `state` is `waiting` and the question is not empty; the `reason` while `state` is `failed` or `interrupted` and the reason is not empty; the text of the newest main-conversation reply. The newest reply is the text of the assistant's newest text block with no parent tool use. A `summary` is cut to 300 runes. It is `""` when the session has no reply and neither of the other two applies.
+- `newest_reply` is the unix seconds of the newest main-conversation reply or unrefused request, or 0 when there is none.
+
+A row whose `changed` or `seen` is not unix seconds fails the whole call with `internal`. Its errors are in the [Phone API errors](#phone-api-errors) table.
+
+The guard covers `/orrery.v1.Sessions/ListHeadless` as it covers every Connect path (see [Guard](#guard)).
+
+#### Headless session stream
+
+`Sessions.WatchConversation` streams the conversation of one headless engine session. It is a server-streaming call. Its request is a `SessionsWatchConversationRequest`, and each message it sends is a `SessionsWatchConversationResponse`, which is either a delta or a keepalive. Its timing and end rules are those of the [Conversation stream](#conversation-stream), and its reset rules and messages differ as set out below.
+
+The request fields are these:
+
+- `id` is the session's id. An id that is missing, or that names a step or a pane, ends the stream with `not_found` and `session not found`, at start or mid-stream.
+- `limit` is the number of newest items a reset holds. It follows `ConversationRequest`: 0 means 30, 1 to 100 is that many, and above 100 is `invalid_argument` with `bad request query`. The check runs before any read.
+- `after` is 0 to ask for a reset, or the seq the client holds to ask for the items after it.
+
+Reset and resume:
+
+- When `after` is 0, the first delta is a reset. It holds the newest `limit` main-thread items, oldest first, and the whole state, with `reset` true.
+- When `after` is not 0, the first delta holds every main-thread item with a seq above `after`, oldest first, with `reset` false. `limit` does not apply to it. A negative `after` holds every item. An `after` past the newest event holds no items.
+- No delta after the first is a reset. A stream never replaces what the client holds after its first delta.
+
+Each message has these fields:
+
+- `transcript` is the session's id.
+- `seq` is the seq of the newest session event the stream has read, or 0 when it has read none. A later request resumes after it.
+- `reset` is true only on a reset (see above).
+- `items` holds the main-thread items of the delta. An event makes an item only when it has no parent tool use. A prompt is a `prompt` item with `text`. An assistant text block is a `reply` item with `text`. A tool call is a `tool` item with `tool` set to the tool name, `input` set to the tool input as text, and `id` set to the tool use id. A tool result is a `result` item with `id` set to the tool use id, `text` set to the result's content, and `error` set to whether the result failed. A block of any other kind, and a text block of any other role, make no item. Each item's `time` is the time of its event.
+- `state` is a `ConversationState`. It is set on the first delta and when `origin`, `session` or `request` changed, and it is unset otherwise. It has `origin`, the text of the session's first prompt cut to 300 runes, or `""` before a prompt. It has `session`, the `HeadlessSession` of the session with `id`, `dir`, `label`, `state`, `changed`, `seen` and `question` set and `summary` and `newest_reply` unset. It has `request` only while `state` is `waiting`, and then it is the newest unrefused permission or question request the stream has read. `goal`, `waiting`, `context` and `pane` are unset.
+- `request` is an `OpenRequest` with `id`, `kind` (`permission` or `question`), and `question`. For a permission, `question` is the tool name and `options` is `allow` and `deny`. For a question, `question` is the question's text, and `options` holds the labels when the input has one question that is not `multiSelect`, and no options otherwise.
+- `unfinished` holds the text so far of each unfinished block of the main conversation, as an `EngineText` with `message_id`, `index`, `kind` and `text`. It is sent with every message, keepalives included. The blocks are in message id order, then block index order.
+
+Timing:
+
+- The stream checks the session every 500 ms. A delta is sent when a read finds a main-thread item, when `state` changed, or when `unfinished` changed. A read that moves `seq` without any of these sends no delta.
+- After 5 seconds without a message, the stream sends a keepalive: a message with `transcript`, `seq` and `unfinished` set, and no items or state. While nothing changes, it sends one about every 5 seconds, on the 500 ms ticks.
+
+The stream ends in one of these ways:
+
+- When the client leaves the stream, by cancelling the call or closing the connection. This is not an error.
+- With an error from the error table, when the session is missing or is not an engine session, or when the store is unavailable or a read or decode fails. This applies at start and mid-stream.
+- When serve shuts down. A blocked send of the stream gets 1 second, and so does the stream's end. A stream waiting for its next tick or send at shutdown ends with `unavailable`, with the message `serve is shutting down`.
+- When a send stalls. A send still blocked after 10 seconds ends that stream only, with an error outside the error table.
+
+The guard covers `/orrery.v1.Sessions/WatchConversation` as it covers every Connect path (see [Guard](#guard)).
 
 ### Control API
 
@@ -1202,6 +1263,12 @@ Errors are Connect codes. The message column gives the text of each error exactl
 | `unavailable` | `Panes.WatchConversation` while serve shuts down | `serve is shutting down` |
 | `unavailable` | `Picker.Ask` with a picker configuration, text lookup, or pane listing failure | the failure's reason |
 | `unavailable` | `Picker.Run` with a failed action, or an action whose pane lookup failed | the failure's reason |
+| `invalid_argument` | `Sessions.WatchConversation` with a `limit` above 100 | `bad request query` |
+| `not_found` | `Sessions.WatchConversation` with an id that is missing or is not an engine session, including a step, at start or mid-stream | `session not found` |
+| `unavailable` | `Sessions.ListHeadless` or `Sessions.WatchConversation` with the store file missing, the database busy, the file removed while it is read, or no store reader | `store unavailable` |
+| `unavailable` | `Sessions.WatchConversation` while serve shuts down | `serve is shutting down` |
+| `internal` | `Sessions.ListHeadless` with a read failure, or a row whose `changed` or `seen` is not unix seconds | `read headless sessions` |
+| `internal` | `Sessions.WatchConversation` with a read failure, or a stored value that does not decode | `read sessions` |
 | `internal` | a tmux failure, a store failure, a transcript read failure, a host name failure, or a failed seen report | `internal server error` |
 
 ## 13. Freeze
