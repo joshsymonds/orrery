@@ -4,6 +4,7 @@ import com.connectrpc.Code
 import com.connectrpc.ConnectException
 import com.connectrpc.ProtocolClientConfig
 import com.connectrpc.ResponseMessage
+import com.connectrpc.ServerOnlyStreamInterface
 import com.connectrpc.extensions.GoogleJavaLiteProtobufStrategy
 import com.connectrpc.impl.ProtocolClient
 import com.connectrpc.okhttp.ConnectOkHttpClient
@@ -15,8 +16,10 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationContext as Convers
 import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationItem as ConversationItemProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationState as ConversationStateProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.EngineText as EngineTextProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.HostClient
 import io.github.joshsymonds.orrery.gen.orrery.v1.HeadlessSession as HeadlessSessionProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.OpenRequest as OpenRequestProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.HostStatusRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.InterruptRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.ListHeadlessRequest
@@ -32,6 +35,8 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.SayRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.SeenRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.SendKeysRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.SessionsClient
+import io.github.joshsymonds.orrery.gen.orrery.v1.SessionsWatchConversationRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.SessionsWatchConversationResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.SendTextRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.StopRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.UnregisterRequest
@@ -130,7 +135,8 @@ data class Conversation(
 
 /**
  * One conversation as a WatchConversation stream gives it. [state] is null when the message carried no state, and
- * [context] and [pane] are null when the state did not.
+ * [context] and [pane] are null when the state did not. [request] is the open request of a headless session, and
+ * null when none is open or the stream is a pane's.
  */
 data class ConversationState(
     val origin: String,
@@ -138,11 +144,28 @@ data class ConversationState(
     val waiting: List<WaitingItem>,
     val context: ConversationContext?,
     val pane: Pane?,
+    val request: SessionRequest? = null,
+)
+
+/** The request a headless session waits on. [options] are the answers the phone may send, and may be empty. */
+data class SessionRequest(val id: String, val kind: String, val question: String, val options: List<String>)
+
+/**
+ * The text so far of one unfinished content block of a headless session. [parentToolUseId] is "" for the main
+ * conversation.
+ */
+data class UnfinishedText(
+    val messageId: String,
+    val index: Int,
+    val parentToolUseId: String,
+    val kind: String,
+    val text: String,
 )
 
 /**
  * One step of a WatchConversation stream: the [items] after [seq] in [transcript]. A [reset] delta replaces what the
- * client holds.
+ * client holds. [unfinished] is the text so far of each unfinished block of a headless session, and empty on a pane
+ * stream.
  */
 data class ConversationDelta(
     val transcript: String,
@@ -150,6 +173,7 @@ data class ConversationDelta(
     val reset: Boolean,
     val items: List<ConversationItem>,
     val state: ConversationState?,
+    val unfinished: List<UnfinishedText> = emptyList(),
 )
 
 data class HostStat(val label: String, val value: String, val percent: Double?, val level: String)
@@ -304,13 +328,49 @@ class OrreryClient(
             .setTranscript(transcript)
             .setAfter(after)
             .build()
-        val stream = streaming.panes.watchConversation(CLIENT_HEADERS)
+        streamDeltas(
+            streaming.panes.watchConversation(CLIENT_HEADERS),
+            request,
+            { it.toConversationDelta() },
+            onDelta,
+        )
+    }
+
+    /**
+     * Opens the stream of headless session [sessionId] after the seq [after], and hands each delta to [onDelta] in
+     * order. It ends, fails and cancels as [watchConversation] does.
+     */
+    suspend fun watchSession(
+        sessionId: String,
+        after: Long,
+        onDelta: suspend (ConversationDelta) -> Unit,
+    ) {
+        val request = SessionsWatchConversationRequest.newBuilder()
+            .setId(sessionId)
+            .setLimit(50)
+            .setAfter(after)
+            .build()
+        streamDeltas(
+            streaming.sessions.watchConversation(CLIENT_HEADERS),
+            request,
+            { it.toSessionConversationDelta() },
+            onDelta,
+        )
+    }
+
+    /** Sends [request] on [stream], then hands each message of the answer to [onDelta] as a delta. */
+    private suspend fun <Req : Any, Resp : Any> streamDeltas(
+        stream: ServerOnlyStreamInterface<Req, Resp>,
+        request: Req,
+        toDelta: (Resp) -> ConversationDelta,
+        onDelta: suspend (ConversationDelta) -> Unit,
+    ) {
         val responses = stream.responseChannel()
         // The finally also covers the send, so a cancel or a failure while the request is sent closes the stream.
         try {
             stream.sendAndClose(request).onFailure { throw streamFailure(it) }
             for (message in responses) {
-                onDelta(message.toConversationDelta())
+                onDelta(toDelta(message))
             }
         } catch (e: ConnectException) {
             throw failure(e, write = false)
@@ -499,13 +559,14 @@ class OrreryClient(
     private fun ConversationContextProto.toConversationContext(): ConversationContext =
         ConversationContext(tokens = tokens, window = window)
 
-    private fun ConversationStateProto.toConversationState(): ConversationState =
+    private fun ConversationStateProto.toConversationState(pane: Pane?, request: SessionRequest?): ConversationState =
         ConversationState(
             origin = origin,
             goal = goal,
             waiting = waitingList.map { it.toWaitingItem() },
             context = if (hasContext()) context.toConversationContext() else null,
-            pane = if (hasPane()) pane.toPane() else null,
+            pane = pane,
+            request = request,
         )
 
     private fun WatchConversationResponse.toConversationDelta(): ConversationDelta =
@@ -514,7 +575,43 @@ class OrreryClient(
             seq = seq,
             reset = reset,
             items = itemsList.map { it.toConversationItem() },
-            state = if (hasState()) state.toConversationState() else null,
+            state = if (hasState()) {
+                state.toConversationState(
+                    pane = if (state.hasPane()) state.pane.toPane() else null,
+                    request = null,
+                )
+            } else {
+                null
+            },
+        )
+
+    private fun SessionsWatchConversationResponse.toSessionConversationDelta(): ConversationDelta =
+        ConversationDelta(
+            transcript = transcript,
+            seq = seq,
+            reset = reset,
+            items = itemsList.map { it.toConversationItem() },
+            state = if (hasState()) {
+                state.toConversationState(
+                    pane = if (state.hasSession()) state.session.toHeadlessPane() else null,
+                    request = if (state.hasRequest()) state.request.toSessionRequest() else null,
+                )
+            } else {
+                null
+            },
+            unfinished = unfinishedList.map { it.toUnfinishedText() },
+        )
+
+    private fun OpenRequestProto.toSessionRequest(): SessionRequest =
+        SessionRequest(id = id, kind = kind, question = question, options = optionsList.toList())
+
+    private fun EngineTextProto.toUnfinishedText(): UnfinishedText =
+        UnfinishedText(
+            messageId = messageId,
+            index = index,
+            parentToolUseId = parentToolUseId,
+            kind = kind,
+            text = text,
         )
 
     /**
