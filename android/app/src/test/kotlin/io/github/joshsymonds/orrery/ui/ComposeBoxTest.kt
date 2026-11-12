@@ -1,5 +1,6 @@
 package io.github.joshsymonds.orrery.ui
 
+import android.os.Looper
 import android.text.InputType
 import android.view.View
 import android.view.ViewGroup
@@ -25,14 +26,19 @@ import androidx.core.content.res.ResourcesCompat
 import io.github.joshsymonds.orrery.R
 import io.github.joshsymonds.orrery.api.FakeOrreryServer
 import com.connectrpc.Code
+import io.github.joshsymonds.orrery.api.NoAnswerException
+import io.github.joshsymonds.orrery.api.OrreryCallException
 import io.github.joshsymonds.orrery.api.OrreryClient
 import io.github.joshsymonds.orrery.gen.orrery.v1.SendTextRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.SendTextResponse
+import java.io.IOException
 import java.net.InetAddress
 import java.net.ServerSocket
+import java.util.concurrent.CopyOnWriteArrayList
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNotSame
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -344,6 +350,49 @@ class ComposeBoxTest {
         assertEquals(listOf(false, true, false), reports)
     }
 
+    @Test
+    fun givenSendReceivesWholeDraftOffTheMainThreadAndClearsOnReturn() {
+        val sent = CopyOnWriteArrayList<Pair<String, Thread>>()
+        setBox(send = { text -> sent.add(text to Thread.currentThread()) })
+        setDraft(DRAFT)
+
+        composeRule.onNodeWithText("Send").performClick()
+        composeRule.waitUntil(WAIT_MS) { editField().text.isEmpty() }
+
+        assertEquals(DRAFT, sent.single().first)
+        assertNotSame(Looper.getMainLooper().thread, sent.single().second)
+        assertEquals(0, server.requests.size)
+    }
+
+    @Test
+    fun givenSendThatThrowsCallExceptionKeepsDraftAndShowsNotSent() {
+        setBox(send = { throw OrreryCallException(Code.INTERNAL_ERROR, "boom") })
+        setDraft(DRAFT)
+
+        composeRule.onNodeWithText("Send").performClick()
+        composeRule.waitUntil(WAIT_MS) {
+            composeRule.onAllNodesWithText(NOT_SENT_LABEL).fetchSemanticsNodes().isNotEmpty()
+        }
+
+        assertEquals(DRAFT, editField().text.toString())
+        assertEquals(0, server.requests.size)
+        composeRule.onNodeWithText("Send").assertIsEnabled()
+    }
+
+    @Test
+    fun givenSendThatThrowsNoAnswerShowsNoAnswerLabel() {
+        setBox(send = { throw NoAnswerException(IOException("no answer in time")) })
+        setDraft(DRAFT)
+
+        composeRule.onNodeWithText("Send").performClick()
+        composeRule.waitUntil(WAIT_MS) {
+            composeRule.onAllNodesWithText(NO_ANSWER_LABEL).fetchSemanticsNodes().isNotEmpty()
+        }
+
+        assertEquals(DRAFT, editField().text.toString())
+        assertTrue(composeRule.onAllNodesWithText(NOT_SENT_LABEL).fetchSemanticsNodes().isEmpty())
+    }
+
     private fun slowClient(): OrreryClient = OrreryClient(server.baseUrl, composeReadTimeoutMillis = COMPOSE_TIMEOUT_MS)
 
     private fun assertNoOutcomeLabel() {
@@ -358,16 +407,30 @@ class ComposeBoxTest {
         onDraftPresent: (Boolean) -> Unit = {},
         maxFieldHeight: Dp = Dp.Unspecified,
         client: OrreryClient = OrreryClient(server.baseUrl),
+        send: ((String) -> Unit)? = null,
     ) {
         composeRule.setContent {
-            ComposeBox(
-                paneId = paneId.value,
-                client = client,
-                maxFieldHeight = maxFieldHeight,
-                hint = hint,
-                onDraftPresent = onDraftPresent,
-                status = status,
-            )
+            val sender = send
+            if (sender == null) {
+                ComposeBox(
+                    paneId = paneId.value,
+                    client = client,
+                    maxFieldHeight = maxFieldHeight,
+                    hint = hint,
+                    onDraftPresent = onDraftPresent,
+                    status = status,
+                )
+            } else {
+                ComposeBox(
+                    paneId = paneId.value,
+                    client = client,
+                    maxFieldHeight = maxFieldHeight,
+                    hint = hint,
+                    onDraftPresent = onDraftPresent,
+                    status = status,
+                    send = sender,
+                )
+            }
         }
         composeRule.waitForIdle()
     }
