@@ -97,6 +97,7 @@ subcommands:
   run --needs POOL=N [--needs POOL=N]... -- CMD [ARGS]
                                                 run CMD under a grant of pool members from orreryd
   run status                                    print the pools orreryd runs
+  gate [--gates FILE] NAME                      run a named gate under a grant from orreryd
   hold [--off] MEMBER                           place an owner hold on MEMBER through orreryd, or free it with --off
   serve --listen ADDR --allow-login LOGIN [--allow-login LOGIN]... [--push-host HOST]...
         [--host-status-cmd PATH]
@@ -223,6 +224,8 @@ func dispatch(ctx context.Context, opts globals, rest []string, stdin *os.File, 
 		return runMCP(ctx, opts, args, stdin, stdout, getenv)
 	case "run":
 		return runCommand(ctx, opts, args, stdin, stdout, stderr, getenv)
+	case "gate":
+		return runGate(ctx, opts, args, stdin, stdout, stderr, getenv)
 	case "hold":
 		return runHold(ctx, opts, args, stderr, getenv)
 	case "session":
