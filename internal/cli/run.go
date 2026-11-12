@@ -102,7 +102,7 @@ type holdResult struct {
 // of the grant is held, or a reclaim's first answer is a queued position or a grant with another id, the grant is lost:
 // the command gets SIGTERM, then SIGKILL once StopGrace has passed, and the grant is reclaimed by its id to wait at its
 // place in line; the command then runs again under the grant orreryd grants. When orreryd refuses a reclaim, the command
-// gets SIGTERM and ExitNoGrant is returned.
+// is stopped as above and ExitNoGrant is returned.
 func RunWithGrant(ctx context.Context, cfg RunConfig) int {
 	if len(cfg.Argv) == 0 {
 		fmt.Fprintln(cfg.Stderr, "orrery run: no command to run")
@@ -398,7 +398,7 @@ func resumeLost(
 // It returns CMD's exit status, and the holdResult that stopped CMD when the grant stopped, or nil. When the grant
 // stopped, CMD has been stopped and has exited. A stop ends the grant. A lost grant does not end grantCtx, since the
 // reclaim's stream is open under it. When ctx ends, CMD gets SIGTERM and its status is returned. When orreryd refuses a
-// reclaim, CMD gets SIGTERM and ExitNoGrant is returned.
+// reclaim, CMD is stopped as a stop is, and ExitNoGrant is returned.
 func runOnce(ctx, grantCtx context.Context, cfg RunConfig, path string, held heldGrant) (int, *holdResult) {
 	pgid, exited, err := startCommand(&exec.Cmd{
 		Path:        path,
@@ -433,8 +433,7 @@ func runOnce(ctx, grantCtx context.Context, cfg RunConfig, path string, held hel
 		return finished.report(cfg.Stderr), nil
 	case res := <-result:
 		if res.err != nil {
-			stopErr := signalGroup(pgid, syscall.SIGTERM)
-			finished := <-exited
+			finished, stopErr := stopCommand(pgid, exited, cfg.StopGrace, cfg.After)
 			held.end()
 			if stopErr != nil {
 				fmt.Fprintf(cfg.Stderr, "orrery run: %v\n", stopErr)
