@@ -187,6 +187,24 @@
 
             touch $out
           '';
+
+          # The binary must carry the built page's markers and not the committed stub, which go:embed would
+          # otherwise ship when the preBuild copy into internal/webui/dist is missing.
+          embeds-web-page = pkgs.runCommand "orrery-embeds-web-page-check" { } ''
+            set -eu
+            bin=${orrery}/bin/orrery
+            fail() { echo "orrery embed check: $*" >&2; exit 1; }
+
+            if grep -qF 'built without the web page' "$bin"; then
+              fail "$bin embeds the committed stub internal/webui/dist/index.html, not the built page"
+            fi
+            grep -qF '<script type="module" src="main.js"></script>' "$bin" \
+              || fail "$bin lacks the bundle's entry script tag"
+            grep -qF '<div id="app"></div>' "$bin" \
+              || fail "$bin lacks the bundle's app mount point"
+
+            touch $out
+          '';
         }
       );
 
