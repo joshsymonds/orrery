@@ -19,10 +19,10 @@ interface Loaded {
 }
 
 // start renders App into root and reloads the rows. Each load that reports a seq above 0 opens Events.Watch from it,
-// and every event schedules one reload. While the stream is open the poll every intervalMs does nothing; once the
-// stream ends or fails, the poll reloads, and the next successful load reopens the stream. A tick or event that lands
-// while a reload is in flight never starts a second one: an event waits for the reload in flight, then reloads again.
-// The returned function stops reloading, aborts the stream and unmounts App.
+// and every event schedules one reload. While the stream is open each poll tick only moves the age labels to the
+// current time; once the stream ends or fails, the poll reloads, and the next successful load reopens the stream.
+// A tick or event that lands while a reload is in flight never starts a second one: an event waits for the reload in
+// flight, then reloads again. The returned function stops reloading, aborts the stream and unmounts App.
 export function start(
   root: HTMLElement,
   clients: ReturnType<typeof createClients>,
@@ -110,7 +110,10 @@ export function start(
   const timer = setInterval(() => {
     if (stream === null) {
       void reload();
+      return;
     }
+    now = Math.floor(Date.now() / 1000);
+    draw();
   }, intervalMs);
 
   return () => {

@@ -157,6 +157,13 @@ function labels(root: HTMLElement): string[] {
   return [...root.querySelectorAll(".label")].map((element) => element.textContent ?? "");
 }
 
+// ageOf returns the age text of the row labelled name, or "" when no such row is rendered.
+function ageOf(root: HTMLElement, name: string): string {
+  const rows = [...root.querySelectorAll("[data-row]")];
+  const row = rows.find((element) => element.querySelector(".label")?.textContent === name);
+  return row?.querySelector(".age")?.textContent ?? "";
+}
+
 // withPage runs check with a fresh DOM, a root element for start, and the test's own cleanup.
 async function withPage(check: (root: HTMLElement) => Promise<void>): Promise<void> {
   const window = installTestDom();
@@ -348,6 +355,28 @@ test("while the stream is open, poll ticks reload nothing", () =>
       assert.equal(server.watches.length, 1, "the stream was reopened while it was open");
     } finally {
       stop();
+    }
+  }));
+
+test("while the stream is open, poll ticks advance the age labels without reloading", () =>
+  withPage(async (root) => {
+    // The clock starts 120 s after the fixture's changed (40 s), so the label reads minutes and not days.
+    const realNow = Date.now;
+    let offsetMs = 160_000 - realNow();
+    Date.now = () => realNow() + offsetMs;
+    const server = fakeServer("api", true);
+    const stop = start(root, clientsFor(server), intervalMs);
+    try {
+      await until(() => server.watches.length === 1 && labels(root).includes("api"), "the first load and stream");
+      assert.equal(ageOf(root, "api"), "2m", "the first load did not show the minutes label");
+      const before = server.panesCalls;
+      offsetMs += 300_000;
+      await sleep(intervalMs * 40);
+      assert.equal(ageOf(root, "api"), "7m", "the age label did not advance while the stream was open");
+      assert.equal(server.panesCalls, before, "a poll tick reloaded while the stream was open");
+    } finally {
+      stop();
+      Date.now = realNow;
     }
   }));
 
