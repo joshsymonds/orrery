@@ -102,6 +102,9 @@ subcommands:
   run status                                    print the pools orreryd runs
   gate [--gates FILE] NAME                      run a named gate under a grant from orreryd
   hold [--off] MEMBER                           place an owner hold on MEMBER through orreryd, or free it with --off
+  holder --session NAME [--state-dir DIR] -- PATH [ARGS...]
+                                                run PATH as one session's held child and serve its holder socket
+                                                until the child ends
   serve --listen ADDR --allow-login LOGIN [--allow-login LOGIN]... [--push-host HOST]...
         [--host-status-cmd PATH]
                                                 serve the HTTP API on a loopback address until SIGINT or SIGTERM
@@ -205,11 +208,7 @@ func dispatch(ctx context.Context, opts globals, rest []string, stdin *os.File, 
 	name, args := rest[0], rest[1:]
 	switch name {
 	case "hook":
-		socket, err := protocol.SocketPath(opts.daemonSocket, getenv)
-		if err != nil {
-			socket = ""
-		}
-		hook.Run(stdin, getenv, socket)
+		hook.Run(stdin, getenv, hookSocket(opts, getenv))
 		return nil
 	case "tmux-conf":
 		return tmuxConf(args, stdout)
@@ -231,6 +230,8 @@ func dispatch(ctx context.Context, opts globals, rest []string, stdin *os.File, 
 		return runGate(ctx, opts, args, stdin, stdout, stderr, getenv)
 	case "hold":
 		return runHold(ctx, opts, args, stderr, getenv)
+	case "holder":
+		return runHolder(ctx, args, stderr, getenv)
 	case "session":
 		return runSession(ctx, opts, args, stdout, getenv)
 	case "open", "list", "seen", "send", "debug", "shell", "tree":
@@ -238,6 +239,15 @@ func dispatch(ctx context.Context, opts globals, rest []string, stdin *os.File, 
 	default:
 		return usagef("unknown subcommand %q", name)
 	}
+}
+
+// hookSocket returns the orreryd socket a hook forwards to, or "" when no socket path can be named.
+func hookSocket(opts globals, getenv func(string) string) string {
+	socket, err := protocol.SocketPath(opts.daemonSocket, getenv)
+	if err != nil {
+		return ""
+	}
+	return socket
 }
 
 // tmuxCommand runs a subcommand that talks to the tmux server named by opts: open, or one of runTmux's commands.
