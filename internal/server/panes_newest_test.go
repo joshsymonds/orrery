@@ -1,6 +1,7 @@
 package server_test
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -8,6 +9,9 @@ import (
 	"strings"
 	"testing"
 
+	"connectrpc.com/connect"
+
+	orreryv1 "github.com/joshsymonds/orrery/internal/gen/orrery/v1"
 	"github.com/joshsymonds/orrery/internal/protocol"
 )
 
@@ -21,9 +25,9 @@ const (
 	newestStamp0920 = "2026-11-10T09:20:00Z"
 	newestStamp0930 = "2026-11-10T09:30:00Z"
 
-	newestUnix0900 float64 = 1794301200
-	newestUnix0905 float64 = 1794301500
-	newestUnix0920 float64 = 1794302400
+	newestUnix0900 int64 = 1794301200
+	newestUnix0905 int64 = 1794301500
+	newestUnix0920 int64 = 1794302400
 )
 
 // newestReplyLine returns an assistant line whose one text block is an answer stamped stamp.
@@ -58,21 +62,15 @@ func writeNewestTranscript(t *testing.T, lines ...string) string {
 	return path
 }
 
-// paneNewest returns the newest_reply of pane in the GET /v1/panes answer through handler.
-func paneNewest(t *testing.T, handler http.Handler, pane string) float64 {
+// paneNewest returns the newest_reply of pane in the Panes.List answer through handler.
+func paneNewest(t *testing.T, handler http.Handler, pane string) int64 {
 	t.Helper()
-	rec := get(t, handler, "/v1/panes", allowedLogin)
-	assertStatus(t, rec, http.StatusOK)
-	for _, obj := range decodeObjects(t, rec.Body.Bytes()) {
-		if obj["id"] == pane {
-			newest, ok := obj["newest_reply"].(float64)
-			if !ok {
-				t.Fatalf("pane %s newest_reply = %v, want a number", pane, obj["newest_reply"])
-			}
-			return newest
+	for _, listed := range listPanes(t, handler) {
+		if listed.GetId() == pane {
+			return listed.GetNewestReply()
 		}
 	}
-	t.Fatalf("pane %s is not in the list %s", pane, rec.Body.String())
+	t.Fatalf("pane %s is not in Panes.List", pane)
 	return 0
 }
 
@@ -85,7 +83,7 @@ func TestServePanesNewestReply(t *testing.T) {
 	cases := []struct {
 		name    string
 		options map[string]string
-		want    float64
+		want    int64
 	}{
 		{
 			name: "reply time ignores later tool call and prompt",
@@ -119,7 +117,7 @@ func TestServePanesNewestReply(t *testing.T) {
 		},
 	}
 
-	wants := make(map[string]float64, len(cases))
+	wants := make(map[string]int64, len(cases))
 	for i, tc := range cases {
 		session := fmt.Sprintf("s%d", i)
 		startSession(t, tmux, session, longCommand)
@@ -132,21 +130,17 @@ func TestServePanesNewestReply(t *testing.T) {
 		wants[pane] = tc.want
 	}
 
-	rec := get(t, newHandler(t, tmux), "/v1/panes", allowedLogin)
-	assertStatus(t, rec, http.StatusOK)
-	got := decodeObjects(t, rec.Body.Bytes())
-	if len(got) != len(cases) {
-		t.Fatalf("got %d panes, want %d: %s", len(got), len(cases), rec.Body.String())
+	panes := listPanes(t, newHandler(t, tmux))
+	if len(panes) != len(cases) {
+		t.Fatalf("got %d panes, want %d: %v", len(panes), len(cases), panes)
 	}
-	for _, obj := range got {
-		id, _ := obj["id"].(string)
-		want, known := wants[id]
+	for _, listed := range panes {
+		want, known := wants[listed.GetId()]
 		if !known {
-			t.Fatalf("pane %q is not one of the test panes", id)
+			t.Fatalf("pane %q is not one of the test panes", listed.GetId())
 		}
-		newest, ok := obj["newest_reply"].(float64)
-		if !ok || newest != want {
-			t.Fatalf("pane %s newest_reply = %v, want %v", id, obj["newest_reply"], want)
+		if listed.GetNewestReply() != want {
+			t.Fatalf("pane %s newest_reply = %v, want %v", listed.GetId(), listed.GetNewestReply(), want)
 		}
 	}
 }
@@ -182,6 +176,15 @@ func TestServePanesNewestReadError(t *testing.T) {
 	file := writeNewestTranscript(t, newestReplyLine(newestStamp0900))
 	conversationPane(t, tmux, liveOptions(filepath.Join(file, "under.jsonl")))
 
-	rec := get(t, newHandler(t, tmux), "/v1/panes", allowedLogin)
-	assertStatus(t, rec, http.StatusInternalServerError)
+	_, err := panesClient(t, newHandler(t, tmux)).List(t.Context(), connect.NewRequest(&orreryv1.PanesListRequest{}))
+	var connectErr *connect.Error
+	if !errors.As(err, &connectErr) {
+		t.Fatalf("Panes.List error = %v, want a *connect.Error", err)
+	}
+	if connectErr.Code() != connect.CodeInternal {
+		t.Fatalf("Panes.List code = %v, want %v", connectErr.Code(), connect.CodeInternal)
+	}
+	if connectErr.Message() != "internal server error" {
+		t.Fatalf("Panes.List message = %q, want %q", connectErr.Message(), "internal server error")
+	}
 }
