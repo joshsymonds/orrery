@@ -63,6 +63,9 @@ class MainActivityEpicsTest {
     private lateinit var context: Context
     private lateinit var server: FakeOrreryServer
 
+    /** Every activity a test launched, destroyed after it so no screen keeps composing into the next test. */
+    private val launched = mutableListOf<ActivityController<MainActivity>>()
+
     @Before
     fun pointSettingsAtFakeServer() {
         context = ApplicationProvider.getApplicationContext()
@@ -75,6 +78,7 @@ class MainActivityEpicsTest {
 
     @After
     fun closeServer() {
+        launched.forEach { it.pause().stop().destroy() }
         server.close()
     }
 
@@ -182,7 +186,7 @@ class MainActivityEpicsTest {
 
     private fun launch(): ActivityController<MainActivity> {
         val intent = Intent(context, MainActivity::class.java)
-        return Robolectric.buildActivity(MainActivity::class.java, intent).setup()
+        return Robolectric.buildActivity(MainActivity::class.java, intent).setup().also { launched += it }
     }
 
     private fun awaitNode(matcher: SemanticsMatcher) {
