@@ -86,6 +86,15 @@ func (q *Queries) DeleteGrantMembers(ctx context.Context, grantID string) error 
 	return err
 }
 
+const deleteHold = `-- name: DeleteHold :exec
+DELETE FROM holds WHERE member = ?
+`
+
+func (q *Queries) DeleteHold(ctx context.Context, member string) error {
+	_, err := q.db.ExecContext(ctx, deleteHold, member)
+	return err
+}
+
 const deleteSession = `-- name: DeleteSession :exec
 DELETE FROM sessions WHERE id = ?
 `
@@ -359,7 +368,7 @@ func (q *Queries) InsertEvent(ctx context.Context, arg InsertEventParams) error 
 }
 
 const insertGrant = `-- name: InsertGrant :exec
-INSERT INTO grants (id, project, client_pid, client_start, pools, granted) VALUES (?, ?, ?, ?, ?, ?)
+INSERT INTO grants (id, project, client_pid, client_start, pools, command, granted) VALUES (?, ?, ?, ?, ?, ?, ?)
 `
 
 type InsertGrantParams struct {
@@ -368,6 +377,7 @@ type InsertGrantParams struct {
 	ClientPid   int64
 	ClientStart int64
 	Pools       string
+	Command     string
 	Granted     int64
 }
 
@@ -378,6 +388,7 @@ func (q *Queries) InsertGrant(ctx context.Context, arg InsertGrantParams) error 
 		arg.ClientPid,
 		arg.ClientStart,
 		arg.Pools,
+		arg.Command,
 		arg.Granted,
 	)
 	return err
@@ -401,6 +412,20 @@ func (q *Queries) InsertGrantMember(ctx context.Context, arg InsertGrantMemberPa
 		arg.Pool,
 		arg.Position,
 	)
+	return err
+}
+
+const insertHold = `-- name: InsertHold :exec
+INSERT OR IGNORE INTO holds (member, since) VALUES (?, ?)
+`
+
+type InsertHoldParams struct {
+	Member string
+	Since  int64
+}
+
+func (q *Queries) InsertHold(ctx context.Context, arg InsertHoldParams) error {
+	_, err := q.db.ExecContext(ctx, insertHold, arg.Member, arg.Since)
 	return err
 }
 
@@ -647,7 +672,7 @@ func (q *Queries) ListGrantMembers(ctx context.Context) ([]GrantMember, error) {
 }
 
 const listGrants = `-- name: ListGrants :many
-SELECT id, project, client_pid, client_start, pools, granted FROM grants ORDER BY granted, id
+SELECT id, project, client_pid, client_start, pools, granted, command FROM grants ORDER BY granted, id
 `
 
 func (q *Queries) ListGrants(ctx context.Context) ([]Grant, error) {
@@ -666,6 +691,7 @@ func (q *Queries) ListGrants(ctx context.Context) ([]Grant, error) {
 			&i.ClientStart,
 			&i.Pools,
 			&i.Granted,
+			&i.Command,
 		); err != nil {
 			return nil, err
 		}
@@ -738,6 +764,33 @@ func (q *Queries) ListHeadlessSessions(ctx context.Context, cutoff int64) ([]Lis
 			&i.Reply,
 			&i.NewestReply,
 		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listHolds = `-- name: ListHolds :many
+SELECT member, since FROM holds ORDER BY member
+`
+
+func (q *Queries) ListHolds(ctx context.Context) ([]Hold, error) {
+	rows, err := q.db.QueryContext(ctx, listHolds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Hold
+	for rows.Next() {
+		var i Hold
+		if err := rows.Scan(&i.Member, &i.Since); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

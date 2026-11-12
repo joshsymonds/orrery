@@ -28,7 +28,8 @@ var runPoolName = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
 
 // runCommand runs `orrery run`. It reads the pool files of the working directory, asks orreryd for the members the
 // --needs flags name, and runs the command after -- under that grant. It exits with the command's status, or with
-// cli.ExitNoGrant when the command did not run for want of a grant.
+// cli.ExitNoGrant when the command did not run for want of a grant. A first argument of status shows orreryd's pool
+// status instead; see runStatus.
 func runCommand(
 	ctx context.Context,
 	opts globals,
@@ -37,6 +38,9 @@ func runCommand(
 	stdout, stderr io.Writer,
 	getenv func(string) string,
 ) error {
+	if len(args) > 0 && args[0] == "status" {
+		return runStatus(ctx, opts, args[1:], stdout, getenv)
+	}
 	needs, argv, err := parseRun(args)
 	if err != nil {
 		return err
@@ -70,6 +74,7 @@ func runCommand(
 			Pools:     definitions,
 			Needs:     needs,
 			ClientPid: int32(os.Getpid()),
+			Command:   argv,
 		},
 		Argv:    argv,
 		Environ: os.Environ(),
@@ -78,6 +83,25 @@ func runCommand(
 		Stderr:  stderr,
 	})
 	return statusError{code: status}
+}
+
+// runStatus runs `orrery run status`. It writes orreryd's pool status to stdout: each pool with its members and
+// waiters, then the holds on members of no pool in use. It takes no argument and reads no pool files. An unreachable
+// orreryd returns its reason as an error, which exits 1.
+func runStatus(ctx context.Context, opts globals, args []string, stdout io.Writer, getenv func(string) string) error {
+	if len(args) > 0 {
+		return usagef("run status: unexpected argument %q", args[0])
+	}
+	socket, err := protocol.SocketPath(opts.daemonSocket, getenv)
+	if err != nil {
+		return fmt.Errorf("run status: %w", err)
+	}
+	sessionSocket := protocol.SessionSocketPath(socket)
+	client := enginev1connect.NewPoolsClient(cli.SessionHTTPClient(sessionSocket), cli.SessionBaseURL)
+	if err = cli.PoolStatus(ctx, client, time.Now(), stdout); err != nil {
+		return fmt.Errorf("run status: %w", err)
+	}
+	return nil
 }
 
 // parseRun reads the arguments after `run`: --needs POOL=N flags, then -- and the command. Every flag must come before

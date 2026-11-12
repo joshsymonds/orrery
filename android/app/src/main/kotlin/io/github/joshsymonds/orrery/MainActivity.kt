@@ -33,6 +33,7 @@ import io.github.joshsymonds.orrery.ui.EpicScreen
 import io.github.joshsymonds.orrery.ui.PaneListScreen
 import io.github.joshsymonds.orrery.ui.PaneListState
 import io.github.joshsymonds.orrery.ui.PaneScreen
+import io.github.joshsymonds.orrery.ui.PoolsScreen
 import io.github.joshsymonds.orrery.ui.SessionScreen
 import io.github.joshsymonds.orrery.ui.SettingsScreen
 import io.github.joshsymonds.orrery.ui.StepMode
@@ -81,6 +82,7 @@ class MainActivity : ComponentActivity() {
                                     onStartedSession = { screen = Screen.Session(it) },
                                     onOpenEpic = { screen = Screen.Epic(it) },
                                     onOpenSettings = { screen = Screen.Settings },
+                                    onOpenPools = { screen = Screen.Pools },
                                     state = paneListState,
                                 )
                                 is Screen.Epic -> {
@@ -113,6 +115,13 @@ class MainActivity : ComponentActivity() {
                                     BackHandler { screen = Screen.Panes }
                                     SessionScreen(
                                         sessionId = current.id,
+                                        client = client,
+                                        onBack = { screen = Screen.Panes },
+                                    )
+                                }
+                                Screen.Pools -> {
+                                    BackHandler { screen = Screen.Panes }
+                                    PoolsScreen(
                                         client = client,
                                         onBack = { screen = Screen.Panes },
                                     )
@@ -157,6 +166,7 @@ class MainActivity : ComponentActivity() {
     private sealed interface Screen {
         data object Panes : Screen
         data object Settings : Screen
+        data object Pools : Screen
         data class Pane(val id: String) : Screen
         data class Session(val id: String) : Screen
         data class Epic(val id: String) : Screen

@@ -15,6 +15,8 @@ import (
 
 	"github.com/joshsymonds/orrery/internal/cli"
 	"github.com/joshsymonds/orrery/internal/closer"
+	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
+	"github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1/enginev1connect"
 	"github.com/joshsymonds/orrery/internal/keymap"
 	"github.com/joshsymonds/orrery/internal/palette"
 	"github.com/joshsymonds/orrery/internal/protocol"
@@ -33,9 +35,11 @@ type Options struct {
 	ArchivePath string
 	// ReportSeen tells orreryd about each pane the tree marks seen. Nil reports nothing.
 	ReportSeen cli.SeenReporter
-	Panes      Source
-	Input      io.Reader
-	Output     io.Writer
+	// Pools reads the pools in use for the pools view. Nil shows the view as unavailable.
+	Pools  enginev1connect.PoolsClient
+	Panes  Source
+	Input  io.Reader
+	Output io.Writer
 }
 
 // Action is what the user asked for when Run returned.
@@ -85,6 +89,7 @@ func Run(ctx context.Context, opts Options) (Result, error) {
 	tree.clientTTY = opts.ClientTTY
 	tree.archivePath = opts.ArchivePath
 	tree.reportSeen = opts.ReportSeen
+	tree.pools = opts.Pools
 	tree.invoke = func(fn func(context.Context, *tmuxctl.Client) error) error {
 		return fn(ctx, opts.Client)
 	}
@@ -118,30 +123,36 @@ type closePrompt struct {
 // both called from commands so that no blocking tmux call runs in Update. Actions run through
 // invoke, also from commands, against the invoking client at clientTTY.
 type model struct {
-	source      func() ([]protocol.Pane, error)
-	capture     func(paneID string) (string, error)
-	now         func() time.Time
-	invoke      func(fn func(context.Context, *tmuxctl.Client) error) error
-	clientTTY   string
-	archivePath string
-	reportSeen  cli.SeenReporter
-	closing     *closePrompt
-	groups      []view.Group
-	quiet       []view.Group
-	quietOpen   bool
-	cursorID    string
-	cursor      int
-	query       string
-	filtering   bool
-	help        bool
-	result      Result
-	preview     string
-	previewID   string
-	sourceErr   error
-	captureErr  error
-	actionErr   error
-	width       int
-	height      int
+	source       func() ([]protocol.Pane, error)
+	capture      func(paneID string) (string, error)
+	now          func() time.Time
+	invoke       func(fn func(context.Context, *tmuxctl.Client) error) error
+	clientTTY    string
+	archivePath  string
+	reportSeen   cli.SeenReporter
+	pools        enginev1connect.PoolsClient
+	closing      *closePrompt
+	groups       []view.Group
+	quiet        []view.Group
+	quietOpen    bool
+	cursorID     string
+	cursor       int
+	poolsShown   bool
+	poolStatus   *v1.PoolsStatusResponse
+	poolsErr     error
+	poolCursorID string
+	poolCursor   int
+	query        string
+	filtering    bool
+	help         bool
+	result       Result
+	preview      string
+	previewID    string
+	sourceErr    error
+	captureErr   error
+	actionErr    error
+	width        int
+	height       int
 }
 
 type (
@@ -159,6 +170,11 @@ type (
 	actionMsg struct {
 		err  error
 		quit bool
+	}
+	// poolsMsg reports a read of the pools for the pools view. A failed read carries err and no status.
+	poolsMsg struct {
+		status *v1.PoolsStatusResponse
+		err    error
 	}
 	// closePlanMsg reports the plan of a close the user asked for. project is set for a close of a
 	// whole project.
@@ -191,9 +207,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width, m.height = msg.Width, msg.Height
 		return m, nil
 	case tickMsg:
-		return m, tea.Batch(m.loadPanes(), tick())
+		return m, tea.Batch(m.loadPanes(), m.reloadPools(), tick())
 	case panesMsg:
 		return m.applyPanes(msg)
+	case poolsMsg:
+		return m.poolsLoaded(msg), nil
 	case previewMsg:
 		m.preview, m.previewID, m.captureErr = msg.text, msg.paneID, msg.err
 		return m, nil
@@ -328,8 +346,8 @@ func (m model) sync() model {
 	return m
 }
 
-// frame renders the filter line, the groups, the Quiet row, the selected preview, and an error
-// line, clipped to the terminal. An open help overlay replaces all of it.
+// frame renders the pools view or the tree, then the close prompt or an error line, clipped to the
+// terminal. An open help overlay replaces all of it.
 func (m model) frame() string {
 	if m.help {
 		lines := helpLines(m.width)
@@ -338,6 +356,28 @@ func (m model) frame() string {
 		}
 		return render(lines, m.width)
 	}
+	var lines []string
+	if m.poolsShown {
+		lines = m.poolLines()
+	} else {
+		lines = m.treeLines()
+	}
+
+	var status []string
+	if m.closing != nil {
+		status = m.closing.lines()
+	} else if err := m.statusErr(); err != nil {
+		status = []string{"error: " + err.Error()}
+	}
+	if m.height > 0 {
+		lines = clip(lines, m.height-len(status))
+	}
+	lines = append(lines, status...)
+	return render(lines, m.width)
+}
+
+// treeLines renders the filter line, the groups, the Quiet row, and the selected preview.
+func (m model) treeLines() []string {
 	cur, hasCur := m.cursorRow()
 	var lines []string
 	if m.filtering || m.query != "" {
@@ -357,18 +397,7 @@ func (m model) frame() string {
 		lines = append(lines, "")
 		lines = append(lines, strings.Split(strings.TrimSuffix(m.preview, "\n"), "\n")...)
 	}
-
-	var status []string
-	if m.closing != nil {
-		status = m.closing.lines()
-	} else if err := m.statusErr(); err != nil {
-		status = []string{"error: " + err.Error()}
-	}
-	if m.height > 0 {
-		lines = clip(lines, m.height-len(status))
-	}
-	lines = append(lines, status...)
-	return render(lines, m.width)
+	return lines
 }
 
 // groupLines renders each group as its directory line and its pane rows. The row under cur is
@@ -467,12 +496,14 @@ func render(lines []string, width int) string {
 	return strings.Join(lines, "\n")
 }
 
-// statusErr returns the error to show: a source error, then a capture error, then the error of
-// the last action.
+// statusErr returns the error to show: a source error, then the error of the last pools read,
+// then a capture error, then the error of the last action.
 func (m model) statusErr() error {
 	switch {
 	case m.sourceErr != nil:
 		return m.sourceErr
+	case m.poolsErr != nil:
+		return m.poolsErr
 	case m.captureErr != nil:
 		return m.captureErr
 	default:

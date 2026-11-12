@@ -12,7 +12,7 @@ import (
 func grantRowOf(id string, granted time.Time, members ...GrantMember) GrantRow {
 	return GrantRow{
 		ID: id, Project: "/proj/" + id, ClientPID: 4242, ClientStart: 987654, Pools: `{"build":["a"]}`,
-		Members: members, Granted: granted,
+		Command: []string{"make", "build target"}, Members: members, Granted: granted,
 	}
 }
 
@@ -182,5 +182,47 @@ func TestGrantsSurviveReopeningTheStore(t *testing.T) {
 	err = reopened.AddGrant(ctx, grantRowOf("g2", engineNowAt(), GrantMember{Pool: "lint", Member: "m1"}))
 	if !errors.Is(err, ErrMemberGranted) {
 		t.Fatalf("AddGrant of member granted before reopen: got %v, want ErrMemberGranted", err)
+	}
+}
+
+func TestGrantCommandRoundTripsThroughAddGrantAndGrants(t *testing.T) {
+	ctx := context.Background()
+	s := openSyncStore(t)
+	row := grantRowOf("g1", engineNowAt(), GrantMember{Pool: "build", Member: "m1"})
+	row.Command = []string{"sh", "-c", "echo \"a b\"", ""}
+	if err := s.AddGrant(ctx, row); err != nil {
+		t.Fatalf("AddGrant: %v", err)
+	}
+
+	got, err := s.Grants(ctx)
+	if err != nil {
+		t.Fatalf("Grants: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("Grants: got %d grants, want 1", len(got))
+	}
+	if !reflect.DeepEqual(got[0].Command, row.Command) {
+		t.Fatalf("Command: got %q, want %q", got[0].Command, row.Command)
+	}
+}
+
+func TestGrantStoredWithoutCommandReadsBackEmpty(t *testing.T) {
+	ctx := context.Background()
+	s := openSyncStore(t)
+	row := grantRowOf("g1", engineNowAt(), GrantMember{Pool: "build", Member: "m1"})
+	row.Command = nil
+	if err := s.AddGrant(ctx, row); err != nil {
+		t.Fatalf("AddGrant: %v", err)
+	}
+
+	got, err := s.Grants(ctx)
+	if err != nil {
+		t.Fatalf("Grants: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("Grants: got %d grants, want 1", len(got))
+	}
+	if got[0].Command == nil || len(got[0].Command) != 0 {
+		t.Fatalf("Command of a grant stored without one: got %#v, want an empty non-nil slice", got[0].Command)
 	}
 }

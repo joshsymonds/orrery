@@ -30,8 +30,8 @@ const (
 )
 
 // keyPressed applies a key press. An open help overlay closes on any key and runs nothing
-// else. Filter input takes every key. Otherwise the key runs the action keymap binds to it on
-// the tree.
+// else. Filter input takes every key. Otherwise the key runs the action keymap binds to it: in
+// the pools view poolsAction runs it, and on the tree treeAction does.
 func (m model) keyPressed(msg tea.KeyPressMsg) (model, tea.Cmd) {
 	if m.help {
 		m.help = false
@@ -47,6 +47,14 @@ func (m model) keyPressed(msg tea.KeyPressMsg) (model, tea.Cmd) {
 	if !ok {
 		return m, nil
 	}
+	if m.poolsShown {
+		return m.poolsAction(action)
+	}
+	return m.treeAction(action)
+}
+
+// treeAction runs the action keymap binds to a key on the tree.
+func (m model) treeAction(action keymap.Action) (model, tea.Cmd) {
 	switch action {
 	case keymap.ActDown:
 		return m.move(nextRow)
@@ -62,6 +70,8 @@ func (m model) keyPressed(msg tea.KeyPressMsg) (model, tea.Cmd) {
 		return m, nil
 	case keymap.ActQuit:
 		return m, tea.Quit
+	case keymap.ActPools:
+		return m.togglePools()
 	case keymap.ActSwitch:
 		if m.onQuiet() {
 			return m.expandQuiet()
@@ -70,8 +80,35 @@ func (m model) keyPressed(msg tea.KeyPressMsg) (model, tea.Cmd) {
 	case keymap.ActMarkSeen, keymap.ActNewClaude, keymap.ActShell, keymap.ActPicker, keymap.ActClosePane,
 		keymap.ActCloseProject:
 		return m.paneAction(action)
-	case keymap.ActTree:
-		// The tree has no behavior for it. It is a tmux binding.
+	case keymap.ActTree, keymap.ActHold:
+		// The tree has no behavior for them. ActTree is a tmux binding, and ActHold acts on the
+		// pools view's member rows only.
+		return m, nil
+	}
+	return m, nil
+}
+
+// poolsAction runs the action of a key press in the pools view. p returns to the panes, j and k
+// move the cursor over the member rows, h holds or frees the member under the cursor, ? opens
+// help, and q and Esc close the tree. Every other action does nothing there, since the pane
+// actions have no row to act on.
+func (m model) poolsAction(action keymap.Action) (model, tea.Cmd) {
+	switch action {
+	case keymap.ActDown:
+		return m.poolsMove(nextRow), nil
+	case keymap.ActUp:
+		return m.poolsMove(prevRow), nil
+	case keymap.ActPools:
+		return m.togglePools()
+	case keymap.ActHold:
+		return m.holdMember()
+	case keymap.ActHelp:
+		m.help = true
+		return m, nil
+	case keymap.ActQuit:
+		return m, tea.Quit
+	case keymap.ActNextUnseen, keymap.ActFilter, keymap.ActSwitch, keymap.ActMarkSeen, keymap.ActNewClaude,
+		keymap.ActShell, keymap.ActPicker, keymap.ActClosePane, keymap.ActCloseProject, keymap.ActTree:
 		return m, nil
 	}
 	return m, nil
@@ -128,7 +165,7 @@ func (m model) paneAction(action keymap.Action) (model, tea.Cmd) {
 		m.result = Result{Action: ActionIntent, Dir: cur.Cwd}
 		return m, tea.Quit
 	case keymap.ActDown, keymap.ActUp, keymap.ActNextUnseen, keymap.ActFilter, keymap.ActHelp, keymap.ActQuit,
-		keymap.ActTree:
+		keymap.ActTree, keymap.ActPools, keymap.ActHold:
 		// keyPressed routes only the pane actions here.
 		return m, nil
 	}

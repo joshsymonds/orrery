@@ -34,7 +34,9 @@ type AcquireRequest struct {
 	ClientPid int32 `protobuf:"varint,4,opt,name=client_pid,json=clientPid,proto3" json:"client_pid,omitempty"`
 	// The grant_id an earlier AcquireGranted carried, set only to reclaim that grant after orreryd restarted. Empty for a
 	// new request.
-	GrantId       string `protobuf:"bytes,5,opt,name=grant_id,json=grantId,proto3" json:"grant_id,omitempty"`
+	GrantId string `protobuf:"bytes,5,opt,name=grant_id,json=grantId,proto3" json:"grant_id,omitempty"`
+	// The argv of the command the grant is for, as Status shows it. Empty when the client sends none.
+	Command       []string `protobuf:"bytes,6,rep,name=command,proto3" json:"command,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -102,6 +104,13 @@ func (x *AcquireRequest) GetGrantId() string {
 		return x.GrantId
 	}
 	return ""
+}
+
+func (x *AcquireRequest) GetCommand() []string {
+	if x != nil {
+		return x.Command
+	}
+	return nil
 }
 
 // PoolDefinition is one pool as a project's or the machine's files define it.
@@ -289,13 +298,14 @@ func (x *PoolNeed) GetCount() int32 {
 	return 0
 }
 
-// AcquireResponse is one event in an acquire: the request waiting in line, or granted.
+// AcquireResponse is one event in an acquire: the request waiting in line, granted, or stopped.
 type AcquireResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Types that are valid to be assigned to Event:
 	//
 	//	*AcquireResponse_Queued
 	//	*AcquireResponse_Granted
+	//	*AcquireResponse_Stop
 	Event         isAcquireResponse_Event `protobuf_oneof:"event"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -356,6 +366,15 @@ func (x *AcquireResponse) GetGranted() *AcquireGranted {
 	return nil
 }
 
+func (x *AcquireResponse) GetStop() *AcquireStop {
+	if x != nil {
+		if x, ok := x.Event.(*AcquireResponse_Stop); ok {
+			return x.Stop
+		}
+	}
+	return nil
+}
+
 type isAcquireResponse_Event interface {
 	isAcquireResponse_Event()
 }
@@ -370,9 +389,16 @@ type AcquireResponse_Granted struct {
 	Granted *AcquireGranted `protobuf:"bytes,2,opt,name=granted,proto3,oneof"`
 }
 
+type AcquireResponse_Stop struct {
+	// The grant stops because one of its members is held.
+	Stop *AcquireStop `protobuf:"bytes,3,opt,name=stop,proto3,oneof"`
+}
+
 func (*AcquireResponse_Queued) isAcquireResponse_Event() {}
 
 func (*AcquireResponse_Granted) isAcquireResponse_Event() {}
+
+func (*AcquireResponse_Stop) isAcquireResponse_Event() {}
 
 // AcquireQueued says the request waits for its members.
 type AcquireQueued struct {
@@ -530,18 +556,698 @@ func (x *PoolMembers) GetMembers() []string {
 	return nil
 }
 
+// AcquireStop says the grant stops because one of its members is held. The client stops its command, closes the
+// stream, and reclaims the grant by its grant_id to wait at its place in line.
+type AcquireStop struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The members of the grant that are held. The grant ends when its stream closes, and its members are freed then.
+	Members       []string `protobuf:"bytes,1,rep,name=members,proto3" json:"members,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AcquireStop) Reset() {
+	*x = AcquireStop{}
+	mi := &file_orrery_engine_v1_pool_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AcquireStop) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AcquireStop) ProtoMessage() {}
+
+func (x *AcquireStop) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_engine_v1_pool_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AcquireStop.ProtoReflect.Descriptor instead.
+func (*AcquireStop) Descriptor() ([]byte, []int) {
+	return file_orrery_engine_v1_pool_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *AcquireStop) GetMembers() []string {
+	if x != nil {
+		return x.Members
+	}
+	return nil
+}
+
+// PoolsStatusRequest asks for the pools in use and the owner holds. It has no fields.
+type PoolsStatusRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PoolsStatusRequest) Reset() {
+	*x = PoolsStatusRequest{}
+	mi := &file_orrery_engine_v1_pool_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PoolsStatusRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PoolsStatusRequest) ProtoMessage() {}
+
+func (x *PoolsStatusRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_engine_v1_pool_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PoolsStatusRequest.ProtoReflect.Descriptor instead.
+func (*PoolsStatusRequest) Descriptor() ([]byte, []int) {
+	return file_orrery_engine_v1_pool_proto_rawDescGZIP(), []int{8}
+}
+
+// PoolsStatusResponse carries the pools in use and the owner holds.
+type PoolsStatusResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The pools in use, sorted by name.
+	Pools []*PoolStatus `protobuf:"bytes,1,rep,name=pools,proto3" json:"pools,omitempty"`
+	// Every owner hold, sorted by member. It covers holds on members of no pool in use.
+	Holds         []*PoolHold `protobuf:"bytes,2,rep,name=holds,proto3" json:"holds,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PoolsStatusResponse) Reset() {
+	*x = PoolsStatusResponse{}
+	mi := &file_orrery_engine_v1_pool_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PoolsStatusResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PoolsStatusResponse) ProtoMessage() {}
+
+func (x *PoolsStatusResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_engine_v1_pool_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PoolsStatusResponse.ProtoReflect.Descriptor instead.
+func (*PoolsStatusResponse) Descriptor() ([]byte, []int) {
+	return file_orrery_engine_v1_pool_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *PoolsStatusResponse) GetPools() []*PoolStatus {
+	if x != nil {
+		return x.Pools
+	}
+	return nil
+}
+
+func (x *PoolsStatusResponse) GetHolds() []*PoolHold {
+	if x != nil {
+		return x.Holds
+	}
+	return nil
+}
+
+// PoolStatus is one pool in use: its cap, its members, and the requests waiting for it.
+type PoolStatus struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The pool's name.
+	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	// How many of the pool's members one project may hold at once.
+	Cap int32 `protobuf:"varint,2,opt,name=cap,proto3" json:"cap,omitempty"`
+	// The pool's members, in the order its definition declares them.
+	Members []*PoolMemberStatus `protobuf:"bytes,3,rep,name=members,proto3" json:"members,omitempty"`
+	// The requests waiting for the pool, in queue order.
+	Waiters       []*PoolWaiter `protobuf:"bytes,4,rep,name=waiters,proto3" json:"waiters,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PoolStatus) Reset() {
+	*x = PoolStatus{}
+	mi := &file_orrery_engine_v1_pool_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PoolStatus) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PoolStatus) ProtoMessage() {}
+
+func (x *PoolStatus) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_engine_v1_pool_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PoolStatus.ProtoReflect.Descriptor instead.
+func (*PoolStatus) Descriptor() ([]byte, []int) {
+	return file_orrery_engine_v1_pool_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *PoolStatus) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *PoolStatus) GetCap() int32 {
+	if x != nil {
+		return x.Cap
+	}
+	return 0
+}
+
+func (x *PoolStatus) GetMembers() []*PoolMemberStatus {
+	if x != nil {
+		return x.Members
+	}
+	return nil
+}
+
+func (x *PoolStatus) GetWaiters() []*PoolWaiter {
+	if x != nil {
+		return x.Waiters
+	}
+	return nil
+}
+
+// PoolMemberStatus is one member of a pool in use.
+type PoolMemberStatus struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The member's name.
+	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	// The member's state: unknown, asleep, awake, waking, admitting, admitted, or unavailable.
+	State string `protobuf:"bytes,2,opt,name=state,proto3" json:"state,omitempty"`
+	// The grant that holds the member, unset when no grant holds it.
+	Holder *PoolHolder `protobuf:"bytes,3,opt,name=holder,proto3" json:"holder,omitempty"`
+	// The unix seconds the member was held, or 0 when it is not held.
+	HeldSince     int64 `protobuf:"varint,4,opt,name=held_since,json=heldSince,proto3" json:"held_since,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PoolMemberStatus) Reset() {
+	*x = PoolMemberStatus{}
+	mi := &file_orrery_engine_v1_pool_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PoolMemberStatus) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PoolMemberStatus) ProtoMessage() {}
+
+func (x *PoolMemberStatus) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_engine_v1_pool_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PoolMemberStatus.ProtoReflect.Descriptor instead.
+func (*PoolMemberStatus) Descriptor() ([]byte, []int) {
+	return file_orrery_engine_v1_pool_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *PoolMemberStatus) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *PoolMemberStatus) GetState() string {
+	if x != nil {
+		return x.State
+	}
+	return ""
+}
+
+func (x *PoolMemberStatus) GetHolder() *PoolHolder {
+	if x != nil {
+		return x.Holder
+	}
+	return nil
+}
+
+func (x *PoolMemberStatus) GetHeldSince() int64 {
+	if x != nil {
+		return x.HeldSince
+	}
+	return 0
+}
+
+// PoolHolder is the grant that holds a member.
+type PoolHolder struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The grant's id.
+	GrantId string `protobuf:"bytes,1,opt,name=grant_id,json=grantId,proto3" json:"grant_id,omitempty"`
+	// The absolute path of the grant's project.
+	Project string `protobuf:"bytes,2,opt,name=project,proto3" json:"project,omitempty"`
+	// The client's process id.
+	ClientPid int32 `protobuf:"varint,3,opt,name=client_pid,json=clientPid,proto3" json:"client_pid,omitempty"`
+	// The argv of the grant's command. Empty when the client sent none.
+	Command []string `protobuf:"bytes,4,rep,name=command,proto3" json:"command,omitempty"`
+	// The unix seconds the grant was granted.
+	Since int64 `protobuf:"varint,5,opt,name=since,proto3" json:"since,omitempty"`
+	// Whether the grant is stopping, because one of its members is held.
+	Stopping      bool `protobuf:"varint,6,opt,name=stopping,proto3" json:"stopping,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PoolHolder) Reset() {
+	*x = PoolHolder{}
+	mi := &file_orrery_engine_v1_pool_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PoolHolder) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PoolHolder) ProtoMessage() {}
+
+func (x *PoolHolder) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_engine_v1_pool_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PoolHolder.ProtoReflect.Descriptor instead.
+func (*PoolHolder) Descriptor() ([]byte, []int) {
+	return file_orrery_engine_v1_pool_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *PoolHolder) GetGrantId() string {
+	if x != nil {
+		return x.GrantId
+	}
+	return ""
+}
+
+func (x *PoolHolder) GetProject() string {
+	if x != nil {
+		return x.Project
+	}
+	return ""
+}
+
+func (x *PoolHolder) GetClientPid() int32 {
+	if x != nil {
+		return x.ClientPid
+	}
+	return 0
+}
+
+func (x *PoolHolder) GetCommand() []string {
+	if x != nil {
+		return x.Command
+	}
+	return nil
+}
+
+func (x *PoolHolder) GetSince() int64 {
+	if x != nil {
+		return x.Since
+	}
+	return 0
+}
+
+func (x *PoolHolder) GetStopping() bool {
+	if x != nil {
+		return x.Stopping
+	}
+	return false
+}
+
+// PoolWaiter is one request waiting for a pool.
+type PoolWaiter struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The request's place in line, counting from 1.
+	Position int32 `protobuf:"varint,1,opt,name=position,proto3" json:"position,omitempty"`
+	// The absolute path of the request's project.
+	Project string `protobuf:"bytes,2,opt,name=project,proto3" json:"project,omitempty"`
+	// The argv of the request's command. Empty when the client sent none.
+	Command []string `protobuf:"bytes,3,rep,name=command,proto3" json:"command,omitempty"`
+	// How many of the pool's members the request needs.
+	Count int32 `protobuf:"varint,4,opt,name=count,proto3" json:"count,omitempty"`
+	// The unix seconds the request began waiting.
+	Since         int64 `protobuf:"varint,5,opt,name=since,proto3" json:"since,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PoolWaiter) Reset() {
+	*x = PoolWaiter{}
+	mi := &file_orrery_engine_v1_pool_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PoolWaiter) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PoolWaiter) ProtoMessage() {}
+
+func (x *PoolWaiter) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_engine_v1_pool_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PoolWaiter.ProtoReflect.Descriptor instead.
+func (*PoolWaiter) Descriptor() ([]byte, []int) {
+	return file_orrery_engine_v1_pool_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *PoolWaiter) GetPosition() int32 {
+	if x != nil {
+		return x.Position
+	}
+	return 0
+}
+
+func (x *PoolWaiter) GetProject() string {
+	if x != nil {
+		return x.Project
+	}
+	return ""
+}
+
+func (x *PoolWaiter) GetCommand() []string {
+	if x != nil {
+		return x.Command
+	}
+	return nil
+}
+
+func (x *PoolWaiter) GetCount() int32 {
+	if x != nil {
+		return x.Count
+	}
+	return 0
+}
+
+func (x *PoolWaiter) GetSince() int64 {
+	if x != nil {
+		return x.Since
+	}
+	return 0
+}
+
+// PoolHold is one owner hold: a member that no grant may take.
+type PoolHold struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The held member's name.
+	Member string `protobuf:"bytes,1,opt,name=member,proto3" json:"member,omitempty"`
+	// The unix seconds the member was held.
+	Since         int64 `protobuf:"varint,2,opt,name=since,proto3" json:"since,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PoolHold) Reset() {
+	*x = PoolHold{}
+	mi := &file_orrery_engine_v1_pool_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PoolHold) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PoolHold) ProtoMessage() {}
+
+func (x *PoolHold) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_engine_v1_pool_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PoolHold.ProtoReflect.Descriptor instead.
+func (*PoolHold) Descriptor() ([]byte, []int) {
+	return file_orrery_engine_v1_pool_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *PoolHold) GetMember() string {
+	if x != nil {
+		return x.Member
+	}
+	return ""
+}
+
+func (x *PoolHold) GetSince() int64 {
+	if x != nil {
+		return x.Since
+	}
+	return 0
+}
+
+// PoolsHoldRequest asks for a member to be held.
+type PoolsHoldRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The member's name, of the form [A-Za-z0-9][A-Za-z0-9._-]*.
+	Member        string `protobuf:"bytes,1,opt,name=member,proto3" json:"member,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PoolsHoldRequest) Reset() {
+	*x = PoolsHoldRequest{}
+	mi := &file_orrery_engine_v1_pool_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PoolsHoldRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PoolsHoldRequest) ProtoMessage() {}
+
+func (x *PoolsHoldRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_engine_v1_pool_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PoolsHoldRequest.ProtoReflect.Descriptor instead.
+func (*PoolsHoldRequest) Descriptor() ([]byte, []int) {
+	return file_orrery_engine_v1_pool_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *PoolsHoldRequest) GetMember() string {
+	if x != nil {
+		return x.Member
+	}
+	return ""
+}
+
+// PoolsHoldResponse is the reply to a Hold. It has no fields.
+type PoolsHoldResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PoolsHoldResponse) Reset() {
+	*x = PoolsHoldResponse{}
+	mi := &file_orrery_engine_v1_pool_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PoolsHoldResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PoolsHoldResponse) ProtoMessage() {}
+
+func (x *PoolsHoldResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_engine_v1_pool_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PoolsHoldResponse.ProtoReflect.Descriptor instead.
+func (*PoolsHoldResponse) Descriptor() ([]byte, []int) {
+	return file_orrery_engine_v1_pool_proto_rawDescGZIP(), []int{16}
+}
+
+// PoolsFreeRequest asks for a held member to be freed.
+type PoolsFreeRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The member's name, of the form [A-Za-z0-9][A-Za-z0-9._-]*.
+	Member        string `protobuf:"bytes,1,opt,name=member,proto3" json:"member,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PoolsFreeRequest) Reset() {
+	*x = PoolsFreeRequest{}
+	mi := &file_orrery_engine_v1_pool_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PoolsFreeRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PoolsFreeRequest) ProtoMessage() {}
+
+func (x *PoolsFreeRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_engine_v1_pool_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PoolsFreeRequest.ProtoReflect.Descriptor instead.
+func (*PoolsFreeRequest) Descriptor() ([]byte, []int) {
+	return file_orrery_engine_v1_pool_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *PoolsFreeRequest) GetMember() string {
+	if x != nil {
+		return x.Member
+	}
+	return ""
+}
+
+// PoolsFreeResponse is the reply to a Free. It has no fields.
+type PoolsFreeResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PoolsFreeResponse) Reset() {
+	*x = PoolsFreeResponse{}
+	mi := &file_orrery_engine_v1_pool_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PoolsFreeResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PoolsFreeResponse) ProtoMessage() {}
+
+func (x *PoolsFreeResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_engine_v1_pool_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PoolsFreeResponse.ProtoReflect.Descriptor instead.
+func (*PoolsFreeResponse) Descriptor() ([]byte, []int) {
+	return file_orrery_engine_v1_pool_proto_rawDescGZIP(), []int{18}
+}
+
 var File_orrery_engine_v1_pool_proto protoreflect.FileDescriptor
 
 const file_orrery_engine_v1_pool_proto_rawDesc = "" +
 	"\n" +
-	"\x1borrery/engine/v1/pool.proto\x12\x10orrery.engine.v1\"\xce\x01\n" +
+	"\x1borrery/engine/v1/pool.proto\x12\x10orrery.engine.v1\"\xe8\x01\n" +
 	"\x0eAcquireRequest\x12\x18\n" +
 	"\aproject\x18\x01 \x01(\tR\aproject\x126\n" +
 	"\x05pools\x18\x02 \x03(\v2 .orrery.engine.v1.PoolDefinitionR\x05pools\x120\n" +
 	"\x05needs\x18\x03 \x03(\v2\x1a.orrery.engine.v1.PoolNeedR\x05needs\x12\x1d\n" +
 	"\n" +
 	"client_pid\x18\x04 \x01(\x05R\tclientPid\x12\x19\n" +
-	"\bgrant_id\x18\x05 \x01(\tR\agrantId\"\xb6\x02\n" +
+	"\bgrant_id\x18\x05 \x01(\tR\agrantId\x12\x18\n" +
+	"\acommand\x18\x06 \x03(\tR\acommand\"\xb6\x02\n" +
 	"\x0ePoolDefinition\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x12\n" +
 	"\x04host\x18\x02 \x01(\tR\x04host\x12\x10\n" +
@@ -556,10 +1262,11 @@ const file_orrery_engine_v1_pool_proto_rawDesc = "" +
 	" \x01(\x03R\x11admitLimitSeconds\"4\n" +
 	"\bPoolNeed\x12\x12\n" +
 	"\x04pool\x18\x01 \x01(\tR\x04pool\x12\x14\n" +
-	"\x05count\x18\x02 \x01(\x05R\x05count\"\x93\x01\n" +
+	"\x05count\x18\x02 \x01(\x05R\x05count\"\xc8\x01\n" +
 	"\x0fAcquireResponse\x129\n" +
 	"\x06queued\x18\x01 \x01(\v2\x1f.orrery.engine.v1.AcquireQueuedH\x00R\x06queued\x12<\n" +
-	"\agranted\x18\x02 \x01(\v2 .orrery.engine.v1.AcquireGrantedH\x00R\agrantedB\a\n" +
+	"\agranted\x18\x02 \x01(\v2 .orrery.engine.v1.AcquireGrantedH\x00R\agranted\x123\n" +
+	"\x04stop\x18\x03 \x01(\v2\x1d.orrery.engine.v1.AcquireStopH\x00R\x04stopB\a\n" +
 	"\x05event\"+\n" +
 	"\rAcquireQueued\x12\x1a\n" +
 	"\bposition\x18\x01 \x01(\x05R\bposition\"`\n" +
@@ -568,9 +1275,55 @@ const file_orrery_engine_v1_pool_proto_rawDesc = "" +
 	"\x05pools\x18\x02 \x03(\v2\x1d.orrery.engine.v1.PoolMembersR\x05pools\";\n" +
 	"\vPoolMembers\x12\x12\n" +
 	"\x04pool\x18\x01 \x01(\tR\x04pool\x12\x18\n" +
-	"\amembers\x18\x02 \x03(\tR\amembers2Y\n" +
+	"\amembers\x18\x02 \x03(\tR\amembers\"'\n" +
+	"\vAcquireStop\x12\x18\n" +
+	"\amembers\x18\x01 \x03(\tR\amembers\"\x14\n" +
+	"\x12PoolsStatusRequest\"{\n" +
+	"\x13PoolsStatusResponse\x122\n" +
+	"\x05pools\x18\x01 \x03(\v2\x1c.orrery.engine.v1.PoolStatusR\x05pools\x120\n" +
+	"\x05holds\x18\x02 \x03(\v2\x1a.orrery.engine.v1.PoolHoldR\x05holds\"\xa8\x01\n" +
+	"\n" +
+	"PoolStatus\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x10\n" +
+	"\x03cap\x18\x02 \x01(\x05R\x03cap\x12<\n" +
+	"\amembers\x18\x03 \x03(\v2\".orrery.engine.v1.PoolMemberStatusR\amembers\x126\n" +
+	"\awaiters\x18\x04 \x03(\v2\x1c.orrery.engine.v1.PoolWaiterR\awaiters\"\x91\x01\n" +
+	"\x10PoolMemberStatus\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
+	"\x05state\x18\x02 \x01(\tR\x05state\x124\n" +
+	"\x06holder\x18\x03 \x01(\v2\x1c.orrery.engine.v1.PoolHolderR\x06holder\x12\x1d\n" +
+	"\n" +
+	"held_since\x18\x04 \x01(\x03R\theldSince\"\xac\x01\n" +
+	"\n" +
+	"PoolHolder\x12\x19\n" +
+	"\bgrant_id\x18\x01 \x01(\tR\agrantId\x12\x18\n" +
+	"\aproject\x18\x02 \x01(\tR\aproject\x12\x1d\n" +
+	"\n" +
+	"client_pid\x18\x03 \x01(\x05R\tclientPid\x12\x18\n" +
+	"\acommand\x18\x04 \x03(\tR\acommand\x12\x14\n" +
+	"\x05since\x18\x05 \x01(\x03R\x05since\x12\x1a\n" +
+	"\bstopping\x18\x06 \x01(\bR\bstopping\"\x88\x01\n" +
+	"\n" +
+	"PoolWaiter\x12\x1a\n" +
+	"\bposition\x18\x01 \x01(\x05R\bposition\x12\x18\n" +
+	"\aproject\x18\x02 \x01(\tR\aproject\x12\x18\n" +
+	"\acommand\x18\x03 \x03(\tR\acommand\x12\x14\n" +
+	"\x05count\x18\x04 \x01(\x05R\x05count\x12\x14\n" +
+	"\x05since\x18\x05 \x01(\x03R\x05since\"8\n" +
+	"\bPoolHold\x12\x16\n" +
+	"\x06member\x18\x01 \x01(\tR\x06member\x12\x14\n" +
+	"\x05since\x18\x02 \x01(\x03R\x05since\"*\n" +
+	"\x10PoolsHoldRequest\x12\x16\n" +
+	"\x06member\x18\x01 \x01(\tR\x06member\"\x13\n" +
+	"\x11PoolsHoldResponse\"*\n" +
+	"\x10PoolsFreeRequest\x12\x16\n" +
+	"\x06member\x18\x01 \x01(\tR\x06member\"\x13\n" +
+	"\x11PoolsFreeResponse2\xd2\x02\n" +
 	"\x05Pools\x12P\n" +
-	"\aAcquire\x12 .orrery.engine.v1.AcquireRequest\x1a!.orrery.engine.v1.AcquireResponse0\x01B\xc9\x01\n" +
+	"\aAcquire\x12 .orrery.engine.v1.AcquireRequest\x1a!.orrery.engine.v1.AcquireResponse0\x01\x12U\n" +
+	"\x06Status\x12$.orrery.engine.v1.PoolsStatusRequest\x1a%.orrery.engine.v1.PoolsStatusResponse\x12O\n" +
+	"\x04Hold\x12\".orrery.engine.v1.PoolsHoldRequest\x1a#.orrery.engine.v1.PoolsHoldResponse\x12O\n" +
+	"\x04Free\x12\".orrery.engine.v1.PoolsFreeRequest\x1a#.orrery.engine.v1.PoolsFreeResponseB\xc9\x01\n" +
 	"\x14com.orrery.engine.v1B\tPoolProtoP\x01ZDgithub.com/joshsymonds/orrery/internal/gen/orrery/engine/v1;enginev1\xa2\x02\x03OEX\xaa\x02\x10Orrery.Engine.V1\xca\x02\x10Orrery\\Engine\\V1\xe2\x02\x1cOrrery\\Engine\\V1\\GPBMetadata\xea\x02\x12Orrery::Engine::V1b\x06proto3"
 
 var (
@@ -585,29 +1338,53 @@ func file_orrery_engine_v1_pool_proto_rawDescGZIP() []byte {
 	return file_orrery_engine_v1_pool_proto_rawDescData
 }
 
-var file_orrery_engine_v1_pool_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
+var file_orrery_engine_v1_pool_proto_msgTypes = make([]protoimpl.MessageInfo, 19)
 var file_orrery_engine_v1_pool_proto_goTypes = []any{
-	(*AcquireRequest)(nil),  // 0: orrery.engine.v1.AcquireRequest
-	(*PoolDefinition)(nil),  // 1: orrery.engine.v1.PoolDefinition
-	(*PoolNeed)(nil),        // 2: orrery.engine.v1.PoolNeed
-	(*AcquireResponse)(nil), // 3: orrery.engine.v1.AcquireResponse
-	(*AcquireQueued)(nil),   // 4: orrery.engine.v1.AcquireQueued
-	(*AcquireGranted)(nil),  // 5: orrery.engine.v1.AcquireGranted
-	(*PoolMembers)(nil),     // 6: orrery.engine.v1.PoolMembers
+	(*AcquireRequest)(nil),      // 0: orrery.engine.v1.AcquireRequest
+	(*PoolDefinition)(nil),      // 1: orrery.engine.v1.PoolDefinition
+	(*PoolNeed)(nil),            // 2: orrery.engine.v1.PoolNeed
+	(*AcquireResponse)(nil),     // 3: orrery.engine.v1.AcquireResponse
+	(*AcquireQueued)(nil),       // 4: orrery.engine.v1.AcquireQueued
+	(*AcquireGranted)(nil),      // 5: orrery.engine.v1.AcquireGranted
+	(*PoolMembers)(nil),         // 6: orrery.engine.v1.PoolMembers
+	(*AcquireStop)(nil),         // 7: orrery.engine.v1.AcquireStop
+	(*PoolsStatusRequest)(nil),  // 8: orrery.engine.v1.PoolsStatusRequest
+	(*PoolsStatusResponse)(nil), // 9: orrery.engine.v1.PoolsStatusResponse
+	(*PoolStatus)(nil),          // 10: orrery.engine.v1.PoolStatus
+	(*PoolMemberStatus)(nil),    // 11: orrery.engine.v1.PoolMemberStatus
+	(*PoolHolder)(nil),          // 12: orrery.engine.v1.PoolHolder
+	(*PoolWaiter)(nil),          // 13: orrery.engine.v1.PoolWaiter
+	(*PoolHold)(nil),            // 14: orrery.engine.v1.PoolHold
+	(*PoolsHoldRequest)(nil),    // 15: orrery.engine.v1.PoolsHoldRequest
+	(*PoolsHoldResponse)(nil),   // 16: orrery.engine.v1.PoolsHoldResponse
+	(*PoolsFreeRequest)(nil),    // 17: orrery.engine.v1.PoolsFreeRequest
+	(*PoolsFreeResponse)(nil),   // 18: orrery.engine.v1.PoolsFreeResponse
 }
 var file_orrery_engine_v1_pool_proto_depIdxs = []int32{
-	1, // 0: orrery.engine.v1.AcquireRequest.pools:type_name -> orrery.engine.v1.PoolDefinition
-	2, // 1: orrery.engine.v1.AcquireRequest.needs:type_name -> orrery.engine.v1.PoolNeed
-	4, // 2: orrery.engine.v1.AcquireResponse.queued:type_name -> orrery.engine.v1.AcquireQueued
-	5, // 3: orrery.engine.v1.AcquireResponse.granted:type_name -> orrery.engine.v1.AcquireGranted
-	6, // 4: orrery.engine.v1.AcquireGranted.pools:type_name -> orrery.engine.v1.PoolMembers
-	0, // 5: orrery.engine.v1.Pools.Acquire:input_type -> orrery.engine.v1.AcquireRequest
-	3, // 6: orrery.engine.v1.Pools.Acquire:output_type -> orrery.engine.v1.AcquireResponse
-	6, // [6:7] is the sub-list for method output_type
-	5, // [5:6] is the sub-list for method input_type
-	5, // [5:5] is the sub-list for extension type_name
-	5, // [5:5] is the sub-list for extension extendee
-	0, // [0:5] is the sub-list for field type_name
+	1,  // 0: orrery.engine.v1.AcquireRequest.pools:type_name -> orrery.engine.v1.PoolDefinition
+	2,  // 1: orrery.engine.v1.AcquireRequest.needs:type_name -> orrery.engine.v1.PoolNeed
+	4,  // 2: orrery.engine.v1.AcquireResponse.queued:type_name -> orrery.engine.v1.AcquireQueued
+	5,  // 3: orrery.engine.v1.AcquireResponse.granted:type_name -> orrery.engine.v1.AcquireGranted
+	7,  // 4: orrery.engine.v1.AcquireResponse.stop:type_name -> orrery.engine.v1.AcquireStop
+	6,  // 5: orrery.engine.v1.AcquireGranted.pools:type_name -> orrery.engine.v1.PoolMembers
+	10, // 6: orrery.engine.v1.PoolsStatusResponse.pools:type_name -> orrery.engine.v1.PoolStatus
+	14, // 7: orrery.engine.v1.PoolsStatusResponse.holds:type_name -> orrery.engine.v1.PoolHold
+	11, // 8: orrery.engine.v1.PoolStatus.members:type_name -> orrery.engine.v1.PoolMemberStatus
+	13, // 9: orrery.engine.v1.PoolStatus.waiters:type_name -> orrery.engine.v1.PoolWaiter
+	12, // 10: orrery.engine.v1.PoolMemberStatus.holder:type_name -> orrery.engine.v1.PoolHolder
+	0,  // 11: orrery.engine.v1.Pools.Acquire:input_type -> orrery.engine.v1.AcquireRequest
+	8,  // 12: orrery.engine.v1.Pools.Status:input_type -> orrery.engine.v1.PoolsStatusRequest
+	15, // 13: orrery.engine.v1.Pools.Hold:input_type -> orrery.engine.v1.PoolsHoldRequest
+	17, // 14: orrery.engine.v1.Pools.Free:input_type -> orrery.engine.v1.PoolsFreeRequest
+	3,  // 15: orrery.engine.v1.Pools.Acquire:output_type -> orrery.engine.v1.AcquireResponse
+	9,  // 16: orrery.engine.v1.Pools.Status:output_type -> orrery.engine.v1.PoolsStatusResponse
+	16, // 17: orrery.engine.v1.Pools.Hold:output_type -> orrery.engine.v1.PoolsHoldResponse
+	18, // 18: orrery.engine.v1.Pools.Free:output_type -> orrery.engine.v1.PoolsFreeResponse
+	15, // [15:19] is the sub-list for method output_type
+	11, // [11:15] is the sub-list for method input_type
+	11, // [11:11] is the sub-list for extension type_name
+	11, // [11:11] is the sub-list for extension extendee
+	0,  // [0:11] is the sub-list for field type_name
 }
 
 func init() { file_orrery_engine_v1_pool_proto_init() }
@@ -618,6 +1395,7 @@ func file_orrery_engine_v1_pool_proto_init() {
 	file_orrery_engine_v1_pool_proto_msgTypes[3].OneofWrappers = []any{
 		(*AcquireResponse_Queued)(nil),
 		(*AcquireResponse_Granted)(nil),
+		(*AcquireResponse_Stop)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
@@ -625,7 +1403,7 @@ func file_orrery_engine_v1_pool_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_orrery_engine_v1_pool_proto_rawDesc), len(file_orrery_engine_v1_pool_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   7,
+			NumMessages:   19,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
