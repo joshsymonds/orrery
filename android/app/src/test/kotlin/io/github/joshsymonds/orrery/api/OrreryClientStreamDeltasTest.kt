@@ -9,6 +9,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.ReceiveChannel
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertSame
@@ -55,6 +56,9 @@ class OrreryClientStreamDeltasTest {
 
     private fun streamDeltas(stream: FakeStream) {
         runBlocking {
+            // The answer channel closes only after the send has failed. This coroutine runs when streamDeltas
+            // first suspends, which is when it waits on the channel after the send's failure.
+            launch { stream.closeAnswers() }
             OrreryClient("http://localhost").streamDeltas(
                 stream,
                 WatchConversationRequest.getDefaultInstance(),
@@ -64,12 +68,17 @@ class OrreryClientStreamDeltasTest {
         }
     }
 
-    /** A stream whose send fails with [sendFailure] and whose answer channel closes with [closeCause]. */
+    /** A stream whose send fails with [sendFailure] and whose answer channel closes with [closeCause] after it. */
     private class FakeStream(
         private val sendFailure: Throwable,
-        closeCause: Throwable?,
+        private val closeCause: Throwable?,
     ) : ServerOnlyStreamInterface<WatchConversationRequest, WatchConversationResponse> {
-        private val responses = Channel<WatchConversationResponse>(Channel.UNLIMITED).apply { close(closeCause) }
+        private val responses = Channel<WatchConversationResponse>(Channel.UNLIMITED)
+
+        /** Closes the answer channel with [closeCause], as the connection does once its send has failed. */
+        fun closeAnswers() {
+            responses.close(closeCause)
+        }
 
         override fun responseChannel(): ReceiveChannel<WatchConversationResponse> = responses
 
