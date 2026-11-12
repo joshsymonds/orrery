@@ -51,11 +51,9 @@ func stepGateFileText(shell, script string, limit int) string {
 		shell, script, limit)
 }
 
-// stepGateNamedStart returns a valid writing start in workspace that names gate name from gatesFile, with no argv.
+// stepGateNamedStart returns a valid writing start in workspace that names gate name from gatesFile.
 func stepGateNamedStart(workspace, name, gatesFile string) StepStart {
 	start := stepStartWriting(workspace)
-	start.Gate = nil
-	start.GateLimit = 0
 	start.GateName = name
 	start.GatesFile = gatesFile
 	return start
@@ -171,9 +169,6 @@ func TestStepsStartNamedGateRefusalsStoreNothing(t *testing.T) {
 		}},
 		{name: "gates file not absolute", mutate: func(s *StepStart) { s.GatesFile = "gates.toml" }},
 		{name: "gates file without a name", mutate: func(s *StepStart) { s.GateName = "" }},
-		{name: "name with an argv", mutate: func(s *StepStart) {
-			s.Gate = []string{shell, "-c", "exit 0"}
-		}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -202,6 +197,25 @@ func TestStepsStartNamedGateRefusalsStoreNothing(t *testing.T) {
 				t.Errorf("stored %d step rows on refusal, want none", len(rows))
 			}
 		})
+	}
+}
+
+func TestStepsStartNamedGateRefusesBareProgramNameAndStoresNothing(t *testing.T) {
+	f := newStepGateFixture(t)
+	gatesFile := filepath.Join(t.TempDir(), "gates.toml")
+	// sh is on PATH, so a lookup of the bare name would find it. A gate's argv[0] is a path, and the start refuses it.
+	stepGateWriteFile(t, gatesFile, "[gates.unit]\nargv = [\"sh\", \"-c\", \"exit 0\"]\nlimit = 300\n")
+	linked := stepWorktreeTestAddLinked(t, stepGitTestRepo(t))
+
+	id, err := f.steps.Start(t.Context(), stepGateNamedStart(linked, "unit", gatesFile))
+	if !errors.Is(err, ErrBadGate) {
+		t.Fatalf("Start = %q, %v; want an error matching ErrBadGate", id, err)
+	}
+	if id != "" {
+		t.Errorf("Start id = %q on refusal, want empty", id)
+	}
+	if n := f.sessions.startCalls(); n != 0 {
+		t.Errorf("StartStep calls = %d, want 0", n)
 	}
 }
 

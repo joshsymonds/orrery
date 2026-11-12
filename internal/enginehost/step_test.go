@@ -5,7 +5,6 @@ import (
 	"errors"
 	"log/slog"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -114,7 +113,7 @@ func newStepStartFixture(t *testing.T) *stepStartFixture {
 	return &stepStartFixture{steps: steps, sessions: sessions, store: s, worktrees: worktrees}
 }
 
-// stepStartWriting returns a valid writing start in workspace, with one owned path and a gate that always passes.
+// stepStartWriting returns a valid writing start in workspace, with one owned path and no gate.
 func stepStartWriting(workspace string) StepStart {
 	return StepStart{
 		Agent:     "implementer",
@@ -122,8 +121,6 @@ func stepStartWriting(workspace string) StepStart {
 		Schema:    stepLoopSchema,
 		Workspace: workspace,
 		Owned:     []string{stepDoneOwned},
-		Gate:      []string{"sh", "-c", "exit 0"},
-		GateLimit: 5 * time.Minute,
 		DoneValue: stepLoopDone,
 	}
 }
@@ -178,9 +175,6 @@ func TestStepsStartRefusesBadInputAndStoresNothing(t *testing.T) {
 		{name: "owned path outside repository", mutate: func(s *StepStart) {
 			s.Owned = []string{"../outside.txt"}
 		}, want: ErrBadOwned},
-		{name: "gate not on PATH", mutate: func(s *StepStart) {
-			s.Gate = []string{"orrery-no-such-gate-program"}
-		}, want: ErrBadGate},
 		{
 			name:   "writing in main working tree",
 			mutate: func(s *StepStart) { s.Workspace = mainTree },
@@ -235,10 +229,6 @@ func TestStepsStartWritingHandsStartStepTheStepAndRunsItsLoop(t *testing.T) {
 	repo := stepGitTestRepo(t)
 	linked := stepWorktreeTestAddLinked(t, repo)
 	commit := stepGitTestRun(t, linked, "rev-parse", "HEAD")
-	gateProgram, err := exec.LookPath("sh")
-	if err != nil {
-		t.Fatalf("LookPath sh: %v", err)
-	}
 	start := stepStartWriting(linked)
 
 	id, err := f.steps.Start(t.Context(), start)
@@ -267,8 +257,7 @@ func TestStepsStartWritingHandsStartStepTheStepAndRunsItsLoop(t *testing.T) {
 		Revision:   commit,
 		DoneValue:  stepLoopDone,
 		Owned:      []string{stepDoneOwned},
-		Gate:       []string{gateProgram, "-c", "exit 0"},
-		GateLimit:  5 * time.Minute,
+		GateLimit:  stepDefaultGateLimit,
 		ModelLimit: stepDefaultModelLimit,
 	}
 	if len(step.Ops) != 1 || !reflect.DeepEqual(step.Ops[0], want) {
@@ -294,13 +283,8 @@ func TestStepsStartWritingDefaultsDoneValueGateLimitAndRevision(t *testing.T) {
 	repo := stepGitTestRepo(t)
 	linked := stepWorktreeTestAddLinked(t, repo)
 	commit := stepGitTestRun(t, linked, "rev-parse", "HEAD")
-	gateProgram, err := exec.LookPath("sh")
-	if err != nil {
-		t.Fatalf("LookPath sh: %v", err)
-	}
 	start := stepStartWriting(linked)
 	start.DoneValue = ""
-	start.GateLimit = 0
 
 	id, err := f.steps.Start(t.Context(), start)
 	if err != nil {
@@ -316,7 +300,6 @@ func TestStepsStartWritingDefaultsDoneValueGateLimitAndRevision(t *testing.T) {
 		Revision:   commit,
 		DoneValue:  stepDefaultDone,
 		Owned:      []string{stepDoneOwned},
-		Gate:       []string{gateProgram, "-c", "exit 0"},
 		GateLimit:  stepDefaultGateLimit,
 		ModelLimit: stepDefaultModelLimit,
 	}

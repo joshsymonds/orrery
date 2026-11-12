@@ -112,13 +112,15 @@ func (f *stepCtlFixture) startReadOnly(t *testing.T, repo string) string {
 	return id
 }
 
-// startGated starts a writing step in linked whose gate writes its pid to pidFile and sleeps a minute. Its done return
-// names the workspace's HEAD, so every commit check passes and the gate runs.
+// startGated starts a writing step in linked that names gate unit from a gates file in t.TempDir(). The gate writes its
+// pid to pidFile and sleeps a minute. Its done return names the workspace's HEAD, so every commit check passes and the
+// gate runs.
 func (f *stepCtlFixture) startGated(t *testing.T, linked, pidFile string) string {
 	t.Helper()
-	start := stepStartWriting(linked)
-	start.Gate = []string{"sh", "-c", `echo $$ > "$0"; sleep 60`, pidFile}
-	id, err := f.steps.Start(t.Context(), start)
+	gatesFile := filepath.Join(t.TempDir(), "gates.toml")
+	script := fmt.Sprintf(`echo $$ > %q; sleep 60`, pidFile)
+	stepGateWriteFile(t, gatesFile, stepGateFileText(stepGateShell(t), script, 300))
+	id, err := f.steps.Start(t.Context(), stepGateNamedStart(linked, "unit", gatesFile))
 	if err != nil {
 		t.Fatalf("Start writing step: %v", err)
 	}

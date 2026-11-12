@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -18,8 +17,8 @@ import (
 // ErrBadOwned reports a step whose owned path is absolute or reaches outside the repository.
 var ErrBadOwned = errors.New("step owned path must be a relative path inside the repository")
 
-// ErrBadGate reports a step whose gate is refused: a named gate that does not resolve, a gates file that is not
-// absolute or is set without a name, a name set together with an argv, or an argv program not found on PATH.
+// ErrBadGate reports a step whose gate is refused: a named gate that does not resolve, or a gates file that is not
+// absolute or is set without a name.
 var ErrBadGate = errors.New("step gate is refused")
 
 // ErrBadWatchTick reports a StepsConfig whose WatchTick is negative.
@@ -28,7 +27,7 @@ var ErrBadWatchTick = errors.New("step watch tick must not be negative")
 // stepDefaultDone is the status a step's done return carries when its StepStart names none.
 const stepDefaultDone = "done"
 
-// stepDefaultGateLimit is how long a step's gate may run when its StepStart names no limit.
+// stepDefaultGateLimit is the gate limit a step is stored with when it names no gate.
 const stepDefaultGateLimit = 30 * time.Minute
 
 // stepDefaultModelLimit is how long a step's model time may run when its StepStart names no limit.
@@ -38,15 +37,14 @@ const stepDefaultModelLimit = 60 * time.Minute
 const stepDefaultWatchTick = 5 * time.Second
 
 // StepStart describes a step to start. A writing step (ReadOnly false) runs in Workspace, a linked worktree, and its
-// done return is checked against its commit and Owned paths and its Gate. A read-only step runs in a detached worktree
-// at Revision, which is removed when the step ends. Revision names the start commit and empty means HEAD. DoneValue
-// empty means "done", GateLimit zero means 30 minutes, and ModelLimit zero means 60 minutes, the model-time limit the
-// step is stored with. Epic and Task are optional labels the step is stored with; a step with an empty Epic is never
-// listed by List.
+// done return is checked against its commit and Owned paths and, when it names one, its gate. A read-only step runs in
+// a detached worktree at Revision, which is removed when the step ends. Revision names the start commit and empty means
+// HEAD. DoneValue empty means "done", and ModelLimit zero means 60 minutes, the model-time limit the step is stored
+// with. Epic and Task are optional labels the step is stored with; a step with an empty Epic is never listed by List.
 //
 // GateName names a gate to resolve once at start, from GatesFile when it is set and else from the project file for
-// Workspace. GatesFile must be absolute and needs GateName. A named gate takes its argv and limit from its definition,
-// so GateLimit and Gate are not read, and GateName with Gate is refused.
+// Workspace. GatesFile must be absolute and needs GateName. A start without GateName runs no gate. A named gate takes its
+// argv and limit from its definition.
 type StepStart struct {
 	Agent      string
 	Prompt     string
@@ -55,10 +53,8 @@ type StepStart struct {
 	Revision   string
 	ReadOnly   bool
 	Owned      []string
-	Gate       []string
 	GateName   string
 	GatesFile  string
-	GateLimit  time.Duration
 	ModelLimit time.Duration
 	DoneValue  string
 	Epic       string
@@ -313,21 +309,8 @@ func checkStepStart(start StepStart) error {
 	return nil
 }
 
-// stepGateProgram returns gate with its program resolved to the path it has on PATH. An empty gate names no program
-// and returns nil. A program that is not on PATH returns an error matching ErrBadGate.
-func stepGateProgram(gate []string) ([]string, error) {
-	if len(gate) == 0 {
-		return nil, nil
-	}
-	program, err := exec.LookPath(gate[0])
-	if err != nil {
-		return nil, fmt.Errorf("%w: %s: %w", ErrBadGate, gate[0], err)
-	}
-	return append([]string{program}, gate[1:]...), nil
-}
-
-// stepGate is the gate a step runs: its argv and limit. A named gate also carries the name it was resolved from, the
-// file that declares it and the pool members it holds; an argv gate leaves those empty.
+// stepGate is the gate a step runs: its argv and limit, with the name it was resolved from, the file that declares it and
+// the pool members it holds. A start that names no gate has no name, source or needs, and a zero limit.
 type stepGate struct {
 	argv   []string
 	limit  time.Duration
@@ -336,23 +319,16 @@ type stepGate struct {
 	needs  []store.StepNeed
 }
 
-// resolveStepGate returns the gate start runs. A named gate is resolved once, from start.GatesFile or else the project
-// file for start.Workspace. It is refused with an error matching ErrBadGate when the name does not resolve, when
-// GatesFile is not absolute or is set without GateName, and when GateName is set with Gate. Without GateName the gate
-// is start.Gate, its program looked up on PATH, and start.GateLimit.
+// resolveStepGate returns the gate start runs. A start without GateName runs no gate, and GatesFile set without GateName
+// is refused. A named gate is resolved once, from start.GatesFile or else the project file for start.Workspace. It is
+// refused with an error matching ErrBadGate when GatesFile is not absolute and when the name does not resolve. The
+// resolved argv is used as the gate's definition gives it; nothing is looked up on PATH.
 func (s *Steps) resolveStepGate(ctx context.Context, start StepStart) (stepGate, error) {
 	if start.GateName == "" {
 		if start.GatesFile != "" {
 			return stepGate{}, fmt.Errorf("%w: gates file %s is set without a gate name", ErrBadGate, start.GatesFile)
 		}
-		argv, err := stepGateProgram(start.Gate)
-		if err != nil {
-			return stepGate{}, err
-		}
-		return stepGate{argv: argv, limit: start.GateLimit}, nil
-	}
-	if len(start.Gate) != 0 {
-		return stepGate{}, fmt.Errorf("%w: gate %s is named and also has an argv", ErrBadGate, start.GateName)
+		return stepGate{}, nil
 	}
 	if start.GatesFile != "" && !filepath.IsAbs(start.GatesFile) {
 		return stepGate{}, fmt.Errorf("%w: gates file %s is not an absolute path", ErrBadGate, start.GatesFile)
