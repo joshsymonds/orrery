@@ -123,3 +123,44 @@ func TestHeadlessSessionsReturnsUnavailableWhenStoreIsMissing(t *testing.T) {
 		t.Fatalf("HeadlessSessions of missing store: got %v, want ErrUnavailable", err)
 	}
 }
+
+func TestHeadlessSessionsIgnoresUserTextBlocks(t *testing.T) {
+	path := headlessStore(t)
+	ctx := context.Background()
+	s, err := Open(ctx, path)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := s.Close(); err != nil {
+			t.Errorf("Close writer: %v", err)
+		}
+	})
+	t0 := engineNowAt().Unix()
+	userAt := time.Unix(t0-10, 0)
+	if err := s.ApplyEngine(ctx, []EngineOp{
+		EngineBlock{ID: "e-recent", Kind: "text", Role: "user", MessageID: "m7", Text: "user prompt"},
+		EngineBlock{ID: "e-neither", Kind: "text", Role: "user", MessageID: "m8", Text: "user prompt"},
+	}, userAt); err != nil {
+		t.Fatalf("ApplyEngine: %v", err)
+	}
+
+	got, err := NewReader(path).HeadlessSessions(ctx, headlessCutoff())
+	if err != nil {
+		t.Fatalf("HeadlessSessions: %v", err)
+	}
+	want := []HeadlessRow{
+		{
+			ID: "e-neither", Dir: "/n", State: "idle", Changed: strconv.FormatInt(t0, 10),
+			Reply: "", NewestReply: 0,
+		},
+		{
+			ID: "e-recent", Dir: "/a", State: "waiting", Changed: strconv.FormatInt(t0, 10),
+			Seen: "1699999000", Question: "ask?",
+			Reply: "newest reply", NewestReply: t0 - 50,
+		},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("HeadlessSessions with a newer user text block:\n got %+v\nwant %+v", got, want)
+	}
+}

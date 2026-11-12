@@ -504,6 +504,7 @@ SELECT
         SELECT json_extract(events.payload, '$.text') FROM events
         WHERE events.session_id = sessions.id AND events.kind = 'engine_block'
           AND json_extract(events.payload, '$.kind') = 'text'
+          AND json_extract(events.payload, '$.role') = 'assistant'
           AND IFNULL(json_extract(events.payload, '$.parentToolUseId'), '') = ''
         ORDER BY events.at DESC, events.seq DESC LIMIT 1
     ), '') AS TEXT) AS reply,
@@ -511,6 +512,7 @@ SELECT
         SELECT MAX(events.at) FROM events
         WHERE events.session_id = sessions.id AND (
             (events.kind = 'engine_block' AND json_extract(events.payload, '$.kind') = 'text'
+             AND json_extract(events.payload, '$.role') = 'assistant'
              AND IFNULL(json_extract(events.payload, '$.parentToolUseId'), '') = '')
             OR (events.kind = 'engine_request' AND json_extract(events.payload, '$.refused') IS NOT 1)
         )
