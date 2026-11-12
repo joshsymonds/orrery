@@ -93,14 +93,12 @@ func TestStepsStartGivesEachStepItsFolderStamp(t *testing.T) {
 		name     string
 		readOnly bool
 		body     string
-		noHome   bool
 		want     string
 	}{
 		{name: "writing step under a stamp", body: stepStampValid, want: stepStampSettings},
 		{name: "read-only step under a stamp", readOnly: true, body: stepStampValid, want: stepStampSettings},
 		{name: "writing step under no stamp", want: stepStampPlain},
 		{name: "read-only step under no stamp", readOnly: true, want: stepStampPlain},
-		{name: "writing step with no HOME entry", body: stepStampValid, noHome: true, want: stepStampPlain},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -108,10 +106,7 @@ func TestStepsStartGivesEachStepItsFolderStamp(t *testing.T) {
 			dir := haikuDir(t)
 			h := NewHaiku(HaikuConfig{Claude: haikuWriteFake(t, dir, haikuFake{stdout: stepWireMonitorLine}),
 				Environ: haikuEnviron()})
-			environ := []string{"PATH=" + os.Getenv("PATH")}
-			if !tc.noHome {
-				environ = append(environ, "HOME="+home)
-			}
+			environ := []string{"PATH=" + os.Getenv("PATH"), "HOME=" + home}
 			f := newStepStampFixture(t, environ, filepath.Join(home, "worktrees"), h)
 
 			id, err := f.steps.Start(t.Context(), stepStampStart(t, home, repo, tc.readOnly))
@@ -167,6 +162,72 @@ func TestStepsStartRefusesStepUnderUnparseableStamp(t *testing.T) {
 			}
 			if !strings.Contains(err.Error(), "settings.local.json") {
 				t.Fatalf("Start error = %v, want it to name the stamp's settings file", err)
+			}
+			if id != "" {
+				t.Errorf("Start id = %q on refusal, want empty", id)
+			}
+			if n := f.sessions.startCalls(); n != 0 {
+				t.Errorf("StartStep calls = %d, want 0", n)
+			}
+			rows, err := f.store.OpenSteps(t.Context())
+			if err != nil {
+				t.Fatalf("OpenSteps: %v", err)
+			}
+			if len(rows) != 0 {
+				t.Errorf("stored %d step rows on refusal, want none", len(rows))
+			}
+			entries, err := os.ReadDir(worktrees)
+			if err != nil {
+				t.Fatalf("read worktrees dir: %v", err)
+			}
+			if len(entries) != 0 {
+				t.Errorf("refusal left %d entries under the worktrees dir, want none", len(entries))
+			}
+			if runs := haikuRuns(t, dir); runs != 0 {
+				t.Errorf("haiku claude ran %d times on refusal, want none", runs)
+			}
+		})
+	}
+}
+
+func TestStepsStartRefusesWithoutAbsoluteHome(t *testing.T) {
+	cases := []struct {
+		name     string
+		readOnly bool
+		home     func(home string) []string
+	}{
+		{name: "writing step with no HOME entry", home: func(string) []string { return nil }},
+		{name: "writing step with empty HOME", home: func(string) []string { return []string{"HOME="} }},
+		{name: "writing step with relative HOME", home: func(home string) []string {
+			return []string{"HOME=" + stampTestRelativeHome(t, home)}
+		}},
+		{name: "read-only step with no HOME entry", readOnly: true, home: func(string) []string { return nil }},
+		{name: "read-only step with empty HOME", readOnly: true, home: func(string) []string {
+			return []string{"HOME="}
+		}},
+		{name: "read-only step with relative HOME", readOnly: true, home: func(home string) []string {
+			return []string{"HOME=" + stampTestRelativeHome(t, home)}
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			home, repo := stepStampTestHome(t, stepStampValid)
+			worktrees := filepath.Join(home, "worktrees")
+			if err := os.Mkdir(worktrees, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			dir := haikuDir(t)
+			h := NewHaiku(HaikuConfig{Claude: haikuWriteFake(t, dir, haikuFake{stdout: stepWireMonitorLine}),
+				Environ: haikuEnviron()})
+			environ := append([]string{"PATH=" + os.Getenv("PATH")}, tc.home(home)...)
+			f := newStepStampFixture(t, environ, worktrees, h)
+
+			id, err := f.steps.Start(t.Context(), stepStampStart(t, home, repo, tc.readOnly))
+			if err == nil {
+				t.Fatalf("Start = %q, nil error; want a refusal naming HOME", id)
+			}
+			if !strings.Contains(err.Error(), "HOME") {
+				t.Fatalf("Start error = %v, want it to name HOME", err)
 			}
 			if id != "" {
 				t.Errorf("Start id = %q on refusal, want empty", id)

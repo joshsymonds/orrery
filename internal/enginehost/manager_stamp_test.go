@@ -182,29 +182,57 @@ func TestStartWithoutStampPassesNoSettings(t *testing.T) {
 	}
 }
 
-func TestStartWithoutHomeEntryIgnoresStamp(t *testing.T) {
-	home := stampTestHome(t)
-	stampTestWrite(t, filepath.Join(home, "work", ".claude", "settings.json"), stampSettings)
-	dir := filepath.Join(home, "work", "child")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+// stampTestRelativeHome returns home relative to the test's working directory, so a HOME entry holding it is relative
+// and still names the stamped tree.
+func stampTestRelativeHome(t *testing.T, home string) string {
+	t.Helper()
+	wd, err := os.Getwd()
+	if err != nil {
 		t.Fatal(err)
 	}
-	m, path := stampTestManager(t, []string{"PATH=" + os.Getenv("PATH")})
-
-	id, err := m.Start(t.Context(), StartRequest{Dir: dir, Prompt: "hi"})
+	rel, err := filepath.Rel(wd, home)
 	if err != nil {
-		t.Fatalf("Start: %v", err)
+		t.Fatal(err)
 	}
-	waitHistory(t, path, id, "the first reply block", func(h store.EngineHistory) bool {
-		return hasBlock(t, h, "fake reply 1")
-	})
+	return rel
+}
 
-	args := fakeArgs(t, dir)
-	if len(args) != 1 {
-		t.Fatalf("fake claude starts = %q, want one", args)
+func TestStartWithoutAbsoluteHomeRefusesBeforeClaude(t *testing.T) {
+	cases := []struct {
+		name    string
+		environ func(home string) []string
+	}{
+		{name: "no HOME entry", environ: func(string) []string { return nil }},
+		{name: "empty HOME", environ: func(string) []string { return []string{"HOME="} }},
+		{name: "relative HOME", environ: func(home string) []string {
+			return []string{"HOME=" + stampTestRelativeHome(t, home)}
+		}},
 	}
-	if strings.Contains(args[0], "--settings") {
-		t.Fatalf("start args = %q, want no --settings without a HOME entry", args[0])
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			home := stampTestHome(t)
+			stampTestWrite(t, filepath.Join(home, "work", ".claude", "settings.json"), stampSettings)
+			dir := filepath.Join(home, "work", "child")
+			if err := os.MkdirAll(dir, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			environ := append([]string{"PATH=" + os.Getenv("PATH")}, tc.environ(home)...)
+			m, path := stampTestManager(t, environ)
+
+			id, err := m.Start(t.Context(), StartRequest{Dir: dir, Prompt: "hi"})
+			if err != nil {
+				t.Fatalf("Start: %v, want the refusal recorded on the session", err)
+			}
+			history := waitHistory(t, path, id, "the failed state", func(h store.EngineHistory) bool {
+				return h.State == "failed"
+			})
+			if reason := stampTestRecordedReason(t, history); !strings.Contains(reason, "HOME") {
+				t.Fatalf("failed reason = %q, want it to name HOME", reason)
+			}
+			if _, err := os.Stat(filepath.Join(dir, "fakeclaude.args")); !os.IsNotExist(err) {
+				t.Fatalf("start without an absolute HOME ran claude: stat = %v", err)
+			}
+		})
 	}
 }
 

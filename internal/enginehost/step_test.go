@@ -98,7 +98,7 @@ func newStepStartFixture(t *testing.T) *stepStartFixture {
 		Writer:    writer,
 		Locks:     []string{filepath.Join(t.TempDir(), "gate.lock")},
 		Worktrees: worktrees,
-		Environ:   []string{"PATH=" + os.Getenv("PATH")},
+		Environ:   []string{"PATH=" + os.Getenv("PATH"), "HOME=" + t.TempDir()},
 		Logger:    slog.New(slog.DiscardHandler),
 	})
 	if err != nil {

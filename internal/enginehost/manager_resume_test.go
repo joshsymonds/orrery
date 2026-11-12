@@ -39,7 +39,7 @@ func newManagerOn(t *testing.T, path string, limit int, claude string, sink Noti
 	m := NewManager(Config{
 		Shell:    sh,
 		Claude:   claude,
-		Environ:  []string{"PATH=" + os.Getenv("PATH")},
+		Environ:  []string{"PATH=" + os.Getenv("PATH"), "HOME=" + t.TempDir()},
 		Cap:      limit,
 		Writer:   writer,
 		Now:      fixedClock,

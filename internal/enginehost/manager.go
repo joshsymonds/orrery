@@ -997,11 +997,12 @@ func (m *Manager) spawn(id, dir string, sp spawnSpec) (*session.Session, error) 
 }
 
 // stampSettings returns the --settings JSON that carries the whole env of the context stamp in effect for dir. The stamp
-// is looked up under the HOME entry of the manager's environment. With no HOME entry, or no stamp, it returns "".
+// is looked up under the HOME entry of the manager's environment, which must be an absolute path. With no stamp, it
+// returns "".
 func (m *Manager) stampSettings(dir string) (string, error) {
-	home, ok := environValue(m.environ, "HOME")
-	if !ok {
-		return "", nil
+	home, err := stampHome(m.environ)
+	if err != nil {
+		return "", fmt.Errorf("find stamp for %s: %w", dir, err)
 	}
 	found, err := stamp.Find(home, dir)
 	if err != nil {
@@ -1024,6 +1025,19 @@ func environValue(environ []string, name string) (string, bool) {
 		}
 	}
 	return value, found
+}
+
+// stampHome returns the HOME entry of environ, the home every stamp is looked up under. It refuses a HOME that is absent,
+// empty, or not an absolute path, so no stamp is ever read below a home the lookup cannot resolve.
+func stampHome(environ []string) (string, error) {
+	home, ok := environValue(environ, "HOME")
+	if !ok {
+		return "", errors.New("HOME is not set")
+	}
+	if !filepath.IsAbs(home) {
+		return "", fmt.Errorf("HOME %q is not an absolute path", home)
+	}
+	return home, nil
 }
 
 // pump records the events of one running session, in order, until its events close, and notifies the owner of each

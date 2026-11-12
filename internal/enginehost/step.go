@@ -244,16 +244,15 @@ func (s *Steps) refuseStart(
 }
 
 // bindHaiku sets cfg's haiku to the caller a step whose folder is folder makes its monitor and judge calls with. With
-// no Haiku it sets none. The stamp in effect for folder, found from the HOME entry of the Steps' environ, sets the env
-// of each call's --settings. With no HOME entry or no stamp, the caller is the Steps' Haiku as it is.
+// no Haiku it sets none. The stamp in effect for folder, found from the HOME entry of the Steps' environ, which must be
+// an absolute path, sets the env of each call's --settings. With no stamp, the caller is the Steps' Haiku as it is.
 func (s *Steps) bindHaiku(cfg *stepRunConfig, folder string) error {
 	if s.haiku == nil {
 		return nil
 	}
-	home, ok := environValue(s.environ, "HOME")
-	if !ok {
-		cfg.haiku = s.haiku
-		return nil
+	home, err := stampHome(s.environ)
+	if err != nil {
+		return fmt.Errorf("find step stamp: %w", err)
 	}
 	found, err := stamp.Find(home, folder)
 	if err != nil {
