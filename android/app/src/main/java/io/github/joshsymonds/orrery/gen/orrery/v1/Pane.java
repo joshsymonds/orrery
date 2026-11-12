@@ -1133,6 +1133,44 @@ public  final class Pane extends
     newestReply_ = 0L;
   }
 
+  public static final int LAST_TURN_END_FIELD_NUMBER = 20;
+  private long lastTurnEnd_;
+  /**
+   * <pre>
+   * The unix seconds the pane's last turn ended, or 0 when unknown.
+   * </pre>
+   *
+   * <code>int64 last_turn_end = 20 [json_name = "lastTurnEnd"];</code>
+   * @return The lastTurnEnd.
+   */
+  @java.lang.Override
+  public long getLastTurnEnd() {
+    return lastTurnEnd_;
+  }
+  /**
+   * <pre>
+   * The unix seconds the pane's last turn ended, or 0 when unknown.
+   * </pre>
+   *
+   * <code>int64 last_turn_end = 20 [json_name = "lastTurnEnd"];</code>
+   * @param value The lastTurnEnd to set.
+   */
+  private void setLastTurnEnd(long value) {
+    
+    lastTurnEnd_ = value;
+  }
+  /**
+   * <pre>
+   * The unix seconds the pane's last turn ended, or 0 when unknown.
+   * </pre>
+   *
+   * <code>int64 last_turn_end = 20 [json_name = "lastTurnEnd"];</code>
+   */
+  private void clearLastTurnEnd() {
+
+    lastTurnEnd_ = 0L;
+  }
+
   public static io.github.joshsymonds.orrery.gen.orrery.v1.Pane parseFrom(
       java.nio.ByteBuffer data)
       throws com.google.protobuf.InvalidProtocolBufferException {
@@ -2372,6 +2410,46 @@ public  final class Pane extends
       return this;
     }
 
+    /**
+     * <pre>
+     * The unix seconds the pane's last turn ended, or 0 when unknown.
+     * </pre>
+     *
+     * <code>int64 last_turn_end = 20 [json_name = "lastTurnEnd"];</code>
+     * @return The lastTurnEnd.
+     */
+    @java.lang.Override
+    public long getLastTurnEnd() {
+      return instance.getLastTurnEnd();
+    }
+    /**
+     * <pre>
+     * The unix seconds the pane's last turn ended, or 0 when unknown.
+     * </pre>
+     *
+     * <code>int64 last_turn_end = 20 [json_name = "lastTurnEnd"];</code>
+     * @param value The lastTurnEnd to set.
+     * @return This builder for chaining.
+     */
+    public Builder setLastTurnEnd(long value) {
+      copyOnWrite();
+      instance.setLastTurnEnd(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The unix seconds the pane's last turn ended, or 0 when unknown.
+     * </pre>
+     *
+     * <code>int64 last_turn_end = 20 [json_name = "lastTurnEnd"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearLastTurnEnd() {
+      copyOnWrite();
+      instance.clearLastTurnEnd();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:orrery.v1.Pane)
   }
   @java.lang.Override
@@ -2407,12 +2485,13 @@ public  final class Pane extends
             "claudeSession_",
             "questionHash_",
             "newestReply_",
+            "lastTurnEnd_",
           };
           java.lang.String info =
-              "\u0000\u0013\u0000\u0000\u0001\u0013\u0013\u0000\u0000\u0000\u0001\u0208\u0002\u0208" +
+              "\u0000\u0014\u0000\u0000\u0001\u0014\u0014\u0000\u0000\u0000\u0001\u0208\u0002\u0208" +
               "\u0003\u0208\u0004\u0004\u0005\u0004\u0006\u0208\u0007\u0208\b\u0208\t\u0208\n\u0208" +
               "\u000b\u0002\f\u0002\r\u0208\u000e\u0208\u000f\u0002\u0010\u0208\u0011\u0208\u0012" +
-              "\u0208\u0013\u0002";
+              "\u0208\u0013\u0002\u0014\u0002";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

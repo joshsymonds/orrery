@@ -185,6 +185,40 @@ class OrreryClientTest {
     }
 
     @Test
+    fun panesReadsLastTurnEnd() {
+        FakeOrreryServer().use { server ->
+            server.respond(
+                PANES_LIST,
+                PanesListResponse.newBuilder()
+                    .addPanes(PaneProto.newBuilder().setId("%3").setLastTurnEnd(4102444970L))
+                    .build(),
+            )
+
+            val panes = OrreryClient(server.baseUrl).panes()
+
+            assertEquals(1, panes.size)
+            assertEquals("%3", panes.single().id)
+            assertEquals(4102444970L, panes.single().lastTurnEnd)
+        }
+    }
+
+    @Test
+    fun panesUnsetLastTurnEndReadsZero() {
+        FakeOrreryServer().use { server ->
+            server.respond(
+                PANES_LIST,
+                PanesListResponse.newBuilder().addPanes(PaneProto.newBuilder().setId("%3").setPane(2)).build(),
+            )
+
+            val panes = OrreryClient(server.baseUrl).panes()
+
+            assertEquals(1, panes.size)
+            assertEquals("%3", panes.single().id)
+            assertEquals(0L, panes.single().lastTurnEnd)
+        }
+    }
+
+    @Test
     fun trailingSlashOnBaseUrlIsIgnored() {
         FakeOrreryServer().use { server ->
             server.respond(PANES_LIST, PanesListResponse.getDefaultInstance())
