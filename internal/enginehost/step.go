@@ -19,6 +19,9 @@ var ErrBadOwned = errors.New("step owned path must be a relative path inside the
 // ErrBadGate reports a step whose gate program is not found on PATH.
 var ErrBadGate = errors.New("step gate program is not found on PATH")
 
+// ErrBadWatchTick reports a StepsConfig whose WatchTick is negative.
+var ErrBadWatchTick = errors.New("step watch tick must not be negative")
+
 // stepDefaultDone is the status a step's done return carries when its StepStart names none.
 const stepDefaultDone = "done"
 
@@ -95,13 +98,16 @@ type Steps struct {
 	idle  *sync.Cond
 }
 
-// NewSteps returns a Steps for cfg.
-func NewSteps(cfg StepsConfig) *Steps {
+// NewSteps returns a Steps for cfg. A negative cfg.WatchTick returns an error matching ErrBadWatchTick and no Steps.
+func NewSteps(cfg StepsConfig) (*Steps, error) {
 	logger := cfg.Logger
 	if logger == nil {
 		logger = slog.New(slog.DiscardHandler)
 	}
 	tick := cfg.WatchTick
+	if tick < 0 {
+		return nil, fmt.Errorf("%w: %s", ErrBadWatchTick, tick)
+	}
 	if tick == 0 {
 		tick = stepDefaultWatchTick
 	}
@@ -120,7 +126,7 @@ func NewSteps(cfg StepsConfig) *Steps {
 		runs:      map[string]*stepRun{},
 	}
 	steps.idle = sync.NewCond(&steps.mu)
-	return steps
+	return steps, nil
 }
 
 // Start checks start and resolves its revision, then starts the step under a fresh id and runs its loop. A refusal
