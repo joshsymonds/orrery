@@ -22,6 +22,7 @@ type Notification struct {
 	State                    protocol.State
 	Summary, Label, Question string
 	Time                     int64
+	Silent                   bool
 }
 
 // Clear tells the app that a pane or session was seen at Seen (unix seconds), so notices at or before it
@@ -45,6 +46,7 @@ const (
 	keyTime         = "time"
 	keyKind         = "kind"
 	keySeen         = "seen"
+	keySilent       = "silent"
 )
 
 // kindClear is the kind value of a clear payload.
@@ -140,7 +142,8 @@ func clearPayload(cleared Clear) ([]byte, error) {
 
 // boundedPayload returns the JSON payload for note. The question is shortened first, then the summary if
 // the payload still does not fit with an empty question. The question_hash always covers the full question.
-// The time key is always present. The session key is present only when note.Session is set.
+// The time key is always present. The session key is present only when note.Session is set, and the silent
+// key only when note.Silent is set.
 func boundedPayload(note Notification) ([]byte, error) {
 	hash := protocol.QuestionHash(note.Question)
 	encode := func(summary, question string) ([]byte, error) {
@@ -157,6 +160,9 @@ func boundedPayload(note Notification) ([]byte, error) {
 		}
 		if note.Session != "" {
 			fields[keySession] = note.Session
+		}
+		if note.Silent {
+			fields[keySilent] = "true"
 		}
 		return json.Marshal(fields)
 	}
