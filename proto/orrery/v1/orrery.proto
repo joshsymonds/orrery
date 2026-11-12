@@ -6,6 +6,13 @@ package orrery.v1;
 service Sessions {
   // List returns every tracked session.
   rpc List(ListRequest) returns (ListResponse);
+
+  // ListHeadless returns the headless sessions of the last 14 days, each row's text derived when it is read.
+  rpc ListHeadless(ListHeadlessRequest) returns (ListHeadlessResponse);
+
+  // WatchConversation streams the conversation of one headless session in the deltas Panes.WatchConversation sends:
+  // a reset with the newest items when the client holds none, then the deltas that follow each change.
+  rpc WatchConversation(SessionsWatchConversationRequest) returns (stream SessionsWatchConversationResponse);
 }
 
 // Events streams the changes to the tracked sessions, panes and headless sessions alike, in seq order.
@@ -88,6 +95,85 @@ message Session {
 
   // The pane's @orrery_transcript option.
   string transcript = 13;
+}
+
+// ListHeadlessRequest asks for the headless sessions of the last 14 days. It has no fields.
+message ListHeadlessRequest {}
+
+// ListHeadlessResponse carries the headless sessions of the last 14 days.
+message ListHeadlessResponse {
+  // The sessions, in id order.
+  repeated HeadlessSession sessions = 1;
+}
+
+// HeadlessSession is one headless session as the phone lists it: a row of kind engine with an event in the last 14
+// days, its label and summary derived when it is read.
+message HeadlessSession {
+  // The session's id, 32 lowercase hex digits.
+  string id = 1;
+
+  // The directory the session runs in.
+  string dir = 2;
+
+  // The row's label: the base name of dir, " · ", then the first 8 characters of the id.
+  string label = 3;
+
+  // The session's state.
+  string state = 4;
+
+  // The unix seconds of the last state change.
+  int64 changed = 5;
+
+  // The unix seconds of the last seen, or 0 when the session was never seen.
+  int64 seen = 6;
+
+  // The question while the state is waiting, else the reason of a failed or interrupted session, else the text of the
+  // newest main-conversation reply, cut to 300 runes. Unset in a ConversationState.
+  string summary = 7;
+
+  // The open question while the state is waiting, or the tool name of an open permission request.
+  string question = 8;
+
+  // The unix seconds of the newest main-conversation reply or unrefused request, or 0 when it has none. Unset in a
+  // ConversationState.
+  int64 newest_reply = 9;
+}
+
+// SessionsWatchConversationRequest asks for the conversation of one headless session. limit follows
+// ConversationRequest: 0 means the default, 30; 1 to 100 is that many; above 100 is invalid_argument.
+message SessionsWatchConversationRequest {
+  // The session's id.
+  string id = 1;
+
+  // The number of newest items a reset delta sends.
+  uint32 limit = 2;
+
+  // The seq the client holds: 0 asks for a reset, and any other value for the deltas after it.
+  int64 after = 3;
+}
+
+// SessionsWatchConversationResponse is one step of a headless session's WatchConversation stream.
+message SessionsWatchConversationResponse {
+  // The delta, in the shape Panes.WatchConversation sends. Its transcript is the session id, its seq the seq of the
+  // newest session event it covers, and its unfinished the whole main-conversation unfinished set, sent with every
+  // delta.
+  WatchConversationResponse delta = 1;
+}
+
+// OpenRequest is the request a headless session waits on.
+message OpenRequest {
+  // The request's id, which an Answer names.
+  string id = 1;
+
+  // The request's kind: question or permission.
+  string kind = 2;
+
+  // The question's text, or the tool name of a permission request.
+  string question = 3;
+
+  // The answers the phone may send: the option labels of a request with one question that is not multiSelect, allow
+  // and deny for a permission request, and none for any other shape, which the phone cannot answer.
+  repeated string options = 4;
 }
 
 // WatchRequest asks for the events after a store position.
@@ -690,6 +776,13 @@ message ConversationState {
 
   // The pane as Panes.List gives it.
   Pane pane = 5;
+
+  // The headless session as Sessions.ListHeadless gives it, without summary and newest_reply. Pane streams never set
+  // it.
+  HeadlessSession session = 6;
+
+  // The request the headless session waits on, unset when none is open. Pane streams never set it.
+  OpenRequest request = 7;
 }
 
 // SendTextRequest asks for text to be sent to one pane.
