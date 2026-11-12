@@ -432,6 +432,10 @@ service Panes {
 
   // MarkSeen records that the user has seen one pane.
   rpc MarkSeen(MarkSeenRequest) returns (MarkSeenResponse);
+
+  // WatchConversation streams the conversation of one pane's Claude transcript: a reset delta with the newest items
+  // and the whole state, then the deltas that follow each change.
+  rpc WatchConversation(WatchConversationRequest) returns (stream WatchConversationResponse);
 }
 
 // Host reads the status of the machine orrery runs on.
@@ -629,6 +633,63 @@ message WaitingMessage {
 
   // Whether the message was canceled.
   bool canceled = 3;
+}
+
+// WatchConversationRequest asks for the conversation of one pane, streamed from the newest items the client holds.
+// limit follows ConversationRequest: 0 means the default, 30; 1 to 100 is that many; above 100 is invalid_argument.
+message WatchConversationRequest {
+  // The pane's id, % followed by digits.
+  string pane = 1;
+
+  // The number of newest items a reset delta sends.
+  uint32 limit = 2;
+
+  // The id of the transcript the client holds, or empty when it holds none.
+  string transcript = 3;
+
+  // The seq the client holds for that transcript: the stream answers with the deltas after it.
+  int64 after = 4;
+}
+
+// WatchConversationResponse is one step of a WatchConversation stream. A delta with only transcript and seq set is a
+// keepalive.
+message WatchConversationResponse {
+  // The id of the transcript the delta belongs to.
+  string transcript = 1;
+
+  // The position just past what this delta covers. A later WatchConversationRequest resumes after it.
+  int64 seq = 2;
+
+  // Whether the delta replaces what the client holds: the newest limit items and the whole state.
+  bool reset = 3;
+
+  // The new items, oldest first.
+  repeated ConversationItem items = 4;
+
+  // The state of the conversation. It is set on the first delta of a stream and when a state field changed, and
+  // unset otherwise.
+  ConversationState state = 5;
+
+  // The text so far of each unfinished block. Pane streams never set it.
+  repeated EngineText unfinished = 6;
+}
+
+// ConversationState is the state of a conversation that a WatchConversationResponse carries.
+message ConversationState {
+  // The text of the transcript's first prompt, cut to 300 runes, or empty when there is none.
+  string origin = 1;
+
+  // The active goal of the conversation.
+  string goal = 2;
+
+  // The messages waiting to be sent to the conversation.
+  repeated WaitingMessage waiting = 3;
+
+  // The context figure of the conversation: its tokens out of its window.
+  ConversationContext context = 4;
+
+  // The pane as Panes.List gives it.
+  Pane pane = 5;
 }
 
 // SendTextRequest asks for text to be sent to one pane.

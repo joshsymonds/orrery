@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -180,6 +181,18 @@ func (s panesServer) MarkSeen(
 		return nil, connectError(err)
 	}
 	return connect.NewResponse(&v1.MarkSeenResponse{}), nil
+}
+
+// WatchConversation answers Panes.WatchConversation as unimplemented. A later change implements the stream.
+func (s panesServer) WatchConversation(
+	_ context.Context,
+	_ *connect.Request[v1.WatchConversationRequest],
+	_ *connect.ServerStream[v1.WatchConversationResponse],
+) error {
+	return errors.Join(connect.NewError(
+		connect.CodeUnimplemented,
+		errors.New("WatchConversation is not implemented yet"),
+	))
 }
 
 // conversationMessage returns the ConversationResponse of conv.
