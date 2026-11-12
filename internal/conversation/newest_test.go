@@ -59,6 +59,12 @@ func newestNotice(stamp string) string {
 	return `{"type":"user","timestamp":"` + stamp + `","isCompactSummary":true,"message":{"content":"summary"}}`
 }
 
+// newestInterruption returns a user line whose one text block is an interruption text.
+func newestInterruption(stamp, text string) string {
+	return `{"type":"user","timestamp":"` + stamp + `","message":{"content":[{"type":"text","text":"` +
+		text + `"}]}}`
+}
+
 // assertNewest fails the test unless newest reports want for path.
 func assertNewest(t *testing.T, newest *Newest, path string, want int64) {
 	t.Helper()
@@ -166,6 +172,50 @@ func TestNewestRescansReplacedFile(t *testing.T) {
 		t.Fatalf("rename replacement: %v", err)
 	}
 	assertNewest(t, newest, path, unix0905)
+}
+
+// assertInterrupted fails the test unless newest reports want as the newest interruption of path.
+func assertInterrupted(t *testing.T, newest *Newest, path string, want int64) {
+	t.Helper()
+	got, err := newest.Interrupted(path)
+	if err != nil {
+		t.Fatalf("Interrupted: %v", err)
+	}
+	if got != want {
+		t.Fatalf("Interrupted = %d, want %d", got, want)
+	}
+}
+
+func TestNewestInterruptedFollowsLaterInterruption(t *testing.T) {
+	path := writeTranscript(t,
+		newestInterruption(stamp0900, interruptedText),
+		newestInterruption(stamp0910, interruptedToolText),
+	)
+	assertInterrupted(t, NewNewest(), path, unix0910)
+}
+
+func TestNewestInterruptedIsZeroWithoutInterruption(t *testing.T) {
+	path := writeTranscript(t, newestReply(stamp0900, "done"), newestPrompt(stamp0905))
+	assertInterrupted(t, NewNewest(), path, 0)
+}
+
+func TestNewestInterruptedIgnoresSidechainAndMeta(t *testing.T) {
+	sidechain := strings.Replace(newestInterruption(stamp0915, interruptedText), `"type":"user",`,
+		`"type":"user","isSidechain":true,`, 1)
+	meta := strings.Replace(newestInterruption(stamp0920, interruptedText), `"type":"user",`,
+		`"type":"user","isMeta":true,`, 1)
+	path := writeTranscript(t, newestInterruption(stamp0900, interruptedText), sidechain, meta)
+	assertInterrupted(t, NewNewest(), path, unix0900)
+}
+
+func TestNewestInterruptedReadsAppendedLinesAfterTimeCall(t *testing.T) {
+	path := writeTranscript(t, newestInterruption(stamp0900, interruptedText))
+	newest := NewNewest()
+	assertInterrupted(t, newest, path, unix0900)
+
+	appendText(t, path, newestReply(stamp0905, "later")+"\n"+newestInterruption(stamp0910, interruptedText)+"\n")
+	assertNewest(t, newest, path, unix0905)
+	assertInterrupted(t, newest, path, unix0910)
 }
 
 func TestNewestMissingFileWrapsErrNotExist(t *testing.T) {
