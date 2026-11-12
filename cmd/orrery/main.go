@@ -96,6 +96,7 @@ subcommands:
   mcp                                           serve the step tools over MCP on stdio until stdin closes
   run --needs POOL=N [--needs POOL=N]... -- CMD [ARGS]
                                                 run CMD under a grant of pool members from orreryd
+  hold [--off] MEMBER                           place an owner hold on MEMBER through orreryd, or free it with --off
   serve --listen ADDR --allow-login LOGIN [--allow-login LOGIN]... [--push-host HOST]...
         [--host-status-cmd PATH]
                                                 serve the HTTP API on a loopback address until SIGINT or SIGTERM
@@ -221,6 +222,8 @@ func dispatch(ctx context.Context, opts globals, rest []string, stdin *os.File, 
 		return runMCP(ctx, opts, args, stdin, stdout, getenv)
 	case "run":
 		return runCommand(ctx, opts, args, stdin, stdout, stderr, getenv)
+	case "hold":
+		return runHold(ctx, opts, args, stderr, getenv)
 	case "session":
 		return runSession(ctx, opts, args, stdout, getenv)
 	case "open", "list", "seen", "send", "debug", "shell", "tree":
