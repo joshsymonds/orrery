@@ -39,6 +39,9 @@ const (
 // defaultStopGrace is how long a stopped command gets after SIGTERM before SIGKILL when RunConfig sets no grace.
 const defaultStopGrace = 30 * time.Second
 
+// stopPollInterval is how often a stop checks whether CMD's process group is empty.
+const stopPollInterval = 10 * time.Millisecond
+
 // grantVariable names the variable that carries the grant id to the command.
 const grantVariable = "ORRERY_GRANT"
 
@@ -358,9 +361,10 @@ func runOnce(ctx, grantCtx context.Context, cfg RunConfig, path string, held hel
 	}
 }
 
-// stopCommand sends SIGTERM to CMD's group, then waits for CMD to exit. The grace starts when SIGTERM is sent. When CMD
-// has not exited once the grace has passed on after, its group gets SIGKILL and stopCommand waits for that exit. It
-// returns CMD's end and the errors from signaling its group.
+// stopCommand sends SIGTERM to CMD's group, then waits for CMD to exit and for the rest of its group to be empty. The
+// grace starts when SIGTERM is sent. When CMD or its group is still running once the grace has passed on after, the
+// group gets SIGKILL and stopCommand waits until CMD has exited and the group is empty. It returns CMD's end and the
+// errors from signaling its group.
 func stopCommand(
 	pgid int,
 	exited <-chan commandEnd,
@@ -368,13 +372,42 @@ func stopCommand(
 	after func(d time.Duration) <-chan time.Time,
 ) (commandEnd, error) {
 	termErr := signalGroup(pgid, syscall.SIGTERM)
+	expired := after(grace)
 	select {
 	case end := <-exited:
-		return end, termErr
-	case <-after(grace):
+		if waitGroupGone(pgid, expired) {
+			return end, termErr
+		}
+		return end, errors.Join(termErr, killGroup(pgid))
+	case <-expired:
+		killErr := killGroup(pgid)
+		return <-exited, errors.Join(termErr, killErr)
 	}
-	killErr := signalGroup(pgid, syscall.SIGKILL)
-	return <-exited, errors.Join(termErr, killErr)
+}
+
+// killGroup sends SIGKILL to the group pgid and waits until the group is empty. It returns the signal's error.
+func killGroup(pgid int) error {
+	err := signalGroup(pgid, syscall.SIGKILL)
+	waitGroupGone(pgid, nil)
+	return err
+}
+
+// waitGroupGone waits until no process is left in the group pgid, and reports true. It reports false when expired
+// fires first. A nil expired waits without a limit.
+func waitGroupGone(pgid int, expired <-chan time.Time) bool {
+	for !groupGone(pgid) {
+		select {
+		case <-expired:
+			return false
+		case <-time.After(stopPollInterval):
+		}
+	}
+	return true
+}
+
+// groupGone reports whether no process is left in the group pgid.
+func groupGone(pgid int) bool {
+	return errors.Is(syscall.Kill(-pgid, 0), syscall.ESRCH)
 }
 
 // report writes the end's wait error to stderr, if it has one, and returns the exit status.

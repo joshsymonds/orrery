@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -13,6 +14,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -32,11 +34,14 @@ const stopGrace = 30 * time.Second
 const stopWatch = 5 * testRetry
 
 // stopScript is the command the stop tests run, under the grant each test names. Under grant-term it exits on SIGTERM.
-// Under grant-stubborn it ignores SIGTERM and runs until killed. Under any other grant it prints the grant and exits 3.
-// The first two print a ready line once their traps are set, so a test can send its stop only after that.
+// Under grant-stubborn it ignores SIGTERM and runs until killed. Under grant-orphan it exits on SIGTERM and leaves a
+// child in its group that ignores SIGTERM and runs until killed; the child prints a child line once it ignores
+// SIGTERM. Under any other grant it prints the grant and exits 3. The first two print a ready line once their traps are
+// set, so a test can send its stop only after that.
 const stopScript = `case "$ORRERY_GRANT" in
 grant-term) trap 'echo term; exit 0' TERM; echo "ready $$"; read -r line ;;
 grant-stubborn) trap '' TERM; echo "ready $$"; read -r line ;;
+grant-orphan) trap 'echo term; exit 0' TERM; sh -c 'trap "" TERM; echo "child $$"; exec sleep 1000' & read -r line ;;
 *) echo "rerun $ORRERY_GRANT"; exit 3 ;;
 esac`
 
@@ -327,6 +332,66 @@ func TestRunStopKillsCommandOnlyAfterGrace(t *testing.T) {
 	}
 }
 
+func TestRunStopKillsGroupOnlyAfterGrace(t *testing.T) {
+	ready := make(chan struct{})
+	pools := &stopPools{steps: []scriptedStep{stopStep("grant-orphan", ready), rejoinStep("grant-rerun")}}
+	socket := serveStopPools(t, pools)
+	stdinR := stdinPipe(t)
+	r, w := stdoutPipe(t)
+	lines := outputLines(r)
+	// stderr is a file, as in production. With any other writer, exec's Wait also waits for the copy of CMD's output,
+	// which the orphan holding the pipe keeps open, so CMD's exit would not be seen.
+	errR, errW := stdoutPipe(t)
+	go func() { _, _ = io.Copy(io.Discard, errR) }()
+	graces := make(chan time.Duration, 4)
+	fire := make(chan time.Time)
+	cfg := stopConfig(t, socket, w, errW, stdinR)
+	cfg.After = func(d time.Duration) <-chan time.Time {
+		graces <- d
+		return fire
+	}
+	status := runAsync(context.Background(), cfg)
+	// The child line is printed after the child ignores SIGTERM, and after CMD set its own trap, so the stop is sent
+	// only once both hold.
+	child := childPID(t, nextLine(t, lines))
+	t.Cleanup(func() { _ = syscall.Kill(child, syscall.SIGKILL) })
+	close(ready)
+
+	select {
+	case d := <-graces:
+		if d != stopGrace {
+			t.Fatalf("the grace = %v, want %v", d, stopGrace)
+		}
+	case <-time.After(runTimeout):
+		t.Fatal("the grace never started after the stop")
+	}
+	// CMD has exited on SIGTERM, but its child ignores SIGTERM and runs on while the grace has not passed on the test's
+	// clock. The grant is not reclaimed while the child lives.
+	time.Sleep(stopWatch)
+	if processExited(t, child) {
+		t.Fatal("the child exited before the grace passed")
+	}
+	if n := len(pools.received()); n != 1 {
+		t.Fatalf("Acquire called %d times before the grace passed, want 1: no reclaim while the child lives", n)
+	}
+	close(fire)
+	awaitStopRequests(t, pools, 2)
+	if !processExited(t, child) {
+		t.Fatal("the reclaim was sent while the child lives: the group was not killed before the reclaim")
+	}
+	if got := awaitStatus(t, status); got != 3 {
+		t.Errorf("RunWithGrant = %d, want the rerun's status 3", got)
+	}
+	_ = w.Close()
+	if got := remainingLines(lines); !slices.Contains(got, "rerun grant-rerun") {
+		t.Errorf("output after the child line = %q, want the rerun's line", got)
+	}
+	got := pools.received()
+	if len(got) != 2 || !proto.Equal(got[1], reclaimOf("grant-orphan")) {
+		t.Errorf("Acquire requests = %v, want the request then its reclaim by grant_id grant-orphan", got)
+	}
+}
+
 func TestRunStopExitsNoGrantWhenReclaimIsRefused(t *testing.T) {
 	tests := []struct {
 		name string
@@ -397,4 +462,14 @@ func TestRunStopExitsWhenContextEndsWhileWaitingAgain(t *testing.T) {
 // a ready line after the first means CMD ran again.
 func isReadyLine(line string) bool {
 	return strings.HasPrefix(line, "ready ")
+}
+
+// childPID returns the process id on the child line the grant-orphan stop script prints.
+func childPID(t *testing.T, line string) int {
+	t.Helper()
+	var pid int
+	if _, err := fmt.Sscanf(line, "child %d", &pid); err != nil {
+		t.Fatalf("child line %q: %v", line, err)
+	}
+	return pid
 }
