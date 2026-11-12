@@ -331,6 +331,7 @@ func TestLinkSendsActivityAtHelloAndEvery30s(t *testing.T) {
 		f.clock.Advance(activityWait)
 		waitFor(t, "activity tick", func() bool { return f.clock.callCount(activityWait) == i+1 })
 	}
+	waitFor(t, "three activity inputs", func() bool { return len(f.activity()) == 3 })
 	start := testStart()
 	want := []int64{start.Unix(), start.Add(activityWait).Unix(), start.Add(2 * activityWait).Unix()}
 	if got := f.activity(); !slices.Equal(got, want) {
