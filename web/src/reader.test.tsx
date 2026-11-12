@@ -23,8 +23,18 @@ function item(init: MessageInitShape<typeof ConversationItemSchema>): Conversati
   return create(ConversationItemSchema, init);
 }
 
-function unfinished(text: string): EngineText {
-  return create(EngineTextSchema, { messageId: "m1", index: 0, text, kind: "text" });
+function unfinished(text: string, kind = "text", index = 0): EngineText {
+  return create(EngineTextSchema, { messageId: "m1", index, text, kind });
+}
+
+// callItem is a tool call held in the window under id, made with input.
+function callItem(id: string, input: string, time = 100n): ConversationItem {
+  return item({ kind: "tool", time, tool: "Bash", input, id });
+}
+
+// resultItem is the result of the call under id, failed when error is set.
+function resultItem(id: string, text: string, error = false, time = 100n): ConversationItem {
+  return item({ kind: "result", time, id, text, error });
 }
 
 function conversation(init: Partial<Conversation> = {}): Conversation {
@@ -170,7 +180,7 @@ test("a reply holding script markup draws as text with no element", () =>
       open: false,
     },
     (container) => {
-      assert.equal(container.querySelector("script"), null);
+      assert.equal(container.querySelector("script") === null, true);
       assert.ok(container.textContent?.includes("<script>alert(1)</script>"));
     },
   ));
@@ -185,7 +195,7 @@ test("a reply holding an img onerror string draws as text with no element", () =
       open: false,
     },
     (container) => {
-      assert.equal(container.querySelector("img"), null);
+      assert.equal(container.querySelector("img") === null, true);
       assert.ok(container.textContent?.includes("<img src=x onerror=alert(1)>"));
     },
   ));
@@ -379,10 +389,10 @@ test("a question holding markup draws its title and labels as text with no eleme
       onAnswer: () => {},
     },
     (container) => {
-      assert.equal(container.querySelector("b"), null);
-      assert.equal(container.querySelector("img"), null);
-      assert.equal(container.querySelector("script"), null);
-      assert.equal(container.querySelector("a"), null);
+      assert.equal(container.querySelector("b") === null, true);
+      assert.equal(container.querySelector("img") === null, true);
+      assert.equal(container.querySelector("script") === null, true);
+      assert.equal(container.querySelector("a") === null, true);
       assert.ok(container.textContent?.includes("<b>bold</b> <img src=x onerror=alert(1)>"));
       assert.ok(container.textContent?.includes("<script>alert(1)</script>"));
       assert.ok(container.textContent?.includes("<a href=x>link</a>"));
@@ -394,7 +404,7 @@ test("the compaction rule is a button that calls onToggleOpen, and a plain rule 
   let toggles = 0;
 
   await withReader({ conversation: conversation({ items: [compaction] }), seenAt: 0, open: false }, (container) => {
-    assert.equal(container.querySelector("button"), null);
+    assert.equal(container.querySelector("button") === null, true);
     assert.ok(container.querySelector(".compaction .rule") !== null);
   });
 
@@ -521,3 +531,191 @@ test("at the 50-item cap, appending one item and dropping the oldest keeps a hel
     assert.equal(readerOf(container).querySelectorAll(".reader > .t").length, 50);
     assert.ok(rowWith(container, "held-25") === held, "the held row keeps its DOM node");
   }));
+
+// foldLine returns the call line that is a button, the line that folds a held result.
+function foldLine(container: HTMLElement): HTMLButtonElement {
+  const line = container.querySelector<HTMLButtonElement>("button.call");
+  assert.ok(line !== null, "a call with a held result draws its line as a button");
+  return line;
+}
+
+// thinkingLine returns the button of a live thinking row, the button that folds the block's text.
+function thinkingLine(container: HTMLElement): HTMLButtonElement {
+  const line = container.querySelector<HTMLButtonElement>("button.thinking");
+  assert.ok(line !== null, "a live thinking block draws its row as a button");
+  return line;
+}
+
+test("a tool item is one line of its name and input, and its input draws as text", () =>
+  withReader(
+    { conversation: conversation({ items: [callItem("c1", "curl https://example.test/a")] }), seenAt: 100, open: false },
+    (container) => {
+      assert.equal(rowTexts(container).length, 1);
+      const line = container.querySelector(".call");
+      assert.ok(line !== null, "the call draws a line");
+      assert.ok(line.textContent?.includes("Bash"));
+      assert.equal(line.querySelector(".in")?.textContent, "curl https://example.test/a");
+      assert.equal(line.querySelector("a") === null, true, "the input draws no link");
+    },
+  ));
+
+test("a call's result folds under its line: absent until the line is clicked, then under it, then folded again", () =>
+  withReader(
+    {
+      conversation: conversation({ items: [callItem("c1", "make"), resultItem("c1", "built-output")] }),
+      seenAt: 100,
+      open: false,
+    },
+    async (container) => {
+      assert.equal(rowTexts(container).length, 1, "the result is not a row of its own");
+      assert.equal(container.textContent?.includes("built-output"), false, "the result is folded");
+
+      const line = foldLine(container);
+      await clickControl(line);
+      const shown = line.nextElementSibling;
+      assert.equal(shown?.textContent, "built-output", "the result draws right under the line");
+      assert.equal(rowTexts(container).length, 1);
+
+      await clickControl(line);
+      assert.equal(container.textContent?.includes("built-output"), false, "a second click folds it");
+    },
+  ));
+
+test("a failed result marks its call's line while folded, and a succeeded one does not", () =>
+  withReader(
+    {
+      conversation: conversation({
+        items: [
+          callItem("c1", "rm -rf build"),
+          resultItem("c1", "permission denied", true),
+          callItem("c2", "make all"),
+          resultItem("c2", "ok"),
+        ],
+      }),
+      seenAt: 100,
+      open: false,
+    },
+    (container) => {
+      assert.ok(rowWith(container, "rm -rf build").textContent?.includes("✗"), "the failed line is marked");
+      assert.equal(rowWith(container, "make all").textContent?.includes("✗"), false, "the succeeded line is not");
+      assert.equal(container.textContent?.includes("permission denied"), false, "the failure stays folded");
+    },
+  ));
+
+test("a question item is one line of its tool and question, and its result folds under it", () =>
+  withReader(
+    {
+      conversation: conversation({
+        items: [
+          item({ kind: "question", time: 100n, tool: "AskUserQuestion", text: "Which schedule?", id: "q1" }),
+          resultItem("q1", "Daily"),
+        ],
+      }),
+      seenAt: 100,
+      open: false,
+    },
+    async (container) => {
+      assert.equal(rowTexts(container).length, 1, "the result is not a row of its own");
+      const line = foldLine(container);
+      assert.ok(line.textContent?.includes("Which schedule?"));
+      assert.equal(container.textContent?.includes("Daily"), false, "the result is folded");
+
+      await clickControl(line);
+      assert.equal(line.nextElementSibling?.textContent, "Daily");
+    },
+  ));
+
+test("a result whose call is not held is hidden", () =>
+  withReader(
+    {
+      conversation: conversation({
+        items: [item({ kind: "reply", time: 100n, text: "kept reply" }), resultItem("gone", "orphan-output")],
+      }),
+      seenAt: 100,
+      open: false,
+    },
+    (container) => {
+      assert.equal(rowTexts(container).length, 1);
+      assert.ok(container.textContent?.includes("kept reply"));
+      assert.equal(container.textContent?.includes("orphan-output"), false);
+    },
+  ));
+
+test("the new rule sits before the first row newer than seenAt, not before a result it skips", () =>
+  withReader(
+    {
+      conversation: conversation({
+        items: [
+          item({ kind: "reply", time: 100n, text: "old one" }),
+          callItem("c1", "make", 100n),
+          resultItem("c1", "late-output", false, 200n),
+          item({ kind: "reply", time: 300n, text: "newer reply" }),
+        ],
+      }),
+      seenAt: 150,
+      open: false,
+    },
+    (container) => {
+      const rows = rowTexts(container);
+      assert.equal(rows.length, 4);
+      assert.ok(rows[2].includes("since you looked"), `row 2 was ${rows[2]}`);
+      assert.ok(rows[3].includes("newer reply"));
+      assert.equal(container.textContent?.includes("late-output"), false);
+    },
+  ));
+
+test("a live thinking block is one row reading thinking, folded until clicked, then drawn, then folded again", () =>
+  withReader(
+    {
+      conversation: conversation({ unfinished: [unfinished("pondering the schedule", "thinking")] }),
+      seenAt: 0,
+      open: false,
+    },
+    async (container) => {
+      const rows = rowTexts(container);
+      assert.equal(rows.length, 1);
+      assert.ok(rows[0].includes("thinking"));
+      assert.equal(container.textContent?.includes("pondering the schedule"), false, "the thinking is folded");
+
+      const line = thinkingLine(container);
+      await clickControl(line);
+      assert.equal(line.nextElementSibling?.textContent, "pondering the schedule");
+
+      await clickControl(line);
+      assert.equal(container.textContent?.includes("pondering the schedule"), false, "a second click folds it");
+    },
+  ));
+
+test("an opened result stays under its call as items arrive and the window slides", () => {
+  const call = callItem("c1", "make", 200n);
+  const output = resultItem("c1", "built-output", false, 200n);
+  return withScrollingReader(readerProps([...heldItems(1, 48), call, output]), async (container, rerender) => {
+    await clickControl(foldLine(container));
+    assert.equal(rowWith(container, "make").querySelector(".result")?.textContent, "built-output");
+
+    // Two new items arrive and the two oldest drop, so the call and its result stay in the window.
+    await rerender(readerProps([...heldItems(3, 48), call, output, ...heldItems(49, 50)]));
+    const line = foldLine(container);
+    assert.equal(line.nextElementSibling?.textContent, "built-output", "the result stays open under its call");
+  });
+});
+
+test("an opened thinking block stays open as its deltas grow", () =>
+  withScrollingReader(
+    { conversation: conversation({ unfinished: [unfinished("first thought", "thinking")] }), seenAt: 0, open: false },
+    async (container, rerender) => {
+      await clickControl(thinkingLine(container));
+      assert.equal(thinkingLine(container).nextElementSibling?.textContent, "first thought");
+
+      await rerender({
+        conversation: conversation({ unfinished: [unfinished("first thought, and then more", "thinking")] }),
+        seenAt: 0,
+        open: false,
+      });
+      assert.equal(
+        thinkingLine(container).nextElementSibling?.textContent,
+        "first thought, and then more",
+        "the block stays open and shows its longer text",
+      );
+    },
+  ));
