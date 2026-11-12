@@ -64,7 +64,8 @@ func (cfg Config) withDefaults() Config {
 
 // Run serves the session in cfg.Dir until its child ends. It takes the session's lock, refuses to start while an exit
 // file from an earlier holder is undrained, and serves the socket. A stop from a controller, or the end of ctx, stops
-// the child. When the child ends, Run writes the exit file, answers the stops and releases what it took.
+// the child. When the child ends, Run writes the exit file, ends the attached controller's stream with the rest of the
+// output and the exit record, answers the stops and releases what it took.
 func Run(ctx context.Context, cfg Config) error {
 	cfg = cfg.withDefaults()
 	if err := PrepareDir(cfg.Dir); err != nil {
@@ -123,6 +124,7 @@ func openHolder(cfg Config) (*holder, error) {
 		spool:    spool,
 		child:    child,
 		stopReq:  make(chan struct{}),
+		ended:    make(chan struct{}),
 		conns:    make(map[*conn]struct{}),
 		stoppers: make(map[*conn]struct{}),
 	}, nil
@@ -149,10 +151,26 @@ type holder struct {
 	stoppers map[*conn]struct{}
 	// exited is set once the exit file is written. A stop that arrives after that is answered at once.
 	exited bool
+	// ctl is the attached controller, or nil when none is attached.
+	ctl *controller
+	// ended closes once the child has ended and exit holds its record. Each stream then sends the rest of the output and
+	// the exit frame.
+	ended chan struct{}
+	exit  Exit
+	// streaming counts the streams to attached controllers, so the end path waits for each to finish.
+	streaming sync.WaitGroup
 }
 
-// run serves connections until the child ends. Then it writes the exit file, answers the stops, closes the
-// connections and the spool, and returns what those steps report.
+// controller is the connection attached to the child's stdout stream. quit closes when the controller is replaced or
+// drops, which ends its stream.
+type controller struct {
+	conn *conn
+	quit chan struct{}
+}
+
+// run serves connections until the child ends. Then it writes the exit file, ends each stream with the rest of the
+// output and the exit record, answers the stops, closes the connections and the spool, and returns what those steps
+// report.
 func (h *holder) run(ctx context.Context) error {
 	accepting := make(chan struct{})
 	go func() {
@@ -174,10 +192,12 @@ func (h *holder) run(ctx context.Context) error {
 	default:
 	}
 
-	writeErr := WriteExit(h.exitPath, h.child.Exit(reason))
+	exit := h.child.Exit(reason)
+	writeErr := WriteExit(h.exitPath, exit)
 	// Close stops the accept loop and removes the socket file.
 	closeErr := h.listener.Close()
 	<-accepting
+	h.endStreams(exit)
 	if writeErr == nil {
 		h.answerStops()
 	}
@@ -206,8 +226,9 @@ func (h *holder) accept() {
 }
 
 // serve runs one connection. A peer of another user is closed with no frame. The first frame must be hello, which is
-// answered; any other first frame closes the connection. After hello, stop stops the child, and any other frame gets
-// an error frame and closes the connection.
+// answered; any other first frame closes the connection. After hello, stop stops the child, attach makes the
+// connection the controller, and ack trims the spool for the controller. A refused attach or ack, and any other frame,
+// gets an error frame and closes the connection.
 func (h *holder) serve(peer *conn) {
 	defer h.serving.Done()
 	defer h.drop(peer)
@@ -223,11 +244,21 @@ func (h *holder) serve(peer *conn) {
 		if err != nil {
 			return
 		}
-		if frame.Type != TypeStop {
+		switch frame.Type {
+		case TypeStop:
+			h.stop(peer)
+		case TypeAttach:
+			if !h.attach(peer, frame.ReplayFrom) {
+				return
+			}
+		case TypeAck:
+			if !h.ack(peer, frame) {
+				return
+			}
+		default:
 			h.reject(peer, frame.Type)
 			return
 		}
-		h.stop(peer)
 	}
 }
 
@@ -260,9 +291,13 @@ func (h *holder) greet(peer *conn, frames *FrameReader) bool {
 
 // reject answers a frame the holder does not serve with an error frame. The caller then closes the connection.
 func (h *holder) reject(peer *conn, frameType string) {
-	message := fmt.Sprintf("holder: unexpected %q frame", frameType)
+	h.refuse(peer, fmt.Sprintf("holder: unexpected %q frame", frameType))
+}
+
+// refuse answers peer with an error frame carrying message. The caller then closes the connection.
+func (h *holder) refuse(peer *conn, message string) {
 	if err := peer.write(Frame{Type: TypeError, Message: message}); err != nil {
-		h.cfg.Logger.Warn("holder: answer unexpected frame", "err", err)
+		h.cfg.Logger.Warn("holder: answer with error", "err", err)
 	}
 }
 
@@ -306,10 +341,136 @@ func (h *holder) answerStopped(peer *conn) {
 	}
 }
 
-// drop forgets peer and closes it.
+// attach makes peer the controller and starts its stream from replayFrom. The new stream replaces the attached
+// controller, whose connection closes. An attach the spool cannot serve gets an error frame and closes the connection,
+// and the current controller stays. It reports whether the connection goes on.
+func (h *holder) attach(peer *conn, replayFrom int64) bool {
+	h.mu.Lock()
+	if h.ctl != nil && h.ctl.conn == peer {
+		h.mu.Unlock()
+		h.refuse(peer, "holder: this connection is already attached")
+		return false
+	}
+	select {
+	case <-h.ended:
+		h.mu.Unlock()
+		h.refuse(peer, "holder: the child has ended")
+		return false
+	default:
+	}
+	start, end := h.spool.Start(), h.spool.End()
+	if replayFrom < start || replayFrom > end {
+		h.mu.Unlock()
+		h.refuse(peer, fmt.Sprintf("holder: attach at offset %d: retained output is [%d, %d)", replayFrom, start, end))
+		return false
+	}
+	prev := h.ctl
+	ctl := &controller{conn: peer, quit: make(chan struct{})}
+	h.ctl = ctl
+	if prev != nil {
+		close(prev.quit)
+	}
+	h.streaming.Add(1)
+	h.mu.Unlock()
+	if prev != nil {
+		h.drop(prev.conn)
+	}
+	go h.stream(ctl, Frame{Type: TypeAttached, Start: start, End: end}, replayFrom)
+	return true
+}
+
+// ack trims the spool to the attached controller's consumed and replay-from offsets. An ack from any other connection,
+// or one the spool refuses, gets an error frame and closes the connection. It reports whether the connection goes on.
+func (h *holder) ack(peer *conn, frame Frame) bool {
+	h.mu.Lock()
+	var err error
+	if h.ctl == nil || h.ctl.conn != peer {
+		err = errors.New("connection is not attached")
+	} else {
+		err = h.spool.Ack(frame.Consumed, frame.ReplayFrom)
+	}
+	h.mu.Unlock()
+	if err != nil {
+		h.refuse(peer, fmt.Sprintf("holder: ack: %v", err))
+		return false
+	}
+	return true
+}
+
+// stream serves ctl's stream. A failure gets an error frame and detaches the controller, unless the controller was
+// already replaced or dropped, which ends the stream on its own.
+func (h *holder) stream(ctl *controller, attached Frame, replayFrom int64) {
+	defer h.streaming.Done()
+	err := h.streamTo(ctl, attached, replayFrom)
+	if err == nil {
+		return
+	}
+	select {
+	case <-ctl.quit:
+		return
+	default:
+	}
+	h.cfg.Logger.Warn("holder: stream to controller", "err", err)
+	h.refuse(ctl.conn, err.Error())
+	h.drop(ctl.conn)
+}
+
+// streamTo writes attached, then the stdout from replayFrom: from the spool while it holds bytes past the last frame,
+// then live as the child writes more. Once the child has ended it writes the rest and the exit frame. It returns nil
+// when ctl is replaced or dropped.
+func (h *holder) streamTo(ctl *controller, attached Frame, replayFrom int64) error {
+	if err := ctl.conn.write(attached); err != nil {
+		return err
+	}
+	buf := make([]byte, ChunkBytes)
+	off := replayFrom
+	for {
+		// Changed is taken before End, so an append between the two is never missed.
+		changed := h.spool.Changed()
+		end := h.spool.End()
+		if off < end {
+			count, readErr := h.spool.ReadAt(buf[:min(end-off, ChunkBytes)], off)
+			if readErr != nil {
+				return readErr
+			}
+			out := Frame{Type: TypeOut, Offset: off, Data: buf[:count]}
+			off += int64(count)
+			if writeErr := ctl.conn.write(out); writeErr != nil {
+				return writeErr
+			}
+			continue
+		}
+		select {
+		case <-ctl.quit:
+			return nil
+		case <-changed:
+		case <-h.ended:
+			if off == h.spool.End() {
+				exit := h.exit
+				return ctl.conn.write(Frame{Type: TypeExit, Exit: &exit})
+			}
+		}
+	}
+}
+
+// endStreams records the child's exit record and closes ended, so each stream sends the rest of the output and the
+// exit frame. It returns once every stream has finished.
+func (h *holder) endStreams(exit Exit) {
+	h.mu.Lock()
+	h.exit = exit
+	close(h.ended)
+	h.mu.Unlock()
+	h.streaming.Wait()
+}
+
+// drop forgets peer and closes it. A peer that is the attached controller detaches, which ends its stream.
 func (h *holder) drop(peer *conn) {
 	h.mu.Lock()
 	delete(h.conns, peer)
+	if h.ctl != nil && h.ctl.conn == peer {
+		close(h.ctl.quit)
+		h.ctl = nil
+	}
 	h.mu.Unlock()
 	if err := peer.close(); err != nil {
 		h.cfg.Logger.Warn("holder: close connection", "err", err)
