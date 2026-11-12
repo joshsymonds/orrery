@@ -745,6 +745,127 @@ class ConversationViewTest {
         composeRule.onAllNodesWithText("synthetic twin").assertCountEquals(2)
     }
 
+    // Hard line breaks make the message three lines whatever the font's widths.
+    private val longQueued =
+        "synthetic long queued, first line\nsynthetic long queued, second line\nsynthetic long queued, third line"
+
+    /** The text layout of the message [text], read from the unmerged tree. */
+    private fun waitingLayout(text: String): TextLayoutResult {
+        val node = composeRule.onNode(hasText(text), useUnmergedTree = true).fetchSemanticsNode()
+        val results = mutableListOf<TextLayoutResult>()
+        node.config[SemanticsActions.GetTextLayoutResult].action!!.invoke(results)
+        return results.single()
+    }
+
+    @Test
+    fun longWaitingMessageDrawsOneLineAndItsRowIsNoTallerThanAShortOne() {
+        setList(
+            listOf(ConvoEntry.Reply("synthetic last reply")),
+            waiting = listOf(
+                WaitingItem("synthetic short queued", 300L, false),
+                WaitingItem(longQueued, 301L, false),
+            ),
+        )
+
+        val shortRow = waitingRow("synthetic short queued", "waiting").fetchSemanticsNode().boundsInRoot
+        val longRow = waitingRow(longQueued, "waiting").fetchSemanticsNode().boundsInRoot
+        assertTrue("the long row is no taller than a one-line row", longRow.height <= shortRow.height + 1f)
+        val layout = waitingLayout(longQueued)
+        assertEquals(1, layout.lineCount)
+        assertTrue(layout.hasVisualOverflow)
+    }
+
+    @Test
+    fun tapShowsTheWholeWaitingMessageAndASecondTapFoldsIt() {
+        setList(
+            listOf(ConvoEntry.Reply("synthetic last reply")),
+            waiting = listOf(WaitingItem(longQueued, 300L, false)),
+        )
+
+        assertEquals(1, waitingLayout(longQueued).lineCount)
+        waitingRow(longQueued, "waiting").performClick()
+        val open = waitingLayout(longQueued)
+        assertEquals(3, open.lineCount)
+        assertEquals("the last line ends where the message ends", longQueued.length, open.getLineEnd(2))
+
+        waitingRow(longQueued, "waiting").performClick()
+        assertEquals(1, waitingLayout(longQueued).lineCount)
+    }
+
+    @Test
+    fun anOpenWaitingRowStaysOnItsMessageWhenTheQueueAheadOfItIsDelivered() {
+        val waiting = mutableStateOf(
+            listOf(WaitingItem("synthetic first queued", 300L, false), WaitingItem(longQueued, 301L, false)),
+        )
+        composeRule.setContent {
+            MaterialTheme {
+                ConversationView(entries = listOf(ConvoEntry.Reply("synthetic last reply")), waiting = waiting.value)
+            }
+        }
+
+        assertEquals(1, waitingLayout(longQueued).lineCount)
+        waitingRow(longQueued, "waiting").performClick()
+        assertEquals(3, waitingLayout(longQueued).lineCount)
+
+        composeRule.runOnIdle {
+            waiting.value = listOf(WaitingItem(longQueued, 301L, false))
+        }
+        composeRule.waitForIdle()
+        assertEquals(3, waitingLayout(longQueued).lineCount)
+    }
+
+    @Test
+    fun fiveQueuedDrawThreeRowsAndAMoreRowForTheRest() {
+        setList(
+            listOf(ConvoEntry.Reply("synthetic last reply")),
+            waiting = (1..5).map { index -> WaitingItem("synthetic queued $index", 300L + index, false) },
+        )
+
+        composeRule.onAllNodesWithTag("waiting-row").assertCountEquals(3)
+        composeRule.onAllNodesWithText("waiting").assertCountEquals(3)
+        waitingRow("synthetic queued 3", "waiting").assertIsDisplayed()
+        composeRule.onAllNodesWithText("synthetic queued 4").assertCountEquals(0)
+        composeRule.onAllNodesWithText("synthetic queued 5").assertCountEquals(0)
+        composeRule.onAllNodesWithTag("waiting-more").assertCountEquals(1)
+        composeRule.onNodeWithText("+2 more").assertIsDisplayed()
+    }
+
+    @Test
+    fun threeQueuedDrawNoMoreRow() {
+        setList(
+            listOf(ConvoEntry.Reply("synthetic last reply")),
+            waiting = (1..3).map { index -> WaitingItem("synthetic queued $index", 300L + index, false) },
+        )
+
+        composeRule.onAllNodesWithTag("waiting-row").assertCountEquals(3)
+        composeRule.onAllNodesWithTag("waiting-more").assertCountEquals(0)
+        composeRule.onAllNodesWithText("more", substring = true).assertCountEquals(0)
+    }
+
+    @Test
+    fun atTheBottomANewMoreRowComesIntoView() {
+        val entries = replies(1, 40)
+        val waiting = mutableStateOf(emptyList<WaitingItem>())
+        composeRule.setContent {
+            MaterialTheme {
+                val state = rememberLazyListState()
+                list = state
+                ConversationView(entries = entries, listState = state, waiting = waiting.value)
+            }
+        }
+
+        composeRule.onNodeWithText("synthetic reply 40").assertIsDisplayed()
+        composeRule.runOnIdle {
+            waiting.value = (1..5).map { index -> WaitingItem("synthetic queued $index", 300L + index, false) }
+        }
+
+        composeRule.waitForIdle()
+        assertFalse("the list can still scroll forward", list.canScrollForward)
+        val listBottom = composeRule.onNodeWithTag("conversation-list").fetchSemanticsNode().boundsInRoot.bottom
+        val moreBottom = composeRule.onNodeWithTag("waiting-more").fetchSemanticsNode().boundsInRoot.bottom
+        assertTrue("the more row's end is below the list's end", moreBottom <= listBottom + 1f)
+    }
+
     @Test
     fun atTheBottomANewWaitingRowComesIntoView() {
         val entries = replies(1, 40)

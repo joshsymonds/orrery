@@ -263,6 +263,7 @@ Subcommands:
   - Once typing starts, it runs to its end under a 15-second limit, even if the caller has gone away.
   - Otherwise T is pasted. It goes through a buffer that only this call uses, with `paste-buffer -p`, and Enter is then sent as its own key. tmux replaces each LF with CR and sanitizes other control characters with vis(3).
 - `debug summarize --pane ID --transcript PATH [--claude PATH]` runs one synchronous summary for the pane. The base URL comes from `ANTHROPIC_BASE_URL`. The command writes `@orrery_summary` and `@orrery_label` on the pane.
+- `debug queue-replay --before TIME [--root DIR]` replays the queue rule over the transcripts under `DIR`, which defaults to `$HOME/.claude/projects`, and writes nine `name count` lines to stdout. `TIME` is an RFC 3339 time and is required. The counts hold no message text.
 - `shell --dir DIR --client TTY` opens the popup shell for `DIR` on the client at `TTY`. `DIR` must be absolute.
   - The shell session is named `_orrery-shell-` followed by the first 12 hex digits of the SHA-256 of the cleaned `DIR`. It is created detached in `DIR`, with `@orrery_dir` set to `DIR`, unless it already exists. The popup attaches it.
   - Shell sessions are left out of the tree and of `open`.

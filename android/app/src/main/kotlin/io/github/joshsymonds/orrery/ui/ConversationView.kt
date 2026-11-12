@@ -2,6 +2,7 @@ package io.github.joshsymonds.orrery.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -40,7 +41,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
@@ -68,6 +71,9 @@ private const val FOOTER_KEY = "footer"
 private const val WORKING_KEY = "working"
 // Waiting rows are keyed by their position in the queue, oldest first, so two equal items stay apart.
 private const val WAITING_KEY_PREFIX = "waiting:"
+private const val WAITING_MORE_KEY = "waiting-more"
+// At most this many waiting rows draw; the rest are counted on one "+N more" row after them.
+private const val WAITING_SHOWN = 3
 private const val WAITING_ALPHA = 0.6f
 // The divider and the tint on the rows from it on, both in the lavender of the palette.
 private const val NEW_LABEL = "new"
@@ -86,8 +92,9 @@ private enum class CallMark(val symbol: String, val colour: Color) {
  * rows that expand to their result, groups of calls that expand to their rows, compaction bars that
  * expand to their summary, and slim notice rows, with an optional footer after the last entry. While
  * [working], a working mark sits after the last entry; the [waiting] rows follow it, one per queued
- * message, and the footer comes last. Which rows are open is kept by tool id (a group by its first
- * call's id, a compaction bar by its entry key), so it survives new entries. The first entries it
+ * message up to three, then a "+N more" row for the rest, and the footer comes last. Which rows are
+ * open is kept by tool id (a group by its first call's id, a compaction bar by its entry key, a
+ * waiting row by its message's time and text), so it survives new entries. The first entries it
  * shows open at the divider's entry, at the top, when a divider is
  * drawn (see below), or at the end of the newest item otherwise. Landing leaves following on only
  * when the end is in view; otherwise the view waits for the reader to reach the end or an end
@@ -127,7 +134,8 @@ fun ConversationView(
     val keys = remember(entries) { entryKeys(entries) }
     val newerAt = remember(entries, seen) { firstNewerIndex(entries, seen) }
     val currentNewer by rememberUpdatedState(newerAt)
-    val lastIndex = entries.size + (if (working) 1 else 0) + waiting.size + (if (footer == null) 0 else 1) - 1
+    val waitingRows = minOf(waiting.size, WAITING_SHOWN) + (if (waiting.size > WAITING_SHOWN) 1 else 0)
+    val lastIndex = entries.size + (if (working) 1 else 0) + waitingRows + (if (footer == null) 0 else 1) - 1
     // Following is decided when a scroll ends, not when the first visible item moves: a slid window
     // moves it without the reader scrolling.
     LaunchedEffect(listState) {
@@ -231,8 +239,11 @@ fun ConversationView(
             }
         }
         if (working) item(key = WORKING_KEY) { WorkingMark() }
-        waiting.forEachIndexed { index, waitingItem ->
-            item(key = "$WAITING_KEY_PREFIX$index") { WaitingRow(waitingItem) }
+        waiting.take(WAITING_SHOWN).forEachIndexed { index, waitingItem ->
+            item(key = "$WAITING_KEY_PREFIX$index") { WaitingRow(waitingItem, expanded, toggle) }
+        }
+        if (waiting.size > WAITING_SHOWN) {
+            item(key = WAITING_MORE_KEY) { WaitingMore(waiting.size - WAITING_SHOWN) }
         }
         footer?.let { content -> item(key = FOOTER_KEY) { content() } }
     }
@@ -333,15 +344,25 @@ private fun PromptBlock(text: String) {
     }
 }
 
-/** A queued message in the prompt's look, dimmed, labelled "waiting" or, once cleared, "not delivered". */
+/**
+ * A queued message in the prompt's look, dimmed, labelled "waiting" or, once cleared, "not delivered".
+ * It draws as one line, cut with an ellipsis; a tap shows all of it, and a second tap folds it again.
+ */
 @Composable
-private fun WaitingRow(item: WaitingItem) {
+private fun WaitingRow(item: WaitingItem, expanded: Set<String>, onToggle: (String) -> Unit) {
+    // Open by the message's time and text, not its queue position, so it stays open as the queue ahead clears.
+    val id = "$WAITING_KEY_PREFIX${item.time}:${item.text}"
+    val isOpen = id in expanded
+    // The tap is read here rather than by clickable, which would merge the message's text into the row's node.
+    // The tap sits before the clip: a hit test against the clip's non-uniform outline misses in Robolectric.
     Row(
         modifier = Modifier
             .testTag("waiting-row")
             .fillMaxWidth()
             .padding(top = 10.dp, bottom = 12.dp)
             .height(IntrinsicSize.Min)
+            .semantics { onClick(action = { onToggle(id); true }) }
+            .pointerInput(id) { detectTapGestures(onTap = { onToggle(id) }) }
             .clip(RoundedCornerShape(topStart = 4.dp, topEnd = 12.dp, bottomEnd = 12.dp, bottomStart = 4.dp))
             .background(Mocha.Surface0.copy(alpha = WAITING_ALPHA)),
     ) {
@@ -361,9 +382,29 @@ private fun WaitingRow(item: WaitingItem) {
                 fontWeight = FontWeight.Bold,
                 letterSpacing = 0.1.em,
             )
-            Text(text = item.text, color = Mocha.Subtext0, fontSize = 14.sp)
+            Text(
+                text = item.text,
+                color = Mocha.Subtext0,
+                fontSize = 14.sp,
+                maxLines = if (isOpen) Int.MAX_VALUE else 1,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
     }
+}
+
+/** The count of queued messages past the [WAITING_SHOWN] drawn, on one quiet line below them. */
+@Composable
+private fun WaitingMore(count: Int) {
+    Text(
+        text = "+$count more",
+        modifier = Modifier
+            .testTag("waiting-more")
+            .fillMaxWidth()
+            .padding(start = 15.dp, top = 10.dp, bottom = 12.dp),
+        color = Mocha.Overlay1,
+        fontSize = 12.sp,
+    )
 }
 
 /** The reply's markdown, rendered; the parse is kept in [cache] by the reply's text. */
