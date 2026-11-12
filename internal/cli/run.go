@@ -23,6 +23,9 @@ import (
 // ExitNoGrant is the exit status of `orrery run` when CMD did not run for want of a grant.
 const ExitNoGrant = 75
 
+// ExitLimit is the exit status of `orrery run` when CMD ran past its Limit and was killed.
+const ExitLimit = 124
+
 const (
 	// exitUsage is the status of a run with no command to run.
 	exitUsage = 2
@@ -61,14 +64,21 @@ type RunConfig struct {
 	Retry time.Duration
 	// StopGrace is how long a stopped command gets after SIGTERM before SIGKILL. Zero means 30 seconds.
 	StopGrace time.Duration
-	// After returns a channel that receives once d has passed; the stop grace runs on it. Nil means time.After.
+	// Limit is how long each run of CMD under a grant may run. Each run counts from its own start, so a rerun after
+	// a stop gets its own Limit, and time queued for a grant does not count. A run still going when Limit passes gets
+	// SIGKILL, and RunWithGrant returns ExitLimit. Zero means no limit.
+	Limit time.Duration
+	// After returns a channel that receives once d has passed; the stop grace and the limit run on it. Nil means
+	// time.After.
 	After func(d time.Duration) <-chan time.Time
 }
 
-// commandEnd is how a started command ended: its exit status, and an error from waiting for it besides the exit.
+// commandEnd is how a started command ended: its exit status, an error from waiting for it besides the exit, and
+// whether the run's limit killed it.
 type commandEnd struct {
-	status int
-	err    error
+	status  int
+	err     error
+	limited bool
 }
 
 // heldGrant is a grant a run holds: the grant, the stream that holds it, and end, which ends the grant's context and so
@@ -95,7 +105,8 @@ type holdResult struct {
 // Retry until orreryd grants it again, and the command keeps running. When a member of the grant is held, the command
 // gets SIGTERM, then SIGKILL once StopGrace has passed, and the grant is reclaimed by its id to wait at its place in
 // line; the command then runs again under the grant orreryd grants. When orreryd refuses a reclaim, the command gets
-// SIGTERM and ExitNoGrant is returned.
+// SIGTERM and ExitNoGrant is returned. When Limit passes while the command runs, it gets SIGKILL and ExitLimit is
+// returned.
 func RunWithGrant(ctx context.Context, cfg RunConfig) int {
 	if len(cfg.Argv) == 0 {
 		fmt.Fprintln(cfg.Stderr, "orrery run: no command to run")
@@ -296,7 +307,8 @@ func runUnderGrant(ctx, grantCtx context.Context, cfg RunConfig, path string, he
 // runOnce starts path under held and holds the grant while it runs. grantCtx is the context held's stream is open under.
 // It returns CMD's exit status, and true when the grant stopped: then CMD has been stopped and has exited, and the grant
 // is ended. When ctx ends, CMD gets SIGTERM and its status is returned. When orreryd refuses a reclaim, CMD gets SIGTERM
-// and ExitNoGrant is returned.
+// and ExitNoGrant is returned. When Limit passes while CMD runs, CMD gets SIGKILL and ExitLimit is returned. A run that
+// Limit killed is not rerun.
 func runOnce(ctx, grantCtx context.Context, cfg RunConfig, path string, held heldGrant) (int, bool) {
 	pgid, exited, err := startCommand(&exec.Cmd{
 		Path:        path,
@@ -312,41 +324,53 @@ func runOnce(ctx, grantCtx context.Context, cfg RunConfig, path string, held hel
 		fmt.Fprintf(cfg.Stderr, "orrery run: start %s: %v\n", cfg.Argv[0], err)
 		return exitCannotRun, false
 	}
+	limit := runLimit(cfg)
 	result := make(chan holdResult, 1)
 	go func() { result <- holdGrant(grantCtx, cfg, held.granted.GetGrantId(), held.stream) }()
 	select {
 	case end := <-exited:
 		held.end()
 		<-result
-		return end.report(cfg.Stderr), false
-	case <-ctx.Done():
-		stopErr := signalGroup(pgid, syscall.SIGTERM)
+		return end.report(cfg.Stderr, cfg.Limit), false
+	case <-limit:
+		killErr := signalGroup(pgid, syscall.SIGKILL)
 		finished := <-exited
+		finished.limited = true
+		held.end()
+		<-result
+		if killErr != nil {
+			fmt.Fprintf(cfg.Stderr, "orrery run: %v\n", killErr)
+		}
+		return finished.report(cfg.Stderr, cfg.Limit), false
+	case <-ctx.Done():
+		finished, stopErr := terminate(pgid, exited, nil, limit)
 		held.end()
 		// holdGrant may still be running, so it is waited for here and writes nothing after this returns.
 		<-result
 		if stopErr != nil {
 			fmt.Fprintf(cfg.Stderr, "orrery run: %v\n", stopErr)
 		}
-		return finished.report(cfg.Stderr), false
+		return finished.report(cfg.Stderr, cfg.Limit), false
 	case res := <-result:
 		if res.stop == nil {
-			stopErr := signalGroup(pgid, syscall.SIGTERM)
-			finished := <-exited
+			finished, stopErr := terminate(pgid, exited, nil, limit)
 			held.end()
 			if stopErr != nil {
 				fmt.Fprintf(cfg.Stderr, "orrery run: %v\n", stopErr)
 			}
-			finished.report(cfg.Stderr)
+			status := finished.report(cfg.Stderr, cfg.Limit)
 			fmt.Fprintf(
 				cfg.Stderr,
 				"orrery run: the grant ended while CMD ran: orreryd refused to reclaim it: %v\n",
 				res.err,
 			)
+			if finished.limited {
+				return status, false
+			}
 			return ExitNoGrant, false
 		}
 		// The stop is written after CMD has exited, because CMD's output may still be copying to stderr until then.
-		end, stopErr := stopCommand(pgid, exited, cfg.StopGrace, cfg.After)
+		end, stopErr := terminate(pgid, exited, func() <-chan time.Time { return cfg.After(cfg.StopGrace) }, limit)
 		closeStream(res.stream, cfg.Stderr)
 		held.end()
 		if stopErr != nil {
@@ -354,33 +378,57 @@ func runOnce(ctx, grantCtx context.Context, cfg RunConfig, path string, held hel
 		}
 		members := strings.Join(res.stop.GetMembers(), ", ")
 		fmt.Fprintf(cfg.Stderr, "orrery run: members %s were held: stopped CMD\n", members)
-		return end.report(cfg.Stderr), true
+		return end.report(cfg.Stderr, cfg.Limit), !end.limited
 	}
 }
 
-// stopCommand sends SIGTERM to CMD's group, then waits for CMD to exit. The grace starts when SIGTERM is sent. When CMD
-// has not exited once the grace has passed on after, its group gets SIGKILL and stopCommand waits for that exit. It
-// returns CMD's end and the errors from signaling its group.
-func stopCommand(
+// runLimit returns the channel that receives once the run's Limit has passed, counted from now. It returns nil when the
+// run has no limit, and a nil channel never receives.
+func runLimit(cfg RunConfig) <-chan time.Time {
+	if cfg.Limit == 0 {
+		return nil
+	}
+	return cfg.After(cfg.Limit)
+}
+
+// terminate sends SIGTERM to CMD's group, then waits for CMD to exit. The grace starts when SIGTERM is sent: grace,
+// when not nil, is called then for the channel that receives once the grace has passed, and its group then gets SIGKILL
+// and terminate waits for that exit. When limit passes first, its group gets SIGKILL and the end is limited. A nil grace
+// never passes. It returns CMD's end and the errors from signaling its group.
+func terminate(
 	pgid int,
 	exited <-chan commandEnd,
-	grace time.Duration,
-	after func(d time.Duration) <-chan time.Time,
+	grace func() <-chan time.Time,
+	limit <-chan time.Time,
 ) (commandEnd, error) {
 	termErr := signalGroup(pgid, syscall.SIGTERM)
+	var graceDone <-chan time.Time
+	if grace != nil {
+		graceDone = grace()
+	}
+	var limited bool
 	select {
 	case end := <-exited:
 		return end, termErr
-	case <-after(grace):
+	case <-graceDone:
+	case <-limit:
+		limited = true
 	}
 	killErr := signalGroup(pgid, syscall.SIGKILL)
-	return <-exited, errors.Join(termErr, killErr)
+	end := <-exited
+	end.limited = limited
+	return end, errors.Join(termErr, killErr)
 }
 
-// report writes the end's wait error to stderr, if it has one, and returns the exit status.
-func (end commandEnd) report(stderr io.Writer) int {
+// report writes the end's wait error to stderr, if it has one, and returns the exit status. When the limit killed CMD,
+// it writes the limit's line and returns ExitLimit.
+func (end commandEnd) report(stderr io.Writer, limit time.Duration) int {
 	if end.err != nil {
 		fmt.Fprintf(stderr, "orrery run: %v\n", end.err)
+	}
+	if end.limited {
+		fmt.Fprintf(stderr, "orrery run: CMD ran past its limit of %v and was killed\n", limit)
+		return ExitLimit
 	}
 	return end.status
 }
