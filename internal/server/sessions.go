@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"time"
 
 	"connectrpc.com/connect"
 
@@ -12,9 +13,15 @@ import (
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
-// sessionsServer answers orrery.v1.Sessions from the store reader. A nil reader answers unavailable.
+// sessionsServer answers orrery.v1.Sessions from the store reader. A nil reader answers unavailable. poll paces the
+// polls of WatchConversation, keepalive is the time without a delta after which it sends a keepalive, sendTimeout
+// bounds each of its sends, and closing shutdown ends its streams. A nil shutdown never closes.
 type sessionsServer struct {
-	reader *store.Reader
+	reader      *store.Reader
+	poll        time.Duration
+	keepalive   time.Duration
+	sendTimeout time.Duration
+	shutdown    <-chan struct{}
 }
 
 // List answers every session row and the event seq they are current to, both from one store snapshot. Store
@@ -64,7 +71,17 @@ func sessionMessage(row store.Session) *orreryv1.Session {
 	}
 }
 
-// newSessionsHandler returns the path and handler that serve Sessions.List over reader.
-func newSessionsHandler(reader *store.Reader) (string, http.Handler) {
-	return orreryv1connect.NewSessionsHandler(sessionsServer{reader: reader})
+// newSessionsHandler returns the path and handler that serve Sessions over reader, with the stream timings and
+// shutdown signal of sessionsServer. The handler runs under withResponseWriter, so WatchConversation can reach its
+// connection.
+func newSessionsHandler(
+	reader *store.Reader,
+	poll, keepalive, sendTimeout time.Duration,
+	shutdown <-chan struct{},
+) (string, http.Handler) {
+	service := sessionsServer{
+		reader: reader, poll: poll, keepalive: keepalive, sendTimeout: sendTimeout, shutdown: shutdown,
+	}
+	path, handler := orreryv1connect.NewSessionsHandler(service)
+	return path, withResponseWriter(handler)
 }

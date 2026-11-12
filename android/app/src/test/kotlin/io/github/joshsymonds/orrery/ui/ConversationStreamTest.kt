@@ -6,6 +6,8 @@ import io.github.joshsymonds.orrery.api.ConversationDelta
 import io.github.joshsymonds.orrery.api.ConversationItem
 import io.github.joshsymonds.orrery.api.ConversationState
 import io.github.joshsymonds.orrery.api.Pane
+import io.github.joshsymonds.orrery.api.SessionRequest
+import io.github.joshsymonds.orrery.api.UnfinishedText
 import io.github.joshsymonds.orrery.api.WaitingItem
 import org.junit.Assert.assertEquals
 import org.junit.Test
@@ -25,17 +27,24 @@ class ConversationStreamTest {
         pane = pane,
     )
 
+    private fun unfinished(text: String) = UnfinishedText("msg-1", 0, "", "text", text)
+
+    private fun request(id: String) = SessionRequest(id, "question", "question-$id", listOf("yes", "no"))
+
     private fun delta(
         seq: Long,
         reset: Boolean = false,
         items: List<ConversationItem> = emptyList(),
         state: ConversationState? = null,
         transcript: String = "t1",
-    ) = ConversationDelta(transcript, seq, reset, items, state)
+        unfinished: List<UnfinishedText> = emptyList(),
+    ) = ConversationDelta(transcript, seq, reset, items, state, unfinished)
 
     private fun held(
         items: List<ConversationItem> = listOf(item("old-1")),
         pane: Pane? = pane("old-pane"),
+        unfinished: List<UnfinishedText> = emptyList(),
+        request: SessionRequest? = null,
     ) = StreamedConversation(
         transcript = "t1",
         seq = 1L,
@@ -47,6 +56,8 @@ class ConversationStreamTest {
             context = ConversationContext(tokens = 5L, window = 50L),
         ),
         pane = pane,
+        unfinished = unfinished,
+        request = request,
     )
 
     @Test
@@ -225,5 +236,92 @@ class ConversationStreamTest {
         val result = heldState.applyDelta(delta(seq = 9L, transcript = "t2"))
 
         assertEquals(heldState.copy(transcript = "t2", seq = 9L), result)
+    }
+
+    @Test
+    fun firstDeltaWithNothingHeldHoldsUnfinishedSetAndStateRequest() {
+        val absent: StreamedConversation? = null
+
+        val result = absent.applyDelta(
+            delta(seq = 3L, unfinished = listOf(unfinished("u1")), state = state("new").copy(request = request("r1"))),
+        )
+
+        assertEquals(listOf(unfinished("u1")), result.unfinished)
+        assertEquals(request("r1"), result.request)
+    }
+
+    @Test
+    fun resetHoldsDeltaUnfinishedSetAndTakesStateRequest() {
+        val result = held(unfinished = listOf(unfinished("old-u")), request = request("old-r")).applyDelta(
+            delta(
+                seq = 7L,
+                reset = true,
+                unfinished = listOf(unfinished("u2")),
+                state = state("new").copy(request = request("r2")),
+            ),
+        )
+
+        assertEquals(listOf(unfinished("u2")), result.unfinished)
+        assertEquals(request("r2"), result.request)
+    }
+
+    @Test
+    fun resetWithoutStateHoldsNullRequestAndDeltaUnfinishedSet() {
+        val result = held(unfinished = listOf(unfinished("old-u")), request = request("old-r")).applyDelta(
+            delta(seq = 8L, reset = true, unfinished = listOf(unfinished("u2")), state = null),
+        )
+
+        assertEquals(listOf(unfinished("u2")), result.unfinished)
+        assertEquals(null, result.request)
+    }
+
+    @Test
+    fun laterDeltaWithoutStateReplacesHeldUnfinishedSet() {
+        val result = held(unfinished = listOf(unfinished("old-u"))).applyDelta(
+            delta(seq = 2L, unfinished = listOf(unfinished("u2"))),
+        )
+
+        assertEquals(listOf(unfinished("u2")), result.unfinished)
+    }
+
+    @Test
+    fun laterDeltaWithStateReplacesHeldUnfinishedSet() {
+        val result = held(unfinished = listOf(unfinished("old-u"))).applyDelta(
+            delta(seq = 2L, unfinished = listOf(unfinished("u2")), state = state("new")),
+        )
+
+        assertEquals(listOf(unfinished("u2")), result.unfinished)
+    }
+
+    @Test
+    fun laterDeltaWithEmptyUnfinishedSetClearsHeldSetWithAndWithoutState() {
+        val withoutState = held(unfinished = listOf(unfinished("old-u"))).applyDelta(delta(seq = 2L))
+        val withState = held(unfinished = listOf(unfinished("old-u"))).applyDelta(delta(seq = 2L, state = state("new")))
+
+        assertEquals(emptyList<UnfinishedText>(), withoutState.unfinished)
+        assertEquals(emptyList<UnfinishedText>(), withState.unfinished)
+    }
+
+    @Test
+    fun laterDeltaWithStateTakesItsRequest() {
+        val result = held(request = request("old-r")).applyDelta(
+            delta(seq = 2L, state = state("new").copy(request = request("r2"))),
+        )
+
+        assertEquals(request("r2"), result.request)
+    }
+
+    @Test
+    fun laterDeltaWithStateWithoutRequestClearsHeldRequest() {
+        val result = held(request = request("old-r")).applyDelta(delta(seq = 2L, state = state("new")))
+
+        assertEquals(null, result.request)
+    }
+
+    @Test
+    fun laterDeltaWithoutStateKeepsHeldRequest() {
+        val result = held(request = request("old-r")).applyDelta(delta(seq = 2L, items = listOf(item("n1"))))
+
+        assertEquals(request("old-r"), result.request)
     }
 }

@@ -1,8 +1,12 @@
 package io.github.joshsymonds.orrery.api
 
 import com.connectrpc.Code
+import io.github.joshsymonds.orrery.gen.orrery.v1.AnswerRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.AnswerResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.AskRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.AskResponse
+import io.github.joshsymonds.orrery.gen.orrery.v1.InterruptRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.InterruptResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.MarkSeenResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.RegisterResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.SendKeysResponse
@@ -21,8 +25,14 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.PickerRow
 import io.github.joshsymonds.orrery.gen.orrery.v1.RegisterRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.RunRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.RunResponse
+import io.github.joshsymonds.orrery.gen.orrery.v1.SayRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.SayResponse
+import io.github.joshsymonds.orrery.gen.orrery.v1.SeenRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.SeenResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.SendKeysRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.SendTextRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.StopRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.StopResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.UnregisterRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.WaitingMessage
 import org.junit.Assert.assertEquals
@@ -439,6 +449,149 @@ class OrreryClientTest {
     @Test
     fun writeCallsNeverRetryAfterAConnectionDropsRun() {
         assertDroppedWriteIsNoAnswerAndSentOnce(PICKER_RUN) { it.run("example-token-1") }
+    }
+
+    @Test
+    fun sayPostsExactMessageWithBothHeaders() {
+        FakeOrreryServer().use { server ->
+            server.respond(CONTROL_SAY, SayResponse.getDefaultInstance())
+
+            OrreryClient(server.baseUrl).say("session-1", "echo hi", "prompt-1")
+
+            val request = server.requests.single()
+            assertConnectRequest(CONTROL_SAY, request)
+            assertEquals(
+                SayRequest.newBuilder().setId("session-1").setText("echo hi").setPromptId("prompt-1").build(),
+                SayRequest.parseFrom(request.body),
+            )
+        }
+    }
+
+    @Test
+    fun sayAnsweredAfterTenSecondsSucceeds() {
+        FakeOrreryServer().use { server ->
+            server.respond(CONTROL_SAY, SayResponse.getDefaultInstance(), delayMillis = 11_000)
+
+            OrreryClient(server.baseUrl).say("session-1", "echo hi", "prompt-1")
+
+            assertEquals(1, server.requests.size)
+        }
+    }
+
+    @Test
+    fun sayResourceExhaustedSurfacesCallExceptionCarryingCode() {
+        FakeOrreryServer().use { server ->
+            server.fail(CONTROL_SAY, Code.RESOURCE_EXHAUSTED, "cap reached")
+
+            val error = assertThrows(OrreryCallException::class.java) {
+                OrreryClient(server.baseUrl).say("session-1", "echo hi", "prompt-1")
+            }
+
+            assertEquals(Code.RESOURCE_EXHAUSTED, error.code)
+            assertEquals("cap reached", error.message)
+        }
+    }
+
+    @Test
+    fun answerPostsExactMessageWithBothHeaders() {
+        FakeOrreryServer().use { server ->
+            server.respond(CONTROL_ANSWER, AnswerResponse.getDefaultInstance())
+
+            OrreryClient(server.baseUrl).answer("session-1", "request-1", "allow")
+
+            val request = server.requests.single()
+            assertConnectRequest(CONTROL_ANSWER, request)
+            assertEquals(
+                AnswerRequest.newBuilder().setId("session-1").setRequestId("request-1").setAnswer("allow").build(),
+                AnswerRequest.parseFrom(request.body),
+            )
+        }
+    }
+
+    @Test
+    fun interruptPostsExactMessageWithBothHeaders() {
+        FakeOrreryServer().use { server ->
+            server.respond(CONTROL_INTERRUPT, InterruptResponse.getDefaultInstance())
+
+            OrreryClient(server.baseUrl).interrupt("session-1")
+
+            val request = server.requests.single()
+            assertConnectRequest(CONTROL_INTERRUPT, request)
+            assertEquals(
+                InterruptRequest.newBuilder().setId("session-1").build(),
+                InterruptRequest.parseFrom(request.body),
+            )
+        }
+    }
+
+    @Test
+    fun stopPostsExactMessageWithBothHeaders() {
+        FakeOrreryServer().use { server ->
+            server.respond(CONTROL_STOP, StopResponse.getDefaultInstance())
+
+            OrreryClient(server.baseUrl).stop("session-1")
+
+            val request = server.requests.single()
+            assertConnectRequest(CONTROL_STOP, request)
+            assertEquals(
+                StopRequest.newBuilder().setId("session-1").build(),
+                StopRequest.parseFrom(request.body),
+            )
+        }
+    }
+
+    @Test
+    fun stopNotFoundSurfacesCallExceptionCarryingCode() {
+        FakeOrreryServer().use { server ->
+            server.fail(CONTROL_STOP, Code.NOT_FOUND, "no such session")
+
+            val error = assertThrows(OrreryCallException::class.java) {
+                OrreryClient(server.baseUrl).stop("session-1")
+            }
+
+            assertEquals(Code.NOT_FOUND, error.code)
+        }
+    }
+
+    @Test
+    fun sessionSeenPostsExactMessageWithBothHeaders() {
+        FakeOrreryServer().use { server ->
+            server.respond(CONTROL_SEEN, SeenResponse.getDefaultInstance())
+
+            OrreryClient(server.baseUrl).sessionSeen("session-1")
+
+            val request = server.requests.single()
+            assertConnectRequest(CONTROL_SEEN, request)
+            assertEquals(
+                SeenRequest.newBuilder().setId("session-1").build(),
+                SeenRequest.parseFrom(request.body),
+            )
+        }
+    }
+
+    @Test
+    fun writeCallsNeverRetryAfterAConnectionDropsSay() {
+        assertDroppedWriteIsNoAnswerAndSentOnce(CONTROL_SAY) { it.say("session-1", "echo hi", "prompt-1") }
+    }
+
+    @Test
+    fun writeCallsNeverRetryAfterAConnectionDropsAnswer() {
+        assertDroppedWriteIsNoAnswerAndSentOnce(CONTROL_ANSWER) { it.answer("session-1", "request-1", "allow") }
+    }
+
+    @Test
+    fun writeCallsNeverRetryAfterAConnectionDropsInterrupt() {
+        assertDroppedWriteIsNoAnswerAndSentOnce(CONTROL_INTERRUPT) { it.interrupt("session-1") }
+    }
+
+    @Test
+    fun writeCallsNeverRetryAfterAConnectionDropsStop() {
+        assertDroppedWriteIsNoAnswerAndSentOnce(CONTROL_STOP) { it.stop("session-1") }
+    }
+
+    @Test
+    fun writeCallsNeverRetryAfterAConnectionDropsSessionSeen() {
+        assertDroppedWriteIsNoAnswerAndSentOnce(CONTROL_SEEN) { it.sessionSeen("session-1") }
     }
 
     @Test
@@ -957,5 +1110,10 @@ class OrreryClientTest {
         const val PUSH_UNREGISTER = "/orrery.v1.Push/Unregister"
         const val PICKER_ASK = "/orrery.v1.Picker/Ask"
         const val PICKER_RUN = "/orrery.v1.Picker/Run"
+        const val CONTROL_SAY = "/orrery.v1.Control/Say"
+        const val CONTROL_ANSWER = "/orrery.v1.Control/Answer"
+        const val CONTROL_INTERRUPT = "/orrery.v1.Control/Interrupt"
+        const val CONTROL_STOP = "/orrery.v1.Control/Stop"
+        const val CONTROL_SEEN = "/orrery.v1.Control/Seen"
     }
 }

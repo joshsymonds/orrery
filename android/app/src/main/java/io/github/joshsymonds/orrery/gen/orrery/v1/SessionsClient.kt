@@ -8,6 +8,7 @@ import com.connectrpc.Headers
 import com.connectrpc.MethodSpec
 import com.connectrpc.ProtocolClientInterface
 import com.connectrpc.ResponseMessage
+import com.connectrpc.ServerOnlyStreamInterface
 import com.connectrpc.StreamType
 
 /**
@@ -27,6 +28,36 @@ public class SessionsClient(
       io.github.joshsymonds.orrery.gen.orrery.v1.ListRequest::class,
       io.github.joshsymonds.orrery.gen.orrery.v1.ListResponse::class,
       StreamType.UNARY,
+    ),
+  )
+
+
+  /**
+   *  ListHeadless returns the headless sessions of the last 14 days, each row's text derived when it is read.
+   */
+  override suspend fun listHeadless(request: ListHeadlessRequest, headers: Headers): ResponseMessage<ListHeadlessResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "orrery.v1.Sessions/ListHeadless",
+      io.github.joshsymonds.orrery.gen.orrery.v1.ListHeadlessRequest::class,
+      io.github.joshsymonds.orrery.gen.orrery.v1.ListHeadlessResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
+
+  /**
+   *  WatchConversation streams the conversation of one headless session in the deltas Panes.WatchConversation sends:
+   *  a reset with the newest items when the client holds none, then the deltas that follow each change.
+   */
+  override suspend fun watchConversation(headers: Headers): ServerOnlyStreamInterface<SessionsWatchConversationRequest, SessionsWatchConversationResponse> = client.serverStream(
+    headers,
+    MethodSpec(
+    "orrery.v1.Sessions/WatchConversation",
+      io.github.joshsymonds.orrery.gen.orrery.v1.SessionsWatchConversationRequest::class,
+      io.github.joshsymonds.orrery.gen.orrery.v1.SessionsWatchConversationResponse::class,
+      StreamType.SERVER,
     ),
   )
 

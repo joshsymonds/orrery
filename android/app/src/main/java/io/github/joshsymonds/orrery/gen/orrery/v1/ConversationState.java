@@ -430,6 +430,145 @@ public  final class ConversationState extends
     bitField0_ = (bitField0_ & ~0x00000002);
   }
 
+  public static final int SESSION_FIELD_NUMBER = 6;
+  private io.github.joshsymonds.orrery.gen.orrery.v1.HeadlessSession session_;
+  /**
+   * <pre>
+   * The headless session as Sessions.ListHeadless gives it, without summary and newest_reply. Pane streams never set
+   * it.
+   * </pre>
+   *
+   * <code>.orrery.v1.HeadlessSession session = 6 [json_name = "session"];</code>
+   */
+  @java.lang.Override
+  public boolean hasSession() {
+    return ((bitField0_ & 0x00000004) != 0);
+  }
+  /**
+   * <pre>
+   * The headless session as Sessions.ListHeadless gives it, without summary and newest_reply. Pane streams never set
+   * it.
+   * </pre>
+   *
+   * <code>.orrery.v1.HeadlessSession session = 6 [json_name = "session"];</code>
+   */
+  @java.lang.Override
+  public io.github.joshsymonds.orrery.gen.orrery.v1.HeadlessSession getSession() {
+    return session_ == null ? io.github.joshsymonds.orrery.gen.orrery.v1.HeadlessSession.getDefaultInstance() : session_;
+  }
+  /**
+   * <pre>
+   * The headless session as Sessions.ListHeadless gives it, without summary and newest_reply. Pane streams never set
+   * it.
+   * </pre>
+   *
+   * <code>.orrery.v1.HeadlessSession session = 6 [json_name = "session"];</code>
+   */
+  private void setSession(io.github.joshsymonds.orrery.gen.orrery.v1.HeadlessSession value) {
+    java.util.Objects.requireNonNull(value);
+    session_ = value;
+    bitField0_ |= 0x00000004;
+  }
+  /**
+   * <pre>
+   * The headless session as Sessions.ListHeadless gives it, without summary and newest_reply. Pane streams never set
+   * it.
+   * </pre>
+   *
+   * <code>.orrery.v1.HeadlessSession session = 6 [json_name = "session"];</code>
+   */
+  @java.lang.SuppressWarnings("ReferenceEquality")
+  private void mergeSession(io.github.joshsymonds.orrery.gen.orrery.v1.HeadlessSession value) {
+    java.util.Objects.requireNonNull(value);
+    if (session_ != null &&
+        session_ != io.github.joshsymonds.orrery.gen.orrery.v1.HeadlessSession.getDefaultInstance()) {
+      session_ =
+        io.github.joshsymonds.orrery.gen.orrery.v1.HeadlessSession.newBuilder(session_).mergeFrom(value).buildPartial();
+    } else {
+      session_ = value;
+    }
+    bitField0_ |= 0x00000004;
+  }
+  /**
+   * <pre>
+   * The headless session as Sessions.ListHeadless gives it, without summary and newest_reply. Pane streams never set
+   * it.
+   * </pre>
+   *
+   * <code>.orrery.v1.HeadlessSession session = 6 [json_name = "session"];</code>
+   */
+  private void clearSession() {
+    session_ = null;
+    bitField0_ = (bitField0_ & ~0x00000004);
+  }
+
+  public static final int REQUEST_FIELD_NUMBER = 7;
+  private io.github.joshsymonds.orrery.gen.orrery.v1.OpenRequest request_;
+  /**
+   * <pre>
+   * The request the headless session waits on, unset when none is open. Pane streams never set it.
+   * </pre>
+   *
+   * <code>.orrery.v1.OpenRequest request = 7 [json_name = "request"];</code>
+   */
+  @java.lang.Override
+  public boolean hasRequest() {
+    return ((bitField0_ & 0x00000008) != 0);
+  }
+  /**
+   * <pre>
+   * The request the headless session waits on, unset when none is open. Pane streams never set it.
+   * </pre>
+   *
+   * <code>.orrery.v1.OpenRequest request = 7 [json_name = "request"];</code>
+   */
+  @java.lang.Override
+  public io.github.joshsymonds.orrery.gen.orrery.v1.OpenRequest getRequest() {
+    return request_ == null ? io.github.joshsymonds.orrery.gen.orrery.v1.OpenRequest.getDefaultInstance() : request_;
+  }
+  /**
+   * <pre>
+   * The request the headless session waits on, unset when none is open. Pane streams never set it.
+   * </pre>
+   *
+   * <code>.orrery.v1.OpenRequest request = 7 [json_name = "request"];</code>
+   */
+  private void setRequest(io.github.joshsymonds.orrery.gen.orrery.v1.OpenRequest value) {
+    java.util.Objects.requireNonNull(value);
+    request_ = value;
+    bitField0_ |= 0x00000008;
+  }
+  /**
+   * <pre>
+   * The request the headless session waits on, unset when none is open. Pane streams never set it.
+   * </pre>
+   *
+   * <code>.orrery.v1.OpenRequest request = 7 [json_name = "request"];</code>
+   */
+  @java.lang.SuppressWarnings("ReferenceEquality")
+  private void mergeRequest(io.github.joshsymonds.orrery.gen.orrery.v1.OpenRequest value) {
+    java.util.Objects.requireNonNull(value);
+    if (request_ != null &&
+        request_ != io.github.joshsymonds.orrery.gen.orrery.v1.OpenRequest.getDefaultInstance()) {
+      request_ =
+        io.github.joshsymonds.orrery.gen.orrery.v1.OpenRequest.newBuilder(request_).mergeFrom(value).buildPartial();
+    } else {
+      request_ = value;
+    }
+    bitField0_ |= 0x00000008;
+  }
+  /**
+   * <pre>
+   * The request the headless session waits on, unset when none is open. Pane streams never set it.
+   * </pre>
+   *
+   * <code>.orrery.v1.OpenRequest request = 7 [json_name = "request"];</code>
+   */
+  private void clearRequest() {
+    request_ = null;
+    bitField0_ = (bitField0_ & ~0x00000008);
+  }
+
   public static io.github.joshsymonds.orrery.gen.orrery.v1.ConversationState parseFrom(
       java.nio.ByteBuffer data)
       throws com.google.protobuf.InvalidProtocolBufferException {
@@ -961,6 +1100,154 @@ public  final class ConversationState extends
       return this;
     }
 
+    /**
+     * <pre>
+     * The headless session as Sessions.ListHeadless gives it, without summary and newest_reply. Pane streams never set
+     * it.
+     * </pre>
+     *
+     * <code>.orrery.v1.HeadlessSession session = 6 [json_name = "session"];</code>
+     */
+    @java.lang.Override
+    public boolean hasSession() {
+      return instance.hasSession();
+    }
+    /**
+     * <pre>
+     * The headless session as Sessions.ListHeadless gives it, without summary and newest_reply. Pane streams never set
+     * it.
+     * </pre>
+     *
+     * <code>.orrery.v1.HeadlessSession session = 6 [json_name = "session"];</code>
+     */
+    @java.lang.Override
+    public io.github.joshsymonds.orrery.gen.orrery.v1.HeadlessSession getSession() {
+      return instance.getSession();
+    }
+    /**
+     * <pre>
+     * The headless session as Sessions.ListHeadless gives it, without summary and newest_reply. Pane streams never set
+     * it.
+     * </pre>
+     *
+     * <code>.orrery.v1.HeadlessSession session = 6 [json_name = "session"];</code>
+     */
+    public Builder setSession(io.github.joshsymonds.orrery.gen.orrery.v1.HeadlessSession value) {
+      copyOnWrite();
+      instance.setSession(value);
+      return this;
+      }
+    /**
+     * <pre>
+     * The headless session as Sessions.ListHeadless gives it, without summary and newest_reply. Pane streams never set
+     * it.
+     * </pre>
+     *
+     * <code>.orrery.v1.HeadlessSession session = 6 [json_name = "session"];</code>
+     */
+    public Builder setSession(
+        io.github.joshsymonds.orrery.gen.orrery.v1.HeadlessSession.Builder builderForValue) {
+      copyOnWrite();
+      instance.setSession(builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * The headless session as Sessions.ListHeadless gives it, without summary and newest_reply. Pane streams never set
+     * it.
+     * </pre>
+     *
+     * <code>.orrery.v1.HeadlessSession session = 6 [json_name = "session"];</code>
+     */
+    public Builder mergeSession(io.github.joshsymonds.orrery.gen.orrery.v1.HeadlessSession value) {
+      copyOnWrite();
+      instance.mergeSession(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The headless session as Sessions.ListHeadless gives it, without summary and newest_reply. Pane streams never set
+     * it.
+     * </pre>
+     *
+     * <code>.orrery.v1.HeadlessSession session = 6 [json_name = "session"];</code>
+     */
+    public Builder clearSession() {  copyOnWrite();
+      instance.clearSession();
+      return this;
+    }
+
+    /**
+     * <pre>
+     * The request the headless session waits on, unset when none is open. Pane streams never set it.
+     * </pre>
+     *
+     * <code>.orrery.v1.OpenRequest request = 7 [json_name = "request"];</code>
+     */
+    @java.lang.Override
+    public boolean hasRequest() {
+      return instance.hasRequest();
+    }
+    /**
+     * <pre>
+     * The request the headless session waits on, unset when none is open. Pane streams never set it.
+     * </pre>
+     *
+     * <code>.orrery.v1.OpenRequest request = 7 [json_name = "request"];</code>
+     */
+    @java.lang.Override
+    public io.github.joshsymonds.orrery.gen.orrery.v1.OpenRequest getRequest() {
+      return instance.getRequest();
+    }
+    /**
+     * <pre>
+     * The request the headless session waits on, unset when none is open. Pane streams never set it.
+     * </pre>
+     *
+     * <code>.orrery.v1.OpenRequest request = 7 [json_name = "request"];</code>
+     */
+    public Builder setRequest(io.github.joshsymonds.orrery.gen.orrery.v1.OpenRequest value) {
+      copyOnWrite();
+      instance.setRequest(value);
+      return this;
+      }
+    /**
+     * <pre>
+     * The request the headless session waits on, unset when none is open. Pane streams never set it.
+     * </pre>
+     *
+     * <code>.orrery.v1.OpenRequest request = 7 [json_name = "request"];</code>
+     */
+    public Builder setRequest(
+        io.github.joshsymonds.orrery.gen.orrery.v1.OpenRequest.Builder builderForValue) {
+      copyOnWrite();
+      instance.setRequest(builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * The request the headless session waits on, unset when none is open. Pane streams never set it.
+     * </pre>
+     *
+     * <code>.orrery.v1.OpenRequest request = 7 [json_name = "request"];</code>
+     */
+    public Builder mergeRequest(io.github.joshsymonds.orrery.gen.orrery.v1.OpenRequest value) {
+      copyOnWrite();
+      instance.mergeRequest(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The request the headless session waits on, unset when none is open. Pane streams never set it.
+     * </pre>
+     *
+     * <code>.orrery.v1.OpenRequest request = 7 [json_name = "request"];</code>
+     */
+    public Builder clearRequest() {  copyOnWrite();
+      instance.clearRequest();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:orrery.v1.ConversationState)
   }
   @java.lang.Override
@@ -984,10 +1271,13 @@ public  final class ConversationState extends
             io.github.joshsymonds.orrery.gen.orrery.v1.WaitingMessage.class,
             "context_",
             "pane_",
+            "session_",
+            "request_",
           };
           java.lang.String info =
-              "\u0000\u0005\u0000\u0001\u0001\u0005\u0005\u0000\u0001\u0000\u0001\u0208\u0002\u0208" +
-              "\u0003\u001b\u0004\u1009\u0000\u0005\u1009\u0001";
+              "\u0000\u0007\u0000\u0001\u0001\u0007\u0007\u0000\u0001\u0000\u0001\u0208\u0002\u0208" +
+              "\u0003\u001b\u0004\u1009\u0000\u0005\u1009\u0001\u0006\u1009\u0002\u0007\u1009\u0003" +
+              "";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

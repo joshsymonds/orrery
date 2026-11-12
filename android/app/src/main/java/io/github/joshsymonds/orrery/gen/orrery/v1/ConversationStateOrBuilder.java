@@ -113,4 +113,44 @@ public interface ConversationStateOrBuilder extends
    * @return The pane.
    */
   io.github.joshsymonds.orrery.gen.orrery.v1.Pane getPane();
+
+  /**
+   * <pre>
+   * The headless session as Sessions.ListHeadless gives it, without summary and newest_reply. Pane streams never set
+   * it.
+   * </pre>
+   *
+   * <code>.orrery.v1.HeadlessSession session = 6 [json_name = "session"];</code>
+   * @return Whether the session field is set.
+   */
+  boolean hasSession();
+  /**
+   * <pre>
+   * The headless session as Sessions.ListHeadless gives it, without summary and newest_reply. Pane streams never set
+   * it.
+   * </pre>
+   *
+   * <code>.orrery.v1.HeadlessSession session = 6 [json_name = "session"];</code>
+   * @return The session.
+   */
+  io.github.joshsymonds.orrery.gen.orrery.v1.HeadlessSession getSession();
+
+  /**
+   * <pre>
+   * The request the headless session waits on, unset when none is open. Pane streams never set it.
+   * </pre>
+   *
+   * <code>.orrery.v1.OpenRequest request = 7 [json_name = "request"];</code>
+   * @return Whether the request field is set.
+   */
+  boolean hasRequest();
+  /**
+   * <pre>
+   * The request the headless session waits on, unset when none is open. Pane streams never set it.
+   * </pre>
+   *
+   * <code>.orrery.v1.OpenRequest request = 7 [json_name = "request"];</code>
+   * @return The request.
+   */
+  io.github.joshsymonds.orrery.gen.orrery.v1.OpenRequest getRequest();
 }

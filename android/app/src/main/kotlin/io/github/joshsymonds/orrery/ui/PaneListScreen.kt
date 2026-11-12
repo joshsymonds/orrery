@@ -123,7 +123,7 @@ fun PaneListScreen(
     LaunchedEffect(client, generation) {
         load = PaneLoad.Loading
         load = try {
-            PaneLoad.Loaded(withContext(Dispatchers.IO) { client.panes() })
+            PaneLoad.Loaded(withContext(Dispatchers.IO) { client.panes() + client.headless() })
         } catch (error: IOException) {
             PaneLoad.Failed
         }

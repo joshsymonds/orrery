@@ -109,6 +109,23 @@ func (f *urlFake) List(
 	return connect.NewResponse(&orreryv1.ListResponse{Seq: f.listSeq}), nil
 }
 
+// ListHeadless is not used by `session --url`; the fake answers it unimplemented.
+func (f *urlFake) ListHeadless(
+	context.Context,
+	*connect.Request[orreryv1.ListHeadlessRequest],
+) (*connect.Response[orreryv1.ListHeadlessResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("not used by session --url"))
+}
+
+// WatchConversation is not used by `session --url`; the fake answers it unimplemented.
+func (f *urlFake) WatchConversation(
+	context.Context,
+	*connect.Request[orreryv1.SessionsWatchConversationRequest],
+	*connect.ServerStream[orreryv1.SessionsWatchConversationResponse],
+) error {
+	return connect.NewError(connect.CodeUnimplemented, errors.New("not used by session --url"))
+}
+
 func (f *urlFake) Watch(
 	_ context.Context,
 	req *connect.Request[orreryv1.WatchRequest],

@@ -165,3 +165,93 @@ func TestEngineHistoryRejectsNonPositiveLimit(t *testing.T) {
 		}
 	}
 }
+
+// unfinishedHistoryStore writes engine session e1 with a finished-looking row set and two unfinished blocks, one of
+// them nested under a parent tool use, and engine session e2 with its own unfinished block. It returns the store
+// path and the writer, which stays open so the test can apply more ops.
+func unfinishedHistoryStore(t *testing.T) (string, *Store) {
+	t.Helper()
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "orrery.db")
+	s := openWriterAt(t, path)
+	if err := s.ApplyEngine(ctx, []EngineOp{
+		EngineAdd{ID: "e1", Dir: "/a", State: "working"},
+		EngineSet{ID: "e1", Changes: EngineChanges{
+			Seen: strOf("1700000100"), Question: strOf("which file?"), Reason: strOf("stopped"),
+		}},
+		EngineAdd{ID: "e2", Dir: "/b", State: "idle"},
+		EngineText{ID: "e1", MessageID: "m1", Index: 0, ParentToolUseID: "t1", Kind: "tool_result", Text: "nested"},
+		EngineText{ID: "e1", MessageID: "m1", Index: 0, Kind: "text", Text: "first"},
+		EngineText{ID: "e2", MessageID: "m9", Index: 0, Kind: "text", Text: "other"},
+	}, engineNowAt()); err != nil {
+		t.Fatalf("ApplyEngine: %v", err)
+	}
+	return path, s
+}
+
+func TestEngineHistoryCarriesRowFieldsAndUnfinishedText(t *testing.T) {
+	path, _ := unfinishedHistoryStore(t)
+
+	history, err := NewReader(path).EngineHistory(context.Background(), "e1", 0, 10)
+	if err != nil {
+		t.Fatalf("EngineHistory(e1): %v", err)
+	}
+	if history.Kind != KindEngine || history.Dir != "/a" || history.State != "working" {
+		t.Fatalf("row kind/dir/state: got %q %q %q", history.Kind, history.Dir, history.State)
+	}
+	if history.Changed != "1700000000" || history.Seen != "1700000100" ||
+		history.Question != "which file?" || history.Reason != "stopped" {
+		t.Fatalf("row changed/seen/question/reason: got %q %q %q %q",
+			history.Changed, history.Seen, history.Question, history.Reason)
+	}
+	want := []UnfinishedText{
+		{SessionID: "e1", MessageID: "m1", BlockIndex: 0, ParentToolUseID: "", Kind: "text", Text: "first"},
+		{SessionID: "e1", MessageID: "m1", BlockIndex: 0, ParentToolUseID: "t1", Kind: "tool_result", Text: "nested"},
+	}
+	if !reflect.DeepEqual(history.Unfinished, want) {
+		t.Fatalf("unfinished: got %+v, want %+v", history.Unfinished, want)
+	}
+}
+
+func TestEngineHistoryDropsTextAfterEngineTextDone(t *testing.T) {
+	path, s := unfinishedHistoryStore(t)
+	ctx := context.Background()
+	if err := s.ApplyEngine(ctx, []EngineOp{
+		EngineTextDone{ID: "e1", MessageID: "m1", Index: 0},
+	}, engineNowAt()); err != nil {
+		t.Fatalf("ApplyEngine EngineTextDone: %v", err)
+	}
+
+	history, err := NewReader(path).EngineHistory(ctx, "e1", 0, 10)
+	if err != nil {
+		t.Fatalf("EngineHistory(e1): %v", err)
+	}
+	want := []UnfinishedText{
+		{SessionID: "e1", MessageID: "m1", BlockIndex: 0, ParentToolUseID: "t1", Kind: "tool_result", Text: "nested"},
+	}
+	if !reflect.DeepEqual(history.Unfinished, want) {
+		t.Fatalf("unfinished after done: got %+v, want %+v", history.Unfinished, want)
+	}
+}
+
+func TestEngineHistoryReadsStepKindWithNoUnfinishedText(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "orrery.db")
+	s := openWriterAt(t, path)
+	if err := s.ApplyEngine(ctx, []EngineOp{
+		EngineAdd{ID: "s1", Dir: "/c", State: "idle", Kind: KindStep},
+	}, engineNowAt()); err != nil {
+		t.Fatalf("ApplyEngine: %v", err)
+	}
+
+	history, err := NewReader(path).EngineHistory(ctx, "s1", 0, 10)
+	if err != nil {
+		t.Fatalf("EngineHistory(s1): %v", err)
+	}
+	if history.Kind != KindStep {
+		t.Fatalf("kind: got %q, want %q", history.Kind, KindStep)
+	}
+	if len(history.Unfinished) != 0 {
+		t.Fatalf("unfinished: got %+v, want none", history.Unfinished)
+	}
+}
