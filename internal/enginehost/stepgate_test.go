@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -15,13 +16,34 @@ import (
 )
 
 // newStepGateFixture returns a step start fixture whose Environ also sets HOME and XDG_CONFIG_HOME to a temporary
-// directory, so gate resolution never reads the real machine pool file.
+// directory, so gate resolution never reads the real machine pool file. That directory's machine pool file declares
+// pool_a, pool_b and the default gate pool, which the gates these tests name need.
 func newStepGateFixture(t *testing.T) *stepStartFixture {
 	t.Helper()
 	f := newStepStartFixture(t)
 	home := t.TempDir()
+	stepGateMachinePoolsFile(t, home, "pool_a", "pool_b", gates.DefaultPool)
 	f.steps.environ = []string{"PATH=" + os.Getenv("PATH"), "HOME=" + home, "XDG_CONFIG_HOME=" + home}
 	return f
+}
+
+// stepGatePoolsText returns a pool file that declares each pool named, with two members and the commands every pool
+// carries. Each pool's members are numbered from the pool's position, so no two pools share one.
+func stepGatePoolsText(pools ...string) string {
+	var b strings.Builder
+	for i, name := range pools {
+		fmt.Fprintf(&b, "[pools.%s]\nhost = \"test-host\"\ncap = 2\nmembers = [\"m%d\", \"m%d\"]\n"+
+			"wake = [\"wake\"]\nwake_limit = 60\nstatus = [\"status\"]\nstatus_limit = 60\n"+
+			"admit = [\"admit\"]\nadmit_limit = 60\n\n", name, 2*i+1, 2*i+2)
+	}
+	return b.String()
+}
+
+// stepGateMachinePoolsFile writes the machine pool file under home, which is the XDG_CONFIG_HOME a test names, and
+// declares pools in it.
+func stepGateMachinePoolsFile(t *testing.T, home string, pools ...string) {
+	t.Helper()
+	stepGateWriteFile(t, filepath.Join(home, "orrery", "pools.toml"), stepGatePoolsText(pools...))
 }
 
 // stepGateShell returns the path of sh. A gate's argv[0] must contain a slash, so the tests name sh by its path.
@@ -260,7 +282,9 @@ func TestStepsStartNamedGateReadsTheLastEnvironEntry(t *testing.T) {
 	stepGateProjectFile(t, linked, shell)
 	// With no HOME, the machine pool file is located only through XDG_CONFIG_HOME, and the empty earlier entry must not
 	// win over the later one. The gate is in the project file, so resolution consults the environment.
-	f.steps.environ = []string{"PATH=" + os.Getenv("PATH"), "XDG_CONFIG_HOME=", "XDG_CONFIG_HOME=" + t.TempDir()}
+	config := t.TempDir()
+	stepGateMachinePoolsFile(t, config, gates.DefaultPool)
+	f.steps.environ = []string{"PATH=" + os.Getenv("PATH"), "XDG_CONFIG_HOME=", "XDG_CONFIG_HOME=" + config}
 
 	if _, err := f.steps.Start(t.Context(), stepGateNamedStart(linked, "lint", "")); err != nil {
 		t.Fatalf("Start: %v", err)

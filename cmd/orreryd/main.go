@@ -468,10 +468,13 @@ func startSessions(
 			Store:    st,
 			Logger:   logger,
 		})
+		host.startBroker(ctx, hostName, st, logger)
+		// host.pools is nil when the broker's restore failed, which leaves the gates on their locks.
 		steps, err := enginehost.NewSteps(enginehost.StepsConfig{
 			Sessions:  host.manager,
 			Store:     st,
 			Writer:    host.writer,
+			Pools:     host.pools,
 			Locks:     opts.gateLocks,
 			Worktrees: filepath.Join(filepath.Dir(storePath), "step-worktrees"),
 			Environ:   os.Environ(),
@@ -479,6 +482,7 @@ func startSessions(
 			Haiku:     enginehost.NewHaiku(enginehost.HaikuConfig{Claude: opts.claude, Environ: os.Environ()}),
 		})
 		if err != nil {
+			host.stopBroker()
 			return nil, fmt.Errorf("step engine: %w", err)
 		}
 		host.steps = steps
@@ -503,7 +507,6 @@ func startSessions(
 			host.manager.RunIdle(idleCtx)
 			close(host.idleDone)
 		}()
-		host.startBroker(ctx, hostName, st, logger)
 	}
 	ln, err := enginehost.Listen(protocol.SessionSocketPath(opts.socket))
 	if err != nil {

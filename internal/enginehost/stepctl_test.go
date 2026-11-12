@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/engine/session"
+	"github.com/joshsymonds/orrery/internal/gates"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -49,19 +50,24 @@ type stepCtlFixture struct {
 	writer    *Writer
 	worktrees string
 	locks     []string
+	environ   []string
 }
 
-// newStepCtlFixture returns a fixture with one Steps over a real store and writer.
+// newStepCtlFixture returns a fixture with one Steps over a real store and writer. Its environment names a config home
+// whose machine pool file declares the pools stepGateFileText's gate needs and the default gate pool.
 func newStepCtlFixture(t *testing.T) *stepCtlFixture {
 	t.Helper()
 	s, _ := openStore(t)
 	writer := NewWriter(WriterConfig{Applier: s, Tick: 5 * time.Millisecond})
 	startRun(t, writer)
+	home := t.TempDir()
+	stepGateMachinePoolsFile(t, home, "pool_a", "pool_b", gates.DefaultPool)
 	f := &stepCtlFixture{
 		store:     s,
 		writer:    writer,
 		worktrees: t.TempDir(),
 		locks:     []string{filepath.Join(t.TempDir(), "gate.lock")},
+		environ:   []string{"PATH=" + os.Getenv("PATH"), "HOME=" + home, "XDG_CONFIG_HOME=" + home},
 		sessions:  &stepCtlSessions{stepStartSessions: &stepStartSessions{writer: writer}},
 	}
 	f.steps = f.newSteps(t)
@@ -77,7 +83,7 @@ func (f *stepCtlFixture) newSteps(t *testing.T) *Steps {
 		Writer:    f.writer,
 		Locks:     f.locks,
 		Worktrees: f.worktrees,
-		Environ:   []string{"PATH=" + os.Getenv("PATH")},
+		Environ:   f.environ,
 		Logger:    slog.New(slog.DiscardHandler),
 	})
 	if err != nil {

@@ -5,12 +5,16 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/gates"
+	"github.com/joshsymonds/orrery/internal/grants"
+	"github.com/joshsymonds/orrery/internal/pools"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -44,7 +48,7 @@ const stepDefaultWatchTick = 5 * time.Second
 //
 // GateName names a gate to resolve once at start, from GatesFile when it is set and else from the project file for
 // Workspace. GatesFile must be absolute and needs GateName. A start without GateName runs no gate. A named gate takes its
-// argv and limit from its definition.
+// argv and limit from its definition, and each pool its needs name must be declared by a pool file for Workspace.
 type StepStart struct {
 	Agent      string
 	Prompt     string
@@ -69,8 +73,8 @@ type StepStore interface {
 }
 
 // StepsConfig configures Steps. Sessions starts and stops the step sessions, Store reads the step rows and Writer
-// stores the ops of the step loops. Locks are the gate lock files and Environ is the environment gates run in, and the
-// one a named gate is resolved under.
+// stores the ops of the step loops. Pools queues each named gate's run for its needs, and a nil Pools runs the gate
+// under Locks instead. Environ is the environment gates run in, and the one a named gate is resolved under.
 // Worktrees is the directory read-only steps' worktrees are added under, one per step id. A nil Logger discards. Haiku
 // makes the monitor and judge calls of every started step, and nil makes none. Now is the clock each step's watch reads,
 // time.Now when nil. WatchTick is how often each started step's watch is checked, five seconds when zero.
@@ -78,6 +82,7 @@ type StepsConfig struct {
 	Sessions  stepSessions
 	Store     StepStore
 	Writer    *Writer
+	Pools     PoolCommands
 	Locks     []string
 	Worktrees string
 	Environ   []string
@@ -94,6 +99,7 @@ type Steps struct {
 	sessions  stepSessions
 	store     StepStore
 	writer    *Writer
+	pools     PoolCommands
 	locks     []string
 	worktrees string
 	environ   []string
@@ -125,6 +131,7 @@ func NewSteps(cfg StepsConfig) (*Steps, error) {
 		sessions:  cfg.Sessions,
 		store:     cfg.Store,
 		writer:    cfg.Writer,
+		pools:     cfg.Pools,
 		locks:     cfg.Locks,
 		worktrees: cfg.Worktrees,
 		environ:   cfg.Environ,
@@ -192,6 +199,7 @@ func (s *Steps) Start(ctx context.Context, start StepStart) (string, error) {
 	cfg := stepRunConfig{
 		id: id, schema: start.Schema, doneValue: doneValue, sessions: s.sessions, writer: s.writer, logger: s.logger,
 		writing: !start.ReadOnly, start: commit, owned: start.Owned, gate: gate.argv, gateLimit: gateLimit,
+		gateName: gate.name, gateSource: gate.source, grant: gate.grant, pools: s.pools,
 		locks: s.locks, environ: s.environ, prompt: start.Prompt, now: s.now, modelLimit: modelLimit,
 	}
 	if s.haiku != nil {
@@ -309,20 +317,24 @@ func checkStepStart(start StepStart) error {
 	return nil
 }
 
-// stepGate is the gate a step runs: its argv and limit, with the name it was resolved from, the file that declares it and
-// the pool members it holds. A start that names no gate has no name, source or needs, and a zero limit.
+// stepGate is the gate a step runs: its argv and limit, with the name it was resolved from, the file that declares it,
+// the pool members it holds and the grant a run of it queues. A start that names no gate has no name, source, needs or
+// grant, and a zero limit.
 type stepGate struct {
 	argv   []string
 	limit  time.Duration
 	name   string
 	source string
 	needs  []store.StepNeed
+	grant  grants.Request
 }
 
 // resolveStepGate returns the gate start runs. A start without GateName runs no gate, and GatesFile set without GateName
-// is refused. A named gate is resolved once, from start.GatesFile or else the project file for start.Workspace. It is
-// refused with an error matching ErrBadGate when GatesFile is not absolute and when the name does not resolve. The
-// resolved argv is used as the gate's definition gives it; nothing is looked up on PATH.
+// is refused. A named gate is resolved once, from start.GatesFile or else the project file for start.Workspace, and the
+// pools every pool file for start.Workspace declares are loaded with it. It is refused with an error matching ErrBadGate
+// when GatesFile is not absolute, when the name does not resolve, when the pool files do not load, and when a need is
+// for a pool no pool file declares. The resolved argv is used as the gate's definition gives it; nothing is looked up
+// on PATH.
 func (s *Steps) resolveStepGate(ctx context.Context, start StepStart) (stepGate, error) {
 	if start.GateName == "" {
 		if start.GatesFile != "" {
@@ -333,13 +345,29 @@ func (s *Steps) resolveStepGate(ctx context.Context, start StepStart) (stepGate,
 	if start.GatesFile != "" && !filepath.IsAbs(start.GatesFile) {
 		return stepGate{}, fmt.Errorf("%w: gates file %s is not an absolute path", ErrBadGate, start.GatesFile)
 	}
-	resolved, err := gates.Resolve(ctx, start.GateName, start.GatesFile, start.Workspace, stepGetenv(s.environ))
+	getenv := stepGetenv(s.environ)
+	resolved, err := gates.Resolve(ctx, start.GateName, start.GatesFile, start.Workspace, getenv)
 	if err != nil {
 		return stepGate{}, fmt.Errorf("%w: %w", ErrBadGate, err)
+	}
+	project, defs, err := pools.Load(ctx, start.Workspace, getenv)
+	if err != nil {
+		return stepGate{}, fmt.Errorf("%w: %w", ErrBadGate, err)
+	}
+	needs := gateGrantNeeds(resolved.Needs)
+	for _, need := range needs {
+		if !slices.ContainsFunc(defs, func(p pools.Pool) bool { return p.Name == need.Pool }) {
+			return stepGate{}, fmt.Errorf(
+				"%w: gate %s needs pool %s, which no pool file declares", ErrBadGate, start.GateName, need.Pool,
+			)
+		}
 	}
 	return stepGate{
 		argv: resolved.Argv, limit: resolved.Limit, name: start.GateName, source: resolved.Source,
 		needs: stepNeeds(resolved.Needs),
+		grant: grants.Request{
+			Project: project, Pools: defs, Needs: needs, ClientPID: os.Getpid(), Command: resolved.Argv,
+		},
 	}, nil
 }
 
@@ -348,6 +376,15 @@ func stepNeeds(needs []gates.Need) []store.StepNeed {
 	out := make([]store.StepNeed, 0, len(needs))
 	for _, need := range needs {
 		out = append(out, store.StepNeed{Pool: need.Pool, Count: need.Count})
+	}
+	return out
+}
+
+// gateGrantNeeds returns needs as the grants a gate's run requests them.
+func gateGrantNeeds(needs []gates.Need) []grants.Need {
+	out := make([]grants.Need, 0, len(needs))
+	for _, need := range needs {
+		out = append(out, grants.Need{Pool: need.Pool, Count: need.Count})
 	}
 	return out
 }
