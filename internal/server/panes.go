@@ -18,7 +18,8 @@ import (
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
 )
 
-// panesServer answers orrery.v1.Panes with the tmux client, conversation state, locks and seen reporter it holds.
+// panesServer answers orrery.v1.Panes with the tmux client, conversation state, locks, seen and read reporters, and
+// clock it holds.
 type panesServer struct {
 	tmux                  *tmuxctl.Client
 	newest                *conversation.Newest
@@ -27,16 +28,19 @@ type panesServer struct {
 	textLocks             *paneLocks
 	seenLocks             *paneLocks
 	report                cli.SeenReporter
+	readReport            ReadReporter
+	now                   func() time.Time
 	conversationPoll      time.Duration
 	conversationKeepalive time.Duration
 	sendTimeout           time.Duration
 	shutdown              <-chan struct{}
 }
 
-// newPanesHandler returns the path and handler that serve Panes over the tmux client, conversation state, locks and
-// seen reporter it is given. WatchConversation polls every conversationPoll and sends a keepalive after
-// conversationKeepalive without a delta. Its sends are bounded by sendTimeout, and its streams end when shutdown
-// closes. The handler runs under withResponseWriter, so the stream reaches its connection.
+// newPanesHandler returns the path and handler that serve Panes over the tmux client, conversation state, locks,
+// seen and read reporters, and clock it is given. Screen and Conversation report each read to readReport, dated by
+// now. WatchConversation polls every conversationPoll and sends a keepalive after conversationKeepalive without a
+// delta. Its sends are bounded by sendTimeout, and its streams end when shutdown closes. The handler runs under
+// withResponseWriter, so the stream reaches its connection.
 func newPanesHandler(
 	tmux *tmuxctl.Client,
 	newest *conversation.Newest,
@@ -44,6 +48,8 @@ func newPanesHandler(
 	queues *conversation.Queues,
 	textLocks, seenLocks *paneLocks,
 	report cli.SeenReporter,
+	readReport ReadReporter,
+	now func() time.Time,
 	conversationPoll, conversationKeepalive, sendTimeout time.Duration,
 	shutdown <-chan struct{},
 ) (string, http.Handler) {
@@ -55,6 +61,8 @@ func newPanesHandler(
 		textLocks:             textLocks,
 		seenLocks:             seenLocks,
 		report:                report,
+		readReport:            readReport,
+		now:                   now,
 		conversationPoll:      conversationPoll,
 		conversationKeepalive: conversationKeepalive,
 		sendTimeout:           sendTimeout,
@@ -126,6 +134,7 @@ func (s panesServer) Screen(
 	if err != nil {
 		return nil, connectError(internalError())
 	}
+	s.reportRead(pane.ID)
 	return connect.NewResponse(&v1.ScreenResponse{Screen: []byte(screen)}), nil
 }
 
@@ -148,7 +157,16 @@ func (s panesServer) Conversation(
 	if err != nil {
 		return nil, connectError(err)
 	}
+	s.reportRead(req.Msg.GetPane())
 	return connect.NewResponse(conversationMessage(conv)), nil
+}
+
+// reportRead tells the read reporter that the phone read pane at the clock's time, or does nothing when there is no
+// reporter.
+func (s panesServer) reportRead(pane string) {
+	if s.readReport != nil {
+		s.readReport(pane, s.now().Unix())
+	}
 }
 
 // SendText answers Panes.SendText. The pane is checked first, and the text is sent by sendText under the pane's text
