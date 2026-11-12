@@ -331,6 +331,8 @@ class EpicScreenTest {
         FakeOrreryServer().use { server ->
             server.respond(EPICS_GET, body())
             setScreen(server)
+            // Wait for the load to land, so no request is still in flight when the server closes at the end.
+            awaitText("example-epic")
 
             clickTag("epic-back")
 
