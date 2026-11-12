@@ -503,6 +503,9 @@ func serveStartPane(t *testing.T, tmuxServer tmuxctl.Server) string {
 // socket. A Panes.Screen read of the pane answers the phone and sends one read report naming the pane and the time of
 // the read.
 func TestServeReportsPaneReadToDaemon(t *testing.T) {
+	// tmux prints the list-panes field separator as "_" without a UTF-8 locale, as in the nix build sandbox, and
+	// serve's pane check then fails. The tmux server and clients this test starts inherit this locale.
+	t.Setenv("LC_ALL", "C.UTF-8")
 	tmuxServer := serveNewTmux(t)
 	pane := serveStartPane(t, tmuxServer)
 	daemonSocket, daemon := listenDaemon(t)
