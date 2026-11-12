@@ -70,6 +70,7 @@ class OrreryPushServiceTest {
         questionHash: String = "qh-synthetic-1",
         session: String? = null,
         time: String? = null,
+        silent: Any? = null,
     ): ByteArray = JSONObject()
         .put("pane", pane)
         .put("host", "synthetic-host")
@@ -82,6 +83,7 @@ class OrreryPushServiceTest {
         .apply {
             session?.let { put("session", it) }
             time?.let { put("time", it) }
+            silent?.let { put("silent", it) }
         }
         .toString()
         .toByteArray(Charsets.UTF_8)
@@ -197,6 +199,30 @@ class OrreryPushServiceTest {
         service.onMessage(PushMessage(payload(time = noticeTime), decrypted = true), instance)
 
         assertEquals(noticeTime.toLong(), posted().extras.getLong(EXTRA_TIME))
+    }
+
+    @Test
+    fun silentNoticePostsOnSilentChannel() {
+        service.onMessage(PushMessage(payload(silent = "true"), decrypted = true), instance)
+
+        assertEquals(PushNotifier.SILENT_CHANNEL_ID, posted().channelId)
+    }
+
+    @Test
+    fun noticeWithoutSilentKeyPostsOnDefaultChannel() {
+        service.onMessage(PushMessage(payload(), decrypted = true), instance)
+
+        assertEquals(PushNotifier.CHANNEL_ID, posted().channelId)
+    }
+
+    @Test
+    fun noticeWithSilentValueOtherThanStringTrueStaysShownOnDefaultChannel() {
+        listOf("false", "TRUE", "yes", "1", "", true, false).forEach { value ->
+            manager.cancelAll()
+            service.onMessage(PushMessage(payload(silent = value), decrypted = true), instance)
+
+            assertEquals("silent value $value", PushNotifier.CHANNEL_ID, posted().channelId)
+        }
     }
 
     @Test
