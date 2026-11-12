@@ -91,7 +91,7 @@ func newStepNudgeFixture(t *testing.T) *stepNudgeFixture {
 	writer := NewWriter(WriterConfig{Applier: s, Tick: 5 * time.Millisecond})
 	startRun(t, writer)
 	sessions := &nudgeSessions{stepStartSessions: &stepStartSessions{writer: writer}}
-	steps := NewSteps(StepsConfig{
+	steps, err := NewSteps(StepsConfig{
 		Sessions:  sessions,
 		Store:     s,
 		Writer:    writer,
@@ -100,6 +100,9 @@ func newStepNudgeFixture(t *testing.T) *stepNudgeFixture {
 		Environ:   []string{"PATH=" + os.Getenv("PATH")},
 		Logger:    slog.New(slog.DiscardHandler),
 	})
+	if err != nil {
+		t.Fatalf("NewSteps: %v", err)
+	}
 	t.Cleanup(steps.Close)
 	return &stepNudgeFixture{steps: steps, sessions: sessions, store: s, writer: writer}
 }
@@ -394,6 +397,20 @@ func TestStepsNudgeHeldContinueFailureEndsStepFailed(t *testing.T) {
 	}
 	if end := f.status(t, id).End; end != stepLoopEndFailed {
 		t.Errorf("end = %q, want %q", end, stepLoopEndFailed)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		f.steps.mu.Lock()
+		_, inLoops := f.steps.loops[id]
+		_, inRuns := f.steps.runs[id]
+		f.steps.mu.Unlock()
+		if !inLoops && !inRuns {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("step %s still in loops (%t) or runs (%t) after its failed Nudge ended it", id, inLoops, inRuns)
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 

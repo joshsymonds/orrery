@@ -37,6 +37,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/tmuxconf"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
 	"github.com/joshsymonds/orrery/internal/tui"
+	"github.com/joshsymonds/orrery/internal/webui"
 )
 
 // Exit codes.
@@ -349,6 +350,7 @@ func runServe(ctx context.Context, opts globals, args []string, getenv func(stri
 		Home:       home,
 		Picker:     servePickerConfig(tmux, getenv),
 		ReportSeen: seenReporter(opts.daemonSocket, getenv),
+		Web:        webui.FS(),
 	})
 	if err != nil {
 		return fmt.Errorf("serve: %w", err)

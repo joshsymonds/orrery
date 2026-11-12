@@ -167,6 +167,11 @@ func (r *stepRun) run(ctx context.Context) {
 			return
 		case call := <-r.calls:
 			call.reply <- call.act(ctx)
+			select {
+			case <-r.ended:
+				return
+			default:
+			}
 		case <-r.ticks:
 			if r.held.Load() {
 				continue

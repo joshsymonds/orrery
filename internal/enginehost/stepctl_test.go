@@ -71,7 +71,7 @@ func newStepCtlFixture(t *testing.T) *stepCtlFixture {
 // newSteps returns a Steps over the fixture's store, writer and sessions. It is closed at cleanup.
 func (f *stepCtlFixture) newSteps(t *testing.T) *Steps {
 	t.Helper()
-	steps := NewSteps(StepsConfig{
+	steps, err := NewSteps(StepsConfig{
 		Sessions:  f.sessions,
 		Store:     f.store,
 		Writer:    f.writer,
@@ -80,6 +80,9 @@ func (f *stepCtlFixture) newSteps(t *testing.T) *Steps {
 		Environ:   []string{"PATH=" + os.Getenv("PATH")},
 		Logger:    slog.New(slog.DiscardHandler),
 	})
+	if err != nil {
+		t.Fatalf("NewSteps: %v", err)
+	}
 	t.Cleanup(steps.Close)
 	return steps
 }
