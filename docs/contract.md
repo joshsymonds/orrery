@@ -331,9 +331,8 @@ Subcommands:
   - `holds outside pools in use` introduces each hold on a member of no pool in use, as `MEMBER held AGE`.
   - With no pool in use, the first line is `no pools in use`.
   - Exit statuses: `0` after it writes; `1` when `orreryd` cannot be reached, answers an error, or the output cannot be written, with the reason on stderr; `2` for an argument.
-- `hold [--off] MEMBER` places an owner hold on `MEMBER` through `orreryd`, or with `--off` frees it (see [Owner holds](#owner-holds)). Flags come before `MEMBER`. Success writes nothing.
-  - Without `--off`, `MEMBER` must be a member that the pool files for the working directory declare, read as `run` reads them (see [Pool files](#pool-files)). An undeclared member exits 1 with `orrery hold: member "MEMBER" is not declared by the pool files`. `--off` reads no pool files.
-  - Exit statuses: `0` on success; `1` when reading the pool files fails, when the member is not declared, or when `orreryd` refuses or cannot be reached, with the reason on stderr. A refusal includes a malformed name and a `--off` of a member that is not held. `2` for a usage error: any argument count other than one `MEMBER`, or an unknown flag.
+- `hold [--off] MEMBER` places an owner hold on `MEMBER` through `orreryd`, or with `--off` frees it (see [Owner holds](#owner-holds)). Flags come before `MEMBER`. Success writes nothing. `hold` reads no pool files: `orreryd` alone judges whether `MEMBER` is a name it accepts.
+  - Exit statuses: `0` on success; `1` when `orreryd` refuses or cannot be reached, with the reason on stderr. A refusal includes a malformed name and a `--off` of a member that is not held. `2` for a usage error: any argument count other than one `MEMBER`, or an unknown flag.
 
 Exit codes:
 
