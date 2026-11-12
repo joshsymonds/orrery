@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -201,25 +200,16 @@ func TestServePickerAskAnswersMissingBinary(t *testing.T) {
 	getenv := func(key string) string { return map[string]string{"HOME": t.TempDir()}[key] }
 	baseURL := servePickerHandler(t, tmux, servePickerConfig(tmux, getenv))
 
-	client := &http.Client{Transport: serveLoginTransport{base: http.DefaultTransport}}
-	resp, err := client.Post(baseURL+"/v1/picker/ask", "application/json", strings.NewReader(`{"text":"example"}`))
-	if err != nil {
-		t.Fatalf("POST ask: %v", err)
+	picker := orreryv1connect.NewPickerClient(
+		&http.Client{Transport: serveLoginTransport{base: http.DefaultTransport}}, baseURL)
+	ctx, cancel := context.WithTimeout(t.Context(), serveTestWait)
+	defer cancel()
+	_, err = picker.Ask(ctx, connect.NewRequest(&orreryv1.AskRequest{Text: "example"}))
+	if connect.CodeOf(err) != connect.CodeUnavailable {
+		t.Fatalf("Picker.Ask code = %v, want unavailable (err %v)", connect.CodeOf(err), err)
 	}
-	t.Cleanup(func() {
-		if err := resp.Body.Close(); err != nil {
-			t.Errorf("Close body: %v", err)
-		}
-	})
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		t.Fatalf("read body: %v", err)
-	}
-	if resp.StatusCode != http.StatusBadGateway {
-		t.Fatalf("ask status = %d, want %d (body %q)", resp.StatusCode, http.StatusBadGateway, body)
-	}
-	if !strings.Contains(string(body), "zoxide") {
-		t.Fatalf("ask body = %q, want it to name zoxide", body)
+	if !strings.Contains(err.Error(), "zoxide") {
+		t.Fatalf("Picker.Ask error = %v, want it to name zoxide", err)
 	}
 }
 

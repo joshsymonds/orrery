@@ -21,7 +21,6 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -32,7 +31,12 @@ import (
 	"testing"
 	"time"
 
+	"connectrpc.com/connect"
+	"google.golang.org/protobuf/proto"
+
 	"github.com/joshsymonds/orrery/internal/archive"
+	orreryv1 "github.com/joshsymonds/orrery/internal/gen/orrery/v1"
+	"github.com/joshsymonds/orrery/internal/gen/orrery/v1/orreryv1connect"
 	"github.com/joshsymonds/orrery/internal/help"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/push"
@@ -2857,9 +2861,18 @@ func apiDo(t *testing.T, method, target, body string, headers map[string]string)
 	return apiResponse{status: resp.StatusCode, contentType: resp.Header.Get("Content-Type"), body: string(raw)}
 }
 
-// asLogin returns the headers of a request from login, which the guard matches exactly.
-func asLogin(login string) map[string]string {
-	return map[string]string{server.HeaderLogin: login}
+// guardHeaders returns the headers of a Connect request from login that carries the client header the guard needs.
+func guardHeaders(login string) map[string]string {
+	return map[string]string{server.HeaderLogin: login, server.HeaderClient: serveClient}
+}
+
+// withHeaders returns a Connect request for msg that carries headers.
+func withHeaders[T any](msg *T, headers map[string]string) *connect.Request[T] {
+	req := connect.NewRequest(msg)
+	for key, value := range headers {
+		req.Header().Set(key, value)
+	}
+	return req
 }
 
 // wantStatus fails the test unless got has the status want, showing the body.
@@ -2888,58 +2901,62 @@ func freshSubscription(t *testing.T, endpoint string) push.Subscription {
 	}
 }
 
-// assertServeAPI proves the read routes admit each allowed login, answer 403 without one or with a stranger's, and
-// serve the pane's screen as text.
-func assertServeAPI(t *testing.T, base, pane string) {
+// registerBody returns the binary Push.Register request that stores sub.
+func registerBody(t *testing.T, sub push.Subscription) string {
 	t.Helper()
-	for _, login := range []string{exampleLogin, otherLogin} {
-		listed := apiDo(t, http.MethodGet, base+"/v1/panes", "", asLogin(login))
-		wantStatus(t, listed, http.StatusOK)
-		var panes []protocol.Pane
-		if err := json.Unmarshal([]byte(listed.body), &panes); err != nil {
-			t.Fatalf("decode panes %q: %v", listed.body, err)
-		}
-		if len(panes) != 1 || panes[0].ID != pane {
-			t.Fatalf("panes %+v for %s, want exactly pane %s", panes, login, pane)
-		}
-	}
-	wantStatus(t, apiDo(t, http.MethodGet, base+"/v1/panes", "", nil), http.StatusForbidden)
-	wantStatus(t, apiDo(t, http.MethodGet, base+"/v1/panes", "", asLogin(strangerLogin)), http.StatusForbidden)
-
-	screenPath := base + "/v1/panes/" + url.PathEscape(pane) + "/screen"
-	screenResp := apiDo(t, http.MethodGet, screenPath, "", asLogin(exampleLogin))
-	wantStatus(t, screenResp, http.StatusOK)
-	if !strings.HasPrefix(screenResp.contentType, "text/plain") {
-		t.Fatalf("screen Content-Type %q, want text/plain", screenResp.contentType)
-	}
-	if !strings.Contains(screenResp.body, "example-screen") {
-		t.Fatalf("screen %q does not show the pane's text", screenResp.body)
-	}
-}
-
-// assertServeWrites proves the registration route stores a subscription from an allowed login that sends the client
-// header, and refuses a write that lacks the header without storing it.
-func assertServeWrites(t *testing.T, base, stateHome string) {
-	t.Helper()
-	payload, err := json.Marshal(freshSubscription(t, serveEndpoint))
+	raw, err := proto.Marshal(&orreryv1.RegisterRequest{Endpoint: sub.Endpoint, P256Dh: sub.P256dh, Auth: sub.Auth})
 	if err != nil {
 		t.Fatalf("encode subscription: %v", err)
 	}
+	return string(raw)
+}
+
+// assertServeAPI proves the Panes calls admit each allowed login, refuse a call without one or with a stranger's, and
+// serve the pane's screen as text.
+func assertServeAPI(t *testing.T, base, pane string) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), waitLimit)
+	defer cancel()
+	panes := orreryv1connect.NewPanesClient(&http.Client{}, base)
+	for _, login := range []string{exampleLogin, otherLogin} {
+		listed, err := panes.List(ctx, withHeaders(&orreryv1.PanesListRequest{}, guardHeaders(login)))
+		if err != nil {
+			t.Fatalf("Panes.List for %s: %v", login, err)
+		}
+		if got := listed.Msg.GetPanes(); len(got) != 1 || got[0].GetId() != pane {
+			t.Fatalf("panes %v for %s, want exactly pane %s", got, login, pane)
+		}
+	}
+	listPath := base + orreryv1connect.PanesListProcedure
+	noLogin := map[string]string{server.HeaderClient: serveClient}
+	wantStatus(t, apiDo(t, http.MethodGet, listPath, "", noLogin), http.StatusForbidden)
+	wantStatus(t, apiDo(t, http.MethodGet, listPath, "", guardHeaders(strangerLogin)), http.StatusForbidden)
+
+	screen, err := panes.Screen(ctx, withHeaders(&orreryv1.ScreenRequest{Pane: pane}, guardHeaders(exampleLogin)))
+	if err != nil {
+		t.Fatalf("Panes.Screen: %v", err)
+	}
+	if !strings.Contains(string(screen.Msg.GetScreen()), "example-screen") {
+		t.Fatalf("screen %q does not show the pane's text", screen.Msg.GetScreen())
+	}
+}
+
+// assertServeWrites proves a Push.Register call stores a subscription from an allowed login that sends the client
+// header, and that the guard refuses the same call without the header and stores nothing.
+func assertServeWrites(t *testing.T, base, stateHome string) {
+	t.Helper()
+	target := base + orreryv1connect.PushRegisterProcedure
 	writeHeaders := map[string]string{
 		server.HeaderLogin:  exampleLogin,
 		server.HeaderClient: serveClient,
-		"Content-Type":      "application/json",
+		"Content-Type":      "application/proto",
 	}
-	register := apiDo(t, http.MethodPost, base+"/v1/push/register", string(payload), writeHeaders)
-	wantStatus(t, register, http.StatusNoContent)
+	register := apiDo(t, http.MethodPost, target, registerBody(t, freshSubscription(t, serveEndpoint)), writeHeaders)
+	wantStatus(t, register, http.StatusOK)
 
-	forged, err := json.Marshal(freshSubscription(t, "https://"+servePushHost+"/synthetic-forged"))
-	if err != nil {
-		t.Fatalf("encode forged subscription: %v", err)
-	}
-	withoutClient := map[string]string{server.HeaderLogin: exampleLogin, "Content-Type": "application/json"}
-	wantStatus(t, apiDo(t, http.MethodPost, base+"/v1/push/register", string(forged), withoutClient),
-		http.StatusForbidden)
+	forged := registerBody(t, freshSubscription(t, "https://"+servePushHost+"/synthetic-forged"))
+	withoutClient := map[string]string{server.HeaderLogin: exampleLogin, "Content-Type": "application/proto"}
+	wantStatus(t, apiDo(t, http.MethodPost, target, forged, withoutClient), http.StatusForbidden)
 
 	stored, err := push.NewStore(filepath.Join(stateHome, "orrery", "push.json"), []string{servePushHost})
 	if err != nil {
