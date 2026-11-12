@@ -1453,11 +1453,12 @@ function makeStep(id: string, init: MessageInitShape<typeof EpicStepSchema> = {}
   return create(EpicStepSchema, { id, task: id, agent: "builder", doing: "", held: false, ...init });
 }
 
-// detailOf is the Get response for an epic whose tasks carry the given statuses, one task per status.
-function detailOf(epic: Epic, statuses: string[]): EpicsGetResponse {
+// detailOf is the Get response for an epic whose tasks carry the given statuses, one task per status, and its steps.
+function detailOf(epic: Epic, statuses: string[], steps: EpicStep[] = []): EpicsGetResponse {
   return create(EpicsGetResponseSchema, {
     epic,
     tasks: statuses.map((status, index) => ({ effort: 1, slug: `task-${index}`, subject: `Subject ${index}`, status })),
+    steps,
   });
 }
 
@@ -1665,5 +1666,153 @@ test("a click on a step moves the cursor to it, and a click on a link in its tex
     assert.equal(cursorKey(container), "step:s1");
     await settle();
     assert.equal(fake.callsTo(markPanePath).length, 0, "a click writes no seen");
+  });
+});
+
+// shownEpicColumn is the right column for the cursor's epic or step while it is shown, or null while it is hidden.
+function shownEpicColumn(container: HTMLElement): HTMLElement | null {
+  return container.querySelector<HTMLElement>('aside.side[aria-label="epic"]:not([hidden])');
+}
+
+function requireEpicColumn(container: HTMLElement): HTMLElement {
+  const column = shownEpicColumn(container);
+  assert.ok(column, "the epic column is shown");
+  return column;
+}
+
+// columnSlug is the slug the epic column names, which tells one epic's column from another's.
+function columnSlug(column: HTMLElement): string | null {
+  return column.querySelector(".epic-head .slug")?.textContent ?? null;
+}
+
+// markedStep is the label of the step the column marks, or null when it marks none.
+function markedStep(column: HTMLElement): string | null {
+  return column.querySelector(".step.cur .label")?.textContent ?? null;
+}
+
+// twoStepEpic is a live epic with two steps, each on one of its tasks: the first done, the second pending.
+function twoStepEpic(): { epic: Epic; detail: EpicsGetResponse } {
+  const steps = [makeStep("s1", { task: "task-0" }), makeStep("s2", { task: "task-1" })];
+  const epic = makeEpic(widgetsRepo, "first", { runningSteps: steps });
+  return { epic, detail: detailOf(epic, ["done", "pending", "gap"], steps) };
+}
+
+test("on an epic entry the right column draws a ring per task and marks no step", () => {
+  const { epic, detail } = twoStepEpic();
+  const epics = epicsView([epic], new Map([[epic.id, detail]]));
+  return withApp({ epics }, async (container) => {
+    await press("j");
+    assert.equal(cursorKey(container), epicKey(epic));
+    const column = requireEpicColumn(container);
+    assert.equal(
+      column.previousElementSibling?.getAttribute("aria-label"),
+      "pinned reader",
+      "the column follows the pinned reader",
+    );
+    assert.equal(column.parentElement?.classList.contains("panes"), true, "the column sits in the panes");
+    assert.equal(columnSlug(column), "first");
+    assert.equal(column.querySelectorAll("circle.ring").length, 3, "one ring per task");
+    assert.equal(column.querySelector(".ring.cur"), null, "no ring is marked");
+    assert.equal(column.querySelector(".step.cur"), null, "no step is marked");
+  });
+});
+
+test("on a step entry the right column draws the same epic and marks that step", () => {
+  const { epic, detail } = twoStepEpic();
+  const epics = epicsView([epic], new Map([[epic.id, detail]]));
+  return withApp({ epics }, async (container) => {
+    await press("j");
+    await press("j");
+    assert.equal(cursorKey(container), "step:s1");
+    assert.equal(markedStep(requireEpicColumn(container)), "task-0");
+    await press("j");
+    assert.equal(cursorKey(container), "step:s2");
+    const column = requireEpicColumn(container);
+    assert.equal(columnSlug(column), "first");
+    assert.equal(column.querySelectorAll("circle.ring").length, 3, "one ring per task");
+    assert.equal(markedStep(column), "task-1");
+    assert.equal(column.querySelectorAll(".ring.cur").length, 1, "the step's task ring is marked");
+  });
+});
+
+test("a pane row hides the right column, and an epic shows it again", () => {
+  const { epic, detail } = twoStepEpic();
+  const epics = epicsView([epic], new Map([[epic.id, detail]]));
+  return withApp({ epics }, async (container) => {
+    await press("j");
+    assert.ok(shownEpicColumn(container), "the column shows on an epic entry");
+    await press("j");
+    await press("j");
+    await press("j");
+    assert.equal(cursorKey(container), "c");
+    assert.equal(shownEpicColumn(container), null, "a pane row hides the column");
+    await press("k");
+    await press("k");
+    await press("k");
+    assert.equal(cursorKey(container), epicKey(epic));
+    assert.ok(shownEpicColumn(container), "the column shows again");
+  });
+});
+
+test("a session row hides the right column", () => {
+  const { epic, detail } = twoStepEpic();
+  const epics = epicsView([epic], new Map([[epic.id, detail]]));
+  return withApp({ rows: [sessionRow], epics }, async (container) => {
+    assert.equal(cursorKey(container), epicKey(epic));
+    assert.ok(shownEpicColumn(container), "the column shows on an epic entry");
+    await press("j");
+    await press("j");
+    await press("j");
+    assert.equal(cursorKey(container), "s1");
+    assert.equal(shownEpicColumn(container), null, "a session row hides the column");
+  });
+});
+
+test("an epic with no detail shows epic unavailable in the right column", () => {
+  return withApp({ epics: oneEpic() }, async (container) => {
+    await press("j");
+    assert.equal(requireEpicColumn(container).textContent, "epic unavailable");
+    await press("j");
+    assert.equal(cursorKey(container), "step:s1");
+    assert.equal(
+      requireEpicColumn(container).textContent,
+      "epic unavailable",
+      "a step of that epic is unavailable too",
+    );
+  });
+});
+
+test("with a row pinned, the right column follows the cursor from one epic's steps to another's", () => {
+  const first = makeEpic(widgetsRepo, "first", { runningSteps: [makeStep("s1"), makeStep("s2")] });
+  const second = makeEpic(gadgetsRepo, "second", { runningSteps: [makeStep("s3")] });
+  const epics = epicsView(
+    [first, second],
+    new Map([
+      [
+        first.id,
+        detailOf(first, ["done", "pending"], [makeStep("s1", { task: "task-0" }), makeStep("s2", { task: "task-1" })]),
+      ],
+      [second.id, detailOf(second, ["gap"], [makeStep("s3", { task: "task-0" })])],
+    ]),
+  );
+  return withApp({ epics }, async (container) => {
+    await press("|");
+    assert.ok(pinnedColumn(container), "row a is pinned");
+    await press("j");
+    assert.equal(cursorKey(container), epicKey(first));
+    assert.equal(columnSlug(requireEpicColumn(container)), "first");
+    await press("j");
+    assert.equal(markedStep(requireEpicColumn(container)), "task-0");
+    await press("j");
+    assert.equal(markedStep(requireEpicColumn(container)), "task-1");
+    await press("j");
+    assert.equal(cursorKey(container), epicKey(second));
+    assert.equal(columnSlug(requireEpicColumn(container)), "second");
+    assert.equal(markedStep(requireEpicColumn(container)), null);
+    await press("j");
+    assert.equal(cursorKey(container), "step:s3");
+    assert.equal(columnSlug(requireEpicColumn(container)), "second");
+    assert.equal(markedStep(requireEpicColumn(container)), "task-0");
+    assert.ok(pinnedColumn(container), "the pinned column stays open");
   });
 });

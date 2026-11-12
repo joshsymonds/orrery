@@ -14,6 +14,7 @@ import {
   type StepItem,
   withEpicsGroup,
 } from "./epics";
+import { EpicView } from "./epicview";
 import { follow } from "./follow";
 import { type ParsedQuestion, parseQuestion } from "./question";
 import { Reader } from "./reader";
@@ -41,6 +42,7 @@ type Item = Row | EpicItem | StepItem;
 const stateWaiting = "waiting";
 const noDirectoryTitle = "no directory";
 const tasksUnavailableText = "tasks unavailable";
+const epicUnavailableText = "epic unavailable";
 const seenFailedText = "could not mark seen";
 const answerFailedText = "no answer was sent";
 
@@ -128,6 +130,11 @@ export function App({
   const cursorRow = cursorItem !== null && isRow(cursorItem) ? cursorItem : null;
   const cursorKey = cursorItem?.key ?? "";
   const cursorRowKey = cursorRow?.key ?? "";
+  // The cursor's epic or step entry, which the right column draws whether or not a row is pinned. A step entry draws
+  // the epic it belongs to, with the step marked; an epic entry marks no step.
+  const cursorEpic = cursorItem !== null && !isRow(cursorItem) ? cursorItem : null;
+  const cursorStepId = cursorEpic?.kind === "step" ? cursorEpic.id : "";
+  const epicDetail = cursorEpic === null ? undefined : epics.details.get(epicIdOf(cursorEpic));
   const shownIndex = Math.max(index, 0);
 
   // The held cursor follows the entry shown, so a first render or a clamp does not leave it on a stale key.
@@ -550,6 +557,14 @@ export function App({
             </div>
           ))}
         </section>
+        <aside class="side" aria-label="epic" hidden={cursorEpic === null}>
+          {cursorEpic !== null &&
+            (epicDetail === undefined ? (
+              <p class="side-note">{epicUnavailableText}</p>
+            ) : (
+              <EpicView detail={epicDetail} cursorStep={cursorStepId} />
+            ))}
+        </aside>
       </div>
     </main>
   );
@@ -613,6 +628,11 @@ function resolveIndex(items: Item[], cursor: Cursor): number {
 // isRow tells a row from an epic or step entry by its kind.
 function isRow(item: Item): item is Row {
   return item.kind === "pane" || item.kind === "session";
+}
+
+// epicIdOf is the id of the epic an epic or step entry belongs to, which the epics' details are held by.
+function epicIdOf(entry: EpicItem | StepItem): string {
+  return entry.kind === "epic" ? entry.id : entry.epic;
 }
 
 // entriesOf lists a section's entries in the order they are drawn: each epic with its steps, then the rows.
