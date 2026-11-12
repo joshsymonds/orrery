@@ -375,7 +375,7 @@ fun PaneScreen(
             exit = shrinkVertically(tween(QUICK_KEYS_FOLD_MILLIS)) + fadeOut(tween(QUICK_KEYS_FOLD_MILLIS)),
             label = "quick-keys",
         ) {
-            QuickKeys(paneId, client)
+            QuickKeys(paneId, client, state = current?.state.orEmpty(), changed = current?.changed ?: 0L)
         }
     }
 }

@@ -1,10 +1,15 @@
 package io.github.joshsymonds.orrery.ui
 
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.hapticfeedback.HapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasText
@@ -16,6 +21,8 @@ import androidx.compose.ui.test.performScrollTo
 import io.github.joshsymonds.orrery.api.FakeOrreryServer
 import io.github.joshsymonds.orrery.api.OrreryClient
 import com.connectrpc.Code
+import io.github.joshsymonds.orrery.gen.orrery.v1.Pane as PaneProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.PanesListResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.SendKeysRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.SendKeysResponse
 import org.junit.Assert.assertEquals
@@ -29,10 +36,19 @@ import org.robolectric.annotation.Config
 
 private const val PANE_ID = "%3"
 private const val KEYS_PATH = "/orrery.v1.Panes/SendKeys"
+private const val PANES_PATH = "/orrery.v1.Panes/List"
 private const val NOT_SENT = "key not sent"
+private const val NOTHING_CHANGED = "nothing changed"
 private const val TIMEOUT_MILLIS = 5_000L
 private const val FLASH_MILLIS = 300L
+private const val WINDOW_MILLIS = 5_000L
+private const val CHANGED_AT = 1_000L
+private const val LATER = 2_000L
 
+/** The results a window can show, none of them the send's "key not sent". */
+private val RESULTS = listOf(NOTHING_CHANGED, "now done", "now working", "now waiting for you", "now ended")
+
+@OptIn(ExperimentalTestApi::class)
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35])
 class QuickKeysTest {
@@ -194,20 +210,147 @@ class QuickKeysTest {
         }
     }
 
+    @Test
+    fun escSentThenStateMovingToDoneReadsNowDone() {
+        FakeOrreryServer().use { server ->
+            server.respond(KEYS_PATH, SendKeysResponse.getDefaultInstance())
+            servePane(server, state = "working", changed = CHANGED_AT)
+            val shown = ShownPane()
+            setQuickKeys(server, shown)
+
+            composeRule.onNodeWithText("Esc").performClick()
+            composeRule.waitForIdle()
+            composeRule.waitUntil(TIMEOUT_MILLIS) { keyRequests(server) == 1 }
+
+            composeRule.runOnIdle { shown.state = "done" }
+            composeRule.waitUntilExactlyOneExists(hasText("now done"), TIMEOUT_MILLIS)
+            assertEquals("the change shows the result without a read", 0, panesRequests(server))
+        }
+    }
+
+    @Test
+    fun aChangedTimeInsideTheWindowReadsNowWorking() {
+        FakeOrreryServer().use { server ->
+            server.respond(KEYS_PATH, SendKeysResponse.getDefaultInstance())
+            servePane(server, state = "working", changed = CHANGED_AT)
+            val shown = ShownPane()
+            setQuickKeys(server, shown)
+
+            composeRule.onNodeWithText("Esc").performClick()
+            composeRule.waitForIdle()
+            composeRule.waitUntil(TIMEOUT_MILLIS) { keyRequests(server) == 1 }
+
+            composeRule.runOnIdle { shown.changed = LATER }
+            composeRule.waitUntilExactlyOneExists(hasText("now working"), TIMEOUT_MILLIS)
+        }
+    }
+
+    @Test
+    fun emptyStateInsideTheWindowReadsNowEnded() {
+        FakeOrreryServer().use { server ->
+            server.respond(KEYS_PATH, SendKeysResponse.getDefaultInstance())
+            servePane(server, state = "working", changed = CHANGED_AT)
+            val shown = ShownPane()
+            setQuickKeys(server, shown)
+
+            composeRule.onNodeWithText("Ctrl-C").performClick()
+            composeRule.waitForIdle()
+            composeRule.waitUntil(TIMEOUT_MILLIS) { keyRequests(server) == 1 }
+
+            composeRule.runOnIdle { shown.state = "" }
+            composeRule.waitUntilExactlyOneExists(hasText("now ended"), TIMEOUT_MILLIS)
+        }
+    }
+
+    @Test
+    fun failedSendShowsKeyNotSentAndNoWindow() {
+        FakeOrreryServer().use { server ->
+            server.fail(KEYS_PATH, Code.INTERNAL_ERROR, "boom")
+            servePane(server, state = "working", changed = CHANGED_AT)
+            val shown = ShownPane()
+            setQuickKeys(server, shown)
+
+            composeRule.onNodeWithText("Esc").performClick()
+            composeRule.waitForIdle()
+            composeRule.waitUntil(TIMEOUT_MILLIS) { notSentShown() }
+
+            composeRule.mainClock.autoAdvance = false
+            composeRule.runOnIdle { shown.state = "done" }
+            composeRule.mainClock.advanceTimeBy(WINDOW_MILLIS, ignoreFrameDuration = true)
+            composeRule.waitForIdle()
+            assertEquals("a failed send opens no window, so no read", 0, panesRequests(server))
+            assertNoResultShown("a failed send")
+            assertTrue("the failure stays shown", notSentShown())
+        }
+    }
+
+    @Test
+    fun otherKeysNeverShowAResult() {
+        FakeOrreryServer().use { server ->
+            server.respond(KEYS_PATH, SendKeysResponse.getDefaultInstance())
+            servePane(server, state = "working", changed = CHANGED_AT)
+            val shown = ShownPane()
+            setQuickKeys(server, shown)
+
+            listOf("Enter", "←", "↑", "↓", "→").forEachIndexed { index, label ->
+                composeRule.onNodeWithText(label).performScrollTo().performClick()
+                composeRule.waitForIdle()
+                composeRule.waitUntil(TIMEOUT_MILLIS) { keyRequests(server) == index + 1 }
+            }
+            composeRule.runOnIdle { shown.state = "done" }
+            composeRule.mainClock.autoAdvance = false
+            composeRule.mainClock.advanceTimeBy(WINDOW_MILLIS * 2, ignoreFrameDuration = true)
+            composeRule.waitForIdle()
+
+            assertEquals("no key opens a window", 0, panesRequests(server))
+            assertNoResultShown("the other keys")
+        }
+    }
+
+    private fun servePane(server: FakeOrreryServer, state: String, changed: Long) {
+        server.respond(
+            PANES_PATH,
+            PanesListResponse.newBuilder()
+                .addPanes(PaneProto.newBuilder().setId(PANE_ID).setState(state).setChanged(changed))
+                .build(),
+        )
+    }
+
+    private fun keyRequests(server: FakeOrreryServer): Int =
+        server.requests.count { it.method == "POST" && it.rawPath == KEYS_PATH }
+
+    private fun panesRequests(server: FakeOrreryServer): Int =
+        server.requests.count { it.method == "POST" && it.rawPath == PANES_PATH }
+
     private fun notSentShown(): Boolean =
         composeRule.onAllNodesWithText(NOT_SENT).fetchSemanticsNodes().isNotEmpty()
+
+    private fun resultShown(text: String): Boolean =
+        composeRule.onAllNodesWithText(text).fetchSemanticsNodes().isNotEmpty()
+
+    private fun assertNoResultShown(context: String) {
+        RESULTS.forEach { result ->
+            assertFalse("$context shows no \"$result\"", resultShown(result))
+        }
+    }
 
     private fun flashing(label: String): Boolean =
         composeRule.onNode(hasText(label) and hasClickAction()).fetchSemanticsNode()
             .config.getOrElse(Flashing) { false }
 
-    private fun setQuickKeys(server: FakeOrreryServer) {
+    private fun setQuickKeys(server: FakeOrreryServer, shown: ShownPane = ShownPane()) {
         val client = OrreryClient(server.baseUrl)
         composeRule.setContent {
             CompositionLocalProvider(LocalHapticFeedback provides haptic) {
-                QuickKeys(paneId = PANE_ID, client = client)
+                QuickKeys(paneId = PANE_ID, client = client, state = shown.state, changed = shown.changed)
             }
         }
+    }
+
+    /** The pane's state and changed time as the screen shows them; a test moves them. */
+    private class ShownPane {
+        var state by mutableStateOf("working")
+        var changed by mutableLongStateOf(CHANGED_AT)
     }
 
     private class RecordingHaptic : HapticFeedback {
