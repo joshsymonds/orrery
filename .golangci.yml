@@ -556,6 +556,13 @@ linters:
           - gosec
         text: 'G204'
 
+      # The desk popup runs notify-send and pw-play from PATH with argv and no shell, the notice text
+      # after --, so the G204 finding is the intended design, as for tmuxctl (effort-1 decision E6).
+      - path: 'internal/desk/popup\.go'
+        linters:
+          - gosec
+        text: 'G204'
+
 run:
   timeout: 5m
   concurrency: 0
