@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/protocol"
+	"github.com/joshsymonds/orrery/internal/stamp"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
 )
 
@@ -47,6 +48,7 @@ const (
 type Config struct {
 	Claude  string            // path of the claude binary
 	Models  map[string]string // patchbay context name to summary model, see protocol.SummaryModel
+	Home    string            // the user's home directory, under which context stamps are found; "" finds none
 	Tmux    *tmuxctl.Client
 	Timeout time.Duration                          // per-run limit; zero selects DefaultTimeout
 	Now     func() time.Time                       // clock for the throttle; nil selects time.Now
@@ -58,6 +60,7 @@ type Config struct {
 type Request struct {
 	PaneID               string
 	BaseURL              string // the session's ANTHROPIC_BASE_URL
+	Dir                  string // the hook frame's cwd, "" when unknown
 	TranscriptPath       string
 	LastAssistantMessage string // Stop's last_assistant_message, "" otherwise
 	Stop                 bool   // true on Stop, false while working
@@ -67,6 +70,7 @@ type Request struct {
 type Summarizer struct {
 	claude  string
 	models  map[string]string
+	home    string
 	tmux    *tmuxctl.Client
 	timeout time.Duration
 	now     func() time.Time
@@ -110,6 +114,7 @@ func New(cfg Config) (*Summarizer, error) {
 	return &Summarizer{
 		claude:          cfg.Claude,
 		models:          cfg.Models,
+		home:            cfg.Home,
 		tmux:            cfg.Tmux,
 		timeout:         timeout,
 		now:             now,
@@ -127,6 +132,7 @@ func New(cfg Config) (*Summarizer, error) {
 type Job struct {
 	PaneID    string
 	BaseURL   string // the session's ANTHROPIC_BASE_URL, "" when unset
+	Dir       string // the session's cwd, "" when unknown
 	Input     string // transcript excerpt
 	WantLabel bool
 }
@@ -269,7 +275,7 @@ func (s *Summarizer) summarizeRequest(ctx context.Context, req Request, epoch in
 		return
 	}
 	wantLabel := s.wantLabel(req.PaneID, excerpt.Exchanges)
-	job := Job{PaneID: req.PaneID, BaseURL: req.BaseURL, Input: excerpt.Text, WantLabel: wantLabel}
+	job := Job{PaneID: req.PaneID, BaseURL: req.BaseURL, Dir: req.Dir, Input: excerpt.Text, WantLabel: wantLabel}
 	if err = s.summarize(ctx, job, epoch); err != nil {
 		s.logger.WarnContext(ctx, "summary run failed", "pane", req.PaneID, "error", err)
 		return
@@ -291,15 +297,27 @@ func (s *Summarizer) wantLabel(pane string, exchanges int) bool {
 	return !ok || exchanges >= labeled+LabelEvery
 }
 
-// run executes one claude summary call for job and returns its stdout.
+// run executes one claude summary call for job and returns its stdout. The context stamp in effect for job.Dir sets
+// the call's URL and env; without a stamp, the job's base URL does.
 func (s *Summarizer) run(ctx context.Context, job Job) (string, error) {
+	found, err := stamp.Find(s.home, job.Dir)
+	if err != nil {
+		return "", fmt.Errorf("find context stamp: %w", err)
+	}
+	baseURL, env := job.BaseURL, map[string]string(nil)
+	if found.Folder != "" {
+		baseURL, env = found.BaseURL(), found.Env
+	} else if job.BaseURL != "" {
+		env = map[string]string{anthropicBaseURLEnv: job.BaseURL}
+	}
+
 	runCtx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
 
-	model := protocol.SummaryModel(job.BaseURL, s.models)
-	cmd := exec.CommandContext(runCtx, s.claude, argvFor(model)...)
+	model := protocol.SummaryModel(baseURL, s.models)
+	cmd := exec.CommandContext(runCtx, s.claude, argvFor(model, stamp.Settings(true, env))...)
 	cmd.Dir = "/"
-	cmd.Env = summaryEnv(os.Environ(), job.BaseURL)
+	cmd.Env = summaryEnv(os.Environ(), baseURL)
 	cmd.Stdin = strings.NewReader(stdinFor(job))
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
@@ -308,25 +326,25 @@ func (s *Summarizer) run(ctx context.Context, job Job) (string, error) {
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
+	if err = cmd.Run(); err != nil {
 		return "", fmt.Errorf("claude run: %w: %s", err, strings.TrimSpace(stderr.String()))
 	}
 	return stdout.String(), nil
 }
 
-// argvFor is the argv after the claude binary: hooks disabled, no session saved, no tools, one turn.
-func argvFor(model string) []string {
+// argvFor is the argv after the claude binary: the model, the settings document, no session saved, no tools, one turn.
+func argvFor(model, settings string) []string {
 	return []string{
 		"-p", "--model", model,
-		"--settings", `{"disableAllHooks":true}`,
+		"--settings", settings,
 		"--no-session-persistence",
 		"--tools", "",
 		"--max-turns", "1",
 	}
 }
 
-// summaryEnv returns environ without ANTHROPIC_BASE_URL and ORRERY_SUMMARIZER, plus the session's base URL
-// when it is set and the summarizer sentinel.
+// summaryEnv returns environ without ANTHROPIC_BASE_URL and ORRERY_SUMMARIZER, plus baseURL as ANTHROPIC_BASE_URL when
+// it is set and the summarizer sentinel.
 func summaryEnv(environ []string, baseURL string) []string {
 	env := make([]string, 0, len(environ)+2)
 	for _, entry := range environ {
