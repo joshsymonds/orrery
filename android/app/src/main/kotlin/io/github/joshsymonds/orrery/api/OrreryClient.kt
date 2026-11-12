@@ -9,10 +9,14 @@ import com.connectrpc.impl.ProtocolClient
 import com.connectrpc.okhttp.ConnectOkHttpClient
 import com.connectrpc.protocols.NetworkProtocol
 import io.github.joshsymonds.orrery.gen.orrery.v1.AskRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationContext as ConversationContextProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationItem as ConversationItemProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationState as ConversationStateProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.HostClient
 import io.github.joshsymonds.orrery.gen.orrery.v1.HostStatusRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.MarkSeenRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.Pane as PaneProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.PanesClient
 import io.github.joshsymonds.orrery.gen.orrery.v1.PanesListRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.PickerClient
@@ -23,6 +27,9 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.ScreenRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.SendKeysRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.SendTextRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.UnregisterRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.WaitingMessage
+import io.github.joshsymonds.orrery.gen.orrery.v1.WatchConversationRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.WatchConversationResponse
 import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
 import org.json.JSONException
@@ -108,6 +115,30 @@ data class Conversation(
     val context: ConversationContext? = null,
 )
 
+/**
+ * One conversation as a WatchConversation stream gives it. [state] is null when the message carried no state, and
+ * [context] and [pane] are null when the state did not.
+ */
+data class ConversationState(
+    val origin: String,
+    val goal: String,
+    val waiting: List<WaitingItem>,
+    val context: ConversationContext?,
+    val pane: Pane?,
+)
+
+/**
+ * One step of a WatchConversation stream: the [items] after [seq] in [transcript]. A [reset] delta replaces what the
+ * client holds.
+ */
+data class ConversationDelta(
+    val transcript: String,
+    val seq: Long,
+    val reset: Boolean,
+    val items: List<ConversationItem>,
+    val state: ConversationState?,
+)
+
 data class HostStat(val label: String, val value: String, val percent: Double?, val level: String)
 
 data class HostStatus(val host: String, val stats: List<HostStat>)
@@ -148,6 +179,7 @@ class OrreryClient(
     baseUrl: String,
     private val composeReadTimeoutMillis: Int = 25_000,
     private val pickerReadTimeoutMillis: Int = 90_000,
+    private val streamReadTimeoutMillis: Int = 10_000,
 ) {
     private val root = baseUrl.removeSuffix("/")
 
@@ -192,9 +224,11 @@ class OrreryClient(
     private val standardTier = lazy { Services(TIMEOUT_MS) }
     private val composeTier = lazy { Services(composeReadTimeoutMillis) }
     private val pickingTier = lazy { Services(pickerReadTimeoutMillis) }
+    private val streamingTier = lazy { Services(streamReadTimeoutMillis) }
     private val standard: Services get() = built(standardTier)
     private val compose: Services get() = built(composeTier)
     private val picking: Services get() = built(pickingTier)
+    private val streaming: Services get() = built(streamingTier)
 
     private fun built(tier: Lazy<Services>): Services =
         try {
@@ -207,26 +241,7 @@ class OrreryClient(
 
     fun panes(): List<Pane> {
         val response = call(write = false) { standard.panes.list(PanesListRequest.getDefaultInstance(), CLIENT_HEADERS) }
-        return response.panesList.map { proto ->
-            Pane(
-                id = proto.id,
-                host = proto.host,
-                session = proto.session,
-                window = proto.window,
-                pane = proto.pane,
-                cwd = proto.cwd,
-                command = proto.command,
-                state = proto.state,
-                summary = proto.summary,
-                label = proto.label,
-                changed = proto.changed,
-                seen = proto.seen,
-                question = proto.question,
-                questionHash = proto.questionHash,
-                tool = proto.tool,
-                newestReply = proto.newestReply,
-            )
-        }
+        return response.panesList.map { it.toPane() }
     }
 
     fun screen(paneId: String): String {
@@ -241,30 +256,44 @@ class OrreryClient(
             ?: return null
         return Conversation(
             origin = response.origin,
-            items = response.itemsList.map { item ->
-                ConversationItem(
-                    kind = item.kind,
-                    time = item.time,
-                    text = item.text,
-                    tool = item.tool,
-                    input = item.input,
-                    id = item.id,
-                    error = item.error,
-                    notice = item.notice,
-                    trigger = item.trigger,
-                    tokens = item.tokens,
-                )
-            },
+            items = response.itemsList.map { it.toConversationItem() },
             goal = response.goal,
-            waiting = response.waitingList.map { row ->
-                WaitingItem(text = row.text, time = row.time, canceled = row.canceled)
-            },
-            context = if (response.hasContext()) {
-                ConversationContext(tokens = response.context.tokens, window = response.context.window)
-            } else {
-                null
-            },
+            waiting = response.waitingList.map { it.toWaitingItem() },
+            context = if (response.hasContext()) response.context.toConversationContext() else null,
         )
+    }
+
+    /**
+     * Opens the conversation stream of [paneId] after the seq [after] of [transcript], and hands each delta to
+     * [onDelta] in order. Returns when the server ends the stream without error. A Connect error end throws
+     * [OrreryCallException]; a transport failure throws its IOException, and so does a stream with no message for
+     * [streamReadTimeoutMillis]. Cancelling the caller closes the connection.
+     */
+    suspend fun watchConversation(
+        paneId: String,
+        transcript: String,
+        after: Long,
+        onDelta: suspend (ConversationDelta) -> Unit,
+    ) {
+        val request = WatchConversationRequest.newBuilder()
+            .setPane(paneId)
+            .setLimit(50)
+            .setTranscript(transcript)
+            .setAfter(after)
+            .build()
+        val stream = streaming.panes.watchConversation(CLIENT_HEADERS)
+        val responses = stream.responseChannel()
+        // The finally also covers the send, so a cancel or a failure while the request is sent closes the stream.
+        try {
+            stream.sendAndClose(request).onFailure { throw streamFailure(it) }
+            for (message in responses) {
+                onDelta(message.toConversationDelta())
+            }
+        } catch (e: ConnectException) {
+            throw failure(e, write = false)
+        } finally {
+            responses.cancel()
+        }
     }
 
     fun host(): HostStatus? {
@@ -353,6 +382,64 @@ class OrreryClient(
     private fun textRequest(paneId: String, text: String): SendTextRequest =
         SendTextRequest.newBuilder().setPane(paneId).setText(text).build()
 
+    private fun PaneProto.toPane(): Pane =
+        Pane(
+            id = id,
+            host = host,
+            session = session,
+            window = window,
+            pane = pane,
+            cwd = cwd,
+            command = command,
+            state = state,
+            summary = summary,
+            label = label,
+            changed = changed,
+            seen = seen,
+            question = question,
+            questionHash = questionHash,
+            tool = tool,
+            newestReply = newestReply,
+        )
+
+    private fun ConversationItemProto.toConversationItem(): ConversationItem =
+        ConversationItem(
+            kind = kind,
+            time = time,
+            text = text,
+            tool = tool,
+            input = input,
+            id = id,
+            error = error,
+            notice = notice,
+            trigger = trigger,
+            tokens = tokens,
+        )
+
+    private fun WaitingMessage.toWaitingItem(): WaitingItem =
+        WaitingItem(text = text, time = time, canceled = canceled)
+
+    private fun ConversationContextProto.toConversationContext(): ConversationContext =
+        ConversationContext(tokens = tokens, window = window)
+
+    private fun ConversationStateProto.toConversationState(): ConversationState =
+        ConversationState(
+            origin = origin,
+            goal = goal,
+            waiting = waitingList.map { it.toWaitingItem() },
+            context = if (hasContext()) context.toConversationContext() else null,
+            pane = if (hasPane()) pane.toPane() else null,
+        )
+
+    private fun WatchConversationResponse.toConversationDelta(): ConversationDelta =
+        ConversationDelta(
+            transcript = transcript,
+            seq = seq,
+            reset = reset,
+            items = itemsList.map { it.toConversationItem() },
+            state = if (hasState()) state.toConversationState() else null,
+        )
+
     /**
      * Runs one Connect call and returns its message, or throws the exception its failure describes.
      * A tier that cannot be built, because the saved address is not a usable http or https URL, throws
@@ -376,6 +463,10 @@ class OrreryClient(
             else -> OrreryCallException(error.code, error.message.orEmpty().ifEmpty { error.code.codeName })
         }
     }
+
+    /** The failure a stream's send raised, as a call's failure is: a server answer, or the transport's IOException. */
+    private fun streamFailure(error: Throwable): Throwable =
+        if (error is ConnectException) failure(error, write = false) else error
 
     /** The answer, or null when the server answered not_found. */
     private inline fun <T> notFoundAsNull(read: () -> T): T? =

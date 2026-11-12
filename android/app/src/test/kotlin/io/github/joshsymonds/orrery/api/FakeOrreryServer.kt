@@ -6,9 +6,20 @@ import com.sun.net.httpserver.HttpExchange
 import com.sun.net.httpserver.HttpServer
 import org.json.JSONObject
 import java.io.IOException
+import java.io.OutputStream
 import java.net.InetAddress
 import java.net.InetSocketAddress
+import java.nio.ByteBuffer
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.Executors
+import java.util.concurrent.LinkedBlockingQueue
+import java.util.concurrent.TimeUnit
+
+private const val STREAM_CONTENT_TYPE = "application/connect+proto"
+private const val ENVELOPE_MESSAGE_FLAG = 0
+private const val ENVELOPE_END_FLAG = 0x02
+private const val SILENT_STREAM_MILLIS = 5_000L
+private const val HELD_STREAM_INTERVAL_MILLIS = 50L
 
 data class RecordedRequest(
     val method: String,
@@ -30,6 +41,27 @@ sealed interface Reply {
 
     /** The request is read, then the connection closes with no answer. */
     data object Drop : Reply
+
+    /** A Connect server stream: each of [messages] as a message envelope, then the stream ends with [end]. */
+    class Stream(val messages: List<MessageLite>, val end: StreamEnd) : Reply
+}
+
+/** How a [Reply.Stream] ends. */
+sealed interface StreamEnd {
+    /** An end envelope with the body `{}`: the stream ends without error. */
+    data object Clean : StreamEnd
+
+    /** An end envelope carrying the Connect error [code] and [message]. */
+    data class Error(val code: Code, val message: String) : StreamEnd
+
+    /** No end envelope: the stream sends nothing for a few seconds, then ends without error. */
+    data object Silent : StreamEnd
+
+    /**
+     * No end envelope: the stream sends an empty message every 50 ms until a write fails, which
+     * means the client closed the connection.
+     */
+    data object Held : StreamEnd
 }
 
 /**
@@ -41,6 +73,10 @@ class FakeOrreryServer : AutoCloseable {
         HttpServer.create(InetSocketAddress(InetAddress.getByName("127.0.0.1"), 0), 0)
     private val routes = ConcurrentHashMap<String, (RecordedRequest) -> Reply>()
     private val recorded = ArrayList<RecordedRequest>()
+    private val streamsClosedByClient = LinkedBlockingQueue<String>()
+
+    /** Handlers run on daemon threads, so a held stream does not block the other procedures. */
+    private val workers = Executors.newCachedThreadPool { task -> Thread(task).apply { isDaemon = true } }
 
     val baseUrl: String = "http://127.0.0.1:${server.address.port}"
 
@@ -48,9 +84,14 @@ class FakeOrreryServer : AutoCloseable {
         get() = synchronized(recorded) { recorded.toList() }
 
     init {
+        server.executor = workers
         server.createContext("/") { exchange -> handle(exchange) }
         server.start()
     }
+
+    /** Waits up to [timeoutMillis] for a [StreamEnd.Held] stream whose client closed the connection. */
+    fun awaitStreamClosedByClient(timeoutMillis: Long): Boolean =
+        streamsClosedByClient.poll(timeoutMillis, TimeUnit.MILLISECONDS) != null
 
     /** Answers [procedure], a path such as `/orrery.v1.Panes/List`, with [message]. */
     fun respond(procedure: String, message: MessageLite, delayMillis: Long = 0L) {
@@ -74,6 +115,7 @@ class FakeOrreryServer : AutoCloseable {
 
     override fun close() {
         server.stop(0)
+        workers.shutdownNow()
     }
 
     private fun handle(exchange: HttpExchange) {
@@ -98,7 +140,49 @@ class FakeOrreryServer : AutoCloseable {
                 val json = JSONObject().put("code", reply.code.codeName).put("message", reply.message)
                 send(exchange, reply.code.httpStatus(), "application/json", json.toString().toByteArray(Charsets.UTF_8))
             }
+            is Reply.Stream -> stream(exchange, reply)
         }
+    }
+
+    /** Answers 200 with a chunked body of envelopes, as a Connect server stream does. */
+    private fun stream(exchange: HttpExchange, reply: Reply.Stream) {
+        exchange.responseHeaders.add("Content-Type", STREAM_CONTENT_TYPE)
+        exchange.sendResponseHeaders(200, 0)
+        exchange.responseBody.use { body ->
+            for (message in reply.messages) {
+                body.writeEnvelope(ENVELOPE_MESSAGE_FLAG, message.toByteArray())
+            }
+            when (val end = reply.end) {
+                StreamEnd.Clean -> body.writeEnvelope(ENVELOPE_END_FLAG, "{}".toByteArray(Charsets.UTF_8))
+                is StreamEnd.Error -> {
+                    val json = JSONObject().put("error", JSONObject().put("code", end.code.codeName).put("message", end.message))
+                    body.writeEnvelope(ENVELOPE_END_FLAG, json.toString().toByteArray(Charsets.UTF_8))
+                }
+                StreamEnd.Silent -> {
+                    Thread.sleep(SILENT_STREAM_MILLIS)
+                    body.writeEnvelope(ENVELOPE_END_FLAG, "{}".toByteArray(Charsets.UTF_8))
+                }
+                StreamEnd.Held -> holdUntilClientCloses(exchange, body)
+            }
+        }
+    }
+
+    private fun holdUntilClientCloses(exchange: HttpExchange, body: OutputStream) {
+        try {
+            while (true) {
+                Thread.sleep(HELD_STREAM_INTERVAL_MILLIS)
+                body.writeEnvelope(ENVELOPE_MESSAGE_FLAG, ByteArray(0))
+            }
+        } catch (e: IOException) {
+            streamsClosedByClient.add(exchange.requestURI.rawPath)
+        }
+    }
+
+    /** One Connect envelope: a flag byte, the big-endian payload length, then the payload. */
+    private fun OutputStream.writeEnvelope(flag: Int, payload: ByteArray) {
+        write(ByteBuffer.allocate(5).put(flag.toByte()).putInt(payload.size).array())
+        write(payload)
+        flush()
     }
 
     private fun send(exchange: HttpExchange, status: Int, contentType: String, bytes: ByteArray) {
