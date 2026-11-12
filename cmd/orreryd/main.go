@@ -32,6 +32,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/push"
 	"github.com/joshsymonds/orrery/internal/route"
+	"github.com/joshsymonds/orrery/internal/stamp"
 	"github.com/joshsymonds/orrery/internal/store"
 	"github.com/joshsymonds/orrery/internal/summary"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
@@ -49,6 +50,9 @@ const (
 	keyTranscriptPath       = "transcript_path"
 	keyLastAssistantMessage = "last_assistant_message"
 )
+
+// envAnthropicBaseURL is the settings env key that sets claude's API base URL.
+const envAnthropicBaseURL = "ANTHROPIC_BASE_URL"
 
 const (
 	defaultClaude = "claude"
@@ -370,10 +374,7 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 	defer desk.Close()
 
 	st := openStore(ctx, getenv, logger)
-	var mirror *daemon.Mirror
-	if st != nil {
-		mirror = daemon.NewMirror(st, time.Now, logger)
-	}
+	mirror := newMirror(st, logger)
 	home := getenv("HOME")
 	router := route.New(route.Config{
 		Host:       host,
@@ -638,6 +639,14 @@ func openStore(ctx context.Context, getenv func(string) string, logger *slog.Log
 		return nil
 	}
 	return st
+}
+
+// newMirror returns the mirror that writes panes to st, or nil when st is nil.
+func newMirror(st *store.Store, logger *slog.Logger) *daemon.Mirror {
+	if st == nil {
+		return nil
+	}
+	return daemon.NewMirror(st, time.Now, logger)
 }
 
 // closeStore closes st when it is open and logs a failed close.
@@ -905,9 +914,10 @@ func (r *relay) notify(ctx context.Context, transition daemon.Transition) {
 	r.router.Notify(ctx, incoming)
 }
 
-// judgeDone returns the Judge of a done transition: the verdict on the Stop hook's last assistant message, asked
-// through the pane's base URL. A last message that does not decode is logged and judged as empty, which fails the
-// judge.
+// judgeDone returns the Judge of a done transition: the verdict on the Stop hook's last assistant message. The call
+// runs against the URL and env of the context stamp in effect for the frame's cwd under the relay's home, or else
+// against the frame's base URL, as the summarizer does. A stamp that cannot be read fails the judge without a call. A
+// last message that does not decode is logged and judged as empty, which fails the judge.
 func (r *relay) judgeDone(
 	ctx context.Context,
 	transition daemon.Transition,
@@ -917,7 +927,17 @@ func (r *relay) judgeDone(
 		r.logger.WarnContext(ctx, "read last assistant message", "pane", transition.PaneID, "error", err)
 	}
 	return func(ctx context.Context) (route.Verdict, error) {
-		return r.judge.Done(ctx, transition.Frame.AnthropicBaseURL, message)
+		found, err := stamp.Find(r.home, transition.Frame.Cwd)
+		if err != nil {
+			return route.Verdict{}, fmt.Errorf("done judge: find context stamp: %w", err)
+		}
+		baseURL, env := transition.Frame.AnthropicBaseURL, map[string]string(nil)
+		if found.Folder != "" {
+			baseURL, env = found.BaseURL(), found.Env
+		} else if baseURL != "" {
+			env = map[string]string{envAnthropicBaseURL: baseURL}
+		}
+		return r.judge.Done(ctx, baseURL, env, message)
 	}
 }
 

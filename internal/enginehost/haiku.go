@@ -69,17 +69,20 @@ func NewHaiku(cfg HaikuConfig) *Haiku {
 // Call runs claude once against schema with input on stdin, with the default summary model and no base URL, and
 // returns the result's structured_output. The timeout covers the wait for a call slot and the run together.
 func (h *Haiku) Call(ctx context.Context, schema, input string) (json.RawMessage, error) {
-	return h.CallVia(ctx, "", protocol.DefaultSummaryModel, schema, input)
+	return h.CallVia(ctx, "", protocol.DefaultSummaryModel, nil, schema, input)
 }
 
 // CallVia runs claude once against schema with input on stdin, using model (the default summary model when
-// empty) and, when baseURL is non-empty, claude's API base URL set to baseURL. It returns the result's
-// structured_output. The timeout covers the wait for a call slot and the run together.
-func (h *Haiku) CallVia(ctx context.Context, baseURL, model, schema, input string) (json.RawMessage, error) {
+// empty). The --settings value of the run is stamp.Settings(true, env), so env rides in it, and when baseURL is
+// non-empty, claude's API base URL in its process env is baseURL. It returns the result's structured_output. The
+// timeout covers the wait for a call slot and the run together.
+func (h *Haiku) CallVia(
+	ctx context.Context, baseURL, model string, env map[string]string, schema, input string,
+) (json.RawMessage, error) {
 	if model == "" {
 		model = protocol.DefaultSummaryModel
 	}
-	return h.call(ctx, stamp.Settings(true, nil), baseURL, model, schema, input)
+	return h.call(ctx, stamp.Settings(true, env), baseURL, model, schema, input)
 }
 
 // withEnv returns a caller whose calls run as h.Call does, with env in each call's --settings value so the claude

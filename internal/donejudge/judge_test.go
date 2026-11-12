@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"maps"
 	"strings"
 	"testing"
 
@@ -26,7 +27,9 @@ var errExample = errors.New("example caller failure")
 
 // call is what one fake CallVia call recorded.
 type call struct {
-	baseURL, model, schema, input string
+	baseURL, model string
+	env            map[string]string
+	schema, input  string
 }
 
 // fakeCaller is a Caller that records its calls and returns a canned reply and error.
@@ -36,8 +39,10 @@ type fakeCaller struct {
 	calls []call
 }
 
-func (f *fakeCaller) CallVia(_ context.Context, baseURL, model, schema, input string) (json.RawMessage, error) {
-	f.calls = append(f.calls, call{baseURL: baseURL, model: model, schema: schema, input: input})
+func (f *fakeCaller) CallVia(
+	_ context.Context, baseURL, model string, env map[string]string, schema, input string,
+) (json.RawMessage, error) {
+	f.calls = append(f.calls, call{baseURL: baseURL, model: model, env: env, schema: schema, input: input})
 	return f.reply, f.err
 }
 
@@ -57,7 +62,7 @@ func TestDonePassesPaneBaseURLAndModel(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			caller := &fakeCaller{reply: json.RawMessage(`{"needed":false,"why":"finished"}`)}
-			if _, err := New(caller, models).Done(t.Context(), tc.baseURL, exampleMessage); err != nil {
+			if _, err := New(caller, models).Done(t.Context(), tc.baseURL, nil, exampleMessage); err != nil {
 				t.Fatalf("Done: %v", err)
 			}
 			if len(caller.calls) != 1 {
@@ -77,6 +82,22 @@ func TestDonePassesPaneBaseURLAndModel(t *testing.T) {
 				t.Errorf("input = %q, want %q", got.input, want)
 			}
 		})
+	}
+}
+
+// TestDonePassesEnvToCaller checks that the env Done is given reaches the caller whole, for its --settings value.
+func TestDonePassesEnvToCaller(t *testing.T) {
+	t.Parallel()
+	env := map[string]string{"ANTHROPIC_BASE_URL": exampleBaseURL, "CTX_EXAMPLE": exampleContext}
+	caller := &fakeCaller{reply: json.RawMessage(`{"needed":false,"why":"finished"}`)}
+	if _, err := New(caller, nil).Done(t.Context(), exampleBaseURL, env, exampleMessage); err != nil {
+		t.Fatalf("Done: %v", err)
+	}
+	if len(caller.calls) != 1 {
+		t.Fatalf("CallVia calls = %d, want 1", len(caller.calls))
+	}
+	if got := caller.calls[0].env; !maps.Equal(got, env) {
+		t.Errorf("env = %v, want %v", got, env)
 	}
 }
 
@@ -107,7 +128,7 @@ func TestDoneReturnsVerdict(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			caller := &fakeCaller{reply: json.RawMessage(tc.reply)}
-			got, err := New(caller, nil).Done(t.Context(), exampleBaseURL, exampleMessage)
+			got, err := New(caller, nil).Done(t.Context(), exampleBaseURL, nil, exampleMessage)
 			if err != nil {
 				t.Fatalf("Done: %v", err)
 			}
@@ -122,7 +143,7 @@ func TestDoneEmptyMessageErrorsWithoutCall(t *testing.T) {
 	t.Parallel()
 	for _, message := range []string{"", " \n\t "} {
 		caller := &fakeCaller{reply: json.RawMessage(`{"needed":false,"why":"unused"}`)}
-		_, err := New(caller, nil).Done(t.Context(), exampleBaseURL, message)
+		_, err := New(caller, nil).Done(t.Context(), exampleBaseURL, nil, message)
 		if err == nil {
 			t.Fatalf("Done(%q): want error, got nil", message)
 		}
@@ -138,7 +159,7 @@ func TestDoneEmptyMessageErrorsWithoutCall(t *testing.T) {
 func TestDoneCallerErrorIsWrapped(t *testing.T) {
 	t.Parallel()
 	caller := &fakeCaller{err: errExample}
-	_, err := New(caller, nil).Done(t.Context(), exampleBaseURL, exampleMessage)
+	_, err := New(caller, nil).Done(t.Context(), exampleBaseURL, nil, exampleMessage)
 	if !errors.Is(err, errExample) {
 		t.Fatalf("Done error = %v, want it to wrap %v", err, errExample)
 	}
@@ -163,7 +184,7 @@ func TestDoneRejectsBadVerdict(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			caller := &fakeCaller{reply: json.RawMessage(tc.reply)}
-			_, err := New(caller, nil).Done(t.Context(), exampleBaseURL, exampleMessage)
+			_, err := New(caller, nil).Done(t.Context(), exampleBaseURL, nil, exampleMessage)
 			if err == nil {
 				t.Fatal("Done: want error, got nil")
 			}

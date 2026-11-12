@@ -490,14 +490,24 @@ const (
 	haikuCallViaModel   = "example-model"
 )
 
-// TestHaikuCallViaRunsClaudeWithBaseURLAndModel checks that CallVia runs claude with the given model and with
-// exactly one ANTHROPIC_BASE_URL, the given one, although the caller's environ holds a different base URL.
-func TestHaikuCallViaRunsClaudeWithBaseURLAndModel(t *testing.T) {
+// haikuCallViaEnv returns the --settings env the CallVia tests pass: the base URL they run against and one more key.
+func haikuCallViaEnv() map[string]string {
+	return map[string]string{
+		"ANTHROPIC_BASE_URL": haikuCallViaBaseURL,
+		"CTX_EXAMPLE":        "example",
+	}
+}
+
+// TestHaikuCallViaRunsClaudeWithEnvBaseURLAndModel checks that CallVia runs claude with the given model, with the env
+// in its --settings value, and with exactly one ANTHROPIC_BASE_URL, the given one, although the caller's environ holds
+// a different base URL. The env key is not in the process env.
+func TestHaikuCallViaRunsClaudeWithEnvBaseURLAndModel(t *testing.T) {
 	dir := haikuDir(t)
 	claude := haikuWriteFake(t, dir, haikuFake{stdout: haikuSuccessLine, status: 0})
 	h := NewHaiku(HaikuConfig{Claude: claude, Environ: haikuEnviron()})
 
-	out, err := h.CallVia(context.Background(), haikuCallViaBaseURL, haikuCallViaModel, haikuSchema, "input")
+	out, err := h.CallVia(context.Background(), haikuCallViaBaseURL, haikuCallViaModel, haikuCallViaEnv(), haikuSchema,
+		"input")
 	if err != nil {
 		t.Fatalf("CallVia: %v", err)
 	}
@@ -508,7 +518,8 @@ func TestHaikuCallViaRunsClaudeWithBaseURLAndModel(t *testing.T) {
 	wantArgv := []string{
 		"-p",
 		"--model", haikuCallViaModel,
-		"--settings", `{"disableAllHooks":true}`,
+		"--settings", `{"disableAllHooks":true,"env":{"ANTHROPIC_BASE_URL":"http://patchbay.invalid/ctx/example",` +
+			`"CTX_EXAMPLE":"example"}}`,
 		"--no-session-persistence",
 		"--tools", "",
 		"--max-turns", "1",
@@ -524,6 +535,9 @@ func TestHaikuCallViaRunsClaudeWithBaseURLAndModel(t *testing.T) {
 	if got := haikuBaseURLEntries(t, dir); !slices.Equal(got, wantBase) {
 		t.Fatalf("ANTHROPIC_BASE_URL entries = %q, want %q", got, wantBase)
 	}
+	if strings.Contains(haikuReadFile(t, dir, "env"), "CTX_EXAMPLE=") {
+		t.Fatalf("process env kept CTX_EXAMPLE; the env must reach claude only through --settings")
+	}
 }
 
 // TestHaikuCallViaEmptyBaseURLLeavesNoBaseURL checks that CallVia with no base URL drops the caller's
@@ -533,7 +547,7 @@ func TestHaikuCallViaEmptyBaseURLLeavesNoBaseURL(t *testing.T) {
 	claude := haikuWriteFake(t, dir, haikuFake{stdout: haikuSuccessLine, status: 0})
 	h := NewHaiku(HaikuConfig{Claude: claude, Environ: haikuEnviron()})
 
-	if _, err := h.CallVia(context.Background(), "", haikuCallViaModel, haikuSchema, "input"); err != nil {
+	if _, err := h.CallVia(context.Background(), "", haikuCallViaModel, nil, haikuSchema, "input"); err != nil {
 		t.Fatalf("CallVia: %v", err)
 	}
 	if got := haikuBaseURLEntries(t, dir); len(got) != 0 {
@@ -547,7 +561,7 @@ func TestHaikuCallViaEmptyModelRunsDefaultModel(t *testing.T) {
 	claude := haikuWriteFake(t, dir, haikuFake{stdout: haikuSuccessLine, status: 0})
 	h := NewHaiku(HaikuConfig{Claude: claude, Environ: haikuEnviron()})
 
-	if _, err := h.CallVia(context.Background(), haikuCallViaBaseURL, "", haikuSchema, "input"); err != nil {
+	if _, err := h.CallVia(context.Background(), haikuCallViaBaseURL, "", nil, haikuSchema, "input"); err != nil {
 		t.Fatalf("CallVia: %v", err)
 	}
 	argv := haikuReadFile(t, dir, "argv")

@@ -17,9 +17,12 @@ const instruction = "Judge whether a coding agent's final message at the end of 
 // schema is the structured output the judge must return.
 const schema = `{"type":"object","additionalProperties":false,"required":["needed","why"],"properties":{"needed":{"type":"boolean"},"why":{"type":"string"}}}`
 
-// Caller runs one structured Haiku call against baseURL with model. *enginehost.Haiku satisfies it.
+// Caller runs one structured Haiku call with model, its process env's base URL set to baseURL and its --settings env
+// set to env. *enginehost.Haiku satisfies it.
 type Caller interface {
-	CallVia(ctx context.Context, baseURL, model, schema, input string) (json.RawMessage, error)
+	CallVia(
+		ctx context.Context, baseURL, model string, env map[string]string, schema, input string,
+	) (json.RawMessage, error)
 }
 
 // Judge asks a Caller whether a plain done needs the user.
@@ -40,13 +43,16 @@ func New(caller Caller, models map[string]string) *Judge {
 	return &Judge{caller: caller, models: models}
 }
 
-// Done returns the verdict on message, the final message of a pane whose base URL is baseURL.
-func (j *Judge) Done(ctx context.Context, baseURL, message string) (route.Verdict, error) {
+// Done returns the verdict on message, the final message of a pane. The call runs against baseURL, with env in its
+// --settings value, and its model is the one baseURL maps to.
+func (j *Judge) Done(
+	ctx context.Context, baseURL string, env map[string]string, message string,
+) (route.Verdict, error) {
 	if strings.TrimSpace(message) == "" {
 		return route.Verdict{}, errors.New("done judge: empty message")
 	}
 	model := protocol.SummaryModel(baseURL, j.models)
-	raw, err := j.caller.CallVia(ctx, baseURL, model, schema, instruction+"\n\n"+message)
+	raw, err := j.caller.CallVia(ctx, baseURL, model, env, schema, instruction+"\n\n"+message)
 	if err != nil {
 		return route.Verdict{}, fmt.Errorf("done judge: %w", err)
 	}
