@@ -575,7 +575,7 @@ func (a *actionTree) attach(session string, cols, rows int) string {
 	command := fmt.Sprintf("stty cols %d rows %d; tmux -S %s attach -t %s",
 		cols, rows, strings.TrimSpace(socket), session)
 	cmd := exec.CommandContext(a.t.Context(), "script", "-qfc", command, "/dev/null")
-	cmd.Env = withoutEnv(os.Environ(), "TMUX")
+	cmd.Env = append(withoutEnv(os.Environ(), "TMUX"), "TERM=xterm-256color")
 	cmd.Stdout = io.Discard
 	cmd.Stderr = io.Discard
 	stdin, err := cmd.StdinPipe()
@@ -783,6 +783,8 @@ type treeRun struct {
 // start runs the tree for the client on tty and returns once every pane label is rendered.
 func (a *actionTree) start(tty string) *treeRun {
 	a.t.Helper()
+	// The tree picks its output path from this process's TERM, so every run pins the value the script clients get.
+	a.t.Setenv("TERM", "xterm-256color")
 	pr, pw := io.Pipe()
 	run := &treeRun{t: a.t, out: &syncBuffer{}, input: pw, done: make(chan runOutcome, 1)}
 	a.t.Cleanup(func() { _ = pw.Close() })
