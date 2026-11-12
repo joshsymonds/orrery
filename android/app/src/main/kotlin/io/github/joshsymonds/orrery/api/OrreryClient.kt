@@ -28,6 +28,15 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.Pane as PaneProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.PanesClient
 import io.github.joshsymonds.orrery.gen.orrery.v1.PanesListRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.PickerClient
+import io.github.joshsymonds.orrery.gen.orrery.v1.PoolHold as PoolHoldProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.PoolHolder as PoolHolderProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.PoolMemberStatus as PoolMemberStatusProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.PoolStatus as PoolStatusProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.PoolWaiter as PoolWaiterProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.PoolsClient
+import io.github.joshsymonds.orrery.gen.orrery.v1.PoolsFreeRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.PoolsHoldRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.PoolsStatusRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.PushClient
 import io.github.joshsymonds.orrery.gen.orrery.v1.RegisterRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.RunRequest
@@ -181,6 +190,24 @@ data class HostStat(val label: String, val value: String, val percent: Double?, 
 
 data class HostStatus(val host: String, val stats: List<HostStat>)
 
+/** The grant that holds a pool member: its [project], its [command] (empty when the client sent none), and when it was granted. */
+data class Holder(val project: String, val command: List<String>, val since: Long, val stopping: Boolean)
+
+/** One member of a pool. [holder] is null when no grant holds it, and [heldSince] is 0 when it is not held. */
+data class PoolMember(val name: String, val state: String, val holder: Holder?, val heldSince: Long)
+
+/** One request waiting for a pool, at [position] in line. */
+data class Waiter(val position: Int, val project: String, val command: List<String>, val count: Int, val since: Long)
+
+/** A pool in use: its [cap], its [members], and the requests [waiters] for it in queue order. */
+data class Pool(val name: String, val cap: Int, val members: List<PoolMember>, val waiters: List<Waiter>)
+
+/** An owner hold on [member], placed at [since]. */
+data class Hold(val member: String, val since: Long)
+
+/** The pools in use, and every owner hold, including holds on members of no pool in use. */
+data class PoolsView(val pools: List<Pool>, val holds: List<Hold>)
+
 /** One candidate the picker offers for the text it was asked. [prompt] is true when the row starts Claude with that text. */
 data class PickRow(
     val token: String,
@@ -253,6 +280,7 @@ class OrreryClient(
         val picker = PickerClient(protocol)
         val control = ControlClient(protocol)
         val sessions = SessionsClient(protocol)
+        val pools = PoolsClient(protocol)
     }
 
     /**
@@ -399,6 +427,27 @@ class OrreryClient(
         )
     }
 
+    /** The pools in use and every owner hold. */
+    fun pools(): PoolsView {
+        val response = call(write = false) { standard.pools.status(PoolsStatusRequest.getDefaultInstance(), CLIENT_HEADERS) }
+        return PoolsView(
+            pools = response.poolsList.map { it.toPool() },
+            holds = response.holdsList.map { it.toHold() },
+        )
+    }
+
+    /** Holds [member] so no grant takes it. A write, so it is never retried. */
+    fun holdMember(member: String) {
+        val request = PoolsHoldRequest.newBuilder().setMember(member).build()
+        call(write = true) { standard.pools.hold(request, CLIENT_HEADERS) }
+    }
+
+    /** Frees the held [member]. A write, so it is never retried. */
+    fun freeMember(member: String) {
+        val request = PoolsFreeRequest.newBuilder().setMember(member).build()
+        call(write = true) { standard.pools.free(request, CLIENT_HEADERS) }
+    }
+
     fun sendText(paneId: String, text: String) {
         val request = textRequest(paneId, text)
         call(write = true) { standard.panes.sendText(request, CLIENT_HEADERS) }
@@ -500,6 +549,30 @@ class OrreryClient(
 
     private fun textRequest(paneId: String, text: String): SendTextRequest =
         SendTextRequest.newBuilder().setPane(paneId).setText(text).build()
+
+    private fun PoolStatusProto.toPool(): Pool =
+        Pool(
+            name = name,
+            cap = cap,
+            members = membersList.map { it.toPoolMember() },
+            waiters = waitersList.map { it.toWaiter() },
+        )
+
+    private fun PoolMemberStatusProto.toPoolMember(): PoolMember =
+        PoolMember(
+            name = name,
+            state = state,
+            holder = if (hasHolder()) holder.toHolder() else null,
+            heldSince = heldSince,
+        )
+
+    private fun PoolHolderProto.toHolder(): Holder =
+        Holder(project = project, command = commandList.toList(), since = since, stopping = stopping)
+
+    private fun PoolWaiterProto.toWaiter(): Waiter =
+        Waiter(position = position, project = project, command = commandList.toList(), count = count, since = since)
+
+    private fun PoolHoldProto.toHold(): Hold = Hold(member = member, since = since)
 
     private fun PaneProto.toPane(): Pane =
         Pane(
