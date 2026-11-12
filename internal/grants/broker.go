@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"os"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -32,6 +33,15 @@ var ErrNoGrant = errors.New("no such grant")
 
 // ErrClosed reports that the broker closed before the call finished.
 var ErrClosed = errors.New("broker closed")
+
+// ErrNotHeld reports a Free of a member that no hold keeps.
+var ErrNotHeld = errors.New("member not held")
+
+// ErrBadMember reports a member name outside the member name pattern.
+var ErrBadMember = errors.New("bad member name")
+
+// memberNamePattern is the form of a member name, the same pattern internal/pools checks in pool files.
+var memberNamePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 
 // Config is what a Broker runs with. Host is the host a pool must name to be granted here. Store keeps the live grants.
 // Environ is the environment each member command runs in, plus ORRERY_POOL and ORRERY_MEMBER. Now stamps grants, and
@@ -98,6 +108,10 @@ type Broker struct {
 	// detached holds the grants Restore kept, by grant id. Each holds its members while it waits for its client to
 	// reclaim it, and is in no queue.
 	detached map[string]*waiter
+	// holds holds the owner holds by member name, each with the time it was placed. A held member is never reserved or
+	// granted, in whichever pool in use it belongs to, and a hold on a member of no pool in use applies once that pool
+	// comes into use.
+	holds map[string]time.Time
 	// cancels holds the cancel of each member command in flight, by command id.
 	cancels map[uint64]context.CancelFunc
 }
@@ -183,6 +197,7 @@ func NewBroker(cfg Config) *Broker {
 		done:     make(chan struct{}),
 		pools:    make(map[string]*poolUse),
 		detached: make(map[string]*waiter),
+		holds:    make(map[string]time.Time),
 		cancels:  make(map[uint64]context.CancelFunc),
 	}
 	if broker.now == nil {
@@ -299,11 +314,15 @@ func (b *Broker) endDeadLocked(ctx context.Context) {
 	}
 }
 
-// Restore brings back the grants an earlier broker stored, before this broker serves. A stored grant whose client is
-// not alive ends in the store at once. Each other grant's pools come back into use and its members are held again, and
-// the grant waits detached until its client reclaims it by id and pid. A detached grant whose client dies ends on a
-// tick.
+// Restore brings back the holds and the grants an earlier broker stored, before this broker serves. The holds come back
+// first, before any grant. A stored grant whose client is not alive ends in the store at once. Each other grant's pools
+// come back into use and its members are held again, and the grant waits detached until its client reclaims it by id
+// and pid. A detached grant whose client dies ends on a tick.
 func (b *Broker) Restore(ctx context.Context) error {
+	holds, err := b.store.Holds(ctx)
+	if err != nil {
+		return fmt.Errorf("read stored holds: %w", err)
+	}
 	rows, err := b.store.Grants(ctx)
 	if err != nil {
 		return fmt.Errorf("read stored grants: %w", err)
@@ -312,6 +331,9 @@ func (b *Broker) Restore(ctx context.Context) error {
 	storeCtx := context.WithoutCancel(ctx)
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	for _, hold := range holds {
+		b.holds[hold.Member] = hold.Since
+	}
 	for _, row := range rows {
 		if !b.alive(row.ClientPID, row.ClientStart) {
 			err = b.store.EndGrant(storeCtx, row.ID)
@@ -439,6 +461,54 @@ func (b *Broker) reattach(req Request) (*waiter, error) {
 	}
 	delete(b.detached, req.GrantID)
 	return kept, nil
+}
+
+// Hold places an owner hold on member, so the member is never reserved or granted until Free. The hold is stored, so it
+// survives a restart. Hold of a member already held succeeds and keeps the first hold's time. It returns ErrBadMember
+// for a name outside the member name pattern, and ErrClosed after Close.
+func (b *Broker) Hold(ctx context.Context, member string) error {
+	if !memberNamePattern.MatchString(member) {
+		return fmt.Errorf("hold member %q: %w", member, ErrBadMember)
+	}
+	storeCtx := context.WithoutCancel(ctx)
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.closed {
+		return ErrClosed
+	}
+	if _, held := b.holds[member]; held {
+		return nil
+	}
+	since := b.now()
+	if err := b.store.AddHold(storeCtx, store.HoldRow{Member: member, Since: since}); err != nil {
+		return fmt.Errorf("hold member %q: %w", member, err)
+	}
+	b.holds[member] = since
+	return nil
+}
+
+// Free ends the owner hold on member, so the member can be reserved and granted again, and the requests waiting for it
+// are reconsidered. It returns ErrNotHeld for a member no hold keeps, ErrBadMember for a name outside the member name
+// pattern, and ErrClosed after Close.
+func (b *Broker) Free(ctx context.Context, member string) error {
+	if !memberNamePattern.MatchString(member) {
+		return fmt.Errorf("free member %q: %w", member, ErrBadMember)
+	}
+	storeCtx := context.WithoutCancel(ctx)
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.closed {
+		return ErrClosed
+	}
+	if _, held := b.holds[member]; !held {
+		return fmt.Errorf("free member %q: %w", member, ErrNotHeld)
+	}
+	if err := b.store.EndHold(storeCtx, member); err != nil {
+		return fmt.Errorf("free member %q: %w", member, err)
+	}
+	delete(b.holds, member)
+	b.settleLocked(storeCtx)
+	return nil
 }
 
 // Close stops the broker: calls still blocked return ErrClosed, stored grants stay for the next broker, and Close waits
@@ -590,15 +660,20 @@ func (b *Broker) settleLocked(ctx context.Context) {
 	b.forgetLocked()
 }
 
-// poolViewsLocked returns the pools in use as Plan reads them, each with its members in declared order.
+// poolViewsLocked returns the pools in use as Plan reads them, each with its members in declared order. A held member
+// is read as unavailable, so Plan never reserves it.
 func (b *Broker) poolViewsLocked() []PoolView {
 	views := make([]PoolView, 0, len(b.pools))
 	for _, use := range b.pools {
 		view := PoolView{Name: use.def.Name, Cap: use.def.Cap, Members: make([]MemberView, 0, len(use.def.Members))}
 		for _, name := range use.def.Members {
 			mr := use.members[name]
+			state := mr.state
+			if _, held := b.holds[name]; held {
+				state = Unavailable
+			}
 			view.Members = append(view.Members, MemberView{
-				Name: name, State: mr.state, Grant: mr.grant, Project: mr.project,
+				Name: name, State: state, Grant: mr.grant, Project: mr.project,
 			})
 		}
 		views = append(views, view)
