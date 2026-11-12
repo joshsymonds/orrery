@@ -74,6 +74,23 @@ func (f *fakeSteps) Wait(
 	return f.ended, f.rows, f.err
 }
 
+func (f *fakeSteps) List(context.Context, string, string) ([]store.StepRow, error) {
+	return nil, errors.New("stepmcp test: List is not expected")
+}
+
+func (f *fakeSteps) Hold(context.Context, string) error {
+	return errors.New("stepmcp test: Hold is not expected")
+}
+
+// Held is called by Status to report the row, and the row is not held.
+func (f *fakeSteps) Held(string) bool {
+	return false
+}
+
+func (f *fakeSteps) Nudge(context.Context, string, string) error {
+	return errors.New("stepmcp test: Nudge is not expected")
+}
+
 // fakeCalls is a copy of what the fake recorded.
 type fakeCalls struct {
 	starts   []enginehost.StepStart

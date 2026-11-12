@@ -23,8 +23,18 @@ type waitCall struct {
 	timeout time.Duration
 }
 
-// fakeStepCommands records every StepCommands call and answers with the configured values. err is returned by every
-// method.
+// listCall is one StepCommands.List invocation with the labels it received.
+type listCall struct {
+	epic, task string
+}
+
+// nudgeCall is one StepCommands.Nudge invocation with the arguments it received.
+type nudgeCall struct {
+	id, text string
+}
+
+// fakeStepCommands records every StepCommands call and answers with the configured values. held lists the held step
+// ids. err is returned by every method that returns an error.
 type fakeStepCommands struct {
 	mu      sync.Mutex
 	starts  []StepStart
@@ -35,6 +45,11 @@ type fakeStepCommands struct {
 	row     store.StepRow
 	ended   *store.StepRow
 	rows    []store.StepRow
+	listed  []store.StepRow
+	lists   []listCall
+	holds   []string
+	nudges  []nudgeCall
+	held    map[string]bool
 	err     error
 }
 
@@ -70,6 +85,33 @@ func (f *fakeStepCommands) Wait(
 	return f.ended, f.rows, f.err
 }
 
+func (f *fakeStepCommands) List(_ context.Context, epic, task string) ([]store.StepRow, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.lists = append(f.lists, listCall{epic: epic, task: task})
+	return f.listed, f.err
+}
+
+func (f *fakeStepCommands) Hold(_ context.Context, id string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.holds = append(f.holds, id)
+	return f.err
+}
+
+func (f *fakeStepCommands) Held(id string) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.held[id]
+}
+
+func (f *fakeStepCommands) Nudge(_ context.Context, id, text string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.nudges = append(f.nudges, nudgeCall{id: id, text: text})
+	return f.err
+}
+
 func (f *fakeStepCommands) recordedStarts() []StepStart {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -92,6 +134,24 @@ func (f *fakeStepCommands) recordedWaits() []waitCall {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return slices.Clone(f.waits)
+}
+
+func (f *fakeStepCommands) recordedLists() []listCall {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.lists)
+}
+
+func (f *fakeStepCommands) recordedHolds() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.holds)
+}
+
+func (f *fakeStepCommands) recordedNudges() []nudgeCall {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.nudges)
 }
 
 func (f *fakeStepCommands) setErr(err error) {
@@ -119,6 +179,8 @@ func fullStepRow() store.StepRow {
 		DoneValue: "pass",
 		ReadOnly:  true,
 		Owned:     []string{"a.go"},
+		Epic:      "orrery",
+		Task:      "h3e1",
 		Gate:      []string{"go", "test"},
 		GateLimit: time.Minute,
 		Started:   time.Unix(1700000000, 0),
@@ -139,6 +201,8 @@ func fullStep() *v1.Step {
 	return &v1.Step{
 		Id:        "s1",
 		Agent:     "reviewer",
+		Epic:      "orrery",
+		Task:      "h3e1",
 		Workspace: "/work",
 		Revision:  "abc123",
 		ReadOnly:  true,
@@ -157,8 +221,8 @@ func fullStep() *v1.Step {
 	}
 }
 
-// callAllSteps calls each of the four step RPCs once with fixed arguments and returns each error in order: StartStep,
-// StopStep, StepStatus, WaitSteps.
+// callAllSteps calls each of the seven step RPCs once with fixed arguments and returns each error in order: StartStep,
+// StopStep, StepStatus, WaitSteps, ListSteps, HoldStep, NudgeStep.
 func callAllSteps(t *testing.T, client enginev1connect.StepsClient) []error {
 	t.Helper()
 	ctx := context.Background()
@@ -168,7 +232,10 @@ func callAllSteps(t *testing.T, client enginev1connect.StepsClient) []error {
 	_, stopErr := client.StopStep(ctx, connect.NewRequest(&v1.StopStepRequest{Id: "s1"}))
 	_, statusErr := client.StepStatus(ctx, connect.NewRequest(&v1.StepStatusRequest{Id: "s1"}))
 	_, waitErr := client.WaitSteps(ctx, connect.NewRequest(&v1.WaitStepsRequest{Ids: []string{"s1"}}))
-	return []error{startErr, stopErr, statusErr, waitErr}
+	_, listErr := client.ListSteps(ctx, connect.NewRequest(&v1.ListStepsRequest{Epic: "orrery"}))
+	_, holdErr := client.HoldStep(ctx, connect.NewRequest(&v1.HoldStepRequest{Id: "s1"}))
+	_, nudgeErr := client.NudgeStep(ctx, connect.NewRequest(&v1.NudgeStepRequest{Id: "s1", Text: "continue"}))
+	return []error{startErr, stopErr, statusErr, waitErr, listErr, holdErr, nudgeErr}
 }
 
 func TestStepStartForwardsEveryField(t *testing.T) {
@@ -188,6 +255,8 @@ func TestStepStartForwardsEveryField(t *testing.T) {
 		GateLimitSeconds:  90,
 		DoneValue:         "pass",
 		ModelLimitSeconds: 90,
+		Epic:              "orrery",
+		Task:              "h3e1",
 	}))
 	if err != nil {
 		t.Fatalf("StartStep: %v", err)
@@ -211,6 +280,8 @@ func TestStepStartForwardsEveryField(t *testing.T) {
 		GateLimit:  90 * time.Second,
 		ModelLimit: 90 * time.Second,
 		DoneValue:  "pass",
+		Epic:       "orrery",
+		Task:       "h3e1",
 	}}
 	if got := fake.recordedStarts(); !reflect.DeepEqual(got, want) {
 		t.Fatalf("StartStep reached commands as %+v, want %+v", got, want)
@@ -286,6 +357,116 @@ func TestStepStatusRefusesCheckRoundOutsideUint32AsInternal(t *testing.T) {
 	_, err := client.StepStatus(context.Background(), connect.NewRequest(&v1.StepStatusRequest{Id: "s1"}))
 	if got := connect.CodeOf(err); got != connect.CodeInternal {
 		t.Fatalf("StepStatus code = %v, want %v (error %v)", got, connect.CodeInternal, err)
+	}
+}
+
+func TestStepStatusReportsHeldStep(t *testing.T) {
+	fake := &fakeStepCommands{row: runningStepRow("s1"), held: map[string]bool{"s1": true}}
+	path, stop := startServerWithSteps(t, nil, fake)
+	client := newStepClient(t, path)
+
+	status, err := client.StepStatus(context.Background(), connect.NewRequest(&v1.StepStatusRequest{Id: "s1"}))
+	if err != nil {
+		t.Fatalf("StepStatus: %v", err)
+	}
+	if err := stop(); err != nil {
+		t.Fatalf("Serve: %v", err)
+	}
+	if got := status.Msg.GetStep().GetHeld(); !got {
+		t.Fatalf("StepStatus held = %v, want true", got)
+	}
+}
+
+func TestWaitStepsReportsHeldRows(t *testing.T) {
+	fake := &fakeStepCommands{rows: []store.StepRow{runningStepRow("s1")}, held: map[string]bool{"s1": true}}
+	path, stop := startServerWithSteps(t, nil, fake)
+	client := newStepClient(t, path)
+
+	waited, err := client.WaitSteps(context.Background(), connect.NewRequest(&v1.WaitStepsRequest{
+		Ids:            []string{"s1"},
+		TimeoutSeconds: 1,
+	}))
+	if err != nil {
+		t.Fatalf("WaitSteps: %v", err)
+	}
+	if err := stop(); err != nil {
+		t.Fatalf("Serve: %v", err)
+	}
+	steps := waited.Msg.GetSteps()
+	if len(steps) != 1 || !steps[0].GetHeld() {
+		t.Fatalf("WaitSteps steps = %v, want one held step", steps)
+	}
+}
+
+func TestListStepsForwardsLabelsAndReturnsRowsInOrder(t *testing.T) {
+	fake := &fakeStepCommands{
+		listed: []store.StepRow{fullStepRow(), runningStepRow("s2")},
+		held:   map[string]bool{"s2": true},
+	}
+	path, stop := startServerWithSteps(t, nil, fake)
+	client := newStepClient(t, path)
+
+	listed, err := client.ListSteps(context.Background(), connect.NewRequest(&v1.ListStepsRequest{
+		Epic: "orrery",
+		Task: "h3e1",
+	}))
+	if err != nil {
+		t.Fatalf("ListSteps: %v", err)
+	}
+	if err := stop(); err != nil {
+		t.Fatalf("Serve: %v", err)
+	}
+
+	if got, want := fake.recordedLists(), []listCall{{epic: "orrery", task: "h3e1"}}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("ListSteps reached commands as %+v, want %+v", got, want)
+	}
+	heldSecond := runningStep("s2")
+	heldSecond.Held = true
+	wantSteps := []*v1.Step{fullStep(), heldSecond}
+	got := listed.Msg.GetSteps()
+	if len(got) != len(wantSteps) {
+		t.Fatalf("ListSteps returned %d steps, want %d", len(got), len(wantSteps))
+	}
+	for i := range wantSteps {
+		if !proto.Equal(got[i], wantSteps[i]) {
+			t.Fatalf("ListSteps step %d = %v, want %v", i, got[i], wantSteps[i])
+		}
+	}
+}
+
+func TestHoldStepForwardsID(t *testing.T) {
+	fake := &fakeStepCommands{}
+	path, stop := startServerWithSteps(t, nil, fake)
+	client := newStepClient(t, path)
+
+	if _, err := client.HoldStep(context.Background(), connect.NewRequest(&v1.HoldStepRequest{Id: "s9"})); err != nil {
+		t.Fatalf("HoldStep: %v", err)
+	}
+	if err := stop(); err != nil {
+		t.Fatalf("Serve: %v", err)
+	}
+	if got := fake.recordedHolds(); !slices.Equal(got, []string{"s9"}) {
+		t.Fatalf("HoldStep reached commands with ids %v, want [s9]", got)
+	}
+}
+
+func TestNudgeStepForwardsIDAndText(t *testing.T) {
+	fake := &fakeStepCommands{}
+	path, stop := startServerWithSteps(t, nil, fake)
+	client := newStepClient(t, path)
+
+	if _, err := client.NudgeStep(context.Background(), connect.NewRequest(&v1.NudgeStepRequest{
+		Id:   "s9",
+		Text: "keep going",
+	})); err != nil {
+		t.Fatalf("NudgeStep: %v", err)
+	}
+	if err := stop(); err != nil {
+		t.Fatalf("Serve: %v", err)
+	}
+	want := []nudgeCall{{id: "s9", text: "keep going"}}
+	if got := fake.recordedNudges(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("NudgeStep reached commands as %+v, want %+v", got, want)
 	}
 }
 
@@ -404,6 +585,10 @@ func TestStepErrorsMapToConnectCodes(t *testing.T) {
 		{name: "bad gate", err: ErrBadGate, code: connect.CodeInvalidArgument},
 		{name: "not a git tree", err: ErrNotGit, code: connect.CodeInvalidArgument},
 		{name: "main worktree", err: ErrMainWorktree, code: connect.CodeInvalidArgument},
+		{name: "no turn running", err: ErrStepNoTurn, code: connect.CodeFailedPrecondition},
+		{name: "step already held", err: ErrStepHeld, code: connect.CodeFailedPrecondition},
+		{name: "step running its gate", err: ErrStepGating, code: connect.CodeFailedPrecondition},
+		{name: "step not running", err: ErrStepNotRunning, code: connect.CodeFailedPrecondition},
 		{name: "other error is internal", err: errors.New("disk on fire"), code: connect.CodeInternal},
 	}
 	fake := &fakeStepCommands{}

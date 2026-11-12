@@ -49,6 +49,23 @@ func (mcpSteps) Wait(context.Context, []string, time.Duration) (*store.StepRow, 
 	return nil, nil, errors.New("mcp test: Wait is not expected")
 }
 
+func (mcpSteps) List(context.Context, string, string) ([]store.StepRow, error) {
+	return nil, errors.New("mcp test: List is not expected")
+}
+
+func (mcpSteps) Hold(context.Context, string) error {
+	return errors.New("mcp test: Hold is not expected")
+}
+
+// Held is called by Status to report the row, and the row is not held.
+func (mcpSteps) Held(string) bool {
+	return false
+}
+
+func (mcpSteps) Nudge(context.Context, string, string) error {
+	return errors.New("mcp test: Nudge is not expected")
+}
+
 // startMCPDaemon serves the steps service on sessions.sock in a temporary directory, the session socket that
 // `orrery mcp` dials beside the daemon socket. It returns the daemon socket path that `--socket` names.
 func startMCPDaemon(t *testing.T, steps enginehost.StepCommands) string {
