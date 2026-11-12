@@ -446,6 +446,7 @@ func startSessions(
 			Worktrees: filepath.Join(filepath.Dir(storePath), "step-worktrees"),
 			Environ:   os.Environ(),
 			Logger:    logger,
+			Haiku:     enginehost.NewHaiku(enginehost.HaikuConfig{Claude: opts.claude, Environ: os.Environ()}),
 		})
 		st.SetEngineLive(host.manager.Live)
 		commands = host.manager

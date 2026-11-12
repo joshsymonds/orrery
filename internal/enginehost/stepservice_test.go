@@ -128,6 +128,7 @@ func fullStepRow() store.StepRow {
 		},
 		Result: "all good",
 		Status: "pass",
+		Doing:  "reading the diff",
 		End:    "done",
 		Reason: "returned",
 		Ended:  time.Unix(1700000600, 0),
@@ -145,6 +146,7 @@ func fullStep() *v1.Step {
 		End:       "done",
 		Status:    "pass",
 		Result:    "all good",
+		Doing:     "reading the diff",
 		Checks: []*v1.StepCheck{
 			{Round: 1, Name: "gate", Ok: false, Detail: "exit 1"},
 			{Round: 2, Name: "gate", Ok: true, Detail: ""},
@@ -175,16 +177,17 @@ func TestStepStartForwardsEveryField(t *testing.T) {
 	client := newStepClient(t, path)
 
 	started, err := client.StartStep(context.Background(), connect.NewRequest(&v1.StartStepRequest{
-		Agent:            "reviewer",
-		Prompt:           "check the change",
-		Schema:           `{"type":"object"}`,
-		Workspace:        "/work",
-		Revision:         "abc123",
-		ReadOnly:         true,
-		OwnedPaths:       []string{"a.go", "b/c.go"},
-		Gate:             []string{"go", "test"},
-		GateLimitSeconds: 90,
-		DoneValue:        "pass",
+		Agent:             "reviewer",
+		Prompt:            "check the change",
+		Schema:            `{"type":"object"}`,
+		Workspace:         "/work",
+		Revision:          "abc123",
+		ReadOnly:          true,
+		OwnedPaths:        []string{"a.go", "b/c.go"},
+		Gate:              []string{"go", "test"},
+		GateLimitSeconds:  90,
+		DoneValue:         "pass",
+		ModelLimitSeconds: 90,
 	}))
 	if err != nil {
 		t.Fatalf("StartStep: %v", err)
@@ -197,19 +200,40 @@ func TestStepStartForwardsEveryField(t *testing.T) {
 		t.Fatalf("StartStep id = %q, want %q", got, fake.startID)
 	}
 	want := []StepStart{{
-		Agent:     "reviewer",
-		Prompt:    "check the change",
-		Schema:    `{"type":"object"}`,
-		Workspace: "/work",
-		Revision:  "abc123",
-		ReadOnly:  true,
-		Owned:     []string{"a.go", "b/c.go"},
-		Gate:      []string{"go", "test"},
-		GateLimit: 90 * time.Second,
-		DoneValue: "pass",
+		Agent:      "reviewer",
+		Prompt:     "check the change",
+		Schema:     `{"type":"object"}`,
+		Workspace:  "/work",
+		Revision:   "abc123",
+		ReadOnly:   true,
+		Owned:      []string{"a.go", "b/c.go"},
+		Gate:       []string{"go", "test"},
+		GateLimit:  90 * time.Second,
+		ModelLimit: 90 * time.Second,
+		DoneValue:  "pass",
 	}}
 	if got := fake.recordedStarts(); !reflect.DeepEqual(got, want) {
 		t.Fatalf("StartStep reached commands as %+v, want %+v", got, want)
+	}
+}
+
+func TestStartStepZeroModelLimitHandsZero(t *testing.T) {
+	fake := &fakeStepCommands{startID: "0123456789abcdef0123456789abcdef"}
+	path, stop := startServerWithSteps(t, nil, fake)
+	client := newStepClient(t, path)
+
+	if _, err := client.StartStep(context.Background(), connect.NewRequest(&v1.StartStepRequest{
+		Agent: "reviewer", Prompt: "check", Schema: "{}", Workspace: "/work",
+	})); err != nil {
+		t.Fatalf("StartStep: %v", err)
+	}
+	if err := stop(); err != nil {
+		t.Fatalf("Serve: %v", err)
+	}
+
+	starts := fake.recordedStarts()
+	if len(starts) != 1 || starts[0].ModelLimit != 0 {
+		t.Fatalf("StartStep reached commands as %+v, want one start with a zero ModelLimit", starts)
 	}
 }
 

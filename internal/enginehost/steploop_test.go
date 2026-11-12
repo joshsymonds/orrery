@@ -26,16 +26,28 @@ const stepLoopDone = "DONE"
 
 // stepLoopSessions is a fake stepSessions that records every Continue and Stop.
 type stepLoopSessions struct {
-	mu          sync.Mutex
-	continued   []string
-	stopped     []string
-	continueErr error
+	mu           sync.Mutex
+	continued    []string
+	interrupted  []string
+	stopped      []string
+	continueErr  error
+	interruptErr error
 	// cancelOnContinue, when set, cancels the run's ctx during Continue, and Continue then returns that ctx's error.
 	cancelOnContinue context.CancelFunc
 }
 
 func (f *stepLoopSessions) StartStep(context.Context, StepSession) error {
 	return errors.New("stepLoopSessions: StartStep is not used by the loop")
+}
+
+func (f *stepLoopSessions) Interrupt(_ context.Context, id string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if id != stepLoopID {
+		return errors.New("stepLoopSessions: Interrupt for unexpected step " + id)
+	}
+	f.interrupted = append(f.interrupted, id)
+	return f.interruptErr
 }
 
 func (f *stepLoopSessions) Continue(ctx context.Context, id, text string) error {
@@ -64,6 +76,13 @@ func (f *stepLoopSessions) continuedTexts() []string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return append([]string(nil), f.continued...)
+}
+
+// interruptedIDs returns a copy of the ids Interrupt was called with.
+func (f *stepLoopSessions) interruptedIDs() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.interrupted...)
 }
 
 // stoppedIDs returns a copy of the ids Stop was called with.
@@ -271,6 +290,26 @@ func TestStepLoopFourFailuresEndChecksFailed(t *testing.T) {
 		if check.Round != i+1 || check.OK {
 			t.Errorf("check %d = %+v, want round %d failing", i, check, i+1)
 		}
+	}
+}
+
+func TestStepRunEventsReachWatch(t *testing.T) {
+	f := newStepLoopFixture(t, nil)
+	clock := newIdleClock()
+	cfg := f.run.stepRunConfig
+	cfg.now = clock.now
+	cfg.modelLimit = time.Hour
+	f.run = newStepRun(cfg)
+
+	f.run.Event(session.Started{})
+	f.run.Event(session.Block{Kind: session.BlockText, Text: "reply text"})
+	if got := f.run.watch.recent(clock.now()); !strings.Contains(got, "reply text") {
+		t.Fatalf("recent = %q, want the reply block", got)
+	}
+	clock.advance(5 * time.Minute)
+	trip, ok := f.run.watch.due(clock.now())
+	if !ok || trip.Kind != watchTripPeriodic {
+		t.Fatalf("due = %+v, %v, want a periodic trip after five minutes of turn time", trip, ok)
 	}
 }
 

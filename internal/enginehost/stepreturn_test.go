@@ -12,19 +12,31 @@ import (
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
-// stepObserver records the hand-offs of a step session. Return and Exited run on the pump goroutine, so it locks. When
-// release is set, Exited blocks until release closes, which keeps the dead step in the live set.
+// stepObserver records the hand-offs of a step session. Event, Return and Exited run on the pump goroutine, so it locks.
+// order holds each event and each return in the order the observer got them, a return as a stepReturnMark. When release
+// is set, Exited blocks until release closes, which keeps the dead step in the live set.
 type stepObserver struct {
 	mu      sync.Mutex
 	returns int
 	exits   []string
+	order   []any
 	release chan struct{}
+}
+
+// stepReturnMark stands in for a Return in stepObserver.order.
+type stepReturnMark struct{}
+
+func (o *stepObserver) Event(ev session.Event) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.order = append(o.order, ev)
 }
 
 func (o *stepObserver) Return(session.TurnEnded) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	o.returns++
+	o.order = append(o.order, stepReturnMark{})
 }
 
 func (o *stepObserver) Exited(reason string) {
@@ -41,6 +53,13 @@ func (o *stepObserver) returned() int {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	return o.returns
+}
+
+// sequence returns the events and returns the observer has received, in the order it got them.
+func (o *stepObserver) sequence() []any {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return append([]any(nil), o.order...)
 }
 
 // exited returns the exit reasons the observer has received.
@@ -81,6 +100,44 @@ func TestStepHandsFirstTurnToObserver(t *testing.T) {
 	waitReturns(t, obs, 1)
 	if n := obs.returned(); n != 1 {
 		t.Fatalf("turn ends handed to the observer = %d, want 1", n)
+	}
+}
+
+func TestStepHandsEventsToObserverInOrder(t *testing.T) {
+	m, path, _ := newHandOffManager(t, 1, &fakeSink{})
+	obs := &stepObserver{}
+	err := m.StartStep(t.Context(), StepSession{
+		ID: stepA, Dir: t.TempDir(), Prompt: "hi", Agent: "reviewer", Observer: obs,
+	})
+	if err != nil {
+		t.Fatalf("StartStep: %v", err)
+	}
+	waitHistory(t, path, stepA, "the step's first reply block", func(h store.EngineHistory) bool {
+		return hasBlock(t, h, "fake reply 1")
+	})
+	waitReturns(t, obs, 1)
+
+	seq := obs.sequence()
+	started, reply, ended, returned := -1, -1, -1, -1
+	for i, item := range seq {
+		switch ev := item.(type) {
+		case session.Started:
+			started = i
+		case session.Block:
+			if ev.Kind == session.BlockText && ev.Text == "fake reply 1" {
+				reply = i
+			}
+		case session.TurnEnded:
+			ended = i
+		case stepReturnMark:
+			returned = i
+		}
+	}
+	if started < 0 || reply < 0 || ended < 0 || returned < 0 {
+		t.Fatalf("observer order = %v, want a Started, the reply block, a TurnEnded and a Return", seq)
+	}
+	if started >= reply || reply >= ended || ended >= returned {
+		t.Fatalf("observer order = %v, want Started, reply block, TurnEnded, then Return", seq)
 	}
 }
 

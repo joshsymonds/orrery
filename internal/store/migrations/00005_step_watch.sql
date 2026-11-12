@@ -1,0 +1,9 @@
+-- +goose Up
+ALTER TABLE steps ADD COLUMN model_limit INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE steps ADD COLUMN doing TEXT NOT NULL DEFAULT '';
+ALTER TABLE steps ADD COLUMN verdicts TEXT NOT NULL DEFAULT '[]';
+
+-- +goose Down
+ALTER TABLE steps DROP COLUMN verdicts;
+ALTER TABLE steps DROP COLUMN doing;
+ALTER TABLE steps DROP COLUMN model_limit;

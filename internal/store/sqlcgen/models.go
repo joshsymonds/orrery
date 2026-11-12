@@ -66,4 +66,7 @@ type Step struct {
 	EndValue     string
 	Reason       string
 	Ended        int64
+	ModelLimit   int64
+	Doing        string
+	Verdicts     string
 }
