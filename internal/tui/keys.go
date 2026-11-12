@@ -78,16 +78,18 @@ func (m model) treeAction(action keymap.Action) (model, tea.Cmd) {
 	case keymap.ActMarkSeen, keymap.ActNewClaude, keymap.ActShell, keymap.ActPicker, keymap.ActClosePane,
 		keymap.ActCloseProject:
 		return m.paneAction(action)
-	case keymap.ActTree:
-		// The tree has no behavior for it. It is a tmux binding.
+	case keymap.ActTree, keymap.ActHold:
+		// The tree has no behavior for them. ActTree is a tmux binding, and ActHold acts on the
+		// pools view's member rows only.
 		return m, nil
 	}
 	return m, nil
 }
 
 // poolsAction runs the action of a key press in the pools view. p returns to the panes, j and k
-// move the cursor over the member rows, ? opens help, and q and Esc close the tree. Every other
-// action does nothing there, since the pane actions have no row to act on.
+// move the cursor over the member rows, h holds or frees the member under the cursor, ? opens
+// help, and q and Esc close the tree. Every other action does nothing there, since the pane
+// actions have no row to act on.
 func (m model) poolsAction(action keymap.Action) (model, tea.Cmd) {
 	switch action {
 	case keymap.ActDown:
@@ -96,6 +98,8 @@ func (m model) poolsAction(action keymap.Action) (model, tea.Cmd) {
 		return m.poolsMove(prevRow), nil
 	case keymap.ActPools:
 		return m.togglePools()
+	case keymap.ActHold:
+		return m.holdMember()
 	case keymap.ActHelp:
 		m.help = true
 		return m, nil
@@ -159,7 +163,7 @@ func (m model) paneAction(action keymap.Action) (model, tea.Cmd) {
 		m.result = Result{Action: ActionIntent, Dir: cur.Cwd}
 		return m, tea.Quit
 	case keymap.ActDown, keymap.ActUp, keymap.ActNextUnseen, keymap.ActFilter, keymap.ActHelp, keymap.ActQuit,
-		keymap.ActTree, keymap.ActPools:
+		keymap.ActTree, keymap.ActPools, keymap.ActHold:
 		// keyPressed routes only the pane actions here.
 		return m, nil
 	}

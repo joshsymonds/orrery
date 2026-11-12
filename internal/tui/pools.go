@@ -9,6 +9,7 @@ import (
 	"connectrpc.com/connect"
 
 	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
+	"github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1/enginev1connect"
 	"github.com/joshsymonds/orrery/internal/palette"
 )
 
@@ -137,13 +138,52 @@ func (m model) loadPools() tea.Cmd {
 		return nil
 	}
 	pools := m.pools
-	return func() tea.Msg {
-		resp, err := pools.Status(context.Background(), connect.NewRequest(&v1.PoolsStatusRequest{}))
-		if err != nil {
-			return poolsMsg{err: fmt.Errorf("pools status: %w", err)}
-		}
-		return poolsMsg{status: resp.Msg}
+	return func() tea.Msg { return readPools(pools) }
+}
+
+// readPools reads the pools in use and the owner holds from pools. The read is a poolsMsg.
+func readPools(pools enginev1connect.PoolsClient) poolsMsg {
+	resp, err := pools.Status(context.Background(), connect.NewRequest(&v1.PoolsStatusRequest{}))
+	if err != nil {
+		return poolsMsg{err: fmt.Errorf("pools status: %w", err)}
 	}
+	return poolsMsg{status: resp.Msg}
+}
+
+// holdMember holds the member under the pools cursor, or frees it when it is held. The call runs
+// in a command. A successful call reads the pools again, so the view shows the change, and a
+// failed call shows its error on the status line. It does nothing without a Pools client or a
+// member row.
+func (m model) holdMember() (model, tea.Cmd) {
+	rows := m.poolRows()
+	if m.pools == nil || len(rows) == 0 {
+		return m, nil
+	}
+	row := rows[m.poolLocate(rows)]
+	pools := m.pools
+	m.actionErr = nil
+	return m, func() tea.Msg {
+		if err := setHold(pools, row); err != nil {
+			return actionMsg{err: err}
+		}
+		return readPools(pools)
+	}
+}
+
+// setHold frees row's member when row is held, and holds it otherwise. Its error names the call
+// that failed.
+func setHold(pools enginev1connect.PoolsClient, row poolRow) error {
+	ctx := context.Background()
+	if row.heldSince != 0 {
+		if _, err := pools.Free(ctx, connect.NewRequest(&v1.PoolsFreeRequest{Member: row.name})); err != nil {
+			return fmt.Errorf("pools free: %w", err)
+		}
+		return nil
+	}
+	if _, err := pools.Hold(ctx, connect.NewRequest(&v1.PoolsHoldRequest{Member: row.name})); err != nil {
+		return fmt.Errorf("pools hold: %w", err)
+	}
+	return nil
 }
 
 // reloadPools reads the pools while the pools view is shown, and nothing otherwise.

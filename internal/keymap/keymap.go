@@ -29,6 +29,7 @@ const (
 	ActShell        Action = "shell"
 	ActPicker       Action = "picker"
 	ActPools        Action = "pools"
+	ActHold         Action = "hold"
 	ActClosePane    Action = "close-pane"
 	ActCloseProject Action = "close-project"
 	ActHelp         Action = "help"
@@ -76,6 +77,12 @@ func table() []Binding {
 			ActPools,
 			"show the pools view: each member's state and holder, the waiters, and the holds; p again returns to " +
 				"the panes",
+		},
+		{
+			Tree,
+			[]string{"h"},
+			ActHold,
+			"in the pools view, hold the member under the cursor, or free it when it is held",
 		},
 		{
 			Tree,
