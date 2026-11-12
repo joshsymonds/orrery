@@ -39,6 +39,7 @@ test("a pane row takes its label, project, host, state, text, and times from the
   assert.deepEqual(rows, [
     {
       key: "pane:box:%3",
+      id: "%3",
       kind: "pane",
       label: "api",
       project: "/work/api",
@@ -46,11 +47,25 @@ test("a pane row takes its label, project, host, state, text, and times from the
       state: "working",
       summary: "building",
       question: "",
+      questionHash: "",
       changed: 40,
       seen: 10,
       unseen: true,
     },
   ]);
+});
+
+test("a pane row carries the pane's id and question hash, and a session row carries the session's id with no hash", () => {
+  const [paneRow] = rowsFrom(
+    [makePane({ id: "%3", host: "box", questionHash: "hash-of-question", state: "waiting" })],
+    [],
+  );
+  const [sessionRow] = rowsFrom([], [makeSession({ id: "sess-7", pane: "", state: "done" })]);
+
+  assert.equal(paneRow?.id, "%3");
+  assert.equal(paneRow?.questionHash, "hash-of-question");
+  assert.equal(sessionRow?.id, "sess-7");
+  assert.equal(sessionRow?.questionHash, "");
 });
 
 test("a pane row without a label is named by its tmux session", () => {
@@ -78,6 +93,7 @@ test("a session row is keyed by its id, named by its first eight characters, and
   assert.deepEqual(rows, [
     {
       key: "session:0123456789abcdef",
+      id: "0123456789abcdef",
       kind: "session",
       label: "01234567",
       project: "",
@@ -85,6 +101,7 @@ test("a session row is keyed by its id, named by its first eight characters, and
       state: "done",
       summary: "finished",
       question: "",
+      questionHash: "",
       changed: 42,
       seen: 42,
       unseen: false,

@@ -18,6 +18,7 @@ interface Props {
 
 function row(init: Partial<Row> & Pick<Row, "key">): Row {
   return {
+    id: init.key,
     kind: "pane",
     label: init.key,
     project: "/work/app",
@@ -25,6 +26,7 @@ function row(init: Partial<Row> & Pick<Row, "key">): Row {
     state: "working",
     summary: "",
     question: "",
+    questionHash: "",
     changed: 0,
     seen: 0,
     unseen: false,
