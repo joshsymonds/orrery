@@ -282,16 +282,17 @@ func resolveDir(dir string) string {
 	return resolved
 }
 
-// listenSockets listens on the daemon socket and on the notices socket beside it. When the second listen fails it
-// closes the first.
+// listenSockets listens on the notices (desk) socket beside the daemon socket first, then on the daemon socket. A client
+// that sees the daemon socket listening therefore also finds the notices socket listening. When the second listen fails
+// it closes the first.
 func listenSockets(socket string) (net.Listener, net.Listener, error) {
-	ln, err := daemon.Listen(socket)
-	if err != nil {
-		return nil, nil, fmt.Errorf("daemon socket: %w", err)
-	}
 	deskLn, err := daemon.Listen(deskstream.SocketPath(socket))
 	if err != nil {
-		return nil, nil, errors.Join(fmt.Errorf("desk socket: %w", err), ln.Close())
+		return nil, nil, fmt.Errorf("desk socket: %w", err)
+	}
+	ln, err := daemon.Listen(socket)
+	if err != nil {
+		return nil, nil, errors.Join(fmt.Errorf("daemon socket: %w", err), deskLn.Close())
 	}
 	return ln, deskLn, nil
 }
