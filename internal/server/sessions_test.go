@@ -21,7 +21,7 @@ import (
 // sessionsClient serves newSessionsHandler's handler on an httptest server and returns a client for it.
 func sessionsClient(t *testing.T, reader *store.Reader) orreryv1connect.SessionsClient {
 	t.Helper()
-	path, handler := newSessionsHandler(reader)
+	path, handler := newSessionsHandler(reader, 0, 0, 0, nil)
 	mux := http.NewServeMux()
 	mux.Handle(path, handler)
 	srv := httptest.NewServer(mux)
