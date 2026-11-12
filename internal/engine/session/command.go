@@ -25,7 +25,8 @@ func ShellArgs(login bool, argv0, program string, args ...string) []string {
 // Config describes one session start. Shell is the owner's login shell, Claude the claude binary, Dir
 // the working directory, Resume a session id to resume or empty, Model the model alias to run or empty,
 // Name orrery's name for the session, Agent the claude agent to run or empty, Schema the JSON schema
-// claude must return its result in or empty, and Environ the daemon's environment.
+// claude must return its result in or empty, Settings the JSON settings claude takes as its one
+// --settings argument or empty, and Environ the daemon's environment.
 type Config struct {
 	Shell          string
 	Claude         string
@@ -35,16 +36,17 @@ type Config struct {
 	Model          string
 	Agent          string
 	Schema         string
+	Settings       string
 	Name           string
 	Environ        []string
 }
 
 // Command returns the process that starts a headless session: the owner's login shell execs claude in
 // the stream-json form with the permission prompt tool on stdio and the configured permission mode. It
-// resumes Resume when set, runs Model when set, and runs Agent with a strict MCP config and returns
-// Schema as its result when set. The environment is Environ without the names dropsEnv drops, then the
-// session marker. An error is returned, with no Command, when Shell or Claude is not absolute, or when
-// Dir, PermissionMode or Name is empty.
+// takes Settings as its --settings argument when set, resumes Resume when set, runs Model when set, and
+// runs Agent with a strict MCP config and returns Schema as its result when set. The environment is
+// Environ without the names dropsEnv drops, then the session marker. An error is returned, with no
+// Command, when Shell or Claude is not absolute, or when Dir, PermissionMode or Name is empty.
 func Command(cfg Config) (proc.Config, error) {
 	for _, path := range []struct{ name, value string }{
 		{"shell", cfg.Shell}, {"claude", cfg.Claude},
@@ -70,6 +72,9 @@ func Command(cfg Config) (proc.Config, error) {
 		"--permission-prompt-tool", "stdio",
 		"--permission-mode", cfg.PermissionMode,
 	)
+	if cfg.Settings != "" {
+		args = append(args, "--settings", cfg.Settings)
+	}
 	if cfg.Resume != "" {
 		args = append(args, "--resume", cfg.Resume)
 	}
