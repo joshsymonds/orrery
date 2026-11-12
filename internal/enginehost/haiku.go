@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/protocol"
+	"github.com/joshsymonds/orrery/internal/stamp"
 )
 
 // haikuDefaultCap and haikuDefaultTimeout apply when HaikuConfig leaves Cap or Timeout zero.
@@ -65,9 +66,31 @@ func NewHaiku(cfg HaikuConfig) *Haiku {
 	}
 }
 
-// Call runs claude once against schema with input on stdin and returns the result's structured_output. The
-// timeout covers the wait for a call slot and the run together.
+// Call runs claude once against schema with input on stdin and returns the result's structured_output.
 func (h *Haiku) Call(ctx context.Context, schema, input string) (json.RawMessage, error) {
+	return h.call(ctx, stamp.Settings(true, nil), schema, input)
+}
+
+// withEnv returns a caller whose calls run as h.Call does, with env in each call's --settings value so the claude
+// it starts runs with env. A nil or empty env leaves the argv as h.Call's. The calls share h's call slots.
+func (h *Haiku) withEnv(env map[string]string) haikuBound {
+	return haikuBound{h: h, settings: stamp.Settings(true, env)}
+}
+
+// haikuBound is a Haiku caller whose calls carry one fixed --settings value.
+type haikuBound struct {
+	h        *Haiku
+	settings string
+}
+
+// Call runs claude once through h's call slots with the bound --settings value.
+func (b haikuBound) Call(ctx context.Context, schema, input string) (json.RawMessage, error) {
+	return b.h.call(ctx, b.settings, schema, input)
+}
+
+// call runs claude once with settings as its --settings value and returns the result's structured_output. The
+// timeout covers the wait for a call slot and the run together.
+func (h *Haiku) call(ctx context.Context, settings, schema, input string) (json.RawMessage, error) {
 	ctx, cancel := context.WithTimeout(ctx, h.timeout)
 	defer cancel()
 
@@ -78,11 +101,11 @@ func (h *Haiku) Call(ctx context.Context, schema, input string) (json.RawMessage
 	}
 	defer func() { <-h.slots }()
 
-	return h.run(ctx, schema, input)
+	return h.run(ctx, settings, schema, input)
 }
 
-// run executes claude once and parses its result line.
-func (h *Haiku) run(ctx context.Context, schema, input string) (json.RawMessage, error) {
+// run executes claude once with settings as its --settings value and parses its result line.
+func (h *Haiku) run(ctx context.Context, settings, schema, input string) (json.RawMessage, error) {
 	path, err := exec.LookPath(h.claude)
 	if err != nil {
 		return nil, fmt.Errorf("haiku: find claude: %w", err)
@@ -90,7 +113,7 @@ func (h *Haiku) run(ctx context.Context, schema, input string) (json.RawMessage,
 	var stdout, stderr bytes.Buffer
 	cmd := &exec.Cmd{
 		Path:        path,
-		Args:        append([]string{path}, haikuArgv(schema)...),
+		Args:        append([]string{path}, haikuArgv(schema, settings)...),
 		Dir:         "/",
 		Env:         haikuEnv(h.environ),
 		Stdin:       strings.NewReader(input),
@@ -169,12 +192,12 @@ func haikuDecodeField(fields map[string]json.RawMessage, key string, dst any) er
 	return nil
 }
 
-// haikuArgv is the argv after the claude binary: one structured turn with hooks disabled, no tools, no saved
-// session.
-func haikuArgv(schema string) []string {
+// haikuArgv is the argv after the claude binary: one structured turn with settings as its --settings value, no tools,
+// no saved session.
+func haikuArgv(schema, settings string) []string {
 	return []string{
 		"-p", "--model", protocol.DefaultSummaryModel,
-		"--settings", `{"disableAllHooks":true}`,
+		"--settings", settings,
 		"--no-session-persistence",
 		"--tools", "",
 		"--max-turns", "1",
