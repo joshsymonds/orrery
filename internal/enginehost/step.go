@@ -35,7 +35,8 @@ const stepDefaultWatchTick = 5 * time.Second
 // done return is checked against its commit and Owned paths and its Gate. A read-only step runs in a detached worktree
 // at Revision, which is removed when the step ends. Revision names the start commit and empty means HEAD. DoneValue
 // empty means "done", GateLimit zero means 30 minutes, and ModelLimit zero means 60 minutes, the model-time limit the
-// step is stored with.
+// step is stored with. Epic and Task are optional labels the step is stored with; a step with an empty Epic is never
+// listed by List.
 type StepStart struct {
 	Agent      string
 	Prompt     string
@@ -48,12 +49,15 @@ type StepStart struct {
 	GateLimit  time.Duration
 	ModelLimit time.Duration
 	DoneValue  string
+	Epic       string
+	Task       string
 }
 
 // StepStore reads the step rows Steps reports. *store.Store satisfies it.
 type StepStore interface {
 	Step(ctx context.Context, id string) (store.StepRow, error)
 	OpenSteps(ctx context.Context) ([]store.StepRow, error)
+	LabelledSteps(ctx context.Context, epic, task string) ([]store.StepRow, error)
 }
 
 // StepsConfig configures Steps. Sessions starts and stops the step sessions, Store reads the step rows and Writer
@@ -170,7 +174,7 @@ func (s *Steps) Start(ctx context.Context, start StepStart) (string, error) {
 	add := store.StepAdd{
 		ID: id, Agent: start.Agent, Prompt: start.Prompt, Schema: start.Schema, Workspace: start.Workspace,
 		Revision: commit, DoneValue: doneValue, ReadOnly: start.ReadOnly, Owned: start.Owned, Gate: gate,
-		GateLimit: gateLimit, ModelLimit: modelLimit,
+		GateLimit: gateLimit, ModelLimit: modelLimit, Epic: start.Epic, Task: start.Task,
 	}
 	cfg := stepRunConfig{
 		id: id, schema: start.Schema, doneValue: doneValue, sessions: s.sessions, writer: s.writer, logger: s.logger,
@@ -230,6 +234,16 @@ func (s *Steps) Status(ctx context.Context, id string) (store.StepRow, error) {
 		return store.StepRow{}, fmt.Errorf("read step %s: %w", id, err)
 	}
 	return row, nil
+}
+
+// List returns the labeled step rows narrowed to epic when it is not empty and to task when it is not empty, oldest
+// first. A step started without an epic is never listed.
+func (s *Steps) List(ctx context.Context, epic, task string) ([]store.StepRow, error) {
+	rows, err := s.store.LabelledSteps(ctx, epic, task)
+	if err != nil {
+		return nil, fmt.Errorf("list labeled steps: %w", err)
+	}
+	return rows, nil
 }
 
 // runLoop runs run in its own goroutine under a context derived from ctx's values, not its cancellation, so the loop
