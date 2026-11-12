@@ -127,13 +127,17 @@ fun SessionRequestCard(
 /**
  * Interrupt and Stop for a headless session, shown only while it is working or waiting. Stop
  * asks for a second tap on its confirm button before it posts. A not_found answer to either
- * reads as stopped, and [onChanged] runs after an answer that moved the session.
+ * reads as stopped, and [onChanged] runs after an answer that moved the session. A tap on any
+ * button gives its feedback at once; the confirm button stays on screen until its flash ends.
  */
 @Composable
 fun SessionActions(sessionId: String, state: String, client: OrreryClient, onChanged: () -> Unit) {
     val scope = rememberCoroutineScope()
     var outcome by remember(sessionId) { mutableStateOf<ControlOutcome?>(null) }
     var confirming by remember(sessionId) { mutableStateOf(false) }
+    val interruptFeedback = rememberTapFeedback()
+    val stopFeedback = rememberTapFeedback()
+    val confirmFeedback = rememberTapFeedback()
     if (state !in LIVE_STATES) return
 
     fun post(call: (String) -> Unit) {
@@ -148,12 +152,14 @@ fun SessionActions(sessionId: String, state: String, client: OrreryClient, onCha
 
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            ControlButton("Interrupt", "session-interrupt") { post(client::interrupt) }
-            ControlButton("Stop", "session-stop") { confirming = true }
-            if (confirming) {
-                ControlButton("Confirm stop", "session-stop-confirm") {
-                    confirming = false
-                    post(client::stop)
+            ControlButton("Interrupt", "session-interrupt", interruptFeedback) { post(client::interrupt) }
+            ControlButton("Stop", "session-stop", stopFeedback) { confirming = true }
+            if (confirming || confirmFeedback.flashing) {
+                ControlButton("Confirm stop", "session-stop-confirm", confirmFeedback) {
+                    if (confirming) {
+                        confirming = false
+                        post(client::stop)
+                    }
                 }
             }
         }
@@ -162,12 +168,19 @@ fun SessionActions(sessionId: String, state: String, client: OrreryClient, onCha
 }
 
 @Composable
-private fun ControlButton(label: String, tag: String, onClick: () -> Unit) {
+private fun ControlButton(label: String, tag: String, feedback: TapFeedback, onClick: () -> Unit) {
     Button(
-        onClick = onClick,
-        modifier = Modifier.testTag(tag),
+        onClick = {
+            feedback.tap()
+            onClick()
+        },
+        modifier = Modifier.testTag(tag).tapFeedback(feedback),
         shape = RoundedCornerShape(10.dp),
-        colors = ButtonDefaults.buttonColors(containerColor = Mocha.Surface0, contentColor = Mocha.Text),
+        colors = if (feedback.flashing) {
+            tapFeedbackColors(feedback)
+        } else {
+            ButtonDefaults.buttonColors(containerColor = Mocha.Surface0, contentColor = Mocha.Text)
+        },
         border = BorderStroke(1.dp, Mocha.Surface1),
         elevation = null,
         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),

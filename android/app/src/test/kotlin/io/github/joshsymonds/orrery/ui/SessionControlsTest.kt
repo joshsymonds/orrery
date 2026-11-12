@@ -1,7 +1,11 @@
 package io.github.joshsymonds.orrery.ui
 
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.hapticfeedback.HapticFeedback
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
@@ -22,6 +26,7 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.StopResponse
 import java.util.concurrent.atomic.AtomicInteger
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -45,6 +50,7 @@ private const val REQUEST_TAG = "session-request"
 private const val INTERRUPT_TAG = "session-interrupt"
 private const val STOP_TAG = "session-stop"
 private const val CONFIRM_TAG = "session-stop-confirm"
+private const val FLASH_MILLIS = 300L
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35])
@@ -53,6 +59,8 @@ class SessionControlsTest {
     val composeRule = createComposeRule()
 
     private val server = FakeOrreryServer()
+
+    private val haptic = RecordingHaptic()
 
     @After
     fun tearDown() {
@@ -232,6 +240,126 @@ class SessionControlsTest {
         assertTrue(composeRule.onAllNodesWithText(STOPPED).fetchSemanticsNodes().isEmpty())
     }
 
+    @Test
+    fun interruptTapRecordsOneLongPressHapticAndFlashes() {
+        server.respond(INTERRUPT_PATH, InterruptResponse.getDefaultInstance())
+        setActions("working")
+        composeRule.mainClock.autoAdvance = false
+
+        composeRule.onNodeWithTag(INTERRUPT_TAG).performClick()
+        composeRule.waitForIdle()
+
+        assertEquals(listOf(HapticFeedbackType.LongPress), haptic.performed)
+        assertTrue("Interrupt flashes right after the tap", flashing(INTERRUPT_TAG))
+        composeRule.mainClock.advanceTimeBy(FLASH_MILLIS - 1, ignoreFrameDuration = true)
+        assertTrue("Interrupt still flashes at 299 ms", flashing(INTERRUPT_TAG))
+        composeRule.mainClock.advanceTimeBy(1, ignoreFrameDuration = true)
+        assertFalse("Interrupt stops flashing at 300 ms", flashing(INTERRUPT_TAG))
+    }
+
+    @Test
+    fun interruptFailureStillRecordsHapticAndFlashes() {
+        server.fail(INTERRUPT_PATH, Code.INTERNAL_ERROR, "synthetic failure")
+        setActions("working")
+        composeRule.mainClock.autoAdvance = false
+
+        composeRule.onNodeWithTag(INTERRUPT_TAG).performClick()
+        composeRule.waitUntil(WAIT_MS) { server.requests.size == 1 }
+
+        assertEquals(listOf(HapticFeedbackType.LongPress), haptic.performed)
+        assertTrue("Interrupt flashes although the call failed", flashing(INTERRUPT_TAG))
+
+        composeRule.mainClock.autoAdvance = true
+        composeRule.waitUntil(WAIT_MS) {
+            composeRule.onAllNodesWithText(NOT_SENT).fetchSemanticsNodes().isNotEmpty()
+        }
+        assertEquals(listOf(HapticFeedbackType.LongPress), haptic.performed)
+    }
+
+    @Test
+    fun stopTapRecordsOneLongPressHapticAndFlashes() {
+        setActions("waiting")
+        composeRule.mainClock.autoAdvance = false
+
+        composeRule.onNodeWithTag(STOP_TAG).performClick()
+        composeRule.waitForIdle()
+
+        assertEquals(listOf(HapticFeedbackType.LongPress), haptic.performed)
+        assertTrue("Stop flashes right after the tap", flashing(STOP_TAG))
+        composeRule.mainClock.advanceTimeBy(FLASH_MILLIS - 1, ignoreFrameDuration = true)
+        assertTrue("Stop still flashes at 299 ms", flashing(STOP_TAG))
+        composeRule.mainClock.advanceTimeBy(1, ignoreFrameDuration = true)
+        assertFalse("Stop stops flashing at 300 ms", flashing(STOP_TAG))
+        assertTrue(server.requests.isEmpty())
+    }
+
+    @Test
+    fun confirmStopTapRecordsOneLongPressHapticAndFlashes() {
+        server.respond(STOP_PATH, StopResponse.getDefaultInstance())
+        setActions("waiting")
+        composeRule.onNodeWithTag(STOP_TAG).performClick()
+        composeRule.waitForIdle()
+        composeRule.mainClock.autoAdvance = false
+
+        composeRule.onNodeWithTag(CONFIRM_TAG).performClick()
+        composeRule.waitForIdle()
+
+        assertEquals(listOf(HapticFeedbackType.LongPress, HapticFeedbackType.LongPress), haptic.performed)
+        assertTrue("Confirm stop flashes right after the tap", flashing(CONFIRM_TAG))
+        composeRule.mainClock.advanceTimeBy(FLASH_MILLIS - 1, ignoreFrameDuration = true)
+        assertTrue("Confirm stop still flashes at 299 ms", flashing(CONFIRM_TAG))
+        composeRule.mainClock.advanceTimeBy(1, ignoreFrameDuration = true)
+        assertFalse("Confirm stop stops flashing at 300 ms", shown(CONFIRM_TAG) && flashing(CONFIRM_TAG))
+        composeRule.mainClock.advanceTimeByFrame()
+        assertFalse("Confirm stop leaves the screen once its flash has ended", shown(CONFIRM_TAG))
+    }
+
+    @Test
+    fun confirmStopFailureStillRecordsHapticAndFlashes() {
+        server.fail(STOP_PATH, Code.INTERNAL_ERROR, "synthetic failure")
+        setActions("waiting")
+        composeRule.onNodeWithTag(STOP_TAG).performClick()
+        composeRule.waitForIdle()
+        composeRule.mainClock.autoAdvance = false
+
+        composeRule.onNodeWithTag(CONFIRM_TAG).performClick()
+        composeRule.waitUntil(WAIT_MS) { server.requests.size == 1 }
+
+        assertEquals(listOf(HapticFeedbackType.LongPress, HapticFeedbackType.LongPress), haptic.performed)
+        assertTrue("Confirm stop flashes although the call failed", flashing(CONFIRM_TAG))
+
+        composeRule.mainClock.autoAdvance = true
+        composeRule.waitUntil(WAIT_MS) {
+            composeRule.onAllNodesWithText(NOT_SENT).fetchSemanticsNodes().isNotEmpty()
+        }
+        assertEquals(listOf(HapticFeedbackType.LongPress, HapticFeedbackType.LongPress), haptic.performed)
+    }
+
+    @Test
+    fun confirmStopTappedAgainWhileFlashingPostsNothingMore() {
+        server.respond(STOP_PATH, StopResponse.getDefaultInstance())
+        setActions("waiting")
+        composeRule.onNodeWithTag(STOP_TAG).performClick()
+        composeRule.waitForIdle()
+        composeRule.mainClock.autoAdvance = false
+
+        composeRule.onNodeWithTag(CONFIRM_TAG).performClick()
+        composeRule.waitUntil(WAIT_MS) { server.requests.size == 1 }
+        composeRule.onNodeWithTag(CONFIRM_TAG).performClick()
+        composeRule.waitForIdle()
+        composeRule.mainClock.advanceTimeBy(FLASH_MILLIS, ignoreFrameDuration = true)
+        composeRule.waitForIdle()
+
+        assertEquals(1, server.requests.size)
+        assertEquals(3, haptic.performed.size)
+    }
+
+    private fun flashing(tag: String): Boolean =
+        composeRule.onNodeWithTag(tag).fetchSemanticsNode().config.getOrElse(Flashing) { false }
+
+    private fun shown(tag: String): Boolean =
+        composeRule.onAllNodesWithTag(tag).fetchSemanticsNodes().isNotEmpty()
+
     private fun setCard(options: List<String>, onAnswered: () -> Unit) {
         val client = OrreryClient(server.baseUrl)
         composeRule.setContent {
@@ -244,8 +372,10 @@ class SessionControlsTest {
     private fun setActions(state: String, onChanged: () -> Unit = {}) {
         val client = OrreryClient(server.baseUrl)
         composeRule.setContent {
-            MaterialTheme {
-                SessionActions(SESSION_ID, state, client, onChanged)
+            CompositionLocalProvider(LocalHapticFeedback provides haptic) {
+                MaterialTheme {
+                    SessionActions(SESSION_ID, state, client, onChanged)
+                }
             }
         }
     }
@@ -257,5 +387,13 @@ class SessionControlsTest {
             AnswerRequest.newBuilder().setId(SESSION_ID).setRequestId(REQUEST_ID).setAnswer(label).build(),
             AnswerRequest.parseFrom(request.body),
         )
+    }
+
+    private class RecordingHaptic : HapticFeedback {
+        val performed = mutableListOf<HapticFeedbackType>()
+
+        override fun performHapticFeedback(hapticFeedbackType: HapticFeedbackType) {
+            performed += hapticFeedbackType
+        }
     }
 }
