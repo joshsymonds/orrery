@@ -23,6 +23,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/autoseen"
 	"github.com/joshsymonds/orrery/internal/daemon"
 	"github.com/joshsymonds/orrery/internal/enginehost"
+	"github.com/joshsymonds/orrery/internal/grants"
 	"github.com/joshsymonds/orrery/internal/notice"
 	"github.com/joshsymonds/orrery/internal/ntfy"
 	"github.com/joshsymonds/orrery/internal/protocol"
@@ -53,6 +54,8 @@ const (
 	defaultStepCap = 6
 	// notifyTimeout bounds each notification request.
 	notifyTimeout = 10 * time.Second
+	// brokerTick is how often the grants broker ticks. Each tick ends the grants of gone clients and polls each member.
+	brokerTick = 60 * time.Second
 	// waitingBody and doneBody stand in for an empty question or summary.
 	waitingBody = "waiting for input"
 	doneBody    = "done"
@@ -351,7 +354,7 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 	})
 	var sessions *sessionHost
 	if opts.sessions {
-		sessions, err = startSessions(ctx, opts, st, notifier, logger, getenv)
+		sessions, err = startSessions(ctx, opts, host, st, notifier, logger, getenv)
 		if err != nil {
 			closeStore(ctx, st, logger)
 			return errors.Join(err, ln.Close())
@@ -384,14 +387,19 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 }
 
 // sessionHost is the engine session service of a --sessions orreryd. The manager runs the sessions, the writer stores
-// their events, and the listener answers the Engine service on sessions.sock. Without a store the manager and writer
-// are nil and every RPC is refused. The notifier receives the manager's notices and is waited on after the manager
-// closes.
+// their events, and the listener answers the Engine, Steps and Pools services on sessions.sock. Without a store the
+// manager, writer and broker are nil and every RPC is refused. The notifier receives the manager's notices and is
+// waited on after the manager closes. The broker is closed before the listener stops, so a grant that a blocked Acquire
+// holds stays stored for the next orreryd. pools is the broker when its restore succeeded, and nil otherwise, so no
+// Pools are served. brokerRun is closed when the broker's tick loop returns, and is nil when no loop runs.
 type sessionHost struct {
 	manager    *enginehost.Manager
 	steps      *enginehost.Steps
 	writer     *enginehost.Writer
 	notifier   *enginehost.Notifier
+	broker     *grants.Broker
+	pools      enginehost.PoolCommands
+	brokerRun  chan struct{}
 	stopWriter context.CancelFunc
 	writerDone chan struct{}
 	stopIdle   context.CancelFunc
@@ -400,14 +408,17 @@ type sessionHost struct {
 	serveDone  chan error
 }
 
-// startSessions listens on sessions.sock beside the daemon socket and serves the Engine and Steps services on it until
-// stop. With an open store it also starts the writer, a manager capped at opts.sessionCap that notifies through
+// startSessions listens on sessions.sock beside the daemon socket and serves the Engine, Steps and Pools services on it
+// until stop. With an open store it also starts the writer, a manager capped at opts.sessionCap that notifies through
 // notifier, and the step engine capped at opts.stepCap whose gates hold opts.gateLocks and whose worktrees go under
 // step-worktrees beside the store file. The manager reconciles the rows a previous run left before the service serves,
-// then the steps do, and the manager stops idle sessions until stop. A reconcile failure is logged and serving goes on.
+// then the steps do, and the manager stops idle sessions until stop. The grants broker for hostName restores the grants
+// a previous run stored, then ticks every brokerTick until stop. A reconcile or restore failure is logged and serving
+// goes on; a failed restore serves no Pools, which refuse as unavailable.
 func startSessions(
 	ctx context.Context,
 	opts options,
+	hostName string,
 	st *store.Store,
 	notifier *enginehost.Notifier,
 	logger *slog.Logger,
@@ -473,6 +484,7 @@ func startSessions(
 			host.manager.RunIdle(idleCtx)
 			close(host.idleDone)
 		}()
+		host.startBroker(ctx, hostName, st, logger)
 	}
 	ln, err := enginehost.Listen(protocol.SessionSocketPath(opts.socket))
 	if err != nil {
@@ -481,13 +493,59 @@ func startSessions(
 	}
 	var serveCtx context.Context
 	serveCtx, host.stopServe = context.WithCancel(ctx)
-	go func() { host.serveDone <- enginehost.Serve(serveCtx, ln, commands, stepCommands) }()
+	go func() { host.serveDone <- enginehost.Serve(serveCtx, ln, commands, stepCommands, host.pools) }()
 	return host, nil
 }
 
-// stop stops serving the session socket and then shuts the sessions down. It returns the error the session service ended
-// with, if any.
+// startBroker builds the grants broker for hostName over st and restores the grants a previous run stored. A restore
+// that succeeds makes the broker the host's pools and starts its tick loop. A restore that fails is logged and leaves
+// the pools nil, so no Pools are served; the broker is still closed at shutdown, since its restore may have started
+// member commands. The broker closes as soon as ctx ends: the signal that ends ctx also starts Serve's shutdown, whose
+// Close after shutdownWait cancels each held Acquire, and an Acquire canceled while the broker is open ends its grant.
+func (h *sessionHost) startBroker(ctx context.Context, hostName string, st *store.Store, logger *slog.Logger) {
+	h.broker = grants.NewBroker(grants.Config{
+		Host:    hostName,
+		Store:   st,
+		Environ: os.Environ(),
+		Logger:  logger,
+	})
+	context.AfterFunc(ctx, h.broker.Close)
+	if err := h.broker.Restore(ctx); err != nil {
+		logger.ErrorContext(ctx, "restore grants, serving without pools", "error", err)
+		return
+	}
+	h.pools = h.broker
+	h.brokerRun = make(chan struct{})
+	go h.runBroker(context.WithoutCancel(ctx))
+}
+
+// runBroker ticks the broker every brokerTick until the broker closes. Each tick ends the grants of clients that are
+// gone and polls each member's status. It closes brokerRun when it returns.
+func (h *sessionHost) runBroker(ctx context.Context) {
+	defer close(h.brokerRun)
+	ticker := time.NewTicker(brokerTick)
+	defer ticker.Stop()
+	h.broker.Run(ctx, ticker.C)
+}
+
+// stopBroker closes the broker and waits for its tick loop to return, and for its member commands to end. Each Acquire
+// the broker is blocking returns without ending its grant, so the grant stays stored for the next orreryd. Without a
+// broker it does nothing, and so does a second call.
+func (h *sessionHost) stopBroker() {
+	if h.broker == nil {
+		return
+	}
+	h.broker.Close()
+	if h.brokerRun != nil {
+		<-h.brokerRun
+	}
+}
+
+// stop stops the broker, then serving the session socket, and then shuts the sessions down. Serve's shutdown closes the
+// connections of the Acquire calls still blocked, and an Acquire whose context ends would end its grant, so the broker
+// closes first. It returns the error the session service ended with, if any.
 func (h *sessionHost) stop() error {
+	h.stopBroker()
 	h.stopServe()
 	serveErr := <-h.serveDone
 	h.shutdown()
@@ -497,10 +555,11 @@ func (h *sessionHost) stop() error {
 	return nil
 }
 
-// shutdown stops the idle check, ends every step loop, stops every live session and waits for the ntfy posts and
-// notices they started, and ends the writer after its last flush. Their Web Push sends are waited on in serve. Without
-// a manager and writer it does nothing.
+// shutdown stops the broker, stops the idle check, ends every step loop, stops every live session and waits for the
+// ntfy posts and notices they started, and ends the writer after its last flush. Their Web Push sends are waited on in
+// serve. Without a broker, manager and writer it does nothing.
 func (h *sessionHost) shutdown() {
+	h.stopBroker()
 	if h.manager != nil {
 		h.stopIdle()
 		<-h.idleDone
