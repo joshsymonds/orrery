@@ -331,6 +331,8 @@ Registrations are written to the push store that `orreryd` reads (see `### orrer
 
 `serve` also serves the `orrery.v1.Control` API of [Control API](#control-api), forwarding each call to orreryd's session socket. The daemon socket path comes from `--socket`, then `ORRERY_SOCKET`, then `$XDG_RUNTIME_DIR/orrery/orreryd.sock`, and the session socket is `sessions.sock` beside it. When no daemon socket path resolves, `serve` has no engine and answers `unavailable` to each Control call that reaches the forward; a `Start` the home rule refuses still answers `invalid_argument`. `serve` also reads `HOME`, the directory that `Control.Start` admits directories under.
 
+`serve` reads the gambit record root, `$HOME/.gambit`, read-only, for the epic calls of [Epics and Steps](#epics-and-steps). It opens the records for reading and never creates, writes, renames or chmods anything under the root. It reaches orreryd's `orrery.engine.v1.Steps` service on the same session socket, `sessions.sock`, for the step calls of [Epics and Steps](#epics-and-steps) and for the step refusal of [Control API](#control-api). When serve has no step client, the epic and step calls answer `unavailable` "step service unavailable" (see [Phone API errors](#phone-api-errors)), and the Control calls forward as before.
+
 The picker call `Picker.Ask` (see [Phone API](#phone-api)) looks up `zoxide` and `claude` on serve's PATH at each ask, not at start. A missing one answers that ask `unavailable` and does not stop serve.
 
 `--listen` and at least one `--allow-login` are required. Without them `serve` exits 2.
@@ -477,7 +479,7 @@ A session notice clears on the session's own seen: the `Seen` call for that sess
 
 #### Steps
 
-`orreryd` serves the `orrery.engine.v1.Steps` service (`proto/orrery/engine/v1/step.proto`) on the session socket, beside `Engine`, with the same socket mode and Connect rules. It is not on `serve`. A step is an agent loop that ends with a checked status. It runs as one claude process of kind `step` (see [Steps in the store](#steps-in-the-store)), and [Step lifecycle](#step-lifecycle) gives its rules.
+`orreryd` serves the `orrery.engine.v1.Steps` service (`proto/orrery/engine/v1/step.proto`) on the session socket, beside `Engine`, with the same socket mode and Connect rules. `serve` does not serve it. `serve` calls its `ListSteps` and `StepStatus` to read steps, and forwards `HoldStep`, `NudgeStep` and `StopStep` to it for the phone's `orrery.v1.Steps` calls (see [Epics and Steps](#epics-and-steps)). `serve` never calls `StartStep` or `WaitSteps`. A step is an agent loop that ends with a checked status. It runs as one claude process of kind `step` (see [Steps in the store](#steps-in-the-store)), and [Step lifecycle](#step-lifecycle) gives its rules.
 
 | Call | Request | Response | Effect |
 |---|---|---|---|
@@ -896,7 +898,7 @@ The guard runs before routing. It checks every request:
 
 - The `Tailscale-User-Login` header must equal one of the `--allow-login` values. Otherwise the response is 403.
 
-Connect paths are those beginning `/orrery.v1.Sessions/`, `/orrery.v1.Events/`, `/orrery.v1.Control/`, `/orrery.v1.Panes/`, `/orrery.v1.Host/`, `/orrery.v1.Push/` or `/orrery.v1.Picker/` (see [Connect API](#connect-api), [Control API](#control-api) and [Phone API](#phone-api)). Every request to a Connect path, whatever its method, must also send a non-empty `X-Orrery-Client` header. Otherwise the response is 403. A POST to a Connect path must send `Content-Type` `application/proto`, `application/json`, `application/connect+proto`, or `application/connect+json`. Otherwise the response is 403.
+Connect paths are those beginning `/orrery.v1.Sessions/`, `/orrery.v1.Events/`, `/orrery.v1.Control/`, `/orrery.v1.Panes/`, `/orrery.v1.Host/`, `/orrery.v1.Push/`, `/orrery.v1.Picker/`, `/orrery.v1.Epics/` or `/orrery.v1.Steps/` (see [Connect API](#connect-api), [Control API](#control-api) and [Phone API](#phone-api)). Every request to a Connect path, whatever its method, must also send a non-empty `X-Orrery-Client` header. Otherwise the response is 403. A POST to a Connect path must send `Content-Type` `application/proto`, `application/json`, `application/connect+proto`, or `application/connect+json`. Otherwise the response is 403.
 
 Any path that is not a Connect path answers 404, after the login check. The server sends no CORS headers.
 
@@ -942,7 +944,7 @@ On the phone, the notices of a host are shown as follows:
 
 `orrery serve` also serves a typed API over the Connect protocol. The schema is `proto/orrery/v1/orrery.proto`, package `orrery.v1`. Generated Go lives in `internal/gen`. `just generate` writes it, and `just check` fails when it drifts from the schema. The same `just generate` also writes the generated Kotlin into `android/app/src/main/java`, from the template `proto/buf.gen.android.yaml`. `just gen-diff` diffs that directory and `internal/gen`.
 
-The services are `orrery.v1.Sessions`, with one call, `List`, `orrery.v1.Events`, with one call, `Watch`, `orrery.v1.Control`, with six calls, which [Control API](#control-api) describes, and the four phone services `orrery.v1.Panes`, `orrery.v1.Host`, `orrery.v1.Push` and `orrery.v1.Picker`, with twelve calls, which [Phone API](#phone-api) describes.
+The services are `orrery.v1.Sessions`, with one call, `List`, `orrery.v1.Events`, with one call, `Watch`, `orrery.v1.Control`, with six calls, which [Control API](#control-api) describes, and the four phone services `orrery.v1.Panes`, `orrery.v1.Host`, `orrery.v1.Push` and `orrery.v1.Picker`, with twelve calls, which [Phone API](#phone-api) describes. The services `orrery.v1.Epics`, with two calls, and `orrery.v1.Steps`, with three calls, which [Epics and Steps](#epics-and-steps) describes. Their schema is `proto/orrery/v1/epics.proto`. `orrery.v1.Steps` is not the engine's `orrery.engine.v1.Steps` service of [Steps](#steps).
 
 | Call | Path | Request | Response |
 |---|---|---|---|
@@ -966,6 +968,11 @@ The services are `orrery.v1.Sessions`, with one call, `List`, `orrery.v1.Events`
 | `Push.Unregister` | `POST /orrery.v1.Push/Unregister` | `UnregisterRequest` | `UnregisterResponse` |
 | `Picker.Ask` | `POST /orrery.v1.Picker/Ask` | `AskRequest` | `AskResponse` |
 | `Picker.Run` | `POST /orrery.v1.Picker/Run` | `RunRequest` | `RunResponse` |
+| `Epics.List` | `POST /orrery.v1.Epics/List` | `EpicsListRequest`, empty | `EpicsListResponse` |
+| `Epics.Get` | `POST /orrery.v1.Epics/Get` | `EpicsGetRequest` | `EpicsGetResponse` |
+| `Steps.Hold` | `POST /orrery.v1.Steps/Hold` | `StepsHoldRequest` | `StepsHoldResponse` |
+| `Steps.Nudge` | `POST /orrery.v1.Steps/Nudge` | `StepsNudgeRequest` | `StepsNudgeResponse` |
+| `Steps.Stop` | `POST /orrery.v1.Steps/Stop` | `StepsStopRequest` | `StepsStopResponse` |
 
 `ListResponse` has these fields:
 
@@ -1049,6 +1056,7 @@ Rules:
 - **Client-chosen ids.** `StartRequest.id` names the new session's id, 32 lowercase hex digits. Empty lets orreryd mint one. A start that names an existing session's id returns that id and starts nothing. `SayRequest.prompt_id` names the prompt. A say whose `prompt_id` an `engine_prompt` event of the session already carries succeeds and sends nothing. A call that names a key with a running attempt waits for that attempt and returns its result. A say whose send failed returns that failure to every later call with its key and sends nothing, also after a restart, because the failure is stored in `engine_prompt_failed`. Any other key whose attempt failed after storing its record returns that attempt's error to every later call with the key, and does nothing else, while `orreryd` runs. A key whose attempt failed before storing its record is free, so a retry runs, unless the record cannot be read after the failure, which keeps the error as a stored record does. Empty means no id and no check.
 - **Model.** `StartRequest.model` is the model alias the started session's process runs, passed to claude as `--model`. Empty runs claude's default. A model outside the rule of [Session control socket](#session-control-socket) is refused with `invalid_argument`. A process that a later `Say` resumes runs claude's default model.
 - **Forward.** Each call that passes the home rule is forwarded to the engine under a deadline. The deadline is 10 seconds, the default for `serve`, which sets no other. The forward reaches the session socket through a unix-socket transport, `sessions.sock` beside the daemon socket. When no daemon socket path resolves, `serve` has no engine and answers `unavailable` without dialing.
+- **Step ids.** `Say`, `Answer`, `Interrupt` and `Stop` ask orreryd's `StepStatus` about their `id` before they forward. When the id names a step, the call answers `failed_precondition` and nothing is forwarded, so a session command cannot drive a step around its own loop. A `not_found` from `StepStatus` forwards as before, and any other `StepStatus` error answers as the forward's errors do. `Seen` and `Start` do not ask. With no step client, every call forwards as before.
 - **Body bound.** A request body over 1 MiB (1048576 bytes) is refused with `resource_exhausted` before it reaches the engine.
 
 Errors are Connect codes. The messages marked fixed are the same whatever orreryd said:
@@ -1060,6 +1068,7 @@ Errors are Connect codes. The messages marked fixed are the same whatever orrery
 | `deadline_exceeded` | `session command timed out` (fixed) | the forward outlives the 10-second deadline, or the client's own deadline ends the call first |
 | `internal` | `session command failed` (fixed) | orreryd answers `internal` or `unknown`, or the forward fails with an error that is not a Connect error |
 | `resource_exhausted` | the Connect library's message | the request body is over 1 MiB |
+| `failed_precondition` | `<id> is a step: drive it through Steps`, where `<id>` is the id given | `Say`, `Answer`, `Interrupt` or `Stop` names a step (see Step ids above) |
 | other codes | orreryd's message, passed through | `invalid_argument` (a bad `model`, `id`, `prompt` or `text`), `not_found` (no row, or an answer whose request is not open), `resource_exhausted` (the session cap) |
 
 ### Phone API
@@ -1195,6 +1204,27 @@ The stream ends in one of these ways:
 
 The guard covers the stream. The rules of [Guard](#guard) apply to `/orrery.v1.Panes/WatchConversation` as they do to every Connect path. A GET to the stream answers 405.
 
+#### Epics and Steps
+
+`orrery.v1.Epics` reads the gambit epics of the host, and `orrery.v1.Steps` makes the owner's calls on one labelled step. `serve` answers both, and each call is a Connect POST to its path in [Connect API](#connect-api), under the rules of [Guard](#guard). `serve` never starts a step: it never calls `StartStep` or `WaitSteps`.
+
+**Records.** `serve` reads the record root `$HOME/.gambit` read-only (see [orrery serve](#orrery-serve)). Each epic's head is `<root>/<repo-id>/<epic-slug>/state.json`. A non-directory entry, a directory without `state.json`, and a name starting with `.` are not epics. An effort's tasks are read from `<epic directory>/efforts/<n>/state.json`, where `<n>` is all decimal digits, under its `tasks` key. Any other entry under `efforts/` is skipped. The records are only read: `serve` never creates, writes, renames or chmods anything under the root.
+
+- An epic's `id` is `<repo-id>/<epic-slug>`, the same text that a step's epic label carries. `repository` is `<repo-id>` and `slug` is `<epic-slug>`.
+- Record text is the value of a JSON string. `null` or an absent key is `""`, and any other JSON value is its compact JSON text. `outcome` and each task's `slug`, `subject` and `status` are record text. A task's `status` is kept as written.
+- `changed` is the head's modification time in unix seconds.
+- A file that does not parse, or whose `tasks` is not an array, is skipped and is not an error. Its name goes into `problem`: the head as `<repo-id>/<epic-slug>/state.json: does not parse`, and an effort's file as `efforts/<n>/state.json: does not parse`. `problem` joins the names with `; `, and it is empty when everything read. Only an unexpected read failure is an error.
+
+**Live.** An epic is live when its `outcome` is not exactly `released`, and either one of its labelled steps is running or its head was modified within the 24 hours before now. Every other epic is folded: `live` is false, and it is still listed.
+
+`Epics.List` answers every epic under the record root, live or folded, sorted by `id`. Each epic carries `running_steps`, its labelled steps that have no end, held ones included, oldest first, and `ended_steps`, how many of its labelled steps have ended. It calls `ListSteps` once.
+
+`Epics.Get` answers one epic by an `id` that `Epics.List` gives. It returns the epic, its `tasks` in effort number order (file order within an effort), and its `steps`, every labelled step of the epic, oldest first. It calls `ListSteps` once, narrowed to the epic. An `id` that `Epics.List` does not give answers `not_found` "epic not found", and the id is never joined into a path.
+
+When `ListSteps` cannot be read, or serve has no step client, `Epics.List` and `Epics.Get` answer `unavailable` "step service unavailable".
+
+`Steps.Hold`, `Steps.Nudge` and `Steps.Stop` act on one step. Each call first asks `StepStatus` about the `id`, and forwards only when the step has an epic label. A step that is absent, or that has no epic label, answers `not_found` "step not found" and nothing is forwarded, so an unlabelled step is never listed or driven. A forwarded call goes to orreryd's `HoldStep`, `NudgeStep` or `StopStep` under the 10-second deadline of [Control API](#control-api). `Nudge` sends the owner's `text` to the step. A `failed_precondition` from orreryd passes through with its message, which is the reason a hold or nudge was refused. Any other error answers as the forward's errors do (see [Control API](#control-api)). With no step client, the three calls answer `unavailable` "step service unavailable". The three responses have no fields.
+
 #### Phone API errors
 
 Errors are Connect codes. The message column gives the text of each error exactly. Where the message is "the failure's reason", the text is the reason of the failure as the server gives it, and the message carries it unchanged.
@@ -1218,6 +1248,10 @@ Errors are Connect codes. The message column gives the text of each error exactl
 | `unavailable` | `Panes.WatchConversation` while serve shuts down | `serve is shutting down` |
 | `unavailable` | `Picker.Ask` with a picker configuration, text lookup, or pane listing failure | the failure's reason |
 | `unavailable` | `Picker.Run` with a failed action, or an action whose pane lookup failed | the failure's reason |
+| `not_found` | `Epics.Get` with an id that `Epics.List` does not give | `epic not found` |
+| `not_found` | `Steps.Hold`, `Steps.Nudge` or `Steps.Stop` with a step that is absent or has no epic label | `step not found` |
+| `failed_precondition` | `Steps.Hold` or `Steps.Nudge` that orreryd refuses | the message orreryd gives |
+| `unavailable` | `Epics.List` or `Epics.Get` when `ListSteps` cannot be read; any `Steps` call, or any epic call, with no step client | `step service unavailable` |
 | `internal` | a tmux failure, a store failure, a transcript read failure, a host name failure, or a failed seen report | `internal server error` |
 
 ## 13. Freeze
@@ -1263,3 +1297,5 @@ orrery O1a (steps) added, additively: the `orreryd` flags `--step-cap` and `--ga
 orrery removed the REST routes of the phone API: `GET /v1/panes`, `POST /v1/panes`, `GET /v1/panes/{id}/screen`, `GET /v1/panes/{id}/conversation`, `GET /v1/host`, `POST /v1/panes/{id}/text`, `POST /v1/panes/{id}/keys`, `POST /v1/panes/{id}/seen`, `POST /v1/push/register`, `DELETE /v1/push/register`, `POST /v1/picker/ask` and `POST /v1/picker/run`. `POST /v1/panes`, which opened a window, is removed with them and has no replacement. Each other route is answered by the Connect call of [Phone API](#phone-api) that replaced it, and that section states the rules the route had. The guard's rule for non-Connect POST and DELETE paths went with the routes, so every path other than a Connect path answers 404 after the login check (see [Guard](#guard)). This is a removal, and it changes serve's HTTP surface. No Connect name or value changes.
 
 orrery H3b (conversation stream) added, additively: the `orrery.v1.Panes.WatchConversation` call, its messages `WatchConversationRequest`, `WatchConversationResponse` and `ConversationState`, and the `unfinished` field of `WatchConversationResponse`, which holds `EngineText` values that pane streams never set (see [Conversation stream](#conversation-stream)). The phone API now has twelve calls where it had eleven (see [Phone API](#phone-api)). The guard's Connect prefixes already covered the stream, so the guard is unchanged. No existing name or value changes.
+
+orrery H3e2 (epics and steps) added, additively: the `orrery.v1.Epics` and `orrery.v1.Steps` services and their five calls (see [Epics and Steps](#epics-and-steps)); the Connect path prefixes `/orrery.v1.Epics/` and `/orrery.v1.Steps/` of [Guard](#guard); serve's read of the record root `$HOME/.gambit`; and serve's calls of orreryd's `ListSteps`, `StepStatus`, `HoldStep`, `NudgeStep` and `StopStep`. A change, not an addition: `Say`, `Answer`, `Interrupt` and `Stop` on a step id now answer `failed_precondition` (see [Control API](#control-api)), where they forwarded the call before. No other existing name or value changes.
