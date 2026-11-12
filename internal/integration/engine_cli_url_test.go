@@ -1,6 +1,7 @@
 package integration_test
 
 import (
+	"net/http"
 	"net/http/httptest"
 	"net/http/httputil"
 	"net/url"
@@ -18,7 +19,8 @@ import (
 
 // startLoginProxy starts a reverse proxy in the test process in front of serve at base. It sets the login header to
 // exampleLogin on each request, as Tailscale serve does, and forwards each response as it is written so that streamed
-// Events replies reach the client. The proxy closes at cleanup, and its URL is returned.
+// Events replies reach the client. The front server enables full duplex on each request, so the proxy can read a
+// request body while it writes the response. The proxy closes at cleanup, and its URL is returned.
 func startLoginProxy(t *testing.T, base string) string {
 	t.Helper()
 	target, err := url.Parse(base)
@@ -32,7 +34,12 @@ func startLoginProxy(t *testing.T, base string) string {
 			r.Out.Header.Set(server.HeaderLogin, exampleLogin)
 		},
 	}
-	front := httptest.NewServer(proxy)
+	front := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := http.NewResponseController(w).EnableFullDuplex(); err != nil {
+			t.Errorf("enable full duplex: %v", err)
+		}
+		proxy.ServeHTTP(w, r)
+	}))
 	t.Cleanup(front.Close)
 	return front.URL
 }

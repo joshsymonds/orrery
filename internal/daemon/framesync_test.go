@@ -175,9 +175,11 @@ func TestFrameSyncRowMatchesTmuxAndReplay(t *testing.T) {
 	srv := startServer(t)
 	st, db := openFrameStore(t)
 	socket := serve(t, daemon.Config{
-		Server: srv.server,
-		Mirror: daemon.NewMirror(st, time.Now, nil),
+		Server:       srv.server,
+		Mirror:       daemon.NewMirror(st, time.Now, nil),
+		TidyInterval: time.Hour,
 	})
+	waitForPaneID(t, srv.client, srv.pane)
 
 	steps := []struct {
 		name string
@@ -207,10 +209,12 @@ func TestFrameSyncUnchangedFrameUpdatesRow(t *testing.T) {
 	st, db := openFrameStore(t)
 	transitions := make(chan daemon.Transition, 4)
 	socket := serve(t, daemon.Config{
-		Server:    srv.server,
-		Mirror:    daemon.NewMirror(st, time.Now, nil),
-		Observers: []daemon.Observer{func(transition daemon.Transition) { transitions <- transition }},
+		Server:       srv.server,
+		Mirror:       daemon.NewMirror(st, time.Now, nil),
+		Observers:    []daemon.Observer{func(transition daemon.Transition) { transitions <- transition }},
+		TidyInterval: time.Hour,
 	})
+	waitForPaneID(t, srv.client, srv.pane)
 
 	sendFrame(t, socket, frameFor(firstHook, srv.pane, srv.socket))
 	checkPaneRow(t, srv, db)
