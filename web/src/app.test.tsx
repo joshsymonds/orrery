@@ -7,6 +7,7 @@ import { act } from "preact/test-utils";
 import { App } from "./app";
 import { createClients, createTransport } from "./client";
 import type { Row } from "./rows";
+import type { SeenClock, SeenWindow } from "./seen";
 import { installTestDom, removeTestDom } from "./testdom";
 
 const now = 1000;
@@ -18,14 +19,20 @@ const sayPath = "/orrery.v1.Control/Say";
 const pullPath = "/orrery.v1.Panes/PullQueued";
 const queuedText = "queued words";
 const intervalMs = 2;
+const markPanePath = "/orrery.v1.Panes/MarkSeen";
+const markSessionPath = "/orrery.v1.Control/Seen";
+const seenFailedText = "could not mark seen";
 
 type Clients = ReturnType<typeof createClients>;
+
+type Seen = ReturnType<typeof fakeSeen>;
 
 interface Props {
   rows: Row[];
   error: string;
   now: number;
   clients: Clients;
+  seen: Seen;
 }
 
 // One request the fake server received. A unary call has no controller; a stream call has one until it ends.
@@ -42,6 +49,8 @@ class FakeServer {
   readonly calls: Call[] = [];
   // failNext holds the unary paths whose next call the server refuses with a Connect error, once each.
   readonly failNext = new Set<string>();
+  // seen is the page the seen watch reads: the test emits its input, sets its focus, and advances its clock.
+  readonly seen = fakeSeen();
 
   readonly fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const request = new Request(input, init);
@@ -92,6 +101,88 @@ class FakeServer {
       }
     }
   }
+}
+
+// A clock whose timers fire only when the test advances time.
+function fakeClock() {
+  let now = 0;
+  let nextId = 1;
+  const timers = new Map<unknown, { at: number; fn: () => void }>();
+  const clock: SeenClock = {
+    now: () => now,
+    setTimeout(fn, ms) {
+      const id = nextId++;
+      timers.set(id, { at: now + ms, fn });
+      return id;
+    },
+    clearTimeout(handle) {
+      timers.delete(handle);
+    },
+  };
+  return {
+    clock,
+    advance(ms: number) {
+      const end = now + ms;
+      for (;;) {
+        let next: { id: unknown; at: number; fn: () => void } | undefined;
+        for (const [id, timer] of timers) {
+          if (timer.at <= end && (next === undefined || timer.at < next.at)) {
+            next = { id, at: timer.at, fn: timer.fn };
+          }
+        }
+        if (next === undefined) break;
+        now = next.at;
+        timers.delete(next.id);
+        next.fn();
+      }
+      now = end;
+    },
+  };
+}
+
+// A listener registry for one event target, as seen.test.ts keeps one.
+function listeners() {
+  const byType = new Map<string, Set<() => void>>();
+  return {
+    addEventListener(type: string, fn: () => void) {
+      const set = byType.get(type) ?? new Set<() => void>();
+      set.add(fn);
+      byType.set(type, set);
+    },
+    removeEventListener(type: string, fn: () => void) {
+      byType.get(type)?.delete(fn);
+    },
+    emit(type: string) {
+      for (const fn of [...(byType.get(type) ?? [])]) fn();
+    },
+    count() {
+      let total = 0;
+      for (const set of byType.values()) total += set.size;
+      return total;
+    },
+  };
+}
+
+// fakeSeen is the page the seen watch reads: a document whose visibility and focus the test sets, input events the
+// test emits, and a clock the test advances, so a dwell fires only when the test says so.
+function fakeSeen() {
+  const clock = fakeClock();
+  const input = listeners();
+  const page = listeners();
+  const state = { visibilityState: "visible", focused: true };
+  const seenWindow: SeenWindow = {
+    document: {
+      get visibilityState() {
+        return state.visibilityState;
+      },
+      hasFocus: () => state.focused,
+      addEventListener: input.addEventListener,
+      removeEventListener: input.removeEventListener,
+    },
+    addEventListener: page.addEventListener,
+    removeEventListener: page.removeEventListener,
+  };
+  return { clock: clock.clock, advance: clock.advance, input, page, state, window: seenWindow };
 }
 
 function json(body: unknown): Response {
@@ -173,16 +264,26 @@ function fixture(): Row[] {
   ];
 }
 
-const keysHelpList = ["j", "k", "↓", "↑", "gg", "G", "a", "p", "w", "n", "/", "i", "o", "?", "Esc"];
+const keysHelpList = ["j", "k", "↓", "↑", "gg", "G", "a", "p", "w", "n", "x", "Enter", "e", "/", "i", "o", "?", "Esc"];
 
 async function mount(container: HTMLElement, props: Props): Promise<void> {
   await act(() => {
-    render(<App rows={props.rows} error={props.error} now={props.now} clients={props.clients} />, container);
+    render(
+      <App
+        rows={props.rows}
+        error={props.error}
+        now={props.now}
+        clients={props.clients}
+        seenClock={props.seen.clock}
+        seenWindow={props.seen.window}
+      />,
+      container,
+    );
   });
 }
 
 async function withApp(
-  props: Partial<Omit<Props, "clients">>,
+  props: Partial<Omit<Props, "clients" | "seen">>,
   check: (container: HTMLElement, fake: FakeServer) => void | Promise<void>,
 ): Promise<void> {
   const window = installTestDom();
@@ -190,7 +291,7 @@ async function withApp(
   document.body.append(container);
   const fake = new FakeServer();
   try {
-    await mount(container, { rows: fixture(), error: "", now, clients: fake.clients, ...props });
+    await mount(container, { rows: fixture(), error: "", now, clients: fake.clients, seen: fake.seen, ...props });
     await check(container, fake);
   } finally {
     await act(() => {
@@ -210,6 +311,11 @@ async function until(check: () => boolean, what: string): Promise<void> {
     }
     await act(() => new Promise((resolve) => setTimeout(resolve, 2)));
   }
+}
+
+// settle lets pending promises run, so a write the test expects to be absent has time to start.
+async function settle(): Promise<void> {
+  await act(() => new Promise((resolve) => setTimeout(resolve, 10)));
 }
 
 async function pressIn(element: Element, key: string): Promise<void> {
@@ -375,7 +481,7 @@ test("w goes to the first waiting row and does nothing when no row waits", () =>
     await press("w");
     assert.equal(cursorKey(container), "a");
 
-    await mount(container, { rows: fixture().slice(1), error: "", now, clients: fake.clients });
+    await mount(container, { rows: fixture().slice(1), error: "", now, clients: fake.clients, seen: fake.seen });
     await press("G");
     await press("w");
     assert.equal(cursorKey(container), "d");
@@ -418,15 +524,20 @@ test("Esc closes the help when the filter does not have focus", () =>
   }));
 
 test("with the filter focused, shortcut keys do nothing and Enter blurs it", () =>
-  withApp({}, async (container) => {
+  withApp({}, async (container, fake) => {
     await press("/");
     await press("j");
     await press("G");
     await press("?");
+    await press("x");
+    await press("e");
     assert.equal(cursorKey(container), "a");
     assert.equal(container.querySelector('[aria-label="keys"]'), null);
+    await settle();
+    assert.equal(fake.callsTo(markPanePath).length, 0, "x and e in the filter write no seen");
     await press("Enter");
     assert.notEqual(document.activeElement, filterInput(container));
+    assert.equal(fake.callsTo(markPanePath).length, 0, "Enter in the filter writes no seen");
     await press("j");
     assert.equal(cursorKey(container), "c");
   }));
@@ -473,15 +584,16 @@ test("modifier keys leave the cursor alone", () =>
     assert.equal(cursorKey(container), "a");
   }));
 
-test("u, N and Enter outside the filter change nothing", () =>
-  withApp({}, async (container) => {
+test("u and N outside the filter change nothing", () =>
+  withApp({}, async (container, fake) => {
     await press("u");
     await press("N");
-    await press("Enter");
     assert.equal(cursorKey(container), "a");
     assert.deepEqual(rowKeys(container), ["a", "c", "b", "d"]);
     assert.equal(container.querySelector('[aria-label="keys"]'), null);
     assert.equal(filterInput(container).value, "");
+    await settle();
+    assert.equal(fake.callsTo(markPanePath).length, 0, "no seen was written");
   }));
 
 test("the cursor keeps its row across new rows and clamps when its row leaves", () =>
@@ -491,10 +603,10 @@ test("the cursor keeps its row across new rows and clamps when its row leaves", 
     assert.equal(cursorKey(container), "b");
 
     const added = row({ key: "e", label: "new", state: "waiting", changed: 900, seen: 1, unseen: true });
-    await mount(container, { rows: [...fixture(), added], error: "", now, clients: fake.clients });
+    await mount(container, { rows: [...fixture(), added], error: "", now, clients: fake.clients, seen: fake.seen });
     assert.equal(cursorKey(container), "b");
 
-    await mount(container, { rows: fixture().filter((item) => item.key !== "b"), error: "", now, clients: fake.clients });
+    await mount(container, { rows: fixture().filter((item) => item.key !== "b"), error: "", now, clients: fake.clients, seen: fake.seen });
     assert.equal(cursorKey(container), "d");
   }));
 
@@ -502,7 +614,7 @@ test("an unmoved cursor keeps its row when a row sorts in above it", () =>
   withApp({}, async (container, fake) => {
     assert.equal(cursorKey(container), "a");
     const added = row({ key: "e", label: "new", state: "waiting", changed: 900, seen: 1, unseen: true });
-    await mount(container, { rows: [...fixture(), added], error: "", now, clients: fake.clients });
+    await mount(container, { rows: [...fixture(), added], error: "", now, clients: fake.clients, seen: fake.seen });
     assert.equal(cursorKey(container), "a");
   }));
 
@@ -511,10 +623,10 @@ test("a clamped cursor keeps the row it moved to", () =>
     await press("j");
     await press("j");
     assert.equal(cursorKey(container), "b");
-    await mount(container, { rows: fixture().filter((item) => item.key !== "b"), error: "", now, clients: fake.clients });
+    await mount(container, { rows: fixture().filter((item) => item.key !== "b"), error: "", now, clients: fake.clients, seen: fake.seen });
     assert.equal(cursorKey(container), "d");
     const added = row({ key: "e", label: "new", state: "waiting", changed: 900, seen: 1, unseen: true });
-    await mount(container, { rows: [...fixture().filter((item) => item.key !== "b"), added], error: "", now, clients: fake.clients });
+    await mount(container, { rows: [...fixture().filter((item) => item.key !== "b"), added], error: "", now, clients: fake.clients, seen: fake.seen });
     assert.equal(cursorKey(container), "d");
   }));
 
@@ -690,8 +802,8 @@ test("a failed send keeps its draft and prompt id through a poll that lists no s
     await until(() => container.querySelector('[role="alert"]') !== null, "the failed send's line");
     await pressIn(composer(container), "Escape");
     // A poll whose Sessions.List failed lists the panes only; the next poll lists the session again.
-    await mount(container, { rows: [paneRow], error: "", now, clients: fake.clients });
-    await mount(container, { rows: [paneRow, sessionRow], error: "", now, clients: fake.clients });
+    await mount(container, { rows: [paneRow], error: "", now, clients: fake.clients, seen: fake.seen });
+    await mount(container, { rows: [paneRow, sessionRow], error: "", now, clients: fake.clients, seen: fake.seen });
     if (cursorKey(container) !== "s1") {
       await press("j");
     }
@@ -759,4 +871,144 @@ test("ArrowUp in a session's composer pulls nothing", () =>
     await until(() => fake.callsTo(sessionWatchPath).length === 1, "the session stream");
     assert.equal(fake.callsTo(pullPath).length, 0, "a session has no queue to pull");
     assert.equal(box.value, "");
+  }));
+
+test("Enter on the list writes Panes.MarkSeen for the cursor's pane row", () =>
+  withApp({}, async (container, fake) => {
+    await press("Enter");
+    await until(() => fake.callsTo(markPanePath).length === 1, "the seen write");
+    assert.deepEqual(fake.callsTo(markPanePath)[0].body, { pane: "a" });
+    assert.equal(cursorKey(container), "a");
+  }));
+
+test("x on the list writes Panes.MarkSeen for a pane row and Control.Seen for a session row", () =>
+  withApp({ rows: [paneRow, sessionRow] }, async (container, fake) => {
+    await press("x");
+    await until(() => fake.callsTo(markPanePath).length === 1, "the pane write");
+    assert.deepEqual(fake.callsTo(markPanePath)[0].body, { pane: "a" });
+    await press("j");
+    assert.equal(cursorKey(container), "s1");
+    await press("x");
+    await until(() => fake.callsTo(markSessionPath).length === 1, "the session write");
+    assert.deepEqual(fake.callsTo(markSessionPath)[0].body, { id: "s1" });
+  }));
+
+test("e writes seen for the cursor's row, then rests on the next unseen row", () =>
+  withApp({}, async (container, fake) => {
+    assert.equal(cursorKey(container), "a");
+    await press("e");
+    await until(() => fake.callsTo(markPanePath).length === 1, "the seen write");
+    assert.deepEqual(fake.callsTo(markPanePath)[0].body, { pane: "a" });
+    assert.equal(cursorKey(container), "c");
+  }));
+
+test("Enter in a composer sends its text and writes no seen, even for keys typed as shortcuts", () =>
+  withApp({}, async (container, fake) => {
+    await press("i");
+    const box = composer(container);
+    await typeInto(box, "keep going");
+    await pressIn(box, "x");
+    await pressIn(box, "e");
+    await pressIn(box, "Enter");
+    await until(() => fake.callsTo(sendTextPath).length === 1, "the send");
+    await settle();
+    assert.equal(fake.callsTo(markPanePath).length, 0);
+    assert.equal(fake.callsTo(markSessionPath).length, 0);
+  }));
+
+test("resting one second on an unseen row with recent input writes seen once", () =>
+  withApp({}, async (container, fake) => {
+    fake.seen.input.emit("keydown");
+    fake.seen.advance(999);
+    await settle();
+    assert.equal(fake.callsTo(markPanePath).length, 0, "not yet a second");
+    fake.seen.advance(1);
+    await until(() => fake.callsTo(markPanePath).length === 1, "the dwell write");
+    assert.deepEqual(fake.callsTo(markPanePath)[0].body, { pane: "a" });
+    fake.seen.advance(5000);
+    await settle();
+    assert.equal(fake.callsTo(markPanePath).length, 1, "the row is written once");
+  }));
+
+test("a hidden page writes no seen on the fake clock", () =>
+  withApp({}, async (container, fake) => {
+    fake.seen.state.visibilityState = "hidden";
+    fake.seen.input.emit("keydown");
+    fake.seen.advance(5000);
+    await settle();
+    assert.equal(fake.callsTo(markPanePath).length, 0);
+  }));
+
+test("an unfocused page writes no seen on the fake clock", () =>
+  withApp({}, async (container, fake) => {
+    fake.seen.state.focused = false;
+    fake.seen.input.emit("keydown");
+    fake.seen.advance(5000);
+    await settle();
+    assert.equal(fake.callsTo(markPanePath).length, 0);
+  }));
+
+test("a page refocused with no input in the last 30 s writes no seen until input comes", () =>
+  withApp({}, async (container, fake) => {
+    fake.seen.state.focused = false;
+    fake.seen.input.emit("keydown");
+    fake.seen.advance(31000);
+    fake.seen.state.focused = true;
+    fake.seen.page.emit("focus");
+    fake.seen.advance(5000);
+    await settle();
+    assert.equal(fake.callsTo(markPanePath).length, 0, "the last input is over 30 s old");
+    fake.seen.input.emit("keydown");
+    fake.seen.advance(1000);
+    await until(() => fake.callsTo(markPanePath).length === 1, "the write after fresh input");
+  }));
+
+test("a row that changes while the cursor rests on it is written again after one second", () =>
+  withApp({}, async (container, fake) => {
+    fake.seen.input.emit("keydown");
+    fake.seen.advance(1000);
+    await until(() => fake.callsTo(markPanePath).length === 1, "the first dwell write");
+    await until(() => !rowElement(container, "a").hasAttribute("data-unseen"), "the row to read as seen");
+
+    const moved = fixture().map((item) => (item.key === "a" ? { ...item, changed: 400 } : item));
+    await mount(container, { rows: moved, error: "", now, clients: fake.clients, seen: fake.seen });
+    assert.equal(rowElement(container, "a").hasAttribute("data-unseen"), true, "the newer change is unseen");
+    fake.seen.input.emit("keydown");
+    fake.seen.advance(1000);
+    await until(() => fake.callsTo(markPanePath).length === 2, "the second dwell write");
+  }));
+
+test("a written row stops showing unseen until its changed time moves past the one it had", () =>
+  withApp({}, async (container, fake) => {
+    assert.equal(rowElement(container, "a").hasAttribute("data-unseen"), true);
+    await press("x");
+    await until(() => !rowElement(container, "a").hasAttribute("data-unseen"), "the row to read as seen");
+
+    await mount(container, { rows: fixture(), error: "", now, clients: fake.clients, seen: fake.seen });
+    assert.equal(rowElement(container, "a").hasAttribute("data-unseen"), false, "the server has not caught up yet");
+
+    const moved = fixture().map((item) => (item.key === "a" ? { ...item, changed: 400 } : item));
+    await mount(container, { rows: moved, error: "", now, clients: fake.clients, seen: fake.seen });
+    assert.equal(rowElement(container, "a").hasAttribute("data-unseen"), true, "a newer change is unseen again");
+  }));
+
+test("a failed write leaves the row unseen and shows a fixed line", () =>
+  withApp({}, async (container, fake) => {
+    fake.failNext.add(markPanePath);
+    await press("x");
+    await until(() => container.querySelector('[role="alert"]') !== null, "the seen failure line");
+    assert.equal(container.querySelector('[role="alert"]')?.textContent, seenFailedText);
+    assert.equal(rowElement(container, "a").hasAttribute("data-unseen"), true);
+  }));
+
+test("leaving the page stops the seen watch before its dwell writes", () =>
+  withApp({}, async (container, fake) => {
+    fake.seen.input.emit("keydown");
+    await act(() => {
+      render(null, container);
+    });
+    fake.seen.advance(5000);
+    await settle();
+    assert.equal(fake.callsTo(markPanePath).length, 0, "the pending dwell was cancelled on unmount");
+    assert.equal(fake.seen.input.count(), 0, "the input listeners were removed on unmount");
   }));

@@ -7,6 +7,7 @@ import type { Conversation } from "./conversation";
 import { follow } from "./follow";
 import { Reader } from "./reader";
 import { byAttention, byProject, type Row, type Section } from "./rows";
+import { type SeenClock, type SeenWindow, watchSeen } from "./seen";
 import { ReplyText } from "./text";
 
 type View = "attention" | "project";
@@ -25,6 +26,7 @@ interface Cursor {
 
 const stateWaiting = "waiting";
 const noDirectoryTitle = "no directory";
+const seenFailedText = "could not mark seen";
 
 const secondsPerMinute = 60;
 const minutesPerHour = 60;
@@ -38,6 +40,8 @@ const helpEntries: [string[], string][] = [
   [["p"], "by project"],
   [["w"], "first waiting row"],
   [["n"], "next unseen row, wrapping"],
+  [["x", "Enter"], "mark the cursor's row seen"],
+  [["e"], "mark it seen, then go to the next unseen row"],
   [["/"], "filter: Enter leaves it, Esc clears it"],
   [["i"], "focus the reply box"],
   [["o"], "open or close a compaction's summary"],
@@ -50,11 +54,15 @@ export function App({
   error,
   now,
   clients,
+  seenClock,
+  seenWindow,
 }: {
   rows: Row[];
   error: string;
   now: number;
   clients: Clients;
+  seenClock?: SeenClock;
+  seenWindow?: SeenWindow;
 }) {
   const [view, setView] = useState<View>("attention");
   const [cursor, setCursor] = useState<Cursor>({ key: "", index: 0 });
@@ -69,12 +77,19 @@ export function App({
   const composerInputs = useRef(new Map<string, HTMLTextAreaElement>());
   const pendingG = useRef(false);
   const handler = useRef<(event: KeyboardEvent) => void>();
+  // The changed time each row had when its seen write succeeded. A row reads as seen until its changed time moves past it.
+  const [seenWritten, setSeenWritten] = useState<Map<string, number>>(() => new Map());
+  const [seenError, setSeenError] = useState("");
+  const seenWatch = useRef<ReturnType<typeof watchSeen>>();
+  // The row the seen watch last rested on, which its write marks seen.
+  const restedRow = useRef<Row | null>(null);
 
   const words = filter
     .toLowerCase()
     .split(/\s+/)
     .filter((word) => word !== "");
-  const matching = rows.filter((row) => matchesFilter(row, words));
+  const shownRows = rows.map((row) => readAsSeen(row, seenWritten));
+  const matching = shownRows.filter((row) => matchesFilter(row, words));
   const sections = view === "attention" ? byAttention(matching) : byProject(matching);
   const flat = sections.flatMap((section) => section.rows);
   const index = resolveIndex(flat, cursor);
@@ -102,6 +117,45 @@ export function App({
   useEffect(() => {
     setVisited((previous) => keepVisited(previous, rows, cursorRow));
   }, [rows, cursorRowKey]);
+
+  // writeSeen marks a row seen through actions.markSeen. A success reads the row as seen; a failure leaves it unseen and
+  // shows a fixed line.
+  const writeSeen = async (row: Row) => {
+    try {
+      await actions.markSeen(clients, row);
+    } catch {
+      setSeenError(seenFailedText);
+      return;
+    }
+    setSeenError("");
+    setSeenWritten((previous) => new Map(previous).set(row.key, row.changed));
+  };
+
+  // The seen watch runs for the page's life: its write marks the row it last rested on, and unmount stops it.
+  useEffect(() => {
+    const watch = watchSeen(
+      seenWindow ?? window,
+      () => {
+        const row = restedRow.current;
+        if (row !== null) {
+          void writeSeen(row);
+        }
+      },
+      seenClock,
+    );
+    seenWatch.current = watch;
+    return () => watch.stop();
+  }, [clients, seenClock, seenWindow]);
+
+  // Each render tells the watch the cursor's row and whether it reads as unseen. A changed row is a new key, so a
+  // change made while the cursor rests on it gets its own dwell.
+  useEffect(() => {
+    restedRow.current = cursorRow;
+    seenWatch.current?.rest(
+      cursorRow === null ? "" : `${cursorRow.key}@${cursorRow.changed}`,
+      cursorRow?.unseen ?? false,
+    );
+  });
 
   const moveTo = (target: number) => {
     if (flat.length === 0) {
@@ -185,6 +239,18 @@ export function App({
       case "n":
         nextUnseen();
         break;
+      case "x":
+      case "Enter":
+        if (cursorRow !== null) {
+          void writeSeen(cursorRow);
+        }
+        break;
+      case "e":
+        if (cursorRow !== null) {
+          void writeSeen(cursorRow);
+          nextUnseen();
+        }
+        break;
       case "/":
         inputRef.current?.focus();
         break;
@@ -239,6 +305,11 @@ export function App({
       {error !== "" && (
         <p class="error" role="alert">
           {error}
+        </p>
+      )}
+      {seenError !== "" && (
+        <p class="error" role="alert">
+          {seenError}
         </p>
       )}
       <div class="panes">
@@ -326,6 +397,12 @@ export function App({
 function matchesFilter(row: Row, words: string[]): boolean {
   const haystack = [row.label, row.project, row.host, row.state, row.summary].join(" ").toLowerCase();
   return words.every((word) => haystack.includes(word));
+}
+
+// readAsSeen clears a row's unseen mark once its seen write succeeded, until its changed time moves past the one it had.
+function readAsSeen(row: Row, written: Map<string, number>): Row {
+  const writtenAt = written.get(row.key);
+  return row.unseen && writtenAt !== undefined && row.changed <= writtenAt ? { ...row, unseen: false } : row;
 }
 
 // keepVisited adds the cursor's row to the rows that keep a composer and refreshes each kept row from the list. A row
