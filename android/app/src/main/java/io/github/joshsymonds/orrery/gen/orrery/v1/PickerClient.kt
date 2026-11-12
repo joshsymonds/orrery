@@ -17,7 +17,7 @@ public class PickerClient(
   private val client: ProtocolClientInterface,
 ) : PickerClientInterface {
   /**
-   *  Ask answers POST /v1/picker/ask with the rows that match the text, each with a one-time token.
+   *  Ask returns the rows that match the text, each with a one-time token.
    */
   override suspend fun ask(request: AskRequest, headers: Headers): ResponseMessage<AskResponse> = client.unary(
     request,
@@ -32,7 +32,7 @@ public class PickerClient(
 
 
   /**
-   *  Run answers POST /v1/picker/run by running the action a token names, once.
+   *  Run runs the action a token names, once.
    */
   override suspend fun run(request: RunRequest, headers: Headers): ResponseMessage<RunResponse> = client.unary(
     request,

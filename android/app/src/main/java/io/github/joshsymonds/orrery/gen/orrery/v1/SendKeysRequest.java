@@ -7,8 +7,8 @@ package io.github.joshsymonds.orrery.gen.orrery.v1;
 
 /**
  * <pre>
- * SendKeysRequest asks for keys to be sent to one pane. expect_question present is the route's expect_question field
- * present.
+ * SendKeysRequest asks for keys to be sent to one pane. When expect_question is present, the keys are sent only
+ * while the pane shows that question.
  * </pre>
  *
  * Protobuf type {@code orrery.v1.SendKeysRequest}
@@ -385,8 +385,8 @@ public  final class SendKeysRequest extends
 
   /**
    * <pre>
-   * SendKeysRequest asks for keys to be sent to one pane. expect_question present is the route's expect_question field
-   * present.
+   * SendKeysRequest asks for keys to be sent to one pane. When expect_question is present, the keys are sent only
+   * while the pane shows that question.
    * </pre>
    *
    * Protobuf type {@code orrery.v1.SendKeysRequest}

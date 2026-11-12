@@ -323,7 +323,7 @@ orrery [-L NAME | -S PATH] serve --listen ADDR --allow-login LOGIN [--allow-logi
 - `--listen ADDR` sets the address to serve on. ADDR is a loopback IP literal with a port, such as `127.0.0.1:8080` or `[::1]:8080`. Any other ADDR exits 1 before anything is bound.
 - `--allow-login LOGIN` admits one Tailscale login. Repeat the flag for each login. At least one is required.
 - `--push-host HOST` names a push relay host, as `orreryd` does. Repeat the flag for each host. The default is `ntfy.sh`.
-- `--host-status-cmd PATH` sets the command that `GET /v1/host` runs (section 12). `PATH` must be absolute; a relative `PATH` exits 2 before anything is bound. Without the flag, `GET /v1/host` answers 404. The command runs at `PATH` with no arguments and no shell. Its stdout is read up to 64 KiB, and its stderr is discarded. A run is limited to 2 seconds, and a child that outlives it and holds stdout open is cut off 500 ms later. Each run's outcome is cached for 5 seconds (section 12).
+- `--host-status-cmd PATH` sets the command that `Host.Status` runs (section 12). `PATH` must be absolute; a relative `PATH` exits 2 before anything is bound. Without the flag, `Host.Status` answers `not_found`. The command runs at `PATH` with no arguments and no shell. Its stdout is read up to 64 KiB, and its stderr is discarded. A run is limited to 2 seconds, and a child that outlives it and holds stdout open is cut off 500 ms later. Each run's outcome is cached for 5 seconds (section 12).
 
 Registrations are written to the push store that `orreryd` reads (see `### orreryd`). When neither `XDG_STATE_HOME` nor `HOME` is set, `serve` exits 1.
 
@@ -331,7 +331,7 @@ Registrations are written to the push store that `orreryd` reads (see `### orrer
 
 `serve` also serves the `orrery.v1.Control` API of [Control API](#control-api), forwarding each call to orreryd's session socket. The daemon socket path comes from `--socket`, then `ORRERY_SOCKET`, then `$XDG_RUNTIME_DIR/orrery/orreryd.sock`, and the session socket is `sessions.sock` beside it. When no daemon socket path resolves, `serve` has no engine and answers `unavailable` to each Control call that reaches the forward; a `Start` the home rule refuses still answers `invalid_argument`. `serve` also reads `HOME`, the directory that `Control.Start` admits directories under.
 
-The picker routes `POST /v1/picker/ask` and `POST /v1/picker/run` (see [Routes](#routes)) look up `zoxide` and `claude` on serve's PATH at each ask, not at start. A missing one answers that ask 502 and does not stop serve.
+The picker call `Picker.Ask` (see [Phone API](#phone-api)) looks up `zoxide` and `claude` on serve's PATH at each ask, not at start. A missing one answers that ask `unavailable` and does not stop serve.
 
 `--listen` and at least one `--allow-login` are required. Without them `serve` exits 2.
 
@@ -386,7 +386,7 @@ A `Stop` hook whose `background_tasks` holds a subagent or workflow sends no Web
 
 Headless session notices go to the same subscriptions, as [Push payload](#push-payload) describes.
 
-`orreryd` keeps, per pane and per session, the time of the last notice it sent. When a seen write sets a seen time at or after that time, `orreryd` sends one clear push for that pane or session and forgets the kept time. Seen writes are `orrery seen` (both forms), the tree's switch and mark-read keys, autoseen, `POST /v1/panes/{id}/seen`, the `Panes.MarkSeen` call of [Phone API](#phone-api), and the `Seen` call of the session socket. `orrery seen`, the tree, `POST /v1/panes/{id}/seen` and `Panes.MarkSeen` send `orreryd` a seen report (section 9) with the time they wrote; autoseen and the session `Seen` call run inside `orreryd`. The clear payload is defined in [Clear payload](#clear-payload).
+`orreryd` keeps, per pane and per session, the time of the last notice it sent. When a seen write sets a seen time at or after that time, `orreryd` sends one clear push for that pane or session and forgets the kept time. Seen writes are `orrery seen` (both forms), the tree's switch and mark-read keys, autoseen, the `Panes.MarkSeen` call of [Phone API](#phone-api), and the `Seen` call of the session socket. `orrery seen`, the tree and `Panes.MarkSeen` send `orreryd` a seen report (section 9) with the time they wrote; autoseen and the session `Seen` call run inside `orreryd`. The clear payload is defined in [Clear payload](#clear-payload).
 
 When neither variable is set, `orreryd` exits 1.
 
@@ -860,7 +860,7 @@ The flake exports `homeManagerModules.default`. Setting `programs.orrery.enable 
 
 ## 12. HTTP API
 
-`orrery serve` (section 11) serves this API over HTTP at the address given by `--listen`. Bodies are JSON unless the table says otherwise. Every example is synthetic.
+`orrery serve` (section 11) serves the Connect API of this section over HTTP at the address given by `--listen`. Every example is synthetic.
 
 ### Guard
 
@@ -870,115 +870,7 @@ The guard runs before routing. It checks every request:
 
 Connect paths are those beginning `/orrery.v1.Sessions/`, `/orrery.v1.Events/`, `/orrery.v1.Control/`, `/orrery.v1.Panes/`, `/orrery.v1.Host/`, `/orrery.v1.Push/` or `/orrery.v1.Picker/` (see [Connect API](#connect-api), [Control API](#control-api) and [Phone API](#phone-api)). Every request to a Connect path, whatever its method, must also send a non-empty `X-Orrery-Client` header. Otherwise the response is 403. A POST to a Connect path must send `Content-Type` `application/proto`, `application/json`, `application/connect+proto`, or `application/connect+json`. Otherwise the response is 403.
 
-Every POST and DELETE on any other path must also send:
-
-- `Content-Type: application/json`, and
-- a non-empty `X-Orrery-Client` header.
-
-Otherwise the response is 403. The server sends no CORS headers. An unknown path gets 404.
-
-### Pane IDs in paths
-
-A pane ID is `%` followed by digits, such as `%3`. The `{id}` segment of a path takes the pane ID with its `%` written as `%25`. Pane `%3` is therefore `/v1/panes/%253/screen`.
-
-### Routes
-
-| Method and path | Body | Success | Other status codes |
-|---|---|---|---|
-| `GET /v1/panes` | none | 200, JSON array of panes | 500 tmux failure |
-| `POST /v1/panes` | `{"pane": "%3", "kind": "claude"}` or `{"pane": "%3", "kind": "shell"}` | 201, `{"pane": "%7"}` | 400 bad body, 404 absent pane, 500 tmux failure |
-| `GET /v1/panes/{id}/screen` | none; optional query `ansi`, `history` | 200, `text/plain; charset=utf-8` | 400 malformed pane ID or bad query, 404 absent pane, 500 tmux failure |
-| `GET /v1/panes/{id}/conversation` | none; optional query `limit` | 200, JSON conversation | 400 bad `limit` or malformed pane ID, 404 absent pane, 404 no live session, 404 no transcript, 404 transcript not found, 500 tmux failure or transcript read failure |
-| `GET /v1/host` | none | 200, JSON host status | 404 no `--host-status-cmd`, 500 host name failure, 502 status command failed or invalid |
-| `POST /v1/panes/{id}/text` | `{"text": "example input"}` | 204 | 400 malformed pane ID or bad body, 404 absent pane, 500 tmux failure |
-| `POST /v1/panes/{id}/keys` | `{"keys": ["Enter"], "expect_question": "H"}`; `expect_question` is optional | 204 | 400 malformed pane ID or bad body, 404 absent pane, 409 question refused, 500 tmux failure |
-| `POST /v1/panes/{id}/seen` | none, or `{"read_up_to": 1700000100}`; `read_up_to` is optional | 204 | 400 malformed pane ID or bad body, 404 absent pane, 500 tmux failure |
-| `POST /v1/push/register` | `{"endpoint": "https://push.example.test/sub/example", "p256dh": "example-key", "auth": "example-auth"}` | 204 | 400 bad body or keys, 422 endpoint not https on a `--push-host` host, 500 store failure |
-| `DELETE /v1/push/register` | `{"endpoint": "https://push.example.test/sub/example"}` | 204 | 400 bad body, 404 not registered, 500 store failure |
-| `POST /v1/picker/ask` | `{"text": "example input"}` | 200, `{"rows": [row...]}` | 400 bad body or blank text, 404 no picker configured, 502 picker, text lookup or pane listing failure |
-| `POST /v1/picker/run` | `{"token": "example-token"}` | 200, `{"pane": "%7"}` | 400 bad body or blank token, 404 unknown token, 409 no tmux server, 410 expired token, 502 failed run |
-
-Details for each route:
-
-- `GET /v1/panes` returns the pane list of section 3. Each pane also has `question_hash`, the question hash of section 10 for the pane's `question`. Each pane also has `newest_reply`, the unix seconds of the newest reply or question in the transcript that the pane's `@orrery_transcript` option names (section 2). It counts the `reply` and `question` items of the conversation route (section 12), with their line timestamps, over the whole transcript file rather than the conversation route's 4 MiB window. Tool calls, prompts, results, notices and compactions do not count, and neither do sidechain or meta lines. `newest_reply` is 0 when the pane has no `@orrery_state`, when `@orrery_transcript` is unset or empty, when the transcript file does not exist, or when it has no reply or question with a timestamp. Any other transcript read error answers 500, as does a tmux failure. Serve remembers, for each transcript path, how far it has read and the newest time that read left. A later request reads only the complete lines appended since, and reads the file again from its start when it shrank or was replaced.
-- `POST /v1/panes` opens a window in the session and directory of the pane named by `pane`. The window runs `claude` for kind `claude`, and the default shell for kind `shell`. The 201 response names the new pane.
-- `GET /v1/panes/{id}/screen` returns the pane's screen as plain text, the output of `capture-pane -p -J`. It is not JSON. The query is checked before the pane ID, so a bad query answers 400 even for an absent pane.
-  - `ansi` absent or `0` gives plain text. `1` adds `-e`, which keeps the color escape sequences. Any other value, or a repeated key, answers 400.
-  - `history` absent gives no scrollback. An integer from 0 to 2000 adds `-S -N`, which includes N lines above the visible screen. Any other value, including a sign, an empty value, a number over 2000, or a repeated key, answers 400.
-- `POST /v1/panes/{id}/text` sends the body's `text` the way `orrery send --text` does (section 11). The server holds a lock for each pane, so two text sends to one pane run one after the other. The `orrery` CLI is a separate process and is not covered by that lock.
-- `POST /v1/panes/{id}/keys` sends the keys to the pane. When `expect_question` is present, the send is refused with 409 unless the question check passes. That check is the one `orrery send --expect-question` applies (section 11). `expect_question` takes the question hash H from section 10.
-- `POST /v1/panes/{id}/seen` sets the pane's `@orrery_seen` (section 2). Without `read_up_to`, the time is now. An empty body, `{}`, and an object without that field all count as without it. With `read_up_to`, a non-negative integer in unix seconds, the time is the later of the stored time and `read_up_to`, so the seen time never moves back. An unset stored time counts as 0. The server holds a lock for each pane across the read and the write. The `orrery` CLI is a separate process and is not covered by that lock. A body that is not a JSON object, or a `read_up_to` that is not a non-negative integer, answers 400 "bad request body". The pane checks run first.
-- `POST /v1/push/register` registers a Web Push subscription. `p256dh` and `auth` are the subscription's keys. The endpoint must be `https` and must be on a host named by `--push-host` (section 11).
-- `DELETE /v1/push/register` removes the subscription with that endpoint.
-- `POST /v1/picker/ask` and `POST /v1/picker/run` are POSTs, so the guard of [Guard](#guard) applies unchanged: the `Tailscale-User-Login` header must be an allowed login, `Content-Type` must be `application/json`, and `X-Orrery-Client` must be non-empty.
-- `POST /v1/picker/ask` takes the body's `text` and answers the rows that `orrery open TEXT` would offer for it (see [Picker](#picker)). The rows come in rank order. Each row has the keys `token`, `kind`, `dir`, `pane`, `label`, `note`, and `prompt`, all always present. `kind` is `jump`, `pane`, `resume`, `continue`, or `fresh`. A `jump` row takes `dir` from its pane's directory, `pane` as the pane ID, and `label` from the pane's label. Other rows give `""` for `pane` and `label`. `note` is the archived summary of a `resume` row, and `""` otherwise. `prompt` is true when the row's action carries a first prompt. A `jump` row is left out when tmux does not list its pane. The answer can have no rows, as `{"rows": []}`.
-  - Each `token` is 32 hex characters and is one-time: its action runs at most once, and it stays valid for 5 minutes from the ask. Tokens are held in serve's memory. Expired tokens are dropped by the next ask that answers 200, and a restart of serve voids every token. Tokens from earlier asks stay valid until their own expiry.
-  - The ask runs no action. `new NAME` and `.` are plain text for the intent lookup, and no folder or session is created.
-  - A body that is not a JSON object, a body whose `text` is absent or not a string, or text that is blank answers 400 with the reason `bad request` as plain text. With no picker configured, the answer is 404. A failure of the picker's configuration, of the text lookup (zoxide, tmux or the intent model), or of the tmux pane listing answers 502 with the reason as plain text.
-- `POST /v1/picker/run` takes the body's `token` and runs the action that ask issued it for, at most once. A 200 answer gives `pane`: the pane the action opened or jumped to, or else the active pane of the session it created. While the token is valid, a repeat run of the same token answers the same pane and runs nothing. Runs of one token are serial.
-  - A body that is not a JSON object, a body with no `token` string, or a blank token answers 400. A token no ask issued, or one lost by a restart, answers 404. A token at or past its expiry answers 410 until an ask that answers 200 drops it, and 404 after. Each of these refusals runs nothing.
-  - When tmux reports no server running, the answer is 409 with the tmux reason as plain text, and no action starts.
-  - A run whose action fails answers 502 with the reason as plain text and records nothing, so a later run of the same token runs the action again.
-  - A run whose action succeeded but whose pane lookup then failed answers 502 with the reason as plain text. It keeps the action's target, so a later run of the same token runs no action and looks the pane up again.
-- `GET /v1/panes/{id}/conversation` returns the conversation of the pane's Claude transcript as `{"origin": string, "items": [item...], "goal": string, "waiting": [waiting...], "context": {"tokens": integer, "window": integer}}`. The transcript is the path in the pane's `@orrery_transcript` option (section 2); no request value names a file. The pane must have `@orrery_state` set, or the answer is 404 "no live session". `@orrery_transcript` must be set and non-empty, or the answer is 404 "no transcript". A transcript file that does not exist answers 404; any other read failure answers 500.
-  - The query `limit` is absent for 30, or one decimal integer from 1 to 100. Any other value, including 0, a value over 100, a sign, an empty value, a non-number, or a repeated key, answers 400. The `limit` check runs before the pane ID check.
-  - The reader takes the newest `limit` items from the last 4 MiB of the transcript, oldest first. Only whole lines count, so a partial line at either end of that window is skipped. The reader can return fewer than `limit` items. `items` is `[]` when there are none.
-  - `origin` is the text of the first prompt that the item rules below give within the transcript's first 1 MiB, cut to 300 runes, or `""` when there is none. Each line is classified without seeing later lines. A line that the window ends inside is ignored.
-  - `goal` is the `condition` of the transcript's newest goal record, or `""`. A goal record is an `attachment` line whose `attachment.type` is `goal_status`. The newest goal record in the whole transcript decides, not only the items in the 4 MiB window. When that record has `met` false, `goal` is its `condition`, cut to 300 runes. When it has `met` true, which Claude Code writes both when a goal is met and when it is cleared, or when the transcript has no goal record, `goal` is `""`. Only whole lines count, and the `isMeta` and `isSidechain` marks do not apply to goal records. Serve remembers, for each transcript path, how far it has read and the last goal state. The first read scans the whole file. Later reads read only the bytes appended since the last read. A file that is shorter than the part already read, or that was replaced, is read again from the start.
-  - Lines of a type other than `assistant`, `user`, or `attachment`, lines marked `isMeta` or `isSidechain`, and lines that are not JSON give no items.
-  - An `assistant` line gives one item per content block, in order. A `text` block gives a `reply`. A `tool_use` block gives a `question` when its `name` is `AskUserQuestion`, and a `tool` otherwise. Other blocks, such as thinking blocks, give none.
-  - A `user` line whose `isCompactSummary` is true gives one `compaction` item, as described below. Any other `user` line gives items by the first of these rules that applies:
-    1. It has one or more `tool_result` blocks. It gives one `result` per such block, and nothing else.
-    2. It is a notice, as described below. It gives one `notice`.
-    3. Its whole string content is a teammate message, as described below. It gives one `notice` of kind `teammate`, or no item when every block is an idle ping.
-    4. Its whole string content is command output or a command record, as described below. Command output gives no item. A command record gives one `prompt`.
-    5. Otherwise its text gives one `prompt`, when the text is not empty. The text of a line with string content is that string. The text of a line with array content is its `text` blocks joined with newlines.
-  - A typed line is a `user` line whose `promptSource` is `typed`, `queued`, or `suggestion_accepted` and whose `origin.kind` is `human`. Rules 2 to 4 never apply to a typed line, so it gives its `prompt` under rule 5, unless rule 1 applies first.
-  - A notice is a `user` line of one of these kinds, checked in this order:
-    - `task` when `origin.kind` is `task-notification` and `promptSource` is `system`. Its `text` is the content of the line's first `summary` element, cut to 300 runes, or `""` when that element is absent or not closed. Its `error` is true when the first `status` element is `failed` or `killed`.
-    - `interrupted` when its content is one `text` block whose text is exactly `[Request interrupted by user]` or `[Request interrupted by user for tool use]`. Its `text` is `""`.
-  - A teammate message is a `user` line whose whole string content is the fixed lead-in `Another Claude session sent a message:` and a newline, then one or more `<teammate-message teammate_id="…">` blocks, each with an optional `color` and an optional `summary` attribute, separated by a blank line, then the fixed trailer Claude Code writes after the last block, which starts with a blank line and the sentence `This came from another Claude session`. A block body starts and ends with a newline. The notice's `text` is the `summary` attribute values of its blocks, in order, joined with a newline, with the XML entities `&lt;`, `&gt;`, `&quot;`, `&apos;`, and `&amp;` decoded. A block without a summary, or with an empty one, adds nothing. The text is cut to 300 runes. A block whose body is a JSON object with type `idle_notification` is an idle ping. A message whose blocks are all idle pings gives no item. Any other message gives one notice, and the summaries of its idle pings still count.
-  - Command output is a `user` line whose whole string content is one `<local-command-stdout>` element, with no second closing tag inside it. It gives no item.
-  - A command record is a `user` line whose whole string content holds a `<command-message>` element and a `<command-name>` element, in either order, separated only by whitespace, followed by an optional `<command-args>` element. The name must start with `/`. Its `prompt` reads the name, then one space and the args when the args are not empty, so `/name args`, or `/name` alone.
-  - Before a `prompt`'s text is kept, each matched `<pasted_content id="X">` … `</pasted_content id="X">` pair in it is removed, keeping the text between its tags. An unpaired tag stays. This applies to every prompt, typed or not. The text is then cut to 4096 bytes. A prompt whose text is empty gives no item.
-  - An `attachment` line whose `attachment` has `type` `queued_command`, `commandMode` `prompt`, and `origin.kind` `human` gives one `prompt` with the attachment's `prompt` text, treated as above, in the line's place in the order. It always gives its prompt, even when a later `user` line in the transcript gives a prompt with the same text. Any other attachment gives no item.
-  - Each item has these keys, always present and in this order: `kind`, `time`, `text`, `tool`, `input`, `id`, `error`, `notice`, `trigger`, `tokens`.
-    - `kind` is `prompt`, `reply`, `tool`, `question`, `result`, `notice`, or `compaction`.
-    - `time` is the unix seconds of the line's RFC 3339 `timestamp`, or 0 when it is absent or does not parse.
-    - `text` is cut at a UTF-8 boundary. A prompt, question, or result holds at most 4096 bytes, a reply or a compaction at most 32768 bytes, and a notice at most 300 runes. A question's text is its questions joined by newlines. A tool item's `text` is `""`.
-    - `tool` is the tool name of a `tool` or `question` item, and `""` otherwise.
-    - `input` is the display text of the tool's input (section 2) for a `tool` item. It is `""` for every other kind, including `question`.
-    - `id` is the `tool_use_id` of a `tool`, `question`, or `result` item, and `""` otherwise.
-    - `error` is the `is_error` flag of a `result` item, true for a `task` notice whose status is `failed` or `killed`, and `false` otherwise.
-    - `notice` is the kind of a `notice` item: `task`, `teammate`, or `interrupted`. It is `""` on every other kind.
-    - `trigger` is the `compactMetadata.trigger` of the boundary of a `compaction` item, and `""` on every other kind or when no boundary is read.
-    - `tokens` is the `compactMetadata.preTokens` of that boundary, and 0 on every other kind or when no boundary is read.
-  - A `compaction` item is a `user` line whose `isCompactSummary` is true, and it gives that item whatever else the line holds. Its `text` is the line's string content, or its `text` blocks joined with newlines, cut to 32768 bytes. Pasted content tags are not removed, and an empty text still gives the item. Its `time` is the line's own timestamp. Its `trigger` and `tokens` come from the nearest `system` line of subtype `compact_boundary` before it in the transcript that is neither `isMeta` nor `isSidechain`. The reader keeps reading past the item limit while a compaction waits for its boundary, within the route's 4 MiB window. A boundary gives no item.
-  - `waiting` is the list of messages that Claude Code's queue holds for the transcript, oldest first. It is `[]` when there are none, never `null`. Each row has `text` (the message text, cut to 4096 bytes), `time` (the unix seconds of the RFC 3339 `timestamp` of its opening record, or 0 when that is absent or does not parse), and `canceled` (a boolean).
-  - A message opens at an `enqueue` queue-operation record in the transcript whose `content` is its text. An enqueue whose text starts with `<task-notification>`, `<agent-message`, or `<cross-session-message` opens nothing. A message closes at the first of these, matched to the oldest open row with the same full text: a `remove` or `popAll` record with that `content` (a `remove` with reason `cleared_on_cancel` cancels the row instead), or a user line that the person sent from the queue (`promptSource` `queued` and `origin.kind` `human`) with that text. A closed row is gone from the answer.
-  - A canceled row stays in the answer, with `canceled` true, until the next `enqueue` record that opens a row or the next user line that the person typed, queued, or accepted from a suggestion. That line drops every canceled row.
-  - When the pane's `@orrery_state` is `done`, the answer is idle: every row that is not canceled is dropped for good, so only canceled rows are listed, and a later read of a working pane does not bring them back.
-  - The rows are read forward from the offset remembered for the transcript path, as `goal` is. The first read scans the whole file, and later reads read only the bytes appended since. A file that is shorter than the part already read, or that was replaced, is read again from the start. Only whole lines count.
-  - `context` is always present. Its `window` is 1000000. Its `tokens` is the figure of the newest qualifying line in the route's 4 MiB window, searched past the item limit: a `system` line of subtype `compact_boundary` gives its `compactMetadata.postTokens`, and an `assistant` line gives the sum of its `message.usage` `input_tokens`, `cache_creation_input_tokens` and `cache_read_input_tokens`, when that sum is above 0. A missing key counts 0. A line marked `isMeta` or `isSidechain` does not qualify. `tokens` is 0 when no line qualifies.
-
-Example response. Every value is synthetic:
-
-```json
-{"origin":"Example opening prompt.","items":[{"kind":"prompt","time":1700000000,"text":"Example opening prompt.","tool":"","input":"","id":"","error":false,"notice":"","trigger":"","tokens":0},{"kind":"compaction","time":1700000050,"text":"Example summary.","tool":"","input":"","id":"","error":false,"notice":"","trigger":"auto","tokens":611000},{"kind":"reply","time":1700000100,"text":"Example reply.","tool":"","input":"","id":"","error":false,"notice":"","trigger":"","tokens":0},{"kind":"tool","time":1700000200,"text":"","tool":"Bash","input":"example command","id":"example-tool-use","error":false,"notice":"","trigger":"","tokens":0},{"kind":"result","time":1700000210,"text":"Example output.","tool":"","input":"","id":"example-tool-use","error":false,"notice":"","trigger":"","tokens":0},{"kind":"notice","time":1700000300,"text":"Example task finished.","tool":"","input":"","id":"","error":false,"notice":"task","trigger":"","tokens":0}],"goal":"Example goal.","waiting":[{"text":"Example queued message.","time":1700000250,"canceled":false}],"context":{"tokens":240000,"window":1000000}}
-```
-
-- `GET /v1/host` runs the `--host-status-cmd` command (section 11) and returns `{"host": string, "stats": [stat...]}`. `host` is the machine's host name, and `stats` holds the command's validated stats in order. Without the flag, the route answers 404.
-  - Each stat has the keys `label`, `value`, `percent` (omitted when the command gave none), and `level`.
-  - The command's output must be a JSON array of at most 12 objects. Each object has a non-empty string `label`, a string `value`, a `level` of `ok`, `warn`, or `crit`, and an optional `percent` that is a number from 0 to 100 (`null` counts as absent). An empty array is valid. Any other output is invalid: a top-level value that is not an array, data after the array, a stat with an unknown key, or a stat with a missing or mistyped field.
-  - `label` is cut to 32 runes, and `value` to 64 runes.
-  - A run that exits with an error, runs past 2 seconds, or prints more than 64 KiB, and a run whose output is invalid, answers 502 with no stats.
-  - The outcome of each run, success or failure, is kept for 5 seconds and served to every request in that window. A run whose own request context ends before the command finishes is not kept.
-
-Example response. Every value is synthetic:
-
-```json
-{"host":"example-host","stats":[{"label":"example-cpu","value":"12%","percent":12,"level":"ok"}]}
-```
+Any path that is not a Connect path answers 404, after the login check. The server sends no CORS headers.
 
 ### Push payload
 
@@ -1020,7 +912,7 @@ On the phone, the notices of a host are shown as follows:
 
 ### Connect API
 
-`orrery serve` also serves a typed API over the Connect protocol. The routes above are unchanged by it. The schema is `proto/orrery/v1/orrery.proto`, package `orrery.v1`. Generated Go lives in `internal/gen`. `just generate` writes it, and `just check` fails when it drifts from the schema. The same `just generate` also writes the generated Kotlin into `android/app/src/main/java`, from the template `proto/buf.gen.android.yaml`. `just gen-diff` diffs that directory and `internal/gen`.
+`orrery serve` also serves a typed API over the Connect protocol. The schema is `proto/orrery/v1/orrery.proto`, package `orrery.v1`. Generated Go lives in `internal/gen`. `just generate` writes it, and `just check` fails when it drifts from the schema. The same `just generate` also writes the generated Kotlin into `android/app/src/main/java`, from the template `proto/buf.gen.android.yaml`. `just gen-diff` diffs that directory and `internal/gen`.
 
 The services are `orrery.v1.Sessions`, with one call, `List`, `orrery.v1.Events`, with one call, `Watch`, `orrery.v1.Control`, with six calls, which [Control API](#control-api) describes, and the four phone services `orrery.v1.Panes`, `orrery.v1.Host`, `orrery.v1.Push` and `orrery.v1.Picker`, with eleven calls, which [Phone API](#phone-api) describes.
 
@@ -1058,7 +950,6 @@ Two sessions can share `server` and `pane` for up to 10 s after a tmux server re
 - It opens the file read-only on each call and holds no connection between calls. A file that was replaced, or one that has appeared since the last call, is read as it is now.
 - It never writes the database and never creates the file or its directory. SQLite may create the `-wal` and `-shm` files beside an existing store file.
 - When the file is missing, the database is busy, or the file is removed while it is read, `List` answers with the Connect code `unavailable`. Any other read failure answers `internal`.
-- The `/v1/...` routes never read the store.
 
 | Connect code | When |
 |---|---|
@@ -1144,51 +1035,123 @@ Errors are Connect codes. The messages marked fixed are the same whatever orrery
 
 ### Phone API
 
-The phone's calls are the four services `orrery.v1.Panes`, `orrery.v1.Host`, `orrery.v1.Push` and `orrery.v1.Picker` of [Connect API](#connect-api). Each call is the Connect twin of one REST route, and it answers what that route answers. The Connect rules of [Guard](#guard) apply to each call. Each call is a Connect POST to its path in [Connect API](#connect-api). No call is marked free of side effects, so none answers GET.
-
-| Call | REST twin |
-|---|---|
-| `Panes.List` | `GET /v1/panes` |
-| `Panes.Screen` | `GET /v1/panes/{id}/screen` |
-| `Panes.Conversation` | `GET /v1/panes/{id}/conversation` |
-| `Panes.SendText` | `POST /v1/panes/{id}/text` |
-| `Panes.SendKeys` | `POST /v1/panes/{id}/keys` |
-| `Panes.MarkSeen` | `POST /v1/panes/{id}/seen` |
-| `Host.Status` | `GET /v1/host` |
-| `Push.Register` | `POST /v1/push/register` |
-| `Push.Unregister` | `DELETE /v1/push/register` |
-| `Picker.Ask` | `POST /v1/picker/ask` |
-| `Picker.Run` | `POST /v1/picker/run` |
+The phone's calls are the four services `orrery.v1.Panes`, `orrery.v1.Host`, `orrery.v1.Push` and `orrery.v1.Picker` of [Connect API](#connect-api), with eleven calls. Each call is a Connect POST to its path in [Connect API](#connect-api), and the Connect rules of [Guard](#guard) apply to it. This section states each call's request meaning, answer and errors. The error table at the end gives each error code with its message.
 
 Request fields and what their zero and presence values mean:
 
 - `PanesListRequest` and `HostStatusRequest` have no fields.
-- `ScreenRequest`: `pane` is the pane ID, such as `%3`. A value that is not `%` followed by digits is a malformed pane ID. `ansi` false is the route's `ansi` absent or `0`, and true is `ansi=1`. `history` 0 adds no scrollback. A value from 1 to 2000 adds that many lines, and a value above 2000 is `invalid_argument`.
-- `ConversationRequest`: `pane` is as for `ScreenRequest`. `limit` 0 means the route's default of 30. A value from 1 to 100 is that many items, and a value above 100 is `invalid_argument`.
-- `SendTextRequest`: `pane` is as for `ScreenRequest`, and `text` is the text the route sends.
-- `SendKeysRequest`: `pane` is as for `ScreenRequest`, and `keys` is the list of keys the route sends. `expect_question` is present when the route's `expect_question` field is present. When it is present, the question check of the route applies.
+- `ScreenRequest`: `pane` is the pane ID, `%` followed by digits, such as `%3`. Any other value is a malformed pane ID. `ansi` false gives plain text, and `ansi` true keeps the color escape sequences. `history` 0 adds no scrollback. A value from 1 to 2000 adds that many lines above the visible screen, and a value above 2000 is `invalid_argument`. The `ansi` and `history` checks run before the pane ID check, so a `history` above 2000 is `invalid_argument` even for an absent pane.
+- `ConversationRequest`: `pane` is as for `ScreenRequest`. `limit` 0 means the default of 30. A value from 1 to 100 is that many items, and a value above 100 is `invalid_argument`. The `limit` check runs before the pane ID check.
+- `SendTextRequest`: `pane` is as for `ScreenRequest`, and `text` is the text sent.
+- `SendKeysRequest`: `pane` is as for `ScreenRequest`, and `keys` is the list of keys sent, in order. `expect_question` is present when the field is set. When it is present, the question check applies.
 - `MarkSeenRequest`: `pane` is as for `ScreenRequest`. `read_up_to` absent means now. When present, it must be 0 or more, or the call is `invalid_argument`.
-- `RegisterRequest`: `endpoint`, `p256dh` and `auth` are the route's body fields. The endpoint must be `https` and on a host named by `--push-host`.
-- `UnregisterRequest`: `endpoint` is the route's body field.
-- `AskRequest`: `text` is the route's body field. Blank text is `invalid_argument`.
-- `RunRequest`: `token` is the route's body field. A blank token is `invalid_argument`.
+- `RegisterRequest`: `endpoint`, `p256dh` and `auth` are the subscription. `p256dh` and `auth` are the subscription's keys. The endpoint must be `https` and must be on a host named by `--push-host` (section 11).
+- `UnregisterRequest`: `endpoint` is the endpoint of the subscription to remove.
+- `AskRequest`: `text` is the text to look up. Blank text, meaning empty or only white space, is `invalid_argument`.
+- `RunRequest`: `token` is the token to run. A blank token is `invalid_argument`.
 
-The responses carry the route's answer: `PanesListResponse` the panes of `GET /v1/panes`, `ScreenResponse` the body of the screen route, `HostStatusResponse`, `ConversationResponse`, `AskResponse` and `RunResponse` the same fields as the route's JSON body. `SendTextResponse`, `SendKeysResponse`, `MarkSeenResponse`, `RegisterResponse` and `UnregisterResponse` have no fields, as their routes answer 204 with no body. The screen route's body is plain text, and the `screen` bytes are exactly that body. Each `ConversationItem` of `ConversationResponse` has the `trigger` string and the `tokens` int64 of the route's item keys of those names, and its `kind` string also takes `compaction`. `ConversationResponse` has the `context` field, a `ConversationContext` with the `tokens` and `window` int64 fields, each with the meaning of the route's `context` key of that name.
+The answers:
 
-Connect errors map from the REST status of the route. The table gives each Connect code, the REST status it replaces, and when it applies:
+- `PanesListResponse` carries the tracked panes of `orrery list --json` (section 3), in order. Each pane has the seventeen keys of section 3, then `question_hash` and `newest_reply`. A tmux failure is `internal`. With no tmux server running, the list is empty.
+  - `question_hash` is the question hash of section 10 for the pane's `question`.
+  - `newest_reply` is the unix seconds of the newest reply or question in the transcript that the pane's `@orrery_transcript` option names (section 2). It counts the `reply` and `question` items of `Panes.Conversation` (below), with their line timestamps, over the whole transcript file rather than the conversation's 4 MiB window. Tool calls, prompts, results, notices and compactions do not count, and neither do sidechain or meta lines. `newest_reply` is 0 when the pane has no `@orrery_state`, when `@orrery_transcript` is unset or empty, when the transcript file does not exist, or when it has no reply or question with a timestamp. Any other transcript read error is `internal`, as is a tmux failure. Serve remembers, for each transcript path, how far it has read and the newest time that read left. A later request reads only the complete lines appended since, and reads the file again from its start when it shrank or was replaced.
+- `ScreenResponse` carries the pane's screen as plain text, the output of `capture-pane -p -J`, with `-e` added when `ansi` is true and `-S -N` added when `history` is N. The `screen` bytes are exactly that text. The `ansi` and `history` values are validated as described under `ScreenRequest` above.
+- `ConversationResponse` carries the conversation of the pane's Claude transcript, with the fields `origin`, `items`, `goal`, `waiting` and `context`. The transcript is the path in the pane's `@orrery_transcript` option (section 2); no request value names a file. The pane must have `@orrery_state` set, or the answer is `not_found` "no live session". `@orrery_transcript` must be set and non-empty, or the answer is `not_found` "no transcript". A transcript file that does not exist is `not_found` "transcript not found"; any other read failure is `internal`.
+  - The reader takes the newest `limit` items from the last 4 MiB of the transcript, oldest first. Only whole lines count, so a partial line at either end of that window is skipped. The reader can return fewer than `limit` items. `items` is empty when there are none.
+  - `origin` is the text of the first prompt that the item rules below give within the transcript's first 1 MiB, cut to 300 runes, or empty when there is none. Each line is classified without seeing later lines. A line that the window ends inside is ignored.
+  - `goal` is the `condition` of the transcript's newest goal record, or empty. A goal record is an `attachment` line whose `attachment.type` is `goal_status`. The newest goal record in the whole transcript decides, not only the items in the 4 MiB window. When that record has `met` false, `goal` is its `condition`, cut to 300 runes. When it has `met` true, which Claude Code writes both when a goal is met and when it is cleared, or when the transcript has no goal record, `goal` is empty. Only whole lines count, and the `isMeta` and `isSidechain` marks do not apply to goal records. Serve remembers, for each transcript path, how far it has read and the last goal state. The first read scans the whole file. Later reads read only the bytes appended since the last read. A file that is shorter than the part already read, or that was replaced, is read again from the start.
+  - Lines of a type other than `assistant`, `user`, or `attachment`, lines marked `isMeta` or `isSidechain`, and lines that are not JSON give no items.
+  - An `assistant` line gives one item per content block, in order. A `text` block gives a `reply`. A `tool_use` block gives a `question` when its `name` is `AskUserQuestion`, and a `tool` otherwise. Other blocks, such as thinking blocks, give none.
+  - A `user` line whose `isCompactSummary` is true gives one `compaction` item, as described below. Any other `user` line gives items by the first of these rules that applies:
+    1. It has one or more `tool_result` blocks. It gives one `result` per such block, and nothing else.
+    2. It is a notice, as described below. It gives one `notice`.
+    3. Its whole string content is a teammate message, as described below. It gives one `notice` of kind `teammate`, or no item when every block is an idle ping.
+    4. Its whole string content is command output or a command record, as described below. Command output gives no item. A command record gives one `prompt`.
+    5. Otherwise its text gives one `prompt`, when the text is not empty. The text of a line with string content is that string. The text of a line with array content is its `text` blocks joined with newlines.
+  - A typed line is a `user` line whose `promptSource` is `typed`, `queued`, or `suggestion_accepted` and whose `origin.kind` is `human`. Rules 2 to 4 never apply to a typed line, so it gives its `prompt` under rule 5, unless rule 1 applies first.
+  - A notice is a `user` line of one of these kinds, checked in this order:
+    - `task` when `origin.kind` is `task-notification` and `promptSource` is `system`. Its `text` is the content of the line's first `summary` element, cut to 300 runes, or `""` when that element is absent or not closed. Its `error` is true when the first `status` element is `failed` or `killed`.
+    - `interrupted` when its content is one `text` block whose text is exactly `[Request interrupted by user]` or `[Request interrupted by user for tool use]`. Its `text` is `""`.
+  - A teammate message is a `user` line whose whole string content is the fixed lead-in `Another Claude session sent a message:` and a newline, then one or more `<teammate-message teammate_id="…">` blocks, each with an optional `color` and an optional `summary` attribute, separated by a blank line, then the fixed trailer Claude Code writes after the last block, which starts with a blank line and the sentence `This came from another Claude session`. A block body starts and ends with a newline. The notice's `text` is the `summary` attribute values of its blocks, in order, joined with a newline, with the XML entities `&lt;`, `&gt;`, `&quot;`, `&apos;`, and `&amp;` decoded. A block without a summary, or with an empty one, adds nothing. The text is cut to 300 runes. A block whose body is a JSON object with type `idle_notification` is an idle ping. A message whose blocks are all idle pings gives no item. Any other message gives one notice, and the summaries of its idle pings still count.
+  - Command output is a `user` line whose whole string content is one `<local-command-stdout>` element, with no second closing tag inside it. It gives no item.
+  - A command record is a `user` line whose whole string content holds a `<command-message>` element and a `<command-name>` element, in either order, separated only by whitespace, followed by an optional `<command-args>` element. The name must start with `/`. Its `prompt` reads the name, then one space and the args when the args are not empty, so `/name args`, or `/name` alone.
+  - Before a `prompt`'s text is kept, each matched `<pasted_content id="X">` … `</pasted_content id="X">` pair in it is removed, keeping the text between its tags. An unpaired tag stays. This applies to every prompt, typed or not. The text is then cut to 4096 bytes. A prompt whose text is empty gives no item.
+  - An `attachment` line whose `attachment` has `type` `queued_command`, `commandMode` `prompt`, and `origin.kind` `human` gives one `prompt` with the attachment's `prompt` text, treated as above, in the line's place in the order. It always gives its prompt, even when a later `user` line in the transcript gives a prompt with the same text. Any other attachment gives no item.
+  - Each item has these fields, always set, with zero values where the kind has no meaning for them: `kind`, `time`, `text`, `tool`, `input`, `id`, `error`, `notice`, `trigger`, `tokens`.
+    - `kind` is `prompt`, `reply`, `tool`, `question`, `result`, `notice`, or `compaction`.
+    - `time` is the unix seconds of the line's RFC 3339 `timestamp`, or 0 when it is absent or does not parse.
+    - `text` is cut at a UTF-8 boundary. A prompt, question, or result holds at most 4096 bytes, a reply or a compaction at most 32768 bytes, and a notice at most 300 runes. A question's text is its questions joined by newlines. A tool item's `text` is empty.
+    - `tool` is the tool name of a `tool` or `question` item, and empty otherwise.
+    - `input` is the display text of the tool's input (section 2) for a `tool` item. It is empty for every other kind, including `question`.
+    - `id` is the `tool_use_id` of a `tool`, `question`, or `result` item, and empty otherwise.
+    - `error` is the `is_error` flag of a `result` item, true for a `task` notice whose status is `failed` or `killed`, and false otherwise.
+    - `notice` is the kind of a `notice` item: `task`, `teammate`, or `interrupted`. It is empty on every other kind.
+    - `trigger` is the `compactMetadata.trigger` of the boundary of a `compaction` item, and empty on every other kind or when no boundary is read.
+    - `tokens` is the `compactMetadata.preTokens` of that boundary, and 0 on every other kind or when no boundary is read.
+  - A `compaction` item is a `user` line whose `isCompactSummary` is true, and it gives that item whatever else the line holds. Its `text` is the line's string content, or its `text` blocks joined with newlines, cut to 32768 bytes. Pasted content tags are not removed, and an empty text still gives the item. Its `time` is the line's own timestamp. Its `trigger` and `tokens` come from the nearest `system` line of subtype `compact_boundary` before it in the transcript that is neither `isMeta` nor `isSidechain`. The reader keeps reading past the item limit while a compaction waits for its boundary, within the 4 MiB window. A boundary gives no item.
+  - `waiting` is the list of messages that Claude Code's queue holds for the transcript, oldest first. It is empty when there are none, never null. Each row has `text` (the message text, cut to 4096 bytes), `time` (the unix seconds of the RFC 3339 `timestamp` of its opening record, or 0 when that is absent or does not parse), and `canceled` (a boolean).
+  - A message opens at an `enqueue` queue-operation record in the transcript whose `content` is its text. An enqueue whose text starts with `<task-notification>`, `<agent-message`, or `<cross-session-message` opens nothing. A message closes at the first of these, matched to the oldest open row with the same full text: a `remove` or `popAll` record with that `content` (a `remove` with reason `cleared_on_cancel` cancels the row instead), or a user line that the person sent from the queue (`promptSource` `queued` and `origin.kind` `human`) with that text. A closed row is gone from the answer.
+  - A canceled row stays in the answer, with `canceled` true, until the next `enqueue` record that opens a row or the next user line that the person typed, queued, or accepted from a suggestion. That line drops every canceled row.
+  - When the pane's `@orrery_state` is `done`, the answer is idle: every row that is not canceled is dropped for good, so only canceled rows are listed, and a later read of a working pane does not bring them back.
+  - The rows are read forward from the offset remembered for the transcript path, as `goal` is. The first read scans the whole file, and later reads read only the bytes appended since. A file that is shorter than the part already read, or that was replaced, is read again from the start. Only whole lines count.
+  - `context` is always set. Its `window` is 1000000. Its `tokens` is the figure of the newest qualifying line in the 4 MiB window, searched past the item limit: a `system` line of subtype `compact_boundary` gives its `compactMetadata.postTokens`, and an `assistant` line gives the sum of its `message.usage` `input_tokens`, `cache_creation_input_tokens` and `cache_read_input_tokens`, when that sum is above 0. A missing key counts 0. A line marked `isMeta` or `isSidechain` does not qualify. `tokens` is 0 when no line qualifies.
 
-| Connect code | REST status | When |
+Example `Panes.Conversation` answer, written with the field names of `ConversationResponse` and shown as JSON. Every value is synthetic:
+
+```json
+{"origin":"Example opening prompt.","items":[{"kind":"prompt","time":1700000000,"text":"Example opening prompt.","tool":"","input":"","id":"","error":false,"notice":"","trigger":"","tokens":0},{"kind":"compaction","time":1700000050,"text":"Example summary.","tool":"","input":"","id":"","error":false,"notice":"","trigger":"auto","tokens":611000},{"kind":"reply","time":1700000100,"text":"Example reply.","tool":"","input":"","id":"","error":false,"notice":"","trigger":"","tokens":0},{"kind":"tool","time":1700000200,"text":"","tool":"Bash","input":"example command","id":"example-tool-use","error":false,"notice":"","trigger":"","tokens":0},{"kind":"result","time":1700000210,"text":"Example output.","tool":"","input":"","id":"example-tool-use","error":false,"notice":"","trigger":"","tokens":0},{"kind":"notice","time":1700000300,"text":"Example task finished.","tool":"","input":"","id":"","error":false,"notice":"task","trigger":"","tokens":0}],"goal":"Example goal.","waiting":[{"text":"Example queued message.","time":1700000250,"canceled":false}],"context":{"tokens":240000,"window":1000000}}
+```
+
+- `HostStatusResponse` carries `host` and `stats`. `host` is the machine's host name, and `stats` holds the command's validated stats in order. Without `--host-status-cmd`, the answer is `not_found` "404 page not found".
+  - Each stat has the fields `label`, `value`, `percent` (unset when the command gave none), and `level`.
+  - The command's output must be a JSON array of at most 12 objects. Each object has a non-empty string `label`, a string `value`, a `level` of `ok`, `warn`, or `crit`, and an optional `percent` that is a number from 0 to 100 (`null` counts as absent). An empty array is valid. Any other output is invalid: a top-level value that is not an array, data after the array, a stat with an unknown key, or a stat with a missing or mistyped field.
+  - `label` is cut to 32 runes, and `value` to 64 runes.
+  - A run that exits with an error, runs past 2 seconds, or prints more than 64 KiB, and a run whose output is invalid, answers `unavailable` "host status unavailable" with no stats.
+  - The outcome of each run, success or failure, is kept for 5 seconds and served to every request in that window. A run whose own request context ends before the command finishes is not kept.
+  - A host name failure is `internal`.
+
+Example `Host.Status` answer, shown as JSON. Every value is synthetic:
+
+```json
+{"host":"example-host","stats":[{"label":"example-cpu","value":"12%","percent":12,"level":"ok"}]}
+```
+
+- `SendTextResponse` and `SendKeysResponse` have no fields. `Panes.SendText` checks the pane first, then sends `text` the way `orrery send --text` does (section 11). The server holds a lock for each pane, so two text sends to one pane run one after the other. The `orrery` CLI is a separate process and is not covered by that lock.
+- `Panes.SendKeys` checks the pane first, then sends the keys to the pane in order. An empty `keys` list is `invalid_argument` "bad request body". When `expect_question` is present, the keys are refused with `aborted` "question refused" unless the question check that `orrery send --expect-question` applies (section 11) passes. `expect_question` takes the question hash H from section 10.
+- `MarkSeenResponse` has no fields. `Panes.MarkSeen` checks the pane first, then sets the pane's `@orrery_seen` (section 2). Without `read_up_to`, the time is now. With `read_up_to`, a non-negative integer in unix seconds, the time is the later of the stored time and `read_up_to`, so the seen time never moves back. An unset stored time counts as 0. A negative `read_up_to` is `invalid_argument` "bad request body". The server holds a lock for each pane across the read and the write. The `orrery` CLI is a separate process and is not covered by that lock. After the write, the seen report is sent with the stored time. A failed write, or a failed report after the write, is `internal`, and the mark is kept.
+- `Push.Register` registers a Web Push subscription, and `RegisterResponse` has no fields. The endpoint is checked first: an endpoint that is not `https`, or whose host is not on a host named by `--push-host` (section 11), is `invalid_argument` "endpoint not allowed". Keys that do not decode to a valid P-256 public key or to the auth secret size are `invalid_argument` "bad request body". A store failure is `internal`.
+- `Push.Unregister` removes the subscription with that endpoint, and `UnregisterResponse` has no fields. An endpoint with no stored subscription is `not_found` "endpoint not registered". A store failure is `internal`.
+- `AskResponse` carries `rows`, the rows that `orrery open TEXT` would offer for the text (see [Picker](#picker)). The rows come in rank order. Each row has the fields `token`, `kind`, `dir`, `pane`, `label`, `note`, and `prompt`, all always set. `kind` is `jump`, `pane`, `resume`, `continue`, or `fresh`. A `jump` row takes `dir` from its pane's directory, `pane` as the pane ID, and `label` from the pane's label. Other rows give `""` for `pane` and `label`. `note` is the archived summary of a `resume` row, and `""` otherwise. `prompt` is true when the row's action carries a first prompt. A `jump` row is left out when tmux does not list its pane. The answer can have no rows.
+  - Each `token` is 32 hex characters and is one-time: its action runs at most once, and it stays valid for 5 minutes from the ask. Tokens are held in serve's memory. Expired tokens are dropped by the next ask that answers without error, and a restart of serve voids every token. Tokens from earlier asks stay valid until their own expiry.
+  - The ask runs no action. `new NAME` and `.` are plain text for the intent lookup, and no folder or session is created.
+  - Blank `text` is `invalid_argument` "bad request". With no picker configured, the answer is `not_found` "404 page not found". A failure of the picker's configuration, of the text lookup (zoxide, tmux or the intent model), or of the tmux pane listing is `unavailable` with the failure's reason as the message.
+- `RunResponse` carries `pane`: the pane the action opened or jumped to, or else the active pane of the session it created. While the token is valid, a repeat run of the same token answers the same pane and runs nothing. Runs of one token are serial.
+  - A blank token is `invalid_argument` "bad request". A token no ask issued, or one lost by a restart, is `not_found` "unknown token". A token at or past its expiry is `failed_precondition` "expired token" until an ask that answers without error drops it, and `not_found` "unknown token" after that. Each of these refusals runs nothing.
+  - When tmux reports no server running, the answer is `failed_precondition` with the tmux reason as the message, and no action starts.
+  - A run whose action fails is `unavailable` with the failure's reason as the message, and records nothing, so a later run of the same token runs the action again.
+  - A run whose action succeeded but whose pane lookup then failed is `unavailable` with the failure's reason as the message. It keeps the action's target, so a later run of the same token runs no action and looks the pane up again.
+
+Errors are Connect codes. The message column gives the text of each error exactly. Where the message is "the failure's reason", the text is the reason of the failure as the server gives it, and the message carries it unchanged.
+
+| Connect code | When | Message |
 |---|---|---|
-| `invalid_argument` | 400 | every bad body, bad query or field value, malformed pane ID, blank picker text or token |
-| `not_found` | 404 | absent pane; no live session, no transcript, or transcript not found; host or picker not configured; push endpoint not registered; unknown picker token |
-| `aborted` | 409 | `Panes.SendKeys`: question refused |
-| `failed_precondition` | 409 | `Picker.Run`: no tmux server |
-| `failed_precondition` | 410 | `Picker.Run`: expired token |
-| `invalid_argument` | 422 | `Push.Register`: endpoint not allowed |
-| `internal` | 500 | tmux, store, transcript or host name failure |
-| `unavailable` | 502 | host status command failed or invalid; picker, text lookup, pane listing or run failure |
-
-The message rule: the Connect error message is exactly the REST answer's plain-text body without its trailing newline. Picker reasons therefore carry through unchanged.
+| `invalid_argument` | a malformed pane ID | `malformed pane id` |
+| `invalid_argument` | `Panes.Screen` with a `history` above 2000; `Panes.Conversation` with a `limit` above 100 | `bad request query` |
+| `invalid_argument` | `Panes.SendKeys` with no keys; `Panes.MarkSeen` with a negative `read_up_to`; `Push.Register` with keys that do not decode | `bad request body` |
+| `invalid_argument` | `Push.Register` with an endpoint that is not allowed | `endpoint not allowed` |
+| `invalid_argument` | `Picker.Ask` with blank text; `Picker.Run` with a blank token | `bad request` |
+| `not_found` | an absent pane | `pane not found` |
+| `not_found` | `Panes.Conversation` with no live session, no transcript, or a transcript file that is missing | `no live session`, `no transcript`, or `transcript not found` |
+| `not_found` | `Host.Status` with no `--host-status-cmd`; `Picker.Ask` with no picker configured | `404 page not found` |
+| `not_found` | `Push.Unregister` for an endpoint that is not registered | `endpoint not registered` |
+| `not_found` | `Picker.Run` with a token no ask issued, or one lost by a restart | `unknown token` |
+| `aborted` | `Panes.SendKeys` with `expect_question` that the question check refuses | `question refused` |
+| `failed_precondition` | `Picker.Run` with no tmux server running | the tmux reason |
+| `failed_precondition` | `Picker.Run` with an expired token | `expired token` |
+| `unavailable` | `Host.Status` with a status command that failed or gave invalid stats | `host status unavailable` |
+| `unavailable` | `Picker.Ask` with a picker configuration, text lookup, or pane listing failure | the failure's reason |
+| `unavailable` | `Picker.Run` with a failed action, or an action whose pane lookup failed | the failure's reason |
+| `internal` | a tmux failure, a store failure, a transcript read failure, a host name failure, or a failed seen report | `internal server error` |
 
 ## 13. Freeze
 
@@ -1229,3 +1192,5 @@ orrery H3-0a (phone API) added, additively: the `orrery.v1.Panes`, `orrery.v1.Ho
 The picker run's failed-run rule changed in the same effort, and this is a change, not an addition. A run whose action succeeded but whose pane lookup then failed used to record nothing, so a later run ran the action again. Such a run now answers 502 and keeps the action's target, so a later run of the same token runs no action and looks the pane up again. The status and reason of a failed run are unchanged.
 
 orrery O1a (steps) added, additively: the `orreryd` flags `--step-cap` and `--gate-lock`, and the `step-worktrees` directory beside the store file; `--sessions` now also serves the step service; the `orrery.engine.v1.Steps` service on `sessions.sock`, its four calls and their Connect codes (see [Steps](#steps)); the `step` value of the `kind` column of `sessions`; the `steps` table (migration `00004_steps.sql`, see [Steps in the store](#steps-in-the-store)); the step end kinds `done`, `returned`, `checks_failed`, `failed`, `stopped` and `engine_restarted`; and the step rules of [Step lifecycle](#step-lifecycle). Step rows are not listed by the typed `List`; their `engine_*` events reach `orrery.v1.Events.Watch` as other engine events do. No existing name or value changes.
+
+orrery removed the REST routes of the phone API: `GET /v1/panes`, `POST /v1/panes`, `GET /v1/panes/{id}/screen`, `GET /v1/panes/{id}/conversation`, `GET /v1/host`, `POST /v1/panes/{id}/text`, `POST /v1/panes/{id}/keys`, `POST /v1/panes/{id}/seen`, `POST /v1/push/register`, `DELETE /v1/push/register`, `POST /v1/picker/ask` and `POST /v1/picker/run`. `POST /v1/panes`, which opened a window, is removed with them and has no replacement. Each other route is answered by the Connect call of [Phone API](#phone-api) that replaced it, and that section states the rules the route had. The guard's rule for non-Connect POST and DELETE paths went with the routes, so every path other than a Connect path answers 404 after the login check (see [Guard](#guard)). This is a removal, and it changes serve's HTTP surface. No Connect name or value changes.

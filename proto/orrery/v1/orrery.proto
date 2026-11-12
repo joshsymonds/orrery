@@ -413,48 +413,48 @@ message EngineText {
   string text = 5;
 }
 
-// Panes reads and steers the tmux panes orrery tracks, one call for each route the phone uses on a pane.
+// Panes reads and steers the tmux panes orrery tracks, one call for each thing the phone does with a pane.
 service Panes {
-  // List answers GET /v1/panes with every tracked pane.
+  // List returns every tracked pane.
   rpc List(PanesListRequest) returns (PanesListResponse);
 
-  // Screen answers GET /v1/panes/{id}/screen with the text one pane shows.
+  // Screen returns the text one pane shows.
   rpc Screen(ScreenRequest) returns (ScreenResponse);
 
-  // Conversation answers GET /v1/panes/{id}/conversation with the conversation of one pane's Claude transcript.
+  // Conversation returns the conversation of one pane's Claude transcript.
   rpc Conversation(ConversationRequest) returns (ConversationResponse);
 
-  // SendText answers POST /v1/panes/{id}/text by sending text to one pane.
+  // SendText sends text to one pane.
   rpc SendText(SendTextRequest) returns (SendTextResponse);
 
-  // SendKeys answers POST /v1/panes/{id}/keys by sending keys to one pane.
+  // SendKeys sends keys to one pane.
   rpc SendKeys(SendKeysRequest) returns (SendKeysResponse);
 
-  // MarkSeen answers POST /v1/panes/{id}/seen by recording that the user has seen one pane.
+  // MarkSeen records that the user has seen one pane.
   rpc MarkSeen(MarkSeenRequest) returns (MarkSeenResponse);
 }
 
 // Host reads the status of the machine orrery runs on.
 service Host {
-  // Status answers GET /v1/host with the host's name and its stats.
+  // Status returns the host's name and its stats.
   rpc Status(HostStatusRequest) returns (HostStatusResponse);
 }
 
 // Push manages the push subscriptions of the phone.
 service Push {
-  // Register answers POST /v1/push/register by storing a push subscription.
+  // Register stores a push subscription.
   rpc Register(RegisterRequest) returns (RegisterResponse);
 
-  // Unregister answers DELETE /v1/push/register by removing a push subscription.
+  // Unregister removes a push subscription.
   rpc Unregister(UnregisterRequest) returns (UnregisterResponse);
 }
 
 // Picker finds panes and directories by text and runs the action a found row names.
 service Picker {
-  // Ask answers POST /v1/picker/ask with the rows that match the text, each with a one-time token.
+  // Ask returns the rows that match the text, each with a one-time token.
   rpc Ask(AskRequest) returns (AskResponse);
 
-  // Run answers POST /v1/picker/run by running the action a token names, once.
+  // Run runs the action a token names, once.
   rpc Run(RunRequest) returns (RunResponse);
 }
 
@@ -467,7 +467,7 @@ message PanesListResponse {
   repeated Pane panes = 1;
 }
 
-// Pane is one pane of GET /v1/panes: the seventeen keys of `orrery list --json` (docs/contract.md section 3), then
+// Pane is one tracked pane: the seventeen keys of `orrery list --json` (docs/contract.md section 3), then
 // question_hash and newest_reply.
 message Pane {
   // The tmux pane id, such as %3.
@@ -528,7 +528,8 @@ message Pane {
   int64 newest_reply = 19;
 }
 
-// ScreenRequest asks for the text of one pane. ansi false is the route's ansi absent or 0, true is ansi=1. history 0
+// ScreenRequest asks for the text of one pane. ansi false gives plain text, and true keeps the color escape
+// sequences. history 0
 // adds no scrollback; 1 to 2000 adds that many lines; above 2000 is invalid_argument.
 message ScreenRequest {
   // The pane's id, % followed by digits.
@@ -543,11 +544,11 @@ message ScreenRequest {
 
 // ScreenResponse carries the text of one pane.
 message ScreenResponse {
-  // The pane's text, exactly the route's text/plain body.
+  // The pane's plain text: the output of capture-pane -p -J, with the escape sequences of ansi.
   bytes screen = 1;
 }
 
-// ConversationRequest asks for the newest items of one pane's conversation. limit 0 means the route's default, 30;
+// ConversationRequest asks for the newest items of one pane's conversation. limit 0 means the default, 30;
 // 1 to 100 is that many; above 100 is invalid_argument.
 message ConversationRequest {
   // The pane's id, % followed by digits.
@@ -642,8 +643,8 @@ message SendTextRequest {
 // SendTextResponse is the reply to a SendText. It has no fields.
 message SendTextResponse {}
 
-// SendKeysRequest asks for keys to be sent to one pane. expect_question present is the route's expect_question field
-// present.
+// SendKeysRequest asks for keys to be sent to one pane. When expect_question is present, the keys are sent only
+// while the pane shows that question.
 message SendKeysRequest {
   // The pane's id, % followed by digits.
   string pane = 1;

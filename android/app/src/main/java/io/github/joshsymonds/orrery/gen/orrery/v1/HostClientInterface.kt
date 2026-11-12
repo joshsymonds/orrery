@@ -12,7 +12,7 @@ import com.connectrpc.ResponseMessage
  */
 public interface HostClientInterface {
   /**
-   *  Status answers GET /v1/host with the host's name and its stats.
+   *  Status returns the host's name and its stats.
    */
   public suspend fun status(request: HostStatusRequest, headers: Headers = emptyMap()): ResponseMessage<HostStatusResponse>
 }

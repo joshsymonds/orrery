@@ -17,7 +17,7 @@ public class HostClient(
   private val client: ProtocolClientInterface,
 ) : HostClientInterface {
   /**
-   *  Status answers GET /v1/host with the host's name and its stats.
+   *  Status returns the host's name and its stats.
    */
   override suspend fun status(request: HostStatusRequest, headers: Headers): ResponseMessage<HostStatusResponse> = client.unary(
     request,

@@ -11,13 +11,13 @@ import com.connectrpc.ResponseMessage
 import com.connectrpc.StreamType
 
 /**
- *  Panes reads and steers the tmux panes orrery tracks, one call for each route the phone uses on a pane.
+ *  Panes reads and steers the tmux panes orrery tracks, one call for each thing the phone does with a pane.
  */
 public class PanesClient(
   private val client: ProtocolClientInterface,
 ) : PanesClientInterface {
   /**
-   *  List answers GET /v1/panes with every tracked pane.
+   *  List returns every tracked pane.
    */
   override suspend fun list(request: PanesListRequest, headers: Headers): ResponseMessage<PanesListResponse> = client.unary(
     request,
@@ -32,7 +32,7 @@ public class PanesClient(
 
 
   /**
-   *  Screen answers GET /v1/panes/{id}/screen with the text one pane shows.
+   *  Screen returns the text one pane shows.
    */
   override suspend fun screen(request: ScreenRequest, headers: Headers): ResponseMessage<ScreenResponse> = client.unary(
     request,
@@ -47,7 +47,7 @@ public class PanesClient(
 
 
   /**
-   *  Conversation answers GET /v1/panes/{id}/conversation with the conversation of one pane's Claude transcript.
+   *  Conversation returns the conversation of one pane's Claude transcript.
    */
   override suspend fun conversation(request: ConversationRequest, headers: Headers): ResponseMessage<ConversationResponse> = client.unary(
     request,
@@ -62,7 +62,7 @@ public class PanesClient(
 
 
   /**
-   *  SendText answers POST /v1/panes/{id}/text by sending text to one pane.
+   *  SendText sends text to one pane.
    */
   override suspend fun sendText(request: SendTextRequest, headers: Headers): ResponseMessage<SendTextResponse> = client.unary(
     request,
@@ -77,7 +77,7 @@ public class PanesClient(
 
 
   /**
-   *  SendKeys answers POST /v1/panes/{id}/keys by sending keys to one pane.
+   *  SendKeys sends keys to one pane.
    */
   override suspend fun sendKeys(request: SendKeysRequest, headers: Headers): ResponseMessage<SendKeysResponse> = client.unary(
     request,
@@ -92,7 +92,7 @@ public class PanesClient(
 
 
   /**
-   *  MarkSeen answers POST /v1/panes/{id}/seen by recording that the user has seen one pane.
+   *  MarkSeen records that the user has seen one pane.
    */
   override suspend fun markSeen(request: MarkSeenRequest, headers: Headers): ResponseMessage<MarkSeenResponse> = client.unary(
     request,

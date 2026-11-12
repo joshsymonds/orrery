@@ -2110,7 +2110,7 @@ func (x *PanesListResponse) GetPanes() []*Pane {
 	return nil
 }
 
-// Pane is one pane of GET /v1/panes: the seventeen keys of `orrery list --json` (docs/contract.md section 3), then
+// Pane is one tracked pane: the seventeen keys of `orrery list --json` (docs/contract.md section 3), then
 // question_hash and newest_reply.
 type Pane struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -2319,7 +2319,8 @@ func (x *Pane) GetNewestReply() int64 {
 	return 0
 }
 
-// ScreenRequest asks for the text of one pane. ansi false is the route's ansi absent or 0, true is ansi=1. history 0
+// ScreenRequest asks for the text of one pane. ansi false gives plain text, and true keeps the color escape
+// sequences. history 0
 // adds no scrollback; 1 to 2000 adds that many lines; above 2000 is invalid_argument.
 type ScreenRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -2387,7 +2388,7 @@ func (x *ScreenRequest) GetHistory() uint32 {
 // ScreenResponse carries the text of one pane.
 type ScreenResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// The pane's text, exactly the route's text/plain body.
+	// The pane's plain text: the output of capture-pane -p -J, with the escape sequences of ansi.
 	Screen        []byte `protobuf:"bytes,1,opt,name=screen,proto3" json:"screen,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -2430,7 +2431,7 @@ func (x *ScreenResponse) GetScreen() []byte {
 	return nil
 }
 
-// ConversationRequest asks for the newest items of one pane's conversation. limit 0 means the route's default, 30;
+// ConversationRequest asks for the newest items of one pane's conversation. limit 0 means the default, 30;
 // 1 to 100 is that many; above 100 is invalid_argument.
 type ConversationRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -2907,8 +2908,8 @@ func (*SendTextResponse) Descriptor() ([]byte, []int) {
 	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{39}
 }
 
-// SendKeysRequest asks for keys to be sent to one pane. expect_question present is the route's expect_question field
-// present.
+// SendKeysRequest asks for keys to be sent to one pane. When expect_question is present, the keys are sent only
+// while the pane shows that question.
 type SendKeysRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The pane's id, % followed by digits.

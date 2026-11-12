@@ -12,12 +12,12 @@ import com.connectrpc.ResponseMessage
  */
 public interface PushClientInterface {
   /**
-   *  Register answers POST /v1/push/register by storing a push subscription.
+   *  Register stores a push subscription.
    */
   public suspend fun register(request: RegisterRequest, headers: Headers = emptyMap()): ResponseMessage<RegisterResponse>
 
   /**
-   *  Unregister answers DELETE /v1/push/register by removing a push subscription.
+   *  Unregister removes a push subscription.
    */
   public suspend fun unregister(request: UnregisterRequest, headers: Headers = emptyMap()): ResponseMessage<UnregisterResponse>
 }

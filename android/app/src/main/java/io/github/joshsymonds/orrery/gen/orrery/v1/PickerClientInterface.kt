@@ -12,12 +12,12 @@ import com.connectrpc.ResponseMessage
  */
 public interface PickerClientInterface {
   /**
-   *  Ask answers POST /v1/picker/ask with the rows that match the text, each with a one-time token.
+   *  Ask returns the rows that match the text, each with a one-time token.
    */
   public suspend fun ask(request: AskRequest, headers: Headers = emptyMap()): ResponseMessage<AskResponse>
 
   /**
-   *  Run answers POST /v1/picker/run by running the action a token names, once.
+   *  Run runs the action a token names, once.
    */
   public suspend fun run(request: RunRequest, headers: Headers = emptyMap()): ResponseMessage<RunResponse>
 }

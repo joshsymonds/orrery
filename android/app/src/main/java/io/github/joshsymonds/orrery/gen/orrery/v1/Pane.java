@@ -7,7 +7,7 @@ package io.github.joshsymonds.orrery.gen.orrery.v1;
 
 /**
  * <pre>
- * Pane is one pane of GET /v1/panes: the seventeen keys of `orrery list --json` (docs/contract.md section 3), then
+ * Pane is one tracked pane: the seventeen keys of `orrery list --json` (docs/contract.md section 3), then
  * question_hash and newest_reply.
  * </pre>
  *
@@ -1218,7 +1218,7 @@ public  final class Pane extends
 
   /**
    * <pre>
-   * Pane is one pane of GET /v1/panes: the seventeen keys of `orrery list --json` (docs/contract.md section 3), then
+   * Pane is one tracked pane: the seventeen keys of `orrery list --json` (docs/contract.md section 3), then
    * question_hash and newest_reply.
    * </pre>
    *

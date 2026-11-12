@@ -25,7 +25,7 @@ public  final class ScreenResponse extends
   private com.google.protobuf.ByteString screen_;
   /**
    * <pre>
-   * The pane's text, exactly the route's text/plain body.
+   * The pane's plain text: the output of capture-pane -p -J, with the escape sequences of ansi.
    * </pre>
    *
    * <code>bytes screen = 1 [json_name = "screen"];</code>
@@ -37,7 +37,7 @@ public  final class ScreenResponse extends
   }
   /**
    * <pre>
-   * The pane's text, exactly the route's text/plain body.
+   * The pane's plain text: the output of capture-pane -p -J, with the escape sequences of ansi.
    * </pre>
    *
    * <code>bytes screen = 1 [json_name = "screen"];</code>
@@ -50,7 +50,7 @@ public  final class ScreenResponse extends
   }
   /**
    * <pre>
-   * The pane's text, exactly the route's text/plain body.
+   * The pane's plain text: the output of capture-pane -p -J, with the escape sequences of ansi.
    * </pre>
    *
    * <code>bytes screen = 1 [json_name = "screen"];</code>
@@ -163,7 +163,7 @@ public  final class ScreenResponse extends
 
     /**
      * <pre>
-     * The pane's text, exactly the route's text/plain body.
+     * The pane's plain text: the output of capture-pane -p -J, with the escape sequences of ansi.
      * </pre>
      *
      * <code>bytes screen = 1 [json_name = "screen"];</code>
@@ -175,7 +175,7 @@ public  final class ScreenResponse extends
     }
     /**
      * <pre>
-     * The pane's text, exactly the route's text/plain body.
+     * The pane's plain text: the output of capture-pane -p -J, with the escape sequences of ansi.
      * </pre>
      *
      * <code>bytes screen = 1 [json_name = "screen"];</code>
@@ -189,7 +189,7 @@ public  final class ScreenResponse extends
     }
     /**
      * <pre>
-     * The pane's text, exactly the route's text/plain body.
+     * The pane's plain text: the output of capture-pane -p -J, with the escape sequences of ansi.
      * </pre>
      *
      * <code>bytes screen = 1 [json_name = "screen"];</code>

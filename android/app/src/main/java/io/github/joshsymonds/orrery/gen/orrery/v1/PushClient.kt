@@ -17,7 +17,7 @@ public class PushClient(
   private val client: ProtocolClientInterface,
 ) : PushClientInterface {
   /**
-   *  Register answers POST /v1/push/register by storing a push subscription.
+   *  Register stores a push subscription.
    */
   override suspend fun register(request: RegisterRequest, headers: Headers): ResponseMessage<RegisterResponse> = client.unary(
     request,
@@ -32,7 +32,7 @@ public class PushClient(
 
 
   /**
-   *  Unregister answers DELETE /v1/push/register by removing a push subscription.
+   *  Unregister removes a push subscription.
    */
   override suspend fun unregister(request: UnregisterRequest, headers: Headers): ResponseMessage<UnregisterResponse> = client.unary(
     request,

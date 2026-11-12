@@ -7,7 +7,7 @@ package io.github.joshsymonds.orrery.gen.orrery.v1;
 
 /**
  * <pre>
- * ConversationRequest asks for the newest items of one pane's conversation. limit 0 means the route's default, 30;
+ * ConversationRequest asks for the newest items of one pane's conversation. limit 0 means the default, 30;
  * 1 to 100 is that many; above 100 is invalid_argument.
  * </pre>
  *
@@ -212,7 +212,7 @@ public  final class ConversationRequest extends
 
   /**
    * <pre>
-   * ConversationRequest asks for the newest items of one pane's conversation. limit 0 means the route's default, 30;
+   * ConversationRequest asks for the newest items of one pane's conversation. limit 0 means the default, 30;
    * 1 to 100 is that many; above 100 is invalid_argument.
    * </pre>
    *

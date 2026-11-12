@@ -7,7 +7,8 @@ package io.github.joshsymonds.orrery.gen.orrery.v1;
 
 /**
  * <pre>
- * ScreenRequest asks for the text of one pane. ansi false is the route's ansi absent or 0, true is ansi=1. history 0
+ * ScreenRequest asks for the text of one pane. ansi false gives plain text, and true keeps the color escape
+ * sequences. history 0
  * adds no scrollback; 1 to 2000 adds that many lines; above 2000 is invalid_argument.
  * </pre>
  *
@@ -250,7 +251,8 @@ public  final class ScreenRequest extends
 
   /**
    * <pre>
-   * ScreenRequest asks for the text of one pane. ansi false is the route's ansi absent or 0, true is ansi=1. history 0
+   * ScreenRequest asks for the text of one pane. ansi false gives plain text, and true keeps the color escape
+   * sequences. history 0
    * adds no scrollback; 1 to 2000 adds that many lines; above 2000 is invalid_argument.
    * </pre>
    *

@@ -443,17 +443,17 @@ func (UnimplementedControlHandler) Seen(context.Context, *connect.Request[v1.See
 
 // PanesClient is a client for the orrery.v1.Panes service.
 type PanesClient interface {
-	// List answers GET /v1/panes with every tracked pane.
+	// List returns every tracked pane.
 	List(context.Context, *connect.Request[v1.PanesListRequest]) (*connect.Response[v1.PanesListResponse], error)
-	// Screen answers GET /v1/panes/{id}/screen with the text one pane shows.
+	// Screen returns the text one pane shows.
 	Screen(context.Context, *connect.Request[v1.ScreenRequest]) (*connect.Response[v1.ScreenResponse], error)
-	// Conversation answers GET /v1/panes/{id}/conversation with the conversation of one pane's Claude transcript.
+	// Conversation returns the conversation of one pane's Claude transcript.
 	Conversation(context.Context, *connect.Request[v1.ConversationRequest]) (*connect.Response[v1.ConversationResponse], error)
-	// SendText answers POST /v1/panes/{id}/text by sending text to one pane.
+	// SendText sends text to one pane.
 	SendText(context.Context, *connect.Request[v1.SendTextRequest]) (*connect.Response[v1.SendTextResponse], error)
-	// SendKeys answers POST /v1/panes/{id}/keys by sending keys to one pane.
+	// SendKeys sends keys to one pane.
 	SendKeys(context.Context, *connect.Request[v1.SendKeysRequest]) (*connect.Response[v1.SendKeysResponse], error)
-	// MarkSeen answers POST /v1/panes/{id}/seen by recording that the user has seen one pane.
+	// MarkSeen records that the user has seen one pane.
 	MarkSeen(context.Context, *connect.Request[v1.MarkSeenRequest]) (*connect.Response[v1.MarkSeenResponse], error)
 }
 
@@ -549,17 +549,17 @@ func (c *panesClient) MarkSeen(ctx context.Context, req *connect.Request[v1.Mark
 
 // PanesHandler is an implementation of the orrery.v1.Panes service.
 type PanesHandler interface {
-	// List answers GET /v1/panes with every tracked pane.
+	// List returns every tracked pane.
 	List(context.Context, *connect.Request[v1.PanesListRequest]) (*connect.Response[v1.PanesListResponse], error)
-	// Screen answers GET /v1/panes/{id}/screen with the text one pane shows.
+	// Screen returns the text one pane shows.
 	Screen(context.Context, *connect.Request[v1.ScreenRequest]) (*connect.Response[v1.ScreenResponse], error)
-	// Conversation answers GET /v1/panes/{id}/conversation with the conversation of one pane's Claude transcript.
+	// Conversation returns the conversation of one pane's Claude transcript.
 	Conversation(context.Context, *connect.Request[v1.ConversationRequest]) (*connect.Response[v1.ConversationResponse], error)
-	// SendText answers POST /v1/panes/{id}/text by sending text to one pane.
+	// SendText sends text to one pane.
 	SendText(context.Context, *connect.Request[v1.SendTextRequest]) (*connect.Response[v1.SendTextResponse], error)
-	// SendKeys answers POST /v1/panes/{id}/keys by sending keys to one pane.
+	// SendKeys sends keys to one pane.
 	SendKeys(context.Context, *connect.Request[v1.SendKeysRequest]) (*connect.Response[v1.SendKeysResponse], error)
-	// MarkSeen answers POST /v1/panes/{id}/seen by recording that the user has seen one pane.
+	// MarkSeen records that the user has seen one pane.
 	MarkSeen(context.Context, *connect.Request[v1.MarkSeenRequest]) (*connect.Response[v1.MarkSeenResponse], error)
 }
 
@@ -655,7 +655,7 @@ func (UnimplementedPanesHandler) MarkSeen(context.Context, *connect.Request[v1.M
 
 // HostClient is a client for the orrery.v1.Host service.
 type HostClient interface {
-	// Status answers GET /v1/host with the host's name and its stats.
+	// Status returns the host's name and its stats.
 	Status(context.Context, *connect.Request[v1.HostStatusRequest]) (*connect.Response[v1.HostStatusResponse], error)
 }
 
@@ -691,7 +691,7 @@ func (c *hostClient) Status(ctx context.Context, req *connect.Request[v1.HostSta
 
 // HostHandler is an implementation of the orrery.v1.Host service.
 type HostHandler interface {
-	// Status answers GET /v1/host with the host's name and its stats.
+	// Status returns the host's name and its stats.
 	Status(context.Context, *connect.Request[v1.HostStatusRequest]) (*connect.Response[v1.HostStatusResponse], error)
 }
 
@@ -727,9 +727,9 @@ func (UnimplementedHostHandler) Status(context.Context, *connect.Request[v1.Host
 
 // PushClient is a client for the orrery.v1.Push service.
 type PushClient interface {
-	// Register answers POST /v1/push/register by storing a push subscription.
+	// Register stores a push subscription.
 	Register(context.Context, *connect.Request[v1.RegisterRequest]) (*connect.Response[v1.RegisterResponse], error)
-	// Unregister answers DELETE /v1/push/register by removing a push subscription.
+	// Unregister removes a push subscription.
 	Unregister(context.Context, *connect.Request[v1.UnregisterRequest]) (*connect.Response[v1.UnregisterResponse], error)
 }
 
@@ -777,9 +777,9 @@ func (c *pushClient) Unregister(ctx context.Context, req *connect.Request[v1.Unr
 
 // PushHandler is an implementation of the orrery.v1.Push service.
 type PushHandler interface {
-	// Register answers POST /v1/push/register by storing a push subscription.
+	// Register stores a push subscription.
 	Register(context.Context, *connect.Request[v1.RegisterRequest]) (*connect.Response[v1.RegisterResponse], error)
-	// Unregister answers DELETE /v1/push/register by removing a push subscription.
+	// Unregister removes a push subscription.
 	Unregister(context.Context, *connect.Request[v1.UnregisterRequest]) (*connect.Response[v1.UnregisterResponse], error)
 }
 
@@ -827,9 +827,9 @@ func (UnimplementedPushHandler) Unregister(context.Context, *connect.Request[v1.
 
 // PickerClient is a client for the orrery.v1.Picker service.
 type PickerClient interface {
-	// Ask answers POST /v1/picker/ask with the rows that match the text, each with a one-time token.
+	// Ask returns the rows that match the text, each with a one-time token.
 	Ask(context.Context, *connect.Request[v1.AskRequest]) (*connect.Response[v1.AskResponse], error)
-	// Run answers POST /v1/picker/run by running the action a token names, once.
+	// Run runs the action a token names, once.
 	Run(context.Context, *connect.Request[v1.RunRequest]) (*connect.Response[v1.RunResponse], error)
 }
 
@@ -877,9 +877,9 @@ func (c *pickerClient) Run(ctx context.Context, req *connect.Request[v1.RunReque
 
 // PickerHandler is an implementation of the orrery.v1.Picker service.
 type PickerHandler interface {
-	// Ask answers POST /v1/picker/ask with the rows that match the text, each with a one-time token.
+	// Ask returns the rows that match the text, each with a one-time token.
 	Ask(context.Context, *connect.Request[v1.AskRequest]) (*connect.Response[v1.AskResponse], error)
-	// Run answers POST /v1/picker/run by running the action a token names, once.
+	// Run runs the action a token names, once.
 	Run(context.Context, *connect.Request[v1.RunRequest]) (*connect.Response[v1.RunResponse], error)
 }
 

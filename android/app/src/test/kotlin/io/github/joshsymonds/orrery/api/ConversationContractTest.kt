@@ -12,7 +12,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ConversationContractTest {
-    // The conversation route's example response from docs/contract.md, as the Connect answer carries it.
+    // The Panes.Conversation example answer from docs/contract.md section 12 (Phone API), as the Connect answer carries it.
     private val contractResponse: ConversationResponse = ConversationResponse.newBuilder()
         .setOrigin("Example opening prompt.")
         .addItems(ConversationItemProto.newBuilder().setKind("prompt").setTime(1700000000L).setText("Example opening prompt."))
