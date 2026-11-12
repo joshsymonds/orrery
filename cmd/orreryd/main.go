@@ -381,6 +381,7 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 	serveErr := daemon.Serve(ctx, ln, daemon.Config{
 		Server:        opts.server,
 		DefaultServer: opts.defaultServer,
+		Home:          getenv("HOME"),
 		Observers: []daemon.Observer{observe, autoseen.New(time.Now, logger, func(pane string, seen int64) {
 			notices.Seen(ctx, notice.Key{Pane: pane}, seen)
 		})},
