@@ -1795,7 +1795,17 @@ The guard covers the stream. The rules of [Guard](#guard) apply to `/orrery.v1.P
 
 `Epics.List` answers every epic under the record root, live or folded, sorted by `id`. Each epic carries `running_steps`, its labelled steps that have no end, held ones included, oldest first, and `ended_steps`, how many of its labelled steps have ended. It calls `ListSteps` once.
 
-`Epics.Get` answers one epic by an `id` that `Epics.List` gives. It returns the epic, its `tasks` in effort number order (file order within an effort), and its `steps`, every labelled step of the epic, oldest first. It calls `ListSteps` once, narrowed to the epic. An `id` that `Epics.List` does not give answers `not_found` "epic not found", and the id is never joined into a path.
+`Epics.Get` answers one epic by an `id` that `Epics.List` gives. It returns the epic, its `tasks` in effort number order (file order within an effort), its `steps`, every labelled step of the epic, oldest first, and its `slices`, which the next paragraph describes. It calls `ListSteps` once, narrowed to the epic. An `id` that `Epics.List` does not give answers `not_found` "epic not found", and the id is never joined into a path.
+
+`slices` holds one slice per distinct `task` label among the epic's writing steps, in order of each label's first start. A writing step is a labelled step that is not `read_only` and has a non-empty `task`; read-only and untasked steps add no slice. A slice reads all its cells from its label's latest writing step (latest `started`), and from no record.
+
+- `task` is the label.
+- `red_test` and `tests_pass` are whether the step's `result`, a JSON object, carries `red_evidence` and `green_evidence` respectively, each as a string that, trimmed, is non-empty and does not start with `NOT RUN` in any case. A `result` that does not parse as a JSON object, and a value that is not a string, is no evidence; neither is an error.
+- `working` is always true, since a listed step has run.
+- `checks` is whether every check of the step's highest round is `ok` and one of them is named `gate`. With no checks it is false.
+- `gate_accepted` is whether the step's `end` is `done`.
+- `hue` is `dispatched` while the step's `end` is empty (running or held), `done` when the `end` is `done`, and `gap` for any other end.
+- `at` is, while `end` is empty, the 1-based index of the innermost ring whose cell is true (`red_test` 1, `working` 2, `tests_pass` 3, `checks` 4, `gate_accepted` 5), and 0 once the step ended.
 
 When `ListSteps` cannot be read, or serve has no step client, `Epics.List` and `Epics.Get` answer `unavailable` "step service unavailable".
 
@@ -1915,3 +1925,5 @@ orrery W1b (web reader) added, additively: the `orrery.v1.Panes.PullQueued` call
 orrery L1a2 (pool holds) added, additively: the `orrery hold [--off] MEMBER` and `orrery run status` subcommands, with their exit statuses (see [orrery](#orrery)); the stop path of `orrery run`, with its stderr line and its reclaim that queues again at the request's place (see [orrery](#orrery) and [Pools](#pools)); the `orrery.engine.v1.Pools` calls `Status`, `Hold` and `Free`, the `command` field of `AcquireRequest` and the `stop` event of `AcquireResponse` (see [Pools](#pools) and [Owner holds](#owner-holds)); the `holds` table (migration `00008_holds.sql`, see [Holds in the store](#holds-in-the-store)) and the `command` column of `grants`; the tree's `p` and `h` keys (see [Tree keys](#tree-keys)); and the phone's `orrery.v1.Pools` service with its three calls, served through `serve` behind the guard (see [Phone API](#phone-api) and [Guard](#guard)). The phone API now has sixteen calls where it had thirteen. No existing name or value changes.
 
 orrery named gates added, additively: the `orrery gate` subcommand and its exit statuses (see [orrery](#orrery)); the gates file and the `[gates]` table of the project file (see [Gate files](#gate-files)); the `gate_name` and `gates_file` fields of `StartStep` (`proto/orrery/engine/v1/step.proto` fields 14 and 15) and the `gateName` and `gatesFile` arguments of `step_start` (see [Steps](#steps) and [step_start](engine-protocol.md#step_start)); and the `gate_name`, `gate_source` and `gate_needs` columns of the `steps` table (migration `00009_step_gate.sql`, see [Steps in the store](#steps-in-the-store)). This is a removal too, and it is not additive: the `orreryd` flag `--gate-lock` is gone, and the `gate` and `gate_limit_seconds` fields of `StartStep` are refused with `invalid_argument`; the `gate` and `gateLimitSeconds` arguments of `step_start` are refused as unknown keys.
+
+orrery W3a (epic chart) added, additively: the `slices` field of `EpicsGetResponse` and the `EpicSlice` message (see [Epics and Steps](#epics-and-steps)). No existing name or value changes.
