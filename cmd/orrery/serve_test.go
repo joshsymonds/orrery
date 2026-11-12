@@ -9,15 +9,21 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"connectrpc.com/connect"
+	"google.golang.org/protobuf/proto"
 
+	enginev1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
+	"github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1/enginev1connect"
 	orreryv1 "github.com/joshsymonds/orrery/internal/gen/orrery/v1"
 	"github.com/joshsymonds/orrery/internal/gen/orrery/v1/orreryv1connect"
 	"github.com/joshsymonds/orrery/internal/open"
+	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/push"
 	"github.com/joshsymonds/orrery/internal/server"
 	"github.com/joshsymonds/orrery/internal/store"
@@ -320,6 +326,170 @@ func TestServeAnswersPageAtRoot(t *testing.T) {
 	}
 	if string(body) != string(want) {
 		t.Fatalf("GET /: body = %q, want the embedded index.html %q", body, want)
+	}
+
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("runServe returned %v, want nil", err)
+		}
+	case <-time.After(serveTestWait):
+		t.Fatalf("runServe did not return within %v of cancel", serveTestWait)
+	}
+}
+
+// servePools is an in-process orreryd Pools for the serve test. Each call records its name and member, and Status
+// answers with status.
+type servePools struct {
+	enginev1connect.UnimplementedPoolsHandler
+
+	status *enginev1.PoolsStatusResponse
+	mu     sync.Mutex
+	calls  []string
+}
+
+// record appends call to the calls the fake has received.
+func (f *servePools) record(call string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls = append(f.calls, call)
+}
+
+// received returns the calls the fake has received, in order.
+func (f *servePools) received() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.calls)
+}
+
+// Status implements enginev1connect.PoolsHandler.
+func (f *servePools) Status(
+	_ context.Context,
+	_ *connect.Request[enginev1.PoolsStatusRequest],
+) (*connect.Response[enginev1.PoolsStatusResponse], error) {
+	f.record("Status")
+	return connect.NewResponse(f.status), nil
+}
+
+// Hold implements enginev1connect.PoolsHandler.
+func (f *servePools) Hold(
+	_ context.Context,
+	req *connect.Request[enginev1.PoolsHoldRequest],
+) (*connect.Response[enginev1.PoolsHoldResponse], error) {
+	f.record("Hold " + req.Msg.GetMember())
+	return connect.NewResponse(&enginev1.PoolsHoldResponse{}), nil
+}
+
+// Free implements enginev1connect.PoolsHandler.
+func (f *servePools) Free(
+	_ context.Context,
+	req *connect.Request[enginev1.PoolsFreeRequest],
+) (*connect.Response[enginev1.PoolsFreeResponse], error) {
+	f.record("Free " + req.Msg.GetMember())
+	return connect.NewResponse(&enginev1.PoolsFreeResponse{}), nil
+}
+
+// serveFakePools serves fake as Pools on the session socket beside a daemon socket in a temporary directory. It
+// returns the daemon socket path that `--socket` names. The server is closed at cleanup.
+func serveFakePools(t *testing.T, fake *servePools) string {
+	t.Helper()
+	daemon := filepath.Join(t.TempDir(), "orreryd.sock")
+	ln, err := net.Listen("unix", protocol.SessionSocketPath(daemon))
+	if err != nil {
+		t.Fatalf("listen on the session socket: %v", err)
+	}
+	mux := http.NewServeMux()
+	path, handler := enginev1connect.NewPoolsHandler(fake)
+	mux.Handle(path, handler)
+	srv := &http.Server{Handler: mux}
+	go func() { _ = srv.Serve(ln) }()
+	t.Cleanup(func() {
+		if err := srv.Close(); err != nil {
+			t.Errorf("close pools server: %v", err)
+		}
+	})
+	return daemon
+}
+
+// serveAwaitListener waits until a connection to addr succeeds. It fails the test when done reports that runServe
+// returned first, or when no connection succeeds within serveTestWait.
+func serveAwaitListener(t *testing.T, addr string, done <-chan error) {
+	t.Helper()
+	deadline := time.After(serveTestWait)
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case err := <-done:
+			t.Fatalf("runServe returned before serving: %v", err)
+		case <-deadline:
+			t.Fatalf("no listener on %s within %v", addr, serveTestWait)
+		case <-ticker.C:
+			if conn, err := net.Dial("tcp", addr); err == nil {
+				if err := conn.Close(); err != nil {
+					t.Errorf("close probe connection: %v", err)
+				}
+				return
+			}
+		}
+	}
+}
+
+// TestServeForwardsPools runs serve through runServe with --socket naming a daemon socket whose session socket serves a
+// fake orreryd Pools. A phone's Pools.Status, Hold and Free through the guard reach that Pools, and Status answers with
+// the pools and holds the Pools returns.
+func TestServeForwardsPools(t *testing.T) {
+	fake := &servePools{status: &enginev1.PoolsStatusResponse{
+		Pools: []*enginev1.PoolStatus{{
+			Name:    "builds",
+			Cap:     2,
+			Members: []*enginev1.PoolMemberStatus{{Name: "builds-1", State: "awake"}},
+		}},
+		Holds: []*enginev1.PoolHold{{Member: "builds-2", Since: 1_700_000_000}},
+	}}
+	daemon := serveFakePools(t, fake)
+	state := t.TempDir()
+	getenv := func(key string) string { return map[string]string{"XDG_STATE_HOME": state}[key] }
+	addr := serveFreeLoopbackAddr(t)
+	opts := globals{server: tmuxctl.Server{Name: "orrery-serve-test-unstarted"}, daemonSocket: daemon}
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		done <- runServe(ctx, opts, []string{"--listen", addr, "--allow-login", serveTestLogin}, getenv)
+	}()
+	serveAwaitListener(t, addr, done)
+
+	pools := orreryv1connect.NewPoolsClient(
+		&http.Client{Transport: serveLoginTransport{base: http.DefaultTransport}}, "http://"+addr)
+	callCtx, cancelCall := context.WithTimeout(ctx, serveTestWait)
+	defer cancelCall()
+	status, err := pools.Status(callCtx, connect.NewRequest(&orreryv1.PoolsStatusRequest{}))
+	if err != nil {
+		t.Fatalf("Pools.Status: %v", err)
+	}
+	if _, err := pools.Hold(callCtx, connect.NewRequest(&orreryv1.PoolsHoldRequest{Member: "builds-1"})); err != nil {
+		t.Fatalf("Pools.Hold: %v", err)
+	}
+	if _, err := pools.Free(callCtx, connect.NewRequest(&orreryv1.PoolsFreeRequest{Member: "builds-1"})); err != nil {
+		t.Fatalf("Pools.Free: %v", err)
+	}
+
+	want := &orreryv1.PoolsStatusResponse{
+		Pools: []*orreryv1.PoolStatus{{
+			Name:    "builds",
+			Cap:     2,
+			Members: []*orreryv1.PoolMemberStatus{{Name: "builds-1", State: "awake"}},
+		}},
+		Holds: []*orreryv1.PoolHold{{Member: "builds-2", Since: 1_700_000_000}},
+	}
+	if !proto.Equal(status.Msg, want) {
+		t.Errorf("Pools.Status = %v, want %v", status.Msg, want)
+	}
+	wantCalls := []string{"Status", "Hold builds-1", "Free builds-1"}
+	if got := fake.received(); !slices.Equal(got, wantCalls) {
+		t.Errorf("orreryd received %q, want %q", got, wantCalls)
 	}
 
 	cancel()

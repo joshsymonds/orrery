@@ -96,6 +96,7 @@ subcommands:
   mcp                                           serve the step tools over MCP on stdio until stdin closes
   run --needs POOL=N [--needs POOL=N]... -- CMD [ARGS]
                                                 run CMD under a grant of pool members from orreryd
+  run status                                    print the pools orreryd runs
   hold [--off] MEMBER                           place an owner hold on MEMBER through orreryd, or free it with --off
   serve --listen ADDR --allow-login LOGIN [--allow-login LOGIN]... [--push-host HOST]...
         [--host-status-cmd PATH]
@@ -243,7 +244,12 @@ func tmuxCommand(ctx context.Context, opts globals, name string, args []string, 
 	if name == "open" {
 		return openCommand(ctx, client, opts.server, args, stdin, stdout, getenv)
 	}
-	return runTmux(ctx, client, name, args, stdin, stdout, getenv, seenReporter(opts.daemonSocket, getenv))
+	var pools enginev1connect.PoolsClient
+	if socket, sockErr := protocol.SocketPath(opts.daemonSocket, getenv); sockErr == nil {
+		pools = enginev1connect.NewPoolsClient(
+			cli.SessionHTTPClient(protocol.SessionSocketPath(socket)), cli.SessionBaseURL)
+	}
+	return runTmux(ctx, client, name, args, stdin, stdout, getenv, seenReporter(opts.daemonSocket, getenv), pools)
 }
 
 // runSession runs `orrery session` with the session socket beside the daemon socket, unless the command names serve
@@ -416,9 +422,11 @@ func runServe(ctx context.Context, opts globals, args []string, getenv func(stri
 		return err
 	}
 	var engine enginev1connect.EngineClient
+	var pools enginev1connect.PoolsClient
 	if daemonSocket, sockErr := protocol.SocketPath(opts.daemonSocket, getenv); sockErr == nil {
-		engine = enginev1connect.NewEngineClient(
-			cli.SessionHTTPClient(protocol.SessionSocketPath(daemonSocket)), cli.SessionBaseURL)
+		sessionClient := cli.SessionHTTPClient(protocol.SessionSocketPath(daemonSocket))
+		engine = enginev1connect.NewEngineClient(sessionClient, cli.SessionBaseURL)
+		pools = enginev1connect.NewPoolsClient(sessionClient, cli.SessionBaseURL)
 	}
 	shutdown := make(chan struct{})
 	handler, err := server.New(server.Config{
@@ -429,6 +437,7 @@ func runServe(ctx context.Context, opts globals, args []string, getenv func(stri
 		Sessions:   sessions,
 		Shutdown:   shutdown,
 		Engine:     engine,
+		Pools:      pools,
 		Home:       getenv("HOME"),
 		Picker:     servePickerConfig(tmux, getenv),
 		ReportSeen: seenReporter(opts.daemonSocket, getenv),
@@ -479,9 +488,10 @@ func seenReporter(flagSocket string, getenv func(string) string) cli.SeenReporte
 	}
 }
 
-// runTmux runs a subcommand that works on the tmux server client talks to. report is the seen reporter for seen.
+// runTmux runs a subcommand that works on the tmux server client talks to. report is the seen reporter for seen, and
+// pools reads the pools for tree's pools view.
 func runTmux(ctx context.Context, client *tmuxctl.Client, name string, args []string, stdin *os.File,
-	out io.Writer, getenv func(string) string, report cli.SeenReporter) error {
+	out io.Writer, getenv func(string) string, report cli.SeenReporter, pools enginev1connect.PoolsClient) error {
 	// The cli errors already name their subcommand, so errors.Join passes them through unchanged while
 	// keeping errors.Is working for cli.ErrQuestionRefused.
 	switch name {
@@ -497,7 +507,7 @@ func runTmux(ctx context.Context, client *tmuxctl.Client, name string, args []st
 	case "shell":
 		return shellOpen(ctx, client, args)
 	case "tree":
-		return tree(ctx, client, args, stdin, out, getenv, report)
+		return tree(ctx, client, args, stdin, out, getenv, report, pools)
 	default:
 		return runDebug(ctx, client, args, getenv)
 	}
@@ -524,7 +534,7 @@ func shellOpen(ctx context.Context, client *tmuxctl.Client, args []string) error
 // tree runs `orrery tree`, which shows the pane tree on the client at --client. N on a row runs the picker for that
 // row's directory, and the picker's choice switches the same client.
 func tree(ctx context.Context, client *tmuxctl.Client, args []string, stdin *os.File, stdout io.Writer,
-	getenv func(string) string, report cli.SeenReporter) error {
+	getenv func(string) string, report cli.SeenReporter, pools enginev1connect.PoolsClient) error {
 	flags := flag.NewFlagSet("tree", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	clientTTY := flags.String("client", "", "tty of the client that shows the tree")
@@ -557,7 +567,7 @@ func tree(ctx context.Context, client *tmuxctl.Client, args []string, stdin *os.
 	}
 
 	result, err := tui.Run(ctx, tui.Options{Client: client, ClientTTY: *clientTTY, ArchivePath: archivePath,
-		ReportSeen: report, Panes: panes, Input: stdin, Output: stdout})
+		ReportSeen: report, Pools: pools, Panes: panes, Input: stdin, Output: stdout})
 	if err != nil {
 		return fmt.Errorf("tree: %w", err)
 	}
