@@ -52,11 +52,11 @@ func testContext(t *testing.T) context.Context {
 }
 
 // stopThenRerun runs rerunScript(seconds) under grant-term through a Pools that stops that run once it has held for
-// half of testLimit. The rerun is granted grant-rerun at once. It returns RunWithGrant's status.
+// half of testLimit. The rerun is granted grant-limit-rerun at once. It returns RunWithGrant's status.
 func stopThenRerun(t *testing.T, seconds string) int {
 	t.Helper()
 	ready := make(chan struct{})
-	pools := &stopPools{steps: []scriptedStep{stopStep("grant-term", ready), rejoinStep("grant-rerun")}}
+	pools := &stopPools{steps: []scriptedStep{stopStep("grant-term", ready), rejoinStep("grant-limit-rerun")}}
 	socket := serveStopPools(t, pools)
 	r, w := stdoutPipe(t)
 	cfg := limitConfig(t, socket, rerunScript(seconds), w, io.Discard, stdinPipe(t))
