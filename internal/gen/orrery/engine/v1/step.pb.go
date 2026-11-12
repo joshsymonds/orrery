@@ -38,9 +38,9 @@ type StartStepRequest struct {
 	ReadOnly bool `protobuf:"varint,6,opt,name=read_only,json=readOnly,proto3" json:"read_only,omitempty"`
 	// The paths, relative to the repository, a writing step may change.
 	OwnedPaths []string `protobuf:"bytes,7,rep,name=owned_paths,json=ownedPaths,proto3" json:"owned_paths,omitempty"`
-	// The gate program and its arguments that the step's return is checked against. Empty runs no gate.
+	// Refused: StartStep returns invalid_argument when this is set. A step names its gate with gate_name.
 	Gate []string `protobuf:"bytes,8,rep,name=gate,proto3" json:"gate,omitempty"`
-	// How many seconds the gate may run. Zero means 30 minutes.
+	// Refused: StartStep returns invalid_argument when this is set. A step names its gate with gate_name.
 	GateLimitSeconds uint32 `protobuf:"varint,9,opt,name=gate_limit_seconds,json=gateLimitSeconds,proto3" json:"gate_limit_seconds,omitempty"`
 	// The status the step's done return carries. Empty means "done".
 	DoneValue string `protobuf:"bytes,10,opt,name=done_value,json=doneValue,proto3" json:"done_value,omitempty"`
@@ -50,7 +50,11 @@ type StartStepRequest struct {
 	// never listed.
 	Epic string `protobuf:"bytes,12,opt,name=epic,proto3" json:"epic,omitempty"`
 	// The slug of the epic's task the step works on. Empty when it works on no one task.
-	Task          string `protobuf:"bytes,13,opt,name=task,proto3" json:"task,omitempty"`
+	Task string `protobuf:"bytes,13,opt,name=task,proto3" json:"task,omitempty"`
+	// The name of the gate the step's return is checked against, resolved once when the step starts. Empty runs no gate.
+	GateName string `protobuf:"bytes,14,opt,name=gate_name,json=gateName,proto3" json:"gate_name,omitempty"`
+	// The absolute path of the epic's gates file. Empty reads only the project file.
+	GatesFile     string `protobuf:"bytes,15,opt,name=gates_file,json=gatesFile,proto3" json:"gates_file,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -172,6 +176,20 @@ func (x *StartStepRequest) GetEpic() string {
 func (x *StartStepRequest) GetTask() string {
 	if x != nil {
 		return x.Task
+	}
+	return ""
+}
+
+func (x *StartStepRequest) GetGateName() string {
+	if x != nil {
+		return x.GateName
+	}
+	return ""
+}
+
+func (x *StartStepRequest) GetGatesFile() string {
+	if x != nil {
+		return x.GatesFile
 	}
 	return ""
 }
@@ -1050,7 +1068,7 @@ var File_orrery_engine_v1_step_proto protoreflect.FileDescriptor
 
 const file_orrery_engine_v1_step_proto_rawDesc = "" +
 	"\n" +
-	"\x1borrery/engine/v1/step.proto\x12\x10orrery.engine.v1\"\x89\x03\n" +
+	"\x1borrery/engine/v1/step.proto\x12\x10orrery.engine.v1\"\xc5\x03\n" +
 	"\x10StartStepRequest\x12\x14\n" +
 	"\x05agent\x18\x01 \x01(\tR\x05agent\x12\x16\n" +
 	"\x06prompt\x18\x02 \x01(\tR\x06prompt\x12\x16\n" +
@@ -1067,7 +1085,10 @@ const file_orrery_engine_v1_step_proto_rawDesc = "" +
 	" \x01(\tR\tdoneValue\x12.\n" +
 	"\x13model_limit_seconds\x18\v \x01(\rR\x11modelLimitSeconds\x12\x12\n" +
 	"\x04epic\x18\f \x01(\tR\x04epic\x12\x12\n" +
-	"\x04task\x18\r \x01(\tR\x04task\"#\n" +
+	"\x04task\x18\r \x01(\tR\x04task\x12\x1b\n" +
+	"\tgate_name\x18\x0e \x01(\tR\bgateName\x12\x1d\n" +
+	"\n" +
+	"gates_file\x18\x0f \x01(\tR\tgatesFile\"#\n" +
 	"\x11StartStepResponse\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\"!\n" +
 	"\x0fStopStepRequest\x12\x0e\n" +

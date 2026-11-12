@@ -32,8 +32,8 @@ const (
 		`"doneValue":{"type":"string"},` +
 		`"readOnly":{"type":"boolean"},` +
 		`"ownedPaths":{"type":"array","items":{"type":"string"}},` +
-		`"gate":{"type":"array","items":{"type":"string"}},` +
-		`"gateLimitSeconds":{"type":"integer","minimum":0},` +
+		`"gateName":{"type":"string"},` +
+		`"gatesFile":{"type":"string"},` +
 		`"epic":{"type":"string"},` +
 		`"task":{"type":"string"}` +
 		`},"required":["agent","prompt","workspace","schema"],"additionalProperties":false}`
@@ -83,18 +83,18 @@ func NewServer(steps enginev1connect.StepsClient) (*mcp.Server, error) {
 }
 
 type startArgs struct {
-	Agent            string          `json:"agent"`
-	Prompt           string          `json:"prompt"`
-	Workspace        string          `json:"workspace"`
-	Schema           json.RawMessage `json:"schema"`
-	Revision         string          `json:"revision"`
-	DoneValue        string          `json:"doneValue"`
-	ReadOnly         bool            `json:"readOnly"`
-	OwnedPaths       []string        `json:"ownedPaths"`
-	Gate             []string        `json:"gate"`
-	GateLimitSeconds uint32          `json:"gateLimitSeconds"`
-	Epic             string          `json:"epic"`
-	Task             string          `json:"task"`
+	Agent      string          `json:"agent"`
+	Prompt     string          `json:"prompt"`
+	Workspace  string          `json:"workspace"`
+	Schema     json.RawMessage `json:"schema"`
+	Revision   string          `json:"revision"`
+	DoneValue  string          `json:"doneValue"`
+	ReadOnly   bool            `json:"readOnly"`
+	OwnedPaths []string        `json:"ownedPaths"`
+	GateName   string          `json:"gateName"`
+	GatesFile  string          `json:"gatesFile"`
+	Epic       string          `json:"epic"`
+	Task       string          `json:"task"`
 }
 
 type idArgs struct {
@@ -162,18 +162,18 @@ func startHandler(steps enginev1connect.StepsClient) mcp.ToolHandler {
 			return mcp.ToolResult{}, err
 		}
 		started, err := steps.StartStep(ctx, connect.NewRequest(&v1.StartStepRequest{
-			Agent:            args.Agent,
-			Prompt:           args.Prompt,
-			Schema:           schema,
-			Workspace:        args.Workspace,
-			Revision:         args.Revision,
-			ReadOnly:         args.ReadOnly,
-			OwnedPaths:       args.OwnedPaths,
-			Gate:             args.Gate,
-			GateLimitSeconds: args.GateLimitSeconds,
-			DoneValue:        args.DoneValue,
-			Epic:             args.Epic,
-			Task:             args.Task,
+			Agent:      args.Agent,
+			Prompt:     args.Prompt,
+			Schema:     schema,
+			Workspace:  args.Workspace,
+			Revision:   args.Revision,
+			ReadOnly:   args.ReadOnly,
+			OwnedPaths: args.OwnedPaths,
+			GateName:   args.GateName,
+			GatesFile:  args.GatesFile,
+			DoneValue:  args.DoneValue,
+			Epic:       args.Epic,
+			Task:       args.Task,
 		}))
 		if err != nil {
 			return toolFailure(err), nil
