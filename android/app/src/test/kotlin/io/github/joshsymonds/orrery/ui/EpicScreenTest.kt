@@ -154,6 +154,33 @@ class EpicScreenTest {
     }
 
     @Test
+    fun ringsFollowTheStatusWordsWithoutCaseAndUnknownTextStaysRaw() {
+        FakeOrreryServer().use { server ->
+            server.respond(
+                EPICS_GET,
+                body(
+                    tasks = listOf(
+                        task(1, "example-a", "Subject A", "integrated"),
+                        task(2, "example-b", "Subject B", "DONE"),
+                        task(3, "example-c", "Subject C", "Integrated"),
+                        task(4, "example-d", "Subject D", "Gated"),
+                        task(5, "example-e", "Subject E", "done at 3f9c2e1"),
+                        task(6, "example-f", "Subject F", "integrated (e2cb5e4)"),
+                    ),
+                ),
+            )
+            setScreen(server)
+            awaitText("Subject F")
+
+            assertEquals(3, countNodes(hasTestTag("task-ring:done")))
+            assertEquals(1, countNodes(hasTestTag("task-ring:gated")))
+            assertEquals(2, countNodes(hasTestTag("task-ring:neutral")))
+            assertEquals(1, countNodes(hasText("done at 3f9c2e1")))
+            assertEquals(1, countNodes(hasText("integrated (e2cb5e4)")))
+        }
+    }
+
+    @Test
     fun taskRowShowsSlugSubjectAndRawStatus() {
         FakeOrreryServer().use { server ->
             server.respond(

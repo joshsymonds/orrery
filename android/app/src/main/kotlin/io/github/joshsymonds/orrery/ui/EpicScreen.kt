@@ -50,22 +50,21 @@ private sealed interface EpicLoad {
     data class Loaded(val detail: EpicDetail) : EpicLoad
 }
 
-/** How a task's ring is drawn: its tag for tests, its colour, and whether it is dashed. */
-private class TaskRingStyle(val tag: String, val color: Color, val dashed: Boolean = false)
+/** How a task's ring is drawn: its state, its colour, and whether it is dashed. */
+private class TaskRingStyle(val state: TaskState, val color: Color, val dashed: Boolean = false) {
+    /** The test tag: the state's name in lower case, and "neutral" for an unknown status. */
+    val tag: String get() = if (state == TaskState.UNKNOWN) "neutral" else state.name.lowercase()
+}
 
-/** The ring of each recorded task status that has one; any other status draws [NEUTRAL_RING]. */
-private val TASK_RINGS = mapOf(
-    "done" to TaskRingStyle("done", Mocha.Green),
-    "dispatched" to TaskRingStyle("dispatched", Mocha.Yellow),
-    "gated" to TaskRingStyle("gated", Mocha.Peach),
-    "pending" to TaskRingStyle("pending", Mocha.Overlay0, dashed = true),
-    "gap" to TaskRingStyle("gap", Mocha.Red),
-    "split" to TaskRingStyle("split", Mocha.Blue),
-)
-
-private val NEUTRAL_RING = TaskRingStyle("neutral", Mocha.Subtext0)
-
-private fun ringOf(status: String): TaskRingStyle = TASK_RINGS[status] ?: NEUTRAL_RING
+private fun ringOf(state: TaskState): TaskRingStyle = when (state) {
+    TaskState.DONE -> TaskRingStyle(state, Mocha.Green)
+    TaskState.DISPATCHED -> TaskRingStyle(state, Mocha.Yellow)
+    TaskState.GATED -> TaskRingStyle(state, Mocha.Peach)
+    TaskState.PENDING -> TaskRingStyle(state, Mocha.Overlay0, dashed = true)
+    TaskState.GAP -> TaskRingStyle(state, Mocha.Red)
+    TaskState.SPLIT -> TaskRingStyle(state, Mocha.Blue)
+    TaskState.UNKNOWN -> TaskRingStyle(state, Mocha.Subtext0)
+}
 
 /**
  * One epic: its tasks as a ring each with the status as recorded, and its steps one line each.
@@ -180,7 +179,7 @@ private fun TaskRow(task: EpicTaskRow) {
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.Top,
     ) {
-        TaskRing(ringOf(task.status))
+        TaskRing(ringOf(taskStateOf(task.status)))
         Column(modifier = Modifier.weight(1f)) {
             Text(task.slug, style = MaterialTheme.typography.bodyLarge)
             Text(task.subject, style = MaterialTheme.typography.bodySmall)
