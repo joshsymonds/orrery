@@ -70,6 +70,7 @@ func runCommand(
 			Pools:     definitions,
 			Needs:     needs,
 			ClientPid: int32(os.Getpid()),
+			Command:   argv,
 		},
 		Argv:    argv,
 		Environ: os.Environ(),
