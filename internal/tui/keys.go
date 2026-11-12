@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -13,6 +14,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/keymap"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/shell"
+	"github.com/joshsymonds/orrery/internal/stamp"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
 	"github.com/joshsymonds/orrery/internal/view"
 )
@@ -257,14 +259,40 @@ func markSeen(ctx context.Context, client *tmuxctl.Client, paneID string, report
 	return nil
 }
 
-// newClaudeWindow adds a window running claude to session, started in dir.
+// newClaudeWindow adds a window running claude to session, started in dir. Under a context stamp,
+// claude runs with the stamp's env as its --settings. A stamp that cannot be found or read opens no
+// window.
 func newClaudeWindow(ctx context.Context, client *tmuxctl.Client, session, dir string) error {
-	_, err := client.Run(ctx, "new-window", "-t", "="+session+":",
-		"-c", shell.TmuxDirArg(dir), "claude")
+	command, err := claudeCommand(dir)
+	if err != nil {
+		return fmt.Errorf("new claude window: %w", err)
+	}
+	_, err = client.Run(ctx, "new-window", "-t", "="+session+":",
+		"-c", shell.TmuxDirArg(dir), command)
 	if err != nil {
 		return fmt.Errorf("new claude window: %w", err)
 	}
 	return nil
+}
+
+// claudeCommand returns the command a claude window runs in dir: claude with the settings of the
+// context stamp in effect for dir, or claude alone when no stamp applies. The stamp is found under
+// this process's HOME; an empty HOME finds none.
+func claudeCommand(dir string) (string, error) {
+	found, err := stamp.Find(os.Getenv("HOME"), dir)
+	if err != nil {
+		return "", fmt.Errorf("find context stamp: %w", err)
+	}
+	if found.Folder == "" {
+		return "claude", nil
+	}
+	return "claude --settings " + quoteWord(stamp.Settings(false, found.Env)), nil
+}
+
+// quoteWord returns value as one single-quoted word of a shell command, so that the shell reads it
+// back as value. A single quote in value is written as '"'"', which joins to one word.
+func quoteWord(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", `'"'"'`) + "'"
 }
 
 // filterKey edits the query. Esc clears it, Enter keeps it, Backspace deletes its last

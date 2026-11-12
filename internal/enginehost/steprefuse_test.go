@@ -59,14 +59,14 @@ func newRefusalFixture(t *testing.T, stepCap int) *refusalFixture {
 	writer := NewWriter(WriterConfig{Applier: s, Tick: 5 * time.Millisecond, Logger: logger})
 	startRun(t, writer)
 	manager := NewManager(Config{
-		Shell: sh, Claude: fakeClaudePath(t), Environ: []string{"PATH=" + os.Getenv("PATH")},
+		Shell: sh, Claude: fakeClaudePath(t), Environ: []string{"PATH=" + os.Getenv("PATH"), "HOME=" + t.TempDir()},
 		Cap: 2, StepCap: stepCap, Writer: writer, Now: fixedClock, Notifier: &fakeSink{}, Store: s,
 	})
 	t.Cleanup(manager.Close)
 	worktrees := t.TempDir()
 	steps, err := NewSteps(StepsConfig{
 		Sessions: manager, Store: s, Writer: writer,
-		Worktrees: worktrees, Environ: []string{"PATH=" + os.Getenv("PATH")}, Logger: logger,
+		Worktrees: worktrees, Environ: []string{"PATH=" + os.Getenv("PATH"), "HOME=" + t.TempDir()}, Logger: logger,
 	})
 	if err != nil {
 		t.Fatalf("NewSteps: %v", err)

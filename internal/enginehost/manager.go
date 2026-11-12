@@ -11,11 +11,13 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/engine/session"
 	"github.com/joshsymonds/orrery/internal/protocol"
+	"github.com/joshsymonds/orrery/internal/stamp"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -67,10 +69,11 @@ const defaultIdleAfter = 10 * time.Minute
 // interruptedReason is the reason a session whose turn was running when Close stopped the manager records.
 const interruptedReason = "orreryd stopped during the turn"
 
-// NoticeSink receives the notices the owner is told about, and the seen reports that clear them. *Notifier satisfies
-// it.
+// NoticeSink receives the notices the owner is told about, the changes that end them, and the seen reports that clear
+// them. *Notifier satisfies it.
 type NoticeSink interface {
 	Notify(ctx context.Context, n Notice)
+	Changed(ctx context.Context, session string)
 	Seen(ctx context.Context, session string, seen time.Time)
 }
 
@@ -451,6 +454,9 @@ func (m *Manager) send(ctx context.Context, live *liveSession, req SayRequest) e
 		m.setTurning(live, false)
 		return fmt.Errorf("record prompt of session %s: %w", id, err)
 	}
+	if !live.step {
+		m.changed(ctx, id)
+	}
 	if err := live.sess.Prompt(text); err != nil {
 		m.setTurning(live, false)
 		var marks []store.EngineOp
@@ -572,6 +578,9 @@ func (m *Manager) Answer(ctx context.Context, id, requestID, answer string) erro
 	if err = m.writer.Put(ctx, id, store.EngineSet{ID: id,
 		Changes: store.EngineChanges{State: &working, Question: &question}}); err != nil {
 		return fmt.Errorf("record answer of session %s: %w", id, err)
+	}
+	if !live.step {
+		m.changed(ctx, id)
 	}
 	return nil
 }
@@ -963,17 +972,24 @@ type spawnSpec struct {
 	observer      StepObserver
 }
 
-// spawn resolves claude and starts the session process for id in dir as sp describes. The prompt is not sent here.
+// spawn resolves claude and starts the session process for id in dir as sp describes. The prompt is not sent here. The
+// process takes the context stamp in effect for dir as its settings, and a stamp that cannot be read fails the spawn
+// before claude runs.
 func (m *Manager) spawn(id, dir string, sp spawnSpec) (*session.Session, error) {
 	claude, err := exec.LookPath(m.claude)
 	if err != nil {
 		return nil, fmt.Errorf("find claude: %w", err)
+	}
+	settings, err := m.stampSettings(dir)
+	if err != nil {
+		return nil, fmt.Errorf("spawn session %s: %w", id, err)
 	}
 	sess, err := session.Start(session.Config{
 		Shell:          m.shell,
 		Claude:         claude,
 		Dir:            dir,
 		PermissionMode: permissionMode,
+		Settings:       settings,
 		Resume:         sp.claudeSession,
 		Model:          sp.model,
 		Agent:          sp.agent,
@@ -987,9 +1003,53 @@ func (m *Manager) spawn(id, dir string, sp spawnSpec) (*session.Session, error) 
 	return sess, nil
 }
 
-// pump records the events of one running session, in order, until its events close, and notifies the owner of each
-// event that calls for it once the event is recorded. It is the only reader of the session's events and the only user
-// of its recorder. When it ends it frees the session's slot and removes its entry, only while that entry is its own.
+// stampSettings returns the --settings JSON that carries the whole env of the context stamp in effect for dir. The stamp
+// is looked up under the HOME entry of the manager's environment, which must be an absolute path. With no stamp, it
+// returns "".
+func (m *Manager) stampSettings(dir string) (string, error) {
+	home, err := stampHome(m.environ)
+	if err != nil {
+		return "", fmt.Errorf("find stamp for %s: %w", dir, err)
+	}
+	found, err := stamp.Find(home, dir)
+	if err != nil {
+		return "", fmt.Errorf("find stamp for %s: %w", dir, err)
+	}
+	if found.Folder == "" {
+		return "", nil
+	}
+	return stamp.Settings(false, found.Env), nil
+}
+
+// environValue returns the value of name in environ, and whether environ has it. The last entry for name wins, as it
+// does for a child process that exec starts with environ.
+func environValue(environ []string, name string) (string, bool) {
+	value, found := "", false
+	for _, entry := range environ {
+		key, val, ok := strings.Cut(entry, "=")
+		if ok && key == name {
+			value, found = val, true
+		}
+	}
+	return value, found
+}
+
+// stampHome returns the HOME entry of environ, the home every stamp is looked up under. It refuses a HOME that is absent,
+// empty, or not an absolute path, so no stamp is ever read below a home the lookup cannot resolve.
+func stampHome(environ []string) (string, error) {
+	home, ok := environValue(environ, "HOME")
+	if !ok {
+		return "", errors.New("HOME is not set")
+	}
+	if !filepath.IsAbs(home) {
+		return "", fmt.Errorf("HOME %q is not an absolute path", home)
+	}
+	return home, nil
+}
+
+// pump records the events of one running session, in order, until its events close, and tells the owner of each event
+// once it is recorded. It is the only reader of the session's events and the only user of its recorder. When it ends
+// it frees the session's slot and removes its entry, only while that entry is its own.
 func (m *Manager) pump(ctx context.Context, live *liveSession, rec *recorder) {
 	defer m.pumps.Done()
 	reply := ""
@@ -1011,8 +1071,8 @@ func (m *Manager) pump(ctx context.Context, live *liveSession, rec *recorder) {
 			live.order.Unlock()
 			if err != nil {
 				m.logger.WarnContext(ctx, "record session event", "session", live.id, "err", err)
-			} else if state, body, notify := eventNotice(event, reply, interrupted); notify && !live.step {
-				m.notify(ctx, live.id, live.dir, state, body)
+			} else {
+				m.tellOwner(ctx, live, event, reply, interrupted)
 			}
 		}
 		if _, ended := event.(session.TurnEnded); ended {
@@ -1134,6 +1194,43 @@ func (m *Manager) notify(ctx context.Context, id, dir, state, body string) {
 	m.notifier.Notify(ctx, Notice{Session: id, Dir: dir, State: state, Body: body})
 }
 
+// tellOwner tells the owner of recorded event of live: a notice when the event calls for one, and otherwise that the
+// session changed when the event ends its pending notice. A step tells the owner nothing.
+func (m *Manager) tellOwner(
+	ctx context.Context, live *liveSession, event session.Event, reply string, interrupted bool,
+) {
+	if live.step {
+		return
+	}
+	if state, body, notify := eventNotice(event, reply, interrupted); notify {
+		m.notify(ctx, live.id, live.dir, state, body)
+	} else if endsNotice(event) {
+		m.changed(ctx, live.id)
+	}
+}
+
+// changed tells the notifier that session id left the state its pending notice was about. It sends nothing without a
+// notifier.
+func (m *Manager) changed(ctx context.Context, id string) {
+	if m.notifier == nil {
+		return
+	}
+	m.notifier.Changed(ctx, id)
+}
+
+// endsNotice reports whether a recorded event records a session working or stopped, which ends its pending notice as
+// a pane's transition does. A failed exit records failed, which notifies instead.
+func endsNotice(event session.Event) bool {
+	switch ev := event.(type) {
+	case session.RequestCancelled:
+		return true
+	case session.Exited:
+		_, failed := exitFailure(ev)
+		return !failed
+	}
+	return false
+}
+
 // waitPump waits until the pump of live has finished, or until ctx ends.
 func (m *Manager) waitPump(ctx context.Context, live *liveSession) error {
 	select {
@@ -1146,7 +1243,7 @@ func (m *Manager) waitPump(ctx context.Context, live *liveSession) error {
 
 // recordStopped waits for the pump of live to finish, then records live stopped, with its unfinished text removed,
 // unless its exit already recorded both. A stopped session's turn has ended, and a stopped process delivers no exit
-// of its own. It returns the error of the wait or of the write.
+// of its own. The stop tells the owner the session changed. It returns the error of the wait or of the write.
 func (m *Manager) recordStopped(ctx context.Context, live *liveSession) error {
 	if err := m.waitPump(ctx, live); err != nil {
 		return err
@@ -1159,6 +1256,9 @@ func (m *Manager) recordStopped(ctx context.Context, live *liveSession) error {
 		Changes: store.EngineChanges{State: &stopped}})
 	if err != nil {
 		return fmt.Errorf("record session %s stopped: %w", live.id, err)
+	}
+	if !live.step {
+		m.changed(ctx, live.id)
 	}
 	return nil
 }

@@ -2587,7 +2587,9 @@ type Pane struct {
 	// The hash of the pane's question, as protocol.QuestionHash computes it.
 	QuestionHash string `protobuf:"bytes,18,opt,name=question_hash,json=questionHash,proto3" json:"question_hash,omitempty"`
 	// The unix seconds of the newest reply or question in the pane's transcript, or 0 when it has none.
-	NewestReply   int64 `protobuf:"varint,19,opt,name=newest_reply,json=newestReply,proto3" json:"newest_reply,omitempty"`
+	NewestReply int64 `protobuf:"varint,19,opt,name=newest_reply,json=newestReply,proto3" json:"newest_reply,omitempty"`
+	// The unix seconds the pane's last turn ended, or 0 when unknown.
+	LastTurnEnd   int64 `protobuf:"varint,20,opt,name=last_turn_end,json=lastTurnEnd,proto3" json:"last_turn_end,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2751,6 +2753,13 @@ func (x *Pane) GetQuestionHash() string {
 func (x *Pane) GetNewestReply() int64 {
 	if x != nil {
 		return x.NewestReply
+	}
+	return 0
+}
+
+func (x *Pane) GetLastTurnEnd() int64 {
+	if x != nil {
+		return x.LastTurnEnd
 	}
 	return 0
 }
@@ -3807,6 +3816,98 @@ func (*MarkSeenResponse) Descriptor() ([]byte, []int) {
 	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{52}
 }
 
+// PullQueuedRequest asks for the messages waiting in one pane's Claude Code queue to be taken back into its input box.
+type PullQueuedRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The pane's id, % followed by digits.
+	Pane          string `protobuf:"bytes,1,opt,name=pane,proto3" json:"pane,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PullQueuedRequest) Reset() {
+	*x = PullQueuedRequest{}
+	mi := &file_orrery_v1_orrery_proto_msgTypes[53]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PullQueuedRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PullQueuedRequest) ProtoMessage() {}
+
+func (x *PullQueuedRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_orrery_proto_msgTypes[53]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PullQueuedRequest.ProtoReflect.Descriptor instead.
+func (*PullQueuedRequest) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{53}
+}
+
+func (x *PullQueuedRequest) GetPane() string {
+	if x != nil {
+		return x.Pane
+	}
+	return ""
+}
+
+// PullQueuedResponse is the reply to a PullQueued.
+type PullQueuedResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The text taken back: the queued messages, oldest first, joined by line breaks.
+	Text          string `protobuf:"bytes,1,opt,name=text,proto3" json:"text,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PullQueuedResponse) Reset() {
+	*x = PullQueuedResponse{}
+	mi := &file_orrery_v1_orrery_proto_msgTypes[54]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PullQueuedResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PullQueuedResponse) ProtoMessage() {}
+
+func (x *PullQueuedResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_orrery_proto_msgTypes[54]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PullQueuedResponse.ProtoReflect.Descriptor instead.
+func (*PullQueuedResponse) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{54}
+}
+
+func (x *PullQueuedResponse) GetText() string {
+	if x != nil {
+		return x.Text
+	}
+	return ""
+}
+
 // HostStatusRequest asks for the host's status. It has no fields.
 type HostStatusRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -3816,7 +3917,7 @@ type HostStatusRequest struct {
 
 func (x *HostStatusRequest) Reset() {
 	*x = HostStatusRequest{}
-	mi := &file_orrery_v1_orrery_proto_msgTypes[53]
+	mi := &file_orrery_v1_orrery_proto_msgTypes[55]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3828,7 +3929,7 @@ func (x *HostStatusRequest) String() string {
 func (*HostStatusRequest) ProtoMessage() {}
 
 func (x *HostStatusRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_v1_orrery_proto_msgTypes[53]
+	mi := &file_orrery_v1_orrery_proto_msgTypes[55]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3841,7 +3942,7 @@ func (x *HostStatusRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HostStatusRequest.ProtoReflect.Descriptor instead.
 func (*HostStatusRequest) Descriptor() ([]byte, []int) {
-	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{53}
+	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{55}
 }
 
 // HostStatusResponse carries the host's name and its stats.
@@ -3857,7 +3958,7 @@ type HostStatusResponse struct {
 
 func (x *HostStatusResponse) Reset() {
 	*x = HostStatusResponse{}
-	mi := &file_orrery_v1_orrery_proto_msgTypes[54]
+	mi := &file_orrery_v1_orrery_proto_msgTypes[56]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3869,7 +3970,7 @@ func (x *HostStatusResponse) String() string {
 func (*HostStatusResponse) ProtoMessage() {}
 
 func (x *HostStatusResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_v1_orrery_proto_msgTypes[54]
+	mi := &file_orrery_v1_orrery_proto_msgTypes[56]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3882,7 +3983,7 @@ func (x *HostStatusResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HostStatusResponse.ProtoReflect.Descriptor instead.
 func (*HostStatusResponse) Descriptor() ([]byte, []int) {
-	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{54}
+	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{56}
 }
 
 func (x *HostStatusResponse) GetHost() string {
@@ -3916,7 +4017,7 @@ type HostStat struct {
 
 func (x *HostStat) Reset() {
 	*x = HostStat{}
-	mi := &file_orrery_v1_orrery_proto_msgTypes[55]
+	mi := &file_orrery_v1_orrery_proto_msgTypes[57]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3928,7 +4029,7 @@ func (x *HostStat) String() string {
 func (*HostStat) ProtoMessage() {}
 
 func (x *HostStat) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_v1_orrery_proto_msgTypes[55]
+	mi := &file_orrery_v1_orrery_proto_msgTypes[57]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3941,7 +4042,7 @@ func (x *HostStat) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HostStat.ProtoReflect.Descriptor instead.
 func (*HostStat) Descriptor() ([]byte, []int) {
-	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{55}
+	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{57}
 }
 
 func (x *HostStat) GetLabel() string {
@@ -3987,7 +4088,7 @@ type RegisterRequest struct {
 
 func (x *RegisterRequest) Reset() {
 	*x = RegisterRequest{}
-	mi := &file_orrery_v1_orrery_proto_msgTypes[56]
+	mi := &file_orrery_v1_orrery_proto_msgTypes[58]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3999,7 +4100,7 @@ func (x *RegisterRequest) String() string {
 func (*RegisterRequest) ProtoMessage() {}
 
 func (x *RegisterRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_v1_orrery_proto_msgTypes[56]
+	mi := &file_orrery_v1_orrery_proto_msgTypes[58]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4012,7 +4113,7 @@ func (x *RegisterRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RegisterRequest.ProtoReflect.Descriptor instead.
 func (*RegisterRequest) Descriptor() ([]byte, []int) {
-	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{56}
+	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{58}
 }
 
 func (x *RegisterRequest) GetEndpoint() string {
@@ -4045,7 +4146,7 @@ type RegisterResponse struct {
 
 func (x *RegisterResponse) Reset() {
 	*x = RegisterResponse{}
-	mi := &file_orrery_v1_orrery_proto_msgTypes[57]
+	mi := &file_orrery_v1_orrery_proto_msgTypes[59]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4057,7 +4158,7 @@ func (x *RegisterResponse) String() string {
 func (*RegisterResponse) ProtoMessage() {}
 
 func (x *RegisterResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_v1_orrery_proto_msgTypes[57]
+	mi := &file_orrery_v1_orrery_proto_msgTypes[59]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4070,7 +4171,7 @@ func (x *RegisterResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RegisterResponse.ProtoReflect.Descriptor instead.
 func (*RegisterResponse) Descriptor() ([]byte, []int) {
-	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{57}
+	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{59}
 }
 
 // UnregisterRequest asks for a push subscription to be removed.
@@ -4084,7 +4185,7 @@ type UnregisterRequest struct {
 
 func (x *UnregisterRequest) Reset() {
 	*x = UnregisterRequest{}
-	mi := &file_orrery_v1_orrery_proto_msgTypes[58]
+	mi := &file_orrery_v1_orrery_proto_msgTypes[60]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4096,7 +4197,7 @@ func (x *UnregisterRequest) String() string {
 func (*UnregisterRequest) ProtoMessage() {}
 
 func (x *UnregisterRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_v1_orrery_proto_msgTypes[58]
+	mi := &file_orrery_v1_orrery_proto_msgTypes[60]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4109,7 +4210,7 @@ func (x *UnregisterRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UnregisterRequest.ProtoReflect.Descriptor instead.
 func (*UnregisterRequest) Descriptor() ([]byte, []int) {
-	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{58}
+	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{60}
 }
 
 func (x *UnregisterRequest) GetEndpoint() string {
@@ -4128,7 +4229,7 @@ type UnregisterResponse struct {
 
 func (x *UnregisterResponse) Reset() {
 	*x = UnregisterResponse{}
-	mi := &file_orrery_v1_orrery_proto_msgTypes[59]
+	mi := &file_orrery_v1_orrery_proto_msgTypes[61]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4140,7 +4241,7 @@ func (x *UnregisterResponse) String() string {
 func (*UnregisterResponse) ProtoMessage() {}
 
 func (x *UnregisterResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_v1_orrery_proto_msgTypes[59]
+	mi := &file_orrery_v1_orrery_proto_msgTypes[61]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4153,7 +4254,7 @@ func (x *UnregisterResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UnregisterResponse.ProtoReflect.Descriptor instead.
 func (*UnregisterResponse) Descriptor() ([]byte, []int) {
-	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{59}
+	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{61}
 }
 
 // AskRequest asks which panes and directories match a text.
@@ -4167,7 +4268,7 @@ type AskRequest struct {
 
 func (x *AskRequest) Reset() {
 	*x = AskRequest{}
-	mi := &file_orrery_v1_orrery_proto_msgTypes[60]
+	mi := &file_orrery_v1_orrery_proto_msgTypes[62]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4179,7 +4280,7 @@ func (x *AskRequest) String() string {
 func (*AskRequest) ProtoMessage() {}
 
 func (x *AskRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_v1_orrery_proto_msgTypes[60]
+	mi := &file_orrery_v1_orrery_proto_msgTypes[62]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4192,7 +4293,7 @@ func (x *AskRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AskRequest.ProtoReflect.Descriptor instead.
 func (*AskRequest) Descriptor() ([]byte, []int) {
-	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{60}
+	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{62}
 }
 
 func (x *AskRequest) GetText() string {
@@ -4213,7 +4314,7 @@ type AskResponse struct {
 
 func (x *AskResponse) Reset() {
 	*x = AskResponse{}
-	mi := &file_orrery_v1_orrery_proto_msgTypes[61]
+	mi := &file_orrery_v1_orrery_proto_msgTypes[63]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4225,7 +4326,7 @@ func (x *AskResponse) String() string {
 func (*AskResponse) ProtoMessage() {}
 
 func (x *AskResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_v1_orrery_proto_msgTypes[61]
+	mi := &file_orrery_v1_orrery_proto_msgTypes[63]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4238,7 +4339,7 @@ func (x *AskResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AskResponse.ProtoReflect.Descriptor instead.
 func (*AskResponse) Descriptor() ([]byte, []int) {
-	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{61}
+	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{63}
 }
 
 func (x *AskResponse) GetRows() []*PickerRow {
@@ -4271,7 +4372,7 @@ type PickerRow struct {
 
 func (x *PickerRow) Reset() {
 	*x = PickerRow{}
-	mi := &file_orrery_v1_orrery_proto_msgTypes[62]
+	mi := &file_orrery_v1_orrery_proto_msgTypes[64]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4283,7 +4384,7 @@ func (x *PickerRow) String() string {
 func (*PickerRow) ProtoMessage() {}
 
 func (x *PickerRow) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_v1_orrery_proto_msgTypes[62]
+	mi := &file_orrery_v1_orrery_proto_msgTypes[64]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4296,7 +4397,7 @@ func (x *PickerRow) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PickerRow.ProtoReflect.Descriptor instead.
 func (*PickerRow) Descriptor() ([]byte, []int) {
-	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{62}
+	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{64}
 }
 
 func (x *PickerRow) GetToken() string {
@@ -4359,7 +4460,7 @@ type RunRequest struct {
 
 func (x *RunRequest) Reset() {
 	*x = RunRequest{}
-	mi := &file_orrery_v1_orrery_proto_msgTypes[63]
+	mi := &file_orrery_v1_orrery_proto_msgTypes[65]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4371,7 +4472,7 @@ func (x *RunRequest) String() string {
 func (*RunRequest) ProtoMessage() {}
 
 func (x *RunRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_v1_orrery_proto_msgTypes[63]
+	mi := &file_orrery_v1_orrery_proto_msgTypes[65]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4384,7 +4485,7 @@ func (x *RunRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RunRequest.ProtoReflect.Descriptor instead.
 func (*RunRequest) Descriptor() ([]byte, []int) {
-	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{63}
+	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{65}
 }
 
 func (x *RunRequest) GetToken() string {
@@ -4405,7 +4506,7 @@ type RunResponse struct {
 
 func (x *RunResponse) Reset() {
 	*x = RunResponse{}
-	mi := &file_orrery_v1_orrery_proto_msgTypes[64]
+	mi := &file_orrery_v1_orrery_proto_msgTypes[66]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4417,7 +4518,7 @@ func (x *RunResponse) String() string {
 func (*RunResponse) ProtoMessage() {}
 
 func (x *RunResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_v1_orrery_proto_msgTypes[64]
+	mi := &file_orrery_v1_orrery_proto_msgTypes[66]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4430,7 +4531,7 @@ func (x *RunResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RunResponse.ProtoReflect.Descriptor instead.
 func (*RunResponse) Descriptor() ([]byte, []int) {
-	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{64}
+	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{66}
 }
 
 func (x *RunResponse) GetPane() string {
@@ -4449,7 +4550,7 @@ type PoolsStatusRequest struct {
 
 func (x *PoolsStatusRequest) Reset() {
 	*x = PoolsStatusRequest{}
-	mi := &file_orrery_v1_orrery_proto_msgTypes[65]
+	mi := &file_orrery_v1_orrery_proto_msgTypes[67]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4461,7 +4562,7 @@ func (x *PoolsStatusRequest) String() string {
 func (*PoolsStatusRequest) ProtoMessage() {}
 
 func (x *PoolsStatusRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_v1_orrery_proto_msgTypes[65]
+	mi := &file_orrery_v1_orrery_proto_msgTypes[67]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4474,7 +4575,7 @@ func (x *PoolsStatusRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PoolsStatusRequest.ProtoReflect.Descriptor instead.
 func (*PoolsStatusRequest) Descriptor() ([]byte, []int) {
-	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{65}
+	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{67}
 }
 
 // PoolsStatusResponse carries the pools in use and the owner holds.
@@ -4490,7 +4591,7 @@ type PoolsStatusResponse struct {
 
 func (x *PoolsStatusResponse) Reset() {
 	*x = PoolsStatusResponse{}
-	mi := &file_orrery_v1_orrery_proto_msgTypes[66]
+	mi := &file_orrery_v1_orrery_proto_msgTypes[68]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4502,7 +4603,7 @@ func (x *PoolsStatusResponse) String() string {
 func (*PoolsStatusResponse) ProtoMessage() {}
 
 func (x *PoolsStatusResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_v1_orrery_proto_msgTypes[66]
+	mi := &file_orrery_v1_orrery_proto_msgTypes[68]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4515,7 +4616,7 @@ func (x *PoolsStatusResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PoolsStatusResponse.ProtoReflect.Descriptor instead.
 func (*PoolsStatusResponse) Descriptor() ([]byte, []int) {
-	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{66}
+	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{68}
 }
 
 func (x *PoolsStatusResponse) GetPools() []*PoolStatus {
@@ -4549,7 +4650,7 @@ type PoolStatus struct {
 
 func (x *PoolStatus) Reset() {
 	*x = PoolStatus{}
-	mi := &file_orrery_v1_orrery_proto_msgTypes[67]
+	mi := &file_orrery_v1_orrery_proto_msgTypes[69]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4561,7 +4662,7 @@ func (x *PoolStatus) String() string {
 func (*PoolStatus) ProtoMessage() {}
 
 func (x *PoolStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_v1_orrery_proto_msgTypes[67]
+	mi := &file_orrery_v1_orrery_proto_msgTypes[69]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4574,7 +4675,7 @@ func (x *PoolStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PoolStatus.ProtoReflect.Descriptor instead.
 func (*PoolStatus) Descriptor() ([]byte, []int) {
-	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{67}
+	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{69}
 }
 
 func (x *PoolStatus) GetName() string {
@@ -4622,7 +4723,7 @@ type PoolMemberStatus struct {
 
 func (x *PoolMemberStatus) Reset() {
 	*x = PoolMemberStatus{}
-	mi := &file_orrery_v1_orrery_proto_msgTypes[68]
+	mi := &file_orrery_v1_orrery_proto_msgTypes[70]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4634,7 +4735,7 @@ func (x *PoolMemberStatus) String() string {
 func (*PoolMemberStatus) ProtoMessage() {}
 
 func (x *PoolMemberStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_v1_orrery_proto_msgTypes[68]
+	mi := &file_orrery_v1_orrery_proto_msgTypes[70]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4647,7 +4748,7 @@ func (x *PoolMemberStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PoolMemberStatus.ProtoReflect.Descriptor instead.
 func (*PoolMemberStatus) Descriptor() ([]byte, []int) {
-	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{68}
+	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{70}
 }
 
 func (x *PoolMemberStatus) GetName() string {
@@ -4695,7 +4796,7 @@ type PoolHolder struct {
 
 func (x *PoolHolder) Reset() {
 	*x = PoolHolder{}
-	mi := &file_orrery_v1_orrery_proto_msgTypes[69]
+	mi := &file_orrery_v1_orrery_proto_msgTypes[71]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4707,7 +4808,7 @@ func (x *PoolHolder) String() string {
 func (*PoolHolder) ProtoMessage() {}
 
 func (x *PoolHolder) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_v1_orrery_proto_msgTypes[69]
+	mi := &file_orrery_v1_orrery_proto_msgTypes[71]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4720,7 +4821,7 @@ func (x *PoolHolder) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PoolHolder.ProtoReflect.Descriptor instead.
 func (*PoolHolder) Descriptor() ([]byte, []int) {
-	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{69}
+	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{71}
 }
 
 func (x *PoolHolder) GetProject() string {
@@ -4770,7 +4871,7 @@ type PoolWaiter struct {
 
 func (x *PoolWaiter) Reset() {
 	*x = PoolWaiter{}
-	mi := &file_orrery_v1_orrery_proto_msgTypes[70]
+	mi := &file_orrery_v1_orrery_proto_msgTypes[72]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4782,7 +4883,7 @@ func (x *PoolWaiter) String() string {
 func (*PoolWaiter) ProtoMessage() {}
 
 func (x *PoolWaiter) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_v1_orrery_proto_msgTypes[70]
+	mi := &file_orrery_v1_orrery_proto_msgTypes[72]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4795,7 +4896,7 @@ func (x *PoolWaiter) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PoolWaiter.ProtoReflect.Descriptor instead.
 func (*PoolWaiter) Descriptor() ([]byte, []int) {
-	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{70}
+	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{72}
 }
 
 func (x *PoolWaiter) GetPosition() int32 {
@@ -4846,7 +4947,7 @@ type PoolHold struct {
 
 func (x *PoolHold) Reset() {
 	*x = PoolHold{}
-	mi := &file_orrery_v1_orrery_proto_msgTypes[71]
+	mi := &file_orrery_v1_orrery_proto_msgTypes[73]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4858,7 +4959,7 @@ func (x *PoolHold) String() string {
 func (*PoolHold) ProtoMessage() {}
 
 func (x *PoolHold) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_v1_orrery_proto_msgTypes[71]
+	mi := &file_orrery_v1_orrery_proto_msgTypes[73]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4871,7 +4972,7 @@ func (x *PoolHold) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PoolHold.ProtoReflect.Descriptor instead.
 func (*PoolHold) Descriptor() ([]byte, []int) {
-	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{71}
+	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{73}
 }
 
 func (x *PoolHold) GetMember() string {
@@ -4899,7 +5000,7 @@ type PoolsHoldRequest struct {
 
 func (x *PoolsHoldRequest) Reset() {
 	*x = PoolsHoldRequest{}
-	mi := &file_orrery_v1_orrery_proto_msgTypes[72]
+	mi := &file_orrery_v1_orrery_proto_msgTypes[74]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4911,7 +5012,7 @@ func (x *PoolsHoldRequest) String() string {
 func (*PoolsHoldRequest) ProtoMessage() {}
 
 func (x *PoolsHoldRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_v1_orrery_proto_msgTypes[72]
+	mi := &file_orrery_v1_orrery_proto_msgTypes[74]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4924,7 +5025,7 @@ func (x *PoolsHoldRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PoolsHoldRequest.ProtoReflect.Descriptor instead.
 func (*PoolsHoldRequest) Descriptor() ([]byte, []int) {
-	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{72}
+	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{74}
 }
 
 func (x *PoolsHoldRequest) GetMember() string {
@@ -4943,7 +5044,7 @@ type PoolsHoldResponse struct {
 
 func (x *PoolsHoldResponse) Reset() {
 	*x = PoolsHoldResponse{}
-	mi := &file_orrery_v1_orrery_proto_msgTypes[73]
+	mi := &file_orrery_v1_orrery_proto_msgTypes[75]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4955,7 +5056,7 @@ func (x *PoolsHoldResponse) String() string {
 func (*PoolsHoldResponse) ProtoMessage() {}
 
 func (x *PoolsHoldResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_v1_orrery_proto_msgTypes[73]
+	mi := &file_orrery_v1_orrery_proto_msgTypes[75]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4968,7 +5069,7 @@ func (x *PoolsHoldResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PoolsHoldResponse.ProtoReflect.Descriptor instead.
 func (*PoolsHoldResponse) Descriptor() ([]byte, []int) {
-	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{73}
+	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{75}
 }
 
 // PoolsFreeRequest asks for a held member to be freed.
@@ -4982,7 +5083,7 @@ type PoolsFreeRequest struct {
 
 func (x *PoolsFreeRequest) Reset() {
 	*x = PoolsFreeRequest{}
-	mi := &file_orrery_v1_orrery_proto_msgTypes[74]
+	mi := &file_orrery_v1_orrery_proto_msgTypes[76]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4994,7 +5095,7 @@ func (x *PoolsFreeRequest) String() string {
 func (*PoolsFreeRequest) ProtoMessage() {}
 
 func (x *PoolsFreeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_v1_orrery_proto_msgTypes[74]
+	mi := &file_orrery_v1_orrery_proto_msgTypes[76]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5007,7 +5108,7 @@ func (x *PoolsFreeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PoolsFreeRequest.ProtoReflect.Descriptor instead.
 func (*PoolsFreeRequest) Descriptor() ([]byte, []int) {
-	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{74}
+	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{76}
 }
 
 func (x *PoolsFreeRequest) GetMember() string {
@@ -5026,7 +5127,7 @@ type PoolsFreeResponse struct {
 
 func (x *PoolsFreeResponse) Reset() {
 	*x = PoolsFreeResponse{}
-	mi := &file_orrery_v1_orrery_proto_msgTypes[75]
+	mi := &file_orrery_v1_orrery_proto_msgTypes[77]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5038,7 +5139,7 @@ func (x *PoolsFreeResponse) String() string {
 func (*PoolsFreeResponse) ProtoMessage() {}
 
 func (x *PoolsFreeResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_v1_orrery_proto_msgTypes[75]
+	mi := &file_orrery_v1_orrery_proto_msgTypes[77]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5051,7 +5152,7 @@ func (x *PoolsFreeResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PoolsFreeResponse.ProtoReflect.Descriptor instead.
 func (*PoolsFreeResponse) Descriptor() ([]byte, []int) {
-	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{75}
+	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{77}
 }
 
 var File_orrery_v1_orrery_proto protoreflect.FileDescriptor
@@ -5256,7 +5357,7 @@ const file_orrery_v1_orrery_proto_rawDesc = "" +
 	"\x04text\x18\x05 \x01(\tR\x04text\"\x12\n" +
 	"\x10PanesListRequest\":\n" +
 	"\x11PanesListResponse\x12%\n" +
-	"\x05panes\x18\x01 \x03(\v2\x0f.orrery.v1.PaneR\x05panes\"\xe5\x03\n" +
+	"\x05panes\x18\x01 \x03(\v2\x0f.orrery.v1.PaneR\x05panes\"\x89\x04\n" +
 	"\x04Pane\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04host\x18\x02 \x01(\tR\x04host\x12\x18\n" +
@@ -5277,7 +5378,8 @@ const file_orrery_v1_orrery_proto_rawDesc = "" +
 	"\x04tool\x18\x10 \x01(\tR\x04tool\x12%\n" +
 	"\x0eclaude_session\x18\x11 \x01(\tR\rclaudeSession\x12#\n" +
 	"\rquestion_hash\x18\x12 \x01(\tR\fquestionHash\x12!\n" +
-	"\fnewest_reply\x18\x13 \x01(\x03R\vnewestReply\"Q\n" +
+	"\fnewest_reply\x18\x13 \x01(\x03R\vnewestReply\x12\"\n" +
+	"\rlast_turn_end\x18\x14 \x01(\x03R\vlastTurnEnd\"Q\n" +
 	"\rScreenRequest\x12\x12\n" +
 	"\x04pane\x18\x01 \x01(\tR\x04pane\x12\x12\n" +
 	"\x04ansi\x18\x02 \x01(\bR\x04ansi\x12\x18\n" +
@@ -5353,7 +5455,11 @@ const file_orrery_v1_orrery_proto_rawDesc = "" +
 	"\n" +
 	"read_up_to\x18\x02 \x01(\x03H\x00R\breadUpTo\x88\x01\x01B\r\n" +
 	"\v_read_up_to\"\x12\n" +
-	"\x10MarkSeenResponse\"\x13\n" +
+	"\x10MarkSeenResponse\"'\n" +
+	"\x11PullQueuedRequest\x12\x12\n" +
+	"\x04pane\x18\x01 \x01(\tR\x04pane\"(\n" +
+	"\x12PullQueuedResponse\x12\x12\n" +
+	"\x04text\x18\x01 \x01(\tR\x04text\"\x13\n" +
 	"\x11HostStatusRequest\"S\n" +
 	"\x12HostStatusResponse\x12\x12\n" +
 	"\x04host\x18\x01 \x01(\tR\x04host\x12)\n" +
@@ -5441,14 +5547,16 @@ const file_orrery_v1_orrery_proto_rawDesc = "" +
 	"\x06Answer\x12\x18.orrery.v1.AnswerRequest\x1a\x19.orrery.v1.AnswerResponse\x12F\n" +
 	"\tInterrupt\x12\x1b.orrery.v1.InterruptRequest\x1a\x1c.orrery.v1.InterruptResponse\x127\n" +
 	"\x04Stop\x12\x16.orrery.v1.StopRequest\x1a\x17.orrery.v1.StopResponse\x127\n" +
-	"\x04Seen\x12\x16.orrery.v1.SeenRequest\x1a\x17.orrery.v1.SeenResponse2\x8b\x04\n" +
+	"\x04Seen\x12\x16.orrery.v1.SeenRequest\x1a\x17.orrery.v1.SeenResponse2\xd6\x04\n" +
 	"\x05Panes\x12A\n" +
 	"\x04List\x12\x1b.orrery.v1.PanesListRequest\x1a\x1c.orrery.v1.PanesListResponse\x12=\n" +
 	"\x06Screen\x12\x18.orrery.v1.ScreenRequest\x1a\x19.orrery.v1.ScreenResponse\x12O\n" +
 	"\fConversation\x12\x1e.orrery.v1.ConversationRequest\x1a\x1f.orrery.v1.ConversationResponse\x12C\n" +
 	"\bSendText\x12\x1a.orrery.v1.SendTextRequest\x1a\x1b.orrery.v1.SendTextResponse\x12C\n" +
 	"\bSendKeys\x12\x1a.orrery.v1.SendKeysRequest\x1a\x1b.orrery.v1.SendKeysResponse\x12C\n" +
-	"\bMarkSeen\x12\x1a.orrery.v1.MarkSeenRequest\x1a\x1b.orrery.v1.MarkSeenResponse\x12`\n" +
+	"\bMarkSeen\x12\x1a.orrery.v1.MarkSeenRequest\x1a\x1b.orrery.v1.MarkSeenResponse\x12I\n" +
+	"\n" +
+	"PullQueued\x12\x1c.orrery.v1.PullQueuedRequest\x1a\x1d.orrery.v1.PullQueuedResponse\x12`\n" +
 	"\x11WatchConversation\x12#.orrery.v1.WatchConversationRequest\x1a$.orrery.v1.WatchConversationResponse0\x012M\n" +
 	"\x04Host\x12E\n" +
 	"\x06Status\x12\x1c.orrery.v1.HostStatusRequest\x1a\x1d.orrery.v1.HostStatusResponse2\x96\x01\n" +
@@ -5478,7 +5586,7 @@ func file_orrery_v1_orrery_proto_rawDescGZIP() []byte {
 	return file_orrery_v1_orrery_proto_rawDescData
 }
 
-var file_orrery_v1_orrery_proto_msgTypes = make([]protoimpl.MessageInfo, 76)
+var file_orrery_v1_orrery_proto_msgTypes = make([]protoimpl.MessageInfo, 78)
 var file_orrery_v1_orrery_proto_goTypes = []any{
 	(*ListRequest)(nil),                       // 0: orrery.v1.ListRequest
 	(*ListResponse)(nil),                      // 1: orrery.v1.ListResponse
@@ -5533,29 +5641,31 @@ var file_orrery_v1_orrery_proto_goTypes = []any{
 	(*SendKeysResponse)(nil),                  // 50: orrery.v1.SendKeysResponse
 	(*MarkSeenRequest)(nil),                   // 51: orrery.v1.MarkSeenRequest
 	(*MarkSeenResponse)(nil),                  // 52: orrery.v1.MarkSeenResponse
-	(*HostStatusRequest)(nil),                 // 53: orrery.v1.HostStatusRequest
-	(*HostStatusResponse)(nil),                // 54: orrery.v1.HostStatusResponse
-	(*HostStat)(nil),                          // 55: orrery.v1.HostStat
-	(*RegisterRequest)(nil),                   // 56: orrery.v1.RegisterRequest
-	(*RegisterResponse)(nil),                  // 57: orrery.v1.RegisterResponse
-	(*UnregisterRequest)(nil),                 // 58: orrery.v1.UnregisterRequest
-	(*UnregisterResponse)(nil),                // 59: orrery.v1.UnregisterResponse
-	(*AskRequest)(nil),                        // 60: orrery.v1.AskRequest
-	(*AskResponse)(nil),                       // 61: orrery.v1.AskResponse
-	(*PickerRow)(nil),                         // 62: orrery.v1.PickerRow
-	(*RunRequest)(nil),                        // 63: orrery.v1.RunRequest
-	(*RunResponse)(nil),                       // 64: orrery.v1.RunResponse
-	(*PoolsStatusRequest)(nil),                // 65: orrery.v1.PoolsStatusRequest
-	(*PoolsStatusResponse)(nil),               // 66: orrery.v1.PoolsStatusResponse
-	(*PoolStatus)(nil),                        // 67: orrery.v1.PoolStatus
-	(*PoolMemberStatus)(nil),                  // 68: orrery.v1.PoolMemberStatus
-	(*PoolHolder)(nil),                        // 69: orrery.v1.PoolHolder
-	(*PoolWaiter)(nil),                        // 70: orrery.v1.PoolWaiter
-	(*PoolHold)(nil),                          // 71: orrery.v1.PoolHold
-	(*PoolsHoldRequest)(nil),                  // 72: orrery.v1.PoolsHoldRequest
-	(*PoolsHoldResponse)(nil),                 // 73: orrery.v1.PoolsHoldResponse
-	(*PoolsFreeRequest)(nil),                  // 74: orrery.v1.PoolsFreeRequest
-	(*PoolsFreeResponse)(nil),                 // 75: orrery.v1.PoolsFreeResponse
+	(*PullQueuedRequest)(nil),                 // 53: orrery.v1.PullQueuedRequest
+	(*PullQueuedResponse)(nil),                // 54: orrery.v1.PullQueuedResponse
+	(*HostStatusRequest)(nil),                 // 55: orrery.v1.HostStatusRequest
+	(*HostStatusResponse)(nil),                // 56: orrery.v1.HostStatusResponse
+	(*HostStat)(nil),                          // 57: orrery.v1.HostStat
+	(*RegisterRequest)(nil),                   // 58: orrery.v1.RegisterRequest
+	(*RegisterResponse)(nil),                  // 59: orrery.v1.RegisterResponse
+	(*UnregisterRequest)(nil),                 // 60: orrery.v1.UnregisterRequest
+	(*UnregisterResponse)(nil),                // 61: orrery.v1.UnregisterResponse
+	(*AskRequest)(nil),                        // 62: orrery.v1.AskRequest
+	(*AskResponse)(nil),                       // 63: orrery.v1.AskResponse
+	(*PickerRow)(nil),                         // 64: orrery.v1.PickerRow
+	(*RunRequest)(nil),                        // 65: orrery.v1.RunRequest
+	(*RunResponse)(nil),                       // 66: orrery.v1.RunResponse
+	(*PoolsStatusRequest)(nil),                // 67: orrery.v1.PoolsStatusRequest
+	(*PoolsStatusResponse)(nil),               // 68: orrery.v1.PoolsStatusResponse
+	(*PoolStatus)(nil),                        // 69: orrery.v1.PoolStatus
+	(*PoolMemberStatus)(nil),                  // 70: orrery.v1.PoolMemberStatus
+	(*PoolHolder)(nil),                        // 71: orrery.v1.PoolHolder
+	(*PoolWaiter)(nil),                        // 72: orrery.v1.PoolWaiter
+	(*PoolHold)(nil),                          // 73: orrery.v1.PoolHold
+	(*PoolsHoldRequest)(nil),                  // 74: orrery.v1.PoolsHoldRequest
+	(*PoolsHoldResponse)(nil),                 // 75: orrery.v1.PoolsHoldResponse
+	(*PoolsFreeRequest)(nil),                  // 76: orrery.v1.PoolsFreeRequest
+	(*PoolsFreeResponse)(nil),                 // 77: orrery.v1.PoolsFreeResponse
 }
 var file_orrery_v1_orrery_proto_depIdxs = []int32{
 	2,  // 0: orrery.v1.ListResponse.sessions:type_name -> orrery.v1.Session
@@ -5586,13 +5696,13 @@ var file_orrery_v1_orrery_proto_depIdxs = []int32{
 	36, // 25: orrery.v1.ConversationState.pane:type_name -> orrery.v1.Pane
 	5,  // 26: orrery.v1.ConversationState.session:type_name -> orrery.v1.HeadlessSession
 	8,  // 27: orrery.v1.ConversationState.request:type_name -> orrery.v1.OpenRequest
-	55, // 28: orrery.v1.HostStatusResponse.stats:type_name -> orrery.v1.HostStat
-	62, // 29: orrery.v1.AskResponse.rows:type_name -> orrery.v1.PickerRow
-	67, // 30: orrery.v1.PoolsStatusResponse.pools:type_name -> orrery.v1.PoolStatus
-	71, // 31: orrery.v1.PoolsStatusResponse.holds:type_name -> orrery.v1.PoolHold
-	68, // 32: orrery.v1.PoolStatus.members:type_name -> orrery.v1.PoolMemberStatus
-	70, // 33: orrery.v1.PoolStatus.waiters:type_name -> orrery.v1.PoolWaiter
-	69, // 34: orrery.v1.PoolMemberStatus.holder:type_name -> orrery.v1.PoolHolder
+	57, // 28: orrery.v1.HostStatusResponse.stats:type_name -> orrery.v1.HostStat
+	64, // 29: orrery.v1.AskResponse.rows:type_name -> orrery.v1.PickerRow
+	69, // 30: orrery.v1.PoolsStatusResponse.pools:type_name -> orrery.v1.PoolStatus
+	73, // 31: orrery.v1.PoolsStatusResponse.holds:type_name -> orrery.v1.PoolHold
+	70, // 32: orrery.v1.PoolStatus.members:type_name -> orrery.v1.PoolMemberStatus
+	72, // 33: orrery.v1.PoolStatus.waiters:type_name -> orrery.v1.PoolWaiter
+	71, // 34: orrery.v1.PoolMemberStatus.holder:type_name -> orrery.v1.PoolHolder
 	0,  // 35: orrery.v1.Sessions.List:input_type -> orrery.v1.ListRequest
 	3,  // 36: orrery.v1.Sessions.ListHeadless:input_type -> orrery.v1.ListHeadlessRequest
 	6,  // 37: orrery.v1.Sessions.WatchConversation:input_type -> orrery.v1.SessionsWatchConversationRequest
@@ -5609,42 +5719,44 @@ var file_orrery_v1_orrery_proto_depIdxs = []int32{
 	47, // 48: orrery.v1.Panes.SendText:input_type -> orrery.v1.SendTextRequest
 	49, // 49: orrery.v1.Panes.SendKeys:input_type -> orrery.v1.SendKeysRequest
 	51, // 50: orrery.v1.Panes.MarkSeen:input_type -> orrery.v1.MarkSeenRequest
-	44, // 51: orrery.v1.Panes.WatchConversation:input_type -> orrery.v1.WatchConversationRequest
-	53, // 52: orrery.v1.Host.Status:input_type -> orrery.v1.HostStatusRequest
-	56, // 53: orrery.v1.Push.Register:input_type -> orrery.v1.RegisterRequest
-	58, // 54: orrery.v1.Push.Unregister:input_type -> orrery.v1.UnregisterRequest
-	60, // 55: orrery.v1.Picker.Ask:input_type -> orrery.v1.AskRequest
-	63, // 56: orrery.v1.Picker.Run:input_type -> orrery.v1.RunRequest
-	65, // 57: orrery.v1.Pools.Status:input_type -> orrery.v1.PoolsStatusRequest
-	72, // 58: orrery.v1.Pools.Hold:input_type -> orrery.v1.PoolsHoldRequest
-	74, // 59: orrery.v1.Pools.Free:input_type -> orrery.v1.PoolsFreeRequest
-	1,  // 60: orrery.v1.Sessions.List:output_type -> orrery.v1.ListResponse
-	4,  // 61: orrery.v1.Sessions.ListHeadless:output_type -> orrery.v1.ListHeadlessResponse
-	7,  // 62: orrery.v1.Sessions.WatchConversation:output_type -> orrery.v1.SessionsWatchConversationResponse
-	10, // 63: orrery.v1.Events.Watch:output_type -> orrery.v1.WatchResponse
-	15, // 64: orrery.v1.Control.Start:output_type -> orrery.v1.StartResponse
-	17, // 65: orrery.v1.Control.Say:output_type -> orrery.v1.SayResponse
-	19, // 66: orrery.v1.Control.Answer:output_type -> orrery.v1.AnswerResponse
-	21, // 67: orrery.v1.Control.Interrupt:output_type -> orrery.v1.InterruptResponse
-	23, // 68: orrery.v1.Control.Stop:output_type -> orrery.v1.StopResponse
-	25, // 69: orrery.v1.Control.Seen:output_type -> orrery.v1.SeenResponse
-	35, // 70: orrery.v1.Panes.List:output_type -> orrery.v1.PanesListResponse
-	38, // 71: orrery.v1.Panes.Screen:output_type -> orrery.v1.ScreenResponse
-	40, // 72: orrery.v1.Panes.Conversation:output_type -> orrery.v1.ConversationResponse
-	48, // 73: orrery.v1.Panes.SendText:output_type -> orrery.v1.SendTextResponse
-	50, // 74: orrery.v1.Panes.SendKeys:output_type -> orrery.v1.SendKeysResponse
-	52, // 75: orrery.v1.Panes.MarkSeen:output_type -> orrery.v1.MarkSeenResponse
-	45, // 76: orrery.v1.Panes.WatchConversation:output_type -> orrery.v1.WatchConversationResponse
-	54, // 77: orrery.v1.Host.Status:output_type -> orrery.v1.HostStatusResponse
-	57, // 78: orrery.v1.Push.Register:output_type -> orrery.v1.RegisterResponse
-	59, // 79: orrery.v1.Push.Unregister:output_type -> orrery.v1.UnregisterResponse
-	61, // 80: orrery.v1.Picker.Ask:output_type -> orrery.v1.AskResponse
-	64, // 81: orrery.v1.Picker.Run:output_type -> orrery.v1.RunResponse
-	66, // 82: orrery.v1.Pools.Status:output_type -> orrery.v1.PoolsStatusResponse
-	73, // 83: orrery.v1.Pools.Hold:output_type -> orrery.v1.PoolsHoldResponse
-	75, // 84: orrery.v1.Pools.Free:output_type -> orrery.v1.PoolsFreeResponse
-	60, // [60:85] is the sub-list for method output_type
-	35, // [35:60] is the sub-list for method input_type
+	53, // 51: orrery.v1.Panes.PullQueued:input_type -> orrery.v1.PullQueuedRequest
+	44, // 52: orrery.v1.Panes.WatchConversation:input_type -> orrery.v1.WatchConversationRequest
+	55, // 53: orrery.v1.Host.Status:input_type -> orrery.v1.HostStatusRequest
+	58, // 54: orrery.v1.Push.Register:input_type -> orrery.v1.RegisterRequest
+	60, // 55: orrery.v1.Push.Unregister:input_type -> orrery.v1.UnregisterRequest
+	62, // 56: orrery.v1.Picker.Ask:input_type -> orrery.v1.AskRequest
+	65, // 57: orrery.v1.Picker.Run:input_type -> orrery.v1.RunRequest
+	67, // 58: orrery.v1.Pools.Status:input_type -> orrery.v1.PoolsStatusRequest
+	74, // 59: orrery.v1.Pools.Hold:input_type -> orrery.v1.PoolsHoldRequest
+	76, // 60: orrery.v1.Pools.Free:input_type -> orrery.v1.PoolsFreeRequest
+	1,  // 61: orrery.v1.Sessions.List:output_type -> orrery.v1.ListResponse
+	4,  // 62: orrery.v1.Sessions.ListHeadless:output_type -> orrery.v1.ListHeadlessResponse
+	7,  // 63: orrery.v1.Sessions.WatchConversation:output_type -> orrery.v1.SessionsWatchConversationResponse
+	10, // 64: orrery.v1.Events.Watch:output_type -> orrery.v1.WatchResponse
+	15, // 65: orrery.v1.Control.Start:output_type -> orrery.v1.StartResponse
+	17, // 66: orrery.v1.Control.Say:output_type -> orrery.v1.SayResponse
+	19, // 67: orrery.v1.Control.Answer:output_type -> orrery.v1.AnswerResponse
+	21, // 68: orrery.v1.Control.Interrupt:output_type -> orrery.v1.InterruptResponse
+	23, // 69: orrery.v1.Control.Stop:output_type -> orrery.v1.StopResponse
+	25, // 70: orrery.v1.Control.Seen:output_type -> orrery.v1.SeenResponse
+	35, // 71: orrery.v1.Panes.List:output_type -> orrery.v1.PanesListResponse
+	38, // 72: orrery.v1.Panes.Screen:output_type -> orrery.v1.ScreenResponse
+	40, // 73: orrery.v1.Panes.Conversation:output_type -> orrery.v1.ConversationResponse
+	48, // 74: orrery.v1.Panes.SendText:output_type -> orrery.v1.SendTextResponse
+	50, // 75: orrery.v1.Panes.SendKeys:output_type -> orrery.v1.SendKeysResponse
+	52, // 76: orrery.v1.Panes.MarkSeen:output_type -> orrery.v1.MarkSeenResponse
+	54, // 77: orrery.v1.Panes.PullQueued:output_type -> orrery.v1.PullQueuedResponse
+	45, // 78: orrery.v1.Panes.WatchConversation:output_type -> orrery.v1.WatchConversationResponse
+	56, // 79: orrery.v1.Host.Status:output_type -> orrery.v1.HostStatusResponse
+	59, // 80: orrery.v1.Push.Register:output_type -> orrery.v1.RegisterResponse
+	61, // 81: orrery.v1.Push.Unregister:output_type -> orrery.v1.UnregisterResponse
+	63, // 82: orrery.v1.Picker.Ask:output_type -> orrery.v1.AskResponse
+	66, // 83: orrery.v1.Picker.Run:output_type -> orrery.v1.RunResponse
+	68, // 84: orrery.v1.Pools.Status:output_type -> orrery.v1.PoolsStatusResponse
+	75, // 85: orrery.v1.Pools.Hold:output_type -> orrery.v1.PoolsHoldResponse
+	77, // 86: orrery.v1.Pools.Free:output_type -> orrery.v1.PoolsFreeResponse
+	61, // [61:87] is the sub-list for method output_type
+	35, // [35:61] is the sub-list for method input_type
 	35, // [35:35] is the sub-list for extension type_name
 	35, // [35:35] is the sub-list for extension extendee
 	0,  // [0:35] is the sub-list for field type_name
@@ -5672,14 +5784,14 @@ func file_orrery_v1_orrery_proto_init() {
 	file_orrery_v1_orrery_proto_msgTypes[27].OneofWrappers = []any{}
 	file_orrery_v1_orrery_proto_msgTypes[49].OneofWrappers = []any{}
 	file_orrery_v1_orrery_proto_msgTypes[51].OneofWrappers = []any{}
-	file_orrery_v1_orrery_proto_msgTypes[55].OneofWrappers = []any{}
+	file_orrery_v1_orrery_proto_msgTypes[57].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_orrery_v1_orrery_proto_rawDesc), len(file_orrery_v1_orrery_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   76,
+			NumMessages:   78,
 			NumExtensions: 0,
 			NumServices:   8,
 		},

@@ -60,7 +60,8 @@ func (s panesServer) WatchConversation(
 
 // runWatch sends the deltas of watch on stream until the client leaves, the pane's conversation ends, serve shuts
 // down, or a send stays blocked past the send deadline. It steps watch every conversationPoll, and sends a keepalive
-// once conversationKeepalive has passed since the last message.
+// once conversationKeepalive has passed since the last message. Each successful step reports the pane as read, once
+// conversationKeepalive has passed since the last report, and a failed step reports nothing.
 func (s panesServer) runWatch(
 	ctx context.Context,
 	watch *conversationWatch,
@@ -69,6 +70,7 @@ func (s panesServer) runWatch(
 	ticker := time.NewTicker(s.conversationPoll)
 	defer ticker.Stop()
 	lastSent := time.Now()
+	var lastRead time.Time
 	for {
 		if stopping(s.shutdown) {
 			return shutdownError()
@@ -76,6 +78,10 @@ func (s panesServer) runWatch(
 		msg, send, err := watch.step(ctx)
 		if err != nil {
 			return connectError(err)
+		}
+		if lastRead.IsZero() || time.Since(lastRead) >= s.conversationKeepalive {
+			s.reportRead(watch.pane)
+			lastRead = time.Now()
 		}
 		if !send && time.Since(lastSent) >= s.conversationKeepalive {
 			msg, send = &v1.WatchConversationResponse{Transcript: watch.id, Seq: watch.seq}, true
@@ -241,7 +247,7 @@ func (w *conversationWatch) state(pane *v1.Pane, path string) (*v1.ConversationS
 // livePane returns the Pane message Panes.List gives for the pane with id, and the transcript path of its live
 // session. It fails with the errors Conversation gives for the same pane.
 func (s panesServer) livePane(ctx context.Context, id string) (*v1.Pane, string, error) {
-	panes, err := listPanes(ctx, s.tmux, s.newest)
+	panes, err := listPanes(ctx, s.tmux, s.newest, s.reader)
 	if err != nil {
 		return nil, "", err
 	}

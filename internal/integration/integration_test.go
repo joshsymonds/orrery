@@ -42,6 +42,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/help"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/push"
+	"github.com/joshsymonds/orrery/internal/route"
 	"github.com/joshsymonds/orrery/internal/server"
 	"github.com/joshsymonds/orrery/internal/shell"
 	"github.com/joshsymonds/orrery/internal/tmuxconf"
@@ -59,6 +60,10 @@ const (
 	waitLimit       = 10 * time.Second
 	pollEvery       = 10 * time.Millisecond
 )
+
+// judgedLimit bounds the wait for a done notice the judge delays: route.JudgeDelay, then a judge run of at most
+// route.JudgeTimeout, then waitLimit for the rest of the route.
+const judgedLimit = route.JudgeDelay + route.JudgeTimeout + waitLimit
 
 func TestMain(m *testing.M) {
 	os.Exit(runWithBinaries(m))
@@ -663,6 +668,76 @@ func TestDebugSummarizeWritesSummaryAndLabel(t *testing.T) {
 	}
 }
 
+func TestDebugQueueReplayPrintsCountsOnly(t *testing.T) {
+	root := t.TempDir()
+	project := filepath.Join(root, "example-project")
+	if err := os.Mkdir(project, 0o700); err != nil {
+		t.Fatalf("make project directory: %v", err)
+	}
+	// One interactive transcript: a typed enqueue that a remove delivers, then a turn end.
+	transcriptLines := `{"type":"queue-operation","operation":"enqueue","timestamp":"2026-01-01T00:00:00Z",` +
+		`"sessionId":"example-session","content":"example queued text"}` + "\n" +
+		`{"type":"queue-operation","operation":"remove","timestamp":"2026-01-01T00:00:01Z",` +
+		`"sessionId":"example-session","content":"example queued text","reason":"delivered_to_agent"}` + "\n" +
+		`{"type":"system","subtype":"turn_duration","timestamp":"2026-01-01T00:00:02Z","durationMs":1000}` + "\n"
+	if err := os.WriteFile(filepath.Join(project, "transcript.jsonl"), []byte(transcriptLines), 0o600); err != nil {
+		t.Fatalf("write transcript: %v", err)
+	}
+
+	out := runOrrery(t, "", nil, "debug", "queue-replay", "--before", "2026-01-01T00:00:00Z", "--root", root)
+	wantExit(t, out, 0)
+	if out.stderr != "" {
+		t.Fatalf("debug queue-replay stderr %q, want nothing", out.stderr)
+	}
+	want := "transcripts 1\n" +
+		"typed 1\n" +
+		"closed 1\n" +
+		"never_taken_before 0\n" +
+		"never_taken_after 0\n" +
+		"other 0\n" +
+		"falsified 0\n" +
+		"open_at_turn_end_delivered 0\n" +
+		"notices_typed 0\n"
+	if out.stdout != want {
+		t.Fatalf("debug queue-replay stdout %q, want %q", out.stdout, want)
+	}
+}
+
+func TestDebugQueueReplayExitCodes(t *testing.T) {
+	const before = "2026-01-01T00:00:00Z"
+	missingRoot := filepath.Join(t.TempDir(), "missing")
+	cases := []struct {
+		name string
+		env  []string
+		args []string
+		code int
+	}{
+		{
+			name: "no --root and HOME empty",
+			env:  []string{"HOME="},
+			args: []string{"debug", "queue-replay", "--before", before},
+			code: 2,
+		},
+		{
+			name: "root cannot be read",
+			args: []string{"debug", "queue-replay", "--before", before, "--root", missingRoot},
+			code: 1,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			out := runOrrery(t, "", tc.env, tc.args...)
+			wantExit(t, out, tc.code)
+			if !strings.HasPrefix(out.stderr, "orrery: ") {
+				t.Fatalf("stderr %q, want orrery: prefix", out.stderr)
+			}
+			if out.stdout != "" {
+				t.Fatalf("failed debug queue-replay printed stdout %q, want nothing", out.stdout)
+			}
+		})
+	}
+}
+
 func TestHookExitSilenceIsLimitedToHookCommands(t *testing.T) {
 	cases := []struct {
 		name string
@@ -695,6 +770,17 @@ func TestUsageAndFailureExitCodes(t *testing.T) {
 		{name: "both -L and -S", args: []string{"-L", name, "-S", "/dev/null", "list", "--json"}, code: 2},
 		{name: "debug without subcommand", args: []string{"debug"}, code: 2},
 		{name: "debug summarize without flags", args: []string{"debug", "summarize"}, code: 2},
+		{name: "debug queue-replay without --before", args: []string{"debug", "queue-replay"}, code: 2},
+		{
+			name: "debug queue-replay with unparseable --before",
+			args: []string{"debug", "queue-replay", "--before", "yesterday"},
+			code: 2,
+		},
+		{
+			name: "debug queue-replay with an extra argument",
+			args: []string{"debug", "queue-replay", "--before", "2026-01-01T00:00:00Z", "extra"},
+			code: 2,
+		},
 		{name: "list without --json is a runtime error", args: []string{"-L", name, "list"}, code: 1},
 	}
 	for _, tc := range cases {
@@ -723,8 +809,28 @@ const (
 	labelPrompt        = "label: <3 to 4 words"
 	exampleTranscript  = `{"type":"user","message":{"role":"user","content":"example prompt"}}` + "\n" +
 		`{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"example reply"}]}}` + "\n"
+	// judgeNeededReply is the claude result line a judge run prints unless the test writes judgeReplyFile: a verdict
+	// that the done needs the user. The other replies are the ones a test writes for the judge's other outcomes.
+	judgeNeededReply = `{"type":"result","subtype":"success","is_error":false,` +
+		`"structured_output":{"needed":true,"why":"example question"}}`
+	judgeUnneededReply = `{"type":"result","subtype":"success","is_error":false,` +
+		`"structured_output":{"needed":false,"why":"example finished work"}}`
+	judgeFailedReply = `{"type":"result","subtype":"error_during_execution","is_error":true}`
+	judgeReplyFile   = "judge-reply"
+	// judgeRunScript answers a judge run, the one given --json-schema, with the reply in judgeReplyFile beside the fake
+	// claude, or else judgeNeededReply, and marks the run done. Each fake claude runs it before it answers a summary.
+	judgeRunScript = `case " $* " in
+*" --json-schema "*)
+	if [ -f "$D/` + judgeReplyFile + `" ]; then cat "$D/` + judgeReplyFile + `"; else printf '%s\n' '` +
+		judgeNeededReply + `'; fi
+	: > "$R/done"
+	exit 0
+	;;
+esac
+`
 	// fakeClaudeScript stands in for the claude binary. Each run records its argv, the summarizer environment and
-	// its stdin under calls/run.*, marks itself done, and replies with the summary line.
+	// its stdin under calls/run.*, marks itself done, and replies with the summary line. A judge run replies with
+	// its verdict instead.
 	fakeClaudeScript = `#!/bin/sh
 D=$(dirname "$0")
 mkdir -p "$D/calls"
@@ -732,7 +838,7 @@ R=$(mktemp -d "$D/calls/run.XXXXXX")
 printf '%s\n' "$@" > "$R/args"
 env | grep -E '^(ANTHROPIC_BASE_URL|ORRERY_SUMMARIZER)=' > "$R/env"
 cat > "$R/stdin"
-printf 'summary: example summary\n'
+` + judgeRunScript + `printf 'summary: example summary\n'
 : > "$R/done"
 `
 	// slowFakeClaudeScript is fakeClaudeScript after a pause, replying with a label line as well as the summary.
@@ -743,7 +849,7 @@ R=$(mktemp -d "$D/calls/run.XXXXXX")
 printf '%s\n' "$@" > "$R/args"
 env | grep -E '^(ANTHROPIC_BASE_URL|ORRERY_SUMMARIZER)=' > "$R/env"
 cat > "$R/stdin"
-sleep 1
+` + judgeRunScript + `sleep 1
 printf 'summary: example summary\nlabel: example label\n'
 : > "$R/done"
 `
@@ -874,10 +980,10 @@ func noticeOf(t *testing.T, line deskstream.Line) notice {
 	return notice{state: line.State, title: line.Title, body: line.Body}
 }
 
-// nextNotice returns the next notice the stream sent, failing the test after waitLimit.
-func nextNotice(t *testing.T, r *noticeReader) notice {
+// nextNotice returns the next notice the stream sent, failing the test after limit.
+func nextNotice(t *testing.T, r *noticeReader, limit time.Duration) notice {
 	t.Helper()
-	return noticeOf(t, r.receive(t, waitLimit))
+	return noticeOf(t, r.receive(t, limit))
 }
 
 // readOption returns the pane-scoped option name on pane, or "" when it is unset.
@@ -924,6 +1030,24 @@ func finishedRuns(t *testing.T, dir string) []string {
 		}
 	}
 	return done
+}
+
+// judgeRuns returns the finished fake claude runs under dir that judged a done: those given --json-schema.
+func judgeRuns(t *testing.T, dir string) []string {
+	t.Helper()
+	var judges []string
+	for _, run := range finishedRuns(t, dir) {
+		if slices.Contains(readLines(t, filepath.Join(run, "args")), "--json-schema") {
+			judges = append(judges, run)
+		}
+	}
+	return judges
+}
+
+// writeJudgeReply makes the fake claude beside dir answer its judge runs with reply.
+func writeJudgeReply(t *testing.T, dir, reply string) {
+	t.Helper()
+	writeFile(t, filepath.Join(dir, judgeReplyFile), reply, 0o600)
 }
 
 // waitForRunWithStdin polls until a finished fake claude run received stdin containing text, and returns that run's
@@ -1065,7 +1189,7 @@ func TestOrrerydDrivesHooksEndToEnd(t *testing.T) {
 		"tool_name":       "example-tool",
 		"tool_input":      map[string]any{"command": "example"},
 	})
-	waiting := nextNotice(t, notices)
+	waiting := nextNotice(t, notices, waitLimit)
 	question := readOption(t, client, pane, protocol.OptionQuestion)
 	want := notice{state: string(protocol.StateWaiting), title: exampleTitle, body: question}
 	if question == "" || waiting != want {
@@ -1077,7 +1201,7 @@ func TestOrrerydDrivesHooksEndToEnd(t *testing.T) {
 		"transcript_path":        transcript,
 		"last_assistant_message": exampleLastMessage,
 	})
-	done := nextNotice(t, notices)
+	done := nextNotice(t, notices, judgedLimit)
 	if done != (notice{state: string(protocol.StateDone), title: exampleTitle, body: exampleSummary}) {
 		t.Fatalf("done notice %+v, want state done, title %q, body %q", done, exampleTitle, exampleSummary)
 	}
@@ -2694,8 +2818,14 @@ func registerPush(t *testing.T, stateHome string, endpoints ...*pushEndpoint) {
 }
 
 // startPushDaemon starts orreryd for server with the fake claude script, the push store under stateHome, and
-// SSL_CERT_FILE trusting the certificate of ep's server. It waits for the listener and returns the daemon and socket.
-func startPushDaemon(t *testing.T, server, dir, stateHome string, ep *pushEndpoint) (*orreryProcess, string) {
+// SSL_CERT_FILE trusting the certificate of ep's server. extra is passed as more flags. It waits for the listener and
+// returns the daemon and socket.
+func startPushDaemon(
+	t *testing.T,
+	server, dir, stateHome string,
+	ep *pushEndpoint,
+	extra ...string,
+) (*orreryProcess, string) {
 	t.Helper()
 	fakeClaude := filepath.Join(dir, "fake-claude.sh")
 	writeFile(t, fakeClaude, fakeClaudeScript, 0o700)
@@ -2703,30 +2833,30 @@ func startPushDaemon(t *testing.T, server, dir, stateHome string, ep *pushEndpoi
 	writeFile(t, roots, string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: ep.server.Certificate().Raw})),
 		0o600)
 	socket := filepath.Join(dir, "orreryd.sock")
-	daemon := startBinary(t, "orreryd", scrubbedEnv("XDG_STATE_HOME="+stateHome, "SSL_CERT_FILE="+roots), "-L", server,
-		"--socket", socket, "--claude", fakeClaude, "--summary-model", exampleContextName+"="+exampleModel,
-		"--push-host", "127.0.0.1")
+	args := slices.Concat([]string{"-L", server, "--socket", socket, "--claude", fakeClaude, "--summary-model",
+		exampleContextName + "=" + exampleModel, "--push-host", "127.0.0.1"}, extra)
+	daemon := startBinary(t, "orreryd", scrubbedEnv("XDG_STATE_HOME="+stateHome, "SSL_CERT_FILE="+roots), args...)
 	daemon.waitForListener(t, "unix", socket)
 	return daemon, socket
 }
 
-// nextPush returns the next request ep received, failing the test after waitLimit.
-func nextPush(t *testing.T, ep *pushEndpoint) pushRequest {
+// nextPush returns the next request ep received, failing the test after limit.
+func nextPush(t *testing.T, ep *pushEndpoint, limit time.Duration) pushRequest {
 	t.Helper()
 	select {
 	case got := <-ep.requests:
 		return got
-	case <-time.After(waitLimit):
+	case <-time.After(limit):
 		t.Fatal("no push request within the wait limit")
 	}
 	return pushRequest{}
 }
 
-// assertPushed reads the next request ep received and fails unless it is one aes128gcm body that decrypts to a
-// notification for pane in state.
-func assertPushed(t *testing.T, ep *pushEndpoint, pane string, state protocol.State) {
+// nextNote reads the next request ep received, failing the test after limit unless it is one aes128gcm body, and
+// returns the notification that body decrypts to.
+func nextNote(t *testing.T, ep *pushEndpoint, limit time.Duration) map[string]string {
 	t.Helper()
-	got := nextPush(t, ep)
+	got := nextPush(t, ep, limit)
 	if got.encoding != "aes128gcm" {
 		t.Fatalf("Content-Encoding %q, want aes128gcm", got.encoding)
 	}
@@ -2734,9 +2864,24 @@ func assertPushed(t *testing.T, ep *pushEndpoint, pane string, state protocol.St
 	if err := json.Unmarshal(decryptPush(t, got.body, ep.key, ep.auth), &note); err != nil {
 		t.Fatalf("decode notification: %v", err)
 	}
+	return note
+}
+
+// assertPushed reads the next request ep received within limit and fails unless its notification is for pane in
+// state. It returns the notification.
+func assertPushed(
+	t *testing.T,
+	ep *pushEndpoint,
+	pane string,
+	state protocol.State,
+	limit time.Duration,
+) map[string]string {
+	t.Helper()
+	note := nextNote(t, ep, limit)
 	if note["pane"] != pane || note["state"] != string(state) {
 		t.Fatalf("notification pane %q state %q, want pane %q state %q", note["pane"], note["state"], pane, state)
 	}
+	return note
 }
 
 // decryptPush is the user agent side of RFC 8291 for an aes128gcm body with one record. It returns the plaintext
@@ -2816,14 +2961,14 @@ func TestOrrerydPushesEncryptedNotifications(t *testing.T) {
 		"tool_name":       "example-tool",
 		"tool_input":      map[string]any{"command": "example"},
 	})
-	assertPushed(t, endpoint, pane, protocol.StateWaiting)
+	assertPushed(t, endpoint, pane, protocol.StateWaiting, waitLimit)
 
 	sendHook(t, socket, pane, dir, map[string]any{
 		"hook_event_name":        "Stop",
 		"transcript_path":        transcript,
 		"last_assistant_message": exampleLastMessage,
 	})
-	assertPushed(t, endpoint, pane, protocol.StateDone)
+	assertPushed(t, endpoint, pane, protocol.StateDone, judgedLimit)
 
 	// orreryd awaits every notification before it exits, so a request still queued after the stop is an extra one.
 	wantExit(t, daemon.stop(t), 0)
@@ -2848,7 +2993,7 @@ func TestOrrerydPushFailureHidesEndpointURL(t *testing.T) {
 		"tool_name":       "example-tool",
 		"tool_input":      map[string]any{"command": "example"},
 	})
-	assertPushed(t, live, pane, protocol.StateWaiting)
+	assertPushed(t, live, pane, protocol.StateWaiting, waitLimit)
 
 	out := daemon.stop(t)
 	wantExit(t, out, 0)

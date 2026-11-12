@@ -15,46 +15,58 @@ import (
 	"github.com/joshsymonds/orrery/internal/conversation"
 	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/v1"
 	orreryv1connect "github.com/joshsymonds/orrery/internal/gen/orrery/v1/orreryv1connect"
+	"github.com/joshsymonds/orrery/internal/store"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
 )
 
-// panesServer answers orrery.v1.Panes with the tmux client, conversation state, locks and seen reporter it holds.
+// panesServer answers orrery.v1.Panes with the tmux client, conversation state, locks, seen and read reporters, and
+// clock it holds, and the store reader its turn ends come from.
 type panesServer struct {
 	tmux                  *tmuxctl.Client
+	reader                *store.Reader
 	newest                *conversation.Newest
 	goals                 *conversation.Goals
 	queues                *conversation.Queues
 	textLocks             *paneLocks
 	seenLocks             *paneLocks
 	report                cli.SeenReporter
+	readReport            ReadReporter
+	now                   func() time.Time
 	conversationPoll      time.Duration
 	conversationKeepalive time.Duration
 	sendTimeout           time.Duration
 	shutdown              <-chan struct{}
 }
 
-// newPanesHandler returns the path and handler that serve Panes over the tmux client, conversation state, locks and
-// seen reporter it is given. WatchConversation polls every conversationPoll and sends a keepalive after
-// conversationKeepalive without a delta. Its sends are bounded by sendTimeout, and its streams end when shutdown
-// closes. The handler runs under withResponseWriter, so the stream reaches its connection.
+// newPanesHandler returns the path and handler that serve Panes over the tmux client, the store reader of turn ends,
+// conversation state, locks, seen and read reporters, and clock it is given. Screen, Conversation and
+// WatchConversation report each read to readReport, dated by now. WatchConversation polls every conversationPoll and
+// sends a keepalive after conversationKeepalive without a delta. Its sends are bounded by sendTimeout, and its streams
+// end when shutdown closes. The handler runs under withResponseWriter, so the stream reaches its connection.
 func newPanesHandler(
 	tmux *tmuxctl.Client,
+	reader *store.Reader,
 	newest *conversation.Newest,
 	goals *conversation.Goals,
 	queues *conversation.Queues,
 	textLocks, seenLocks *paneLocks,
 	report cli.SeenReporter,
+	readReport ReadReporter,
+	now func() time.Time,
 	conversationPoll, conversationKeepalive, sendTimeout time.Duration,
 	shutdown <-chan struct{},
 ) (string, http.Handler) {
 	path, handler := orreryv1connect.NewPanesHandler(panesServer{
 		tmux:                  tmux,
+		reader:                reader,
 		newest:                newest,
 		goals:                 goals,
 		queues:                queues,
 		textLocks:             textLocks,
 		seenLocks:             seenLocks,
 		report:                report,
+		readReport:            readReport,
+		now:                   now,
 		conversationPoll:      conversationPoll,
 		conversationKeepalive: conversationKeepalive,
 		sendTimeout:           sendTimeout,
@@ -93,7 +105,7 @@ func (s panesServer) List(
 	ctx context.Context,
 	_ *connect.Request[v1.PanesListRequest],
 ) (*connect.Response[v1.PanesListResponse], error) {
-	panes, err := listPanes(ctx, s.tmux, s.newest)
+	panes, err := listPanes(ctx, s.tmux, s.newest, s.reader)
 	if err != nil {
 		return nil, connectError(err)
 	}
@@ -126,6 +138,7 @@ func (s panesServer) Screen(
 	if err != nil {
 		return nil, connectError(internalError())
 	}
+	s.reportRead(pane.ID)
 	return connect.NewResponse(&v1.ScreenResponse{Screen: []byte(screen)}), nil
 }
 
@@ -148,7 +161,16 @@ func (s panesServer) Conversation(
 	if err != nil {
 		return nil, connectError(err)
 	}
+	s.reportRead(req.Msg.GetPane())
 	return connect.NewResponse(conversationMessage(conv)), nil
+}
+
+// reportRead tells the read reporter that the phone read pane at the clock's time, or does nothing when there is no
+// reporter.
+func (s panesServer) reportRead(pane string) {
+	if s.readReport != nil {
+		s.readReport(pane, s.now().Unix())
+	}
 }
 
 // SendText answers Panes.SendText. The pane is checked first, and the text is sent by sendText under the pane's text
@@ -250,7 +272,7 @@ func paneMessages(panes []map[string]json.RawMessage) ([]*v1.Pane, error) {
 		if err = json.Unmarshal(data, &pane); err != nil {
 			return nil, fmt.Errorf("server: decode pane: %w", err)
 		}
-		claudeSession, questionHash, newestReply, err := paneExtras(fields)
+		claudeSession, questionHash, newestReply, lastTurnEnd, err := paneExtras(fields)
 		if err != nil {
 			return nil, err
 		}
@@ -274,26 +296,30 @@ func paneMessages(panes []map[string]json.RawMessage) ([]*v1.Pane, error) {
 			ClaudeSession: claudeSession,
 			QuestionHash:  questionHash,
 			NewestReply:   newestReply,
+			LastTurnEnd:   lastTurnEnd,
 		})
 	}
 	return out, nil
 }
 
-// paneExtras returns the claude_session, question_hash and newest_reply of one pane object of listPanes, which
-// paneJSON does not tag.
-func paneExtras(fields map[string]json.RawMessage) (string, string, int64, error) {
+// paneExtras returns the claude_session, question_hash, newest_reply and last_turn_end of one pane object of
+// listPanes, which paneJSON does not tag.
+func paneExtras(fields map[string]json.RawMessage) (string, string, int64, int64, error) {
 	var claudeSession, questionHash string
-	var newestReply int64
+	var newestReply, lastTurnEnd int64
 	if err := paneField(fields, claudeSessionKey, &claudeSession); err != nil {
-		return "", "", 0, err
+		return "", "", 0, 0, err
 	}
 	if err := paneField(fields, questionHashKey, &questionHash); err != nil {
-		return "", "", 0, err
+		return "", "", 0, 0, err
 	}
 	if err := paneField(fields, newestReplyKey, &newestReply); err != nil {
-		return "", "", 0, err
+		return "", "", 0, 0, err
 	}
-	return claudeSession, questionHash, newestReply, nil
+	if err := paneField(fields, lastTurnEndKey, &lastTurnEnd); err != nil {
+		return "", "", 0, 0, err
+	}
+	return claudeSession, questionHash, newestReply, lastTurnEnd, nil
 }
 
 // paneField decodes the value of key in fields into dst. A value that does not decode is an error.

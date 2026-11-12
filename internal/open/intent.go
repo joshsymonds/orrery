@@ -376,10 +376,14 @@ func jumpTo(ctx context.Context, cfg Config, pane string) (Target, error) {
 }
 
 // openPane opens a Claude pane running argv in dir: a new window in the session for dir when one exists, else a
-// new session.
+// new session. The pane runs the stamp in effect for dir, if any, and no window or session starts when that fails.
 func openPane(ctx context.Context, cfg Config, dir string, argv []string) (Target, error) {
 	if dir == "" {
 		return Target{}, errors.New("intent: pane needs a directory")
+	}
+	argv, err := stampedArgv(cfg, dir, argv)
+	if err != nil {
+		return Target{}, err
 	}
 	sessions, err := listSessions(ctx, cfg)
 	if err != nil {

@@ -44,6 +44,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import io.github.joshsymonds.orrery.R
+import io.github.joshsymonds.orrery.api.EpicRow
 import io.github.joshsymonds.orrery.api.OrreryClient
 import io.github.joshsymonds.orrery.api.Pane
 import io.github.joshsymonds.orrery.ui.theme.Mocha
@@ -104,21 +105,27 @@ private const val INDENT_DP = 16
 /**
  * Every pane as a folder tree, or the New and Waiting panes as flat lists, with a filter. The New
  * button at the top opens the picker above the filters; a run it answers opens that pane through
- * [onOpenPaneId]. The Pools button opens the pools view through [onOpenPools]. Tapping a folder
- * header collapses or expands it. Tapping a row opens that pane.
+ * [onOpenPaneId], and a start it answers opens that session through [onStartedSession]. The Pools
+ * button opens the pools view through [onOpenPools]. Tapping a folder header collapses or expands
+ * it. Tapping a row opens that pane.
+ * The Epics group sits above the rows and opens an epic through [onOpenEpic]. An epics load that
+ * fails shows no group and leaves the panes as they are.
  */
 @Composable
 fun PaneListScreen(
     client: OrreryClient,
     onOpenPane: (Pane) -> Unit,
     onOpenPaneId: (String) -> Unit,
+    onStartedSession: (String) -> Unit,
     onOpenSettings: () -> Unit,
     onOpenPools: () -> Unit = {},
     modifier: Modifier = Modifier,
+    onOpenEpic: (String) -> Unit = {},
     now: () -> Long = { System.currentTimeMillis() / 1000 },
     state: PaneListState = rememberPaneListState(),
 ) {
     var load by remember { mutableStateOf<PaneLoad>(PaneLoad.Loading) }
+    var epics by remember { mutableStateOf<List<EpicRow>>(emptyList()) }
     var generation by remember { mutableIntStateOf(0) }
     var picking by remember { mutableStateOf(false) }
 
@@ -128,6 +135,15 @@ fun PaneListScreen(
             PaneLoad.Loaded(withContext(Dispatchers.IO) { client.panes() + client.headless() })
         } catch (error: IOException) {
             PaneLoad.Failed
+        }
+    }
+
+    LaunchedEffect(client, generation) {
+        epics = emptyList()
+        epics = try {
+            withContext(Dispatchers.IO) { client.epics() }
+        } catch (error: IOException) {
+            emptyList()
         }
     }
 
@@ -170,6 +186,10 @@ fun PaneListScreen(
                     picking = false
                     onOpenPaneId(paneId)
                 },
+                onStarted = { sessionId ->
+                    picking = false
+                    onStartedSession(sessionId)
+                },
                 onClose = { picking = false },
                 modifier = Modifier.heightIn(max = PICKER_MAX_HEIGHT),
             )
@@ -197,10 +217,12 @@ fun PaneListScreen(
             }
             is PaneLoad.Loaded -> PaneRows(
                 panes = current.panes,
+                epics = epics,
                 filter = state.filter,
                 collapsed = state.collapsed,
                 now = now(),
                 onOpenPane = onOpenPane,
+                onOpenEpic = onOpenEpic,
                 onToggleFolder = state::toggleFolder,
             )
         }
@@ -231,13 +253,18 @@ private fun TitleMark(modifier: Modifier) {
 @Composable
 private fun PaneRows(
     panes: List<Pane>,
+    epics: List<EpicRow>,
     filter: PaneFilter,
     collapsed: Set<String>,
     now: Long,
     onOpenPane: (Pane) -> Unit,
+    onOpenEpic: (String) -> Unit,
     onToggleFolder: (String) -> Unit,
 ) {
     LazyColumn(modifier = Modifier.fillMaxSize()) {
+        item(key = "epics") {
+            EpicsGroup(epics = epics, onOpenEpic = onOpenEpic)
+        }
         when (filter) {
             PaneFilter.ALL -> items(
                 treeRows(panes, collapsed),

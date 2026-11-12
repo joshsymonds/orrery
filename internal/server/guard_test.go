@@ -20,6 +20,7 @@ func phoneProcedures() []string {
 		orreryv1connect.PanesSendTextProcedure,
 		orreryv1connect.PanesSendKeysProcedure,
 		orreryv1connect.PanesMarkSeenProcedure,
+		orreryv1connect.PanesPullQueuedProcedure,
 		orreryv1connect.PanesWatchConversationProcedure,
 		orreryv1connect.HostStatusProcedure,
 		orreryv1connect.PushRegisterProcedure,

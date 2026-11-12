@@ -61,7 +61,7 @@ func newTestManager(t *testing.T, limit int, claude string) (*Manager, string) {
 	m := NewManager(Config{
 		Shell:   sh,
 		Claude:  claude,
-		Environ: []string{"PATH=" + os.Getenv("PATH")},
+		Environ: []string{"PATH=" + os.Getenv("PATH"), "HOME=" + t.TempDir()},
 		Cap:     limit,
 		Writer:  writer,
 		Now:     fixedClock,

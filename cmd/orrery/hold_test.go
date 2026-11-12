@@ -110,25 +110,22 @@ func TestHoldSendsHold(t *testing.T) {
 	}
 }
 
-// TestHoldRefusesUndeclaredMember exits 1 with the reason when the pool files do not declare the member. Nothing is
-// sent to orreryd, and the refusal is not a usage error.
-func TestHoldRefusesUndeclaredMember(t *testing.T) {
-	setupProject(t, buildsPoolFile, "")
+// TestHoldSendsHoldForUndeclaredMember sends Hold for a member that no pool file declares, in a directory with no pool
+// files. hold reads no pool files, so it exits 0 and writes nothing; orreryd judges the name.
+func TestHoldSendsHoldForUndeclaredMember(t *testing.T) {
+	setupProject(t, "", "")
 	fake := &holdPools{}
 	daemon := serveHoldPools(t, fake)
 	var stdout bytes.Buffer
 	res := awaitOrrery(t, startOrrery(t, &stdout, "--socket", daemon, "hold", "m9"))
-	if res.code != exitFailure {
-		t.Errorf("exit status %d, want %d; stderr %q", res.code, exitFailure, res.stderr)
+	if res.code != exitOK {
+		t.Fatalf("exit status %d, want %d; stderr %q", res.code, exitOK, res.stderr)
 	}
-	if !strings.HasPrefix(res.stderr, "orrery hold: ") || !strings.Contains(res.stderr, `"m9"`) {
-		t.Errorf("stderr %q, want the reason prefixed with orrery hold:", res.stderr)
+	if got := fake.received(); !slices.Equal(got, []string{"Hold m9"}) {
+		t.Errorf("orreryd received %q, want [Hold m9]", got)
 	}
-	if strings.Contains(res.stderr, usageText) {
-		t.Errorf("stderr %q carries the usage text; a refusal is not a usage error", res.stderr)
-	}
-	if got := fake.received(); len(got) != 0 {
-		t.Errorf("orreryd received %q, want nothing", got)
+	if stdout.Len() != 0 || res.stderr != "" {
+		t.Errorf("hold wrote stdout %q and stderr %q, want neither", stdout.String(), res.stderr)
 	}
 }
 

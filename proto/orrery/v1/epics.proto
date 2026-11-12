@@ -1,0 +1,175 @@
+syntax = "proto3";
+
+package orrery.v1;
+
+// Epics reads the epics under the gambit record root.
+service Epics {
+  // List returns every epic under the record root, live or folded.
+  rpc List(EpicsListRequest) returns (EpicsListResponse);
+
+  // Get returns one epic by the id List gave it.
+  rpc Get(EpicsGetRequest) returns (EpicsGetResponse);
+}
+
+// Steps carries the owner's calls on one labelled step. It has no call that starts a step.
+service Steps {
+  // Hold interrupts the step's running turn and holds the step until a nudge or a stop.
+  rpc Hold(StepsHoldRequest) returns (StepsHoldResponse);
+
+  // Nudge sends the owner's text to the step.
+  rpc Nudge(StepsNudgeRequest) returns (StepsNudgeResponse);
+
+  // Stop ends the step's loop.
+  rpc Stop(StepsStopRequest) returns (StepsStopResponse);
+}
+
+// EpicsListRequest asks for every epic. It has no fields.
+message EpicsListRequest {}
+
+// EpicsListResponse carries every epic.
+message EpicsListResponse {
+  // The epics, sorted by id.
+  repeated Epic epics = 1;
+}
+
+// EpicsGetRequest names one epic.
+message EpicsGetRequest {
+  // The epic's id, as List gave it.
+  string id = 1;
+}
+
+// EpicsGetResponse carries one epic with its tasks and its steps.
+message EpicsGetResponse {
+  // The epic.
+  Epic epic = 1;
+
+  // The tasks of the epic's efforts, effort number ascending and file order within each effort.
+  repeated EpicTask tasks = 2;
+
+  // Every step labelled with the epic, oldest first.
+  repeated EpicStep steps = 3;
+}
+
+// Epic is one epic under the record root.
+message Epic {
+  // The epic's id, "<repo-id>/<epic-slug>", the same text a step's epic label carries.
+  string id = 1;
+
+  // The repository the epic belongs to, the name of the record directory's parent.
+  string repository = 2;
+
+  // The epic's slug, the name of its record directory.
+  string slug = 3;
+
+  // The outcome the epic's head state.json records, as written.
+  string outcome = 4;
+
+  // When the epic's head state.json last changed, in unix seconds.
+  int64 changed = 5;
+
+  // Whether the epic is live: its outcome is not released, and it has a running step or changed within a day.
+  bool live = 6;
+
+  // The epic's steps that have not ended, held ones included, oldest first.
+  repeated EpicStep running_steps = 7;
+
+  // How many of the epic's labelled steps have ended.
+  int32 ended_steps = 8;
+
+  // What could not be read from the epic's records, joined with "; ", empty when everything was read.
+  string problem = 9;
+}
+
+// EpicTask is one task from an effort's state.json.
+message EpicTask {
+  // The effort number, the n of efforts/<n>/state.json.
+  int32 effort = 1;
+
+  // The task's slug, as the record wrote it.
+  string slug = 2;
+
+  // The task's subject, as the record wrote it.
+  string subject = 3;
+
+  // The task's status, free text kept as the record wrote it.
+  string status = 4;
+}
+
+// EpicStep is one labelled step of an epic.
+message EpicStep {
+  // The step's id.
+  string id = 1;
+
+  // The step's task label, empty when it has none.
+  string task = 2;
+
+  // The agent that runs the step.
+  string agent = 3;
+
+  // How the step ended, one of done, returned, goal_unmet, checks_failed, failed, stopped, engine_restarted, overtime,
+  // tool_stuck, silent, looping or wedged; empty while it runs.
+  string end = 4;
+
+  // The step's status.
+  string status = 5;
+
+  // Whether the owner has held the step.
+  bool held = 6;
+
+  // When the step started, in unix seconds.
+  int64 started = 7;
+
+  // When the step ended, in unix seconds, zero while it runs.
+  int64 ended = 8;
+
+  // What the step is doing now.
+  string doing = 9;
+
+  // The checks the step has run, in round order.
+  repeated EpicStepCheck checks = 10;
+
+  // Why the step ended or is held, empty when there is no reason.
+  string reason = 11;
+}
+
+// EpicStepCheck is one check a step ran in one round.
+message EpicStepCheck {
+  // The round the check ran in.
+  uint32 round = 1;
+
+  // The check's name.
+  string name = 2;
+
+  // Whether the check passed.
+  bool ok = 3;
+}
+
+// StepsHoldRequest names the step to hold.
+message StepsHoldRequest {
+  // The step's id.
+  string id = 1;
+}
+
+// StepsHoldResponse confirms a held step.
+message StepsHoldResponse {}
+
+// StepsNudgeRequest names the step to nudge and the text to send it.
+message StepsNudgeRequest {
+  // The step's id.
+  string id = 1;
+
+  // The owner's text for the step.
+  string text = 2;
+}
+
+// StepsNudgeResponse confirms a nudge that landed.
+message StepsNudgeResponse {}
+
+// StepsStopRequest names the step to stop.
+message StepsStopRequest {
+  // The step's id.
+  string id = 1;
+}
+
+// StepsStopResponse confirms a stopped step.
+message StepsStopResponse {}

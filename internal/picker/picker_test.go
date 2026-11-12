@@ -728,9 +728,9 @@ func TestChooseResumeRowsShowAndEnterRunsResume(t *testing.T) {
 	if got := f.sessionDir(t, outcome.Session); got != dir {
 		t.Fatalf("new session dir = %q, want %q", got, dir)
 	}
-	// The Claude pane starts after tmux creates the session, so its args are waited for.
-	waitUntil(t, "the Claude pane to start with its args", func() bool {
-		return slices.ContainsFunc(claudeRunFiles(t, f.claude, "args"), func(args string) bool { return args != "" })
+	// The Claude pane starts after tmux creates the session, so its cwd is waited for; the fake writes cwd after args.
+	waitUntil(t, "the Claude pane to start with its cwd", func() bool {
+		return slices.ContainsFunc(claudeRunFiles(t, f.claude, "cwd"), func(cwd string) bool { return cwd != "" })
 	})
 	if n := claudeRuns(t, f.claude); n != 1 {
 		t.Fatalf("fake claude ran %d times, want exactly one", n)
@@ -809,9 +809,9 @@ func TestChooseArchiveResumeOffersKeptSessionAndRunsIt(t *testing.T) {
 	if got := f.sessionDir(t, outcome.Session); got != dir {
 		t.Fatalf("new session dir = %q, want %q", got, dir)
 	}
-	// The Claude pane starts after tmux creates the session, so its args are waited for.
-	waitUntil(t, "the Claude pane to start with its args", func() bool {
-		return slices.ContainsFunc(claudeRunFiles(t, f.claude, "args"), func(args string) bool { return args != "" })
+	// The Claude pane starts after tmux creates the session, so its cwd is waited for; the fake writes cwd after args.
+	waitUntil(t, "the Claude pane to start with its cwd", func() bool {
+		return slices.ContainsFunc(claudeRunFiles(t, f.claude, "cwd"), func(cwd string) bool { return cwd != "" })
 	})
 	if n := claudeRuns(t, f.claude); n != 1 {
 		t.Fatalf("fake claude ran %d times, want exactly one", n)

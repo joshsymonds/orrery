@@ -200,7 +200,7 @@ func SummaryModel(baseURL string, models map[string]string) string {
 }
 
 // HookFrame is the single frame a sender writes to orreryd per connection. A Claude Code hook frame carries Hook.
-// A seen report carries Seen and no Hook.
+// A seen report carries Seen and no Hook. A read report carries Read and neither Hook nor Seen.
 type HookFrame struct {
 	Hook             json.RawMessage `json:"hook,omitempty"`
 	TmuxPane         string          `json:"tmuxPane"`
@@ -208,6 +208,8 @@ type HookFrame struct {
 	Cwd              string          `json:"cwd"`
 	AnthropicBaseURL string          `json:"anthropicBaseUrl"`
 	Seen             int64           `json:"seen,omitempty"`
+	// Read is the time of a read report: serve's word that the phone read the pane at that time.
+	Read int64 `json:"read,omitempty"`
 }
 
 // WriteFrame writes frame to w as one JSON object terminated by a newline.
@@ -219,12 +221,23 @@ func WriteFrame(w io.Writer, frame HookFrame) error {
 }
 
 // ReadFrame decodes one frame from r with no line-length limit. It accepts a hook frame, whose hook is a JSON
-// object, and a seen report, which has a positive seen and no hook. It rejects malformed JSON, a hook that is null
-// or not a JSON object, a frame with neither a hook nor a positive seen, and a frame with both a hook and a seen.
+// object, a seen report, which has a positive seen and no hook, and a read report, which has a positive read and
+// neither a hook nor a seen. It rejects malformed JSON, a hook that is null or not a JSON object, a frame with
+// neither a hook nor a positive seen nor a positive read, a frame with both a hook and a seen, and a frame that
+// carries read together with a hook or a seen, or with a negative read.
 func ReadFrame(r io.Reader) (HookFrame, error) {
 	var frame HookFrame
 	if err := json.NewDecoder(r).Decode(&frame); err != nil {
 		return HookFrame{}, fmt.Errorf("read hook frame: %w", err)
+	}
+	if frame.Read != 0 {
+		if frame.Hook != nil || frame.Seen != 0 {
+			return HookFrame{}, errors.New("read hook frame: a read report carries no hook or seen")
+		}
+		if frame.Read < 0 {
+			return HookFrame{}, errors.New("read hook frame: read must be positive")
+		}
+		return frame, nil
 	}
 	if frame.Hook == nil {
 		if frame.Seen > 0 {

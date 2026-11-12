@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -655,6 +656,193 @@ func TestControlRefusesStartsWithoutUsableHome(t *testing.T) {
 			if calls := fake.recorded(); len(calls) != 0 {
 				t.Fatalf("start with home %q forwarded %d requests, want none", tc.home, len(calls))
 			}
+		})
+	}
+}
+
+// stampFileNames returns the two settings files that can stamp a folder.
+func stampFileNames() []string {
+	return []string{"settings.json", "settings.local.json"}
+}
+
+// stampSettings is a settings file that stamps its folder: env.ANTHROPIC_BASE_URL is a non-empty string.
+const stampSettings = `{"env": {"ANTHROPIC_BASE_URL": "http://127.0.0.1:9/ctx/example"}}`
+
+// makeDir creates dir and its parents, and returns dir.
+func makeDir(t *testing.T, dir string) string {
+	t.Helper()
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir %s: %v", dir, err)
+	}
+	return dir
+}
+
+// writeSettings writes stampSettings as the settings file name of folder, creating folder's .claude directory.
+func writeSettings(t *testing.T, folder, name string) {
+	t.Helper()
+	claude := makeDir(t, filepath.Join(folder, ".claude"))
+	if err := os.WriteFile(filepath.Join(claude, name), []byte(stampSettings), 0o644); err != nil {
+		t.Fatalf("write %s: %v", name, err)
+	}
+}
+
+func TestControlForwardsStartsBelowStampedFolder(t *testing.T) {
+	for _, name := range stampFileNames() {
+		t.Run(name, func(t *testing.T) {
+			home := t.TempDir()
+			stamped := makeDir(t, filepath.Join(home, "stamped"))
+			writeSettings(t, stamped, name)
+			cases := []struct {
+				name string
+				dir  string
+			}{
+				{"plain child", makeDir(t, filepath.Join(stamped, "child"))},
+				{"two levels below", makeDir(t, filepath.Join(stamped, "middle", "deep"))},
+			}
+			for _, tc := range cases {
+				t.Run(tc.name, func(t *testing.T) {
+					assertStartForwarded(t, home, tc.dir, resolvedPath(t, tc.dir))
+				})
+			}
+		})
+	}
+}
+
+func TestControlForwardsStartsAroundStamps(t *testing.T) {
+	home := t.TempDir()
+	writeSettings(t, home, "settings.json")
+	stamped := makeDir(t, filepath.Join(home, "stamped"))
+	writeSettings(t, stamped, "settings.json")
+	own := makeDir(t, filepath.Join(stamped, "own"))
+	writeSettings(t, own, "settings.local.json")
+	cases := []struct {
+		name string
+		dir  string
+	}{
+		{"stamped folder itself", stamped},
+		{"own stamp under stamped parent", own},
+		{"under unstamped parent", makeDir(t, filepath.Join(home, "plain", "child"))},
+		{"under stamped home", makeDir(t, filepath.Join(home, "session"))},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assertStartForwarded(t, home, tc.dir, resolvedPath(t, tc.dir))
+		})
+	}
+}
+
+func TestControlForwardsStartsBelowUnreadableStamp(t *testing.T) {
+	home := t.TempDir()
+	parent := makeDir(t, filepath.Join(home, "parent"))
+	child := makeDir(t, filepath.Join(parent, "child"))
+	own := makeDir(t, filepath.Join(home, "own"))
+	// A settings file that is a directory exists but cannot be read as a file.
+	makeDir(t, filepath.Join(parent, ".claude", "settings.json"))
+	makeDir(t, filepath.Join(own, ".claude", "settings.json"))
+
+	cases := []struct {
+		name string
+		dir  string
+	}{
+		{"below unreadable stamp", child},
+		{"in folder with unreadable stamp", own},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assertStartForwarded(t, home, tc.dir, resolvedPath(t, tc.dir))
+		})
+	}
+}
+
+// gitIn runs git in dir with a synthetic identity, and fails the test when git fails.
+func gitIn(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	full := append([]string{
+		"-c", "user.name=synthetic", "-c", "user.email=synthetic@example.invalid", "-c", "commit.gpgsign=false",
+	}, args...)
+	cmd := exec.Command("git", full...)
+	cmd.Dir = dir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git %v in %s: %v\n%s", args, dir, err, out)
+	}
+}
+
+// makeCheckout makes folder a git repository with one empty commit, and returns folder.
+func makeCheckout(t *testing.T, folder string) string {
+	t.Helper()
+	makeDir(t, folder)
+	gitIn(t, folder, "init", "-q")
+	gitIn(t, folder, "commit", "-q", "--allow-empty", "-m", "synthetic")
+	return folder
+}
+
+// makeWorktree adds a linked worktree of checkout at folder, and returns folder.
+func makeWorktree(t *testing.T, checkout, folder string) string {
+	t.Helper()
+	gitIn(t, checkout, "worktree", "add", "-q", folder)
+	return folder
+}
+
+func TestControlForwardsStartsInWorktreeOfStampedCheckout(t *testing.T) {
+	for _, name := range stampFileNames() {
+		t.Run(name, func(t *testing.T) {
+			home := t.TempDir()
+			checkout := makeCheckout(t, filepath.Join(home, "repo"))
+			writeSettings(t, checkout, name)
+			worktree := makeWorktree(t, checkout, filepath.Join(home, "repo-wt"))
+			cases := []struct {
+				name string
+				dir  string
+			}{
+				{"worktree root", worktree},
+				{"subfolder of worktree", makeDir(t, filepath.Join(worktree, "sub"))},
+			}
+			for _, tc := range cases {
+				t.Run(tc.name, func(t *testing.T) {
+					assertStartForwarded(t, home, tc.dir, resolvedPath(t, tc.dir))
+				})
+			}
+		})
+	}
+}
+
+func TestControlForwardsStartsInWorktreeOfCheckoutBelowStampedFolder(t *testing.T) {
+	home := t.TempDir()
+	stamped := makeDir(t, filepath.Join(home, "stamped"))
+	writeSettings(t, stamped, "settings.json")
+	checkout := makeCheckout(t, filepath.Join(stamped, "repo"))
+	worktree := makeWorktree(t, checkout, filepath.Join(home, "repo-wt"))
+	cases := []struct {
+		name string
+		dir  string
+	}{
+		{"worktree root", worktree},
+		{"subfolder of worktree", makeDir(t, filepath.Join(worktree, "sub"))},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assertStartForwarded(t, home, tc.dir, resolvedPath(t, tc.dir))
+		})
+	}
+}
+
+func TestControlForwardsStartsInWorktreesOfPlainCheckout(t *testing.T) {
+	home := t.TempDir()
+	plain := makeCheckout(t, filepath.Join(home, "plain"))
+	plainWorktree := makeWorktree(t, plain, filepath.Join(home, "plain-wt"))
+	ownWorktree := makeWorktree(t, plain, filepath.Join(home, "own-wt"))
+	writeSettings(t, ownWorktree, "settings.local.json")
+	cases := []struct {
+		name string
+		dir  string
+	}{
+		{"worktree of unstamped checkout", plainWorktree},
+		{"subfolder of worktree of unstamped checkout", makeDir(t, filepath.Join(plainWorktree, "sub"))},
+		{"worktree with its own stamp", ownWorktree},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assertStartForwarded(t, home, tc.dir, resolvedPath(t, tc.dir))
 		})
 	}
 }

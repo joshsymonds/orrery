@@ -53,7 +53,7 @@ func newStepWireFixture(t *testing.T, haiku *Haiku) *stepWireFixture {
 		Store:     s,
 		Writer:    writer,
 		Worktrees: t.TempDir(),
-		Environ:   []string{"PATH=" + os.Getenv("PATH")},
+		Environ:   []string{"PATH=" + os.Getenv("PATH"), "HOME=" + t.TempDir()},
 		Logger:    slog.New(slog.DiscardHandler),
 		Haiku:     haiku,
 		Now:       clock.now,

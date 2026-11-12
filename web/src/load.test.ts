@@ -61,9 +61,12 @@ function clientsWith(answers: Record<string, Answer>): { clients: ReturnType<typ
   return { clients: createClients(transport), unexpected };
 }
 
+// The store position Sessions.List reports, as proto JSON writes an int64.
+const syntheticSeq = "42";
+
 const answered: Record<string, Answer> = {
   [panesPath]: { status: 200, body: { panes: [syntheticPane] } },
-  [sessionsPath]: { status: 200, body: { sessions: [syntheticSession] } },
+  [sessionsPath]: { status: 200, body: { sessions: [syntheticSession], seq: syntheticSeq } },
 };
 
 const sessionsUnavailable: Answer = {
@@ -83,6 +86,7 @@ test("both lists answer: rows come from the panes and the sessions, with no erro
 
   assert.deepEqual(unexpected, []);
   assert.equal(result.error, "");
+  assert.equal(result.seq, 42n);
   assert.deepEqual(
     result.rows.map((row) => [row.kind, row.key, row.label]),
     [
@@ -102,6 +106,7 @@ test("Sessions.List fails: rows come from the panes alone, with no error", async
 
   assert.deepEqual(unexpected, []);
   assert.equal(result.error, "");
+  assert.equal(result.seq, 0n);
   assert.deepEqual(
     result.rows.map((row) => row.key),
     ["pane:box:%1"],
@@ -119,6 +124,7 @@ test("Panes.List fails: the error names the panes list without server text, and 
   assert.deepEqual(unexpected, []);
   assert.equal(result.error, "panes unavailable");
   assert.ok(!result.error.includes("server detail"), `error carried server text: ${result.error}`);
+  assert.equal(result.seq, 42n);
   assert.deepEqual(
     result.rows.map((row) => row.key),
     ["session:s1"],

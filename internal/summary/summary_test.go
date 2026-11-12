@@ -38,11 +38,19 @@ const (
 	labelMarker     = "label: <3 to 4 words"
 )
 
-// argvFor is the exact argv after the binary for model.
-func argvFor(model string) []string {
+// hooksOnlySettings is the --settings document of a run with no env.
+const hooksOnlySettings = `{"disableAllHooks":true}`
+
+// baseURLSettings is the --settings document of a run whose env sets ANTHROPIC_BASE_URL to baseURL.
+func baseURLSettings(baseURL string) string {
+	return `{"disableAllHooks":true,"env":{"ANTHROPIC_BASE_URL":"` + baseURL + `"}}`
+}
+
+// argvFor is the exact argv after the binary for model and settings.
+func argvFor(model, settings string) []string {
 	return []string{
 		"-p", "--model", model,
-		"--settings", `{"disableAllHooks":true}`,
+		"--settings", settings,
 		"--no-session-persistence",
 		"--tools", "",
 		"--max-turns", "1",
@@ -366,8 +374,8 @@ func TestSummarizerFlags(t *testing.T) {
 		t.Fatalf("Summarize: %v", err)
 	}
 	got := onlyCall(t, r.bin)
-	if !slices.Equal(got.args, argvFor(exampleModel)) {
-		t.Fatalf("argv = %q, want %q", got.args, argvFor(exampleModel))
+	if want := argvFor(exampleModel, baseURLSettings(exampleBaseURL)); !slices.Equal(got.args, want) {
+		t.Fatalf("argv = %q, want %q", got.args, want)
 	}
 	if got.cwd != "/" {
 		t.Fatalf("cwd = %q, want %q", got.cwd, "/")
@@ -386,8 +394,11 @@ func TestSummarizerEnv(t *testing.T) {
 		if err := r.s.Summarize(t.Context(), r.job(false)); err != nil {
 			t.Fatalf("Summarize: %v", err)
 		}
-		want := []string{"ANTHROPIC_BASE_URL=" + exampleBaseURL, "ORRERY_SUMMARIZER=1"}
-		assertEnv(t, r.bin, want)
+		want := argvFor(protocol.DefaultSummaryModel, baseURLSettings(exampleBaseURL))
+		if got := onlyCall(t, r.bin).args; !slices.Equal(got, want) {
+			t.Fatalf("argv = %q, want %q", got, want)
+		}
+		assertEnv(t, r.bin, []string{"ORRERY_SUMMARIZER=1", "ANTHROPIC_BASE_URL=" + exampleBaseURL})
 	})
 
 	t.Run("base url empty", func(t *testing.T) {
@@ -397,6 +408,10 @@ func TestSummarizerEnv(t *testing.T) {
 		job.BaseURL = ""
 		if err := r.s.Summarize(t.Context(), job); err != nil {
 			t.Fatalf("Summarize: %v", err)
+		}
+		want := argvFor(protocol.DefaultSummaryModel, hooksOnlySettings)
+		if got := onlyCall(t, r.bin).args; !slices.Equal(got, want) {
+			t.Fatalf("argv = %q, want %q", got, want)
 		}
 		assertEnv(t, r.bin, []string{"ORRERY_SUMMARIZER=1"})
 	})
@@ -420,7 +435,7 @@ func TestSummarizerModel(t *testing.T) {
 		if err := r.s.Summarize(t.Context(), r.job(false)); err != nil {
 			t.Fatalf("Summarize: %v", err)
 		}
-		if got := onlyCall(t, r.bin).args; !slices.Equal(got, argvFor(exampleModel)) {
+		if got := onlyCall(t, r.bin).args; !slices.Equal(got, argvFor(exampleModel, baseURLSettings(exampleBaseURL))) {
 			t.Fatalf("argv = %q, want model %q", got, exampleModel)
 		}
 	})
@@ -428,13 +443,115 @@ func TestSummarizerModel(t *testing.T) {
 	t.Run("unmapped context", func(t *testing.T) {
 		r := newRig(t, models, 0)
 		r.place(t, "reply", validReply)
+		const otherURL = "https://patchbay.example.com/ctx/other-context"
 		job := r.job(false)
-		job.BaseURL = "https://patchbay.example.com/ctx/other-context"
+		job.BaseURL = otherURL
 		if err := r.s.Summarize(t.Context(), job); err != nil {
 			t.Fatalf("Summarize: %v", err)
 		}
-		if got := onlyCall(t, r.bin).args; !slices.Equal(got, argvFor(protocol.DefaultSummaryModel)) {
-			t.Fatalf("argv = %q, want model %q", got, protocol.DefaultSummaryModel)
+		want := argvFor(protocol.DefaultSummaryModel, baseURLSettings(otherURL))
+		if got := onlyCall(t, r.bin).args; !slices.Equal(got, want) {
+			t.Fatalf("argv = %q, want %q", got, want)
+		}
+	})
+}
+
+// writeSettings writes body as the settings file of folder, creating the folder's .claude directory.
+func writeSettings(t *testing.T, folder, body string) {
+	t.Helper()
+	dir := filepath.Join(folder, ".claude")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("make %s: %v", dir, err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "settings.json"), []byte(body), 0o600); err != nil {
+		t.Fatalf("write settings: %v", err)
+	}
+}
+
+// makeFolder creates folder and returns it.
+func makeFolder(t *testing.T, folder string) string {
+	t.Helper()
+	if err := os.MkdirAll(folder, 0o755); err != nil {
+		t.Fatalf("make folder: %v", err)
+	}
+	return folder
+}
+
+func TestSummarizerStamp(t *testing.T) {
+	// The stamped context and the job's base URL name different contexts, each with its own model.
+	const stampURL = "http://127.0.0.1:9/ctx/example"
+	models := map[string]string{"example": "example-stamp-model", exampleContext: exampleModel}
+	stampBody := `{"env":{"ANTHROPIC_BASE_URL":"` + stampURL + `","EXAMPLE_SETTING":"example-value"}}`
+	stampSettings := `{"disableAllHooks":true,"env":{"ANTHROPIC_BASE_URL":"` + stampURL + `","EXAMPLE_SETTING":"example-value"}}`
+	t.Setenv("ANTHROPIC_BASE_URL", "https://patchbay.example.com/ctx/leftover")
+
+	t.Run("stamp above dir wins over base url", func(t *testing.T) {
+		home := t.TempDir()
+		writeSettings(t, filepath.Join(home, "work"), stampBody)
+		dir := makeFolder(t, filepath.Join(home, "work", "project"))
+		r := newRigWith(t, summary.Config{Models: models, Home: home})
+		r.place(t, "reply", validReply)
+		job := r.job(false)
+		job.Dir = dir
+		if err := r.s.Summarize(t.Context(), job); err != nil {
+			t.Fatalf("Summarize: %v", err)
+		}
+		want := argvFor("example-stamp-model", stampSettings)
+		if got := onlyCall(t, r.bin).args; !slices.Equal(got, want) {
+			t.Fatalf("argv = %q, want %q", got, want)
+		}
+		assertEnv(t, r.bin, []string{"ORRERY_SUMMARIZER=1", "ANTHROPIC_BASE_URL=" + stampURL})
+	})
+
+	t.Run("request dir reaches the stamp", func(t *testing.T) {
+		home := t.TempDir()
+		writeSettings(t, filepath.Join(home, "work"), stampBody)
+		dir := makeFolder(t, filepath.Join(home, "work", "project"))
+		r := newRigWith(t, summary.Config{Models: models, Home: home})
+		r.place(t, "reply", validReply)
+		req := exampleRequest(r.pane, true, exampleTranscript(t, 1), "Example last message")
+		req.Dir = dir
+		r.s.Request(t.Context(), req)
+		waitIdle(t, r.s)
+		want := argvFor("example-stamp-model", stampSettings)
+		if got := onlyCall(t, r.bin).args; !slices.Equal(got, want) {
+			t.Fatalf("argv = %q, want %q", got, want)
+		}
+		assertEnv(t, r.bin, []string{"ORRERY_SUMMARIZER=1", "ANTHROPIC_BASE_URL=" + stampURL})
+	})
+
+	t.Run("no stamp carries base url in settings", func(t *testing.T) {
+		home := t.TempDir()
+		dir := makeFolder(t, filepath.Join(home, "plain", "project"))
+		r := newRigWith(t, summary.Config{Models: models, Home: home})
+		r.place(t, "reply", validReply)
+		job := r.job(false)
+		job.Dir = dir
+		if err := r.s.Summarize(t.Context(), job); err != nil {
+			t.Fatalf("Summarize: %v", err)
+		}
+		want := argvFor(exampleModel, baseURLSettings(exampleBaseURL))
+		if got := onlyCall(t, r.bin).args; !slices.Equal(got, want) {
+			t.Fatalf("argv = %q, want %q", got, want)
+		}
+		assertEnv(t, r.bin, []string{"ORRERY_SUMMARIZER=1", "ANTHROPIC_BASE_URL=" + exampleBaseURL})
+	})
+
+	t.Run("unparseable stamp runs nothing", func(t *testing.T) {
+		home := t.TempDir()
+		writeSettings(t, filepath.Join(home, "broken"), `{"env": `)
+		dir := makeFolder(t, filepath.Join(home, "broken", "project"))
+		r := newRigWith(t, summary.Config{Models: models, Home: home})
+		r.setPrevious(t)
+		r.place(t, "reply", validReply)
+		job := r.job(true)
+		job.Dir = dir
+		if err := r.s.Summarize(t.Context(), job); err == nil {
+			t.Fatal("Summarize: want error for unparseable stamp, got nil")
+		}
+		r.assertPrevious(t)
+		if got := recordedCalls(t, r.bin); len(got) != 0 {
+			t.Fatalf("claude runs = %d, want 0 below an unparseable stamp", len(got))
 		}
 	})
 }

@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -17,9 +18,11 @@ import (
 // queueOperation is the type of a record that Claude Code writes when the queue changes.
 const queueOperation = "queue-operation"
 
-// promptSourceKey is the key that a user line carries when the person's prompt came from the typing, the queue or a
-// suggestion. Every user line the queue rules read holds it.
-const promptSourceKey = `"promptSource"`
+// systemType is the type of a line that Claude Code writes for the system. A turn end is one of its subtypes.
+const systemType = "system"
+
+// turnDurationSubtype is the subtype of the system line that Claude Code writes when a turn ends.
+const turnDurationSubtype = "turn_duration"
 
 // Waiting is one message in Claude Code's queue: its text, cut to maxTextBytes, the unix time it was queued, and
 // whether the person canceled it.
@@ -29,28 +32,34 @@ type Waiting struct {
 	Canceled bool   `json:"canceled"`
 }
 
-// queueRow is a message that the queue holds. Its text is the full text, which matching uses.
+// queueRow is a message that the queue holds. Its text is the full text, which matching uses. dequeued is set when a
+// dequeue record comes while the row waits. seq is the row's place among the rows its transcript enqueued, so a caller
+// can tell rows apart as they leave the queue.
 type queueRow struct {
+	seq      int
 	text     string
 	time     int64
 	canceled bool
+	dequeued bool
 }
 
 // queueLine holds the fields of a transcript line that the queue rules use: a queue record's operation, content and
-// reason, and the fields of a user line that transcriptLine reads.
+// reason, a system line's subtype, and the fields of a user line that transcriptLine reads.
 type queueLine struct {
 	transcriptLine
 	Operation string `json:"operation"`
 	Content   string `json:"content"`
 	Reason    string `json:"reason"`
+	Subtype   string `json:"subtype"`
 }
 
 // queueFile is what Queues remembers of one transcript: the file it read, how many of its bytes were read, and the
 // rows that those bytes leave waiting, oldest first.
 type queueFile struct {
-	info   fs.FileInfo
-	offset int64
-	rows   []queueRow
+	info    fs.FileInfo
+	offset  int64
+	nextSeq int
+	rows    []queueRow
 }
 
 // Queues reports the waiting messages of transcripts. For each path it remembers how far it has read and the rows
@@ -66,11 +75,12 @@ func NewQueues() *Queues {
 }
 
 // Waiting returns the messages that wait in the queue of the transcript at path, oldest first, and never nil. A
-// message waits from its enqueue record until a record closes it: a remove or popAll with the same text, or a
-// queued user line with the same text. A remove with reason cleared_on_cancel marks the message canceled instead.
-// Each enqueue record that opens a message drops the canceled messages, and each typed, queued or accepted user line
-// does too. When idle is true, every message that is not canceled is dropped for good, so only the canceled ones are
-// returned.
+// message waits from its enqueue record until a record closes it. A remove or popAll with the same text closes it, and
+// so does a typed, queued or accepted user line whose text contains it. A dequeue record that comes while the message
+// waits lets the first later user line with the same text close it, whatever that line's promptSource, and lets the
+// next turn end close it. A remove with reason cleared_on_cancel marks the message canceled instead. Each enqueue
+// record that opens a message drops the canceled messages, and each typed, queued or accepted user line does too.
+// When idle is true, every message that is not canceled is dropped for good, so only the canceled ones are returned.
 func (q *Queues) Waiting(path string, idle bool) ([]Waiting, error) {
 	clean := filepath.Clean(path)
 	file, err := os.Open(clean)
@@ -101,8 +111,8 @@ func (q *Queues) Waiting(path string, idle bool) ([]Waiting, error) {
 	return state.waiting(), nil
 }
 
-// scan reads the complete lines of file from the remembered offset to size and applies each queue record and user
-// line it finds. A trailing line without a newline is left unread until a later call sees its newline.
+// scan reads the complete lines of file from the remembered offset to size and applies each queue record, user line
+// and turn end it finds. A trailing line without a newline is left unread until a later call sees its newline.
 func (s *queueFile) scan(file *os.File, size int64) error {
 	reader := bufio.NewReader(io.NewSectionReader(file, s.offset, size-s.offset))
 	for {
@@ -114,13 +124,21 @@ func (s *queueFile) scan(file *os.File, size int64) error {
 			return fmt.Errorf("read transcript: %w", err)
 		}
 		s.offset += int64(len(line))
-		if bytes.Contains(line, []byte(queueOperation)) || bytes.Contains(line, []byte(promptSourceKey)) {
-			s.apply(line)
-		}
+		s.feed(line)
 	}
 }
 
-// apply updates the rows from one line. A line that is neither a queue record nor a user line leaves them unchanged.
+// feed applies one complete line to the rows. Only a queue record, a user line or a turn end can change them, so any
+// other line is skipped before it is parsed. The replay feeds its lines through here too, so both apply one rule.
+func (s *queueFile) feed(line []byte) {
+	if bytes.Contains(line, []byte(queueOperation)) || bytes.Contains(line, []byte(`"user"`)) ||
+		bytes.Contains(line, []byte(turnDurationSubtype)) {
+		s.apply(line)
+	}
+}
+
+// apply updates the rows from one line. A line that is neither a queue record, a user line nor a turn end leaves them
+// unchanged.
 func (s *queueFile) apply(line []byte) {
 	var entry queueLine
 	if json.Unmarshal(line, &entry) != nil {
@@ -131,6 +149,8 @@ func (s *queueFile) apply(line []byte) {
 		s.applyOperation(entry)
 	case "user":
 		s.applyUser(entry)
+	case systemType:
+		s.applySystem(entry)
 	}
 }
 
@@ -140,7 +160,8 @@ func (s *queueFile) applyOperation(entry queueLine) {
 	case "enqueue":
 		if entry.Content != "" && !fromOthers(entry.Content) {
 			s.dropCanceled()
-			s.rows = append(s.rows, queueRow{text: entry.Content, time: unixSeconds(entry.Timestamp)})
+			s.rows = append(s.rows, queueRow{seq: s.nextSeq, text: entry.Content, time: unixSeconds(entry.Timestamp)})
+			s.nextSeq++
 		}
 	case "remove":
 		if entry.Reason == "cleared_on_cancel" {
@@ -150,28 +171,51 @@ func (s *queueFile) applyOperation(entry queueLine) {
 		}
 	case "popAll":
 		s.close(entry.Content)
+	case "dequeue":
+		s.markDequeued()
 	}
 }
 
 // applyUser updates the rows from one user line. A line the person typed, queued or accepted from a suggestion drops
-// the canceled rows, and a queued line closes the row with its text.
+// the canceled rows and closes each row whose text it contains. Any other user line closes the row whose text it
+// equals when a dequeue has come after that row's enqueue.
 func (s *queueFile) applyUser(entry queueLine) {
-	if !typedLine(entry.transcriptLine) {
+	text, _ := splitContent(entry.Message.Content)
+	if typedLine(entry.transcriptLine) {
+		s.dropCanceled()
+		s.closeContained(text)
 		return
 	}
-	s.dropCanceled()
-	if entry.PromptSource == "queued" {
-		text, _ := splitContent(entry.Message.Content)
-		s.close(text)
+	s.closeDequeued(text)
+}
+
+// applySystem updates the rows from one system line. A turn end closes the rows that a dequeue has come after.
+func (s *queueFile) applySystem(entry queueLine) {
+	if entry.Subtype == turnDurationSubtype {
+		s.rows = slices.DeleteFunc(s.rows, func(row queueRow) bool { return row.dequeued && !row.canceled })
 	}
 }
 
-// fromOthers reports whether an enqueue's text belongs to a task notification, an agent message or a cross-session
-// message rather than to the person.
+// markDequeued marks every row that waits as dequeued. A dequeue record names no message, so it applies to the rows
+// that are waiting when it comes. Rows enqueued after it are not marked.
+func (s *queueFile) markDequeued() {
+	for at := range s.rows {
+		s.rows[at].dequeued = true
+	}
+}
+
+// stoppedAgentsPattern matches the plain notice that Claude Code enqueues when it stops background agents: one or more
+// digits and the fixed phrase, at the start of the text.
+var stoppedAgentsPattern = regexp.MustCompile(`\A[0-9]+ background agents were stopped`)
+
+// fromOthers reports whether an enqueue's text belongs to a task notification, an agent message, a cross-session
+// message, a teammate message or the stopped-agents notice rather than to the person.
 func fromOthers(text string) bool {
 	return strings.HasPrefix(text, "<task-notification>") ||
 		strings.HasPrefix(text, "<agent-message") ||
-		strings.HasPrefix(text, "<cross-session-message")
+		strings.HasPrefix(text, "<cross-session-message") ||
+		strings.HasPrefix(text, "<teammate-message") ||
+		stoppedAgentsPattern.MatchString(text)
 }
 
 // find returns the index of the oldest row that is not canceled and whose text is text, or -1 when there is none.
@@ -188,6 +232,28 @@ func (s *queueFile) find(text string) int {
 func (s *queueFile) close(text string) {
 	if at := s.find(text); at >= 0 {
 		s.rows = slices.Delete(s.rows, at, at+1)
+	}
+}
+
+// closeDequeued removes the oldest row whose text is text when a dequeue has come after its enqueue. The rows a dequeue
+// marked are all older than the rows enqueued after it, so the oldest row with text is the marked one whenever a marked
+// row has text.
+func (s *queueFile) closeDequeued(text string) {
+	if at := s.find(text); at >= 0 && s.rows[at].dequeued {
+		s.rows = slices.Delete(s.rows, at, at+1)
+	}
+}
+
+// closeContained removes the oldest row of each distinct text that text contains.
+func (s *queueFile) closeContained(text string) {
+	var contained []string
+	for _, row := range s.rows {
+		if strings.Contains(text, row.text) && !slices.Contains(contained, row.text) {
+			contained = append(contained, row.text)
+		}
+	}
+	for _, rowText := range contained {
+		s.close(rowText)
 	}
 }
 

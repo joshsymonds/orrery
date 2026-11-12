@@ -22,6 +22,7 @@ import (
 
 	"github.com/joshsymonds/orrery/internal/archive"
 	"github.com/joshsymonds/orrery/internal/cli"
+	"github.com/joshsymonds/orrery/internal/conversation"
 	"github.com/joshsymonds/orrery/internal/desk"
 	"github.com/joshsymonds/orrery/internal/deskstream"
 	"github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1/enginev1connect"
@@ -88,6 +89,8 @@ subcommands:
                                                 send text or keys to a pane; --keys must be last
   debug summarize --pane ID --transcript PATH [--claude PATH]
                                                 write a pane's summary and label
+  debug queue-replay --before TIME [--root DIR]
+                                                print the queue replay counts over the transcripts under DIR
   shell --dir DIR --client TTY                  open DIR's shell popup on the client at TTY
   tree --client TTY                             show the pane tree on the client at TTY; N picks a pane
   open [--remote] [--intent TEXT] [ARGS...]     switch to the plan for ARGS, or to the picker; attach outside tmux
@@ -425,11 +428,20 @@ func runServe(ctx context.Context, opts globals, args []string, getenv func(stri
 		return err
 	}
 	var engine enginev1connect.EngineClient
+	var steps server.StepClient
 	var pools enginev1connect.PoolsClient
 	if daemonSocket, sockErr := protocol.SocketPath(opts.daemonSocket, getenv); sockErr == nil {
 		sessionClient := cli.SessionHTTPClient(protocol.SessionSocketPath(daemonSocket))
 		engine = enginev1connect.NewEngineClient(sessionClient, cli.SessionBaseURL)
+		steps = enginev1connect.NewStepsClient(sessionClient, cli.SessionBaseURL)
 		pools = enginev1connect.NewPoolsClient(sessionClient, cli.SessionBaseURL)
+	}
+	// Without a HOME the record root stays empty: os.DirFS refuses an empty root, so Epics fails its reads rather than
+	// reading the working directory's .gambit.
+	var records string
+	home := getenv("HOME")
+	if home != "" {
+		records = filepath.Join(home, ".gambit")
 	}
 	shutdown := make(chan struct{})
 	handler, err := server.New(server.Config{
@@ -440,10 +452,13 @@ func runServe(ctx context.Context, opts globals, args []string, getenv func(stri
 		Sessions:   sessions,
 		Shutdown:   shutdown,
 		Engine:     engine,
+		Steps:      steps,
 		Pools:      pools,
-		Home:       getenv("HOME"),
+		Records:    records,
+		Home:       home,
 		Picker:     servePickerConfig(tmux, getenv),
 		ReportSeen: seenReporter(opts.daemonSocket, getenv),
+		ReportRead: readReporter(opts.daemonSocket, getenv),
 		Web:        webui.FS(),
 	})
 	if err != nil {
@@ -491,6 +506,26 @@ func seenReporter(flagSocket string, getenv func(string) string) cli.SeenReporte
 	}
 }
 
+// readReporter returns the reporter that tells the daemon socket protocol.SocketPath resolves that the phone read a
+// pane at a time. It returns nil when no socket resolves, so the read still answers. A failed report is written to
+// standard error and never fails the read.
+func readReporter(flagSocket string, getenv func(string) string) server.ReadReporter {
+	return readReporterTo(flagSocket, getenv, os.Stderr)
+}
+
+// readReporterTo is readReporter with the writer that receives each failed report.
+func readReporterTo(flagSocket string, getenv func(string) string, errs io.Writer) server.ReadReporter {
+	socket, err := protocol.SocketPath(flagSocket, getenv)
+	if err != nil {
+		return nil
+	}
+	return func(pane string, at int64) {
+		if err := hook.ReportRead(socket, pane, at); err != nil {
+			fmt.Fprintf(errs, "orrery serve: report read: %v\n", err)
+		}
+	}
+}
+
 // runTmux runs a subcommand that works on the tmux server client talks to. report is the seen reporter for seen, and
 // pools reads the pools for tree's pools view.
 func runTmux(ctx context.Context, client *tmuxctl.Client, name string, args []string, stdin *os.File,
@@ -512,7 +547,7 @@ func runTmux(ctx context.Context, client *tmuxctl.Client, name string, args []st
 	case "tree":
 		return tree(ctx, client, args, stdin, out, getenv, report, pools)
 	default:
-		return runDebug(ctx, client, args, getenv)
+		return runDebug(ctx, client, args, out, getenv)
 	}
 }
 
@@ -1001,12 +1036,58 @@ func isSendFlag(name string) bool {
 	}
 }
 
-// runDebug runs `orrery debug summarize`, the only debug subcommand.
-func runDebug(ctx context.Context, client *tmuxctl.Client, args []string, getenv func(string) string) error {
-	if len(args) == 0 || args[0] != "summarize" {
-		return usagef("debug: want subcommand summarize")
+// runDebug runs `orrery debug`, whose subcommands are summarize and queue-replay.
+func runDebug(ctx context.Context, client *tmuxctl.Client, args []string, out io.Writer,
+	getenv func(string) string) error {
+	if len(args) == 0 {
+		return usagef("debug: want subcommand summarize or queue-replay")
 	}
-	return debugSummarize(ctx, client, args[1:], getenv)
+	switch args[0] {
+	case "summarize":
+		return debugSummarize(ctx, client, args[1:], getenv)
+	case "queue-replay":
+		return debugQueueReplay(args[1:], out, getenv)
+	default:
+		return usagef("debug: want subcommand summarize or queue-replay")
+	}
+}
+
+// debugQueueReplay writes the queue replay counts over the transcripts under --root, and nothing else. The counts hold
+// no message text.
+func debugQueueReplay(args []string, out io.Writer, getenv func(string) string) error {
+	flags := flag.NewFlagSet("debug queue-replay", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	before := flags.String("before", "", "RFC 3339 time that splits never taken rows into before and after")
+	root := flags.String("root", "", "directory of Claude projects (default $HOME/.claude/projects)")
+	if err := flags.Parse(args); err != nil {
+		return usagef("debug queue-replay: %v", err)
+	}
+	if flags.NArg() > 0 {
+		return usagef("debug queue-replay: unexpected argument %q", flags.Arg(0))
+	}
+	if *before == "" {
+		return usagef("debug queue-replay: --before is required")
+	}
+	cutoff, err := time.Parse(time.RFC3339, *before)
+	if err != nil {
+		return usagef("debug queue-replay: --before is not an RFC 3339 time")
+	}
+	dir := *root
+	if dir == "" {
+		home := getenv("HOME")
+		if home == "" {
+			return usagef("debug queue-replay: --root is required when HOME is empty")
+		}
+		dir = filepath.Join(home, ".claude", "projects")
+	}
+	replay, err := conversation.ReplayQueues(dir, cutoff)
+	if err != nil {
+		return fmt.Errorf("debug queue-replay: %w", err)
+	}
+	if err = replay.Write(out); err != nil {
+		return fmt.Errorf("debug queue-replay: %w", err)
+	}
+	return nil
 }
 
 // debugSummarize writes the pane's summary and label from one transcript, running the claude binary once.

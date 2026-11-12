@@ -77,27 +77,20 @@ func TestOrrerydWebPushHonorsStopBackgroundTasks(t *testing.T) {
 		}
 	}
 
-	// A pane reads done once orreryd has applied its Stop, and orreryd finishes every frame it has applied and awaits
-	// every notification before it exits. So once each pane reads done and orreryd has exited, each push that will be
-	// sent is queued and no sleep is needed to see a quiet Stop's absence.
+	// A pane reads done once orreryd has applied its Stop. A Stop that notifies is judged after route.JudgeDelay, so
+	// each notifying push is awaited before orreryd stops. orreryd awaits every notification before it exits, so once
+	// it has exited, a push still queued is one a quiet Stop sent.
 	for _, pane := range panes {
 		waitForOption(t, client, pane, protocol.OptionState, string(protocol.StateDone))
 	}
-	wantExit(t, daemon.stop(t), 0)
-	if got := len(endpoint.requests); got != notifying {
-		t.Fatalf("%d push requests, want %d (one per notifying Stop)", got, notifying)
-	}
 	pushed := make(map[string][]string)
 	for range notifying {
-		got := <-endpoint.requests
-		if got.encoding != "aes128gcm" {
-			t.Fatalf("Content-Encoding %q, want aes128gcm", got.encoding)
-		}
-		var note map[string]string
-		if err := json.Unmarshal(decryptPush(t, got.body, endpoint.key, endpoint.auth), &note); err != nil {
-			t.Fatalf("decode notification: %v", err)
-		}
+		note := nextNote(t, endpoint, judgedLimit)
 		pushed[note["pane"]] = append(pushed[note["pane"]], note["state"])
+	}
+	wantExit(t, daemon.stop(t), 0)
+	if extra := len(endpoint.requests); extra != 0 {
+		t.Fatalf("%d push requests beyond the %d notifying Stops", extra, notifying)
 	}
 	for i, c := range cases {
 		states := pushed[panes[i]]

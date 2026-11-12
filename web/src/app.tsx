@@ -1,22 +1,58 @@
+import { Fragment } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 
-import { byAttention, byProject, type Row, type Section } from "./rows";
+import * as actions from "./actions";
+import type { Clients } from "./actions";
+import { Composer } from "./composer";
+import type { Conversation } from "./conversation";
+import {
+  type EpicItem,
+  type EpicSection,
+  type EpicsView,
+  noEpics,
+  placeEpics,
+  type StepItem,
+  withEpicsGroup,
+} from "./epics";
+import { EpicView } from "./epicview";
+import { type Followed, follow } from "./follow";
+import { type ParsedQuestion, parseQuestion } from "./question";
+import { Reader } from "./reader";
+import { byAttention, byProject, type Row } from "./rows";
+import { type SeenClock, type SeenWindow, watchSeen } from "./seen";
+import { StepBox } from "./stepbox";
 import { ReplyText } from "./text";
 
 type View = "attention" | "project";
 
-// The cursor is held by row key, so it survives new rows. index is where it sat, used when its row leaves.
+// The conversation the reader holds, with the row key it belongs to, so a row never shows another row's transcript.
+interface Stream {
+  key: string;
+  conversation: Conversation;
+}
+
+// The cursor is held by entry key, so it survives new entries. index is where it sat, used when its entry leaves.
 interface Cursor {
   key: string;
   index: number;
 }
 
+// An entry the list shows and the cursor can rest on: a row, or an epic or step of the Epics group.
+type Item = Row | EpicItem | StepItem;
+
 const stateWaiting = "waiting";
 const noDirectoryTitle = "no directory";
+const tasksUnavailableText = "tasks unavailable";
+const epicUnavailableText = "epic unavailable";
+const seenFailedText = "could not mark seen";
+const answerFailedText = "no answer was sent";
 
 const secondsPerMinute = 60;
 const minutesPerHour = 60;
 const hoursPerDay = 24;
+
+// A step keeps no seen mark. Infinity makes no item newer than it, so the step's reader draws no since-you-looked rule.
+const stepSeenAt = Number.POSITIVE_INFINITY;
 
 const helpEntries: [string[], string][] = [
   [["j", "k", "↓", "↑"], "move the cursor one row up or down"],
@@ -26,37 +62,200 @@ const helpEntries: [string[], string][] = [
   [["p"], "by project"],
   [["w"], "first waiting row"],
   [["n"], "next unseen row, wrapping"],
+  [["x", "Enter"], "mark the cursor's row seen"],
+  [["e"], "mark it seen, then go to the next unseen row"],
   [["/"], "filter: Enter leaves it, Esc clears it"],
+  [["i"], "focus the reply box"],
+  [["1", "2", "3"], "answer the cursor's waiting question with that choice"],
+  [["o"], "open or close a compaction's summary"],
+  [["|"], "pin the cursor's row in a second column, or close the pin"],
   [["?"], "toggle this help"],
   [["Esc"], "close this help"],
 ];
 
-export function App({ rows, error, now }: { rows: Row[]; error: string; now: number }) {
+export function App({
+  rows,
+  error,
+  now,
+  clients,
+  seenClock,
+  seenWindow,
+  epics = noEpics,
+}: {
+  rows: Row[];
+  error: string;
+  now: number;
+  clients: Clients;
+  seenClock?: SeenClock;
+  seenWindow?: SeenWindow;
+  epics?: EpicsView;
+}) {
   const [view, setView] = useState<View>("attention");
   const [cursor, setCursor] = useState<Cursor>({ key: "", index: 0 });
   const [filter, setFilter] = useState("");
   const [helpOpen, setHelpOpen] = useState(false);
+  const [open, setOpen] = useState(false);
+  const [stream, setStream] = useState<Stream | null>(null);
+  // The rows the cursor has rested on, each with its own composer, so a draft waits where it was typed. A row stays
+  // here while it is missing from the list, as it is for a poll whose list call failed, so its draft is not lost.
+  const [visited, setVisited] = useState<Row[]>([]);
+  // The steps the cursor has rested on, each with its own step box, kept as the visited rows are so a draft survives.
+  const [visitedSteps, setVisitedSteps] = useState<StepItem[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
+  const composerInputs = useRef(new Map<string, HTMLTextAreaElement>());
+  const stepInputs = useRef(new Map<string, HTMLTextAreaElement>());
+  // The row | pinned beside the list, with its own stream. The rows that have been pinned each keep a composer, as the
+  // visited rows do, so a draft or a failed send survives the pin's close and its reopening on that row.
+  const [pinned, setPinned] = useState<Row | null>(null);
+  const [pinStream, setPinStream] = useState<Stream | null>(null);
+  const [pinnedRows, setPinnedRows] = useState<Row[]>([]);
+  const pinnedInputs = useRef(new Map<string, HTMLTextAreaElement>());
   const pendingG = useRef(false);
   const handler = useRef<(event: KeyboardEvent) => void>();
+  // The changed time each row had when its seen write succeeded. A row reads as seen until its changed time moves past it.
+  const [seenWritten, setSeenWritten] = useState<Map<string, number>>(() => new Map());
+  const [seenError, setSeenError] = useState("");
+  const [answerError, setAnswerError] = useState("");
+  const seenWatch = useRef<ReturnType<typeof watchSeen>>();
+  // The row the seen watch last rested on, which its write marks seen.
+  const restedRow = useRef<Row | null>(null);
 
   const words = filter
     .toLowerCase()
     .split(/\s+/)
     .filter((word) => word !== "");
-  const matching = rows.filter((row) => matchesFilter(row, words));
-  const sections = view === "attention" ? byAttention(matching) : byProject(matching);
-  const flat = sections.flatMap((section) => section.rows);
+  const shownRows = rows.map((row) => readAsSeen(row, seenWritten));
+  const matching = shownRows.filter((row) => matchesFilter(row, words));
+  const sections =
+    view === "attention"
+      ? withEpicsGroup(byAttention(matching), epics)
+      : placeEpics(byProject(matching), epics.blocks);
+  const flat = sections.flatMap(entriesOf);
   const index = resolveIndex(flat, cursor);
-  const cursorRowKey = index >= 0 ? flat[index].key : "";
+  const cursorItem = index >= 0 ? flat[index] : null;
+  // The cursor's row, which an epic or step entry never has: the composer and seen watch follow only a row.
+  const cursorRow = cursorItem !== null && isRow(cursorItem) ? cursorItem : null;
+  const cursorKey = cursorItem?.key ?? "";
+  const cursorRowKey = cursorRow?.key ?? "";
+  // The cursor's step, whose reader follows its session and whose step box it shows. An epic entry is no step.
+  const cursorStep = cursorItem?.kind === "step" ? cursorItem : null;
+  const cursorStepKey = cursorStep?.key ?? "";
+  // The entry the reader follows: the cursor's row or step. Its stream is kept under this key, so a stream never
+  // shows under another entry.
+  const readerKey = cursorRowKey !== "" ? cursorRowKey : cursorStepKey;
+  // The cursor's epic or step entry, which the right column draws whether or not a row is pinned. A step entry draws
+  // the epic it belongs to, with the step marked; an epic entry marks no step.
+  const cursorEpic = cursorItem !== null && !isRow(cursorItem) ? cursorItem : null;
+  const cursorStepId = cursorEpic?.kind === "step" ? cursorEpic.id : "";
+  const stepEntries = flat.filter((item): item is StepItem => item.kind === "step");
+  const epicDetail = cursorEpic === null ? undefined : epics.details.get(epicIdOf(cursorEpic));
   const shownIndex = Math.max(index, 0);
 
-  // The held cursor follows the row shown, so a first render or a clamp does not leave it on a stale key.
+  // The held cursor follows the entry shown, so a first render or a clamp does not leave it on a stale key.
   useEffect(() => {
-    if (cursor.key !== cursorRowKey || cursor.index !== shownIndex) {
-      setCursor({ key: cursorRowKey, index: shownIndex });
+    if (cursor.key !== cursorKey || cursor.index !== shownIndex) {
+      setCursor({ key: cursorKey, index: shownIndex });
     }
-  }, [cursor, cursorRowKey, shownIndex]);
+  }, [cursor, cursorKey, shownIndex]);
+
+  // The cursor's row or step is followed while the cursor rests on it: a move to another entry, or an unmount, stops the
+  // stream. A step is followed as its session, by its id.
+  useEffect(() => {
+    let target: Followed | null = null;
+    if (cursorRow !== null) {
+      target = { kind: cursorRow.kind, id: cursorRow.id };
+    } else if (cursorStep !== null) {
+      target = { kind: "session", id: cursorStep.id };
+    }
+    if (target === null) {
+      return undefined;
+    }
+    return follow(clients, target, (conversation) => setStream({ key: readerKey, conversation }));
+  }, [readerKey, clients]);
+
+  useEffect(() => {
+    setVisited((previous) => keepEntries(previous, rows, cursorRow));
+  }, [rows, cursorRowKey]);
+
+  useEffect(() => {
+    setVisitedSteps((previous) => keepEntries(previous, stepEntries, cursorStep));
+  }, [epics, cursorStepKey]);
+
+  useEffect(() => {
+    setPinnedRows((previous) => keepEntries(previous, rows, pinned));
+  }, [rows, pinned]);
+
+  // The pinned row is followed while it stays pinned: its close, or an unmount, stops the stream.
+  const pinnedKey = pinned?.key ?? "";
+  useEffect(() => {
+    if (pinned === null) {
+      return undefined;
+    }
+    return follow(clients, { kind: pinned.kind, id: pinned.id }, (conversation) =>
+      setPinStream({ key: pinned.key, conversation }),
+    );
+  }, [pinnedKey, clients]);
+
+  // A pinned row keeps its last shape while it is missing from the list, as a visited row does.
+  useEffect(() => {
+    setPinned((previous) => (previous === null ? null : (rows.find((row) => row.key === previous.key) ?? previous)));
+  }, [rows]);
+
+  // writeSeen marks a row seen through actions.markSeen. A success reads the row as seen; a failure leaves it unseen and
+  // shows a fixed line.
+  const writeSeen = async (row: Row) => {
+    try {
+      await actions.markSeen(clients, row);
+    } catch {
+      setSeenError(seenFailedText);
+      return;
+    }
+    setSeenError("");
+    setSeenWritten((previous) => new Map(previous).set(row.key, row.changed));
+  };
+
+  // answerCursor sends the choice to the cursor's row's waiting question through actions.answer, with the conversation
+  // the reader holds for that row only. A false result or a rejection shows a fixed line; nothing is retried.
+  const answerCursor = (choice: 1 | 2 | 3) => {
+    if (cursorRow === null) {
+      return;
+    }
+    const conversation = stream !== null && stream.key === cursorRow.key ? stream.conversation : null;
+    void actions
+      .answer(clients, cursorRow, conversation, choice)
+      .catch(() => false)
+      .then((sent) => setAnswerError(sent ? "" : answerFailedText));
+  };
+
+  // The seen watch runs for the page's life: its write marks the row it last rested on, and unmount stops it.
+  useEffect(() => {
+    const watch = watchSeen(
+      seenWindow ?? window,
+      () => {
+        const row = restedRow.current;
+        if (row !== null) {
+          void writeSeen(row);
+        }
+      },
+      seenClock,
+    );
+    seenWatch.current = watch;
+    return () => watch.stop();
+  }, [clients, seenClock, seenWindow]);
+
+  // Each render tells the watch the cursor's row and whether it reads as unseen. A changed row is a new key, so a
+  // change made while the cursor rests on it gets its own dwell.
+  useEffect(() => {
+    restedRow.current = cursorRow;
+    seenWatch.current?.rest(
+      cursorRow === null ? "" : `${cursorRow.key}@${cursorRow.changed}`,
+      cursorRow?.unseen ?? false,
+    );
+  });
+
+  // The conversation the cursor's reader holds, only when its stream belongs to the entry the cursor rests on.
+  const cursorConversation = stream !== null && stream.key === readerKey ? stream.conversation : null;
+  const toggleOpen = () => setOpen((value) => !value);
 
   const moveTo = (target: number) => {
     if (flat.length === 0) {
@@ -66,10 +265,16 @@ export function App({ rows, error, now }: { rows: Row[]; error: string; now: num
     setCursor({ key: flat[next].key, index: next });
   };
 
+  // selectItem moves the cursor to an entry the list shows, as a click on that entry does.
+  const selectItem = (item: Item) => {
+    moveTo(flat.findIndex((candidate) => candidate.key === item.key));
+  };
+
   const nextUnseen = () => {
     for (let step = 1; step <= flat.length; step++) {
       const target = (index + step) % flat.length;
-      if (flat[target].unseen) {
+      const item = flat[target];
+      if (isRow(item) && item.unseen) {
         moveTo(target);
         return;
       }
@@ -87,6 +292,19 @@ export function App({ rows, error, now }: { rows: Row[]; error: string; now: num
       } else if (event.key === "Escape") {
         setFilter("");
         input.blur();
+      }
+      return;
+    }
+    // Keys typed in the reply box are text: only Escape leaves it.
+    const composerBoxes = [
+      ...composerInputs.current.values(),
+      ...pinnedInputs.current.values(),
+      ...stepInputs.current.values(),
+    ];
+    const focusedComposer = composerBoxes.find((box) => box === document.activeElement);
+    if (focusedComposer !== undefined) {
+      if (event.key === "Escape") {
+        focusedComposer.blur();
       }
       return;
     }
@@ -123,7 +341,7 @@ export function App({ rows, error, now }: { rows: Row[]; error: string; now: num
         setView("project");
         break;
       case "w": {
-        const waiting = flat.findIndex((row) => row.state === stateWaiting);
+        const waiting = flat.findIndex((item) => isRow(item) && item.state === stateWaiting);
         if (waiting >= 0) {
           moveTo(waiting);
         }
@@ -132,8 +350,52 @@ export function App({ rows, error, now }: { rows: Row[]; error: string; now: num
       case "n":
         nextUnseen();
         break;
+      case "x":
+      case "Enter":
+        if (cursorRow !== null) {
+          void writeSeen(cursorRow);
+        }
+        break;
+      case "e":
+        if (cursorRow !== null) {
+          void writeSeen(cursorRow);
+          nextUnseen();
+        }
+        break;
       case "/":
         inputRef.current?.focus();
+        break;
+      case "i":
+        if (cursorStep !== null) {
+          stepInputs.current.get(cursorStepKey)?.focus();
+        } else {
+          composerInputs.current.get(cursorRowKey)?.focus();
+        }
+        break;
+      case "1":
+        answerCursor(1);
+        break;
+      case "2":
+        answerCursor(2);
+        break;
+      case "3":
+        answerCursor(3);
+        break;
+      case "o":
+        toggleOpen();
+        break;
+      case "|":
+        // An epic or step entry pins nothing and closes nothing: the pin is a row's.
+        if (cursorRow === null && cursorItem !== null) {
+          break;
+        }
+        if (pinned !== null) {
+          setPinned(null);
+          setPinStream(null);
+        } else if (cursorRow !== null) {
+          setPinned(cursorRow);
+          setPinStream(null);
+        }
         break;
       case "?":
         setHelpOpen((open) => !open);
@@ -169,10 +431,10 @@ export function App({ rows, error, now }: { rows: Row[]; error: string; now: num
           />
         </div>
         <div class="views">
-          <span class={view === "attention" ? "view on" : "view"}>
+          <span class={view === "attention" ? "view on" : "view"} onClick={() => setView("attention")}>
             <kbd>a</kbd>By attention
           </span>
-          <span class={view === "project" ? "view on" : "view"}>
+          <span class={view === "project" ? "view on" : "view"} onClick={() => setView("project")}>
             <kbd>p</kbd>By project
           </span>
         </div>
@@ -182,55 +444,202 @@ export function App({ rows, error, now }: { rows: Row[]; error: string; now: num
           {error}
         </p>
       )}
-      <div class="rows" data-list={view}>
-        {sections.map((section) => (
-          <div class="section">
-            <div class="b-sec">{sectionTitle(section)}</div>
-            {section.rows.map((item) => (
-              <div
-                key={item.key}
-                class={item.key === cursorRowKey ? "b-row cur" : "b-row"}
-                data-row=""
-                data-key={item.key}
-                data-unseen={item.unseen ? "" : undefined}
-                aria-current={item.key === cursorRowKey ? "true" : undefined}
-              >
-                <span class="dot" />
-                <span class={`g g-${item.state}`} aria-hidden="true" />
-                <div class="main">
-                  <div class="l1">
-                    <span class={`state st-${item.state}`}>{item.state}</span>
-                    <span class="label">{item.label}</span>
-                    <span class="proj">{lastPathElement(item.project)}</span>
-                    <span class="age">{ageText(item.changed, now)}</span>
+      {seenError !== "" && (
+        <p class="error" role="alert">
+          {seenError}
+        </p>
+      )}
+      {answerError !== "" && (
+        <p class="error" role="alert">
+          {answerError}
+        </p>
+      )}
+      <div class={panesClass(pinned !== null, cursorStep !== null)}>
+        <div class="list">
+          <div class="rows" data-list={view}>
+            {sections.map((section) => (
+              <div class="section">
+                <div class="b-sec">{sectionTitle(section)}</div>
+                {section.epics.map((block) => (
+                  <Fragment key={block.epic.key}>
+                    <EpicEntry epic={block.epic} current={block.epic.key === cursorKey} onSelect={selectItem} />
+                    {block.steps.map((step) => (
+                      <StepEntry key={step.key} step={step} current={step.key === cursorKey} onSelect={selectItem} />
+                    ))}
+                    {block.more > 0 && <div class="b-more">{`${block.more} more`}</div>}
+                    {block.ended > 0 && <div class="b-more">{`${block.ended} ended`}</div>}
+                  </Fragment>
+                ))}
+                {section.rows.map((item) => (
+                  <div
+                    key={item.key}
+                    class={item.key === cursorRowKey ? "b-row cur" : "b-row"}
+                    data-row=""
+                    data-key={item.key}
+                    data-unseen={item.unseen ? "" : undefined}
+                    aria-current={item.key === cursorRowKey ? "true" : undefined}
+                    onClick={(event) => {
+                      if (!isLinkClick(event)) {
+                        selectItem(item);
+                      }
+                    }}
+                    onDblClick={(event) => {
+                      if (!isLinkClick(event)) {
+                        selectItem(item);
+                        void writeSeen(item);
+                      }
+                    }}
+                  >
+                    <span class="dot" />
+                    <span class={`g g-${item.state}`} aria-hidden="true" />
+                    <div class="main">
+                      <div class="l1">
+                        <span class={`state st-${item.state}`}>{item.state}</span>
+                        <span class="label">{item.label}</span>
+                        <span class="proj">{lastPathElement(item.project)}</span>
+                        <span class="age">{ageText(item.changed, now)}</span>
+                      </div>
+                      <div class="l2">
+                        <ReplyText
+                          text={
+                            item.state === stateWaiting && item.question !== ""
+                              ? parseQuestion(item.question).title
+                              : item.summary
+                          }
+                        />
+                      </div>
+                    </div>
                   </div>
-                  <div class="l2">
-                    <ReplyText text={item.state === stateWaiting && item.question !== "" ? item.question : item.summary} />
-                  </div>
-                </div>
+                ))}
+                {section.folded > 0 && <div class="b-more">{`${section.folded} folded`}</div>}
               </div>
             ))}
           </div>
-        ))}
-      </div>
-      {helpOpen && (
-        <section class="keys" aria-label="keys">
-          <dl>
-            {helpEntries.map(([keys, text]) => (
-              <div key={text} class="key">
-                <dt>
-                  {keys.map((key) => (
-                    <kbd key={key}>{key}</kbd>
-                  ))}
-                </dt>
-                <dd>{text}</dd>
+          {helpOpen && (
+            <section class="keys" aria-label="keys">
+              <dl>
+                {helpEntries.map(([keys, text]) => (
+                  <div key={text} class="key">
+                    <dt>
+                      {keys.map((key) => (
+                        <kbd key={key}>{key}</kbd>
+                      ))}
+                    </dt>
+                    <dd>{text}</dd>
+                  </div>
+                ))}
+              </dl>
+            </section>
+          )}
+        </div>
+        <section class="read" aria-label="reader" hidden={cursorRow === null && cursorStep === null}>
+          {cursorRow !== null && (
+            <Reader
+              conversation={cursorConversation}
+              seenAt={cursorRow.seen}
+              open={open}
+              question={readerQuestion(cursorRow, cursorConversation)}
+              onAnswer={answerCursor}
+              onToggleOpen={toggleOpen}
+            />
+          )}
+          {cursorStep !== null && (
+            <Reader
+              conversation={cursorConversation}
+              seenAt={stepSeenAt}
+              open={open}
+              onToggleOpen={toggleOpen}
+            />
+          )}
+          {composerRows(visited, cursorRow).map((row) => (
+            <div key={row.key} class="reply" hidden={row.key !== cursorRowKey}>
+              <Composer
+                label={row.label}
+                send={(text, promptId) => actions.send(clients, row, text, promptId)}
+                pull={row.kind === "pane" ? () => actions.pullQueued(clients, row) : null}
+                newPromptId={actions.newPromptId}
+                inputRef={(element) => {
+                  if (element === null) {
+                    composerInputs.current.delete(row.key);
+                  } else {
+                    composerInputs.current.set(row.key, element);
+                  }
+                }}
+              />
+            </div>
+          ))}
+          {composerRows(visitedSteps, cursorStep).map((step) => {
+            const calls = stepCalls(clients, step.id);
+            return (
+              <div key={step.id} class="reply" hidden={step.key !== cursorStepKey}>
+                <StepBox
+                  label={step.label}
+                  nudge={calls.nudge}
+                  hold={calls.hold}
+                  stop={calls.stop}
+                  inputRef={(element) => {
+                    if (element === null) {
+                      stepInputs.current.delete(step.key);
+                    } else {
+                      stepInputs.current.set(step.key, element);
+                    }
+                  }}
+                />
               </div>
-            ))}
-          </dl>
+            );
+          })}
         </section>
-      )}
+        <section class="read pinned" aria-label="pinned reader" hidden={pinned === null}>
+          {pinned !== null && <div class="pin-head">{`pinned · ${pinned.label}`}</div>}
+          {pinned !== null && (
+            <Reader
+              conversation={pinStream !== null && pinStream.key === pinned.key ? pinStream.conversation : null}
+              seenAt={pinned.seen}
+              open={false}
+            />
+          )}
+          {composerRows(pinnedRows, pinned).map((row) => (
+            <div key={row.key} class="pin-reply" hidden={row.key !== pinnedKey}>
+              <Composer
+                label={row.label}
+                send={(text, promptId) => actions.send(clients, row, text, promptId)}
+                pull={row.kind === "pane" ? () => actions.pullQueued(clients, row) : null}
+                newPromptId={actions.newPromptId}
+                inputRef={(element) => {
+                  if (element === null) {
+                    pinnedInputs.current.delete(row.key);
+                  } else {
+                    pinnedInputs.current.set(row.key, element);
+                  }
+                }}
+              />
+            </div>
+          ))}
+        </section>
+        <aside class="side" aria-label="epic" hidden={cursorEpic === null}>
+          {cursorEpic !== null &&
+            (epicDetail === undefined ? (
+              <p class="side-note">{epicUnavailableText}</p>
+            ) : (
+              <EpicView detail={epicDetail} cursorStep={cursorStepId} />
+            ))}
+        </aside>
+      </div>
     </main>
   );
+}
+
+// readerQuestion is the question the cursor's reader draws: a waiting pane row's stored question, or a session's open
+// request as its stream holds it. A row with no question draws none.
+function readerQuestion(row: Row, conversation: Conversation | null): ParsedQuestion | null {
+  if (row.kind === "pane") {
+    return row.state === stateWaiting && row.question !== "" ? parseQuestion(row.question) : null;
+  }
+  const request = conversation?.state?.request;
+  if (request === undefined) {
+    return null;
+  }
+  return { title: request.question, options: request.options.map((label) => ({ label, description: "" })) };
 }
 
 // matchesFilter keeps a row whose label, project, host, state or summary holds every typed word.
@@ -239,24 +648,163 @@ function matchesFilter(row: Row, words: string[]): boolean {
   return words.every((word) => haystack.includes(word));
 }
 
-// resolveIndex finds the cursor's row, or the index it sat at, clamped into the rows; -1 when there are none.
-function resolveIndex(rows: Row[], cursor: Cursor): number {
-  if (rows.length === 0) {
+// readAsSeen clears a row's unseen mark once its seen write succeeded, until its changed time moves past the one it had.
+function readAsSeen(row: Row, written: Map<string, number>): Row {
+  const writtenAt = written.get(row.key);
+  return row.unseen && writtenAt !== undefined && row.changed <= writtenAt ? { ...row, unseen: false } : row;
+}
+
+// keepEntries adds the entry to the entries that keep a box and refreshes each kept entry from the latest list. An
+// entry missing from the list is kept as it was. It returns previous itself when nothing changes, so an unchanged list
+// does not render again.
+function keepEntries<T extends { key: string }>(previous: T[], latest: T[], added: T | null): T[] {
+  const kept = previous.map((held) => latest.find((entry) => entry.key === held.key) ?? held);
+  if (added !== null && !kept.some((entry) => entry.key === added.key)) {
+    kept.push(added);
+  }
+  const unchanged = kept.length === previous.length && kept.every((entry, position) => entry === previous[position]);
+  return unchanged ? previous : kept;
+}
+
+// composerRows returns the entries that render a box: the kept entries, and the shown entry before the effect has added
+// it.
+function composerRows<T extends { key: string }>(kept: T[], shown: T | null): T[] {
+  if (shown === null || kept.some((entry) => entry.key === shown.key)) {
+    return kept;
+  }
+  return [...kept, shown];
+}
+
+// panesClass names the grid the columns sit in: split when a row is pinned, and with-step when a step's reader and its
+// epic column both show.
+function panesClass(split: boolean, withStep: boolean): string {
+  return `panes${split ? " split" : ""}${withStep ? " with-step" : ""}`;
+}
+
+// stepCalls are the owner's calls on one step, each naming the step by its id: Steps.Nudge with the text, Steps.Hold,
+// and Steps.Stop. The page has no other call on a step.
+function stepCalls(clients: Clients, id: string) {
+  return {
+    nudge: async (text: string): Promise<void> => {
+      await clients.steps.nudge({ id, text });
+    },
+    hold: async (): Promise<void> => {
+      await clients.steps.hold({ id });
+    },
+    stop: async (): Promise<void> => {
+      await clients.steps.stop({ id });
+    },
+  };
+}
+
+// resolveIndex finds the cursor's entry, or the index it sat at, clamped into the entries; -1 when there are none.
+function resolveIndex(items: Item[], cursor: Cursor): number {
+  if (items.length === 0) {
     return -1;
   }
-  const found = rows.findIndex((row) => row.key === cursor.key);
-  return found >= 0 ? found : clamp(cursor.index, rows.length);
+  const found = items.findIndex((item) => item.key === cursor.key);
+  return found >= 0 ? found : clamp(cursor.index, items.length);
+}
+
+// isRow tells a row from an epic or step entry by its kind.
+function isRow(item: Item): item is Row {
+  return item.kind === "pane" || item.kind === "session";
+}
+
+// epicIdOf is the id of the epic an epic or step entry belongs to, which the epics' details are held by.
+function epicIdOf(entry: EpicItem | StepItem): string {
+  return entry.kind === "epic" ? entry.id : entry.epic;
+}
+
+// entriesOf lists a section's entries in the order they are drawn: each epic with its steps, then the rows.
+function entriesOf(section: EpicSection): Item[] {
+  return [...section.epics.flatMap((block) => [block.epic, ...block.steps]), ...section.rows];
+}
+
+// EpicEntry draws an epic's line: its gauge, slug, repository, and done of total tasks, or tasks unavailable.
+function EpicEntry({
+  epic,
+  current,
+  onSelect,
+}: {
+  epic: EpicItem;
+  current: boolean;
+  onSelect: (item: Item) => void;
+}) {
+  return (
+    <div
+      class={current ? "b-row epic cur" : "b-row epic"}
+      data-row=""
+      data-key={epic.key}
+      aria-current={current ? "true" : undefined}
+      onClick={(event) => {
+        if (!isLinkClick(event)) {
+          onSelect(epic);
+        }
+      }}
+    >
+      {epic.known && <Gauge done={epic.done} total={epic.total} />}
+      <span class="label">{epic.slug}</span>
+      <span class="proj">{epic.repository}</span>
+      <span class="count">{epic.known ? `${epic.done}/${epic.total}` : tasksUnavailableText}</span>
+    </div>
+  );
+}
+
+// StepEntry draws a step's line: its label, held when it is held, and its doing text as text.
+function StepEntry({
+  step,
+  current,
+  onSelect,
+}: {
+  step: StepItem;
+  current: boolean;
+  onSelect: (item: Item) => void;
+}) {
+  return (
+    <div
+      class={current ? "b-row step cur" : "b-row step"}
+      data-row=""
+      data-key={step.key}
+      aria-current={current ? "true" : undefined}
+      onClick={(event) => {
+        if (!isLinkClick(event)) {
+          onSelect(step);
+        }
+      }}
+    >
+      <span class="label">{step.label}</span>
+      {step.held && <span class="held">held</span>}
+      <ReplyText text={step.doing} />
+    </div>
+  );
+}
+
+// Gauge draws the done share of the tasks as an arc over a full circle. A circle of no tasks gets no arc.
+function Gauge({ done, total }: { done: number; total: number }) {
+  const share = total === 0 ? 0 : done / total;
+  return (
+    <svg class="gauge" aria-hidden="true" viewBox="0 0 36 36">
+      <circle class="gauge-rest" cx="18" cy="18" r="16" pathLength="1" />
+      <circle class="gauge-done" cx="18" cy="18" r="16" pathLength="1" stroke-dasharray={`${share} 1`} />
+    </svg>
+  );
+}
+
+// isLinkClick reports whether a click or double click landed on a link, which opens it and moves nothing else.
+function isLinkClick(event: Event): boolean {
+  return event.target instanceof Element && event.target.closest("a") !== null;
 }
 
 function clamp(index: number, length: number): number {
   return Math.min(Math.max(index, 0), length - 1);
 }
 
-function sectionTitle(section: Section): string {
+function sectionTitle(section: EpicSection): string {
   if (section.title !== "") {
     return section.title;
   }
-  return section.rows[0].host || noDirectoryTitle;
+  return section.rows[0]?.host || noDirectoryTitle;
 }
 
 function lastPathElement(path: string): string {

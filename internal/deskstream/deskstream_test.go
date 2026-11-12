@@ -149,6 +149,32 @@ func TestHelloThenNoticesInOrder(t *testing.T) {
 	}
 }
 
+func TestQuietNoticeLineCarriesQuietKey(t *testing.T) {
+	hub := NewHub("gnomon", newClock().now, nil)
+	path, _ := startHub(t, hub)
+	c := dial(t, path)
+	c.readLine()
+
+	hub.Post(Notice{State: "done", Title: "T", Body: "B", Quiet: true})
+	want := `{"kind":"notice","host":"gnomon","state":"done","title":"T","body":"B","quiet":true}`
+	if got := c.readLine(); got != want {
+		t.Fatalf("quiet notice = %s, want %s", got, want)
+	}
+}
+
+func TestNoticeWithoutQuietHasNoQuietKey(t *testing.T) {
+	hub := NewHub("gnomon", newClock().now, nil)
+	path, _ := startHub(t, hub)
+	c := dial(t, path)
+	c.readLine()
+
+	hub.Post(Notice{State: "done", Title: "T", Body: "B"})
+	want := `{"kind":"notice","host":"gnomon","state":"done","title":"T","body":"B"}`
+	if got := c.readLine(); got != want {
+		t.Fatalf("notice = %s, want %s (no quiet key when Quiet is false)", got, want)
+	}
+}
+
 func TestTwoStreamsReceiveNotices(t *testing.T) {
 	hub := NewHub("gnomon", newClock().now, nil)
 	path, _ := startHub(t, hub)

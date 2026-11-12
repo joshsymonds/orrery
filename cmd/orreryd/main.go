@@ -1,5 +1,5 @@
 // Command orreryd is the orrery daemon. It listens on a unix socket for hook frames, applies each one to the pane
-// it names, starts summaries, and posts waiting and done notifications to the desk stream and Web Push.
+// it names, starts summaries, and routes waiting and done notifications to the desk stream and Web Push.
 package main
 
 import (
@@ -23,12 +23,16 @@ import (
 
 	"github.com/joshsymonds/orrery/internal/autoseen"
 	"github.com/joshsymonds/orrery/internal/daemon"
+	"github.com/joshsymonds/orrery/internal/desk"
 	"github.com/joshsymonds/orrery/internal/deskstream"
+	"github.com/joshsymonds/orrery/internal/donejudge"
 	"github.com/joshsymonds/orrery/internal/enginehost"
 	"github.com/joshsymonds/orrery/internal/grants"
 	"github.com/joshsymonds/orrery/internal/notice"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/push"
+	"github.com/joshsymonds/orrery/internal/route"
+	"github.com/joshsymonds/orrery/internal/stamp"
 	"github.com/joshsymonds/orrery/internal/store"
 	"github.com/joshsymonds/orrery/internal/summary"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
@@ -47,6 +51,9 @@ const (
 	keyLastAssistantMessage = "last_assistant_message"
 )
 
+// envAnthropicBaseURL is the settings env key that sets claude's API base URL.
+const envAnthropicBaseURL = "ANTHROPIC_BASE_URL"
+
 const (
 	defaultClaude = "claude"
 	// defaultSessionCap is the most live engine sessions at once when --session-cap is not given.
@@ -55,6 +62,12 @@ const (
 	defaultStepCap = 6
 	// notifyTimeout bounds each notification request.
 	notifyTimeout = 10 * time.Second
+	// noticeLogName is the notice log's file name, beside the push store.
+	noticeLogName = "notices.jsonl"
+	// readWindow is how long after a read report its pane still counts as read, so a waiting notice for it is held.
+	readWindow = 30 * time.Second
+	// silentBackground is why a done notice goes nowhere when its Stop left a subagent or workflow running.
+	silentBackground = "background work"
 	// brokerTick is how often the grants broker ticks. Each tick ends the grants of gone clients and polls each member.
 	brokerTick = 60 * time.Second
 	// waitingBody and doneBody stand in for an empty question or summary.
@@ -316,6 +329,12 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 	if err != nil {
 		return fmt.Errorf("push publisher: %w", err)
 	}
+	noticeLog, err := route.OpenLog(filepath.Join(filepath.Dir(storePath), noticeLogName))
+	if err != nil {
+		return fmt.Errorf("notice log: %w", err)
+	}
+	// The log closes last, after the router and the notices that write to it have stopped.
+	defer closeLog(ctx, noticeLog, logger)
 	notices := notice.New(host, pushes, time.Now, logger)
 	ln, deskLn, err := listenSockets(opts.socket)
 	if err != nil {
@@ -326,24 +345,34 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 	defer desk.Close()
 
 	st := openStore(ctx, getenv, logger)
-	var mirror *daemon.Mirror
-	if st != nil {
-		mirror = daemon.NewMirror(st, time.Now, logger)
-	}
+	mirror := newMirror(st, logger)
+	home := getenv("HOME")
+	router := route.New(route.Config{
+		Host:       host,
+		Now:        time.Now,
+		Desk:       desk,
+		Phone:      notices,
+		Subscribed: hasSubscription(store),
+		LocalInput: localInput(opts),
+		Log:        noticeLog,
+		Logger:     logger,
+	})
 	hub := &relay{
-		claude:      opts.claude,
-		models:      opts.models,
-		logger:      logger,
-		desk:        desk,
-		notices:     notices,
+		claude: opts.claude,
+		models: opts.models,
+		home:   home,
+		logger: logger,
+		router: router,
+		judge: donejudge.New(
+			enginehost.NewHaiku(enginehost.HaikuConfig{Claude: opts.claude, Environ: os.Environ()}),
+			opts.models,
+		),
+		reads:       newReadTimes(),
 		mirror:      mirror,
 		summarizers: make(map[tmuxctl.Server]*summary.Summarizer),
 	}
 	observe := func(transition daemon.Transition) { hub.observe(ctx, transition) }
-	notifier := enginehost.NewNotifier(enginehost.NotifierConfig{
-		Push: notices,
-		Desk: desk,
-	})
+	notifier := enginehost.NewNotifier(enginehost.NotifierConfig{Route: router})
 	var sessions *sessionHost
 	if opts.sessions {
 		sessions, err = startSessions(ctx, opts, host, st, notifier, logger, getenv)
@@ -355,11 +384,15 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 	serveErr := daemon.Serve(ctx, ln, daemon.Config{
 		Server:        opts.server,
 		DefaultServer: opts.defaultServer,
+		Home:          home,
 		Observers: []daemon.Observer{observe, autoseen.New(time.Now, logger, func(pane string, seen int64) {
-			notices.Seen(ctx, notice.Key{Pane: pane}, seen)
+			router.Seen(ctx, notice.Key{Pane: pane}, seen)
 		})},
 		Seen: func(report daemon.SeenReport) {
-			notices.Seen(ctx, notice.Key{Pane: report.PaneID}, report.Seen)
+			router.Seen(ctx, notice.Key{Pane: report.PaneID}, report.Seen)
+		},
+		Read: func(report daemon.ReadReport) {
+			hub.reads.note(report.PaneID, report.Read)
 		},
 		Logger: logger,
 		Mirror: mirror,
@@ -369,7 +402,8 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 	if sessions != nil {
 		sessionErr = sessions.stop()
 	}
-	// Stopping the sessions can notify an interrupted turn, so the notice record is waited on after it.
+	// Stopping the sessions can notify an interrupted turn, so the router and the notices are waited on after it.
+	shutdownRouter(router)
 	notices.Wait()
 	closeStore(ctx, st, logger)
 	if serveErr != nil {
@@ -580,6 +614,14 @@ func openStore(ctx context.Context, getenv func(string) string, logger *slog.Log
 	return st
 }
 
+// newMirror returns the mirror that writes panes to st, or nil when st is nil.
+func newMirror(st *store.Store, logger *slog.Logger) *daemon.Mirror {
+	if st == nil {
+		return nil
+	}
+	return daemon.NewMirror(st, time.Now, logger)
+}
+
 // closeStore closes st when it is open and logs a failed close.
 func closeStore(ctx context.Context, st *store.Store, logger *slog.Logger) {
 	if st == nil {
@@ -590,18 +632,109 @@ func closeStore(ctx context.Context, st *store.Store, logger *slog.Logger) {
 	}
 }
 
+// shutdownRouter waits for the router's running decisions, then closes it, so a notice received before shutdown routes
+// instead of ending with a shutdown line.
+func shutdownRouter(router *route.Router) {
+	router.Wait()
+	router.Close()
+}
+
+// closeLog closes noticeLog and logs a failed close.
+func closeLog(ctx context.Context, noticeLog *route.Log, logger *slog.Logger) {
+	if err := noticeLog.Close(); err != nil {
+		logger.ErrorContext(ctx, "close notice log", "error", err)
+	}
+}
+
+// tmuxClient returns the client for server. Its error names the server that did not resolve.
+func tmuxClient(server tmuxctl.Server) (*tmuxctl.Client, error) {
+	client, err := tmuxctl.New(server)
+	if err != nil {
+		return nil, fmt.Errorf("resolve tmux server: %w", err)
+	}
+	return client, nil
+}
+
+// localInput returns the router's LocalInput: the newest input made on the tmux server orreryd serves, or on the
+// default server when it serves none by name.
+func localInput(opts options) func(context.Context) (int64, bool, error) {
+	server := opts.server
+	if server == (tmuxctl.Server{}) {
+		server = opts.defaultServer
+	}
+	return func(ctx context.Context) (int64, bool, error) {
+		client, err := tmuxClient(server)
+		if err != nil {
+			return 0, false, err
+		}
+		input, ok, err := desk.NewestInput(ctx, client)
+		if err != nil {
+			return 0, false, fmt.Errorf("newest input: %w", err)
+		}
+		return input, ok, nil
+	}
+}
+
+// hasSubscription returns the router's Subscribed: whether the push store lists at least one subscription.
+func hasSubscription(store *push.Store) func() (bool, error) {
+	return func() (bool, error) {
+		subs, err := store.List()
+		if err != nil {
+			return false, fmt.Errorf("list push subscriptions: %w", err)
+		}
+		return len(subs) > 0, nil
+	}
+}
+
 // relay turns each state change into summary requests and notifications. Its observe method runs under the
 // daemon's lock, so it starts work and returns without waiting on HTTP. On SessionEnd it waits on tmux for the
 // summarizer to forget the pane, so no run started before SessionEnd writes after the pane's next session begins.
 type relay struct {
 	claude      string
 	models      map[string]string
+	home        string
 	logger      *slog.Logger
-	desk        *deskstream.Hub
-	notices     *notice.Notices // the Web Push notices sent and cleared on this host
-	mirror      *daemon.Mirror  // nil when the store is unavailable
+	router      *route.Router    // routes the waiting and done notices to the desk and the phone
+	judge       *donejudge.Judge // decides whether a plain done needs the user before it routes
+	reads       *readTimes       // each pane's newest read report
+	mirror      *daemon.Mirror   // nil when the store is unavailable
 	summarizers map[tmuxctl.Server]*summary.Summarizer
-	notifying   sync.WaitGroup // one count per notification in flight
+}
+
+// readTimes keeps each pane's newest read time. Read reports arrive on connection goroutines and watching checks run
+// on the router's, so it is safe for concurrent use.
+type readTimes struct {
+	mu    sync.Mutex
+	times map[string]int64
+}
+
+// newReadTimes returns an empty readTimes.
+func newReadTimes() *readTimes {
+	return &readTimes{times: make(map[string]int64)}
+}
+
+// note keeps read as pane's read time when it is newer than the one kept.
+func (rt *readTimes) note(pane string, read int64) {
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	if read > rt.times[pane] {
+		rt.times[pane] = read
+	}
+}
+
+// recent reports whether pane was read within readWindow before now.
+func (rt *readTimes) recent(pane string, now time.Time) bool {
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	read, ok := rt.times[pane]
+	return ok && now.Sub(time.Unix(read, 0)) <= readWindow
+}
+
+// forget drops pane's read time when its session ends.
+func (rt *readTimes) forget(pane string) {
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	delete(rt.times, pane)
 }
 
 // hookString returns the string value of key in the hook JSON, or "" when key is absent or null.
@@ -621,20 +754,22 @@ func hookString(hook json.RawMessage, key string) (string, error) {
 	return value, nil
 }
 
-// observe requests a summary for a pane that starts working or finishes, posts a notification to the desk stream when
-// it waits for input or finishes, records a Web Push notice for the same transitions when push.Wanted
-// allows, and forgets the pane's summary when its session ends.
+// observe requests a summary for a pane that starts working or finishes, hands the notice for a pane that waits for
+// input or finishes to the router, and otherwise tells the router the pane changed. A session's end also forgets the
+// pane's summary and read time.
 func (r *relay) observe(ctx context.Context, transition daemon.Transition) {
 	if transition.To == "" {
 		r.forget(ctx, transition)
+		r.reads.forget(transition.PaneID)
 	}
 	if transition.To == protocol.StateWorking || transition.To == protocol.StateDone {
 		r.summarize(ctx, transition)
 	}
 	if transition.To == protocol.StateWaiting || transition.To == protocol.StateDone {
 		r.notify(ctx, transition)
-		r.webPush(ctx, transition)
+		return
 	}
+	r.router.Changed(notice.Key{Pane: transition.PaneID})
 }
 
 // forget ends the pane's session on the summarizer for its tmux server. The summarizer drops the pane's waiting
@@ -664,6 +799,7 @@ func (r *relay) summarize(ctx context.Context, transition daemon.Transition) {
 	req := summary.Request{
 		PaneID:         transition.PaneID,
 		BaseURL:        transition.Frame.AnthropicBaseURL,
+		Dir:            transition.Frame.Cwd,
 		TranscriptPath: transcript,
 	}
 	if transition.To == protocol.StateDone {
@@ -691,40 +827,13 @@ func (r *relay) summarizerFor(server tmuxctl.Server) (*summary.Summarizer, error
 		onWrite = func(ctx context.Context, pane string) { r.mirror.SyncPane(ctx, server, pane) }
 	}
 	summarizer, err := summary.New(summary.Config{
-		Claude: r.claude, Models: r.models, Tmux: client, Logger: r.logger, OnWrite: onWrite,
+		Claude: r.claude, Models: r.models, Home: r.home, Tmux: client, Logger: r.logger, OnWrite: onWrite,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("summarizer: %w", err)
 	}
 	r.summarizers[server] = summarizer
 	return summarizer, nil
-}
-
-// notify posts the transition's notification from a goroutine that wait awaits.
-func (r *relay) notify(ctx context.Context, transition daemon.Transition) {
-	// A notification accepted before a shutdown signal still goes out.
-	ctx = context.WithoutCancel(ctx)
-	r.notifying.Add(1)
-	go func() {
-		defer r.notifying.Done()
-		r.publish(ctx, transition)
-	}()
-}
-
-// publish reads the pane's stored text from its tmux server, then posts the notification. Failures are logged and
-// never stop the daemon.
-func (r *relay) publish(ctx context.Context, transition daemon.Transition) {
-	client, err := tmuxctl.New(transition.Server)
-	if err != nil {
-		r.logger.ErrorContext(ctx, "resolve tmux server", "pane", transition.PaneID, "error", err)
-		return
-	}
-	text, err := readPaneText(ctx, client, transition.PaneID)
-	if err != nil {
-		r.logger.ErrorContext(ctx, "read notification text", "pane", transition.PaneID, "error", err)
-		return
-	}
-	r.postNotice(ctx, client, transition, filepath.Base(transition.Frame.Cwd), text)
 }
 
 // paneText is the text a notification carries, as stored on its pane.
@@ -752,15 +861,91 @@ func readPaneText(ctx context.Context, client *tmuxctl.Client, pane string) (pan
 	return text, nil
 }
 
-// postNotice posts the notification to the desk stream. Its body is the question when the pane waits and the summary
-// when it is done, and the session and window come from tmux.
-func (r *relay) postNotice(
-	ctx context.Context, client *tmuxctl.Client, transition daemon.Transition, project string, text paneText,
-) {
+// notify hands the transition's notice to the router. A done notice whose Stop left a subagent or workflow running is
+// silent. Any other done is judged before it routes. A hook that does not decode still routes, and its decode error is
+// logged.
+func (r *relay) notify(ctx context.Context, transition daemon.Transition) {
+	wanted, err := push.Wanted(transition.To, transition.Frame.Hook)
+	if err != nil {
+		r.logger.WarnContext(ctx, "decide notice push", "pane", transition.PaneID, "error", err)
+	}
+	silent := ""
+	if !wanted {
+		silent = silentBackground
+	}
+	incoming := route.Notice{
+		Key:      notice.Key{Pane: transition.PaneID},
+		State:    string(transition.To),
+		Silent:   silent,
+		Watching: func(ctx context.Context) (bool, error) { return r.watching(ctx, transition) },
+		Desk:     func(ctx context.Context) (deskstream.Notice, error) { return r.deskNotice(ctx, transition) },
+		Push:     func(ctx context.Context) (push.Notification, error) { return r.pushNotification(ctx, transition) },
+	}
+	if transition.To == protocol.StateDone && silent == "" {
+		incoming.Judge = r.judgeDone(ctx, transition)
+	}
+	r.router.Notify(ctx, incoming)
+}
+
+// judgeDone returns the Judge of a done transition: the verdict on the Stop hook's last assistant message. The call
+// runs against the URL and env of the context stamp in effect for the frame's cwd under the relay's home, or else
+// against the frame's base URL, as the summarizer does. A stamp that cannot be read fails the judge without a call. A
+// last message that does not decode is logged and judged as empty, which fails the judge.
+func (r *relay) judgeDone(
+	ctx context.Context,
+	transition daemon.Transition,
+) func(context.Context) (route.Verdict, error) {
+	message, err := hookString(transition.Frame.Hook, keyLastAssistantMessage)
+	if err != nil {
+		r.logger.WarnContext(ctx, "read last assistant message", "pane", transition.PaneID, "error", err)
+	}
+	return func(ctx context.Context) (route.Verdict, error) {
+		found, err := stamp.Find(r.home, transition.Frame.Cwd)
+		if err != nil {
+			return route.Verdict{}, fmt.Errorf("done judge: find context stamp: %w", err)
+		}
+		baseURL, env := transition.Frame.AnthropicBaseURL, map[string]string(nil)
+		if found.Folder != "" {
+			baseURL, env = found.BaseURL(), found.Env
+		} else if baseURL != "" {
+			env = map[string]string{envAnthropicBaseURL: baseURL}
+		}
+		return r.judge.Done(ctx, baseURL, env, message)
+	}
+}
+
+// watching reports whether the transition's pane is watched: a read report named it within readWindow, or a client of
+// its tmux server shows it with recent input.
+func (r *relay) watching(ctx context.Context, transition daemon.Transition) (bool, error) {
+	now := time.Now()
+	if r.reads.recent(transition.PaneID, now) {
+		return true, nil
+	}
+	client, err := tmuxClient(transition.Server)
+	if err != nil {
+		return false, err
+	}
+	viewing, err := autoseen.Viewing(ctx, client, transition.PaneID, now)
+	if err != nil {
+		return false, fmt.Errorf("pane viewing: %w", err)
+	}
+	return viewing, nil
+}
+
+// deskNotice builds the desk notice for the transition. Its body is the question when the pane waits and the summary
+// when it is done, and its title names the project, session and window.
+func (r *relay) deskNotice(ctx context.Context, transition daemon.Transition) (deskstream.Notice, error) {
+	client, err := tmuxClient(transition.Server)
+	if err != nil {
+		return deskstream.Notice{}, err
+	}
+	text, err := readPaneText(ctx, client, transition.PaneID)
+	if err != nil {
+		return deskstream.Notice{}, fmt.Errorf("read notification text: %w", err)
+	}
 	session, window, err := paneLocation(ctx, client, transition.PaneID)
 	if err != nil {
-		r.logger.ErrorContext(ctx, "read pane location", "pane", transition.PaneID, "error", err)
-		return
+		return deskstream.Notice{}, fmt.Errorf("read pane location: %w", err)
 	}
 	body, fallback := text.question, waitingBody
 	if transition.To == protocol.StateDone {
@@ -769,34 +954,19 @@ func (r *relay) postNotice(
 	if body == "" {
 		body = fallback
 	}
-	r.desk.Post(deskstream.Notice{
+	return deskstream.Notice{
 		State: string(transition.To),
-		Title: deskstream.PaneTitle(project, session, window),
+		Title: deskstream.PaneTitle(filepath.Base(transition.Frame.Cwd), session, window),
 		Body:  body,
-	})
-}
-
-// webPush records a Web Push notice for the transition and sends it in the background when push.Wanted allows. A
-// hook that does not decode still sends, and the decode error is logged.
-func (r *relay) webPush(ctx context.Context, transition daemon.Transition) {
-	wanted, err := push.Wanted(transition.To, transition.Frame.Hook)
-	if err != nil {
-		r.logger.WarnContext(ctx, "decide web push", "pane", transition.PaneID, "error", err)
-	}
-	if !wanted {
-		return
-	}
-	r.notices.Notify(ctx, notice.Key{Pane: transition.PaneID}, func(ctx context.Context) (push.Notification, error) {
-		return r.pushNotification(ctx, transition)
-	})
+	}, nil
 }
 
 // pushNotification reads the pane's stored text from its tmux server and returns the Web Push notification for the
 // transition. Notices sets the host, pane, session and time.
 func (r *relay) pushNotification(ctx context.Context, transition daemon.Transition) (push.Notification, error) {
-	client, err := tmuxctl.New(transition.Server)
+	client, err := tmuxClient(transition.Server)
 	if err != nil {
-		return push.Notification{}, fmt.Errorf("resolve tmux server: %w", err)
+		return push.Notification{}, err
 	}
 	text, err := readPaneText(ctx, client, transition.PaneID)
 	if err != nil {
@@ -828,11 +998,9 @@ func paneLocation(ctx context.Context, client *tmuxctl.Client, pane string) (str
 	return session, window, nil
 }
 
-// wait returns once every summary run and notification has finished. It runs after Serve returns, so no observer
-// can start more work.
+// wait returns once every summary run has finished. It runs after Serve returns, so no observer can start more work.
 func (r *relay) wait() {
 	for _, summarizer := range r.summarizers {
 		summarizer.Wait()
 	}
-	r.notifying.Wait()
 }

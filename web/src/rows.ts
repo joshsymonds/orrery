@@ -3,6 +3,8 @@ import type { Pane, Session } from "./gen/orrery/v1/orrery_pb";
 // One line of the list: a pane, or a headless session that names no pane.
 export interface Row {
   key: string;
+  // The pane's id (such as %3) for a pane row, the session's id for a session row.
+  id: string;
   kind: "pane" | "session";
   label: string;
   project: string;
@@ -10,6 +12,8 @@ export interface Row {
   state: string;
   summary: string;
   question: string;
+  // The pane's question_hash, which answers a waiting question by hash. Empty for a session row.
+  questionHash: string;
   changed: number;
   seen: number;
   unseen: boolean;
@@ -48,6 +52,7 @@ export function rowsFrom(panes: Pane[], sessions: Session[]): Row[] {
     const seen = Number(pane.seen);
     rows.push({
       key: `pane:${pane.host}:${pane.id}`,
+      id: pane.id,
       kind: "pane",
       label: pane.label || pane.session,
       project: pane.cwd,
@@ -55,6 +60,7 @@ export function rowsFrom(panes: Pane[], sessions: Session[]): Row[] {
       state: pane.state,
       summary: pane.summary,
       question: pane.question,
+      questionHash: pane.questionHash,
       changed,
       seen,
       unseen: isUnseen(pane.state, changed, seen),
@@ -68,6 +74,7 @@ export function rowsFrom(panes: Pane[], sessions: Session[]): Row[] {
     const seen = parseSeconds(session.seen);
     rows.push({
       key: `session:${session.id}`,
+      id: session.id,
       kind: "session",
       label: session.label || session.id.slice(0, sessionLabelLength),
       project: "",
@@ -75,6 +82,7 @@ export function rowsFrom(panes: Pane[], sessions: Session[]): Row[] {
       state: session.state,
       summary: session.summary,
       question: session.question,
+      questionHash: "",
       changed,
       seen,
       unseen: isUnseen(session.state, changed, seen),

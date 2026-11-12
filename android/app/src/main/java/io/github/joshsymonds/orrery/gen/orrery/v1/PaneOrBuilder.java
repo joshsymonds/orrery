@@ -329,4 +329,14 @@ public interface PaneOrBuilder extends
    * @return The newestReply.
    */
   long getNewestReply();
+
+  /**
+   * <pre>
+   * The unix seconds the pane's last turn ended, or 0 when unknown.
+   * </pre>
+   *
+   * <code>int64 last_turn_end = 20 [json_name = "lastTurnEnd"];</code>
+   * @return The lastTurnEnd.
+   */
+  long getLastTurnEnd();
 }

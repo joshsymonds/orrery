@@ -34,6 +34,7 @@ data class PushEvent(
     val questionHash: String,
     val session: String = "",
     val time: Long = 0L,
+    val silent: Boolean = false,
 )
 
 class PushNotifier(private val context: Context) {
@@ -41,16 +42,17 @@ class PushNotifier(private val context: Context) {
 
     fun show(event: PushEvent) {
         if (context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
-        ensureChannel()
+        ensureChannels()
         val tag = event.session.ifEmpty { event.pane }
         val id = notificationId(event.host, tag)
-        val replacing = manager.activeNotifications.any { it.id == id }
-        val builder = Notification.Builder(context, CHANNEL_ID)
+        val replacedChannelId = manager.activeNotifications.firstOrNull { it.id == id }?.notification?.channelId
+        val channelId = if (event.silent) SILENT_CHANNEL_ID else CHANNEL_ID
+        val builder = Notification.Builder(context, channelId)
             .setSmallIcon(SMALL_ICON)
             .setContentTitle("${event.project} · ${event.state}")
             .setContentText(event.summary.ifEmpty { event.label })
             .setContentIntent(contentIntent(event, tag))
-            .setOnlyAlertOnce(replacing && event.state !in ALERTING_STATES)
+            .setOnlyAlertOnce(replacedChannelId == channelId && event.state !in ALERTING_STATES)
             .setExtras(timeExtras(event.time))
         if (event.session.isEmpty()) {
             if (event.question.isNotEmpty()) {
@@ -63,7 +65,7 @@ class PushNotifier(private val context: Context) {
 
     fun showResult(notificationId: Int, text: String) {
         if (context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
-        ensureChannel()
+        ensureChannels()
         val existing = manager.activeNotifications.firstOrNull { it.id == notificationId }?.notification
         val builder = Notification.Builder(context, CHANNEL_ID)
             .setSmallIcon(SMALL_ICON)
@@ -82,9 +84,12 @@ class PushNotifier(private val context: Context) {
         if (notice.notification.extras.getLong(EXTRA_TIME) <= seen) manager.cancel(id)
     }
 
-    private fun ensureChannel() {
+    private fun ensureChannels() {
         manager.createNotificationChannel(
             NotificationChannel(CHANNEL_ID, "Panes", NotificationManager.IMPORTANCE_DEFAULT),
+        )
+        manager.createNotificationChannel(
+            NotificationChannel(SILENT_CHANNEL_ID, "Panes (silent)", NotificationManager.IMPORTANCE_LOW),
         )
     }
 
@@ -142,6 +147,7 @@ class PushNotifier(private val context: Context) {
 
     companion object {
         const val CHANNEL_ID = "panes"
+        const val SILENT_CHANNEL_ID = "panes-silent"
         const val ACTION_KEY = "io.github.joshsymonds.orrery.action.KEY"
         const val ACTION_REPLY = "io.github.joshsymonds.orrery.action.REPLY"
         const val EXTRA_PANE = "io.github.joshsymonds.orrery.extra.PANE"

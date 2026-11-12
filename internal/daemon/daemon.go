@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/protocol"
+	"github.com/joshsymonds/orrery/internal/stamp"
 	"github.com/joshsymonds/orrery/internal/state"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
 )
@@ -50,14 +51,25 @@ type Config struct {
 	Observers []Observer
 	// Seen receives each seen report whose pane is set, in the connection's goroutine. Nil drops seen reports.
 	Seen func(SeenReport)
+	// Read receives each read report whose pane is set, in the connection's goroutine. Nil drops read reports.
+	Read func(ReadReport)
 	// Logger receives read, resolve and apply errors. Nil discards them.
 	Logger *slog.Logger
+	// Home is the user's home directory. Each applied frame's Cwd is searched for a context stamp below it. Empty
+	// means no stamp is found.
+	Home string
 }
 
 // SeenReport is one seen report: the pane the sender marked seen and the seen time it wrote.
 type SeenReport struct {
 	PaneID string
 	Seen   int64
+}
+
+// ReadReport is one read report: the pane the phone read and the read time serve wrote.
+type ReadReport struct {
+	PaneID string
+	Read   int64
 }
 
 // Observer receives one state change.
@@ -200,6 +212,10 @@ func (h *frameHandler) serveConn(ctx context.Context, conn net.Conn) {
 		return
 	}
 	if frame.Hook == nil {
+		if frame.Read != 0 {
+			h.reportRead(ctx, frame)
+			return
+		}
 		h.reportSeen(ctx, frame)
 		return
 	}
@@ -221,6 +237,19 @@ func (h *frameHandler) reportSeen(ctx context.Context, frame protocol.HookFrame)
 		return
 	}
 	h.cfg.Seen(SeenReport{PaneID: frame.TmuxPane, Seen: frame.Seen})
+}
+
+// reportRead passes a read report to Config.Read. It drops the report when its pane is empty or Config.Read is nil,
+// and never touches tmux, the pane state, the observers or Config.Seen.
+func (h *frameHandler) reportRead(ctx context.Context, frame protocol.HookFrame) {
+	if frame.TmuxPane == "" {
+		h.logger.WarnContext(ctx, "drop read report", "reason", "empty tmuxPane")
+		return
+	}
+	if h.cfg.Read == nil {
+		return
+	}
+	h.cfg.Read(ReadReport{PaneID: frame.TmuxPane, Read: frame.Read})
 }
 
 // apply runs one frame through state.Apply under the mutex and calls every observer when the state changes. With a
@@ -337,9 +366,7 @@ func (h *frameHandler) applyLocked(
 		h.logger.ErrorContext(ctx, "apply hook frame", "pane", frame.TmuxPane, "error", err)
 		return false
 	}
-	contextName := protocol.SummaryContext(frame.AnthropicBaseURL)
-	err = client.SetPaneOption(ctx, frame.TmuxPane, protocol.OptionContext, contextName)
-	if err != nil {
+	if err = h.setContext(ctx, client, frame); err != nil {
 		h.logger.ErrorContext(ctx, "set pane context", "pane", frame.TmuxPane, "error", err)
 	}
 	if err = state.RecordSession(ctx, client, frame.TmuxPane, frame.Hook); err != nil {
@@ -359,6 +386,28 @@ func (h *frameHandler) applyLocked(
 		observe(event)
 	}
 	return true
+}
+
+// setContext writes frame's context to its pane's @orrery_context. The context is that of the stamp in effect for the
+// frame's Cwd under h.cfg.Home, or else that of the frame's base URL. When the stamp cannot be read, the option is
+// unset, so the pane is left out of the intent call rather than given a context it may not hold.
+func (h *frameHandler) setContext(ctx context.Context, client *tmuxctl.Client, frame protocol.HookFrame) error {
+	found, err := stamp.Find(h.cfg.Home, frame.Cwd)
+	if err != nil {
+		h.logger.ErrorContext(ctx, "find context stamp", "pane", frame.TmuxPane, "cwd", frame.Cwd, "error", err)
+		if err = client.UnsetPaneOption(ctx, frame.TmuxPane, protocol.OptionContext); err != nil {
+			return fmt.Errorf("unset context option: %w", err)
+		}
+		return nil
+	}
+	contextName := protocol.SummaryContext(frame.AnthropicBaseURL)
+	if found.Folder != "" {
+		contextName = protocol.SummaryContext(found.BaseURL())
+	}
+	if err = client.SetPaneOption(ctx, frame.TmuxPane, protocol.OptionContext, contextName); err != nil {
+		return fmt.Errorf("write context option: %w", err)
+	}
+	return nil
 }
 
 // resolveServer returns configured when it is set. Otherwise it returns the socket named by the frame's

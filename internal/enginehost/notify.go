@@ -9,6 +9,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/notice"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/push"
+	"github.com/joshsymonds/orrery/internal/route"
 )
 
 const stateInterrupted = "interrupted"
@@ -18,66 +19,67 @@ type Notice struct {
 	Session, Dir, State, Body string
 }
 
-// PushNotices is the notice record that sends push notifications and clears them when a session is seen.
-// *notice.Notices satisfies it.
-type PushNotices interface {
-	Notify(ctx context.Context, key notice.Key, build func(context.Context) (push.Notification, error))
+// Router routes notices to the owner's desk and phone. *route.Router satisfies it.
+type Router interface {
+	Notify(ctx context.Context, n route.Notice)
+	Changed(key notice.Key)
 	Seen(ctx context.Context, key notice.Key, seen int64)
 }
 
-// DeskPoster posts a notice to the desk stream. *deskstream.Hub satisfies it.
-type DeskPoster interface {
-	Post(deskstream.Notice)
-}
-
-// NotifierConfig configures a Notifier. A nil Push or Desk skips that channel.
+// NotifierConfig configures a Notifier. A nil Route sends nothing.
 type NotifierConfig struct {
-	Push PushNotices
-	Desk DeskPoster
+	Route Router
 }
 
 // Notifier tells the owner about headless session events.
 type Notifier struct {
-	push PushNotices
-	desk DeskPoster
+	route Router
 }
 
-// NewNotifier returns a Notifier that posts through the channels cfg names.
+// NewNotifier returns a Notifier that hands its notices to cfg's Route.
 func NewNotifier(cfg NotifierConfig) *Notifier {
-	return &Notifier{push: cfg.Push, desk: cfg.Desk}
+	return &Notifier{route: cfg.Route}
 }
 
-// Notify posts event to the desk stream and hands its push to the notice record, and returns at once. Only waiting,
-// done, failed and interrupted notify. The push hand-off ignores ctx's cancellation, so a notification accepted before
-// a shutdown still goes out.
+// Notify hands event to the Router as a notice and returns at once. Only waiting, done, failed and interrupted
+// notify. The Router ignores ctx's cancellation, so a notice accepted before a shutdown still routes.
 func (n *Notifier) Notify(ctx context.Context, event Notice) {
-	if !notifies(event.State) {
+	if !notifies(event.State) || n.route == nil {
 		return
 	}
 	ctx = context.WithoutCancel(ctx)
-	if n.desk != nil {
-		project := filepath.Base(event.Dir)
-		n.desk.Post(deskstream.Notice{
-			State: event.State,
-			Title: deskstream.SessionTitle(project, event.Session),
-			Body:  noticeBody(event),
-		})
-	}
-	if n.push != nil {
-		build := func(context.Context) (push.Notification, error) {
+	n.route.Notify(ctx, route.Notice{
+		Key:   notice.Key{Session: event.Session},
+		State: event.State,
+		Desk: func(context.Context) (deskstream.Notice, error) {
+			return deskstream.Notice{
+				State: event.State,
+				Title: deskstream.SessionTitle(filepath.Base(event.Dir), event.Session),
+				Body:  noticeBody(event),
+			}, nil
+		},
+		Push: func(context.Context) (push.Notification, error) {
 			return pushNotification(event), nil
-		}
-		n.push.Notify(ctx, notice.Key{Session: event.Session}, build)
-	}
+		},
+	})
 }
 
-// Seen reports that session was seen at seen to the notice record, which clears the session's notice when that
-// notice is no newer than seen.
-func (n *Notifier) Seen(ctx context.Context, session string, seen time.Time) {
-	if n.push == nil {
+// Changed reports to the Router that session left the state its notice was about. The Router ends the session's
+// pending notice, if it has one. A nil Route is skipped.
+func (n *Notifier) Changed(_ context.Context, session string) {
+	if n.route == nil {
 		return
 	}
-	n.push.Seen(ctx, notice.Key{Session: session}, seen.Unix())
+	n.route.Changed(notice.Key{Session: session})
+}
+
+// Seen reports to the Router that session was seen at seen. The Router clears the session's notice when that notice
+// is no newer than seen.
+func (n *Notifier) Seen(ctx context.Context, session string, seen time.Time) {
+	if n.route == nil {
+		return
+	}
+	n.route.Seen(ctx, notice.Key{Session: session}, seen.Unix())
 }
 
 // notifies reports whether a session in state gets a notification.

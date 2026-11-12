@@ -42,6 +42,9 @@ const (
 // defaultStopGrace is how long a stopped command gets after SIGTERM before SIGKILL when RunConfig sets no grace.
 const defaultStopGrace = 30 * time.Second
 
+// stopPollInterval is how often a stop checks whether CMD's process group is empty.
+const stopPollInterval = 10 * time.Millisecond
+
 // grantVariable names the variable that carries the grant id to the command.
 const grantVariable = "ORRERY_GRANT"
 
@@ -89,11 +92,14 @@ type heldGrant struct {
 	end     context.CancelFunc
 }
 
-// holdResult is how holdGrant ended: with a stop and the stream that carried it, or with the error that refused a
-// reclaim.
+// holdResult is how holdGrant ended: with a stop and the stream that carried it, with the first event of a reclaim that
+// did not give back the original grant intact and the reclaim's stream, or with the error that refused a reclaim.
 type holdResult struct {
 	stream *connect.ServerStreamForClient[v1.AcquireResponse]
 	stop   *v1.AcquireStop
+	// answer is the first event of a reclaim that lost the original grant: a queued position, or a grant with another
+	// id. stream is the reclaim's stream, which holds the place in line the reclaim took.
+	answer *v1.AcquireResponse
 	err    error
 }
 
@@ -102,11 +108,12 @@ type holdResult struct {
 // granted pool whose value is its members, comma-separated. The grant lasts while the command runs. A command that did
 // not run for want of a grant returns ExitNoGrant. When ctx ends, the command gets SIGTERM and RunWithGrant returns its
 // status once it exits. When the grant's stream breaks while the command runs, the grant is reclaimed by its id every
-// Retry until orreryd grants it again, and the command keeps running. When a member of the grant is held, the command
-// gets SIGTERM, then SIGKILL once StopGrace has passed, and the grant is reclaimed by its id to wait at its place in
-// line; the command then runs again under the grant orreryd grants. When orreryd refuses a reclaim, the command gets
-// SIGTERM and ExitNoGrant is returned. When Limit passes while the command runs, it gets SIGKILL and ExitLimit is
-// returned.
+// Retry until orreryd answers. A reclaim whose first answer grants the same id keeps the command running. When a member
+// of the grant is held, or a reclaim's first answer is a queued position or a grant with another id, the grant is lost:
+// the command gets SIGTERM, then SIGKILL once StopGrace has passed, and the grant is reclaimed by its id to wait at its
+// place in line; the command then runs again under the grant orreryd grants. When orreryd refuses a reclaim, the command
+// is stopped as above and ExitNoGrant is returned. When Limit passes while the command runs, its group gets SIGKILL and
+// ExitLimit is returned.
 func RunWithGrant(ctx context.Context, cfg RunConfig) int {
 	if len(cfg.Argv) == 0 {
 		fmt.Fprintln(cfg.Stderr, "orrery run: no command to run")
@@ -159,15 +166,46 @@ func awaitGrant(
 	stream *connect.ServerStreamForClient[v1.AcquireResponse],
 	stderr io.Writer,
 ) (*v1.AcquireGranted, error) {
+	for {
+		event, err := nextEvent(stream, stderr)
+		if err != nil {
+			return nil, err
+		}
+		if granted := event.GetGranted(); granted != nil {
+			return granted, nil
+		}
+	}
+}
+
+// nextEvent reads the acquire stream's next queued or granted event, writing a queued position to stderr. It returns an
+// error when the stream ends before such an event.
+func nextEvent(
+	stream *connect.ServerStreamForClient[v1.AcquireResponse],
+	stderr io.Writer,
+) (*v1.AcquireResponse, error) {
 	for stream.Receive() {
-		switch event := stream.Msg().GetEvent().(type) {
-		case *v1.AcquireResponse_Queued:
-			fmt.Fprintf(stderr, "orrery run: queued at position %d\n", event.Queued.GetPosition())
-		case *v1.AcquireResponse_Granted:
-			return event.Granted, nil
+		event := stream.Msg()
+		if queued := event.GetQueued(); queued != nil {
+			fmt.Fprintf(stderr, "orrery run: queued at position %d\n", queued.GetPosition())
+			return event, nil
+		}
+		if event.GetGranted() != nil {
+			return event, nil
 		}
 	}
 	return nil, endError(stream.Err())
+}
+
+// grantFrom returns the grant that answer grants. When answer only queues the request, it waits on stream for the grant.
+func grantFrom(
+	answer *v1.AcquireResponse,
+	stream *connect.ServerStreamForClient[v1.AcquireResponse],
+	stderr io.Writer,
+) (*v1.AcquireGranted, error) {
+	if granted := answer.GetGranted(); granted != nil {
+		return granted, nil
+	}
+	return awaitGrant(stream, stderr)
 }
 
 // endError returns why a stream ended: its error, or errStreamEnded when it ended without one.
@@ -179,8 +217,10 @@ func endError(err error) error {
 }
 
 // holdGrant holds the grant while the command runs. It reads the grant's stream until a stop arrives, or until the
-// stream ends. When the stream ends, it reclaims the grant by grantID and reads the reclaimed stream the same way. It
-// returns the stop with the stream that carried it, or the error that refused a reclaim, or ctx's error once ctx ends.
+// stream ends. When the stream ends, it reclaims the grant by grantID. A reclaim whose first answer grants grantID
+// again is read the same way. Any other first answer means the grant is lost, and holdGrant returns it with the
+// reclaim's stream without reading on. It returns the stop with the stream that carried it, or the lost grant's answer,
+// or the error that refused a reclaim, or ctx's error once ctx ends.
 func holdGrant(
 	ctx context.Context,
 	cfg RunConfig,
@@ -194,11 +234,15 @@ func holdGrant(
 			}
 		}
 		closeStream(stream, cfg.Stderr)
-		_, reclaimed, err := reclaim(ctx, cfg, grantID)
+		answer, reclaimed, err := reclaim(ctx, cfg, grantID)
 		if err != nil {
 			return holdResult{err: err}
 		}
-		stream = reclaimed
+		if granted := answer.GetGranted(); granted != nil && granted.GetGrantId() == grantID {
+			stream = reclaimed
+			continue
+		}
+		return holdResult{stream: reclaimed, answer: answer}
 	}
 }
 
@@ -208,7 +252,7 @@ func holdGrant(
 func rejoin(ctx context.Context, cfg RunConfig, grantID string) (context.Context, heldGrant, error) {
 	waitCtx, endWait := context.WithCancel(context.WithoutCancel(ctx))
 	stopWait := context.AfterFunc(ctx, endWait)
-	granted, stream, err := reclaim(waitCtx, cfg, grantID)
+	granted, stream, err := reclaimUntilGranted(waitCtx, cfg, grantID)
 	if !stopWait() && err == nil {
 		closeStream(stream, cfg.Stderr)
 		err = fmt.Errorf("wait for the grant: %w", ctx.Err())
@@ -220,14 +264,35 @@ func rejoin(ctx context.Context, cfg RunConfig, grantID string) (context.Context
 	return waitCtx, heldGrant{granted: granted, stream: stream, end: endWait}, nil
 }
 
-// reclaim asks orreryd for the grant by grantID, every Retry, until it grants it again, and returns the grant and the
-// stream that holds it. The reclaim is cfg.Request with its grant_id set. It returns the error that refused the
+// reclaimUntilGranted reclaims grantID until orreryd grants it, and returns the grant and the stream that holds it. A
+// reclaim whose stream ends before its grant is reclaimed again. It returns the error that refused a reclaim, or ctx's
+// error when ctx ends first.
+func reclaimUntilGranted(
+	ctx context.Context,
+	cfg RunConfig,
+	grantID string,
+) (*v1.AcquireGranted, *connect.ServerStreamForClient[v1.AcquireResponse], error) {
+	for {
+		answer, stream, err := reclaim(ctx, cfg, grantID)
+		if err != nil {
+			return nil, nil, err
+		}
+		granted, err := grantFrom(answer, stream, cfg.Stderr)
+		if err == nil {
+			return granted, stream, nil
+		}
+		closeStream(stream, cfg.Stderr)
+	}
+}
+
+// reclaim asks orreryd for the grant by grantID, every Retry, until its stream answers with an event, and returns that
+// first event with the stream. The reclaim is cfg.Request with its grant_id set. It returns the error that refused the
 // reclaim, or ctx's error when ctx ends first. Any other failure is retried.
 func reclaim(
 	ctx context.Context,
 	cfg RunConfig,
 	grantID string,
-) (*v1.AcquireGranted, *connect.ServerStreamForClient[v1.AcquireResponse], error) {
+) (*v1.AcquireResponse, *connect.ServerStreamForClient[v1.AcquireResponse], error) {
 	req := proto.CloneOf(cfg.Request)
 	req.GrantId = grantID
 	for {
@@ -236,9 +301,9 @@ func reclaim(
 			return nil, nil, fmt.Errorf("reclaim the grant: %w", ctx.Err())
 		case <-time.After(cfg.Retry):
 		}
-		granted, stream, err := reclaimOnce(ctx, cfg, req)
+		answer, stream, err := reclaimOnce(ctx, cfg, req)
 		if err == nil {
-			return granted, stream, nil
+			return answer, stream, nil
 		}
 		if refusedReclaim(err) {
 			return nil, nil, err
@@ -246,23 +311,23 @@ func reclaim(
 	}
 }
 
-// reclaimOnce sends one reclaim and returns the grant and its stream once orreryd grants it. A reclaim that fails closes
-// its stream.
+// reclaimOnce sends one reclaim and returns the first event its stream answers with, and the stream. A reclaim that
+// fails before an event closes its stream.
 func reclaimOnce(
 	ctx context.Context,
 	cfg RunConfig,
 	req *v1.AcquireRequest,
-) (*v1.AcquireGranted, *connect.ServerStreamForClient[v1.AcquireResponse], error) {
+) (*v1.AcquireResponse, *connect.ServerStreamForClient[v1.AcquireResponse], error) {
 	stream, err := cfg.Pools.Acquire(ctx, connect.NewRequest(req))
 	if err != nil {
 		return nil, nil, fmt.Errorf("reclaim the grant: %w", err)
 	}
-	granted, err := awaitGrant(stream, cfg.Stderr)
+	answer, err := nextEvent(stream, cfg.Stderr)
 	if err != nil {
 		closeStream(stream, cfg.Stderr)
 		return nil, nil, err
 	}
-	return granted, stream, nil
+	return answer, stream, nil
 }
 
 // refusedReclaim reports whether err is orreryd refusing a reclaim: not_found for a grant it does not store, or
@@ -285,14 +350,24 @@ func closeStream(stream *connect.ServerStreamForClient[v1.AcquireResponse], stde
 
 // runUnderGrant runs path under held and returns its exit status. grantCtx is the context held's stream is open under.
 // When the grant stops, CMD is stopped, the grant is reclaimed by its id to wait at its place in line, and CMD runs
-// again under the grant orreryd grants then. The grant that is held when runUnderGrant returns is ended first, after
-// its command has exited.
+// again under the grant orreryd grants then. When the grant is lost, CMD is stopped and the reclaim that lost it waits
+// at its place in line, and CMD runs again under the grant that reclaim is granted. The grant that is held when
+// runUnderGrant returns is ended first, after its command has exited.
 func runUnderGrant(ctx, grantCtx context.Context, cfg RunConfig, path string, held heldGrant) int {
 	status, stopped := runOnce(ctx, grantCtx, cfg, path, held)
-	if !stopped {
+	if stopped == nil {
 		return status
 	}
-	nextCtx, next, err := rejoin(ctx, cfg, held.granted.GetGrantId())
+	var (
+		nextCtx context.Context
+		next    heldGrant
+		err     error
+	)
+	if stopped.answer == nil {
+		nextCtx, next, err = rejoin(ctx, cfg, held.granted.GetGrantId())
+	} else {
+		nextCtx, next, err = resumeLost(ctx, grantCtx, cfg, held, stopped)
+	}
 	if err != nil {
 		if refusedReclaim(err) {
 			fmt.Fprintf(cfg.Stderr, "orrery run: CMD stopped, and orreryd refused to reclaim its grant: %v\n", err)
@@ -304,12 +379,39 @@ func runUnderGrant(ctx, grantCtx context.Context, cfg RunConfig, path string, he
 	return runUnderGrant(ctx, nextCtx, cfg, path, next)
 }
 
+// resumeLost waits for the grant that a lost reclaim holds, once CMD has been stopped. The reclaim's stream is open
+// under grantCtx, so grantCtx is not ended until the grant is taken or ctx ends. A stream that ends before its grant is
+// reclaimed by the grant's id, as rejoin does. It returns the granted grant with the context its stream is open under.
+func resumeLost(
+	ctx, grantCtx context.Context,
+	cfg RunConfig,
+	held heldGrant,
+	lost *holdResult,
+) (context.Context, heldGrant, error) {
+	stopWait := context.AfterFunc(ctx, held.end)
+	granted, err := grantFrom(lost.answer, lost.stream, cfg.Stderr)
+	if !stopWait() {
+		// ctx ended while the place was waited on, so the grant is closed and not taken.
+		if err == nil {
+			closeStream(lost.stream, cfg.Stderr)
+		}
+		return nil, heldGrant{}, fmt.Errorf("wait for the grant: %w", ctx.Err())
+	}
+	if err != nil {
+		closeStream(lost.stream, cfg.Stderr)
+		held.end()
+		return rejoin(ctx, cfg, held.granted.GetGrantId())
+	}
+	return grantCtx, heldGrant{granted: granted, stream: lost.stream, end: held.end}, nil
+}
+
 // runOnce starts path under held and holds the grant while it runs. grantCtx is the context held's stream is open under.
-// It returns CMD's exit status, and true when the grant stopped: then CMD has been stopped and has exited, and the grant
-// is ended. When ctx ends, CMD gets SIGTERM and its status is returned. When orreryd refuses a reclaim, CMD gets SIGTERM
-// and ExitNoGrant is returned. When Limit passes while CMD runs, CMD gets SIGKILL and ExitLimit is returned. A run that
-// Limit killed is not rerun.
-func runOnce(ctx, grantCtx context.Context, cfg RunConfig, path string, held heldGrant) (int, bool) {
+// It returns CMD's exit status, and the holdResult that stopped CMD when the grant stopped, or nil. When the grant
+// stopped, CMD has been stopped and has exited. A stop ends the grant. A lost grant does not end grantCtx, since the
+// reclaim's stream is open under it. When ctx ends, CMD gets SIGTERM and its status is returned. When orreryd refuses a
+// reclaim, CMD is stopped as a stop is, and ExitNoGrant is returned. When Limit passes while CMD runs, or while it is
+// being stopped, its group gets SIGKILL, ExitLimit is returned, and CMD is not run again.
+func runOnce(ctx, grantCtx context.Context, cfg RunConfig, path string, held heldGrant) (int, *holdResult) {
 	pgid, exited, err := startCommand(&exec.Cmd{
 		Path:        path,
 		Args:        cfg.Argv,
@@ -322,7 +424,7 @@ func runOnce(ctx, grantCtx context.Context, cfg RunConfig, path string, held hel
 	if err != nil {
 		held.end()
 		fmt.Fprintf(cfg.Stderr, "orrery run: start %s: %v\n", cfg.Argv[0], err)
-		return exitCannotRun, false
+		return exitCannotRun, nil
 	}
 	limit := runLimit(cfg)
 	result := make(chan holdResult, 1)
@@ -331,9 +433,9 @@ func runOnce(ctx, grantCtx context.Context, cfg RunConfig, path string, held hel
 	case end := <-exited:
 		held.end()
 		<-result
-		return end.report(cfg.Stderr, cfg.Limit), false
+		return end.report(cfg.Stderr, cfg.Limit), nil
 	case <-limit:
-		killErr := signalGroup(pgid, syscall.SIGKILL)
+		killErr := killGroup(pgid)
 		finished := <-exited
 		finished.limited = true
 		held.end()
@@ -341,19 +443,19 @@ func runOnce(ctx, grantCtx context.Context, cfg RunConfig, path string, held hel
 		if killErr != nil {
 			fmt.Fprintf(cfg.Stderr, "orrery run: %v\n", killErr)
 		}
-		return finished.report(cfg.Stderr, cfg.Limit), false
+		return finished.report(cfg.Stderr, cfg.Limit), nil
 	case <-ctx.Done():
-		finished, stopErr := terminate(pgid, exited, nil, limit)
+		finished, stopErr := terminateOnCancel(pgid, exited, limit)
 		held.end()
 		// holdGrant may still be running, so it is waited for here and writes nothing after this returns.
 		<-result
 		if stopErr != nil {
 			fmt.Fprintf(cfg.Stderr, "orrery run: %v\n", stopErr)
 		}
-		return finished.report(cfg.Stderr, cfg.Limit), false
+		return finished.report(cfg.Stderr, cfg.Limit), nil
 	case res := <-result:
-		if res.stop == nil {
-			finished, stopErr := terminate(pgid, exited, nil, limit)
+		if res.err != nil {
+			finished, stopErr := stopCommand(pgid, exited, cfg.StopGrace, cfg.After, limit)
 			held.end()
 			if stopErr != nil {
 				fmt.Fprintf(cfg.Stderr, "orrery run: %v\n", stopErr)
@@ -365,20 +467,30 @@ func runOnce(ctx, grantCtx context.Context, cfg RunConfig, path string, held hel
 				res.err,
 			)
 			if finished.limited {
-				return status, false
+				return status, nil
 			}
-			return ExitNoGrant, false
+			return ExitNoGrant, nil
 		}
 		// The stop is written after CMD has exited, because CMD's output may still be copying to stderr until then.
-		end, stopErr := terminate(pgid, exited, func() <-chan time.Time { return cfg.After(cfg.StopGrace) }, limit)
-		closeStream(res.stream, cfg.Stderr)
-		held.end()
+		end, stopErr := stopCommand(pgid, exited, cfg.StopGrace, cfg.After, limit)
 		if stopErr != nil {
 			fmt.Fprintf(cfg.Stderr, "orrery run: %v\n", stopErr)
 		}
+		if end.limited {
+			// A run its limit killed is not run again, so the grant and any reclaim of it are ended here.
+			closeStream(res.stream, cfg.Stderr)
+			held.end()
+			return end.report(cfg.Stderr, cfg.Limit), nil
+		}
+		if res.answer != nil {
+			fmt.Fprintln(cfg.Stderr, "orrery run: the grant was not reclaimed intact: stopped CMD")
+			return end.report(cfg.Stderr, cfg.Limit), &res
+		}
+		closeStream(res.stream, cfg.Stderr)
+		held.end()
 		members := strings.Join(res.stop.GetMembers(), ", ")
 		fmt.Fprintf(cfg.Stderr, "orrery run: members %s were held: stopped CMD\n", members)
-		return end.report(cfg.Stderr, cfg.Limit), !end.limited
+		return end.report(cfg.Stderr, cfg.Limit), &res
 	}
 }
 
@@ -391,33 +503,76 @@ func runLimit(cfg RunConfig) <-chan time.Time {
 	return cfg.After(cfg.Limit)
 }
 
-// terminate sends SIGTERM to CMD's group, then waits for CMD to exit. The grace starts when SIGTERM is sent: grace,
-// when not nil, is called then for the channel that receives once the grace has passed, and its group then gets SIGKILL
-// and terminate waits for that exit. When limit passes first, its group gets SIGKILL and the end is limited. A nil grace
-// never passes. It returns CMD's end and the errors from signaling its group.
-func terminate(
+// stopCommand sends SIGTERM to CMD's group, then waits for CMD to exit and for the rest of its group to be empty. The
+// grace starts when SIGTERM is sent. When CMD or its group is still running once the grace has passed on after, the
+// group gets SIGKILL and stopCommand waits until CMD has exited and the group is empty. When limit passes before CMD
+// has exited, the group gets SIGKILL at once and the end is limited. A nil limit never passes. It returns CMD's end and
+// the errors from signaling its group.
+func stopCommand(
 	pgid int,
 	exited <-chan commandEnd,
-	grace func() <-chan time.Time,
+	grace time.Duration,
+	after func(d time.Duration) <-chan time.Time,
 	limit <-chan time.Time,
 ) (commandEnd, error) {
 	termErr := signalGroup(pgid, syscall.SIGTERM)
-	var graceDone <-chan time.Time
-	if grace != nil {
-		graceDone = grace()
+	expired := after(grace)
+	select {
+	case end := <-exited:
+		if waitGroupGone(pgid, expired) {
+			return end, termErr
+		}
+		return end, errors.Join(termErr, killGroup(pgid))
+	case <-expired:
+		killErr := killGroup(pgid)
+		return <-exited, errors.Join(termErr, killErr)
+	case <-limit:
+		killErr := killGroup(pgid)
+		end := <-exited
+		end.limited = true
+		return end, errors.Join(termErr, killErr)
 	}
-	var limited bool
+}
+
+// terminateOnCancel sends SIGTERM to CMD's group when the run's context ends, and waits for CMD to exit. When limit
+// passes first, the group gets SIGKILL and the end is limited. A nil limit never passes. It returns CMD's end and the
+// errors from signaling its group.
+func terminateOnCancel(pgid int, exited <-chan commandEnd, limit <-chan time.Time) (commandEnd, error) {
+	termErr := signalGroup(pgid, syscall.SIGTERM)
 	select {
 	case end := <-exited:
 		return end, termErr
-	case <-graceDone:
 	case <-limit:
-		limited = true
+		killErr := killGroup(pgid)
+		end := <-exited
+		end.limited = true
+		return end, errors.Join(termErr, killErr)
 	}
-	killErr := signalGroup(pgid, syscall.SIGKILL)
-	end := <-exited
-	end.limited = limited
-	return end, errors.Join(termErr, killErr)
+}
+
+// killGroup sends SIGKILL to the group pgid and waits until the group is empty. It returns the signal's error.
+func killGroup(pgid int) error {
+	err := signalGroup(pgid, syscall.SIGKILL)
+	waitGroupGone(pgid, nil)
+	return err
+}
+
+// waitGroupGone waits until no process is left in the group pgid, and reports true. It reports false when expired
+// fires first. A nil expired waits without a limit.
+func waitGroupGone(pgid int, expired <-chan time.Time) bool {
+	for !groupGone(pgid) {
+		select {
+		case <-expired:
+			return false
+		case <-time.After(stopPollInterval):
+		}
+	}
+	return true
+}
+
+// groupGone reports whether no process is left in the group pgid.
+func groupGone(pgid int) bool {
+	return errors.Is(syscall.Kill(-pgid, 0), syscall.ESRCH)
 }
 
 // report writes the end's wait error to stderr, if it has one, and returns the exit status. When the limit killed CMD,

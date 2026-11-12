@@ -21,6 +21,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.android.controller.ActivityController
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 
@@ -40,6 +41,9 @@ class MainActivityThemeTest {
     private lateinit var context: Context
     private lateinit var server: FakeOrreryServer
 
+    /** Every activity a test launched, destroyed after it so no screen keeps composing into the next test. */
+    private val launched = mutableListOf<ActivityController<MainActivity>>()
+
     @Before
     fun pointSettingsAtFakeServer() {
         context = ApplicationProvider.getApplicationContext()
@@ -52,7 +56,13 @@ class MainActivityThemeTest {
 
     @After
     fun closeServer() {
+        launched.forEach { it.pause().stop().destroy() }
         server.close()
+    }
+
+    private fun launch(): ActivityController<MainActivity> {
+        val intent = Intent(context, MainActivity::class.java)
+        return Robolectric.buildActivity(MainActivity::class.java, intent).setup().also { launched += it }
     }
 
     private fun panesProto(vararg panes: Pair<String, String>): PanesListResponse =
@@ -79,8 +89,7 @@ class MainActivityThemeTest {
 
     @Test
     fun activityThemeIsDark() {
-        val intent = Intent(context, MainActivity::class.java)
-        val activity = Robolectric.buildActivity(MainActivity::class.java, intent).setup().get()
+        val activity = launch().get()
 
         val attributes = activity.theme.obtainStyledAttributes(intArrayOf(android.R.attr.isLightTheme))
         try {
@@ -103,8 +112,7 @@ class MainActivityThemeTest {
     }
 
     private fun assertSystemBarIconsAreLight() {
-        val intent = Intent(context, MainActivity::class.java)
-        val activity = Robolectric.buildActivity(MainActivity::class.java, intent).setup().get()
+        val activity = launch().get()
 
         val controller = WindowCompat.getInsetsController(activity.window, activity.window.decorView)
         assertFalse("status bar icons must stay light", controller.isAppearanceLightStatusBars)
@@ -113,8 +121,7 @@ class MainActivityThemeTest {
 
     @Test
     fun composedBackgroundIsMochaBase() {
-        val intent = Intent(context, MainActivity::class.java)
-        val activity = Robolectric.buildActivity(MainActivity::class.java, intent).setup().visible().get()
+        val activity = launch().visible().get()
         composeRule.waitUntil(TIMEOUT_MS) {
             composeRule.onAllNodes(hasTestTag("pane-row:%1")).fetchSemanticsNodes().isNotEmpty()
         }

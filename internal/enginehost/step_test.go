@@ -96,7 +96,7 @@ func newStepStartFixture(t *testing.T) *stepStartFixture {
 		Store:     s,
 		Writer:    writer,
 		Worktrees: worktrees,
-		Environ:   []string{"PATH=" + os.Getenv("PATH")},
+		Environ:   []string{"PATH=" + os.Getenv("PATH"), "HOME=" + t.TempDir()},
 		Logger:    slog.New(slog.DiscardHandler),
 	})
 	if err != nil {

@@ -96,7 +96,7 @@ func newStepNudgeFixture(t *testing.T) *stepNudgeFixture {
 		Store:     s,
 		Writer:    writer,
 		Worktrees: t.TempDir(),
-		Environ:   []string{"PATH=" + os.Getenv("PATH")},
+		Environ:   []string{"PATH=" + os.Getenv("PATH"), "HOME=" + t.TempDir()},
 		Logger:    slog.New(slog.DiscardHandler),
 	})
 	if err != nil {

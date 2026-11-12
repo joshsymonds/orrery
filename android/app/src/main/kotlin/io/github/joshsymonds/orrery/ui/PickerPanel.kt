@@ -33,34 +33,55 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.IOException
+import java.util.UUID
 
-private enum class PickerWork { IDLE, ASKING, RUNNING }
+private enum class PickerWork { IDLE, ASKING, RUNNING, STARTING }
+
+/** A pane or fresh row's start form: the folder it starts in and the first message it sends. */
+private data class StartForm(val dir: String, val message: String)
+
+/**
+ * The last Start sent: its folder, its message, and the session id it sent with them. A Start of the same folder and
+ * message sends that id again, so a retry after a refusal or a dropped answer starts nothing new.
+ */
+private data class PendingStart(val dir: String, val message: String, val id: String)
 
 /** The message a failed call shows, or a fixed phrase when the failure carries none. */
 private fun Exception.reason(): String = message ?: "request failed"
 
+/** A new session id: 32 lowercase hex digits. */
+private fun newSessionId(): String = UUID.randomUUID().toString().replace("-", "")
+
 /**
  * The picker: text in a field, asked of the server, and the rows it answers. Ask sends the
  * non-blank text and shows a working mark until rows or a failure arrive. Tapping a row runs
- * exactly that row and reports the pane it opened through [onOpened]. A failure shows its reason
- * and leaves the panel usable. Cancel calls [onClose].
+ * exactly that row and reports the pane it opened through [onOpened]. Tapping a pane or fresh row
+ * opens a start form for its full folder instead: its first message is the asked text when the row
+ * starts Claude with it, and empty otherwise. Start sends that form and reports the session it
+ * answers through [onStarted]. A failure shows its reason and leaves the panel usable. Cancel calls
+ * [onClose].
  */
 @Composable
 fun PickerPanel(
     client: OrreryClient,
     onOpened: (String) -> Unit,
+    onStarted: (String) -> Unit,
     onClose: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var text by remember { mutableStateOf("") }
+    var askedText by remember { mutableStateOf("") }
     var rows by remember { mutableStateOf<List<PickRow>?>(null) }
     var work by remember { mutableStateOf(PickerWork.IDLE) }
     var failure by remember { mutableStateOf<String?>(null) }
+    var form by remember { mutableStateOf<StartForm?>(null) }
+    var pending by remember { mutableStateOf<PendingStart?>(null) }
     val scope = rememberCoroutineScope()
     val canAsk = text.isNotBlank() && work == PickerWork.IDLE
 
     fun ask() {
         val asked = text
+        askedText = asked
         work = PickerWork.ASKING
         failure = null
         rows = null
@@ -88,6 +109,35 @@ fun PickerPanel(
             }
             work = PickerWork.IDLE
             pane?.let(onOpened)
+        }
+    }
+
+    fun open(row: PickRow) {
+        if (row.kind == "pane" || row.kind == "fresh") {
+            failure = null
+            form = StartForm(dir = row.dir, message = if (row.prompt) askedText else "")
+        } else {
+            run(row)
+        }
+    }
+
+    fun start(current: StartForm) {
+        val id = pending?.takeIf { it.dir == current.dir && it.message == current.message }?.id ?: newSessionId()
+        pending = PendingStart(current.dir, current.message, id)
+        work = PickerWork.STARTING
+        failure = null
+        scope.launch {
+            var answer: String? = null
+            try {
+                answer = withContext(Dispatchers.IO) { client.start(current.dir, current.message, id) }
+            } catch (error: IOException) {
+                failure = error.reason()
+            }
+            work = PickerWork.IDLE
+            answer?.let { sessionId ->
+                form = null
+                onStarted(sessionId)
+            }
         }
     }
 
@@ -127,12 +177,37 @@ fun PickerPanel(
         failure?.let { reason ->
             Text(reason, modifier = Modifier.testTag("picker-error"), color = Mocha.Red)
         }
+        form?.let { current ->
+            Column(
+                modifier = Modifier.fillMaxWidth().testTag("start-form"),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(
+                    current.dir,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Mocha.Subtext0,
+                    modifier = Modifier.testTag("start-dir"),
+                )
+                OutlinedTextField(
+                    value = current.message,
+                    onValueChange = { form = current.copy(message = it) },
+                    modifier = Modifier.fillMaxWidth().testTag("start-message"),
+                )
+                Button(
+                    onClick = { start(current) },
+                    enabled = current.message.isNotBlank() && work == PickerWork.IDLE,
+                    modifier = Modifier.testTag("start-submit"),
+                ) {
+                    Text("Start")
+                }
+            }
+        }
         rows?.forEachIndexed { index, row ->
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .testTag("picker-row:$index")
-                    .clickable(enabled = work == PickerWork.IDLE) { run(row) }
+                    .clickable(enabled = work == PickerWork.IDLE) { open(row) }
                     .padding(vertical = 6.dp),
             ) {
                 Text(row.kind, style = MaterialTheme.typography.labelSmall, color = Mocha.Lavender)

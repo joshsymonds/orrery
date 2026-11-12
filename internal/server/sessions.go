@@ -13,11 +13,13 @@ import (
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
-// sessionsServer answers orrery.v1.Sessions from the store reader. A nil reader answers unavailable. poll paces the
-// polls of WatchConversation, keepalive is the time without a delta after which it sends a keepalive, sendTimeout
-// bounds each of its sends, and closing shutdown ends its streams. A nil shutdown never closes.
+// sessionsServer answers orrery.v1.Sessions from the store reader. A nil reader answers unavailable. steps is the client
+// WatchConversation asks about a step session, and a nil steps answers not_found for one. poll paces the polls of
+// WatchConversation, keepalive is the time without a delta after which it sends a keepalive, sendTimeout bounds each
+// of its sends, and closing shutdown ends its streams. A nil shutdown never closes.
 type sessionsServer struct {
 	reader      *store.Reader
+	steps       StepClient
 	poll        time.Duration
 	keepalive   time.Duration
 	sendTimeout time.Duration
@@ -71,16 +73,17 @@ func sessionMessage(row store.Session) *orreryv1.Session {
 	}
 }
 
-// newSessionsHandler returns the path and handler that serve Sessions over reader, with the stream timings and
-// shutdown signal of sessionsServer. The handler runs under withResponseWriter, so WatchConversation can reach its
+// newSessionsHandler returns the path and handler that serve Sessions over reader and steps, with the stream timings
+// and shutdown signal of sessionsServer. The handler runs under withResponseWriter, so WatchConversation can reach its
 // connection.
 func newSessionsHandler(
 	reader *store.Reader,
+	steps StepClient,
 	poll, keepalive, sendTimeout time.Duration,
 	shutdown <-chan struct{},
 ) (string, http.Handler) {
 	service := sessionsServer{
-		reader: reader, poll: poll, keepalive: keepalive, sendTimeout: sendTimeout, shutdown: shutdown,
+		reader: reader, steps: steps, poll: poll, keepalive: keepalive, sendTimeout: sendTimeout, shutdown: shutdown,
 	}
 	path, handler := orreryv1connect.NewSessionsHandler(service)
 	return path, withResponseWriter(handler)
