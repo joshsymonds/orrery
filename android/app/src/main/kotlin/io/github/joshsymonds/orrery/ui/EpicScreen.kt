@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -138,7 +139,7 @@ private fun EpicBody(detail: EpicDetail, onOpenStep: (StepRow) -> Unit) {
             }
         }
         item("tasks-heading") { SectionHeading("Tasks") }
-        items(detail.tasks, key = { "task:${it.effort}:${it.slug}" }) { task ->
+        itemsIndexed(detail.tasks, key = { index, _ -> "task:$index" }) { _, task ->
             TaskRow(task)
         }
         item("steps-heading") { SectionHeading("Steps") }

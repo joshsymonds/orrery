@@ -196,6 +196,31 @@ class EpicScreenTest {
     }
 
     @Test
+    fun everyTaskRowShowsEvenWhenSlugsRepeatOrAreEmpty() {
+        FakeOrreryServer().use { server ->
+            server.respond(
+                EPICS_GET,
+                body(
+                    tasks = listOf(
+                        task(1, "example-dup", "Subject A", "done"),
+                        task(1, "example-dup", "Subject B", "gated"),
+                        task(1, "", "Subject C", "pending"),
+                        task(1, "", "Subject D", "dispatched"),
+                    ),
+                ),
+            )
+            setScreen(server)
+            awaitText("Subject D")
+
+            assertEquals(4, countNodes(hasTagPrefix("task-ring:")))
+            for (subject in listOf("Subject A", "Subject B", "Subject C", "Subject D")) {
+                assertEquals(1, countNodes(hasText(subject)))
+            }
+            assertEquals(2, countNodes(hasText("example-dup")))
+        }
+    }
+
+    @Test
     fun stepRowShowsAgentTaskEndAndOnePipPerCheck() {
         FakeOrreryServer().use { server ->
             server.respond(
