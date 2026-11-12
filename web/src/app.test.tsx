@@ -22,6 +22,9 @@ const intervalMs = 2;
 const markPanePath = "/orrery.v1.Panes/MarkSeen";
 const markSessionPath = "/orrery.v1.Control/Seen";
 const seenFailedText = "could not mark seen";
+const sendKeysPath = "/orrery.v1.Panes/SendKeys";
+const answerPath = "/orrery.v1.Control/Answer";
+const answerFailedText = "no answer was sent";
 
 type Clients = ReturnType<typeof createClients>;
 
@@ -264,7 +267,7 @@ function fixture(): Row[] {
   ];
 }
 
-const keysHelpList = ["j", "k", "↓", "↑", "gg", "G", "a", "p", "w", "n", "x", "Enter", "e", "/", "i", "o", "?", "Esc"];
+const keysHelpList = ["j", "k", "↓", "↑", "gg", "G", "a", "p", "w", "n", "x", "Enter", "e", "/", "i", "1", "2", "3", "o", "?", "Esc"];
 
 async function mount(container: HTMLElement, props: Props): Promise<void> {
   await act(() => {
@@ -396,6 +399,10 @@ function rowKeys(container: HTMLElement): string[] {
 
 function cursorKey(container: HTMLElement): string | null {
   return container.querySelector(".b-row.cur")?.getAttribute("data-key") ?? null;
+}
+
+function alertTexts(container: HTMLElement): string[] {
+  return [...container.querySelectorAll('[role="alert"]')].map((element) => element.textContent ?? "");
 }
 
 function sectionTitles(container: HTMLElement): (string | null)[] {
@@ -1011,4 +1018,99 @@ test("leaving the page stops the seen watch before its dwell writes", () =>
     await settle();
     assert.equal(fake.callsTo(markPanePath).length, 0, "the pending dwell was cancelled on unmount");
     assert.equal(fake.seen.input.count(), 0, "the input listeners were removed on unmount");
+  }));
+
+const answerableRow = row({
+  key: "a",
+  label: "api",
+  state: "waiting",
+  question: "Pick one",
+  questionHash: "qh-1",
+  changed: 300,
+  seen: 100,
+  unseen: true,
+});
+
+const otherSessionRow = row({
+  key: "s2",
+  id: "s2",
+  kind: "session",
+  label: "docs",
+  state: "done",
+  changed: 10,
+  seen: 10,
+});
+
+test("2 on a waiting pane row sends its digit with the row's question hash", () =>
+  withApp({ rows: [answerableRow] }, async (container, fake) => {
+    await press("2");
+    await until(() => fake.callsTo(sendKeysPath).length === 1, "the answer");
+    assert.deepEqual(fake.callsTo(sendKeysPath)[0].body, { pane: "a", keys: ["2"], expectQuestion: "qh-1" });
+    assert.deepEqual(alertTexts(container), [], "no line shows for a sent answer");
+  }));
+
+test("1 on a session row answers the request its stream holds with the first option", () =>
+  withApp({ rows: [sessionRow] }, async (container, fake) => {
+    await until(() => fake.callsTo(sessionWatchPath).length === 1, "the session stream");
+    fake.emit(fake.callsTo(sessionWatchPath)[0], {
+      transcript: "t1",
+      seq: "1",
+      reset: true,
+      items: [{ kind: "assistant", text: "the streamed question" }],
+      state: { request: { id: "req-7", kind: "question", question: "Pick one", options: ["Yes", "No"] } },
+    });
+    await until(() => readerText(container).includes("the streamed question"), "the streamed question");
+    await press("1");
+    await until(() => fake.callsTo(answerPath).length === 1, "the answer");
+    assert.deepEqual(fake.callsTo(answerPath)[0].body, { id: "s1", requestId: "req-7", answer: "Yes" });
+  }));
+
+test("a stream held for another row never answers the cursor's row", () =>
+  withApp({ rows: [sessionRow, otherSessionRow] }, async (container, fake) => {
+    await until(() => fake.callsTo(sessionWatchPath).length === 1, "the session stream");
+    fake.emit(fake.callsTo(sessionWatchPath)[0], {
+      transcript: "t1",
+      seq: "1",
+      reset: true,
+      items: [{ kind: "assistant", text: "the streamed question" }],
+      state: { request: { id: "req-7", kind: "question", question: "Pick one", options: ["Yes", "No"] } },
+    });
+    await until(() => readerText(container).includes("the streamed question"), "the streamed question");
+    await press("j");
+    assert.equal(cursorKey(container), "s2");
+    await press("1");
+    await until(() => alertTexts(container).includes(answerFailedText), "the fixed line");
+    assert.equal(fake.callsTo(answerPath).length, 0, "the other row's request was not answered");
+  }));
+
+test("3 on a row with no answerable question sends nothing and shows the fixed line", () =>
+  withApp({}, async (container, fake) => {
+    await press("3");
+    await until(() => alertTexts(container).includes(answerFailedText), "the fixed line");
+    await settle();
+    assert.equal(fake.callsTo(sendKeysPath).length, 0);
+    assert.equal(fake.callsTo(answerPath).length, 0);
+  }));
+
+test("a rejected answer shows the fixed line, never the server's text, and is not retried", () =>
+  withApp({ rows: [answerableRow] }, async (container, fake) => {
+    fake.failNext.add(sendKeysPath);
+    await press("2");
+    await until(() => alertTexts(container).includes(answerFailedText), "the fixed line");
+    await settle();
+    assert.equal(fake.callsTo(sendKeysPath).length, 1, "the answer was not retried");
+    assert.equal(container.textContent?.includes("queue unreachable"), false, "the server's text is not shown");
+  }));
+
+test("1 2 and 3 do nothing while the filter or a composer has focus", () =>
+  withApp({ rows: [answerableRow] }, async (container, fake) => {
+    await press("/");
+    await press("2");
+    await settle();
+    assert.equal(fake.callsTo(sendKeysPath).length, 0, "a digit in the filter answers nothing");
+    await press("Escape");
+    await press("i");
+    await pressIn(composer(container), "2");
+    await settle();
+    assert.equal(fake.callsTo(sendKeysPath).length, 0, "a digit in the reply box answers nothing");
   }));

@@ -27,6 +27,7 @@ interface Cursor {
 const stateWaiting = "waiting";
 const noDirectoryTitle = "no directory";
 const seenFailedText = "could not mark seen";
+const answerFailedText = "no answer was sent";
 
 const secondsPerMinute = 60;
 const minutesPerHour = 60;
@@ -44,6 +45,7 @@ const helpEntries: [string[], string][] = [
   [["e"], "mark it seen, then go to the next unseen row"],
   [["/"], "filter: Enter leaves it, Esc clears it"],
   [["i"], "focus the reply box"],
+  [["1", "2", "3"], "answer the cursor's waiting question with that choice"],
   [["o"], "open or close a compaction's summary"],
   [["?"], "toggle this help"],
   [["Esc"], "close this help"],
@@ -80,6 +82,7 @@ export function App({
   // The changed time each row had when its seen write succeeded. A row reads as seen until its changed time moves past it.
   const [seenWritten, setSeenWritten] = useState<Map<string, number>>(() => new Map());
   const [seenError, setSeenError] = useState("");
+  const [answerError, setAnswerError] = useState("");
   const seenWatch = useRef<ReturnType<typeof watchSeen>>();
   // The row the seen watch last rested on, which its write marks seen.
   const restedRow = useRef<Row | null>(null);
@@ -129,6 +132,19 @@ export function App({
     }
     setSeenError("");
     setSeenWritten((previous) => new Map(previous).set(row.key, row.changed));
+  };
+
+  // answerCursor sends the choice to the cursor's row's waiting question through actions.answer, with the conversation
+  // the reader holds for that row only. A false result or a rejection shows a fixed line; nothing is retried.
+  const answerCursor = (choice: 1 | 2 | 3) => {
+    if (cursorRow === null) {
+      return;
+    }
+    const conversation = stream !== null && stream.key === cursorRow.key ? stream.conversation : null;
+    void actions
+      .answer(clients, cursorRow, conversation, choice)
+      .catch(() => false)
+      .then((sent) => setAnswerError(sent ? "" : answerFailedText));
   };
 
   // The seen watch runs for the page's life: its write marks the row it last rested on, and unmount stops it.
@@ -257,6 +273,15 @@ export function App({
       case "i":
         composerInputs.current.get(cursorRowKey)?.focus();
         break;
+      case "1":
+        answerCursor(1);
+        break;
+      case "2":
+        answerCursor(2);
+        break;
+      case "3":
+        answerCursor(3);
+        break;
       case "o":
         setOpen((value) => !value);
         break;
@@ -310,6 +335,11 @@ export function App({
       {seenError !== "" && (
         <p class="error" role="alert">
           {seenError}
+        </p>
+      )}
+      {answerError !== "" && (
+        <p class="error" role="alert">
+          {answerError}
         </p>
       )}
       <div class="panes">
