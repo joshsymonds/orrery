@@ -19,6 +19,8 @@ const (
 	testModel  = "haiku"
 	testAgent  = "haiku-medium"
 	testSchema = `{"type":"object"}`
+	// testSettings is a synthetic settings document routing the session's API traffic to loopback.
+	testSettings = `{"env":{"ANTHROPIC_BASE_URL":"http://127.0.0.1:9/ctx/example"}}`
 )
 
 // testConfig is a valid session configuration; each case changes one field from it.
@@ -192,6 +194,40 @@ func TestCommandSchemaWithoutAgent(t *testing.T) {
 		t.Fatalf("Command: %v", err)
 	}
 	want := append(wantSessionArgs(testClaude, testMode), "--json-schema", testSchema)
+	if !slices.Equal(cmd.Args, want) {
+		t.Errorf("Args =\n%q\nwant\n%q", cmd.Args, want)
+	}
+}
+
+func TestCommandSettingsSession(t *testing.T) {
+	t.Parallel()
+	cfg := testConfig()
+	cfg.Settings = testSettings
+	cmd, err := Command(cfg)
+	if err != nil {
+		t.Fatalf("Command: %v", err)
+	}
+	want := append(wantSessionArgs(testClaude, testMode), "--settings", testSettings)
+	if !slices.Equal(cmd.Args, want) {
+		t.Errorf("Args =\n%q\nwant\n%q", cmd.Args, want)
+	}
+}
+
+func TestCommandSettingsResumedAgentSession(t *testing.T) {
+	t.Parallel()
+	cfg := testConfig()
+	cfg.Settings = testSettings
+	cfg.Resume = testResume
+	cfg.Model = testModel
+	cfg.Agent = testAgent
+	cfg.Schema = testSchema
+	cmd, err := Command(cfg)
+	if err != nil {
+		t.Fatalf("Command: %v", err)
+	}
+	want := append(wantSessionArgs(testClaude, testMode), "--settings", testSettings,
+		"--resume", testResume, "--model", testModel,
+		"--agent", testAgent, "--strict-mcp-config", "--json-schema", testSchema)
 	if !slices.Equal(cmd.Args, want) {
 		t.Errorf("Args =\n%q\nwant\n%q", cmd.Args, want)
 	}

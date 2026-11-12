@@ -130,6 +130,7 @@ class PaneListScreenTest {
                 client = OrreryClient(server.baseUrl),
                 onOpenPane = { openedPane = it },
                 onOpenPaneId = { openedPaneId.set(it) },
+                onStartedSession = {},
                 onOpenSettings = { settingsOpened++ },
                 now = { NOW },
             )

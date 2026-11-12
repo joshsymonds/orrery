@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/joshsymonds/orrery/internal/stamp"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -136,8 +137,9 @@ func NewSteps(cfg StepsConfig) (*Steps, error) {
 // Start checks start and resolves its revision, then starts the step under a fresh id and runs its loop. A refusal
 // returns its error with an empty id and stores nothing; a read-only step's worktree is removed then too. A writing step
 // runs in start.Workspace. A read-only step gets a detached worktree at its start commit under the worktrees directory,
-// which is removed when the step ends. Any other StartStep error, after the row is written, ends the step failed and
-// returns its id with the error.
+// which is removed when the step ends. A folder whose stamp cannot be read refuses the start the same way. The step's
+// monitor and judge calls carry the env of the stamp in effect for its folder. Any other StartStep error, after the row
+// is written, ends the step failed and returns its id with the error.
 func (s *Steps) Start(ctx context.Context, start StepStart) (string, error) {
 	if err := checkStepStart(start); err != nil {
 		return "", err
@@ -187,9 +189,6 @@ func (s *Steps) Start(ctx context.Context, start StepStart) (string, error) {
 		writing: !start.ReadOnly, start: commit, owned: start.Owned, gate: gate, gateLimit: gateLimit, locks: s.locks,
 		environ: s.environ, prompt: start.Prompt, now: s.now, modelLimit: modelLimit,
 	}
-	if s.haiku != nil {
-		cfg.haiku = s.haiku
-	}
 	step := StepSession{ID: id, Dir: start.Workspace, Prompt: start.Prompt, Agent: start.Agent, Schema: start.Schema}
 	if start.ReadOnly {
 		wt := filepath.Join(s.worktrees, id)
@@ -204,6 +203,9 @@ func (s *Steps) Start(ctx context.Context, start StepStart) (string, error) {
 		}
 	} else {
 		cfg.dir = start.Workspace
+	}
+	if err = s.bindHaiku(&cfg, step.Dir); err != nil {
+		return s.refuseStart(ctx, id, cfg.cleanup, err)
 	}
 
 	run := newStepRun(cfg)
@@ -222,15 +224,46 @@ func (s *Steps) Start(ctx context.Context, start StepStart) (string, error) {
 func (s *Steps) startFailed(ctx context.Context, id string, run *stepRun, err error) (string, error) {
 	var refused stepRefusedError
 	if errors.As(err, &refused) {
-		if run.cleanup != nil {
-			if cleanErr := run.cleanup(context.WithoutCancel(ctx)); cleanErr != nil {
-				s.logger.ErrorContext(ctx, "clean up refused step", "step", id, "err", cleanErr)
-			}
-		}
-		return "", refused.err
+		return s.refuseStart(ctx, id, run.cleanup, refused.err)
 	}
 	run.finish(context.WithoutCancel(ctx), stepLoopEndFailed, "", err.Error())
 	return id, fmt.Errorf("start step %s: %w", id, err)
+}
+
+// refuseStart refuses a start that stored nothing. It runs cleanup, when there is one, to remove the step's worktree,
+// without the caller's ctx so a canceled start still cleans up, and returns err with an empty id.
+func (s *Steps) refuseStart(
+	ctx context.Context, id string, cleanup func(context.Context) error, err error,
+) (string, error) {
+	if cleanup != nil {
+		if cleanErr := cleanup(context.WithoutCancel(ctx)); cleanErr != nil {
+			s.logger.ErrorContext(ctx, "clean up refused step", "step", id, "err", cleanErr)
+		}
+	}
+	return "", err
+}
+
+// bindHaiku sets cfg's haiku to the caller a step whose folder is folder makes its monitor and judge calls with. With
+// no Haiku it sets none. The stamp in effect for folder, found from the HOME entry of the Steps' environ, which must be
+// an absolute path, sets the env of each call's --settings. With no stamp, the caller is the Steps' Haiku as it is.
+func (s *Steps) bindHaiku(cfg *stepRunConfig, folder string) error {
+	if s.haiku == nil {
+		return nil
+	}
+	home, err := stampHome(s.environ)
+	if err != nil {
+		return fmt.Errorf("find step stamp: %w", err)
+	}
+	found, err := stamp.Find(home, folder)
+	if err != nil {
+		return fmt.Errorf("find step stamp: %w", err)
+	}
+	if found.Folder == "" {
+		cfg.haiku = s.haiku
+		return nil
+	}
+	cfg.haiku = s.haiku.withEnv(found.Env)
+	return nil
 }
 
 // Status returns the step row with id. It returns an error matching store.ErrNoStep when no step has that id.

@@ -61,7 +61,7 @@ func gatedManager(t *testing.T, match func(store.EngineOp) bool) (*Manager, *mat
 	m := NewManager(Config{
 		Shell:   sh,
 		Claude:  fakeClaudePath(t),
-		Environ: []string{"PATH=" + os.Getenv("PATH")},
+		Environ: []string{"PATH=" + os.Getenv("PATH"), "HOME=" + t.TempDir()},
 		Cap:     1,
 		Writer:  writer,
 		Now:     fixedClock,
@@ -298,7 +298,7 @@ func TestRetryOfSayFailedBeforeRestartReturnsItsReason(t *testing.T) {
 	config := Config{
 		Shell:   sh,
 		Claude:  fakeClaudePath(t),
-		Environ: []string{"PATH=" + os.Getenv("PATH")},
+		Environ: []string{"PATH=" + os.Getenv("PATH"), "HOME=" + t.TempDir()},
 		Cap:     1,
 		Writer:  writer,
 		Now:     fixedClock,

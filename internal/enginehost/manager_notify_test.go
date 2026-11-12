@@ -118,7 +118,7 @@ func newNoticeManager(t *testing.T, claude string, sink NoticeSink) (*Manager, s
 	m := NewManager(Config{
 		Shell:    sh,
 		Claude:   claude,
-		Environ:  []string{"PATH=" + os.Getenv("PATH")},
+		Environ:  []string{"PATH=" + os.Getenv("PATH"), "HOME=" + t.TempDir()},
 		Cap:      1,
 		Writer:   writer,
 		Now:      fixedClock,

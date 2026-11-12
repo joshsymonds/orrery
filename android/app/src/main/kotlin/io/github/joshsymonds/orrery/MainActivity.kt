@@ -76,6 +76,7 @@ class MainActivity : ComponentActivity() {
                                         screen = if (it.headless) Screen.Session(it.id) else Screen.Pane(it.id)
                                     },
                                     onOpenPaneId = { screen = Screen.Pane(it) },
+                                    onStartedSession = { screen = Screen.Session(it) },
                                     onOpenSettings = { screen = Screen.Settings },
                                     state = paneListState,
                                 )

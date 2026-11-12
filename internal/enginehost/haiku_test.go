@@ -97,6 +97,36 @@ func haikuDir(t *testing.T) string {
 	return t.TempDir()
 }
 
+// haikuWantArgv is the argv text the fake records for a call whose --settings value is settings.
+func haikuWantArgv(settings string) string {
+	argv := []string{
+		"-p",
+		"--model", protocol.DefaultSummaryModel,
+		"--settings", settings,
+		"--no-session-persistence",
+		"--tools", "",
+		"--max-turns", "1",
+		"--output-format", "json",
+		"--json-schema", haikuSchema,
+	}
+	return strings.Join(argv, "\n") + "\n"
+}
+
+// haikuAwaitFile waits up to 5 seconds for path to exist and fails the test with failMsg when it does not.
+func haikuAwaitFile(t *testing.T, path, failMsg string) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if _, err := os.Stat(path); err == nil {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("%s", failMsg)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
 func TestHaikuCallRunsClaudeWithArgvEnvCwdAndStdin(t *testing.T) {
 	dir := haikuDir(t)
 	claude := haikuWriteFake(t, dir, haikuFake{stdout: haikuSuccessLine, status: 0})
@@ -110,17 +140,7 @@ func TestHaikuCallRunsClaudeWithArgvEnvCwdAndStdin(t *testing.T) {
 		t.Fatalf("structured_output = %s, want %s", got, want)
 	}
 
-	wantArgv := []string{
-		"-p",
-		"--model", protocol.DefaultSummaryModel,
-		"--settings", `{"disableAllHooks":true}`,
-		"--no-session-persistence",
-		"--tools", "",
-		"--max-turns", "1",
-		"--output-format", "json",
-		"--json-schema", haikuSchema,
-	}
-	wantArgvText := strings.Join(wantArgv, "\n") + "\n"
+	wantArgvText := haikuWantArgv(`{"disableAllHooks":true}`)
 	if got := haikuReadFile(t, dir, "argv"); got != wantArgvText {
 		t.Fatalf("argv:\n%s\nwant:\n%s", got, wantArgvText)
 	}
@@ -275,16 +295,7 @@ sleep 30`, status: 0})
 		_, err := h.Call(holdCtx, haikuSchema, "hold")
 		held <- err
 	}()
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		if _, err := os.Stat(filepath.Join(dir, "started")); err == nil {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("holding call never started claude")
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
+	haikuAwaitFile(t, filepath.Join(dir, "started"), "holding call never started claude")
 
 	waitCtx, cancelWait := context.WithTimeout(context.Background(), 300*time.Millisecond)
 	defer cancelWait()
@@ -347,6 +358,116 @@ func TestNewHaikuDefaults(t *testing.T) {
 	}
 	if h.timeout != 60*time.Second {
 		t.Fatalf("default timeout = %v, want 60s", h.timeout)
+	}
+}
+
+// haikuBoundEnv returns the env a bound caller carries in tests: a synthetic loopback base URL and one more key.
+func haikuBoundEnv() map[string]string {
+	return map[string]string{
+		"ANTHROPIC_BASE_URL": "http://127.0.0.1:9/ctx/example",
+		"CTX_EXAMPLE":        "example",
+	}
+}
+
+// TestHaikuWithEnvPutsEnvInSettings checks that a bound caller runs claude as h.Call does, except that the env
+// rides in the --settings value: the process env keeps no ANTHROPIC_BASE_URL and no bound key.
+func TestHaikuWithEnvPutsEnvInSettings(t *testing.T) {
+	dir := haikuDir(t)
+	claude := haikuWriteFake(t, dir, haikuFake{stdout: haikuSuccessLine, status: 0})
+	h := NewHaiku(HaikuConfig{Claude: claude, Environ: haikuEnviron()})
+
+	out, err := h.withEnv(haikuBoundEnv()).Call(context.Background(), haikuSchema, "input")
+	if err != nil {
+		t.Fatalf("bound Call: %v", err)
+	}
+	if got, want := string(out), `{"verdict":"ok"}`; got != want {
+		t.Fatalf("structured_output = %s, want %s", got, want)
+	}
+
+	wantSettings := `{"disableAllHooks":true,"env":{"ANTHROPIC_BASE_URL":"http://127.0.0.1:9/ctx/example",` +
+		`"CTX_EXAMPLE":"example"}}`
+	if got, want := haikuReadFile(t, dir, "argv"), haikuWantArgv(wantSettings); got != want {
+		t.Fatalf("argv:\n%s\nwant:\n%s", got, want)
+	}
+	if got := strings.TrimSpace(haikuReadFile(t, dir, "cwd")); got != "/" {
+		t.Fatalf("cwd = %q, want /", got)
+	}
+
+	env := strings.Split(haikuReadFile(t, dir, "env"), "\n")
+	var summarizer int
+	marked := false
+	for _, line := range env {
+		switch {
+		case strings.HasPrefix(line, "ANTHROPIC_BASE_URL="):
+			t.Fatalf("process env kept %q; the bound base URL must reach claude only through --settings", line)
+		case strings.HasPrefix(line, "CTX_EXAMPLE="):
+			t.Fatalf("process env kept %q; the bound env must reach claude only through --settings", line)
+		case line == "ORRERY_SUMMARIZER=1":
+			summarizer++
+		case line == "HAIKU_TEST_MARK=kept":
+			marked = true
+		}
+	}
+	if summarizer != 1 {
+		t.Fatalf("ORRERY_SUMMARIZER=1 count = %d, want 1", summarizer)
+	}
+	if !marked {
+		t.Fatalf("env dropped the caller's HAIKU_TEST_MARK")
+	}
+}
+
+// TestHaikuWithEnvWithoutEnvKeepsTodaysArgv checks that a nil or empty env leaves the --settings value as h.Call's.
+func TestHaikuWithEnvWithoutEnvKeepsTodaysArgv(t *testing.T) {
+	for _, env := range []map[string]string{nil, {}} {
+		dir := haikuDir(t)
+		claude := haikuWriteFake(t, dir, haikuFake{stdout: haikuSuccessLine, status: 0})
+		h := NewHaiku(HaikuConfig{Claude: claude, Environ: haikuEnviron()})
+
+		if _, err := h.withEnv(env).Call(context.Background(), haikuSchema, "input"); err != nil {
+			t.Fatalf("bound Call with env %v: %v", env, err)
+		}
+		if got, want := haikuReadFile(t, dir, "argv"), haikuWantArgv(`{"disableAllHooks":true}`); got != want {
+			t.Fatalf("env %v: argv:\n%s\nwant:\n%s", env, got, want)
+		}
+	}
+}
+
+// TestHaikuWithEnvSharesCallSlots holds the only slot of h with a hung call and checks that a call bound to an env
+// waits for that slot, never starts claude, and fails when its wait ends.
+func TestHaikuWithEnvSharesCallSlots(t *testing.T) {
+	dir := haikuDir(t)
+	claude := haikuWriteFake(t, dir, haikuFake{extra: `: > "$dir/started"
+sleep 30`, status: 0})
+	h := NewHaiku(HaikuConfig{Claude: claude, Environ: haikuEnviron(), Cap: 1, Timeout: 10 * time.Second})
+
+	holdCtx, releaseHold := context.WithCancel(context.Background())
+	defer releaseHold()
+	held := make(chan error, 1)
+	go func() {
+		_, err := h.Call(holdCtx, haikuSchema, "hold")
+		held <- err
+	}()
+	haikuAwaitFile(t, filepath.Join(dir, "started"), "holding call never started claude")
+
+	waitCtx, cancelWait := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancelWait()
+	bound := h.withEnv(haikuBoundEnv())
+	start := time.Now()
+	if _, err := bound.Call(waitCtx, haikuSchema, "waits"); err == nil {
+		t.Fatalf("bound call with the slot held returned no error")
+	}
+	if elapsed := time.Since(start); elapsed > 5*time.Second {
+		t.Fatalf("bound call waited %v for a slot", elapsed)
+	}
+	if runs := haikuRuns(t, dir); runs != 1 {
+		t.Fatalf("claude ran %d times, want 1: the waiting bound call must not start claude", runs)
+	}
+
+	releaseHold()
+	select {
+	case <-held:
+	case <-time.After(5 * time.Second):
+		t.Fatalf("holding call did not end after its context ended")
 	}
 }
 

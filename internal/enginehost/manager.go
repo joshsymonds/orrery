@@ -11,11 +11,13 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/engine/session"
 	"github.com/joshsymonds/orrery/internal/protocol"
+	"github.com/joshsymonds/orrery/internal/stamp"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -963,17 +965,24 @@ type spawnSpec struct {
 	observer      StepObserver
 }
 
-// spawn resolves claude and starts the session process for id in dir as sp describes. The prompt is not sent here.
+// spawn resolves claude and starts the session process for id in dir as sp describes. The prompt is not sent here. The
+// process takes the context stamp in effect for dir as its settings, and a stamp that cannot be read fails the spawn
+// before claude runs.
 func (m *Manager) spawn(id, dir string, sp spawnSpec) (*session.Session, error) {
 	claude, err := exec.LookPath(m.claude)
 	if err != nil {
 		return nil, fmt.Errorf("find claude: %w", err)
+	}
+	settings, err := m.stampSettings(dir)
+	if err != nil {
+		return nil, fmt.Errorf("spawn session %s: %w", id, err)
 	}
 	sess, err := session.Start(session.Config{
 		Shell:          m.shell,
 		Claude:         claude,
 		Dir:            dir,
 		PermissionMode: permissionMode,
+		Settings:       settings,
 		Resume:         sp.claudeSession,
 		Model:          sp.model,
 		Agent:          sp.agent,
@@ -985,6 +994,50 @@ func (m *Manager) spawn(id, dir string, sp spawnSpec) (*session.Session, error) 
 		return nil, fmt.Errorf("spawn session %s: %w", id, err)
 	}
 	return sess, nil
+}
+
+// stampSettings returns the --settings JSON that carries the whole env of the context stamp in effect for dir. The stamp
+// is looked up under the HOME entry of the manager's environment, which must be an absolute path. With no stamp, it
+// returns "".
+func (m *Manager) stampSettings(dir string) (string, error) {
+	home, err := stampHome(m.environ)
+	if err != nil {
+		return "", fmt.Errorf("find stamp for %s: %w", dir, err)
+	}
+	found, err := stamp.Find(home, dir)
+	if err != nil {
+		return "", fmt.Errorf("find stamp for %s: %w", dir, err)
+	}
+	if found.Folder == "" {
+		return "", nil
+	}
+	return stamp.Settings(false, found.Env), nil
+}
+
+// environValue returns the value of name in environ, and whether environ has it. The last entry for name wins, as it
+// does for a child process that exec starts with environ.
+func environValue(environ []string, name string) (string, bool) {
+	value, found := "", false
+	for _, entry := range environ {
+		key, val, ok := strings.Cut(entry, "=")
+		if ok && key == name {
+			value, found = val, true
+		}
+	}
+	return value, found
+}
+
+// stampHome returns the HOME entry of environ, the home every stamp is looked up under. It refuses a HOME that is absent,
+// empty, or not an absolute path, so no stamp is ever read below a home the lookup cannot resolve.
+func stampHome(environ []string) (string, error) {
+	home, ok := environValue(environ, "HOME")
+	if !ok {
+		return "", errors.New("HOME is not set")
+	}
+	if !filepath.IsAbs(home) {
+		return "", fmt.Errorf("HOME %q is not an absolute path", home)
+	}
+	return home, nil
 }
 
 // pump records the events of one running session, in order, until its events close, and notifies the owner of each

@@ -356,9 +356,11 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 	if st != nil {
 		mirror = daemon.NewMirror(st, time.Now, logger)
 	}
+	home := getenv("HOME")
 	hub := &relay{
 		claude:      opts.claude,
 		models:      opts.models,
+		home:        home,
 		logger:      logger,
 		desk:        desk,
 		notices:     notices,
@@ -381,6 +383,7 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 	serveErr := daemon.Serve(ctx, ln, daemon.Config{
 		Server:        opts.server,
 		DefaultServer: opts.defaultServer,
+		Home:          home,
 		Observers: []daemon.Observer{observe, autoseen.New(time.Now, logger, func(pane string, seen int64) {
 			notices.Seen(ctx, notice.Key{Pane: pane}, seen)
 		})},
@@ -562,6 +565,7 @@ func closeStore(ctx context.Context, st *store.Store, logger *slog.Logger) {
 type relay struct {
 	claude      string
 	models      map[string]string
+	home        string
 	logger      *slog.Logger
 	desk        *deskstream.Hub
 	notices     *notice.Notices // the Web Push notices sent and cleared on this host
@@ -630,6 +634,7 @@ func (r *relay) summarize(ctx context.Context, transition daemon.Transition) {
 	req := summary.Request{
 		PaneID:         transition.PaneID,
 		BaseURL:        transition.Frame.AnthropicBaseURL,
+		Dir:            transition.Frame.Cwd,
 		TranscriptPath: transcript,
 	}
 	if transition.To == protocol.StateDone {
@@ -657,7 +662,7 @@ func (r *relay) summarizerFor(server tmuxctl.Server) (*summary.Summarizer, error
 		onWrite = func(ctx context.Context, pane string) { r.mirror.SyncPane(ctx, server, pane) }
 	}
 	summarizer, err := summary.New(summary.Config{
-		Claude: r.claude, Models: r.models, Tmux: client, Logger: r.logger, OnWrite: onWrite,
+		Claude: r.claude, Models: r.models, Home: r.home, Tmux: client, Logger: r.logger, OnWrite: onWrite,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("summarizer: %w", err)

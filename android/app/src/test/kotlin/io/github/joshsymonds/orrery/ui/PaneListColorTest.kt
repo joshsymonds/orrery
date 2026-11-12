@@ -83,6 +83,7 @@ class PaneListColorTest {
                     client = OrreryClient(server.baseUrl),
                     onOpenPane = {},
                     onOpenPaneId = {},
+                    onStartedSession = {},
                     onOpenSettings = {},
                     now = { NOW },
                 )

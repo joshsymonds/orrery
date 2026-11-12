@@ -104,13 +104,15 @@ private const val INDENT_DP = 16
 /**
  * Every pane as a folder tree, or the New and Waiting panes as flat lists, with a filter. The New
  * button at the top opens the picker above the filters; a run it answers opens that pane through
- * [onOpenPaneId]. Tapping a folder header collapses or expands it. Tapping a row opens that pane.
+ * [onOpenPaneId], and a start it answers opens that session through [onStartedSession]. Tapping a folder
+ * header collapses or expands it. Tapping a row opens that pane.
  */
 @Composable
 fun PaneListScreen(
     client: OrreryClient,
     onOpenPane: (Pane) -> Unit,
     onOpenPaneId: (String) -> Unit,
+    onStartedSession: (String) -> Unit,
     onOpenSettings: () -> Unit,
     modifier: Modifier = Modifier,
     now: () -> Long = { System.currentTimeMillis() / 1000 },
@@ -161,6 +163,10 @@ fun PaneListScreen(
                 onOpened = { paneId ->
                     picking = false
                     onOpenPaneId(paneId)
+                },
+                onStarted = { sessionId ->
+                    picking = false
+                    onStartedSession(sessionId)
                 },
                 onClose = { picking = false },
                 modifier = Modifier.heightIn(max = PICKER_MAX_HEIGHT),

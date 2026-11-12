@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/protocol"
+	"github.com/joshsymonds/orrery/internal/stamp"
 	"github.com/joshsymonds/orrery/internal/state"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
 )
@@ -52,6 +53,9 @@ type Config struct {
 	Seen func(SeenReport)
 	// Logger receives read, resolve and apply errors. Nil discards them.
 	Logger *slog.Logger
+	// Home is the user's home directory. Each applied frame's Cwd is searched for a context stamp below it. Empty
+	// means no stamp is found.
+	Home string
 }
 
 // SeenReport is one seen report: the pane the sender marked seen and the seen time it wrote.
@@ -337,9 +341,7 @@ func (h *frameHandler) applyLocked(
 		h.logger.ErrorContext(ctx, "apply hook frame", "pane", frame.TmuxPane, "error", err)
 		return false
 	}
-	contextName := protocol.SummaryContext(frame.AnthropicBaseURL)
-	err = client.SetPaneOption(ctx, frame.TmuxPane, protocol.OptionContext, contextName)
-	if err != nil {
+	if err = h.setContext(ctx, client, frame); err != nil {
 		h.logger.ErrorContext(ctx, "set pane context", "pane", frame.TmuxPane, "error", err)
 	}
 	if err = state.RecordSession(ctx, client, frame.TmuxPane, frame.Hook); err != nil {
@@ -359,6 +361,28 @@ func (h *frameHandler) applyLocked(
 		observe(event)
 	}
 	return true
+}
+
+// setContext writes frame's context to its pane's @orrery_context. The context is that of the stamp in effect for the
+// frame's Cwd under h.cfg.Home, or else that of the frame's base URL. When the stamp cannot be read, the option is
+// unset, so the pane is left out of the intent call rather than given a context it may not hold.
+func (h *frameHandler) setContext(ctx context.Context, client *tmuxctl.Client, frame protocol.HookFrame) error {
+	found, err := stamp.Find(h.cfg.Home, frame.Cwd)
+	if err != nil {
+		h.logger.ErrorContext(ctx, "find context stamp", "pane", frame.TmuxPane, "cwd", frame.Cwd, "error", err)
+		if err = client.UnsetPaneOption(ctx, frame.TmuxPane, protocol.OptionContext); err != nil {
+			return fmt.Errorf("unset context option: %w", err)
+		}
+		return nil
+	}
+	contextName := protocol.SummaryContext(frame.AnthropicBaseURL)
+	if found.Folder != "" {
+		contextName = protocol.SummaryContext(found.BaseURL())
+	}
+	if err = client.SetPaneOption(ctx, frame.TmuxPane, protocol.OptionContext, contextName); err != nil {
+		return fmt.Errorf("write context option: %w", err)
+	}
+	return nil
 }
 
 // resolveServer returns configured when it is set. Otherwise it returns the socket named by the frame's

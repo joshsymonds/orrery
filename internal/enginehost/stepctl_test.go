@@ -77,7 +77,7 @@ func (f *stepCtlFixture) newSteps(t *testing.T) *Steps {
 		Writer:    f.writer,
 		Locks:     f.locks,
 		Worktrees: f.worktrees,
-		Environ:   []string{"PATH=" + os.Getenv("PATH")},
+		Environ:   []string{"PATH=" + os.Getenv("PATH"), "HOME=" + t.TempDir()},
 		Logger:    slog.New(slog.DiscardHandler),
 	})
 	if err != nil {

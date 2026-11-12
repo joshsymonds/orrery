@@ -13,6 +13,7 @@ import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTextReplacement
 import androidx.test.core.app.ApplicationProvider
 import com.connectrpc.Code
@@ -20,14 +21,18 @@ import io.github.joshsymonds.orrery.api.FakeOrreryServer
 import io.github.joshsymonds.orrery.api.RecordedRequest
 import io.github.joshsymonds.orrery.api.Reply
 import io.github.joshsymonds.orrery.api.StreamEnd
+import io.github.joshsymonds.orrery.gen.orrery.v1.AskResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationState
 import io.github.joshsymonds.orrery.gen.orrery.v1.HeadlessSession
 import io.github.joshsymonds.orrery.gen.orrery.v1.ListHeadlessResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.MarkSeenResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.Pane as PaneProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.PanesListResponse
+import io.github.joshsymonds.orrery.gen.orrery.v1.PickerRow
 import io.github.joshsymonds.orrery.gen.orrery.v1.SessionsWatchConversationRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.SessionsWatchConversationResponse
+import io.github.joshsymonds.orrery.gen.orrery.v1.StartRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.StartResponse
 import io.github.joshsymonds.orrery.push.OrreryPushService
 import io.github.joshsymonds.orrery.push.PushNotifier
 import org.junit.After
@@ -52,9 +57,13 @@ private const val PANES_PATH = "/orrery.v1.Panes/List"
 private const val SEEN_PATH = "/orrery.v1.Panes/MarkSeen"
 private const val HEADLESS_PATH = "/orrery.v1.Sessions/ListHeadless"
 private const val WATCH_PATH = "/orrery.v1.Sessions/WatchConversation"
+private const val ASK_PATH = "/orrery.v1.Picker/Ask"
+private const val START_PATH = "/orrery.v1.Control/Start"
 private const val PUSH_EVENT_ACTION = "org.unifiedpush.android.connector.PUSH_EVENT"
 private const val SESSION_ALPHA = "0123456789abcdef0123456789abcdef"
 private const val SESSION_BETA = "fedcba9876543210fedcba9876543210"
+private const val SESSION_STARTED = "aabbccddeeff00112233445566778899"
+private val ID_FORM = Regex("^[0-9a-f]{32}$")
 private const val ENVELOPE_HEADER_BYTES = 5
 
 @RunWith(RobolectricTestRunner::class)
@@ -319,6 +328,43 @@ class MainActivityTest {
 
         awaitNode(titled("alpha-session"))
         assertAbsent(hasTestTag("pane-row:%1"))
+    }
+
+    @Test
+    fun startingAFreshRowOpensTheSessionItAnswers() {
+        serveSessions(headlessSession(SESSION_STARTED, "started-session"))
+        server.respond(
+            ASK_PATH,
+            AskResponse.newBuilder()
+                .addRows(
+                    PickerRow.newBuilder()
+                        .setToken("tok-fresh")
+                        .setKind("fresh")
+                        .setDir("/home/user/alpha")
+                        .setPane("")
+                        .setLabel("")
+                        .setNote("")
+                        .setPrompt(false),
+                )
+                .build(),
+        )
+        server.respond(START_PATH, StartResponse.newBuilder().setId(SESSION_STARTED).build())
+        launch()
+        awaitNode(hasTestTag("pane-row:%1"))
+
+        composeRule.onNodeWithTag("picker-new").performClick()
+        composeRule.onNodeWithTag("picker-text").performTextInput("fix the test")
+        composeRule.onNodeWithTag("picker-ask").performClick()
+        awaitNode(hasTestTag("picker-row:0"))
+        composeRule.onNodeWithTag("picker-row:0").performClick()
+        awaitNode(hasTestTag("start-form"))
+        composeRule.onNodeWithTag("start-message").performTextInput("start it")
+        composeRule.onNodeWithTag("start-submit").performClick()
+
+        awaitNode(titled("started-session"))
+        val starts = server.requests.filter { it.rawPath == START_PATH }
+        assertEquals(1, starts.size)
+        assertTrue(ID_FORM.matches(StartRequest.parseFrom(starts.single().body).id))
     }
 
     @Test

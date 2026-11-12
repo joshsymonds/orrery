@@ -37,7 +37,7 @@ const controlTimedOut = "session command timed out"
 const controlStartRefused = "session directory must be an existing directory under the home directory"
 
 // controlServer answers orrery.v1.Control by forwarding each call to engine. A nil engine answers unavailable. Start
-// forwards only a directory under home.
+// forwards only a directory under home that resolveSessionDir admits.
 type controlServer struct {
 	engine  enginev1connect.EngineClient
 	timeout time.Duration
@@ -240,7 +240,8 @@ func translateError(err error) error {
 }
 
 // newControlHandler returns the path and handler that serve Control over engine, reading at most maxControlBody
-// bytes of each request. A zero timeout is defaultControlTimeout. Start admits only directories under home.
+// bytes of each request. A zero timeout is defaultControlTimeout. Start forwards only directories under home that
+// resolveSessionDir admits.
 func newControlHandler(engine enginev1connect.EngineClient, timeout time.Duration, home string) (string, http.Handler) {
 	if timeout == 0 {
 		timeout = defaultControlTimeout
