@@ -395,6 +395,20 @@ func TestStepsNudgeHeldContinueFailureEndsStepFailed(t *testing.T) {
 	if end := f.status(t, id).End; end != stepLoopEndFailed {
 		t.Errorf("end = %q, want %q", end, stepLoopEndFailed)
 	}
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		f.steps.mu.Lock()
+		_, inLoops := f.steps.loops[id]
+		_, inRuns := f.steps.runs[id]
+		f.steps.mu.Unlock()
+		if !inLoops && !inRuns {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("step %s still in loops (%t) or runs (%t) after its failed Nudge ended it", id, inLoops, inRuns)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 }
 
 // TestStepsHoldDropsPendingOwnerText holds a step after an owner nudge has interrupted its turn. The held turn's end
