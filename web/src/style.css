@@ -186,6 +186,17 @@ img { max-width: 100%; }
   overflow-wrap: anywhere;
 }
 
+/* The step box under a step's reader: the nudge composer, then Interrupt and Stop, then the outcome line. */
+.stepbox-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 0; }
+.stepbox-actions button {
+  padding: 5px 12px; border: 0; border-radius: 8px; cursor: pointer;
+  background: var(--surface0); color: var(--text); font: 13.5px/1.45 var(--reply);
+  appearance: none; -webkit-appearance: none;
+}
+.stepbox-actions button.stop-confirm { background: color-mix(in srgb, var(--red) 22%, var(--surface0)); color: var(--red); }
+.stepbox-notice { margin: 8px 0 0; padding: 4px 10px; border-radius: 6px; color: var(--green); overflow-wrap: anywhere; }
+.stepbox-notice.err { color: var(--red); }
+
 /* The live line's caret, after the wireframe. */
 @keyframes blink { 0%, 55% { opacity: 1; } 56%, 100% { opacity: 0; } }
 .caret { display: inline-block; width: .6em; height: 1.05em; margin-left: 1px; vertical-align: -0.18em; background: var(--text); animation: blink 1.1s steps(1) infinite; }
