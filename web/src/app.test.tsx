@@ -1337,3 +1337,94 @@ test("a click on the compaction rule shows its summary, and a second click hides
     });
     assert.equal(container.querySelector(".summary"), null);
   }));
+
+function clickEvent(): Event {
+  return new Event("click", { bubbles: true, cancelable: true });
+}
+
+test("a click on a row moves the cursor to it, and the reader streams that row", () =>
+  withApp({}, async (container, fake) => {
+    await until(() => fake.callsTo(paneWatchPath).length === 1, "the pane stream for a");
+    const [first] = fake.callsTo(paneWatchPath);
+    await act(() => {
+      rowElement(container, "c").dispatchEvent(clickEvent());
+    });
+    assert.equal(cursorKey(container), "c");
+    assert.equal(first.signal.aborted, true, "the stream for a was aborted");
+    await until(() => fake.callsTo(paneWatchPath).some((call) => call.body.pane === "c"), "the pane stream for c");
+    await settle();
+    assert.equal(fake.callsTo(markPanePath).length, 0, "a click alone writes no seen");
+  }));
+
+test("a double click on a row writes seen for that row, as Enter does for the cursor's row", () =>
+  withApp({}, async (container, fake) => {
+    const target = rowElement(container, "c");
+    await act(() => {
+      target.dispatchEvent(clickEvent());
+      target.dispatchEvent(clickEvent());
+      target.dispatchEvent(new Event("dblclick", { bubbles: true, cancelable: true }));
+    });
+    assert.equal(cursorKey(container), "c");
+    await until(() => fake.callsTo(markPanePath).length === 1, "the seen write");
+    assert.deepEqual(fake.callsTo(markPanePath)[0].body, { pane: "c" });
+  }));
+
+test("a click on the view labels switches the view as a and p do", () =>
+  withApp({}, async (container) => {
+    const labels = container.querySelectorAll<HTMLElement>(".views .view");
+    assert.equal(labels.length, 2);
+    await act(() => {
+      labels[1].dispatchEvent(clickEvent());
+    });
+    assert.equal(container.querySelector(".rows")?.getAttribute("data-list"), "project");
+    assert.deepEqual(rowKeys(container), ["a", "d", "c", "b"]);
+    await act(() => {
+      labels[0].dispatchEvent(clickEvent());
+    });
+    assert.equal(container.querySelector(".rows")?.getAttribute("data-list"), "attention");
+    assert.deepEqual(rowKeys(container), ["a", "c", "b", "d"]);
+  }));
+
+const linkedRows = fixture().map((item) =>
+  item.key === "c" ? { ...item, summary: "see https://example.com/notes" } : item,
+);
+
+test("a click or double click on a link in a row opens the link and moves nothing else", () =>
+  withApp({ rows: linkedRows }, async (container, fake) => {
+    await until(() => fake.callsTo(paneWatchPath).length === 1, "the pane stream for a");
+    const link = rowElement(container, "c").querySelector("a");
+    assert.ok(link, "row c shows its link");
+    const click = clickEvent();
+    await act(() => {
+      link.dispatchEvent(click);
+    });
+    assert.equal(click.defaultPrevented, false, "the link keeps its default action");
+    await act(() => {
+      link.dispatchEvent(clickEvent());
+      link.dispatchEvent(new Event("dblclick", { bubbles: true, cancelable: true }));
+    });
+    await settle();
+    assert.equal(cursorKey(container), "a");
+    assert.equal(fake.callsTo(paneWatchPath).length, 1, "no stream for c was opened");
+    assert.equal(fake.callsTo(markPanePath).length, 0, "no seen was written");
+  }));
+
+test("a click on a link in the reader opens the link and moves the cursor nowhere", () =>
+  withApp({ rows: [paneRow, sessionRow] }, async (container, fake) => {
+    await until(() => fake.callsTo(paneWatchPath).length === 1, "the pane stream");
+    fake.emit(fake.callsTo(paneWatchPath)[0], {
+      transcript: "t1",
+      seq: "1",
+      reset: true,
+      items: [{ kind: "assistant", text: "read https://example.com/doc" }],
+    });
+    await until(() => container.querySelector(".reader a") !== null, "the reader's link");
+    const link = container.querySelector(".reader a");
+    assert.ok(link);
+    const click = clickEvent();
+    await act(() => {
+      link.dispatchEvent(click);
+    });
+    assert.equal(click.defaultPrevented, false, "the link keeps its default action");
+    assert.equal(cursorKey(container), "a");
+  }));

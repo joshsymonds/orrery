@@ -213,6 +213,11 @@ export function App({
     setCursor({ key: flat[next].key, index: next });
   };
 
+  // selectRow moves the cursor to a row the list shows, as a click on that row does.
+  const selectRow = (row: Row) => {
+    moveTo(flat.findIndex((candidate) => candidate.key === row.key));
+  };
+
   const nextUnseen = () => {
     for (let step = 1; step <= flat.length; step++) {
       const target = (index + step) % flat.length;
@@ -361,10 +366,10 @@ export function App({
           />
         </div>
         <div class="views">
-          <span class={view === "attention" ? "view on" : "view"}>
+          <span class={view === "attention" ? "view on" : "view"} onClick={() => setView("attention")}>
             <kbd>a</kbd>By attention
           </span>
-          <span class={view === "project" ? "view on" : "view"}>
+          <span class={view === "project" ? "view on" : "view"} onClick={() => setView("project")}>
             <kbd>p</kbd>By project
           </span>
         </div>
@@ -398,6 +403,17 @@ export function App({
                     data-key={item.key}
                     data-unseen={item.unseen ? "" : undefined}
                     aria-current={item.key === cursorRowKey ? "true" : undefined}
+                    onClick={(event) => {
+                      if (!isLinkClick(event)) {
+                        selectRow(item);
+                      }
+                    }}
+                    onDblClick={(event) => {
+                      if (!isLinkClick(event)) {
+                        selectRow(item);
+                        void writeSeen(item);
+                      }
+                    }}
                   >
                     <span class="dot" />
                     <span class={`g g-${item.state}`} aria-hidden="true" />
@@ -554,6 +570,11 @@ function resolveIndex(rows: Row[], cursor: Cursor): number {
   }
   const found = rows.findIndex((row) => row.key === cursor.key);
   return found >= 0 ? found : clamp(cursor.index, rows.length);
+}
+
+// isLinkClick reports whether a click or double click landed on a link, which opens it and moves nothing else.
+function isLinkClick(event: Event): boolean {
+  return event.target instanceof Element && event.target.closest("a") !== null;
 }
 
 function clamp(index: number, length: number): number {
