@@ -35,6 +35,7 @@ import io.github.joshsymonds.orrery.ui.PaneListState
 import io.github.joshsymonds.orrery.ui.PaneScreen
 import io.github.joshsymonds.orrery.ui.SessionScreen
 import io.github.joshsymonds.orrery.ui.SettingsScreen
+import io.github.joshsymonds.orrery.ui.StepMode
 import io.github.joshsymonds.orrery.ui.theme.OrreryTheme
 
 internal const val ROOT_CONTENT_TAG = "root-content"
@@ -87,7 +88,7 @@ class MainActivity : ComponentActivity() {
                                         client = client,
                                         epicId = current.id,
                                         onBack = { screen = Screen.Panes },
-                                        onOpenStep = { screen = Screen.Step(it.id, epicId = current.id) },
+                                        onOpenStep = { screen = Screen.Step(it.id, epicId = current.id, held = it.held) },
                                     )
                                 }
                                 is Screen.Step -> {
@@ -96,6 +97,7 @@ class MainActivity : ComponentActivity() {
                                         sessionId = current.id,
                                         client = client,
                                         onBack = { screen = Screen.Epic(current.epicId) },
+                                        step = StepMode(held = current.held),
                                     )
                                 }
                                 is Screen.Pane -> {
@@ -158,7 +160,10 @@ class MainActivity : ComponentActivity() {
         data class Session(val id: String) : Screen
         data class Epic(val id: String) : Screen
 
-        /** A step's session, reached through its epic: back returns to [epicId]. */
-        data class Step(val id: String, val epicId: String) : Screen
+        /**
+         * A step's session, reached through its epic: back returns to [epicId]. [held] is the step's
+         * held state when it was opened.
+         */
+        data class Step(val id: String, val epicId: String, val held: Boolean) : Screen
     }
 }
