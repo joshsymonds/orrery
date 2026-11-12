@@ -94,7 +94,6 @@ func newStepHoldFixture(t *testing.T) *stepHoldFixture {
 		Sessions:  sessions,
 		Store:     s,
 		Writer:    writer,
-		Locks:     []string{filepath.Join(t.TempDir(), "gate.lock")},
 		Worktrees: worktrees,
 		Environ:   []string{"PATH=" + os.Getenv("PATH")},
 		Logger:    slog.New(slog.DiscardHandler),

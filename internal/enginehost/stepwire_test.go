@@ -4,7 +4,6 @@ import (
 	"context"
 	"log/slog"
 	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -53,7 +52,6 @@ func newStepWireFixture(t *testing.T, haiku *Haiku) *stepWireFixture {
 		Sessions:  sessions,
 		Store:     s,
 		Writer:    writer,
-		Locks:     []string{filepath.Join(t.TempDir(), "gate.lock")},
 		Worktrees: t.TempDir(),
 		Environ:   []string{"PATH=" + os.Getenv("PATH")},
 		Logger:    slog.New(slog.DiscardHandler),

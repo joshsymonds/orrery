@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -67,7 +66,6 @@ func newRefusalFixture(t *testing.T, stepCap int) *refusalFixture {
 	worktrees := t.TempDir()
 	steps, err := NewSteps(StepsConfig{
 		Sessions: manager, Store: s, Writer: writer,
-		Locks:     []string{filepath.Join(t.TempDir(), "gate.lock")},
 		Worktrees: worktrees, Environ: []string{"PATH=" + os.Getenv("PATH")}, Logger: logger,
 	})
 	if err != nil {

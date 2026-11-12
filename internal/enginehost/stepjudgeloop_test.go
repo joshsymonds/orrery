@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -184,9 +183,8 @@ func TestJudgeLoopWritingStepInputCarriesDiffStatAndGateTail(t *testing.T) {
 	dir, start := stepDoneRepo(t)
 	commit := stepGitTestCommit(t, dir, map[string]string{stepDoneOwned: "owned\n"})
 	gate := stepDoneScript(t, "echo gate-tail-marker")
-	lock := filepath.Join(t.TempDir(), "slot")
 	haiku := &judgeLoopHaiku{replies: []judgeLoopReply{judgeLoopVerdict("met", "complete")}}
-	f := newJudgeLoopFixture(t, haiku, stepDoneWriting(dir, start, []string{gate}, time.Minute, lock))
+	f := newJudgeLoopFixture(t, haiku, stepDoneWriting(dir, start, []string{gate}, time.Minute, &fakeGatePools{}))
 	_, done := f.start(t)
 
 	f.run.Return(stepDoneReturn(commit))
@@ -254,9 +252,8 @@ func TestJudgeLoopFailedCallEndsDoneWithErrorStored(t *testing.T) {
 func TestJudgeLoopFailingCheckIsNeverJudged(t *testing.T) {
 	dir, start := stepDoneRepo(t)
 	commit := stepGitTestCommit(t, dir, map[string]string{"other/outside.txt": "stray\n"})
-	lock := filepath.Join(t.TempDir(), "slot")
 	haiku := &judgeLoopHaiku{replies: []judgeLoopReply{judgeLoopVerdict("met", "complete")}}
-	f := newJudgeLoopFixture(t, haiku, stepDoneWriting(dir, start, nil, time.Minute, lock))
+	f := newJudgeLoopFixture(t, haiku, stepDoneWriting(dir, start, nil, time.Minute, &fakeGatePools{}))
 	_, done := f.start(t)
 
 	for range stepLoopMaxContinues + 1 {

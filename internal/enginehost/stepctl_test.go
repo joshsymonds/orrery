@@ -49,7 +49,7 @@ type stepCtlFixture struct {
 	store     *store.Store
 	writer    *Writer
 	worktrees string
-	locks     []string
+	pools     *fakeGatePools
 	environ   []string
 }
 
@@ -66,7 +66,7 @@ func newStepCtlFixture(t *testing.T) *stepCtlFixture {
 		store:     s,
 		writer:    writer,
 		worktrees: t.TempDir(),
-		locks:     []string{filepath.Join(t.TempDir(), "gate.lock")},
+		pools:     &fakeGatePools{},
 		environ:   []string{"PATH=" + os.Getenv("PATH"), "HOME=" + home, "XDG_CONFIG_HOME=" + home},
 		sessions:  &stepCtlSessions{stepStartSessions: &stepStartSessions{writer: writer}},
 	}
@@ -81,7 +81,7 @@ func (f *stepCtlFixture) newSteps(t *testing.T) *Steps {
 		Sessions:  f.sessions,
 		Store:     f.store,
 		Writer:    f.writer,
-		Locks:     f.locks,
+		Pools:     f.pools,
 		Worktrees: f.worktrees,
 		Environ:   f.environ,
 		Logger:    slog.New(slog.DiscardHandler),

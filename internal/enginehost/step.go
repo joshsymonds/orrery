@@ -73,8 +73,8 @@ type StepStore interface {
 }
 
 // StepsConfig configures Steps. Sessions starts and stops the step sessions, Store reads the step rows and Writer
-// stores the ops of the step loops. Pools queues each named gate's run for its needs, and a nil Pools runs the gate
-// under Locks instead. Environ is the environment gates run in, and the one a named gate is resolved under.
+// stores the ops of the step loops. Pools queues each named gate's run for its needs; a nil Pools fails a gate that
+// runs. Environ is the environment gates run in, and the one a named gate is resolved under.
 // Worktrees is the directory read-only steps' worktrees are added under, one per step id. A nil Logger discards. Haiku
 // makes the monitor and judge calls of every started step, and nil makes none. Now is the clock each step's watch reads,
 // time.Now when nil. WatchTick is how often each started step's watch is checked, five seconds when zero.
@@ -83,7 +83,6 @@ type StepsConfig struct {
 	Store     StepStore
 	Writer    *Writer
 	Pools     PoolCommands
-	Locks     []string
 	Worktrees string
 	Environ   []string
 	Logger    *slog.Logger
@@ -100,7 +99,6 @@ type Steps struct {
 	store     StepStore
 	writer    *Writer
 	pools     PoolCommands
-	locks     []string
 	worktrees string
 	environ   []string
 	logger    *slog.Logger
@@ -132,7 +130,6 @@ func NewSteps(cfg StepsConfig) (*Steps, error) {
 		store:     cfg.Store,
 		writer:    cfg.Writer,
 		pools:     cfg.Pools,
-		locks:     cfg.Locks,
 		worktrees: cfg.Worktrees,
 		environ:   cfg.Environ,
 		logger:    logger,
@@ -200,7 +197,7 @@ func (s *Steps) Start(ctx context.Context, start StepStart) (string, error) {
 		id: id, schema: start.Schema, doneValue: doneValue, sessions: s.sessions, writer: s.writer, logger: s.logger,
 		writing: !start.ReadOnly, start: commit, owned: start.Owned, gate: gate.argv, gateLimit: gateLimit,
 		gateName: gate.name, gateSource: gate.source, grant: gate.grant, pools: s.pools,
-		locks: s.locks, environ: s.environ, prompt: start.Prompt, now: s.now, modelLimit: modelLimit,
+		environ: s.environ, prompt: start.Prompt, now: s.now, modelLimit: modelLimit,
 	}
 	if s.haiku != nil {
 		cfg.haiku = s.haiku

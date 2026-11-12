@@ -95,7 +95,6 @@ func newStepNudgeFixture(t *testing.T) *stepNudgeFixture {
 		Sessions:  sessions,
 		Store:     s,
 		Writer:    writer,
-		Locks:     []string{filepath.Join(t.TempDir(), "gate.lock")},
 		Worktrees: t.TempDir(),
 		Environ:   []string{"PATH=" + os.Getenv("PATH")},
 		Logger:    slog.New(slog.DiscardHandler),

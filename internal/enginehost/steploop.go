@@ -46,12 +46,12 @@ const stepLoopMaxContinues = 3
 const stepLoopBuffer = 8
 
 // stepRunConfig is what a stepRun is built from. A writing step may change its worktree: its done return is checked
-// with commitChecks against start and owned in dir, and with gate when every commit check passes and gate is set. A
-// non-nil pools runs gate holding the members grant requests, and its check records gateName and gateSource. A nil pools
-// runs gate under locks. A read-only step's done return passes on its schema check alone. A nil cleanup has nothing to
-// run. The watch reads now as its clock, time.Now when now is nil, and allows the step modelLimit of model time. Each
-// tick on ticks checks the watch, and a nil ticks never ticks. A nil haiku makes no monitor or judge calls. prompt is
-// the step's first prompt, which the judge is given with each done return.
+// with commitChecks against start and owned in dir, and with gate when every commit check passes and gate is set. gate
+// runs holding the members of grant that pools grants, and its check records gateName and gateSource; a nil pools fails
+// the gate. A read-only step's done return passes on its schema check alone. A nil cleanup has nothing to run. The watch
+// reads now as its clock, time.Now when now is nil, and allows the step modelLimit of model time. Each tick on ticks
+// checks the watch, and a nil ticks never ticks. A nil haiku makes no monitor or judge calls. prompt is the step's first
+// prompt, which the judge is given with each done return.
 type stepRunConfig struct {
 	id         string
 	schema     string
@@ -72,7 +72,6 @@ type stepRunConfig struct {
 	owned      []string
 	gate       []string
 	gateLimit  time.Duration
-	locks      []string
 	environ    []string
 	pools      PoolCommands
 	grant      grants.Request
@@ -316,8 +315,8 @@ func (r *stepRun) judge(ctx context.Context, round int, value json.RawMessage, c
 }
 
 // doneChecks appends the checks of a writing step's done return to checks. The four commit checks run first. The gate
-// runs only when they all pass and a gate is set. A gate that cannot run is an error. A granted gate's check opens with
-// the record of its run, stepGateRecord.
+// runs only when they all pass and a gate is set. A gate that cannot run is an error. The gate's check opens with the
+// record of its run, stepGateRecord.
 func (r *stepRun) doneChecks(ctx context.Context, round int, commit string,
 	checks []store.StepCheck) ([]store.StepCheck, error) {
 	passed := true
@@ -329,32 +328,20 @@ func (r *stepRun) doneChecks(ctx context.Context, round int, commit string,
 		return checks, nil
 	}
 	r.beginGate()
-	result, err := r.runStepGate(ctx)
+	result, err := runGrantedGate(ctx, r.pools, r.grant, gateRun{
+		Argv: r.gate, Dir: r.dir, Limit: r.gateLimit, Environ: r.environ,
+	})
 	r.endGate()
 	if err != nil {
 		return checks, fmt.Errorf("run gate of step %s: %w", r.id, err)
 	}
 	check := stepLoopGateCheck(round, result, r.gateLimit)
-	if r.pools == nil {
-		return append(checks, check), nil
-	}
 	record, err := stepGateRecord(r.gateName, r.gateSource, r.gate, result.Members)
 	if err != nil {
 		return checks, fmt.Errorf("record gate of step %s: %w", r.id, err)
 	}
 	check.Detail = record + check.Detail
 	return append(checks, check), nil
-}
-
-// runStepGate runs the step's gate once. With pools set, the gate runs holding the grant of its needs; without them it
-// runs under the gate's lock files.
-func (r *stepRun) runStepGate(ctx context.Context) (gateResult, error) {
-	run := gateRun{Argv: r.gate, Dir: r.dir, Limit: r.gateLimit, Environ: r.environ}
-	if r.pools == nil {
-		run.Locks = r.locks
-		return runGate(ctx, run)
-	}
-	return runGrantedGate(ctx, r.pools, r.grant, run)
 }
 
 // stepGateRecord returns the record a granted gate's check detail opens with: the gate's name and the file it resolved

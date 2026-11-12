@@ -4,18 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/grants"
 )
-
-// gateRetry is how long runGate waits before it tries the locks again.
-const gateRetry = time.Second
 
 // gateWaitDelay is how long runGate waits for a gate's output to close after the gate has ended. A child
 // that leaves the process group and keeps the output open would otherwise hold runGate past the limit.
@@ -24,29 +19,23 @@ const gateWaitDelay = time.Second
 // gateOutputBytes is how much of a gate's combined stdout and stderr runGate keeps.
 const gateOutputBytes = 8 * 1024
 
-// errGateNoLock reports a gate that names no lock file to hold.
-var errGateNoLock = errors.New("enginehost: gate names no lock")
-
 // errGateNoCommand reports a gate that names no command to run.
 var errGateNoCommand = errors.New("enginehost: gate names no command")
 
-// gateRun describes one gate: the command, where it runs, how long it may run, the lock files it may
-// hold, and the complete environment it runs in.
+// gateRun describes one gate: the command, where it runs, how long it may run, and the complete environment it runs in.
 type gateRun struct {
 	Argv    []string
 	Dir     string
 	Limit   time.Duration
-	Locks   []string
 	Environ []string
 }
 
-// gateResult is how a gate ended: its exit status, whether Limit killed it, the last bytes it printed,
-// the lock file it held, and the members of the grant the attempt that produced it held.
+// gateResult is how a gate ended: its exit status, whether Limit killed it, the last bytes it printed, and the members
+// of the grant the attempt that produced it held.
 type gateResult struct {
 	Exit     int
 	TimedOut bool
 	Output   string
-	Lock     string
 	Members  []grants.Member
 }
 
@@ -79,47 +68,13 @@ const (
 	gateUngranted
 )
 
-// runGate holds the first free lock in run.Locks, runs run.Argv in run.Dir in its own process group
-// with the TMUX and TMUX_PANE markers removed from run.Environ, and kills the whole group when run.Limit
-// passes or ctx ends. Argv[0] is a path, absolute or relative to run.Dir; it is not looked up on PATH.
-// The lock is released when the gate ends. It returns an error only when the gate cannot start or ctx
-// ends first.
-func runGate(ctx context.Context, run gateRun) (gateResult, error) {
-	if len(run.Argv) == 0 {
-		return gateResult{}, errGateNoCommand
-	}
-	lock, lockPath, err := gateAcquire(ctx, run.Locks)
-	if err != nil {
-		return gateResult{}, err
-	}
-	defer lock.Close()
-
-	started, err := gateStart(run)
-	if err != nil {
-		return gateResult{}, err
-	}
-	outcome, err := started.watch(ctx, run.Limit, nil, nil)
-	if err != nil {
-		return gateResult{}, err
-	}
-	exit, err := gateExitCode(started.waitErr)
-	if err != nil {
-		return gateResult{}, err
-	}
-	return gateResult{
-		Exit:     exit,
-		TimedOut: outcome == gateLimited,
-		Output:   started.output.String(),
-		Lock:     lockPath,
-	}, nil
-}
-
 // runGrantedGate runs run.Argv as a gate that holds the members pools grants for req. Each attempt queues req
 // and runs the gate once the grant holds its members, in run.Dir with the TMUX and TMUX_PANE markers removed
 // from run.Environ. The Limit of an attempt counts from its grant, not from the queue. A stop from an owner hold
 // kills the gate's group, yields no result, and reclaims the stopped grant by its id, then the gate runs again.
-// The grant ends only after the gate's group has exited. run.Locks is not used. It returns an error when pools
-// is nil, when the grant ends without the gate ending, when the gate cannot start, or when ctx ends first.
+// The grant ends only after the gate's group has exited. It returns an error when pools is nil, when the grant ends
+// without the gate ending, when the gate cannot start, or when ctx ends first. Argv[0] is a path, absolute or
+// relative to run.Dir; it is not looked up on PATH.
 func runGrantedGate(ctx context.Context, pools PoolCommands, req grants.Request, run gateRun) (gateResult, error) {
 	if pools == nil {
 		return gateResult{}, errGateNoPools
@@ -296,46 +251,6 @@ func (g *gateStarted) kill() error {
 	err := gateKillGroup(g.pid)
 	<-g.waited
 	return err
-}
-
-// gateAcquire returns the open, locked file of the first lock in paths that is free, and its path. It
-// tries every lock in order, then waits gateRetry before trying again, until one frees or ctx ends.
-func gateAcquire(ctx context.Context, paths []string) (*os.File, string, error) {
-	if len(paths) == 0 {
-		return nil, "", errGateNoLock
-	}
-	for {
-		for _, path := range paths {
-			file, held, err := gateTryLock(path)
-			if err != nil {
-				return nil, "", err
-			}
-			if held {
-				return file, path, nil
-			}
-		}
-		select {
-		case <-ctx.Done():
-			return nil, "", fmt.Errorf("enginehost: gate waited for a lock: %w", ctx.Err())
-		case <-time.After(gateRetry):
-		}
-	}
-}
-
-// gateTryLock takes a non-blocking exclusive flock on path. held is false when another holder has it.
-func gateTryLock(path string) (*os.File, bool, error) {
-	file, err := os.OpenFile(filepath.Clean(path), os.O_RDWR|os.O_CREATE, 0o600)
-	if err != nil {
-		return nil, false, fmt.Errorf("enginehost: open gate lock %s: %w", path, err)
-	}
-	if err = syscall.Flock(int(file.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
-		_ = file.Close()
-		if errors.Is(err, syscall.EWOULDBLOCK) {
-			return nil, false, nil
-		}
-		return nil, false, fmt.Errorf("enginehost: lock gate lock %s: %w", path, err)
-	}
-	return file, true, nil
 }
 
 // gateEnviron returns environ without the TMUX and TMUX_PANE markers.
