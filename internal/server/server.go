@@ -113,7 +113,9 @@ type Config struct {
 	Shutdown <-chan struct{}
 	// Engine forwards the Control API to orreryd's engine socket, or is nil, which answers unavailable.
 	Engine enginev1connect.EngineClient
-	// ControlTimeout bounds each forward to Engine, or is zero for the default.
+	// Pools forwards the Pools API to orreryd's engine Pools service, or is nil, which answers unavailable.
+	Pools enginev1connect.PoolsClient
+	// ControlTimeout bounds each forward to Engine and Pools, or is zero for the default.
 	ControlTimeout time.Duration
 	// Home is the home directory a Control start must name a directory under, after symlinks resolve. An empty,
 	// relative or root Home, or one that does not exist, refuses every start.
@@ -174,6 +176,8 @@ func New(cfg Config) (http.Handler, error) {
 	mux.Handle(eventsPath, events)
 	controlPath, control := newControlHandler(cfg.Engine, cfg.ControlTimeout, cfg.Home)
 	mux.Handle(controlPath, control)
+	poolsPath, pools := newPoolsHandler(cfg.Pools, cfg.ControlTimeout)
+	mux.Handle(poolsPath, pools)
 	panesPath, panesService := newPanesHandler(
 		cfg.Tmux, newest, goals, queues, textLocks, seenLocks, cfg.ReportSeen,
 		conversationPoll, conversationKeepalive, sendTimeout, cfg.Shutdown,
@@ -188,7 +192,9 @@ func New(cfg Config) (http.Handler, error) {
 	if cfg.Web != nil {
 		mux.Handle("/", newPageHandler(cfg.Web))
 	}
-	connectPaths := []string{sessionsPath, eventsPath, controlPath, panesPath, hostPath, pushPath, pickerPath}
+	connectPaths := []string{
+		sessionsPath, eventsPath, controlPath, poolsPath, panesPath, hostPath, pushPath, pickerPath,
+	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if _, ok := allowed[r.Header.Get(HeaderLogin)]; !ok {
 			http.Error(w, "forbidden", http.StatusForbidden)
