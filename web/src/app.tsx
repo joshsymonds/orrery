@@ -5,6 +5,7 @@ import type { Clients } from "./actions";
 import { Composer } from "./composer";
 import type { Conversation } from "./conversation";
 import { follow } from "./follow";
+import { type ParsedQuestion, parseQuestion } from "./question";
 import { Reader } from "./reader";
 import { byAttention, byProject, type Row, type Section } from "./rows";
 import { type SeenClock, type SeenWindow, watchSeen } from "./seen";
@@ -200,6 +201,10 @@ export function App({
     );
   });
 
+  // The conversation the cursor's reader holds, only when its stream belongs to the cursor's row.
+  const cursorConversation = stream !== null && stream.key === cursorRowKey ? stream.conversation : null;
+  const toggleOpen = () => setOpen((value) => !value);
+
   const moveTo = (target: number) => {
     if (flat.length === 0) {
       return;
@@ -311,7 +316,7 @@ export function App({
         answerCursor(3);
         break;
       case "o":
-        setOpen((value) => !value);
+        toggleOpen();
         break;
       case "|":
         if (pinned !== null) {
@@ -404,7 +409,13 @@ export function App({
                         <span class="age">{ageText(item.changed, now)}</span>
                       </div>
                       <div class="l2">
-                        <ReplyText text={item.state === stateWaiting && item.question !== "" ? item.question : item.summary} />
+                        <ReplyText
+                          text={
+                            item.state === stateWaiting && item.question !== ""
+                              ? parseQuestion(item.question).title
+                              : item.summary
+                          }
+                        />
                       </div>
                     </div>
                   </div>
@@ -432,9 +443,12 @@ export function App({
         <section class="read" aria-label="reader" hidden={cursorRow === null}>
           {cursorRow !== null && (
             <Reader
-              conversation={stream !== null && stream.key === cursorRowKey ? stream.conversation : null}
+              conversation={cursorConversation}
               seenAt={cursorRow.seen}
               open={open}
+              question={readerQuestion(cursorRow, cursorConversation)}
+              onAnswer={answerCursor}
+              onToggleOpen={toggleOpen}
             />
           )}
           {composerRows(visited, cursorRow).map((row) => (
@@ -485,6 +499,19 @@ export function App({
       </div>
     </main>
   );
+}
+
+// readerQuestion is the question the cursor's reader draws: a waiting pane row's stored question, or a session's open
+// request as its stream holds it. A row with no question draws none.
+function readerQuestion(row: Row, conversation: Conversation | null): ParsedQuestion | null {
+  if (row.kind === "pane") {
+    return row.state === stateWaiting && row.question !== "" ? parseQuestion(row.question) : null;
+  }
+  const request = conversation?.state?.request;
+  if (request === undefined) {
+    return null;
+  }
+  return { title: request.question, options: request.options.map((label) => ({ label, description: "" })) };
 }
 
 // matchesFilter keeps a row whose label, project, host, state or summary holds every typed word.

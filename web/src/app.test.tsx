@@ -1247,3 +1247,93 @@ test("a failed send in the pinned column keeps its prompt id through a close and
     assert.equal(second.body.text, "keep going");
     assert.equal(second.body.promptId, first.body.promptId, "the retry reused the prompt id");
   }));
+
+const askRow = row({
+  key: "a",
+  label: "api",
+  state: "waiting",
+  question: JSON.stringify({
+    questions: [
+      {
+        question: "Which fruit?",
+        options: [
+          { label: "Apple", description: "red" },
+          { label: "Pear", description: "green" },
+        ],
+      },
+    ],
+  }),
+  questionHash: "qh-2",
+  changed: 300,
+  seen: 100,
+  unseen: true,
+});
+
+test("a waiting pane row shows its question's text, never its raw JSON, and a button click answers it", () =>
+  withApp({ rows: [askRow] }, async (container, fake) => {
+    await until(() => fake.callsTo(paneWatchPath).length === 1, "the pane stream");
+    fake.emit(fake.callsTo(paneWatchPath)[0], { transcript: "t1", seq: "1", reset: true, items: [] });
+    assert.equal(rowElement(container, "a").querySelector(".l2")?.textContent, "Which fruit?");
+    await until(() => container.querySelector(".question-card") !== null, "the question card");
+    const reader = container.querySelector(".reader")?.textContent ?? "";
+    assert.ok(reader.includes("Which fruit?"));
+    for (const text of [container.querySelector(".l2")?.textContent ?? "", reader]) {
+      assert.equal(text.includes("{"), false, "no raw JSON");
+      assert.equal(text.includes('"questions"'), false, "no raw JSON key");
+    }
+    const options = container.querySelectorAll<HTMLButtonElement>(".question-card button.option");
+    assert.equal(options.length, 2);
+    assert.ok(options[1].textContent?.includes("Pear"));
+    await act(() => {
+      options[1].click();
+    });
+    await until(() => fake.callsTo(sendKeysPath).length === 1, "the answer");
+    assert.deepEqual(fake.callsTo(sendKeysPath)[0].body, { pane: "a", keys: ["2"], expectQuestion: "qh-2" });
+  }));
+
+test("a session row's reader draws the question its stream holds, and a button click answers by request id", () =>
+  withApp({ rows: [sessionRow] }, async (container, fake) => {
+    await until(() => fake.callsTo(sessionWatchPath).length === 1, "the session stream");
+    fake.emit(fake.callsTo(sessionWatchPath)[0], {
+      transcript: "t1",
+      seq: "1",
+      reset: true,
+      items: [],
+      state: { request: { id: "req-7", kind: "question", question: "Pick one", options: ["Yes", "No"] } },
+    });
+    await until(() => container.querySelector(".question-card") !== null, "the question card");
+    assert.ok(readerText(container).includes("Pick one"));
+    const options = container.querySelectorAll<HTMLButtonElement>(".question-card button.option");
+    assert.equal(options.length, 2);
+    await act(() => {
+      options[0].click();
+    });
+    await until(() => fake.callsTo(answerPath).length === 1, "the answer");
+    assert.deepEqual(fake.callsTo(answerPath)[0].body, { id: "s1", requestId: "req-7", answer: "Yes" });
+  }));
+
+test("a click on the compaction rule shows its summary, and a second click hides it, as o does", () =>
+  withApp({ rows: [sessionRow] }, async (container, fake) => {
+    await until(() => fake.callsTo(sessionWatchPath).length === 1, "the session stream");
+    fake.emit(fake.callsTo(sessionWatchPath)[0], {
+      transcript: "t1",
+      seq: "1",
+      reset: true,
+      items: [{ kind: "compaction", text: "the summary text", trigger: "auto", tokens: "611000" }],
+    });
+    await until(() => container.querySelector(".reader .compaction button.rule") !== null, "the compaction rule");
+    const rule = (): HTMLButtonElement => {
+      const button = container.querySelector<HTMLButtonElement>(".reader .compaction button.rule");
+      assert.ok(button, "the rule is a button");
+      return button;
+    };
+    assert.equal(readerText(container).includes("the summary text"), false, "the summary is hidden at first");
+    await act(() => {
+      rule().click();
+    });
+    assert.equal(container.querySelector(".summary")?.textContent, "the summary text");
+    await act(() => {
+      rule().click();
+    });
+    assert.equal(container.querySelector(".summary"), null);
+  }));
