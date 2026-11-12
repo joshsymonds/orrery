@@ -78,6 +78,8 @@ const (
 	PanesSendKeysProcedure = "/orrery.v1.Panes/SendKeys"
 	// PanesMarkSeenProcedure is the fully-qualified name of the Panes's MarkSeen RPC.
 	PanesMarkSeenProcedure = "/orrery.v1.Panes/MarkSeen"
+	// PanesPullQueuedProcedure is the fully-qualified name of the Panes's PullQueued RPC.
+	PanesPullQueuedProcedure = "/orrery.v1.Panes/PullQueued"
 	// PanesWatchConversationProcedure is the fully-qualified name of the Panes's WatchConversation RPC.
 	PanesWatchConversationProcedure = "/orrery.v1.Panes/WatchConversation"
 	// HostStatusProcedure is the fully-qualified name of the Host's Status RPC.
@@ -520,6 +522,10 @@ type PanesClient interface {
 	SendKeys(context.Context, *connect.Request[v1.SendKeysRequest]) (*connect.Response[v1.SendKeysResponse], error)
 	// MarkSeen records that the user has seen one pane.
 	MarkSeen(context.Context, *connect.Request[v1.MarkSeenRequest]) (*connect.Response[v1.MarkSeenResponse], error)
+	// PullQueued takes back the messages Claude Code's queue holds for one pane, as its up-arrow does. Aborted means
+	// Claude Code's input box holds text: typed text that refused the pull, or the pulled text when emptying the box
+	// failed.
+	PullQueued(context.Context, *connect.Request[v1.PullQueuedRequest]) (*connect.Response[v1.PullQueuedResponse], error)
 	// WatchConversation streams the conversation of one pane's Claude transcript: a reset delta with the newest items
 	// and the whole state, then the deltas that follow each change.
 	WatchConversation(context.Context, *connect.Request[v1.WatchConversationRequest]) (*connect.ServerStreamForClient[v1.WatchConversationResponse], error)
@@ -572,6 +578,12 @@ func NewPanesClient(httpClient connect.HTTPClient, baseURL string, opts ...conne
 			connect.WithSchema(panesMethods.ByName("MarkSeen")),
 			connect.WithClientOptions(opts...),
 		),
+		pullQueued: connect.NewClient[v1.PullQueuedRequest, v1.PullQueuedResponse](
+			httpClient,
+			baseURL+PanesPullQueuedProcedure,
+			connect.WithSchema(panesMethods.ByName("PullQueued")),
+			connect.WithClientOptions(opts...),
+		),
 		watchConversation: connect.NewClient[v1.WatchConversationRequest, v1.WatchConversationResponse](
 			httpClient,
 			baseURL+PanesWatchConversationProcedure,
@@ -589,6 +601,7 @@ type panesClient struct {
 	sendText          *connect.Client[v1.SendTextRequest, v1.SendTextResponse]
 	sendKeys          *connect.Client[v1.SendKeysRequest, v1.SendKeysResponse]
 	markSeen          *connect.Client[v1.MarkSeenRequest, v1.MarkSeenResponse]
+	pullQueued        *connect.Client[v1.PullQueuedRequest, v1.PullQueuedResponse]
 	watchConversation *connect.Client[v1.WatchConversationRequest, v1.WatchConversationResponse]
 }
 
@@ -622,6 +635,11 @@ func (c *panesClient) MarkSeen(ctx context.Context, req *connect.Request[v1.Mark
 	return c.markSeen.CallUnary(ctx, req)
 }
 
+// PullQueued calls orrery.v1.Panes.PullQueued.
+func (c *panesClient) PullQueued(ctx context.Context, req *connect.Request[v1.PullQueuedRequest]) (*connect.Response[v1.PullQueuedResponse], error) {
+	return c.pullQueued.CallUnary(ctx, req)
+}
+
 // WatchConversation calls orrery.v1.Panes.WatchConversation.
 func (c *panesClient) WatchConversation(ctx context.Context, req *connect.Request[v1.WatchConversationRequest]) (*connect.ServerStreamForClient[v1.WatchConversationResponse], error) {
 	return c.watchConversation.CallServerStream(ctx, req)
@@ -641,6 +659,10 @@ type PanesHandler interface {
 	SendKeys(context.Context, *connect.Request[v1.SendKeysRequest]) (*connect.Response[v1.SendKeysResponse], error)
 	// MarkSeen records that the user has seen one pane.
 	MarkSeen(context.Context, *connect.Request[v1.MarkSeenRequest]) (*connect.Response[v1.MarkSeenResponse], error)
+	// PullQueued takes back the messages Claude Code's queue holds for one pane, as its up-arrow does. Aborted means
+	// Claude Code's input box holds text: typed text that refused the pull, or the pulled text when emptying the box
+	// failed.
+	PullQueued(context.Context, *connect.Request[v1.PullQueuedRequest]) (*connect.Response[v1.PullQueuedResponse], error)
 	// WatchConversation streams the conversation of one pane's Claude transcript: a reset delta with the newest items
 	// and the whole state, then the deltas that follow each change.
 	WatchConversation(context.Context, *connect.Request[v1.WatchConversationRequest], *connect.ServerStream[v1.WatchConversationResponse]) error
@@ -689,6 +711,12 @@ func NewPanesHandler(svc PanesHandler, opts ...connect.HandlerOption) (string, h
 		connect.WithSchema(panesMethods.ByName("MarkSeen")),
 		connect.WithHandlerOptions(opts...),
 	)
+	panesPullQueuedHandler := connect.NewUnaryHandler(
+		PanesPullQueuedProcedure,
+		svc.PullQueued,
+		connect.WithSchema(panesMethods.ByName("PullQueued")),
+		connect.WithHandlerOptions(opts...),
+	)
 	panesWatchConversationHandler := connect.NewServerStreamHandler(
 		PanesWatchConversationProcedure,
 		svc.WatchConversation,
@@ -709,6 +737,8 @@ func NewPanesHandler(svc PanesHandler, opts ...connect.HandlerOption) (string, h
 			panesSendKeysHandler.ServeHTTP(w, r)
 		case PanesMarkSeenProcedure:
 			panesMarkSeenHandler.ServeHTTP(w, r)
+		case PanesPullQueuedProcedure:
+			panesPullQueuedHandler.ServeHTTP(w, r)
 		case PanesWatchConversationProcedure:
 			panesWatchConversationHandler.ServeHTTP(w, r)
 		default:
@@ -742,6 +772,10 @@ func (UnimplementedPanesHandler) SendKeys(context.Context, *connect.Request[v1.S
 
 func (UnimplementedPanesHandler) MarkSeen(context.Context, *connect.Request[v1.MarkSeenRequest]) (*connect.Response[v1.MarkSeenResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.v1.Panes.MarkSeen is not implemented"))
+}
+
+func (UnimplementedPanesHandler) PullQueued(context.Context, *connect.Request[v1.PullQueuedRequest]) (*connect.Response[v1.PullQueuedResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.v1.Panes.PullQueued is not implemented"))
 }
 
 func (UnimplementedPanesHandler) WatchConversation(context.Context, *connect.Request[v1.WatchConversationRequest], *connect.ServerStream[v1.WatchConversationResponse]) error {

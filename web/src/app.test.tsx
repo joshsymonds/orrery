@@ -5,19 +5,215 @@ import { render } from "preact";
 import { act } from "preact/test-utils";
 
 import { App } from "./app";
+import { createClients, createTransport } from "./client";
 import type { Row } from "./rows";
+import type { SeenClock, SeenWindow } from "./seen";
 import { installTestDom, removeTestDom } from "./testdom";
 
 const now = 1000;
+
+const paneWatchPath = "/orrery.v1.Panes/WatchConversation";
+const sessionWatchPath = "/orrery.v1.Sessions/WatchConversation";
+const sendTextPath = "/orrery.v1.Panes/SendText";
+const sayPath = "/orrery.v1.Control/Say";
+const pullPath = "/orrery.v1.Panes/PullQueued";
+const queuedText = "queued words";
+const intervalMs = 2;
+const markPanePath = "/orrery.v1.Panes/MarkSeen";
+const markSessionPath = "/orrery.v1.Control/Seen";
+const seenFailedText = "could not mark seen";
+const sendKeysPath = "/orrery.v1.Panes/SendKeys";
+const answerPath = "/orrery.v1.Control/Answer";
+const answerFailedText = "no answer was sent";
+
+type Clients = ReturnType<typeof createClients>;
+
+type Seen = ReturnType<typeof fakeSeen>;
 
 interface Props {
   rows: Row[];
   error: string;
   now: number;
+  clients: Clients;
+  seen: Seen;
+}
+
+// One request the fake server received. A unary call has no controller; a stream call has one until it ends.
+interface Call {
+  path: string;
+  body: Record<string, unknown>;
+  signal: AbortSignal;
+  controller: ReadableStreamDefaultController<Uint8Array> | null;
+}
+
+// FakeServer answers the App's calls on the Connect wire: unary calls with JSON, and WatchConversation with a stream
+// the test feeds through emit. Every call is recorded, and closeStreams ends the ones still open.
+class FakeServer {
+  readonly calls: Call[] = [];
+  // failNext holds the unary paths whose next call the server refuses with a Connect error, once each.
+  readonly failNext = new Set<string>();
+  // seen is the page the seen watch reads: the test emits its input, sets its focus, and advances its clock.
+  readonly seen = fakeSeen();
+
+  readonly fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    const request = new Request(input, init);
+    const path = new URL(request.url).pathname;
+    const bytes = new Uint8Array(await request.arrayBuffer());
+    if (!path.endsWith("/WatchConversation")) {
+      this.calls.push({ path, body: decodeUnary(bytes), signal: request.signal, controller: null });
+      if (this.failNext.delete(path)) {
+        return new Response(JSON.stringify({ code: "unavailable", message: "queue unreachable" }), {
+          status: 503,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      return json(path === pullPath ? { text: queuedText } : {});
+    }
+    const call: Call = { path, body: decodeEnvelope(bytes), signal: request.signal, controller: null };
+    this.calls.push(call);
+    request.signal.addEventListener("abort", () => {
+      call.controller = null;
+    });
+    const body = new ReadableStream<Uint8Array>({
+      start: (controller) => {
+        call.controller = controller;
+      },
+    });
+    return new Response(body, { status: 200, headers: { "content-type": "application/connect+json" } });
+  };
+
+  readonly clients: Clients = createClients(createTransport({ baseUrl: "https://orrery.test", fetch: this.fetch }));
+
+  callsTo(path: string): Call[] {
+    return this.calls.filter((call) => call.path === path);
+  }
+
+  emit(call: Call, message: object): void {
+    if (call.controller === null) {
+      throw new Error(`the stream to ${call.path} has ended`);
+    }
+    call.controller.enqueue(envelope(0, message));
+  }
+
+  closeStreams(): void {
+    for (const call of this.calls) {
+      if (call.controller !== null) {
+        call.controller.enqueue(envelope(2, {}));
+        call.controller.close();
+        call.controller = null;
+      }
+    }
+  }
+}
+
+// A clock whose timers fire only when the test advances time.
+function fakeClock() {
+  let now = 0;
+  let nextId = 1;
+  const timers = new Map<unknown, { at: number; fn: () => void }>();
+  const clock: SeenClock = {
+    now: () => now,
+    setTimeout(fn, ms) {
+      const id = nextId++;
+      timers.set(id, { at: now + ms, fn });
+      return id;
+    },
+    clearTimeout(handle) {
+      timers.delete(handle);
+    },
+  };
+  return {
+    clock,
+    advance(ms: number) {
+      const end = now + ms;
+      for (;;) {
+        let next: { id: unknown; at: number; fn: () => void } | undefined;
+        for (const [id, timer] of timers) {
+          if (timer.at <= end && (next === undefined || timer.at < next.at)) {
+            next = { id, at: timer.at, fn: timer.fn };
+          }
+        }
+        if (next === undefined) break;
+        now = next.at;
+        timers.delete(next.id);
+        next.fn();
+      }
+      now = end;
+    },
+  };
+}
+
+// A listener registry for one event target, as seen.test.ts keeps one.
+function listeners() {
+  const byType = new Map<string, Set<() => void>>();
+  return {
+    addEventListener(type: string, fn: () => void) {
+      const set = byType.get(type) ?? new Set<() => void>();
+      set.add(fn);
+      byType.set(type, set);
+    },
+    removeEventListener(type: string, fn: () => void) {
+      byType.get(type)?.delete(fn);
+    },
+    emit(type: string) {
+      for (const fn of [...(byType.get(type) ?? [])]) fn();
+    },
+    count() {
+      let total = 0;
+      for (const set of byType.values()) total += set.size;
+      return total;
+    },
+  };
+}
+
+// fakeSeen is the page the seen watch reads: a document whose visibility and focus the test sets, input events the
+// test emits, and a clock the test advances, so a dwell fires only when the test says so.
+function fakeSeen() {
+  const clock = fakeClock();
+  const input = listeners();
+  const page = listeners();
+  const state = { visibilityState: "visible", focused: true };
+  const seenWindow: SeenWindow = {
+    document: {
+      get visibilityState() {
+        return state.visibilityState;
+      },
+      hasFocus: () => state.focused,
+      addEventListener: input.addEventListener,
+      removeEventListener: input.removeEventListener,
+    },
+    addEventListener: page.addEventListener,
+    removeEventListener: page.removeEventListener,
+  };
+  return { clock: clock.clock, advance: clock.advance, input, page, state, window: seenWindow };
+}
+
+function json(body: unknown): Response {
+  return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
+}
+
+function decodeUnary(bytes: Uint8Array): Record<string, unknown> {
+  return bytes.byteLength === 0 ? {} : JSON.parse(new TextDecoder().decode(bytes));
+}
+
+// decodeEnvelope reads the one message of a streamed request: a flag byte, a 4-byte length, and the JSON payload.
+function decodeEnvelope(bytes: Uint8Array): Record<string, unknown> {
+  const length = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(1);
+  return JSON.parse(new TextDecoder().decode(bytes.subarray(5, 5 + length)));
+}
+
+function envelope(flag: number, message: object): Uint8Array {
+  const payload = new TextEncoder().encode(JSON.stringify(message));
+  const bytes = new Uint8Array(5 + payload.byteLength);
+  bytes[0] = flag;
+  new DataView(bytes.buffer).setUint32(1, payload.byteLength);
+  bytes.set(payload, 5);
+  return bytes;
 }
 
 function row(init: Partial<Row> & Pick<Row, "key">): Row {
   return {
+    id: init.key,
     kind: "pane",
     label: init.key,
     project: "/work/app",
@@ -25,6 +221,7 @@ function row(init: Partial<Row> & Pick<Row, "key">): Row {
     state: "working",
     summary: "",
     question: "",
+    questionHash: "",
     changed: 0,
     seen: 0,
     unseen: false,
@@ -70,32 +267,103 @@ function fixture(): Row[] {
   ];
 }
 
-const keysHelpList = ["j", "k", "↓", "↑", "gg", "G", "a", "p", "w", "n", "/", "?", "Esc"];
+const keysHelpList = ["j", "k", "↓", "↑", "gg", "G", "a", "p", "w", "n", "x", "Enter", "e", "/", "i", "1", "2", "3", "o", "|", "?", "Esc"];
 
 async function mount(container: HTMLElement, props: Props): Promise<void> {
   await act(() => {
-    render(<App rows={props.rows} error={props.error} now={props.now} />, container);
+    render(
+      <App
+        rows={props.rows}
+        error={props.error}
+        now={props.now}
+        clients={props.clients}
+        seenClock={props.seen.clock}
+        seenWindow={props.seen.window}
+      />,
+      container,
+    );
   });
 }
 
 async function withApp(
-  props: Partial<Props>,
-  check: (container: HTMLElement) => void | Promise<void>,
+  props: Partial<Omit<Props, "clients" | "seen">>,
+  check: (container: HTMLElement, fake: FakeServer) => void | Promise<void>,
 ): Promise<void> {
   const window = installTestDom();
   const container = document.createElement("div");
   document.body.append(container);
+  const fake = new FakeServer();
   try {
-    await mount(container, { rows: fixture(), error: "", now, ...props });
-    await check(container);
+    await mount(container, { rows: fixture(), error: "", now, clients: fake.clients, seen: fake.seen, ...props });
+    await check(container, fake);
   } finally {
     await act(() => {
       render(null, container);
     });
+    fake.closeStreams();
     container.remove();
     await removeTestDom(window);
   }
 }
+
+async function until(check: () => boolean, what: string): Promise<void> {
+  const deadline = Date.now() + 2000;
+  while (!check()) {
+    if (Date.now() > deadline) {
+      throw new Error(`timed out waiting for ${what}`);
+    }
+    await act(() => new Promise((resolve) => setTimeout(resolve, 2)));
+  }
+}
+
+// settle lets pending promises run, so a write the test expects to be absent has time to start.
+async function settle(): Promise<void> {
+  await act(() => new Promise((resolve) => setTimeout(resolve, 10)));
+}
+
+async function pressIn(element: Element, key: string): Promise<void> {
+  await act(() => {
+    element.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }));
+  });
+}
+
+async function typeInto(box: HTMLTextAreaElement, text: string): Promise<void> {
+  await act(() => {
+    box.value = text;
+    box.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+}
+
+// composer is the reply box the cursor's row shows: each row keeps its own, and only the cursor's is not hidden.
+function composer(container: HTMLElement): HTMLTextAreaElement {
+  const box = container.querySelector<HTMLTextAreaElement>(".reply:not([hidden]) .composer textarea");
+  assert.ok(box, "the reader has a composer");
+  return box;
+}
+
+function readerText(container: HTMLElement): string {
+  return container.querySelector(".reader")?.textContent ?? "";
+}
+
+const paneRow = row({
+  key: "a",
+  label: "api",
+  state: "waiting",
+  question: "Ship it?",
+  changed: 300,
+  seen: 100,
+  unseen: true,
+});
+
+const sessionRow = row({
+  key: "s1",
+  id: "s1",
+  kind: "session",
+  label: "notes",
+  state: "working",
+  changed: 30,
+  seen: 30,
+});
 
 async function press(key: string, modifiers: KeyboardEventInit = {}): Promise<KeyboardEvent> {
   const event = new KeyboardEvent("keydown", { key, cancelable: true, ...modifiers });
@@ -131,6 +399,10 @@ function rowKeys(container: HTMLElement): string[] {
 
 function cursorKey(container: HTMLElement): string | null {
   return container.querySelector(".b-row.cur")?.getAttribute("data-key") ?? null;
+}
+
+function alertTexts(container: HTMLElement): string[] {
+  return [...container.querySelectorAll('[role="alert"]')].map((element) => element.textContent ?? "");
 }
 
 function sectionTitles(container: HTMLElement): (string | null)[] {
@@ -210,13 +482,13 @@ test("p shows rows by project and keeps the cursor's row", () =>
   }));
 
 test("w goes to the first waiting row and does nothing when no row waits", () =>
-  withApp({}, async (container) => {
+  withApp({}, async (container, fake) => {
     await press("G");
     assert.equal(cursorKey(container), "d");
     await press("w");
     assert.equal(cursorKey(container), "a");
 
-    await mount(container, { rows: fixture().slice(1), error: "", now });
+    await mount(container, { rows: fixture().slice(1), error: "", now, clients: fake.clients, seen: fake.seen });
     await press("G");
     await press("w");
     assert.equal(cursorKey(container), "d");
@@ -259,15 +531,20 @@ test("Esc closes the help when the filter does not have focus", () =>
   }));
 
 test("with the filter focused, shortcut keys do nothing and Enter blurs it", () =>
-  withApp({}, async (container) => {
+  withApp({}, async (container, fake) => {
     await press("/");
     await press("j");
     await press("G");
     await press("?");
+    await press("x");
+    await press("e");
     assert.equal(cursorKey(container), "a");
     assert.equal(container.querySelector('[aria-label="keys"]'), null);
+    await settle();
+    assert.equal(fake.callsTo(markPanePath).length, 0, "x and e in the filter write no seen");
     await press("Enter");
     assert.notEqual(document.activeElement, filterInput(container));
+    assert.equal(fake.callsTo(markPanePath).length, 0, "Enter in the filter writes no seen");
     await press("j");
     assert.equal(cursorKey(container), "c");
   }));
@@ -314,48 +591,49 @@ test("modifier keys leave the cursor alone", () =>
     assert.equal(cursorKey(container), "a");
   }));
 
-test("u, N and Enter outside the filter change nothing", () =>
-  withApp({}, async (container) => {
+test("u and N outside the filter change nothing", () =>
+  withApp({}, async (container, fake) => {
     await press("u");
     await press("N");
-    await press("Enter");
     assert.equal(cursorKey(container), "a");
     assert.deepEqual(rowKeys(container), ["a", "c", "b", "d"]);
     assert.equal(container.querySelector('[aria-label="keys"]'), null);
     assert.equal(filterInput(container).value, "");
+    await settle();
+    assert.equal(fake.callsTo(markPanePath).length, 0, "no seen was written");
   }));
 
 test("the cursor keeps its row across new rows and clamps when its row leaves", () =>
-  withApp({}, async (container) => {
+  withApp({}, async (container, fake) => {
     await press("j");
     await press("j");
     assert.equal(cursorKey(container), "b");
 
     const added = row({ key: "e", label: "new", state: "waiting", changed: 900, seen: 1, unseen: true });
-    await mount(container, { rows: [...fixture(), added], error: "", now });
+    await mount(container, { rows: [...fixture(), added], error: "", now, clients: fake.clients, seen: fake.seen });
     assert.equal(cursorKey(container), "b");
 
-    await mount(container, { rows: fixture().filter((item) => item.key !== "b"), error: "", now });
+    await mount(container, { rows: fixture().filter((item) => item.key !== "b"), error: "", now, clients: fake.clients, seen: fake.seen });
     assert.equal(cursorKey(container), "d");
   }));
 
 test("an unmoved cursor keeps its row when a row sorts in above it", () =>
-  withApp({}, async (container) => {
+  withApp({}, async (container, fake) => {
     assert.equal(cursorKey(container), "a");
     const added = row({ key: "e", label: "new", state: "waiting", changed: 900, seen: 1, unseen: true });
-    await mount(container, { rows: [...fixture(), added], error: "", now });
+    await mount(container, { rows: [...fixture(), added], error: "", now, clients: fake.clients, seen: fake.seen });
     assert.equal(cursorKey(container), "a");
   }));
 
 test("a clamped cursor keeps the row it moved to", () =>
-  withApp({}, async (container) => {
+  withApp({}, async (container, fake) => {
     await press("j");
     await press("j");
     assert.equal(cursorKey(container), "b");
-    await mount(container, { rows: fixture().filter((item) => item.key !== "b"), error: "", now });
+    await mount(container, { rows: fixture().filter((item) => item.key !== "b"), error: "", now, clients: fake.clients, seen: fake.seen });
     assert.equal(cursorKey(container), "d");
     const added = row({ key: "e", label: "new", state: "waiting", changed: 900, seen: 1, unseen: true });
-    await mount(container, { rows: [...fixture().filter((item) => item.key !== "b"), added], error: "", now });
+    await mount(container, { rows: [...fixture().filter((item) => item.key !== "b"), added], error: "", now, clients: fake.clients, seen: fake.seen });
     assert.equal(cursorKey(container), "d");
   }));
 
@@ -422,4 +700,731 @@ test("a non-empty error shows one line above the list", () =>
 test("no error line shows when the error is empty", () =>
   withApp({ error: "" }, (container) => {
     assert.equal(container.querySelector('[role="alert"]'), null);
+  }));
+
+test("the cursor's pane row opens its conversation, and the reader shows the streamed reply as text", () =>
+  withApp({}, async (container, fake) => {
+    await until(() => fake.callsTo(paneWatchPath).length === 1, "the pane stream");
+    const [stream] = fake.callsTo(paneWatchPath);
+    assert.equal(stream.body.pane, "a");
+    fake.emit(stream, {
+      transcript: "t1",
+      seq: "1",
+      reset: true,
+      items: [{ kind: "assistant", text: "the streamed reply" }],
+    });
+    await until(() => readerText(container).includes("the streamed reply"), "the streamed reply");
+  }));
+
+test("moving the cursor to a session row aborts the pane's stream and opens the session's", () =>
+  withApp({ rows: [paneRow, sessionRow] }, async (container, fake) => {
+    await until(() => fake.callsTo(paneWatchPath).length === 1, "the pane stream");
+    const [pane] = fake.callsTo(paneWatchPath);
+    await press("j");
+    assert.equal(cursorKey(container), "s1");
+    assert.equal(pane.signal.aborted, true, "the pane stream was aborted");
+    await until(() => fake.callsTo(sessionWatchPath).length === 1, "the session stream");
+    assert.equal(fake.callsTo(sessionWatchPath)[0].body.id, "s1");
+  }));
+
+test("leaving the page stops the cursor's stream", () =>
+  withApp({}, async (container, fake) => {
+    await until(() => fake.callsTo(paneWatchPath).length === 1, "the pane stream");
+    const [stream] = fake.callsTo(paneWatchPath);
+    await act(() => {
+      render(null, container);
+    });
+    assert.equal(stream.signal.aborted, true, "the stream was aborted on unmount");
+  }));
+
+test("Enter in the composer sends the text to the pane with Panes.SendText", () =>
+  withApp({}, async (container, fake) => {
+    await press("i");
+    const box = composer(container);
+    assert.equal(document.activeElement, box);
+    await typeInto(box, "keep going");
+    await pressIn(box, "Enter");
+    await until(() => fake.callsTo(sendTextPath).length === 1, "the send");
+    assert.deepEqual(fake.callsTo(sendTextPath)[0].body, { pane: "a", text: "keep going" });
+    await until(() => box.value === "", "the sent draft cleared");
+  }));
+
+test("Enter in a session's composer sends the text with Control.Say and a prompt id", () =>
+  withApp({ rows: [sessionRow] }, async (container, fake) => {
+    await press("i");
+    const box = composer(container);
+    await typeInto(box, "keep going");
+    await pressIn(box, "Enter");
+    await until(() => fake.callsTo(sayPath).length === 1, "the say");
+    const [say] = fake.callsTo(sayPath);
+    assert.equal(say.body.id, "s1");
+    assert.equal(say.body.text, "keep going");
+    assert.match(String(say.body.promptId), /^[0-9a-f-]{36}$/);
+  }));
+
+test("a draft survives moving the cursor away and back", () =>
+  withApp({}, async (container) => {
+    await press("i");
+    const box = composer(container);
+    await typeInto(box, "half a thought");
+    await pressIn(box, "Escape");
+    await press("j");
+    assert.equal(cursorKey(container), "c");
+    await press("k");
+    assert.equal(cursorKey(container), "a");
+    assert.equal(composer(container).value, "half a thought");
+  }));
+
+test("a failed send keeps its prompt id when the cursor moves away and back", () =>
+  withApp({ rows: [paneRow, sessionRow] }, async (container, fake) => {
+    fake.failNext.add(sayPath);
+    await press("j");
+    assert.equal(cursorKey(container), "s1");
+    await press("i");
+    const box = composer(container);
+    await typeInto(box, "keep going");
+    await pressIn(box, "Enter");
+    await until(() => container.querySelector('[role="alert"]') !== null, "the failed send's line");
+    await pressIn(box, "Escape");
+    await press("k");
+    assert.equal(cursorKey(container), "a");
+    await press("j");
+    assert.equal(cursorKey(container), "s1");
+    assert.equal(composer(container).value, "keep going", "the draft survived");
+    await pressIn(composer(container), "Enter");
+    await until(() => fake.callsTo(sayPath).length === 2, "the second say");
+    const [first, second] = fake.callsTo(sayPath);
+    assert.equal(second.body.text, "keep going");
+    assert.equal(second.body.promptId, first.body.promptId, "the retry reused the prompt id");
+  }));
+
+test("a failed send keeps its draft and prompt id through a poll that lists no sessions", () =>
+  withApp({ rows: [paneRow, sessionRow] }, async (container, fake) => {
+    fake.failNext.add(sayPath);
+    await press("j");
+    assert.equal(cursorKey(container), "s1");
+    await press("i");
+    await typeInto(composer(container), "keep going");
+    await pressIn(composer(container), "Enter");
+    await until(() => container.querySelector('[role="alert"]') !== null, "the failed send's line");
+    await pressIn(composer(container), "Escape");
+    // A poll whose Sessions.List failed lists the panes only; the next poll lists the session again.
+    await mount(container, { rows: [paneRow], error: "", now, clients: fake.clients, seen: fake.seen });
+    await mount(container, { rows: [paneRow, sessionRow], error: "", now, clients: fake.clients, seen: fake.seen });
+    if (cursorKey(container) !== "s1") {
+      await press("j");
+    }
+    assert.equal(cursorKey(container), "s1");
+    assert.equal(composer(container).value, "keep going", "the draft survived the poll");
+    await pressIn(composer(container), "Enter");
+    await until(() => fake.callsTo(sayPath).length === 2, "the second say");
+    const [first, second] = fake.callsTo(sayPath);
+    assert.equal(second.body.promptId, first.body.promptId, "the retry reused the prompt id");
+  }));
+
+test("keys typed in the composer never act as list keys, and Escape leaves it", () =>
+  withApp({}, async (container) => {
+    await press("i");
+    const box = composer(container);
+    await pressIn(box, "j");
+    await pressIn(box, "G");
+    await pressIn(box, "?");
+    await pressIn(box, "/");
+    assert.equal(cursorKey(container), "a");
+    assert.equal(container.querySelector('[aria-label="keys"]'), null);
+    assert.notEqual(document.activeElement, filterInput(container));
+    assert.equal(document.activeElement, box);
+    await pressIn(box, "Escape");
+    assert.notEqual(document.activeElement, box);
+    await press("j");
+    assert.equal(cursorKey(container), "c");
+  }));
+
+test("i focuses the composer, and o opens and closes a compaction's summary", () =>
+  withApp({}, async (container, fake) => {
+    await until(() => fake.callsTo(paneWatchPath).length === 1, "the pane stream");
+    fake.emit(fake.callsTo(paneWatchPath)[0], {
+      transcript: "t1",
+      seq: "1",
+      reset: true,
+      items: [{ kind: "compaction", text: "the summary text", trigger: "auto", tokens: "611000" }],
+    });
+    await until(() => container.querySelector(".compaction") !== null, "the compaction");
+    assert.equal(container.querySelector(".summary"), null, "the summary is hidden at first");
+
+    await press("o");
+    assert.equal(container.querySelector(".summary")?.textContent, "the summary text");
+    await press("o");
+    assert.equal(container.querySelector(".summary"), null);
+
+    await press("i");
+    assert.equal(document.activeElement, composer(container));
+  }));
+
+test("ArrowUp in an empty pane composer pulls the queued text back", () =>
+  withApp({}, async (container, fake) => {
+    await press("i");
+    const box = composer(container);
+    await pressIn(box, "ArrowUp");
+    await until(() => box.value === queuedText, "the pulled text");
+    assert.equal(fake.callsTo(pullPath).length, 1);
+  }));
+
+test("ArrowUp in a session's composer pulls nothing", () =>
+  withApp({ rows: [sessionRow] }, async (container, fake) => {
+    await press("i");
+    const box = composer(container);
+    await pressIn(box, "ArrowUp");
+    await until(() => fake.callsTo(sessionWatchPath).length === 1, "the session stream");
+    assert.equal(fake.callsTo(pullPath).length, 0, "a session has no queue to pull");
+    assert.equal(box.value, "");
+  }));
+
+test("Enter on the list writes Panes.MarkSeen for the cursor's pane row", () =>
+  withApp({}, async (container, fake) => {
+    await press("Enter");
+    await until(() => fake.callsTo(markPanePath).length === 1, "the seen write");
+    assert.deepEqual(fake.callsTo(markPanePath)[0].body, { pane: "a" });
+    assert.equal(cursorKey(container), "a");
+  }));
+
+test("x on the list writes Panes.MarkSeen for a pane row and Control.Seen for a session row", () =>
+  withApp({ rows: [paneRow, sessionRow] }, async (container, fake) => {
+    await press("x");
+    await until(() => fake.callsTo(markPanePath).length === 1, "the pane write");
+    assert.deepEqual(fake.callsTo(markPanePath)[0].body, { pane: "a" });
+    await press("j");
+    assert.equal(cursorKey(container), "s1");
+    await press("x");
+    await until(() => fake.callsTo(markSessionPath).length === 1, "the session write");
+    assert.deepEqual(fake.callsTo(markSessionPath)[0].body, { id: "s1" });
+  }));
+
+test("e writes seen for the cursor's row, then rests on the next unseen row", () =>
+  withApp({}, async (container, fake) => {
+    assert.equal(cursorKey(container), "a");
+    await press("e");
+    await until(() => fake.callsTo(markPanePath).length === 1, "the seen write");
+    assert.deepEqual(fake.callsTo(markPanePath)[0].body, { pane: "a" });
+    assert.equal(cursorKey(container), "c");
+  }));
+
+test("Enter in a composer sends its text and writes no seen, even for keys typed as shortcuts", () =>
+  withApp({}, async (container, fake) => {
+    await press("i");
+    const box = composer(container);
+    await typeInto(box, "keep going");
+    await pressIn(box, "x");
+    await pressIn(box, "e");
+    await pressIn(box, "Enter");
+    await until(() => fake.callsTo(sendTextPath).length === 1, "the send");
+    await settle();
+    assert.equal(fake.callsTo(markPanePath).length, 0);
+    assert.equal(fake.callsTo(markSessionPath).length, 0);
+  }));
+
+test("resting one second on an unseen row with recent input writes seen once", () =>
+  withApp({}, async (container, fake) => {
+    fake.seen.input.emit("keydown");
+    fake.seen.advance(999);
+    await settle();
+    assert.equal(fake.callsTo(markPanePath).length, 0, "not yet a second");
+    fake.seen.advance(1);
+    await until(() => fake.callsTo(markPanePath).length === 1, "the dwell write");
+    assert.deepEqual(fake.callsTo(markPanePath)[0].body, { pane: "a" });
+    fake.seen.advance(5000);
+    await settle();
+    assert.equal(fake.callsTo(markPanePath).length, 1, "the row is written once");
+  }));
+
+test("a hidden page writes no seen on the fake clock", () =>
+  withApp({}, async (container, fake) => {
+    fake.seen.state.visibilityState = "hidden";
+    fake.seen.input.emit("keydown");
+    fake.seen.advance(5000);
+    await settle();
+    assert.equal(fake.callsTo(markPanePath).length, 0);
+  }));
+
+test("an unfocused page writes no seen on the fake clock", () =>
+  withApp({}, async (container, fake) => {
+    fake.seen.state.focused = false;
+    fake.seen.input.emit("keydown");
+    fake.seen.advance(5000);
+    await settle();
+    assert.equal(fake.callsTo(markPanePath).length, 0);
+  }));
+
+test("a page refocused with no input in the last 30 s writes no seen until input comes", () =>
+  withApp({}, async (container, fake) => {
+    fake.seen.state.focused = false;
+    fake.seen.input.emit("keydown");
+    fake.seen.advance(31000);
+    fake.seen.state.focused = true;
+    fake.seen.page.emit("focus");
+    fake.seen.advance(5000);
+    await settle();
+    assert.equal(fake.callsTo(markPanePath).length, 0, "the last input is over 30 s old");
+    fake.seen.input.emit("keydown");
+    fake.seen.advance(1000);
+    await until(() => fake.callsTo(markPanePath).length === 1, "the write after fresh input");
+  }));
+
+test("a row that changes while the cursor rests on it is written again after one second", () =>
+  withApp({}, async (container, fake) => {
+    fake.seen.input.emit("keydown");
+    fake.seen.advance(1000);
+    await until(() => fake.callsTo(markPanePath).length === 1, "the first dwell write");
+    await until(() => !rowElement(container, "a").hasAttribute("data-unseen"), "the row to read as seen");
+
+    const moved = fixture().map((item) => (item.key === "a" ? { ...item, changed: 400 } : item));
+    await mount(container, { rows: moved, error: "", now, clients: fake.clients, seen: fake.seen });
+    assert.equal(rowElement(container, "a").hasAttribute("data-unseen"), true, "the newer change is unseen");
+    fake.seen.input.emit("keydown");
+    fake.seen.advance(1000);
+    await until(() => fake.callsTo(markPanePath).length === 2, "the second dwell write");
+  }));
+
+test("a written row stops showing unseen until its changed time moves past the one it had", () =>
+  withApp({}, async (container, fake) => {
+    assert.equal(rowElement(container, "a").hasAttribute("data-unseen"), true);
+    await press("x");
+    await until(() => !rowElement(container, "a").hasAttribute("data-unseen"), "the row to read as seen");
+
+    await mount(container, { rows: fixture(), error: "", now, clients: fake.clients, seen: fake.seen });
+    assert.equal(rowElement(container, "a").hasAttribute("data-unseen"), false, "the server has not caught up yet");
+
+    const moved = fixture().map((item) => (item.key === "a" ? { ...item, changed: 400 } : item));
+    await mount(container, { rows: moved, error: "", now, clients: fake.clients, seen: fake.seen });
+    assert.equal(rowElement(container, "a").hasAttribute("data-unseen"), true, "a newer change is unseen again");
+  }));
+
+test("a failed write leaves the row unseen and shows a fixed line", () =>
+  withApp({}, async (container, fake) => {
+    fake.failNext.add(markPanePath);
+    await press("x");
+    await until(() => container.querySelector('[role="alert"]') !== null, "the seen failure line");
+    assert.equal(container.querySelector('[role="alert"]')?.textContent, seenFailedText);
+    assert.equal(rowElement(container, "a").hasAttribute("data-unseen"), true);
+  }));
+
+test("leaving the page stops the seen watch before its dwell writes", () =>
+  withApp({}, async (container, fake) => {
+    fake.seen.input.emit("keydown");
+    await act(() => {
+      render(null, container);
+    });
+    fake.seen.advance(5000);
+    await settle();
+    assert.equal(fake.callsTo(markPanePath).length, 0, "the pending dwell was cancelled on unmount");
+    assert.equal(fake.seen.input.count(), 0, "the input listeners were removed on unmount");
+  }));
+
+const answerableRow = row({
+  key: "a",
+  label: "api",
+  state: "waiting",
+  question: "Pick one",
+  questionHash: "qh-1",
+  changed: 300,
+  seen: 100,
+  unseen: true,
+});
+
+const otherSessionRow = row({
+  key: "s2",
+  id: "s2",
+  kind: "session",
+  label: "docs",
+  state: "done",
+  changed: 10,
+  seen: 10,
+});
+
+test("2 on a waiting pane row sends its digit with the row's question hash", () =>
+  withApp({ rows: [answerableRow] }, async (container, fake) => {
+    await press("2");
+    await until(() => fake.callsTo(sendKeysPath).length === 1, "the answer");
+    assert.deepEqual(fake.callsTo(sendKeysPath)[0].body, { pane: "a", keys: ["2"], expectQuestion: "qh-1" });
+    assert.deepEqual(alertTexts(container), [], "no line shows for a sent answer");
+  }));
+
+test("1 on a session row answers the request its stream holds with the first option", () =>
+  withApp({ rows: [sessionRow] }, async (container, fake) => {
+    await until(() => fake.callsTo(sessionWatchPath).length === 1, "the session stream");
+    fake.emit(fake.callsTo(sessionWatchPath)[0], {
+      transcript: "t1",
+      seq: "1",
+      reset: true,
+      items: [{ kind: "assistant", text: "the streamed question" }],
+      state: { request: { id: "req-7", kind: "question", question: "Pick one", options: ["Yes", "No"] } },
+    });
+    await until(() => readerText(container).includes("the streamed question"), "the streamed question");
+    await press("1");
+    await until(() => fake.callsTo(answerPath).length === 1, "the answer");
+    assert.deepEqual(fake.callsTo(answerPath)[0].body, { id: "s1", requestId: "req-7", answer: "Yes" });
+  }));
+
+test("a stream held for another row never answers the cursor's row", () =>
+  withApp({ rows: [sessionRow, otherSessionRow] }, async (container, fake) => {
+    await until(() => fake.callsTo(sessionWatchPath).length === 1, "the session stream");
+    fake.emit(fake.callsTo(sessionWatchPath)[0], {
+      transcript: "t1",
+      seq: "1",
+      reset: true,
+      items: [{ kind: "assistant", text: "the streamed question" }],
+      state: { request: { id: "req-7", kind: "question", question: "Pick one", options: ["Yes", "No"] } },
+    });
+    await until(() => readerText(container).includes("the streamed question"), "the streamed question");
+    await press("j");
+    assert.equal(cursorKey(container), "s2");
+    await press("1");
+    await until(() => alertTexts(container).includes(answerFailedText), "the fixed line");
+    assert.equal(fake.callsTo(answerPath).length, 0, "the other row's request was not answered");
+  }));
+
+test("3 on a row with no answerable question sends nothing and shows the fixed line", () =>
+  withApp({}, async (container, fake) => {
+    await press("3");
+    await until(() => alertTexts(container).includes(answerFailedText), "the fixed line");
+    await settle();
+    assert.equal(fake.callsTo(sendKeysPath).length, 0);
+    assert.equal(fake.callsTo(answerPath).length, 0);
+  }));
+
+test("a rejected answer shows the fixed line, never the server's text, and is not retried", () =>
+  withApp({ rows: [answerableRow] }, async (container, fake) => {
+    fake.failNext.add(sendKeysPath);
+    await press("2");
+    await until(() => alertTexts(container).includes(answerFailedText), "the fixed line");
+    await settle();
+    assert.equal(fake.callsTo(sendKeysPath).length, 1, "the answer was not retried");
+    assert.equal(container.textContent?.includes("queue unreachable"), false, "the server's text is not shown");
+  }));
+
+test("1 2 and 3 do nothing while the filter or a composer has focus", () =>
+  withApp({ rows: [answerableRow] }, async (container, fake) => {
+    await press("/");
+    await press("2");
+    await settle();
+    assert.equal(fake.callsTo(sendKeysPath).length, 0, "a digit in the filter answers nothing");
+    await press("Escape");
+    await press("i");
+    await pressIn(composer(container), "2");
+    await settle();
+    assert.equal(fake.callsTo(sendKeysPath).length, 0, "a digit in the reply box answers nothing");
+  }));
+
+// pinnedColumn is the second reader column that | pins beside the list, or null when no row is pinned. The column
+// stays mounted while closed, so its composers keep their drafts; a closed column is hidden.
+function pinnedColumn(container: HTMLElement): HTMLElement | null {
+  return container.querySelector<HTMLElement>('[aria-label="pinned reader"]:not([hidden])');
+}
+
+// pinnedComposer is the reply box of the open pin: each pinned row keeps its own, and only the open pin's is not hidden.
+function pinnedComposer(container: HTMLElement): HTMLTextAreaElement {
+  const box = pinnedColumn(container)?.querySelector<HTMLTextAreaElement>(".pin-reply:not([hidden]) .composer textarea");
+  assert.ok(box, "the pinned column has a composer");
+  return box;
+}
+
+test("| pins the cursor's row in a second column that streams it while the cursor moves on", () =>
+  withApp({}, async (container, fake) => {
+    await until(() => fake.callsTo(paneWatchPath).length === 1, "the cursor's stream");
+    await press("|");
+    await until(() => fake.callsTo(paneWatchPath).length === 2, "the pinned stream");
+    assert.ok(pinnedColumn(container), "the pinned column is shown");
+    const [cursorStream, pinnedStream] = fake.callsTo(paneWatchPath);
+    assert.equal(pinnedStream.body.pane, "a");
+    fake.emit(pinnedStream, {
+      transcript: "t1",
+      seq: "1",
+      reset: true,
+      items: [{ kind: "assistant", text: "pinned reply" }],
+    });
+    await until(() => pinnedColumn(container)?.textContent?.includes("pinned reply") === true, "the pinned reply");
+
+    await press("j");
+    assert.equal(cursorKey(container), "c");
+    await until(() => fake.callsTo(paneWatchPath).some((call) => call.body.pane === "c"), "the cursor's stream on c");
+    assert.equal(cursorStream.signal.aborted, true, "the cursor's stream on a was aborted");
+    assert.equal(pinnedStream.signal.aborted, false, "the pinned stream on a stays open");
+    assert.ok(pinnedColumn(container)?.textContent?.includes("api"), "the pinned column still names row a");
+  }));
+
+test("the pinned column's draft survives the cursor's moves, and Enter sends it to the pinned row only", () =>
+  withApp({}, async (container, fake) => {
+    await press("|");
+    await until(() => fake.callsTo(paneWatchPath).length === 2, "the pinned stream");
+    await typeInto(pinnedComposer(container), "keep going");
+    await press("j");
+    assert.equal(cursorKey(container), "c");
+    assert.equal(pinnedComposer(container).value, "keep going", "the draft survives the cursor's move");
+    await act(() => {
+      pinnedComposer(container).focus();
+    });
+    await pressIn(pinnedComposer(container), "Enter");
+    await until(() => fake.callsTo(sendTextPath).length === 1, "the send");
+    assert.deepEqual(fake.callsTo(sendTextPath)[0].body, { pane: "a", text: "keep going" });
+    await until(() => pinnedComposer(container).value === "", "the sent draft cleared");
+    assert.equal(fake.callsTo(markPanePath).length, 0, "the send writes no seen for the cursor's row");
+  }));
+
+test("| again removes the pinned column and aborts its stream, and the cursor's stream stays", () =>
+  withApp({}, async (container, fake) => {
+    await press("|");
+    await until(() => fake.callsTo(paneWatchPath).length === 2, "the pinned stream");
+    const [cursorStream, pinnedStream] = fake.callsTo(paneWatchPath);
+    await press("|");
+    assert.equal(pinnedColumn(container), null, "the pinned column is removed");
+    assert.equal(pinnedStream.signal.aborted, true, "the pinned stream was aborted");
+    assert.equal(cursorStream.signal.aborted, false, "the cursor's stream stays open");
+  }));
+
+test("leaving the page stops the pinned stream as well", () =>
+  withApp({}, async (container, fake) => {
+    await press("|");
+    await until(() => fake.callsTo(paneWatchPath).length === 2, "the pinned stream");
+    const [, pinnedStream] = fake.callsTo(paneWatchPath);
+    await act(() => {
+      render(null, container);
+    });
+    assert.equal(pinnedStream.signal.aborted, true, "the pinned stream was aborted on unmount");
+  }));
+
+test("with the pinned reply box focused, | is text; after it blurs, i focuses the cursor's reply box", () =>
+  withApp({}, async (container, fake) => {
+    await press("|");
+    await until(() => fake.callsTo(paneWatchPath).length === 2, "the pinned stream");
+    await act(() => {
+      pinnedComposer(container).focus();
+    });
+    await pressIn(pinnedComposer(container), "|");
+    assert.ok(pinnedColumn(container), "a | typed in the pinned reply box does not close the pin");
+    await pressIn(pinnedComposer(container), "Escape");
+    assert.notEqual(document.activeElement, pinnedComposer(container), "Escape leaves the pinned reply box");
+    await press("i");
+    assert.equal(document.activeElement, composer(container), "i focuses the cursor's reply box");
+  }));
+
+test("a pinned column's draft survives closing the pin and reopening it on the same row", () =>
+  withApp({}, async (container, fake) => {
+    await press("|");
+    await until(() => fake.callsTo(paneWatchPath).length === 2, "the pinned stream");
+    await act(() => {
+      pinnedComposer(container).focus();
+    });
+    await typeInto(pinnedComposer(container), "half a thought");
+    await pressIn(pinnedComposer(container), "Escape");
+    await press("|");
+    assert.equal(pinnedColumn(container), null, "the pin is closed");
+    await press("|");
+    assert.equal(cursorKey(container), "a");
+    assert.equal(pinnedComposer(container).value, "half a thought", "the draft survived the close");
+  }));
+
+test("a failed send in the pinned column keeps its prompt id through a close and reopen", () =>
+  withApp({ rows: [paneRow, sessionRow] }, async (container, fake) => {
+    await press("j");
+    assert.equal(cursorKey(container), "s1");
+    fake.failNext.add(sayPath);
+    await press("|");
+    assert.ok(pinnedColumn(container), "the pinned column is shown");
+    await act(() => {
+      pinnedComposer(container).focus();
+    });
+    await typeInto(pinnedComposer(container), "keep going");
+    await pressIn(pinnedComposer(container), "Enter");
+    await until(() => fake.callsTo(sayPath).length === 1, "the failed say");
+    await until(() => pinnedColumn(container)?.querySelector('[role="alert"]') !== null, "the failed send's line");
+    await pressIn(pinnedComposer(container), "Escape");
+    await press("|");
+    await press("|");
+    assert.equal(pinnedComposer(container).value, "keep going", "the draft survived the close");
+    await pressIn(pinnedComposer(container), "Enter");
+    await until(() => fake.callsTo(sayPath).length === 2, "the second say");
+    const [first, second] = fake.callsTo(sayPath);
+    assert.equal(second.body.text, "keep going");
+    assert.equal(second.body.promptId, first.body.promptId, "the retry reused the prompt id");
+  }));
+
+const askRow = row({
+  key: "a",
+  label: "api",
+  state: "waiting",
+  question: JSON.stringify({
+    questions: [
+      {
+        question: "Which fruit?",
+        options: [
+          { label: "Apple", description: "red" },
+          { label: "Pear", description: "green" },
+        ],
+      },
+    ],
+  }),
+  questionHash: "qh-2",
+  changed: 300,
+  seen: 100,
+  unseen: true,
+});
+
+test("a waiting pane row shows its question's text, never its raw JSON, and a button click answers it", () =>
+  withApp({ rows: [askRow] }, async (container, fake) => {
+    await until(() => fake.callsTo(paneWatchPath).length === 1, "the pane stream");
+    fake.emit(fake.callsTo(paneWatchPath)[0], { transcript: "t1", seq: "1", reset: true, items: [] });
+    assert.equal(rowElement(container, "a").querySelector(".l2")?.textContent, "Which fruit?");
+    await until(() => container.querySelector(".question-card") !== null, "the question card");
+    const reader = container.querySelector(".reader")?.textContent ?? "";
+    assert.ok(reader.includes("Which fruit?"));
+    for (const text of [container.querySelector(".l2")?.textContent ?? "", reader]) {
+      assert.equal(text.includes("{"), false, "no raw JSON");
+      assert.equal(text.includes('"questions"'), false, "no raw JSON key");
+    }
+    const options = container.querySelectorAll<HTMLButtonElement>(".question-card button.option");
+    assert.equal(options.length, 2);
+    assert.ok(options[1].textContent?.includes("Pear"));
+    await act(() => {
+      options[1].click();
+    });
+    await until(() => fake.callsTo(sendKeysPath).length === 1, "the answer");
+    assert.deepEqual(fake.callsTo(sendKeysPath)[0].body, { pane: "a", keys: ["2"], expectQuestion: "qh-2" });
+  }));
+
+test("a session row's reader draws the question its stream holds, and a button click answers by request id", () =>
+  withApp({ rows: [sessionRow] }, async (container, fake) => {
+    await until(() => fake.callsTo(sessionWatchPath).length === 1, "the session stream");
+    fake.emit(fake.callsTo(sessionWatchPath)[0], {
+      transcript: "t1",
+      seq: "1",
+      reset: true,
+      items: [],
+      state: { request: { id: "req-7", kind: "question", question: "Pick one", options: ["Yes", "No"] } },
+    });
+    await until(() => container.querySelector(".question-card") !== null, "the question card");
+    assert.ok(readerText(container).includes("Pick one"));
+    const options = container.querySelectorAll<HTMLButtonElement>(".question-card button.option");
+    assert.equal(options.length, 2);
+    await act(() => {
+      options[0].click();
+    });
+    await until(() => fake.callsTo(answerPath).length === 1, "the answer");
+    assert.deepEqual(fake.callsTo(answerPath)[0].body, { id: "s1", requestId: "req-7", answer: "Yes" });
+  }));
+
+test("a click on the compaction rule shows its summary, and a second click hides it, as o does", () =>
+  withApp({ rows: [sessionRow] }, async (container, fake) => {
+    await until(() => fake.callsTo(sessionWatchPath).length === 1, "the session stream");
+    fake.emit(fake.callsTo(sessionWatchPath)[0], {
+      transcript: "t1",
+      seq: "1",
+      reset: true,
+      items: [{ kind: "compaction", text: "the summary text", trigger: "auto", tokens: "611000" }],
+    });
+    await until(() => container.querySelector(".reader .compaction button.rule") !== null, "the compaction rule");
+    const rule = (): HTMLButtonElement => {
+      const button = container.querySelector<HTMLButtonElement>(".reader .compaction button.rule");
+      assert.ok(button, "the rule is a button");
+      return button;
+    };
+    assert.equal(readerText(container).includes("the summary text"), false, "the summary is hidden at first");
+    await act(() => {
+      rule().click();
+    });
+    assert.equal(container.querySelector(".summary")?.textContent, "the summary text");
+    await act(() => {
+      rule().click();
+    });
+    assert.equal(container.querySelector(".summary"), null);
+  }));
+
+function clickEvent(): Event {
+  return new Event("click", { bubbles: true, cancelable: true });
+}
+
+test("a click on a row moves the cursor to it, and the reader streams that row", () =>
+  withApp({}, async (container, fake) => {
+    await until(() => fake.callsTo(paneWatchPath).length === 1, "the pane stream for a");
+    const [first] = fake.callsTo(paneWatchPath);
+    await act(() => {
+      rowElement(container, "c").dispatchEvent(clickEvent());
+    });
+    assert.equal(cursorKey(container), "c");
+    assert.equal(first.signal.aborted, true, "the stream for a was aborted");
+    await until(() => fake.callsTo(paneWatchPath).some((call) => call.body.pane === "c"), "the pane stream for c");
+    await settle();
+    assert.equal(fake.callsTo(markPanePath).length, 0, "a click alone writes no seen");
+  }));
+
+test("a double click on a row writes seen for that row, as Enter does for the cursor's row", () =>
+  withApp({}, async (container, fake) => {
+    const target = rowElement(container, "c");
+    await act(() => {
+      target.dispatchEvent(clickEvent());
+      target.dispatchEvent(clickEvent());
+      target.dispatchEvent(new Event("dblclick", { bubbles: true, cancelable: true }));
+    });
+    assert.equal(cursorKey(container), "c");
+    await until(() => fake.callsTo(markPanePath).length === 1, "the seen write");
+    assert.deepEqual(fake.callsTo(markPanePath)[0].body, { pane: "c" });
+  }));
+
+test("a click on the view labels switches the view as a and p do", () =>
+  withApp({}, async (container) => {
+    const labels = container.querySelectorAll<HTMLElement>(".views .view");
+    assert.equal(labels.length, 2);
+    await act(() => {
+      labels[1].dispatchEvent(clickEvent());
+    });
+    assert.equal(container.querySelector(".rows")?.getAttribute("data-list"), "project");
+    assert.deepEqual(rowKeys(container), ["a", "d", "c", "b"]);
+    await act(() => {
+      labels[0].dispatchEvent(clickEvent());
+    });
+    assert.equal(container.querySelector(".rows")?.getAttribute("data-list"), "attention");
+    assert.deepEqual(rowKeys(container), ["a", "c", "b", "d"]);
+  }));
+
+const linkedRows = fixture().map((item) =>
+  item.key === "c" ? { ...item, summary: "see https://example.com/notes" } : item,
+);
+
+test("a click or double click on a link in a row opens the link and moves nothing else", () =>
+  withApp({ rows: linkedRows }, async (container, fake) => {
+    await until(() => fake.callsTo(paneWatchPath).length === 1, "the pane stream for a");
+    const link = rowElement(container, "c").querySelector("a");
+    assert.ok(link, "row c shows its link");
+    const click = clickEvent();
+    await act(() => {
+      link.dispatchEvent(click);
+    });
+    assert.equal(click.defaultPrevented, false, "the link keeps its default action");
+    await act(() => {
+      link.dispatchEvent(clickEvent());
+      link.dispatchEvent(new Event("dblclick", { bubbles: true, cancelable: true }));
+    });
+    await settle();
+    assert.equal(cursorKey(container), "a");
+    assert.equal(fake.callsTo(paneWatchPath).length, 1, "no stream for c was opened");
+    assert.equal(fake.callsTo(markPanePath).length, 0, "no seen was written");
+  }));
+
+test("a click on a link in the reader opens the link and moves the cursor nowhere", () =>
+  withApp({ rows: [paneRow, sessionRow] }, async (container, fake) => {
+    await until(() => fake.callsTo(paneWatchPath).length === 1, "the pane stream");
+    fake.emit(fake.callsTo(paneWatchPath)[0], {
+      transcript: "t1",
+      seq: "1",
+      reset: true,
+      items: [{ kind: "assistant", text: "read https://example.com/doc" }],
+    });
+    await until(() => container.querySelector(".reader a") !== null, "the reader's link");
+    const link = container.querySelector(".reader a");
+    assert.ok(link);
+    const click = clickEvent();
+    await act(() => {
+      link.dispatchEvent(click);
+    });
+    assert.equal(click.defaultPrevented, false, "the link keeps its default action");
+    assert.equal(cursorKey(container), "a");
   }));

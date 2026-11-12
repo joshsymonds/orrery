@@ -108,6 +108,23 @@ public class PanesClient(
 
 
   /**
+   *  PullQueued takes back the messages Claude Code's queue holds for one pane, as its up-arrow does. Aborted means
+   *  Claude Code's input box holds text: typed text that refused the pull, or the pulled text when emptying the box
+   *  failed.
+   */
+  override suspend fun pullQueued(request: PullQueuedRequest, headers: Headers): ResponseMessage<PullQueuedResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "orrery.v1.Panes/PullQueued",
+      io.github.joshsymonds.orrery.gen.orrery.v1.PullQueuedRequest::class,
+      io.github.joshsymonds.orrery.gen.orrery.v1.PullQueuedResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
+
+  /**
    *  WatchConversation streams the conversation of one pane's Claude transcript: a reset delta with the newest items
    *  and the whole state, then the deltas that follow each change.
    */
