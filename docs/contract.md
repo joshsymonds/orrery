@@ -430,6 +430,8 @@ The session socket is `sessions.sock` in the same directory as the daemon socket
 
 A call that does not fit its precondition does not change the session. An `Answer` that fits neither the question's options nor `allow` or `deny` leaves the request open.
 
+`Say`, `Answer`, `Interrupt` and `Stop` refuse an `id` that names a step, before their own checks. The refusal is `failed_precondition` with the message `<id> is a step: drive it through the Steps service`. A step lookup that fails is `internal`. With no step store, the check is skipped (`internal/enginehost/service.go:104`-`:120`, `internal/enginehost/service.go:148`, `:168`, `:185`, `:201`). A step runs its own loop, so a raw session command on it would drive the step around that loop (`internal/enginehost/service.go:101`-`:103`, and see [Steps](#steps)).
+
 Errors are Connect codes:
 
 | Connect code | When |
@@ -438,6 +440,7 @@ Errors are Connect codes:
 | `resource_exhausted` | a `Start`, or a `Say` that resumes a session, would pass the session cap |
 | `not_found` | `id` has no row, or `Answer`, `Interrupt` or `Stop` names a session that is not live. Also an `Answer` whose `request_id` is not open |
 | `invalid_argument` | a bad `dir`, an empty `prompt` or `text`, a `model` or `id` that does not fit its rule, or an answer that does not fit the open request |
+| `failed_precondition` | `Say`, `Answer`, `Interrupt` or `Stop` names a step id (see the paragraph above the table) |
 | `internal` | any other failure, including a call made while `orreryd` is shutting down |
 
 #### Lifecycle rules
@@ -478,10 +481,13 @@ A session notice clears on the session's own seen: the `Seen` call for that sess
 
 | Call | Request | Response | Effect |
 |---|---|---|---|
-| `StartStep` | `agent`, `prompt`, `schema`, `workspace`, `revision`, `read_only`, `owned_paths`, `gate`, `gate_limit_seconds`, `done_value`, `model_limit_seconds` | `id` | checks the request, starts the step and returns its id |
-| `StopStep` | `id` | none | ends the step as `stopped` |
+| `StartStep` | `agent`, `prompt`, `schema`, `workspace`, `revision`, `read_only`, `owned_paths`, `gate`, `gate_limit_seconds`, `done_value`, `model_limit_seconds`, `epic`, `task` | `id` | checks the request, starts the step and returns its id |
+| `StopStep` | `id` | none | ends the step as `stopped`, whether it is held or running |
 | `StepStatus` | `id` | `step` | returns the step's row |
 | `WaitSteps` | `ids`, `timeout_seconds` | `ended`, `steps` | blocks until the first named step ends or the timeout passes |
+| `ListSteps` | `epic`, `task` | `steps` | lists the labelled steps, oldest first, narrowed to `epic` and to `task` when each is not empty |
+| `HoldStep` | `id` | none | interrupts the step's running turn and holds the step (see [Step lifecycle](#step-lifecycle)) |
+| `NudgeStep` | `id`, `text` | none | sends the owner's text to the step (see [Step lifecycle](#step-lifecycle)) |
 
 `StartStep` checks each field as follows:
 
@@ -497,12 +503,17 @@ A session notice clears on the session's own seen: the `Seen` call for that sess
 - `gate_limit_seconds` of zero means 30 minutes.
 - `done_value` empty means `done`.
 - `model_limit_seconds` of zero means 60 minutes. It is the model time the step may use before the watch ends it `overtime` (see the Watch rule under [Step lifecycle](#step-lifecycle)).
+- `epic` and `task` are stored as given, and nothing checks them. The format that `proto/orrery/engine/v1/step.proto:69`-`:70` names for `epic` is not enforced (`internal/enginehost/stepservice.go:63`-`:64`, `internal/enginehost/step.go:177`, `internal/store/steps.go:122`). An empty `epic` leaves the step unlabelled, and `ListSteps` never lists it (`internal/enginehost/step.go:38`-`:39`). An empty `task` means the step works on no one task.
 
 A start refused by one of these checks, by the step cap, or by the workspace rules stores nothing and returns no id. A start that fails after its row is stored returns the error with no id, and the row ends `failed`. The id is not reported on that path.
 
-`StepStatus` and `WaitSteps` return each step as a `Step` message: `id`, `agent`, `workspace`, `revision` (the resolved start commit), `read_only`, `worktree` (empty for a writing step), `end` (empty while the step runs), `status`, `result` (the latest return's JSON text), `checks`, `reason`, `started`, `ended` (unix seconds; `ended` is 0 while the step runs) and `doing`, the latest doing line from the step's monitor. Each `checks` entry is a `StepCheck`: `round`, `name`, `ok` and `detail`. The row's prompt, schema, done value, owned paths, gate, gate limit, model limit and verdicts are stored (see [Steps in the store](#steps-in-the-store)) but not returned.
+`StepStatus`, `WaitSteps` and `ListSteps` return each step as a `Step` message: `id`, `agent`, `workspace`, `revision` (the resolved start commit), `read_only`, `worktree` (empty for a writing step), `end` (empty while the step runs), `status`, `result` (the latest return's JSON text), `checks`, `reason`, `started`, `ended` (unix seconds; `ended` is 0 while the step runs), `doing`, the latest doing line from the step's monitor, `epic` and `task`, the labels the step was started with, and `held`, which is true while an owner hold holds the step (`internal/enginehost/stepservice.go:194`-`:199`). Each `checks` entry is a `StepCheck`: `round`, `name`, `ok` and `detail`. The row's prompt, schema, done value, owned paths, gate, gate limit, model limit and verdicts are stored (see [Steps in the store](#steps-in-the-store)) but not returned. `held` is loop state and has no column: it is read from the step's loop, and a step with no loop is not held (`internal/enginehost/stepowner.go:125`-`:131`).
 
 `WaitSteps` returns every named row in the order `ids` gives. `ended` is the named step that ended first, by its end time, and a tie keeps the step listed first. `ended` is unset when the timeout passes before any of them ends. A timeout of zero returns at once. An id with no row fails the whole call with `not_found`.
+
+`ListSteps` returns the rows whose `epic` is not empty, narrowed to rows whose `epic` is the request's `epic` when that is not empty, and to rows whose `task` is the request's `task` when that is not empty. They are ordered by start time, then id (`internal/store/queries.sql:127`-`:131`, `internal/store/steps.go:212`-`:220`).
+
+`HoldStep` and `NudgeStep` return no fields. Their rules are in [Step lifecycle](#step-lifecycle).
 
 Errors are Connect codes:
 
@@ -510,9 +521,10 @@ Errors are Connect codes:
 |---|---|
 | `unavailable` | `orreryd` has no step store. The message is `step store unavailable` |
 | `resource_exhausted` | a `StartStep` would pass the step cap (`--step-cap`) |
-| `not_found` | `StopStep`, `StepStatus` or `WaitSteps` names an id with no row |
-| `invalid_argument` | an empty `prompt`, a bad `schema`, a bad `agent`, a `workspace` that is not an absolute existing directory, a writing step's `workspace` outside a git work tree or in its main working tree, an `owned_paths` entry that is not a relative path inside the repository, or a `gate` program not on `PATH` |
-| `internal` | any other failure, including a `revision` that does not resolve (for a read-only step this includes a `workspace` outside any git work tree), and a `WaitSteps` call whose context ends first |
+| `not_found` | `StopStep`, `StepStatus`, `WaitSteps`, `HoldStep` or `NudgeStep` names an id with no row |
+| `invalid_argument` | an empty `prompt`, a bad `schema`, a bad `agent`, a `workspace` that is not an absolute existing directory, a writing step's `workspace` outside a git work tree or in its main working tree, an `owned_paths` entry that is not a relative path inside the repository, a `gate` program not on `PATH`, or an empty `text` on `NudgeStep` (`internal/enginehost/stepservice.go:229`-`:232`) |
+| `failed_precondition` | `HoldStep` finds the step already held or no turn running, or `HoldStep` or `NudgeStep` finds the step running its gate, ended, or with no loop, or `NudgeStep` finds no turn running and the step not held (`internal/enginehost/stepservice.go:226`-`:228`) |
+| `internal` | any other failure, including a `revision` that does not resolve (for a read-only step this includes a `workspace` outside any git work tree), a `WaitSteps` call whose context ends first, and a `HoldStep` or `NudgeStep` call whose context ends before the step's loop takes it |
 
 #### Step lifecycle
 
@@ -554,7 +566,9 @@ Errors are Connect codes:
   | `goal_unmet` | the judge's second `unmet` verdict; the return is kept | empty |
 
   The end is stored with the reason, and the step's session is stopped and its worktree removed, whatever ended it.
-- **Stop.** `StopStep` cancels the step's loop, which kills a running gate, waits for the loop to return, and then stores `stopped` through the same end path. A step that has already ended is left as it is, and `StopStep` returns success.
+- **Stop.** `StopStep` cancels the step's loop, which kills a running gate, waits for the loop to return, and then stores `stopped` through the same end path. A step that has already ended is left as it is, and `StopStep` returns success. A held step ends `stopped` the same way (`internal/enginehost/stepctl.go:25`-`:45`).
+- **Hold.** `HoldStep` interrupts the step's running turn and marks the step held (`internal/enginehost/stepowner.go:55`-`:69`, `:112`-`:123`). It is refused with `failed_precondition` when the step is already held, when no turn is running, and when the step is running its gate (`internal/enginehost/stepowner.go:56`-`:60`, `:34`-`:37`). A failed interrupt is returned as `internal`, and the step stays unheld. A landed hold drops any nudge pending for the turn, the watchdog's and the owner's (`internal/enginehost/stepowner.go:65`-`:66`). A held step's loop skips each tick, so the watch checks nothing (`internal/enginehost/steploop.go:170`-`:173`). A held step's turn end is no round, and it continues nothing (`internal/enginehost/steploop.go:192`-`:196`).
+- **Owner nudge.** `NudgeStep` sends the owner's text to the step (`internal/enginehost/stepowner.go:133`-`:154`). Empty text is `invalid_argument`, and it is refused before the step is looked up (`internal/enginehost/stepowner.go:140`-`:142`). It is refused with `failed_precondition` when the step is running its gate, and when the step is not held and no turn is running (`internal/enginehost/stepowner.go:86`-`:88`, `:34`-`:37`). On a held step, the text resumes the step at once when the held turn has already ended. Otherwise it waits for that turn's end, which is no round, and is continued then (`internal/enginehost/stepowner.go:77`-`:85`, `internal/enginehost/steploop.go:192`-`:199`). On a running turn, the turn is interrupted, and its end is continued with any pending watchdog text followed by the owner's text, in place of a round (`internal/enginehost/stepowner.go:89`-`:97`, `internal/enginehost/steploop.go:201`-`:203`). Owner text sent while a nudge is pending is joined to it, one line per text (`internal/enginehost/stepowner.go:89`-`:92`, `internal/enginehost/steploop.go:255`-`:256`). A nudge neither spends nor replaces the watchdog's nudge, and an OK reply means the nudge landed (`internal/enginehost/stepowner.go:133`-`:138`).
 - **Restart.** At start, `orreryd` settles each step's engine row as it settles other engine rows: a row that was `working` or `waiting` is recorded `interrupted` with the reason `orreryd restarted during the turn`, and no notice is sent. Each open step row with no loop then ends `engine_restarted`, and its worktree is removed. Nothing resumes a step after a restart. `Continue`, which the loop sends, respawns a step that is not live from its rows: it resumes the row's claude session with the same agent and schema flags, and it takes a step slot first.
 
 
@@ -749,7 +763,7 @@ The 14-day cutoff of the tidy applies to engine rows too. The cutoff is `now` le
 
 #### Steps in the store
 
-The `steps` table (migrations `00004_steps.sql` and `00005_step_watch.sql`) has one row per step. Its `id` is the id of the step's `sessions` row. A row is added when the step starts. Its columns are these:
+The `steps` table (migrations `00004_steps.sql`, `00005_step_watch.sql` and `00006_step_labels.sql`) has one row per step. Its `id` is the id of the step's `sessions` row. A row is added when the step starts. Its columns are these:
 
 | Column | Type | Meaning |
 |---|---|---|
@@ -775,6 +789,8 @@ The `steps` table (migrations `00004_steps.sql` and `00005_step_watch.sql`) has 
 | `end_value` | `TEXT` | the end kind of [Step lifecycle](#step-lifecycle); `""` while the step runs |
 | `reason` | `TEXT` | why the step ended; `""` while it runs |
 | `ended` | `INTEGER` | unix seconds when the step ended; `0` while it runs |
+| `epic` | `TEXT` | the epic the step was started with, as migration `00006_step_labels.sql` adds it; `""` for an unlabelled step, and for a row added before that migration |
+| `task` | `TEXT` | the task slug the step was started with, as migration `00006_step_labels.sql` adds it; `""` when it works on no one task, and for a row added before that migration |
 
 The `sessions` row of a step has `kind` `step`, its `dir` (the workspace, or the worktree of a read-only step), and the same state, `reason` and `claude_session` columns as an engine row (see [Engine sessions in the store](#engine-sessions-in-the-store)). Its engine events are the engine kinds of the `events` table.
 
