@@ -114,14 +114,21 @@ SELECT reason FROM engine_prompt_failed WHERE session_id = ? AND prompt_id = ?;
 
 -- name: InsertStep :exec
 INSERT INTO steps (id, agent, prompt, output_schema, workspace, revision, worktree, done_value, read_only, owned, gate,
-                   gate_limit, model_limit, started, checks, result, status, end_value, reason, ended, doing, verdicts)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', '', '', '', '', 0, '', '[]');
+                   gate_limit, model_limit, started, checks, result, status, end_value, reason, ended, doing, verdicts,
+                   epic, task)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', '', '', '', '', 0, '', '[]', ?, ?);
 
 -- name: GetStep :one
 SELECT * FROM steps WHERE id = ?;
 
 -- name: ListOpenSteps :many
 SELECT * FROM steps WHERE end_value = '' ORDER BY id;
+
+-- name: ListLabelledSteps :many
+SELECT * FROM steps
+WHERE epic <> '' AND (CAST(sqlc.arg(epic) AS TEXT) = '' OR epic = CAST(sqlc.arg(epic) AS TEXT))
+  AND (CAST(sqlc.arg(task) AS TEXT) = '' OR task = CAST(sqlc.arg(task) AS TEXT))
+ORDER BY started, id;
 
 -- name: UpdateStepReturn :exec
 UPDATE steps SET result = ?, checks = ? WHERE id = ?;
