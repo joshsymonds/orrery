@@ -195,7 +195,34 @@ WHERE epic <> '' AND (CAST(sqlc.arg(epic) AS TEXT) = '' OR epic = CAST(sqlc.arg(
 ORDER BY started, id;
 
 -- name: UpdateStepReturn :exec
-UPDATE steps SET result = ?, checks = ? WHERE id = ?;
+UPDATE steps
+SET result = ?, checks = ?,
+    loop_seq = (SELECT CAST(COALESCE(MAX(events.seq), 0) AS INTEGER) FROM events WHERE events.session_id = steps.id),
+    gate_grant = '', gate_holder = '', gate_round = 0
+WHERE id = ?;
+
+-- name: UpdateStepLoop :exec
+UPDATE steps
+SET loop_round = ?, loop_continues = ?, loop_nudge = ?, loop_owner_nudge = ?, loop_nudged = ?, loop_held = ?,
+    loop_judge_sent = ?
+WHERE id = ?;
+
+-- name: UpdateStepGate :exec
+UPDATE steps SET gate_grant = ?, gate_holder = ?, gate_round = ? WHERE id = ?;
+
+-- name: GetStepTurnEnd :one
+SELECT events.seq, CAST(json_extract(events.payload, '$.isError') AS INTEGER) AS is_error, sessions.turn_output,
+       sessions.background, steps.loop_seq
+FROM events
+JOIN sessions ON sessions.id = events.session_id
+JOIN steps ON steps.id = events.session_id
+WHERE events.session_id = sqlc.arg(id) AND events.kind = 'engine_turn_ended'
+  AND events.seq > (
+      SELECT CAST(COALESCE(MAX(prompts.seq), 0) AS INTEGER) FROM events AS prompts
+      WHERE prompts.session_id = sqlc.arg(id) AND prompts.kind = 'engine_prompt'
+  )
+ORDER BY events.seq DESC
+LIMIT 1;
 
 -- name: UpdateStepWatch :exec
 UPDATE steps SET verdicts = ?, doing = ? WHERE id = ?;
@@ -204,7 +231,8 @@ UPDATE steps SET verdicts = ?, doing = ? WHERE id = ?;
 UPDATE steps SET end_value = ?, status = ?, reason = ?, ended = ? WHERE id = ?;
 
 -- name: InsertGrant :exec
-INSERT INTO grants (id, project, client_pid, client_start, pools, command, granted) VALUES (?, ?, ?, ?, ?, ?, ?);
+INSERT INTO grants (id, project, client_pid, client_start, pools, command, granted, holder)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?);
 
 -- name: InsertGrantMember :exec
 INSERT INTO grant_members (member, grant_id, pool, position) VALUES (?, ?, ?, ?);

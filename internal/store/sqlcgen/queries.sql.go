@@ -318,7 +318,7 @@ func (q *Queries) GetSession(ctx context.Context, id string) (Session, error) {
 }
 
 const getStep = `-- name: GetStep :one
-SELECT id, agent, prompt, output_schema, workspace, revision, worktree, done_value, read_only, owned, gate, gate_limit, started, checks, result, status, end_value, reason, ended, model_limit, doing, verdicts, epic, task, gate_name, gate_source, gate_needs FROM steps WHERE id = ?
+SELECT id, agent, prompt, output_schema, workspace, revision, worktree, done_value, read_only, owned, gate, gate_limit, started, checks, result, status, end_value, reason, ended, model_limit, doing, verdicts, epic, task, gate_name, gate_source, gate_needs, loop_round, loop_continues, loop_nudge, loop_owner_nudge, loop_nudged, loop_held, loop_judge_sent, loop_seq, gate_grant, gate_holder, gate_round FROM steps WHERE id = ?
 `
 
 func (q *Queries) GetStep(ctx context.Context, id string) (Step, error) {
@@ -352,6 +352,53 @@ func (q *Queries) GetStep(ctx context.Context, id string) (Step, error) {
 		&i.GateName,
 		&i.GateSource,
 		&i.GateNeeds,
+		&i.LoopRound,
+		&i.LoopContinues,
+		&i.LoopNudge,
+		&i.LoopOwnerNudge,
+		&i.LoopNudged,
+		&i.LoopHeld,
+		&i.LoopJudgeSent,
+		&i.LoopSeq,
+		&i.GateGrant,
+		&i.GateHolder,
+		&i.GateRound,
+	)
+	return i, err
+}
+
+const getStepTurnEnd = `-- name: GetStepTurnEnd :one
+SELECT events.seq, CAST(json_extract(events.payload, '$.isError') AS INTEGER) AS is_error, sessions.turn_output,
+       sessions.background, steps.loop_seq
+FROM events
+JOIN sessions ON sessions.id = events.session_id
+JOIN steps ON steps.id = events.session_id
+WHERE events.session_id = ?1 AND events.kind = 'engine_turn_ended'
+  AND events.seq > (
+      SELECT CAST(COALESCE(MAX(prompts.seq), 0) AS INTEGER) FROM events AS prompts
+      WHERE prompts.session_id = ?1 AND prompts.kind = 'engine_prompt'
+  )
+ORDER BY events.seq DESC
+LIMIT 1
+`
+
+type GetStepTurnEndRow struct {
+	Seq        int64
+	IsError    int64
+	TurnOutput string
+	Background bool
+	LoopSeq    int64
+}
+
+func (q *Queries) GetStepTurnEnd(ctx context.Context, id string) (GetStepTurnEndRow, error) {
+	row := q.db.QueryRowContext(ctx, getStepTurnEnd, id)
+	var i GetStepTurnEndRow
+	err := row.Scan(
+		&i.Seq,
+		&i.IsError,
+		&i.TurnOutput,
+		&i.Background,
+		&i.LoopSeq,
 	)
 	return i, err
 }
@@ -438,7 +485,8 @@ func (q *Queries) InsertEvent(ctx context.Context, arg InsertEventParams) error 
 }
 
 const insertGrant = `-- name: InsertGrant :exec
-INSERT INTO grants (id, project, client_pid, client_start, pools, command, granted) VALUES (?, ?, ?, ?, ?, ?, ?)
+INSERT INTO grants (id, project, client_pid, client_start, pools, command, granted, holder)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 type InsertGrantParams struct {
@@ -449,6 +497,7 @@ type InsertGrantParams struct {
 	Pools       string
 	Command     string
 	Granted     int64
+	Holder      string
 }
 
 func (q *Queries) InsertGrant(ctx context.Context, arg InsertGrantParams) error {
@@ -460,6 +509,7 @@ func (q *Queries) InsertGrant(ctx context.Context, arg InsertGrantParams) error 
 		arg.Pools,
 		arg.Command,
 		arg.Granted,
+		arg.Holder,
 	)
 	return err
 }
@@ -754,7 +804,7 @@ func (q *Queries) ListGrantMembers(ctx context.Context) ([]GrantMember, error) {
 }
 
 const listGrants = `-- name: ListGrants :many
-SELECT id, project, client_pid, client_start, pools, granted, command FROM grants ORDER BY granted, id
+SELECT id, project, client_pid, client_start, pools, granted, command, holder FROM grants ORDER BY granted, id
 `
 
 func (q *Queries) ListGrants(ctx context.Context) ([]Grant, error) {
@@ -774,6 +824,7 @@ func (q *Queries) ListGrants(ctx context.Context) ([]Grant, error) {
 			&i.Pools,
 			&i.Granted,
 			&i.Command,
+			&i.Holder,
 		); err != nil {
 			return nil, err
 		}
@@ -957,7 +1008,7 @@ func (q *Queries) ListKnownDirs(ctx context.Context) ([]string, error) {
 }
 
 const listLabelledSteps = `-- name: ListLabelledSteps :many
-SELECT id, agent, prompt, output_schema, workspace, revision, worktree, done_value, read_only, owned, gate, gate_limit, started, checks, result, status, end_value, reason, ended, model_limit, doing, verdicts, epic, task, gate_name, gate_source, gate_needs FROM steps
+SELECT id, agent, prompt, output_schema, workspace, revision, worktree, done_value, read_only, owned, gate, gate_limit, started, checks, result, status, end_value, reason, ended, model_limit, doing, verdicts, epic, task, gate_name, gate_source, gate_needs, loop_round, loop_continues, loop_nudge, loop_owner_nudge, loop_nudged, loop_held, loop_judge_sent, loop_seq, gate_grant, gate_holder, gate_round FROM steps
 WHERE epic <> '' AND (CAST(?1 AS TEXT) = '' OR epic = CAST(?1 AS TEXT))
   AND (CAST(?2 AS TEXT) = '' OR task = CAST(?2 AS TEXT))
 ORDER BY started, id
@@ -1005,6 +1056,17 @@ func (q *Queries) ListLabelledSteps(ctx context.Context, arg ListLabelledStepsPa
 			&i.GateName,
 			&i.GateSource,
 			&i.GateNeeds,
+			&i.LoopRound,
+			&i.LoopContinues,
+			&i.LoopNudge,
+			&i.LoopOwnerNudge,
+			&i.LoopNudged,
+			&i.LoopHeld,
+			&i.LoopJudgeSent,
+			&i.LoopSeq,
+			&i.GateGrant,
+			&i.GateHolder,
+			&i.GateRound,
 		); err != nil {
 			return nil, err
 		}
@@ -1020,7 +1082,7 @@ func (q *Queries) ListLabelledSteps(ctx context.Context, arg ListLabelledStepsPa
 }
 
 const listOpenSteps = `-- name: ListOpenSteps :many
-SELECT id, agent, prompt, output_schema, workspace, revision, worktree, done_value, read_only, owned, gate, gate_limit, started, checks, result, status, end_value, reason, ended, model_limit, doing, verdicts, epic, task, gate_name, gate_source, gate_needs FROM steps WHERE end_value = '' ORDER BY id
+SELECT id, agent, prompt, output_schema, workspace, revision, worktree, done_value, read_only, owned, gate, gate_limit, started, checks, result, status, end_value, reason, ended, model_limit, doing, verdicts, epic, task, gate_name, gate_source, gate_needs, loop_round, loop_continues, loop_nudge, loop_owner_nudge, loop_nudged, loop_held, loop_judge_sent, loop_seq, gate_grant, gate_holder, gate_round FROM steps WHERE end_value = '' ORDER BY id
 `
 
 func (q *Queries) ListOpenSteps(ctx context.Context) ([]Step, error) {
@@ -1060,6 +1122,17 @@ func (q *Queries) ListOpenSteps(ctx context.Context) ([]Step, error) {
 			&i.GateName,
 			&i.GateSource,
 			&i.GateNeeds,
+			&i.LoopRound,
+			&i.LoopContinues,
+			&i.LoopNudge,
+			&i.LoopOwnerNudge,
+			&i.LoopNudged,
+			&i.LoopHeld,
+			&i.LoopJudgeSent,
+			&i.LoopSeq,
+			&i.GateGrant,
+			&i.GateHolder,
+			&i.GateRound,
 		); err != nil {
 			return nil, err
 		}
@@ -1499,8 +1572,65 @@ func (q *Queries) UpdateStepEnd(ctx context.Context, arg UpdateStepEndParams) er
 	return err
 }
 
+const updateStepGate = `-- name: UpdateStepGate :exec
+UPDATE steps SET gate_grant = ?, gate_holder = ?, gate_round = ? WHERE id = ?
+`
+
+type UpdateStepGateParams struct {
+	GateGrant  string
+	GateHolder string
+	GateRound  int64
+	ID         string
+}
+
+func (q *Queries) UpdateStepGate(ctx context.Context, arg UpdateStepGateParams) error {
+	_, err := q.db.ExecContext(ctx, updateStepGate,
+		arg.GateGrant,
+		arg.GateHolder,
+		arg.GateRound,
+		arg.ID,
+	)
+	return err
+}
+
+const updateStepLoop = `-- name: UpdateStepLoop :exec
+UPDATE steps
+SET loop_round = ?, loop_continues = ?, loop_nudge = ?, loop_owner_nudge = ?, loop_nudged = ?, loop_held = ?,
+    loop_judge_sent = ?
+WHERE id = ?
+`
+
+type UpdateStepLoopParams struct {
+	LoopRound      int64
+	LoopContinues  int64
+	LoopNudge      string
+	LoopOwnerNudge string
+	LoopNudged     bool
+	LoopHeld       bool
+	LoopJudgeSent  bool
+	ID             string
+}
+
+func (q *Queries) UpdateStepLoop(ctx context.Context, arg UpdateStepLoopParams) error {
+	_, err := q.db.ExecContext(ctx, updateStepLoop,
+		arg.LoopRound,
+		arg.LoopContinues,
+		arg.LoopNudge,
+		arg.LoopOwnerNudge,
+		arg.LoopNudged,
+		arg.LoopHeld,
+		arg.LoopJudgeSent,
+		arg.ID,
+	)
+	return err
+}
+
 const updateStepReturn = `-- name: UpdateStepReturn :exec
-UPDATE steps SET result = ?, checks = ? WHERE id = ?
+UPDATE steps
+SET result = ?, checks = ?,
+    loop_seq = (SELECT CAST(COALESCE(MAX(events.seq), 0) AS INTEGER) FROM events WHERE events.session_id = steps.id),
+    gate_grant = '', gate_holder = '', gate_round = 0
+WHERE id = ?
 `
 
 type UpdateStepReturnParams struct {
