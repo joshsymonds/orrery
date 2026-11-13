@@ -370,11 +370,15 @@ func TestChildStdoutHolderOutlivingChildIsReadToEOF(t *testing.T) {
 		t.Fatalf("find sh: %v", err)
 	}
 	// The leader writes 4 KiB past a 1 KiB cap and exits. A setsid grandchild outside the group keeps the stdout pipe
-	// open and writes once more after the leader is reaped. Only a read on to EOF spools that last write.
+	// open and writes once more after the leader is reaped. Only a read on to EOF spools that last write. The leader
+	// writes only once the grandchild has made the marker file, which it does after setsid has moved it out of the
+	// group, so the group's SIGKILL at the leader's reaping cannot end the grandchild before its write.
 	spool, _ := newTestSpool(t, SpoolConfig{CapBytes: childDrainCap})
+	script := "setsid sh -c ': > out-of-group; sleep 0.5; echo late' 2>/dev/null & " +
+		"while [ ! -e out-of-group ]; do sleep 0.01; done; head -c 4096 /dev/zero"
 	child := startChildUnderCleanup(t, spool, ChildConfig{
 		Path: sh,
-		Args: []string{"-c", `setsid sh -c 'sleep 0.5; echo late' 2>/dev/null & head -c 4096 /dev/zero`},
+		Args: []string{"-c", script},
 		Dir:  t.TempDir(),
 	})
 	awaitChildDone(t, child)
