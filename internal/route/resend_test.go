@@ -78,7 +78,7 @@ func TestRestartResendsSending(t *testing.T) {
 		reopened := reopenStore(t, s, path)
 
 		f := fakeAt(clockStart + 30)
-		rebuild := func(_ context.Context, data []byte) (route.Notice, error) {
+		rebuild := func(_ context.Context, data []byte, _ int64) (route.Notice, error) {
 			if string(data) == deskSourceData {
 				return f.notice(otherPane, stateDone, false), nil
 			}
