@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/engine/session"
+	"github.com/joshsymonds/orrery/internal/gates"
 	"github.com/joshsymonds/orrery/internal/grants"
 	"github.com/joshsymonds/orrery/internal/store"
 )
@@ -30,13 +31,16 @@ const (
 	stepLoopEndReturned     = "returned"
 	stepLoopEndChecksFailed = "checks_failed"
 	stepLoopEndFailed       = "failed"
+	stepLoopEndGateFailed   = "gate_failed"
 )
 
-// The names of the checks a step loop stores with each return. stepLoopGateName is the gate a writing step's done return
-// runs after its commit checks pass.
+// The names of the checks a step loop stores with each return. stepLoopGateName is the gate a writing step's done
+// return runs after its commit checks pass. stepLoopAssertionsName is the check an agent gate step's schema-valid
+// return passes against the gate's assertions.
 const (
-	stepLoopSchemaName = "schema"
-	stepLoopGateName   = "gate"
+	stepLoopSchemaName     = "schema"
+	stepLoopGateName       = "gate"
+	stepLoopAssertionsName = "assertions"
 )
 
 // stepLoopMaxContinues is how many failing returns the session is sent back to fix. The next failure ends checks_failed.
@@ -51,7 +55,8 @@ const stepLoopBuffer = 8
 // the gate. A read-only step's done return passes on its schema check alone. A nil cleanup has nothing to run. The watch
 // reads now as its clock, time.Now when now is nil, and allows the step modelLimit of model time. Each tick on ticks
 // checks the watch, and a nil ticks never ticks. A nil haiku makes no monitor or judge calls. prompt is the step's first
-// prompt, which the judge is given with each done return.
+// prompt, which the judge is given with each done return. agentGate is the agent gate a step runs, nil for any other
+// step: each schema-valid return is checked against its assertions, and never judged.
 type stepRunConfig struct {
 	id         string
 	schema     string
@@ -65,6 +70,7 @@ type stepRunConfig struct {
 	modelLimit time.Duration
 	haiku      haikuCaller
 	ticks      <-chan time.Time
+	agentGate  *gates.Gate
 
 	writing    bool
 	dir        string
@@ -79,9 +85,10 @@ type stepRunConfig struct {
 	gateSource string
 }
 
-// stepRun runs one step's loop. Each return is one round: it is checked and stored with its checks, and a failing return
-// is sent back to the session by Continue, up to stepLoopMaxContinues times. A passing return ends the step done when
-// its status is doneValue and returned otherwise. Exited ends it failed.
+// stepRun runs one step's loop. Each return is one round: it is checked and stored with its checks, and a failing
+// return is sent back to the session by Continue, up to stepLoopMaxContinues times. A passing return ends the step done
+// when its status is doneValue and returned otherwise, or, for an agent gate step, done or gate_failed by its verdict.
+// Exited ends it failed.
 type stepRun struct {
 	stepRunConfig
 
@@ -99,6 +106,9 @@ type stepRun struct {
 	heldEnded bool
 	// judgeSent is set once the judge has sent the step back, so a second unmet verdict ends goal_unmet.
 	judgeSent bool
+	// firstFails is the first fails result of any schema-valid agent gate return that holds one, nil until one does.
+	// It is never cleared, so no return after it can end done.
+	firstFails *verdictResult
 	// ended is closed once finish has acted.
 	ended chan struct{}
 	// runDone is closed when run returns, so Return and Exited never wait on a run that will not drain them.
@@ -273,8 +283,10 @@ func joinNudges(first, second string) string {
 	return first + "\n" + second
 }
 
-// judge checks the return of round and stores it with its checks. A done return whose checks all passed is judged; any
-// other return ends the step, or its failed checks are sent back. It reports whether the run goes on.
+// judge checks the return of round and stores it with its checks. An agent gate step's schema-valid return is also
+// checked against the gate's assertions, and it ends done or gate_failed without a judge call. A done return whose
+// checks all passed is judged; any other return ends the step, or its failed checks are sent back. It reports whether
+// the run goes on.
 func (r *stepRun) judge(ctx context.Context, round int, value json.RawMessage, continues *int) bool {
 	schemaErr := validateReturn(r.schema, value)
 	schema := store.StepCheck{Round: round, Name: stepLoopSchemaName, OK: schemaErr == nil}
@@ -287,6 +299,7 @@ func (r *stepRun) judge(ctx context.Context, round int, value json.RawMessage, c
 		Commit json.RawMessage `json:"commit"`
 	}
 	var commit string
+	var verdict verdictReturn
 	if schemaErr == nil {
 		if err := json.Unmarshal(value, &head); err != nil {
 			r.finish(ctx, stepLoopEndFailed, "", fmt.Sprintf("read status of step %s: %v", r.id, err))
@@ -301,6 +314,11 @@ func (r *stepRun) judge(ctx context.Context, round int, value json.RawMessage, c
 			}
 		}
 	}
+	if r.agentGate != nil && schemaErr == nil {
+		var check store.StepCheck
+		check, verdict = r.assertionsCheck(round, value)
+		checks = append(checks, check)
+	}
 	ret := store.StepReturn{ID: r.id, Result: string(value), Checks: checks}
 	if err := r.writer.Commit(ctx, r.id, ret); err != nil {
 		r.finish(ctx, stepLoopEndFailed, "", fmt.Sprintf("record return of step %s: %v", r.id, err))
@@ -308,6 +326,10 @@ func (r *stepRun) judge(ctx context.Context, round int, value json.RawMessage, c
 	}
 	if len(stepLoopFailures(checks)) > 0 {
 		return r.retry(ctx, checks, continues)
+	}
+	if r.agentGate != nil {
+		r.endVerdict(ctx, head.Status, verdict)
+		return false
 	}
 	if head.Status == r.doneValue {
 		return r.judgeReturn(ctx, round, value, commit, head.Status, checks)
