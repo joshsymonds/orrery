@@ -154,5 +154,6 @@ func resumesSeenBefore(t *testing.T) {
 		[]route.Line{expectedLine(restartAt, pane, protocol.StateWaiting, route.DeskPhone, reasonAway)},
 		[]deskstream.Notice{expectedPost(protocol.StateWaiting, paneQuestion)},
 		[]push.Notification{expectedPush(protocol.StateWaiting)})
+	sinks.publish()
 	checkRows(t, s)
 }

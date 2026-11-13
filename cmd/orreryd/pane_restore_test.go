@@ -68,6 +68,7 @@ type paneSinks struct {
 	pushes  []push.Notification
 	lines   []route.Line
 	errs    []error
+	sents   []func()
 }
 
 // paneTimer is one wait. It is active until it is stopped or fired.
@@ -120,19 +121,31 @@ func (s *paneSinks) Post(n deskstream.Notice) {
 	s.posts = append(s.posts, n)
 }
 
-// Notify records the push, then reports its publish as returned, as the phone does: sent runs outside s.mu because
-// it takes the Router's lock.
+// Notify records the push and its sent callback. The Router calls Notify holding its lock and sent takes that lock,
+// so sent runs later, in publish, as the phone runs it when the push's publish returns.
 func (s *paneSinks) Notify(
 	ctx context.Context, _ notice.Key, build func(context.Context) (push.Notification, error), sent func(),
 ) {
 	note, err := build(ctx)
 	s.mu.Lock()
+	defer s.mu.Unlock()
 	if err != nil {
 		s.errs = append(s.errs, err)
 	}
 	s.pushes = append(s.pushes, note)
-	s.mu.Unlock()
 	if sent != nil {
+		s.sents = append(s.sents, sent)
+	}
+}
+
+// publish runs the sent callbacks Notify recorded, in order, outside s.mu, as the phone does when each publish
+// returns.
+func (s *paneSinks) publish() {
+	s.mu.Lock()
+	sents := s.sents
+	s.sents = nil
+	s.mu.Unlock()
+	for _, sent := range sents {
 		sent()
 	}
 }
@@ -453,6 +466,7 @@ func resumeDeciding(t *testing.T) {
 		[]route.Line{expectedLine(restartAt, pane, protocol.StateWaiting, route.DeskPhone, reasonAway)},
 		[]deskstream.Notice{expectedPost(protocol.StateWaiting, paneQuestion)},
 		[]push.Notification{expectedPush(protocol.StateWaiting)})
+	sinks.publish()
 	checkRows(t, s)
 }
 
@@ -541,6 +555,7 @@ func resumeDelayed(t *testing.T) {
 		[]route.Line{expectedLine(dueSecs, pane, protocol.StateDone, route.DeskPhone, reasonAway+"; needed: "+paneWhy)},
 		[]deskstream.Notice{expectedPost(protocol.StateDone, paneSummary)},
 		[]push.Notification{expectedPush(protocol.StateDone)})
+	second.publish()
 	checkRows(t, s)
 }
 
@@ -582,6 +597,7 @@ func resumeDesk(t *testing.T) {
 		[]route.Line{expectedLine(escalatedSecs, pane, protocol.StateWaiting, route.Phone, reasonEscalated)},
 		nil,
 		[]push.Notification{expectedPush(protocol.StateWaiting)})
+	second.publish()
 	checkRows(t, s)
 }
 
