@@ -45,16 +45,3 @@ func WriteExit(path string, exit Exit) (err error) {
 	}
 	return nil
 }
-
-// ReadExit reads the exit record that WriteExit wrote to path.
-func ReadExit(path string) (Exit, error) {
-	data, err := os.ReadFile(filepath.Clean(path))
-	if err != nil {
-		return Exit{}, fmt.Errorf("holder: read exit %s: %w", path, err)
-	}
-	var exit Exit
-	if err = json.Unmarshal(data, &exit); err != nil {
-		return Exit{}, fmt.Errorf("holder: decode exit %s: %w", path, err)
-	}
-	return exit, nil
-}

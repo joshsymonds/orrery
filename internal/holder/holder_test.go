@@ -225,11 +225,7 @@ func awaitChildPid(t *testing.T, childDir string) int {
 // readExitFile returns the exit record in the holder dir dir.
 func readExitFile(t *testing.T, dir string) Exit {
 	t.Helper()
-	exit, err := ReadExit(filepath.Join(dir, ExitName))
-	if err != nil {
-		t.Fatalf("ReadExit: %v", err)
-	}
-	return exit
+	return readExitRecord(t, filepath.Join(dir, ExitName))
 }
 
 // requireNoSocket fails when the socket file sock exists.

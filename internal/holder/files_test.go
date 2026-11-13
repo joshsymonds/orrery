@@ -1,6 +1,7 @@
 package holder
 
 import (
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -35,6 +36,21 @@ func assertMode(t *testing.T, path string, want os.FileMode) {
 	if got := info.Mode().Perm(); got != want {
 		t.Errorf("%s mode = %o, want %o", path, got, want)
 	}
+}
+
+// readExitRecord returns the exit record WriteExit wrote to path. It fails the test when the file cannot be read or
+// decoded.
+func readExitRecord(t *testing.T, path string) Exit {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Clean(path))
+	if err != nil {
+		t.Fatalf("read exit %s: %v", path, err)
+	}
+	var exit Exit
+	if err = json.Unmarshal(data, &exit); err != nil {
+		t.Fatalf("decode exit %s: %v", path, err)
+	}
+	return exit
 }
 
 // assertDirNames fails unless dir holds exactly the names in want, so a leftover temporary file shows up.
@@ -106,12 +122,9 @@ func TestWriteExitRoundTrip(t *testing.T) {
 			if err := WriteExit(path, tc.exit); err != nil {
 				t.Fatalf("WriteExit: %v", err)
 			}
-			got, err := ReadExit(path)
-			if err != nil {
-				t.Fatalf("ReadExit: %v", err)
-			}
+			got := readExitRecord(t, path)
 			if got != tc.exit {
-				t.Errorf("ReadExit = %+v, want %+v", got, tc.exit)
+				t.Errorf("exit record = %+v, want %+v", got, tc.exit)
 			}
 		})
 	}
@@ -139,12 +152,9 @@ func TestWriteExitRefusesExistingFile(t *testing.T) {
 		t.Fatalf("second WriteExit: err = %v, want ErrExitExists", err)
 	}
 
-	got, err := ReadExit(path)
-	if err != nil {
-		t.Fatalf("ReadExit: %v", err)
-	}
+	got := readExitRecord(t, path)
 	if got != first {
-		t.Errorf("ReadExit after refused write = %+v, want first record %+v", got, first)
+		t.Errorf("exit record after refused write = %+v, want first record %+v", got, first)
 	}
 }
 

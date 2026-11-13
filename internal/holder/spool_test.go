@@ -191,8 +191,9 @@ func TestSpoolAckTrimsWholeSegments(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dir, "stdout-00000000000000000020")); err != nil {
 		t.Fatalf("active segment 20 was removed: %v", err)
 	}
-	if got := s.Consumed(); got != 25 {
-		t.Fatalf("Consumed() = %d, want 25", got)
+	// End is 25, so Room is the 1000-byte cap less the bytes not yet consumed: 1000 only when consumed is 25.
+	if got := s.Room(); got != 1000 {
+		t.Fatalf("Room() after Ack(25, 25) = %d, want 1000", got)
 	}
 }
 
@@ -254,8 +255,9 @@ func TestSpoolBadAckRefused(t *testing.T) {
 			if err := s.Ack(tc.consumed, tc.replayAt); !errors.Is(err, ErrBadAck) {
 				t.Fatalf("Ack(%d, %d): err = %v, want ErrBadAck", tc.consumed, tc.replayAt, err)
 			}
-			if got := s.Consumed(); got != 10 {
-				t.Fatalf("Consumed() after refused Ack = %d, want 10", got)
+			// End is 30, so Room is 1000 less the 30 bytes not yet consumed at 10: 980 only when consumed is 10.
+			if got := s.Room(); got != 980 {
+				t.Fatalf("Room() after refused Ack = %d, want 980", got)
 			}
 		})
 	}

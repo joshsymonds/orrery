@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -237,9 +238,14 @@ func TestHolderServesHelloAndStop(t *testing.T) {
 	if res := hc.result(); res.code != exitOK {
 		t.Fatalf("exit status %d, want %d; stderr %q", res.code, exitOK, res.stderr)
 	}
-	exit, err := holder.ReadExit(filepath.Join(sessionDirOf(t, root, "s1"), holder.ExitName))
+	exitPath := filepath.Join(sessionDirOf(t, root, "s1"), holder.ExitName)
+	data, err := os.ReadFile(filepath.Clean(exitPath))
 	if err != nil {
 		t.Fatalf("read exit file: %v", err)
+	}
+	var exit holder.Exit
+	if err = json.Unmarshal(data, &exit); err != nil {
+		t.Fatalf("decode exit file: %v", err)
 	}
 	if exit.Reason != holder.ReasonStopped {
 		t.Errorf("exit reason %q, want %q", exit.Reason, holder.ReasonStopped)
