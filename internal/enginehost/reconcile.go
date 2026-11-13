@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/joshsymonds/orrery/internal/engine/session"
 	"github.com/joshsymonds/orrery/internal/holder"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/store"
@@ -21,26 +22,30 @@ const restartedReason = "orreryd restarted during the turn"
 // holder package's holders directory.
 const holdersSubdir = "holders"
 
-// clearTimeout bounds the holder.Clear of one session's holder directory in Reconcile.
+// clearTimeout bounds the re-adoption, or the holder.Clear, of one session's holder directory in Reconcile.
 const clearTimeout = 10 * time.Second
 
-// Reconcile clears the holder of each session under the manager's state directory that has no live session in this
-// manager, then settles the engine rows that have no process in this manager, as a restart leaves them. Each such row
-// loses its unfinished text. A row whose turn was running, working or waiting, is recorded interrupted with
-// restartedReason and no question. The owner is notified of an engine row's interruption; a step row is settled without
-// a notice. A row in any other state keeps its state. No row is removed. A holder that fails to clear is logged and the
-// rows are settled anyway. It returns the first read or write error.
+// Reconcile goes through the holder directories under the manager's state directory whose session has no live session in
+// this manager. Each such holder is re-adopted when its row allows it (see readoptable), and cleared otherwise. Then it
+// settles the engine rows that have no process in this manager, as a restart leaves them. A re-adopted session is live, so
+// its row is left as its replay gave it. Each other row loses its unfinished text. A row whose turn was running, working
+// or waiting, is recorded interrupted with restartedReason and no question. The owner is notified of an engine row's
+// interruption; a step row is settled without a notice. A row in any other state keeps its state. No row is removed. A
+// holder that fails to re-adopt or to clear is logged and its session is cleared, and the rows are settled anyway. It
+// returns the first read or write error.
 func (m *Manager) Reconcile(ctx context.Context) error {
-	m.clearHolders(ctx)
 	rows, err := m.store.EngineSessions(ctx)
+	// A failed read leaves no row, so every holder is then cleared.
+	byID := make(map[string]store.EngineRow, len(rows))
+	for _, row := range rows {
+		byID[row.ID] = row
+	}
+	m.reconcileHolders(ctx, byID)
 	if err != nil {
 		return fmt.Errorf("reconcile sessions: %w", err)
 	}
 	for _, row := range rows {
-		m.mu.Lock()
-		_, live := m.sessions[row.ID]
-		m.mu.Unlock()
-		if live {
+		if m.isLive(row.ID) {
 			continue
 		}
 		if settleErr := m.reconcileRow(ctx, row); settleErr != nil {
@@ -50,10 +55,10 @@ func (m *Manager) Reconcile(ctx context.Context) error {
 	return nil
 }
 
-// clearHolders clears the holder directory of each session under the state directory that no live session of this
-// manager owns. A holder still serving there is stopped first. A missing holders directory, or an empty state directory,
-// has nothing to clear. A failed clear is logged with the session's name, and the next session is cleared.
-func (m *Manager) clearHolders(ctx context.Context) {
+// reconcileHolders goes through the holder directories under the state directory. The holder of each session with no live
+// session in this manager is re-adopted when its row, in rows by id, allows it, and cleared otherwise or when its
+// re-adoption fails. A missing holders directory, or an empty state directory, has nothing to go through.
+func (m *Manager) reconcileHolders(ctx context.Context, rows map[string]store.EngineRow) {
 	if m.stateDir == "" {
 		return
 	}
@@ -66,19 +71,82 @@ func (m *Manager) clearHolders(ctx context.Context) {
 		return
 	}
 	for _, entry := range entries {
-		session := entry.Name()
-		m.mu.Lock()
-		_, live := m.sessions[session]
-		m.mu.Unlock()
-		if live {
+		id := entry.Name()
+		if m.isLive(id) {
 			continue
 		}
-		clearCtx, cancel := context.WithTimeout(ctx, clearTimeout)
-		if clearErr := holder.Clear(clearCtx, filepath.Join(holders, session)); clearErr != nil {
-			m.logger.WarnContext(ctx, "clear holder", "session", session, "err", clearErr)
+		dir := filepath.Join(holders, id)
+		if row, ok := rows[id]; ok && readoptable(row) {
+			if m.readoptHolder(ctx, row, dir) {
+				continue
+			}
 		}
-		cancel()
+		m.clearHolder(ctx, id, dir)
 	}
+}
+
+// readoptable reports whether the holder of row's session may be re-adopted: row is an engine row that a launch tracked,
+// and it is neither stopped nor failed. A step row, an untracked row, and a stopped or failed row are cleared instead.
+func readoptable(row store.EngineRow) bool {
+	return row.Kind == store.KindEngine && row.Tracked && row.State != stateStopped && row.State != stateFailed
+}
+
+// readoptHolder re-adopts the session of row from its holder in dir, bounded by clearTimeout. A failure is logged, and the
+// holder is left for the caller to clear. It reports whether the session was re-adopted.
+func (m *Manager) readoptHolder(ctx context.Context, row store.EngineRow, dir string) bool {
+	readoptCtx, cancel := context.WithTimeout(ctx, clearTimeout)
+	defer cancel()
+	if err := m.readopt(readoptCtx, row, dir); err != nil {
+		m.logger.WarnContext(ctx, "re-adopt session", "session", row.ID, "err", err)
+		return false
+	}
+	return true
+}
+
+// readopt re-adopts the session of row from its holder in dir. It attaches the holder at row's replay-from, replays the
+// stdout from there to row's consumed offset, and registers the session live, primed from that replay (see prime). It
+// takes a slot without the cap check, since the holder's process already runs. A failure after the holder is attached
+// ends the session with Detach, which leaves the holder running for the caller to clear.
+func (m *Manager) readopt(ctx context.Context, row store.EngineRow, dir string) error {
+	process, written, err := holder.Reattach(ctx, dir, row.ReplayFrom)
+	if err != nil {
+		return fmt.Errorf("attach holder of session %s: %w", row.ID, err)
+	}
+	sess, lines, err := session.Readopt(ctx, process, session.ReadoptOptions{
+		From: row.ReplayFrom, Consumed: row.Consumed, Written: written,
+	})
+	if err != nil {
+		return fmt.Errorf("replay session %s: %w", row.ID, err)
+	}
+	rec := newRecorder(row.ID)
+	rec.claudeSession = row.ClaudeSession
+	m.mu.Lock()
+	m.reserved++
+	m.mu.Unlock()
+	re := &readoption{row: row, lines: lines, written: written}
+	if _, err = m.register(ctx, sess, row.ID, row.Dir, spawnSpec{}, rec, re); err != nil {
+		m.release()
+		return errors.Join(fmt.Errorf("register session %s: %w", row.ID, err), sess.Detach())
+	}
+	return nil
+}
+
+// clearHolder clears the holder directory dir of session id, bounded by clearTimeout. A failed clear is logged with the
+// session's name.
+func (m *Manager) clearHolder(ctx context.Context, id, dir string) {
+	clearCtx, cancel := context.WithTimeout(ctx, clearTimeout)
+	defer cancel()
+	if err := holder.Clear(clearCtx, dir); err != nil {
+		m.logger.WarnContext(ctx, "clear holder", "session", id, "err", err)
+	}
+}
+
+// isLive reports whether this manager has a live session with id.
+func (m *Manager) isLive(id string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	_, live := m.sessions[id]
+	return live
 }
 
 // reconcileRow removes the unfinished text of row and, when row's turn was running, records it interrupted and notifies

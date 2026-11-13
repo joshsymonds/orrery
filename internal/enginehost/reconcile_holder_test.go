@@ -9,8 +9,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
 
@@ -124,7 +124,7 @@ func TestReconcileStopsHolderLeftRunningForWorkingRow(t *testing.T) {
 	}
 }
 
-func TestReconcileAfterScopedCloseStopsHeldFake(t *testing.T) {
+func TestReconcileAfterScopedCloseReadoptsHeldFake(t *testing.T) {
 	root := holderRoot(t)
 	s, path := openStore(t)
 	writer := NewWriter(WriterConfig{Applier: s, Tick: 5 * time.Millisecond})
@@ -141,29 +141,29 @@ func TestReconcileAfterScopedCloseStopsHeldFake(t *testing.T) {
 
 	first.Close()
 
-	if err := syscall.Kill(pid, 0); err != nil {
-		t.Fatalf("fake claude %d is not running after Close: %v", pid, err)
-	}
+	requireProcessRunning(t, pid)
 	requireEngineRows(t, s, map[string]restartRow{
 		id: {state: "working"},
 	})
 	sink := &fakeSink{}
-	second := newStateManager(t, s, writer, sink, "", root, nil)
+	second := newStateManager(t, s, writer, sink, fakeSystemdRunPath(t), root, nil)
+	t.Cleanup(func() { closeAndClear(t, second, root, id) })
 	if err := second.Reconcile(t.Context()); err != nil {
 		t.Fatalf("Reconcile: %v", err)
 	}
 
-	requireGone(t, pid)
-	requireDirGone(t, holderDir(t, root, id))
-	requireEngineRows(t, s, map[string]restartRow{
-		id: {state: "interrupted", reason: restartedReason},
-	})
-	if n := countRows(t, path, "engine_text"); n != 0 {
-		t.Fatalf("unfinished text rows after Reconcile = %d, want 0", n)
+	requireProcessRunning(t, pid)
+	if !slices.Contains(second.Live(), id) {
+		t.Fatalf("session %s is not live after Reconcile: live %v", id, second.Live())
 	}
-	want := Notice{Session: id, Dir: dir, State: "interrupted", Body: restartedReason}
-	if got := sink.got(); len(got) != 1 || got[0] != want {
-		t.Fatalf("notices after Reconcile = %+v, want exactly [%+v]", got, want)
+	requireEngineRows(t, s, map[string]restartRow{
+		id: {state: "working"},
+	})
+	if n := countRows(t, path, "engine_text"); n != 1 {
+		t.Fatalf("unfinished text rows after Reconcile = %d, want the stalled block's 1", n)
+	}
+	if got := sink.got(); len(got) != 0 {
+		t.Fatalf("notices after Reconcile = %+v, want none", got)
 	}
 }
 
@@ -187,9 +187,7 @@ func TestReconcileLeavesLiveSessionHolderRunning(t *testing.T) {
 		t.Fatalf("Reconcile: %v", err)
 	}
 
-	if err := syscall.Kill(pid, 0); err != nil {
-		t.Fatalf("live session's fake claude %d is not running after Reconcile: %v", pid, err)
-	}
+	requireProcessRunning(t, pid)
 	conn, err := holder.Dial(t.Context(), holderSocket(t, root, id))
 	if err != nil {
 		t.Fatalf("holder of live session %s does not answer hello after Reconcile: %v", id, err)

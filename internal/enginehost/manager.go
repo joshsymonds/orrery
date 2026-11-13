@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -77,11 +78,13 @@ type NoticeSink interface {
 	Seen(ctx context.Context, session string, seen time.Time)
 }
 
-// Store reads the engine rows Reconcile settles, the rows Say resumes, checks and Seen marks, the step rows Continue
-// respawns from, and the failure markers Say checks. *store.Store satisfies it.
+// Store reads the engine rows Reconcile settles, the rows Say resumes, checks and Seen marks, the prompts a re-adopted
+// holder has not written, the step rows Continue respawns from, and the failure markers Say checks. *store.Store
+// satisfies it.
 type Store interface {
 	EngineSessions(ctx context.Context) ([]store.EngineRow, error)
 	EngineSession(ctx context.Context, id string) (store.EngineRow, error)
+	HolderPrompts(ctx context.Context, id string) ([]store.HolderPrompt, error)
 	Step(ctx context.Context, id string) (store.StepRow, error)
 	EnginePromptSent(ctx context.Context, sessionID, promptID string) (bool, error)
 	EnginePromptFailure(ctx context.Context, sessionID, promptID string) (string, bool, error)
@@ -716,18 +719,36 @@ func (m *Manager) spawnLive(ctx context.Context, id, dir string, sp spawnSpec) (
 	}
 	rec := newRecorder(id)
 	rec.claudeSession = sp.claudeSession
-	return m.register(ctx, sess, id, dir, sp, rec)
+	return m.register(ctx, sess, id, dir, sp, rec, nil)
+}
+
+// readoption is what register primes a re-adopted session with before its pump starts: the row the session's state is
+// taken from, the lines its replay read, and the write ids its holder has applied to its stdin.
+type readoption struct {
+	row     store.EngineRow
+	lines   []session.Line
+	written []string
 }
 
 // register registers sess, a started session of id in dir, as live under a pump that records its events with rec. The
-// live session takes the step and observer of sp. A process that starts after the manager closed is stopped, and the
-// error reports the close. An error that returns here leaves nothing registered.
+// live session takes the step and observer of sp. A re-adopted session, re non-nil, is primed from its replay before its
+// pump starts, and its pump starts from the reply prime returns. A process that starts after the manager closed is
+// stopped, and the error reports the close. An error that returns here leaves nothing registered; a re-adopted session
+// whose prime fails is left running, for the caller to end.
 func (m *Manager) register(
-	ctx context.Context, sess *session.Session, id, dir string, sp spawnSpec, rec *recorder,
+	ctx context.Context, sess *session.Session, id, dir string, sp spawnSpec, rec *recorder, re *readoption,
 ) (*liveSession, error) {
 	pumpCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	live := &liveSession{id: id, dir: dir, sess: sess, done: make(chan struct{}), cancel: cancel,
 		step: sp.step, observer: sp.observer, requests: map[string]struct{}{}}
+	reply := ""
+	if re != nil {
+		var err error
+		if reply, err = m.prime(ctx, live, rec, re); err != nil {
+			cancel()
+			return nil, err
+		}
+	}
 	m.mu.Lock()
 	closed := m.closed
 	if !closed {
@@ -740,8 +761,91 @@ func (m *Manager) register(
 		cancel()
 		return nil, errors.Join(errManagerClosed, sess.Stop())
 	}
-	go m.pump(pumpCtx, live, rec)
+	go m.pump(pumpCtx, live, rec, reply)
 	return live, nil
+}
+
+// prime builds the state of live, a re-adopted session not yet registered, from re. Its turn runs when its row is working
+// or waiting, and its background flag is the row's. Each replayed line goes through noteEvent and the recorder with the ops
+// discarded, so the requests it leaves open, its unfinished text and its reply are those the replay gives. A waiting row
+// with no request open goes working with no question. Each prompt the holder has not written is sent in order, marking the
+// turn running. It returns the reply the pump starts from.
+func (m *Manager) prime(ctx context.Context, live *liveSession, rec *recorder, re *readoption) (string, error) {
+	row := re.row
+	m.mu.Lock()
+	live.turning = row.State == string(protocol.StateWorking) || row.State == string(protocol.StateWaiting)
+	live.background = row.Background
+	m.updateIdleLocked(live)
+	m.mu.Unlock()
+	reply := m.replay(live, rec, re.lines)
+	if err := m.markWorking(ctx, live, row); err != nil {
+		return "", err
+	}
+	if err := m.sendUnwritten(ctx, live, re.written); err != nil {
+		return "", err
+	}
+	return reply, nil
+}
+
+// replay runs the replayed lines through noteEvent and rec, with rec's ops discarded, and returns the reply the lines
+// leave: the text of the last finished main-conversation block after the last turn's end.
+func (m *Manager) replay(live *liveSession, rec *recorder, lines []session.Line) string {
+	reply := ""
+	for _, line := range lines {
+		for _, event := range line.Events {
+			if record, _, _ := m.noteEvent(live, event); !record {
+				continue
+			}
+			rec.ops(event)
+			if text, ok := mainText(event); ok {
+				reply = text
+			}
+			if _, ended := event.(session.TurnEnded); ended {
+				reply = ""
+			}
+		}
+	}
+	return reply
+}
+
+// markWorking records a waiting row working with no question when the replay left no request open, since the holder's
+// claude has none to answer, and tells the notifier the session changed, as Answer does. Any other row is left as it is.
+func (m *Manager) markWorking(ctx context.Context, live *liveSession, row store.EngineRow) error {
+	m.mu.Lock()
+	open := len(live.requests)
+	m.mu.Unlock()
+	if row.State != string(protocol.StateWaiting) || open > 0 {
+		return nil
+	}
+	working := string(protocol.StateWorking)
+	question := ""
+	if err := m.writer.Put(ctx, live.id, store.EngineSet{ID: live.id,
+		Changes: store.EngineChanges{State: &working, Question: &question}}); err != nil {
+		return fmt.Errorf("record session %s working: %w", live.id, err)
+	}
+	if !live.step {
+		m.changed(ctx, live.id)
+	}
+	return nil
+}
+
+// sendUnwritten sends each prompt the store has for live's session, in order, whose write id is not in written, the write
+// ids its holder has applied. Each send marks the turn running.
+func (m *Manager) sendUnwritten(ctx context.Context, live *liveSession, written []string) error {
+	prompts, err := m.store.HolderPrompts(ctx, live.id)
+	if err != nil {
+		return fmt.Errorf("read prompts of session %s: %w", live.id, err)
+	}
+	for _, prompt := range prompts {
+		if slices.Contains(written, prompt.WriteID) {
+			continue
+		}
+		m.setTurning(live, true)
+		if err = live.sess.Prompt(prompt.WriteID, prompt.Text); err != nil {
+			return fmt.Errorf("send prompt of session %s: %w", live.id, err)
+		}
+	}
+	return nil
 }
 
 // Close stops every live session and waits up to 5 s for each to record its state. With a holder scope, Close detaches
@@ -1096,11 +1200,11 @@ func stampHome(environ []string) (string, error) {
 }
 
 // pump records the events of one running session, line by line and in order, until its lines close, and tells the owner
-// of each event once it is recorded. It is the only reader of the session's lines and the only user of its recorder.
-// When it ends it frees the session's slot and removes its entry, only while that entry is its own.
-func (m *Manager) pump(ctx context.Context, live *liveSession, rec *recorder) {
+// of each event once it is recorded. reply is the reply text of the turn the session's earlier lines left, so the pump
+// continues that turn. It is the only reader of the session's lines and the only user of its recorder. When it ends it
+// frees the session's slot and removes its entry, only while that entry is its own.
+func (m *Manager) pump(ctx context.Context, live *liveSession, rec *recorder, reply string) {
 	defer m.pumps.Done()
-	reply := ""
 	for line := range live.sess.Lines() {
 		reply = m.recordLine(ctx, live, rec, line, reply)
 	}
