@@ -419,7 +419,7 @@ func TestPickerRunPaneRowOpensWindowInItsSessionAndAnswersThePane(t *testing.T) 
 	root := t.TempDir()
 	paneDir := t.TempDir()
 	startPickerDirSession(t, tmux, paneDir)
-	claude, _ := installPickerClaude(t, "pane d1\ntask: no\n", false)
+	claude, runs := installPickerClaude(t, "pane d1\ntask: no\n", false)
 	cfg := pickerConfig(tmux, installPickerZoxide(t, scoredLine(paneDir)), claude, root)
 	handler := pickerHandler(t, tmux, func() (open.Config, error) { return cfg, nil })
 
@@ -429,6 +429,7 @@ func TestPickerRunPaneRowOpensWindowInItsSessionAndAnswersThePane(t *testing.T) 
 	}
 	before := serverPaneIDs(t, tmux)
 	pane := runPane(t, handler, rows[0].GetToken())
+	awaitClaudeRuns(t, runs, 2)
 	after := serverPaneIDs(t, tmux)
 	if !slices.Contains(after, pane) {
 		t.Fatalf("answered pane %s is not on the server: %v", pane, after)
@@ -449,7 +450,7 @@ func TestPickerRunRowForFolderWithoutSessionCreatesOneAndAnswersItsPane(t *testi
 	if err := os.Mkdir(folder, 0o755); err != nil {
 		t.Fatalf("mkdir %s: %v", folder, err)
 	}
-	claude, _ := installPickerClaude(t, "pane d1\ntask: no\n", false)
+	claude, runs := installPickerClaude(t, "pane d1\ntask: no\n", false)
 	cfg := pickerConfig(tmux, installPickerZoxide(t, scoredLine(folder)), claude, root)
 	handler := pickerHandler(t, tmux, func() (open.Config, error) { return cfg, nil })
 
@@ -458,6 +459,7 @@ func TestPickerRunRowForFolderWithoutSessionCreatesOneAndAnswersItsPane(t *testi
 		t.Fatalf("rows = %d, want a pane row for %s first", len(rows), folder)
 	}
 	pane := runPane(t, handler, rows[0].GetToken())
+	awaitClaudeRuns(t, runs, 2)
 	if got := paneSession(t, tmux, pane); got != "example-dir-c" {
 		t.Errorf("answered pane %s is in session %q, want the new session example-dir-c", pane, got)
 	}
@@ -501,7 +503,7 @@ func TestPickerRunRetryAfterFailedLookupAnswersCreatedPaneWithoutRunningAgain(t 
 	if err := os.Mkdir(folder, 0o755); err != nil {
 		t.Fatalf("mkdir %s: %v", folder, err)
 	}
-	claude, _ := installPickerClaude(t, "pane d1\ntask: no\n", false)
+	claude, runs := installPickerClaude(t, "pane d1\ntask: no\n", false)
 	cfg := pickerConfig(tmux, installPickerZoxide(t, scoredLine(folder)), claude, root)
 	handler := pickerHandler(t, tmux, func() (open.Config, error) { return cfg, nil })
 
@@ -522,6 +524,7 @@ func TestPickerRunRetryAfterFailedLookupAnswersCreatedPaneWithoutRunningAgain(t 
 		t.Fatalf("after the failed lookup session example-dir-c has panes %v, want the one the action created", created)
 	}
 	pane := runPane(t, handler, rows[0].GetToken())
+	awaitClaudeRuns(t, runs, 2)
 	if pane != created[0] {
 		t.Errorf("retry answered pane %s, want the pane the first run created, %s", pane, created[0])
 	}
@@ -556,13 +559,14 @@ func TestPickerRunRepeatAnswersSamePaneAndOpensNoSecondWindow(t *testing.T) {
 	root := t.TempDir()
 	paneDir := t.TempDir()
 	startPickerDirSession(t, tmux, paneDir)
-	claude, _ := installPickerClaude(t, "pane d1\ntask: no\n", false)
+	claude, runs := installPickerClaude(t, "pane d1\ntask: no\n", false)
 	cfg := pickerConfig(tmux, installPickerZoxide(t, scoredLine(paneDir)), claude, root)
 	handler := pickerHandler(t, tmux, func() (open.Config, error) { return cfg, nil })
 
 	rows := askRows(t, handler, "example text")
 	token := rows[0].GetToken()
 	first := runPane(t, handler, token)
+	awaitClaudeRuns(t, runs, 2)
 	afterFirst := serverPaneIDs(t, tmux)
 	second := runPane(t, handler, token)
 	afterSecond := serverPaneIDs(t, tmux)
@@ -579,7 +583,7 @@ func TestPickerRunConcurrentRunsOfOneTokenOpenOneWindow(t *testing.T) {
 	root := t.TempDir()
 	paneDir := t.TempDir()
 	startPickerDirSession(t, tmux, paneDir)
-	claude, _ := installPickerClaude(t, "pane d1\ntask: no\n", false)
+	claude, runsFile := installPickerClaude(t, "pane d1\ntask: no\n", false)
 	cfg := pickerConfig(tmux, installPickerZoxide(t, scoredLine(paneDir)), claude, root)
 	handler := pickerHandler(t, tmux, func() (open.Config, error) { return cfg, nil })
 
@@ -607,6 +611,7 @@ func TestPickerRunConcurrentRunsOfOneTokenOpenOneWindow(t *testing.T) {
 	}
 	close(start)
 	wg.Wait()
+	awaitClaudeRuns(t, runsFile, 2)
 	for i, err := range errs {
 		if err != nil {
 			t.Fatalf("concurrent Picker.Run %d: %v", i, err)
@@ -628,12 +633,13 @@ func TestPickerRunUnknownTokenAnswers404(t *testing.T) {
 	root := t.TempDir()
 	paneDir := t.TempDir()
 	startPickerDirSession(t, tmux, paneDir)
-	claude, _ := installPickerClaude(t, "pane d1\ntask: no\n", false)
+	claude, runs := installPickerClaude(t, "pane d1\ntask: no\n", false)
 	cfg := pickerConfig(tmux, installPickerZoxide(t, scoredLine(paneDir)), claude, root)
 	handler := pickerHandler(t, tmux, func() (open.Config, error) { return cfg, nil })
 
 	rows := askRows(t, handler, "example text")
 	runPane(t, handler, rows[0].GetToken())
+	awaitClaudeRuns(t, runs, 2)
 	_, err := runToken(t, handler, unissuedToken)
 	assertConnectError(t, err, connect.CodeNotFound, "unknown token")
 }
@@ -643,7 +649,7 @@ func TestPickerRunTokenFromAnotherHandlerAnswers404(t *testing.T) {
 	root := t.TempDir()
 	paneDir := t.TempDir()
 	startPickerDirSession(t, tmux, paneDir)
-	claude, _ := installPickerClaude(t, "pane d1\ntask: no\n", false)
+	claude, runs := installPickerClaude(t, "pane d1\ntask: no\n", false)
 	cfg := pickerConfig(tmux, installPickerZoxide(t, scoredLine(paneDir)), claude, root)
 	asked := pickerHandler(t, tmux, func() (open.Config, error) { return cfg, nil })
 	restarted := pickerHandler(t, tmux, func() (open.Config, error) { return cfg, nil })
@@ -652,6 +658,7 @@ func TestPickerRunTokenFromAnotherHandlerAnswers404(t *testing.T) {
 	_, err := runToken(t, restarted, rows[0].GetToken())
 	assertConnectError(t, err, connect.CodeNotFound, "unknown token")
 	runPane(t, asked, rows[0].GetToken())
+	awaitClaudeRuns(t, runs, 2)
 }
 
 func TestPickerRunExpiredTokenAnswers410AndRunsNothing(t *testing.T) {
@@ -659,7 +666,7 @@ func TestPickerRunExpiredTokenAnswers410AndRunsNothing(t *testing.T) {
 	root := t.TempDir()
 	paneDir := t.TempDir()
 	startPickerDirSession(t, tmux, paneDir)
-	claude, _ := installPickerClaude(t, "pane d1\ntask: no\n", false)
+	claude, runs := installPickerClaude(t, "pane d1\ntask: no\n", false)
 	cfg := pickerConfig(tmux, installPickerZoxide(t, scoredLine(paneDir)), claude, root)
 	issued := time.Date(2026, time.November, 11, 12, 0, 0, 0, time.UTC)
 	clock := issued
@@ -671,6 +678,7 @@ func TestPickerRunExpiredTokenAnswers410AndRunsNothing(t *testing.T) {
 
 	clock = issued.Add(5*time.Minute - time.Second)
 	runPane(t, handler, live[0].GetToken())
+	awaitClaudeRuns(t, runs, 3)
 
 	before := serverPaneIDs(t, tmux)
 	clock = issued.Add(5 * time.Minute)
@@ -711,7 +719,7 @@ func TestPickerRunRootRowOfNewWordOpensNoFolder(t *testing.T) {
 	tmux := newTmuxServer(t)
 	root := t.TempDir()
 	startPickerPane(t, tmux, "example-session-a", t.TempDir())
-	claude, _ := installPickerClaude(t, "pane d1\ntask: yes\n", false)
+	claude, runs := installPickerClaude(t, "pane d1\ntask: yes\n", false)
 	cfg := pickerConfig(tmux, installPickerZoxide(t, scoredLine(t.TempDir())), claude, root)
 	handler := pickerHandler(t, tmux, func() (open.Config, error) { return cfg, nil })
 
@@ -726,6 +734,7 @@ func TestPickerRunRootRowOfNewWordOpensNoFolder(t *testing.T) {
 		t.Fatalf("rows = %d, want a pane row for the root %s", len(rows), root)
 	}
 	runPane(t, handler, rootRow.GetToken())
+	awaitClaudeRuns(t, runs, 2)
 	if _, err := os.Stat(filepath.Join(root, "foo")); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("stat foo in root: %v, want no such folder", err)
 	}
