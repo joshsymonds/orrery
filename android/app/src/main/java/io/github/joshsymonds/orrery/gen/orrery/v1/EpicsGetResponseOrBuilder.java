@@ -80,4 +80,33 @@ public interface EpicsGetResponseOrBuilder extends
    * <code>repeated .orrery.v1.EpicStep steps = 3 [json_name = "steps"];</code>
    */
   int getStepsCount();
+
+  /**
+   * <pre>
+   * A slice per task label among the epic's labelled writing steps, in order of each label's first start. Read-only
+   * steps and steps with no task label add none.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicSlice slices = 4 [json_name = "slices"];</code>
+   */
+  java.util.List<io.github.joshsymonds.orrery.gen.orrery.v1.EpicSlice> 
+      getSlicesList();
+  /**
+   * <pre>
+   * A slice per task label among the epic's labelled writing steps, in order of each label's first start. Read-only
+   * steps and steps with no task label add none.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicSlice slices = 4 [json_name = "slices"];</code>
+   */
+  io.github.joshsymonds.orrery.gen.orrery.v1.EpicSlice getSlices(int index);
+  /**
+   * <pre>
+   * A slice per task label among the epic's labelled writing steps, in order of each label's first start. Read-only
+   * steps and steps with no task label add none.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicSlice slices = 4 [json_name = "slices"];</code>
+   */
+  int getSlicesCount();
 }

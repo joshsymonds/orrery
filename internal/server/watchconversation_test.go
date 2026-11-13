@@ -428,7 +428,7 @@ func TestWatchConversationStateChanges(t *testing.T) {
 		t.Fatalf("goal delta seq = %d, want past %d", goal.GetSeq(), first.GetSeq())
 	}
 
-	appendTranscript(t, path, queueLine("enqueue", synthQueued, "2026-11-11T00:00:00Z", ""))
+	appendTranscript(t, path, queueLine("enqueue", synthQueued, "2026-11-11T00:00:00Z", "")+turnEndLine)
 	queued := stream.nextDelta(t)
 	if waiting := queued.GetState().GetWaiting(); len(waiting) != 1 || waiting[0].GetText() != synthQueued {
 		t.Fatalf("queue delta waiting = %v, want one message %q", waiting, synthQueued)
@@ -441,7 +441,7 @@ func TestWatchConversationStateChanges(t *testing.T) {
 			paneState.GetState().GetPane().GetState(), protocol.StateDone)
 	}
 	if waiting := paneState.GetState().GetWaiting(); len(waiting) != 0 {
-		t.Fatalf("done pane waiting = %v, want none (idle lists only canceled messages)", waiting)
+		t.Fatalf("done pane waiting = %v, want none (the idle rule drops the message)", waiting)
 	}
 	if paneState.GetSeq() != queued.GetSeq() {
 		t.Fatalf("pane delta seq = %d, want unchanged %d", paneState.GetSeq(), queued.GetSeq())
