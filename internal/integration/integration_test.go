@@ -739,7 +739,7 @@ func TestDebugQueueReplayPrintsCountsOnly(t *testing.T) {
 		"never_taken_after 0\n" +
 		"other 0\n" +
 		"falsified 0\n" +
-		"open_at_turn_end_delivered 0\n" +
+		"idle_hidden 0\n" +
 		"notices_typed 0\n"
 	if out.stdout != want {
 		t.Fatalf("debug queue-replay stdout %q, want %q", out.stdout, want)
