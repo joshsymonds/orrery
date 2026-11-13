@@ -36,7 +36,6 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import io.github.joshsymonds.orrery.api.EpicDetail
-import io.github.joshsymonds.orrery.api.EpicSliceRow
 import io.github.joshsymonds.orrery.api.EpicTaskRow
 import io.github.joshsymonds.orrery.api.OrreryClient
 import io.github.joshsymonds.orrery.api.StepCheckRow
@@ -107,25 +106,48 @@ private val CHART_HEIGHT = 240.dp
 @Composable
 private fun EpicBody(detail: EpicDetail, onOpenStep: (StepRow) -> Unit) {
     var selectedRow by remember { mutableStateOf<Int?>(null) }
-    // Tapping a row with a slice marks it and outlines its slice; tapping the marked row again clears; a row with no
+    var selectedSlice by remember { mutableStateOf<Int?>(null) }
+    // Tapping a row with a slice marks it and selects its slice; tapping the marked row again clears both; a row with no
     // slice changes nothing.
     val onTapTask: (Int) -> Unit = { row ->
-        selectedRow = when {
-            row == selectedRow -> null
-            sliceOf(detail, row) == null -> selectedRow
-            else -> row
+        val slice = sliceOf(detail, row)
+        when {
+            row == selectedRow -> {
+                selectedRow = null
+                selectedSlice = null
+            }
+            slice != null -> {
+                selectedRow = row
+                selectedSlice = slice
+            }
         }
     }
-    val outlined = selectedRow?.let { sliceOf(detail, it) }
+    // The chart selects a slice or clears its selection (null); either way no row is marked.
+    val onSelectSlice: (Int?) -> Unit = { slice ->
+        selectedSlice = slice
+        selectedRow = null
+    }
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         if (maxWidth > maxHeight) {
             Row(modifier = Modifier.fillMaxSize()) {
-                ChartOrEmptyLine(detail.slices, outlined, modifier = Modifier.weight(1f).fillMaxHeight())
+                EpicChart(
+                    detail.slices,
+                    taskCount = detail.tasks.size,
+                    selected = selectedSlice,
+                    onSelect = onSelectSlice,
+                    modifier = Modifier.weight(1f).fillMaxHeight(),
+                )
                 EpicList(detail, onOpenStep, selectedRow, onTapTask, modifier = Modifier.weight(1f).fillMaxHeight())
             }
         } else {
             Column(modifier = Modifier.fillMaxSize()) {
-                ChartOrEmptyLine(detail.slices, outlined, modifier = Modifier.fillMaxWidth().height(CHART_HEIGHT))
+                EpicChart(
+                    detail.slices,
+                    taskCount = detail.tasks.size,
+                    selected = selectedSlice,
+                    onSelect = onSelectSlice,
+                    modifier = Modifier.fillMaxWidth().height(CHART_HEIGHT),
+                )
                 EpicList(detail, onOpenStep, selectedRow, onTapTask, modifier = Modifier.fillMaxWidth().weight(1f))
             }
         }
@@ -135,20 +157,6 @@ private fun EpicBody(detail: EpicDetail, onOpenStep: (StepRow) -> Unit) {
 // sliceOf is the index of the slice labelled with the row's slug, or null when no slice carries that slug.
 private fun sliceOf(detail: EpicDetail, row: Int): Int? =
     detail.slices.indexOfFirst { it.task == detail.tasks[row].slug }.takeIf { it >= 0 }
-
-// ChartOrEmptyLine is the epic's chart, or with no slices the line that says so, in the same place.
-@Composable
-private fun ChartOrEmptyLine(slices: List<EpicSliceRow>, outlined: Int?, modifier: Modifier) {
-    if (slices.isEmpty()) {
-        Text(
-            "No orrery-tracked steps",
-            style = MaterialTheme.typography.bodySmall,
-            modifier = modifier.padding(16.dp),
-        )
-    } else {
-        EpicChart(slices, outlined = outlined, modifier = modifier)
-    }
-}
 
 @Composable
 private fun EpicList(

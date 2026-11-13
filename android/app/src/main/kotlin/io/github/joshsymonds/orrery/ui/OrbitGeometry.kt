@@ -21,6 +21,9 @@ private const val SWEEP = 360f - GAP
 private val RING_RADII = floatArrayOf(168f, 151f, 134f, 117f, 100f)
 private const val RING_HALF = 5.5f
 
+/** The centre radius, in units, of ring [ring]: 0 is red test, 4 is gate accepted. */
+fun ringRadius(ring: Int): Float = RING_RADII[ring]
+
 // The cursor's wedge and hand.
 private const val WEDGE_INNER = 91f
 private const val WEDGE_OUTER = 177f
@@ -147,8 +150,11 @@ fun orbitHit(relative: Offset, count: Int): OrbitHit? {
     return OrbitHit.Slice(min(count - 1, floor((angle - START) / sliceSpan(count)).toInt()))
 }
 
-// The point at radius units from the centre, at angle radians clockwise from 12 o'clock.
-private fun point(radius: Float, angle: Float): Offset =
+/**
+ * The point [radius] units from the chart's centre, at [angle] radians clockwise from 12 o'clock, in units. The centre
+ * itself is point(0, 0).
+ */
+fun point(radius: Float, angle: Float): Offset =
     Offset(CENTRE + radius * sin(angle), CENTRE - radius * cos(angle))
 
 // The annulus sector from radius ri to ro, from startDeg to endDeg, inset by gap: half of it from each side, measured along
