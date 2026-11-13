@@ -374,9 +374,19 @@ function readerText(container: HTMLElement): string {
   return container.querySelector(".reader")?.textContent ?? "";
 }
 
-// readerWorkLine is the working line under the cursor's reader, or null when that column draws none.
-function readerWorkLine(container: HTMLElement): Element | null {
-  return container.querySelector('[aria-label="reader"] .work-line');
+// readerHead is the head the cursor's reader opens with, or null when that reader draws none.
+function readerHead(container: HTMLElement): Element | null {
+  return container.querySelector('section[aria-label="reader"] > .head');
+}
+
+// pinnedHead is the head the pinned reader opens with, or null when no row is pinned.
+function pinnedHead(container: HTMLElement): Element | null {
+  return container.querySelector('section[aria-label="pinned reader"] > .head');
+}
+
+// readerNote is the working note under the cursor's reader, or null when that column draws none.
+function readerNote(container: HTMLElement): Element | null {
+  return container.querySelector('[aria-label="reader"] .work-note');
 }
 
 // workingPane is the pane a stream sends while it runs a tool. The tool started at 940, a minute before the test's
@@ -406,6 +416,8 @@ const sessionRow = row({
   id: "s1",
   kind: "session",
   label: "notes",
+  project: "",
+  host: "",
   state: "working",
   changed: 30,
   seen: 30,
@@ -899,57 +911,77 @@ test("the cursor's pane row opens its conversation, and the reader shows the str
     await until(() => readerText(container).includes("the streamed reply"), "the streamed reply");
   }));
 
-test("a working pane's delta draws its line under the cursor's reader, with the tool, its time, and where a message lands", () =>
-  withApp({}, async (container, fake) => {
-    await until(() => fake.callsTo(paneWatchPath).length === 1, "the pane stream");
-    const [stream] = fake.callsTo(paneWatchPath);
-    fake.emit(stream, { transcript: "t1", seq: "1", reset: true, items: [], state: { pane: workingPane("Bash") } });
-    await until(() => readerWorkLine(container) !== null, "the working line");
-    const line = readerWorkLine(container);
-    assert.ok(line);
-    assert.equal(line.querySelector(".work-label")?.textContent, "working");
-    assert.equal(line.querySelector(".work-tool")?.textContent, "running a command");
-    assert.equal(line.querySelector(".work-time")?.textContent, "1:00");
-    assert.equal(
-      line.querySelector(".work-note")?.textContent,
-      "a message sent now lands at Claude's next step · last turn ended 5m ago",
-    );
-    assert.equal(line.previousElementSibling?.classList.contains("reader"), true, "the line is under the reader");
-    assert.equal(line.nextElementSibling?.classList.contains("reply"), true, "the line is above the reply boxes");
+test("the cursor's reader opens on its head: the label, the project and host, and the state's pill", () =>
+  withApp({ rows: [paneRow] }, (container) => {
+    assert.equal(container.querySelector('section[aria-label="reader"]')?.firstElementChild?.tagName, "HEADER");
+    assert.equal(readerHead(container)?.querySelector("h1")?.textContent, "api");
+    assert.equal(readerHead(container)?.querySelector(".where")?.textContent, "app · box");
+    assert.equal(readerHead(container)?.querySelector(".pill .word")?.textContent, "waiting");
+    assert.equal(readerHead(container)?.querySelector(".pill .clock") === null, true);
   }));
 
-test("a later delta whose pane is done removes the working line", () =>
+test("a session's head has no where line and a pill of its state, with no tool or clock", () =>
+  withApp({ rows: [sessionRow] }, (container) => {
+    assert.equal(readerHead(container)?.querySelector("h1")?.textContent, "notes");
+    assert.equal(readerHead(container)?.querySelector(".where") === null, true);
+    assert.equal(readerHead(container)?.querySelector(".pill .word")?.textContent, "working");
+    assert.equal(readerHead(container)?.querySelector(".pill .tool") === null, true);
+    assert.equal(readerHead(container)?.querySelector(".pill .clock") === null, true);
+  }));
+
+test("a step's head names the step, its epic, agent and round, and its pill runs from the step's start", () => {
+  const running = makeStep("s1", { started: BigInt(now - 60) });
+  const epics = epicsView([makeEpic(widgetsRepo, "first", { runningSteps: [running] })], new Map());
+  return withApp({ epics }, async (container, fake) => {
+    await onStepOne(container, fake);
+    assert.equal(readerHead(container)?.querySelector("h1")?.textContent, "s1");
+    assert.equal(readerHead(container)?.querySelector(".where")?.textContent, "first › builder · step · round 1");
+    assert.equal(readerHead(container)?.querySelector(".pill .word")?.textContent, "running");
+    assert.equal(readerHead(container)?.querySelector(".pill .clock")?.textContent, "1:00");
+  });
+});
+
+test("a held step's head pill reads held with no clock", () => {
+  const held = makeStep("s1", { held: true });
+  const epics = epicsView([makeEpic(widgetsRepo, "first", { runningSteps: [held] })], new Map());
+  return withApp({ epics }, async (container, fake) => {
+    await onStepOne(container, fake);
+    assert.equal(readerHead(container)?.querySelector(".pill .word")?.textContent, "held");
+    assert.equal(readerHead(container)?.querySelector(".pill .clock") === null, true);
+  });
+});
+
+test("a working pane's delta puts its tool and time in the head's pill, and its note under the reader", () =>
   withApp({}, async (container, fake) => {
     await until(() => fake.callsTo(paneWatchPath).length === 1, "the pane stream");
     const [stream] = fake.callsTo(paneWatchPath);
     fake.emit(stream, { transcript: "t1", seq: "1", reset: true, items: [], state: { pane: workingPane("Bash") } });
-    await until(() => readerWorkLine(container) !== null, "the working line");
+    await until(() => readerNote(container) !== null, "the working note");
+    assert.equal(readerHead(container)?.querySelector(".pill .word")?.textContent, "working");
+    assert.equal(readerHead(container)?.querySelector(".pill .tool")?.textContent, "Bash");
+    assert.equal(readerHead(container)?.querySelector(".pill .clock")?.textContent, "1:00");
+    const note = readerNote(container);
+    assert.equal(note?.textContent, "a message sent now lands at Claude's next step · last turn ended 5m ago");
+    assert.equal(note?.previousElementSibling?.classList.contains("reader"), true, "the note is under the reader");
+    assert.equal(note?.nextElementSibling?.classList.contains("reply"), true, "the note is above the reply boxes");
+    assert.equal(container.querySelector(".work-line") === null, true, "no work line is drawn");
+  }));
+
+test("a later delta whose pane is done removes the working note and the pill's tool", () =>
+  withApp({}, async (container, fake) => {
+    await until(() => fake.callsTo(paneWatchPath).length === 1, "the pane stream");
+    const [stream] = fake.callsTo(paneWatchPath);
+    fake.emit(stream, { transcript: "t1", seq: "1", reset: true, items: [], state: { pane: workingPane("Bash") } });
+    await until(() => readerNote(container) !== null, "the working note");
     fake.emit(stream, {
       transcript: "t1",
       seq: "2",
       items: [],
       state: { pane: { id: "a", state: "done", tool: "", changed: "1000", lastTurnEnd: "1000" } },
     });
-    await until(() => readerWorkLine(container) === null, "the working line removed");
-  }));
-
-test("a step_wait tool draws a background line that reads as waiting on background work", () =>
-  withApp({}, async (container, fake) => {
-    await until(() => fake.callsTo(paneWatchPath).length === 1, "the pane stream");
-    const [stream] = fake.callsTo(paneWatchPath);
-    fake.emit(stream, {
-      transcript: "t1",
-      seq: "1",
-      reset: true,
-      items: [],
-      state: { pane: workingPane("mcp__orrery__step_wait") },
-    });
-    await until(() => readerWorkLine(container) !== null, "the working line");
-    const line = readerWorkLine(container);
-    assert.ok(line);
-    assert.equal(line.classList.contains("background"), true);
-    assert.equal(line.querySelector(".work-label")?.textContent, "background");
-    assert.equal(line.querySelector(".work-tool")?.textContent, "waiting on background work");
+    await until(() => readerNote(container) === null, "the working note removed");
+    assert.equal(readerHead(container)?.querySelector(".pill .word")?.textContent, "done");
+    assert.equal(readerHead(container)?.querySelector(".pill .tool") === null, true);
   }));
 
 test("moving the cursor to a session row aborts the pane's stream and opens the session's", () =>
@@ -1364,12 +1396,26 @@ function pinnedComposer(container: HTMLElement): HTMLTextAreaElement {
   return box;
 }
 
-// pinnedWorkLine is the working line under the pinned reader, or null when the pinned column draws none.
-function pinnedWorkLine(container: HTMLElement): Element | null {
-  return pinnedColumn(container)?.querySelector(".work-line") ?? null;
+// pinnedNote is the working note under the pinned reader, or null when the pinned column draws none.
+function pinnedNote(container: HTMLElement): Element | null {
+  return pinnedColumn(container)?.querySelector(".work-note") ?? null;
 }
 
-test("the pinned column draws the line of its own stream while the cursor rests on another pane", () =>
+test("the pinned head names the pinned row while the cursor rests on another, and no .pin-head is drawn", () =>
+  withApp({}, async (container, fake) => {
+    await until(() => fake.callsTo(paneWatchPath).length === 1, "the cursor's stream");
+    await press("|");
+    await until(() => fake.callsTo(paneWatchPath).length === 2, "the pinned stream");
+    await press("j");
+    assert.equal(cursorKey(container), "c");
+    assert.equal(pinnedHead(container)?.querySelector("h1")?.textContent, "api");
+    assert.equal(pinnedHead(container)?.querySelector(".where")?.textContent, "api · box");
+    assert.equal(readerHead(container)?.querySelector("h1")?.textContent, "docs");
+    assert.equal(readerHead(container)?.querySelector(".where")?.textContent, "docs · laptop");
+    assert.equal(container.querySelector(".pin-head") === null, true);
+  }));
+
+test("the pinned column draws the note and the pill of its own stream while the cursor rests on another pane", () =>
   withApp({}, async (container, fake) => {
     await until(() => fake.callsTo(paneWatchPath).length === 1, "the cursor's stream");
     await press("|");
@@ -1386,9 +1432,11 @@ test("the pinned column draws the line of its own stream while the cursor rests 
       items: [],
       state: { pane: workingPane("Bash") },
     });
-    await until(() => pinnedWorkLine(container) !== null, "the pinned working line");
-    assert.equal(pinnedWorkLine(container)?.querySelector(".work-tool")?.textContent, "running a command");
-    assert.equal(readerWorkLine(container) === null, true, "the cursor's reader on c draws no line");
+    await until(() => pinnedNote(container) !== null, "the pinned working note");
+    assert.equal(pinnedHead(container)?.querySelector(".pill .tool")?.textContent, "Bash");
+    assert.equal(pinnedHead(container)?.querySelector(".pill .clock")?.textContent, "1:00");
+    assert.equal(readerNote(container) === null, true, "the cursor's reader on c draws no note");
+    assert.equal(readerHead(container)?.querySelector(".pill .tool") === null, true, "c's pill has no tool");
   }));
 
 test("| pins the cursor's row in a second column that streams it while the cursor moves on", () =>

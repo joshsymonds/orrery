@@ -18,12 +18,12 @@ import { EpicView } from "./epicview";
 import { type Followed, follow } from "./follow";
 import { Mark } from "./mark";
 import { type ParsedQuestion, parseQuestion } from "./question";
-import { Reader } from "./reader";
+import { Reader, ReaderHead } from "./reader";
 import { byAttention, byProject, type Row } from "./rows";
 import { type SeenClock, type SeenWindow, watchSeen } from "./seen";
 import { StepBox } from "./stepbox";
 import { ReplyText } from "./text";
-import { WorkLine } from "./workline";
+import { Pill, rowPill, stepPill, WorkNote } from "./workline";
 
 type View = "attention" | "project";
 
@@ -548,6 +548,16 @@ export function App({
         </div>
         <section class="read" aria-label="reader" hidden={cursorRow === null && cursorStep === null}>
           {cursorRow !== null && (
+            <ReaderHead label={cursorRow.label} where={rowWhere(cursorRow)}>
+              <Pill model={rowPill(cursorRow.state, cursorConversation?.state?.pane)} now={now} />
+            </ReaderHead>
+          )}
+          {cursorStep !== null && (
+            <ReaderHead label={cursorStep.label} where={stepWhere(cursorStep)}>
+              <Pill model={stepPill(cursorStep.held, cursorStep.started)} now={now} />
+            </ReaderHead>
+          )}
+          {cursorRow !== null && (
             <Reader
               conversation={cursorConversation}
               seenAt={cursorRow.seen}
@@ -565,7 +575,7 @@ export function App({
               onToggleOpen={toggleOpen}
             />
           )}
-          <WorkLine pane={cursorConversation?.state?.pane} now={now} />
+          <WorkNote pane={cursorConversation?.state?.pane} now={now} />
           {composerRows(visited, cursorRow).map((row) => (
             <div key={row.key} class="reply" hidden={row.key !== cursorRowKey}>
               <Composer
@@ -605,7 +615,11 @@ export function App({
           })}
         </section>
         <section class="read pinned" aria-label="pinned reader" hidden={pinned === null}>
-          {pinned !== null && <div class="pin-head">{`pinned · ${pinned.label}`}</div>}
+          {pinned !== null && (
+            <ReaderHead label={pinned.label} where={rowWhere(pinned)}>
+              <Pill model={rowPill(pinned.state, pinnedConversation?.state?.pane)} now={now} />
+            </ReaderHead>
+          )}
           {pinned !== null && (
             <Reader
               conversation={pinnedConversation}
@@ -613,7 +627,7 @@ export function App({
               open={false}
             />
           )}
-          <WorkLine pane={pinnedConversation?.state?.pane} now={now} />
+          <WorkNote pane={pinnedConversation?.state?.pane} now={now} />
           {composerRows(pinnedRows, pinned).map((row) => (
             <div key={row.key} class="pin-reply" hidden={row.key !== pinnedKey}>
               <Composer
@@ -837,6 +851,16 @@ function sectionTitle(section: EpicSection): string {
     return section.title;
   }
   return section.rows[0]?.host || noDirectoryTitle;
+}
+
+// rowWhere is a row's where line: its project's last path element and its host, joined, with an empty part left out.
+function rowWhere(row: Row): string {
+  return [lastPathElement(row.project), row.host].filter((part) => part !== "").join(" · ");
+}
+
+// stepWhere is a step's where line: its epic, its agent, and its round.
+function stepWhere(step: StepItem): string {
+  return `${step.epicSlug} › ${step.agent} · step · round ${step.round}`;
 }
 
 function lastPathElement(path: string): string {
