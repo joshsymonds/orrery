@@ -39,6 +39,13 @@ interface Cursor {
   index: number;
 }
 
+// A landed answer from the list: the choice and its label, kept for the row and the question it answered.
+interface Answer {
+  question: string;
+  choice: number;
+  label: string;
+}
+
 // An entry the list shows and the cursor can rest on: a row, or an epic or step of the Epics group.
 type Item = Row | EpicItem | StepItem;
 
@@ -51,6 +58,9 @@ const tasksUnavailableText = "tasks unavailable";
 const epicUnavailableText = "epic unavailable";
 const seenFailedText = "could not mark seen";
 const answerFailedText = "no answer was sent";
+
+// The keys 1-3 answer the first three options of a question, and no others.
+const keyedOptions = 3;
 
 const secondsPerMinute = 60;
 const minutesPerHour = 60;
@@ -121,6 +131,9 @@ export function App({
   const [seenWritten, setSeenWritten] = useState<Map<string, number>>(() => new Map());
   const [seenError, setSeenError] = useState("");
   const [answerError, setAnswerError] = useState("");
+  // The answers that landed from the list, by row key. Each shows in place of its row's chips while the row
+  // waits on the question it answered.
+  const [answered, setAnswered] = useState<Map<string, Answer>>(() => new Map());
   const seenWatch = useRef<ReturnType<typeof watchSeen>>();
   // The row the seen watch last rested on, which its write marks seen.
   const restedRow = useRef<Row | null>(null);
@@ -196,6 +209,15 @@ export function App({
     setPinnedRows((previous) => keepEntries(previous, rows, pinned));
   }, [rows, pinned]);
 
+  // An answer's line goes when its row stops waiting or waits on another question. A row missing from the list keeps
+  // it, as a failed poll leaves a pane out of the list.
+  useEffect(() => {
+    setAnswered((previous) => {
+      const kept = new Map([...previous].filter(([key, answer]) => keepsAnswer(rows, key, answer)));
+      return kept.size === previous.size ? previous : kept;
+    });
+  }, [rows]);
+
   // The pinned row is followed while it stays pinned: its close, or an unmount, stops the stream.
   const pinnedKey = pinned?.key ?? "";
   useEffect(() => {
@@ -226,16 +248,25 @@ export function App({
   };
 
   // answerCursor sends the choice to the cursor's row's waiting question through actions.answer, with the conversation
-  // the reader holds for that row only. A false result or a rejection shows a fixed line; nothing is retried.
+  // the reader holds for that row only. A false result or a rejection shows a fixed line; nothing is retried. A landed
+  // answer names its choice on the row, when the question offers that choice.
   const answerCursor = (choice: 1 | 2 | 3) => {
     if (cursorRow === null) {
       return;
     }
-    const conversation = stream !== null && stream.key === cursorRow.key ? stream.conversation : null;
+    const row = cursorRow;
+    const conversation = stream !== null && stream.key === row.key ? stream.conversation : null;
+    const option = readerQuestion(row, conversation)?.options[choice - 1];
     void actions
-      .answer(clients, cursorRow, conversation, choice)
+      .answer(clients, row, conversation, choice)
       .catch(() => false)
-      .then((sent) => setAnswerError(sent ? "" : answerFailedText));
+      .then((sent) => {
+        setAnswerError(sent ? "" : answerFailedText);
+        if (sent && option !== undefined) {
+          const answer: Answer = { question: row.question, choice, label: optionText(option.label, choice) };
+          setAnswered((previous) => new Map(previous).set(row.key, answer));
+        }
+      });
   };
 
   // The seen watch runs for the page's life: its write marks the row it last rested on, and unmount stops it.
@@ -269,6 +300,9 @@ export function App({
   // The conversation the pinned reader holds, only when its stream belongs to the pinned row.
   const pinnedConversation =
     pinStream !== null && pinned !== null && pinStream.key === pinned.key ? pinStream.conversation : null;
+  // The conversation a list row's options come from: the stream the page holds for that row, the cursor's or the pin's.
+  const heldConversation = (key: string) =>
+    key === cursorRowKey ? cursorConversation : key === pinnedKey ? pinnedConversation : null;
   const toggleOpen = () => setOpen((value) => !value);
 
   const moveTo = (target: number) => {
@@ -535,6 +569,11 @@ export function App({
                           }
                         />
                       </div>
+                      <RowOptions
+                        row={item}
+                        conversation={heldConversation(item.key)}
+                        answer={answered.get(item.key)}
+                      />
                     </div>
                   </div>
                 ))}
@@ -700,6 +739,48 @@ function readerQuestion(row: Row, conversation: Conversation | null): ParsedQues
     return null;
   }
   return { title: request.question, options: request.options.map((label) => ({ label, description: "" })) };
+}
+
+// RowOptions draws a waiting row's line under its text: the answer a landed answer left, or else the options its keys
+// answer as chips. Chips are labels, not buttons. A row that is not waiting draws neither.
+function RowOptions({ row, conversation, answer }: { row: Row; conversation: Conversation | null; answer?: Answer }) {
+  if (row.state !== stateWaiting) {
+    return null;
+  }
+  if (answer !== undefined && answer.question === row.question) {
+    return <div class="ans">{`You answered ${answer.choice} · ${answer.label}`}</div>;
+  }
+  const options = readerQuestion(row, conversation)?.options ?? [];
+  if (options.length === 0) {
+    return null;
+  }
+  return (
+    <div class="opts">
+      {options.map((option, index) => {
+        const keyed = index < keyedOptions;
+        return (
+          <span class="opt" key={index}>
+            {keyed && <kbd>{index + 1}</kbd>}
+            {keyed ? optionText(option.label, index + 1) : option.label}
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
+// keepsAnswer reports whether a landed answer stays on its row: the row is missing from the list, or it still waits on
+// the question the answer named.
+function keepsAnswer(rows: Row[], key: string, answer: Answer): boolean {
+  const row = rows.find((candidate) => candidate.key === key);
+  return row === undefined || (row.state === stateWaiting && row.question === answer.question);
+}
+
+// optionText is an option's label without the number of its own key cap, when the label starts with that number. A
+// label without it is named as it is.
+function optionText(label: string, choice: number): string {
+  const numbered = `${choice} `;
+  return label.startsWith(numbered) ? label.slice(numbered.length) : label;
 }
 
 // matchesFilter keeps a row whose label, project, host, state or summary holds every typed word.

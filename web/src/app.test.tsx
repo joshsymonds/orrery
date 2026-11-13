@@ -550,6 +550,23 @@ function newCount(container: HTMLElement): string | null {
   return container.querySelector(".brand .counts .st-new")?.textContent ?? null;
 }
 
+// chipTexts is the text of each option chip the row draws, in order. A row with no chips names none.
+function chipTexts(container: HTMLElement, key: string): string[] {
+  return [...rowElement(container, key).querySelectorAll(".opts > .opt")].map((chip) => chip.textContent ?? "");
+}
+
+// keyCaps is the key cap of each chip the row draws, in order, or null for a chip with none.
+function keyCaps(container: HTMLElement, key: string): (string | null)[] {
+  return [...rowElement(container, key).querySelectorAll(".opts > .opt")].map(
+    (chip) => chip.querySelector("kbd")?.textContent ?? null,
+  );
+}
+
+// answerLine is the green line a landed answer leaves on the row, or null when the row shows none.
+function answerLine(container: HTMLElement, key: string): string | null {
+  return rowElement(container, key).querySelector(".ans")?.textContent ?? null;
+}
+
 test("j and ArrowDown move the cursor one row down and clamp at the last row", () =>
   withApp({}, async (container) => {
     assert.equal(cursorKey(container), "a");
@@ -1647,6 +1664,179 @@ test("1 2 and 3 do nothing while the filter or a composer has focus", () =>
     await pressIn(composer(container), "2");
     await settle();
     assert.equal(fake.callsTo(sendKeysPath).length, 0, "a digit in the reply box answers nothing");
+  }));
+
+const fourOptionQuestion = JSON.stringify({
+  questions: [
+    {
+      question: "Which one?",
+      options: [
+        { label: "Alpha", description: "" },
+        { label: "Beta", description: "" },
+        { label: "Gamma", description: "" },
+        { label: "Delta", description: "" },
+      ],
+    },
+  ],
+});
+
+const fourOptionRow = row({
+  key: "f",
+  label: "api",
+  state: "waiting",
+  question: fourOptionQuestion,
+  questionHash: "qh-f",
+  changed: 300,
+  seen: 100,
+  unseen: true,
+});
+
+const permissionRow = row({
+  key: "p",
+  label: "shell",
+  state: "waiting",
+  question: JSON.stringify({ tool: "Bash", input: { command: "ls" } }),
+  questionHash: "qh-p",
+  changed: 300,
+  seen: 100,
+  unseen: true,
+});
+
+const waitingSession = row({
+  key: "s1",
+  id: "s1",
+  kind: "session",
+  label: "notes",
+  project: "",
+  host: "",
+  state: "waiting",
+  changed: 30,
+  seen: 30,
+});
+
+const workingSession = row({
+  key: "s1",
+  id: "s1",
+  kind: "session",
+  label: "notes",
+  project: "",
+  host: "",
+  state: "working",
+  changed: 40,
+  seen: 30,
+});
+
+// permissionStream is the session's stream holding a permission request with two options, allow and deny.
+const permissionStream = {
+  transcript: "t1",
+  seq: "1",
+  reset: true,
+  items: [{ kind: "assistant", text: "the streamed question" }],
+  state: { request: { id: "req-7", kind: "question", question: "Allow the command?", options: ["allow", "deny"] } },
+};
+
+// openPermissionRequest waits for the cursor's session stream, sends the permission request, and waits for its chips.
+async function openPermissionRequest(container: HTMLElement, fake: FakeServer): Promise<void> {
+  await until(() => fake.callsTo(sessionWatchPath).length === 1, "the session stream");
+  fake.emit(fake.callsTo(sessionWatchPath)[0], permissionStream);
+  await until(() => chipTexts(container, "s1").length === 2, "the chips");
+}
+
+test("a waiting pane row's options are numbered chips, the fourth unnumbered, and 2 sends keys [\"2\"]", () =>
+  withApp({ rows: [fourOptionRow] }, async (container, fake) => {
+    assert.deepEqual(chipTexts(container, "f"), ["1Alpha", "2Beta", "3Gamma", "Delta"]);
+    assert.deepEqual(keyCaps(container, "f"), ["1", "2", "3", null]);
+    const chipIsButton = rowElement(container, "f").querySelector(".opts button") !== null;
+    assert.equal(chipIsButton, false, "chips are labels, not buttons");
+    await press("2");
+    await until(() => fake.callsTo(sendKeysPath).length === 1, "the answer");
+    assert.deepEqual(fake.callsTo(sendKeysPath)[0].body, { pane: "f", keys: ["2"], expectQuestion: "qh-f" });
+  }));
+
+test("a pane permission question's chips read 1Yes, 2Yes, don't ask again, and 3No", () =>
+  withApp({ rows: [permissionRow] }, (container) => {
+    assert.deepEqual(chipTexts(container, "p"), ["1Yes", "2Yes, don't ask again", "3No"]);
+    assert.deepEqual(keyCaps(container, "p"), ["1", "2", "3"]);
+  }));
+
+test("a landed pane answer leaves one line naming its choice in place of the chips", () =>
+  withApp({ rows: [fourOptionRow] }, async (container) => {
+    await press("2");
+    await until(() => answerLine(container, "f") !== null, "the answer line");
+    assert.equal(answerLine(container, "f"), "You answered 2 · Beta");
+    assert.deepEqual(chipTexts(container, "f"), [], "the chips give way to the line");
+  }));
+
+test("a failed answer leaves no line, and the chips stay", () =>
+  withApp({ rows: [fourOptionRow] }, async (container, fake) => {
+    fake.failNext.add(sendKeysPath);
+    await press("2");
+    await until(() => alertTexts(container).includes(answerFailedText), "the fixed line");
+    await settle();
+    assert.equal(answerLine(container, "f"), null, "no line for an answer that did not land");
+    assert.equal(chipTexts(container, "f").length, 4, "the chips stay");
+  }));
+
+test("a waiting session row's held permission request is its chips, and 2 answers deny by its request id", () =>
+  withApp({ rows: [waitingSession] }, async (container, fake) => {
+    await openPermissionRequest(container, fake);
+    assert.deepEqual(chipTexts(container, "s1"), ["1allow", "2deny"]);
+    assert.deepEqual(keyCaps(container, "s1"), ["1", "2"]);
+    await press("2");
+    await until(() => fake.callsTo(answerPath).length === 1, "the answer");
+    assert.deepEqual(fake.callsTo(answerPath)[0].body, { id: "s1", requestId: "req-7", answer: "deny" });
+    await until(() => answerLine(container, "s1") !== null, "the answer line");
+    assert.equal(answerLine(container, "s1"), "You answered 2 · deny");
+    assert.deepEqual(chipTexts(container, "s1"), [], "no chips once answered");
+  }));
+
+test("a landed session answer's line goes when its row turns working", () =>
+  withApp({ rows: [waitingSession] }, async (container, fake) => {
+    await openPermissionRequest(container, fake);
+    await press("2");
+    await until(() => answerLine(container, "s1") !== null, "the answer line");
+    await mount(container, { rows: [workingSession], error: "", now, clients: fake.clients, seen: fake.seen });
+    assert.equal(answerLine(container, "s1"), null, "the line goes with the waiting");
+    assert.deepEqual(chipTexts(container, "s1"), [], "a working row shows no chips");
+  }));
+
+test("a landed answer's line goes when its row waits on another question, and the new question's chips show", () =>
+  withApp({ rows: [fourOptionRow] }, async (container, fake) => {
+    await press("2");
+    await until(() => answerLine(container, "f") !== null, "the answer line");
+    const nextQuestion = JSON.stringify({
+      questions: [{ question: "Next?", options: [{ label: "Yes", description: "" }] }],
+    });
+    await mount(container, {
+      rows: [row({ ...fourOptionRow, question: nextQuestion })],
+      error: "",
+      now,
+      clients: fake.clients,
+      seen: fake.seen,
+    });
+    assert.equal(answerLine(container, "f"), null, "the line does not follow the row to its next question");
+    assert.deepEqual(chipTexts(container, "f"), ["1Yes"]);
+  }));
+
+test("a waiting session row with no held request shows no chips", () =>
+  withApp({ rows: [waitingSession] }, async (container, fake) => {
+    await until(() => fake.callsTo(sessionWatchPath).length === 1, "the session stream");
+    await settle();
+    assert.deepEqual(chipTexts(container, "s1"), []);
+  }));
+
+test("a working session row shows no chips, though its held stream carries a request", () =>
+  withApp({ rows: [workingSession] }, async (container, fake) => {
+    await until(() => fake.callsTo(sessionWatchPath).length === 1, "the session stream");
+    fake.emit(fake.callsTo(sessionWatchPath)[0], permissionStream);
+    await until(() => readerText(container).includes("the streamed question"), "the streamed question");
+    assert.deepEqual(chipTexts(container, "s1"), []);
+  }));
+
+test("only the waiting row of the fixture draws chips", () =>
+  withApp({}, (container) => {
+    const drawsChips = ["a", "b", "c", "d"].map((key) => chipTexts(container, key).length > 0);
+    assert.deepEqual(drawsChips, [true, false, false, false]);
   }));
 
 // pinnedColumn is the second reader column that | pins beside the list, or null when no row is pinned. The column
