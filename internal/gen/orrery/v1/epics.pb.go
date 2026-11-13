@@ -424,8 +424,9 @@ type EpicStep struct {
 	Task string `protobuf:"bytes,2,opt,name=task,proto3" json:"task,omitempty"`
 	// The agent that runs the step.
 	Agent string `protobuf:"bytes,3,opt,name=agent,proto3" json:"agent,omitempty"`
-	// How the step ended, one of done, returned, goal_unmet, checks_failed, failed, stopped, engine_restarted, overtime,
-	// tool_stuck, silent, looping or wedged; empty while it runs.
+	// How the step ended, one of done, returned, goal_unmet, checks_failed, gate_failed, failed, stopped,
+	// engine_restarted, overtime, tool_stuck, silent, looping or wedged; empty while it runs. gate_failed is an agent
+	// gate step's checked return that did not pass: its assertions did not all hold, or its status was not done.
 	End string `protobuf:"bytes,4,opt,name=end,proto3" json:"end,omitempty"`
 	// The step's status.
 	Status string `protobuf:"bytes,5,opt,name=status,proto3" json:"status,omitempty"`

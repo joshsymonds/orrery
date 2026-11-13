@@ -233,8 +233,9 @@ public  final class EpicStep extends
   private java.lang.String end_;
   /**
    * <pre>
-   * How the step ended, one of done, returned, goal_unmet, checks_failed, failed, stopped, engine_restarted, overtime,
-   * tool_stuck, silent, looping or wedged; empty while it runs.
+   * How the step ended, one of done, returned, goal_unmet, checks_failed, gate_failed, failed, stopped,
+   * engine_restarted, overtime, tool_stuck, silent, looping or wedged; empty while it runs. gate_failed is an agent
+   * gate step's checked return that did not pass: its assertions did not all hold, or its status was not done.
    * </pre>
    *
    * <code>string end = 4 [json_name = "end"];</code>
@@ -246,8 +247,9 @@ public  final class EpicStep extends
   }
   /**
    * <pre>
-   * How the step ended, one of done, returned, goal_unmet, checks_failed, failed, stopped, engine_restarted, overtime,
-   * tool_stuck, silent, looping or wedged; empty while it runs.
+   * How the step ended, one of done, returned, goal_unmet, checks_failed, gate_failed, failed, stopped,
+   * engine_restarted, overtime, tool_stuck, silent, looping or wedged; empty while it runs. gate_failed is an agent
+   * gate step's checked return that did not pass: its assertions did not all hold, or its status was not done.
    * </pre>
    *
    * <code>string end = 4 [json_name = "end"];</code>
@@ -260,8 +262,9 @@ public  final class EpicStep extends
   }
   /**
    * <pre>
-   * How the step ended, one of done, returned, goal_unmet, checks_failed, failed, stopped, engine_restarted, overtime,
-   * tool_stuck, silent, looping or wedged; empty while it runs.
+   * How the step ended, one of done, returned, goal_unmet, checks_failed, gate_failed, failed, stopped,
+   * engine_restarted, overtime, tool_stuck, silent, looping or wedged; empty while it runs. gate_failed is an agent
+   * gate step's checked return that did not pass: its assertions did not all hold, or its status was not done.
    * </pre>
    *
    * <code>string end = 4 [json_name = "end"];</code>
@@ -275,8 +278,9 @@ public  final class EpicStep extends
   }
   /**
    * <pre>
-   * How the step ended, one of done, returned, goal_unmet, checks_failed, failed, stopped, engine_restarted, overtime,
-   * tool_stuck, silent, looping or wedged; empty while it runs.
+   * How the step ended, one of done, returned, goal_unmet, checks_failed, gate_failed, failed, stopped,
+   * engine_restarted, overtime, tool_stuck, silent, looping or wedged; empty while it runs. gate_failed is an agent
+   * gate step's checked return that did not pass: its assertions did not all hold, or its status was not done.
    * </pre>
    *
    * <code>string end = 4 [json_name = "end"];</code>
@@ -287,8 +291,9 @@ public  final class EpicStep extends
   }
   /**
    * <pre>
-   * How the step ended, one of done, returned, goal_unmet, checks_failed, failed, stopped, engine_restarted, overtime,
-   * tool_stuck, silent, looping or wedged; empty while it runs.
+   * How the step ended, one of done, returned, goal_unmet, checks_failed, gate_failed, failed, stopped,
+   * engine_restarted, overtime, tool_stuck, silent, looping or wedged; empty while it runs. gate_failed is an agent
+   * gate step's checked return that did not pass: its assertions did not all hold, or its status was not done.
    * </pre>
    *
    * <code>string end = 4 [json_name = "end"];</code>
@@ -1064,8 +1069,9 @@ public  final class EpicStep extends
 
     /**
      * <pre>
-     * How the step ended, one of done, returned, goal_unmet, checks_failed, failed, stopped, engine_restarted, overtime,
-     * tool_stuck, silent, looping or wedged; empty while it runs.
+     * How the step ended, one of done, returned, goal_unmet, checks_failed, gate_failed, failed, stopped,
+     * engine_restarted, overtime, tool_stuck, silent, looping or wedged; empty while it runs. gate_failed is an agent
+     * gate step's checked return that did not pass: its assertions did not all hold, or its status was not done.
      * </pre>
      *
      * <code>string end = 4 [json_name = "end"];</code>
@@ -1077,8 +1083,9 @@ public  final class EpicStep extends
     }
     /**
      * <pre>
-     * How the step ended, one of done, returned, goal_unmet, checks_failed, failed, stopped, engine_restarted, overtime,
-     * tool_stuck, silent, looping or wedged; empty while it runs.
+     * How the step ended, one of done, returned, goal_unmet, checks_failed, gate_failed, failed, stopped,
+     * engine_restarted, overtime, tool_stuck, silent, looping or wedged; empty while it runs. gate_failed is an agent
+     * gate step's checked return that did not pass: its assertions did not all hold, or its status was not done.
      * </pre>
      *
      * <code>string end = 4 [json_name = "end"];</code>
@@ -1091,8 +1098,9 @@ public  final class EpicStep extends
     }
     /**
      * <pre>
-     * How the step ended, one of done, returned, goal_unmet, checks_failed, failed, stopped, engine_restarted, overtime,
-     * tool_stuck, silent, looping or wedged; empty while it runs.
+     * How the step ended, one of done, returned, goal_unmet, checks_failed, gate_failed, failed, stopped,
+     * engine_restarted, overtime, tool_stuck, silent, looping or wedged; empty while it runs. gate_failed is an agent
+     * gate step's checked return that did not pass: its assertions did not all hold, or its status was not done.
      * </pre>
      *
      * <code>string end = 4 [json_name = "end"];</code>
@@ -1107,8 +1115,9 @@ public  final class EpicStep extends
     }
     /**
      * <pre>
-     * How the step ended, one of done, returned, goal_unmet, checks_failed, failed, stopped, engine_restarted, overtime,
-     * tool_stuck, silent, looping or wedged; empty while it runs.
+     * How the step ended, one of done, returned, goal_unmet, checks_failed, gate_failed, failed, stopped,
+     * engine_restarted, overtime, tool_stuck, silent, looping or wedged; empty while it runs. gate_failed is an agent
+     * gate step's checked return that did not pass: its assertions did not all hold, or its status was not done.
      * </pre>
      *
      * <code>string end = 4 [json_name = "end"];</code>
@@ -1121,8 +1130,9 @@ public  final class EpicStep extends
     }
     /**
      * <pre>
-     * How the step ended, one of done, returned, goal_unmet, checks_failed, failed, stopped, engine_restarted, overtime,
-     * tool_stuck, silent, looping or wedged; empty while it runs.
+     * How the step ended, one of done, returned, goal_unmet, checks_failed, gate_failed, failed, stopped,
+     * engine_restarted, overtime, tool_stuck, silent, looping or wedged; empty while it runs. gate_failed is an agent
+     * gate step's checked return that did not pass: its assertions did not all hold, or its status was not done.
      * </pre>
      *
      * <code>string end = 4 [json_name = "end"];</code>
