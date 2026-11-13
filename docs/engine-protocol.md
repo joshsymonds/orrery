@@ -143,11 +143,11 @@ The rules, as the code applies them, are these. Each has a file and line where i
 - Idle stop: `checkIdle` stops each session that has not been busy for `defaultIdleAfter`, 10 minutes, and is run every `idleCheckEvery`, 30 seconds (`manager.go:477`, `manager.go:51`, `manager.go:54`). The stop records nothing, because the pump does not record an exit of a session it stops for idleness (`manager.go:701`).
 - Stop: the stop signal is `SIGINT` to the process group, and `SIGKILL` after 2 seconds (`internal/engine/proc/proc.go:17`, `internal/engine/proc/proc.go:162`). `Stop` then records `stopped` unless the exit already recorded a state (`manager.go:207`, `manager.go:734`).
 - Failed on death: an exit with an error is recorded `failed`, with the errors and the last stderr line as the reason (`record.go:213`, `record.go:201`).
-- Shutdown: `Close` stops each live session, records each running turn `interrupted` with the reason `orreryd stopped during the turn`, and waits for the pumps (`manager.go:426`, `manager.go:750`). `sessionHost.shutdown` calls it (`cmd/orreryd/main.go:593`), and `sessionHost.stop` calls `shutdown` after the session socket has stopped (`cmd/orreryd/main.go:575`-`:577`), which `serve` calls at `cmd/orreryd/main.go:403`.
+- Shutdown: `Close` stops each live session, records each running turn `interrupted` with the reason `orreryd stopped during the turn`, and waits for the pumps (`manager.go:426`, `manager.go:750`). `sessionHost.shutdown` calls it (`cmd/orreryd/main.go:644`), and `sessionHost.stop` calls `shutdown` after the session socket has stopped (`cmd/orreryd/main.go:626`-`:628`), which `serve` calls at `cmd/orreryd/main.go:403`.
 - Reconcile at start: `Reconcile` clears the unfinished text of each row with no live process, and records each `working` or `waiting` row `interrupted` with the reason `orreryd restarted during the turn` (`internal/enginehost/reconcile.go:18`, `internal/enginehost/reconcile.go:39`). `orreryd` calls it before the session socket serves (`cmd/orreryd/main.go:502`, `cmd/orreryd/main.go:522`).
 - Notices: `notifies` allows `waiting`, `done`, `failed` and `interrupted` only (`internal/enginehost/notify.go:80`). A turn that was interrupted sends no notice at its end (`record.go:167`).
 - Retention: `SyncServer` reads the live engine session ids once per run, from the function that `orreryd` sets to the manager's `Live` (`internal/store/sync.go:113`, `cmd/orreryd/main.go:493`). It then runs `pruneRetention`, which deletes the engine rows with no event at or after the 14-day cutoff, and their unfinished text and `engine_prompt_failed` rows, except the live sessions (`internal/store/sync.go:144`, `internal/store/sync.go:159`). The tidy calls `SyncServer` only after its `list-panes` succeeds (`internal/daemon/mirror.go:224`). All three delete statements exclude the live ids, so a session that is not live and has no event for 14 days loses its row (`internal/store/queries.sql:40`, `internal/store/queries.sql:49`, `internal/store/queries.sql:58`).
-- Errors on the session socket: `commandError` maps each error to its Connect code (`internal/enginehost/service.go:176`).
+- Errors on the session socket: `commandError` maps each error to its Connect code (`internal/enginehost/service.go:232`).
 
 ## 12. What the real-settings probes showed
 
@@ -227,11 +227,11 @@ What the step engine does with a null return: the value is nil, and the schema c
 
 A return is taken only from a turn that ends with no background task live. The manager tracks the live background tasks of a session and hands the turn's end over only when none is live (`internal/enginehost/manager.go:1102`). The markers of a live task are in [What marks a live background task](#what-marks-a-live-background-task).
 
-## 14. Step tools
+## 14. Step and epic tools
 
-`orrery [--socket PATH] mcp` serves the step tools as an MCP server on stdin and stdout. It serves until stdin closes and exits 0. Arguments after `mcp` exit 2. The transport is stdio only, so the process opens no listener and holds no database. It is a client of the `orrery.engine.v1.Steps` service (`proto/orrery/engine/v1/step.proto:7`) on `sessions.sock`, the socket beside the daemon socket (`internal/protocol/protocol.go:156`, `:159`; `cmd/orreryd/main.go:515`). Each tool call makes one `Steps` RPC: `step_start` calls `StartStep`, `step_status` calls `StepStatus`, `step_stop` calls `StopStep` and `step_wait` calls `WaitSteps` (`internal/stepmcp/tools.go:53`-`:77`).
+`orrery [--socket PATH] mcp` serves the step tools and the epic tools as an MCP server on stdin and stdout. It serves until stdin closes and exits 0. Arguments after `mcp` exit 2. The transport is stdio only, so the process opens no listener and holds no database. It is a client of the `orrery.engine.v1.Steps` service (`proto/orrery/engine/v1/step.proto:7`) and of the `orrery.engine.v1.Epics` service (`proto/orrery/engine/v1/epic.proto:6`) on `sessions.sock`, the socket beside the daemon socket (`internal/protocol/protocol.go:156`, `:159`; `cmd/orreryd/main.go:566`). Each step tool call makes one `Steps` RPC: `step_start` calls `StartStep`, `step_status` calls `StepStatus`, `step_stop` calls `StopStep` and `step_wait` calls `WaitSteps` (`internal/stepmcp/tools.go:60`-`:88`). Each epic tool call makes one `Epics` RPC: `epic_create` calls `CreateEpic`, `epic_get` calls `GetEpic`, `epic_list` calls `ListEpics` and `epic_answer` calls `AnswerEpic` (`internal/stepmcp/epictools.go:34`-`:64`; `cmd/orrery/main.go:388`-`:391`).
 
-The package imports the connect client, the generated `Steps` stubs and the MCP server, and no database or listener package (`internal/stepmcp/tools.go:4`-`:19`). The step rows live in the daemon, so a result a caller lost in transit is still in its row (`step.proto:15`).
+The package imports the connect client, the generated `Steps` and `Epics` stubs, protobuf's JSON encoding and the MCP server, and no database or listener package (`internal/stepmcp/tools.go:4`-`:19`; `internal/stepmcp/epictools.go:3`-`:15`). The step rows live in the daemon, so a result a caller lost in transit is still in its row (`step.proto:15`).
 
 ### Protocol
 
@@ -245,55 +245,77 @@ The package imports the connect client, the generated `Steps` stubs and the MCP 
 
 ### Arguments and results
 
-Every tool result is one text block holding JSON. Every argument object refuses unknown keys, so a misspelt key is an error (`internal/stepmcp/tools.go:110`-`:117`).
+Every tool result is one text block holding JSON. Every argument object refuses unknown keys, so a misspelt key is an error (`internal/stepmcp/tools.go:115`-`:122`; `internal/stepmcp/epictools.go:66`-`:72`).
 
 #### step_start
 
-Arguments (`internal/stepmcp/tools.go:85`-`:98`). Required: `prompt` and `workspace` (`internal/stepmcp/tools.go:39`). Optional:
+Arguments (`internal/stepmcp/tools.go:90`-`:103`). Required: `prompt` and `workspace` (`internal/stepmcp/tools.go:39`). Optional:
 
 - `revision`: the commit the step starts at. Empty means HEAD (`step.proto:49`).
 - `doneValue`: the status the done return carries. Empty means `done` (`step.proto:64`).
 - `readOnly`: a read-only step runs in a detached worktree removed when it ends (`step.proto:52`).
 - `ownedPaths`: the repository-relative paths a writing step may change.
-- `gateName`: the name of the gate the step's return is checked against. It is resolved once, when the step starts, from `gatesFile` and then the project file. Empty runs no gate (`internal/stepmcp/tools.go:94`; `step.proto:77`; see [Gate files](contract.md#gate-files)).
-- `gatesFile`: the absolute path of the epic's gates file, read before the project file. Empty reads only the project file. It is refused when it is not absolute, and when it is set without `gateName` (`internal/stepmcp/tools.go:95`; `step.proto:80`; `internal/enginehost/step.go:389`-`:397`).
-- `epic`: the epic the step belongs to, passed as given. Empty leaves the step unlabelled, and an unlabelled step is never listed. The format `step.proto` names, `<repo-id>/<epic-slug>`, is not checked (`internal/stepmcp/tools.go:96`, `internal/stepmcp/tools.go:173`; `step.proto:71`).
-- `task`: the slug of the epic's task the step works on. Empty when it works on no one task (`internal/stepmcp/tools.go:97`, `internal/stepmcp/tools.go:174`; `step.proto:74`).
+- `gateName`: the name of the gate the step's return is checked against. It is resolved once, when the step starts, from `gatesFile` and then the project file. Empty runs no gate (`internal/stepmcp/tools.go:99`; `step.proto:77`; see [Gate files](contract.md#gate-files)).
+- `gatesFile`: the absolute path of the epic's gates file, read before the project file. Empty reads only the project file. It is refused when it is not absolute, and when it is set without `gateName` (`internal/stepmcp/tools.go:100`; `step.proto:80`; `internal/enginehost/step.go:389`-`:397`).
+- `epic`: the epic the step belongs to, passed as given. Empty leaves the step unlabelled, and an unlabelled step is never listed. The format `step.proto` names, `<repo-id>/<epic-slug>`, is not checked (`internal/stepmcp/tools.go:101`, `internal/stepmcp/tools.go:178`; `step.proto:71`).
+- `task`: the slug of the epic's task the step works on. Empty when it works on no one task (`internal/stepmcp/tools.go:102`, `internal/stepmcp/tools.go:179`; `step.proto:74`).
 
-`gate` and `gateLimitSeconds` are not arguments. A call that names either one is refused as an unknown key (`internal/stepmcp/tools.go:110`-`:117`). The gate's limit is the one its definition gives (see [Gate files](contract.md#gate-files)).
+`gate` and `gateLimitSeconds` are not arguments. A call that names either one is refused as an unknown key (`internal/stepmcp/tools.go:115`-`:122`). The gate's limit is the one its definition gives (see [Gate files](contract.md#gate-files)).
 
-`schema` is a JSON object argument, not a string; the server sends its JSON text to `StartStep` (`internal/stepmcp/tools.go:129`-`:138`). `prompt` and `workspace` must be non-empty (`internal/stepmcp/tools.go:152`-`:157`). `agent` and `schema` may be left out of the call. The service refuses an empty `agent` or `schema` unless the start names an agent gate (`internal/enginehost/stepsession.go:102`-`:103`, `internal/enginehost/step.go:248`). A start that names an agent gate by `gateName` must be `readOnly` and leave `agent`, `schema` and `doneValue` empty, since the gate supplies them (`internal/enginehost/step.go:433`-`:451`; see [Agent gates](contract.md#agent-gates)).
+`schema` is a JSON object argument, not a string; the server sends its JSON text to `StartStep` (`internal/stepmcp/tools.go:134`-`:143`). `prompt` and `workspace` must be non-empty (`internal/stepmcp/tools.go:157`-`:162`). `agent` and `schema` may be left out of the call. The service refuses an empty `agent` or `schema` unless the start names an agent gate (`internal/enginehost/stepsession.go:102`-`:103`, `internal/enginehost/step.go:248`). A start that names an agent gate by `gateName` must be `readOnly` and leave `agent`, `schema` and `doneValue` empty, since the gate supplies them (`internal/enginehost/step.go:433`-`:451`; see [Agent gates](contract.md#agent-gates)).
 
-Result: `{"id": "<step id>"}`, returned once the step's row exists (`internal/stepmcp/tools.go:179`; `step.proto:8`). A refused start returns the refusal and no id.
+Result: `{"id": "<step id>"}`, returned once the step's row exists (`internal/stepmcp/tools.go:184`; `step.proto:8`). A refused start returns the refusal and no id.
 
 #### step_status
 
-Arguments: `id`, required and non-empty (`internal/stepmcp/tools.go:41`-`:42`, `:189`-`:191`). Result: the step object described below (`internal/stepmcp/tools.go:196`).
+Arguments: `id`, required and non-empty (`internal/stepmcp/tools.go:41`-`:42`, `:194`-`:196`). Result: the step object described below (`internal/stepmcp/tools.go:201`).
 
 #### step_stop
 
-Arguments: `id`, required and non-empty. Result: `{"id": "<step id>", "stopped": true}` (`internal/stepmcp/tools.go:212`). The result says `stopped: true` whenever the daemon accepted the call, since `StopStepResponse` has no fields (`step.proto:95`-`:96`).
+Arguments: `id`, required and non-empty. Result: `{"id": "<step id>", "stopped": true}` (`internal/stepmcp/tools.go:217`). The result says `stopped: true` whenever the daemon accepted the call, since `StopStepResponse` has no fields (`step.proto:95`-`:96`).
 
 #### step_wait
 
 Arguments (`internal/stepmcp/tools.go:44`-`:47`):
 
-- `ids`: a non-empty array of step ids. An empty id is refused (`internal/stepmcp/tools.go:244`-`:249`).
-- `timeoutSeconds`: optional. It must be a whole number of seconds, 0 or more. A fractional or negative value is an error with the text `timeoutSeconds must be a whole number of seconds, 0 or more` (`internal/stepmcp/tools.go:217`-`:225`).
+- `ids`: a non-empty array of step ids. An empty id is refused (`internal/stepmcp/tools.go:249`-`:254`).
+- `timeoutSeconds`: optional. It must be a whole number of seconds, 0 or more. A fractional or negative value is an error with the text `timeoutSeconds must be a whole number of seconds, 0 or more` (`internal/stepmcp/tools.go:222`-`:230`).
 
-The wait is clamped to `MaxWait`, 25 minutes or 1500 seconds (`internal/stepmcp/tools.go:21`-`:23`). An omitted timeout is 1500 seconds. A timeout at or above 1500 is 1500 (`internal/stepmcp/tools.go:217`-`:228`). The clamp exists so that the call returns inside the time Claude Code allows a tool call, and the caller asks again (`internal/stepmcp/tools.go:21`-`:22`). A timeout of 0 returns at once (`step.proto:115`).
+The wait is clamped to `MaxWait`, 25 minutes or 1500 seconds (`internal/stepmcp/tools.go:21`-`:23`). An omitted timeout is 1500 seconds. A timeout at or above 1500 is 1500 (`internal/stepmcp/tools.go:222`-`:233`). The clamp exists so that the call returns inside the time Claude Code allows a tool call, and the caller asks again (`internal/stepmcp/tools.go:21`-`:22`). A timeout of 0 returns at once (`step.proto:115`).
 
-Result: `{"ended": <step or null>, "steps": [<step>, ...]}` (`internal/stepmcp/tools.go:261`-`:269`). `ended` is the first step to end and is `null` when the timeout passes first. `steps` lists every named step in the order the request named them (`step.proto:124`-`:125`). On a timeout the caller reads each step's state from `steps`.
+Result: `{"ended": <step or null>, "steps": [<step>, ...]}` (`internal/stepmcp/tools.go:266`-`:274`). `ended` is the first step to end and is `null` when the timeout passes first. `steps` lists every named step in the order the request named them (`step.proto:124`-`:125`). On a timeout the caller reads each step's state from `steps`.
 
 #### The step object
 
-Every tool that reports a step returns these fields (`internal/stepmcp/tools.go:298`-`:323`):
+Every tool that reports a step returns these fields (`internal/stepmcp/tools.go:303`-`:328`):
 
 - `id`, `agent`, `workspace`, `revision`, `readOnly`, `worktree`: as the `Step` message defines them (`step.proto:131`-`:146`). `worktree` is empty for a writing step.
 - `end`, `reason`: empty while the step runs (`step.proto:149`, `:161`).
 - `status`: the done value the return carried, or the status the step ended with. `result`: the latest result the return carried (`step.proto:151`-`:155`).
-- `checks`: each `{round, name, ok, detail}` from the rounds the return's checks ran in (`internal/stepmcp/tools.go:299`-`:307`; `step.proto:157`-`:158`).
+- `checks`: each `{round, name, ok, detail}` from the rounds the return's checks ran in (`internal/stepmcp/tools.go:304`-`:312`; `step.proto:157`-`:158`).
 - `started`, `ended`: unix seconds. `ended` is 0 while the step runs (`step.proto:163`-`:167`).
+
+#### epic_create
+
+Arguments (`internal/stepmcp/epictools.go:18`-`:25`). Required: `contract`, the accepted contract as an object in protobuf JSON names, such as `releaseSteps`, with the fields of `EpicContract` (`proto/orrery/engine/v1/epic.proto:21`-`:69`). Optional: `decisions`, an array of objects, each with a required `id` and `text`, which seed the epic's decisions in order. The arguments are decoded with protojson, which refuses a key that names no field (`internal/stepmcp/epictools.go:66`-`:72`, `:84`-`:89`).
+
+Result: the stored epic, a `StoredEpic` message in protobuf JSON (`proto/orrery/engine/v1/epic.proto:177`-`:192`). Unpopulated fields are emitted, so an empty section reads as `[]` (`internal/stepmcp/epictools.go:74`-`:96`). protojson writes each 64-bit integer as a JSON string, so `created`, `changed`, `seq` and `time` are strings (`go.mod:12`).
+
+Refusals: a refused call is a tool error. Its text is the Connect error's text, which is its code, a colon and its message, such as `invalid_argument: id: bad form, want <repo-id>-<7 hex>/<slug>` (`internal/stepmcp/epictools.go:90`-`:93`; `internal/stepmcp/tools.go:145`-`:149`; `go.mod:7`). The refusals and their messages are those of [Epics](contract.md#epics). A call whose arguments do not decode is a tool error whose text is `decode arguments:` and the protojson error (`internal/stepmcp/epictools.go:66`-`:72`, `:84`-`:89`; see [Protocol](#protocol)).
+
+#### epic_get
+
+Arguments: `id`, required (`internal/stepmcp/tools.go:41`-`:42`; `internal/stepmcp/epictools.go:45`-`:47`). Result: the stored epic, as `epic_create` returns it (`internal/stepmcp/epictools.go:98`-`:110`). Its refusals are those of `GetEpic`: `not_found` with `id: no epic <id>`, and the others of [Epics](contract.md#epics).
+
+#### epic_list
+
+Arguments: none. The schema is an object with no properties, and any key is refused (`internal/stepmcp/epictools.go:27`; `:66`-`:72`). Result: `{"epics": [...]}`, the `ListEpicsResponse` in protobuf JSON, with an `EpicSummary` for each stored epic. Each summary has `id`, `repository`, `title`, `phase`, `created` and `changed`, and no sections (`internal/stepmcp/epictools.go:112`-`:124`; `proto/orrery/engine/v1/epic.proto:194`-`:213`). With no epics, `epics` reads as `[]`. Its refusals are `unavailable` with `epic store unavailable` when orreryd has no store, and `internal` when the list fails (see [Epics](contract.md#epics)).
+
+#### epic_answer
+
+Arguments: `epicId`, `id` and `text`, all required (`internal/stepmcp/epictools.go:29`-`:31`). Result: the decision, an `EpicDecision` with `seq`, `id`, `text` and `time` (`internal/stepmcp/epictools.go:126`-`:138`; `proto/orrery/engine/v1/epic.proto:161`-`:174`). A decision id already recorded with the same text returns the stored decision, as the tool's description says (`internal/stepmcp/epictools.go:57`-`:59`).
+
+Its refusals are those of `AnswerEpic`, as [Epics](contract.md#epics) gives them: `invalid_argument` with `epic_id: empty`, `id: empty` or `text: empty`; `not_found` with `epic_id: no epic <id>`; and `already_exists` with `id: <id> was recorded with other text`.
 
 ### Caller facts
 

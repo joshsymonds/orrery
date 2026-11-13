@@ -396,7 +396,7 @@ Registrations are written to the push store that `orreryd` reads (see `### orrer
 
 `serve` also serves the `orrery.v1.Control` API of [Control API](#control-api), forwarding each call to orreryd's session socket. The daemon socket path comes from `--socket`, then `ORRERY_SOCKET`, then `$XDG_RUNTIME_DIR/orrery/orreryd.sock`, and the session socket is `sessions.sock` beside it. When no daemon socket path resolves, `serve` has no engine and answers `unavailable` to each Control call that reaches the forward; a `Start` the home rule refuses still answers `invalid_argument`. `serve` also reads `HOME`, the directory that `Control.Start` admits directories under.
 
-`serve` reads the gambit record root, `$HOME/.gambit`, read-only, for the epic calls of [Epics and Steps](#epics-and-steps). It opens the records for reading and never creates, writes, renames or chmods anything under the root. It reaches orreryd's `orrery.engine.v1.Steps` service on the same session socket, `sessions.sock`, for the step calls of [Epics and Steps](#epics-and-steps) and for the step refusal of [Control API](#control-api). When serve has no step client, the epic and step calls answer `unavailable` "step service unavailable" (see [Phone API errors](#phone-api-errors)), and the Control calls forward as before.
+`serve` reads the gambit record root, `$HOME/.gambit`, read-only, for the epic calls of [Epics and Steps](#epics-and-steps). It opens the records for reading and never creates, writes, renames or chmods anything under the root. It reaches orreryd's `orrery.engine.v1.Steps` and `orrery.engine.v1.Epics` services on the same session socket, `sessions.sock`, for the step and epic calls of [Epics and Steps](#epics-and-steps) and for the step refusal of [Control API](#control-api). When serve has no step client, the epic and step calls answer `unavailable` "step service unavailable" (see [Phone API errors](#phone-api-errors)), and the Control calls forward as before. When serve has no epic client, the epic calls read the records alone (`internal/server/epics.go:163`-`:198`; `cmd/orrery/main.go:444`-`:450`).
 
 `serve` also serves the `orrery.v1.Pools` service of [Phone API](#phone-api). It forwards `Status`, `Hold` and `Free` to orreryd's session socket under the same daemon socket rule as Control, and it has no `Acquire`.
 
@@ -427,7 +427,7 @@ orreryd [-L NAME | -S PATH] [--socket PATH] [--claude PATH] [--summary-model CON
 - `--summary-model CONTEXT=MODEL` maps a patchbay context (section 8) to a summary model. Repeat the flag for each context. A context with no mapping uses `claude-haiku-5-5`. The done judge (see [Notice routing](#notice-routing)) uses the same map.
 - Each applied hook frame sets `@orrery_context` on the frame's pane to that frame's context (section 2).
 - `--push-host HOST` names a push relay host that a Web Push subscription may use. Repeat the flag for each host. The default is `ntfy.sh`. A subscription whose endpoint is on another host is refused (section 12).
-- `--sessions` serves the engine session service, the step service (see [Steps](#steps)) and the Pools service (see [Pools](#pools)) on `sessions.sock` beside the daemon socket. The headless session manager runs behind it when the store opens. `sessions.sock` listens only after the store open has ended, so after the `store open` line when the store opens. Without `--sessions`, no session socket exists. With it, `--session-shell` must be an absolute path, or the command exits 2.
+- `--sessions` serves the engine session service, the step service (see [Steps](#steps)), the epic service (see [Epics](#epics)) and the Pools service (see [Pools](#pools)) on `sessions.sock` beside the daemon socket. The headless session manager runs behind it when the store opens. `sessions.sock` listens only after the store open has ended, so after the `store open` line when the store opens. Without `--sessions`, no session socket exists. With it, `--session-shell` must be an absolute path, or the command exits 2.
 - `--session-cap N` is the most live headless sessions at once. The default is 4. A value below 1 exits 2.
 - `--session-shell PATH` is the absolute login shell that starts each session. The default is `$SHELL`.
 - `--holder-scope PATH` is the absolute path of `systemd-run`, which runs each session's holder in its own user scope. The default is none, and the holder then starts plainly. A relative path exits 2 (`cmd/orreryd/main.go:231`-`:232`, `:189`). [Headless sessions](#headless-sessions) gives the start under the flag, and [Lifecycle rules](#lifecycle-rules) gives shutdown under it.
@@ -500,7 +500,7 @@ Apart from `sending`, a restored notice keeps its original time, so a seen write
 
 With `--sessions`, `orreryd` runs headless Claude Code sessions. Each session is one `claude` process in stream-json mode with `-p`, `--permission-mode bypassPermissions` and `--permission-prompt-tool stdio`. It starts through the login shell `--session-shell`, in the directory its row names, with `orreryd`'s environment. The environment drops `TMUX`, `TMUX_PANE`, `ORRERY_SUMMARIZER` and `ORRERY_SESSION`, and then gains `ORRERY_SESSION` set to the session id. A session id is 128 random bits in lowercase hex.
 
-Each session's process starts under its holder (see [Holder](#holder)). `orreryd` runs `orrery holder --session ID --state-dir DIR -- SHELL ARGS...` in the session's directory and environment (`internal/holder/launch.go:88`-`:94`). `SHELL` is `--session-shell`, `ARGS` is the argument vector that `session.Command` builds to exec `claude` (`internal/engine/session/command.go:18`-`:25`, `:74`-`:81`), and `DIR` is the directory that holds the store file, so the session's holder files are in `DIR/holders/ID` (`internal/holder/launch.go:119`-`:124`, `cmd/orreryd/main.go:516`-`:517`). The `orrery` it runs is the one beside `orreryd`, or the one on `PATH` when none is beside it (`internal/holder/launch.go:147`-`:160`).
+Each session's process starts under its holder (see [Holder](#holder)). `orreryd` runs `orrery holder --session ID --state-dir DIR -- SHELL ARGS...` in the session's directory and environment (`internal/holder/launch.go:88`-`:94`). `SHELL` is `--session-shell`, `ARGS` is the argument vector that `session.Command` builds to exec `claude` (`internal/engine/session/command.go:18`-`:25`, `:74`-`:81`), and `DIR` is the directory that holds the store file, so the session's holder files are in `DIR/holders/ID` (`internal/holder/launch.go:119`-`:124`, `cmd/orreryd/main.go:517`-`:518`). The `orrery` it runs is the one beside `orreryd`, or the one on `PATH` when none is beside it (`internal/holder/launch.go:147`-`:160`).
 
 With `--holder-scope PATH`, the program is `PATH`, run with `--user --scope --collect -p OOMPolicy=continue --unit orrery-hold-ID` ahead of the same `orrery holder` argument vector, so the holder runs in its own user scope. Without the flag, the program is `orrery` itself (`internal/holder/launch.go:123`-`:129`). `orreryd` waits up to 30 seconds (`LaunchTimeout`, `internal/holder/launch.go:17`-`:18`) for the holder to serve its socket, then attaches at offset 0 (`internal/holder/launch.go:102`-`:108`). A holder that ends first fails the start with its exit status and its stderr (`internal/holder/launch.go:183`-`:192`). So a `systemd-run` failure fails the start with its reason, and no plain holder starts in its place (`internal/holder/launch.go:46`-`:50`, `internal/engine/session/command.go:120`-`:128`).
 
@@ -525,7 +525,7 @@ Idle stop writes no state, so a session it stops keeps the state it had.
 
 #### Session control socket
 
-The session socket is `sessions.sock` in the same directory as the daemon socket. `orreryd` creates it only with `--sessions`, and its mode is `0600`. It serves the `orrery.engine.v1.Engine` service (`proto/orrery/engine/v1/engine.proto`), the `orrery.engine.v1.Steps` service (`proto/orrery/engine/v1/step.proto`, see [Steps](#steps)) and the `orrery.engine.v1.Pools` service (`proto/orrery/engine/v1/pool.proto`, see [Pools](#pools)) over Connect.
+The session socket is `sessions.sock` in the same directory as the daemon socket. `orreryd` creates it only with `--sessions`, and its mode is `0600`. It serves the `orrery.engine.v1.Engine` service (`proto/orrery/engine/v1/engine.proto`), the `orrery.engine.v1.Steps` service (`proto/orrery/engine/v1/step.proto`, see [Steps](#steps)), the `orrery.engine.v1.Epics` service (`proto/orrery/engine/v1/epic.proto`, see [Epics](#epics)) and the `orrery.engine.v1.Pools` service (`proto/orrery/engine/v1/pool.proto`, see [Pools](#pools)) over Connect.
 
 | Call | Request | Precondition |
 |---|---|---|
@@ -538,7 +538,7 @@ The session socket is `sessions.sock` in the same directory as the daemon socket
 
 A call that does not fit its precondition does not change the session. An `Answer` that fits neither the question's options nor `allow` or `deny` leaves the request open.
 
-`Say`, `Answer`, `Interrupt` and `Stop` refuse an `id` that names a step, before their own checks. The refusal is `failed_precondition` with the message `<id> is a step: drive it through the Steps service`. A step lookup that fails is `internal`. With no step store, the check is skipped (`internal/enginehost/service.go:104`-`:120`, `internal/enginehost/service.go:148`, `:168`, `:185`, `:201`). A step runs its own loop, so a raw session command on it would drive the step around that loop (`internal/enginehost/service.go:101`-`:103`, and see [Steps](#steps)).
+`Say`, `Answer`, `Interrupt` and `Stop` refuse an `id` that names a step, before their own checks. The refusal is `failed_precondition` with the message `<id> is a step: drive it through the Steps service`. A step lookup that fails is `internal`. With no step store, the check is skipped (`internal/enginehost/service.go:113`-`:129`, `internal/enginehost/service.go:157`, `:177`, `:194`, `:210`). A step runs its own loop, so a raw session command on it would drive the step around that loop (`internal/enginehost/service.go:110`-`:112`, and see [Steps](#steps)).
 
 Errors are Connect codes:
 
@@ -689,9 +689,66 @@ Errors are Connect codes:
 - **Restart.** At start, `orreryd` settles each step's engine row as it settles other engine rows: a row that was `working` or `waiting` is recorded `interrupted` with the reason `orreryd restarted during the turn`, and no notice is sent. Each open step row with no loop then ends `engine_restarted`, and its worktree is removed. Nothing resumes a step after a restart. `Continue`, which the loop sends, respawns a step that is not live from its rows: it resumes the row's claude session with the same agent and schema flags, and it takes a step slot first. A respawn runs the `agent` rule of `StartStep` before claude starts. An agent that no longer resolves ends the step `failed` before claude starts, with a reason that names the agent and each place checked, and no claude process starts.
 
 
+#### Epics
+
+`orreryd` serves the `orrery.engine.v1.Epics` service (`proto/orrery/engine/v1/epic.proto`) on the session socket beside `Steps`, when it runs with `--sessions` (`internal/enginehost/service.go:64`-`:69`; `cmd/orreryd/main.go:414`-`:416`). Its epics are stored in orreryd's store (see [Epics in the store](#epics-in-the-store)). With no store open, the service has no store behind it, and every call answers `unavailable` (`cmd/orreryd/main.go:505`-`:506`, `:546`; `internal/enginehost/epicservice.go:34`-`:40`). `serve` calls its `ListEpics` and `GetEpic` to merge the epics with the records, and no other epic call (see [Epics and Steps](#epics-and-steps); `internal/server/server.go:117`-`:128`).
+
+| Call | Request | Response | Effect |
+|---|---|---|---|
+| `CreateEpic` | `contract`, `decisions` | `epic` | checks the contract, stores it accepted with its seed decisions, and returns the stored epic |
+| `GetEpic` | `id` | `epic` | returns the stored epic with that id |
+| `ListEpics` | none | `epics` | returns a summary of each stored epic, ordered by `id` |
+| `AnswerEpic` | `epic_id`, `id`, `text` | `decision` | records the answer as a decision on the epic |
+
+The calls are declared in `proto/orrery/engine/v1/epic.proto:6`-`:18`, and implemented in `internal/enginehost/epicservice.go:42`-`:124`.
+
+**Contract.** `CreateEpic` checks the contract before it stores anything. The checks run in the order below, and the first one that fails is the refusal (`internal/enginehost/epiccheck.go:45`-`:57`; `internal/enginehost/epicservice.go:51`-`:53`). A refusal is `invalid_argument` with the message `<field>: <reason>`. The field is named by its proto name, and a row of a section by its zero-based index, as in `release_steps[0].undo: empty` (`internal/enginehost/epiccheck.go:36`-`:41`, `:225`-`:227`). The checks, in order:
+
+1. `contract: missing`, when the request has no contract (`epiccheck.go:46`-`:49`).
+2. `id: bad form, want <repo-id>-<7 hex>/<slug>`, when the id does not match `^[A-Za-z0-9][A-Za-z0-9._-]*-[0-9a-f]{7}/[a-z0-9]+(-[a-z0-9]+)*$`. `id: over 128 bytes`, when it matches and is longer than 128 bytes (`epiccheck.go:13`-`:14`, `:29`, `:61`-`:67`).
+3. `repository: not absolute`, when the path is not absolute. `repository: not inside a git work tree`, when `git rev-parse --is-inside-work-tree`, run in that directory, fails or does not print `true`. Any failure of the git call is this refusal (`epiccheck.go:80`-`:91`; `internal/enginehost/stepgit.go:31`-`:44`).
+4. `intent: empty`, when the intent is empty after trimming white space (`epiccheck.go:71`-`:73`, `:230`-`:232`).
+5. `care: not limited, serious or severe`, unless the care is `limited`, `serious` or `severe` (`epiccheck.go:74`-`:76`, `:235`-`:237`).
+6. For each failure in order: `failures[i].id: unknown id`, unless the id is `F` followed by a number with no leading zero, and `failures[i].id: duplicate` when an earlier failure has the id. Then `failures[i].rating: not limited, serious or severe`, unless the rating is one of the three levels (`epiccheck.go:30`, `:111`-`:121`, `:211`-`:222`).
+7. `requirements: none`, when the contract has no requirements. For each requirement in order: `requirements[i].id` is refused as `failures[i].id` is, with `R` in place of `F` (`epiccheck.go:31`, `:127`-`:134`, `:213`-`:222`). `requirements[i].evidence: empty`, when the evidence is empty after trimming. `requirements[i].kind: not check or review`, unless the kind is `check` or `review` (`epiccheck.go:137`-`:142`).
+8. For each premise in order: `premises[i].id` is refused as a failure's id is, with `P` in place of `F` (`epiccheck.go:32`, `:148`-`:157`).
+9. For each addition in order: `additions[i].location: unknown id`, when the location is an `F`, `R` or `P` id (`^[FPR][1-9][0-9]*$`) that names no failure, requirement or premise of the contract (`epiccheck.go:161`-`:179`).
+10. For each release step in order: `release_steps[i].undo: empty`, when it is empty after trimming (`epiccheck.go:182`-`:189`).
+11. For each seed decision in order: `decisions[i].id: empty`, or `decisions[i].id: duplicate` when an earlier decision has the id. Then `decisions[i].text: empty`, when the text is the empty string. The text is not trimmed (`epiccheck.go:193`-`:209`).
+
+A contract that passes is stored in one write, with its sections and seed decisions (`internal/store/epics.go:102`-`:125`). Its `phase` is `accepted`, and its `created` and `changed` are both the time of the call. The response is the stored epic read back (`internal/enginehost/epicservice.go:54`-`:65`, `:163`-`:165`). An `id` that is already stored answers `already_exists`, and nothing is stored (`epicservice.go:55`-`:58`; `internal/store/epics.go:110`-`:112`).
+
+**Phase and changed.** The create is the only writer of `phase`, and it sets `accepted`. The store has no query that updates the phase. `changed` is the time of the epic's last write: its creation, or its latest answer (`internal/store/queries.sql:244`-`:258`; `internal/store/epics.go:325`-`:329`).
+
+**GetEpic and ListEpics.** `GetEpic` answers an unknown id with `not_found` (`epicservice.go:75`-`:78`). `ListEpics` answers each stored epic as an `EpicSummary`: `id`, `repository`, `title`, `phase`, `created` and `changed`, with no sections. The list is ordered by `id` (`epicservice.go:85`-`:97`, `:243`-`:253`; `internal/store/queries.sql:254`-`:255`).
+
+**AnswerEpic.** Before the store is asked, `AnswerEpic` refuses an empty `epic_id`, `id` or `text`, with `invalid_argument`, naming the first one that is empty. The text is empty after trimming white space (`epicservice.go:126`-`:138`). The store then records the answer in one write (`internal/store/epics.go:292`-`:337`):
+
+- An `epic_id` that names no epic answers `not_found` (`epicservice.go:113`-`:114`; `internal/store/epics.go:295`-`:301`).
+- An `id` already recorded on the epic with other text answers `already_exists`. Text is compared exactly (`epicservice.go:115`-`:119`; `internal/store/epics.go:305`-`:308`).
+- An `id` already recorded with equal text returns the stored decision, and writes nothing (`internal/store/epics.go:305`-`:310`).
+- Otherwise the decision is appended with the next `seq`, counted from 1, dated at the call, and the epic's `changed` moves to that time (`internal/store/epics.go:315`-`:329`).
+
+No call updates or deletes a decision. The store has no query that does, and the table's triggers abort any update or delete (`internal/store/queries.sql:302`-`:312`; `internal/store/migrations/00013_epics.sql:91`-`:103`).
+
+**Refusals.** The Connect codes and messages:
+
+| Connect code | When | Message |
+|---|---|---|
+| `unavailable` | any call with no store open | `epic store unavailable` |
+| `invalid_argument` | `CreateEpic`, for each failed check above | `<field>: <reason>`, as the check gives it |
+| `already_exists` | `CreateEpic` with an `id` already stored | `id: <id> is already in the database` |
+| `invalid_argument` | `AnswerEpic` with an empty `epic_id`, `id` or `text` | `epic_id: empty`, `id: empty` or `text: empty` |
+| `not_found` | `GetEpic` with an unknown `id` | `id: no epic <id>` |
+| `not_found` | `AnswerEpic` with an unknown `epic_id` | `epic_id: no epic <id>` |
+| `already_exists` | `AnswerEpic` with an `id` recorded with other text | `id: <id> was recorded with other text` |
+| `internal` | a store failure | the store's error text |
+
+(`internal/enginehost/epicservice.go:15`-`:16`, `:35`-`:40`, `:51`-`:58`, `:75`-`:78`, `:113`-`:119`, `:145`-`:148`)
+
 #### Pools
 
-`orreryd` serves the `orrery.engine.v1.Pools` service on the session socket, beside `Engine` and `Steps`, with the same socket mode and Connect rules. It is not on `serve` itself, but `serve` forwards three of its calls as the phone's `orrery.v1.Pools` service (see [Phone API](#phone-api)). The service has four calls:
+`orreryd` serves the `orrery.engine.v1.Pools` service on the session socket, beside `Engine`, `Steps` and `Epics`, with the same socket mode and Connect rules. It is not on `serve` itself, but `serve` forwards three of its calls as the phone's `orrery.v1.Pools` service (see [Phone API](#phone-api)). The service has four calls:
 
 - `Acquire` asks for members. Its response stream sends the request's place in line, then its grant, and a `stop` event if a hold stops the grant.
 - `Status` reports the pools in use and the owner holds (see Status below).
@@ -1248,7 +1305,7 @@ holder      {"type":"out","data":"ZXhhbXBsZSBvdXRwdXQK"}
 
 ### Store
 
-`orreryd` keeps a SQLite store that mirrors each pane's tmux options, records each headless engine session (see [Engine sessions in the store](#engine-sessions-in-the-store)), keeps the live grants of the Pools service (see [Grants in the store](#grants-in-the-store)), keeps the pending pane and headless session notices (see [Pending notices in the store](#pending-notices-in-the-store)), keeps the kept push times (see [Pushed notices in the store](#pushed-notices-in-the-store)), and keeps the owner holds of the Pools service (see [Holds in the store](#holds-in-the-store)). Outside the store's tests, `orreryd`'s own writes read it, `orrery serve` reads it for the Connect API (section 12), and `orrery open` and the tree's `N` read it read-only for the known-directory lookup (see `open` under [orrery](#orrery)). A sync reads the pane's row to compare it with the new snapshot, and a tidy also reads the server's rows to find the panes that are gone. `serve` only reads the store, and never writes it.
+`orreryd` keeps a SQLite store that mirrors each pane's tmux options, records each headless engine session (see [Engine sessions in the store](#engine-sessions-in-the-store)), keeps the live grants of the Pools service (see [Grants in the store](#grants-in-the-store)), keeps the pending pane and headless session notices (see [Pending notices in the store](#pending-notices-in-the-store)), keeps the kept push times (see [Pushed notices in the store](#pushed-notices-in-the-store)), keeps the owner holds of the Pools service (see [Holds in the store](#holds-in-the-store)), and keeps the epics that the Epics service stores (see [Epics in the store](#epics-in-the-store)). Outside the store's tests, `orreryd`'s own writes read it, `orrery serve` reads it for the Connect API (section 12), and `orrery open` and the tree's `N` read it read-only for the known-directory lookup (see `open` under [orrery](#orrery)). A sync reads the pane's row to compare it with the new snapshot, and a tidy also reads the server's rows to find the panes that are gone. `serve` only reads the store, and never writes it.
 
 The store file is `$XDG_STATE_HOME/orrery/orrery.db` when `XDG_STATE_HOME` is set, else `$HOME/.local/state/orrery/orrery.db`. When neither variable is set, no path resolves.
 
@@ -1497,6 +1554,47 @@ At start, once the store opens and before the router restores its rows, `orreryd
 Until the store opens, `orreryd` holds the seen writes it receives in memory. When the store opens, it applies each held seen write to the kept pushes: a seen write clears each kept push at or before its time, once. A pane or session pushed before the store opened keeps only its new time: the row read back for it and any seen held for it are dropped.
 
 Each read and write of a row, a delete included, has a 200 ms limit. A call that fails or runs past it is logged by `orreryd`, and the push or clear is still sent.
+
+#### Epics in the store
+
+Migration `00013_epics.sql` creates the epic tables and the triggers on them. It creates tables and triggers only, and it alters and drops nothing that exists (`internal/store/migrations/00013_epics.sql:1`-`:103`). Its down step drops them (`internal/store/migrations/00013_epics.sql:105`-`:116`). Nine tables hold the epics: `epics`, with one row per epic; seven section tables, with one row per entry of an ordered section; and `epic_decisions`, with one row per decision. None of them declares a foreign key.
+
+The `epics` table has these columns:
+
+| Column | Type | Meaning |
+|---|---|---|
+| `id` | `TEXT`, primary key | the epic's id, `<repo-id>/<epic-slug>` (`internal/enginehost/epiccheck.go:29`) |
+| `repository` | `TEXT` | the absolute path of the git repository |
+| `title` | `TEXT` | the epic's name |
+| `approved` | `TEXT` | the sentence of the decision line that approved the contract |
+| `intent` | `TEXT` | what the owner asked for |
+| `care` | `TEXT` | the level of care: `limited`, `serious` or `severe` |
+| `approach` | `TEXT` | how the epic will be done |
+| `release_then` | `TEXT` | the Then line that closes the release |
+| `checks` | `TEXT` | the checks the machines run |
+| `phase` | `TEXT` | the phase, `accepted` from creation |
+| `created` | `INTEGER` | unix seconds of creation |
+| `changed` | `INTEGER` | unix seconds of the last write: the creation, then each answer |
+
+(`internal/store/migrations/00013_epics.sql:2`-`:15`)
+
+Each section table has an `epic` column and a `position` column, which counts from 1 in the contract's order. Its primary key is `(epic, position)`. The other columns are these:
+
+| Table | Columns | Migration lines |
+|---|---|---|
+| `epic_failures` | `id`, `text`, `rating`, `response` | `:17`-`:25` |
+| `epic_additions` | `location`, `what`, `why`, `cost` | `:27`-`:35` |
+| `epic_requirements` | `id`, `text`, `evidence`, `kind` | `:37`-`:45` |
+| `epic_premises` | `id`, `text`, `if_wrong` | `:47`-`:54` |
+| `epic_exclusions` | `text` | `:56`-`:61` |
+| `epic_alternatives` | `alternative`, `why_not`, `reconsider` | `:63`-`:70` |
+| `epic_release_steps` | `step`, `target`, `undo` | `:72`-`:79` |
+
+The `epic_decisions` table has `epic` (`TEXT`), `seq` (`INTEGER`), `client_id` (`TEXT`), `text` (`TEXT`) and `time` (`INTEGER`). Its primary key is `(epic, seq)`, and `(epic, client_id)` is unique (`internal/store/migrations/00013_epics.sql:81`-`:89`). `seq` counts from 1 in recording order. A create records its seed decisions as `seq` 1 to `n`, each dated at the epic's creation. `client_id` is the decision's id (`internal/store/epics.go:93`-`:94`, `:178`-`:184`).
+
+Two triggers guard `epic_decisions`. `epic_decisions_no_update` runs before any `UPDATE`, and `epic_decisions_no_delete` runs before any `DELETE`. Each aborts with `epic decisions are append-only` (`internal/store/migrations/00013_epics.sql:91`-`:103`).
+
+Each call that writes an epic runs in one `BEGIN IMMEDIATE` write transaction, and a failed one leaves no rows behind (`internal/store/sync.go:239`-`:247`). `CreateEpic` writes the head and every section in one transaction (`internal/store/epics.go:102`-`:125`). Times are stored at whole seconds (`internal/store/epics.go:22`-`:23`). The store checks no contract content. The checks of [Epics](#epics) run before a create reaches it (`internal/enginehost/epicservice.go:51`-`:53`).
 
 ### Claude Code hook settings
 
@@ -1994,7 +2092,7 @@ The guard covers the stream. The rules of [Guard](#guard) apply to `/orrery.v1.P
 
 #### Epics and Steps
 
-`orrery.v1.Epics` reads the gambit epics of the host, and `orrery.v1.Steps` makes the owner's calls on one labelled step. `serve` answers both, and each call is a Connect POST to its path in [Connect API](#connect-api), under the rules of [Guard](#guard). `serve` never starts a step: it never calls `StartStep` or `WaitSteps`.
+`orrery.v1.Epics` reads the gambit epics of the host and the epics orreryd's database holds, and `orrery.v1.Steps` makes the owner's calls on one labelled step. `serve` answers both, and each call is a Connect POST to its path in [Connect API](#connect-api), under the rules of [Guard](#guard). `serve` never starts a step: it never calls `StartStep` or `WaitSteps`.
 
 **Records.** `serve` reads the record root `$HOME/.gambit` read-only (see [orrery serve](#orrery-serve)). Each epic's head is `<root>/<repo-id>/<epic-slug>/state.json`. A non-directory entry, a directory without `state.json`, and a name starting with `.` are not epics. An effort's tasks are read from `<epic directory>/efforts/<n>/state.json`, where `<n>` is all decimal digits, under its `tasks` key. Any other entry under `efforts/` is skipped. The records are only read: `serve` never creates, writes, renames or chmods anything under the root.
 
@@ -2003,11 +2101,13 @@ The guard covers the stream. The rules of [Guard](#guard) apply to `/orrery.v1.P
 - `changed` is the head's modification time in unix seconds.
 - A file that does not parse, or whose `tasks` is not an array, is skipped and is not an error. Its name goes into `problem`: the head as `<repo-id>/<epic-slug>/state.json: does not parse`, and an effort's file as `efforts/<n>/state.json: does not parse`. `problem` joins the names with `; `, and it is empty when everything read. Only an unexpected read failure is an error.
 
-**Live.** An epic is live when its `outcome` is not exactly `released`, and either one of its labelled steps is running or its head was modified within the 24 hours before now. Every other epic is folded: `live` is false, and it is still listed.
+**Live.** A record epic that orreryd's database does not hold is live when its `outcome` is not exactly `released`, and either one of its labelled steps is running or its head was modified within the 24 hours before now. Every other such epic is folded: `live` is false, and it is still listed (`internal/server/records.go:73`-`:82`). An epic the database holds is live until its phase is `released`, as the next paragraph gives (`internal/server/epics.go:244`).
 
-`Epics.List` answers every epic under the record root, live or folded, sorted by `id`. Each epic carries `running_steps`, its labelled steps that have no end, held ones included, oldest first, and `ended_steps`, how many of its labelled steps have ended. It calls `ListSteps` once.
+**Orreryd's epics.** `serve` also reads the epics that orreryd's database holds, through orreryd's `ListEpics` and `GetEpic` (see [Epics](#epics)). With no epic client, `serve` reads the records alone. It calls no other epic method (`internal/server/server.go:117`-`:128`; `cmd/orrery/main.go:444`-`:450`). An epic the database holds has `source` `orreryd`, and an epic the records alone hold has `source` `record` (`internal/server/epics.go:228`, `:248`; `proto/orrery/v1/epics.proto:91`-`:92`). Its `repository` and `slug` are the parts of its `id` before and after the `/` (`internal/server/epics.go:237`-`:241`). An `id` that both the database and the records hold is one epic: its `outcome` is the database's phase, its `changed` is the database's, and its `problem` is the record's head problem and task problems. An epic the database holds with no record has an empty `problem` (`internal/server/epics.go:72`-`:91`, `:244`, `:252`-`:259`).
 
-`Epics.Get` answers one epic by an `id` that `Epics.List` gives. It returns the epic, its `tasks` in effort number order (file order within an effort), its `steps`, every labelled step of the epic, oldest first, and its `slices`, which the next paragraph describes. It calls `ListSteps` once, narrowed to the epic. An `id` that `Epics.List` does not give answers `not_found` "epic not found", and the id is never joined into a path.
+`Epics.List` answers every epic under the record root and every epic the database holds, live or folded, sorted by `id`. Each epic carries `running_steps`, its labelled steps that have no end, held ones included, oldest first, and `ended_steps`, how many of its labelled steps have ended. It calls `ListSteps` once, and `ListEpics` once when serve has an epic client. An orreryd `ListEpics` that answers `unimplemented`, as an older orreryd does, lists the records as before. Any other failure of it answers `unavailable` "epic store unavailable" (`internal/server/epics.go:50`-`:66`, `:163`-`:179`).
+
+`Epics.Get` answers one epic by an `id` that `Epics.List` gives. It returns the epic, its `tasks` in effort number order (file order within an effort), its `steps`, every labelled step of the epic, oldest first, and its `slices`, which the next paragraph describes. It calls `GetEpic` first when serve has an epic client, then `ListSteps` once, narrowed to the epic. An epic the database holds answers its `requirements` as well: the `id`, `text`, `evidence` and `kind` of each requirement of its contract, in contract order. Its `tasks` come from the record of the same id when one exists. A `GetEpic` that answers `not_found` or `unimplemented`, or a serve with no epic client, leaves the epic to the records, as before: the record answers with `source` `record` and no `requirements`, and an id with no record answers `not_found`. Any other failure answers `unavailable` "epic store unavailable" (`internal/server/epics.go:99`-`:146`, `:181`-`:198`, `:275`-`:287`; `proto/orrery/v1/epics.proto:56`-`:57`). An `id` that `Epics.List` does not give answers `not_found` "epic not found", and the id is never joined into a path.
 
 `slices` holds one slice per distinct `task` label among the epic's writing steps, in order of each label's first start. A writing step is a labelled step that is not `read_only` and has a non-empty `task`; read-only and untasked steps add no slice. A slice reads all its cells from its label's latest writing step (latest `started`), and from no record.
 
@@ -2063,6 +2163,7 @@ Errors are Connect codes. The message column gives the text of each error exactl
 | `not_found` | `Steps.Hold`, `Steps.Nudge` or `Steps.Stop` with a step that is absent or has no epic label | `step not found` |
 | `failed_precondition` | `Steps.Hold` or `Steps.Nudge` that orreryd refuses | the message orreryd gives |
 | `unavailable` | `Epics.List` or `Epics.Get` when `ListSteps` cannot be read; any `Steps` call, or any epic call, with no step client | `step service unavailable` |
+| `unavailable` | `Epics.List` when orreryd's `ListEpics` fails with a code other than `unimplemented`, or `Epics.Get` when its `GetEpic` fails with a code other than `not_found` or `unimplemented` | `epic store unavailable` |
 | `internal` | a tmux failure, a store failure, a transcript read failure, a host name failure, or a failed seen report | `internal server error` |
 | `invalid_argument` | `Pools.Hold` or `Pools.Free` with a member name outside `[A-Za-z0-9][A-Za-z0-9._-]*` | orreryd's message, passed through |
 | `not_found` | `Pools.Free` of a member that is not held | orreryd's message, passed through |
@@ -2149,5 +2250,7 @@ orrery W3a (epic chart) added, additively: the `slices` field of `EpicsGetRespon
 orrery sent-push-restart added, additively: the `pushed_notices` table, its migration `00012_pushed_notices.sql` and its columns (see [Pushed notices in the store](#pushed-notices-in-the-store)); the read of the kept push times at start (see [orreryd](#orreryd)). No existing name or value changes.
 
 orrery agent gates (effort 1) added, additively: the `agent`, `must` and `must_not` keys of a `[gates.NAME]` table, with the agent gate's shape, refusals and assertion order (see [Agent gates](#agent-gates)); the verdict schema, `internal/gates/verdict.json`, and the first prompt of an agent gate (see [Agent gates](#agent-gates)); a read-only start naming an agent gate, which takes the gate's agent, verdict schema and done value `done` (see [Steps](#steps)); and the refusal of an agent gate by `orrery gate`, with exit 75 (see [orrery](#orrery)). The `required` list of `step_start`'s MCP schema drops `agent` and `schema`. The service still refuses an empty one unless the start names an agent gate (see [step_start](engine-protocol.md#step_start)). No existing name changes. That `required` list is the only existing value that changes, and an argv gate's keys, shape and refusals are unchanged.
+
+orrery O3a (epic store) added, additively: the `orrery.engine.v1.Epics` service on `sessions.sock`, its four calls and their Connect codes (see [Epics](#epics)); the `epics`, `epic_failures`, `epic_additions`, `epic_requirements`, `epic_premises`, `epic_exclusions`, `epic_alternatives`, `epic_release_steps` and `epic_decisions` tables and the two triggers on `epic_decisions`, from migration `00013_epics.sql` (see [Epics in the store](#epics-in-the-store)); serve's `ListEpics` and `GetEpic` calls of that service, and its merge of the epics it holds with the records (see [Epics and Steps](#epics-and-steps)); the `epic_create`, `epic_get`, `epic_list` and `epic_answer` tools of `orrery mcp` (see [Step and epic tools](engine-protocol.md#14-step-and-epic-tools)); and the phone's `Epic.source` field (field 10), the `EpicsGetResponse.requirements` field (field 5) and the `EpicRequirement` message of `orrery.v1.Epics` (see [Epics and Steps](#epics-and-steps)). No existing name or value changes.
 
 orrery step prompt sender and round added, additively: the `sender` and `round` keys of the `engine_prompt` payload (see [Engine sessions in the store](#engine-sessions-in-the-store)); the `sender` and `round` fields of `EnginePrompt` and of the conversation item (see [Connect API](#connect-api) and [Headless session stream](#headless-session-stream)); and the copy of both onto the `prompt` item of a headless session's stream. No existing name or value changes. An older build cannot decode a step prompt stored with them (accepted, DL35).
