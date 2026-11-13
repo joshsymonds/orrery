@@ -1,9 +1,11 @@
 package io.github.joshsymonds.orrery.ui
 
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.click
 import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasScrollAction
 import androidx.compose.ui.test.hasTestTag
@@ -15,6 +17,8 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.unit.dp
 import com.connectrpc.Code
 import io.github.joshsymonds.orrery.api.FakeOrreryServer
 import io.github.joshsymonds.orrery.api.OrreryClient
@@ -27,12 +31,17 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.EpicTask
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsGetResponse
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import java.util.concurrent.atomic.AtomicReference
+import kotlin.math.PI
+import kotlin.math.cos
+import kotlin.math.min
+import kotlin.math.sin
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35], qualifiers = "w400dp-h1200dp")
@@ -145,6 +154,29 @@ class EpicScreenTest {
             .config
             .getOrNull(SemanticsProperties.StateDescription)
 
+    // The point [radius] units from the chart's centre at [degrees] clockwise from 12 o'clock, in the chart's own pixels:
+    // the coordinates a touch on the chart is sent in. The chart is a 412-unit box that fills the smaller side.
+    private fun chartPoint(radius: Float, degrees: Float): Offset {
+        val size = composeRule.onNodeWithTag("epic-chart", useUnmergedTree = true).fetchSemanticsNode().size
+        val unit = min(size.width, size.height) / 412f
+        val angle = degrees * PI.toFloat() / 180f
+        return Offset(size.width / 2f + radius * unit * sin(angle), size.height / 2f - radius * unit * cos(angle))
+    }
+
+    // The angle at the middle of slice [index] of [count]: a 8-degree start gap, then 344 degrees shared out equally.
+    private fun sliceMiddle(index: Int, count: Int): Float = 8f + (index + 0.5f) * 344f / count
+
+    private fun tapChart(position: Offset) {
+        composeRule.onNodeWithTag("epic-chart", useUnmergedTree = true).performTouchInput { click(position) }
+    }
+
+    // The row's top edge lies at or below the chart's bottom edge, in root pixels.
+    private fun assertRowBelowChart(row: String) {
+        val chart = composeRule.onNodeWithTag("epic-chart").fetchSemanticsNode().boundsInRoot
+        val top = composeRule.onNodeWithText(row).fetchSemanticsNode().boundsInRoot.top
+        assertTrue(top >= chart.bottom)
+    }
+
     @Test
     fun taskRowShowsSlugSubjectAndRawStatus() {
         val rows = listOf(
@@ -166,9 +198,12 @@ class EpicScreenTest {
                 ),
             )
             setScreen(server)
-            awaitText("Example subject")
+            awaitText("Subject A")
 
-            for ((slug, subject, status) in rows) {
+            // The chart takes its share of the screen, so the list scrolls to each row before it is checked.
+            for ((index, row) in rows.withIndex()) {
+                val (slug, subject, status) = row
+                scrollToRow(index)
                 assertEquals(1, countNodes(hasText(slug)))
                 assertEquals(1, countNodes(hasText(subject)))
                 assertEquals(1, countNodes(hasText(status)))
@@ -340,6 +375,30 @@ class EpicScreenTest {
     }
 
     @Test
+    @Config(qualifiers = "w411dp-h891dp")
+    fun aChartTapSelectsItsSliceAndClearsTheMarkedRow() {
+        FakeOrreryServer().use { server ->
+            server.respond(EPICS_GET, selectionBody())
+            setScreen(server)
+            awaitText("Subject orphan")
+
+            scrollToRow(35)
+            clickTag("task-row:35")
+            assertEquals(1, countNodes(isSelected()))
+
+            // The slices run in reverse, so slice 17 is example-task-18.
+            tapChart(chartPoint(150f, sliceMiddle(17, 35)))
+
+            assertEquals(0, countNodes(isSelected()))
+            assertEquals("example-task-18", chartStateDescription())
+
+            tapChart(chartPoint(0f, 0f))
+
+            assertNull(chartStateDescription())
+        }
+    }
+
+    @Test
     fun unknownEpicShowsEpicNotFound() {
         FakeOrreryServer().use { server ->
             setScreen(server)
@@ -378,11 +437,13 @@ class EpicScreenTest {
 
             composeRule.onNodeWithTag("epic-chart").assertIsDisplayed()
             composeRule.onNodeWithText("Subject 1").assertIsDisplayed()
+            assertRowBelowChart("Subject 1")
 
             composeRule.onNode(hasScrollAction()).performScrollToNode(hasText("Subject $count"))
 
             composeRule.onNodeWithText("Subject $count").assertIsDisplayed()
             composeRule.onNodeWithTag("epic-chart").assertIsDisplayed()
+            assertRowBelowChart("Subject $count")
         }
     }
 
@@ -396,6 +457,49 @@ class EpicScreenTest {
     @Config(qualifiers = "w411dp-h891dp")
     fun chartStaysAboveTheListWhileItScrollsInPortraitWith150Tasks() {
         assertChartStaysOnScreenWhileTheListScrolls(150)
+    }
+
+    @Test
+    @Config(qualifiers = "w411dp-h891dp")
+    fun chartDrawingIsAtMost420WideAndFillsTheWidthLessItsPaddingInPortrait() {
+        val tasks = numberedTasks(35)
+        FakeOrreryServer().use { server ->
+            server.respond(
+                EPICS_GET,
+                body(tasks = tasks, slices = tasks.map { slice(it.slug) }),
+            )
+            setScreen(server)
+            awaitText("Subject 1")
+
+            val size = composeRule.onNodeWithTag("epic-chart").fetchSemanticsNode().size
+            val drawing = min(size.width, size.height).toFloat()
+            with(composeRule.density) {
+                assertTrue(drawing <= 420.dp.toPx())
+                assertEquals((411.dp - 28.dp).toPx(), drawing, 0.5f)
+            }
+        }
+    }
+
+    @Test
+    @Config(qualifiers = "w411dp-h560dp")
+    fun aShortPortraitWindowShrinksTheChartSoATaskRowStaysVisible() {
+        val tasks = numberedTasks(35)
+        FakeOrreryServer().use { server ->
+            server.respond(
+                EPICS_GET,
+                body(tasks = tasks, slices = tasks.map { slice(it.slug) }),
+            )
+            setScreen(server)
+            awaitText("Subject 1")
+
+            val size = composeRule.onNodeWithTag("epic-chart").fetchSemanticsNode().size
+            val drawing = min(size.width, size.height).toFloat()
+            with(composeRule.density) {
+                assertTrue(drawing < (411.dp - 28.dp).toPx())
+            }
+            composeRule.onNodeWithText("Subject 1").assertIsDisplayed()
+            assertRowBelowChart("Subject 1")
+        }
     }
 
     @Test

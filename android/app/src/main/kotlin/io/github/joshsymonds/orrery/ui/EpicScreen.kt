@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -98,8 +97,13 @@ fun EpicScreen(
     }
 }
 
-// The chart's height above the list in portrait. It bounds the chart so the task rows under it stay on screen.
-private val CHART_HEIGHT = 240.dp
+// In portrait the chart is a square drawing at most CHART_MAX_WIDTH wide, CHART_SIDE_PADDING in from each side, with its
+// two key lines under it, which take CHART_KEYS_HEIGHT. The chart gives up height before the list drops below
+// LIST_MIN_HEIGHT, so task rows stay on screen.
+private val CHART_SIDE_PADDING = 14.dp
+private val CHART_MAX_WIDTH = 420.dp
+private val CHART_KEYS_HEIGHT = 72.dp
+private val LIST_MIN_HEIGHT = 240.dp
 
 // The chart stays outside the list, so it stays on screen while the list scrolls: above the list in portrait, beside it
 // in landscape.
@@ -140,13 +144,18 @@ private fun EpicBody(detail: EpicDetail, onOpenStep: (StepRow) -> Unit) {
                 EpicList(detail, onOpenStep, selectedRow, onTapTask, modifier = Modifier.weight(1f).fillMaxHeight())
             }
         } else {
-            Column(modifier = Modifier.fillMaxSize()) {
+            val side = minOf(
+                maxWidth - CHART_SIDE_PADDING * 2,
+                CHART_MAX_WIDTH,
+                maxHeight - LIST_MIN_HEIGHT - CHART_KEYS_HEIGHT,
+            ).coerceAtLeast(0.dp)
+            Column(modifier = Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
                 EpicChart(
                     detail.slices,
                     taskCount = detail.tasks.size,
                     selected = selectedSlice,
                     onSelect = onSelectSlice,
-                    modifier = Modifier.fillMaxWidth().height(CHART_HEIGHT),
+                    modifier = Modifier.size(side, side + CHART_KEYS_HEIGHT),
                 )
                 EpicList(detail, onOpenStep, selectedRow, onTapTask, modifier = Modifier.fillMaxWidth().weight(1f))
             }
