@@ -300,3 +300,32 @@ func TestJudgeLoopNilHaikuStoresNoVerdictAndEndsDone(t *testing.T) {
 		t.Errorf("stored %d verdicts with no judge, want 0: %+v", len(row.Verdicts), row.Verdicts)
 	}
 }
+
+func TestJudgeLoopFallback(t *testing.T) {
+	dir, start := stepDoneRepo(t)
+	stepGitTestCommit(t, dir, map[string]string{stepDoneOwned: "owned\n"})
+	haiku := &judgeLoopHaiku{replies: []judgeLoopReply{judgeLoopVerdict("met", "complete")}}
+	f := newJudgeLoopFixture(t, haiku, stepDoneWriting(dir, start, nil, time.Minute, &fakeGatePools{}))
+	_, done := f.start(t)
+
+	f.run.Return(session.TurnEnded{StructuredOutput: json.RawMessage(`{"status":"DONE"}`)})
+	waitRunEnd(t, done)
+
+	inputs := haiku.callInputs()
+	if len(inputs) != 1 {
+		t.Fatalf("judge called %d times, want 1", len(inputs))
+	}
+	const header = "## Diff stat\n"
+	at := strings.Index(inputs[0], header)
+	if at < 0 || !strings.Contains(inputs[0][at+len(header):], stepDoneOwned) {
+		t.Errorf("judge input diff stat does not name %q:\n%s", stepDoneOwned, inputs[0])
+	}
+	row := f.row(t)
+	if row.End != stepLoopEndDone || row.Status != stepLoopDone {
+		t.Fatalf("end = %q status %q, want done DONE", row.End, row.Status)
+	}
+	if len(row.Verdicts) != 1 {
+		t.Fatalf("stored %d verdicts, want 1: %+v", len(row.Verdicts), row.Verdicts)
+	}
+	judgeLoopCheckVerdict(t, row.Verdicts[0], 1, "met", "complete", "end")
+}
