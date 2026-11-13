@@ -138,7 +138,7 @@ type liveSession struct {
 	returned     bool
 	idleSince    time.Time
 	idleStopped  bool
-	// order is held by the pump while it queues an event's ops, and by Answer from its send until it has queued the
+	// order is held by the pump while it queues a line's ops, and by Answer from its send until it has queued the
 	// working state, so every op an answer causes is queued after that state.
 	order sync.Mutex
 }
@@ -1108,13 +1108,28 @@ func (m *Manager) pump(ctx context.Context, live *liveSession, rec *recorder) {
 	live.cancel()
 }
 
-// recordLine records the events of one line of the running session, in order, as pump records each one. It
-// returns the reply text of the main conversation so far.
+// recordedEvent is an event of a line the pump has recorded, with what its owner notice and observer call need: the
+// reply as of that event, and the interrupted and handed results of noteEvent for it.
+type recordedEvent struct {
+	event       session.Event
+	reply       string
+	interrupted bool
+	handed      bool
+}
+
+// recordLine records one line of the running session in one write: the ops of all its events, then the line's consumed
+// offset, so a crash stores the line wholly or not at all. A line that holds a turn's end waits until the store has
+// it, and the session's replay-from is then set to the line's end. Once the write succeeds, the owner of each recorded
+// event is told, in order, each with the reply as of that event. A failed write is logged and tells no owner. The
+// observer is given every recorded event either way, as before. It returns the reply text of the main conversation so
+// far.
 func (m *Manager) recordLine(
 	ctx context.Context, live *liveSession, rec *recorder, line session.Line, reply string,
 ) string {
+	var ops []store.EngineOp
+	var recorded []recordedEvent
 	for _, event := range line.Events {
-		if request, ok := event.(session.Request); ok && live.step && !request.Refused {
+		if request, ok := event.(session.Request); ok && live.step && !request.Refused && !request.Answered {
 			m.answerStepRequest(ctx, live, request)
 			continue
 		}
@@ -1122,25 +1137,48 @@ func (m *Manager) recordLine(
 		if !record {
 			continue
 		}
+		ops = append(ops, rec.ops(event)...)
 		if text, ok := mainText(event); ok {
 			reply = text
 		}
-		if ops := rec.ops(event); len(ops) > 0 {
-			live.order.Lock()
-			err := m.writer.Put(ctx, live.id, ops...)
-			live.order.Unlock()
-			if err != nil {
-				m.logger.WarnContext(ctx, "record session event", "session", live.id, "err", err)
-			} else {
-				m.tellOwner(ctx, live, event, reply, interrupted)
-			}
-		}
+		recorded = append(recorded, recordedEvent{event: event, reply: reply, interrupted: interrupted, handed: handed})
 		if _, ended := event.(session.TurnEnded); ended {
 			reply = ""
 		}
-		observe(live, event, handed)
+	}
+	ended := false
+	if !holdsExit(line) {
+		var consumed store.EngineConsumed
+		consumed, ended = consumedOf(live.id, line)
+		ops = append(ops, consumed)
+	}
+	written := true
+	if err := m.writeLine(ctx, live, ops, ended); err != nil {
+		m.logger.WarnContext(ctx, "record session event", "session", live.id, "err", err)
+		written = false
+	}
+	if written && ended {
+		live.sess.SetReplayFrom(line.End)
+	}
+	for _, r := range recorded {
+		if written {
+			m.tellOwner(ctx, live, r.event, r.reply, r.interrupted)
+		}
+		observe(live, r.event, r.handed)
 	}
 	return reply
+}
+
+// writeLine queues the ops of one line of the session of live in one write. A line that holds a turn's end, ended,
+// waits until the store has the ops. order is held across the write, so every op an answer causes is queued after the
+// line's.
+func (m *Manager) writeLine(ctx context.Context, live *liveSession, ops []store.EngineOp, ended bool) error {
+	live.order.Lock()
+	defer live.order.Unlock()
+	if ended {
+		return m.writer.Commit(ctx, live.id, ops...)
+	}
+	return m.writer.Put(ctx, live.id, ops...)
 }
 
 // answerStepRequest denies request, a request of the step live that the session did not refuse, with stepDenyMessage, so
@@ -1207,7 +1245,7 @@ func (m *Manager) noteEvent(live *liveSession, event session.Event) (record, int
 	case session.Started:
 		live.turning = true
 	case session.Request:
-		if !ev.Refused {
+		if !ev.Refused && !ev.Answered {
 			live.requests[ev.RequestID] = struct{}{}
 		}
 	case session.RequestCancelled:
