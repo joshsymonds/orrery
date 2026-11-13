@@ -295,9 +295,9 @@ test("the wireframe's --rule token is defined", () => {
   assert.match(declarationsFor(css, ":root"), /--rule:\s*#2a2b3c;/);
 });
 
-test("the 1200px and 68ch caps are gone and reply text fills the reader", () => {
-  assert.doesNotMatch(css, /max-width:\s*1200px|68ch/);
-  assert.match(declarationsFor(css, ".reader .t"), /minmax\(0,\s*1fr\)/);
+test("the 1200px cap is gone and the reader's text column stops at 68ch", () => {
+  assert.doesNotMatch(css, /max-width:\s*1200px/);
+  assert.match(declarationsFor(css, ".reader .t"), /grid-template-columns:\s*5ch minmax\(0,\s*68ch\);/);
   assert.match(declarationsFor(css, ".compose .queued"), /minmax\(0,\s*1fr\)/);
 });
 
@@ -319,4 +319,106 @@ test("plain texts keep their line breaks", () => {
   for (const selector of selectors) {
     assert.match(declarationsFor(css, selector), /white-space:\s*pre-(wrap|line)/, selector);
   }
+});
+
+test("a row's glyph is a 14px disc with a centred 9px mono mark", () => {
+  const glyph = declarationsFor(css, ".b-row .g");
+  assert.match(glyph, /(?<![-\w])width:\s*14px;/);
+  assert.match(glyph, /(?<![-\w])height:\s*14px;/);
+  assert.match(glyph, /font:\s*700 9px\/14px var\(--mono\);/);
+  assert.match(glyph, /text-align:\s*center;/);
+});
+
+test("the waiting, done and interrupted row marks are peach, green and maroon, each with its glyph", () => {
+  const waiting = declarationsFor(css, ".b-row .g-waiting");
+  assert.match(waiting, /background:\s*var\(--peach\);/);
+  assert.match(waiting, /color:\s*var\(--crust\);/);
+  assert.match(declarationsFor(css, ".b-row .g-waiting::after"), /content:\s*"\?";/);
+  const done = declarationsFor(css, ".b-row .g-done");
+  assert.match(done, /box-shadow:\s*inset 0 0 0 1\.5px var\(--green\);/);
+  assert.match(done, /color:\s*var\(--green\);/);
+  assert.match(declarationsFor(css, ".b-row .g-done::after"), /content:\s*"✓";/);
+  assert.match(declarationsFor(css, ".b-row .g-done::after"), /font-size:\s*8px;/);
+  const interrupted = declarationsFor(css, ".b-row .g-interrupted");
+  assert.match(interrupted, /box-shadow:\s*inset 0 0 0 1\.5px var\(--maroon\);/);
+  assert.match(interrupted, /color:\s*var\(--maroon\);/);
+  assert.match(declarationsFor(css, ".b-row .g-interrupted::after"), /content:\s*"!";/);
+});
+
+test("a row's working glyph turns, and reduced motion holds it still", () => {
+  assert.match(declarationsFor(css, ".b-row .g-working"), /animation:\s*rot 1\.1s linear infinite;/);
+  const reduced = mediaBlock(css, "@media (prefers-reduced-motion: reduce) {");
+  assert.match(declarationsFor(reduced, ".b-row .g-working"), /animation:\s*none;/);
+});
+
+test("a row's waiting tag is 9.5px bold peach mono with .1em tracking", () => {
+  const tag = declarationsFor(css, ".b-row .ty");
+  assert.match(tag, /(?<![-\w])font:\s*700 9\.5px\/20px var\(--mono\);/);
+  assert.match(tag, /letter-spacing:\s*\.1em;/);
+  assert.match(tag, /color:\s*var\(--peach\);/);
+});
+
+test("a row's second line is 12.5px over 19px and clamps to two lines, and .one clamps to one", () => {
+  const l2 = declarationsFor(css, ".b-row .l2");
+  assert.match(l2, /font:\s*12\.5px\/19px var\(--mono\);/);
+  assert.match(l2, /-webkit-line-clamp:\s*2;/);
+  assert.match(declarationsFor(css, ".b-row .l2.one"), /-webkit-line-clamp:\s*1;/);
+});
+
+test("a section head is a baseline flex line whose title is cut with an ellipsis and whose count is plain overlay0", () => {
+  const head = declarationsFor(css, ".b-sec");
+  assert.match(head, /display:\s*flex;/);
+  assert.match(head, /align-items:\s*baseline;/);
+  assert.match(head, /gap:\s*8px;/);
+  const title = declarationsFor(css, ".b-sec .title");
+  assert.match(title, /min-width:\s*0;/);
+  assert.match(title, /overflow:\s*hidden;/);
+  assert.match(title, /text-overflow:\s*ellipsis;/);
+  const count = declarationsFor(css, ".b-sec i");
+  assert.match(count, /font-style:\s*normal;/);
+  assert.match(count, /font-weight:\s*400;/);
+  assert.match(count, /letter-spacing:\s*0;/);
+  assert.match(count, /text-transform:\s*none;/);
+  assert.match(count, /color:\s*var\(--overlay0\);/);
+});
+
+test("a Needs you head is peach and a New since you looked head is lavender", () => {
+  assert.match(declarationsFor(css, ".b-sec.need"), /color:\s*var\(--peach\);/);
+  assert.match(declarationsFor(css, ".b-sec.fresh"), /color:\s*var\(--lavender\);/);
+});
+
+test("answer chips wrap 5px apart under a 7px margin, each a peach chip with a peach key cap", () => {
+  const opts = declarationsFor(css, ".b-row .opts");
+  assert.match(opts, /display:\s*flex;/);
+  assert.match(opts, /flex-wrap:\s*wrap;/);
+  assert.match(opts, /gap:\s*5px;/);
+  assert.match(opts, /margin-top:\s*7px;/);
+  const opt = declarationsFor(css, ".b-row .opt");
+  assert.match(opt, /border-radius:\s*6px;/);
+  assert.match(opt, /background:\s*color-mix\(in srgb, var\(--peach\) 12%, transparent\);/);
+  assert.match(opt, /box-shadow:\s*0 0 0 1px color-mix\(in srgb, var\(--peach\) 35%, transparent\);/);
+  assert.match(opt, /font:\s*11\.5px\/18px var\(--mono\);/);
+  const cap = declarationsFor(css, ".b-row .opt kbd");
+  assert.match(cap, /background:\s*var\(--peach\);/);
+  assert.match(cap, /color:\s*var\(--crust\);/);
+});
+
+test("the answered line is 12px over 18px in green, under a 5px margin", () => {
+  const ans = declarationsFor(css, ".b-row .ans");
+  assert.match(ans, /margin-top:\s*5px;/);
+  assert.match(ans, /font:\s*12px\/18px var\(--mono\);/);
+  assert.match(ans, /color:\s*var\(--green\);/);
+});
+
+test("a run fold's ✓ is green and its ✗ red, both pushed to the right", () => {
+  const ok = declarationsFor(css, ".reader .fold .ok");
+  assert.match(ok, /margin-left:\s*auto;/);
+  assert.match(ok, /color:\s*var\(--green\);/);
+  const bad = declarationsFor(css, ".reader .fold .bad");
+  assert.match(bad, /margin-left:\s*auto;/);
+  assert.match(bad, /color:\s*var\(--red\);/);
+});
+
+test("the row's state word and the unused status colours have no rules", () => {
+  assert.doesNotMatch(css, /\.b-row \.state|\.st-done|\.st-interrupted|\.st-failed/);
 });
