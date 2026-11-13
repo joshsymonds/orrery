@@ -73,7 +73,9 @@ func (m *Manager) StartStep(ctx context.Context, step StepSession) error {
 	m.mu.Lock()
 	m.stepObservers[step.ID] = step.Observer
 	m.mu.Unlock()
-	if err = m.writer.Put(ctx, step.ID, store.EnginePrompt{ID: step.ID, Text: step.Prompt}); err != nil {
+	if err = m.writer.Put(ctx, step.ID, store.EnginePrompt{
+		ID: step.ID, Text: step.Prompt, Sender: store.PromptSenderBrief,
+	}); err != nil {
 		return m.abandonStep(ctx, live, fmt.Errorf("record prompt of step %s: %w", step.ID, err))
 	}
 	m.setTurning(live, true)

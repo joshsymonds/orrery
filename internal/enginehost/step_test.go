@@ -49,7 +49,7 @@ func (f *stepStartSessions) Interrupt(context.Context, string) error {
 	return errors.New("stepStartSessions: Interrupt is not used")
 }
 
-func (f *stepStartSessions) Continue(context.Context, string, string) error {
+func (f *stepStartSessions) Continue(context.Context, string, StepPrompt) error {
 	return errors.New("stepStartSessions: Continue is not used")
 }
 

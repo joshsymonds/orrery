@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+
+	"github.com/joshsymonds/orrery/internal/store"
 )
 
 // ErrStepNoTurn reports a hold of a step whose session has no turn running.
@@ -81,7 +83,7 @@ func (r *stepRun) nudgeOwner(ctx context.Context, text string) error {
 		}
 		r.held.Store(false)
 		r.heldEnded = false
-		return r.continueStep(ctx, text)
+		return r.continueStep(ctx, StepPrompt{Text: text, Sender: store.PromptSenderOwner})
 	}
 	if !r.watch.turnRunning() {
 		return ErrStepNoTurn

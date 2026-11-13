@@ -440,16 +440,16 @@ func (m *Manager) say(ctx context.Context, req SayRequest) error {
 	if err != nil {
 		return fmt.Errorf("say to session %s: %w", req.ID, err)
 	}
-	return m.send(ctx, live, req)
+	return m.send(ctx, live, store.EnginePrompt{ID: req.ID, Text: req.Text, PromptID: req.PromptID})
 }
 
-// send records req.Text as the next prompt of live, with the working state, and then sends it. live must have its turn
-// marked running. A failed send records the session failed with the send's error, and with a req.PromptID the same write
-// stores that prompt's failure marker. A step sends no notice, so its failed send is recorded without one.
-func (m *Manager) send(ctx context.Context, live *liveSession, req SayRequest) error {
-	id, text := req.ID, req.Text
+// send records prompt as the next prompt of live, with the working state, and then sends its text. live must have its
+// turn marked running. A failed send records the session failed with the send's error, and with a prompt.PromptID the
+// same write stores that prompt's failure marker. A step sends no notice, so its failed send is recorded without one.
+func (m *Manager) send(ctx context.Context, live *liveSession, prompt store.EnginePrompt) error {
+	id, text := prompt.ID, prompt.Text
 	working := string(protocol.StateWorking)
-	if err := m.writer.Commit(ctx, id, store.EnginePrompt{ID: id, Text: text, PromptID: req.PromptID},
+	if err := m.writer.Commit(ctx, id, prompt,
 		store.EngineSet{ID: id, Changes: store.EngineChanges{State: &working}}); err != nil {
 		m.setTurning(live, false)
 		return fmt.Errorf("record prompt of session %s: %w", id, err)
@@ -460,8 +460,8 @@ func (m *Manager) send(ctx context.Context, live *liveSession, req SayRequest) e
 	if err := live.sess.Prompt(text); err != nil {
 		m.setTurning(live, false)
 		var marks []store.EngineOp
-		if req.PromptID != "" {
-			marks = append(marks, store.EnginePromptFailed{ID: id, PromptID: req.PromptID, Reason: err.Error()})
+		if prompt.PromptID != "" {
+			marks = append(marks, store.EnginePromptFailed{ID: id, PromptID: prompt.PromptID, Reason: err.Error()})
 		}
 		// A step sends no notice, so its failed send is recorded without one.
 		var recordErr error
@@ -475,12 +475,13 @@ func (m *Manager) send(ctx context.Context, live *liveSession, req SayRequest) e
 	return nil
 }
 
-// Continue sends text to the step id as its next prompt, which ends the step's hand-off: the step is busy again until this
-// turn ends. A step that is not live, as after an idle stop, is respawned first from its rows (see respawnStep). The
-// prompt is recorded as Say records one, and a failed send records the step failed without a notice. It returns an error
-// wrapping ErrNoSession when id is not a step row, and ErrEmptyPrompt for empty text.
-func (m *Manager) Continue(ctx context.Context, id, text string) error {
-	if text == "" {
+// Continue sends prompt to the step id as its next prompt, which ends the step's hand-off: the step is busy again until
+// this turn ends. A step that is not live, as after an idle stop, is respawned first from its rows (see respawnStep). The
+// prompt is recorded with its sender and round, as Say records one without them, and a failed send records the step
+// failed without a notice. It returns an error wrapping ErrNoSession when id is not a step row, and ErrEmptyPrompt for
+// empty text.
+func (m *Manager) Continue(ctx context.Context, id string, prompt StepPrompt) error {
+	if prompt.Text == "" {
 		return ErrEmptyPrompt
 	}
 	live, err := m.claimStep(id)
@@ -490,7 +491,9 @@ func (m *Manager) Continue(ctx context.Context, id, text string) error {
 	if err != nil {
 		return fmt.Errorf("continue step %s: %w", id, err)
 	}
-	return m.send(ctx, live, SayRequest{ID: id, Text: text})
+	return m.send(ctx, live, store.EnginePrompt{
+		ID: id, Text: prompt.Text, Sender: prompt.Sender, Round: prompt.Round,
+	})
 }
 
 // respawnStep starts the step id that is not live again, from its engine row and its steps row: it resumes the row's

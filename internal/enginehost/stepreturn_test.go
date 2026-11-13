@@ -157,7 +157,7 @@ func TestStepBackgroundTurnIsNotHandedOffUntilTaskEnds(t *testing.T) {
 		t.Fatalf("turn ends handed to the observer during the background task = %d, want 0", n)
 	}
 
-	if err := m.Continue(t.Context(), stepA, "BGEND"); err != nil {
+	if err := m.Continue(t.Context(), stepA, StepPrompt{Text: "BGEND", Sender: store.PromptSenderOwner}); err != nil {
 		t.Fatalf("Continue BGEND: %v", err)
 	}
 	waitHistory(t, path, stepA, "the reply after the background task ended", func(h store.EngineHistory) bool {
@@ -215,7 +215,7 @@ func TestContinueSendsPromptRecordsItAndHandsOffItsTurn(t *testing.T) {
 	}
 	waitReturns(t, obs, 1)
 
-	if err := m.Continue(t.Context(), stepA, "again"); err != nil {
+	if err := m.Continue(t.Context(), stepA, StepPrompt{Text: "again", Sender: store.PromptSenderOwner}); err != nil {
 		t.Fatalf("Continue: %v", err)
 	}
 	history := waitHistory(t, path, stepA, "the reply to the continued prompt", func(h store.EngineHistory) bool {
@@ -243,7 +243,7 @@ func TestStepExitedCallsObserverWithFailureReason(t *testing.T) {
 	}
 	waitReturns(t, obs, 1)
 
-	if err := m.Continue(t.Context(), stepA, "DIE"); err != nil {
+	if err := m.Continue(t.Context(), stepA, StepPrompt{Text: "DIE", Sender: store.PromptSenderOwner}); err != nil {
 		t.Fatalf("Continue DIE: %v", err)
 	}
 	waitUntil(t, "the observer's exit", func() bool { return len(obs.exited()) == 1 })
@@ -278,12 +278,12 @@ func TestContinueSendFailureRecordsFailedWithoutNotice(t *testing.T) {
 		t.Fatalf("StartStep: %v", err)
 	}
 	waitReturns(t, obs, 1)
-	if err := m.Continue(t.Context(), stepA, "DIE"); err != nil {
+	if err := m.Continue(t.Context(), stepA, StepPrompt{Text: "DIE", Sender: store.PromptSenderOwner}); err != nil {
 		t.Fatalf("Continue DIE: %v", err)
 	}
 	waitUntil(t, "the observer's exit", func() bool { return len(obs.exited()) == 1 })
 
-	if err := m.Continue(t.Context(), stepA, "again"); err == nil {
+	if err := m.Continue(t.Context(), stepA, StepPrompt{Text: "again", Sender: store.PromptSenderOwner}); err == nil {
 		t.Fatalf("Continue to a dead step: err = nil, want the send error")
 	}
 	history := historyOf(t, path, stepA)
