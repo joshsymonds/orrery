@@ -187,22 +187,50 @@ button, input, textarea, select { font-family: var(--mono); }
 .b-row .ans { margin-top: 5px; font: 12px/18px var(--mono); color: var(--green); }
 .reply a { color: var(--blue); }
 
-/* The Epics group: an epic's line with its gauge and count, and each step's line under it, indented from the epic's. */
+/* The Epics group. An epic's line is its gauge and its main: the label and repository, the reading pushed right, and the
+   task strip under them. A task's cell takes the chart's colour for its state, on the strip and on the step's pips alike. */
 .b-row.epic { display: flex; align-items: center; gap: 9px; }
+.b-row.epic .main { flex: 1 1 auto; }
 .b-row.epic .label { flex: 0 1 auto; white-space: nowrap; font-weight: 700; color: var(--text); }
 .b-row.epic .proj { flex: 1 1 auto; }
-.b-row .count { flex: none; margin-left: auto; font: 11.5px/20px var(--mono); color: var(--overlay0); }
+.b-row.epic .rt { flex: none; margin-left: auto; font: 11.5px/20px var(--mono); color: var(--subtext0); }
 .gauge { flex: none; width: 16px; height: 16px; transform: rotate(-90deg); }
 .gauge circle { fill: none; stroke-width: 4px; }
 .gauge-rest { stroke: var(--surface1); }
 .gauge-done { stroke: var(--green); }
-.b-row.step { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 8px; padding-left: 26px; }
-.b-row.step .label { flex: 0 1 auto; white-space: nowrap; }
-.b-row .held { flex: none; font: 700 9.5px/20px var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--peach); }
-.b-row.step .reply {
-  flex: 1 1 100%; min-width: 0; font: 13.5px/1.45 var(--mono); color: var(--overlay1);
-  overflow: hidden; display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow-wrap: anywhere;
+.strip { display: flex; gap: 2px; height: 3px; margin: 6px 0 1px; }
+.strip i { flex: 1 1 0; min-width: 0; border-radius: 1.5px; background: var(--surface0); }
+.strip.dense { gap: 0; }
+.strip.dense i { border-radius: 0; }
+.pips { display: inline-flex; gap: 2px; vertical-align: middle; }
+.pips i { width: 9px; height: 5px; border-radius: 1px; background: var(--surface1); }
+.k-passed { --k: var(--green); }
+.k-now { --k: var(--yellow); }
+.k-held { --k: var(--peach); }
+.k-errored { --k: var(--red); }
+.strip i.k-passed, .strip i.k-now, .strip i.k-held, .strip i.k-errored,
+.pips i.k-passed, .pips i.k-now, .pips i.k-held, .pips i.k-errored { background: var(--k); }
+.strip i.k-now, .pips i.k-now {
+  box-shadow: 0 0 5px color-mix(in srgb, var(--yellow) 70%, transparent); animation: now-glow 1.8s ease-in-out infinite;
 }
+@keyframes now-glow {
+  0%, 100% { box-shadow: 0 0 6px 1px color-mix(in srgb, var(--yellow) 75%, transparent); }
+  50% { box-shadow: 0 0 2px 0 color-mix(in srgb, var(--yellow) 20%, transparent); }
+}
+
+/* A step's line under its epic, indented from it: its mark or spinner, its label, its pips, then its doing, or a held
+   step's held text. Each part is one line, cut with an ellipsis. */
+.b-row.step {
+  display: grid; grid-template-columns: 14px 13ch auto minmax(0, 1fr); align-items: center; margin-left: 33px;
+  padding: 3px 10px 3px 8px; font: 12px/20px var(--mono); white-space: nowrap;
+}
+.b-row.step.cur::before { top: 4px; bottom: 4px; }
+.b-row.step .um { text-align: center; font-weight: 700; color: var(--yellow); }
+.b-row.step .label { overflow: hidden; text-overflow: ellipsis; font: 12px/20px var(--mono); color: var(--subtext1); }
+.b-row.step .reply { overflow: hidden; text-overflow: ellipsis; color: var(--overlay1); }
+.b-row.step.cur .label { color: var(--text); font-weight: 700; }
+.b-row.step .held { overflow: hidden; text-overflow: ellipsis; font: 12px/20px var(--mono); color: var(--peach); }
+.b-row.step.held .um, .b-row.step.held .label, .b-row.step.held .held { color: var(--peach); }
 .b-more { padding: 2px 10px; font: 11.5px/20px var(--mono); color: var(--overlay0); }
 
 /* The list's footer: the hosts its rows come from at the left, and the keys hint at the right. A host that does not fit
@@ -244,7 +272,9 @@ button, input, textarea, select { font-family: var(--mono); }
 .pill .g { flex: none; width: 11px; height: 11px; margin: 0; border-radius: 50%; }
 .pill .tool { font-weight: 400; color: var(--blue); }
 .pill .g-working { animation: rot 1.1s linear infinite; }
-@media (prefers-reduced-motion: reduce) { .pill .g-working, .b-row .g-working { animation: none; } }
+@media (prefers-reduced-motion: reduce) {
+  .pill .g-working, .b-row .g-working, .strip i.k-now, .pips i.k-now { animation: none; }
+}
 .pill.tone-working { --tone: var(--yellow); }
 .pill.tone-waiting, .pill.tone-held { --tone: var(--peach); }
 .pill.tone-done { --tone: var(--green); }

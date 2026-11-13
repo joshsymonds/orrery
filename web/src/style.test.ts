@@ -422,3 +422,108 @@ test("a run fold's ✓ is green and its ✗ red, both pushed to the right", () =
 test("the row's state word and the unused status colours have no rules", () => {
   assert.doesNotMatch(css, /\.b-row \.state|\.st-done|\.st-interrupted|\.st-failed/);
 });
+
+test("an epic's main fills its line, and its reading sits at the right in 11.5px subtext0", () => {
+  assert.match(declarationsFor(css, ".b-row.epic .main"), /flex:\s*1 1 auto;/);
+  const reading = declarationsFor(css, ".b-row.epic .rt");
+  assert.match(reading, /(?<![-\w])flex:\s*none;/);
+  assert.match(reading, /margin-left:\s*auto;/);
+  assert.match(reading, /font:\s*11\.5px\/20px var\(--mono\);/);
+  assert.match(reading, /color:\s*var\(--subtext0\);/);
+});
+
+test("the task strip is a 3px flex line 2px apart, 6px above and 1px below, and its segments are surface0 with 1.5px corners", () => {
+  const strip = declarationsFor(css, ".strip");
+  assert.match(strip, /display:\s*flex;/);
+  assert.match(strip, /(?<![-\w])gap:\s*2px;/);
+  assert.match(strip, /(?<![-\w])height:\s*3px;/);
+  assert.match(strip, /margin:\s*6px 0 1px;/);
+  const segment = declarationsFor(css, ".strip i");
+  assert.match(segment, /flex:\s*1 1 0;/);
+  assert.match(segment, /min-width:\s*0;/);
+  assert.match(segment, /border-radius:\s*1\.5px;/);
+  assert.match(segment, /background:\s*var\(--surface0\);/);
+});
+
+test("dense closes the strip's gaps and its segments' corners", () => {
+  assert.match(declarationsFor(css, ".strip.dense"), /(?<![-\w])gap:\s*0;/);
+  assert.match(declarationsFor(css, ".strip.dense i"), /border-radius:\s*0;/);
+});
+
+test("the pips are an inline flex line 2px apart of 9px by 5px surface1 cells with 1px corners", () => {
+  const pips = declarationsFor(css, ".pips");
+  assert.match(pips, /display:\s*inline-flex;/);
+  assert.match(pips, /(?<![-\w])gap:\s*2px;/);
+  const cell = declarationsFor(css, ".pips i");
+  assert.match(cell, /(?<![-\w])width:\s*9px;/);
+  assert.match(cell, /(?<![-\w])height:\s*5px;/);
+  assert.match(cell, /border-radius:\s*1px;/);
+  assert.match(cell, /background:\s*var\(--surface1\);/);
+});
+
+test("the four kinds fill the strip's and the pips' cells: passed green, now yellow, held peach, errored red", () => {
+  const kinds: [string, string][] = [
+    ["k-passed", "green"],
+    ["k-now", "yellow"],
+    ["k-held", "peach"],
+    ["k-errored", "red"],
+  ];
+  for (const [kind, colour] of kinds) {
+    assert.match(declarationsFor(css, `.${kind}`), new RegExp(`--k:\\s*var\\(--${colour}\\);`), `${kind} is ${colour}`);
+    for (const cell of [".strip i", ".pips i"]) {
+      assert.match(declarationsFor(css, `${cell}.${kind}`), /background:\s*var\(--k\);/, `${cell}.${kind} is filled`);
+    }
+  }
+});
+
+test("a now cell pulses on a 1.8s glow, and reduced motion holds it still", () => {
+  for (const cell of [".strip i.k-now", ".pips i.k-now"]) {
+    assert.match(declarationsFor(css, cell), /animation:\s*now-glow 1\.8s ease-in-out infinite;/, cell);
+  }
+  assert.match(css, /@keyframes now-glow\s*\{/);
+  const reduced = mediaBlock(css, "@media (prefers-reduced-motion: reduce) {");
+  for (const cell of [".strip i.k-now", ".pips i.k-now"]) {
+    assert.match(declarationsFor(reduced, cell), /animation:\s*none;/, `${cell} holds still under reduced motion`);
+  }
+});
+
+test("a step row is a 14px 13ch auto grid at 12px over 20px, nowrap, indented 33px", () => {
+  const step = declarationsFor(css, ".b-row.step");
+  assert.match(step, /display:\s*grid;/);
+  assert.match(step, /grid-template-columns:\s*14px 13ch auto minmax\(0,\s*1fr\);/);
+  assert.match(step, /font:\s*12px\/20px var\(--mono\);/);
+  assert.match(step, /white-space:\s*nowrap;/);
+  assert.match(step, /margin-left:\s*33px;/);
+});
+
+test("a step's mark is yellow, bold and centred; its label is subtext1 and bold when current; its doing is overlay1 cut to one line", () => {
+  const mark = declarationsFor(css, ".b-row.step .um");
+  assert.match(mark, /text-align:\s*center;/);
+  assert.match(mark, /font-weight:\s*700;/);
+  assert.match(mark, /color:\s*var\(--yellow\);/);
+  const label = declarationsFor(css, ".b-row.step .label");
+  assert.match(label, /font:\s*12px\/20px var\(--mono\);/);
+  assert.match(label, /overflow:\s*hidden;/);
+  assert.match(label, /text-overflow:\s*ellipsis;/);
+  assert.match(label, /color:\s*var\(--subtext1\);/);
+  const current = declarationsFor(css, ".b-row.step.cur .label");
+  assert.match(current, /color:\s*var\(--text\);/);
+  assert.match(current, /font-weight:\s*700;/);
+  const doing = declarationsFor(css, ".b-row.step .reply");
+  assert.match(doing, /overflow:\s*hidden;/);
+  assert.match(doing, /text-overflow:\s*ellipsis;/);
+  assert.match(doing, /color:\s*var\(--overlay1\);/);
+});
+
+test("a held step's mark, label and held text are peach, and the held text is 12px with no capitals", () => {
+  for (const selector of [".b-row.step.held .um", ".b-row.step.held .label", ".b-row.step .held"]) {
+    assert.match(declarationsFor(css, selector), /color:\s*var\(--peach\);/, selector);
+  }
+  const held = declarationsFor(css, ".b-row.step .held");
+  assert.match(held, /font:\s*12px\/20px var\(--mono\);/);
+  assert.doesNotMatch(held, /text-transform|letter-spacing/);
+});
+
+test("the epic's count and the capitals held tag have no rules", () => {
+  assert.doesNotMatch(css, /\.b-row \.count|\.b-row \.held/);
+});
