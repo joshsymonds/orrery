@@ -2289,7 +2289,21 @@ test("the Epics group follows Needs you, and an epic shows its gauge and count, 
   });
 });
 
-test("an epic shows four running steps with the held one marked, then its more, ended and folded lines", () => {
+test("the Epics head counts every live epic, drawn or folded, and a seventh quiet epic folds", () => {
+  const quiet = ["a", "b", "c", "d", "e", "f", "g"].map((slug) => makeEpic(widgetsRepo, slug));
+  const epics = epicsView(quiet, new Map());
+  return withApp({ epics }, (container) => {
+    const section = sectionOf(container, "Epics");
+    assert.equal(section.querySelector(".b-sec i")?.textContent, "7", "the head counts the seven live epics");
+    assert.equal(section.querySelectorAll(".b-row.epic").length, 6, "six quiet epics draw one line each");
+    assert.deepEqual(
+      [...section.querySelectorAll(".b-more")].map((line) => line.textContent),
+      ["1 folded"],
+    );
+  });
+});
+
+test("an epic shows four running steps with the held one marked, then its more, tail and folded lines", () => {
   const steps = ["one", "two", "three", "four", "five"].map((name) => makeStep(name, { held: name === "two" }));
   const busy = makeEpic(widgetsRepo, "busy", { runningSteps: steps, endedSteps: 3 });
   const folded = [makeEpic(widgetsRepo, "old", { live: false }), makeEpic(gadgetsRepo, "older", { live: false })];
@@ -2312,7 +2326,7 @@ test("an epic shows four running steps with the held one marked, then its more, 
     );
     assert.deepEqual(
       [...section.querySelectorAll(".b-more")].map((line) => line.textContent),
-      ["1 more", "3 ended", "2 folded"],
+      ["1 more", "3 steps ended", "2 folded"],
     );
   });
 });
@@ -2476,7 +2490,7 @@ function twoStepEpic(): { epic: Epic; detail: EpicsGetResponse } {
   const slices = [
     { task: "task-0", hue: "done" },
     { task: "task-1", hue: "dispatched", at: 1 },
-    { task: "task-2", hue: "gap" },
+    { task: "task-2", hue: "gap", errorAt: 3 },
   ];
   return { epic, detail: detailOf(epic, ["done", "pending", "gap"], steps, slices) };
 }

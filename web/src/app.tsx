@@ -517,7 +517,7 @@ export function App({
               <div class="section">
                 <div class={sectionClass(section.title)}>
                   <span class="title">{sectionTitle(section)}</span>
-                  <i>{section.rows.length + section.epics.length}</i>
+                  <i>{section.count}</i>
                 </div>
                 {section.epics.map((block) => (
                   <Fragment key={block.epic.key}>
@@ -526,7 +526,7 @@ export function App({
                       <StepEntry key={step.key} step={step} current={step.key === cursorKey} onSelect={selectItem} />
                     ))}
                     {block.more > 0 && <div class="b-more">{`${block.more} more`}</div>}
-                    {block.ended > 0 && <div class="b-more">{`${block.ended} ended`}</div>}
+                    {block.tail !== "" && <div class="b-more">{block.tail}</div>}
                   </Fragment>
                 ))}
                 {section.rows.map((item) => (
