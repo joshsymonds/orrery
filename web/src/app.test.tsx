@@ -292,6 +292,9 @@ function fixture(): Row[] {
   ];
 }
 
+// fixtureCounts is what the brand shows for fixture(): one row needs you, one is working, and two are new.
+const fixtureCounts = ["st-waiting: 1 need you", "st-working: 1 working", "st-new: ✱ 2 new"];
+
 const keysHelpList = ["j", "k", "↓", "↑", "gg", "G", "a", "p", "w", "n", "x", "Enter", "e", "/", "i", "1", "2", "3", "o", "|", "?", "Esc"];
 
 async function mount(container: HTMLElement, props: Props): Promise<void> {
@@ -458,6 +461,39 @@ function rowElement(container: HTMLElement, key: string): Element {
   return element;
 }
 
+// listChildren names the children of the list in order by class: the top block, then the rows.
+function listChildren(container: HTMLElement): string[] {
+  const list = container.querySelector(".list");
+  assert.ok(list !== null, "the list is rendered");
+  return [...list.children].map((element) => element.getAttribute("class") ?? "");
+}
+
+// topChildren names the children of the top block, when the top block is inside the list, in order by class.
+function topChildren(container: HTMLElement): string[] {
+  const top = container.querySelector(".list > .top");
+  assert.ok(top !== null, "the top block is inside the list");
+  return [...top.children].map((element) => element.getAttribute("class") ?? "");
+}
+
+// outsideList names the elements the selector matches that sit outside the list, by class.
+function outsideList(container: HTMLElement, selector: string): string[] {
+  return [...container.querySelectorAll(selector)]
+    .filter((element) => element.closest(".list") === null)
+    .map((element) => element.getAttribute("class") ?? "");
+}
+
+// countTexts names each count the brand shows, in order, by class and text.
+function countTexts(container: HTMLElement): string[] {
+  return [...container.querySelectorAll(".brand .counts > span")].map(
+    (element) => `${element.getAttribute("class")}: ${element.textContent}`,
+  );
+}
+
+// newCount is the text of the brand's new count, or null when the brand shows none.
+function newCount(container: HTMLElement): string | null {
+  return container.querySelector(".brand .counts .st-new")?.textContent ?? null;
+}
+
 test("j and ArrowDown move the cursor one row down and clamp at the last row", () =>
   withApp({}, async (container) => {
     assert.equal(cursorKey(container), "a");
@@ -550,27 +586,27 @@ test("/ focuses the filter input and does not type the slash", () =>
   withApp({}, async (container) => {
     const event = await press("/");
     assert.equal(event.defaultPrevented, true, "the slash was left to the input");
-    assert.equal(document.activeElement, filterInput(container));
+    assert.equal(document.activeElement === filterInput(container), true);
     assert.equal(filterInput(container).value, "");
   }));
 
 test("? toggles a help panel listing exactly the keys", () =>
   withApp({}, async (container) => {
-    assert.equal(container.querySelector('[aria-label="keys"]'), null);
+    assert.equal(container.querySelector('[aria-label="keys"]') === null, true);
     await press("?");
     const help = container.querySelector('[aria-label="keys"]');
     assert.ok(help, "help panel is open");
     const listed = [...help.querySelectorAll("kbd")].map((element) => element.textContent);
     assert.deepEqual(listed, keysHelpList);
     await press("?");
-    assert.equal(container.querySelector('[aria-label="keys"]'), null);
+    assert.equal(container.querySelector('[aria-label="keys"]') === null, true);
   }));
 
 test("Esc closes the help when the filter does not have focus", () =>
   withApp({}, async (container) => {
     await press("?");
     await press("Escape");
-    assert.equal(container.querySelector('[aria-label="keys"]'), null);
+    assert.equal(container.querySelector('[aria-label="keys"]') === null, true);
   }));
 
 test("with the filter focused, shortcut keys do nothing and Enter blurs it", () =>
@@ -582,11 +618,11 @@ test("with the filter focused, shortcut keys do nothing and Enter blurs it", () 
     await press("x");
     await press("e");
     assert.equal(cursorKey(container), "a");
-    assert.equal(container.querySelector('[aria-label="keys"]'), null);
+    assert.equal(container.querySelector('[aria-label="keys"]') === null, true);
     await settle();
     assert.equal(fake.callsTo(markPanePath).length, 0, "x and e in the filter write no seen");
     await press("Enter");
-    assert.notEqual(document.activeElement, filterInput(container));
+    assert.equal(document.activeElement === filterInput(container), false);
     assert.equal(fake.callsTo(markPanePath).length, 0, "Enter in the filter writes no seen");
     await press("j");
     assert.equal(cursorKey(container), "c");
@@ -599,7 +635,7 @@ test("Esc in the filter clears it and blurs it", () =>
     assert.deepEqual(rowKeys(container), ["c"]);
     await press("Escape");
     assert.equal(filterInput(container).value, "");
-    assert.notEqual(document.activeElement, filterInput(container));
+    assert.equal(document.activeElement === filterInput(container), false);
     assert.deepEqual(rowKeys(container), ["a", "c", "b", "d"]);
   }));
 
@@ -640,7 +676,7 @@ test("u and N outside the filter change nothing", () =>
     await press("N");
     assert.equal(cursorKey(container), "a");
     assert.deepEqual(rowKeys(container), ["a", "c", "b", "d"]);
-    assert.equal(container.querySelector('[aria-label="keys"]'), null);
+    assert.equal(container.querySelector('[aria-label="keys"]') === null, true);
     assert.equal(filterInput(container).value, "");
     await settle();
     assert.equal(fake.callsTo(markPanePath).length, 0, "no seen was written");
@@ -714,8 +750,8 @@ test("reply text renders as text, never as markup", () =>
       rows: [row({ key: "x", state: "working", summary: "<script>alert(1)</script> and <img src=x onerror=alert(1)>" })],
     },
     (container) => {
-      assert.equal(container.querySelector("script"), null);
-      assert.equal(container.querySelector("img"), null);
+      assert.equal(container.querySelector("script") === null, true);
+      assert.equal(container.querySelector("img") === null, true);
       assert.equal(
         rowElement(container, "x").querySelector(".l2")?.textContent,
         "<script>alert(1)</script> and <img src=x onerror=alert(1)>",
@@ -735,14 +771,67 @@ test("an empty project title with no host shows no directory", () =>
     assert.deepEqual(sectionTitles(container), ["no directory"]);
   }));
 
-test("a non-empty error shows one line above the list", () =>
+test("the brand, filter, and views sit inside the list, above its rows, and no top block is outside it", () =>
+  withApp({}, (container) => {
+    assert.deepEqual(listChildren(container), ["top", "rows"]);
+    assert.deepEqual(topChildren(container), ["brand", "filter", "views"]);
+    assert.deepEqual(outsideList(container, ".top, .error"), []);
+  }));
+
+test("a non-empty error shows one line in the top block, above the rows", () =>
   withApp({ error: "list unavailable" }, (container) => {
     assert.equal(container.querySelector('[role="alert"]')?.textContent, "list unavailable");
+    assert.deepEqual(topChildren(container), ["brand", "filter", "views", "error"]);
+    assert.deepEqual(listChildren(container), ["top", "rows"]);
+    assert.deepEqual(outsideList(container, ".error"), []);
   }));
 
 test("no error line shows when the error is empty", () =>
   withApp({ error: "" }, (container) => {
-    assert.equal(container.querySelector('[role="alert"]'), null);
+    assert.equal(container.querySelector('[role="alert"]') === null, true);
+  }));
+
+test("the brand draws the orrery mark as a 72-unit drawing hidden from assistive tech", () =>
+  withApp({}, (container) => {
+    assert.equal(container.querySelector(".brand > svg.mark")?.getAttribute("viewBox"), "18 18 72 72");
+    assert.equal(container.querySelector(".brand > svg.mark")?.getAttribute("aria-hidden"), "true");
+    assert.equal(container.querySelector(".brand > svg.mark")?.getAttribute("style"), null);
+    assert.equal(container.querySelectorAll(".brand > svg.mark > rect").length, 1);
+    assert.equal(container.querySelectorAll(".brand > svg.mark > path").length, 5);
+  }));
+
+test("the brand reads orrery, and its counts stay in place when every count is zero", () =>
+  withApp({ rows: [] }, (container) => {
+    assert.equal(container.querySelector(".brand")?.textContent, "orrery");
+    assert.equal(container.querySelector(".brand .counts") === null, false, "the counts span stays");
+    assert.deepEqual(countTexts(container), []);
+  }));
+
+test("the brand counts the loaded rows that need you, are working, and are new", () =>
+  withApp({}, (container) => {
+    assert.deepEqual(countTexts(container), fixtureCounts);
+  }));
+
+test("a count of zero is left out of the brand", () =>
+  withApp({ rows: [row({ key: "s", state: "working", changed: 1, seen: 1 })] }, (container) => {
+    assert.deepEqual(countTexts(container), ["st-working: 1 working"]);
+  }));
+
+test("a successful seen write takes its row out of the new count", () =>
+  withApp({}, async (container, fake) => {
+    assert.equal(newCount(container), "✱ 2 new");
+    await press("x");
+    await until(() => newCount(container) === "✱ 1 new", "the new count to fall");
+    assert.deepEqual(countTexts(container), ["st-waiting: 1 need you", "st-working: 1 working", "st-new: ✱ 1 new"]);
+    assert.equal(fake.callsTo(markPanePath).length, 1);
+  }));
+
+test("typing a filter leaves the counts as they were", () =>
+  withApp({}, async (container) => {
+    await press("/");
+    await typeFilter(container, "docs");
+    assert.deepEqual(rowKeys(container), ["c"]);
+    assert.deepEqual(countTexts(container), fixtureCounts);
   }));
 
 test("the cursor's pane row opens its conversation, and the reader shows the streamed reply as text", () =>
@@ -837,7 +926,7 @@ test("Enter in the composer sends the text to the pane with Panes.SendText", () 
   withApp({}, async (container, fake) => {
     await press("i");
     const box = composer(container);
-    assert.equal(document.activeElement, box);
+    assert.equal(document.activeElement === box, true);
     await typeInto(box, "keep going");
     await pressIn(box, "Enter");
     await until(() => fake.callsTo(sendTextPath).length === 1, "the send");
@@ -927,11 +1016,11 @@ test("keys typed in the composer never act as list keys, and Escape leaves it", 
     await pressIn(box, "?");
     await pressIn(box, "/");
     assert.equal(cursorKey(container), "a");
-    assert.equal(container.querySelector('[aria-label="keys"]'), null);
-    assert.notEqual(document.activeElement, filterInput(container));
-    assert.equal(document.activeElement, box);
+    assert.equal(container.querySelector('[aria-label="keys"]') === null, true);
+    assert.equal(document.activeElement === filterInput(container), false);
+    assert.equal(document.activeElement === box, true);
     await pressIn(box, "Escape");
-    assert.notEqual(document.activeElement, box);
+    assert.equal(document.activeElement === box, false);
     await press("j");
     assert.equal(cursorKey(container), "c");
   }));
@@ -946,15 +1035,15 @@ test("i focuses the composer, and o opens and closes a compaction's summary", ()
       items: [{ kind: "compaction", text: "the summary text", trigger: "auto", tokens: "611000" }],
     });
     await until(() => container.querySelector(".compaction") !== null, "the compaction");
-    assert.equal(container.querySelector(".summary"), null, "the summary is hidden at first");
+    assert.equal(container.querySelector(".summary") === null, true, "the summary is hidden at first");
 
     await press("o");
     assert.equal(container.querySelector(".summary")?.textContent, "the summary text");
     await press("o");
-    assert.equal(container.querySelector(".summary"), null);
+    assert.equal(container.querySelector(".summary") === null, true);
 
     await press("i");
-    assert.equal(document.activeElement, composer(container));
+    assert.equal(document.activeElement === composer(container), true);
   }));
 
 test("ArrowUp in an empty pane composer pulls the queued text back", () =>
@@ -1248,7 +1337,7 @@ test("the pinned column draws the line of its own stream while the cursor rests 
     });
     await until(() => pinnedWorkLine(container) !== null, "the pinned working line");
     assert.equal(pinnedWorkLine(container)?.querySelector(".work-tool")?.textContent, "running a command");
-    assert.equal(readerWorkLine(container), null, "the cursor's reader on c draws no line");
+    assert.equal(readerWorkLine(container) === null, true, "the cursor's reader on c draws no line");
   }));
 
 test("| pins the cursor's row in a second column that streams it while the cursor moves on", () =>
@@ -1299,7 +1388,7 @@ test("| again removes the pinned column and aborts its stream, and the cursor's 
     await until(() => fake.callsTo(paneWatchPath).length === 2, "the pinned stream");
     const [cursorStream, pinnedStream] = fake.callsTo(paneWatchPath);
     await press("|");
-    assert.equal(pinnedColumn(container), null, "the pinned column is removed");
+    assert.equal(pinnedColumn(container) === null, true, "the pinned column is removed");
     assert.equal(pinnedStream.signal.aborted, true, "the pinned stream was aborted");
     assert.equal(cursorStream.signal.aborted, false, "the cursor's stream stays open");
   }));
@@ -1325,9 +1414,9 @@ test("with the pinned reply box focused, | is text; after it blurs, i focuses th
     await pressIn(pinnedComposer(container), "|");
     assert.ok(pinnedColumn(container), "a | typed in the pinned reply box does not close the pin");
     await pressIn(pinnedComposer(container), "Escape");
-    assert.notEqual(document.activeElement, pinnedComposer(container), "Escape leaves the pinned reply box");
+    assert.equal(document.activeElement === pinnedComposer(container), false, "Escape leaves the pinned reply box");
     await press("i");
-    assert.equal(document.activeElement, composer(container), "i focuses the cursor's reply box");
+    assert.equal(document.activeElement === composer(container), true, "i focuses the cursor's reply box");
   }));
 
 test("a pinned column's draft survives closing the pin and reopening it on the same row", () =>
@@ -1340,7 +1429,7 @@ test("a pinned column's draft survives closing the pin and reopening it on the s
     await typeInto(pinnedComposer(container), "half a thought");
     await pressIn(pinnedComposer(container), "Escape");
     await press("|");
-    assert.equal(pinnedColumn(container), null, "the pin is closed");
+    assert.equal(pinnedColumn(container) === null, true, "the pin is closed");
     await press("|");
     assert.equal(cursorKey(container), "a");
     assert.equal(pinnedComposer(container).value, "half a thought", "the draft survived the close");
@@ -1458,7 +1547,7 @@ test("a click on the compaction rule shows its summary, and a second click hides
     await act(() => {
       rule().click();
     });
-    assert.equal(container.querySelector(".summary"), null);
+    assert.equal(container.querySelector(".summary") === null, true);
   }));
 
 function clickEvent(): Event {
@@ -1621,7 +1710,7 @@ test("the Epics group follows Needs you, and an epic shows its gauge and count, 
 
     const unknown = rowElement(container, epicKey(second));
     assert.equal(unknown.querySelector(".count")?.textContent, "tasks unavailable");
-    assert.equal(unknown.querySelector("svg"), null, "no gauge is drawn without detail");
+    assert.equal(unknown.querySelector("svg") === null, true, "no gauge is drawn without detail");
   });
 });
 
@@ -1751,7 +1840,7 @@ test("a step's doing text draws as text, never as markup", () => {
   const epics = epicsView([makeEpic(widgetsRepo, "first", { runningSteps: [running] })], new Map());
   return withApp({ epics }, (container) => {
     const step = rowElement(container, "step:s1");
-    assert.equal(step.querySelector("img, b"), null);
+    assert.equal(step.querySelector("img, b") === null, true);
     assert.equal(step.querySelector(".reply")?.textContent, text);
   });
 });
@@ -1820,8 +1909,8 @@ test("on an epic entry the right column draws a ring per task and marks no step"
     assert.equal(column.parentElement?.classList.contains("panes"), true, "the column sits in the panes");
     assert.equal(columnSlug(column), "first");
     assert.equal(column.querySelectorAll("circle.ring").length, 3, "one ring per task");
-    assert.equal(column.querySelector(".ring.cur"), null, "no ring is marked");
-    assert.equal(column.querySelector(".step.cur"), null, "no step is marked");
+    assert.equal(column.querySelector(".ring.cur") === null, true, "no ring is marked");
+    assert.equal(column.querySelector(".step.cur") === null, true, "no step is marked");
   });
 });
 
@@ -1853,7 +1942,7 @@ test("a pane row hides the right column, and an epic shows it again", () => {
     await press("j");
     await press("j");
     assert.equal(cursorKey(container), "c");
-    assert.equal(shownEpicColumn(container), null, "a pane row hides the column");
+    assert.equal(shownEpicColumn(container) === null, true, "a pane row hides the column");
     await press("k");
     await press("k");
     await press("k");
@@ -1872,7 +1961,7 @@ test("a session row hides the right column", () => {
     await press("j");
     await press("j");
     assert.equal(cursorKey(container), "s1");
-    assert.equal(shownEpicColumn(container), null, "a session row hides the column");
+    assert.equal(shownEpicColumn(container) === null, true, "a session row hides the column");
   });
 });
 
@@ -1961,8 +2050,8 @@ test("a step entry streams Sessions.WatchConversation by its id, and the reader 
     });
     await until(() => readerText(container).includes("the step reply"), "the step reply");
     assert.equal(readerHidden(container), false, "the reader shows on a step");
-    assert.equal(container.querySelector(".question-card"), null, "a step draws no question");
-    assert.equal(container.querySelector(".reader .option"), null, "a step draws no answer");
+    assert.equal(container.querySelector(".question-card") === null, true, "a step draws no question");
+    assert.equal(container.querySelector(".reader .option") === null, true, "a step draws no answer");
   }));
 
 test("Enter in a step's box calls Steps.Nudge once with its id and text, and clears the draft when it lands", () =>
@@ -1970,7 +2059,7 @@ test("Enter in a step's box calls Steps.Nudge once with its id and text, and cle
     await onStepOne(container, fake);
     await press("i");
     const box = composer(container);
-    assert.equal(document.activeElement, box);
+    assert.equal(document.activeElement === box, true);
     await typeInto(box, "try the other route");
     await pressIn(box, "Enter");
     await until(() => fake.callsTo(nudgePath).length === 1, "the nudge");
@@ -2061,13 +2150,13 @@ test("i focuses the step's box, its keys are text, and Escape leaves it", () =>
     await onStepOne(container, fake);
     await press("i");
     const box = composer(container);
-    assert.equal(document.activeElement, box);
+    assert.equal(document.activeElement === box, true);
     await pressIn(box, "j");
     await pressIn(box, "?");
     assert.equal(cursorKey(container), "step:s1");
-    assert.equal(container.querySelector('[aria-label="keys"]'), null);
+    assert.equal(container.querySelector('[aria-label="keys"]') === null, true);
     await pressIn(box, "Escape");
-    assert.notEqual(document.activeElement, box);
+    assert.equal(document.activeElement === box, false);
     await press("j");
     assert.equal(cursorKey(container), "step:s2");
   }));

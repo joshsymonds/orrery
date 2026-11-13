@@ -16,6 +16,7 @@ import {
 } from "./epics";
 import { EpicView } from "./epicview";
 import { type Followed, follow } from "./follow";
+import { Mark } from "./mark";
 import { type ParsedQuestion, parseQuestion } from "./question";
 import { Reader } from "./reader";
 import { byAttention, byProject, type Row } from "./rows";
@@ -42,6 +43,7 @@ interface Cursor {
 type Item = Row | EpicItem | StepItem;
 
 const stateWaiting = "waiting";
+const stateWorking = "working";
 const noDirectoryTitle = "no directory";
 const tasksUnavailableText = "tasks unavailable";
 const epicUnavailableText = "epic unavailable";
@@ -126,6 +128,10 @@ export function App({
     .split(/\s+/)
     .filter((word) => word !== "");
   const shownRows = rows.map((row) => readAsSeen(row, seenWritten));
+  // The brand's counts read every loaded row as the list reads it after seen writes, before the filter.
+  const waitingCount = shownRows.filter((row) => row.state === stateWaiting).length;
+  const workingCount = shownRows.filter((row) => row.state === stateWorking).length;
+  const newCount = shownRows.filter((row) => row.unseen).length;
   const matching = shownRows.filter((row) => matchesFilter(row, words));
   const sections =
     view === "attention"
@@ -422,44 +428,52 @@ export function App({
 
   return (
     <main class="app">
-      <header class="top">
-        <div class="brand">orrery</div>
-        <div class="filter">
-          <kbd>/</kbd>
-          <input
-            ref={inputRef}
-            value={filter}
-            placeholder="Filter"
-            aria-label="filter rows"
-            onInput={(event) => setFilter(event.currentTarget.value)}
-          />
-        </div>
-        <div class="views">
-          <span class={view === "attention" ? "view on" : "view"} onClick={() => setView("attention")}>
-            <kbd>a</kbd>By attention
-          </span>
-          <span class={view === "project" ? "view on" : "view"} onClick={() => setView("project")}>
-            <kbd>p</kbd>By project
-          </span>
-        </div>
-      </header>
-      {error !== "" && (
-        <p class="error" role="alert">
-          {error}
-        </p>
-      )}
-      {seenError !== "" && (
-        <p class="error" role="alert">
-          {seenError}
-        </p>
-      )}
-      {answerError !== "" && (
-        <p class="error" role="alert">
-          {answerError}
-        </p>
-      )}
       <div class={panesClass(pinned !== null, cursorStep !== null)}>
         <div class="list">
+          <header class="top">
+            <div class="brand">
+              <Mark />
+              orrery
+              <span class="counts">
+                {waitingCount > 0 && <span class="st-waiting">{`${waitingCount} need you`}</span>}
+                {workingCount > 0 && <span class="st-working">{`${workingCount} working`}</span>}
+                {newCount > 0 && <span class="st-new">{`✱ ${newCount} new`}</span>}
+              </span>
+            </div>
+            <div class="filter">
+              <kbd>/</kbd>
+              <input
+                ref={inputRef}
+                value={filter}
+                placeholder="Filter"
+                aria-label="filter rows"
+                onInput={(event) => setFilter(event.currentTarget.value)}
+              />
+            </div>
+            <div class="views">
+              <span class={view === "attention" ? "view on" : "view"} onClick={() => setView("attention")}>
+                <kbd>a</kbd>By attention
+              </span>
+              <span class={view === "project" ? "view on" : "view"} onClick={() => setView("project")}>
+                <kbd>p</kbd>By project
+              </span>
+            </div>
+            {error !== "" && (
+              <p class="error" role="alert">
+                {error}
+              </p>
+            )}
+            {seenError !== "" && (
+              <p class="error" role="alert">
+                {seenError}
+              </p>
+            )}
+            {answerError !== "" && (
+              <p class="error" role="alert">
+                {answerError}
+              </p>
+            )}
+          </header>
           <div class="rows" data-list={view}>
             {sections.map((section) => (
               <div class="section">
