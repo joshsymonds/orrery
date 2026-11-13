@@ -9,6 +9,7 @@ import (
 
 	"connectrpc.com/connect"
 
+	"github.com/joshsymonds/orrery/internal/agents"
 	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
 	"github.com/joshsymonds/orrery/internal/store"
 )
@@ -232,7 +233,7 @@ func stepCommandError(err error) error {
 		code = connect.CodeFailedPrecondition
 	case errors.Is(err, ErrEmptyPrompt), errors.Is(err, ErrBadSchema), errors.Is(err, ErrBadAgent),
 		errors.Is(err, ErrBadDir), errors.Is(err, ErrBadOwned), errors.Is(err, ErrBadGate),
-		errors.Is(err, ErrNotGit), errors.Is(err, ErrMainWorktree):
+		errors.Is(err, ErrNotGit), errors.Is(err, ErrMainWorktree), errors.Is(err, agents.ErrUnresolved):
 		code = connect.CodeInvalidArgument
 	}
 	return errors.Join(connect.NewError(code, err))
