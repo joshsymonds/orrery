@@ -16,7 +16,7 @@ import {
 import type { Conversation } from "./conversation";
 import { flashMillis } from "./flash";
 import type { ParsedQuestion } from "./question";
-import { Reader } from "./reader";
+import { Reader, ReaderHead } from "./reader";
 import { installTestDom, removeTestDom } from "./testdom";
 
 function item(init: MessageInitShape<typeof ConversationItemSchema>): ConversationItem {
@@ -888,6 +888,82 @@ test("an opened result stays under its call as items arrive and the window slide
     assert.equal(line.nextElementSibling?.textContent, "built-output", "the result stays open under its call");
   });
 });
+
+// withHead renders a head the way withReader renders a reader, and removes it the same way.
+async function withHead(
+  props: Parameters<typeof ReaderHead>[0],
+  check: (container: HTMLElement) => void | Promise<void>,
+): Promise<void> {
+  const window = installTestDom();
+  const container = document.createElement("div");
+  try {
+    render(<ReaderHead {...props} />, container);
+    await check(container);
+  } finally {
+    render(null, container);
+    await removeTestDom(window);
+  }
+}
+
+// headOf returns the head's header element, the element that names the conversation.
+function headOf(container: HTMLElement): HTMLElement {
+  const head = container.querySelector<HTMLElement>("header.head");
+  assert.ok(head !== null, "the head is drawn");
+  return head;
+}
+
+test("a pane's head names its label as the heading and its where line as a span after it", () =>
+  withHead({ label: "Synthetic pane", where: "synthetic-project · synthetic-host" }, (container) => {
+    const head = headOf(container);
+    assert.equal(head.firstElementChild?.localName, "h1");
+    assert.equal(head.querySelector("h1")?.textContent, "Synthetic pane");
+    assert.equal(head.querySelector("span.where")?.textContent, "synthetic-project · synthetic-host");
+    assert.equal(head.querySelector("h1")?.nextElementSibling?.localName, "span");
+  }));
+
+test("a session's head with an empty where draws its label and no where element", () =>
+  withHead({ label: "Synthetic session", where: "" }, (container) => {
+    const head = headOf(container);
+    assert.equal(head.querySelector("h1")?.textContent, "Synthetic session");
+    assert.equal(head.querySelector(".where") === null, true);
+    assert.equal(head.children.length, 1);
+  }));
+
+test("a step's head names its epic, agent, step and round as its where line", () =>
+  withHead({ label: "Synthetic step", where: "synthetic-epic › synthetic-agent · step · round 3" }, (container) => {
+    const head = headOf(container);
+    assert.equal(head.querySelector("h1")?.textContent, "Synthetic step");
+    assert.equal(head.querySelector(".where")?.textContent, "synthetic-epic › synthetic-agent · step · round 3");
+  }));
+
+test("a child passed to the head draws after the where line as the head's last child", () =>
+  withHead(
+    {
+      label: "Synthetic pane",
+      where: "synthetic-project · synthetic-host",
+      children: <span class="pill">synthetic pill</span>,
+    },
+    (container) => {
+      const head = headOf(container);
+      assert.equal(head.lastElementChild?.getAttribute("class"), "pill");
+      assert.equal(head.lastElementChild?.textContent, "synthetic pill");
+      assert.equal(head.lastElementChild?.previousElementSibling?.getAttribute("class"), "where");
+    },
+  ));
+
+test("a label or where holding markup draws as text with no element", () =>
+  withHead(
+    { label: "<b>bold</b> <img src=x onerror=alert(1)>", where: "<i>italic</i> <a href=x>link</a>" },
+    (container) => {
+      const head = headOf(container);
+      assert.equal(head.querySelector("b") === null, true);
+      assert.equal(head.querySelector("img") === null, true);
+      assert.equal(head.querySelector("i") === null, true);
+      assert.equal(head.querySelector("a") === null, true);
+      assert.equal(head.querySelector("h1")?.textContent, "<b>bold</b> <img src=x onerror=alert(1)>");
+      assert.equal(head.querySelector(".where")?.textContent, "<i>italic</i> <a href=x>link</a>");
+    },
+  ));
 
 test("an opened thinking block stays open as its deltas grow", () =>
   withScrollingReader(

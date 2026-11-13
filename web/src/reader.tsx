@@ -1,4 +1,4 @@
-import type { JSX } from "preact";
+import type { ComponentChildren, JSX } from "preact";
 import { useLayoutEffect, useRef, useState } from "preact/hooks";
 
 import type { Conversation } from "./conversation";
@@ -84,6 +84,26 @@ export function Reader({
         <QueuedRow key={`queued-${index}`} message={message} />
       ))}
     </div>
+  );
+}
+
+// ReaderHead names the conversation the reader draws and what it is doing: its label as the heading, its where line
+// when there is one, and the children after it, the pill the app passes in.
+export function ReaderHead({
+  label,
+  where,
+  children,
+}: {
+  label: string;
+  where: string;
+  children?: ComponentChildren;
+}): JSX.Element {
+  return (
+    <header class="head">
+      <h1>{label}</h1>
+      {where !== "" && <span class="where">{where}</span>}
+      {children}
+    </header>
   );
 }
 
