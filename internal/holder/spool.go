@@ -199,6 +199,20 @@ func (s *Spool) End() int64 {
 	return s.end
 }
 
+// Consumed is the consumed offset the controller last acked.
+func (s *Spool) Consumed() int64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.consumed
+}
+
+// ReplayFrom is the replay-from offset the controller last acked.
+func (s *Spool) ReplayFrom() int64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.replayFrom
+}
+
 // Room is how many more bytes Append accepts before it refuses with ErrOverCap.
 func (s *Spool) Room() int64 {
 	s.mu.Lock()

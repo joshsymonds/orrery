@@ -296,6 +296,25 @@ func awaitWrite(t *testing.T, result <-chan writeResult) writeResult {
 	return awaitResult(t, "Write", result)
 }
 
+// idWriter is the method set of a Process's stdin that writes under an id the controller names.
+type idWriter interface {
+	WriteWithID(id string, data []byte) (int, error)
+}
+
+// startWriteWithID writes data to p's stdin under id in a goroutine. It fails the test when p's stdin has no
+// WriteWithID method.
+func startWriteWithID(t *testing.T, p *Process, id string, data []byte) <-chan writeResult {
+	t.Helper()
+	stdin, ok := p.Stdin().(idWriter)
+	if !ok {
+		t.Fatalf("Stdin is %T, want a WriteWithID method", p.Stdin())
+	}
+	return startAsync(func() writeResult {
+		n, err := stdin.WriteWithID(id, data)
+		return writeResult{n: n, err: err}
+	})
+}
+
 // stopProcess stops p and fails the test unless Stop returns nil.
 func stopProcess(t *testing.T, p *Process) {
 	t.Helper()
@@ -345,13 +364,12 @@ func rawProcessHeld(t *testing.T) (*Process, *client, *fakeHeld, *net.UnixListen
 	return newProcess(held, res.conn, sock, t.TempDir()), server, held, listener
 }
 
-// requireAck fails the test unless the next frame the holder receives is an ack of consumed and replayFrom both at
-// consumed.
-func requireAck(t *testing.T, server *client, consumed int64) {
+// requireAck fails the test unless the next frame the holder receives is an ack of consumed and replayFrom.
+func requireAck(t *testing.T, server *client, consumed, replayFrom int64) {
 	t.Helper()
 	got := server.read()
-	if got.Type != TypeAck || got.Consumed != consumed || got.ReplayFrom != consumed {
-		t.Fatalf("frame %+v, want an ack of %d", got, consumed)
+	if got.Type != TypeAck || got.Consumed != consumed || got.ReplayFrom != replayFrom {
+		t.Fatalf("frame %+v, want an ack of consumed %d replayFrom %d", got, consumed, replayFrom)
 	}
 }
 
@@ -386,6 +404,8 @@ func TestProcessAckedOutputLeavesTheSpoolWhenItIsConsumed(t *testing.T) {
 	writeChildFile(t, cfg.Child.Dir, "stdout.txt", spoolBytes(0, size))
 	_, held, conn := startHolderProcess(t, cfg)
 	p := newProcess(held, conn, socketOf(t, cfg.Dir), cfg.Dir)
+	// The controller allows the holder to trim below the whole output, so consuming it trims the spool.
+	p.SetReplayFrom(size)
 	release(t, p)
 
 	got := awaitResult(t, "read the output", startAsync(func() error {
@@ -395,10 +415,39 @@ func TestProcessAckedOutputLeavesTheSpoolWhenItIsConsumed(t *testing.T) {
 	if got != nil {
 		t.Fatalf("read the child's %d bytes = %v, want nil", size, got)
 	}
-	// Ack trims every segment that ends at or below the consumed offset, and never the segment still being written, so
-	// the last segment is what remains.
+	// Ack trims every segment that ends at or below the replay-from, and never the segment still being written, so the
+	// last segment is what remains.
 	lastStart := int64(size) / processSegmentBytes * processSegmentBytes
 	awaitSegmentFiles(t, cfg.Dir, []string{segmentName(lastStart)})
+	stopProcess(t, p)
+}
+
+func TestProcessAckKeepsTheSegmentsFromTheReplayFromOn(t *testing.T) {
+	t.Parallel()
+
+	cfg := newProcessConfig(t)
+	const size = 100 << 10
+	// The replay-from falls inside a segment, so that segment is kept along with every segment after it.
+	const replayFrom = 40 << 10
+	cfg.Child = gatedChild(t, "cat stdout.txt; exec cat")
+	writeChildFile(t, cfg.Child.Dir, "stdout.txt", spoolBytes(0, size))
+	_, held, conn := startHolderProcess(t, cfg)
+	p := newProcess(held, conn, socketOf(t, cfg.Dir), cfg.Dir)
+	p.SetReplayFrom(replayFrom)
+	release(t, p)
+
+	got := awaitResult(t, "read the output", startAsync(func() error {
+		_, err := io.ReadFull(p.Stdout(), make([]byte, size))
+		return err
+	}))
+	if got != nil {
+		t.Fatalf("read the child's %d bytes = %v, want nil", size, got)
+	}
+	var want []string
+	for start := int64(replayFrom) / processSegmentBytes * processSegmentBytes; start < size; start += processSegmentBytes {
+		want = append(want, segmentName(start))
+	}
+	awaitSegmentFiles(t, cfg.Dir, want)
 	stopProcess(t, p)
 }
 
@@ -642,13 +691,43 @@ func TestProcessReadAcksWhatItConsumed(t *testing.T) {
 	if got := readOnce(t, p.Stdout()); string(got.data) != "abc" || got.err != nil {
 		t.Fatalf("first Read = %q, %v; want \"abc\", nil", got.data, got.err)
 	}
-	requireAck(t, server, 3)
+	// Until the controller sets a replay-from, the ack carries 0 for it.
+	requireAck(t, server, 3, 0)
 
+	p.SetReplayFrom(2)
 	server.send(Frame{Type: TypeOut, Offset: 3, Data: []byte("de")})
 	if got := readOnce(t, p.Stdout()); string(got.data) != "de" || got.err != nil {
 		t.Fatalf("second Read = %q, %v; want \"de\", nil", got.data, got.err)
 	}
-	requireAck(t, server, 5)
+	requireAck(t, server, 5, 2)
+}
+
+func TestProcessAckReplayFromIsTheSetOffsetNeverLoweredOrAboveConsumed(t *testing.T) {
+	t.Parallel()
+
+	p, server := rawProcess(t)
+	p.SetReplayFrom(4)
+	server.send(Frame{Type: TypeOut, Offset: 0, Data: []byte("abcdef")})
+	if got := readOnce(t, p.Stdout()); string(got.data) != "abcdef" || got.err != nil {
+		t.Fatalf("first Read = %q, %v; want \"abcdef\", nil", got.data, got.err)
+	}
+	requireAck(t, server, 6, 4)
+
+	// A lower offset is not taken, so the replay-from stays at 4.
+	p.SetReplayFrom(2)
+	server.send(Frame{Type: TypeOut, Offset: 6, Data: []byte("gh")})
+	if got := readOnce(t, p.Stdout()); string(got.data) != "gh" || got.err != nil {
+		t.Fatalf("second Read = %q, %v; want \"gh\", nil", got.data, got.err)
+	}
+	requireAck(t, server, 8, 4)
+
+	// An offset above consumed is acked no higher than consumed, since an ack never carries a replay-from above it.
+	p.SetReplayFrom(20)
+	server.send(Frame{Type: TypeOut, Offset: 8, Data: []byte("ij")})
+	if got := readOnce(t, p.Stdout()); string(got.data) != "ij" || got.err != nil {
+		t.Fatalf("third Read = %q, %v; want \"ij\", nil", got.data, got.err)
+	}
+	requireAck(t, server, 10, 10)
 }
 
 func TestProcessOutOfOrderOutEndsTheStream(t *testing.T) {
@@ -715,6 +794,89 @@ func TestProcessWriteIsAnsweredByItsIDDuplicateCountsAsWrittenAndErrorFailsIt(t 
 	server.send(Frame{Type: TypeError, ID: f3.ID, Message: refusal})
 	if got := awaitWrite(t, third); got.err == nil || got.err.Error() != refusal {
 		t.Fatalf("Write(three) refused = %d, %v; want the holder's %q", got.n, got.err, refusal)
+	}
+}
+
+func TestProcessWriteWithIDIsAnsweredByItsIDDuplicateCountsAsWrittenAndErrorFailsIt(t *testing.T) {
+	t.Parallel()
+
+	p, server := rawProcess(t)
+	const id = "00112233445566778899aabbccddeeff"
+
+	first := startWriteWithID(t, p, id, []byte("one"))
+	f1 := server.read()
+	if f1.Type != TypeWrite || f1.ID != id || string(f1.Data) != "one" {
+		t.Fatalf("frame %+v, want a write of one under %q", f1, id)
+	}
+	server.send(Frame{Type: TypeWritten, ID: id})
+	if got := awaitWrite(t, first); got.err != nil || got.n != len("one") {
+		t.Fatalf("WriteWithID(one) = %d, %v; want 3, nil", got.n, got.err)
+	}
+
+	// A repeat of an answered id goes out under that id, and the holder's duplicate answer counts as written.
+	again := startWriteWithID(t, p, id, []byte("one"))
+	f2 := server.read()
+	if f2.Type != TypeWrite || f2.ID != id || string(f2.Data) != "one" {
+		t.Fatalf("frame %+v, want the repeat of the write of one under %q", f2, id)
+	}
+	server.send(Frame{Type: TypeWritten, ID: id, Duplicate: true})
+	if got := awaitWrite(t, again); got.err != nil || got.n != len("one") {
+		t.Fatalf("repeat WriteWithID answered duplicate = %d, %v; want 3, nil", got.n, got.err)
+	}
+
+	const errID = "ffeeddccbbaa99887766554433221100"
+	const refusal = "holder: write child stdin: broken pipe"
+	refused := startWriteWithID(t, p, errID, []byte("two"))
+	f3 := server.read()
+	if f3.Type != TypeWrite || f3.ID != errID || string(f3.Data) != "two" {
+		t.Fatalf("frame %+v, want a write of two under %q", f3, errID)
+	}
+	server.send(Frame{Type: TypeError, ID: errID, Message: refusal})
+	if got := awaitWrite(t, refused); got.err == nil || got.err.Error() != refusal {
+		t.Fatalf("WriteWithID(two) refused = %d, %v; want the holder's %q", got.n, got.err, refusal)
+	}
+}
+
+func TestProcessWriteWithIDRefusesAnIDStillWaiting(t *testing.T) {
+	t.Parallel()
+
+	p, server := rawProcess(t)
+	const id = "00112233445566778899aabbccddeeff"
+
+	first := startWriteWithID(t, p, id, []byte("one"))
+	if got := server.read(); got.Type != TypeWrite || got.ID != id {
+		t.Fatalf("frame %+v, want a write under %q", got, id)
+	}
+	// The holder has not answered the first write, so a second write under its id would take its answer. It is refused.
+	second := startWriteWithID(t, p, id, []byte("one"))
+	if got := awaitWrite(t, second); got.err == nil {
+		t.Fatalf("WriteWithID under an id still waiting = %d, nil; want an error", got.n)
+	}
+	server.send(Frame{Type: TypeWritten, ID: id})
+	if got := awaitWrite(t, first); got.err != nil || got.n != len("one") {
+		t.Fatalf("first WriteWithID = %d, %v; want 3, nil", got.n, got.err)
+	}
+}
+
+func TestProcessWriteWithIDRefusesAnIDOutsideTheHoldersLengthsWithoutSendingIt(t *testing.T) {
+	t.Parallel()
+
+	p, server := rawProcess(t)
+	for _, id := range []string{"", strings.Repeat("x", maxWriteIDBytes+1)} {
+		if got := awaitWrite(t, startWriteWithID(t, p, id, []byte("one"))); got.err == nil {
+			t.Fatalf("WriteWithID under a %d-byte id = %d, nil; want an error", len(id), got.n)
+		}
+	}
+	// The holder would close its connection on either id, so nothing may have gone out for them. The next write is
+	// the first frame the holder receives.
+	next := startWrite(p, []byte("two"))
+	f := server.read()
+	if f.Type != TypeWrite || string(f.Data) != "two" {
+		t.Fatalf("frame %+v, want the write of two, first", f)
+	}
+	server.send(Frame{Type: TypeWritten, ID: f.ID})
+	if got := awaitWrite(t, next); got.err != nil || got.n != len("two") {
+		t.Fatalf("Write(two) = %d, %v; want 3, nil", got.n, got.err)
 	}
 }
 

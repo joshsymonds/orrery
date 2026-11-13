@@ -77,13 +77,16 @@ func (m *Manager) StartStep(ctx context.Context, step StepSession) error {
 	m.mu.Lock()
 	m.stepObservers[step.ID] = step.Observer
 	m.mu.Unlock()
-	if err = m.writer.Put(ctx, step.ID, store.EnginePrompt{
-		ID: step.ID, Text: step.Prompt, Sender: store.PromptSenderBrief,
-	}); err != nil {
+	writeID, err := newWriteID()
+	if err != nil {
+		return m.abandonStep(ctx, live, fmt.Errorf("prepare prompt of step %s: %w", step.ID, err))
+	}
+	prompt := store.EnginePrompt{ID: step.ID, Text: step.Prompt, Sender: store.PromptSenderBrief, WriteID: writeID}
+	if err = m.writer.Commit(ctx, step.ID, prompt); err != nil {
 		return m.abandonStep(ctx, live, fmt.Errorf("record prompt of step %s: %w", step.ID, err))
 	}
 	m.setTurning(live, true)
-	if err = live.sess.Prompt(step.Prompt); err != nil {
+	if err = live.sess.Prompt(writeID, step.Prompt); err != nil {
 		m.setTurning(live, false)
 		return m.abandonStep(ctx, live, fmt.Errorf("send prompt of step %s: %w", step.ID, err))
 	}

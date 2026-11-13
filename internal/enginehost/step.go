@@ -203,7 +203,7 @@ func (s *Steps) Start(ctx context.Context, start StepStart) (string, error) {
 		id: id, schema: start.Schema, doneValue: doneValue, sessions: s.sessions, writer: s.writer, logger: s.logger,
 		writing: !start.ReadOnly, start: commit, owned: start.Owned, gate: gate.argv, gateLimit: gateLimit,
 		gateName: gate.name, gateSource: gate.source, grant: gate.grant, pools: s.pools,
-		environ: s.environ, prompt: start.Prompt, now: s.now, modelLimit: modelLimit,
+		environ: s.environ, prompt: start.Prompt, now: s.now, modelLimit: modelLimit, agentGate: gate.agent,
 	}
 	step := StepSession{ID: id, Dir: start.Workspace, Prompt: start.Prompt, Agent: start.Agent, Schema: start.Schema}
 	if start.ReadOnly {

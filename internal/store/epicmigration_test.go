@@ -12,7 +12,7 @@ import (
 	"github.com/pressly/goose/v3"
 )
 
-// epicTableColumns returns, keyed by table, the columns in declaration order of every table migration 00013 creates.
+// epicTableColumns returns, keyed by table, the columns in declaration order of every table migration 00014 creates.
 func epicTableColumns() map[string][]string {
 	return map[string][]string{
 		"epics": {
@@ -184,7 +184,7 @@ func TestEpicMigrationKeepsExistingRows(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 
-	fixture := openStoreAtVersion(t, path, 12)
+	fixture := openStoreAtVersion(t, path, 13)
 	seeds := []struct {
 		stmt string
 		args []any
@@ -228,7 +228,7 @@ func TestEpicMigrationKeepsExistingRows(t *testing.T) {
 
 	s, err := Open(ctx, path)
 	if err != nil {
-		t.Fatalf("Open at version 12: %v", err)
+		t.Fatalf("Open at version 13: %v", err)
 	}
 	defer s.Close()
 
@@ -237,8 +237,8 @@ func TestEpicMigrationKeepsExistingRows(t *testing.T) {
 		`SELECT COALESCE(MAX(version_id), 0) FROM goose_db_version WHERE is_applied = 1`).Scan(&version); err != nil {
 		t.Fatalf("read store version: %v", err)
 	}
-	if version != 13 {
-		t.Fatalf("store version after Open = %d, want 13", version)
+	if version != 14 {
+		t.Fatalf("store version after Open = %d, want 14", version)
 	}
 
 	for _, table := range existing {

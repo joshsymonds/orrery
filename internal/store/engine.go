@@ -75,13 +75,32 @@ const (
 )
 
 // EnginePrompt appends engine_prompt for a prompt sent to a session. PromptID is the client-chosen id of the
-// prompt, stored only when non-empty. Sender and Round are stored only when non-empty and non-zero.
+// prompt, stored only when non-empty. Sender and Round are stored only when non-empty and non-zero. WriteID is
+// the prompt's write id, stored in the event's write_id column and left out of the payload.
 type EnginePrompt struct {
 	ID       string
 	Text     string
 	PromptID string
 	Sender   string
 	Round    int
+	WriteID  string
+}
+
+// EngineLaunch starts tracking an engine session's consumed offset from zero. It sets consumed and replay_from to
+// 0, turns background off, and sets prompts_from to the newest event seq, so HolderPrompts lists only the prompts
+// sent after the launch. It appends no event.
+type EngineLaunch struct {
+	ID string
+}
+
+// EngineConsumed sets the consumed offset of an engine session. ReplayFrom, Output and Background are each stored
+// only when non-nil, and the other columns are left as they are. It appends no event.
+type EngineConsumed struct {
+	ID         string
+	Consumed   int64
+	ReplayFrom *int64
+	Output     *string
+	Background *bool
 }
 
 // EnginePromptFailed records that a prompt failed to send. The marker keeps the first reason for its session and
@@ -325,8 +344,65 @@ func (op EngineSet) applyEngine(ctx context.Context, queries *sqlcgen.Queries, n
 }
 
 func (op EnginePrompt) applyEngine(ctx context.Context, queries *sqlcgen.Queries, now time.Time) error {
-	return appendEnginePayload(ctx, queries, op.ID, EventEnginePrompt,
-		enginePromptPayload{Text: op.Text, PromptID: op.PromptID, Sender: op.Sender, Round: op.Round}, now)
+	payload, err := json.Marshal(enginePromptPayload{
+		Text: op.Text, PromptID: op.PromptID, Sender: op.Sender, Round: op.Round,
+	})
+	if err != nil {
+		return fmt.Errorf("encode %s payload: %w", EventEnginePrompt, err)
+	}
+	if err = queries.InsertEnginePromptEvent(ctx, sqlcgen.InsertEnginePromptEventParams{
+		SessionID: op.ID, At: now.Unix(), Payload: string(payload), WriteID: op.WriteID,
+	}); err != nil {
+		return fmt.Errorf("append %s for session %s: %w", EventEnginePrompt, op.ID, err)
+	}
+	return nil
+}
+
+func (op EngineLaunch) applyEngine(ctx context.Context, queries *sqlcgen.Queries, _ time.Time) error {
+	promptsFrom, err := queries.NewestEventSeq(ctx)
+	if err != nil {
+		return fmt.Errorf("read newest event seq: %w", err)
+	}
+	affected, err := queries.UpdateEngineLaunch(ctx, sqlcgen.UpdateEngineLaunchParams{
+		PromptsFrom: promptsFrom, ID: op.ID,
+	})
+	if err != nil {
+		return fmt.Errorf("launch engine session %s: %w", op.ID, err)
+	}
+	return engineRowAffected(op.ID, affected)
+}
+
+func (op EngineConsumed) applyEngine(ctx context.Context, queries *sqlcgen.Queries, _ time.Time) error {
+	params := sqlcgen.UpdateEngineConsumedParams{
+		Consumed: sql.NullInt64{Int64: op.Consumed, Valid: true}, ID: op.ID,
+	}
+	if op.ReplayFrom != nil {
+		params.ReplayFrom = sql.NullInt64{Int64: *op.ReplayFrom, Valid: true}
+	}
+	if op.Output != nil {
+		params.TurnOutput = sql.NullString{String: *op.Output, Valid: true}
+	}
+	if op.Background != nil {
+		params.Background = sql.NullBool{Bool: *op.Background, Valid: true}
+	}
+	affected, err := queries.UpdateEngineConsumed(ctx, params)
+	if err != nil {
+		return fmt.Errorf("update consumed of engine session %s: %w", op.ID, err)
+	}
+	return engineRowAffected(op.ID, affected)
+}
+
+// engineRowAffected reports the outcome of an engine session UPDATE that matched affected rows. No row means the
+// id names no engine or step session.
+func engineRowAffected(id string, affected int64) error {
+	switch affected {
+	case 1:
+		return nil
+	case 0:
+		return fmt.Errorf("engine session %s: %w", id, ErrNoEngineSession)
+	default:
+		return fmt.Errorf("update engine session %s: %d rows affected, want 1", id, affected)
+	}
 }
 
 func (op EnginePromptFailed) applyEngine(ctx context.Context, queries *sqlcgen.Queries, _ time.Time) error {

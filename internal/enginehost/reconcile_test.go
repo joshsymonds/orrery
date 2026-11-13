@@ -198,6 +198,10 @@ func (f failingStore) EnginePromptFailure(context.Context, string, string) (stri
 	return "", false, f.err
 }
 
+func (f failingStore) HolderPrompts(context.Context, string) ([]store.HolderPrompt, error) {
+	return nil, f.err
+}
+
 func TestReconcileReturnsReadError(t *testing.T) {
 	errRead := errors.New("read failed")
 	writer := NewWriter(WriterConfig{Tick: time.Hour})

@@ -22,9 +22,6 @@ const stallPrompt = "STALL"
 // stoppedDuringTurnBody is the body of the notice a turn running when orreryd stops is sent with.
 const stoppedDuringTurnBody = "orreryd stopped during the turn"
 
-// restartedDuringTurnReason is the reason a turn running when orreryd was killed is recorded with.
-const restartedDuringTurnReason = "orreryd restarted during the turn"
-
 // stateOf returns the stored state of session id.
 func (f *engineFixture) stateOf(t *testing.T, id string) string {
 	t.Helper()
@@ -120,8 +117,9 @@ func TestEngineSigtermInterruptsStalledTurn(t *testing.T) {
 	wantExit(t, restarted.stop(t), 0)
 }
 
-// TestEngineSigkillReconcilesOnRestart proves that a restart after orreryd is killed mid-turn settles the session: its
-// row is recorded interrupted with the restart reason and no unfinished text.
+// TestEngineSigkillReconcilesOnRestart proves that a restart after orreryd is killed mid-turn settles the session. The
+// fake is killed while orreryd is down, so its holder ends with an exit record of that death, and the restart drains it
+// into the row: failed with the signal, and no unfinished text.
 func TestEngineSigkillReconcilesOnRestart(t *testing.T) {
 	f := newEngineFixture(t)
 	daemon := f.startOrreryd(t, true)
@@ -141,14 +139,14 @@ func TestEngineSigkillReconcilesOnRestart(t *testing.T) {
 	waitGone(t, pid)
 
 	restarted := f.startOrreryd(t, true)
-	if got := f.stateOf(t, id); got != "interrupted" {
-		t.Fatalf("state of %s after restart = %q, want interrupted", id, got)
+	if got := f.stateOf(t, id); got != "failed" {
+		t.Fatalf("state of %s after restart = %q, want failed", id, got)
 	}
 	if n := engineTextRows(t, f.dbPath, id); n != 0 {
 		t.Fatalf("session %s keeps %d unfinished text rows after restart", id, n)
 	}
-	if got := sessionReason(t, f.dbPath, id); got != restartedDuringTurnReason {
-		t.Fatalf("reason of %s = %q, want %q", id, got, restartedDuringTurnReason)
+	if got := sessionReason(t, f.dbPath, id); !strings.HasPrefix(got, "signal: killed") {
+		t.Fatalf("reason of %s = %q, want the drained exit, signal: killed", id, got)
 	}
 	wantExit(t, restarted.stop(t), 0)
 }

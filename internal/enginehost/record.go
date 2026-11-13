@@ -3,6 +3,7 @@ package enginehost
 import (
 	"encoding/json"
 	"errors"
+	"slices"
 	"strings"
 
 	"github.com/joshsymonds/orrery/internal/engine/session"
@@ -121,14 +122,14 @@ func (r *recorder) closeText(ev session.Block) (textKey, bool) {
 	return found, matched
 }
 
-// request returns the EngineRequest for a request, then, unless the session refused it, the waiting state with the
-// question the host must answer.
+// request returns the EngineRequest for a request, then, unless the session refused it or the host answered it before
+// the session was re-adopted, the waiting state with the question the host must answer.
 func (r *recorder) request(ev session.Request) []store.EngineOp {
 	req := store.EngineRequest{
 		ID: r.id, Kind: string(ev.Kind), RequestID: ev.RequestID, ToolUseID: ev.ToolUseID, ToolName: ev.ToolName,
 		Subtype: ev.Subtype, Input: string(ev.Input), Refused: ev.Refused,
 	}
-	if ev.Refused {
+	if ev.Refused || ev.Answered {
 		return []store.EngineOp{req}
 	}
 	waiting := string(protocol.StateWaiting)
@@ -167,7 +168,7 @@ func requestQuestion(ev session.Request) string {
 func eventNotice(event session.Event, reply string, interrupted bool) (state, body string, ok bool) {
 	switch ev := event.(type) {
 	case session.Request:
-		if ev.Refused {
+		if ev.Refused || ev.Answered {
 			return "", "", false
 		}
 		return string(protocol.StateWaiting), requestQuestion(ev), true
@@ -194,6 +195,37 @@ func mainText(event session.Event) (string, bool) {
 		return "", false
 	}
 	return block.Text, true
+}
+
+// consumedOf returns the EngineConsumed that stores the offset of line for session id, and whether line holds a
+// TurnEnded. The offset is the line's End. A line holding a TurnEnded also stores that End as the replay-from and the
+// turn's structured output, and a line holding BackgroundTasks stores whether its last report lists a task.
+func consumedOf(id string, line session.Line) (store.EngineConsumed, bool) {
+	consumed := store.EngineConsumed{ID: id, Consumed: line.End}
+	ended := false
+	for _, event := range line.Events {
+		switch ev := event.(type) {
+		case session.TurnEnded:
+			replayFrom := line.End
+			output := string(ev.StructuredOutput)
+			consumed.ReplayFrom = &replayFrom
+			consumed.Output = &output
+			ended = true
+		case session.BackgroundTasks:
+			background := len(ev.Tasks) > 0
+			consumed.Background = &background
+		}
+	}
+	return consumed, ended
+}
+
+// holdsExit reports whether line is the exit line the session sends when its process ends. It holds no stdout bytes,
+// so it stores no consumed offset.
+func holdsExit(line session.Line) bool {
+	return slices.ContainsFunc(line.Events, func(event session.Event) bool {
+		_, ok := event.(session.Exited)
+		return ok
+	})
 }
 
 // exitChanges is the state an exited session takes: stopped when it exited cleanly, else failed with the reason of

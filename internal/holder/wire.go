@@ -66,10 +66,11 @@ type Frame struct {
 	// Session names the holder's session. The holder's hello carries it.
 	Session string `json:"session,omitempty"`
 	// ReplayFrom is a stdout offset. attach carries the offset its out frames start at; ack carries the offset
-	// below which the controller needs no output again, so the holder may delete segments wholly below it.
+	// below which the controller needs no output again, so the holder may delete segments wholly below it; attached
+	// carries the spool's replay-from offset, the floor a re-attaching controller acks at or above.
 	ReplayFrom int64 `json:"replayFrom,omitempty"`
-	// Consumed is the stdout offset the controller has consumed. ack carries it. The holder reads the child's
-	// stdout no further than the cap above it.
+	// Consumed is the stdout offset the controller has consumed. ack carries it, and attached carries the spool's
+	// consumed offset. The holder reads the child's stdout no further than the cap above it.
 	Consumed int64 `json:"consumed,omitempty"`
 	// Start is the first stdout offset the spool still holds. attached carries it.
 	Start int64 `json:"start,omitempty"`
