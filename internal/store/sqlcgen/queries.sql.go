@@ -35,6 +35,17 @@ func (q *Queries) CountEnginePrompts(ctx context.Context, arg CountEnginePrompts
 	return count, err
 }
 
+const countEpic = `-- name: CountEpic :one
+SELECT COUNT(*) FROM epics WHERE id = ?
+`
+
+func (q *Queries) CountEpic(ctx context.Context, id string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countEpic, id)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countMemberGrants = `-- name: CountMemberGrants :one
 SELECT COUNT(*) FROM grant_members WHERE member = ?
 `
@@ -266,6 +277,52 @@ func (q *Queries) GetEngineSession(ctx context.Context, id string) (Session, err
 	return i, err
 }
 
+const getEpic = `-- name: GetEpic :one
+SELECT id, repository, title, approved, intent, care, approach, release_then, checks, phase, created, changed FROM epics WHERE id = ?
+`
+
+func (q *Queries) GetEpic(ctx context.Context, id string) (Epic, error) {
+	row := q.db.QueryRowContext(ctx, getEpic, id)
+	var i Epic
+	err := row.Scan(
+		&i.ID,
+		&i.Repository,
+		&i.Title,
+		&i.Approved,
+		&i.Intent,
+		&i.Care,
+		&i.Approach,
+		&i.ReleaseThen,
+		&i.Checks,
+		&i.Phase,
+		&i.Created,
+		&i.Changed,
+	)
+	return i, err
+}
+
+const getEpicDecisionByClientID = `-- name: GetEpicDecisionByClientID :one
+SELECT epic, seq, client_id, text, time FROM epic_decisions WHERE epic = ? AND client_id = ?
+`
+
+type GetEpicDecisionByClientIDParams struct {
+	Epic     string
+	ClientID string
+}
+
+func (q *Queries) GetEpicDecisionByClientID(ctx context.Context, arg GetEpicDecisionByClientIDParams) (EpicDecision, error) {
+	row := q.db.QueryRowContext(ctx, getEpicDecisionByClientID, arg.Epic, arg.ClientID)
+	var i EpicDecision
+	err := row.Scan(
+		&i.Epic,
+		&i.Seq,
+		&i.ClientID,
+		&i.Text,
+		&i.Time,
+	)
+	return i, err
+}
+
 const getNoticeIDFloor = `-- name: GetNoticeIDFloor :one
 SELECT high FROM pending_notice_ids WHERE id = 1
 `
@@ -379,6 +436,226 @@ func (q *Queries) InsertEngineSession(ctx context.Context, arg InsertEngineSessi
 		arg.Dir,
 		arg.State,
 		arg.Changed,
+	)
+	return err
+}
+
+const insertEpic = `-- name: InsertEpic :exec
+INSERT INTO epics (id, repository, title, approved, intent, care, approach, release_then, checks, phase, created, changed)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+`
+
+type InsertEpicParams struct {
+	ID          string
+	Repository  string
+	Title       string
+	Approved    string
+	Intent      string
+	Care        string
+	Approach    string
+	ReleaseThen string
+	Checks      string
+	Phase       string
+	Created     int64
+	Changed     int64
+}
+
+func (q *Queries) InsertEpic(ctx context.Context, arg InsertEpicParams) error {
+	_, err := q.db.ExecContext(ctx, insertEpic,
+		arg.ID,
+		arg.Repository,
+		arg.Title,
+		arg.Approved,
+		arg.Intent,
+		arg.Care,
+		arg.Approach,
+		arg.ReleaseThen,
+		arg.Checks,
+		arg.Phase,
+		arg.Created,
+		arg.Changed,
+	)
+	return err
+}
+
+const insertEpicAddition = `-- name: InsertEpicAddition :exec
+INSERT INTO epic_additions (epic, position, location, what, why, cost) VALUES (?, ?, ?, ?, ?, ?)
+`
+
+type InsertEpicAdditionParams struct {
+	Epic     string
+	Position int64
+	Location string
+	What     string
+	Why      string
+	Cost     string
+}
+
+func (q *Queries) InsertEpicAddition(ctx context.Context, arg InsertEpicAdditionParams) error {
+	_, err := q.db.ExecContext(ctx, insertEpicAddition,
+		arg.Epic,
+		arg.Position,
+		arg.Location,
+		arg.What,
+		arg.Why,
+		arg.Cost,
+	)
+	return err
+}
+
+const insertEpicAlternative = `-- name: InsertEpicAlternative :exec
+INSERT INTO epic_alternatives (epic, position, alternative, why_not, reconsider) VALUES (?, ?, ?, ?, ?)
+`
+
+type InsertEpicAlternativeParams struct {
+	Epic        string
+	Position    int64
+	Alternative string
+	WhyNot      string
+	Reconsider  string
+}
+
+func (q *Queries) InsertEpicAlternative(ctx context.Context, arg InsertEpicAlternativeParams) error {
+	_, err := q.db.ExecContext(ctx, insertEpicAlternative,
+		arg.Epic,
+		arg.Position,
+		arg.Alternative,
+		arg.WhyNot,
+		arg.Reconsider,
+	)
+	return err
+}
+
+const insertEpicDecision = `-- name: InsertEpicDecision :exec
+INSERT INTO epic_decisions (epic, seq, client_id, text, time) VALUES (?, ?, ?, ?, ?)
+`
+
+type InsertEpicDecisionParams struct {
+	Epic     string
+	Seq      int64
+	ClientID string
+	Text     string
+	Time     int64
+}
+
+func (q *Queries) InsertEpicDecision(ctx context.Context, arg InsertEpicDecisionParams) error {
+	_, err := q.db.ExecContext(ctx, insertEpicDecision,
+		arg.Epic,
+		arg.Seq,
+		arg.ClientID,
+		arg.Text,
+		arg.Time,
+	)
+	return err
+}
+
+const insertEpicExclusion = `-- name: InsertEpicExclusion :exec
+INSERT INTO epic_exclusions (epic, position, text) VALUES (?, ?, ?)
+`
+
+type InsertEpicExclusionParams struct {
+	Epic     string
+	Position int64
+	Text     string
+}
+
+func (q *Queries) InsertEpicExclusion(ctx context.Context, arg InsertEpicExclusionParams) error {
+	_, err := q.db.ExecContext(ctx, insertEpicExclusion, arg.Epic, arg.Position, arg.Text)
+	return err
+}
+
+const insertEpicFailure = `-- name: InsertEpicFailure :exec
+INSERT INTO epic_failures (epic, position, id, text, rating, response) VALUES (?, ?, ?, ?, ?, ?)
+`
+
+type InsertEpicFailureParams struct {
+	Epic     string
+	Position int64
+	ID       string
+	Text     string
+	Rating   string
+	Response string
+}
+
+func (q *Queries) InsertEpicFailure(ctx context.Context, arg InsertEpicFailureParams) error {
+	_, err := q.db.ExecContext(ctx, insertEpicFailure,
+		arg.Epic,
+		arg.Position,
+		arg.ID,
+		arg.Text,
+		arg.Rating,
+		arg.Response,
+	)
+	return err
+}
+
+const insertEpicPremise = `-- name: InsertEpicPremise :exec
+INSERT INTO epic_premises (epic, position, id, text, if_wrong) VALUES (?, ?, ?, ?, ?)
+`
+
+type InsertEpicPremiseParams struct {
+	Epic     string
+	Position int64
+	ID       string
+	Text     string
+	IfWrong  string
+}
+
+func (q *Queries) InsertEpicPremise(ctx context.Context, arg InsertEpicPremiseParams) error {
+	_, err := q.db.ExecContext(ctx, insertEpicPremise,
+		arg.Epic,
+		arg.Position,
+		arg.ID,
+		arg.Text,
+		arg.IfWrong,
+	)
+	return err
+}
+
+const insertEpicReleaseStep = `-- name: InsertEpicReleaseStep :exec
+INSERT INTO epic_release_steps (epic, position, step, target, undo) VALUES (?, ?, ?, ?, ?)
+`
+
+type InsertEpicReleaseStepParams struct {
+	Epic     string
+	Position int64
+	Step     string
+	Target   string
+	Undo     string
+}
+
+func (q *Queries) InsertEpicReleaseStep(ctx context.Context, arg InsertEpicReleaseStepParams) error {
+	_, err := q.db.ExecContext(ctx, insertEpicReleaseStep,
+		arg.Epic,
+		arg.Position,
+		arg.Step,
+		arg.Target,
+		arg.Undo,
+	)
+	return err
+}
+
+const insertEpicRequirement = `-- name: InsertEpicRequirement :exec
+INSERT INTO epic_requirements (epic, position, id, text, evidence, kind) VALUES (?, ?, ?, ?, ?, ?)
+`
+
+type InsertEpicRequirementParams struct {
+	Epic     string
+	Position int64
+	ID       string
+	Text     string
+	Evidence string
+	Kind     string
+}
+
+func (q *Queries) InsertEpicRequirement(ctx context.Context, arg InsertEpicRequirementParams) error {
+	_, err := q.db.ExecContext(ctx, insertEpicRequirement,
+		arg.Epic,
+		arg.Position,
+		arg.ID,
+		arg.Text,
+		arg.Evidence,
+		arg.Kind,
 	)
 	return err
 }
@@ -635,6 +912,307 @@ func (q *Queries) ListEngineText(ctx context.Context, sessionID string) ([]Engin
 			&i.ParentToolUseID,
 			&i.Kind,
 			&i.Text,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listEpicAdditions = `-- name: ListEpicAdditions :many
+SELECT epic, position, location, what, why, cost FROM epic_additions WHERE epic = ? ORDER BY position
+`
+
+func (q *Queries) ListEpicAdditions(ctx context.Context, epic string) ([]EpicAddition, error) {
+	rows, err := q.db.QueryContext(ctx, listEpicAdditions, epic)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []EpicAddition
+	for rows.Next() {
+		var i EpicAddition
+		if err := rows.Scan(
+			&i.Epic,
+			&i.Position,
+			&i.Location,
+			&i.What,
+			&i.Why,
+			&i.Cost,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listEpicAlternatives = `-- name: ListEpicAlternatives :many
+SELECT epic, position, alternative, why_not, reconsider FROM epic_alternatives WHERE epic = ? ORDER BY position
+`
+
+func (q *Queries) ListEpicAlternatives(ctx context.Context, epic string) ([]EpicAlternative, error) {
+	rows, err := q.db.QueryContext(ctx, listEpicAlternatives, epic)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []EpicAlternative
+	for rows.Next() {
+		var i EpicAlternative
+		if err := rows.Scan(
+			&i.Epic,
+			&i.Position,
+			&i.Alternative,
+			&i.WhyNot,
+			&i.Reconsider,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listEpicDecisions = `-- name: ListEpicDecisions :many
+SELECT epic, seq, client_id, text, time FROM epic_decisions WHERE epic = ? ORDER BY seq
+`
+
+func (q *Queries) ListEpicDecisions(ctx context.Context, epic string) ([]EpicDecision, error) {
+	rows, err := q.db.QueryContext(ctx, listEpicDecisions, epic)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []EpicDecision
+	for rows.Next() {
+		var i EpicDecision
+		if err := rows.Scan(
+			&i.Epic,
+			&i.Seq,
+			&i.ClientID,
+			&i.Text,
+			&i.Time,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listEpicExclusions = `-- name: ListEpicExclusions :many
+SELECT epic, position, text FROM epic_exclusions WHERE epic = ? ORDER BY position
+`
+
+func (q *Queries) ListEpicExclusions(ctx context.Context, epic string) ([]EpicExclusion, error) {
+	rows, err := q.db.QueryContext(ctx, listEpicExclusions, epic)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []EpicExclusion
+	for rows.Next() {
+		var i EpicExclusion
+		if err := rows.Scan(&i.Epic, &i.Position, &i.Text); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listEpicFailures = `-- name: ListEpicFailures :many
+SELECT epic, position, id, text, rating, response FROM epic_failures WHERE epic = ? ORDER BY position
+`
+
+func (q *Queries) ListEpicFailures(ctx context.Context, epic string) ([]EpicFailure, error) {
+	rows, err := q.db.QueryContext(ctx, listEpicFailures, epic)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []EpicFailure
+	for rows.Next() {
+		var i EpicFailure
+		if err := rows.Scan(
+			&i.Epic,
+			&i.Position,
+			&i.ID,
+			&i.Text,
+			&i.Rating,
+			&i.Response,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listEpicPremises = `-- name: ListEpicPremises :many
+SELECT epic, position, id, text, if_wrong FROM epic_premises WHERE epic = ? ORDER BY position
+`
+
+func (q *Queries) ListEpicPremises(ctx context.Context, epic string) ([]EpicPremise, error) {
+	rows, err := q.db.QueryContext(ctx, listEpicPremises, epic)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []EpicPremise
+	for rows.Next() {
+		var i EpicPremise
+		if err := rows.Scan(
+			&i.Epic,
+			&i.Position,
+			&i.ID,
+			&i.Text,
+			&i.IfWrong,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listEpicReleaseSteps = `-- name: ListEpicReleaseSteps :many
+SELECT epic, position, step, target, undo FROM epic_release_steps WHERE epic = ? ORDER BY position
+`
+
+func (q *Queries) ListEpicReleaseSteps(ctx context.Context, epic string) ([]EpicReleaseStep, error) {
+	rows, err := q.db.QueryContext(ctx, listEpicReleaseSteps, epic)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []EpicReleaseStep
+	for rows.Next() {
+		var i EpicReleaseStep
+		if err := rows.Scan(
+			&i.Epic,
+			&i.Position,
+			&i.Step,
+			&i.Target,
+			&i.Undo,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listEpicRequirements = `-- name: ListEpicRequirements :many
+SELECT epic, position, id, text, evidence, kind FROM epic_requirements WHERE epic = ? ORDER BY position
+`
+
+func (q *Queries) ListEpicRequirements(ctx context.Context, epic string) ([]EpicRequirement, error) {
+	rows, err := q.db.QueryContext(ctx, listEpicRequirements, epic)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []EpicRequirement
+	for rows.Next() {
+		var i EpicRequirement
+		if err := rows.Scan(
+			&i.Epic,
+			&i.Position,
+			&i.ID,
+			&i.Text,
+			&i.Evidence,
+			&i.Kind,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listEpics = `-- name: ListEpics :many
+SELECT id, repository, title, approved, intent, care, approach, release_then, checks, phase, created, changed FROM epics ORDER BY id
+`
+
+func (q *Queries) ListEpics(ctx context.Context) ([]Epic, error) {
+	rows, err := q.db.QueryContext(ctx, listEpics)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Epic
+	for rows.Next() {
+		var i Epic
+		if err := rows.Scan(
+			&i.ID,
+			&i.Repository,
+			&i.Title,
+			&i.Approved,
+			&i.Intent,
+			&i.Care,
+			&i.Approach,
+			&i.ReleaseThen,
+			&i.Checks,
+			&i.Phase,
+			&i.Created,
+			&i.Changed,
 		); err != nil {
 			return nil, err
 		}
@@ -1190,6 +1768,17 @@ func (q *Queries) ListUnfinishedEngineText(ctx context.Context) ([]EngineText, e
 	return items, nil
 }
 
+const maxEpicDecisionSeq = `-- name: MaxEpicDecisionSeq :one
+SELECT CAST(COALESCE(MAX(seq), 0) AS INTEGER) FROM epic_decisions WHERE epic = ?
+`
+
+func (q *Queries) MaxEpicDecisionSeq(ctx context.Context, epic string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, maxEpicDecisionSeq, epic)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const newestEventSeq = `-- name: NewestEventSeq :one
 SELECT CAST(COALESCE(MAX(seq), 0) AS INTEGER) AS seq FROM events
 `
@@ -1301,6 +1890,20 @@ func (q *Queries) UpdateEngineSession(ctx context.Context, arg UpdateEngineSessi
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const updateEpicChanged = `-- name: UpdateEpicChanged :exec
+UPDATE epics SET changed = ? WHERE id = ?
+`
+
+type UpdateEpicChangedParams struct {
+	Changed int64
+	ID      string
+}
+
+func (q *Queries) UpdateEpicChanged(ctx context.Context, arg UpdateEpicChangedParams) error {
+	_, err := q.db.ExecContext(ctx, updateEpicChanged, arg.Changed, arg.ID)
+	return err
 }
 
 const updateSessionFields = `-- name: UpdateSessionFields :exec
