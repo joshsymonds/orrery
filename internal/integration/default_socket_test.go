@@ -19,7 +19,8 @@ import (
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
 )
 
-// defaultRowLimit bounds how long a pane on the default socket may take to gain its row after orreryd listens.
+// defaultRowLimit bounds how long a pane on the default socket may take to gain its row after orreryd logs that its
+// store is open. The first tidy follows that line; the store open before it applies every migration and has no bound.
 const defaultRowLimit = 5 * time.Second
 
 // defaultSocketEnv returns the environment for tmux and orreryd run without -L or -S. It is the test's environment
@@ -118,8 +119,8 @@ func newDefaultFixture(t *testing.T) *defaultFixture {
 	return f
 }
 
-// startDaemon starts orreryd with no -L or -S, on the default socket, and waits for its socket to listen.
-func (f *defaultFixture) startDaemon(t *testing.T) {
+// startDaemon starts orreryd with no -L or -S, on the default socket, waits for its socket to listen, and returns it.
+func (f *defaultFixture) startDaemon(t *testing.T) *orreryProcess {
 	t.Helper()
 	claude := filepath.Join(f.dir, "fake-claude.sh")
 	writeFile(t, claude, fakeClaudeScript, 0o700)
@@ -127,6 +128,7 @@ func (f *defaultFixture) startDaemon(t *testing.T) {
 	daemon := startBinary(t, "orreryd", env,
 		"--socket", f.daemonSocket, "--claude", claude, "--summary-model", exampleContextName+"="+exampleModel)
 	daemon.waitForListener(t, "unix", f.daemonSocket)
+	return daemon
 }
 
 // hook runs orrery hook for a UserPromptSubmit in the fixture's pane, with $TMUX naming the default socket as a
@@ -147,11 +149,13 @@ func (f *defaultFixture) hook(t *testing.T) {
 	wantExit(t, runCommand(t, f.project, "orrery", string(payload), env, "--socket", f.daemonSocket, "hook"), 0)
 }
 
-// waitForStartupRow polls until the fixture's pane has an @orrery_id and the store row that ID names is on the
-// default socket, failing the test after defaultRowLimit. It returns the store, the ID and the row. The store is
-// opened once the ID exists: the daemon opens it before the tidy that mints the ID.
-func (f *defaultFixture) waitForStartupRow(t *testing.T) (*sql.DB, string, sqlcgen.Session) {
+// waitForStartupRow waits for daemon to log that its store is open, then polls until the fixture's pane has an
+// @orrery_id and the store row that ID names is on the default socket, failing the test defaultRowLimit after that
+// line. It returns the store, the ID and the row. The store is opened once the ID exists: the daemon opens it before
+// the tidy that mints the ID.
+func (f *defaultFixture) waitForStartupRow(t *testing.T, daemon *orreryProcess) (*sql.DB, string, sqlcgen.Session) {
 	t.Helper()
+	daemon.waitForLog(t, storeOpenLog)
 	ctx, cancel := context.WithTimeout(t.Context(), defaultRowLimit)
 	defer cancel()
 	ticker := time.NewTicker(pollEvery)
@@ -210,9 +214,9 @@ func waitForState(t *testing.T, db *sql.DB, id string, want protocol.State) sqlc
 
 func TestDefaultSocketStartupRow(t *testing.T) {
 	f := newDefaultFixture(t)
-	f.startDaemon(t)
+	daemon := f.startDaemon(t)
 
-	_, _, row := f.waitForStartupRow(t)
+	_, _, row := f.waitForStartupRow(t, daemon)
 	if row.Pane != f.pane {
 		t.Fatalf("row pane = %q, want %q", row.Pane, f.pane)
 	}
@@ -220,8 +224,8 @@ func TestDefaultSocketStartupRow(t *testing.T) {
 
 func TestDefaultSocketOneRow(t *testing.T) {
 	f := newDefaultFixture(t)
-	f.startDaemon(t)
-	db, id, _ := f.waitForStartupRow(t)
+	daemon := f.startDaemon(t)
+	db, id, _ := f.waitForStartupRow(t, daemon)
 
 	f.hook(t)
 	waitForState(t, db, id, protocol.StateWorking)
