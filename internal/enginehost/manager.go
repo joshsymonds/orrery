@@ -694,7 +694,7 @@ func (m *Manager) engineRow(ctx context.Context, id string) (store.EngineRow, er
 // events. The caller holds the slot from reserve or reserveStep. A process that starts after the manager closed is
 // stopped, and the error reports the close. An error that returns here leaves nothing registered.
 func (m *Manager) spawnLive(ctx context.Context, id, dir string, sp spawnSpec) (*liveSession, error) {
-	sess, err := m.spawn(id, dir, sp)
+	sess, err := m.spawn(ctx, id, dir, sp)
 	if err != nil {
 		return nil, err
 	}
@@ -972,10 +972,10 @@ type spawnSpec struct {
 	observer      StepObserver
 }
 
-// spawn resolves claude and starts the session process for id in dir as sp describes. The prompt is not sent here. The
-// process takes the context stamp in effect for dir as its settings, and a stamp that cannot be read fails the spawn
-// before claude runs.
-func (m *Manager) spawn(id, dir string, sp spawnSpec) (*session.Session, error) {
+// spawn resolves claude and starts the session process for id in dir as sp describes, ctx bounding its launch. The
+// prompt is not sent here. The process takes the context stamp in effect for dir as its settings, and a stamp that cannot
+// be read fails the spawn before claude runs.
+func (m *Manager) spawn(ctx context.Context, id, dir string, sp spawnSpec) (*session.Session, error) {
 	claude, err := exec.LookPath(m.claude)
 	if err != nil {
 		return nil, fmt.Errorf("find claude: %w", err)
@@ -984,7 +984,7 @@ func (m *Manager) spawn(id, dir string, sp spawnSpec) (*session.Session, error) 
 	if err != nil {
 		return nil, fmt.Errorf("spawn session %s: %w", id, err)
 	}
-	sess, err := session.Start(session.Config{
+	sess, err := session.Start(ctx, session.Config{
 		Shell:          m.shell,
 		Claude:         claude,
 		Dir:            dir,

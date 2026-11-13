@@ -75,7 +75,7 @@ func startConfig(t *testing.T, claude, dir string) Config {
 // startRealSession starts a session for cfg and stops it when the test ends.
 func startRealSession(t *testing.T, cfg Config) *Session {
 	t.Helper()
-	s, err := Start(cfg)
+	s, err := Start(t.Context(), cfg)
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -202,7 +202,7 @@ func TestStartInvalidConfigReturnsCommandError(t *testing.T) {
 		t.Fatal("Command accepted a config without a permission mode")
 	}
 
-	s, err := Start(cfg)
+	s, err := Start(t.Context(), cfg)
 	if s != nil {
 		t.Errorf("Start returned a session for an invalid config")
 		if stopErr := s.Stop(); stopErr != nil {
