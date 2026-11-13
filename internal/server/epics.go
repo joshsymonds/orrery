@@ -23,16 +23,30 @@ const epicNotFound = "epic not found"
 // epicsFailed is the fixed message for an epics read that fails for an unexpected reason.
 const epicsFailed = "epics read failed"
 
-// epicsServer answers orrery.v1.Epics from the records under root and the labeled steps of steps. A nil steps answers
-// unavailable.
+// epicStoreUnavailable is the fixed message for an epic store read that fails, other than an older orreryd's
+// unimplemented answer or a Get's not_found.
+const epicStoreUnavailable = "epic store unavailable"
+
+// epicSourceRecord and epicSourceOrreryd are the Epic.source of an epic read from the records only and of an epic that
+// orreryd's database holds.
+const (
+	epicSourceRecord  = "record"
+	epicSourceOrreryd = "orreryd"
+)
+
+// epicsServer answers orrery.v1.Epics from the records under root, the epics store holds, and the labeled steps of
+// steps. A nil steps answers unavailable. A nil store lists no database epics.
 type epicsServer struct {
 	root    string
 	steps   StepClient
+	store   EpicStoreClient
 	timeout time.Duration
 	now     func() time.Time
 }
 
-// List answers every epic under the record root, live or folded, sorted by id. It asks ListSteps once.
+// List answers every epic under the record root and every epic orreryd's database holds, live or folded, sorted by id.
+// An epic in both is answered once, with the database's fields and the record's problem. It asks ListEpics and ListSteps
+// once each.
 func (e epicsServer) List(
 	ctx context.Context,
 	_ *connect.Request[orreryv1.EpicsListRequest],
@@ -41,56 +55,94 @@ func (e epicsServer) List(
 	if err != nil {
 		return nil, listError(connect.CodeInternal, epicsFailed)
 	}
+	stored, err := e.listStored(ctx)
+	if err != nil {
+		return nil, err
+	}
 	steps, err := e.listSteps(ctx, "")
 	if err != nil {
 		return nil, err
 	}
 	byEpic := stepsByEpic(steps)
 	now := e.now()
-	epics := make([]*orreryv1.Epic, 0, len(recs))
+	storedByID := make(map[string]*enginev1.EpicSummary, len(stored))
+	for _, summary := range stored {
+		storedByID[summary.GetId()] = summary
+	}
+	epics := make([]*orreryv1.Epic, 0, len(recs)+len(stored))
 	for _, rec := range recs {
 		_, taskProblems, readErr := readTasks(rec.Dir)
 		if readErr != nil {
 			return nil, listError(connect.CodeInternal, epicsFailed)
 		}
-		epics = append(epics, epicMessage(rec, taskProblems, byEpic[rec.ID], now))
+		summary, shared := storedByID[rec.ID]
+		if !shared {
+			epics = append(epics, epicMessage(rec, taskProblems, byEpic[rec.ID], now))
+			continue
+		}
+		epics = append(epics, storedEpicMessage(
+			rec.ID, summary.GetPhase(), summary.GetChanged(), recordProblems(rec, taskProblems), byEpic[rec.ID],
+		))
+		delete(storedByID, rec.ID)
 	}
+	for id, summary := range storedByID {
+		epics = append(epics, storedEpicMessage(id, summary.GetPhase(), summary.GetChanged(), nil, byEpic[id]))
+	}
+	sort.Slice(epics, func(i, j int) bool { return epics[i].GetId() < epics[j].GetId() })
 	return connect.NewResponse(&orreryv1.EpicsListResponse{Epics: epics}), nil
 }
 
-// Get answers one epic by the id List gave it, with its tasks, its labeled steps oldest first, and its slices. An id
-// the record root does not list answers not_found, and the id is never joined into a path.
+// Get answers one epic by the id List gave it, with its tasks, its labeled steps oldest first, and its slices. An epic
+// orreryd's database holds answers as List does, with its Requirements in contract order and the tasks of its record
+// when one exists. An id that neither the database nor the record root lists answers not_found, and the id is never
+// joined into a path.
 func (e epicsServer) Get(
 	ctx context.Context,
 	req *connect.Request[orreryv1.EpicsGetRequest],
 ) (*connect.Response[orreryv1.EpicsGetResponse], error) {
 	id := req.Msg.GetId()
+	stored, inStore, err := e.getStored(ctx, id)
+	if err != nil {
+		return nil, err
+	}
 	rec, found, err := findEpic(e.root, id)
 	if err != nil {
 		return nil, listError(connect.CodeInternal, epicsFailed)
 	}
-	if !found {
+	if !inStore && !found {
 		return nil, listError(connect.CodeNotFound, epicNotFound)
 	}
 	steps, err := e.listSteps(ctx, id)
 	if err != nil {
 		return nil, err
 	}
-	tasks, taskProblems, err := readTasks(rec.Dir)
-	if err != nil {
-		return nil, listError(connect.CodeInternal, epicsFailed)
+	var tasks []taskRecord
+	var taskProblems []string
+	if found {
+		tasks, taskProblems, err = readTasks(rec.Dir)
+		if err != nil {
+			return nil, listError(connect.CodeInternal, epicsFailed)
+		}
 	}
 	taskMessages, err := epicTaskMessages(tasks)
 	if err != nil {
 		return nil, listError(connect.CodeInternal, epicsFailed)
 	}
 	labeled := stepsByEpic(steps)[id]
-	return connect.NewResponse(&orreryv1.EpicsGetResponse{
-		Epic:   epicMessage(rec, taskProblems, labeled, e.now()),
+	resp := &orreryv1.EpicsGetResponse{
 		Tasks:  taskMessages,
 		Steps:  epicStepMessages(labeled),
 		Slices: epicSlices(labeled),
-	}), nil
+	}
+	if inStore {
+		resp.Epic = storedEpicMessage(
+			id, stored.GetPhase(), stored.GetChanged(), recordProblems(rec, taskProblems), labeled,
+		)
+		resp.Requirements = epicRequirementMessages(stored.GetContract().GetRequirements())
+	} else {
+		resp.Epic = epicMessage(rec, taskProblems, labeled, e.now())
+	}
+	return connect.NewResponse(resp), nil
 }
 
 // listSteps asks the step client for the labeled steps, narrowed to epic when epic is not empty. A nil client, or a
@@ -108,6 +160,43 @@ func (e epicsServer) listSteps(ctx context.Context, epic string) ([]*enginev1.St
 	return resp.Msg.GetSteps(), nil
 }
 
+// listStored asks the epic store for its epics. A nil store lists none, and so does a ListEpics that is unimplemented, as
+// an older orreryd answers. Any other failure answers unavailable. The call runs under the timeout.
+func (e epicsServer) listStored(ctx context.Context) ([]*enginev1.EpicSummary, error) {
+	if e.store == nil {
+		return nil, nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, e.timeout)
+	defer cancel()
+	resp, err := e.store.ListEpics(ctx, connect.NewRequest(&enginev1.ListEpicsRequest{}))
+	if err != nil {
+		if connect.CodeOf(err) == connect.CodeUnimplemented {
+			return nil, nil
+		}
+		return nil, listError(connect.CodeUnavailable, epicStoreUnavailable)
+	}
+	return resp.Msg.GetEpics(), nil
+}
+
+// getStored asks the epic store for the epic of id. It reports false, with no error, when there is no store or the store
+// answers not_found or unimplemented, so that the record answers. Any other failure answers unavailable. The call runs
+// under the timeout.
+func (e epicsServer) getStored(ctx context.Context, id string) (*enginev1.StoredEpic, bool, error) {
+	if e.store == nil {
+		return nil, false, nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, e.timeout)
+	defer cancel()
+	resp, err := e.store.GetEpic(ctx, connect.NewRequest(&enginev1.GetEpicRequest{Id: id}))
+	if err != nil {
+		if code := connect.CodeOf(err); code == connect.CodeNotFound || code == connect.CodeUnimplemented {
+			return nil, false, nil
+		}
+		return nil, false, listError(connect.CodeUnavailable, epicStoreUnavailable)
+	}
+	return resp.Msg.GetEpic(), true, nil
+}
+
 // stepsByEpic groups the labeled steps by their epic, each group oldest first. A step with no epic label belongs to no
 // epic and is left out.
 func stepsByEpic(steps []*enginev1.Step) map[string][]*enginev1.Step {
@@ -122,23 +211,10 @@ func stepsByEpic(steps []*enginev1.Step) map[string][]*enginev1.Step {
 	return byEpic
 }
 
-// epicMessage returns the Epic for rec. Its problem joins the head's problem and each unreadable effort's problem with
-// "; ". Its running steps are the labeled steps that have not ended, held ones included, and the rest count as ended.
+// epicMessage returns the Epic for rec, an epic the records alone hold. Its problem is recordProblems. Its running steps
+// are the labeled steps that have not ended, held ones included, and the rest count as ended.
 func epicMessage(rec epicRecord, taskProblems []string, labeled []*enginev1.Step, now time.Time) *orreryv1.Epic {
-	var problems []string
-	if rec.Problem != "" {
-		problems = append(problems, rec.Problem)
-	}
-	problems = append(problems, taskProblems...)
-	var running []*orreryv1.EpicStep
-	var ended int32
-	for _, step := range labeled {
-		if step.GetEnd() == "" {
-			running = append(running, epicStepMessage(step))
-		} else {
-			ended++
-		}
-	}
+	running, ended := epicSteps(labeled)
 	return &orreryv1.Epic{
 		Id:           rec.ID,
 		Repository:   rec.Repository,
@@ -148,8 +224,66 @@ func epicMessage(rec epicRecord, taskProblems []string, labeled []*enginev1.Step
 		Live:         epicLive(rec, now, len(running) > 0),
 		RunningSteps: running,
 		EndedSteps:   ended,
-		Problem:      strings.Join(problems, "; "),
+		Problem:      strings.Join(recordProblems(rec, taskProblems), "; "),
+		Source:       epicSourceRecord,
 	}
+}
+
+// storedEpicMessage returns the Epic of an epic orreryd's database holds: its outcome is the phase, its changed time is
+// the database's, and it is live unless the phase is released. Its problem joins problems, which are the record's when a
+// record of the id exists and none otherwise. Its steps are the labeled steps, as epicMessage's are.
+func storedEpicMessage(id, phase string, changed int64, problems []string, labeled []*enginev1.Step) *orreryv1.Epic {
+	running, ended := epicSteps(labeled)
+	repository, slug, _ := strings.Cut(id, "/")
+	return &orreryv1.Epic{
+		Id:           id,
+		Repository:   repository,
+		Slug:         slug,
+		Outcome:      phase,
+		Changed:      changed,
+		Live:         phase != "released",
+		RunningSteps: running,
+		EndedSteps:   ended,
+		Problem:      strings.Join(problems, "; "),
+		Source:       epicSourceOrreryd,
+	}
+}
+
+// recordProblems returns the problems of a record: its head's problem, then each unreadable effort's problem.
+func recordProblems(rec epicRecord, taskProblems []string) []string {
+	var problems []string
+	if rec.Problem != "" {
+		problems = append(problems, rec.Problem)
+	}
+	return append(problems, taskProblems...)
+}
+
+// epicSteps splits labeled into the running steps, which have not ended and include held ones, and a count of the rest.
+func epicSteps(labeled []*enginev1.Step) ([]*orreryv1.EpicStep, int32) {
+	var running []*orreryv1.EpicStep
+	var ended int32
+	for _, step := range labeled {
+		if step.GetEnd() == "" {
+			running = append(running, epicStepMessage(step))
+		} else {
+			ended++
+		}
+	}
+	return running, ended
+}
+
+// epicRequirementMessages converts each requirement of a contract to its EpicRequirement, in order.
+func epicRequirementMessages(requirements []*enginev1.EpicRequirement) []*orreryv1.EpicRequirement {
+	out := make([]*orreryv1.EpicRequirement, 0, len(requirements))
+	for _, req := range requirements {
+		out = append(out, &orreryv1.EpicRequirement{
+			Id:       req.GetId(),
+			Text:     req.GetText(),
+			Evidence: req.GetEvidence(),
+			Kind:     req.GetKind(),
+		})
+	}
+	return out
 }
 
 // epicStepMessages converts each step to its EpicStep, in order.
@@ -347,12 +481,13 @@ func epicTaskMessages(tasks []taskRecord) ([]*orreryv1.EpicTask, error) {
 	return out, nil
 }
 
-// newEpicsHandler returns the path and handler that serve Epics over the records under root and the labeled steps of
-// steps, reading at most maxControlBody bytes of each request. A zero timeout is defaultControlTimeout. now dates each
-// epic's liveness.
+// newEpicsHandler returns the path and handler that serve Epics over the records under root, the epics store holds, and
+// the labeled steps of steps, reading at most maxControlBody bytes of each request. A zero timeout is
+// defaultControlTimeout. now dates each record epic's liveness.
 func newEpicsHandler(
 	root string,
 	steps StepClient,
+	store EpicStoreClient,
 	timeout time.Duration,
 	now func() time.Time,
 ) (string, http.Handler) {
@@ -360,7 +495,7 @@ func newEpicsHandler(
 		timeout = defaultControlTimeout
 	}
 	return orreryv1connect.NewEpicsHandler(
-		epicsServer{root: root, steps: steps, timeout: timeout, now: now},
+		epicsServer{root: root, steps: steps, store: store, timeout: timeout, now: now},
 		connect.WithReadMaxBytes(maxControlBody),
 	)
 }

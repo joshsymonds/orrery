@@ -77,7 +77,7 @@ func (f *epicsFake) StopStep(
 // epicsServe serves newEpicsHandler over root and steps with the fixed clock, and returns a generated Epics client.
 func epicsServe(t *testing.T, root string, steps StepClient) orreryv1connect.EpicsClient {
 	t.Helper()
-	path, handler := newEpicsHandler(root, steps, 0, epicsNow)
+	path, handler := newEpicsHandler(root, steps, nil, 0, epicsNow)
 	mux := http.NewServeMux()
 	mux.Handle(path, handler)
 	srv := httptest.NewServer(mux)
