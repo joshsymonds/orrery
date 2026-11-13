@@ -2334,6 +2334,32 @@ test("the send button calls Steps.Nudge once with the step's id and text, and a 
     assert.equal(fake.callsTo(nudgePath).length, 1, "the nudge was sent once");
   }));
 
+test("a nudge on the cursor's step calls Steps.Nudge with that step's id, not the first step visited", () =>
+  withApp({ epics: oneEpic() }, async (container, fake) => {
+    await onStepOne(container, fake);
+    await press("j");
+    assert.equal(cursorKey(container), "step:s2");
+    await press("i");
+    await typeInto(composer(container), "on two");
+    await pressIn(composer(container), "Enter");
+    await until(() => fake.callsTo(nudgePath).length === 1, "the nudge on s2");
+    assert.deepEqual(fake.callsTo(nudgePath)[0].body, { id: "s2", text: "on two" });
+    await until(() => composer(container).value === "", "the landed draft cleared");
+    await typeInto(composer(container), "again on two");
+    await clickIn(sendButton(container));
+    await until(() => fake.callsTo(nudgePath).length === 2, "the nudge on s2 by the send button");
+    assert.deepEqual(fake.callsTo(nudgePath)[1].body, { id: "s2", text: "again on two" });
+    await until(() => composer(container).value === "", "the second landed draft cleared");
+    await pressIn(composer(container), "Escape");
+    await press("k");
+    assert.equal(cursorKey(container), "step:s1");
+    await press("i");
+    await typeInto(composer(container), "back on one");
+    await pressIn(composer(container), "Enter");
+    await until(() => fake.callsTo(nudgePath).length === 3, "the nudge on s1");
+    assert.deepEqual(fake.callsTo(nudgePath)[2].body, { id: "s1", text: "back on one" });
+  }));
+
 test("a refused nudge keeps the step's draft and shows the refusal", () =>
   withApp({ epics: oneEpic() }, async (container, fake) => {
     fake.refuseNext.set(nudgePath, refusedNudgeText);
