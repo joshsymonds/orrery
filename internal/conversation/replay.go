@@ -31,8 +31,8 @@ type QueueReplay struct {
 	Other int
 	// Falsified is the number of closes that a later line contradicts.
 	Falsified int
-	// OpenAtTurnEndDelivered is the number of rows open after a turn end whose text later arrives as a user line.
-	OpenAtTurnEndDelivered int
+	// IdleHidden is the number of rows that the idle rule could drop and that later lines show were still queued.
+	IdleHidden int
 	// NoticesTyped is the number of rejected enqueues whose text later arrives as a typed user line.
 	NoticesTyped int
 }
@@ -50,7 +50,7 @@ func (r QueueReplay) Write(writer io.Writer) error {
 		{"never_taken_after", r.NeverTakenAfter},
 		{"other", r.Other},
 		{"falsified", r.Falsified},
-		{"open_at_turn_end_delivered", r.OpenAtTurnEndDelivered},
+		{"idle_hidden", r.IdleHidden},
 		{"notices_typed", r.NoticesTyped},
 	}
 	for _, count := range counts {
@@ -191,7 +191,7 @@ const (
 )
 
 // closeKind is what took a row out of the queue. A remove or popAll, or a user line whose text equals the row's, is
-// exact. A typed line whose text contains the row's is containing. A turn end is turn end.
+// exact. A user line whose text differs from the row's contains it. A turn end is turn end.
 type closeKind int
 
 const (
@@ -208,14 +208,13 @@ type closeWatch struct {
 	assistants int
 }
 
-// replayRow is what the replay knows of one row. It is armed at the first turn end at which it is open, until an
-// enqueue of its text ends that; armedAt is the count of assistant lines that had come by then.
+// replayRow is what the replay knows of one row. watched is set once the idle rule could drop the row, so that the row
+// is watched once.
 type replayRow struct {
 	text     string
 	enqueued time.Time
 	closed   bool
-	armed    bool
-	armedAt  int
+	watched  bool
 }
 
 // replayFile replays one transcript. It holds the queue that the queue rule builds from the transcript's lines, and the
@@ -225,7 +224,7 @@ type replayFile struct {
 	cutoff     time.Time
 	out        *QueueReplay
 	rows       map[int]*replayRow      // the rows in the queue, by seq
-	armed      map[string][]*replayRow // armed rows that no user line of their text has counted yet, by text
+	idle       map[string][]int        // idle watches by text, each the count of assistant lines when it started
 	watches    map[string][]closeWatch // closes that the falsifier still checks, by text
 	notices    map[string]int          // rejected enqueues that no typed user line has matched yet, by text
 	dequeues   int
@@ -238,7 +237,7 @@ func newReplayFile(cutoff time.Time, out *QueueReplay) *replayFile {
 		cutoff:  cutoff,
 		out:     out,
 		rows:    map[int]*replayRow{},
-		armed:   map[string][]*replayRow{},
+		idle:    map[string][]int{},
 		watches: map[string][]closeWatch{},
 		notices: map[string]int{},
 	}
@@ -255,8 +254,8 @@ func (f *replayFile) feed(line []byte) {
 	f.observe(entry, prior)
 }
 
-// observe runs the checks that a parsed line makes, records the rows that it changed, and arms the open rows at a turn
-// end. The checks run first, so a close made by this line is not checked against this line.
+// observe runs the checks that a parsed line makes and records the rows that it changed. The checks run first, so a
+// close made by this line is not checked against this line, and the rows that this line leaves open are watched last.
 func (f *replayFile) observe(entry queueLine, prior []queueRow) {
 	var text string
 	switch entry.Type {
@@ -269,13 +268,12 @@ func (f *replayFile) observe(entry queueLine, prior []queueRow) {
 		f.assistants++
 	}
 	f.changes(entry, text, prior)
-	if entry.Type == systemType && entry.Subtype == turnDurationSubtype {
-		f.arm()
-	}
+	f.watchIdle()
 }
 
 // operation runs the checks that a queue record makes. An enqueue ends the checks on its text, a remove or popAll
-// falsifies the closes of its text, and a dequeue is counted.
+// falsifies the closes of its text and counts the idle watches of its text, unless the remove cancels, and a dequeue
+// is counted.
 func (f *replayFile) operation(entry queueLine) {
 	switch entry.Operation {
 	case "enqueue":
@@ -283,33 +281,37 @@ func (f *replayFile) operation(entry queueLine) {
 		if fromOthers(entry.Content) {
 			f.notices[entry.Content]++
 		}
-	case "remove", "popAll":
+	case "remove":
 		f.out.Falsified += len(f.watches[entry.Content])
 		delete(f.watches, entry.Content)
+		if entry.Reason != "cleared_on_cancel" {
+			f.countIdle(entry.Content)
+		}
+	case "popAll":
+		f.out.Falsified += len(f.watches[entry.Content])
+		delete(f.watches, entry.Content)
+		f.countIdle(entry.Content)
 	case "dequeue":
 		f.dequeues++
 	}
 }
 
 // user runs the checks that a user line makes. It falsifies the closes of its text that a dequeue and an assistant line
-// came between, counts the armed rows of its text that an assistant line came after, and, when the line is typed,
+// came between, counts the idle watches of its text that an assistant line came after, and, when the line is typed,
 // counts the rejected enqueues of its text.
 func (f *replayFile) user(entry queueLine, text string) {
 	f.falsifyDelivered(text)
-	f.deliver(text)
+	f.countIdle(text)
 	if typedLine(entry.transcriptLine) {
 		f.out.NoticesTyped += f.notices[text]
 		delete(f.notices, text)
 	}
 }
 
-// endChecks ends the checks on text, because an enqueue of it has come.
+// endChecks ends the checks on text, because an enqueue of it has come. The idle watches of text end uncounted.
 func (f *replayFile) endChecks(text string) {
 	delete(f.watches, text)
-	for _, row := range f.armed[text] {
-		row.armed = false
-	}
-	delete(f.armed, text)
+	delete(f.idle, text)
 }
 
 // falsifyDelivered counts each containing or turn-end close of text that a dequeue came after and an assistant line
@@ -331,23 +333,22 @@ func (f *replayFile) falsifyDelivered(text string) {
 	f.watches[text] = kept
 }
 
-// deliver counts each armed row of text that an assistant line came after its turn end, and drops it from the armed
-// list so that it counts once.
-func (f *replayFile) deliver(text string) {
-	rows := f.armed[text]
-	kept := rows[:0]
-	for _, row := range rows {
-		if f.assistants > row.armedAt {
-			f.out.OpenAtTurnEndDelivered++
+// countIdle counts each idle watch of text that an assistant line came after, and drops it so that it counts once.
+func (f *replayFile) countIdle(text string) {
+	watches := f.idle[text]
+	kept := watches[:0]
+	for _, assistants := range watches {
+		if f.assistants > assistants {
+			f.out.IdleHidden++
 			continue
 		}
-		kept = append(kept, row)
+		kept = append(kept, assistants)
 	}
 	if len(kept) == 0 {
-		delete(f.armed, text)
+		delete(f.idle, text)
 		return
 	}
-	f.armed[text] = kept
+	f.idle[text] = kept
 }
 
 // changes applies what the line did to the rows. A row that left the queue is closed, unless a cancel closed it
@@ -393,28 +394,28 @@ func (f *replayFile) closeRow(rr *replayRow, kind closeKind) {
 }
 
 // departureKind returns the kind of close that took a row with rowText out of the queue on the line entry, whose user
-// text is text. A turn end is turn end, a typed line whose text differs from the row's contains it, and anything else
-// is exact.
+// text is text. A turn end is turn end, a user line whose text differs from the row's contains it, typed or not, and
+// anything else is exact.
 func departureKind(entry queueLine, text, rowText string) closeKind {
 	switch {
 	case entry.Type == systemType:
 		return closeTurnEnd
-	case entry.Type == userType && typedLine(entry.transcriptLine) && text != rowText:
+	case entry.Type == userType && text != rowText:
 		return closeContaining
 	}
 	return closeExact
 }
 
-// arm marks each row open after this turn end as armed. A row that is already armed keeps its earlier mark.
-func (f *replayFile) arm() {
+// watchIdle watches each open row that the idle rule could drop, once, from the count of assistant lines that have
+// come by now.
+func (f *replayFile) watchIdle() {
 	for _, row := range f.queue.rows {
 		rr := f.rows[row.seq]
-		if row.canceled || rr.armed {
+		if rr.watched || !f.queue.idleDrops(row) {
 			continue
 		}
-		rr.armed = true
-		rr.armedAt = f.assistants
-		f.armed[rr.text] = append(f.armed[rr.text], rr)
+		rr.watched = true
+		f.idle[rr.text] = append(f.idle[rr.text], f.assistants)
 	}
 }
 
