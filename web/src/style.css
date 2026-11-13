@@ -308,6 +308,31 @@ button, input, textarea, select { font-family: var(--mono); }
 .epic-view .tick { stroke: var(--surface1); stroke-width: 1; }
 .epic-view .tick.major { stroke: var(--overlay0); }
 .epic-view .tick-number { fill: var(--overlay0); font-size: 8.5px; }
+.epic-view .wash { fill: color-mix(in srgb, var(--mauve) 16%, var(--crust)); }
+.epic-view .outline { fill: none; stroke: var(--mauve); stroke-width: 1.5; stroke-linejoin: round; }
+.epic-view .hand { fill: var(--mauve); }
+.epic-view .readout text { fill: var(--overlay1); }
+.epic-view .readout .count { font-size: 34px; font-weight: 700; fill: var(--text); }
+.epic-view .readout .total { font-weight: 400; }
+.epic-view .readout .caption { font-size: 11px; }
+.epic-view .readout .tallies { font-size: 10.5px; }
+.epic-view .readout .dim { fill: var(--overlay1); }
+.epic-view .readout .ordinal { font-size: 9px; fill: var(--overlay0); }
+.epic-view .readout .label { font-weight: 700; fill: var(--text); }
+.epic-view .readout .status { font-size: 10.5px; }
+.epic-view .readout .letter { font-size: 11px; font-weight: 700; }
+.epic-view .readout .passed { fill: var(--green); }
+.epic-view .readout .now { fill: var(--yellow); }
+.epic-view .readout .held { fill: var(--peach); }
+.epic-view .readout .errored { fill: var(--red); }
+.epic-view .readout .track { fill: var(--surface1); }
+.epic-view .chart-key { margin: 2px 0 0; display: flex; flex-wrap: wrap; justify-content: center; gap: 0 12px; font-size: 11px; line-height: 18px; color: var(--overlay0); }
+.epic-view .chart-key .letter { font-weight: 700; color: var(--overlay1); }
+.epic-view .swatch { display: inline-block; width: 9px; height: 5px; margin-right: 6px; border-radius: 1px; vertical-align: 1px; }
+.epic-view .swatch.passed { background: var(--green); }
+.epic-view .swatch.now { background: var(--yellow); }
+.epic-view .swatch.held { background: var(--peach); }
+.epic-view .swatch.errored { background: var(--red); }
 .epic-view .no-steps { display: flex; flex-direction: column; align-items: center; gap: 4px; }
 .epic-view .empty-orbits { width: 132px; height: 132px; }
 .epic-view .orbit { fill: none; stroke: var(--surface0); stroke-width: 1.5px; stroke-dasharray: 2 5; }

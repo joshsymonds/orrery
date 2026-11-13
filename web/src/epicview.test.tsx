@@ -6,6 +6,7 @@ import { render } from "preact";
 
 import { EpicView } from "./epicview";
 import { EpicsGetResponseSchema, type EpicsGetResponse } from "./gen/orrery/v1/epics_pb";
+import { handPath, wedgePath } from "./orbits";
 import { installTestDom, removeTestDom } from "./testdom";
 
 function detail(init: MessageInitShape<typeof EpicsGetResponseSchema>): EpicsGetResponse {
@@ -51,6 +52,19 @@ function syntheticSlices(count: number) {
       checks: !live,
       gateAccepted: !live,
       at: live ? 3 : 0,
+    };
+  });
+}
+
+// mixSlices is the synthetic-35 epic of chart-options.html: 11 done, 3 running and 1 held, and 20 in the gap.
+function mixSlices() {
+  return Array.from({ length: 35 }, (_, index) => {
+    const dispatched = index >= 11 && index < 15;
+    return {
+      task: `${index + 1}-task`,
+      hue: index < 11 ? "done" : dispatched ? "dispatched" : "gap",
+      held: index === 14,
+      at: dispatched ? 1 : 0,
     };
   });
 }
@@ -512,3 +526,179 @@ test("markup in slugs, statuses, labels and slice tasks draws as text with no el
       assert.ok(container.textContent?.includes("<i>slice</i> tests pass: working now"));
     },
   ));
+
+// cursorSteps is one step on the task, which the chart and the readout follow.
+function cursorSteps(task: string) {
+  return [{ id: "s1", task, agent: "builder", started: 1n }];
+}
+
+// childClassesOf is the class of each child of the chart's svg, in document order.
+function childClassesOf(container: HTMLElement): (string | null)[] {
+  return [...(container.querySelector(".chart")?.children ?? [])].map(classOf);
+}
+
+for (const count of [35, 150]) {
+  test(`a cursor task on a chart of ${count} slices outlines its wedge and draws its hand`, () =>
+    withView(
+      { detail: detail({ epic, steps: cursorSteps("2-task"), slices: syntheticSlices(count) }), cursorStep: "s1" },
+      (container) => {
+        assert.equal(container.querySelectorAll(".chart .outline").length, 1);
+        assert.equal(container.querySelector(".chart .outline")?.getAttribute("d") ?? null, wedgePath(count, 1));
+        assert.equal(container.querySelectorAll(".chart .hand").length, 1);
+        assert.equal(container.querySelector(".chart .hand")?.getAttribute("d") ?? null, handPath(count, 1));
+      },
+    ));
+}
+
+for (const count of [3, 17, 18, 35, 150]) {
+  test(`a cursor task on a chart of ${count} slices washes its wedge only from 18 slices`, () =>
+    withView(
+      { detail: detail({ epic, steps: cursorSteps("2-task"), slices: syntheticSlices(count) }), cursorStep: "s1" },
+      (container) => {
+        assert.equal(container.querySelectorAll(".chart .wash").length, count >= 18 ? 1 : 0);
+        if (count >= 18) {
+          assert.equal(container.querySelector(".chart .wash")?.getAttribute("d") ?? null, wedgePath(count, 1));
+        }
+      },
+    ));
+}
+
+test("the wash is drawn before the cells, under the first slice", () =>
+  withView(
+    { detail: detail({ epic, steps: cursorSteps("2-task"), slices: syntheticSlices(18) }), cursorStep: "s1" },
+    (container) => {
+      const order = childClassesOf(container);
+      const wash = order.indexOf("wash");
+      const firstSlice = order.findIndex((name) => name?.startsWith("slice"));
+      assert.ok(wash >= 0 && wash < firstSlice, `wash at ${wash}, first slice at ${firstSlice}: ${order}`);
+    },
+  ));
+
+test("the cursor's outline and hand are drawn after the glows, and the readout last", () =>
+  withView(
+    { detail: detail({ epic, steps: cursorSteps("2-task"), slices: syntheticSlices(35) }), cursorStep: "s1" },
+    (container) => {
+      const order = childClassesOf(container);
+      const glows = order.indexOf("glows");
+      const outline = order.indexOf("outline");
+      const hand = order.indexOf("hand");
+      assert.ok(glows >= 0 && glows < outline && outline < hand, `order: ${order}`);
+      assert.equal(order.at(-1), "readout", `order: ${order}`);
+    },
+  ));
+
+test("with no cursor task, or one whose task has no slice, there is no wash, outline or hand", async () => {
+  const cases = [
+    { steps: [], cursorStep: "" },
+    { steps: [{ id: "s1", agent: "reviewer", started: 1n }], cursorStep: "s1" },
+    { steps: cursorSteps("99-task"), cursorStep: "s1" },
+  ];
+  for (const { steps: stepsOfCase, cursorStep } of cases) {
+    await withView(
+      { detail: detail({ epic, steps: stepsOfCase, slices: syntheticSlices(35) }), cursorStep },
+      (container) => {
+        assert.equal(container.querySelectorAll(".chart .wash").length, 0);
+        assert.equal(container.querySelectorAll(".chart .outline").length, 0);
+        assert.equal(container.querySelectorAll(".chart .hand").length, 0);
+      },
+    );
+  }
+});
+
+test("the epic's centre reads 11 of 35 tasks done, the running and held tallies on one line and the gap on the next", () =>
+  withView({ detail: detail({ epic, tasks, slices: mixSlices() }), cursorStep: "" }, (container) => {
+    assert.equal(container.querySelector(".chart .readout .count")?.textContent ?? null, "11/35");
+    assert.equal(container.querySelector(".chart .readout .count")?.getAttribute("y") ?? null, "200");
+    assert.equal(container.querySelector(".chart .readout .caption")?.textContent ?? null, "tasks done");
+    assert.equal(container.querySelector(".chart .readout .caption")?.getAttribute("y") ?? null, "218");
+    assert.deepEqual(
+      [...container.querySelectorAll(".chart .readout .tallies")].map((line) => line.textContent),
+      ["3 running · 1 held", "20 gap"],
+    );
+    assert.deepEqual(
+      [...container.querySelectorAll(".chart .readout .tallies")].map((line) => line.getAttribute("y")),
+      ["237", "252"],
+    );
+  }));
+
+test("a 150-slice epic reads 148 of 150 done, with its one running and one held task on one line", () =>
+  withView({ detail: detail({ epic, tasks, slices: syntheticSlices(150) }), cursorStep: "" }, (container) => {
+    assert.equal(container.querySelector(".chart .readout .count")?.textContent ?? null, "148/150");
+    assert.deepEqual(
+      [...container.querySelectorAll(".chart .readout .tallies")].map((line) => line.textContent),
+      ["1 running · 1 held"],
+    );
+  }));
+
+test("one tally is one line at +38, and a record with more tasks than slices reads tracked tasks done", () =>
+  withView(
+    {
+      detail: detail({
+        epic,
+        tasks: Array.from({ length: 5 }, (_, index) => ({ slug: `${index + 1}-task`, status: "done" })),
+        slices: [
+          { task: "1-task", hue: "done" },
+          { task: "2-task", hue: "done" },
+          { task: "3-task", hue: "done" },
+          { task: "4-task", hue: "gap", errorAt: 1 },
+        ],
+      }),
+      cursorStep: "",
+    },
+    (container) => {
+      assert.equal(container.querySelector(".chart .readout .count")?.textContent ?? null, "3/4");
+      assert.equal(container.querySelector(".chart .readout .count")?.getAttribute("y") ?? null, "204");
+      assert.equal(container.querySelector(".chart .readout .caption")?.textContent ?? null, "tracked tasks done");
+      assert.equal(container.querySelector(".chart .readout .caption")?.getAttribute("y") ?? null, "223");
+      assert.deepEqual(
+        [...container.querySelectorAll(".chart .readout .tallies")].map((line) => line.textContent),
+        ["1 gap"],
+      );
+      assert.deepEqual(
+        [...container.querySelectorAll(".chart .readout .tallies")].map((line) => line.getAttribute("y")),
+        ["244"],
+      );
+    },
+  ));
+
+test("the cursor task's centre reads its ordinal, label, running status and five letters by kind", () =>
+  withView(
+    { detail: detail({ epic, steps: cursorSteps("1-task"), slices: syntheticSlices(3) }), cursorStep: "s1" },
+    (container) => {
+      assert.equal(container.querySelectorAll(".chart .readout .count").length, 0, "no epic count");
+      assert.equal(container.querySelector(".chart .readout .ordinal")?.textContent ?? null, "1 of 3");
+      assert.equal(container.querySelector(".chart .readout .label")?.textContent ?? null, "1-task");
+      assert.equal(container.querySelector(".chart .readout .status")?.textContent ?? null, "running · tests pass");
+      assert.equal(container.querySelector(".chart .readout .status")?.getAttribute("class") ?? null, "status now");
+      assert.deepEqual(
+        [...container.querySelectorAll(".chart .readout .letter")].map((letter) => letter.textContent),
+        ["R", "W", "T", "C", "G"],
+      );
+      assert.deepEqual(
+        [...container.querySelectorAll(".chart .readout .letter")].map(classOf),
+        ["letter passed", "letter passed", "letter now", "letter track", "letter track"],
+      );
+    },
+  ));
+
+test("a held cursor task's centre reads held with the ring it waits on", () =>
+  withView(
+    { detail: detail({ epic, steps: cursorSteps("2-task"), slices: syntheticSlices(3) }), cursorStep: "s1" },
+    (container) => {
+      assert.equal(container.querySelector(".chart .readout .ordinal")?.textContent ?? null, "2 of 3");
+      assert.equal(container.querySelector(".chart .readout .status")?.textContent ?? null, "held · tests pass");
+      assert.equal(container.querySelector(".chart .readout .status")?.getAttribute("class") ?? null, "status held");
+      assert.deepEqual(
+        [...container.querySelectorAll(".chart .readout .letter")].map(classOf),
+        ["letter passed", "letter passed", "letter held", "letter track", "letter track"],
+      );
+    },
+  ));
+
+test("two key lines under the chart name the rings and the colours", () =>
+  withView({ detail: detail({ epic, slices: syntheticSlices(3) }), cursorStep: "" }, (container) => {
+    assert.deepEqual(
+      [...container.querySelectorAll(".chart-key")].map((line) => line.textContent),
+      ["R red test W working T tests pass C checks G gate", "passed now held errored"],
+    );
+  }));
