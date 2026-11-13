@@ -510,9 +510,10 @@ func (m *Manager) Continue(ctx context.Context, id, text string) error {
 // respawnStep starts the step id that is not live again, from its engine row and its steps row: it resumes the row's
 // claude session with the step's agent and schema, registered as a step with the observer it was started with. It takes a
 // step slot under StepCap before reading the rows, so a full cap refuses the respawn before anything is recorded. A
-// directory that is gone, or a spawn that fails, records the step failed without a notice and returns the error. It
-// returns the step claimed with its turn running, as claimStep does. resumeMu makes concurrent calls for one id start a
-// single process. It returns an error wrapping ErrNoSession when id is not a step row.
+// directory that is gone, an agent that no longer resolves, or a spawn that fails, records the step failed without a
+// notice and returns the error. It returns the step claimed with its turn running, as claimStep does. resumeMu makes
+// concurrent calls for one id start a single process. It returns an error wrapping ErrNoSession when id is not a step
+// row.
 func (m *Manager) respawnStep(ctx context.Context, id string) (*liveSession, error) {
 	m.resumeMu.Lock()
 	defer m.resumeMu.Unlock()
@@ -528,6 +529,10 @@ func (m *Manager) respawnStep(ctx context.Context, id string) (*liveSession, err
 		return nil, err
 	}
 	if err = checkDir(row.Dir); err != nil {
+		m.releaseStep()
+		return nil, errors.Join(err, m.writeFailed(ctx, id, err))
+	}
+	if err = m.resolveStepAgent(StepSession{ID: id, Dir: row.Dir, Agent: step.Agent}); err != nil {
 		m.releaseStep()
 		return nil, errors.Join(err, m.writeFailed(ctx, id, err))
 	}
