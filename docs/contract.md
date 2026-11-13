@@ -453,7 +453,7 @@ When the router sends a notice to the phone, `orreryd` posts it as an encrypted 
 - `$XDG_STATE_HOME/orrery/push.json` when `XDG_STATE_HOME` is set.
 - Otherwise `$HOME/.local/state/orrery/push.json`.
 
-`orreryd` keeps, per pane and per session, the time of the last notice it sent. When a seen write sets a seen time at or after that time, `orreryd` sends one clear push for that pane or session and forgets the kept time. Seen writes are `orrery seen` (both forms), the tree's switch and mark-read keys, autoseen, the `Panes.MarkSeen` call of [Phone API](#phone-api), and the `Seen` call of the session socket. `orrery seen`, the tree and `Panes.MarkSeen` send `orreryd` a seen report (section 9) with the time they wrote; autoseen and the session `Seen` call run inside `orreryd`. The clear payload is defined in [Clear payload](#clear-payload).
+`orreryd` keeps, per pane and per session, the time of the last notice it sent. With the store open, each kept time is also stored (see [Pushed notices in the store](#pushed-notices-in-the-store)), so it outlives a restart: a seen write after the restart clears the push as it would without the restart. Without the store, kept times live in memory only. A seen write made while `orreryd` is down clears nothing. When a seen write sets a seen time at or after that time, `orreryd` sends one clear push for that pane or session and forgets the kept time. Seen writes are `orrery seen` (both forms), the tree's switch and mark-read keys, autoseen, the `Panes.MarkSeen` call of [Phone API](#phone-api), and the `Seen` call of the session socket. `orrery seen`, the tree and `Panes.MarkSeen` send `orreryd` a seen report (section 9) with the time they wrote; autoseen and the session `Seen` call run inside `orreryd`. The clear payload is defined in [Clear payload](#clear-payload).
 
 When neither variable is set, `orreryd` exits 1.
 
@@ -494,7 +494,7 @@ When neither variable is set, `orreryd` exits 1.
 
 Before a pane notice resumes, in any phase, `orreryd` reads its pane from the pane's tmux server once. A pane that is gone, either absent from its server or on a server that is not running, ends the notice with route `none` and reason `changed`. A pane whose state differs from the notice's state ends it the same way. A pane whose seen time is at or after the notice's time ends it with `none` and `seen`. Each of these sends nothing and writes one line. Any other tmux read failure is a restore error, as below.
 
-Apart from `sending`, a restored notice keeps its original time, so a seen write at or after that time ends it with `none` and `seen`. A newer notice for the same pane or session ends it with `none` and `changed`, whether the newer notice is recorded before or after the restore. The sessions' start can record an `interrupted` notice that does this. A row that cannot be restored writes a line with route `none` and reason `not restored: <error>`, and the row is deleted. A stop during a publish can push the notice once more, and the phone alerts again for a resent waiting or failed push. A publish that finishes after shutdown still deletes its row, so a clean stop resends nothing.
+Apart from `sending`, a restored notice keeps its original time, so a seen write at or after that time ends it with `none` and `seen`. A newer notice for the same pane or session ends it with `none` and `changed`, whether the newer notice is recorded before or after the restore. The sessions' start can record an `interrupted` notice that does this. A row that cannot be restored writes a line with route `none` and reason `not restored: <error>`, and the row is deleted. A stop during a publish can push the notice once more, and the phone alerts again for a resent waiting or failed push. A publish that finishes after shutdown still deletes its row, so a clean stop resends nothing. For the kept push times, see [Pushed notices in the store](#pushed-notices-in-the-store).
 
 ### Headless sessions
 
@@ -1248,7 +1248,7 @@ holder      {"type":"out","data":"ZXhhbXBsZSBvdXRwdXQK"}
 
 ### Store
 
-`orreryd` keeps a SQLite store that mirrors each pane's tmux options, records each headless engine session (see [Engine sessions in the store](#engine-sessions-in-the-store)), keeps the live grants of the Pools service (see [Grants in the store](#grants-in-the-store)), keeps the pending pane and headless session notices (see [Pending notices in the store](#pending-notices-in-the-store)), and keeps the owner holds of the Pools service (see [Holds in the store](#holds-in-the-store)). Outside the store's tests, `orreryd`'s own writes read it, `orrery serve` reads it for the Connect API (section 12), and `orrery open` and the tree's `N` read it read-only for the known-directory lookup (see `open` under [orrery](#orrery)). A sync reads the pane's row to compare it with the new snapshot, and a tidy also reads the server's rows to find the panes that are gone. `serve` only reads the store, and never writes it.
+`orreryd` keeps a SQLite store that mirrors each pane's tmux options, records each headless engine session (see [Engine sessions in the store](#engine-sessions-in-the-store)), keeps the live grants of the Pools service (see [Grants in the store](#grants-in-the-store)), keeps the pending pane and headless session notices (see [Pending notices in the store](#pending-notices-in-the-store)), keeps the kept push times (see [Pushed notices in the store](#pushed-notices-in-the-store)), and keeps the owner holds of the Pools service (see [Holds in the store](#holds-in-the-store)). Outside the store's tests, `orreryd`'s own writes read it, `orrery serve` reads it for the Connect API (section 12), and `orrery open` and the tree's `N` read it read-only for the known-directory lookup (see `open` under [orrery](#orrery)). A sync reads the pane's row to compare it with the new snapshot, and a tidy also reads the server's rows to find the panes that are gone. `serve` only reads the store, and never writes it.
 
 The store file is `$XDG_STATE_HOME/orrery/orrery.db` when `XDG_STATE_HOME` is set, else `$HOME/.local/state/orrery/orrery.db`. When neither variable is set, no path resolves.
 
@@ -1480,6 +1480,24 @@ The `pending_notice_ids` table has one row, whose `high` is the highest `id` the
 
 A row is written when its notice is recorded, with phase `deciding`. A pane notice's row is also written at each hold, with phase `held`, and when its judge wait starts, with phase `delayed`. A row is written again before its desk post, with phase `desk`, which it keeps until it escalates. Each row write has a 200 ms limit. A write that fails or runs past it is logged by `orreryd`, and the notice routes as it would. Later row writes and the next stop retry it. The row is deleted when the notice ends, after its sinks have been handed the notice, except for a notice handed to the phone. That notice is written `sending` before its push, and its row is deleted when the publish returns, with or without an error.
 
+#### Pushed notices in the store
+
+The `pushed_notices` table (migration `00012_pushed_notices.sql`) has one row per kept push time (see [orreryd](#orreryd)):
+
+| Column | Type | Meaning |
+|---|---|---|
+| `pane` | `TEXT`, primary key with `session` | the pane whose push is kept; `""` for a session |
+| `session` | `TEXT`, primary key with `pane` | the session id whose push is kept; `""` for a pane |
+| `time` | `INTEGER` | unix seconds of the kept push |
+
+Before each push is published, `orreryd` writes the row of its pane or session with the push's time, so a newer push replaces the row. The clear that ends a kept push removes its row (see [Clear payload](#clear-payload)).
+
+At start, once the store opens and before the router restores its rows, `orreryd` reads the table, and each row's time becomes that key's kept push time. Rows for gone panes or sessions are not pruned.
+
+Until the store opens, `orreryd` holds the seen writes it receives in memory. When the store opens, it applies each held seen write to the kept pushes: a seen write clears each kept push at or before its time, once. A pane or session pushed before the store opened keeps only its new time: the row read back for it and any seen held for it are dropped.
+
+Each read and write of a row, a delete included, has a 200 ms limit. A call that fails or runs past it is logged by `orreryd`, and the push or clear is still sent.
+
 ### Claude Code hook settings
 
 Register `orrery hook` for each hook event that reports state. The path below is synthetic:
@@ -1614,7 +1632,7 @@ Example plaintext. The question and its hash are the fixed vector of section 10:
 
 #### Clear payload
 
-A clear is posted when a seen write sets a seen time at or after the time of the kept notice for a pane or session (see [orreryd](#orreryd)). Its headers are the same as a notice's, `Content-Encoding: aes128gcm` and `TTL: 3600`. Its plaintext is a JSON object of string values with exactly these keys:
+A clear is posted when a seen write sets a seen time at or after the time of the kept notice for a pane or session (see [orreryd](#orreryd)). Once the clear is published, the row of that pane or session is deleted from the store (see [Pushed notices in the store](#pushed-notices-in-the-store)). Its headers are the same as a notice's, `Content-Encoding: aes128gcm` and `TTL: 3600`. Its plaintext is a JSON object of string values with exactly these keys:
 
 - `kind`, which is `clear`.
 - `host`, the machine host name.
@@ -2126,5 +2144,7 @@ orrery E31a1 (holder) added, additively: the `orrery holder` subcommand and its 
 orrery E31a2 (hold scope) added, additively: the `orreryd` flag `--holder-scope PATH` (see [orreryd](#orreryd)), and each headless session's start through its holder, with its stdout and stdin paths (see [Headless sessions](#headless-sessions)). Three values change, none of them additive: `orrery holder` exits with the child's status when the child ended on its own, where E31a1 exited 0 (see [orrery](#orrery)); the exit record's `stderr` keeps the child's raw tail, where it was trimmed (see [Exit file](#exit-file)); and a session's stop sends `SIGTERM` to the child, where it sent `SIGINT` (see [Lifecycle rules](#lifecycle-rules)). No existing name changes.
 
 orrery W3a (epic chart) added, additively: the `slices` field of `EpicsGetResponse` and the `EpicSlice` message (see [Epics and Steps](#epics-and-steps)). No existing name or value changes.
+
+orrery sent-push-restart added, additively: the `pushed_notices` table, its migration `00012_pushed_notices.sql` and its columns (see [Pushed notices in the store](#pushed-notices-in-the-store)); the read of the kept push times at start (see [orreryd](#orreryd)). No existing name or value changes.
 
 orrery agent gates (effort 1) added, additively: the `agent`, `must` and `must_not` keys of a `[gates.NAME]` table, with the agent gate's shape, refusals and assertion order (see [Agent gates](#agent-gates)); the verdict schema, `internal/gates/verdict.json`, and the first prompt of an agent gate (see [Agent gates](#agent-gates)); a read-only start naming an agent gate, which takes the gate's agent, verdict schema and done value `done` (see [Steps](#steps)); and the refusal of an agent gate by `orrery gate`, with exit 75 (see [orrery](#orrery)). The `required` list of `step_start`'s MCP schema drops `agent` and `schema`. The service still refuses an empty one unless the start names an agent gate (see [step_start](engine-protocol.md#step_start)). No existing name changes. That `required` list is the only existing value that changes, and an argv gate's keys, shape and refusals are unchanged.
