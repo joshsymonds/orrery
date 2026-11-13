@@ -447,7 +447,8 @@ func (h *holder) answerStopped(peer *conn) {
 }
 
 // attach makes peer the controller and starts its stream from replayFrom. The new stream replaces the attached
-// controller, whose connection closes. The attached frame lists every write id recorded so far. An attach the spool
+// controller, whose connection closes. The attached frame lists every write id recorded so far, and the spool's
+// consumed and replay-from offsets, so the controller acks at or above them. An attach the spool
 // cannot serve gets an error frame and closes the connection, and the current controller stays. It reports whether the
 // connection goes on.
 func (h *holder) attach(peer *conn, replayFrom int64) bool {
@@ -465,6 +466,7 @@ func (h *holder) attach(peer *conn, replayFrom int64) bool {
 	default:
 	}
 	start, end := h.spool.Start(), h.spool.End()
+	consumed, floor := h.spool.Consumed(), h.spool.ReplayFrom()
 	if replayFrom < start || replayFrom > end {
 		h.mu.Unlock()
 		h.refuse(peer, fmt.Sprintf("holder: attach at offset %d: retained output is [%d, %d)", replayFrom, start, end))
@@ -478,7 +480,10 @@ func (h *holder) attach(peer *conn, replayFrom int64) bool {
 		close(prev.quit)
 	}
 	h.streaming.Add(1)
-	attached := Frame{Type: TypeAttached, Start: start, End: end, Written: slices.Clone(h.written)}
+	attached := Frame{
+		Type: TypeAttached, Start: start, End: end, Consumed: consumed, ReplayFrom: floor,
+		Written: slices.Clone(h.written),
+	}
 	h.mu.Unlock()
 	if prev != nil {
 		h.drop(prev.conn)
