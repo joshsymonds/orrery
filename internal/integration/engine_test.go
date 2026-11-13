@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -44,6 +45,16 @@ type engineBlock struct {
 	Text string `json:"text"`
 }
 
+// shortRoot creates a temporary directory whose path is short enough for a socket path. The state dir under it holds the
+// sessions' holder sockets, which sit past the socket path limit under a t.TempDir path. The caller removes the root.
+func shortRoot() (string, error) {
+	root, err := os.MkdirTemp("", "eng")
+	if err != nil {
+		return "", fmt.Errorf("create short root: %w", err)
+	}
+	return root, nil
+}
+
 // newEngineFixture starts a private tmux server with a pane, so the server exists for its cleanup, and resolves the fake
 // claude and sh. Every path the daemon, the CLI and the store use lives under the test's own directory.
 func newEngineFixture(t *testing.T) *engineFixture {
@@ -51,7 +62,15 @@ func newEngineFixture(t *testing.T) *engineFixture {
 	client, name := newServer(t)
 	startPane(t, client, "sleep 300")
 
-	root := t.TempDir()
+	root, err := shortRoot()
+	if err != nil {
+		t.Fatalf("make fixture root: %v", err)
+	}
+	t.Cleanup(func() {
+		if rmErr := os.RemoveAll(root); rmErr != nil {
+			t.Errorf("remove %s: %v", root, rmErr)
+		}
+	})
 	fakeClaude, err := filepath.Abs(engineFakeClaude)
 	if err != nil {
 		t.Fatalf("resolve fake claude: %v", err)
