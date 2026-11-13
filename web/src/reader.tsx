@@ -3,6 +3,7 @@ import { useLayoutEffect, useRef, useState } from "preact/hooks";
 
 import type { Conversation } from "./conversation";
 import { useFlash } from "./flash";
+import type { EpicStep, EpicStepCheck } from "./gen/orrery/v1/epics_pb";
 import type { ConversationItem, EngineText } from "./gen/orrery/v1/orrery_pb";
 import { Markdown } from "./markdown";
 import type { ParsedQuestion } from "./question";
@@ -18,13 +19,16 @@ const nearBottomPixels = 4;
 // it folds under the call it answers, and a result whose call is not held is hidden.
 // A reply, a prompt and live text draw through Markdown, which builds only its fixed elements. Every other text is drawn
 // as text: through ReplyText, or as a plain child of an element, so no markup becomes an element and no link sits inside
-// a button. The reader is its own scroll container: a conversation that replaces a null one opens at its bottom, and any
+// a button. With a step, a prompt draws by its sender and round: the brief as a fold, a send-back as a card of its
+// round's checks, any other prompt as an engine fold. An owner's prompt, and every prompt without a step, is YOU.
+// The reader is its own scroll container: a conversation that replaces a null one opens at its bottom, and any
 // other render keeps the bottom only for a reader that sat within nearBottomPixels of it.
 export function Reader({
   conversation,
   seenAt,
   open,
   question = null,
+  step,
   onAnswer,
   onToggleOpen,
 }: {
@@ -32,6 +36,7 @@ export function Reader({
   seenAt: number;
   open: boolean;
   question?: ParsedQuestion | null;
+  step?: EpicStep;
   onAnswer?: (choice: 1 | 2 | 3) => void;
   onToggleOpen?: () => void;
 }): JSX.Element {
@@ -67,7 +72,14 @@ export function Reader({
       rows.push(<NewRule key="new-rule" />);
     }
     rows.push(
-      <ItemRow key={keys[index]} item={item} result={results.get(index)} open={open} onToggleOpen={onToggleOpen} />,
+      <ItemRow
+        key={keys[index]}
+        item={item}
+        result={results.get(index)}
+        open={open}
+        step={step}
+        onToggleOpen={onToggleOpen}
+      />,
     );
   });
   const questionCard = question === null ? null : <QuestionCard question={question} onAnswer={onAnswer} />;
@@ -179,18 +191,20 @@ function ItemRow({
   item,
   result,
   open,
+  step,
   onToggleOpen,
 }: {
   item: ConversationItem;
   result: ConversationItem | undefined;
   open: boolean;
+  step?: EpicStep;
   onToggleOpen?: () => void;
 }) {
   return (
     <div class="t">
       <span class="gut">{clock(item.time)}</span>
       <div class="body">
-        <ItemBody item={item} result={result} open={open} onToggleOpen={onToggleOpen} />
+        <ItemBody item={item} result={result} open={open} step={step} onToggleOpen={onToggleOpen} />
       </div>
     </div>
   );
@@ -200,21 +214,26 @@ function ItemBody({
   item,
   result,
   open,
+  step,
   onToggleOpen,
 }: {
   item: ConversationItem;
   result: ConversationItem | undefined;
   open: boolean;
+  step?: EpicStep;
   onToggleOpen?: () => void;
 }) {
   switch (item.kind) {
     case "prompt":
-      return (
-        <div class="you">
-          <small>YOU</small>
-          <ReplyMarkdown text={item.text} />
-        </div>
-      );
+      if (step === undefined || item.sender === "owner") {
+        return (
+          <div class="you">
+            <small>YOU</small>
+            <ReplyMarkdown text={item.text} />
+          </div>
+        );
+      }
+      return <StepPrompt item={item} checks={step.checks} />;
     case "tool":
     case "question":
       return <CallRow item={item} result={result} />;
@@ -239,6 +258,95 @@ function ReplyMarkdown({ text }: { text: string }) {
     <div class="reply">
       <Markdown text={text} />
     </div>
+  );
+}
+
+// StepPrompt draws a prompt a step's engine sent, by its sender and round: the brief as a fold, a send-back of a check
+// round as a card of that round's checks, and any other prompt, unmarked ones included, as an engine fold.
+function StepPrompt({ item, checks }: { item: ConversationItem; checks: EpicStepCheck[] }) {
+  if (item.sender === "brief") {
+    return <Fold className="fold brief" title="Brief" names="from the engine" text={item.text} />;
+  }
+  if (item.sender === "engine" && item.round >= 1) {
+    return <CheckCard text={item.text} round={item.round} checks={checks} />;
+  }
+  const [first] = item.text.split("\n");
+  return <Fold className="fold engine" title="Engine" names={first} text={item.text} />;
+}
+
+// Fold draws a line of a step's prompt: its title and names on the line, and a click shows the whole text under it.
+function Fold({ className, title, names, text }: { className: string; title: string; names: string; text: string }) {
+  return (
+    <Disclosure className={className} label={<><b>{title}</b><span class="names">{names}</span></>}>
+      <div class="fold-text">
+        <ReplyMarkdown text={text} />
+      </div>
+    </Disclosure>
+  );
+}
+
+// CheckCard draws a send-back of a check round: its checks of that round as chips, in the step's order, under a cap
+// naming the round. Its edge is bad when one of those checks failed. The text's first line is the note; a text of more
+// lines folds the rest under a button that shows it.
+function CheckCard({ text, round, checks }: { text: string; round: number; checks: EpicStepCheck[] }) {
+  const roundChecks = checks.filter((check) => check.round === round);
+  const failed = roundChecks.some((check) => !check.ok);
+  const [first, ...rest] = text.split("\n");
+  return (
+    <div class={failed ? "card bad" : "card ok"}>
+      <div class="cap">
+        Checks · round {round}
+        <span>from the engine</span>
+      </div>
+      <div class="chips">
+        {roundChecks.map((check, index) => (
+          <span key={index} class={check.ok ? "chip" : "chip bad"}>
+            {`${check.name} ${check.ok ? "✓" : "✗"}`}
+          </span>
+        ))}
+      </div>
+      {rest.length === 0 ? (
+        <p class="note">
+          <ReplyText text={first} />
+        </p>
+      ) : (
+        <Disclosure className="note" label={first}>
+          <div class="rest">
+            <ReplyText text={rest.join("\n")} />
+          </div>
+        </Disclosure>
+      )}
+    </div>
+  );
+}
+
+// Disclosure is a button that flashes on each use and shows its children under it: a click shows them, and a second
+// click folds them again. Its label is drawn as text, so a link never sits inside it.
+function Disclosure({
+  className,
+  label,
+  children,
+}: {
+  className: string;
+  label: ComponentChildren;
+  children: ComponentChildren;
+}) {
+  const [shown, setShown] = useState(false);
+  const [flashing, flash] = useFlash();
+  return (
+    <>
+      <button
+        type="button"
+        class={flashing ? `${className} flash` : className}
+        onClick={() => {
+          flash();
+          setShown((value) => !value);
+        }}
+      >
+        {label}
+      </button>
+      {shown && children}
+    </>
   );
 }
 

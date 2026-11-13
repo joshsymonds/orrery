@@ -300,6 +300,25 @@ button, input, textarea, select { font-family: var(--mono); }
 .reader .notice-kind { margin-right: 8px; font: 700 10px/16px var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--overlay1); }
 .reader .notice.err .notice-kind { color: var(--red); }
 .reader .t.live-row > .body { color: var(--text); }
+/* A step's prompt folds to one line, a button reset to the line, with the browser's chrome gone; a click shows its text
+   under it. A send-back's card takes its edge from the round's checks: red when one failed, green when all passed. */
+.reader .fold { display: flex; align-items: center; gap: 10px; width: 100%; margin: 0; padding: 4px 10px; border: 0; border-radius: 7px; background: var(--mantle); font: 12px/20px var(--mono); color: var(--subtext0); text-align: left; white-space: nowrap; overflow: hidden; cursor: pointer; appearance: none; -webkit-appearance: none; }
+.reader .fold::before { content: "▸"; flex: none; color: var(--overlay0); font-size: 10px; }
+.reader .fold b { flex: none; color: var(--subtext1); }
+.reader .fold .names { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.reader .fold-text { margin-top: 6px; padding: 9px 14px; border-radius: 8px; background: var(--mantle); color: var(--subtext0); overflow-wrap: anywhere; }
+.reader .card { padding: 9px 12px 10px; border-radius: 3px 10px 10px 3px; background: var(--mantle); box-shadow: inset 3px 0 0 var(--ink, var(--overlay0)); }
+.reader .card.bad { --ink: var(--red); }
+.reader .card.ok { --ink: var(--green); }
+.reader .card .cap { display: flex; gap: 10px; font: 700 10px/16px var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--ink, var(--overlay1)); }
+.reader .card .cap span { margin-left: auto; font-weight: 400; letter-spacing: 0; color: var(--overlay0); }
+.reader .card p { margin: 3px 0 0; font-size: 13.5px; }
+.reader .card .note { color: var(--overlay1); font-size: 12.5px; }
+.reader .card button.note { display: block; width: 100%; margin: 3px 0 0; padding: 0; border: 0; background: none; text-align: left; cursor: pointer; appearance: none; -webkit-appearance: none; overflow-wrap: anywhere; }
+.reader .card .rest { margin-top: 3px; font-size: 12.5px; color: var(--overlay1); white-space: pre-wrap; overflow-wrap: anywhere; }
+.reader .chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; }
+.reader .chip { padding: 0 7px; border-radius: 4px; font: 11.5px/18px var(--mono); color: var(--green); background: color-mix(in srgb, var(--green) 12%, transparent); }
+.reader .chip.bad { color: var(--red); background: color-mix(in srgb, var(--red) 14%, transparent); }
 
 /* The send foot's queue docks onto the composer under it: the queue's top corners and the composer's bottom corners are
    rounded, so the two read as one box. A queued message is dim, and keeps its line breaks. */

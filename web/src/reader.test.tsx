@@ -5,6 +5,7 @@ import { create, type MessageInitShape } from "@bufbuild/protobuf";
 import { render } from "preact";
 import { act } from "preact/test-utils";
 
+import { EpicStepSchema, type EpicStep } from "./gen/orrery/v1/epics_pb";
 import {
   ConversationItemSchema,
   ConversationStateSchema,
@@ -53,6 +54,7 @@ interface Props {
   seenAt: number;
   open: boolean;
   question?: ParsedQuestion | null;
+  step?: EpicStep;
   onAnswer?: (choice: 1 | 2 | 3) => void;
   onToggleOpen?: () => void;
 }
@@ -373,6 +375,208 @@ test("a prompt draws its markdown as elements inside .reply", () =>
     (container) => {
       assert.equal(container.querySelector(".you > .reply > p > strong")?.textContent, "ask");
       assert.equal(container.querySelector(".you > .reply > p > code")?.textContent, "how");
+    },
+  ));
+
+// stepWith is a step holding the checks given, in the order given.
+function stepWith(checks: { round: number; name: string; ok: boolean }[]): EpicStep {
+  return create(EpicStepSchema, { checks });
+}
+
+// chipTexts returns the text of each check chip of a card, in order, and badChipTexts only the failed ones.
+function chipTexts(card: HTMLElement): string[] {
+  return [...card.querySelectorAll(".chip")].map((chip) => chip.textContent ?? "");
+}
+
+function badChipTexts(card: HTMLElement): string[] {
+  return [...card.querySelectorAll(".chip.bad")].map((chip) => chip.textContent ?? "");
+}
+
+test("a step's brief is one fold line with no YOU, and it opens to its text", () =>
+  withReader(
+    {
+      conversation: conversation({
+        items: [
+          item({
+            kind: "prompt",
+            time: 100n,
+            sender: "brief",
+            text: "Goal: export the rota\nOwned: cli/export.go",
+          }),
+        ],
+      }),
+      seenAt: 10_000,
+      open: false,
+      step: stepWith([]),
+    },
+    async (container) => {
+      const fold = container.querySelector<HTMLElement>("button.fold.brief");
+      assert.ok(fold !== null, "the brief is a fold button");
+      assert.equal(fold.querySelector("b")?.textContent, "Brief");
+      assert.equal(fold.querySelector(".names")?.textContent, "from the engine");
+      assert.equal(container.querySelector(".you") === null, true, "the brief is not YOU");
+      assert.equal(container.querySelector(".fold-text") === null, true, "the brief is folded until clicked");
+
+      await clickControl(fold);
+      const text = fold.nextElementSibling;
+      assert.equal(text?.getAttribute("class"), "fold-text", "the text opens after the fold");
+      assert.equal(text?.textContent?.includes("Owned: cli/export.go"), true, "the whole brief is shown");
+    },
+  ));
+
+test("a window starting after the brief draws its watchdog prompt as one Engine line, with no Brief", () =>
+  withReader(
+    {
+      conversation: conversation({
+        items: [
+          item({
+            kind: "prompt",
+            time: 200n,
+            sender: "engine",
+            text: "watchdog: no progress for 10 minutes\nsecond line",
+          }),
+        ],
+      }),
+      seenAt: 10_000,
+      open: false,
+      step: stepWith([]),
+    },
+    async (container) => {
+      assert.equal(container.querySelector("button.fold.brief") === null, true, "no Brief is drawn");
+      assert.equal(container.querySelector(".you") === null, true, "the watchdog is not YOU");
+      assert.equal(container.querySelectorAll("button.fold.engine").length, 1);
+      const fold = container.querySelector<HTMLElement>("button.fold.engine");
+      assert.ok(fold !== null, "the watchdog is an Engine fold");
+      assert.equal(fold.querySelector("b")?.textContent, "Engine");
+      assert.equal(fold.querySelector(".names")?.textContent, "watchdog: no progress for 10 minutes");
+
+      await clickControl(fold);
+      assert.equal(fold.nextElementSibling?.getAttribute("class"), "fold-text");
+      assert.equal(fold.nextElementSibling?.textContent?.includes("second line"), true, "the whole text is shown");
+    },
+  ));
+
+test("a prompt with no sender, and one with round 0, each draw as an Engine fold line", () =>
+  withReader(
+    {
+      conversation: conversation({
+        items: [
+          item({ kind: "prompt", time: 100n, sender: "", text: "unmarked prompt" }),
+          item({ kind: "prompt", time: 200n, sender: "engine", round: 0, text: "round zero prompt" }),
+        ],
+      }),
+      seenAt: 10_000,
+      open: false,
+      step: stepWith([]),
+    },
+    (container) => {
+      const folds = [...container.querySelectorAll("button.fold.engine .names")].map((names) => names.textContent);
+      assert.deepEqual(folds, ["unmarked prompt", "round zero prompt"]);
+      assert.equal(container.querySelector(".you") === null, true);
+      assert.equal(container.querySelector(".card") === null, true);
+    },
+  ));
+
+test("each send-back draws a card of its own round's checks, with its first line and its rest folded", () =>
+  withReader(
+    {
+      conversation: conversation({
+        items: [
+          item({
+            kind: "prompt",
+            time: 300n,
+            sender: "engine",
+            round: 1,
+            text: "gate failed: exit 1\nthe gate's output, line two\nline three",
+          }),
+          item({
+            kind: "prompt",
+            time: 400n,
+            sender: "engine",
+            round: 2,
+            text: "all checks passed on round two",
+          }),
+        ],
+      }),
+      seenAt: 10_000,
+      open: false,
+      step: stepWith([
+        { round: 1, name: "schema", ok: true },
+        { round: 1, name: "gate", ok: false },
+        { round: 2, name: "schema", ok: true },
+        { round: 2, name: "gate", ok: true },
+      ]),
+    },
+    async (container) => {
+      const cards = [...container.querySelectorAll<HTMLElement>("div.card")];
+      assert.equal(cards.length, 2, "one card per send-back");
+      const [first, second] = cards;
+      assert.ok(first !== undefined && second !== undefined, "both rounds draw a card");
+
+      assert.equal(first.classList.contains("bad"), true, "round 1 has a failed check: the edge is bad");
+      assert.equal(first.classList.contains("ok"), false);
+      assert.equal(second.classList.contains("ok"), true, "round 2 passed: the edge is ok");
+      assert.equal(second.classList.contains("bad"), false);
+      assert.equal(first.querySelector(".cap")?.textContent?.includes("Checks · round 1"), true);
+      assert.equal(second.querySelector(".cap")?.textContent?.includes("Checks · round 2"), true);
+      assert.equal(first.querySelector(".cap span")?.textContent, "from the engine");
+
+      assert.deepEqual(chipTexts(first), ["schema ✓", "gate ✗"], "round 1 shows only its own checks");
+      assert.deepEqual(badChipTexts(first), ["gate ✗"]);
+      assert.deepEqual(chipTexts(second), ["schema ✓", "gate ✓"], "round 2 shows only its own checks");
+      assert.deepEqual(badChipTexts(second), []);
+
+      assert.equal(first.querySelector("p.note") === null, true, "a multi-line send-back has no p.note");
+      const edge = first.querySelector<HTMLElement>("button.note");
+      assert.ok(edge !== null, "the first line is a button");
+      assert.equal(edge.textContent, "gate failed: exit 1");
+      assert.equal(first.querySelector(".rest") === null, true, "the rest is folded until clicked");
+
+      await clickControl(edge);
+      const rest = first.querySelector(".rest");
+      assert.equal(rest?.textContent?.includes("line three"), true, "the rest is shown after a click");
+      assert.equal(rest?.textContent?.includes("gate failed"), false, "the rest leaves out the first line");
+
+      assert.equal(second.querySelector("button.note") === null, true, "a one-line send-back has no button");
+      assert.equal(second.querySelector("p.note")?.textContent, "all checks passed on round two");
+      assert.equal(second.querySelector(".rest") === null, true);
+    },
+  ));
+
+test("an owner prompt is YOU in a step, so a nudge is not drawn as the engine's", () =>
+  withReader(
+    {
+      conversation: conversation({
+        items: [item({ kind: "prompt", time: 100n, sender: "owner", text: "**nudge** text" })],
+      }),
+      seenAt: 10_000,
+      open: false,
+      step: stepWith([{ round: 1, name: "gate", ok: false }]),
+    },
+    (container) => {
+      assert.equal(container.querySelector(".you > small")?.textContent, "YOU");
+      assert.equal(container.querySelector(".you > .reply > p > strong")?.textContent, "nudge");
+      assert.equal(container.querySelector("button.fold") === null, true, "the nudge is not a fold");
+      assert.equal(container.querySelector(".card") === null, true, "the nudge is not a card");
+    },
+  ));
+
+test("without a step every prompt draws as YOU, whatever its sender and round", () =>
+  withReader(
+    {
+      conversation: conversation({
+        items: [
+          item({ kind: "prompt", time: 100n, sender: "engine", round: 1, text: "engine text" }),
+          item({ kind: "prompt", time: 200n, sender: "brief", text: "brief text" }),
+        ],
+      }),
+      seenAt: 10_000,
+      open: false,
+    },
+    (container) => {
+      assert.equal(container.querySelectorAll(".you").length, 2);
+      assert.equal(container.querySelector("button.fold") === null, true);
+      assert.equal(container.querySelector(".card") === null, true);
     },
   ));
 
