@@ -703,6 +703,23 @@ func TestSummaryFailureKeepsPrevious(t *testing.T) {
 		r.assertPrevious(t)
 	})
 
+	t.Run("prose reply without summary line carries counts only", func(t *testing.T) {
+		r := newRig(t, nil, 0)
+		r.setPrevious(t)
+		// Four non-blank lines. The bold heading is marked up, so it counts as a markup summary line. The mid-line
+		// mention and the quoted line do not begin with summary:.
+		r.place(t, "reply", "Synthetic opening line with plain prose.\n\n**Summary:**\n"+
+			"Second synthetic line mentions summary: mid-line only.\n\n> synthetic quoted line\n")
+		err := r.s.Summarize(t.Context(), r.job(true))
+		if err == nil {
+			t.Fatal("Summarize: want error for reply without summary, got nil")
+		}
+		if got, want := err.Error(), "summary reply: no summary line: bytes=135 lines=4 markup_summary_lines=1"; got != want {
+			t.Errorf("Summarize error = %q, want %q", got, want)
+		}
+		r.assertPrevious(t)
+	})
+
 	t.Run("held run past timeout", func(t *testing.T) {
 		r := newRig(t, nil, shortTimeout)
 		r.setPrevious(t)

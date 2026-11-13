@@ -12,6 +12,7 @@ import (
 	"sync"
 	"syscall"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/joshsymonds/orrery/internal/protocol"
@@ -392,7 +393,7 @@ func stdinFor(job Job) string {
 func parseReply(reply string, wantLabel bool) (string, string, error) {
 	summary, found := replyValue(reply, summaryPrefix)
 	if !found || summary == "" {
-		return "", "", errors.New("summary reply: no summary line")
+		return "", "", noSummaryError(reply)
 	}
 	summary = truncateRunes(summary, maxSummaryRunes)
 	if !wantLabel {
@@ -406,13 +407,41 @@ func parseReply(reply string, wantLabel bool) (string, string, error) {
 // whitespace, with its inner whitespace collapsed to single spaces. found is false when no line matches.
 func replyValue(reply, prefix string) (string, bool) {
 	for line := range strings.SplitSeq(reply, "\n") {
-		trimmed := strings.TrimSpace(line)
-		if len(trimmed) < len(prefix) || !strings.EqualFold(trimmed[:len(prefix)], prefix) {
-			continue
+		if rest, ok := foldCutPrefix(strings.TrimSpace(line), prefix); ok {
+			return strings.Join(strings.Fields(rest), " "), true
 		}
-		return strings.Join(strings.Fields(trimmed[len(prefix):]), " "), true
 	}
 	return "", false
+}
+
+// noSummaryError names a reply that has no summary line by its shape alone: its byte length, its non-blank lines, and
+// its lines that begin with summaryPrefix once surrounding whitespace and markup are removed. No reply text is included.
+func noSummaryError(reply string) error {
+	lines, markup := 0, 0
+	for line := range strings.SplitSeq(reply, "\n") {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		lines++
+		if _, ok := foldCutPrefix(strings.TrimFunc(line, isMarkup), summaryPrefix); ok {
+			markup++
+		}
+	}
+	return fmt.Errorf("summary reply: no summary line: bytes=%d lines=%d markup_summary_lines=%d",
+		len(reply), lines, markup)
+}
+
+// isMarkup reports whether r is whitespace or one of the markup characters a reply line may wrap its text in.
+func isMarkup(r rune) bool {
+	return unicode.IsSpace(r) || strings.ContainsRune("*_#>-`", r)
+}
+
+// foldCutPrefix returns s without prefix when s starts with prefix, ignoring case, and false otherwise.
+func foldCutPrefix(s, prefix string) (string, bool) {
+	if len(s) < len(prefix) || !strings.EqualFold(s[:len(prefix)], prefix) {
+		return "", false
+	}
+	return s[len(prefix):], true
 }
 
 // truncateRunes returns s cut to at most n runes.
