@@ -12,6 +12,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/deskstream"
 	"github.com/joshsymonds/orrery/internal/notice"
 	"github.com/joshsymonds/orrery/internal/push"
+	"github.com/joshsymonds/orrery/internal/store"
 )
 
 const (
@@ -68,12 +69,20 @@ type Recorder interface {
 	Write(Line) error
 }
 
+// Source is what a notice needs to be rebuilt after a restart. Kind names the source and Data is its bytes. A zero
+// Kind means the notice has no source.
+type Source struct {
+	Kind string
+	Data []byte
+}
+
 // Notice is one waiting or done notice to route. A non-empty Silent is the reason it goes nowhere. A nil
-// Watching is never watched. A nil Judge is never judged.
+// Watching is never watched. A nil Judge is never judged. A Source with a Kind keeps the notice's row in the store.
 type Notice struct {
 	Key      notice.Key
 	State    string
 	Silent   string
+	Source   Source
 	Watching func(context.Context) (bool, error)
 	Judge    func(context.Context) (Verdict, error)
 	Desk     func(context.Context) (deskstream.Notice, error)
@@ -105,13 +114,26 @@ type Router struct {
 	running int
 	seq     uint64
 	pending map[notice.Key]*entry
+	// putRow and deleteRow write to the store Attach was given, each under storeDeadline; both are nil until Attach.
+	// rowID is the highest row id given out.
+	putRow    func(store.NoticeRow) error
+	deleteRow func(int64) error
+	rowID     int64
+	// rowPuts are the entries whose last row write failed, and rowDeletes the ids whose delete failed, each with the
+	// key it is logged under. A later row write or Close retries them.
+	rowPuts    map[int64]*entry
+	rowDeletes map[int64]notice.Key
 }
 
-// entry is a notice waiting for its route. Its fields are guarded by Router.mu, except n, which never changes.
+// entry is a notice waiting for its route. Its fields are guarded by Router.mu, except n, which never changes. phase
+// is the wait ent is in, due is when that wait runs out in unix ms, and row is the id of ent's stored row, 0 for none.
 type entry struct {
 	seq         uint64
 	n           Notice
 	at          int64
+	phase       string
+	due         int64
+	row         int64
 	ended       bool
 	watchLogged bool
 	delayed     bool
@@ -129,9 +151,14 @@ func New(cfg Config) *Router {
 	if cfg.Logger == nil {
 		cfg.Logger = slog.New(slog.DiscardHandler)
 	}
-	r := &Router{cfg: cfg, pending: make(map[notice.Key]*entry)}
-	r.idle = sync.NewCond(&r.mu)
-	return r
+	router := &Router{
+		cfg:        cfg,
+		pending:    make(map[notice.Key]*entry),
+		rowPuts:    make(map[int64]*entry),
+		rowDeletes: make(map[int64]notice.Key),
+	}
+	router.idle = sync.NewCond(&router.mu)
+	return router
 }
 
 // Notify ends any pending notice for incoming's key. It then writes incoming's silence, or records incoming as
@@ -148,8 +175,10 @@ func (r *Router) Notify(ctx context.Context, incoming Notice) {
 		return
 	}
 	r.seq++
-	ent := &entry{seq: r.seq, n: incoming, at: r.cfg.Now().Unix()}
+	at := r.cfg.Now().Unix()
+	ent := &entry{seq: r.seq, n: incoming, at: at, phase: phaseDeciding, due: at * 1000}
 	r.pending[incoming.Key] = ent
+	r.rowLocked(ent)
 	r.running++
 	go func() {
 		defer r.finish()
@@ -187,18 +216,28 @@ func (r *Router) Wait() {
 	}
 }
 
-// Close stops every timer, writes a shutdown line for each pending notice in the order they arrived, and waits for
-// routing to finish.
+// Close retries the failed row writes, stops every timer, writes a shutdown line for each pending notice in the order
+// they arrived, and waits for routing to finish. A pending notice whose current row is stored is the exception: it
+// stops with no line, and its row keeps it for the next start. One whose row could not be stored ends `shutdown`.
 func (r *Router) Close() {
 	r.mu.Lock()
-	pending := slices.SortedFunc(maps.Values(r.pending), func(a, b *entry) int {
-		return cmp.Compare(a.seq, b.seq)
-	})
-	for _, ent := range pending {
+	r.retryLocked()
+	for _, ent := range r.sortedPendingLocked() {
+		if r.rowStoredLocked(ent) {
+			r.stopLocked(ent)
+			continue
+		}
 		r.endLocked(ent, None, reasonShutdown)
 	}
 	r.mu.Unlock()
 	r.Wait()
+}
+
+// sortedPendingLocked returns the pending notices in the order they arrived. The caller holds r.mu.
+func (r *Router) sortedPendingLocked() []*entry {
+	return slices.SortedFunc(maps.Values(r.pending), func(a, b *entry) int {
+		return cmp.Compare(a.seq, b.seq)
+	})
 }
 
 // enter counts a decision on ent as running, unless ent has ended, and reports whether the decision should proceed.
@@ -253,6 +292,8 @@ func (r *Router) delayServed(ctx context.Context, ent *entry) bool {
 	}
 	ent.delayed = true
 	r.laterLocked(ent, JudgeDelay, func() { r.decide(ctx, ent) })
+	ent.phase, ent.due = phaseDelayed, r.dueIn(JudgeDelay)
+	r.rowLocked(ent)
 	return false
 }
 
@@ -295,6 +336,8 @@ func (r *Router) hold(ctx context.Context, ent *entry) {
 		r.lineLocked(ent.n.Key, ent.n.State, None, reasonWatching)
 	}
 	r.laterLocked(ent, WatchRecheck, func() { r.decide(ctx, ent) })
+	ent.phase, ent.due = phaseHeld, r.dueIn(WatchRecheck)
+	r.rowLocked(ent)
 }
 
 // route sends ent to the desk when the desk is at hand, and away otherwise. clause is added to the reason of the
@@ -320,6 +363,8 @@ func (r *Router) atDesk(ctx context.Context, ent *entry, dn deskstream.Notice, c
 	if ent.ended {
 		return
 	}
+	ent.phase, ent.due = phaseDesk, r.dueIn(Escalation)
+	r.rowLocked(ent)
 	r.cfg.Desk.Post(dn)
 	r.lineLocked(ent.n.Key, ent.n.State, Desk, reasonAtDesk+clause)
 	r.laterLocked(ent, Escalation, func() { r.escalate(ctx, ent) })
@@ -378,9 +423,18 @@ func (r *Router) laterLocked(ent *entry, d time.Duration, f func()) {
 	})
 }
 
-// endLocked ends ent. It stops ent's timer, stops treating ent as pending, and writes the one line that ends it.
-// The caller holds r.mu and has checked that ent has not ended.
+// endLocked ends ent. It stops ent's timer, stops treating ent as pending, writes the one line that ends it, and
+// deletes ent's row. The caller holds r.mu and has checked that ent has not ended.
 func (r *Router) endLocked(ent *entry, routed, reason string) {
+	r.stopLocked(ent)
+	r.lineLocked(ent.n.Key, ent.n.State, routed, reason)
+	if ent.row != 0 {
+		r.deleteRowLocked(ent)
+	}
+}
+
+// stopLocked stops ent's timer and stops treating ent as pending, without a line. The caller holds r.mu.
+func (r *Router) stopLocked(ent *entry) {
 	ent.ended = true
 	if ent.stop != nil {
 		ent.stop()
@@ -389,7 +443,6 @@ func (r *Router) endLocked(ent *entry, routed, reason string) {
 	if r.pending[ent.n.Key] == ent {
 		delete(r.pending, ent.n.Key)
 	}
-	r.lineLocked(ent.n.Key, ent.n.State, routed, reason)
 }
 
 // lineLocked writes one line for the notice at key and state. The caller holds r.mu.
