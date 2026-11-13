@@ -44,6 +44,8 @@ type Item = Row | EpicItem | StepItem;
 
 const stateWaiting = "waiting";
 const stateWorking = "working";
+const needsYouTitle = "Needs you";
+const newSinceTitle = "New since you looked";
 const noDirectoryTitle = "no directory";
 const tasksUnavailableText = "tasks unavailable";
 const epicUnavailableText = "epic unavailable";
@@ -479,7 +481,10 @@ export function App({
           <div class="rows" data-list={view}>
             {sections.map((section) => (
               <div class="section">
-                <div class="b-sec">{sectionTitle(section)}</div>
+                <div class={sectionClass(section.title)}>
+                  <span class="title">{sectionTitle(section)}</span>
+                  <i>{section.rows.length + section.epics.length}</i>
+                </div>
                 {section.epics.map((block) => (
                   <Fragment key={block.epic.key}>
                     <EpicEntry epic={block.epic} current={block.epic.key === cursorKey} onSelect={selectItem} />
@@ -514,12 +519,14 @@ export function App({
                     <span class={`g g-${item.state}`} aria-hidden="true" />
                     <div class="main">
                       <div class="l1">
-                        <span class={`state st-${item.state}`}>{item.state}</span>
+                        {item.state === stateWaiting && (
+                          <span class="ty">{item.question !== "" ? "QUESTION" : "WAITING"}</span>
+                        )}
                         <span class="label">{item.label}</span>
                         <span class="proj">{lastPathElement(item.project)}</span>
                         <span class="age">{ageText(item.changed, now)}</span>
                       </div>
-                      <div class="l2">
+                      <div class={item.unseen ? "l2" : "l2 one"}>
                         <ReplyText
                           text={
                             item.state === stateWaiting && item.question !== ""
@@ -858,6 +865,17 @@ function sectionTitle(section: EpicSection): string {
     return section.title;
   }
   return section.rows[0]?.host || noDirectoryTitle;
+}
+
+// sectionClass marks the two heads that ask for a look: Needs you, and New since you looked.
+function sectionClass(title: string): string {
+  if (title === needsYouTitle) {
+    return "b-sec need";
+  }
+  if (title === newSinceTitle) {
+    return "b-sec fresh";
+  }
+  return "b-sec";
 }
 
 // rowWhere is a row's where line: its project's last path element and its host, joined, with an empty part left out.

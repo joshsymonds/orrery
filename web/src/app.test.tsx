@@ -493,7 +493,17 @@ function alertTexts(container: HTMLElement): string[] {
 }
 
 function sectionTitles(container: HTMLElement): (string | null)[] {
-  return [...container.querySelectorAll(".b-sec")].map((element) => element.textContent);
+  return [...container.querySelectorAll(".b-sec")].map((element) => element.querySelector(".title")?.textContent ?? null);
+}
+
+// headCounts is the count each section head shows, in order.
+function headCounts(container: HTMLElement): (string | null)[] {
+  return [...container.querySelectorAll(".b-sec")].map((element) => element.querySelector("i")?.textContent ?? null);
+}
+
+// headClasses is the class each section head carries, in order.
+function headClasses(container: HTMLElement): (string | null)[] {
+  return [...container.querySelectorAll(".b-sec")].map((element) => element.getAttribute("class"));
 }
 
 function rowElement(container: HTMLElement, key: string): Element {
@@ -816,15 +826,87 @@ test("only unseen rows carry the unseen mark", () =>
     assert.equal(rowElement(container, "d").hasAttribute("data-unseen"), false);
   }));
 
-test("a row shows its state, label, project's last path element, age, and reply text", () =>
+test("a row shows its tag, label, project's last path element, age, and reply text", () =>
   withApp({}, (container) => {
     const element = rowElement(container, "a");
     assert.equal(element.querySelector(".label")?.textContent, "api");
     assert.equal(element.querySelector(".proj")?.textContent, "api");
     assert.equal(element.querySelector(".age")?.textContent, "11m");
-    assert.ok(element.textContent?.includes("waiting"));
+    assert.equal(element.querySelector(".ty")?.textContent, "QUESTION");
     assert.equal(element.querySelector(".l2")?.textContent, "Ship it?", "the question replaces the summary");
   }));
+
+// stateRows has a row in each state a row can carry, one waiting with a question, one without, and two seen.
+function stateRows(): Row[] {
+  return [
+    row({ key: "q", state: "waiting", question: "Ship it?", changed: 300, seen: 300 }),
+    row({ key: "w", state: "waiting", changed: 250, seen: 250 }),
+    row({ key: "k", state: "working", changed: 200, seen: 200 }),
+    row({ key: "d", state: "done", changed: 150, seen: 150 }),
+    row({ key: "i", state: "interrupted", changed: 100, seen: 100 }),
+  ];
+}
+
+test("a waiting row leads its first line with a QUESTION or WAITING tag, and no other row has a tag", () =>
+  withApp({ rows: stateRows() }, (container) => {
+    const tagOf = (key: string) => rowElement(container, key).querySelector(".l1 .ty")?.textContent ?? null;
+    assert.equal(tagOf("q"), "QUESTION", "a waiting row with a question");
+    assert.equal(tagOf("w"), "WAITING", "a waiting row without one");
+    assert.equal(tagOf("k"), null, "a working row");
+    assert.equal(tagOf("d"), null, "a done row");
+    assert.equal(tagOf("i"), null, "an interrupted row");
+    assert.equal(rowElement(container, "q").querySelector(".l1")?.firstElementChild?.classList.contains("ty"), true);
+  }));
+
+test("no row draws a state element, and no row's first line holds its state word", () =>
+  withApp({ rows: stateRows() }, (container) => {
+    const rows = [...container.querySelectorAll("[data-row]")];
+    assert.equal(
+      rows.some((element) => element.querySelector(".state") !== null),
+      false,
+      "no row draws a .state element",
+    );
+    for (const [key, word] of [
+      ["k", "working"],
+      ["d", "done"],
+      ["i", "interrupted"],
+    ]) {
+      assert.equal(rowElement(container, key).querySelector(".l1")?.textContent?.includes(word), false, `row ${key} has no ${word}`);
+    }
+  }));
+
+test("each row's glyph carries its state class", () =>
+  withApp({ rows: stateRows() }, (container) => {
+    const glyphOf = (key: string) => rowElement(container, key).querySelector(".g")?.getAttribute("class") ?? null;
+    assert.equal(glyphOf("q"), "g g-waiting");
+    assert.equal(glyphOf("k"), "g g-working");
+    assert.equal(glyphOf("d"), "g g-done");
+    assert.equal(glyphOf("i"), "g g-interrupted");
+  }));
+
+test("an unseen row's reply text runs two lines, and a seen row's runs one", () =>
+  withApp({}, (container) => {
+    assert.equal(rowElement(container, "a").querySelector(".l2")?.getAttribute("class"), "l2", "a is unseen");
+    assert.equal(rowElement(container, "b").querySelector(".l2")?.getAttribute("class"), "l2 one", "b is seen");
+  }));
+
+test("a section head shows its title and its row count, and Needs you and New since you looked carry their marks", () =>
+  withApp(
+    {
+      rows: [
+        row({ key: "w1", state: "waiting", question: "Ship it?", changed: 300, seen: 300 }),
+        row({ key: "w2", state: "waiting", changed: 200, seen: 200 }),
+        row({ key: "n1", state: "done", changed: 400, seen: 100, unseen: true }),
+        row({ key: "r1", state: "working", changed: 50, seen: 50 }),
+        row({ key: "s1", state: "done", changed: 10, seen: 10 }),
+      ],
+    },
+    (container) => {
+      assert.deepEqual(sectionTitles(container), ["Needs you", "New since you looked", "Working", "Seen"]);
+      assert.deepEqual(headCounts(container), ["2", "1", "1", "1"]);
+      assert.deepEqual(headClasses(container), ["b-sec need", "b-sec fresh", "b-sec", "b-sec"]);
+    },
+  ));
 
 test("a row that is not waiting shows its summary, not its question", () =>
   withApp(
@@ -1974,7 +2056,7 @@ function readerHidden(container: HTMLElement): boolean {
 
 function sectionOf(container: HTMLElement, title: string): HTMLElement {
   const section = [...container.querySelectorAll<HTMLElement>(".section")].find(
-    (element) => element.querySelector(".b-sec")?.textContent === title,
+    (element) => element.querySelector(".b-sec .title")?.textContent === title,
   );
   assert.ok(section, `section ${title} is rendered`);
   return section;
@@ -1986,6 +2068,7 @@ test("the Epics group follows Needs you, and an epic shows its gauge and count, 
   const epics = epicsView([first, second], new Map([[first.id, detailOf(first, ["done", "integrated", "pending"])]]));
   return withApp({ epics }, (container) => {
     assert.deepEqual(sectionTitles(container), ["Needs you", "Epics", "New since you looked", "Working", "Seen"]);
+    assert.equal(sectionOf(container, "Epics").querySelector(".b-sec i")?.textContent, "2", "the Epics head counts its two epics");
     assert.deepEqual(rowKeys(container), ["a", epicKey(first), epicKey(second), "c", "b", "d"]);
 
     const known = rowElement(container, epicKey(first));
@@ -2015,6 +2098,7 @@ test("an epic shows four running steps with the held one marked, then its more, 
   const epics = epicsView([busy, ...folded], new Map());
   return withApp({ epics }, (container) => {
     const section = sectionOf(container, "Epics");
+    assert.equal(section.querySelector(".b-sec i")?.textContent, "1", "the head counts the live epic, not the folded ones");
     assert.deepEqual(
       [...section.children].map((child) => child.className),
       ["b-sec", "b-row epic", "b-row step", "b-row step", "b-row step", "b-row step", "b-more", "b-more", "b-more"],
