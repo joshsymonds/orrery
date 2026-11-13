@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"sync"
+	"time"
 )
 
 // heldProcess is the holder's own OS process as a controller sees it through the holder. Done closes once the process
@@ -30,8 +31,13 @@ type Process struct {
 
 	// readMu serializes Reads, so the acks they send reach the holder in the order of their consumed offsets.
 	readMu sync.Mutex
-	// returned is how many stdout bytes Read has returned. Only Read touches it, under readMu.
+	// returned is the stdout offset just past the bytes Read has returned. It starts at the offset the stream starts at.
+	// Only Read touches it, under readMu.
 	returned int64
+	// attachedConsumed and attachedReplayFrom are the consumed and replay-from offsets the holder's attached frame carried.
+	// The holder never moves them back, so an ack carries no lower offsets. They are set before the stream starts.
+	attachedConsumed   int64
+	attachedReplayFrom int64
 
 	stopOnce sync.Once
 	stopErr  error
@@ -64,17 +70,35 @@ type Process struct {
 }
 
 // newProcess returns the Process for held, the holder's own process. conn is attached at offset 0 to the holder that
-// socket names. remove is the directory removed once the holder has ended.
+// socket names, on a holder that has not yet spooled or consumed anything. remove is the directory removed once the
+// holder has ended.
 func newProcess(held heldProcess, conn *Conn, socket, remove string) *Process {
+	return newAttachedProcess(held, conn, socket, remove, 0, Frame{})
+}
+
+// newAttachedProcess returns the Process for held, the holder's own process, whose conn is attached at replayFrom. The
+// stream's out frames start at replayFrom. attached is the attached frame the holder answered: acks carry no consumed or
+// replay-from below its offsets. remove is the directory removed once the holder has ended.
+func newAttachedProcess(
+	held heldProcess,
+	conn *Conn,
+	socket, remove string,
+	replayFrom int64,
+	attached Frame,
+) *Process {
 	process := &Process{
-		held:       held,
-		conn:       conn,
-		socket:     socket,
-		remove:     remove,
-		streamDone: make(chan struct{}),
-		ended:      make(chan struct{}),
-		changed:    make(chan struct{}),
-		pending:    make(map[string]chan error),
+		held:               held,
+		conn:               conn,
+		socket:             socket,
+		remove:             remove,
+		returned:           replayFrom,
+		next:               replayFrom,
+		attachedConsumed:   attached.Consumed,
+		attachedReplayFrom: attached.ReplayFrom,
+		streamDone:         make(chan struct{}),
+		ended:              make(chan struct{}),
+		changed:            make(chan struct{}),
+		pending:            make(map[string]chan error),
 	}
 	go process.run()
 	go process.awaitHolder()
@@ -161,13 +185,11 @@ func (p *Process) stopHolder() error {
 	return nil
 }
 
-// stopOverSocket dials the holder on socket and sends it stop, which returns once the child has stopped.
+// stopOverSocket dials the holder on socket and sends it stop, which returns once the child has stopped. The dial, the
+// hello and the wait for stopped share one deadline holderStopTimeout away, so a holder that accepts its socket and never
+// answers fails the stop, and stopHolder then falls back to the holder's own process.
 func stopOverSocket(socket string) error {
-	conn, err := Dial(context.Background(), socket)
-	if err != nil {
-		return err
-	}
-	return conn.Stop()
+	return stopBounded(context.Background(), socket, time.Now().Add(holderStopTimeout))
 }
 
 // Wait returns once the holder has ended and its directory is removed. It returns "signal: NAME" when a signal ended the
@@ -311,10 +333,11 @@ func (p *Process) isDetached() bool {
 }
 
 // readStdout copies buffered stdout into b, waiting while there is none. After a Read returns bytes while the stream has
-// not ended, it acks the total consumed and the replay-from, so the holder may trim its spool. Once the stream has ended,
-// the connection is closed, so there is nothing to ack. The stream can end while an ack is in flight (the holder closes
-// its connection just after its exit frame, and the stream's end closes ours), so a failed ack waits for the stream's end
-// and returns the bytes with no error: the next Read reports how the stream ended, which is also why the ack failed.
+// not ended, it acks the consumed offset and the replay-from, so the holder may trim its spool. Once the stream has
+// ended, the connection is closed, so there is nothing to ack. The stream can end while an ack is in flight (the holder
+// closes its connection just after its exit frame, and the stream's end closes ours), so a failed ack waits for the
+// stream's end and returns the bytes with no error: the next Read reports how the stream ended, which is also why the ack
+// failed.
 func (p *Process) readStdout(b []byte) (int, error) {
 	p.readMu.Lock()
 	defer p.readMu.Unlock()
@@ -326,18 +349,19 @@ func (p *Process) readStdout(b []byte) (int, error) {
 	if !open {
 		return n, nil
 	}
-	if ackErr := p.conn.Ack(p.returned, p.ackReplayFrom(p.returned)); ackErr != nil {
+	consumed := max(p.returned, p.attachedConsumed)
+	if ackErr := p.conn.Ack(consumed, p.ackReplayFrom(consumed)); ackErr != nil {
 		<-p.streamDone
 	}
 	return n, nil
 }
 
 // ackReplayFrom returns the replay-from an ack of consumed carries: the offset SetReplayFrom last allowed, but no higher
-// than consumed.
+// than consumed, and no lower than the attached frame's replay-from, which the holder would refuse.
 func (p *Process) ackReplayFrom(consumed int64) int64 {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	return min(p.replayFrom, consumed)
+	return max(min(p.replayFrom, consumed), p.attachedReplayFrom)
 }
 
 // takeBytes copies buffered stdout into buf, waiting until there is some, the stream ends, or stdout is closed. Buffered
