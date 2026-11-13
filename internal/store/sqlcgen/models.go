@@ -61,6 +61,7 @@ type PendingNotice struct {
 	WatchLogged bool
 	SourceKind  string
 	Source      []byte
+	Silent      bool
 }
 
 type PendingNoticeID struct {

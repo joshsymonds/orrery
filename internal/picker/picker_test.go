@@ -41,7 +41,6 @@ const (
 // Actions is the list the pane passes to Choose instead of calling Run.
 type pickerSpec struct {
 	Server  string
-	Zoxide  string
 	Claude  string
 	Root    string
 	Text    string
@@ -85,7 +84,7 @@ func TestPickerPane(t *testing.T) {
 		})
 	}
 	options := Options{
-		Config: open.Config{Tmux: client, Zoxide: spec.Zoxide, Claude: spec.Claude, Root: spec.Root},
+		Config: open.Config{Tmux: client, Claude: spec.Claude, Root: spec.Root},
 		Text:   spec.Text,
 		Dir:    spec.Dir,
 		Input:  os.Stdin,
@@ -147,14 +146,13 @@ func newPickerServer(t *testing.T) (*tmuxctl.Client, string) {
 	return client, name
 }
 
-// fixture is one picker run: a private tmux server with a target pane that has a state, the fake zoxide and
-// fake claude, and the directories zoxide ranks.
+// fixture is one picker run: a private tmux server with a target pane that has a state, and the fake claude. The
+// directories under root are the ones the intent lookup lists, dir-01 first.
 type fixture struct {
 	client        *tmuxctl.Client
 	server        string
-	root          string // absolute: the default project root, and the parent of the ranked directories
-	dir1          string // ranked d1
-	zoxide        string
+	root          string // absolute: the default project root, and the parent of the listed directories
+	dir1          string // listed d1
 	claude        string
 	hold          string // while this file exists, every fake claude run blocks
 	targetSession string
@@ -169,9 +167,9 @@ type fixture struct {
 	result        string
 }
 
-// newFixture starts the target pane and installs the fakes. The fake zoxide exits with zoxideStatus; the fake
-// claude replies with one pane action, one jump to the target pane, and task: yes.
-func newFixture(t *testing.T, zoxideStatus int) *fixture {
+// newFixture starts the target pane and installs the fake claude, which exits with claudeStatus and otherwise replies
+// with one pane action, one jump to the target pane, and task: yes.
+func newFixture(t *testing.T, claudeStatus int) *fixture {
 	t.Helper()
 	root := t.TempDir()
 	client, server := newPickerServer(t)
@@ -194,10 +192,8 @@ func newFixture(t *testing.T, zoxideStatus int) *fixture {
 	mustRun(t, client, "set-option", "-p", "-t", f.targetPane, protocol.OptionState, "waiting")
 	mustRun(t, client, "set-option", "-p", "-t", f.targetPane, protocol.OptionContext, "")
 
-	zoxideListing := zoxideLine(f.dir1) + zoxideLine(dir2)
-	f.zoxide = installFake(t, "fake-zoxide", "zoxide", zoxideListing, zoxideStatus)
 	reply := fmt.Sprintf("pane d1\njump %s\ntask: yes\n", f.targetPane)
-	f.claude = installFake(t, "fake-claude", "claude", reply, 0)
+	f.claude = installFake(t, "fake-claude", "claude", reply, claudeStatus)
 	f.hold = filepath.Join(filepath.Dir(f.claude), "hold")
 	// The fakes' dirs were made after the server, so stop it again first: a held fake claude writes into its dir.
 	t.Cleanup(func() { stopPickerServer(t, server) })
@@ -224,7 +220,6 @@ func (f *fixture) startPicker(t *testing.T) {
 	}
 	data, err := json.Marshal(pickerSpec{
 		Server:  f.server,
-		Zoxide:  f.zoxide,
 		Claude:  f.claude,
 		Root:    f.root,
 		Text:    f.text,
@@ -444,7 +439,7 @@ func TestPickerReturnsIntentError(t *testing.T) {
 	baseline := f.state(t)
 
 	outcome := f.awaitOutcome(t)
-	if outcome.Chosen || !strings.Contains(outcome.Err, "zoxide query") {
+	if outcome.Chosen || !strings.Contains(outcome.Err, "claude run") {
 		t.Fatalf("outcome = %+v, want an Intent error and no choice", outcome)
 	}
 	if strings.Contains(f.frame(t), "> pane") {
@@ -842,11 +837,6 @@ func installFake(t *testing.T, src, name, reply string, status int) string {
 		writeFile(t, filepath.Join(dir, "exit"), strconv.Itoa(status))
 	}
 	return bin
-}
-
-// zoxideLine is one line of `zoxide query -l -s` output for path.
-func zoxideLine(path string) string {
-	return "  9.0 " + path + "\n"
 }
 
 // waitUntil polls cond until it holds, failing the test when waitLimit passes.

@@ -35,6 +35,7 @@ const (
 	rowHeld     = "held"
 	rowDelayed  = "delayed"
 	rowDesk     = "desk"
+	rowSending  = "sending"
 )
 
 var errStore = errors.New("synthetic store failure")
@@ -187,6 +188,12 @@ func withDelayServed(row store.NoticeRow) store.NoticeRow {
 	return withWatchLogged(row)
 }
 
+// withSilent is row with its silent flag set.
+func withSilent(row store.NoticeRow) store.NoticeRow {
+	row.Silent = true
+	return row
+}
+
 // checkRows asserts the rows rows holds, in id order.
 func checkRows(t *testing.T, rows route.Rows, want ...store.NoticeRow) {
 	t.Helper()
@@ -245,6 +252,144 @@ func TestCloseKeepsRows(t *testing.T) {
 		(clockStart+escalationSeconds)*1000))
 }
 
+func TestSendingRowKept(t *testing.T) {
+	t.Run("away keeps a sending row until its push publishes", func(t *testing.T) {
+		ctx := t.Context()
+		s := newFlakyRows(t)
+		f := newFake()
+		r := newRestartRouter(t, f, nil)
+		r.Attach(ctx, s)
+
+		r.Notify(ctx, sourced(f.notice(testPane, stateWaiting, false)))
+		r.Wait()
+		checkRows(t, s, rowFor(1, testPane, stateWaiting, clockStart, rowSending, 0))
+
+		f.publish()
+		checkRows(t, s)
+		f.check(t, []route.Line{lineOf(testPane, clockStart, stateWaiting, route.DeskPhone, "away")},
+			[]deskstream.Notice{deskPost(stateWaiting)}, []push.Notification{phonePush(testPane, stateWaiting)})
+	})
+
+	t.Run("unneeded keeps a silent sending row until its push publishes", func(t *testing.T) {
+		ctx := t.Context()
+		s := newFlakyRows(t)
+		f := newFake()
+		r := newRestartRouter(t, f, nil)
+		r.Attach(ctx, s)
+
+		c := &canned{verdict: route.Verdict{Needed: false}}
+		n := f.notice(testPane, stateDone, false)
+		n.Judge = c.judge
+		r.Notify(ctx, sourced(n))
+		r.Wait()
+		f.fire(t, route.JudgeDelay)
+		r.Wait()
+		sending := rowFor(1, testPane, stateDone, clockStart, rowSending, 0)
+		sending.DelayServed = true
+		checkRows(t, s, withSilent(sending))
+
+		f.publish()
+		checkRows(t, s)
+		f.check(t, []route.Line{lineOf(testPane, clockStart+judgeSeconds, stateDone, route.DeskPhone, "unneeded")},
+			[]deskstream.Notice{quietDonePost()}, []push.Notification{silentDonePush()})
+	})
+
+	t.Run("escalation keeps a sending row until its push publishes", func(t *testing.T) {
+		ctx := t.Context()
+		s := newFlakyRows(t)
+		f := newFake()
+		f.setDesk(true, clockStart)
+		r := newRestartRouter(t, f, nil)
+		r.Attach(ctx, s)
+
+		r.Notify(ctx, sourced(f.notice(testPane, stateWaiting, false)))
+		r.Wait()
+		f.fire(t, route.Escalation)
+		r.Wait()
+		checkRows(t, s, rowFor(1, testPane, stateWaiting, clockStart, rowSending, 0))
+
+		f.publish()
+		checkRows(t, s)
+		f.check(t, []route.Line{
+			lineOf(testPane, clockStart, stateWaiting, route.Desk, "at the desk"),
+			lineOf(testPane, clockStart+escalationSeconds, stateWaiting, route.Phone, "unseen after 5 minutes"),
+		}, []deskstream.Notice{deskPost(stateWaiting)}, []push.Notification{phonePush(testPane, stateWaiting)})
+	})
+
+	t.Run("the row survives a router dropped without Close and a store reopen", func(t *testing.T) {
+		ctx := t.Context()
+		path := filepath.Join(t.TempDir(), "orrery.db")
+		s := openStore(t, path)
+		f := newFake()
+		r := route.New(route.Config{
+			Host:       testHost,
+			Now:        f.Now,
+			After:      f.After,
+			Desk:       f,
+			Phone:      f,
+			Subscribed: f.Subscribed,
+			LocalInput: f.LocalInput,
+			Log:        f,
+		})
+		r.Attach(ctx, s)
+
+		r.Notify(ctx, sourced(f.notice(testPane, stateWaiting, false)))
+		r.Wait()
+		reopened := reopenStore(t, s, path)
+		checkRows(t, reopened, rowFor(1, testPane, stateWaiting, clockStart, rowSending, 0))
+	})
+
+	t.Run("a publish after Close deletes the row", func(t *testing.T) {
+		ctx := t.Context()
+		s := newFlakyRows(t)
+		f := newFake()
+		r := newRestartRouter(t, f, nil)
+		r.Attach(ctx, s)
+
+		r.Notify(ctx, sourced(f.notice(testPane, stateWaiting, false)))
+		r.Wait()
+		r.Close()
+		checkRows(t, s, rowFor(1, testPane, stateWaiting, clockStart, rowSending, 0))
+
+		f.publish()
+		checkRows(t, s)
+	})
+
+	t.Run("without a subscription the row is deleted", func(t *testing.T) {
+		ctx := t.Context()
+		s := newFlakyRows(t)
+		f := newFake()
+		f.setSubscribed(false, nil)
+		r := newRestartRouter(t, f, nil)
+		r.Attach(ctx, s)
+
+		r.Notify(ctx, sourced(f.notice(testPane, stateWaiting, false)))
+		r.Wait()
+		checkRows(t, s)
+		f.check(t, []route.Line{lineOf(testPane, clockStart, stateWaiting, route.Desk, "away; no push subscription")},
+			[]deskstream.Notice{deskPost(stateWaiting)}, nil)
+	})
+}
+
+func TestOlderPublishKeepsNewerRow(t *testing.T) {
+	ctx := t.Context()
+	s := newFlakyRows(t)
+	f := newFake()
+	r := newRestartRouter(t, f, nil)
+	r.Attach(ctx, s)
+
+	r.Notify(ctx, sourced(f.notice(testPane, stateWaiting, false)))
+	r.Wait()
+	f.setWatching(true, nil)
+	r.Notify(ctx, sourced(f.notice(testPane, stateDone, true)))
+	r.Wait()
+	newer := withWatchLogged(rowFor(2, testPane, stateDone, clockStart, rowHeld, (clockStart+watchSeconds)*1000))
+	checkRows(t, s, rowFor(1, testPane, stateWaiting, clockStart, rowSending, 0), newer)
+
+	f.publish()
+	checkRows(t, s, newer)
+}
+
 func TestPendingRowPhases(t *testing.T) {
 	t.Run("rows follow the notice through each phase to its end", func(t *testing.T) {
 		ctx := t.Context()
@@ -287,6 +432,7 @@ func TestPendingRowPhases(t *testing.T) {
 
 		f.fire(t, route.Escalation)
 		r.Wait()
+		f.publish()
 		checkRows(t, s)
 
 		later := clockStart + watchSeconds + judgeSeconds + escalationSeconds
@@ -379,8 +525,9 @@ func TestRowWriteFails(t *testing.T) {
 		f.fire(t, route.Escalation)
 		r.Wait()
 		atDeskEscalated(t, f)
-		checkRows(t, s, rowFor(1, testPane, stateWaiting, clockStart, rowDesk,
-			(clockStart+escalationSeconds)*1000))
+		checkRows(t, s, rowFor(1, testPane, stateWaiting, clockStart, rowSending, 0))
+		f.publish()
+		checkRows(t, s, rowFor(1, testPane, stateWaiting, clockStart, rowSending, 0))
 
 		s.set(faults{})
 		f.setWatching(true, nil)
@@ -475,8 +622,8 @@ func TestRowWriteFails(t *testing.T) {
 		s.set(faults{deletes: true})
 		f.fire(t, route.Escalation)
 		r.Wait()
-		checkRows(t, s, rowFor(1, testPane, stateWaiting, clockStart, rowDesk,
-			(clockStart+escalationSeconds)*1000))
+		f.publish()
+		checkRows(t, s, rowFor(1, testPane, stateWaiting, clockStart, rowSending, 0))
 
 		s.set(faults{})
 		r.Close()

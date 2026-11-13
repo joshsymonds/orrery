@@ -32,12 +32,14 @@ type call struct {
 	clear push.Clear
 }
 
-// fakeSender records every call in order. Publish signals published after each publish when it is set.
+// fakeSender records every call in order. Publish signals published after each publish when it is set, then waits
+// for hold to close when it is set.
 type fakeSender struct {
 	mu        sync.Mutex
 	calls     []call
 	err       error
 	published chan struct{}
+	hold      chan struct{}
 }
 
 func (f *fakeSender) Publish(_ context.Context, note push.Notification) error {
@@ -46,6 +48,9 @@ func (f *fakeSender) Publish(_ context.Context, note push.Notification) error {
 	f.mu.Unlock()
 	if f.published != nil {
 		f.published <- struct{}{}
+	}
+	if f.hold != nil {
+		<-f.hold
 	}
 	return f.err
 }
@@ -84,6 +89,93 @@ func wantCalls(t *testing.T, got []call, want ...call) {
 	}
 }
 
+// requireNotSent fails the test when sentRan has a value. Callers hold the send in progress before they call it.
+func requireNotSent(t *testing.T, sentRan <-chan struct{}) {
+	t.Helper()
+	select {
+	case <-sentRan:
+		t.Fatal("sent ran before the send finished")
+	case <-time.After(clearHold):
+	}
+}
+
+func TestNotifyReportsPublish(t *testing.T) {
+	const at = 1700000000
+	key := notice.Key{Pane: "%3"}
+	publishNote := push.Notification{Summary: "done", Host: "host-a", Pane: "%3", Time: at}
+
+	for _, tc := range []struct {
+		name       string
+		publishErr error
+	}{
+		{name: "publish succeeds"},
+		{name: "publish fails", publishErr: errors.New("connection refused")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			clk := &clock{at: time.Unix(at, 0)}
+			entered := make(chan struct{}, 1)
+			hold := make(chan struct{})
+			sender := &fakeSender{err: tc.publishErr, published: entered, hold: hold}
+			n := notice.New("host-a", sender, clk.now, slog.New(slog.DiscardHandler))
+			sentRan := make(chan struct{}, 2)
+
+			n.Notify(
+				context.Background(),
+				key,
+				build(push.Notification{Summary: "done"}),
+				func() { sentRan <- struct{}{} },
+			)
+			select {
+			case <-entered:
+			case <-time.After(ioTimeout):
+				t.Fatal("Publish was not called")
+			}
+			// Publish is still blocked on hold, so sent must not have run.
+			requireNotSent(t, sentRan)
+			close(hold)
+			n.Wait()
+
+			if got := len(sentRan); got != 1 {
+				t.Fatalf("sent ran %d times by the time Wait returned, want 1", got)
+			}
+			wantCalls(t, sender.snapshot(), call{kind: "publish", note: publishNote})
+		})
+	}
+
+	t.Run("build fails", func(t *testing.T) {
+		clk := &clock{at: time.Unix(at, 0)}
+		sender := &fakeSender{}
+		n := notice.New("host-a", sender, clk.now, slog.New(slog.DiscardHandler))
+		hold := make(chan struct{})
+		sentRan := make(chan struct{}, 2)
+
+		n.Notify(context.Background(), key, func(context.Context) (push.Notification, error) {
+			<-hold
+			return push.Notification{}, errors.New("no notification")
+		}, func() { sentRan <- struct{}{} })
+		// build is still blocked on hold, so sent must not have run.
+		requireNotSent(t, sentRan)
+		close(hold)
+		n.Wait()
+
+		if got := len(sentRan); got != 1 {
+			t.Fatalf("sent ran %d times by the time Wait returned, want 1", got)
+		}
+		wantCalls(t, sender.snapshot())
+	})
+
+	t.Run("nil sent", func(t *testing.T) {
+		clk := &clock{at: time.Unix(at, 0)}
+		sender := &fakeSender{}
+		n := notice.New("host-a", sender, clk.now, slog.New(slog.DiscardHandler))
+
+		n.Notify(context.Background(), key, build(push.Notification{Summary: "done"}), nil)
+		n.Wait()
+
+		wantCalls(t, sender.snapshot(), call{kind: "publish", note: publishNote})
+	})
+}
+
 func TestNotifyThenSeenAtNoticeTimeClears(t *testing.T) {
 	clk := &clock{at: time.Unix(1700000000, 0)}
 	sender := &fakeSender{}
@@ -91,7 +183,7 @@ func TestNotifyThenSeenAtNoticeTimeClears(t *testing.T) {
 	key := notice.Key{Pane: "%3"}
 	at := clk.at.Unix()
 
-	n.Notify(context.Background(), key, build(push.Notification{Summary: "done"}))
+	n.Notify(context.Background(), key, build(push.Notification{Summary: "done"}), nil)
 	n.Seen(context.Background(), key, at)
 	n.Wait()
 
@@ -108,7 +200,7 @@ func TestSeenBeforeNoticeTimeWaitsForLaterSeen(t *testing.T) {
 	key := notice.Key{Pane: "%3"}
 	at := clk.at.Unix()
 
-	n.Notify(context.Background(), key, build(push.Notification{}))
+	n.Notify(context.Background(), key, build(push.Notification{}), nil)
 	n.Seen(context.Background(), key, at-1)
 	n.Wait()
 	wantCalls(t, sender.snapshot(),
@@ -130,7 +222,7 @@ func TestSecondSeenSendsNothing(t *testing.T) {
 	key := notice.Key{Pane: "%3"}
 	at := clk.at.Unix()
 
-	n.Notify(context.Background(), key, build(push.Notification{}))
+	n.Notify(context.Background(), key, build(push.Notification{}), nil)
 	n.Seen(context.Background(), key, at)
 	n.Seen(context.Background(), key, at+10)
 	n.Wait()
@@ -152,7 +244,7 @@ func TestClearNeverPrecedesNoticeWhenBuildBlocks(t *testing.T) {
 	n.Notify(context.Background(), key, func(context.Context) (push.Notification, error) {
 		<-release
 		return push.Notification{Summary: "waiting"}, nil
-	})
+	}, nil)
 	seenReturned := make(chan struct{})
 	go func() {
 		n.Seen(context.Background(), key, at)
@@ -181,7 +273,7 @@ func TestSessionKeysClearBySession(t *testing.T) {
 	n := notice.New("host-a", sender, clk.now, slog.New(slog.DiscardHandler))
 	at := clk.at.Unix()
 
-	n.Notify(context.Background(), notice.Key{Session: "s1"}, build(push.Notification{}))
+	n.Notify(context.Background(), notice.Key{Session: "s1"}, build(push.Notification{}), nil)
 	n.Seen(context.Background(), notice.Key{Session: "s1"}, at)
 	n.Wait()
 
@@ -200,8 +292,8 @@ func TestKeysDoNotWaitOnEachOther(t *testing.T) {
 	n.Notify(context.Background(), notice.Key{Pane: "%1"}, func(context.Context) (push.Notification, error) {
 		<-release
 		return push.Notification{}, nil
-	})
-	n.Notify(context.Background(), notice.Key{Pane: "%2"}, build(push.Notification{}))
+	}, nil)
+	n.Notify(context.Background(), notice.Key{Pane: "%2"}, build(push.Notification{}), nil)
 
 	select {
 	case <-sender.published:
@@ -229,7 +321,7 @@ func TestSendsIgnoreContextCancellation(t *testing.T) {
 			return push.Notification{}, err
 		}
 		return push.Notification{Summary: "done"}, nil
-	})
+	}, nil)
 	n.Seen(ctx, key, at)
 	n.Wait()
 
@@ -246,7 +338,7 @@ func TestSendErrorsAreLoggedWithRedactedEndpoint(t *testing.T) {
 	var logs bytes.Buffer
 	n := notice.New("host-a", sender, clk.now, slog.New(slog.NewTextHandler(&logs, nil)))
 
-	n.Notify(context.Background(), notice.Key{Pane: "%3"}, build(push.Notification{}))
+	n.Notify(context.Background(), notice.Key{Pane: "%3"}, build(push.Notification{}), nil)
 	n.Wait()
 
 	out := logs.String()
@@ -293,7 +385,7 @@ func TestDaemonSeenReportClearsRecordedPaneNotice(t *testing.T) {
 		}
 	})
 
-	n.Notify(ctx, notice.Key{Pane: "%7"}, build(push.Notification{Summary: "waiting"}))
+	n.Notify(ctx, notice.Key{Pane: "%7"}, build(push.Notification{Summary: "waiting"}), nil)
 	sendSeenFrame(t, socketPath, protocol.HookFrame{TmuxPane: "%7", Seen: seenAt})
 	select {
 	case report := <-reports:

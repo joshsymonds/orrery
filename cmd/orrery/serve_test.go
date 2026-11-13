@@ -202,9 +202,9 @@ func writeServeFakeBinary(t *testing.T, dir, name string) string {
 	return path
 }
 
-// TestServePickerAskAnswersMissingBinary runs serve's picker with neither zoxide nor claude on PATH. server.New
-// accepts the picker, and an ask through the guard answers 502 with a body naming the missing zoxide.
-func TestServePickerAskAnswersMissingBinary(t *testing.T) {
+// TestBarePathServeAskAnswersMissingClaude runs serve's picker with nothing on PATH. server.New accepts the picker,
+// and an ask through the guard answers 502 with a body naming the missing claude.
+func TestBarePathServeAskAnswersMissingClaude(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
 	tmux, err := tmuxctl.New(tmuxctl.Server{Name: "orrery-serve-test-unstarted"})
 	if err != nil {
@@ -221,16 +221,15 @@ func TestServePickerAskAnswersMissingBinary(t *testing.T) {
 	if connect.CodeOf(err) != connect.CodeUnavailable {
 		t.Fatalf("Picker.Ask code = %v, want unavailable (err %v)", connect.CodeOf(err), err)
 	}
-	if !strings.Contains(err.Error(), "zoxide") {
-		t.Fatalf("Picker.Ask error = %v, want it to name zoxide", err)
+	if !strings.Contains(err.Error(), "claude") {
+		t.Fatalf("Picker.Ask error = %v, want it to name claude", err)
 	}
 }
 
-// TestServePickerConfigResolvesBinaries runs serve's picker with fake zoxide and claude on PATH. The config carries
-// their absolute paths, serve's tmux client, and the default root $HOME/Personal.
-func TestServePickerConfigResolvesBinaries(t *testing.T) {
+// TestBarePathServeConfigResolvesClaude runs serve's picker with only a fake claude on PATH. The config carries
+// claude's absolute path, serve's tmux client, the reader of orreryd's store, and the default root $HOME/Personal.
+func TestBarePathServeConfigResolvesClaude(t *testing.T) {
 	bin := t.TempDir()
-	zoxide := writeServeFakeBinary(t, bin, "zoxide")
 	claude := writeServeFakeBinary(t, bin, "claude")
 	t.Setenv("PATH", bin)
 	home := t.TempDir()
@@ -244,14 +243,14 @@ func TestServePickerConfigResolvesBinaries(t *testing.T) {
 	if err != nil {
 		t.Fatalf("picker: %v", err)
 	}
-	if cfg.Zoxide != zoxide {
-		t.Errorf("Zoxide = %q, want %q", cfg.Zoxide, zoxide)
-	}
 	if cfg.Claude != claude {
 		t.Errorf("Claude = %q, want %q", cfg.Claude, claude)
 	}
 	if cfg.Tmux != tmux {
 		t.Errorf("Tmux is not serve's tmux client")
+	}
+	if cfg.Store == nil {
+		t.Errorf("Store is nil, want the reader of orreryd's store")
 	}
 	if want := filepath.Join(home, "Personal"); cfg.Root != want {
 		t.Errorf("Root = %q, want %q", cfg.Root, want)

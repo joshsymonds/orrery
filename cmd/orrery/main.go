@@ -677,8 +677,9 @@ func openCommand(ctx context.Context, client *tmuxctl.Client, server tmuxctl.Ser
 }
 
 // openChoice returns the target for req and whether one was chosen. With --intent, and with a plan that is text,
-// the picker runs for the text. A plan for an existing directory with no session shows its resume actions in the
-// picker. Otherwise the plan runs and its target is chosen.
+// the picker runs for the text. A plan of several known directories shows a pane action for each in the picker. A
+// plan for an existing directory with no session shows its resume actions in the picker. Otherwise the plan runs and
+// its target is chosen.
 func openChoice(ctx context.Context, cfg open.Config, req open.Request, intent string, intentSet bool,
 	stdin *os.File, stdout io.Writer) (open.Target, bool, error) {
 	if intentSet {
@@ -691,6 +692,8 @@ func openChoice(ctx context.Context, cfg open.Config, req open.Request, intent s
 	switch {
 	case plan.Text != "":
 		return pick(ctx, cfg, plan.Text, stdin, stdout)
+	case len(plan.Dirs) > 0:
+		return choose(ctx, cfg, open.PaneActions(plan.Dirs), stdin, stdout)
 	case plan.Dir != "" && !plan.MakeDir:
 		return resume(ctx, cfg, plan.Dir, stdin, stdout)
 	}
@@ -708,6 +711,12 @@ func resume(ctx context.Context, cfg open.Config, dir string, stdin *os.File,
 	if err != nil {
 		return open.Target{}, false, fmt.Errorf("plan: %w", err)
 	}
+	return choose(ctx, cfg, actions, stdin, stdout)
+}
+
+// choose shows actions in the picker and returns the target it chose, if any.
+func choose(ctx context.Context, cfg open.Config, actions []open.Action, stdin *os.File,
+	stdout io.Writer) (open.Target, bool, error) {
 	target, chosen, err := picker.Choose(ctx, picker.Options{Config: cfg, Input: stdin, Output: stdout}, actions)
 	if err != nil {
 		return open.Target{}, false, fmt.Errorf("open: %w", err)
@@ -876,19 +885,15 @@ func serverFlags(server tmuxctl.Server) []string {
 }
 
 // servePickerConfig returns the Picker serve's server uses: each ask resolves the picker's configuration with openConfig
-// for client and getenv, so a missing zoxide or claude fails that ask, not serve's start.
+// for client and getenv, so a missing claude fails that ask, not serve's start.
 func servePickerConfig(client *tmuxctl.Client, getenv func(string) string) func() (open.Config, error) {
 	return func() (open.Config, error) { return openConfig(client, getenv) }
 }
 
-// openConfig returns the picker's configuration: zoxide and claude as absolute paths found on orrery's PATH, $HOME/Personal
-// as the default root of new projects, $HOME as the directory the intent lookup names relative to, the directory trees
-// of the roots file, and the archive of closed Claude panes.
+// openConfig returns the picker's configuration: claude as an absolute path found on orrery's PATH, $HOME/Personal as
+// the default root of new projects, $HOME as the directory the intent lookup names relative to, the directory trees of
+// the roots file, the archive of closed Claude panes, and the reader of orreryd's store.
 func openConfig(client *tmuxctl.Client, getenv func(string) string) (open.Config, error) {
-	zoxide, err := absLookPath("zoxide")
-	if err != nil {
-		return open.Config{}, err
-	}
 	claude, err := absLookPath("claude")
 	if err != nil {
 		return open.Config{}, err
@@ -897,6 +902,10 @@ func openConfig(client *tmuxctl.Client, getenv func(string) string) (open.Config
 	if err != nil {
 		return open.Config{}, fmt.Errorf("archive path: %w", err)
 	}
+	storePath, err := store.Path(getenv)
+	if err != nil {
+		return open.Config{}, fmt.Errorf("store path: %w", err)
+	}
 	home := getenv("HOME")
 	roots, err := open.ReadRoots(open.RootsPath(getenv), home)
 	if err != nil {
@@ -904,12 +913,12 @@ func openConfig(client *tmuxctl.Client, getenv func(string) string) (open.Config
 	}
 	return open.Config{
 		Tmux:    client,
-		Zoxide:  zoxide,
 		Claude:  claude,
 		Root:    filepath.Join(home, "Personal"),
 		Home:    home,
 		Roots:   roots,
 		Archive: archivePath,
+		Store:   store.NewReader(storePath),
 	}, nil
 }
 
