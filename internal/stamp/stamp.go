@@ -31,7 +31,8 @@ func (s Stamp) BaseURL() string {
 // worktree, the search continues from the worktree's primary checkout. An empty or relative home, an empty or relative
 // dir, and a dir that is not below home have no stamp. A settings or git file that exists but cannot be read, including
 // a dangling symlink, and a settings file that does not parse or whose env has the wrong shape, are errors that name the
-// file.
+// file. A worktree link that does not lead to its primary checkout is an error that names the broken path; see
+// linkedWorktreePrimary.
 func Find(home, dir string) (Stamp, error) {
 	root, ok := resolveHome(home)
 	if !ok || !filepath.IsAbs(dir) {
@@ -176,16 +177,22 @@ func stampsEnv(raw json.RawMessage) (bool, error) {
 }
 
 // linkedWorktreePrimary returns the primary checkout of the linked worktree that dir lies in. It looks for a .git entry
-// in dir or a folder above it below root, and the nearest one decides: a .git directory is an ordinary checkout and
-// ends the search with no worktree. It returns "" when no linked worktree is named.
+// in dir or a folder above it below root, and the nearest one decides. The entry is followed through symlinks: a
+// directory is an ordinary checkout, and any other kind that is not a regular file also ends the search with no
+// worktree. A regular file is a worktree's .git file. An entry that cannot be followed, a dangling symlink included, is
+// an error that names it. It returns "" when no linked worktree is named.
 func linkedWorktreePrimary(root, dir string) (string, error) {
 	below := root + string(filepath.Separator)
 	for folder := dir; strings.HasPrefix(folder, below); folder = filepath.Dir(folder) {
 		entry := filepath.Join(folder, ".git")
-		info, err := os.Lstat(entry)
+		_, err := os.Lstat(entry)
 		if errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ENOTDIR) {
 			continue
 		}
+		if err != nil {
+			return "", fmt.Errorf("stamp: read %s: %w", entry, err)
+		}
+		info, err := os.Stat(entry)
 		if err != nil {
 			return "", fmt.Errorf("stamp: read %s: %w", entry, err)
 		}
@@ -198,8 +205,11 @@ func linkedWorktreePrimary(root, dir string) (string, error) {
 }
 
 // worktreePrimary returns the primary checkout of the linked worktree whose .git file is entry: the parent of the
-// common git directory that the gitdir line names. A file that names no gitdir, or a gitdir with no commondir, names no
-// worktree and returns "".
+// common git directory that the gitdir line names. The gitdir must be a directory. When it has a commondir file, that
+// file must be readable, non-empty and name a directory, and the parent of the directory it names is the primary. When
+// it has no commondir, it names no worktree and returns "" if it holds an objects directory, as a submodule's or a
+// separate git directory does; without one it is an error naming the gitdir. A file with no gitdir line is an error
+// naming the file.
 func worktreePrimary(entry string) (string, error) {
 	data, err := os.ReadFile(filepath.Clean(entry))
 	if err != nil {
@@ -208,24 +218,59 @@ func worktreePrimary(entry string) (string, error) {
 	line, ok := strings.CutPrefix(strings.TrimSpace(string(data)), "gitdir:")
 	gitdir := strings.TrimSpace(line)
 	if !ok || gitdir == "" {
-		return "", nil
+		return "", fmt.Errorf("stamp: %s names no gitdir", entry)
 	}
 	if !filepath.IsAbs(gitdir) {
 		gitdir = filepath.Join(filepath.Dir(entry), gitdir)
 	}
-	common, err := fs.ReadFile(os.DirFS(gitdir), "commondir")
-	if errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ENOTDIR) {
+	gitFS, err := dirFS(gitdir)
+	if err != nil {
+		return "", err
+	}
+	commonFile := filepath.Join(gitdir, "commondir")
+	if _, err = fs.Lstat(gitFS, "commondir"); errors.Is(err, fs.ErrNotExist) {
+		objects, statErr := fs.Stat(gitFS, "objects")
+		if statErr != nil {
+			return "", fmt.Errorf("stamp: gitdir %s has neither commondir nor objects: %w", gitdir, statErr)
+		}
+		if !objects.IsDir() {
+			return "", fmt.Errorf("stamp: gitdir %s has neither commondir nor objects", gitdir)
+		}
 		return "", nil
 	}
+	common, err := fs.ReadFile(gitFS, "commondir")
 	if err != nil {
-		return "", fmt.Errorf("stamp: read %s: %w", filepath.Join(gitdir, "commondir"), err)
+		return "", fmt.Errorf("stamp: read %s: %w", commonFile, err)
 	}
 	shared := strings.TrimSpace(string(common))
 	if shared == "" {
-		return "", nil
+		return "", fmt.Errorf("stamp: %s is empty", commonFile)
 	}
 	if !filepath.IsAbs(shared) {
 		shared = filepath.Join(gitdir, shared)
 	}
+	return parentOfDir(shared)
+}
+
+// parentOfDir returns the parent of shared, which must be a directory: a path that does not exist, or that lies below a
+// file, is an error that names it.
+func parentOfDir(shared string) (string, error) {
+	if _, err := dirFS(shared); err != nil {
+		return "", err
+	}
 	return filepath.Dir(shared), nil
+}
+
+// dirFS returns the file system rooted at path, which must be a directory once symlinks are followed. A path that does
+// not exist, or that lies below a file, is an error that names it.
+func dirFS(path string) (fs.FS, error) {
+	dir := os.DirFS(path)
+	info, err := fs.Stat(dir, ".")
+	if err != nil {
+		return nil, fmt.Errorf("stamp: stat %s: %w", path, err)
+	}
+	if !info.IsDir() {
+		return nil, fmt.Errorf("stamp: %s is not a directory", path)
+	}
+	return dir, nil
 }
