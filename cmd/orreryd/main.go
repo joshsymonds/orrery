@@ -362,7 +362,7 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 	// The mirror waits for the store that the open below attaches to it.
 	mirror := daemon.NewPendingMirror(time.Now, logger)
 	home := getenv("HOME")
-	router := route.New(route.Config{
+	hub := newRelay(route.Config{
 		Host:       host,
 		Now:        time.Now,
 		Desk:       desk,
@@ -371,14 +371,11 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 		LocalInput: localInput(opts),
 		Log:        noticeLog,
 		Logger:     logger,
-		Rebuild:    map[string]route.Rebuild{enginehost.SessionSource: enginehost.RestoreNotice},
-	})
-	hub := &relay{
+	}, &relay{
 		claude: opts.claude,
 		models: opts.models,
 		home:   home,
 		logger: logger,
-		router: router,
 		judge: donejudge.New(
 			enginehost.NewHaiku(enginehost.HaikuConfig{Claude: opts.claude, Environ: os.Environ()}),
 			opts.models,
@@ -386,7 +383,8 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 		reads:       newReadTimes(),
 		mirror:      mirror,
 		summarizers: make(map[tmuxctl.Server]*summary.Summarizer),
-	}
+	})
+	router := hub.router
 	observe := func(transition daemon.Transition) { hub.observe(ctx, transition) }
 	notifier := enginehost.NewNotifier(enginehost.NotifierConfig{Route: router})
 	// The first tidy waits for tidyStart, which closes once the store is open and the sessions have started.
@@ -516,6 +514,7 @@ func startSessions(
 			Environ:     os.Environ(),
 			HolderScope: opts.holderScope,
 			StateDir:    filepath.Dir(storePath),
+			ManagedDir:  "/etc/claude-code",
 			Cap:         opts.sessionCap,
 			StepCap:     opts.stepCap,
 			Writer:      host.writer,
@@ -917,28 +916,30 @@ func readPaneText(ctx context.Context, client *tmuxctl.Client, pane string) (pan
 
 // notify hands the transition's notice to the router. A done notice whose Stop left a subagent or workflow running is
 // silent. Any other done is judged before it routes. A hook that does not decode still routes, and its decode error is
-// logged.
+// logged. A notice that routes keeps its transition as its source, so a restart can resume it; a silent one never
+// pends, so it needs none.
 func (r *relay) notify(ctx context.Context, transition daemon.Transition) {
-	wanted, err := push.Wanted(transition.To, transition.Frame.Hook)
-	if err != nil {
-		r.logger.WarnContext(ctx, "decide notice push", "pane", transition.PaneID, "error", err)
-	}
-	silent := ""
-	if !wanted {
-		silent = silentBackground
-	}
-	incoming := route.Notice{
-		Key:      notice.Key{Pane: transition.PaneID},
-		State:    string(transition.To),
-		Silent:   silent,
-		Watching: func(ctx context.Context) (bool, error) { return r.watching(ctx, transition) },
-		Desk:     func(ctx context.Context) (deskstream.Notice, error) { return r.deskNotice(ctx, transition) },
-		Push:     func(ctx context.Context) (push.Notification, error) { return r.pushNotification(ctx, transition) },
-	}
-	if transition.To == protocol.StateDone && silent == "" {
-		incoming.Judge = r.judgeDone(ctx, transition)
+	incoming := r.paneNotice(ctx, transition)
+	if incoming.Silent == "" {
+		if data, err := encodePaneSource(transition); err != nil {
+			r.logger.ErrorContext(ctx, "encode pane notice", "pane", transition.PaneID, "error", err)
+		} else {
+			incoming.Source = route.Source{Kind: paneSourceKind, Data: data}
+		}
 	}
 	r.router.Notify(ctx, incoming)
+}
+
+// newRelay returns hub with the router cfg builds, which hub routes its notices through. The router restores each
+// stored notice through the rebuild of its source kind: a session notice through enginehost.RestoreNotice, a pane
+// notice through hub's rebuildPane. So hub is built first, and cfg's Rebuild is set here.
+func newRelay(cfg route.Config, hub *relay) *relay {
+	cfg.Rebuild = map[string]route.Rebuild{
+		enginehost.SessionSource: enginehost.RestoreNotice,
+		paneSourceKind:           hub.rebuildPane,
+	}
+	hub.router = route.New(cfg)
+	return hub
 }
 
 // judgeDone returns the Judge of a done transition: the verdict on the Stop hook's last assistant message. The call

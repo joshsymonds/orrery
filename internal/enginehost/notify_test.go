@@ -415,7 +415,7 @@ func TestRestoreNoticeRebuildsTheNoticeNotifySent(t *testing.T) {
 		t.Fatalf("source kind = %q, want %q", sent.Source.Kind, SessionSource)
 	}
 
-	restored, err := RestoreNotice(t.Context(), sent.Source.Data)
+	restored, err := RestoreNotice(t.Context(), sent.Source.Data, fixedClock().Unix())
 	if err != nil {
 		t.Fatalf("RestoreNotice: %v", err)
 	}
@@ -446,7 +446,7 @@ func TestRestoreNoticeRebuildsTheNoticeNotifySent(t *testing.T) {
 
 func TestRestoreNoticeRejectsUndecodableData(t *testing.T) {
 	for _, data := range []string{"{not json", "[]"} {
-		_, err := RestoreNotice(t.Context(), []byte(data))
+		_, err := RestoreNotice(t.Context(), []byte(data), 0)
 		if err == nil {
 			t.Fatalf("RestoreNotice(%q) returned no error", data)
 		}

@@ -3,6 +3,7 @@ package route
 import (
 	"cmp"
 	"context"
+	"errors"
 	"log/slog"
 	"maps"
 	"slices"
@@ -90,9 +91,18 @@ type Notice struct {
 	Push     func(context.Context) (push.Notification, error)
 }
 
-// Rebuild makes the notice that a stored row of its source kind described, from the row's source data. Its
-// Watching, Judge, Desk and Push are the ones the restored notice routes with.
-type Rebuild func(ctx context.Context, data []byte) (Notice, error)
+// ErrChanged is what a Rebuild returns when the notice it rebuilds no longer holds, because its pane has changed
+// since the notice was recorded. ErrSeen is what it returns when the notice was seen after it was recorded. A
+// restore that fails with either ends the notice with its reason and sends nothing.
+var (
+	ErrChanged = errors.New("notice changed")
+	ErrSeen    = errors.New("notice seen")
+)
+
+// Rebuild makes the notice that a stored row of its source kind described, from the row's source data. at is the
+// row's recorded time in unix seconds. Its Watching, Judge, Desk and Push are the ones the restored notice routes
+// with.
+type Rebuild func(ctx context.Context, data []byte, at int64) (Notice, error)
 
 // Config holds the Router's collaborators. A nil After uses time.AfterFunc, a nil LocalInput reports no input,
 // and a nil Logger discards. Rebuild maps each source kind to its Rebuild; a stored row of a kind it lacks is not

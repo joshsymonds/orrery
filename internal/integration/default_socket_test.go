@@ -155,7 +155,7 @@ func (f *defaultFixture) hook(t *testing.T) {
 // the tidy that mints the ID.
 func (f *defaultFixture) waitForStartupRow(t *testing.T, daemon *orreryProcess) (*sql.DB, string, sqlcgen.Session) {
 	t.Helper()
-	daemon.waitForLog(t, storeOpenLog)
+	daemon.waitForStoreOpen(t)
 	ctx, cancel := context.WithTimeout(t.Context(), defaultRowLimit)
 	defer cancel()
 	ticker := time.NewTicker(pollEvery)

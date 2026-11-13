@@ -67,8 +67,9 @@ func (n *Notifier) Notify(ctx context.Context, event Notice) {
 }
 
 // RestoreNotice rebuilds the notice that a stored row of SessionSource describes, from the Notice JSON in data. It
-// is the route.Rebuild for SessionSource, and it returns the notice Notify builds for the same event.
-func RestoreNotice(_ context.Context, data []byte) (route.Notice, error) {
+// is the route.Rebuild for SessionSource, and it returns the notice Notify builds for the same event. It ignores at,
+// the row's recorded time: a session notice never ends by it.
+func RestoreNotice(_ context.Context, data []byte, _ int64) (route.Notice, error) {
 	var event Notice
 	if err := json.Unmarshal(data, &event); err != nil {
 		return route.Notice{}, fmt.Errorf("%s notice: %w", SessionSource, err)
