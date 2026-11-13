@@ -1818,7 +1818,7 @@ function twoStepEpic(): { epic: Epic; detail: EpicsGetResponse } {
   const epic = makeEpic(widgetsRepo, "first", { runningSteps: steps });
   const slices = [
     { task: "task-0", hue: "done" },
-    { task: "task-1", hue: "dispatched" },
+    { task: "task-1", hue: "dispatched", at: 1 },
     { task: "task-2", hue: "gap" },
   ];
   return { epic, detail: detailOf(epic, ["done", "pending", "gap"], steps, slices) };

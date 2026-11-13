@@ -1,30 +1,17 @@
 import type { JSX } from "preact";
 
 import type { EpicSlice, EpicStep, EpicsGetResponse } from "./gen/orrery/v1/epics_pb";
+import { cellKind, cellTitle, RINGS } from "./orbitcells";
+import { bezel, cellPath, ringLetters, VIEW } from "./orbits";
 import { taskStateOf } from "./taskstatus";
 
-// The chart's rings, outermost first, so a task's progress moves inward. Each slice has one cell per ring: the field it
-// reads and the name its title gives.
-const rings = [
-  { field: "redTest", name: "red test" },
-  { field: "working", name: "working" },
-  { field: "testsPass", name: "tests pass" },
-  { field: "checks", name: "checks" },
-  { field: "gateAccepted", name: "gate accepted" },
-] as const;
+// The empty state's five orbits, as radii about the middle of a 132 unit square, from the outside in.
+const emptyOrbits = [62, 51, 40, 29, 18];
 
-// The chart has a fixed size whatever the task count: a hole, then the rings, each ringWidth thick. The slices divide the
-// circle, so adding tasks narrows the slices and leaves the rings as they are. The margin keeps the cursor's outline
-// inside the viewBox.
-const hole = 24;
-const ringWidth = 7;
-const half = hole + rings.length * ringWidth + 2;
-const dotRadius = 2.5;
-
-// EpicView draws the right column for one epic: its slug, repository, outcome and any problem; a chart of its slices, or
-// the line that it has none; the task list with each status as recorded; and every step, oldest first, with a pip per
-// stored check and its end kind. The cursor's step and its task's slice are marked. Every text is a child of its
-// element, so no markup in a slug, status, label or check name becomes an element.
+// EpicView draws the right column for one epic: its slug, repository, outcome and any problem; a chart of its slices,
+// or the orbits and the line that it has none; the task list with each status as recorded; and every step, oldest
+// first, with a pip per stored check and its end kind. The cursor's step and its task's slice are marked. Every text is
+// a child of its element, so no markup in a slug, status, label or check name becomes an element.
 export function EpicView(props: { detail: EpicsGetResponse; cursorStep: string }): JSX.Element {
   const { detail, cursorStep } = props;
   const { epic, tasks, slices, steps } = detail;
@@ -40,11 +27,7 @@ export function EpicView(props: { detail: EpicsGetResponse; cursorStep: string }
           {epic.problem !== "" && <p class="problem">{epic.problem}</p>}
         </header>
       )}
-      {slices.length === 0 ? (
-        <p class="side-note">No orrery-tracked steps</p>
-      ) : (
-        <SliceChart slices={slices} cursorTask={cursorTask} />
-      )}
+      {slices.length === 0 ? <NoSteps /> : <SliceChart slices={slices} cursorTask={cursorTask} />}
       <ul class="tasks">
         {tasks.map((task, index) => (
           <li key={index} class="task">
@@ -79,73 +62,84 @@ export function EpicView(props: { detail: EpicsGetResponse; cursorStep: string }
   );
 }
 
-// SliceChart draws the slices clockwise from the top, each an equal angle, and outlines the slice whose task is the
-// cursor's. A slice whose at names a ring has a dot on that ring, in its middle.
-function SliceChart(props: { slices: EpicSlice[]; cursorTask: string | undefined }): JSX.Element {
-  const { slices, cursorTask } = props;
-  const span = (2 * Math.PI) / slices.length;
+// NoSteps is the empty state: five dotted orbits over the line that the epic has no orrery-tracked steps.
+function NoSteps(): JSX.Element {
   return (
-    <svg class="chart" viewBox={`0 0 ${2 * half} ${2 * half}`}>
-      {slices.map((slice, index) => {
-        const start = index * span;
-        const end = start + span;
-        const dotRing = slice.at >= 1 && slice.at <= rings.length ? slice.at - 1 : undefined;
-        const dot =
-          dotRing === undefined
-            ? undefined
-            : pointAt(ringInner(dotRing) + ringWidth / 2, start + span / 2);
-        return (
-          <g key={index} class={slice.task === cursorTask ? "slice cur" : "slice"}>
-            {rings.map((ring, ringIndex) => {
-              const inner = ringInner(ringIndex);
-              const reached = slice[ring.field];
-              return (
-                <path
-                  key={ringIndex}
-                  class={reached ? `cell ts-${slice.hue}` : "cell track"}
-                  d={sectorPath(inner, inner + ringWidth, start, end)}
-                >
-                  <title>{`${slice.task} ${ring.name}: ${reached ? "reached" : "not reached"}`}</title>
-                </path>
-              );
-            })}
-            {dot !== undefined && <circle class="dot" cx={dot.x} cy={dot.y} r={dotRadius} />}
-          </g>
-        );
-      })}
-    </svg>
+    <div class="no-steps">
+      <svg class="empty-orbits" viewBox="0 0 132 132">
+        {emptyOrbits.map((radius) => (
+          <circle key={radius} class="orbit" cx={66} cy={66} r={radius} />
+        ))}
+      </svg>
+      <p class="side-note">No orrery-tracked steps</p>
+    </div>
   );
 }
 
-// ringInner is the inner radius of the ring at index, the first ring outermost.
-function ringInner(index: number): number {
-  return hole + (rings.length - 1 - index) * ringWidth;
-}
-
-// pointAt is the point at radius r and angle a, in radians clockwise from the top of the chart.
-function pointAt(r: number, a: number): { x: number; y: number } {
-  return { x: half + r * Math.sin(a), y: half - r * Math.cos(a) };
-}
-
-// sectorPath is the annulus sector between the inner and outer radius from angle a0 to a1. Each arc is drawn in two
-// halves, so a sector that is the whole circle, a lone slice's, still has its ends and middle to draw between.
-function sectorPath(inner: number, outer: number, a0: number, a1: number): string {
-  const mid = (a0 + a1) / 2;
-  const outerStart = pointAt(outer, a0);
-  const outerMid = pointAt(outer, mid);
-  const outerEnd = pointAt(outer, a1);
-  const innerEnd = pointAt(inner, a1);
-  const innerMid = pointAt(inner, mid);
-  const innerStart = pointAt(inner, a0);
-  return [
-    `M${outerStart.x} ${outerStart.y}`,
-    `A${outer} ${outer} 0 0 1 ${outerMid.x} ${outerMid.y}`,
-    `A${outer} ${outer} 0 0 1 ${outerEnd.x} ${outerEnd.y}`,
-    `L${innerEnd.x} ${innerEnd.y}`,
-    `A${inner} ${inner} 0 0 0 ${innerMid.x} ${innerMid.y}`,
-    `A${inner} ${inner} 0 0 0 ${innerStart.x} ${innerStart.y}`,
-    "Z",
-  ].join(" ");
+// SliceChart draws the Orbits chart of chart-spec.md: a slice per task, clockwise from the top, each cut into a cell
+// per ring. The yellow cell of a running task glows, and the glows are drawn over the cells. The slice whose task is
+// the cursor's is marked cur.
+function SliceChart(props: { slices: EpicSlice[]; cursorTask: string | undefined }): JSX.Element {
+  const { slices, cursorTask } = props;
+  const count = slices.length;
+  const glows = slices.flatMap((slice, index) =>
+    !slice.held && slice.at >= 1 && slice.at <= RINGS.length ? [cellPath(count, index, slice.at)] : [],
+  );
+  return (
+    <svg class="chart" viewBox={`0 0 ${VIEW} ${VIEW}`}>
+      <defs>
+        <filter id="orbit-glow" filterUnits="userSpaceOnUse" x="0" y="0" width={VIEW} height={VIEW}>
+          <feGaussianBlur stdDeviation="3.4" />
+        </filter>
+      </defs>
+      {slices.map((slice, index) => (
+        <g key={index} class={slice.task === cursorTask ? "slice cur" : "slice"}>
+          {RINGS.map((_, ringIndex) => (
+            <path
+              key={ringIndex}
+              class={`cell ${cellKind(slice, ringIndex + 1)}`}
+              d={cellPath(count, index, ringIndex + 1)}
+            >
+              <title>{cellTitle(slice, ringIndex + 1)}</title>
+            </path>
+          ))}
+        </g>
+      ))}
+      <g class="glows">
+        {glows.map((d, index) => (
+          <path key={index} class="glow" d={d} />
+        ))}
+      </g>
+      {ringLetters().map((letter) => (
+        <text
+          key={letter.letter}
+          class="ring-letter"
+          x={letter.x}
+          y={letter.y}
+          text-anchor="middle"
+          dominant-baseline="central"
+        >
+          {letter.letter}
+        </text>
+      ))}
+      {bezel(count).map((tick, index) => (
+        <g key={index}>
+          <line class={tick.major ? "tick major" : "tick"} x1={tick.x1} y1={tick.y1} x2={tick.x2} y2={tick.y2} />
+          {tick.label && (
+            <text
+              class="tick-number"
+              x={tick.label.x}
+              y={tick.label.y}
+              text-anchor="middle"
+              dominant-baseline="central"
+            >
+              {tick.label.text}
+            </text>
+          )}
+        </g>
+      ))}
+    </svg>
+  );
 }
 
 // endKind is how a step ended, else whether it is held or still running.
