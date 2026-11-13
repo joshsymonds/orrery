@@ -344,7 +344,9 @@ func (op EngineSet) applyEngine(ctx context.Context, queries *sqlcgen.Queries, n
 }
 
 func (op EnginePrompt) applyEngine(ctx context.Context, queries *sqlcgen.Queries, now time.Time) error {
-	payload, err := json.Marshal(enginePromptPayload{Text: op.Text, PromptID: op.PromptID, Sender: op.Sender, Round: op.Round})
+	payload, err := json.Marshal(enginePromptPayload{
+		Text: op.Text, PromptID: op.PromptID, Sender: op.Sender, Round: op.Round,
+	})
 	if err != nil {
 		return fmt.Errorf("encode %s payload: %w", EventEnginePrompt, err)
 	}
