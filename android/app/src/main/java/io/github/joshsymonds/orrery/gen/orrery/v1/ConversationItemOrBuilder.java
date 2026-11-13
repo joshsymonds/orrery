@@ -179,4 +179,34 @@ public interface ConversationItemOrBuilder extends
    * @return The tokens.
    */
   long getTokens();
+
+  /**
+   * <pre>
+   * Who sent a prompt item's prompt: brief, engine or owner, or empty when the prompt was stored without a sender.
+   * </pre>
+   *
+   * <code>string sender = 11 [json_name = "sender"];</code>
+   * @return The sender.
+   */
+  java.lang.String getSender();
+  /**
+   * <pre>
+   * Who sent a prompt item's prompt: brief, engine or owner, or empty when the prompt was stored without a sender.
+   * </pre>
+   *
+   * <code>string sender = 11 [json_name = "sender"];</code>
+   * @return The bytes for sender.
+   */
+  com.google.protobuf.ByteString
+      getSenderBytes();
+
+  /**
+   * <pre>
+   * The check round a send-back returns on a prompt item, or 0 otherwise.
+   * </pre>
+   *
+   * <code>uint32 round = 12 [json_name = "round"];</code>
+   * @return The round.
+   */
+  int getRound();
 }

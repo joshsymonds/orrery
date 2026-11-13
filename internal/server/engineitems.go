@@ -21,7 +21,9 @@ func sessionItem(event store.EngineEvent) (*orreryv1.ConversationItem, bool, err
 		if err := protojson.Unmarshal([]byte(event.Payload), body); err != nil {
 			return nil, false, fmt.Errorf("decode %s event %d: %w", event.Kind, event.Seq, err)
 		}
-		return &orreryv1.ConversationItem{Kind: "prompt", Time: event.At, Text: body.Text}, true, nil
+		return &orreryv1.ConversationItem{
+			Kind: "prompt", Time: event.At, Text: body.Text, Sender: body.Sender, Round: body.Round,
+		}, true, nil
 	case store.EventEngineBlock:
 		body := &orreryv1.EngineBlock{}
 		if err := protojson.Unmarshal([]byte(event.Payload), body); err != nil {

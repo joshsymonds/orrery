@@ -32,8 +32,6 @@ const (
 		`"response":{"behavior":"deny","message":"Not today."}}}`
 	writeRefuse = `{"type":"control_response","response":{"subtype":"error","request_id":"req_write_1",` +
 		`"error":"Refused by the host."}}`
-	modeChange = `{"type":"control_request","request_id":"orrery-2",` +
-		`"request":{"subtype":"set_permission_mode","mode":"acceptEdits"}}`
 	elicitationLine = `{"type":"control_request","request_id":"req_elicit_1",` +
 		`"request":{"subtype":"elicitation","mcp_server_name":"invented-server","message":"Pick one"}}`
 	elicitationRefusal = `{"type":"control_response","response":{"subtype":"error","request_id":"req_elicit_1",` +
@@ -186,7 +184,12 @@ func TestSetPermissionModeWritesRequest(t *testing.T) {
 	if err := session.SetPermissionMode("acceptEdits"); err != nil {
 		t.Fatalf("SetPermissionMode: %v", err)
 	}
-	requireStdin(t, process, modeChange)
+	lines := stdinLines(process)
+	if len(lines) != 2 || lines[0] != wantInitialize {
+		t.Fatalf("stdin lines = %q, want the initialize request and the mode change", lines)
+	}
+	requireRandomRequest(t, lines[1],
+		`{"type":"control_request","request_id":"%s","request":{"subtype":"set_permission_mode","mode":"acceptEdits"}}`)
 }
 
 func TestRefusedElicitationIsWrittenAndDeliveredRefused(t *testing.T) {

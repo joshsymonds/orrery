@@ -7,6 +7,7 @@ package sqlcgen
 
 import (
 	"context"
+	"database/sql"
 )
 
 const clearEngineText = `-- name: ClearEngineText :exec
@@ -185,7 +186,7 @@ func (q *Queries) DeleteStaleEngineText(ctx context.Context, arg DeleteStaleEngi
 }
 
 const eventPageAfter = `-- name: EventPageAfter :many
-SELECT seq, session_id, kind, at, payload FROM events WHERE seq > ? ORDER BY seq LIMIT ?
+SELECT seq, session_id, kind, at, payload, write_id FROM events WHERE seq > ? ORDER BY seq LIMIT ?
 `
 
 type EventPageAfterParams struct {
@@ -208,6 +209,7 @@ func (q *Queries) EventPageAfter(ctx context.Context, arg EventPageAfterParams) 
 			&i.Kind,
 			&i.At,
 			&i.Payload,
+			&i.WriteID,
 		); err != nil {
 			return nil, err
 		}
@@ -239,7 +241,7 @@ func (q *Queries) GetEnginePromptFailure(ctx context.Context, arg GetEnginePromp
 }
 
 const getEngineSession = `-- name: GetEngineSession :one
-SELECT id, server, pane, state, changed, seen, question, summary, label, context, tool, claude_session, transcript, kind, dir, reason FROM sessions WHERE id = ? AND kind IN ('engine', 'step')
+SELECT id, server, pane, state, changed, seen, question, summary, label, context, tool, claude_session, transcript, kind, dir, reason, consumed, replay_from, background, turn_output, prompts_from FROM sessions WHERE id = ? AND kind IN ('engine', 'step')
 `
 
 func (q *Queries) GetEngineSession(ctx context.Context, id string) (Session, error) {
@@ -262,6 +264,11 @@ func (q *Queries) GetEngineSession(ctx context.Context, id string) (Session, err
 		&i.Kind,
 		&i.Dir,
 		&i.Reason,
+		&i.Consumed,
+		&i.ReplayFrom,
+		&i.Background,
+		&i.TurnOutput,
+		&i.PromptsFrom,
 	)
 	return i, err
 }
@@ -278,7 +285,7 @@ func (q *Queries) GetNoticeIDFloor(ctx context.Context) (int64, error) {
 }
 
 const getSession = `-- name: GetSession :one
-SELECT id, server, pane, state, changed, seen, question, summary, label, context, tool, claude_session, transcript, kind, dir, reason FROM sessions WHERE id = ?
+SELECT id, server, pane, state, changed, seen, question, summary, label, context, tool, claude_session, transcript, kind, dir, reason, consumed, replay_from, background, turn_output, prompts_from FROM sessions WHERE id = ?
 `
 
 func (q *Queries) GetSession(ctx context.Context, id string) (Session, error) {
@@ -301,6 +308,11 @@ func (q *Queries) GetSession(ctx context.Context, id string) (Session, error) {
 		&i.Kind,
 		&i.Dir,
 		&i.Reason,
+		&i.Consumed,
+		&i.ReplayFrom,
+		&i.Background,
+		&i.TurnOutput,
+		&i.PromptsFrom,
 	)
 	return i, err
 }
@@ -342,6 +354,27 @@ func (q *Queries) GetStep(ctx context.Context, id string) (Step, error) {
 		&i.GateNeeds,
 	)
 	return i, err
+}
+
+const insertEnginePromptEvent = `-- name: InsertEnginePromptEvent :exec
+INSERT INTO events (session_id, kind, at, payload, write_id) VALUES (?, 'engine_prompt', ?, ?, ?)
+`
+
+type InsertEnginePromptEventParams struct {
+	SessionID string
+	At        int64
+	Payload   string
+	WriteID   string
+}
+
+func (q *Queries) InsertEnginePromptEvent(ctx context.Context, arg InsertEnginePromptEventParams) error {
+	_, err := q.db.ExecContext(ctx, insertEnginePromptEvent,
+		arg.SessionID,
+		arg.At,
+		arg.Payload,
+		arg.WriteID,
+	)
+	return err
 }
 
 const insertEnginePromptFailed = `-- name: InsertEnginePromptFailed :exec
@@ -571,7 +604,7 @@ func (q *Queries) LastTurnEnds(ctx context.Context) ([]LastTurnEndsRow, error) {
 }
 
 const listEngineSessions = `-- name: ListEngineSessions :many
-SELECT id, server, pane, state, changed, seen, question, summary, label, context, tool, claude_session, transcript, kind, dir, reason FROM sessions WHERE kind IN ('engine', 'step') ORDER BY id
+SELECT id, server, pane, state, changed, seen, question, summary, label, context, tool, claude_session, transcript, kind, dir, reason, consumed, replay_from, background, turn_output, prompts_from FROM sessions WHERE kind IN ('engine', 'step') ORDER BY id
 `
 
 func (q *Queries) ListEngineSessions(ctx context.Context) ([]Session, error) {
@@ -600,6 +633,11 @@ func (q *Queries) ListEngineSessions(ctx context.Context) ([]Session, error) {
 			&i.Kind,
 			&i.Dir,
 			&i.Reason,
+			&i.Consumed,
+			&i.ReplayFrom,
+			&i.Background,
+			&i.TurnOutput,
+			&i.PromptsFrom,
 		); err != nil {
 			return nil, err
 		}
@@ -650,7 +688,7 @@ func (q *Queries) ListEngineText(ctx context.Context, sessionID string) ([]Engin
 }
 
 const listEvents = `-- name: ListEvents :many
-SELECT seq, session_id, kind, at, payload FROM events ORDER BY seq
+SELECT seq, session_id, kind, at, payload, write_id FROM events ORDER BY seq
 `
 
 func (q *Queries) ListEvents(ctx context.Context) ([]Event, error) {
@@ -668,6 +706,7 @@ func (q *Queries) ListEvents(ctx context.Context) ([]Event, error) {
 			&i.Kind,
 			&i.At,
 			&i.Payload,
+			&i.WriteID,
 		); err != nil {
 			return nil, err
 		}
@@ -807,6 +846,41 @@ func (q *Queries) ListHeadlessSessions(ctx context.Context, cutoff int64) ([]Lis
 			&i.Reply,
 			&i.NewestReply,
 		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listHolderPrompts = `-- name: ListHolderPrompts :many
+SELECT events.write_id, CAST(json_extract(events.payload, '$.text') AS TEXT) AS text FROM events
+WHERE events.session_id = ?1 AND events.kind = 'engine_prompt' AND events.write_id <> ''
+  AND events.seq > (SELECT sessions.prompts_from FROM sessions WHERE sessions.id = ?1)
+ORDER BY events.seq
+`
+
+type ListHolderPromptsRow struct {
+	WriteID string
+	Text    string
+}
+
+func (q *Queries) ListHolderPrompts(ctx context.Context, id string) ([]ListHolderPromptsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listHolderPrompts, id)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListHolderPromptsRow
+	for rows.Next() {
+		var i ListHolderPromptsRow
+		if err := rows.Scan(&i.WriteID, &i.Text); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -1068,7 +1142,7 @@ func (q *Queries) ListPushedNotices(ctx context.Context) ([]PushedNotice, error)
 }
 
 const listServerSessions = `-- name: ListServerSessions :many
-SELECT id, server, pane, state, changed, seen, question, summary, label, context, tool, claude_session, transcript, kind, dir, reason FROM sessions WHERE server = ? AND kind = '' ORDER BY id
+SELECT id, server, pane, state, changed, seen, question, summary, label, context, tool, claude_session, transcript, kind, dir, reason, consumed, replay_from, background, turn_output, prompts_from FROM sessions WHERE server = ? AND kind = '' ORDER BY id
 `
 
 func (q *Queries) ListServerSessions(ctx context.Context, server string) ([]Session, error) {
@@ -1097,6 +1171,11 @@ func (q *Queries) ListServerSessions(ctx context.Context, server string) ([]Sess
 			&i.Kind,
 			&i.Dir,
 			&i.Reason,
+			&i.Consumed,
+			&i.ReplayFrom,
+			&i.Background,
+			&i.TurnOutput,
+			&i.PromptsFrom,
 		); err != nil {
 			return nil, err
 		}
@@ -1112,7 +1191,7 @@ func (q *Queries) ListServerSessions(ctx context.Context, server string) ([]Sess
 }
 
 const listSessions = `-- name: ListSessions :many
-SELECT id, server, pane, state, changed, seen, question, summary, label, context, tool, claude_session, transcript, kind, dir, reason FROM sessions WHERE kind = '' ORDER BY id
+SELECT id, server, pane, state, changed, seen, question, summary, label, context, tool, claude_session, transcript, kind, dir, reason, consumed, replay_from, background, turn_output, prompts_from FROM sessions WHERE kind = '' ORDER BY id
 `
 
 func (q *Queries) ListSessions(ctx context.Context) ([]Session, error) {
@@ -1141,6 +1220,11 @@ func (q *Queries) ListSessions(ctx context.Context) ([]Session, error) {
 			&i.Kind,
 			&i.Dir,
 			&i.Reason,
+			&i.Consumed,
+			&i.ReplayFrom,
+			&i.Background,
+			&i.TurnOutput,
+			&i.PromptsFrom,
 		); err != nil {
 			return nil, err
 		}
@@ -1231,7 +1315,7 @@ func (q *Queries) RaiseNoticeIDFloor(ctx context.Context, id interface{}) error 
 }
 
 const sessionEventsAfter = `-- name: SessionEventsAfter :many
-SELECT seq, session_id, kind, at, payload FROM events
+SELECT seq, session_id, kind, at, payload, write_id FROM events
 WHERE session_id = ? AND seq > ?
 ORDER BY seq LIMIT ?
 `
@@ -1257,6 +1341,7 @@ func (q *Queries) SessionEventsAfter(ctx context.Context, arg SessionEventsAfter
 			&i.Kind,
 			&i.At,
 			&i.Payload,
+			&i.WriteID,
 		); err != nil {
 			return nil, err
 		}
@@ -1269,6 +1354,56 @@ func (q *Queries) SessionEventsAfter(ctx context.Context, arg SessionEventsAfter
 		return nil, err
 	}
 	return items, nil
+}
+
+const updateEngineConsumed = `-- name: UpdateEngineConsumed :execrows
+UPDATE sessions
+SET consumed = ?1,
+    replay_from = COALESCE(?2, replay_from),
+    turn_output = COALESCE(?3, turn_output),
+    background = COALESCE(?4, background)
+WHERE id = ?5 AND kind IN ('engine', 'step')
+`
+
+type UpdateEngineConsumedParams struct {
+	Consumed   sql.NullInt64
+	ReplayFrom sql.NullInt64
+	TurnOutput sql.NullString
+	Background sql.NullBool
+	ID         string
+}
+
+func (q *Queries) UpdateEngineConsumed(ctx context.Context, arg UpdateEngineConsumedParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, updateEngineConsumed,
+		arg.Consumed,
+		arg.ReplayFrom,
+		arg.TurnOutput,
+		arg.Background,
+		arg.ID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const updateEngineLaunch = `-- name: UpdateEngineLaunch :execrows
+UPDATE sessions
+SET consumed = 0, replay_from = 0, background = 0, prompts_from = ?1
+WHERE id = ?2 AND kind IN ('engine', 'step')
+`
+
+type UpdateEngineLaunchParams struct {
+	PromptsFrom int64
+	ID          string
+}
+
+func (q *Queries) UpdateEngineLaunch(ctx context.Context, arg UpdateEngineLaunchParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, updateEngineLaunch, arg.PromptsFrom, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const updateEngineSession = `-- name: UpdateEngineSession :execrows

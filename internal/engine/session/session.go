@@ -1,14 +1,59 @@
 package session
 
 import (
+	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
 	"sync"
-	"sync/atomic"
 
 	"github.com/joshsymonds/orrery/internal/engine/transport"
 )
+
+// The request id and write id of the initialize request, and the longest write id a write may carry in bytes.
+const (
+	initializeRequestID = "orrery-initialize"
+	initializeWriteID   = "initialize"
+	maxWriteIDBytes     = 256
+)
+
+// idWriter is implemented by a process's stdin when it takes the write id of each write.
+type idWriter interface {
+	WriteWithID(id string, data []byte) (int, error)
+}
+
+// stdinWriter is the write end of a session's stdin. Each write goes under id, the write id the session set for the
+// write in progress: through WriteWithID when the process's stdin has it, and through Write when it does not.
+type stdinWriter struct {
+	writer io.WriteCloser
+	id     string
+}
+
+// Write writes data under the write id set for it.
+func (w *stdinWriter) Write(data []byte) (int, error) {
+	if withID, ok := w.writer.(idWriter); ok {
+		n, err := withID.WriteWithID(w.id, data)
+		if err != nil {
+			return n, fmt.Errorf("session: write stdin under %s: %w", w.id, err)
+		}
+		return n, nil
+	}
+	n, err := w.writer.Write(data)
+	if err != nil {
+		return n, fmt.Errorf("session: write stdin: %w", err)
+	}
+	return n, nil
+}
+
+// Close closes the process's stdin.
+func (w *stdinWriter) Close() error {
+	if err := w.writer.Close(); err != nil {
+		return fmt.Errorf("session: close stdin: %w", err)
+	}
+	return nil
+}
 
 // Process is a started session process: its stdin and stdout pipes, the stderr it wrote, and the
 // means to stop it and wait for its exit.
@@ -27,67 +72,173 @@ type detacher interface {
 }
 
 // Session is one headless Claude Code process. One goroutine reads its stdout lines in order,
-// translates them and delivers each event on Events, so a consumer that stops reading pauses only
+// translates each one and delivers it as a Line on Lines, so a consumer that stops reading pauses only
 // this session.
 type Session struct {
 	process   Process
 	transport *transport.Transport
-	events    chan Event
-	stop      chan struct{}
-	finished  chan struct{}
-	stopOnce  sync.Once
-	stopErr   error
-	requests  atomic.Uint64
-	pending   *openRequests
+	// stdin is the write end the transport writes to. writeMu is held across each write the session makes, so the
+	// write id set on stdin is the id of that write.
+	stdin    *stdinWriter
+	writeMu  sync.Mutex
+	lines    chan Line
+	stop     chan struct{}
+	finished chan struct{}
+	stopOnce sync.Once
+	stopErr  error
+	pending  *openRequests
+	// translator translates each stdout line in order. The replay and the reader share it, so each line is translated
+	// with the state the lines before it left.
+	translator *translator
+	// written holds the write ids the holder has applied to the process's stdin before a re-adoption.
+	written map[string]bool
+	// replaying is set while Readopt replays lines: the session observes them and writes nothing for them.
+	replaying bool
 }
 
-// New starts a session on process: it writes the initialize request and starts delivering events.
-// When the initialize request cannot be written, New stops the process and returns the error.
+// New starts a session on process: it writes the initialize request under its write id and starts delivering
+// lines. When the initialize request cannot be written, New stops the process and returns the error.
 func New(process Process) (*Session, error) {
-	stream := transport.New(process.Stdin(), process.Stdout(), transport.WithRawLines())
-	session := &Session{
-		process:   process,
-		transport: stream,
-		events:    make(chan Event),
-		stop:      make(chan struct{}),
-		finished:  make(chan struct{}),
-		pending:   newOpenRequests(),
-	}
-	if err := stream.SendInitialize(session.nextRequestID(), nil); err != nil {
+	session := newSession(process, nil)
+	err := session.write(initializeWriteID, func() error {
+		return session.transport.SendInitialize(initializeRequestID, nil)
+	})
+	if err != nil {
 		return nil, errors.Join(
 			fmt.Errorf("session: send initialize: %w", err),
-			terminate(process, stream, false),
+			terminate(process, session.transport, false),
 		)
 	}
-	go session.run()
+	go session.run(0)
 	return session, nil
 }
 
-// Events returns the events of the session in the order its process wrote them. It is closed after
-// Exited, or when the session is stopped or detached.
-func (s *Session) Events() <-chan Event {
-	return s.events
-}
-
-// Prompt writes text as one user message, under a fresh uuid.
-func (s *Session) Prompt(text string) error {
-	if _, err := s.transport.SendUserMessage(text); err != nil {
-		return fmt.Errorf("session: send prompt: %w", err)
+// newSession returns a session on process that has written nothing yet. written holds the write ids the holder has
+// applied to the process's stdin.
+func newSession(process Process, written []string) *Session {
+	writer := &stdinWriter{writer: process.Stdin()}
+	session := &Session{
+		process:    process,
+		transport:  transport.New(writer, process.Stdout(), transport.WithRawLines()),
+		stdin:      writer,
+		lines:      make(chan Line),
+		stop:       make(chan struct{}),
+		finished:   make(chan struct{}),
+		pending:    newOpenRequests(),
+		translator: newTranslator(),
+		written:    make(map[string]bool, len(written)),
 	}
-	return nil
+	for _, id := range written {
+		session.written[id] = true
+	}
+	return session
 }
 
-// Interrupt writes an interrupt request for the turn in progress.
+// ReadoptOptions says where a re-adopted session resumes. From is the stdout offset the process's stdout begins at,
+// Consumed the offset the controller has consumed, and Written the write ids the holder has applied to the process's
+// stdin.
+type ReadoptOptions struct {
+	From, Consumed int64
+	Written        []string
+}
+
+// Readopt re-adopts a session whose process's stdout begins at opts.From. It reads and observes the lines from From up
+// to opts.Consumed and returns them without writing anything for them: a request the host has not answered is open for
+// its answer, and a refused request is not refused again. Later lines go out on Lines with writes on, as New's do. When
+// a line ends past Consumed, or the stream or ctx ends first, Readopt fails after ending the process with Detach, or
+// with Stop when it has no Detach, so that a holder keeps running.
+func Readopt(ctx context.Context, process Process, opts ReadoptOptions) (*Session, []Line, error) {
+	session := newSession(process, opts.Written)
+	lines, err := session.replay(ctx, opts)
+	if err != nil {
+		return nil, nil, errors.Join(err, terminate(process, session.transport, true))
+	}
+	go session.run(opts.Consumed)
+	return session, lines, nil
+}
+
+// replay reads the stdout lines from opts.From up to opts.Consumed, observing each and writing nothing for it. The
+// session is not running yet, so nothing else reads or writes it while it replays.
+func (s *Session) replay(ctx context.Context, opts ReadoptOptions) ([]Line, error) {
+	if opts.From > opts.Consumed {
+		return nil, fmt.Errorf("session: readopt from %d past consumed %d", opts.From, opts.Consumed)
+	}
+	s.replaying = true
+	defer func() { s.replaying = false }()
+	var lines []Line
+	offset := opts.From
+	for offset < opts.Consumed {
+		select {
+		case raw, ok := <-s.transport.Lines():
+			if !ok {
+				return nil, fmt.Errorf(
+					"session: readopt stream ended at %d before consumed %d: %w",
+					offset, opts.Consumed, <-s.transport.Done(),
+				)
+			}
+			// The transport delivers a line without its LF, so the line spans its bytes and the LF after them.
+			end := offset + int64(len(raw)) + 1
+			if end > opts.Consumed {
+				return nil, fmt.Errorf(
+					"session: readopt line [%d, %d) ends past consumed %d", offset, end, opts.Consumed,
+				)
+			}
+			events := s.translator.translate(raw)
+			s.observeLine(offset, events)
+			lines = append(lines, Line{Start: offset, End: end, Events: events})
+			offset = end
+		case <-ctx.Done():
+			return nil, fmt.Errorf("session: readopt: %w", ctx.Err())
+		}
+	}
+	return lines, nil
+}
+
+// replayFromSetter is implemented by a process that takes the stdout offset its output resumes from.
+type replayFromSetter interface {
+	SetReplayFrom(off int64)
+}
+
+// SetReplayFrom tells the process the stdout offset its output resumes from, when the process takes one. A process
+// without SetReplayFrom is left as it is.
+func (s *Session) SetReplayFrom(off int64) {
+	if setter, ok := s.process.(replayFromSetter); ok {
+		setter.SetReplayFrom(off)
+	}
+}
+
+// Lines returns the stdout lines of the session in the order its process wrote them, each with the
+// events it carries and its offsets. The process exit arrives last, as a Line at the end of the stream
+// whose only event is Exited. Lines is closed after that, or when the session is stopped or detached.
+func (s *Session) Lines() <-chan Line {
+	return s.lines
+}
+
+// Prompt writes text as one user message, under a fresh uuid and writeID as its write id.
+func (s *Session) Prompt(writeID, text string) error {
+	return s.write(writeID, func() error {
+		if _, err := s.transport.SendUserMessage(text); err != nil {
+			return fmt.Errorf("session: send prompt: %w", err)
+		}
+		return nil
+	})
+}
+
+// Interrupt writes an interrupt request for the turn in progress, under a fresh random id.
 func (s *Session) Interrupt() error {
-	if err := s.transport.SendInterrupt(s.nextRequestID()); err != nil {
+	id, err := newRequestID()
+	if err == nil {
+		err = s.write(id, func() error { return s.transport.SendInterrupt(id) })
+	}
+	if err != nil {
 		return fmt.Errorf("session: send interrupt: %w", err)
 	}
 	return nil
 }
 
 // Stop ends the process, closes its stream and returns once the reader has finished. It does not
-// wait for a consumer to read Events: once it begins the reader starts no new delivery, so a consumer
-// reading at that moment receives at most the one event already offered. Stop is idempotent: later
+// wait for a consumer to read Lines: once it begins the reader starts no new delivery, so a consumer
+// reading at that moment receives at most the one line already offered. Stop is idempotent: later
 // calls return the first call's error.
 func (s *Session) Stop() error {
 	return s.end(false)
@@ -111,9 +262,23 @@ func (s *Session) end(detach bool) error {
 	return s.stopErr
 }
 
-// nextRequestID returns the next control request id, orrery-1 for the first request written.
-func (s *Session) nextRequestID() string {
-	return fmt.Sprintf("orrery-%d", s.requests.Add(1))
+// newRequestID returns a fresh control request id: orrery- and 32 random hex digits. An interrupt and a mode change
+// use it as both their request id and their write id.
+func newRequestID() (string, error) {
+	var raw [16]byte
+	if _, err := rand.Read(raw[:]); err != nil {
+		return "", fmt.Errorf("session: request id: %w", err)
+	}
+	return "orrery-" + hex.EncodeToString(raw[:]), nil
+}
+
+// write runs send, which writes one envelope through the transport, with every stdin write it makes carrying id.
+// writeMu is held across send, so no other write sets its id in between.
+func (s *Session) write(id string, send func() error) error {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	s.stdin.id = id
+	return send()
 }
 
 // terminate ends the process and closes the transport, and returns the errors of both. When detach is
@@ -125,45 +290,49 @@ func terminate(process Process, stream *transport.Transport, detach bool) error 
 	return errors.Join(process.Stop(), stream.Close())
 }
 
-// run is the session's only reader. It delivers the events of each line in order, and when the
-// stream ends it reports the process exit and closes Events.
-func (s *Session) run() {
+// run is the session's only reader. From offset, the offset of the first line the transport delivers, it translates
+// each stdout line, observes its events and sends it as a Line with the line's offsets. When the stream ends it
+// reports the process exit as the last Line and closes Lines.
+func (s *Session) run(offset int64) {
 	defer close(s.finished)
-	defer close(s.events)
-	translator := newTranslator()
-	for line := range s.transport.Lines() {
-		for _, event := range translator.translate(line) {
-			if !s.deliver(event) {
-				return
-			}
+	defer close(s.lines)
+	for raw := range s.transport.Lines() {
+		// The transport delivers a line without its LF, so the line spans its bytes and the LF after them.
+		end := offset + int64(len(raw)) + 1
+		events := s.translator.translate(raw)
+		s.observeLine(offset, events)
+		if !s.send(Line{Start: offset, End: end, Events: events}) {
+			return
 		}
+		offset = end
 	}
 	// Once Stop or Detach has begun, the process is theirs: it has been stopped or left running, so the
 	// reader must not stop it or wait on it.
 	if s.stopping() {
 		return
 	}
-	s.exit()
+	s.exit(offset)
 }
 
-// exit stops the process and waits for it, then delivers Exited with the exit error, the stream
-// error and the stderr of the process.
-func (s *Session) exit() {
+// exit stops the process and waits for it, then sends Exited with the exit error, the stream error and the
+// stderr of the process, as the last Line at offset, where the stream ends.
+func (s *Session) exit(offset int64) {
 	exitErr := errors.Join(s.process.Stop(), s.process.Wait())
-	s.send(Exited{
+	exited := Exited{
 		ExitErr:   exitErr,
 		StreamErr: <-s.transport.Done(),
 		Stderr:    s.process.Stderr(),
-	})
+	}
+	s.send(Line{Start: offset, End: offset, Events: []Event{exited}})
 }
 
-// send delivers one event and reports whether it did. Once Stop or Detach has begun, it delivers nothing.
-func (s *Session) send(event Event) bool {
+// send delivers one line and reports whether it did. Once Stop or Detach has begun, it delivers nothing.
+func (s *Session) send(line Line) bool {
 	if s.stopping() {
 		return false
 	}
 	select {
-	case s.events <- event:
+	case s.lines <- line:
 		return true
 	case <-s.stop:
 		return false

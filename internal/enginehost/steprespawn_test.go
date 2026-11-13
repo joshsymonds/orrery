@@ -55,7 +55,7 @@ func TestContinueRespawnsIdleStoppedStepWithStoredLaunch(t *testing.T) {
 	m.checkIdle(t.Context())
 	requireGone(t, pid)
 
-	if err := m.Continue(t.Context(), stepA, "again"); err != nil {
+	if err := m.Continue(t.Context(), stepA, StepPrompt{Text: "again", Sender: store.PromptSenderOwner}); err != nil {
 		t.Fatalf("Continue of an idle-stopped step: %v", err)
 	}
 	history := waitHistory(t, path, stepA, "the respawned step's reply done", func(h store.EngineHistory) bool {
@@ -106,7 +106,7 @@ func TestRespawnedStepHandsItsTurnToTheObserverItStartedWith(t *testing.T) {
 		t.Fatalf("hand-offs before the respawn = %d, want 1", got)
 	}
 
-	if err := m.Continue(t.Context(), stepA, "again"); err != nil {
+	if err := m.Continue(t.Context(), stepA, StepPrompt{Text: "again", Sender: store.PromptSenderOwner}); err != nil {
 		t.Fatalf("Continue of a stopped step: %v", err)
 	}
 	waitHistory(t, path, stepA, "the respawned step's reply done", func(h store.EngineHistory) bool {
@@ -154,7 +154,8 @@ func TestContinueOfStoppedSessionStillRefuses(t *testing.T) {
 		t.Fatalf("Stop: %v", err)
 	}
 
-	if err := m.Continue(t.Context(), id, "again"); !errors.Is(err, ErrNoSession) {
+	again := StepPrompt{Text: "again", Sender: store.PromptSenderOwner}
+	if err := m.Continue(t.Context(), id, again); !errors.Is(err, ErrNoSession) {
 		t.Fatalf("Continue of a stopped session: err = %v, want ErrNoSession", err)
 	}
 	if args := fakeArgs(t, dir); len(args) != 1 {
@@ -178,7 +179,8 @@ func TestRespawnWithStepCapFullGetsErrCapReached(t *testing.T) {
 		t.Fatalf("StartStep of the other step: %v", err)
 	}
 
-	if err := m.Continue(t.Context(), stepA, "again"); !errors.Is(err, ErrCapReached) {
+	again := StepPrompt{Text: "again", Sender: store.PromptSenderOwner}
+	if err := m.Continue(t.Context(), stepA, again); !errors.Is(err, ErrCapReached) {
 		t.Fatalf("Continue with the step cap full: err = %v, want ErrCapReached", err)
 	}
 	if args := fakeArgs(t, dir); len(args) != 1 {
@@ -203,7 +205,8 @@ func TestRespawnOfStepWhoseDirIsGoneRecordsFailedWithoutNotice(t *testing.T) {
 		t.Fatalf("remove step dir: %v", err)
 	}
 
-	if err := m.Continue(t.Context(), stepA, "again"); !errors.Is(err, ErrBadDir) {
+	again := StepPrompt{Text: "again", Sender: store.PromptSenderOwner}
+	if err := m.Continue(t.Context(), stepA, again); !errors.Is(err, ErrBadDir) {
 		t.Fatalf("Continue with the dir gone: err = %v, want ErrBadDir", err)
 	}
 	if got := lastState(t, historyOf(t, path, stepA)); got != stateFailed {
@@ -234,7 +237,7 @@ func TestRespawnOfStepWhoseAgentNoLongerResolvesFailsBeforeClaude(t *testing.T) 
 		t.Fatalf("remove the step's agent: %v", err)
 	}
 
-	err := m.Continue(t.Context(), stepA, "again")
+	err := m.Continue(t.Context(), stepA, StepPrompt{Text: "again"})
 	if !errors.Is(err, agents.ErrUnresolved) {
 		t.Fatalf("Continue with the agent gone: err = %v, want it to match %v", err, agents.ErrUnresolved)
 	}

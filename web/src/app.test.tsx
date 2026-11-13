@@ -293,6 +293,9 @@ function fixture(): Row[] {
   ];
 }
 
+// fixtureCounts is what the brand shows for fixture(): one row needs you, one is working, and two are new.
+const fixtureCounts = ["st-waiting: 1 need you", "st-working: 1 working", "st-new: ✱ 2 new"];
+
 const keysHelpList = ["j", "k", "↓", "↑", "gg", "G", "a", "p", "w", "n", "x", "Enter", "e", "/", "i", "1", "2", "3", "o", "|", "?", "Esc"];
 
 async function mount(container: HTMLElement, props: Props): Promise<void> {
@@ -368,13 +371,52 @@ function composer(container: HTMLElement): HTMLTextAreaElement {
   return box;
 }
 
+// composerSendButton is the send button of the reply box the cursor's row shows.
+function composerSendButton(container: HTMLElement): HTMLButtonElement {
+  const button = container.querySelector<HTMLButtonElement>('.reply:not([hidden]) .composer button[aria-label="send"]');
+  assert.ok(button, "the reply box has a send button");
+  return button;
+}
+
 function readerText(container: HTMLElement): string {
   return container.querySelector(".reader")?.textContent ?? "";
 }
 
-// readerWorkLine is the working line under the cursor's reader, or null when that column draws none.
-function readerWorkLine(container: HTMLElement): Element | null {
-  return container.querySelector('[aria-label="reader"] .work-line');
+// readerHead is the head the cursor's reader opens with, or null when that reader draws none.
+function readerHead(container: HTMLElement): Element | null {
+  return container.querySelector('section[aria-label="reader"] > .head');
+}
+
+// pinnedHead is the head the pinned reader opens with, or null when no row is pinned.
+function pinnedHead(container: HTMLElement): Element | null {
+  return container.querySelector('section[aria-label="pinned reader"] > .head');
+}
+
+// readerNote is the working note under the cursor's reader, or null when that column draws none.
+function readerNote(container: HTMLElement): Element | null {
+  return container.querySelector('[aria-label="reader"] .work-note');
+}
+
+// sectionChildren names each child of a reader section as its tag and first class, in order: a head, a conversation
+// and a foot is ["header.head", "div.reader", "div.send"].
+function sectionChildren(section: Element | null): string[] {
+  return Array.from(section?.children ?? [], (child) => `${child.tagName.toLowerCase()}.${child.classList[0]}`);
+}
+
+// queueTexts is the text of each message in the cursor's foot queue, oldest first, without its tag.
+function queueTexts(container: HTMLElement): string[] {
+  return Array.from(
+    container.querySelectorAll('[aria-label="reader"] .send .queue li .text'),
+    (text) => text.textContent ?? "",
+  );
+}
+
+// pinnedQueueTexts is the text of each message in the pinned foot queue, oldest first, without its tag.
+function pinnedQueueTexts(container: HTMLElement): string[] {
+  return Array.from(
+    container.querySelectorAll('[aria-label="pinned reader"] .send .queue li .text'),
+    (text) => text.textContent ?? "",
+  );
 }
 
 // workingPane is the pane a stream sends while it runs a tool. The tool started at 940, a minute before the test's
@@ -404,6 +446,8 @@ const sessionRow = row({
   id: "s1",
   kind: "session",
   label: "notes",
+  project: "",
+  host: "",
   state: "working",
   changed: 30,
   seen: 30,
@@ -450,13 +494,78 @@ function alertTexts(container: HTMLElement): string[] {
 }
 
 function sectionTitles(container: HTMLElement): (string | null)[] {
-  return [...container.querySelectorAll(".b-sec")].map((element) => element.textContent);
+  return [...container.querySelectorAll(".b-sec")].map((element) => element.querySelector(".title")?.textContent ?? null);
+}
+
+// headCounts is the count each section head shows, in order.
+function headCounts(container: HTMLElement): (string | null)[] {
+  return [...container.querySelectorAll(".b-sec")].map((element) => element.querySelector("i")?.textContent ?? null);
+}
+
+// headClasses is the class each section head carries, in order.
+function headClasses(container: HTMLElement): (string | null)[] {
+  return [...container.querySelectorAll(".b-sec")].map((element) => element.getAttribute("class"));
 }
 
 function rowElement(container: HTMLElement, key: string): Element {
   const element = container.querySelector(`[data-row][data-key="${key}"]`);
   assert.ok(element, `row ${key} is rendered`);
   return element;
+}
+
+// listChildren names the children of the list in order by class: the top block, then the rows.
+function listChildren(container: HTMLElement): string[] {
+  const list = container.querySelector(".list");
+  assert.ok(list !== null, "the list is rendered");
+  return [...list.children].map((element) => element.getAttribute("class") ?? "");
+}
+
+// topChildren names the children of the top block, when the top block is inside the list, in order by class.
+function topChildren(container: HTMLElement): string[] {
+  const top = container.querySelector(".list > .top");
+  assert.ok(top !== null, "the top block is inside the list");
+  return [...top.children].map((element) => element.getAttribute("class") ?? "");
+}
+
+// outsideList names the elements the selector matches that sit outside the list, by class.
+function outsideList(container: HTMLElement, selector: string): string[] {
+  return [...container.querySelectorAll(selector)]
+    .filter((element) => element.closest(".list") === null)
+    .map((element) => element.getAttribute("class") ?? "");
+}
+
+// countTexts names each count the brand shows, in order, by class and text.
+function countTexts(container: HTMLElement): string[] {
+  return [...container.querySelectorAll(".brand .counts > span")].map(
+    (element) => `${element.getAttribute("class")}: ${element.textContent}`,
+  );
+}
+
+// hostTexts names the hosts the footer lists, in order.
+function hostTexts(container: HTMLElement): string[] {
+  return [...container.querySelectorAll(".lfoot > .host")].map((element) => element.textContent ?? "");
+}
+
+// newCount is the text of the brand's new count, or null when the brand shows none.
+function newCount(container: HTMLElement): string | null {
+  return container.querySelector(".brand .counts .st-new")?.textContent ?? null;
+}
+
+// chipTexts is the text of each option chip the row draws, in order. A row with no chips names none.
+function chipTexts(container: HTMLElement, key: string): string[] {
+  return [...rowElement(container, key).querySelectorAll(".opts > .opt")].map((chip) => chip.textContent ?? "");
+}
+
+// keyCaps is the key cap of each chip the row draws, in order, or null for a chip with none.
+function keyCaps(container: HTMLElement, key: string): (string | null)[] {
+  return [...rowElement(container, key).querySelectorAll(".opts > .opt")].map(
+    (chip) => chip.querySelector("kbd")?.textContent ?? null,
+  );
+}
+
+// answerLine is the green line a landed answer leaves on the row, or null when the row shows none.
+function answerLine(container: HTMLElement, key: string): string | null {
+  return rowElement(container, key).querySelector(".ans")?.textContent ?? null;
 }
 
 test("j and ArrowDown move the cursor one row down and clamp at the last row", () =>
@@ -551,28 +660,74 @@ test("/ focuses the filter input and does not type the slash", () =>
   withApp({}, async (container) => {
     const event = await press("/");
     assert.equal(event.defaultPrevented, true, "the slash was left to the input");
-    assert.equal(document.activeElement, filterInput(container));
+    assert.equal(document.activeElement === filterInput(container), true);
     assert.equal(filterInput(container).value, "");
   }));
 
 test("? toggles a help panel listing exactly the keys", () =>
   withApp({}, async (container) => {
-    assert.equal(container.querySelector('[aria-label="keys"]'), null);
+    assert.equal(container.querySelector('[aria-label="keys"]') === null, true);
     await press("?");
     const help = container.querySelector('[aria-label="keys"]');
     assert.ok(help, "help panel is open");
     const listed = [...help.querySelectorAll("kbd")].map((element) => element.textContent);
     assert.deepEqual(listed, keysHelpList);
     await press("?");
-    assert.equal(container.querySelector('[aria-label="keys"]'), null);
+    assert.equal(container.querySelector('[aria-label="keys"]') === null, true);
   }));
 
 test("Esc closes the help when the filter does not have focus", () =>
   withApp({}, async (container) => {
     await press("?");
     await press("Escape");
-    assert.equal(container.querySelector('[aria-label="keys"]'), null);
+    assert.equal(container.querySelector('[aria-label="keys"]') === null, true);
   }));
+
+test("? opens the key list over the page, outside the list, and a second ? closes it", () =>
+  withApp({}, async (container) => {
+    await press("?");
+    const help = container.querySelector('[aria-label="keys"]');
+    assert.ok(help !== null, "help panel is open");
+    assert.equal(help.closest(".list") === null, true, "the key list is not inside the list");
+    assert.equal(container.querySelector(".list .keys") === null, true, "no key list is inside the list");
+    assert.equal(help.parentElement?.classList.contains("app"), true, "the key list sits in the page");
+    assert.equal(help.previousElementSibling?.classList.contains("panes"), true, "the key list follows the columns");
+    await press("?");
+    assert.equal(container.querySelector('[aria-label="keys"]') === null, true);
+  }));
+
+test("the footer names the loaded rows' hosts once each, in the order first seen, and ends with the keys hint", () =>
+  withApp({}, (container) => {
+    assert.deepEqual(hostTexts(container), ["box", "laptop"]);
+    assert.equal(container.querySelector(".lfoot > .keys-hint")?.textContent, "? keys");
+  }));
+
+test("the footer lists hosts in the order the rows first show them", () =>
+  withApp(
+    {
+      rows: [
+        row({ key: "x", host: "laptop" }),
+        row({ key: "y", host: "box" }),
+        row({ key: "z", host: "laptop" }),
+      ],
+    },
+    (container) => {
+      assert.deepEqual(hostTexts(container), ["laptop", "box"]);
+    },
+  ));
+
+test("a session row's empty host adds nothing to the footer", () =>
+  withApp(
+    {
+      rows: [
+        row({ key: "s1", id: "s1", kind: "session", host: "", label: "notes", changed: 30, seen: 30 }),
+        row({ key: "x", host: "laptop" }),
+      ],
+    },
+    (container) => {
+      assert.deepEqual(hostTexts(container), ["laptop"]);
+    },
+  ));
 
 test("with the filter focused, shortcut keys do nothing and Enter blurs it", () =>
   withApp({}, async (container, fake) => {
@@ -583,11 +738,11 @@ test("with the filter focused, shortcut keys do nothing and Enter blurs it", () 
     await press("x");
     await press("e");
     assert.equal(cursorKey(container), "a");
-    assert.equal(container.querySelector('[aria-label="keys"]'), null);
+    assert.equal(container.querySelector('[aria-label="keys"]') === null, true);
     await settle();
     assert.equal(fake.callsTo(markPanePath).length, 0, "x and e in the filter write no seen");
     await press("Enter");
-    assert.notEqual(document.activeElement, filterInput(container));
+    assert.equal(document.activeElement === filterInput(container), false);
     assert.equal(fake.callsTo(markPanePath).length, 0, "Enter in the filter writes no seen");
     await press("j");
     assert.equal(cursorKey(container), "c");
@@ -600,7 +755,7 @@ test("Esc in the filter clears it and blurs it", () =>
     assert.deepEqual(rowKeys(container), ["c"]);
     await press("Escape");
     assert.equal(filterInput(container).value, "");
-    assert.notEqual(document.activeElement, filterInput(container));
+    assert.equal(document.activeElement === filterInput(container), false);
     assert.deepEqual(rowKeys(container), ["a", "c", "b", "d"]);
   }));
 
@@ -641,7 +796,7 @@ test("u and N outside the filter change nothing", () =>
     await press("N");
     assert.equal(cursorKey(container), "a");
     assert.deepEqual(rowKeys(container), ["a", "c", "b", "d"]);
-    assert.equal(container.querySelector('[aria-label="keys"]'), null);
+    assert.equal(container.querySelector('[aria-label="keys"]') === null, true);
     assert.equal(filterInput(container).value, "");
     await settle();
     assert.equal(fake.callsTo(markPanePath).length, 0, "no seen was written");
@@ -689,15 +844,87 @@ test("only unseen rows carry the unseen mark", () =>
     assert.equal(rowElement(container, "d").hasAttribute("data-unseen"), false);
   }));
 
-test("a row shows its state, label, project's last path element, age, and reply text", () =>
+test("a row shows its tag, label, project's last path element, age, and reply text", () =>
   withApp({}, (container) => {
     const element = rowElement(container, "a");
     assert.equal(element.querySelector(".label")?.textContent, "api");
     assert.equal(element.querySelector(".proj")?.textContent, "api");
     assert.equal(element.querySelector(".age")?.textContent, "11m");
-    assert.ok(element.textContent?.includes("waiting"));
+    assert.equal(element.querySelector(".ty")?.textContent, "QUESTION");
     assert.equal(element.querySelector(".l2")?.textContent, "Ship it?", "the question replaces the summary");
   }));
+
+// stateRows has a row in each state a row can carry, one waiting with a question, one without, and two seen.
+function stateRows(): Row[] {
+  return [
+    row({ key: "q", state: "waiting", question: "Ship it?", changed: 300, seen: 300 }),
+    row({ key: "w", state: "waiting", changed: 250, seen: 250 }),
+    row({ key: "k", state: "working", changed: 200, seen: 200 }),
+    row({ key: "d", state: "done", changed: 150, seen: 150 }),
+    row({ key: "i", state: "interrupted", changed: 100, seen: 100 }),
+  ];
+}
+
+test("a waiting row leads its first line with a QUESTION or WAITING tag, and no other row has a tag", () =>
+  withApp({ rows: stateRows() }, (container) => {
+    const tagOf = (key: string) => rowElement(container, key).querySelector(".l1 .ty")?.textContent ?? null;
+    assert.equal(tagOf("q"), "QUESTION", "a waiting row with a question");
+    assert.equal(tagOf("w"), "WAITING", "a waiting row without one");
+    assert.equal(tagOf("k"), null, "a working row");
+    assert.equal(tagOf("d"), null, "a done row");
+    assert.equal(tagOf("i"), null, "an interrupted row");
+    assert.equal(rowElement(container, "q").querySelector(".l1")?.firstElementChild?.classList.contains("ty"), true);
+  }));
+
+test("no row draws a state element, and no row's first line holds its state word", () =>
+  withApp({ rows: stateRows() }, (container) => {
+    const rows = [...container.querySelectorAll("[data-row]")];
+    assert.equal(
+      rows.some((element) => element.querySelector(".state") !== null),
+      false,
+      "no row draws a .state element",
+    );
+    for (const [key, word] of [
+      ["k", "working"],
+      ["d", "done"],
+      ["i", "interrupted"],
+    ]) {
+      assert.equal(rowElement(container, key).querySelector(".l1")?.textContent?.includes(word), false, `row ${key} has no ${word}`);
+    }
+  }));
+
+test("each row's glyph carries its state class", () =>
+  withApp({ rows: stateRows() }, (container) => {
+    const glyphOf = (key: string) => rowElement(container, key).querySelector(".g")?.getAttribute("class") ?? null;
+    assert.equal(glyphOf("q"), "g g-waiting");
+    assert.equal(glyphOf("k"), "g g-working");
+    assert.equal(glyphOf("d"), "g g-done");
+    assert.equal(glyphOf("i"), "g g-interrupted");
+  }));
+
+test("an unseen row's reply text runs two lines, and a seen row's runs one", () =>
+  withApp({}, (container) => {
+    assert.equal(rowElement(container, "a").querySelector(".l2")?.getAttribute("class"), "l2", "a is unseen");
+    assert.equal(rowElement(container, "b").querySelector(".l2")?.getAttribute("class"), "l2 one", "b is seen");
+  }));
+
+test("a section head shows its title and its row count, and Needs you and New since you looked carry their marks", () =>
+  withApp(
+    {
+      rows: [
+        row({ key: "w1", state: "waiting", question: "Ship it?", changed: 300, seen: 300 }),
+        row({ key: "w2", state: "waiting", changed: 200, seen: 200 }),
+        row({ key: "n1", state: "done", changed: 400, seen: 100, unseen: true }),
+        row({ key: "r1", state: "working", changed: 50, seen: 50 }),
+        row({ key: "s1", state: "done", changed: 10, seen: 10 }),
+      ],
+    },
+    (container) => {
+      assert.deepEqual(sectionTitles(container), ["Needs you", "New since you looked", "Working", "Seen"]);
+      assert.deepEqual(headCounts(container), ["2", "1", "1", "1"]);
+      assert.deepEqual(headClasses(container), ["b-sec need", "b-sec fresh", "b-sec", "b-sec"]);
+    },
+  ));
 
 test("a row that is not waiting shows its summary, not its question", () =>
   withApp(
@@ -715,8 +942,8 @@ test("reply text renders as text, never as markup", () =>
       rows: [row({ key: "x", state: "working", summary: "<script>alert(1)</script> and <img src=x onerror=alert(1)>" })],
     },
     (container) => {
-      assert.equal(container.querySelector("script"), null);
-      assert.equal(container.querySelector("img"), null);
+      assert.equal(container.querySelector("script") === null, true);
+      assert.equal(container.querySelector("img") === null, true);
       assert.equal(
         rowElement(container, "x").querySelector(".l2")?.textContent,
         "<script>alert(1)</script> and <img src=x onerror=alert(1)>",
@@ -736,14 +963,67 @@ test("an empty project title with no host shows no directory", () =>
     assert.deepEqual(sectionTitles(container), ["no directory"]);
   }));
 
-test("a non-empty error shows one line above the list", () =>
+test("the brand, filter, and views sit inside the list, above its rows, and no top block is outside it", () =>
+  withApp({}, (container) => {
+    assert.deepEqual(listChildren(container), ["top", "rows", "lfoot"]);
+    assert.deepEqual(topChildren(container), ["brand", "filter", "views"]);
+    assert.deepEqual(outsideList(container, ".top, .error"), []);
+  }));
+
+test("a non-empty error shows one line in the top block, above the rows", () =>
   withApp({ error: "list unavailable" }, (container) => {
     assert.equal(container.querySelector('[role="alert"]')?.textContent, "list unavailable");
+    assert.deepEqual(topChildren(container), ["brand", "filter", "views", "error"]);
+    assert.deepEqual(listChildren(container), ["top", "rows", "lfoot"]);
+    assert.deepEqual(outsideList(container, ".error"), []);
   }));
 
 test("no error line shows when the error is empty", () =>
   withApp({ error: "" }, (container) => {
-    assert.equal(container.querySelector('[role="alert"]'), null);
+    assert.equal(container.querySelector('[role="alert"]') === null, true);
+  }));
+
+test("the brand draws the orrery mark as a 72-unit drawing hidden from assistive tech", () =>
+  withApp({}, (container) => {
+    assert.equal(container.querySelector(".brand > svg.mark")?.getAttribute("viewBox"), "18 18 72 72");
+    assert.equal(container.querySelector(".brand > svg.mark")?.getAttribute("aria-hidden"), "true");
+    assert.equal(container.querySelector(".brand > svg.mark")?.getAttribute("style"), null);
+    assert.equal(container.querySelectorAll(".brand > svg.mark > rect").length, 1);
+    assert.equal(container.querySelectorAll(".brand > svg.mark > path").length, 5);
+  }));
+
+test("the brand reads orrery, and its counts stay in place when every count is zero", () =>
+  withApp({ rows: [] }, (container) => {
+    assert.equal(container.querySelector(".brand")?.textContent, "orrery");
+    assert.equal(container.querySelector(".brand .counts") === null, false, "the counts span stays");
+    assert.deepEqual(countTexts(container), []);
+  }));
+
+test("the brand counts the loaded rows that need you, are working, and are new", () =>
+  withApp({}, (container) => {
+    assert.deepEqual(countTexts(container), fixtureCounts);
+  }));
+
+test("a count of zero is left out of the brand", () =>
+  withApp({ rows: [row({ key: "s", state: "working", changed: 1, seen: 1 })] }, (container) => {
+    assert.deepEqual(countTexts(container), ["st-working: 1 working"]);
+  }));
+
+test("a successful seen write takes its row out of the new count", () =>
+  withApp({}, async (container, fake) => {
+    assert.equal(newCount(container), "✱ 2 new");
+    await press("x");
+    await until(() => newCount(container) === "✱ 1 new", "the new count to fall");
+    assert.deepEqual(countTexts(container), ["st-waiting: 1 need you", "st-working: 1 working", "st-new: ✱ 1 new"]);
+    assert.equal(fake.callsTo(markPanePath).length, 1);
+  }));
+
+test("typing a filter leaves the counts as they were", () =>
+  withApp({}, async (container) => {
+    await press("/");
+    await typeFilter(container, "docs");
+    assert.deepEqual(rowKeys(container), ["c"]);
+    assert.deepEqual(countTexts(container), fixtureCounts);
   }));
 
 test("the cursor's pane row opens its conversation, and the reader shows the streamed reply as text", () =>
@@ -760,57 +1040,78 @@ test("the cursor's pane row opens its conversation, and the reader shows the str
     await until(() => readerText(container).includes("the streamed reply"), "the streamed reply");
   }));
 
-test("a working pane's delta draws its line under the cursor's reader, with the tool, its time, and where a message lands", () =>
-  withApp({}, async (container, fake) => {
-    await until(() => fake.callsTo(paneWatchPath).length === 1, "the pane stream");
-    const [stream] = fake.callsTo(paneWatchPath);
-    fake.emit(stream, { transcript: "t1", seq: "1", reset: true, items: [], state: { pane: workingPane("Bash") } });
-    await until(() => readerWorkLine(container) !== null, "the working line");
-    const line = readerWorkLine(container);
-    assert.ok(line);
-    assert.equal(line.querySelector(".work-label")?.textContent, "working");
-    assert.equal(line.querySelector(".work-tool")?.textContent, "running a command");
-    assert.equal(line.querySelector(".work-time")?.textContent, "1:00");
-    assert.equal(
-      line.querySelector(".work-note")?.textContent,
-      "a message sent now lands at Claude's next step · last turn ended 5m ago",
-    );
-    assert.equal(line.previousElementSibling?.classList.contains("reader"), true, "the line is under the reader");
-    assert.equal(line.nextElementSibling?.classList.contains("reply"), true, "the line is above the reply boxes");
+test("the cursor's reader opens on its head: the label, the project and host, and the state's pill", () =>
+  withApp({ rows: [paneRow] }, (container) => {
+    assert.equal(container.querySelector('section[aria-label="reader"]')?.firstElementChild?.tagName, "HEADER");
+    assert.equal(readerHead(container)?.querySelector("h1")?.textContent, "api");
+    assert.equal(readerHead(container)?.querySelector(".where")?.textContent, "app · box");
+    assert.equal(readerHead(container)?.querySelector(".pill .word")?.textContent, "waiting");
+    assert.equal(readerHead(container)?.querySelector(".pill .clock") === null, true);
   }));
 
-test("a later delta whose pane is done removes the working line", () =>
+test("a session's head has no where line and a pill of its state, with no tool or clock", () =>
+  withApp({ rows: [sessionRow] }, (container) => {
+    assert.equal(readerHead(container)?.querySelector("h1")?.textContent, "notes");
+    assert.equal(readerHead(container)?.querySelector(".where") === null, true);
+    assert.equal(readerHead(container)?.querySelector(".pill .word")?.textContent, "working");
+    assert.equal(readerHead(container)?.querySelector(".pill .tool") === null, true);
+    assert.equal(readerHead(container)?.querySelector(".pill .clock") === null, true);
+  }));
+
+test("a step's head names the step, its epic, agent and round, and its pill runs from the step's start", () => {
+  const running = makeStep("s1", { started: BigInt(now - 60) });
+  const epics = epicsView([makeEpic(widgetsRepo, "first", { runningSteps: [running] })], new Map());
+  return withApp({ epics }, async (container, fake) => {
+    await onStepOne(container, fake);
+    assert.equal(readerHead(container)?.querySelector("h1")?.textContent, "s1");
+    assert.equal(readerHead(container)?.querySelector(".where")?.textContent, "first › builder · step · round 1");
+    assert.equal(readerHead(container)?.querySelector(".pill .word")?.textContent, "running");
+    assert.equal(readerHead(container)?.querySelector(".pill .clock")?.textContent, "1:00");
+  });
+});
+
+test("a held step's head pill reads held with no clock", () => {
+  const held = makeStep("s1", { held: true });
+  const epics = epicsView([makeEpic(widgetsRepo, "first", { runningSteps: [held] })], new Map());
+  return withApp({ epics }, async (container, fake) => {
+    await onStepOne(container, fake);
+    assert.equal(readerHead(container)?.querySelector(".pill .word")?.textContent, "held");
+    assert.equal(readerHead(container)?.querySelector(".pill .clock") === null, true);
+  });
+});
+
+test("a working pane's delta puts its tool and time in the head's pill, and its note under the reader", () =>
   withApp({}, async (container, fake) => {
     await until(() => fake.callsTo(paneWatchPath).length === 1, "the pane stream");
     const [stream] = fake.callsTo(paneWatchPath);
     fake.emit(stream, { transcript: "t1", seq: "1", reset: true, items: [], state: { pane: workingPane("Bash") } });
-    await until(() => readerWorkLine(container) !== null, "the working line");
+    await until(() => readerNote(container) !== null, "the working note");
+    assert.equal(readerHead(container)?.querySelector(".pill .word")?.textContent, "working");
+    assert.equal(readerHead(container)?.querySelector(".pill .tool")?.textContent, "Bash");
+    assert.equal(readerHead(container)?.querySelector(".pill .clock")?.textContent, "1:00");
+    const note = readerNote(container);
+    assert.equal(note?.textContent, "a message sent now lands at Claude's next step · last turn ended 5m ago");
+    assert.equal(note?.parentElement?.classList.contains("send"), true, "the note is in the foot");
+    assert.equal(note?.previousElementSibling === null, true, "the note is the foot's first child");
+    assert.equal(note?.nextElementSibling?.classList.contains("reply"), true, "the note is above the reply boxes");
+    assert.equal(container.querySelector(".work-line") === null, true, "no work line is drawn");
+  }));
+
+test("a later delta whose pane is done removes the working note and the pill's tool", () =>
+  withApp({}, async (container, fake) => {
+    await until(() => fake.callsTo(paneWatchPath).length === 1, "the pane stream");
+    const [stream] = fake.callsTo(paneWatchPath);
+    fake.emit(stream, { transcript: "t1", seq: "1", reset: true, items: [], state: { pane: workingPane("Bash") } });
+    await until(() => readerNote(container) !== null, "the working note");
     fake.emit(stream, {
       transcript: "t1",
       seq: "2",
       items: [],
       state: { pane: { id: "a", state: "done", tool: "", changed: "1000", lastTurnEnd: "1000" } },
     });
-    await until(() => readerWorkLine(container) === null, "the working line removed");
-  }));
-
-test("a step_wait tool draws a background line that reads as waiting on background work", () =>
-  withApp({}, async (container, fake) => {
-    await until(() => fake.callsTo(paneWatchPath).length === 1, "the pane stream");
-    const [stream] = fake.callsTo(paneWatchPath);
-    fake.emit(stream, {
-      transcript: "t1",
-      seq: "1",
-      reset: true,
-      items: [],
-      state: { pane: workingPane("mcp__orrery__step_wait") },
-    });
-    await until(() => readerWorkLine(container) !== null, "the working line");
-    const line = readerWorkLine(container);
-    assert.ok(line);
-    assert.equal(line.classList.contains("background"), true);
-    assert.equal(line.querySelector(".work-label")?.textContent, "background");
-    assert.equal(line.querySelector(".work-tool")?.textContent, "waiting on background work");
+    await until(() => readerNote(container) === null, "the working note removed");
+    assert.equal(readerHead(container)?.querySelector(".pill .word")?.textContent, "done");
+    assert.equal(readerHead(container)?.querySelector(".pill .tool") === null, true);
   }));
 
 test("moving the cursor to a session row aborts the pane's stream and opens the session's", () =>
@@ -838,12 +1139,166 @@ test("Enter in the composer sends the text to the pane with Panes.SendText", () 
   withApp({}, async (container, fake) => {
     await press("i");
     const box = composer(container);
-    assert.equal(document.activeElement, box);
+    assert.equal(document.activeElement === box, true);
     await typeInto(box, "keep going");
     await pressIn(box, "Enter");
     await until(() => fake.callsTo(sendTextPath).length === 1, "the send");
     assert.deepEqual(fake.callsTo(sendTextPath)[0].body, { pane: "a", text: "keep going" });
     await until(() => box.value === "", "the sent draft cleared");
+  }));
+
+test("a click on the send button sends the cursor's text once with Panes.SendText", () =>
+  withApp({}, async (container, fake) => {
+    await press("i");
+    const box = composer(container);
+    await typeInto(box, "keep going");
+    await act(() => {
+      composerSendButton(container).dispatchEvent(clickEvent());
+    });
+    await until(() => fake.callsTo(sendTextPath).length === 1, "the send");
+    await settle();
+    assert.equal(fake.callsTo(sendTextPath).length, 1, "the click sent once");
+    assert.deepEqual(fake.callsTo(sendTextPath)[0].body, { pane: "a", text: "keep going" });
+    await until(() => box.value === "", "the sent draft cleared");
+  }));
+
+test("the cursor's reader is its head, its conversation and its foot, and nothing else", () =>
+  withApp({}, async (container, fake) => {
+    await until(() => fake.callsTo(paneWatchPath).length === 1, "the pane stream");
+    assert.deepEqual(sectionChildren(container.querySelector('section[aria-label="reader"]')), [
+      "header.head",
+      "div.reader",
+      "div.send",
+    ]);
+  }));
+
+test("a step's reader is its head, its conversation and its foot, and nothing else", () =>
+  withApp({ epics: oneEpic() }, async (container, fake) => {
+    await onStepOne(container, fake);
+    assert.deepEqual(sectionChildren(container.querySelector('section[aria-label="reader"]')), [
+      "header.head",
+      "div.reader",
+      "div.send",
+    ]);
+  }));
+
+test("a step's reader draws its brief as a fold, its round's checks as a card, and the owner's nudge as YOU", () =>
+  withApp({ epics: checkedEpic() }, async (container, fake) => {
+    await onStepOne(container, fake);
+    const [stream] = fake.callsTo(sessionWatchPath);
+    fake.emit(stream, {
+      transcript: "t1",
+      seq: "1",
+      reset: true,
+      items: [
+        { kind: "prompt", text: "the brief", sender: "brief" },
+        { kind: "prompt", text: "lint failed", sender: "engine", round: 1 },
+        { kind: "prompt", text: "please hurry", sender: "owner" },
+      ],
+    });
+    const reader = '[aria-label="reader"] > .reader';
+    await until(() => container.querySelector(`${reader} .you`) !== null, "the owner's nudge");
+    assert.equal(container.querySelectorAll(`${reader} button.fold.brief`).length, 1, "one brief fold");
+    assert.equal(container.querySelector(`${reader} button.fold.brief b`)?.textContent, "Brief");
+    assert.equal(container.querySelectorAll(`${reader} .card`).length, 1, "one round card");
+    assert.equal(container.querySelectorAll(`${reader} .card.bad`).length, 1, "a bad edge");
+    const cap = container.querySelector(`${reader} .card .cap`)?.textContent ?? "";
+    assert.equal(cap.startsWith("Checks · round 1"), true, "the card names round 1");
+    const chips = [...container.querySelectorAll(`${reader} .card .chips .chip`)].map((chip) => chip.textContent);
+    assert.deepEqual(chips, ["lint ✗", "unit ✓"], "round 1's checks only, in the step's order");
+    assert.equal(container.querySelector(`${reader} .card .note`)?.textContent, "lint failed");
+    assert.equal(container.querySelectorAll(`${reader} .you`).length, 1, "one YOU bubble");
+    const you = container.querySelector(`${reader} .you`)?.textContent ?? "";
+    assert.equal(you.includes("please hurry"), true, "the YOU bubble holds the nudge");
+    assert.equal(you.includes("lint failed"), false, "the YOU bubble holds no engine text");
+    assert.equal(you.includes("the brief"), false, "the YOU bubble holds no brief");
+  }));
+
+test("a pane row's reader draws its prompts as YOU, whatever their sender and round", () =>
+  withApp({}, async (container, fake) => {
+    await until(() => fake.callsTo(paneWatchPath).length === 1, "the pane stream");
+    const [stream] = fake.callsTo(paneWatchPath);
+    fake.emit(stream, {
+      transcript: "t1",
+      seq: "1",
+      reset: true,
+      items: [{ kind: "prompt", text: "lint failed", sender: "engine", round: 1 }],
+    });
+    const reader = '[aria-label="reader"] > .reader';
+    await until(() => container.querySelector(`${reader} .you`) !== null, "the prompt");
+    assert.equal(container.querySelectorAll(`${reader} .card`).length, 0, "no round card");
+    assert.equal(container.querySelectorAll(`${reader} .fold`).length, 0, "no fold");
+    const you = container.querySelector(`${reader} .you`)?.textContent ?? "";
+    assert.equal(you.includes("lint failed"), true, "the YOU bubble holds the prompt");
+  }));
+
+test("the pinned reader is its head, its conversation and its foot, and nothing else", () =>
+  withApp({}, async (container, fake) => {
+    await until(() => fake.callsTo(paneWatchPath).length === 1, "the cursor's stream");
+    await press("|");
+    await until(() => fake.callsTo(paneWatchPath).length === 2, "the pinned stream");
+    assert.deepEqual(sectionChildren(container.querySelector('section[aria-label="pinned reader"]')), [
+      "header.head",
+      "div.reader",
+      "div.send",
+    ]);
+  }));
+
+test("the cursor's queued messages dock in its foot, oldest first, and draw nowhere in its reader", () =>
+  withApp({}, async (container, fake) => {
+    await until(() => fake.callsTo(paneWatchPath).length === 1, "the pane stream");
+    const [stream] = fake.callsTo(paneWatchPath);
+    fake.emit(stream, {
+      transcript: "t1",
+      seq: "1",
+      reset: true,
+      items: [{ kind: "assistant", text: "a reply" }],
+      state: {
+        waiting: [
+          { text: "first waiting", canceled: false },
+          { text: "second waiting", canceled: true },
+        ],
+      },
+    });
+    await until(() => queueTexts(container).length === 2, "the queued messages");
+    assert.deepEqual(queueTexts(container), ["first waiting", "second waiting"]);
+    assert.equal(container.querySelectorAll('[aria-label="reader"] .send .queue li.canceled').length, 1);
+    const reader = container.querySelector('[aria-label="reader"] > .reader')?.textContent ?? "";
+    assert.equal(reader.includes("first waiting"), false, "the reader draws no queued message");
+    assert.equal(reader.includes("second waiting"), false, "the reader draws no canceled message");
+    assert.ok(reader.includes("a reply"));
+  }));
+
+test("a row's queued messages draw in no other foot: the pin keeps its own, and a hidden composer shows none", () =>
+  withApp({}, async (container, fake) => {
+    await until(() => fake.callsTo(paneWatchPath).length === 1, "the cursor's stream");
+    await press("|");
+    await until(() => fake.callsTo(paneWatchPath).length === 2, "the pinned stream");
+    const [, pinnedStream] = fake.callsTo(paneWatchPath);
+    fake.emit(pinnedStream, {
+      transcript: "t1",
+      seq: "1",
+      reset: true,
+      items: [],
+      state: { waiting: [{ text: "pinned waiting", canceled: false }] },
+    });
+    await until(() => pinnedQueueTexts(container).length === 1, "the pinned queue");
+    await press("j");
+    assert.equal(cursorKey(container), "c");
+    await until(() => fake.callsTo(paneWatchPath).some((call) => call.body.pane === "c"), "the cursor's stream on c");
+    const cursorStream = fake.callsTo(paneWatchPath).find((call) => call.body.pane === "c");
+    assert.ok(cursorStream !== undefined, "the cursor's stream on c");
+    fake.emit(cursorStream, {
+      transcript: "t2",
+      seq: "1",
+      reset: true,
+      items: [],
+      state: { waiting: [{ text: "c waiting", canceled: false }] },
+    });
+    await until(() => queueTexts(container).includes("c waiting"), "c's queue");
+    assert.deepEqual(queueTexts(container), ["c waiting"], "only c's composer draws c's queue");
+    assert.deepEqual(pinnedQueueTexts(container), ["pinned waiting"]);
+    assert.equal(container.querySelector(".reply[hidden] .queue") === null, true, "a's hidden composer draws no queue");
   }));
 
 test("Enter in a session's composer sends the text with Control.Say and a prompt id", () =>
@@ -928,11 +1383,11 @@ test("keys typed in the composer never act as list keys, and Escape leaves it", 
     await pressIn(box, "?");
     await pressIn(box, "/");
     assert.equal(cursorKey(container), "a");
-    assert.equal(container.querySelector('[aria-label="keys"]'), null);
-    assert.notEqual(document.activeElement, filterInput(container));
-    assert.equal(document.activeElement, box);
+    assert.equal(container.querySelector('[aria-label="keys"]') === null, true);
+    assert.equal(document.activeElement === filterInput(container), false);
+    assert.equal(document.activeElement === box, true);
     await pressIn(box, "Escape");
-    assert.notEqual(document.activeElement, box);
+    assert.equal(document.activeElement === box, false);
     await press("j");
     assert.equal(cursorKey(container), "c");
   }));
@@ -947,15 +1402,15 @@ test("i focuses the composer, and o opens and closes a compaction's summary", ()
       items: [{ kind: "compaction", text: "the summary text", trigger: "auto", tokens: "611000" }],
     });
     await until(() => container.querySelector(".compaction") !== null, "the compaction");
-    assert.equal(container.querySelector(".summary"), null, "the summary is hidden at first");
+    assert.equal(container.querySelector(".summary") === null, true, "the summary is hidden at first");
 
     await press("o");
     assert.equal(container.querySelector(".summary")?.textContent, "the summary text");
     await press("o");
-    assert.equal(container.querySelector(".summary"), null);
+    assert.equal(container.querySelector(".summary") === null, true);
 
     await press("i");
-    assert.equal(document.activeElement, composer(container));
+    assert.equal(document.activeElement === composer(container), true);
   }));
 
 test("ArrowUp in an empty pane composer pulls the queued text back", () =>
@@ -1212,6 +1667,179 @@ test("1 2 and 3 do nothing while the filter or a composer has focus", () =>
     assert.equal(fake.callsTo(sendKeysPath).length, 0, "a digit in the reply box answers nothing");
   }));
 
+const fourOptionQuestion = JSON.stringify({
+  questions: [
+    {
+      question: "Which one?",
+      options: [
+        { label: "Alpha", description: "" },
+        { label: "Beta", description: "" },
+        { label: "Gamma", description: "" },
+        { label: "Delta", description: "" },
+      ],
+    },
+  ],
+});
+
+const fourOptionRow = row({
+  key: "f",
+  label: "api",
+  state: "waiting",
+  question: fourOptionQuestion,
+  questionHash: "qh-f",
+  changed: 300,
+  seen: 100,
+  unseen: true,
+});
+
+const permissionRow = row({
+  key: "p",
+  label: "shell",
+  state: "waiting",
+  question: JSON.stringify({ tool: "Bash", input: { command: "ls" } }),
+  questionHash: "qh-p",
+  changed: 300,
+  seen: 100,
+  unseen: true,
+});
+
+const waitingSession = row({
+  key: "s1",
+  id: "s1",
+  kind: "session",
+  label: "notes",
+  project: "",
+  host: "",
+  state: "waiting",
+  changed: 30,
+  seen: 30,
+});
+
+const workingSession = row({
+  key: "s1",
+  id: "s1",
+  kind: "session",
+  label: "notes",
+  project: "",
+  host: "",
+  state: "working",
+  changed: 40,
+  seen: 30,
+});
+
+// permissionStream is the session's stream holding a permission request with two options, allow and deny.
+const permissionStream = {
+  transcript: "t1",
+  seq: "1",
+  reset: true,
+  items: [{ kind: "assistant", text: "the streamed question" }],
+  state: { request: { id: "req-7", kind: "question", question: "Allow the command?", options: ["allow", "deny"] } },
+};
+
+// openPermissionRequest waits for the cursor's session stream, sends the permission request, and waits for its chips.
+async function openPermissionRequest(container: HTMLElement, fake: FakeServer): Promise<void> {
+  await until(() => fake.callsTo(sessionWatchPath).length === 1, "the session stream");
+  fake.emit(fake.callsTo(sessionWatchPath)[0], permissionStream);
+  await until(() => chipTexts(container, "s1").length === 2, "the chips");
+}
+
+test("a waiting pane row's options are numbered chips, the fourth unnumbered, and 2 sends keys [\"2\"]", () =>
+  withApp({ rows: [fourOptionRow] }, async (container, fake) => {
+    assert.deepEqual(chipTexts(container, "f"), ["1Alpha", "2Beta", "3Gamma", "Delta"]);
+    assert.deepEqual(keyCaps(container, "f"), ["1", "2", "3", null]);
+    const chipIsButton = rowElement(container, "f").querySelector(".opts button") !== null;
+    assert.equal(chipIsButton, false, "chips are labels, not buttons");
+    await press("2");
+    await until(() => fake.callsTo(sendKeysPath).length === 1, "the answer");
+    assert.deepEqual(fake.callsTo(sendKeysPath)[0].body, { pane: "f", keys: ["2"], expectQuestion: "qh-f" });
+  }));
+
+test("a pane permission question's chips read 1Yes, 2Yes, don't ask again, and 3No", () =>
+  withApp({ rows: [permissionRow] }, (container) => {
+    assert.deepEqual(chipTexts(container, "p"), ["1Yes", "2Yes, don't ask again", "3No"]);
+    assert.deepEqual(keyCaps(container, "p"), ["1", "2", "3"]);
+  }));
+
+test("a landed pane answer leaves one line naming its choice in place of the chips", () =>
+  withApp({ rows: [fourOptionRow] }, async (container) => {
+    await press("2");
+    await until(() => answerLine(container, "f") !== null, "the answer line");
+    assert.equal(answerLine(container, "f"), "You answered 2 · Beta");
+    assert.deepEqual(chipTexts(container, "f"), [], "the chips give way to the line");
+  }));
+
+test("a failed answer leaves no line, and the chips stay", () =>
+  withApp({ rows: [fourOptionRow] }, async (container, fake) => {
+    fake.failNext.add(sendKeysPath);
+    await press("2");
+    await until(() => alertTexts(container).includes(answerFailedText), "the fixed line");
+    await settle();
+    assert.equal(answerLine(container, "f"), null, "no line for an answer that did not land");
+    assert.equal(chipTexts(container, "f").length, 4, "the chips stay");
+  }));
+
+test("a waiting session row's held permission request is its chips, and 2 answers deny by its request id", () =>
+  withApp({ rows: [waitingSession] }, async (container, fake) => {
+    await openPermissionRequest(container, fake);
+    assert.deepEqual(chipTexts(container, "s1"), ["1allow", "2deny"]);
+    assert.deepEqual(keyCaps(container, "s1"), ["1", "2"]);
+    await press("2");
+    await until(() => fake.callsTo(answerPath).length === 1, "the answer");
+    assert.deepEqual(fake.callsTo(answerPath)[0].body, { id: "s1", requestId: "req-7", answer: "deny" });
+    await until(() => answerLine(container, "s1") !== null, "the answer line");
+    assert.equal(answerLine(container, "s1"), "You answered 2 · deny");
+    assert.deepEqual(chipTexts(container, "s1"), [], "no chips once answered");
+  }));
+
+test("a landed session answer's line goes when its row turns working", () =>
+  withApp({ rows: [waitingSession] }, async (container, fake) => {
+    await openPermissionRequest(container, fake);
+    await press("2");
+    await until(() => answerLine(container, "s1") !== null, "the answer line");
+    await mount(container, { rows: [workingSession], error: "", now, clients: fake.clients, seen: fake.seen });
+    assert.equal(answerLine(container, "s1"), null, "the line goes with the waiting");
+    assert.deepEqual(chipTexts(container, "s1"), [], "a working row shows no chips");
+  }));
+
+test("a landed answer's line goes when its row waits on another question, and the new question's chips show", () =>
+  withApp({ rows: [fourOptionRow] }, async (container, fake) => {
+    await press("2");
+    await until(() => answerLine(container, "f") !== null, "the answer line");
+    const nextQuestion = JSON.stringify({
+      questions: [{ question: "Next?", options: [{ label: "Yes", description: "" }] }],
+    });
+    await mount(container, {
+      rows: [row({ ...fourOptionRow, question: nextQuestion })],
+      error: "",
+      now,
+      clients: fake.clients,
+      seen: fake.seen,
+    });
+    assert.equal(answerLine(container, "f"), null, "the line does not follow the row to its next question");
+    assert.deepEqual(chipTexts(container, "f"), ["1Yes"]);
+  }));
+
+test("a waiting session row with no held request shows no chips", () =>
+  withApp({ rows: [waitingSession] }, async (container, fake) => {
+    await until(() => fake.callsTo(sessionWatchPath).length === 1, "the session stream");
+    await settle();
+    assert.deepEqual(chipTexts(container, "s1"), []);
+  }));
+
+test("a working session row shows no chips, though its held stream carries a request", () =>
+  withApp({ rows: [workingSession] }, async (container, fake) => {
+    await until(() => fake.callsTo(sessionWatchPath).length === 1, "the session stream");
+    fake.emit(fake.callsTo(sessionWatchPath)[0], permissionStream);
+    await until(() => readerText(container).includes("the streamed question"), "the streamed question");
+    assert.deepEqual(chipTexts(container, "s1"), []);
+  }));
+
+test("only the waiting row of the fixture draws chips", () =>
+  withApp({}, (container) => {
+    const drawsChips = ["a", "b", "c", "d"].map((key) => chipTexts(container, key).length > 0);
+    assert.deepEqual(drawsChips, [true, false, false, false]);
+  }));
+
 // pinnedColumn is the second reader column that | pins beside the list, or null when no row is pinned. The column
 // stays mounted while closed, so its composers keep their drafts; a closed column is hidden.
 function pinnedColumn(container: HTMLElement): HTMLElement | null {
@@ -1225,12 +1853,26 @@ function pinnedComposer(container: HTMLElement): HTMLTextAreaElement {
   return box;
 }
 
-// pinnedWorkLine is the working line under the pinned reader, or null when the pinned column draws none.
-function pinnedWorkLine(container: HTMLElement): Element | null {
-  return pinnedColumn(container)?.querySelector(".work-line") ?? null;
+// pinnedNote is the working note under the pinned reader, or null when the pinned column draws none.
+function pinnedNote(container: HTMLElement): Element | null {
+  return pinnedColumn(container)?.querySelector(".work-note") ?? null;
 }
 
-test("the pinned column draws the line of its own stream while the cursor rests on another pane", () =>
+test("the pinned head names the pinned row while the cursor rests on another, and no .pin-head is drawn", () =>
+  withApp({}, async (container, fake) => {
+    await until(() => fake.callsTo(paneWatchPath).length === 1, "the cursor's stream");
+    await press("|");
+    await until(() => fake.callsTo(paneWatchPath).length === 2, "the pinned stream");
+    await press("j");
+    assert.equal(cursorKey(container), "c");
+    assert.equal(pinnedHead(container)?.querySelector("h1")?.textContent, "api");
+    assert.equal(pinnedHead(container)?.querySelector(".where")?.textContent, "api · box");
+    assert.equal(readerHead(container)?.querySelector("h1")?.textContent, "docs");
+    assert.equal(readerHead(container)?.querySelector(".where")?.textContent, "docs · laptop");
+    assert.equal(container.querySelector(".pin-head") === null, true);
+  }));
+
+test("the pinned column draws the note and the pill of its own stream while the cursor rests on another pane", () =>
   withApp({}, async (container, fake) => {
     await until(() => fake.callsTo(paneWatchPath).length === 1, "the cursor's stream");
     await press("|");
@@ -1247,9 +1889,11 @@ test("the pinned column draws the line of its own stream while the cursor rests 
       items: [],
       state: { pane: workingPane("Bash") },
     });
-    await until(() => pinnedWorkLine(container) !== null, "the pinned working line");
-    assert.equal(pinnedWorkLine(container)?.querySelector(".work-tool")?.textContent, "running a command");
-    assert.equal(readerWorkLine(container), null, "the cursor's reader on c draws no line");
+    await until(() => pinnedNote(container) !== null, "the pinned working note");
+    assert.equal(pinnedHead(container)?.querySelector(".pill .tool")?.textContent, "Bash");
+    assert.equal(pinnedHead(container)?.querySelector(".pill .clock")?.textContent, "1:00");
+    assert.equal(readerNote(container) === null, true, "the cursor's reader on c draws no note");
+    assert.equal(readerHead(container)?.querySelector(".pill .tool") === null, true, "c's pill has no tool");
   }));
 
 test("| pins the cursor's row in a second column that streams it while the cursor moves on", () =>
@@ -1300,7 +1944,7 @@ test("| again removes the pinned column and aborts its stream, and the cursor's 
     await until(() => fake.callsTo(paneWatchPath).length === 2, "the pinned stream");
     const [cursorStream, pinnedStream] = fake.callsTo(paneWatchPath);
     await press("|");
-    assert.equal(pinnedColumn(container), null, "the pinned column is removed");
+    assert.equal(pinnedColumn(container) === null, true, "the pinned column is removed");
     assert.equal(pinnedStream.signal.aborted, true, "the pinned stream was aborted");
     assert.equal(cursorStream.signal.aborted, false, "the cursor's stream stays open");
   }));
@@ -1326,9 +1970,9 @@ test("with the pinned reply box focused, | is text; after it blurs, i focuses th
     await pressIn(pinnedComposer(container), "|");
     assert.ok(pinnedColumn(container), "a | typed in the pinned reply box does not close the pin");
     await pressIn(pinnedComposer(container), "Escape");
-    assert.notEqual(document.activeElement, pinnedComposer(container), "Escape leaves the pinned reply box");
+    assert.equal(document.activeElement === pinnedComposer(container), false, "Escape leaves the pinned reply box");
     await press("i");
-    assert.equal(document.activeElement, composer(container), "i focuses the cursor's reply box");
+    assert.equal(document.activeElement === composer(container), true, "i focuses the cursor's reply box");
   }));
 
 test("a pinned column's draft survives closing the pin and reopening it on the same row", () =>
@@ -1341,7 +1985,7 @@ test("a pinned column's draft survives closing the pin and reopening it on the s
     await typeInto(pinnedComposer(container), "half a thought");
     await pressIn(pinnedComposer(container), "Escape");
     await press("|");
-    assert.equal(pinnedColumn(container), null, "the pin is closed");
+    assert.equal(pinnedColumn(container) === null, true, "the pin is closed");
     await press("|");
     assert.equal(cursorKey(container), "a");
     assert.equal(pinnedComposer(container).value, "half a thought", "the draft survived the close");
@@ -1459,7 +2103,7 @@ test("a click on the compaction rule shows its summary, and a second click hides
     await act(() => {
       rule().click();
     });
-    assert.equal(container.querySelector(".summary"), null);
+    assert.equal(container.querySelector(".summary") === null, true);
   }));
 
 function clickEvent(): Event {
@@ -1591,6 +2235,17 @@ function oneEpic(): EpicsView {
   return epicsView([epic], new Map());
 }
 
+// checkedEpic is a live epic with no detail whose first running step carries checks of rounds 1 and 2.
+function checkedEpic(): EpicsView {
+  const checks = [
+    { round: 1, name: "lint", ok: false },
+    { round: 1, name: "unit", ok: true },
+    { round: 2, name: "e2e", ok: true },
+  ];
+  const epic = makeEpic(widgetsRepo, "first", { runningSteps: [makeStep("s1", { checks }), makeStep("s2")] });
+  return epicsView([epic], new Map());
+}
+
 function readerHidden(container: HTMLElement): boolean {
   const reader = container.querySelector('section[aria-label="reader"]');
   assert.ok(reader, "the reader is rendered");
@@ -1599,50 +2254,76 @@ function readerHidden(container: HTMLElement): boolean {
 
 function sectionOf(container: HTMLElement, title: string): HTMLElement {
   const section = [...container.querySelectorAll<HTMLElement>(".section")].find(
-    (element) => element.querySelector(".b-sec")?.textContent === title,
+    (element) => element.querySelector(".b-sec .title")?.textContent === title,
   );
   assert.ok(section, `section ${title} is rendered`);
   return section;
 }
 
-test("the Epics group follows Needs you, and an epic shows its gauge and count, or tasks unavailable", () => {
-  const first = makeEpic(widgetsRepo, "first");
-  const second = makeEpic(gadgetsRepo, "second");
+test("the Epics group follows Needs you, and an epic reads its outcome and count, or tasks unavailable", () => {
+  const first = makeEpic(widgetsRepo, "first", { outcome: "build" });
+  const second = makeEpic(gadgetsRepo, "second", { outcome: "build" });
   const epics = epicsView([first, second], new Map([[first.id, detailOf(first, ["done", "integrated", "pending"])]]));
   return withApp({ epics }, (container) => {
     assert.deepEqual(sectionTitles(container), ["Needs you", "Epics", "New since you looked", "Working", "Seen"]);
+    assert.equal(sectionOf(container, "Epics").querySelector(".b-sec i")?.textContent, "2", "the Epics head counts its two epics");
     assert.deepEqual(rowKeys(container), ["a", epicKey(first), epicKey(second), "c", "b", "d"]);
 
     const known = rowElement(container, epicKey(first));
     assert.ok(known.classList.contains("b-row") && known.classList.contains("epic"));
     assert.equal(known.querySelector(".label")?.textContent, "first");
     assert.equal(known.querySelector(".proj")?.textContent, widgetsRepo);
-    assert.equal(known.querySelector(".count")?.textContent, "2/3", "the integrated task counts as done");
-    const gauge = known.querySelector("svg.gauge");
-    assert.ok(gauge, "the epic draws its gauge");
-    assert.equal(gauge.getAttribute("aria-hidden"), "true");
-    assert.ok(gauge.querySelector("circle.gauge-rest"), "the gauge draws its rest circle");
-    const done = gauge.querySelector("circle.gauge-done");
-    assert.ok(done, "the gauge draws its done arc");
-    const [arc, circle] = (done.getAttribute("stroke-dasharray") ?? "").split(/\s+/).map(Number);
+    assert.equal(known.querySelector(".rt")?.textContent, "build · 2 of 3", "the integrated task counts as done");
+    assert.equal(known.querySelector(".count") === null, true, "no count element is drawn");
+    assert.equal(known.querySelector("svg.gauge") !== null, true, "the epic draws its gauge");
+    assert.equal(known.querySelector("svg.gauge")?.getAttribute("aria-hidden") ?? null, "true");
+    assert.equal(known.querySelector("svg.gauge circle.gauge-rest") !== null, true, "the gauge draws its rest circle");
+    const dasharray = known.querySelector("svg.gauge circle.gauge-done")?.getAttribute("stroke-dasharray") ?? null;
+    assert.equal(dasharray !== null, true, "the gauge draws its done arc");
+    const [arc, circle] = (dasharray ?? "").split(/\s+/).map(Number);
     assert.ok(Math.abs(arc / circle - 2 / 3) < 1e-9, "the arc covers two of three tasks");
 
     const unknown = rowElement(container, epicKey(second));
-    assert.equal(unknown.querySelector(".count")?.textContent, "tasks unavailable");
-    assert.equal(unknown.querySelector("svg"), null, "no gauge is drawn without detail");
+    assert.equal(unknown.querySelector(".rt")?.textContent, "build · tasks unavailable");
+    assert.equal(unknown.querySelector("svg") === null, true, "no gauge is drawn without detail");
   });
 });
 
-test("an epic shows four running steps with the held one marked, then its more, ended and folded lines", () => {
+test("the Epics head counts every live epic, drawn or folded, and a seventh quiet epic folds", () => {
+  const quiet = ["a", "b", "c", "d", "e", "f", "g"].map((slug) => makeEpic(widgetsRepo, slug));
+  const epics = epicsView(quiet, new Map());
+  return withApp({ epics }, (container) => {
+    const section = sectionOf(container, "Epics");
+    assert.equal(section.querySelector(".b-sec i")?.textContent, "7", "the head counts the seven live epics");
+    assert.equal(section.querySelectorAll(".b-row.epic").length, 6, "six quiet epics draw one line each");
+    assert.deepEqual(
+      [...section.querySelectorAll(".b-more")].map((line) => line.textContent),
+      ["1 folded"],
+    );
+  });
+});
+
+test("an epic shows four running steps with the held one marked, then its more, tail and folded lines", () => {
   const steps = ["one", "two", "three", "four", "five"].map((name) => makeStep(name, { held: name === "two" }));
   const busy = makeEpic(widgetsRepo, "busy", { runningSteps: steps, endedSteps: 3 });
   const folded = [makeEpic(widgetsRepo, "old", { live: false }), makeEpic(gadgetsRepo, "older", { live: false })];
   const epics = epicsView([busy, ...folded], new Map());
   return withApp({ epics }, (container) => {
     const section = sectionOf(container, "Epics");
+    assert.equal(section.querySelector(".b-sec i")?.textContent, "1", "the head counts the live epic, not the folded ones");
     assert.deepEqual(
       [...section.children].map((child) => child.className),
-      ["b-sec", "b-row epic", "b-row step", "b-row step", "b-row step", "b-row step", "b-more", "b-more", "b-more"],
+      [
+        "b-sec",
+        "b-row epic",
+        "b-row step",
+        "b-row step held",
+        "b-row step",
+        "b-row step",
+        "b-more",
+        "b-more",
+        "b-more",
+      ],
     );
     const entries = [...section.querySelectorAll(".b-row.step")];
     assert.deepEqual(
@@ -1655,8 +2336,118 @@ test("an epic shows four running steps with the held one marked, then its more, 
     );
     assert.deepEqual(
       [...section.querySelectorAll(".b-more")].map((line) => line.textContent),
-      ["1 more", "3 ended", "2 folded"],
+      ["1 more", "3 steps ended", "2 folded"],
     );
+  });
+});
+
+test("an epic with no outcome reads its count alone, and tasks unavailable alone", () => {
+  const known = makeEpic(widgetsRepo, "first");
+  const unknown = makeEpic(gadgetsRepo, "second");
+  const epics = epicsView([known, unknown], new Map([[known.id, detailOf(known, ["done", "integrated", "pending"])]]));
+  return withApp({ epics }, (container) => {
+    assert.equal(rowElement(container, epicKey(known)).querySelector(".rt")?.textContent, "2 of 3");
+    assert.equal(rowElement(container, epicKey(unknown)).querySelector(".rt")?.textContent, "tasks unavailable");
+  });
+});
+
+test("a full epic draws a strip with one segment per record task, in each task's tone", () => {
+  const slices = [
+    { task: "task-0", hue: "done" },
+    { task: "task-1", hue: "done" },
+    { task: "task-2", hue: "gap", errorAt: 3 },
+    { task: "task-3", hue: "dispatched", at: 2 },
+    { task: "task-4", hue: "dispatched", at: 1 },
+    { task: "task-5", hue: "dispatched", at: 4, held: true },
+  ];
+  const epic = makeEpic(widgetsRepo, "first", { runningSteps: [makeStep("s1")] });
+  const statuses = Array.from({ length: 7 }, () => "pending");
+  const epics = epicsView([epic], new Map([[epic.id, detailOf(epic, statuses, [], slices)]]));
+  return withApp({ epics }, (container) => {
+    const strip = sectionOf(container, "Epics").querySelector(".strip");
+    assert.ok(strip !== null, "the full epic draws its strip");
+    assert.equal(strip.className, "strip", "seven segments are not dense");
+    assert.deepEqual(
+      [...strip.children].map((segment) => segment.className),
+      ["k-passed", "k-passed", "k-errored", "k-now", "k-now", "k-held", "k-none"],
+    );
+  });
+});
+
+// fullEpicOf is a live epic with a running step and the given number of record tasks, none of them sliced.
+function fullEpicOf(count: number): EpicsView {
+  const epic = makeEpic(widgetsRepo, "first", { runningSteps: [makeStep("s1")] });
+  const statuses = Array.from({ length: count }, () => "pending");
+  return epicsView([epic], new Map([[epic.id, detailOf(epic, statuses)]]));
+}
+
+test("a full epic of 61 tasks draws a dense strip of 61 segments", () =>
+  withApp({ epics: fullEpicOf(61) }, (container) => {
+    const strip = sectionOf(container, "Epics").querySelector(".strip");
+    assert.ok(strip !== null, "the full epic draws its strip");
+    assert.equal(strip.className, "strip dense");
+    assert.equal(strip.children.length, 61);
+    assert.equal([...strip.children].every((segment) => segment.className === "k-none"), true);
+  }));
+
+test("a full epic of 60 tasks draws a strip that is not dense", () =>
+  withApp({ epics: fullEpicOf(60) }, (container) => {
+    const strip = sectionOf(container, "Epics").querySelector(".strip");
+    assert.ok(strip !== null, "the full epic draws its strip");
+    assert.equal(strip.className, "strip");
+    assert.equal(strip.children.length, 60);
+  }));
+
+test("a one-line epic draws no strip, and a full epic with no detail draws none", () => {
+  const quiet = makeEpic(widgetsRepo, "quiet", { outcome: "build" });
+  const busy = makeEpic(gadgetsRepo, "busy", { runningSteps: [makeStep("s1")] });
+  const detail = detailOf(quiet, ["done", "pending"], [], [{ task: "task-0", hue: "done" }]);
+  const epics = epicsView([quiet, busy], new Map([[quiet.id, detail]]));
+  return withApp({ epics }, (container) => {
+    assert.equal(
+      rowElement(container, epicKey(quiet)).querySelector(".strip") === null,
+      true,
+      "a one-line epic has no strip",
+    );
+    assert.equal(rowElement(container, epicKey(busy)).querySelector(".strip") === null, true, "no detail, no strip");
+  });
+});
+
+test("a running step draws its spinner, its label, its five pips and its doing", () => {
+  const running = makeStep("s1", { task: "task-0", doing: "writing the test" });
+  const slices = [{ task: "task-0", hue: "dispatched", at: 4, redTest: true, working: true, testsPass: true }];
+  const epic = makeEpic(widgetsRepo, "first", { runningSteps: [running] });
+  const epics = epicsView([epic], new Map([[epic.id, detailOf(epic, ["pending"], [running], slices)]]));
+  return withApp({ epics }, (container) => {
+    const step = rowElement(container, "step:s1");
+    assert.equal(step.className, "b-row step");
+    const spinner = step.querySelector(".g");
+    assert.equal(spinner?.className, "g g-working");
+    assert.equal(spinner?.getAttribute("aria-hidden"), "true");
+    assert.equal(step.querySelector(".um") === null, true, "a running step draws no held mark");
+    assert.equal(step.querySelector(".label")?.textContent, "task-0");
+    assert.deepEqual(
+      [...step.querySelectorAll(".pips i")].map((pip) => pip.className),
+      ["k-passed", "k-passed", "k-passed", "k-now", "k-track"],
+    );
+    assert.equal(step.querySelector(".held") === null, true, "a running step reads no held text");
+    assert.equal(step.querySelector(".reply")?.textContent, "writing the test");
+  });
+});
+
+test("a held step draws its mark, and reads held with its reason, or held alone without one", () => {
+  const withReason = makeStep("s1", { doing: "writing the test", held: true, reason: "waiting on review" });
+  const withoutReason = makeStep("s2", { doing: "writing the test", held: true });
+  const epic = makeEpic(widgetsRepo, "first", { runningSteps: [withReason, withoutReason] });
+  return withApp({ epics: epicsView([epic], new Map()) }, (container) => {
+    const reasoned = rowElement(container, "step:s1");
+    assert.equal(reasoned.className, "b-row step held");
+    assert.equal(reasoned.querySelector(".um")?.textContent, "‖");
+    assert.equal(reasoned.querySelector(".um")?.getAttribute("aria-hidden"), "true");
+    assert.equal(reasoned.querySelector(".g") === null, true, "a held step draws no spinner");
+    assert.equal(reasoned.querySelector(".held")?.textContent, "held · waiting on review");
+    assert.equal(reasoned.querySelector(".reply") === null, true, "a held step shows no doing text");
+    assert.equal(rowElement(container, "step:s2").querySelector(".held")?.textContent, "held");
   });
 });
 
@@ -1759,7 +2550,7 @@ test("a step's doing text draws as text, never as markup", () => {
   const epics = epicsView([makeEpic(widgetsRepo, "first", { runningSteps: [running] })], new Map());
   return withApp({ epics }, (container) => {
     const step = rowElement(container, "step:s1");
-    assert.equal(step.querySelector("img, b"), null);
+    assert.equal(step.querySelector("img, b") === null, true);
     assert.equal(step.querySelector(".reply")?.textContent, text);
   });
 });
@@ -1806,9 +2597,10 @@ function sliceClasses(column: HTMLElement): (string | null)[] {
   return [...column.querySelectorAll(".chart .slice")].map((slice) => slice.getAttribute("class"));
 }
 
-// markedStep is the label of the step the column marks, or null when it marks none.
+// markedStep is the task the column rings, which is the cursor's step's task, or null when it rings none. The step
+// list is folded, so the task row carries the mark.
 function markedStep(column: HTMLElement): string | null {
-  return column.querySelector(".step.cur .label")?.textContent ?? null;
+  return column.querySelector(".task.cur .slug")?.textContent ?? null;
 }
 
 // twoStepEpic is a live epic with two steps, each on one of its tasks: the first done, the second pending. Each of its
@@ -1819,7 +2611,7 @@ function twoStepEpic(): { epic: Epic; detail: EpicsGetResponse } {
   const slices = [
     { task: "task-0", hue: "done" },
     { task: "task-1", hue: "dispatched", at: 1 },
-    { task: "task-2", hue: "gap" },
+    { task: "task-2", hue: "gap", errorAt: 3 },
   ];
   return { epic, detail: detailOf(epic, ["done", "pending", "gap"], steps, slices) };
 }
@@ -1839,7 +2631,7 @@ test("on an epic entry the right column draws a slice per task and marks no step
     assert.equal(column.parentElement?.classList.contains("panes"), true, "the column sits in the panes");
     assert.equal(columnSlug(column), "first");
     assert.deepEqual(sliceClasses(column), ["slice", "slice", "slice"], "one slice per task, and none is outlined");
-    assert.equal(column.querySelector(".step.cur"), null, "no step is marked");
+    assert.equal(markedStep(column), null, "no step is marked");
   });
 });
 
@@ -1870,7 +2662,7 @@ test("a pane row hides the right column, and an epic shows it again", () => {
     await press("j");
     await press("j");
     assert.equal(cursorKey(container), "c");
-    assert.equal(shownEpicColumn(container), null, "a pane row hides the column");
+    assert.equal(shownEpicColumn(container) === null, true, "a pane row hides the column");
     await press("k");
     await press("k");
     await press("k");
@@ -1889,7 +2681,7 @@ test("a session row hides the right column", () => {
     await press("j");
     await press("j");
     assert.equal(cursorKey(container), "s1");
-    assert.equal(shownEpicColumn(container), null, "a session row hides the column");
+    assert.equal(shownEpicColumn(container) === null, true, "a session row hides the column");
   });
 });
 
@@ -1950,13 +2742,28 @@ async function onStepOne(container: HTMLElement, fake: FakeServer): Promise<void
   await until(() => fake.callsTo(sessionWatchPath).length === 1, "the step stream");
 }
 
-// stepButton is the button of the cursor's step box with the given label.
+// stepButton is the button of the cursor's step box with the given label: Interrupt and ⋯ on the line, and Stop,
+// Confirm stop or Cancel in the menu ⋯ opens.
 function stepButton(container: HTMLElement, label: string): HTMLButtonElement {
-  const button = [...container.querySelectorAll<HTMLButtonElement>(".reply:not([hidden]) .stepbox-actions button")].find(
+  const button = [...container.querySelectorAll<HTMLButtonElement>(".reply:not([hidden]) .stepbox button")].find(
     (element) => element.textContent === label,
   );
   assert.ok(button, `the step box has a ${label} button`);
   return button;
+}
+
+// sendButton is the send button of the cursor's step box.
+function sendButton(container: HTMLElement): HTMLButtonElement {
+  const button = container.querySelector<HTMLButtonElement>('.reply:not([hidden]) .stepbox button[aria-label="send"]');
+  assert.ok(button, "the step box has a send button");
+  return button;
+}
+
+// stepButtonAbsent reports that the cursor's step box has no button with the given label.
+function stepButtonAbsent(container: HTMLElement, label: string): boolean {
+  return [...container.querySelectorAll<HTMLButtonElement>(".reply:not([hidden]) .stepbox button")].every(
+    (element) => element.textContent !== label,
+  );
 }
 
 async function clickIn(element: Element): Promise<void> {
@@ -1978,8 +2785,8 @@ test("a step entry streams Sessions.WatchConversation by its id, and the reader 
     });
     await until(() => readerText(container).includes("the step reply"), "the step reply");
     assert.equal(readerHidden(container), false, "the reader shows on a step");
-    assert.equal(container.querySelector(".question-card"), null, "a step draws no question");
-    assert.equal(container.querySelector(".reader .option"), null, "a step draws no answer");
+    assert.equal(container.querySelector(".question-card") === null, true, "a step draws no question");
+    assert.equal(container.querySelector(".reader .option") === null, true, "a step draws no answer");
   }));
 
 test("Enter in a step's box calls Steps.Nudge once with its id and text, and clears the draft when it lands", () =>
@@ -1987,7 +2794,7 @@ test("Enter in a step's box calls Steps.Nudge once with its id and text, and cle
     await onStepOne(container, fake);
     await press("i");
     const box = composer(container);
-    assert.equal(document.activeElement, box);
+    assert.equal(document.activeElement === box, true);
     await typeInto(box, "try the other route");
     await pressIn(box, "Enter");
     await until(() => fake.callsTo(nudgePath).length === 1, "the nudge");
@@ -1995,6 +2802,49 @@ test("Enter in a step's box calls Steps.Nudge once with its id and text, and cle
     await until(() => box.value === "", "the landed draft cleared");
     await settle();
     assert.equal(fake.callsTo(nudgePath).length, 1, "the nudge was sent once");
+  }));
+
+test("the send button calls Steps.Nudge once with the step's id and text, and a blank box sends nothing", () =>
+  withApp({ epics: oneEpic() }, async (container, fake) => {
+    await onStepOne(container, fake);
+    await press("i");
+    await typeInto(composer(container), "   ");
+    await clickIn(sendButton(container));
+    await settle();
+    assert.equal(fake.callsTo(nudgePath).length, 0, "a blank box sends nothing");
+    await typeInto(composer(container), "try the other route");
+    await clickIn(sendButton(container));
+    await until(() => fake.callsTo(nudgePath).length === 1, "the nudge");
+    assert.deepEqual(fake.callsTo(nudgePath)[0].body, { id: "s1", text: "try the other route" });
+    await until(() => composer(container).value === "", "the landed draft cleared");
+    await settle();
+    assert.equal(fake.callsTo(nudgePath).length, 1, "the nudge was sent once");
+  }));
+
+test("a nudge on the cursor's step calls Steps.Nudge with that step's id, not the first step visited", () =>
+  withApp({ epics: oneEpic() }, async (container, fake) => {
+    await onStepOne(container, fake);
+    await press("j");
+    assert.equal(cursorKey(container), "step:s2");
+    await press("i");
+    await typeInto(composer(container), "on two");
+    await pressIn(composer(container), "Enter");
+    await until(() => fake.callsTo(nudgePath).length === 1, "the nudge on s2");
+    assert.deepEqual(fake.callsTo(nudgePath)[0].body, { id: "s2", text: "on two" });
+    await until(() => composer(container).value === "", "the landed draft cleared");
+    await typeInto(composer(container), "again on two");
+    await clickIn(sendButton(container));
+    await until(() => fake.callsTo(nudgePath).length === 2, "the nudge on s2 by the send button");
+    assert.deepEqual(fake.callsTo(nudgePath)[1].body, { id: "s2", text: "again on two" });
+    await until(() => composer(container).value === "", "the second landed draft cleared");
+    await pressIn(composer(container), "Escape");
+    await press("k");
+    assert.equal(cursorKey(container), "step:s1");
+    await press("i");
+    await typeInto(composer(container), "back on one");
+    await pressIn(composer(container), "Enter");
+    await until(() => fake.callsTo(nudgePath).length === 3, "the nudge on s1");
+    assert.deepEqual(fake.callsTo(nudgePath)[2].body, { id: "s1", text: "back on one" });
   }));
 
 test("a refused nudge keeps the step's draft and shows the refusal", () =>
@@ -2030,14 +2880,18 @@ test("Interrupt calls Steps.Hold with the step's id", () =>
     assert.deepEqual(fake.callsTo(holdPath)[0].body, { id: "s1" });
   }));
 
-test("Stop asks first: Cancel sends nothing, and Confirm stop calls Steps.Stop with the step's id", () =>
+test("Stop sits behind ⋯; Cancel sends nothing, and Confirm stop calls Steps.Stop with the step's id", () =>
   withApp({ epics: oneEpic() }, async (container, fake) => {
     await onStepOne(container, fake);
+    assert.equal(stepButtonAbsent(container, "Stop"), true, "no Stop until ⋯ is pressed");
+    await clickIn(stepButton(container, "⋯"));
     await clickIn(stepButton(container, "Stop"));
     assert.equal(fake.callsTo(stopStepPath).length, 0, "Stop alone sends nothing");
     await clickIn(stepButton(container, "Cancel"));
     await settle();
     assert.equal(fake.callsTo(stopStepPath).length, 0, "Cancel sends nothing");
+    assert.equal(stepButtonAbsent(container, "Stop"), true, "Cancel closes the menu");
+    await clickIn(stepButton(container, "⋯"));
     await clickIn(stepButton(container, "Stop"));
     await clickIn(stepButton(container, "Confirm stop"));
     await until(() => fake.callsTo(stopStepPath).length === 1, "the stop");
@@ -2078,13 +2932,13 @@ test("i focuses the step's box, its keys are text, and Escape leaves it", () =>
     await onStepOne(container, fake);
     await press("i");
     const box = composer(container);
-    assert.equal(document.activeElement, box);
+    assert.equal(document.activeElement === box, true);
     await pressIn(box, "j");
     await pressIn(box, "?");
     assert.equal(cursorKey(container), "step:s1");
-    assert.equal(container.querySelector('[aria-label="keys"]'), null);
+    assert.equal(container.querySelector('[aria-label="keys"]') === null, true);
     await pressIn(box, "Escape");
-    assert.notEqual(document.activeElement, box);
+    assert.equal(document.activeElement === box, false);
     await press("j");
     assert.equal(cursorKey(container), "step:s2");
   }));
@@ -2110,6 +2964,7 @@ test("no Control or Panes call names a step, and no call starts a step", () =>
     await until(() => fake.callsTo(nudgePath).length === 1, "the nudge");
     await clickIn(stepButton(container, "Interrupt"));
     await until(() => fake.callsTo(holdPath).length === 1, "the hold");
+    await clickIn(stepButton(container, "⋯"));
     await clickIn(stepButton(container, "Stop"));
     await clickIn(stepButton(container, "Confirm stop"));
     await until(() => fake.callsTo(stopStepPath).length === 1, "the stop");

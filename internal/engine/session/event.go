@@ -8,6 +8,14 @@ type Event interface {
 	isEvent()
 }
 
+// Line is the events one stdout line of a session carries. Start and End are stdout byte offsets from
+// the start of the stream: Start is the line's first byte and End is just past its LF, so the next line
+// starts at End. Events is in order and may be empty.
+type Line struct {
+	Start, End int64
+	Events     []Event
+}
+
 // Started reports that a session initialized: the session id claude assigned, the permission mode the
 // session runs in, and the agent names claude loaded, in the order its init line gives them. Agents is
 // nil when the init line has no agents field.
@@ -93,7 +101,10 @@ const (
 )
 
 // Request is a control request the session waits on its host to answer. Refused reports a request the
-// package cannot answer: the session declines it itself, so the host must not answer it.
+// package cannot answer: the session declines it itself, so the host must not answer it. WriteID is the
+// write id of the request's event, "event:" plus the Start of its line and the event's index in the line,
+// which a write the session makes for the request carries. Answered reports a request the host answered
+// before the session was re-adopted, so the host must not answer it again.
 type Request struct {
 	Kind      RequestKind
 	RequestID string
@@ -102,6 +113,8 @@ type Request struct {
 	Subtype   string
 	Input     json.RawMessage
 	Refused   bool
+	WriteID   string
+	Answered  bool
 }
 
 func (Request) isEvent() {}

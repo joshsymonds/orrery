@@ -32,7 +32,7 @@ SELECT CAST(COALESCE(MAX(seq), 0) AS INTEGER) AS seq FROM events;
 SELECT CAST(COALESCE(MIN(seq), 0) AS INTEGER) AS seq FROM events;
 
 -- name: EventPageAfter :many
-SELECT seq, session_id, kind, at, payload FROM events WHERE seq > ? ORDER BY seq LIMIT ?;
+SELECT seq, session_id, kind, at, payload, write_id FROM events WHERE seq > ? ORDER BY seq LIMIT ?;
 
 -- name: PruneEvents :exec
 DELETE FROM events WHERE events.at < ? AND events.seq < (SELECT MAX(newest.seq) FROM events AS newest);
@@ -111,6 +111,19 @@ UPDATE sessions
 SET state = ?, changed = ?, seen = ?, question = ?, claude_session = ?, reason = ?
 WHERE id = ? AND kind IN ('engine', 'step');
 
+-- name: UpdateEngineConsumed :execrows
+UPDATE sessions
+SET consumed = sqlc.arg(consumed),
+    replay_from = COALESCE(sqlc.narg(replay_from), replay_from),
+    turn_output = COALESCE(sqlc.narg(turn_output), turn_output),
+    background = COALESCE(sqlc.narg(background), background)
+WHERE id = sqlc.arg(id) AND kind IN ('engine', 'step');
+
+-- name: UpdateEngineLaunch :execrows
+UPDATE sessions
+SET consumed = 0, replay_from = 0, background = 0, prompts_from = sqlc.arg(prompts_from)
+WHERE id = sqlc.arg(id) AND kind IN ('engine', 'step');
+
 -- name: UpsertEngineText :exec
 INSERT INTO engine_text (session_id, message_id, block_index, parent_tool_use_id, kind, text)
 VALUES (?, ?, ?, ?, ?, ?)
@@ -133,7 +146,7 @@ SELECT * FROM engine_text
 ORDER BY session_id, message_id, parent_tool_use_id, block_index;
 
 -- name: SessionEventsAfter :many
-SELECT seq, session_id, kind, at, payload FROM events
+SELECT seq, session_id, kind, at, payload, write_id FROM events
 WHERE session_id = ? AND seq > ?
 ORDER BY seq LIMIT ?;
 
@@ -146,6 +159,15 @@ ORDER BY events.session_id;
 -- name: CountEnginePrompts :one
 SELECT COUNT(*) FROM events
 WHERE session_id = sqlc.arg(session_id) AND kind = 'engine_prompt' AND json_extract(payload, '$.promptId') = sqlc.arg(prompt_id);
+
+-- name: InsertEnginePromptEvent :exec
+INSERT INTO events (session_id, kind, at, payload, write_id) VALUES (?, 'engine_prompt', ?, ?, ?);
+
+-- name: ListHolderPrompts :many
+SELECT events.write_id, CAST(json_extract(events.payload, '$.text') AS TEXT) AS text FROM events
+WHERE events.session_id = sqlc.arg(id) AND events.kind = 'engine_prompt' AND events.write_id <> ''
+  AND events.seq > (SELECT sessions.prompts_from FROM sessions WHERE sessions.id = sqlc.arg(id))
+ORDER BY events.seq;
 
 -- name: InsertEnginePromptFailed :exec
 INSERT INTO engine_prompt_failed (session_id, prompt_id, reason) VALUES (?, ?, ?)

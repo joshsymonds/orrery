@@ -26,6 +26,7 @@ public  final class ConversationItem extends
     id_ = "";
     notice_ = "";
     trigger_ = "";
+    sender_ = "";
   }
   public static final int KIND_FIELD_NUMBER = 1;
   private java.lang.String kind_;
@@ -608,6 +609,111 @@ public  final class ConversationItem extends
   private void clearTokens() {
 
     tokens_ = 0L;
+  }
+
+  public static final int SENDER_FIELD_NUMBER = 11;
+  private java.lang.String sender_;
+  /**
+   * <pre>
+   * Who sent a prompt item's prompt: brief, engine or owner, or empty when the prompt was stored without a sender.
+   * </pre>
+   *
+   * <code>string sender = 11 [json_name = "sender"];</code>
+   * @return The sender.
+   */
+  @java.lang.Override
+  public java.lang.String getSender() {
+    return sender_;
+  }
+  /**
+   * <pre>
+   * Who sent a prompt item's prompt: brief, engine or owner, or empty when the prompt was stored without a sender.
+   * </pre>
+   *
+   * <code>string sender = 11 [json_name = "sender"];</code>
+   * @return The bytes for sender.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getSenderBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(sender_);
+  }
+  /**
+   * <pre>
+   * Who sent a prompt item's prompt: brief, engine or owner, or empty when the prompt was stored without a sender.
+   * </pre>
+   *
+   * <code>string sender = 11 [json_name = "sender"];</code>
+   * @param value The sender to set.
+   */
+  private void setSender(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    sender_ = value;
+  }
+  /**
+   * <pre>
+   * Who sent a prompt item's prompt: brief, engine or owner, or empty when the prompt was stored without a sender.
+   * </pre>
+   *
+   * <code>string sender = 11 [json_name = "sender"];</code>
+   */
+  private void clearSender() {
+
+    sender_ = getDefaultInstance().getSender();
+  }
+  /**
+   * <pre>
+   * Who sent a prompt item's prompt: brief, engine or owner, or empty when the prompt was stored without a sender.
+   * </pre>
+   *
+   * <code>string sender = 11 [json_name = "sender"];</code>
+   * @param value The bytes for sender to set.
+   */
+  private void setSenderBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    sender_ = value.toStringUtf8();
+
+  }
+
+  public static final int ROUND_FIELD_NUMBER = 12;
+  private int round_;
+  /**
+   * <pre>
+   * The check round a send-back returns on a prompt item, or 0 otherwise.
+   * </pre>
+   *
+   * <code>uint32 round = 12 [json_name = "round"];</code>
+   * @return The round.
+   */
+  @java.lang.Override
+  public int getRound() {
+    return round_;
+  }
+  /**
+   * <pre>
+   * The check round a send-back returns on a prompt item, or 0 otherwise.
+   * </pre>
+   *
+   * <code>uint32 round = 12 [json_name = "round"];</code>
+   * @param value The round to set.
+   */
+  private void setRound(int value) {
+    
+    round_ = value;
+  }
+  /**
+   * <pre>
+   * The check round a send-back returns on a prompt item, or 0 otherwise.
+   * </pre>
+   *
+   * <code>uint32 round = 12 [json_name = "round"];</code>
+   */
+  private void clearRound() {
+
+    round_ = 0;
   }
 
   public static io.github.joshsymonds.orrery.gen.orrery.v1.ConversationItem parseFrom(
@@ -1314,6 +1420,115 @@ public  final class ConversationItem extends
       return this;
     }
 
+    /**
+     * <pre>
+     * Who sent a prompt item's prompt: brief, engine or owner, or empty when the prompt was stored without a sender.
+     * </pre>
+     *
+     * <code>string sender = 11 [json_name = "sender"];</code>
+     * @return The sender.
+     */
+    @java.lang.Override
+    public java.lang.String getSender() {
+      return instance.getSender();
+    }
+    /**
+     * <pre>
+     * Who sent a prompt item's prompt: brief, engine or owner, or empty when the prompt was stored without a sender.
+     * </pre>
+     *
+     * <code>string sender = 11 [json_name = "sender"];</code>
+     * @return The bytes for sender.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getSenderBytes() {
+      return instance.getSenderBytes();
+    }
+    /**
+     * <pre>
+     * Who sent a prompt item's prompt: brief, engine or owner, or empty when the prompt was stored without a sender.
+     * </pre>
+     *
+     * <code>string sender = 11 [json_name = "sender"];</code>
+     * @param value The sender to set.
+     * @return This builder for chaining.
+     */
+    public Builder setSender(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setSender(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * Who sent a prompt item's prompt: brief, engine or owner, or empty when the prompt was stored without a sender.
+     * </pre>
+     *
+     * <code>string sender = 11 [json_name = "sender"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearSender() {
+      copyOnWrite();
+      instance.clearSender();
+      return this;
+    }
+    /**
+     * <pre>
+     * Who sent a prompt item's prompt: brief, engine or owner, or empty when the prompt was stored without a sender.
+     * </pre>
+     *
+     * <code>string sender = 11 [json_name = "sender"];</code>
+     * @param value The bytes for sender to set.
+     * @return This builder for chaining.
+     */
+    public Builder setSenderBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setSenderBytes(value);
+      return this;
+    }
+
+    /**
+     * <pre>
+     * The check round a send-back returns on a prompt item, or 0 otherwise.
+     * </pre>
+     *
+     * <code>uint32 round = 12 [json_name = "round"];</code>
+     * @return The round.
+     */
+    @java.lang.Override
+    public int getRound() {
+      return instance.getRound();
+    }
+    /**
+     * <pre>
+     * The check round a send-back returns on a prompt item, or 0 otherwise.
+     * </pre>
+     *
+     * <code>uint32 round = 12 [json_name = "round"];</code>
+     * @param value The round to set.
+     * @return This builder for chaining.
+     */
+    public Builder setRound(int value) {
+      copyOnWrite();
+      instance.setRound(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The check round a send-back returns on a prompt item, or 0 otherwise.
+     * </pre>
+     *
+     * <code>uint32 round = 12 [json_name = "round"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearRound() {
+      copyOnWrite();
+      instance.clearRound();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:orrery.v1.ConversationItem)
   }
   @java.lang.Override
@@ -1340,10 +1555,13 @@ public  final class ConversationItem extends
             "notice_",
             "trigger_",
             "tokens_",
+            "sender_",
+            "round_",
           };
           java.lang.String info =
-              "\u0000\n\u0000\u0000\u0001\n\n\u0000\u0000\u0000\u0001\u0208\u0002\u0002\u0003\u0208" +
-              "\u0004\u0208\u0005\u0208\u0006\u0208\u0007\u0007\b\u0208\t\u0208\n\u0002";
+              "\u0000\f\u0000\u0000\u0001\f\f\u0000\u0000\u0000\u0001\u0208\u0002\u0002\u0003\u0208" +
+              "\u0004\u0208\u0005\u0208\u0006\u0208\u0007\u0007\b\u0208\t\u0208\n\u0002\u000b\u0208" +
+              "\f\u000b";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

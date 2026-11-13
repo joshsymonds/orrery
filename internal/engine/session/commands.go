@@ -1,6 +1,8 @@
 package session
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -76,16 +78,19 @@ func (o *openRequests) claim(requestID string) (openRequest, bool) {
 	return request, ok
 }
 
-// deliver records the request state of one event, then delivers it. A request is opened before it is
-// delivered, so a host that answers on receipt finds it open. It reports whether the event was delivered.
-func (s *Session) deliver(event Event) bool {
-	switch event := event.(type) {
-	case Request:
-		return s.send(s.observeRequest(event))
-	case RequestCancelled:
-		return s.send(s.observeCancel(event))
-	default:
-		return s.send(event)
+// observeLine records the request state of each event of a line that starts at start, in order, before the line is
+// sent. A request is opened before the host sees the line that holds it, so a host that answers on receipt finds it
+// open. Each request takes the write id "event:" with start and its index in the line. Each event is replaced by its
+// observed form.
+func (s *Session) observeLine(start int64, events []Event) {
+	for i, event := range events {
+		switch event := event.(type) {
+		case Request:
+			event.WriteID = fmt.Sprintf("event:%d.%d", start, i)
+			events[i] = s.observeRequest(event)
+		case RequestCancelled:
+			events[i] = s.observeCancel(event)
+		}
 	}
 }
 
@@ -97,17 +102,40 @@ func (s *Session) observeCancel(canceled RequestCancelled) RequestCancelled {
 	return canceled
 }
 
-// observeRequest refuses a request the package cannot answer, and opens every other request. A refusal
-// that cannot be written leaves the request unrefused, so the host still sees it.
+// observeRequest opens every request the host has not answered and refuses a request the package cannot answer. A
+// request the host already answered is neither opened nor refused, so it is never answered twice. A replayed request
+// is not refused: the session writes nothing for a replayed line. A refusal that cannot be written leaves the request
+// unrefused, so the host still sees it.
 func (s *Session) observeRequest(request Request) Request {
+	request.Answered = s.written[responseWriteID(request.RequestID)]
+	if request.Answered {
+		return request
+	}
 	if !request.Refused {
 		s.pending.open(request)
 		return request
 	}
-	if err := s.transport.SendControlError(request.RequestID, refusalMessage); err != nil {
+	if s.replaying {
+		return request
+	}
+	err := s.write(request.WriteID, func() error {
+		return s.transport.SendControlError(request.RequestID, refusalMessage)
+	})
+	if err != nil {
 		request.Refused = false
 	}
 	return request
+}
+
+// responseWriteID returns the write id of a host's answer to the control request requestID of claude: "response:"
+// and the request id. When that passes maxWriteIDBytes, it is "response:sha256:" and the hex SHA-256 of the request id.
+func responseWriteID(requestID string) string {
+	plain := "response:" + requestID
+	if len(plain) <= maxWriteIDBytes {
+		return plain
+	}
+	sum := sha256.Sum256([]byte(requestID))
+	return "response:sha256:" + hex.EncodeToString(sum[:])
 }
 
 // AnswerQuestion answers the open question requestID with the option labeled label. It accepts only
@@ -128,7 +156,10 @@ func (s *Session) AnswerQuestion(requestID, label string) error {
 	if _, claimed := s.pending.claim(requestID); !claimed {
 		return ErrNoPendingRequest
 	}
-	if err = s.transport.SendPermissionAllow(requestID, updated); err != nil {
+	err = s.write(responseWriteID(requestID), func() error {
+		return s.transport.SendPermissionAllow(requestID, updated)
+	})
+	if err != nil {
 		return fmt.Errorf("session: answer question %s: %w", requestID, err)
 	}
 	return nil
@@ -192,7 +223,9 @@ func (s *Session) Allow(requestID string, updatedInput json.RawMessage) error {
 	if updatedInput == nil {
 		updatedInput = request.input
 	}
-	if err := s.transport.SendPermissionAllow(requestID, updatedInput); err != nil {
+	if err := s.write(responseWriteID(requestID), func() error {
+		return s.transport.SendPermissionAllow(requestID, updatedInput)
+	}); err != nil {
 		return fmt.Errorf("session: allow %s: %w", requestID, err)
 	}
 	return nil
@@ -200,10 +233,23 @@ func (s *Session) Allow(requestID string, updatedInput json.RawMessage) error {
 
 // Deny rejects the open request requestID with message for the user.
 func (s *Session) Deny(requestID, message string) error {
+	return s.deny(requestID, responseWriteID(requestID), message)
+}
+
+// DenyEvent rejects the open request of request, which the session delivered in an event, with message for the
+// user. It writes under request.WriteID, the write id of the event.
+func (s *Session) DenyEvent(request Request, message string) error {
+	return s.deny(request.RequestID, request.WriteID, message)
+}
+
+// deny claims the open request requestID and writes its denial with message under writeID.
+func (s *Session) deny(requestID, writeID, message string) error {
 	if _, ok := s.pending.claim(requestID); !ok {
 		return ErrNoPendingRequest
 	}
-	if err := s.transport.SendPermissionDeny(requestID, message); err != nil {
+	if err := s.write(writeID, func() error {
+		return s.transport.SendPermissionDeny(requestID, message)
+	}); err != nil {
 		return fmt.Errorf("session: deny %s: %w", requestID, err)
 	}
 	return nil
@@ -214,15 +260,21 @@ func (s *Session) Refuse(requestID, message string) error {
 	if _, ok := s.pending.claim(requestID); !ok {
 		return ErrNoPendingRequest
 	}
-	if err := s.transport.SendControlError(requestID, message); err != nil {
+	if err := s.write(responseWriteID(requestID), func() error {
+		return s.transport.SendControlError(requestID, message)
+	}); err != nil {
 		return fmt.Errorf("session: refuse %s: %w", requestID, err)
 	}
 	return nil
 }
 
-// SetPermissionMode asks the session to switch to mode.
+// SetPermissionMode asks the session to switch to mode, under a fresh random id.
 func (s *Session) SetPermissionMode(mode string) error {
-	if err := s.transport.SendSetPermissionMode(s.nextRequestID(), mode); err != nil {
+	id, err := newRequestID()
+	if err == nil {
+		err = s.write(id, func() error { return s.transport.SendSetPermissionMode(id, mode) })
+	}
+	if err != nil {
 		return fmt.Errorf("session: set permission mode: %w", err)
 	}
 	return nil

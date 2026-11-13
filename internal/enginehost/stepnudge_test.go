@@ -29,7 +29,7 @@ type nudgeSessions struct {
 
 	nmu          sync.Mutex
 	interrupted  []string
-	continued    []string
+	continued    []StepPrompt
 	interruptErr error
 	continueErr  error
 }
@@ -41,10 +41,10 @@ func (f *nudgeSessions) Interrupt(_ context.Context, id string) error {
 	return f.interruptErr
 }
 
-func (f *nudgeSessions) Continue(_ context.Context, _, text string) error {
+func (f *nudgeSessions) Continue(_ context.Context, _ string, prompt StepPrompt) error {
 	f.nmu.Lock()
 	defer f.nmu.Unlock()
-	f.continued = append(f.continued, text)
+	f.continued = append(f.continued, prompt)
 	return f.continueErr
 }
 
@@ -69,11 +69,24 @@ func (f *nudgeSessions) interruptCount() int {
 	return len(f.interrupted)
 }
 
-// continuedTexts returns a copy of the texts Continue was called with.
+// continuedTexts returns the texts Continue was called with.
 func (f *nudgeSessions) continuedTexts() []string {
+	prompts := f.continuedPrompts()
+	if len(prompts) == 0 {
+		return nil
+	}
+	texts := make([]string, 0, len(prompts))
+	for _, prompt := range prompts {
+		texts = append(texts, prompt.Text)
+	}
+	return texts
+}
+
+// continuedPrompts returns a copy of the prompts Continue was called with.
+func (f *nudgeSessions) continuedPrompts() []StepPrompt {
 	f.nmu.Lock()
 	defer f.nmu.Unlock()
-	return append([]string(nil), f.continued...)
+	return append([]StepPrompt(nil), f.continued...)
 }
 
 // stepNudgeFixture is a Steps over a real store and writer, with nudgeSessions. It is closed at cleanup.

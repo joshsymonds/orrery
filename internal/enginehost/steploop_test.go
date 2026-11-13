@@ -27,7 +27,7 @@ const stepLoopDone = "DONE"
 // stepLoopSessions is a fake stepSessions that records every Continue and Stop.
 type stepLoopSessions struct {
 	mu           sync.Mutex
-	continued    []string
+	continued    []StepPrompt
 	interrupted  []string
 	stopped      []string
 	continueErr  error
@@ -50,13 +50,13 @@ func (f *stepLoopSessions) Interrupt(_ context.Context, id string) error {
 	return f.interruptErr
 }
 
-func (f *stepLoopSessions) Continue(ctx context.Context, id, text string) error {
+func (f *stepLoopSessions) Continue(ctx context.Context, id string, prompt StepPrompt) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if id != stepLoopID {
 		return errors.New("stepLoopSessions: Continue for unexpected step " + id)
 	}
-	f.continued = append(f.continued, text)
+	f.continued = append(f.continued, prompt)
 	if f.cancelOnContinue != nil {
 		f.cancelOnContinue()
 		return ctx.Err()
@@ -71,11 +71,24 @@ func (f *stepLoopSessions) Stop(_ context.Context, id string) error {
 	return nil
 }
 
-// continuedTexts returns a copy of the texts Continue was called with.
+// continuedTexts returns the texts Continue was called with.
 func (f *stepLoopSessions) continuedTexts() []string {
+	prompts := f.continuedPrompts()
+	if len(prompts) == 0 {
+		return nil
+	}
+	texts := make([]string, 0, len(prompts))
+	for _, prompt := range prompts {
+		texts = append(texts, prompt.Text)
+	}
+	return texts
+}
+
+// continuedPrompts returns a copy of the prompts Continue was called with.
+func (f *stepLoopSessions) continuedPrompts() []StepPrompt {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return append([]string(nil), f.continued...)
+	return append([]StepPrompt(nil), f.continued...)
 }
 
 // interruptedIDs returns a copy of the ids Interrupt was called with.

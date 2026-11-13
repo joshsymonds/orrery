@@ -49,4 +49,34 @@ public interface EnginePromptOrBuilder extends
    */
   com.google.protobuf.ByteString
       getPromptIdBytes();
+
+  /**
+   * <pre>
+   * Who sent the prompt: brief, engine or owner, or empty when the prompt was stored without a sender.
+   * </pre>
+   *
+   * <code>string sender = 3 [json_name = "sender"];</code>
+   * @return The sender.
+   */
+  java.lang.String getSender();
+  /**
+   * <pre>
+   * Who sent the prompt: brief, engine or owner, or empty when the prompt was stored without a sender.
+   * </pre>
+   *
+   * <code>string sender = 3 [json_name = "sender"];</code>
+   * @return The bytes for sender.
+   */
+  com.google.protobuf.ByteString
+      getSenderBytes();
+
+  /**
+   * <pre>
+   * The check round a send-back returns, or 0 otherwise.
+   * </pre>
+   *
+   * <code>uint32 round = 4 [json_name = "round"];</code>
+   * @return The round.
+   */
+  int getRound();
 }

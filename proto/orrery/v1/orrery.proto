@@ -406,6 +406,12 @@ message EnginePrompt {
 
   // The client-chosen prompt id, or empty when none was given.
   string prompt_id = 2;
+
+  // Who sent the prompt: brief, engine or owner, or empty when the prompt was stored without a sender.
+  string sender = 3;
+
+  // The check round a send-back returns, or 0 otherwise.
+  uint32 round = 4;
 }
 
 // EngineBlock carries one finished content block of a headless session.
@@ -737,6 +743,12 @@ message ConversationItem {
 
   // The tokens a compaction item held before it was compacted, or 0 when the item is not a compaction.
   int64 tokens = 10;
+
+  // Who sent a prompt item's prompt: brief, engine or owner, or empty when the prompt was stored without a sender.
+  string sender = 11;
+
+  // The check round a send-back returns on a prompt item, or 0 otherwise.
+  uint32 round = 12;
 }
 
 // ConversationContext is the context figure of a conversation: its tokens out of the window they are measured

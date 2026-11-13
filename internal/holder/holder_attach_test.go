@@ -344,6 +344,37 @@ func TestHolderReattachAtConsumedOffsetGetsBytesWrittenWhileDetached(t *testing.
 	}
 }
 
+func TestHolderReattachCarriesAckedConsumedAndReplayFrom(t *testing.T) {
+	t.Parallel()
+
+	content := spoolBytes(0, attachTestLen)
+	run, cfg, _ := attachTailHolder(t, SpoolConfig{SegmentBytes: attachSegmentBytes}, content)
+	sock := socketOf(t, cfg.Dir)
+
+	first := dialHolder(t, run, sock)
+	first.hello(WireVersion)
+	if fresh := first.attachAt(0); fresh.Consumed != 0 || fresh.ReplayFrom != 0 {
+		t.Errorf("fresh attached frame carries consumed %d and replayFrom %d, want 0 and 0",
+			fresh.Consumed, fresh.ReplayFrom)
+	}
+	first.readOut(0, len(content))
+	const consumed, replayFrom = 80, 64
+	first.sendAck(consumed, replayFrom)
+	first.detach()
+
+	second := dialHolder(t, run, sock)
+	second.hello(WireVersion)
+	attached := second.attachAt(replayFrom)
+	if attached.Consumed != consumed || attached.ReplayFrom != replayFrom {
+		t.Errorf("re-attached frame carries consumed %d and replayFrom %d, want %d and %d",
+			attached.Consumed, attached.ReplayFrom, consumed, replayFrom)
+	}
+	got := second.readOut(replayFrom, len(content)-replayFrom)
+	if !bytes.Equal(got, content[replayFrom:]) {
+		t.Errorf("replay from offset %d differs from the child's output", replayFrom)
+	}
+}
+
 func TestHolderChildEndingWhileAttachedDeliversEveryByteThenExit(t *testing.T) {
 	t.Parallel()
 

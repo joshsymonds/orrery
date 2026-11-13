@@ -44,7 +44,7 @@ func requireIdleExit(t *testing.T, run *running, cfg Config, pgid int, signal st
 	}
 	requireChildGroupGone(t, pgid)
 	requireNoSocket(t, socketOf(t, cfg.Dir))
-	assertDirNames(t, cfg.Dir, ExitName, LockName, segmentName(0))
+	assertDirNames(t, cfg.Dir, ExitName, PidsName, LockName, segmentName(0))
 }
 
 func TestHolderIdleStopsChildAfterTimeoutWithNoController(t *testing.T) {

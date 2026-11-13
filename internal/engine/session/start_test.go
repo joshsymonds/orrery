@@ -122,21 +122,21 @@ func waitGone(t *testing.T, pid int) {
 	}
 }
 
-// collectEvents returns every event up to the close of Events, failing the test if Events does not
-// close within startGuard.
+// collectEvents returns the events of every line up to the close of Lines, in order, failing the test if
+// Lines does not close within startGuard.
 func collectEvents(t *testing.T, s *Session) []Event {
 	t.Helper()
 	var events []Event
 	deadline := time.After(startGuard)
 	for {
 		select {
-		case event, ok := <-s.Events():
+		case line, ok := <-s.Lines():
 			if !ok {
 				return events
 			}
-			events = append(events, event)
+			events = append(events, line.Events...)
 		case <-deadline:
-			t.Fatalf("Events did not close within %v after %d events", startGuard, len(events))
+			t.Fatalf("Lines did not close within %v after %d events", startGuard, len(events))
 		}
 	}
 }

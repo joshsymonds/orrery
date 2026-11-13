@@ -1958,7 +1958,11 @@ type EnginePrompt struct {
 	// The prompt text, not cut.
 	Text string `protobuf:"bytes,1,opt,name=text,proto3" json:"text,omitempty"`
 	// The client-chosen prompt id, or empty when none was given.
-	PromptId      string `protobuf:"bytes,2,opt,name=prompt_id,json=promptId,proto3" json:"prompt_id,omitempty"`
+	PromptId string `protobuf:"bytes,2,opt,name=prompt_id,json=promptId,proto3" json:"prompt_id,omitempty"`
+	// Who sent the prompt: brief, engine or owner, or empty when the prompt was stored without a sender.
+	Sender string `protobuf:"bytes,3,opt,name=sender,proto3" json:"sender,omitempty"`
+	// The check round a send-back returns, or 0 otherwise.
+	Round         uint32 `protobuf:"varint,4,opt,name=round,proto3" json:"round,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2005,6 +2009,20 @@ func (x *EnginePrompt) GetPromptId() string {
 		return x.PromptId
 	}
 	return ""
+}
+
+func (x *EnginePrompt) GetSender() string {
+	if x != nil {
+		return x.Sender
+	}
+	return ""
+}
+
+func (x *EnginePrompt) GetRound() uint32 {
+	if x != nil {
+		return x.Round
+	}
+	return 0
 }
 
 // EngineBlock carries one finished content block of a headless session.
@@ -3036,7 +3054,11 @@ type ConversationItem struct {
 	// The trigger of a compaction item, auto or manual, or empty when the item is not a compaction.
 	Trigger string `protobuf:"bytes,9,opt,name=trigger,proto3" json:"trigger,omitempty"`
 	// The tokens a compaction item held before it was compacted, or 0 when the item is not a compaction.
-	Tokens        int64 `protobuf:"varint,10,opt,name=tokens,proto3" json:"tokens,omitempty"`
+	Tokens int64 `protobuf:"varint,10,opt,name=tokens,proto3" json:"tokens,omitempty"`
+	// Who sent a prompt item's prompt: brief, engine or owner, or empty when the prompt was stored without a sender.
+	Sender string `protobuf:"bytes,11,opt,name=sender,proto3" json:"sender,omitempty"`
+	// The check round a send-back returns on a prompt item, or 0 otherwise.
+	Round         uint32 `protobuf:"varint,12,opt,name=round,proto3" json:"round,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3137,6 +3159,20 @@ func (x *ConversationItem) GetTrigger() string {
 func (x *ConversationItem) GetTokens() int64 {
 	if x != nil {
 		return x.Tokens
+	}
+	return 0
+}
+
+func (x *ConversationItem) GetSender() string {
+	if x != nil {
+		return x.Sender
+	}
+	return ""
+}
+
+func (x *ConversationItem) GetRound() uint32 {
+	if x != nil {
+		return x.Round
 	}
 	return 0
 }
@@ -5310,10 +5346,12 @@ const file_orrery_v1_orrery_proto_rawDesc = "" +
 	"\x05_seenB\v\n" +
 	"\t_questionB\x11\n" +
 	"\x0f_claude_sessionB\t\n" +
-	"\a_reason\"?\n" +
+	"\a_reason\"m\n" +
 	"\fEnginePrompt\x12\x12\n" +
 	"\x04text\x18\x01 \x01(\tR\x04text\x12\x1b\n" +
-	"\tprompt_id\x18\x02 \x01(\tR\bpromptId\"\xb2\x02\n" +
+	"\tprompt_id\x18\x02 \x01(\tR\bpromptId\x12\x16\n" +
+	"\x06sender\x18\x03 \x01(\tR\x06sender\x12\x14\n" +
+	"\x05round\x18\x04 \x01(\rR\x05round\"\xb2\x02\n" +
 	"\vEngineBlock\x12\x12\n" +
 	"\x04kind\x18\x01 \x01(\tR\x04kind\x12\x12\n" +
 	"\x04role\x18\x02 \x01(\tR\x04role\x12\x1d\n" +
@@ -5394,7 +5432,7 @@ const file_orrery_v1_orrery_proto_rawDesc = "" +
 	"\x05items\x18\x02 \x03(\v2\x1b.orrery.v1.ConversationItemR\x05items\x12\x12\n" +
 	"\x04goal\x18\x03 \x01(\tR\x04goal\x123\n" +
 	"\awaiting\x18\x04 \x03(\v2\x19.orrery.v1.WaitingMessageR\awaiting\x128\n" +
-	"\acontext\x18\x05 \x01(\v2\x1e.orrery.v1.ConversationContextR\acontext\"\xe8\x01\n" +
+	"\acontext\x18\x05 \x01(\v2\x1e.orrery.v1.ConversationContextR\acontext\"\x96\x02\n" +
 	"\x10ConversationItem\x12\x12\n" +
 	"\x04kind\x18\x01 \x01(\tR\x04kind\x12\x12\n" +
 	"\x04time\x18\x02 \x01(\x03R\x04time\x12\x12\n" +
@@ -5406,7 +5444,9 @@ const file_orrery_v1_orrery_proto_rawDesc = "" +
 	"\x06notice\x18\b \x01(\tR\x06notice\x12\x18\n" +
 	"\atrigger\x18\t \x01(\tR\atrigger\x12\x16\n" +
 	"\x06tokens\x18\n" +
-	" \x01(\x03R\x06tokens\"E\n" +
+	" \x01(\x03R\x06tokens\x12\x16\n" +
+	"\x06sender\x18\v \x01(\tR\x06sender\x12\x14\n" +
+	"\x05round\x18\f \x01(\rR\x05round\"E\n" +
 	"\x13ConversationContext\x12\x16\n" +
 	"\x06tokens\x18\x01 \x01(\x03R\x06tokens\x12\x16\n" +
 	"\x06window\x18\x02 \x01(\x03R\x06window\"T\n" +

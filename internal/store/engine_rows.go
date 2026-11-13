@@ -9,7 +9,9 @@ import (
 	"github.com/joshsymonds/orrery/internal/store/sqlcgen"
 )
 
-// EngineRow is one headless engine session row, copied from its sessions columns.
+// EngineRow is one headless engine session row, copied from its sessions columns. Tracked is set when the row's
+// consumed offset is not NULL, that is, when an EngineLaunch has tracked it. Consumed, ReplayFrom, Background and
+// TurnOutput are the re-adoption state the row holds.
 type EngineRow struct {
 	ID            string
 	Dir           string
@@ -18,6 +20,33 @@ type EngineRow struct {
 	ClaudeSession string
 	Reason        string
 	Kind          string
+	Tracked       bool
+	Consumed      int64
+	ReplayFrom    int64
+	Background    bool
+	TurnOutput    string
+}
+
+// HolderPrompt is a prompt sent to an engine session that its holder has not yet consumed: the prompt's write id
+// and text.
+type HolderPrompt struct {
+	WriteID string
+	Text    string
+}
+
+// HolderPrompts returns the prompts sent to an engine session after its launch, in seq order. Each is an
+// engine_prompt event above the session's prompts_from that carries a write id. It returns none for an id that
+// names no engine session.
+func (s *Store) HolderPrompts(ctx context.Context, id string) ([]HolderPrompt, error) {
+	rows, err := sqlcgen.New(s.db).ListHolderPrompts(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("list holder prompts of engine session %s: %w", id, err)
+	}
+	out := make([]HolderPrompt, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, HolderPrompt{WriteID: row.WriteID, Text: row.Text})
+	}
+	return out, nil
 }
 
 // EngineSessions returns every engine and step session row, ordered by id.
@@ -50,5 +79,7 @@ func toEngineRow(row sqlcgen.Session) EngineRow {
 	return EngineRow{
 		ID: row.ID, Dir: row.Dir, State: row.State, Question: row.Question,
 		ClaudeSession: row.ClaudeSession, Reason: row.Reason, Kind: row.Kind,
+		Tracked: row.Consumed.Valid, Consumed: row.Consumed.Int64, ReplayFrom: row.ReplayFrom,
+		Background: row.Background, TurnOutput: row.TurnOutput,
 	}
 }

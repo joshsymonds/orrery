@@ -70,7 +70,10 @@ func (r *stepRun) judgeReturn(ctx context.Context, round int, value json.RawMess
 	if !r.judgeRecord(ctx, verdict) {
 		return false
 	}
-	if err = r.sessions.Continue(ctx, r.id, fmt.Sprintf(judgeLoopContinueText, reason)); err != nil {
+	prompt := StepPrompt{
+		Text: fmt.Sprintf(judgeLoopContinueText, reason), Sender: store.PromptSenderEngine, Round: round,
+	}
+	if err = r.sessions.Continue(ctx, r.id, prompt); err != nil {
 		r.finish(ctx, stepLoopEndFailed, "", fmt.Sprintf("continue step %s: %v", r.id, err))
 		return false
 	}
