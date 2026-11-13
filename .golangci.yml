@@ -182,13 +182,10 @@ linters:
         - os.Setenv
         - os.Unsetenv
 
-    errname:
-      skip-single: true
-
     exhaustive:
       check:
         - switch
-        - map
+        - mapliteral
       default-signifies-exhaustive: true
 
     gochecksumtype:
