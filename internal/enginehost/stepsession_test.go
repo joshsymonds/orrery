@@ -27,9 +27,25 @@ const (
 	stepC = "2123456789abcdef0123456789abcdef"
 )
 
-// newStepManager returns a manager with a session cap of one and stepCap steps that runs the claude at claude and sends its
-// notices to sink. It reads rows from the store at the returned path. Close runs before the writer stops and the store
-// closes.
+// writeStepAgents writes the synthetic agents reviewer and implementer under the agents folder of home, so that a step
+// whose HOME is home resolves the agents the step tests start with.
+func writeStepAgents(t *testing.T, home string) {
+	t.Helper()
+	dir := filepath.Join(home, ".claude", "agents")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("make agents folder: %v", err)
+	}
+	for _, name := range []string{"reviewer", "implementer"} {
+		content := "---\nname: " + name + "\ndescription: Checks a step\n---\n"
+		if err := os.WriteFile(filepath.Join(dir, name+".md"), []byte(content), 0o644); err != nil {
+			t.Fatalf("write agent %s: %v", name, err)
+		}
+	}
+}
+
+// newStepManager returns a manager with a session cap of one and stepCap steps that runs the claude at claude and
+// sends its notices to sink. Its HOME holds the step agents. It reads rows from the store at the returned path. Close
+// runs before the writer stops and the store closes.
 func newStepManager(t *testing.T, stepCap int, claude string, sink NoticeSink) (*Manager, string) {
 	t.Helper()
 	sh, err := exec.LookPath("sh")
@@ -39,10 +55,12 @@ func newStepManager(t *testing.T, stepCap int, claude string, sink NoticeSink) (
 	s, path := openStore(t)
 	writer := NewWriter(WriterConfig{Applier: s, Tick: 5 * time.Millisecond})
 	startRun(t, writer)
+	home := t.TempDir()
+	writeStepAgents(t, home)
 	m := NewManager(Config{
 		Shell:    sh,
 		Claude:   claude,
-		Environ:  []string{"PATH=" + os.Getenv("PATH"), "HOME=" + t.TempDir()},
+		Environ:  []string{"PATH=" + os.Getenv("PATH"), "HOME=" + home},
 		Cap:      1,
 		StepCap:  stepCap,
 		Writer:   writer,

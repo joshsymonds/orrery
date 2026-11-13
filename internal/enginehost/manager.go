@@ -94,13 +94,15 @@ type Store interface {
 // Seen read and Logger reports pump errors (nil discards). HolderScope is the absolute path of systemd-run that runs
 // each session's holder in its own user scope, or empty to run holders plainly; with it set, Close detaches the
 // sessions instead of stopping them, so their holders keep running. StateDir is the state directory that holds the
-// sessions' holders, or empty for a private directory per session.
+// sessions' holders, or empty for a private directory per session. ManagedDir is the managed settings root that a
+// step's agent resolves under, or empty to read none.
 type Config struct {
 	Shell       string
 	Claude      string
 	Environ     []string
 	HolderScope string
 	StateDir    string
+	ManagedDir  string
 	Cap         int
 	StepCap     int
 	Writer      *Writer
@@ -152,6 +154,7 @@ type Manager struct {
 	environ     []string
 	holderScope string
 	stateDir    string
+	managedDir  string
 	limit       int
 	writer      *Writer
 	now         func() time.Time
@@ -193,6 +196,7 @@ func NewManager(cfg Config) *Manager {
 		environ:       cfg.Environ,
 		holderScope:   cfg.HolderScope,
 		stateDir:      cfg.StateDir,
+		managedDir:    cfg.ManagedDir,
 		limit:         cfg.Cap,
 		stepLimit:     cfg.StepCap,
 		writer:        cfg.Writer,
