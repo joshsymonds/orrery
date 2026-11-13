@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -29,6 +30,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -104,24 +106,39 @@ private val CHART_HEIGHT = 240.dp
 // in landscape.
 @Composable
 private fun EpicBody(detail: EpicDetail, onOpenStep: (StepRow) -> Unit) {
+    var selectedRow by remember { mutableStateOf<Int?>(null) }
+    // Tapping a row with a slice marks it and outlines its slice; tapping the marked row again clears; a row with no
+    // slice changes nothing.
+    val onTapTask: (Int) -> Unit = { row ->
+        selectedRow = when {
+            row == selectedRow -> null
+            sliceOf(detail, row) == null -> selectedRow
+            else -> row
+        }
+    }
+    val outlined = selectedRow?.let { sliceOf(detail, it) }
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         if (maxWidth > maxHeight) {
             Row(modifier = Modifier.fillMaxSize()) {
-                ChartOrEmptyLine(detail.slices, modifier = Modifier.weight(1f).fillMaxHeight())
-                EpicList(detail, onOpenStep, modifier = Modifier.weight(1f).fillMaxHeight())
+                ChartOrEmptyLine(detail.slices, outlined, modifier = Modifier.weight(1f).fillMaxHeight())
+                EpicList(detail, onOpenStep, selectedRow, onTapTask, modifier = Modifier.weight(1f).fillMaxHeight())
             }
         } else {
             Column(modifier = Modifier.fillMaxSize()) {
-                ChartOrEmptyLine(detail.slices, modifier = Modifier.fillMaxWidth().height(CHART_HEIGHT))
-                EpicList(detail, onOpenStep, modifier = Modifier.fillMaxWidth().weight(1f))
+                ChartOrEmptyLine(detail.slices, outlined, modifier = Modifier.fillMaxWidth().height(CHART_HEIGHT))
+                EpicList(detail, onOpenStep, selectedRow, onTapTask, modifier = Modifier.fillMaxWidth().weight(1f))
             }
         }
     }
 }
 
+// sliceOf is the index of the slice labelled with the row's slug, or null when no slice carries that slug.
+private fun sliceOf(detail: EpicDetail, row: Int): Int? =
+    detail.slices.indexOfFirst { it.task == detail.tasks[row].slug }.takeIf { it >= 0 }
+
 // ChartOrEmptyLine is the epic's chart, or with no slices the line that says so, in the same place.
 @Composable
-private fun ChartOrEmptyLine(slices: List<EpicSliceRow>, modifier: Modifier) {
+private fun ChartOrEmptyLine(slices: List<EpicSliceRow>, outlined: Int?, modifier: Modifier) {
     if (slices.isEmpty()) {
         Text(
             "No orrery-tracked steps",
@@ -129,12 +146,18 @@ private fun ChartOrEmptyLine(slices: List<EpicSliceRow>, modifier: Modifier) {
             modifier = modifier.padding(16.dp),
         )
     } else {
-        EpicChart(slices, outlined = null, modifier = modifier)
+        EpicChart(slices, outlined = outlined, modifier = modifier)
     }
 }
 
 @Composable
-private fun EpicList(detail: EpicDetail, onOpenStep: (StepRow) -> Unit, modifier: Modifier) {
+private fun EpicList(
+    detail: EpicDetail,
+    onOpenStep: (StepRow) -> Unit,
+    selectedRow: Int?,
+    onTapTask: (Int) -> Unit,
+    modifier: Modifier,
+) {
     val running = detail.steps.filter { it.end.isEmpty() }
     val ended = detail.steps.filter { it.end.isNotEmpty() }
     var endedOpen by remember { mutableStateOf(false) }
@@ -159,8 +182,8 @@ private fun EpicList(detail: EpicDetail, onOpenStep: (StepRow) -> Unit, modifier
             }
         }
         item("tasks-heading") { SectionHeading("Tasks") }
-        itemsIndexed(detail.tasks, key = { index, _ -> "task:$index" }) { _, task ->
-            TaskRow(task)
+        itemsIndexed(detail.tasks, key = { index, _ -> "task:$index" }) { index, task ->
+            TaskRow(index, task, selected = index == selectedRow, onTap = { onTapTask(index) })
         }
         item("steps-heading") { SectionHeading("Steps") }
         items(running, key = { "step:${it.id}" }) { step ->
@@ -194,8 +217,15 @@ private fun SectionHeading(title: String) {
 }
 
 @Composable
-private fun TaskRow(task: EpicTaskRow) {
-    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)) {
+private fun TaskRow(index: Int, task: EpicTaskRow, selected: Boolean, onTap: () -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("task-row:$index")
+            .selectable(selected = selected, onClick = onTap)
+            .background(if (selected) Mocha.Surface0 else Color.Transparent)
+            .padding(horizontal = 16.dp, vertical = 6.dp),
+    ) {
         Text(task.slug, style = MaterialTheme.typography.bodyLarge)
         Text(task.subject, style = MaterialTheme.typography.bodySmall)
         Text(task.status, style = MaterialTheme.typography.labelMedium)

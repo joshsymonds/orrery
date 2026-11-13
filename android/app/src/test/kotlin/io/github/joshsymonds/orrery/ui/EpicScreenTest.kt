@@ -1,11 +1,15 @@
 package io.github.joshsymonds.orrery.ui
 
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasScrollAction
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.isNotSelected
+import androidx.compose.ui.test.isSelected
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -22,6 +26,7 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.EpicStepCheck
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicTask
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsGetResponse
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -129,6 +134,16 @@ class EpicScreenTest {
     private fun clickTag(tag: String) {
         composeRule.onNodeWithTag(tag, useUnmergedTree = true).performClick()
     }
+
+    private fun scrollToRow(index: Int) {
+        composeRule.onNode(hasScrollAction()).performScrollToNode(hasTestTag("task-row:$index"))
+    }
+
+    private fun chartStateDescription(): String? =
+        composeRule.onNodeWithTag("epic-chart", useUnmergedTree = true)
+            .fetchSemanticsNode()
+            .config
+            .getOrNull(SemanticsProperties.StateDescription)
 
     @Test
     fun taskRowShowsSlugSubjectAndRawStatus() {
@@ -261,6 +276,66 @@ class EpicScreenTest {
             assertEquals("example-step-1", opened?.id)
             assertEquals("example-task-1", opened?.task)
             assertEquals("example-agent", opened?.agent)
+        }
+    }
+
+    private fun selectionBody(): EpicsGetResponse {
+        val numbered = numberedTasks(35)
+        val orphan = task(1, "example-orphan", "Subject orphan", "pending")
+        return body(tasks = listOf(orphan) + numbered, slices = numbered.reversed().map { slice(it.slug) })
+    }
+
+    @Test
+    @Config(qualifiers = "w411dp-h891dp")
+    fun tappingATaskRowMarksItAndOutlinesItsSlice() {
+        FakeOrreryServer().use { server ->
+            server.respond(EPICS_GET, selectionBody())
+            setScreen(server)
+            awaitText("Subject orphan")
+
+            scrollToRow(35)
+            clickTag("task-row:35")
+
+            assertEquals(1, countNodes(isSelected()))
+            assertEquals(1, countNodes(hasTestTag("task-row:35") and isSelected()))
+            composeRule.onNodeWithTag("epic-chart").assertIsDisplayed()
+            assertEquals("example-task-35", chartStateDescription())
+
+            clickTag("task-row:35")
+
+            assertEquals(0, countNodes(isSelected()))
+            assertEquals(1, countNodes(hasTestTag("task-row:35") and isNotSelected()))
+            assertNull(chartStateDescription())
+
+            clickTag("task-row:35")
+            scrollToRow(1)
+            clickTag("task-row:1")
+
+            assertEquals(1, countNodes(isSelected()))
+            assertEquals(1, countNodes(hasTestTag("task-row:1") and isSelected()))
+            assertEquals("example-task-1", chartStateDescription())
+        }
+    }
+
+    @Test
+    @Config(qualifiers = "w411dp-h891dp")
+    fun tappingARowWithNoSliceChangesNothing() {
+        FakeOrreryServer().use { server ->
+            server.respond(EPICS_GET, selectionBody())
+            setScreen(server)
+            awaitText("Subject orphan")
+
+            clickTag("task-row:0")
+
+            assertEquals(0, countNodes(isSelected()))
+            assertNull(chartStateDescription())
+
+            clickTag("task-row:1")
+            clickTag("task-row:0")
+
+            assertEquals(1, countNodes(isSelected()))
+            assertEquals(1, countNodes(hasTestTag("task-row:1") and isSelected()))
+            assertEquals("example-task-1", chartStateDescription())
         }
     }
 
