@@ -127,12 +127,117 @@ test("from 760px the body is base, the list is crust behind surface0, and the ep
   assert.match(declarationsFor(wide, ".read.pinned"), /border-left:\s*1px solid var\(--rule\);/);
 });
 
-test("from 760px the top, rows, reader and epic column keep their padding", () => {
+test("from 760px the top, rows, head, conversation, foot and epic column keep their padding", () => {
   const wide = mediaBlock(css, "@media (min-width: 760px) {");
   assert.match(declarationsFor(wide, ".top"), /padding:\s*12px 14px 10px;/);
   assert.match(declarationsFor(wide, ".list > .rows"), /padding:\s*0 6px 10px;/);
-  assert.match(declarationsFor(wide, ".read"), /padding:\s*12px 28px 14px;/);
+  assert.match(declarationsFor(wide, ".head"), /padding:\s*12px 28px 11px;/);
+  assert.match(declarationsFor(wide, ".read > .reader"), /padding:\s*18px 28px 10px;/);
+  assert.match(declarationsFor(wide, ".send"), /padding:\s*0 28px 14px;/);
   assert.match(declarationsFor(wide, ".side"), /padding:\s*16px 20px 24px;/);
+});
+
+test("from 760px the reader is a head, its conversation and a foot, and only the conversation scrolls", () => {
+  const wide = mediaBlock(css, "@media (min-width: 760px) {");
+  const read = declarationsFor(wide, ".read");
+  assert.match(read, /(?<![-\w])display:\s*grid;/);
+  assert.match(read, /grid-template-rows:\s*auto minmax\(0,\s*1fr\) auto;/);
+  assert.match(read, /(?<![-\w])gap:\s*0;/);
+  assert.doesNotMatch(read, /padding/);
+  assert.doesNotMatch(declarationsFor(wide, ".head"), /overflow/);
+  assert.doesNotMatch(declarationsFor(wide, ".send"), /overflow/);
+  assert.match(declarationsFor(wide, ".read > .reader"), /overflow-y:\s*auto;/);
+});
+
+test("the head sets the label at 17px bold and the where line at 12px in overlay1", () => {
+  const head = declarationsFor(css, ".head");
+  assert.match(head, /display:\s*flex;/);
+  assert.match(head, /border-bottom:\s*1px solid var\(--rule\);/);
+  assert.match(declarationsFor(css, ".head h1"), /margin:\s*0;/);
+  assert.match(declarationsFor(css, ".head h1"), /font:\s*700 17px\/24px var\(--mono\);/);
+  assert.match(declarationsFor(css, ".head .where"), /font:\s*12px\/24px var\(--mono\);/);
+  assert.match(declarationsFor(css, ".head .where"), /color:\s*var\(--overlay1\);/);
+});
+
+test("the pill is a tone's 10% tint with a 30% ring, the glyph is 11px, and each tone sets its colour", () => {
+  const pill = declarationsFor(css, ".pill");
+  assert.match(pill, /border-radius:\s*99px;/);
+  assert.match(pill, /background:\s*color-mix\(in srgb, var\(--tone\) 10%, transparent\);/);
+  assert.match(pill, /box-shadow:\s*0 0 0 1px color-mix\(in srgb, var\(--tone\) 30%, transparent\);/);
+  assert.match(declarationsFor(css, ".pill .g"), /width:\s*11px;/);
+  assert.match(declarationsFor(css, ".pill .g"), /height:\s*11px;/);
+  assert.match(declarationsFor(css, ".pill .tool"), /font-weight:\s*400;/);
+  assert.match(declarationsFor(css, ".pill .tool"), /color:\s*var\(--blue\);/);
+  const tones: [string, string][] = [
+    ["working", "yellow"],
+    ["waiting", "peach"],
+    ["held", "peach"],
+    ["done", "green"],
+    ["interrupted", "maroon"],
+    ["ended", "red"],
+  ];
+  for (const [tone, colour] of tones) {
+    assert.match(
+      declarationsFor(css, `.pill.tone-${tone}`),
+      new RegExp(`--tone:\\s*var\\(--${colour}\\);`),
+      `tone-${tone} is ${colour}`,
+    );
+  }
+  const idle = declarationsFor(css, ".pill.tone-idle");
+  assert.match(idle, /color:\s*var\(--overlay1\);/);
+  assert.match(idle, /background:\s*var\(--surface0\);/);
+  assert.match(idle, /box-shadow:\s*0 0 0 1px color-mix\(in srgb, var\(--overlay1\) 30%, transparent\);/);
+});
+
+test("the pill's working glyph turns, and reduced motion holds it still", () => {
+  assert.match(declarationsFor(css, ".pill .g-working"), /animation:\s*rot 1\.1s linear infinite;/);
+  assert.match(css, /@keyframes rot\s*\{/);
+  const reduced = mediaBlock(css, "@media (prefers-reduced-motion: reduce) {");
+  assert.match(declarationsFor(reduced, ".pill .g-working"), /animation:\s*none;/);
+});
+
+test("the send foot's how line is 11.5px over overlay0", () => {
+  assert.match(declarationsFor(css, ".send .how"), /font:\s*11\.5px\/16px var\(--mono\);/);
+  assert.match(declarationsFor(css, ".send .how"), /color:\s*var\(--overlay0\);/);
+});
+
+test("the composer's send button is a 24px mauve square with crust text", () => {
+  const go = declarationsFor(css, ".composer .go");
+  assert.match(go, /(?<![-\w])width:\s*24px;/);
+  assert.match(go, /(?<![-\w])height:\s*24px;/);
+  assert.match(go, /background:\s*var\(--mauve\);/);
+  assert.match(go, /color:\s*var\(--crust\);/);
+});
+
+test("the queue docks onto the composer: its top corners and the composer's bottom corners are 10px", () => {
+  assert.match(declarationsFor(css, ".compose .queue"), /border-radius:\s*10px 10px 0 0;/);
+  assert.match(declarationsFor(css, ".compose .queue + .composer"), /border-radius:\s*0 0 10px 10px;/);
+});
+
+test("queued text is dim, and a canceled one is struck through with a maroon tag", () => {
+  assert.match(declarationsFor(css, ".compose .queued > .text"), /color:\s*var\(--subtext0\);/);
+  assert.match(declarationsFor(css, ".compose .queued.canceled > .text"), /text-decoration:\s*line-through;/);
+  assert.match(declarationsFor(css, ".compose .queued.canceled > .tag"), /color:\s*var\(--maroon\);/);
+});
+
+test("the step foot sets Interrupt as a red chip, the line beside its input, and the more button as a 36px ring", () => {
+  assert.match(declarationsFor(css, ".stepbox .line"), /display:\s*flex;/);
+  const interrupt = declarationsFor(css, ".stepbox .interrupt");
+  assert.match(interrupt, /color:\s*var\(--red\);/);
+  assert.match(interrupt, /background:\s*color-mix\(in srgb, var\(--red\) 10%, var\(--mantle\)\);/);
+  assert.match(interrupt, /box-shadow:\s*inset 0 0 0 1px color-mix\(in srgb, var\(--red\) 40%, transparent\);/);
+  const more = declarationsFor(css, ".stepbox .more");
+  assert.match(more, /(?<![-\w])width:\s*36px;/);
+  assert.match(more, /border-radius:\s*10px;/);
+  assert.match(more, /box-shadow:\s*inset 0 0 0 1px var\(--surface1\);/);
+});
+
+test("the step menu's Confirm stop button is red", () => {
+  assert.match(declarationsFor(css, ".stepbox-menu button.stop-confirm"), /color:\s*var\(--red\);/);
+});
+
+test("markup that left the page has no rules: the pinned head, the work line, the queued rows and the step actions", () => {
+  assert.doesNotMatch(css, /pin-head|work-line|work-label|work-tool|work-time|work-note|stepbox-actions|\.reader \.queue/);
 });
 
 test("under 760px the body is crust and unpadded, and the columns stack behind the side gutter", () => {
@@ -193,12 +298,12 @@ test("the wireframe's --rule token is defined", () => {
 test("the 1200px and 68ch caps are gone and reply text fills the reader", () => {
   assert.doesNotMatch(css, /max-width:\s*1200px|68ch/);
   assert.match(declarationsFor(css, ".reader .t"), /minmax\(0,\s*1fr\)/);
-  assert.match(declarationsFor(css, ".reader .queued"), /minmax\(0,\s*1fr\)/);
+  assert.match(declarationsFor(css, ".compose .queued"), /minmax\(0,\s*1fr\)/);
 });
 
 test("reading text is 14px with a 1.6 line height", () => {
   assert.match(declarationsFor(css, ".reader .t > .body"), /font:\s*14px\/1\.6 var\(--mono\)/);
-  const queued = declarationsFor(css, ".reader .queued > .body");
+  const queued = declarationsFor(css, ".compose .queued > .text");
   assert.match(queued, /font-size:\s*14px/);
   assert.match(queued, /line-height:\s*1\.6(?![\d.])/);
 });
@@ -209,7 +314,7 @@ test("plain texts keep their line breaks", () => {
     ".reader .question",
     ".reader .question-card .question",
     ".reader .notice",
-    ".reader .queued > .body",
+    ".compose .queued > .text",
   ];
   for (const selector of selectors) {
     assert.match(declarationsFor(css, selector), /white-space:\s*pre-(wrap|line)/, selector);
