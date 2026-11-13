@@ -27,12 +27,12 @@ type detacher interface {
 }
 
 // Session is one headless Claude Code process. One goroutine reads its stdout lines in order,
-// translates them and delivers each event on Events, so a consumer that stops reading pauses only
+// translates each one and delivers it as a Line on Lines, so a consumer that stops reading pauses only
 // this session.
 type Session struct {
 	process   Process
 	transport *transport.Transport
-	events    chan Event
+	lines     chan Line
 	stop      chan struct{}
 	finished  chan struct{}
 	stopOnce  sync.Once
@@ -41,14 +41,14 @@ type Session struct {
 	pending   *openRequests
 }
 
-// New starts a session on process: it writes the initialize request and starts delivering events.
+// New starts a session on process: it writes the initialize request and starts delivering lines.
 // When the initialize request cannot be written, New stops the process and returns the error.
 func New(process Process) (*Session, error) {
 	stream := transport.New(process.Stdin(), process.Stdout(), transport.WithRawLines())
 	session := &Session{
 		process:   process,
 		transport: stream,
-		events:    make(chan Event),
+		lines:     make(chan Line),
 		stop:      make(chan struct{}),
 		finished:  make(chan struct{}),
 		pending:   newOpenRequests(),
@@ -63,10 +63,11 @@ func New(process Process) (*Session, error) {
 	return session, nil
 }
 
-// Events returns the events of the session in the order its process wrote them. It is closed after
-// Exited, or when the session is stopped or detached.
-func (s *Session) Events() <-chan Event {
-	return s.events
+// Lines returns the stdout lines of the session in the order its process wrote them, each with the
+// events it carries and its offsets. The process exit arrives last, as a Line at the end of the stream
+// whose only event is Exited. Lines is closed after that, or when the session is stopped or detached.
+func (s *Session) Lines() <-chan Line {
+	return s.lines
 }
 
 // Prompt writes text as one user message, under a fresh uuid.
@@ -86,8 +87,8 @@ func (s *Session) Interrupt() error {
 }
 
 // Stop ends the process, closes its stream and returns once the reader has finished. It does not
-// wait for a consumer to read Events: once it begins the reader starts no new delivery, so a consumer
-// reading at that moment receives at most the one event already offered. Stop is idempotent: later
+// wait for a consumer to read Lines: once it begins the reader starts no new delivery, so a consumer
+// reading at that moment receives at most the one line already offered. Stop is idempotent: later
 // calls return the first call's error.
 func (s *Session) Stop() error {
 	return s.end(false)
@@ -125,45 +126,51 @@ func terminate(process Process, stream *transport.Transport, detach bool) error 
 	return errors.Join(process.Stop(), stream.Close())
 }
 
-// run is the session's only reader. It delivers the events of each line in order, and when the
-// stream ends it reports the process exit and closes Events.
+// run is the session's only reader. For each stdout line it translates the line, observes its events and
+// sends it as a Line with the line's offsets. When the stream ends it reports the process exit as the last
+// Line and closes Lines.
 func (s *Session) run() {
 	defer close(s.finished)
-	defer close(s.events)
+	defer close(s.lines)
 	translator := newTranslator()
-	for line := range s.transport.Lines() {
-		for _, event := range translator.translate(line) {
-			if !s.deliver(event) {
-				return
-			}
+	var offset int64
+	for raw := range s.transport.Lines() {
+		// The transport delivers a line without its LF, so the line spans its bytes and the LF after them.
+		end := offset + int64(len(raw)) + 1
+		events := translator.translate(raw)
+		s.observeLine(events)
+		if !s.send(Line{Start: offset, End: end, Events: events}) {
+			return
 		}
+		offset = end
 	}
 	// Once Stop or Detach has begun, the process is theirs: it has been stopped or left running, so the
 	// reader must not stop it or wait on it.
 	if s.stopping() {
 		return
 	}
-	s.exit()
+	s.exit(offset)
 }
 
-// exit stops the process and waits for it, then delivers Exited with the exit error, the stream
-// error and the stderr of the process.
-func (s *Session) exit() {
+// exit stops the process and waits for it, then sends Exited with the exit error, the stream error and the
+// stderr of the process, as the last Line at offset, where the stream ends.
+func (s *Session) exit(offset int64) {
 	exitErr := errors.Join(s.process.Stop(), s.process.Wait())
-	s.send(Exited{
+	exited := Exited{
 		ExitErr:   exitErr,
 		StreamErr: <-s.transport.Done(),
 		Stderr:    s.process.Stderr(),
-	})
+	}
+	s.send(Line{Start: offset, End: offset, Events: []Event{exited}})
 }
 
-// send delivers one event and reports whether it did. Once Stop or Detach has begun, it delivers nothing.
-func (s *Session) send(event Event) bool {
+// send delivers one line and reports whether it did. Once Stop or Detach has begun, it delivers nothing.
+func (s *Session) send(line Line) bool {
 	if s.stopping() {
 		return false
 	}
 	select {
-	case s.events <- event:
+	case s.lines <- line:
 		return true
 	case <-s.stop:
 		return false

@@ -8,6 +8,14 @@ type Event interface {
 	isEvent()
 }
 
+// Line is the events one stdout line of a session carries. Start and End are stdout byte offsets from
+// the start of the stream: Start is the line's first byte and End is just past its LF, so the next line
+// starts at End. Events is in order and may be empty.
+type Line struct {
+	Start, End int64
+	Events     []Event
+}
+
 // Started reports that a session initialized: the session id claude assigned and the permission mode
 // the session runs in.
 type Started struct {

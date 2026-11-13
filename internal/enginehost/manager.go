@@ -1064,13 +1064,35 @@ func stampHome(environ []string) (string, error) {
 	return home, nil
 }
 
-// pump records the events of one running session, in order, until its events close, and tells the owner of each event
-// once it is recorded. It is the only reader of the session's events and the only user of its recorder. When it ends
-// it frees the session's slot and removes its entry, only while that entry is its own.
+// pump records the events of one running session, line by line and in order, until its lines close, and tells the owner
+// of each event once it is recorded. It is the only reader of the session's lines and the only user of its recorder.
+// When it ends it frees the session's slot and removes its entry, only while that entry is its own.
 func (m *Manager) pump(ctx context.Context, live *liveSession, rec *recorder) {
 	defer m.pumps.Done()
 	reply := ""
-	for event := range live.sess.Events() {
+	for line := range live.sess.Lines() {
+		reply = m.recordLine(ctx, live, rec, line, reply)
+	}
+	m.mu.Lock()
+	if m.sessions[live.id] == live {
+		delete(m.sessions, live.id)
+	}
+	if live.step {
+		m.stepsRunning--
+	} else {
+		m.reserved--
+	}
+	m.mu.Unlock()
+	close(live.done)
+	live.cancel()
+}
+
+// recordLine records the events of one line of the running session, in order, as pump records each one. It
+// returns the reply text of the main conversation so far.
+func (m *Manager) recordLine(
+	ctx context.Context, live *liveSession, rec *recorder, line session.Line, reply string,
+) string {
+	for _, event := range line.Events {
 		if request, ok := event.(session.Request); ok && live.step && !request.Refused {
 			m.answerStepRequest(ctx, live, request)
 			continue
@@ -1097,18 +1119,7 @@ func (m *Manager) pump(ctx context.Context, live *liveSession, rec *recorder) {
 		}
 		observe(live, event, handed)
 	}
-	m.mu.Lock()
-	if m.sessions[live.id] == live {
-		delete(m.sessions, live.id)
-	}
-	if live.step {
-		m.stepsRunning--
-	} else {
-		m.reserved--
-	}
-	m.mu.Unlock()
-	close(live.done)
-	live.cancel()
+	return reply
 }
 
 // answerStepRequest denies request, a request of the step live that the session did not refuse, with stepDenyMessage, so

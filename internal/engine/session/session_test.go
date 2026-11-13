@@ -186,59 +186,90 @@ func stdinLines(process *fakeProcess) []string {
 	return strings.Split(text, "\n")
 }
 
+// nextLine returns the next line, failing the test if none arrives within testGuard.
+func nextLine(t *testing.T, session *Session) Line {
+	t.Helper()
+	select {
+	case line, ok := <-session.Lines():
+		if !ok {
+			t.Fatal("Lines closed before the next line")
+		}
+		return line
+	case <-time.After(testGuard):
+		t.Fatalf("no line within %v", testGuard)
+	}
+	return Line{}
+}
+
 // nextEvent returns the next event, failing the test if none arrives within testGuard.
 func nextEvent(t *testing.T, session *Session) Event {
 	t.Helper()
-	select {
-	case event, ok := <-session.Events():
-		if !ok {
-			t.Fatal("Events closed before the next event")
-		}
-		return event
-	case <-time.After(testGuard):
-		t.Fatalf("no event within %v", testGuard)
-	}
-	return nil
+	return readEvents(t, session, 1)[0]
 }
 
-// readEvents returns the next n events in order.
+// readEvents returns the next n events in order. It reads whole lines, so a line that carries more events
+// than the n still to read fails the test: the events past n would be lost to the next call.
 func readEvents(t *testing.T, session *Session, n int) []Event {
 	t.Helper()
 	events := make([]Event, 0, n)
-	for range n {
-		events = append(events, nextEvent(t, session))
+	for len(events) < n {
+		line := nextLine(t, session)
+		if remaining := n - len(events); len(line.Events) > remaining {
+			t.Fatalf(
+				"line [%d, %d) carries %d events, want at most %d more",
+				line.Start, line.End, len(line.Events), remaining,
+			)
+		}
+		events = append(events, line.Events...)
 	}
 	return events
 }
 
-// drainEvents returns every event up to the close of Events, failing the test if Events does not
-// close within testGuard.
-func drainEvents(t *testing.T, session *Session) []Event {
+// drainLines returns every line up to the close of Lines, failing the test if Lines does not close
+// within testGuard.
+func drainLines(t *testing.T, session *Session) []Line {
 	t.Helper()
-	var events []Event
+	var lines []Line
 	for {
 		select {
-		case event, ok := <-session.Events():
+		case line, ok := <-session.Lines():
 			if !ok {
-				return events
+				return lines
 			}
-			events = append(events, event)
+			lines = append(lines, line)
 		case <-time.After(testGuard):
-			t.Fatalf("Events did not close within %v after %d events", testGuard, len(events))
+			t.Fatalf("Lines did not close within %v after %d lines", testGuard, len(lines))
 		}
 	}
 }
 
-// requireClosed fails the test unless Events is closed within testGuard.
+// drainEvents returns the events of every line up to the close of Lines, in order.
+func drainEvents(t *testing.T, session *Session) []Event {
+	t.Helper()
+	var events []Event
+	for _, line := range drainLines(t, session) {
+		events = append(events, line.Events...)
+	}
+	return events
+}
+
+// requireClosed fails the test unless Lines is closed within testGuard. A line that carries no event may
+// arrive first; a line that carries an event fails the test.
 func requireClosed(t *testing.T, session *Session) {
 	t.Helper()
-	select {
-	case event, ok := <-session.Events():
-		if ok {
-			t.Fatalf("Events delivered %#v, want it closed", event)
+	deadline := time.After(testGuard)
+	for {
+		select {
+		case line, ok := <-session.Lines():
+			if !ok {
+				return
+			}
+			if len(line.Events) > 0 {
+				t.Fatalf("Lines delivered %#v, want it closed", line.Events[0])
+			}
+		case <-deadline:
+			t.Fatalf("Lines not closed within %v", testGuard)
 		}
-	case <-time.After(testGuard):
-		t.Fatalf("Events not closed within %v", testGuard)
 	}
 }
 
@@ -418,6 +449,55 @@ func requireStreamEnded(t *testing.T, exited Exited) {
 	if !errors.As(exited.StreamErr, &transportErr) {
 		t.Errorf("StreamErr = %v, want a transport error", exited.StreamErr)
 	}
+}
+
+// twoBlocksLine is an assistant message with two text blocks, which translates to two events.
+const twoBlocksLine = `{"type":"assistant","message":{"id":"msg_two","type":"message","role":"assistant","content":[` +
+	`{"type":"text","text":"first block"},{"type":"text","text":"second block"}]},"parent_tool_use_id":null,"session_id":"session_1"}`
+
+// controlResponseLine is a control response, which translates to no event.
+const controlResponseLine = `{"type":"control_response","response":{"subtype":"success","request_id":"req_10",` +
+	`"response":{"still_queued":[]}}}`
+
+// TestLinesDeliverEachStdoutLineWithItsOffsets checks that each stdout line arrives as one Line whose Start and
+// End span the line and its newline, carrying the events the line yields in order, even when it yields none,
+// and that the process exit arrives last as a Line at the end of the stream.
+func TestLinesDeliverEachStdoutLineWithItsOffsets(t *testing.T) {
+	t.Parallel()
+	session, process := startSession(t)
+	emit(t, process, []byte(twoBlocksLine), []byte(controlResponseLine))
+	process.exit(nil, "")
+
+	lines := drainLines(t, session)
+	if len(lines) != 3 {
+		t.Fatalf("got %d lines, want two stdout lines then the exit: %#v", len(lines), lines)
+	}
+	firstEnd := int64(len(twoBlocksLine) + 1)
+	secondEnd := firstEnd + int64(len(controlResponseLine)+1)
+	wantSpans := [][2]int64{{0, firstEnd}, {firstEnd, secondEnd}, {secondEnd, secondEnd}}
+	for i, want := range wantSpans {
+		if lines[i].Start != want[0] || lines[i].End != want[1] {
+			t.Errorf("line %d spans [%d, %d), want [%d, %d)", i, lines[i].Start, lines[i].End, want[0], want[1])
+		}
+	}
+	requireEvents(t, lines[0].Events, []Event{
+		Block{Kind: BlockText, Role: "assistant", MessageID: "msg_two", Text: "first block"},
+		Block{Kind: BlockText, Role: "assistant", MessageID: "msg_two", Text: "second block"},
+	})
+	if len(lines[1].Events) != 0 {
+		t.Errorf("control response line events = %#v, want none", lines[1].Events)
+	}
+	if len(lines[2].Events) != 1 {
+		t.Fatalf("exit line events = %#v, want only Exited", lines[2].Events)
+	}
+	exited, ok := lines[2].Events[0].(Exited)
+	if !ok {
+		t.Fatalf("exit line event = %#v, want Exited", lines[2].Events[0])
+	}
+	if exited.ExitErr != nil || exited.Stderr != "" {
+		t.Errorf("Exited = %#v, want no exit error and no stderr", exited)
+	}
+	requireStreamEnded(t, exited)
 }
 
 func TestProcessExitDeliversExitErrorAndStderr(t *testing.T) {

@@ -76,16 +76,17 @@ func (o *openRequests) claim(requestID string) (openRequest, bool) {
 	return request, ok
 }
 
-// deliver records the request state of one event, then delivers it. A request is opened before it is
-// delivered, so a host that answers on receipt finds it open. It reports whether the event was delivered.
-func (s *Session) deliver(event Event) bool {
-	switch event := event.(type) {
-	case Request:
-		return s.send(s.observeRequest(event))
-	case RequestCancelled:
-		return s.send(s.observeCancel(event))
-	default:
-		return s.send(event)
+// observeLine records the request state of each event of a line, in order, before the line is sent. A
+// request is opened before the host sees the line that holds it, so a host that answers on receipt finds
+// it open. Each event is replaced by its observed form.
+func (s *Session) observeLine(events []Event) {
+	for i, event := range events {
+		switch event := event.(type) {
+		case Request:
+			events[i] = s.observeRequest(event)
+		case RequestCancelled:
+			events[i] = s.observeCancel(event)
+		}
 	}
 }
 
