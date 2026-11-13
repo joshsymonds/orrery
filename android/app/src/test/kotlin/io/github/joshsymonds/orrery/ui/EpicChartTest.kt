@@ -252,6 +252,8 @@ class EpicChartTest {
             checks = reached[3],
             gateAccepted = reached[4],
             at = at,
+            held = false,
+            errorAt = 0,
         )
 
     private fun EpicSliceRow.reached(ring: Int): Boolean =

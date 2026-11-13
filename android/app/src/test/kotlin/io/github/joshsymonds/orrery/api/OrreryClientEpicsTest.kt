@@ -178,7 +178,9 @@ class OrreryClientEpicsTest {
                             .setTestsPass(true)
                             .setChecks(true)
                             .setGateAccepted(false)
-                            .setAt(4),
+                            .setAt(4)
+                            .setHeld(false)
+                            .setErrorAt(0),
                     )
                     .addSlices(
                         EpicSlice.newBuilder()
@@ -186,7 +188,9 @@ class OrreryClientEpicsTest {
                             .setHue("gap")
                             .setWorking(true)
                             .setTestsPass(true)
-                            .setAt(0),
+                            .setAt(0)
+                            .setHeld(true)
+                            .setErrorAt(3),
                     )
                     .addSlices(
                         EpicSlice.newBuilder()
@@ -197,7 +201,9 @@ class OrreryClientEpicsTest {
                             .setTestsPass(false)
                             .setChecks(true)
                             .setGateAccepted(true)
-                            .setAt(0),
+                            .setAt(0)
+                            .setHeld(false)
+                            .setErrorAt(4),
                     )
                     .build(),
             )
@@ -215,6 +221,8 @@ class OrreryClientEpicsTest {
                         checks = true,
                         gateAccepted = false,
                         at = 4,
+                        held = false,
+                        errorAt = 0,
                     ),
                     EpicSliceRow(
                         task = "example-task-b",
@@ -225,6 +233,8 @@ class OrreryClientEpicsTest {
                         checks = false,
                         gateAccepted = false,
                         at = 0,
+                        held = true,
+                        errorAt = 3,
                     ),
                     EpicSliceRow(
                         task = "example-task-c",
@@ -235,6 +245,8 @@ class OrreryClientEpicsTest {
                         checks = true,
                         gateAccepted = true,
                         at = 0,
+                        held = false,
+                        errorAt = 4,
                     ),
                 ),
                 detail?.slices,

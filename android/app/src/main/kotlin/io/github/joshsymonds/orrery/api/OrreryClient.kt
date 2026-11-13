@@ -266,7 +266,11 @@ data class EpicRow(
 
 data class EpicTaskRow(val effort: Int, val slug: String, val subject: String, val status: String)
 
-/** One task's slice of the epic chart as serve sends it: rings outermost first, [at] the ring the dot is on, 0 for none. */
+/**
+ * One task's slice of the epic chart as serve sends it: rings outermost first. [at] is the ring a running or held task
+ * is working toward, the first ring not reached, 0 once it ended. [held] is whether its step is held. [errorAt] is the
+ * ring that errored, 0 unless it ended short.
+ */
 data class EpicSliceRow(
     val task: String,
     val hue: String,
@@ -276,6 +280,8 @@ data class EpicSliceRow(
     val checks: Boolean,
     val gateAccepted: Boolean,
     val at: Int,
+    val held: Boolean,
+    val errorAt: Int,
 )
 
 /** One epic with its tasks, its [slices] in serve's order, and every step labelled with it, oldest step first. */
@@ -711,6 +717,8 @@ class OrreryClient(
             checks = checks,
             gateAccepted = gateAccepted,
             at = at,
+            held = held,
+            errorAt = errorAt,
         )
 
     private fun PoolStatusProto.toPool(): Pool =
