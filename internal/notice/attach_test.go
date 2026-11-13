@@ -214,6 +214,20 @@ func TestAttachWindow(t *testing.T) {
 		wantRows(t, storedPushes(ctx, t, after), store.PushedRow{Pane: "%3", Time: at + 5})
 	})
 
+	t.Run("a lower seen after a covering one still clears at Attach", func(t *testing.T) {
+		after := openStore(ctx, t, storeWithPush(ctx, t, key))
+		sender := &fakeSender{}
+		n := newNotices(sender, &clock{at: time.Unix(at, 0)})
+
+		n.Seen(ctx, key, at+5)
+		n.Seen(ctx, key, at-1)
+		n.Attach(ctx, after)
+		n.Wait()
+
+		wantCalls(t, sender.snapshot(), clearAt(at+5))
+		wantRows(t, storedPushes(ctx, t, after))
+	})
+
 	t.Run("Attach with no store after a seen sends nothing", func(t *testing.T) {
 		storeWithPush(ctx, t, key)
 		sender := &fakeSender{}

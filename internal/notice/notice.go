@@ -107,14 +107,15 @@ func (n *Notices) Notify(
 }
 
 // Seen clears key's notice when it was recorded at or before seen, and forgets it. Otherwise it does nothing. Before
-// Attach, a seen for a key with no notice in memory is kept, and Attach decides what it clears. The clear is sent in
-// the background after any send already queued for key. With a store attached, the clear then deletes key's row.
+// Attach, the highest seen for a key with no notice in memory is kept, and Attach decides what it clears. The clear
+// is sent in the background after any send already queued for key. With a store attached, the clear then deletes
+// key's row.
 func (n *Notices) Seen(ctx context.Context, key Key, seen int64) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	at, ok := n.noticed[key]
 	if !ok {
-		if !n.attached {
+		if kept, held := n.keptSeens[key]; !n.attached && (!held || seen > kept) {
 			n.keptSeens[key] = seen
 		}
 		return
