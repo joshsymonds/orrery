@@ -119,7 +119,7 @@ func (f *engineFixture) startOrreryd(t *testing.T, sessions bool, extra ...strin
 	if sessions {
 		// sessions.sock listens only after the store open, which has no bound, so the listen's wait limit starts at
 		// the store-open line.
-		daemon.waitForLog(t, storeOpenLog)
+		daemon.waitForStoreOpen(t)
 		daemon.waitForListener(t, "unix", f.sessions)
 	}
 	return daemon

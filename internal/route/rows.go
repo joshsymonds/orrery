@@ -2,6 +2,7 @@ package route
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"slices"
@@ -92,18 +93,30 @@ func (r *Router) restoreLocked(ctx context.Context, rows Rows, floor int64, befo
 	}
 }
 
-// restoreRowLocked resumes the notice that row holds, or ends the row `not restored` when the notice cannot be
-// rebuilt. The caller holds r.mu.
+// restoreRowLocked resumes the notice that row holds, or ends the row when the notice cannot be rebuilt: `changed`
+// or `seen` when the Rebuild says so, `not restored` otherwise. The caller holds r.mu.
 func (r *Router) restoreRowLocked(ctx context.Context, row store.NoticeRow) {
 	ent := storedEntry(row)
 	if err := r.rebuildLocked(ctx, ent); err != nil {
-		r.endLocked(ent, None, reasonNotRestored+": "+err.Error())
+		r.endLocked(ent, None, unrestoredReason(err))
 		return
 	}
 	r.seq++
 	ent.seq = r.seq
 	r.pending[ent.n.Key] = ent
 	r.resumeLocked(ctx, ent)
+}
+
+// unrestoredReason is the reason a row ends with when its notice fails to rebuild with err.
+func unrestoredReason(err error) string {
+	switch {
+	case errors.Is(err, ErrChanged):
+		return reasonChanged
+	case errors.Is(err, ErrSeen):
+		return reasonSeen
+	default:
+		return reasonNotRestored + ": " + err.Error()
+	}
 }
 
 // storedEntry is the entry that row describes. Its notice has no Watching, Judge, Desk or Push until rebuildLocked
@@ -133,7 +146,7 @@ func (r *Router) rebuildLocked(ctx context.Context, ent *entry) error {
 	if !ok {
 		return fmt.Errorf("unknown source kind %q", ent.n.Source.Kind)
 	}
-	built, err := rebuild(ctx, ent.n.Source.Data)
+	built, err := rebuild(ctx, ent.n.Source.Data, ent.at)
 	if err != nil {
 		return err
 	}

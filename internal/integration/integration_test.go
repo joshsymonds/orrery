@@ -236,11 +236,12 @@ func (p *orreryProcess) stop(t *testing.T) outcome {
 	return p.exitOutcome(t)
 }
 
-// waitForLog polls the process's stderr until it holds line, failing the test if the process exits first. It sets no
-// deadline of its own: it waits for an event whose timing the product does not bound, and the test binary's timeout
-// ends a wait that never ends.
-func (p *orreryProcess) waitForLog(t *testing.T, line string) {
+// waitForStoreOpen polls the process's stderr until it holds storeOpenLog, failing the test if the process exits
+// first. It sets no deadline of its own: it waits for an event whose timing the product does not bound, and the test
+// binary's timeout ends a wait that never ends.
+func (p *orreryProcess) waitForStoreOpen(t *testing.T) {
 	t.Helper()
+	line := storeOpenLog
 	ticker := time.NewTicker(pollEvery)
 	defer ticker.Stop()
 	for !strings.Contains(p.stderr.String(), line) {

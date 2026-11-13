@@ -294,6 +294,7 @@ func (r *stepRun) judge(ctx context.Context, round int, value json.RawMessage, c
 		Status string          `json:"status"`
 		Commit json.RawMessage `json:"commit"`
 	}
+	var commit string
 	if schemaErr == nil {
 		if err := json.Unmarshal(value, &head); err != nil {
 			r.finish(ctx, stepLoopEndFailed, "", fmt.Sprintf("read status of step %s: %v", r.id, err))
@@ -301,7 +302,8 @@ func (r *stepRun) judge(ctx context.Context, round int, value json.RawMessage, c
 		}
 		if head.Status == r.doneValue && r.writing {
 			var err error
-			if checks, err = r.doneChecks(ctx, round, stepLoopCommit(head.Commit), checks); err != nil {
+			commit = r.stepLoopCommit(ctx, head.Commit)
+			if checks, err = r.doneChecks(ctx, round, commit, checks); err != nil {
 				r.finish(ctx, stepLoopEndFailed, "", err.Error())
 				return false
 			}
@@ -316,7 +318,7 @@ func (r *stepRun) judge(ctx context.Context, round int, value json.RawMessage, c
 		return r.retry(ctx, round, checks, continues)
 	}
 	if head.Status == r.doneValue {
-		return r.judgeReturn(ctx, round, value, stepLoopCommit(head.Commit), head.Status, checks)
+		return r.judgeReturn(ctx, round, value, commit, head.Status, checks)
 	}
 	r.finish(ctx, stepLoopEndReturned, head.Status, "")
 	return false
@@ -366,14 +368,19 @@ func stepGateRecord(name, source string, argv []string, members []grants.Member)
 	return fmt.Sprintf("gate %s from %s ran %s holding %s; ", name, source, raw, strings.Join(held, ",")), nil
 }
 
-// stepLoopCommit returns the commit a done return names. A missing or non-string commit names none, which the head
-// check then fails, so the return goes back like any other failure.
-func stepLoopCommit(raw json.RawMessage) string {
+// stepLoopCommit returns the commit a done return names. A return that names no commit string, one missing, empty or
+// not a string, takes the workspace's HEAD when a writing step's HEAD has moved past start. Otherwise it returns "",
+// which the head check then fails, so the return goes back like any other failure.
+func (r *stepRun) stepLoopCommit(ctx context.Context, raw json.RawMessage) string {
 	var commit string
-	if err := json.Unmarshal(raw, &commit); err != nil {
+	if err := json.Unmarshal(raw, &commit); err == nil && commit != "" {
+		return commit
+	}
+	head, err := stepGitResolve(ctx, r.dir, "HEAD")
+	if err != nil || head == r.start {
 		return ""
 	}
-	return commit
+	return head
 }
 
 // stepLoopRecord returns c as a check stored with round.

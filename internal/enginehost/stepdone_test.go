@@ -357,3 +357,90 @@ func TestStepDoneNonStringCommitSendsBackHeadAndReadOnlyIgnoresIt(t *testing.T) 
 		t.Fatalf("read-only end = %q, want done for a non-string commit", got.End)
 	}
 }
+
+func TestStepDoneFallbackEndsDone(t *testing.T) {
+	dir, start := stepDoneRepo(t)
+	commit := stepGitTestCommit(t, dir, map[string]string{stepDoneOwned: "owned\n"})
+	f := newStepDoneFixture(t, stepDoneWriting(dir, start, nil, time.Minute, &fakeGatePools{}))
+	_, done := f.start(t)
+
+	f.run.Return(session.TurnEnded{StructuredOutput: json.RawMessage(`{"status":"DONE"}`)})
+	waitRunEnd(t, done)
+
+	row := f.row(t)
+	if row.End != stepLoopEndDone || row.Status != stepLoopDone {
+		t.Fatalf("end = %q status %q, want done DONE", row.End, row.Status)
+	}
+	head := stepDoneCheck(t, stepDoneRoundChecks(row.Checks, 1), stepGitHeadName)
+	if !head.OK || head.Detail != "HEAD is "+commit {
+		t.Errorf("round 1 head check = %+v, want passing at HEAD %s", head, commit)
+	}
+	if got := f.sessions.continuedTexts(); len(got) != 0 {
+		t.Errorf("Continue called %d times for a green fallback return, want 0", len(got))
+	}
+}
+
+func TestStepDoneFallbackAtStart(t *testing.T) {
+	dir, start := stepDoneRepo(t)
+	f := newStepDoneFixture(t, stepDoneWriting(dir, start, nil, time.Minute, &fakeGatePools{}))
+	_, done := f.start(t)
+
+	for range stepLoopMaxContinues + 1 {
+		f.run.Return(session.TurnEnded{StructuredOutput: json.RawMessage(`{"status":"DONE"}`)})
+	}
+	waitRunEnd(t, done)
+
+	row := f.row(t)
+	if row.End != stepLoopEndChecksFailed {
+		t.Fatalf("end = %q, want checks_failed", row.End)
+	}
+	checks := stepDoneRoundChecks(row.Checks, 1)
+	for _, name := range []string{stepGitHeadName, stepGitOwnedName} {
+		c := stepDoneCheck(t, checks, name)
+		if c.OK || !strings.Contains(c.Detail, `commit "" does not resolve`) {
+			t.Errorf("round 1 %s check = %+v, want a failure for commit \"\"", name, c)
+		}
+	}
+}
+
+func TestStepDoneNamedGoverns(t *testing.T) {
+	dir, start := stepDoneRepo(t)
+	commit := stepGitTestCommit(t, dir, map[string]string{stepDoneOwned: "owned\n"})
+	f := newStepDoneFixture(t, stepDoneWriting(dir, start, nil, time.Minute, &fakeGatePools{}))
+	_, done := f.start(t)
+
+	for range stepLoopMaxContinues + 1 {
+		f.run.Return(stepDoneReturn(start))
+	}
+	waitRunEnd(t, done)
+
+	row := f.row(t)
+	if row.End != stepLoopEndChecksFailed {
+		t.Fatalf("end = %q, want checks_failed", row.End)
+	}
+	head := stepDoneCheck(t, stepDoneRoundChecks(row.Checks, 1), stepGitHeadName)
+	if want := fmt.Sprintf("HEAD is %s, want %s", commit, start); head.OK || head.Detail != want {
+		t.Errorf("round 1 head check = %+v, want failure %q", head, want)
+	}
+}
+
+func TestStepDoneFallbackOwned(t *testing.T) {
+	dir, start := stepDoneRepo(t)
+	stepGitTestCommit(t, dir, map[string]string{"other/outside.txt": "stray\n"})
+	f := newStepDoneFixture(t, stepDoneWriting(dir, start, nil, time.Minute, &fakeGatePools{}))
+	_, done := f.start(t)
+
+	for range stepLoopMaxContinues + 1 {
+		f.run.Return(session.TurnEnded{StructuredOutput: json.RawMessage(`{"status":"DONE"}`)})
+	}
+	waitRunEnd(t, done)
+
+	row := f.row(t)
+	if row.End != stepLoopEndChecksFailed {
+		t.Fatalf("end = %q, want checks_failed", row.End)
+	}
+	owned := stepDoneCheck(t, stepDoneRoundChecks(row.Checks, 1), stepGitOwnedName)
+	if want := "changed paths outside owned: other/outside.txt"; owned.OK || owned.Detail != want {
+		t.Errorf("round 1 owned check = %+v, want failure %q", owned, want)
+	}
+}

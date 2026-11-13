@@ -8,11 +8,13 @@ type Event interface {
 	isEvent()
 }
 
-// Started reports that a session initialized: the session id claude assigned and the permission mode
-// the session runs in.
+// Started reports that a session initialized: the session id claude assigned, the permission mode the
+// session runs in, and the agent names claude loaded, in the order its init line gives them. Agents is
+// nil when the init line has no agents field.
 type Started struct {
 	SessionID      string
 	PermissionMode string
+	Agents         []string
 }
 
 func (Started) isEvent() {}

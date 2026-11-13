@@ -1,0 +1,77 @@
+{
+  "title": "Gate reviewer return",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["status", "findings", "observations", "missing_evidence", "test_runner_requests", "results"],
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": ["done", "blocked"]
+    },
+    "findings": {
+      "type": "array",
+      "description": "One candidate defect per fails result, citing that assertion. An empty array means no assertion failed.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "claim", "citation", "location", "evidence", "verify_by"],
+        "properties": {
+          "id": {"type": "string"},
+          "claim": {"type": "string"},
+          "citation": {"type": "string"},
+          "location": {"type": "string"},
+          "evidence": {"type": "string"},
+          "verify_by": {"type": "string"},
+          "precondition": {"type": "string"},
+          "consequence": {"type": "string"}
+        }
+      }
+    },
+    "observations": {
+      "type": "array",
+      "description": "True observations that do not qualify as defects, with the reason.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["location", "observation", "reason"],
+        "properties": {
+          "location": {"type": "string"},
+          "observation": {"type": "string"},
+          "reason": {"type": "string"}
+        }
+      }
+    },
+    "missing_evidence": {
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "test_runner_requests": {
+      "type": "array",
+      "description": "Checks needing writable state, for an isolated test-runner.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["command", "revision"],
+        "properties": {
+          "command": {"type": "string"},
+          "revision": {"type": "string"}
+        }
+      }
+    },
+    "results": {
+      "type": "array",
+      "description": "Exactly one result per declared assertion, in declaration order.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["assertion", "kind", "result", "evidence"],
+        "properties": {
+          "assertion": {"type": "string"},
+          "kind": {"type": "string", "enum": ["must", "must not"]},
+          "result": {"type": "string", "enum": ["holds", "fails", "undetermined"]},
+          "evidence": {"type": "string"}
+        }
+      }
+    }
+  }
+}

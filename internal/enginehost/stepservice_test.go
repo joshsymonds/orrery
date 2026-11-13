@@ -13,6 +13,7 @@ import (
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/proto"
 
+	"github.com/joshsymonds/orrery/internal/agents"
 	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
 	"github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1/enginev1connect"
 	"github.com/joshsymonds/orrery/internal/store"
@@ -617,6 +618,7 @@ func TestStepErrorsMapToConnectCodes(t *testing.T) {
 		{name: "empty prompt", err: ErrEmptyPrompt, code: connect.CodeInvalidArgument},
 		{name: "bad schema", err: ErrBadSchema, code: connect.CodeInvalidArgument},
 		{name: "bad agent", err: ErrBadAgent, code: connect.CodeInvalidArgument},
+		{name: "unresolved agent", err: wrapf(agents.ErrUnresolved, "reviewer"), code: connect.CodeInvalidArgument},
 		{name: "bad directory", err: ErrBadDir, code: connect.CodeInvalidArgument},
 		{name: "bad owned path", err: ErrBadOwned, code: connect.CodeInvalidArgument},
 		{name: "bad gate", err: ErrBadGate, code: connect.CodeInvalidArgument},

@@ -20,10 +20,10 @@ import (
 )
 
 // runGate runs `orrery gate [--gates FILE] NAME`. It resolves NAME from FILE, then from the project's gates, and reads
-// the pool files of the working directory. A gate that cannot run, because NAME is unknown, a file is refused, or a
-// need names a pool no file declares, exits with cli.ExitNoGrant and runs nothing. Otherwise the gate's argv runs under
-// a grant of its needs from orreryd, with the gate's limit, and the command's status is the exit status. One line
-// names the gate, its file, its argv, its needs and that status.
+// the pool files of the working directory. A gate that cannot run, because NAME is unknown, a file is refused, a need
+// names a pool no file declares, or NAME is an agent gate, exits with cli.ExitNoGrant and runs nothing. Otherwise the
+// gate's argv runs under a grant of its needs from orreryd, with the gate's limit, and the command's status is the exit
+// status. One line names the gate, its file, its argv, its needs and that status.
 func runGate(
 	ctx context.Context,
 	opts globals,
@@ -39,6 +39,9 @@ func runGate(
 	gate, err := gates.Resolve(ctx, name, gatesFile, ".", getenv)
 	if err != nil {
 		return refuseGate(stderr, err)
+	}
+	if gate.Agent != "" {
+		return refuseGate(stderr, fmt.Errorf("gate %s is an agent gate; it runs only as a read-only step", name))
 	}
 	project, defined, err := pools.Load(ctx, ".", getenv)
 	if err != nil {

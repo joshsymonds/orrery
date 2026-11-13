@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/joshsymonds/orrery/internal/agents"
 	"github.com/joshsymonds/orrery/internal/engine/session"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/store"
@@ -45,14 +46,17 @@ func (r stepRefusedError) Error() string { return r.err.Error() }
 
 func (r stepRefusedError) Unwrap() error { return r.err }
 
-// StartStep starts the step session step as step describes. It checks step, takes a slot under StepCap, records the row
-// as working with its Ops in one write, spawns claude with its agent and schema, then records and sends its prompt. A
-// step is listed as a step, never as a session, and sends no notice. A step refused before anything is stored, for a
-// bad step, a closed manager or a full step cap, returns its error and stores nothing. A failure after the row is
-// written, a record, spawn or send failure, records the row failed and returns the error. A step's slot frees when its
-// pump ends.
+// StartStep starts the step session step as step describes. It checks step and that claude would resolve its agent,
+// takes a slot under StepCap, records the row as working with its Ops in one write, spawns claude with its agent and
+// schema, then records and sends its prompt. A step is listed as a step, never as a session, and sends no notice. A
+// step refused before anything is stored, for a bad step, an agent that does not resolve, a closed manager or a full
+// step cap, returns its error and stores nothing. A failure after the row is written, a record, spawn or send failure,
+// records the row failed and returns the error. A step's slot frees when its pump ends.
 func (m *Manager) StartStep(ctx context.Context, step StepSession) error {
 	if err := checkStep(step); err != nil {
+		return stepRefusedError{err}
+	}
+	if err := m.resolveStepAgent(step); err != nil {
 		return stepRefusedError{err}
 	}
 	if err := m.reserveStep(); err != nil {
@@ -99,6 +103,20 @@ func checkStep(step StepSession) error {
 	}
 	if step.Agent == "" || checkModel(step.Agent) != nil {
 		return ErrBadAgent
+	}
+	return nil
+}
+
+// resolveStepAgent returns an error unless claude would resolve the agent of step for its directory under the manager's
+// environment. Claude reads agents under the HOME and CLAUDE_CONFIG_DIR of that environment and under the managed root.
+// An unset CLAUDE_CONFIG_DIR is "" and takes the default, and an unset HOME is "", which Resolve refuses. The error
+// names the agent and each place checked.
+func (m *Manager) resolveStepAgent(step StepSession) error {
+	home, _ := environValue(m.environ, "HOME")
+	configDir, _ := environValue(m.environ, "CLAUDE_CONFIG_DIR")
+	where := agents.Where{Dir: step.Dir, Home: home, ConfigDir: configDir, Managed: m.managedDir}
+	if err := agents.Resolve(step.Agent, where); err != nil {
+		return fmt.Errorf("resolve agent of step %s: %w", step.ID, err)
 	}
 	return nil
 }
