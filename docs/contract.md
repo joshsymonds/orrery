@@ -455,9 +455,9 @@ When the router sends a notice to the phone, `orreryd` posts it as an encrypted 
 
 When neither variable is set, `orreryd` exits 1.
 
-`orreryd` also keeps the store, which mirrors each pane's tmux options (see [Store](#store)). When the store cannot be opened, `orreryd` logs the error and serves hooks and notifications without it. It then mints no `@orrery_id` and syncs no pane. A failure of the push store still exits 1.
+`orreryd` also keeps the store, which mirrors each pane's tmux options (see [Store](#store)). It opens the store after its sockets listen, and logs `store open` (info, with `path`) once the store is open and migrated. When the store cannot be opened, `orreryd` logs the error and serves hooks and notifications without it. It then mints no `@orrery_id` and syncs no pane. A failure of the push store still exits 1.
 
-`SIGINT` and `SIGTERM` stop `orreryd`. With `--sessions`, the Pools broker closes first (see [Pools](#pools)), then the session socket closes. Then every live headless session is stopped, or with `--holder-scope` detached (see [Lifecycle rules](#lifecycle-rules)), and its turn, if one is running, is recorded `interrupted`. `orreryd` exits after those notices are routed (see [Notice routing](#notice-routing)). The desk stream closes last, after the notices that post to it. See [Headless sessions](#headless-sessions) and [Desk stream](#desk-stream).
+`SIGINT` and `SIGTERM` stop `orreryd`. With `--sessions`, the Pools broker closes first (see [Pools](#pools)), then the session socket closes. Then every live headless session is stopped, or with `--holder-scope` detached (see [Lifecycle rules](#lifecycle-rules)), and its turn, if one is running, is recorded `interrupted`. `orreryd` exits after those notices are routed, and after each headless session notice still pending is kept or ended, as [Notice routing](#notice-routing) says at shutdown. The desk stream closes last, after the notices that post to it. See [Headless sessions](#headless-sessions) and [Desk stream](#desk-stream).
 
 #### Notice routing
 
@@ -479,7 +479,15 @@ When neither variable is set, `orreryd` exits 1.
 4. **Away.** Otherwise the notice goes to the desk stream and to the phone at once, with route `desk+phone` and reason `away`.
 5. **Push subscription.** The phone gets a notice only when the push store lists at least one subscription. Without one, the phone part is dropped: the route names what remains, and the reason gains `; no push subscription`. An escalation with no subscription ends the notice with route `none` and reason `unseen after 5 minutes; no push subscription`. A failed subscription check reads as a subscription, so the push is attempted.
 6. **Desk notice failure.** A desk notice that cannot be built is not posted. The notice then routes as away, and its reason gains `; desk notice failed` before any `; no push subscription`.
-7. **Ending.** A newer notice for the same pane or session ends the pending one, and so does a pane's or a session's transition to a state other than `waiting` or `done`. Each ends with route `none` and reason `changed`. A seen write at or after the notice's time ends it with `none` and `seen`, and the seen write still clears any notice already sent to the phone (see [orreryd](#orreryd)). At shutdown, each pending notice ends with `none` and `shutdown`, and is not sent.
+7. **Ending.** A newer notice for the same pane or session ends the pending one, and so does a pane's or a session's transition to a state other than `waiting` or `done`. Each ends with route `none` and reason `changed`. A seen write at or after the notice's time ends it with `none` and `seen`, and the seen write still clears any notice already sent to the phone (see [orreryd](#orreryd)). At shutdown, each pending pane notice ends with `none` and `shutdown`, and is not sent. A pending headless session notice is kept when the store is open and its row is stored, and otherwise ends with `none` and `shutdown` as a pane notice does (see Restart below).
+
+**Restart.** With the store open, a headless session notice still pending at shutdown is kept: no line is written and nothing is sent. One whose row could not be stored, even after shutdown retries the failed row writes, ends `shutdown` instead. At start, once the store opens and before the headless sessions start, `orreryd` stores a row for each headless session notice already pending, then restores each stored row by its phase (see [Pending notices in the store](#pending-notices-in-the-store)):
+
+- `deciding` is decided anew.
+- `desk` is not posted again, and escalates when its 5 minutes run out.
+- A row whose `due` has passed runs at once.
+
+A restored notice keeps its original time, so a seen write at or after that time ends it with `none` and `seen`. A newer notice for the same pane or session ends it with `none` and `changed`, whether the newer notice is recorded before or after the restore. The sessions' start can record an `interrupted` notice that does this. A row that cannot be restored writes a line with route `none` and reason `not restored: <error>`, and the row is deleted. A stop between handing a notice to its sinks and deleting its row can send it once more after the restart.
 
 ### Headless sessions
 
@@ -546,7 +554,7 @@ Errors are Connect codes:
 - Stop signal: stopping a session's process sends its holder a `stop` frame on a new connection. The holder's child gets `SIGTERM` to its process group, then `SIGKILL` if it has not exited after 5 seconds (see [Child](#child)). When that stop fails, the holder's own process is stopped instead. Once the holder's `exit` frame has arrived the child has ended, and the stop sends nothing and only waits for the holder to end (`internal/holder/process.go:108`-`:113`, `:116`-`:139`, `:143`-`:161`; `internal/holder/child.go:85`-`:95`, `:16`-`:17`).
 - `Stop` records `stopped` unless the process's exit has already recorded a state. A process that exits without an error records `stopped`.
 - Failed on death: a process that exits with an error records `failed`. The reason is the exit error and stream error, followed by the last non-blank line of its stderr, and the owner is notified. The exit of a process stopped for idle stop or shutdown records nothing itself.
-- Shutdown: when `orreryd` receives `SIGINT` or `SIGTERM`, the session socket closes first. Then each live session is stopped. With `--holder-scope`, each live session is detached instead: its holder and child keep running, and its row is recorded the way a stop records it (`internal/enginehost/manager.go:735`-`:771`). The next start's [Reconcile at start](#lifecycle-rules) stops those holders. A session whose turn is running is recorded `interrupted` with the reason `orreryd stopped during the turn`. These writes share one 5-second limit, and each interrupted session notifies its owner. The notices are routed before `orreryd` exits, and a notice still pending then is not sent (see [Notice routing](#notice-routing)).
+- Shutdown: when `orreryd` receives `SIGINT` or `SIGTERM`, the session socket closes first. Then each live session is stopped. With `--holder-scope`, each live session is detached instead: its holder and child keep running, and its row is recorded the way a stop records it (`internal/enginehost/manager.go:735`-`:771`). The next start's [Reconcile at start](#lifecycle-rules) stops those holders. A session whose turn is running is recorded `interrupted` with the reason `orreryd stopped during the turn`. These writes share one 5-second limit, and each interrupted session notifies its owner. The notices are routed before `orreryd` exits. A session notice still pending then is not sent: with the store open and its row stored it is kept for the next start, and otherwise it ends `shutdown` (see [Notice routing](#notice-routing)).
 - Reconcile at start: before the session socket serves, each holder under the state directory's `holders` subdirectory that no live session owns is cleared. A holder still serving its socket is stopped, and its directory is emptied and removed once its lock is free. Each clear is bounded by 10 seconds, and a failed clear is logged while the pass goes on (`internal/enginehost/reconcile.go:25`, `:56`-`:82`; `internal/holder/clear.go:20`-`:46`). Then each engine row with no live process loses its unfinished text. A row that is `working` or `waiting` is recorded `interrupted` with the reason `orreryd restarted during the turn`, its question is cleared, and its owner is notified. Other rows keep their state, and no row is removed. The first read or write error ends the pass. `orreryd` logs it and serves anyway.
 - A turn that `Interrupt` stops ends `done` with no notice. `Interrupt` does not stop the process.
 - `reason` keeps its last value. A later state does not clear it, so a session resumed after a failure shows the old reason until a new failure or interruption sets another.
@@ -970,7 +978,8 @@ The `reason` values are these. A reason that gains a clause adds it after `; `:
 | `unneeded` | `desk+phone`, `desk`, `phone` or `none` | the judge found the notice unneeded: posted to the desk stream as a quiet notice and sent to Web Push as a silent notice, then ended (see [Notice routing](#notice-routing)) |
 | `changed` | `none` | a newer notice for its key, or the pane or session moved to another state |
 | `seen` | `none` | a seen write at or after the notice's time |
-| `shutdown` | `none` | `orreryd` shut down while the notice was pending |
+| `shutdown` | `none` | `orreryd` shut down while the notice was pending and does not keep it: a pane notice, a session notice whose row could not be stored, or any pending notice when `orreryd` serves without the store |
+| `not restored: <error>` | `none` | a stored pending notice could not be restored at start, and its row is deleted. `<error>` is the restore's error text (see [Notice routing](#notice-routing)) |
 
 The clauses are these:
 
@@ -1195,7 +1204,7 @@ holder      {"type":"out","data":"ZXhhbXBsZSBvdXRwdXQK"}
 
 ### Store
 
-`orreryd` keeps a SQLite store that mirrors each pane's tmux options, records each headless engine session (see [Engine sessions in the store](#engine-sessions-in-the-store)), keeps the live grants of the Pools service (see [Grants in the store](#grants-in-the-store)), and keeps the owner holds of the Pools service (see [Holds in the store](#holds-in-the-store)). Outside the store's tests, `orreryd`'s own writes read it, and `orrery serve` reads it for the Connect API (section 12). A sync reads the pane's row to compare it with the new snapshot, and a tidy also reads the server's rows to find the panes that are gone. `serve` only reads the store, and never writes it.
+`orreryd` keeps a SQLite store that mirrors each pane's tmux options, records each headless engine session (see [Engine sessions in the store](#engine-sessions-in-the-store)), keeps the live grants of the Pools service (see [Grants in the store](#grants-in-the-store)), keeps the pending headless session notices (see [Pending notices in the store](#pending-notices-in-the-store)), and keeps the owner holds of the Pools service (see [Holds in the store](#holds-in-the-store)). Outside the store's tests, `orreryd`'s own writes read it, and `orrery serve` reads it for the Connect API (section 12). A sync reads the pane's row to compare it with the new snapshot, and a tidy also reads the server's rows to find the panes that are gone. `serve` only reads the store, and never writes it.
 
 The store file is `$XDG_STATE_HOME/orrery/orrery.db` when `XDG_STATE_HOME` is set, else `$HOME/.local/state/orrery/orrery.db`. When neither variable is set, no path resolves.
 
@@ -1254,7 +1263,7 @@ One lock covers each sync's tmux read, id mint and store write. A sync waits at 
 
 A dropped sync writes no row or event and sets no id. tmux keeps its options as they were set. The next sync or tidy of the pane writes the difference from the stored row. Events for the values the dropped sync carried are not written. A pane whose id was minted by a dropped sync gets another id on its next sync.
 
-The tidy runs at orreryd start and every 10 s. It tidies:
+The tidy runs at orreryd start and every 10 s. The first tidy runs once the store is open and, with `--sessions`, the sessions have started, so it follows the `store open` log line. Opening a new store applies every migration, and under heavy disk load that can take seconds. It tidies:
 
 - the server named by `-L` or `-S`, when either is given;
 - otherwise, the default socket, from the first tidy at start, and every server that a hook frame has named since orreryd started.
@@ -1399,6 +1408,32 @@ The `holds` table (migration `00008_holds.sql`) has one row per owner hold (see 
 | `since` | `INTEGER` | unix seconds when the hold was placed |
 
 `orreryd` reads the table at start, before it reads the grants. A hold is stored before it takes effect, and freeing one deletes its row.
+
+#### Pending notices in the store
+
+The `pending_notices` table (migration `00010_pending_notices.sql`) has one row per headless session notice that is pending (see [Notice routing](#notice-routing)):
+
+| Column | Type | Meaning |
+|---|---|---|
+| `id` | `INTEGER`, primary key | the row's id. An id is never reused |
+| `pane` | `TEXT` | the notice's pane; `""` for a session notice |
+| `session` | `TEXT` | the notice's session id |
+| `state` | `TEXT` | the notice's state |
+| `time` | `INTEGER` | unix seconds when the notice was recorded |
+| `phase` | `TEXT` | where the notice is: `deciding` or `desk`. A session notice is never held or judged, so it has no other phase |
+| `due` | `INTEGER` | unix milliseconds when the phase's wait runs out; `0` for none |
+| `delay_served` | `INTEGER` | `1` once the judge wait started, else `0`; always `0` for a session notice |
+| `watch_logged` | `INTEGER` | `1` once the `watching` line was written, else `0`; always `0` for a session notice |
+| `source_kind` | `TEXT` | `session` |
+| `source` | `BLOB` | the session notice as JSON: its session, directory, state and body |
+
+The `pending_notice_ids` table has one row, whose `high` is the highest `id` the table has ever stored. Deleting rows does not lower it, so ids keep rising.
+
+| Column | Type | Meaning |
+|---|---|---|
+| `high` | `INTEGER` | the highest `id` stored |
+
+A row is written when its notice is recorded, with phase `deciding`, and again before its desk post, with phase `desk`, which it keeps until it escalates. Each row write has a 200 ms limit. A write that fails or runs past it is logged by `orreryd`, and the notice routes as it would. Later row writes and the next stop retry it. The row is deleted when the notice ends, after its sinks have been handed the notice.
 
 ### Claude Code hook settings
 

@@ -3,6 +3,7 @@ package holder
 import (
 	"bytes"
 	"errors"
+	"io"
 	"net"
 	"os"
 	"os/exec"
@@ -119,13 +120,25 @@ func (c *client) sendStop() {
 }
 
 // detach ends the controller's side of the connection. The holder reads end of stream and drops the connection, which
-// detaches it; detach returns once the holder has closed the connection, so a later attach sees the detach done.
+// detaches it; detach returns once the holder has closed the connection, so a later attach sees the detach done. Until
+// the holder sees the end of stream it goes on streaming, so out and written frames already in flight are read and
+// dropped; any other frame, or no close within the read deadline, fails the test.
 func (c *client) detach() {
 	c.t.Helper()
 	if err := c.conn.CloseWrite(); err != nil {
 		c.t.Fatalf("close write: %v", err)
 	}
-	c.expectClosed()
+	for {
+		c.setDeadline()
+		frame, err := c.frames.Read()
+		if errors.Is(err, io.EOF) {
+			return
+		}
+		if err != nil || (frame.Type != TypeOut && frame.Type != TypeWritten) {
+			c.t.Fatalf("read after detach: frame %+v, err %v; want in-flight out or written frames, then a close",
+				frame, err)
+		}
+	}
 }
 
 // readOut reads out frames until n bytes starting at offset from have arrived, and returns them. Each frame must start
