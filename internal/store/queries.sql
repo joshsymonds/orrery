@@ -230,3 +230,13 @@ SELECT * FROM pending_notices ORDER BY id;
 
 -- name: GetNoticeIDFloor :one
 SELECT high FROM pending_notice_ids WHERE id = 1;
+
+-- name: UpsertPushedNotice :exec
+INSERT INTO pushed_notices (pane, session, time) VALUES (?, ?, ?)
+ON CONFLICT (pane, session) DO UPDATE SET time = excluded.time;
+
+-- name: DeletePushedNotice :exec
+DELETE FROM pushed_notices WHERE pane = ? AND session = ?;
+
+-- name: ListPushedNotices :many
+SELECT * FROM pushed_notices ORDER BY pane, session;

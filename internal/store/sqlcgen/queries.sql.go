@@ -104,6 +104,20 @@ func (q *Queries) DeletePendingNotice(ctx context.Context, id int64) error {
 	return err
 }
 
+const deletePushedNotice = `-- name: DeletePushedNotice :exec
+DELETE FROM pushed_notices WHERE pane = ? AND session = ?
+`
+
+type DeletePushedNoticeParams struct {
+	Pane    string
+	Session string
+}
+
+func (q *Queries) DeletePushedNotice(ctx context.Context, arg DeletePushedNoticeParams) error {
+	_, err := q.db.ExecContext(ctx, deletePushedNotice, arg.Pane, arg.Session)
+	return err
+}
+
 const deleteSession = `-- name: DeleteSession :exec
 DELETE FROM sessions WHERE id = ?
 `
@@ -1026,6 +1040,33 @@ func (q *Queries) ListPendingNotices(ctx context.Context) ([]PendingNotice, erro
 	return items, nil
 }
 
+const listPushedNotices = `-- name: ListPushedNotices :many
+SELECT pane, session, time FROM pushed_notices ORDER BY pane, session
+`
+
+func (q *Queries) ListPushedNotices(ctx context.Context) ([]PushedNotice, error) {
+	rows, err := q.db.QueryContext(ctx, listPushedNotices)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []PushedNotice
+	for rows.Next() {
+		var i PushedNotice
+		if err := rows.Scan(&i.Pane, &i.Session, &i.Time); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listServerSessions = `-- name: ListServerSessions :many
 SELECT id, server, pane, state, changed, seen, question, summary, label, context, tool, claude_session, transcript, kind, dir, reason FROM sessions WHERE server = ? AND kind = '' ORDER BY id
 `
@@ -1420,5 +1461,21 @@ func (q *Queries) UpsertPendingNotice(ctx context.Context, arg UpsertPendingNoti
 		arg.Source,
 		arg.Silent,
 	)
+	return err
+}
+
+const upsertPushedNotice = `-- name: UpsertPushedNotice :exec
+INSERT INTO pushed_notices (pane, session, time) VALUES (?, ?, ?)
+ON CONFLICT (pane, session) DO UPDATE SET time = excluded.time
+`
+
+type UpsertPushedNoticeParams struct {
+	Pane    string
+	Session string
+	Time    int64
+}
+
+func (q *Queries) UpsertPushedNotice(ctx context.Context, arg UpsertPushedNoticeParams) error {
+	_, err := q.db.ExecContext(ctx, upsertPushedNotice, arg.Pane, arg.Session, arg.Time)
 	return err
 }
