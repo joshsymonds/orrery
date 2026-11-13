@@ -589,7 +589,7 @@ function itemKeys(items: ConversationItem[]): string[] {
   });
 }
 
-function clock(time: bigint): string {
+export function clock(time: bigint): string {
   if (time === 0n) {
     return "";
   }

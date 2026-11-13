@@ -2598,9 +2598,10 @@ function sliceClasses(column: HTMLElement): (string | null)[] {
   return [...column.querySelectorAll(".chart .slice")].map((slice) => slice.getAttribute("class"));
 }
 
-// markedStep is the label of the step the column marks, or null when it marks none.
+// markedStep is the task the column rings, which is the cursor's step's task, or null when it rings none. The step
+// list is folded, so the task row carries the mark.
 function markedStep(column: HTMLElement): string | null {
-  return column.querySelector(".step.cur .label")?.textContent ?? null;
+  return column.querySelector(".task.cur .slug")?.textContent ?? null;
 }
 
 // twoStepEpic is a live epic with two steps, each on one of its tasks: the first done, the second pending. Each of its
@@ -2631,7 +2632,7 @@ test("on an epic entry the right column draws a slice per task and marks no step
     assert.equal(column.parentElement?.classList.contains("panes"), true, "the column sits in the panes");
     assert.equal(columnSlug(column), "first");
     assert.deepEqual(sliceClasses(column), ["slice", "slice", "slice"], "one slice per task, and none is outlined");
-    assert.equal(column.querySelector(".step.cur") === null, true, "no step is marked");
+    assert.equal(markedStep(column), null, "no step is marked");
   });
 });
 

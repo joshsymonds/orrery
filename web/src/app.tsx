@@ -6,6 +6,7 @@ import type { Clients } from "./actions";
 import { Composer } from "./composer";
 import type { Conversation } from "./conversation";
 import {
+  denseStrip,
   type EpicItem,
   type EpicSection,
   type EpicsView,
@@ -62,9 +63,6 @@ const heldMark = "‖";
 
 // The keys 1-3 answer the first three options of a question, and no others.
 const keyedOptions = 3;
-
-// A task strip past this many segments draws dense, its segments touching.
-const denseStrip = 60;
 
 const secondsPerMinute = 60;
 const minutesPerHour = 60;
@@ -713,7 +711,7 @@ export function App({
             (epicDetail === undefined ? (
               <p class="side-note">{epicUnavailableText}</p>
             ) : (
-              <EpicView detail={epicDetail} cursorStep={cursorStepId} />
+              <EpicView detail={epicDetail} cursorStep={cursorStepId} now={now} />
             ))}
         </aside>
       </div>

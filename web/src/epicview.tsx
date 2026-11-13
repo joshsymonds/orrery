@@ -1,10 +1,11 @@
 import type { JSX } from "preact";
 import { useState } from "preact/hooks";
 
-import { denseStrip, doneOf, pipsOf, type StripTone, stripOf } from "./epics";
+import { denseStrip, doneOf, pipsOf, roundOf, type StripTone, stripOf } from "./epics";
 import type { EpicSlice, EpicStep, EpicsGetResponse, EpicTask } from "./gen/orrery/v1/epics_pb";
 import { cellKind, cellTitle, type EpicReadout, epicReadout, RINGS, type TaskReadout, taskReadout } from "./orbitcells";
 import { bezel, cellPath, CENTRE, handPath, hitSlice, ringLetters, VIEW, wedgePath } from "./orbits";
+import { clock } from "./reader";
 import { taskStateOf } from "./taskstatus";
 
 // The empty state's five orbits, as radii about the middle of a 132 unit square, from the outside in.
@@ -13,15 +14,19 @@ const emptyOrbits = [62, 51, 40, 29, 18];
 const washFrom = 18;
 // A task row's mark for each tone that is not now, which draws a spinner instead.
 const markOf: Record<Exclude<StripTone, "now">, string> = { passed: "✓", held: "‖", errored: "✗", none: "○" };
+// A step's start and now are unix seconds, and a Date takes milliseconds.
+const secondsToMillis = 1000;
 
 // EpicView draws the right column for one epic: its head, with the slug, repository, outcome and done count, any
 // problem and the task strip; a chart of its slices, or the orbits and the line that it has none; the task rows, each
-// with its mark, agent, pips and line; and every step, oldest first, with a pip per stored check and its end kind. The
-// cursor's step and its task are marked. Every text is a child of its element, so no markup in a slug, status, label or
-// check name becomes an element.
-export function EpicView(props: { detail: EpicsGetResponse; cursorStep: string }): JSX.Element {
-  const { detail, cursorStep } = props;
+// with its mark, agent, pips and line; a card for the cursor's step while it runs; and the steps, folded behind a line
+// that counts them and their ends. The fold opens to the steps started on now's day, oldest first, each with a pip per
+// stored check and its end kind. The cursor's step and its task are marked. Every text is a child of its element, so no
+// markup in a slug, status, label or check name becomes an element.
+export function EpicView(props: { detail: EpicsGetResponse; cursorStep: string; now: number }): JSX.Element {
+  const { detail, cursorStep, now } = props;
   const { epic, tasks, slices, steps } = detail;
+  const [open, setOpen] = useState(false);
   const cursor = cursorStep === "" ? undefined : steps.find((step) => step.id === cursorStep);
   const cursorTask = cursor === undefined || cursor.task === "" ? undefined : cursor.task;
   const strip = stripOf(tasks, slices);
@@ -78,27 +83,41 @@ export function EpicView(props: { detail: EpicsGetResponse; cursorStep: string }
           );
         })}
       </ul>
-      <ol class="steps">
-        {steps.map((step) => (
-          <li
-            key={step.id}
-            class={step === cursor ? "step cur" : "step"}
-            aria-current={step === cursor ? "true" : undefined}
-          >
-            <span class="label">{step.task || step.agent}</span>
-            <span class="pips">
-              {step.checks.map((check, index) => (
-                <span
-                  key={index}
-                  class={check.ok ? "pip ok" : "pip bad"}
-                  title={`round ${check.round} ${check.name}: ${check.ok ? "passed" : "failed"}`}
-                />
-              ))}
-            </span>
-            <span class="end">{endKind(step)}</span>
-          </li>
-        ))}
-      </ol>
+      {cursor !== undefined && cursor.end === "" && !cursor.held && (
+        <section class="now-card">
+          <p class="cap">{`${cursor.task || cursor.agent} · now`}</p>
+          {cursor.doing !== "" && <p class="doing">{cursor.doing}</p>}
+          <p class="m">{`started ${clock(cursor.started)} · round ${roundOf(cursor)}`}</p>
+        </section>
+      )}
+      <button type="button" class="steps-fold" aria-expanded={open} onClick={() => setOpen((isOpen) => !isOpen)}>
+        {`${steps.length} steps · ${steps.filter((step) => step.end !== "").length} ended`}
+      </button>
+      {open && (
+        <ol class="steps">
+          {steps
+            .filter((step) => startedToday(step.started, now))
+            .map((step) => (
+              <li
+                key={step.id}
+                class={step === cursor ? "step cur" : "step"}
+                aria-current={step === cursor ? "true" : undefined}
+              >
+                <span class="label">{step.task || step.agent}</span>
+                <span class="pips">
+                  {step.checks.map((check, index) => (
+                    <span
+                      key={index}
+                      class={check.ok ? "pip ok" : "pip bad"}
+                      title={`round ${check.round} ${check.name}: ${check.ok ? "passed" : "failed"}`}
+                    />
+                  ))}
+                </span>
+                <span class="end">{endKind(step)}</span>
+              </li>
+            ))}
+        </ol>
+      )}
     </div>
   );
 }
@@ -310,6 +329,12 @@ function endKind(step: EpicStep): string {
     return step.end;
   }
   return step.held ? "held" : "running";
+}
+
+// startedToday is whether a step started on the local calendar day of now.
+function startedToday(started: bigint, now: number): boolean {
+  const day = new Date(Number(started) * secondsToMillis).toDateString();
+  return day === new Date(now * secondsToMillis).toDateString();
 }
 
 // joinParts joins the parts that are not empty with a middle dot.

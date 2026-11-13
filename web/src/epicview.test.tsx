@@ -92,6 +92,18 @@ const strip7Slices = [
   { task: "6-task", hue: "dispatched", at: 1 },
 ];
 
+// testNow is 15:00 on 13 November 2026 in the local zone: the now that the card and the fold are read at. Step times
+// are built from it, so no test reads the wall clock.
+const testNow = Math.floor(new Date(2026, 10, 13, 15).getTime() / 1000);
+
+// onDay is the start of a step hours after the local midnight that begins the day of now. Negative hours fall on the
+// day before.
+function onDay(now: number, hours: number): bigint {
+  const midnight = new Date(now * 1000);
+  midnight.setHours(0, 0, 0, 0);
+  return BigInt(Math.floor(midnight.getTime() / 1000) + hours * 3600);
+}
+
 async function withView(
   props: { detail: EpicsGetResponse; cursorStep: string },
   check: (container: HTMLElement) => void | Promise<void>,
@@ -99,7 +111,7 @@ async function withView(
   const window = installTestDom();
   const container = document.createElement("div");
   try {
-    render(<EpicView {...props} />, container);
+    render(<EpicView {...props} now={testNow} />, container);
     await check(container);
   } finally {
     render(null, container);
@@ -224,7 +236,8 @@ test("with no slices there is no chart: five dotted orbits, and the line says th
     );
     assert.equal(container.querySelector(".side-note")?.textContent ?? null, "No orrery-tracked steps");
     assert.equal(container.querySelectorAll(".task").length, 3, "the task list stays");
-    assert.equal(container.querySelectorAll(".step").length, 3, "the step list stays");
+    assert.equal(container.querySelectorAll(".steps").length, 0, "the step list is folded");
+    assert.equal(container.querySelector(".steps-fold")?.textContent ?? null, "3 steps · 1 ended");
   }));
 
 for (const count of [3, 35, 150]) {
@@ -516,7 +529,6 @@ test("the cursor step's slice is outlined, and no other slice", () => {
         [...container.querySelectorAll(".chart .slice")].map(classOf),
         ["slice", "slice cur", "slice"],
       );
-      assert.equal(container.querySelectorAll(".step.cur").length, 1, "the step is still marked");
     },
   );
 });
@@ -631,12 +643,13 @@ test("markup in slugs, statuses, labels and slice tasks draws as text with no el
       detail: detail({
         epic,
         tasks: [{ slug: "<img src=x onerror=alert(1)>", status: "<b>done</b>" }],
-        steps: [{ id: "s1", task: "<script>alert(1)</script>", started: 1n }],
+        steps: [{ id: "s1", task: "<script>alert(1)</script>", started: onDay(testNow, 9) }],
         slices: [{ ...syntheticSlices(1)[0], task: "<i>slice</i>" }],
       }),
       cursorStep: "",
     },
-    (container) => {
+    async (container) => {
+      await clickFold(container);
       assert.equal(container.querySelectorAll("img").length, 0);
       assert.equal(container.querySelectorAll("script").length, 0);
       assert.equal(container.querySelectorAll("b").length, 0);
@@ -978,13 +991,11 @@ test("a row is held when its tone is held, out when none, and a plain task other
     ]);
   }));
 
-test("only the cursor's task row is cur, and the step row alone keeps aria-current", () =>
-  withView(
-    {
-      detail: detail({ epic, tasks: sevenTasks, slices: strip7Slices, steps: cursorSteps("4-task") }),
-      cursorStep: "s1",
-    },
-    (container) => {
+test("only the cursor's task row is cur, and the step row alone keeps aria-current", () => {
+  const running = { id: "s1", task: "4-task", agent: "builder", started: onDay(testNow, 9) };
+  return withView(
+    { detail: detail({ epic, tasks: sevenTasks, slices: strip7Slices, steps: [running] }), cursorStep: "s1" },
+    async (container) => {
       assert.deepEqual(rowsOf(container).map(classOf), [
         "task",
         "task",
@@ -994,10 +1005,12 @@ test("only the cursor's task row is cur, and the step row alone keeps aria-curre
         "task",
         "task out",
       ]);
+      await clickFold(container);
       assert.equal(container.querySelectorAll(".task[aria-current]").length, 0);
       assert.equal(container.querySelectorAll(".step[aria-current]").length, 1);
     },
-  ));
+  );
+});
 
 test("no row is cur without a cursor, or when the cursor's step names no task", async () => {
   const cases = [
@@ -1080,3 +1093,126 @@ for (const [name, step, line] of lineCases) {
       },
     ));
 }
+
+// clickFold presses the fold, and waits for Preact to paint what the press changed.
+async function clickFold(container: HTMLElement): Promise<void> {
+  const fold = container.querySelector<HTMLButtonElement>(".steps-fold");
+  if (fold === null) {
+    throw new Error("no fold to press");
+  }
+  fold.click();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+test("a running cursor step draws one now card: its task and now, its doing, and when it started and its round", () =>
+  withView(
+    {
+      detail: detail({
+        epic,
+        steps: [
+          { id: "s1", task: "2-task", agent: "builder", doing: "writing the test", started: onDay(testNow, 9.5) },
+        ],
+      }),
+      cursorStep: "s1",
+    },
+    (container) => {
+      assert.equal(container.querySelectorAll(".now-card").length, 1);
+      assert.equal(container.querySelector(".now-card .cap")?.textContent ?? null, "2-task · now");
+      assert.equal(container.querySelector(".now-card .doing")?.textContent ?? null, "writing the test");
+      assert.equal(container.querySelector(".now-card .m")?.textContent ?? null, "started 09:30 · round 1");
+      assert.equal(container.querySelector(".tasks + .now-card") !== null, true, "the card sits after the task rows");
+    },
+  ));
+
+test("a now card's round is the highest round its checks reached, plus one while the step runs", () =>
+  withView(
+    {
+      detail: detail({
+        epic,
+        steps: [
+          {
+            id: "s1",
+            task: "2-task",
+            agent: "builder",
+            started: onDay(testNow, 9.5),
+            checks: [
+              { round: 1, name: "unit", ok: false },
+              { round: 2, name: "lint", ok: true },
+            ],
+          },
+        ],
+      }),
+      cursorStep: "s1",
+    },
+    (container) => {
+      assert.equal(container.querySelector(".now-card .m")?.textContent ?? null, "started 09:30 · round 3");
+    },
+  ));
+
+test("a now card with no task names its agent, and leaves out a doing that is empty", () =>
+  withView(
+    {
+      detail: detail({ epic, steps: [{ id: "s1", agent: "reviewer", started: onDay(testNow, 9.5) }] }),
+      cursorStep: "s1",
+    },
+    (container) => {
+      assert.equal(container.querySelector(".now-card .cap")?.textContent ?? null, "reviewer · now");
+      assert.equal(container.querySelectorAll(".now-card .doing").length, 0);
+      assert.equal(container.querySelector(".now-card .m")?.textContent ?? null, "started 09:30 · round 1");
+    },
+  ));
+
+test("a held, ended or absent cursor step, or no cursor, draws no now card", async () => {
+  const running = { id: "s1", task: "2-task", agent: "builder", started: onDay(testNow, 9.5) };
+  const cases = [
+    { name: "a held step", steps: [{ ...running, held: true }], cursorStep: "s1" },
+    { name: "an ended step", steps: [{ ...running, end: "done" }], cursorStep: "s1" },
+    { name: "an absent step", steps: [running], cursorStep: "s9" },
+    { name: "no cursor", steps: [running], cursorStep: "" },
+  ];
+  for (const { name, steps: stepsOfCase, cursorStep } of cases) {
+    await withView({ detail: detail({ epic, steps: stepsOfCase }), cursorStep }, (container) => {
+      assert.equal(container.querySelectorAll(".now-card").length, 0, `${name} draws no card`);
+    });
+  }
+});
+
+// dayOfSteps are five steps, oldest first: one ended on the day before, then four on now's day, of which one is ended,
+// one held and two running. The cursor is on the held step.
+function dayOfSteps() {
+  return [
+    { id: "y1", task: "0-task", agent: "scout", started: onDay(testNow, -1), end: "done" },
+    { id: "s1", task: "1-task", agent: "scout", started: onDay(testNow, 8), end: "done" },
+    { id: "s2", task: "2-task", agent: "builder", started: onDay(testNow, 9), held: true },
+    { id: "s3", task: "3-task", agent: "builder", started: onDay(testNow, 14) },
+    { id: "s4", task: "4-task", agent: "reviewer", started: onDay(testNow, 15) },
+  ];
+}
+
+test("the fold reads its step count and how many ended, and is closed", () =>
+  withView({ detail: detail({ epic, steps: dayOfSteps() }), cursorStep: "" }, (container) => {
+    const fold = container.querySelector(".steps-fold");
+    assert.equal(fold?.textContent ?? null, "5 steps · 2 ended");
+    assert.equal(fold?.getAttribute("type") ?? null, "button");
+    assert.equal(fold?.getAttribute("aria-expanded") ?? null, "false");
+    assert.equal(container.querySelectorAll(".steps").length, 0, "no step list while closed");
+  }));
+
+test("the fold opens to the steps started on now's day, oldest first, and closes again", () =>
+  withView({ detail: detail({ epic, steps: dayOfSteps() }), cursorStep: "s2" }, async (container) => {
+    await clickFold(container);
+    assert.equal(container.querySelector(".steps-fold")?.getAttribute("aria-expanded") ?? null, "true");
+    assert.deepEqual(
+      [...container.querySelectorAll(".steps > .step > .label")].map((label) => label.textContent),
+      ["1-task", "2-task", "3-task", "4-task"],
+    );
+    assert.deepEqual(
+      [...container.querySelectorAll(".steps > .step > .end")].map((end) => end.textContent),
+      ["done", "held", "running", "running"],
+    );
+    assert.equal(container.querySelectorAll(".steps > .step.cur").length, 1, "the cursor's step stays marked");
+    assert.equal(container.querySelector(".steps > .step.cur > .label")?.textContent ?? null, "2-task");
+    await clickFold(container);
+    assert.equal(container.querySelector(".steps-fold")?.getAttribute("aria-expanded") ?? null, "false");
+    assert.equal(container.querySelectorAll(".steps").length, 0, "the list closes again");
+  }));
