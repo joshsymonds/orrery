@@ -97,7 +97,8 @@ func Run(ctx context.Context, cfg Config) error {
 }
 
 // openHolder takes what the holder serves with: the socket, the spool and the child. A failure releases what it took
-// first. A child that cannot start is recorded in the exit file, so the spool it leaves has one.
+// first. A child that cannot start, or whose pids record cannot be written, is recorded in the exit file, so the spool
+// it leaves has one.
 func openHolder(cfg Config) (*holder, error) {
 	exitPath := filepath.Join(cfg.Dir, ExitName)
 	_, statErr := os.Lstat(exitPath)
@@ -127,6 +128,9 @@ func openHolder(cfg Config) (*holder, error) {
 		return nil, errors.Join(err, listener.Close())
 	}
 	child, err := StartChild(cfg.Child, spool)
+	if err == nil {
+		err = recordChild(cfg.Dir, child)
+	}
 	if err != nil {
 		exitErr := WriteExit(exitPath, Exit{Reason: ReasonExited, Code: -1, Stderr: err.Error()})
 		return nil, errors.Join(err, exitErr, spool.Close(), listener.Close())

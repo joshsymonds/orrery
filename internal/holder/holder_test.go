@@ -307,7 +307,7 @@ func TestHolderStopEndsChildGroupThenWritesExitAndAnswersStopped(t *testing.T) {
 	}
 	requireChildGroupGone(t, pid)
 	requireNoSocket(t, sock)
-	assertDirNames(t, cfg.Dir, ExitName, LockName, segmentName(0))
+	assertDirNames(t, cfg.Dir, ExitName, PidsName, LockName, segmentName(0))
 }
 
 func TestHolderChildThatExitsAloneWritesItsStatusAndTailThenReturnsNil(t *testing.T) {
@@ -324,7 +324,7 @@ func TestHolderChildThatExitsAloneWritesItsStatusAndTailThenReturnsNil(t *testin
 		t.Errorf("exit = %+v, want %+v", got, want)
 	}
 	requireNoSocket(t, socketOf(t, cfg.Dir))
-	assertDirNames(t, cfg.Dir, ExitName, LockName, segmentName(0))
+	assertDirNames(t, cfg.Dir, ExitName, PidsName, LockName, segmentName(0))
 }
 
 func TestHolderSecondHolderIsLockedOutAndFirstKeepsServing(t *testing.T) {
