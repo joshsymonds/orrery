@@ -5,9 +5,16 @@
 # FLOOD streams 50 finished text blocks, TRICKLE streams 60 finished text blocks about 50 ms apart, STALL streams the
 # start of a text block and never finishes it, TERMPROOF ignores SIGTERM and then stalls as STALL does, DIE streams
 # the same start, writes fake died to stderr and exits with status 3, BACKGROUND starts a background task and ends
-# its turn while the task runs, BGEND ends that task and then answers as any other prompt does, and any other prompt
+# its turn while the task runs, BGEND ends that task and then answers as any other prompt does, PAIR answers with one
+# assistant line that carries two finished text blocks, "fake pair n.1" and "fake pair n.2", and any other prompt
 # streams "fake reply n". The turns reproduce the stream lines captured from the real CLI, with only text, ids and the
-# session id changed. It exits at stdin EOF.
+# session id changed. Every line it reads from stdin, prompts and answers alike, is appended to fakeclaude.stdin as it
+# is read. It exits at stdin EOF.
+
+# assistant_line CONTENT: the assistant line that carries CONTENT, the JSON of its finished content blocks.
+assistant_line() {
+	printf '%s\n' '{"type":"assistant","message":{"model":"claude-haiku-5-5","id":"msg_1","type":"message","role":"assistant","content":['"$1"'],"container":null,"stop_reason":null,"stop_sequence":null,"stop_details":null,"usage":{"input_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"cache_creation":{"ephemeral_5m_input_tokens":0,"ephemeral_1h_input_tokens":0},"output_tokens":0,"service_tier":"redacted","inference_geo":"redacted","speed":"redacted"},"input_transformations":[],"diagnostics":null,"context_management":null},"parent_tool_use_id":null,"session_id":"session_1","uuid":"uuid_9","timestamp":"redacted","request_id":"req_2","user_message_uuid":"uuid_1","user_message_uuids":["uuid_1"]}'
+}
 
 # text_block INDEX FULL DELTA...: a text block that streams each DELTA, then finishes as FULL.
 text_block() {
@@ -18,8 +25,14 @@ text_block() {
 	for delta in "$@"; do
 		printf '%s\n' '{"type":"stream_event","event":{"type":"content_block_delta","index":'"$index"',"delta":{"type":"text_delta","text":"'"$delta"'"}},"session_id":"session_1","parent_tool_use_id":null,"uuid":"uuid_8","api_message_id":"redacted"}'
 	done
-	printf '%s\n' '{"type":"assistant","message":{"model":"claude-haiku-5-5","id":"msg_1","type":"message","role":"assistant","content":[{"type":"text","text":"'"$full"'"}],"container":null,"stop_reason":null,"stop_sequence":null,"stop_details":null,"usage":{"input_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"cache_creation":{"ephemeral_5m_input_tokens":0,"ephemeral_1h_input_tokens":0},"output_tokens":0,"service_tier":"redacted","inference_geo":"redacted","speed":"redacted"},"input_transformations":[],"diagnostics":null,"context_management":null},"parent_tool_use_id":null,"session_id":"session_1","uuid":"uuid_9","timestamp":"redacted","request_id":"req_2","user_message_uuid":"uuid_1","user_message_uuids":["uuid_1"]}'
+	assistant_line '{"type":"text","text":"'"$full"'"}'
 	printf '%s\n' '{"type":"stream_event","event":{"type":"content_block_stop","index":'"$index"'},"session_id":"session_1","parent_tool_use_id":null,"uuid":"uuid_10","api_message_id":"redacted"}'
+}
+
+# next reads one stdin line into line, appends it to fakeclaude.stdin as read, and fails at EOF.
+next() {
+	IFS= read -r line || return 1
+	printf '%s\n' "$line" >> fakeclaude.stdin
 }
 
 # turn_open starts a turn: the system init, the status and the message start.
@@ -47,7 +60,7 @@ reply() {
 ask() {
 	turn_open
 	printf '%s\n' '{"type":"control_request","request_id":"ask-'"$n"'","request":{"subtype":"can_use_tool","tool_name":"AskUserQuestion","display_name":"AskUserQuestion","input":{"questions":[{"question":"Which color?","header":"Color","options":[{"label":"red","description":"red"},{"label":"blue","description":"blue"}],"multiSelect":false}]},"tool_use_id":"toolu_ask_'"$n"'","requires_user_interaction":true}}'
-	IFS= read -r answer
+	next
 	printf '%s\n' '{"type":"user","message":{"role":"user","content":[{"type":"tool_result","content":"Which color? red","tool_use_id":"toolu_ask_'"$n"'"}]},"parent_tool_use_id":null,"session_id":"session_1","uuid":"uuid_26","timestamp":"redacted","tool_use_result":{"questions":[{"question":"Which color?","header":"Color","options":[{"label":"red","description":"red"},{"label":"blue","description":"blue"}],"multiSelect":false}],"answers":{"Which color?":"red"}},"tool_result_meta":[{"id":"redacted","permission_decision":{"decision":"allow","source":"redacted"}}]}'
 	text_block 0 "fake answered $n" "fake answered $n"
 	turn_close
@@ -57,8 +70,8 @@ ask() {
 permit() {
 	turn_open
 	printf '%s\n' '{"type":"control_request","request_id":"permit-'"$n"'","request":{"subtype":"can_use_tool","tool_name":"Write","display_name":"Write","input":{"file_path":"fake.txt","content":"fake"},"description":"write fake.txt","permission_suggestions":[{"type":"setMode","mode":"acceptEdits","destination":"session"}],"tool_use_id":"toolu_permit_'"$n"'"}}'
-	IFS= read -r decision
-	case $decision in
+	next
+	case $line in
 		*'"behavior":"allow"'*) text_block 0 "fake allowed $n" "fake allowed $n" ;;
 		*) text_block 0 "fake denied $n" "fake denied $n" ;;
 	esac
@@ -69,7 +82,7 @@ permit() {
 hang() {
 	turn_open
 	text_block 0 "fake hanging $n" "fake hanging $n"
-	while IFS= read -r line; do
+	while next; do
 		case $line in
 			*'"subtype":"interrupt"'*) break ;;
 		esac
@@ -105,7 +118,7 @@ stall() {
 	turn_open
 	printf '%s\n' '{"type":"stream_event","event":{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}},"session_id":"session_1","parent_tool_use_id":null,"uuid":"uuid_7","api_message_id":"redacted"}'
 	printf '%s\n' '{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"fake stalling '"$n"'"}},"session_id":"session_1","parent_tool_use_id":null,"uuid":"uuid_8","api_message_id":"redacted"}'
-	while IFS= read -r line; do
+	while next; do
 		:
 	done
 }
@@ -128,6 +141,13 @@ background() {
 bgend() {
 	printf '%s\n' '{"type":"system","subtype":"background_tasks_changed","tasks":[],"session_id":"session_1","uuid":"uuid_t2"}'
 	reply
+}
+
+# pair answers with one assistant line that carries two finished text blocks, so one stdout line yields two events.
+pair() {
+	turn_open
+	assistant_line '{"type":"text","text":"fake pair '"$n"'.1"},{"type":"text","text":"fake pair '"$n"'.2"}'
+	turn_close
 }
 
 # die streams the start of a text block and one delta of it, writes fake died to stderr and exits with status 3.
@@ -159,7 +179,7 @@ if [ -n "$resume" ]; then
 	fi
 	n=$(cat fakeclaude.n 2>/dev/null || echo 0)
 fi
-while IFS= read -r line; do
+while next; do
 	case $line in
 		*'"type":"user"'*)
 			n=$((n + 1))
@@ -175,6 +195,7 @@ while IFS= read -r line; do
 				*DIE*) die ;;
 				*BACKGROUND*) background ;;
 				*BGEND*) bgend ;;
+				*PAIR*) pair ;;
 				*) reply ;;
 			esac
 			;;
