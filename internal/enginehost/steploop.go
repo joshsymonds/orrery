@@ -56,7 +56,8 @@ const stepLoopBuffer = 8
 // reads now as its clock, time.Now when now is nil, and allows the step modelLimit of model time. Each tick on ticks
 // checks the watch, and a nil ticks never ticks. A nil haiku makes no monitor or judge calls. prompt is the step's first
 // prompt, which the judge is given with each done return. agentGate is the agent gate a step runs, nil for any other
-// step: each schema-valid return is checked against its assertions, and never judged.
+// step: each schema-valid return is checked against its assertions, and never judged. A tick at or past the limit of
+// wall time from the run's start ends an agent gate step overtime.
 type stepRunConfig struct {
 	id         string
 	schema     string
@@ -93,7 +94,9 @@ type stepRun struct {
 	stepRunConfig
 
 	// watch decides the step's backstops from every event the run is handed.
-	watch   *stepWatch
+	watch *stepWatch
+	// started is the clock reading the run was built at. An agent gate step's limit counts its wall time from it.
+	started time.Time
 	returns chan session.TurnEnded
 	exits   chan string
 	// nudge is the text the next turn end is continued with when that turn is an error. It is set by a landed nudge's
@@ -131,9 +134,11 @@ func newStepRun(cfg stepRunConfig) *stepRun {
 	if cfg.now == nil {
 		cfg.now = time.Now
 	}
+	start := cfg.now()
 	return &stepRun{
 		stepRunConfig: cfg,
-		watch:         newStepWatch(cfg.now(), cfg.modelLimit),
+		watch:         newStepWatch(start, cfg.modelLimit),
+		started:       start,
 		returns:       make(chan session.TurnEnded, stepLoopBuffer),
 		exits:         make(chan string, stepLoopBuffer),
 		ended:         make(chan struct{}),
@@ -190,6 +195,9 @@ func (r *stepRun) run(ctx context.Context) {
 		case <-r.ticks:
 			if r.held.Load() {
 				continue
+			}
+			if !r.watchGateLimit(ctx) {
+				return
 			}
 			if !r.watchTick(ctx) {
 				return
