@@ -42,10 +42,12 @@ type Action struct {
 	Note    string // resume: the archived pane's summary, shown by the picker
 }
 
-// intentDirLimit is the number of zoxide directories Intent sends the model.
+// intentDirLimit is the number of history directories Intent sends the model, ahead of the children of Root and the
+// roots' directories.
 const intentDirLimit = 30
 
-// intentDirTotal is the number of directories Intent sends the model in all: zoxide's share and the roots' together.
+// intentDirTotal is the number of directories Intent sends the model in all: the history directories, the children
+// of Root, and the roots' directories together.
 const intentDirTotal = 300
 
 // pairWords is the word count of a keyword and one argument: "jump <pane id>", "pane d<N>", "task: yes".
@@ -90,25 +92,20 @@ func Intent(ctx context.Context, cfg Config, text string) ([]Action, error) {
 	return actions, nil
 }
 
-// intentDirs returns the directories Intent sends the model: zoxide's top intentDirLimit, then each root's
-// directories in Config order, skipping any already listed, and stopping at intentDirTotal.
+// intentDirs returns the directories Intent sends the model: the first intentDirLimit history directories, then the
+// children of cfg.Root, then each root's directories in Config order, each listed once and at most intentDirTotal.
 func intentDirs(ctx context.Context, cfg Config) ([]string, error) {
-	zoxide, err := queryZoxide(ctx, cfg)
+	sessions, err := listSessions(ctx, cfg)
 	if err != nil {
 		return nil, err
 	}
-	dirs := zoxide[:min(len(zoxide), intentDirLimit)]
-	for _, root := range cfg.Roots {
-		for _, dir := range rootDirs(root) {
-			if len(dirs) >= intentDirTotal {
-				return dirs, nil
-			}
-			if !slices.Contains(dirs, dir) {
-				dirs = append(dirs, dir)
-			}
-		}
+	history, err := historyDirs(ctx, cfg, sessions)
+	if err != nil {
+		return nil, err
 	}
-	return dirs, nil
+	dirs := uniqueDirs(slices.Concat(
+		history[:min(len(history), intentDirLimit)], rootChildren(cfg), rootsDirs(cfg.Roots)))
+	return dirs[:min(len(dirs), intentDirTotal)], nil
 }
 
 // rootDirs returns the directories of root at levels 1 to root.Depth below root.Dir, sorted by path. A name
@@ -279,7 +276,7 @@ func hasPane(panes []protocol.Pane, id string) bool {
 	return slices.ContainsFunc(panes, func(p protocol.Pane) bool { return p.ID == id })
 }
 
-// dirRef returns the zoxide directory ref names, written d<N> with N counting from 1.
+// dirRef returns the directory the ref names, written d<N> with N counting from 1.
 func dirRef(ref string, dirs []string) (string, bool) {
 	ref = strings.ToLower(ref)
 	if !strings.HasPrefix(ref, "d") {

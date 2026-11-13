@@ -32,7 +32,7 @@ func (s Stamp) BaseURL() string {
 // dir, and a dir that is not below home have no stamp. A settings or git file that exists but cannot be read, including
 // a dangling symlink, and a settings file that does not parse or whose env has the wrong shape, are errors that name the
 // file. A worktree link that does not lead to its primary checkout is an error that names the broken path; see
-// linkedWorktreePrimary.
+// LinkedWorktreePrimary.
 func Find(home, dir string) (Stamp, error) {
 	root, ok := resolveHome(home)
 	if !ok || !filepath.IsAbs(dir) {
@@ -49,7 +49,7 @@ func Find(home, dir string) (Stamp, error) {
 	if err != nil || stamp.Folder != "" {
 		return stamp, err
 	}
-	primary, err := linkedWorktreePrimary(root, resolvedDir)
+	primary, err := LinkedWorktreePrimary(home, dir)
 	if err != nil || primary == "" {
 		return Stamp{}, err
 	}
@@ -202,14 +202,24 @@ func stampsEnv(raw json.RawMessage) (bool, error) {
 	return baseURL != "", nil
 }
 
-// linkedWorktreePrimary returns the primary checkout of the linked worktree that dir lies in. It looks for a .git entry
-// in dir or a folder above it below root, and the nearest one decides. The entry is followed through symlinks: a
-// directory is an ordinary checkout, and any other kind that is not a regular file also ends the search with no
-// worktree. A regular file is a worktree's .git file. An entry that cannot be followed, a dangling symlink included, is
-// an error that names it. It returns "" when no linked worktree is named.
-func linkedWorktreePrimary(root, dir string) (string, error) {
+// LinkedWorktreePrimary returns the primary checkout of the linked worktree that dir lies in. home and dir are taken
+// as Find takes them: each is resolved through its symlinks, and only the folders strictly below home are searched.
+// It looks for a .git entry in dir or a folder above it below home, and the nearest one decides. The entry is followed
+// through symlinks: a directory is an ordinary checkout, and any other kind that is not a regular file also ends the
+// search with no worktree. A regular file is a worktree's .git file. An entry that cannot be followed, a dangling
+// symlink included, is an error that names it. It returns "" when no linked worktree is named, including when an
+// empty or relative home, an empty or relative dir, or a dir that is not below home is given.
+func LinkedWorktreePrimary(home, dir string) (string, error) {
+	root, ok := resolveHome(home)
+	if !ok || !filepath.IsAbs(dir) {
+		return "", nil
+	}
+	resolved, resolveErr := filepath.EvalSymlinks(dir)
+	if resolveErr != nil {
+		return "", fmt.Errorf("stamp: resolve %s: %w", dir, resolveErr)
+	}
 	below := root + string(filepath.Separator)
-	for folder := dir; strings.HasPrefix(folder, below); folder = filepath.Dir(folder) {
+	for folder := resolved; strings.HasPrefix(folder, below); folder = filepath.Dir(folder) {
 		entry := filepath.Join(folder, ".git")
 		_, err := os.Lstat(entry)
 		if errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ENOTDIR) {

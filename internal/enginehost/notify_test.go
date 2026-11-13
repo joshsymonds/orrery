@@ -264,6 +264,7 @@ func (p *sessionPhone) Notify(
 	ctx context.Context,
 	_ notice.Key,
 	build func(context.Context) (push.Notification, error),
+	_ func(),
 ) {
 	note, err := build(ctx)
 	p.mu.Lock()

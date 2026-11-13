@@ -126,3 +126,62 @@ func TestPendingRowsReopen(t *testing.T) {
 	put(NoticeRow{ID: 4, Pane: "%7", Session: "session-e", State: "waiting", Time: 1_700_000_700, Phase: "deciding"})
 	wantFloor("after put of lower id 4", 5)
 }
+
+func TestNoticeSilentReopen(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "orrery.db")
+
+	s, err := Open(ctx, path)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	wantRows := func(st *Store, stage string, want []NoticeRow) {
+		t.Helper()
+		got, err := st.Notices(ctx)
+		if err != nil {
+			t.Fatalf("Notices %s: %v", stage, err)
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("Notices %s: got %+v, want %+v", stage, got, want)
+		}
+	}
+
+	// A silent row, a row put without the flag, and a row put silent then upserted with the flag cleared.
+	silent := NoticeRow{
+		ID: 1, Pane: "%3", Session: "session-a", State: "waiting", Time: 1_700_000_000,
+		Phase: "held", SourceKind: "session", Source: []byte(`{"event":"stop"}`), Silent: true,
+	}
+	audible := NoticeRow{
+		ID: 2, Pane: "%4", Session: "session-b", State: "waiting", Time: 1_700_000_010,
+		Phase: "deciding", SourceKind: "session", Source: []byte(`{"event":"idle"}`),
+	}
+	cleared := NoticeRow{
+		ID: 3, Pane: "%5", Session: "session-c", State: "waiting", Time: 1_700_000_020,
+		Phase: "deciding", SourceKind: "session", Source: []byte(`{"event":"stop"}`), Silent: true,
+	}
+	for _, row := range []NoticeRow{silent, audible, cleared} {
+		if err := s.PutNotice(ctx, row); err != nil {
+			t.Fatalf("PutNotice %d: %v", row.ID, err)
+		}
+	}
+	cleared.Silent = false
+	if err := s.PutNotice(ctx, cleared); err != nil {
+		t.Fatalf("PutNotice %d upsert: %v", cleared.ID, err)
+	}
+	want := []NoticeRow{silent, audible, cleared}
+	wantRows(s, "before reopen", want)
+
+	if err := s.Close(); err != nil {
+		t.Fatalf("Close before reopen: %v", err)
+	}
+	reopened, err := Open(ctx, path)
+	if err != nil {
+		t.Fatalf("Open after close: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := reopened.Close(); err != nil {
+			t.Errorf("Close: %v", err)
+		}
+	})
+	wantRows(reopened, "after reopen", want)
+}

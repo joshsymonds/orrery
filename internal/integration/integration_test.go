@@ -740,7 +740,7 @@ func TestDebugQueueReplayPrintsCountsOnly(t *testing.T) {
 		"never_taken_after 0\n" +
 		"other 0\n" +
 		"falsified 0\n" +
-		"open_at_turn_end_delivered 0\n" +
+		"idle_hidden 0\n" +
 		"notices_typed 0\n"
 	if out.stdout != want {
 		t.Fatalf("debug queue-replay stdout %q, want %q", out.stdout, want)
@@ -2035,7 +2035,7 @@ func waitForCursor(t *testing.T, client *tmuxctl.Client, pane, want string) {
 
 // treeWorld is a private server for one tree test. Session s1 shows the tree on the invoking client. Session s2
 // holds the waiting target pane, in targetDir. Session s3 is the session of the other client. The fake claude
-// and fake zoxide lead PATH, and HOME is a temp directory.
+// leads PATH, and HOME and XDG_STATE_HOME are temp directories.
 type treeWorld struct {
 	client    *tmuxctl.Client
 	invoking  string
@@ -2050,9 +2050,9 @@ type treeWorld struct {
 func setupTree(t *testing.T) treeWorld {
 	t.Helper()
 	claude := installFake(t, "fake-claude", "claude", "pane d1\ntask: no\n")
-	zoxide := installFake(t, "fake-zoxide", "zoxide", "  9.0 "+filepath.Join(t.TempDir(), "example-project")+"\n")
-	t.Setenv("PATH", claude.dir+string(os.PathListSeparator)+zoxide.dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("PATH", claude.dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
 
 	client, name := newServer(t)
 	newSession(t, client, "s1", t.TempDir())
@@ -2169,9 +2169,8 @@ func TestTreeRefusesMissingClient(t *testing.T) {
 }
 
 func TestTreeXArchivesClaudePaneBeforeClose(t *testing.T) {
-	stateHome := t.TempDir()
-	t.Setenv("XDG_STATE_HOME", stateHome)
 	w := setupTree(t)
+	stateHome := os.Getenv("XDG_STATE_HOME")
 	transcript := filepath.Join(t.TempDir(), "example-transcript.jsonl")
 	writeFile(t, transcript, "{}\n", 0o600)
 	if _, err := w.client.Run(t.Context(), "set-option", "-p", "-t", w.target, protocol.OptionClaudeSession,
@@ -2239,13 +2238,12 @@ func orreryPath() string {
 	return filepath.Join(os.Getenv(binDirEnv), "orrery")
 }
 
-// installOpenFakes installs a fake claude and a fake zoxide whose reply is zoxideReply, leads PATH with them, and
-// points HOME at a temp directory. It returns the fake claude.
-func installOpenFakes(t *testing.T, zoxideReply string) fakeTool {
+// installOpenFakes installs a fake claude, leads PATH with it, and points HOME and XDG_STATE_HOME at temp directories.
+// It returns the fake claude.
+func installOpenFakes(t *testing.T) fakeTool {
 	t.Helper()
 	claude := installFake(t, "fake-claude", "claude", "pane d1\ntask: no\n")
-	zoxide := installFake(t, "fake-zoxide", "zoxide", zoxideReply)
-	t.Setenv("PATH", claude.dir+string(os.PathListSeparator)+zoxide.dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("PATH", claude.dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	return claude
@@ -2261,13 +2259,20 @@ type openWorld struct {
 	claude   fakeTool
 }
 
-// setupOpen installs the open fakes with zoxideReply, then attaches the invoking client to s1 and the other client to s3.
-func setupOpen(t *testing.T, zoxideReply string) openWorld {
+// setupOpen installs the open fakes, then attaches the invoking client to s1 and the other client to s3.
+func setupOpen(t *testing.T) openWorld {
 	t.Helper()
-	claude := installOpenFakes(t, zoxideReply)
+	return setupOpenAt(t, 80)
+}
+
+// setupOpenAt is setupOpen with the invoking client cols columns wide. The picker clips a row at the width of the pane
+// it draws in, so a test whose rows hold long directory paths sets a wider client.
+func setupOpenAt(t *testing.T, cols int) openWorld {
+	t.Helper()
+	claude := installOpenFakes(t)
 	client, name := newServer(t)
 	newSession(t, client, "s1", t.TempDir())
-	invoking := attachClient(t, client, name, "s1", 80, 24)
+	invoking := attachClient(t, client, name, "s1", cols, 24)
 	newSession(t, client, "s2", t.TempDir())
 	newSession(t, client, "s3", t.TempDir())
 	other := attachClient(t, client, name, "s3", 100, 30)
@@ -2282,18 +2287,45 @@ func (w openWorld) runInPane(t *testing.T, args string) string {
 	return splitPane(t, w.client, "s1", command)
 }
 
-// exampleProjectDir returns a directory named example-project under a temp directory.
+// runBareInPane is runInPane with orrery's PATH set to bare for that one command, so the pane's shell keeps its PATH.
+func (w openWorld) runBareInPane(t *testing.T, bare, args string) string {
+	t.Helper()
+	command := fmt.Sprintf("PATH='%s' %s -L %s %s; echo exit $?; sleep 300", bare, orreryPath(), w.name, args)
+	return splitPane(t, w.client, "s1", command)
+}
+
+// barePath returns a directory holding only tmux, through a symlink, and claude, a script that runs the fake claude.
+// orrery runs with this directory as its whole PATH in the bare-PATH tests, so it finds tmux and claude and no other
+// tool. tmux gives each pane that orrery creates the PATH of the client that created it, so claude restores the test's
+// PATH before it runs the fake, as a user's claude runs with the user's PATH.
+func barePath(t *testing.T, claude fakeTool) string {
+	t.Helper()
+	tmux, err := exec.LookPath("tmux")
+	if err != nil {
+		t.Fatalf("find tmux: %v", err)
+	}
+	dir := t.TempDir()
+	if err = os.Symlink(tmux, filepath.Join(dir, "tmux")); err != nil {
+		t.Fatalf("link tmux: %v", err)
+	}
+	script := fmt.Sprintf("#!/bin/sh\nPATH='%s'\nexport PATH\nexec '%s' \"$@\"\n", os.Getenv("PATH"), claude.bin)
+	writeFile(t, filepath.Join(dir, "claude"), script, 0o755)
+	return dir
+}
+
+// exampleProjectDir creates example-project under HOME/Personal, the default root whose children open lists, and
+// returns its path. Call it after setupOpen, which points HOME at a temp directory.
 func exampleProjectDir(t *testing.T) string {
 	t.Helper()
-	dir := filepath.Join(t.TempDir(), "example-project")
-	if err := os.Mkdir(dir, 0o700); err != nil {
+	dir := filepath.Join(os.Getenv("HOME"), "Personal", "example-project")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatalf("make directory: %v", err)
 	}
 	return dir
 }
 
 func TestOpenExistingSessionSwitchesOnlyInvokingClient(t *testing.T) {
-	w := setupOpen(t, "")
+	w := setupOpen(t)
 	pane := w.runInPane(t, "open s2")
 	waitForScreen(t, w.client, pane, "exit 0")
 	if got := clientSession(t, w.client, w.invoking); got != "s2" {
@@ -2304,9 +2336,9 @@ func TestOpenExistingSessionSwitchesOnlyInvokingClient(t *testing.T) {
 	}
 }
 
-func TestOpenZoxideFastMatchCreatesSessionAndSwitchesInvokingClient(t *testing.T) {
+func TestOpenKnownDirCreatesSessionAndSwitchesInvokingClient(t *testing.T) {
+	w := setupOpen(t)
 	dir := exampleProjectDir(t)
-	w := setupOpen(t, "  9.0 "+dir+"\n")
 	pane := w.runInPane(t, "open example-project")
 	waitForScreen(t, w.client, pane, "> continue latest in ")
 	sendKeys(t, w.client, pane, false, "Enter")
@@ -2330,9 +2362,9 @@ func TestOpenZoxideFastMatchCreatesSessionAndSwitchesInvokingClient(t *testing.T
 	}
 }
 
-func TestOpenZoxideFastMatchOffersArchivedResume(t *testing.T) {
+func TestOpenKnownDirOffersArchivedResume(t *testing.T) {
+	w := setupOpen(t)
 	dir := exampleProjectDir(t)
-	w := setupOpen(t, "  9.0 "+dir+"\n")
 	archivePath, err := archive.Path(os.Getenv)
 	if err != nil {
 		t.Fatalf("archive.Path: %v", err)
@@ -2382,7 +2414,7 @@ func TestOpenZoxideFastMatchOffersArchivedResume(t *testing.T) {
 }
 
 func TestOpenOutsideTmuxAttachesNamedSession(t *testing.T) {
-	installOpenFakes(t, "")
+	installOpenFakes(t)
 	client, name := newServer(t)
 	newSession(t, client, "s2", t.TempDir())
 	known := knownClients(t, client)
@@ -2391,7 +2423,7 @@ func TestOpenOutsideTmuxAttachesNamedSession(t *testing.T) {
 }
 
 func TestOpenNewSessionOutsideTmuxCreatesDirectoryAndAttaches(t *testing.T) {
-	claude := installOpenFakes(t, "")
+	claude := installOpenFakes(t)
 	root := t.TempDir()
 	client, name := newServer(t)
 	newSession(t, client, "s1", t.TempDir())
@@ -2415,7 +2447,7 @@ func TestOpenNewSessionOutsideTmuxCreatesDirectoryAndAttaches(t *testing.T) {
 }
 
 func TestOpenNewSessionDefaultsToPersonalUnderHome(t *testing.T) {
-	claude := installOpenFakes(t, "")
+	claude := installOpenFakes(t)
 	home := os.Getenv("HOME")
 	personal := filepath.Join(home, "Personal")
 	if err := os.Mkdir(personal, 0o700); err != nil {
@@ -2454,8 +2486,8 @@ func TestOpenPickerEnterRunsFirstActionAndSwitchesInvokingClient(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			dir := exampleProjectDir(t)
-			w := setupOpen(t, "  9.0 "+dir+"\n")
+			w := setupOpen(t)
+			exampleProjectDir(t)
 			pane := w.runInPane(t, tc.args)
 			waitForScreen(t, w.client, pane, "> pane ")
 			sendKeys(t, w.client, pane, false, "Enter")
@@ -2472,8 +2504,8 @@ func TestOpenPickerEnterRunsFirstActionAndSwitchesInvokingClient(t *testing.T) {
 }
 
 func TestOpenPickerEscCreatesNothing(t *testing.T) {
-	dir := exampleProjectDir(t)
-	w := setupOpen(t, "  9.0 "+dir+"\n")
+	w := setupOpen(t)
+	exampleProjectDir(t)
 	before := sessionNames(t, w.client)
 	pane := w.runInPane(t, "open two words")
 	waitForScreen(t, w.client, pane, "> pane ")
@@ -2491,6 +2523,100 @@ func TestOpenPickerEscCreatesNothing(t *testing.T) {
 	if got := w.claude.runs(t); got != 1 {
 		t.Fatalf("fake claude ran %d times, want only the intent run", got)
 	}
+}
+
+func TestBarePathOpenAbsoluteDirOpensIt(t *testing.T) {
+	w := setupOpen(t)
+	dir := filepath.Join(t.TempDir(), "example-path")
+	if err := os.Mkdir(dir, 0o700); err != nil {
+		t.Fatalf("make directory: %v", err)
+	}
+	pane := w.runBareInPane(t, barePath(t, w.claude), "open '"+dir+"'")
+	waitForScreen(t, w.client, pane, "> continue latest in ")
+	if got := w.claude.runs(t); got != 0 {
+		t.Fatalf("fake claude ran %d times before Enter, want 0", got)
+	}
+
+	sendKeys(t, w.client, pane, false, "Enter")
+	waitForScreen(t, w.client, pane, "exit 0")
+	if got := clientSession(t, w.client, w.invoking); got != "example-path" {
+		t.Fatalf("invoking client shows session %s, want example-path", got)
+	}
+	if got := clientSession(t, w.client, w.other); got != "s3" {
+		t.Fatalf("other client shows session %s, want s3", got)
+	}
+	got, err := w.client.Run(t.Context(), "show-options", "-v", "-t", "=example-path:", protocol.OptionDir)
+	if err != nil {
+		t.Fatalf("read %s: %v", protocol.OptionDir, err)
+	}
+	if strings.TrimSpace(got) != dir {
+		t.Fatalf("%s = %q, want %q", protocol.OptionDir, strings.TrimSpace(got), dir)
+	}
+	w.claude.waitForStarted(t, 1)
+	if args := readLines(t, filepath.Join(w.claude.soleRun(t), "args")); !slices.Equal(args, []string{"--continue"}) {
+		t.Fatalf("claude argv %q, want --continue", args)
+	}
+}
+
+func TestBarePathOpenMissingPathExitsOne(t *testing.T) {
+	w := setupOpen(t)
+	before := sessionNames(t, w.client)
+	missing := filepath.Join(t.TempDir(), "example-missing")
+	out := runOrrery(t, "", []string{"PATH=" + barePath(t, w.claude)}, "-L", w.name, "open", missing)
+	wantExit(t, out, 1)
+	if !strings.Contains(out.stderr, missing) {
+		t.Fatalf("stderr %q, want the path %s", out.stderr, missing)
+	}
+	if got := sessionNames(t, w.client); !slices.Equal(got, before) {
+		t.Fatalf("sessions %v after refusal, want %v", got, before)
+	}
+	if _, err := os.Stat(missing); !os.IsNotExist(err) {
+		t.Fatalf("directory %s exists or cannot be checked: %v", missing, err)
+	}
+	if got := w.claude.runs(t); got != 0 {
+		t.Fatalf("fake claude ran %d times, want 0", got)
+	}
+}
+
+func TestBarePathOpenSameNamedDirsOffersBoth(t *testing.T) {
+	w := setupOpenAt(t, 120)
+	archived := filepath.Join(t.TempDir(), "example-same")
+	if err := os.Mkdir(archived, 0o700); err != nil {
+		t.Fatalf("make directory: %v", err)
+	}
+	archivePath, err := archive.Path(os.Getenv)
+	if err != nil {
+		t.Fatalf("archive.Path: %v", err)
+	}
+	if err = archive.Append(archivePath, archive.Record{Dir: archived, Session: "s2", Closed: 100}); err != nil {
+		t.Fatalf("archive.Append: %v", err)
+	}
+	dir := filepath.Join(os.Getenv("HOME"), "Personal", "example-same")
+	if err = os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatalf("make directory: %v", err)
+	}
+
+	pane := w.runBareInPane(t, barePath(t, w.claude), "open example-same")
+	waitForScreen(t, w.client, pane, "> pane "+archived)
+	waitForScreen(t, w.client, pane, "pane "+dir)
+	sendKeys(t, w.client, pane, false, "Down")
+	waitForCursor(t, w.client, pane, "> pane "+dir)
+	sendKeys(t, w.client, pane, false, "Enter")
+	waitForScreen(t, w.client, pane, "exit 0")
+	if got := clientSession(t, w.client, w.invoking); got != "example-same" {
+		t.Fatalf("invoking client shows session %s, want example-same", got)
+	}
+	if got := clientSession(t, w.client, w.other); got != "s3" {
+		t.Fatalf("other client shows session %s, want s3", got)
+	}
+	got, err := w.client.Run(t.Context(), "show-options", "-v", "-t", "=example-same:", protocol.OptionDir)
+	if err != nil {
+		t.Fatalf("read %s: %v", protocol.OptionDir, err)
+	}
+	if strings.TrimSpace(got) != dir {
+		t.Fatalf("%s = %q, want %q", protocol.OptionDir, strings.TrimSpace(got), dir)
+	}
+	w.claude.waitForStarted(t, 1)
 }
 
 // writeRootsFile points XDG_CONFIG_HOME at a temp directory whose orrery roots file holds content, and returns the
@@ -2519,15 +2645,15 @@ func makeWorkTree(t *testing.T) string {
 }
 
 // assertRootLines waits for an intent run of claude whose stdin lists the made-up tree's directories, and checks that
-// stdin names the client directory as d2 and the project directory as d3.
+// stdin names the client directory as d1 and the project directory as d2.
 func assertRootLines(t *testing.T, claude fakeTool) {
 	t.Helper()
-	run := waitForRunWithStdin(t, claude.dir, "\nd3 Work/example-client/example-project\n")
+	run := waitForRunWithStdin(t, claude.dir, "\nd2 Work/example-client/example-project\n")
 	stdin, err := os.ReadFile(filepath.Join(run, "stdin"))
 	if err != nil {
 		t.Fatalf("read run stdin: %v", err)
 	}
-	for _, line := range []string{"\nd2 Work/example-client\n", "\nd3 Work/example-client/example-project\n"} {
+	for _, line := range []string{"\nd1 Work/example-client\n", "\nd2 Work/example-client/example-project\n"} {
 		if !strings.Contains(string(stdin), line) {
 			t.Fatalf("intent stdin lacks %q; stdin:\n%s", strings.TrimPrefix(line, "\n"), stdin)
 		}
@@ -2536,9 +2662,9 @@ func assertRootLines(t *testing.T, claude fakeTool) {
 
 func TestOpenIntentListsRootDirectoriesAndOpensProject(t *testing.T) {
 	writeRootsFile(t, "2 Work\n")
-	w := setupOpen(t, "  9.0 "+filepath.Join(t.TempDir(), "example-zoxide")+"\n")
+	w := setupOpen(t)
 	project := makeWorkTree(t)
-	w.claude.setReply(t, "pane d3\ntask: no\n")
+	w.claude.setReply(t, "pane d2\ntask: no\n")
 
 	pane := w.runInPane(t, "open --intent 'two words'")
 	assertRootLines(t, w.claude)
@@ -2565,7 +2691,7 @@ func TestTreeNIntentListsRootDirectories(t *testing.T) {
 
 func TestOpenIntentMalformedRootsFileRefuses(t *testing.T) {
 	roots := writeRootsFile(t, "x Work\n")
-	claude := installOpenFakes(t, "")
+	claude := installOpenFakes(t)
 	client, name := newServer(t)
 	newSession(t, client, "s1", t.TempDir())
 
@@ -2580,7 +2706,7 @@ func TestOpenIntentMalformedRootsFileRefuses(t *testing.T) {
 }
 
 func TestOpenRemoteDotRefusesWithoutCreating(t *testing.T) {
-	installOpenFakes(t, "")
+	installOpenFakes(t)
 	client, name := newServer(t)
 	newSession(t, client, "s1", t.TempDir())
 	before := sessionNames(t, client)
@@ -2629,7 +2755,7 @@ func newRecentSession(t *testing.T, client *tmuxctl.Client, name string) {
 // client shows s1, and the other client shows s3.
 func setupRecentOpen(t *testing.T) openWorld {
 	t.Helper()
-	claude := installOpenFakes(t, "")
+	claude := installOpenFakes(t)
 	client, name := newServer(t)
 	newSession(t, client, "s1", t.TempDir())
 	invoking := attachClient(t, client, name, "s1", 80, 24)
@@ -2769,7 +2895,7 @@ func TestOpenNoArgumentShowsTreeOnInvokingClient(t *testing.T) {
 }
 
 func TestOpenNoArgumentOutsideTmuxAttachesRecentAndShowsTree(t *testing.T) {
-	installOpenFakes(t, "")
+	installOpenFakes(t)
 	client, name := newServer(t)
 	newSession(t, client, "s1", t.TempDir())
 	newRecentSession(t, client, "s2")
@@ -2781,7 +2907,7 @@ func TestOpenNoArgumentOutsideTmuxAttachesRecentAndShowsTree(t *testing.T) {
 }
 
 func TestOpenNamedSessionStartsNoTree(t *testing.T) {
-	w := setupOpen(t, "")
+	w := setupOpen(t)
 	killTreesAtCleanup(t, w.invoking)
 	killTreesAtCleanup(t, w.other)
 	pane := w.runInPane(t, "open s2")

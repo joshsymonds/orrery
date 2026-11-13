@@ -120,6 +120,7 @@ func TestRestartResumesEachPhase(t *testing.T) {
 		f.check(t, []route.Line{lineOf(testPane, clockStart, stateWaiting, route.DeskPhone, "away")},
 			[]deskstream.Notice{deskPost(stateWaiting)}, []push.Notification{phonePush(testPane, stateWaiting)})
 		f.checkActiveTimers(t, 0)
+		f.publish()
 		checkRows(t, reopened)
 	})
 
@@ -152,6 +153,7 @@ func TestRestartResumesEachPhase(t *testing.T) {
 		r.Wait()
 		f.check(t, []route.Line{lineOf(testPane, clockStart+watchSeconds, stateWaiting, route.DeskPhone, "away")},
 			[]deskstream.Notice{deskPost(stateWaiting)}, []push.Notification{phonePush(testPane, stateWaiting)})
+		f.publish()
 		checkRows(t, reopened)
 	})
 
@@ -181,6 +183,7 @@ func TestRestartResumesEachPhase(t *testing.T) {
 		f.check(t, []route.Line{lineOf(testPane, clockStart+2*watchSeconds, stateWaiting, route.DeskPhone, "away")},
 			[]deskstream.Notice{deskPost(stateWaiting)}, []push.Notification{phonePush(testPane, stateWaiting)})
 		f.checkActiveTimers(t, 0)
+		f.publish()
 		checkRows(t, reopened)
 	})
 
@@ -222,6 +225,7 @@ func TestRestartResumesEachPhase(t *testing.T) {
 		f.check(t, []route.Line{lineOf(testPane, restart, stateWaiting, route.DeskPhone, "away; needed")},
 			[]deskstream.Notice{deskPost(stateWaiting)}, []push.Notification{phonePush(testPane, stateWaiting)})
 		f.checkActiveTimers(t, 0)
+		f.publish()
 		checkRows(t, reopened)
 	})
 
@@ -265,6 +269,7 @@ func TestRestartResumesEachPhase(t *testing.T) {
 			[]push.Notification{phonePush(testPane, stateWaiting)},
 		)
 		f.checkActiveTimers(t, 0)
+		f.publish()
 		checkRows(t, reopened)
 	})
 
@@ -296,6 +301,7 @@ func TestRestartResumesEachPhase(t *testing.T) {
 		f.check(t, []route.Line{lineOf(testPane, clockStart+60, stateWaiting, route.DeskPhone, "away; needed")},
 			[]deskstream.Notice{deskPost(stateWaiting)}, []push.Notification{phonePush(testPane, stateWaiting)})
 		f.checkActiveTimers(t, 0)
+		f.publish()
 		checkRows(t, reopened)
 	})
 
@@ -325,6 +331,7 @@ func TestRestartResumesEachPhase(t *testing.T) {
 		f.check(t, []route.Line{lineOf(testPane, clockStart+escalationSeconds, stateWaiting, route.Phone,
 			"unseen after 5 minutes")}, nil, []push.Notification{phonePush(testPane, stateWaiting)})
 		f.checkActiveTimers(t, 0)
+		f.publish()
 		checkRows(t, reopened)
 	})
 
@@ -349,6 +356,7 @@ func TestRestartResumesEachPhase(t *testing.T) {
 		f.check(t, []route.Line{lineOf(testPane, clockStart+late, stateWaiting, route.Phone, "unseen after 5 minutes")},
 			nil, []push.Notification{phonePush(testPane, stateWaiting)})
 		f.checkActiveTimers(t, 0)
+		f.publish()
 		checkRows(t, reopened)
 	})
 
@@ -379,6 +387,7 @@ func TestRestartResumesEachPhase(t *testing.T) {
 		f.check(t, []route.Line{lineOf(testPane, clockStart+escalationSeconds, stateWaiting, route.Phone,
 			"unseen after 5 minutes")}, nil, []push.Notification{phonePush(testPane, stateWaiting)})
 		f.checkActiveTimers(t, 0)
+		f.publish()
 		checkRows(t, reopened)
 	})
 }
@@ -475,6 +484,7 @@ func TestNewerBeatsRestored(t *testing.T) {
 			lineOf(testPane, clockStart+30, stateWaiting, route.None, "changed"),
 			lineOf(testPane, clockStart+escalationSeconds, stateDone, route.Phone, "unseen after 5 minutes"),
 		}, nil, []push.Notification{phonePush(testPane, stateDone)})
+		f.publish()
 		checkRows(t, reopened)
 	})
 }

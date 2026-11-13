@@ -62,14 +62,21 @@ func content(prefix string) document {
 						Label: "p .",
 						Text:  "the session for the current directory, else the picker to resume or start fresh",
 					},
-					{Label: "p WORD", Text: "a session named WORD, else a zoxide match, else the picker"},
+					{
+						Label: "p PATH",
+						Text:  "the session for directory PATH (one with / or ..), else the picker to resume or start fresh",
+					},
+					{
+						Label: "p WORD",
+						Text:  "a session named WORD, else the known directory named WORD (several: choose one), else the picker",
+					},
 					{
 						Label: "p new NAME",
 						Text:  "create project directory NAME and a session for it (--root DIR sets the parent)",
 					},
 					{
 						Label: "p WORDS...",
-						Text:  "open the picker with WORDS as the intent, over zoxide's and the roots' directories",
+						Text:  "open the picker with WORDS as the intent, over known directories and the roots' directories",
 					},
 				},
 			},

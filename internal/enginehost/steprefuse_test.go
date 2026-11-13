@@ -3,14 +3,17 @@ package enginehost
 import (
 	"bytes"
 	"errors"
+	"io/fs"
 	"log/slog"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/joshsymonds/orrery/internal/agents"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -36,13 +39,14 @@ func (l *refusalLog) String() string {
 }
 
 // refusalFixture is a Steps over a real Manager, writer and store. Its worktrees directory is empty until a read-only
-// step starts.
+// step starts. home is the HOME of the manager's environment, which holds the step agents reviewer and implementer.
 type refusalFixture struct {
 	steps     *Steps
 	writer    *Writer
 	manager   *Manager
 	log       *refusalLog
 	worktrees string
+	home      string
 }
 
 // newRefusalFixture returns a fixture whose manager allows stepCap live steps. The step loops are canceled and the
@@ -58,8 +62,10 @@ func newRefusalFixture(t *testing.T, stepCap int) *refusalFixture {
 	logger := slog.New(slog.NewTextHandler(log, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	writer := NewWriter(WriterConfig{Applier: s, Tick: 5 * time.Millisecond, Logger: logger})
 	startRun(t, writer)
+	home := t.TempDir()
+	writeStepAgents(t, home)
 	manager := NewManager(Config{
-		Shell: sh, Claude: fakeClaudePath(t), Environ: []string{"PATH=" + os.Getenv("PATH"), "HOME=" + t.TempDir()},
+		Shell: sh, Claude: fakeClaudePath(t), Environ: []string{"PATH=" + os.Getenv("PATH"), "HOME=" + home},
 		Cap: 2, StepCap: stepCap, Writer: writer, Now: fixedClock, Notifier: &fakeSink{}, Store: s,
 	})
 	t.Cleanup(manager.Close)
@@ -78,7 +84,7 @@ func newRefusalFixture(t *testing.T, stepCap int) *refusalFixture {
 			cancel()
 		}
 	})
-	return &refusalFixture{steps: steps, writer: writer, manager: manager, log: log, worktrees: worktrees}
+	return &refusalFixture{steps: steps, writer: writer, manager: manager, log: log, worktrees: worktrees, home: home}
 }
 
 // refusalStart runs Start for start and returns its id and error. It fails the test if Start has not returned in
@@ -184,6 +190,57 @@ func TestStepRefusedBadAgentStartsNothing(t *testing.T) {
 	refusalCheck(t, f, id, err)
 	if names := refusalWorktrees(t, f.worktrees); len(names) != 0 {
 		t.Errorf("worktrees = %v, want none after a refused start", names)
+	}
+}
+
+func TestStepRefusedUnresolvedAgentStartsNothing(t *testing.T) {
+	f := newRefusalFixture(t, 2)
+	repo := stepGitTestRepo(t)
+	const agent = "no-such-agent-gate-probe"
+	start := stepStartReadOnly(repo, "HEAD")
+	start.Agent = agent
+
+	id, err := refusalStart(t, f.steps, start)
+	if !errors.Is(err, agents.ErrUnresolved) {
+		t.Fatalf("Start error = %v, want it to match %v", err, agents.ErrUnresolved)
+	}
+	// Checked before refusalCheck, which commits a row of its own.
+	rows, rowsErr := f.manager.store.EngineSessions(t.Context())
+	if rowsErr != nil {
+		t.Fatalf("EngineSessions: %v", rowsErr)
+	}
+	if len(rows) != 0 {
+		t.Errorf("engine rows = %+v, want none after a refused start", rows)
+	}
+	refusalCheck(t, f, id, err)
+	for _, place := range []string{
+		agent,
+		filepath.Join(f.home, ".claude", "agents"),
+		filepath.Join(f.home, ".claude", "settings.json"),
+		filepath.Join(f.home, ".claude", "plugins", "installed_plugins.json"),
+	} {
+		if !strings.Contains(err.Error(), place) {
+			t.Errorf("Start error = %v, want it to name %s", err, place)
+		}
+	}
+	if names := refusalWorktrees(t, f.worktrees); len(names) != 0 {
+		t.Errorf("worktrees = %v, want none after a refused start", names)
+	}
+
+	// The claude of a started step writes its args into the step's directory. A direct start into a plain directory
+	// shows that the refused claude never ran.
+	dir := t.TempDir()
+	err = f.manager.StartStep(t.Context(), StepSession{
+		ID: stepA, Dir: dir, Prompt: "hi", Agent: agent, Schema: stepSchema,
+	})
+	if !errors.Is(err, agents.ErrUnresolved) {
+		t.Fatalf("StartStep error = %v, want it to match %v", err, agents.ErrUnresolved)
+	}
+	if _, statErr := os.Stat(filepath.Join(dir, "fakeclaude.args")); !errors.Is(statErr, fs.ErrNotExist) {
+		t.Errorf("fake claude args in %s: stat error = %v, want none, since claude must not start", dir, statErr)
+	}
+	if _, err := f.manager.engineRow(t.Context(), stepA); !errors.Is(err, ErrNoSession) {
+		t.Errorf("engine row of %s: err = %v, want it to match %v", stepA, err, ErrNoSession)
 	}
 }
 

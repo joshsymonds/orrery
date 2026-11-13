@@ -27,14 +27,16 @@ func pickerClient(t *testing.T, handler http.Handler) orreryv1connect.PickerClie
 }
 
 // TestPickerAskParity asks one fixture through Picker.Ask and checks its rows and the token of the first row. The
-// rows are the jump row to the fixture's pane, the pane row of the folder zoxide lists, and the pane row of the root.
+// rows are the jump row to the fixture's pane, the pane row of the first directory under root, and the pane row of
+// the root.
 func TestPickerAskParity(t *testing.T) {
 	tmux := newTmuxServer(t)
 	root := t.TempDir()
 	paneDir := t.TempDir()
 	pane := startPickerPane(t, tmux, "example-session-a", paneDir)
 	claude, _ := installPickerClaude(t, "jump "+pane+"\npane d1\ntask: yes\n", false)
-	cfg := pickerConfig(tmux, installPickerZoxide(t, scoredLine(filepath.Join(root, "dir-01"))), claude, root)
+	mkdirAt(t, filepath.Join(root, "dir-01"))
+	cfg := pickerConfig(tmux, claude, root)
 	handler := pickerHandler(t, tmux, func() (open.Config, error) { return cfg, nil })
 
 	rows := askRows(t, handler, "example text")
@@ -93,7 +95,7 @@ func TestPickerAskErrorParity(t *testing.T) {
 			build: func(t *testing.T, tmux *tmuxctl.Client) http.Handler {
 				t.Helper()
 				claude, _ := installPickerClaude(t, "", true)
-				cfg := pickerConfig(tmux, installPickerZoxide(t, ""), claude, t.TempDir())
+				cfg := pickerConfig(tmux, claude, t.TempDir())
 				return pickerHandler(t, tmux, func() (open.Config, error) { return cfg, nil })
 			},
 			code:    connect.CodeUnavailable,
@@ -120,7 +122,7 @@ func TestPickerRunParity(t *testing.T) {
 	paneDir := t.TempDir()
 	startPickerDirSession(t, tmux, paneDir)
 	claude, runs := installPickerClaude(t, "pane d1\ntask: no\n", false)
-	cfg := pickerConfig(tmux, installPickerZoxide(t, scoredLine(paneDir)), claude, root)
+	cfg := pickerConfig(tmux, claude, root)
 	handler := pickerHandler(t, tmux, func() (open.Config, error) { return cfg, nil })
 
 	first := askRows(t, handler, "example text")
@@ -190,7 +192,7 @@ func TestPickerRunErrorParity(t *testing.T) {
 				paneDir := t.TempDir()
 				startPickerDirSession(t, tmux, paneDir)
 				claude, _ := installPickerClaude(t, "pane d1\ntask: no\n", false)
-				cfg := pickerConfig(tmux, installPickerZoxide(t, scoredLine(paneDir)), claude, t.TempDir())
+				cfg := pickerConfig(tmux, claude, t.TempDir())
 				issued := time.Date(2026, time.November, 11, 12, 0, 0, 0, time.UTC)
 				clock := issued
 				picker := func() (open.Config, error) { return cfg, nil }
@@ -206,7 +208,9 @@ func TestPickerRunErrorParity(t *testing.T) {
 				t.Helper()
 				name, tmux := newNamedTmuxClient(t)
 				claude, _ := installPickerClaude(t, "pane d1\ntask: no\n", false)
-				cfg := pickerConfig(tmux, installPickerZoxide(t, scoredLine(t.TempDir())), claude, t.TempDir())
+				root := t.TempDir()
+				mkdirAt(t, filepath.Join(root, "dir-01"))
+				cfg := pickerConfig(tmux, claude, root)
 				handler := pickerHandler(t, tmux, func() (open.Config, error) { return cfg, nil })
 				rows := askRows(t, handler, "example text")
 				return handler, rows[0].GetToken(), noServerMessage(name)
@@ -220,7 +224,7 @@ func TestPickerRunErrorParity(t *testing.T) {
 				pane := startPickerPane(t, tmux, "example-session-a", t.TempDir())
 				startPickerPane(t, tmux, "example-session-b", t.TempDir())
 				claude, _ := installPickerClaude(t, "jump "+pane+"\ntask: no\n", false)
-				cfg := pickerConfig(tmux, installPickerZoxide(t, ""), claude, t.TempDir())
+				cfg := pickerConfig(tmux, claude, t.TempDir())
 				handler := pickerHandler(t, tmux, func() (open.Config, error) { return cfg, nil })
 				rows := askRows(t, handler, "example text")
 				if len(rows) == 0 || rows[0].GetKind() != "jump" {

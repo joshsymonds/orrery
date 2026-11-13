@@ -79,10 +79,11 @@ in
       ];
       description = ''
         Directory trees the intent picker lists. For each root, `p` lists its
-        subdirectories down to `depth` levels, after the directories zoxide
-        ranks, capped at 300 entries. Written to `$XDG_CONFIG_HOME/orrery/roots`
-        (or `~/.config/orrery/roots`), which `orrery open` and the tree's `N`
-        read. Empty writes no roots file.
+        subdirectories down to `depth` levels, after the directories `orrery`
+        already knows from its sessions, archive and store, and the children
+        of `~/Personal`, capped at 300 entries. Written to
+        `$XDG_CONFIG_HOME/orrery/roots` (or `~/.config/orrery/roots`), which
+        `orrery open` and the tree's `N` read. Empty writes no roots file.
       '';
     };
   };

@@ -514,6 +514,7 @@ func startSessions(
 			Environ:     os.Environ(),
 			HolderScope: opts.holderScope,
 			StateDir:    filepath.Dir(storePath),
+			ManagedDir:  "/etc/claude-code",
 			Cap:         opts.sessionCap,
 			StepCap:     opts.stepCap,
 			Writer:      host.writer,
