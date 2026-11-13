@@ -121,14 +121,21 @@ func (s *paneSinks) Post(n deskstream.Notice) {
 }
 
 // Notify records the push that build makes for the phone.
-func (s *paneSinks) Notify(ctx context.Context, _ notice.Key, build func(context.Context) (push.Notification, error)) {
+// Notify records the push, then reports its publish as returned, as the phone does: sent runs outside s.mu because
+// it takes the Router's lock.
+func (s *paneSinks) Notify(
+	ctx context.Context, _ notice.Key, build func(context.Context) (push.Notification, error), sent func(),
+) {
 	note, err := build(ctx)
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	if err != nil {
 		s.errs = append(s.errs, err)
 	}
 	s.pushes = append(s.pushes, note)
+	s.mu.Unlock()
+	if sent != nil {
+		sent()
+	}
 }
 
 // Seen does nothing: no test marks a notice seen through the phone.
