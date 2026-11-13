@@ -332,6 +332,37 @@ test("a reply's emphasis and strikethrough draw em and del inside .reply", () =>
     },
   ));
 
+test("a reply marked cannot lex draws its text whole inside .reply without throwing", () => {
+  const text = ">".repeat(2000) + " x";
+  return withReader(
+    { conversation: conversation({ items: [item({ kind: "reply", time: 100n, text })] }), seenAt: 0, open: false },
+    (container) => {
+      assert.equal(container.querySelector(".reader .reply")?.textContent ?? null, text);
+    },
+  );
+});
+
+test("a reply of 1000 nested list items draws without throwing and keeps its deepest item", () => {
+  // Levels 0 through 32 draw as lists, so the list at level 33 is the first drawn as its raw source: 967 markers left.
+  const text = "- ".repeat(1000) + "item";
+  return withReader(
+    { conversation: conversation({ items: [item({ kind: "reply", time: 100n, text })] }), seenAt: 0, open: false },
+    (container) => {
+      assert.equal(container.querySelector(".reader .reply")?.textContent ?? null, "- ".repeat(967) + "item");
+    },
+  );
+});
+
+test("a reply of 3000 nested emphasis markers around a word draws without throwing and keeps the word", () => {
+  const text = "*".repeat(3000) + "word" + "*".repeat(3000);
+  return withReader(
+    { conversation: conversation({ items: [item({ kind: "reply", time: 100n, text })] }), seenAt: 0, open: false },
+    (container) => {
+      assert.equal(container.querySelector(".reader .reply")?.textContent ?? null, text);
+    },
+  );
+});
+
 test("a prompt draws its markdown as elements inside .reply", () =>
   withReader(
     {

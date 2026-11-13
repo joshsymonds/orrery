@@ -47,6 +47,22 @@ async function withMarkdown(text: string, check: (container: HTMLElement) => voi
   }
 }
 
+// deepestElement returns how many elements nest on the deepest path under container, container excluded.
+function deepestElement(container: HTMLElement): number {
+  let deepest = 0;
+  for (const element of container.querySelectorAll("*")) {
+    let depth = 0;
+    for (let node: Element | null = element; node !== null && node !== container; node = node.parentElement) {
+      depth++;
+    }
+    deepest = Math.max(deepest, depth);
+  }
+  return deepest;
+}
+
+// elementCap is the deepest element nesting Markdown draws: the top-level element and the 32 token levels under it.
+const elementCap = 33;
+
 test("prose draws as a paragraph with < and & literal", () =>
   withMarkdown("a < b & c", (container) => {
     const paragraphs = container.querySelectorAll("p");
@@ -211,6 +227,31 @@ test("hostile markup yields only fixed-list elements, http(s) links, and its sou
     assert.ok(text.includes("<img src=x onerror=alert(1)>"));
     assert.ok(text.includes('<div style="color:red" onclick="alert(1)">raw block</div>'));
     assert.ok(text.includes("<span onmouseover=alert(1)>inline</span>"));
+  }));
+
+test("block nesting past depth 32 draws its source as text with no element deeper than the cap", () => {
+  const text = ">".repeat(40) + " x";
+  return withMarkdown(text, (container) => {
+    assert.equal(deepestElement(container) <= elementCap, true, "no element nests past the cap");
+    assert.equal(container.querySelectorAll("blockquote").length, 33);
+    assert.equal(container.textContent, ">".repeat(7) + " x");
+  });
+});
+
+test("inline nesting past depth 32 draws its source as text with no element deeper than the cap", () => {
+  const text = "*".repeat(200) + "word" + "*".repeat(200);
+  return withMarkdown(text, (container) => {
+    assert.equal(deepestElement(container) <= elementCap, true, "no element nests past the cap");
+    assert.equal(container.querySelectorAll("strong").length, 32);
+    assert.equal(container.textContent, "*".repeat(136) + "word" + "*".repeat(136));
+  });
+});
+
+test("text marked cannot lex draws as one text node", () =>
+  withMarkdown(">".repeat(2000) + " x", (container) => {
+    assert.equal(container.childNodes.length, 1);
+    assert.equal(container.firstChild?.nodeType, Node.TEXT_NODE);
+    assert.equal(container.textContent, ">".repeat(2000) + " x");
   }));
 
 test("re-rendering unchanged text does not lex it again", async () => {
