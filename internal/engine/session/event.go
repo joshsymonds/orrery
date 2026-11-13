@@ -101,7 +101,8 @@ const (
 // Request is a control request the session waits on its host to answer. Refused reports a request the
 // package cannot answer: the session declines it itself, so the host must not answer it. WriteID is the
 // write id of the request's event, "event:" plus the Start of its line and the event's index in the line,
-// which a write the session makes for the request carries.
+// which a write the session makes for the request carries. Answered reports a request the host answered
+// before the session was re-adopted, so the host must not answer it again.
 type Request struct {
 	Kind      RequestKind
 	RequestID string
@@ -111,6 +112,7 @@ type Request struct {
 	Input     json.RawMessage
 	Refused   bool
 	WriteID   string
+	Answered  bool
 }
 
 func (Request) isEvent() {}

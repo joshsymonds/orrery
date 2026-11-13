@@ -102,11 +102,20 @@ func (s *Session) observeCancel(canceled RequestCancelled) RequestCancelled {
 	return canceled
 }
 
-// observeRequest refuses a request the package cannot answer, and opens every other request. A refusal
-// that cannot be written leaves the request unrefused, so the host still sees it.
+// observeRequest opens every request the host has not answered and refuses a request the package cannot answer. A
+// request the host already answered is neither opened nor refused, so it is never answered twice. A replayed request
+// is not refused: the session writes nothing for a replayed line. A refusal that cannot be written leaves the request
+// unrefused, so the host still sees it.
 func (s *Session) observeRequest(request Request) Request {
+	request.Answered = s.written[responseWriteID(request.RequestID)]
+	if request.Answered {
+		return request
+	}
 	if !request.Refused {
 		s.pending.open(request)
+		return request
+	}
+	if s.replaying {
 		return request
 	}
 	err := s.write(request.WriteID, func() error {
