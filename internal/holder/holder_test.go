@@ -11,7 +11,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
 )
@@ -239,8 +238,8 @@ func requireNoSocket(t *testing.T, sock string) {
 // requireChildGroupAlive fails unless process group pgid still has a process.
 func requireChildGroupAlive(t *testing.T, pgid int) {
 	t.Helper()
-	if err := syscall.Kill(-pgid, 0); err != nil {
-		t.Fatalf("process group %d: kill(0) = %v, want it alive", pgid, err)
+	if !processGroupLive(t, pgid) {
+		t.Fatalf("process group %d has no live process, want it alive", pgid)
 	}
 }
 
