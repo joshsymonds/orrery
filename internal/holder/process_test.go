@@ -8,10 +8,12 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"net"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -306,6 +308,17 @@ func stopProcess(t *testing.T, p *Process) {
 // end of the connection.
 func rawProcess(t *testing.T) (*Process, *client) {
 	t.Helper()
+	p, server, held, _ := rawProcessHeld(t)
+	t.Cleanup(func() {
+		close(held.done)
+	})
+	return p, server
+}
+
+// rawProcessHeld is rawProcess that also returns the fake holder process, whose Done the caller closes, and the
+// listener the test holder serves on.
+func rawProcessHeld(t *testing.T) (*Process, *client, *fakeHeld, *net.UnixListener) {
+	t.Helper()
 	listener, sock := listenRaw(t)
 	dialed := dialAsync(t, sock, WireVersion)
 	server := acceptRaw(t, listener)
@@ -329,10 +342,7 @@ func rawProcess(t *testing.T) (*Process, *client) {
 		t.Fatalf("Attach(0): %v", err)
 	}
 	held := newFakeHeld()
-	t.Cleanup(func() {
-		close(held.done)
-	})
-	return newProcess(held, res.conn, sock, t.TempDir()), server
+	return newProcess(held, res.conn, sock, t.TempDir()), server, held, listener
 }
 
 // requireAck fails the test unless the next frame the holder receives is an ack of consumed and replayFrom both at
@@ -705,5 +715,38 @@ func TestProcessWriteIsAnsweredByItsIDDuplicateCountsAsWrittenAndErrorFailsIt(t 
 	server.send(Frame{Type: TypeError, ID: f3.ID, Message: refusal})
 	if got := awaitWrite(t, third); got.err == nil || got.err.Error() != refusal {
 		t.Fatalf("Write(three) refused = %d, %v; want the holder's %q", got.n, got.err, refusal)
+	}
+}
+
+// TestProcessStopAfterTheExitFrameStopsNothing stops a process whose holder has sent its exit frame and is still
+// ending. The child has ended, so Stop dials no stop and signals no holder: it waits for the holder to end. A stop
+// sent then would race the holder's exit and could signal a holder that has already given up its signal handling.
+func TestProcessStopAfterTheExitFrameStopsNothing(t *testing.T) {
+	t.Parallel()
+
+	p, server, held, listener := rawProcessHeld(t)
+	var heldStops atomic.Int32
+	held.cancel = func() { heldStops.Add(1) }
+	server.send(Frame{Type: TypeExit, Exit: &Exit{Reason: ReasonExited, Code: childDiedCode}})
+	if got := readToEnd(t, p.Stdout()); !errors.Is(got.err, io.EOF) {
+		t.Fatalf("stdout ended with %v, want io.EOF after the exit frame", got.err)
+	}
+
+	stopped := startAsync(p.Stop)
+	if err := listener.SetDeadline(time.Now().Add(childSettle)); err != nil {
+		t.Fatalf("set accept deadline: %v", err)
+	}
+	if conn, err := listener.AcceptUnix(); !errors.Is(err, os.ErrDeadlineExceeded) {
+		if conn != nil {
+			_ = conn.Close()
+		}
+		t.Fatalf("accept after Stop = %v, want no connection: Stop must not dial a holder whose child has ended", err)
+	}
+	close(held.done)
+	if err := awaitResult(t, "Stop", stopped); err != nil {
+		t.Fatalf("Stop = %v, want nil once the holder has ended", err)
+	}
+	if n := heldStops.Load(); n != 0 {
+		t.Fatalf("Stop signaled the holder's process %d times, want none", n)
 	}
 }

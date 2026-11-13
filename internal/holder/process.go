@@ -102,8 +102,9 @@ func (p *Process) Stderr() string {
 }
 
 // Stop stops the child and returns once the holder has ended and its directory is removed. It is idempotent, so later
-// calls return the first result. After Detach it returns nil at once. It returns an error only when neither the holder's
-// socket nor the holder's own process could be stopped.
+// calls return the first result. After Detach it returns nil at once, and after the exit frame it stops nothing and
+// only waits, since the child has ended. It returns an error only when neither the holder's socket nor the holder's own
+// process could be stopped.
 func (p *Process) Stop() error {
 	p.stopOnce.Do(func() {
 		p.stopErr = p.stop()
@@ -120,10 +121,21 @@ func (p *Process) stop() error {
 	select {
 	case <-p.held.Done():
 	default:
-		stopErr = p.stopHolder()
+		// After the exit frame the child has ended and the holder is ending on its own; a stop sent then races its
+		// exit, and the fallback signal could end a holder that has already given up its signal handling.
+		if !p.exitReceived() {
+			stopErr = p.stopHolder()
+		}
 	}
 	<-p.ended
 	return stopErr
+}
+
+// exitReceived reports whether the holder's exit frame has arrived.
+func (p *Process) exitReceived() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.exit != nil
 }
 
 // stopHolder asks the holder to stop its child over its socket. When that fails, it stops the holder's own process, and
