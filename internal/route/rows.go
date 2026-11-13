@@ -200,14 +200,21 @@ func (r *Router) deleteRowLocked(ent *entry) {
 	r.deleteLocked(ent.row, ent.n.Key)
 }
 
-// retryLocked retries the failed row writes, deletes first. A retried put stores its entry's current row. The caller
-// holds r.mu.
+// retryLocked retries the failed row writes, deletes first, in ascending id. A retried put stores its entry's current
+// row. The pass stops at the first retry that fails: the store is still failing, so the rest wait for a later write or
+// Close. The caller holds r.mu.
 func (r *Router) retryLocked() {
 	for _, id := range slices.Sorted(maps.Keys(r.rowDeletes)) {
 		r.deleteLocked(id, r.rowDeletes[id])
+		if _, failed := r.rowDeletes[id]; failed {
+			return
+		}
 	}
 	for _, id := range slices.Sorted(maps.Keys(r.rowPuts)) {
 		r.putLocked(r.rowPuts[id])
+		if _, failed := r.rowPuts[id]; failed {
+			return
+		}
 	}
 }
 

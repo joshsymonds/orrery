@@ -503,4 +503,41 @@ func TestRowWriteFails(t *testing.T) {
 			t.Errorf("logs = %q, want the deadline error", logs.String())
 		}
 	})
+
+	t.Run("a backlog of failed deletes keeps blocked writes within a second", func(t *testing.T) {
+		ctx := t.Context()
+		s := newFlakyRows(t)
+		f := newFake()
+		f.setWatching(true, nil)
+		r := newRestartRouter(t, f, nil)
+		r.Attach(ctx, s)
+
+		// Five notices are stored, then each ends while every store call blocks, so each row's delete fails and waits.
+		const backlog = 5
+		backlogPane := func(i int) string { return fmt.Sprintf("%%synthetic-backlog-%d", i) }
+		for i := range backlog {
+			r.Notify(ctx, sourced(f.notice(backlogPane(i), stateDone, true)))
+			r.Wait()
+		}
+		s.set(faults{block: true})
+		for i := range backlog {
+			r.Changed(notice.Key{Pane: backlogPane(i)})
+		}
+
+		// Each blocked write costs its own calls and at most one retry, not one call per failed delete.
+		within(t, rowLimit, func() {
+			r.Notify(ctx, sourced(f.notice(testPane, stateWaiting, true)))
+			r.Wait()
+		})
+		within(t, rowLimit, r.Close)
+
+		// Once the store recovers, one later write deletes the backlog and stores the notice that is pending.
+		s.set(faults{})
+		r.Notify(ctx, sourced(f.notice(otherPane, stateDone, true)))
+		r.Wait()
+		want := withWatchLogged(rowFor(7, otherPane, stateDone, clockStart, rowHeld, (clockStart+watchSeconds)*1000))
+		checkRows(t, s, want)
+		r.Close()
+		checkRows(t, s, want)
+	})
 }
