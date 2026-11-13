@@ -237,7 +237,7 @@ func TestRespawnOfStepWhoseAgentNoLongerResolvesFailsBeforeClaude(t *testing.T) 
 		t.Fatalf("remove the step's agent: %v", err)
 	}
 
-	err := m.Continue(t.Context(), stepA, "again")
+	err := m.Continue(t.Context(), stepA, StepPrompt{Text: "again"})
 	if !errors.Is(err, agents.ErrUnresolved) {
 		t.Fatalf("Continue with the agent gone: err = %v, want it to match %v", err, agents.ErrUnresolved)
 	}
