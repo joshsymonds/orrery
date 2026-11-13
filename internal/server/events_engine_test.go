@@ -237,6 +237,29 @@ func TestWatchResumedSendsLaterEventsThenCurrentText(t *testing.T) {
 	wantMessage(t, w.next(t), engineText(2, "resumed text"))
 }
 
+func TestWatchSendsPromptSenderAndRound(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "orrery.db")
+	s := openEventStore(t, path)
+	addEngine(t, s)
+	insertRawEvent(
+		t,
+		path,
+		store.EventEnginePrompt,
+		`{"text":"fix the build","promptId":"p-1","sender":"engine","round":2}`,
+	)
+	events := orreryv1connect.NewEventsClient(guardedHTTPClient(), startServer(t, path))
+
+	w := openWatch(t, events, 0)
+	if got := w.next(t).GetSeq(); got != 1 {
+		t.Fatalf("engine_added before the prompt: seq %d, want 1", got)
+	}
+	wantMessage(t, w.next(t), &orreryv1.WatchResponse{
+		Seq: 2, SessionId: eventEngine, At: eventAt, Event: &orreryv1.WatchResponse_EnginePrompt{
+			EnginePrompt: &orreryv1.EnginePrompt{Text: "fix the build", PromptId: "p-1", Sender: "engine", Round: 2},
+		},
+	})
+}
+
 func TestWatchEndsInternalOnMalformedEnginePayload(t *testing.T) {
 	cases := []struct {
 		name    string

@@ -45,9 +45,10 @@ orrery daily use
 p
   p             attach the most recently active session, then open the tree
   p .           the session for the current directory, else the picker to resume or start fresh
-  p WORD        a session named WORD, else a zoxide match, else the picker
+  p PATH        the session for directory PATH (one with / or ..), else the picker to resume or start fresh
+  p WORD        a session named WORD, else the known directory named WORD (several: choose one), else the picker
   p new NAME    create project directory NAME and a session for it (--root DIR sets the parent)
-  p WORDS...    open the picker with WORDS as the intent, over zoxide's and the roots' directories
+  p WORDS...    open the picker with WORDS as the intent, over known directories and the roots' directories
 
 tmux
   prefix Space  open the tree in a popup
@@ -74,7 +75,7 @@ tree
   esc, q        close the tree
 ```
 
-The picker offers zoxide's directories and the directories under the roots declared in the home-manager option `programs.orrery.roots`, shown to the model relative to home. The roots file is documented in [section 11 of `docs/contract.md`](docs/contract.md#11-commands-and-configuration).
+The picker offers the directories orrery knows (live sessions', closed panes' in the archive, orreryd's engine sessions' and step workspaces', and the children of `$HOME/Personal`) and the directories under the roots declared in the home-manager option `programs.orrery.roots`, shown to the model relative to home. The roots file is documented in [section 11 of `docs/contract.md`](docs/contract.md#11-commands-and-configuration).
 
 ## Phone service
 

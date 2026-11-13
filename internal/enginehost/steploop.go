@@ -15,12 +15,20 @@ import (
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
+// StepPrompt is a prompt sent to a step session as its next message. Sender is who sent it, which the engine stores with
+// it: brief, engine or owner. Round is the round of a send-back, and zero when the prompt carries none.
+type StepPrompt struct {
+	Text   string
+	Sender string
+	Round  int
+}
+
 // stepSessions is what a step run drives: its session starts, is interrupted, takes a follow-up message, and stops.
 // Manager satisfies it.
 type stepSessions interface {
 	StartStep(ctx context.Context, step StepSession) error
 	Interrupt(ctx context.Context, id string) error
-	Continue(ctx context.Context, id, text string) error
+	Continue(ctx context.Context, id string, prompt StepPrompt) error
 	Stop(ctx context.Context, id string) error
 }
 
@@ -206,30 +214,30 @@ func (r *stepRun) turnEnded(ctx context.Context, ended session.TurnEnded, round,
 		}
 		r.held.Store(false)
 		r.heldEnded = false
-		return r.continueWith(ctx, joinNudges(nudge, owner))
+		return r.continueWith(ctx, StepPrompt{Text: joinNudges(nudge, owner), Sender: store.PromptSenderOwner})
 	}
 	if owner != "" {
-		return r.continueWith(ctx, joinNudges(nudge, owner))
+		return r.continueWith(ctx, StepPrompt{Text: joinNudges(nudge, owner), Sender: store.PromptSenderOwner})
 	}
 	if nudge != "" && ended.IsError {
-		return r.continueWith(ctx, nudge)
+		return r.continueWith(ctx, StepPrompt{Text: nudge, Sender: store.PromptSenderEngine})
 	}
 	*round++
 	return r.judge(ctx, *round, ended.StructuredOutput, continues)
 }
 
-// continueWith sends text to the session as its next message. A failed send ends the step failed. It reports whether
+// continueWith sends prompt to the session as its next message. A failed send ends the step failed. It reports whether
 // the run goes on.
-func (r *stepRun) continueWith(ctx context.Context, text string) bool {
-	if err := r.continueStep(ctx, text); err != nil {
+func (r *stepRun) continueWith(ctx context.Context, prompt StepPrompt) bool {
+	if err := r.continueStep(ctx, prompt); err != nil {
 		return false
 	}
 	return true
 }
 
-// continueStep sends text to the session as its next message. A failed send ends the step failed and returns the error.
-func (r *stepRun) continueStep(ctx context.Context, text string) error {
-	if err := r.sessions.Continue(ctx, r.id, text); err != nil {
+// continueStep sends prompt to the session as its next message. A failed send ends the step failed and returns the error.
+func (r *stepRun) continueStep(ctx context.Context, prompt StepPrompt) error {
+	if err := r.sessions.Continue(ctx, r.id, prompt); err != nil {
 		err = fmt.Errorf("continue step %s: %w", r.id, err)
 		r.finish(ctx, stepLoopEndFailed, "", err.Error())
 		return err
@@ -286,6 +294,7 @@ func (r *stepRun) judge(ctx context.Context, round int, value json.RawMessage, c
 		Status string          `json:"status"`
 		Commit json.RawMessage `json:"commit"`
 	}
+	var commit string
 	if schemaErr == nil {
 		if err := json.Unmarshal(value, &head); err != nil {
 			r.finish(ctx, stepLoopEndFailed, "", fmt.Sprintf("read status of step %s: %v", r.id, err))
@@ -293,7 +302,8 @@ func (r *stepRun) judge(ctx context.Context, round int, value json.RawMessage, c
 		}
 		if head.Status == r.doneValue && r.writing {
 			var err error
-			if checks, err = r.doneChecks(ctx, round, stepLoopCommit(head.Commit), checks); err != nil {
+			commit = r.stepLoopCommit(ctx, head.Commit)
+			if checks, err = r.doneChecks(ctx, round, commit, checks); err != nil {
 				r.finish(ctx, stepLoopEndFailed, "", err.Error())
 				return false
 			}
@@ -305,10 +315,10 @@ func (r *stepRun) judge(ctx context.Context, round int, value json.RawMessage, c
 		return false
 	}
 	if len(stepLoopFailures(checks)) > 0 {
-		return r.retry(ctx, checks, continues)
+		return r.retry(ctx, round, checks, continues)
 	}
 	if head.Status == r.doneValue {
-		return r.judgeReturn(ctx, round, value, stepLoopCommit(head.Commit), head.Status, checks)
+		return r.judgeReturn(ctx, round, value, commit, head.Status, checks)
 	}
 	r.finish(ctx, stepLoopEndReturned, head.Status, "")
 	return false
@@ -358,14 +368,19 @@ func stepGateRecord(name, source string, argv []string, members []grants.Member)
 	return fmt.Sprintf("gate %s from %s ran %s holding %s; ", name, source, raw, strings.Join(held, ",")), nil
 }
 
-// stepLoopCommit returns the commit a done return names. A missing or non-string commit names none, which the head
-// check then fails, so the return goes back like any other failure.
-func stepLoopCommit(raw json.RawMessage) string {
+// stepLoopCommit returns the commit a done return names. A return that names no commit string, one missing, empty or
+// not a string, takes the workspace's HEAD when a writing step's HEAD has moved past start. Otherwise it returns "",
+// which the head check then fails, so the return goes back like any other failure.
+func (r *stepRun) stepLoopCommit(ctx context.Context, raw json.RawMessage) string {
 	var commit string
-	if err := json.Unmarshal(raw, &commit); err != nil {
+	if err := json.Unmarshal(raw, &commit); err == nil && commit != "" {
+		return commit
+	}
+	head, err := stepGitResolve(ctx, r.dir, "HEAD")
+	if err != nil || head == r.start {
 		return ""
 	}
-	return commit
+	return head
 }
 
 // stepLoopRecord returns c as a check stored with round.
@@ -388,9 +403,9 @@ func stepLoopGateCheck(round int, result gateResult, limit time.Duration) store.
 	return check
 }
 
-// retry sends the failed checks back to the session while it has continues left, and otherwise ends checks_failed. It
-// reports whether the run goes on.
-func (r *stepRun) retry(ctx context.Context, checks []store.StepCheck, continues *int) bool {
+// retry sends the failed checks of round back to the session while it has continues left, and otherwise ends
+// checks_failed. It reports whether the run goes on.
+func (r *stepRun) retry(ctx context.Context, round int, checks []store.StepCheck, continues *int) bool {
 	failures := stepLoopFailures(checks)
 	if *continues == stepLoopMaxContinues {
 		r.finish(ctx, stepLoopEndChecksFailed, "", strings.Join(failures, "; "))
@@ -399,7 +414,8 @@ func (r *stepRun) retry(ctx context.Context, checks []store.StepCheck, continues
 	*continues++
 	text := "Your return failed these checks. Return again with a result that passes them:\n- " +
 		strings.Join(failures, "\n- ")
-	if err := r.sessions.Continue(ctx, r.id, text); err != nil {
+	prompt := StepPrompt{Text: text, Sender: store.PromptSenderEngine, Round: round}
+	if err := r.sessions.Continue(ctx, r.id, prompt); err != nil {
 		r.finish(ctx, stepLoopEndFailed, "", fmt.Sprintf("continue step %s: %v", r.id, err))
 		return false
 	}

@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
 import { test, type TestContext } from "node:test";
 
+import { create } from "@bufbuild/protobuf";
 import { render } from "preact";
 import { act } from "preact/test-utils";
 
 import { Composer } from "./composer";
 import { flashMillis } from "./flash";
+import { WaitingMessageSchema, type WaitingMessage } from "./gen/orrery/v1/orrery_pb";
 import { installTestDom, removeTestDom } from "./testdom";
 
 type Props = Parameters<typeof Composer>[0];
@@ -86,6 +88,31 @@ function flashing(container: HTMLElement): boolean {
   const root = container.querySelector(".composer");
   assert.ok(root, "the composer renders its root");
   return root.classList.contains("flash");
+}
+
+function sendButton(container: HTMLElement): HTMLButtonElement {
+  const button = container.querySelector<HTMLButtonElement>("button.go");
+  assert.ok(button, "the composer renders a send button");
+  return button;
+}
+
+async function clickSend(container: HTMLElement): Promise<void> {
+  await act(() => {
+    sendButton(container).click();
+  });
+}
+
+function queuedMessage(text: string, canceled = false): WaitingMessage {
+  return create(WaitingMessageSchema, { text, canceled });
+}
+
+// queuedRows reads each drawn queued message as its tag, its text and whether it is marked canceled.
+function queuedRows(container: HTMLElement): { tag: string; text: string; canceled: boolean }[] {
+  return Array.from(container.querySelectorAll("li.queued"), (row) => ({
+    tag: row.querySelector(".tag")?.textContent ?? "",
+    text: row.querySelector(".text")?.textContent ?? "",
+    canceled: row.classList.contains("canceled"),
+  }));
 }
 
 test("Enter sends the text once with a prompt id and clears the box on success", async () => {
@@ -410,5 +437,120 @@ test("Up with text in the box does not flash", async (t) => {
 test("the placeholder names the row", async () => {
   await withComposer({ label: "api" }, async (box) => {
     assert.equal(box.placeholder, "Reply to api");
+  });
+});
+
+test("the send button is a button labeled send inside the composer", async () => {
+  await withComposer({}, async (_box, container) => {
+    const button = sendButton(container);
+    assert.equal(button.getAttribute("type"), "button");
+    assert.equal(button.getAttribute("aria-label"), "send");
+    assert.equal(button.textContent, "↑");
+    assert.equal(container.querySelector(".composer button.go") !== null, true);
+  });
+});
+
+test("a click on the send button sends the text once with a prompt id and clears the box", async () => {
+  const calls: { text: string; promptId: string }[] = [];
+  await withComposer(
+    {
+      send: async (text, promptId) => {
+        calls.push({ text, promptId });
+      },
+      newPromptId: () => "button-id",
+    },
+    async (box, container) => {
+      await type(box, "hello from the button");
+      await clickSend(container);
+      await settle();
+      assert.deepEqual(calls, [{ text: "hello from the button", promptId: "button-id" }]);
+      assert.equal(box.value, "");
+    },
+  );
+});
+
+test("a second click on the send button while in flight makes no second call", async () => {
+  const calls: string[] = [];
+  let finish: () => void = () => {};
+  await withComposer(
+    {
+      send: (text) => {
+        calls.push(text);
+        return new Promise<void>((resolve) => {
+          finish = resolve;
+        });
+      },
+    },
+    async (box, container) => {
+      await type(box, "only once");
+      await clickSend(container);
+      await clickSend(container);
+      assert.deepEqual(calls, ["only once"]);
+      await act(() => {
+        finish();
+      });
+      await settle();
+      assert.equal(box.value, "");
+    },
+  );
+});
+
+test("a click on the send button with a blank box sends nothing", async () => {
+  let calls = 0;
+  await withComposer({ send: async () => void calls++ }, async (box, container) => {
+    await type(box, "   ");
+    await clickSend(container);
+    await settle();
+    assert.equal(calls, 0);
+    assert.equal(box.value, "   ");
+  });
+});
+
+test("queued messages draw above the input in the given order, each tagged, a canceled one marked", async () => {
+  const queued = [queuedMessage("first"), queuedMessage("second", true), queuedMessage("third")];
+  await withComposer({ queued }, async (_box, container) => {
+    assert.deepEqual(queuedRows(container), [
+      { tag: "waiting", text: "first", canceled: false },
+      { tag: "canceled", text: "second", canceled: true },
+      { tag: "waiting", text: "third", canceled: false },
+    ]);
+    const root = container.querySelector(".compose");
+    assert.ok(root, "the composer renders its root");
+    assert.deepEqual(Array.from(root.children, (child) => child.className), ["queue", "composer"]);
+  });
+});
+
+test("no queue is drawn when no message is queued", async () => {
+  await withComposer({ queued: [] }, async (_box, container) => {
+    assert.equal(container.querySelector(".queue") !== null, false);
+    assert.equal(container.querySelector("li.queued") !== null, false);
+  });
+});
+
+test("Up in an empty box still pulls the text back with messages queued", async () => {
+  let pulls = 0;
+  await withComposer(
+    {
+      queued: [queuedMessage("waiting one")],
+      pull: async () => {
+        pulls++;
+        return "pulled text";
+      },
+    },
+    async (box) => {
+      await press(box, "ArrowUp");
+      await settle();
+      assert.equal(pulls, 1);
+      assert.equal(box.value, "pulled text");
+    },
+  );
+});
+
+test("queued text draws as text, never as markup", async () => {
+  const markup = '<img src="x" onerror="alert(1)"> <b>bold</b> `code`';
+  await withComposer({ queued: [queuedMessage(markup)] }, async (_box, container) => {
+    assert.equal(queuedRows(container)[0].text, markup);
+    assert.equal(container.querySelector("li.queued img") !== null, false, "no image element is drawn");
+    assert.equal(container.querySelector("li.queued b") !== null, false, "no bold element is drawn");
   });
 });

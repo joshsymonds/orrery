@@ -74,7 +74,11 @@ func unknownLine(line []byte, err error) []Event {
 func (t *translator) variantEvents(variant wire.SDKMessageVariant, line []byte) ([]Event, error) {
 	switch message := variant.(type) {
 	case wire.SDKSystemMessage:
-		return []Event{Started{SessionID: message.SessionID, PermissionMode: message.PermissionMode}}, nil
+		return []Event{Started{
+			SessionID:      message.SessionID,
+			PermissionMode: message.PermissionMode,
+			Agents:         message.Agents,
+		}}, nil
 	case wire.SDKAssistantMessage:
 		return assistantEvents(message)
 	case wire.SDKUserMessage:

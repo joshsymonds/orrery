@@ -2,6 +2,7 @@ package route
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"slices"
@@ -14,13 +15,17 @@ import (
 // storeDeadline bounds each store call the Router makes. A call that outlives it is late, and is retried.
 const storeDeadline = 200 * time.Millisecond
 
-// The phases a row records: the wait its notice is in.
+// The phases a row records: the wait its notice is in, or sending once its push was handed to the phone.
 const (
 	phaseDeciding = "deciding"
 	phaseHeld     = "held"
 	phaseDelayed  = "delayed"
 	phaseDesk     = "desk"
+	phaseSending  = "sending"
 )
+
+// reasonResent is the reason the line of a restored sending row's push, sent again at Attach, gives.
+const reasonResent = "resent after restart"
 
 // Rows is the store the Router keeps one row per sourced pending notice in. *store.Store satisfies it.
 type Rows interface {
@@ -33,8 +38,8 @@ type Rows interface {
 // Attach keeps rows in rows from now on. Each notice with a source that is already pending gets its row at once,
 // with an id above the store's id floor. Then each stored row is restored in ascending id: a row whose key saw a
 // Notify before Attach, or that a later row for its key replaces, ends `changed`; a row that cannot be restored ends
-// `not restored`; and the others resume from their phase. A failed floor read is logged and leaves the Router without
-// a store. A failed read of the rows is logged and restores nothing.
+// `not restored`; a sending row has its push sent to the phone again; and the others resume from their phase. A failed
+// floor read is logged and leaves the Router without a store. A failed read of the rows is logged and restores nothing.
 func (r *Router) Attach(ctx context.Context, rows Rows) {
 	floorCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), storeDeadline)
 	floor, err := rows.NoticeIDFloor(floorCtx)
@@ -88,18 +93,30 @@ func (r *Router) restoreLocked(ctx context.Context, rows Rows, floor int64, befo
 	}
 }
 
-// restoreRowLocked resumes the notice that row holds, or ends the row `not restored` when the notice cannot be
-// rebuilt. The caller holds r.mu.
+// restoreRowLocked resumes the notice that row holds, or ends the row when the notice cannot be rebuilt: `changed`
+// or `seen` when the Rebuild says so, `not restored` otherwise. The caller holds r.mu.
 func (r *Router) restoreRowLocked(ctx context.Context, row store.NoticeRow) {
 	ent := storedEntry(row)
 	if err := r.rebuildLocked(ctx, ent); err != nil {
-		r.endLocked(ent, None, reasonNotRestored+": "+err.Error())
+		r.endLocked(ent, None, unrestoredReason(err))
 		return
 	}
 	r.seq++
 	ent.seq = r.seq
 	r.pending[ent.n.Key] = ent
 	r.resumeLocked(ctx, ent)
+}
+
+// unrestoredReason is the reason a row ends with when its notice fails to rebuild with err.
+func unrestoredReason(err error) string {
+	switch {
+	case errors.Is(err, ErrChanged):
+		return reasonChanged
+	case errors.Is(err, ErrSeen):
+		return reasonSeen
+	default:
+		return reasonNotRestored + ": " + err.Error()
+	}
 }
 
 // storedEntry is the entry that row describes. Its notice has no Watching, Judge, Desk or Push until rebuildLocked
@@ -115,6 +132,7 @@ func storedEntry(row store.NoticeRow) *entry {
 		phase:       row.Phase,
 		due:         row.Due,
 		row:         row.ID,
+		silent:      row.Silent,
 		watchLogged: row.WatchLogged,
 		delayed:     row.DelayServed,
 	}
@@ -128,12 +146,12 @@ func (r *Router) rebuildLocked(ctx context.Context, ent *entry) error {
 	if !ok {
 		return fmt.Errorf("unknown source kind %q", ent.n.Source.Kind)
 	}
-	built, err := rebuild(ctx, ent.n.Source.Data)
+	built, err := rebuild(ctx, ent.n.Source.Data, ent.at)
 	if err != nil {
 		return err
 	}
 	switch ent.phase {
-	case phaseDeciding, phaseHeld, phaseDelayed, phaseDesk:
+	case phaseDeciding, phaseHeld, phaseDelayed, phaseDesk, phaseSending:
 	default:
 		return fmt.Errorf("unknown phase %q", ent.phase)
 	}
@@ -141,8 +159,9 @@ func (r *Router) rebuildLocked(ctx context.Context, ent *entry) error {
 	return nil
 }
 
-// resumeLocked resumes the restored ent from its phase, writing no line. A deciding or held notice decides at once.
-// A delayed notice decides, and a desk notice escalates, when its due passes. The caller holds r.mu.
+// resumeLocked resumes the restored ent from its phase. A deciding or held notice decides at once. A delayed notice
+// decides, and a desk notice escalates, when its due passes. A sending notice is sent to the phone again at once. The
+// caller holds r.mu.
 func (r *Router) resumeLocked(ctx context.Context, ent *entry) {
 	switch ent.phase {
 	case phaseDeciding, phaseHeld:
@@ -151,7 +170,20 @@ func (r *Router) resumeLocked(ctx context.Context, ent *entry) {
 		r.dueLocked(ent, func() { r.decide(ctx, ent) })
 	case phaseDesk:
 		r.dueLocked(ent, func() { r.escalate(ctx, ent) })
+	case phaseSending:
+		r.resendLocked(ctx, ent)
 	}
+}
+
+// resendLocked hands the push of the restored sending ent to the phone again, silent when its row is silent. The row
+// stays until the publish reports. Nothing is posted to the desk and no timer is armed, and no subscription is checked,
+// because the push was handed off before the stop. The caller holds r.mu.
+func (r *Router) resendLocked(ctx context.Context, ent *entry) {
+	build := ent.n.Push
+	if ent.silent {
+		build = silent(build)
+	}
+	r.handOffLocked(ctx, ent, build, ent.silent, Phone, reasonResent)
 }
 
 // dueLocked runs f on ent when ent's due passes, or at once when it has already passed. The caller holds r.mu.
@@ -272,5 +304,6 @@ func rowOf(ent *entry) store.NoticeRow {
 		WatchLogged: ent.watchLogged,
 		SourceKind:  ent.n.Source.Kind,
 		Source:      ent.n.Source.Data,
+		Silent:      ent.silent,
 	}
 }

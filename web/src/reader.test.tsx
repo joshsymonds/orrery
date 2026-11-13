@@ -5,6 +5,7 @@ import { create, type MessageInitShape } from "@bufbuild/protobuf";
 import { render } from "preact";
 import { act } from "preact/test-utils";
 
+import { EpicStepSchema, type EpicStep } from "./gen/orrery/v1/epics_pb";
 import {
   ConversationItemSchema,
   ConversationStateSchema,
@@ -16,7 +17,7 @@ import {
 import type { Conversation } from "./conversation";
 import { flashMillis } from "./flash";
 import type { ParsedQuestion } from "./question";
-import { Reader } from "./reader";
+import { Reader, ReaderHead } from "./reader";
 import { installTestDom, removeTestDom } from "./testdom";
 
 function item(init: MessageInitShape<typeof ConversationItemSchema>): ConversationItem {
@@ -53,6 +54,7 @@ interface Props {
   seenAt: number;
   open: boolean;
   question?: ParsedQuestion | null;
+  step?: EpicStep;
   onAnswer?: (choice: 1 | 2 | 3) => void;
   onToggleOpen?: () => void;
 }
@@ -157,6 +159,11 @@ function heldItems(first: number, last: number): ConversationItem[] {
   return list;
 }
 
+// localTime is the unix seconds of a wall-clock time on one local day, so the test reads the same in any time zone.
+function localTime(hour: number, minute: number): bigint {
+  return BigInt(Math.floor(new Date(2026, 10, 12, hour, minute).getTime() / 1000));
+}
+
 // distanceFromBottom is how far the reader's scroll sits above its bottom, by the stubbed layout.
 function distanceFromBottom(container: HTMLElement): number {
   const reader = readerOf(container);
@@ -171,6 +178,25 @@ function rowWith(container: HTMLElement, label: string): HTMLElement {
   assert.ok(row !== undefined, `a row draws ${label}`);
   return row;
 }
+
+test("a gutter time is local 24-hour HH:MM, so 00:05 and 15:26 draw as 00:05 and 15:26", () =>
+  withReader(
+    {
+      conversation: conversation({
+        items: [
+          item({ kind: "reply", time: localTime(0, 5), text: "after midnight" }),
+          item({ kind: "reply", time: localTime(15, 26), text: "in the afternoon" }),
+        ],
+      }),
+      // every item is read: none is newer than seenAt, so no new rule draws a gutter of its own
+      seenAt: Number(localTime(23, 59)),
+      open: false,
+    },
+    (container) => {
+      const gutters = [...container.querySelectorAll(".reader > .t > .gut")].map((gut) => gut.textContent ?? "");
+      assert.deepEqual(gutters, ["00:05", "15:26"]);
+    },
+  ));
 
 test("a reply holding script markup draws as text with no element", () =>
   withReader(
@@ -376,6 +402,208 @@ test("a prompt draws its markdown as elements inside .reply", () =>
     },
   ));
 
+// stepWith is a step holding the checks given, in the order given.
+function stepWith(checks: { round: number; name: string; ok: boolean }[]): EpicStep {
+  return create(EpicStepSchema, { checks });
+}
+
+// chipTexts returns the text of each check chip of a card, in order, and badChipTexts only the failed ones.
+function chipTexts(card: HTMLElement): string[] {
+  return [...card.querySelectorAll(".chip")].map((chip) => chip.textContent ?? "");
+}
+
+function badChipTexts(card: HTMLElement): string[] {
+  return [...card.querySelectorAll(".chip.bad")].map((chip) => chip.textContent ?? "");
+}
+
+test("a step's brief is one fold line with no YOU, and it opens to its text", () =>
+  withReader(
+    {
+      conversation: conversation({
+        items: [
+          item({
+            kind: "prompt",
+            time: 100n,
+            sender: "brief",
+            text: "Goal: export the rota\nOwned: cli/export.go",
+          }),
+        ],
+      }),
+      seenAt: 10_000,
+      open: false,
+      step: stepWith([]),
+    },
+    async (container) => {
+      const fold = container.querySelector<HTMLElement>("button.fold.brief");
+      assert.ok(fold !== null, "the brief is a fold button");
+      assert.equal(fold.querySelector("b")?.textContent, "Brief");
+      assert.equal(fold.querySelector(".names")?.textContent, "from the engine");
+      assert.equal(container.querySelector(".you") === null, true, "the brief is not YOU");
+      assert.equal(container.querySelector(".fold-text") === null, true, "the brief is folded until clicked");
+
+      await clickControl(fold);
+      const text = fold.nextElementSibling;
+      assert.equal(text?.getAttribute("class"), "fold-text", "the text opens after the fold");
+      assert.equal(text?.textContent?.includes("Owned: cli/export.go"), true, "the whole brief is shown");
+    },
+  ));
+
+test("a window starting after the brief draws its watchdog prompt as one Engine line, with no Brief", () =>
+  withReader(
+    {
+      conversation: conversation({
+        items: [
+          item({
+            kind: "prompt",
+            time: 200n,
+            sender: "engine",
+            text: "watchdog: no progress for 10 minutes\nsecond line",
+          }),
+        ],
+      }),
+      seenAt: 10_000,
+      open: false,
+      step: stepWith([]),
+    },
+    async (container) => {
+      assert.equal(container.querySelector("button.fold.brief") === null, true, "no Brief is drawn");
+      assert.equal(container.querySelector(".you") === null, true, "the watchdog is not YOU");
+      assert.equal(container.querySelectorAll("button.fold.engine").length, 1);
+      const fold = container.querySelector<HTMLElement>("button.fold.engine");
+      assert.ok(fold !== null, "the watchdog is an Engine fold");
+      assert.equal(fold.querySelector("b")?.textContent, "Engine");
+      assert.equal(fold.querySelector(".names")?.textContent, "watchdog: no progress for 10 minutes");
+
+      await clickControl(fold);
+      assert.equal(fold.nextElementSibling?.getAttribute("class"), "fold-text");
+      assert.equal(fold.nextElementSibling?.textContent?.includes("second line"), true, "the whole text is shown");
+    },
+  ));
+
+test("a prompt with no sender, and one with round 0, each draw as an Engine fold line", () =>
+  withReader(
+    {
+      conversation: conversation({
+        items: [
+          item({ kind: "prompt", time: 100n, sender: "", text: "unmarked prompt" }),
+          item({ kind: "prompt", time: 200n, sender: "engine", round: 0, text: "round zero prompt" }),
+        ],
+      }),
+      seenAt: 10_000,
+      open: false,
+      step: stepWith([]),
+    },
+    (container) => {
+      const folds = [...container.querySelectorAll("button.fold.engine .names")].map((names) => names.textContent);
+      assert.deepEqual(folds, ["unmarked prompt", "round zero prompt"]);
+      assert.equal(container.querySelector(".you") === null, true);
+      assert.equal(container.querySelector(".card") === null, true);
+    },
+  ));
+
+test("each send-back draws a card of its own round's checks, with its first line and its rest folded", () =>
+  withReader(
+    {
+      conversation: conversation({
+        items: [
+          item({
+            kind: "prompt",
+            time: 300n,
+            sender: "engine",
+            round: 1,
+            text: "gate failed: exit 1\nthe gate's output, line two\nline three",
+          }),
+          item({
+            kind: "prompt",
+            time: 400n,
+            sender: "engine",
+            round: 2,
+            text: "all checks passed on round two",
+          }),
+        ],
+      }),
+      seenAt: 10_000,
+      open: false,
+      step: stepWith([
+        { round: 1, name: "schema", ok: true },
+        { round: 1, name: "gate", ok: false },
+        { round: 2, name: "schema", ok: true },
+        { round: 2, name: "gate", ok: true },
+      ]),
+    },
+    async (container) => {
+      const cards = [...container.querySelectorAll<HTMLElement>("div.card")];
+      assert.equal(cards.length, 2, "one card per send-back");
+      const [first, second] = cards;
+      assert.ok(first !== undefined && second !== undefined, "both rounds draw a card");
+
+      assert.equal(first.classList.contains("bad"), true, "round 1 has a failed check: the edge is bad");
+      assert.equal(first.classList.contains("ok"), false);
+      assert.equal(second.classList.contains("ok"), true, "round 2 passed: the edge is ok");
+      assert.equal(second.classList.contains("bad"), false);
+      assert.equal(first.querySelector(".cap")?.textContent?.includes("Checks · round 1"), true);
+      assert.equal(second.querySelector(".cap")?.textContent?.includes("Checks · round 2"), true);
+      assert.equal(first.querySelector(".cap span")?.textContent, "from the engine");
+
+      assert.deepEqual(chipTexts(first), ["schema ✓", "gate ✗"], "round 1 shows only its own checks");
+      assert.deepEqual(badChipTexts(first), ["gate ✗"]);
+      assert.deepEqual(chipTexts(second), ["schema ✓", "gate ✓"], "round 2 shows only its own checks");
+      assert.deepEqual(badChipTexts(second), []);
+
+      assert.equal(first.querySelector("p.note") === null, true, "a multi-line send-back has no p.note");
+      const edge = first.querySelector<HTMLElement>("button.note");
+      assert.ok(edge !== null, "the first line is a button");
+      assert.equal(edge.textContent, "gate failed: exit 1");
+      assert.equal(first.querySelector(".rest") === null, true, "the rest is folded until clicked");
+
+      await clickControl(edge);
+      const rest = first.querySelector(".rest");
+      assert.equal(rest?.textContent?.includes("line three"), true, "the rest is shown after a click");
+      assert.equal(rest?.textContent?.includes("gate failed"), false, "the rest leaves out the first line");
+
+      assert.equal(second.querySelector("button.note") === null, true, "a one-line send-back has no button");
+      assert.equal(second.querySelector("p.note")?.textContent, "all checks passed on round two");
+      assert.equal(second.querySelector(".rest") === null, true);
+    },
+  ));
+
+test("an owner prompt is YOU in a step, so a nudge is not drawn as the engine's", () =>
+  withReader(
+    {
+      conversation: conversation({
+        items: [item({ kind: "prompt", time: 100n, sender: "owner", text: "**nudge** text" })],
+      }),
+      seenAt: 10_000,
+      open: false,
+      step: stepWith([{ round: 1, name: "gate", ok: false }]),
+    },
+    (container) => {
+      assert.equal(container.querySelector(".you > small")?.textContent, "YOU");
+      assert.equal(container.querySelector(".you > .reply > p > strong")?.textContent, "nudge");
+      assert.equal(container.querySelector("button.fold") === null, true, "the nudge is not a fold");
+      assert.equal(container.querySelector(".card") === null, true, "the nudge is not a card");
+    },
+  ));
+
+test("without a step every prompt draws as YOU, whatever its sender and round", () =>
+  withReader(
+    {
+      conversation: conversation({
+        items: [
+          item({ kind: "prompt", time: 100n, sender: "engine", round: 1, text: "engine text" }),
+          item({ kind: "prompt", time: 200n, sender: "brief", text: "brief text" }),
+        ],
+      }),
+      seenAt: 10_000,
+      open: false,
+    },
+    (container) => {
+      assert.equal(container.querySelectorAll(".you").length, 2);
+      assert.equal(container.querySelector("button.fold") === null, true);
+      assert.equal(container.querySelector(".card") === null, true);
+    },
+  ));
+
 test("live text draws its markdown as elements inside .reply, before its caret", () =>
   withReader(
     { conversation: conversation({ unfinished: [unfinished("- streamed\n- item")] }), seenAt: 0, open: false },
@@ -385,7 +613,7 @@ test("live text draws its markdown as elements inside .reply, before its caret",
     },
   ));
 
-test("a notice and a queued message holding markdown stay literal text", () =>
+test("a notice holding markdown stays literal text, and a queued message is not drawn in the reader", () =>
   withReader(
     {
       conversation: conversation({
@@ -400,10 +628,9 @@ test("a notice and a queued message holding markdown stay literal text", () =>
     (container) => {
       assert.equal(container.querySelector(".notice strong") === null, true);
       assert.equal(container.querySelector(".notice code") === null, true);
-      assert.equal(container.querySelector(".queued strong") === null, true);
-      assert.equal(container.querySelector(".queued code") === null, true);
       assert.ok(container.querySelector(".notice")?.textContent?.includes("**kept** `raw`"));
-      assert.ok(container.querySelector(".queued")?.textContent?.includes("**queued** `raw`"));
+      assert.equal(container.querySelector(".queued") === null, true, "no queued message is drawn");
+      assert.equal(container.textContent?.includes("**queued**"), false, "the queued text is in the foot, not here");
     },
   ));
 
@@ -491,7 +718,7 @@ test("unfinished text follows the items and is marked live", () =>
     },
   ));
 
-test("waiting messages stack under the items, oldest first, and a canceled one is marked", () =>
+test("waiting messages are not drawn in the reader, which holds only the items", () =>
   withReader(
     {
       conversation: conversation({
@@ -507,14 +734,10 @@ test("waiting messages stack under the items, oldest first, and a canceled one i
       open: false,
     },
     (container) => {
-      const waiting = [...container.querySelectorAll(".queued")];
-      assert.equal(waiting.length, 2);
-      assert.ok(waiting[0].textContent?.includes("first queued"));
-      assert.ok(waiting[1].textContent?.includes("second queued"));
-      assert.equal(waiting[0].classList.contains("canceled"), false);
-      assert.equal(waiting[1].classList.contains("canceled"), true);
-      assert.ok(waiting[1].textContent?.includes("canceled"));
-      assert.ok(waiting[0].textContent?.includes("waiting"));
+      assert.equal(container.querySelector(".queued") === null, true, "no queued message is drawn");
+      assert.equal(container.querySelector(".canceled") === null, true, "no canceled message is drawn");
+      assert.equal(container.textContent?.includes("queued"), false, "the queued text is in the foot, not here");
+      assert.ok(container.textContent?.includes("done"));
     },
   ));
 
@@ -888,6 +1111,261 @@ test("an opened result stays under its call as items arrive and the window slide
     assert.equal(line.nextElementSibling?.textContent, "built-output", "the result stays open under its call");
   });
 });
+
+// toolItem is a tool call held in the window under id, made by tool with input.
+function toolItem(tool: string, id: string, input: string, time = 100n): ConversationItem {
+  return item({ kind: "tool", time, tool, input, id });
+}
+
+// foldOf returns the button of a run's fold, the line that counts the run's calls.
+function foldOf(container: HTMLElement): HTMLButtonElement {
+  const fold = container.querySelector<HTMLButtonElement>("button.fold.calls");
+  assert.ok(fold !== null, "a run of three tool calls draws one fold button");
+  return fold;
+}
+
+// openedCalls returns each call line of an opened run as its tool and input, in order.
+function openedCalls(container: HTMLElement): string[] {
+  return [...container.querySelectorAll("div.calls .call")].map(
+    (line) => `${line.querySelector("b")?.textContent} ${line.querySelector(".in")?.textContent}`,
+  );
+}
+
+test("two tool calls in a row draw two call lines and no run fold", () =>
+  withReader(
+    {
+      conversation: conversation({
+        items: [
+          toolItem("Read", "r1", "a.txt"),
+          resultItem("r1", "alpha"),
+          toolItem("Read", "r2", "b.txt"),
+          resultItem("r2", "beta"),
+        ],
+      }),
+      seenAt: 100,
+      open: false,
+    },
+    (container) => {
+      assert.equal(container.querySelectorAll(".call").length, 2);
+      assert.equal(container.querySelector("button.fold.calls") === null, true, "two calls draw no fold");
+    },
+  ));
+
+test("three tool calls fold to one line that opens to a line per call and folds again", () =>
+  withReader(
+    {
+      conversation: conversation({
+        items: [
+          toolItem("Read", "r1", "a.txt"),
+          resultItem("r1", "alpha"),
+          toolItem("Read", "r2", "b.txt"),
+          resultItem("r2", "beta"),
+          toolItem("Bash", "b1", "make"),
+          resultItem("b1", "built"),
+        ],
+      }),
+      seenAt: 100,
+      open: false,
+    },
+    async (container) => {
+      const fold = foldOf(container);
+      assert.equal(rowTexts(container).length, 1, "the run is one row");
+      assert.equal(fold.querySelector("b")?.textContent, "3 tool calls");
+      assert.equal(fold.querySelector(".names")?.textContent, "Read ×2, Bash");
+      assert.equal(fold.querySelector(".ok")?.textContent, "✓");
+      assert.equal(fold.querySelector(".bad") === null, true, "a run that succeeded has no ✗");
+      assert.equal(container.querySelectorAll(".call").length, 0, "no call line until the fold is clicked");
+
+      await clickControl(fold);
+      assert.deepEqual(openedCalls(container), ["Read a.txt", "Read b.txt", "Bash make"]);
+      assert.equal(container.querySelector("div.calls .result") === null, true, "each call still folds its own result");
+
+      const [firstLine] = container.querySelectorAll<HTMLButtonElement>("div.calls .call");
+      assert.ok(firstLine !== undefined, "the opened run draws a line for its first call");
+      await clickControl(firstLine);
+      assert.equal(container.querySelector("div.calls .result")?.textContent, "alpha");
+
+      await clickControl(foldOf(container));
+      assert.equal(container.querySelector("div.calls") === null, true, "a second click folds the calls again");
+      assert.equal(container.querySelectorAll(".call").length, 0);
+    },
+  ));
+
+test("a run of three with one failed result shows ✗ in its fold and no ✓", () =>
+  withReader(
+    {
+      conversation: conversation({
+        items: [
+          toolItem("Bash", "b1", "rm -rf build"),
+          resultItem("b1", "permission denied", true),
+          toolItem("Read", "r1", "a.txt"),
+          resultItem("r1", "alpha"),
+          toolItem("Bash", "b2", "make"),
+          resultItem("b2", "built"),
+        ],
+      }),
+      seenAt: 100,
+      open: false,
+    },
+    (container) => {
+      const fold = foldOf(container);
+      assert.equal(fold.querySelector(".bad")?.textContent, "✗");
+      assert.equal(fold.querySelector(".ok") === null, true, "a run with a failure has no ✓");
+      assert.equal(container.textContent?.includes("permission denied"), false, "the failure stays folded");
+    },
+  ));
+
+test("a reply between tool calls leaves no run fold", () =>
+  withReader(
+    {
+      conversation: conversation({
+        items: [
+          toolItem("Read", "r1", "a.txt"),
+          resultItem("r1", "alpha"),
+          toolItem("Read", "r2", "b.txt"),
+          resultItem("r2", "beta"),
+          item({ kind: "reply", time: 100n, text: "checking the last one" }),
+          toolItem("Bash", "b1", "make"),
+          resultItem("b1", "built"),
+        ],
+      }),
+      seenAt: 100,
+      open: false,
+    },
+    (container) => {
+      assert.equal(container.querySelector("button.fold.calls") === null, true, "the reply splits the calls");
+      assert.equal(container.querySelectorAll(".call").length, 3, "each call draws its own line");
+    },
+  ));
+
+test("the since-you-looked rule ends a run, so the calls after it fold on their own", () =>
+  withReader(
+    {
+      conversation: conversation({
+        items: [
+          toolItem("Read", "r1", "a.txt", 100n),
+          resultItem("r1", "alpha", false, 100n),
+          toolItem("Read", "r2", "b.txt", 100n),
+          resultItem("r2", "beta", false, 100n),
+          toolItem("Read", "r3", "c.txt", 200n),
+          resultItem("r3", "gamma", false, 200n),
+          toolItem("Bash", "b1", "make", 200n),
+          resultItem("b1", "built", false, 200n),
+          toolItem("Bash", "b2", "ls", 200n),
+          resultItem("b2", "listed", false, 200n),
+        ],
+      }),
+      seenAt: 150,
+      open: false,
+    },
+    (container) => {
+      const rows = rowTexts(container);
+      assert.equal(rows.length, 4);
+      assert.ok(rows[2].includes("since you looked"), `row 2 was ${rows[2]}`);
+      assert.equal(foldOf(container).querySelector("b")?.textContent, "3 tool calls");
+      assert.equal(container.querySelectorAll(".call").length, 2, "the two calls before the rule draw lines");
+    },
+  ));
+
+test("a question between tool calls ends a run, so no run fold draws", () =>
+  withReader(
+    {
+      conversation: conversation({
+        items: [
+          toolItem("Read", "r1", "a.txt"),
+          resultItem("r1", "alpha"),
+          toolItem("Read", "r2", "b.txt"),
+          resultItem("r2", "beta"),
+          item({ kind: "question", time: 100n, tool: "AskUserQuestion", text: "Which schedule?", id: "q1" }),
+          resultItem("q1", "Daily"),
+          toolItem("Read", "r3", "c.txt"),
+          resultItem("r3", "gamma"),
+        ],
+      }),
+      seenAt: 100,
+      open: false,
+    },
+    (container) => {
+      assert.equal(container.querySelector("button.fold.calls") === null, true, "the question splits the calls");
+      assert.equal(container.querySelectorAll(".call").length, 4, "each call and the question draw a line");
+    },
+  ));
+
+// withHead renders a head the way withReader renders a reader, and removes it the same way.
+async function withHead(
+  props: Parameters<typeof ReaderHead>[0],
+  check: (container: HTMLElement) => void | Promise<void>,
+): Promise<void> {
+  const window = installTestDom();
+  const container = document.createElement("div");
+  try {
+    render(<ReaderHead {...props} />, container);
+    await check(container);
+  } finally {
+    render(null, container);
+    await removeTestDom(window);
+  }
+}
+
+// headOf returns the head's header element, the element that names the conversation.
+function headOf(container: HTMLElement): HTMLElement {
+  const head = container.querySelector<HTMLElement>("header.head");
+  assert.ok(head !== null, "the head is drawn");
+  return head;
+}
+
+test("a pane's head names its label as the heading and its where line as a span after it", () =>
+  withHead({ label: "Synthetic pane", where: "synthetic-project · synthetic-host" }, (container) => {
+    const head = headOf(container);
+    assert.equal(head.firstElementChild?.localName, "h1");
+    assert.equal(head.querySelector("h1")?.textContent, "Synthetic pane");
+    assert.equal(head.querySelector("span.where")?.textContent, "synthetic-project · synthetic-host");
+    assert.equal(head.querySelector("h1")?.nextElementSibling?.localName, "span");
+  }));
+
+test("a session's head with an empty where draws its label and no where element", () =>
+  withHead({ label: "Synthetic session", where: "" }, (container) => {
+    const head = headOf(container);
+    assert.equal(head.querySelector("h1")?.textContent, "Synthetic session");
+    assert.equal(head.querySelector(".where") === null, true);
+    assert.equal(head.children.length, 1);
+  }));
+
+test("a step's head names its epic, agent, step and round as its where line", () =>
+  withHead({ label: "Synthetic step", where: "synthetic-epic › synthetic-agent · step · round 3" }, (container) => {
+    const head = headOf(container);
+    assert.equal(head.querySelector("h1")?.textContent, "Synthetic step");
+    assert.equal(head.querySelector(".where")?.textContent, "synthetic-epic › synthetic-agent · step · round 3");
+  }));
+
+test("a child passed to the head draws after the where line as the head's last child", () =>
+  withHead(
+    {
+      label: "Synthetic pane",
+      where: "synthetic-project · synthetic-host",
+      children: <span class="pill">synthetic pill</span>,
+    },
+    (container) => {
+      const head = headOf(container);
+      assert.equal(head.lastElementChild?.getAttribute("class"), "pill");
+      assert.equal(head.lastElementChild?.textContent, "synthetic pill");
+      assert.equal(head.lastElementChild?.previousElementSibling?.getAttribute("class"), "where");
+    },
+  ));
+
+test("a label or where holding markup draws as text with no element", () =>
+  withHead(
+    { label: "<b>bold</b> <img src=x onerror=alert(1)>", where: "<i>italic</i> <a href=x>link</a>" },
+    (container) => {
+      const head = headOf(container);
+      assert.equal(head.querySelector("b") === null, true);
+      assert.equal(head.querySelector("img") === null, true);
+      assert.equal(head.querySelector("i") === null, true);
+      assert.equal(head.querySelector("a") === null, true);
+      assert.equal(head.querySelector("h1")?.textContent, "<b>bold</b> <img src=x onerror=alert(1)>");
+      assert.equal(head.querySelector(".where")?.textContent, "<i>italic</i> <a href=x>link</a>");
+    },
+  ));
 
 test("an opened thinking block stays open as its deltas grow", () =>
   withScrollingReader(

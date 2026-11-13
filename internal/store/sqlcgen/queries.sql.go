@@ -105,6 +105,20 @@ func (q *Queries) DeletePendingNotice(ctx context.Context, id int64) error {
 	return err
 }
 
+const deletePushedNotice = `-- name: DeletePushedNotice :exec
+DELETE FROM pushed_notices WHERE pane = ? AND session = ?
+`
+
+type DeletePushedNoticeParams struct {
+	Pane    string
+	Session string
+}
+
+func (q *Queries) DeletePushedNotice(ctx context.Context, arg DeletePushedNoticeParams) error {
+	_, err := q.db.ExecContext(ctx, deletePushedNotice, arg.Pane, arg.Session)
+	return err
+}
+
 const deleteSession = `-- name: DeleteSession :exec
 DELETE FROM sessions WHERE id = ?
 `
@@ -907,6 +921,41 @@ func (q *Queries) ListHolds(ctx context.Context) ([]Hold, error) {
 	return items, nil
 }
 
+const listKnownDirs = `-- name: ListKnownDirs :many
+SELECT known.dir FROM (
+    SELECT sessions.dir AS dir, CAST(sessions.changed AS INTEGER) AS at FROM sessions
+    WHERE sessions.kind = 'engine'
+    UNION ALL
+    SELECT steps.workspace AS dir, steps.started AS at FROM steps
+) AS known
+WHERE known.dir <> ''
+GROUP BY known.dir
+ORDER BY MAX(known.at) DESC, known.dir
+`
+
+func (q *Queries) ListKnownDirs(ctx context.Context) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, listKnownDirs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var dir string
+		if err := rows.Scan(&dir); err != nil {
+			return nil, err
+		}
+		items = append(items, dir)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listLabelledSteps = `-- name: ListLabelledSteps :many
 SELECT id, agent, prompt, output_schema, workspace, revision, worktree, done_value, read_only, owned, gate, gate_limit, started, checks, result, status, end_value, reason, ended, model_limit, doing, verdicts, epic, task, gate_name, gate_source, gate_needs FROM steps
 WHERE epic <> '' AND (CAST(?1 AS TEXT) = '' OR epic = CAST(?1 AS TEXT))
@@ -1026,7 +1075,7 @@ func (q *Queries) ListOpenSteps(ctx context.Context) ([]Step, error) {
 }
 
 const listPendingNotices = `-- name: ListPendingNotices :many
-SELECT id, pane, session, state, time, phase, due, delay_served, watch_logged, source_kind, source FROM pending_notices ORDER BY id
+SELECT id, pane, session, state, time, phase, due, delay_served, watch_logged, source_kind, source, silent FROM pending_notices ORDER BY id
 `
 
 func (q *Queries) ListPendingNotices(ctx context.Context) ([]PendingNotice, error) {
@@ -1050,7 +1099,35 @@ func (q *Queries) ListPendingNotices(ctx context.Context) ([]PendingNotice, erro
 			&i.WatchLogged,
 			&i.SourceKind,
 			&i.Source,
+			&i.Silent,
 		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listPushedNotices = `-- name: ListPushedNotices :many
+SELECT pane, session, time FROM pushed_notices ORDER BY pane, session
+`
+
+func (q *Queries) ListPushedNotices(ctx context.Context) ([]PushedNotice, error) {
+	rows, err := q.db.QueryContext(ctx, listPushedNotices)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []PushedNotice
+	for rows.Next() {
+		var i PushedNotice
+		if err := rows.Scan(&i.Pane, &i.Session, &i.Time); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -1481,11 +1558,12 @@ func (q *Queries) UpsertEngineText(ctx context.Context, arg UpsertEngineTextPara
 }
 
 const upsertPendingNotice = `-- name: UpsertPendingNotice :exec
-INSERT INTO pending_notices (id, pane, session, state, time, phase, due, delay_served, watch_logged, source_kind, source)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO pending_notices (id, pane, session, state, time, phase, due, delay_served, watch_logged, source_kind, source, silent)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT (id) DO UPDATE SET pane = excluded.pane, session = excluded.session, state = excluded.state,
     time = excluded.time, phase = excluded.phase, due = excluded.due, delay_served = excluded.delay_served,
-    watch_logged = excluded.watch_logged, source_kind = excluded.source_kind, source = excluded.source
+    watch_logged = excluded.watch_logged, source_kind = excluded.source_kind, source = excluded.source,
+    silent = excluded.silent
 `
 
 type UpsertPendingNoticeParams struct {
@@ -1500,6 +1578,7 @@ type UpsertPendingNoticeParams struct {
 	WatchLogged bool
 	SourceKind  string
 	Source      []byte
+	Silent      bool
 }
 
 func (q *Queries) UpsertPendingNotice(ctx context.Context, arg UpsertPendingNoticeParams) error {
@@ -1515,6 +1594,23 @@ func (q *Queries) UpsertPendingNotice(ctx context.Context, arg UpsertPendingNoti
 		arg.WatchLogged,
 		arg.SourceKind,
 		arg.Source,
+		arg.Silent,
 	)
+	return err
+}
+
+const upsertPushedNotice = `-- name: UpsertPushedNotice :exec
+INSERT INTO pushed_notices (pane, session, time) VALUES (?, ?, ?)
+ON CONFLICT (pane, session) DO UPDATE SET time = excluded.time
+`
+
+type UpsertPushedNoticeParams struct {
+	Pane    string
+	Session string
+	Time    int64
+}
+
+func (q *Queries) UpsertPushedNotice(ctx context.Context, arg UpsertPushedNoticeParams) error {
+	_, err := q.db.ExecContext(ctx, upsertPushedNotice, arg.Pane, arg.Session, arg.Time)
 	return err
 }

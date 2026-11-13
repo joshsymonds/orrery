@@ -21,6 +21,7 @@ type NoticeRow struct {
 	WatchLogged bool
 	SourceKind  string
 	Source      []byte
+	Silent      bool
 }
 
 // PutNotice inserts the row named by row.ID, or replaces every column of the row already stored under that id. It
@@ -30,7 +31,7 @@ func (s *Store) PutNotice(ctx context.Context, row NoticeRow) error {
 		if err := queries.UpsertPendingNotice(ctx, sqlcgen.UpsertPendingNoticeParams{
 			ID: row.ID, Pane: row.Pane, Session: row.Session, State: row.State, Time: row.Time, Phase: row.Phase,
 			Due: row.Due, DelayServed: row.DelayServed, WatchLogged: row.WatchLogged, SourceKind: row.SourceKind,
-			Source: row.Source,
+			Source: row.Source, Silent: row.Silent,
 		}); err != nil {
 			return fmt.Errorf("put notice %d: %w", row.ID, err)
 		}
@@ -62,7 +63,7 @@ func (s *Store) Notices(ctx context.Context) ([]NoticeRow, error) {
 		out = append(out, NoticeRow{
 			ID: row.ID, Pane: row.Pane, Session: row.Session, State: row.State, Time: row.Time, Phase: row.Phase,
 			Due: row.Due, DelayServed: row.DelayServed, WatchLogged: row.WatchLogged, SourceKind: row.SourceKind,
-			Source: row.Source,
+			Source: row.Source, Silent: row.Silent,
 		})
 	}
 	return out, nil

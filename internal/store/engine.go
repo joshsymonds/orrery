@@ -67,13 +67,22 @@ type EngineSet struct {
 	Changes EngineChanges
 }
 
+// Senders of an engine prompt, stored as its sender.
+const (
+	PromptSenderBrief  = "brief"
+	PromptSenderEngine = "engine"
+	PromptSenderOwner  = "owner"
+)
+
 // EnginePrompt appends engine_prompt for a prompt sent to a session. PromptID is the client-chosen id of the
-// prompt, stored only when non-empty. WriteID is the prompt's write id, stored in the event's write_id column and
-// left out of the payload.
+// prompt, stored only when non-empty. Sender and Round are stored only when non-empty and non-zero. WriteID is
+// the prompt's write id, stored in the event's write_id column and left out of the payload.
 type EnginePrompt struct {
 	ID       string
 	Text     string
 	PromptID string
+	Sender   string
+	Round    int
 	WriteID  string
 }
 
@@ -208,6 +217,8 @@ type engineChangedPayload struct {
 type enginePromptPayload struct {
 	Text     string `json:"text"`
 	PromptID string `json:"promptId,omitempty"`
+	Sender   string `json:"sender,omitempty"`
+	Round    int    `json:"round,omitempty"`
 }
 
 type engineBlockPayload struct {
@@ -333,7 +344,7 @@ func (op EngineSet) applyEngine(ctx context.Context, queries *sqlcgen.Queries, n
 }
 
 func (op EnginePrompt) applyEngine(ctx context.Context, queries *sqlcgen.Queries, now time.Time) error {
-	payload, err := json.Marshal(enginePromptPayload{Text: op.Text, PromptID: op.PromptID})
+	payload, err := json.Marshal(enginePromptPayload{Text: op.Text, PromptID: op.PromptID, Sender: op.Sender, Round: op.Round})
 	if err != nil {
 		return fmt.Errorf("encode %s payload: %w", EventEnginePrompt, err)
 	}

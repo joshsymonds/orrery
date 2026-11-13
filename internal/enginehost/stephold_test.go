@@ -38,7 +38,7 @@ func (f *holdSessions) Interrupt(_ context.Context, id string) error {
 	return f.interruptErr
 }
 
-func (f *holdSessions) Continue(_ context.Context, id, _ string) error {
+func (f *holdSessions) Continue(_ context.Context, id string, _ StepPrompt) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.continued = append(f.continued, id)

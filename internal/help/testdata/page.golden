@@ -20,9 +20,10 @@ th { font-family: ui-monospace, monospace; font-weight: 600; white-space: nowrap
 <table>
 <tr><th>p</th><td>attach the most recently active session, then open the tree</td></tr>
 <tr><th>p .</th><td>the session for the current directory, else the picker to resume or start fresh</td></tr>
-<tr><th>p WORD</th><td>a session named WORD, else a zoxide match, else the picker</td></tr>
+<tr><th>p PATH</th><td>the session for directory PATH (one with / or ..), else the picker to resume or start fresh</td></tr>
+<tr><th>p WORD</th><td>a session named WORD, else the known directory named WORD (several: choose one), else the picker</td></tr>
 <tr><th>p new NAME</th><td>create project directory NAME and a session for it (--root DIR sets the parent)</td></tr>
-<tr><th>p WORDS...</th><td>open the picker with WORDS as the intent, over zoxide&#39;s and the roots&#39; directories</td></tr>
+<tr><th>p WORDS...</th><td>open the picker with WORDS as the intent, over known directories and the roots&#39; directories</td></tr>
 </table>
 <h2>tmux (prefix is C-a)</h2>
 <table>

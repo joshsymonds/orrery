@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"path/filepath"
 	"reflect"
@@ -419,6 +420,85 @@ func TestStepStartSchemaListsLabelsAsOptionalStrings(t *testing.T) {
 	}
 }
 
+func TestStepStartRequiresOnlyPromptAndWorkspace(t *testing.T) {
+	p := newPeer(t, startDaemon(t, &fakeSteps{}))
+
+	reply := p.call("tools/list", map[string]any{})
+	var listed struct {
+		Tools []struct {
+			Name        string `json:"name"`
+			InputSchema struct {
+				Properties map[string]json.RawMessage `json:"properties"`
+				Required   []string                   `json:"required"`
+			} `json:"inputSchema"`
+		} `json:"tools"`
+	}
+	if err := json.Unmarshal(reply.Result, &listed); err != nil {
+		t.Fatalf("decode tools/list: %v", err)
+	}
+	found := false
+	for _, tool := range listed.Tools {
+		if tool.Name != "step_start" {
+			continue
+		}
+		found = true
+		if want := []string{"prompt", "workspace"}; !slices.Equal(tool.InputSchema.Required, want) {
+			t.Errorf("step_start requires %v, want exactly %v", tool.InputSchema.Required, want)
+		}
+		for _, field := range []string{"agent", "schema"} {
+			if _, ok := tool.InputSchema.Properties[field]; !ok {
+				t.Errorf("step_start schema has no %s property", field)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("tools/list has no step_start tool")
+	}
+}
+
+func TestStepStartWithoutAgentAndSchemaReachesTheDaemon(t *testing.T) {
+	fake := &fakeSteps{startID: "0123456789abcdef0123456789abcdef"}
+	p := newPeer(t, startDaemon(t, fake))
+
+	outcome := p.tool("step_start", `{
+		"prompt": "check the change",
+		"workspace": "/work",
+		"gateName": "lint",
+		"gatesFile": "/repo/gates.toml"
+	}`)
+
+	if outcome.isError {
+		t.Fatalf("step_start reported an error: %s", outcome.text)
+	}
+	if got := decodeObject(t, outcome.text); !reflect.DeepEqual(got, map[string]any{"id": fake.startID}) {
+		t.Fatalf("step_start result = %v, want id %s", got, fake.startID)
+	}
+	want := []enginehost.StepStart{{
+		Prompt:    "check the change",
+		Workspace: "/work",
+		GateName:  "lint",
+		GatesFile: "/repo/gates.toml",
+	}}
+	if got := fake.calls().starts; !reflect.DeepEqual(got, want) {
+		t.Fatalf("step_start reached the daemon as %+v, want %+v", got, want)
+	}
+}
+
+func TestStepStartRefusedByDaemonReadsAsCodeAndMessage(t *testing.T) {
+	fake := &fakeSteps{err: fmt.Errorf("%w: gate lint is not declared", enginehost.ErrBadGate)}
+	p := newPeer(t, startDaemon(t, fake))
+
+	outcome := p.tool("step_start", `{"prompt":"check the change","workspace":"/work","gateName":"lint"}`)
+
+	if !outcome.isError {
+		t.Fatalf("step_start returned %q without isError", outcome.text)
+	}
+	want := "invalid_argument: step gate is refused: gate lint is not declared"
+	if outcome.text != want {
+		t.Fatalf("step_start error text = %q, want %q", outcome.text, want)
+	}
+}
+
 func TestStepStatusAndStopReachTheDaemonByID(t *testing.T) {
 	fake := &fakeSteps{row: fullRow()}
 	p := newPeer(t, startDaemon(t, fake))
@@ -588,12 +668,6 @@ func TestBadArgumentsAreToolErrorsAndServerKeepsServing(t *testing.T) {
 		want string
 	}{
 		{
-			name: "start missing agent",
-			tool: "step_start",
-			args: `{"prompt":"p","workspace":"/w","schema":{}}`,
-			want: "agent is required",
-		},
-		{
 			name: "start prompt wrong type",
 			tool: "step_start",
 			args: `{"agent":"a","prompt":3,"workspace":"/w","schema":{}}`,
@@ -606,10 +680,10 @@ func TestBadArgumentsAreToolErrorsAndServerKeepsServing(t *testing.T) {
 			want: "schema must be a JSON object",
 		},
 		{
-			name: "start schema missing",
+			name: "start schema is an array",
 			tool: "step_start",
-			args: `{"agent":"a","prompt":"p","workspace":"/w"}`,
-			want: "schema is required",
+			args: `{"agent":"a","prompt":"p","workspace":"/w","schema":[]}`,
+			want: "schema must be a JSON object",
 		},
 		{
 			name: "start schema null",

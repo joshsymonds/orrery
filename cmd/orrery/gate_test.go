@@ -284,6 +284,45 @@ func TestGateRefusalsExitNoGrant(t *testing.T) {
 	}
 }
 
+// TestGateAgentGateRefusedExitNoGrant refuses an agent gate named through --gates. It writes the one line that says the
+// gate runs only as a read-only step, exits 75, and runs nothing: no request reaches the pools and no output comes from
+// a command. The project's pool file is refused in the second case, which shows the refusal comes before pool files are
+// read.
+func TestGateAgentGateRefusedExitNoGrant(t *testing.T) {
+	agentGates := "[gates.lint]\nagent = \"reviewer\"\nlimit = 30\nmust = [\"the change is tested\"]\n"
+	cases := []struct {
+		name    string
+		project string
+	}{
+		{"no project file", ""},
+		{"pool file refused", badPoolFile},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := setupProject(t, tc.project, "")
+			gatesFile := filepath.Join(dir, gatesFileName)
+			writeRunFile(t, gatesFile, agentGates)
+			fake := newFakePools(0)
+			daemon := startPools(t, fake)
+			var stdout bytes.Buffer
+			res := awaitOrrery(t, startOrrery(t, &stdout, "--socket", daemon, "gate", "--gates", gatesFile, "lint"))
+			if res.code != cli.ExitNoGrant {
+				t.Errorf("exit status %d, want %d; stderr %q", res.code, cli.ExitNoGrant, res.stderr)
+			}
+			want := "orrery gate: gate lint is an agent gate; it runs only as a read-only step\n"
+			if res.stderr != want {
+				t.Errorf("stderr %q, want %q", res.stderr, want)
+			}
+			if got := fake.received(); len(got) != 0 {
+				t.Errorf("pools received %d requests, want none", len(got))
+			}
+			if stdout.Len() != 0 {
+				t.Errorf("the gate ran: stdout %q", stdout.String())
+			}
+		})
+	}
+}
+
 // TestGateSignalEndsGrant ends the grant and the command when SIGINT, SIGTERM or SIGHUP reaches orrery while the gate's
 // command runs. The command is ended by SIGTERM, so the gate exits with 128 plus SIGTERM.
 func TestGateSignalEndsGrant(t *testing.T) {

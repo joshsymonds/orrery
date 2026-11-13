@@ -32,16 +32,30 @@ type Waiting struct {
 	Canceled bool   `json:"canceled"`
 }
 
-// queueRow is a message that the queue holds. Its text is the full text, which matching uses. dequeued is set when a
-// dequeue record comes while the row waits. seq is the row's place among the rows its transcript enqueued, so a caller
-// can tell rows apart as they leave the queue.
+// queueRow is a message that the queue holds. Its text is the full text, which matching uses. mark is where the row
+// stands after a dequeue record, and dequeued is set while the row holds a mark. seq is the row's place among the rows
+// its transcript enqueued, so a caller can tell rows apart as they leave the queue. at is the position of its enqueue
+// record among the lines the rules read, which idleDrops orders against the turn ends.
 type queueRow struct {
 	seq      int
 	text     string
 	time     int64
 	canceled bool
 	dequeued bool
+	mark     dequeueMark
+	at       int
 }
+
+// dequeueMark is where a row stands after a dequeue record. A dequeue marks each unmarked row that waits undecided, and
+// a row it finds undecided or settled keeps its mark. The first user line with text after it settles the undecided
+// rows, or when it is a notice, closes the ones it leads and unmarks the rest.
+type dequeueMark int
+
+const (
+	unmarked dequeueMark = iota
+	undecided
+	settled
+)
 
 // queueLine holds the fields of a transcript line that the queue rules use: a queue record's operation, content and
 // reason, a system line's subtype, and the fields of a user line that transcriptLine reads.
@@ -54,12 +68,18 @@ type queueLine struct {
 }
 
 // queueFile is what Queues remembers of one transcript: the file it read, how many of its bytes were read, and the
-// rows that those bytes leave waiting, oldest first.
+// rows that those bytes leave waiting, oldest first. Its positions number the lines the rules read, from 1: lines is
+// the count so far, and userAt, dequeueAt and turnEndAt are the positions of the newest user line with text, dequeue
+// record and turn end, zero when there is none.
 type queueFile struct {
-	info    fs.FileInfo
-	offset  int64
-	nextSeq int
-	rows    []queueRow
+	info      fs.FileInfo
+	offset    int64
+	nextSeq   int
+	lines     int
+	userAt    int
+	dequeueAt int
+	turnEndAt int
+	rows      []queueRow
 }
 
 // Queues reports the waiting messages of transcripts. For each path it remembers how far it has read and the rows
@@ -77,10 +97,12 @@ func NewQueues() *Queues {
 // Waiting returns the messages that wait in the queue of the transcript at path, oldest first, and never nil. A
 // message waits from its enqueue record until a record closes it. A remove or popAll with the same text closes it, and
 // so does a typed, queued or accepted user line whose text contains it. A dequeue record that comes while the message
-// waits lets the first later user line with the same text close it, whatever that line's promptSource, and lets the
-// next turn end close it. A remove with reason cleared_on_cancel marks the message canceled instead. Each enqueue
-// record that opens a message drops the canceled messages, and each typed, queued or accepted user line does too.
-// When idle is true, every message that is not canceled is dropped for good, so only the canceled ones are returned.
+// waits marks it undecided until the first later user line with text decides it. A notice that the message leads with
+// closes it, another notice unmarks it, and any other line settles it, so the next turn end closes it. A user line with
+// the same text closes a marked message whatever that line's promptSource. A remove with reason cleared_on_cancel
+// marks the message canceled instead. Each enqueue record that opens a message drops the canceled messages, and each
+// typed, queued or accepted user line does too. When idle is true, the messages that the idle rule (see idleDrops)
+// drops are dropped for good before the rest are returned.
 func (q *Queues) Waiting(path string, idle bool) ([]Waiting, error) {
 	clean := filepath.Clean(path)
 	file, err := os.Open(clean)
@@ -106,7 +128,7 @@ func (q *Queues) Waiting(path string, idle bool) ([]Waiting, error) {
 		return nil, scanErr
 	}
 	if idle {
-		state.rows = slices.DeleteFunc(state.rows, func(row queueRow) bool { return !row.canceled })
+		state.rows = slices.DeleteFunc(state.rows, state.idleDrops)
 	}
 	return state.waiting(), nil
 }
@@ -144,6 +166,7 @@ func (s *queueFile) apply(line []byte) {
 	if json.Unmarshal(line, &entry) != nil {
 		return
 	}
+	s.lines++
 	switch entry.Type {
 	case queueOperation:
 		s.applyOperation(entry)
@@ -160,7 +183,12 @@ func (s *queueFile) applyOperation(entry queueLine) {
 	case "enqueue":
 		if entry.Content != "" && !fromOthers(entry.Content) {
 			s.dropCanceled()
-			s.rows = append(s.rows, queueRow{seq: s.nextSeq, text: entry.Content, time: unixSeconds(entry.Timestamp)})
+			s.rows = append(s.rows, queueRow{
+				seq:  s.nextSeq,
+				text: entry.Content,
+				time: unixSeconds(entry.Timestamp),
+				at:   s.lines,
+			})
 			s.nextSeq++
 		}
 	case "remove":
@@ -172,15 +200,20 @@ func (s *queueFile) applyOperation(entry queueLine) {
 	case "popAll":
 		s.close(entry.Content)
 	case "dequeue":
+		s.dequeueAt = s.lines
 		s.markDequeued()
 	}
 }
 
-// applyUser updates the rows from one user line. A line the person typed, queued or accepted from a suggestion drops
-// the canceled rows and closes each row whose text it contains. Any other user line closes the row whose text it
-// equals when a dequeue has come after that row's enqueue.
+// applyUser updates the rows from one user line. The line first decides the rows that a dequeue left undecided. Then a
+// line the person typed, queued or accepted from a suggestion drops the canceled rows and closes each row whose text it
+// contains, and any other user line closes the row whose text it equals when that row is marked.
 func (s *queueFile) applyUser(entry queueLine) {
 	text, _ := splitContent(entry.Message.Content)
+	if text != "" {
+		s.userAt = s.lines
+	}
+	s.decide(entry, text)
 	if typedLine(entry.transcriptLine) {
 		s.dropCanceled()
 		s.closeContained(text)
@@ -189,19 +222,53 @@ func (s *queueFile) applyUser(entry queueLine) {
 	s.closeDequeued(text)
 }
 
-// applySystem updates the rows from one system line. A turn end closes the rows that a dequeue has come after.
-func (s *queueFile) applySystem(entry queueLine) {
-	if entry.Subtype == turnDurationSubtype {
-		s.rows = slices.DeleteFunc(s.rows, func(row queueRow) bool { return row.dequeued && !row.canceled })
+// decide applies the first user line with text after a dequeue to the undecided rows. A notice closes each undecided,
+// uncanceled row that it leads and unmarks the other undecided rows. Any other line settles the undecided rows, so the
+// next turn end closes them. A line without text decides nothing.
+func (s *queueFile) decide(entry queueLine, text string) {
+	if text == "" {
+		return
+	}
+	if !isNotice(entry, text) {
+		s.remark(undecided, settled)
+		return
+	}
+	s.rows = slices.DeleteFunc(s.rows, func(row queueRow) bool {
+		return row.mark == undecided && !row.canceled && leads(text, row.text)
+	})
+	s.remark(undecided, unmarked)
+}
+
+// remark sets the mark of each row that holds from to to, and sets dequeued when to is a mark.
+func (s *queueFile) remark(from, to dequeueMark) {
+	for at := range s.rows {
+		if s.rows[at].mark == from {
+			s.rows[at].mark = to
+			s.rows[at].dequeued = to != unmarked
+		}
 	}
 }
 
-// markDequeued marks every row that waits as dequeued. A dequeue record names no message, so it applies to the rows
-// that are waiting when it comes. Rows enqueued after it are not marked.
-func (s *queueFile) markDequeued() {
-	for at := range s.rows {
-		s.rows[at].dequeued = true
+// applySystem updates the rows from one system line. A turn end closes the settled rows that are not canceled.
+func (s *queueFile) applySystem(entry queueLine) {
+	if entry.Subtype == turnDurationSubtype {
+		s.turnEndAt = s.lines
+		s.rows = slices.DeleteFunc(s.rows, func(row queueRow) bool { return row.mark == settled && !row.canceled })
 	}
+}
+
+// idleDrops reports whether the idle rule drops row, which the idle read does when the pane is done. The rule drops a
+// row that is not canceled when a user line with text has been read, no dequeue record follows the newest such line, a
+// turn end follows it, and the row was enqueued before the newest turn end. With no such user line, nothing drops.
+func (s *queueFile) idleDrops(row queueRow) bool {
+	return !row.canceled && s.userAt > 0 && s.dequeueAt < s.userAt && s.userAt < s.turnEndAt && row.at < s.turnEndAt
+}
+
+// markDequeued marks every unmarked row that waits as undecided. A dequeue record names no message, so it applies to the
+// rows that are waiting when it comes. Rows enqueued after it are not marked, and a row that an earlier dequeue marked
+// keeps its mark, so a settled row stays settled.
+func (s *queueFile) markDequeued() {
+	s.remark(unmarked, undecided)
 }
 
 // stoppedAgentsPattern matches the plain notice that Claude Code enqueues when it stops background agents: one or more
@@ -216,6 +283,18 @@ func fromOthers(text string) bool {
 		strings.HasPrefix(text, "<cross-session-message") ||
 		strings.HasPrefix(text, "<teammate-message") ||
 		stoppedAgentsPattern.MatchString(text)
+}
+
+// isNotice reports whether a user line is a notice rather than the person's text: its text is one fromOthers
+// recognizes, or Claude Code marks its origin as a task notification.
+func isNotice(entry queueLine, text string) bool {
+	return entry.Origin.Kind == "task-notification" || fromOthers(text)
+}
+
+// leads reports whether notice starts with rowText, followed by a newline or by the end of the text.
+func leads(notice, rowText string) bool {
+	rest, found := strings.CutPrefix(notice, rowText)
+	return found && (rest == "" || rest[0] == '\n')
 }
 
 // find returns the index of the oldest row that is not canceled and whose text is text, or -1 when there is none.
@@ -235,11 +314,10 @@ func (s *queueFile) close(text string) {
 	}
 }
 
-// closeDequeued removes the oldest row whose text is text when a dequeue has come after its enqueue. The rows a dequeue
-// marked are all older than the rows enqueued after it, so the oldest row with text is the marked one whenever a marked
-// row has text.
+// closeDequeued removes the oldest row whose text is text when that row is marked. The rows a dequeue marked are all
+// older than the rows enqueued after it, so the oldest row with text is the marked one whenever a marked row has text.
 func (s *queueFile) closeDequeued(text string) {
-	if at := s.find(text); at >= 0 && s.rows[at].dequeued {
+	if at := s.find(text); at >= 0 && s.rows[at].mark != unmarked {
 		s.rows = slices.Delete(s.rows, at, at+1)
 	}
 }

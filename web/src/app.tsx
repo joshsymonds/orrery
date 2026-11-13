@@ -6,6 +6,7 @@ import type { Clients } from "./actions";
 import { Composer } from "./composer";
 import type { Conversation } from "./conversation";
 import {
+  denseStrip,
   type EpicItem,
   type EpicSection,
   type EpicsView,
@@ -16,13 +17,14 @@ import {
 } from "./epics";
 import { EpicView } from "./epicview";
 import { type Followed, follow } from "./follow";
+import { Mark } from "./mark";
 import { type ParsedQuestion, parseQuestion } from "./question";
-import { Reader } from "./reader";
+import { Reader, ReaderHead } from "./reader";
 import { byAttention, byProject, type Row } from "./rows";
 import { type SeenClock, type SeenWindow, watchSeen } from "./seen";
 import { StepBox } from "./stepbox";
 import { ReplyText } from "./text";
-import { WorkLine } from "./workline";
+import { Pill, rowPill, stepPill, WorkNote } from "./workline";
 
 type View = "attention" | "project";
 
@@ -38,15 +40,29 @@ interface Cursor {
   index: number;
 }
 
+// A landed answer from the list: the choice and its label, kept for the row and the question it answered.
+interface Answer {
+  question: string;
+  choice: number;
+  label: string;
+}
+
 // An entry the list shows and the cursor can rest on: a row, or an epic or step of the Epics group.
 type Item = Row | EpicItem | StepItem;
 
 const stateWaiting = "waiting";
+const stateWorking = "working";
+const needsYouTitle = "Needs you";
+const newSinceTitle = "New since you looked";
 const noDirectoryTitle = "no directory";
 const tasksUnavailableText = "tasks unavailable";
 const epicUnavailableText = "epic unavailable";
 const seenFailedText = "could not mark seen";
 const answerFailedText = "no answer was sent";
+const heldMark = "‖";
+
+// The keys 1-3 answer the first three options of a question, and no others.
+const keyedOptions = 3;
 
 const secondsPerMinute = 60;
 const minutesPerHour = 60;
@@ -117,6 +133,9 @@ export function App({
   const [seenWritten, setSeenWritten] = useState<Map<string, number>>(() => new Map());
   const [seenError, setSeenError] = useState("");
   const [answerError, setAnswerError] = useState("");
+  // The answers that landed from the list, by row key. Each shows in place of its row's chips while the row
+  // waits on the question it answered.
+  const [answered, setAnswered] = useState<Map<string, Answer>>(() => new Map());
   const seenWatch = useRef<ReturnType<typeof watchSeen>>();
   // The row the seen watch last rested on, which its write marks seen.
   const restedRow = useRef<Row | null>(null);
@@ -126,6 +145,12 @@ export function App({
     .split(/\s+/)
     .filter((word) => word !== "");
   const shownRows = rows.map((row) => readAsSeen(row, seenWritten));
+  // The brand's counts read every loaded row as the list reads it after seen writes, before the filter.
+  const waitingCount = shownRows.filter((row) => row.state === stateWaiting).length;
+  const workingCount = shownRows.filter((row) => row.state === stateWorking).length;
+  const newCount = shownRows.filter((row) => row.unseen).length;
+  // The footer names the hosts the loaded rows come from, each once, in the order the rows first show them.
+  const hosts = [...new Set(rows.map((row) => row.host))].filter((host) => host !== "");
   const matching = shownRows.filter((row) => matchesFilter(row, words));
   const sections =
     view === "attention"
@@ -186,6 +211,15 @@ export function App({
     setPinnedRows((previous) => keepEntries(previous, rows, pinned));
   }, [rows, pinned]);
 
+  // An answer's line goes when its row stops waiting or waits on another question. A row missing from the list keeps
+  // it, as a failed poll leaves a pane out of the list.
+  useEffect(() => {
+    setAnswered((previous) => {
+      const kept = new Map([...previous].filter(([key, answer]) => keepsAnswer(rows, key, answer)));
+      return kept.size === previous.size ? previous : kept;
+    });
+  }, [rows]);
+
   // The pinned row is followed while it stays pinned: its close, or an unmount, stops the stream.
   const pinnedKey = pinned?.key ?? "";
   useEffect(() => {
@@ -216,16 +250,25 @@ export function App({
   };
 
   // answerCursor sends the choice to the cursor's row's waiting question through actions.answer, with the conversation
-  // the reader holds for that row only. A false result or a rejection shows a fixed line; nothing is retried.
+  // the reader holds for that row only. A false result or a rejection shows a fixed line; nothing is retried. A landed
+  // answer names its choice on the row, when the question offers that choice.
   const answerCursor = (choice: 1 | 2 | 3) => {
     if (cursorRow === null) {
       return;
     }
-    const conversation = stream !== null && stream.key === cursorRow.key ? stream.conversation : null;
+    const row = cursorRow;
+    const conversation = stream !== null && stream.key === row.key ? stream.conversation : null;
+    const option = readerQuestion(row, conversation)?.options[choice - 1];
     void actions
-      .answer(clients, cursorRow, conversation, choice)
+      .answer(clients, row, conversation, choice)
       .catch(() => false)
-      .then((sent) => setAnswerError(sent ? "" : answerFailedText));
+      .then((sent) => {
+        setAnswerError(sent ? "" : answerFailedText);
+        if (sent && option !== undefined) {
+          const answer: Answer = { question: row.question, choice, label: optionText(option.label, choice) };
+          setAnswered((previous) => new Map(previous).set(row.key, answer));
+        }
+      });
   };
 
   // The seen watch runs for the page's life: its write marks the row it last rested on, and unmount stops it.
@@ -259,6 +302,9 @@ export function App({
   // The conversation the pinned reader holds, only when its stream belongs to the pinned row.
   const pinnedConversation =
     pinStream !== null && pinned !== null && pinStream.key === pinned.key ? pinStream.conversation : null;
+  // The conversation a list row's options come from: the stream the page holds for that row, the cursor's or the pin's.
+  const heldConversation = (key: string) =>
+    key === cursorRowKey ? cursorConversation : key === pinnedKey ? pinnedConversation : null;
   const toggleOpen = () => setOpen((value) => !value);
 
   const moveTo = (target: number) => {
@@ -422,56 +468,72 @@ export function App({
 
   return (
     <main class="app">
-      <header class="top">
-        <div class="brand">orrery</div>
-        <div class="filter">
-          <kbd>/</kbd>
-          <input
-            ref={inputRef}
-            value={filter}
-            placeholder="Filter"
-            aria-label="filter rows"
-            onInput={(event) => setFilter(event.currentTarget.value)}
-          />
-        </div>
-        <div class="views">
-          <span class={view === "attention" ? "view on" : "view"} onClick={() => setView("attention")}>
-            <kbd>a</kbd>By attention
-          </span>
-          <span class={view === "project" ? "view on" : "view"} onClick={() => setView("project")}>
-            <kbd>p</kbd>By project
-          </span>
-        </div>
-      </header>
-      {error !== "" && (
-        <p class="error" role="alert">
-          {error}
-        </p>
-      )}
-      {seenError !== "" && (
-        <p class="error" role="alert">
-          {seenError}
-        </p>
-      )}
-      {answerError !== "" && (
-        <p class="error" role="alert">
-          {answerError}
-        </p>
-      )}
       <div class={panesClass(pinned !== null, cursorStep !== null)}>
         <div class="list">
+          <header class="top">
+            <div class="brand">
+              <Mark />
+              orrery
+              <span class="counts">
+                {waitingCount > 0 && <span class="st-waiting">{`${waitingCount} need you`}</span>}
+                {workingCount > 0 && <span class="st-working">{`${workingCount} working`}</span>}
+                {newCount > 0 && <span class="st-new">{`✱ ${newCount} new`}</span>}
+              </span>
+            </div>
+            <div class="filter">
+              <kbd>/</kbd>
+              <input
+                ref={inputRef}
+                value={filter}
+                placeholder="Filter"
+                aria-label="filter rows"
+                onInput={(event) => setFilter(event.currentTarget.value)}
+              />
+            </div>
+            <div class="views">
+              <span class={view === "attention" ? "view on" : "view"} onClick={() => setView("attention")}>
+                <kbd>a</kbd>By attention
+              </span>
+              <span class={view === "project" ? "view on" : "view"} onClick={() => setView("project")}>
+                <kbd>p</kbd>By project
+              </span>
+            </div>
+            {error !== "" && (
+              <p class="error" role="alert">
+                {error}
+              </p>
+            )}
+            {seenError !== "" && (
+              <p class="error" role="alert">
+                {seenError}
+              </p>
+            )}
+            {answerError !== "" && (
+              <p class="error" role="alert">
+                {answerError}
+              </p>
+            )}
+          </header>
           <div class="rows" data-list={view}>
             {sections.map((section) => (
               <div class="section">
-                <div class="b-sec">{sectionTitle(section)}</div>
+                <div class={sectionClass(section.title)}>
+                  <span class="title">{sectionTitle(section)}</span>
+                  <i>{section.count}</i>
+                </div>
                 {section.epics.map((block) => (
                   <Fragment key={block.epic.key}>
-                    <EpicEntry epic={block.epic} current={block.epic.key === cursorKey} onSelect={selectItem} />
+                    <EpicEntry
+                      epic={block.epic}
+                      full={block.full}
+                      current={block.epic.key === cursorKey}
+                      onSelect={selectItem}
+                    />
                     {block.steps.map((step) => (
                       <StepEntry key={step.key} step={step} current={step.key === cursorKey} onSelect={selectItem} />
                     ))}
                     {block.more > 0 && <div class="b-more">{`${block.more} more`}</div>}
-                    {block.ended > 0 && <div class="b-more">{`${block.ended} ended`}</div>}
+                    {block.tail !== "" && <div class="b-more">{block.tail}</div>}
                   </Fragment>
                 ))}
                 {section.rows.map((item) => (
@@ -498,12 +560,14 @@ export function App({
                     <span class={`g g-${item.state}`} aria-hidden="true" />
                     <div class="main">
                       <div class="l1">
-                        <span class={`state st-${item.state}`}>{item.state}</span>
+                        {item.state === stateWaiting && (
+                          <span class="ty">{item.question !== "" ? "QUESTION" : "WAITING"}</span>
+                        )}
                         <span class="label">{item.label}</span>
                         <span class="proj">{lastPathElement(item.project)}</span>
                         <span class="age">{ageText(item.changed, now)}</span>
                       </div>
-                      <div class="l2">
+                      <div class={item.unseen ? "l2" : "l2 one"}>
                         <ReplyText
                           text={
                             item.state === stateWaiting && item.question !== ""
@@ -512,6 +576,11 @@ export function App({
                           }
                         />
                       </div>
+                      <RowOptions
+                        row={item}
+                        conversation={heldConversation(item.key)}
+                        answer={answered.get(item.key)}
+                      />
                     </div>
                   </div>
                 ))}
@@ -519,24 +588,28 @@ export function App({
               </div>
             ))}
           </div>
-          {helpOpen && (
-            <section class="keys" aria-label="keys">
-              <dl>
-                {helpEntries.map(([keys, text]) => (
-                  <div key={text} class="key">
-                    <dt>
-                      {keys.map((key) => (
-                        <kbd key={key}>{key}</kbd>
-                      ))}
-                    </dt>
-                    <dd>{text}</dd>
-                  </div>
-                ))}
-              </dl>
-            </section>
-          )}
+          <footer class="lfoot">
+            {hosts.map((host) => (
+              <span key={host} class="host">
+                {host}
+              </span>
+            ))}
+            <span class="keys-hint">
+              <kbd>?</kbd> keys
+            </span>
+          </footer>
         </div>
         <section class="read" aria-label="reader" hidden={cursorRow === null && cursorStep === null}>
+          {cursorRow !== null && (
+            <ReaderHead label={cursorRow.label} where={rowWhere(cursorRow)}>
+              <Pill model={rowPill(cursorRow.state, cursorConversation?.state?.pane)} now={now} />
+            </ReaderHead>
+          )}
+          {cursorStep !== null && (
+            <ReaderHead label={cursorStep.label} where={stepWhere(cursorStep)}>
+              <Pill model={stepPill(cursorStep.held, cursorStep.started)} now={now} />
+            </ReaderHead>
+          )}
           {cursorRow !== null && (
             <Reader
               conversation={cursorConversation}
@@ -552,50 +625,58 @@ export function App({
               conversation={cursorConversation}
               seenAt={stepSeenAt}
               open={open}
+              step={cursorStep.step}
               onToggleOpen={toggleOpen}
             />
           )}
-          <WorkLine pane={cursorConversation?.state?.pane} now={now} />
-          {composerRows(visited, cursorRow).map((row) => (
-            <div key={row.key} class="reply" hidden={row.key !== cursorRowKey}>
-              <Composer
-                label={row.label}
-                send={(text, promptId) => actions.send(clients, row, text, promptId)}
-                pull={row.kind === "pane" ? () => actions.pullQueued(clients, row) : null}
-                newPromptId={actions.newPromptId}
-                inputRef={(element) => {
-                  if (element === null) {
-                    composerInputs.current.delete(row.key);
-                  } else {
-                    composerInputs.current.set(row.key, element);
-                  }
-                }}
-              />
-            </div>
-          ))}
-          {composerRows(visitedSteps, cursorStep).map((step) => {
-            const calls = stepCalls(clients, step.id);
-            return (
-              <div key={step.id} class="reply" hidden={step.key !== cursorStepKey}>
-                <StepBox
-                  label={step.label}
-                  nudge={calls.nudge}
-                  hold={calls.hold}
-                  stop={calls.stop}
+          <div class="send">
+            <WorkNote pane={cursorConversation?.state?.pane} now={now} />
+            {composerRows(visited, cursorRow).map((row) => (
+              <div key={row.key} class="reply" hidden={row.key !== cursorRowKey}>
+                <Composer
+                  label={row.label}
+                  send={(text, promptId) => actions.send(clients, row, text, promptId)}
+                  pull={row.kind === "pane" ? () => actions.pullQueued(clients, row) : null}
+                  newPromptId={actions.newPromptId}
+                  queued={row.key === cursorRowKey ? cursorConversation?.state?.waiting : undefined}
                   inputRef={(element) => {
                     if (element === null) {
-                      stepInputs.current.delete(step.key);
+                      composerInputs.current.delete(row.key);
                     } else {
-                      stepInputs.current.set(step.key, element);
+                      composerInputs.current.set(row.key, element);
                     }
                   }}
                 />
               </div>
-            );
-          })}
+            ))}
+            {composerRows(visitedSteps, cursorStep).map((step) => {
+              const calls = stepCalls(clients, step.id);
+              return (
+                <div key={step.id} class="reply" hidden={step.key !== cursorStepKey}>
+                  <StepBox
+                    label={step.label}
+                    nudge={calls.nudge}
+                    hold={calls.hold}
+                    stop={calls.stop}
+                    inputRef={(element) => {
+                      if (element === null) {
+                        stepInputs.current.delete(step.key);
+                      } else {
+                        stepInputs.current.set(step.key, element);
+                      }
+                    }}
+                  />
+                </div>
+              );
+            })}
+          </div>
         </section>
         <section class="read pinned" aria-label="pinned reader" hidden={pinned === null}>
-          {pinned !== null && <div class="pin-head">{`pinned · ${pinned.label}`}</div>}
+          {pinned !== null && (
+            <ReaderHead label={pinned.label} where={rowWhere(pinned)}>
+              <Pill model={rowPill(pinned.state, pinnedConversation?.state?.pane)} now={now} />
+            </ReaderHead>
+          )}
           {pinned !== null && (
             <Reader
               conversation={pinnedConversation}
@@ -603,34 +684,53 @@ export function App({
               open={false}
             />
           )}
-          <WorkLine pane={pinnedConversation?.state?.pane} now={now} />
-          {composerRows(pinnedRows, pinned).map((row) => (
-            <div key={row.key} class="pin-reply" hidden={row.key !== pinnedKey}>
-              <Composer
-                label={row.label}
-                send={(text, promptId) => actions.send(clients, row, text, promptId)}
-                pull={row.kind === "pane" ? () => actions.pullQueued(clients, row) : null}
-                newPromptId={actions.newPromptId}
-                inputRef={(element) => {
-                  if (element === null) {
-                    pinnedInputs.current.delete(row.key);
-                  } else {
-                    pinnedInputs.current.set(row.key, element);
-                  }
-                }}
-              />
-            </div>
-          ))}
+          <div class="send">
+            <WorkNote pane={pinnedConversation?.state?.pane} now={now} />
+            {composerRows(pinnedRows, pinned).map((row) => (
+              <div key={row.key} class="pin-reply" hidden={row.key !== pinnedKey}>
+                <Composer
+                  label={row.label}
+                  send={(text, promptId) => actions.send(clients, row, text, promptId)}
+                  pull={row.kind === "pane" ? () => actions.pullQueued(clients, row) : null}
+                  newPromptId={actions.newPromptId}
+                  queued={row.key === pinnedKey ? pinnedConversation?.state?.waiting : undefined}
+                  inputRef={(element) => {
+                    if (element === null) {
+                      pinnedInputs.current.delete(row.key);
+                    } else {
+                      pinnedInputs.current.set(row.key, element);
+                    }
+                  }}
+                />
+              </div>
+            ))}
+          </div>
         </section>
         <aside class="side" aria-label="epic" hidden={cursorEpic === null}>
           {cursorEpic !== null &&
             (epicDetail === undefined ? (
               <p class="side-note">{epicUnavailableText}</p>
             ) : (
-              <EpicView detail={epicDetail} cursorStep={cursorStepId} />
+              <EpicView detail={epicDetail} cursorStep={cursorStepId} now={now} />
             ))}
         </aside>
       </div>
+      {helpOpen && (
+        <section class="keys" aria-label="keys">
+          <dl>
+            {helpEntries.map(([keys, text]) => (
+              <div key={text} class="key">
+                <dt>
+                  {keys.map((key) => (
+                    <kbd key={key}>{key}</kbd>
+                  ))}
+                </dt>
+                <dd>{text}</dd>
+              </div>
+            ))}
+          </dl>
+        </section>
+      )}
     </main>
   );
 }
@@ -646,6 +746,48 @@ function readerQuestion(row: Row, conversation: Conversation | null): ParsedQues
     return null;
   }
   return { title: request.question, options: request.options.map((label) => ({ label, description: "" })) };
+}
+
+// RowOptions draws a waiting row's line under its text: the answer a landed answer left, or else the options its keys
+// answer as chips. Chips are labels, not buttons. A row that is not waiting draws neither.
+function RowOptions({ row, conversation, answer }: { row: Row; conversation: Conversation | null; answer?: Answer }) {
+  if (row.state !== stateWaiting) {
+    return null;
+  }
+  if (answer !== undefined && answer.question === row.question) {
+    return <div class="ans">{`You answered ${answer.choice} · ${answer.label}`}</div>;
+  }
+  const options = readerQuestion(row, conversation)?.options ?? [];
+  if (options.length === 0) {
+    return null;
+  }
+  return (
+    <div class="opts">
+      {options.map((option, index) => {
+        const keyed = index < keyedOptions;
+        return (
+          <span class="opt" key={index}>
+            {keyed && <kbd>{index + 1}</kbd>}
+            {keyed ? optionText(option.label, index + 1) : option.label}
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
+// keepsAnswer reports whether a landed answer stays on its row: the row is missing from the list, or it still waits on
+// the question the answer named.
+function keepsAnswer(rows: Row[], key: string, answer: Answer): boolean {
+  const row = rows.find((candidate) => candidate.key === key);
+  return row === undefined || (row.state === stateWaiting && row.question === answer.question);
+}
+
+// optionText is an option's label without the number of its own key cap, when the label starts with that number. A
+// label without it is named as it is.
+function optionText(label: string, choice: number): string {
+  const numbered = `${choice} `;
+  return label.startsWith(numbered) ? label.slice(numbered.length) : label;
 }
 
 // matchesFilter keeps a row whose label, project, host, state or summary holds every typed word.
@@ -727,13 +869,16 @@ function entriesOf(section: EpicSection): Item[] {
   return [...section.epics.flatMap((block) => [block.epic, ...block.steps]), ...section.rows];
 }
 
-// EpicEntry draws an epic's line: its gauge, slug, repository, and done of total tasks, or tasks unavailable.
+// EpicEntry draws an epic's line: its gauge, then its slug, repository and readout. A full epic also draws its strip of
+// one segment per record task.
 function EpicEntry({
   epic,
+  full,
   current,
   onSelect,
 }: {
   epic: EpicItem;
+  full: boolean;
   current: boolean;
   onSelect: (item: Item) => void;
 }) {
@@ -750,14 +895,33 @@ function EpicEntry({
       }}
     >
       {epic.known && <Gauge done={epic.done} total={epic.total} />}
-      <span class="label">{epic.slug}</span>
-      <span class="proj">{epic.repository}</span>
-      <span class="count">{epic.known ? `${epic.done}/${epic.total}` : tasksUnavailableText}</span>
+      <div class="main">
+        <div class="l1">
+          <span class="label">{epic.slug}</span>
+          <span class="proj">{epic.repository}</span>
+          <span class="rt">{epicReadoutText(epic)}</span>
+        </div>
+        {full && epic.strip.length > 0 && (
+          <div class={epic.strip.length > denseStrip ? "strip dense" : "strip"}>
+            {epic.strip.map((tone) => (
+              <i class={`k-${tone}`} />
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
 
-// StepEntry draws a step's line: its label, held when it is held, and its doing text as text.
+// epicReadoutText is an epic's outcome and count, joined, with an empty outcome left out. Without detail the count
+// reads tasks unavailable.
+function epicReadoutText(epic: EpicItem): string {
+  const count = epic.known ? `${epic.done} of ${epic.total}` : tasksUnavailableText;
+  return [epic.outcome, count].filter((part) => part !== "").join(" · ");
+}
+
+// StepEntry draws a step's line: its mark, label and five pips, then its held text when it is held, or its doing text
+// as text.
 function StepEntry({
   step,
   current,
@@ -769,7 +933,7 @@ function StepEntry({
 }) {
   return (
     <div
-      class={current ? "b-row step cur" : "b-row step"}
+      class={`b-row step${step.held ? " held" : ""}${current ? " cur" : ""}`}
       data-row=""
       data-key={step.key}
       aria-current={current ? "true" : undefined}
@@ -779,9 +943,24 @@ function StepEntry({
         }
       }}
     >
+      {step.held ? (
+        <span class="um" aria-hidden="true">
+          {heldMark}
+        </span>
+      ) : (
+        <span class="g g-working" aria-hidden="true" />
+      )}
       <span class="label">{step.label}</span>
-      {step.held && <span class="held">held</span>}
-      <ReplyText text={step.doing} />
+      <span class="pips">
+        {step.pips.map((kind) => (
+          <i class={`k-${kind}`} />
+        ))}
+      </span>
+      {step.held ? (
+        <span class="held">{step.reason === "" ? "held" : `held · ${step.reason}`}</span>
+      ) : (
+        <ReplyText text={step.doing} />
+      )}
     </div>
   );
 }
@@ -811,6 +990,27 @@ function sectionTitle(section: EpicSection): string {
     return section.title;
   }
   return section.rows[0]?.host || noDirectoryTitle;
+}
+
+// sectionClass marks the two heads that ask for a look: Needs you, and New since you looked.
+function sectionClass(title: string): string {
+  if (title === needsYouTitle) {
+    return "b-sec need";
+  }
+  if (title === newSinceTitle) {
+    return "b-sec fresh";
+  }
+  return "b-sec";
+}
+
+// rowWhere is a row's where line: its project's last path element and its host, joined, with an empty part left out.
+function rowWhere(row: Row): string {
+  return [lastPathElement(row.project), row.host].filter((part) => part !== "").join(" · ");
+}
+
+// stepWhere is a step's where line: its epic, its agent, and its round.
+function stepWhere(step: StepItem): string {
+  return `${step.epicSlug} › ${step.agent} · step · round ${step.round}`;
 }
 
 function lastPathElement(path: string): string {

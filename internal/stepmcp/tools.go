@@ -36,7 +36,7 @@ const (
 		`"gatesFile":{"type":"string"},` +
 		`"epic":{"type":"string"},` +
 		`"task":{"type":"string"}` +
-		`},"required":["agent","prompt","workspace","schema"],"additionalProperties":false}`
+		`},"required":["prompt","workspace"],"additionalProperties":false}`
 
 	idSchema = `{"type":"object","properties":{"id":{"type":"string"}},` +
 		`"required":["id"],"additionalProperties":false}`
@@ -124,10 +124,11 @@ func requireString(field, value string) error {
 	return nil
 }
 
-// schemaText returns the step schema argument, which must be a JSON object, as its JSON text.
+// schemaText returns the step schema argument as its JSON text. An absent schema is the empty text, which the daemon
+// judges for the start. A present schema must be a JSON object.
 func schemaText(raw json.RawMessage) (string, error) {
 	if len(raw) == 0 {
-		return "", errors.New("schema is required")
+		return "", nil
 	}
 	var object map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &object); err != nil || object == nil {
@@ -146,9 +147,6 @@ func startHandler(steps enginev1connect.StepsClient) mcp.ToolHandler {
 	return func(ctx context.Context, call mcp.Call) (mcp.ToolResult, error) {
 		var args startArgs
 		if err := decodeArguments(call.Arguments, &args); err != nil {
-			return mcp.ToolResult{}, err
-		}
-		if err := requireString("agent", args.Agent); err != nil {
 			return mcp.ToolResult{}, err
 		}
 		if err := requireString("prompt", args.Prompt); err != nil {

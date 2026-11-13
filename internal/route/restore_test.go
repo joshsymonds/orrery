@@ -3,6 +3,7 @@ package route_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"path/filepath"
 	"strings"
@@ -72,7 +73,7 @@ func restoreAt(t *testing.T, f *fake, rebuilds map[string]route.Rebuild, s *stor
 
 // rebuildAs returns a Rebuild that rebuilds every stored row as n.
 func rebuildAs(n route.Notice) route.Rebuild {
-	return func(context.Context, []byte) (route.Notice, error) {
+	return func(context.Context, []byte, int64) (route.Notice, error) {
 		return n, nil
 	}
 }
@@ -119,6 +120,7 @@ func TestRestartResumesEachPhase(t *testing.T) {
 		f.check(t, []route.Line{lineOf(testPane, clockStart, stateWaiting, route.DeskPhone, "away")},
 			[]deskstream.Notice{deskPost(stateWaiting)}, []push.Notification{phonePush(testPane, stateWaiting)})
 		f.checkActiveTimers(t, 0)
+		f.publish()
 		checkRows(t, reopened)
 	})
 
@@ -151,6 +153,7 @@ func TestRestartResumesEachPhase(t *testing.T) {
 		r.Wait()
 		f.check(t, []route.Line{lineOf(testPane, clockStart+watchSeconds, stateWaiting, route.DeskPhone, "away")},
 			[]deskstream.Notice{deskPost(stateWaiting)}, []push.Notification{phonePush(testPane, stateWaiting)})
+		f.publish()
 		checkRows(t, reopened)
 	})
 
@@ -180,6 +183,7 @@ func TestRestartResumesEachPhase(t *testing.T) {
 		f.check(t, []route.Line{lineOf(testPane, clockStart+2*watchSeconds, stateWaiting, route.DeskPhone, "away")},
 			[]deskstream.Notice{deskPost(stateWaiting)}, []push.Notification{phonePush(testPane, stateWaiting)})
 		f.checkActiveTimers(t, 0)
+		f.publish()
 		checkRows(t, reopened)
 	})
 
@@ -221,6 +225,7 @@ func TestRestartResumesEachPhase(t *testing.T) {
 		f.check(t, []route.Line{lineOf(testPane, restart, stateWaiting, route.DeskPhone, "away; needed")},
 			[]deskstream.Notice{deskPost(stateWaiting)}, []push.Notification{phonePush(testPane, stateWaiting)})
 		f.checkActiveTimers(t, 0)
+		f.publish()
 		checkRows(t, reopened)
 	})
 
@@ -264,6 +269,7 @@ func TestRestartResumesEachPhase(t *testing.T) {
 			[]push.Notification{phonePush(testPane, stateWaiting)},
 		)
 		f.checkActiveTimers(t, 0)
+		f.publish()
 		checkRows(t, reopened)
 	})
 
@@ -295,6 +301,7 @@ func TestRestartResumesEachPhase(t *testing.T) {
 		f.check(t, []route.Line{lineOf(testPane, clockStart+60, stateWaiting, route.DeskPhone, "away; needed")},
 			[]deskstream.Notice{deskPost(stateWaiting)}, []push.Notification{phonePush(testPane, stateWaiting)})
 		f.checkActiveTimers(t, 0)
+		f.publish()
 		checkRows(t, reopened)
 	})
 
@@ -324,6 +331,7 @@ func TestRestartResumesEachPhase(t *testing.T) {
 		f.check(t, []route.Line{lineOf(testPane, clockStart+escalationSeconds, stateWaiting, route.Phone,
 			"unseen after 5 minutes")}, nil, []push.Notification{phonePush(testPane, stateWaiting)})
 		f.checkActiveTimers(t, 0)
+		f.publish()
 		checkRows(t, reopened)
 	})
 
@@ -348,6 +356,7 @@ func TestRestartResumesEachPhase(t *testing.T) {
 		f.check(t, []route.Line{lineOf(testPane, clockStart+late, stateWaiting, route.Phone, "unseen after 5 minutes")},
 			nil, []push.Notification{phonePush(testPane, stateWaiting)})
 		f.checkActiveTimers(t, 0)
+		f.publish()
 		checkRows(t, reopened)
 	})
 
@@ -378,6 +387,7 @@ func TestRestartResumesEachPhase(t *testing.T) {
 		f.check(t, []route.Line{lineOf(testPane, clockStart+escalationSeconds, stateWaiting, route.Phone,
 			"unseen after 5 minutes")}, nil, []push.Notification{phonePush(testPane, stateWaiting)})
 		f.checkActiveTimers(t, 0)
+		f.publish()
 		checkRows(t, reopened)
 	})
 }
@@ -474,6 +484,7 @@ func TestNewerBeatsRestored(t *testing.T) {
 			lineOf(testPane, clockStart+30, stateWaiting, route.None, "changed"),
 			lineOf(testPane, clockStart+escalationSeconds, stateDone, route.Phone, "unseen after 5 minutes"),
 		}, nil, []push.Notification{phonePush(testPane, stateDone)})
+		f.publish()
 		checkRows(t, reopened)
 	})
 }
@@ -496,7 +507,7 @@ func TestNotRestoredLine(t *testing.T) {
 
 	f := fakeAt(clockStart)
 	r := restoreAt(t, f, map[string]route.Rebuild{
-		testSourceKind:  func(context.Context, []byte) (route.Notice, error) { return route.Notice{}, errRebuild },
+		testSourceKind:  func(context.Context, []byte, int64) (route.Notice, error) { return route.Notice{}, errRebuild },
 		thirdSourceKind: rebuildAs(f.notice(thirdPane, stateWaiting, false)),
 	}, reopened)
 	r.Wait()
@@ -514,6 +525,46 @@ func TestNotRestoredLine(t *testing.T) {
 	}, nil, nil)
 	f.checkActiveTimers(t, 0)
 	checkRows(t, reopened)
+}
+
+func TestRebuildEndsRestoredNotice(t *testing.T) {
+	ends := []struct {
+		name   string
+		err    error
+		reason string
+	}{
+		{name: "changed", err: route.ErrChanged, reason: "changed"},
+		{name: "seen", err: route.ErrSeen, reason: "seen"},
+		{name: "wrapped seen", err: fmt.Errorf("synthetic seen check: %w", route.ErrSeen), reason: "seen"},
+	}
+	for _, end := range ends {
+		t.Run(end.name, func(t *testing.T) {
+			ctx := t.Context()
+			path := filepath.Join(t.TempDir(), "orrery.db")
+			s := openStore(t, path)
+			row := rowFor(1, testPane, stateWaiting, clockStart, rowDesk, (clockStart+escalationSeconds)*1000)
+			if err := s.PutNotice(ctx, row); err != nil {
+				t.Fatalf("put row: %v", err)
+			}
+			reopened := reopenStore(t, s, path)
+
+			f := fakeAt(clockStart + 30)
+			var gotAt int64
+			rebuild := func(_ context.Context, _ []byte, at int64) (route.Notice, error) {
+				gotAt = at
+				return route.Notice{}, end.err
+			}
+			r := restoreAt(t, f, map[string]route.Rebuild{testSourceKind: rebuild}, reopened)
+			r.Wait()
+
+			if gotAt != clockStart {
+				t.Errorf("Rebuild at = %d, want the row's recorded time %d", gotAt, clockStart)
+			}
+			f.check(t, []route.Line{lineOf(testPane, clockStart+30, stateWaiting, route.None, end.reason)}, nil, nil)
+			f.checkActiveTimers(t, 0)
+			checkRows(t, reopened)
+		})
+	}
 }
 
 func TestFailedNoticesReadRestoresNothing(t *testing.T) {

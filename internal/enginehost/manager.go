@@ -97,13 +97,15 @@ type Store interface {
 // Seen read and Logger reports pump errors (nil discards). HolderScope is the absolute path of systemd-run that runs
 // each session's holder in its own user scope, or empty to run holders plainly; with it set, Close detaches the
 // sessions instead of stopping them, so their holders keep running. StateDir is the state directory that holds the
-// sessions' holders, or empty for a private directory per session.
+// sessions' holders, or empty for a private directory per session. ManagedDir is the managed settings root that a
+// step's agent resolves under, or empty to read none.
 type Config struct {
 	Shell       string
 	Claude      string
 	Environ     []string
 	HolderScope string
 	StateDir    string
+	ManagedDir  string
 	Cap         int
 	StepCap     int
 	Writer      *Writer
@@ -131,6 +133,7 @@ type liveSession struct {
 	done         chan struct{}
 	cancel       context.CancelFunc
 	step         bool
+	agent        string
 	observer     StepObserver
 	exited       bool
 	turning      bool
@@ -154,6 +157,7 @@ type Manager struct {
 	environ     []string
 	holderScope string
 	stateDir    string
+	managedDir  string
 	limit       int
 	writer      *Writer
 	now         func() time.Time
@@ -195,6 +199,7 @@ func NewManager(cfg Config) *Manager {
 		environ:       cfg.Environ,
 		holderScope:   cfg.HolderScope,
 		stateDir:      cfg.StateDir,
+		managedDir:    cfg.ManagedDir,
 		limit:         cfg.Cap,
 		stepLimit:     cfg.StepCap,
 		writer:        cfg.Writer,
@@ -456,19 +461,19 @@ func (m *Manager) say(ctx context.Context, req SayRequest) error {
 	if err != nil {
 		return fmt.Errorf("say to session %s: %w", req.ID, err)
 	}
-	return m.send(ctx, live, req)
+	return m.send(ctx, live, store.EnginePrompt{ID: req.ID, Text: req.Text, PromptID: req.PromptID})
 }
 
-// send records req.Text as the next prompt of live, with the working state, and then sends it. live must have its turn
-// marked running. A failed send records the session failed with the send's error, and with a req.PromptID the same write
-// stores that prompt's failure marker. A step sends no notice, so its failed send is recorded without one.
-func (m *Manager) send(ctx context.Context, live *liveSession, req SayRequest) error {
-	id, text := req.ID, req.Text
+// send records prompt as the next prompt of live, with the working state, and then sends its text. live must have its
+// turn marked running. A failed send records the session failed with the send's error, and with a prompt.PromptID the
+// same write stores that prompt's failure marker. A step sends no notice, so its failed send is recorded without one.
+func (m *Manager) send(ctx context.Context, live *liveSession, prompt store.EnginePrompt) error {
+	id, text := prompt.ID, prompt.Text
 	working := string(protocol.StateWorking)
 	writeID, err := newWriteID()
 	if err == nil {
-		err = m.writer.Commit(ctx, id, store.EnginePrompt{ID: id, Text: text, PromptID: req.PromptID, WriteID: writeID},
-			store.EngineSet{ID: id, Changes: store.EngineChanges{State: &working}})
+		prompt.WriteID = writeID
+		err = m.writer.Commit(ctx, id, prompt, store.EngineSet{ID: id, Changes: store.EngineChanges{State: &working}})
 	}
 	if err != nil {
 		m.setTurning(live, false)
@@ -480,8 +485,8 @@ func (m *Manager) send(ctx context.Context, live *liveSession, req SayRequest) e
 	if err = live.sess.Prompt(writeID, text); err != nil {
 		m.setTurning(live, false)
 		var marks []store.EngineOp
-		if req.PromptID != "" {
-			marks = append(marks, store.EnginePromptFailed{ID: id, PromptID: req.PromptID, Reason: err.Error()})
+		if prompt.PromptID != "" {
+			marks = append(marks, store.EnginePromptFailed{ID: id, PromptID: prompt.PromptID, Reason: err.Error()})
 		}
 		// A step sends no notice, so its failed send is recorded without one.
 		var recordErr error
@@ -495,12 +500,13 @@ func (m *Manager) send(ctx context.Context, live *liveSession, req SayRequest) e
 	return nil
 }
 
-// Continue sends text to the step id as its next prompt, which ends the step's hand-off: the step is busy again until this
-// turn ends. A step that is not live, as after an idle stop, is respawned first from its rows (see respawnStep). The
-// prompt is recorded as Say records one, and a failed send records the step failed without a notice. It returns an error
-// wrapping ErrNoSession when id is not a step row, and ErrEmptyPrompt for empty text.
-func (m *Manager) Continue(ctx context.Context, id, text string) error {
-	if text == "" {
+// Continue sends prompt to the step id as its next prompt, which ends the step's hand-off: the step is busy again until
+// this turn ends. A step that is not live, as after an idle stop, is respawned first from its rows (see respawnStep). The
+// prompt is recorded with its sender and round, as Say records one without them, and a failed send records the step
+// failed without a notice. It returns an error wrapping ErrNoSession when id is not a step row, and ErrEmptyPrompt for
+// empty text.
+func (m *Manager) Continue(ctx context.Context, id string, prompt StepPrompt) error {
+	if prompt.Text == "" {
 		return ErrEmptyPrompt
 	}
 	live, err := m.claimStep(id)
@@ -510,15 +516,18 @@ func (m *Manager) Continue(ctx context.Context, id, text string) error {
 	if err != nil {
 		return fmt.Errorf("continue step %s: %w", id, err)
 	}
-	return m.send(ctx, live, SayRequest{ID: id, Text: text})
+	return m.send(ctx, live, store.EnginePrompt{
+		ID: id, Text: prompt.Text, Sender: prompt.Sender, Round: prompt.Round,
+	})
 }
 
 // respawnStep starts the step id that is not live again, from its engine row and its steps row: it resumes the row's
 // claude session with the step's agent and schema, registered as a step with the observer it was started with. It takes a
 // step slot under StepCap before reading the rows, so a full cap refuses the respawn before anything is recorded. A
-// directory that is gone, or a spawn that fails, records the step failed without a notice and returns the error. It
-// returns the step claimed with its turn running, as claimStep does. resumeMu makes concurrent calls for one id start a
-// single process. It returns an error wrapping ErrNoSession when id is not a step row.
+// directory that is gone, an agent that no longer resolves, or a spawn that fails, records the step failed without a
+// notice and returns the error. It returns the step claimed with its turn running, as claimStep does. resumeMu makes
+// concurrent calls for one id start a single process. It returns an error wrapping ErrNoSession when id is not a step
+// row.
 func (m *Manager) respawnStep(ctx context.Context, id string) (*liveSession, error) {
 	m.resumeMu.Lock()
 	defer m.resumeMu.Unlock()
@@ -534,6 +543,10 @@ func (m *Manager) respawnStep(ctx context.Context, id string) (*liveSession, err
 		return nil, err
 	}
 	if err = checkDir(row.Dir); err != nil {
+		m.releaseStep()
+		return nil, errors.Join(err, m.writeFailed(ctx, id, err))
+	}
+	if err = m.resolveStepAgent(StepSession{ID: id, Dir: row.Dir, Agent: step.Agent}); err != nil {
 		m.releaseStep()
 		return nil, errors.Join(err, m.writeFailed(ctx, id, err))
 	}
@@ -740,7 +753,7 @@ func (m *Manager) register(
 ) (*liveSession, error) {
 	pumpCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	live := &liveSession{id: id, dir: dir, sess: sess, done: make(chan struct{}), cancel: cancel,
-		step: sp.step, observer: sp.observer, requests: map[string]struct{}{}}
+		step: sp.step, agent: sp.agent, observer: sp.observer, requests: map[string]struct{}{}}
 	reply := ""
 	if re != nil {
 		var err error
@@ -1307,6 +1320,7 @@ func (m *Manager) answerStepRequest(ctx context.Context, live *liveSession, requ
 
 // observe gives the observer of the step live the event the pump has just recorded: the event itself, then the turn end
 // of a hand-off, or an exit with its failure reason, or stepExitedReason for a clean exit, since a step ends either way.
+// A step whose init event does not run its agent ends with an exit reason naming the agent, and its observer stops it.
 // A session without an observer gets nothing.
 func observe(live *liveSession, event session.Event, handed bool) {
 	if live.observer == nil {
@@ -1314,6 +1328,10 @@ func observe(live *liveSession, event session.Event, handed bool) {
 	}
 	live.observer.Event(event)
 	switch ev := event.(type) {
+	case session.Started:
+		if live.step && !initNamesAgent(ev.Agents, live.agent) {
+			live.observer.Exited(fmt.Sprintf("claude's init event does not run the step's agent %q", live.agent))
+		}
 	case session.TurnEnded:
 		if handed {
 			live.observer.Return(ev)
@@ -1329,6 +1347,21 @@ func observe(live *liveSession, event session.Event, handed bool) {
 
 // stepExitedReason is the reason a step's observer gets when the step's process exits cleanly on its own.
 const stepExitedReason = "the step's process exited"
+
+// initNamesAgent reports whether the agents list of a session's init event runs agent. The list names agent, or holds
+// a scoped entry ending in ":"+agent, which is how claude resolves a bare name. web-fetch never runs as a step's agent,
+// listed or not.
+func initNamesAgent(agents []string, agent string) bool {
+	if agent == "web-fetch" {
+		return false
+	}
+	for _, name := range agents {
+		if name == agent || strings.HasSuffix(name, ":"+agent) {
+			return true
+		}
+	}
+	return false
+}
 
 // setTurning sets whether live has a turn running.
 func (m *Manager) setTurning(live *liveSession, turning bool) {

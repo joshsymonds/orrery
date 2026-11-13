@@ -114,6 +114,7 @@ func TestStartWithStampPassesStampSettingsAndResumeKeepsThem(t *testing.T) {
 func TestStepInLinkedWorktreeOfStampedCheckoutPassesStampSettings(t *testing.T) {
 	home := stampTestHome(t)
 	stampTestWrite(t, filepath.Join(home, "work", ".claude", "settings.json"), stampSettings)
+	writeStepAgents(t, home)
 	// The owner's git config never applies to the repository the test makes.
 	t.Setenv("GIT_CONFIG_GLOBAL", "/dev/null")
 	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")

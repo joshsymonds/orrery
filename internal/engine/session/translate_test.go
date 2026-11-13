@@ -93,6 +93,9 @@ func TestTwoTurnsFixtureSequence(t *testing.T) {
 		if !ok || started.SessionID != "session_1" || started.PermissionMode != "default" {
 			t.Errorf("turn %d start = %#v, want Started for session_1 in default mode", number+1, got[base])
 		}
+		if !reflect.DeepEqual(started.Agents, []string{"redacted"}) {
+			t.Errorf("turn %d start agents = %#v, want the fixture's [redacted]", number+1, started.Agents)
+		}
 		delta, ok := got[base+1].(TextDelta)
 		if !ok || delta.MessageID != messageID || delta.Index != 0 || delta.ParentToolUseID != "" {
 			t.Errorf("turn %d delta = %#v, want text delta for %s at index 0", number+1, got[base+1], messageID)
@@ -106,6 +109,25 @@ func TestTwoTurnsFixtureSequence(t *testing.T) {
 			t.Errorf("turn %d end = %#v, want successful TurnEnded", number+1, got[base+3])
 		}
 	}
+}
+
+func TestStartedCarriesInitAgents(t *testing.T) {
+	t.Parallel()
+	tr := newTranslator()
+	got := translateLines(
+		t,
+		tr,
+		`{"type":"system","subtype":"init","session_id":"session_1","permissionMode":"default","agents":["claude","feature-dev:code-reviewer"]}`,
+		`{"type":"system","subtype":"init","session_id":"session_1","permissionMode":"default"}`,
+	)
+	requireEvents(t, got, []Event{
+		Started{
+			SessionID:      "session_1",
+			PermissionMode: "default",
+			Agents:         []string{"claude", "feature-dev:code-reviewer"},
+		},
+		Started{SessionID: "session_1", PermissionMode: "default"},
+	})
 }
 
 func TestInterleavedSubagentStreamsKeepTheirMessage(t *testing.T) {

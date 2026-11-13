@@ -268,3 +268,118 @@ func TestParseAcceptsBoundaryValues(t *testing.T) {
 		})
 	}
 }
+
+// agentKeys is one valid [gates.alpha] agent table body, one key per line. must_not sits above must, so the file's
+// key order differs from the order the assertions come out in.
+func agentKeys() []string {
+	return []string{
+		`agent = "reviewer"`,
+		`limit = 600`,
+		`must_not = ["the diff touches vendor/"]`,
+		`must = ["the tests pass", "the diff is small"]`,
+	}
+}
+
+func agentGate() Gate {
+	return Gate{
+		Name:  "alpha",
+		Agent: "reviewer",
+		Limit: 600 * time.Second,
+		Assertions: []Assertion{
+			{Text: "the tests pass", Kind: KindMust},
+			{Text: "the diff is small", Kind: KindMust},
+			{Text: "the diff touches vendor/", Kind: KindMustNot},
+		},
+	}
+}
+
+func TestParseReadsAgentGate(t *testing.T) {
+	for _, p := range parsers() {
+		t.Run(p.name, func(t *testing.T) {
+			got, err := p.parse(testPath, []byte(file(table("gates.alpha", agentKeys()...))))
+			if err != nil {
+				t.Fatalf("%s: %v", p.name, err)
+			}
+			if want := []Gate{agentGate()}; !reflect.DeepEqual(got, want) {
+				t.Fatalf("%s = %+v, want %+v", p.name, got, want)
+			}
+		})
+	}
+}
+
+func TestParseReadsAgentGateWithOneKind(t *testing.T) {
+	cases := []struct {
+		name string
+		keys []string
+		want []Assertion
+	}{
+		{"only must", keyed(agentKeys(), "must_not", ""), []Assertion{
+			{Text: "the tests pass", Kind: KindMust},
+			{Text: "the diff is small", Kind: KindMust},
+		}},
+		{"only must_not", keyed(agentKeys(), "must", ""), []Assertion{
+			{Text: "the diff touches vendor/", Kind: KindMustNot},
+		}},
+	}
+	for _, p := range parsers() {
+		for _, tc := range cases {
+			t.Run(p.name+" "+tc.name, func(t *testing.T) {
+				got, err := p.parse(testPath, []byte(file(table("gates.alpha", tc.keys...))))
+				if err != nil {
+					t.Fatalf("%s: %v", p.name, err)
+				}
+				want := agentGate()
+				want.Assertions = tc.want
+				if !reflect.DeepEqual(got, []Gate{want}) {
+					t.Fatalf("%s = %+v, want %+v", p.name, got, want)
+				}
+			})
+		}
+	}
+}
+
+func agentRefusals() []refusal {
+	return []refusal{
+		{"argv beside agent", file(table("gates.alpha", append(agentKeys(), `argv = ["/opt/x"]`)...)),
+			[]string{"alpha", "argv", "agent"}},
+		{"needs beside agent", file(table("gates.alpha", append(agentKeys(), `needs = { gate = 1 }`)...)),
+			[]string{"alpha", "needs", "agent"}},
+		{"must beside argv", file(table("gates.alpha", append(gateKeys(), `must = ["the tests pass"]`)...)),
+			[]string{"alpha", "must", "argv"}},
+		{"must_not beside argv", file(table("gates.alpha", append(gateKeys(), `must_not = ["the diff is small"]`)...)),
+			[]string{"alpha", "must_not", "argv"}},
+		{"neither argv nor agent", file(table("gates.alpha", keyed(agentKeys(), "agent", "")...)),
+			[]string{"alpha", "argv"}},
+		{"empty agent", file(table("gates.alpha", keyed(agentKeys(), "agent", `agent = ""`)...)),
+			[]string{"alpha", "agent"}},
+		{"empty must element", file(table("gates.alpha",
+			keyed(agentKeys(), "must", `must = ["the tests pass", ""]`)...)), []string{"alpha", "must"}},
+		{"empty must_not element", file(table("gates.alpha", keyed(agentKeys(), "must_not", `must_not = [""]`)...)),
+			[]string{"alpha", "must_not"}},
+		{"no assertion keys", file(table("gates.alpha", keyed(keyed(agentKeys(), "must", ""), "must_not", "")...)),
+			[]string{"alpha", "must"}},
+		{"empty assertion arrays", file(table("gates.alpha",
+			keyed(keyed(agentKeys(), "must", `must = []`), "must_not", `must_not = []`)...)),
+			[]string{"alpha", "must"}},
+		{"missing limit", file(table("gates.alpha", keyed(agentKeys(), "limit", "")...)),
+			[]string{"alpha", "limit"}},
+	}
+}
+
+func TestParseRefusesBadAgentGates(t *testing.T) {
+	for _, p := range parsers() {
+		for _, tc := range agentRefusals() {
+			t.Run(p.name+" "+tc.name, func(t *testing.T) {
+				_, err := p.parse(testPath, []byte(tc.text))
+				if err == nil {
+					t.Fatalf("%s accepted the file, want an error naming %v", p.name, tc.want)
+				}
+				for _, want := range append([]string{testPath}, tc.want...) {
+					if !strings.Contains(err.Error(), want) {
+						t.Errorf("error %q does not contain %q", err, want)
+					}
+				}
+			})
+		}
+	}
+}

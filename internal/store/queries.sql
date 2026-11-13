@@ -70,6 +70,17 @@ SELECT * FROM sessions WHERE id = ? AND kind IN ('engine', 'step');
 -- name: ListEngineSessions :many
 SELECT * FROM sessions WHERE kind IN ('engine', 'step') ORDER BY id;
 
+-- name: ListKnownDirs :many
+SELECT known.dir FROM (
+    SELECT sessions.dir AS dir, CAST(sessions.changed AS INTEGER) AS at FROM sessions
+    WHERE sessions.kind = 'engine'
+    UNION ALL
+    SELECT steps.workspace AS dir, steps.started AS at FROM steps
+) AS known
+WHERE known.dir <> ''
+GROUP BY known.dir
+ORDER BY MAX(known.at) DESC, known.dir;
+
 -- name: ListHeadlessSessions :many
 SELECT
     sessions.id, sessions.dir, sessions.state, sessions.changed, sessions.seen, sessions.question, sessions.reason,
@@ -223,11 +234,12 @@ DELETE FROM holds WHERE member = ?;
 SELECT * FROM holds ORDER BY member;
 
 -- name: UpsertPendingNotice :exec
-INSERT INTO pending_notices (id, pane, session, state, time, phase, due, delay_served, watch_logged, source_kind, source)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO pending_notices (id, pane, session, state, time, phase, due, delay_served, watch_logged, source_kind, source, silent)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT (id) DO UPDATE SET pane = excluded.pane, session = excluded.session, state = excluded.state,
     time = excluded.time, phase = excluded.phase, due = excluded.due, delay_served = excluded.delay_served,
-    watch_logged = excluded.watch_logged, source_kind = excluded.source_kind, source = excluded.source;
+    watch_logged = excluded.watch_logged, source_kind = excluded.source_kind, source = excluded.source,
+    silent = excluded.silent;
 
 -- name: RaiseNoticeIDFloor :exec
 UPDATE pending_notice_ids SET high = MAX(high, sqlc.arg(id)) WHERE id = 1;
@@ -240,3 +252,13 @@ SELECT * FROM pending_notices ORDER BY id;
 
 -- name: GetNoticeIDFloor :one
 SELECT high FROM pending_notice_ids WHERE id = 1;
+
+-- name: UpsertPushedNotice :exec
+INSERT INTO pushed_notices (pane, session, time) VALUES (?, ?, ?)
+ON CONFLICT (pane, session) DO UPDATE SET time = excluded.time;
+
+-- name: DeletePushedNotice :exec
+DELETE FROM pushed_notices WHERE pane = ? AND session = ?;
+
+-- name: ListPushedNotices :many
+SELECT * FROM pushed_notices ORDER BY pane, session;

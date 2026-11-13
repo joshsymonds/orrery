@@ -26,9 +26,13 @@ function failure(outcome: Refusal, refused: string, unknown: string): Notice {
   return { text: outcome.outcome === "refused" ? `${refused}: ${outcome.message}` : unknown, failed: true };
 }
 
-// StepBox is the box under a step's reader: a nudge composer, Interrupt, and Stop. Enter sends the nudge text once; a
-// failed nudge keeps the draft and is never resent by the box. Stop asks first: it reveals Confirm stop and Cancel, and
-// only Confirm stop calls the server. Every message is drawn as text.
+// menu is the state of the ⋯ menu: closed, open with Stop, or confirming a stop with Confirm stop and Cancel.
+type Menu = "closed" | "open" | "confirming";
+
+// StepBox is the box under a step's reader: the nudge sentence, then one line of Interrupt, the nudge input with a send
+// button, and ⋯. Stop sits in the menu ⋯ opens. Enter and the send button send the nudge text once; a failed nudge keeps
+// the draft and is never resent by the box. Stop asks first: it reveals Confirm stop and Cancel, and only Confirm stop
+// calls the server. Every message is drawn as text.
 export function StepBox(props: {
   label: string; // placeholder "Nudge <label>"
   nudge: (text: string) => Promise<void>;
@@ -39,7 +43,7 @@ export function StepBox(props: {
   const { label, nudge, hold, stop, inputRef } = props;
   const [text, setText] = useState("");
   const [notice, setNotice] = useState<Notice | null>(null);
-  const [confirming, setConfirming] = useState(false);
+  const [menu, setMenu] = useState<Menu>("closed");
   const inFlight = useRef(false);
   // unknownText is the text of a nudge whose outcome is not known. Enter does not send it again until the text changes.
   const unknownText = useRef<string | null>(null);
@@ -77,7 +81,7 @@ export function StepBox(props: {
   }
 
   async function confirmStop(): Promise<void> {
-    setConfirming(false);
+    setMenu("closed");
     setNotice(null);
     try {
       await stop();
@@ -96,35 +100,54 @@ export function StepBox(props: {
 
   return (
     <div class="stepbox">
-      <div class="composer">
-        <textarea
-          ref={inputRef}
-          placeholder={`Nudge ${label}`}
-          rows={1}
-          value={text}
-          onInput={(event) => setText(event.currentTarget.value)}
-          onKeyDown={onKeyDown}
-        />
-      </div>
-      <div class="stepbox-actions">
-        <button type="button" onClick={() => void interrupt()}>
+      <p class="how">
+        A message here is a nudge: it interrupts the turn, then prompts. It does not count as a check round.
+      </p>
+      <div class="line">
+        <button type="button" class="interrupt" onClick={() => void interrupt()}>
           Interrupt
         </button>
-        {confirming ? (
-          <>
-            <button type="button" class="stop-confirm" onClick={() => void confirmStop()}>
-              Confirm stop
-            </button>
-            <button type="button" onClick={() => setConfirming(false)}>
-              Cancel
-            </button>
-          </>
-        ) : (
-          <button type="button" onClick={() => setConfirming(true)}>
-            Stop
+        <div class="composer">
+          <textarea
+            ref={inputRef}
+            placeholder={`Nudge ${label}`}
+            rows={1}
+            value={text}
+            onInput={(event) => setText(event.currentTarget.value)}
+            onKeyDown={onKeyDown}
+          />
+          <button type="button" class="go" aria-label="send" onClick={() => void submit()}>
+            ↑
           </button>
-        )}
+        </div>
+        <button
+          type="button"
+          class="more"
+          aria-label="more"
+          aria-expanded={menu !== "closed"}
+          onClick={() => setMenu((current) => (current === "closed" ? "open" : "closed"))}
+        >
+          ⋯
+        </button>
       </div>
+      {menu !== "closed" && (
+        <div class="stepbox-menu">
+          {menu === "confirming" ? (
+            <>
+              <button type="button" class="stop-confirm" onClick={() => void confirmStop()}>
+                Confirm stop
+              </button>
+              <button type="button" onClick={() => setMenu("closed")}>
+                Cancel
+              </button>
+            </>
+          ) : (
+            <button type="button" onClick={() => setMenu("confirming")}>
+              Stop
+            </button>
+          )}
+        </div>
+      )}
       {notice !== null && (
         <p class={notice.failed ? "stepbox-notice err" : "stepbox-notice"} role={notice.failed ? "alert" : "status"}>
           {notice.text}

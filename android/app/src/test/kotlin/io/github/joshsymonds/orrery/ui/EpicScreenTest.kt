@@ -1,30 +1,47 @@
 package io.github.joshsymonds.orrery.ui
 
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.click
 import androidx.compose.ui.test.hasAnyAncestor
+import androidx.compose.ui.test.hasScrollAction
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.isNotSelected
+import androidx.compose.ui.test.isSelected
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollToNode
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.unit.dp
 import com.connectrpc.Code
 import io.github.joshsymonds.orrery.api.FakeOrreryServer
 import io.github.joshsymonds.orrery.api.OrreryClient
 import io.github.joshsymonds.orrery.api.StepRow
 import io.github.joshsymonds.orrery.gen.orrery.v1.Epic
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicSlice
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicStep
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicStepCheck
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicTask
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsGetResponse
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import java.util.concurrent.atomic.AtomicReference
+import kotlin.math.PI
+import kotlin.math.cos
+import kotlin.math.min
+import kotlin.math.sin
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35], qualifiers = "w400dp-h1200dp")
@@ -75,9 +92,16 @@ class EpicScreenTest {
         return builder.build()
     }
 
+    private fun slice(task: String): EpicSlice =
+        EpicSlice.newBuilder().setTask(task).setHue("dispatched").setRedTest(true).setAt(1).build()
+
+    private fun numberedTasks(count: Int): List<EpicTask> =
+        (1..count).map { task(it, "example-task-$it", "Subject $it", "done") }
+
     private fun body(
         tasks: List<EpicTask> = emptyList(),
         steps: List<EpicStep> = emptyList(),
+        slices: List<EpicSlice> = emptyList(),
         problem: String = "",
     ): EpicsGetResponse {
         val epic = Epic.newBuilder()
@@ -94,6 +118,7 @@ class EpicScreenTest {
             .setEpic(epic)
             .addAllTasks(tasks)
             .addAllSteps(steps)
+            .addAllSlices(slices)
             .build()
     }
 
@@ -111,12 +136,6 @@ class EpicScreenTest {
     private fun countNodes(matcher: SemanticsMatcher): Int =
         composeRule.onAllNodes(matcher, useUnmergedTree = true).fetchSemanticsNodes().size
 
-    private fun hasTagPrefix(prefix: String): SemanticsMatcher =
-        SemanticsMatcher("test tag starts with $prefix") {
-            it.config.contains(SemanticsProperties.TestTag) &&
-                it.config[SemanticsProperties.TestTag].startsWith(prefix)
-        }
-
     private fun awaitText(text: String) {
         composeRule.waitUntil(TIMEOUT_MS) { countNodes(hasText(text)) > 0 }
     }
@@ -125,73 +144,70 @@ class EpicScreenTest {
         composeRule.onNodeWithTag(tag, useUnmergedTree = true).performClick()
     }
 
-    @Test
-    fun oneRingPerTaskDrawsItsOwnStateAndAnUnknownStatusStaysRaw() {
-        FakeOrreryServer().use { server ->
-            server.respond(
-                EPICS_GET,
-                body(
-                    tasks = listOf(
-                        task(1, "example-a", "Subject A", "done"),
-                        task(2, "example-b", "Subject B", "dispatched"),
-                        task(3, "example-c", "Subject C", "gated"),
-                        task(4, "example-d", "Subject D", "pending"),
-                        task(5, "example-e", "Subject E", "gap"),
-                        task(6, "example-f", "Subject F", "split"),
-                        task(7, "example-g", "Subject G", "Reviewing: 2 of 3"),
-                    ),
-                ),
-            )
-            setScreen(server)
-            awaitText("Subject G")
-
-            for (state in listOf("done", "dispatched", "gated", "pending", "gap", "split", "neutral")) {
-                assertEquals("ring $state", 1, countNodes(hasTestTag("task-ring:$state")))
-            }
-            assertEquals(7, countNodes(hasTagPrefix("task-ring:")))
-            assertEquals(1, countNodes(hasText("Reviewing: 2 of 3")))
-        }
+    private fun scrollToRow(index: Int) {
+        composeRule.onNode(hasScrollAction()).performScrollToNode(hasTestTag("task-row:$index"))
     }
 
-    @Test
-    fun ringsFollowTheStatusWordsWithoutCaseAndUnknownTextStaysRaw() {
-        FakeOrreryServer().use { server ->
-            server.respond(
-                EPICS_GET,
-                body(
-                    tasks = listOf(
-                        task(1, "example-a", "Subject A", "integrated"),
-                        task(2, "example-b", "Subject B", "DONE"),
-                        task(3, "example-c", "Subject C", "Integrated"),
-                        task(4, "example-d", "Subject D", "Gated"),
-                        task(5, "example-e", "Subject E", "done at 3f9c2e1"),
-                        task(6, "example-f", "Subject F", "integrated (e2cb5e4)"),
-                    ),
-                ),
-            )
-            setScreen(server)
-            awaitText("Subject F")
+    private fun chartStateDescription(): String? =
+        composeRule.onNodeWithTag("epic-chart", useUnmergedTree = true)
+            .fetchSemanticsNode()
+            .config
+            .getOrNull(SemanticsProperties.StateDescription)
 
-            assertEquals(3, countNodes(hasTestTag("task-ring:done")))
-            assertEquals(1, countNodes(hasTestTag("task-ring:gated")))
-            assertEquals(2, countNodes(hasTestTag("task-ring:neutral")))
-            assertEquals(1, countNodes(hasText("done at 3f9c2e1")))
-            assertEquals(1, countNodes(hasText("integrated (e2cb5e4)")))
-        }
+    // The point [radius] units from the chart's centre at [degrees] clockwise from 12 o'clock, in the chart's own pixels:
+    // the coordinates a touch on the chart is sent in. The chart is a 412-unit box that fills the smaller side.
+    private fun chartPoint(radius: Float, degrees: Float): Offset {
+        val size = composeRule.onNodeWithTag("epic-chart", useUnmergedTree = true).fetchSemanticsNode().size
+        val unit = min(size.width, size.height) / 412f
+        val angle = degrees * PI.toFloat() / 180f
+        return Offset(size.width / 2f + radius * unit * sin(angle), size.height / 2f - radius * unit * cos(angle))
+    }
+
+    // The angle at the middle of slice [index] of [count]: a 8-degree start gap, then 344 degrees shared out equally.
+    private fun sliceMiddle(index: Int, count: Int): Float = 8f + (index + 0.5f) * 344f / count
+
+    private fun tapChart(position: Offset) {
+        composeRule.onNodeWithTag("epic-chart", useUnmergedTree = true).performTouchInput { click(position) }
+    }
+
+    // The row's top edge lies at or below the chart's bottom edge, in root pixels.
+    private fun assertRowBelowChart(row: String) {
+        val chart = composeRule.onNodeWithTag("epic-chart").fetchSemanticsNode().boundsInRoot
+        val top = composeRule.onNodeWithText(row).fetchSemanticsNode().boundsInRoot.top
+        assertTrue(top >= chart.bottom)
     }
 
     @Test
     fun taskRowShowsSlugSubjectAndRawStatus() {
+        val rows = listOf(
+            Triple("example-a", "Subject A", "done"),
+            Triple("example-b", "Subject B", "Integrated"),
+            Triple("example-c", "Subject C", "Gated"),
+            Triple("example-d", "Subject D", "done at 3f9c2e1"),
+            Triple("example-e", "Subject E", "integrated (e2cb5e4)"),
+            Triple("example-f", "Subject F", "Reviewing: 2 of 3"),
+            Triple("example-task", "Example subject", "DONE?  as written"),
+        )
         FakeOrreryServer().use { server ->
             server.respond(
                 EPICS_GET,
-                body(tasks = listOf(task(1, "example-task", "Example subject", "DONE?  as written"))),
+                body(
+                    tasks = rows.mapIndexed { index, (slug, subject, status) ->
+                        task(index + 1, slug, subject, status)
+                    },
+                ),
             )
             setScreen(server)
-            awaitText("Example subject")
+            awaitText("Subject A")
 
-            assertEquals(1, countNodes(hasText("example-task")))
-            assertEquals(1, countNodes(hasText("DONE?  as written")))
+            // The chart takes its share of the screen, so the list scrolls to each row before it is checked.
+            for ((index, row) in rows.withIndex()) {
+                val (slug, subject, status) = row
+                scrollToRow(index)
+                assertEquals(1, countNodes(hasText(slug)))
+                assertEquals(1, countNodes(hasText(subject)))
+                assertEquals(1, countNodes(hasText(status)))
+            }
         }
     }
 
@@ -212,7 +228,6 @@ class EpicScreenTest {
             setScreen(server)
             awaitText("Subject D")
 
-            assertEquals(4, countNodes(hasTagPrefix("task-ring:")))
             for (subject in listOf("Subject A", "Subject B", "Subject C", "Subject D")) {
                 assertEquals(1, countNodes(hasText(subject)))
             }
@@ -299,6 +314,90 @@ class EpicScreenTest {
         }
     }
 
+    private fun selectionBody(): EpicsGetResponse {
+        val numbered = numberedTasks(35)
+        val orphan = task(1, "example-orphan", "Subject orphan", "pending")
+        return body(tasks = listOf(orphan) + numbered, slices = numbered.reversed().map { slice(it.slug) })
+    }
+
+    @Test
+    @Config(qualifiers = "w411dp-h891dp")
+    fun tappingATaskRowMarksItAndOutlinesItsSlice() {
+        FakeOrreryServer().use { server ->
+            server.respond(EPICS_GET, selectionBody())
+            setScreen(server)
+            awaitText("Subject orphan")
+
+            scrollToRow(35)
+            clickTag("task-row:35")
+
+            assertEquals(1, countNodes(isSelected()))
+            assertEquals(1, countNodes(hasTestTag("task-row:35") and isSelected()))
+            composeRule.onNodeWithTag("epic-chart").assertIsDisplayed()
+            assertEquals("example-task-35", chartStateDescription())
+
+            clickTag("task-row:35")
+
+            assertEquals(0, countNodes(isSelected()))
+            assertEquals(1, countNodes(hasTestTag("task-row:35") and isNotSelected()))
+            assertNull(chartStateDescription())
+
+            clickTag("task-row:35")
+            scrollToRow(1)
+            clickTag("task-row:1")
+
+            assertEquals(1, countNodes(isSelected()))
+            assertEquals(1, countNodes(hasTestTag("task-row:1") and isSelected()))
+            assertEquals("example-task-1", chartStateDescription())
+        }
+    }
+
+    @Test
+    @Config(qualifiers = "w411dp-h891dp")
+    fun tappingARowWithNoSliceChangesNothing() {
+        FakeOrreryServer().use { server ->
+            server.respond(EPICS_GET, selectionBody())
+            setScreen(server)
+            awaitText("Subject orphan")
+
+            clickTag("task-row:0")
+
+            assertEquals(0, countNodes(isSelected()))
+            assertNull(chartStateDescription())
+
+            clickTag("task-row:1")
+            clickTag("task-row:0")
+
+            assertEquals(1, countNodes(isSelected()))
+            assertEquals(1, countNodes(hasTestTag("task-row:1") and isSelected()))
+            assertEquals("example-task-1", chartStateDescription())
+        }
+    }
+
+    @Test
+    @Config(qualifiers = "w411dp-h891dp")
+    fun aChartTapSelectsItsSliceAndClearsTheMarkedRow() {
+        FakeOrreryServer().use { server ->
+            server.respond(EPICS_GET, selectionBody())
+            setScreen(server)
+            awaitText("Subject orphan")
+
+            scrollToRow(35)
+            clickTag("task-row:35")
+            assertEquals(1, countNodes(isSelected()))
+
+            // The slices run in reverse, so slice 17 is example-task-18.
+            tapChart(chartPoint(150f, sliceMiddle(17, 35)))
+
+            assertEquals(0, countNodes(isSelected()))
+            assertEquals("example-task-18", chartStateDescription())
+
+            tapChart(chartPoint(0f, 0f))
+
+            assertNull(chartStateDescription())
+        }
+    }
+
     @Test
     fun unknownEpicShowsEpicNotFound() {
         FakeOrreryServer().use { server ->
@@ -323,6 +422,112 @@ class EpicScreenTest {
             composeRule.onNodeWithText("Retry").performClick()
 
             awaitText("Loaded after retry")
+        }
+    }
+
+    private fun assertChartStaysOnScreenWhileTheListScrolls(count: Int) {
+        val tasks = numberedTasks(count)
+        FakeOrreryServer().use { server ->
+            server.respond(
+                EPICS_GET,
+                body(tasks = tasks, slices = tasks.map { slice(it.slug) }),
+            )
+            setScreen(server)
+            awaitText("Subject 1")
+
+            composeRule.onNodeWithTag("epic-chart").assertIsDisplayed()
+            composeRule.onNodeWithText("Subject 1").assertIsDisplayed()
+            assertRowBelowChart("Subject 1")
+
+            composeRule.onNode(hasScrollAction()).performScrollToNode(hasText("Subject $count"))
+
+            composeRule.onNodeWithText("Subject $count").assertIsDisplayed()
+            composeRule.onNodeWithTag("epic-chart").assertIsDisplayed()
+            assertRowBelowChart("Subject $count")
+        }
+    }
+
+    @Test
+    @Config(qualifiers = "w411dp-h891dp")
+    fun chartStaysAboveTheListWhileItScrollsInPortrait() {
+        assertChartStaysOnScreenWhileTheListScrolls(35)
+    }
+
+    @Test
+    @Config(qualifiers = "w411dp-h891dp")
+    fun chartStaysAboveTheListWhileItScrollsInPortraitWith150Tasks() {
+        assertChartStaysOnScreenWhileTheListScrolls(150)
+    }
+
+    @Test
+    @Config(qualifiers = "w411dp-h891dp")
+    fun chartDrawingIsAtMost420WideAndFillsTheWidthLessItsPaddingInPortrait() {
+        val tasks = numberedTasks(35)
+        FakeOrreryServer().use { server ->
+            server.respond(
+                EPICS_GET,
+                body(tasks = tasks, slices = tasks.map { slice(it.slug) }),
+            )
+            setScreen(server)
+            awaitText("Subject 1")
+
+            val size = composeRule.onNodeWithTag("epic-chart").fetchSemanticsNode().size
+            val drawing = min(size.width, size.height).toFloat()
+            with(composeRule.density) {
+                assertTrue(drawing <= 420.dp.toPx())
+                assertEquals((411.dp - 28.dp).toPx(), drawing, 0.5f)
+            }
+        }
+    }
+
+    @Test
+    @Config(qualifiers = "w411dp-h560dp")
+    fun aShortPortraitWindowShrinksTheChartSoATaskRowStaysVisible() {
+        val tasks = numberedTasks(35)
+        FakeOrreryServer().use { server ->
+            server.respond(
+                EPICS_GET,
+                body(tasks = tasks, slices = tasks.map { slice(it.slug) }),
+            )
+            setScreen(server)
+            awaitText("Subject 1")
+
+            val size = composeRule.onNodeWithTag("epic-chart").fetchSemanticsNode().size
+            val drawing = min(size.width, size.height).toFloat()
+            with(composeRule.density) {
+                assertTrue(drawing < (411.dp - 28.dp).toPx())
+            }
+            composeRule.onNodeWithText("Subject 1").assertIsDisplayed()
+            assertRowBelowChart("Subject 1")
+        }
+    }
+
+    @Test
+    @Config(qualifiers = "w891dp-h411dp-land")
+    fun chartSitsBesideTheListInLandscape() {
+        val tasks = numberedTasks(35)
+        FakeOrreryServer().use { server ->
+            server.respond(
+                EPICS_GET,
+                body(tasks = tasks, slices = tasks.map { slice(it.slug) }),
+            )
+            setScreen(server)
+            awaitText("Subject 1")
+
+            composeRule.onNodeWithTag("epic-chart").assertIsDisplayed()
+            composeRule.onNodeWithText("Subject 1").assertIsDisplayed()
+        }
+    }
+
+    @Test
+    fun withNoSlicesTheEmptyLineShowsInPlaceOfTheChart() {
+        FakeOrreryServer().use { server ->
+            server.respond(EPICS_GET, body())
+            setScreen(server)
+
+            awaitText("No orrery-tracked steps")
+            assertEquals(0, countNodes(hasTestTag("epic-chart")))
+            composeRule.onNodeWithText("No orrery-tracked steps").assertIsDisplayed()
         }
     }
 

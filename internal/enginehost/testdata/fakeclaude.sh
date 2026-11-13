@@ -10,6 +10,9 @@
 # streams "fake reply n". The turns reproduce the stream lines captured from the real CLI, with only text, ids and the
 # session id changed. Every line it reads from stdin, prompts and answers alike, is appended to fakeclaude.stdin as it
 # is read. It exits at stdin EOF.
+#
+# Its init line lists the --agent it was given, or nothing when it was given none. A prompt that contains NOAGENT gets an
+# init line that lists nothing, as a claude that did not load the agent would.
 
 # assistant_line CONTENT: the assistant line that carries CONTENT, the JSON of its finished content blocks.
 assistant_line() {
@@ -35,9 +38,14 @@ next() {
 	printf '%s\n' "$line" >> fakeclaude.stdin
 }
 
-# turn_open starts a turn: the system init, the status and the message start.
+# turn_open starts a turn: the system init, the status and the message start. The init lists $agent, or nothing when
+# omit_agent is set for the prompt that opened the turn.
 turn_open() {
-	printf '%s\n' '{"type":"system","subtype":"init","cwd":"redacted","session_id":"session_1","tools":[],"mcp_servers":[],"model":"claude-haiku-5-5","permissionMode":"default","slash_commands":["redacted"],"terminal_slash_commands":["redacted"],"apiKeySource":"redacted","claude_code_version":"2.1.321","output_style":"redacted","agents":["redacted"],"skills":["redacted"],"plugins":[{"name":"redacted","path":"redacted","source":"redacted"}],"capabilities":["redacted"],"analytics_disabled":false,"product_feedback_disabled":false,"uuid":"uuid_4","memory_paths":{"auto":"redacted"},"original_cwd":"redacted","additional_directories":[],"messaging_socket_path":"redacted","fast_mode_state":"redacted","fast_mode_disabled_reason":"redacted","per_turn_effort_active":false,"ultrathink_available":false,"ultrathink_typed_raises":false,"view_mode":"redacted","user_message_uuids":["uuid_1"]}'
+	agents='[]'
+	if [ -n "$agent" ] && [ -z "$omit_agent" ]; then
+		agents='["'"$agent"'"]'
+	fi
+	printf '%s\n' '{"type":"system","subtype":"init","cwd":"redacted","session_id":"session_1","tools":[],"mcp_servers":[],"model":"claude-haiku-5-5","permissionMode":"default","slash_commands":["redacted"],"terminal_slash_commands":["redacted"],"apiKeySource":"redacted","claude_code_version":"2.1.321","output_style":"redacted","agents":'"$agents"',"skills":["redacted"],"plugins":[{"name":"redacted","path":"redacted","source":"redacted"}],"capabilities":["redacted"],"analytics_disabled":false,"product_feedback_disabled":false,"uuid":"uuid_4","memory_paths":{"auto":"redacted"},"original_cwd":"redacted","additional_directories":[],"messaging_socket_path":"redacted","fast_mode_state":"redacted","fast_mode_disabled_reason":"redacted","per_turn_effort_active":false,"ultrathink_available":false,"ultrathink_typed_raises":false,"view_mode":"redacted","user_message_uuids":["uuid_1"]}'
 	printf '%s\n' '{"type":"system","subtype":"status","status":"requesting","session_id":"session_1","uuid":"uuid_5","user_message_uuids":["uuid_1"]}'
 	printf '%s\n' '{"type":"stream_event","event":{"type":"message_start","message":{"model":"claude-haiku-5-5","id":"msg_1","type":"message","role":"assistant","content":[],"container":null,"stop_reason":null,"stop_sequence":null,"stop_details":null,"usage":{"input_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"cache_creation":{"ephemeral_5m_input_tokens":0,"ephemeral_1h_input_tokens":0},"output_tokens":0,"service_tier":"redacted","inference_geo":"redacted","speed":"redacted"},"input_transformations":[],"diagnostics":null,"context_management":null}},"session_id":"session_1","parent_tool_use_id":null,"uuid":"uuid_6","ttft_ms":0,"thinking_display":"redacted","api_message_id":"redacted","user_message_uuid":"uuid_1","user_message_uuids":["uuid_1"]}'
 }
@@ -162,12 +170,17 @@ die() {
 echo $$ > fakeclaude.pid.tmp && mv fakeclaude.pid.tmp fakeclaude.pid
 printf '%s\n' "$*" >> fakeclaude.args
 
-# A start with --resume continues the prompt count of the earlier start, and only resumes session_1.
+# A start with --resume continues the prompt count of the earlier start, and only resumes session_1. Its init lists the
+# --agent of the start.
 resume=
+agent=
 prev=
 for arg in "$@"; do
 	if [ "$prev" = --resume ]; then
 		resume=$arg
+	fi
+	if [ "$prev" = --agent ]; then
+		agent=$arg
 	fi
 	prev=$arg
 done
@@ -184,6 +197,10 @@ while next; do
 		*'"type":"user"'*)
 			n=$((n + 1))
 			printf '%s\n' "$n" > fakeclaude.n
+			omit_agent=
+			case $line in
+				*NOAGENT*) omit_agent=1 ;;
+			esac
 			case $line in
 				*ASK*) ask ;;
 				*PERMIT*) permit ;;

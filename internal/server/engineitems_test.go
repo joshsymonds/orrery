@@ -128,6 +128,34 @@ func TestSessionItem(t *testing.T) {
 			event:   store.EngineEvent{Seq: 11, Kind: store.EventEngineBlock, At: 110, Payload: `not json`},
 			wantErr: true,
 		},
+		{
+			name: "engine send-back prompt is a prompt item with its sender and round",
+			event: store.EngineEvent{
+				Seq:     12,
+				Kind:    store.EventEnginePrompt,
+				At:      111,
+				Payload: `{"text":"fix the build","promptId":"p1","sender":"engine","round":2}`,
+			},
+			want: &orreryv1.ConversationItem{
+				Kind:   "prompt",
+				Time:   111,
+				Text:   "fix the build",
+				Sender: "engine",
+				Round:  2,
+			},
+			wantOK: true,
+		},
+		{
+			name: "brief prompt is a prompt item with its sender and round 0",
+			event: store.EngineEvent{
+				Seq:     13,
+				Kind:    store.EventEnginePrompt,
+				At:      112,
+				Payload: `{"text":"build the thing","sender":"brief"}`,
+			},
+			want:   &orreryv1.ConversationItem{Kind: "prompt", Time: 112, Text: "build the thing", Sender: "brief"},
+			wantOK: true,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

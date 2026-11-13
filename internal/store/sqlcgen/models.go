@@ -66,11 +66,18 @@ type PendingNotice struct {
 	WatchLogged bool
 	SourceKind  string
 	Source      []byte
+	Silent      bool
 }
 
 type PendingNoticeID struct {
 	ID   int64
 	High int64
+}
+
+type PushedNotice struct {
+	Pane    string
+	Session string
+	Time    int64
 }
 
 type Session struct {
