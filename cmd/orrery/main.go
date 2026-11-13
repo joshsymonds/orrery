@@ -373,8 +373,9 @@ func openServeStores(getenv func(string) string, pushHosts []string) (*push.Stor
 	return pushStore, store.NewReader(dbPath), nil
 }
 
-// runMCP runs `orrery mcp`. It serves the step tools over MCP on stdin and stdout until stdin closes. The step
-// service is the one on the session socket beside the daemon socket, so the command opens no listener and no store.
+// runMCP runs `orrery mcp`. It serves the step and epic tools over MCP on stdin and stdout until stdin closes. The
+// step and epic services are the ones on the session socket beside the daemon socket, so the command opens no
+// listener and no store.
 func runMCP(ctx context.Context, opts globals, args []string, stdin io.Reader, stdout io.Writer,
 	getenv func(string) string) error {
 	if len(args) > 0 {
@@ -386,7 +387,8 @@ func runMCP(ctx context.Context, opts globals, args []string, stdin io.Reader, s
 	}
 	sessionSocket := protocol.SessionSocketPath(socket)
 	steps := enginev1connect.NewStepsClient(cli.SessionHTTPClient(sessionSocket), cli.SessionBaseURL)
-	server, err := stepmcp.NewServer(steps)
+	epics := enginev1connect.NewEpicsClient(cli.SessionHTTPClient(sessionSocket), cli.SessionBaseURL)
+	server, err := stepmcp.NewServer(steps, epics)
 	if err != nil {
 		return fmt.Errorf("mcp: %w", err)
 	}

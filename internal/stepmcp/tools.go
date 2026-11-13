@@ -47,39 +47,44 @@ const (
 		`},"required":["ids"],"additionalProperties":false}`
 )
 
-// NewServer returns the MCP server "orrery" whose step tools call steps.
-func NewServer(steps enginev1connect.StepsClient) (*mcp.Server, error) {
-	server, err := mcp.NewServer("orrery", "1",
-		mcp.Tool{
+// NewServer returns the MCP server "orrery" whose step tools call steps and whose epic tools call epics.
+func NewServer(steps enginev1connect.StepsClient, epics enginev1connect.EpicsClient) (*mcp.Server, error) {
+	server, err := mcp.NewServer("orrery", "1", slices.Concat(stepTools(steps), epicTools(epics))...)
+	if err != nil {
+		return nil, fmt.Errorf("new orrery server: %w", err)
+	}
+	return server, nil
+}
+
+// stepTools returns the step tools, each calling steps.
+func stepTools(steps enginev1connect.StepsClient) []mcp.Tool {
+	return []mcp.Tool{
+		{
 			Name:        "step_start",
 			Description: "Start a step: an agent working in a workspace. Returns the step id.",
 			InputSchema: json.RawMessage(startSchema),
 			Handler:     startHandler(steps),
 		},
-		mcp.Tool{
+		{
 			Name:        "step_status",
 			Description: "Report a step's current state by id.",
 			InputSchema: json.RawMessage(idSchema),
 			Handler:     statusHandler(steps),
 		},
-		mcp.Tool{
+		{
 			Name:        "step_stop",
 			Description: "Stop a running step by id.",
 			InputSchema: json.RawMessage(idSchema),
 			Handler:     stopHandler(steps),
 		},
-		mcp.Tool{
+		{
 			Name: "step_wait",
 			Description: "Wait until one of the given steps ends, or until timeoutSeconds passes " +
 				"(at most 1500 seconds). Returns the ended step, or null with every step's state at timeout.",
 			InputSchema: json.RawMessage(waitSchema),
 			Handler:     waitHandler(steps),
 		},
-	)
-	if err != nil {
-		return nil, fmt.Errorf("new orrery server: %w", err)
 	}
-	return server, nil
 }
 
 type startArgs struct {
