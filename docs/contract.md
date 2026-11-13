@@ -457,7 +457,7 @@ When neither variable is set, `orreryd` exits 1.
 
 `orreryd` also keeps the store, which mirrors each pane's tmux options (see [Store](#store)). It opens the store after its sockets listen, and logs `store open` (info, with `path`) once the store is open and migrated. When the store cannot be opened, `orreryd` logs the error and serves hooks and notifications without it. It then mints no `@orrery_id` and syncs no pane. A failure of the push store still exits 1.
 
-`SIGINT` and `SIGTERM` stop `orreryd`. With `--sessions`, the Pools broker closes first (see [Pools](#pools)), then the session socket closes. Then every live headless session is stopped, or with `--holder-scope` detached (see [Lifecycle rules](#lifecycle-rules)), and its turn, if one is running, is recorded `interrupted`. `orreryd` exits after those notices are routed, and after each headless session notice still pending is kept or ended, as [Notice routing](#notice-routing) says at shutdown. The desk stream closes last, after the notices that post to it. See [Headless sessions](#headless-sessions) and [Desk stream](#desk-stream).
+`SIGINT` and `SIGTERM` stop `orreryd`. With `--sessions`, the Pools broker closes first (see [Pools](#pools)), then the session socket closes. Then every live headless session is stopped, or with `--holder-scope` detached (see [Lifecycle rules](#lifecycle-rules)), and its turn, if one is running, is recorded `interrupted`. `orreryd` exits after those notices are routed, and after each pending notice is kept or ended, as [Notice routing](#notice-routing) says at shutdown. The desk stream closes last, after the notices that post to it. See [Headless sessions](#headless-sessions) and [Desk stream](#desk-stream).
 
 #### Notice routing
 
@@ -470,7 +470,7 @@ When neither variable is set, `orreryd` exits 1.
 
    A held notice goes to neither sink. The first hold writes a line with reason `watching`, and orreryd checks the watch again every 5 seconds. A failed check reads as not watched. A session notice is never watched, so it is never held.
 
-**Done judge.** A pane's `done` that rule 1 does not silence is judged, with or without `--sessions`. The first time its pane is found unwatched, the notice waits 10 seconds, sending nothing and writing no line. A change, a seen write, a newer notice or shutdown in that time ends it as rule 7 says. Each later check is made as rule 2 makes it: a watched pane holds the notice with no judge call, and an unwatched pane is judged at once. The judge is Haiku. It reads the `last_assistant_message` of the `Stop` hook's input (section 9), runs through the pane's own `ANTHROPIC_BASE_URL` (section 9) with the summary model that section 8 gives its patchbay context, and answers `needed` (true or false) with a `why`. It must answer within 15 seconds, or it is late. A judge that errors fails, and so does a notice with no or an empty `last_assistant_message`. Waiting notices (questions and permission prompts) and session notices are never judged.
+**Done judge.** A pane's `done` that rule 1 does not silence is judged, with or without `--sessions`. The first time its pane is found unwatched, the notice waits 10 seconds, sending nothing and writing no line. A change, a seen write or a newer notice in that time ends it as rule 7 says. Shutdown keeps it or ends it as rule 7 says. Each later check is made as rule 2 makes it: a watched pane holds the notice with no judge call, and an unwatched pane is judged at once. The judge is Haiku. It reads the `last_assistant_message` of the `Stop` hook's input (section 9), runs through the pane's own `ANTHROPIC_BASE_URL` (section 9) with the summary model that section 8 gives its patchbay context, and answers `needed` (true or false) with a `why`. It must answer within 15 seconds, or it is late. A judge that errors fails, and so does a notice with no or an empty `last_assistant_message`. Waiting notices (questions and permission prompts) and session notices are never judged.
 
 - **Unneeded.** The judge answers not needed, with no error and no late answer. At once, whether or not the desk is at hand, the desk stream gets the notice as a quiet notice and Web Push gets it as a silent notice. Rule 5 applies to the phone part. Nothing escalates the notice, and it ends with that line. Its route names the sinks it reached, as for `away`, and its reason is `unneeded`, with `: <why>` when the judge gave a why. A desk notice that cannot be built is not posted, and the reason gains `; desk notice failed` as rule 6 says, but the silent phone notice is still sent.
 - **Needed, failed or late.** The notice routes by rules 3 to 6, and its reason gains `needed` (with its why), `judge failed: <error>` or `judge late`, whichever applies (see the [clauses](#notice-log)).
@@ -479,13 +479,17 @@ When neither variable is set, `orreryd` exits 1.
 4. **Away.** Otherwise the notice goes to the desk stream and to the phone at once, with route `desk+phone` and reason `away`.
 5. **Push subscription.** The phone gets a notice only when the push store lists at least one subscription. Without one, the phone part is dropped: the route names what remains, and the reason gains `; no push subscription`. An escalation with no subscription ends the notice with route `none` and reason `unseen after 5 minutes; no push subscription`. A failed subscription check reads as a subscription, so the push is attempted.
 6. **Desk notice failure.** A desk notice that cannot be built is not posted. The notice then routes as away, and its reason gains `; desk notice failed` before any `; no push subscription`.
-7. **Ending.** A newer notice for the same pane or session ends the pending one, and so does a pane's or a session's transition to a state other than `waiting` or `done`. Each ends with route `none` and reason `changed`. A seen write at or after the notice's time ends it with `none` and `seen`, and the seen write still clears any notice already sent to the phone (see [orreryd](#orreryd)). At shutdown, each pending pane notice ends with `none` and `shutdown`, and is not sent. A pending headless session notice is kept when the store is open and its row is stored, and otherwise ends with `none` and `shutdown` as a pane notice does (see Restart below).
+7. **Ending.** A newer notice for the same pane or session ends the pending one, and so does a pane's or a session's transition to a state other than `waiting` or `done`. Each ends with route `none` and reason `changed`. A seen write at or after the notice's time ends it with `none` and `seen`, and the seen write still clears any notice already sent to the phone (see [orreryd](#orreryd)). At shutdown, a pending pane notice or headless session notice is kept when the store is open and its row is stored. Otherwise it ends with `none` and `shutdown`, and is not sent (see Restart below).
 
-**Restart.** With the store open, a headless session notice still pending at shutdown is kept: no line is written and nothing is sent. One whose row could not be stored, even after shutdown retries the failed row writes, ends `shutdown` instead. At start, once the store opens and before the headless sessions start, `orreryd` stores a row for each headless session notice already pending, then restores each stored row by its phase (see [Pending notices in the store](#pending-notices-in-the-store)):
+**Restart.** With the store open, a pane notice or a headless session notice still pending at shutdown is kept: no line is written and nothing is sent. One whose row could not be stored, even after shutdown retries the failed row writes, ends `shutdown` instead. At start, once the store opens and before the headless sessions start, `orreryd` stores a row for each pane notice and headless session notice already pending, then restores each stored row by its phase (see [Pending notices in the store](#pending-notices-in-the-store)):
 
 - `deciding` is decided anew.
+- `held` checks the watch at once.
+- `delayed` is judged when its 10 seconds run out. A notice whose delay was served is never delayed again.
 - `desk` is not posted again, and escalates when its 5 minutes run out.
 - A row whose `due` has passed runs at once.
+
+Before a pane notice resumes, in any phase, `orreryd` reads its pane from the pane's tmux server once. A pane that is gone, either absent from its server or on a server that is not running, ends the notice with route `none` and reason `changed`. A pane whose state differs from the notice's state ends it the same way. A pane whose seen time is at or after the notice's time ends it with `none` and `seen`. Each of these sends nothing and writes one line. Any other tmux read failure is a restore error, as below.
 
 A restored notice keeps its original time, so a seen write at or after that time ends it with `none` and `seen`. A newer notice for the same pane or session ends it with `none` and `changed`, whether the newer notice is recorded before or after the restore. The sessions' start can record an `interrupted` notice that does this. A row that cannot be restored writes a line with route `none` and reason `not restored: <error>`, and the row is deleted. A stop between handing a notice to its sinks and deleting its row can send it once more after the restart.
 
@@ -976,9 +980,9 @@ The `reason` values are these. A reason that gains a clause adds it after `; `:
 | `unseen after 5 minutes` | `phone`, or `none` with `no push subscription` | escalated after 5 minutes at the desk, unseen and unchanged |
 | `away` | `desk+phone`, `desk`, `phone` or `none` | routed away from the desk |
 | `unneeded` | `desk+phone`, `desk`, `phone` or `none` | the judge found the notice unneeded: posted to the desk stream as a quiet notice and sent to Web Push as a silent notice, then ended (see [Notice routing](#notice-routing)) |
-| `changed` | `none` | a newer notice for its key, or the pane or session moved to another state |
-| `seen` | `none` | a seen write at or after the notice's time |
-| `shutdown` | `none` | `orreryd` shut down while the notice was pending and does not keep it: a pane notice, a session notice whose row could not be stored, or any pending notice when `orreryd` serves without the store |
+| `changed` | `none` | a newer notice for its key, the pane or session moved to another state, or a restored pane notice's pane is gone |
+| `seen` | `none` | a seen write at or after the notice's time, or, for a restored pane notice, a pane already seen at or after that time |
+| `shutdown` | `none` | `orreryd` shut down while the notice was pending and does not keep it: a notice whose row could not be stored, or any pending notice when `orreryd` serves without the store |
 | `not restored: <error>` | `none` | a stored pending notice could not be restored at start, and its row is deleted. `<error>` is the restore's error text (see [Notice routing](#notice-routing)) |
 
 The clauses are these:
@@ -1204,7 +1208,7 @@ holder      {"type":"out","data":"ZXhhbXBsZSBvdXRwdXQK"}
 
 ### Store
 
-`orreryd` keeps a SQLite store that mirrors each pane's tmux options, records each headless engine session (see [Engine sessions in the store](#engine-sessions-in-the-store)), keeps the live grants of the Pools service (see [Grants in the store](#grants-in-the-store)), keeps the pending headless session notices (see [Pending notices in the store](#pending-notices-in-the-store)), and keeps the owner holds of the Pools service (see [Holds in the store](#holds-in-the-store)). Outside the store's tests, `orreryd`'s own writes read it, and `orrery serve` reads it for the Connect API (section 12). A sync reads the pane's row to compare it with the new snapshot, and a tidy also reads the server's rows to find the panes that are gone. `serve` only reads the store, and never writes it.
+`orreryd` keeps a SQLite store that mirrors each pane's tmux options, records each headless engine session (see [Engine sessions in the store](#engine-sessions-in-the-store)), keeps the live grants of the Pools service (see [Grants in the store](#grants-in-the-store)), keeps the pending pane and headless session notices (see [Pending notices in the store](#pending-notices-in-the-store)), and keeps the owner holds of the Pools service (see [Holds in the store](#holds-in-the-store)). Outside the store's tests, `orreryd`'s own writes read it, and `orrery serve` reads it for the Connect API (section 12). A sync reads the pane's row to compare it with the new snapshot, and a tidy also reads the server's rows to find the panes that are gone. `serve` only reads the store, and never writes it.
 
 The store file is `$XDG_STATE_HOME/orrery/orrery.db` when `XDG_STATE_HOME` is set, else `$HOME/.local/state/orrery/orrery.db`. When neither variable is set, no path resolves.
 
@@ -1411,7 +1415,7 @@ The `holds` table (migration `00008_holds.sql`) has one row per owner hold (see 
 
 #### Pending notices in the store
 
-The `pending_notices` table (migration `00010_pending_notices.sql`) has one row per headless session notice that is pending (see [Notice routing](#notice-routing)):
+The `pending_notices` table (migration `00010_pending_notices.sql`) has one row per pending pane notice and per pending headless session notice (see [Notice routing](#notice-routing)):
 
 | Column | Type | Meaning |
 |---|---|---|
@@ -1420,12 +1424,12 @@ The `pending_notices` table (migration `00010_pending_notices.sql`) has one row 
 | `session` | `TEXT` | the notice's session id |
 | `state` | `TEXT` | the notice's state |
 | `time` | `INTEGER` | unix seconds when the notice was recorded |
-| `phase` | `TEXT` | where the notice is: `deciding` or `desk`. A session notice is never held or judged, so it has no other phase |
+| `phase` | `TEXT` | where the notice is: `deciding`, `held` (its pane is watched), `delayed` (the 10-second judge wait of a pane `done`) or `desk`. A session notice is never held or judged, so its phase is `deciding` or `desk` |
 | `due` | `INTEGER` | unix milliseconds when the phase's wait runs out; `0` for none |
 | `delay_served` | `INTEGER` | `1` once the judge wait started, else `0`; always `0` for a session notice |
 | `watch_logged` | `INTEGER` | `1` once the `watching` line was written, else `0`; always `0` for a session notice |
-| `source_kind` | `TEXT` | `session` |
-| `source` | `BLOB` | the session notice as JSON: its session, directory, state and body |
+| `source_kind` | `TEXT` | `pane` for a pane notice, `session` for a session notice |
+| `source` | `BLOB` | for a pane notice, the pane's transition as JSON, with the hook input included, so a restored judge reads the stored `last_assistant_message`; for a session notice, the session notice as JSON: its session, directory, state and body |
 
 The `pending_notice_ids` table has one row, whose `high` is the highest `id` the table has ever stored. Deleting rows does not lower it, so ids keep rising.
 
@@ -1433,7 +1437,7 @@ The `pending_notice_ids` table has one row, whose `high` is the highest `id` the
 |---|---|---|
 | `high` | `INTEGER` | the highest `id` stored |
 
-A row is written when its notice is recorded, with phase `deciding`, and again before its desk post, with phase `desk`, which it keeps until it escalates. Each row write has a 200 ms limit. A write that fails or runs past it is logged by `orreryd`, and the notice routes as it would. Later row writes and the next stop retry it. The row is deleted when the notice ends, after its sinks have been handed the notice.
+A row is written when its notice is recorded, with phase `deciding`. A pane notice's row is also written at each hold, with phase `held`, and when its judge wait starts, with phase `delayed`. A row is written again before its desk post, with phase `desk`, which it keeps until it escalates. Each row write has a 200 ms limit. A write that fails or runs past it is logged by `orreryd`, and the notice routes as it would. Later row writes and the next stop retry it. The row is deleted when the notice ends, after its sinks have been handed the notice.
 
 ### Claude Code hook settings
 
