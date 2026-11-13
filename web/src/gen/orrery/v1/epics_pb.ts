@@ -10,7 +10,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file orrery/v1/epics.proto.
  */
 export const file_orrery_v1_epics: GenFile = /*@__PURE__*/
-  fileDesc("ChVvcnJlcnkvdjEvZXBpY3MucHJvdG8SCW9ycmVyeS52MSISChBFcGljc0xpc3RSZXF1ZXN0IjMKEUVwaWNzTGlzdFJlc3BvbnNlEh4KBWVwaWNzGAEgAygLMg8ub3JyZXJ5LnYxLkVwaWMiHQoPRXBpY3NHZXRSZXF1ZXN0EgoKAmlkGAEgASgJIp8BChBFcGljc0dldFJlc3BvbnNlEh0KBGVwaWMYASABKAsyDy5vcnJlcnkudjEuRXBpYxIiCgV0YXNrcxgCIAMoCzITLm9ycmVyeS52MS5FcGljVGFzaxIiCgVzdGVwcxgDIAMoCzITLm9ycmVyeS52MS5FcGljU3RlcBIkCgZzbGljZXMYBCADKAsyFC5vcnJlcnkudjEuRXBpY1NsaWNlIrYBCgRFcGljEgoKAmlkGAEgASgJEhIKCnJlcG9zaXRvcnkYAiABKAkSDAoEc2x1ZxgDIAEoCRIPCgdvdXRjb21lGAQgASgJEg8KB2NoYW5nZWQYBSABKAMSDAoEbGl2ZRgGIAEoCBIqCg1ydW5uaW5nX3N0ZXBzGAcgAygLMhMub3JyZXJ5LnYxLkVwaWNTdGVwEhMKC2VuZGVkX3N0ZXBzGAggASgFEg8KB3Byb2JsZW0YCSABKAkiSQoIRXBpY1Rhc2sSDgoGZWZmb3J0GAEgASgFEgwKBHNsdWcYAiABKAkSDwoHc3ViamVjdBgDIAEoCRIOCgZzdGF0dXMYBCABKAkixwEKCEVwaWNTdGVwEgoKAmlkGAEgASgJEgwKBHRhc2sYAiABKAkSDQoFYWdlbnQYAyABKAkSCwoDZW5kGAQgASgJEg4KBnN0YXR1cxgFIAEoCRIMCgRoZWxkGAYgASgIEg8KB3N0YXJ0ZWQYByABKAMSDQoFZW5kZWQYCCABKAMSDQoFZG9pbmcYCSABKAkSKAoGY2hlY2tzGAogAygLMhgub3JyZXJ5LnYxLkVwaWNTdGVwQ2hlY2sSDgoGcmVhc29uGAsgASgJIjgKDUVwaWNTdGVwQ2hlY2sSDQoFcm91bmQYASABKA0SDAoEbmFtZRgCIAEoCRIKCgJvaxgDIAEoCCKwAQoJRXBpY1NsaWNlEgwKBHRhc2sYASABKAkSCwoDaHVlGAIgASgJEhAKCHJlZF90ZXN0GAMgASgIEg8KB3dvcmtpbmcYBCABKAgSEgoKdGVzdHNfcGFzcxgFIAEoCBIOCgZjaGVja3MYBiABKAgSFQoNZ2F0ZV9hY2NlcHRlZBgHIAEoCBIKCgJhdBgIIAEoBRIMCgRoZWxkGAkgASgIEhAKCGVycm9yX2F0GAogASgFIh4KEFN0ZXBzSG9sZFJlcXVlc3QSCgoCaWQYASABKAkiEwoRU3RlcHNIb2xkUmVzcG9uc2UiLQoRU3RlcHNOdWRnZVJlcXVlc3QSCgoCaWQYASABKAkSDAoEdGV4dBgCIAEoCSIUChJTdGVwc051ZGdlUmVzcG9uc2UiHgoQU3RlcHNTdG9wUmVxdWVzdBIKCgJpZBgBIAEoCSITChFTdGVwc1N0b3BSZXNwb25zZTKKAQoFRXBpY3MSQQoETGlzdBIbLm9ycmVyeS52MS5FcGljc0xpc3RSZXF1ZXN0Ghwub3JyZXJ5LnYxLkVwaWNzTGlzdFJlc3BvbnNlEj4KA0dldBIaLm9ycmVyeS52MS5FcGljc0dldFJlcXVlc3QaGy5vcnJlcnkudjEuRXBpY3NHZXRSZXNwb25zZTLTAQoFU3RlcHMSQQoESG9sZBIbLm9ycmVyeS52MS5TdGVwc0hvbGRSZXF1ZXN0Ghwub3JyZXJ5LnYxLlN0ZXBzSG9sZFJlc3BvbnNlEkQKBU51ZGdlEhwub3JyZXJ5LnYxLlN0ZXBzTnVkZ2VSZXF1ZXN0Gh0ub3JyZXJ5LnYxLlN0ZXBzTnVkZ2VSZXNwb25zZRJBCgRTdG9wEhsub3JyZXJ5LnYxLlN0ZXBzU3RvcFJlcXVlc3QaHC5vcnJlcnkudjEuU3RlcHNTdG9wUmVzcG9uc2ViBnByb3RvMw");
+  fileDesc("ChVvcnJlcnkvdjEvZXBpY3MucHJvdG8SCW9ycmVyeS52MSISChBFcGljc0xpc3RSZXF1ZXN0IjMKEUVwaWNzTGlzdFJlc3BvbnNlEh4KBWVwaWNzGAEgAygLMg8ub3JyZXJ5LnYxLkVwaWMiHQoPRXBpY3NHZXRSZXF1ZXN0EgoKAmlkGAEgASgJItEBChBFcGljc0dldFJlc3BvbnNlEh0KBGVwaWMYASABKAsyDy5vcnJlcnkudjEuRXBpYxIiCgV0YXNrcxgCIAMoCzITLm9ycmVyeS52MS5FcGljVGFzaxIiCgVzdGVwcxgDIAMoCzITLm9ycmVyeS52MS5FcGljU3RlcBIkCgZzbGljZXMYBCADKAsyFC5vcnJlcnkudjEuRXBpY1NsaWNlEjAKDHJlcXVpcmVtZW50cxgFIAMoCzIaLm9ycmVyeS52MS5FcGljUmVxdWlyZW1lbnQixgEKBEVwaWMSCgoCaWQYASABKAkSEgoKcmVwb3NpdG9yeRgCIAEoCRIMCgRzbHVnGAMgASgJEg8KB291dGNvbWUYBCABKAkSDwoHY2hhbmdlZBgFIAEoAxIMCgRsaXZlGAYgASgIEioKDXJ1bm5pbmdfc3RlcHMYByADKAsyEy5vcnJlcnkudjEuRXBpY1N0ZXASEwoLZW5kZWRfc3RlcHMYCCABKAUSDwoHcHJvYmxlbRgJIAEoCRIOCgZzb3VyY2UYCiABKAkiSQoIRXBpY1Rhc2sSDgoGZWZmb3J0GAEgASgFEgwKBHNsdWcYAiABKAkSDwoHc3ViamVjdBgDIAEoCRIOCgZzdGF0dXMYBCABKAkixwEKCEVwaWNTdGVwEgoKAmlkGAEgASgJEgwKBHRhc2sYAiABKAkSDQoFYWdlbnQYAyABKAkSCwoDZW5kGAQgASgJEg4KBnN0YXR1cxgFIAEoCRIMCgRoZWxkGAYgASgIEg8KB3N0YXJ0ZWQYByABKAMSDQoFZW5kZWQYCCABKAMSDQoFZG9pbmcYCSABKAkSKAoGY2hlY2tzGAogAygLMhgub3JyZXJ5LnYxLkVwaWNTdGVwQ2hlY2sSDgoGcmVhc29uGAsgASgJIjgKDUVwaWNTdGVwQ2hlY2sSDQoFcm91bmQYASABKA0SDAoEbmFtZRgCIAEoCRIKCgJvaxgDIAEoCCKwAQoJRXBpY1NsaWNlEgwKBHRhc2sYASABKAkSCwoDaHVlGAIgASgJEhAKCHJlZF90ZXN0GAMgASgIEg8KB3dvcmtpbmcYBCABKAgSEgoKdGVzdHNfcGFzcxgFIAEoCBIOCgZjaGVja3MYBiABKAgSFQoNZ2F0ZV9hY2NlcHRlZBgHIAEoCBIKCgJhdBgIIAEoBRIMCgRoZWxkGAkgASgIEhAKCGVycm9yX2F0GAogASgFIksKD0VwaWNSZXF1aXJlbWVudBIKCgJpZBgBIAEoCRIMCgR0ZXh0GAIgASgJEhAKCGV2aWRlbmNlGAMgASgJEgwKBGtpbmQYBCABKAkiHgoQU3RlcHNIb2xkUmVxdWVzdBIKCgJpZBgBIAEoCSITChFTdGVwc0hvbGRSZXNwb25zZSItChFTdGVwc051ZGdlUmVxdWVzdBIKCgJpZBgBIAEoCRIMCgR0ZXh0GAIgASgJIhQKElN0ZXBzTnVkZ2VSZXNwb25zZSIeChBTdGVwc1N0b3BSZXF1ZXN0EgoKAmlkGAEgASgJIhMKEVN0ZXBzU3RvcFJlc3BvbnNlMooBCgVFcGljcxJBCgRMaXN0Ehsub3JyZXJ5LnYxLkVwaWNzTGlzdFJlcXVlc3QaHC5vcnJlcnkudjEuRXBpY3NMaXN0UmVzcG9uc2USPgoDR2V0Ehoub3JyZXJ5LnYxLkVwaWNzR2V0UmVxdWVzdBobLm9ycmVyeS52MS5FcGljc0dldFJlc3BvbnNlMtMBCgVTdGVwcxJBCgRIb2xkEhsub3JyZXJ5LnYxLlN0ZXBzSG9sZFJlcXVlc3QaHC5vcnJlcnkudjEuU3RlcHNIb2xkUmVzcG9uc2USRAoFTnVkZ2USHC5vcnJlcnkudjEuU3RlcHNOdWRnZVJlcXVlc3QaHS5vcnJlcnkudjEuU3RlcHNOdWRnZVJlc3BvbnNlEkEKBFN0b3ASGy5vcnJlcnkudjEuU3RlcHNTdG9wUmVxdWVzdBocLm9ycmVyeS52MS5TdGVwc1N0b3BSZXNwb25zZWIGcHJvdG8z");
 
 /**
  * EpicsListRequest asks for every epic. It has no fields.
@@ -103,6 +103,13 @@ export type EpicsGetResponse = Message<"orrery.v1.EpicsGetResponse"> & {
    * @generated from field: repeated orrery.v1.EpicSlice slices = 4;
    */
   slices: EpicSlice[];
+
+  /**
+   * The orreryd epic's requirements in contract order, empty for a record epic.
+   *
+   * @generated from field: repeated orrery.v1.EpicRequirement requirements = 5;
+   */
+  requirements: EpicRequirement[];
 };
 
 /**
@@ -113,7 +120,7 @@ export const EpicsGetResponseSchema: GenMessage<EpicsGetResponse> = /*@__PURE__*
   messageDesc(file_orrery_v1_epics, 3);
 
 /**
- * Epic is one epic under the record root.
+ * Epic is one epic under the record root or in orreryd's database. An id in both is one epic, whose source is orreryd.
  *
  * @generated from message orrery.v1.Epic
  */
@@ -126,35 +133,37 @@ export type Epic = Message<"orrery.v1.Epic"> & {
   id: string;
 
   /**
-   * The repository the epic belongs to, the name of the record directory's parent.
+   * The repository the epic belongs to, the name of the record directory's parent. An orreryd epic's is the part of
+   * its id before the slash.
    *
    * @generated from field: string repository = 2;
    */
   repository: string;
 
   /**
-   * The epic's slug, the name of its record directory.
+   * The epic's slug, the name of its record directory. An orreryd epic's is the part of its id after the slash.
    *
    * @generated from field: string slug = 3;
    */
   slug: string;
 
   /**
-   * The outcome the epic's head state.json records, as written.
+   * The outcome the epic's head state.json records, as written. An orreryd epic carries its phase here.
    *
    * @generated from field: string outcome = 4;
    */
   outcome: string;
 
   /**
-   * When the epic's head state.json last changed, in unix seconds.
+   * When the epic's head state.json last changed, in unix seconds. An orreryd epic's is its last write.
    *
    * @generated from field: int64 changed = 5;
    */
   changed: bigint;
 
   /**
-   * Whether the epic is live: its outcome is not released, and it has a running step or changed within a day.
+   * Whether the epic is live: its outcome is not released, and it has a running step or changed within a day. An
+   * orreryd epic is live until its phase is released.
    *
    * @generated from field: bool live = 6;
    */
@@ -180,6 +189,13 @@ export type Epic = Message<"orrery.v1.Epic"> & {
    * @generated from field: string problem = 9;
    */
   problem: string;
+
+  /**
+   * orreryd for an epic orreryd's database holds, record for an epic read from gambit records only.
+   *
+   * @generated from field: string source = 10;
+   */
+  source: string;
 };
 
 /**
@@ -451,6 +467,48 @@ export const EpicSliceSchema: GenMessage<EpicSlice> = /*@__PURE__*/
   messageDesc(file_orrery_v1_epics, 8);
 
 /**
+ * EpicRequirement is one requirement of an orreryd epic's contract.
+ *
+ * @generated from message orrery.v1.EpicRequirement
+ */
+export type EpicRequirement = Message<"orrery.v1.EpicRequirement"> & {
+  /**
+   * The requirement's id, R<n>.
+   *
+   * @generated from field: string id = 1;
+   */
+  id: string;
+
+  /**
+   * What will be true when the epic is done.
+   *
+   * @generated from field: string text = 2;
+   */
+  text: string;
+
+  /**
+   * The check or review that shows the requirement is true.
+   *
+   * @generated from field: string evidence = 3;
+   */
+  evidence: string;
+
+  /**
+   * How the requirement is shown: check or review.
+   *
+   * @generated from field: string kind = 4;
+   */
+  kind: string;
+};
+
+/**
+ * Describes the message orrery.v1.EpicRequirement.
+ * Use `create(EpicRequirementSchema)` to create a new message.
+ */
+export const EpicRequirementSchema: GenMessage<EpicRequirement> = /*@__PURE__*/
+  messageDesc(file_orrery_v1_epics, 9);
+
+/**
  * StepsHoldRequest names the step to hold.
  *
  * @generated from message orrery.v1.StepsHoldRequest
@@ -469,7 +527,7 @@ export type StepsHoldRequest = Message<"orrery.v1.StepsHoldRequest"> & {
  * Use `create(StepsHoldRequestSchema)` to create a new message.
  */
 export const StepsHoldRequestSchema: GenMessage<StepsHoldRequest> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_epics, 9);
+  messageDesc(file_orrery_v1_epics, 10);
 
 /**
  * StepsHoldResponse confirms a held step.
@@ -484,7 +542,7 @@ export type StepsHoldResponse = Message<"orrery.v1.StepsHoldResponse"> & {
  * Use `create(StepsHoldResponseSchema)` to create a new message.
  */
 export const StepsHoldResponseSchema: GenMessage<StepsHoldResponse> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_epics, 10);
+  messageDesc(file_orrery_v1_epics, 11);
 
 /**
  * StepsNudgeRequest names the step to nudge and the text to send it.
@@ -512,7 +570,7 @@ export type StepsNudgeRequest = Message<"orrery.v1.StepsNudgeRequest"> & {
  * Use `create(StepsNudgeRequestSchema)` to create a new message.
  */
 export const StepsNudgeRequestSchema: GenMessage<StepsNudgeRequest> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_epics, 11);
+  messageDesc(file_orrery_v1_epics, 12);
 
 /**
  * StepsNudgeResponse confirms a nudge that landed.
@@ -527,7 +585,7 @@ export type StepsNudgeResponse = Message<"orrery.v1.StepsNudgeResponse"> & {
  * Use `create(StepsNudgeResponseSchema)` to create a new message.
  */
 export const StepsNudgeResponseSchema: GenMessage<StepsNudgeResponse> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_epics, 12);
+  messageDesc(file_orrery_v1_epics, 13);
 
 /**
  * StepsStopRequest names the step to stop.
@@ -548,7 +606,7 @@ export type StepsStopRequest = Message<"orrery.v1.StepsStopRequest"> & {
  * Use `create(StepsStopRequestSchema)` to create a new message.
  */
 export const StepsStopRequestSchema: GenMessage<StepsStopRequest> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_epics, 13);
+  messageDesc(file_orrery_v1_epics, 14);
 
 /**
  * StepsStopResponse confirms a stopped step.
@@ -563,16 +621,16 @@ export type StepsStopResponse = Message<"orrery.v1.StepsStopResponse"> & {
  * Use `create(StepsStopResponseSchema)` to create a new message.
  */
 export const StepsStopResponseSchema: GenMessage<StepsStopResponse> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_epics, 14);
+  messageDesc(file_orrery_v1_epics, 15);
 
 /**
- * Epics reads the epics under the gambit record root.
+ * Epics reads the epics under the gambit record root and the epics orreryd's database holds.
  *
  * @generated from service orrery.v1.Epics
  */
 export const Epics: GenService<{
   /**
-   * List returns every epic under the record root, live or folded.
+   * List returns every epic under the record root and in orreryd's database, one per id, live or folded.
    *
    * @generated from rpc orrery.v1.Epics.List
    */

@@ -1,0 +1,267 @@
+syntax = "proto3";
+
+package orrery.engine.v1;
+
+// Epics stores and reads accepted epic contracts. orreryd serves it on the same private socket as Steps.
+service Epics {
+  // CreateEpic stores an accepted contract with its seed decisions and returns the stored epic.
+  rpc CreateEpic(CreateEpicRequest) returns (CreateEpicResponse);
+
+  // GetEpic returns one stored epic by its id.
+  rpc GetEpic(GetEpicRequest) returns (GetEpicResponse);
+
+  // ListEpics returns a summary of every stored epic.
+  rpc ListEpics(ListEpicsRequest) returns (ListEpicsResponse);
+
+  // AnswerEpic records the owner's answer to a stored epic and returns the decision.
+  rpc AnswerEpic(AnswerEpicRequest) returns (AnswerEpicResponse);
+}
+
+// EpicContract is the ten sections of an accepted epic contract.
+message EpicContract {
+  // The epic's id, "<repo-id>/<epic-slug>", as the caller names it.
+  string id = 1;
+
+  // The absolute path of the git repository the epic belongs to.
+  string repository = 2;
+
+  // The epic's name.
+  string title = 3;
+
+  // The sentence of the decision line that approved the contract.
+  string approved = 4;
+
+  // What the owner asked for.
+  string intent = 5;
+
+  // What could go wrong, each failure with its level of care.
+  repeated EpicFailure failures = 6;
+
+  // The level of care the epic is worked at: limited, serious or severe.
+  string care = 7;
+
+  // Things the epic adds that the owner did not ask for.
+  repeated EpicAddition additions = 8;
+
+  // What will be true when the epic is done, each checked by a check or a review.
+  repeated EpicRequirement requirements = 9;
+
+  // What the contract assumes, each with what changes if the assumption is wrong.
+  repeated EpicPremise premises = 10;
+
+  // What the epic will not do.
+  repeated string exclusions = 11;
+
+  // How the epic will be done.
+  string approach = 12;
+
+  // The approaches considered and why each was not chosen.
+  repeated EpicAlternative alternatives = 13;
+
+  // What leaves this machine when the epic is released, each step with how it is undone.
+  repeated EpicReleaseStep release_steps = 14;
+
+  // The Then line that closes the release.
+  string release_then = 15;
+
+  // The checks the machines run.
+  string checks = 16;
+}
+
+// EpicFailure is one failure the epic guards against.
+message EpicFailure {
+  // The failure's id, F<n>.
+  string id = 1;
+
+  // What could go wrong.
+  string text = 2;
+
+  // The failure's level of care: limited, serious or severe.
+  string rating = 3;
+
+  // What the epic does about the failure.
+  string response = 4;
+}
+
+// EpicAddition is one thing the epic adds that the owner did not ask for.
+message EpicAddition {
+  // Where the addition applies, as the contract names it.
+  string location = 1;
+
+  // What the addition is.
+  string what = 2;
+
+  // Why the epic needs the addition.
+  string why = 3;
+
+  // What the addition costs.
+  string cost = 4;
+}
+
+// EpicRequirement is one requirement: a thing that will be true when the epic is done.
+message EpicRequirement {
+  // The requirement's id, R<n>.
+  string id = 1;
+
+  // What will be true when the epic is done.
+  string text = 2;
+
+  // The check or review that shows the requirement is true.
+  string evidence = 3;
+
+  // How the requirement is shown: check or review.
+  string kind = 4;
+}
+
+// EpicPremise is one assumption the contract makes.
+message EpicPremise {
+  // The premise's id, P<n>.
+  string id = 1;
+
+  // The assumption.
+  string text = 2;
+
+  // What changes if the assumption is wrong.
+  string if_wrong = 3;
+}
+
+// EpicAlternative is one approach considered and not chosen.
+message EpicAlternative {
+  // The approach.
+  string alternative = 1;
+
+  // Why the approach was not chosen.
+  string why_not = 2;
+
+  // What would make the owner reconsider the approach.
+  string reconsider = 3;
+}
+
+// EpicReleaseStep is one step that leaves this machine on release.
+message EpicReleaseStep {
+  // What the step does.
+  string step = 1;
+
+  // Where the step sends what leaves the machine.
+  string target = 2;
+
+  // How the step is undone.
+  string undo = 3;
+}
+
+// EpicDecisionInput is a decision the owner made before the contract was created.
+message EpicDecisionInput {
+  // The decision's id, unique among the epic's decisions.
+  string id = 1;
+
+  // The decision's text.
+  string text = 2;
+}
+
+// EpicDecision is one decision recorded on an epic, in the order it was recorded.
+message EpicDecision {
+  // The decision's position on the epic, counted from 1.
+  int64 seq = 1;
+
+  // The decision's id.
+  string id = 2;
+
+  // The decision's text.
+  string text = 3;
+
+  // When the decision was recorded, in unix seconds.
+  int64 time = 4;
+}
+
+// StoredEpic is a stored epic with its contract, phase, times and decisions.
+message StoredEpic {
+  // The epic's contract as created.
+  EpicContract contract = 1;
+
+  // The epic's phase, accepted when it is created.
+  string phase = 2;
+
+  // When the epic was created, in unix seconds.
+  int64 created = 3;
+
+  // When the epic last changed, in unix seconds.
+  int64 changed = 4;
+
+  // The epic's decisions in the order they were recorded.
+  repeated EpicDecision decisions = 5;
+}
+
+// EpicSummary is an epic's head fields, without its contract.
+message EpicSummary {
+  // The epic's id, "<repo-id>/<epic-slug>".
+  string id = 1;
+
+  // The absolute path of the git repository the epic belongs to.
+  string repository = 2;
+
+  // The epic's name.
+  string title = 3;
+
+  // The epic's phase.
+  string phase = 4;
+
+  // When the epic was created, in unix seconds.
+  int64 created = 5;
+
+  // When the epic last changed, in unix seconds.
+  int64 changed = 6;
+}
+
+// CreateEpicRequest asks for a new epic.
+message CreateEpicRequest {
+  // The contract to store.
+  EpicContract contract = 1;
+
+  // The seed decisions, recorded in order as the epic's first decisions.
+  repeated EpicDecisionInput decisions = 2;
+}
+
+// CreateEpicResponse carries the stored epic.
+message CreateEpicResponse {
+  // The stored epic.
+  StoredEpic epic = 1;
+}
+
+// GetEpicRequest names one epic.
+message GetEpicRequest {
+  // The epic's id.
+  string id = 1;
+}
+
+// GetEpicResponse carries one stored epic.
+message GetEpicResponse {
+  // The stored epic.
+  StoredEpic epic = 1;
+}
+
+// ListEpicsRequest asks for every stored epic. It has no fields.
+message ListEpicsRequest {}
+
+// ListEpicsResponse carries the summary of every stored epic.
+message ListEpicsResponse {
+  // The summaries of the stored epics.
+  repeated EpicSummary epics = 1;
+}
+
+// AnswerEpicRequest records the owner's answer to one epic.
+message AnswerEpicRequest {
+  // The id of the epic the answer belongs to.
+  string epic_id = 1;
+
+  // The decision's id.
+  string id = 2;
+
+  // The owner's answer.
+  string text = 3;
+}
+
+// AnswerEpicResponse carries the recorded decision.
+message AnswerEpicResponse {
+  // The decision recorded, or the stored decision with the same text.
+  EpicDecision decision = 1;
+}

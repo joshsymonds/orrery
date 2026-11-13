@@ -11,13 +11,13 @@ import com.connectrpc.ResponseMessage
 import com.connectrpc.StreamType
 
 /**
- *  Epics reads the epics under the gambit record root.
+ *  Epics reads the epics under the gambit record root and the epics orreryd's database holds.
  */
 public class EpicsClient(
   private val client: ProtocolClientInterface,
 ) : EpicsClientInterface {
   /**
-   *  List returns every epic under the record root, live or folded.
+   *  List returns every epic under the record root and in orreryd's database, one per id, live or folded.
    */
   override suspend fun list(request: EpicsListRequest, headers: Headers): ResponseMessage<EpicsListResponse> = client.unary(
     request,

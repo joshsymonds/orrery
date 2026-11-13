@@ -8,11 +8,11 @@ import com.connectrpc.Headers
 import com.connectrpc.ResponseMessage
 
 /**
- *  Epics reads the epics under the gambit record root.
+ *  Epics reads the epics under the gambit record root and the epics orreryd's database holds.
  */
 public interface EpicsClientInterface {
   /**
-   *  List returns every epic under the record root, live or folded.
+   *  List returns every epic under the record root and in orreryd's database, one per id, live or folded.
    */
   public suspend fun list(request: EpicsListRequest, headers: Headers = emptyMap()): ResponseMessage<EpicsListResponse>
 

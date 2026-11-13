@@ -22,6 +22,7 @@ public  final class EpicsGetResponse extends
     tasks_ = emptyProtobufList();
     steps_ = emptyProtobufList();
     slices_ = emptyProtobufList();
+    requirements_ = emptyProtobufList();
   }
   private int bitField0_;
   public static final int EPIC_FIELD_NUMBER = 1;
@@ -514,6 +515,144 @@ public  final class EpicsGetResponse extends
   private void removeSlices(int index) {
     ensureSlicesIsMutable();
     slices_.remove(index);
+  }
+
+  public static final int REQUIREMENTS_FIELD_NUMBER = 5;
+  private com.google.protobuf.Internal.ProtobufList<io.github.joshsymonds.orrery.gen.orrery.v1.EpicRequirement> requirements_;
+  /**
+   * <pre>
+   * The orreryd epic's requirements in contract order, empty for a record epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicRequirement requirements = 5 [json_name = "requirements"];</code>
+   */
+  @java.lang.Override
+  public java.util.List<io.github.joshsymonds.orrery.gen.orrery.v1.EpicRequirement> getRequirementsList() {
+    return requirements_;
+  }
+  /**
+   * <pre>
+   * The orreryd epic's requirements in contract order, empty for a record epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicRequirement requirements = 5 [json_name = "requirements"];</code>
+   */
+  public java.util.List<? extends io.github.joshsymonds.orrery.gen.orrery.v1.EpicRequirementOrBuilder> 
+      getRequirementsOrBuilderList() {
+    return requirements_;
+  }
+  /**
+   * <pre>
+   * The orreryd epic's requirements in contract order, empty for a record epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicRequirement requirements = 5 [json_name = "requirements"];</code>
+   */
+  @java.lang.Override
+  public int getRequirementsCount() {
+    return requirements_.size();
+  }
+  /**
+   * <pre>
+   * The orreryd epic's requirements in contract order, empty for a record epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicRequirement requirements = 5 [json_name = "requirements"];</code>
+   */
+  @java.lang.Override
+  public io.github.joshsymonds.orrery.gen.orrery.v1.EpicRequirement getRequirements(int index) {
+    return requirements_.get(index);
+  }
+  /**
+   * <pre>
+   * The orreryd epic's requirements in contract order, empty for a record epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicRequirement requirements = 5 [json_name = "requirements"];</code>
+   */
+  public io.github.joshsymonds.orrery.gen.orrery.v1.EpicRequirementOrBuilder getRequirementsOrBuilder(
+      int index) {
+    return requirements_.get(index);
+  }
+  private void ensureRequirementsIsMutable() {
+    com.google.protobuf.Internal.ProtobufList<io.github.joshsymonds.orrery.gen.orrery.v1.EpicRequirement> tmp = requirements_;
+    if (!tmp.isModifiable()) {
+      requirements_ =
+          com.google.protobuf.GeneratedMessageLite.mutableCopy(tmp);
+     }
+  }
+
+  /**
+   * <pre>
+   * The orreryd epic's requirements in contract order, empty for a record epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicRequirement requirements = 5 [json_name = "requirements"];</code>
+   */
+  private void setRequirements(
+      int index, io.github.joshsymonds.orrery.gen.orrery.v1.EpicRequirement value) {
+    java.util.Objects.requireNonNull(value);
+    ensureRequirementsIsMutable();
+    requirements_.set(index, value);
+  }
+  /**
+   * <pre>
+   * The orreryd epic's requirements in contract order, empty for a record epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicRequirement requirements = 5 [json_name = "requirements"];</code>
+   */
+  private void addRequirements(io.github.joshsymonds.orrery.gen.orrery.v1.EpicRequirement value) {
+    java.util.Objects.requireNonNull(value);
+    ensureRequirementsIsMutable();
+    requirements_.add(value);
+  }
+  /**
+   * <pre>
+   * The orreryd epic's requirements in contract order, empty for a record epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicRequirement requirements = 5 [json_name = "requirements"];</code>
+   */
+  private void addRequirements(
+      int index, io.github.joshsymonds.orrery.gen.orrery.v1.EpicRequirement value) {
+    java.util.Objects.requireNonNull(value);
+    ensureRequirementsIsMutable();
+    requirements_.add(index, value);
+  }
+  /**
+   * <pre>
+   * The orreryd epic's requirements in contract order, empty for a record epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicRequirement requirements = 5 [json_name = "requirements"];</code>
+   */
+  private void addAllRequirements(
+      java.lang.Iterable<? extends io.github.joshsymonds.orrery.gen.orrery.v1.EpicRequirement> values) {
+    ensureRequirementsIsMutable();
+    com.google.protobuf.AbstractMessageLite.addAll(
+        values, requirements_);
+  }
+  /**
+   * <pre>
+   * The orreryd epic's requirements in contract order, empty for a record epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicRequirement requirements = 5 [json_name = "requirements"];</code>
+   */
+  private void clearRequirements() {
+    requirements_ = emptyProtobufList();
+  }
+  /**
+   * <pre>
+   * The orreryd epic's requirements in contract order, empty for a record epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicRequirement requirements = 5 [json_name = "requirements"];</code>
+   */
+  private void removeRequirements(int index) {
+    ensureRequirementsIsMutable();
+    requirements_.remove(index);
   }
 
   public static io.github.joshsymonds.orrery.gen.orrery.v1.EpicsGetResponse parseFrom(
@@ -1150,6 +1289,156 @@ public  final class EpicsGetResponse extends
       return this;
     }
 
+    /**
+     * <pre>
+     * The orreryd epic's requirements in contract order, empty for a record epic.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicRequirement requirements = 5 [json_name = "requirements"];</code>
+     */
+    @java.lang.Override
+    public java.util.List<io.github.joshsymonds.orrery.gen.orrery.v1.EpicRequirement> getRequirementsList() {
+      return java.util.Collections.unmodifiableList(
+          instance.getRequirementsList());
+    }
+    /**
+     * <pre>
+     * The orreryd epic's requirements in contract order, empty for a record epic.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicRequirement requirements = 5 [json_name = "requirements"];</code>
+     */
+    @java.lang.Override
+    public int getRequirementsCount() {
+      return instance.getRequirementsCount();
+    }/**
+     * <pre>
+     * The orreryd epic's requirements in contract order, empty for a record epic.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicRequirement requirements = 5 [json_name = "requirements"];</code>
+     */
+    @java.lang.Override
+    public io.github.joshsymonds.orrery.gen.orrery.v1.EpicRequirement getRequirements(int index) {
+      return instance.getRequirements(index);
+    }
+    /**
+     * <pre>
+     * The orreryd epic's requirements in contract order, empty for a record epic.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicRequirement requirements = 5 [json_name = "requirements"];</code>
+     */
+    public Builder setRequirements(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.EpicRequirement value) {
+      copyOnWrite();
+      instance.setRequirements(index, value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The orreryd epic's requirements in contract order, empty for a record epic.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicRequirement requirements = 5 [json_name = "requirements"];</code>
+     */
+    public Builder setRequirements(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.EpicRequirement.Builder builderForValue) {
+      copyOnWrite();
+      instance.setRequirements(index,
+          builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * The orreryd epic's requirements in contract order, empty for a record epic.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicRequirement requirements = 5 [json_name = "requirements"];</code>
+     */
+    public Builder addRequirements(io.github.joshsymonds.orrery.gen.orrery.v1.EpicRequirement value) {
+      copyOnWrite();
+      instance.addRequirements(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The orreryd epic's requirements in contract order, empty for a record epic.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicRequirement requirements = 5 [json_name = "requirements"];</code>
+     */
+    public Builder addRequirements(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.EpicRequirement value) {
+      copyOnWrite();
+      instance.addRequirements(index, value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The orreryd epic's requirements in contract order, empty for a record epic.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicRequirement requirements = 5 [json_name = "requirements"];</code>
+     */
+    public Builder addRequirements(
+        io.github.joshsymonds.orrery.gen.orrery.v1.EpicRequirement.Builder builderForValue) {
+      copyOnWrite();
+      instance.addRequirements(builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * The orreryd epic's requirements in contract order, empty for a record epic.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicRequirement requirements = 5 [json_name = "requirements"];</code>
+     */
+    public Builder addRequirements(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.EpicRequirement.Builder builderForValue) {
+      copyOnWrite();
+      instance.addRequirements(index,
+          builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * The orreryd epic's requirements in contract order, empty for a record epic.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicRequirement requirements = 5 [json_name = "requirements"];</code>
+     */
+    public Builder addAllRequirements(
+        java.lang.Iterable<? extends io.github.joshsymonds.orrery.gen.orrery.v1.EpicRequirement> values) {
+      copyOnWrite();
+      instance.addAllRequirements(values);
+      return this;
+    }
+    /**
+     * <pre>
+     * The orreryd epic's requirements in contract order, empty for a record epic.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicRequirement requirements = 5 [json_name = "requirements"];</code>
+     */
+    public Builder clearRequirements() {
+      copyOnWrite();
+      instance.clearRequirements();
+      return this;
+    }
+    /**
+     * <pre>
+     * The orreryd epic's requirements in contract order, empty for a record epic.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicRequirement requirements = 5 [json_name = "requirements"];</code>
+     */
+    public Builder removeRequirements(int index) {
+      copyOnWrite();
+      instance.removeRequirements(index);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:orrery.v1.EpicsGetResponse)
   }
   @java.lang.Override
@@ -1174,10 +1463,12 @@ public  final class EpicsGetResponse extends
             io.github.joshsymonds.orrery.gen.orrery.v1.EpicStep.class,
             "slices_",
             io.github.joshsymonds.orrery.gen.orrery.v1.EpicSlice.class,
+            "requirements_",
+            io.github.joshsymonds.orrery.gen.orrery.v1.EpicRequirement.class,
           };
           java.lang.String info =
-              "\u0000\u0004\u0000\u0001\u0001\u0004\u0004\u0000\u0003\u0000\u0001\u1009\u0000\u0002" +
-              "\u001b\u0003\u001b\u0004\u001b";
+              "\u0000\u0005\u0000\u0001\u0001\u0005\u0005\u0000\u0004\u0000\u0001\u1009\u0000\u0002" +
+              "\u001b\u0003\u001b\u0004\u001b\u0005\u001b";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

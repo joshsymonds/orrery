@@ -49,7 +49,7 @@ const (
 
 // EpicsClient is a client for the orrery.v1.Epics service.
 type EpicsClient interface {
-	// List returns every epic under the record root, live or folded.
+	// List returns every epic under the record root and in orreryd's database, one per id, live or folded.
 	List(context.Context, *connect.Request[v1.EpicsListRequest]) (*connect.Response[v1.EpicsListResponse], error)
 	// Get returns one epic by the id List gave it.
 	Get(context.Context, *connect.Request[v1.EpicsGetRequest]) (*connect.Response[v1.EpicsGetResponse], error)
@@ -99,7 +99,7 @@ func (c *epicsClient) Get(ctx context.Context, req *connect.Request[v1.EpicsGetR
 
 // EpicsHandler is an implementation of the orrery.v1.Epics service.
 type EpicsHandler interface {
-	// List returns every epic under the record root, live or folded.
+	// List returns every epic under the record root and in orreryd's database, one per id, live or folded.
 	List(context.Context, *connect.Request[v1.EpicsListRequest]) (*connect.Response[v1.EpicsListResponse], error)
 	// Get returns one epic by the id List gave it.
 	Get(context.Context, *connect.Request[v1.EpicsGetRequest]) (*connect.Response[v1.EpicsGetResponse], error)
