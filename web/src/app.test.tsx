@@ -2275,13 +2275,12 @@ test("the Epics group follows Needs you, and an epic reads its outcome and count
     assert.equal(known.querySelector(".proj")?.textContent, widgetsRepo);
     assert.equal(known.querySelector(".rt")?.textContent, "build · 2 of 3", "the integrated task counts as done");
     assert.equal(known.querySelector(".count") === null, true, "no count element is drawn");
-    const gauge = known.querySelector("svg.gauge");
-    assert.ok(gauge, "the epic draws its gauge");
-    assert.equal(gauge.getAttribute("aria-hidden"), "true");
-    assert.ok(gauge.querySelector("circle.gauge-rest"), "the gauge draws its rest circle");
-    const done = gauge.querySelector("circle.gauge-done");
-    assert.ok(done, "the gauge draws its done arc");
-    const [arc, circle] = (done.getAttribute("stroke-dasharray") ?? "").split(/\s+/).map(Number);
+    assert.equal(known.querySelector("svg.gauge") !== null, true, "the epic draws its gauge");
+    assert.equal(known.querySelector("svg.gauge")?.getAttribute("aria-hidden") ?? null, "true");
+    assert.equal(known.querySelector("svg.gauge circle.gauge-rest") !== null, true, "the gauge draws its rest circle");
+    const dasharray = known.querySelector("svg.gauge circle.gauge-done")?.getAttribute("stroke-dasharray") ?? null;
+    assert.equal(dasharray !== null, true, "the gauge draws its done arc");
+    const [arc, circle] = (dasharray ?? "").split(/\s+/).map(Number);
     assert.ok(Math.abs(arc / circle - 2 / 3) < 1e-9, "the arc covers two of three tasks");
 
     const unknown = rowElement(container, epicKey(second));
