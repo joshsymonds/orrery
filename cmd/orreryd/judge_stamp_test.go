@@ -6,6 +6,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/joshsymonds/orrery/internal/daemon"
@@ -179,5 +180,52 @@ func TestJudgeDoneUnparseableStampMakesNoCall(t *testing.T) {
 	}
 	if len(caller.calls) != 0 {
 		t.Fatalf("CallVia calls = %d, want none", len(caller.calls))
+	}
+}
+
+// judgeStampWorktree makes folder under home a linked worktree of the primary checkout at primary: its .git file names a
+// gitdir under primary/.git/worktrees, and that gitdir's commondir is a symlink to a missing path. It returns the
+// commondir path.
+func judgeStampWorktree(t *testing.T, home, primary, folder string) string {
+	t.Helper()
+	gitdir := filepath.Join(primary, ".git", "worktrees", "linked")
+	if err := os.MkdirAll(gitdir, 0o700); err != nil {
+		t.Fatalf("make %s: %v", gitdir, err)
+	}
+	commondir := filepath.Join(gitdir, "commondir")
+	if err := os.Symlink(filepath.Join(home, "missing", ".git"), commondir); err != nil {
+		t.Fatalf("symlink commondir: %v", err)
+	}
+	worktree := filepath.Join(home, folder)
+	if err := os.MkdirAll(worktree, 0o700); err != nil {
+		t.Fatalf("make worktree: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(worktree, ".git"), []byte("gitdir: "+gitdir+"\n"), 0o600); err != nil {
+		t.Fatalf("write .git: %v", err)
+	}
+	return commondir
+}
+
+// TestJudgeDoneDanglingCommondirMakesNoCall checks that a cwd in a linked worktree whose commondir dangles fails the
+// judge with an error naming that commondir, and runs no claude call, even though the primary checkout is stamped and
+// the frame names a base URL.
+func TestJudgeDoneDanglingCommondirMakesNoCall(t *testing.T) {
+	home := t.TempDir()
+	primary := judgeStampFolder(t, home, "work/primary",
+		`{"env":{"ANTHROPIC_BASE_URL":"`+judgeStampURL+`","CTX_EXAMPLE":"example"}}`)
+	commondir := judgeStampWorktree(t, home, primary, "work/linked")
+	cwd := judgeStampCwd(t, filepath.Join(home, "work", "linked"))
+	caller := &judgeStampCaller{}
+	r := &relay{home: home, judge: donejudge.New(caller, judgeStampModels())}
+
+	_, err := r.judgeDone(t.Context(), judgeStampTransition(cwd, judgeStampFrame))(t.Context())
+	if err == nil {
+		t.Fatal("judgeDone: want an error for a dangling commondir, got nil")
+	}
+	if !strings.Contains(err.Error(), commondir) {
+		t.Fatalf("judgeDone error = %q, want it to name the commondir %q", err, commondir)
+	}
+	if len(caller.calls) != 0 {
+		t.Fatalf("CallVia calls = %d, want none below a dangling commondir", len(caller.calls))
 	}
 }

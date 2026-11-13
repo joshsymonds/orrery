@@ -199,3 +199,22 @@ DELETE FROM holds WHERE member = ?;
 
 -- name: ListHolds :many
 SELECT * FROM holds ORDER BY member;
+
+-- name: UpsertPendingNotice :exec
+INSERT INTO pending_notices (id, pane, session, state, time, phase, due, delay_served, watch_logged, source_kind, source)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT (id) DO UPDATE SET pane = excluded.pane, session = excluded.session, state = excluded.state,
+    time = excluded.time, phase = excluded.phase, due = excluded.due, delay_served = excluded.delay_served,
+    watch_logged = excluded.watch_logged, source_kind = excluded.source_kind, source = excluded.source;
+
+-- name: RaiseNoticeIDFloor :exec
+UPDATE pending_notice_ids SET high = MAX(high, sqlc.arg(id)) WHERE id = 1;
+
+-- name: DeletePendingNotice :exec
+DELETE FROM pending_notices WHERE id = ?;
+
+-- name: ListPendingNotices :many
+SELECT * FROM pending_notices ORDER BY id;
+
+-- name: GetNoticeIDFloor :one
+SELECT high FROM pending_notice_ids WHERE id = 1;
