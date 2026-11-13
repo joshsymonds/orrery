@@ -1805,7 +1805,9 @@ The guard covers the stream. The rules of [Guard](#guard) apply to `/orrery.v1.P
 - `checks` is whether every check of the step's highest round is `ok` and one of them is named `gate`. With no checks it is false.
 - `gate_accepted` is whether the step's `end` is `done`.
 - `hue` is `dispatched` while the step's `end` is empty (running or held), `done` when the `end` is `done`, and `gap` for any other end.
-- `at` is, while `end` is empty, the 1-based index of the innermost ring whose cell is true, the furthest phase reached, and 0 once the step ended. The rings run from `red_test` (1), the outermost, through `working` (2), `tests_pass` (3) and `checks` (4) in to `gate_accepted` (5), the innermost. Since `working` is always true, a running or held slice is at 2, 3 or 4.
+- `at` is, while `end` is empty, the 1-based index of the first ring not reached, counting from `red_test` (1), the outermost, inward through `working` (2), `tests_pass` (3), `checks` (4) to `gate_accepted` (5), the innermost. It is the ring a running or held step is working toward, and 0 once the step ended. `gate_accepted` is true only when `end` is `done`, so a running or held slice's `at` is 1 to 5.
+- `held` is whether the step is held, while `end` is empty. It is false once the step ended.
+- `error_at` is 0 while `end` is empty and when `end` is `done`. It is 4 (`checks`) for `checks_failed`, 5 (`gate_accepted`) for `goal_unmet`, and for any other end the first ring not reached, numbered as `at` numbers it.
 
 When `ListSteps` cannot be read, or serve has no step client, `Epics.List` and `Epics.Get` answer `unavailable` "step service unavailable".
 

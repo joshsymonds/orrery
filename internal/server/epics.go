@@ -186,11 +186,14 @@ func epicStepMessage(step *enginev1.Step) *orreryv1.EpicStep {
 	}
 }
 
-// epicEndDone is the end of a step that ended done. epicGateCheck is the name of the gate check that a writing step's
-// done return runs, as the step loop stores it.
+// epicEndDone is the end of a step that ended done. epicEndChecksFailed and epicEndGoalUnmet are the ends that name the
+// ring they errored at. epicGateCheck is the name of the gate check that a writing step's done return runs, as the step
+// loop stores it.
 const (
-	epicEndDone   = "done"
-	epicGateCheck = "gate"
+	epicEndDone         = "done"
+	epicEndChecksFailed = "checks_failed"
+	epicEndGoalUnmet    = "goal_unmet"
+	epicGateCheck       = "gate"
 )
 
 // epicSlices returns a slice per task label among the writing steps of steps, oldest first, in order of each label's
@@ -215,22 +218,38 @@ func epicSlices(steps []*enginev1.Step) []*orreryv1.EpicSlice {
 	return out
 }
 
-// epicSliceMessage returns the EpicSlice of label, whose cells are read from step, the label's latest writing step.
+// epicSliceMessage returns the EpicSlice of label, whose cells are read from step, the label's latest writing step. A
+// running or held step's at is the ring it is working toward, and it has no error. An ended step has no at and no held,
+// and errors at the ring its end names, or at the first ring not reached when the end names none.
 func epicSliceMessage(label string, step *enginev1.Step) *orreryv1.EpicSlice {
 	fields := stepResultFields(step.GetResult())
 	redTest := stepResultEvidence(fields, "red_evidence")
 	testsPass := stepResultEvidence(fields, "green_evidence")
 	checks := epicChecksPass(step.GetChecks())
-	return &orreryv1.EpicSlice{
+	gateAccepted := step.GetEnd() == epicEndDone
+	slice := &orreryv1.EpicSlice{
 		Task:         label,
 		Hue:          epicSliceHue(step.GetEnd()),
 		RedTest:      redTest,
 		Working:      true,
 		TestsPass:    testsPass,
 		Checks:       checks,
-		GateAccepted: step.GetEnd() == epicEndDone,
-		At:           epicSliceAt(step.GetEnd(), testsPass, checks),
+		GateAccepted: gateAccepted,
 	}
+	firstOpen := epicFirstOpenRing(redTest, testsPass, checks, gateAccepted)
+	end := step.GetEnd()
+	switch {
+	case end == "":
+		slice.At = firstOpen
+		slice.Held = step.GetHeld()
+	case end == epicEndChecksFailed:
+		slice.ErrorAt = ringChecks
+	case end == epicEndGoalUnmet:
+		slice.ErrorAt = ringGateAccepted
+	case end != epicEndDone:
+		slice.ErrorAt = firstOpen
+	}
+	return slice
 }
 
 // epicSliceHue is "dispatched" while a step has not ended, "done" when it ended done, and "gap" for any other end.
@@ -245,27 +264,24 @@ func epicSliceHue(end string) string {
 	}
 }
 
-// The rings a running slice can be at, numbered as the proto numbers them from red_test, the outermost, in to
-// gate_accepted, the innermost. The innermost reached ring is the furthest phase reached. working is always reached,
-// so red_test is never the innermost reached ring, and gate_accepted needs an end.
+// The rings a slice's cells are numbered by, as the proto numbers them from red_test, the outermost, in to
+// gate_accepted, the innermost. A step that ended checks_failed errors at checks, and one that ended goal_unmet at
+// gate_accepted.
 const (
-	ringWorking   int32 = 2
-	ringTestsPass int32 = 3
-	ringChecks    int32 = 4
+	ringChecks       int32 = 4
+	ringGateAccepted int32 = 5
 )
 
-// epicSliceAt is the innermost ring reached while a step runs or is held, 0 once it ended.
-func epicSliceAt(end string, testsPass, checks bool) int32 {
-	switch {
-	case end != "":
-		return 0
-	case checks:
-		return ringChecks
-	case testsPass:
-		return ringTestsPass
-	default:
-		return ringWorking
+// epicFirstOpenRing is the first ring not reached, counting from red_test inward: 1 for red_test through 5 for
+// gate_accepted, or 0 when every ring is reached, which only a step that ended done is. working is reached by every
+// listed step, since it has run.
+func epicFirstOpenRing(redTest, testsPass, checks, gateAccepted bool) int32 {
+	for i, reached := range []bool{redTest, true, testsPass, checks, gateAccepted} {
+		if !reached {
+			return int32(i + 1)
+		}
 	}
+	return 0
 }
 
 // stepResultFields parses a writing step's result as a JSON object. A result that does not parse, or is not an object,

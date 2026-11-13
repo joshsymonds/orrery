@@ -60,30 +60,30 @@ func TestEpicSlicesRingCells(t *testing.T) {
 		{
 			name: "working alone",
 			step: sliceStep("", `{}`),
-			want: &orreryv1.EpicSlice{Task: "t", Hue: "dispatched", Working: true, At: 2},
+			want: &orreryv1.EpicSlice{Task: "t", Hue: "dispatched", Working: true, At: 1},
 		},
 		{
 			name: "red test",
 			step: sliceStep("", sliceRedOnly),
-			want: &orreryv1.EpicSlice{Task: "t", Hue: "dispatched", RedTest: true, Working: true, At: 2},
+			want: &orreryv1.EpicSlice{Task: "t", Hue: "dispatched", RedTest: true, Working: true, At: 3},
 		},
 		{
 			name: "tests pass",
 			step: sliceStep("", sliceRedGreen),
 			want: &orreryv1.EpicSlice{
-				Task: "t", Hue: "dispatched", RedTest: true, Working: true, TestsPass: true, At: 3,
+				Task: "t", Hue: "dispatched", RedTest: true, Working: true, TestsPass: true, At: 4,
 			},
 		},
 		{
 			name: "tests pass without a red test",
 			step: sliceStep("", `{"green_evidence":"synthetic green"}`),
-			want: &orreryv1.EpicSlice{Task: "t", Hue: "dispatched", Working: true, TestsPass: true, At: 3},
+			want: &orreryv1.EpicSlice{Task: "t", Hue: "dispatched", Working: true, TestsPass: true, At: 1},
 		},
 		{
 			name: "checks with a gate in the last round",
 			step: sliceStep("", sliceRedGreen, sliceCheck(1, "schema", true), sliceCheck(2, "gate", true)),
 			want: &orreryv1.EpicSlice{
-				Task: "t", Hue: "dispatched", RedTest: true, Working: true, TestsPass: true, Checks: true, At: 4,
+				Task: "t", Hue: "dispatched", RedTest: true, Working: true, TestsPass: true, Checks: true, At: 5,
 			},
 		},
 		{
@@ -98,6 +98,149 @@ func TestEpicSlicesRingCells(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			requireSlices(t, epicSlicesOf(t, tc.step), []*orreryv1.EpicSlice{tc.want})
+		})
+	}
+}
+
+// TestEpicSlicesRingRows serves each row of chart-spec.md section 2's example table through Get and checks its
+// booleans, at, held and error_at. Working is true for every listed step, so the table's "none" rows are the steps whose
+// result carries no evidence, and the table's working-only rows are the steps whose result has no more than that.
+func TestEpicSlicesRingRows(t *testing.T) {
+	gate := sliceCheck(1, "gate", true)
+	gateFailed := sliceCheck(1, "gate", false)
+	cases := []struct {
+		name   string
+		end    string
+		held   bool
+		result string
+		checks []*enginev1.StepCheck
+		want   *orreryv1.EpicSlice
+	}{
+		{
+			name:   "running, just started",
+			result: `{}`,
+			want:   &orreryv1.EpicSlice{Task: "t", Hue: "dispatched", Working: true, At: 1},
+		},
+		{
+			name:   "running, red evidence given",
+			result: sliceRedOnly,
+			want:   &orreryv1.EpicSlice{Task: "t", Hue: "dispatched", RedTest: true, Working: true, At: 3},
+		},
+		{
+			name:   "running, tests pass",
+			result: sliceRedGreen,
+			want: &orreryv1.EpicSlice{
+				Task: "t", Hue: "dispatched", RedTest: true, Working: true, TestsPass: true, At: 4,
+			},
+		},
+		{
+			name:   "running, checks passed",
+			result: sliceRedGreen,
+			checks: []*enginev1.StepCheck{gate},
+			want: &orreryv1.EpicSlice{
+				Task: "t", Hue: "dispatched", RedTest: true, Working: true, TestsPass: true, Checks: true, At: 5,
+			},
+		},
+		{
+			name:   "running, green evidence but no red",
+			result: `{"green_evidence":"synthetic green"}`,
+			want: &orreryv1.EpicSlice{
+				Task: "t", Hue: "dispatched", Working: true, TestsPass: true, At: 1,
+			},
+		},
+		{
+			name:   "held after tests pass",
+			held:   true,
+			result: sliceRedGreen,
+			want: &orreryv1.EpicSlice{
+				Task: "t", Hue: "dispatched", RedTest: true, Working: true, TestsPass: true, At: 4, Held: true,
+			},
+		},
+		{
+			name:   "held, just started",
+			held:   true,
+			result: `{}`,
+			want:   &orreryv1.EpicSlice{Task: "t", Hue: "dispatched", Working: true, At: 1, Held: true},
+		},
+		{
+			name:   "running, nothing reached",
+			result: "",
+			want:   &orreryv1.EpicSlice{Task: "t", Hue: "dispatched", Working: true, At: 1},
+		},
+		{
+			name:   "ended done",
+			end:    "done",
+			result: sliceRedGreen,
+			checks: []*enginev1.StepCheck{gate},
+			want: &orreryv1.EpicSlice{
+				Task: "t", Hue: "done", RedTest: true, Working: true, TestsPass: true, Checks: true,
+				GateAccepted: true,
+			},
+		},
+		{
+			name:   "ended done, checks not evidenced",
+			end:    "done",
+			result: sliceRedGreen,
+			want: &orreryv1.EpicSlice{
+				Task: "t", Hue: "done", RedTest: true, Working: true, TestsPass: true, GateAccepted: true,
+			},
+		},
+		{
+			name:   "ended checks_failed after tests pass",
+			end:    "checks_failed",
+			result: sliceRedGreen,
+			checks: []*enginev1.StepCheck{gateFailed},
+			want: &orreryv1.EpicSlice{
+				Task: "t", Hue: "gap", RedTest: true, Working: true, TestsPass: true, ErrorAt: 4,
+			},
+		},
+		{
+			name:   "ended checks_failed, no green evidence",
+			end:    "checks_failed",
+			result: sliceRedOnly,
+			checks: []*enginev1.StepCheck{gateFailed},
+			want:   &orreryv1.EpicSlice{Task: "t", Hue: "gap", RedTest: true, Working: true, ErrorAt: 4},
+		},
+		{
+			name:   "ended goal_unmet",
+			end:    "goal_unmet",
+			result: sliceRedGreen,
+			checks: []*enginev1.StepCheck{gate},
+			want: &orreryv1.EpicSlice{
+				Task: "t", Hue: "gap", RedTest: true, Working: true, TestsPass: true, Checks: true, ErrorAt: 5,
+			},
+		},
+		{
+			name:   "ended returned",
+			end:    "returned",
+			result: sliceRedOnly,
+			want:   &orreryv1.EpicSlice{Task: "t", Hue: "gap", RedTest: true, Working: true, ErrorAt: 3},
+		},
+		{
+			name:   "ended failed, no red test",
+			end:    "failed",
+			result: `{}`,
+			want:   &orreryv1.EpicSlice{Task: "t", Hue: "gap", Working: true, ErrorAt: 1},
+		},
+		{
+			name:   "ended, nothing reached",
+			end:    "stopped",
+			result: "",
+			want:   &orreryv1.EpicSlice{Task: "t", Hue: "gap", Working: true, ErrorAt: 1},
+		},
+		{
+			name:   "ended with the held flag still set",
+			end:    "returned",
+			held:   true,
+			result: sliceRedOnly,
+			want:   &orreryv1.EpicSlice{Task: "t", Hue: "gap", RedTest: true, Working: true, ErrorAt: 3},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			step := sliceStep(tc.end, tc.result, tc.checks...)
+			step.Held = tc.held
+			requireSlices(t, epicSlicesOf(t, step), []*orreryv1.EpicSlice{tc.want})
 		})
 	}
 }
@@ -182,7 +325,7 @@ func TestEpicSlicesEvidenceCountsForNothing(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			got := epicSlicesOf(t, sliceStep("", tc.result))
-			want := &orreryv1.EpicSlice{Task: "t", Hue: "dispatched", Working: true, At: 2}
+			want := &orreryv1.EpicSlice{Task: "t", Hue: "dispatched", Working: true, At: 1}
 			requireSlices(t, got, []*orreryv1.EpicSlice{want})
 		})
 	}
@@ -197,8 +340,8 @@ func TestEpicSlicesHueAndRing(t *testing.T) {
 		hue  string
 		at   int32
 	}{
-		{name: "running", end: "", hue: "dispatched", at: 4},
-		{name: "held", end: "", held: true, hue: "dispatched", at: 4},
+		{name: "running", end: "", hue: "dispatched", at: 5},
+		{name: "held", end: "", held: true, hue: "dispatched", at: 5},
 		{name: "done", end: "done", hue: "done", at: 0},
 		{name: "failed", end: "failed", hue: "gap", at: 0},
 		{name: "returned", end: "returned", hue: "gap", at: 0},
@@ -265,6 +408,6 @@ func TestEpicSlicesOrderByFirstStartAndCellsFromLatest(t *testing.T) {
 			Task: "b", Hue: "done", RedTest: true, Working: true, TestsPass: true, Checks: true,
 			GateAccepted: true,
 		},
-		{Task: "a", Hue: "gap", Working: true},
+		{Task: "a", Hue: "gap", Working: true, ErrorAt: 1},
 	})
 }
