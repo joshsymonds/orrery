@@ -35,6 +35,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import io.github.joshsymonds.orrery.api.EpicDetail
+import io.github.joshsymonds.orrery.api.EpicRequirementRow
 import io.github.joshsymonds.orrery.api.EpicTaskRow
 import io.github.joshsymonds.orrery.api.OrreryClient
 import io.github.joshsymonds.orrery.api.StepCheckRow
@@ -198,6 +199,12 @@ private fun EpicList(
                 )
             }
         }
+        if (detail.requirements.isNotEmpty()) {
+            item("requirements-heading") { SectionHeading("Requirements") }
+            itemsIndexed(detail.requirements, key = { index, _ -> "requirement:$index" }) { index, requirement ->
+                RequirementRow(index, requirement)
+            }
+        }
         item("tasks-heading") { SectionHeading("Tasks") }
         itemsIndexed(detail.tasks, key = { index, _ -> "task:$index" }) { index, task ->
             TaskRow(index, task, selected = index == selectedRow, onTap = { onTapTask(index) })
@@ -246,6 +253,21 @@ private fun TaskRow(index: Int, task: EpicTaskRow, selected: Boolean, onTap: () 
         Text(task.slug, style = MaterialTheme.typography.bodyLarge)
         Text(task.subject, style = MaterialTheme.typography.bodySmall)
         Text(task.status, style = MaterialTheme.typography.labelMedium)
+    }
+}
+
+@Composable
+private fun RequirementRow(index: Int, requirement: EpicRequirementRow) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("requirement-row:$index")
+            .padding(horizontal = 16.dp, vertical = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(requirement.id, style = MaterialTheme.typography.bodyMedium)
+        Text(requirement.text, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+        Text(requirement.kind, style = MaterialTheme.typography.labelMedium)
     }
 }
 
