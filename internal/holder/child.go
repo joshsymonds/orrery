@@ -206,14 +206,14 @@ func exitStatus(exitErr *exec.ExitError) (int, string) {
 	return exitErr.ExitCode(), ""
 }
 
-// stderrWith returns the stderr tail without its trailing newlines, with err as the last line when there is one.
+// stderrWith returns the stderr tail as the child wrote it. With err, the tail is followed by a newline unless it is
+// empty or already ends in one, and then by err as the last line.
 func stderrWith(tail string, err error) string {
-	tail = strings.TrimRight(tail, "\n")
 	if err == nil {
 		return tail
 	}
-	if tail == "" {
-		return err.Error()
+	if tail != "" && !strings.HasSuffix(tail, "\n") {
+		tail += "\n"
 	}
-	return tail + "\n" + err.Error()
+	return tail + err.Error()
 }

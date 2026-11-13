@@ -320,7 +320,7 @@ func TestHolderChildThatExitsAloneWritesItsStatusAndTailThenReturnsNil(t *testin
 	if err := run.wait(t); err != nil {
 		t.Fatalf("Run = %v, want nil", err)
 	}
-	want := Exit{Reason: ReasonExited, Code: childDiedCode, StdoutEnd: int64(len("out\n")), Stderr: "err"}
+	want := Exit{Reason: ReasonExited, Code: childDiedCode, StdoutEnd: int64(len("out\n")), Stderr: "err\n"}
 	if got := readExitFile(t, cfg.Dir); got != want {
 		t.Errorf("exit = %+v, want %+v", got, want)
 	}
