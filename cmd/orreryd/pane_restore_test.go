@@ -120,7 +120,6 @@ func (s *paneSinks) Post(n deskstream.Notice) {
 	s.posts = append(s.posts, n)
 }
 
-// Notify records the push that build makes for the phone.
 // Notify records the push, then reports its publish as returned, as the phone does: sent runs outside s.mu because
 // it takes the Router's lock.
 func (s *paneSinks) Notify(
