@@ -128,6 +128,7 @@ type liveSession struct {
 	done         chan struct{}
 	cancel       context.CancelFunc
 	step         bool
+	agent        string
 	observer     StepObserver
 	exited       bool
 	turning      bool
@@ -709,7 +710,7 @@ func (m *Manager) spawnLive(ctx context.Context, id, dir string, sp spawnSpec) (
 	}
 	pumpCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	live := &liveSession{id: id, dir: dir, sess: sess, done: make(chan struct{}), cancel: cancel,
-		step: sp.step, observer: sp.observer, requests: map[string]struct{}{}}
+		step: sp.step, agent: sp.agent, observer: sp.observer, requests: map[string]struct{}{}}
 	m.mu.Lock()
 	closed := m.closed
 	if !closed {
@@ -1123,6 +1124,7 @@ func (m *Manager) answerStepRequest(ctx context.Context, live *liveSession, requ
 
 // observe gives the observer of the step live the event the pump has just recorded: the event itself, then the turn end
 // of a hand-off, or an exit with its failure reason, or stepExitedReason for a clean exit, since a step ends either way.
+// A step whose init event does not run its agent ends with an exit reason naming the agent, and its observer stops it.
 // A session without an observer gets nothing.
 func observe(live *liveSession, event session.Event, handed bool) {
 	if live.observer == nil {
@@ -1130,6 +1132,10 @@ func observe(live *liveSession, event session.Event, handed bool) {
 	}
 	live.observer.Event(event)
 	switch ev := event.(type) {
+	case session.Started:
+		if live.step && !initNamesAgent(ev.Agents, live.agent) {
+			live.observer.Exited(fmt.Sprintf("claude's init event does not run the step's agent %q", live.agent))
+		}
 	case session.TurnEnded:
 		if handed {
 			live.observer.Return(ev)
@@ -1145,6 +1151,21 @@ func observe(live *liveSession, event session.Event, handed bool) {
 
 // stepExitedReason is the reason a step's observer gets when the step's process exits cleanly on its own.
 const stepExitedReason = "the step's process exited"
+
+// initNamesAgent reports whether the agents list of a session's init event runs agent. The list names agent, or holds
+// a scoped entry ending in ":"+agent, which is how claude resolves a bare name. web-fetch never runs as a step's agent,
+// listed or not.
+func initNamesAgent(agents []string, agent string) bool {
+	if agent == "web-fetch" {
+		return false
+	}
+	for _, name := range agents {
+		if name == agent || strings.HasSuffix(name, ":"+agent) {
+			return true
+		}
+	}
+	return false
+}
 
 // setTurning sets whether live has a turn running.
 func (m *Manager) setTurning(live *liveSession, turning bool) {
