@@ -452,7 +452,7 @@ When the router sends a notice to the phone, `orreryd` posts it as an encrypted 
 
 When neither variable is set, `orreryd` exits 1.
 
-`orreryd` also keeps the store, which mirrors each pane's tmux options (see [Store](#store)). When the store cannot be opened, `orreryd` logs the error and serves hooks and notifications without it. It then mints no `@orrery_id` and syncs no pane. A failure of the push store still exits 1.
+`orreryd` also keeps the store, which mirrors each pane's tmux options (see [Store](#store)). It opens the store after its sockets listen, and logs `store open` (info, with `path`) once the store is open and migrated. When the store cannot be opened, `orreryd` logs the error and serves hooks and notifications without it. It then mints no `@orrery_id` and syncs no pane. A failure of the push store still exits 1.
 
 `SIGINT` and `SIGTERM` stop `orreryd`. With `--sessions`, the Pools broker closes first (see [Pools](#pools)), then the session socket closes. Then every live headless session is stopped, and its turn, if one is running, is recorded `interrupted`. `orreryd` exits after those notices are routed, and after each headless session notice still pending is kept or ended, as [Notice routing](#notice-routing) says at shutdown. The desk stream closes last, after the notices that post to it. See [Headless sessions](#headless-sessions) and [Desk stream](#desk-stream).
 
@@ -1254,7 +1254,7 @@ One lock covers each sync's tmux read, id mint and store write. A sync waits at 
 
 A dropped sync writes no row or event and sets no id. tmux keeps its options as they were set. The next sync or tidy of the pane writes the difference from the stored row. Events for the values the dropped sync carried are not written. A pane whose id was minted by a dropped sync gets another id on its next sync.
 
-The tidy runs at orreryd start and every 10 s. It tidies:
+The tidy runs at orreryd start and every 10 s. The first tidy runs once the store is open and, with `--sessions`, the sessions have started, so it follows the `store open` log line. Opening a new store applies every migration, and under heavy disk load that can take seconds. It tidies:
 
 - the server named by `-L` or `-S`, when either is given;
 - otherwise, the default socket, from the first tidy at start, and every server that a hook frame has named since orreryd started.

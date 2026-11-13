@@ -477,6 +477,24 @@ func makeFolder(t *testing.T, folder string) string {
 	return folder
 }
 
+// makeDanglingWorktree makes worktree below home as a linked worktree of the primary checkout at primary: its .git file
+// names a gitdir under primary/.git/worktrees, and that gitdir's commondir is a symlink to a missing path. It returns
+// the worktree folder and the commondir path.
+func makeDanglingWorktree(t *testing.T, home, primary, worktree string) (dir, commondir string) {
+	t.Helper()
+	gitdir := filepath.Join(primary, ".git", "worktrees", "linked")
+	makeFolder(t, gitdir)
+	commondir = filepath.Join(gitdir, "commondir")
+	if err := os.Symlink(filepath.Join(home, "missing", ".git"), commondir); err != nil {
+		t.Fatalf("symlink commondir: %v", err)
+	}
+	dir = makeFolder(t, worktree)
+	if err := os.WriteFile(filepath.Join(dir, ".git"), []byte("gitdir: "+gitdir+"\n"), 0o600); err != nil {
+		t.Fatalf("write .git: %v", err)
+	}
+	return dir, commondir
+}
+
 func TestSummarizerStamp(t *testing.T) {
 	// The stamped context and the job's base URL name different contexts, each with its own model.
 	const stampURL = "http://127.0.0.1:9/ctx/example"
@@ -552,6 +570,29 @@ func TestSummarizerStamp(t *testing.T) {
 		r.assertPrevious(t)
 		if got := recordedCalls(t, r.bin); len(got) != 0 {
 			t.Fatalf("claude runs = %d, want 0 below an unparseable stamp", len(got))
+		}
+	})
+
+	t.Run("dangling commondir runs nothing", func(t *testing.T) {
+		home := t.TempDir()
+		primary := filepath.Join(home, "primary")
+		writeSettings(t, primary, stampBody)
+		dir, commondir := makeDanglingWorktree(t, home, primary, filepath.Join(home, "linked"))
+		r := newRigWith(t, summary.Config{Models: models, Home: home})
+		r.setPrevious(t)
+		r.place(t, "reply", validReply)
+		job := r.job(true)
+		job.Dir = dir
+		err := r.s.Summarize(t.Context(), job)
+		if err == nil {
+			t.Fatal("Summarize: want error for a dangling commondir, got nil")
+		}
+		if !strings.Contains(err.Error(), commondir) {
+			t.Fatalf("Summarize error = %q, want it to name the commondir %q", err, commondir)
+		}
+		r.assertPrevious(t)
+		if got := recordedCalls(t, r.bin); len(got) != 0 {
+			t.Fatalf("claude runs = %d, want 0 below a dangling commondir", len(got))
 		}
 	})
 }
