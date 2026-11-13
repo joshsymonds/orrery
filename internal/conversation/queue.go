@@ -34,7 +34,8 @@ type Waiting struct {
 
 // queueRow is a message that the queue holds. Its text is the full text, which matching uses. mark is where the row
 // stands after a dequeue record, and dequeued is set while the row holds a mark. seq is the row's place among the rows
-// its transcript enqueued, so a caller can tell rows apart as they leave the queue.
+// its transcript enqueued, so a caller can tell rows apart as they leave the queue. at is the position of its enqueue
+// record among the lines the rules read, which idleDrops orders against the turn ends.
 type queueRow struct {
 	seq      int
 	text     string
@@ -42,6 +43,7 @@ type queueRow struct {
 	canceled bool
 	dequeued bool
 	mark     dequeueMark
+	at       int
 }
 
 // dequeueMark is where a row stands after a dequeue record. A dequeue marks each unmarked row that waits undecided, and
@@ -66,12 +68,18 @@ type queueLine struct {
 }
 
 // queueFile is what Queues remembers of one transcript: the file it read, how many of its bytes were read, and the
-// rows that those bytes leave waiting, oldest first.
+// rows that those bytes leave waiting, oldest first. Its positions number the lines the rules read, from 1: lines is
+// the count so far, and userAt, dequeueAt and turnEndAt are the positions of the newest user line with text, dequeue
+// record and turn end, zero when there is none.
 type queueFile struct {
-	info    fs.FileInfo
-	offset  int64
-	nextSeq int
-	rows    []queueRow
+	info      fs.FileInfo
+	offset    int64
+	nextSeq   int
+	lines     int
+	userAt    int
+	dequeueAt int
+	turnEndAt int
+	rows      []queueRow
 }
 
 // Queues reports the waiting messages of transcripts. For each path it remembers how far it has read and the rows
@@ -93,8 +101,8 @@ func NewQueues() *Queues {
 // closes it, another notice unmarks it, and any other line settles it, so the next turn end closes it. A user line with
 // the same text closes a marked message whatever that line's promptSource. A remove with reason cleared_on_cancel
 // marks the message canceled instead. Each enqueue record that opens a message drops the canceled messages, and each
-// typed, queued or accepted user line does too. When idle is true, every message that is not canceled is dropped for
-// good, so only the canceled ones are returned.
+// typed, queued or accepted user line does too. When idle is true, the messages that the idle rule (see idleDrops)
+// drops are dropped for good before the rest are returned.
 func (q *Queues) Waiting(path string, idle bool) ([]Waiting, error) {
 	clean := filepath.Clean(path)
 	file, err := os.Open(clean)
@@ -120,7 +128,7 @@ func (q *Queues) Waiting(path string, idle bool) ([]Waiting, error) {
 		return nil, scanErr
 	}
 	if idle {
-		state.rows = slices.DeleteFunc(state.rows, func(row queueRow) bool { return !row.canceled })
+		state.rows = slices.DeleteFunc(state.rows, state.idleDrops)
 	}
 	return state.waiting(), nil
 }
@@ -158,6 +166,7 @@ func (s *queueFile) apply(line []byte) {
 	if json.Unmarshal(line, &entry) != nil {
 		return
 	}
+	s.lines++
 	switch entry.Type {
 	case queueOperation:
 		s.applyOperation(entry)
@@ -174,7 +183,12 @@ func (s *queueFile) applyOperation(entry queueLine) {
 	case "enqueue":
 		if entry.Content != "" && !fromOthers(entry.Content) {
 			s.dropCanceled()
-			s.rows = append(s.rows, queueRow{seq: s.nextSeq, text: entry.Content, time: unixSeconds(entry.Timestamp)})
+			s.rows = append(s.rows, queueRow{
+				seq:  s.nextSeq,
+				text: entry.Content,
+				time: unixSeconds(entry.Timestamp),
+				at:   s.lines,
+			})
 			s.nextSeq++
 		}
 	case "remove":
@@ -186,6 +200,7 @@ func (s *queueFile) applyOperation(entry queueLine) {
 	case "popAll":
 		s.close(entry.Content)
 	case "dequeue":
+		s.dequeueAt = s.lines
 		s.markDequeued()
 	}
 }
@@ -195,6 +210,9 @@ func (s *queueFile) applyOperation(entry queueLine) {
 // contains, and any other user line closes the row whose text it equals when that row is marked.
 func (s *queueFile) applyUser(entry queueLine) {
 	text, _ := splitContent(entry.Message.Content)
+	if text != "" {
+		s.userAt = s.lines
+	}
 	s.decide(entry, text)
 	if typedLine(entry.transcriptLine) {
 		s.dropCanceled()
@@ -234,8 +252,16 @@ func (s *queueFile) remark(from, to dequeueMark) {
 // applySystem updates the rows from one system line. A turn end closes the settled rows that are not canceled.
 func (s *queueFile) applySystem(entry queueLine) {
 	if entry.Subtype == turnDurationSubtype {
+		s.turnEndAt = s.lines
 		s.rows = slices.DeleteFunc(s.rows, func(row queueRow) bool { return row.mark == settled && !row.canceled })
 	}
+}
+
+// idleDrops reports whether the idle rule drops row, which the idle read does when the pane is done. The rule drops a
+// row that is not canceled when a user line with text has been read, no dequeue record follows the newest such line, a
+// turn end follows it, and the row was enqueued before the newest turn end. With no such user line, nothing drops.
+func (s *queueFile) idleDrops(row queueRow) bool {
+	return !row.canceled && s.userAt > 0 && s.dequeueAt < s.userAt && s.userAt < s.turnEndAt && row.at < s.turnEndAt
 }
 
 // markDequeued marks every unmarked row that waits as undecided. A dequeue record names no message, so it applies to the

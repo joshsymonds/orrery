@@ -771,6 +771,9 @@ func overwriteTranscript(t *testing.T, path, old, replacement string) {
 // synthQueued is the synthetic text of the queued message of the waiting fixtures.
 const synthQueued = "synthetic queued message"
 
+// turnEndLine is the turn_duration record that Claude Code writes when a turn ends, with its newline.
+const turnEndLine = `{"type":"system","subtype":"turn_duration","timestamp":"2026-01-02T03:04:06Z","durationMs":1000}` + "\n"
+
 // queueLine returns a queue-operation line with operation, text and at as its RFC 3339 timestamp, with its newline.
 // A reason of "" leaves the reason out.
 func queueLine(operation, text, at, reason string) string {
@@ -1344,7 +1347,7 @@ func TestServePaneConversationWaitingIdle(t *testing.T) {
 	const at = "2026-01-02T03:04:05Z"
 	tmux := newTmuxServer(t)
 	path := writeConversation(t, 1)
-	appendTranscript(t, path, queueLine("enqueue", synthQueued, at, ""))
+	appendTranscript(t, path, queueLine("enqueue", synthQueued, at, "")+turnEndLine)
 	options := map[string]string{
 		protocol.OptionState:      string(protocol.StateDone),
 		protocol.OptionTranscript: path,

@@ -346,7 +346,8 @@ func TestQueueRereadsRewrittenTranscriptFromStart(t *testing.T) {
 }
 
 func TestQueueIdleDropsUnmatchedRowsForGood(t *testing.T) {
-	path := writeTranscript(t, enqueueLine(t, 0, "synthetic unmatched"))
+	path := writeTranscript(t, enqueueLine(t, 0, "synthetic unmatched"), userContentLine(t, 1, "", "synthetic typed"),
+		turnDurationLine(2))
 	queues := NewQueues()
 	if got := waitingAt(t, queues, path, true); !reflect.DeepEqual(got, []Waiting{}) {
 		t.Fatalf("idle Waiting = %+v, want none", got)
@@ -355,6 +356,84 @@ func TestQueueIdleDropsUnmatchedRowsForGood(t *testing.T) {
 
 	appendText(t, path, enqueueLine(t, 1, "synthetic later")+"\n")
 	assertWaiting(t, queues, path, []Waiting{{Text: "synthetic later", Time: unixAt(1)}})
+}
+
+func TestQueueIdleKeepsRowDequeuedAfterNewestUserLine(t *testing.T) {
+	path := writeTranscript(t, enqueueLine(t, 0, "synthetic dequeued"), userContentLine(t, 1, "", "synthetic other"),
+		turnDurationLine(2), dequeueLine(3))
+	want := []Waiting{{Text: "synthetic dequeued", Time: unixAt(0)}}
+	queues := NewQueues()
+	if got := waitingAt(t, queues, path, true); !reflect.DeepEqual(got, want) {
+		t.Fatalf("idle Waiting = %+v, want %+v", got, want)
+	}
+	assertWaiting(t, queues, path, want)
+}
+
+func TestQueueIdleKeepsRowWithoutTurnEndAfterNewestUserLine(t *testing.T) {
+	path := writeTranscript(t, enqueueLine(t, 0, "synthetic waiting"), turnDurationLine(1),
+		userContentLine(t, 2, "", "synthetic other"))
+	want := []Waiting{{Text: "synthetic waiting", Time: unixAt(0)}}
+	if got := waitingAt(t, NewQueues(), path, true); !reflect.DeepEqual(got, want) {
+		t.Fatalf("idle Waiting = %+v, want %+v", got, want)
+	}
+}
+
+func TestQueueIdleKeepsRowEnqueuedAfterNewestTurnEnd(t *testing.T) {
+	path := writeTranscript(t, userContentLine(t, 0, "", "synthetic other"), turnDurationLine(1),
+		enqueueLine(t, 2, "synthetic late"))
+	want := []Waiting{{Text: "synthetic late", Time: unixAt(2)}}
+	if got := waitingAt(t, NewQueues(), path, true); !reflect.DeepEqual(got, want) {
+		t.Fatalf("idle Waiting = %+v, want %+v", got, want)
+	}
+}
+
+func TestQueueIdleNeedsUserLineWithText(t *testing.T) {
+	forms := []struct {
+		name  string
+		lines []string
+	}{
+		{"no user line", []string{enqueueLine(t, 0, "synthetic kept"), turnDurationLine(1)}},
+		{"user line without text", []string{
+			enqueueLine(t, 0, "synthetic kept"), userContentLine(t, 1, "", ""), turnDurationLine(2),
+		}},
+	}
+	for _, form := range forms {
+		t.Run(form.name, func(t *testing.T) {
+			path := writeTranscript(t, form.lines...)
+			want := []Waiting{{Text: "synthetic kept", Time: unixAt(0)}}
+			if got := waitingAt(t, NewQueues(), path, true); !reflect.DeepEqual(got, want) {
+				t.Fatalf("idle Waiting = %+v, want %+v", got, want)
+			}
+		})
+	}
+}
+
+func TestQueueIdleDropWhenAllConditionsHoldIsForGood(t *testing.T) {
+	path := writeTranscript(t, enqueueLine(t, 0, "synthetic dropped"), userContentLine(t, 1, "", "synthetic other"),
+		turnDurationLine(2))
+	queues := NewQueues()
+	if got := waitingAt(t, queues, path, true); !reflect.DeepEqual(got, []Waiting{}) {
+		t.Fatalf("idle Waiting = %+v, want none", got)
+	}
+
+	appendText(t, path, userContentLine(t, 3, "", "synthetic again")+"\n"+turnDurationLine(4)+"\n")
+	assertWaiting(t, queues, path, []Waiting{})
+	if got := waitingAt(t, queues, path, true); !reflect.DeepEqual(got, []Waiting{}) {
+		t.Fatalf("idle Waiting after later turn = %+v, want none", got)
+	}
+}
+
+func TestQueueIdleKeepsCanceledRowWhenAllConditionsHold(t *testing.T) {
+	canceled := []Waiting{{Text: "synthetic canceled", Time: unixAt(0), Canceled: true}}
+	path := writeTranscript(t,
+		enqueueLine(t, 0, "synthetic canceled"),
+		removeLine(t, 1, "synthetic canceled", "cleared_on_cancel"),
+		userContentLine(t, 2, "", "synthetic other"),
+		turnDurationLine(3),
+	)
+	if got := waitingAt(t, NewQueues(), path, true); !reflect.DeepEqual(got, canceled) {
+		t.Fatalf("idle Waiting = %+v, want %+v", got, canceled)
+	}
 }
 
 func TestQueueSystemEnqueuesGiveNoRow(t *testing.T) {
