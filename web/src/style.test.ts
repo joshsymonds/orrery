@@ -527,3 +527,179 @@ test("a held step's mark, label and held text are peach, and the held text is 12
 test("the epic's count and the capitals held tag have no rules", () => {
   assert.doesNotMatch(css, /\.b-row \.count|\.b-row \.held/);
 });
+
+test("the column's eyebrow is 700 10.5px over 14px mono at .13em in overlay1 with no margin, its sub 400 at no spacing in overlay0, 6px in", () => {
+  const eyebrow = declarationsFor(css, ".epic-view .eyebrow");
+  assert.match(eyebrow, /margin:\s*0;/);
+  assert.match(eyebrow, /font:\s*700 10\.5px\/14px var\(--mono\);/);
+  assert.match(eyebrow, /letter-spacing:\s*\.13em;/);
+  assert.match(eyebrow, /color:\s*var\(--overlay1\);/);
+  const sub = declarationsFor(css, ".epic-view .eyebrow .sub");
+  assert.match(sub, /font-weight:\s*400;/);
+  assert.match(sub, /letter-spacing:\s*0;/);
+  assert.match(sub, /color:\s*var\(--overlay0\);/);
+  assert.match(sub, /margin-left:\s*6px;/);
+});
+
+test("the head line is a baseline flex row 9px apart that does not wrap", () => {
+  const line = declarationsFor(css, ".epic-view .head-line");
+  assert.match(line, /display:\s*flex;/);
+  assert.match(line, /align-items:\s*baseline;/);
+  assert.match(line, /(?<![-\w])gap:\s*9px;/);
+  assert.match(line, /white-space:\s*nowrap;/);
+  assert.match(line, /min-width:\s*0;/);
+});
+
+test("the head's slug is 700 14px over 20px mono and does not shrink; its repo is cut to one line in overlay1; its reading sits at the right in 11.5px subtext0", () => {
+  const slug = declarationsFor(css, ".epic-view .head-line .slug");
+  assert.match(slug, /margin:\s*0;/);
+  assert.match(slug, /font:\s*700 14px\/20px var\(--mono\);/);
+  assert.match(slug, /(?<![-\w])flex:\s*none;/);
+  const repo = declarationsFor(css, ".epic-view .head-line .repo");
+  assert.match(repo, /overflow:\s*hidden;/);
+  assert.match(repo, /text-overflow:\s*ellipsis;/);
+  assert.match(repo, /font:\s*11\.5px\/20px var\(--mono\);/);
+  assert.match(repo, /color:\s*var\(--overlay1\);/);
+  const reading = declarationsFor(css, ".epic-view .head-line .rt");
+  assert.match(reading, /margin-left:\s*auto;/);
+  assert.match(reading, /font:\s*11\.5px\/20px var\(--mono\);/);
+  assert.match(reading, /color:\s*var\(--subtext0\);/);
+  assert.match(reading, /(?<![-\w])flex:\s*none;/);
+});
+
+test("a problem is red and flush with the head, and its long text wraps", () => {
+  const problem = declarationsFor(css, ".epic-head .problem");
+  assert.match(problem, /color:\s*var\(--red\);/);
+  assert.match(problem, /margin:\s*0;/);
+  assert.match(problem, /overflow-wrap:\s*anywhere;/);
+});
+
+test("the column strip is 4px tall under a 9px top margin", () => {
+  const strip = declarationsFor(css, ".epic-view .strip");
+  assert.match(strip, /(?<![-\w])height:\s*4px;/);
+  assert.match(strip, /margin:\s*9px 0 0;/);
+});
+
+test("the task rows are a 1px grid pulled 8px into the column, each row a 14px mark, slug, agent and pips grid, its line on the second row", () => {
+  const tasks = declarationsFor(css, ".epic-view .tasks");
+  assert.match(tasks, /display:\s*grid;/);
+  assert.match(tasks, /(?<![-\w])gap:\s*1px;/);
+  assert.match(tasks, /margin:\s*0 -8px;/);
+  const task = declarationsFor(css, ".epic-view .task");
+  assert.match(task, /display:\s*grid;/);
+  assert.match(task, /grid-template-columns:\s*14px minmax\(0,\s*auto\) minmax\(0,\s*1fr\) auto;/);
+  assert.match(task, /gap:\s*1px 7px;/);
+  assert.match(task, /align-items:\s*center;/);
+  assert.match(task, /padding:\s*4px 8px 5px;/);
+  assert.match(task, /border-radius:\s*8px;/);
+  assert.match(task, /font:\s*12px\/18px var\(--mono\);/);
+  assert.match(declarationsFor(css, ".epic-view .task .line"), /grid-column:\s*2 \/ -1;/);
+});
+
+test("a task's mark is a centred bold colour of its kind; a running mark is a 10px disc that turns, and holds still under reduced motion", () => {
+  const mark = declarationsFor(css, ".epic-view .task .um");
+  assert.match(mark, /text-align:\s*center;/);
+  assert.match(mark, /font-weight:\s*700;/);
+  assert.match(mark, /color:\s*var\(--k, var\(--overlay0\)\);/);
+  const spinner = declarationsFor(css, ".epic-view .task .um.g-working");
+  assert.match(spinner, /(?<![-\w])width:\s*10px;/);
+  assert.match(spinner, /(?<![-\w])height:\s*10px;/);
+  assert.match(spinner, /justify-self:\s*center;/);
+  assert.match(spinner, /border-radius:\s*50%;/);
+  assert.match(spinner, /animation:\s*rot 1\.1s linear infinite;/);
+  const reduced = mediaBlock(css.slice(css.indexOf(".epic-view .task .um.g-working")), "@media (prefers-reduced-motion: reduce) {");
+  assert.match(declarationsFor(reduced, ".epic-view .task .um.g-working"), /animation:\s*none;/);
+});
+
+test("a task's slug is subtext1 and its agent overlay0, each cut to one line; its line is 11px over 15px in overlay1", () => {
+  for (const selector of [".epic-view .task .slug", ".epic-view .task .agent", ".epic-view .task .line"]) {
+    const rule = declarationsFor(css, selector);
+    assert.match(rule, /overflow:\s*hidden;/, selector);
+    assert.match(rule, /text-overflow:\s*ellipsis;/, selector);
+    assert.match(rule, /white-space:\s*nowrap;/, selector);
+  }
+  assert.match(declarationsFor(css, ".epic-view .task .slug"), /color:\s*var\(--subtext1\);/);
+  assert.match(declarationsFor(css, ".epic-view .task .agent"), /color:\s*var\(--overlay0\);/);
+  const line = declarationsFor(css, ".epic-view .task .line");
+  assert.match(line, /font:\s*11px\/15px var\(--mono\);/);
+  assert.match(line, /color:\s*var\(--overlay1\);/);
+});
+
+test("the cursor's task row is surface0 with an inset 1px mauve ring and a bold text slug", () => {
+  const cur = declarationsFor(css, ".epic-view .task.cur");
+  assert.match(cur, /background:\s*var\(--surface0\);/);
+  assert.match(cur, /box-shadow:\s*inset 0 0 0 1px var\(--mauve\);/);
+  assert.match(declarationsFor(css, ".epic-view .task.cur .slug"), /font-weight:\s*700;/);
+  assert.match(declarationsFor(css, ".epic-view .task.cur .slug"), /color:\s*var\(--text\);/);
+});
+
+test("a held task's mark and line are peach, and an out task's slug and line are overlay0", () => {
+  for (const selector of [".epic-view .task.held .um", ".epic-view .task.held .line"]) {
+    assert.match(declarationsFor(css, selector), /color:\s*var\(--peach\);/, selector);
+  }
+  for (const selector of [".epic-view .task.out .slug", ".epic-view .task.out .line"]) {
+    assert.match(declarationsFor(css, selector), /color:\s*var\(--overlay0\);/, selector);
+  }
+});
+
+test("the now card is a 12px-rounded surface0 ring with 10px 12px 11px padding", () => {
+  const card = declarationsFor(css, ".epic-view .now-card");
+  assert.match(card, /padding:\s*10px 12px 11px;/);
+  assert.match(card, /border-radius:\s*12px;/);
+  assert.match(card, /box-shadow:\s*inset 0 0 0 1px var\(--surface0\);/);
+});
+
+test("the now card's cap is 700 10px over 16px mono at .12em in overlay1; its doing is 13px over 19px; its time line is 11.5px over 17px in overlay1 under a 7px margin", () => {
+  const cap = declarationsFor(css, ".epic-view .now-card .cap");
+  assert.match(cap, /font:\s*700 10px\/16px var\(--mono\);/);
+  assert.match(cap, /letter-spacing:\s*\.12em;/);
+  assert.match(cap, /color:\s*var\(--overlay1\);/);
+  assert.match(declarationsFor(css, ".epic-view .now-card p"), /margin:\s*4px 0 0;/);
+  assert.match(declarationsFor(css, ".epic-view .now-card .doing"), /font:\s*13px\/19px var\(--mono\);/);
+  const time = declarationsFor(css, ".epic-view .now-card .m");
+  assert.match(time, /margin-top:\s*7px;/);
+  assert.match(time, /font:\s*11\.5px\/17px var\(--mono\);/);
+  assert.match(time, /color:\s*var\(--overlay1\);/);
+});
+
+test("the steps fold is a full-width, left-aligned mantle button with no border, and its ▸ turns ▾ when expanded", () => {
+  const fold = declarationsFor(css, ".epic-view .steps-fold");
+  assert.match(fold, /display:\s*block;/);
+  assert.match(fold, /(?<![-\w])width:\s*100%;/);
+  assert.match(fold, /text-align:\s*left;/);
+  assert.match(fold, /padding:\s*5px 10px;/);
+  assert.match(fold, /border:\s*0;/);
+  assert.match(fold, /border-radius:\s*7px;/);
+  assert.match(fold, /background:\s*var\(--mantle\);/);
+  assert.match(fold, /font:\s*12px\/20px var\(--mono\);/);
+  assert.match(fold, /color:\s*var\(--subtext0\);/);
+  const marker = declarationsFor(css, ".epic-view .steps-fold::before");
+  assert.match(marker, /content:\s*"▸";/);
+  assert.match(marker, /color:\s*var\(--overlay0\);/);
+  assert.match(marker, /font-size:\s*10px;/);
+  assert.match(declarationsFor(css, '.epic-view .steps-fold[aria-expanded="true"]::before'), /content:\s*"▾";/);
+});
+
+test("the step list's pips are a flex row of 4px gaps, scoped to .epic-view .step .pips", () => {
+  const pips = declarationsFor(css, ".epic-view .step .pips");
+  assert.match(pips, /display:\s*flex;/);
+  assert.match(pips, /(?<![-\w])gap:\s*4px;/);
+  assert.match(pips, /align-items:\s*center;/);
+});
+
+test("the chart keeps the column's width at 100% and at most 404px", () => {
+  const chart = declarationsFor(css, ".epic-view .chart");
+  assert.match(chart, /(?<![-\w])width:\s*100%;/);
+  assert.match(chart, /max-width:\s*404px;/);
+});
+
+test("the rules E1-D5 drops have no rules: the task's flex row, its mark and status, the outcome's paragraph, the old slug, the column's bare pips and the tone colours", () => {
+  assert.doesNotMatch(css, /\.epic-view \.mark\b/);
+  assert.doesNotMatch(css, /\.task \.status\b/);
+  assert.doesNotMatch(css, /\.epic-head p\b/);
+  assert.doesNotMatch(css, /\.epic-head \.slug\b/);
+  assert.doesNotMatch(css, /\.epic-view \.pips\b/);
+  assert.doesNotMatch(css, /\.ts-[a-z]/);
+  const flexTask = rulesIn(css).filter((rule) => rule.selectors.includes(".epic-view .task") && /display:\s*flex;/.test(rule.declarations));
+  assert.deepEqual(flexTask, []);
+});
