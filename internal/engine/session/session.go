@@ -1,14 +1,58 @@
 package session
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
 	"sync"
-	"sync/atomic"
 
 	"github.com/joshsymonds/orrery/internal/engine/transport"
 )
+
+// The request id and write id of the initialize request, and the longest write id a write may carry in bytes.
+const (
+	initializeRequestID = "orrery-initialize"
+	initializeWriteID   = "initialize"
+	maxWriteIDBytes     = 256
+)
+
+// idWriter is implemented by a process's stdin when it takes the write id of each write.
+type idWriter interface {
+	WriteWithID(id string, data []byte) (int, error)
+}
+
+// stdinWriter is the write end of a session's stdin. Each write goes under id, the write id the session set for the
+// write in progress: through WriteWithID when the process's stdin has it, and through Write when it does not.
+type stdinWriter struct {
+	writer io.WriteCloser
+	id     string
+}
+
+// Write writes data under the write id set for it.
+func (w *stdinWriter) Write(data []byte) (int, error) {
+	if withID, ok := w.writer.(idWriter); ok {
+		n, err := withID.WriteWithID(w.id, data)
+		if err != nil {
+			return n, fmt.Errorf("session: write stdin under %s: %w", w.id, err)
+		}
+		return n, nil
+	}
+	n, err := w.writer.Write(data)
+	if err != nil {
+		return n, fmt.Errorf("session: write stdin: %w", err)
+	}
+	return n, nil
+}
+
+// Close closes the process's stdin.
+func (w *stdinWriter) Close() error {
+	if err := w.writer.Close(); err != nil {
+		return fmt.Errorf("session: close stdin: %w", err)
+	}
+	return nil
+}
 
 // Process is a started session process: its stdin and stdout pipes, the stderr it wrote, and the
 // means to stop it and wait for its exit.
@@ -32,28 +76,36 @@ type detacher interface {
 type Session struct {
 	process   Process
 	transport *transport.Transport
-	lines     chan Line
-	stop      chan struct{}
-	finished  chan struct{}
-	stopOnce  sync.Once
-	stopErr   error
-	requests  atomic.Uint64
-	pending   *openRequests
+	// stdin is the write end the transport writes to. writeMu is held across each write the session makes, so the
+	// write id set on stdin is the id of that write.
+	stdin    *stdinWriter
+	writeMu  sync.Mutex
+	lines    chan Line
+	stop     chan struct{}
+	finished chan struct{}
+	stopOnce sync.Once
+	stopErr  error
+	pending  *openRequests
 }
 
-// New starts a session on process: it writes the initialize request and starts delivering lines.
-// When the initialize request cannot be written, New stops the process and returns the error.
+// New starts a session on process: it writes the initialize request under its write id and starts delivering
+// lines. When the initialize request cannot be written, New stops the process and returns the error.
 func New(process Process) (*Session, error) {
-	stream := transport.New(process.Stdin(), process.Stdout(), transport.WithRawLines())
+	writer := &stdinWriter{writer: process.Stdin()}
+	stream := transport.New(writer, process.Stdout(), transport.WithRawLines())
 	session := &Session{
 		process:   process,
 		transport: stream,
+		stdin:     writer,
 		lines:     make(chan Line),
 		stop:      make(chan struct{}),
 		finished:  make(chan struct{}),
 		pending:   newOpenRequests(),
 	}
-	if err := stream.SendInitialize(session.nextRequestID(), nil); err != nil {
+	err := session.write(initializeWriteID, func() error {
+		return stream.SendInitialize(initializeRequestID, nil)
+	})
+	if err != nil {
 		return nil, errors.Join(
 			fmt.Errorf("session: send initialize: %w", err),
 			terminate(process, stream, false),
@@ -70,17 +122,23 @@ func (s *Session) Lines() <-chan Line {
 	return s.lines
 }
 
-// Prompt writes text as one user message, under a fresh uuid.
-func (s *Session) Prompt(text string) error {
-	if _, err := s.transport.SendUserMessage(text); err != nil {
-		return fmt.Errorf("session: send prompt: %w", err)
-	}
-	return nil
+// Prompt writes text as one user message, under a fresh uuid and writeID as its write id.
+func (s *Session) Prompt(writeID, text string) error {
+	return s.write(writeID, func() error {
+		if _, err := s.transport.SendUserMessage(text); err != nil {
+			return fmt.Errorf("session: send prompt: %w", err)
+		}
+		return nil
+	})
 }
 
-// Interrupt writes an interrupt request for the turn in progress.
+// Interrupt writes an interrupt request for the turn in progress, under a fresh random id.
 func (s *Session) Interrupt() error {
-	if err := s.transport.SendInterrupt(s.nextRequestID()); err != nil {
+	id, err := newRequestID()
+	if err == nil {
+		err = s.write(id, func() error { return s.transport.SendInterrupt(id) })
+	}
+	if err != nil {
 		return fmt.Errorf("session: send interrupt: %w", err)
 	}
 	return nil
@@ -112,9 +170,23 @@ func (s *Session) end(detach bool) error {
 	return s.stopErr
 }
 
-// nextRequestID returns the next control request id, orrery-1 for the first request written.
-func (s *Session) nextRequestID() string {
-	return fmt.Sprintf("orrery-%d", s.requests.Add(1))
+// newRequestID returns a fresh control request id: orrery- and 32 random hex digits. An interrupt and a mode change
+// use it as both their request id and their write id.
+func newRequestID() (string, error) {
+	var raw [16]byte
+	if _, err := rand.Read(raw[:]); err != nil {
+		return "", fmt.Errorf("session: request id: %w", err)
+	}
+	return "orrery-" + hex.EncodeToString(raw[:]), nil
+}
+
+// write runs send, which writes one envelope through the transport, with every stdin write it makes carrying id.
+// writeMu is held across send, so no other write sets its id in between.
+func (s *Session) write(id string, send func() error) error {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	s.stdin.id = id
+	return send()
 }
 
 // terminate ends the process and closes the transport, and returns the errors of both. When detach is
@@ -138,7 +210,7 @@ func (s *Session) run() {
 		// The transport delivers a line without its LF, so the line spans its bytes and the LF after them.
 		end := offset + int64(len(raw)) + 1
 		events := translator.translate(raw)
-		s.observeLine(events)
+		s.observeLine(offset, events)
 		if !s.send(Line{Start: offset, End: end, Events: events}) {
 			return
 		}

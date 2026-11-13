@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"runtime"
 	"strings"
@@ -347,10 +348,8 @@ func requireUserEnvelope(t *testing.T, line, text string) string {
 	return envelope.UUID
 }
 
-const wantInitialize = `{"type":"control_request","request_id":"orrery-1",` +
+const wantInitialize = `{"type":"control_request","request_id":"orrery-initialize",` +
 	`"request":{"subtype":"initialize","supportedDialogKinds":null,"hooks":{},"systemPrompt":[]}}`
-
-const wantInterrupt = `{"type":"control_request","request_id":"orrery-2","request":{"subtype":"interrupt"}}`
 
 // replayFixtures returns the capture fixtures a session replays, one per recorded shape.
 func replayFixtures() []string {
@@ -369,10 +368,10 @@ func TestNewWritesInitializeFirst(t *testing.T) {
 func TestTwoPromptsWriteTwoEnvelopesWithDistinctUUIDs(t *testing.T) {
 	t.Parallel()
 	session, process := startSession(t)
-	if err := session.Prompt("first prompt"); err != nil {
+	if err := session.Prompt("write-1", "first prompt"); err != nil {
 		t.Fatalf("Prompt: %v", err)
 	}
-	if err := session.Prompt("second prompt"); err != nil {
+	if err := session.Prompt("write-2", "second prompt"); err != nil {
 		t.Fatalf("Prompt: %v", err)
 	}
 	lines := stdinLines(process)
@@ -393,15 +392,16 @@ func TestInterruptThenPromptReachTheirTurns(t *testing.T) {
 		t.Fatalf("Interrupt: %v", err)
 	}
 	lines := stdinLines(process)
-	if len(lines) != 2 || lines[1] != wantInterrupt {
-		t.Fatalf("stdin lines = %q, want the interrupt request %q second", lines, wantInterrupt)
+	if len(lines) != 2 {
+		t.Fatalf("stdin lines = %q, want the initialize request and the interrupt request", lines)
 	}
+	requireRandomRequest(t, lines[1], interruptFormat)
 
 	interrupted := translateFixture(t, "interrupt")
 	emit(t, process, fixtureLines(t, "interrupt")...)
 	requireEvents(t, readEvents(t, session, len(interrupted)), interrupted)
 
-	if err := session.Prompt("after the interrupt"); err != nil {
+	if err := session.Prompt("write-3", "after the interrupt"); err != nil {
 		t.Fatalf("Prompt: %v", err)
 	}
 	lines = stdinLines(process)
@@ -415,13 +415,33 @@ func TestInterruptThenPromptReachTheirTurns(t *testing.T) {
 	requireEvents(t, readEvents(t, session, len(next)), next)
 }
 
+// observedFixture returns the events of the named fixture as the session delivers them: each line translated in
+// order, its requests carrying the write id of their event, "event:" with the line's start and the event's index.
+func observedFixture(t *testing.T, name string) []Event {
+	t.Helper()
+	tr := newTranslator()
+	var events []Event
+	var start int64
+	for _, line := range fixtureLines(t, name) {
+		for index, event := range tr.translate(line) {
+			if request, ok := event.(Request); ok {
+				request.WriteID = fmt.Sprintf("event:%d.%d", start, index)
+				event = request
+			}
+			events = append(events, event)
+		}
+		start += int64(len(line)) + 1
+	}
+	return events
+}
+
 func TestFixtureReplayDeliversTranslatorEventsThenExited(t *testing.T) {
 	t.Parallel()
 	for _, name := range replayFixtures() {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			session, process := startSession(t)
-			want := translateFixture(t, name)
+			want := observedFixture(t, name)
 			emit(t, process, fixtureLines(t, name)...)
 			process.exit(nil, "")
 

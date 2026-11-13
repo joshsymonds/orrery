@@ -337,11 +337,15 @@ func (m *Manager) start(ctx context.Context, id string, req StartRequest) (strin
 	if err != nil {
 		return id, m.fail(ctx, id, req.Dir, err)
 	}
-	if err = m.writer.Put(ctx, id, store.EnginePrompt{ID: id, Text: req.Prompt}); err != nil {
+	writeID, err := newWriteID()
+	if err != nil {
+		return id, m.abandon(ctx, live, err)
+	}
+	if err = m.writer.Commit(ctx, id, store.EnginePrompt{ID: id, Text: req.Prompt, WriteID: writeID}); err != nil {
 		return id, m.abandon(ctx, live, err)
 	}
 	m.setTurning(live, true)
-	if err = live.sess.Prompt(req.Prompt); err != nil {
+	if err = live.sess.Prompt(writeID, req.Prompt); err != nil {
 		m.setTurning(live, false)
 		return id, m.abandon(ctx, live, err)
 	}
@@ -458,15 +462,19 @@ func (m *Manager) say(ctx context.Context, req SayRequest) error {
 func (m *Manager) send(ctx context.Context, live *liveSession, req SayRequest) error {
 	id, text := req.ID, req.Text
 	working := string(protocol.StateWorking)
-	if err := m.writer.Commit(ctx, id, store.EnginePrompt{ID: id, Text: text, PromptID: req.PromptID},
-		store.EngineSet{ID: id, Changes: store.EngineChanges{State: &working}}); err != nil {
+	writeID, err := newWriteID()
+	if err == nil {
+		err = m.writer.Commit(ctx, id, store.EnginePrompt{ID: id, Text: text, PromptID: req.PromptID, WriteID: writeID},
+			store.EngineSet{ID: id, Changes: store.EngineChanges{State: &working}})
+	}
+	if err != nil {
 		m.setTurning(live, false)
 		return fmt.Errorf("record prompt of session %s: %w", id, err)
 	}
 	if !live.step {
 		m.changed(ctx, id)
 	}
-	if err := live.sess.Prompt(text); err != nil {
+	if err = live.sess.Prompt(writeID, text); err != nil {
 		m.setTurning(live, false)
 		var marks []store.EngineOp
 		if req.PromptID != "" {
@@ -976,6 +984,15 @@ func newSessionID() (string, error) {
 	return hex.EncodeToString(raw[:]), nil
 }
 
+// newWriteID returns the write id of a prompt about to be sent: 128 random bits in hex.
+func newWriteID() (string, error) {
+	var raw [16]byte
+	if _, err := rand.Read(raw[:]); err != nil {
+		return "", fmt.Errorf("write id: %w", err)
+	}
+	return hex.EncodeToString(raw[:]), nil
+}
+
 // spawnSpec describes the process a spawn starts: the claude session it resumes, the model it runs, and for a step the
 // agent and schema it runs with, and the observer of its hand-offs. step marks a step session.
 type spawnSpec struct {
@@ -989,7 +1006,8 @@ type spawnSpec struct {
 
 // spawn resolves claude and starts the session process for id in dir as sp describes, ctx bounding its launch. The
 // prompt is not sent here. The process takes the context stamp in effect for dir as its settings, and a stamp that cannot
-// be read fails the spawn before claude runs.
+// be read fails the spawn before claude runs. The launch of id is committed before the holder starts, so a commit that
+// fails fails the spawn too.
 func (m *Manager) spawn(ctx context.Context, id, dir string, sp spawnSpec) (*session.Session, error) {
 	claude, err := exec.LookPath(m.claude)
 	if err != nil {
@@ -998,6 +1016,9 @@ func (m *Manager) spawn(ctx context.Context, id, dir string, sp spawnSpec) (*ses
 	settings, err := m.stampSettings(dir)
 	if err != nil {
 		return nil, fmt.Errorf("spawn session %s: %w", id, err)
+	}
+	if err = m.writer.Commit(ctx, id, store.EngineLaunch{ID: id}); err != nil {
+		return nil, fmt.Errorf("launch session %s: %w", id, err)
 	}
 	sess, err := session.Start(ctx, session.Config{
 		Shell:          m.shell,
@@ -1127,7 +1148,7 @@ func (m *Manager) recordLine(
 // refuses every other kind itself. A failed answer is logged; the session then stays blocked on the request until its
 // process exits, which the pump records.
 func (m *Manager) answerStepRequest(ctx context.Context, live *liveSession, request session.Request) {
-	if err := live.sess.Deny(request.RequestID, stepDenyMessage); err != nil {
+	if err := live.sess.DenyEvent(request, stepDenyMessage); err != nil {
 		m.logger.WarnContext(ctx, "answer step request", "session", live.id, "request", request.RequestID, "err", err)
 	}
 }
