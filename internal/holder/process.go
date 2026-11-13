@@ -50,6 +50,8 @@ type Process struct {
 	// buf holds stdout the holder has sent and Read has not returned. next is the offset the next out frame starts at.
 	buf  []byte
 	next int64
+	// replayFrom is the offset SetReplayFrom last allowed, 0 until it is called.
+	replayFrom int64
 	// streamEnd is the error that ended the stream, io.EOF for a clean end. It is nil while the stream runs.
 	streamEnd error
 	// exit is the exit record, once the exit frame has arrived.
@@ -77,6 +79,14 @@ func newProcess(held heldProcess, conn *Conn, socket, remove string) *Process {
 	go process.run()
 	go process.awaitHolder()
 	return process
+}
+
+// SetReplayFrom allows the holder to trim its spool below off. It never lowers the offset, so a call with a smaller off
+// changes nothing. Each ack carries the offset no higher than the bytes consumed.
+func (p *Process) SetReplayFrom(off int64) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.replayFrom = max(p.replayFrom, off)
 }
 
 // Stdin returns the write end of the child's stdin.
@@ -301,10 +311,10 @@ func (p *Process) isDetached() bool {
 }
 
 // readStdout copies buffered stdout into b, waiting while there is none. After a Read returns bytes while the stream has
-// not ended, it acks the total consumed, so the holder may trim its spool. Once the stream has ended, the connection is
-// closed, so there is nothing to ack. The stream can end while an ack is in flight (the holder closes its connection just
-// after its exit frame, and the stream's end closes ours), so a failed ack waits for the stream's end and returns the
-// bytes with no error: the next Read reports how the stream ended, which is also why the ack failed.
+// not ended, it acks the total consumed and the replay-from, so the holder may trim its spool. Once the stream has ended,
+// the connection is closed, so there is nothing to ack. The stream can end while an ack is in flight (the holder closes
+// its connection just after its exit frame, and the stream's end closes ours), so a failed ack waits for the stream's end
+// and returns the bytes with no error: the next Read reports how the stream ended, which is also why the ack failed.
 func (p *Process) readStdout(b []byte) (int, error) {
 	p.readMu.Lock()
 	defer p.readMu.Unlock()
@@ -316,10 +326,18 @@ func (p *Process) readStdout(b []byte) (int, error) {
 	if !open {
 		return n, nil
 	}
-	if ackErr := p.conn.Ack(p.returned, p.returned); ackErr != nil {
+	if ackErr := p.conn.Ack(p.returned, p.ackReplayFrom(p.returned)); ackErr != nil {
 		<-p.streamDone
 	}
 	return n, nil
+}
+
+// ackReplayFrom returns the replay-from an ack of consumed carries: the offset SetReplayFrom last allowed, but no higher
+// than consumed.
+func (p *Process) ackReplayFrom(consumed int64) int64 {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return min(p.replayFrom, consumed)
 }
 
 // takeBytes copies buffered stdout into buf, waiting until there is some, the stream ends, or stdout is closed. Buffered
@@ -349,12 +367,13 @@ func (p *Process) takeBytes(buf []byte) (int, bool, error) {
 	}
 }
 
-// writeStdin sends data to the child's stdin as a write frame under a fresh id, and waits for the holder's answer. It
-// returns len(data) once the holder has written it, and otherwise the error the holder or the end of the stream gives.
-func (p *Process) writeStdin(data []byte) (int, error) {
-	id, err := newWriteID()
-	if err != nil {
-		return 0, err
+// writeStdin sends data to the child's stdin as a write frame under id, and waits for the holder's answer. It returns
+// len(data) once the holder has written it or answered id as a duplicate, and otherwise the error the holder or the end
+// of the stream gives. An id the holder would refuse is not sent, since the holder closes its connection on one, and an id
+// still waiting is refused too, since its answer would reach the new write and not the old one.
+func (p *Process) writeStdin(id string, data []byte) (int, error) {
+	if n := len(id); n == 0 || n > maxWriteIDBytes {
+		return 0, fmt.Errorf("holder: write id is %d bytes, want 1 to %d", n, maxWriteIDBytes)
 	}
 	answer := make(chan error, 1)
 	p.mu.Lock()
@@ -366,6 +385,10 @@ func (p *Process) writeStdin(data []byte) (int, error) {
 		streamErr := p.streamEnd
 		p.mu.Unlock()
 		return 0, streamErr
+	}
+	if _, waiting := p.pending[id]; waiting {
+		p.mu.Unlock()
+		return 0, fmt.Errorf("holder: write id %s is already waiting", id)
 	}
 	p.pending[id] = answer
 	p.mu.Unlock()
@@ -395,9 +418,19 @@ type processStdin struct {
 	p *Process
 }
 
-// Write sends b to the child's stdin and returns once the holder has written it.
+// Write sends b to the child's stdin under a fresh id and returns once the holder has written it.
 func (s processStdin) Write(b []byte) (int, error) {
-	return s.p.writeStdin(b)
+	id, err := newWriteID()
+	if err != nil {
+		return 0, err
+	}
+	return s.p.writeStdin(id, b)
+}
+
+// WriteWithID sends b to the child's stdin under id and returns once the holder has written it. The holder answers a
+// repeat of a recorded id as a duplicate, which counts as written, so the child receives b once.
+func (s processStdin) WriteWithID(id string, b []byte) (int, error) {
+	return s.p.writeStdin(id, b)
 }
 
 // Close makes later writes fail with os.ErrClosed. It does not affect a write in flight.
