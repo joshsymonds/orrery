@@ -47,23 +47,28 @@ var memberNamePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 // Environ is the environment each member command runs in, plus ORRERY_POOL and ORRERY_MEMBER. Now stamps grants, and
 // nil means time.Now. Logger receives the broker's warnings, and nil discards them. Alive reports whether the process
 // with a pid lives under the start time its grant recorded, for the clients of kept grants, and nil means processAlive.
+// HolderAlive reports whether the holder directory dir lives, for the holders of kept grants, and nil means no holder
+// lives.
 type Config struct {
-	Host    string
-	Store   *store.Store
-	Environ []string
-	Now     func() time.Time
-	Logger  *slog.Logger
-	Alive   func(pid int, start int64) bool
+	Host        string
+	Store       *store.Store
+	Environ     []string
+	Now         func() time.Time
+	Logger      *slog.Logger
+	Alive       func(pid int, start int64) bool
+	HolderAlive func(dir string) bool
 }
 
 // Request asks for members of pools for Project. Pools holds the pool definitions the client's merged files give,
-// and every needed pool must be among them. ClientPID is the process the grant lasts with. GrantID names a grant to
-// reclaim. Command is the argv of the command the grant is for, stored with the grant.
+// and every needed pool must be among them. ClientPID is the process the grant lasts with. Holder is the absolute
+// holder directory the grant also lasts with, stored with the grant, and empty when the grant names none. GrantID
+// names a grant to reclaim. Command is the argv of the command the grant is for, stored with the grant.
 type Request struct {
 	Project   string
 	Pools     []pools.Pool
 	Needs     []Need
 	ClientPID int
+	Holder    string
 	GrantID   string
 	Command   []string
 }
@@ -93,6 +98,8 @@ type Broker struct {
 	now     func() time.Time
 	logger  *slog.Logger
 	alive   func(pid int, start int64) bool
+	// holderAlive reports whether a grant's holder directory lives, and is never nil.
+	holderAlive func(dir string) bool
 
 	// commands counts the member commands in flight, which Close waits for.
 	commands sync.WaitGroup
@@ -213,12 +220,13 @@ type command struct {
 func NewBroker(cfg Config) *Broker {
 	broker := &Broker{
 		host: cfg.Host, store: cfg.Store, environ: cfg.Environ, now: cfg.Now, logger: cfg.Logger, alive: cfg.Alive,
-		done:     make(chan struct{}),
-		pools:    make(map[string]*poolUse),
-		attached: make(map[string]*waiter),
-		detached: make(map[string]*waiter),
-		holds:    make(map[string]time.Time),
-		cancels:  make(map[uint64]context.CancelFunc),
+		holderAlive: cfg.HolderAlive,
+		done:        make(chan struct{}),
+		pools:       make(map[string]*poolUse),
+		attached:    make(map[string]*waiter),
+		detached:    make(map[string]*waiter),
+		holds:       make(map[string]time.Time),
+		cancels:     make(map[uint64]context.CancelFunc),
 	}
 	if broker.now == nil {
 		broker.now = time.Now
@@ -229,7 +237,25 @@ func NewBroker(cfg Config) *Broker {
 	if broker.alive == nil {
 		broker.alive = processAlive
 	}
+	if broker.holderAlive == nil {
+		broker.holderAlive = func(string) bool { return false }
+	}
 	return broker
+}
+
+// lasts reports whether a grant lasts with its client, a process with pid that started at start, and with holder: its
+// client is alive, or it names a holder that is alive. A grant ends only when neither is.
+func (b *Broker) lasts(pid int, start int64, holder string) bool {
+	if b.alive(pid, start) {
+		return true
+	}
+	return holder != "" && b.holderAlive(holder)
+}
+
+// reclaims reports whether req, a reclaim, names the grant that held is: it names the client pid the grant lasts with,
+// or a non-empty holder the grant names too, whatever its pid.
+func reclaims(req, held Request) bool {
+	return req.ClientPID == held.ClientPID || (req.Holder != "" && req.Holder == held.Holder)
 }
 
 // processAlive reports whether the process with pid lives and started at start, the start time its grant recorded. A
@@ -276,9 +302,8 @@ func parseStartTime(stat string) (int64, error) {
 
 // Run runs the status of each member of each pool in use on each tick of tick, and returns when ctx ends, when the
 // broker closes, or when tick closes. On each tick a kept grant, or a requeued request, whose client is no longer alive
-// ends. A member whose
-// command still runs gets no status on a tick, so no member has two commands at once. Each status applies its outcome
-// when it ends, which reconsiders the waiting requests.
+// and which names no holder that lives ends. A member whose command still runs gets no status on a tick, so no member
+// has two commands at once. Each status applies its outcome when it ends, which reconsiders the waiting requests.
 func (b *Broker) Run(ctx context.Context, tick <-chan time.Time) {
 	// Member commands run on a context that never ends, as Acquire's do: Close, not the caller leaving, ends them.
 	cmdCtx := context.WithoutCancel(ctx)
@@ -316,13 +341,13 @@ func (b *Broker) statusTick(ctx context.Context) {
 	}
 }
 
-// endDeadLocked ends each detached grant whose client is no longer alive, and each requeued request whose client is no
-// longer alive, then reconsiders the queue. A grant whose row the store cannot remove still frees its members, as
-// releaseLocked does, and the failure is logged.
+// endDeadLocked ends each detached grant that neither its client nor its holder keeps alive, and each requeued request
+// that neither its client nor its holder keeps alive, then reconsiders the queue. A grant whose row the store cannot
+// remove still frees its members, as releaseLocked does, and the failure is logged.
 func (b *Broker) endDeadLocked(ctx context.Context) {
 	ended := false
 	for id, held := range b.detached {
-		if b.alive(held.req.ClientPID, held.clientStart) {
+		if b.lasts(held.req.ClientPID, held.clientStart, held.req.Holder) {
 			continue
 		}
 		delete(b.detached, id)
@@ -332,7 +357,7 @@ func (b *Broker) endDeadLocked(ctx context.Context) {
 		ended = true
 	}
 	for _, entry := range slices.Clone(b.waiting) {
-		if entry.unattached && !b.alive(entry.req.ClientPID, entry.clientStart) {
+		if entry.unattached && !b.lasts(entry.req.ClientPID, entry.clientStart, entry.req.Holder) {
 			b.dequeueLocked(entry)
 			ended = true
 		}
@@ -343,10 +368,10 @@ func (b *Broker) endDeadLocked(ctx context.Context) {
 }
 
 // Restore brings back the holds and the grants an earlier broker stored, before this broker serves. The holds come back
-// first, before any grant. A stored grant whose client is not alive ends in the store at once. Each other grant's pools
-// come back into use and its members are held again, and the grant waits detached until its client reclaims it by id
-// and pid. A grant with a held member is stopping, so its reclaim is sent the stop. A detached grant whose client dies
-// ends on a tick.
+// first, before any grant. A stored grant that neither its client nor its holder keeps alive ends in the store at once.
+// Each other grant's pools come back into use and its members are held again, and the grant waits detached until its
+// client reclaims it by id and pid, or its holder by id and holder. A grant with a held member is stopping, so its
+// reclaim is sent the stop. A detached grant that neither its client nor its holder keeps alive ends on a tick.
 func (b *Broker) Restore(ctx context.Context) error {
 	holds, err := b.store.Holds(ctx)
 	if err != nil {
@@ -364,7 +389,7 @@ func (b *Broker) Restore(ctx context.Context) error {
 		b.holds[hold.Member] = hold.Since
 	}
 	for _, row := range rows {
-		if !b.alive(row.ClientPID, row.ClientStart) {
+		if !b.lasts(row.ClientPID, row.ClientStart, row.Holder) {
 			err = b.store.EndGrant(storeCtx, row.ID)
 			if err != nil {
 				return fmt.Errorf("end grant %s of dead client %d: %w", row.ID, row.ClientPID, err)
@@ -409,7 +434,7 @@ func (b *Broker) restoreLocked(ctx context.Context, row store.GrantRow) error {
 		id: strconv.FormatUint(b.seq, 10), seq: b.seq,
 		req: Request{
 			Project: row.Project, Pools: defs, Needs: needsOf(kept.Members), ClientPID: row.ClientPID,
-			Command: row.Command,
+			Holder: row.Holder, Command: row.Command,
 		},
 		poolsJSON:   row.Pools,
 		grant:       kept,
@@ -480,8 +505,8 @@ func (b *Broker) Acquire(ctx context.Context, req Request, send func(Event) erro
 
 // reclaim serves a call that reclaims the grant req names. A grant Restore kept is held by the call at once. A grant
 // that is stopping is waited for, since its stream is still open, and once it is requeued the call waits in the queue
-// for its request. A request that is queued for the grant is attached to the call. Any other grant, or a client that
-// is not the grant's own, returns ErrNoGrant before the call queues.
+// for its request. A request that is queued for the grant is attached to the call. Any other grant, or a request that
+// names neither the grant's client pid nor its holder, returns ErrNoGrant before the call queues.
 func (b *Broker) reclaim(ctx, storeCtx context.Context, req Request, send func(Event) error) error {
 	for {
 		b.mu.Lock()
@@ -489,13 +514,13 @@ func (b *Broker) reclaim(ctx, storeCtx context.Context, req Request, send func(E
 			b.mu.Unlock()
 			return ErrClosed
 		}
-		if kept, ok := b.detached[req.GrantID]; ok && kept.req.ClientPID == req.ClientPID {
+		if kept, ok := b.detached[req.GrantID]; ok && reclaims(req, kept.req) {
 			delete(b.detached, req.GrantID)
 			b.attached[req.GrantID] = kept
 			b.mu.Unlock()
 			return b.hold(ctx, storeCtx, kept, send)
 		}
-		if old, ok := b.attached[req.GrantID]; ok && old.stopping && old.req.ClientPID == req.ClientPID {
+		if old, ok := b.attached[req.GrantID]; ok && old.stopping && reclaims(req, old.req) {
 			requeued := old.requeued
 			b.mu.Unlock()
 			select {
@@ -518,11 +543,11 @@ func (b *Broker) reclaim(ctx, storeCtx context.Context, req Request, send func(E
 	}
 }
 
-// requeuedLocked returns the queued request that req reclaims, a stopped grant's request that waits for its client, and
-// its position counted from 1. It returns nil when no such request is queued for req's client.
+// requeuedLocked returns the queued request that req reclaims, a stopped grant's request that waits for its client or
+// its holder, and its position counted from 1. It returns nil when no such request is queued for req.
 func (b *Broker) requeuedLocked(req Request) (*waiter, int) {
 	i := slices.IndexFunc(b.waiting, func(entry *waiter) bool {
-		return entry.unattached && entry.req.GrantID == req.GrantID && entry.req.ClientPID == req.ClientPID
+		return entry.unattached && entry.req.GrantID == req.GrantID && reclaims(req, entry.req)
 	})
 	if i < 0 {
 		return nil, 0
@@ -887,8 +912,9 @@ func (b *Broker) grantLocked(ctx context.Context, assignment Assignment) {
 	}
 	granted := b.now()
 	row := store.GrantRow{
-		ID: id, Project: queued.req.Project, ClientPID: queued.req.ClientPID, ClientStart: clientStart,
-		Pools: queued.poolsJSON, Command: queued.req.Command, Members: stored, Granted: granted,
+		ID: id, Project: queued.req.Project, Holder: queued.req.Holder, ClientPID: queued.req.ClientPID,
+		ClientStart: clientStart, Pools: queued.poolsJSON, Command: queued.req.Command, Members: stored,
+		Granted: granted,
 	}
 	if err := b.store.AddGrant(ctx, row); err != nil {
 		b.failLocked(queued, fmt.Errorf("store grant %s: %w", id, err))
