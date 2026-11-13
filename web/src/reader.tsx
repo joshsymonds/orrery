@@ -4,6 +4,7 @@ import { useLayoutEffect, useRef, useState } from "preact/hooks";
 import type { Conversation } from "./conversation";
 import { useFlash } from "./flash";
 import type { ConversationItem, EngineText, WaitingMessage } from "./gen/orrery/v1/orrery_pb";
+import { Markdown } from "./markdown";
 import type { ParsedQuestion } from "./question";
 import { ReplyText } from "./text";
 
@@ -15,9 +16,10 @@ const nearBottomPixels = 4;
 // Reader draws one conversation: its items, the "since you looked" rule before the first row newer than seenAt, the
 // pane's question with a button per answer, the session's unfinished text and thinking, and the queue of waiting
 // messages. A result is never a row: it folds under the call it answers, and a result whose call is not held is hidden.
-// Every text is drawn as text: through ReplyText, or as a plain child of an element, so no markup becomes an element
-// and no link sits inside a button. The reader is its own scroll container: a conversation that replaces a null one
-// opens at its bottom, and any other render keeps the bottom only for a reader that sat within nearBottomPixels of it.
+// A reply, a prompt and live text draw through Markdown, which builds only its fixed elements. Every other text is drawn
+// as text: through ReplyText, or as a plain child of an element, so no markup becomes an element and no link sits inside
+// a button. The reader is its own scroll container: a conversation that replaces a null one opens at its bottom, and any
+// other render keeps the bottom only for a reader that sat within nearBottomPixels of it.
 export function Reader({
   conversation,
   seenAt,
@@ -194,7 +196,7 @@ function ItemBody({
       return (
         <div class="you">
           <small>YOU</small>
-          <ReplyText text={item.text} />
+          <ReplyMarkdown text={item.text} />
         </div>
       );
     case "tool":
@@ -210,8 +212,18 @@ function ItemBody({
     case "compaction":
       return <Compaction item={item} open={open} onToggleOpen={onToggleOpen} />;
     default:
-      return <ReplyText text={item.text} />;
+      return <ReplyMarkdown text={item.text} />;
   }
+}
+
+// ReplyMarkdown draws a reply's text as Markdown inside its .reply element, the element the reader's Markdown styles
+// hang from.
+function ReplyMarkdown({ text }: { text: string }) {
+  return (
+    <div class="reply">
+      <Markdown text={text} />
+    </div>
+  );
 }
 
 // CallRow draws a tool or question item as one line of its tool and its input or question. A call with a result is a
@@ -256,7 +268,7 @@ function LiveRow({ block }: { block: EngineText }) {
     <div class="t live-row">
       <span class="gut live">live</span>
       <div class="body">
-        <ReplyText text={block.text} />
+        <ReplyMarkdown text={block.text} />
         <span class="caret soft" />
       </div>
     </div>

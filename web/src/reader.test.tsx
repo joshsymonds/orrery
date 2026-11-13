@@ -218,6 +218,164 @@ test("only http and https URLs in item text become links", () =>
     },
   ));
 
+test("a reply draws its markdown as elements inside .reply: a list, a code block and strong", () =>
+  withReader(
+    {
+      conversation: conversation({
+        items: [
+          item({ kind: "reply", time: 100n, text: "- one\n- two\n\n```\nlet x = a < b && c;\n```\n\n**bold** end" }),
+        ],
+      }),
+      seenAt: 0,
+      open: false,
+    },
+    (container) => {
+      assert.equal(container.querySelectorAll(".reader > .t > .body > .reply > ul > li").length, 2);
+      assert.equal(
+        container.querySelector(".reader > .t > .body > .reply > pre > code")?.textContent,
+        "let x = a < b && c;",
+      );
+      assert.equal(container.querySelector(".reader > .t > .body > .reply strong")?.textContent, "bold");
+    },
+  ));
+
+test("a reply's table draws its header and cells in order inside .reply", () =>
+  withReader(
+    {
+      conversation: conversation({
+        items: [item({ kind: "reply", time: 100n, text: "| a | b < c |\n| - | - |\n| 1 < 2 | 3 & 4 |" })],
+      }),
+      seenAt: 0,
+      open: false,
+    },
+    (container) => {
+      const headers = [...container.querySelectorAll(".reader > .t > .body > .reply > table thead th")].map(
+        (cell) => cell.textContent,
+      );
+      assert.deepEqual(headers, ["a", "b < c"]);
+      const cells = [...container.querySelectorAll(".reader > .t > .body > .reply > table tbody td")].map(
+        (cell) => cell.textContent,
+      );
+      assert.deepEqual(cells, ["1 < 2", "3 & 4"]);
+    },
+  ));
+
+test("a reply's quote draws blockquote around its paragraph inside .reply", () =>
+  withReader(
+    {
+      conversation: conversation({ items: [item({ kind: "reply", time: 100n, text: "> quoted < text" })] }),
+      seenAt: 0,
+      open: false,
+    },
+    (container) => {
+      assert.equal(
+        container.querySelector(".reader > .t > .body > .reply > blockquote > p")?.textContent,
+        "quoted < text",
+      );
+    },
+  ));
+
+test("a reply's rule draws hr between its paragraphs inside .reply", () =>
+  withReader(
+    {
+      conversation: conversation({ items: [item({ kind: "reply", time: 100n, text: "above\n\n---\n\nbelow" })] }),
+      seenAt: 0,
+      open: false,
+    },
+    (container) => {
+      assert.equal(container.querySelectorAll(".reader > .t > .body > .reply > hr").length, 1);
+      assert.equal(container.querySelector(".reader > .t > .body > .reply")?.textContent, "abovebelow");
+    },
+  ));
+
+test("a reply's heading draws h2 with its text inside .reply", () =>
+  withReader(
+    {
+      conversation: conversation({ items: [item({ kind: "reply", time: 100n, text: "## Plan < two" })] }),
+      seenAt: 0,
+      open: false,
+    },
+    (container) => {
+      assert.equal(container.querySelector(".reader > .t > .body > .reply > h2")?.textContent, "Plan < two");
+    },
+  ));
+
+test("a reply's link draws an a with its http(s) href inside .reply", () =>
+  withReader(
+    {
+      conversation: conversation({
+        items: [item({ kind: "reply", time: 100n, text: "[docs](https://example.test/docs) and [bad](javascript:x)" })],
+      }),
+      seenAt: 0,
+      open: false,
+    },
+    (container) => {
+      assert.equal(container.querySelectorAll(".reader > .t > .body > .reply a").length, 1);
+      assert.equal(
+        container.querySelector(".reader > .t > .body > .reply a")?.getAttribute("href"),
+        "https://example.test/docs",
+      );
+      assert.equal(container.querySelector(".reader > .t > .body > .reply")?.textContent, "docs and bad");
+    },
+  ));
+
+test("a reply's emphasis and strikethrough draw em and del inside .reply", () =>
+  withReader(
+    {
+      conversation: conversation({ items: [item({ kind: "reply", time: 100n, text: "*soft* and ~~gone~~" })] }),
+      seenAt: 0,
+      open: false,
+    },
+    (container) => {
+      assert.equal(container.querySelector(".reader > .t > .body > .reply > p > em")?.textContent, "soft");
+      assert.equal(container.querySelector(".reader > .t > .body > .reply > p > del")?.textContent, "gone");
+    },
+  ));
+
+test("a prompt draws its markdown as elements inside .reply", () =>
+  withReader(
+    {
+      conversation: conversation({ items: [item({ kind: "prompt", time: 100n, text: "**ask** `how`" })] }),
+      seenAt: 0,
+      open: false,
+    },
+    (container) => {
+      assert.equal(container.querySelector(".you > .reply > p > strong")?.textContent, "ask");
+      assert.equal(container.querySelector(".you > .reply > p > code")?.textContent, "how");
+    },
+  ));
+
+test("live text draws its markdown as elements inside .reply, before its caret", () =>
+  withReader(
+    { conversation: conversation({ unfinished: [unfinished("- streamed\n- item")] }), seenAt: 0, open: false },
+    (container) => {
+      assert.equal(container.querySelectorAll(".live-row > .body > .reply > ul > li").length, 2);
+      assert.equal(container.querySelector(".live-row > .body > .reply + .caret") !== null, true);
+    },
+  ));
+
+test("a notice and a queued message holding markdown stay literal text", () =>
+  withReader(
+    {
+      conversation: conversation({
+        items: [item({ kind: "notice", time: 100n, notice: "interrupted", text: "**kept** `raw`" })],
+        state: create(ConversationStateSchema, {
+          waiting: [create(WaitingMessageSchema, { text: "**queued** `raw`", time: 110n, canceled: false })],
+        }),
+      }),
+      seenAt: 0,
+      open: false,
+    },
+    (container) => {
+      assert.equal(container.querySelector(".notice strong") === null, true);
+      assert.equal(container.querySelector(".notice code") === null, true);
+      assert.equal(container.querySelector(".queued strong") === null, true);
+      assert.equal(container.querySelector(".queued code") === null, true);
+      assert.ok(container.querySelector(".notice")?.textContent?.includes("**kept** `raw`"));
+      assert.ok(container.querySelector(".queued")?.textContent?.includes("**queued** `raw`"));
+    },
+  ));
+
 test("the new rule sits before the first item newer than seenAt", () =>
   withReader(
     {

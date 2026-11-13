@@ -169,6 +169,29 @@ button, input, textarea, select { font-family: var(--mono); }
 .reader .body p { margin: 0 0 10px; }
 .reader .body > :last-child { margin-bottom: 0; }
 .reader .body a { color: var(--blue); }
+/* A reply, a prompt and a live text draw Markdown in .reply: its elements sit in the reader column at the body's size. Code
+   takes the mono family too, which the browser would otherwise give it. A code block and a table scroll sideways inside
+   themselves, so a wide one never widens the column. */
+.reader .reply { overflow-wrap: anywhere; }
+.reader .reply > :first-child { margin-top: 0; }
+.reader .reply > :last-child { margin-bottom: 0; }
+.reader .reply p, .reader .reply ul, .reader .reply ol, .reader .reply blockquote, .reader .reply pre, .reader .reply table { margin: 0 0 10px; }
+.reader .reply ul, .reader .reply ol { padding-left: 1.5em; }
+.reader .reply li + li { margin-top: 3px; }
+.reader .reply h1, .reader .reply h2, .reader .reply h3, .reader .reply h4, .reader .reply h5, .reader .reply h6 { margin: 4px 0 6px; font-weight: 700; color: var(--text); }
+.reader .reply h1 { font-size: 1.2em; }
+.reader .reply h2 { font-size: 1.12em; }
+.reader .reply h3 { font-size: 1.05em; }
+.reader .reply h4, .reader .reply h5, .reader .reply h6 { font-size: 1em; }
+.reader .reply code, .reader .reply pre { font-family: var(--mono); }
+.reader .reply code { padding: 0 4px; border-radius: 4px; background: var(--surface0); font-size: .92em; }
+.reader .reply pre { overflow-x: auto; padding: 8px 10px; border-radius: 6px; background: var(--mantle); }
+.reader .reply pre code { padding: 0; background: none; font-size: 1em; }
+.reader .reply blockquote { padding-left: 12px; border-left: 2px solid var(--surface1); color: var(--subtext0); }
+.reader .reply hr { margin: 12px 0; border: 0; border-top: 1px solid var(--surface1); }
+.reader .reply table { display: block; overflow-x: auto; border-collapse: collapse; }
+.reader .reply th, .reader .reply td { padding: 2px 12px 2px 0; text-align: left; vertical-align: top; white-space: nowrap; border-bottom: 1px solid var(--surface0); }
+.reader .reply th { font-weight: 700; color: var(--text); }
 .reader .you { padding: 8px 14px 10px; border-radius: 3px 10px 10px 3px; background: var(--surface0); box-shadow: inset 3px 0 0 var(--mauve); }
 .reader .you small { display: block; font: 700 10px/16px var(--mono); letter-spacing: .12em; color: var(--mauve); }
 .reader .rule { display: flex; align-items: center; gap: 10px; font: 11.5px/23px var(--mono); color: var(--overlay0); white-space: nowrap; }
