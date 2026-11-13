@@ -76,7 +76,7 @@ type Writer struct {
 	// queue holds the ops not yet in an ApplyEngine call that succeeded, oldest first. A flush takes the whole
 	// queue out while it applies, so an op in flight can never be coalesced into.
 	queue []entry
-	// unstored counts each session's queued or in-flight non-text ops.
+	// unstored counts each session's queued or in-flight ops that count against the limit.
 	unstored map[string]int
 	// changed is closed and replaced whenever a flush stores or drops ops, waking Puts blocked at the limit.
 	changed chan struct{}
@@ -139,9 +139,9 @@ func (w *Writer) Run(ctx context.Context) {
 	}
 }
 
-// Put queues ops for session id, in order. A Put with a non-text op waits while the session has as many unstored
-// non-text ops as the limit, so a session that cannot store pauses instead of growing without bound. The ops must
-// carry id as their session ID.
+// Put queues ops for session id, in order. A Put with an op that counts against the limit waits while the session has
+// as many unstored ops that count as the limit, so a session that cannot store pauses instead of growing without
+// bound. Text and consumed-offset ops do not count. The ops must carry id as their session ID.
 func (w *Writer) Put(ctx context.Context, id string, ops ...store.EngineOp) error {
 	_, err := w.put(ctx, id, ops)
 	return err
@@ -163,16 +163,10 @@ func (w *Writer) Commit(ctx context.Context, id string, ops ...store.EngineOp) e
 	return nil
 }
 
-// put queues ops and returns, for each op, its outcome. A text op coalesced into a queued one returns that op's
-// outcome.
+// put queues ops and returns, for each op, its outcome. A text or consumed-offset op coalesced into a queued one returns
+// that op's outcome.
 func (w *Writer) put(ctx context.Context, id string, ops []store.EngineOp) ([]*outcome, error) {
-	needsRoom := false
-	for _, op := range ops {
-		if !isText(op) {
-			needsRoom = true
-			break
-		}
-	}
+	needsRoom := slices.ContainsFunc(ops, countsAgainstLimit)
 
 	w.mu.Lock()
 	for needsRoom && w.unstored[id] >= w.limit {
@@ -199,17 +193,22 @@ func (w *Writer) put(ctx context.Context, id string, ops []store.EngineOp) ([]*o
 	return results, nil
 }
 
-// enqueueLocked appends op to the queue, or coalesces an EngineText into the queued one it replaces, and returns the
-// outcome of op.
+// enqueueLocked appends op to the queue, or coalesces an EngineText or EngineConsumed into the queued one it merges
+// with, and returns the outcome of op.
 func (w *Writer) enqueueLocked(id string, op store.EngineOp) *outcome {
 	if text, ok := op.(store.EngineText); ok {
 		if coalesced, done := w.coalesceLocked(id, text); done {
 			return coalesced
 		}
 	}
+	if consumed, ok := op.(store.EngineConsumed); ok {
+		if coalesced, done := w.coalesceConsumedLocked(id, consumed); done {
+			return coalesced
+		}
+	}
 	result := &outcome{done: make(chan struct{})}
 	w.queue = append(w.queue, entry{id: id, op: op, result: result})
-	if !isText(op) {
+	if countsAgainstLimit(op) {
 		w.unstored[id]++
 	}
 	return result
@@ -236,6 +235,37 @@ func (w *Writer) coalesceLocked(id string, text store.EngineText) (*outcome, boo
 				queued.op = text
 				return queued.result, true
 			}
+		}
+	}
+	return nil, false
+}
+
+// coalesceConsumedLocked merges consumed into the queued EngineConsumed of the same session, and reports whether it
+// did. The merged op takes the later offset, and each optional field takes consumed's value when set. The search stops
+// at a queued EngineAdd or EngineLaunch of the session: EngineAdd creates the row the offset is written to, and
+// EngineLaunch resets the offset, so moving consumed back past either one would change what the store keeps.
+func (w *Writer) coalesceConsumedLocked(id string, consumed store.EngineConsumed) (*outcome, bool) {
+	for i := len(w.queue) - 1; i >= 0; i-- {
+		queued := &w.queue[i]
+		if queued.id != id {
+			continue
+		}
+		switch prev := queued.op.(type) {
+		case store.EngineAdd, store.EngineLaunch:
+			return nil, false
+		case store.EngineConsumed:
+			prev.Consumed = consumed.Consumed
+			if consumed.ReplayFrom != nil {
+				prev.ReplayFrom = consumed.ReplayFrom
+			}
+			if consumed.Output != nil {
+				prev.Output = consumed.Output
+			}
+			if consumed.Background != nil {
+				prev.Background = consumed.Background
+			}
+			queued.op = prev
+			return queued.result, true
 		}
 	}
 	return nil, false
@@ -307,7 +337,7 @@ func (w *Writer) flush(ctx context.Context) {
 // against the limit. w.mu must be held.
 func (w *Writer) settleLocked(e entry) {
 	close(e.result.done)
-	if !isText(e.op) {
+	if countsAgainstLimit(e.op) {
 		w.unstored[e.id]--
 		if w.unstored[e.id] == 0 {
 			delete(w.unstored, e.id)
@@ -340,13 +370,14 @@ func opsOf(batch []entry) []store.EngineOp {
 	return ops
 }
 
-// isText reports whether op is one of the unfinished-text ops, which do not count against a session's limit.
-func isText(op store.EngineOp) bool {
+// countsAgainstLimit reports whether op counts against a session's limit. The unfinished-text ops and the consumed
+// offset do not.
+func countsAgainstLimit(op store.EngineOp) bool {
 	switch op.(type) {
-	case store.EngineText, store.EngineTextDone, store.EngineTextClear:
-		return true
-	default:
+	case store.EngineText, store.EngineTextDone, store.EngineTextClear, store.EngineConsumed:
 		return false
+	default:
+		return true
 	}
 }
 
