@@ -173,6 +173,8 @@ func TestOrrerydServesHooksWithWriteLockedStore(t *testing.T) {
 	f := newStoreFixture(t)
 	prepareStore(t, f.dbPath)
 	daemon := f.startOrreryd(t)
+	// The lock is taken once orreryd has opened the store. Taken during the open, it would make the open fail.
+	daemon.waitForStoreOpen(t)
 	release := holdWriteLock(t, f.dbPath)
 
 	f.assertHooksStillReach(t)

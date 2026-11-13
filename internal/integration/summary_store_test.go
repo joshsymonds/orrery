@@ -46,6 +46,9 @@ func TestSummaryReachesRowAndEvents(t *testing.T) {
 		t.Fatalf("write slow fake claude: %v", err)
 	}
 	daemon := f.startOrreryd(t)
+	// The summarizer's sync waits at most 200 ms for a store still opening and is then dropped, so the hook that starts
+	// the summary follows the store-open line.
+	daemon.waitForStoreOpen(t)
 
 	f.hook(t, f.userPromptHook())
 	waitForOption(t, f.client, f.pane, protocol.OptionSummary, exampleSummary)
