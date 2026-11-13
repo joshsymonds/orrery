@@ -310,6 +310,7 @@ button, input, textarea, select { font-family: var(--mono); }
 .epic-view .tick-number { fill: var(--overlay0); font-size: 8.5px; }
 .epic-view .wash { fill: color-mix(in srgb, var(--mauve) 16%, var(--crust)); }
 .epic-view .outline { fill: none; stroke: var(--mauve); stroke-width: 1.5; stroke-linejoin: round; }
+.epic-view .outline.hover { fill: color-mix(in srgb, var(--text) 6%, transparent); stroke: color-mix(in srgb, var(--text) 55%, transparent); stroke-width: 1; }
 .epic-view .hand { fill: var(--mauve); }
 .epic-view .readout text { fill: var(--overlay1); }
 .epic-view .readout .count { font-size: 34px; font-weight: 700; fill: var(--text); }

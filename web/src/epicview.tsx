@@ -1,8 +1,9 @@
 import type { JSX } from "preact";
+import { useState } from "preact/hooks";
 
 import type { EpicSlice, EpicStep, EpicsGetResponse } from "./gen/orrery/v1/epics_pb";
 import { cellKind, cellTitle, type EpicReadout, epicReadout, RINGS, type TaskReadout, taskReadout } from "./orbitcells";
-import { bezel, cellPath, CENTRE, handPath, ringLetters, VIEW, wedgePath } from "./orbits";
+import { bezel, cellPath, CENTRE, handPath, hitSlice, ringLetters, VIEW, wedgePath } from "./orbits";
 import { taskStateOf } from "./taskstatus";
 
 // The empty state's five orbits, as radii about the middle of a 132 unit square, from the outside in.
@@ -83,18 +84,29 @@ function NoSteps(): JSX.Element {
 }
 
 // SliceChart draws the Orbits chart of chart-spec.md in section 10's order: the cursor's wash, the cells slice by slice,
-// the glows, the ring letters and bezel, the cursor's outline and hand, and the centre readout. The yellow cell of a
-// running task glows over the cells. The slice whose task is the cursor's is marked cur. The two key lines sit under it.
+// the glows, the ring letters and bezel, the cursor's outline and hand, the hover outline, and the centre readout. The
+// yellow cell of a running task glows over the cells. The slice whose task is the cursor's is marked cur, and the slice
+// under the pointer is hovered. The two key lines sit under it.
 function SliceChart(props: { slices: EpicSlice[]; cursorTask: string | undefined; recordTasks: number }): JSX.Element {
   const { slices, cursorTask, recordTasks } = props;
+  // The hovered slice is held by its task, as the cursor is: when the slices change, a hover on a lost task finds none.
+  const [hoveredTask, setHoveredTask] = useState<string | undefined>(undefined);
   const count = slices.length;
   const cursorIndex = cursorTask === undefined ? -1 : slices.findIndex((slice) => slice.task === cursorTask);
+  const hoverIndex = slices.findIndex((slice) => slice.task === hoveredTask);
+  // The readout is the hovered slice's task, else the cursor's, else the epic.
+  const readIndex = hoverIndex >= 0 ? hoverIndex : cursorIndex;
   const glows = slices.flatMap((slice, index) =>
     !slice.held && slice.at >= 1 && slice.at <= RINGS.length ? [cellPath(count, index, slice.at)] : [],
   );
   return (
     <div class="chart-block">
-      <svg class="chart" viewBox={`0 0 ${VIEW} ${VIEW}`}>
+      <svg
+        class="chart"
+        viewBox={`0 0 ${VIEW} ${VIEW}`}
+        onPointerMove={(event) => setHoveredTask(taskUnder(event, slices))}
+        onPointerLeave={() => setHoveredTask(undefined)}
+      >
         <defs>
           <filter id="orbit-glow" filterUnits="userSpaceOnUse" x="0" y="0" width={VIEW} height={VIEW}>
             <feGaussianBlur stdDeviation="3.4" />
@@ -149,8 +161,9 @@ function SliceChart(props: { slices: EpicSlice[]; cursorTask: string | undefined
         ))}
         {cursorIndex >= 0 && <path class="outline" d={wedgePath(count, cursorIndex)} />}
         {cursorIndex >= 0 && <path class="hand" d={handPath(count, cursorIndex)} />}
-        {cursorIndex >= 0 ? (
-          <TaskCentre readout={taskReadout(slices, cursorIndex)} />
+        {hoverIndex >= 0 && <path class="outline hover" d={wedgePath(count, hoverIndex)} />}
+        {readIndex >= 0 ? (
+          <TaskCentre readout={taskReadout(slices, readIndex)} />
         ) : (
           <EpicCentre readout={epicReadout(slices, recordTasks)} />
         )}
@@ -158,6 +171,16 @@ function SliceChart(props: { slices: EpicSlice[]; cursorTask: string | undefined
       <ChartKey />
     </div>
   );
+}
+
+// taskUnder is the task of the slice under a pointer on the chart, found by its angle alone from the chart's centre, or
+// undefined over the centre, the start gap or past the rings.
+function taskUnder(event: JSX.TargetedPointerEvent<SVGSVGElement>, slices: EpicSlice[]): string | undefined {
+  const box = event.currentTarget.getBoundingClientRect();
+  const x = ((event.clientX - box.left) / box.width) * VIEW - CENTRE;
+  const y = ((event.clientY - box.top) / box.height) * VIEW - CENTRE;
+  const hit = hitSlice(x, y, slices.length);
+  return typeof hit === "number" ? slices[hit].task : undefined;
 }
 
 // EpicCentre is the epic's centre readout: the done count over its caption, then its tallies, one line or two.

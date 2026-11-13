@@ -6,7 +6,7 @@ import { render } from "preact";
 
 import { EpicView } from "./epicview";
 import { EpicsGetResponseSchema, type EpicsGetResponse } from "./gen/orrery/v1/epics_pb";
-import { handPath, wedgePath } from "./orbits";
+import { CENTRE, handPath, point, sliceMid, VIEW, wedgePath } from "./orbits";
 import { installTestDom, removeTestDom } from "./testdom";
 
 function detail(init: MessageInitShape<typeof EpicsGetResponseSchema>): EpicsGetResponse {
@@ -71,13 +71,13 @@ function mixSlices() {
 
 async function withView(
   props: { detail: EpicsGetResponse; cursorStep: string },
-  check: (container: HTMLElement) => void,
+  check: (container: HTMLElement) => void | Promise<void>,
 ): Promise<void> {
   const window = installTestDom();
   const container = document.createElement("div");
   try {
     render(<EpicView {...props} />, container);
-    check(container);
+    await check(container);
   } finally {
     render(null, container);
     await removeTestDom(window);
@@ -158,6 +158,37 @@ function glowsOf(container: HTMLElement): (string | null)[] {
 
 function pathOf(cell: Element): Point[] {
   return endpoints(cell.getAttribute("d") ?? "");
+}
+
+// chartBox is the chart's bounding box in client pixels: off the origin and not the viewBox's size, so the scaling of
+// a pointer to the 412 box is what the hover tests check.
+const chartBox = { left: 100, top: 50, width: 404, height: 404 };
+
+// pointChart sends a pointermove to the chart at a point in viewBox units, or a pointerleave, and waits for Preact to
+// paint what the event changed.
+async function pointChart(
+  container: HTMLElement,
+  type: "pointermove" | "pointerleave",
+  at: Point = { x: CENTRE, y: CENTRE },
+): Promise<void> {
+  const chart = container.querySelector(".chart");
+  const view = container.ownerDocument.defaultView;
+  if (chart === null || view === null) {
+    throw new Error("no chart to point at");
+  }
+  Object.assign(chart, { getBoundingClientRect: () => chartBox });
+  chart.dispatchEvent(
+    new view.PointerEvent(type, {
+      clientX: chartBox.left + (at.x / VIEW) * chartBox.width,
+      clientY: chartBox.top + (at.y / VIEW) * chartBox.height,
+    }),
+  );
+  await new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+// onSlice is a point in the middle of slice index of count, at radius 130: inside the band of the cells.
+function onSlice(count: number, index: number): Point {
+  return point(130, sliceMid(count, index));
 }
 
 test("with no slices there is no chart: five dotted orbits, and the line says there are no orrery-tracked steps", () =>
@@ -604,6 +635,84 @@ test("with no cursor task, or one whose task has no slice, there is no wash, out
     );
   }
 });
+
+for (const [count, index] of [
+  [3, 2],
+  [35, 4],
+  [150, 100],
+]) {
+  test(`a pointer over slice ${index + 1} of ${count} draws its hover wedge and the readout reads its task`, () =>
+    withView({ detail: detail({ epic, slices: syntheticSlices(count) }), cursorStep: "" }, async (container) => {
+      await pointChart(container, "pointermove", onSlice(count, index));
+      assert.equal(container.querySelectorAll(".chart .outline.hover").length, 1);
+      assert.equal(
+        container.querySelector(".chart .outline.hover")?.getAttribute("d") ?? null,
+        wedgePath(count, index),
+      );
+      assert.equal(container.querySelectorAll(".chart .hand").length, 0, "a hover draws no hand");
+      assert.equal(
+        container.querySelector(".chart .readout .ordinal")?.textContent ?? null,
+        `${index + 1} of ${count}`,
+      );
+      assert.equal(container.querySelector(".chart .readout .label")?.textContent ?? null, `${index + 1}-task`);
+    }));
+}
+
+// The centre and the start gap are nowhere: a pointer there clears a hover over a slice, and the epic reads again.
+const nowhere = [
+  { name: "the centre", at: { x: CENTRE, y: CENTRE } },
+  { name: "the start gap", at: point(130, 0) },
+];
+for (const { name, at } of nowhere) {
+  test(`a pointer over ${name} draws no hover wedge, and clears the one a slice had`, () =>
+    withView({ detail: detail({ epic, slices: syntheticSlices(35) }), cursorStep: "" }, async (container) => {
+      await pointChart(container, "pointermove", onSlice(35, 4));
+      assert.equal(container.querySelectorAll(".chart .outline.hover").length, 1, "the slice is hovered first");
+      await pointChart(container, "pointermove", at);
+      assert.equal(container.querySelectorAll(".chart .outline.hover").length, 0);
+      assert.equal(container.querySelector(".chart .readout .count")?.textContent ?? null, "33/35");
+    }));
+}
+
+test("pointerleave removes the hover wedge, and the readout returns to the cursor's task", () =>
+  withView(
+    { detail: detail({ epic, steps: cursorSteps("2-task"), slices: syntheticSlices(35) }), cursorStep: "s1" },
+    async (container) => {
+      await pointChart(container, "pointermove", onSlice(35, 4));
+      assert.equal(container.querySelector(".chart .readout .label")?.textContent ?? null, "5-task");
+      await pointChart(container, "pointerleave");
+      assert.equal(container.querySelectorAll(".chart .outline.hover").length, 0);
+      assert.equal(container.querySelector(".chart .readout .label")?.textContent ?? null, "2-task");
+      assert.equal(container.querySelector(".chart .readout .ordinal")?.textContent ?? null, "2 of 35");
+    },
+  ));
+
+test("pointerleave with no cursor task returns the readout to the epic", () =>
+  withView({ detail: detail({ epic, slices: syntheticSlices(35) }), cursorStep: "" }, async (container) => {
+    await pointChart(container, "pointermove", onSlice(35, 4));
+    assert.equal(container.querySelector(".chart .readout .label")?.textContent ?? null, "5-task");
+    await pointChart(container, "pointerleave");
+    assert.equal(container.querySelectorAll(".chart .outline.hover").length, 0);
+    assert.equal(container.querySelector(".chart .readout .label")?.textContent ?? null, null);
+    assert.equal(container.querySelector(".chart .readout .count")?.textContent ?? null, "33/35");
+  }));
+
+test("a hovered slice beats the cursor's task in the readout, and the cursor's outline, hand and mark stay", () =>
+  withView(
+    { detail: detail({ epic, steps: cursorSteps("2-task"), slices: syntheticSlices(35) }), cursorStep: "s1" },
+    async (container) => {
+      await pointChart(container, "pointermove", onSlice(35, 4));
+      assert.equal(container.querySelector(".chart .readout .ordinal")?.textContent ?? null, "5 of 35");
+      assert.equal(container.querySelector(".chart .readout .label")?.textContent ?? null, "5-task");
+      assert.deepEqual([...container.querySelectorAll(".chart .outline")].map(classOf), ["outline", "outline hover"]);
+      assert.deepEqual(
+        [...container.querySelectorAll(".chart .outline")].map((outline) => outline.getAttribute("d")),
+        [wedgePath(35, 1), wedgePath(35, 4)],
+      );
+      assert.equal(container.querySelector(".chart .hand")?.getAttribute("d") ?? null, handPath(35, 1));
+      assert.equal(slicesOf(container).findIndex((slice) => classOf(slice) === "slice cur"), 1);
+    },
+  ));
 
 test("the epic's centre reads 11 of 35 tasks done, the running and held tallies on one line and the gap on the next", () =>
   withView({ detail: detail({ epic, tasks, slices: mixSlices() }), cursorStep: "" }, (container) => {
