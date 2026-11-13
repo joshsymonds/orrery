@@ -123,6 +123,7 @@ test("five running steps show four, count one more, keep a held mark, and carry 
     agent: "builder",
     started: 0,
     round: 1,
+    step: epic.runningSteps[0],
   });
   assert.deepEqual(block.steps[1], {
     kind: "step",
@@ -136,7 +137,22 @@ test("five running steps show four, count one more, keep a held mark, and carry 
     agent: "reviewer",
     started: 0,
     round: 1,
+    step: epic.runningSteps[1],
   });
+});
+
+test("a step carries the running EpicStep it is made from, with its checks", () => {
+  const running = makeStep({
+    id: "s1",
+    checks: [{ round: 1, name: "lint", ok: false }],
+  });
+  const epic = makeEpic({ runningSteps: [running] });
+
+  const step = epicsView([epic], new Map()).blocks[0].steps[0];
+
+  assert.equal(step.step, running);
+  assert.equal(step.step.checks.length, 1);
+  assert.equal(step.step.checks[0].name, "lint");
 });
 
 test("a step carries its epic's slug, its agent and its start", () => {

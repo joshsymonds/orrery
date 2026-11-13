@@ -1082,6 +1082,56 @@ test("a step's reader is its head, its conversation and its foot, and nothing el
     ]);
   }));
 
+test("a step's reader draws its brief as a fold, its round's checks as a card, and the owner's nudge as YOU", () =>
+  withApp({ epics: checkedEpic() }, async (container, fake) => {
+    await onStepOne(container, fake);
+    const [stream] = fake.callsTo(sessionWatchPath);
+    fake.emit(stream, {
+      transcript: "t1",
+      seq: "1",
+      reset: true,
+      items: [
+        { kind: "prompt", text: "the brief", sender: "brief" },
+        { kind: "prompt", text: "lint failed", sender: "engine", round: 1 },
+        { kind: "prompt", text: "please hurry", sender: "owner" },
+      ],
+    });
+    const reader = '[aria-label="reader"] > .reader';
+    await until(() => container.querySelector(`${reader} .you`) !== null, "the owner's nudge");
+    assert.equal(container.querySelectorAll(`${reader} button.fold.brief`).length, 1, "one brief fold");
+    assert.equal(container.querySelector(`${reader} button.fold.brief b`)?.textContent, "Brief");
+    assert.equal(container.querySelectorAll(`${reader} .card`).length, 1, "one round card");
+    assert.equal(container.querySelectorAll(`${reader} .card.bad`).length, 1, "a bad edge");
+    const cap = container.querySelector(`${reader} .card .cap`)?.textContent ?? "";
+    assert.equal(cap.startsWith("Checks · round 1"), true, "the card names round 1");
+    const chips = [...container.querySelectorAll(`${reader} .card .chips .chip`)].map((chip) => chip.textContent);
+    assert.deepEqual(chips, ["lint ✗", "unit ✓"], "round 1's checks only, in the step's order");
+    assert.equal(container.querySelector(`${reader} .card .note`)?.textContent, "lint failed");
+    assert.equal(container.querySelectorAll(`${reader} .you`).length, 1, "one YOU bubble");
+    const you = container.querySelector(`${reader} .you`)?.textContent ?? "";
+    assert.equal(you.includes("please hurry"), true, "the YOU bubble holds the nudge");
+    assert.equal(you.includes("lint failed"), false, "the YOU bubble holds no engine text");
+    assert.equal(you.includes("the brief"), false, "the YOU bubble holds no brief");
+  }));
+
+test("a pane row's reader draws its prompts as YOU, whatever their sender and round", () =>
+  withApp({}, async (container, fake) => {
+    await until(() => fake.callsTo(paneWatchPath).length === 1, "the pane stream");
+    const [stream] = fake.callsTo(paneWatchPath);
+    fake.emit(stream, {
+      transcript: "t1",
+      seq: "1",
+      reset: true,
+      items: [{ kind: "prompt", text: "lint failed", sender: "engine", round: 1 }],
+    });
+    const reader = '[aria-label="reader"] > .reader';
+    await until(() => container.querySelector(`${reader} .you`) !== null, "the prompt");
+    assert.equal(container.querySelectorAll(`${reader} .card`).length, 0, "no round card");
+    assert.equal(container.querySelectorAll(`${reader} .fold`).length, 0, "no fold");
+    const you = container.querySelector(`${reader} .you`)?.textContent ?? "";
+    assert.equal(you.includes("lint failed"), true, "the YOU bubble holds the prompt");
+  }));
+
 test("the pinned reader is its head, its conversation and its foot, and nothing else", () =>
   withApp({}, async (container, fake) => {
     await until(() => fake.callsTo(paneWatchPath).length === 1, "the cursor's stream");
@@ -1902,6 +1952,17 @@ function epicKey(epic: Epic): string {
 // oneEpic is a live epic with two running steps, and no detail.
 function oneEpic(): EpicsView {
   const epic = makeEpic(widgetsRepo, "first", { runningSteps: [makeStep("s1"), makeStep("s2")] });
+  return epicsView([epic], new Map());
+}
+
+// checkedEpic is a live epic with no detail whose first running step carries checks of rounds 1 and 2.
+function checkedEpic(): EpicsView {
+  const checks = [
+    { round: 1, name: "lint", ok: false },
+    { round: 1, name: "unit", ok: true },
+    { round: 2, name: "e2e", ok: true },
+  ];
+  const epic = makeEpic(widgetsRepo, "first", { runningSteps: [makeStep("s1", { checks }), makeStep("s2")] });
   return epicsView([epic], new Map());
 }
 

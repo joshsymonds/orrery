@@ -572,6 +572,7 @@ export function App({
               conversation={cursorConversation}
               seenAt={stepSeenAt}
               open={open}
+              step={cursorStep.step}
               onToggleOpen={toggleOpen}
             />
           )}

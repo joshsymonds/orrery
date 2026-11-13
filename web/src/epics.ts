@@ -26,6 +26,7 @@ export interface StepItem {
   agent: string;
   started: number;
   round: number;
+  step: EpicStep;
 }
 
 export interface EpicBlock {
@@ -107,6 +108,7 @@ function stepOf(epic: Epic, step: EpicStep): StepItem {
     agent: step.agent,
     started: Number(step.started),
     round: roundOf(step),
+    step,
   };
 }
 
