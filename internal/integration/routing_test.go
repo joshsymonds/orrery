@@ -405,6 +405,9 @@ func TestOrrerydJudgesDoneWithSessions(t *testing.T) {
 		t.Fatalf("find sh: %v", err)
 	}
 	daemon, socket := startPushDaemon(t, name, dir, stateHome, endpoint, "--sessions", "--session-shell", shell)
+	// sessions.sock listens only after the store open, which has no bound, so the listen's wait limit starts at the
+	// store-open line.
+	daemon.waitForLog(t, storeOpenLog)
 	daemon.waitForListener(t, "unix", protocol.SessionSocketPath(socket))
 	writeJudgeReply(t, dir, judgeUnneededReply)
 	transcript := filepath.Join(dir, "transcript.jsonl")
