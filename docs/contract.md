@@ -486,8 +486,9 @@ When neither variable is set, `orreryd` exits 1.
 - `deciding` is decided anew.
 - `desk` is not posted again, and escalates when its 5 minutes run out.
 - A row whose `due` has passed runs at once.
+- `sending` is pushed again, with route `phone` and reason `resent after restart`. It is silent if its push was silent. It is not posted to the desk stream, and its row is deleted when that publish returns. It is not pending again: a seen write or a newer notice after the restore does not end it, and a seen write at or after the resend still clears the resent push on the phone. A notice for its key recorded before the restore, or a stored row for its key with a higher `id`, ends it `changed` with no resend, as for other rows.
 
-A restored notice keeps its original time, so a seen write at or after that time ends it with `none` and `seen`. A newer notice for the same pane or session ends it with `none` and `changed`, whether the newer notice is recorded before or after the restore. The sessions' start can record an `interrupted` notice that does this. A row that cannot be restored writes a line with route `none` and reason `not restored: <error>`, and the row is deleted. A stop between handing a notice to its sinks and deleting its row can send it once more after the restart.
+Apart from `sending`, a restored notice keeps its original time, so a seen write at or after that time ends it with `none` and `seen`. A newer notice for the same pane or session ends it with `none` and `changed`, whether the newer notice is recorded before or after the restore. The sessions' start can record an `interrupted` notice that does this. A row that cannot be restored writes a line with route `none` and reason `not restored: <error>`, and the row is deleted. A stop during a publish can push the notice once more, and the phone alerts again for a resent waiting or failed push. A publish that finishes after shutdown still deletes its row, so a clean stop resends nothing.
 
 ### Headless sessions
 
@@ -980,6 +981,7 @@ The `reason` values are these. A reason that gains a clause adds it after `; `:
 | `seen` | `none` | a seen write at or after the notice's time |
 | `shutdown` | `none` | `orreryd` shut down while the notice was pending and does not keep it: a pane notice, a session notice whose row could not be stored, or any pending notice when `orreryd` serves without the store |
 | `not restored: <error>` | `none` | a stored pending notice could not be restored at start, and its row is deleted. `<error>` is the restore's error text (see [Notice routing](#notice-routing)) |
+| `resent after restart` | `phone` | a `sending` row restored at start is pushed again, silent if its push was silent (see [Notice routing](#notice-routing)) |
 
 The clauses are these:
 
@@ -1420,12 +1422,13 @@ The `pending_notices` table (migration `00010_pending_notices.sql`) has one row 
 | `session` | `TEXT` | the notice's session id |
 | `state` | `TEXT` | the notice's state |
 | `time` | `INTEGER` | unix seconds when the notice was recorded |
-| `phase` | `TEXT` | where the notice is: `deciding` or `desk`. A session notice is never held or judged, so it has no other phase |
+| `phase` | `TEXT` | where the notice is: `deciding`, `desk` or `sending`. `sending` is a notice handed to the phone whose publish has not returned. A session notice is never held or judged, so it has no other phase |
 | `due` | `INTEGER` | unix milliseconds when the phase's wait runs out; `0` for none |
 | `delay_served` | `INTEGER` | `1` once the judge wait started, else `0`; always `0` for a session notice |
 | `watch_logged` | `INTEGER` | `1` once the `watching` line was written, else `0`; always `0` for a session notice |
 | `source_kind` | `TEXT` | `session` |
 | `source` | `BLOB` | the session notice as JSON: its session, directory, state and body |
+| `silent` | `INTEGER` | `1` when the push handed off was silent, else `0`; always `0` for a session notice. Added by migration `00012_pending_notice_silent.sql` |
 
 The `pending_notice_ids` table has one row, whose `high` is the highest `id` the table has ever stored. Deleting rows does not lower it, so ids keep rising.
 
@@ -1433,7 +1436,7 @@ The `pending_notice_ids` table has one row, whose `high` is the highest `id` the
 |---|---|---|
 | `high` | `INTEGER` | the highest `id` stored |
 
-A row is written when its notice is recorded, with phase `deciding`, and again before its desk post, with phase `desk`, which it keeps until it escalates. Each row write has a 200 ms limit. A write that fails or runs past it is logged by `orreryd`, and the notice routes as it would. Later row writes and the next stop retry it. The row is deleted when the notice ends, after its sinks have been handed the notice.
+A row is written when its notice is recorded, with phase `deciding`, and again before its desk post, with phase `desk`, which it keeps until it escalates. Each row write has a 200 ms limit. A write that fails or runs past it is logged by `orreryd`, and the notice routes as it would. Later row writes and the next stop retry it. The row is deleted when the notice ends, after its sinks have been handed the notice, except for a notice handed to the phone. That notice is written `sending` before its push, and its row is deleted when the publish returns, with or without an error.
 
 ### Claude Code hook settings
 
