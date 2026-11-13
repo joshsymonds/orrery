@@ -259,6 +259,14 @@ func setPaneText(t *testing.T, client *tmuxctl.Client, pane string) {
 	}
 }
 
+// setPaneState stores the state orreryd writes on pane when its transition moves it to state.
+func setPaneState(t *testing.T, client *tmuxctl.Client, pane string, state protocol.State) {
+	t.Helper()
+	if err := client.SetPaneOption(t.Context(), pane, protocol.OptionState, string(state)); err != nil {
+		t.Fatalf("set %s: %v", protocol.OptionState, err)
+	}
+}
+
 // paneTransition is a transition of pane on server to state, whose frame ran in cwd and carried hook.
 func paneTransition(server tmuxctl.Server, pane string, state protocol.State, cwd, hook string) daemon.Transition {
 	return daemon.Transition{
@@ -419,6 +427,7 @@ func resumeDeciding(t *testing.T) {
 	cwd := paneCwd(t, home)
 	server, client, pane := startPane(t, cwd)
 	setPaneText(t, client, pane)
+	setPaneState(t, client, pane, protocol.StateWaiting)
 	transition := paneTransition(server, pane, protocol.StateWaiting, cwd, paneWaitingHook)
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	s := openPaneStore(t, path)
@@ -448,6 +457,7 @@ func resumeHeld(t *testing.T) {
 	fx := newWiringFixture(t)
 	fx.typeIntoClient(t)
 	setPaneText(t, fx.client, fx.pane)
+	setPaneState(t, fx.client, fx.pane, protocol.StateWaiting)
 	home := t.TempDir()
 	cwd := paneCwd(t, home)
 	transition := paneTransition(fx.inner, fx.pane, protocol.StateWaiting, cwd, paneWaitingHook)
@@ -487,6 +497,7 @@ func resumeDelayed(t *testing.T) {
 	cwd := paneCwd(t, home)
 	server, client, pane := startPane(t, cwd)
 	setPaneText(t, client, pane)
+	setPaneState(t, client, pane, protocol.StateDone)
 	transition := paneTransition(server, pane, protocol.StateDone, cwd, paneDoneHook)
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	s := openPaneStore(t, path)
@@ -536,6 +547,7 @@ func resumeDesk(t *testing.T) {
 	cwd := paneCwd(t, home)
 	server, client, pane := startPane(t, cwd)
 	setPaneText(t, client, pane)
+	setPaneState(t, client, pane, protocol.StateWaiting)
 	transition := paneTransition(server, pane, protocol.StateWaiting, cwd, paneWaitingHook)
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	s := openPaneStore(t, path)

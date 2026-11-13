@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
+	"strings"
 
 	"github.com/joshsymonds/orrery/internal/daemon"
 	"github.com/joshsymonds/orrery/internal/deskstream"
@@ -88,12 +90,52 @@ func (r *relay) paneNotice(ctx context.Context, transition daemon.Transition) ro
 	return incoming
 }
 
-// rebuildPane is the route.Rebuild of paneSourceKind. It decodes the transition that notify stored and builds the
-// notice for it. at is unused: a pane notice never ends by its row's time.
-func (r *relay) rebuildPane(ctx context.Context, data []byte, _ int64) (route.Notice, error) {
+// rebuildPane is the route.Rebuild of paneSourceKind. It decodes the transition that notify stored, checks the pane
+// the notice is about, and builds the notice for the transition. at is the row's recorded time, unix seconds.
+func (r *relay) rebuildPane(ctx context.Context, data []byte, at int64) (route.Notice, error) {
 	transition, err := decodePaneSource(data)
 	if err != nil {
 		return route.Notice{}, err
 	}
+	err = checkPane(ctx, transition, at)
+	if err != nil {
+		return route.Notice{}, err
+	}
 	return r.paneNotice(ctx, transition), nil
+}
+
+// checkPane reads transition's pane from its tmux server once. It returns route.ErrChanged when the pane is gone or in
+// another state than transition's To, and route.ErrSeen when the pane was seen at or after at. Any other read failure
+// is returned as is.
+func checkPane(ctx context.Context, transition daemon.Transition, at int64) error {
+	client, err := tmuxClient(transition.Server)
+	if err != nil {
+		return err
+	}
+	panes, err := client.ListPanes(ctx)
+	if err != nil {
+		if paneServerNotRunning(err) {
+			return fmt.Errorf("pane %s: server not running: %w", transition.PaneID, route.ErrChanged)
+		}
+		return fmt.Errorf("list panes: %w", err)
+	}
+	i := slices.IndexFunc(panes, func(pane protocol.Pane) bool { return pane.ID == transition.PaneID })
+	if i < 0 {
+		return fmt.Errorf("pane %s is gone: %w", transition.PaneID, route.ErrChanged)
+	}
+	pane := panes[i]
+	if pane.State != transition.To {
+		return fmt.Errorf("pane %s is %q, not %q: %w", pane.ID, pane.State, transition.To, route.ErrChanged)
+	}
+	if pane.Seen >= at {
+		return fmt.Errorf("pane %s seen at %d: %w", pane.ID, pane.Seen, route.ErrSeen)
+	}
+	return nil
+}
+
+// paneServerNotRunning reports whether err is tmux saying that its server is not running, the messages internal/open
+// tests for the same.
+func paneServerNotRunning(err error) bool {
+	msg := err.Error()
+	return strings.Contains(msg, "no server running") || strings.Contains(msg, "error connecting to")
 }
