@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"slices"
 	"sync"
+	"time"
 )
 
 // ErrUndrained means the session dir holds an exit file from an earlier holder, so no new holder may start on the
@@ -23,6 +24,9 @@ const socketMode os.FileMode = 0o600
 
 // maxWriteIDBytes is the longest write id the holder accepts, in bytes. A write id is 1 to maxWriteIDBytes bytes.
 const maxWriteIDBytes = 256
+
+// DefaultIdleTimeout is how long a holder may run with no controller attached before it stops its child.
+const DefaultIdleTimeout = 10 * time.Minute
 
 // Config describes one holder: the session it serves and the child it runs.
 type Config struct {
@@ -36,6 +40,9 @@ type Config struct {
 	Spool SpoolConfig
 	// Clock supplies the holder's timers. Nil takes SystemClock{}.
 	Clock Clock
+	// IdleTimeout is how long the holder runs with no controller attached before it stops the child. Zero takes
+	// DefaultIdleTimeout.
+	IdleTimeout time.Duration
 	// Logger receives the holder's diagnostics. Nil discards them.
 	Logger *slog.Logger
 
@@ -49,6 +56,9 @@ type Config struct {
 func (cfg Config) withDefaults() Config {
 	if cfg.Clock == nil {
 		cfg.Clock = SystemClock{}
+	}
+	if cfg.IdleTimeout == 0 {
+		cfg.IdleTimeout = DefaultIdleTimeout
 	}
 	if cfg.Child.Clock == nil {
 		cfg.Child.Clock = cfg.Clock
@@ -66,9 +76,10 @@ func (cfg Config) withDefaults() Config {
 }
 
 // Run serves the session in cfg.Dir until its child ends. It takes the session's lock, refuses to start while an exit
-// file from an earlier holder is undrained, and serves the socket. A stop from a controller, or the end of ctx, stops
-// the child. When the child ends, Run writes the exit file, ends the attached controller's stream with the rest of the
-// output and the exit record, answers the stops and releases what it took.
+// file from an earlier holder is undrained, and serves the socket. A stop from a controller, the end of ctx, or the
+// idle timeout stops the child: the idle timeout runs while no controller is attached. When the child ends, Run writes
+// the exit file, ends the attached controller's stream with the rest of the output and the exit record, answers the
+// stops and releases what it took.
 func Run(ctx context.Context, cfg Config) error {
 	cfg = cfg.withDefaults()
 	if err := PrepareDir(cfg.Dir); err != nil {
@@ -126,7 +137,6 @@ func openHolder(cfg Config) (*holder, error) {
 		listener:     listener,
 		spool:        spool,
 		child:        child,
-		stopReq:      make(chan struct{}),
 		ended:        make(chan struct{}),
 		conns:        make(map[*conn]struct{}),
 		stoppers:     make(map[*conn]struct{}),
@@ -144,9 +154,6 @@ type holder struct {
 	spool    *Spool
 	child    *Child
 
-	// stopReq closes on the first stop from a controller, or at the end of the context.
-	stopReq  chan struct{}
-	stopOnce sync.Once
 	// serving counts the accept loop and every connection goroutine.
 	serving sync.WaitGroup
 
@@ -157,6 +164,11 @@ type holder struct {
 	stoppers map[*conn]struct{}
 	// exited is set once the exit file is written. A stop that arrives after that is answered at once.
 	exited bool
+	// endReason is why the child is stopped: ReasonStopped for a stop from a controller or the end of the context,
+	// ReasonIdle for the idle timeout. The first one set holds. It is empty while the child is not stopped by the holder.
+	endReason string
+	// idleCancel cancels the armed idle timeout. It is nil while none is armed, which is while a controller is attached.
+	idleCancel chan struct{}
 	// ctl is the attached controller, or nil when none is attached.
 	ctl *controller
 	// ended closes once the child has ended and exit holds its record. Each stream then sends the rest of the output and
@@ -195,6 +207,9 @@ type stdinWrite struct {
 // output and the exit record, answers the stops, closes the connections, drains the writes and closes the spool, and
 // returns what those steps report.
 func (h *holder) run(ctx context.Context) error {
+	h.mu.Lock()
+	h.armIdleLocked()
+	h.mu.Unlock()
 	accepting := make(chan struct{})
 	go func() {
 		defer close(accepting)
@@ -208,19 +223,12 @@ func (h *holder) run(ctx context.Context) error {
 
 	select {
 	case <-h.child.Done():
-	case <-h.stopReq:
 	case <-ctx.Done():
 		h.requestStop()
 	}
 	<-h.child.Done()
-	reason := ReasonExited
-	select {
-	case <-h.stopReq:
-		reason = ReasonStopped
-	default:
-	}
 
-	exit := h.child.Exit(reason)
+	exit := h.child.Exit(h.exitReason())
 	writeErr := WriteExit(h.exitPath, exit)
 	// Close stops the accept loop and removes the socket file.
 	closeErr := h.listener.Close()
@@ -351,9 +359,72 @@ func (h *holder) stop(peer *conn) {
 	h.requestStop()
 }
 
-// requestStop closes stopReq on the first call and stops the child. Child.Stop is idempotent.
+// requestStop records a stop as the child's end reason, unless an earlier reason holds, and stops the child. Child.Stop
+// is idempotent.
 func (h *holder) requestStop() {
-	h.stopOnce.Do(func() { close(h.stopReq) })
+	h.mu.Lock()
+	if h.endReason == "" {
+		h.endReason = ReasonStopped
+	}
+	h.mu.Unlock()
+	h.child.Stop()
+}
+
+// exitReason returns the reason the child ended: the end reason the holder set, or ReasonExited when it set none.
+func (h *holder) exitReason() string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.endReason == "" {
+		return ReasonExited
+	}
+	return h.endReason
+}
+
+// armIdleLocked starts the idle timeout. Unless disarmIdleLocked cancels it first, it stops the child when it runs out.
+// Nothing is armed once the child has ended. The caller holds h.mu.
+func (h *holder) armIdleLocked() {
+	select {
+	case <-h.ended:
+		return
+	default:
+	}
+	cancel := make(chan struct{})
+	h.idleCancel = cancel
+	timer := h.cfg.Clock.After(h.cfg.IdleTimeout)
+	go h.awaitIdle(timer, cancel)
+}
+
+// disarmIdleLocked cancels the armed idle timeout, if one is armed. The caller holds h.mu.
+func (h *holder) disarmIdleLocked() {
+	if h.idleCancel != nil {
+		close(h.idleCancel)
+		h.idleCancel = nil
+	}
+}
+
+// awaitIdle waits until the timeout armed with cancel runs out, then calls idleExpired. Closing cancel ends the wait,
+// and the timer is then dropped.
+func (h *holder) awaitIdle(timer <-chan time.Time, cancel chan struct{}) {
+	select {
+	case <-timer:
+		h.idleExpired(cancel)
+	case <-cancel:
+	}
+}
+
+// idleExpired stops the child for want of a controller. It does nothing when the timeout armed with cancel was
+// disarmed or replaced first. The end reason is ReasonIdle unless a stop came first.
+func (h *holder) idleExpired(cancel chan struct{}) {
+	h.mu.Lock()
+	if h.idleCancel != cancel {
+		h.mu.Unlock()
+		return
+	}
+	h.idleCancel = nil
+	if h.endReason == "" {
+		h.endReason = ReasonIdle
+	}
+	h.mu.Unlock()
 	h.child.Stop()
 }
 
@@ -402,6 +473,7 @@ func (h *holder) attach(peer *conn, replayFrom int64) bool {
 	prev := h.ctl
 	ctl := &controller{conn: peer, quit: make(chan struct{})}
 	h.ctl = ctl
+	h.disarmIdleLocked()
 	if prev != nil {
 		close(prev.quit)
 	}
@@ -566,22 +638,26 @@ func (h *holder) streamTo(ctl *controller, attached Frame, replayFrom int64) err
 }
 
 // endStreams records the child's exit record and closes ended, so each stream sends the rest of the output and the
-// exit frame. It returns once every stream has finished.
+// exit frame. It disarms the idle timeout, which must not stop a child that has ended. It returns once every stream has
+// finished.
 func (h *holder) endStreams(exit Exit) {
 	h.mu.Lock()
 	h.exit = exit
 	close(h.ended)
+	h.disarmIdleLocked()
 	h.mu.Unlock()
 	h.streaming.Wait()
 }
 
-// drop forgets peer and closes it. A peer that is the attached controller detaches, which ends its stream.
+// drop forgets peer and closes it. A peer that is the attached controller detaches, which ends its stream and arms the
+// idle timeout again.
 func (h *holder) drop(peer *conn) {
 	h.mu.Lock()
 	delete(h.conns, peer)
 	if h.ctl != nil && h.ctl.conn == peer {
 		close(h.ctl.quit)
 		h.ctl = nil
+		h.armIdleLocked()
 	}
 	h.mu.Unlock()
 	if err := peer.close(); err != nil {
