@@ -201,11 +201,12 @@ DELETE FROM holds WHERE member = ?;
 SELECT * FROM holds ORDER BY member;
 
 -- name: UpsertPendingNotice :exec
-INSERT INTO pending_notices (id, pane, session, state, time, phase, due, delay_served, watch_logged, source_kind, source)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO pending_notices (id, pane, session, state, time, phase, due, delay_served, watch_logged, source_kind, source, silent)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT (id) DO UPDATE SET pane = excluded.pane, session = excluded.session, state = excluded.state,
     time = excluded.time, phase = excluded.phase, due = excluded.due, delay_served = excluded.delay_served,
-    watch_logged = excluded.watch_logged, source_kind = excluded.source_kind, source = excluded.source;
+    watch_logged = excluded.watch_logged, source_kind = excluded.source_kind, source = excluded.source,
+    silent = excluded.silent;
 
 -- name: RaiseNoticeIDFloor :exec
 UPDATE pending_notice_ids SET high = MAX(high, sqlc.arg(id)) WHERE id = 1;

@@ -952,7 +952,7 @@ func (q *Queries) ListOpenSteps(ctx context.Context) ([]Step, error) {
 }
 
 const listPendingNotices = `-- name: ListPendingNotices :many
-SELECT id, pane, session, state, time, phase, due, delay_served, watch_logged, source_kind, source FROM pending_notices ORDER BY id
+SELECT id, pane, session, state, time, phase, due, delay_served, watch_logged, source_kind, source, silent FROM pending_notices ORDER BY id
 `
 
 func (q *Queries) ListPendingNotices(ctx context.Context) ([]PendingNotice, error) {
@@ -976,6 +976,7 @@ func (q *Queries) ListPendingNotices(ctx context.Context) ([]PendingNotice, erro
 			&i.WatchLogged,
 			&i.SourceKind,
 			&i.Source,
+			&i.Silent,
 		); err != nil {
 			return nil, err
 		}
@@ -1346,11 +1347,12 @@ func (q *Queries) UpsertEngineText(ctx context.Context, arg UpsertEngineTextPara
 }
 
 const upsertPendingNotice = `-- name: UpsertPendingNotice :exec
-INSERT INTO pending_notices (id, pane, session, state, time, phase, due, delay_served, watch_logged, source_kind, source)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO pending_notices (id, pane, session, state, time, phase, due, delay_served, watch_logged, source_kind, source, silent)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT (id) DO UPDATE SET pane = excluded.pane, session = excluded.session, state = excluded.state,
     time = excluded.time, phase = excluded.phase, due = excluded.due, delay_served = excluded.delay_served,
-    watch_logged = excluded.watch_logged, source_kind = excluded.source_kind, source = excluded.source
+    watch_logged = excluded.watch_logged, source_kind = excluded.source_kind, source = excluded.source,
+    silent = excluded.silent
 `
 
 type UpsertPendingNoticeParams struct {
@@ -1365,6 +1367,7 @@ type UpsertPendingNoticeParams struct {
 	WatchLogged bool
 	SourceKind  string
 	Source      []byte
+	Silent      bool
 }
 
 func (q *Queries) UpsertPendingNotice(ctx context.Context, arg UpsertPendingNoticeParams) error {
@@ -1380,6 +1383,7 @@ func (q *Queries) UpsertPendingNotice(ctx context.Context, arg UpsertPendingNoti
 		arg.WatchLogged,
 		arg.SourceKind,
 		arg.Source,
+		arg.Silent,
 	)
 	return err
 }
