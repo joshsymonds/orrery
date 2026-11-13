@@ -575,44 +575,47 @@ export function App({
               onToggleOpen={toggleOpen}
             />
           )}
-          <WorkNote pane={cursorConversation?.state?.pane} now={now} />
-          {composerRows(visited, cursorRow).map((row) => (
-            <div key={row.key} class="reply" hidden={row.key !== cursorRowKey}>
-              <Composer
-                label={row.label}
-                send={(text, promptId) => actions.send(clients, row, text, promptId)}
-                pull={row.kind === "pane" ? () => actions.pullQueued(clients, row) : null}
-                newPromptId={actions.newPromptId}
-                inputRef={(element) => {
-                  if (element === null) {
-                    composerInputs.current.delete(row.key);
-                  } else {
-                    composerInputs.current.set(row.key, element);
-                  }
-                }}
-              />
-            </div>
-          ))}
-          {composerRows(visitedSteps, cursorStep).map((step) => {
-            const calls = stepCalls(clients, step.id);
-            return (
-              <div key={step.id} class="reply" hidden={step.key !== cursorStepKey}>
-                <StepBox
-                  label={step.label}
-                  nudge={calls.nudge}
-                  hold={calls.hold}
-                  stop={calls.stop}
+          <div class="send">
+            <WorkNote pane={cursorConversation?.state?.pane} now={now} />
+            {composerRows(visited, cursorRow).map((row) => (
+              <div key={row.key} class="reply" hidden={row.key !== cursorRowKey}>
+                <Composer
+                  label={row.label}
+                  send={(text, promptId) => actions.send(clients, row, text, promptId)}
+                  pull={row.kind === "pane" ? () => actions.pullQueued(clients, row) : null}
+                  newPromptId={actions.newPromptId}
+                  queued={row.key === cursorRowKey ? cursorConversation?.state?.waiting : undefined}
                   inputRef={(element) => {
                     if (element === null) {
-                      stepInputs.current.delete(step.key);
+                      composerInputs.current.delete(row.key);
                     } else {
-                      stepInputs.current.set(step.key, element);
+                      composerInputs.current.set(row.key, element);
                     }
                   }}
                 />
               </div>
-            );
-          })}
+            ))}
+            {composerRows(visitedSteps, cursorStep).map((step) => {
+              const calls = stepCalls(clients, step.id);
+              return (
+                <div key={step.id} class="reply" hidden={step.key !== cursorStepKey}>
+                  <StepBox
+                    label={step.label}
+                    nudge={calls.nudge}
+                    hold={calls.hold}
+                    stop={calls.stop}
+                    inputRef={(element) => {
+                      if (element === null) {
+                        stepInputs.current.delete(step.key);
+                      } else {
+                        stepInputs.current.set(step.key, element);
+                      }
+                    }}
+                  />
+                </div>
+              );
+            })}
+          </div>
         </section>
         <section class="read pinned" aria-label="pinned reader" hidden={pinned === null}>
           {pinned !== null && (
@@ -627,24 +630,27 @@ export function App({
               open={false}
             />
           )}
-          <WorkNote pane={pinnedConversation?.state?.pane} now={now} />
-          {composerRows(pinnedRows, pinned).map((row) => (
-            <div key={row.key} class="pin-reply" hidden={row.key !== pinnedKey}>
-              <Composer
-                label={row.label}
-                send={(text, promptId) => actions.send(clients, row, text, promptId)}
-                pull={row.kind === "pane" ? () => actions.pullQueued(clients, row) : null}
-                newPromptId={actions.newPromptId}
-                inputRef={(element) => {
-                  if (element === null) {
-                    pinnedInputs.current.delete(row.key);
-                  } else {
-                    pinnedInputs.current.set(row.key, element);
-                  }
-                }}
-              />
-            </div>
-          ))}
+          <div class="send">
+            <WorkNote pane={pinnedConversation?.state?.pane} now={now} />
+            {composerRows(pinnedRows, pinned).map((row) => (
+              <div key={row.key} class="pin-reply" hidden={row.key !== pinnedKey}>
+                <Composer
+                  label={row.label}
+                  send={(text, promptId) => actions.send(clients, row, text, promptId)}
+                  pull={row.kind === "pane" ? () => actions.pullQueued(clients, row) : null}
+                  newPromptId={actions.newPromptId}
+                  queued={row.key === pinnedKey ? pinnedConversation?.state?.waiting : undefined}
+                  inputRef={(element) => {
+                    if (element === null) {
+                      pinnedInputs.current.delete(row.key);
+                    } else {
+                      pinnedInputs.current.set(row.key, element);
+                    }
+                  }}
+                />
+              </div>
+            ))}
+          </div>
         </section>
         <aside class="side" aria-label="epic" hidden={cursorEpic === null}>
           {cursorEpic !== null &&

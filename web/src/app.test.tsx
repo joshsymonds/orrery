@@ -370,6 +370,13 @@ function composer(container: HTMLElement): HTMLTextAreaElement {
   return box;
 }
 
+// composerSendButton is the send button of the reply box the cursor's row shows.
+function composerSendButton(container: HTMLElement): HTMLButtonElement {
+  const button = container.querySelector<HTMLButtonElement>('.reply:not([hidden]) .composer button[aria-label="send"]');
+  assert.ok(button, "the reply box has a send button");
+  return button;
+}
+
 function readerText(container: HTMLElement): string {
   return container.querySelector(".reader")?.textContent ?? "";
 }
@@ -387,6 +394,28 @@ function pinnedHead(container: HTMLElement): Element | null {
 // readerNote is the working note under the cursor's reader, or null when that column draws none.
 function readerNote(container: HTMLElement): Element | null {
   return container.querySelector('[aria-label="reader"] .work-note');
+}
+
+// sectionChildren names each child of a reader section as its tag and first class, in order: a head, a conversation
+// and a foot is ["header.head", "div.reader", "div.send"].
+function sectionChildren(section: Element | null): string[] {
+  return Array.from(section?.children ?? [], (child) => `${child.tagName.toLowerCase()}.${child.classList[0]}`);
+}
+
+// queueTexts is the text of each message in the cursor's foot queue, oldest first, without its tag.
+function queueTexts(container: HTMLElement): string[] {
+  return Array.from(
+    container.querySelectorAll('[aria-label="reader"] .send .queue li .text'),
+    (text) => text.textContent ?? "",
+  );
+}
+
+// pinnedQueueTexts is the text of each message in the pinned foot queue, oldest first, without its tag.
+function pinnedQueueTexts(container: HTMLElement): string[] {
+  return Array.from(
+    container.querySelectorAll('[aria-label="pinned reader"] .send .queue li .text'),
+    (text) => text.textContent ?? "",
+  );
 }
 
 // workingPane is the pane a stream sends while it runs a tool. The tool started at 940, a minute before the test's
@@ -962,7 +991,8 @@ test("a working pane's delta puts its tool and time in the head's pill, and its 
     assert.equal(readerHead(container)?.querySelector(".pill .clock")?.textContent, "1:00");
     const note = readerNote(container);
     assert.equal(note?.textContent, "a message sent now lands at Claude's next step · last turn ended 5m ago");
-    assert.equal(note?.previousElementSibling?.classList.contains("reader"), true, "the note is under the reader");
+    assert.equal(note?.parentElement?.classList.contains("send"), true, "the note is in the foot");
+    assert.equal(note?.previousElementSibling === null, true, "the note is the foot's first child");
     assert.equal(note?.nextElementSibling?.classList.contains("reply"), true, "the note is above the reply boxes");
     assert.equal(container.querySelector(".work-line") === null, true, "no work line is drawn");
   }));
@@ -1015,6 +1045,110 @@ test("Enter in the composer sends the text to the pane with Panes.SendText", () 
     await until(() => fake.callsTo(sendTextPath).length === 1, "the send");
     assert.deepEqual(fake.callsTo(sendTextPath)[0].body, { pane: "a", text: "keep going" });
     await until(() => box.value === "", "the sent draft cleared");
+  }));
+
+test("a click on the send button sends the cursor's text once with Panes.SendText", () =>
+  withApp({}, async (container, fake) => {
+    await press("i");
+    const box = composer(container);
+    await typeInto(box, "keep going");
+    await act(() => {
+      composerSendButton(container).dispatchEvent(clickEvent());
+    });
+    await until(() => fake.callsTo(sendTextPath).length === 1, "the send");
+    await settle();
+    assert.equal(fake.callsTo(sendTextPath).length, 1, "the click sent once");
+    assert.deepEqual(fake.callsTo(sendTextPath)[0].body, { pane: "a", text: "keep going" });
+    await until(() => box.value === "", "the sent draft cleared");
+  }));
+
+test("the cursor's reader is its head, its conversation and its foot, and nothing else", () =>
+  withApp({}, async (container, fake) => {
+    await until(() => fake.callsTo(paneWatchPath).length === 1, "the pane stream");
+    assert.deepEqual(sectionChildren(container.querySelector('section[aria-label="reader"]')), [
+      "header.head",
+      "div.reader",
+      "div.send",
+    ]);
+  }));
+
+test("a step's reader is its head, its conversation and its foot, and nothing else", () =>
+  withApp({ epics: oneEpic() }, async (container, fake) => {
+    await onStepOne(container, fake);
+    assert.deepEqual(sectionChildren(container.querySelector('section[aria-label="reader"]')), [
+      "header.head",
+      "div.reader",
+      "div.send",
+    ]);
+  }));
+
+test("the pinned reader is its head, its conversation and its foot, and nothing else", () =>
+  withApp({}, async (container, fake) => {
+    await until(() => fake.callsTo(paneWatchPath).length === 1, "the cursor's stream");
+    await press("|");
+    await until(() => fake.callsTo(paneWatchPath).length === 2, "the pinned stream");
+    assert.deepEqual(sectionChildren(container.querySelector('section[aria-label="pinned reader"]')), [
+      "header.head",
+      "div.reader",
+      "div.send",
+    ]);
+  }));
+
+test("the cursor's queued messages dock in its foot, oldest first, and draw nowhere in its reader", () =>
+  withApp({}, async (container, fake) => {
+    await until(() => fake.callsTo(paneWatchPath).length === 1, "the pane stream");
+    const [stream] = fake.callsTo(paneWatchPath);
+    fake.emit(stream, {
+      transcript: "t1",
+      seq: "1",
+      reset: true,
+      items: [{ kind: "assistant", text: "a reply" }],
+      state: {
+        waiting: [
+          { text: "first waiting", canceled: false },
+          { text: "second waiting", canceled: true },
+        ],
+      },
+    });
+    await until(() => queueTexts(container).length === 2, "the queued messages");
+    assert.deepEqual(queueTexts(container), ["first waiting", "second waiting"]);
+    assert.equal(container.querySelectorAll('[aria-label="reader"] .send .queue li.canceled').length, 1);
+    const reader = container.querySelector('[aria-label="reader"] > .reader')?.textContent ?? "";
+    assert.equal(reader.includes("first waiting"), false, "the reader draws no queued message");
+    assert.equal(reader.includes("second waiting"), false, "the reader draws no canceled message");
+    assert.ok(reader.includes("a reply"));
+  }));
+
+test("a row's queued messages draw in no other foot: the pin keeps its own, and a hidden composer shows none", () =>
+  withApp({}, async (container, fake) => {
+    await until(() => fake.callsTo(paneWatchPath).length === 1, "the cursor's stream");
+    await press("|");
+    await until(() => fake.callsTo(paneWatchPath).length === 2, "the pinned stream");
+    const [, pinnedStream] = fake.callsTo(paneWatchPath);
+    fake.emit(pinnedStream, {
+      transcript: "t1",
+      seq: "1",
+      reset: true,
+      items: [],
+      state: { waiting: [{ text: "pinned waiting", canceled: false }] },
+    });
+    await until(() => pinnedQueueTexts(container).length === 1, "the pinned queue");
+    await press("j");
+    assert.equal(cursorKey(container), "c");
+    await until(() => fake.callsTo(paneWatchPath).some((call) => call.body.pane === "c"), "the cursor's stream on c");
+    const cursorStream = fake.callsTo(paneWatchPath).find((call) => call.body.pane === "c");
+    assert.ok(cursorStream !== undefined, "the cursor's stream on c");
+    fake.emit(cursorStream, {
+      transcript: "t2",
+      seq: "1",
+      reset: true,
+      items: [],
+      state: { waiting: [{ text: "c waiting", canceled: false }] },
+    });
+    await until(() => queueTexts(container).includes("c waiting"), "c's queue");
+    assert.deepEqual(queueTexts(container), ["c waiting"], "only c's composer draws c's queue");
+    assert.deepEqual(pinnedQueueTexts(container), ["pinned waiting"]);
+    assert.equal(container.querySelector(".reply[hidden] .queue") === null, true, "a's hidden composer draws no queue");
   }));
 
 test("Enter in a session's composer sends the text with Control.Say and a prompt id", () =>

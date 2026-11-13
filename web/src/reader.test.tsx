@@ -385,7 +385,7 @@ test("live text draws its markdown as elements inside .reply, before its caret",
     },
   ));
 
-test("a notice and a queued message holding markdown stay literal text", () =>
+test("a notice holding markdown stays literal text, and a queued message is not drawn in the reader", () =>
   withReader(
     {
       conversation: conversation({
@@ -400,10 +400,9 @@ test("a notice and a queued message holding markdown stay literal text", () =>
     (container) => {
       assert.equal(container.querySelector(".notice strong") === null, true);
       assert.equal(container.querySelector(".notice code") === null, true);
-      assert.equal(container.querySelector(".queued strong") === null, true);
-      assert.equal(container.querySelector(".queued code") === null, true);
       assert.ok(container.querySelector(".notice")?.textContent?.includes("**kept** `raw`"));
-      assert.ok(container.querySelector(".queued")?.textContent?.includes("**queued** `raw`"));
+      assert.equal(container.querySelector(".queued") === null, true, "no queued message is drawn");
+      assert.equal(container.textContent?.includes("**queued**"), false, "the queued text is in the foot, not here");
     },
   ));
 
@@ -491,7 +490,7 @@ test("unfinished text follows the items and is marked live", () =>
     },
   ));
 
-test("waiting messages stack under the items, oldest first, and a canceled one is marked", () =>
+test("waiting messages are not drawn in the reader, which holds only the items", () =>
   withReader(
     {
       conversation: conversation({
@@ -507,14 +506,10 @@ test("waiting messages stack under the items, oldest first, and a canceled one i
       open: false,
     },
     (container) => {
-      const waiting = [...container.querySelectorAll(".queued")];
-      assert.equal(waiting.length, 2);
-      assert.ok(waiting[0].textContent?.includes("first queued"));
-      assert.ok(waiting[1].textContent?.includes("second queued"));
-      assert.equal(waiting[0].classList.contains("canceled"), false);
-      assert.equal(waiting[1].classList.contains("canceled"), true);
-      assert.ok(waiting[1].textContent?.includes("canceled"));
-      assert.ok(waiting[0].textContent?.includes("waiting"));
+      assert.equal(container.querySelector(".queued") === null, true, "no queued message is drawn");
+      assert.equal(container.querySelector(".canceled") === null, true, "no canceled message is drawn");
+      assert.equal(container.textContent?.includes("queued"), false, "the queued text is in the foot, not here");
+      assert.ok(container.textContent?.includes("done"));
     },
   ));
 
