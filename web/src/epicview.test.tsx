@@ -69,6 +69,29 @@ function mixSlices() {
   });
 }
 
+// sevenTasks are seven record tasks: the first six are named by strip7Slices, and the seventh by no slice, with a
+// status that is neither done nor a gap.
+const sevenTasks = [
+  { slug: "1-task", status: "done" },
+  { slug: "2-task", status: "dispatched" },
+  { slug: "3-task", status: "dispatched" },
+  { slug: "4-task", status: "gap" },
+  { slug: "5-task", status: "done" },
+  { slug: "6-task", status: "dispatched" },
+  { slug: "7-task", status: "pending" },
+];
+
+// strip7Slices are the slices of sevenTasks' first six: done, running, held, a gap that errored at checks, done, and
+// running on red test. Each is toned passed, now, held, errored, passed and now.
+const strip7Slices = [
+  { task: "1-task", hue: "done", redTest: true, working: true, testsPass: true, checks: true, gateAccepted: true },
+  { task: "2-task", hue: "dispatched", redTest: true, working: true, at: 3 },
+  { task: "3-task", hue: "dispatched", held: true, redTest: true, working: true, at: 3 },
+  { task: "4-task", hue: "gap", redTest: true, working: true, testsPass: true, errorAt: 4 },
+  { task: "5-task", hue: "done", redTest: true, working: true, testsPass: true, checks: true, gateAccepted: true },
+  { task: "6-task", hue: "dispatched", at: 1 },
+];
+
 async function withView(
   props: { detail: EpicsGetResponse; cursorStep: string },
   check: (container: HTMLElement) => void | Promise<void>,
@@ -519,16 +542,83 @@ test("an empty cursorStep marks no step and no slice", () =>
     assert.equal(container.querySelectorAll("[aria-current]").length, 0);
   }));
 
-test("the header draws the slug, repository, outcome and problem", () =>
+test("the head reads EPIC, then the slug, repository and outcome with done of total, and the problem", () =>
   withView(
-    { detail: detail({ epic: { ...epic, problem: "lock held" } }), cursorStep: "" },
+    { detail: detail({ epic: { ...epic, problem: "lock held" }, tasks }), cursorStep: "" },
     (container) => {
-      assert.equal(container.querySelector(".epic-head .slug")?.textContent, "demo-epic");
-      assert.equal(container.querySelector(".epic-head .repo")?.textContent, "demo-repo");
-      assert.equal(container.querySelector(".epic-head .outcome")?.textContent, "ship the demo");
-      assert.equal(container.querySelector(".epic-head .problem")?.textContent, "lock held");
+      assert.deepEqual(
+        [...container.querySelectorAll(".epic-head .eyebrow")].map((eyebrow) => eyebrow.textContent),
+        ["EPIC"],
+      );
+      assert.equal(container.querySelector(".epic-head .head-line .slug")?.textContent ?? null, "demo-epic");
+      assert.equal(container.querySelector(".epic-head .head-line .repo")?.textContent ?? null, "demo-repo");
+      assert.equal(
+        container.querySelector(".epic-head .head-line .rt")?.textContent ?? null,
+        "ship the demo · 1 of 3",
+      );
+      assert.equal(container.querySelector(".epic-head .problem")?.textContent ?? null, "lock held");
+      assert.equal(container.querySelectorAll(".outcome").length, 0, "the outcome reads in the head line");
     },
   ));
+
+test("the head line leaves out an empty outcome and its separator", () =>
+  withView({ detail: detail({ epic: { ...epic, outcome: "" }, tasks }), cursorStep: "" }, (container) => {
+    assert.equal(container.querySelector(".head-line .rt")?.textContent ?? null, "1 of 3");
+  }));
+
+test("with no tasks the head reads 0 of 0 and draws no strip", () =>
+  withView({ detail: detail({ epic }), cursorStep: "" }, (container) => {
+    assert.equal(container.querySelector(".head-line .rt")?.textContent ?? null, "ship the demo · 0 of 0");
+    assert.equal(container.querySelectorAll(".strip").length, 0);
+  }));
+
+test("the strip has a segment per record task, toned as stripOf, and a task no slice names is none", () =>
+  withView({ detail: detail({ epic, tasks: sevenTasks, slices: strip7Slices }), cursorStep: "" }, (container) => {
+    assert.equal(container.querySelector(".strip")?.getAttribute("class") ?? null, "strip");
+    assert.equal(container.querySelector(".epic-head > .strip") !== null, true, "the strip sits in the head");
+    assert.deepEqual(
+      [...container.querySelectorAll(".strip > i")].map(classOf),
+      ["k-passed", "k-now", "k-held", "k-errored", "k-passed", "k-now", "k-none"],
+    );
+  }));
+
+// manyTasks are count record tasks that no slice names.
+function manyTasks(count: number) {
+  return Array.from({ length: count }, (_, index) => ({ slug: `${index + 1}-task`, status: "pending" }));
+}
+
+// The strip draws dense past 60 segments, and not at 60.
+const denseCases: [number, string][] = [
+  [60, "strip"],
+  [61, "strip dense"],
+];
+for (const [count, expected] of denseCases) {
+  test(`a strip of ${count} segments has the class ${expected}`, () =>
+    withView({ detail: detail({ epic, tasks: manyTasks(count) }), cursorStep: "" }, (container) => {
+      assert.equal(container.querySelector(".strip")?.getAttribute("class") ?? null, expected);
+      assert.equal(container.querySelectorAll(".strip > i").length, count);
+    }));
+}
+
+test("a record with 7 tasks over 6 slices reads tracked tasks done", () =>
+  withView({ detail: detail({ epic, tasks: sevenTasks, slices: syntheticSlices(6) }), cursorStep: "" }, (container) => {
+    assert.equal(container.querySelector(".chart .readout .caption")?.textContent ?? null, "tracked tasks done");
+  }));
+
+test("a record with 6 tasks over 6 slices reads tasks done", () =>
+  withView(
+    { detail: detail({ epic, tasks: sevenTasks.slice(0, 6), slices: syntheticSlices(6) }), cursorStep: "" },
+    (container) => {
+      assert.equal(container.querySelector(".chart .readout .caption")?.textContent ?? null, "tasks done");
+    },
+  ));
+
+test("the task list reads TASKS, then its record count and how many slices name, as tracked", () =>
+  withView({ detail: detail({ epic, tasks: sevenTasks, slices: strip7Slices }), cursorStep: "" }, (container) => {
+    const tasksEyebrow = [...container.querySelectorAll(".eyebrow")].at(1);
+    assert.equal(tasksEyebrow?.firstChild?.textContent ?? null, "TASKS");
+    assert.equal(tasksEyebrow?.querySelector(".sub")?.textContent ?? null, "7 · 6 tracked");
+  }));
 
 test("no problem element when the epic has no problem", () =>
   withView({ detail: detail({ epic }), cursorStep: "" }, (container) => {
@@ -550,7 +640,11 @@ test("markup in slugs, statuses, labels and slice tasks draws as text with no el
       assert.equal(container.querySelectorAll("img").length, 0);
       assert.equal(container.querySelectorAll("script").length, 0);
       assert.equal(container.querySelectorAll("b").length, 0);
-      assert.equal(container.querySelectorAll("i").length, 0);
+      assert.equal(
+        [...container.querySelectorAll("i")].filter((element) => element.textContent !== "").length,
+        0,
+        "every i is an empty pip or strip segment, none holds the slice's markup",
+      );
       assert.ok(container.textContent?.includes("<img src=x onerror=alert(1)>"));
       assert.ok(container.textContent?.includes("<b>done</b>"));
       assert.ok(container.textContent?.includes("<script>alert(1)</script>"));
@@ -811,3 +905,178 @@ test("two key lines under the chart name the rings and the colours", () =>
       ["R red test W working T tests pass C checks G gate", "passed now held errored"],
     );
   }));
+
+// rowsOf is the task list's rows, in record order.
+function rowsOf(container: HTMLElement): Element[] {
+  return [...container.querySelectorAll(".tasks > .task")];
+}
+
+test("each task row holds its mark, slug, agent, pips and line, in that order", () =>
+  withView({ detail: detail({ epic, tasks: sevenTasks, slices: strip7Slices }), cursorStep: "" }, (container) => {
+    const rows = rowsOf(container);
+    assert.equal(rows.length, 7);
+    assert.deepEqual(
+      rows.map((row) => [...row.children].map(classOf)),
+      [
+        ["um k-passed", "slug", "agent", "pips", "line"],
+        ["um g-working", "slug", "agent", "pips", "line"],
+        ["um k-held", "slug", "agent", "pips", "line"],
+        ["um k-errored", "slug", "agent", "pips", "line"],
+        ["um k-passed", "slug", "agent", "pips", "line"],
+        ["um g-working", "slug", "agent", "pips", "line"],
+        ["um k-none", "slug", "agent", "pips", "line"],
+      ],
+    );
+  }));
+
+test("each task row's mark is its tone's glyph, or a spinner while it runs, and is hidden from readers", () =>
+  withView({ detail: detail({ epic, tasks: sevenTasks, slices: strip7Slices }), cursorStep: "" }, (container) => {
+    const marks = rowsOf(container).map((row) => row.querySelector(".um"));
+    assert.deepEqual(
+      marks.map((mark) => mark?.textContent ?? null),
+      ["✓", "", "‖", "✗", "✓", "", "○"],
+    );
+    assert.deepEqual(
+      marks.map((mark) => mark?.getAttribute("aria-hidden") ?? null),
+      Array(7).fill("true"),
+    );
+  }));
+
+test("a task no slice names is passed when its status is done, errored when a gap, and none otherwise", () =>
+  withView(
+    {
+      detail: detail({
+        epic,
+        tasks: [
+          { slug: "1-task", status: "done" },
+          { slug: "2-task", status: "gap" },
+          { slug: "3-task", status: "pending" },
+        ],
+      }),
+      cursorStep: "",
+    },
+    (container) => {
+      assert.deepEqual(
+        rowsOf(container).map((row) => row.querySelector(".um")?.getAttribute("class") ?? null),
+        ["um k-passed", "um k-errored", "um k-none"],
+      );
+      assert.deepEqual(rowsOf(container).map(classOf), ["task", "task", "task out"]);
+      assert.deepEqual([...container.querySelectorAll(".strip > i")].map(classOf), ["k-none", "k-none", "k-none"]);
+    },
+  ));
+
+test("a row is held when its tone is held, out when none, and a plain task otherwise", () =>
+  withView({ detail: detail({ epic, tasks: sevenTasks, slices: strip7Slices }), cursorStep: "" }, (container) => {
+    assert.deepEqual(rowsOf(container).map(classOf), [
+      "task",
+      "task",
+      "task held",
+      "task",
+      "task",
+      "task",
+      "task out",
+    ]);
+  }));
+
+test("only the cursor's task row is cur, and the step row alone keeps aria-current", () =>
+  withView(
+    {
+      detail: detail({ epic, tasks: sevenTasks, slices: strip7Slices, steps: cursorSteps("4-task") }),
+      cursorStep: "s1",
+    },
+    (container) => {
+      assert.deepEqual(rowsOf(container).map(classOf), [
+        "task",
+        "task",
+        "task held",
+        "task cur",
+        "task",
+        "task",
+        "task out",
+      ]);
+      assert.equal(container.querySelectorAll(".task[aria-current]").length, 0);
+      assert.equal(container.querySelectorAll(".step[aria-current]").length, 1);
+    },
+  ));
+
+test("no row is cur without a cursor, or when the cursor's step names no task", async () => {
+  const cases = [
+    { steps: [], cursorStep: "" },
+    { steps: [{ id: "s1", agent: "reviewer", started: 1n }], cursorStep: "s1" },
+  ];
+  for (const { steps: stepsOfCase, cursorStep } of cases) {
+    await withView(
+      { detail: detail({ epic, tasks: sevenTasks, slices: strip7Slices, steps: stepsOfCase }), cursorStep },
+      (container) => {
+        assert.equal(container.querySelectorAll(".task.cur").length, 0);
+      },
+    );
+  }
+});
+
+// agentSteps are two steps on 1-task, whose latest names the builder, and one step on 2-task.
+const agentSteps = [
+  { id: "a1", task: "1-task", agent: "scout", started: 1n, end: "done" },
+  { id: "a2", task: "1-task", agent: "builder", started: 2n, end: "done" },
+  { id: "a3", task: "2-task", agent: "reviewer", started: 3n },
+];
+
+test("each task row names the agent of its latest step, and is empty without one", () =>
+  withView(
+    { detail: detail({ epic, tasks: sevenTasks, slices: strip7Slices, steps: agentSteps }), cursorStep: "" },
+    (container) => {
+      assert.deepEqual(
+        rowsOf(container).map((row) => row.querySelector(".agent")?.textContent ?? null),
+        ["builder", "reviewer", "", "", "", "", ""],
+      );
+    },
+  ));
+
+test("each task row's five pips are the cells of the slice that names its task, or five track when none does", () =>
+  withView({ detail: detail({ epic, tasks: sevenTasks, slices: strip7Slices }), cursorStep: "" }, (container) => {
+    assert.deepEqual(
+      rowsOf(container).map((row) => [...row.querySelectorAll(".pips > i")].map(classOf)),
+      [
+        ["k-passed", "k-passed", "k-passed", "k-passed", "k-passed"],
+        ["k-passed", "k-passed", "k-now", "k-track", "k-track"],
+        ["k-passed", "k-passed", "k-held", "k-track", "k-track"],
+        ["k-passed", "k-passed", "k-passed", "k-errored", "k-track"],
+        ["k-passed", "k-passed", "k-passed", "k-passed", "k-passed"],
+        ["k-now", "k-track", "k-track", "k-track", "k-track"],
+        ["k-track", "k-track", "k-track", "k-track", "k-track"],
+      ],
+    );
+  }));
+
+// LineStep is the part of a step that sets a task row's line.
+type LineStep = { doing?: string; held?: boolean; end?: string; reason?: string };
+
+// lineCases are a task row's line for its latest step: a running step's doing, or its held reason, an ended step's end
+// and reason, or else the recorded status as written. The task's status is dispatched.
+const lineCases: [string, LineStep | undefined, string][] = [
+  ["a running step's doing", { doing: "writing the test" }, "writing the test"],
+  ["a running step with no doing, its status", { doing: "" }, "dispatched"],
+  ["a held step with no reason", { held: true }, "held"],
+  ["a held step with a reason", { held: true, reason: "owner nudge" }, "held · owner nudge"],
+  ["a held step, held before its doing", { held: true, doing: "writing the test" }, "held"],
+  ["an ended step with an end other than done", { end: "failed" }, "failed"],
+  ["an ended step with an end and reason", { end: "checks_failed", reason: "lint" }, "checks_failed · lint"],
+  ["a step ended done, its status as written", { end: "done", doing: "writing the test" }, "dispatched"],
+  ["no step, its status as written", undefined, "dispatched"],
+];
+for (const [name, step, line] of lineCases) {
+  test(`a task row's line for ${name} reads ${line}`, () =>
+    withView(
+      {
+        detail: detail({
+          epic,
+          tasks: [{ slug: "1-task", status: "dispatched" }],
+          steps: step === undefined ? [] : [{ id: "s1", task: "1-task", agent: "builder", started: 1n, ...step }],
+        }),
+        cursorStep: "",
+      },
+      (container) => {
+        assert.equal(container.querySelector(".tasks .line")?.textContent ?? null, line);
+      },
+    ));
+}

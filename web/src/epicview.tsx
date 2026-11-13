@@ -1,7 +1,8 @@
 import type { JSX } from "preact";
 import { useState } from "preact/hooks";
 
-import type { EpicSlice, EpicStep, EpicsGetResponse } from "./gen/orrery/v1/epics_pb";
+import { denseStrip, doneOf, pipsOf, type StripTone, stripOf } from "./epics";
+import type { EpicSlice, EpicStep, EpicsGetResponse, EpicTask } from "./gen/orrery/v1/epics_pb";
 import { cellKind, cellTitle, type EpicReadout, epicReadout, RINGS, type TaskReadout, taskReadout } from "./orbitcells";
 import { bezel, cellPath, CENTRE, handPath, hitSlice, ringLetters, VIEW, wedgePath } from "./orbits";
 import { taskStateOf } from "./taskstatus";
@@ -10,24 +11,38 @@ import { taskStateOf } from "./taskstatus";
 const emptyOrbits = [62, 51, 40, 29, 18];
 // The cursor's wash is drawn from this many slices up: a narrower slice needs the wash to be found.
 const washFrom = 18;
+// A task row's mark for each tone that is not now, which draws a spinner instead.
+const markOf: Record<Exclude<StripTone, "now">, string> = { passed: "✓", held: "‖", errored: "✗", none: "○" };
 
-// EpicView draws the right column for one epic: its slug, repository, outcome and any problem; a chart of its slices,
-// or the orbits and the line that it has none; the task list with each status as recorded; and every step, oldest
-// first, with a pip per stored check and its end kind. The cursor's step and its task's slice are marked. Every text is
-// a child of its element, so no markup in a slug, status, label or check name becomes an element.
+// EpicView draws the right column for one epic: its head, with the slug, repository, outcome and done count, any
+// problem and the task strip; a chart of its slices, or the orbits and the line that it has none; the task rows, each
+// with its mark, agent, pips and line; and every step, oldest first, with a pip per stored check and its end kind. The
+// cursor's step and its task are marked. Every text is a child of its element, so no markup in a slug, status, label or
+// check name becomes an element.
 export function EpicView(props: { detail: EpicsGetResponse; cursorStep: string }): JSX.Element {
   const { detail, cursorStep } = props;
   const { epic, tasks, slices, steps } = detail;
   const cursor = cursorStep === "" ? undefined : steps.find((step) => step.id === cursorStep);
   const cursorTask = cursor === undefined || cursor.task === "" ? undefined : cursor.task;
+  const strip = stripOf(tasks, slices);
   return (
     <div class="epic-view">
       {epic && (
         <header class="epic-head">
-          <h2 class="slug">{epic.slug}</h2>
-          <p class="repo">{epic.repository}</p>
-          <p class="outcome">{epic.outcome}</p>
+          <h3 class="eyebrow">EPIC</h3>
+          <div class="head-line">
+            <h2 class="slug">{epic.slug}</h2>
+            <span class="repo">{epic.repository}</span>
+            <span class="rt">{joinParts(epic.outcome, `${doneOf(tasks)} of ${tasks.length}`)}</span>
+          </div>
           {epic.problem !== "" && <p class="problem">{epic.problem}</p>}
+          {tasks.length > 0 && (
+            <div class={strip.length > denseStrip ? "strip dense" : "strip"}>
+              {strip.map((tone, index) => (
+                <i key={index} class={`k-${tone}`} />
+              ))}
+            </div>
+          )}
         </header>
       )}
       {slices.length === 0 ? (
@@ -35,14 +50,33 @@ export function EpicView(props: { detail: EpicsGetResponse; cursorStep: string }
       ) : (
         <SliceChart slices={slices} cursorTask={cursorTask} recordTasks={tasks.length} />
       )}
+      <h3 class="eyebrow">
+        TASKS<span class="sub">{`${tasks.length} · ${strip.filter((tone) => tone !== "none").length} tracked`}</span>
+      </h3>
       <ul class="tasks">
-        {tasks.map((task, index) => (
-          <li key={index} class="task">
-            <span class={`mark ts-${taskStateOf(task.status)}`} />
-            <span class="slug">{task.slug}</span>
-            <span class="status">{task.status}</span>
-          </li>
-        ))}
+        {tasks.map((task, index) => {
+          const tone = rowToneOf(task, strip[index]);
+          const step = latestStepOf(steps, task.slug);
+          return (
+            <li key={index} class={taskClassOf(task.slug === cursorTask, tone)}>
+              {tone === "now" ? (
+                <span class="um g-working" aria-hidden="true" />
+              ) : (
+                <span class={`um k-${tone}`} aria-hidden="true">
+                  {markOf[tone]}
+                </span>
+              )}
+              <span class="slug">{task.slug}</span>
+              <span class="agent">{step?.agent ?? ""}</span>
+              <span class="pips">
+                {pipsOf(task.slug, slices).map((kind, pip) => (
+                  <i key={pip} class={`k-${kind}`} />
+                ))}
+              </span>
+              <span class="line">{lineOf(task, step)}</span>
+            </li>
+          );
+        })}
       </ul>
       <ol class="steps">
         {steps.map((step) => (
@@ -276,4 +310,49 @@ function endKind(step: EpicStep): string {
     return step.end;
   }
   return step.held ? "held" : "running";
+}
+
+// joinParts joins the parts that are not empty with a middle dot.
+function joinParts(...parts: string[]): string {
+  return parts.filter((part) => part !== "").join(" · ");
+}
+
+// rowToneOf is a task row's tone: its strip tone, or for a task no slice names, passed when its status is done, errored
+// when it is a gap, and none otherwise.
+function rowToneOf(task: EpicTask, stripTone: StripTone): StripTone {
+  if (stripTone !== "none") {
+    return stripTone;
+  }
+  const state = taskStateOf(task.status);
+  if (state === "done") {
+    return "passed";
+  }
+  return state === "gap" ? "errored" : "none";
+}
+
+// taskClassOf is a task row's classes: cur when the cursor's step is on its task, held and out by its tone.
+function taskClassOf(current: boolean, tone: StripTone): string {
+  return ["task", current ? "cur" : "", tone === "held" ? "held" : "", tone === "none" ? "out" : ""]
+    .filter((name) => name !== "")
+    .join(" ");
+}
+
+// latestStepOf is the task's latest step: the last, in the order given, whose task is the slug.
+function latestStepOf(steps: EpicStep[], task: string): EpicStep | undefined {
+  return steps.filter((step) => step.task === task).at(-1);
+}
+
+// lineOf is a task row's line from its latest step: the held reason or the doing of a running step, the end and reason
+// of a step that ended other than done, else the recorded status as written.
+function lineOf(task: EpicTask, step: EpicStep | undefined): string {
+  if (step === undefined) {
+    return task.status;
+  }
+  if (step.end === "") {
+    if (step.held) {
+      return joinParts("held", step.reason);
+    }
+    return step.doing === "" ? task.status : step.doing;
+  }
+  return step.end === "done" ? task.status : joinParts(step.end, step.reason);
 }

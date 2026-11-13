@@ -65,6 +65,9 @@ const shownSteps = 4;
 // Quiet epics draw one line each until this many blocks are drawn. Epics with running or held work always draw.
 const shownBlocks = 6;
 
+// A task strip past this many segments draws dense, its segments touching.
+export const denseStrip = 60;
+
 const needsYouTitle = "Needs you";
 const epicsTitle = "Epics";
 
@@ -110,7 +113,7 @@ function blockOf(epic: Epic, detail: EpicsGetResponse | undefined): EpicBlock {
       repository: epic.repository,
       outcome: epic.outcome,
       known: detail !== undefined,
-      done: tasks.filter((task) => taskStateOf(task.status) === "done").length,
+      done: doneOf(tasks),
       total: tasks.length,
       strip,
     },
@@ -121,8 +124,13 @@ function blockOf(epic: Epic, detail: EpicsGetResponse | undefined): EpicBlock {
   };
 }
 
+// The record tasks whose status is done.
+export function doneOf(tasks: EpicTask[]): number {
+  return tasks.filter((task) => taskStateOf(task.status) === "done").length;
+}
+
 // One tone per record task, in record order: the tone of the slice that names the task, or none when none does.
-function stripOf(tasks: EpicTask[], slices: EpicSlice[]): StripTone[] {
+export function stripOf(tasks: EpicTask[], slices: EpicSlice[]): StripTone[] {
   return tasks.map((task) => {
     const index = slices.findIndex((slice) => slice.task === task.slug);
     return index === -1 ? "none" : taskReadout(slices, index).tone;
@@ -162,13 +170,13 @@ function stepOf(epic: Epic, step: EpicStep, slices: EpicSlice[]): StepItem {
 }
 
 // A step's five cells: the cells of the slice that names its task, or five track when no slice does.
-function pipsOf(task: string, slices: EpicSlice[]): CellKind[] {
+export function pipsOf(task: string, slices: EpicSlice[]): CellKind[] {
   const slice = slices.find((candidate) => candidate.task === task);
   return RINGS.map((_, index) => (slice ? cellKind(slice, index + 1) : "track"));
 }
 
 // A step's round, per DL17: the highest round its checks reached, plus one while the step runs.
-function roundOf(step: EpicStep): number {
+export function roundOf(step: EpicStep): number {
   const highest = step.checks.reduce((max, check) => Math.max(max, check.round), 0);
   return step.end === "" ? highest + 1 : highest;
 }
