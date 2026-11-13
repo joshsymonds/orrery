@@ -46,18 +46,27 @@ func Listen(socketPath string) (net.Listener, error) {
 	return ln, nil
 }
 
-// Serve answers the engine service on ln with commands, the steps service with steps and the pools service with pools
-// until ctx ends. It then shuts down within shutdownWait and returns nil. A nil commands refuses every engine RPC as
-// unavailable, a nil steps refuses every step RPC as unavailable, and a nil pools refuses every Acquire as unavailable.
-// With steps served, the engine refuses Say, Answer, Interrupt and Stop on a step id, since a step is driven only
-// through the Steps service.
-func Serve(ctx context.Context, ln net.Listener, commands Commands, steps StepCommands, pools PoolCommands) error {
+// Serve answers the engine service on ln with commands, the steps service with steps, the epics service with epics and
+// the pools service with pools until ctx ends. It then shuts down within shutdownWait and returns nil. A nil commands
+// refuses every engine RPC as unavailable, a nil steps refuses every step RPC as unavailable, a nil epics refuses every
+// epic RPC as unavailable, and a nil pools refuses every Acquire as unavailable. With steps served, the engine refuses
+// Say, Answer, Interrupt and Stop on a step id, since a step is driven only through the Steps service.
+func Serve(
+	ctx context.Context,
+	ln net.Listener,
+	commands Commands,
+	steps StepCommands,
+	epics EpicCommands,
+	pools PoolCommands,
+) error {
 	path, handler := enginev1connect.NewEngineHandler(&service{commands: commands, steps: steps})
 	stepsPath, stepsHandler := enginev1connect.NewStepsHandler(&stepService{steps: steps})
+	epicsPath, epicsHandler := enginev1connect.NewEpicsHandler(&epicService{epics: epics})
 	poolsPath, poolsHandler := enginev1connect.NewPoolsHandler(&poolService{pools: pools})
 	mux := http.NewServeMux()
 	mux.Handle(path, handler)
 	mux.Handle(stepsPath, stepsHandler)
+	mux.Handle(epicsPath, epicsHandler)
 	mux.Handle(poolsPath, poolsHandler)
 	srv := &http.Server{Handler: mux, ReadHeaderTimeout: readHeaderTimeout}
 
