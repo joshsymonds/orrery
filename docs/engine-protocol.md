@@ -249,50 +249,50 @@ Every tool result is one text block holding JSON. Every argument object refuses 
 
 #### step_start
 
-Arguments (`internal/stepmcp/tools.go:85`-`:98`). Required: `agent`, `prompt`, `workspace`, `schema`. Optional:
+Arguments (`internal/stepmcp/tools.go:85`-`:98`). Required: `prompt` and `workspace` (`internal/stepmcp/tools.go:39`). Optional:
 
 - `revision`: the commit the step starts at. Empty means HEAD (`step.proto:49`).
 - `doneValue`: the status the done return carries. Empty means `done` (`step.proto:64`).
 - `readOnly`: a read-only step runs in a detached worktree removed when it ends (`step.proto:52`).
 - `ownedPaths`: the repository-relative paths a writing step may change.
 - `gateName`: the name of the gate the step's return is checked against. It is resolved once, when the step starts, from `gatesFile` and then the project file. Empty runs no gate (`internal/stepmcp/tools.go:94`; `step.proto:77`; see [Gate files](contract.md#gate-files)).
-- `gatesFile`: the absolute path of the epic's gates file, read before the project file. Empty reads only the project file. It is refused when it is not absolute, and when it is set without `gateName` (`internal/stepmcp/tools.go:95`; `step.proto:80`; `internal/enginehost/step.go:369`-`:345`).
-- `epic`: the epic the step belongs to, passed as given. Empty leaves the step unlabelled, and an unlabelled step is never listed. The format `step.proto` names, `<repo-id>/<epic-slug>`, is not checked (`internal/stepmcp/tools.go:96`, `internal/stepmcp/tools.go:175`; `step.proto:71`).
-- `task`: the slug of the epic's task the step works on. Empty when it works on no one task (`internal/stepmcp/tools.go:97`, `internal/stepmcp/tools.go:176`; `step.proto:74`).
+- `gatesFile`: the absolute path of the epic's gates file, read before the project file. Empty reads only the project file. It is refused when it is not absolute, and when it is set without `gateName` (`internal/stepmcp/tools.go:95`; `step.proto:80`; `internal/enginehost/step.go:389`-`:397`).
+- `epic`: the epic the step belongs to, passed as given. Empty leaves the step unlabelled, and an unlabelled step is never listed. The format `step.proto` names, `<repo-id>/<epic-slug>`, is not checked (`internal/stepmcp/tools.go:96`, `internal/stepmcp/tools.go:173`; `step.proto:71`).
+- `task`: the slug of the epic's task the step works on. Empty when it works on no one task (`internal/stepmcp/tools.go:97`, `internal/stepmcp/tools.go:174`; `step.proto:74`).
 
 `gate` and `gateLimitSeconds` are not arguments. A call that names either one is refused as an unknown key (`internal/stepmcp/tools.go:110`-`:117`). The gate's limit is the one its definition gives (see [Gate files](contract.md#gate-files)).
 
-`schema` is a JSON object argument, not a string; the server sends its JSON text to `StartStep` (`internal/stepmcp/tools.go:128`-`:137`). `agent`, `prompt` and `workspace` must be non-empty (`internal/stepmcp/tools.go:151`-`:159`).
+`schema` is a JSON object argument, not a string; the server sends its JSON text to `StartStep` (`internal/stepmcp/tools.go:129`-`:138`). `prompt` and `workspace` must be non-empty (`internal/stepmcp/tools.go:152`-`:157`). `agent` and `schema` may be left out of the call. The service refuses an empty `agent` or `schema` unless the start names an agent gate (`internal/enginehost/stepsession.go:102`-`:103`, `internal/enginehost/step.go:248`). A start that names an agent gate by `gateName` must be `readOnly` and leave `agent`, `schema` and `doneValue` empty, since the gate supplies them (`internal/enginehost/step.go:433`-`:451`; see [Agent gates](contract.md#agent-gates)).
 
-Result: `{"id": "<step id>"}`, returned once the step's row exists (`internal/stepmcp/tools.go:181`; `step.proto:8`). A refused start returns the refusal and no id.
+Result: `{"id": "<step id>"}`, returned once the step's row exists (`internal/stepmcp/tools.go:179`; `step.proto:8`). A refused start returns the refusal and no id.
 
 #### step_status
 
-Arguments: `id`, required and non-empty (`internal/stepmcp/tools.go:41`-`:42`, `:191`-`:193`). Result: the step object described below (`internal/stepmcp/tools.go:198`).
+Arguments: `id`, required and non-empty (`internal/stepmcp/tools.go:41`-`:42`, `:189`-`:191`). Result: the step object described below (`internal/stepmcp/tools.go:196`).
 
 #### step_stop
 
-Arguments: `id`, required and non-empty. Result: `{"id": "<step id>", "stopped": true}` (`internal/stepmcp/tools.go:214`). The result says `stopped: true` whenever the daemon accepted the call, since `StopStepResponse` has no fields (`step.proto:95`-`:96`).
+Arguments: `id`, required and non-empty. Result: `{"id": "<step id>", "stopped": true}` (`internal/stepmcp/tools.go:212`). The result says `stopped: true` whenever the daemon accepted the call, since `StopStepResponse` has no fields (`step.proto:95`-`:96`).
 
 #### step_wait
 
 Arguments (`internal/stepmcp/tools.go:44`-`:47`):
 
-- `ids`: a non-empty array of step ids. An empty id is refused (`internal/stepmcp/tools.go:246`-`:251`).
-- `timeoutSeconds`: optional. It must be a whole number of seconds, 0 or more. A fractional or negative value is an error with the text `timeoutSeconds must be a whole number of seconds, 0 or more` (`internal/stepmcp/tools.go:219`-`:227`).
+- `ids`: a non-empty array of step ids. An empty id is refused (`internal/stepmcp/tools.go:244`-`:249`).
+- `timeoutSeconds`: optional. It must be a whole number of seconds, 0 or more. A fractional or negative value is an error with the text `timeoutSeconds must be a whole number of seconds, 0 or more` (`internal/stepmcp/tools.go:217`-`:225`).
 
-The wait is clamped to `MaxWait`, 25 minutes or 1500 seconds (`internal/stepmcp/tools.go:21`-`:23`). An omitted timeout is 1500 seconds. A timeout at or above 1500 is 1500 (`internal/stepmcp/tools.go:219`-`:230`). The clamp exists so that the call returns inside the time Claude Code allows a tool call, and the caller asks again (`internal/stepmcp/tools.go:21`-`:22`). A timeout of 0 returns at once (`step.proto:115`).
+The wait is clamped to `MaxWait`, 25 minutes or 1500 seconds (`internal/stepmcp/tools.go:21`-`:23`). An omitted timeout is 1500 seconds. A timeout at or above 1500 is 1500 (`internal/stepmcp/tools.go:217`-`:228`). The clamp exists so that the call returns inside the time Claude Code allows a tool call, and the caller asks again (`internal/stepmcp/tools.go:21`-`:22`). A timeout of 0 returns at once (`step.proto:115`).
 
-Result: `{"ended": <step or null>, "steps": [<step>, ...]}` (`internal/stepmcp/tools.go:263`-`:271`). `ended` is the first step to end and is `null` when the timeout passes first. `steps` lists every named step in the order the request named them (`step.proto:124`-`:125`). On a timeout the caller reads each step's state from `steps`.
+Result: `{"ended": <step or null>, "steps": [<step>, ...]}` (`internal/stepmcp/tools.go:261`-`:269`). `ended` is the first step to end and is `null` when the timeout passes first. `steps` lists every named step in the order the request named them (`step.proto:124`-`:125`). On a timeout the caller reads each step's state from `steps`.
 
 #### The step object
 
-Every tool that reports a step returns these fields (`internal/stepmcp/tools.go:300`-`:325`):
+Every tool that reports a step returns these fields (`internal/stepmcp/tools.go:298`-`:323`):
 
 - `id`, `agent`, `workspace`, `revision`, `readOnly`, `worktree`: as the `Step` message defines them (`step.proto:131`-`:146`). `worktree` is empty for a writing step.
 - `end`, `reason`: empty while the step runs (`step.proto:149`, `:161`).
 - `status`: the done value the return carried, or the status the step ended with. `result`: the latest result the return carried (`step.proto:151`-`:155`).
-- `checks`: each `{round, name, ok, detail}` from the rounds the return's checks ran in (`internal/stepmcp/tools.go:301`-`:309`; `step.proto:157`-`:158`).
+- `checks`: each `{round, name, ok, detail}` from the rounds the return's checks ran in (`internal/stepmcp/tools.go:299`-`:307`; `step.proto:157`-`:158`).
 - `started`, `ended`: unix seconds. `ended` is 0 while the step runs (`step.proto:163`-`:167`).
 
 ### Caller facts
@@ -308,7 +308,7 @@ These are Claude Code 2.1.321 behaviors that the tool shapes answer to. No code 
 The findings of this section come from live probes on Claude Code 2.1.321 with `claude-haiku-5-5`, and from the code that runs them. The probe output is not committed, so each claim cites the code that relies on it. The watch and the judge run beside a step's loop, and [Step lifecycle](contract.md#step-lifecycle) gives the rules they follow.
 
 - **Clocks.** The watch never reads the clock. Its loop passes each reading in (`internal/enginehost/stepwatch.go:91-92`, `internal/enginehost/steploop.go:138`). Model time and silence advance only while a turn runs with no main-conversation tool call open. Turn time advances for the whole turn (`internal/enginehost/stepwatch.go:117-131`). A turn start restarts turn time and clears the open calls, and a turn end or an exit clears them too. Any event restarts the silence count (`internal/enginehost/stepwatch.go:140-151`, `internal/enginehost/stepwatch.go:161`).
-- **Trips.** The loop checks the watch on each tick, which is five seconds by default (`internal/enginehost/step.go:42`, `internal/enginehost/step.go:306`). A tick raises the first of four trips that is due, in this order (`internal/enginehost/stepwatch.go:213-252`). No trip is raised while no turn runs or while a trip waits for its verdict (`internal/enginehost/stepwatch.go:217`). A landed nudge turns off the periodic check until the next turn begins (`internal/enginehost/stepwatch.go:241`).
+- **Trips.** The loop checks the watch on each tick, which is five seconds by default (`internal/enginehost/step.go:42`, `internal/enginehost/step.go:328`). A tick raises the first of four trips that is due, in this order (`internal/enginehost/stepwatch.go:213-252`). No trip is raised while no turn runs or while a trip waits for its verdict (`internal/enginehost/stepwatch.go:217`). A landed nudge turns off the periodic check until the next turn begins (`internal/enginehost/stepwatch.go:241`).
   - `overtime`: model time reaches the step's limit. The limit is `model_limit_seconds` on `StartStep`, 60 minutes when it is zero (`internal/enginehost/step.go:37-38`, `internal/enginehost/step.go:186-189`, `internal/enginehost/stepservice.go:65`).
   - `tool_stuck`: a main-conversation tool call has been open for 30 minutes of wall time, or 60 minutes after its extension (`internal/enginehost/stepwatch.go:17-18`, `internal/enginehost/stepwatch.go:256-276`).
   - `silent`: 10 minutes of model time with no event (`internal/enginehost/stepwatch.go:16`, `internal/enginehost/stepwatch.go:236-240`).

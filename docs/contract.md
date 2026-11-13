@@ -355,15 +355,15 @@ Subcommands:
     - `2`: a usage error. That is a missing or invalid `--session`, a flag other than `--session` and `--state-dir`, an argument before `--`, or no `PATH` after `--`.
     - A child that ends on its own with status 1 or 2 gives that status too, so the code alone does not say whether the holder or its child failed. The holder writes to stderr only for its own failure (`orrery holder: MESSAGE`, or `orrery: holder: MESSAGE`) and for a usage error (the usage text). An exit that passes on the child's status writes nothing to stderr, and `exit.json` then holds the child's `code` and `signal` (`cmd/orrery/holder.go:65`-`:75`).
 - `gate [--gates FILE] NAME` runs the named gate `NAME` under a grant of its needs from `orreryd`. `NAME` is resolved as [Gate files](#gate-files) gives: from `FILE` first when `--gates` names one, then from the project file for the working directory. A relative `FILE` is read from the working directory. `gate` reads the pool files for the working directory, as `run` does (see [Pool files](#pool-files)), and reaches `orreryd` on `sessions.sock` as `run` does.
-  - The argv runs through the same `RunWithGrant` path as `run`'s command (`cmd/orrery/gate.go:71`-`:86`). It runs without a shell, in the working directory, with `gate`'s standard input, output and error. Its environment is `gate`'s, plus `ORRERY_GRANT` and one `ORRERY_POOL_<POOL>` for each pool in its needs, as `run` sets them. Its limit counts from the start of each run under its grant, not from the queue (`internal/cli/run.go:70`-`:72`).
+  - The argv runs through the same `RunWithGrant` path as `run`'s command (`cmd/orrery/gate.go:74`-`:89`). It runs without a shell, in the working directory, with `gate`'s standard input, output and error. Its environment is `gate`'s, plus `ORRERY_GRANT` and one `ORRERY_POOL_<POOL>` for each pool in its needs, as `run` sets them. Its limit counts from the start of each run under its grant, not from the queue (`internal/cli/run.go:70`-`:72`).
   - The lines `run` writes to stderr while its command queues, is stopped, loses its grant or passes its limit are written by `gate` too, with the prefix `orrery run:` (`internal/cli/run.go:189`, `:486`, `:492`, `:585`).
-  - After the argv's run has ended or has failed to start, `gate` writes one line to stderr: `orrery gate: NAME from SOURCE FILE: argv ARGV needing POOL=N,...; exit STATUS`. `SOURCE` is `epic` or `project`, `FILE` is the file that defines the gate, `ARGV` is the argv as a JSON array, and `STATUS` is the status `gate` exits with (`cmd/orrery/gate.go:87`-`:88`).
+  - After the argv's run has ended or has failed to start, `gate` writes one line to stderr: `orrery gate: NAME from SOURCE FILE: argv ARGV needing POOL=N,...; exit STATUS`. `SOURCE` is `epic` or `project`, `FILE` is the file that defines the gate, `ARGV` is the argv as a JSON array, and `STATUS` is the status `gate` exits with (`cmd/orrery/gate.go:90`-`:91`).
   - Exit statuses:
     - `2`: a usage error. That is a `--gates` with no file, no `NAME`, more than one argument, or a flag other than `--gates`.
-    - `75`: the gate did not run. Before the grant, that covers a `NAME` that no file defines, an epic gates file or project file that cannot be read or does not parse, a project that cannot be found (no `git` on `PATH`, or neither `XDG_CONFIG_HOME` nor `HOME` set), a need for a pool that the pool files do not declare, pool files that cannot be read, parsed or merged, and no daemon socket that can be named. `gate` writes `orrery gate: MESSAGE` to stderr for these. After the grant request, it covers what `run` gives 75 for: a request `orreryd` refuses, an unreachable `orreryd`, a signal that arrives while the request waits, and a refused reclaim.
+    - `75`: the gate did not run. Before the grant, that covers a `NAME` that no file defines, an epic gates file or project file that cannot be read or does not parse, a project that cannot be found (no `git` on `PATH`, or neither `XDG_CONFIG_HOME` nor `HOME` set), a need for a pool that the pool files do not declare, pool files that cannot be read, parsed or merged, and no daemon socket that can be named. `gate` writes `orrery gate: MESSAGE` to stderr for these. An agent gate is refused the same way, once its `NAME` resolves and before any pool file is read: `gate` writes `orrery gate: gate NAME is an agent gate; it runs only as a read-only step` to stderr, with `NAME` as given (`cmd/orrery/gate.go:43`-`:45`, `:120`-`:122`). After the grant request, it covers what `run` gives 75 for: a request `orreryd` refuses, an unreachable `orreryd`, a signal that arrives while the request waits, and a refused reclaim.
     - `124`: the gate's limit passed, and the argv was killed with `SIGKILL`.
     - Otherwise, the argv's own status, as `run` gives it for `CMD`: its exit code, or 128 plus the signal number when a signal ended it. `127` means `argv[0]` is not an executable file, and nothing is requested. `126` means it cannot start after the grant. `1` means its status cannot be read.
-  - `SIGINT`, `SIGTERM` and `SIGHUP` stop `gate` as they stop `run`: after the argv has started, the argv gets `SIGTERM` and `gate` returns its status. While the request waits, the signal ends the run with 75 (`cmd/orrery/gate.go:68`-`:69`).
+  - `SIGINT`, `SIGTERM` and `SIGHUP` stop `gate` as they stop `run`: after the argv has started, the argv gets `SIGTERM` and `gate` returns its status. While the request waits, the signal ends the run with 75 (`cmd/orrery/gate.go:71`-`:72`).
 
 Exit codes:
 
@@ -599,25 +599,26 @@ A session notice clears on the session's own seen: the `Seen` call for that sess
 
 `StartStep` checks each field as follows:
 
-- `agent` is 1 to 64 bytes of letters, digits and `. _ - [ ] :`, not starting with `-`. Empty is refused. The agent must also resolve, as claude resolves `--agent` for the step. The check runs before claude starts, and a name that no place below defines is refused with an error that names the agent and each place checked (`internal/agents`, `Resolve` and `ErrUnresolved`).
+- `agent` is 1 to 64 bytes of letters, digits and `. _ - [ ] :`, not starting with `-`. Empty is refused, unless the start names an agent gate, whose agent the gate supplies (see `gate_name`). The agent must also resolve, as claude resolves `--agent` for the step. The check runs before claude starts, and a name that no place below defines is refused with an error that names the agent and each place checked (`internal/agents`, `Resolve` and `ErrUnresolved`). A named agent gate's agent gets the same check (`internal/enginehost/stepsession.go:102`-`:103`, `:116`).
 
   The built-in agents are `claude`, `Explore`, `general-purpose`, `Plan` and `statusline-setup`. `web-fetch` never resolves. The managed agents directory is `/etc/claude-code/.claude/agents`. The project agents are the `.claude/agents` directories of the step's directory and of each directory above it, up to its git work-tree root and never above `HOME`. The user config directory is `$CLAUDE_CONFIG_DIR` when that is set, else `$HOME/.claude`, read from the step's environment, and the user agents directory is `agents` in it. Each agents directory is scanned for `.md` files recursively, following symbolic links to directories and to files. A missing directory is skipped. Any other read error refuses the start, and the error is named. A user, project or managed file defines its agent by its frontmatter `name` and needs a `description` too. A name that contains `:` or starts with `-` defines nothing. Names match exactly, case included.
 
   The last place is the agents of enabled plugins. A plugin counts when `<config>/plugins/installed_plugins.json` lists it with scope user or managed; an install at project or local scope does not count. It is enabled when `enabledPlugins` is `true` in the highest-precedence settings file that names it, in this order: managed `/etc/claude-code/managed-settings.json`, project-local `.claude/settings.local.json` (at the main checkout's root for a linked worktree), project `.claude/settings.json`, and `settings.json` in the user config directory. A plugin's agent is named `<plugin>:<subfolders>:<name>`, from its frontmatter `name`, or from its filename when the file has no parsable `name`. A bare name matches a scoped name that ends in `:<name>`.
 - `prompt` is not empty.
-- `schema` is a JSON object schema. Its root `type` is `object`, its `properties` include `status` with type `string`, and every subschema uses only the keywords `type`, `enum`, `required`, `properties`, `items` and `additionalProperties`, or the annotations `title`, `description`, `$schema`, `default` and `examples`.
+- `schema` is a JSON object schema. Its root `type` is `object`, its `properties` include `status` with type `string`, and every subschema uses only the keywords `type`, `enum`, `required`, `properties`, `items` and `additionalProperties`, or the annotations `title`, `description`, `$schema`, `default` and `examples`. A start that names an agent gate leaves `schema` empty and takes the gate's verdict schema, which this check also covers (`internal/enginehost/step.go:248`).
 - `workspace` is an absolute path to an existing directory.
 - `revision` is resolved to a commit when the step starts. Empty means `HEAD`.
 - `read_only` false runs a writing step in `workspace`. The directory must be inside a linked git worktree. A directory outside any git work tree is refused, and so is one inside a repository's main working tree.
 - `read_only` true runs the step in a detached worktree at its start commit. The worktree is added under `step-worktrees` beside the store file (see [Store](#store)), named by the step id, and removed when the step ends.
 - `owned_paths` are paths relative to the repository. An empty path, an absolute path, or one that leaves the repository is refused.
-- `gate_name` names the gate the step's return is checked against. Empty runs no gate. Otherwise the name is resolved once, when the step starts, as [Gate files](#gate-files) gives: from `gates_file` first when it is set, then from the project file for `workspace`. A name that neither file defines is refused. The step takes the gate's argv, limit and needs as its definition gives them then (`internal/enginehost/step.go:147`-`:157`, `:368`-`:372`).
-- `gates_file` is the absolute path of the epic's gates file. Empty reads only the project file. It is refused when it is not absolute, when `gate_name` is empty, and when the file is missing or does not parse (`internal/enginehost/step.go:369`-`:348`).
-- Each pool a gate needs must be declared by a pool file for `workspace`, or the start is refused (`internal/enginehost/step.go:383`-`:360`).
+- `gate_name` names the gate the step's return is checked against. Empty runs no gate. Otherwise the name is resolved once, when the step starts, as [Gate files](#gate-files) gives: from `gates_file` first when it is set, then from the project file for `workspace`. A name that neither file defines is refused. The step takes the gate's argv, limit and needs as its definition gives them then (`internal/enginehost/step.go:196`-`:199`, `:388`-`:427`).
+- A `gate_name` that names an agent gate (see [Agent gates](#agent-gates)) runs no argv. The start must be read-only and must leave `agent`, `schema` and `done_value` empty, or it is refused with `invalid_argument`. The step then takes the gate's agent, the verdict schema, the done value `done`, and as its first prompt the gate's prompt built from the caller's `prompt` (`internal/enginehost/step.go:433`-`:451`). The gate's agent is checked as `agent` is above. The row stores the gate's name, source and limit, and no argv and no needs. A read-only step's done return runs no commit checks and no gate, so no argv runs (`internal/enginehost/steploop.go:295`).
+- `gates_file` is the absolute path of the epic's gates file. Empty reads only the project file. It is refused when it is not absolute, when `gate_name` is empty, and when the file is missing or does not parse (`internal/enginehost/step.go:389`-`:402`).
+- Each pool a gate needs must be declared by a pool file for `workspace`, or the start is refused (`internal/enginehost/step.go:408`-`:418`).
 - `gate` and `gate_limit_seconds`, fields 8 and 9 of the request, are refused with `invalid_argument`. A step names its gate by `gate_name` (`internal/enginehost/stepservice.go:52`-`:55`).
-- `done_value` empty means `done`.
+- `done_value` empty means `done`. A start that names an agent gate leaves it empty, and the gate's done value is `done`.
 - `model_limit_seconds` of zero means 60 minutes. It is the model time the step may use before the watch ends it `overtime` (see the Watch rule under [Step lifecycle](#step-lifecycle)).
-- `epic` and `task` are stored as given, and nothing checks them. The format that `proto/orrery/engine/v1/step.proto:69`-`:70` names for `epic` is not enforced (`internal/enginehost/stepservice.go:68`-`:69`, `internal/enginehost/step.go:196`, `internal/store/steps.go:140`). An empty `epic` leaves the step unlabelled, and `ListSteps` never lists it (`internal/enginehost/step.go:48`, `internal/store/queries.sql:160`). An empty `task` means the step works on no one task.
+- `epic` and `task` are stored as given, and nothing checks them. The format that `proto/orrery/engine/v1/step.proto:69`-`:70` names for `epic` is not enforced (`internal/enginehost/stepservice.go:68`-`:69`, `internal/enginehost/step.go:200`, `internal/store/steps.go:140`). An empty `epic` leaves the step unlabelled, and `ListSteps` never lists it (`internal/enginehost/step.go:48`, `internal/store/queries.sql:160`). An empty `task` means the step works on no one task.
 
 A start refused by one of these checks, by the step cap, or by the workspace rules stores nothing and returns no id. A start that fails after its row is stored returns the error with no id, and the row ends `failed`. The id is not reported on that path.
 
@@ -636,7 +637,7 @@ Errors are Connect codes:
 | `unavailable` | `orreryd` has no step store. The message is `step store unavailable` |
 | `resource_exhausted` | a `StartStep` would pass the step cap (`--step-cap`) |
 | `not_found` | `StopStep`, `StepStatus`, `WaitSteps`, `HoldStep` or `NudgeStep` names an id with no row |
-| `invalid_argument` | an empty `prompt`, a bad `schema`, a bad `agent`, an `agent` that does not resolve (the error names the agent and each place checked), a `workspace` that is not an absolute existing directory, a writing step's `workspace` outside a git work tree or in its main working tree, an `owned_paths` entry that is not a relative path inside the repository, a `gate` or `gate_limit_seconds` field, a `gate_name` that no file defines, a `gates_file` that is not absolute, is set without `gate_name`, is missing or does not parse, a gate need for a pool that no pool file declares, or an empty `text` on `NudgeStep` (`internal/enginehost/stepservice.go:234`-`:237`) |
+| `invalid_argument` | an empty `prompt`, a bad `schema`, a bad `agent`, an `agent` that does not resolve (the error names the agent and each place checked), a `workspace` that is not an absolute existing directory, a writing step's `workspace` outside a git work tree or in its main working tree, an `owned_paths` entry that is not a relative path inside the repository, a `gate` or `gate_limit_seconds` field, a `gate_name` that no file defines, a `gate_name` that names an agent gate on a writing step or with an `agent`, `schema` or `done_value` set, a `gates_file` that is not absolute, is set without `gate_name`, is missing or does not parse, a gate need for a pool that no pool file declares, or an empty `text` on `NudgeStep` (`internal/enginehost/stepservice.go:234`-`:237`) |
 | `failed_precondition` | `HoldStep` finds the step already held or no turn running, or `HoldStep` or `NudgeStep` finds the step running its gate, ended, or with no loop, or `NudgeStep` finds no turn running and the step not held (`internal/enginehost/stepservice.go:231`-`:233`) |
 | `internal` | any other failure, including a `revision` that does not resolve (for a read-only step this includes a `workspace` outside any git work tree), a `WaitSteps` call whose context ends first, and a `HoldStep` or `NudgeStep` call whose context ends before the step's loop takes it |
 
@@ -1063,7 +1064,7 @@ admit_limit = 30
 
 ### Gate files
 
-A gate is a named `[gates.NAME]` table in one of two TOML files. `orrery gate` and a step's gate both run the gate they resolve (see [orrery](#orrery) and [Step lifecycle](#step-lifecycle)).
+A gate is a named `[gates.NAME]` table in one of two TOML files. `orrery gate` runs an argv gate it resolves, and a step runs the gate it names (see [orrery](#orrery) and [Step lifecycle](#step-lifecycle)). An agent gate is run only by a read-only step (see [Agent gates](#agent-gates)).
 
 - The epic's gates file is named by the caller: `gates_file` in `StartStep` (see [Steps](#steps)), or `--gates FILE` in `orrery gate`. By convention it is `gates.toml` in the epic's record directory, `~/.gambit/<repo-id>/<slug>/`. It holds a `[gates]` table, which may hold no gates, and no other top-level key.
 - The project file is `.orrery/project.toml`, the file of [Pool files](#pool-files). Its `[gates]` table is optional.
@@ -1077,7 +1078,7 @@ A name resolves in this order (`internal/gates/resolve.go:36`-`:66`):
 
 The gate's source is `epic` or `project`, the file that defines it.
 
-Each `[gates.NAME]` table has these keys:
+Each argv gate's `[gates.NAME]` table has these keys. An agent gate's keys are in [Agent gates](#agent-gates):
 
 | Key | Type | Meaning |
 |---|---|---|
@@ -1087,9 +1088,9 @@ Each `[gates.NAME]` table has these keys:
 
 - A gate name matches `[a-z][a-z0-9_]*`, and so does each pool name in `needs`. Each count is 1 to 2147483647.
 - Each pool in `needs` must be declared by a pool file for the directory the gate is resolved in: the working directory for `orrery gate`, the step's workspace for a step. Otherwise the gate is refused (see [Pool files](#pool-files)).
-- Keys match exactly. A file with a top-level key other than `gates` (or `pools` in a project file), a gate with a key other than `argv`, `limit` and `needs`, or a gate without `argv` or `limit` is refused.
+- Keys match exactly. A file with a top-level key other than `gates` (or `pools` in a project file) is refused. So is an argv gate with a key other than `argv`, `limit` and `needs`, or one without `argv` or `limit`. An agent gate's refusals are in [Agent gates](#agent-gates).
 
-A changed file reaches only steps started after it. A step resolves its gate once, when it starts, and keeps the argv, limit and needs that resolution gave (see [Steps in the store](#steps-in-the-store)). `orrery gate` reads both files on each run.
+A changed file reaches only steps started after it. A step resolves its gate once, when it starts, and keeps the argv, limit and needs that resolution gave, or for an agent gate its agent, verdict schema and prompt (see [Steps in the store](#steps-in-the-store)). `orrery gate` reads both files on each run.
 
 Example. Every name in them is synthetic. The epic's gates file, `gates.toml`:
 
@@ -1117,6 +1118,35 @@ needs = { builds = 1 }
 [gates.smoke]
 argv = ["/opt/example/bin/smoke"]
 limit = 300  # no needs: one member of the pool gate
+```
+
+#### Agent gates
+
+A `[gates.NAME]` table with an `agent` key is an agent gate. An agent gate checks its assertions with an agent. Only a read-only step runs it: `orrery gate` refuses it (see [orrery](#orrery)), and a writing step cannot name it (see [Steps](#steps)). Its table holds these keys:
+
+| Key | Type | Meaning |
+|---|---|---|
+| `agent` | string | required. The agent that checks the assertions. It is not empty, and it is checked as a step's `agent` is (see [Steps](#steps)) |
+| `limit` | integer seconds, 1 to 9223372036 | required. The review's limit. It is stored with the step, and the first prompt states it |
+| `must` | array of strings | optional. Each entry is an assertion that must hold |
+| `must_not` | array of strings | optional. Each entry is an assertion that must not hold |
+
+At least one entry is needed between `must` and `must_not`, and each entry is a non-empty string. The gate is refused, naming it, when it holds `argv` or `needs`, when its `agent` is an empty string, when it has no `limit`, when `must` and `must_not` have no entry between them, or when an entry is an empty string. An argv gate with `must` or `must_not` is refused too (`internal/gates/gates.go:173`-`:177`, `:192`-`:214`, `:226`-`:246`).
+
+The gate's assertions are its `must` entries in file order, then its `must_not` entries in file order. A `must` entry has the kind `must`, and a `must_not` entry has the kind `must not` (`internal/gates/gates.go:28`-`:31`, `:226`-`:246`).
+
+The agent's return must match `internal/gates/verdict.json`, the verdict schema, which is embedded as `gates.VerdictSchema` (`internal/gates/verdict.go:13`-`:14`). Its root requires `status`, `findings`, `observations`, `missing_evidence`, `test_runner_requests` and `results`, and each object admits only the keys it names. `status` is `done` or `blocked`. `results` has one entry per assertion, in declaration order. Each result requires `assertion`, `kind` (`must` or `must not`), `result` (`holds`, `fails` or `undetermined`) and `evidence`. A `findings` entry requires `id`, `claim`, `citation`, `location`, `evidence` and `verify_by`, and admits `precondition` and `consequence`. An `observations` entry requires `location`, `observation` and `reason`, and a `test_runner_requests` entry requires `command` and `revision`.
+
+The first prompt is built by `gates.Prompt` (`internal/gates/verdict.go:37`-`:47`). Its sections are separated by a blank line, in this order: the fixed instruction (`internal/gates/verdict.go:18`-`:33`); `Gate: NAME` and `Limit: N seconds` on two lines; `Assertions:`, then one line per assertion, numbered from 1 as `N. KIND: TEXT`, in assertion order (`internal/gates/verdict.go:50`-`:57`); and the caller's prompt, when it is not empty.
+
+An example, with synthetic names:
+
+```toml
+[gates.review]
+agent = "example-reviewer"
+limit = 900
+must = ["The change keeps every example endpoint's response shape."]
+must_not = ["The change edits the example vendor directory."]
 ```
 
 ### Holder
@@ -1362,7 +1392,7 @@ The `steps` table (migrations `00004_steps.sql`, `00005_step_watch.sql`, `00006_
 | `done_value` | `TEXT` | the status that ends the step `done` |
 | `read_only` | `BOOLEAN` | whether the step is read-only |
 | `owned` | `TEXT` | the `owned_paths` as a JSON array; `null` when there are none |
-| `gate` | `TEXT` | the gate argv as a JSON array, as its definition gives it; `null` for no gate |
+| `gate` | `TEXT` | the gate argv as a JSON array, as its definition gives it; `null` for no gate, and for an agent gate, which has no argv |
 | `gate_limit` | `INTEGER` | the gate limit in nanoseconds; 30 minutes for a step that names no gate |
 | `model_limit` | `INTEGER` | the model-time limit in nanoseconds; `0` for a row added before migration `00005` |
 | `started` | `INTEGER` | unix seconds when the row was added |
@@ -2096,3 +2126,5 @@ orrery E31a1 (holder) added, additively: the `orrery holder` subcommand and its 
 orrery E31a2 (hold scope) added, additively: the `orreryd` flag `--holder-scope PATH` (see [orreryd](#orreryd)), and each headless session's start through its holder, with its stdout and stdin paths (see [Headless sessions](#headless-sessions)). Three values change, none of them additive: `orrery holder` exits with the child's status when the child ended on its own, where E31a1 exited 0 (see [orrery](#orrery)); the exit record's `stderr` keeps the child's raw tail, where it was trimmed (see [Exit file](#exit-file)); and a session's stop sends `SIGTERM` to the child, where it sent `SIGINT` (see [Lifecycle rules](#lifecycle-rules)). No existing name changes.
 
 orrery W3a (epic chart) added, additively: the `slices` field of `EpicsGetResponse` and the `EpicSlice` message (see [Epics and Steps](#epics-and-steps)). No existing name or value changes.
+
+orrery agent gates (effort 1) added, additively: the `agent`, `must` and `must_not` keys of a `[gates.NAME]` table, with the agent gate's shape, refusals and assertion order (see [Agent gates](#agent-gates)); the verdict schema, `internal/gates/verdict.json`, and the first prompt of an agent gate (see [Agent gates](#agent-gates)); a read-only start naming an agent gate, which takes the gate's agent, verdict schema and done value `done` (see [Steps](#steps)); and the refusal of an agent gate by `orrery gate`, with exit 75 (see [orrery](#orrery)). The `required` list of `step_start`'s MCP schema drops `agent` and `schema`. The service still refuses an empty one unless the start names an agent gate (see [step_start](engine-protocol.md#step_start)). No existing name changes. That `required` list is the only existing value that changes, and an argv gate's keys, shape and refusals are unchanged.
