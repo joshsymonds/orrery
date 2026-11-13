@@ -19,9 +19,13 @@ export interface StepItem {
   key: string;
   id: string;
   epic: string;
+  epicSlug: string;
   label: string;
   doing: string;
   held: boolean;
+  agent: string;
+  started: number;
+  round: number;
 }
 
 export interface EpicBlock {
@@ -84,22 +88,32 @@ function blockOf(epic: Epic, detail: EpicsGetResponse | undefined): EpicBlock {
       done: tasks.filter((task) => taskStateOf(task.status) === "done").length,
       total: tasks.length,
     },
-    steps: epic.runningSteps.slice(0, shownSteps).map((step) => stepOf(epic.id, step)),
+    steps: epic.runningSteps.slice(0, shownSteps).map((step) => stepOf(epic, step)),
     more: Math.max(0, epic.runningSteps.length - shownSteps),
     ended: epic.endedSteps,
   };
 }
 
-function stepOf(epic: string, step: EpicStep): StepItem {
+function stepOf(epic: Epic, step: EpicStep): StepItem {
   return {
     kind: "step",
     key: `step:${step.id}`,
     id: step.id,
-    epic,
+    epic: epic.id,
+    epicSlug: epic.slug,
     label: step.task || step.agent,
     doing: step.doing,
     held: step.held,
+    agent: step.agent,
+    started: Number(step.started),
+    round: roundOf(step),
   };
+}
+
+// A step's round, per DL17: the highest round its checks reached, plus one while the step runs.
+function roundOf(step: EpicStep): number {
+  const highest = step.checks.reduce((max, check) => Math.max(max, check.round), 0);
+  return step.end === "" ? highest + 1 : highest;
 }
 
 export function repositoryName(repository: string): string {

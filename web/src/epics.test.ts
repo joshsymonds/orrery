@@ -116,19 +116,78 @@ test("five running steps show four, count one more, keep a held mark, and carry 
     key: "step:s1",
     id: "s1",
     epic: "widgets-5d0c1a7/first",
+    epicSlug: "first",
     label: "first task",
     doing: "",
     held: false,
+    agent: "builder",
+    started: 0,
+    round: 1,
   });
   assert.deepEqual(block.steps[1], {
     kind: "step",
     key: "step:s2",
     id: "s2",
     epic: "widgets-5d0c1a7/first",
+    epicSlug: "first",
     label: "reviewer",
     doing: "waiting",
     held: true,
+    agent: "reviewer",
+    started: 0,
+    round: 1,
   });
+});
+
+test("a step carries its epic's slug, its agent and its start", () => {
+  const epic = makeEpic({
+    runningSteps: [makeStep({ id: "s1", agent: "reviewer", started: 1786000000n })],
+  });
+
+  const step = epicsView([epic], new Map()).blocks[0].steps[0];
+
+  assert.equal(step.epicSlug, "first");
+  assert.equal(step.agent, "reviewer");
+  assert.equal(step.started, 1786000000);
+});
+
+test("a running step with no checks is round 1", () => {
+  const epic = makeEpic({ runningSteps: [makeStep({ id: "s1" })] });
+
+  assert.equal(epicsView([epic], new Map()).blocks[0].steps[0].round, 1);
+});
+
+test("a running step whose checks reach round 2 is round 3", () => {
+  const epic = makeEpic({
+    runningSteps: [
+      makeStep({
+        id: "s1",
+        checks: [
+          { round: 1, name: "tests", ok: false },
+          { round: 2, name: "tests", ok: true },
+        ],
+      }),
+    ],
+  });
+
+  assert.equal(epicsView([epic], new Map()).blocks[0].steps[0].round, 3);
+});
+
+test("an ended step whose checks reach round 2 is round 2", () => {
+  const epic = makeEpic({
+    runningSteps: [
+      makeStep({
+        id: "s1",
+        end: "done",
+        checks: [
+          { round: 1, name: "tests", ok: false },
+          { round: 2, name: "tests", ok: true },
+        ],
+      }),
+    ],
+  });
+
+  assert.equal(epicsView([epic], new Map()).blocks[0].steps[0].round, 2);
 });
 
 test("live epics become blocks in input order and every other epic is folded", () => {
