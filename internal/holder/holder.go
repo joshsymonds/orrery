@@ -21,6 +21,9 @@ var ErrUndrained = errors.New("holder: session has an undrained exit file")
 // socketMode is the mode of the holder's socket: only the holder's user may connect.
 const socketMode os.FileMode = 0o600
 
+// maxWriteIDBytes is the longest write id the holder accepts, in bytes. A write id is 1 to maxWriteIDBytes bytes.
+const maxWriteIDBytes = 256
+
 // Config describes one holder: the session it serves and the child it runs.
 type Config struct {
 	// Dir is the session's holder directory, from SessionDir.
@@ -118,15 +121,18 @@ func openHolder(cfg Config) (*holder, error) {
 		return nil, errors.Join(err, exitErr, spool.Close(), listener.Close())
 	}
 	return &holder{
-		cfg:      cfg,
-		exitPath: exitPath,
-		listener: listener,
-		spool:    spool,
-		child:    child,
-		stopReq:  make(chan struct{}),
-		ended:    make(chan struct{}),
-		conns:    make(map[*conn]struct{}),
-		stoppers: make(map[*conn]struct{}),
+		cfg:          cfg,
+		exitPath:     exitPath,
+		listener:     listener,
+		spool:        spool,
+		child:        child,
+		stopReq:      make(chan struct{}),
+		ended:        make(chan struct{}),
+		conns:        make(map[*conn]struct{}),
+		stoppers:     make(map[*conn]struct{}),
+		writeIDs:     make(map[string]struct{}),
+		queued:       make(chan struct{}, 1),
+		writesClosed: make(chan struct{}),
 	}, nil
 }
 
@@ -159,6 +165,16 @@ type holder struct {
 	exit  Exit
 	// streaming counts the streams to attached controllers, so the end path waits for each to finish.
 	streaming sync.WaitGroup
+
+	// written holds the ids of the writes recorded, in the order received, and writeIDs holds the same ids for lookup.
+	// They live as long as the holder.
+	written  []string
+	writeIDs map[string]struct{}
+	// queue holds the writes recorded and not yet written to the child, in the order received. queued signals the
+	// writer that queue grew. writesClosed closes once no connection can record another write.
+	queue        []stdinWrite
+	queued       chan struct{}
+	writesClosed chan struct{}
 }
 
 // controller is the connection attached to the child's stdout stream. quit closes when the controller is replaced or
@@ -168,14 +184,26 @@ type controller struct {
 	quit chan struct{}
 }
 
+// stdinWrite is one write recorded for the child's stdin. Its answer goes to peer.
+type stdinWrite struct {
+	id   string
+	data []byte
+	peer *conn
+}
+
 // run serves connections until the child ends. Then it writes the exit file, ends each stream with the rest of the
-// output and the exit record, answers the stops, closes the connections and the spool, and returns what those steps
-// report.
+// output and the exit record, answers the stops, closes the connections, drains the writes and closes the spool, and
+// returns what those steps report.
 func (h *holder) run(ctx context.Context) error {
 	accepting := make(chan struct{})
 	go func() {
 		defer close(accepting)
 		h.accept()
+	}()
+	writing := make(chan struct{})
+	go func() {
+		defer close(writing)
+		h.writeStdin()
 	}()
 
 	select {
@@ -203,6 +231,8 @@ func (h *holder) run(ctx context.Context) error {
 	}
 	connErr := h.closeConns()
 	h.serving.Wait()
+	close(h.writesClosed)
+	<-writing
 	return errors.Join(writeErr, closeErr, connErr, h.spool.Close())
 }
 
@@ -227,8 +257,8 @@ func (h *holder) accept() {
 
 // serve runs one connection. A peer of another user is closed with no frame. The first frame must be hello, which is
 // answered; any other first frame closes the connection. After hello, stop stops the child, attach makes the
-// connection the controller, and ack trims the spool for the controller. A refused attach or ack, and any other frame,
-// gets an error frame and closes the connection.
+// connection the controller, ack trims the spool for the controller, and write records a stdin write from the
+// controller. A refused attach, ack or write, and any other frame, gets an error frame and closes the connection.
 func (h *holder) serve(peer *conn) {
 	defer h.serving.Done()
 	defer h.drop(peer)
@@ -253,6 +283,10 @@ func (h *holder) serve(peer *conn) {
 			}
 		case TypeAck:
 			if !h.ack(peer, frame) {
+				return
+			}
+		case TypeWrite:
+			if !h.write(peer, frame) {
 				return
 			}
 		default:
@@ -342,8 +376,9 @@ func (h *holder) answerStopped(peer *conn) {
 }
 
 // attach makes peer the controller and starts its stream from replayFrom. The new stream replaces the attached
-// controller, whose connection closes. An attach the spool cannot serve gets an error frame and closes the connection,
-// and the current controller stays. It reports whether the connection goes on.
+// controller, whose connection closes. The attached frame lists every write id recorded so far. An attach the spool
+// cannot serve gets an error frame and closes the connection, and the current controller stays. It reports whether the
+// connection goes on.
 func (h *holder) attach(peer *conn, replayFrom int64) bool {
 	h.mu.Lock()
 	if h.ctl != nil && h.ctl.conn == peer {
@@ -371,12 +406,89 @@ func (h *holder) attach(peer *conn, replayFrom int64) bool {
 		close(prev.quit)
 	}
 	h.streaming.Add(1)
+	attached := Frame{Type: TypeAttached, Start: start, End: end, Written: slices.Clone(h.written)}
 	h.mu.Unlock()
 	if prev != nil {
 		h.drop(prev.conn)
 	}
-	go h.stream(ctl, Frame{Type: TypeAttached, Start: start, End: end}, replayFrom)
+	go h.stream(ctl, attached, replayFrom)
 	return true
+}
+
+// write handles a write frame from peer. Only the attached controller may write, with an id of 1 to maxWriteIDBytes
+// bytes; any other write gets an error frame and closes the connection. An id not yet recorded is recorded at once and
+// its data queued for the child's stdin, so a repeat that arrives while it waits is a duplicate too. A recorded id is
+// answered as a duplicate and nothing is written. It reports whether the connection goes on.
+func (h *holder) write(peer *conn, frame Frame) bool {
+	h.mu.Lock()
+	if h.ctl == nil || h.ctl.conn != peer {
+		h.mu.Unlock()
+		h.refuse(peer, "holder: write from a connection that is not attached")
+		return false
+	}
+	if n := len(frame.ID); n == 0 || n > maxWriteIDBytes {
+		h.mu.Unlock()
+		h.refuse(peer, fmt.Sprintf("holder: write id is %d bytes, want 1 to %d", n, maxWriteIDBytes))
+		return false
+	}
+	_, seen := h.writeIDs[frame.ID]
+	if !seen {
+		h.writeIDs[frame.ID] = struct{}{}
+		h.written = append(h.written, frame.ID)
+		h.queue = append(h.queue, stdinWrite{id: frame.ID, data: frame.Data, peer: peer})
+	}
+	h.mu.Unlock()
+	if seen {
+		if err := peer.write(Frame{Type: TypeWritten, ID: frame.ID, Duplicate: true}); err != nil {
+			h.cfg.Logger.Warn("holder: answer duplicate write", "err", err)
+			return false
+		}
+		return true
+	}
+	select {
+	case h.queued <- struct{}{}:
+	default:
+	}
+	return true
+}
+
+// writeStdin writes the recorded writes to the child's stdin in the order they were recorded, and answers each. A
+// write the pipe holds up holds up only the writes behind it, not the connections. Once writesClosed closes, it writes
+// what is still queued and returns.
+func (h *holder) writeStdin() {
+	for {
+		h.mu.Lock()
+		if len(h.queue) > 0 {
+			next := h.queue[0]
+			h.queue = h.queue[1:]
+			h.mu.Unlock()
+			h.deliver(next)
+			continue
+		}
+		h.mu.Unlock()
+		select {
+		case <-h.queued:
+		case <-h.writesClosed:
+			h.mu.Lock()
+			drained := len(h.queue) == 0
+			h.mu.Unlock()
+			if drained {
+				return
+			}
+		}
+	}
+}
+
+// deliver writes one recorded write to the child's stdin and answers its peer: written once the data is written, or an
+// error frame when the child's stdin refuses it. The connection stays open either way.
+func (h *holder) deliver(w stdinWrite) {
+	answer := Frame{Type: TypeWritten, ID: w.id}
+	if err := h.child.Write(w.data); err != nil {
+		answer = Frame{Type: TypeError, ID: w.id, Message: err.Error()}
+	}
+	if err := w.peer.write(answer); err != nil {
+		h.cfg.Logger.Warn("holder: answer write", "err", err)
+	}
 }
 
 // ack trims the spool to the attached controller's consumed and replay-from offsets. An ack from any other connection,
