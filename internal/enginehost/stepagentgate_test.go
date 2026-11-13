@@ -13,6 +13,7 @@ import (
 	"connectrpc.com/connect"
 
 	"github.com/joshsymonds/orrery/internal/agents"
+	"github.com/joshsymonds/orrery/internal/engine/session"
 	"github.com/joshsymonds/orrery/internal/gates"
 	"github.com/joshsymonds/orrery/internal/grants"
 	"github.com/joshsymonds/orrery/internal/store"
@@ -275,4 +276,108 @@ func TestStepsStartArgvGateWithoutAgentOrSchemaStartsNothing(t *testing.T) {
 
 	id, err := f.steps.Start(t.Context(), start)
 	checkStepStartRefused(t, f, id, err, ErrBadSchema)
+}
+
+// stepAgentGateRun returns the stepRun the only started step of f was started with. The test fails if it is not one.
+func stepAgentGateRun(t *testing.T, f *stepStartFixture) (StepSession, *stepRun) {
+	t.Helper()
+	step := f.sessions.first(t)
+	run, ok := step.Observer.(*stepRun)
+	if !ok {
+		t.Fatalf("StartStep Observer is %T, want *stepRun", step.Observer)
+	}
+	return step, run
+}
+
+func TestStepsStartAgentGateHandsItsRunTheResolvedGate(t *testing.T) {
+	f := newStepStartFixture(t)
+	gatesFile := filepath.Join(t.TempDir(), "gates.toml")
+	stepGateWriteFile(t, gatesFile, stepAgentGateText("reviewer"))
+
+	if _, err := f.steps.Start(t.Context(), stepAgentGateStart(stepGitTestRepo(t), gatesFile)); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	_, run := stepAgentGateRun(t, f)
+	if run.agentGate == nil {
+		t.Fatal("step run agent gate is nil, want the review agent gate")
+	}
+	if want := stepAgentGate("reviewer"); !reflect.DeepEqual(*run.agentGate, want) {
+		t.Errorf("step run agent gate = %+v, want %+v", *run.agentGate, want)
+	}
+}
+
+func TestStepsStartAgentGateFailedAssertionEndsGateFailed(t *testing.T) {
+	f := newStepStartFixture(t)
+	gatesFile := filepath.Join(t.TempDir(), "gates.toml")
+	stepGateWriteFile(t, gatesFile, stepAgentGateText("reviewer"))
+
+	id, err := f.steps.Start(t.Context(), stepAgentGateStart(stepGitTestRepo(t), gatesFile))
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	step, _ := stepAgentGateRun(t, f)
+	raw := verdictTestJSON(t, "done", []verdictTestEntry{
+		verdictTestResult(verdictTestMust, gates.KindMust, "fails"),
+		verdictTestResult(verdictTestMustNot, gates.KindMustNot, "holds"),
+	}, []verdictTestFinding{verdictTestCiting(verdictTestMust)})
+	step.Observer.Return(session.TurnEnded{StructuredOutput: raw})
+	stepStartAwait(t, "the step to end", func() bool {
+		row, err := f.steps.Status(t.Context(), id)
+		return err == nil && row.End != ""
+	})
+
+	row, err := f.steps.Status(t.Context(), id)
+	if err != nil {
+		t.Fatalf("Status: %v", err)
+	}
+	const reason = "fails: the change keeps the API"
+	if row.End != stepLoopEndGateFailed || row.Status != "done" || row.Reason != reason {
+		t.Fatalf("end = %q status %q reason %q, want gate_failed done with reason %q",
+			row.End, row.Status, row.Reason, reason)
+	}
+	if row.Result != string(raw) {
+		t.Errorf("result = %s, want the return kept as %s", row.Result, raw)
+	}
+}
+
+func TestStepsStartGateWithoutAgentLeavesNoAgentGate(t *testing.T) {
+	cases := []struct {
+		name  string
+		start func(t *testing.T) (*stepStartFixture, StepStart)
+	}{
+		{
+			name: "argv gate",
+			start: func(t *testing.T) (*stepStartFixture, StepStart) {
+				t.Helper()
+				f := newStepGateFixture(t)
+				gatesFile := filepath.Join(t.TempDir(), "gates.toml")
+				stepGateWriteFile(t, gatesFile, stepGateFileText(stepGateShell(t), "exit 0", 300))
+				linked := stepWorktreeTestAddLinked(t, stepGitTestRepo(t))
+				return f, stepGateNamedStart(linked, "unit", gatesFile)
+			},
+		},
+		{
+			name: "no gate",
+			start: func(t *testing.T) (*stepStartFixture, StepStart) {
+				t.Helper()
+				f := newStepStartFixture(t)
+				return f, stepStartWriting(stepWorktreeTestAddLinked(t, stepGitTestRepo(t)))
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f, start := tc.start(t)
+
+			if _, err := f.steps.Start(t.Context(), start); err != nil {
+				t.Fatalf("Start: %v", err)
+			}
+
+			if _, run := stepAgentGateRun(t, f); run.agentGate != nil {
+				t.Errorf("step run agent gate = %+v, want nil", *run.agentGate)
+			}
+		})
+	}
 }
