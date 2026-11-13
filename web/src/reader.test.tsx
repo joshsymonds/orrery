@@ -1088,6 +1088,185 @@ test("an opened result stays under its call as items arrive and the window slide
   });
 });
 
+// toolItem is a tool call held in the window under id, made by tool with input.
+function toolItem(tool: string, id: string, input: string, time = 100n): ConversationItem {
+  return item({ kind: "tool", time, tool, input, id });
+}
+
+// foldOf returns the button of a run's fold, the line that counts the run's calls.
+function foldOf(container: HTMLElement): HTMLButtonElement {
+  const fold = container.querySelector<HTMLButtonElement>("button.fold.calls");
+  assert.ok(fold !== null, "a run of three tool calls draws one fold button");
+  return fold;
+}
+
+// openedCalls returns each call line of an opened run as its tool and input, in order.
+function openedCalls(container: HTMLElement): string[] {
+  return [...container.querySelectorAll("div.calls .call")].map(
+    (line) => `${line.querySelector("b")?.textContent} ${line.querySelector(".in")?.textContent}`,
+  );
+}
+
+test("two tool calls in a row draw two call lines and no run fold", () =>
+  withReader(
+    {
+      conversation: conversation({
+        items: [
+          toolItem("Read", "r1", "a.txt"),
+          resultItem("r1", "alpha"),
+          toolItem("Read", "r2", "b.txt"),
+          resultItem("r2", "beta"),
+        ],
+      }),
+      seenAt: 100,
+      open: false,
+    },
+    (container) => {
+      assert.equal(container.querySelectorAll(".call").length, 2);
+      assert.equal(container.querySelector("button.fold.calls") === null, true, "two calls draw no fold");
+    },
+  ));
+
+test("three tool calls fold to one line that opens to a line per call and folds again", () =>
+  withReader(
+    {
+      conversation: conversation({
+        items: [
+          toolItem("Read", "r1", "a.txt"),
+          resultItem("r1", "alpha"),
+          toolItem("Read", "r2", "b.txt"),
+          resultItem("r2", "beta"),
+          toolItem("Bash", "b1", "make"),
+          resultItem("b1", "built"),
+        ],
+      }),
+      seenAt: 100,
+      open: false,
+    },
+    async (container) => {
+      const fold = foldOf(container);
+      assert.equal(rowTexts(container).length, 1, "the run is one row");
+      assert.equal(fold.querySelector("b")?.textContent, "3 tool calls");
+      assert.equal(fold.querySelector(".names")?.textContent, "Read ×2, Bash");
+      assert.equal(fold.querySelector(".ok")?.textContent, "✓");
+      assert.equal(fold.querySelector(".bad") === null, true, "a run that succeeded has no ✗");
+      assert.equal(container.querySelectorAll(".call").length, 0, "no call line until the fold is clicked");
+
+      await clickControl(fold);
+      assert.deepEqual(openedCalls(container), ["Read a.txt", "Read b.txt", "Bash make"]);
+      assert.equal(container.querySelector("div.calls .result") === null, true, "each call still folds its own result");
+
+      const [firstLine] = container.querySelectorAll<HTMLButtonElement>("div.calls .call");
+      assert.ok(firstLine !== undefined, "the opened run draws a line for its first call");
+      await clickControl(firstLine);
+      assert.equal(container.querySelector("div.calls .result")?.textContent, "alpha");
+
+      await clickControl(foldOf(container));
+      assert.equal(container.querySelector("div.calls") === null, true, "a second click folds the calls again");
+      assert.equal(container.querySelectorAll(".call").length, 0);
+    },
+  ));
+
+test("a run of three with one failed result shows ✗ in its fold and no ✓", () =>
+  withReader(
+    {
+      conversation: conversation({
+        items: [
+          toolItem("Bash", "b1", "rm -rf build"),
+          resultItem("b1", "permission denied", true),
+          toolItem("Read", "r1", "a.txt"),
+          resultItem("r1", "alpha"),
+          toolItem("Bash", "b2", "make"),
+          resultItem("b2", "built"),
+        ],
+      }),
+      seenAt: 100,
+      open: false,
+    },
+    (container) => {
+      const fold = foldOf(container);
+      assert.equal(fold.querySelector(".bad")?.textContent, "✗");
+      assert.equal(fold.querySelector(".ok") === null, true, "a run with a failure has no ✓");
+      assert.equal(container.textContent?.includes("permission denied"), false, "the failure stays folded");
+    },
+  ));
+
+test("a reply between tool calls leaves no run fold", () =>
+  withReader(
+    {
+      conversation: conversation({
+        items: [
+          toolItem("Read", "r1", "a.txt"),
+          resultItem("r1", "alpha"),
+          toolItem("Read", "r2", "b.txt"),
+          resultItem("r2", "beta"),
+          item({ kind: "reply", time: 100n, text: "checking the last one" }),
+          toolItem("Bash", "b1", "make"),
+          resultItem("b1", "built"),
+        ],
+      }),
+      seenAt: 100,
+      open: false,
+    },
+    (container) => {
+      assert.equal(container.querySelector("button.fold.calls") === null, true, "the reply splits the calls");
+      assert.equal(container.querySelectorAll(".call").length, 3, "each call draws its own line");
+    },
+  ));
+
+test("the since-you-looked rule ends a run, so the calls after it fold on their own", () =>
+  withReader(
+    {
+      conversation: conversation({
+        items: [
+          toolItem("Read", "r1", "a.txt", 100n),
+          resultItem("r1", "alpha", false, 100n),
+          toolItem("Read", "r2", "b.txt", 100n),
+          resultItem("r2", "beta", false, 100n),
+          toolItem("Read", "r3", "c.txt", 200n),
+          resultItem("r3", "gamma", false, 200n),
+          toolItem("Bash", "b1", "make", 200n),
+          resultItem("b1", "built", false, 200n),
+          toolItem("Bash", "b2", "ls", 200n),
+          resultItem("b2", "listed", false, 200n),
+        ],
+      }),
+      seenAt: 150,
+      open: false,
+    },
+    (container) => {
+      const rows = rowTexts(container);
+      assert.equal(rows.length, 4);
+      assert.ok(rows[2].includes("since you looked"), `row 2 was ${rows[2]}`);
+      assert.equal(foldOf(container).querySelector("b")?.textContent, "3 tool calls");
+      assert.equal(container.querySelectorAll(".call").length, 2, "the two calls before the rule draw lines");
+    },
+  ));
+
+test("a question between tool calls ends a run, so no run fold draws", () =>
+  withReader(
+    {
+      conversation: conversation({
+        items: [
+          toolItem("Read", "r1", "a.txt"),
+          resultItem("r1", "alpha"),
+          toolItem("Read", "r2", "b.txt"),
+          resultItem("r2", "beta"),
+          item({ kind: "question", time: 100n, tool: "AskUserQuestion", text: "Which schedule?", id: "q1" }),
+          resultItem("q1", "Daily"),
+          toolItem("Read", "r3", "c.txt"),
+          resultItem("r3", "gamma"),
+        ],
+      }),
+      seenAt: 100,
+      open: false,
+    },
+    (container) => {
+      assert.equal(container.querySelector("button.fold.calls") === null, true, "the question splits the calls");
+      assert.equal(container.querySelectorAll(".call").length, 4, "each call and the question draw a line");
+    },
+  ));
+
 // withHead renders a head the way withReader renders a reader, and removes it the same way.
 async function withHead(
   props: Parameters<typeof ReaderHead>[0],

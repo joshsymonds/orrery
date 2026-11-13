@@ -13,10 +13,12 @@ const tokensPerThousand = 1000;
 const secondsToMillis = 1000;
 const answerChoices = [1, 2, 3] as const;
 const nearBottomPixels = 4;
+const toolRunMinimum = 3;
 
 // Reader draws one conversation: its items, the "since you looked" rule before the first row newer than seenAt, the
 // pane's question with a button per answer, and the session's unfinished text and thinking. A result is never a row:
-// it folds under the call it answers, and a result whose call is not held is hidden.
+// it folds under the call it answers, and a result whose call is not held is hidden. Three or more tool calls in a row
+// fold into one run line that opens to a line per call.
 // A reply, a prompt and live text draw through Markdown, which builds only its fixed elements. Every other text is drawn
 // as text: through ReplyText, or as a plain child of an element, so no markup becomes an element and no link sits inside
 // a button. With a step, a prompt draws by its sender and round: the brief as a fold, a send-back as a card of its
@@ -63,19 +65,23 @@ export function Reader({
   const newIndex = conversation.items.findIndex((item) => item.kind !== "result" && Number(item.time) > seenAt);
   const keys = itemKeys(conversation.items);
   const results = resultsByCall(conversation.items);
+  const items = conversation.items;
   const rows: JSX.Element[] = [];
-  conversation.items.forEach((item, index) => {
-    if (item.kind === "result") {
-      return;
-    }
-    if (index === newIndex) {
+  groupRows(items, newIndex).forEach((group) => {
+    const [first] = group;
+    if (first === newIndex) {
       rows.push(<NewRule key="new-rule" />);
+    }
+    if (group.length >= toolRunMinimum) {
+      const calls = group.map((index) => ({ key: keys[index], item: items[index], result: results.get(index) }));
+      rows.push(<ToolRun key={keys[first]} calls={calls} />);
+      return;
     }
     rows.push(
       <ItemRow
-        key={keys[index]}
-        item={item}
-        result={results.get(index)}
+        key={keys[first]}
+        item={items[first]}
+        result={results.get(first)}
         open={open}
         step={step}
         onToggleOpen={onToggleOpen}
@@ -383,6 +389,44 @@ function CallRow({ item, result }: { item: ConversationItem; result: Conversatio
   );
 }
 
+type RunCall = { key: string; item: ConversationItem; result: ConversationItem | undefined };
+
+// ToolRun draws a run of three or more tool calls as one line: its count, the tools with their counts, and ✗ when any
+// call's result failed, else ✓. A click shows a line per call under it, each folding its own result, and a second click
+// folds them again.
+function ToolRun({ calls }: { calls: RunCall[] }) {
+  const [shown, setShown] = useState(false);
+  const failed = calls.some((call) => call.result?.error === true);
+  return (
+    <div class="t">
+      <span class="gut" />
+      <div class="body">
+        <button type="button" class="fold calls" onClick={() => setShown((value) => !value)}>
+          <b>{`${calls.length} tool calls`}</b>
+          <span class="names">{toolCounts(calls)}</span>
+          {failed ? <span class="bad">✗</span> : <span class="ok">✓</span>}
+        </button>
+        {shown && (
+          <div class="calls">
+            {calls.map((call) => (
+              <CallRow key={call.key} item={call.item} result={call.result} />
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// toolCounts names each tool of a run once, in first-seen order, with its count when it is more than one.
+function toolCounts(calls: RunCall[]): string {
+  const counts = new Map<string, number>();
+  for (const call of calls) {
+    counts.set(call.item.tool, (counts.get(call.item.tool) ?? 0) + 1);
+  }
+  return [...counts].map(([tool, count]) => (count > 1 ? `${tool} ×${count}` : tool)).join(", ");
+}
+
 // LiveRow draws one unfinished block: a text block as it streams, a thinking block as a folded row.
 function LiveRow({ block }: { block: EngineText }) {
   if (block.kind === "thinking") {
@@ -489,6 +533,37 @@ function resultsByCall(items: ConversationItem[]): Map<number, ConversationItem>
     }
   });
   return results;
+}
+
+// groupRows lists the rows a reader draws as the indices of their items, in order. A run of toolRunMinimum or more tool
+// calls with only results between them is one row; every other item is a row of its own, and a result is in none. A
+// question or any other item ends a run, and so does the since-you-looked rule, which starts the row at newIndex.
+function groupRows(items: ConversationItem[], newIndex: number): number[][] {
+  const rows: number[][] = [];
+  let run: number[] = [];
+  const endRun = () => {
+    if (run.length >= toolRunMinimum) {
+      rows.push(run);
+    } else {
+      run.forEach((index) => rows.push([index]));
+    }
+    run = [];
+  };
+  items.forEach((item, index) => {
+    if (item.kind === "result") {
+      return;
+    }
+    if (index === newIndex || item.kind !== "tool") {
+      endRun();
+    }
+    if (item.kind === "tool") {
+      run.push(index);
+    } else {
+      rows.push([index]);
+    }
+  });
+  endRun();
+  return rows;
 }
 
 // itemKeys keys each item by its content, so a row keeps its key while the window drops items from the top. An item
