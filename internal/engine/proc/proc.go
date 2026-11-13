@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -31,6 +32,9 @@ type Config struct {
 	Dir string
 	// Env replaces the environment when non-nil, and is inherited when nil.
 	Env []string
+	// MergeOutput writes the child's stdout into the same tail as its stderr, in the order the child
+	// writes them. Stdout then reads EOF at once.
+	MergeOutput bool
 	// StderrCapacity is the number of stderr bytes kept. Zero takes 64 KiB.
 	StderrCapacity int
 	// StopTimeout is how long Stop waits after the interrupt before the kill. Zero takes 2 s.
@@ -41,7 +45,7 @@ type Config struct {
 type Process struct {
 	cmd         *exec.Cmd
 	stdin       *os.File
-	stdout      *os.File
+	stdout      io.ReadCloser
 	stderr      *tail
 	stderrRead  *os.File
 	stderrDone  chan struct{}
@@ -54,7 +58,8 @@ type Process struct {
 }
 
 // Start runs the configured binary in a new process group with piped stdin and stdout, and captures
-// its stderr into a bounded tail. The process is stopped with Stop.
+// its stderr into a bounded tail. With MergeOutput the stdout is captured into that tail too. The
+// process is stopped with Stop.
 func Start(cfg Config) (*Process, error) {
 	if !filepath.IsAbs(cfg.Path) {
 		return nil, ErrPathNotAbsolute
@@ -70,12 +75,17 @@ func Start(cfg Config) (*Process, error) {
 	if err != nil {
 		return nil, fmt.Errorf("proc: open stdin pipe: %w", err)
 	}
-	parentStdout, childStdout, err := os.Pipe()
-	if err != nil {
-		return nil, errors.Join(
-			fmt.Errorf("proc: open stdout pipe: %w", err),
-			closeFiles(childStdin, parentStdin),
-		)
+	// Without MergeOutput the child's stdout has its own pipe. With it, the child's stdout is the
+	// stderr pipe, so both streams share one write end and reach the tail in write order.
+	var parentStdout, childStdout *os.File
+	if !cfg.MergeOutput {
+		parentStdout, childStdout, err = os.Pipe()
+		if err != nil {
+			return nil, errors.Join(
+				fmt.Errorf("proc: open stdout pipe: %w", err),
+				closeFiles(childStdin, parentStdin),
+			)
+		}
 	}
 	parentStderr, childStderr, err := os.Pipe()
 	if err != nil {
@@ -84,6 +94,10 @@ func Start(cfg Config) (*Process, error) {
 			closeFiles(childStdin, parentStdin, parentStdout, childStdout),
 		)
 	}
+	childOut := childStderr
+	if !cfg.MergeOutput {
+		childOut = childStdout
+	}
 
 	cmd := &exec.Cmd{
 		Path:        cfg.Path,
@@ -91,7 +105,7 @@ func Start(cfg Config) (*Process, error) {
 		Dir:         cfg.Dir,
 		Env:         cfg.Env,
 		Stdin:       childStdin,
-		Stdout:      childStdout,
+		Stdout:      childOut,
 		Stderr:      childStderr,
 		SysProcAttr: &syscall.SysProcAttr{Setpgid: true},
 	}
@@ -111,10 +125,16 @@ func Start(cfg Config) (*Process, error) {
 		)
 	}
 
+	// With MergeOutput the output is in the stderr tail, so the caller's stdout is an empty reader.
+	stdout := io.NopCloser(strings.NewReader(""))
+	if !cfg.MergeOutput {
+		stdout = parentStdout
+	}
+
 	process := &Process{
 		cmd:         cmd,
 		stdin:       parentStdin,
-		stdout:      parentStdout,
+		stdout:      stdout,
 		stderr:      newTail(cfg.StderrCapacity),
 		stderrRead:  parentStderr,
 		stderrDone:  make(chan struct{}),
@@ -136,12 +156,14 @@ func (p *Process) Stdin() io.WriteCloser {
 	return p.stdin
 }
 
-// Stdout returns the read end of the child's stdout. The caller closes it.
+// Stdout returns the read end of the child's stdout. The caller closes it. Under MergeOutput it is
+// already at EOF.
 func (p *Process) Stdout() io.ReadCloser {
 	return p.stdout
 }
 
-// Stderr returns the last bytes the child wrote to stderr, up to the configured capacity.
+// Stderr returns the last bytes the child wrote to stderr, up to the configured capacity. Under
+// MergeOutput it holds the child's stdout and stderr, in write order.
 func (p *Process) Stderr() string {
 	return p.stderr.String()
 }
@@ -184,7 +206,7 @@ func (p *Process) stop() error {
 	return errors.Join(interruptErr, killErr)
 }
 
-// run reaps the child, kills whatever remains of its group, and closes Done once stderr has drained.
+// run reaps the child, kills whatever remains of its group, and closes Done once the output has drained.
 func (p *Process) run() {
 	waitErr := p.cmd.Wait()
 	killErr := signalGroup(p.Pid(), syscall.SIGKILL)
@@ -220,10 +242,14 @@ func signalGroup(pgid int, sig syscall.Signal) error {
 	return nil
 }
 
-// closeFiles closes every file and joins the errors.
+// closeFiles closes every file and joins the errors. A nil file was never opened, as the stdout pipe is
+// not under MergeOutput, and is skipped.
 func closeFiles(files ...*os.File) error {
 	var closeErr error
 	for _, file := range files {
+		if file == nil {
+			continue
+		}
 		if err := file.Close(); err != nil {
 			closeErr = errors.Join(closeErr, fmt.Errorf("proc: close pipe: %w", err))
 		}
