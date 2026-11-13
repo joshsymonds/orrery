@@ -623,8 +623,8 @@ type EpicSlice struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The task label.
 	Task string `protobuf:"bytes,1,opt,name=task,proto3" json:"task,omitempty"`
-	// "dispatched" while the label's latest writing step runs or is held, "done" when it ended done, "gap" for any other
-	// end.
+	// The task's state for the chart's centre readout and its counts, which colours no cell: "dispatched" while the
+	// label's latest writing step runs or is held, "done" when it ended done, "gap" for any other end.
 	Hue string `protobuf:"bytes,2,opt,name=hue,proto3" json:"hue,omitempty"`
 	// Whether the latest writing step's result carries red_evidence.
 	RedTest bool `protobuf:"varint,3,opt,name=red_test,json=redTest,proto3" json:"red_test,omitempty"`
@@ -636,9 +636,17 @@ type EpicSlice struct {
 	Checks bool `protobuf:"varint,6,opt,name=checks,proto3" json:"checks,omitempty"`
 	// Whether the latest writing step ended done.
 	GateAccepted bool `protobuf:"varint,7,opt,name=gate_accepted,json=gateAccepted,proto3" json:"gate_accepted,omitempty"`
-	// The ring the yellow dot is on, 1 for red_test through 5 for gate_accepted: the innermost ring reached, the furthest
-	// phase, while the step runs or is held, 0 once it ended.
-	At            int32 `protobuf:"varint,8,opt,name=at,proto3" json:"at,omitempty"`
+	// The ring the task is working toward, 1 for red_test through 5 for gate_accepted, while the latest writing step runs
+	// or is held: the first ring not yet reached, counting from red_test inward, which is the first of red_test, working,
+	// tests_pass, checks, gate_accepted whose field is false; 0 once the step ended.
+	At int32 `protobuf:"varint,8,opt,name=at,proto3" json:"at,omitempty"`
+	// Whether the latest writing step is held by the owner. False once it has ended.
+	Held bool `protobuf:"varint,9,opt,name=held,proto3" json:"held,omitempty"`
+	// The ring that errored, 1 for red_test through 5 for gate_accepted, when the latest writing step ended any way but
+	// done; 0 while it runs or is held, and when it ended done. It is 4 (checks) when the step ended checks_failed, 5
+	// (gate_accepted) when it ended goal_unmet, and for every other end the first ring not reached, counted as at counts
+	// it.
+	ErrorAt       int32 `protobuf:"varint,10,opt,name=error_at,json=errorAt,proto3" json:"error_at,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -725,6 +733,20 @@ func (x *EpicSlice) GetGateAccepted() bool {
 func (x *EpicSlice) GetAt() int32 {
 	if x != nil {
 		return x.At
+	}
+	return 0
+}
+
+func (x *EpicSlice) GetHeld() bool {
+	if x != nil {
+		return x.Held
+	}
+	return false
+}
+
+func (x *EpicSlice) GetErrorAt() int32 {
+	if x != nil {
+		return x.ErrorAt
 	}
 	return 0
 }
@@ -1036,7 +1058,7 @@ const file_orrery_v1_epics_proto_rawDesc = "" +
 	"\rEpicStepCheck\x12\x14\n" +
 	"\x05round\x18\x01 \x01(\rR\x05round\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x0e\n" +
-	"\x02ok\x18\x03 \x01(\bR\x02ok\"\xd2\x01\n" +
+	"\x02ok\x18\x03 \x01(\bR\x02ok\"\x81\x02\n" +
 	"\tEpicSlice\x12\x12\n" +
 	"\x04task\x18\x01 \x01(\tR\x04task\x12\x10\n" +
 	"\x03hue\x18\x02 \x01(\tR\x03hue\x12\x19\n" +
@@ -1046,7 +1068,10 @@ const file_orrery_v1_epics_proto_rawDesc = "" +
 	"tests_pass\x18\x05 \x01(\bR\ttestsPass\x12\x16\n" +
 	"\x06checks\x18\x06 \x01(\bR\x06checks\x12#\n" +
 	"\rgate_accepted\x18\a \x01(\bR\fgateAccepted\x12\x0e\n" +
-	"\x02at\x18\b \x01(\x05R\x02at\"\"\n" +
+	"\x02at\x18\b \x01(\x05R\x02at\x12\x12\n" +
+	"\x04held\x18\t \x01(\bR\x04held\x12\x19\n" +
+	"\berror_at\x18\n" +
+	" \x01(\x05R\aerrorAt\"\"\n" +
 	"\x10StepsHoldRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\"\x13\n" +
 	"\x11StepsHoldResponse\"7\n" +
