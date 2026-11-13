@@ -67,12 +67,21 @@ type EngineSet struct {
 	Changes EngineChanges
 }
 
+// Senders of an engine prompt, stored as its sender.
+const (
+	PromptSenderBrief  = "brief"
+	PromptSenderEngine = "engine"
+	PromptSenderOwner  = "owner"
+)
+
 // EnginePrompt appends engine_prompt for a prompt sent to a session. PromptID is the client-chosen id of the
-// prompt, stored only when non-empty.
+// prompt, stored only when non-empty. Sender and Round are stored only when non-empty and non-zero.
 type EnginePrompt struct {
 	ID       string
 	Text     string
 	PromptID string
+	Sender   string
+	Round    int
 }
 
 // EnginePromptFailed records that a prompt failed to send. The marker keeps the first reason for its session and
@@ -189,6 +198,8 @@ type engineChangedPayload struct {
 type enginePromptPayload struct {
 	Text     string `json:"text"`
 	PromptID string `json:"promptId,omitempty"`
+	Sender   string `json:"sender,omitempty"`
+	Round    int    `json:"round,omitempty"`
 }
 
 type engineBlockPayload struct {
@@ -315,7 +326,7 @@ func (op EngineSet) applyEngine(ctx context.Context, queries *sqlcgen.Queries, n
 
 func (op EnginePrompt) applyEngine(ctx context.Context, queries *sqlcgen.Queries, now time.Time) error {
 	return appendEnginePayload(ctx, queries, op.ID, EventEnginePrompt,
-		enginePromptPayload{Text: op.Text, PromptID: op.PromptID}, now)
+		enginePromptPayload{Text: op.Text, PromptID: op.PromptID, Sender: op.Sender, Round: op.Round}, now)
 }
 
 func (op EnginePromptFailed) applyEngine(ctx context.Context, queries *sqlcgen.Queries, _ time.Time) error {

@@ -30,6 +30,53 @@ func TestEnginePromptStoresPromptID(t *testing.T) {
 	}
 }
 
+func TestEnginePromptStoresSenderAndRound(t *testing.T) {
+	ctx := context.Background()
+	s := openSyncStore(t)
+
+	ops := []EngineOp{
+		EngineAdd{ID: "e1", Dir: "/a", State: "idle"},
+		EnginePrompt{ID: "e1", Text: "hi", Sender: PromptSenderEngine, Round: 2},
+		EnginePrompt{ID: "e1", Text: "bye", Sender: PromptSenderBrief},
+		EnginePrompt{ID: "e1", Text: "plain"},
+	}
+	if err := s.ApplyEngine(ctx, ops, engineNowAt()); err != nil {
+		t.Fatalf("ApplyEngine: %v", err)
+	}
+
+	events := eventsOf(t, s)
+	if len(events) != 4 {
+		t.Fatalf("events: got %d, want 4", len(events))
+	}
+	got := payloadOf(t, events[1].Payload)
+	if got["text"] != "hi" || got["sender"] != "engine" ||
+		got["round"] != float64(2) || len(got) != 3 {
+		t.Fatalf("prompt with sender and round payload: got %v, want text hi, sender engine and round 2", got)
+	}
+	got = payloadOf(t, events[2].Payload)
+	if got["text"] != "bye" || got["sender"] != "brief" || len(got) != 2 {
+		t.Fatalf("prompt with sender and no round payload: got %v, want text bye and sender brief", got)
+	}
+	if raw := events[3].Payload; raw != `{"text":"plain"}` {
+		t.Fatalf("prompt without sender or round payload: got %s, want {\"text\":\"plain\"}", raw)
+	}
+}
+
+func TestPromptSenderValues(t *testing.T) {
+	cases := []struct {
+		name, got, want string
+	}{
+		{name: "brief", got: PromptSenderBrief, want: "brief"},
+		{name: "engine", got: PromptSenderEngine, want: "engine"},
+		{name: "owner", got: PromptSenderOwner, want: "owner"},
+	}
+	for _, tc := range cases {
+		if tc.got != tc.want {
+			t.Fatalf("PromptSender %s: got %q, want %q", tc.name, tc.got, tc.want)
+		}
+	}
+}
+
 func TestEnginePromptSent(t *testing.T) {
 	ctx := context.Background()
 	s := openSyncStore(t)
