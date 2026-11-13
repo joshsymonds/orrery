@@ -62,9 +62,10 @@ func TestReplayQueuesCountsEachField(t *testing.T) {
 			want: QueueReplay{Transcripts: 1, Typed: 1, Closed: 1},
 		},
 		{
-			name:  "closed by turn end after dequeue",
-			lines: []string{enqueueLine(t, 0, "synthetic a"), dequeueLine(1), turnDurationLine(2)},
-			want:  QueueReplay{Transcripts: 1, Typed: 1, Closed: 1},
+			name: "closed by turn end after dequeue",
+			lines: []string{enqueueLine(t, 0, "synthetic a"), dequeueLine(1), userTextLine(t, 1, "synthetic other"),
+				turnDurationLine(2)},
+			want: QueueReplay{Transcripts: 1, Typed: 1, Closed: 1},
 		},
 		{
 			name: "closed by cancel",
@@ -88,6 +89,13 @@ func TestReplayQueuesCountsEachField(t *testing.T) {
 			want:  QueueReplay{Transcripts: 1, Typed: 1, Other: 1},
 		},
 		{
+			name: "open after a notice cleared its mark is never taken, not other",
+			lines: []string{enqueueLine(t, 0, "synthetic a"), dequeueLine(1),
+				userContentLine(t, 2, `,"origin":{"kind":"task-notification"}`, "<task-notification>synthetic task"),
+				turnDurationLine(3)},
+			want: QueueReplay{Transcripts: 1, Typed: 1, NeverTakenBefore: 1},
+		},
+		{
 			name: "remove after a containing close falsifies it",
 			lines: []string{enqueueLine(t, 0, "synthetic a"), typedTextLine(t, 1, "synthetic a and b"),
 				removeLine(t, 2, "synthetic a", "delivered_to_agent"), turnDurationLine(3)},
@@ -95,8 +103,8 @@ func TestReplayQueuesCountsEachField(t *testing.T) {
 		},
 		{
 			name: "popAll after a turn-end close falsifies it",
-			lines: []string{enqueueLine(t, 0, "synthetic a"), dequeueLine(1), turnDurationLine(2),
-				popAllLine(t, 3, "synthetic a")},
+			lines: []string{enqueueLine(t, 0, "synthetic a"), dequeueLine(1), userTextLine(t, 1, "synthetic other"),
+				turnDurationLine(2), popAllLine(t, 3, "synthetic a")},
 			want: QueueReplay{Transcripts: 1, Typed: 1, Closed: 1, Falsified: 1},
 		},
 		{
@@ -107,8 +115,8 @@ func TestReplayQueuesCountsEachField(t *testing.T) {
 		},
 		{
 			name: "dequeue, assistant, then the exact user line falsifies a turn-end close",
-			lines: []string{enqueueLine(t, 0, "synthetic a"), dequeueLine(1), turnDurationLine(2), dequeueLine(3),
-				assistantLine(4), userTextLine(t, 5, "synthetic a")},
+			lines: []string{enqueueLine(t, 0, "synthetic a"), dequeueLine(1), userTextLine(t, 1, "synthetic other"),
+				turnDurationLine(2), dequeueLine(3), assistantLine(4), userTextLine(t, 5, "synthetic a")},
 			want: QueueReplay{Transcripts: 1, Typed: 1, Closed: 1, Falsified: 1},
 		},
 		{
