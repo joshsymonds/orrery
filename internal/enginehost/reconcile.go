@@ -26,13 +26,14 @@ const holdersSubdir = "holders"
 const clearTimeout = 10 * time.Second
 
 // Reconcile goes through the holder directories under the manager's state directory whose session has no live session in
-// this manager. Each such holder is re-adopted when its row allows it (see readoptable), and cleared otherwise. Then it
-// settles the engine rows that have no process in this manager, as a restart leaves them. A re-adopted session is live, so
-// its row is left as its replay gave it. Each other row loses its unfinished text. A row whose turn was running, working
-// or waiting, is recorded interrupted with restartedReason and no question. The owner is notified of an engine row's
-// interruption; a step row is settled without a notice. A row in any other state keeps its state. No row is removed. A
-// holder that fails to re-adopt or to clear is logged and its session is cleared, and the rows are settled anyway. It
-// returns the first read or write error.
+// this manager. Each such holder is re-adopted when its row allows it (see readoptable). A holder that has ended is drained
+// into the store, and its row is settled by that drain. Each other holder is cleared. Then it settles the engine rows that
+// have no process in this manager, as a restart leaves them. A re-adopted session is live, so its row is left as its
+// replay gave it. A drained row is settled by its drain. Each other row loses its unfinished text. A row whose turn was
+// running, working or waiting, is recorded interrupted with restartedReason and no question. The owner is notified of an
+// engine row's interruption; a step row is settled without a notice. A row in any other state keeps its state. No row is
+// removed. A holder that fails to re-adopt, to drain or to clear is logged and its session is cleared, and the rows are
+// settled anyway. It returns the first read or write error.
 func (m *Manager) Reconcile(ctx context.Context) error {
 	rows, err := m.store.EngineSessions(ctx)
 	// A failed read leaves no row, so every holder is then cleared.
@@ -40,15 +41,20 @@ func (m *Manager) Reconcile(ctx context.Context) error {
 	for _, row := range rows {
 		byID[row.ID] = row
 	}
-	m.reconcileHolders(ctx, byID)
+	settled := m.reconcileHolders(ctx, byID)
 	if err != nil {
 		return fmt.Errorf("reconcile sessions: %w", err)
 	}
 	for _, row := range rows {
-		if m.isLive(row.ID) {
+		if m.isLive(row.ID) || settled[row.ID] {
 			continue
 		}
-		if settleErr := m.reconcileRow(ctx, row); settleErr != nil {
+		// A drain that failed after it recorded lines has changed the row, so the row is read again before it settles.
+		current, readErr := m.engineRow(ctx, row.ID)
+		if readErr != nil {
+			return fmt.Errorf("reconcile session %s: %w", row.ID, readErr)
+		}
+		if settleErr := m.reconcileRow(ctx, current); settleErr != nil {
 			return settleErr
 		}
 	}
@@ -56,11 +62,14 @@ func (m *Manager) Reconcile(ctx context.Context) error {
 }
 
 // reconcileHolders goes through the holder directories under the state directory. The holder of each session with no live
-// session in this manager is re-adopted when its row, in rows by id, allows it, and cleared otherwise or when its
-// re-adoption fails. A missing holders directory, or an empty state directory, has nothing to go through.
-func (m *Manager) reconcileHolders(ctx context.Context, rows map[string]store.EngineRow) {
+// session in this manager is re-adopted when its row, in rows by id, allows it, and drained when it has ended. Every other
+// holder is cleared, as is one that fails to re-adopt or to drain. It returns the ids of the sessions whose holder was
+// drained, and whose row the drain settled. A missing holders directory, or an empty state directory, has nothing to go
+// through.
+func (m *Manager) reconcileHolders(ctx context.Context, rows map[string]store.EngineRow) map[string]bool {
+	settled := map[string]bool{}
 	if m.stateDir == "" {
-		return
+		return settled
 	}
 	holders := filepath.Join(m.stateDir, holdersSubdir)
 	entries, err := os.ReadDir(holders)
@@ -68,7 +77,7 @@ func (m *Manager) reconcileHolders(ctx context.Context, rows map[string]store.En
 		if !errors.Is(err, fs.ErrNotExist) {
 			m.logger.WarnContext(ctx, "read holders dir", "dir", holders, "err", err)
 		}
-		return
+		return settled
 	}
 	for _, entry := range entries {
 		id := entry.Name()
@@ -77,12 +86,17 @@ func (m *Manager) reconcileHolders(ctx context.Context, rows map[string]store.En
 		}
 		dir := filepath.Join(holders, id)
 		if row, ok := rows[id]; ok && readoptable(row) {
-			if m.readoptHolder(ctx, row, dir) {
+			readopted, drained := m.readoptHolder(ctx, row, dir)
+			if readopted {
 				continue
+			}
+			if drained {
+				settled[id] = true
 			}
 		}
 		m.clearHolder(ctx, id, dir)
 	}
+	return settled
 }
 
 // readoptable reports whether the holder of row's session may be re-adopted: row is an engine row that a launch tracked,
@@ -91,16 +105,26 @@ func readoptable(row store.EngineRow) bool {
 	return row.Kind == store.KindEngine && row.Tracked && row.State != stateStopped && row.State != stateFailed
 }
 
-// readoptHolder re-adopts the session of row from its holder in dir, bounded by clearTimeout. A failure is logged, and the
-// holder is left for the caller to clear. It reports whether the session was re-adopted.
-func (m *Manager) readoptHolder(ctx context.Context, row store.EngineRow, dir string) bool {
+// readoptHolder re-adopts the session of row from its holder in dir, bounded by clearTimeout. When the holder has ended, it
+// drains the session instead. A failure is logged, and the holder is left for the caller to clear. It reports whether the
+// session was re-adopted, and whether it was drained and its row settled.
+func (m *Manager) readoptHolder(ctx context.Context, row store.EngineRow, dir string) (readopted, drained bool) {
 	readoptCtx, cancel := context.WithTimeout(ctx, clearTimeout)
 	defer cancel()
-	if err := m.readopt(readoptCtx, row, dir); err != nil {
+	err := m.readopt(readoptCtx, row, dir)
+	switch {
+	case err == nil:
+		return true, false
+	case errors.Is(err, holder.ErrGone):
+		if drainErr := m.drain(ctx, row, dir); drainErr != nil {
+			m.logger.WarnContext(ctx, "drain session", "session", row.ID, "err", drainErr)
+			return false, false
+		}
+		return false, true
+	default:
 		m.logger.WarnContext(ctx, "re-adopt session", "session", row.ID, "err", err)
-		return false
+		return false, false
 	}
-	return true
 }
 
 // readopt re-adopts the session of row from its holder in dir. It attaches the holder at row's replay-from, replays the
