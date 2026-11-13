@@ -43,6 +43,7 @@ const (
 	reasonJudgeLate      = "judge late"
 	reasonDeskFailed     = "desk notice failed"
 	reasonNoSubscription = "no push subscription"
+	reasonNotRestored    = "not restored"
 )
 
 // Verdict is Judge's answer on a notice. Needed routes the notice as usual. Why, when not empty, is written to the
@@ -89,8 +90,13 @@ type Notice struct {
 	Push     func(context.Context) (push.Notification, error)
 }
 
+// Rebuild makes the notice that a stored row of its source kind described, from the row's source data. Its
+// Watching, Judge, Desk and Push are the ones the restored notice routes with.
+type Rebuild func(ctx context.Context, data []byte) (Notice, error)
+
 // Config holds the Router's collaborators. A nil After uses time.AfterFunc, a nil LocalInput reports no input,
-// and a nil Logger discards.
+// and a nil Logger discards. Rebuild maps each source kind to its Rebuild; a stored row of a kind it lacks is not
+// restored. Attach calls each Rebuild under the Router's lock, so a Rebuild must not call the Router.
 type Config struct {
 	Host       string
 	Now        func() time.Time
@@ -101,6 +107,7 @@ type Config struct {
 	LocalInput func(context.Context) (input int64, ok bool, err error)
 	Log        Recorder
 	Logger     *slog.Logger
+	Rebuild    map[string]Rebuild
 }
 
 // Router decides where each notice goes and writes one Line per ping or silence.
@@ -123,6 +130,9 @@ type Router struct {
 	// key it is logged under. A later row write or Close retries them.
 	rowPuts    map[int64]*entry
 	rowDeletes map[int64]notice.Key
+	// beforeAttach holds the keys that saw a Notify before Attach, so a stored row for one of them is older than a
+	// notice. It is nil once Attach has run.
+	beforeAttach map[notice.Key]bool
 }
 
 // entry is a notice waiting for its route. Its fields are guarded by Router.mu, except n, which never changes. phase
@@ -152,10 +162,11 @@ func New(cfg Config) *Router {
 		cfg.Logger = slog.New(slog.DiscardHandler)
 	}
 	router := &Router{
-		cfg:        cfg,
-		pending:    make(map[notice.Key]*entry),
-		rowPuts:    make(map[int64]*entry),
-		rowDeletes: make(map[int64]notice.Key),
+		cfg:          cfg,
+		pending:      make(map[notice.Key]*entry),
+		rowPuts:      make(map[int64]*entry),
+		rowDeletes:   make(map[int64]notice.Key),
+		beforeAttach: make(map[notice.Key]bool),
 	}
 	router.idle = sync.NewCond(&router.mu)
 	return router
@@ -167,6 +178,9 @@ func (r *Router) Notify(ctx context.Context, incoming Notice) {
 	ctx = context.WithoutCancel(ctx)
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.beforeAttach != nil {
+		r.beforeAttach[incoming.Key] = true
+	}
 	if old := r.pending[incoming.Key]; old != nil {
 		r.endLocked(old, None, reasonChanged)
 	}
@@ -179,11 +193,7 @@ func (r *Router) Notify(ctx context.Context, incoming Notice) {
 	ent := &entry{seq: r.seq, n: incoming, at: at, phase: phaseDeciding, due: at * 1000}
 	r.pending[incoming.Key] = ent
 	r.rowLocked(ent)
-	r.running++
-	go func() {
-		defer r.finish()
-		r.decide(ctx, ent)
-	}()
+	r.startLocked(func() { r.decide(ctx, ent) })
 }
 
 // Changed ends the pending notice for key, if there is one, because its pane or session changed.
@@ -250,6 +260,16 @@ func (r *Router) enter(ent *entry) bool {
 	}
 	r.running++
 	return true
+}
+
+// startLocked runs f as a routing decision on its own goroutine, counted as running until f returns. The caller holds
+// r.mu.
+func (r *Router) startLocked(f func()) {
+	r.running++
+	go func() {
+		defer r.finish()
+		f()
+	}()
 }
 
 // finish marks one routing decision as no longer running and wakes Wait when none is left.
