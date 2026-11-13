@@ -103,10 +103,15 @@ func stampFrom(root, folder string) (Stamp, error) {
 }
 
 // folderStamp returns folder's stamp: its .claude/settings.local.json is read before its .claude/settings.json, and the
-// first of them that sets env.ANTHROPIC_BASE_URL to a non-empty string stamps the folder. A settings path that Lstat does
-// not find, or has a component above it that is not a directory, is skipped. One that Lstat finds, including a symlink
-// whose target is missing, must be readable.
+// first of them that sets env.ANTHROPIC_BASE_URL to a non-empty string stamps the folder. A folder with no .claude, or
+// with a .claude that is not a directory, has no stamp and no error. A .claude symlink whose target is missing is an
+// error naming .claude, so the folder refuses rather than being skipped. A settings path that Lstat does not find, or has
+// a component above it that is not a directory, is skipped. One that Lstat finds, including a symlink whose target is
+// missing, must be readable.
 func folderStamp(folder string) (Stamp, error) {
+	if err := danglingClaude(folder); err != nil {
+		return Stamp{}, err
+	}
 	for _, name := range []string{"settings.local.json", "settings.json"} {
 		path := filepath.Join(folder, ".claude", name)
 		if _, err := os.Lstat(path); err != nil {
@@ -128,6 +133,27 @@ func folderStamp(folder string) (Stamp, error) {
 		}
 	}
 	return Stamp{}, nil
+}
+
+// danglingClaude returns an error naming folder's .claude when it is a symlink whose target cannot be stat'd, a dangling
+// symlink included. A .claude that Lstat does not find, or that is not a directory, is nil, as is any other .claude: the
+// settings reads in folderStamp decide those. Any other Lstat failure is an error naming .claude.
+func danglingClaude(folder string) error {
+	claude := filepath.Join(folder, ".claude")
+	info, err := os.Lstat(claude)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ENOTDIR) {
+			return nil
+		}
+		return fmt.Errorf("stamp: read %s: %w", claude, err)
+	}
+	if info.Mode()&fs.ModeSymlink == 0 {
+		return nil
+	}
+	if _, err = os.Stat(claude); err != nil {
+		return fmt.Errorf("stamp: read %s: %w", claude, err)
+	}
+	return nil
 }
 
 // settingsEnv returns the env of a settings file's data and whether that file stamps: env.ANTHROPIC_BASE_URL is a

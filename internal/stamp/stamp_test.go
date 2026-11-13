@@ -505,6 +505,99 @@ func TestFindDanglingSettingsSymlinkErrors(t *testing.T) {
 	assertErrorNames(t, err, filepath.Join(resolved(t, parent), ".claude", "settings.json"))
 }
 
+// danglingClaudeLink makes folder's .claude a symlink to a path under home that does not exist.
+func danglingClaudeLink(t *testing.T, home, folder string) {
+	t.Helper()
+	link := filepath.Join(folder, ".claude")
+	if err := os.Symlink(filepath.Join(home, "missing-claude"), link); err != nil {
+		t.Fatalf("symlink %s: %v", link, err)
+	}
+}
+
+func TestFindDanglingClaudeSymlinkErrors(t *testing.T) {
+	t.Run("folder itself", func(t *testing.T) {
+		home := t.TempDir()
+		parent := makeDir(t, filepath.Join(home, "parent"))
+		child := makeDir(t, filepath.Join(parent, "child"))
+		danglingClaudeLink(t, home, child)
+
+		_, err := Find(home, child)
+		assertErrorNames(t, err, filepath.Join(resolved(t, child), ".claude"))
+	})
+	t.Run("folder above dir", func(t *testing.T) {
+		home := t.TempDir()
+		parent := makeDir(t, filepath.Join(home, "parent"))
+		child := makeDir(t, filepath.Join(parent, "child"))
+		danglingClaudeLink(t, home, parent)
+
+		_, err := Find(home, child)
+		assertErrorNames(t, err, filepath.Join(resolved(t, parent), ".claude"))
+	})
+	t.Run("worktree primary", func(t *testing.T) {
+		layout := makeStampedWorktree(t)
+		primary := filepath.Join(layout.home, "stamped", "repo")
+		danglingClaudeLink(t, layout.home, primary)
+
+		_, err := Find(layout.home, layout.worktree)
+		assertErrorNames(t, err, filepath.Join(resolved(t, primary), ".claude"))
+	})
+}
+
+func TestFindDanglingLocalSettingsSymlinkErrors(t *testing.T) {
+	home := t.TempDir()
+	parent := makeDir(t, filepath.Join(home, "parent"))
+	child := makeDir(t, filepath.Join(parent, "child"))
+	claude := makeDir(t, filepath.Join(parent, ".claude"))
+	link := filepath.Join(claude, "settings.local.json")
+	if err := os.Symlink(filepath.Join(home, "missing.json"), link); err != nil {
+		t.Fatalf("symlink %s: %v", link, err)
+	}
+
+	_, err := Find(home, child)
+	assertErrorNames(t, err, filepath.Join(resolved(t, parent), ".claude", "settings.local.json"))
+}
+
+func TestFindModeZeroSettingsFileErrors(t *testing.T) {
+	for _, name := range []string{"settings.json", "settings.local.json"} {
+		t.Run(name, func(t *testing.T) {
+			home := t.TempDir()
+			parent := makeDir(t, filepath.Join(home, "parent"))
+			child := makeDir(t, filepath.Join(parent, "child"))
+			writeSettings(t, parent, name, stampJSON(urlOuter))
+			path := filepath.Join(parent, ".claude", name)
+			if err := os.Chmod(path, 0); err != nil {
+				t.Fatalf("chmod %s: %v", path, err)
+			}
+
+			_, err := Find(home, child)
+			assertErrorNames(t, err, filepath.Join(resolved(t, parent), ".claude", name))
+		})
+	}
+}
+
+func TestFindFolderWithoutClaudeHasNoStampOrError(t *testing.T) {
+	cases := []struct {
+		name string
+		// claude makes parent's .claude, if the case has one.
+		claude bool
+	}{
+		{"no .claude", false},
+		{"empty .claude directory", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			home := t.TempDir()
+			parent := makeDir(t, filepath.Join(home, "parent"))
+			child := makeDir(t, filepath.Join(parent, "child"))
+			if tc.claude {
+				makeDir(t, filepath.Join(parent, ".claude"))
+			}
+
+			assertNoStamp(t, findStamp(t, home, child))
+		})
+	}
+}
+
 func TestFindSkipsFileWithoutEnv(t *testing.T) {
 	home := t.TempDir()
 	stamped := makeDir(t, filepath.Join(home, "stamped"))
