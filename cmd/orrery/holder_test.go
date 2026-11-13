@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -249,6 +250,40 @@ func TestHolderServesHelloAndStop(t *testing.T) {
 	}
 	if exit.Reason != holder.ReasonStopped {
 		t.Errorf("exit reason %q, want %q", exit.Reason, holder.ReasonStopped)
+	}
+}
+
+// shellChild returns the child command line that runs script under sh.
+func shellChild(t *testing.T, script string) []string {
+	t.Helper()
+	sh, err := exec.LookPath("sh")
+	if err != nil {
+		t.Fatalf("find sh: %v", err)
+	}
+	return []string{sh, "-c", script}
+}
+
+// TestHolderExitsWithChildStatus runs a holder whose child ends on its own. The holder exits with the child's exit
+// code, or with 128 plus the number of the signal that ended the child.
+func TestHolderExitsWithChildStatus(t *testing.T) {
+	cases := []struct {
+		name   string
+		script string
+		want   int
+	}{
+		{"exit code", "exit 3", 3},
+		{"exit zero", "exit 0", exitOK},
+		{"killed by SIGKILL", "kill -KILL $$", 128 + 9},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			chdirTemp(t)
+			root := shortStateDir(t)
+			hc := startHolderCommand(t, root, "exit", shellChild(t, tc.script)...)
+			if res := hc.result(); res.code != tc.want {
+				t.Fatalf("exit status %d, want %d; stderr %q", res.code, tc.want, res.stderr)
+			}
+		})
 	}
 }
 

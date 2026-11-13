@@ -30,7 +30,7 @@ const (
 	childReplyOne    = "fake reply 1"
 	childStallingOne = "fake stalling 1"
 	childDyingOne    = "fake dying 1"
-	childDiedStderr  = "fake died"
+	childDiedStderr  = "fake died\n"
 	childDiedCode    = 3
 	childSignalTerm  = "terminated"
 	childSignalKill  = "killed"
@@ -277,6 +277,49 @@ func TestChildDeathGivesExitRecordWithStdoutEnd(t *testing.T) {
 	}
 	if !bytes.Contains(childSpooled(t, spool), []byte(childDyingOne)) {
 		t.Errorf("spool does not hold the output the child wrote before it died")
+	}
+}
+
+func TestChildExitStderrIsTheTailAsWritten(t *testing.T) {
+	t.Parallel()
+
+	spool, _ := newTestSpool(t, SpoolConfig{})
+	child := startChildUnderCleanup(t, spool, ChildConfig{
+		Path: shPath(t),
+		Args: []string{"-c", "printf 'first\\nsecond\\n' >&2"},
+		Dir:  t.TempDir(),
+	})
+	awaitChildDone(t, child)
+	exit := child.Exit(ReasonExited)
+	if want := "first\nsecond\n"; exit.Stderr != want {
+		t.Errorf("Stderr = %q, want %q", exit.Stderr, want)
+	}
+}
+
+func TestStderrWithKeepsTheTailAndPutsAFaultOnItsOwnLine(t *testing.T) {
+	t.Parallel()
+
+	fault := errors.New("holder fault")
+	for _, tc := range []struct {
+		name string
+		tail string
+		err  error
+		want string
+	}{
+		{name: "no fault keeps the tail", tail: "first\nsecond\n", want: "first\nsecond\n"},
+		{name: "no fault keeps blank lines", tail: "first\n\n", want: "first\n\n"},
+		{name: "no fault and no tail", tail: "", want: ""},
+		{name: "fault with an empty tail", tail: "", err: fault, want: "holder fault"},
+		{name: "fault after an unterminated tail", tail: "first", err: fault, want: "first\nholder fault"},
+		{name: "fault after a terminated tail", tail: "first\n", err: fault, want: "first\nholder fault"},
+		{name: "fault after blank lines", tail: "first\n\n", err: fault, want: "first\n\nholder fault"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := stderrWith(tc.tail, tc.err); got != tc.want {
+				t.Errorf("stderrWith(%q, %v) = %q, want %q", tc.tail, tc.err, got, tc.want)
+			}
+		})
 	}
 }
 
