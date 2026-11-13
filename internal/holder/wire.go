@@ -46,6 +46,8 @@ const (
 	ReasonStopped = "stopped"
 	// ReasonIdle means no controller was attached for the idle timeout, so the holder stopped the child.
 	ReasonIdle = "idle"
+	// ReasonLimit means a gate child ran past its gate limit, so the holder stopped it.
+	ReasonLimit = "limit"
 )
 
 var (
