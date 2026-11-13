@@ -406,6 +406,217 @@ func TestResolveSameBasenameRootsResolveToTheirOwnSessions(t *testing.T) {
 	}
 }
 
+func TestPathAbsoluteDirWithNothingRecordedIsCreatePlan(t *testing.T) {
+	client := newClient(t)
+	bin := installZoxide(t, "", 0)
+	proj := filepath.Join(t.TempDir(), "proj")
+	mkdirAll(t, proj)
+
+	plan := resolve(t, config(client, bin), Request{Args: []string{proj}})
+	if want := (Plan{Session: "proj", Dir: proj}); plan != want {
+		t.Errorf("Resolve(%s) = %+v, want %+v", proj, plan, want)
+	}
+	if runs := zoxideRuns(t, bin); len(runs) != 0 {
+		t.Errorf("the directory lookup ran %d times for a path, want 0", len(runs))
+	}
+}
+
+func TestPathRelativeIsJoinedToCwd(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "sub", "dir")
+	mkdirAll(t, dir)
+
+	plan := resolve(t, config(newClient(t), installZoxide(t, "", 0)), Request{Args: []string{"sub/dir"}, Cwd: root})
+	if want := (Plan{Session: "dir", Dir: dir}); plan != want {
+		t.Errorf("Resolve(sub/dir) = %+v, want %+v", plan, want)
+	}
+}
+
+func TestPathTrailingSlashIsCleaned(t *testing.T) {
+	proj := filepath.Join(t.TempDir(), "proj")
+	mkdirAll(t, proj)
+
+	plan := resolve(t, config(newClient(t), installZoxide(t, "", 0)), Request{Args: []string{proj + "/"}})
+	if want := (Plan{Session: "proj", Dir: proj}); plan != want {
+		t.Errorf("Resolve(%s/) = %+v, want %+v", proj, plan, want)
+	}
+}
+
+func TestPathDotDotIsParentOfCwd(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "parent")
+	child := filepath.Join(root, "child")
+	mkdirAll(t, child)
+
+	plan := resolve(t, config(newClient(t), installZoxide(t, "", 0)), Request{Args: []string{".."}, Cwd: child})
+	if want := (Plan{Session: "parent", Dir: root}); plan != want {
+		t.Errorf("Resolve(..) = %+v, want %+v", plan, want)
+	}
+}
+
+func TestPathDirWhoseSessionRecordsItGivesSession(t *testing.T) {
+	client := newClient(t)
+	proj := filepath.Join(t.TempDir(), "proj")
+	mkdirAll(t, proj)
+	startSession(t, client, "work", t.TempDir())
+	setDir(t, client, "work", proj)
+
+	plan := resolve(t, config(client, installZoxide(t, "", 0)), Request{Args: []string{proj}})
+	if want := (Plan{Session: "work"}); plan != want {
+		t.Errorf("Resolve(%s) = %+v, want %+v", proj, plan, want)
+	}
+}
+
+func TestPathFailMissingPathNamesItAndCreatesNothing(t *testing.T) {
+	client := newClient(t)
+	startSession(t, client, "keeper", t.TempDir())
+	missing := filepath.Join(t.TempDir(), "missing")
+	// The directory lookup would match this path; a path must fail before any lookup.
+	cfg := config(client, installZoxide(t, scored(missing), 0))
+
+	_, err := Resolve(t.Context(), cfg, Request{Args: []string{missing}})
+	if err == nil || !strings.Contains(err.Error(), missing) {
+		t.Fatalf("Resolve(%s) error = %v, want an error naming the path", missing, err)
+	}
+	if _, statErr := os.Stat(missing); !os.IsNotExist(statErr) {
+		t.Errorf("stat %s: err %v, want not exist", missing, statErr)
+	}
+	if got := sessionNames(t, client); !slices.Equal(got, []string{"keeper"}) {
+		t.Errorf("sessions = %q, want only keeper", got)
+	}
+}
+
+func TestPathFailRegularFileNamesItAndCreatesNothing(t *testing.T) {
+	client := newClient(t)
+	startSession(t, client, "keeper", t.TempDir())
+	file := filepath.Join(t.TempDir(), "notes.txt")
+	writeFile(t, file, "x")
+
+	_, err := Resolve(t.Context(), config(client, installZoxide(t, "", 0)), Request{Args: []string{file}})
+	if err == nil || !strings.Contains(err.Error(), file) {
+		t.Fatalf("Resolve(%s) error = %v, want an error naming the path", file, err)
+	}
+	if content, readErr := os.ReadFile(file); readErr != nil || string(content) != "x" {
+		t.Errorf("read %s = %q, %v; want x, nil", file, content, readErr)
+	}
+	if got := sessionNames(t, client); !slices.Equal(got, []string{"keeper"}) {
+		t.Errorf("sessions = %q, want only keeper", got)
+	}
+}
+
+func TestPathFailRelativeNeedsCurrentDirectory(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "sub", "dir")
+	mkdirAll(t, dir)
+	cases := map[string]Request{
+		"remote":        {Args: []string{"sub/dir"}, Cwd: root, Remote: true},
+		"no cwd":        {Args: []string{"sub/dir"}},
+		"dotdot no cwd": {Args: []string{".."}},
+	}
+	for name, req := range cases {
+		t.Run(name, func(t *testing.T) {
+			client := newClient(t)
+			startSession(t, client, "keeper", t.TempDir())
+
+			_, err := Resolve(t.Context(), config(client, installZoxide(t, "", 0)), req)
+			if err == nil || !strings.Contains(err.Error(), "current directory") {
+				t.Fatalf("Resolve(%+v) error = %v, want an error saying it needs a current directory", req, err)
+			}
+			if got := sessionNames(t, client); !slices.Equal(got, []string{"keeper"}) {
+				t.Errorf("sessions = %q, want only keeper", got)
+			}
+		})
+	}
+	if info, err := os.Stat(dir); err != nil || !info.IsDir() {
+		t.Errorf("stat %s = %v, %v; want the directory left as it was", dir, info, err)
+	}
+}
+
+func TestPathChoicesRelativeIsErrorNotText(t *testing.T) {
+	client := newClient(t)
+	startSession(t, client, "keeper", t.TempDir())
+	lookup := installZoxide(t, "", 0)
+	claude := installClaude(t, "pane d1\n", 0)
+	cfg := intentConfig(client, lookup, claude, t.TempDir())
+
+	for _, text := range []string{"sub/dir", "./x", ".."} {
+		t.Run(text, func(t *testing.T) {
+			if _, err := Choices(t.Context(), cfg, text); err == nil {
+				t.Fatalf("Choices(%q) returned nil error", text)
+			}
+		})
+	}
+	if runs := claudeRuns(t, claude); len(runs) != 0 {
+		t.Errorf("claude ran %d times for a path, want 0", len(runs))
+	}
+	if runs := zoxideRuns(t, lookup); len(runs) != 0 {
+		t.Errorf("the directory lookup ran %d times for a path, want 0", len(runs))
+	}
+}
+
+func TestPathChoicesMissingAbsolutePathIsErrorNotText(t *testing.T) {
+	client := newClient(t)
+	missing := filepath.Join(t.TempDir(), "missing")
+	claude := installClaude(t, "pane d1\n", 0)
+	cfg := intentConfig(client, installZoxide(t, "", 0), claude, t.TempDir())
+
+	_, err := Choices(t.Context(), cfg, missing)
+	if err == nil || !strings.Contains(err.Error(), missing) {
+		t.Fatalf("Choices(%s) error = %v, want an error naming the path", missing, err)
+	}
+	if runs := claudeRuns(t, claude); len(runs) != 0 {
+		t.Errorf("claude ran %d times for a missing path, want 0", len(runs))
+	}
+}
+
+func TestPathChoicesAbsoluteDirGivesResumeRows(t *testing.T) {
+	proj := filepath.Join(t.TempDir(), "proj")
+	mkdirAll(t, proj)
+	archivePath := resumeArchive(t, archive.Record{
+		Dir: proj, ClaudeSession: "sess-a", Transcript: resumeTranscript(t, "a.jsonl"),
+		Summary: "summary a", Closed: 100,
+	})
+	lookup := installZoxide(t, "", 0)
+	cfg := Config{
+		Tmux:    newClient(t),
+		Zoxide:  lookup,
+		Claude:  installClaude(t, "", 0),
+		Archive: archivePath,
+	}
+
+	got, err := Choices(t.Context(), cfg, proj)
+	if err != nil {
+		t.Fatalf("Choices(%s): %v", proj, err)
+	}
+	want := []Action{
+		{Kind: ActionResume, Dir: proj, Session: "sess-a", Note: "summary a"},
+		{Kind: ActionFresh, Dir: proj},
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("Choices(%s) = %+v, want %+v", proj, got, want)
+	}
+	if runs := zoxideRuns(t, lookup); len(runs) != 0 {
+		t.Errorf("the directory lookup ran %d times for a path, want 0", len(runs))
+	}
+}
+
+func TestPathChoicesAbsoluteDirWithSessionJumpsToIt(t *testing.T) {
+	client := newClient(t)
+	proj := filepath.Join(t.TempDir(), "proj")
+	mkdirAll(t, proj)
+	startSession(t, client, "work", t.TempDir())
+	setDir(t, client, "work", proj)
+	pane := activePane(t, client, "work")
+	cfg := intentConfig(client, installZoxide(t, "", 0), installClaude(t, "", 0), t.TempDir())
+
+	got, err := Choices(t.Context(), cfg, proj)
+	if err != nil {
+		t.Fatalf("Choices(%s): %v", proj, err)
+	}
+	if want := []Action{{Kind: ActionJump, Pane: pane}}; !slices.Equal(got, want) {
+		t.Errorf("Choices(%s) = %+v, want %+v", proj, got, want)
+	}
+}
+
 func TestResolveCreatesNoDirectoryAndNoSession(t *testing.T) {
 	client := newClient(t)
 	root := t.TempDir()

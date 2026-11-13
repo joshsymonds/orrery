@@ -249,6 +249,8 @@ func Resolve(ctx context.Context, cfg Config, req Request) (Plan, error) {
 		return Plan{}, errors.New("open new: NAME is required")
 	case len(args) == 1 && args[0] == ".":
 		return resolveDot(ctx, cfg, req)
+	case len(args) == 1 && isPathWord(args[0]):
+		return resolvePath(ctx, cfg, req, args[0])
 	case len(args) == 1:
 		return resolveWord(ctx, cfg, args[0])
 	case args[0] == "new" && (len(args) == 2 || (len(args) == newWithRootWords && args[2] == "--root")):
@@ -281,6 +283,43 @@ func resolveDot(ctx context.Context, cfg Config, req Request) (Plan, error) {
 		return Plan{}, err
 	}
 	return directoryPlan(sessions, filepath.Clean(req.Cwd)), nil
+}
+
+// isPathWord reports whether one argument names a directory path: it contains "/" or is "..".
+func isPathWord(word string) bool {
+	return strings.Contains(word, "/") || word == ".."
+}
+
+// resolvePath is one argument naming an existing directory: an absolute path, or a relative one joined to req.Cwd.
+// The cleaned path must be a directory, and its plan is the one directoryPlan gives it. A relative path needs a
+// current directory on this machine.
+func resolvePath(ctx context.Context, cfg Config, req Request, word string) (Plan, error) {
+	dir := filepath.Clean(word)
+	if !filepath.IsAbs(word) {
+		switch {
+		case req.Remote:
+			return Plan{}, fmt.Errorf(
+				"open %s: a relative path needs a current directory, and the current directory is on the remote host",
+				word)
+		case req.Cwd == "":
+			return Plan{}, fmt.Errorf("open %s: a relative path needs a current directory", word)
+		}
+		dir = filepath.Join(req.Cwd, word)
+	}
+	info, err := os.Stat(dir)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return Plan{}, fmt.Errorf("open: %s: no such directory", dir)
+	case err != nil:
+		return Plan{}, fmt.Errorf("open: %s: %w", dir, err)
+	case !info.IsDir():
+		return Plan{}, fmt.Errorf("open: %s is not a directory", dir)
+	}
+	sessions, err := listSessions(ctx, cfg)
+	if err != nil {
+		return Plan{}, err
+	}
+	return directoryPlan(sessions, dir), nil
 }
 
 // resolveWord handles one word: an exact session name, then a zoxide fast match, else intent text.
