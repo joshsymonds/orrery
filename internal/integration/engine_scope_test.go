@@ -101,7 +101,7 @@ func TestEngineHolderScopeSigkillReadoptsStalledTurn(t *testing.T) {
 	dir := f.sessionDir(t, "readopt-stall")
 	id := f.start(t, dir, stallPrompt)
 	t.Cleanup(func() { clearHolder(t, filepath.Join(stateDir, "holders", id)) })
-	f.waitForUnfinishedText(t, id)
+	f.waitForUnfinished(t, id, "fake stalling 1")
 	pid := fakeClaudePID(t, dir)
 
 	killOrreryd(t, daemon)
@@ -114,10 +114,10 @@ func TestEngineHolderScopeSigkillReadoptsStalledTurn(t *testing.T) {
 	if got := sessionReason(t, f.dbPath, id); got != "" {
 		t.Fatalf("reason of %s after restart = %q, want none", id, got)
 	}
-	if n := engineTextRows(t, f.dbPath, id); n != 1 {
-		t.Fatalf("unfinished text rows of %s after restart = %d, want 1", id, n)
+	if h := f.historyOf(t, id); !unfinishedIs(h, "fake stalling 1") {
+		t.Fatalf("unfinished text of %s after restart = %+v, want exactly fake stalling 1", id, h.Unfinished)
 	}
-	f.stopSession(t, id, dir)
+	f.stopScoped(t, id, dir)
 	wantExit(t, restarted.stop(t), 0)
 }
 
