@@ -345,6 +345,11 @@ Subcommands:
   - Exit statuses: `0` after it writes; `1` when `orreryd` cannot be reached, answers an error, or the output cannot be written, with the reason on stderr; `2` for an argument.
 - `hold [--off] MEMBER` places an owner hold on `MEMBER` through `orreryd`, or with `--off` frees it (see [Owner holds](#owner-holds)). Flags come before `MEMBER`. Success writes nothing. `hold` reads no pool files: `orreryd` alone judges whether `MEMBER` is a name it accepts.
   - Exit statuses: `0` on success; `1` when `orreryd` refuses or cannot be reached, with the reason on stderr. A refusal includes a malformed name and a `--off` of a member that is not held. `2` for a usage error: any argument count other than one `MEMBER`, or an unknown flag.
+- `holder --session NAME [--state-dir DIR] -- PATH [ARGS...]` runs `PATH` with `ARGS` as one session's held child and serves the session's holder socket until the child ends (see [Holder](#holder)). `--session` names the session and is required. `--state-dir DIR` places the session under `DIR/holders` instead of the store's directory.
+  - Exit statuses:
+    - `0`: the holder quit after its child ended or was stopped. The child's status is in `exit.json`, not here.
+    - `1`: the holder refused to start or failed. Its reason is on stderr as `orrery holder: MESSAGE`, or as `orrery: holder: MESSAGE` when no holders directory can be named.
+    - `2`: a usage error. That is a missing or invalid `--session`, a flag other than `--session` and `--state-dir`, an argument before `--`, or no `PATH` after `--`.
 - `gate [--gates FILE] NAME` runs the named gate `NAME` under a grant of its needs from `orreryd`. `NAME` is resolved as [Gate files](#gate-files) gives: from `FILE` first when `--gates` names one, then from the project file for the working directory. A relative `FILE` is read from the working directory. `gate` reads the pool files for the working directory, as `run` does (see [Pool files](#pool-files)), and reaches `orreryd` on `sessions.sock` as `run` does.
   - The argv runs through the same `RunWithGrant` path as `run`'s command (`cmd/orrery/gate.go:71`-`:86`). It runs without a shell, in the working directory, with `gate`'s standard input, output and error. Its environment is `gate`'s, plus `ORRERY_GRANT` and one `ORRERY_POOL_<POOL>` for each pool in its needs, as `run` sets them. Its limit counts from the start of each run under its grant, not from the queue (`internal/cli/run.go:70`-`:72`).
   - The lines `run` writes to stderr while its command queues, is stopped, loses its grant or passes its limit are written by `gate` too, with the prefix `orrery run:` (`internal/cli/run.go:189`, `:486`, `:492`, `:585`).
@@ -1081,6 +1086,103 @@ needs = { builds = 1 }
 argv = ["/opt/example/bin/smoke"]
 limit = 300  # no needs: one member of the pool gate
 ```
+
+### Holder
+
+`orrery holder` runs one session's child and serves the session's holder socket (see [orrery](#orrery)). The holder is the package `internal/holder`. It spools the child's stdout to disk, keeps a tail of the child's stderr, and answers controllers on a unix socket. A controller attaches to read the stdout, writes to the child's stdin, trims the spool, or stops the child.
+
+#### Directory and files
+
+- The holders directory is `holders` in the directory that holds the store file: `$XDG_STATE_HOME/orrery/holders` when `XDG_STATE_HOME` is set, else `$HOME/.local/state/orrery/holders`. `--state-dir DIR` names `DIR/holders` instead. When neither the store path nor `--state-dir` resolves, `orrery holder` exits 1 (`cmd/orrery/holder.go:38`-`:45`, `internal/holder/dir.go:40`-`:48`).
+- A session's files are in `holders/SESSION`. `SESSION` is 1 to 64 characters: its first a letter or digit, and the rest letters, digits, `.`, `_` or `-`. Any other name is a usage error (`internal/holder/dir.go:38`, `:52`-`:57`; `cmd/orrery/holder.go:46`-`:49`).
+- The holders directory is created with its parents at mode 0700 when it is missing, and an existing one is not checked. The session directory is created at mode 0700. An existing session directory must be a real directory, not a symbolic link, with mode exactly 0700 and owned by this user. Otherwise the holder refuses to start (`internal/holder/dir.go:72`-`:112`).
+- `holder.lock` (0600) is the session's lock. The holder takes an exclusive, non-blocking `flock` on it and keeps it for its life. A holder that finds it held refuses with `session NAME: another holder holds the session's lock` (`internal/holder/lock.go:11`-`:33`, `internal/holder/holder.go:88`-`:91`).
+- `holder.sock` (0600) is the socket (see [Socket](#socket)). `stdout-` segments (0600) hold the child's stdout (see [Spool](#spool)). `exit.json` (0600) is the exit record (see [Exit file](#exit-file)).
+- Once it holds the lock, the holder refuses to start when `exit.json` exists, and when any `stdout-` segment exists. Both refusals exit 1 (`internal/holder/holder.go:101`-`:109`, `:125`-`:128`; `internal/holder/spool.go:62`-`:78`).
+
+#### Socket
+
+- The holder removes a socket file left in the session directory, listens on `holder.sock` and sets its mode to 0600. The path must be under 108 bytes, and a longer path is refused (`internal/holder/holder.go:110`-`:124`, `internal/holder/dir.go:24`-`:27`, `:59`-`:67`). The socket file is removed when the holder stops listening (`internal/holder/holder.go:233`-`:234`).
+- Each connection's peer uid must equal the holder's uid. A peer of another user, or one whose uid cannot be read, is closed with no frame (`internal/holder/holder.go:307`-`:319`). The uid comes from `SO_PEERCRED` on Linux (`internal/holder/peercred_linux.go:12`-`:29`) and from `LOCAL_PEERCRED` on Darwin (`internal/holder/peercred_darwin.go:12`-`:29`).
+- The first frame on a connection must be `hello`. Any other first frame closes the connection with no answer (`internal/holder/holder.go:270`-`:278`, `:322`-`:332`).
+
+#### Spool
+
+- The child's stdout is appended to segment files named `stdout-` followed by the segment's first offset as 20 decimal digits. Each segment is created with mode 0600. A segment is full at 4 MiB, and the next one opens when the current one is full (`internal/holder/spool.go:12`-`:14`, `:98`-`:105`, `:243`-`:252`, `:270`-`:272`).
+- An offset counts the child's stdout bytes, and the first byte is offset 0 (`internal/holder/spool.go:45`-`:60`, `:92`-`:119`). `start` is the first offset the spool still holds, and `end` is the offset just past the last byte it holds (`internal/holder/spool.go:188`-`:200`).
+- An `ack` carries `consumed` and `replayFrom`. The spool refuses it unless `0 <= replayFrom <= consumed <= end` and neither offset moves backwards. It then deletes every segment whose end is at or below `replayFrom`. It never deletes the last segment, which is the one being written (`internal/holder/spool.go:154`-`:178`).
+- The holder reads no further child stdout once `end` is 64 MiB past `consumed`, so the child's writes back up in its pipe until an `ack` moves `consumed` (`internal/holder/spool.go:14`-`:16`, `:209`-`:235`; `internal/holder/child.go:149`-`:185`).
+- Once the child is reaped, the spool is sealed: appends ignore the cap, and the holder reads the rest of the child's stdout to end of file. Those bytes are what the child left in its pipe (`internal/holder/spool.go:180`-`:186`, `internal/holder/child.go:149`-`:168`).
+
+#### Exit file
+
+- The holder writes `exit.json` once the child has ended, before it answers `stopped` (`internal/holder/holder.go:231`-`:239`). It writes a temporary file in the session directory and hard-links it to `exit.json`, so a reader sees either no file or the whole record. It never replaces an existing `exit.json` (`internal/holder/exitfile.go:15`-`:47`). If the file cannot be written, the holder sends no `stopped` and exits 1.
+- The record is a JSON object with these keys (`internal/holder/wire.go:95`-`:107`):
+  - `reason`: `exited` when the child ended on its own. `stopped` when a stop frame, or a SIGINT or SIGTERM to the holder, had arrived when the child ended. `idle` as [Idle timeout](#idle-timeout) gives (`internal/holder/wire.go:41`-`:49`, `internal/holder/holder.go:229`-`:231`, `:374`-`:383`).
+  - `code`: the child's exit status, or -1 when a signal ended the child or its wait gave no status (`internal/holder/child.go:105`-`:116`).
+  - `signal`: the name of the signal that ended the child. It is omitted when empty (`internal/holder/child.go:201`-`:207`).
+  - `stdoutEnd`: the spool's end once the child is reaped (`internal/holder/child.go:107`).
+  - `stderr`: the last 64 KiB of the child's stderr, with trailing newlines removed. A fault of the holder, such as a failed signal, is its last line (`internal/holder/child.go:117`-`:121`, `:209`-`:219`; `internal/engine/proc/proc.go:16`).
+- A child that cannot start also gets an `exit.json`, with reason `exited`, code -1 and the start error as `stderr`. The holder then exits 1 (`internal/holder/holder.go:129`-`:132`).
+
+Example. The record of a child that exited 0 with no stderr, synthetic:
+
+```json
+{"reason":"exited","code":0,"stdoutEnd":15,"stderr":""}
+```
+
+#### Child
+
+- The child is `PATH` with `ARGS` as its argument vector, run without a shell (`cmd/orrery/holder.go:55`, `internal/engine/proc/proc.go:88`-`:97`). `PATH` must be absolute, and a relative `PATH` fails to start (`internal/engine/proc/proc.go:58`-`:61`).
+- The child runs in the holder's working directory and with the holder's environment (`internal/holder/child.go:55`, `internal/engine/proc/proc.go:88`-`:92`).
+- The child runs in its own process group, whose id is its process id (`internal/engine/proc/proc.go:96`, `internal/holder/child.go:79`-`:81`). When the child is reaped, any process left in its group is sent SIGKILL (`internal/engine/proc/proc.go:188`-`:191`).
+- Its stdin is a pipe that controller `write` frames feed. Its stdout goes to the spool. Its stderr keeps a 64 KiB tail (`internal/holder/child.go:70`-`:76`, `internal/engine/proc/proc.go:62`-`:64`, `:118`).
+- A stop sends SIGTERM to the child's group at once. If the child is not reaped within the grace, SIGKILL goes to the group. The grace is `ChildConfig.Grace`, and 5 s when it is zero. It is counted on the holder's clock (`internal/holder/child.go:16`-`:17`, `:83`-`:95`, `:124`-`:132`).
+
+#### Wire protocol
+
+Framing:
+
+- A frame is one JSON object on one line, ending in LF. A frame, LF included, is at most 32 MiB (`internal/holder/wire.go:17`-`:19`, `:109`-`:127`, `:156`-`:178`).
+- Every frame has a string `type`. Keys are camelCase. A field at its zero value is omitted from a frame. Byte fields (`data`) are base64 strings. A reader ignores unknown keys (`internal/holder/wire.go:59`-`:93`, `:139`-`:154`).
+- A line that is not JSON, has no `type`, or is longer than the limit closes the connection (`internal/holder/wire.go:139`-`:154`, `internal/holder/holder.go:270`-`:305`).
+
+Frozen in every version:
+
+- `hello`. A controller sends `{"type":"hello","version":N}` first. The holder answers with its own version and session, `{"type":"hello","version":N,"session":"NAME"}`. The holder does not compare versions, so the controller decides what it attaches (`internal/holder/holder.go:322`-`:332`, `internal/holder/client.go:146`-`:160`).
+- `stop`. After `hello`, any connection may send `{"type":"stop"}`. The holder stops the child as [Child](#child) says. It sends `{"type":"stopped"}` to each connection that sent stop once `exit.json` is written. A stop that arrives after that is answered at once (`internal/holder/holder.go:346`-`:372`, `:432`-`:447`, `:228`-`:231`).
+- `stopped`. `{"type":"stopped"}` carries no fields.
+
+Version 1 (`WireVersion` 1):
+
+- `attach`. A controller sends `{"type":"attach","replayFrom":N}`. The holder accepts it when `N` is within the retained `[start, end]` and the child has not ended. It answers `{"type":"attached","start":S,"end":E,"written":[...]}`, where `written` lists every write id recorded so far, in the order received. The stream then follows: `out` frames from `N` in order, then more as the child writes. An attach refused for its offset or because the child has ended gets an `error` frame and closes its connection, and the attached controller stays. An attach on the connection that is already the attached controller is refused the same way, and that connection detaches. A new attach replaces the attached controller, whose connection closes (`internal/holder/holder.go:449`-`:488`, `:605`-`:625`).
+- `out`. `{"type":"out","offset":N,"data":"..."}` carries stdout from offset `N`, at most 64 KiB per frame (`internal/holder/wire.go:21`-`:22`, `internal/holder/holder.go:609`-`:625`).
+
+Example, synthetic. The controller attaches from the start of the output, which is 15 bytes long:
+
+```
+controller  {"type":"hello","version":1}
+holder      {"type":"hello","version":1,"session":"example-session"}
+controller  {"type":"attach"}
+holder      {"type":"attached","end":15}
+holder      {"type":"out","data":"ZXhhbXBsZSBvdXRwdXQK"}
+```
+
+- `exit`. `{"type":"exit","exit":{...}}` carries the record of [Exit file](#exit-file). The holder sends it to the attached controller once that controller's `out` frames reach `stdoutEnd`, then ends the streams and quits (`internal/holder/holder.go:627`-`:638`, `:209`-`:245`).
+- `ack`. From the attached controller only, `{"type":"ack","consumed":N,"replayFrom":M}`. It has no answer. It moves `consumed` and trims the spool (see [Spool](#spool)) (`internal/holder/holder.go:566`-`:582`).
+- `write`. From the attached controller only, `{"type":"write","id":"ID","data":"..."}`. `ID` is 1 to 256 bytes. An `ID` already recorded is answered with `{"type":"written","id":"ID","duplicate":true}`, and nothing is written. A new `ID` is recorded when it arrives and queued. Its data goes to the child's stdin in the order recorded, and `{"type":"written","id":"ID"}` answers once the data is written. If the child's stdin refuses the data, the holder answers `{"type":"error","id":"ID","message":"..."}`. The connection stays open, and the `ID` stays recorded, so a repeat is a duplicate (`internal/holder/holder.go:490`-`:564`).
+- `error`. `{"type":"error","message":"..."}` refuses a frame. The holder closes the connection after it refuses an attach, an ack, a write, or a frame it does not serve. It does not close after a failed stdin write (`internal/holder/holder.go:334`-`:344`, `:270`-`:305`, `:554`-`:564`).
+
+#### Versioning
+
+- `WireVersion` is 1 (`internal/holder/wire.go:13`-`:15`). It is raised only by an incompatible change. `hello`, `stop` and `stopped` keep their shape in every version (`internal/holder/wire.go:13`-`:14`).
+- A controller attaches only a holder whose version is its own or one less. At version 1 that means version 1. Any other holder is refused before the controller sends `attach`. The refusal names the session and both versions, the connection closes, and the holder keeps running. Its text is `holder for session S speaks wire version H; this controller attaches versions C and C-1` (`internal/holder/client.go:93`-`:117`, `:11`-`:26`).
+- `Dial` accepts a holder of any version, so `stop` works on every version (`internal/holder/client.go:40`-`:44`, `:70`-`:91`).
+
+#### Idle timeout
+
+- A holder with no attached controller for 10 minutes stops its child. `DefaultIdleTimeout` is `10 * time.Minute`. The timer is armed when the holder starts serving, and again when the attached controller's connection ends with no new attach. An attach disarms it. Connections that only send `hello` or `stop` are not controllers (`internal/holder/holder.go:28`-`:29`, `:209`-`:212`, `:385`-`:404`, `:476`, `:657`-`:661`).
+- When the timer fires, the holder stops the child as [Child](#child) says, writes `exit.json` with reason `idle`, and quits. If a stop or a SIGINT or SIGTERM comes first, the reason is `stopped`. `Config.IdleTimeout` sets another timeout, and the timer runs on `Config.Clock` (`internal/holder/holder.go:43`-`:45`, `:60`-`:62`, `:393`, `:417`-`:429`).
 
 ### Store
 
@@ -1915,3 +2017,5 @@ orrery W1b (web reader) added, additively: the `orrery.v1.Panes.PullQueued` call
 orrery L1a2 (pool holds) added, additively: the `orrery hold [--off] MEMBER` and `orrery run status` subcommands, with their exit statuses (see [orrery](#orrery)); the stop path of `orrery run`, with its stderr line and its reclaim that queues again at the request's place (see [orrery](#orrery) and [Pools](#pools)); the `orrery.engine.v1.Pools` calls `Status`, `Hold` and `Free`, the `command` field of `AcquireRequest` and the `stop` event of `AcquireResponse` (see [Pools](#pools) and [Owner holds](#owner-holds)); the `holds` table (migration `00008_holds.sql`, see [Holds in the store](#holds-in-the-store)) and the `command` column of `grants`; the tree's `p` and `h` keys (see [Tree keys](#tree-keys)); and the phone's `orrery.v1.Pools` service with its three calls, served through `serve` behind the guard (see [Phone API](#phone-api) and [Guard](#guard)). The phone API now has sixteen calls where it had thirteen. No existing name or value changes.
 
 orrery named gates added, additively: the `orrery gate` subcommand and its exit statuses (see [orrery](#orrery)); the gates file and the `[gates]` table of the project file (see [Gate files](#gate-files)); the `gate_name` and `gates_file` fields of `StartStep` (`proto/orrery/engine/v1/step.proto` fields 14 and 15) and the `gateName` and `gatesFile` arguments of `step_start` (see [Steps](#steps) and [step_start](engine-protocol.md#step_start)); and the `gate_name`, `gate_source` and `gate_needs` columns of the `steps` table (migration `00009_step_gate.sql`, see [Steps in the store](#steps-in-the-store)). This is a removal too, and it is not additive: the `orreryd` flag `--gate-lock` is gone, and the `gate` and `gate_limit_seconds` fields of `StartStep` are refused with `invalid_argument`; the `gate` and `gateLimitSeconds` arguments of `step_start` are refused as unknown keys.
+
+orrery E31a1 (holder) added, additively: the `orrery holder` subcommand and its exit statuses (see [orrery](#orrery)); the holder directory, its files, socket, spool, exit file, child and idle timeout (see [Holder](#holder)); and the holder's wire protocol at version 1, with its `hello`, `stop` and `stopped` frames frozen across versions and the versioning rule of [Versioning](#versioning) (see [Holder](#holder)). No existing name or value changes.
