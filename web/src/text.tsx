@@ -30,7 +30,7 @@ export function ReplyText({ text }: { text: string }) {
   return <span class="reply">{children}</span>;
 }
 
-function isWebURL(candidate: string): boolean {
+export function isWebURL(candidate: string): boolean {
   try {
     const { protocol } = new URL(candidate);
     return protocol === "http:" || protocol === "https:";

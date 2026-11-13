@@ -9,10 +9,9 @@
   --lavender: #b4befe; --blue: #89b4fa; --green: #a6e3a1;
   --yellow: #f9e2af; --peach: #fab387; --maroon: #eba0ac; --red: #f38ba8; --mauve: #cba6f7;
   --mono: "Orrery Mono", ui-monospace, "JetBrains Mono", Menlo, monospace;
-  --reply: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
 * { box-sizing: border-box; }
-html { background: var(--crust); color-scheme: dark; }
+html { background: var(--crust); color-scheme: dark; font-family: var(--mono); }
 body {
   margin: 0; font: 13px/20px var(--mono); color: var(--text); background: var(--crust);
   padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
@@ -26,8 +25,9 @@ kbd {
 }
 :focus-visible { outline: 1px solid var(--mauve); outline-offset: 1px; }
 img { max-width: 100%; }
+button, input, textarea, select { font-family: var(--mono); }
 
-.app { min-width: 0; max-width: 1200px; }
+.app { min-width: 0; }
 .top { padding-bottom: 10px; }
 .brand { font: 700 14px/22px var(--mono); }
 .filter {
@@ -64,7 +64,21 @@ img { max-width: 100%; }
 .pin-head { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 700 10.5px/16px var(--mono); letter-spacing: .13em; text-transform: uppercase; color: var(--overlay1); }
 .pin-reply { min-width: 0; }
 @media (min-width: 760px) {
-  .panes { grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); }
+  /* The page is the window and does not scroll as a whole: the list, the epic column, and the conversation's scroll box
+     (.read > .reader, which the pinned reader shares) each scroll on their own. The list and the epic column keep room
+     for the current-row mark and the current-step ring, which sit just outside their rows. */
+  body { height: 100vh; height: 100dvh; overflow: hidden; }
+  #app { height: 100%; }
+  .app { height: 100%; display: flex; flex-direction: column; }
+  .panes {
+    flex: 1 1 auto; min-height: 0; align-items: stretch; grid-template-rows: minmax(0, 1fr);
+    grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+  }
+  .list, .read, .side { min-height: 0; }
+  .list, .side { overflow-y: auto; }
+  .list { padding: 0 2px 0 6px; }
+  .side { padding: 2px; }
+  .read > .reader { flex: 1 1 0; min-height: 0; overflow-y: auto; }
   .panes.split, .panes.with-step { grid-template-columns: minmax(0, 2fr) minmax(0, 3fr) minmax(0, 3fr); }
   .panes.split.with-step { grid-template-columns: minmax(0, 2fr) minmax(0, 3fr) minmax(0, 3fr) minmax(0, 3fr); }
 }
@@ -101,7 +115,7 @@ img { max-width: 100%; }
 .b-row .age { flex: none; margin-left: auto; font: 11.5px/20px var(--mono); color: var(--overlay0); }
 .b-row[data-unseen] .age { color: var(--lavender); }
 .b-row .l2 {
-  font: 13.5px/1.45 var(--reply); color: var(--overlay1);
+  font: 13.5px/1.45 var(--mono); color: var(--overlay1);
   overflow: hidden; display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical;
   overflow-wrap: anywhere;
 }
@@ -126,7 +140,7 @@ img { max-width: 100%; }
 .b-row.step .label { flex: 0 1 auto; white-space: nowrap; }
 .b-row .held { flex: none; font: 700 9.5px/20px var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--peach); }
 .b-row.step .reply {
-  flex: 1 1 100%; min-width: 0; font: 13.5px/1.45 var(--reply); color: var(--overlay1);
+  flex: 1 1 100%; min-width: 0; font: 13.5px/1.45 var(--mono); color: var(--overlay1);
   overflow: hidden; display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow-wrap: anywhere;
 }
 .b-more { padding: 2px 10px; font: 11.5px/20px var(--mono); color: var(--overlay0); }
@@ -147,14 +161,37 @@ img { max-width: 100%; }
 /* ============ reader: one conversation, its new rule, live text, and queue ============ */
 .reader { min-width: 0; padding: 4px 0 10px; }
 .reader-loading { margin: 0; color: var(--overlay1); }
-.reader .t { display: grid; grid-template-columns: 5ch minmax(0, 68ch); column-gap: 20px; }
+.reader .t { display: grid; grid-template-columns: 5ch minmax(0, 1fr); column-gap: 20px; }
 .reader .t > .gut { font: 11px/23px var(--mono); color: var(--overlay0); text-align: right; white-space: nowrap; }
 .reader .t > .gut.new { color: var(--lavender); font-weight: 700; }
 .reader .t > .gut.live { color: var(--yellow); }
-.reader .t > .body { min-width: 0; padding-bottom: 14px; font: 15.5px/1.52 var(--reply); color: var(--text); }
+.reader .t > .body { min-width: 0; padding-bottom: 14px; font: 14px/1.6 var(--mono); color: var(--text); }
 .reader .body p { margin: 0 0 10px; }
 .reader .body > :last-child { margin-bottom: 0; }
 .reader .body a { color: var(--blue); }
+/* A reply, a prompt and a live text draw Markdown in .reply: its elements sit in the reader column at the body's size. Code
+   takes the mono family too, which the browser would otherwise give it. A code block and a table scroll sideways inside
+   themselves, so a wide one never widens the column. */
+.reader .reply { overflow-wrap: anywhere; }
+.reader .reply > :first-child { margin-top: 0; }
+.reader .reply > :last-child { margin-bottom: 0; }
+.reader .reply p, .reader .reply ul, .reader .reply ol, .reader .reply blockquote, .reader .reply pre, .reader .reply table { margin: 0 0 10px; }
+.reader .reply ul, .reader .reply ol { padding-left: 1.5em; }
+.reader .reply li + li { margin-top: 3px; }
+.reader .reply h1, .reader .reply h2, .reader .reply h3, .reader .reply h4, .reader .reply h5, .reader .reply h6 { margin: 4px 0 6px; font-weight: 700; color: var(--text); }
+.reader .reply h1 { font-size: 1.2em; }
+.reader .reply h2 { font-size: 1.12em; }
+.reader .reply h3 { font-size: 1.05em; }
+.reader .reply h4, .reader .reply h5, .reader .reply h6 { font-size: 1em; }
+.reader .reply code, .reader .reply pre { font-family: var(--mono); }
+.reader .reply code { padding: 0 4px; border-radius: 4px; background: var(--surface0); font-size: .92em; }
+.reader .reply pre { overflow-x: auto; padding: 8px 10px; border-radius: 6px; background: var(--mantle); }
+.reader .reply pre code { padding: 0; background: none; font-size: 1em; }
+.reader .reply blockquote { padding-left: 12px; border-left: 2px solid var(--surface1); color: var(--subtext0); }
+.reader .reply hr { margin: 12px 0; border: 0; border-top: 1px solid var(--surface1); }
+.reader .reply table { display: block; overflow-x: auto; border-collapse: collapse; }
+.reader .reply th, .reader .reply td { padding: 2px 12px 2px 0; text-align: left; vertical-align: top; white-space: nowrap; border-bottom: 1px solid var(--surface0); }
+.reader .reply th { font-weight: 700; color: var(--text); }
 .reader .you { padding: 8px 14px 10px; border-radius: 3px 10px 10px 3px; background: var(--surface0); box-shadow: inset 3px 0 0 var(--mauve); }
 .reader .you small { display: block; font: 700 10px/16px var(--mono); letter-spacing: .12em; color: var(--mauve); }
 .reader .rule { display: flex; align-items: center; gap: 10px; font: 11.5px/23px var(--mono); color: var(--overlay0); white-space: nowrap; }
@@ -162,35 +199,52 @@ img { max-width: 100%; }
 .reader .compaction button.rule { width: 100%; margin: 0; padding: 0; border: 0; background: none; text-align: left; cursor: pointer; appearance: none; -webkit-appearance: none; }
 .reader .rule.new { color: var(--lavender); font-weight: 700; }
 .reader .rule.new::after { background: color-mix(in srgb, var(--lavender) 50%, transparent); }
-.reader .compaction .summary { margin-top: 6px; padding: 9px 14px; border-radius: 8px; background: var(--mantle); color: var(--subtext0); font-size: 14.5px; overflow-wrap: anywhere; }
+.reader .compaction .summary { margin-top: 6px; padding: 9px 14px; border-radius: 8px; background: var(--mantle); color: var(--subtext0); font-size: 14.5px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .reader .call { display: flex; gap: 9px; padding: 2px 10px; font: 12px/20px var(--mono); color: var(--subtext0); min-width: 0; }
 .reader .call b { flex: none; color: var(--blue); font-weight: 400; }
 .reader .call .in { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.reader .question { padding: 2px 10px; font: 12px/20px var(--mono); color: var(--peach); overflow-wrap: anywhere; }
-.reader .question b { margin-right: 8px; font-weight: 400; }
+.reader .call .fail { flex: none; color: var(--red); }
+.reader .call.question { color: var(--peach); }
+.reader .call.question b { color: inherit; }
+.reader .question { padding: 2px 10px; font: 12px/20px var(--mono); color: var(--peach); white-space: pre-wrap; overflow-wrap: anywhere; }
+/* A call with a result, and a live thinking row, are buttons: the browser's button chrome is reset to the line. */
+.reader button.call, .reader button.thinking { width: 100%; margin: 0; border: 0; background: none; text-align: left; cursor: pointer; appearance: none; -webkit-appearance: none; }
+.reader button.thinking { padding: 2px 10px; font: 12px/20px var(--mono); color: var(--overlay1); }
 /* The waiting question card and its answer buttons, after the wireframe's question card. */
 .reader .question-card { padding: 9px 12px 10px; border-radius: 14px; background: color-mix(in srgb, var(--peach) 8%, var(--mantle)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--peach) 40%, transparent); }
-.reader .question-card .question { padding: 0 0 6px; font: 700 15px/1.45 var(--reply); color: var(--text); overflow-wrap: anywhere; }
+.reader .question-card .question { padding: 0 0 6px; font: 700 15px/1.45 var(--mono); color: var(--text); white-space: pre-wrap; overflow-wrap: anywhere; }
 .reader .question-card .option {
   display: block; width: 100%; margin: 6px 0 0; padding: 7px 10px 8px; border: 0; border-radius: 10px;
-  background: var(--surface0); color: var(--text); font: 14.5px/1.45 var(--reply); text-align: left;
+  background: var(--surface0); color: var(--text); font: 14.5px/1.45 var(--mono); text-align: left;
   appearance: none; -webkit-appearance: none; overflow-wrap: anywhere;
 }
 .reader .question-card button.option { cursor: pointer; }
 .reader .question-card .option-label { font-weight: 700; }
 .reader .question-card .option-description { display: block; font-size: 13px; line-height: 18px; color: var(--subtext0); }
-.reader .result { padding: 2px 10px; font: 12px/1.45 var(--mono); color: var(--overlay1); white-space: pre-wrap; overflow-wrap: anywhere; }
+.reader .result, .reader .thinking-text { padding: 2px 10px; font: 12px/1.45 var(--mono); color: var(--overlay1); white-space: pre-wrap; overflow-wrap: anywhere; }
 .reader .result.err { color: var(--red); }
-.reader .notice { font-size: 13.5px; color: var(--overlay1); overflow-wrap: anywhere; }
+.reader .notice { font-size: 13.5px; color: var(--overlay1); white-space: pre-wrap; overflow-wrap: anywhere; }
 .reader .notice-kind { margin-right: 8px; font: 700 10px/16px var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--overlay1); }
 .reader .notice.err .notice-kind { color: var(--red); }
 .reader .t.live-row > .body { color: var(--text); }
 .reader .queue, .reader .queued { min-width: 0; }
-.reader .queued { display: grid; grid-template-columns: 5ch minmax(0, 68ch); column-gap: 20px; padding-top: 6px; }
-.reader .queued > .body { min-width: 0; padding-bottom: 6px; padding-left: 10px; border-left: 2px solid var(--surface1); color: var(--subtext0); font-size: 14.5px; line-height: 20px; overflow-wrap: anywhere; }
+.reader .queued { display: grid; grid-template-columns: 5ch minmax(0, 1fr); column-gap: 20px; padding-top: 6px; }
+.reader .queued > .body { min-width: 0; padding-bottom: 6px; padding-left: 10px; border-left: 2px solid var(--surface1); color: var(--subtext0); font-size: 14px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
 .reader .queued .tag { display: block; font: 700 10px/16px var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--overlay1); }
 .reader .queued.canceled > .body { color: var(--overlay0); text-decoration: line-through; }
 .reader .queued.canceled .tag { color: var(--maroon); text-decoration: none; }
+
+/* The working line under a reader: the phone's status line in the page's colours. The tint and the label are yellow, the
+   label lavender for a background wait; the tool is blue, and the note sits on its own row in the subtext colour. */
+.work-line {
+  display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 8px; min-width: 0; padding: 6px 10px; border-radius: 8px;
+  background: color-mix(in srgb, var(--yellow) 12%, transparent); font: 12.5px/20px var(--mono);
+}
+.work-label { font-weight: 700; color: var(--yellow); }
+.work-line.background .work-label { color: var(--lavender); }
+.work-tool { min-width: 0; font-weight: 700; color: var(--blue); }
+.work-time { margin-left: auto; color: var(--subtext1); }
+.work-note { flex: 1 1 100%; min-width: 0; overflow-wrap: anywhere; color: var(--subtext0); }
 
 .composer {
   position: relative; min-width: 0; border-radius: 10px; overflow: hidden;
@@ -199,7 +253,7 @@ img { max-width: 100%; }
 .composer:focus-within { box-shadow: inset 0 0 0 1px var(--mauve); }
 .composer textarea {
   display: block; width: 100%; min-height: 44px; padding: 10px 12px; resize: vertical;
-  background: none; border: 0; outline: 0; font: 15.5px/1.45 var(--reply);
+  background: none; border: 0; outline: 0; font: 15.5px/1.45 var(--mono);
 }
 .composer textarea::placeholder { color: var(--overlay0); }
 .composer-error {
@@ -211,7 +265,7 @@ img { max-width: 100%; }
 .stepbox-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 0; }
 .stepbox-actions button {
   padding: 5px 12px; border: 0; border-radius: 8px; cursor: pointer;
-  background: var(--surface0); color: var(--text); font: 13.5px/1.45 var(--reply);
+  background: var(--surface0); color: var(--text); font: 13.5px/1.45 var(--mono);
   appearance: none; -webkit-appearance: none;
 }
 .stepbox-actions button.stop-confirm { background: color-mix(in srgb, var(--red) 22%, var(--surface0)); color: var(--red); }
@@ -256,3 +310,6 @@ img { max-width: 100%; }
 .epic-view .pip.bad { background: var(--red); }
 .epic-view .end { flex: none; color: var(--overlay1); }
 .side-note { margin: 0; color: var(--overlay1); overflow-wrap: anywhere; }
+
+/* A control that carries .flash shows a mauve ring for a moment after a use; flash.ts adds and removes the class. */
+.flash { outline: 2px solid var(--mauve); outline-offset: 2px; }

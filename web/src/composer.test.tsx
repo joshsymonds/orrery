@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { test, type TestContext } from "node:test";
 
 import { render } from "preact";
 import { act } from "preact/test-utils";
 
 import { Composer } from "./composer";
+import { flashMillis } from "./flash";
 import { installTestDom, removeTestDom } from "./testdom";
 
 type Props = Parameters<typeof Composer>[0];
@@ -72,6 +73,19 @@ async function settle(): Promise<void> {
 
 function errorLine(container: HTMLElement): Element | null {
   return container.querySelector(".composer-error");
+}
+
+// advance moves the mocked clock forward by ms and flushes the renders its timers cause.
+async function advance(t: TestContext, ms: number): Promise<void> {
+  await act(() => {
+    t.mock.timers.tick(ms);
+  });
+}
+
+function flashing(container: HTMLElement): boolean {
+  const root = container.querySelector(".composer");
+  assert.ok(root, "the composer renders its root");
+  return root.classList.contains("flash");
 }
 
 test("Enter sends the text once with a prompt id and clears the box on success", async () => {
@@ -308,6 +322,88 @@ test("text typed while a pull is in flight follows the pulled text", async () =>
     });
     await settle();
     assert.equal(box.value, "queued text\ntyped meanwhile");
+  });
+});
+
+test("Enter with text flashes the composer at once and clears 300 ms later", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  await withComposer({}, async (box, container) => {
+    await type(box, "hello claude");
+    await press(box, "Enter");
+    assert.equal(flashing(container), true, "flashing at once after a send starts");
+    await advance(t, flashMillis - 1);
+    assert.equal(flashing(container), true, "still flashing 1 ms before the window ends");
+    await advance(t, 1);
+    assert.equal(flashing(container), false, "cleared when the window ends");
+  });
+});
+
+test("Enter on a blank box does not flash", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  await withComposer({}, async (box, container) => {
+    await press(box, "Enter");
+    assert.equal(flashing(container), false, "an empty box does not flash");
+    await type(box, "   ");
+    await press(box, "Enter");
+    assert.equal(flashing(container), false, "a blank box does not flash");
+  });
+});
+
+test("Enter during an in-flight send does not flash", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  let finish: () => void = () => {};
+  const send = () =>
+    new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+  await withComposer({ send }, async (box, container) => {
+    await type(box, "only once");
+    await press(box, "Enter");
+    await advance(t, flashMillis);
+    assert.equal(flashing(container), false, "the first flash has ended");
+    await press(box, "Enter");
+    assert.equal(flashing(container), false, "Enter while the send is in flight does not flash");
+    await act(() => {
+      finish();
+    });
+  });
+});
+
+test("a send that starts during a flash restarts the window", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  await withComposer({}, async (box, container) => {
+    await type(box, "first");
+    await press(box, "Enter");
+    await advance(t, 200);
+    await type(box, "second");
+    await press(box, "Enter");
+    await advance(t, 200);
+    assert.equal(flashing(container), true, "still flashing at 400 ms, inside the restarted window");
+    await advance(t, 99);
+    assert.equal(flashing(container), true, "still flashing 1 ms before the restarted window ends");
+    await advance(t, 1);
+    assert.equal(flashing(container), false, "cleared 300 ms after the second send");
+  });
+});
+
+test("Up in an empty box with a pull flashes at once and clears 300 ms later", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  await withComposer({ pull: async () => "queued text" }, async (box, container) => {
+    await press(box, "ArrowUp");
+    assert.equal(flashing(container), true, "flashing at once after a pull starts");
+    await advance(t, flashMillis - 1);
+    assert.equal(flashing(container), true, "still flashing 1 ms before the window ends");
+    await advance(t, 1);
+    assert.equal(flashing(container), false, "cleared when the window ends");
+  });
+});
+
+test("Up with text in the box does not flash", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  await withComposer({ pull: async () => "queued text" }, async (box, container) => {
+    await type(box, "typed");
+    await press(box, "ArrowUp");
+    assert.equal(flashing(container), false, "a box with text does not flash on Up");
   });
 });
 
