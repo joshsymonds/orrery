@@ -4,6 +4,10 @@
 
 package sqlcgen
 
+import (
+	"database/sql"
+)
+
 type EnginePromptFailed struct {
 	SessionID string
 	PromptID  string
@@ -25,6 +29,7 @@ type Event struct {
 	Kind      string
 	At        int64
 	Payload   string
+	WriteID   string
 }
 
 type Grant struct {
@@ -85,6 +90,11 @@ type Session struct {
 	Kind          string
 	Dir           string
 	Reason        string
+	Consumed      sql.NullInt64
+	ReplayFrom    int64
+	Background    bool
+	TurnOutput    string
+	PromptsFrom   int64
 }
 
 type Step struct {
