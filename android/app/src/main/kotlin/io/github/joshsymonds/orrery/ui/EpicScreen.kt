@@ -4,10 +4,13 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -31,6 +34,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import io.github.joshsymonds.orrery.api.EpicDetail
+import io.github.joshsymonds.orrery.api.EpicSliceRow
 import io.github.joshsymonds.orrery.api.EpicTaskRow
 import io.github.joshsymonds.orrery.api.OrreryClient
 import io.github.joshsymonds.orrery.api.StepCheckRow
@@ -93,13 +97,49 @@ fun EpicScreen(
     }
 }
 
+// The chart's height above the list in portrait. It bounds the chart so the task rows under it stay on screen.
+private val CHART_HEIGHT = 240.dp
+
+// The chart stays outside the list, so it stays on screen while the list scrolls: above the list in portrait, beside it
+// in landscape.
 @Composable
 private fun EpicBody(detail: EpicDetail, onOpenStep: (StepRow) -> Unit) {
+    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        if (maxWidth > maxHeight) {
+            Row(modifier = Modifier.fillMaxSize()) {
+                ChartOrEmptyLine(detail.slices, modifier = Modifier.weight(1f).fillMaxHeight())
+                EpicList(detail, onOpenStep, modifier = Modifier.weight(1f).fillMaxHeight())
+            }
+        } else {
+            Column(modifier = Modifier.fillMaxSize()) {
+                ChartOrEmptyLine(detail.slices, modifier = Modifier.fillMaxWidth().height(CHART_HEIGHT))
+                EpicList(detail, onOpenStep, modifier = Modifier.fillMaxWidth().weight(1f))
+            }
+        }
+    }
+}
+
+// ChartOrEmptyLine is the epic's chart, or with no slices the line that says so, in the same place.
+@Composable
+private fun ChartOrEmptyLine(slices: List<EpicSliceRow>, modifier: Modifier) {
+    if (slices.isEmpty()) {
+        Text(
+            "No orrery-tracked steps",
+            style = MaterialTheme.typography.bodySmall,
+            modifier = modifier.padding(16.dp),
+        )
+    } else {
+        EpicChart(slices, outlined = null, modifier = modifier)
+    }
+}
+
+@Composable
+private fun EpicList(detail: EpicDetail, onOpenStep: (StepRow) -> Unit, modifier: Modifier) {
     val running = detail.steps.filter { it.end.isEmpty() }
     val ended = detail.steps.filter { it.end.isNotEmpty() }
     var endedOpen by remember { mutableStateOf(false) }
 
-    LazyColumn(modifier = Modifier.fillMaxSize()) {
+    LazyColumn(modifier = modifier) {
         item("header") {
             Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
                 Text(detail.epic.slug, style = MaterialTheme.typography.titleLarge)

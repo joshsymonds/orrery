@@ -1,18 +1,22 @@
 package io.github.joshsymonds.orrery.ui
 
 import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasAnyAncestor
+import androidx.compose.ui.test.hasScrollAction
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollToNode
 import com.connectrpc.Code
 import io.github.joshsymonds.orrery.api.FakeOrreryServer
 import io.github.joshsymonds.orrery.api.OrreryClient
 import io.github.joshsymonds.orrery.api.StepRow
 import io.github.joshsymonds.orrery.gen.orrery.v1.Epic
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicSlice
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicStep
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicStepCheck
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicTask
@@ -74,9 +78,16 @@ class EpicScreenTest {
         return builder.build()
     }
 
+    private fun slice(task: String): EpicSlice =
+        EpicSlice.newBuilder().setTask(task).setHue("dispatched").setRedTest(true).setAt(1).build()
+
+    private fun numberedTasks(count: Int): List<EpicTask> =
+        (1..count).map { task(it, "example-task-$it", "Subject $it", "done") }
+
     private fun body(
         tasks: List<EpicTask> = emptyList(),
         steps: List<EpicStep> = emptyList(),
+        slices: List<EpicSlice> = emptyList(),
         problem: String = "",
     ): EpicsGetResponse {
         val epic = Epic.newBuilder()
@@ -93,6 +104,7 @@ class EpicScreenTest {
             .setEpic(epic)
             .addAllTasks(tasks)
             .addAllSteps(steps)
+            .addAllSlices(slices)
             .build()
     }
 
@@ -276,6 +288,67 @@ class EpicScreenTest {
             composeRule.onNodeWithText("Retry").performClick()
 
             awaitText("Loaded after retry")
+        }
+    }
+
+    private fun assertChartStaysOnScreenWhileTheListScrolls(count: Int) {
+        val tasks = numberedTasks(count)
+        FakeOrreryServer().use { server ->
+            server.respond(
+                EPICS_GET,
+                body(tasks = tasks, slices = tasks.map { slice(it.slug) }),
+            )
+            setScreen(server)
+            awaitText("Subject 1")
+
+            composeRule.onNodeWithTag("epic-chart").assertIsDisplayed()
+            composeRule.onNodeWithText("Subject 1").assertIsDisplayed()
+
+            composeRule.onNode(hasScrollAction()).performScrollToNode(hasText("Subject $count"))
+
+            composeRule.onNodeWithText("Subject $count").assertIsDisplayed()
+            composeRule.onNodeWithTag("epic-chart").assertIsDisplayed()
+        }
+    }
+
+    @Test
+    @Config(qualifiers = "w411dp-h891dp")
+    fun chartStaysAboveTheListWhileItScrollsInPortrait() {
+        assertChartStaysOnScreenWhileTheListScrolls(35)
+    }
+
+    @Test
+    @Config(qualifiers = "w411dp-h891dp")
+    fun chartStaysAboveTheListWhileItScrollsInPortraitWith150Tasks() {
+        assertChartStaysOnScreenWhileTheListScrolls(150)
+    }
+
+    @Test
+    @Config(qualifiers = "w891dp-h411dp-land")
+    fun chartSitsBesideTheListInLandscape() {
+        val tasks = numberedTasks(35)
+        FakeOrreryServer().use { server ->
+            server.respond(
+                EPICS_GET,
+                body(tasks = tasks, slices = tasks.map { slice(it.slug) }),
+            )
+            setScreen(server)
+            awaitText("Subject 1")
+
+            composeRule.onNodeWithTag("epic-chart").assertIsDisplayed()
+            composeRule.onNodeWithText("Subject 1").assertIsDisplayed()
+        }
+    }
+
+    @Test
+    fun withNoSlicesTheEmptyLineShowsInPlaceOfTheChart() {
+        FakeOrreryServer().use { server ->
+            server.respond(EPICS_GET, body())
+            setScreen(server)
+
+            awaitText("No orrery-tracked steps")
+            assertEquals(0, countNodes(hasTestTag("epic-chart")))
+            composeRule.onNodeWithText("No orrery-tracked steps").assertIsDisplayed()
         }
     }
 
