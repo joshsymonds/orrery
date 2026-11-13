@@ -2218,10 +2218,17 @@ type openWorld struct {
 // setupOpen installs the open fakes, then attaches the invoking client to s1 and the other client to s3.
 func setupOpen(t *testing.T) openWorld {
 	t.Helper()
+	return setupOpenAt(t, 80)
+}
+
+// setupOpenAt is setupOpen with the invoking client cols columns wide. The picker clips a row at the width of the pane
+// it draws in, so a test whose rows hold long directory paths sets a wider client.
+func setupOpenAt(t *testing.T, cols int) openWorld {
+	t.Helper()
 	claude := installOpenFakes(t)
 	client, name := newServer(t)
 	newSession(t, client, "s1", t.TempDir())
-	invoking := attachClient(t, client, name, "s1", 80, 24)
+	invoking := attachClient(t, client, name, "s1", cols, 24)
 	newSession(t, client, "s2", t.TempDir())
 	newSession(t, client, "s3", t.TempDir())
 	other := attachClient(t, client, name, "s3", 100, 30)
@@ -2234,6 +2241,32 @@ func (w openWorld) runInPane(t *testing.T, args string) string {
 	t.Helper()
 	command := fmt.Sprintf("%s -L %s %s; echo exit $?; sleep 300", orreryPath(), w.name, args)
 	return splitPane(t, w.client, "s1", command)
+}
+
+// runBareInPane is runInPane with orrery's PATH set to bare for that one command, so the pane's shell keeps its PATH.
+func (w openWorld) runBareInPane(t *testing.T, bare, args string) string {
+	t.Helper()
+	command := fmt.Sprintf("PATH='%s' %s -L %s %s; echo exit $?; sleep 300", bare, orreryPath(), w.name, args)
+	return splitPane(t, w.client, "s1", command)
+}
+
+// barePath returns a directory holding only tmux, through a symlink, and claude, a script that runs the fake claude.
+// orrery runs with this directory as its whole PATH in the bare-PATH tests, so it finds tmux and claude and no other
+// tool. tmux gives each pane that orrery creates the PATH of the client that created it, so claude restores the test's
+// PATH before it runs the fake, as a user's claude runs with the user's PATH.
+func barePath(t *testing.T, claude fakeTool) string {
+	t.Helper()
+	tmux, err := exec.LookPath("tmux")
+	if err != nil {
+		t.Fatalf("find tmux: %v", err)
+	}
+	dir := t.TempDir()
+	if err = os.Symlink(tmux, filepath.Join(dir, "tmux")); err != nil {
+		t.Fatalf("link tmux: %v", err)
+	}
+	script := fmt.Sprintf("#!/bin/sh\nPATH='%s'\nexport PATH\nexec '%s' \"$@\"\n", os.Getenv("PATH"), claude.bin)
+	writeFile(t, filepath.Join(dir, "claude"), script, 0o755)
+	return dir
 }
 
 // exampleProjectDir creates example-project under HOME/Personal, the default root whose children open lists, and
@@ -2446,6 +2479,100 @@ func TestOpenPickerEscCreatesNothing(t *testing.T) {
 	if got := w.claude.runs(t); got != 1 {
 		t.Fatalf("fake claude ran %d times, want only the intent run", got)
 	}
+}
+
+func TestBarePathOpenAbsoluteDirOpensIt(t *testing.T) {
+	w := setupOpen(t)
+	dir := filepath.Join(t.TempDir(), "example-path")
+	if err := os.Mkdir(dir, 0o700); err != nil {
+		t.Fatalf("make directory: %v", err)
+	}
+	pane := w.runBareInPane(t, barePath(t, w.claude), "open '"+dir+"'")
+	waitForScreen(t, w.client, pane, "> continue latest in ")
+	if got := w.claude.runs(t); got != 0 {
+		t.Fatalf("fake claude ran %d times before Enter, want 0", got)
+	}
+
+	sendKeys(t, w.client, pane, false, "Enter")
+	waitForScreen(t, w.client, pane, "exit 0")
+	if got := clientSession(t, w.client, w.invoking); got != "example-path" {
+		t.Fatalf("invoking client shows session %s, want example-path", got)
+	}
+	if got := clientSession(t, w.client, w.other); got != "s3" {
+		t.Fatalf("other client shows session %s, want s3", got)
+	}
+	got, err := w.client.Run(t.Context(), "show-options", "-v", "-t", "=example-path:", protocol.OptionDir)
+	if err != nil {
+		t.Fatalf("read %s: %v", protocol.OptionDir, err)
+	}
+	if strings.TrimSpace(got) != dir {
+		t.Fatalf("%s = %q, want %q", protocol.OptionDir, strings.TrimSpace(got), dir)
+	}
+	w.claude.waitForStarted(t, 1)
+	if args := readLines(t, filepath.Join(w.claude.soleRun(t), "args")); !slices.Equal(args, []string{"--continue"}) {
+		t.Fatalf("claude argv %q, want --continue", args)
+	}
+}
+
+func TestBarePathOpenMissingPathExitsOne(t *testing.T) {
+	w := setupOpen(t)
+	before := sessionNames(t, w.client)
+	missing := filepath.Join(t.TempDir(), "example-missing")
+	out := runOrrery(t, "", []string{"PATH=" + barePath(t, w.claude)}, "-L", w.name, "open", missing)
+	wantExit(t, out, 1)
+	if !strings.Contains(out.stderr, missing) {
+		t.Fatalf("stderr %q, want the path %s", out.stderr, missing)
+	}
+	if got := sessionNames(t, w.client); !slices.Equal(got, before) {
+		t.Fatalf("sessions %v after refusal, want %v", got, before)
+	}
+	if _, err := os.Stat(missing); !os.IsNotExist(err) {
+		t.Fatalf("directory %s exists or cannot be checked: %v", missing, err)
+	}
+	if got := w.claude.runs(t); got != 0 {
+		t.Fatalf("fake claude ran %d times, want 0", got)
+	}
+}
+
+func TestBarePathOpenSameNamedDirsOffersBoth(t *testing.T) {
+	w := setupOpenAt(t, 120)
+	archived := filepath.Join(t.TempDir(), "example-same")
+	if err := os.Mkdir(archived, 0o700); err != nil {
+		t.Fatalf("make directory: %v", err)
+	}
+	archivePath, err := archive.Path(os.Getenv)
+	if err != nil {
+		t.Fatalf("archive.Path: %v", err)
+	}
+	if err = archive.Append(archivePath, archive.Record{Dir: archived, Session: "s2", Closed: 100}); err != nil {
+		t.Fatalf("archive.Append: %v", err)
+	}
+	dir := filepath.Join(os.Getenv("HOME"), "Personal", "example-same")
+	if err = os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatalf("make directory: %v", err)
+	}
+
+	pane := w.runBareInPane(t, barePath(t, w.claude), "open example-same")
+	waitForScreen(t, w.client, pane, "> pane "+archived)
+	waitForScreen(t, w.client, pane, "pane "+dir)
+	sendKeys(t, w.client, pane, false, "Down")
+	waitForCursor(t, w.client, pane, "> pane "+dir)
+	sendKeys(t, w.client, pane, false, "Enter")
+	waitForScreen(t, w.client, pane, "exit 0")
+	if got := clientSession(t, w.client, w.invoking); got != "example-same" {
+		t.Fatalf("invoking client shows session %s, want example-same", got)
+	}
+	if got := clientSession(t, w.client, w.other); got != "s3" {
+		t.Fatalf("other client shows session %s, want s3", got)
+	}
+	got, err := w.client.Run(t.Context(), "show-options", "-v", "-t", "=example-same:", protocol.OptionDir)
+	if err != nil {
+		t.Fatalf("read %s: %v", protocol.OptionDir, err)
+	}
+	if strings.TrimSpace(got) != dir {
+		t.Fatalf("%s = %q, want %q", protocol.OptionDir, strings.TrimSpace(got), dir)
+	}
+	w.claude.waitForStarted(t, 1)
 }
 
 // writeRootsFile points XDG_CONFIG_HOME at a temp directory whose orrery roots file holds content, and returns the
