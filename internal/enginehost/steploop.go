@@ -109,8 +109,8 @@ type stepRun struct {
 	heldEnded bool
 	// judgeSent is set once the judge has sent the step back, so a second unmet verdict ends goal_unmet.
 	judgeSent bool
-	// firstFails is the first fails result of any schema-valid agent gate return that holds one, nil until one does.
-	// It is never cleared, so no return after it can end done.
+	// firstFails is the first fails result of any schema-valid agent gate output that holds one, a round's return or a
+	// turn end that is no round, nil until one does. It is never cleared, so no return after it can end done.
 	firstFails *verdictResult
 	// ended is closed once finish has acted.
 	ended chan struct{}
@@ -212,12 +212,14 @@ func (r *stepRun) run(ctx context.Context) {
 
 // turnEnded handles a turn end the run takes. Whatever it is, it clears the pending nudges. A held step's turn end is no
 // round and continues nothing, unless an owner nudge is pending, which resumes the step with it. An owner nudge pending
-// continues the step with it, error or not. A pending watchdog nudge is sent back with an error turn end. Any other turn
-// end is the next round, which judge checks. It reports whether the run goes on.
+// continues the step with it, error or not. A pending watchdog nudge is sent back with an error turn end. A turn end
+// that is no round latches its output's first fails for an agent gate step, as judge would latch a round's. Any other
+// turn end is the next round, which judge checks. It reports whether the run goes on.
 func (r *stepRun) turnEnded(ctx context.Context, ended session.TurnEnded, round, continues *int) bool {
 	nudge, owner := r.nudge, r.ownerNudge
 	r.nudge, r.ownerNudge = "", ""
 	if r.held.Load() {
+		r.latchNoRound(ended.StructuredOutput)
 		if owner == "" {
 			r.heldEnded = true
 			return true
@@ -227,9 +229,11 @@ func (r *stepRun) turnEnded(ctx context.Context, ended session.TurnEnded, round,
 		return r.continueWith(ctx, joinNudges(nudge, owner))
 	}
 	if owner != "" {
+		r.latchNoRound(ended.StructuredOutput)
 		return r.continueWith(ctx, joinNudges(nudge, owner))
 	}
 	if nudge != "" && ended.IsError {
+		r.latchNoRound(ended.StructuredOutput)
 		return r.continueWith(ctx, nudge)
 	}
 	*round++

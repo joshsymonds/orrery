@@ -39,7 +39,7 @@ type verdictFinding struct {
 
 // assertionsCheck checks a schema-valid return of an agent gate step against the gate's assertions. It returns the
 // assertions check and the return it read, which is empty when the return does not read. The first fails result of any
-// such return is kept in firstFails when none is yet, whether or not the check passes, so no later return ends done.
+// such return is latched whether or not the check passes, so no later return ends done.
 func (r *stepRun) assertionsCheck(round int, value json.RawMessage) (store.StepCheck, verdictReturn) {
 	check := store.StepCheck{Round: round, Name: stepLoopAssertionsName, OK: true}
 	var ret verdictReturn
@@ -48,19 +48,39 @@ func (r *stepRun) assertionsCheck(round int, value json.RawMessage) (store.StepC
 		check.Detail = fmt.Sprintf("read verdict: %v", err)
 		return check, verdictReturn{}
 	}
-	if r.firstFails == nil {
-		for i := range ret.Results {
-			if ret.Results[i].Result == verdictFails {
-				r.firstFails = &ret.Results[i]
-				break
-			}
-		}
-	}
+	r.latchFirstFails(ret)
 	if detail := assertionsMismatch(r.agentGate.Assertions, ret); detail != "" {
 		check.OK = false
 		check.Detail = detail
 	}
 	return check, ret
+}
+
+// latchFirstFails keeps the first fails result of ret in firstFails when none is kept yet.
+func (r *stepRun) latchFirstFails(ret verdictReturn) {
+	if r.firstFails != nil {
+		return
+	}
+	for i := range ret.Results {
+		if ret.Results[i].Result == verdictFails {
+			r.firstFails = &ret.Results[i]
+			return
+		}
+	}
+}
+
+// latchNoRound latches the first fails result of value, the output of a turn end that is no round, as a round's return
+// would. It latches nothing for an ordinary step, for output that fails the step's schema, or for output that does not
+// read as a verdict.
+func (r *stepRun) latchNoRound(value json.RawMessage) {
+	if r.agentGate == nil || validateReturn(r.schema, value) != nil {
+		return
+	}
+	var ret verdictReturn
+	if err := json.Unmarshal(value, &ret); err != nil {
+		return
+	}
+	r.latchFirstFails(ret)
 }
 
 // assertionsMismatch returns the first way ret's results differ from assertions, or "" when they agree. The results
