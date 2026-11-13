@@ -12,6 +12,7 @@ import (
 	"sync"
 	"syscall"
 	"time"
+	"unicode/utf8"
 
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/stamp"
@@ -33,12 +34,13 @@ const (
 const killGrace = 2 * time.Second
 
 const (
-	anthropicBaseURLEnv = "ANTHROPIC_BASE_URL"
-	summaryPrefix       = "summary:"
-	labelPrefix         = "label:"
-	maxSummaryRunes     = 100
-	maxLabelWords       = 4
-	summaryInstruction  = "Summarize the coding session excerpt below. " +
+	anthropicBaseURLEnv   = "ANTHROPIC_BASE_URL"
+	summaryPrefix         = "summary:"
+	labelPrefix           = "label:"
+	maxSummaryRunes       = 100
+	maxFailureStdoutBytes = 1024
+	maxLabelWords         = 4
+	summaryInstruction    = "Summarize the coding session excerpt below. " +
 		"Reply with one line in the form\nsummary: <what the session is doing, at most 100 characters>\n"
 	labelInstruction = "Then reply with a second line in the form\nlabel: <3 to 4 words naming the task>\n"
 	excerptHeader    = "\nSession excerpt:\n"
@@ -327,9 +329,26 @@ func (s *Summarizer) run(ctx context.Context, job Job) (string, error) {
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	if err = cmd.Run(); err != nil {
-		return "", fmt.Errorf("claude run: %w: %s", err, strings.TrimSpace(stderr.String()))
+		return "", fmt.Errorf("claude run: %w: %s", err, failureDetail(runCtx, err, stdout.String(), stderr.String()))
 	}
 	return stdout.String(), nil
+}
+
+// failureDetail is the text a failed run's error carries after its exit status: the claude child's stdout, trimmed and
+// cut to maxFailureStdoutBytes, when the child exited non-zero on its own, then its trimmed stderr. A run that a signal
+// or runCtx ended carries no stdout.
+func failureDetail(runCtx context.Context, err error, stdout, stderr string) string {
+	var parts []string
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) && exitErr.ExitCode() > 0 && runCtx.Err() == nil {
+		if out := truncateBytes(strings.TrimSpace(stdout), maxFailureStdoutBytes); out != "" {
+			parts = append(parts, out)
+		}
+	}
+	if errText := strings.TrimSpace(stderr); errText != "" {
+		parts = append(parts, errText)
+	}
+	return strings.Join(parts, " ")
 }
 
 // argvFor is the argv after the claude binary: the model, the settings document, no session saved, no tools, one turn.
@@ -403,6 +422,18 @@ func truncateRunes(s string, n int) string {
 		return string(runes[:n])
 	}
 	return s
+}
+
+// truncateBytes returns text cut to at most n bytes, backed up to the start of the rune that n would split.
+func truncateBytes(text string, n int) string {
+	if len(text) <= n {
+		return text
+	}
+	cut := n
+	for cut > 0 && !utf8.RuneStart(text[cut]) {
+		cut--
+	}
+	return text[:cut]
 }
 
 // firstWords returns the first maxLabelWords words of value, joined by single spaces.

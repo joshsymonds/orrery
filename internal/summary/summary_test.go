@@ -659,6 +659,40 @@ func TestSummaryFailureKeepsPrevious(t *testing.T) {
 		r.assertPrevious(t)
 	})
 
+	t.Run("non-zero exit carries stdout before stderr", func(t *testing.T) {
+		r := newRig(t, nil, 0)
+		r.setPrevious(t)
+		r.place(t, "stdout", "synthetic error line\n")
+		r.place(t, "stderr", "synthetic warning line\n")
+		r.place(t, "exit", "1\n")
+		err := r.s.Summarize(t.Context(), r.job(true))
+		if err == nil {
+			t.Fatal("Summarize: want error for non-zero exit, got nil")
+		}
+		if got, want := err.Error(), "claude run: exit status 1: synthetic error line synthetic warning line"; got != want {
+			t.Errorf("Summarize error = %q, want %q", got, want)
+		}
+		r.assertPrevious(t)
+	})
+
+	t.Run("stdout cut to 1024 bytes at a rune boundary", func(t *testing.T) {
+		r := newRig(t, nil, 0)
+		r.setPrevious(t)
+		// 400 three-byte runes make 1200 bytes. 341 of them fit in 1024 bytes; a 342nd would split its rune.
+		r.place(t, "stdout", strings.Repeat("世", 400))
+		r.place(t, "stderr", "synthetic warning line\n")
+		r.place(t, "exit", "1\n")
+		err := r.s.Summarize(t.Context(), r.job(true))
+		if err == nil {
+			t.Fatal("Summarize: want error for non-zero exit, got nil")
+		}
+		want := "claude run: exit status 1: " + strings.Repeat("世", 341) + " synthetic warning line"
+		if got := err.Error(); got != want {
+			t.Errorf("Summarize error = %q (%d bytes), want %q", got, len(got), want)
+		}
+		r.assertPrevious(t)
+	})
+
 	t.Run("reply without summary line", func(t *testing.T) {
 		r := newRig(t, nil, 0)
 		r.setPrevious(t)
@@ -679,6 +713,36 @@ func TestSummaryFailureKeepsPrevious(t *testing.T) {
 		}
 		if elapsed := time.Since(start); elapsed > failureBound {
 			t.Fatalf("Summarize returned after %v, want within %v", elapsed, failureBound)
+		}
+		r.assertPrevious(t)
+	})
+
+	t.Run("run killed at timeout carries no stdout", func(t *testing.T) {
+		r := newRig(t, nil, shortTimeout)
+		r.setPrevious(t)
+		r.place(t, "stdout", "synthetic marker\n")
+		r.place(t, "hold", "")
+		err := r.s.Summarize(t.Context(), r.job(true))
+		if err == nil {
+			t.Fatal("Summarize: want error for timed-out run, got nil")
+		}
+		if strings.Contains(err.Error(), "synthetic marker") {
+			t.Errorf("Summarize error = %q, want no stdout from a killed run", err)
+		}
+		r.assertPrevious(t)
+	})
+
+	t.Run("run killed by a signal carries no stdout", func(t *testing.T) {
+		r := newRig(t, nil, 0)
+		r.setPrevious(t)
+		r.place(t, "stdout", "synthetic marker\n")
+		r.place(t, "kill", "")
+		err := r.s.Summarize(t.Context(), r.job(true))
+		if err == nil {
+			t.Fatal("Summarize: want error for signal-killed run, got nil")
+		}
+		if strings.Contains(err.Error(), "synthetic marker") {
+			t.Errorf("Summarize error = %q, want no stdout from a signal-killed run", err)
 		}
 		r.assertPrevious(t)
 	})
