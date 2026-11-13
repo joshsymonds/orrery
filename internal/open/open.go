@@ -2,13 +2,11 @@
 package open
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"io/fs"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -17,18 +15,19 @@ import (
 	"github.com/joshsymonds/orrery/internal/archive"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/stamp"
+	"github.com/joshsymonds/orrery/internal/store"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
 )
 
-// Config holds the tmux client and the binary paths and defaults that Resolve needs.
+// Config holds the tmux client, the claude binary, and the defaults and sources that Resolve and Intent need.
 type Config struct {
 	Tmux    *tmuxctl.Client
-	Zoxide  string // path of the zoxide binary
-	Claude  string // path of the claude binary run in created panes and by the intent lookup
-	Root    string // default parent directory of new projects
-	Archive string // path of the archive file of closed Claude panes
-	Home    string // the user's home directory; intent names directories strictly inside it relative to it
-	Roots   []Root // directory trees the intent lookup lists below zoxide's directories, in order
+	Claude  string        // path of the claude binary run in created panes and by the intent lookup
+	Root    string        // default parent directory of new projects
+	Archive string        // path of the archive file of closed Claude panes
+	Home    string        // the user's home directory; intent names directories strictly inside it relative to it
+	Roots   []Root        // directory trees the intent lookup lists after the history and Root's children, in order
+	Store   *store.Reader // reader of orreryd's store, whose engine and step directories are history; nil reads none
 }
 
 // Request is one `orrery open` invocation.
@@ -40,11 +39,12 @@ type Request struct {
 
 // Plan is what `orrery open` will do. Resolve creates nothing; the caller acts on the Plan.
 type Plan struct {
-	Session string // session to attach; with Dir set, the name of the session to create
-	Dir     string // directory of the session to create; "" when Session exists
-	MakeDir bool   // Dir itself is created first (new)
-	Tree    bool   // the caller shows the tree after attaching (no argument)
-	Text    string // no fast match: TEXT for the intent resolver; every other field is zero
+	Session string   // session to attach; with Dir set, the name of the session to create
+	Dir     string   // directory of the session to create; "" when Session exists
+	MakeDir bool     // Dir itself is created first (new)
+	Tree    bool     // the caller shows the tree after attaching (no argument)
+	Dirs    []string // several known directories named by the word, in known order; every other field is zero
+	Text    string   // no match: TEXT for the intent resolver; every other field is zero
 }
 
 // Target is what the caller attaches after Execute.
@@ -56,11 +56,11 @@ type Target struct {
 
 // Execute carries out plan and returns the Target the caller attaches. A plan without Dir names an
 // existing session. A plan with Dir creates the session, and creates Dir first when MakeDir. The Claude pane runs
-// the stamp in effect for Dir, if any. A Text plan is an error that creates nothing.
+// the stamp in effect for Dir, if any. A Text plan or a Dirs plan is an error that creates nothing.
 func Execute(ctx context.Context, cfg Config, plan Plan) (Target, error) {
 	switch {
-	case plan.Text != "":
-		return Target{}, errors.New("open: text is not a session or directory to execute")
+	case plan.Text != "" || len(plan.Dirs) > 0:
+		return Target{}, errors.New("open: plan is not a session or directory to execute")
 	case plan.Dir == "":
 		return Target{Session: plan.Session, Tree: plan.Tree}, nil
 	}
@@ -249,6 +249,8 @@ func Resolve(ctx context.Context, cfg Config, req Request) (Plan, error) {
 		return Plan{}, errors.New("open new: NAME is required")
 	case len(args) == 1 && args[0] == ".":
 		return resolveDot(ctx, cfg, req)
+	case len(args) == 1 && isPathWord(args[0]):
+		return resolvePath(ctx, cfg, req, args[0])
 	case len(args) == 1:
 		return resolveWord(ctx, cfg, args[0])
 	case args[0] == "new" && (len(args) == 2 || (len(args) == newWithRootWords && args[2] == "--root")):
@@ -283,7 +285,45 @@ func resolveDot(ctx context.Context, cfg Config, req Request) (Plan, error) {
 	return directoryPlan(sessions, filepath.Clean(req.Cwd)), nil
 }
 
-// resolveWord handles one word: an exact session name, then a zoxide fast match, else intent text.
+// isPathWord reports whether one argument names a directory path: it contains "/" or is "..".
+func isPathWord(word string) bool {
+	return strings.Contains(word, "/") || word == ".."
+}
+
+// resolvePath is one argument naming an existing directory: an absolute path, or a relative one joined to req.Cwd.
+// The cleaned path must be a directory, and its plan is the one directoryPlan gives it. A relative path needs a
+// current directory on this machine.
+func resolvePath(ctx context.Context, cfg Config, req Request, word string) (Plan, error) {
+	dir := filepath.Clean(word)
+	if !filepath.IsAbs(word) {
+		switch {
+		case req.Remote:
+			return Plan{}, fmt.Errorf(
+				"open %s: a relative path needs a current directory, and the current directory is on the remote host",
+				word)
+		case req.Cwd == "":
+			return Plan{}, fmt.Errorf("open %s: a relative path needs a current directory", word)
+		}
+		dir = filepath.Join(req.Cwd, word)
+	}
+	info, err := os.Stat(dir)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return Plan{}, fmt.Errorf("open: %s: no such directory", dir)
+	case err != nil:
+		return Plan{}, fmt.Errorf("open: %s: %w", dir, err)
+	case !info.IsDir():
+		return Plan{}, fmt.Errorf("open: %s is not a directory", dir)
+	}
+	sessions, err := listSessions(ctx, cfg)
+	if err != nil {
+		return Plan{}, err
+	}
+	return directoryPlan(sessions, dir), nil
+}
+
+// resolveWord handles one word: an exact session name, else the known directories whose basename is word. One such
+// directory gives its directoryPlan, several give Dirs in known order, and none gives intent text.
 func resolveWord(ctx context.Context, cfg Config, word string) (Plan, error) {
 	sessions, err := listSessions(ctx, cfg)
 	if err != nil {
@@ -294,15 +334,24 @@ func resolveWord(ctx context.Context, cfg Config, word string) (Plan, error) {
 			return Plan{Session: s.name}, nil
 		}
 	}
-	results, err := queryZoxide(ctx, cfg, word)
+	known, err := knownDirs(ctx, cfg, sessions)
 	if err != nil {
 		return Plan{}, err
 	}
-	fast := len(results) == 1 || (len(results) > 1 && filepath.Base(results[0]) == word)
-	if fast {
-		return directoryPlan(sessions, results[0]), nil
+	var matches []string
+	for _, dir := range known {
+		if filepath.Base(dir) == word {
+			matches = append(matches, dir)
+		}
 	}
-	return Plan{Text: word}, nil
+	switch len(matches) {
+	case 0:
+		return Plan{Text: word}, nil
+	case 1:
+		return directoryPlan(sessions, matches[0]), nil
+	default:
+		return Plan{Dirs: matches}, nil
+	}
 }
 
 // resolveNew is `new NAME` or `new NAME --root DIR`: a session and directory to create.
@@ -413,34 +462,6 @@ func checkName(name string) error {
 		return fmt.Errorf("open new: invalid name %q", name)
 	}
 	return nil
-}
-
-// queryZoxide returns the directories zoxide ranks for keywords, best first. Exit status 1 is no results.
-func queryZoxide(ctx context.Context, cfg Config, keywords ...string) ([]string, error) {
-	argv := append([]string{"query", "-l", "-s", "--"}, keywords...)
-	var stdout, stderr bytes.Buffer
-	cmd := exec.CommandContext(ctx, cfg.Zoxide, argv...)
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("zoxide query: %w: %s", err, strings.TrimSpace(stderr.String()))
-	}
-	var paths []string
-	for _, line := range strings.Split(stdout.String(), "\n") {
-		if line == "" {
-			continue
-		}
-		_, path, ok := strings.Cut(strings.TrimLeft(line, " "), " ")
-		if !ok {
-			return nil, fmt.Errorf("zoxide query: unexpected output line %q", line)
-		}
-		paths = append(paths, filepath.Clean(strings.TrimLeft(path, " ")))
-	}
-	return paths, nil
 }
 
 // isShell reports whether name is a shell session, which open never matches.
