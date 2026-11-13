@@ -593,5 +593,9 @@ function clock(time: bigint): string {
   if (time === 0n) {
     return "";
   }
-  return new Date(Number(time) * secondsToMillis).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  return new Date(Number(time) * secondsToMillis).toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  });
 }

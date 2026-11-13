@@ -159,6 +159,11 @@ function heldItems(first: number, last: number): ConversationItem[] {
   return list;
 }
 
+// localTime is the unix seconds of a wall-clock time on one local day, so the test reads the same in any time zone.
+function localTime(hour: number, minute: number): bigint {
+  return BigInt(Math.floor(new Date(2026, 10, 12, hour, minute).getTime() / 1000));
+}
+
 // distanceFromBottom is how far the reader's scroll sits above its bottom, by the stubbed layout.
 function distanceFromBottom(container: HTMLElement): number {
   const reader = readerOf(container);
@@ -173,6 +178,25 @@ function rowWith(container: HTMLElement, label: string): HTMLElement {
   assert.ok(row !== undefined, `a row draws ${label}`);
   return row;
 }
+
+test("a gutter time is local 24-hour HH:MM, so 00:05 and 15:26 draw as 00:05 and 15:26", () =>
+  withReader(
+    {
+      conversation: conversation({
+        items: [
+          item({ kind: "reply", time: localTime(0, 5), text: "after midnight" }),
+          item({ kind: "reply", time: localTime(15, 26), text: "in the afternoon" }),
+        ],
+      }),
+      // every item is read: none is newer than seenAt, so no new rule draws a gutter of its own
+      seenAt: Number(localTime(23, 59)),
+      open: false,
+    },
+    (container) => {
+      const gutters = [...container.querySelectorAll(".reader > .t > .gut")].map((gut) => gut.textContent ?? "");
+      assert.deepEqual(gutters, ["00:05", "15:26"]);
+    },
+  ));
 
 test("a reply holding script markup draws as text with no element", () =>
   withReader(
