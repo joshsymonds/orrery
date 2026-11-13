@@ -1428,7 +1428,7 @@ The `pending_notices` table (migration `00010_pending_notices.sql`) has one row 
 | `watch_logged` | `INTEGER` | `1` once the `watching` line was written, else `0`; always `0` for a session notice |
 | `source_kind` | `TEXT` | `session` |
 | `source` | `BLOB` | the session notice as JSON: its session, directory, state and body |
-| `silent` | `INTEGER` | `1` when the push handed off was silent, else `0`; always `0` for a session notice. Added by migration `00012_pending_notice_silent.sql` |
+| `silent` | `INTEGER` | `1` when the push handed off was silent, else `0`; always `0` for a session notice. Added by migration `00011_pending_notice_silent.sql` |
 
 The `pending_notice_ids` table has one row, whose `high` is the highest `id` the table has ever stored. Deleting rows does not lower it, so ids keep rising.
 
