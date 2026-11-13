@@ -2,6 +2,7 @@ package io.github.joshsymonds.orrery.api
 
 import com.connectrpc.Code
 import io.github.joshsymonds.orrery.gen.orrery.v1.Epic
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicRequirement
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicSlice
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicStep
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicStepCheck
@@ -251,6 +252,100 @@ class OrreryClientEpicsTest {
                 ),
                 detail?.slices,
             )
+        }
+    }
+
+    @Test
+    fun epicMapsEveryRequirementFieldInContractOrder() {
+        FakeOrreryServer().use { server ->
+            server.respond(
+                EPICS_GET,
+                EpicsGetResponse.newBuilder()
+                    .setEpic(epicProto.toBuilder().setSource("orreryd"))
+                    .addRequirements(
+                        EpicRequirement.newBuilder()
+                            .setId("R1")
+                            .setText("Example requirement one.")
+                            .setEvidence("example check one")
+                            .setKind("check"),
+                    )
+                    .addRequirements(
+                        EpicRequirement.newBuilder()
+                            .setId("R2")
+                            .setText("Example requirement two.")
+                            .setEvidence("example review two")
+                            .setKind("review"),
+                    )
+                    .build(),
+            )
+
+            val detail = OrreryClient(server.baseUrl).epic("example-repo/example-epic")
+
+            assertEquals(
+                listOf(
+                    EpicRequirementRow(
+                        id = "R1",
+                        text = "Example requirement one.",
+                        evidence = "example check one",
+                        kind = "check",
+                    ),
+                    EpicRequirementRow(
+                        id = "R2",
+                        text = "Example requirement two.",
+                        evidence = "example review two",
+                        kind = "review",
+                    ),
+                ),
+                detail?.requirements,
+            )
+        }
+    }
+
+    @Test
+    fun recordEpicMapsNoRequirementsAndItsSource() {
+        FakeOrreryServer().use { server ->
+            server.respond(
+                EPICS_GET,
+                EpicsGetResponse.newBuilder()
+                    .setEpic(epicProto.toBuilder().setSource("record"))
+                    .build(),
+            )
+
+            val detail = OrreryClient(server.baseUrl).epic("example-repo/example-epic")
+
+            assertEquals(emptyList<EpicRequirementRow>(), detail?.requirements)
+            assertEquals("record", detail?.epic?.source)
+        }
+    }
+
+    @Test
+    fun epicsAndEpicMapEachEpicsSource() {
+        FakeOrreryServer().use { server ->
+            server.respond(
+                EPICS_LIST,
+                EpicsListResponse.newBuilder()
+                    .addEpics(epicProto.toBuilder().setSource("orreryd"))
+                    .addEpics(
+                        epicProto.toBuilder()
+                            .setId("example-repo/example-record")
+                            .setSlug("example-record")
+                            .setSource("record"),
+                    )
+                    .build(),
+            )
+            server.respond(
+                EPICS_GET,
+                EpicsGetResponse.newBuilder()
+                    .setEpic(epicProto.toBuilder().setSource("orreryd"))
+                    .build(),
+            )
+            val client = OrreryClient(server.baseUrl)
+
+            assertEquals(
+                listOf("orreryd", "record"),
+                client.epics().map { it.source },
+            )
+            assertEquals("orreryd", client.epic("example-repo/example-epic")?.epic?.source)
         }
     }
 
