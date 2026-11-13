@@ -408,7 +408,7 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 	})
 
 	st := openStore(ctx, getenv, logger)
-	attachStore(ctx, st, mirror, router)
+	attachStore(ctx, st, mirror, notices, router)
 	var sessions *sessionHost
 	var startErr error
 	if opts.sessions {
@@ -665,14 +665,25 @@ func openStore(ctx context.Context, getenv func(string) string, logger *slog.Log
 	return st
 }
 
-// attachStore attaches st to the mirror and, when the store opened, to the router, which stores the notices already
-// pending and restores the ones a previous orreryd left. serve calls it before the sessions start, so a reconciled
+// attachStore attaches st to the mirror and to notices, which keep each key's last push in it. When the store opened,
+// it also attaches st to the router, which stores the notices already pending and restores the ones a previous
+// orreryd left. The router comes second, so a push it resends at its Attach has its time stored. With no store,
+// notices gets an untyped nil, so it keeps no rows. serve calls it before the sessions start, so a reconciled
 // session's notice is newer than any it restores.
-func attachStore(ctx context.Context, st *store.Store, mirror *daemon.Mirror, router *route.Router) {
+func attachStore(
+	ctx context.Context,
+	st *store.Store,
+	mirror *daemon.Mirror,
+	notices *notice.Notices,
+	router *route.Router,
+) {
 	mirror.Attach(st)
-	if st != nil {
-		router.Attach(ctx, st)
+	if st == nil {
+		notices.Attach(ctx, nil)
+		return
 	}
+	notices.Attach(ctx, st)
+	router.Attach(ctx, st)
 }
 
 // closeStore closes st when it is open and logs a failed close.
