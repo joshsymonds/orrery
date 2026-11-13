@@ -46,6 +46,7 @@ type fake struct {
 	logErr     error
 	posts      []deskstream.Notice
 	pushes     []pushCall
+	sents      []func()
 	seens      []seenCall
 	lines      []route.Line
 }
@@ -130,12 +131,27 @@ func (f *fake) Notify(
 	ctx context.Context,
 	_ notice.Key,
 	build func(context.Context) (push.Notification, error),
-	_ func(),
+	sent func(),
 ) {
 	note, err := build(ctx)
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.pushes = append(f.pushes, pushCall{note: note, err: err})
+	if sent != nil {
+		f.sents = append(f.sents, sent)
+	}
+}
+
+// publish runs the sent callbacks Notify recorded, in order, as the phone does when each push's publish returns. It
+// runs them outside f.mu, because a callback takes the Router's lock.
+func (f *fake) publish() {
+	f.mu.Lock()
+	sents := f.sents
+	f.sents = nil
+	f.mu.Unlock()
+	for _, sent := range sents {
+		sent()
+	}
 }
 
 func (f *fake) Seen(_ context.Context, key notice.Key, seen int64) {

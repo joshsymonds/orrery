@@ -137,6 +137,7 @@ type Router struct {
 
 // entry is a notice waiting for its route. Its fields are guarded by Router.mu, except n, which never changes. phase
 // is the wait ent is in, due is when that wait runs out in unix ms, and row is the id of ent's stored row, 0 for none.
+// silent is the Silent flag of that row.
 type entry struct {
 	seq         uint64
 	n           Notice
@@ -144,6 +145,7 @@ type entry struct {
 	phase       string
 	due         int64
 	row         int64
+	silent      bool
 	ended       bool
 	watchLogged bool
 	delayed     bool
@@ -341,7 +343,7 @@ func (r *Router) judge(ctx context.Context, ent *entry) {
 func (r *Router) unneeded(ctx context.Context, ent *entry, why string) {
 	dn, built := r.buildDesk(ctx, ent)
 	dn.Quiet = true
-	r.deliver(ctx, ent, dn, built, silent(ent.n.Push), reasonUnneeded+whyClause(why))
+	r.deliver(ctx, ent, dn, built, silent(ent.n.Push), true, reasonUnneeded+whyClause(why))
 }
 
 // hold keeps ent pending. It writes the watching line the first time and checks ent again after WatchRecheck.
@@ -373,7 +375,7 @@ func (r *Router) route(ctx context.Context, ent *entry, clause string) {
 		r.atDesk(ctx, ent, dn, clause)
 		return
 	}
-	r.deliver(ctx, ent, dn, built, ent.n.Push, reasonAway+clause)
+	r.deliver(ctx, ent, dn, built, ent.n.Push, false, reasonAway+clause)
 }
 
 // atDesk posts the desk notice and arms the escalation that pushes the phone if ent stays unseen.
@@ -390,10 +392,10 @@ func (r *Router) atDesk(ctx context.Context, ent *entry, dn deskstream.Notice, c
 	r.laterLocked(ent, Escalation, func() { r.escalate(ctx, ent) })
 }
 
-// deliver posts the desk notice when one was built and hands build to the phone when a subscription exists. It ends
-// ent with reason, plus a clause for each of those that does not happen.
+// deliver posts the desk notice when one was built and hands build to the phone when a subscription exists. quiet is
+// whether build is the silent push. It ends ent with reason, plus a clause for each of those that does not happen.
 func (r *Router) deliver(ctx context.Context, ent *entry, dn deskstream.Notice, built bool,
-	build func(context.Context) (push.Notification, error), reason string) {
+	build func(context.Context) (push.Notification, error), quiet bool, reason string) {
 	subscribed := r.subscribed()
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -407,14 +409,11 @@ func (r *Router) deliver(ctx context.Context, ent *entry, dn deskstream.Notice, 
 	} else {
 		reason += "; " + reasonDeskFailed
 	}
-	toPhone := false
-	if subscribed {
-		r.cfg.Phone.Notify(ctx, ent.n.Key, build, nil)
-		toPhone = true
-	} else {
-		reason += "; " + reasonNoSubscription
+	if !subscribed {
+		r.endLocked(ent, routeOf(onDesk, false), reason+"; "+reasonNoSubscription)
+		return
 	}
-	r.endLocked(ent, routeOf(onDesk, toPhone), reason)
+	r.handOffLocked(ctx, ent, build, quiet, routeOf(onDesk, true), reason)
 }
 
 // escalate runs once ent has waited Escalation at the desk. If ent is still pending it goes to the phone and ends.
@@ -429,8 +428,27 @@ func (r *Router) escalate(ctx context.Context, ent *entry) {
 		r.endLocked(ent, None, reasonUnseen+"; "+reasonNoSubscription)
 		return
 	}
-	r.cfg.Phone.Notify(ctx, ent.n.Key, ent.n.Push, nil)
-	r.endLocked(ent, Phone, reasonUnseen)
+	r.handOffLocked(ctx, ent, ent.n.Push, false, Phone, reasonUnseen)
+}
+
+// handOffLocked hands build to the phone, then ends ent with routed and reason. When ent has a row, the row is first
+// written as sending, with quiet as its Silent flag, and it stays until the phone's publish report deletes it by id.
+// An entry without a row has nothing to keep. The caller holds r.mu.
+func (r *Router) handOffLocked(ctx context.Context, ent *entry, build func(context.Context) (push.Notification, error),
+	quiet bool, routed, reason string) {
+	var sent func()
+	if ent.row != 0 {
+		ent.phase, ent.due, ent.silent = phaseSending, 0, quiet
+		r.rowLocked(ent)
+		sent = func() {
+			r.mu.Lock()
+			defer r.mu.Unlock()
+			r.deleteRowLocked(ent)
+		}
+	}
+	r.cfg.Phone.Notify(ctx, ent.n.Key, build, sent)
+	r.stopLocked(ent)
+	r.lineLocked(ent.n.Key, ent.n.State, routed, reason)
 }
 
 // laterLocked runs f as a decision on ent after d, unless ent ends first. The caller holds r.mu.

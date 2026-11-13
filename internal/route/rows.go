@@ -14,12 +14,13 @@ import (
 // storeDeadline bounds each store call the Router makes. A call that outlives it is late, and is retried.
 const storeDeadline = 200 * time.Millisecond
 
-// The phases a row records: the wait its notice is in.
+// The phases a row records: the wait its notice is in, or sending once its push was handed to the phone.
 const (
 	phaseDeciding = "deciding"
 	phaseHeld     = "held"
 	phaseDelayed  = "delayed"
 	phaseDesk     = "desk"
+	phaseSending  = "sending"
 )
 
 // Rows is the store the Router keeps one row per sourced pending notice in. *store.Store satisfies it.
@@ -272,5 +273,6 @@ func rowOf(ent *entry) store.NoticeRow {
 		WatchLogged: ent.watchLogged,
 		SourceKind:  ent.n.Source.Kind,
 		Source:      ent.n.Source.Data,
+		Silent:      ent.silent,
 	}
 }
