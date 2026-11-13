@@ -636,8 +636,9 @@ func (h *sessionHost) shutdown() {
 	}
 }
 
-// openStore opens the store at its resolved path. When the path does not resolve or the store cannot be opened, it
-// logs the error and returns nil, so orreryd serves hooks and notifications without the store.
+// openStore opens the store at its resolved path and logs "store open" once the store is open and migrated. When the
+// path does not resolve or the store cannot be opened, it logs the error and returns nil, so orreryd serves hooks and
+// notifications without the store.
 func openStore(ctx context.Context, getenv func(string) string, logger *slog.Logger) *store.Store {
 	path, err := store.Path(getenv)
 	if err != nil {
@@ -649,6 +650,7 @@ func openStore(ctx context.Context, getenv func(string) string, logger *slog.Log
 		logger.ErrorContext(ctx, "store unavailable, serving without it", "path", path, "error", err)
 		return nil
 	}
+	logger.InfoContext(ctx, "store open", "path", path)
 	return st
 }
 
