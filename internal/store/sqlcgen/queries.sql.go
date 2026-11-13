@@ -813,6 +813,41 @@ func (q *Queries) ListHolds(ctx context.Context) ([]Hold, error) {
 	return items, nil
 }
 
+const listKnownDirs = `-- name: ListKnownDirs :many
+SELECT known.dir FROM (
+    SELECT sessions.dir AS dir, CAST(sessions.changed AS INTEGER) AS at FROM sessions
+    WHERE sessions.kind = 'engine'
+    UNION ALL
+    SELECT steps.workspace AS dir, steps.started AS at FROM steps
+) AS known
+WHERE known.dir <> ''
+GROUP BY known.dir
+ORDER BY MAX(known.at) DESC, known.dir
+`
+
+func (q *Queries) ListKnownDirs(ctx context.Context) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, listKnownDirs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var dir string
+		if err := rows.Scan(&dir); err != nil {
+			return nil, err
+		}
+		items = append(items, dir)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listLabelledSteps = `-- name: ListLabelledSteps :many
 SELECT id, agent, prompt, output_schema, workspace, revision, worktree, done_value, read_only, owned, gate, gate_limit, started, checks, result, status, end_value, reason, ended, model_limit, doing, verdicts, epic, task, gate_name, gate_source, gate_needs FROM steps
 WHERE epic <> '' AND (CAST(?1 AS TEXT) = '' OR epic = CAST(?1 AS TEXT))

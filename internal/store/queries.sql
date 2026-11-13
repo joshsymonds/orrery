@@ -70,6 +70,17 @@ SELECT * FROM sessions WHERE id = ? AND kind IN ('engine', 'step');
 -- name: ListEngineSessions :many
 SELECT * FROM sessions WHERE kind IN ('engine', 'step') ORDER BY id;
 
+-- name: ListKnownDirs :many
+SELECT known.dir FROM (
+    SELECT sessions.dir AS dir, CAST(sessions.changed AS INTEGER) AS at FROM sessions
+    WHERE sessions.kind = 'engine'
+    UNION ALL
+    SELECT steps.workspace AS dir, steps.started AS at FROM steps
+) AS known
+WHERE known.dir <> ''
+GROUP BY known.dir
+ORDER BY MAX(known.at) DESC, known.dir;
+
 -- name: ListHeadlessSessions :many
 SELECT
     sessions.id, sessions.dir, sessions.state, sessions.changed, sessions.seen, sessions.question, sessions.reason,
