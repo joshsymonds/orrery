@@ -2260,9 +2260,9 @@ function sectionOf(container: HTMLElement, title: string): HTMLElement {
   return section;
 }
 
-test("the Epics group follows Needs you, and an epic shows its gauge and count, or tasks unavailable", () => {
-  const first = makeEpic(widgetsRepo, "first");
-  const second = makeEpic(gadgetsRepo, "second");
+test("the Epics group follows Needs you, and an epic reads its outcome and count, or tasks unavailable", () => {
+  const first = makeEpic(widgetsRepo, "first", { outcome: "build" });
+  const second = makeEpic(gadgetsRepo, "second", { outcome: "build" });
   const epics = epicsView([first, second], new Map([[first.id, detailOf(first, ["done", "integrated", "pending"])]]));
   return withApp({ epics }, (container) => {
     assert.deepEqual(sectionTitles(container), ["Needs you", "Epics", "New since you looked", "Working", "Seen"]);
@@ -2273,7 +2273,8 @@ test("the Epics group follows Needs you, and an epic shows its gauge and count, 
     assert.ok(known.classList.contains("b-row") && known.classList.contains("epic"));
     assert.equal(known.querySelector(".label")?.textContent, "first");
     assert.equal(known.querySelector(".proj")?.textContent, widgetsRepo);
-    assert.equal(known.querySelector(".count")?.textContent, "2/3", "the integrated task counts as done");
+    assert.equal(known.querySelector(".rt")?.textContent, "build · 2 of 3", "the integrated task counts as done");
+    assert.equal(known.querySelector(".count") === null, true, "no count element is drawn");
     const gauge = known.querySelector("svg.gauge");
     assert.ok(gauge, "the epic draws its gauge");
     assert.equal(gauge.getAttribute("aria-hidden"), "true");
@@ -2284,7 +2285,7 @@ test("the Epics group follows Needs you, and an epic shows its gauge and count, 
     assert.ok(Math.abs(arc / circle - 2 / 3) < 1e-9, "the arc covers two of three tasks");
 
     const unknown = rowElement(container, epicKey(second));
-    assert.equal(unknown.querySelector(".count")?.textContent, "tasks unavailable");
+    assert.equal(unknown.querySelector(".rt")?.textContent, "build · tasks unavailable");
     assert.equal(unknown.querySelector("svg") === null, true, "no gauge is drawn without detail");
   });
 });
@@ -2313,7 +2314,17 @@ test("an epic shows four running steps with the held one marked, then its more, 
     assert.equal(section.querySelector(".b-sec i")?.textContent, "1", "the head counts the live epic, not the folded ones");
     assert.deepEqual(
       [...section.children].map((child) => child.className),
-      ["b-sec", "b-row epic", "b-row step", "b-row step", "b-row step", "b-row step", "b-more", "b-more", "b-more"],
+      [
+        "b-sec",
+        "b-row epic",
+        "b-row step",
+        "b-row step held",
+        "b-row step",
+        "b-row step",
+        "b-more",
+        "b-more",
+        "b-more",
+      ],
     );
     const entries = [...section.querySelectorAll(".b-row.step")];
     assert.deepEqual(
@@ -2328,6 +2339,116 @@ test("an epic shows four running steps with the held one marked, then its more, 
       [...section.querySelectorAll(".b-more")].map((line) => line.textContent),
       ["1 more", "3 steps ended", "2 folded"],
     );
+  });
+});
+
+test("an epic with no outcome reads its count alone, and tasks unavailable alone", () => {
+  const known = makeEpic(widgetsRepo, "first");
+  const unknown = makeEpic(gadgetsRepo, "second");
+  const epics = epicsView([known, unknown], new Map([[known.id, detailOf(known, ["done", "integrated", "pending"])]]));
+  return withApp({ epics }, (container) => {
+    assert.equal(rowElement(container, epicKey(known)).querySelector(".rt")?.textContent, "2 of 3");
+    assert.equal(rowElement(container, epicKey(unknown)).querySelector(".rt")?.textContent, "tasks unavailable");
+  });
+});
+
+test("a full epic draws a strip with one segment per record task, in each task's tone", () => {
+  const slices = [
+    { task: "task-0", hue: "done" },
+    { task: "task-1", hue: "done" },
+    { task: "task-2", hue: "gap", errorAt: 3 },
+    { task: "task-3", hue: "dispatched", at: 2 },
+    { task: "task-4", hue: "dispatched", at: 1 },
+    { task: "task-5", hue: "dispatched", at: 4, held: true },
+  ];
+  const epic = makeEpic(widgetsRepo, "first", { runningSteps: [makeStep("s1")] });
+  const statuses = Array.from({ length: 7 }, () => "pending");
+  const epics = epicsView([epic], new Map([[epic.id, detailOf(epic, statuses, [], slices)]]));
+  return withApp({ epics }, (container) => {
+    const strip = sectionOf(container, "Epics").querySelector(".strip");
+    assert.ok(strip !== null, "the full epic draws its strip");
+    assert.equal(strip.className, "strip", "seven segments are not dense");
+    assert.deepEqual(
+      [...strip.children].map((segment) => segment.className),
+      ["k-passed", "k-passed", "k-errored", "k-now", "k-now", "k-held", "k-none"],
+    );
+  });
+});
+
+// fullEpicOf is a live epic with a running step and the given number of record tasks, none of them sliced.
+function fullEpicOf(count: number): EpicsView {
+  const epic = makeEpic(widgetsRepo, "first", { runningSteps: [makeStep("s1")] });
+  const statuses = Array.from({ length: count }, () => "pending");
+  return epicsView([epic], new Map([[epic.id, detailOf(epic, statuses)]]));
+}
+
+test("a full epic of 61 tasks draws a dense strip of 61 segments", () =>
+  withApp({ epics: fullEpicOf(61) }, (container) => {
+    const strip = sectionOf(container, "Epics").querySelector(".strip");
+    assert.ok(strip !== null, "the full epic draws its strip");
+    assert.equal(strip.className, "strip dense");
+    assert.equal(strip.children.length, 61);
+    assert.equal([...strip.children].every((segment) => segment.className === "k-none"), true);
+  }));
+
+test("a full epic of 60 tasks draws a strip that is not dense", () =>
+  withApp({ epics: fullEpicOf(60) }, (container) => {
+    const strip = sectionOf(container, "Epics").querySelector(".strip");
+    assert.ok(strip !== null, "the full epic draws its strip");
+    assert.equal(strip.className, "strip");
+    assert.equal(strip.children.length, 60);
+  }));
+
+test("a one-line epic draws no strip, and a full epic with no detail draws none", () => {
+  const quiet = makeEpic(widgetsRepo, "quiet", { outcome: "build" });
+  const busy = makeEpic(gadgetsRepo, "busy", { runningSteps: [makeStep("s1")] });
+  const detail = detailOf(quiet, ["done", "pending"], [], [{ task: "task-0", hue: "done" }]);
+  const epics = epicsView([quiet, busy], new Map([[quiet.id, detail]]));
+  return withApp({ epics }, (container) => {
+    assert.equal(
+      rowElement(container, epicKey(quiet)).querySelector(".strip") === null,
+      true,
+      "a one-line epic has no strip",
+    );
+    assert.equal(rowElement(container, epicKey(busy)).querySelector(".strip") === null, true, "no detail, no strip");
+  });
+});
+
+test("a running step draws its spinner, its label, its five pips and its doing", () => {
+  const running = makeStep("s1", { task: "task-0", doing: "writing the test" });
+  const slices = [{ task: "task-0", hue: "dispatched", at: 4, redTest: true, working: true, testsPass: true }];
+  const epic = makeEpic(widgetsRepo, "first", { runningSteps: [running] });
+  const epics = epicsView([epic], new Map([[epic.id, detailOf(epic, ["pending"], [running], slices)]]));
+  return withApp({ epics }, (container) => {
+    const step = rowElement(container, "step:s1");
+    assert.equal(step.className, "b-row step");
+    const spinner = step.querySelector(".g");
+    assert.equal(spinner?.className, "g g-working");
+    assert.equal(spinner?.getAttribute("aria-hidden"), "true");
+    assert.equal(step.querySelector(".um") === null, true, "a running step draws no held mark");
+    assert.equal(step.querySelector(".label")?.textContent, "task-0");
+    assert.deepEqual(
+      [...step.querySelectorAll(".pips i")].map((pip) => pip.className),
+      ["k-passed", "k-passed", "k-passed", "k-now", "k-track"],
+    );
+    assert.equal(step.querySelector(".held") === null, true, "a running step reads no held text");
+    assert.equal(step.querySelector(".reply")?.textContent, "writing the test");
+  });
+});
+
+test("a held step draws its mark, and reads held with its reason, or held alone without one", () => {
+  const withReason = makeStep("s1", { doing: "writing the test", held: true, reason: "waiting on review" });
+  const withoutReason = makeStep("s2", { doing: "writing the test", held: true });
+  const epic = makeEpic(widgetsRepo, "first", { runningSteps: [withReason, withoutReason] });
+  return withApp({ epics: epicsView([epic], new Map()) }, (container) => {
+    const reasoned = rowElement(container, "step:s1");
+    assert.equal(reasoned.className, "b-row step held");
+    assert.equal(reasoned.querySelector(".um")?.textContent, "‖");
+    assert.equal(reasoned.querySelector(".um")?.getAttribute("aria-hidden"), "true");
+    assert.equal(reasoned.querySelector(".g") === null, true, "a held step draws no spinner");
+    assert.equal(reasoned.querySelector(".held")?.textContent, "held · waiting on review");
+    assert.equal(reasoned.querySelector(".reply") === null, true, "a held step shows no doing text");
+    assert.equal(rowElement(container, "step:s2").querySelector(".held")?.textContent, "held");
   });
 });
 

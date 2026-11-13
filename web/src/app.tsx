@@ -58,9 +58,13 @@ const tasksUnavailableText = "tasks unavailable";
 const epicUnavailableText = "epic unavailable";
 const seenFailedText = "could not mark seen";
 const answerFailedText = "no answer was sent";
+const heldMark = "‖";
 
 // The keys 1-3 answer the first three options of a question, and no others.
 const keyedOptions = 3;
+
+// A task strip past this many segments draws dense, its segments touching.
+const denseStrip = 60;
 
 const secondsPerMinute = 60;
 const minutesPerHour = 60;
@@ -521,7 +525,12 @@ export function App({
                 </div>
                 {section.epics.map((block) => (
                   <Fragment key={block.epic.key}>
-                    <EpicEntry epic={block.epic} current={block.epic.key === cursorKey} onSelect={selectItem} />
+                    <EpicEntry
+                      epic={block.epic}
+                      full={block.full}
+                      current={block.epic.key === cursorKey}
+                      onSelect={selectItem}
+                    />
                     {block.steps.map((step) => (
                       <StepEntry key={step.key} step={step} current={step.key === cursorKey} onSelect={selectItem} />
                     ))}
@@ -862,13 +871,16 @@ function entriesOf(section: EpicSection): Item[] {
   return [...section.epics.flatMap((block) => [block.epic, ...block.steps]), ...section.rows];
 }
 
-// EpicEntry draws an epic's line: its gauge, slug, repository, and done of total tasks, or tasks unavailable.
+// EpicEntry draws an epic's line: its gauge, then its slug, repository and readout. A full epic also draws its strip of
+// one segment per record task.
 function EpicEntry({
   epic,
+  full,
   current,
   onSelect,
 }: {
   epic: EpicItem;
+  full: boolean;
   current: boolean;
   onSelect: (item: Item) => void;
 }) {
@@ -885,14 +897,33 @@ function EpicEntry({
       }}
     >
       {epic.known && <Gauge done={epic.done} total={epic.total} />}
-      <span class="label">{epic.slug}</span>
-      <span class="proj">{epic.repository}</span>
-      <span class="count">{epic.known ? `${epic.done}/${epic.total}` : tasksUnavailableText}</span>
+      <div class="main">
+        <div class="l1">
+          <span class="label">{epic.slug}</span>
+          <span class="proj">{epic.repository}</span>
+          <span class="rt">{epicReadoutText(epic)}</span>
+        </div>
+        {full && epic.strip.length > 0 && (
+          <div class={epic.strip.length > denseStrip ? "strip dense" : "strip"}>
+            {epic.strip.map((tone) => (
+              <i class={`k-${tone}`} />
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
 
-// StepEntry draws a step's line: its label, held when it is held, and its doing text as text.
+// epicReadoutText is an epic's outcome and count, joined, with an empty outcome left out. Without detail the count
+// reads tasks unavailable.
+function epicReadoutText(epic: EpicItem): string {
+  const count = epic.known ? `${epic.done} of ${epic.total}` : tasksUnavailableText;
+  return [epic.outcome, count].filter((part) => part !== "").join(" · ");
+}
+
+// StepEntry draws a step's line: its mark, label and five pips, then its held text when it is held, or its doing text
+// as text.
 function StepEntry({
   step,
   current,
@@ -904,7 +935,7 @@ function StepEntry({
 }) {
   return (
     <div
-      class={current ? "b-row step cur" : "b-row step"}
+      class={`b-row step${step.held ? " held" : ""}${current ? " cur" : ""}`}
       data-row=""
       data-key={step.key}
       aria-current={current ? "true" : undefined}
@@ -914,9 +945,24 @@ function StepEntry({
         }
       }}
     >
+      {step.held ? (
+        <span class="um" aria-hidden="true">
+          {heldMark}
+        </span>
+      ) : (
+        <span class="g g-working" aria-hidden="true" />
+      )}
       <span class="label">{step.label}</span>
-      {step.held && <span class="held">held</span>}
-      <ReplyText text={step.doing} />
+      <span class="pips">
+        {step.pips.map((kind) => (
+          <i class={`k-${kind}`} />
+        ))}
+      </span>
+      {step.held ? (
+        <span class="held">{step.reason === "" ? "held" : `held · ${step.reason}`}</span>
+      ) : (
+        <ReplyText text={step.doing} />
+      )}
     </div>
   );
 }
