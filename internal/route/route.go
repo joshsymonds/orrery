@@ -61,7 +61,7 @@ type DeskSink interface {
 
 // PhoneSink sends push notices and clears. *notice.Notices satisfies it.
 type PhoneSink interface {
-	Notify(ctx context.Context, key notice.Key, build func(context.Context) (push.Notification, error))
+	Notify(ctx context.Context, key notice.Key, build func(context.Context) (push.Notification, error), sent func())
 	Seen(ctx context.Context, key notice.Key, seen int64)
 }
 
@@ -409,7 +409,7 @@ func (r *Router) deliver(ctx context.Context, ent *entry, dn deskstream.Notice, 
 	}
 	toPhone := false
 	if subscribed {
-		r.cfg.Phone.Notify(ctx, ent.n.Key, build)
+		r.cfg.Phone.Notify(ctx, ent.n.Key, build, nil)
 		toPhone = true
 	} else {
 		reason += "; " + reasonNoSubscription
@@ -429,7 +429,7 @@ func (r *Router) escalate(ctx context.Context, ent *entry) {
 		r.endLocked(ent, None, reasonUnseen+"; "+reasonNoSubscription)
 		return
 	}
-	r.cfg.Phone.Notify(ctx, ent.n.Key, ent.n.Push)
+	r.cfg.Phone.Notify(ctx, ent.n.Key, ent.n.Push, nil)
 	r.endLocked(ent, Phone, reasonUnseen)
 }
 

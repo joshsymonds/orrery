@@ -126,7 +126,12 @@ func (f *fake) Post(n deskstream.Notice) {
 	f.posts = append(f.posts, n)
 }
 
-func (f *fake) Notify(ctx context.Context, _ notice.Key, build func(context.Context) (push.Notification, error)) {
+func (f *fake) Notify(
+	ctx context.Context,
+	_ notice.Key,
+	build func(context.Context) (push.Notification, error),
+	_ func(),
+) {
 	note, err := build(ctx)
 	f.mu.Lock()
 	defer f.mu.Unlock()

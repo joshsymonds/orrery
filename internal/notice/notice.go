@@ -46,13 +46,23 @@ func New(host string, sender Sender, now func() time.Time, logger *slog.Logger) 
 }
 
 // Notify records the notice time for key and returns. It then sends build's notification in the background. The
-// send ignores ctx's cancellation.
-func (n *Notices) Notify(ctx context.Context, key Key, build func(context.Context) (push.Notification, error)) {
+// send ignores ctx's cancellation. A non-nil sent runs once when the send finishes: after Publish returns, with or
+// without an error, or after build fails. It runs on the send's goroutine with n.mu not held, before Wait counts the
+// send finished and before the next send queued for key starts.
+func (n *Notices) Notify(
+	ctx context.Context,
+	key Key,
+	build func(context.Context) (push.Notification, error),
+	sent func(),
+) {
 	at := n.now().Unix()
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	n.noticed[key] = at
 	n.enqueueLocked(ctx, key, func(ctx context.Context) {
+		if sent != nil {
+			defer sent()
+		}
 		note, err := build(ctx)
 		if err != nil {
 			n.logger.ErrorContext(ctx, "build push notice", "error", err)
