@@ -132,6 +132,8 @@ export function App({
   const waitingCount = shownRows.filter((row) => row.state === stateWaiting).length;
   const workingCount = shownRows.filter((row) => row.state === stateWorking).length;
   const newCount = shownRows.filter((row) => row.unseen).length;
+  // The footer names the hosts the loaded rows come from, each once, in the order the rows first show them.
+  const hosts = [...new Set(rows.map((row) => row.host))].filter((host) => host !== "");
   const matching = shownRows.filter((row) => matchesFilter(row, words));
   const sections =
     view === "attention"
@@ -533,22 +535,16 @@ export function App({
               </div>
             ))}
           </div>
-          {helpOpen && (
-            <section class="keys" aria-label="keys">
-              <dl>
-                {helpEntries.map(([keys, text]) => (
-                  <div key={text} class="key">
-                    <dt>
-                      {keys.map((key) => (
-                        <kbd key={key}>{key}</kbd>
-                      ))}
-                    </dt>
-                    <dd>{text}</dd>
-                  </div>
-                ))}
-              </dl>
-            </section>
-          )}
+          <footer class="lfoot">
+            {hosts.map((host) => (
+              <span key={host} class="host">
+                {host}
+              </span>
+            ))}
+            <span class="keys-hint">
+              <kbd>?</kbd> keys
+            </span>
+          </footer>
         </div>
         <section class="read" aria-label="reader" hidden={cursorRow === null && cursorStep === null}>
           {cursorRow !== null && (
@@ -645,6 +641,22 @@ export function App({
             ))}
         </aside>
       </div>
+      {helpOpen && (
+        <section class="keys" aria-label="keys">
+          <dl>
+            {helpEntries.map(([keys, text]) => (
+              <div key={text} class="key">
+                <dt>
+                  {keys.map((key) => (
+                    <kbd key={key}>{key}</kbd>
+                  ))}
+                </dt>
+                <dd>{text}</dd>
+              </div>
+            ))}
+          </dl>
+        </section>
+      )}
     </main>
   );
 }

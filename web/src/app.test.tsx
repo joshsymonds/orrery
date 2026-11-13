@@ -489,6 +489,11 @@ function countTexts(container: HTMLElement): string[] {
   );
 }
 
+// hostTexts names the hosts the footer lists, in order.
+function hostTexts(container: HTMLElement): string[] {
+  return [...container.querySelectorAll(".lfoot > .host")].map((element) => element.textContent ?? "");
+}
+
 // newCount is the text of the brand's new count, or null when the brand shows none.
 function newCount(container: HTMLElement): string | null {
   return container.querySelector(".brand .counts .st-new")?.textContent ?? null;
@@ -608,6 +613,52 @@ test("Esc closes the help when the filter does not have focus", () =>
     await press("Escape");
     assert.equal(container.querySelector('[aria-label="keys"]') === null, true);
   }));
+
+test("? opens the key list over the page, outside the list, and a second ? closes it", () =>
+  withApp({}, async (container) => {
+    await press("?");
+    const help = container.querySelector('[aria-label="keys"]');
+    assert.ok(help !== null, "help panel is open");
+    assert.equal(help.closest(".list") === null, true, "the key list is not inside the list");
+    assert.equal(container.querySelector(".list .keys") === null, true, "no key list is inside the list");
+    assert.equal(help.parentElement?.classList.contains("app"), true, "the key list sits in the page");
+    assert.equal(help.previousElementSibling?.classList.contains("panes"), true, "the key list follows the columns");
+    await press("?");
+    assert.equal(container.querySelector('[aria-label="keys"]') === null, true);
+  }));
+
+test("the footer names the loaded rows' hosts once each, in the order first seen, and ends with the keys hint", () =>
+  withApp({}, (container) => {
+    assert.deepEqual(hostTexts(container), ["box", "laptop"]);
+    assert.equal(container.querySelector(".lfoot > .keys-hint")?.textContent, "? keys");
+  }));
+
+test("the footer lists hosts in the order the rows first show them", () =>
+  withApp(
+    {
+      rows: [
+        row({ key: "x", host: "laptop" }),
+        row({ key: "y", host: "box" }),
+        row({ key: "z", host: "laptop" }),
+      ],
+    },
+    (container) => {
+      assert.deepEqual(hostTexts(container), ["laptop", "box"]);
+    },
+  ));
+
+test("a session row's empty host adds nothing to the footer", () =>
+  withApp(
+    {
+      rows: [
+        row({ key: "s1", id: "s1", kind: "session", host: "", label: "notes", changed: 30, seen: 30 }),
+        row({ key: "x", host: "laptop" }),
+      ],
+    },
+    (container) => {
+      assert.deepEqual(hostTexts(container), ["laptop"]);
+    },
+  ));
 
 test("with the filter focused, shortcut keys do nothing and Enter blurs it", () =>
   withApp({}, async (container, fake) => {
@@ -773,7 +824,7 @@ test("an empty project title with no host shows no directory", () =>
 
 test("the brand, filter, and views sit inside the list, above its rows, and no top block is outside it", () =>
   withApp({}, (container) => {
-    assert.deepEqual(listChildren(container), ["top", "rows"]);
+    assert.deepEqual(listChildren(container), ["top", "rows", "lfoot"]);
     assert.deepEqual(topChildren(container), ["brand", "filter", "views"]);
     assert.deepEqual(outsideList(container, ".top, .error"), []);
   }));
@@ -782,7 +833,7 @@ test("a non-empty error shows one line in the top block, above the rows", () =>
   withApp({ error: "list unavailable" }, (container) => {
     assert.equal(container.querySelector('[role="alert"]')?.textContent, "list unavailable");
     assert.deepEqual(topChildren(container), ["brand", "filter", "views", "error"]);
-    assert.deepEqual(listChildren(container), ["top", "rows"]);
+    assert.deepEqual(listChildren(container), ["top", "rows", "lfoot"]);
     assert.deepEqual(outsideList(container, ".error"), []);
   }));
 
