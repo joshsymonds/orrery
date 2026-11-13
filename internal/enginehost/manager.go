@@ -708,13 +708,23 @@ func (m *Manager) engineRow(ctx context.Context, id string) (store.EngineRow, er
 }
 
 // spawnLive starts the process for id in dir as sp describes, and registers it as live under a pump that records its
-// events. The caller holds the slot from reserve or reserveStep. A process that starts after the manager closed is
-// stopped, and the error reports the close. An error that returns here leaves nothing registered.
+// events. The caller holds the slot from reserve or reserveStep. An error that returns here leaves nothing registered.
 func (m *Manager) spawnLive(ctx context.Context, id, dir string, sp spawnSpec) (*liveSession, error) {
 	sess, err := m.spawn(ctx, id, dir, sp)
 	if err != nil {
 		return nil, err
 	}
+	rec := newRecorder(id)
+	rec.claudeSession = sp.claudeSession
+	return m.register(ctx, sess, id, dir, sp, rec)
+}
+
+// register registers sess, a started session of id in dir, as live under a pump that records its events with rec. The
+// live session takes the step and observer of sp. A process that starts after the manager closed is stopped, and the
+// error reports the close. An error that returns here leaves nothing registered.
+func (m *Manager) register(
+	ctx context.Context, sess *session.Session, id, dir string, sp spawnSpec, rec *recorder,
+) (*liveSession, error) {
 	pumpCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	live := &liveSession{id: id, dir: dir, sess: sess, done: make(chan struct{}), cancel: cancel,
 		step: sp.step, observer: sp.observer, requests: map[string]struct{}{}}
@@ -730,16 +740,16 @@ func (m *Manager) spawnLive(ctx context.Context, id, dir string, sp spawnSpec) (
 		cancel()
 		return nil, errors.Join(errManagerClosed, sess.Stop())
 	}
-	rec := newRecorder(id)
-	rec.claudeSession = sp.claudeSession
 	go m.pump(pumpCtx, live, rec)
 	return live, nil
 }
 
 // Close stops every live session and waits up to 5 s for each to record its state. With a holder scope, Close detaches
-// each session instead, so its holder and child keep running. A session whose turn was running is recorded
-// interrupted, and every session loses its unfinished text. It then cancels any write a pump still has blocked and
-// waits for the pumps to return. Start refuses from the moment Close begins, and later calls to Close return at once.
+// each session instead, so its holder and child keep running, and it records nothing for the session: the row keeps the
+// state and unfinished text its events gave it, for a later orreryd to re-adopt where its stored offsets say. Without a
+// holder scope, a session whose turn was running is recorded interrupted, and every session loses its unfinished text.
+// It then cancels any write a pump still has blocked and waits for the pumps to return. Start refuses from the moment
+// Close begins, and later calls to Close return at once.
 func (m *Manager) Close() {
 	m.mu.Lock()
 	if m.closed {
@@ -1236,7 +1246,7 @@ func (m *Manager) setInterrupting(live *liveSession, interrupting bool) {
 // whether that turn was interrupted through Interrupt, which clears the mark for the next turn, and whether the turn is
 // handed to the step's observer: a step's turn that ends with no background task live. The hand-off makes the step busy
 // in the same lock hold. The exit of a session that Close is stopping is not recorded here: recordClosed records that
-// session's state from its turn instead.
+// session's state from its turn instead, and under a holder scope records nothing.
 func (m *Manager) noteEvent(live *liveSession, event session.Event) (record, interrupted, handed bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -1352,13 +1362,13 @@ func (m *Manager) recordStopped(ctx context.Context, live *liveSession) error {
 
 // recordClosed waits for the pump of live to finish, then records live as Close leaves it: interrupted with the reason
 // when its turn was running, and otherwise in the state its turn gave it. Either way its unfinished text is removed. An
-// interruption notifies the owner. A session whose exit already recorded its state is left alone. It returns the error
-// of the wait or of the write.
+// interruption notifies the owner. A session whose exit already recorded its state is left alone. Under a holder scope
+// Close only detaches the session, so nothing is recorded for it. It returns the error of the wait or of the write.
 func (m *Manager) recordClosed(ctx context.Context, live *liveSession) error {
 	if err := m.waitPump(ctx, live); err != nil {
 		return err
 	}
-	if live.exited {
+	if live.exited || m.holderScope != "" {
 		return nil
 	}
 	m.mu.Lock()

@@ -192,7 +192,11 @@ func TestStartWithHolderScopeFailureFailsWithItsReasonAndRunsNoClaude(t *testing
 
 func TestCloseWithHolderScopeLeavesSessionRunning(t *testing.T) {
 	root := holderRoot(t)
-	m, path := newHolderManager(t, fakeSystemdRunPath(t), root)
+	s, path := openStore(t)
+	writer := NewWriter(WriterConfig{Applier: s, Tick: 5 * time.Millisecond})
+	startRun(t, writer)
+	sink := &fakeSink{}
+	m := newStateManager(t, s, writer, sink, fakeSystemdRunPath(t), root, nil)
 	dir := t.TempDir()
 	id, err := m.Start(t.Context(), StartRequest{Dir: dir, Prompt: "STALL"})
 	if err != nil {
@@ -214,18 +218,18 @@ func TestCloseWithHolderScopeLeavesSessionRunning(t *testing.T) {
 	if err := conn.Close(); err != nil {
 		t.Fatalf("close holder connection: %v", err)
 	}
-	history := historyOf(t, path, id)
-	if history.State != "interrupted" {
-		t.Fatalf("running session state after Close = %q, want interrupted", history.State)
+	row, err := s.EngineSession(t.Context(), id)
+	if err != nil {
+		t.Fatalf("EngineSession: %v", err)
 	}
-	reason := ""
-	for _, fields := range changedFields(t, history) {
-		if fields["reason"] != "" {
-			reason = fields["reason"]
-		}
+	if row.State != "working" || row.Reason != "" {
+		t.Fatalf("running session after Close = state %q reason %q, want working with no reason", row.State, row.Reason)
 	}
-	if want := "orreryd stopped during the turn"; reason != want {
-		t.Fatalf("running session reason after Close = %q, want %q", reason, want)
+	if n := countRows(t, path, "engine_text"); n != 1 {
+		t.Fatalf("unfinished text rows after Close = %d, want 1", n)
+	}
+	if got := sink.got(); len(got) != 0 {
+		t.Fatalf("notices after Close = %+v, want none", got)
 	}
 }
 

@@ -21,8 +21,9 @@ const clearHolderTimeout = waitLimit
 
 // TestEngineHolderScopeSurvivesStop proves the --holder-scope path end to end. A session an orreryd started with the flag
 // runs its holder under the fake systemd-run, with the scope's argv and orreryd's state directory. Stopping that orreryd
-// detaches the session, so its fake claude keeps running. A restarted orreryd stops the holder when it reconciles, and the
-// row keeps the reason the stop recorded.
+// detaches the session and records nothing for it, so its fake claude keeps running and its row stays working with its
+// unfinished text. A restarted orreryd stops the holder when it reconciles, and the row is interrupted with the restart's
+// reason.
 func TestEngineHolderScopeSurvivesStop(t *testing.T) {
 	f := newEngineFixture(t)
 	scope, err := filepath.Abs(engineFakeSystemdRun)
@@ -58,11 +59,14 @@ func TestEngineHolderScopeSurvivesStop(t *testing.T) {
 	if err = syscall.Kill(pid, 0); err != nil {
 		t.Fatalf("fake claude %d after orreryd stopped: %v", pid, err)
 	}
-	if got := f.stateOf(t, id); got != "interrupted" {
-		t.Fatalf("state of %s after stop = %q, want interrupted", id, got)
+	if got := f.stateOf(t, id); got != "working" {
+		t.Fatalf("state of %s after stop = %q, want working", id, got)
 	}
-	if got := sessionReason(t, f.dbPath, id); got != stoppedDuringTurnBody {
-		t.Fatalf("reason of %s after stop = %q, want %q", id, got, stoppedDuringTurnBody)
+	if got := sessionReason(t, f.dbPath, id); got != "" {
+		t.Fatalf("reason of %s after stop = %q, want none", id, got)
+	}
+	if n := engineTextRows(t, f.dbPath, id); n != 1 {
+		t.Fatalf("unfinished text rows of %s after stop = %d, want 1", id, n)
 	}
 
 	restarted := f.startOrreryd(t, true, "--holder-scope", scope)
@@ -70,8 +74,8 @@ func TestEngineHolderScopeSurvivesStop(t *testing.T) {
 	if got := f.stateOf(t, id); got != "interrupted" {
 		t.Fatalf("state of %s after restart = %q, want interrupted", id, got)
 	}
-	if got := sessionReason(t, f.dbPath, id); got != stoppedDuringTurnBody {
-		t.Fatalf("reason of %s after restart = %q, want %q", id, got, stoppedDuringTurnBody)
+	if got := sessionReason(t, f.dbPath, id); got != restartedDuringTurnReason {
+		t.Fatalf("reason of %s after restart = %q, want %q", id, got, restartedDuringTurnReason)
 	}
 	wantExit(t, restarted.stop(t), 0)
 }

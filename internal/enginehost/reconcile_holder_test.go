@@ -144,6 +144,9 @@ func TestReconcileAfterScopedCloseStopsHeldFake(t *testing.T) {
 	if err := syscall.Kill(pid, 0); err != nil {
 		t.Fatalf("fake claude %d is not running after Close: %v", pid, err)
 	}
+	requireEngineRows(t, s, map[string]restartRow{
+		id: {state: "working"},
+	})
 	sink := &fakeSink{}
 	second := newStateManager(t, s, writer, sink, "", root, nil)
 	if err := second.Reconcile(t.Context()); err != nil {
@@ -153,13 +156,14 @@ func TestReconcileAfterScopedCloseStopsHeldFake(t *testing.T) {
 	requireGone(t, pid)
 	requireDirGone(t, holderDir(t, root, id))
 	requireEngineRows(t, s, map[string]restartRow{
-		id: {state: "interrupted", reason: "orreryd stopped during the turn"},
+		id: {state: "interrupted", reason: restartedReason},
 	})
 	if n := countRows(t, path, "engine_text"); n != 0 {
 		t.Fatalf("unfinished text rows after Reconcile = %d, want 0", n)
 	}
-	if got := sink.got(); len(got) != 0 {
-		t.Fatalf("notices after Reconcile of a closed session = %+v, want none", got)
+	want := Notice{Session: id, Dir: dir, State: "interrupted", Body: restartedReason}
+	if got := sink.got(); len(got) != 1 || got[0] != want {
+		t.Fatalf("notices after Reconcile = %+v, want exactly [%+v]", got, want)
 	}
 }
 
