@@ -2073,13 +2073,28 @@ async function onStepOne(container: HTMLElement, fake: FakeServer): Promise<void
   await until(() => fake.callsTo(sessionWatchPath).length === 1, "the step stream");
 }
 
-// stepButton is the button of the cursor's step box with the given label.
+// stepButton is the button of the cursor's step box with the given label: Interrupt and ⋯ on the line, and Stop,
+// Confirm stop or Cancel in the menu ⋯ opens.
 function stepButton(container: HTMLElement, label: string): HTMLButtonElement {
-  const button = [...container.querySelectorAll<HTMLButtonElement>(".reply:not([hidden]) .stepbox-actions button")].find(
+  const button = [...container.querySelectorAll<HTMLButtonElement>(".reply:not([hidden]) .stepbox button")].find(
     (element) => element.textContent === label,
   );
   assert.ok(button, `the step box has a ${label} button`);
   return button;
+}
+
+// sendButton is the send button of the cursor's step box.
+function sendButton(container: HTMLElement): HTMLButtonElement {
+  const button = container.querySelector<HTMLButtonElement>('.reply:not([hidden]) .stepbox button[aria-label="send"]');
+  assert.ok(button, "the step box has a send button");
+  return button;
+}
+
+// stepButtonAbsent reports that the cursor's step box has no button with the given label.
+function stepButtonAbsent(container: HTMLElement, label: string): boolean {
+  return [...container.querySelectorAll<HTMLButtonElement>(".reply:not([hidden]) .stepbox button")].every(
+    (element) => element.textContent !== label,
+  );
 }
 
 async function clickIn(element: Element): Promise<void> {
@@ -2120,6 +2135,23 @@ test("Enter in a step's box calls Steps.Nudge once with its id and text, and cle
     assert.equal(fake.callsTo(nudgePath).length, 1, "the nudge was sent once");
   }));
 
+test("the send button calls Steps.Nudge once with the step's id and text, and a blank box sends nothing", () =>
+  withApp({ epics: oneEpic() }, async (container, fake) => {
+    await onStepOne(container, fake);
+    await press("i");
+    await typeInto(composer(container), "   ");
+    await clickIn(sendButton(container));
+    await settle();
+    assert.equal(fake.callsTo(nudgePath).length, 0, "a blank box sends nothing");
+    await typeInto(composer(container), "try the other route");
+    await clickIn(sendButton(container));
+    await until(() => fake.callsTo(nudgePath).length === 1, "the nudge");
+    assert.deepEqual(fake.callsTo(nudgePath)[0].body, { id: "s1", text: "try the other route" });
+    await until(() => composer(container).value === "", "the landed draft cleared");
+    await settle();
+    assert.equal(fake.callsTo(nudgePath).length, 1, "the nudge was sent once");
+  }));
+
 test("a refused nudge keeps the step's draft and shows the refusal", () =>
   withApp({ epics: oneEpic() }, async (container, fake) => {
     fake.refuseNext.set(nudgePath, refusedNudgeText);
@@ -2153,14 +2185,18 @@ test("Interrupt calls Steps.Hold with the step's id", () =>
     assert.deepEqual(fake.callsTo(holdPath)[0].body, { id: "s1" });
   }));
 
-test("Stop asks first: Cancel sends nothing, and Confirm stop calls Steps.Stop with the step's id", () =>
+test("Stop sits behind ⋯; Cancel sends nothing, and Confirm stop calls Steps.Stop with the step's id", () =>
   withApp({ epics: oneEpic() }, async (container, fake) => {
     await onStepOne(container, fake);
+    assert.equal(stepButtonAbsent(container, "Stop"), true, "no Stop until ⋯ is pressed");
+    await clickIn(stepButton(container, "⋯"));
     await clickIn(stepButton(container, "Stop"));
     assert.equal(fake.callsTo(stopStepPath).length, 0, "Stop alone sends nothing");
     await clickIn(stepButton(container, "Cancel"));
     await settle();
     assert.equal(fake.callsTo(stopStepPath).length, 0, "Cancel sends nothing");
+    assert.equal(stepButtonAbsent(container, "Stop"), true, "Cancel closes the menu");
+    await clickIn(stepButton(container, "⋯"));
     await clickIn(stepButton(container, "Stop"));
     await clickIn(stepButton(container, "Confirm stop"));
     await until(() => fake.callsTo(stopStepPath).length === 1, "the stop");
@@ -2233,6 +2269,7 @@ test("no Control or Panes call names a step, and no call starts a step", () =>
     await until(() => fake.callsTo(nudgePath).length === 1, "the nudge");
     await clickIn(stepButton(container, "Interrupt"));
     await until(() => fake.callsTo(holdPath).length === 1, "the hold");
+    await clickIn(stepButton(container, "⋯"));
     await clickIn(stepButton(container, "Stop"));
     await clickIn(stepButton(container, "Confirm stop"));
     await until(() => fake.callsTo(stopStepPath).length === 1, "the stop");

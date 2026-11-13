@@ -112,11 +112,30 @@ function assertNotice(container: HTMLElement, text: string, role: "status" | "al
 }
 
 function assertNoNotice(container: HTMLElement): void {
-  assert.equal(noticeLine(container), null, "no outcome line is shown");
+  assert.equal(noticeLine(container) === null, true, "no outcome line is shown");
 }
 
-// askStop presses Stop, which reveals Confirm stop and Cancel.
+// more is the ⋯ button that opens the menu holding Stop.
+function more(container: HTMLElement): HTMLButtonElement {
+  const found = container.querySelector<HTMLButtonElement>('button[aria-label="more"]');
+  if (found === null) {
+    throw new Error("the step box has a ⋯ button");
+  }
+  return found;
+}
+
+// sendButton is the mauve send button beside the nudge input.
+function sendButton(container: HTMLElement): HTMLButtonElement {
+  const found = container.querySelector<HTMLButtonElement>('button[aria-label="send"]');
+  if (found === null) {
+    throw new Error("the step box has a send button");
+  }
+  return found;
+}
+
+// askStop presses ⋯ and then Stop, which reveals Confirm stop and Cancel.
 async function askStop(container: HTMLElement): Promise<void> {
+  await click(more(container));
   await click(button(container, "Stop"));
 }
 
@@ -436,6 +455,81 @@ test("Interrupt calls hold once and shows landed, sending nothing else", async (
   );
 });
 
+test("the foot reads the nudge sentence, then Interrupt first on the line, the input, and ⋯", async () => {
+  await withBox({}, async (_box, container) => {
+    assert.equal(
+      container.querySelector(".how")?.textContent,
+      "A message here is a nudge: it interrupts the turn, then prompts. It does not count as a check round.",
+    );
+    assert.equal(container.querySelector(".line button")?.textContent, "Interrupt");
+    assert.equal(container.querySelector(".line > .composer > textarea") !== null, true, "the input is on the line");
+    assert.equal(container.querySelector(".line > button.more") !== null, true, "⋯ ends the line");
+    assert.equal(container.querySelector(".line > button.interrupt") !== null, true, "Interrupt has its class");
+  });
+});
+
+test("no Stop button is on screen until ⋯ is pressed, and ⋯ reports whether the menu is open", async () => {
+  await withBox({}, async (_box, container) => {
+    assert.equal(findButton(container, "Stop") === undefined, true, "Stop is not shown before ⋯");
+    assert.equal(more(container).getAttribute("aria-expanded"), "false");
+    await click(more(container));
+    assert.equal(findButton(container, "Stop") !== undefined, true, "Stop is shown once ⋯ is pressed");
+    assert.equal(container.querySelector(".stepbox-menu") !== null, true, "the menu holds Stop");
+    assert.equal(more(container).getAttribute("aria-expanded"), "true");
+  });
+});
+
+test("a second ⋯ press closes the menu and calls nothing", async () => {
+  let stops = 0;
+  await withBox(
+    {
+      stop: async () => {
+        stops++;
+      },
+    },
+    async (_box, container) => {
+      await click(more(container));
+      await click(more(container));
+      await settle();
+      assert.equal(container.querySelector(".stepbox-menu") === null, true, "the menu closed");
+      assert.equal(findButton(container, "Stop") === undefined, true, "Stop is not shown");
+      assert.equal(more(container).getAttribute("aria-expanded"), "false");
+      assert.equal(stops, 0);
+    },
+  );
+});
+
+test("the send button sends the typed text once, as Enter does, and clears the draft", async () => {
+  const sent: string[] = [];
+  await withBox(
+    {
+      nudge: async (text) => {
+        sent.push(text);
+      },
+    },
+    async (box, container) => {
+      await type(box, "check the migration");
+      await click(sendButton(container));
+      await settle();
+      assert.deepEqual(sent, ["check the migration"]);
+      assert.equal(box.value, "");
+      assertNotice(container, "nudge landed", "status");
+    },
+  );
+});
+
+test("the send button sends nothing for a blank box", async () => {
+  let calls = 0;
+  await withBox({ nudge: async () => void calls++ }, async (box, container) => {
+    await type(box, "   ");
+    await click(sendButton(container));
+    await settle();
+    assert.equal(calls, 0);
+    assert.equal(box.value, "   ");
+    assertNoNotice(container);
+  });
+});
+
 test("Stop alone calls nothing and reveals Confirm stop and Cancel", async () => {
   let stops = 0;
   let holds = 0;
@@ -465,7 +559,7 @@ test("Stop alone calls nothing and reveals Confirm stop and Cancel", async () =>
   );
 });
 
-test("Cancel hides Confirm stop and Cancel and calls nothing", async () => {
+test("Cancel closes the menu and calls nothing", async () => {
   let stops = 0;
   await withBox(
     {
@@ -477,9 +571,11 @@ test("Cancel hides Confirm stop and Cancel and calls nothing", async () => {
       await askStop(container);
       await click(button(container, "Cancel"));
       await settle();
-      assert.equal(findButton(container, "Confirm stop"), undefined);
-      assert.equal(findButton(container, "Cancel"), undefined);
-      assert.ok(findButton(container, "Stop"), "Stop is shown again");
+      assert.equal(findButton(container, "Confirm stop") === undefined, true, "Confirm stop is not shown");
+      assert.equal(findButton(container, "Cancel") === undefined, true, "Cancel is not shown");
+      assert.equal(container.querySelector(".stepbox-menu") === null, true, "the menu closed");
+      assert.equal(findButton(container, "Stop") === undefined, true, "Stop is not shown until ⋯ is pressed again");
+      assert.equal(more(container).getAttribute("aria-expanded"), "false");
       assert.equal(stops, 0);
       assertNoNotice(container);
     },
@@ -499,7 +595,8 @@ test("Confirm stop calls stop once and shows stopped", async () => {
       await click(button(container, "Confirm stop"));
       await settle();
       assert.equal(stops, 1);
-      assert.equal(findButton(container, "Confirm stop"), undefined);
+      assert.equal(findButton(container, "Confirm stop") === undefined, true, "Confirm stop is not shown");
+      assert.equal(container.querySelector(".stepbox-menu") === null, true, "the menu closed");
       assertNotice(container, "stopped", "status");
     },
   );
