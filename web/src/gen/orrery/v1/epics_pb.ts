@@ -10,7 +10,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file orrery/v1/epics.proto.
  */
 export const file_orrery_v1_epics: GenFile = /*@__PURE__*/
-  fileDesc("ChVvcnJlcnkvdjEvZXBpY3MucHJvdG8SCW9ycmVyeS52MSISChBFcGljc0xpc3RSZXF1ZXN0IjMKEUVwaWNzTGlzdFJlc3BvbnNlEh4KBWVwaWNzGAEgAygLMg8ub3JyZXJ5LnYxLkVwaWMiHQoPRXBpY3NHZXRSZXF1ZXN0EgoKAmlkGAEgASgJIp8BChBFcGljc0dldFJlc3BvbnNlEh0KBGVwaWMYASABKAsyDy5vcnJlcnkudjEuRXBpYxIiCgV0YXNrcxgCIAMoCzITLm9ycmVyeS52MS5FcGljVGFzaxIiCgVzdGVwcxgDIAMoCzITLm9ycmVyeS52MS5FcGljU3RlcBIkCgZzbGljZXMYBCADKAsyFC5vcnJlcnkudjEuRXBpY1NsaWNlIrYBCgRFcGljEgoKAmlkGAEgASgJEhIKCnJlcG9zaXRvcnkYAiABKAkSDAoEc2x1ZxgDIAEoCRIPCgdvdXRjb21lGAQgASgJEg8KB2NoYW5nZWQYBSABKAMSDAoEbGl2ZRgGIAEoCBIqCg1ydW5uaW5nX3N0ZXBzGAcgAygLMhMub3JyZXJ5LnYxLkVwaWNTdGVwEhMKC2VuZGVkX3N0ZXBzGAggASgFEg8KB3Byb2JsZW0YCSABKAkiSQoIRXBpY1Rhc2sSDgoGZWZmb3J0GAEgASgFEgwKBHNsdWcYAiABKAkSDwoHc3ViamVjdBgDIAEoCRIOCgZzdGF0dXMYBCABKAkixwEKCEVwaWNTdGVwEgoKAmlkGAEgASgJEgwKBHRhc2sYAiABKAkSDQoFYWdlbnQYAyABKAkSCwoDZW5kGAQgASgJEg4KBnN0YXR1cxgFIAEoCRIMCgRoZWxkGAYgASgIEg8KB3N0YXJ0ZWQYByABKAMSDQoFZW5kZWQYCCABKAMSDQoFZG9pbmcYCSABKAkSKAoGY2hlY2tzGAogAygLMhgub3JyZXJ5LnYxLkVwaWNTdGVwQ2hlY2sSDgoGcmVhc29uGAsgASgJIjgKDUVwaWNTdGVwQ2hlY2sSDQoFcm91bmQYASABKA0SDAoEbmFtZRgCIAEoCRIKCgJvaxgDIAEoCCKQAQoJRXBpY1NsaWNlEgwKBHRhc2sYASABKAkSCwoDaHVlGAIgASgJEhAKCHJlZF90ZXN0GAMgASgIEg8KB3dvcmtpbmcYBCABKAgSEgoKdGVzdHNfcGFzcxgFIAEoCBIOCgZjaGVja3MYBiABKAgSFQoNZ2F0ZV9hY2NlcHRlZBgHIAEoCBIKCgJhdBgIIAEoBSIeChBTdGVwc0hvbGRSZXF1ZXN0EgoKAmlkGAEgASgJIhMKEVN0ZXBzSG9sZFJlc3BvbnNlIi0KEVN0ZXBzTnVkZ2VSZXF1ZXN0EgoKAmlkGAEgASgJEgwKBHRleHQYAiABKAkiFAoSU3RlcHNOdWRnZVJlc3BvbnNlIh4KEFN0ZXBzU3RvcFJlcXVlc3QSCgoCaWQYASABKAkiEwoRU3RlcHNTdG9wUmVzcG9uc2UyigEKBUVwaWNzEkEKBExpc3QSGy5vcnJlcnkudjEuRXBpY3NMaXN0UmVxdWVzdBocLm9ycmVyeS52MS5FcGljc0xpc3RSZXNwb25zZRI+CgNHZXQSGi5vcnJlcnkudjEuRXBpY3NHZXRSZXF1ZXN0Ghsub3JyZXJ5LnYxLkVwaWNzR2V0UmVzcG9uc2Uy0wEKBVN0ZXBzEkEKBEhvbGQSGy5vcnJlcnkudjEuU3RlcHNIb2xkUmVxdWVzdBocLm9ycmVyeS52MS5TdGVwc0hvbGRSZXNwb25zZRJECgVOdWRnZRIcLm9ycmVyeS52MS5TdGVwc051ZGdlUmVxdWVzdBodLm9ycmVyeS52MS5TdGVwc051ZGdlUmVzcG9uc2USQQoEU3RvcBIbLm9ycmVyeS52MS5TdGVwc1N0b3BSZXF1ZXN0Ghwub3JyZXJ5LnYxLlN0ZXBzU3RvcFJlc3BvbnNlYgZwcm90bzM");
+  fileDesc("ChVvcnJlcnkvdjEvZXBpY3MucHJvdG8SCW9ycmVyeS52MSISChBFcGljc0xpc3RSZXF1ZXN0IjMKEUVwaWNzTGlzdFJlc3BvbnNlEh4KBWVwaWNzGAEgAygLMg8ub3JyZXJ5LnYxLkVwaWMiHQoPRXBpY3NHZXRSZXF1ZXN0EgoKAmlkGAEgASgJIp8BChBFcGljc0dldFJlc3BvbnNlEh0KBGVwaWMYASABKAsyDy5vcnJlcnkudjEuRXBpYxIiCgV0YXNrcxgCIAMoCzITLm9ycmVyeS52MS5FcGljVGFzaxIiCgVzdGVwcxgDIAMoCzITLm9ycmVyeS52MS5FcGljU3RlcBIkCgZzbGljZXMYBCADKAsyFC5vcnJlcnkudjEuRXBpY1NsaWNlIrYBCgRFcGljEgoKAmlkGAEgASgJEhIKCnJlcG9zaXRvcnkYAiABKAkSDAoEc2x1ZxgDIAEoCRIPCgdvdXRjb21lGAQgASgJEg8KB2NoYW5nZWQYBSABKAMSDAoEbGl2ZRgGIAEoCBIqCg1ydW5uaW5nX3N0ZXBzGAcgAygLMhMub3JyZXJ5LnYxLkVwaWNTdGVwEhMKC2VuZGVkX3N0ZXBzGAggASgFEg8KB3Byb2JsZW0YCSABKAkiSQoIRXBpY1Rhc2sSDgoGZWZmb3J0GAEgASgFEgwKBHNsdWcYAiABKAkSDwoHc3ViamVjdBgDIAEoCRIOCgZzdGF0dXMYBCABKAkixwEKCEVwaWNTdGVwEgoKAmlkGAEgASgJEgwKBHRhc2sYAiABKAkSDQoFYWdlbnQYAyABKAkSCwoDZW5kGAQgASgJEg4KBnN0YXR1cxgFIAEoCRIMCgRoZWxkGAYgASgIEg8KB3N0YXJ0ZWQYByABKAMSDQoFZW5kZWQYCCABKAMSDQoFZG9pbmcYCSABKAkSKAoGY2hlY2tzGAogAygLMhgub3JyZXJ5LnYxLkVwaWNTdGVwQ2hlY2sSDgoGcmVhc29uGAsgASgJIjgKDUVwaWNTdGVwQ2hlY2sSDQoFcm91bmQYASABKA0SDAoEbmFtZRgCIAEoCRIKCgJvaxgDIAEoCCKwAQoJRXBpY1NsaWNlEgwKBHRhc2sYASABKAkSCwoDaHVlGAIgASgJEhAKCHJlZF90ZXN0GAMgASgIEg8KB3dvcmtpbmcYBCABKAgSEgoKdGVzdHNfcGFzcxgFIAEoCBIOCgZjaGVja3MYBiABKAgSFQoNZ2F0ZV9hY2NlcHRlZBgHIAEoCBIKCgJhdBgIIAEoBRIMCgRoZWxkGAkgASgIEhAKCGVycm9yX2F0GAogASgFIh4KEFN0ZXBzSG9sZFJlcXVlc3QSCgoCaWQYASABKAkiEwoRU3RlcHNIb2xkUmVzcG9uc2UiLQoRU3RlcHNOdWRnZVJlcXVlc3QSCgoCaWQYASABKAkSDAoEdGV4dBgCIAEoCSIUChJTdGVwc051ZGdlUmVzcG9uc2UiHgoQU3RlcHNTdG9wUmVxdWVzdBIKCgJpZBgBIAEoCSITChFTdGVwc1N0b3BSZXNwb25zZTKKAQoFRXBpY3MSQQoETGlzdBIbLm9ycmVyeS52MS5FcGljc0xpc3RSZXF1ZXN0Ghwub3JyZXJ5LnYxLkVwaWNzTGlzdFJlc3BvbnNlEj4KA0dldBIaLm9ycmVyeS52MS5FcGljc0dldFJlcXVlc3QaGy5vcnJlcnkudjEuRXBpY3NHZXRSZXNwb25zZTLTAQoFU3RlcHMSQQoESG9sZBIbLm9ycmVyeS52MS5TdGVwc0hvbGRSZXF1ZXN0Ghwub3JyZXJ5LnYxLlN0ZXBzSG9sZFJlc3BvbnNlEkQKBU51ZGdlEhwub3JyZXJ5LnYxLlN0ZXBzTnVkZ2VSZXF1ZXN0Gh0ub3JyZXJ5LnYxLlN0ZXBzTnVkZ2VSZXNwb25zZRJBCgRTdG9wEhsub3JyZXJ5LnYxLlN0ZXBzU3RvcFJlcXVlc3QaHC5vcnJlcnkudjEuU3RlcHNTdG9wUmVzcG9uc2ViBnByb3RvMw");
 
 /**
  * EpicsListRequest asks for every epic. It has no fields.
@@ -374,8 +374,8 @@ export type EpicSlice = Message<"orrery.v1.EpicSlice"> & {
   task: string;
 
   /**
-   * "dispatched" while the label's latest writing step runs or is held, "done" when it ended done, "gap" for any other
-   * end.
+   * The task's state for the chart's centre readout and its counts, which colours no cell: "dispatched" while the
+   * label's latest writing step runs or is held, "done" when it ended done, "gap" for any other end.
    *
    * @generated from field: string hue = 2;
    */
@@ -417,12 +417,30 @@ export type EpicSlice = Message<"orrery.v1.EpicSlice"> & {
   gateAccepted: boolean;
 
   /**
-   * The ring the yellow dot is on, 1 for red_test through 5 for gate_accepted: the innermost ring reached, the furthest
-   * phase, while the step runs or is held, 0 once it ended.
+   * The ring the task is working toward, 1 for red_test through 5 for gate_accepted, while the latest writing step runs
+   * or is held: the first ring not yet reached, counting from red_test inward, which is the first of red_test, working,
+   * tests_pass, checks, gate_accepted whose field is false; 0 once the step ended.
    *
    * @generated from field: int32 at = 8;
    */
   at: number;
+
+  /**
+   * Whether the latest writing step is held by the owner. False once it has ended.
+   *
+   * @generated from field: bool held = 9;
+   */
+  held: boolean;
+
+  /**
+   * The ring that errored, 1 for red_test through 5 for gate_accepted, when the latest writing step ended any way but
+   * done; 0 while it runs or is held, and when it ended done. It is 4 (checks) when the step ended checks_failed, 5
+   * (gate_accepted) when it ended goal_unmet, and for every other end the first ring not reached, counted as at counts
+   * it.
+   *
+   * @generated from field: int32 error_at = 10;
+   */
+  errorAt: number;
 };
 
 /**

@@ -32,8 +32,8 @@ public interface EpicSliceOrBuilder extends
 
   /**
    * <pre>
-   * "dispatched" while the label's latest writing step runs or is held, "done" when it ended done, "gap" for any other
-   * end.
+   * The task's state for the chart's centre readout and its counts, which colours no cell: "dispatched" while the
+   * label's latest writing step runs or is held, "done" when it ended done, "gap" for any other end.
    * </pre>
    *
    * <code>string hue = 2 [json_name = "hue"];</code>
@@ -42,8 +42,8 @@ public interface EpicSliceOrBuilder extends
   java.lang.String getHue();
   /**
    * <pre>
-   * "dispatched" while the label's latest writing step runs or is held, "done" when it ended done, "gap" for any other
-   * end.
+   * The task's state for the chart's centre readout and its counts, which colours no cell: "dispatched" while the
+   * label's latest writing step runs or is held, "done" when it ended done, "gap" for any other end.
    * </pre>
    *
    * <code>string hue = 2 [json_name = "hue"];</code>
@@ -104,12 +104,36 @@ public interface EpicSliceOrBuilder extends
 
   /**
    * <pre>
-   * The ring the yellow dot is on, 1 for red_test through 5 for gate_accepted: the innermost ring reached, the furthest
-   * phase, while the step runs or is held, 0 once it ended.
+   * The ring the task is working toward, 1 for red_test through 5 for gate_accepted, while the latest writing step runs
+   * or is held: the first ring not yet reached, counting from red_test inward, which is the first of red_test, working,
+   * tests_pass, checks, gate_accepted whose field is false; 0 once the step ended.
    * </pre>
    *
    * <code>int32 at = 8 [json_name = "at"];</code>
    * @return The at.
    */
   int getAt();
+
+  /**
+   * <pre>
+   * Whether the latest writing step is held by the owner. False once it has ended.
+   * </pre>
+   *
+   * <code>bool held = 9 [json_name = "held"];</code>
+   * @return The held.
+   */
+  boolean getHeld();
+
+  /**
+   * <pre>
+   * The ring that errored, 1 for red_test through 5 for gate_accepted, when the latest writing step ended any way but
+   * done; 0 while it runs or is held, and when it ended done. It is 4 (checks) when the step ended checks_failed, 5
+   * (gate_accepted) when it ended goal_unmet, and for every other end the first ring not reached, counted as at counts
+   * it.
+   * </pre>
+   *
+   * <code>int32 error_at = 10 [json_name = "errorAt"];</code>
+   * @return The errorAt.
+   */
+  int getErrorAt();
 }
