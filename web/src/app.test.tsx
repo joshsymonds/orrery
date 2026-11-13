@@ -372,6 +372,23 @@ function readerText(container: HTMLElement): string {
   return container.querySelector(".reader")?.textContent ?? "";
 }
 
+// readerWorkLine is the working line under the cursor's reader, or null when that column draws none.
+function readerWorkLine(container: HTMLElement): Element | null {
+  return container.querySelector('[aria-label="reader"] .work-line');
+}
+
+// workingPane is the pane a stream sends while it runs a tool. The tool started at 940, a minute before the test's
+// now of 1000, and the last turn ended at 700, five minutes before it.
+function workingPane(tool: string) {
+  return {
+    id: "a",
+    state: "working",
+    tool: JSON.stringify({ id: "t1", name: tool, input: "ls", start: 940 }),
+    changed: "900",
+    lastTurnEnd: "700",
+  };
+}
+
 const paneRow = row({
   key: "a",
   label: "api",
@@ -741,6 +758,59 @@ test("the cursor's pane row opens its conversation, and the reader shows the str
       items: [{ kind: "assistant", text: "the streamed reply" }],
     });
     await until(() => readerText(container).includes("the streamed reply"), "the streamed reply");
+  }));
+
+test("a working pane's delta draws its line under the cursor's reader, with the tool, its time, and where a message lands", () =>
+  withApp({}, async (container, fake) => {
+    await until(() => fake.callsTo(paneWatchPath).length === 1, "the pane stream");
+    const [stream] = fake.callsTo(paneWatchPath);
+    fake.emit(stream, { transcript: "t1", seq: "1", reset: true, items: [], state: { pane: workingPane("Bash") } });
+    await until(() => readerWorkLine(container) !== null, "the working line");
+    const line = readerWorkLine(container);
+    assert.ok(line);
+    assert.equal(line.querySelector(".work-label")?.textContent, "working");
+    assert.equal(line.querySelector(".work-tool")?.textContent, "running a command");
+    assert.equal(line.querySelector(".work-time")?.textContent, "1:00");
+    assert.equal(
+      line.querySelector(".work-note")?.textContent,
+      "a message sent now lands at Claude's next step · last turn ended 5m ago",
+    );
+    assert.equal(line.previousElementSibling?.classList.contains("reader"), true, "the line is under the reader");
+    assert.equal(line.nextElementSibling?.classList.contains("reply"), true, "the line is above the reply boxes");
+  }));
+
+test("a later delta whose pane is done removes the working line", () =>
+  withApp({}, async (container, fake) => {
+    await until(() => fake.callsTo(paneWatchPath).length === 1, "the pane stream");
+    const [stream] = fake.callsTo(paneWatchPath);
+    fake.emit(stream, { transcript: "t1", seq: "1", reset: true, items: [], state: { pane: workingPane("Bash") } });
+    await until(() => readerWorkLine(container) !== null, "the working line");
+    fake.emit(stream, {
+      transcript: "t1",
+      seq: "2",
+      items: [],
+      state: { pane: { id: "a", state: "done", tool: "", changed: "1000", lastTurnEnd: "1000" } },
+    });
+    await until(() => readerWorkLine(container) === null, "the working line removed");
+  }));
+
+test("a step_wait tool draws a background line that reads as waiting on background work", () =>
+  withApp({}, async (container, fake) => {
+    await until(() => fake.callsTo(paneWatchPath).length === 1, "the pane stream");
+    const [stream] = fake.callsTo(paneWatchPath);
+    fake.emit(stream, {
+      transcript: "t1",
+      seq: "1",
+      reset: true,
+      items: [],
+      state: { pane: workingPane("mcp__orrery__step_wait") },
+    });
+    await until(() => readerWorkLine(container) !== null, "the working line");
+    const line = readerWorkLine(container);
+    assert.ok(line);
+    assert.equal(line.classList.contains("background"), true);
+    assert.equal(line.querySelector(".work-label")?.textContent, "background");
+    assert.equal(line.querySelector(".work-tool")?.textContent, "waiting on background work");
   }));
 
 test("moving the cursor to a session row aborts the pane's stream and opens the session's", () =>
@@ -1154,6 +1224,33 @@ function pinnedComposer(container: HTMLElement): HTMLTextAreaElement {
   assert.ok(box, "the pinned column has a composer");
   return box;
 }
+
+// pinnedWorkLine is the working line under the pinned reader, or null when the pinned column draws none.
+function pinnedWorkLine(container: HTMLElement): Element | null {
+  return pinnedColumn(container)?.querySelector(".work-line") ?? null;
+}
+
+test("the pinned column draws the line of its own stream while the cursor rests on another pane", () =>
+  withApp({}, async (container, fake) => {
+    await until(() => fake.callsTo(paneWatchPath).length === 1, "the cursor's stream");
+    await press("|");
+    await until(() => fake.callsTo(paneWatchPath).length === 2, "the pinned stream");
+    await press("j");
+    assert.equal(cursorKey(container), "c");
+    await until(() => fake.callsTo(paneWatchPath).some((call) => call.body.pane === "c"), "the cursor's stream on c");
+    const [, pinnedStream] = fake.callsTo(paneWatchPath);
+    assert.equal(pinnedStream.body.pane, "a");
+    fake.emit(pinnedStream, {
+      transcript: "t1",
+      seq: "1",
+      reset: true,
+      items: [],
+      state: { pane: workingPane("Bash") },
+    });
+    await until(() => pinnedWorkLine(container) !== null, "the pinned working line");
+    assert.equal(pinnedWorkLine(container)?.querySelector(".work-tool")?.textContent, "running a command");
+    assert.equal(readerWorkLine(container), null, "the cursor's reader on c draws no line");
+  }));
 
 test("| pins the cursor's row in a second column that streams it while the cursor moves on", () =>
   withApp({}, async (container, fake) => {

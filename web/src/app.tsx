@@ -22,6 +22,7 @@ import { byAttention, byProject, type Row } from "./rows";
 import { type SeenClock, type SeenWindow, watchSeen } from "./seen";
 import { StepBox } from "./stepbox";
 import { ReplyText } from "./text";
+import { WorkLine } from "./workline";
 
 type View = "attention" | "project";
 
@@ -255,6 +256,9 @@ export function App({
 
   // The conversation the cursor's reader holds, only when its stream belongs to the entry the cursor rests on.
   const cursorConversation = stream !== null && stream.key === readerKey ? stream.conversation : null;
+  // The conversation the pinned reader holds, only when its stream belongs to the pinned row.
+  const pinnedConversation =
+    pinStream !== null && pinned !== null && pinStream.key === pinned.key ? pinStream.conversation : null;
   const toggleOpen = () => setOpen((value) => !value);
 
   const moveTo = (target: number) => {
@@ -551,6 +555,7 @@ export function App({
               onToggleOpen={toggleOpen}
             />
           )}
+          <WorkLine pane={cursorConversation?.state?.pane} now={now} />
           {composerRows(visited, cursorRow).map((row) => (
             <div key={row.key} class="reply" hidden={row.key !== cursorRowKey}>
               <Composer
@@ -593,11 +598,12 @@ export function App({
           {pinned !== null && <div class="pin-head">{`pinned · ${pinned.label}`}</div>}
           {pinned !== null && (
             <Reader
-              conversation={pinStream !== null && pinStream.key === pinned.key ? pinStream.conversation : null}
+              conversation={pinnedConversation}
               seenAt={pinned.seen}
               open={false}
             />
           )}
+          <WorkLine pane={pinnedConversation?.state?.pane} now={now} />
           {composerRows(pinnedRows, pinned).map((row) => (
             <div key={row.key} class="pin-reply" hidden={row.key !== pinnedKey}>
               <Composer

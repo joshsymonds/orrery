@@ -43,10 +43,15 @@ type Config struct {
 	// panes have rows from the first tidy. A frame whose $TMUX names the same socket names the same server.
 	DefaultServer tmuxctl.Server
 	// Mirror, when set, syncs each applied frame's pane to the store after its tmux writes and observers, outside the
-	// frame mutex, and tidies the store against tmux at start and every TidyInterval. Nil skips both.
+	// frame mutex, and tidies the store against tmux at start (or when TidyStart closes) and every TidyInterval. Nil
+	// skips both.
 	Mirror *Mirror
 	// TidyInterval is how often Serve tidies with Mirror; zero or negative means 10 s.
 	TidyInterval time.Duration
+	// TidyStart, when non-nil and Mirror is set, holds the first tidy until it is closed; Serve then tidies at once
+	// and every TidyInterval after. Nil tidies at start. Frame syncs never wait for it. If ctx is done before it
+	// closes, Serve tidies nothing.
+	TidyStart <-chan struct{}
 	// Observers are called in order, synchronously, for each state change. They must return quickly.
 	Observers []Observer
 	// Seen receives each seen report whose pane is set, in the connection's goroutine. Nil drops seen reports.
@@ -278,8 +283,16 @@ func (h *frameHandler) noteServer(server tmuxctl.Server) {
 	h.servers[server] = true
 }
 
-// tidyLoop tidies the servers at start and then every TidyInterval until ctx is done.
+// tidyLoop tidies the servers at start, or when Config.TidyStart closes, and then every TidyInterval until ctx is
+// done. It returns without tidying when ctx is done before TidyStart closes.
 func (h *frameHandler) tidyLoop(ctx context.Context) {
+	if h.cfg.TidyStart != nil {
+		select {
+		case <-ctx.Done():
+			return
+		case <-h.cfg.TidyStart:
+		}
+	}
 	interval := h.cfg.TidyInterval
 	if interval <= 0 {
 		interval = defaultTidyInterval
