@@ -159,18 +159,17 @@ func TestOrrerydRouteHoldsWatchedPane(t *testing.T) {
 	}
 	sendHook(t, socket, pane, dir, permissionRequestHook())
 	waitForOption(t, client, pane, protocol.OptionState, string(protocol.StateWaiting))
-	// The held notice logs its watching line from its own decision, so that line is awaited before orreryd stops.
-	// Stopping then ends the held notice with a shutdown line.
+	// The held notice logs its watching line from its own decision, so that line is awaited before orreryd stops. The
+	// store is attached once its open line is logged, so stopping then keeps the held notice for the next start, with
+	// no shutdown line.
 	waitUntil(t, "the watching line", func() bool { return noticeLogHas(logPath, "watching") })
+	daemon.waitForStoreOpen(t)
 	wantExit(t, daemon.stop(t), 0)
 
 	if extra := len(endpoint.requests); extra != 0 {
 		t.Fatalf("%d push requests for a watched waiting pane, want none", extra)
 	}
-	assertNoticeLog(t, logPath, since, pane,
-		loggedNotice{"waiting", route.None, "watching"},
-		loggedNotice{"waiting", route.None, "shutdown"},
-	)
+	assertNoticeLog(t, logPath, since, pane, loggedNotice{"waiting", route.None, "watching"})
 }
 
 func TestOrrerydRouteAtDeskReachesStreamOnly(t *testing.T) {
@@ -211,14 +210,14 @@ func TestOrrerydRouteAtDeskReachesStreamOnly(t *testing.T) {
 		t.Fatalf("desk line %+v, want a waiting notice from host %q titled %q", line, host, exampleTitle)
 	}
 
+	// The store is attached once its open line is logged, so stopping then keeps the notice at the desk for the next
+	// start, with no shutdown line.
+	daemon.waitForStoreOpen(t)
 	wantExit(t, daemon.stop(t), 0)
 	if extra := len(endpoint.requests); extra != 0 {
 		t.Fatalf("%d push requests for a waiting pane at the desk, want none", extra)
 	}
-	assertNoticeLog(t, noticeLogPath(stateHome), since, pane,
-		loggedNotice{"waiting", route.Desk, "at the desk"},
-		loggedNotice{"waiting", route.None, "shutdown"},
-	)
+	assertNoticeLog(t, noticeLogPath(stateHome), since, pane, loggedNotice{"waiting", route.Desk, "at the desk"})
 }
 
 func TestOrrerydRouteWithoutSubscriptionReachesDeskOnly(t *testing.T) {
@@ -407,7 +406,7 @@ func TestOrrerydJudgesDoneWithSessions(t *testing.T) {
 	daemon, socket := startPushDaemon(t, name, dir, stateHome, endpoint, "--sessions", "--session-shell", shell)
 	// sessions.sock listens only after the store open, which has no bound, so the listen's wait limit starts at the
 	// store-open line.
-	daemon.waitForLog(t, storeOpenLog)
+	daemon.waitForStoreOpen(t)
 	daemon.waitForListener(t, "unix", protocol.SessionSocketPath(socket))
 	writeJudgeReply(t, dir, judgeUnneededReply)
 	transcript := filepath.Join(dir, "transcript.jsonl")
