@@ -11,6 +11,7 @@ import { type EpicsView, epicsView } from "./epics";
 import {
   type Epic,
   EpicSchema,
+  EpicSliceSchema,
   type EpicStep,
   EpicStepSchema,
   type EpicsGetResponse,
@@ -2208,12 +2209,19 @@ function makeStep(id: string, init: MessageInitShape<typeof EpicStepSchema> = {}
   return create(EpicStepSchema, { id, task: id, agent: "builder", doing: "", held: false, ...init });
 }
 
-// detailOf is the Get response for an epic whose tasks carry the given statuses, one task per status, and its steps.
-function detailOf(epic: Epic, statuses: string[], steps: EpicStep[] = []): EpicsGetResponse {
+// detailOf is the Get response for an epic whose tasks carry the given statuses, one task per status, and its steps and
+// slices.
+function detailOf(
+  epic: Epic,
+  statuses: string[],
+  steps: EpicStep[] = [],
+  slices: MessageInitShape<typeof EpicSliceSchema>[] = [],
+): EpicsGetResponse {
   return create(EpicsGetResponseSchema, {
     epic,
     tasks: statuses.map((status, index) => ({ effort: 1, slug: `task-${index}`, subject: `Subject ${index}`, status })),
     steps,
+    slices,
   });
 }
 
@@ -2450,19 +2458,30 @@ function columnSlug(column: HTMLElement): string | null {
   return column.querySelector(".epic-head .slug")?.textContent ?? null;
 }
 
+// sliceClasses is the class of each slice the column draws, in order.
+function sliceClasses(column: HTMLElement): (string | null)[] {
+  return [...column.querySelectorAll(".chart .slice")].map((slice) => slice.getAttribute("class"));
+}
+
 // markedStep is the label of the step the column marks, or null when it marks none.
 function markedStep(column: HTMLElement): string | null {
   return column.querySelector(".step.cur .label")?.textContent ?? null;
 }
 
-// twoStepEpic is a live epic with two steps, each on one of its tasks: the first done, the second pending.
+// twoStepEpic is a live epic with two steps, each on one of its tasks: the first done, the second pending. Each of its
+// three tasks has a slice.
 function twoStepEpic(): { epic: Epic; detail: EpicsGetResponse } {
   const steps = [makeStep("s1", { task: "task-0" }), makeStep("s2", { task: "task-1" })];
   const epic = makeEpic(widgetsRepo, "first", { runningSteps: steps });
-  return { epic, detail: detailOf(epic, ["done", "pending", "gap"], steps) };
+  const slices = [
+    { task: "task-0", hue: "done" },
+    { task: "task-1", hue: "dispatched", at: 1 },
+    { task: "task-2", hue: "gap" },
+  ];
+  return { epic, detail: detailOf(epic, ["done", "pending", "gap"], steps, slices) };
 }
 
-test("on an epic entry the right column draws a ring per task and marks no step", () => {
+test("on an epic entry the right column draws a slice per task and marks no step", () => {
   const { epic, detail } = twoStepEpic();
   const epics = epicsView([epic], new Map([[epic.id, detail]]));
   return withApp({ epics }, async (container) => {
@@ -2476,8 +2495,7 @@ test("on an epic entry the right column draws a ring per task and marks no step"
     );
     assert.equal(column.parentElement?.classList.contains("panes"), true, "the column sits in the panes");
     assert.equal(columnSlug(column), "first");
-    assert.equal(column.querySelectorAll("circle.ring").length, 3, "one ring per task");
-    assert.equal(column.querySelector(".ring.cur") === null, true, "no ring is marked");
+    assert.deepEqual(sliceClasses(column), ["slice", "slice", "slice"], "one slice per task, and none is outlined");
     assert.equal(column.querySelector(".step.cur") === null, true, "no step is marked");
   });
 });
@@ -2494,9 +2512,8 @@ test("on a step entry the right column draws the same epic and marks that step",
     assert.equal(cursorKey(container), "step:s2");
     const column = requireEpicColumn(container);
     assert.equal(columnSlug(column), "first");
-    assert.equal(column.querySelectorAll("circle.ring").length, 3, "one ring per task");
+    assert.deepEqual(sliceClasses(column), ["slice", "slice cur", "slice"], "the step's task slice is outlined");
     assert.equal(markedStep(column), "task-1");
-    assert.equal(column.querySelectorAll(".ring.cur").length, 1, "the step's task ring is marked");
   });
 });
 

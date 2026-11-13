@@ -16,6 +16,9 @@ import (
 // storeUnavailableLog is the message orreryd logs when it serves hooks and notifications without its store.
 const storeUnavailableLog = "store unavailable"
 
+// storeOpenLog is the log line orreryd writes once its store is open and migrated, before its first tidy.
+const storeOpenLog = `msg="store open"`
+
 // mirrorDroppedLog is the message orreryd logs when a store write is dropped.
 const mirrorDroppedLog = "mirror sync dropped"
 

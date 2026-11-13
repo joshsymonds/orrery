@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"math"
 	"net/http"
@@ -57,8 +58,8 @@ func (e epicsServer) List(
 	return connect.NewResponse(&orreryv1.EpicsListResponse{Epics: epics}), nil
 }
 
-// Get answers one epic by the id List gave it, with its tasks and its labeled steps, oldest first. An id the record
-// root does not list answers not_found, and the id is never joined into a path.
+// Get answers one epic by the id List gave it, with its tasks, its labeled steps oldest first, and its slices. An id
+// the record root does not list answers not_found, and the id is never joined into a path.
 func (e epicsServer) Get(
 	ctx context.Context,
 	req *connect.Request[orreryv1.EpicsGetRequest],
@@ -85,9 +86,10 @@ func (e epicsServer) Get(
 	}
 	labeled := stepsByEpic(steps)[id]
 	return connect.NewResponse(&orreryv1.EpicsGetResponse{
-		Epic:  epicMessage(rec, taskProblems, labeled, e.now()),
-		Tasks: taskMessages,
-		Steps: epicStepMessages(labeled),
+		Epic:   epicMessage(rec, taskProblems, labeled, e.now()),
+		Tasks:  taskMessages,
+		Steps:  epicStepMessages(labeled),
+		Slices: epicSlices(labeled),
 	}), nil
 }
 
@@ -182,6 +184,149 @@ func epicStepMessage(step *enginev1.Step) *orreryv1.EpicStep {
 		Checks:  checks,
 		Reason:  step.GetReason(),
 	}
+}
+
+// epicEndDone is the end of a step that ended done. epicEndChecksFailed and epicEndGoalUnmet are the ends that name the
+// ring they errored at. epicGateCheck is the name of the gate check that a writing step's done return runs, as the step
+// loop stores it.
+const (
+	epicEndDone         = "done"
+	epicEndChecksFailed = "checks_failed"
+	epicEndGoalUnmet    = "goal_unmet"
+	epicGateCheck       = "gate"
+)
+
+// epicSlices returns a slice per task label among the writing steps of steps, oldest first, in order of each label's
+// first start. A writing step is one that is not read-only and has a task label. A slice reads its cells from its
+// label's latest writing step. Read-only and untasked steps add none.
+func epicSlices(steps []*enginev1.Step) []*orreryv1.EpicSlice {
+	var labels []string
+	latest := make(map[string]*enginev1.Step)
+	for _, step := range steps {
+		if step.GetReadOnly() || step.GetTask() == "" {
+			continue
+		}
+		if _, seen := latest[step.GetTask()]; !seen {
+			labels = append(labels, step.GetTask())
+		}
+		latest[step.GetTask()] = step
+	}
+	out := make([]*orreryv1.EpicSlice, 0, len(labels))
+	for _, label := range labels {
+		out = append(out, epicSliceMessage(label, latest[label]))
+	}
+	return out
+}
+
+// epicSliceMessage returns the EpicSlice of label, whose cells are read from step, the label's latest writing step. A
+// running or held step's at is the ring it is working toward, and it has no error. An ended step has no at and no held,
+// and errors at the ring its end names, or at the first ring not reached when the end names none.
+func epicSliceMessage(label string, step *enginev1.Step) *orreryv1.EpicSlice {
+	fields := stepResultFields(step.GetResult())
+	redTest := stepResultEvidence(fields, "red_evidence")
+	testsPass := stepResultEvidence(fields, "green_evidence")
+	checks := epicChecksPass(step.GetChecks())
+	gateAccepted := step.GetEnd() == epicEndDone
+	slice := &orreryv1.EpicSlice{
+		Task:         label,
+		Hue:          epicSliceHue(step.GetEnd()),
+		RedTest:      redTest,
+		Working:      true,
+		TestsPass:    testsPass,
+		Checks:       checks,
+		GateAccepted: gateAccepted,
+	}
+	firstOpen := epicFirstOpenRing(redTest, testsPass, checks, gateAccepted)
+	end := step.GetEnd()
+	switch {
+	case end == "":
+		slice.At = firstOpen
+		slice.Held = step.GetHeld()
+	case end == epicEndChecksFailed:
+		slice.ErrorAt = ringChecks
+	case end == epicEndGoalUnmet:
+		slice.ErrorAt = ringGateAccepted
+	case end != epicEndDone:
+		slice.ErrorAt = firstOpen
+	}
+	return slice
+}
+
+// epicSliceHue is "dispatched" while a step has not ended, "done" when it ended done, and "gap" for any other end.
+func epicSliceHue(end string) string {
+	switch end {
+	case "":
+		return "dispatched"
+	case epicEndDone:
+		return "done"
+	default:
+		return "gap"
+	}
+}
+
+// The rings a slice's cells are numbered by, as the proto numbers them from red_test, the outermost, in to
+// gate_accepted, the innermost. A step that ended checks_failed errors at checks, and one that ended goal_unmet at
+// gate_accepted.
+const (
+	ringChecks       int32 = 4
+	ringGateAccepted int32 = 5
+)
+
+// epicFirstOpenRing is the first ring not reached, counting from red_test inward: 1 for red_test through 5 for
+// gate_accepted, or 0 when every ring is reached, which only a step that ended done is. working is reached by every
+// listed step, since it has run.
+func epicFirstOpenRing(redTest, testsPass, checks, gateAccepted bool) int32 {
+	for i, reached := range []bool{redTest, true, testsPass, checks, gateAccepted} {
+		if !reached {
+			return int32(i + 1)
+		}
+	}
+	return 0
+}
+
+// stepResultFields parses a writing step's result as a JSON object. A result that does not parse, or is not an object,
+// has no fields.
+func stepResultFields(result string) map[string]json.RawMessage {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(result), &fields); err != nil {
+		return nil
+	}
+	return fields
+}
+
+// stepResultEvidence reports whether fields holds key as a string that, trimmed, is non-empty and does not start with
+// NOT RUN in any case. A value that is not a string is no evidence.
+func stepResultEvidence(fields map[string]json.RawMessage, key string) bool {
+	raw, ok := fields[key]
+	if !ok {
+		return false
+	}
+	var text string
+	if err := json.Unmarshal(raw, &text); err != nil {
+		return false
+	}
+	text = strings.TrimSpace(text)
+	return text != "" && !strings.HasPrefix(strings.ToUpper(text), "NOT RUN")
+}
+
+// epicChecksPass reports whether every check of the highest round is ok and one of them is the gate. No checks is
+// false.
+func epicChecksPass(checks []*enginev1.StepCheck) bool {
+	var top uint32
+	for _, check := range checks {
+		top = max(top, check.GetRound())
+	}
+	gate := false
+	for _, check := range checks {
+		if check.GetRound() != top {
+			continue
+		}
+		if !check.GetOk() {
+			return false
+		}
+		gate = gate || check.GetName() == epicGateCheck
+	}
+	return gate
 }
 
 // epicTaskMessages converts each task to its EpicTask, in order. An effort number that the wire's int32 cannot hold is

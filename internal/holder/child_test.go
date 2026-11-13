@@ -3,9 +3,11 @@ package holder
 import (
 	"bytes"
 	"errors"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -28,7 +30,7 @@ const (
 	childReplyOne    = "fake reply 1"
 	childStallingOne = "fake stalling 1"
 	childDyingOne    = "fake dying 1"
-	childDiedStderr  = "fake died"
+	childDiedStderr  = "fake died\n"
 	childDiedCode    = 3
 	childSignalTerm  = "terminated"
 	childSignalKill  = "killed"
@@ -129,9 +131,76 @@ func awaitChildDone(t *testing.T, child *Child) {
 // requireChildGroupGone fails the test when any process of process group pgid is still alive.
 func requireChildGroupGone(t *testing.T, pgid int) {
 	t.Helper()
-	if err := syscall.Kill(-pgid, 0); !errors.Is(err, syscall.ESRCH) {
-		t.Fatalf("process group %d: kill(0) = %v, want ESRCH", pgid, err)
+	if processGroupLive(t, pgid) {
+		t.Fatalf("process group %d still has a live process", pgid)
 	}
+}
+
+// procStat returns the state letter and the process group of pid from /proc/<pid>/stat, and false when pid has no
+// entry there or is reaped while it is read.
+func procStat(t *testing.T, pid int) (byte, int, bool) {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "stat"))
+	// A process reaped between the open and the read fails the read with ESRCH; it is gone all the same.
+	if errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ESRCH) {
+		return 0, 0, false
+	}
+	if err != nil {
+		t.Fatalf("read /proc/%d/stat: %v", pid, err)
+	}
+	// The command name is parenthesised and may hold spaces or parentheses, so the fields start after the last ')'.
+	fields := strings.Fields(string(raw[bytes.LastIndexByte(raw, ')')+1:]))
+	if len(fields) < 3 {
+		t.Fatalf("/proc/%d/stat has too few fields: %q", pid, raw)
+	}
+	pgrp, err := strconv.Atoi(fields[2])
+	if err != nil {
+		t.Fatalf("/proc/%d/stat pgrp %q: %v", pid, fields[2], err)
+	}
+	return fields[0][0], pgrp, true
+}
+
+// processLive reports whether pid is a process that has not died. A process that has died but whose parent has not
+// reaped it is a zombie: kill(pid, 0) still succeeds for it, and dash, unlike bash, leaves a child the group signal
+// ended unreaped while it waits on a read. A zombie counts as dead. Off Linux there is no /proc, and kill(pid, 0) alone
+// decides.
+func processLive(t *testing.T, pid int) bool {
+	t.Helper()
+	if errors.Is(syscall.Kill(pid, 0), syscall.ESRCH) {
+		return false
+	}
+	if runtime.GOOS != "linux" {
+		return true
+	}
+	state, _, ok := procStat(t, pid)
+	return ok && state != 'Z'
+}
+
+// processGroupLive reports whether process group pgid has a process that has not died, counting zombies as dead as
+// processLive does.
+func processGroupLive(t *testing.T, pgid int) bool {
+	t.Helper()
+	if errors.Is(syscall.Kill(-pgid, 0), syscall.ESRCH) {
+		return false
+	}
+	if runtime.GOOS != "linux" {
+		return true
+	}
+	entries, err := os.ReadDir("/proc")
+	if err != nil {
+		t.Fatalf("read /proc: %v", err)
+	}
+	for _, entry := range entries {
+		pid, err := strconv.Atoi(entry.Name())
+		if err != nil {
+			continue
+		}
+		state, pgrp, ok := procStat(t, pid)
+		if ok && pgrp == pgid && state != 'Z' {
+			return true
+		}
+	}
+	return false
 }
 
 // readChildPid returns the pid that a test's shell wrote to the file name.
@@ -152,7 +221,7 @@ func readChildPid(t *testing.T, name string) int {
 func awaitPidGone(t *testing.T, pid int, what string) {
 	t.Helper()
 	timeout := time.After(waitArmedTimeout)
-	for syscall.Kill(pid, 0) == nil {
+	for processLive(t, pid) {
 		select {
 		case <-timeout:
 			t.Fatalf("%s: process %d still alive %v after Stop", what, pid, waitArmedTimeout)
@@ -211,6 +280,49 @@ func TestChildDeathGivesExitRecordWithStdoutEnd(t *testing.T) {
 	}
 }
 
+func TestChildExitStderrIsTheTailAsWritten(t *testing.T) {
+	t.Parallel()
+
+	spool, _ := newTestSpool(t, SpoolConfig{})
+	child := startChildUnderCleanup(t, spool, ChildConfig{
+		Path: shPath(t),
+		Args: []string{"-c", "printf 'first\\nsecond\\n' >&2"},
+		Dir:  t.TempDir(),
+	})
+	awaitChildDone(t, child)
+	exit := child.Exit(ReasonExited)
+	if want := "first\nsecond\n"; exit.Stderr != want {
+		t.Errorf("Stderr = %q, want %q", exit.Stderr, want)
+	}
+}
+
+func TestStderrWithKeepsTheTailAndPutsAFaultOnItsOwnLine(t *testing.T) {
+	t.Parallel()
+
+	fault := errors.New("holder fault")
+	for _, tc := range []struct {
+		name string
+		tail string
+		err  error
+		want string
+	}{
+		{name: "no fault keeps the tail", tail: "first\nsecond\n", want: "first\nsecond\n"},
+		{name: "no fault keeps blank lines", tail: "first\n\n", want: "first\n\n"},
+		{name: "no fault and no tail", tail: "", want: ""},
+		{name: "fault with an empty tail", tail: "", err: fault, want: "holder fault"},
+		{name: "fault after an unterminated tail", tail: "first", err: fault, want: "first\nholder fault"},
+		{name: "fault after a terminated tail", tail: "first\n", err: fault, want: "first\nholder fault"},
+		{name: "fault after blank lines", tail: "first\n\n", err: fault, want: "first\n\nholder fault"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := stderrWith(tc.tail, tc.err); got != tc.want {
+				t.Errorf("stderrWith(%q, %v) = %q, want %q", tc.tail, tc.err, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestChildStopEndsItsProcessGroup(t *testing.T) {
 	t.Parallel()
 
@@ -260,8 +372,8 @@ func TestChildStopSignalsWholeGroup(t *testing.T) {
 	child.Stop()
 	awaitPidGone(t, sleepPid, "background sleep in the child's group")
 	assertOpen(t, child.Done(), "child whose SIGTERM-proof leader is still running")
-	if err := syscall.Kill(proofPid, 0); err != nil {
-		t.Fatalf("SIGTERM-proof sleep %d gone before the grace passed: %v", proofPid, err)
+	if !processLive(t, proofPid) {
+		t.Fatalf("SIGTERM-proof sleep %d gone before the grace passed", proofPid)
 	}
 	clock.waitArmed(t, 1)
 	clock.Advance(childTestGrace)

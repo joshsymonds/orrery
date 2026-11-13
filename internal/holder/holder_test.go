@@ -11,7 +11,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
 )
@@ -239,8 +238,8 @@ func requireNoSocket(t *testing.T, sock string) {
 // requireChildGroupAlive fails unless process group pgid still has a process.
 func requireChildGroupAlive(t *testing.T, pgid int) {
 	t.Helper()
-	if err := syscall.Kill(-pgid, 0); err != nil {
-		t.Fatalf("process group %d: kill(0) = %v, want it alive", pgid, err)
+	if !processGroupLive(t, pgid) {
+		t.Fatalf("process group %d has no live process, want it alive", pgid)
 	}
 }
 
@@ -320,7 +319,7 @@ func TestHolderChildThatExitsAloneWritesItsStatusAndTailThenReturnsNil(t *testin
 	if err := run.wait(t); err != nil {
 		t.Fatalf("Run = %v, want nil", err)
 	}
-	want := Exit{Reason: ReasonExited, Code: childDiedCode, StdoutEnd: int64(len("out\n")), Stderr: "err"}
+	want := Exit{Reason: ReasonExited, Code: childDiedCode, StdoutEnd: int64(len("out\n")), Stderr: "err\n"}
 	if got := readExitFile(t, cfg.Dir); got != want {
 		t.Errorf("exit = %+v, want %+v", got, want)
 	}

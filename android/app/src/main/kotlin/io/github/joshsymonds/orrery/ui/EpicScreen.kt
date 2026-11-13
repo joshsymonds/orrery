@@ -1,12 +1,13 @@
 package io.github.joshsymonds.orrery.ui
 
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -14,6 +15,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -28,8 +30,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.PathEffect
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -51,24 +51,8 @@ private sealed interface EpicLoad {
     data class Loaded(val detail: EpicDetail) : EpicLoad
 }
 
-/** How a task's ring is drawn: its state, its colour, and whether it is dashed. */
-private class TaskRingStyle(val state: TaskState, val color: Color, val dashed: Boolean = false) {
-    /** The test tag: the state's name in lower case, and "neutral" for an unknown status. */
-    val tag: String get() = if (state == TaskState.UNKNOWN) "neutral" else state.name.lowercase()
-}
-
-private fun ringOf(state: TaskState): TaskRingStyle = when (state) {
-    TaskState.DONE -> TaskRingStyle(state, Mocha.Green)
-    TaskState.DISPATCHED -> TaskRingStyle(state, Mocha.Yellow)
-    TaskState.GATED -> TaskRingStyle(state, Mocha.Peach)
-    TaskState.PENDING -> TaskRingStyle(state, Mocha.Overlay0, dashed = true)
-    TaskState.GAP -> TaskRingStyle(state, Mocha.Red)
-    TaskState.SPLIT -> TaskRingStyle(state, Mocha.Blue)
-    TaskState.UNKNOWN -> TaskRingStyle(state, Mocha.Subtext0)
-}
-
 /**
- * One epic: its tasks as a ring each with the status as recorded, and its steps one line each.
+ * One epic: its tasks, each with the status as recorded, and its steps one line each.
  * Ended steps fold into one line that opens. Tapping a step calls [onOpenStep] with it. The back
  * button calls [onBack].
  */
@@ -113,13 +97,89 @@ fun EpicScreen(
     }
 }
 
+// In portrait the chart is a square drawing at most CHART_MAX_WIDTH wide, CHART_SIDE_PADDING in from each side, with its
+// two key lines under it, which take CHART_KEYS_HEIGHT. The chart gives up height before the list drops below
+// LIST_MIN_HEIGHT, so task rows stay on screen.
+private val CHART_SIDE_PADDING = 14.dp
+private val CHART_MAX_WIDTH = 420.dp
+private val CHART_KEYS_HEIGHT = 72.dp
+private val LIST_MIN_HEIGHT = 240.dp
+
+// The chart stays outside the list, so it stays on screen while the list scrolls: above the list in portrait, beside it
+// in landscape.
 @Composable
 private fun EpicBody(detail: EpicDetail, onOpenStep: (StepRow) -> Unit) {
+    var selectedRow by remember { mutableStateOf<Int?>(null) }
+    var selectedSlice by remember { mutableStateOf<Int?>(null) }
+    // Tapping a row with a slice marks it and selects its slice; tapping the marked row again clears both; a row with no
+    // slice changes nothing.
+    val onTapTask: (Int) -> Unit = { row ->
+        val slice = sliceOf(detail, row)
+        when {
+            row == selectedRow -> {
+                selectedRow = null
+                selectedSlice = null
+            }
+            slice != null -> {
+                selectedRow = row
+                selectedSlice = slice
+            }
+        }
+    }
+    // The chart selects a slice or clears its selection (null); either way no row is marked.
+    val onSelectSlice: (Int?) -> Unit = { slice ->
+        selectedSlice = slice
+        selectedRow = null
+    }
+    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        if (maxWidth > maxHeight) {
+            Row(modifier = Modifier.fillMaxSize()) {
+                EpicChart(
+                    detail.slices,
+                    taskCount = detail.tasks.size,
+                    selected = selectedSlice,
+                    onSelect = onSelectSlice,
+                    modifier = Modifier.weight(1f).fillMaxHeight(),
+                )
+                EpicList(detail, onOpenStep, selectedRow, onTapTask, modifier = Modifier.weight(1f).fillMaxHeight())
+            }
+        } else {
+            val side = minOf(
+                maxWidth - CHART_SIDE_PADDING * 2,
+                CHART_MAX_WIDTH,
+                maxHeight - LIST_MIN_HEIGHT - CHART_KEYS_HEIGHT,
+            ).coerceAtLeast(0.dp)
+            Column(modifier = Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
+                EpicChart(
+                    detail.slices,
+                    taskCount = detail.tasks.size,
+                    selected = selectedSlice,
+                    onSelect = onSelectSlice,
+                    modifier = Modifier.size(side, side + CHART_KEYS_HEIGHT),
+                )
+                EpicList(detail, onOpenStep, selectedRow, onTapTask, modifier = Modifier.fillMaxWidth().weight(1f))
+            }
+        }
+    }
+}
+
+// sliceOf is the index of the slice labelled with the row's slug, or null when no slice carries that slug.
+private fun sliceOf(detail: EpicDetail, row: Int): Int? =
+    detail.slices.indexOfFirst { it.task == detail.tasks[row].slug }.takeIf { it >= 0 }
+
+@Composable
+private fun EpicList(
+    detail: EpicDetail,
+    onOpenStep: (StepRow) -> Unit,
+    selectedRow: Int?,
+    onTapTask: (Int) -> Unit,
+    modifier: Modifier,
+) {
     val running = detail.steps.filter { it.end.isEmpty() }
     val ended = detail.steps.filter { it.end.isNotEmpty() }
     var endedOpen by remember { mutableStateOf(false) }
 
-    LazyColumn(modifier = Modifier.fillMaxSize()) {
+    LazyColumn(modifier = modifier) {
         item("header") {
             Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
                 Text(detail.epic.slug, style = MaterialTheme.typography.titleLarge)
@@ -139,8 +199,8 @@ private fun EpicBody(detail: EpicDetail, onOpenStep: (StepRow) -> Unit) {
             }
         }
         item("tasks-heading") { SectionHeading("Tasks") }
-        itemsIndexed(detail.tasks, key = { index, _ -> "task:$index" }) { _, task ->
-            TaskRow(task)
+        itemsIndexed(detail.tasks, key = { index, _ -> "task:$index" }) { index, task ->
+            TaskRow(index, task, selected = index == selectedRow, onTap = { onTapTask(index) })
         }
         item("steps-heading") { SectionHeading("Steps") }
         items(running, key = { "step:${it.id}" }) { step ->
@@ -174,33 +234,18 @@ private fun SectionHeading(title: String) {
 }
 
 @Composable
-private fun TaskRow(task: EpicTaskRow) {
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        verticalAlignment = Alignment.Top,
+private fun TaskRow(index: Int, task: EpicTaskRow, selected: Boolean, onTap: () -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("task-row:$index")
+            .selectable(selected = selected, onClick = onTap)
+            .background(if (selected) Mocha.Surface0 else Color.Transparent)
+            .padding(horizontal = 16.dp, vertical = 6.dp),
     ) {
-        TaskRing(ringOf(taskStateOf(task.status)))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(task.slug, style = MaterialTheme.typography.bodyLarge)
-            Text(task.subject, style = MaterialTheme.typography.bodySmall)
-            Text(task.status, style = MaterialTheme.typography.labelMedium)
-        }
-    }
-}
-
-@Composable
-private fun TaskRing(ring: TaskRingStyle) {
-    Canvas(modifier = Modifier.size(20.dp).testTag("task-ring:${ring.tag}")) {
-        val strokeWidth = 3.dp.toPx()
-        drawCircle(
-            color = ring.color,
-            radius = (size.minDimension - strokeWidth) / 2,
-            style = Stroke(
-                width = strokeWidth,
-                pathEffect = if (ring.dashed) PathEffect.dashPathEffect(floatArrayOf(4f, 4f)) else null,
-            ),
-        )
+        Text(task.slug, style = MaterialTheme.typography.bodyLarge)
+        Text(task.subject, style = MaterialTheme.typography.bodySmall)
+        Text(task.status, style = MaterialTheme.typography.labelMedium)
     }
 }
 

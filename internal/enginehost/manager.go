@@ -91,18 +91,23 @@ type Store interface {
 // each start. Environ is the environment sessions start with, Cap the most live sessions at once, StepCap the most
 // live step sessions at once, counted apart from Cap, Writer stores their ops, Now stamps them (nil is time.Now),
 // Notifier receives the notices of their state changes (nil sends none), Store is the engine rows Reconcile, Say and
-// Seen read and Logger reports pump errors (nil discards).
+// Seen read and Logger reports pump errors (nil discards). HolderScope is the absolute path of systemd-run that runs
+// each session's holder in its own user scope, or empty to run holders plainly; with it set, Close detaches the
+// sessions instead of stopping them, so their holders keep running. StateDir is the state directory that holds the
+// sessions' holders, or empty for a private directory per session.
 type Config struct {
-	Shell    string
-	Claude   string
-	Environ  []string
-	Cap      int
-	StepCap  int
-	Writer   *Writer
-	Now      func() time.Time
-	Notifier NoticeSink
-	Store    Store
-	Logger   *slog.Logger
+	Shell       string
+	Claude      string
+	Environ     []string
+	HolderScope string
+	StateDir    string
+	Cap         int
+	StepCap     int
+	Writer      *Writer
+	Now         func() time.Time
+	Notifier    NoticeSink
+	Store       Store
+	Logger      *slog.Logger
 }
 
 // liveSession is one running session: its directory, its process, the done channel closed when its pump has finished,
@@ -141,15 +146,17 @@ type liveSession struct {
 // Manager starts, stops and tracks headless sessions. Each running session has a pump goroutine that records its
 // events through the Writer. Close stops every session and waits for the pumps.
 type Manager struct {
-	shell    string
-	claude   string
-	environ  []string
-	limit    int
-	writer   *Writer
-	now      func() time.Time
-	notifier NoticeSink
-	store    Store
-	logger   *slog.Logger
+	shell       string
+	claude      string
+	environ     []string
+	holderScope string
+	stateDir    string
+	limit       int
+	writer      *Writer
+	now         func() time.Time
+	notifier    NoticeSink
+	store       Store
+	logger      *slog.Logger
 
 	pumps sync.WaitGroup
 
@@ -183,6 +190,8 @@ func NewManager(cfg Config) *Manager {
 		shell:         cfg.Shell,
 		claude:        cfg.Claude,
 		environ:       cfg.Environ,
+		holderScope:   cfg.HolderScope,
+		stateDir:      cfg.StateDir,
 		limit:         cfg.Cap,
 		stepLimit:     cfg.StepCap,
 		writer:        cfg.Writer,
@@ -697,7 +706,7 @@ func (m *Manager) engineRow(ctx context.Context, id string) (store.EngineRow, er
 // events. The caller holds the slot from reserve or reserveStep. A process that starts after the manager closed is
 // stopped, and the error reports the close. An error that returns here leaves nothing registered.
 func (m *Manager) spawnLive(ctx context.Context, id, dir string, sp spawnSpec) (*liveSession, error) {
-	sess, err := m.spawn(id, dir, sp)
+	sess, err := m.spawn(ctx, id, dir, sp)
 	if err != nil {
 		return nil, err
 	}
@@ -722,10 +731,10 @@ func (m *Manager) spawnLive(ctx context.Context, id, dir string, sp spawnSpec) (
 	return live, nil
 }
 
-// Close stops every live session and waits up to 5 s for each to record its state. A session whose turn was running is
-// recorded interrupted, and every session loses its unfinished text. It then cancels any write a pump still has blocked
-// and waits for the pumps to return. Start refuses from the moment Close begins, and later calls to Close return at
-// once.
+// Close stops every live session and waits up to 5 s for each to record its state. With a holder scope, Close detaches
+// each session instead, so its holder and child keep running. A session whose turn was running is recorded
+// interrupted, and every session loses its unfinished text. It then cancels any write a pump still has blocked and
+// waits for the pumps to return. Start refuses from the moment Close begins, and later calls to Close return at once.
 func (m *Manager) Close() {
 	m.mu.Lock()
 	if m.closed {
@@ -741,7 +750,13 @@ func (m *Manager) Close() {
 	m.mu.Unlock()
 
 	for _, live := range running {
-		if err := live.sess.Stop(); err != nil {
+		var err error
+		if m.holderScope != "" {
+			err = live.sess.Detach()
+		} else {
+			err = live.sess.Stop()
+		}
+		if err != nil {
 			m.logger.Warn("session stop failed on close", "session", live.id, "err", err)
 		}
 	}
@@ -975,10 +990,10 @@ type spawnSpec struct {
 	observer      StepObserver
 }
 
-// spawn resolves claude and starts the session process for id in dir as sp describes. The prompt is not sent here. The
-// process takes the context stamp in effect for dir as its settings, and a stamp that cannot be read fails the spawn
-// before claude runs.
-func (m *Manager) spawn(id, dir string, sp spawnSpec) (*session.Session, error) {
+// spawn resolves claude and starts the session process for id in dir as sp describes, ctx bounding its launch. The
+// prompt is not sent here. The process takes the context stamp in effect for dir as its settings, and a stamp that cannot
+// be read fails the spawn before claude runs.
+func (m *Manager) spawn(ctx context.Context, id, dir string, sp spawnSpec) (*session.Session, error) {
 	claude, err := exec.LookPath(m.claude)
 	if err != nil {
 		return nil, fmt.Errorf("find claude: %w", err)
@@ -987,7 +1002,7 @@ func (m *Manager) spawn(id, dir string, sp spawnSpec) (*session.Session, error) 
 	if err != nil {
 		return nil, fmt.Errorf("spawn session %s: %w", id, err)
 	}
-	sess, err := session.Start(session.Config{
+	sess, err := session.Start(ctx, session.Config{
 		Shell:          m.shell,
 		Claude:         claude,
 		Dir:            dir,
@@ -998,6 +1013,8 @@ func (m *Manager) spawn(id, dir string, sp spawnSpec) (*session.Session, error) 
 		Agent:          sp.agent,
 		Schema:         sp.schema,
 		Name:           id,
+		HolderScope:    m.holderScope,
+		StateDir:       m.stateDir,
 		Environ:        m.environ,
 	})
 	if err != nil {

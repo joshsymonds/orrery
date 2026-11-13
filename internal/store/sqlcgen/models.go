@@ -49,6 +49,26 @@ type Hold struct {
 	Since  int64
 }
 
+type PendingNotice struct {
+	ID          int64
+	Pane        string
+	Session     string
+	State       string
+	Time        int64
+	Phase       string
+	Due         int64
+	DelayServed bool
+	WatchLogged bool
+	SourceKind  string
+	Source      []byte
+	Silent      bool
+}
+
+type PendingNoticeID struct {
+	ID   int64
+	High int64
+}
+
 type Session struct {
 	ID            string
 	Server        string

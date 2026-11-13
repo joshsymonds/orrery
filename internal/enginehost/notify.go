@@ -2,6 +2,8 @@ package enginehost
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"path/filepath"
 	"time"
 
@@ -14,9 +16,15 @@ import (
 
 const stateInterrupted = "interrupted"
 
+// SessionSource is the source kind of a session notice. Its data is the Notice JSON that Notify stored.
+const SessionSource = "session"
+
 // Notice is one headless session event the owner is told about.
 type Notice struct {
-	Session, Dir, State, Body string
+	Session string `json:"session"`
+	Dir     string `json:"dir"`
+	State   string `json:"state"`
+	Body    string `json:"body"`
 }
 
 // Router routes notices to the owner's desk and phone. *route.Router satisfies it.
@@ -42,13 +50,35 @@ func NewNotifier(cfg NotifierConfig) *Notifier {
 }
 
 // Notify hands event to the Router as a notice and returns at once. Only waiting, done, failed and interrupted
-// notify. The Router ignores ctx's cancellation, so a notice accepted before a shutdown still routes.
+// notify. The Router ignores ctx's cancellation, so a notice accepted before a shutdown still routes. The notice
+// carries event as its SessionSource, so the Router can restore it after a restart.
 func (n *Notifier) Notify(ctx context.Context, event Notice) {
 	if !notifies(event.State) || n.route == nil {
 		return
 	}
 	ctx = context.WithoutCancel(ctx)
-	n.route.Notify(ctx, route.Notice{
+	incoming := sessionNotice(event)
+	// A Notice holds only strings, which always marshal. Were that ever to fail, the notice still routes, with no
+	// row to restore it from.
+	if data, err := json.Marshal(event); err == nil {
+		incoming.Source = route.Source{Kind: SessionSource, Data: data}
+	}
+	n.route.Notify(ctx, incoming)
+}
+
+// RestoreNotice rebuilds the notice that a stored row of SessionSource describes, from the Notice JSON in data. It
+// is the route.Rebuild for SessionSource, and it returns the notice Notify builds for the same event.
+func RestoreNotice(_ context.Context, data []byte) (route.Notice, error) {
+	var event Notice
+	if err := json.Unmarshal(data, &event); err != nil {
+		return route.Notice{}, fmt.Errorf("%s notice: %w", SessionSource, err)
+	}
+	return sessionNotice(event), nil
+}
+
+// sessionNotice is the notice event routes, with its key, desk notice and push. Notify and RestoreNotice both build it.
+func sessionNotice(event Notice) route.Notice {
+	return route.Notice{
 		Key:   notice.Key{Session: event.Session},
 		State: event.State,
 		Desk: func(context.Context) (deskstream.Notice, error) {
@@ -61,7 +91,7 @@ func (n *Notifier) Notify(ctx context.Context, event Notice) {
 		Push: func(context.Context) (push.Notification, error) {
 			return pushNotification(event), nil
 		},
-	})
+	}
 }
 
 // Changed reports to the Router that session left the state its notice was about. The Router ends the session's

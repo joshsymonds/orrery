@@ -48,6 +48,10 @@ message EpicsGetResponse {
 
   // Every step labelled with the epic, oldest first.
   repeated EpicStep steps = 3;
+
+  // A slice per task label among the epic's labelled writing steps, in order of each label's first start. Read-only
+  // steps and steps with no task label add none.
+  repeated EpicSlice slices = 4;
 }
 
 // Epic is one epic under the record root.
@@ -142,6 +146,47 @@ message EpicStepCheck {
 
   // Whether the check passed.
   bool ok = 3;
+}
+
+// EpicSlice is one task's rings, read from the task's latest writing step. The rings, outermost first, are red_test,
+// working, tests_pass, checks and gate_accepted, so progress moves inward. Evidence that is empty, unparsable, or starts
+// NOT RUN (trimmed, any case) counts for nothing.
+message EpicSlice {
+  // The task label.
+  string task = 1;
+
+  // The task's state for the chart's centre readout and its counts, which colours no cell: "dispatched" while the
+  // label's latest writing step runs or is held, "done" when it ended done, "gap" for any other end.
+  string hue = 2;
+
+  // Whether the latest writing step's result carries red_evidence.
+  bool red_test = 3;
+
+  // Whether the latest writing step has run.
+  bool working = 4;
+
+  // Whether the latest writing step's result carries green_evidence.
+  bool tests_pass = 5;
+
+  // Whether the latest writing step's last round's checks all passed, a gate check among them.
+  bool checks = 6;
+
+  // Whether the latest writing step ended done.
+  bool gate_accepted = 7;
+
+  // The ring the task is working toward, 1 for red_test through 5 for gate_accepted, while the latest writing step runs
+  // or is held: the first ring not yet reached, counting from red_test inward, which is the first of red_test, working,
+  // tests_pass, checks, gate_accepted whose field is false; 0 once the step ended.
+  int32 at = 8;
+
+  // Whether the latest writing step is held by the owner. False once it has ended.
+  bool held = 9;
+
+  // The ring that errored, 1 for red_test through 5 for gate_accepted, when the latest writing step ended any way but
+  // done; 0 while it runs or is held, and when it ended done. It is 4 (checks) when the step ended checks_failed, 5
+  // (gate_accepted) when it ended goal_unmet, and for every other end the first ring not reached, counted as at counts
+  // it.
+  int32 error_at = 10;
 }
 
 // StepsHoldRequest names the step to hold.

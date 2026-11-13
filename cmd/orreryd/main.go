@@ -77,7 +77,7 @@ const (
 
 const usageText = `usage: orreryd [-L NAME | -S PATH] [--socket PATH] [--claude PATH] [--summary-model CONTEXT=MODEL]...
                [--push-host HOST]... [--sessions] [--session-cap N] [--session-shell PATH]
-               [--step-cap N]
+               [--holder-scope PATH] [--step-cap N]
 
 flags:
   -L NAME           tmux server by name (tmux -L)
@@ -92,6 +92,9 @@ flags:
   --session-cap N   most live engine sessions at once (default 4)
   --session-shell PATH
                     absolute login shell that starts each session (default $SHELL)
+  --holder-scope PATH
+                    systemd-run binary that runs each session's holder in its own user scope
+                    (default: none, the holder starts plainly)
   --step-cap N      most live step sessions at once, counted apart from --session-cap (default 6)
 `
 
@@ -120,6 +123,7 @@ type options struct {
 	sessions      bool
 	sessionCap    int
 	sessionShell  string
+	holderScope   string
 	stepCap       int
 }
 
@@ -204,6 +208,7 @@ func parseFlags(args []string, getenv func(string) string) (options, error) {
 	sessions := flags.Bool("sessions", false, "serve the engine session service")
 	sessionCap := flags.Int("session-cap", defaultSessionCap, "most live engine sessions")
 	sessionShell := flags.String("session-shell", getenv("SHELL"), "login shell that starts each session")
+	holderScope := flags.String("holder-scope", "", "systemd-run binary that runs each session's holder")
 	stepCap := flags.Int("step-cap", defaultStepCap, "most live step sessions")
 	if err := flags.Parse(args); err != nil {
 		return options{}, usagef("%v", err)
@@ -222,6 +227,9 @@ func parseFlags(args []string, getenv func(string) string) (options, error) {
 	}
 	if *sessions && !filepath.IsAbs(*sessionShell) {
 		return options{}, usagef("--sessions needs an absolute --session-shell, got %q", *sessionShell)
+	}
+	if *holderScope != "" && !filepath.IsAbs(*holderScope) {
+		return options{}, usagef("--holder-scope needs an absolute path, got %q", *holderScope)
 	}
 	if *stepCap < 1 {
 		return options{}, usagef("--step-cap must be at least 1, got %d", *stepCap)
@@ -248,6 +256,7 @@ func parseFlags(args []string, getenv func(string) string) (options, error) {
 		sessions:      *sessions,
 		sessionCap:    *sessionCap,
 		sessionShell:  *sessionShell,
+		holderScope:   *holderScope,
 		stepCap:       *stepCap,
 	}, nil
 }
@@ -362,6 +371,7 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 		LocalInput: localInput(opts),
 		Log:        noticeLog,
 		Logger:     logger,
+		Rebuild:    map[string]route.Rebuild{enginehost.SessionSource: enginehost.RestoreNotice},
 	})
 	hub := &relay{
 		claude: opts.claude,
@@ -400,7 +410,7 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 	})
 
 	st := openStore(ctx, getenv, logger)
-	mirror.Attach(st)
+	attachStore(ctx, st, mirror, router)
 	var sessions *sessionHost
 	var startErr error
 	if opts.sessions {
@@ -501,15 +511,17 @@ func startSessions(
 		}
 		host.writer = enginehost.NewWriter(enginehost.WriterConfig{Applier: st, Logger: logger})
 		host.manager = enginehost.NewManager(enginehost.Config{
-			Shell:    opts.sessionShell,
-			Claude:   opts.claude,
-			Environ:  os.Environ(),
-			Cap:      opts.sessionCap,
-			StepCap:  opts.stepCap,
-			Writer:   host.writer,
-			Notifier: notifier,
-			Store:    st,
-			Logger:   logger,
+			Shell:       opts.sessionShell,
+			Claude:      opts.claude,
+			Environ:     os.Environ(),
+			HolderScope: opts.holderScope,
+			StateDir:    filepath.Dir(storePath),
+			Cap:         opts.sessionCap,
+			StepCap:     opts.stepCap,
+			Writer:      host.writer,
+			Notifier:    notifier,
+			Store:       st,
+			Logger:      logger,
 		})
 		host.startBroker(ctx, hostName, st, logger)
 		// host.pools is nil when the broker's restore failed, which leaves the gates no pools to run under.
@@ -636,8 +648,9 @@ func (h *sessionHost) shutdown() {
 	}
 }
 
-// openStore opens the store at its resolved path. When the path does not resolve or the store cannot be opened, it
-// logs the error and returns nil, so orreryd serves hooks and notifications without the store.
+// openStore opens the store at its resolved path and logs "store open" once the store is open and migrated. When the
+// path does not resolve or the store cannot be opened, it logs the error and returns nil, so orreryd serves hooks and
+// notifications without the store.
 func openStore(ctx context.Context, getenv func(string) string, logger *slog.Logger) *store.Store {
 	path, err := store.Path(getenv)
 	if err != nil {
@@ -649,7 +662,18 @@ func openStore(ctx context.Context, getenv func(string) string, logger *slog.Log
 		logger.ErrorContext(ctx, "store unavailable, serving without it", "path", path, "error", err)
 		return nil
 	}
+	logger.InfoContext(ctx, "store open", "path", path)
 	return st
+}
+
+// attachStore attaches st to the mirror and, when the store opened, to the router, which stores the notices already
+// pending and restores the ones a previous orreryd left. serve calls it before the sessions start, so a reconciled
+// session's notice is newer than any it restores.
+func attachStore(ctx context.Context, st *store.Store, mirror *daemon.Mirror, router *route.Router) {
+	mirror.Attach(st)
+	if st != nil {
+		router.Attach(ctx, st)
+	}
 }
 
 // closeStore closes st when it is open and logs a failed close.

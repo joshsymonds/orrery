@@ -182,13 +182,10 @@ linters:
         - os.Setenv
         - os.Unsetenv
 
-    errname:
-      skip-single: true
-
     exhaustive:
       check:
         - switch
-        - map
+        - mapliteral
       default-signifies-exhaustive: true
 
     gochecksumtype:
@@ -534,10 +531,9 @@ linters:
           - gosec
         text: 'G204'
 
-      # The open resolver runs the configured zoxide binary, and the intent lookup runs the configured
-      # claude binary, with argv and no shell, so the G204 finding is the intended design, as for
-      # tmuxctl (orchestrator decision ED2c-2).
-      - path: 'internal/open/(open|intent)\.go'
+      # The intent lookup runs the configured claude binary, with argv and no shell, so the G204 finding is
+      # the intended design, as for tmuxctl (orchestrator decision ED2c-2).
+      - path: 'internal/open/intent\.go'
         linters:
           - gosec
         text: 'G204'
@@ -570,3 +566,7 @@ run:
   tests: true
   modules-download-mode: readonly
   build-tags: []
+  # golangci-lint takes one machine-wide lock ($TMPDIR/golangci-lint.lock). Without this, a run that cannot take it
+  # within 5 s exits "parallel golangci-lint is running", which fails a concurrent worktree's `just check`. With it,
+  # the run waits for the lock and then lints alone. allow-parallel-runners would skip the lock instead.
+  allow-serial-runners: true

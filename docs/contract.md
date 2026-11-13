@@ -283,13 +283,15 @@ Subcommands:
 - `open [--remote] [--intent TEXT] [ARGS...]` attaches a session for a project, or starts one.
   - No argument: attaches the most recently active non-shell session, and the tree opens on that client after it attaches.
   - `.`: the session whose `@orrery_dir` is the current directory. If none exists, the picker opens for the directory, as below. `--remote` refuses `.`.
-  - One word: a session with that exact name, else a zoxide fast match, else the word is intent text for the picker. A fast match is one zoxide result, or several when the best one's basename is the word.
+  - A path: an argument that contains `/` or is `..`. It is taken against the current directory and cleaned. An existing directory opens as `.` does: its session, else the picker with its resume rows. A missing path, or one that is not a directory, fails naming it with exit 1, creating nothing and opening no picker. Under `--remote`, a relative path is refused with exit 1, and an absolute path is taken on the remote host.
+  - One word: a session with that exact name; else the known directories whose base name is exactly the word. One such directory opens as a path does. Several open the picker with one `pane DIR` row each, in known-directory order; Enter opens a new Claude pane there. None makes the word intent text for the picker.
+  - Known directories: each directory once, and only those that exist now, in this order: the `@orrery_dir` of each live session; the record directories of the archive, newest first; the directories of orreryd's engine sessions and step workspaces, newest first, read from the store (see [Store](#store)) read-only. A missing or busy store adds none, and any other store error fails the lookup. Then the children of `$HOME/Personal`; then the roots' directories, as the [picker](#picker) lists them.
   - `new NAME [--root DIR]`: creates the directory `DIR/NAME` and a session for it. `DIR` must be absolute and defaults to `$HOME/Personal`. `NAME` cannot be `.`, `..`, or contain `/`. A taken session name gets `-2`, `-3`, and so on. `.`, `:` and `#` in a name become `_`.
   - Any other arguments: joined with spaces, they are intent text for the picker.
   - A project directory with no live session is not given a new session at once. The picker opens with its resume rows: one `resume` row per archived Claude session for the directory whose transcript still exists, newest first. Without any, it opens with a `continue latest` row. A `start fresh` row always comes last. See [Picker](#picker).
   - `--intent TEXT`: opens the picker with `TEXT` at once. It takes no ARGS; with ARGS it exits 2. Flags come before ARGS.
   - With `TMUX` set, the command switches the invoking client (tmux's current client, by its tty). Otherwise it attaches.
-  - `claude` and `zoxide` are found on `PATH`.
+  - `claude` is found on `PATH`.
   - A pane command with arguments (resume, continue, a first prompt) starts as `<default-shell> -c 'exec "$@"' orrery claude <arguments...>` when the base name of tmux's default-shell is sh, bash, zsh, dash or ksh. The pane gets that shell's environment, and each argument reaches claude unchanged. Under any other shell, or when default-shell cannot be read, the command starts directly. `claude` alone runs as tmux runs any one-word command, through default-shell.
   - Exit codes are those in the table above. A refused `open .` with `--remote` exits 1.
 - `serve --listen ADDR --allow-login LOGIN` serves the HTTP API of section 12. See `### orrery serve`.
@@ -347,9 +349,11 @@ Subcommands:
   - Exit statuses: `0` on success; `1` when `orreryd` refuses or cannot be reached, with the reason on stderr. A refusal includes a malformed name and a `--off` of a member that is not held. `2` for a usage error: any argument count other than one `MEMBER`, or an unknown flag.
 - `holder --session NAME [--state-dir DIR] -- PATH [ARGS...]` runs `PATH` with `ARGS` as one session's held child and serves the session's holder socket until the child ends (see [Holder](#holder)). `--session` names the session and is required. `--state-dir DIR` places the session under `DIR/holders` instead of the store's directory.
   - Exit statuses:
-    - `0`: the holder quit after its child ended or was stopped. The child's status is in `exit.json`, not here.
-    - `1`: the holder refused to start or failed. Its reason is on stderr as `orrery holder: MESSAGE`, or as `orrery: holder: MESSAGE` when no holders directory can be named.
+    - `0`: the child was stopped or ended by the idle timeout (`exit.json` reason `stopped` or `idle`), or it ended on its own with status 0.
+    - The child's exit code, when it ended on its own with a nonzero status. A child that a signal ended gives 128 plus the number of the signal that `exit.json`'s `signal` names, whose `code` is then -1 (`cmd/orrery/holder.go:82`-`:105`, `internal/holder/child.go:201`-`:207`).
+    - `1`: the holder refused to start or failed, or the child ended on its own with no exit status. Its reason is on stderr as `orrery holder: MESSAGE`, or as `orrery: holder: MESSAGE` when no holders directory can be named (`cmd/orrery/holder.go:68`-`:74`, `:100`-`:101`).
     - `2`: a usage error. That is a missing or invalid `--session`, a flag other than `--session` and `--state-dir`, an argument before `--`, or no `PATH` after `--`.
+    - A child that ends on its own with status 1 or 2 gives that status too, so the code alone does not say whether the holder or its child failed. The holder writes to stderr only for its own failure (`orrery holder: MESSAGE`, or `orrery: holder: MESSAGE`) and for a usage error (the usage text). An exit that passes on the child's status writes nothing to stderr, and `exit.json` then holds the child's `code` and `signal` (`cmd/orrery/holder.go:65`-`:75`).
 - `gate [--gates FILE] NAME` runs the named gate `NAME` under a grant of its needs from `orreryd`. `NAME` is resolved as [Gate files](#gate-files) gives: from `FILE` first when `--gates` names one, then from the project file for the working directory. A relative `FILE` is read from the working directory. `gate` reads the pool files for the working directory, as `run` does (see [Pool files](#pool-files)), and reaches `orreryd` on `sessions.sock` as `run` does.
   - The argv runs through the same `RunWithGrant` path as `run`'s command (`cmd/orrery/gate.go:71`-`:86`). It runs without a shell, in the working directory, with `gate`'s standard input, output and error. Its environment is `gate`'s, plus `ORRERY_GRANT` and one `ORRERY_POOL_<POOL>` for each pool in its needs, as `run` sets them. Its limit counts from the start of each run under its grant, not from the queue (`internal/cli/run.go:70`-`:72`).
   - The lines `run` writes to stderr while its command queues, is stopped, loses its grant or passes its limit are written by `gate` too, with the prefix `orrery run:` (`internal/cli/run.go:189`, `:486`, `:492`, `:585`).
@@ -396,7 +400,7 @@ Registrations are written to the push store that `orreryd` reads (see `### orrer
 
 `serve` also serves the `orrery.v1.Pools` service of [Phone API](#phone-api). It forwards `Status`, `Hold` and `Free` to orreryd's session socket under the same daemon socket rule as Control, and it has no `Acquire`.
 
-The picker call `Picker.Ask` (see [Phone API](#phone-api)) looks up `zoxide` and `claude` on serve's PATH at each ask, not at start. A missing one answers that ask `unavailable` and does not stop serve.
+The picker call `Picker.Ask` (see [Phone API](#phone-api)) looks up `claude` on serve's PATH at each ask, not at start. A missing `claude` answers that ask `unavailable` and does not stop serve.
 
 `serve` also sends `orreryd` a read report (section 9) with the pane and the time of each read it answers. It sends one after each successful `Panes.Conversation` or `Panes.Screen` answer. While a `Panes.WatchConversation` stream stays open, it sends one at the stream's first successful step, and again each time the keepalive interval has passed since the last report. That interval is 5 seconds by default. The report goes to the daemon socket (section 5). When no `orreryd` listens there, the report is dropped.
 
@@ -415,7 +419,7 @@ orrery serve --listen 127.0.0.1:8080 --allow-login user@example.test
 ### orreryd
 
 ```
-orreryd [-L NAME | -S PATH] [--socket PATH] [--claude PATH] [--summary-model CONTEXT=MODEL]... [--push-host HOST]... [--sessions] [--session-cap N] [--session-shell PATH] [--step-cap N]
+orreryd [-L NAME | -S PATH] [--socket PATH] [--claude PATH] [--summary-model CONTEXT=MODEL]... [--push-host HOST]... [--sessions] [--session-cap N] [--session-shell PATH] [--holder-scope PATH] [--step-cap N]
 ```
 
 - `-L`, `-S`, and `--socket` work as they do for `orrery`.
@@ -423,9 +427,10 @@ orreryd [-L NAME | -S PATH] [--socket PATH] [--claude PATH] [--summary-model CON
 - `--summary-model CONTEXT=MODEL` maps a patchbay context (section 8) to a summary model. Repeat the flag for each context. A context with no mapping uses `claude-haiku-5-5`. The done judge (see [Notice routing](#notice-routing)) uses the same map.
 - Each applied hook frame sets `@orrery_context` on the frame's pane to that frame's context (section 2).
 - `--push-host HOST` names a push relay host that a Web Push subscription may use. Repeat the flag for each host. The default is `ntfy.sh`. A subscription whose endpoint is on another host is refused (section 12).
-- `--sessions` serves the engine session service, the step service (see [Steps](#steps)) and the Pools service (see [Pools](#pools)) on `sessions.sock` beside the daemon socket. The headless session manager runs behind it when the store opens. Without `--sessions`, no session socket exists. With it, `--session-shell` must be an absolute path, or the command exits 2.
+- `--sessions` serves the engine session service, the step service (see [Steps](#steps)) and the Pools service (see [Pools](#pools)) on `sessions.sock` beside the daemon socket. The headless session manager runs behind it when the store opens. `sessions.sock` listens only after the store open has ended, so after the `store open` line when the store opens. Without `--sessions`, no session socket exists. With it, `--session-shell` must be an absolute path, or the command exits 2.
 - `--session-cap N` is the most live headless sessions at once. The default is 4. A value below 1 exits 2.
 - `--session-shell PATH` is the absolute login shell that starts each session. The default is `$SHELL`.
+- `--holder-scope PATH` is the absolute path of `systemd-run`, which runs each session's holder in its own user scope. The default is none, and the holder then starts plainly. A relative path exits 2 (`cmd/orreryd/main.go:231`-`:232`, `:189`). [Headless sessions](#headless-sessions) gives the start under the flag, and [Lifecycle rules](#lifecycle-rules) gives shutdown under it.
 - `--step-cap N` is the most live step sessions at once. Steps count apart from `--session-cap`. The default is 6. A value below 1 exits 2.
 
 `orreryd` listens on unix sockets only. It opens no network listener. `--sessions` adds the session socket. The desk stream is served on `notices.sock` beside the daemon socket, as [Desk stream](#desk-stream) describes.
@@ -452,9 +457,9 @@ When the router sends a notice to the phone, `orreryd` posts it as an encrypted 
 
 When neither variable is set, `orreryd` exits 1.
 
-`orreryd` also keeps the store, which mirrors each pane's tmux options (see [Store](#store)). When the store cannot be opened, `orreryd` logs the error and serves hooks and notifications without it. It then mints no `@orrery_id` and syncs no pane. A failure of the push store still exits 1.
+`orreryd` also keeps the store, which mirrors each pane's tmux options (see [Store](#store)). It opens the store after its sockets listen, and logs `store open` (info, with `path`) once the store is open and migrated. When the store cannot be opened, `orreryd` logs the error and serves hooks and notifications without it. It then mints no `@orrery_id` and syncs no pane. A failure of the push store still exits 1.
 
-`SIGINT` and `SIGTERM` stop `orreryd`. With `--sessions`, the Pools broker closes first (see [Pools](#pools)), then the session socket closes. Then every live headless session is stopped, and its turn, if one is running, is recorded `interrupted`. `orreryd` exits after those notices are routed (see [Notice routing](#notice-routing)). The desk stream closes last, after the notices that post to it. See [Headless sessions](#headless-sessions) and [Desk stream](#desk-stream).
+`SIGINT` and `SIGTERM` stop `orreryd`. With `--sessions`, the Pools broker closes first (see [Pools](#pools)), then the session socket closes. Then every live headless session is stopped, or with `--holder-scope` detached (see [Lifecycle rules](#lifecycle-rules)), and its turn, if one is running, is recorded `interrupted`. `orreryd` exits after those notices are routed, and after each headless session notice still pending is kept or ended, as [Notice routing](#notice-routing) says at shutdown. The desk stream closes last, after the notices that post to it. See [Headless sessions](#headless-sessions) and [Desk stream](#desk-stream).
 
 #### Notice routing
 
@@ -476,11 +481,26 @@ When neither variable is set, `orreryd` exits 1.
 4. **Away.** Otherwise the notice goes to the desk stream and to the phone at once, with route `desk+phone` and reason `away`.
 5. **Push subscription.** The phone gets a notice only when the push store lists at least one subscription. Without one, the phone part is dropped: the route names what remains, and the reason gains `; no push subscription`. An escalation with no subscription ends the notice with route `none` and reason `unseen after 5 minutes; no push subscription`. A failed subscription check reads as a subscription, so the push is attempted.
 6. **Desk notice failure.** A desk notice that cannot be built is not posted. The notice then routes as away, and its reason gains `; desk notice failed` before any `; no push subscription`.
-7. **Ending.** A newer notice for the same pane or session ends the pending one, and so does a pane's or a session's transition to a state other than `waiting` or `done`. Each ends with route `none` and reason `changed`. A seen write at or after the notice's time ends it with `none` and `seen`, and the seen write still clears any notice already sent to the phone (see [orreryd](#orreryd)). At shutdown, each pending notice ends with `none` and `shutdown`, and is not sent.
+7. **Ending.** A newer notice for the same pane or session ends the pending one, and so does a pane's or a session's transition to a state other than `waiting` or `done`. Each ends with route `none` and reason `changed`. A seen write at or after the notice's time ends it with `none` and `seen`, and the seen write still clears any notice already sent to the phone (see [orreryd](#orreryd)). At shutdown, each pending pane notice ends with `none` and `shutdown`, and is not sent. A pending headless session notice is kept when the store is open and its row is stored, and otherwise ends with `none` and `shutdown` as a pane notice does (see Restart below).
+
+**Restart.** With the store open, a headless session notice still pending at shutdown is kept: no line is written and nothing is sent. One whose row could not be stored, even after shutdown retries the failed row writes, ends `shutdown` instead. At start, once the store opens and before the headless sessions start, `orreryd` stores a row for each headless session notice already pending, then restores each stored row by its phase (see [Pending notices in the store](#pending-notices-in-the-store)):
+
+- `deciding` is decided anew.
+- `desk` is not posted again, and escalates when its 5 minutes run out.
+- A row whose `due` has passed runs at once.
+- `sending` is pushed again, with route `phone` and reason `resent after restart`. It is silent if its push was silent. It is not posted to the desk stream, and its row is deleted when that publish returns. It is not pending again: a seen write or a newer notice after the restore does not end it, and a seen write at or after the resend still clears the resent push on the phone. A notice for its key recorded before the restore, or a stored row for its key with a higher `id`, ends it `changed` with no resend, as for other rows.
+
+Apart from `sending`, a restored notice keeps its original time, so a seen write at or after that time ends it with `none` and `seen`. A newer notice for the same pane or session ends it with `none` and `changed`, whether the newer notice is recorded before or after the restore. The sessions' start can record an `interrupted` notice that does this. A row that cannot be restored writes a line with route `none` and reason `not restored: <error>`, and the row is deleted. A stop during a publish can push the notice once more, and the phone alerts again for a resent waiting or failed push. A publish that finishes after shutdown still deletes its row, so a clean stop resends nothing.
 
 ### Headless sessions
 
 With `--sessions`, `orreryd` runs headless Claude Code sessions. Each session is one `claude` process in stream-json mode with `-p`, `--permission-mode bypassPermissions` and `--permission-prompt-tool stdio`. It starts through the login shell `--session-shell`, in the directory its row names, with `orreryd`'s environment. The environment drops `TMUX`, `TMUX_PANE`, `ORRERY_SUMMARIZER` and `ORRERY_SESSION`, and then gains `ORRERY_SESSION` set to the session id. A session id is 128 random bits in lowercase hex.
+
+Each session's process starts under its holder (see [Holder](#holder)). `orreryd` runs `orrery holder --session ID --state-dir DIR -- SHELL ARGS...` in the session's directory and environment (`internal/holder/launch.go:88`-`:94`). `SHELL` is `--session-shell`, `ARGS` is the argument vector that `session.Command` builds to exec `claude` (`internal/engine/session/command.go:18`-`:25`, `:74`-`:81`), and `DIR` is the directory that holds the store file, so the session's holder files are in `DIR/holders/ID` (`internal/holder/launch.go:119`-`:124`, `cmd/orreryd/main.go:516`-`:517`). The `orrery` it runs is the one beside `orreryd`, or the one on `PATH` when none is beside it (`internal/holder/launch.go:147`-`:160`).
+
+With `--holder-scope PATH`, the program is `PATH`, run with `--user --scope --collect -p OOMPolicy=continue --unit orrery-hold-ID` ahead of the same `orrery holder` argument vector, so the holder runs in its own user scope. Without the flag, the program is `orrery` itself (`internal/holder/launch.go:123`-`:129`). `orreryd` waits up to 30 seconds (`LaunchTimeout`, `internal/holder/launch.go:17`-`:18`) for the holder to serve its socket, then attaches at offset 0 (`internal/holder/launch.go:102`-`:108`). A holder that ends first fails the start with its exit status and its stderr (`internal/holder/launch.go:183`-`:192`). So a `systemd-run` failure fails the start with its reason, and no plain holder starts in its place (`internal/holder/launch.go:46`-`:50`, `internal/engine/session/command.go:120`-`:128`).
+
+`orreryd` reads the session's stdout from the holder's `out` frames (see [Wire protocol](#wire-protocol)), and acks what it has read while the stream runs (`internal/holder/process.go:215`-`:240`, `:308`-`:323`). It writes stdin only as `write` frames, each under a fresh random id that the holder answers, and a write returns once the holder has written its data (`internal/holder/process.go:354`-`:382`, `:385`-`:391`).
 
 Each session has one row and an event log in the store (see [Engine sessions in the store](#engine-sessions-in-the-store)). Changes to a session go through the Engine service on the session socket, and the session's requests are answered through it.
 
@@ -534,11 +554,11 @@ Errors are Connect codes:
 - `Say` to a session that is not live resumes it from its row. The process resumes the row's Claude session when the row has one, and otherwise starts a new conversation in the row's directory. The resumed process runs claude's default model, whatever `model` its `Start` named. Concurrent calls for one id start one process.
 - `Say` with a `prompt_id` that an `engine_prompt` event of the session already carries returns success before it resumes or sends anything. A `prompt_id` whose send failed returns an error carrying that failure, and sends nothing, also after a restart, because the failure is stored in `engine_prompt_failed` (see [Engine sessions in the store](#engine-sessions-in-the-store)). A `prompt_id` whose attempt failed in another way after it stored the prompt returns that attempt's error, and sends nothing, while `orreryd` runs. An empty `text` is refused before that check. A row whose directory is missing or is not a directory is recorded `failed` with the reason.
 - Idle stop: every 30 seconds, a session that has not been busy for 10 minutes is stopped. A session is busy while a turn runs, a request is open, or a background task runs. The stop writes nothing, so the row and its events stay as they were. The next `Say` resumes the session.
-- Stop signal: stopping a process sends `SIGINT` to its process group, then `SIGKILL` if it has not exited after 2 seconds.
+- Stop signal: stopping a session's process sends its holder a `stop` frame on a new connection. The holder's child gets `SIGTERM` to its process group, then `SIGKILL` if it has not exited after 5 seconds (see [Child](#child)). When that stop fails, the holder's own process is stopped instead. Once the holder's `exit` frame has arrived the child has ended, and the stop sends nothing and only waits for the holder to end (`internal/holder/process.go:108`-`:113`, `:116`-`:139`, `:143`-`:161`; `internal/holder/child.go:85`-`:95`, `:16`-`:17`).
 - `Stop` records `stopped` unless the process's exit has already recorded a state. A process that exits without an error records `stopped`.
 - Failed on death: a process that exits with an error records `failed`. The reason is the exit error and stream error, followed by the last non-blank line of its stderr, and the owner is notified. The exit of a process stopped for idle stop or shutdown records nothing itself.
-- Shutdown: when `orreryd` receives `SIGINT` or `SIGTERM`, the session socket closes first. Then each live session is stopped, and a session whose turn is running is recorded `interrupted` with the reason `orreryd stopped during the turn`. These writes share one 5-second limit, and each interrupted session notifies its owner. The notices are routed before `orreryd` exits, and a notice still pending then is not sent (see [Notice routing](#notice-routing)).
-- Reconcile at start: before the session socket serves, each engine row with no live process loses its unfinished text. A row that is `working` or `waiting` is recorded `interrupted` with the reason `orreryd restarted during the turn`, its question is cleared, and its owner is notified. Other rows keep their state, and no row is removed. The first read or write error ends the pass. `orreryd` logs it and serves anyway.
+- Shutdown: when `orreryd` receives `SIGINT` or `SIGTERM`, the session socket closes first. Then each live session is stopped. With `--holder-scope`, each live session is detached instead: its holder and child keep running, and its row is recorded the way a stop records it (`internal/enginehost/manager.go:735`-`:771`). The next start's [Reconcile at start](#lifecycle-rules) stops those holders. A session whose turn is running is recorded `interrupted` with the reason `orreryd stopped during the turn`. These writes share one 5-second limit, and each interrupted session notifies its owner. The notices are routed before `orreryd` exits. A session notice still pending then is not sent: with the store open and its row stored it is kept for the next start, and otherwise it ends `shutdown` (see [Notice routing](#notice-routing)).
+- Reconcile at start: before the session socket serves, each holder under the state directory's `holders` subdirectory that no live session owns is cleared. A holder still serving its socket is stopped, and its directory is emptied and removed once its lock is free. Each clear is bounded by 10 seconds, and a failed clear is logged while the pass goes on (`internal/enginehost/reconcile.go:25`, `:56`-`:82`; `internal/holder/clear.go:20`-`:46`). Then each engine row with no live process loses its unfinished text. A row that is `working` or `waiting` is recorded `interrupted` with the reason `orreryd restarted during the turn`, its question is cleared, and its owner is notified. Other rows keep their state, and no row is removed. The first read or write error ends the pass. `orreryd` logs it and serves anyway.
 - A turn that `Interrupt` stops ends `done` with no notice. `Interrupt` does not stop the process.
 - `reason` keeps its last value. A later state does not clear it, so a session resumed after a failure shows the old reason until a new failure or interruption sets another.
 
@@ -883,10 +903,10 @@ orrery desk --sound /example/sounds/notice.oga --host example-host
 | `ANTHROPIC_BASE_URL` | `orrery` (`hook`, `debug summarize`) | the session's base URL. The hook sends it in each frame (section 9), and each summary and each done judge (see [Notice routing](#notice-routing)) runs through its own session's base URL. |
 | `ORRERY_SUMMARIZER` | `orrery` (`hook`) | summarizer sentinel (section 7). `orreryd` sets it on each summary run. Summaries also run with hooks disabled. |
 | `SHELL` | `orreryd` | the login shell that starts each headless session, when `--session-shell` is not given (see [Headless sessions](#headless-sessions)) |
-| `HOME` | `orrery` (`tree`, `open`, `run`) | `$HOME/Personal` is the default parent directory of new projects. `$HOME` is also the directory that roots are relative to, and the roots file falls back to `$HOME/.config/orrery/roots` (see [Roots](#roots)). The machine pool file falls back to `$HOME/.config/orrery/pools.toml` (see [Pool files](#pool-files)) |
-| `XDG_STATE_HOME` | `orrery` (`tree`, `open`) | base directory of the archive file (see [Archive](#archive)) |
+| `HOME` | `orrery` (`tree`, `open`, `run`) | `$HOME/Personal` is the default parent directory of new projects. `$HOME` is also the directory that roots are relative to, and the roots file falls back to `$HOME/.config/orrery/roots` (see [Roots](#roots)). The machine pool file falls back to `$HOME/.config/orrery/pools.toml` (see [Pool files](#pool-files)). The store file falls back to `$HOME/.local/state/orrery/orrery.db` when `XDG_STATE_HOME` is unset, and `orrery open` and the tree's `N` read it read-only for the known-directory lookup (see [Store](#store)) |
+| `XDG_STATE_HOME` | `orrery` (`tree`, `open`) | base directory of the archive file (see [Archive](#archive)) and of the store file, `$XDG_STATE_HOME/orrery/orrery.db`, which `orrery open` and the tree's `N` read read-only for the known-directory lookup (see [Store](#store)) |
 | `XDG_CONFIG_HOME` | `orrery` (`tree`, `open`, `run`) | base directory of the roots file, `$XDG_CONFIG_HOME/orrery/roots` (see [Roots](#roots)), and of the machine pool file, `$XDG_CONFIG_HOME/orrery/pools.toml` (see [Pool files](#pool-files)) |
-| `PATH` | `orrery` (`tree`, `open`, `desk`, `run`), `orreryd` | finds `zoxide` and `claude` for the picker and `open`, and `ssh`, `notify-send` and `pw-play` for `desk` (see [orrery desk](#orrery-desk)). `run` finds `CMD` and `git`, and `orreryd` finds the program of each member command (see [Pool members](#pool-members)) |
+| `PATH` | `orrery` (`tree`, `open`, `desk`, `run`), `orreryd` | finds `claude` for the picker and `open`, and `ssh`, `notify-send` and `pw-play` for `desk` (see [orrery desk](#orrery-desk)). `run` finds `CMD` and `git`, and `orreryd` finds the program of each member command (see [Pool members](#pool-members)) |
 | `ORRERY_GRANT` | set by `orrery run` for `CMD` | the id of the grant `CMD` runs under (see [orrery](#orrery)) |
 | `ORRERY_POOL_<POOL>` | set by `orrery run` for `CMD`, once for each pool named | the members granted from pool `<POOL>`, comma-separated |
 | `ORRERY_POOL` | set by `orreryd` for each member command | the pool the member command runs for |
@@ -961,7 +981,9 @@ The `reason` values are these. A reason that gains a clause adds it after `; `:
 | `unneeded` | `desk+phone`, `desk`, `phone` or `none` | the judge found the notice unneeded: posted to the desk stream as a quiet notice and sent to Web Push as a silent notice, then ended (see [Notice routing](#notice-routing)) |
 | `changed` | `none` | a newer notice for its key, or the pane or session moved to another state |
 | `seen` | `none` | a seen write at or after the notice's time |
-| `shutdown` | `none` | `orreryd` shut down while the notice was pending |
+| `shutdown` | `none` | `orreryd` shut down while the notice was pending and does not keep it: a pane notice, a session notice whose row could not be stored, or any pending notice when `orreryd` serves without the store |
+| `not restored: <error>` | `none` | a stored pending notice could not be restored at start, and its row is deleted. `<error>` is the restore's error text (see [Notice routing](#notice-routing)) |
+| `resent after restart` | `phone` | a `sending` row restored at start is pushed again, silent if its push was silent (see [Notice routing](#notice-routing)) |
 
 The clauses are these:
 
@@ -1089,7 +1111,7 @@ limit = 300  # no needs: one member of the pool gate
 
 ### Holder
 
-`orrery holder` runs one session's child and serves the session's holder socket (see [orrery](#orrery)). The holder is the package `internal/holder`. It spools the child's stdout to disk, keeps a tail of the child's stderr, and answers controllers on a unix socket. A controller attaches to read the stdout, writes to the child's stdin, trims the spool, or stops the child.
+`orrery holder` runs one session's child and serves the session's holder socket (see [orrery](#orrery)). The holder is the package `internal/holder`. It spools the child's stdout to disk, keeps a tail of the child's stderr, and answers controllers on a unix socket. A controller attaches to read the stdout, writes to the child's stdin, trims the spool, or stops the child. `orreryd` is the controller of each session's holder, through its session process and through the clear that reconcile runs at start (see [Headless sessions](#headless-sessions) and [Lifecycle rules](#lifecycle-rules)). A controller that detaches closes its connection and leaves the holder, its child and its directory in place. Once the holder's process and stream have ended, a controller that did not detach removes the holder's directory (`internal/holder/process.go:179`-`:188`, `:201`-`:211`; `internal/holder/clear.go:41`).
 
 #### Directory and files
 
@@ -1122,7 +1144,7 @@ limit = 300  # no needs: one member of the pool gate
   - `code`: the child's exit status, or -1 when a signal ended the child or its wait gave no status (`internal/holder/child.go:105`-`:116`).
   - `signal`: the name of the signal that ended the child. It is omitted when empty (`internal/holder/child.go:201`-`:207`).
   - `stdoutEnd`: the spool's end once the child is reaped (`internal/holder/child.go:107`).
-  - `stderr`: the last 64 KiB of the child's stderr, with trailing newlines removed. A fault of the holder, such as a failed signal, is its last line (`internal/holder/child.go:117`-`:121`, `:209`-`:219`; `internal/engine/proc/proc.go:16`).
+  - `stderr`: the last 64 KiB of the child's stderr, as the child wrote it, trailing newlines included. A fault of the holder, such as a failed signal, is its last line, after a newline when the tail does not end in one (`internal/holder/child.go:117`-`:121`, `:209`-`:219`; `internal/engine/proc/proc.go:16`, `:145`-`:146`).
 - A child that cannot start also gets an `exit.json`, with reason `exited`, code -1 and the start error as `stderr`. The holder then exits 1 (`internal/holder/holder.go:129`-`:132`).
 
 Example. The record of a child that exited 0 with no stderr, synthetic:
@@ -1186,7 +1208,7 @@ holder      {"type":"out","data":"ZXhhbXBsZSBvdXRwdXQK"}
 
 ### Store
 
-`orreryd` keeps a SQLite store that mirrors each pane's tmux options, records each headless engine session (see [Engine sessions in the store](#engine-sessions-in-the-store)), keeps the live grants of the Pools service (see [Grants in the store](#grants-in-the-store)), and keeps the owner holds of the Pools service (see [Holds in the store](#holds-in-the-store)). Outside the store's tests, `orreryd`'s own writes read it, and `orrery serve` reads it for the Connect API (section 12). A sync reads the pane's row to compare it with the new snapshot, and a tidy also reads the server's rows to find the panes that are gone. `serve` only reads the store, and never writes it.
+`orreryd` keeps a SQLite store that mirrors each pane's tmux options, records each headless engine session (see [Engine sessions in the store](#engine-sessions-in-the-store)), keeps the live grants of the Pools service (see [Grants in the store](#grants-in-the-store)), keeps the pending headless session notices (see [Pending notices in the store](#pending-notices-in-the-store)), and keeps the owner holds of the Pools service (see [Holds in the store](#holds-in-the-store)). Outside the store's tests, `orreryd`'s own writes read it, `orrery serve` reads it for the Connect API (section 12), and `orrery open` and the tree's `N` read it read-only for the known-directory lookup (see `open` under [orrery](#orrery)). A sync reads the pane's row to compare it with the new snapshot, and a tidy also reads the server's rows to find the panes that are gone. `serve` only reads the store, and never writes it.
 
 The store file is `$XDG_STATE_HOME/orrery/orrery.db` when `XDG_STATE_HOME` is set, else `$HOME/.local/state/orrery/orrery.db`. When neither variable is set, no path resolves.
 
@@ -1245,7 +1267,7 @@ One lock covers each sync's tmux read, id mint and store write. A sync waits at 
 
 A dropped sync writes no row or event and sets no id. tmux keeps its options as they were set. The next sync or tidy of the pane writes the difference from the stored row. Events for the values the dropped sync carried are not written. A pane whose id was minted by a dropped sync gets another id on its next sync.
 
-The tidy runs at orreryd start and every 10 s. It tidies:
+The tidy runs at orreryd start and every 10 s. The first tidy runs once the store is open and, with `--sessions`, the sessions have started, so it follows the `store open` log line. Opening a new store applies every migration, and under heavy disk load that can take seconds. It tidies:
 
 - the server named by `-L` or `-S`, when either is given;
 - otherwise, the default socket, from the first tidy at start, and every server that a hook frame has named since orreryd started.
@@ -1391,6 +1413,33 @@ The `holds` table (migration `00008_holds.sql`) has one row per owner hold (see 
 
 `orreryd` reads the table at start, before it reads the grants. A hold is stored before it takes effect, and freeing one deletes its row.
 
+#### Pending notices in the store
+
+The `pending_notices` table (migration `00010_pending_notices.sql`) has one row per headless session notice that is pending (see [Notice routing](#notice-routing)):
+
+| Column | Type | Meaning |
+|---|---|---|
+| `id` | `INTEGER`, primary key | the row's id. An id is never reused |
+| `pane` | `TEXT` | the notice's pane; `""` for a session notice |
+| `session` | `TEXT` | the notice's session id |
+| `state` | `TEXT` | the notice's state |
+| `time` | `INTEGER` | unix seconds when the notice was recorded |
+| `phase` | `TEXT` | where the notice is: `deciding`, `desk` or `sending`. `sending` is a notice handed to the phone whose publish has not returned. A session notice is never held or judged, so it has no other phase |
+| `due` | `INTEGER` | unix milliseconds when the phase's wait runs out; `0` for none |
+| `delay_served` | `INTEGER` | `1` once the judge wait started, else `0`; always `0` for a session notice |
+| `watch_logged` | `INTEGER` | `1` once the `watching` line was written, else `0`; always `0` for a session notice |
+| `source_kind` | `TEXT` | `session` |
+| `source` | `BLOB` | the session notice as JSON: its session, directory, state and body |
+| `silent` | `INTEGER` | `1` when the push handed off was silent, else `0`; always `0` for a session notice. Added by migration `00011_pending_notice_silent.sql` |
+
+The `pending_notice_ids` table has one row, whose `high` is the highest `id` the table has ever stored. Deleting rows does not lower it, so ids keep rising.
+
+| Column | Type | Meaning |
+|---|---|---|
+| `high` | `INTEGER` | the highest `id` stored |
+
+A row is written when its notice is recorded, with phase `deciding`, and again before its desk post, with phase `desk`, which it keeps until it escalates. Each row write has a 200 ms limit. A write that fails or runs past it is logged by `orreryd`, and the notice routes as it would. Later row writes and the next stop retry it. The row is deleted when the notice ends, after its sinks have been handed the notice, except for a notice handed to the phone. That notice is written `sending` before its push, and its row is deleted when the publish returns, with or without an error.
+
 ### Claude Code hook settings
 
 Register `orrery hook` for each hook event that reports state. The path below is synthetic:
@@ -1452,10 +1501,10 @@ The view reads the pools once a second while it is open. Without a daemon socket
 The picker is shown by `orrery open` with text, and by the tree's `N` in directory mode.
 
 - With no text, a one-line `text:` prompt asks for it. Enter submits non-empty text, Backspace deletes, and Esc cancels.
-- The model sees at most 300 directories, numbered `d1`, `d2`, and so on, in this order. First come zoxide's top 30. Then each root of the [roots file](#roots), in file order, adds its directories at levels 1 to `DEPTH` below its path, sorted by path, skipping any directory already listed. A directory is written relative to `$HOME` when it lies strictly inside `$HOME`, and by its absolute path otherwise, including `$HOME` itself. Hidden names (beginning with `.`) are left out with everything beneath them, as are symlinks and any directory that cannot be read, with everything beneath it.
+- The model sees at most 300 directories, numbered `d1`, `d2`, and so on, in this order, and each directory once. First come the first 30 of the live sessions', archive and store directories, in known-directory order (see [open](#orrery)). Then the children of `$HOME/Personal`. Then each root of the [roots file](#roots), in file order, adds its directories at levels 1 to `DEPTH` below its path, sorted by path. A directory is written relative to `$HOME` when it lies strictly inside `$HOME`, and by its absolute path otherwise, including `$HOME` itself. Hidden names (beginning with `.`) are left out with everything beneath them, as are symlinks and any directory that cannot be read, with everything beneath it.
 - The text is ranked into actions, best first, and the first row is selected. Each row reads `jump PANE`, `pane DIR`, `resume SESSION`, `continue latest in DIR`, or `start fresh in DIR`, with ` (prompt)` added when the action carries a first prompt. A resume row adds `: NOTE` after its session when the archived record has a summary.
 - The resume rows are the actions that `open` builds for the directory (see its bullet above). A `resume` action runs `claude --resume SESSION`, a `continue` action runs `claude --continue`, and a `start fresh` action runs `claude`. Each opens a Claude pane in the directory, as a `pane` action does.
-- The text picker's last row is `pane ROOT`, where ROOT is `$HOME/Personal`. It carries the text as its first prompt when the model calls the text a task, as every model `pane` row does. It is left out when another row already opens a pane in ROOT. When the model's reply has no valid line, this row is the only row. When `HOME` is not absolute, there is no root row, and a reply with no valid line is an error. A failed model, zoxide or tmux call is an error. The rows that `open` builds for a directory get no root row.
+- The text picker's last row is `pane ROOT`, where ROOT is `$HOME/Personal`. It carries the text as its first prompt when the model calls the text a task, as every model `pane` row does. It is left out when another row already opens a pane in ROOT. When the model's reply has no valid line, this row is the only row. When `HOME` is not absolute, there is no root row, and a reply with no valid line is an error. A failed model call, a store read that fails (see [open](#orrery)) or a failed tmux call is an error. The rows that `open` builds for a directory get no root row.
 - In directory mode, the first row is `pane DIR`, and any other row for the same directory is dropped. The prompt is the text when any action has one.
 - Keys typed before the prompt or the list is drawn are discarded.
 - A `pane` action opens a Claude pane in the directory: a new window in the directory's session, or a new session when there is none.
@@ -1805,8 +1854,9 @@ The answers:
   - A `compaction` item is a `user` line whose `isCompactSummary` is true, and it gives that item whatever else the line holds. Its `text` is the line's string content, or its `text` blocks joined with newlines, cut to 32768 bytes. Pasted content tags are not removed, and an empty text still gives the item. Its `time` is the line's own timestamp. Its `trigger` and `tokens` come from the nearest `system` line of subtype `compact_boundary` before it in the transcript that is neither `isMeta` nor `isSidechain`. The reader keeps reading past the item limit while a compaction waits for its boundary, within the 4 MiB window. A boundary gives no item.
   - `waiting` is the list of messages that Claude Code's queue holds for the transcript, oldest first. It is empty when there are none, never null. Each row has `text` (the message text, cut to 4096 bytes), `time` (the unix seconds of the RFC 3339 `timestamp` of its opening record, or 0 when that is absent or does not parse), and `canceled` (a boolean).
   - A message opens at an `enqueue` queue-operation record in the transcript whose `content` is its text. An enqueue whose text starts with `<task-notification>`, `<agent-message`, or `<cross-session-message` opens nothing. A message closes at the first of these, matched to the oldest open row with the same full text: a `remove` or `popAll` record with that `content` (a `remove` with reason `cleared_on_cancel` cancels the row instead), or a user line that the person sent from the queue (`promptSource` `queued` and `origin.kind` `human`) with that text. A closed row is gone from the answer.
+  - A `dequeue` record marks the rows waiting when it comes. The first user line after it with non-empty text decides those marks. When that line is a notice (its text starts with `<task-notification>`, `<agent-message`, `<cross-session-message`, `<teammate-message`, or is the stopped-agents notice, or its `origin.kind` is `task-notification`), each marked row that leads it closes and the other marks are cleared; a row leads a notice when the notice's text starts with the row's text followed by a newline or the end of the text. Any other line settles the marks. A `turn_duration` record closes the rows whose marks are settled. A marked row also closes at a later user line with its exact text.
   - A canceled row stays in the answer, with `canceled` true, until the next `enqueue` record that opens a row or the next user line that the person typed, queued, or accepted from a suggestion. That line drops every canceled row.
-  - When the pane's `@orrery_state` is `done`, the answer is idle: every row that is not canceled is dropped for good, so only canceled rows are listed, and a later read of a working pane does not bring them back.
+  - When the pane's `@orrery_state` is `done`, the answer is idle. A row that is not canceled is dropped for good only when a turn end has come after the newest user line with non-empty text, no dequeue has come after that line, and the row's enqueue came before the newest turn end. With no such user line read, nothing is dropped. Canceled rows stay as the canceled rule above describes, and a later read of a working pane does not bring dropped rows back.
   - The rows are read forward from the offset remembered for the transcript path, as `goal` is. The first read scans the whole file, and later reads read only the bytes appended since. A file that is shorter than the part already read, or that was replaced, is read again from the start. Only whole lines count.
   - `context` is always set. Its `window` is 1000000. Its `tokens` is the figure of the newest qualifying line in the 4 MiB window, searched past the item limit: a `system` line of subtype `compact_boundary` gives its `compactMetadata.postTokens`, and an `assistant` line gives the sum of its `message.usage` `input_tokens`, `cache_creation_input_tokens` and `cache_read_input_tokens`, when that sum is above 0. A missing key counts 0. A line marked `isMeta` or `isSidechain` does not qualify. `tokens` is 0 when no line qualifies.
 
@@ -1840,7 +1890,8 @@ Example `Host.Status` answer, shown as JSON. Every value is synthetic:
 - `AskResponse` carries `rows`, the rows that `orrery open TEXT` would offer for the text (see [Picker](#picker)). The rows come in rank order. Each row has the fields `token`, `kind`, `dir`, `pane`, `label`, `note`, and `prompt`, all always set. `kind` is `jump`, `pane`, `resume`, `continue`, or `fresh`. A `jump` row takes `dir` from its pane's directory, `pane` as the pane ID, and `label` from the pane's label. Other rows give `""` for `pane` and `label`. `note` is the archived summary of a `resume` row, and `""` otherwise. `prompt` is true when the row's action carries a first prompt. A `jump` row is left out when tmux does not list its pane. The answer can have no rows.
   - Each `token` is 32 hex characters and is one-time: its action runs at most once, and it stays valid for 5 minutes from the ask. Tokens are held in serve's memory. Expired tokens are dropped by the next ask that answers without error, and a restart of serve voids every token. Tokens from earlier asks stay valid until their own expiry.
   - The ask runs no action. `new NAME` and `.` are plain text for the intent lookup, and no folder or session is created.
-  - Blank `text` is `invalid_argument` "bad request". With no picker configured, the answer is `not_found` "404 page not found". A failure of the picker's configuration, of the text lookup (zoxide, tmux or the intent model), or of the tmux pane listing is `unavailable` with the failure's reason as the message.
+  - A text that is one path word gets the rows that `open` would offer for that path, with no current directory. A text that is one word with several known directories of that base name gets one `pane` row for each, in known-directory order (see [open](#orrery)).
+  - Blank `text` is `invalid_argument` "bad request". With no picker configured, the answer is `not_found` "404 page not found". A failure of the picker's configuration, of the text lookup (the store read, tmux or the intent model), or of the tmux pane listing is `unavailable` with the failure's reason as the message. A relative path word is `unavailable` in the same way.
 - `RunResponse` carries `pane`: the pane the action opened or jumped to, or else the active pane of the session it created. While the token is valid, a repeat run of the same token answers the same pane and runs nothing. Runs of one token are serial.
   - A blank token is `invalid_argument` "bad request". A token no ask issued, or one lost by a restart, is `not_found` "unknown token". A token at or past its expiry is `failed_precondition` "expired token" until an ask that answers without error drops it, and `not_found` "unknown token" after that. Each of these refusals runs nothing.
   - When tmux reports no server running, the answer is `failed_precondition` with the tmux reason as the message, and no action starts.
@@ -1898,7 +1949,19 @@ The guard covers the stream. The rules of [Guard](#guard) apply to `/orrery.v1.P
 
 `Epics.List` answers every epic under the record root, live or folded, sorted by `id`. Each epic carries `running_steps`, its labelled steps that have no end, held ones included, oldest first, and `ended_steps`, how many of its labelled steps have ended. It calls `ListSteps` once.
 
-`Epics.Get` answers one epic by an `id` that `Epics.List` gives. It returns the epic, its `tasks` in effort number order (file order within an effort), and its `steps`, every labelled step of the epic, oldest first. It calls `ListSteps` once, narrowed to the epic. An `id` that `Epics.List` does not give answers `not_found` "epic not found", and the id is never joined into a path.
+`Epics.Get` answers one epic by an `id` that `Epics.List` gives. It returns the epic, its `tasks` in effort number order (file order within an effort), its `steps`, every labelled step of the epic, oldest first, and its `slices`, which the next paragraph describes. It calls `ListSteps` once, narrowed to the epic. An `id` that `Epics.List` does not give answers `not_found` "epic not found", and the id is never joined into a path.
+
+`slices` holds one slice per distinct `task` label among the epic's writing steps, in order of each label's first start. A writing step is a labelled step that is not `read_only` and has a non-empty `task`; read-only and untasked steps add no slice. A slice reads all its cells from its label's latest writing step (latest `started`), and from no record.
+
+- `task` is the label.
+- `red_test` and `tests_pass` are whether the step's `result`, a JSON object, carries `red_evidence` and `green_evidence` respectively, each as a string that, trimmed, is non-empty and does not start with `NOT RUN` in any case. A `result` that does not parse as a JSON object, and a value that is not a string, is no evidence; neither is an error.
+- `working` is always true, since a listed step has run.
+- `checks` is whether every check of the step's highest round is `ok` and one of them is named `gate`. With no checks it is false.
+- `gate_accepted` is whether the step's `end` is `done`.
+- `hue` is `dispatched` while the step's `end` is empty (running or held), `done` when the `end` is `done`, and `gap` for any other end.
+- `at` is, while `end` is empty, the 1-based index of the first ring not reached, counting from `red_test` (1), the outermost, inward through `working` (2), `tests_pass` (3), `checks` (4) to `gate_accepted` (5), the innermost. It is the ring a running or held step is working toward, and 0 once the step ended. `gate_accepted` is true only when `end` is `done`, so a running or held slice's `at` is 1 to 5.
+- `held` is whether the step is held, while `end` is empty. It is false once the step ended.
+- `error_at` is 0 while `end` is empty and when `end` is `done`. It is 4 (`checks`) for `checks_failed`, 5 (`gate_accepted`) for `goal_unmet`, and for any other end the first ring not reached, numbered as `at` numbers it.
 
 When `ListSteps` cannot be read, or serve has no step client, `Epics.List` and `Epics.Get` answer `unavailable` "step service unavailable".
 
@@ -2020,5 +2083,9 @@ orrery L1a2 (pool holds) added, additively: the `orrery hold [--off] MEMBER` and
 orrery named gates added, additively: the `orrery gate` subcommand and its exit statuses (see [orrery](#orrery)); the gates file and the `[gates]` table of the project file (see [Gate files](#gate-files)); the `gate_name` and `gates_file` fields of `StartStep` (`proto/orrery/engine/v1/step.proto` fields 14 and 15) and the `gateName` and `gatesFile` arguments of `step_start` (see [Steps](#steps) and [step_start](engine-protocol.md#step_start)); and the `gate_name`, `gate_source` and `gate_needs` columns of the `steps` table (migration `00009_step_gate.sql`, see [Steps in the store](#steps-in-the-store)). This is a removal too, and it is not additive: the `orreryd` flag `--gate-lock` is gone, and the `gate` and `gate_limit_seconds` fields of `StartStep` are refused with `invalid_argument`; the `gate` and `gateLimitSeconds` arguments of `step_start` are refused as unknown keys.
 
 orrery E31a1 (holder) added, additively: the `orrery holder` subcommand and its exit statuses (see [orrery](#orrery)); the holder directory, its files, socket, spool, exit file, child and idle timeout (see [Holder](#holder)); and the holder's wire protocol at version 1, with its `hello`, `stop` and `stopped` frames frozen across versions and the versioning rule of [Versioning](#versioning) (see [Holder](#holder)). No existing name or value changes.
+
+orrery E31a2 (hold scope) added, additively: the `orreryd` flag `--holder-scope PATH` (see [orreryd](#orreryd)), and each headless session's start through its holder, with its stdout and stdin paths (see [Headless sessions](#headless-sessions)). Three values change, none of them additive: `orrery holder` exits with the child's status when the child ended on its own, where E31a1 exited 0 (see [orrery](#orrery)); the exit record's `stderr` keeps the child's raw tail, where it was trimmed (see [Exit file](#exit-file)); and a session's stop sends `SIGTERM` to the child, where it sent `SIGINT` (see [Lifecycle rules](#lifecycle-rules)). No existing name changes.
+
+orrery W3a (epic chart) added, additively: the `slices` field of `EpicsGetResponse` and the `EpicSlice` message (see [Epics and Steps](#epics-and-steps)). No existing name or value changes.
 
 orrery step prompt sender and round added, additively: the `sender` and `round` keys of the `engine_prompt` payload (see [Engine sessions in the store](#engine-sessions-in-the-store)); the `sender` and `round` fields of `EnginePrompt` and of the conversation item (see [Connect API](#connect-api) and [Headless session stream](#headless-session-stream)); and the copy of both onto the `prompt` item of a headless session's stream. No existing name or value changes. An older build cannot decode a step prompt stored with them (accepted, DL35).

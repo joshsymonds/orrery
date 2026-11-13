@@ -1,6 +1,8 @@
 package stamp
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -295,6 +297,173 @@ func TestFindUnreadableGitFileErrors(t *testing.T) {
 	assertErrorNames(t, err, filepath.Join(gitdir, "commondir"))
 }
 
+// writeFile writes content to path.
+func writeFile(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write %s: %v", path, err)
+	}
+}
+
+// replaceWithSymlink makes link a symlink to target, replacing whatever link holds now.
+func replaceWithSymlink(t *testing.T, target, link string) {
+	t.Helper()
+	if err := os.Remove(link); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("remove %s: %v", link, err)
+	}
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatalf("symlink %s: %v", link, err)
+	}
+}
+
+// worktreeLayout is a stamped primary checkout, a linked worktree of it, and the gitdir that the worktree's .git file
+// names.
+type worktreeLayout struct {
+	home, worktree, gitdir string
+}
+
+// makeStampedWorktree builds the layout the link tests break: a primary checkout under a stamped folder, and a linked
+// worktree of it outside that folder.
+func makeStampedWorktree(t *testing.T) worktreeLayout {
+	t.Helper()
+	home := t.TempDir()
+	stamped := makeDir(t, filepath.Join(home, "stamped"))
+	writeSettings(t, stamped, "settings.json", stampJSON(urlOuter))
+	checkout := makeCheckout(t, filepath.Join(stamped, "repo"))
+	worktree := makeWorktree(t, checkout, filepath.Join(home, "repo-wt"))
+	return worktreeLayout{home, worktree, filepath.Join(checkout, ".git", "worktrees", "repo-wt")}
+}
+
+func TestFindBrokenWorktreeLinkErrors(t *testing.T) {
+	cases := []struct {
+		name string
+		// breakLink breaks one piece of the link and returns the path that Find's error must name.
+		breakLink func(t *testing.T, l worktreeLayout) string
+	}{
+		{"commondir dangles", func(t *testing.T, l worktreeLayout) string {
+			t.Helper()
+			commondir := filepath.Join(l.gitdir, "commondir")
+			replaceWithSymlink(t, filepath.Join(l.home, "nowhere"), commondir)
+			return commondir
+		}},
+		{"commondir is mode 000", func(t *testing.T, l worktreeLayout) string {
+			t.Helper()
+			commondir := filepath.Join(l.gitdir, "commondir")
+			if err := os.Chmod(commondir, 0); err != nil {
+				t.Fatalf("chmod %s: %v", commondir, err)
+			}
+			return commondir
+		}},
+		{"commondir is empty", func(t *testing.T, l worktreeLayout) string {
+			t.Helper()
+			commondir := filepath.Join(l.gitdir, "commondir")
+			writeFile(t, commondir, "")
+			return commondir
+		}},
+		{"commondir names a missing common dir", func(t *testing.T, l worktreeLayout) string {
+			t.Helper()
+			missing := filepath.Join(l.home, "elsewhere", ".git")
+			writeFile(t, filepath.Join(l.gitdir, "commondir"), missing+"\n")
+			return missing
+		}},
+		{"commondir names a file", func(t *testing.T, l worktreeLayout) string {
+			t.Helper()
+			file := filepath.Join(l.home, "not-a-dir")
+			writeFile(t, file, "x")
+			writeFile(t, filepath.Join(l.gitdir, "commondir"), file+"\n")
+			return file
+		}},
+		{"commondir absent from a worktree gitdir", func(t *testing.T, l worktreeLayout) string {
+			t.Helper()
+			if err := os.Remove(filepath.Join(l.gitdir, "commondir")); err != nil {
+				t.Fatalf("remove commondir: %v", err)
+			}
+			return l.gitdir
+		}},
+		{"gitdir missing", func(t *testing.T, l worktreeLayout) string {
+			t.Helper()
+			if err := os.Rename(l.gitdir, l.gitdir+".gone"); err != nil {
+				t.Fatalf("rename gitdir: %v", err)
+			}
+			return l.gitdir
+		}},
+		{"gitdir dangles", func(t *testing.T, l worktreeLayout) string {
+			t.Helper()
+			link := filepath.Join(l.home, "gitdir-link")
+			replaceWithSymlink(t, filepath.Join(l.home, "nowhere"), link)
+			writeFile(t, filepath.Join(l.worktree, ".git"), "gitdir: "+link+"\n")
+			return link
+		}},
+		{"gitdir is a file", func(t *testing.T, l worktreeLayout) string {
+			t.Helper()
+			file := filepath.Join(l.home, "not-a-dir")
+			writeFile(t, file, "x")
+			writeFile(t, filepath.Join(l.worktree, ".git"), "gitdir: "+file+"\n")
+			return file
+		}},
+		{".git names no gitdir", func(t *testing.T, l worktreeLayout) string {
+			t.Helper()
+			dotGit := filepath.Join(resolved(t, l.worktree), ".git")
+			writeFile(t, dotGit, "garbage\n")
+			return dotGit
+		}},
+		{".git dangles", func(t *testing.T, l worktreeLayout) string {
+			t.Helper()
+			dotGit := filepath.Join(resolved(t, l.worktree), ".git")
+			replaceWithSymlink(t, filepath.Join(l.home, "nowhere"), dotGit)
+			return dotGit
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			l := makeStampedWorktree(t)
+			want := tc.breakLink(t, l)
+			_, err := Find(l.home, l.worktree)
+			assertErrorNames(t, err, want)
+		})
+	}
+}
+
+func TestFindWorktreeGitSymlinkedToFileGetsPrimaryStamp(t *testing.T) {
+	l := makeStampedWorktree(t)
+	target := filepath.Join(l.home, "worktree-git-file")
+	writeFile(t, target, "gitdir: "+l.gitdir+"\n")
+	replaceWithSymlink(t, target, filepath.Join(l.worktree, ".git"))
+
+	assertStamp(t, findStamp(t, l.home, l.worktree), resolved(t, filepath.Join(l.home, "stamped")), urlOuter)
+}
+
+func TestFindGitSymlinkedToCheckoutDirHasNoStamp(t *testing.T) {
+	home := t.TempDir()
+	checkout := makeCheckout(t, filepath.Join(home, "plain"))
+	folder := makeDir(t, filepath.Join(home, "linked"))
+	replaceWithSymlink(t, filepath.Join(checkout, ".git"), filepath.Join(folder, ".git"))
+
+	assertNoStamp(t, findStamp(t, home, folder))
+}
+
+func TestFindPlainCheckoutHasNoStamp(t *testing.T) {
+	home := t.TempDir()
+	assertNoStamp(t, findStamp(t, home, makeCheckout(t, filepath.Join(home, "plain"))))
+}
+
+func TestFindSubmoduleHasNoStamp(t *testing.T) {
+	home := t.TempDir()
+	source := makeCheckout(t, filepath.Join(home, "source"))
+	parent := makeCheckout(t, filepath.Join(home, "parent"))
+	gitIn(t, parent, "-c", "protocol.file.allow=always", "submodule", "add", "-q", source, "sub")
+
+	assertNoStamp(t, findStamp(t, home, filepath.Join(parent, "sub")))
+}
+
+func TestFindSeparateGitDirHasNoStamp(t *testing.T) {
+	home := t.TempDir()
+	work := makeDir(t, filepath.Join(home, "work"))
+	gitIn(t, work, "init", "-q", "--separate-git-dir", filepath.Join(home, "sep.git"))
+
+	assertNoStamp(t, findStamp(t, home, work))
+}
+
 func TestFindUnusableSettingsFileErrors(t *testing.T) {
 	cases := []struct {
 		name    string
@@ -334,6 +503,99 @@ func TestFindDanglingSettingsSymlinkErrors(t *testing.T) {
 
 	_, err := Find(home, child)
 	assertErrorNames(t, err, filepath.Join(resolved(t, parent), ".claude", "settings.json"))
+}
+
+// danglingClaudeLink makes folder's .claude a symlink to a path under home that does not exist.
+func danglingClaudeLink(t *testing.T, home, folder string) {
+	t.Helper()
+	link := filepath.Join(folder, ".claude")
+	if err := os.Symlink(filepath.Join(home, "missing-claude"), link); err != nil {
+		t.Fatalf("symlink %s: %v", link, err)
+	}
+}
+
+func TestFindDanglingClaudeSymlinkErrors(t *testing.T) {
+	t.Run("folder itself", func(t *testing.T) {
+		home := t.TempDir()
+		parent := makeDir(t, filepath.Join(home, "parent"))
+		child := makeDir(t, filepath.Join(parent, "child"))
+		danglingClaudeLink(t, home, child)
+
+		_, err := Find(home, child)
+		assertErrorNames(t, err, filepath.Join(resolved(t, child), ".claude"))
+	})
+	t.Run("folder above dir", func(t *testing.T) {
+		home := t.TempDir()
+		parent := makeDir(t, filepath.Join(home, "parent"))
+		child := makeDir(t, filepath.Join(parent, "child"))
+		danglingClaudeLink(t, home, parent)
+
+		_, err := Find(home, child)
+		assertErrorNames(t, err, filepath.Join(resolved(t, parent), ".claude"))
+	})
+	t.Run("worktree primary", func(t *testing.T) {
+		layout := makeStampedWorktree(t)
+		primary := filepath.Join(layout.home, "stamped", "repo")
+		danglingClaudeLink(t, layout.home, primary)
+
+		_, err := Find(layout.home, layout.worktree)
+		assertErrorNames(t, err, filepath.Join(resolved(t, primary), ".claude"))
+	})
+}
+
+func TestFindDanglingLocalSettingsSymlinkErrors(t *testing.T) {
+	home := t.TempDir()
+	parent := makeDir(t, filepath.Join(home, "parent"))
+	child := makeDir(t, filepath.Join(parent, "child"))
+	claude := makeDir(t, filepath.Join(parent, ".claude"))
+	link := filepath.Join(claude, "settings.local.json")
+	if err := os.Symlink(filepath.Join(home, "missing.json"), link); err != nil {
+		t.Fatalf("symlink %s: %v", link, err)
+	}
+
+	_, err := Find(home, child)
+	assertErrorNames(t, err, filepath.Join(resolved(t, parent), ".claude", "settings.local.json"))
+}
+
+func TestFindModeZeroSettingsFileErrors(t *testing.T) {
+	for _, name := range []string{"settings.json", "settings.local.json"} {
+		t.Run(name, func(t *testing.T) {
+			home := t.TempDir()
+			parent := makeDir(t, filepath.Join(home, "parent"))
+			child := makeDir(t, filepath.Join(parent, "child"))
+			writeSettings(t, parent, name, stampJSON(urlOuter))
+			path := filepath.Join(parent, ".claude", name)
+			if err := os.Chmod(path, 0); err != nil {
+				t.Fatalf("chmod %s: %v", path, err)
+			}
+
+			_, err := Find(home, child)
+			assertErrorNames(t, err, filepath.Join(resolved(t, parent), ".claude", name))
+		})
+	}
+}
+
+func TestFindFolderWithoutClaudeHasNoStampOrError(t *testing.T) {
+	cases := []struct {
+		name string
+		// claude makes parent's .claude, if the case has one.
+		claude bool
+	}{
+		{"no .claude", false},
+		{"empty .claude directory", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			home := t.TempDir()
+			parent := makeDir(t, filepath.Join(home, "parent"))
+			child := makeDir(t, filepath.Join(parent, "child"))
+			if tc.claude {
+				makeDir(t, filepath.Join(parent, ".claude"))
+			}
+
+			assertNoStamp(t, findStamp(t, home, child))
+		})
+	}
 }
 
 func TestFindSkipsFileWithoutEnv(t *testing.T) {
