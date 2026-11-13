@@ -15,6 +15,7 @@ import (
 	enginev1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
 	orreryv1 "github.com/joshsymonds/orrery/internal/gen/orrery/v1"
 	orreryv1connect "github.com/joshsymonds/orrery/internal/gen/orrery/v1/orreryv1connect"
+	"github.com/joshsymonds/orrery/internal/rpcretry"
 )
 
 // epicNotFound is the fixed message for a Get of an id that the record root does not list.
@@ -30,9 +31,11 @@ type epicsServer struct {
 	steps   StepClient
 	timeout time.Duration
 	now     func() time.Time
+	clock   rpcretry.Clock
 }
 
-// List answers every epic under the record root, live or folded, sorted by id. It asks ListSteps once.
+// List answers every epic under the record root, live or folded, sorted by id. It asks ListSteps once, and again only to
+// retry an unavailable answer.
 func (e epicsServer) List(
 	ctx context.Context,
 	_ *connect.Request[orreryv1.EpicsListRequest],
@@ -94,14 +97,20 @@ func (e epicsServer) Get(
 }
 
 // listSteps asks the step client for the labeled steps, narrowed to epic when epic is not empty. A nil client, or a
-// ListSteps that fails, answers unavailable. The call runs under the timeout.
+// ListSteps that still fails after its unavailable retries, answers unavailable.
 func (e epicsServer) listSteps(ctx context.Context, epic string) ([]*enginev1.Step, error) {
 	if e.steps == nil {
 		return nil, listError(connect.CodeUnavailable, stepsUnavailable)
 	}
-	ctx, cancel := context.WithTimeout(ctx, e.timeout)
-	defer cancel()
-	resp, err := e.steps.ListSteps(ctx, connect.NewRequest(&enginev1.ListStepsRequest{Epic: epic}))
+	var resp *connect.Response[enginev1.ListStepsResponse]
+	err := retryUnder(ctx, e.clock, e.timeout, rpcretry.Unavailable, func(ctx context.Context) error {
+		var err error
+		resp, err = e.steps.ListSteps(ctx, connect.NewRequest(&enginev1.ListStepsRequest{Epic: epic}))
+		if err != nil {
+			return fmt.Errorf("server: list steps: %w", err)
+		}
+		return nil
+	})
 	if err != nil {
 		return nil, listError(connect.CodeUnavailable, stepsUnavailable)
 	}
@@ -349,18 +358,19 @@ func epicTaskMessages(tasks []taskRecord) ([]*orreryv1.EpicTask, error) {
 
 // newEpicsHandler returns the path and handler that serve Epics over the records under root and the labeled steps of
 // steps, reading at most maxControlBody bytes of each request. A zero timeout is defaultControlTimeout. now dates each
-// epic's liveness.
+// epic's liveness, and clock times the retries of the ListSteps call.
 func newEpicsHandler(
 	root string,
 	steps StepClient,
 	timeout time.Duration,
 	now func() time.Time,
+	clock rpcretry.Clock,
 ) (string, http.Handler) {
 	if timeout == 0 {
 		timeout = defaultControlTimeout
 	}
 	return orreryv1connect.NewEpicsHandler(
-		epicsServer{root: root, steps: steps, timeout: timeout, now: now},
+		epicsServer{root: root, steps: steps, timeout: timeout, now: now, clock: clock},
 		connect.WithReadMaxBytes(maxControlBody),
 	)
 }
