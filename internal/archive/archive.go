@@ -105,6 +105,35 @@ func Append(path string, record Record) error {
 // records with equal Closed in reverse append order. A missing file yields no records and no error.
 // A malformed line is an error naming its line number.
 func ForDir(path, dir string) ([]Record, error) {
+	matches, err := readArchive(path, func(record Record) bool { return record.Dir == dir })
+	if err != nil {
+		return nil, err
+	}
+	return newestFirst(matches), nil
+}
+
+// Dirs returns the distinct Dir values of the records in path, newest first in ForDir's order: each dir
+// appears once, at the position of its newest record. Records with an empty Dir are left out. A missing
+// file yields no dirs and no error. A malformed line is an error naming its line number.
+func Dirs(path string) ([]string, error) {
+	records, err := readArchive(path, func(record Record) bool { return record.Dir != "" })
+	if err != nil {
+		return nil, err
+	}
+	seen := make(map[string]bool)
+	var dirs []string
+	for _, record := range newestFirst(records) {
+		if !seen[record.Dir] {
+			seen[record.Dir] = true
+			dirs = append(dirs, record.Dir)
+		}
+	}
+	return dirs, nil
+}
+
+// readArchive returns the records in path that keep accepts, in append order. Every line is decoded,
+// kept or not, so a malformed line anywhere is an error. A missing file yields no records and no error.
+func readArchive(path string, keep func(Record) bool) ([]Record, error) {
 	file, err := os.Open(filepath.Clean(path))
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
@@ -115,7 +144,7 @@ func ForDir(path, dir string) ([]Record, error) {
 	defer func() { _ = file.Close() }()
 
 	reader := bufio.NewReader(file)
-	var matches []Record
+	var kept []Record
 	for lineNo := 1; ; lineNo++ {
 		line, readErr := reader.ReadBytes('\n')
 		if len(line) > 0 {
@@ -123,8 +152,8 @@ func ForDir(path, dir string) ([]Record, error) {
 			if err = json.Unmarshal(line, &record); err != nil {
 				return nil, fmt.Errorf("archive line %d: %w", lineNo, err)
 			}
-			if record.Dir == dir {
-				matches = append(matches, record)
+			if keep(record) {
+				kept = append(kept, record)
 			}
 		}
 		if errors.Is(readErr, io.EOF) {
@@ -134,8 +163,13 @@ func ForDir(path, dir string) ([]Record, error) {
 			return nil, fmt.Errorf("read archive: %w", readErr)
 		}
 	}
+	return kept, nil
+}
 
-	slices.Reverse(matches)
-	slices.SortStableFunc(matches, func(a, b Record) int { return cmp.Compare(b.Closed, a.Closed) })
-	return matches, nil
+// newestFirst orders records by Closed descending, with records of equal Closed in reverse append order.
+// It reorders records in place and returns it.
+func newestFirst(records []Record) []Record {
+	slices.Reverse(records)
+	slices.SortStableFunc(records, func(a, b Record) int { return cmp.Compare(b.Closed, a.Closed) })
+	return records
 }
