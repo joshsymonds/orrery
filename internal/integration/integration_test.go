@@ -696,7 +696,7 @@ func TestDebugQueueReplayPrintsCountsOnly(t *testing.T) {
 		"never_taken_after 0\n" +
 		"other 0\n" +
 		"falsified 0\n" +
-		"open_at_turn_end_delivered 0\n" +
+		"idle_hidden 0\n" +
 		"notices_typed 0\n"
 	if out.stdout != want {
 		t.Fatalf("debug queue-replay stdout %q, want %q", out.stdout, want)
@@ -2217,7 +2217,8 @@ type openWorld struct {
 	claude   fakeTool
 }
 
-// setupOpen installs the open fakes with zoxideReply, then attaches the invoking client to s1 and the other client to s3.
+// setupOpen installs the open fakes with zoxideReply, then attaches the invoking client to s1 and the other client to
+// s3.
 func setupOpen(t *testing.T, zoxideReply string) openWorld {
 	t.Helper()
 	claude := installOpenFakes(t, zoxideReply)

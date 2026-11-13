@@ -139,21 +139,67 @@ func TestReplayQueuesCountsEachField(t *testing.T) {
 			want: QueueReplay{Transcripts: 1, Typed: 1, Closed: 1},
 		},
 		{
-			name: "open at a turn end, then an assistant line, then its text is delivered",
-			lines: []string{enqueueLine(t, 0, "synthetic d"), turnDurationLine(1), assistantLine(2),
-				userTextLine(t, 3, "synthetic d")},
-			want: QueueReplay{Transcripts: 1, Typed: 1, NeverTakenBefore: 1, OpenAtTurnEndDelivered: 1},
+			name: "idle-droppable row, then an assistant line, then its exact remove, is idle hidden",
+			lines: []string{enqueueLine(t, 0, "synthetic d"), userTextLine(t, 1, "synthetic other"),
+				turnDurationLine(2), assistantLine(3), removeLine(t, 4, "synthetic d", "delivered_to_agent")},
+			want: QueueReplay{Transcripts: 1, Typed: 1, Closed: 1, IdleHidden: 1},
 		},
 		{
-			name: "an enqueue of the same text after the turn end resets the delivery check",
-			lines: []string{enqueueLine(t, 0, "synthetic d"), turnDurationLine(1), enqueueLine(t, 2, "synthetic d"),
-				assistantLine(3), userTextLine(t, 4, "synthetic d"), turnDurationLine(5)},
+			name: "idle-droppable row, then an assistant line, then a popAll of its text, is idle hidden",
+			lines: []string{enqueueLine(t, 0, "synthetic d"), userTextLine(t, 1, "synthetic other"),
+				turnDurationLine(2), assistantLine(3), popAllLine(t, 4, "synthetic d")},
+			want: QueueReplay{Transcripts: 1, Typed: 1, Closed: 1, IdleHidden: 1},
+		},
+		{
+			name: "idle-droppable row, then an assistant line, then an exact user line, is idle hidden",
+			lines: []string{enqueueLine(t, 0, "synthetic d"), userTextLine(t, 1, "synthetic other"),
+				turnDurationLine(2), assistantLine(3), userTextLine(t, 4, "synthetic d")},
+			want: QueueReplay{Transcripts: 1, Typed: 1, NeverTakenBefore: 1, IdleHidden: 1},
+		},
+		{
+			name: "idle-droppable row, then an assistant line, then a cleared_on_cancel remove, is not idle hidden",
+			lines: []string{enqueueLine(t, 0, "synthetic d"), userTextLine(t, 1, "synthetic other"),
+				turnDurationLine(2), assistantLine(3), removeLine(t, 4, "synthetic d", "cleared_on_cancel")},
+			want: QueueReplay{Transcripts: 1, Typed: 1, Closed: 1},
+		},
+		{
+			name: "idle-droppable row, then its exact user line with no assistant line before it, is not idle hidden",
+			lines: []string{enqueueLine(t, 0, "synthetic d"), userTextLine(t, 1, "synthetic other"),
+				turnDurationLine(2), userTextLine(t, 3, "synthetic d")},
+			want: QueueReplay{Transcripts: 1, Typed: 1, NeverTakenBefore: 1},
+		},
+		{
+			name: "idle-droppable row, then a new enqueue of its text, ends the watch uncounted",
+			lines: []string{enqueueLine(t, 0, "synthetic d"), userTextLine(t, 1, "synthetic other"),
+				turnDurationLine(2), enqueueLine(t, 3, "synthetic d"), assistantLine(4),
+				userTextLine(t, 5, "synthetic d"), turnDurationLine(6)},
 			want: QueueReplay{Transcripts: 1, Typed: 2, NeverTakenBefore: 2},
 		},
 		{
-			name:  "text delivered without an assistant line after the turn end is not counted",
-			lines: []string{enqueueLine(t, 0, "synthetic d"), turnDurationLine(1), userTextLine(t, 2, "synthetic d")},
-			want:  QueueReplay{Transcripts: 1, Typed: 1, NeverTakenBefore: 1},
+			name: "row held by a dequeue after the newest user line, then an assistant line and its text, is not idle hidden",
+			lines: []string{enqueueLine(t, 0, "synthetic d"), userTextLine(t, 1, "synthetic other"),
+				dequeueLine(2), turnDurationLine(3), assistantLine(4), userTextLine(t, 5, "synthetic d")},
+			want: QueueReplay{Transcripts: 1, Typed: 1, Closed: 1},
+		},
+		{
+			name: "row open at a turn end with no user line is not idle hidden",
+			lines: []string{enqueueLine(t, 0, "synthetic d"), turnDurationLine(1), assistantLine(2),
+				userTextLine(t, 3, "synthetic d")},
+			want: QueueReplay{Transcripts: 1, Typed: 1, NeverTakenBefore: 1},
+		},
+		{
+			name: "notice close, then a dequeue, an assistant line and the exact user line, is falsified",
+			lines: []string{enqueueLine(t, 0, "synthetic a"), dequeueLine(1),
+				userContentLine(t, 2, `,"origin":{"kind":"task-notification"}`, "synthetic a\nsynthetic task"),
+				dequeueLine(3), assistantLine(4), userTextLine(t, 5, "synthetic a"), turnDurationLine(6)},
+			want: QueueReplay{Transcripts: 1, Typed: 1, Closed: 1, Falsified: 1},
+		},
+		{
+			name: "notice close that a later remove of its text contradicts is falsified",
+			lines: []string{enqueueLine(t, 0, "synthetic a"), dequeueLine(1),
+				userContentLine(t, 2, `,"origin":{"kind":"task-notification"}`, "synthetic a\nsynthetic task"),
+				removeLine(t, 3, "synthetic a", "delivered_to_agent"), turnDurationLine(4)},
+			want: QueueReplay{Transcripts: 1, Typed: 1, Closed: 1, Falsified: 1},
 		},
 		{
 			name: "rejected enqueue later typed is a notice typed",
@@ -225,22 +271,22 @@ func TestReplayQueuesNamesUnreadablePath(t *testing.T) {
 
 func TestQueueReplayWriteNamesEachCountInOrder(t *testing.T) {
 	replay := QueueReplay{
-		Transcripts:            1,
-		Typed:                  2,
-		Closed:                 3,
-		NeverTakenBefore:       4,
-		NeverTakenAfter:        5,
-		Other:                  6,
-		Falsified:              7,
-		OpenAtTurnEndDelivered: 8,
-		NoticesTyped:           9,
+		Transcripts:      1,
+		Typed:            2,
+		Closed:           3,
+		NeverTakenBefore: 4,
+		NeverTakenAfter:  5,
+		Other:            6,
+		Falsified:        7,
+		IdleHidden:       8,
+		NoticesTyped:     9,
 	}
 	var out bytes.Buffer
 	if err := replay.Write(&out); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
 	want := "transcripts 1\ntyped 2\nclosed 3\nnever_taken_before 4\nnever_taken_after 5\nother 6\n" +
-		"falsified 7\nopen_at_turn_end_delivered 8\nnotices_typed 9\n"
+		"falsified 7\nidle_hidden 8\nnotices_typed 9\n"
 	if out.String() != want {
 		t.Fatalf("Write = %q, want %q", out.String(), want)
 	}
