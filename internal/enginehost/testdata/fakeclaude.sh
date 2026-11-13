@@ -3,10 +3,11 @@
 # working directory, then answers each user prompt with a scripted turn. The prompt number n counts from 1. A prompt
 # containing ASK asks one AskUserQuestion, PERMIT asks for a Write permission, HANG streams text until an interrupt,
 # FLOOD streams 50 finished text blocks, TRICKLE streams 60 finished text blocks about 50 ms apart, STALL streams the
-# start of a text block and never finishes it, DIE streams the same start and writes fake died to stderr before it
-# exits with status 3, BACKGROUND starts a background task and ends its turn while the task runs, BGEND ends that task
-# and then answers as any other prompt does, and any other prompt streams "fake reply n". The turns reproduce the
-# stream lines captured from the real CLI, with only text, ids and the session id changed. It exits at stdin EOF.
+# start of a text block and never finishes it, TERMPROOF ignores SIGTERM and then stalls as STALL does, DIE streams
+# the same start, writes fake died to stderr and exits with status 3, BACKGROUND starts a background task and ends
+# its turn while the task runs, BGEND ends that task and then answers as any other prompt does, and any other prompt
+# streams "fake reply n". The turns reproduce the stream lines captured from the real CLI, with only text, ids and the
+# session id changed. It exits at stdin EOF.
 
 # text_block INDEX FULL DELTA...: a text block that streams each DELTA, then finishes as FULL.
 text_block() {
@@ -109,6 +110,12 @@ stall() {
 	done
 }
 
+# termproof ignores SIGTERM, then stalls as stall does, so only a SIGKILL ends it.
+termproof() {
+	trap '' TERM
+	stall
+}
+
 # background starts a background task, streams a text block and ends the turn while the task still runs.
 background() {
 	turn_open
@@ -164,6 +171,7 @@ while IFS= read -r line; do
 				*FLOOD*) flood ;;
 				*TRICKLE*) trickle ;;
 				*STALL*) stall ;;
+				*TERMPROOF*) termproof ;;
 				*DIE*) die ;;
 				*BACKGROUND*) background ;;
 				*BGEND*) bgend ;;

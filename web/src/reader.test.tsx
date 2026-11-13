@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { test, type TestContext } from "node:test";
 
 import { create, type MessageInitShape } from "@bufbuild/protobuf";
 import { render } from "preact";
+import { act } from "preact/test-utils";
 
 import {
   ConversationItemSchema,
@@ -13,6 +14,7 @@ import {
   type EngineText,
 } from "./gen/orrery/v1/orrery_pb";
 import type { Conversation } from "./conversation";
+import { flashMillis } from "./flash";
 import type { ParsedQuestion } from "./question";
 import { Reader } from "./reader";
 import { installTestDom, removeTestDom } from "./testdom";
@@ -21,8 +23,18 @@ function item(init: MessageInitShape<typeof ConversationItemSchema>): Conversati
   return create(ConversationItemSchema, init);
 }
 
-function unfinished(text: string): EngineText {
-  return create(EngineTextSchema, { messageId: "m1", index: 0, text, kind: "text" });
+function unfinished(text: string, kind = "text", index = 0): EngineText {
+  return create(EngineTextSchema, { messageId: "m1", index, text, kind });
+}
+
+// callItem is a tool call held in the window under id, made with input.
+function callItem(id: string, input: string, time = 100n): ConversationItem {
+  return item({ kind: "tool", time, tool: "Bash", input, id });
+}
+
+// resultItem is the result of the call under id, failed when error is set.
+function resultItem(id: string, text: string, error = false, time = 100n): ConversationItem {
+  return item({ kind: "result", time, id, text, error });
 }
 
 function conversation(init: Partial<Conversation> = {}): Conversation {
@@ -45,21 +57,119 @@ interface Props {
   onToggleOpen?: () => void;
 }
 
-async function withReader(props: Props, check: (container: HTMLElement) => void): Promise<void> {
+async function withReader(props: Props, check: (container: HTMLElement) => void | Promise<void>): Promise<void> {
   const window = installTestDom();
   const container = document.createElement("div");
   try {
     render(<Reader {...props} />, container);
-    check(container);
+    await check(container);
   } finally {
     render(null, container);
     await removeTestDom(window);
   }
 }
 
+// clickControl clicks a control inside act, so the render its click causes has run before the next check.
+async function clickControl(control: HTMLElement): Promise<void> {
+  await act(() => {
+    control.click();
+  });
+}
+
+// advance moves the mocked clock forward by ms and flushes the renders its timers cause.
+async function advance(t: TestContext, ms: number): Promise<void> {
+  await act(() => {
+    t.mock.timers.tick(ms);
+  });
+}
+
+function flashing(control: HTMLElement): boolean {
+  return control.classList.contains("flash");
+}
+
 // rowTexts returns the text of each row of the reader, in order.
 function rowTexts(container: HTMLElement): string[] {
   return [...container.querySelectorAll(".reader > .t")].map((row) => row.textContent ?? "");
+}
+
+const rowPixels = 100;
+const viewportPixels = 300;
+
+// readerOf returns the reader's root element, the scroll container of its conversation.
+function readerOf(container: HTMLElement): HTMLElement {
+  const reader = container.querySelector<HTMLElement>(".reader");
+  assert.ok(reader !== null, "the reader is drawn");
+  return reader;
+}
+
+// stubLayout gives the reader the layout a browser would: each row is rowPixels tall, the viewport is viewportPixels
+// tall, and scrollTop clamps to the content. happy-dom has no layout, so the stub reads the rows the DOM holds.
+function stubLayout(reader: HTMLElement): void {
+  let top = 0;
+  const furthest = () => Math.max(0, reader.scrollHeight - viewportPixels);
+  Object.defineProperties(reader, {
+    scrollHeight: { configurable: true, get: () => reader.children.length * rowPixels },
+    clientHeight: { configurable: true, value: viewportPixels },
+    scrollTop: {
+      configurable: true,
+      get: () => Math.min(top, furthest()),
+      set: (value: number) => {
+        top = Math.min(Math.max(value, 0), furthest());
+      },
+    },
+  });
+}
+
+// withScrollingReader mounts a reader the way the app does, from a null conversation to its conversation, with its
+// layout stubbed. The check gets the container and a rerender that draws new props into the same mounted reader.
+async function withScrollingReader(
+  props: Props,
+  check: (container: HTMLElement, rerender: (next: Props) => Promise<void>) => void | Promise<void>,
+): Promise<void> {
+  const window = installTestDom();
+  const container = document.createElement("div");
+  const rerender = (next: Props) =>
+    act(() => {
+      render(<Reader {...next} />, container);
+    });
+  try {
+    render(<Reader {...props} conversation={null} />, container);
+    stubLayout(readerOf(container));
+    await rerender(props);
+    await check(container, rerender);
+  } finally {
+    render(null, container);
+    await removeTestDom(window);
+  }
+}
+
+// readerProps is the props of a reader that holds items, all read: no item is newer than seenAt.
+function readerProps(items: ConversationItem[]): Props {
+  return { conversation: conversation({ items }), seenAt: 10_000, open: false };
+}
+
+// heldItems returns the replies from first to last, each one's text naming its number.
+function heldItems(first: number, last: number): ConversationItem[] {
+  const list: ConversationItem[] = [];
+  for (let n = first; n <= last; n += 1) {
+    list.push(item({ kind: "reply", time: BigInt(100 + n), text: `held-${n}` }));
+  }
+  return list;
+}
+
+// distanceFromBottom is how far the reader's scroll sits above its bottom, by the stubbed layout.
+function distanceFromBottom(container: HTMLElement): number {
+  const reader = readerOf(container);
+  return reader.scrollHeight - reader.scrollTop - reader.clientHeight;
+}
+
+// rowWith returns the row of the reader whose text includes label.
+function rowWith(container: HTMLElement, label: string): HTMLElement {
+  const row = [...container.querySelectorAll<HTMLElement>(".reader > .t")].find((candidate) =>
+    (candidate.textContent ?? "").includes(label),
+  );
+  assert.ok(row !== undefined, `a row draws ${label}`);
+  return row;
 }
 
 test("a reply holding script markup draws as text with no element", () =>
@@ -70,7 +180,7 @@ test("a reply holding script markup draws as text with no element", () =>
       open: false,
     },
     (container) => {
-      assert.equal(container.querySelector("script"), null);
+      assert.equal(container.querySelector("script") === null, true);
       assert.ok(container.textContent?.includes("<script>alert(1)</script>"));
     },
   ));
@@ -85,7 +195,7 @@ test("a reply holding an img onerror string draws as text with no element", () =
       open: false,
     },
     (container) => {
-      assert.equal(container.querySelector("img"), null);
+      assert.equal(container.querySelector("img") === null, true);
       assert.ok(container.textContent?.includes("<img src=x onerror=alert(1)>"));
     },
   ));
@@ -105,6 +215,195 @@ test("only http and https URLs in item text become links", () =>
       const links = container.querySelectorAll("a");
       assert.equal(links.length, 1);
       assert.equal(links[0].getAttribute("href"), "https://example.test/a");
+    },
+  ));
+
+test("a reply draws its markdown as elements inside .reply: a list, a code block and strong", () =>
+  withReader(
+    {
+      conversation: conversation({
+        items: [
+          item({ kind: "reply", time: 100n, text: "- one\n- two\n\n```\nlet x = a < b && c;\n```\n\n**bold** end" }),
+        ],
+      }),
+      seenAt: 0,
+      open: false,
+    },
+    (container) => {
+      assert.equal(container.querySelectorAll(".reader > .t > .body > .reply > ul > li").length, 2);
+      assert.equal(
+        container.querySelector(".reader > .t > .body > .reply > pre > code")?.textContent,
+        "let x = a < b && c;",
+      );
+      assert.equal(container.querySelector(".reader > .t > .body > .reply strong")?.textContent, "bold");
+    },
+  ));
+
+test("a reply's table draws its header and cells in order inside .reply", () =>
+  withReader(
+    {
+      conversation: conversation({
+        items: [item({ kind: "reply", time: 100n, text: "| a | b < c |\n| - | - |\n| 1 < 2 | 3 & 4 |" })],
+      }),
+      seenAt: 0,
+      open: false,
+    },
+    (container) => {
+      const headers = [...container.querySelectorAll(".reader > .t > .body > .reply > table thead th")].map(
+        (cell) => cell.textContent,
+      );
+      assert.deepEqual(headers, ["a", "b < c"]);
+      const cells = [...container.querySelectorAll(".reader > .t > .body > .reply > table tbody td")].map(
+        (cell) => cell.textContent,
+      );
+      assert.deepEqual(cells, ["1 < 2", "3 & 4"]);
+    },
+  ));
+
+test("a reply's quote draws blockquote around its paragraph inside .reply", () =>
+  withReader(
+    {
+      conversation: conversation({ items: [item({ kind: "reply", time: 100n, text: "> quoted < text" })] }),
+      seenAt: 0,
+      open: false,
+    },
+    (container) => {
+      assert.equal(
+        container.querySelector(".reader > .t > .body > .reply > blockquote > p")?.textContent,
+        "quoted < text",
+      );
+    },
+  ));
+
+test("a reply's rule draws hr between its paragraphs inside .reply", () =>
+  withReader(
+    {
+      conversation: conversation({ items: [item({ kind: "reply", time: 100n, text: "above\n\n---\n\nbelow" })] }),
+      seenAt: 0,
+      open: false,
+    },
+    (container) => {
+      assert.equal(container.querySelectorAll(".reader > .t > .body > .reply > hr").length, 1);
+      assert.equal(container.querySelector(".reader > .t > .body > .reply")?.textContent, "abovebelow");
+    },
+  ));
+
+test("a reply's heading draws h2 with its text inside .reply", () =>
+  withReader(
+    {
+      conversation: conversation({ items: [item({ kind: "reply", time: 100n, text: "## Plan < two" })] }),
+      seenAt: 0,
+      open: false,
+    },
+    (container) => {
+      assert.equal(container.querySelector(".reader > .t > .body > .reply > h2")?.textContent, "Plan < two");
+    },
+  ));
+
+test("a reply's link draws an a with its http(s) href inside .reply", () =>
+  withReader(
+    {
+      conversation: conversation({
+        items: [item({ kind: "reply", time: 100n, text: "[docs](https://example.test/docs) and [bad](javascript:x)" })],
+      }),
+      seenAt: 0,
+      open: false,
+    },
+    (container) => {
+      assert.equal(container.querySelectorAll(".reader > .t > .body > .reply a").length, 1);
+      assert.equal(
+        container.querySelector(".reader > .t > .body > .reply a")?.getAttribute("href"),
+        "https://example.test/docs",
+      );
+      assert.equal(container.querySelector(".reader > .t > .body > .reply")?.textContent, "docs and bad");
+    },
+  ));
+
+test("a reply's emphasis and strikethrough draw em and del inside .reply", () =>
+  withReader(
+    {
+      conversation: conversation({ items: [item({ kind: "reply", time: 100n, text: "*soft* and ~~gone~~" })] }),
+      seenAt: 0,
+      open: false,
+    },
+    (container) => {
+      assert.equal(container.querySelector(".reader > .t > .body > .reply > p > em")?.textContent, "soft");
+      assert.equal(container.querySelector(".reader > .t > .body > .reply > p > del")?.textContent, "gone");
+    },
+  ));
+
+test("a reply marked cannot lex draws its text whole inside .reply without throwing", () => {
+  const text = ">".repeat(2000) + " x";
+  return withReader(
+    { conversation: conversation({ items: [item({ kind: "reply", time: 100n, text })] }), seenAt: 0, open: false },
+    (container) => {
+      assert.equal(container.querySelector(".reader .reply")?.textContent ?? null, text);
+    },
+  );
+});
+
+test("a reply of 1000 nested list items draws without throwing and keeps its deepest item", () => {
+  // Levels 0 through 32 draw as lists, so the list at level 33 is the first drawn as its raw source: 967 markers left.
+  const text = "- ".repeat(1000) + "item";
+  return withReader(
+    { conversation: conversation({ items: [item({ kind: "reply", time: 100n, text })] }), seenAt: 0, open: false },
+    (container) => {
+      assert.equal(container.querySelector(".reader .reply")?.textContent ?? null, "- ".repeat(967) + "item");
+    },
+  );
+});
+
+test("a reply of 3000 nested emphasis markers around a word draws without throwing and keeps the word", () => {
+  const text = "*".repeat(3000) + "word" + "*".repeat(3000);
+  return withReader(
+    { conversation: conversation({ items: [item({ kind: "reply", time: 100n, text })] }), seenAt: 0, open: false },
+    (container) => {
+      assert.equal(container.querySelector(".reader .reply")?.textContent ?? null, text);
+    },
+  );
+});
+
+test("a prompt draws its markdown as elements inside .reply", () =>
+  withReader(
+    {
+      conversation: conversation({ items: [item({ kind: "prompt", time: 100n, text: "**ask** `how`" })] }),
+      seenAt: 0,
+      open: false,
+    },
+    (container) => {
+      assert.equal(container.querySelector(".you > .reply > p > strong")?.textContent, "ask");
+      assert.equal(container.querySelector(".you > .reply > p > code")?.textContent, "how");
+    },
+  ));
+
+test("live text draws its markdown as elements inside .reply, before its caret", () =>
+  withReader(
+    { conversation: conversation({ unfinished: [unfinished("- streamed\n- item")] }), seenAt: 0, open: false },
+    (container) => {
+      assert.equal(container.querySelectorAll(".live-row > .body > .reply > ul > li").length, 2);
+      assert.equal(container.querySelector(".live-row > .body > .reply + .caret") !== null, true);
+    },
+  ));
+
+test("a notice and a queued message holding markdown stay literal text", () =>
+  withReader(
+    {
+      conversation: conversation({
+        items: [item({ kind: "notice", time: 100n, notice: "interrupted", text: "**kept** `raw`" })],
+        state: create(ConversationStateSchema, {
+          waiting: [create(WaitingMessageSchema, { text: "**queued** `raw`", time: 110n, canceled: false })],
+        }),
+      }),
+      seenAt: 0,
+      open: false,
+    },
+    (container) => {
+      assert.equal(container.querySelector(".notice strong") === null, true);
+      assert.equal(container.querySelector(".notice code") === null, true);
+      assert.equal(container.querySelector(".queued strong") === null, true);
+      assert.equal(container.querySelector(".queued code") === null, true);
+      assert.ok(container.querySelector(".notice")?.textContent?.includes("**kept** `raw`"));
+      assert.ok(container.querySelector(".queued")?.textContent?.includes("**queued** `raw`"));
     },
   ));
 
@@ -279,10 +578,10 @@ test("a question holding markup draws its title and labels as text with no eleme
       onAnswer: () => {},
     },
     (container) => {
-      assert.equal(container.querySelector("b"), null);
-      assert.equal(container.querySelector("img"), null);
-      assert.equal(container.querySelector("script"), null);
-      assert.equal(container.querySelector("a"), null);
+      assert.equal(container.querySelector("b") === null, true);
+      assert.equal(container.querySelector("img") === null, true);
+      assert.equal(container.querySelector("script") === null, true);
+      assert.equal(container.querySelector("a") === null, true);
       assert.ok(container.textContent?.includes("<b>bold</b> <img src=x onerror=alert(1)>"));
       assert.ok(container.textContent?.includes("<script>alert(1)</script>"));
       assert.ok(container.textContent?.includes("<a href=x>link</a>"));
@@ -294,7 +593,7 @@ test("the compaction rule is a button that calls onToggleOpen, and a plain rule 
   let toggles = 0;
 
   await withReader({ conversation: conversation({ items: [compaction] }), seenAt: 0, open: false }, (container) => {
-    assert.equal(container.querySelector("button"), null);
+    assert.equal(container.querySelector("button") === null, true);
     assert.ok(container.querySelector(".compaction .rule") !== null);
   });
 
@@ -316,3 +615,296 @@ test("the compaction rule is a button that calls onToggleOpen, and a plain rule 
     },
   );
 });
+
+test("an option flashes for 300 ms after a click, restarts on a second click, and still answers", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const answers: number[] = [];
+  await withReader(
+    {
+      conversation: conversation(),
+      seenAt: 0,
+      open: false,
+      question: askQuestion,
+      onAnswer: (choice) => answers.push(choice),
+    },
+    async (container) => {
+      const buttons = [...container.querySelectorAll<HTMLButtonElement>("button")];
+      assert.equal(flashing(buttons[1]), false, "not flashing before any click");
+
+      await clickControl(buttons[1]);
+      assert.deepEqual(answers, [2]);
+      assert.equal(flashing(buttons[1]), true, "flashing at once after the click");
+      assert.equal(flashing(buttons[0]), false, "the option before it does not flash");
+      assert.equal(flashing(buttons[2]), false, "the option after it does not flash");
+      await advance(t, flashMillis - 1);
+      assert.equal(flashing(buttons[1]), true, "still flashing 1 ms before the window ends");
+      await advance(t, 1);
+      assert.equal(flashing(buttons[1]), false, "cleared 300 ms after the click");
+
+      await clickControl(buttons[1]);
+      await advance(t, 200);
+      await clickControl(buttons[1]);
+      await advance(t, 200);
+      assert.equal(
+        flashing(buttons[1]),
+        true,
+        "still flashing 200 ms after the second click, inside the restarted window",
+      );
+      await advance(t, 99);
+      assert.equal(flashing(buttons[1]), true, "still flashing 1 ms before the restarted window ends");
+      await advance(t, 1);
+      assert.equal(flashing(buttons[1]), false, "cleared 300 ms after the second click");
+      assert.deepEqual(answers, [2, 2, 2]);
+    },
+  );
+});
+
+test("the compaction rule flashes for 300 ms after a click and still toggles", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const compaction = item({ kind: "compaction", time: 100n, text: "Synthetic summary text.", trigger: "auto" });
+  let toggles = 0;
+  await withReader(
+    {
+      conversation: conversation({ items: [compaction] }),
+      seenAt: 0,
+      open: false,
+      onToggleOpen: () => {
+        toggles += 1;
+      },
+    },
+    async (container) => {
+      const rule = container.querySelector<HTMLButtonElement>("button.rule");
+      assert.ok(rule !== null);
+      assert.equal(flashing(rule), false, "not flashing before any click");
+
+      await clickControl(rule);
+      assert.equal(toggles, 1);
+      assert.equal(flashing(rule), true, "flashing at once after the click");
+      await advance(t, flashMillis - 1);
+      assert.equal(flashing(rule), true, "still flashing 1 ms before the window ends");
+      await advance(t, 1);
+      assert.equal(flashing(rule), false, "cleared 300 ms after the click");
+    },
+  );
+});
+
+test("a conversation opening from null shows its bottom", () =>
+  withScrollingReader(readerProps(heldItems(1, 20)), (container) => {
+    assert.equal(distanceFromBottom(container), 0);
+  }));
+
+test("a new item while the reader sits at its bottom follows to the new bottom", () =>
+  withScrollingReader(readerProps(heldItems(1, 20)), async (container, rerender) => {
+    const reader = readerOf(container);
+    reader.scrollTop = reader.scrollHeight;
+    assert.equal(distanceFromBottom(container), 0, "the reader starts at its bottom");
+
+    await rerender(readerProps(heldItems(1, 21)));
+    assert.equal(distanceFromBottom(container), 0);
+  }));
+
+test("a new item while the reader is scrolled up leaves its scroll place alone", () =>
+  withScrollingReader(readerProps(heldItems(1, 20)), async (container, rerender) => {
+    const reader = readerOf(container);
+    reader.scrollTop = 500;
+
+    await rerender(readerProps(heldItems(1, 21)));
+    assert.equal(reader.scrollTop, 500);
+  }));
+
+test("at the 50-item cap, appending one item and dropping the oldest keeps a held row's node", () =>
+  withScrollingReader(readerProps(heldItems(1, 50)), async (container, rerender) => {
+    const held = rowWith(container, "held-25");
+
+    await rerender(readerProps(heldItems(2, 51)));
+    assert.equal(readerOf(container).querySelectorAll(".reader > .t").length, 50);
+    assert.ok(rowWith(container, "held-25") === held, "the held row keeps its DOM node");
+  }));
+
+// foldLine returns the call line that is a button, the line that folds a held result.
+function foldLine(container: HTMLElement): HTMLButtonElement {
+  const line = container.querySelector<HTMLButtonElement>("button.call");
+  assert.ok(line !== null, "a call with a held result draws its line as a button");
+  return line;
+}
+
+// thinkingLine returns the button of a live thinking row, the button that folds the block's text.
+function thinkingLine(container: HTMLElement): HTMLButtonElement {
+  const line = container.querySelector<HTMLButtonElement>("button.thinking");
+  assert.ok(line !== null, "a live thinking block draws its row as a button");
+  return line;
+}
+
+test("a tool item is one line of its name and input, and its input draws as text", () =>
+  withReader(
+    { conversation: conversation({ items: [callItem("c1", "curl https://example.test/a")] }), seenAt: 100, open: false },
+    (container) => {
+      assert.equal(rowTexts(container).length, 1);
+      const line = container.querySelector(".call");
+      assert.ok(line !== null, "the call draws a line");
+      assert.ok(line.textContent?.includes("Bash"));
+      assert.equal(line.querySelector(".in")?.textContent, "curl https://example.test/a");
+      assert.equal(line.querySelector("a") === null, true, "the input draws no link");
+    },
+  ));
+
+test("a call's result folds under its line: absent until the line is clicked, then under it, then folded again", () =>
+  withReader(
+    {
+      conversation: conversation({ items: [callItem("c1", "make"), resultItem("c1", "built-output")] }),
+      seenAt: 100,
+      open: false,
+    },
+    async (container) => {
+      assert.equal(rowTexts(container).length, 1, "the result is not a row of its own");
+      assert.equal(container.textContent?.includes("built-output"), false, "the result is folded");
+
+      const line = foldLine(container);
+      await clickControl(line);
+      const shown = line.nextElementSibling;
+      assert.equal(shown?.textContent, "built-output", "the result draws right under the line");
+      assert.equal(rowTexts(container).length, 1);
+
+      await clickControl(line);
+      assert.equal(container.textContent?.includes("built-output"), false, "a second click folds it");
+    },
+  ));
+
+test("a failed result marks its call's line while folded, and a succeeded one does not", () =>
+  withReader(
+    {
+      conversation: conversation({
+        items: [
+          callItem("c1", "rm -rf build"),
+          resultItem("c1", "permission denied", true),
+          callItem("c2", "make all"),
+          resultItem("c2", "ok"),
+        ],
+      }),
+      seenAt: 100,
+      open: false,
+    },
+    (container) => {
+      assert.ok(rowWith(container, "rm -rf build").textContent?.includes("✗"), "the failed line is marked");
+      assert.equal(rowWith(container, "make all").textContent?.includes("✗"), false, "the succeeded line is not");
+      assert.equal(container.textContent?.includes("permission denied"), false, "the failure stays folded");
+    },
+  ));
+
+test("a question item is one line of its tool and question, and its result folds under it", () =>
+  withReader(
+    {
+      conversation: conversation({
+        items: [
+          item({ kind: "question", time: 100n, tool: "AskUserQuestion", text: "Which schedule?", id: "q1" }),
+          resultItem("q1", "Daily"),
+        ],
+      }),
+      seenAt: 100,
+      open: false,
+    },
+    async (container) => {
+      assert.equal(rowTexts(container).length, 1, "the result is not a row of its own");
+      const line = foldLine(container);
+      assert.ok(line.textContent?.includes("Which schedule?"));
+      assert.equal(container.textContent?.includes("Daily"), false, "the result is folded");
+
+      await clickControl(line);
+      assert.equal(line.nextElementSibling?.textContent, "Daily");
+    },
+  ));
+
+test("a result whose call is not held is hidden", () =>
+  withReader(
+    {
+      conversation: conversation({
+        items: [item({ kind: "reply", time: 100n, text: "kept reply" }), resultItem("gone", "orphan-output")],
+      }),
+      seenAt: 100,
+      open: false,
+    },
+    (container) => {
+      assert.equal(rowTexts(container).length, 1);
+      assert.ok(container.textContent?.includes("kept reply"));
+      assert.equal(container.textContent?.includes("orphan-output"), false);
+    },
+  ));
+
+test("the new rule sits before the first row newer than seenAt, not before a result it skips", () =>
+  withReader(
+    {
+      conversation: conversation({
+        items: [
+          item({ kind: "reply", time: 100n, text: "old one" }),
+          callItem("c1", "make", 100n),
+          resultItem("c1", "late-output", false, 200n),
+          item({ kind: "reply", time: 300n, text: "newer reply" }),
+        ],
+      }),
+      seenAt: 150,
+      open: false,
+    },
+    (container) => {
+      const rows = rowTexts(container);
+      assert.equal(rows.length, 4);
+      assert.ok(rows[2].includes("since you looked"), `row 2 was ${rows[2]}`);
+      assert.ok(rows[3].includes("newer reply"));
+      assert.equal(container.textContent?.includes("late-output"), false);
+    },
+  ));
+
+test("a live thinking block is one row reading thinking, folded until clicked, then drawn, then folded again", () =>
+  withReader(
+    {
+      conversation: conversation({ unfinished: [unfinished("pondering the schedule", "thinking")] }),
+      seenAt: 0,
+      open: false,
+    },
+    async (container) => {
+      const rows = rowTexts(container);
+      assert.equal(rows.length, 1);
+      assert.ok(rows[0].includes("thinking"));
+      assert.equal(container.textContent?.includes("pondering the schedule"), false, "the thinking is folded");
+
+      const line = thinkingLine(container);
+      await clickControl(line);
+      assert.equal(line.nextElementSibling?.textContent, "pondering the schedule");
+
+      await clickControl(line);
+      assert.equal(container.textContent?.includes("pondering the schedule"), false, "a second click folds it");
+    },
+  ));
+
+test("an opened result stays under its call as items arrive and the window slides", () => {
+  const call = callItem("c1", "make", 200n);
+  const output = resultItem("c1", "built-output", false, 200n);
+  return withScrollingReader(readerProps([...heldItems(1, 48), call, output]), async (container, rerender) => {
+    await clickControl(foldLine(container));
+    assert.equal(rowWith(container, "make").querySelector(".result")?.textContent, "built-output");
+
+    // Two new items arrive and the two oldest drop, so the call and its result stay in the window.
+    await rerender(readerProps([...heldItems(3, 48), call, output, ...heldItems(49, 50)]));
+    const line = foldLine(container);
+    assert.equal(line.nextElementSibling?.textContent, "built-output", "the result stays open under its call");
+  });
+});
+
+test("an opened thinking block stays open as its deltas grow", () =>
+  withScrollingReader(
+    { conversation: conversation({ unfinished: [unfinished("first thought", "thinking")] }), seenAt: 0, open: false },
+    async (container, rerender) => {
+      await clickControl(thinkingLine(container));
+      assert.equal(thinkingLine(container).nextElementSibling?.textContent, "first thought");
+
+      await rerender({
+        conversation: conversation({ unfinished: [unfinished("first thought, and then more", "thinking")] }),
+        seenAt: 0,
+        open: false,
+      });
+      assert.equal(
+        thinkingLine(container).nextElementSibling?.textContent,
+        "first thought, and then more",
+        "the block stays open and shows its longer text",
+      );
+    },
+  ));

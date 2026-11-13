@@ -15,7 +15,8 @@ import (
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
 )
 
-// mirrorLockWait bounds how long a sync waits for the mirror lock. A sync that waits longer is dropped.
+// mirrorLockWait bounds how long a sync or tidy waits for the store to open and then for the mirror lock. One that
+// waits longer is dropped.
 const mirrorLockWait = 200 * time.Millisecond
 
 // mirrorSeparator splits the one-command option read. tmux prints it raw, and it cannot appear in a
@@ -50,7 +51,9 @@ const tidyFormat = "#{pane_id}" + mirrorSeparator + mirrorFormat
 // its store write, so concurrent syncs never mint two ids for one pane or write a stale snapshot over a
 // newer one.
 type Mirror struct {
+	// store is set by Attach before opened closes, so it is read only after a receive from opened.
 	store  *store.Store
+	opened chan struct{}
 	now    func() time.Time
 	logger *slog.Logger
 	lock   chan struct{}
@@ -61,11 +64,19 @@ type Mirror struct {
 
 // NewMirror returns a Mirror that writes to st and stamps events with now. A nil logger discards.
 func NewMirror(st *store.Store, now func() time.Time, logger *slog.Logger) *Mirror {
+	m := NewPendingMirror(now, logger)
+	m.Attach(st)
+	return m
+}
+
+// NewPendingMirror returns a Mirror whose store is still opening. Until Attach, a sync or tidy waits at most
+// mirrorLockWait for it. A nil logger discards.
+func NewPendingMirror(now func() time.Time, logger *slog.Logger) *Mirror {
 	if logger == nil {
 		logger = slog.New(slog.DiscardHandler)
 	}
 	return &Mirror{
-		store:       st,
+		opened:      make(chan struct{}),
 		now:         now,
 		logger:      logger,
 		lock:        make(chan struct{}, 1),
@@ -73,11 +84,38 @@ func NewMirror(st *store.Store, now func() time.Time, logger *slog.Logger) *Mirr
 	}
 }
 
+// Attach gives the mirror the store opened for it, or nil when the open failed. It releases every sync and tidy
+// waiting for the store; a nil store makes all later syncs and tidies return at once, silently. Attach is called
+// once.
+func (m *Mirror) Attach(st *store.Store) {
+	m.store = st
+	close(m.opened)
+}
+
+// awaitStore waits at most mirrorLockWait for Attach. It reports false when the wait expires.
+func (m *Mirror) awaitStore() bool {
+	timer := time.NewTimer(mirrorLockWait)
+	defer timer.Stop()
+	select {
+	case <-m.opened:
+		return true
+	case <-timer.C:
+		return false
+	}
+}
+
 // SyncPane syncs pane on server into the store. It reads the pane's @orrery_id and mirrored options,
 // mints and stores an id when the pane has none, writes the snapshot to its row, and sets @orrery_id only
-// after the store write commits. A sync that waits more than 200 ms for the lock, or whose store write
-// fails, is logged and dropped.
+// after the store write commits. A sync that waits more than 200 ms for the store to open or for the lock, or
+// whose store write fails, is logged and dropped. A sync after a failed open returns at once, silently.
 func (m *Mirror) SyncPane(ctx context.Context, server tmuxctl.Server, pane string) {
+	if !m.awaitStore() {
+		m.logger.WarnContext(ctx, "mirror sync dropped", "pane", pane, "reason", "store still opening")
+		return
+	}
+	if m.store == nil {
+		return
+	}
 	if !m.acquire() {
 		m.logger.WarnContext(ctx, "mirror sync dropped", "pane", pane, "reason", "lock wait exceeded")
 		return
@@ -180,8 +218,16 @@ func fieldsOf(values []string) store.Fields {
 // server's rows with them. A pane without an @orrery_id gets one minted before the store write, and the option is
 // set only after the write commits. A failed read or write changes nothing; it is logged, and the next tidy repairs
 // it. A failed list-panes is logged as a server transition instead: see noteListPanes. The lock covers the read and
-// the write, so a sync and a tidy never interleave.
+// the write, so a sync and a tidy never interleave. Like a sync, a tidy waits at most mirrorLockWait for a store
+// still opening, and returns at once after a failed open.
 func (m *Mirror) Tidy(ctx context.Context, server tmuxctl.Server) {
+	if !m.awaitStore() {
+		m.logger.WarnContext(ctx, "mirror tidy dropped", "server", serverValue(server), "reason", "store still opening")
+		return
+	}
+	if m.store == nil {
+		return
+	}
 	if !m.acquire() {
 		m.logger.WarnContext(ctx, "mirror tidy dropped", "server", serverValue(server), "reason", "lock wait exceeded")
 		return

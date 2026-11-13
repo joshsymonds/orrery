@@ -28,6 +28,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -147,9 +148,29 @@ func scrubbedEnv(extra ...string) []string {
 type orreryProcess struct {
 	name    string
 	cmd     *exec.Cmd
-	stderr  bytes.Buffer
+	stderr  lockedBuffer
 	done    chan struct{}
 	waitErr error
+}
+
+// lockedBuffer is a buffer that a running process's stderr is copied into while a test reads it.
+type lockedBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+// Write appends p under the lock.
+func (b *lockedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+// String returns what has been written so far.
+func (b *lockedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
 }
 
 // startBinary starts the built binary name with args and env and kills it at cleanup if it is still running.
@@ -213,6 +234,28 @@ func (p *orreryProcess) stop(t *testing.T) outcome {
 		t.Fatalf("signal %s: %v", p.name, err)
 	}
 	return p.exitOutcome(t)
+}
+
+// waitForLog polls the process's stderr until it holds line, failing the test if the process exits first. It sets no
+// deadline of its own: it waits for an event whose timing the product does not bound, and the test binary's timeout
+// ends a wait that never ends.
+func (p *orreryProcess) waitForLog(t *testing.T, line string) {
+	t.Helper()
+	ticker := time.NewTicker(pollEvery)
+	defer ticker.Stop()
+	for !strings.Contains(p.stderr.String(), line) {
+		select {
+		case <-p.done:
+			// The line may have been written just before the exit.
+			if strings.Contains(p.stderr.String(), line) {
+				return
+			}
+			t.Fatalf("%s exited before logging %s; stderr %q", p.name, line, p.stderr.String())
+		case <-t.Context().Done():
+			t.Fatalf("%s never logged %s; stderr %q", p.name, line, p.stderr.String())
+		case <-ticker.C:
+		}
+	}
 }
 
 // exitOutcome returns the exit outcome once the process exits, failing the test if it is still running after waitLimit.

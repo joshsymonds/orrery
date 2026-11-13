@@ -1,12 +1,14 @@
 package session
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
 
 	"github.com/joshsymonds/orrery/internal/engine/proc"
+	"github.com/joshsymonds/orrery/internal/holder"
 	"github.com/joshsymonds/orrery/internal/protocol"
 )
 
@@ -26,7 +28,10 @@ func ShellArgs(login bool, argv0, program string, args ...string) []string {
 // the working directory, Resume a session id to resume or empty, Model the model alias to run or empty,
 // Name orrery's name for the session, Agent the claude agent to run or empty, Schema the JSON schema
 // claude must return its result in or empty, Settings the JSON settings claude takes as its one
-// --settings argument or empty, and Environ the daemon's environment.
+// --settings argument or empty, HolderScope the absolute path of systemd-run that runs the session's
+// holder in its own user scope or empty to start the holder plainly, StateDir the state directory that
+// holds the session's holder or empty for a private directory per session, and Environ the daemon's
+// environment.
 type Config struct {
 	Shell          string
 	Claude         string
@@ -38,6 +43,8 @@ type Config struct {
 	Schema         string
 	Settings       string
 	Name           string
+	HolderScope    string
+	StateDir       string
 	Environ        []string
 }
 
@@ -102,14 +109,20 @@ func Command(cfg Config) (proc.Config, error) {
 	}, nil
 }
 
-// Start starts a headless session in cfg: it builds the process with Command, starts it and runs a
-// Session on it. When the session cannot open, New has already stopped the process.
-func Start(cfg Config) (*Session, error) {
+// Start starts a headless session in cfg: it builds the process with Command, starts it under its holder
+// with holder.Launch and runs a Session on it. ctx bounds only the launch: once the holder serves, the
+// session no longer depends on it. When the session cannot open, New has already stopped the process.
+func Start(ctx context.Context, cfg Config) (*Session, error) {
 	command, err := Command(cfg)
 	if err != nil {
 		return nil, err
 	}
-	process, err := proc.Start(command)
+	process, err := holder.Launch(ctx, holder.LaunchConfig{
+		Scope:    cfg.HolderScope,
+		StateDir: cfg.StateDir,
+		Session:  cfg.Name,
+		Child:    command,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("session: start process: %w", err)
 	}

@@ -77,7 +77,7 @@ const (
 
 const usageText = `usage: orreryd [-L NAME | -S PATH] [--socket PATH] [--claude PATH] [--summary-model CONTEXT=MODEL]...
                [--push-host HOST]... [--sessions] [--session-cap N] [--session-shell PATH]
-               [--step-cap N]
+               [--holder-scope PATH] [--step-cap N]
 
 flags:
   -L NAME           tmux server by name (tmux -L)
@@ -92,6 +92,9 @@ flags:
   --session-cap N   most live engine sessions at once (default 4)
   --session-shell PATH
                     absolute login shell that starts each session (default $SHELL)
+  --holder-scope PATH
+                    systemd-run binary that runs each session's holder in its own user scope
+                    (default: none, the holder starts plainly)
   --step-cap N      most live step sessions at once, counted apart from --session-cap (default 6)
 `
 
@@ -120,6 +123,7 @@ type options struct {
 	sessions      bool
 	sessionCap    int
 	sessionShell  string
+	holderScope   string
 	stepCap       int
 }
 
@@ -204,6 +208,7 @@ func parseFlags(args []string, getenv func(string) string) (options, error) {
 	sessions := flags.Bool("sessions", false, "serve the engine session service")
 	sessionCap := flags.Int("session-cap", defaultSessionCap, "most live engine sessions")
 	sessionShell := flags.String("session-shell", getenv("SHELL"), "login shell that starts each session")
+	holderScope := flags.String("holder-scope", "", "systemd-run binary that runs each session's holder")
 	stepCap := flags.Int("step-cap", defaultStepCap, "most live step sessions")
 	if err := flags.Parse(args); err != nil {
 		return options{}, usagef("%v", err)
@@ -222,6 +227,9 @@ func parseFlags(args []string, getenv func(string) string) (options, error) {
 	}
 	if *sessions && !filepath.IsAbs(*sessionShell) {
 		return options{}, usagef("--sessions needs an absolute --session-shell, got %q", *sessionShell)
+	}
+	if *holderScope != "" && !filepath.IsAbs(*holderScope) {
+		return options{}, usagef("--holder-scope needs an absolute path, got %q", *holderScope)
 	}
 	if *stepCap < 1 {
 		return options{}, usagef("--step-cap must be at least 1, got %d", *stepCap)
@@ -248,6 +256,7 @@ func parseFlags(args []string, getenv func(string) string) (options, error) {
 		sessions:      *sessions,
 		sessionCap:    *sessionCap,
 		sessionShell:  *sessionShell,
+		holderScope:   *holderScope,
 		stepCap:       *stepCap,
 	}, nil
 }
@@ -282,16 +291,17 @@ func resolveDir(dir string) string {
 	return resolved
 }
 
-// listenSockets listens on the daemon socket and on the notices socket beside it. When the second listen fails it
-// closes the first.
+// listenSockets listens on the notices (desk) socket beside the daemon socket first, then on the daemon socket. A client
+// that sees the daemon socket listening therefore also finds the notices socket listening. When the second listen fails
+// it closes the first.
 func listenSockets(socket string) (net.Listener, net.Listener, error) {
-	ln, err := daemon.Listen(socket)
-	if err != nil {
-		return nil, nil, fmt.Errorf("daemon socket: %w", err)
-	}
 	deskLn, err := daemon.Listen(deskstream.SocketPath(socket))
 	if err != nil {
-		return nil, nil, errors.Join(fmt.Errorf("desk socket: %w", err), ln.Close())
+		return nil, nil, fmt.Errorf("desk socket: %w", err)
+	}
+	ln, err := daemon.Listen(socket)
+	if err != nil {
+		return nil, nil, errors.Join(fmt.Errorf("daemon socket: %w", err), deskLn.Close())
 	}
 	return ln, deskLn, nil
 }
@@ -308,7 +318,9 @@ func startDesk(ctx context.Context, host string, deskLn net.Listener, logger *sl
 	return desk
 }
 
-// serve listens on the daemon socket until ctx is done, then waits for the summaries and notifications it started.
+// serve listens on the daemon and desk sockets and applies hook frames while it opens the store, so no frame waits for
+// the store. The first tidy runs once the store is open and the sessions have started. A failed sessions start stops
+// serving and returns its error. Once the store is open, serve returns only after the store is closed.
 func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(string) string) error {
 	host, err := os.Hostname()
 	if err != nil {
@@ -336,6 +348,9 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 	// The log closes last, after the router and the notices that write to it have stopped.
 	defer closeLog(ctx, noticeLog, logger)
 	notices := notice.New(host, pushes, time.Now, logger)
+	// A failed sessions start cancels ctx, so everything that ctx ends stops as it does on a signal.
+	ctx, stop := context.WithCancel(ctx)
+	defer stop()
 	ln, deskLn, err := listenSockets(opts.socket)
 	if err != nil {
 		return err
@@ -344,8 +359,8 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 	// The hub closes last, after the sessions and notices that post to it have stopped.
 	defer desk.Close()
 
-	st := openStore(ctx, getenv, logger)
-	mirror := newMirror(st, logger)
+	// The mirror waits for the store that the open below attaches to it.
+	mirror := daemon.NewPendingMirror(time.Now, logger)
 	home := getenv("HOME")
 	router := route.New(route.Config{
 		Host:       host,
@@ -356,6 +371,7 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 		LocalInput: localInput(opts),
 		Log:        noticeLog,
 		Logger:     logger,
+		Rebuild:    map[string]route.Rebuild{enginehost.SessionSource: enginehost.RestoreNotice},
 	})
 	hub := &relay{
 		claude: opts.claude,
@@ -373,15 +389,9 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 	}
 	observe := func(transition daemon.Transition) { hub.observe(ctx, transition) }
 	notifier := enginehost.NewNotifier(enginehost.NotifierConfig{Route: router})
-	var sessions *sessionHost
-	if opts.sessions {
-		sessions, err = startSessions(ctx, opts, host, st, notifier, logger, getenv)
-		if err != nil {
-			closeStore(ctx, st, logger)
-			return errors.Join(err, ln.Close())
-		}
-	}
-	serveErr := daemon.Serve(ctx, ln, daemon.Config{
+	// The first tidy waits for tidyStart, which closes once the store is open and the sessions have started.
+	tidyStart := make(chan struct{})
+	serveDone := serveInBackground(ctx, ln, daemon.Config{
 		Server:        opts.server,
 		DefaultServer: opts.defaultServer,
 		Home:          home,
@@ -394,9 +404,50 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 		Read: func(report daemon.ReadReport) {
 			hub.reads.note(report.PaneID, report.Read)
 		},
-		Logger: logger,
-		Mirror: mirror,
+		Logger:    logger,
+		Mirror:    mirror,
+		TidyStart: tidyStart,
 	})
+
+	st := openStore(ctx, getenv, logger)
+	attachStore(ctx, st, mirror, router)
+	var sessions *sessionHost
+	var startErr error
+	if opts.sessions {
+		sessions, startErr = startSessions(ctx, opts, host, st, notifier, logger, getenv)
+	}
+	if startErr != nil {
+		stop()
+	} else {
+		close(tidyStart)
+	}
+	serveErr := <-serveDone
+	sessionErr := shutdownServe(ctx, logger, st, hub, sessions, router, notices)
+	if serveErr != nil {
+		serveErr = fmt.Errorf("serve: %w", serveErr)
+	}
+	return errors.Join(startErr, serveErr, sessionErr)
+}
+
+// serveInBackground runs daemon.Serve on ln with cfg until ctx is done. The returned channel receives Serve's error
+// once it has returned.
+func serveInBackground(ctx context.Context, ln net.Listener, cfg daemon.Config) <-chan error {
+	done := make(chan error, 1)
+	go func() { done <- daemon.Serve(ctx, ln, cfg) }()
+	return done
+}
+
+// shutdownServe runs once Serve has returned. It waits for the summaries, stops the sessions, then waits for the router
+// and the notices, since the sessions can post to them, and closes the store. It returns the sessions' stop error.
+func shutdownServe(
+	ctx context.Context,
+	logger *slog.Logger,
+	st *store.Store,
+	hub *relay,
+	sessions *sessionHost,
+	router *route.Router,
+	notices *notice.Notices,
+) error {
 	hub.wait()
 	var sessionErr error
 	if sessions != nil {
@@ -406,9 +457,6 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 	shutdownRouter(router)
 	notices.Wait()
 	closeStore(ctx, st, logger)
-	if serveErr != nil {
-		return errors.Join(fmt.Errorf("serve: %w", serveErr), sessionErr)
-	}
 	return sessionErr
 }
 
@@ -463,15 +511,17 @@ func startSessions(
 		}
 		host.writer = enginehost.NewWriter(enginehost.WriterConfig{Applier: st, Logger: logger})
 		host.manager = enginehost.NewManager(enginehost.Config{
-			Shell:    opts.sessionShell,
-			Claude:   opts.claude,
-			Environ:  os.Environ(),
-			Cap:      opts.sessionCap,
-			StepCap:  opts.stepCap,
-			Writer:   host.writer,
-			Notifier: notifier,
-			Store:    st,
-			Logger:   logger,
+			Shell:       opts.sessionShell,
+			Claude:      opts.claude,
+			Environ:     os.Environ(),
+			HolderScope: opts.holderScope,
+			StateDir:    filepath.Dir(storePath),
+			Cap:         opts.sessionCap,
+			StepCap:     opts.stepCap,
+			Writer:      host.writer,
+			Notifier:    notifier,
+			Store:       st,
+			Logger:      logger,
 		})
 		host.startBroker(ctx, hostName, st, logger)
 		// host.pools is nil when the broker's restore failed, which leaves the gates no pools to run under.
@@ -598,8 +648,9 @@ func (h *sessionHost) shutdown() {
 	}
 }
 
-// openStore opens the store at its resolved path. When the path does not resolve or the store cannot be opened, it
-// logs the error and returns nil, so orreryd serves hooks and notifications without the store.
+// openStore opens the store at its resolved path and logs "store open" once the store is open and migrated. When the
+// path does not resolve or the store cannot be opened, it logs the error and returns nil, so orreryd serves hooks and
+// notifications without the store.
 func openStore(ctx context.Context, getenv func(string) string, logger *slog.Logger) *store.Store {
 	path, err := store.Path(getenv)
 	if err != nil {
@@ -611,15 +662,18 @@ func openStore(ctx context.Context, getenv func(string) string, logger *slog.Log
 		logger.ErrorContext(ctx, "store unavailable, serving without it", "path", path, "error", err)
 		return nil
 	}
+	logger.InfoContext(ctx, "store open", "path", path)
 	return st
 }
 
-// newMirror returns the mirror that writes panes to st, or nil when st is nil.
-func newMirror(st *store.Store, logger *slog.Logger) *daemon.Mirror {
-	if st == nil {
-		return nil
+// attachStore attaches st to the mirror and, when the store opened, to the router, which stores the notices already
+// pending and restores the ones a previous orreryd left. serve calls it before the sessions start, so a reconciled
+// session's notice is newer than any it restores.
+func attachStore(ctx context.Context, st *store.Store, mirror *daemon.Mirror, router *route.Router) {
+	mirror.Attach(st)
+	if st != nil {
+		router.Attach(ctx, st)
 	}
-	return daemon.NewMirror(st, time.Now, logger)
 }
 
 // closeStore closes st when it is open and logs a failed close.
@@ -697,7 +751,7 @@ type relay struct {
 	router      *route.Router    // routes the waiting and done notices to the desk and the phone
 	judge       *donejudge.Judge // decides whether a plain done needs the user before it routes
 	reads       *readTimes       // each pane's newest read report
-	mirror      *daemon.Mirror   // nil when the store is unavailable
+	mirror      *daemon.Mirror   // syncs the pane each summary is written to; nil skips the sync
 	summarizers map[tmuxctl.Server]*summary.Summarizer
 }
 

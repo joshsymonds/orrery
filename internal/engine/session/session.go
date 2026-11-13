@@ -20,6 +20,12 @@ type Process interface {
 	Wait() error
 }
 
+// detacher is implemented by a process that can be left running when its session ends. Detach calls
+// it in place of Stop.
+type detacher interface {
+	Detach() error
+}
+
 // Session is one headless Claude Code process. One goroutine reads its stdout lines in order,
 // translates them and delivers each event on Events, so a consumer that stops reading pauses only
 // this session.
@@ -48,14 +54,17 @@ func New(process Process) (*Session, error) {
 		pending:   newOpenRequests(),
 	}
 	if err := stream.SendInitialize(session.nextRequestID(), nil); err != nil {
-		return nil, errors.Join(fmt.Errorf("session: send initialize: %w", err), terminate(process, stream))
+		return nil, errors.Join(
+			fmt.Errorf("session: send initialize: %w", err),
+			terminate(process, stream, false),
+		)
 	}
 	go session.run()
 	return session, nil
 }
 
 // Events returns the events of the session in the order its process wrote them. It is closed after
-// Exited, or when the session is stopped.
+// Exited, or when the session is stopped or detached.
 func (s *Session) Events() <-chan Event {
 	return s.events
 }
@@ -81,9 +90,22 @@ func (s *Session) Interrupt() error {
 // reading at that moment receives at most the one event already offered. Stop is idempotent: later
 // calls return the first call's error.
 func (s *Session) Stop() error {
+	return s.end(false)
+}
+
+// Detach ends the session as Stop does, except that a process with a Detach() error method is left
+// running: its Detach is called in place of its Stop. Detach shares Stop's once, so whichever comes
+// first holds, and later calls of either return its error.
+func (s *Session) Detach() error {
+	return s.end(true)
+}
+
+// end ends the session once: it closes stop, ends the process with terminate, and waits for the
+// reader. Later calls return the first call's error.
+func (s *Session) end(detach bool) error {
 	s.stopOnce.Do(func() {
 		close(s.stop)
-		s.stopErr = terminate(s.process, s.transport)
+		s.stopErr = terminate(s.process, s.transport, detach)
 		<-s.finished
 	})
 	return s.stopErr
@@ -94,8 +116,12 @@ func (s *Session) nextRequestID() string {
 	return fmt.Sprintf("orrery-%d", s.requests.Add(1))
 }
 
-// terminate stops the process and closes the transport, and returns the errors of both.
-func terminate(process Process, stream *transport.Transport) error {
+// terminate ends the process and closes the transport, and returns the errors of both. When detach is
+// set and the process can be left running, it detaches the process instead of stopping it.
+func terminate(process Process, stream *transport.Transport, detach bool) error {
+	if detachable, ok := process.(detacher); ok && detach {
+		return errors.Join(detachable.Detach(), stream.Close())
+	}
 	return errors.Join(process.Stop(), stream.Close())
 }
 
@@ -112,6 +138,11 @@ func (s *Session) run() {
 			}
 		}
 	}
+	// Once Stop or Detach has begun, the process is theirs: it has been stopped or left running, so the
+	// reader must not stop it or wait on it.
+	if s.stopping() {
+		return
+	}
 	s.exit()
 }
 
@@ -126,17 +157,25 @@ func (s *Session) exit() {
 	})
 }
 
-// send delivers one event and reports whether it did. Once Stop has begun, it delivers nothing.
+// send delivers one event and reports whether it did. Once Stop or Detach has begun, it delivers nothing.
 func (s *Session) send(event Event) bool {
-	select {
-	case <-s.stop:
+	if s.stopping() {
 		return false
-	default:
 	}
 	select {
 	case s.events <- event:
 		return true
 	case <-s.stop:
+		return false
+	}
+}
+
+// stopping reports whether Stop or Detach has begun.
+func (s *Session) stopping() bool {
+	select {
+	case <-s.stop:
+		return true
+	default:
 		return false
 	}
 }
