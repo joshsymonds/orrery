@@ -285,7 +285,7 @@ func (q *Queries) GetEngineSession(ctx context.Context, id string) (Session, err
 }
 
 const getEpic = `-- name: GetEpic :one
-SELECT id, repository, title, approved, intent, care, approach, release_then, checks, phase, created, changed FROM epics WHERE id = ?
+SELECT id, repository, title, approved, intent, care, approach, release_then, checks, phase, created, changed, paused, parked FROM epics WHERE id = ?
 `
 
 func (q *Queries) GetEpic(ctx context.Context, id string) (Epic, error) {
@@ -304,6 +304,8 @@ func (q *Queries) GetEpic(ctx context.Context, id string) (Epic, error) {
 		&i.Phase,
 		&i.Created,
 		&i.Changed,
+		&i.Paused,
+		&i.Parked,
 	)
 	return i, err
 }
@@ -1226,7 +1228,7 @@ func (q *Queries) ListEpicRequirements(ctx context.Context, epic string) ([]Epic
 }
 
 const listEpics = `-- name: ListEpics :many
-SELECT id, repository, title, approved, intent, care, approach, release_then, checks, phase, created, changed FROM epics ORDER BY id
+SELECT id, repository, title, approved, intent, care, approach, release_then, checks, phase, created, changed, paused, parked FROM epics ORDER BY id
 `
 
 func (q *Queries) ListEpics(ctx context.Context) ([]Epic, error) {
@@ -1251,6 +1253,8 @@ func (q *Queries) ListEpics(ctx context.Context) ([]Epic, error) {
 			&i.Phase,
 			&i.Created,
 			&i.Changed,
+			&i.Paused,
+			&i.Parked,
 		); err != nil {
 			return nil, err
 		}

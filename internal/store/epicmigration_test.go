@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"io/fs"
 	"path/filepath"
 	"reflect"
@@ -12,12 +13,13 @@ import (
 	"github.com/pressly/goose/v3"
 )
 
-// epicTableColumns returns, keyed by table, the columns in declaration order of every table migration 00014 creates.
+// epicTableColumns returns, keyed by table, the columns in declaration order of every table migrations 00014 and
+// 00015 create, and of the epics columns 00015 adds.
 func epicTableColumns() map[string][]string {
 	return map[string][]string{
 		"epics": {
 			"id", "repository", "title", "approved", "intent", "care", "approach", "release_then", "checks",
-			"phase", "created", "changed",
+			"phase", "created", "changed", "paused", "parked",
 		},
 		"epic_failures":      {"epic", "position", "id", "text", "rating", "response"},
 		"epic_additions":     {"epic", "position", "location", "what", "why", "cost"},
@@ -27,6 +29,16 @@ func epicTableColumns() map[string][]string {
 		"epic_alternatives":  {"epic", "position", "alternative", "why_not", "reconsider"},
 		"epic_release_steps": {"epic", "position", "step", "target", "undo"},
 		"epic_decisions":     {"epic", "seq", "client_id", "text", "time"},
+		"epic_triggers":      {"epic", "id", "cause", "state", "turn", "created"},
+		"epic_turns": {
+			"epic", "seq", "step", "state", "reason", "seen", "outline", "outcome", "started", "ended",
+		},
+		"epic_turn_decisions":    {"epic", "turn", "position", "text"},
+		"epic_tasks":             {"epic", "seq", "turn", "title", "deliverable", "task_check", "status"},
+		"epic_task_files":        {"epic", "task", "position", "path"},
+		"epic_task_requirements": {"epic", "task", "position", "requirement"},
+		"epic_questions":         {"epic", "seq", "turn", "text", "state"},
+		"engine_rate_limits":     {"session_id", "status", "kind", "resets_at", "at"},
 	}
 }
 
@@ -120,6 +132,77 @@ func TestEpicTablesCreatedOnFreshOpen(t *testing.T) {
 	for name := range tables {
 		if strings.HasPrefix(name, "epic") && columns[name] == nil {
 			t.Errorf("unexpected epic table %q", name)
+		}
+	}
+}
+
+func TestEpicTriggerStateAcceptsOnlyPendingClaimedConsumed(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(ctx, filepath.Join(t.TempDir(), "orrery.db"))
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer s.Close()
+
+	const epic = "orrery-0123456/epic-one"
+	insert := func(id, state string) error {
+		_, err := s.db.ExecContext(ctx, `INSERT INTO epic_triggers (epic, id, cause, state, created)
+			VALUES (?, ?, 'epic created', ?, 1700000000)`, epic, id, state)
+		return err
+	}
+
+	accepted := []string{"pending", "claimed", "consumed"}
+	for _, state := range accepted {
+		if err := insert("trigger-"+state, state); err != nil {
+			t.Fatalf("insert trigger in state %q: %v", state, err)
+		}
+	}
+	refused := []string{"", "open", "Pending", "free", "running"}
+	for i, state := range refused {
+		err := insert(fmt.Sprintf("refused-%d", i), state)
+		if err == nil || !strings.Contains(err.Error(), "CHECK constraint failed") {
+			t.Fatalf("insert trigger in state %q: err = %v, want the state CHECK refusal", state, err)
+		}
+	}
+
+	want := [][]any{
+		{epic, "trigger-pending", "epic created", "pending", int64(0), int64(1700000000)},
+		{epic, "trigger-claimed", "epic created", "claimed", int64(0), int64(1700000000)},
+		{epic, "trigger-consumed", "epic created", "consumed", int64(0), int64(1700000000)},
+	}
+	if got := rowsOf(t, s.db, "epic_triggers"); !reflect.DeepEqual(got, want) {
+		t.Fatalf("triggers after refused inserts = %v, want %v", got, want)
+	}
+}
+
+func TestEpicTurnsRefuseSecondRunningTurnPerEpic(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(ctx, filepath.Join(t.TempDir(), "orrery.db"))
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer s.Close()
+
+	const first, second = "orrery-0123456/epic-one", "orrery-0123456/epic-two"
+	turn := func(epic string, seq int, state string) error {
+		_, err := s.db.ExecContext(ctx, `INSERT INTO epic_turns (epic, seq, state, seen, started)
+			VALUES (?, ?, ?, 0, 1700000000)`, epic, seq, state)
+		return err
+	}
+
+	if err := turn(first, 1, "running"); err != nil {
+		t.Fatalf("first running turn of %s: %v", first, err)
+	}
+	if err := turn(second, 1, "running"); err != nil {
+		t.Fatalf("running turn of %s while %s runs: %v", second, first, err)
+	}
+	err = turn(first, 2, "running")
+	if err == nil || !strings.Contains(err.Error(), "UNIQUE constraint failed") {
+		t.Fatalf("second running turn of %s: err = %v, want the one-running-turn refusal", first, err)
+	}
+	for seq, state := range []string{"succeeded", "failed", "free"} {
+		if err := turn(first, seq+2, state); err != nil {
+			t.Fatalf("%s turn of %s while a turn runs: %v", state, first, err)
 		}
 	}
 }
@@ -237,8 +320,8 @@ func TestEpicMigrationKeepsExistingRows(t *testing.T) {
 		`SELECT COALESCE(MAX(version_id), 0) FROM goose_db_version WHERE is_applied = 1`).Scan(&version); err != nil {
 		t.Fatalf("read store version: %v", err)
 	}
-	if version != 14 {
-		t.Fatalf("store version after Open = %d, want 14", version)
+	if version != 15 {
+		t.Fatalf("store version after Open = %d, want 15", version)
 	}
 
 	for _, table := range existing {

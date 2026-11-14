@@ -14,6 +14,14 @@ type EnginePromptFailed struct {
 	Reason    string
 }
 
+type EngineRateLimit struct {
+	SessionID string
+	Status    string
+	Kind      string
+	ResetsAt  int64
+	At        int64
+}
+
 type EngineText struct {
 	SessionID       string
 	MessageID       string
@@ -36,6 +44,8 @@ type Epic struct {
 	Phase       string
 	Created     int64
 	Changed     int64
+	Paused      int64
+	Parked      string
 }
 
 type EpicAddition struct {
@@ -86,6 +96,14 @@ type EpicPremise struct {
 	IfWrong  string
 }
 
+type EpicQuestion struct {
+	Epic  string
+	Seq   int64
+	Turn  int64
+	Text  string
+	State string
+}
+
 type EpicReleaseStep struct {
 	Epic     string
 	Position int64
@@ -101,6 +119,59 @@ type EpicRequirement struct {
 	Text     string
 	Evidence string
 	Kind     string
+}
+
+type EpicTask struct {
+	Epic        string
+	Seq         int64
+	Turn        int64
+	Title       string
+	Deliverable string
+	TaskCheck   string
+	Status      string
+}
+
+type EpicTaskFile struct {
+	Epic     string
+	Task     int64
+	Position int64
+	Path     string
+}
+
+type EpicTaskRequirement struct {
+	Epic        string
+	Task        int64
+	Position    int64
+	Requirement string
+}
+
+type EpicTrigger struct {
+	Epic    string
+	ID      string
+	Cause   string
+	State   string
+	Turn    int64
+	Created int64
+}
+
+type EpicTurn struct {
+	Epic    string
+	Seq     int64
+	Step    string
+	State   string
+	Reason  string
+	Seen    int64
+	Outline string
+	Outcome string
+	Started int64
+	Ended   int64
+}
+
+type EpicTurnDecision struct {
+	Epic     string
+	Turn     int64
+	Position int64
+	Text     string
 }
 
 type Event struct {
