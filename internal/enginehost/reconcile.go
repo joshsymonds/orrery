@@ -25,6 +25,13 @@ const holdersSubdir = "holders"
 // clearTimeout bounds the re-adoption, or the holder.Clear, of one session's holder directory in Reconcile.
 const clearTimeout = 10 * time.Second
 
+// resumePrompt is the prompt a restart sends to the session of a working turn it interrupted, so that the turn continues
+// on the session's Claude id.
+const resumePrompt = "Resume working."
+
+// resumedBody is the body of the notice that tells the owner a restart resumed the turn it interrupted.
+const resumedBody = "orreryd restarted during the turn; resumed it"
+
 // Reconcile goes through the holder directories under the manager's state directory whose session has no live session in
 // this manager. Each such holder is re-adopted when its row allows it (see readoptable). A holder that has ended is drained
 // into the store, and its row is settled by that drain. A live holder that cannot be attached is stopped first, then drained
@@ -32,11 +39,12 @@ const clearTimeout = 10 * time.Second
 // is cleared. Then it settles the engine rows that have no process in this manager, as a restart leaves them. A re-adopted
 // session is live, so its row is left as its replay gave it. A drained row is settled by its drain. Each other row loses
 // its unfinished text. A row whose turn was running, working or waiting, is recorded interrupted with restartedReason and no
-// question. The owner is notified of an engine row's interruption; a step row is settled without a notice. A row in any
-// other state keeps its state. No row is removed. A holder that fails to re-adopt, to stop, to drain or to clear is logged
-// and its session is cleared, and the rows are settled anyway. The rows that need a write are settled in one store
-// transaction, so a row that needs nothing, with no text and no turn running, is not written. A write that fails stops
-// no other row. It returns the first read or write error.
+// question. A working turn of an engine row whose session has a Claude id is then resumed with resumePrompt, unless its last
+// prompt is resumePrompt already, and the owner is told of the resume in place of the interruption (see resumable). A step
+// row is settled without a notice. A row in any other state keeps its state. No row is removed. A holder that fails to
+// re-adopt, to stop, to drain or to clear is logged and its session is cleared, and the rows are settled anyway. The rows
+// that need a write are settled in one store transaction, so a row that needs nothing, with no text and no turn running, is
+// not written. A write that fails stops no other row. It returns the first read or write error.
 func (m *Manager) Reconcile(ctx context.Context) error {
 	rows, err := m.store.EngineSessions(ctx)
 	// A failed read leaves no row, so every holder is then cleared.
@@ -92,8 +100,8 @@ func (m *Manager) pendingRows(rows []store.EngineRow, settled, text map[string]b
 	return pending
 }
 
-// notifySettled notifies the owner of each row in rows whose write, in errs, was stored. errs holds one error per row, in
-// order. A row whose write was dropped is not notified, and the first such error is returned.
+// notifySettled tells the owner of each row in rows whose write, in errs, was stored (see resumeOrNotify). errs holds one
+// error per row, in order. A row whose write was dropped is not notified, and the first such error is returned.
 func (m *Manager) notifySettled(ctx context.Context, rows []store.EngineRow, errs []error) error {
 	var firstErr error
 	for i, row := range rows {
@@ -103,7 +111,7 @@ func (m *Manager) notifySettled(ctx context.Context, rows []store.EngineRow, err
 			}
 			continue
 		}
-		m.notifyInterrupted(ctx, row)
+		m.resumeOrNotify(ctx, row)
 	}
 	return firstErr
 }
@@ -111,9 +119,10 @@ func (m *Manager) notifySettled(ctx context.Context, rows []store.EngineRow, err
 // reconcileHolders goes through the holder directories under the state directory. The holder of each session with no live
 // session in this manager is re-adopted when its row, in rows by id, allows it (see readoptable), and drained when it has
 // ended, or stopped and drained when it is live but cannot be attached. A step's holder is never drained or stopped. Every
-// other holder is cleared, as is one that fails to re-adopt, to stop or to drain. It returns the ids of the sessions whose
-// holder was drained, and whose row the drain settled. A missing holders directory, or an empty state directory, has
-// nothing to go through.
+// other holder is cleared, as is one that fails to re-adopt, to stop or to drain. A drained holder is cleared by its drain's
+// settle (see reconcileRow), since a resume there starts a new holder in the same directory. It returns the ids of the
+// sessions whose holder was drained, and whose row the drain settled. A missing holders directory, or an empty state
+// directory, has nothing to go through.
 func (m *Manager) reconcileHolders(ctx context.Context, rows map[string]store.EngineRow) map[string]bool {
 	settled := map[string]bool{}
 	if m.stateDir == "" {
@@ -132,7 +141,7 @@ func (m *Manager) reconcileHolders(ctx context.Context, rows map[string]store.En
 		if m.isLive(id) {
 			continue
 		}
-		dir := filepath.Join(holders, id)
+		dir := m.holderDirOf(id)
 		if row, ok := rows[id]; ok && m.readoptable(row) {
 			readopted, drained := m.readoptHolder(ctx, row, dir)
 			if readopted {
@@ -140,11 +149,17 @@ func (m *Manager) reconcileHolders(ctx context.Context, rows map[string]store.En
 			}
 			if drained {
 				settled[id] = true
+				continue
 			}
 		}
 		m.clearHolder(ctx, id, dir)
 	}
 	return settled
+}
+
+// holderDirOf returns the holder directory of session id under the state directory.
+func (m *Manager) holderDirOf(id string) string {
+	return filepath.Join(m.stateDir, holdersSubdir, id)
 }
 
 // readoptable reports whether the holder of row's session may be re-adopted. Row must be tracked by a launch and be neither
@@ -309,13 +324,15 @@ func (m *Manager) StepLive(id string) bool {
 	return ok && live.step
 }
 
-// reconcileRow settles row in one write as a restart leaves it (see settleOps), and notifies the owner of an engine row's
-// interruption. It returns the error of the write.
+// reconcileRow settles row in one write as a restart leaves it (see settleOps). The drain of its holder has read that
+// holder to its end, so the holder directory is cleared next, before a resume starts a new holder in it. Then the owner is
+// told of the row's interruption, or the row is resumed (see resumeOrNotify). It returns the error of the write.
 func (m *Manager) reconcileRow(ctx context.Context, row store.EngineRow) error {
 	if err := m.writer.Commit(ctx, row.ID, settleOps(row)...); err != nil {
 		return fmt.Errorf("reconcile session %s: %w", row.ID, err)
 	}
-	m.notifyInterrupted(ctx, row)
+	m.clearHolder(ctx, row.ID, m.holderDirOf(row.ID))
+	m.resumeOrNotify(ctx, row)
 	return nil
 }
 
@@ -338,10 +355,53 @@ func turnRunning(row store.EngineRow) bool {
 	return row.State == string(protocol.StateWorking) || row.State == string(protocol.StateWaiting)
 }
 
-// notifyInterrupted tells the owner that the turn of row was interrupted by the restart, when row is an engine row whose
-// turn was running. A step row sends no notice.
-func (m *Manager) notifyInterrupted(ctx context.Context, row store.EngineRow) {
-	if turnRunning(row) && row.Kind == store.KindEngine {
-		m.notify(ctx, row.ID, row.Dir, stateInterrupted, restartedReason)
+// resumeOrNotify tells the owner that the turn of row, which the settle write has stored, was interrupted by the restart,
+// when row is an engine row whose turn was running. A step row sends no notice. A row that resumable accepts is resumed
+// instead, and its resume notice replaces the interruption's.
+func (m *Manager) resumeOrNotify(ctx context.Context, row store.EngineRow) {
+	if !turnRunning(row) || row.Kind != store.KindEngine {
+		return
 	}
+	if m.resumable(ctx, row) {
+		m.resumeInterrupted(ctx, row)
+		return
+	}
+	m.notify(ctx, row.ID, row.Dir, stateInterrupted, restartedReason)
+}
+
+// resumable reports whether row, an engine row whose turn was running, is resumed rather than only interrupted. Its turn
+// must have been working, not waiting for an answer, and its session must have a Claude id to resume. Its last prompt must
+// not be resumePrompt already, so that a turn a restart interrupts again after its resume is interrupted, not resumed
+// again. A prompt that cannot be read leaves the turn interrupted.
+func (m *Manager) resumable(ctx context.Context, row store.EngineRow) bool {
+	if row.State != string(protocol.StateWorking) || row.ClaudeSession == "" {
+		return false
+	}
+	prompts, err := m.store.HolderPrompts(ctx, row.ID)
+	if err != nil {
+		m.logger.WarnContext(ctx, "read prompts of session", "session", row.ID, "err", err)
+		return false
+	}
+	return len(prompts) == 0 || prompts[len(prompts)-1].Text != resumePrompt
+}
+
+// resumeInterrupted resumes the session of row with resumePrompt, after the settle write of row is stored, so the resume
+// starts from the interrupted row. The resume's notice replaces the interruption's. A resume that the session cap refuses
+// leaves the row interrupted, and the interruption's notice stands. A resume whose spawn or send fails records the session
+// failed and notifies that failure itself, so no interruption notice follows it.
+func (m *Manager) resumeInterrupted(ctx context.Context, row store.EngineRow) {
+	err := m.Say(ctx, SayRequest{ID: row.ID, Text: resumePrompt})
+	if err == nil {
+		m.notify(ctx, row.ID, row.Dir, stateInterrupted, resumedBody)
+		return
+	}
+	m.logger.WarnContext(ctx, "resume interrupted session", "session", row.ID, "err", err)
+	after, readErr := m.engineRow(ctx, row.ID)
+	if readErr != nil {
+		m.logger.WarnContext(ctx, "read session after resume", "session", row.ID, "err", readErr)
+	}
+	if readErr == nil && after.State == stateFailed {
+		return
+	}
+	m.notify(ctx, row.ID, row.Dir, stateInterrupted, restartedReason)
 }
