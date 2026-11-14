@@ -16,6 +16,7 @@ import (
 	orreryv1 "github.com/joshsymonds/orrery/internal/gen/orrery/v1"
 	"github.com/joshsymonds/orrery/internal/gen/orrery/v1/orreryv1connect"
 	"github.com/joshsymonds/orrery/internal/store"
+	"github.com/joshsymonds/orrery/internal/storetest"
 )
 
 // sessionsClient serves newSessionsHandler's handler on an httptest server and returns a client for it.
@@ -81,6 +82,7 @@ func wantSession(id, server, pane string) *orreryv1.Session {
 func writeStore(t *testing.T, path string) int64 {
 	t.Helper()
 	ctx := t.Context()
+	storetest.Seed(t, path)
 	s, err := store.Open(ctx, path)
 	if err != nil {
 		t.Fatalf("store.Open: %v", err)

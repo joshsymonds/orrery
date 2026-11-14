@@ -21,6 +21,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/push"
 	"github.com/joshsymonds/orrery/internal/route"
 	"github.com/joshsymonds/orrery/internal/store"
+	"github.com/joshsymonds/orrery/internal/storetest"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
 )
 
@@ -382,6 +383,7 @@ func expectedPush(state protocol.State) push.Notification {
 // openPaneStore opens the store at path and closes it when the test ends.
 func openPaneStore(t *testing.T, path string) *store.Store {
 	t.Helper()
+	storetest.Seed(t, path)
 	s, err := store.Open(t.Context(), path)
 	if err != nil {
 		t.Fatalf("open store: %v", err)

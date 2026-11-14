@@ -13,6 +13,7 @@ import (
 
 	"github.com/joshsymonds/orrery/internal/pools"
 	"github.com/joshsymonds/orrery/internal/store"
+	"github.com/joshsymonds/orrery/internal/storetest"
 )
 
 // deadPID and livePID are the clients of the restart tests. The fake Alive reports only livePID.
@@ -45,7 +46,9 @@ func (s *pidSet) setAlive(pid int, on bool) {
 // openStore returns a new store under t.TempDir(), closed when the test ends.
 func openStore(t *testing.T) *store.Store {
 	t.Helper()
-	s, err := store.Open(t.Context(), filepath.Join(t.TempDir(), "orrery.db"))
+	path := filepath.Join(t.TempDir(), "orrery.db")
+	storetest.Seed(t, path)
+	s, err := store.Open(t.Context(), path)
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}

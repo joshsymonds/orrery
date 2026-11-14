@@ -18,6 +18,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/gen/orrery/v1/orreryv1connect"
 	"github.com/joshsymonds/orrery/internal/server"
 	"github.com/joshsymonds/orrery/internal/store"
+	"github.com/joshsymonds/orrery/internal/storetest"
 )
 
 const (
@@ -71,6 +72,7 @@ func guardedHTTPClient() *http.Client {
 // openEventStore opens the writer for the store at path and closes it at cleanup.
 func openEventStore(t *testing.T, path string) *store.Store {
 	t.Helper()
+	storetest.Seed(t, path)
 	s, err := store.Open(t.Context(), path)
 	if err != nil {
 		t.Fatalf("store.Open: %v", err)
