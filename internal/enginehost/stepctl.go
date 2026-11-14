@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/joshsymonds/orrery/internal/gates"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -116,9 +117,10 @@ func earliestEnded(rows []store.StepRow) *store.StepRow {
 
 // Readopt registers each open step row with adopter before the manager's Reconcile runs, so the manager re-adopts the
 // holder of each step whose run could be rebuilt. Each run is rebuilt as Start builds one, from the row and from the turn
-// end its session last stored. That turn end is read here, before the restarted holders hand anything over, so it is
-// the turn end stored before the restart. The run is registered with adopter as its step's observer, and Reconcile starts
-// its loop once adopter reports the step live. A row whose run cannot be rebuilt, an agent gate step's among them, is
+// end its session last stored. An agent gate step's gate is rebuilt by the Steps' ReadoptGate from the row. That turn
+// end is read here, before the restarted holders hand anything over, so it is the turn end stored before the restart.
+// The run is registered with adopter as its step's observer, and Reconcile starts its loop once adopter reports the step
+// live. A row whose run cannot be rebuilt, an agent gate step whose ReadoptGate does not rebuild its gate among them, is
 // logged and left unregistered, so Reconcile ends it engine_restarted. It returns the error of reading the open rows.
 func (s *Steps) Readopt(ctx context.Context, adopter StepAdopter) error {
 	open, err := s.store.OpenSteps(ctx)
@@ -143,24 +145,36 @@ func (s *Steps) Readopt(ctx context.Context, adopter StepAdopter) error {
 }
 
 // readoptRun rebuilds the run of an open step row as Start builds the run of a started step, restoring it from the turn
-// end its session last stored. A named gate's grant is requested from the pools of the row's workspace, and a read-only
-// step's worktree is removed when the step ends. It returns an error matching errStepAgentGateRestarted for an agent gate
-// step, and an error when the turn end cannot be read, when the return check cannot be restored, or when the run's grant
-// or haiku caller cannot be bound.
+// end its session last stored. An agent gate step's gate is rebuilt by readoptAgentGate, and its run keeps the start its
+// row stores. A named gate's grant is requested from the pools of the row's workspace, and a read-only step's worktree
+// is removed when the step ends. It returns an error matching errStepAgentGateRestarted for an agent gate step that is
+// not re-adopted, and an error when the turn end cannot be read, when the return check cannot be restored, or when the
+// run's grant or haiku caller cannot be bound.
 func (s *Steps) readoptRun(ctx context.Context, row store.StepRow) (*stepRun, error) {
+	var agent *gates.Gate
+	var err error
 	if stepRowRunsAgentGate(row) {
-		return nil, fmt.Errorf("%w: step %s runs agent gate %s", errStepAgentGateRestarted, row.ID, row.GateName)
+		agent, err = s.readoptAgentGate(ctx, row)
+		if err != nil {
+			return nil, err
+		}
 	}
 	turn, found, err := s.store.StepTurn(ctx, row.ID)
 	if err != nil {
 		return nil, fmt.Errorf("read turn end of step %s: %w", row.ID, err)
+	}
+	// resume takes a stored return up as an ordinary step's: it judges a done return and ends any other status
+	// returned, so an agent gate's verdict on it, its fails results and its status, would never be read. Such a step is
+	// not re-adopted.
+	if agent != nil && found && turn.Returned {
+		return nil, fmt.Errorf("%w: step %s stored its return before the restart", errStepAgentGateRestarted, row.ID)
 	}
 	cfg := stepRunConfig{
 		id: row.ID, schema: row.Schema, doneValue: row.DoneValue, sessions: s.sessions, writer: s.writer,
 		logger: s.logger, writing: !row.ReadOnly, start: row.Revision, owned: row.Owned, gate: row.Gate,
 		gateLimit: row.GateLimit, gateName: row.GateName, gateSource: row.GateSource, pools: s.pools,
 		environ: s.environ, prompt: row.Prompt, now: s.now, modelLimit: row.ModelLimit, stateDir: s.gateStateDir,
-		scope: s.gateScope, restore: &stepRestore{Row: row, Turn: turn, Found: found},
+		scope: s.gateScope, restore: &stepRestore{Row: row, Turn: turn, Found: found}, agentGate: agent,
 	}
 	folder := row.Workspace
 	if row.ReadOnly {
@@ -188,18 +202,48 @@ func (s *Steps) readoptRun(ctx context.Context, row store.StepRow) (*stepRun, er
 	if err != nil {
 		return nil, err
 	}
-	return newStepRun(cfg), nil
+	run := newStepRun(cfg)
+	if agent != nil {
+		// An agent gate's limit counts wall time from the step's start, which the row stores, so the run keeps it.
+		run.started = row.Started
+	}
+	return run, nil
 }
 
-// errStepAgentGateRestarted reports a step that runs an agent gate, which Readopt does not rebuild: its gate definition
-// and the latch of its assertions' first fails live only in the run that started it, so the step ends
-// engine_restarted at a restart.
+// errStepAgentGateRestarted reports a step that runs an agent gate which Readopt does not re-adopt: the Steps has no
+// ReadoptGate, the ReadoptGate returns no gate or one that is not the gate the step runs, or the step stored its return
+// before the restart, whose verdict resume does not read. Such a step ends engine_restarted at a restart. The latch of
+// the gate's first fails restarts empty.
 var errStepAgentGateRestarted = errors.New("enginehost: an agent gate step is not re-adopted")
 
 // stepRowRunsAgentGate reports whether row is the row of a step that runs an agent gate: a named gate with no argv, as
 // Start stores an agent gate's step.
 func stepRowRunsAgentGate(row store.StepRow) bool {
 	return row.GateName != "" && len(row.Gate) == 0
+}
+
+// readoptAgentGate returns the agent gate of an agent gate step row, as the Steps' ReadoptGate rebuilds it. A nil
+// ReadoptGate, a nil gate, and a gate that names no agent or whose name is not the row's gate name are refused with an
+// error matching errStepAgentGateRestarted. An error from ReadoptGate is returned wrapped.
+func (s *Steps) readoptAgentGate(ctx context.Context, row store.StepRow) (*gates.Gate, error) {
+	if s.readoptGate == nil {
+		return nil, fmt.Errorf("%w: step %s runs agent gate %s", errStepAgentGateRestarted, row.ID, row.GateName)
+	}
+	gate, err := s.readoptGate(ctx, row)
+	if err != nil {
+		return nil, fmt.Errorf("rebuild agent gate of step %s: %w", row.ID, err)
+	}
+	switch {
+	case gate == nil:
+		return nil, fmt.Errorf("%w: step %s rebuilt no gate for %s", errStepAgentGateRestarted, row.ID, row.GateName)
+	case gate.Agent == "":
+		return nil, fmt.Errorf("%w: step %s rebuilt gate %s names no agent", errStepAgentGateRestarted,
+			row.ID, gate.Name)
+	case gate.Name != row.GateName:
+		return nil, fmt.Errorf("%w: step %s runs agent gate %s, rebuilt gate %s", errStepAgentGateRestarted,
+			row.ID, row.GateName, gate.Name)
+	}
+	return gate, nil
 }
 
 // Reconcile settles the open step rows that have no loop in this Steps, as a restart leaves them. A row Readopt registered

@@ -101,6 +101,9 @@ type StepStore interface {
 // ReadoptCheck returns the return check a step row is re-adopted with: a return check is Go-only, so the row cannot hold
 // it, and the caller that started the step supplies it again. A nil ReadoptCheck, or one that returns a nil check,
 // rebuilds the run with none. An error leaves the row unregistered, so Reconcile ends it engine_restarted.
+// ReadoptGate returns the agent gate an agent gate step row is re-adopted with. A gate definition is not stored with the
+// row, so the caller rebuilds it from the row's stored data. A nil ReadoptGate, or one that returns a nil gate or a gate
+// that names no agent or not the row's gate, leaves the row unregistered, and so does an error.
 type StepsConfig struct {
 	Sessions     stepSessions
 	Store        StepStore
@@ -115,6 +118,7 @@ type StepsConfig struct {
 	GateStateDir string
 	GateScope    string
 	ReadoptCheck func(ctx context.Context, row store.StepRow) (func(value json.RawMessage) []string, error)
+	ReadoptGate  func(ctx context.Context, row store.StepRow) (*gates.Gate, error)
 }
 
 // StepAdopter is what Readopt registers each open step with, and what Reconcile asks whether the step is live. Manager
@@ -142,6 +146,7 @@ type Steps struct {
 	gateStateDir string
 	gateScope    string
 	readoptCheck func(ctx context.Context, row store.StepRow) (func(value json.RawMessage) []string, error)
+	readoptGate  func(ctx context.Context, row store.StepRow) (*gates.Gate, error)
 
 	mu      sync.Mutex
 	loops   map[string]context.CancelFunc
@@ -179,6 +184,7 @@ func NewSteps(cfg StepsConfig) (*Steps, error) {
 		gateStateDir: cfg.GateStateDir,
 		gateScope:    cfg.GateScope,
 		readoptCheck: cfg.ReadoptCheck,
+		readoptGate:  cfg.ReadoptGate,
 		loops:        map[string]context.CancelFunc{},
 		causes:       map[string]context.CancelCauseFunc{},
 		runs:         map[string]*stepRun{},
