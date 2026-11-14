@@ -479,6 +479,19 @@ WHERE epic = sqlc.arg(epic) AND seq = sqlc.arg(seq) AND status = 'open'
 -- name: SetEpicTaskStatus :exec
 UPDATE epic_tasks SET status = sqlc.arg(status) WHERE epic = sqlc.arg(epic) AND seq = sqlc.arg(seq);
 
+-- name: InsertEpicTaskReview :exec
+INSERT INTO epic_task_reviews (epic, task, attempt, position, gate, step, verdict) VALUES (?, ?, ?, ?, ?, ?, ?);
+
+-- name: InsertEpicTaskFinding :exec
+INSERT INTO epic_task_findings (epic, task, attempt, review, position, id, claim, citation, location, evidence, verify_by)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+-- name: SetEpicTaskFindingResult :execrows
+UPDATE epic_task_findings
+SET step = sqlc.arg(step), result = sqlc.arg(result), reason = sqlc.arg(reason)
+WHERE epic = sqlc.arg(epic) AND task = sqlc.arg(task) AND attempt = sqlc.arg(attempt)
+  AND review = sqlc.arg(review) AND position = sqlc.arg(position) AND result = '';
+
 -- name: MaxEpicQuestionSeq :one
 SELECT CAST(COALESCE(MAX(seq), 0) AS INTEGER) FROM epic_questions WHERE epic = ?;
 

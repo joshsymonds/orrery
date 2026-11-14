@@ -1197,6 +1197,42 @@ func (q *Queries) InsertEpicTaskFile(ctx context.Context, arg InsertEpicTaskFile
 	return err
 }
 
+const insertEpicTaskFinding = `-- name: InsertEpicTaskFinding :exec
+INSERT INTO epic_task_findings (epic, task, attempt, review, position, id, claim, citation, location, evidence, verify_by)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+`
+
+type InsertEpicTaskFindingParams struct {
+	Epic     string
+	Task     int64
+	Attempt  int64
+	Review   int64
+	Position int64
+	ID       string
+	Claim    string
+	Citation string
+	Location string
+	Evidence string
+	VerifyBy string
+}
+
+func (q *Queries) InsertEpicTaskFinding(ctx context.Context, arg InsertEpicTaskFindingParams) error {
+	_, err := q.db.ExecContext(ctx, insertEpicTaskFinding,
+		arg.Epic,
+		arg.Task,
+		arg.Attempt,
+		arg.Review,
+		arg.Position,
+		arg.ID,
+		arg.Claim,
+		arg.Citation,
+		arg.Location,
+		arg.Evidence,
+		arg.VerifyBy,
+	)
+	return err
+}
+
 const insertEpicTaskRequirement = `-- name: InsertEpicTaskRequirement :exec
 INSERT INTO epic_task_requirements (epic, task, position, requirement) VALUES (?, ?, ?, ?)
 `
@@ -1214,6 +1250,33 @@ func (q *Queries) InsertEpicTaskRequirement(ctx context.Context, arg InsertEpicT
 		arg.Task,
 		arg.Position,
 		arg.Requirement,
+	)
+	return err
+}
+
+const insertEpicTaskReview = `-- name: InsertEpicTaskReview :exec
+INSERT INTO epic_task_reviews (epic, task, attempt, position, gate, step, verdict) VALUES (?, ?, ?, ?, ?, ?, ?)
+`
+
+type InsertEpicTaskReviewParams struct {
+	Epic     string
+	Task     int64
+	Attempt  int64
+	Position int64
+	Gate     string
+	Step     string
+	Verdict  string
+}
+
+func (q *Queries) InsertEpicTaskReview(ctx context.Context, arg InsertEpicTaskReviewParams) error {
+	_, err := q.db.ExecContext(ctx, insertEpicTaskReview,
+		arg.Epic,
+		arg.Task,
+		arg.Attempt,
+		arg.Position,
+		arg.Gate,
+		arg.Step,
+		arg.Verdict,
 	)
 	return err
 }
@@ -3875,6 +3938,41 @@ func (q *Queries) SetEpicTaskBuild(ctx context.Context, arg SetEpicTaskBuildPara
 		arg.FromRefs,
 		arg.FromGatePos,
 		arg.FromFindingPos,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const setEpicTaskFindingResult = `-- name: SetEpicTaskFindingResult :execrows
+UPDATE epic_task_findings
+SET step = ?1, result = ?2, reason = ?3
+WHERE epic = ?4 AND task = ?5 AND attempt = ?6
+  AND review = ?7 AND position = ?8 AND result = ''
+`
+
+type SetEpicTaskFindingResultParams struct {
+	Step     string
+	Result   string
+	Reason   string
+	Epic     string
+	Task     int64
+	Attempt  int64
+	Review   int64
+	Position int64
+}
+
+func (q *Queries) SetEpicTaskFindingResult(ctx context.Context, arg SetEpicTaskFindingResultParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, setEpicTaskFindingResult,
+		arg.Step,
+		arg.Result,
+		arg.Reason,
+		arg.Epic,
+		arg.Task,
+		arg.Attempt,
+		arg.Review,
+		arg.Position,
 	)
 	if err != nil {
 		return 0, err
