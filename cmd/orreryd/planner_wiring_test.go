@@ -65,7 +65,7 @@ func TestSessionsHostParksEpicWithoutRoleFile(t *testing.T) {
 		stepCap:    defaultStepCap,
 	}
 	notifier := enginehost.NewNotifier(enginehost.NotifierConfig{})
-	host, err := startSessions(ctx, opts, plannerWiringHost, st, notifier, slog.New(slog.DiscardHandler), getenv)
+	host, err := startSessions(ctx, opts, plannerWiringHost, st, notifier, nil, slog.New(slog.DiscardHandler), getenv)
 	if err != nil {
 		t.Fatalf("startSessions: %v", err)
 	}

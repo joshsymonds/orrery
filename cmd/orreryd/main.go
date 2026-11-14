@@ -426,7 +426,7 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 	var sessions *sessionHost
 	var startErr error
 	if opts.sessions {
-		sessions, startErr = startSessions(ctx, opts, host, st, notifier, logger, getenv)
+		sessions, startErr = startSessions(ctx, opts, host, st, notifier, router, logger, getenv)
 	}
 	if startErr != nil {
 		stop()
@@ -503,8 +503,10 @@ type sessionHost struct {
 	idleDone    chan struct{}
 	stopPlanner context.CancelFunc
 	plannerDone chan struct{}
-	stopServe   context.CancelFunc
-	serveDone   chan error
+	// attentionDone is closed when the attention loop returns, and is nil when no loop runs.
+	attentionDone chan struct{}
+	stopServe     context.CancelFunc
+	serveDone     chan error
 }
 
 // startSessions listens on sessions.sock beside the daemon socket and serves the Engine, Steps and Pools services on it
@@ -513,7 +515,8 @@ type sessionHost struct {
 // brokerTick until stop, and the step engine capped at opts.stepCap whose worktrees go under step-worktrees beside the
 // store file. The steps re-adopt the open step rows a previous run left, the manager reconciles the session rows and
 // the steps reconcile the rest before the service serves. The planner then runs over the store and the steps, and the
-// manager stops idle sessions, until stop. A readopt, reconcile or restore failure is logged and serving goes on; a
+// manager stops idle sessions, until stop. When epicRoute is not nil, the planner's attention loop routes its epic
+// notices through it. A readopt, reconcile or restore failure is logged and serving goes on; a
 // failed restore serves no Pools, which refuse as unavailable, and the gates fail for want of pools.
 func startSessions(
 	ctx context.Context,
@@ -521,6 +524,7 @@ func startSessions(
 	hostName string,
 	st *store.Store,
 	notifier *enginehost.Notifier,
+	epicRoute planner.Router,
 	logger *slog.Logger,
 	getenv func(string) string,
 ) (*sessionHost, error) {
@@ -585,7 +589,7 @@ func startSessions(
 			close(host.writerDone)
 		}()
 		host.reconcile(ctx, logger)
-		host.startPlanner(ctx, st, getenv, logger)
+		host.startPlanner(ctx, st, epicRoute, getenv, logger)
 		var idleCtx context.Context
 		idleCtx, host.stopIdle = context.WithCancel(ctx)
 		go func() {
@@ -691,10 +695,12 @@ func (h *sessionHost) stop() error {
 }
 
 // startPlanner runs the planner runner over st and the steps until stop. The runner reads the planner's agent from the
-// role file on each pass, so without one it parks the epics that have pending triggers, and starts no turn.
+// role file on each pass, so without one it parks the epics that have pending triggers, and starts no turn. When router
+// is not nil, the attention loop runs under the same context and routes the epics that need their owner through it.
 func (h *sessionHost) startPlanner(
 	ctx context.Context,
 	st *store.Store,
+	router planner.Router,
 	getenv func(string) string,
 	logger *slog.Logger,
 ) {
@@ -710,11 +716,20 @@ func (h *sessionHost) startPlanner(
 		runner.Run(plannerCtx)
 		close(h.plannerDone)
 	}()
+	if router == nil {
+		return
+	}
+	attention := planner.NewAttention(planner.AttentionConfig{Store: st, Router: router, Logger: logger})
+	h.attentionDone = make(chan struct{})
+	go func() {
+		attention.Run(plannerCtx)
+		close(h.attentionDone)
+	}()
 }
 
-// shutdown stops the broker, stops the idle check, stops the planner and waits for its runner to return, ends every
-// step loop, stops every live session, and ends the writer after its last flush. The notices the sessions started are
-// waited on in serve. Without a broker, manager and writer it does nothing.
+// shutdown stops the broker, stops the idle check, stops the planner and waits for its runner and its attention loop to
+// return, ends every step loop, stops every live session, and ends the writer after its last flush. The notices the
+// sessions started are waited on in serve. Without a broker, manager and writer it does nothing.
 func (h *sessionHost) shutdown() {
 	h.stopBroker()
 	if h.manager != nil {
@@ -722,6 +737,9 @@ func (h *sessionHost) shutdown() {
 		<-h.idleDone
 		h.stopPlanner()
 		<-h.plannerDone
+		if h.attentionDone != nil {
+			<-h.attentionDone
+		}
 		h.steps.Close()
 		h.manager.Close()
 	}
@@ -1006,11 +1024,13 @@ func (r *relay) notify(ctx context.Context, transition daemon.Transition) {
 }
 
 // newRelay returns hub with the router cfg builds, which hub routes its notices through. The router restores each
-// stored notice through the rebuild of its source kind: a session notice through enginehost.RestoreNotice, a pane
-// notice through hub's rebuildPane. So hub is built first, and cfg's Rebuild is set here.
+// stored notice through the rebuild of its source kind: a session notice through enginehost.RestoreNotice, an epic
+// notice through planner.RestoreNotice, a pane notice through hub's rebuildPane. So hub is built first, and cfg's
+// Rebuild is set here.
 func newRelay(cfg route.Config, hub *relay) *relay {
 	cfg.Rebuild = map[string]route.Rebuild{
 		enginehost.SessionSource: enginehost.RestoreNotice,
+		planner.EpicSource:       planner.RestoreNotice,
 		paneSourceKind:           hub.rebuildPane,
 	}
 	hub.router = route.New(cfg)
