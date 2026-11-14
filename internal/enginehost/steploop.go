@@ -148,6 +148,9 @@ type stepRun struct {
 	limited     bool
 	limitKind   string
 	limitResets time.Time
+	// limitReleased is set by Steps.Stop when the step's stored row is limited: its process was released for the limit, so
+	// finish stops no session. Nothing else sets it, since a failed resume may leave a respawned process live.
+	limitReleased bool
 	// judgeSent is set once the judge has sent the step back, so a second unmet verdict ends goal_unmet.
 	judgeSent bool
 	// round is the number of the step's latest round. A turn end that is no continuation is the next round, which judge
@@ -238,7 +241,7 @@ func (r *stepRun) run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case reason := <-r.exits:
-			if !r.exited(ctx, reason) {
+			if !r.exitReceived(ctx, reason) {
 				return
 			}
 		case call := <-r.calls:
@@ -270,6 +273,28 @@ func (r *stepRun) exited(ctx context.Context, reason string) bool {
 	return false
 }
 
+// exitReceived handles the session's exit with its reason once the turn ends queued before it are handled, so a
+// process that exits right after its limit turn leaves the step limited. It reports whether the run goes on.
+func (r *stepRun) exitReceived(ctx context.Context, reason string) bool {
+	return r.takeQueuedReturns(ctx) && r.exited(ctx, reason)
+}
+
+// takeQueuedReturns handles, in order, the turn ends already queued on returns, so that an exit taken after them comes
+// after their turn ends. run picks at random between a queued turn end and a queued exit, so this keeps a process that
+// exits right after its limit turn limited. It reports whether the run goes on.
+func (r *stepRun) takeQueuedReturns(ctx context.Context) bool {
+	for {
+		select {
+		case ended := <-r.returns:
+			if !r.turnEnded(ctx, ended) {
+				return false
+			}
+		default:
+			return true
+		}
+	}
+}
+
 // tick checks the watch on one tick. A held or limited run checks nothing. It reports whether the run goes on.
 func (r *stepRun) tick(ctx context.Context) bool {
 	if r.held.Load() || r.limited {
@@ -279,8 +304,9 @@ func (r *stepRun) tick(ctx context.Context) bool {
 }
 
 // resume takes up a re-adopted step from restore. Its loop state is restored, and the watch's turn is marked running
-// when no turn end was found. A turn end its latest return covers goes to resumeReturn. Any other turn end is handled
-// as one the session has just given. It reports whether the run goes on.
+// when no turn end was found. A limited row is restored as limited, and its stored turn end is not handled again. A turn
+// end its latest return covers goes to resumeReturn. Any other turn end is handled as one the session has just given. It
+// reports whether the run goes on.
 func (r *stepRun) resume(ctx context.Context, restore stepRestore) bool {
 	row := restore.Row
 	r.round = row.LoopRound
@@ -296,6 +322,10 @@ func (r *stepRun) resume(ctx context.Context, restore stepRestore) bool {
 		r.resumeGate = store.StepGate{ID: r.id, Grant: row.GateGrant, Holder: row.GateHolder, Round: row.GateRound}
 	}
 	switch {
+	case row.LoopLimited:
+		r.limited = true
+		r.limitKind, r.limitResets = row.LoopLimitKind, row.LoopLimitResets
+		return true
 	case !restore.Found:
 		return true
 	case restore.Turn.Returned:
@@ -734,9 +764,9 @@ func stepLoopFailures(checks []store.StepCheck) []string {
 	return failures
 }
 
-// finish ends the step once. It stores StepEnd, stops the session, runs cleanup and closes ended. A store, stop or cleanup
-// error is logged, since nothing above finish can act on it. A ctx that has ended stores no end, so finish does nothing
-// then. It reports whether this call acted.
+// finish ends the step once. It stores StepEnd, stops the session unless limitReleased says a limit released it, runs
+// cleanup and closes ended. A store, stop or cleanup error is logged, since nothing above finish can act on it. A ctx
+// that has ended stores no end, so finish does nothing then. It reports whether this call acted.
 func (r *stepRun) finish(ctx context.Context, end, status, reason string) bool {
 	if ctx.Err() != nil {
 		return false
@@ -752,8 +782,10 @@ func (r *stepRun) finish(ctx context.Context, end, status, reason string) bool {
 		if err := r.writer.Commit(ctx, r.id, stepEnd); err != nil {
 			r.logger.ErrorContext(ctx, "record step end", "step", r.id, "err", err)
 		}
-		if err := r.sessions.Stop(ctx, r.id); err != nil {
-			r.logger.ErrorContext(ctx, "stop step session", "step", r.id, "err", err)
+		if !r.limitReleased {
+			if err := r.sessions.Stop(ctx, r.id); err != nil {
+				r.logger.ErrorContext(ctx, "stop step session", "step", r.id, "err", err)
+			}
 		}
 		if r.cleanup != nil {
 			if err := r.cleanup(ctx); err != nil {
