@@ -548,6 +548,30 @@ func (q *Queries) GetStep(ctx context.Context, id string) (Step, error) {
 	return i, err
 }
 
+const getStepRateLimit = `-- name: GetStepRateLimit :one
+SELECT session_id, status, kind, resets_at, at FROM engine_rate_limits
+WHERE engine_rate_limits.session_id = ?1 AND engine_rate_limits.status = 'rejected'
+  AND engine_rate_limits.at >= COALESCE((
+      SELECT prompts.at FROM events AS prompts
+      WHERE prompts.session_id = ?1 AND prompts.kind = 'engine_prompt'
+      ORDER BY prompts.seq DESC
+      LIMIT 1
+  ), 0)
+`
+
+func (q *Queries) GetStepRateLimit(ctx context.Context, id string) (EngineRateLimit, error) {
+	row := q.db.QueryRowContext(ctx, getStepRateLimit, id)
+	var i EngineRateLimit
+	err := row.Scan(
+		&i.SessionID,
+		&i.Status,
+		&i.Kind,
+		&i.ResetsAt,
+		&i.At,
+	)
+	return i, err
+}
+
 const getStepTurnEnd = `-- name: GetStepTurnEnd :one
 SELECT events.seq, CAST(json_extract(events.payload, '$.isError') AS INTEGER) AS is_error, sessions.turn_output,
        sessions.background, steps.loop_seq

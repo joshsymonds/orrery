@@ -466,3 +466,13 @@ DO UPDATE SET status = excluded.status, kind = excluded.kind, resets_at = exclud
 
 -- name: GetEngineRateLimit :one
 SELECT * FROM engine_rate_limits WHERE session_id = ?;
+
+-- name: GetStepRateLimit :one
+SELECT * FROM engine_rate_limits
+WHERE engine_rate_limits.session_id = sqlc.arg(id) AND engine_rate_limits.status = 'rejected'
+  AND engine_rate_limits.at >= COALESCE((
+      SELECT prompts.at FROM events AS prompts
+      WHERE prompts.session_id = sqlc.arg(id) AND prompts.kind = 'engine_prompt'
+      ORDER BY prompts.seq DESC
+      LIMIT 1
+  ), 0);

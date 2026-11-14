@@ -46,7 +46,25 @@ func (s *Store) RateLimit(ctx context.Context, session string) (RateLimit, bool,
 	if err != nil {
 		return RateLimit{}, false, fmt.Errorf("get rate limit of session %s: %w", session, err)
 	}
+	return rateLimitOf(row), true, nil
+}
+
+// StepRateLimit returns the stored rate limit of session id and true when its status is "rejected" and it was stored
+// at or after the at of the session's newest engine_prompt event. It returns the zero value and false otherwise. A
+// session with no prompt compares against zero.
+func (s *Store) StepRateLimit(ctx context.Context, id string) (RateLimit, bool, error) {
+	row, err := sqlcgen.New(s.db).GetStepRateLimit(ctx, id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return RateLimit{}, false, nil
+	}
+	if err != nil {
+		return RateLimit{}, false, fmt.Errorf("get step rate limit of session %s: %w", id, err)
+	}
+	return rateLimitOf(row), true, nil
+}
+
+func rateLimitOf(row sqlcgen.EngineRateLimit) RateLimit {
 	return RateLimit{
 		Status: row.Status, Kind: row.Kind, ResetsAt: time.Unix(row.ResetsAt, 0), At: time.Unix(row.At, 0),
-	}, true, nil
+	}
 }
