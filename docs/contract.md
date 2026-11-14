@@ -519,7 +519,7 @@ With `--holder-scope PATH`, the program is `PATH`, run with `--user --scope --co
 
 `orreryd` reads the session's stdout from the holder's `out` frames (see [Wire protocol](#wire-protocol)). After a read that returns bytes while the stream runs, it acks two offsets. `consumed` is the stdout the read has returned. `replayFrom` is the offset that `SetReplayFrom` last allowed, and the pump allows one only once the line that sets it is stored (see [Engine sessions in the store](#engine-sessions-in-the-store)). Neither offset goes below the attached frame's, and `replayFrom` never goes above `consumed` (`internal/holder/process.go:351`-`:375`, `:108`-`:114`; `internal/enginehost/manager.go:1288`-`:1290`).
 
-`orreryd` writes stdin only as `write` frames. Each write carries the id of its kind, which the session sets before the write, and a write returns once the holder has written its data (`internal/engine/session/session.go:277`-`:282`, `internal/holder/process.go:408`-`:439`). A repeat of an id the holder has recorded is answered as a duplicate, and nothing is written (`internal/holder/holder.go:503`-`:534`). The ids are these:
+`orreryd` writes stdin only as `write` frames. Each write carries the id of its kind, which the session sets before the write, and a write returns once the holder has written its data (`internal/engine/session/session.go:277`-`:282`, `internal/holder/process.go:408`-`:439`). A repeat of an id the holder has recorded is answered as a duplicate, and nothing is written (`internal/holder/holder.go:510`-`:541`). The ids are these:
 
 - `initialize`, fixed, for the initialize request. Re-adoption sends no initialize (`internal/engine/session/session.go:17`-`:18`, `:101`-`:104`).
 - A prompt's id is its stored `write_id`, 128 random bits in hex. The prompt is stored with its event before it is sent, for `Start`, `Say` and a step's first prompt (`internal/enginehost/manager.go:349`-`:357`, `:471`-`:487`, `:1115`-`:1122`; `internal/enginehost/stepsession.go:80`-`:89`).
@@ -1249,9 +1249,9 @@ must_not = ["The change edits the example vendor directory."]
 
 #### Socket
 
-- The holder removes a socket file left in the session directory, listens on `holder.sock` and sets its mode to 0600. The path must be under 108 bytes, and a longer path is refused (`internal/holder/holder.go:111`-`:125`, `internal/holder/dir.go:24`-`:27`, `:59`-`:67`). The socket file is removed when the holder stops listening (`internal/holder/holder.go:237`-`:238`).
-- Each connection's peer uid must equal the holder's uid. A peer of another user, or one whose uid cannot be read, is closed with no frame (`internal/holder/holder.go:311`-`:323`). The uid comes from `SO_PEERCRED` on Linux (`internal/holder/peercred_linux.go:12`-`:29`) and from `LOCAL_PEERCRED` on Darwin (`internal/holder/peercred_darwin.go:12`-`:29`).
-- The first frame on a connection must be `hello`. Any other first frame closes the connection with no answer (`internal/holder/holder.go:274`-`:282`, `:326`-`:336`).
+- The holder removes a socket file left in the session directory, listens on `holder.sock` and sets its mode to 0600. The path must be under 108 bytes, and a longer path is refused (`internal/holder/holder.go:111`-`:125`, `internal/holder/dir.go:24`-`:27`, `:59`-`:67`). The socket file is removed when the holder stops listening (`internal/holder/holder.go:241`-`:242`).
+- Each connection's peer uid must equal the holder's uid. A peer of another user, or one whose uid cannot be read, is closed with no frame (`internal/holder/holder.go:318`-`:330`). The uid comes from `SO_PEERCRED` on Linux (`internal/holder/peercred_linux.go:12`-`:29`) and from `LOCAL_PEERCRED` on Darwin (`internal/holder/peercred_darwin.go:12`-`:29`).
+- The first frame on a connection must be `hello`. Any other first frame closes the connection with no answer (`internal/holder/holder.go:281`-`:289`, `:333`-`:343`).
 
 #### Spool
 
@@ -1263,9 +1263,9 @@ must_not = ["The change edits the example vendor directory."]
 
 #### Exit file
 
-- The holder writes `exit.json` once the child has ended, before it answers `stopped` (`internal/holder/holder.go:235`-`:243`). It writes a temporary file in the session directory and hard-links it to `exit.json`, so a reader sees either no file or the whole record. It never replaces an existing `exit.json` (`internal/holder/exitfile.go:15`-`:47`). If the file cannot be written, the holder sends no `stopped` and exits 1.
+- The holder writes `exit.json` once the child has ended, before it answers `stopped` (`internal/holder/holder.go:239`-`:250`). It writes a temporary file in the session directory and hard-links it to `exit.json`, so a reader sees either no file or the whole record. It never replaces an existing `exit.json` (`internal/holder/exitfile.go:15`-`:47`). If the file cannot be written, the holder sends no `stopped` and exits 1.
 - The record is a JSON object with these keys (`internal/holder/wire.go:98`-`:110`):
-  - `reason`: `exited` when the child ended on its own. `stopped` when a stop frame, or a SIGINT or SIGTERM to the holder, had arrived when the child ended. `idle` as [Idle timeout](#idle-timeout) gives (`internal/holder/wire.go:41`-`:49`, `internal/holder/holder.go:233`-`:235`, `:378`-`:387`). `limit` when a gate child passed its limit and the holder stopped it, as [Child](#child) gives (`internal/holder/wire.go:50`, `internal/holder/child.go:146`-`:148`).
+  - `reason`: `exited` when the child ended on its own. `stopped` when a stop frame, or a SIGINT or SIGTERM to the holder, had arrived when the child ended. `idle` as [Idle timeout](#idle-timeout) gives (`internal/holder/wire.go:41`-`:49`, `internal/holder/holder.go:237`-`:239`, `:385`-`:394`). `limit` when a gate child passed its limit and the holder stopped it, as [Child](#child) gives (`internal/holder/wire.go:50`, `internal/holder/child.go:146`-`:148`).
   - `code`: the child's exit status, or -1 when a signal ended the child or its wait gave no status (`internal/holder/child.go:132`-`:143`).
   - `signal`: the name of the signal that ended the child. It is omitted when empty (`internal/holder/child.go:256`-`:262`).
   - `stdoutEnd`: the spool's end once the child is reaped (`internal/holder/child.go:134`).
@@ -1295,18 +1295,18 @@ Framing:
 
 - A frame is one JSON object on one line, ending in LF. A frame, LF included, is at most 32 MiB (`internal/holder/wire.go:17`-`:19`, `:112`-`:130`, `:159`-`:181`).
 - Every frame has a string `type`. Keys are camelCase. A field at its zero value is omitted from a frame. Byte fields (`data`) are base64 strings. A reader ignores unknown keys (`internal/holder/wire.go:61`-`:96`, `:142`-`:157`).
-- A line that is not JSON, has no `type`, or is longer than the limit closes the connection (`internal/holder/wire.go:142`-`:157`, `internal/holder/holder.go:274`-`:309`).
+- A line that is not JSON, has no `type`, or is longer than the limit closes the connection (`internal/holder/wire.go:142`-`:157`, `internal/holder/holder.go:281`-`:316`).
 
 Frozen in every version:
 
-- `hello`. A controller sends `{"type":"hello","version":N}` first. The holder answers with its own version and session, `{"type":"hello","version":N,"session":"NAME"}`. The holder does not compare versions, so the controller decides what it attaches (`internal/holder/holder.go:326`-`:336`, `internal/holder/client.go:146`-`:160`).
-- `stop`. After `hello`, any connection may send `{"type":"stop"}`. The holder stops the child as [Child](#child) says. It sends `{"type":"stopped"}` to each connection that sent stop once `exit.json` is written. A stop that arrives after that is answered at once (`internal/holder/holder.go:350`-`:376`, `:436`-`:451`, `:232`-`:235`).
+- `hello`. A controller sends `{"type":"hello","version":N}` first. The holder answers with its own version and session, `{"type":"hello","version":N,"session":"NAME"}`. The holder does not compare versions, so the controller decides what it attaches (`internal/holder/holder.go:333`-`:343`, `internal/holder/client.go:146`-`:160`).
+- `stop`. After `hello`, any connection may send `{"type":"stop"}`. The holder stops the child as [Child](#child) says. It sends `{"type":"stopped"}` to each connection that sent stop once `exit.json` is written. A stop that arrives after that is answered at once (`internal/holder/holder.go:357`-`:383`, `:443`-`:458`, `:236`-`:239`).
 - `stopped`. `{"type":"stopped"}` carries no fields.
 
 Version 1 (`WireVersion` 1):
 
-- `attach`. A controller sends `{"type":"attach","replayFrom":N}`. The holder accepts it when `N` is within the retained `[start, end]` and the child has not ended. It answers `{"type":"attached","start":S,"end":E,"consumed":C,"replayFrom":R,"written":[...]}`, where `consumed` and `replayFrom` are the spool's last acked offsets, so the controller acks at or above them, and `written` lists every write id recorded so far, in the order received. The stream then follows: `out` frames from `N` in order, then more as the child writes. An attach refused for its offset or because the child has ended gets an `error` frame and closes its connection, and the attached controller stays. An attach on the connection that is already the attached controller is refused the same way, and that connection detaches. A new attach replaces the attached controller, whose connection closes (`internal/holder/holder.go:453`-`:497`, `:614`-`:634`).
-- `out`. `{"type":"out","offset":N,"data":"..."}` carries stdout from offset `N`, at most 64 KiB per frame (`internal/holder/wire.go:21`-`:22`, `internal/holder/holder.go:618`-`:634`).
+- `attach`. A controller sends `{"type":"attach","replayFrom":N}`. The holder accepts it when `N` is within the retained `[start, end]` and the child has not ended. It answers `{"type":"attached","start":S,"end":E,"consumed":C,"replayFrom":R,"written":[...]}`, where `consumed` and `replayFrom` are the spool's last acked offsets, so the controller acks at or above them, and `written` lists every write id recorded so far, in the order received. The stream then follows: `out` frames from `N` in order, then more as the child writes. An attach refused for its offset or because the child has ended gets an `error` frame and closes its connection, and the attached controller stays. An attach on the connection that is already the attached controller is refused the same way, and that connection detaches. A new attach replaces the attached controller, whose connection closes (`internal/holder/holder.go:460`-`:504`, `:624`-`:644`).
+- `out`. `{"type":"out","offset":N,"data":"..."}` carries stdout from offset `N`, at most 64 KiB per frame (`internal/holder/wire.go:21`-`:22`, `internal/holder/holder.go:628`-`:644`).
 
 Example, synthetic. The controller attaches from the start of the output, which is 15 bytes long:
 
@@ -1318,10 +1318,10 @@ holder      {"type":"attached","end":15}
 holder      {"type":"out","data":"ZXhhbXBsZSBvdXRwdXQK"}
 ```
 
-- `exit`. `{"type":"exit","exit":{...}}` carries the record of [Exit file](#exit-file). The holder sends it to the attached controller once that controller's `out` frames reach `stdoutEnd`, then ends the streams and quits (`internal/holder/holder.go:636`-`:647`, `:213`-`:249`).
-- `ack`. From the attached controller only, `{"type":"ack","consumed":N,"replayFrom":M}`. It has no answer. It moves `consumed` and trims the spool (see [Spool](#spool)) (`internal/holder/holder.go:575`-`:591`).
-- `write`. From the attached controller only, `{"type":"write","id":"ID","data":"..."}`. `ID` is 1 to 256 bytes. An `ID` already recorded is answered with `{"type":"written","id":"ID","duplicate":true}`, and nothing is written. A new `ID` is recorded when it arrives and queued. Its data goes to the child's stdin in the order recorded, and `{"type":"written","id":"ID"}` answers once the data is written. If the child's stdin refuses the data, the holder answers `{"type":"error","id":"ID","message":"..."}`. The connection stays open, and the `ID` stays recorded, so a repeat is a duplicate (`internal/holder/holder.go:499`-`:573`).
-- `error`. `{"type":"error","message":"..."}` refuses a frame. The holder closes the connection after it refuses an attach, an ack, a write, or a frame it does not serve. It does not close after a failed stdin write (`internal/holder/holder.go:338`-`:348`, `:274`-`:309`, `:563`-`:573`).
+- `exit`. `{"type":"exit","exit":{...}}` carries the record of [Exit file](#exit-file). The holder sends it to the attached controller once that controller's `out` frames reach `stdoutEnd`, then ends the streams and quits (`internal/holder/holder.go:646`-`:657`, `:217`-`:256`).
+- `ack`. From the attached controller only, `{"type":"ack","consumed":N,"replayFrom":M}`. It has no answer. It moves `consumed` and trims the spool (see [Spool](#spool)) (`internal/holder/holder.go:585`-`:601`).
+- `write`. From the attached controller only, `{"type":"write","id":"ID","data":"..."}`. `ID` is 1 to 256 bytes. An `ID` already recorded is answered with `{"type":"written","id":"ID","duplicate":true}`, and nothing is written. A new `ID` is recorded when it arrives and queued. Its data goes to the child's stdin in the order recorded, and `{"type":"written","id":"ID"}` answers once the data is written. If the child's stdin refuses the data, the holder answers `{"type":"error","id":"ID","message":"..."}`. The connection stays open, and the `ID` stays recorded, so a repeat is a duplicate (`internal/holder/holder.go:506`-`:583`).
+- `error`. `{"type":"error","message":"..."}` refuses a frame. The holder closes the connection after it refuses an attach, an ack, a write, or a frame it does not serve. It does not close after a failed stdin write (`internal/holder/holder.go:345`-`:355`, `:281`-`:316`, `:570`-`:583`).
 
 #### Versioning
 
@@ -1331,8 +1331,8 @@ holder      {"type":"out","data":"ZXhhbXBsZSBvdXRwdXQK"}
 
 #### Idle timeout
 
-- A holder with no attached controller for 10 minutes stops its child. `DefaultIdleTimeout` is `10 * time.Minute`. The timer is armed when the holder starts serving, and again when the attached controller's connection ends with no new attach. An attach disarms it. Connections that only send `hello` or `stop` are not controllers (`internal/holder/holder.go:28`-`:29`, `:213`-`:216`, `:389`-`:408`, `:482`, `:666`-`:670`).
-- When the timer fires, the holder stops the child as [Child](#child) says, writes `exit.json` with reason `idle`, and quits. If a stop or a SIGINT or SIGTERM comes first, the reason is `stopped`. `Config.IdleTimeout` sets another timeout, and the timer runs on `Config.Clock` (`internal/holder/holder.go:43`-`:45`, `:60`-`:62`, `:397`, `:421`-`:433`).
+- A holder with no attached controller for 10 minutes stops its child. `DefaultIdleTimeout` is `10 * time.Minute`. The timer is armed when the holder starts serving, and again when the attached controller's connection ends with no new attach. An attach disarms it. Connections that only send `hello` or `stop` are not controllers (`internal/holder/holder.go:28`-`:29`, `:217`-`:220`, `:396`-`:415`, `:489`, `:676`-`:680`).
+- When the timer fires, the holder stops the child as [Child](#child) says, writes `exit.json` with reason `idle`, and quits. If a stop or a SIGINT or SIGTERM comes first, the reason is `stopped`. `Config.IdleTimeout` sets another timeout, and the timer runs on `Config.Clock` (`internal/holder/holder.go:43`-`:45`, `:60`-`:62`, `:404`, `:428`-`:440`).
 
 ### Store
 
