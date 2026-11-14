@@ -24,26 +24,49 @@ type EpicAttention struct {
 // Attention returns one entry per epic with at least one turn, ordered by epic id. Latest is the epic's highest-seq
 // turn that has ended, zero when none has, and LatestAsked counts the questions that turn asked.
 func (s *Store) Attention(ctx context.Context) ([]EpicAttention, error) {
+	return s.attention(ctx, func(string) {})
+}
+
+// attention is Attention with afterLatest called after each epic's latest-turn read. Tests use it to put a write
+// between the reads.
+func (s *Store) attention(ctx context.Context, afterLatest func(epic string)) ([]EpicAttention, error) {
 	queries := sqlcgen.New(s.db)
-	heads, err := queries.ListEpicsWithTurns(ctx)
+	epics, err := queries.ListEpicsWithTurns(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list epics with turns: %w", err)
 	}
 	var out []EpicAttention
-	for _, head := range heads {
+	for _, epic := range epics {
 		var entry EpicAttention
-		if entry, err = attentionOf(ctx, queries, head); err != nil {
-			return nil, fmt.Errorf("attention of epic %s: %w", head.ID, err)
+		if entry, err = attentionOf(ctx, queries, epic.ID, afterLatest); err != nil {
+			return nil, fmt.Errorf("attention of epic %s: %w", epic.ID, err)
 		}
 		out = append(out, entry)
 	}
 	return out, nil
 }
 
-// attentionOf returns the attention of the epic head holds: its open questions in seq order, and its latest ended
-// turn with the questions that turn asked.
-func attentionOf(ctx context.Context, queries *sqlcgen.Queries, head sqlcgen.Epic) (EpicAttention, error) {
-	open, err := queries.ListOpenEpicQuestions(ctx, head.ID)
+// attentionOf returns the attention of epic: its head, its open questions in seq order, and its latest ended turn with
+// the questions that turn asked. The latest ended turn is read first, so every write that lands between the reads
+// either leaves the turn as the latest or adds the questions it asked to Open; a turn that ends after the read is
+// reported on a later pass.
+func attentionOf(
+	ctx context.Context,
+	queries *sqlcgen.Queries,
+	id string,
+	afterLatest func(epic string),
+) (EpicAttention, error) {
+	ended, err := queries.GetLatestEndedEpicTurn(ctx, id)
+	noEnded := errors.Is(err, sql.ErrNoRows)
+	if err != nil && !noEnded {
+		return EpicAttention{}, fmt.Errorf("read latest ended turn: %w", err)
+	}
+	afterLatest(id)
+	head, err := queries.GetEpic(ctx, id)
+	if err != nil {
+		return EpicAttention{}, fmt.Errorf("read epic: %w", err)
+	}
+	open, err := queries.ListOpenEpicQuestions(ctx, id)
 	if err != nil {
 		return EpicAttention{}, fmt.Errorf("list open questions: %w", err)
 	}
@@ -51,19 +74,15 @@ func attentionOf(ctx context.Context, queries *sqlcgen.Queries, head sqlcgen.Epi
 		Epic: head.ID, Title: head.Title, Parked: head.Parked, Paused: head.Paused != 0,
 		Open: mapInOrder(open, questionOf),
 	}
-	ended, err := queries.GetLatestEndedEpicTurn(ctx, head.ID)
-	if errors.Is(err, sql.ErrNoRows) {
+	if noEnded {
 		return entry, nil
-	}
-	if err != nil {
-		return EpicAttention{}, fmt.Errorf("read latest ended turn: %w", err)
 	}
 	var latest EpicTurn
 	if latest, err = turnOf(ctx, queries, ended); err != nil {
 		return EpicAttention{}, fmt.Errorf("turn %d: %w", ended.Seq, err)
 	}
 	asked, err := queries.CountEpicQuestionsOfTurn(ctx, sqlcgen.CountEpicQuestionsOfTurnParams{
-		Epic: head.ID, Turn: ended.Seq,
+		Epic: id, Turn: ended.Seq,
 	})
 	if err != nil {
 		return EpicAttention{}, fmt.Errorf("count questions of turn %d: %w", ended.Seq, err)
