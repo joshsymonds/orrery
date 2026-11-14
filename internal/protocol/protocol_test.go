@@ -307,6 +307,11 @@ func TestReadFrameRejects(t *testing.T) {
 		"read with seen":   `{"tmuxPane":"%1","seen":1700000000,"read":1700000000}`,
 		"read zero":        `{"tmuxPane":"%1","read":0}`,
 		"read negative":    `{"tmuxPane":"%1","read":-1}`,
+		"input with hook":  `{"hook":{},"tmuxPane":"%1","input":1700000000}`,
+		"input with seen":  `{"tmuxPane":"%1","seen":1700000000,"input":1700000000}`,
+		"input with read":  `{"tmuxPane":"%1","read":1700000000,"input":1700000000}`,
+		"input zero":       `{"tmuxPane":"%1","input":0}`,
+		"input negative":   `{"tmuxPane":"%1","input":-1}`,
 	}
 	for name, input := range cases {
 		if _, err := protocol.ReadFrame(strings.NewReader(input)); err == nil {
@@ -325,6 +330,19 @@ func TestReadFrameAcceptsReadReport(t *testing.T) {
 	}
 	if got.Hook != nil || got.Seen != 0 {
 		t.Errorf("Hook = %s, Seen = %d, want no hook and no seen", got.Hook, got.Seen)
+	}
+}
+
+func TestReadFrameAcceptsInputReport(t *testing.T) {
+	got, err := protocol.ReadFrame(strings.NewReader(`{"tmuxPane":"%1","input":1700000000}`))
+	if err != nil {
+		t.Fatalf("ReadFrame: %v", err)
+	}
+	if got.TmuxPane != "%1" || got.Input != 1700000000 {
+		t.Errorf("TmuxPane = %q, Input = %d, want %%1 and 1700000000", got.TmuxPane, got.Input)
+	}
+	if got.Hook != nil || got.Seen != 0 || got.Read != 0 {
+		t.Errorf("Hook = %s, Seen = %d, Read = %d, want no hook, seen or read", got.Hook, got.Seen, got.Read)
 	}
 }
 
