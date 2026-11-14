@@ -93,6 +93,7 @@ func (f *engineFixture) stopViaURL(t *testing.T, env []string, proxy, id, dir st
 // login proxy, reaches orreryd with no daemon socket resolved. The non-URL form fails to resolve one in the same
 // environment.
 func TestEngineCLIURLSessionVerbs(t *testing.T) {
+	t.Parallel()
 	f := newEngineFixture(t)
 	daemon := f.startOrreryd(t, true)
 	serve, base := startAPIServe(t, f.env, f.server)
@@ -179,6 +180,7 @@ func assertWatchedSession(t *testing.T, stdout, id string, replies []string) {
 // TestEngineCLIURLUsageLines proves that the usage text lists the --url form of session and the start form with
 // --model.
 func TestEngineCLIURLUsageLines(t *testing.T) {
+	t.Parallel()
 	out := runOrrery(t, "", nil, "bogus")
 	wantExit(t, out, 2)
 	for _, line := range []string{"session [--url URL] VERB ...", "session start [--model MODEL] DIR PROMPT"} {

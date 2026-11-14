@@ -13,6 +13,7 @@ const sessionStartFailureLog = "session socket"
 // socket's error when sessions.sock cannot be listened on. A live listener already holds the path, so the session
 // service fails to start, and orreryd must stop serving hooks rather than run on without its sessions.
 func TestOrrerydExitsWhenSessionSocketIsHeld(t *testing.T) {
+	t.Parallel()
 	f := newEngineFixture(t)
 	held, err := net.Listen("unix", f.sessions)
 	if err != nil {

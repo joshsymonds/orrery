@@ -72,6 +72,7 @@ func sessionReason(t *testing.T, dbPath, id string) string {
 // session interrupted with no unfinished text, and posts the interruption to the desk stream. After a restart the
 // session is still there, and say resumes it by its id.
 func TestEngineSigtermInterruptsStalledTurn(t *testing.T) {
+	t.Parallel()
 	f := newEngineFixture(t)
 
 	daemon := f.startOrreryd(t, true)
@@ -121,6 +122,7 @@ func TestEngineSigtermInterruptsStalledTurn(t *testing.T) {
 // fake is killed while orreryd is down, so its holder ends with an exit record of that death, and the restart drains it
 // into the row: failed with the signal, and no unfinished text.
 func TestEngineSigkillReconcilesOnRestart(t *testing.T) {
+	t.Parallel()
 	f := newEngineFixture(t)
 	daemon := f.startOrreryd(t, true)
 	dir := f.sessionDir(t, "sigkill")
@@ -154,6 +156,7 @@ func TestEngineSigkillReconcilesOnRestart(t *testing.T) {
 // TestEngineKilledSessionFailsWhileOthersReply proves that killing one session's fake claude marks that session failed
 // with a reason, while another session still replies and a pane hook still updates its pane.
 func TestEngineKilledSessionFailsWhileOthersReply(t *testing.T) {
+	t.Parallel()
 	f := newEngineFixture(t)
 	daemon := f.startOrreryd(t, true)
 	dirA := f.sessionDir(t, "killed")
