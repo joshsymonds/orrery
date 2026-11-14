@@ -89,7 +89,11 @@ func (s *epicService) CreateEpic(
 	if err != nil {
 		return nil, epicStoreError(err)
 	}
-	return connect.NewResponse(&v1.CreateEpicResponse{Epic: storedEpicMessage(stored)}), nil
+	message, err := storedEpicMessage(stored)
+	if err != nil {
+		return nil, epicStoreError(err)
+	}
+	return connect.NewResponse(&v1.CreateEpicResponse{Epic: message}), nil
 }
 
 func (s *epicService) GetEpic(
@@ -106,7 +110,11 @@ func (s *epicService) GetEpic(
 	if err != nil {
 		return nil, epicStoreError(err)
 	}
-	return connect.NewResponse(&v1.GetEpicResponse{Epic: storedEpicMessage(row)}), nil
+	message, err := storedEpicMessage(row)
+	if err != nil {
+		return nil, epicStoreError(err)
+	}
+	return connect.NewResponse(&v1.GetEpicResponse{Epic: message}), nil
 }
 
 func (s *epicService) ListEpics(
@@ -252,7 +260,11 @@ func (s *epicService) PauseEpic(
 	if err != nil {
 		return nil, epicStoreError(err)
 	}
-	return connect.NewResponse(&v1.PauseEpicResponse{Epic: storedEpicMessage(stored)}), nil
+	message, err := storedEpicMessage(stored)
+	if err != nil {
+		return nil, epicStoreError(err)
+	}
+	return connect.NewResponse(&v1.PauseEpicResponse{Epic: message}), nil
 }
 
 // ResumeEpic clears the pause of the epic when it is paused, resumes each limited step of the epic that has a task, and
@@ -303,8 +315,12 @@ func (s *epicService) ResumeEpic(
 	if err != nil {
 		return nil, epicStoreError(err)
 	}
+	message, err := storedEpicMessage(stored)
+	if err != nil {
+		return nil, epicStoreError(err)
+	}
 	return connect.NewResponse(&v1.ResumeEpicResponse{
-		Epic:         storedEpicMessage(stored),
+		Epic:         message,
 		Resumed:      resumed,
 		StillLimited: stillLimited,
 	}), nil
@@ -351,7 +367,11 @@ func (s *epicService) StopEpic(
 	if err != nil {
 		return nil, epicStoreError(err)
 	}
-	return connect.NewResponse(&v1.StopEpicResponse{Epic: storedEpicMessage(stored)}), nil
+	message, err := storedEpicMessage(stored)
+	if err != nil {
+		return nil, epicStoreError(err)
+	}
+	return connect.NewResponse(&v1.StopEpicResponse{Epic: message}), nil
 }
 
 // RetryEpic ends the park of the epic and returns the epic read back. An epic that is not parked is refused.
@@ -373,7 +393,11 @@ func (s *epicService) RetryEpic(
 	if err != nil {
 		return nil, epicStoreError(err)
 	}
-	return connect.NewResponse(&v1.RetryEpicResponse{Epic: storedEpicMessage(stored)}), nil
+	message, err := storedEpicMessage(stored)
+	if err != nil {
+		return nil, epicStoreError(err)
+	}
+	return connect.NewResponse(&v1.RetryEpicResponse{Epic: message}), nil
 }
 
 // epicControlError maps an error from an epic control on id to its Connect error: an unknown epic is NotFound, a
@@ -467,9 +491,14 @@ func epicGateOf(gate *v1.EpicGate) store.EpicGate {
 	}
 }
 
-// storedEpicMessage returns the StoredEpic message of row: its contract, phase, times, decisions in order, and its
-// paused and parked state with its turns, tasks and questions in order.
-func storedEpicMessage(row store.EpicRow) *v1.StoredEpic {
+// storedEpicMessage returns the StoredEpic message of row: its contract, phase, times, decisions in order, its paused
+// and parked state with its turns, tasks and questions in order, and its branch state. It fails when a task's messages
+// fail.
+func storedEpicMessage(row store.EpicRow) (*v1.StoredEpic, error) {
+	tasks, err := taskMessages(row.Tasks)
+	if err != nil {
+		return nil, err
+	}
 	return &v1.StoredEpic{
 		Contract:  contractMessage(row),
 		Phase:     row.Phase,
@@ -479,9 +508,10 @@ func storedEpicMessage(row store.EpicRow) *v1.StoredEpic {
 		Paused:    row.Paused,
 		Parked:    row.Parked,
 		Turns:     epicMap(row.Turns, turnMessage),
-		Tasks:     epicMap(row.Tasks, taskMessage),
+		Tasks:     tasks,
 		Questions: epicMap(row.Questions, questionMessage),
-	}
+		Branch:    row.Branch,
+	}, nil
 }
 
 // contractMessage returns the EpicContract message of row, every section in order.
@@ -548,9 +578,23 @@ func turnMessage(turn store.EpicTurn) *v1.EpicTurn {
 	}
 }
 
-// taskMessage returns the EpicTask message of task, its id T<seq>.
-func taskMessage(task store.EpicTask) *v1.EpicTask {
-	return &v1.EpicTask{
+// taskMessages returns the EpicTask messages of tasks, in order. It fails when a task's messages fail.
+func taskMessages(tasks []store.EpicTask) ([]*v1.EpicTask, error) {
+	out := make([]*v1.EpicTask, 0, len(tasks))
+	for _, task := range tasks {
+		msg, err := taskMessage(task)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, msg)
+	}
+	return out, nil
+}
+
+// taskMessage returns the EpicTask message of task, its id T<seq>: its status, its build, its reviews in order, and the
+// evidence runs its build names as red and green. It fails when one of those runs fails to convert.
+func taskMessage(task store.EpicTask) (*v1.EpicTask, error) {
+	message := &v1.EpicTask{
 		Id:           fmt.Sprintf("T%d", task.Seq),
 		Turn:         task.Turn,
 		Title:        task.Title,
@@ -560,6 +604,54 @@ func taskMessage(task store.EpicTask) *v1.EpicTask {
 		Gate:         task.Gate,
 		Evidence:     evidenceItemMessage(task.Evidence),
 		Status:       task.Status,
+		Stage:        task.Build.Stage,
+		Attempt:      task.Build.Attempt,
+		Step:         task.Build.Step,
+		Base:         task.Build.Base,
+		Revision:     task.Build.Revision,
+		Failure:      task.Build.Failure,
+		Review:       task.Build.Review,
+		Held:         task.Build.Held,
+		Reviews:      epicMap(task.Reviews, taskReviewMessage),
+	}
+	if task.Red != nil {
+		red, err := evidenceServiceRunMessage(*task.Red)
+		if err != nil {
+			return nil, fmt.Errorf("task %d red run: %w", task.Seq, err)
+		}
+		message.Red = red
+	}
+	if task.Green != nil {
+		green, err := evidenceServiceRunMessage(*task.Green)
+		if err != nil {
+			return nil, fmt.Errorf("task %d green run: %w", task.Seq, err)
+		}
+		message.Green = green
+	}
+	return message, nil
+}
+
+// taskReviewMessage returns the EpicTaskReview message of review: its attempt, gate, step, verdict and findings in
+// order.
+func taskReviewMessage(review store.TaskReview) *v1.EpicTaskReview {
+	return &v1.EpicTaskReview{
+		Attempt:  review.Attempt,
+		Gate:     review.Gate,
+		Step:     review.Step,
+		Verdict:  review.Verdict,
+		Findings: epicMap(review.Findings, taskFindingMessage),
+	}
+}
+
+// taskFindingMessage returns the EpicTaskFinding message of finding: its id, claim, location and verification.
+func taskFindingMessage(finding store.TaskFinding) *v1.EpicTaskFinding {
+	return &v1.EpicTaskFinding{
+		Id:       finding.ID,
+		Claim:    finding.Claim,
+		Location: finding.Location,
+		Step:     finding.Step,
+		Result:   finding.Result,
+		Reason:   finding.Reason,
 	}
 }
 
