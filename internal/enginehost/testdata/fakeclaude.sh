@@ -48,6 +48,19 @@ text_block() {
 	printf '%s\n' '{"type":"stream_event","event":{"type":"content_block_stop","index":'"$index"'},"session_id":"session_1","parent_tool_use_id":null,"uuid":"uuid_10","api_message_id":"redacted"}'
 }
 
+# line_uuid sets line_uuid to the uuid of the user message in line, or to nothing when line has none. A session writes the
+# uuid as the message's last field, so it is read back from the line's end: a match from the front would cost time that
+# grows with the square of the line's length, and a long prompt would stall the turn.
+line_uuid() {
+	line_uuid=
+	case $line in
+		*'"uuid":"'*'"}')
+			line_uuid=${line%'"}'}
+			line_uuid=${line_uuid##*'"'}
+			;;
+	esac
+}
+
 # next reads one stdin line into line, appends it to fakeclaude.stdin as read, and fails at EOF.
 next() {
 	IFS= read -r line || return 1
@@ -226,9 +239,8 @@ fold() {
 		sleep 0.05
 	done
 	next
-	folded=${line#*'"uuid":"'}
-	folded=${folded%%'"'*}
-	answered='["'"$uuid"'","'"$folded"'"]'
+	line_uuid
+	answered='["'"$uuid"'","'"$line_uuid"'"]'
 	text_block 0 "fake fold $n" "fake fold $n"
 	turn_close
 }
@@ -272,8 +284,8 @@ while next; do
 		*'"type":"user"'*)
 			n=$((n + 1))
 			printf '%s\n' "$n" > fakeclaude.n
-			uuid=${line#*'"uuid":"'}
-			uuid=${uuid%%'"'*}
+			line_uuid
+			uuid=$line_uuid
 			answered='["'"$uuid"'"]'
 			prompt=$line
 			if [ -e fakeclaude.next ]; then
