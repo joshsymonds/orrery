@@ -109,9 +109,13 @@ func rowsOf(t *testing.T, db *sql.DB, table string) [][]any {
 	return out
 }
 
-// seedEpic inserts one epic with one decision, the rows the append-only triggers guard.
-func seedEpic(t *testing.T, db *sql.DB, id string) {
+// seededEpic is the id of the epic seedEpic inserts.
+const seededEpic = "orrery-0123456/epic-one"
+
+// seedEpic inserts the epic seededEpic with one decision, the rows the append-only triggers guard.
+func seedEpic(t *testing.T, db *sql.DB) {
 	t.Helper()
+	const id = seededEpic
 	ctx := context.Background()
 	if _, err := db.ExecContext(ctx, `INSERT INTO epics
 		(id, repository, title, approved, intent, care, approach, release_then, checks, phase, created, changed)
@@ -291,8 +295,8 @@ func TestEpicDecisionsRefuseUpdateAndDelete(t *testing.T) {
 	}
 	defer s.Close()
 
-	const id = "orrery-0123456/epic-one"
-	seedEpic(t, s.db, id)
+	const id = seededEpic
+	seedEpic(t, s.db)
 	want := [][]any{{id, int64(1), "D1", "Use the store", int64(1700000000), int64(0)}}
 
 	if got := rowsOf(t, s.db, "epic_decisions"); !reflect.DeepEqual(got, want) {
@@ -417,8 +421,8 @@ func TestEpicStoredAtVersion16ReadsBackWithEmptyEvidence(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "orrery.db")
 
 	fixture := openStoreAtVersion(t, path, 16)
-	const id = "orrery-0123456/epic-one"
-	seedEpic(t, fixture, id)
+	const id = seededEpic
+	seedEpic(t, fixture)
 	if _, err := fixture.ExecContext(ctx, `INSERT INTO epic_requirements (epic, position, id, text, evidence, kind)
 		VALUES (?, 1, 'R1', 'Stored before evidence', 'store test', 'check')`, id); err != nil {
 		fixture.Close()
@@ -460,8 +464,8 @@ func TestEpicTaskStoredAtVersion16MigratesCheckToEvidence(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "orrery.db")
 
 	fixture := openStoreAtVersion(t, path, 16)
-	const id = "orrery-0123456/epic-one"
-	seedEpic(t, fixture, id)
+	const id = seededEpic
+	seedEpic(t, fixture)
 	if _, err := fixture.ExecContext(ctx, `INSERT INTO epic_tasks
 		(epic, seq, turn, title, deliverable, task_check, status)
 		VALUES (?, 1, 1, 'Build it', 'the migration', 'go test ./x', 'open')`, id); err != nil {
@@ -587,9 +591,9 @@ func TestPlannerControlsDefaultOnRowsStoredAtVersion16(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 
-	const epic = "orrery-0123456/epic-one"
+	const epic = seededEpic
 	fixture := openStoreAtVersion(t, path, 16)
-	seedEpic(t, fixture, epic)
+	seedEpic(t, fixture)
 	if _, err := fixture.ExecContext(ctx, `INSERT INTO epic_turns
 		(epic, seq, state, seen, outline, outcome, started, ended)
 		VALUES (?, 1, 'succeeded', 0, 'outline', 'outcome', 1700000000, 1700000100)`, epic); err != nil {

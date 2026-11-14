@@ -10,8 +10,8 @@ import (
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
-// agentGateLimitStart is the clock reading an agent gate limit test's run starts at.
-var agentGateLimitStart = time.Unix(1_800_000_000, 0)
+// agentGateLimitStartUnix is the clock reading, in unix seconds, an agent gate limit test's run starts at.
+const agentGateLimitStartUnix = 1_800_000_000
 
 // limitClock is a clock a test moves by hand.
 type limitClock struct{ at atomic.Int64 }
@@ -21,15 +21,15 @@ func (c *limitClock) now() time.Time { return time.Unix(c.at.Load(), 0) }
 func (c *limitClock) set(at time.Time) { c.at.Store(at.Unix()) }
 
 // newAgentGateLimitFixture returns a limit fixture whose run is an agent gate step with a one-minute limit, started at
-// agentGateLimitStart on clock, with its ticks taken from the returned channel.
+// agentGateLimitStartUnix on clock, with its ticks taken from the returned channel.
 func newAgentGateLimitFixture(t *testing.T, clock *limitClock) (*stepLoopFixture, chan time.Time) {
 	t.Helper()
-	clock.set(agentGateLimitStart)
+	clock.set(time.Unix(agentGateLimitStartUnix, 0))
 	f := newStepLimitFixture(t)
 	ticks := make(chan time.Time)
 	f.run.ticks = ticks
 	f.run.now = clock.now
-	f.run.started = agentGateLimitStart
+	f.run.started = time.Unix(agentGateLimitStartUnix, 0)
 	f.run.agentGate = &gates.Gate{Name: evidenceJudgeGate, Agent: "judge", Limit: time.Minute}
 	return f, ticks
 }
@@ -58,7 +58,7 @@ func TestStepLimitResumedAgentGateCountsItsLimitFromTheResume(t *testing.T) {
 	limitTurn(f.run)
 	f.awaitLimited(t)
 
-	resumed := agentGateLimitStart.Add(time.Hour)
+	resumed := time.Unix(agentGateLimitStartUnix, 0).Add(time.Hour)
 	clock.set(resumed)
 	if err := f.run.do(t.Context(), f.run.resumeLimited); err != nil {
 		t.Fatalf("Resume: %v", err)
@@ -87,13 +87,13 @@ func TestStepLimitRestoredAgentGateCountsItsLimitFromTheStoredResume(t *testing.
 	t.Parallel()
 	clock := &limitClock{}
 	f, ticks := newAgentGateLimitFixture(t, clock)
-	resumed := agentGateLimitStart.Add(time.Hour)
+	resumed := time.Unix(agentGateLimitStartUnix, 0).Add(time.Hour)
 	row := f.commit(t, store.StepLoop{ID: stepLoopID, Round: 1, GateFrom: resumed})
 	clock.set(resumed.Add(30 * time.Second))
 	// The restored turn counts as running, so the step gets a model limit its watch does not reach here.
 	f.run.modelLimit = time.Hour
 	f.resumeFrom(stepRestore{Row: row})
-	f.run.started = agentGateLimitStart
+	f.run.started = time.Unix(agentGateLimitStartUnix, 0)
 	f.start(t)
 
 	tickRun(t, f, ticks)
