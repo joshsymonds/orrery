@@ -353,6 +353,23 @@ func (q *Queries) GetEnginePromptFailure(ctx context.Context, arg GetEnginePromp
 	return reason, err
 }
 
+const getEngineRateLimit = `-- name: GetEngineRateLimit :one
+SELECT session_id, status, kind, resets_at, at FROM engine_rate_limits WHERE session_id = ?
+`
+
+func (q *Queries) GetEngineRateLimit(ctx context.Context, sessionID string) (EngineRateLimit, error) {
+	row := q.db.QueryRowContext(ctx, getEngineRateLimit, sessionID)
+	var i EngineRateLimit
+	err := row.Scan(
+		&i.SessionID,
+		&i.Status,
+		&i.Kind,
+		&i.ResetsAt,
+		&i.At,
+	)
+	return i, err
+}
+
 const getEngineSession = `-- name: GetEngineSession :one
 SELECT id, server, pane, state, changed, seen, question, summary, label, context, tool, claude_session, transcript, kind, dir, reason, consumed, replay_from, background, turn_output, prompts_from FROM sessions WHERE id = ? AND kind IN ('engine', 'step')
 `
@@ -2838,6 +2855,31 @@ type UpdateStepWatchParams struct {
 
 func (q *Queries) UpdateStepWatch(ctx context.Context, arg UpdateStepWatchParams) error {
 	_, err := q.db.ExecContext(ctx, updateStepWatch, arg.Verdicts, arg.Doing, arg.ID)
+	return err
+}
+
+const upsertEngineRateLimit = `-- name: UpsertEngineRateLimit :exec
+INSERT INTO engine_rate_limits (session_id, status, kind, resets_at, at) VALUES (?, ?, ?, ?, ?)
+ON CONFLICT (session_id)
+DO UPDATE SET status = excluded.status, kind = excluded.kind, resets_at = excluded.resets_at, at = excluded.at
+`
+
+type UpsertEngineRateLimitParams struct {
+	SessionID string
+	Status    string
+	Kind      string
+	ResetsAt  int64
+	At        int64
+}
+
+func (q *Queries) UpsertEngineRateLimit(ctx context.Context, arg UpsertEngineRateLimitParams) error {
+	_, err := q.db.ExecContext(ctx, upsertEngineRateLimit,
+		arg.SessionID,
+		arg.Status,
+		arg.Kind,
+		arg.ResetsAt,
+		arg.At,
+	)
 	return err
 }
 

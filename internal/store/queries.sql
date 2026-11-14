@@ -427,3 +427,11 @@ SELECT * FROM epic_questions WHERE epic = ? ORDER BY seq;
 
 -- name: ListEpicTurnTriggers :many
 SELECT * FROM epic_triggers WHERE epic = ? AND turn = ? ORDER BY id;
+
+-- name: UpsertEngineRateLimit :exec
+INSERT INTO engine_rate_limits (session_id, status, kind, resets_at, at) VALUES (?, ?, ?, ?, ?)
+ON CONFLICT (session_id)
+DO UPDATE SET status = excluded.status, kind = excluded.kind, resets_at = excluded.resets_at, at = excluded.at;
+
+-- name: GetEngineRateLimit :one
+SELECT * FROM engine_rate_limits WHERE session_id = ?;
