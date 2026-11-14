@@ -97,6 +97,15 @@ subcommands:
   tmux-conf                                     print the orrery tmux plugin for this binary
   help [--html]                                 print the help card for the tmux server, or the HTML page with --html
   mcp                                           serve the step tools over MCP on stdio until stdin closes
+  epic create FILE|-                            create an epic from the contract JSON in FILE, or on stdin for -
+  epic get ID                                   print a stored epic
+  epic list                                     print the stored epics as summaries
+  epic answer EPIC --id ID [--question QN] TEXT
+                                                record a decision on EPIC; --question names the Q<n> it answers
+  epic pause ID                                 pause an epic, so the planner starts no turn for it
+  epic resume ID                                clear an epic's pause
+  epic stop ID                                  pause an epic and stop the step of its running turn
+  epic retry ID                                 end an epic's park
   run --needs POOL=N [--needs POOL=N]... -- CMD [ARGS]
                                                 run CMD under a grant of pool members from orreryd
   run status                                    print the pools orreryd runs
@@ -226,6 +235,8 @@ func dispatch(ctx context.Context, opts globals, rest []string, stdin *os.File, 
 		return runDesk(ctx, opts, args)
 	case "mcp":
 		return runMCP(ctx, opts, args, stdin, stdout, getenv)
+	case "epic":
+		return runEpic(ctx, opts, args, stdin, stdout, stderr, getenv)
 	case "run":
 		return runCommand(ctx, opts, args, stdin, stdout, stderr, getenv)
 	case "gate":
@@ -236,6 +247,16 @@ func dispatch(ctx context.Context, opts globals, rest []string, stdin *os.File, 
 		return runHolder(ctx, args, stderr, getenv)
 	case "session":
 		return runSession(ctx, opts, args, stdout, getenv)
+	default:
+		return dispatchTmux(ctx, opts, name, args, stdin, stdout, getenv)
+	}
+}
+
+// dispatchTmux runs the subcommand named name when it works on the tmux server named by opts, and refuses any other
+// name as unknown.
+func dispatchTmux(ctx context.Context, opts globals, name string, args []string, stdin *os.File, stdout io.Writer,
+	getenv func(string) string) error {
+	switch name {
 	case "open", "list", "seen", "send", "debug", "shell", "tree":
 		return tmuxCommand(ctx, opts, name, args, stdin, stdout, getenv)
 	default:
@@ -391,6 +412,19 @@ func runMCP(ctx context.Context, opts globals, args []string, stdin io.Reader, s
 		return fmt.Errorf("mcp: %w", err)
 	}
 	return nil
+}
+
+// runEpic runs `orrery epic`. It calls the epic tools on the session socket beside the daemon socket, as runMCP does,
+// so the command opens no listener and no store.
+func runEpic(ctx context.Context, opts globals, args []string, stdin io.Reader, stdout, stderr io.Writer,
+	getenv func(string) string) error {
+	socket, err := protocol.SocketPath(opts.daemonSocket, getenv)
+	if err != nil {
+		return fmt.Errorf("epic: %w", err)
+	}
+	sessionSocket := protocol.SessionSocketPath(socket)
+	epics := enginev1connect.NewEpicsClient(cli.SessionHTTPClient(sessionSocket), cli.SessionBaseURL)
+	return epicCommand(ctx, epics, args, stdin, stdout, stderr)
 }
 
 // runServe runs `orrery serve`. It serves the HTTP API for the tmux server named by opts on the loopback address
