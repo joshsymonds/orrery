@@ -294,6 +294,16 @@ DELETE FROM pushed_notices WHERE pane = ? AND session = ?;
 -- name: ListPushedNotices :many
 SELECT * FROM pushed_notices ORDER BY pane, session;
 
+-- name: UpsertPushedLimitNotice :exec
+INSERT INTO pushed_limit_notices (limit_key, time) VALUES (?, ?)
+ON CONFLICT (limit_key) DO UPDATE SET time = excluded.time;
+
+-- name: DeletePushedLimitNotice :exec
+DELETE FROM pushed_limit_notices WHERE limit_key = ?;
+
+-- name: ListPushedLimitNotices :many
+SELECT * FROM pushed_limit_notices ORDER BY limit_key;
+
 -- name: InsertEpic :exec
 INSERT INTO epics (id, repository, title, approved, intent, care, approach, release_then, checks, phase, created, changed)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);

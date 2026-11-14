@@ -226,6 +226,11 @@ type PendingNoticeID struct {
 	High int64
 }
 
+type PushedLimitNotice struct {
+	LimitKey string
+	Time     int64
+}
+
 type PushedNotice struct {
 	Pane    string
 	Session string

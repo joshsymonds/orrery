@@ -192,6 +192,15 @@ func (q *Queries) DeletePendingNotice(ctx context.Context, id int64) error {
 	return err
 }
 
+const deletePushedLimitNotice = `-- name: DeletePushedLimitNotice :exec
+DELETE FROM pushed_limit_notices WHERE limit_key = ?
+`
+
+func (q *Queries) DeletePushedLimitNotice(ctx context.Context, limitKey string) error {
+	_, err := q.db.ExecContext(ctx, deletePushedLimitNotice, limitKey)
+	return err
+}
+
 const deletePushedNotice = `-- name: DeletePushedNotice :exec
 DELETE FROM pushed_notices WHERE pane = ? AND session = ?
 `
@@ -2437,6 +2446,33 @@ func (q *Queries) ListPendingNotices(ctx context.Context) ([]PendingNotice, erro
 	return items, nil
 }
 
+const listPushedLimitNotices = `-- name: ListPushedLimitNotices :many
+SELECT limit_key, time FROM pushed_limit_notices ORDER BY limit_key
+`
+
+func (q *Queries) ListPushedLimitNotices(ctx context.Context) ([]PushedLimitNotice, error) {
+	rows, err := q.db.QueryContext(ctx, listPushedLimitNotices)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []PushedLimitNotice
+	for rows.Next() {
+		var i PushedLimitNotice
+		if err := rows.Scan(&i.LimitKey, &i.Time); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listPushedNotices = `-- name: ListPushedNotices :many
 SELECT pane, session, time FROM pushed_notices ORDER BY pane, session
 `
@@ -3188,6 +3224,21 @@ func (q *Queries) UpsertPendingNotice(ctx context.Context, arg UpsertPendingNoti
 		arg.Source,
 		arg.Silent,
 	)
+	return err
+}
+
+const upsertPushedLimitNotice = `-- name: UpsertPushedLimitNotice :exec
+INSERT INTO pushed_limit_notices (limit_key, time) VALUES (?, ?)
+ON CONFLICT (limit_key) DO UPDATE SET time = excluded.time
+`
+
+type UpsertPushedLimitNoticeParams struct {
+	LimitKey string
+	Time     int64
+}
+
+func (q *Queries) UpsertPushedLimitNotice(ctx context.Context, arg UpsertPushedLimitNoticeParams) error {
+	_, err := q.db.ExecContext(ctx, upsertPushedLimitNotice, arg.LimitKey, arg.Time)
 	return err
 }
 
