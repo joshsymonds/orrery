@@ -40,6 +40,10 @@ func (f *stepLoopSessions) StartStep(context.Context, StepSession) error {
 	return errors.New("stepLoopSessions: StartStep is not used by the loop")
 }
 
+func (f *stepLoopSessions) Release(context.Context, string) error {
+	return errors.New("stepLoopSessions: Release is not used by the loop")
+}
+
 func (f *stepLoopSessions) Interrupt(_ context.Context, id string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()

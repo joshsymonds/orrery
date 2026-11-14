@@ -25,12 +25,14 @@ type StepPrompt struct {
 	Round  int
 }
 
-// stepSessions is what a step run drives: its session starts, is interrupted, takes a follow-up message, and stops.
-// Manager satisfies it.
+// stepSessions is what a step run drives: its session starts, is interrupted, takes a follow-up message, is released, and
+// stops. Manager satisfies it.
 type stepSessions interface {
 	StartStep(ctx context.Context, step StepSession) error
 	Interrupt(ctx context.Context, id string) error
 	Continue(ctx context.Context, id string, prompt StepPrompt) error
+	// Release stops the process of a live step without ending the step, so a later Continue respawns it.
+	Release(ctx context.Context, id string) error
 	Stop(ctx context.Context, id string) error
 }
 
