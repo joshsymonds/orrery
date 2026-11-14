@@ -10,11 +10,13 @@ import (
 	"net"
 	"net/http"
 	"path/filepath"
+	"time"
 
 	"connectrpc.com/connect"
 
 	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
 	"github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1/enginev1connect"
+	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/rpcretry"
 )
 
@@ -54,18 +56,20 @@ func (e sessionDialError) Unwrap() error {
 }
 
 // Session implements `orrery session [--url URL] VERB ARGS`. Without --url, every verb but watch is an RPC over the
-// Engine service on the private session socket at socketPath, and start, say, and stop retry an Unavailable answer
-// within rpcretry.Window. watch reads the session's events from the local store. With --url, the verbs go through
-// serve at URL instead, and the socket is not dialed. Start writes the new session's id to out and nothing else.
-func Session(ctx context.Context, socketPath string, args []string, out io.Writer, getenv func(string) string) error {
-	return session(ctx, rpcretry.SystemClock{}, socketPath, args, out, getenv)
+// Engine service on the private session socket beside daemonSocket, and start, say, and stop retry an Unavailable
+// answer within rpcretry.Window. An attempt that never connected to the session socket asks orreryd on daemonSocket
+// whether sessions are on, and those retries end at once when it says they are off. watch reads the session's events
+// from the local store. With --url, the verbs go through serve at URL instead, and no socket is dialed. Start writes
+// the new session's id to out and nothing else.
+func Session(ctx context.Context, daemonSocket string, args []string, out io.Writer, getenv func(string) string) error {
+	return session(ctx, rpcretry.SystemClock{}, daemonSocket, args, out, getenv)
 }
 
 // session is Session with the clock its retries wait on.
 func session(
 	ctx context.Context,
 	clock rpcretry.Clock,
-	socketPath string,
+	daemonSocket string,
 	args []string,
 	out io.Writer,
 	getenv func(string) string,
@@ -83,18 +87,19 @@ func session(
 	if verb == "watch" {
 		return SessionWatch(ctx, rest, out, getenv)
 	}
+	socketPath := protocol.SessionSocketPath(daemonSocket)
 	client := enginev1connect.NewEngineClient(SessionHTTPClient(socketPath), SessionBaseURL)
 	switch verb {
 	case "start":
-		return sessionStart(ctx, clock, client, socketPath, rest, out)
+		return sessionStart(ctx, clock, client, daemonSocket, socketPath, rest, out)
 	case "say":
-		return sessionSay(ctx, clock, client, socketPath, rest)
+		return sessionSay(ctx, clock, client, daemonSocket, socketPath, rest)
 	case "answer":
 		return sessionAnswer(ctx, client, socketPath, rest)
 	case "interrupt":
 		return sessionInterrupt(ctx, client, socketPath, rest)
 	case "stop":
-		return sessionStop(ctx, clock, client, socketPath, rest)
+		return sessionStop(ctx, clock, client, daemonSocket, socketPath, rest)
 	case "seen":
 		return sessionSeen(ctx, client, socketPath, rest)
 	default:
@@ -128,7 +133,7 @@ func sessionStart(
 	ctx context.Context,
 	clock rpcretry.Clock,
 	client enginev1connect.EngineClient,
-	socketPath string,
+	daemonSocket, socketPath string,
 	args []string,
 	out io.Writer,
 ) error {
@@ -147,7 +152,7 @@ func sessionStart(
 		return sessionFailure("start", socketPath, err)
 	}
 	var resp *connect.Response[v1.StartResponse]
-	err = rpcretry.Do(ctx, clock, rpcretry.Unavailable, func(callCtx context.Context) error {
+	attempt := askingAttempt(daemonSocket, func(callCtx context.Context) error {
 		var callErr error
 		resp, callErr = client.Start(callCtx, connect.NewRequest(&v1.StartRequest{
 			Dir:    dir,
@@ -157,6 +162,7 @@ func sessionStart(
 		}))
 		return errors.Join(callErr)
 	})
+	err = rpcretry.Do(ctx, clock, rpcretry.Unavailable, attempt)
 	if err != nil {
 		return sessionFailure("start", socketPath, err)
 	}
@@ -176,12 +182,60 @@ func newRequestID() (string, error) {
 	return hex.EncodeToString(raw[:]), nil
 }
 
+// askingAttempt returns the attempt that rpcretry.Do runs for call. When call never connected to the session socket,
+// the attempt also asks the daemon on daemonSocket whether sessions are on. An answer of off makes it return
+// errSessionsOff, which Do does not retry. Any other outcome of the question leaves call's error as it was.
+func askingAttempt(daemonSocket string, call func(context.Context) error) func(context.Context) error {
+	return func(callCtx context.Context) error {
+		err := call(callCtx)
+		if err == nil || !rpcretry.NeverConnected(err) {
+			return err
+		}
+		if on, askErr := askSessions(callCtx, daemonSocket); askErr == nil && !on {
+			return errSessionsOff
+		}
+		return err
+	}
+}
+
+// sessionAskTimeout bounds one sessions question in real time: its dial, its write and its read share it.
+const sessionAskTimeout = time.Second
+
+// errSessionsOff is the error of a session command whose daemon answered that sessions are off. It is not Unavailable,
+// so rpcretry.Do returns it at once.
+var errSessionsOff = errors.New("orreryd has sessions off")
+
+// askSessions asks the daemon on daemonSocket whether sessions are on and returns its answer. It fails when the dial,
+// the write or the read does not finish within sessionAskTimeout.
+func askSessions(ctx context.Context, daemonSocket string) (on bool, err error) {
+	ctx, cancel := context.WithTimeout(ctx, sessionAskTimeout)
+	defer cancel()
+	var dialer net.Dialer
+	conn, err := dialer.DialContext(ctx, "unix", daemonSocket)
+	if err != nil {
+		return false, fmt.Errorf("ask daemon: %w", err)
+	}
+	defer func() { err = errors.Join(err, conn.Close()) }()
+	deadline, _ := ctx.Deadline()
+	if err = conn.SetDeadline(deadline); err != nil {
+		return false, fmt.Errorf("ask daemon: %w", err)
+	}
+	if err = protocol.WriteFrame(conn, protocol.HookFrame{Ask: protocol.SessionsAsk}); err != nil {
+		return false, fmt.Errorf("ask daemon: %w", err)
+	}
+	on, err = protocol.ReadSessionsAnswer(conn)
+	if err != nil {
+		return false, fmt.Errorf("ask daemon: %w", err)
+	}
+	return on, nil
+}
+
 // sessionSay sends the say RPC for `session say ID TEXT`.
 func sessionSay(
 	ctx context.Context,
 	clock rpcretry.Clock,
 	client enginev1connect.EngineClient,
-	socketPath string,
+	daemonSocket, socketPath string,
 	args []string,
 ) error {
 	if len(args) != sessionTwoArgs {
@@ -193,7 +247,7 @@ func sessionSay(
 	if err != nil {
 		return sessionFailure("say", socketPath, err)
 	}
-	err = rpcretry.Do(ctx, clock, rpcretry.Unavailable, func(callCtx context.Context) error {
+	attempt := askingAttempt(daemonSocket, func(callCtx context.Context) error {
 		_, callErr := client.Say(callCtx, connect.NewRequest(&v1.SayRequest{
 			Id:       args[0],
 			Text:     args[1],
@@ -201,6 +255,7 @@ func sessionSay(
 		}))
 		return errors.Join(callErr)
 	})
+	err = rpcretry.Do(ctx, clock, rpcretry.Unavailable, attempt)
 	return sessionFailure("say", socketPath, err)
 }
 
@@ -236,16 +291,17 @@ func sessionStop(
 	ctx context.Context,
 	clock rpcretry.Clock,
 	client enginev1connect.EngineClient,
-	socketPath string,
+	daemonSocket, socketPath string,
 	args []string,
 ) error {
 	if len(args) != sessionOneArg {
 		return sessionForm("stop", "ID")
 	}
-	err := rpcretry.Do(ctx, clock, rpcretry.Unavailable, func(callCtx context.Context) error {
+	attempt := askingAttempt(daemonSocket, func(callCtx context.Context) error {
 		_, callErr := client.Stop(callCtx, connect.NewRequest(&v1.StopRequest{Id: args[0]}))
 		return errors.Join(callErr)
 	})
+	err := rpcretry.Do(ctx, clock, rpcretry.Unavailable, attempt)
 	return sessionFailure("stop", socketPath, err)
 }
 
@@ -279,11 +335,12 @@ func sessionForm(verb, form string) error {
 	return usageError{msg: fmt.Sprintf("session %s: want %s", verb, form)}
 }
 
-// sessionFailure returns the error for verb's failure err, or nil when err is nil. A socket that cannot be dialed
-// means orreryd is not taking session commands, and the error names the --sessions flag that enables them.
+// sessionFailure returns the error for verb's failure err, or nil when err is nil. A socket that cannot be dialed, and
+// a daemon that answers that sessions are off, mean orreryd is not taking session commands, and the error names the
+// --sessions flag that enables them.
 func sessionFailure(verb, socketPath string, err error) error {
 	var dialErr sessionDialError
-	if errors.As(err, &dialErr) {
+	if errors.As(err, &dialErr) || errors.Is(err, errSessionsOff) {
 		return fmt.Errorf("session %s: orreryd takes no session commands on %s; start it with --sessions",
 			verb, socketPath)
 	}
