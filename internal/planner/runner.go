@@ -1,0 +1,283 @@
+package planner
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"log/slog"
+	"sync"
+	"time"
+
+	"github.com/joshsymonds/orrery/internal/enginehost"
+	"github.com/joshsymonds/orrery/internal/store"
+)
+
+// Store is the store a Runner reads and settles planner turns through. *store.Store satisfies it.
+type Store interface {
+	PlanStates(ctx context.Context) ([]store.EpicPlanState, error)
+	ClaimTurn(ctx context.Context, epic string, at time.Time) (store.EpicTurn, error)
+	SetTurnStep(ctx context.Context, epic string, turn int64, step string) error
+	Epic(ctx context.Context, id string) (store.EpicRow, error)
+	TurnTriggers(ctx context.Context, epic string, turn int64) ([]store.EpicTrigger, error)
+	CompleteTurn(ctx context.Context, epic string, turn int64, plan store.EpicPlan, at time.Time) error
+	FailTurn(ctx context.Context, epic string, turn int64, reason string, at time.Time) error
+	FreeTurn(ctx context.Context, epic string, turn int64, free store.TurnFree, at time.Time) error
+	ParkEpic(ctx context.Context, epic string, reason string) error
+	RunningTurns(ctx context.Context) ([]store.EpicTurn, error)
+	RateLimit(ctx context.Context, session string) (store.RateLimit, bool, error)
+}
+
+// Steps starts planner steps and waits for them. *enginehost.Steps satisfies it.
+type Steps interface {
+	Start(ctx context.Context, start enginehost.StepStart) (string, error)
+	Status(ctx context.Context, id string) (store.StepRow, error)
+	Wait(ctx context.Context, ids []string, timeout time.Duration) (*store.StepRow, []store.StepRow, error)
+}
+
+// Config configures a Runner. A Tick that is not positive means five seconds, and a nil Now means time.Now. A nil
+// Logger discards.
+type Config struct {
+	Store  Store
+	Steps  Steps
+	Agent  func() (string, error)
+	Tick   time.Duration
+	Now    func() time.Time
+	Logger *slog.Logger
+}
+
+// defaultTick is how often a Runner passes when its Config names no positive tick.
+const defaultTick = 5 * time.Second
+
+// waitInterval is how long one Wait on a turn's step lasts before the turn waits again.
+const waitInterval = time.Minute
+
+// stepDone is the end of a step whose return passed its check.
+const stepDone = "done"
+
+// taskDone is the status of a finished task. Its files are no longer owned by an unfinished task.
+const taskDone = "done"
+
+// Runner passes over the epics with pending triggers and runs their planner turns. Each claimed turn runs in its own
+// goroutine, and turns tracks them until Run returns.
+type Runner struct {
+	store  Store
+	steps  Steps
+	agent  func() (string, error)
+	tick   time.Duration
+	now    func() time.Time
+	logger *slog.Logger
+	turns  sync.WaitGroup
+}
+
+// New returns a Runner for cfg.
+func New(cfg Config) *Runner {
+	runner := &Runner{
+		store: cfg.Store, steps: cfg.Steps, agent: cfg.Agent, tick: cfg.Tick, now: cfg.Now, logger: cfg.Logger,
+	}
+	if runner.tick <= 0 {
+		runner.tick = defaultTick
+	}
+	if runner.now == nil {
+		runner.now = time.Now
+	}
+	if runner.logger == nil {
+		runner.logger = slog.New(slog.DiscardHandler)
+	}
+	return runner
+}
+
+// Run passes at once, then once per tick, until ctx ends. It then waits for the turns it started and returns.
+func (r *Runner) Run(ctx context.Context) {
+	ticker := time.NewTicker(r.tick)
+	defer ticker.Stop()
+	for {
+		r.pass(ctx)
+		select {
+		case <-ctx.Done():
+			r.turns.Wait()
+			return
+		case <-ticker.C:
+		}
+	}
+}
+
+// pass decides each epic with pending triggers. A park action parks the epic with its reason, and a claim action
+// claims a turn for the epic in its own goroutine. agent is read once per pass.
+func (r *Runner) pass(ctx context.Context) {
+	states, err := r.store.PlanStates(ctx)
+	if err != nil {
+		r.logger.ErrorContext(ctx, "list planner states", "err", err)
+		return
+	}
+	agent, roleErr := r.agent()
+	for _, state := range states {
+		action := Decide(State{
+			Paused: state.Paused, Parked: state.Parked != "", Running: state.Running, Pending: state.Pending,
+		}, roleErr)
+		switch action.Kind {
+		case ActionPark:
+			if err = r.store.ParkEpic(ctx, state.Epic, action.Reason); err != nil {
+				r.logger.ErrorContext(ctx, "park epic", "epic", state.Epic, "err", err)
+			}
+		case ActionClaim:
+			r.turns.Add(1)
+			go r.runTurn(ctx, state.Epic, agent)
+		default:
+		}
+	}
+}
+
+// runTurn claims a turn for epic, runs its planner step to an end and settles the turn. A turn whose context ends is
+// left running for the next start.
+func (r *Runner) runTurn(ctx context.Context, epic, agent string) {
+	defer r.turns.Done()
+	turn, err := r.store.ClaimTurn(ctx, epic, r.now())
+	if errors.Is(err, store.ErrNotClaimable) {
+		return
+	}
+	if err != nil {
+		r.logger.ErrorContext(ctx, "claim planner turn", "epic", epic, "err", err)
+		return
+	}
+	id, err := r.startStep(ctx, epic, turn, agent)
+	if err != nil {
+		r.fail(ctx, epic, turn.Seq, err.Error())
+		return
+	}
+	ended, err := r.await(ctx, id)
+	if err != nil {
+		r.fail(ctx, epic, turn.Seq, err.Error())
+		return
+	}
+	if ctx.Err() != nil {
+		return
+	}
+	if err = r.settle(ctx, epic, turn.Seq, ended); err != nil {
+		r.logger.ErrorContext(ctx, "settle planner turn", "epic", epic, "turn", turn.Seq, "err", err)
+	}
+}
+
+// startStep reads the claimed turn's epic and triggers and starts its read-only planner step. It returns the step's
+// id. A start that returns an id with an error still has its id recorded on the turn.
+func (r *Runner) startStep(ctx context.Context, epic string, turn store.EpicTurn, agent string) (string, error) {
+	row, err := r.store.Epic(ctx, epic)
+	if err != nil {
+		return "", fmt.Errorf("read epic %s: %w", epic, err)
+	}
+	triggers, err := r.store.TurnTriggers(ctx, epic, turn.Seq)
+	if err != nil {
+		return "", fmt.Errorf("read triggers of turn %d of epic %s: %w", turn.Seq, epic, err)
+	}
+	id, err := r.steps.Start(ctx, enginehost.StepStart{
+		Agent:       agent,
+		Prompt:      Prompt(row, turn.Seq, triggers),
+		Schema:      Schema,
+		Workspace:   row.Repository,
+		ReadOnly:    true,
+		Epic:        row.ID,
+		ReturnCheck: returnCheck(row),
+	})
+	if id != "" {
+		if setErr := r.store.SetTurnStep(ctx, epic, turn.Seq, id); setErr != nil {
+			r.logger.ErrorContext(ctx, "record step of planner turn",
+				"epic", epic, "turn", turn.Seq, "step", id, "err", setErr)
+		}
+	}
+	if err != nil {
+		return id, fmt.Errorf("start planner step: %w", err)
+	}
+	return id, nil
+}
+
+// await waits until the step id ends and returns its row. Each Wait lasts a minute, and a Wait that times out is
+// repeated.
+func (r *Runner) await(ctx context.Context, id string) (store.StepRow, error) {
+	for {
+		ended, _, err := r.steps.Wait(ctx, []string{id}, waitInterval)
+		if err != nil {
+			return store.StepRow{}, fmt.Errorf("wait for step %s: %w", id, err)
+		}
+		if ended != nil {
+			return *ended, nil
+		}
+	}
+}
+
+// settle stores the end of turn seq of epic. A done end completes the turn with the plan its return holds. Every other
+// end fails the turn with its end and reason.
+func (r *Runner) settle(ctx context.Context, epic string, seq int64, ended store.StepRow) error {
+	if ended.End != stepDone {
+		return r.failTurn(ctx, epic, seq, ended.End+": "+ended.Reason)
+	}
+	ret, err := Parse(json.RawMessage(ended.Result))
+	if err != nil {
+		return r.failTurn(ctx, epic, seq, err.Error())
+	}
+	if err = r.store.CompleteTurn(ctx, epic, seq, planOf(ret), r.now()); err != nil {
+		return fmt.Errorf("complete turn %d of epic %s: %w", seq, epic, err)
+	}
+	return nil
+}
+
+// fail fails turn seq of epic with reason. It writes nothing once ctx has ended, which leaves the turn running for the
+// next start.
+func (r *Runner) fail(ctx context.Context, epic string, seq int64, reason string) {
+	if ctx.Err() != nil {
+		return
+	}
+	if err := r.failTurn(ctx, epic, seq, reason); err != nil {
+		r.logger.ErrorContext(ctx, "fail planner turn", "epic", epic, "turn", seq, "err", err)
+	}
+}
+
+// failTurn ends turn seq of epic as failed with reason.
+func (r *Runner) failTurn(ctx context.Context, epic string, seq int64, reason string) error {
+	if err := r.store.FailTurn(ctx, epic, seq, reason, r.now()); err != nil {
+		return fmt.Errorf("fail turn %d of epic %s: %w", seq, epic, err)
+	}
+	return nil
+}
+
+// planOf returns the plan a valid planner return stores.
+func planOf(ret Return) store.EpicPlan {
+	tasks := make([]store.EpicTaskInput, 0, len(ret.Tasks))
+	for _, task := range ret.Tasks {
+		tasks = append(tasks, store.EpicTaskInput{
+			Title: task.Title, Deliverable: task.Deliverable, Files: task.Files,
+			Requirements: task.Requirements, Check: task.Check,
+		})
+	}
+	return store.EpicPlan{
+		Decisions: ret.Decisions, Tasks: tasks, Outline: ret.Outline, Questions: ret.Questions, Outcome: ret.Outcome,
+	}
+}
+
+// returnCheck returns the check a planner step's return runs for epic. A return that does not parse is one line.
+// Any other return gets the refusals of Check, against the epic's Requirement ids and the files of its tasks that are
+// not done.
+func returnCheck(epic store.EpicRow) func(value json.RawMessage) []string {
+	requirements := make([]string, 0, len(epic.Requirements))
+	for _, requirement := range epic.Requirements {
+		requirements = append(requirements, requirement.ID)
+	}
+	owned := unfinishedFiles(epic.Tasks)
+	return func(value json.RawMessage) []string {
+		ret, err := Parse(value)
+		if err != nil {
+			return []string{err.Error()}
+		}
+		return Check(ret, requirements, owned)
+	}
+}
+
+// unfinishedFiles returns the files of the tasks whose status is not done, in task order.
+func unfinishedFiles(tasks []store.EpicTask) []string {
+	var files []string
+	for _, task := range tasks {
+		if task.Status != taskDone {
+			files = append(files, task.Files...)
+		}
+	}
+	return files
+}
