@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/joshsymonds/orrery/internal/agents"
 	"github.com/joshsymonds/orrery/internal/enginehost"
 	"github.com/joshsymonds/orrery/internal/store"
 )
@@ -54,6 +55,18 @@ const waitInterval = time.Minute
 
 // stepDone is the end of a step whose return passed its check.
 const stepDone = "done"
+
+// stepStopped is the end of a step ended by Stop, and stepRestarted the end Reconcile stores on an open step row.
+const (
+	stepStopped   = "stopped"
+	stepRestarted = "engine_restarted"
+)
+
+// rateLimitRejected is the status of a rate limit that refused a session's request.
+const rateLimitRejected = "rejected"
+
+// stepCapFull is the reason a turn is freed with when the step cap refuses its step.
+const stepCapFull = "step cap full"
 
 // taskDone is the status of a finished task. Its files are no longer owned by an unfinished task.
 const taskDone = "done"
@@ -142,7 +155,7 @@ func (r *Runner) runTurn(ctx context.Context, epic, agent string) {
 	}
 	id, err := r.startStep(ctx, epic, turn, agent)
 	if err != nil {
-		r.fail(ctx, epic, turn.Seq, err.Error())
+		r.refuse(ctx, epic, turn.Seq, err)
 		return
 	}
 	ended, err := r.await(ctx, id)
@@ -153,7 +166,7 @@ func (r *Runner) runTurn(ctx context.Context, epic, agent string) {
 	if ctx.Err() != nil {
 		return
 	}
-	if err = r.settle(ctx, epic, turn.Seq, ended); err != nil {
+	if err = r.settle(ctx, epic, turn.Seq, id, ended); err != nil {
 		r.logger.ErrorContext(ctx, "settle planner turn", "epic", epic, "turn", turn.Seq, "err", err)
 	}
 }
@@ -204,13 +217,50 @@ func (r *Runner) await(ctx context.Context, id string) (store.StepRow, error) {
 	}
 }
 
-// settle stores the end of turn seq of epic. A done end completes the turn with the plan its return holds. Every other
-// end fails the turn with its end and reason.
-func (r *Runner) settle(ctx context.Context, epic string, seq int64, ended store.StepRow) error {
-	if ended.End != stepDone {
+// refuse settles turn seq of epic whose planner step did not start, by the error of its start. A refusal for the step
+// cap frees the turn to rerun. An agent that does not resolve, or is not a valid agent name, frees the turn and parks
+// the epic with the error text. Any other error fails the turn with its text.
+func (r *Runner) refuse(ctx context.Context, epic string, seq int64, err error) {
+	switch {
+	case errors.Is(err, enginehost.ErrCapReached):
+		r.release(ctx, epic, seq, store.TurnFree{Reason: stepCapFull})
+	case errors.Is(err, agents.ErrUnresolved), errors.Is(err, enginehost.ErrBadAgent):
+		r.release(ctx, epic, seq, store.TurnFree{Reason: err.Error(), Park: err.Error()})
+	default:
+		r.fail(ctx, epic, seq, err.Error())
+	}
+}
+
+// settle settles turn seq of epic, whose step id ended as ended. A kept rejected rate limit of the step frees the turn
+// and pauses the epic, whatever the end. A done end completes the turn with the plan its return holds. A stopped step
+// frees the turn and pauses the epic, and an engine_restarted step frees it to rerun. Every other end fails the turn
+// with its end and reason.
+func (r *Runner) settle(ctx context.Context, epic string, seq int64, id string, ended store.StepRow) error {
+	limit, limited, err := r.store.RateLimit(ctx, id)
+	if err != nil {
+		return fmt.Errorf("read rate limit of step %s: %w", id, err)
+	}
+	if limited && limit.Status == rateLimitRejected {
+		return r.freeTurn(ctx, epic, seq, store.TurnFree{
+			Reason: fmt.Sprintf("%s rate limit, resets %s", limit.Kind, limit.ResetsAt.UTC().Format(time.RFC3339)),
+			Pause:  true,
+		})
+	}
+	switch ended.End {
+	case stepDone:
+		return r.complete(ctx, epic, seq, ended.Result)
+	case stepStopped:
+		return r.freeTurn(ctx, epic, seq, store.TurnFree{Reason: stepStopped, Pause: true})
+	case stepRestarted:
+		return r.freeTurn(ctx, epic, seq, store.TurnFree{Reason: stepRestarted})
+	default:
 		return r.failTurn(ctx, epic, seq, ended.End+": "+ended.Reason)
 	}
-	ret, err := Parse(json.RawMessage(ended.Result))
+}
+
+// complete completes turn seq of epic with the plan that result holds. A result that does not parse fails the turn.
+func (r *Runner) complete(ctx context.Context, epic string, seq int64, result string) error {
+	ret, err := Parse(json.RawMessage(result))
 	if err != nil {
 		return r.failTurn(ctx, epic, seq, err.Error())
 	}
@@ -231,10 +281,28 @@ func (r *Runner) fail(ctx context.Context, epic string, seq int64, reason string
 	}
 }
 
+// release frees turn seq of epic with free. Like fail, it writes nothing once ctx has ended.
+func (r *Runner) release(ctx context.Context, epic string, seq int64, free store.TurnFree) {
+	if ctx.Err() != nil {
+		return
+	}
+	if err := r.freeTurn(ctx, epic, seq, free); err != nil {
+		r.logger.ErrorContext(ctx, "free planner turn", "epic", epic, "turn", seq, "err", err)
+	}
+}
+
 // failTurn ends turn seq of epic as failed with reason.
 func (r *Runner) failTurn(ctx context.Context, epic string, seq int64, reason string) error {
 	if err := r.store.FailTurn(ctx, epic, seq, reason, r.now()); err != nil {
 		return fmt.Errorf("fail turn %d of epic %s: %w", seq, epic, err)
+	}
+	return nil
+}
+
+// freeTurn ends turn seq of epic without a return, as free describes.
+func (r *Runner) freeTurn(ctx context.Context, epic string, seq int64, free store.TurnFree) error {
+	if err := r.store.FreeTurn(ctx, epic, seq, free, r.now()); err != nil {
+		return fmt.Errorf("free turn %d of epic %s: %w", seq, epic, err)
 	}
 	return nil
 }
