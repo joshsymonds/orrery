@@ -292,13 +292,22 @@ func structuredOutput(raw json.RawMessage) json.RawMessage {
 	return bytes.Clone(raw)
 }
 
+// assistantEvents returns the AssistantError of a message that carries an API error, ahead of its block
+// events. A message without an error yields its block events alone.
 func assistantEvents(message wire.SDKAssistantMessage) ([]Event, error) {
 	base := Block{
 		Role:            roleAssistant,
 		MessageID:       message.Message.ID,
 		ParentToolUseID: derefString(message.ParentToolUseID),
 	}
-	return blockEvents(message.Message.Content, base, assistantBlock)
+	blocks, err := blockEvents(message.Message.Content, base, assistantBlock)
+	if err != nil {
+		return nil, err
+	}
+	if message.Error == nil {
+		return blocks, nil
+	}
+	return append([]Event{AssistantError{Error: *message.Error}}, blocks...), nil
 }
 
 func userEvents(message wire.SDKUserMessage) ([]Event, error) {

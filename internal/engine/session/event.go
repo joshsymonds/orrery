@@ -93,6 +93,14 @@ type Block struct {
 
 func (Block) isEvent() {}
 
+// AssistantError reports the API error an assistant message carries, such as "rate_limit" on a turn that
+// hit a usage limit. It comes before the message's block events.
+type AssistantError struct {
+	Error string
+}
+
+func (AssistantError) isEvent() {}
+
 // RequestKind names the kind of a request the session makes of its host.
 type RequestKind string
 
