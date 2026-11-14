@@ -304,8 +304,8 @@ func TestMergeOutputDoesNotHoldDoneForGroupLeaverHoldingOutput(t *testing.T) {
 	const stopTimeout = 300 * time.Millisecond
 	pidFile := filepath.Join(t.TempDir(), "holder.pid")
 	// setsid moves the background sleep into its own session, so it leaves the group yet inherits the
-	// merged output. The shell exits at once, leaving the sleep holding the pipe.
-	body := "setsid sleep 60 &\necho $! > \"$1\"\necho ready\nexit 0\n"
+	// merged output. The shell exits once the sleep has left the group, leaving it holding the pipe.
+	body := leaverStart("") + "echo ready\nexit 0\n"
 	p := startWith(t, Config{MergeOutput: true, StopTimeout: stopTimeout}, body, pidFile)
 	select {
 	case <-p.Done():

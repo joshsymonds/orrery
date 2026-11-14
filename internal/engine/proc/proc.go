@@ -218,7 +218,7 @@ func (p *Process) run() {
 	case <-timer.C:
 		// A process that left the group still holds the stderr pipe open. Closing the read end
 		// unblocks the copy.
-		unblockErr = p.stderrRead.Close()
+		unblockErr = ignoreClosed(p.stderrRead.Close())
 		<-p.stderrDone
 	}
 	p.waitErr = errors.Join(waitErr, killErr, unblockErr, p.copyErr)
@@ -230,7 +230,17 @@ func (p *Process) run() {
 func (p *Process) copyStderr() {
 	defer close(p.stderrDone)
 	_, copyErr := io.Copy(p.stderr, p.stderrRead)
-	p.copyErr = errors.Join(copyErr, p.stderrRead.Close())
+	p.copyErr = errors.Join(ignoreClosed(copyErr), ignoreClosed(p.stderrRead.Close()))
+}
+
+// ignoreClosed drops the closed-file error that closing the stderr read end causes. run and copyStderr
+// both close that end, so the copy's read fails with it when run unblocks the copy, and whichever closes
+// second gets it. It says nothing about how the child exited.
+func ignoreClosed(err error) error {
+	if errors.Is(err, os.ErrClosed) {
+		return nil
+	}
+	return err
 }
 
 // signalGroup sends sig to every process in the group pgid. A group that no longer exists is not an
