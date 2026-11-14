@@ -168,16 +168,7 @@ func TestEpicCreateThenGetRoundTripsContract(t *testing.T) {
 	stored := createEpicOK(t, client, req)
 	after := time.Now().Unix()
 
-	// The store does not keep the base, the gates, the Done and review lists or the evidence items yet; the
-	// epic-store-evidence task stores them. Until then the stored contract is the request without them.
 	want := fullEpicRequest(repo, epicServiceID).GetContract()
-	want.Base = ""
-	want.Gates = nil
-	want.DoneGates = nil
-	want.ReviewGates = nil
-	for _, requirement := range want.GetRequirements() {
-		requirement.Item = nil
-	}
 	if !proto.Equal(stored.GetContract(), want) {
 		t.Fatalf("created contract = %v, want %v", stored.GetContract(), want)
 	}
