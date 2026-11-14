@@ -24,11 +24,17 @@ type EpicCommands interface {
 	Epic(ctx context.Context, id string) (store.EpicRow, error)
 	Epics(ctx context.Context) ([]store.EpicRow, error)
 	AnswerEpic(ctx context.Context, epic, id, text string, at time.Time) (store.EpicDecision, error)
+	PauseEpic(ctx context.Context, epic string) error
+	ResumeEpic(ctx context.Context, epic string) error
+	StopEpic(ctx context.Context, epic string) (string, error)
+	RetryEpic(ctx context.Context, epic string) error
 }
 
-// epicService implements the Epics RPCs over epics.
+// epicService implements the Epics RPCs over epics. steps is the step store StopEpic stops the turn's step through;
+// it is nil when Serve has no step engine, and StopEpic then stops no step.
 type epicService struct {
 	epics EpicCommands
+	steps StepCommands
 }
 
 // ready returns the refusal every epic RPC gets when there is no epic store.
@@ -135,6 +141,116 @@ func checkEpicAnswer(req *v1.AnswerEpicRequest) error {
 		return refuseEpic(connect.CodeInvalidArgument, "text: empty")
 	}
 	return nil
+}
+
+// PauseEpic pauses the epic, so the planner starts no turn for it, and returns the epic read back. An epic already
+// paused is refused.
+func (s *epicService) PauseEpic(
+	ctx context.Context,
+	req *connect.Request[v1.PauseEpicRequest],
+) (*connect.Response[v1.PauseEpicResponse], error) {
+	if err := s.ready(); err != nil {
+		return nil, err
+	}
+	id := req.Msg.GetId()
+	if id == "" {
+		return nil, refuseEpic(connect.CodeInvalidArgument, "id: empty")
+	}
+	if err := s.epics.PauseEpic(ctx, id); err != nil {
+		return nil, epicControlError(id, err)
+	}
+	stored, err := s.epics.Epic(ctx, id)
+	if err != nil {
+		return nil, epicStoreError(err)
+	}
+	return connect.NewResponse(&v1.PauseEpicResponse{Epic: storedEpicMessage(stored)}), nil
+}
+
+// ResumeEpic clears the pause of the epic and returns the epic read back. An epic that is not paused is refused.
+func (s *epicService) ResumeEpic(
+	ctx context.Context,
+	req *connect.Request[v1.ResumeEpicRequest],
+) (*connect.Response[v1.ResumeEpicResponse], error) {
+	if err := s.ready(); err != nil {
+		return nil, err
+	}
+	id := req.Msg.GetId()
+	if id == "" {
+		return nil, refuseEpic(connect.CodeInvalidArgument, "id: empty")
+	}
+	if err := s.epics.ResumeEpic(ctx, id); err != nil {
+		return nil, epicControlError(id, err)
+	}
+	stored, err := s.epics.Epic(ctx, id)
+	if err != nil {
+		return nil, epicStoreError(err)
+	}
+	return connect.NewResponse(&v1.ResumeEpicResponse{Epic: storedEpicMessage(stored)}), nil
+}
+
+// StopEpic pauses the epic, flags its running turn to stop, stops the turn's step when the turn has one, and returns
+// the epic read back. An epic with no running turn is refused, and stops nothing.
+func (s *epicService) StopEpic(
+	ctx context.Context,
+	req *connect.Request[v1.StopEpicRequest],
+) (*connect.Response[v1.StopEpicResponse], error) {
+	if err := s.ready(); err != nil {
+		return nil, err
+	}
+	id := req.Msg.GetId()
+	if id == "" {
+		return nil, refuseEpic(connect.CodeInvalidArgument, "id: empty")
+	}
+	step, err := s.epics.StopEpic(ctx, id)
+	if err != nil {
+		return nil, epicControlError(id, err)
+	}
+	if step != "" && s.steps != nil {
+		if err = s.steps.Stop(ctx, step); err != nil {
+			return nil, epicStoreError(err)
+		}
+	}
+	stored, err := s.epics.Epic(ctx, id)
+	if err != nil {
+		return nil, epicStoreError(err)
+	}
+	return connect.NewResponse(&v1.StopEpicResponse{Epic: storedEpicMessage(stored)}), nil
+}
+
+// RetryEpic ends the park of the epic and returns the epic read back. An epic that is not parked is refused.
+func (s *epicService) RetryEpic(
+	ctx context.Context,
+	req *connect.Request[v1.RetryEpicRequest],
+) (*connect.Response[v1.RetryEpicResponse], error) {
+	if err := s.ready(); err != nil {
+		return nil, err
+	}
+	id := req.Msg.GetId()
+	if id == "" {
+		return nil, refuseEpic(connect.CodeInvalidArgument, "id: empty")
+	}
+	if err := s.epics.RetryEpic(ctx, id); err != nil {
+		return nil, epicControlError(id, err)
+	}
+	stored, err := s.epics.Epic(ctx, id)
+	if err != nil {
+		return nil, epicStoreError(err)
+	}
+	return connect.NewResponse(&v1.RetryEpicResponse{Epic: storedEpicMessage(stored)}), nil
+}
+
+// epicControlError maps an error from an epic control on id to its Connect error: an unknown epic is NotFound, a
+// refusal is FailedPrecondition with its text, and any other error goes through epicStoreError.
+func epicControlError(id string, err error) error {
+	var refusal store.RefusalError
+	switch {
+	case errors.Is(err, store.ErrNoEpic):
+		return refuseEpic(connect.CodeNotFound, fmt.Sprintf("id: no epic %s", id))
+	case errors.As(err, &refusal):
+		return refuseEpic(connect.CodeFailedPrecondition, refusal.Error())
+	default:
+		return epicStoreError(err)
+	}
 }
 
 // refuseEpic returns a Connect error with code whose message is message.

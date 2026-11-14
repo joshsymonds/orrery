@@ -61,7 +61,7 @@ func Serve(
 ) error {
 	path, handler := enginev1connect.NewEngineHandler(&service{commands: commands, steps: steps})
 	stepsPath, stepsHandler := enginev1connect.NewStepsHandler(&stepService{steps: steps})
-	epicsPath, epicsHandler := enginev1connect.NewEpicsHandler(&epicService{epics: epics})
+	epicsPath, epicsHandler := enginev1connect.NewEpicsHandler(&epicService{epics: epics, steps: steps})
 	poolsPath, poolsHandler := enginev1connect.NewPoolsHandler(&poolService{pools: pools})
 	mux := http.NewServeMux()
 	mux.Handle(path, handler)

@@ -27,10 +27,18 @@ type fakeEpics struct {
 	gets        []*v1.GetEpicRequest
 	lists       []*v1.ListEpicsRequest
 	answers     []*v1.AnswerEpicRequest
+	pauses      []*v1.PauseEpicRequest
+	resumes     []*v1.ResumeEpicRequest
+	stops       []*v1.StopEpicRequest
+	retries     []*v1.RetryEpicRequest
 	createReply *v1.CreateEpicResponse
 	getReply    *v1.GetEpicResponse
 	listReply   *v1.ListEpicsResponse
 	answerReply *v1.AnswerEpicResponse
+	pauseReply  *v1.PauseEpicResponse
+	resumeReply *v1.ResumeEpicResponse
+	stopReply   *v1.StopEpicResponse
+	retryReply  *v1.RetryEpicResponse
 	err         error
 }
 
@@ -86,12 +94,68 @@ func (f *fakeEpics) AnswerEpic(
 	return connect.NewResponse(f.answerReply), nil
 }
 
+func (f *fakeEpics) PauseEpic(
+	_ context.Context,
+	req *connect.Request[v1.PauseEpicRequest],
+) (*connect.Response[v1.PauseEpicResponse], error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.pauses = append(f.pauses, req.Msg)
+	if f.err != nil {
+		return nil, f.err
+	}
+	return connect.NewResponse(f.pauseReply), nil
+}
+
+func (f *fakeEpics) ResumeEpic(
+	_ context.Context,
+	req *connect.Request[v1.ResumeEpicRequest],
+) (*connect.Response[v1.ResumeEpicResponse], error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.resumes = append(f.resumes, req.Msg)
+	if f.err != nil {
+		return nil, f.err
+	}
+	return connect.NewResponse(f.resumeReply), nil
+}
+
+func (f *fakeEpics) StopEpic(
+	_ context.Context,
+	req *connect.Request[v1.StopEpicRequest],
+) (*connect.Response[v1.StopEpicResponse], error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.stops = append(f.stops, req.Msg)
+	if f.err != nil {
+		return nil, f.err
+	}
+	return connect.NewResponse(f.stopReply), nil
+}
+
+func (f *fakeEpics) RetryEpic(
+	_ context.Context,
+	req *connect.Request[v1.RetryEpicRequest],
+) (*connect.Response[v1.RetryEpicResponse], error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.retries = append(f.retries, req.Msg)
+	if f.err != nil {
+		return nil, f.err
+	}
+	return connect.NewResponse(f.retryReply), nil
+}
+
 // epicCalls is a copy of the requests the fake received.
 type epicCalls struct {
 	creates []*v1.CreateEpicRequest
 	gets    []*v1.GetEpicRequest
 	lists   []*v1.ListEpicsRequest
 	answers []*v1.AnswerEpicRequest
+	pauses  []*v1.PauseEpicRequest
+	resumes []*v1.ResumeEpicRequest
+	stops   []*v1.StopEpicRequest
+	retries []*v1.RetryEpicRequest
 }
 
 func (f *fakeEpics) calls() epicCalls {
@@ -102,11 +166,16 @@ func (f *fakeEpics) calls() epicCalls {
 		gets:    slices.Clone(f.gets),
 		lists:   slices.Clone(f.lists),
 		answers: slices.Clone(f.answers),
+		pauses:  slices.Clone(f.pauses),
+		resumes: slices.Clone(f.resumes),
+		stops:   slices.Clone(f.stops),
+		retries: slices.Clone(f.retries),
 	}
 }
 
 func (c epicCalls) total() int {
-	return len(c.creates) + len(c.gets) + len(c.lists) + len(c.answers)
+	return len(c.creates) + len(c.gets) + len(c.lists) + len(c.answers) +
+		len(c.pauses) + len(c.resumes) + len(c.stops) + len(c.retries)
 }
 
 // fullContract is an epic contract with every field set, each to a value distinct from the others.
