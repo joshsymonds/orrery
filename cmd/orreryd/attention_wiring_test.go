@@ -30,6 +30,9 @@ const (
 	attentionWiringBody   = "parked: synthetic reason"
 	attentionWiringStamp  = int64(1_700_000_000)
 	attentionWiringPrefix = "parked: "
+	// attentionWiringWait bounds the wait for the parked epic's notice. The runner parks on its first pass and the
+	// attention loop passes every 5 seconds, so a loaded machine needs several ticks.
+	attentionWiringWait = 30 * time.Second
 )
 
 // recordRoute is the Router the wiring test gives the host for its notices. It records each notice it is given.
@@ -132,7 +135,7 @@ func TestSessionsHostRoutesParkedEpicNotice(t *testing.T) {
 		t.Fatalf("startSessions: %v", err)
 	}
 
-	deadline := time.Now().Add(plannerWiringWait)
+	deadline := time.Now().Add(attentionWiringWait)
 	for !parkedNoticeRouted(t, routed) {
 		if time.Now().After(deadline) {
 			t.Fatalf("no notice keyed by epic %s with a summary starting %q was routed",

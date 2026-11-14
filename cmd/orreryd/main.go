@@ -694,9 +694,9 @@ func (h *sessionHost) stop() error {
 	return nil
 }
 
-// startPlanner runs the planner runner over st and the steps until stop. The runner reads the planner's agent from the
-// role file on each pass, so without one it parks the epics that have pending triggers, and starts no turn. When router
-// is not nil, the attention loop runs under the same context and routes the epics that need their owner through it.
+// startPlanner runs the planner runner over st and the steps until stop. The runner reads the agent from the role
+// file on each pass; without one it parks each epic with pending triggers through a turn that starts no step. With a
+// router, the attention loop runs under the same context and routes the epics that need their owner through it.
 func (h *sessionHost) startPlanner(
 	ctx context.Context,
 	st *store.Store,

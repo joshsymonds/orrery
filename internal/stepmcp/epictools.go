@@ -73,8 +73,8 @@ func epicTools(epics enginev1connect.EpicsClient) []mcp.Tool {
 		},
 		{
 			Name: "epic_resume",
-			Description: "Clear the pause of an epic by id, so the planner starts its turns again. Returns the stored " +
-				"epic. An epic that is not paused is refused. A parked epic is refused too; epic_retry ends a park.",
+			Description: "Clear the pause of an epic by id. Returns the stored epic. An epic that is not paused is " +
+				"refused. A park stays; epic_retry ends a park.",
 			InputSchema: json.RawMessage(idSchema),
 			Handler:     epicResumeHandler(epics),
 		},
