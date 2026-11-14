@@ -488,17 +488,19 @@ func shutdownServe(
 }
 
 // sessionHost is the engine session service of a --sessions orreryd. The manager runs the sessions, the writer stores
-// their events, and the listener answers the Engine, Steps and Pools services on sessions.sock. Without a store the
-// manager, writer and broker are nil and every RPC is refused. The broker is closed before the listener stops, so a
-// grant that a blocked Acquire holds stays stored for the next orreryd. pools is the broker when its restore succeeded,
-// and nil otherwise, so no Pools are served. brokerRun is closed when the broker's tick loop returns, and is nil when no
-// loop runs.
+// their events, and the listener answers the Engine, Steps, Pools and Evidence services on sessions.sock. Without a
+// store the manager, writer and broker are nil and every RPC is refused. The broker is closed before the listener stops,
+// so a grant that a blocked Acquire holds stays stored for the next orreryd. pools is the broker when its restore
+// succeeded, and nil otherwise, so no Pools are served. evidence is the evidence runner over the store, the steps and
+// the pools, and nil without a store. brokerRun is closed when the broker's tick loop returns, and is nil when no loop
+// runs.
 type sessionHost struct {
 	manager     *enginehost.Manager
 	steps       *enginehost.Steps
 	writer      *enginehost.Writer
 	broker      *grants.Broker
 	pools       enginehost.PoolCommands
+	evidence    *enginehost.Evidence
 	brokerRun   chan struct{}
 	stopWriter  context.CancelFunc
 	writerDone  chan struct{}
@@ -510,14 +512,16 @@ type sessionHost struct {
 	serveDone   chan error
 }
 
-// startSessions listens on sessions.sock beside the daemon socket and serves the Engine, Steps and Pools services on it
-// until stop. With an open store it also starts the writer, a manager capped at opts.sessionCap that notifies through
-// notifier, the grants broker for hostName, which restores the grants a previous run stored and then ticks every
-// brokerTick until stop, and the step engine capped at opts.stepCap whose worktrees go under step-worktrees beside the
-// store file. The steps re-adopt the open step rows a previous run left, the manager reconciles the session rows and
-// the steps reconcile the rest before the service serves. The planner then runs over the store and the steps, and the
-// manager stops idle sessions, until stop. A readopt, reconcile or restore failure is logged and serving goes on; a
-// failed restore serves no Pools, which refuse as unavailable, and the gates fail for want of pools.
+// startSessions listens on sessions.sock beside the daemon socket and serves the Engine, Steps, Pools and Evidence
+// services on it until stop. With an open store it also starts the writer, a manager capped at opts.sessionCap that
+// notifies through notifier, the grants broker for hostName, which restores the grants a previous run stored and then
+// ticks every brokerTick until stop, and the step engine capped at opts.stepCap whose worktrees go under step-worktrees
+// beside the store file. The steps re-adopt the open step rows a previous run left, the manager reconciles the session
+// rows and the steps reconcile the rest before the service serves. The evidence runner is then built over the store,
+// the steps and the pools, and takes up the open evidence runs, so no judge starts beside a step already re-adopted.
+// The planner runs over the store and the steps, and the manager stops idle sessions, until stop. A readopt, reconcile,
+// restore or resume failure is logged and serving goes on; a failed restore serves no Pools, which refuse as
+// unavailable, and the gates fail for want of pools.
 func startSessions(
 	ctx context.Context,
 	opts options,
@@ -536,6 +540,7 @@ func startSessions(
 	var commands enginehost.Commands
 	var stepCommands enginehost.StepCommands
 	var epics enginehost.EpicCommands
+	var evidence enginehost.EvidenceCommands
 	if st != nil {
 		storePath, err := store.Path(getenv)
 		if err != nil {
@@ -572,6 +577,7 @@ func startSessions(
 			GateStateDir: filepath.Join(stateDir, "gates"),
 			GateScope:    opts.holderScope,
 			ReadoptCheck: planner.ReadoptCheck(st, resolve),
+			ReadoptGate:  enginehost.EvidenceReadoptGate(st),
 		})
 		if err != nil {
 			host.stopBroker()
@@ -589,6 +595,8 @@ func startSessions(
 			close(host.writerDone)
 		}()
 		host.reconcile(ctx, logger)
+		host.startEvidence(ctx, st, stateDir, opts.holderScope, logger)
+		evidence = host.evidence
 		host.startPlanner(ctx, st, getenv, resolve, logger)
 		var idleCtx context.Context
 		idleCtx, host.stopIdle = context.WithCancel(ctx)
@@ -605,7 +613,7 @@ func startSessions(
 	var serveCtx context.Context
 	serveCtx, host.stopServe = context.WithCancel(ctx)
 	go func() {
-		host.serveDone <- enginehost.Serve(serveCtx, ln, commands, stepCommands, epics, host.pools, nil)
+		host.serveDone <- enginehost.Serve(serveCtx, ln, commands, stepCommands, epics, host.pools, evidence)
 	}()
 	return host, nil
 }
@@ -696,6 +704,30 @@ func (h *sessionHost) stop() error {
 	return nil
 }
 
+// startEvidence builds the evidence runner over st, the steps and the pools, with its blobs and capture worktrees under
+// stateDir and its gates under stateDir/gates, and takes up the open evidence runs a previous run left. A failure to take
+// them up is logged and serving goes on.
+func (h *sessionHost) startEvidence(
+	ctx context.Context,
+	st *store.Store,
+	stateDir, holderScope string,
+	logger *slog.Logger,
+) {
+	h.evidence = enginehost.NewEvidence(enginehost.EvidenceConfig{
+		Store:        st,
+		Steps:        h.steps,
+		Pools:        h.pools,
+		Environ:      os.Environ(),
+		StateDir:     stateDir,
+		GateStateDir: filepath.Join(stateDir, "gates"),
+		GateScope:    holderScope,
+		Logger:       logger,
+	})
+	if err := h.evidence.Resume(ctx); err != nil {
+		logger.ErrorContext(ctx, "resume evidence runs, serving anyway", "error", err)
+	}
+}
+
 // startPlanner runs the planner runner over st and the steps until stop. The runner reads the planner's agent from the
 // role file on each pass, so without one it parks the epics that have pending triggers, and starts no turn. Each
 // planned task's gate and judge are resolved by resolve.
@@ -721,9 +753,10 @@ func (h *sessionHost) startPlanner(
 	}()
 }
 
-// shutdown stops the broker, stops the idle check, stops the planner and waits for its runner to return, ends every
-// step loop, stops every live session, and ends the writer after its last flush. The notices the sessions started are
-// waited on in serve. Without a broker, manager and writer it does nothing.
+// shutdown stops the broker, stops the idle check, stops the planner and waits for its runner to return, closes the
+// evidence runner and waits for its drives, ends every step loop, stops every live session, and ends the writer after its
+// last flush. The notices the sessions started are waited on in serve. Without a broker, manager and writer it does
+// nothing.
 func (h *sessionHost) shutdown() {
 	h.stopBroker()
 	if h.manager != nil {
@@ -731,6 +764,7 @@ func (h *sessionHost) shutdown() {
 		<-h.idleDone
 		h.stopPlanner()
 		<-h.plannerDone
+		h.evidence.Close()
 		h.steps.Close()
 		h.manager.Close()
 	}
