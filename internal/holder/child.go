@@ -16,8 +16,11 @@ import (
 // DefaultGrace is how long a stopped child may run after SIGTERM before SIGKILL.
 const DefaultGrace = 5 * time.Second
 
-// gateTailBytes is the newest stdout and stderr a gate child keeps in its exit record.
+// gateTailBytes is the newest stdout and stderr a gate child keeps in its exit record by default.
 const gateTailBytes = 8 << 10
+
+// MaxGateTail is the largest GateTail a gate may keep: its tail is held in the holder's memory.
+const MaxGateTail = 16 << 20
 
 // ChildConfig describes the child a holder runs.
 type ChildConfig struct {
@@ -30,10 +33,12 @@ type ChildConfig struct {
 	// Grace is how long Stop waits after SIGTERM before SIGKILL. Zero takes DefaultGrace.
 	Grace time.Duration
 	// GateLimit makes the child a gate when positive: its stdin is closed at start, its stdout and stderr share one
-	// newest-8-KiB tail carried in the exit record's Stderr, and nothing is spooled. Once GateLimit has passed on
-	// Clock from the child's start, the child is stopped as Stop stops it and ends with ReasonLimit. Zero takes no
-	// limit.
+	// newest-tail carried in the exit record's Stderr, and nothing is spooled. Once GateLimit has passed on Clock from
+	// the child's start, the child is stopped as Stop stops it and ends with ReasonLimit. Zero takes no limit.
 	GateLimit time.Duration
+	// GateTail is the number of newest output bytes a gate keeps in its exit record, from 1 to MaxGateTail. Zero takes
+	// 8 KiB. It is read only when GateLimit is positive.
+	GateTail int
 	// Clock times the grace and the gate limit. Nil takes SystemClock{}.
 	Clock Clock
 }
@@ -68,6 +73,9 @@ func StartChild(cfg ChildConfig, spool *Spool) (*Child, error) {
 	if gate {
 		procCfg.MergeOutput = true
 		procCfg.StderrCapacity = gateTailBytes
+		if cfg.GateTail > 0 {
+			procCfg.StderrCapacity = cfg.GateTail
+		}
 	}
 	started, err := proc.Start(procCfg)
 	if err != nil {

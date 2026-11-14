@@ -31,7 +31,8 @@ var errGateNoCommand = errors.New("enginehost: gate names no command")
 // Name is the session the gate's holder serves, and a fresh session when empty. StateDir is the state directory the holder
 // directory lives under, and a directory under os.TempDir when empty. Scope, when set, is the systemd-run scope the holder
 // runs in. Started, when set, is called once the grant holds, with the grant's id and the holder directory, before the gate
-// launches; its error releases the grant and launches nothing.
+// launches; its error releases the grant and launches nothing. Tail is the number of newest output bytes the gate
+// keeps, and zero keeps the holder's default of 8 KiB.
 type gateRun struct {
 	Argv     []string
 	Dir      string
@@ -41,6 +42,7 @@ type gateRun struct {
 	StateDir string
 	Scope    string
 	Started  func(ctx context.Context, grantID, dir string) error
+	Tail     int
 }
 
 // gateResult is how a gate ended: its exit status, whether Limit killed it, the last bytes it printed, the members of the
@@ -270,6 +272,7 @@ func gateHeld(
 		Session:   plan.session,
 		Child:     proc.Config{Path: plan.program, Args: run.Argv[1:], Dir: run.Dir, Env: gateEnviron(run.Environ)},
 		GateLimit: run.Limit,
+		GateTail:  run.Tail,
 	})
 	if err != nil {
 		exit, ended := gateLaunchExit(plan.dir)

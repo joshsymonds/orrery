@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -40,6 +41,30 @@ func gateExit(t *testing.T, root, session string) holder.Exit {
 		t.Fatalf("decode exit file: %v", err)
 	}
 	return exit
+}
+
+// awaitHolderRefusal runs orrery with args, which must be refused: a usage error that exits 2 with the usage text, with
+// nothing started. The child, which touches "started" in work, must not start, and no holders directory may be made
+// under root. It returns the run's result for the caller to check its message.
+func awaitHolderRefusal(t *testing.T, work, root string, args []string) runResult {
+	t.Helper()
+	res := awaitOrrery(t, startOrrery(t, io.Discard, args...))
+	if res.code != exitUsage {
+		t.Errorf("exit status %d, want %d; stderr %q", res.code, exitUsage, res.stderr)
+	}
+	if !strings.HasPrefix(res.stderr, "orrery: holder: ") {
+		t.Errorf("stderr %q, want a usage error naming holder", res.stderr)
+	}
+	if !strings.HasSuffix(res.stderr, usageText) {
+		t.Errorf("stderr does not end with the usage text: %q", res.stderr)
+	}
+	if _, err := os.Stat(filepath.Join(work, "started")); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("child check: %v, want the child not to have started", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "holders")); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("holders directory check: %v, want it not to exist", err)
+	}
+	return res
 }
 
 // TestHolderGateLimitStopsGateWithMergedTail runs a gate with a one-second limit whose child prints to stdout and to
@@ -85,25 +110,58 @@ func TestHolderGateLimitRefusesNotPositiveWhole(t *testing.T) {
 		t.Run(limit, func(t *testing.T) {
 			work := chdirTemp(t)
 			root := shortStateDir(t)
-			child := shellChild(t, "touch started")
 			args := append([]string{
 				"holder", "--state-dir", root, "--session", "s1", "--gate-limit", limit, "--",
-			}, child...)
+			}, shellChild(t, "touch started")...)
+			awaitHolderRefusal(t, work, root, args)
+		})
+	}
+}
+
+// TestHolderGateTailRefusesNotWholeBytesInRange gives --gate-tail a value that is not a whole number of bytes from 1 to
+// holder.MaxGateTail, with a gate limit. Each is a usage error, and nothing is started.
+func TestHolderGateTailRefusesNotWholeBytesInRange(t *testing.T) {
+	tails := []string{"0", "-1", "x", "1.5", strconv.Itoa(holder.MaxGateTail + 1)}
+	for _, tail := range tails {
+		t.Run(tail, func(t *testing.T) {
+			work := chdirTemp(t)
+			root := shortStateDir(t)
+			args := append([]string{
+				"holder", "--state-dir", root, "--session", "s1", "--gate-limit", "30", "--gate-tail", tail, "--",
+			}, shellChild(t, "touch started")...)
+			awaitHolderRefusal(t, work, root, args)
+		})
+	}
+}
+
+// TestHolderGateTailNeedsGateLimit gives --gate-tail without --gate-limit, which is a usage error that names the flag
+// it needs, and nothing is started.
+func TestHolderGateTailNeedsGateLimit(t *testing.T) {
+	work := chdirTemp(t)
+	root := shortStateDir(t)
+	args := append([]string{
+		"holder", "--state-dir", root, "--session", "s1", "--gate-tail", "1024", "--",
+	}, shellChild(t, "touch started")...)
+	res := awaitHolderRefusal(t, work, root, args)
+	if !strings.Contains(res.stderr, "--gate-tail needs --gate-limit") {
+		t.Errorf("stderr %q, want it to say --gate-tail needs --gate-limit", res.stderr)
+	}
+}
+
+// TestHolderGateTailAcceptsItsBounds runs a gate limited to 30 seconds whose child exits 3 on its own, with --gate-tail
+// at each bound. The holder exits 3, as it does for any child that exits 3.
+func TestHolderGateTailAcceptsItsBounds(t *testing.T) {
+	const want = 3
+	for _, tail := range []string{"1", strconv.Itoa(holder.MaxGateTail)} {
+		t.Run(tail, func(t *testing.T) {
+			chdirTemp(t)
+			root := shortStateDir(t)
+			args := append([]string{
+				"holder", "--state-dir", root, "--session", "s1", "--gate-limit", "30", "--gate-tail", tail, "--",
+			}, shellChild(t, "exit 3")...)
 			res := awaitOrrery(t, startOrrery(t, io.Discard, args...))
-			if res.code != exitUsage {
-				t.Errorf("exit status %d, want %d; stderr %q", res.code, exitUsage, res.stderr)
-			}
-			if !strings.HasPrefix(res.stderr, "orrery: holder: ") {
-				t.Errorf("stderr %q, want a usage error naming holder", res.stderr)
-			}
-			if !strings.HasSuffix(res.stderr, usageText) {
-				t.Errorf("stderr does not end with the usage text: %q", res.stderr)
-			}
-			if _, err := os.Stat(filepath.Join(work, "started")); !errors.Is(err, fs.ErrNotExist) {
-				t.Errorf("child check: %v, want the child not to have started", err)
-			}
-			if _, err := os.Stat(filepath.Join(root, "holders")); !errors.Is(err, fs.ErrNotExist) {
-				t.Errorf("holders directory check: %v, want it not to exist", err)
+			if res.code != want {
+				t.Errorf("exit status %d, want %d; stderr %q", res.code, want, res.stderr)
 			}
 		})
 	}

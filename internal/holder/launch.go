@@ -47,6 +47,9 @@ type LaunchConfig struct {
 	// session's directory, exit record included, once the holder ends, for the caller to clear. Zero launches the child
 	// with no limit, and the directory is removed once the holder ends.
 	GateLimit time.Duration
+	// GateTail is the number of newest output bytes the gate keeps in its exit record, as ChildConfig.GateTail takes it.
+	// Zero keeps the holder's default, and it is passed only with a positive GateLimit.
+	GateTail int
 }
 
 // Launch starts the session's child under orrery holder and returns the child as a Process. When cfg.Scope is set, the
@@ -127,12 +130,16 @@ func launchIn(ctx context.Context, cfg LaunchConfig, orrery, stateDir string, pr
 }
 
 // holderCommand returns the program and argument vector that start the holder: orrery holder, with the session, the
-// state directory, a positive gate limit as --gate-limit, and the child's path and arguments after the separator. When
-// cfg.Scope is set, the program is the scope, and orrery's argv follows the scope's arguments.
+// state directory, a positive gate limit as --gate-limit with a positive gate tail as --gate-tail, and the child's path
+// and arguments after the separator. When cfg.Scope is set, the program is the scope, and orrery's argv follows the
+// scope's arguments.
 func holderCommand(cfg LaunchConfig, orrery, stateDir string) (string, []string) {
 	argv := []string{"holder", "--session", cfg.Session, "--state-dir", stateDir}
 	if cfg.GateLimit > 0 {
 		argv = append(argv, "--gate-limit", strconv.FormatInt(gateSeconds(cfg.GateLimit), 10))
+		if cfg.GateTail > 0 {
+			argv = append(argv, "--gate-tail", strconv.Itoa(cfg.GateTail))
+		}
 	}
 	argv = append(argv, "--", cfg.Child.Path)
 	argv = append(argv, cfg.Child.Args...)
