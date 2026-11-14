@@ -321,6 +321,9 @@ INSERT INTO epic_release_steps (epic, position, step, target, undo) VALUES (?, ?
 -- name: ListEpicReleaseSteps :many
 SELECT * FROM epic_release_steps WHERE epic = ? ORDER BY position;
 
+-- name: InsertEpicTrigger :exec
+INSERT INTO epic_triggers (epic, id, cause, state, turn, created) VALUES (?, ?, ?, ?, ?, ?);
+
 -- name: InsertEpicDecision :exec
 INSERT INTO epic_decisions (epic, seq, client_id, text, time) VALUES (?, ?, ?, ?, ?);
 

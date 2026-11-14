@@ -120,9 +120,21 @@ func (s *Store) CreateEpic(ctx context.Context, row EpicRow) error {
 		if err = insertEpicSections(ctx, queries, row); err != nil {
 			return fmt.Errorf("insert sections of epic %s: %w", row.ID, err)
 		}
+		if err = queries.InsertEpicTrigger(ctx, sqlcgen.InsertEpicTriggerParams{
+			Epic: row.ID, ID: createdTriggerID, Cause: createdTriggerCause, State: "pending", Turn: 0,
+			Created: row.Created.Unix(),
+		}); err != nil {
+			return fmt.Errorf("insert trigger of epic %s: %w", row.ID, err)
+		}
 		return nil
 	})
 }
+
+// The trigger a created epic starts with: id `created` for cause `epic created`.
+const (
+	createdTriggerID    = "created"
+	createdTriggerCause = "epic created"
+)
 
 // insertEpicSections stores the ordered sections of row and its seed decisions.
 func insertEpicSections(ctx context.Context, queries *sqlcgen.Queries, row EpicRow) error {

@@ -695,6 +695,31 @@ func (q *Queries) InsertEpicRequirement(ctx context.Context, arg InsertEpicRequi
 	return err
 }
 
+const insertEpicTrigger = `-- name: InsertEpicTrigger :exec
+INSERT INTO epic_triggers (epic, id, cause, state, turn, created) VALUES (?, ?, ?, ?, ?, ?)
+`
+
+type InsertEpicTriggerParams struct {
+	Epic    string
+	ID      string
+	Cause   string
+	State   string
+	Turn    int64
+	Created int64
+}
+
+func (q *Queries) InsertEpicTrigger(ctx context.Context, arg InsertEpicTriggerParams) error {
+	_, err := q.db.ExecContext(ctx, insertEpicTrigger,
+		arg.Epic,
+		arg.ID,
+		arg.Cause,
+		arg.State,
+		arg.Turn,
+		arg.Created,
+	)
+	return err
+}
+
 const insertEvent = `-- name: InsertEvent :exec
 INSERT INTO events (session_id, kind, at, payload) VALUES (?, ?, ?, ?)
 `
