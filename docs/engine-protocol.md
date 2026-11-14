@@ -229,9 +229,11 @@ A return is taken only from a turn that ends with no background task live. The m
 
 ## 14. Step and epic tools
 
-`orrery [--socket PATH] mcp` serves the step tools and the epic tools as an MCP server on stdin and stdout. It serves until stdin closes and exits 0. Arguments after `mcp` exit 2. The transport is stdio only, so the process opens no listener and holds no database. It is a client of the `orrery.engine.v1.Steps` service (`proto/orrery/engine/v1/step.proto:7`) and of the `orrery.engine.v1.Epics` service (`proto/orrery/engine/v1/epic.proto:6`) on `sessions.sock`, the socket beside the daemon socket (`internal/protocol/protocol.go:156`, `:157`; `cmd/orreryd/main.go:596`). Each step tool call makes one `Steps` RPC: `step_start` calls `StartStep`, `step_status` calls `StepStatus`, `step_stop` calls `StopStep` and `step_wait` calls `WaitSteps` (`internal/stepmcp/tools.go:68`-`:97`). Each epic tool call makes one `Epics` RPC: `epic_create` calls `CreateEpic`, `epic_get` calls `GetEpic`, `epic_list` calls `ListEpics` and `epic_answer` calls `AnswerEpic` (`internal/stepmcp/epictools.go:34`-`:64`; `cmd/orrery/main.go:383`-`:386`).
+`orrery [--socket PATH] mcp` serves the step tools and the epic tools as an MCP server on stdin and stdout. It serves until stdin closes and exits 0. Arguments after `mcp` exit 2. The transport is stdio only, so the process opens no listener and holds no database. It is a client of the `orrery.engine.v1.Steps` service (`proto/orrery/engine/v1/step.proto:8`) and of the `orrery.engine.v1.Epics` service (`proto/orrery/engine/v1/epic.proto:6`) on `sessions.sock`, the socket beside the daemon socket (`internal/protocol/protocol.go:156`, `:157`; `cmd/orreryd/main.go:596`). Each step tool call makes one `Steps` RPC: `step_start` calls `StartStep`, `step_status` calls `StepStatus`, `step_stop` calls `StopStep` and `step_wait` calls `WaitSteps` (`internal/stepmcp/tools.go:68`-`:97`). There are eight epic tools, and each call makes one `Epics` RPC: `epic_create` calls `CreateEpic`, `epic_get` calls `GetEpic`, `epic_list` calls `ListEpics`, `epic_answer` calls `AnswerEpic`, `epic_pause` calls `PauseEpic`, `epic_resume` calls `ResumeEpic`, `epic_stop` calls `StopEpic` and `epic_retry` calls `RetryEpic`. The tool list is `internal/stepmcp/epictools.go:36`-`:96`, and the RPC of each handler is at `:139`, `:153`, `:167`, `:181`, `:195`, `:209`, `:223` and `:237`, in that order.
 
-The package imports the connect client, the generated `Steps` and `Epics` stubs, protobuf's JSON encoding and the MCP server, and no database or listener package (`internal/stepmcp/tools.go:4`-`:20`; `internal/stepmcp/epictools.go:3`-`:15`). The step rows live in the daemon, so a result a caller lost in transit is still in its row (`step.proto:15`).
+`orrery epic` runs the same handlers. Its forms `create`, `get`, `list`, `answer`, `pause`, `resume`, `stop` and `retry` each make one call to the epic tool `epic_<verb>` through `CallEpicTool`, on the same session socket (`cmd/orrery/main.go:238`-`:239`, `:419`-`:428`; `cmd/orrery/epic.go:49`-`:74`, `:179`-`:191`; `internal/stepmcp/epictools.go:100`-`:113`). So a command and its tool make the same call. The forms are `create FILE|-`, `get ID`, `list`, `answer EPIC --id ID [--question QN] TEXT`, `pause ID`, `resume ID`, `stop ID` and `retry ID` (`cmd/orrery/epic.go:22`-`:27`). `create` reads the tool's JSON arguments from FILE, or from stdin when FILE is `-`, and passes them as given (`cmd/orrery/epic.go:81`-`:109`). `answer` turns EPIC, `--id`, `--question` and TEXT into the tool's `epicId`, `id`, `question` and `text`, and leaves `question` out when `--question` is not given (`cmd/orrery/epic.go:111`-`:133`). A wrong form is a usage error naming the form it wants (`cmd/orrery/epic.go:76`-`:79`). The command prints the tool's result text on stdout, and `answer` also prints a non-empty warning on stderr (`cmd/orrery/epic.go:147`-`:150`). A refusal exits 1 with `orrery: ` and the tool's text on stderr (`cmd/orrery/epic.go:187`-`:189`; `cmd/orrery/main.go:193`-`:195`). A handler error reaches the command with the prefix `epic: run TOOL: `, so an argument that does not decode reads differently there than in the tool's text (`cmd/orrery/epic.go:182`-`:184`; `internal/stepmcp/epictools.go:116`-`:121`).
+
+The package imports the connect client, the generated `Steps` and `Epics` stubs, protobuf's JSON encoding and the MCP server, and no database or listener package (`internal/stepmcp/tools.go:4`-`:20`; `internal/stepmcp/epictools.go:3`-`:15`). The step rows live in the daemon, so a result a caller lost in transit is still in its row (`step.proto:16`-`:17`, `:155`-`:156`).
 
 ### Protocol
 
@@ -245,7 +247,7 @@ The package imports the connect client, the generated `Steps` and `Epics` stubs,
 
 ### Arguments and results
 
-Every tool result is one text block holding JSON. Every argument object refuses unknown keys, so a misspelt key is an error (`internal/stepmcp/tools.go:124`-`:131`; `internal/stepmcp/epictools.go:67`-`:73`).
+Every tool result is one text block holding JSON. Every argument object refuses unknown keys, so a misspelt key is an error (`internal/stepmcp/tools.go:124`-`:131`; `internal/stepmcp/epictools.go:116`-`:121`).
 
 #### step_start
 
@@ -257,14 +259,14 @@ Arguments (`internal/stepmcp/tools.go:99`-`:112`). Required: `prompt` and `works
 - `ownedPaths`: the repository-relative paths a writing step may change.
 - `gateName`: the name of the gate the step's return is checked against. It is resolved once, when the step starts, from `gatesFile` and then the project file. Empty runs no gate (`internal/stepmcp/tools.go:108`; `step.proto:77`; see [Gate files](contract.md#gate-files)).
 - `gatesFile`: the absolute path of the epic's gates file, read before the project file. Empty reads only the project file. It is refused when it is not absolute, and when it is set without `gateName` (`internal/stepmcp/tools.go:109`; `step.proto:80`; `internal/enginehost/step.go:428`-`:436`).
-- `epic`: the epic the step belongs to, passed as given. Empty leaves the step unlabelled, and an unlabelled step is never listed. The format `step.proto` names, `<repo-id>/<epic-slug>`, is not checked (`internal/stepmcp/tools.go:110`, `internal/stepmcp/tools.go:176`; `step.proto:71`).
-- `task`: the slug of the epic's task the step works on. Empty when it works on no one task (`internal/stepmcp/tools.go:111`, `internal/stepmcp/tools.go:176`; `step.proto:74`).
+- `epic`: the epic the step belongs to, passed as given. Empty leaves the step unlabelled, and an unlabelled step is never listed. The format `step.proto` names, `<repo-id>/<epic-slug>`, is not checked (`internal/stepmcp/tools.go:110`, `internal/stepmcp/tools.go:191`; `step.proto:71`).
+- `task`: the slug of the epic's task the step works on. Empty when it works on no one task (`internal/stepmcp/tools.go:111`, `internal/stepmcp/tools.go:192`; `step.proto:74`).
 
 `gate` and `gateLimitSeconds` are not arguments. A call that names either one is refused as an unknown key (`internal/stepmcp/tools.go:124`-`:131`). The gate's limit is the one its definition gives (see [Gate files](contract.md#gate-files)).
 
 `schema` is a JSON object argument, not a string; the server sends its JSON text to `StartStep` (`internal/stepmcp/tools.go:143`-`:152`). `prompt` and `workspace` must be non-empty (`internal/stepmcp/tools.go:166`-`:171`). `agent` and `schema` may be left out of the call. The service refuses an empty `agent` or `schema` unless the start names an agent gate (`internal/enginehost/stepsession.go:107`-`:108`, `internal/enginehost/step.go:284`). A start that names an agent gate by `gateName` must be `readOnly` and leave `agent`, `schema` and `doneValue` empty, since the gate supplies them (`internal/enginehost/step.go:481`-`:499`; see [Agent gates](contract.md#agent-gates)).
 
-Result: `{"id": "<step id>"}`, returned once the step's row exists (`internal/stepmcp/tools.go:199`; `step.proto:8`). A refused start returns the refusal and no id.
+Result: `{"id": "<step id>"}`, returned once the step's row exists (`internal/stepmcp/tools.go:199`; `step.proto:9`-`:10`). A refused start returns the refusal and no id.
 
 #### step_status
 
@@ -272,54 +274,78 @@ Arguments: `id`, required and non-empty (`internal/stepmcp/tools.go:42`-`:43`, `
 
 #### step_stop
 
-Arguments: `id`, required and non-empty. Result: `{"id": "<step id>", "stopped": true}` (`internal/stepmcp/tools.go:241`). The result says `stopped: true` whenever the daemon accepted the call, since `StopStepResponse` has no fields (`step.proto:95`-`:96`).
+Arguments: `id`, required and non-empty. Result: `{"id": "<step id>", "stopped": true}` (`internal/stepmcp/tools.go:241`). The result says `stopped: true` whenever the daemon accepted the call, since `StopStepResponse` has no fields (`step.proto:96`-`:97`).
 
 #### step_wait
 
-Arguments (`internal/stepmcp/tools.go:44`-`:47`):
+Arguments (`internal/stepmcp/tools.go:45`-`:47`):
 
 - `ids`: a non-empty array of step ids. An empty id is refused (`internal/stepmcp/tools.go:313`-`:318`).
 - `timeoutSeconds`: optional. It must be a whole number of seconds, 0 or more. A fractional or negative value is an error with the text `timeoutSeconds must be a whole number of seconds, 0 or more` (`internal/stepmcp/tools.go:246`-`:254`).
 
-The wait is clamped to `MaxWait`, 25 minutes or 1500 seconds (`internal/stepmcp/tools.go:22`-`:24`). An omitted timeout is 1500 seconds. A timeout at or above 1500 is 1500 (`internal/stepmcp/tools.go:246`-`:257`). The clamp exists so that the call returns inside the time Claude Code allows a tool call, and the caller asks again (`internal/stepmcp/tools.go:22`-`:23`). A timeout of 0 returns at once (`step.proto:115`).
+The wait is clamped to `MaxWait`, 25 minutes or 1500 seconds (`internal/stepmcp/tools.go:22`-`:24`). An omitted timeout is 1500 seconds. A timeout at or above 1500 is 1500 (`internal/stepmcp/tools.go:246`-`:257`). The clamp exists so that the call returns inside the time Claude Code allows a tool call, and the caller asks again (`internal/stepmcp/tools.go:22`-`:23`). A timeout of 0 returns at once (`step.proto:116`).
 
-Result: `{"ended": <step or null>, "steps": [<step>, ...]}` (`internal/stepmcp/tools.go:327`-`:335`). `ended` is the first step to end and is `null` when the timeout passes first. `steps` lists every named step in the order the request named them (`step.proto:124`-`:125`). On a timeout the caller reads each step's state from `steps`.
+Result: `{"ended": <step or null>, "steps": [<step>, ...]}` (`internal/stepmcp/tools.go:327`-`:335`). `ended` is the first step to end and is `null` when the timeout passes first. `steps` lists every named step in the order the request named them (`step.proto:122`-`:125`). On a timeout the caller reads each step's state from `steps`.
 
 #### The step object
 
 Every tool that reports a step returns these fields (`internal/stepmcp/tools.go:364`-`:389`):
 
-- `id`, `agent`, `workspace`, `revision`, `readOnly`, `worktree`: as the `Step` message defines them (`step.proto:131`-`:146`). `worktree` is empty for a writing step.
+- `id`, `agent`, `workspace`, `revision`, `readOnly`, `worktree`: as the `Step` message defines them (`step.proto:131`-`:147`). `worktree` is empty for a writing step.
 - `end`, `reason`: empty while the step runs (`step.proto:149`, `:161`).
-- `status`: the done value the return carried, or the status the step ended with. `result`: the latest result the return carried (`step.proto:151`-`:155`).
-- `checks`: each `{round, name, ok, detail}` from the rounds the return's checks ran in (`internal/stepmcp/tools.go:365`-`:373`; `step.proto:157`-`:158`).
-- `started`, `ended`: unix seconds. `ended` is 0 while the step runs (`step.proto:163`-`:167`).
+- `status`: the done value the return carried, or the status the step ended with. `result`: the latest result the return carried (`step.proto:152`-`:156`).
+- `checks`: each `{round, name, ok, detail}` from the rounds the return's checks ran in (`internal/stepmcp/tools.go:365`-`:373`; `step.proto:158`-`:159`).
+- `started`, `ended`: unix seconds. `ended` is 0 while the step runs (`step.proto:164`-`:168`).
 
 #### epic_create
 
-Arguments (`internal/stepmcp/epictools.go:18`-`:25`). Required: `contract`, the accepted contract as an object in protobuf JSON names, such as `releaseSteps`, with the fields of `EpicContract` (`proto/orrery/engine/v1/epic.proto:21`-`:69`). Optional: `decisions`, an array of objects, each with a required `id` and `text`, which seed the epic's decisions in order. The arguments are decoded with protojson, which refuses a key that names no field (`internal/stepmcp/epictools.go:67`-`:73`, `:85`-`:90`).
+Arguments (`internal/stepmcp/epictools.go:18`-`:25`). Required: `contract`, the accepted contract as an object in protobuf JSON names, such as `releaseSteps`, with the fields of `EpicContract` (`proto/orrery/engine/v1/epic.proto:33`-`:81`). Optional: `decisions`, an array of objects, each with a required `id` and `text`, which seed the epic's decisions in order. The arguments are decoded with protojson, which refuses a key that names no field (`internal/stepmcp/epictools.go:116`-`:121`, `:136`).
 
-Result: the stored epic, a `StoredEpic` message in protobuf JSON (`proto/orrery/engine/v1/epic.proto:249`-`:279`). Unpopulated fields are emitted, so an empty section reads as `[]` (`internal/stepmcp/epictools.go:74`-`:96`). protojson writes each 64-bit integer as a JSON string, so `created`, `changed`, `seq` and `time` are strings (`go.mod:12`).
+Result: the stored epic, a `StoredEpic` message in protobuf JSON (`proto/orrery/engine/v1/epic.proto:263`-`:294`). Unpopulated fields are emitted, so an empty section reads as `[]` (`internal/stepmcp/epictools.go:123`-`:131`, `:139`-`:143`). protojson writes each 64-bit integer as a JSON string, so `created`, `changed`, `seq` and `time` are strings (`go.mod:12`).
 
-Refusals: a refused call is a tool error. Its text is the Connect error's text, which is its code, a colon and its message, such as `invalid_argument: id: bad form, want <repo-id>-<7 hex>/<slug>` (`internal/stepmcp/epictools.go:91`-`:94`; `internal/stepmcp/tools.go:154`-`:158`; `go.mod:7`). The refusals and their messages are those of [Epics](contract.md#epics). A call whose arguments do not decode is a tool error whose text is `decode arguments:` and the protojson error (`internal/stepmcp/epictools.go:67`-`:73`, `:85`-`:90`; see [Protocol](#protocol)).
+Refusals: a refused call is a tool error. Its text is the Connect error's text, which is its code, a colon and its message, such as `invalid_argument: id: bad form, want <repo-id>-<7 hex>/<slug>` (`internal/stepmcp/epictools.go:140`-`:142`; `internal/stepmcp/tools.go:154`-`:158`; `go.mod:7`). The refusals and their messages are those of [Epics](contract.md#epics). A call whose arguments do not decode is a tool error whose text is `decode arguments:` and the protojson error (`internal/stepmcp/epictools.go:116`-`:121`, `:136`; see [Protocol](#protocol)).
 
 #### epic_get
 
-Arguments: `id`, required (`internal/stepmcp/tools.go:41`-`:42`; `internal/stepmcp/epictools.go:45`-`:47`). Result: the stored epic, as `epic_create` returns it (`internal/stepmcp/epictools.go:99`-`:110`). It also carries the epic's planner state: `paused`, `parked` (the park reason, empty when the epic is not parked), `turns`, `tasks` and `questions`, each in order (`proto/orrery/engine/v1/epic.proto:266`-`:278`; `internal/enginehost/epicservice.go:195`-`:208`). Each turn has `seq`, `step`, `state`, `reason`, `outline`, `outcome`, `decisions`, `started` and `ended`. Each task has the id `T<seq>`, and each question has the id `Q<seq>` (`proto/orrery/engine/v1/epic.proto:177`-`:204`, `:207`-`:231`, `:234`-`:246`; `internal/enginehost/epicservice.go:265`-`:286`). A turn's `decisions` are its return's decisions. Its refusals are those of `GetEpic`: `not_found` with `id: no epic <id>`, and the others of [Epics](contract.md#epics).
+Arguments: `id`, required (`internal/stepmcp/tools.go:42`-`:43`; `internal/stepmcp/epictools.go:49`). Result: the stored epic, as `epic_create` returns it (`internal/stepmcp/epictools.go:147`-`:159`). It also carries the epic's planner state: `paused`, `parked` (the park reason, empty when the epic is not parked), `turns`, `tasks` and `questions`, each in order (`proto/orrery/engine/v1/epic.proto:280`-`:293`; `internal/enginehost/epicservice.go:385`-`:397`). Each turn has `seq`, `step`, `state`, `reason`, `outline`, `outcome`, `decisions`, `started` and `ended`. Each task has the id `T<seq>`, and each question has the id `Q<seq>` (`proto/orrery/engine/v1/epic.proto:191`-`:219`, `:221`-`:246`, `:248`-`:261`; `internal/enginehost/epicservice.go:445`-`:485`). A turn's `decisions` are its return's decisions. Its refusals are those of `GetEpic`: `not_found` with `id: no epic <id>` (`internal/enginehost/epicservice.go:88`-`:90`), and the others of [Epics](contract.md#epics).
 
 #### epic_list
 
-Arguments: none. The schema is an object with no properties, and any key is refused (`internal/stepmcp/epictools.go:27`; `:66`-`:72`). Result: `{"epics": [...]}`, the `ListEpicsResponse` in protobuf JSON, with an `EpicSummary` for each stored epic. Each summary has `id`, `repository`, `title`, `phase`, `created` and `changed`, and no sections (`internal/stepmcp/epictools.go:112`-`:124`; `proto/orrery/engine/v1/epic.proto:282`-`:300`). With no epics, `epics` reads as `[]`. Its refusals are `unavailable` with `epic store unavailable` when orreryd has no store, and `internal` when the list fails (see [Epics](contract.md#epics)).
+Arguments: none. The schema is an object with no properties, and any key is refused (`internal/stepmcp/epictools.go:27`; `internal/stepmcp/epictools.go:116`-`:121`, `:164`). Result: `{"epics": [...]}`, the `ListEpicsResponse` in protobuf JSON, with an `EpicSummary` for each stored epic. Each summary has `id`, `repository`, `title`, `phase`, `created` and `changed`, and no sections (`internal/stepmcp/epictools.go:161`-`:173`; `proto/orrery/engine/v1/epic.proto:296`-`:315`). With no epics, `epics` reads as `[]`. Its refusals are `unavailable` with `epic store unavailable` when orreryd has no store, and `internal` when the list fails (see [Epics](contract.md#epics)).
 
 #### epic_answer
 
-Arguments: `epicId`, `id` and `text`, all required (`internal/stepmcp/epictools.go:29`-`:31`). Result: the decision, an `EpicDecision` with `seq`, `id`, `text` and `time` (`internal/stepmcp/epictools.go:126`-`:138`; `proto/orrery/engine/v1/epic.proto:161`-`:174`). A decision id already recorded with the same text returns the stored decision, as the tool's description says (`internal/stepmcp/epictools.go:58`-`:60`).
+Arguments: `epicId`, `id` and `text`, required, and `question`, optional: the `Q<n>` the decision answers. Leave `question` out for a note (`internal/stepmcp/epictools.go:29`-`:32`). Result: `{"decision": <EpicDecision>, "warning": <text>}`, the `AnswerEpicResponse` (`internal/stepmcp/epictools.go:175`-`:187`; `proto/orrery/engine/v1/epic.proto:368`-`:375`). The `decision` is an `EpicDecision` with `seq`, `id`, `text`, `time` and `question`, where `question` is empty for a note (`proto/orrery/engine/v1/epic.proto:173`-`:189`; `internal/enginehost/epicservice.go:435`-`:441`). `warning` is empty unless a note is recorded while questions are open. It then names them in `seq` order, as `recorded as a note: it answers no question, and Q1, Q2 are open` (`internal/enginehost/epicservice.go:141`-`:159`, `:200`-`:204`). An answer with a `question` marks that question `answered`, and its `warning` is empty (`internal/enginehost/epicservice.go:125`-`:139`; `internal/store/epics.go:380`-`:391`; `internal/store/queries.sql:490`-`:491`). A decision id already recorded with the same text returns the stored decision, as the tool's description says (`internal/stepmcp/epictools.go:59`-`:63`).
 
-Its refusals are those of `AnswerEpic`, as [Epics](contract.md#epics) gives them: `invalid_argument` with `epic_id: empty`, `id: empty` or `text: empty`; `not_found` with `epic_id: no epic <id>`; and `already_exists` with `id: <id> was recorded with other text`.
+Its refusals are those of `AnswerEpic`, as [Epics](contract.md#epics) gives them, and the question's refusals (`internal/enginehost/epicservice.go:115`-`:139`, `:164`-`:177`):
+
+- `invalid_argument` with `epic_id: empty`, `id: empty` or `text: empty` (`internal/enginehost/epicservice.go:208`-`:218`).
+- `not_found` with `epic_id: no epic <id>`.
+- `already_exists` with `id: <id> was recorded with other text`.
+- `not_found` with `question: no question <question> on epic <epicId>`, when `question` is not `Q<n>` for a positive `n`, and when the epic holds no such question (`internal/enginehost/epicservice.go:128`-`:131`, `:170`-`:171`, `:180`-`:185`, `:188`-`:198`).
+- `failed_precondition` with `question: <question> is closed`, when the question is no longer open (`internal/enginehost/epicservice.go:172`-`:173`).
+
+The four control tools take `id`, and each returns the stored epic, read back after the write (`internal/enginehost/epicservice.go:236`-`:240`, `:258`-`:262`, `:287`-`:291`, `:309`-`:313`). An empty `id` is `invalid_argument` with `id: empty`, and an unknown epic is `not_found` with `id: no epic <id>` (`internal/enginehost/epicservice.go:229`-`:232`, `:316`-`:328`). A refusal is a tool error with the Connect error's text, and a refused control writes nothing (`internal/store/controls.go:15`-`:16`).
+
+#### epic_pause
+
+Arguments: `id`, required (`internal/stepmcp/epictools.go:71`). Result: the stored epic, with `paused` true (`internal/stepmcp/epictools.go:189`-`:200`). The write sets `paused`, so the planner starts no turn for the epic (`internal/store/controls.go:24`-`:40`; `internal/store/queries.sql:451`-`:452`). An epic that is already paused is refused with `failed_precondition` and the text `epic <id> is already paused` (`internal/store/controls.go:32`-`:33`; `internal/enginehost/epicservice.go:316`-`:328`).
+
+#### epic_resume
+
+Arguments: `id`, required (`internal/stepmcp/epictools.go:78`). Result: the stored epic, with `paused` false (`internal/stepmcp/epictools.go:203`-`:215`). The write clears `paused` and leaves any park in place, so an epic that is paused and parked resumes and stays parked (`internal/store/controls.go:42`-`:59`; `internal/store/queries.sql:454`-`:455`). An epic that is not paused is refused with `failed_precondition`: `epic <id> is not paused`, or, when the epic is parked, `epic <id> is parked, not paused; retry ends a park` (`internal/store/controls.go:50`-`:55`).
+
+#### epic_stop
+
+Arguments: `id`, required (`internal/stepmcp/epictools.go:85`). Result: the stored epic, with `paused` true (`internal/stepmcp/epictools.go:217`-`:229`). One write pauses the epic and flags its running turn to stop. The store returns the turn's step, which is empty while the turn has none (`internal/store/controls.go:63`-`:92`; `internal/store/queries.sql:403`-`:404`). The service then stops that step, as `StopStep` does (`internal/enginehost/epicservice.go:267`-`:292`). A turn with no step is stopped when its step's id is recorded (`internal/planner/runner.go:193`-`:194`). An epic with no running turn is refused with `failed_precondition` and the text `epic <id> has no running turn`, and nothing is stopped (`internal/store/controls.go:73`-`:74`). A failed step stop comes after the write, so the epic stays paused and flagged, and its error is `internal` with the error's text (`internal/enginehost/epicservice.go:282`-`:285`, `:336`-`:338`).
+
+#### epic_retry
+
+Arguments: `id`, required (`internal/stepmcp/epictools.go:92`). Result: the stored epic, with `parked` empty (`internal/stepmcp/epictools.go:231`-`:243`). One write ends the park and sets the epic's `retried` to its highest turn seq, so the failed turns up to that seq stop counting toward a park. Its triggers stay pending, and `paused` is unchanged (`internal/store/controls.go:94`-`:96`, `:110`; `internal/store/queries.sql:457`-`:458`). An epic that is not parked is refused with `failed_precondition` and the text `epic <id> is not parked` (`internal/store/controls.go:103`-`:104`).
 
 ### The planner's return
 
-A planner turn's step returns through a forced return, as [section 13](#13-forced-returns) describes. Its schema is `Schema` in `internal/planner/plan.go`, and the step starts with it (`internal/planner/runner.go:184`; `internal/planner/plan.go:10`-`:36`). The schema requires `status`, `decisions`, `tasks`, `outline`, `questions` and `outcome`, and refuses any other key at the top level. `status` must be `done`, and `outcome` must be `work`, `wait` or `complete`. Each task requires `title`, `deliverable`, `files`, `requirements` and `check`, and refuses any other key (`internal/planner/plan.go:10`-`:36`). A return that passes the schema is then checked by the plan check, and a refusal is sent back to the session (see [Planner turns](contract.md#planner-turns)).
+A planner turn's step returns through a forced return, as [section 13](#13-forced-returns) describes. Its schema is `Schema` in `internal/planner/plan.go`, and the step starts with it (`internal/planner/runner.go:207`; `internal/planner/plan.go:10`-`:36`). The schema requires `status`, `decisions`, `tasks`, `outline`, `questions` and `outcome`, and refuses any other key at the top level. `status` must be `done`, and `outcome` must be `work`, `wait` or `complete`. Each task requires `title`, `deliverable`, `files`, `requirements` and `check`, and refuses any other key (`internal/planner/plan.go:10`-`:36`). A return that passes the schema is then checked by the plan check, and a refusal is sent back to the session (see [Planner turns](contract.md#planner-turns)).
 
 ### Caller facts
 
