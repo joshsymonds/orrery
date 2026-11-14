@@ -11,19 +11,20 @@ import (
 
 	orreryv1 "github.com/joshsymonds/orrery/internal/gen/orrery/v1"
 	"github.com/joshsymonds/orrery/internal/gen/orrery/v1/orreryv1connect"
+	"github.com/joshsymonds/orrery/internal/rpcretry"
 )
 
 // sessionURL implements `orrery session --url URL VERB ARGS`. Start, say, answer, interrupt, stop and seen call
-// serve's Control service at rawURL, and watch reads serve's Events stream. Every request carries the client header
-// serve's guard requires.
-func sessionURL(ctx context.Context, rawURL string, args []string, out io.Writer) error {
+// serve's Control service at rawURL, and watch reads serve's Events stream, retrying on clock. Every request carries
+// the client header serve's guard requires.
+func sessionURL(ctx context.Context, clock rpcretry.Clock, rawURL string, args []string, out io.Writer) error {
 	if len(args) == 0 {
 		return usageError{msg: sessionVerbUsage}
 	}
 	verb, rest := args[0], args[1:]
 	httpClient := &http.Client{Transport: clientTransport{base: http.DefaultTransport}}
 	if verb == "watch" {
-		return sessionWatchURL(ctx, httpClient, rawURL, rest, out)
+		return sessionWatchURL(ctx, clock, httpClient, rawURL, rest, out)
 	}
 	control := orreryv1connect.NewControlClient(httpClient, rawURL)
 	switch verb {
@@ -116,8 +117,16 @@ func sessionSeenURL(ctx context.Context, control orreryv1connect.ControlClient, 
 
 // sessionWatchURL implements `session --url URL watch ID`. It lists serve's newest seq, then writes the session's
 // messages from the Events stream, from seq 0 on, or from the newest seq when serve answers cursor 0 out of range
-// before any message, until it returns.
-func sessionWatchURL(ctx context.Context, httpClient *http.Client, rawURL string, args []string, out io.Writer) error {
+// before any message, until it returns. A stream that ends with Unavailable is reopened after the last message it
+// delivered, and the retries give up rpcretry.Window after that message.
+func sessionWatchURL(
+	ctx context.Context,
+	clock rpcretry.Clock,
+	httpClient *http.Client,
+	rawURL string,
+	args []string,
+	out io.Writer,
+) error {
 	if len(args) != sessionOneArg {
 		return sessionForm("watch", "ID")
 	}
@@ -129,60 +138,85 @@ func sessionWatchURL(ctx context.Context, httpClient *http.Client, rawURL string
 	}
 	newest := listed.Msg.GetSeq()
 	events := orreryv1connect.NewEventsClient(httpClient, rawURL)
-	received, err := watchSessionFrom(ctx, events, args[0], 0, newest, out)
-	if connect.CodeOf(err) == connect.CodeOutOfRange && !received {
-		_, err = watchSessionFrom(ctx, events, args[0], newest, newest, out)
+	watch := &urlWatch{id: args[0], newest: newest, out: out}
+	err = watch.run(ctx, clock, events)
+	if connect.CodeOf(err) == connect.CodeOutOfRange && watch.messages == 0 {
+		watch = &urlWatch{id: args[0], after: newest, newest: newest, out: out}
+		err = watch.run(ctx, clock, events)
 	}
 	return sessionRPCFailure("watch", err)
 }
 
-// watchSessionFrom opens the Events stream after the cursor after and writes the messages of session id through
-// writeSessionStream. It returns whether the stream delivered any message, and the error that ended the watch.
-func watchSessionFrom(
-	ctx context.Context,
-	events orreryv1connect.EventsClient,
-	id string,
-	after, newest int64,
-	out io.Writer,
-) (bool, error) {
-	stream, err := events.Watch(ctx, connect.NewRequest(&orreryv1.WatchRequest{After: after}))
+// urlWatch is one watch of the session id over serve's Events stream. It keeps the cursor a reopened stream resumes
+// after, the state the session was last seen in, and how many messages have arrived, so that a reopened stream carries
+// on where the stream before it ended. newest is the seq serve listed when the watch began.
+type urlWatch struct {
+	id       string
+	newest   int64
+	after    int64
+	state    string
+	messages int
+	out      io.Writer
+}
+
+// run reads the session's messages until it stops or fails. Each rpcretry.Do call opens the stream and reads it. A
+// stream that delivered messages and then ended with Unavailable ends its call, so the next call's window starts from
+// the last message. A call whose open or stream fails with Unavailable before any message is retried within
+// rpcretry.Window of its start.
+func (w *urlWatch) run(ctx context.Context, clock rpcretry.Clock, events orreryv1connect.EventsClient) error {
+	for {
+		reopen := false
+		err := rpcretry.Do(ctx, clock, rpcretry.Unavailable, func(callCtx context.Context) error {
+			var err error
+			reopen, err = w.read(callCtx, events)
+			return err
+		})
+		if !reopen {
+			return errors.Join(err)
+		}
+	}
+}
+
+// read opens the Events stream after the cursor and writes the session's messages from it. It reports whether the
+// stream ended with Unavailable after it delivered a message, which means run opens it again. Otherwise it returns the
+// error that ended the watch, or nil when the session stopped.
+func (w *urlWatch) read(ctx context.Context, events orreryv1connect.EventsClient) (bool, error) {
+	stream, err := events.Watch(ctx, connect.NewRequest(&orreryv1.WatchRequest{After: w.after}))
 	if err != nil {
 		return false, fmt.Errorf("open stream: %w", err)
 	}
-	received, err := writeSessionStream(stream, id, newest, out)
-	return received, errors.Join(err, stream.Close())
+	before := w.messages
+	err = errors.Join(w.write(stream), stream.Close())
+	if rpcretry.Unavailable(err) && w.messages > before {
+		return true, nil
+	}
+	return false, err
 }
 
-// writeSessionStream writes each message of the session id that stream delivers, as one line. It reports whether the
-// stream delivered any message. It returns nil once a message at or past newest leaves the session stopped or failed.
-// A stream that ends before then is an error.
-func writeSessionStream(
-	stream *connect.ServerStreamForClient[orreryv1.WatchResponse],
-	id string,
-	newest int64,
-	out io.Writer,
-) (bool, error) {
-	state := ""
-	received := false
+// write writes each message of the session that stream delivers, as one line, and records each message's seq as the
+// cursor. It returns nil once a message at or past newest leaves the session stopped or failed. A stream that ends
+// before then is an error.
+func (w *urlWatch) write(stream *connect.ServerStreamForClient[orreryv1.WatchResponse]) error {
 	for stream.Receive() {
-		received = true
 		msg := stream.Msg()
-		if msg.GetSessionId() == id {
+		w.after = msg.GetSeq()
+		w.messages++
+		if msg.GetSessionId() == w.id {
 			if next, ok := engineState(msg); ok {
-				state = next
+				w.state = next
 			}
-			if err := writeLine(out, msg); err != nil {
-				return received, err
+			if err := writeLine(w.out, msg); err != nil {
+				return err
 			}
 		}
-		if msg.GetSeq() >= newest && (state == sessionStopped || state == sessionFailed) {
-			return received, nil
+		if msg.GetSeq() >= w.newest && (w.state == sessionStopped || w.state == sessionFailed) {
+			return nil
 		}
 	}
 	if err := stream.Err(); err != nil {
-		return received, fmt.Errorf("receive: %w", err)
+		return fmt.Errorf("receive: %w", err)
 	}
-	return received, fmt.Errorf("stream ended before session %s stopped", id)
+	return fmt.Errorf("stream ended before session %s stopped", w.id)
 }
 
 // engineState returns the state that msg sets for a headless session, and whether msg sets one.

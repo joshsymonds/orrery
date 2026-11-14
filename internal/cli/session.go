@@ -74,7 +74,7 @@ func session(
 		if len(args) < sessionTwoArgs || args[1] == "" {
 			return usageError{msg: "session: --url needs a URL"}
 		}
-		return sessionURL(ctx, args[1], args[2:], out)
+		return sessionURL(ctx, clock, args[1], args[2:], out)
 	}
 	if len(args) == 0 {
 		return usageError{msg: sessionVerbUsage}
