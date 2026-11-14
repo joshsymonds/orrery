@@ -23,6 +23,8 @@ public  final class EpicRequirement extends
     text_ = "";
     evidence_ = "";
     kind_ = "";
+    runs_ = emptyProtobufList();
+    conclusion_ = "";
   }
   public static final int ID_FIELD_NUMBER = 1;
   private java.lang.String id_;
@@ -289,6 +291,211 @@ public  final class EpicRequirement extends
       com.google.protobuf.ByteString value) {
     checkByteStringIsUtf8(value);
     kind_ = value.toStringUtf8();
+
+  }
+
+  public static final int RUNS_FIELD_NUMBER = 5;
+  private com.google.protobuf.Internal.ProtobufList<io.github.joshsymonds.orrery.gen.orrery.v1.EvidenceRun> runs_;
+  /**
+   * <pre>
+   * The evidence runs of the requirement.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EvidenceRun runs = 5 [json_name = "runs"];</code>
+   */
+  @java.lang.Override
+  public java.util.List<io.github.joshsymonds.orrery.gen.orrery.v1.EvidenceRun> getRunsList() {
+    return runs_;
+  }
+  /**
+   * <pre>
+   * The evidence runs of the requirement.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EvidenceRun runs = 5 [json_name = "runs"];</code>
+   */
+  public java.util.List<? extends io.github.joshsymonds.orrery.gen.orrery.v1.EvidenceRunOrBuilder> 
+      getRunsOrBuilderList() {
+    return runs_;
+  }
+  /**
+   * <pre>
+   * The evidence runs of the requirement.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EvidenceRun runs = 5 [json_name = "runs"];</code>
+   */
+  @java.lang.Override
+  public int getRunsCount() {
+    return runs_.size();
+  }
+  /**
+   * <pre>
+   * The evidence runs of the requirement.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EvidenceRun runs = 5 [json_name = "runs"];</code>
+   */
+  @java.lang.Override
+  public io.github.joshsymonds.orrery.gen.orrery.v1.EvidenceRun getRuns(int index) {
+    return runs_.get(index);
+  }
+  /**
+   * <pre>
+   * The evidence runs of the requirement.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EvidenceRun runs = 5 [json_name = "runs"];</code>
+   */
+  public io.github.joshsymonds.orrery.gen.orrery.v1.EvidenceRunOrBuilder getRunsOrBuilder(
+      int index) {
+    return runs_.get(index);
+  }
+  private void ensureRunsIsMutable() {
+    com.google.protobuf.Internal.ProtobufList<io.github.joshsymonds.orrery.gen.orrery.v1.EvidenceRun> tmp = runs_;
+    if (!tmp.isModifiable()) {
+      runs_ =
+          com.google.protobuf.GeneratedMessageLite.mutableCopy(tmp);
+     }
+  }
+
+  /**
+   * <pre>
+   * The evidence runs of the requirement.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EvidenceRun runs = 5 [json_name = "runs"];</code>
+   */
+  private void setRuns(
+      int index, io.github.joshsymonds.orrery.gen.orrery.v1.EvidenceRun value) {
+    java.util.Objects.requireNonNull(value);
+    ensureRunsIsMutable();
+    runs_.set(index, value);
+  }
+  /**
+   * <pre>
+   * The evidence runs of the requirement.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EvidenceRun runs = 5 [json_name = "runs"];</code>
+   */
+  private void addRuns(io.github.joshsymonds.orrery.gen.orrery.v1.EvidenceRun value) {
+    java.util.Objects.requireNonNull(value);
+    ensureRunsIsMutable();
+    runs_.add(value);
+  }
+  /**
+   * <pre>
+   * The evidence runs of the requirement.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EvidenceRun runs = 5 [json_name = "runs"];</code>
+   */
+  private void addRuns(
+      int index, io.github.joshsymonds.orrery.gen.orrery.v1.EvidenceRun value) {
+    java.util.Objects.requireNonNull(value);
+    ensureRunsIsMutable();
+    runs_.add(index, value);
+  }
+  /**
+   * <pre>
+   * The evidence runs of the requirement.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EvidenceRun runs = 5 [json_name = "runs"];</code>
+   */
+  private void addAllRuns(
+      java.lang.Iterable<? extends io.github.joshsymonds.orrery.gen.orrery.v1.EvidenceRun> values) {
+    ensureRunsIsMutable();
+    com.google.protobuf.AbstractMessageLite.addAll(
+        values, runs_);
+  }
+  /**
+   * <pre>
+   * The evidence runs of the requirement.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EvidenceRun runs = 5 [json_name = "runs"];</code>
+   */
+  private void clearRuns() {
+    runs_ = emptyProtobufList();
+  }
+  /**
+   * <pre>
+   * The evidence runs of the requirement.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EvidenceRun runs = 5 [json_name = "runs"];</code>
+   */
+  private void removeRuns(int index) {
+    ensureRunsIsMutable();
+    runs_.remove(index);
+  }
+
+  public static final int CONCLUSION_FIELD_NUMBER = 6;
+  private java.lang.String conclusion_;
+  /**
+   * <pre>
+   * The conclusion the requirement's evidence is judged against.
+   * </pre>
+   *
+   * <code>string conclusion = 6 [json_name = "conclusion"];</code>
+   * @return The conclusion.
+   */
+  @java.lang.Override
+  public java.lang.String getConclusion() {
+    return conclusion_;
+  }
+  /**
+   * <pre>
+   * The conclusion the requirement's evidence is judged against.
+   * </pre>
+   *
+   * <code>string conclusion = 6 [json_name = "conclusion"];</code>
+   * @return The bytes for conclusion.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getConclusionBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(conclusion_);
+  }
+  /**
+   * <pre>
+   * The conclusion the requirement's evidence is judged against.
+   * </pre>
+   *
+   * <code>string conclusion = 6 [json_name = "conclusion"];</code>
+   * @param value The conclusion to set.
+   */
+  private void setConclusion(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    conclusion_ = value;
+  }
+  /**
+   * <pre>
+   * The conclusion the requirement's evidence is judged against.
+   * </pre>
+   *
+   * <code>string conclusion = 6 [json_name = "conclusion"];</code>
+   */
+  private void clearConclusion() {
+
+    conclusion_ = getDefaultInstance().getConclusion();
+  }
+  /**
+   * <pre>
+   * The conclusion the requirement's evidence is judged against.
+   * </pre>
+   *
+   * <code>string conclusion = 6 [json_name = "conclusion"];</code>
+   * @param value The bytes for conclusion to set.
+   */
+  private void setConclusionBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    conclusion_ = value.toStringUtf8();
 
   }
 
@@ -669,6 +876,225 @@ public  final class EpicRequirement extends
       return this;
     }
 
+    /**
+     * <pre>
+     * The evidence runs of the requirement.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EvidenceRun runs = 5 [json_name = "runs"];</code>
+     */
+    @java.lang.Override
+    public java.util.List<io.github.joshsymonds.orrery.gen.orrery.v1.EvidenceRun> getRunsList() {
+      return java.util.Collections.unmodifiableList(
+          instance.getRunsList());
+    }
+    /**
+     * <pre>
+     * The evidence runs of the requirement.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EvidenceRun runs = 5 [json_name = "runs"];</code>
+     */
+    @java.lang.Override
+    public int getRunsCount() {
+      return instance.getRunsCount();
+    }/**
+     * <pre>
+     * The evidence runs of the requirement.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EvidenceRun runs = 5 [json_name = "runs"];</code>
+     */
+    @java.lang.Override
+    public io.github.joshsymonds.orrery.gen.orrery.v1.EvidenceRun getRuns(int index) {
+      return instance.getRuns(index);
+    }
+    /**
+     * <pre>
+     * The evidence runs of the requirement.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EvidenceRun runs = 5 [json_name = "runs"];</code>
+     */
+    public Builder setRuns(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.EvidenceRun value) {
+      copyOnWrite();
+      instance.setRuns(index, value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The evidence runs of the requirement.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EvidenceRun runs = 5 [json_name = "runs"];</code>
+     */
+    public Builder setRuns(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.EvidenceRun.Builder builderForValue) {
+      copyOnWrite();
+      instance.setRuns(index,
+          builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * The evidence runs of the requirement.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EvidenceRun runs = 5 [json_name = "runs"];</code>
+     */
+    public Builder addRuns(io.github.joshsymonds.orrery.gen.orrery.v1.EvidenceRun value) {
+      copyOnWrite();
+      instance.addRuns(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The evidence runs of the requirement.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EvidenceRun runs = 5 [json_name = "runs"];</code>
+     */
+    public Builder addRuns(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.EvidenceRun value) {
+      copyOnWrite();
+      instance.addRuns(index, value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The evidence runs of the requirement.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EvidenceRun runs = 5 [json_name = "runs"];</code>
+     */
+    public Builder addRuns(
+        io.github.joshsymonds.orrery.gen.orrery.v1.EvidenceRun.Builder builderForValue) {
+      copyOnWrite();
+      instance.addRuns(builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * The evidence runs of the requirement.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EvidenceRun runs = 5 [json_name = "runs"];</code>
+     */
+    public Builder addRuns(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.EvidenceRun.Builder builderForValue) {
+      copyOnWrite();
+      instance.addRuns(index,
+          builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * The evidence runs of the requirement.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EvidenceRun runs = 5 [json_name = "runs"];</code>
+     */
+    public Builder addAllRuns(
+        java.lang.Iterable<? extends io.github.joshsymonds.orrery.gen.orrery.v1.EvidenceRun> values) {
+      copyOnWrite();
+      instance.addAllRuns(values);
+      return this;
+    }
+    /**
+     * <pre>
+     * The evidence runs of the requirement.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EvidenceRun runs = 5 [json_name = "runs"];</code>
+     */
+    public Builder clearRuns() {
+      copyOnWrite();
+      instance.clearRuns();
+      return this;
+    }
+    /**
+     * <pre>
+     * The evidence runs of the requirement.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EvidenceRun runs = 5 [json_name = "runs"];</code>
+     */
+    public Builder removeRuns(int index) {
+      copyOnWrite();
+      instance.removeRuns(index);
+      return this;
+    }
+
+    /**
+     * <pre>
+     * The conclusion the requirement's evidence is judged against.
+     * </pre>
+     *
+     * <code>string conclusion = 6 [json_name = "conclusion"];</code>
+     * @return The conclusion.
+     */
+    @java.lang.Override
+    public java.lang.String getConclusion() {
+      return instance.getConclusion();
+    }
+    /**
+     * <pre>
+     * The conclusion the requirement's evidence is judged against.
+     * </pre>
+     *
+     * <code>string conclusion = 6 [json_name = "conclusion"];</code>
+     * @return The bytes for conclusion.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getConclusionBytes() {
+      return instance.getConclusionBytes();
+    }
+    /**
+     * <pre>
+     * The conclusion the requirement's evidence is judged against.
+     * </pre>
+     *
+     * <code>string conclusion = 6 [json_name = "conclusion"];</code>
+     * @param value The conclusion to set.
+     * @return This builder for chaining.
+     */
+    public Builder setConclusion(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setConclusion(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The conclusion the requirement's evidence is judged against.
+     * </pre>
+     *
+     * <code>string conclusion = 6 [json_name = "conclusion"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearConclusion() {
+      copyOnWrite();
+      instance.clearConclusion();
+      return this;
+    }
+    /**
+     * <pre>
+     * The conclusion the requirement's evidence is judged against.
+     * </pre>
+     *
+     * <code>string conclusion = 6 [json_name = "conclusion"];</code>
+     * @param value The bytes for conclusion to set.
+     * @return This builder for chaining.
+     */
+    public Builder setConclusionBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setConclusionBytes(value);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:orrery.v1.EpicRequirement)
   }
   @java.lang.Override
@@ -689,10 +1115,13 @@ public  final class EpicRequirement extends
             "text_",
             "evidence_",
             "kind_",
+            "runs_",
+            io.github.joshsymonds.orrery.gen.orrery.v1.EvidenceRun.class,
+            "conclusion_",
           };
           java.lang.String info =
-              "\u0000\u0004\u0000\u0000\u0001\u0004\u0004\u0000\u0000\u0000\u0001\u0208\u0002\u0208" +
-              "\u0003\u0208\u0004\u0208";
+              "\u0000\u0006\u0000\u0000\u0001\u0006\u0006\u0000\u0001\u0000\u0001\u0208\u0002\u0208" +
+              "\u0003\u0208\u0004\u0208\u0005\u001b\u0006\u0208";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

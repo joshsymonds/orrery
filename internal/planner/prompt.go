@@ -3,6 +3,7 @@ package planner
 
 import (
 	_ "embed"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -22,8 +23,9 @@ const (
 
 // Prompt renders the prompt of the planner turn turn of epic: the role text, then the contract, the decisions, the
 // new notes, the open questions, the tasks, the triggers and the last failure. epic is read after the turn is claimed,
-// so its Turns include turn, and triggers are the triggers turn claimed.
-func Prompt(epic store.EpicRow, turn int64, triggers []store.EpicTrigger) string {
+// so its Turns include turn, and triggers are the triggers turn claimed. It returns an error when a task's evidence
+// item cannot be encoded.
+func Prompt(epic store.EpicRow, turn int64, triggers []store.EpicTrigger) (string, error) {
 	var out strings.Builder
 	fmt.Fprintln(&out, strings.TrimRight(role, "\n"))
 	last, found := lastTurn(epic.Turns, turn)
@@ -31,10 +33,14 @@ func Prompt(epic store.EpicRow, turn int64, triggers []store.EpicTrigger) string
 	writeSection(&out, "Decisions", decisionLines(epic, turn))
 	writeSection(&out, "New notes", newNoteLines(epic.Decisions, last, found))
 	writeSection(&out, "Open questions", questionLines(epic.Questions))
-	writeSection(&out, "Tasks", taskLines(epic.Tasks))
+	tasks, err := taskLines(epic.Tasks)
+	if err != nil {
+		return "", fmt.Errorf("tasks section: %w", err)
+	}
+	writeSection(&out, "Tasks", tasks)
 	writeSection(&out, "Triggers", triggerLines(triggers))
 	writeSection(&out, "Last failure", failureLines(last, found))
-	return out.String()
+	return out.String(), nil
 }
 
 // writeSection writes a `## ` heading, then each of lines on its own line, or None. when there are none.
@@ -199,19 +205,25 @@ func questionLines(questions []store.EpicQuestion) []string {
 	return lines
 }
 
-// taskLines returns each task as `- Tseq [status] title`, then its deliverable, files, requirements and check.
-func taskLines(tasks []store.EpicTask) []string {
-	lines := make([]string, 0, 5*len(tasks))
+// taskLines returns each task as `- Tseq [status] title`, then its deliverable, files, requirements, gate, and its
+// evidence item as compact JSON.
+func taskLines(tasks []store.EpicTask) ([]string, error) {
+	lines := make([]string, 0, 6*len(tasks))
 	for _, task := range tasks {
+		evidence, err := json.Marshal(task.Evidence)
+		if err != nil {
+			return nil, fmt.Errorf("encode evidence of T%d: %w", task.Seq, err)
+		}
 		lines = append(lines,
 			fmt.Sprintf("- T%d [%s] %s", task.Seq, task.Status, task.Title),
 			"  deliverable: "+task.Deliverable,
 			"  files: "+strings.Join(task.Files, ", "),
 			"  requirements: "+strings.Join(task.Requirements, ", "),
-			"  check: "+task.Check,
+			"  gate: "+task.Gate,
+			"  evidence: "+string(evidence),
 		)
 	}
-	return lines
+	return lines, nil
 }
 
 // triggerLines returns each trigger as `- id: cause`.

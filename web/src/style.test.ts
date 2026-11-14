@@ -719,6 +719,84 @@ test("a requirement's id is bold in subtext1, its text takes the text colour and
   assert.match(declarationsFor(css, ".requirement .kind"), /(?<![-\w])color:\s*var\(--overlay0\);/);
 });
 
+test("a requirement's conclusion sits in the row's second and third columns, at 11.5px over 17px mono", () => {
+  const conclusion = declarationsFor(css, ".epic-view .requirement .conclusion");
+  assert.match(conclusion, /grid-column:\s*2 \/ -1;/);
+  assert.match(conclusion, /(?<![-\w])margin:\s*0;/);
+  assert.match(conclusion, /font:\s*11\.5px\/17px var\(--mono\);/);
+  assert.match(conclusion, /(?<![-\w])color:\s*var\(--subtext0\);/);
+  assert.match(conclusion, /overflow-wrap:\s*anywhere;/);
+});
+
+test("a requirement's runs span the whole row as a 4px grid", () => {
+  const runs = declarationsFor(css, ".epic-view .requirement .runs");
+  assert.match(runs, /grid-column:\s*1 \/ -1;/);
+  assert.match(runs, /display:\s*grid;/);
+  assert.match(runs, /(?<![-\w])gap:\s*4px;/);
+});
+
+test("a run is a 4px grid card on mantle, padded 6px 8px, with 8px corners at 11.5px over 17px mono", () => {
+  const run = declarationsFor(css, ".epic-view .run");
+  assert.match(run, /display:\s*grid;/);
+  assert.match(run, /(?<![-\w])gap:\s*4px;/);
+  assert.match(run, /padding:\s*6px 8px;/);
+  assert.match(run, /border-radius:\s*8px;/);
+  assert.match(run, /background:\s*var\(--mantle\);/);
+  assert.match(run, /font:\s*11\.5px\/17px var\(--mono\);/);
+});
+
+test("a run's head wraps in a flex row, its phase is bold in subtext1, and a passed result is green", () => {
+  const head = declarationsFor(css, ".epic-view .run .run-head");
+  assert.match(head, /display:\s*flex;/);
+  assert.match(head, /flex-wrap:\s*wrap;/);
+  assert.match(head, /gap:\s*0 9px;/);
+  assert.match(head, /(?<![-\w])color:\s*var\(--overlay1\);/);
+  const phase = declarationsFor(css, ".epic-view .run .phase");
+  assert.match(phase, /font-weight:\s*700;/);
+  assert.match(phase, /(?<![-\w])color:\s*var\(--subtext1\);/);
+  assert.match(declarationsFor(css, ".epic-view .run .pass.ok"), /(?<![-\w])color:\s*var\(--green\);/);
+});
+
+test("the log toggle is a bare button in overlay1 mono that starts its grid cell", () => {
+  const toggle = declarationsFor(css, ".epic-view .run .log-toggle");
+  assert.match(toggle, /justify-self:\s*start;/);
+  assert.match(toggle, /background:\s*none;/);
+  assert.match(toggle, /(?<![-\w])border:\s*0;/);
+  assert.match(toggle, /(?<![-\w])padding:\s*0;/);
+  assert.match(toggle, /cursor:\s*pointer;/);
+  assert.match(toggle, /font:\s*11px\/17px var\(--mono\);/);
+  assert.match(toggle, /(?<![-\w])color:\s*var\(--overlay1\);/);
+});
+
+test("the log is a crust block that scrolls and keeps its line breaks and long words", () => {
+  const log = declarationsFor(css, ".epic-view .run .log");
+  assert.match(log, /(?<![-\w])margin:\s*0;/);
+  assert.match(log, /background:\s*var\(--crust\);/);
+  assert.match(log, /max-height:\s*240px;/);
+  assert.match(log, /overflow:\s*auto;/);
+  assert.match(log, /white-space:\s*pre-wrap;/);
+  assert.match(log, /overflow-wrap:\s*anywhere;/);
+});
+
+test("the loading line is overlay0 and the unavailable line is red", () => {
+  assert.match(declarationsFor(css, ".epic-view .run .pending"), /(?<![-\w])color:\s*var\(--overlay0\);/);
+  assert.match(declarationsFor(css, ".epic-view .run .unavailable"), /(?<![-\w])color:\s*var\(--red\);/);
+});
+
+test("the artifacts are a 4px grid of wrapping rows, a path wraps, and a drawn image fits its column", () => {
+  const list = declarationsFor(css, ".epic-view .run .artifacts");
+  assert.match(list, /display:\s*grid;/);
+  assert.match(list, /(?<![-\w])gap:\s*4px;/);
+  const artifact = declarationsFor(css, ".epic-view .artifact");
+  assert.match(artifact, /display:\s*flex;/);
+  assert.match(artifact, /flex-wrap:\s*wrap;/);
+  assert.match(declarationsFor(css, ".epic-view .artifact .path"), /overflow-wrap:\s*anywhere;/);
+  const image = declarationsFor(css, ".epic-view .artifact-image");
+  assert.match(image, /display:\s*block;/);
+  assert.match(image, /max-width:\s*100%;/);
+  assert.match(image, /height:\s*auto;/);
+});
+
 test("the rules E1-D5 drops have no rules: the task's flex row, its mark and status, the outcome's paragraph, the old slug, the column's bare pips and the tone colours", () => {
   assert.doesNotMatch(css, /\.epic-view \.mark\b/);
   assert.doesNotMatch(css, /\.task \.status\b/);

@@ -114,8 +114,9 @@ func (r *stepRun) nudgeOwner(ctx context.Context, text string) error {
 
 // resumeLimited sends the owner's resume prompt to a limited run, which respawns its released process in its session. It
 // runs in the loop goroutine. A run that no limit holds refuses with ErrStepNotLimited. A Continue the step cap refuses
-// leaves the run limited, and any other failed Continue ends the step failed. A sent resume clears the limit, and stores
-// the loop state with the step's stored rate limit deleted.
+// leaves the run limited, and any other failed Continue ends the step failed. A sent resume clears the limit, restarts
+// an agent gate step's limit from now, so the wait for the reset never ends it overtime, and stores the loop state with the
+// step's stored rate limit deleted.
 func (r *stepRun) resumeLimited(ctx context.Context) error {
 	if !r.limited {
 		return ErrStepNotLimited
@@ -130,6 +131,9 @@ func (r *stepRun) resumeLimited(ctx context.Context) error {
 	}
 	r.limited = false
 	r.limitKind, r.limitResets = "", time.Time{}
+	if r.agentGate != nil {
+		r.gateFrom = r.now()
+	}
 	// The limit's stored rate limit is cleared with the loop state, before the resumed turn's end is handled, so that
 	// turn end does not read the old limit as its own.
 	if err := r.writer.Commit(ctx, r.id, store.EngineRateLimitCleared{ID: r.id}, r.loopState()); err != nil {

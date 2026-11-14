@@ -67,6 +67,8 @@ fun EpicScreen(
 ) {
     var load by remember { mutableStateOf<EpicLoad>(EpicLoad.Loading) }
     var generation by remember { mutableIntStateOf(0) }
+    // Kept per client, so a recomposition does not start the evidence loads again.
+    val loadArtifact: ArtifactLoader = remember(client) { { run: String, name: String -> client.artifact(run, name) } }
 
     LaunchedEffect(client, epicId, generation) {
         load = EpicLoad.Loading
@@ -93,7 +95,7 @@ fun EpicScreen(
                 }
             }
             EpicLoad.NotFound -> Text("epic not found", modifier = Modifier.padding(16.dp))
-            is EpicLoad.Loaded -> EpicBody(detail = current.detail, onOpenStep = onOpenStep)
+            is EpicLoad.Loaded -> EpicBody(detail = current.detail, onOpenStep = onOpenStep, loadArtifact = loadArtifact)
         }
     }
 }
@@ -109,7 +111,7 @@ private val LIST_MIN_HEIGHT = 240.dp
 // The chart stays outside the list, so it stays on screen while the list scrolls: above the list in portrait, beside it
 // in landscape.
 @Composable
-private fun EpicBody(detail: EpicDetail, onOpenStep: (StepRow) -> Unit) {
+private fun EpicBody(detail: EpicDetail, onOpenStep: (StepRow) -> Unit, loadArtifact: ArtifactLoader) {
     var selectedRow by remember { mutableStateOf<Int?>(null) }
     var selectedSlice by remember { mutableStateOf<Int?>(null) }
     // Tapping a row with a slice marks it and selects its slice; tapping the marked row again clears both; a row with no
@@ -142,7 +144,14 @@ private fun EpicBody(detail: EpicDetail, onOpenStep: (StepRow) -> Unit) {
                     onSelect = onSelectSlice,
                     modifier = Modifier.weight(1f).fillMaxHeight(),
                 )
-                EpicList(detail, onOpenStep, selectedRow, onTapTask, modifier = Modifier.weight(1f).fillMaxHeight())
+                EpicList(
+                    detail,
+                    onOpenStep,
+                    selectedRow,
+                    onTapTask,
+                    loadArtifact,
+                    modifier = Modifier.weight(1f).fillMaxHeight(),
+                )
             }
         } else {
             val side = minOf(
@@ -158,7 +167,14 @@ private fun EpicBody(detail: EpicDetail, onOpenStep: (StepRow) -> Unit) {
                     onSelect = onSelectSlice,
                     modifier = Modifier.size(side, side + CHART_KEYS_HEIGHT),
                 )
-                EpicList(detail, onOpenStep, selectedRow, onTapTask, modifier = Modifier.fillMaxWidth().weight(1f))
+                EpicList(
+                    detail,
+                    onOpenStep,
+                    selectedRow,
+                    onTapTask,
+                    loadArtifact,
+                    modifier = Modifier.fillMaxWidth().weight(1f),
+                )
             }
         }
     }
@@ -174,6 +190,7 @@ private fun EpicList(
     onOpenStep: (StepRow) -> Unit,
     selectedRow: Int?,
     onTapTask: (Int) -> Unit,
+    loadArtifact: ArtifactLoader,
     modifier: Modifier,
 ) {
     val running = detail.steps.filter { it.end.isEmpty() }
@@ -202,7 +219,7 @@ private fun EpicList(
         if (detail.requirements.isNotEmpty()) {
             item("requirements-heading") { SectionHeading("Requirements") }
             itemsIndexed(detail.requirements, key = { index, _ -> "requirement:$index" }) { index, requirement ->
-                RequirementRow(index, requirement)
+                RequirementRow(index, requirement, loadArtifact)
             }
         }
         item("tasks-heading") { SectionHeading("Tasks") }
@@ -257,17 +274,22 @@ private fun TaskRow(index: Int, task: EpicTaskRow, selected: Boolean, onTap: () 
 }
 
 @Composable
-private fun RequirementRow(index: Int, requirement: EpicRequirementRow) {
-    Row(
+private fun RequirementRow(index: Int, requirement: EpicRequirementRow, loadArtifact: ArtifactLoader) {
+    Column(
         modifier = Modifier
             .fillMaxWidth()
             .testTag("requirement-row:$index")
             .padding(horizontal = 16.dp, vertical = 6.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Text(requirement.id, style = MaterialTheme.typography.bodyMedium)
-        Text(requirement.text, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
-        Text(requirement.kind, style = MaterialTheme.typography.labelMedium)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(requirement.id, style = MaterialTheme.typography.bodyMedium)
+            Text(requirement.text, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+            Text(requirement.kind, style = MaterialTheme.typography.labelMedium)
+        }
+        if (requirement.conclusion.isNotEmpty()) {
+            Text(requirement.conclusion, style = MaterialTheme.typography.bodySmall)
+        }
+        EvidenceRuns(requirement = index, runs = requirement.runs, loadArtifact = loadArtifact)
     }
 }
 

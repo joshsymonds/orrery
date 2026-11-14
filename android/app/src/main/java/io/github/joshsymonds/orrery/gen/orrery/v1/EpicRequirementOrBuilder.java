@@ -89,4 +89,50 @@ public interface EpicRequirementOrBuilder extends
    */
   com.google.protobuf.ByteString
       getKindBytes();
+
+  /**
+   * <pre>
+   * The evidence runs of the requirement.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EvidenceRun runs = 5 [json_name = "runs"];</code>
+   */
+  java.util.List<io.github.joshsymonds.orrery.gen.orrery.v1.EvidenceRun> 
+      getRunsList();
+  /**
+   * <pre>
+   * The evidence runs of the requirement.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EvidenceRun runs = 5 [json_name = "runs"];</code>
+   */
+  io.github.joshsymonds.orrery.gen.orrery.v1.EvidenceRun getRuns(int index);
+  /**
+   * <pre>
+   * The evidence runs of the requirement.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EvidenceRun runs = 5 [json_name = "runs"];</code>
+   */
+  int getRunsCount();
+
+  /**
+   * <pre>
+   * The conclusion the requirement's evidence is judged against.
+   * </pre>
+   *
+   * <code>string conclusion = 6 [json_name = "conclusion"];</code>
+   * @return The conclusion.
+   */
+  java.lang.String getConclusion();
+  /**
+   * <pre>
+   * The conclusion the requirement's evidence is judged against.
+   * </pre>
+   *
+   * <code>string conclusion = 6 [json_name = "conclusion"];</code>
+   * @return The bytes for conclusion.
+   */
+  com.google.protobuf.ByteString
+      getConclusionBytes();
 }

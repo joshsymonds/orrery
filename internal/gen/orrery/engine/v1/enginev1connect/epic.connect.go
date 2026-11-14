@@ -23,6 +23,8 @@ const _ = connect.IsAtLeastVersion1_13_0
 const (
 	// EpicsName is the fully-qualified name of the Epics service.
 	EpicsName = "orrery.engine.v1.Epics"
+	// EvidenceName is the fully-qualified name of the Evidence service.
+	EvidenceName = "orrery.engine.v1.Evidence"
 )
 
 // These constants are the fully-qualified names of the RPCs defined in this package. They're
@@ -49,6 +51,13 @@ const (
 	EpicsStopEpicProcedure = "/orrery.engine.v1.Epics/StopEpic"
 	// EpicsRetryEpicProcedure is the fully-qualified name of the Epics's RetryEpic RPC.
 	EpicsRetryEpicProcedure = "/orrery.engine.v1.Epics/RetryEpic"
+	// EvidenceRunEvidenceProcedure is the fully-qualified name of the Evidence's RunEvidence RPC.
+	EvidenceRunEvidenceProcedure = "/orrery.engine.v1.Evidence/RunEvidence"
+	// EvidenceListEvidenceProcedure is the fully-qualified name of the Evidence's ListEvidence RPC.
+	EvidenceListEvidenceProcedure = "/orrery.engine.v1.Evidence/ListEvidence"
+	// EvidenceGetEvidenceArtifactProcedure is the fully-qualified name of the Evidence's
+	// GetEvidenceArtifact RPC.
+	EvidenceGetEvidenceArtifactProcedure = "/orrery.engine.v1.Evidence/GetEvidenceArtifact"
 )
 
 // EpicsClient is a client for the orrery.engine.v1.Epics service.
@@ -317,4 +326,132 @@ func (UnimplementedEpicsHandler) StopEpic(context.Context, *connect.Request[v1.S
 
 func (UnimplementedEpicsHandler) RetryEpic(context.Context, *connect.Request[v1.RetryEpicRequest]) (*connect.Response[v1.RetryEpicResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.engine.v1.Epics.RetryEpic is not implemented"))
+}
+
+// EvidenceClient is a client for the orrery.engine.v1.Evidence service.
+type EvidenceClient interface {
+	// RunEvidence runs an item's evidence at a revision for one phase and returns the run.
+	RunEvidence(context.Context, *connect.Request[v1.RunEvidenceRequest]) (*connect.Response[v1.RunEvidenceResponse], error)
+	// ListEvidence returns the evidence runs an epic holds.
+	ListEvidence(context.Context, *connect.Request[v1.ListEvidenceRequest]) (*connect.Response[v1.ListEvidenceResponse], error)
+	// GetEvidenceArtifact returns one artifact of a run, or the run's log when the name is empty.
+	GetEvidenceArtifact(context.Context, *connect.Request[v1.GetEvidenceArtifactRequest]) (*connect.Response[v1.GetEvidenceArtifactResponse], error)
+}
+
+// NewEvidenceClient constructs a client for the orrery.engine.v1.Evidence service. By default, it
+// uses the Connect protocol with the binary Protobuf Codec, asks for gzipped responses, and sends
+// uncompressed requests. To use the gRPC or gRPC-Web protocols, supply the connect.WithGRPC() or
+// connect.WithGRPCWeb() options.
+//
+// The URL supplied here should be the base URL for the Connect or gRPC server (for example,
+// http://api.acme.com or https://acme.com/grpc).
+func NewEvidenceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) EvidenceClient {
+	baseURL = strings.TrimRight(baseURL, "/")
+	evidenceMethods := v1.File_orrery_engine_v1_epic_proto.Services().ByName("Evidence").Methods()
+	return &evidenceClient{
+		runEvidence: connect.NewClient[v1.RunEvidenceRequest, v1.RunEvidenceResponse](
+			httpClient,
+			baseURL+EvidenceRunEvidenceProcedure,
+			connect.WithSchema(evidenceMethods.ByName("RunEvidence")),
+			connect.WithClientOptions(opts...),
+		),
+		listEvidence: connect.NewClient[v1.ListEvidenceRequest, v1.ListEvidenceResponse](
+			httpClient,
+			baseURL+EvidenceListEvidenceProcedure,
+			connect.WithSchema(evidenceMethods.ByName("ListEvidence")),
+			connect.WithClientOptions(opts...),
+		),
+		getEvidenceArtifact: connect.NewClient[v1.GetEvidenceArtifactRequest, v1.GetEvidenceArtifactResponse](
+			httpClient,
+			baseURL+EvidenceGetEvidenceArtifactProcedure,
+			connect.WithSchema(evidenceMethods.ByName("GetEvidenceArtifact")),
+			connect.WithClientOptions(opts...),
+		),
+	}
+}
+
+// evidenceClient implements EvidenceClient.
+type evidenceClient struct {
+	runEvidence         *connect.Client[v1.RunEvidenceRequest, v1.RunEvidenceResponse]
+	listEvidence        *connect.Client[v1.ListEvidenceRequest, v1.ListEvidenceResponse]
+	getEvidenceArtifact *connect.Client[v1.GetEvidenceArtifactRequest, v1.GetEvidenceArtifactResponse]
+}
+
+// RunEvidence calls orrery.engine.v1.Evidence.RunEvidence.
+func (c *evidenceClient) RunEvidence(ctx context.Context, req *connect.Request[v1.RunEvidenceRequest]) (*connect.Response[v1.RunEvidenceResponse], error) {
+	return c.runEvidence.CallUnary(ctx, req)
+}
+
+// ListEvidence calls orrery.engine.v1.Evidence.ListEvidence.
+func (c *evidenceClient) ListEvidence(ctx context.Context, req *connect.Request[v1.ListEvidenceRequest]) (*connect.Response[v1.ListEvidenceResponse], error) {
+	return c.listEvidence.CallUnary(ctx, req)
+}
+
+// GetEvidenceArtifact calls orrery.engine.v1.Evidence.GetEvidenceArtifact.
+func (c *evidenceClient) GetEvidenceArtifact(ctx context.Context, req *connect.Request[v1.GetEvidenceArtifactRequest]) (*connect.Response[v1.GetEvidenceArtifactResponse], error) {
+	return c.getEvidenceArtifact.CallUnary(ctx, req)
+}
+
+// EvidenceHandler is an implementation of the orrery.engine.v1.Evidence service.
+type EvidenceHandler interface {
+	// RunEvidence runs an item's evidence at a revision for one phase and returns the run.
+	RunEvidence(context.Context, *connect.Request[v1.RunEvidenceRequest]) (*connect.Response[v1.RunEvidenceResponse], error)
+	// ListEvidence returns the evidence runs an epic holds.
+	ListEvidence(context.Context, *connect.Request[v1.ListEvidenceRequest]) (*connect.Response[v1.ListEvidenceResponse], error)
+	// GetEvidenceArtifact returns one artifact of a run, or the run's log when the name is empty.
+	GetEvidenceArtifact(context.Context, *connect.Request[v1.GetEvidenceArtifactRequest]) (*connect.Response[v1.GetEvidenceArtifactResponse], error)
+}
+
+// NewEvidenceHandler builds an HTTP handler from the service implementation. It returns the path on
+// which to mount the handler and the handler itself.
+//
+// By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
+// and JSON codecs. They also support gzip compression.
+func NewEvidenceHandler(svc EvidenceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
+	evidenceMethods := v1.File_orrery_engine_v1_epic_proto.Services().ByName("Evidence").Methods()
+	evidenceRunEvidenceHandler := connect.NewUnaryHandler(
+		EvidenceRunEvidenceProcedure,
+		svc.RunEvidence,
+		connect.WithSchema(evidenceMethods.ByName("RunEvidence")),
+		connect.WithHandlerOptions(opts...),
+	)
+	evidenceListEvidenceHandler := connect.NewUnaryHandler(
+		EvidenceListEvidenceProcedure,
+		svc.ListEvidence,
+		connect.WithSchema(evidenceMethods.ByName("ListEvidence")),
+		connect.WithHandlerOptions(opts...),
+	)
+	evidenceGetEvidenceArtifactHandler := connect.NewUnaryHandler(
+		EvidenceGetEvidenceArtifactProcedure,
+		svc.GetEvidenceArtifact,
+		connect.WithSchema(evidenceMethods.ByName("GetEvidenceArtifact")),
+		connect.WithHandlerOptions(opts...),
+	)
+	return "/orrery.engine.v1.Evidence/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case EvidenceRunEvidenceProcedure:
+			evidenceRunEvidenceHandler.ServeHTTP(w, r)
+		case EvidenceListEvidenceProcedure:
+			evidenceListEvidenceHandler.ServeHTTP(w, r)
+		case EvidenceGetEvidenceArtifactProcedure:
+			evidenceGetEvidenceArtifactHandler.ServeHTTP(w, r)
+		default:
+			http.NotFound(w, r)
+		}
+	})
+}
+
+// UnimplementedEvidenceHandler returns CodeUnimplemented from all methods.
+type UnimplementedEvidenceHandler struct{}
+
+func (UnimplementedEvidenceHandler) RunEvidence(context.Context, *connect.Request[v1.RunEvidenceRequest]) (*connect.Response[v1.RunEvidenceResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.engine.v1.Evidence.RunEvidence is not implemented"))
+}
+
+func (UnimplementedEvidenceHandler) ListEvidence(context.Context, *connect.Request[v1.ListEvidenceRequest]) (*connect.Response[v1.ListEvidenceResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.engine.v1.Evidence.ListEvidence is not implemented"))
+}
+
+func (UnimplementedEvidenceHandler) GetEvidenceArtifact(context.Context, *connect.Request[v1.GetEvidenceArtifactRequest]) (*connect.Response[v1.GetEvidenceArtifactResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.engine.v1.Evidence.GetEvidenceArtifact is not implemented"))
 }

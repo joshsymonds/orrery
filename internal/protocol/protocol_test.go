@@ -53,6 +53,7 @@ func TestFrozenNames(t *testing.T) {
 		{"OptionClaudeSession", protocol.OptionClaudeSession, "@orrery_claude_session"},
 		{"OptionTranscript", protocol.OptionTranscript, "@orrery_transcript"},
 		{"OptionTool", protocol.OptionTool, "@orrery_tool"},
+		{"SessionsAsk", protocol.SessionsAsk, "sessions"},
 		{"ShellSessionPrefix", protocol.ShellSessionPrefix, "_orrery-shell-"},
 		{"EnvSocket", protocol.EnvSocket, "ORRERY_SOCKET"},
 		{"EnvSummarizer", protocol.EnvSummarizer, "ORRERY_SUMMARIZER"},
@@ -312,6 +313,12 @@ func TestReadFrameRejects(t *testing.T) {
 		"input with read":  `{"tmuxPane":"%1","read":1700000000,"input":1700000000}`,
 		"input zero":       `{"tmuxPane":"%1","input":0}`,
 		"input negative":   `{"tmuxPane":"%1","input":-1}`,
+		"unknown ask":      `{"tmuxPane":"%1","ask":"history"}`,
+		"ask wrong case":   `{"ask":"Sessions"}`,
+		"ask with hook":    `{"hook":{},"tmuxPane":"%1","ask":"sessions"}`,
+		"ask with seen":    `{"tmuxPane":"%1","seen":1700000000,"ask":"sessions"}`,
+		"ask with read":    `{"tmuxPane":"%1","read":1700000000,"ask":"sessions"}`,
+		"ask with input":   `{"tmuxPane":"%1","input":1700000000,"ask":"sessions"}`,
 	}
 	for name, input := range cases {
 		if _, err := protocol.ReadFrame(strings.NewReader(input)); err == nil {
@@ -372,6 +379,109 @@ func TestReadFrameAcceptsObjectHook(t *testing.T) {
 	}
 	if got.TmuxPane != "%2" || got.Tmux != "t" || got.Cwd != "/c" || got.AnthropicBaseURL != "u" {
 		t.Errorf("fields = %+v", got)
+	}
+}
+
+func TestSessionsQuestionJSONKey(t *testing.T) {
+	t.Parallel()
+	data, err := json.Marshal(protocol.HookFrame{Ask: protocol.SessionsAsk})
+	if err != nil {
+		t.Fatalf("marshal HookFrame: %v", err)
+	}
+	want := []string{"anthropicBaseUrl", "ask", "cwd", "tmux", "tmuxPane"}
+	if got := sortedKeys(t, data); !slices.Equal(got, want) {
+		t.Errorf("HookFrame keys = %v, want %v", got, want)
+	}
+}
+
+func TestSessionsQuestionRoundTrip(t *testing.T) {
+	t.Parallel()
+	var buf bytes.Buffer
+	if err := protocol.WriteFrame(&buf, protocol.HookFrame{Ask: protocol.SessionsAsk}); err != nil {
+		t.Fatalf("WriteFrame: %v", err)
+	}
+	got, err := protocol.ReadFrame(&buf)
+	if err != nil {
+		t.Fatalf("ReadFrame: %v", err)
+	}
+	if got.Ask != protocol.SessionsAsk || got.Hook != nil || got.Seen != 0 || got.Read != 0 || got.Input != 0 {
+		t.Errorf("round trip = %+v, want only Ask %q", got, protocol.SessionsAsk)
+	}
+}
+
+func TestReadFrameAcceptsSessionsQuestion(t *testing.T) {
+	t.Parallel()
+	got, err := protocol.ReadFrame(strings.NewReader(`{"ask":"sessions"}`))
+	if err != nil {
+		t.Fatalf("ReadFrame: %v", err)
+	}
+	if got.Ask != protocol.SessionsAsk {
+		t.Errorf("Ask = %q, want %q", got.Ask, protocol.SessionsAsk)
+	}
+	if got.Hook != nil || got.Seen != 0 || got.Read != 0 || got.Input != 0 {
+		t.Errorf("Hook = %s, Seen = %d, Read = %d, Input = %d, want none", got.Hook, got.Seen, got.Read, got.Input)
+	}
+}
+
+func TestWriteSessionsAnswerWireFormat(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		on   bool
+		want string
+	}{
+		{true, `{"sessions":true}` + "\n"},
+		{false, `{"sessions":false}` + "\n"},
+	}
+	for _, tc := range cases {
+		var buf bytes.Buffer
+		if err := protocol.WriteSessionsAnswer(&buf, tc.on); err != nil {
+			t.Fatalf("WriteSessionsAnswer(%t): %v", tc.on, err)
+		}
+		if buf.String() != tc.want {
+			t.Errorf("WriteSessionsAnswer(%t) wrote %q, want %q", tc.on, buf.String(), tc.want)
+		}
+	}
+}
+
+func TestWriteSessionsAnswerReportsWriterError(t *testing.T) {
+	t.Parallel()
+	if err := protocol.WriteSessionsAnswer(failingWriter{}, true); err == nil {
+		t.Error("WriteSessionsAnswer returned no error for a failing writer")
+	}
+}
+
+func TestSessionsAnswerRoundTrip(t *testing.T) {
+	t.Parallel()
+	for _, on := range []bool{true, false} {
+		var buf bytes.Buffer
+		if err := protocol.WriteSessionsAnswer(&buf, on); err != nil {
+			t.Fatalf("WriteSessionsAnswer(%t): %v", on, err)
+		}
+		got, err := protocol.ReadSessionsAnswer(&buf)
+		if err != nil {
+			t.Fatalf("ReadSessionsAnswer(%t): %v", on, err)
+		}
+		if got != on {
+			t.Errorf("ReadSessionsAnswer = %t, want %t", got, on)
+		}
+	}
+}
+
+func TestReadSessionsAnswerRejects(t *testing.T) {
+	t.Parallel()
+	cases := map[string]string{
+		"empty input":     ``,
+		"malformed json":  `{"sessions":`,
+		"empty object":    `{}`,
+		"null sessions":   `{"sessions":null}`,
+		"number sessions": `{"sessions":1}`,
+		"string sessions": `{"sessions":"true"}`,
+		"non-object root": `true`,
+	}
+	for name, input := range cases {
+		if _, err := protocol.ReadSessionsAnswer(strings.NewReader(input)); err == nil {
+			t.Errorf("%s: ReadSessionsAnswer(%q) returned no error", name, input)
+		}
 	}
 }
 

@@ -47,6 +47,7 @@ type Epic struct {
 	Paused      int64
 	Parked      string
 	Retried     int64
+	Base        string
 }
 
 type EpicAddition struct {
@@ -90,6 +91,25 @@ type EpicFailure struct {
 	Response string
 }
 
+type EpicGate struct {
+	Epic         string
+	Position     int64
+	Name         string
+	Argv         string
+	LimitSeconds int64
+	Needs        string
+	Agent        string
+	Must         string
+	MustNot      string
+}
+
+type EpicGateList struct {
+	Epic     string
+	List     string
+	Position int64
+	Gate     string
+}
+
 type EpicPremise struct {
 	Epic     string
 	Position int64
@@ -121,6 +141,7 @@ type EpicRequirement struct {
 	Text     string
 	Evidence string
 	Kind     string
+	Item     string
 }
 
 type EpicTask struct {
@@ -129,8 +150,9 @@ type EpicTask struct {
 	Turn        int64
 	Title       string
 	Deliverable string
-	TaskCheck   string
 	Status      string
+	Gate        string
+	Evidence    string
 }
 
 type EpicTaskFile struct {
@@ -186,6 +208,41 @@ type Event struct {
 	At        int64
 	Payload   string
 	WriteID   string
+}
+
+type EvidenceArtifact struct {
+	Run      string
+	Position int64
+	Path     string
+	State    string
+	Hash     string
+	Blob     string
+	Size     int64
+}
+
+type EvidenceRun struct {
+	ID          string
+	Epic        string
+	Item        string
+	Revision    string
+	Phase       string
+	Source      string
+	State       string
+	Spec        string
+	GrantID     string
+	Holder      string
+	Exit        int64
+	TimedOut    int64
+	NotCaptured string
+	LogHash     string
+	LogBytes    int64
+	JudgeStep   string
+	Judges      int64
+	Verdict     string
+	JudgeReason string
+	Passed      int64
+	Created     int64
+	Ended       int64
 }
 
 type Grant struct {
@@ -314,4 +371,5 @@ type Step struct {
 	LoopLimited     bool
 	LoopLimitKind   string
 	LoopLimitResets int64
+	LoopGateFrom    int64
 }

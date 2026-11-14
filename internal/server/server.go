@@ -128,6 +128,20 @@ type EpicStoreClient interface {
 	) (*connect.Response[enginev1.GetEpicResponse], error)
 }
 
+// EvidenceClient is the part of orreryd's Evidence service serve uses: ListEvidence, which Epics.Get merges into each
+// Requirement, and GetEvidenceArtifact, which Evidence.Artifact answers from. It has no RunEvidence, so serve cannot
+// start a run.
+type EvidenceClient interface {
+	ListEvidence(
+		context.Context,
+		*connect.Request[enginev1.ListEvidenceRequest],
+	) (*connect.Response[enginev1.ListEvidenceResponse], error)
+	GetEvidenceArtifact(
+		context.Context,
+		*connect.Request[enginev1.GetEvidenceArtifactRequest],
+	) (*connect.Response[enginev1.GetEvidenceArtifactResponse], error)
+}
+
 // ReadReporter receives the pane ID and the unix seconds of each read of a pane the phone makes through
 // Panes.Conversation or Panes.Screen.
 type ReadReporter func(pane string, at int64)
@@ -175,6 +189,9 @@ type Config struct {
 	Records string
 	// EpicStore is orreryd's Epics client, which List and Get merge with the records, or nil for no orreryd epics.
 	EpicStore EpicStoreClient
+	// Evidence is orreryd's Evidence client, which Epics.Get reads each Requirement's runs from and Evidence.Artifact
+	// reads artifacts from, or nil for no runs and no artifacts.
+	Evidence EvidenceClient
 	// Home is the home directory a Control start must name a directory under, after symlinks resolve. An empty,
 	// relative or root Home, or one that does not exist, refuses every start.
 	Home string
@@ -240,10 +257,7 @@ func New(cfg Config) (http.Handler, error) {
 	mux.Handle(eventsPath, events)
 	controlPath, control := newControlHandler(cfg.Engine, cfg.ControlTimeout, cfg.Home, cfg.Steps)
 	mux.Handle(controlPath, control)
-	epicsPath, epicsService := newEpicsHandler(
-		cfg.Records, cfg.Steps, cfg.EpicStore, cfg.ControlTimeout, now, rpcretry.SystemClock{},
-	)
-	mux.Handle(epicsPath, epicsService)
+	epicsPath, evidencePath := registerEpicServices(mux, cfg, now)
 	stepsPath, stepsService := newStepsHandler(cfg.Steps, cfg.ControlTimeout, rpcretry.SystemClock{})
 	mux.Handle(stepsPath, stepsService)
 	poolsPath, pools := newPoolsHandler(cfg.Pools, cfg.ControlTimeout)
@@ -264,8 +278,8 @@ func New(cfg Config) (http.Handler, error) {
 		mux.Handle("/", newPageHandler(cfg.Web))
 	}
 	connectPaths := []string{
-		sessionsPath, eventsPath, controlPath, epicsPath, stepsPath, poolsPath, panesPath, hostPath, pushPath,
-		pickerPath, presencePath,
+		sessionsPath, eventsPath, controlPath, epicsPath, evidencePath, stepsPath, poolsPath, panesPath, hostPath,
+		pushPath, pickerPath, presencePath,
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if _, ok := allowed[r.Header.Get(HeaderLogin)]; !ok {
@@ -278,6 +292,18 @@ func New(cfg Config) (http.Handler, error) {
 		}
 		mux.ServeHTTP(w, r)
 	}), nil
+}
+
+// registerEpicServices mounts the Epics service and the Evidence service on mux, both over the records, steps, epic
+// store and evidence client of cfg, and returns their paths. The Epics service dates its records from now.
+func registerEpicServices(mux *http.ServeMux, cfg Config, now func() time.Time) (string, string) {
+	epicsPath, epicsService := newEpicsHandler(
+		cfg.Records, cfg.Steps, cfg.EpicStore, cfg.Evidence, cfg.ControlTimeout, now, rpcretry.SystemClock{},
+	)
+	mux.Handle(epicsPath, epicsService)
+	evidencePath, evidenceService := newEvidenceHandler(cfg.Evidence, cfg.ControlTimeout)
+	mux.Handle(evidencePath, evidenceService)
+	return epicsPath, evidencePath
 }
 
 // newPageHandler returns the handler that answers GET and HEAD of a file of web, with "/" answering index.html.

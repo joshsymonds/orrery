@@ -25,7 +25,7 @@ func TestPromptTiesAnswerToItsQuestionAndListsOnlyNotesAsNewNotes(t *testing.T) 
 		},
 		Questions: []store.EpicQuestion{{Seq: 1, Turn: 1, Text: "which store?", State: "answered"}},
 	}
-	prompt := Prompt(epic, 2, nil)
+	prompt := promptOf(t, epic, 2, nil)
 	inOrder(t, prompt,
 		"## Decisions",
 		"- D1: seed one",

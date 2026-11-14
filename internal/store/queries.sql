@@ -207,7 +207,7 @@ WHERE id = ?;
 -- name: UpdateStepLoop :exec
 UPDATE steps
 SET loop_round = ?, loop_continues = ?, loop_nudge = ?, loop_owner_nudge = ?, loop_nudged = ?, loop_held = ?,
-    loop_judge_sent = ?, loop_limited = ?, loop_limit_kind = ?, loop_limit_resets = ?
+    loop_judge_sent = ?, loop_limited = ?, loop_limit_kind = ?, loop_limit_resets = ?, loop_gate_from = ?
 WHERE id = ?;
 
 -- name: UpdateStepGate :exec
@@ -315,8 +315,8 @@ DELETE FROM pushed_limit_notices WHERE limit_key = ?;
 SELECT * FROM pushed_limit_notices ORDER BY limit_key;
 
 -- name: InsertEpic :exec
-INSERT INTO epics (id, repository, title, approved, intent, care, approach, release_then, checks, phase, created, changed)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+INSERT INTO epics (id, repository, base, title, approved, intent, care, approach, release_then, checks, phase, created, changed)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 -- name: CountEpic :one
 SELECT COUNT(*) FROM epics WHERE id = ?;
@@ -343,7 +343,7 @@ INSERT INTO epic_additions (epic, position, location, what, why, cost) VALUES (?
 SELECT * FROM epic_additions WHERE epic = ? ORDER BY position;
 
 -- name: InsertEpicRequirement :exec
-INSERT INTO epic_requirements (epic, position, id, text, evidence, kind) VALUES (?, ?, ?, ?, ?, ?);
+INSERT INTO epic_requirements (epic, position, id, text, evidence, kind, item) VALUES (?, ?, ?, ?, ?, ?, ?);
 
 -- name: ListEpicRequirements :many
 SELECT * FROM epic_requirements WHERE epic = ? ORDER BY position;
@@ -371,6 +371,22 @@ INSERT INTO epic_release_steps (epic, position, step, target, undo) VALUES (?, ?
 
 -- name: ListEpicReleaseSteps :many
 SELECT * FROM epic_release_steps WHERE epic = ? ORDER BY position;
+
+-- name: InsertEpicGate :exec
+INSERT INTO epic_gates (epic, position, name, argv, limit_seconds, needs, agent, must, must_not)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+-- name: ListEpicGates :many
+SELECT * FROM epic_gates WHERE epic = ? ORDER BY position;
+
+-- name: InsertEpicGateList :exec
+INSERT INTO epic_gate_lists (epic, list, position, gate) VALUES (?, ?, ?, ?);
+
+-- name: ListEpicDoneGates :many
+SELECT * FROM epic_gate_lists WHERE epic = ? AND list = 'done' ORDER BY position;
+
+-- name: ListEpicReviewGates :many
+SELECT * FROM epic_gate_lists WHERE epic = ? AND list = 'review' ORDER BY position;
 
 -- name: InsertEpicTrigger :exec
 INSERT INTO epic_triggers (epic, id, cause, state, turn, created) VALUES (?, ?, ?, ?, ?, ?);
@@ -429,7 +445,7 @@ INSERT INTO epic_turn_decisions (epic, turn, position, text) VALUES (?, ?, ?, ?)
 SELECT CAST(COALESCE(MAX(seq), 0) AS INTEGER) FROM epic_tasks WHERE epic = ?;
 
 -- name: InsertEpicTask :exec
-INSERT INTO epic_tasks (epic, seq, turn, title, deliverable, task_check, status) VALUES (?, ?, ?, ?, ?, ?, 'open');
+INSERT INTO epic_tasks (epic, seq, turn, title, deliverable, gate, evidence, status) VALUES (?, ?, ?, ?, ?, ?, ?, 'open');
 
 -- name: InsertEpicTaskFile :exec
 INSERT INTO epic_task_files (epic, task, position, path) VALUES (?, ?, ?, ?);
@@ -543,3 +559,38 @@ WHERE engine_rate_limits.session_id = sqlc.arg(id) AND engine_rate_limits.status
       ORDER BY prompts.seq DESC
       LIMIT 1
   ), 0);
+
+-- name: InsertEvidenceRun :exec
+INSERT INTO evidence_runs (id, epic, item, revision, phase, source, state, spec, created)
+VALUES (?, ?, ?, ?, ?, ?, 'capturing', ?, ?);
+
+-- name: GetEvidenceRunState :one
+SELECT state FROM evidence_runs WHERE id = ?;
+
+-- name: SetEvidenceRunGrant :exec
+UPDATE evidence_runs SET grant_id = ?, holder = ? WHERE id = ?;
+
+-- name: RecordEvidenceRunCapture :exec
+UPDATE evidence_runs SET exit = ?, timed_out = ?, not_captured = ?, log_hash = ?, log_bytes = ?, state = ?, ended = ?
+WHERE id = ?;
+
+-- name: InsertEvidenceArtifact :exec
+INSERT INTO evidence_artifacts (run, position, path, state, hash, blob, size) VALUES (?, ?, ?, ?, ?, ?, ?);
+
+-- name: ListEvidenceArtifacts :many
+SELECT * FROM evidence_artifacts WHERE run = ? ORDER BY position;
+
+-- name: SetEvidenceRunJudge :exec
+UPDATE evidence_runs SET judge_step = ?, judges = judges + 1 WHERE id = ?;
+
+-- name: RecordEvidenceRunVerdict :exec
+UPDATE evidence_runs SET verdict = ?, judge_reason = ?, passed = ?, state = 'ended', ended = ? WHERE id = ?;
+
+-- name: GetEvidenceRun :one
+SELECT * FROM evidence_runs WHERE id = ?;
+
+-- name: ListEvidenceRuns :many
+SELECT * FROM evidence_runs WHERE epic = ? ORDER BY created, id;
+
+-- name: ListOpenEvidenceRuns :many
+SELECT * FROM evidence_runs WHERE state <> 'ended' ORDER BY created, id;

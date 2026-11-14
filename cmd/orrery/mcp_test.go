@@ -81,7 +81,7 @@ func startMCPDaemon(t *testing.T, steps enginehost.StepCommands) string {
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan error, 1)
-	go func() { done <- enginehost.Serve(ctx, ln, nil, steps, nil, nil) }()
+	go func() { done <- enginehost.Serve(ctx, ln, nil, steps, nil, nil, nil) }()
 	t.Cleanup(func() {
 		cancel()
 		select {
@@ -260,6 +260,7 @@ func TestMCPServesStepToolsOverDaemon(t *testing.T) {
 		"step_start", "step_status", "step_stop", "step_resume", "step_wait",
 		"epic_create", "epic_get", "epic_list", "epic_answer",
 		"epic_pause", "epic_resume", "epic_stop", "epic_retry",
+		"evidence_run", "evidence_list", "evidence_get",
 	}
 	if !slices.Equal(names, want) {
 		t.Fatalf("tool names = %v, want %v", names, want)

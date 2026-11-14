@@ -16,9 +16,14 @@ const watchLoopKind = "monitor"
 var errWatchLoopNoCaller = errors.New("enginehost: step has no Haiku caller for its monitor")
 
 // watchGateLimit ends an agent gate step overtime on the first tick at or past its limit of wall time from the run's
-// start. It makes no monitor call, and it ends the step whether or not a turn runs. It reports whether the run goes on.
+// start, or from its latest resume from a usage limit. It makes no monitor call, and it ends the step whether or not a
+// turn runs. It reports whether the run goes on.
 func (r *stepRun) watchGateLimit(ctx context.Context) bool {
-	if r.agentGate == nil || r.now().Sub(r.started) < r.agentGate.Limit {
+	from := r.started
+	if !r.gateFrom.IsZero() {
+		from = r.gateFrom
+	}
+	if r.agentGate == nil || r.now().Sub(from) < r.agentGate.Limit {
 		return true
 	}
 	reason := fmt.Sprintf("agent gate ran past its limit of %d seconds", int64(r.agentGate.Limit/time.Second))

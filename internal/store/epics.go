@@ -3,10 +3,13 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"time"
 
+	"github.com/joshsymonds/orrery/internal/evidence"
 	"github.com/joshsymonds/orrery/internal/store/sqlcgen"
 )
 
@@ -30,6 +33,7 @@ var ErrQuestionClosed = errors.New("question closed")
 type EpicRow struct {
 	ID          string
 	Repository  string
+	Base        string
 	Title       string
 	Approved    string
 	Intent      string
@@ -46,6 +50,9 @@ type EpicRow struct {
 	Failures     []EpicFailure
 	Additions    []EpicAddition
 	Requirements []EpicRequirement
+	Gates        []EpicGate
+	DoneGates    []string
+	ReviewGates  []string
 	Premises     []EpicPremise
 	Exclusions   []string
 	Alternatives []EpicAlternative
@@ -72,12 +79,32 @@ type EpicAddition struct {
 	Cost     string
 }
 
-// EpicRequirement is one thing that will be true when the epic is done.
+// EpicRequirement is one thing that will be true when the epic is done, and the evidence item that shows it. The
+// item is the zero Item when the Requirement names none.
 type EpicRequirement struct {
 	ID       string
 	Text     string
 	Evidence string
 	Kind     string
+	Item     evidence.Item
+}
+
+// EpicGate is one named gate of an epic: a command it runs, or an agent it asks, and what each must and must not do.
+// Needs are the pools the gate draws on while it runs, and Limit is its time limit in seconds.
+type EpicGate struct {
+	Name    string
+	Argv    []string
+	Limit   int64
+	Needs   []EpicGateNeed
+	Agent   string
+	Must    []string
+	MustNot []string
+}
+
+// EpicGateNeed is one pool a gate draws Count slots from.
+type EpicGateNeed struct {
+	Pool  string `json:"pool"`
+	Count int64  `json:"count"`
 }
 
 // EpicPremise is one assumption the contract rests on.
@@ -124,9 +151,9 @@ func (s *Store) CreateEpic(ctx context.Context, row EpicRow) error {
 			return fmt.Errorf("epic %s: %w", row.ID, ErrEpicExists)
 		}
 		if err = queries.InsertEpic(ctx, sqlcgen.InsertEpicParams{
-			ID: row.ID, Repository: row.Repository, Title: row.Title, Approved: row.Approved, Intent: row.Intent,
-			Care: row.Care, Approach: row.Approach, ReleaseThen: row.ReleaseThen, Checks: row.Checks,
-			Phase: row.Phase, Created: row.Created.Unix(), Changed: row.Changed.Unix(),
+			ID: row.ID, Repository: row.Repository, Base: row.Base, Title: row.Title, Approved: row.Approved,
+			Intent: row.Intent, Care: row.Care, Approach: row.Approach, ReleaseThen: row.ReleaseThen,
+			Checks: row.Checks, Phase: row.Phase, Created: row.Created.Unix(), Changed: row.Changed.Unix(),
 		}); err != nil {
 			return fmt.Errorf("insert epic %s: %w", row.ID, err)
 		}
@@ -165,12 +192,28 @@ func insertEpicSections(ctx context.Context, queries *sqlcgen.Queries, row EpicR
 	}); err != nil {
 		return fmt.Errorf("additions: %w", err)
 	}
-	if err := insertInOrder(row.Requirements, func(position int64, r EpicRequirement) error {
+	if err := insertInOrder(row.Requirements, func(position int64, requirement EpicRequirement) error {
+		item, err := encodeItem(requirement.Item)
+		if err != nil {
+			return err
+		}
 		return queries.InsertEpicRequirement(ctx, sqlcgen.InsertEpicRequirementParams{
-			Epic: row.ID, Position: position, ID: r.ID, Text: r.Text, Evidence: r.Evidence, Kind: r.Kind,
+			Epic: row.ID, Position: position, ID: requirement.ID, Text: requirement.Text,
+			Evidence: requirement.Evidence, Kind: requirement.Kind, Item: item,
 		})
 	}); err != nil {
 		return fmt.Errorf("requirements: %w", err)
+	}
+	if err := insertInOrder(row.Gates, func(position int64, g EpicGate) error {
+		return insertGate(ctx, queries, row.ID, position, g)
+	}); err != nil {
+		return fmt.Errorf("gates: %w", err)
+	}
+	if err := insertGateList(ctx, queries, row.ID, "done", row.DoneGates); err != nil {
+		return fmt.Errorf("done gates: %w", err)
+	}
+	if err := insertGateList(ctx, queries, row.ID, "review", row.ReviewGates); err != nil {
+		return fmt.Errorf("review gates: %w", err)
 	}
 	if err := insertInOrder(row.Premises, func(position int64, p EpicPremise) error {
 		return queries.InsertEpicPremise(ctx, sqlcgen.InsertEpicPremiseParams{
@@ -220,6 +263,66 @@ func insertInOrder[T any](items []T, insert func(position int64, item T) error) 
 	return nil
 }
 
+// insertGate stores g as gate position of epic, its argv, needs, must and must not as JSON arrays.
+func insertGate(ctx context.Context, queries *sqlcgen.Queries, epic string, position int64, gate EpicGate) error {
+	argv, err := encodeList(gate.Argv)
+	if err != nil {
+		return fmt.Errorf("argv: %w", err)
+	}
+	needs, err := encodeList(gate.Needs)
+	if err != nil {
+		return fmt.Errorf("needs: %w", err)
+	}
+	must, err := encodeList(gate.Must)
+	if err != nil {
+		return fmt.Errorf("must: %w", err)
+	}
+	mustNot, err := encodeList(gate.MustNot)
+	if err != nil {
+		return fmt.Errorf("must not: %w", err)
+	}
+	if err = queries.InsertEpicGate(ctx, sqlcgen.InsertEpicGateParams{
+		Epic: epic, Position: position, Name: gate.Name, Argv: argv, LimitSeconds: gate.Limit, Needs: needs,
+		Agent: gate.Agent, Must: must, MustNot: mustNot,
+	}); err != nil {
+		return fmt.Errorf("insert gate %s: %w", gate.Name, err)
+	}
+	return nil
+}
+
+// insertGateList stores gates as the named list of epic, in order from position 1.
+func insertGateList(ctx context.Context, queries *sqlcgen.Queries, epic, list string, gates []string) error {
+	return insertInOrder(gates, func(position int64, gate string) error {
+		return queries.InsertEpicGateList(ctx, sqlcgen.InsertEpicGateListParams{
+			Epic: epic, List: list, Position: position, Gate: gate,
+		})
+	})
+}
+
+// encodeItem returns the stored form of item: its JSON, or the empty string for the zero Item.
+func encodeItem(item evidence.Item) (string, error) {
+	if reflect.ValueOf(item).IsZero() {
+		return "", nil
+	}
+	raw, err := json.Marshal(item)
+	if err != nil {
+		return "", fmt.Errorf("encode evidence item: %w", err)
+	}
+	return string(raw), nil
+}
+
+// encodeList returns items as a JSON array, and no items as [].
+func encodeList[T any](items []T) (string, error) {
+	if len(items) == 0 {
+		return "[]", nil
+	}
+	raw, err := json.Marshal(items)
+	if err != nil {
+		return "", fmt.Errorf("encode list: %w", err)
+	}
+	return string(raw), nil
+}
+
 // Epic returns the stored epic with id, every section in order. It returns an error matching ErrNoEpic when no epic
 // has that id.
 func (s *Store) Epic(ctx context.Context, id string) (EpicRow, error) {
@@ -260,9 +363,14 @@ func loadEpicSections(ctx context.Context, queries *sqlcgen.Queries, row *EpicRo
 	if err != nil {
 		return fmt.Errorf("list requirements: %w", err)
 	}
-	row.Requirements = mapInOrder(requirements, func(r sqlcgen.EpicRequirement) EpicRequirement {
-		return EpicRequirement{ID: r.ID, Text: r.Text, Evidence: r.Evidence, Kind: r.Kind}
-	})
+	row.Requirements, err = convertInOrder(requirements, requirementOf)
+	if err != nil {
+		return fmt.Errorf("requirements: %w", err)
+	}
+
+	if err = loadGateSections(ctx, queries, row); err != nil {
+		return fmt.Errorf("gate sections: %w", err)
+	}
 
 	premises, err := queries.ListEpicPremises(ctx, row.ID)
 	if err != nil {
@@ -303,6 +411,31 @@ func loadEpicSections(ctx context.Context, queries *sqlcgen.Queries, row *EpicRo
 	if err = loadPlanSections(ctx, queries, row); err != nil {
 		return fmt.Errorf("planner sections: %w", err)
 	}
+	return nil
+}
+
+// loadGateSections fills the gates, done gates and review gates of row from the rows stored under row.ID.
+func loadGateSections(ctx context.Context, queries *sqlcgen.Queries, row *EpicRow) error {
+	gates, err := queries.ListEpicGates(ctx, row.ID)
+	if err != nil {
+		return fmt.Errorf("list gates: %w", err)
+	}
+	row.Gates, err = convertInOrder(gates, gateOf)
+	if err != nil {
+		return fmt.Errorf("gates: %w", err)
+	}
+
+	doneGates, err := queries.ListEpicDoneGates(ctx, row.ID)
+	if err != nil {
+		return fmt.Errorf("list done gates: %w", err)
+	}
+	row.DoneGates = mapInOrder(doneGates, func(g sqlcgen.EpicGateList) string { return g.Gate })
+
+	reviewGates, err := queries.ListEpicReviewGates(ctx, row.ID)
+	if err != nil {
+		return fmt.Errorf("list review gates: %w", err)
+	}
+	row.ReviewGates = mapInOrder(reviewGates, func(g sqlcgen.EpicGateList) string { return g.Gate })
 	return nil
 }
 
@@ -494,6 +627,7 @@ func epicHeadOf(head sqlcgen.Epic) EpicRow {
 	return EpicRow{
 		ID:          head.ID,
 		Repository:  head.Repository,
+		Base:        head.Base,
 		Title:       head.Title,
 		Approved:    head.Approved,
 		Intent:      head.Intent,
@@ -530,4 +664,79 @@ func mapInOrder[S, T any](items []S, convert func(S) T) []T {
 		out = append(out, convert(item))
 	}
 	return out
+}
+
+// convertInOrder converts items in order, as mapInOrder does, and stops at the first conversion error.
+func convertInOrder[S, T any](items []S, convert func(S) (T, error)) ([]T, error) {
+	if len(items) == 0 {
+		return nil, nil
+	}
+	out := make([]T, 0, len(items))
+	for _, item := range items {
+		converted, err := convert(item)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, converted)
+	}
+	return out, nil
+}
+
+// requirementOf returns the Requirement a stored row holds, its item decoded.
+func requirementOf(stored sqlcgen.EpicRequirement) (EpicRequirement, error) {
+	item, err := decodeItem(stored.Item)
+	if err != nil {
+		return EpicRequirement{}, fmt.Errorf("requirement %s item: %w", stored.ID, err)
+	}
+	return EpicRequirement{
+		ID: stored.ID, Text: stored.Text, Evidence: stored.Evidence, Kind: stored.Kind, Item: item,
+	}, nil
+}
+
+// gateOf returns the gate a stored row holds, its JSON arrays decoded.
+func gateOf(stored sqlcgen.EpicGate) (EpicGate, error) {
+	argv, err := decodeList[string](stored.Argv)
+	if err != nil {
+		return EpicGate{}, fmt.Errorf("gate %s argv: %w", stored.Name, err)
+	}
+	needs, err := decodeList[EpicGateNeed](stored.Needs)
+	if err != nil {
+		return EpicGate{}, fmt.Errorf("gate %s needs: %w", stored.Name, err)
+	}
+	must, err := decodeList[string](stored.Must)
+	if err != nil {
+		return EpicGate{}, fmt.Errorf("gate %s must: %w", stored.Name, err)
+	}
+	mustNot, err := decodeList[string](stored.MustNot)
+	if err != nil {
+		return EpicGate{}, fmt.Errorf("gate %s must not: %w", stored.Name, err)
+	}
+	return EpicGate{
+		Name: stored.Name, Argv: argv, Limit: stored.LimitSeconds, Needs: needs, Agent: stored.Agent,
+		Must: must, MustNot: mustNot,
+	}, nil
+}
+
+// decodeItem reads an item stored by encodeItem, where the empty string is the zero Item.
+func decodeItem(stored string) (evidence.Item, error) {
+	var item evidence.Item
+	if stored == "" {
+		return item, nil
+	}
+	if err := json.Unmarshal([]byte(stored), &item); err != nil {
+		return evidence.Item{}, fmt.Errorf("decode evidence item: %w", err)
+	}
+	return item, nil
+}
+
+// decodeList reads a JSON array stored by encodeList. An empty array reads back nil, as an empty section does.
+func decodeList[T any](stored string) ([]T, error) {
+	var items []T
+	if err := json.Unmarshal([]byte(stored), &items); err != nil {
+		return nil, fmt.Errorf("decode list: %w", err)
+	}
+	if len(items) == 0 {
+		return nil, nil
+	}
+	return items, nil
 }

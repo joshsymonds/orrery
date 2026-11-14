@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/joshsymonds/orrery/internal/evidence"
 	"github.com/joshsymonds/orrery/internal/store/sqlcgen"
 )
 
@@ -49,11 +50,19 @@ func TestEpicReadsItsTurnsTasksAndQuestions(t *testing.T) {
 	want.Tasks = []EpicTask{
 		{
 			Seq: 1, Turn: 1, Title: "Write the store", Deliverable: "CompleteTurn stores the plan",
-			Files: []string{"a.go", "b.go"}, Requirements: []string{"R5", "R6"}, Check: "just check", Status: "open",
+			Files: []string{"a.go", "b.go"}, Requirements: []string{"R5", "R6"}, Gate: "check",
+			Evidence: evidence.Item{
+				Capture: []string{"scripts/check"}, Limit: 1800, Artifacts: []string{"out/report.txt"},
+				Conclusion: "the store keeps the plan", Judge: "the store judge",
+			},
+			Status: "open",
 		},
 		{
 			Seq: 2, Turn: 1, Title: "Read the store", Deliverable: "Reads see the plan",
-			Files: []string{"c.go", "d.go"}, Requirements: []string{"R7", "R8"}, Check: "go test ./internal/store",
+			Files: []string{"c.go", "d.go"}, Requirements: []string{"R7", "R8"}, Gate: "race",
+			Evidence: evidence.Item{
+				Supplied: []string{"docs/read.md"}, Conclusion: "reads see the plan", Judge: "the read judge",
+			},
 			Status: "open",
 		},
 	}

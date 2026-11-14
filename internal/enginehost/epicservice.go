@@ -4,12 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"reflect"
 	"strconv"
 	"strings"
 	"time"
 
 	"connectrpc.com/connect"
 
+	"github.com/joshsymonds/orrery/internal/evidence"
 	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
 	"github.com/joshsymonds/orrery/internal/store"
 )
@@ -36,11 +39,13 @@ type EpicCommands interface {
 	RetryEpic(ctx context.Context, epic string) error
 }
 
-// epicService implements the Epics RPCs over epics. steps is the step store StopEpic stops the turn's step through;
-// it is nil when Serve has no step engine, and StopEpic then stops no step.
+// epicService implements the Epics RPCs over epics. getenv reads the environment a contract's gates resolve in; nil
+// reads the process environment. steps is the step store StopEpic stops the turn's step through; it is nil when Serve
+// has no step engine, and StopEpic then stops no step.
 type epicService struct {
-	epics EpicCommands
-	steps StepCommands
+	epics  EpicCommands
+	steps  StepCommands
+	getenv func(string) string
 }
 
 // ready returns the refusal every epic RPC gets when there is no epic store.
@@ -51,8 +56,8 @@ func (s *epicService) ready() error {
 	return nil
 }
 
-// CreateEpic checks the contract with checkEpic, then stores it accepted, with its seed decisions, and returns the
-// stored epic read back.
+// CreateEpic checks the contract with checkEpic, resolves its base to the full commit the base names, then stores it
+// accepted, with its seed decisions, and returns the stored epic read back.
 func (s *epicService) CreateEpic(
 	ctx context.Context,
 	req *connect.Request[v1.CreateEpicRequest],
@@ -60,11 +65,20 @@ func (s *epicService) CreateEpic(
 	if err := s.ready(); err != nil {
 		return nil, err
 	}
-	if err := checkEpic(ctx, req.Msg); err != nil {
+	getenv := s.getenv
+	if getenv == nil {
+		getenv = os.Getenv
+	}
+	if err := checkEpic(ctx, req.Msg, getenv); err != nil {
 		return nil, refuseEpic(connect.CodeInvalidArgument, err.Error())
 	}
-	row := epicRowOf(req.Msg, time.Now())
-	if err := s.epics.CreateEpic(ctx, row); err != nil {
+	contract := req.Msg.GetContract()
+	base, err := stepGitResolve(ctx, contract.GetRepository(), contract.GetBase())
+	if err != nil {
+		return nil, epicStoreError(fmt.Errorf("resolve base: %w", err))
+	}
+	row := epicRowOf(req.Msg, base, time.Now())
+	if err = s.epics.CreateEpic(ctx, row); err != nil {
 		if errors.Is(err, store.ErrEpicExists) {
 			return nil, refuseEpic(connect.CodeAlreadyExists, fmt.Sprintf("id: %s is already in the database", row.ID))
 		}
@@ -337,12 +351,14 @@ func epicStoreError(err error) error {
 	return errors.Join(connect.NewError(connect.CodeInternal, err))
 }
 
-// epicRowOf returns the store row of the contract req names, accepted at now, with req's decisions as its seeds.
-func epicRowOf(req *v1.CreateEpicRequest, now time.Time) store.EpicRow {
+// epicRowOf returns the store row of the contract req names, based at base and accepted at now, with req's decisions
+// as its seeds.
+func epicRowOf(req *v1.CreateEpicRequest, base string, now time.Time) store.EpicRow {
 	contract := req.GetContract()
 	return store.EpicRow{
 		ID:          contract.GetId(),
 		Repository:  contract.GetRepository(),
+		Base:        base,
 		Title:       contract.GetTitle(),
 		Approved:    contract.GetApproved(),
 		Intent:      contract.GetIntent(),
@@ -360,8 +376,14 @@ func epicRowOf(req *v1.CreateEpicRequest, now time.Time) store.EpicRow {
 			return store.EpicAddition{Location: a.GetLocation(), What: a.GetWhat(), Why: a.GetWhy(), Cost: a.GetCost()}
 		}),
 		Requirements: epicMap(contract.GetRequirements(), func(r *v1.EpicRequirement) store.EpicRequirement {
-			return store.EpicRequirement{ID: r.GetId(), Text: r.GetText(), Evidence: r.GetEvidence(), Kind: r.GetKind()}
+			return store.EpicRequirement{
+				ID: r.GetId(), Text: r.GetText(), Evidence: r.GetEvidence(), Kind: r.GetKind(),
+				Item: evidenceItemOf(r.GetItem()),
+			}
 		}),
+		Gates:       epicMap(contract.GetGates(), epicGateOf),
+		DoneGates:   contract.GetDoneGates(),
+		ReviewGates: contract.GetReviewGates(),
 		Premises: epicMap(contract.GetPremises(), func(p *v1.EpicPremise) store.EpicPremise {
 			return store.EpicPremise{ID: p.GetId(), Text: p.GetText(), IfWrong: p.GetIfWrong()}
 		}),
@@ -377,6 +399,22 @@ func epicRowOf(req *v1.CreateEpicRequest, now time.Time) store.EpicRow {
 		Decisions: epicMap(req.GetDecisions(), func(d *v1.EpicDecisionInput) store.EpicDecision {
 			return store.EpicDecision{ID: d.GetId(), Text: d.GetText()}
 		}),
+	}
+}
+
+// epicGateOf returns the store form of gate: its argv, its limit in seconds, its needs in order, and its agent with the
+// must and must not it asks.
+func epicGateOf(gate *v1.EpicGate) store.EpicGate {
+	return store.EpicGate{
+		Name:  gate.GetName(),
+		Argv:  gate.GetArgv(),
+		Limit: gate.GetLimit(),
+		Needs: epicMap(gate.GetNeeds(), func(n *v1.EpicGateNeed) store.EpicGateNeed {
+			return store.EpicGateNeed{Pool: n.GetPool(), Count: n.GetCount()}
+		}),
+		Agent:   gate.GetAgent(),
+		Must:    gate.GetMust(),
+		MustNot: gate.GetMustNot(),
 	}
 }
 
@@ -402,6 +440,7 @@ func contractMessage(row store.EpicRow) *v1.EpicContract {
 	return &v1.EpicContract{
 		Id:         row.ID,
 		Repository: row.Repository,
+		Base:       row.Base,
 		Title:      row.Title,
 		Approved:   row.Approved,
 		Intent:     row.Intent,
@@ -413,8 +452,13 @@ func contractMessage(row store.EpicRow) *v1.EpicContract {
 			return &v1.EpicAddition{Location: a.Location, What: a.What, Why: a.Why, Cost: a.Cost}
 		}),
 		Requirements: epicMap(row.Requirements, func(r store.EpicRequirement) *v1.EpicRequirement {
-			return &v1.EpicRequirement{Id: r.ID, Text: r.Text, Evidence: r.Evidence, Kind: r.Kind}
+			return &v1.EpicRequirement{
+				Id: r.ID, Text: r.Text, Evidence: r.Evidence, Kind: r.Kind, Item: requirementItemMessage(r.Item),
+			}
 		}),
+		Gates:       epicMap(row.Gates, epicGateMessage),
+		DoneGates:   row.DoneGates,
+		ReviewGates: row.ReviewGates,
 		Premises: epicMap(row.Premises, func(p store.EpicPremise) *v1.EpicPremise {
 			return &v1.EpicPremise{Id: p.ID, Text: p.Text, IfWrong: p.IfWrong}
 		}),
@@ -464,8 +508,46 @@ func taskMessage(task store.EpicTask) *v1.EpicTask {
 		Deliverable:  task.Deliverable,
 		Files:        task.Files,
 		Requirements: task.Requirements,
-		Check:        task.Check,
+		Gate:         task.Gate,
+		Evidence:     evidenceItemMessage(task.Evidence),
 		Status:       task.Status,
+	}
+}
+
+// evidenceItemMessage returns the EvidenceItem message of item.
+func evidenceItemMessage(item evidence.Item) *v1.EvidenceItem {
+	return &v1.EvidenceItem{
+		Capture:    item.Capture,
+		Limit:      item.Limit,
+		Artifacts:  item.Artifacts,
+		Supplied:   item.Supplied,
+		Conclusion: item.Conclusion,
+		Judge:      item.Judge,
+	}
+}
+
+// requirementItemMessage returns the EvidenceItem message of a requirement's item. The zero Item, which an epic stored
+// before O3d2 keeps, has no message.
+func requirementItemMessage(item evidence.Item) *v1.EvidenceItem {
+	if reflect.ValueOf(item).IsZero() {
+		return nil
+	}
+	return evidenceItemMessage(item)
+}
+
+// epicGateMessage returns the EpicGate message of gate: its argv, its limit in seconds, its needs in order, and its
+// agent with the must and must not it asks.
+func epicGateMessage(gate store.EpicGate) *v1.EpicGate {
+	return &v1.EpicGate{
+		Name:  gate.Name,
+		Argv:  gate.Argv,
+		Limit: gate.Limit,
+		Needs: epicMap(gate.Needs, func(n store.EpicGateNeed) *v1.EpicGateNeed {
+			return &v1.EpicGateNeed{Pool: n.Pool, Count: n.Count}
+		}),
+		Agent:   gate.Agent,
+		Must:    gate.Must,
+		MustNot: gate.MustNot,
 	}
 }
 

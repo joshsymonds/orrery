@@ -3,6 +3,7 @@ package gates
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -216,5 +217,106 @@ func TestResolveFromGatesFileDoesNotDiscover(t *testing.T) {
 	}
 	if got.Source != SourceEpic || got.Name != "alpha" {
 		t.Fatalf("Resolve = %+v, want alpha from the gates file", got)
+	}
+}
+
+// betaGate is the gate projectBeta defines.
+func betaGate() Gate {
+	return Gate{
+		Name:  "beta",
+		Argv:  []string{"/opt/tools/beta"},
+		Limit: 60 * time.Second,
+		Needs: []Need{{Pool: "gate", Count: 1}},
+	}
+}
+
+func TestResolveDefinedPrefersEpicDataOverProjectFile(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	writeFile(t, projectPath(dir), file(table("gates.alpha", `argv = ["/opt/tools/project"]`, `limit = 60`)))
+
+	got, err := ResolveDefined(context.Background(), "alpha", []Gate{alphaGate()}, dir, resolveEnv(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := (Resolved{Gate: alphaGate(), Source: SourceEpic}); !reflect.DeepEqual(got, want) {
+		t.Fatalf("ResolveDefined = %+v, want %+v", got, want)
+	}
+}
+
+func TestResolveDefinedDoesNotReadProjectFileForEpicGate(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	writeFile(t, projectPath(dir), malformedToml)
+
+	got, err := ResolveDefined(context.Background(), "alpha", []Gate{alphaGate()}, dir, resolveEnv(t))
+	if err != nil {
+		t.Fatalf("ResolveDefined error = %v; the project file was read though the epic data defines the name", err)
+	}
+	if want := (Resolved{Gate: alphaGate(), Source: SourceEpic}); !reflect.DeepEqual(got, want) {
+		t.Fatalf("ResolveDefined = %+v, want %+v", got, want)
+	}
+}
+
+func TestResolveDefinedFindsProjectOnlyGateFromProjectFile(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	pf := writeFile(t, projectPath(dir), projectBeta())
+
+	got, err := ResolveDefined(context.Background(), "beta", []Gate{alphaGate()}, dir, resolveEnv(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := (Resolved{Gate: betaGate(), Source: SourceProject, File: pf}); !reflect.DeepEqual(got, want) {
+		t.Fatalf("ResolveDefined = %+v, want %+v", got, want)
+	}
+}
+
+func TestResolveDefinedRefusesNameNeitherSourceDefines(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	pf := writeFile(t, projectPath(dir), projectBeta())
+
+	got, err := ResolveDefined(context.Background(), "gamma", []Gate{alphaGate()}, dir, resolveEnv(t))
+	if !errors.Is(err, ErrUnknown) {
+		t.Fatalf("ResolveDefined error = %v, want one wrapping ErrUnknown", err)
+	}
+	for _, want := range []string{"gamma", "the epic's gates", pf} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error %q does not name %q", err, want)
+		}
+	}
+	if !reflect.DeepEqual(got, Resolved{}) {
+		t.Fatalf("ResolveDefined = %+v on refusal, want the zero value", got)
+	}
+}
+
+func TestResolveDefinedNilDefinedBehavesAsResolveWithNoGatesFile(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		label, name string
+		project     bool
+	}{
+		{"project defines the name", "beta", true},
+		{"project does not define the name", "gamma", true},
+		{"no project file", "gamma", false},
+	} {
+		t.Run(tc.label, func(t *testing.T) {
+			t.Parallel()
+			dir := t.TempDir()
+			if tc.project {
+				writeFile(t, projectPath(dir), projectBeta())
+			}
+			env := resolveEnv(t)
+
+			got, err := ResolveDefined(context.Background(), tc.name, nil, dir, env)
+			want, wantErr := Resolve(context.Background(), tc.name, "", dir, env)
+			if !reflect.DeepEqual(got, want) {
+				t.Fatalf("ResolveDefined = %+v, want Resolve's %+v", got, want)
+			}
+			if fmt.Sprint(err) != fmt.Sprint(wantErr) {
+				t.Fatalf("ResolveDefined error = %v, want Resolve's %v", err, wantErr)
+			}
+		})
 	}
 }

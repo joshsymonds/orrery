@@ -29,6 +29,18 @@ service Epics {
   rpc RetryEpic(RetryEpicRequest) returns (RetryEpicResponse);
 }
 
+// Evidence runs an item's evidence, lists an epic's evidence runs and reads the artifacts a run kept.
+service Evidence {
+  // RunEvidence runs an item's evidence at a revision for one phase and returns the run.
+  rpc RunEvidence(RunEvidenceRequest) returns (RunEvidenceResponse);
+
+  // ListEvidence returns the evidence runs an epic holds.
+  rpc ListEvidence(ListEvidenceRequest) returns (ListEvidenceResponse);
+
+  // GetEvidenceArtifact returns one artifact of a run, or the run's log when the name is empty.
+  rpc GetEvidenceArtifact(GetEvidenceArtifactRequest) returns (GetEvidenceArtifactResponse);
+}
+
 // EpicContract is the ten sections of an accepted epic contract.
 message EpicContract {
   // The epic's id, "<repo-id>/<epic-slug>", as the caller names it.
@@ -78,6 +90,18 @@ message EpicContract {
 
   // The checks the machines run.
   string checks = 16;
+
+  // The commit the epic starts from, stored as the full commit id.
+  string base = 17;
+
+  // The epic's gates, each a command the checks run or an agent that reviews the epic.
+  repeated EpicGate gates = 18;
+
+  // The names of the command gates that show the epic is done.
+  repeated string done_gates = 19;
+
+  // The names of the agent gates that review the epic.
+  repeated string review_gates = 20;
 }
 
 // EpicFailure is one failure the epic guards against.
@@ -118,11 +142,145 @@ message EpicRequirement {
   // What will be true when the epic is done.
   string text = 2;
 
-  // The check or review that shows the requirement is true.
+  // The check or review that shows the requirement is true. Kept for epics stored before O3d2; a new epic leaves it
+  // empty.
   string evidence = 3;
 
-  // How the requirement is shown: check or review.
+  // How the requirement is shown: check or review. Kept for epics stored before O3d2; a new epic leaves it empty.
   string kind = 4;
+
+  // The evidence that shows the requirement is true. Empty for epics stored before O3d2, which keep evidence and kind.
+  EvidenceItem item = 5;
+}
+
+// EpicGateNeed is one pool a gate needs and how many of the pool's slots the gate takes.
+message EpicGateNeed {
+  // The pool's name.
+  string pool = 1;
+
+  // How many of the pool's slots the gate takes.
+  int64 count = 2;
+}
+
+// EpicGate is one gate the epic's checks run: a command, or an agent that reviews the epic.
+message EpicGate {
+  // The gate's name, unique among the epic's gates.
+  string name = 1;
+
+  // The command the gate runs, the program first; empty for an agent gate.
+  repeated string argv = 2;
+
+  // The gate's time limit in seconds.
+  int64 limit = 3;
+
+  // The pools the gate needs while it runs.
+  repeated EpicGateNeed needs = 4;
+
+  // The agent that reviews the epic; empty for a command gate.
+  string agent = 5;
+
+  // The statements the agent's return must show hold.
+  repeated string must = 6;
+
+  // The statements the agent's return must show do not hold.
+  repeated string must_not = 7;
+}
+
+// EvidenceItem is how a requirement or task shows its evidence: a capture a gate runs, or files the agent supplied.
+message EvidenceItem {
+  // The command the capture runs, the program first; empty when the evidence is supplied.
+  repeated string capture = 1;
+
+  // The capture's time limit in seconds; 0 when there is no capture.
+  int64 limit = 2;
+
+  // The repository-relative paths the capture keeps; empty when there is no capture.
+  repeated string artifacts = 3;
+
+  // The repository-relative files the agent supplied, read from the commit; empty when the evidence is captured.
+  repeated string supplied = 4;
+
+  // The conclusion the judge checks the evidence against.
+  string conclusion = 5;
+
+  // The agent that judges the evidence.
+  string judge = 6;
+}
+
+// EvidenceArtifact is one file an evidence run kept, with the state it was kept in.
+message EvidenceArtifact {
+  // The artifact's repository-relative path.
+  string path = 1;
+
+  // The artifact's state: kept, missing or over_cap.
+  string state = 2;
+
+  // The sha256 of the stored blob; empty unless the artifact is kept.
+  string hash = 3;
+
+  // The artifact's size in bytes.
+  int64 size = 4;
+}
+
+// EvidenceRun is one evidence run: an item's evidence captured or supplied for one phase at a revision, with its
+// verdict.
+message EvidenceRun {
+  // The run's id.
+  string id = 1;
+
+  // The epic the run belongs to.
+  string epic = 2;
+
+  // The requirement or task whose evidence the run shows.
+  string item = 3;
+
+  // The commit the run captured or read at.
+  string revision = 4;
+
+  // The phase the run is for: red or green.
+  string phase = 5;
+
+  // How the evidence was produced: captured or supplied.
+  string source = 6;
+
+  // The run's state: capturing, judging or ended.
+  string state = 7;
+
+  // The capture's exit code; for a supplied run, 0 when every file is kept and 1 otherwise.
+  int32 exit = 8;
+
+  // Whether the capture was killed at its time limit.
+  bool timed_out = 9;
+
+  // Why the capture has no result: could not start, killed at its limit, or lost at a restart. Empty otherwise.
+  string not_captured = 10;
+
+  // The sha256 of the run's log; empty until the log is stored.
+  string log_hash = 11;
+
+  // The size of the run's log in bytes.
+  int64 log_bytes = 12;
+
+  // The artifacts the run kept, each with the state it was kept in.
+  repeated EvidenceArtifact artifacts = 13;
+
+  // The id of the judge's step; empty until the run is judged.
+  string judge_step = 14;
+
+  // The judge's verdict: holds, fails, or empty when the judge gave none.
+  string verdict = 15;
+
+  // Why the judge gave no verdict. Empty otherwise.
+  string judge_reason = 16;
+
+  // Whether the run passes its phase: red when the conclusion fails; green when it holds and the capture exited 0.
+  bool passed = 17;
+
+  // When the run was created, in unix seconds.
+  int64 created = 18;
+
+  // When the run ended, in unix seconds; 0 while it runs.
+  int64 ended = 19;
 }
 
 // EpicPremise is one assumption the contract makes.
@@ -238,11 +396,17 @@ message EpicTask {
   // The requirements the task covers.
   repeated string requirements = 6;
 
-  // The check that shows the task is done.
+  // The check that shows the task is done. Empty since O3d2: the task's evidence conclusion carries the check.
   string check = 7;
 
   // The task's status: open until it is done.
   string status = 8;
+
+  // The name of the command gate the task's check runs, from the epic's gates.
+  string gate = 9;
+
+  // The evidence that shows the task is done.
+  EvidenceItem evidence = 10;
 }
 
 // EpicQuestion is one question a planner turn asked.
@@ -420,4 +584,55 @@ message RetryEpicRequest {
 message RetryEpicResponse {
   // The stored epic.
   StoredEpic epic = 1;
+}
+
+// RunEvidenceRequest asks for one item's evidence to run at a revision for one phase.
+message RunEvidenceRequest {
+  // The id of the epic the item belongs to.
+  string epic = 1;
+
+  // The requirement or task the evidence shows.
+  string item = 2;
+
+  // The commit the evidence runs at.
+  string revision = 3;
+
+  // The phase the run is for: red or green.
+  string phase = 4;
+}
+
+// RunEvidenceResponse carries the evidence run.
+message RunEvidenceResponse {
+  // The evidence run.
+  EvidenceRun run = 1;
+}
+
+// ListEvidenceRequest asks for the evidence runs an epic holds.
+message ListEvidenceRequest {
+  // The epic's id.
+  string epic = 1;
+}
+
+// ListEvidenceResponse carries the evidence runs an epic holds.
+message ListEvidenceResponse {
+  // The epic's evidence runs.
+  repeated EvidenceRun runs = 1;
+}
+
+// GetEvidenceArtifactRequest names one artifact of an evidence run.
+message GetEvidenceArtifactRequest {
+  // The evidence run's id.
+  string run = 1;
+
+  // The artifact's repository-relative path; empty for the run's log.
+  string name = 2;
+}
+
+// GetEvidenceArtifactResponse carries one artifact's bytes.
+message GetEvidenceArtifactResponse {
+  // The artifact's bytes, or the run's log's bytes.
+  bytes data = 1;
+
+  // The sha256 of the bytes.
+  string hash = 2;
 }

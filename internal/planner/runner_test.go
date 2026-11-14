@@ -13,16 +13,44 @@ import (
 	"testing"
 	"time"
 
+	"github.com/joshsymonds/orrery/internal/agents"
 	"github.com/joshsymonds/orrery/internal/enginehost"
+	"github.com/joshsymonds/orrery/internal/evidence"
+	"github.com/joshsymonds/orrery/internal/gates"
 	"github.com/joshsymonds/orrery/internal/store"
 	"github.com/joshsymonds/orrery/internal/storetest"
 )
 
-// The Runner runs against the real store and the in-process Steps.
+// The Runner runs against the real store and the in-process Steps, and checks plans with testResolver.
 var (
-	_ Store = (*store.Store)(nil)
-	_ Steps = (*enginehost.Steps)(nil)
+	_ Store    = (*store.Store)(nil)
+	_ Steps    = (*enginehost.Steps)(nil)
+	_ Resolver = testResolver{}
 )
+
+// testResolver is the Resolver the planner tests check plans with. It resolves the command gate check and the judge
+// a judge, refuses the agent gate review, and refuses every other name with the text the real resolver gives.
+type testResolver struct{}
+
+// Gate returns nil for the command gate check, the agent gate refusal for review, and an unknown-gate error otherwise.
+func (testResolver) Gate(_ context.Context, _ store.EpicRow, name string) error {
+	switch name {
+	case "check":
+		return nil
+	case "review":
+		return fmt.Errorf("gate %q is an agent gate, not a command gate", name)
+	default:
+		return fmt.Errorf("resolve gate: %w: %q", gates.ErrUnknown, name)
+	}
+}
+
+// Judge returns nil for the judge a judge, and an unresolved-agent error for any other name.
+func (testResolver) Judge(_ store.EpicRow, name string) error {
+	if name == "a judge" {
+		return nil
+	}
+	return fmt.Errorf("resolve judge: %w: %q", agents.ErrUnresolved, name)
+}
 
 const (
 	runnerEpicID = "orrery-1a2b3c4/planner-runner"
@@ -36,15 +64,39 @@ func claimedAt() time.Time {
 	return time.Unix(1700000500, 0)
 }
 
-// validPlan is a planner return that passes the check: one task on R1 that names a file no task owns.
+// validPlan is a planner return that passes the check: one task on R1 that names a file no task owns, a gate, and an
+// evidence item whose lists are empty.
 const validPlan = `{"status":"done","decisions":["use the store"],` +
 	`"tasks":[{"title":"Build it","deliverable":"the runner","files":["internal/planner/runner.go"],` +
-	`"requirements":["R1"],"check":"go test"}],"outline":"one task","questions":["which store?"],"outcome":"work"}`
+	`"requirements":["R1"],"gate":"check","evidence":{"capture":["scripts/check"],"limit":60,"artifacts":[],` +
+	`"supplied":[],"conclusion":"the runner runs","judge":"a judge"}}],"outline":"one task","questions":["which store?"],` +
+	`"outcome":"work"}`
+
+// runnerEvidenceItem returns the evidence item validPlan's task stores and reads back as.
+func runnerEvidenceItem() evidence.Item {
+	return evidence.Item{
+		Capture: []string{"scripts/check"}, Limit: 60, Artifacts: []string{}, Supplied: []string{},
+		Conclusion: "the runner runs", Judge: "a judge",
+	}
+}
 
 // unknownRequirementPlan is validPlan with its task on R9, which the epic does not have.
 const unknownRequirementPlan = `{"status":"done","decisions":[],` +
 	`"tasks":[{"title":"Build it","deliverable":"the runner","files":["internal/planner/runner.go"],` +
-	`"requirements":["R9"],"check":"go test"}],"outline":"one task","questions":[],"outcome":"work"}`
+	`"requirements":["R9"],"gate":"check","evidence":{"capture":["scripts/check"],"limit":60,"artifacts":[],` +
+	`"supplied":[],"conclusion":"the runner runs","judge":"a judge"}}],"outline":"one task","questions":[],"outcome":"work"}`
+
+// unknownGatePlan is validPlan with its task's gate named missing, which no gate defines.
+const unknownGatePlan = `{"status":"done","decisions":[],` +
+	`"tasks":[{"title":"Build it","deliverable":"the runner","files":["internal/planner/runner.go"],` +
+	`"requirements":["R1"],"gate":"missing","evidence":{"capture":["scripts/check"],"limit":60,"artifacts":[],` +
+	`"supplied":[],"conclusion":"the runner runs","judge":"a judge"}}],"outline":"one task","questions":[],"outcome":"work"}`
+
+// unknownJudgePlan is validPlan with its task's judge named nobody, which no agent answers to.
+const unknownJudgePlan = `{"status":"done","decisions":[],` +
+	`"tasks":[{"title":"Build it","deliverable":"the runner","files":["internal/planner/runner.go"],` +
+	`"requirements":["R1"],"gate":"check","evidence":{"capture":["scripts/check"],"limit":60,"artifacts":[],` +
+	`"supplied":[],"conclusion":"the runner runs","judge":"nobody"}}],"outline":"one task","questions":[],"outcome":"work"}`
 
 // fakeSteps is a Steps whose steps end when the test ends them. It records each start and each Stop. The first
 // stopFailures Stops fail, and a Stop that succeeds ends its step as stopped, as the engine's Stop does.
@@ -176,7 +228,7 @@ func agentReturning(agent string, err error, reads *atomic.Int64) func() (string
 func runnerConfig(s *store.Store, steps Steps, agent func() (string, error)) Config {
 	return Config{
 		Store: s, Steps: steps, Agent: agent, Tick: runnerTick,
-		Now: claimedAt,
+		Now: claimedAt, Resolve: testResolver{},
 	}
 }
 
@@ -262,7 +314,7 @@ func TestRunnerClaimsOneTurnAndStartsReadOnlyPlannerStep(t *testing.T) {
 	if start.Epic != runnerEpicID {
 		t.Errorf("step Epic = %q, want %q", start.Epic, runnerEpicID)
 	}
-	if want := Prompt(epic, 1, triggers); start.Prompt != want {
+	if want := promptOf(t, epic, 1, triggers); start.Prompt != want {
 		t.Errorf("step Prompt differs from Prompt of the claimed turn:\n got %s\nwant %s", start.Prompt, want)
 	}
 	if start.ReturnCheck == nil {
@@ -295,6 +347,26 @@ func TestRunnerReturnCheckRefusesUnknownRequirementAndPassesValidPlan(t *testing
 	}
 }
 
+func TestRunnerReturnCheckRefusesUnknownGateAndJudge(t *testing.T) {
+	t.Parallel()
+	s := openRunnerStore(t)
+	createRunnerEpic(t, s)
+	steps := newFakeSteps()
+	var reads atomic.Int64
+	runRunner(t, runnerConfig(s, steps, agentReturning(runnerAgent, nil, &reads)))
+	waitFor(t, "a planner step to start", func() bool { return len(steps.started()) == 1 })
+	check := steps.started()[0].ReturnCheck
+
+	wantGate := []string{`tasks[0] "Build it" gate: resolve gate: unknown gate: "missing"`}
+	if got := check(json.RawMessage(unknownGatePlan)); !reflect.DeepEqual(got, wantGate) {
+		t.Errorf("ReturnCheck of a plan naming gate missing = %q, want %q", got, wantGate)
+	}
+	wantJudge := []string{`tasks[0] "Build it" evidence.judge: resolve judge: agent name does not resolve: "nobody"`}
+	if got := check(json.RawMessage(unknownJudgePlan)); !reflect.DeepEqual(got, wantJudge) {
+		t.Errorf("ReturnCheck of a plan naming judge nobody = %q, want %q", got, wantJudge)
+	}
+}
+
 func TestRunnerDoneReturnStoresTasksAndConsumesTrigger(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -319,7 +391,7 @@ func TestRunnerDoneReturnStoresTasksAndConsumesTrigger(t *testing.T) {
 	}
 	wantTasks := []store.EpicTask{{
 		Seq: 1, Turn: 1, Title: "Build it", Deliverable: "the runner", Files: []string{"internal/planner/runner.go"},
-		Requirements: []string{"R1"}, Check: "go test", Status: "open",
+		Requirements: []string{"R1"}, Gate: "check", Evidence: runnerEvidenceItem(), Status: "open",
 	}}
 	if !reflect.DeepEqual(epic.Tasks, wantTasks) {
 		t.Errorf("tasks = %+v, want %+v", epic.Tasks, wantTasks)
@@ -533,13 +605,15 @@ func TestReturnCheckRefusesFilesOfUnfinishedTasksOnly(t *testing.T) {
 			{Seq: 2, Title: "done", Files: []string{"internal/b.go"}, Status: "done"},
 		},
 	}
-	check := returnCheck(epic)
+	check := returnCheck(context.Background(), epic, testResolver{})
 	const touchA = `{"status":"done","decisions":[],` +
 		`"tasks":[{"title":"Touch a","deliverable":"d","files":["internal/a.go"],` +
-		`"requirements":["R1"],"check":"go test"}],"outline":"o","questions":[],"outcome":"work"}`
+		`"requirements":["R1"],"gate":"check","evidence":{"capture":["scripts/check"],"limit":60,"artifacts":[],` +
+		`"supplied":[],"conclusion":"c","judge":"a judge"}}],"outline":"o","questions":[],"outcome":"work"}`
 	const touchB = `{"status":"done","decisions":[],` +
 		`"tasks":[{"title":"Touch b","deliverable":"d","files":["internal/b.go"],` +
-		`"requirements":["R1"],"check":"go test"}],"outline":"o","questions":[],"outcome":"work"}`
+		`"requirements":["R1"],"gate":"check","evidence":{"capture":["scripts/check"],"limit":60,"artifacts":[],` +
+		`"supplied":[],"conclusion":"c","judge":"a judge"}}],"outline":"o","questions":[],"outcome":"work"}`
 
 	want := []string{`tasks[0] "Touch a" files[0]: owned by an unfinished task`}
 	if got := check(json.RawMessage(touchA)); !reflect.DeepEqual(got, want) {

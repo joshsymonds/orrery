@@ -128,10 +128,14 @@ type stepRun struct {
 
 	// watch decides the step's backstops from every event the run is handed.
 	watch *stepWatch
-	// started is the clock reading the run was built at. An agent gate step's limit counts its wall time from it.
+	// started is the clock reading the run was built at. An agent gate step's limit counts its wall time from it, or
+	// from gateFrom once set.
 	started time.Time
-	returns chan session.TurnEnded
-	exits   chan string
+	// gateFrom is the clock reading an agent gate step was last resumed from a usage limit at, zero before any resume.
+	// Its limit counts its wall time from it, so the wait for a limit's reset never ends the step overtime.
+	gateFrom time.Time
+	returns  chan session.TurnEnded
+	exits    chan string
 	// nudge is the text the next turn end is continued with when that turn is an error. It is set by a landed nudge's
 	// interrupt and cleared by the next turn end, whatever it is.
 	nudge string
@@ -314,6 +318,7 @@ func (r *stepRun) resume(ctx context.Context, restore stepRestore) bool {
 	r.nudge = row.LoopNudge
 	r.ownerNudge = row.LoopOwnerNudge
 	r.judgeSent = row.LoopJudgeSent
+	r.gateFrom = row.LoopGateFrom
 	r.held.Store(row.LoopHeld)
 	// A pending nudge is the interrupt of the running turn, so the turn's periodic check is off until its end.
 	nudging := !restore.Found && row.LoopNudge != ""
@@ -461,7 +466,7 @@ func (r *stepRun) loopState() store.StepLoop {
 	return store.StepLoop{
 		ID: r.id, Round: r.round, Continues: r.continues, Nudge: r.nudge, OwnerNudge: r.ownerNudge,
 		Nudged: r.watch.nudgeSpent(), Held: r.held.Load(), JudgeSent: r.judgeSent,
-		Limited: r.limited, LimitKind: r.limitKind, LimitResets: r.limitResets,
+		Limited: r.limited, LimitKind: r.limitKind, LimitResets: r.limitResets, GateFrom: r.gateFrom,
 	}
 }
 

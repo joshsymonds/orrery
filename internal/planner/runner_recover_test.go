@@ -136,7 +136,7 @@ func TestRecoveryCompletesTurnWhoseStepEndedDoneWithValidReturn(t *testing.T) {
 	epic := epicOf(t, s)
 	wantTasks := []store.EpicTask{{
 		Seq: 1, Turn: 1, Title: "Build it", Deliverable: "the runner", Files: []string{"internal/planner/runner.go"},
-		Requirements: []string{"R1"}, Check: "go test", Status: "open",
+		Requirements: []string{"R1"}, Gate: "check", Evidence: runnerEvidenceItem(), Status: "open",
 	}}
 	if !reflect.DeepEqual(epic.Tasks, wantTasks) {
 		t.Errorf("tasks = %+v, want %+v", epic.Tasks, wantTasks)

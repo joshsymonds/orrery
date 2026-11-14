@@ -9,6 +9,7 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
+	"github.com/joshsymonds/orrery/internal/evidence"
 	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
 	"github.com/joshsymonds/orrery/internal/store"
 	"github.com/joshsymonds/orrery/internal/storetest"
@@ -29,11 +30,19 @@ func plannedReturn() store.EpicPlan {
 		Tasks: []store.EpicTaskInput{
 			{
 				Title: "Synthetic task one.", Deliverable: "Synthetic deliverable one.",
-				Files: []string{"a.go", "b.go"}, Requirements: []string{"R1", "R2"}, Check: "go test ./a",
+				Files: []string{"a.go", "b.go"}, Requirements: []string{"R1", "R2"}, Gate: "check",
+				Evidence: evidence.Item{
+					Capture: []string{"scripts/check"}, Limit: 60, Artifacts: []string{"out/one.txt"},
+					Conclusion: "Synthetic conclusion one.", Judge: "Synthetic judge one.",
+				},
 			},
 			{
 				Title: "Synthetic task two.", Deliverable: "Synthetic deliverable two.",
-				Files: []string{"c.go"}, Requirements: []string{"R3"}, Check: "go test ./c",
+				Files: []string{"c.go"}, Requirements: []string{"R3"}, Gate: "race",
+				Evidence: evidence.Item{
+					Supplied: []string{"docs/two.md"}, Conclusion: "Synthetic conclusion two.",
+					Judge: "Synthetic judge two.",
+				},
 			},
 		},
 		Outline:   "Synthetic outline.",
@@ -138,11 +147,21 @@ func TestEpicGetReturnsCompletedTurnPausedAndParkedEpic(t *testing.T) {
 	wantProtos(t, "tasks", got.GetTasks(), []*v1.EpicTask{
 		{
 			Id: "T1", Turn: 1, Title: "Synthetic task one.", Deliverable: "Synthetic deliverable one.",
-			Files: []string{"a.go", "b.go"}, Requirements: []string{"R1", "R2"}, Check: "go test ./a", Status: "open",
+			Files: []string{"a.go", "b.go"}, Requirements: []string{"R1", "R2"}, Gate: "check",
+			Evidence: &v1.EvidenceItem{
+				Capture: []string{"scripts/check"}, Limit: 60, Artifacts: []string{"out/one.txt"},
+				Conclusion: "Synthetic conclusion one.", Judge: "Synthetic judge one.",
+			},
+			Status: "open",
 		},
 		{
 			Id: "T2", Turn: 1, Title: "Synthetic task two.", Deliverable: "Synthetic deliverable two.",
-			Files: []string{"c.go"}, Requirements: []string{"R3"}, Check: "go test ./c", Status: "open",
+			Files: []string{"c.go"}, Requirements: []string{"R3"}, Gate: "race",
+			Evidence: &v1.EvidenceItem{
+				Supplied: []string{"docs/two.md"}, Conclusion: "Synthetic conclusion two.",
+				Judge: "Synthetic judge two.",
+			},
+			Status: "open",
 		},
 	})
 	wantProtos(t, "questions", got.GetQuestions(), []*v1.EpicQuestion{

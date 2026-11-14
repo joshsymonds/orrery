@@ -26,6 +26,10 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.EpicTask as EpicTaskProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsClient
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsGetRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsListRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.EvidenceArtifact as EvidenceArtifactProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.EvidenceArtifactRequest
+import io.github.joshsymonds.orrery.gen.orrery.v1.EvidenceClient
+import io.github.joshsymonds.orrery.gen.orrery.v1.EvidenceRun as EvidenceRunProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.HostClient
 import io.github.joshsymonds.orrery.gen.orrery.v1.HeadlessSession as HeadlessSessionProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.OpenRequest as OpenRequestProto
@@ -269,8 +273,46 @@ data class EpicRow(
     val source: String = "",
 )
 
-/** One requirement of an orreryd epic's contract: [kind] is "check" or "review". */
-data class EpicRequirementRow(val id: String, val text: String, val evidence: String, val kind: String)
+/**
+ * One requirement of an orreryd epic's contract: [kind] is "check" or "review". [conclusion] is what its evidence is
+ * judged against, and [runs] are its evidence runs, oldest first.
+ */
+data class EpicRequirementRow(
+    val id: String,
+    val text: String,
+    val evidence: String,
+    val kind: String,
+    val conclusion: String = "",
+    val runs: List<EvidenceRunRow> = emptyList(),
+)
+
+/**
+ * One evidence run of a requirement, for one [phase] (red or green), produced by [source] (captured or supplied).
+ * [passed] is whether the run passes its phase, and [artifacts] are the files it kept.
+ */
+data class EvidenceRunRow(
+    val id: String,
+    val phase: String,
+    val source: String,
+    val state: String,
+    val exit: Int,
+    val timedOut: Boolean,
+    val notCaptured: String,
+    val verdict: String,
+    val judgeReason: String,
+    val passed: Boolean,
+    val revision: String,
+    val created: Long,
+    val ended: Long,
+    val logBytes: Long,
+    val artifacts: List<EvidenceArtifactRow>,
+)
+
+/** One file an evidence run kept, with the [state] it was kept in. */
+data class EvidenceArtifactRow(val path: String, val state: String, val size: Long, val mediaType: String)
+
+/** The bytes of one artifact or log an evidence run kept, with their [mediaType]. */
+data class EvidenceArtifactFile(val data: ByteArray, val mediaType: String)
 
 data class EpicTaskRow(val effort: Int, val slug: String, val subject: String, val status: String)
 
@@ -372,6 +414,7 @@ class OrreryClient(
         val control = ControlClient(protocol)
         val sessions = SessionsClient(protocol)
         val epics = EpicsClient(protocol)
+        val evidence = EvidenceClient(protocol)
         val steps = StepsClient(protocol)
         val pools = PoolsClient(protocol)
     }
@@ -540,6 +583,14 @@ class OrreryClient(
         )
     }
 
+    /** One artifact of an evidence run, or the run's log when [name] is empty, or null when the server answered not_found. */
+    fun artifact(run: String, name: String): EvidenceArtifactFile? {
+        val request = EvidenceArtifactRequest.newBuilder().setRun(run).setName(name).build()
+        val response = notFoundAsNull { call(write = false) { standard.evidence.artifact(request, CLIENT_HEADERS) } }
+            ?: return null
+        return EvidenceArtifactFile(data = response.data.toByteArray(), mediaType = response.mediaType)
+    }
+
     /** The pools in use and every owner hold. */
     fun pools(): PoolsView {
         val response = call(write = false) { standard.pools.status(PoolsStatusRequest.getDefaultInstance(), CLIENT_HEADERS) }
@@ -706,7 +757,36 @@ class OrreryClient(
         )
 
     private fun EpicRequirementProto.toEpicRequirementRow(): EpicRequirementRow =
-        EpicRequirementRow(id = id, text = text, evidence = evidence, kind = kind)
+        EpicRequirementRow(
+            id = id,
+            text = text,
+            evidence = evidence,
+            kind = kind,
+            conclusion = conclusion,
+            runs = runsList.map { it.toEvidenceRunRow() },
+        )
+
+    private fun EvidenceRunProto.toEvidenceRunRow(): EvidenceRunRow =
+        EvidenceRunRow(
+            id = id,
+            phase = phase,
+            source = source,
+            state = state,
+            exit = exit,
+            timedOut = timedOut,
+            notCaptured = notCaptured,
+            verdict = verdict,
+            judgeReason = judgeReason,
+            passed = passed,
+            revision = revision,
+            created = created,
+            ended = ended,
+            logBytes = logBytes,
+            artifacts = artifactsList.map { it.toEvidenceArtifactRow() },
+        )
+
+    private fun EvidenceArtifactProto.toEvidenceArtifactRow(): EvidenceArtifactRow =
+        EvidenceArtifactRow(path = path, state = state, size = size, mediaType = mediaType)
 
     private fun EpicStepProto.toStepRow(): StepRow =
         StepRow(

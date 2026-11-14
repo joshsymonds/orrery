@@ -36,15 +36,17 @@ const (
 	epicSourceOrreryd = "orreryd"
 )
 
-// epicsServer answers orrery.v1.Epics from the records under root, the epics store holds, and the labeled steps of
-// steps. A nil steps answers unavailable. A nil store lists no database epics.
+// epicsServer answers orrery.v1.Epics from the records under root, the epics store holds, the runs of evidence, and the
+// labeled steps of steps. A nil steps answers unavailable. A nil store lists no database epics, and a nil evidence
+// client attaches no runs.
 type epicsServer struct {
-	root    string
-	steps   StepClient
-	store   EpicStoreClient
-	timeout time.Duration
-	now     func() time.Time
-	clock   rpcretry.Clock
+	root     string
+	steps    StepClient
+	store    EpicStoreClient
+	evidence EvidenceClient
+	timeout  time.Duration
+	now      func() time.Time
+	clock    rpcretry.Clock
 }
 
 // List answers every epic under the record root and every epic orreryd's database holds, live or folded, sorted by id.
@@ -96,9 +98,9 @@ func (e epicsServer) List(
 }
 
 // Get answers one epic by the id List gave it, with its tasks, its labeled steps oldest first, and its slices. An epic
-// orreryd's database holds answers as List does, with its Requirements in contract order and the tasks of its record
-// when one exists. An id that neither the database nor the record root lists answers not_found, and the id is never
-// joined into a path.
+// orreryd's database holds answers as List does, with its Requirements in contract order, each with its conclusion and
+// the evidence runs of its item, and the tasks of its record when one exists. An id that neither the database nor the
+// record root lists answers not_found, and the id is never joined into a path.
 func (e epicsServer) Get(
 	ctx context.Context,
 	req *connect.Request[orreryv1.EpicsGetRequest],
@@ -141,7 +143,8 @@ func (e epicsServer) Get(
 		resp.Epic = storedEpicMessage(
 			id, stored.GetPhase(), stored.GetChanged(), recordProblems(rec, taskProblems), labeled,
 		)
-		resp.Requirements = epicRequirementMessages(stored.GetContract().GetRequirements())
+		runs := e.listEvidence(ctx, id)
+		resp.Requirements = epicRequirementMessages(stored.GetContract().GetRequirements(), runs)
 	} else {
 		resp.Epic = epicMessage(rec, taskProblems, labeled, e.now())
 	}
@@ -167,6 +170,28 @@ func (e epicsServer) listSteps(ctx context.Context, epic string) ([]*enginev1.St
 		return nil, listError(connect.CodeUnavailable, stepsUnavailable)
 	}
 	return resp.Msg.GetSteps(), nil
+}
+
+// listEvidence asks the evidence client for the runs of epic, in the order it lists them. A nil client, or a
+// ListEvidence that still fails after its unavailable retries, lists none, so the epic is answered without runs. Each
+// attempt runs under the timeout.
+func (e epicsServer) listEvidence(ctx context.Context, epic string) []*enginev1.EvidenceRun {
+	if e.evidence == nil {
+		return nil
+	}
+	var resp *connect.Response[enginev1.ListEvidenceResponse]
+	err := retryUnder(ctx, e.clock, e.timeout, rpcretry.Unavailable, func(ctx context.Context) error {
+		var err error
+		resp, err = e.evidence.ListEvidence(ctx, connect.NewRequest(&enginev1.ListEvidenceRequest{Epic: epic}))
+		if err != nil {
+			return fmt.Errorf("server: list evidence: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil
+	}
+	return resp.Msg.GetRuns()
 }
 
 // listStored asks the epic store for its epics. A nil store lists none, and so does a ListEpics that is unimplemented, as
@@ -288,18 +313,72 @@ func epicSteps(labeled []*enginev1.Step) ([]*orreryv1.EpicStep, int32) {
 	return running, ended
 }
 
-// epicRequirementMessages converts each requirement of a contract to its EpicRequirement, in order.
-func epicRequirementMessages(requirements []*enginev1.EpicRequirement) []*orreryv1.EpicRequirement {
+// epicRequirementMessages converts each requirement of a contract to its EpicRequirement, in order. A requirement with
+// an item carries the item's conclusion and the runs whose item is its id, in the order runs lists them. A requirement
+// with no item, a legacy one, carries no conclusion and no runs.
+func epicRequirementMessages(
+	requirements []*enginev1.EpicRequirement,
+	runs []*enginev1.EvidenceRun,
+) []*orreryv1.EpicRequirement {
+	runsByItem := make(map[string][]*enginev1.EvidenceRun)
+	for _, run := range runs {
+		runsByItem[run.GetItem()] = append(runsByItem[run.GetItem()], run)
+	}
 	out := make([]*orreryv1.EpicRequirement, 0, len(requirements))
 	for _, req := range requirements {
-		out = append(out, &orreryv1.EpicRequirement{
+		msg := &orreryv1.EpicRequirement{
 			Id:       req.GetId(),
 			Text:     req.GetText(),
 			Evidence: req.GetEvidence(),
 			Kind:     req.GetKind(),
-		})
+		}
+		if item := req.GetItem(); item != nil {
+			msg.Conclusion = item.GetConclusion()
+			msg.Runs = epicRunMessages(runsByItem[req.GetId()])
+		}
+		out = append(out, msg)
 	}
 	return out
+}
+
+// epicRunMessages converts each evidence run to its EvidenceRun, in order.
+func epicRunMessages(runs []*enginev1.EvidenceRun) []*orreryv1.EvidenceRun {
+	out := make([]*orreryv1.EvidenceRun, 0, len(runs))
+	for _, run := range runs {
+		out = append(out, epicRunMessage(run))
+	}
+	return out
+}
+
+// epicRunMessage converts run to its EvidenceRun. Each artifact carries its path, state and size, and the media type of
+// its path. The run's log hash, its judge's step and each artifact's blob hash stay with orreryd.
+func epicRunMessage(run *enginev1.EvidenceRun) *orreryv1.EvidenceRun {
+	artifacts := make([]*orreryv1.EvidenceArtifact, 0, len(run.GetArtifacts()))
+	for _, artifact := range run.GetArtifacts() {
+		artifacts = append(artifacts, &orreryv1.EvidenceArtifact{
+			Path:      artifact.GetPath(),
+			State:     artifact.GetState(),
+			Size:      artifact.GetSize(),
+			MediaType: artifactMediaType(artifact.GetPath()),
+		})
+	}
+	return &orreryv1.EvidenceRun{
+		Id:          run.GetId(),
+		Phase:       run.GetPhase(),
+		Source:      run.GetSource(),
+		State:       run.GetState(),
+		Exit:        run.GetExit(),
+		TimedOut:    run.GetTimedOut(),
+		NotCaptured: run.GetNotCaptured(),
+		Verdict:     run.GetVerdict(),
+		JudgeReason: run.GetJudgeReason(),
+		Passed:      run.GetPassed(),
+		Revision:    run.GetRevision(),
+		Created:     run.GetCreated(),
+		Ended:       run.GetEnded(),
+		LogBytes:    run.GetLogBytes(),
+		Artifacts:   artifacts,
+	}
 }
 
 // epicStepMessages converts each step to its EpicStep, in order.
@@ -497,13 +576,15 @@ func epicTaskMessages(tasks []taskRecord) ([]*orreryv1.EpicTask, error) {
 	return out, nil
 }
 
-// newEpicsHandler returns the path and handler that serve Epics over the records under root, the epics store holds, and
-// the labeled steps of steps, reading at most maxControlBody bytes of each request. A zero timeout is
-// defaultControlTimeout. now dates each record epic's liveness, and clock times the retries of the calls to orreryd.
+// newEpicsHandler returns the path and handler that serve Epics over the records under root, the epics store holds, the
+// runs evidence lists, and the labeled steps of steps, reading at most maxControlBody bytes of each request. A zero
+// timeout is defaultControlTimeout. now dates each record epic's liveness, and clock times the retries of the calls to
+// orreryd.
 func newEpicsHandler(
 	root string,
 	steps StepClient,
 	store EpicStoreClient,
+	evidence EvidenceClient,
 	timeout time.Duration,
 	now func() time.Time,
 	clock rpcretry.Clock,
@@ -512,7 +593,9 @@ func newEpicsHandler(
 		timeout = defaultControlTimeout
 	}
 	return orreryv1connect.NewEpicsHandler(
-		epicsServer{root: root, steps: steps, store: store, timeout: timeout, now: now, clock: clock},
+		epicsServer{
+			root: root, steps: steps, store: store, evidence: evidence, timeout: timeout, now: now, clock: clock,
+		},
 		connect.WithReadMaxBytes(maxControlBody),
 	)
 }

@@ -10,15 +10,15 @@ import (
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
-// claimRunnerTurn claims the runner epic's turn 1 and records step as its step.
-func claimRunnerTurn(t *testing.T, s *store.Store, step string) store.EpicTurn {
+// claimRunnerTurn claims the runner epic's turn 1 and records step-1 as its step.
+func claimRunnerTurn(t *testing.T, s *store.Store) store.EpicTurn {
 	t.Helper()
 	ctx := context.Background()
 	turn, err := s.ClaimTurn(ctx, runnerEpicID, claimedAt())
 	if err != nil {
 		t.Fatalf("ClaimTurn: %v", err)
 	}
-	if err := s.SetTurnStep(ctx, runnerEpicID, turn.Seq, step); err != nil {
+	if err := s.SetTurnStep(ctx, runnerEpicID, turn.Seq, "step-1"); err != nil {
 		t.Fatalf("SetTurnStep: %v", err)
 	}
 	return turn
@@ -28,9 +28,9 @@ func TestReadoptCheckRestoresPlanCheckOfRunningTurnStep(t *testing.T) {
 	t.Parallel()
 	s := openRunnerStore(t)
 	createRunnerEpic(t, s)
-	claimRunnerTurn(t, s, "step-1")
+	claimRunnerTurn(t, s)
 
-	check, err := ReadoptCheck(s)(context.Background(), store.StepRow{ID: "step-1"})
+	check, err := ReadoptCheck(s, testResolver{})(context.Background(), store.StepRow{ID: "step-1"})
 	if err != nil {
 		t.Fatalf("ReadoptCheck: %v", err)
 	}
@@ -46,13 +46,32 @@ func TestReadoptCheckRestoresPlanCheckOfRunningTurnStep(t *testing.T) {
 	}
 }
 
+func TestReadoptCheckRefusesUnknownGate(t *testing.T) {
+	t.Parallel()
+	s := openRunnerStore(t)
+	createRunnerEpic(t, s)
+	claimRunnerTurn(t, s)
+
+	check, err := ReadoptCheck(s, testResolver{})(context.Background(), store.StepRow{ID: "step-1"})
+	if err != nil {
+		t.Fatalf("ReadoptCheck: %v", err)
+	}
+	if check == nil {
+		t.Fatal("ReadoptCheck of the running turn's step = nil, want the plan check")
+	}
+	want := []string{`tasks[0] "Build it" gate: resolve gate: unknown gate: "missing"`}
+	if got := check(json.RawMessage(unknownGatePlan)); !reflect.DeepEqual(got, want) {
+		t.Errorf("check of a plan naming gate missing = %q, want %q", got, want)
+	}
+}
+
 func TestReadoptCheckIsNilForRowOfNoRunningTurn(t *testing.T) {
 	t.Parallel()
 	s := openRunnerStore(t)
 	createRunnerEpic(t, s)
-	claimRunnerTurn(t, s, "step-1")
+	claimRunnerTurn(t, s)
 
-	check, err := ReadoptCheck(s)(context.Background(), store.StepRow{ID: "step-2"})
+	check, err := ReadoptCheck(s, testResolver{})(context.Background(), store.StepRow{ID: "step-2"})
 	if err != nil {
 		t.Fatalf("ReadoptCheck of a row of no running turn: %v", err)
 	}
@@ -66,12 +85,12 @@ func TestReadoptCheckIsNilForStepOfFailedTurn(t *testing.T) {
 	ctx := context.Background()
 	s := openRunnerStore(t)
 	createRunnerEpic(t, s)
-	turn := claimRunnerTurn(t, s, "step-1")
+	turn := claimRunnerTurn(t, s)
 	if err := s.FailTurn(ctx, runnerEpicID, turn.Seq, "step failed", claimedAt()); err != nil {
 		t.Fatalf("FailTurn: %v", err)
 	}
 
-	check, err := ReadoptCheck(s)(ctx, store.StepRow{ID: "step-1"})
+	check, err := ReadoptCheck(s, testResolver{})(ctx, store.StepRow{ID: "step-1"})
 	if err != nil {
 		t.Fatalf("ReadoptCheck of a failed turn's step: %v", err)
 	}
@@ -112,7 +131,7 @@ func TestReadoptCheckReturnsStoreErrors(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			check, err := ReadoptCheck(tc.store)(context.Background(), store.StepRow{ID: "step-1"})
+			check, err := ReadoptCheck(tc.store, testResolver{})(context.Background(), store.StepRow{ID: "step-1"})
 			if !errors.Is(err, tc.want) {
 				t.Errorf("ReadoptCheck error = %v, want %v", err, tc.want)
 			}

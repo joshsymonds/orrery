@@ -18,7 +18,9 @@ const (
 	epicCreateSchema = `{"type":"object","properties":{` +
 		`"contract":{"type":"object","description":"the accepted contract in protobuf JSON field names: ` +
 		`id, repository, title, approved, intent, failures, care, additions, requirements, premises, ` +
-		`exclusions, approach, alternatives, releaseSteps, releaseThen, checks"},` +
+		`exclusions, approach, alternatives, releaseSteps, releaseThen, checks, base, gates, doneGates, ` +
+		`reviewGates. A requirement carries item, its evidence: capture, limit, artifacts, supplied, ` +
+		`conclusion and judge."},` +
 		`"decisions":{"type":"array","items":{"type":"object","properties":{` +
 		`"id":{"type":"string"},"text":{"type":"string"}},` +
 		`"required":["id","text"],"additionalProperties":false}}` +

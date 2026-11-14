@@ -783,7 +783,11 @@ type EpicRequirement struct {
 	// The check or review that shows the requirement is true.
 	Evidence string `protobuf:"bytes,3,opt,name=evidence,proto3" json:"evidence,omitempty"`
 	// How the requirement is shown: check or review.
-	Kind          string `protobuf:"bytes,4,opt,name=kind,proto3" json:"kind,omitempty"`
+	Kind string `protobuf:"bytes,4,opt,name=kind,proto3" json:"kind,omitempty"`
+	// The evidence runs of the requirement.
+	Runs []*EvidenceRun `protobuf:"bytes,5,rep,name=runs,proto3" json:"runs,omitempty"`
+	// The conclusion the requirement's evidence is judged against.
+	Conclusion    string `protobuf:"bytes,6,opt,name=conclusion,proto3" json:"conclusion,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -846,6 +850,376 @@ func (x *EpicRequirement) GetKind() string {
 	return ""
 }
 
+func (x *EpicRequirement) GetRuns() []*EvidenceRun {
+	if x != nil {
+		return x.Runs
+	}
+	return nil
+}
+
+func (x *EpicRequirement) GetConclusion() string {
+	if x != nil {
+		return x.Conclusion
+	}
+	return ""
+}
+
+// EvidenceRun is one evidence run: an item's evidence captured or supplied for one phase at a revision, with its
+// verdict.
+type EvidenceRun struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The run's id.
+	Id string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	// The phase the run is for: red or green.
+	Phase string `protobuf:"bytes,2,opt,name=phase,proto3" json:"phase,omitempty"`
+	// How the evidence was produced: captured or supplied.
+	Source string `protobuf:"bytes,3,opt,name=source,proto3" json:"source,omitempty"`
+	// The run's state: capturing, judging or ended.
+	State string `protobuf:"bytes,4,opt,name=state,proto3" json:"state,omitempty"`
+	// The capture's exit code; for a supplied run, 0 when every file is kept and 1 otherwise.
+	Exit int32 `protobuf:"varint,5,opt,name=exit,proto3" json:"exit,omitempty"`
+	// Whether the capture was killed at its time limit.
+	TimedOut bool `protobuf:"varint,6,opt,name=timed_out,json=timedOut,proto3" json:"timed_out,omitempty"`
+	// Why the capture has no result: could not start, killed at its limit, or lost at a restart. Empty otherwise.
+	NotCaptured string `protobuf:"bytes,7,opt,name=not_captured,json=notCaptured,proto3" json:"not_captured,omitempty"`
+	// The judge's verdict: holds, fails, or empty when the judge gave none.
+	Verdict string `protobuf:"bytes,8,opt,name=verdict,proto3" json:"verdict,omitempty"`
+	// Why the judge gave no verdict. Empty otherwise.
+	JudgeReason string `protobuf:"bytes,9,opt,name=judge_reason,json=judgeReason,proto3" json:"judge_reason,omitempty"`
+	// Whether the run passes its phase: red when the conclusion fails; green when it holds and the capture exited 0.
+	Passed bool `protobuf:"varint,10,opt,name=passed,proto3" json:"passed,omitempty"`
+	// The commit the run captured or read at.
+	Revision string `protobuf:"bytes,11,opt,name=revision,proto3" json:"revision,omitempty"`
+	// When the run was created, in unix seconds.
+	Created int64 `protobuf:"varint,12,opt,name=created,proto3" json:"created,omitempty"`
+	// When the run ended, in unix seconds; 0 while it runs.
+	Ended int64 `protobuf:"varint,13,opt,name=ended,proto3" json:"ended,omitempty"`
+	// The size of the run's log in bytes.
+	LogBytes int64 `protobuf:"varint,14,opt,name=log_bytes,json=logBytes,proto3" json:"log_bytes,omitempty"`
+	// The artifacts the run kept, each with the state it was kept in.
+	Artifacts     []*EvidenceArtifact `protobuf:"bytes,15,rep,name=artifacts,proto3" json:"artifacts,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *EvidenceRun) Reset() {
+	*x = EvidenceRun{}
+	mi := &file_orrery_v1_epics_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EvidenceRun) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EvidenceRun) ProtoMessage() {}
+
+func (x *EvidenceRun) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_epics_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EvidenceRun.ProtoReflect.Descriptor instead.
+func (*EvidenceRun) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_epics_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *EvidenceRun) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *EvidenceRun) GetPhase() string {
+	if x != nil {
+		return x.Phase
+	}
+	return ""
+}
+
+func (x *EvidenceRun) GetSource() string {
+	if x != nil {
+		return x.Source
+	}
+	return ""
+}
+
+func (x *EvidenceRun) GetState() string {
+	if x != nil {
+		return x.State
+	}
+	return ""
+}
+
+func (x *EvidenceRun) GetExit() int32 {
+	if x != nil {
+		return x.Exit
+	}
+	return 0
+}
+
+func (x *EvidenceRun) GetTimedOut() bool {
+	if x != nil {
+		return x.TimedOut
+	}
+	return false
+}
+
+func (x *EvidenceRun) GetNotCaptured() string {
+	if x != nil {
+		return x.NotCaptured
+	}
+	return ""
+}
+
+func (x *EvidenceRun) GetVerdict() string {
+	if x != nil {
+		return x.Verdict
+	}
+	return ""
+}
+
+func (x *EvidenceRun) GetJudgeReason() string {
+	if x != nil {
+		return x.JudgeReason
+	}
+	return ""
+}
+
+func (x *EvidenceRun) GetPassed() bool {
+	if x != nil {
+		return x.Passed
+	}
+	return false
+}
+
+func (x *EvidenceRun) GetRevision() string {
+	if x != nil {
+		return x.Revision
+	}
+	return ""
+}
+
+func (x *EvidenceRun) GetCreated() int64 {
+	if x != nil {
+		return x.Created
+	}
+	return 0
+}
+
+func (x *EvidenceRun) GetEnded() int64 {
+	if x != nil {
+		return x.Ended
+	}
+	return 0
+}
+
+func (x *EvidenceRun) GetLogBytes() int64 {
+	if x != nil {
+		return x.LogBytes
+	}
+	return 0
+}
+
+func (x *EvidenceRun) GetArtifacts() []*EvidenceArtifact {
+	if x != nil {
+		return x.Artifacts
+	}
+	return nil
+}
+
+// EvidenceArtifact is one file an evidence run kept, with the state it was kept in.
+type EvidenceArtifact struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The artifact's repository-relative path.
+	Path string `protobuf:"bytes,1,opt,name=path,proto3" json:"path,omitempty"`
+	// The artifact's state: kept, missing or over_cap.
+	State string `protobuf:"bytes,2,opt,name=state,proto3" json:"state,omitempty"`
+	// The artifact's size in bytes.
+	Size int64 `protobuf:"varint,3,opt,name=size,proto3" json:"size,omitempty"`
+	// The artifact's media type by extension.
+	MediaType     string `protobuf:"bytes,4,opt,name=media_type,json=mediaType,proto3" json:"media_type,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *EvidenceArtifact) Reset() {
+	*x = EvidenceArtifact{}
+	mi := &file_orrery_v1_epics_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EvidenceArtifact) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EvidenceArtifact) ProtoMessage() {}
+
+func (x *EvidenceArtifact) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_epics_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EvidenceArtifact.ProtoReflect.Descriptor instead.
+func (*EvidenceArtifact) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_epics_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *EvidenceArtifact) GetPath() string {
+	if x != nil {
+		return x.Path
+	}
+	return ""
+}
+
+func (x *EvidenceArtifact) GetState() string {
+	if x != nil {
+		return x.State
+	}
+	return ""
+}
+
+func (x *EvidenceArtifact) GetSize() int64 {
+	if x != nil {
+		return x.Size
+	}
+	return 0
+}
+
+func (x *EvidenceArtifact) GetMediaType() string {
+	if x != nil {
+		return x.MediaType
+	}
+	return ""
+}
+
+// EvidenceArtifactRequest names one artifact of an evidence run.
+type EvidenceArtifactRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The evidence run's id.
+	Run string `protobuf:"bytes,1,opt,name=run,proto3" json:"run,omitempty"`
+	// The artifact's repository-relative path; empty for the run's log.
+	Name          string `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *EvidenceArtifactRequest) Reset() {
+	*x = EvidenceArtifactRequest{}
+	mi := &file_orrery_v1_epics_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EvidenceArtifactRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EvidenceArtifactRequest) ProtoMessage() {}
+
+func (x *EvidenceArtifactRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_epics_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EvidenceArtifactRequest.ProtoReflect.Descriptor instead.
+func (*EvidenceArtifactRequest) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_epics_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *EvidenceArtifactRequest) GetRun() string {
+	if x != nil {
+		return x.Run
+	}
+	return ""
+}
+
+func (x *EvidenceArtifactRequest) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+// EvidenceArtifactResponse carries one artifact's bytes.
+type EvidenceArtifactResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The artifact's bytes, or the run's log's bytes.
+	Data []byte `protobuf:"bytes,1,opt,name=data,proto3" json:"data,omitempty"`
+	// The artifact's media type by extension.
+	MediaType     string `protobuf:"bytes,2,opt,name=media_type,json=mediaType,proto3" json:"media_type,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *EvidenceArtifactResponse) Reset() {
+	*x = EvidenceArtifactResponse{}
+	mi := &file_orrery_v1_epics_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EvidenceArtifactResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EvidenceArtifactResponse) ProtoMessage() {}
+
+func (x *EvidenceArtifactResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_epics_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EvidenceArtifactResponse.ProtoReflect.Descriptor instead.
+func (*EvidenceArtifactResponse) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_epics_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *EvidenceArtifactResponse) GetData() []byte {
+	if x != nil {
+		return x.Data
+	}
+	return nil
+}
+
+func (x *EvidenceArtifactResponse) GetMediaType() string {
+	if x != nil {
+		return x.MediaType
+	}
+	return ""
+}
+
 // StepsHoldRequest names the step to hold.
 type StepsHoldRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -857,7 +1231,7 @@ type StepsHoldRequest struct {
 
 func (x *StepsHoldRequest) Reset() {
 	*x = StepsHoldRequest{}
-	mi := &file_orrery_v1_epics_proto_msgTypes[10]
+	mi := &file_orrery_v1_epics_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -869,7 +1243,7 @@ func (x *StepsHoldRequest) String() string {
 func (*StepsHoldRequest) ProtoMessage() {}
 
 func (x *StepsHoldRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_v1_epics_proto_msgTypes[10]
+	mi := &file_orrery_v1_epics_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -882,7 +1256,7 @@ func (x *StepsHoldRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StepsHoldRequest.ProtoReflect.Descriptor instead.
 func (*StepsHoldRequest) Descriptor() ([]byte, []int) {
-	return file_orrery_v1_epics_proto_rawDescGZIP(), []int{10}
+	return file_orrery_v1_epics_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *StepsHoldRequest) GetId() string {
@@ -901,7 +1275,7 @@ type StepsHoldResponse struct {
 
 func (x *StepsHoldResponse) Reset() {
 	*x = StepsHoldResponse{}
-	mi := &file_orrery_v1_epics_proto_msgTypes[11]
+	mi := &file_orrery_v1_epics_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -913,7 +1287,7 @@ func (x *StepsHoldResponse) String() string {
 func (*StepsHoldResponse) ProtoMessage() {}
 
 func (x *StepsHoldResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_v1_epics_proto_msgTypes[11]
+	mi := &file_orrery_v1_epics_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -926,7 +1300,7 @@ func (x *StepsHoldResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StepsHoldResponse.ProtoReflect.Descriptor instead.
 func (*StepsHoldResponse) Descriptor() ([]byte, []int) {
-	return file_orrery_v1_epics_proto_rawDescGZIP(), []int{11}
+	return file_orrery_v1_epics_proto_rawDescGZIP(), []int{15}
 }
 
 // StepsNudgeRequest names the step to nudge and the text to send it.
@@ -942,7 +1316,7 @@ type StepsNudgeRequest struct {
 
 func (x *StepsNudgeRequest) Reset() {
 	*x = StepsNudgeRequest{}
-	mi := &file_orrery_v1_epics_proto_msgTypes[12]
+	mi := &file_orrery_v1_epics_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -954,7 +1328,7 @@ func (x *StepsNudgeRequest) String() string {
 func (*StepsNudgeRequest) ProtoMessage() {}
 
 func (x *StepsNudgeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_v1_epics_proto_msgTypes[12]
+	mi := &file_orrery_v1_epics_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -967,7 +1341,7 @@ func (x *StepsNudgeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StepsNudgeRequest.ProtoReflect.Descriptor instead.
 func (*StepsNudgeRequest) Descriptor() ([]byte, []int) {
-	return file_orrery_v1_epics_proto_rawDescGZIP(), []int{12}
+	return file_orrery_v1_epics_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *StepsNudgeRequest) GetId() string {
@@ -993,7 +1367,7 @@ type StepsNudgeResponse struct {
 
 func (x *StepsNudgeResponse) Reset() {
 	*x = StepsNudgeResponse{}
-	mi := &file_orrery_v1_epics_proto_msgTypes[13]
+	mi := &file_orrery_v1_epics_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1005,7 +1379,7 @@ func (x *StepsNudgeResponse) String() string {
 func (*StepsNudgeResponse) ProtoMessage() {}
 
 func (x *StepsNudgeResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_v1_epics_proto_msgTypes[13]
+	mi := &file_orrery_v1_epics_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1018,7 +1392,7 @@ func (x *StepsNudgeResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StepsNudgeResponse.ProtoReflect.Descriptor instead.
 func (*StepsNudgeResponse) Descriptor() ([]byte, []int) {
-	return file_orrery_v1_epics_proto_rawDescGZIP(), []int{13}
+	return file_orrery_v1_epics_proto_rawDescGZIP(), []int{17}
 }
 
 // StepsStopRequest names the step to stop.
@@ -1032,7 +1406,7 @@ type StepsStopRequest struct {
 
 func (x *StepsStopRequest) Reset() {
 	*x = StepsStopRequest{}
-	mi := &file_orrery_v1_epics_proto_msgTypes[14]
+	mi := &file_orrery_v1_epics_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1044,7 +1418,7 @@ func (x *StepsStopRequest) String() string {
 func (*StepsStopRequest) ProtoMessage() {}
 
 func (x *StepsStopRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_v1_epics_proto_msgTypes[14]
+	mi := &file_orrery_v1_epics_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1057,7 +1431,7 @@ func (x *StepsStopRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StepsStopRequest.ProtoReflect.Descriptor instead.
 func (*StepsStopRequest) Descriptor() ([]byte, []int) {
-	return file_orrery_v1_epics_proto_rawDescGZIP(), []int{14}
+	return file_orrery_v1_epics_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *StepsStopRequest) GetId() string {
@@ -1076,7 +1450,7 @@ type StepsStopResponse struct {
 
 func (x *StepsStopResponse) Reset() {
 	*x = StepsStopResponse{}
-	mi := &file_orrery_v1_epics_proto_msgTypes[15]
+	mi := &file_orrery_v1_epics_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1088,7 +1462,7 @@ func (x *StepsStopResponse) String() string {
 func (*StepsStopResponse) ProtoMessage() {}
 
 func (x *StepsStopResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_v1_epics_proto_msgTypes[15]
+	mi := &file_orrery_v1_epics_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1101,7 +1475,7 @@ func (x *StepsStopResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StepsStopResponse.ProtoReflect.Descriptor instead.
 func (*StepsStopResponse) Descriptor() ([]byte, []int) {
-	return file_orrery_v1_epics_proto_rawDescGZIP(), []int{15}
+	return file_orrery_v1_epics_proto_rawDescGZIP(), []int{19}
 }
 
 var File_orrery_v1_epics_proto protoreflect.FileDescriptor
@@ -1169,12 +1543,46 @@ const file_orrery_v1_epics_proto_rawDesc = "" +
 	"\x02at\x18\b \x01(\x05R\x02at\x12\x12\n" +
 	"\x04held\x18\t \x01(\bR\x04held\x12\x19\n" +
 	"\berror_at\x18\n" +
-	" \x01(\x05R\aerrorAt\"e\n" +
+	" \x01(\x05R\aerrorAt\"\xb1\x01\n" +
 	"\x0fEpicRequirement\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04text\x18\x02 \x01(\tR\x04text\x12\x1a\n" +
 	"\bevidence\x18\x03 \x01(\tR\bevidence\x12\x12\n" +
-	"\x04kind\x18\x04 \x01(\tR\x04kind\"\"\n" +
+	"\x04kind\x18\x04 \x01(\tR\x04kind\x12*\n" +
+	"\x04runs\x18\x05 \x03(\v2\x16.orrery.v1.EvidenceRunR\x04runs\x12\x1e\n" +
+	"\n" +
+	"conclusion\x18\x06 \x01(\tR\n" +
+	"conclusion\"\xae\x03\n" +
+	"\vEvidenceRun\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x14\n" +
+	"\x05phase\x18\x02 \x01(\tR\x05phase\x12\x16\n" +
+	"\x06source\x18\x03 \x01(\tR\x06source\x12\x14\n" +
+	"\x05state\x18\x04 \x01(\tR\x05state\x12\x12\n" +
+	"\x04exit\x18\x05 \x01(\x05R\x04exit\x12\x1b\n" +
+	"\ttimed_out\x18\x06 \x01(\bR\btimedOut\x12!\n" +
+	"\fnot_captured\x18\a \x01(\tR\vnotCaptured\x12\x18\n" +
+	"\averdict\x18\b \x01(\tR\averdict\x12!\n" +
+	"\fjudge_reason\x18\t \x01(\tR\vjudgeReason\x12\x16\n" +
+	"\x06passed\x18\n" +
+	" \x01(\bR\x06passed\x12\x1a\n" +
+	"\brevision\x18\v \x01(\tR\brevision\x12\x18\n" +
+	"\acreated\x18\f \x01(\x03R\acreated\x12\x14\n" +
+	"\x05ended\x18\r \x01(\x03R\x05ended\x12\x1b\n" +
+	"\tlog_bytes\x18\x0e \x01(\x03R\blogBytes\x129\n" +
+	"\tartifacts\x18\x0f \x03(\v2\x1b.orrery.v1.EvidenceArtifactR\tartifacts\"o\n" +
+	"\x10EvidenceArtifact\x12\x12\n" +
+	"\x04path\x18\x01 \x01(\tR\x04path\x12\x14\n" +
+	"\x05state\x18\x02 \x01(\tR\x05state\x12\x12\n" +
+	"\x04size\x18\x03 \x01(\x03R\x04size\x12\x1d\n" +
+	"\n" +
+	"media_type\x18\x04 \x01(\tR\tmediaType\"?\n" +
+	"\x17EvidenceArtifactRequest\x12\x10\n" +
+	"\x03run\x18\x01 \x01(\tR\x03run\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\"M\n" +
+	"\x18EvidenceArtifactResponse\x12\x12\n" +
+	"\x04data\x18\x01 \x01(\fR\x04data\x12\x1d\n" +
+	"\n" +
+	"media_type\x18\x02 \x01(\tR\tmediaType\"\"\n" +
 	"\x10StepsHoldRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\"\x13\n" +
 	"\x11StepsHoldResponse\"7\n" +
@@ -1191,7 +1599,9 @@ const file_orrery_v1_epics_proto_rawDesc = "" +
 	"\x05Steps\x12A\n" +
 	"\x04Hold\x12\x1b.orrery.v1.StepsHoldRequest\x1a\x1c.orrery.v1.StepsHoldResponse\x12D\n" +
 	"\x05Nudge\x12\x1c.orrery.v1.StepsNudgeRequest\x1a\x1d.orrery.v1.StepsNudgeResponse\x12A\n" +
-	"\x04Stop\x12\x1b.orrery.v1.StepsStopRequest\x1a\x1c.orrery.v1.StepsStopResponseB\x9f\x01\n" +
+	"\x04Stop\x12\x1b.orrery.v1.StepsStopRequest\x1a\x1c.orrery.v1.StepsStopResponse2_\n" +
+	"\bEvidence\x12S\n" +
+	"\bArtifact\x12\".orrery.v1.EvidenceArtifactRequest\x1a#.orrery.v1.EvidenceArtifactResponseB\x9f\x01\n" +
 	"\rcom.orrery.v1B\n" +
 	"EpicsProtoP\x01Z=github.com/joshsymonds/orrery/internal/gen/orrery/v1;orreryv1\xa2\x02\x03OXX\xaa\x02\tOrrery.V1\xca\x02\tOrrery\\V1\xe2\x02\x15Orrery\\V1\\GPBMetadata\xea\x02\n" +
 	"Orrery::V1b\x06proto3"
@@ -1208,24 +1618,28 @@ func file_orrery_v1_epics_proto_rawDescGZIP() []byte {
 	return file_orrery_v1_epics_proto_rawDescData
 }
 
-var file_orrery_v1_epics_proto_msgTypes = make([]protoimpl.MessageInfo, 16)
+var file_orrery_v1_epics_proto_msgTypes = make([]protoimpl.MessageInfo, 20)
 var file_orrery_v1_epics_proto_goTypes = []any{
-	(*EpicsListRequest)(nil),   // 0: orrery.v1.EpicsListRequest
-	(*EpicsListResponse)(nil),  // 1: orrery.v1.EpicsListResponse
-	(*EpicsGetRequest)(nil),    // 2: orrery.v1.EpicsGetRequest
-	(*EpicsGetResponse)(nil),   // 3: orrery.v1.EpicsGetResponse
-	(*Epic)(nil),               // 4: orrery.v1.Epic
-	(*EpicTask)(nil),           // 5: orrery.v1.EpicTask
-	(*EpicStep)(nil),           // 6: orrery.v1.EpicStep
-	(*EpicStepCheck)(nil),      // 7: orrery.v1.EpicStepCheck
-	(*EpicSlice)(nil),          // 8: orrery.v1.EpicSlice
-	(*EpicRequirement)(nil),    // 9: orrery.v1.EpicRequirement
-	(*StepsHoldRequest)(nil),   // 10: orrery.v1.StepsHoldRequest
-	(*StepsHoldResponse)(nil),  // 11: orrery.v1.StepsHoldResponse
-	(*StepsNudgeRequest)(nil),  // 12: orrery.v1.StepsNudgeRequest
-	(*StepsNudgeResponse)(nil), // 13: orrery.v1.StepsNudgeResponse
-	(*StepsStopRequest)(nil),   // 14: orrery.v1.StepsStopRequest
-	(*StepsStopResponse)(nil),  // 15: orrery.v1.StepsStopResponse
+	(*EpicsListRequest)(nil),         // 0: orrery.v1.EpicsListRequest
+	(*EpicsListResponse)(nil),        // 1: orrery.v1.EpicsListResponse
+	(*EpicsGetRequest)(nil),          // 2: orrery.v1.EpicsGetRequest
+	(*EpicsGetResponse)(nil),         // 3: orrery.v1.EpicsGetResponse
+	(*Epic)(nil),                     // 4: orrery.v1.Epic
+	(*EpicTask)(nil),                 // 5: orrery.v1.EpicTask
+	(*EpicStep)(nil),                 // 6: orrery.v1.EpicStep
+	(*EpicStepCheck)(nil),            // 7: orrery.v1.EpicStepCheck
+	(*EpicSlice)(nil),                // 8: orrery.v1.EpicSlice
+	(*EpicRequirement)(nil),          // 9: orrery.v1.EpicRequirement
+	(*EvidenceRun)(nil),              // 10: orrery.v1.EvidenceRun
+	(*EvidenceArtifact)(nil),         // 11: orrery.v1.EvidenceArtifact
+	(*EvidenceArtifactRequest)(nil),  // 12: orrery.v1.EvidenceArtifactRequest
+	(*EvidenceArtifactResponse)(nil), // 13: orrery.v1.EvidenceArtifactResponse
+	(*StepsHoldRequest)(nil),         // 14: orrery.v1.StepsHoldRequest
+	(*StepsHoldResponse)(nil),        // 15: orrery.v1.StepsHoldResponse
+	(*StepsNudgeRequest)(nil),        // 16: orrery.v1.StepsNudgeRequest
+	(*StepsNudgeResponse)(nil),       // 17: orrery.v1.StepsNudgeResponse
+	(*StepsStopRequest)(nil),         // 18: orrery.v1.StepsStopRequest
+	(*StepsStopResponse)(nil),        // 19: orrery.v1.StepsStopResponse
 }
 var file_orrery_v1_epics_proto_depIdxs = []int32{
 	4,  // 0: orrery.v1.EpicsListResponse.epics:type_name -> orrery.v1.Epic
@@ -1236,21 +1650,25 @@ var file_orrery_v1_epics_proto_depIdxs = []int32{
 	9,  // 5: orrery.v1.EpicsGetResponse.requirements:type_name -> orrery.v1.EpicRequirement
 	6,  // 6: orrery.v1.Epic.running_steps:type_name -> orrery.v1.EpicStep
 	7,  // 7: orrery.v1.EpicStep.checks:type_name -> orrery.v1.EpicStepCheck
-	0,  // 8: orrery.v1.Epics.List:input_type -> orrery.v1.EpicsListRequest
-	2,  // 9: orrery.v1.Epics.Get:input_type -> orrery.v1.EpicsGetRequest
-	10, // 10: orrery.v1.Steps.Hold:input_type -> orrery.v1.StepsHoldRequest
-	12, // 11: orrery.v1.Steps.Nudge:input_type -> orrery.v1.StepsNudgeRequest
-	14, // 12: orrery.v1.Steps.Stop:input_type -> orrery.v1.StepsStopRequest
-	1,  // 13: orrery.v1.Epics.List:output_type -> orrery.v1.EpicsListResponse
-	3,  // 14: orrery.v1.Epics.Get:output_type -> orrery.v1.EpicsGetResponse
-	11, // 15: orrery.v1.Steps.Hold:output_type -> orrery.v1.StepsHoldResponse
-	13, // 16: orrery.v1.Steps.Nudge:output_type -> orrery.v1.StepsNudgeResponse
-	15, // 17: orrery.v1.Steps.Stop:output_type -> orrery.v1.StepsStopResponse
-	13, // [13:18] is the sub-list for method output_type
-	8,  // [8:13] is the sub-list for method input_type
-	8,  // [8:8] is the sub-list for extension type_name
-	8,  // [8:8] is the sub-list for extension extendee
-	0,  // [0:8] is the sub-list for field type_name
+	10, // 8: orrery.v1.EpicRequirement.runs:type_name -> orrery.v1.EvidenceRun
+	11, // 9: orrery.v1.EvidenceRun.artifacts:type_name -> orrery.v1.EvidenceArtifact
+	0,  // 10: orrery.v1.Epics.List:input_type -> orrery.v1.EpicsListRequest
+	2,  // 11: orrery.v1.Epics.Get:input_type -> orrery.v1.EpicsGetRequest
+	14, // 12: orrery.v1.Steps.Hold:input_type -> orrery.v1.StepsHoldRequest
+	16, // 13: orrery.v1.Steps.Nudge:input_type -> orrery.v1.StepsNudgeRequest
+	18, // 14: orrery.v1.Steps.Stop:input_type -> orrery.v1.StepsStopRequest
+	12, // 15: orrery.v1.Evidence.Artifact:input_type -> orrery.v1.EvidenceArtifactRequest
+	1,  // 16: orrery.v1.Epics.List:output_type -> orrery.v1.EpicsListResponse
+	3,  // 17: orrery.v1.Epics.Get:output_type -> orrery.v1.EpicsGetResponse
+	15, // 18: orrery.v1.Steps.Hold:output_type -> orrery.v1.StepsHoldResponse
+	17, // 19: orrery.v1.Steps.Nudge:output_type -> orrery.v1.StepsNudgeResponse
+	19, // 20: orrery.v1.Steps.Stop:output_type -> orrery.v1.StepsStopResponse
+	13, // 21: orrery.v1.Evidence.Artifact:output_type -> orrery.v1.EvidenceArtifactResponse
+	16, // [16:22] is the sub-list for method output_type
+	10, // [10:16] is the sub-list for method input_type
+	10, // [10:10] is the sub-list for extension type_name
+	10, // [10:10] is the sub-list for extension extendee
+	0,  // [0:10] is the sub-list for field type_name
 }
 
 func init() { file_orrery_v1_epics_proto_init() }
@@ -1264,9 +1682,9 @@ func file_orrery_v1_epics_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_orrery_v1_epics_proto_rawDesc), len(file_orrery_v1_epics_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   16,
+			NumMessages:   20,
 			NumExtensions: 0,
-			NumServices:   2,
+			NumServices:   3,
 		},
 		GoTypes:           file_orrery_v1_epics_proto_goTypes,
 		DependencyIndexes: file_orrery_v1_epics_proto_depIdxs,

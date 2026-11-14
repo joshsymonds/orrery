@@ -48,17 +48,26 @@ const (
 		`},"required":["ids"],"additionalProperties":false}`
 )
 
-// NewServer returns the MCP server "orrery" whose step tools call steps and whose epic tools call epics.
-func NewServer(steps enginev1connect.StepsClient, epics enginev1connect.EpicsClient) (*mcp.Server, error) {
-	return newServer(steps, epics, rpcretry.SystemClock{})
+// NewServer returns the MCP server "orrery" whose step tools call steps, whose epic tools call epics and whose evidence
+// tools call evidence.
+func NewServer(
+	steps enginev1connect.StepsClient,
+	epics enginev1connect.EpicsClient,
+	evidence enginev1connect.EvidenceClient,
+) (*mcp.Server, error) {
+	return newServer(steps, epics, evidence, rpcretry.SystemClock{})
 }
 
-// newServer returns the MCP server "orrery" whose step tools call steps and time their retries on clock, and whose epic
-// tools call epics.
+// newServer returns the MCP server "orrery" whose step tools call steps and time their retries on clock, whose epic
+// tools call epics and whose evidence tools call evidence.
 func newServer(
-	steps enginev1connect.StepsClient, epics enginev1connect.EpicsClient, clock rpcretry.Clock,
+	steps enginev1connect.StepsClient,
+	epics enginev1connect.EpicsClient,
+	evidence enginev1connect.EvidenceClient,
+	clock rpcretry.Clock,
 ) (*mcp.Server, error) {
-	server, err := mcp.NewServer("orrery", "1", slices.Concat(stepTools(steps, clock), epicTools(epics))...)
+	tools := slices.Concat(stepTools(steps, clock), epicTools(epics), evidenceTools(evidence))
+	server, err := mcp.NewServer("orrery", "1", tools...)
 	if err != nil {
 		return nil, fmt.Errorf("new orrery server: %w", err)
 	}

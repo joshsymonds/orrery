@@ -14,6 +14,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"unicode"
 
 	"connectrpc.com/connect"
 
@@ -179,7 +180,7 @@ func startDaemon(t *testing.T, steps enginehost.StepCommands) enginev1connect.St
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan error, 1)
-	go func() { done <- enginehost.Serve(ctx, ln, nil, steps, nil, nil) }()
+	go func() { done <- enginehost.Serve(ctx, ln, nil, steps, nil, nil, nil) }()
 	t.Cleanup(func() {
 		cancel()
 		if err := <-done; err != nil {
@@ -210,7 +211,18 @@ type peer struct {
 // newPeer serves an MCP server built over steps and epics and completes the handshake.
 func newPeer(t *testing.T, steps enginev1connect.StepsClient, epics enginev1connect.EpicsClient) *peer {
 	t.Helper()
-	server, err := NewServer(steps, epics)
+	return newPeerWithEvidence(t, steps, epics, nil)
+}
+
+// newPeerWithEvidence serves an MCP server built over steps, epics and evidence and completes the handshake.
+func newPeerWithEvidence(
+	t *testing.T,
+	steps enginev1connect.StepsClient,
+	epics enginev1connect.EpicsClient,
+	evidence enginev1connect.EvidenceClient,
+) *peer {
+	t.Helper()
+	server, err := NewServer(steps, epics, evidence)
 	if err != nil {
 		t.Fatalf("NewServer: %v", err)
 	}
@@ -305,8 +317,8 @@ func decodeObject(t *testing.T, text string) map[string]any {
 	return object
 }
 
-func TestToolsListNamesEveryStepAndEpicTool(t *testing.T) {
-	p := newPeer(t, startDaemon(t, &fakeSteps{}), &fakeEpics{})
+func TestToolsListNamesEveryStepEpicAndEvidenceTool(t *testing.T) {
+	p := newPeerWithEvidence(t, startDaemon(t, &fakeSteps{}), &fakeEpics{}, &fakeEvidence{})
 
 	reply := p.call("tools/list", map[string]any{})
 	var listed struct {
@@ -331,11 +343,51 @@ func TestToolsListNamesEveryStepAndEpicTool(t *testing.T) {
 	}
 	want := []string{
 		"epic_answer", "epic_create", "epic_get", "epic_list", "epic_pause", "epic_resume", "epic_retry", "epic_stop",
+		"evidence_get", "evidence_list", "evidence_run",
 		"step_resume", "step_start", "step_status", "step_stop", "step_wait",
 	}
 	slices.Sort(names)
 	if !slices.Equal(names, want) {
 		t.Fatalf("tools/list names = %v, want %v", names, want)
+	}
+}
+
+func TestEpicCreateContractDescriptionNamesTheEvidenceFields(t *testing.T) {
+	p := newPeer(t, nil, &fakeEpics{})
+
+	reply := p.call("tools/list", map[string]any{})
+	var listed struct {
+		Tools []struct {
+			Name        string `json:"name"`
+			InputSchema struct {
+				Properties struct {
+					Contract struct {
+						Description string `json:"description"`
+					} `json:"contract"`
+				} `json:"properties"`
+			} `json:"inputSchema"`
+		} `json:"tools"`
+	}
+	if err := json.Unmarshal(reply.Result, &listed); err != nil {
+		t.Fatalf("decode tools/list: %v", err)
+	}
+	var description string
+	for _, tool := range listed.Tools {
+		if tool.Name == "epic_create" {
+			description = tool.InputSchema.Properties.Contract.Description
+		}
+	}
+	if description == "" {
+		t.Fatal("tools/list has no epic_create contract description")
+	}
+	words := strings.FieldsFunc(description, func(r rune) bool { return !unicode.IsLetter(r) })
+	for _, want := range []string{
+		"base", "gates", "doneGates", "reviewGates",
+		"item", "capture", "limit", "artifacts", "supplied", "conclusion", "judge",
+	} {
+		if !slices.Contains(words, want) {
+			t.Errorf("epic_create contract description %q does not name %s", description, want)
+		}
 	}
 }
 

@@ -8,11 +8,13 @@
 # its turn while the task runs, BGEND ends that task and then answers as any other prompt does, PAIR answers with one
 # assistant line that carries two finished text blocks, "fake pair n.1" and "fake pair n.2", STEPDONE waits until
 # fakeclaude.release exists in its directory, makes an empty commit there and ends with a success result whose
-# structured output is that commit as done, LIMIT plays a usage-limit turn (a rejected seven_day rate_limit_event, an
-# assistant line that carries the rate_limit error, then an error result, all saying "You've hit your limit"),
-# LIMITNORESET plays that turn without the rate_limit_event, and any other prompt streams "fake reply n". The turns
-# reproduce the stream lines captured from the real CLI, with only text, ids and the session id changed. Every line it
-# reads from stdin, prompts and answers alike, is appended to fakeclaude.stdin as it is read. It exits at stdin EOF.
+# structured output is that commit as done, JUDGEHOLDS waits until fakeclaude.release exists in its directory and ends
+# with a success result whose structured output holds the one assertion JUDGEHOLDS, LIMIT plays a usage-limit turn (a
+# rejected seven_day rate_limit_event, an assistant line that carries the rate_limit error, then an error result, all
+# saying "You've hit your limit"), LIMITNORESET plays that turn without the rate_limit_event, and any other prompt
+# streams "fake reply n". The turns reproduce the stream lines captured from the real CLI, with only text, ids and the
+# session id changed. Every line it reads from stdin, prompts and answers alike, is appended to fakeclaude.stdin as it is
+# read. It exits at stdin EOF.
 # When fakeclaude.next exists in its directory as a prompt arrives, the contents of that file are matched in place of
 # the prompt's text for that prompt, and the file is removed, so a test can choose what a later prompt, such as a
 # resume, plays.
@@ -201,6 +203,18 @@ stepdone() {
 	turn_close
 }
 
+# judgeholds waits until fakeclaude.release exists in its directory, then ends the turn with a success result whose
+# structured output holds the one assertion JUDGEHOLDS, as a judge's return does.
+judgeholds() {
+	turn_open
+	while [ ! -e fakeclaude.release ]; do
+		sleep 0.05
+	done
+	structured='{"status":"done","results":[{"assertion":"JUDGEHOLDS","kind":"must","result":"holds","evidence":"fake"}],'
+	structured="$structured"'"findings":[],"observations":[],"missing_evidence":[],"test_runner_requests":[]}'
+	turn_close
+}
+
 # die streams the start of a text block and one delta of it, writes fake died to stderr and exits with status 3.
 die() {
 	turn_open
@@ -265,6 +279,7 @@ while next; do
 				*BGEND*) bgend ;;
 				*PAIR*) pair ;;
 				*STEPDONE*) stepdone ;;
+				*JUDGEHOLDS*) judgeholds ;;
 				*LIMITNORESET*) limit noreset ;;
 				*LIMIT*) limit ;;
 				*) reply ;;

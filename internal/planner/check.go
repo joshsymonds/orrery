@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"path"
 	"strings"
+
+	"github.com/joshsymonds/orrery/internal/evidence"
 )
 
 // The reasons a refusal gives after its field. Each says what the field must be.
@@ -19,14 +21,15 @@ const (
 
 // Check returns one refusal per bad task field of ret, in plan order, or nil when the plan passes. Each refusal names
 // the task by index and title, then the field, then the reason. requirements are the epic's Requirement ids, and owned
-// are the files owned by the epic's unfinished tasks.
-func Check(ret Return, requirements []string, owned []string) []string {
+// are the files owned by the epic's unfinished tasks. gate and judge resolve a task's gate name and judge name, and a
+// name they refuse gives the refusal its error text.
+func Check(ret Return, requirements []string, owned []string, gate, judge func(name string) error) []string {
 	known := stringSet(requirements)
 	taken := stringSet(owned)
 	named := make(map[string]bool)
 	refusals := make([]string, 0, len(ret.Tasks))
 	for i, task := range ret.Tasks {
-		refusals = append(refusals, checkTask(i, task, known, taken, named)...)
+		refusals = append(refusals, checkTask(i, task, known, taken, named, gate, judge)...)
 	}
 	if len(refusals) == 0 {
 		return nil
@@ -34,9 +37,10 @@ func Check(ret Return, requirements []string, owned []string) []string {
 	return refusals
 }
 
-// checkTask returns the refusals of one task's fields, in the order title, deliverable, files, requirements, check.
-// named records each well-formed file the plan names, so a later naming of the same file is refused.
-func checkTask(i int, task Task, known, taken, named map[string]bool) []string {
+// checkTask returns the refusals of one task's fields, in the order title, deliverable, files, requirements, gate,
+// each line of the evidence item's form, then the gate and the judge that do not resolve. named records each
+// well-formed file the plan names, so a later naming of the same file is refused.
+func checkTask(i int, task Task, known, taken, named map[string]bool, gate, judge func(name string) error) []string {
 	prefix := fmt.Sprintf(`tasks[%d] "%s"`, i, task.Title)
 	var refusals []string
 	if strings.TrimSpace(task.Title) == "" {
@@ -58,8 +62,21 @@ func checkTask(i int, task Task, known, taken, named map[string]bool) []string {
 			refusals = append(refusals, fmt.Sprintf("%s requirements[%d]: %s", prefix, k, reasonRequirement))
 		}
 	}
-	if strings.TrimSpace(task.Check) == "" {
-		refusals = append(refusals, prefix+" check: "+reasonEmpty)
+	if strings.TrimSpace(task.Gate) == "" {
+		refusals = append(refusals, prefix+" gate: "+reasonEmpty)
+	}
+	for _, line := range evidence.Check(task.Evidence) {
+		refusals = append(refusals, prefix+" evidence."+line)
+	}
+	if strings.TrimSpace(task.Gate) != "" {
+		if err := gate(task.Gate); err != nil {
+			refusals = append(refusals, prefix+" gate: "+err.Error())
+		}
+	}
+	if strings.TrimSpace(task.Evidence.Judge) != "" {
+		if err := judge(task.Evidence.Judge); err != nil {
+			refusals = append(refusals, prefix+" evidence.judge: "+err.Error())
+		}
 	}
 	return refusals
 }

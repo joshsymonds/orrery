@@ -204,6 +204,14 @@ func fullContract() *v1.EpicContract {
 			Text:     "A contract reaches the service with every field.",
 			Evidence: "The round-trip test passes.",
 			Kind:     "check",
+			Item: &v1.EvidenceItem{
+				Capture:    []string{"scripts/roundtrip", "--all"},
+				Limit:      60,
+				Artifacts:  []string{"out/roundtrip.log"},
+				Supplied:   []string{"docs/roundtrip.md"},
+				Conclusion: "Every contract field reaches the service.",
+				Judge:      "reviewer",
+			},
 		}},
 		Premises: []*v1.EpicPremise{{
 			Id:      "P1",
@@ -224,6 +232,18 @@ func fullContract() *v1.EpicContract {
 		}},
 		ReleaseThen: "Tell the members.",
 		Checks:      "just check",
+		Base:        "0123456789abcdef0123456789abcdef01234567",
+		Gates: []*v1.EpicGate{{
+			Name:    "check",
+			Argv:    []string{"scripts/check", "--fast"},
+			Limit:   600,
+			Needs:   []*v1.EpicGateNeed{{Pool: "gate", Count: 1}},
+			Agent:   "reviewer",
+			Must:    []string{"The change holds."},
+			MustNot: []string{"The change breaks a test."},
+		}},
+		DoneGates:   []string{"check"},
+		ReviewGates: []string{"floor"},
 	}
 }
 

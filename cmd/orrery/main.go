@@ -112,10 +112,13 @@ subcommands:
   gate [--gates FILE] NAME                      run a named gate under a grant from orreryd
   hold [--off] MEMBER                           place an owner hold on MEMBER through orreryd, or free it with --off
   step resume ID                                resume a step a usage limit holds, through orreryd
+  evidence run EPIC ITEM REVISION PHASE         run an item's evidence at a revision for one phase, red or green
+  evidence list EPIC                            list an epic's evidence runs and the artifacts each kept
+  evidence get RUN [NAME]                       write an artifact's bytes to stdout, or the run's log without NAME
   holder --session NAME [--state-dir DIR] -- PATH [ARGS...]
                                                 run PATH as one session's held child and serve its holder socket
                                                 until the child ends
-  holder --session NAME [--state-dir DIR] --gate-limit SECONDS -- PATH [ARGS...]
+  holder --session NAME [--state-dir DIR] --gate-limit SECONDS [--gate-tail BYTES] -- PATH [ARGS...]
                                                 run PATH as a gate: no stdin, one merged output tail, stopped at SECONDS
   serve --listen ADDR --allow-login LOGIN [--allow-login LOGIN]... [--push-host HOST]...
         [--host-status-cmd PATH]
@@ -238,10 +241,8 @@ func dispatch(ctx context.Context, opts globals, rest []string, stdin *os.File, 
 		return runMCP(ctx, opts, args, stdin, stdout, getenv)
 	case "epic":
 		return runEpic(ctx, opts, args, stdin, stdout, stderr, getenv)
-	case "run":
-		return runCommand(ctx, opts, args, stdin, stdout, stderr, getenv)
-	case "gate":
-		return runGate(ctx, opts, args, stdin, stdout, stderr, getenv)
+	case "run", "gate", "evidence":
+		return orreryCommand(ctx, opts, name, args, stdin, stdout, stderr, getenv)
 	case "hold", "step":
 		return runOwnerAction(ctx, opts, name, args, stderr, getenv)
 	case "holder":
@@ -284,6 +285,27 @@ func hookSocket(opts globals, getenv func(string) string) string {
 	return socket
 }
 
+// orreryCommand runs a subcommand that calls one of orreryd's services: run and gate take a grant of pool members, and
+// evidence runs an item's evidence or reads it back.
+func orreryCommand(
+	ctx context.Context,
+	opts globals,
+	name string,
+	args []string,
+	stdin *os.File,
+	stdout, stderr io.Writer,
+	getenv func(string) string,
+) error {
+	switch name {
+	case "run":
+		return runCommand(ctx, opts, args, stdin, stdout, stderr, getenv)
+	case "gate":
+		return runGate(ctx, opts, args, stdin, stdout, stderr, getenv)
+	default:
+		return runEvidence(ctx, opts, args, stdout, stderr, getenv)
+	}
+}
+
 // tmuxCommand runs a subcommand that talks to the tmux server named by opts: open, or one of runTmux's commands.
 func tmuxCommand(ctx context.Context, opts globals, name string, args []string, stdin *os.File, stdout io.Writer,
 	getenv func(string) string) error {
@@ -302,18 +324,18 @@ func tmuxCommand(ctx context.Context, opts globals, name string, args []string, 
 	return runTmux(ctx, client, name, args, stdin, stdout, getenv, seenReporter(opts.daemonSocket, getenv), pools)
 }
 
-// runSession runs `orrery session` with the session socket beside the daemon socket, unless the command names serve
-// with --url.
+// runSession runs `orrery session` with the daemon socket, which names the session socket beside it, unless the
+// command names serve with --url.
 func runSession(ctx context.Context, opts globals, args []string, stdout io.Writer, getenv func(string) string) error {
-	sessionSocket := ""
+	daemonSocket := ""
 	if !sessionViaURL(args) {
 		socket, err := protocol.SocketPath(opts.daemonSocket, getenv)
 		if err != nil {
 			return fmt.Errorf("session: %w", err)
 		}
-		sessionSocket = protocol.SessionSocketPath(socket)
+		daemonSocket = socket
 	}
-	return errors.Join(cli.Session(ctx, sessionSocket, args, stdout, getenv))
+	return errors.Join(cli.Session(ctx, daemonSocket, args, stdout, getenv))
 }
 
 // runNotices runs `orrery notices` against the notices socket beside the daemon socket.
@@ -400,9 +422,9 @@ func openServeStores(getenv func(string) string, pushHosts []string) (*push.Stor
 	return pushStore, store.NewReader(dbPath), nil
 }
 
-// runMCP runs `orrery mcp`. It serves the step and epic tools over MCP on stdin and stdout until stdin closes. The
-// step and epic services are the ones on the session socket beside the daemon socket, so the command opens no
-// listener and no store.
+// runMCP runs `orrery mcp`. It serves the step, epic and evidence tools over MCP on stdin and stdout until stdin closes.
+// The step, epic and evidence services are the ones on the session socket beside the daemon socket, so the command
+// opens no listener and no store.
 func runMCP(ctx context.Context, opts globals, args []string, stdin io.Reader, stdout io.Writer,
 	getenv func(string) string) error {
 	if len(args) > 0 {
@@ -415,7 +437,8 @@ func runMCP(ctx context.Context, opts globals, args []string, stdin io.Reader, s
 	sessionSocket := protocol.SessionSocketPath(socket)
 	steps := enginev1connect.NewStepsClient(cli.SessionHTTPClient(sessionSocket), cli.SessionBaseURL)
 	epics := enginev1connect.NewEpicsClient(cli.SessionHTTPClient(sessionSocket), cli.SessionBaseURL)
-	server, err := stepmcp.NewServer(steps, epics)
+	evidence := enginev1connect.NewEvidenceClient(cli.SessionHTTPClient(sessionSocket), cli.SessionBaseURL)
+	server, err := stepmcp.NewServer(steps, epics, evidence)
 	if err != nil {
 		return fmt.Errorf("mcp: %w", err)
 	}
@@ -482,12 +505,14 @@ func runServe(ctx context.Context, opts globals, args []string, getenv func(stri
 	var engine enginev1connect.EngineClient
 	var steps server.StepClient
 	var epicStore server.EpicStoreClient
+	var evidence server.EvidenceClient
 	var pools enginev1connect.PoolsClient
 	if daemonSocket, sockErr := protocol.SocketPath(opts.daemonSocket, getenv); sockErr == nil {
 		sessionClient := cli.SessionHTTPClient(protocol.SessionSocketPath(daemonSocket))
 		engine = enginev1connect.NewEngineClient(sessionClient, cli.SessionBaseURL)
 		steps = enginev1connect.NewStepsClient(sessionClient, cli.SessionBaseURL)
-		epicStore = enginev1connect.NewEpicsClient(sessionClient, cli.SessionBaseURL)
+		epicStore, evidence = enginev1connect.NewEpicsClient(sessionClient, cli.SessionBaseURL),
+			enginev1connect.NewEvidenceClient(sessionClient, cli.SessionBaseURL)
 		pools = enginev1connect.NewPoolsClient(sessionClient, cli.SessionBaseURL)
 	}
 	// Without a HOME the record root stays empty: os.DirFS refuses an empty root, so Epics fails its reads rather than
@@ -510,6 +535,7 @@ func runServe(ctx context.Context, opts globals, args []string, getenv func(stri
 		Pools:       pools,
 		Records:     records,
 		EpicStore:   epicStore,
+		Evidence:    evidence,
 		Home:        home,
 		Picker:      servePickerConfig(tmux, getenv),
 		ReportSeen:  seenReporter(opts.daemonSocket, getenv),

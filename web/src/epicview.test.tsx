@@ -4,6 +4,7 @@ import { test } from "node:test";
 import { create, type MessageInitShape } from "@bufbuild/protobuf";
 import { render } from "preact";
 
+import type { LoadArtifact } from "./evidence";
 import { EpicView } from "./epicview";
 import { EpicsGetResponseSchema, type EpicsGetResponse } from "./gen/orrery/v1/epics_pb";
 import { CENTRE, handPath, point, sliceMid, VIEW, wedgePath } from "./orbits";
@@ -104,14 +105,17 @@ function onDay(now: number, hours: number): bigint {
   return BigInt(Math.floor(midnight.getTime() / 1000) + hours * 3600);
 }
 
+// noArtifacts answers no artifact: a test that opens no log or image never calls it.
+const noArtifacts: LoadArtifact = () => Promise.reject(new Error("the view loaded an artifact no test expected"));
+
 async function withView(
-  props: { detail: EpicsGetResponse; cursorStep: string },
+  props: { detail: EpicsGetResponse; cursorStep: string; loadArtifact?: LoadArtifact },
   check: (container: HTMLElement) => void | Promise<void>,
 ): Promise<void> {
   const window = installTestDom();
   const container = document.createElement("div");
   try {
-    render(<EpicView {...props} now={testNow} />, container);
+    render(<EpicView loadArtifact={noArtifacts} {...props} now={testNow} />, container);
     await check(container);
   } finally {
     render(null, container);
@@ -631,6 +635,53 @@ test("an accepted orreryd epic reads its phase in the head and lists its require
       );
     },
   ));
+
+// evidenceRequirements is a requirement of an orreryd epic that its two runs judged: the conclusion holds in the head.
+const evidenceRequirements = [
+  {
+    id: "R1",
+    text: "the phase reads in the head",
+    conclusion: "the head shows the phase",
+    runs: [
+      { id: "r-red", phase: "red", source: "captured", state: "ended", verdict: "fails", passed: true, exit: 1 },
+      { id: "r-green", phase: "green", source: "supplied", state: "ended", verdict: "holds", passed: true, exit: 0 },
+    ],
+  },
+];
+
+test("a Requirement with runs shows its id, text and conclusion, then its runs in order, and no kind", () =>
+  withView({ detail: detail({ epic, requirements: evidenceRequirements }), cursorStep: "" }, (container) => {
+    assert.equal(container.querySelector("li.requirement .rid")?.textContent ?? null, "R1");
+    assert.equal(container.querySelector("li.requirement .text")?.textContent ?? null, "the phase reads in the head");
+    assert.equal(
+      container.querySelector("li.requirement > p.conclusion")?.textContent ?? null,
+      "the head shows the phase",
+    );
+    assert.equal(container.querySelectorAll(".requirement .kind").length, 0, "only a legacy requirement has a kind");
+    assert.deepEqual(
+      [...(container.querySelector("li.requirement")?.children ?? [])].map(classOf),
+      ["rid", "text", "conclusion", "runs"],
+    );
+    assert.equal(container.querySelectorAll("li.requirement > .runs > .run").length, 2);
+    assert.deepEqual(
+      [...container.querySelectorAll(".requirement .run .phase")].map((phase) => phase.textContent),
+      ["red", "green"],
+    );
+    assert.deepEqual(
+      [...container.querySelectorAll(".requirement .run .source")].map((source) => source.textContent),
+      ["captured", "agent-supplied"],
+    );
+  }));
+
+test("a legacy Requirement shows its kind and draws no conclusion and no runs", () =>
+  withView({ detail: detail({ epic, requirements }), cursorStep: "" }, (container) => {
+    assert.deepEqual(
+      [...container.querySelectorAll("li.requirement > .kind")].map((kind) => kind.textContent),
+      ["check", "review", "check"],
+    );
+    assert.equal(container.querySelectorAll(".conclusion").length, 0);
+    assert.equal(container.querySelectorAll(".runs").length, 0);
+  }));
 
 test("an epic with no requirements draws no requirements section", () =>
   withView({ detail: detail({ epic, tasks, steps, slices: syntheticSlices(3) }), cursorStep: "" }, (container) => {

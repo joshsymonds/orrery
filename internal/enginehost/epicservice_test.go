@@ -47,7 +47,7 @@ func startEpicServer(t *testing.T, epics EpicCommands) string {
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan error, 1)
-	go func() { done <- Serve(ctx, ln, nil, nil, epics, nil) }()
+	go func() { done <- Serve(ctx, ln, nil, nil, epics, nil, nil) }()
 	t.Cleanup(func() {
 		cancel()
 		if err := <-done; err != nil {
@@ -64,7 +64,7 @@ func newEpicsClient(t *testing.T, path string) enginev1connect.EpicsClient {
 }
 
 // fullEpicRequest returns a create request for a synthetic contract with id and every section at two or more rows,
-// naming the git repository repo. Its seed decisions are D1, D2 and D3.
+// naming the git repository repo and based at its HEAD. Its seed decisions are D1, D2 and D3.
 func fullEpicRequest(repo, id string) *v1.CreateEpicRequest {
 	return &v1.CreateEpicRequest{
 		Contract: &v1.EpicContract{
@@ -84,8 +84,8 @@ func fullEpicRequest(repo, id string) *v1.CreateEpicRequest {
 				{Location: "docs/guide.md", What: "Synthetic note.", Why: "Synthetic reason.", Cost: "None."},
 			},
 			Requirements: []*v1.EpicRequirement{
-				{Id: "R1", Text: "Synthetic requirement one.", Evidence: "Synthetic check.", Kind: "check"},
-				{Id: "R2", Text: "Synthetic requirement two.", Evidence: "Synthetic review.", Kind: "review"},
+				{Id: "R1", Text: "Synthetic requirement one.", Item: epicTestItem()},
+				{Id: "R2", Text: "Synthetic requirement two.", Item: epicTestItem()},
 			},
 			Premises: []*v1.EpicPremise{
 				{Id: "P1", Text: "Synthetic premise one.", IfWrong: "Synthetic consequence one."},
@@ -106,6 +106,10 @@ func fullEpicRequest(repo, id string) *v1.CreateEpicRequest {
 			},
 			ReleaseThen: "Synthetic release line.",
 			Checks:      "go test ./...",
+			Base:        epicTestBase(repo),
+			Gates:       epicTestGates(),
+			DoneGates:   []string{"check"},
+			ReviewGates: []string{"review"},
 		},
 		Decisions: []*v1.EpicDecisionInput{
 			{Id: "D1", Text: "Synthetic decision one."},
@@ -157,14 +161,16 @@ func TestEpicCreateThenGetRoundTripsContract(t *testing.T) {
 	t.Parallel()
 	st := epicTestStore(t)
 	client := newEpicsClient(t, startEpicServer(t, st))
-	req := fullEpicRequest(stepGitTestRepo(t), epicServiceID)
+	repo := stepGitTestRepo(t)
+	req := fullEpicRequest(repo, epicServiceID)
 
 	before := time.Now().Unix()
 	stored := createEpicOK(t, client, req)
 	after := time.Now().Unix()
 
-	if !proto.Equal(stored.GetContract(), req.GetContract()) {
-		t.Fatalf("created contract = %v, want %v", stored.GetContract(), req.GetContract())
+	want := fullEpicRequest(repo, epicServiceID).GetContract()
+	if !proto.Equal(stored.GetContract(), want) {
+		t.Fatalf("created contract = %v, want %v", stored.GetContract(), want)
 	}
 	if stored.GetPhase() != "accepted" {
 		t.Fatalf("phase = %q, want accepted", stored.GetPhase())
@@ -221,6 +227,16 @@ func TestEpicCreateRefusesWhatCheckEpicRefuses(t *testing.T) {
 			name:   "intent blank",
 			mutate: func(req *v1.CreateEpicRequest) { req.Contract.Intent = "  " },
 			want:   "intent: empty",
+		},
+		{
+			name:   "base blank",
+			mutate: func(req *v1.CreateEpicRequest) { req.Contract.Base = " " },
+			want:   "base: empty",
+		},
+		{
+			name:   "requirement item missing",
+			mutate: func(req *v1.CreateEpicRequest) { req.Contract.Requirements[0].Item = nil },
+			want:   "requirements[0].item: missing",
 		},
 		{
 			name:   "release undo empty",

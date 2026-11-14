@@ -55,6 +55,11 @@ const stepDefaultWatchTick = 5 * time.Second
 // its prompt is built from Prompt. Such a start is refused unless it is read-only and leaves Agent, Schema and
 // DoneValue empty.
 //
+// AgentGate, when set, is an agent gate given as data in place of a named gate, and the step runs it as a named agent
+// gate does, without reading any gates or project file. Such a start is refused unless it is read-only and leaves
+// GateName, GatesFile, Agent, Schema and DoneValue empty. The gate needs a name, an agent, at least one assertion, a
+// limit of at least a second, and no argv or needs. The step is stored with the gate's name and the source "data".
+//
 // ReturnCheck, when set, runs on every schema-valid return of the step. Its failure lines are stored as the failed
 // check named return and sent back to the session, and a step with a ReturnCheck is never judged by Haiku. It is
 // Go-only: the Steps proto does not carry it, so only an in-process caller sets it.
@@ -72,6 +77,7 @@ type StepStart struct {
 	DoneValue   string
 	Epic        string
 	Task        string
+	AgentGate   *gates.Gate
 	ReturnCheck func(value json.RawMessage) []string
 }
 
@@ -97,6 +103,9 @@ type StepStore interface {
 // ReadoptCheck returns the return check a step row is re-adopted with: a return check is Go-only, so the row cannot hold
 // it, and the caller that started the step supplies it again. A nil ReadoptCheck, or one that returns a nil check,
 // rebuilds the run with none. An error leaves the row unregistered, so Reconcile ends it engine_restarted.
+// ReadoptGate returns the agent gate an agent gate step row is re-adopted with. A gate definition is not stored with the
+// row, so the caller rebuilds it from the row's stored data. A nil ReadoptGate, or one that returns a nil gate or a gate
+// that names no agent or not the row's gate, leaves the row unregistered, and so does an error.
 type StepsConfig struct {
 	Sessions     stepSessions
 	Store        StepStore
@@ -111,6 +120,7 @@ type StepsConfig struct {
 	GateStateDir string
 	GateScope    string
 	ReadoptCheck func(ctx context.Context, row store.StepRow) (func(value json.RawMessage) []string, error)
+	ReadoptGate  func(ctx context.Context, row store.StepRow) (*gates.Gate, error)
 }
 
 // StepAdopter is what Readopt registers each open step with, and what Reconcile asks whether the step is live. Manager
@@ -138,6 +148,7 @@ type Steps struct {
 	gateStateDir string
 	gateScope    string
 	readoptCheck func(ctx context.Context, row store.StepRow) (func(value json.RawMessage) []string, error)
+	readoptGate  func(ctx context.Context, row store.StepRow) (*gates.Gate, error)
 
 	mu      sync.Mutex
 	loops   map[string]context.CancelFunc
@@ -175,6 +186,7 @@ func NewSteps(cfg StepsConfig) (*Steps, error) {
 		gateStateDir: cfg.GateStateDir,
 		gateScope:    cfg.GateScope,
 		readoptCheck: cfg.ReadoptCheck,
+		readoptGate:  cfg.ReadoptGate,
 		loops:        map[string]context.CancelFunc{},
 		causes:       map[string]context.CancelCauseFunc{},
 		runs:         map[string]*stepRun{},
@@ -420,13 +432,17 @@ type stepGate struct {
 	agent  *gates.Gate
 }
 
-// resolveStepGate returns the gate start runs. A start without GateName runs no gate, and GatesFile set without GateName
-// is refused. A named gate is resolved once, from start.GatesFile or else the project file for start.Workspace. An agent
-// gate returns here, before any pool file is read. Any other named gate has the pools every pool file for
-// start.Workspace declares loaded with it. It is refused with an error matching ErrBadGate when GatesFile is not
-// absolute, when the name does not resolve, when the pool files do not load, and when a need is for a pool no pool file
-// declares. The resolved argv is used as the gate's definition gives it; nothing is looked up on PATH.
+// resolveStepGate returns the gate start runs. An AgentGate is the gate as the start gives it, checked by dataAgentGate,
+// and no file is read for it. A start without GateName runs no gate, and GatesFile set without GateName is refused. A
+// named gate is resolved once, from start.GatesFile or else the project file for start.Workspace. An agent gate returns
+// here, before any pool file is read. Any other named gate has the pools every pool file for start.Workspace declares
+// loaded with it. It is refused with an error matching ErrBadGate when GatesFile is not absolute, when the name does not
+// resolve, when the pool files do not load, and when a need is for a pool no pool file declares. The resolved argv is
+// used as the gate's definition gives it; nothing is looked up on PATH.
 func (s *Steps) resolveStepGate(ctx context.Context, start StepStart) (stepGate, error) {
+	if start.AgentGate != nil {
+		return dataAgentGate(start)
+	}
 	if start.GateName == "" {
 		if start.GatesFile != "" {
 			return stepGate{}, fmt.Errorf("%w: gates file %s is set without a gate name", ErrBadGate, start.GatesFile)
@@ -454,6 +470,38 @@ func (s *Steps) resolveStepGate(ctx context.Context, start StepStart) (stepGate,
 		argv: resolved.Argv, limit: resolved.Limit, name: start.GateName, source: resolved.Source,
 		needs: stepNeeds(resolved.Needs), grant: grant,
 	}, nil
+}
+
+// stepGateSourceData is the source a step is stored with when its agent gate is given as data rather than read from a
+// file.
+const stepGateSourceData = "data"
+
+// dataAgentGate returns the gate of start, whose AgentGate is set, and reads no file. It is refused with an error
+// matching ErrBadGate when start also names a gate or a gates file, and when the gate has no name, no agent, no
+// assertion, a limit under a second, or an argv or needs. The file parser refuses each of those for an agent gate, and
+// the run would otherwise drop argv or needs, or end the step overtime at its first tick.
+func dataAgentGate(start StepStart) (stepGate, error) {
+	gate := *start.AgentGate
+	switch {
+	case start.GateName != "" || start.GatesFile != "":
+		return stepGate{}, fmt.Errorf(
+			"%w: agent gate %s is given as data, so the start must leave GateName and GatesFile empty",
+			ErrBadGate, gate.Name,
+		)
+	case gate.Name == "":
+		return stepGate{}, fmt.Errorf("%w: agent gate has no name", ErrBadGate)
+	case gate.Agent == "":
+		return stepGate{}, fmt.Errorf("%w: agent gate %s names no agent", ErrBadGate, gate.Name)
+	case len(gate.Assertions) == 0:
+		return stepGate{}, fmt.Errorf("%w: agent gate %s has no assertion", ErrBadGate, gate.Name)
+	case len(gate.Argv) > 0 || len(gate.Needs) > 0:
+		return stepGate{}, fmt.Errorf("%w: agent gate %s takes no argv or needs", ErrBadGate, gate.Name)
+	case gate.Limit < time.Second:
+		return stepGate{}, fmt.Errorf(
+			"%w: agent gate %s limit %s is under a second", ErrBadGate, gate.Name, gate.Limit,
+		)
+	}
+	return stepGate{name: gate.Name, source: stepGateSourceData, limit: gate.Limit, agent: &gate}, nil
 }
 
 // stepGrant returns the grant request a gate runs under in workspace: the project and the pool definitions every pool file

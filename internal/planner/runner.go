@@ -38,14 +38,15 @@ type Steps interface {
 }
 
 // Config configures a Runner. A Tick that is not positive means five seconds, and a nil Now means time.Now. A nil
-// Logger discards.
+// Logger discards. Resolve answers whether the gates and judges of a planned task resolve for its epic.
 type Config struct {
-	Store  Store
-	Steps  Steps
-	Agent  func() (string, error)
-	Tick   time.Duration
-	Now    func() time.Time
-	Logger *slog.Logger
+	Store   Store
+	Steps   Steps
+	Agent   func() (string, error)
+	Tick    time.Duration
+	Now     func() time.Time
+	Logger  *slog.Logger
+	Resolve Resolver
 }
 
 // defaultTick is how often a Runner passes when its Config names no positive tick.
@@ -79,19 +80,21 @@ const taskDone = "done"
 // Runner passes over the epics with pending triggers and runs their planner turns. Each claimed turn runs in its own
 // goroutine, and turns tracks them until Run returns.
 type Runner struct {
-	store  Store
-	steps  Steps
-	agent  func() (string, error)
-	tick   time.Duration
-	now    func() time.Time
-	logger *slog.Logger
-	turns  sync.WaitGroup
+	store   Store
+	steps   Steps
+	agent   func() (string, error)
+	tick    time.Duration
+	now     func() time.Time
+	logger  *slog.Logger
+	resolve Resolver
+	turns   sync.WaitGroup
 }
 
 // New returns a Runner for cfg.
 func New(cfg Config) *Runner {
 	runner := &Runner{
 		store: cfg.Store, steps: cfg.Steps, agent: cfg.Agent, tick: cfg.Tick, now: cfg.Now, logger: cfg.Logger,
+		resolve: cfg.Resolve,
 	}
 	if runner.tick <= 0 {
 		runner.tick = defaultTick
@@ -201,14 +204,18 @@ func (r *Runner) startStep(ctx context.Context, epic string, turn store.EpicTurn
 	if err != nil {
 		return "", fmt.Errorf("read triggers of turn %d of epic %s: %w", turn.Seq, epic, err)
 	}
+	prompt, err := Prompt(row, turn.Seq, triggers)
+	if err != nil {
+		return "", fmt.Errorf("render prompt of turn %d of epic %s: %w", turn.Seq, epic, err)
+	}
 	id, err := r.steps.Start(ctx, enginehost.StepStart{
 		Agent:       agent,
-		Prompt:      Prompt(row, turn.Seq, triggers),
+		Prompt:      prompt,
 		Schema:      Schema,
 		Workspace:   row.Repository,
 		ReadOnly:    true,
 		Epic:        row.ID,
-		ReturnCheck: returnCheck(row),
+		ReturnCheck: returnCheck(ctx, row, r.resolve),
 	})
 	if id != "" {
 		if setErr := r.store.SetTurnStep(ctx, epic, turn.Seq, id); setErr != nil {
@@ -462,7 +469,7 @@ func planOf(ret Return) store.EpicPlan {
 	for _, task := range ret.Tasks {
 		tasks = append(tasks, store.EpicTaskInput{
 			Title: task.Title, Deliverable: task.Deliverable, Files: task.Files,
-			Requirements: task.Requirements, Check: task.Check,
+			Requirements: task.Requirements, Gate: task.Gate, Evidence: task.Evidence,
 		})
 	}
 	return store.EpicPlan{
@@ -471,20 +478,24 @@ func planOf(ret Return) store.EpicPlan {
 }
 
 // returnCheck returns the check a planner step's return runs for epic. A return that does not parse is one line.
-// Any other return gets the refusals of Check, against the epic's Requirement ids and the files of its tasks that are
-// not done.
-func returnCheck(epic store.EpicRow) func(value json.RawMessage) []string {
+// Any other return gets the refusals of Check, against the epic's Requirement ids, the files of its tasks that are not
+// done, and the gates and judges that resolve answers for epic. The gate resolves under ctx without its cancellation,
+// so the turn that started the step ending does not refuse its return.
+func returnCheck(ctx context.Context, epic store.EpicRow, resolve Resolver) func(value json.RawMessage) []string {
 	requirements := make([]string, 0, len(epic.Requirements))
 	for _, requirement := range epic.Requirements {
 		requirements = append(requirements, requirement.ID)
 	}
 	owned := unfinishedFiles(epic.Tasks)
+	gateCtx := context.WithoutCancel(ctx)
+	gate := func(name string) error { return resolve.Gate(gateCtx, epic, name) }
+	judge := func(name string) error { return resolve.Judge(epic, name) }
 	return func(value json.RawMessage) []string {
 		ret, err := Parse(value)
 		if err != nil {
 			return []string{err.Error()}
 		}
-		return Check(ret, requirements, owned)
+		return Check(ret, requirements, owned, gate, judge)
 	}
 }
 

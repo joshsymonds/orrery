@@ -23,6 +23,12 @@ service Steps {
   rpc Stop(StepsStopRequest) returns (StepsStopResponse);
 }
 
+// Evidence reads the artifacts evidence runs kept.
+service Evidence {
+  // Artifact returns one artifact of an evidence run, or the run's log when the name is empty.
+  rpc Artifact(EvidenceArtifactRequest) returns (EvidenceArtifactResponse);
+}
+
 // EpicsListRequest asks for every epic. It has no fields.
 message EpicsListRequest {}
 
@@ -212,6 +218,94 @@ message EpicRequirement {
 
   // How the requirement is shown: check or review.
   string kind = 4;
+
+  // The evidence runs of the requirement.
+  repeated EvidenceRun runs = 5;
+
+  // The conclusion the requirement's evidence is judged against.
+  string conclusion = 6;
+}
+
+// EvidenceRun is one evidence run: an item's evidence captured or supplied for one phase at a revision, with its
+// verdict.
+message EvidenceRun {
+  // The run's id.
+  string id = 1;
+
+  // The phase the run is for: red or green.
+  string phase = 2;
+
+  // How the evidence was produced: captured or supplied.
+  string source = 3;
+
+  // The run's state: capturing, judging or ended.
+  string state = 4;
+
+  // The capture's exit code; for a supplied run, 0 when every file is kept and 1 otherwise.
+  int32 exit = 5;
+
+  // Whether the capture was killed at its time limit.
+  bool timed_out = 6;
+
+  // Why the capture has no result: could not start, killed at its limit, or lost at a restart. Empty otherwise.
+  string not_captured = 7;
+
+  // The judge's verdict: holds, fails, or empty when the judge gave none.
+  string verdict = 8;
+
+  // Why the judge gave no verdict. Empty otherwise.
+  string judge_reason = 9;
+
+  // Whether the run passes its phase: red when the conclusion fails; green when it holds and the capture exited 0.
+  bool passed = 10;
+
+  // The commit the run captured or read at.
+  string revision = 11;
+
+  // When the run was created, in unix seconds.
+  int64 created = 12;
+
+  // When the run ended, in unix seconds; 0 while it runs.
+  int64 ended = 13;
+
+  // The size of the run's log in bytes.
+  int64 log_bytes = 14;
+
+  // The artifacts the run kept, each with the state it was kept in.
+  repeated EvidenceArtifact artifacts = 15;
+}
+
+// EvidenceArtifact is one file an evidence run kept, with the state it was kept in.
+message EvidenceArtifact {
+  // The artifact's repository-relative path.
+  string path = 1;
+
+  // The artifact's state: kept, missing or over_cap.
+  string state = 2;
+
+  // The artifact's size in bytes.
+  int64 size = 3;
+
+  // The artifact's media type by extension.
+  string media_type = 4;
+}
+
+// EvidenceArtifactRequest names one artifact of an evidence run.
+message EvidenceArtifactRequest {
+  // The evidence run's id.
+  string run = 1;
+
+  // The artifact's repository-relative path; empty for the run's log.
+  string name = 2;
+}
+
+// EvidenceArtifactResponse carries one artifact's bytes.
+message EvidenceArtifactResponse {
+  // The artifact's bytes, or the run's log's bytes.
+  bytes data = 1;
+
+  // The artifact's media type by extension.
+  string media_type = 2;
 }
 
 // StepsHoldRequest names the step to hold.
