@@ -44,6 +44,12 @@ func epicTableColumns() map[string][]string {
 		"epic_task_requirements": {"epic", "task", "position", "requirement"},
 		"epic_questions":         {"epic", "seq", "turn", "text", "state"},
 		"engine_rate_limits":     {"session_id", "status", "kind", "resets_at", "at"},
+		"evidence_runs": {
+			"id", "epic", "item", "revision", "phase", "source", "state", "spec", "grant_id", "holder", "exit",
+			"timed_out", "not_captured", "log_hash", "log_bytes", "judge_step", "judges", "verdict", "judge_reason",
+			"passed", "created", "ended",
+		},
+		"evidence_artifacts": {"run", "position", "path", "state", "hash", "blob", "size"},
 	}
 }
 
@@ -411,6 +417,10 @@ func TestEvidenceMigrationDownAndUp(t *testing.T) {
 	if hasAny(columnsOf(t, s, "epic_requirements"), "item") {
 		t.Errorf("epic_requirements columns after Down still hold item")
 	}
+	if tables["evidence_runs"] || tables["evidence_artifacts"] {
+		t.Errorf("evidence tables after Down: evidence_runs %v, evidence_artifacts %v; want neither",
+			tables["evidence_runs"], tables["evidence_artifacts"])
+	}
 
 	if _, err := provider.Up(ctx); err != nil {
 		t.Fatalf("Up: %v", err)
@@ -419,6 +429,10 @@ func TestEvidenceMigrationDownAndUp(t *testing.T) {
 	if !tables["epic_gates"] || !tables["epic_gate_lists"] {
 		t.Errorf("gate tables after Up: epic_gates %v, epic_gate_lists %v; want both", tables["epic_gates"],
 			tables["epic_gate_lists"])
+	}
+	if !tables["evidence_runs"] || !tables["evidence_artifacts"] {
+		t.Errorf("evidence tables after Up: evidence_runs %v, evidence_artifacts %v; want both",
+			tables["evidence_runs"], tables["evidence_artifacts"])
 	}
 	if !hasAll(columnsOf(t, s, "epics"), "base") {
 		t.Errorf("epics columns after Up = %v, want base", columnsOf(t, s, "epics"))

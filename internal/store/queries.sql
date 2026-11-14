@@ -479,3 +479,38 @@ DO UPDATE SET status = excluded.status, kind = excluded.kind, resets_at = exclud
 
 -- name: GetEngineRateLimit :one
 SELECT * FROM engine_rate_limits WHERE session_id = ?;
+
+-- name: InsertEvidenceRun :exec
+INSERT INTO evidence_runs (id, epic, item, revision, phase, source, state, spec, created)
+VALUES (?, ?, ?, ?, ?, ?, 'capturing', ?, ?);
+
+-- name: GetEvidenceRunState :one
+SELECT state FROM evidence_runs WHERE id = ?;
+
+-- name: SetEvidenceRunGrant :exec
+UPDATE evidence_runs SET grant_id = ?, holder = ? WHERE id = ?;
+
+-- name: RecordEvidenceRunCapture :exec
+UPDATE evidence_runs SET exit = ?, timed_out = ?, not_captured = ?, log_hash = ?, log_bytes = ?, state = ?, ended = ?
+WHERE id = ?;
+
+-- name: InsertEvidenceArtifact :exec
+INSERT INTO evidence_artifacts (run, position, path, state, hash, blob, size) VALUES (?, ?, ?, ?, ?, ?, ?);
+
+-- name: ListEvidenceArtifacts :many
+SELECT * FROM evidence_artifacts WHERE run = ? ORDER BY position;
+
+-- name: SetEvidenceRunJudge :exec
+UPDATE evidence_runs SET judge_step = ?, judges = judges + 1 WHERE id = ?;
+
+-- name: RecordEvidenceRunVerdict :exec
+UPDATE evidence_runs SET verdict = ?, judge_reason = ?, passed = ?, state = 'ended', ended = ? WHERE id = ?;
+
+-- name: GetEvidenceRun :one
+SELECT * FROM evidence_runs WHERE id = ?;
+
+-- name: ListEvidenceRuns :many
+SELECT * FROM evidence_runs WHERE epic = ? ORDER BY created, id;
+
+-- name: ListOpenEvidenceRuns :many
+SELECT * FROM evidence_runs WHERE state <> 'ended' ORDER BY created, id;

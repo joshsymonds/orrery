@@ -204,6 +204,41 @@ type Event struct {
 	WriteID   string
 }
 
+type EvidenceArtifact struct {
+	Run      string
+	Position int64
+	Path     string
+	State    string
+	Hash     string
+	Blob     string
+	Size     int64
+}
+
+type EvidenceRun struct {
+	ID          string
+	Epic        string
+	Item        string
+	Revision    string
+	Phase       string
+	Source      string
+	State       string
+	Spec        string
+	GrantID     string
+	Holder      string
+	Exit        int64
+	TimedOut    int64
+	NotCaptured string
+	LogHash     string
+	LogBytes    int64
+	JudgeStep   string
+	Judges      int64
+	Verdict     string
+	JudgeReason string
+	Passed      int64
+	Created     int64
+	Ended       int64
+}
+
 type Grant struct {
 	ID          string
 	Project     string

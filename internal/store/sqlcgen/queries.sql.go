@@ -452,6 +452,51 @@ func (q *Queries) GetEpicDecisionByClientID(ctx context.Context, arg GetEpicDeci
 	return i, err
 }
 
+const getEvidenceRun = `-- name: GetEvidenceRun :one
+SELECT id, epic, item, revision, phase, source, state, spec, grant_id, holder, exit, timed_out, not_captured, log_hash, log_bytes, judge_step, judges, verdict, judge_reason, passed, created, ended FROM evidence_runs WHERE id = ?
+`
+
+func (q *Queries) GetEvidenceRun(ctx context.Context, id string) (EvidenceRun, error) {
+	row := q.db.QueryRowContext(ctx, getEvidenceRun, id)
+	var i EvidenceRun
+	err := row.Scan(
+		&i.ID,
+		&i.Epic,
+		&i.Item,
+		&i.Revision,
+		&i.Phase,
+		&i.Source,
+		&i.State,
+		&i.Spec,
+		&i.GrantID,
+		&i.Holder,
+		&i.Exit,
+		&i.TimedOut,
+		&i.NotCaptured,
+		&i.LogHash,
+		&i.LogBytes,
+		&i.JudgeStep,
+		&i.Judges,
+		&i.Verdict,
+		&i.JudgeReason,
+		&i.Passed,
+		&i.Created,
+		&i.Ended,
+	)
+	return i, err
+}
+
+const getEvidenceRunState = `-- name: GetEvidenceRunState :one
+SELECT state FROM evidence_runs WHERE id = ?
+`
+
+func (q *Queries) GetEvidenceRunState(ctx context.Context, id string) (string, error) {
+	row := q.db.QueryRowContext(ctx, getEvidenceRunState, id)
+	var state string
+	err := row.Scan(&state)
+	return state, err
+}
+
 const getNoticeIDFloor = `-- name: GetNoticeIDFloor :one
 SELECT high FROM pending_notice_ids WHERE id = 1
 `
@@ -1091,6 +1136,63 @@ func (q *Queries) InsertEvent(ctx context.Context, arg InsertEventParams) error 
 		arg.Kind,
 		arg.At,
 		arg.Payload,
+	)
+	return err
+}
+
+const insertEvidenceArtifact = `-- name: InsertEvidenceArtifact :exec
+INSERT INTO evidence_artifacts (run, position, path, state, hash, blob, size) VALUES (?, ?, ?, ?, ?, ?, ?)
+`
+
+type InsertEvidenceArtifactParams struct {
+	Run      string
+	Position int64
+	Path     string
+	State    string
+	Hash     string
+	Blob     string
+	Size     int64
+}
+
+func (q *Queries) InsertEvidenceArtifact(ctx context.Context, arg InsertEvidenceArtifactParams) error {
+	_, err := q.db.ExecContext(ctx, insertEvidenceArtifact,
+		arg.Run,
+		arg.Position,
+		arg.Path,
+		arg.State,
+		arg.Hash,
+		arg.Blob,
+		arg.Size,
+	)
+	return err
+}
+
+const insertEvidenceRun = `-- name: InsertEvidenceRun :exec
+INSERT INTO evidence_runs (id, epic, item, revision, phase, source, state, spec, created)
+VALUES (?, ?, ?, ?, ?, ?, 'capturing', ?, ?)
+`
+
+type InsertEvidenceRunParams struct {
+	ID       string
+	Epic     string
+	Item     string
+	Revision string
+	Phase    string
+	Source   string
+	Spec     string
+	Created  int64
+}
+
+func (q *Queries) InsertEvidenceRun(ctx context.Context, arg InsertEvidenceRunParams) error {
+	_, err := q.db.ExecContext(ctx, insertEvidenceRun,
+		arg.ID,
+		arg.Epic,
+		arg.Item,
+		arg.Revision,
+		arg.Phase,
+		arg.Source,
+		arg.Spec,
+		arg.Created,
 	)
 	return err
 }
@@ -2080,6 +2182,91 @@ func (q *Queries) ListEvents(ctx context.Context) ([]Event, error) {
 	return items, nil
 }
 
+const listEvidenceArtifacts = `-- name: ListEvidenceArtifacts :many
+SELECT run, position, path, state, hash, blob, size FROM evidence_artifacts WHERE run = ? ORDER BY position
+`
+
+func (q *Queries) ListEvidenceArtifacts(ctx context.Context, run string) ([]EvidenceArtifact, error) {
+	rows, err := q.db.QueryContext(ctx, listEvidenceArtifacts, run)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []EvidenceArtifact
+	for rows.Next() {
+		var i EvidenceArtifact
+		if err := rows.Scan(
+			&i.Run,
+			&i.Position,
+			&i.Path,
+			&i.State,
+			&i.Hash,
+			&i.Blob,
+			&i.Size,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listEvidenceRuns = `-- name: ListEvidenceRuns :many
+SELECT id, epic, item, revision, phase, source, state, spec, grant_id, holder, exit, timed_out, not_captured, log_hash, log_bytes, judge_step, judges, verdict, judge_reason, passed, created, ended FROM evidence_runs WHERE epic = ? ORDER BY created, id
+`
+
+func (q *Queries) ListEvidenceRuns(ctx context.Context, epic string) ([]EvidenceRun, error) {
+	rows, err := q.db.QueryContext(ctx, listEvidenceRuns, epic)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []EvidenceRun
+	for rows.Next() {
+		var i EvidenceRun
+		if err := rows.Scan(
+			&i.ID,
+			&i.Epic,
+			&i.Item,
+			&i.Revision,
+			&i.Phase,
+			&i.Source,
+			&i.State,
+			&i.Spec,
+			&i.GrantID,
+			&i.Holder,
+			&i.Exit,
+			&i.TimedOut,
+			&i.NotCaptured,
+			&i.LogHash,
+			&i.LogBytes,
+			&i.JudgeStep,
+			&i.Judges,
+			&i.Verdict,
+			&i.JudgeReason,
+			&i.Passed,
+			&i.Created,
+			&i.Ended,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listGrantMembers = `-- name: ListGrantMembers :many
 SELECT member, grant_id, pool, position FROM grant_members ORDER BY grant_id, position
 `
@@ -2376,6 +2563,56 @@ func (q *Queries) ListLabelledSteps(ctx context.Context, arg ListLabelledStepsPa
 			&i.GateGrant,
 			&i.GateHolder,
 			&i.GateRound,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listOpenEvidenceRuns = `-- name: ListOpenEvidenceRuns :many
+SELECT id, epic, item, revision, phase, source, state, spec, grant_id, holder, exit, timed_out, not_captured, log_hash, log_bytes, judge_step, judges, verdict, judge_reason, passed, created, ended FROM evidence_runs WHERE state <> 'ended' ORDER BY created, id
+`
+
+func (q *Queries) ListOpenEvidenceRuns(ctx context.Context) ([]EvidenceRun, error) {
+	rows, err := q.db.QueryContext(ctx, listOpenEvidenceRuns)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []EvidenceRun
+	for rows.Next() {
+		var i EvidenceRun
+		if err := rows.Scan(
+			&i.ID,
+			&i.Epic,
+			&i.Item,
+			&i.Revision,
+			&i.Phase,
+			&i.Source,
+			&i.State,
+			&i.Spec,
+			&i.GrantID,
+			&i.Holder,
+			&i.Exit,
+			&i.TimedOut,
+			&i.NotCaptured,
+			&i.LogHash,
+			&i.LogBytes,
+			&i.JudgeStep,
+			&i.Judges,
+			&i.Verdict,
+			&i.JudgeReason,
+			&i.Passed,
+			&i.Created,
+			&i.Ended,
 		); err != nil {
 			return nil, err
 		}
@@ -2814,6 +3051,59 @@ func (q *Queries) RaiseNoticeIDFloor(ctx context.Context, id interface{}) error 
 	return err
 }
 
+const recordEvidenceRunCapture = `-- name: RecordEvidenceRunCapture :exec
+UPDATE evidence_runs SET exit = ?, timed_out = ?, not_captured = ?, log_hash = ?, log_bytes = ?, state = ?, ended = ?
+WHERE id = ?
+`
+
+type RecordEvidenceRunCaptureParams struct {
+	Exit        int64
+	TimedOut    int64
+	NotCaptured string
+	LogHash     string
+	LogBytes    int64
+	State       string
+	Ended       int64
+	ID          string
+}
+
+func (q *Queries) RecordEvidenceRunCapture(ctx context.Context, arg RecordEvidenceRunCaptureParams) error {
+	_, err := q.db.ExecContext(ctx, recordEvidenceRunCapture,
+		arg.Exit,
+		arg.TimedOut,
+		arg.NotCaptured,
+		arg.LogHash,
+		arg.LogBytes,
+		arg.State,
+		arg.Ended,
+		arg.ID,
+	)
+	return err
+}
+
+const recordEvidenceRunVerdict = `-- name: RecordEvidenceRunVerdict :exec
+UPDATE evidence_runs SET verdict = ?, judge_reason = ?, passed = ?, state = 'ended', ended = ? WHERE id = ?
+`
+
+type RecordEvidenceRunVerdictParams struct {
+	Verdict     string
+	JudgeReason string
+	Passed      int64
+	Ended       int64
+	ID          string
+}
+
+func (q *Queries) RecordEvidenceRunVerdict(ctx context.Context, arg RecordEvidenceRunVerdictParams) error {
+	_, err := q.db.ExecContext(ctx, recordEvidenceRunVerdict,
+		arg.Verdict,
+		arg.JudgeReason,
+		arg.Passed,
+		arg.Ended,
+		arg.ID,
+	)
+	return err
+}
+
 const releaseEpicTriggers = `-- name: ReleaseEpicTriggers :exec
 UPDATE epic_triggers SET state = 'pending', turn = 0 WHERE epic = ? AND turn = ? AND state = 'claimed'
 `
@@ -2903,6 +3193,35 @@ func (q *Queries) SetEpicTurnStep(ctx context.Context, arg SetEpicTurnStepParams
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const setEvidenceRunGrant = `-- name: SetEvidenceRunGrant :exec
+UPDATE evidence_runs SET grant_id = ?, holder = ? WHERE id = ?
+`
+
+type SetEvidenceRunGrantParams struct {
+	GrantID string
+	Holder  string
+	ID      string
+}
+
+func (q *Queries) SetEvidenceRunGrant(ctx context.Context, arg SetEvidenceRunGrantParams) error {
+	_, err := q.db.ExecContext(ctx, setEvidenceRunGrant, arg.GrantID, arg.Holder, arg.ID)
+	return err
+}
+
+const setEvidenceRunJudge = `-- name: SetEvidenceRunJudge :exec
+UPDATE evidence_runs SET judge_step = ?, judges = judges + 1 WHERE id = ?
+`
+
+type SetEvidenceRunJudgeParams struct {
+	JudgeStep string
+	ID        string
+}
+
+func (q *Queries) SetEvidenceRunJudge(ctx context.Context, arg SetEvidenceRunJudgeParams) error {
+	_, err := q.db.ExecContext(ctx, setEvidenceRunJudge, arg.JudgeStep, arg.ID)
+	return err
 }
 
 const updateEngineConsumed = `-- name: UpdateEngineConsumed :execrows

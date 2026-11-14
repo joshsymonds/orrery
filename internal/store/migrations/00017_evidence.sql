@@ -24,7 +24,47 @@ CREATE TABLE epic_gate_lists (
 
 ALTER TABLE epic_requirements ADD COLUMN item TEXT NOT NULL DEFAULT '';
 
+CREATE TABLE evidence_runs (
+    id TEXT PRIMARY KEY,
+    epic TEXT NOT NULL,
+    item TEXT NOT NULL,
+    revision TEXT NOT NULL,
+    phase TEXT NOT NULL CHECK (phase IN ('red', 'green')),
+    source TEXT NOT NULL CHECK (source IN ('captured', 'supplied')),
+    state TEXT NOT NULL CHECK (state IN ('capturing', 'judging', 'ended')),
+    spec TEXT NOT NULL,
+    grant_id TEXT NOT NULL DEFAULT '',
+    holder TEXT NOT NULL DEFAULT '',
+    exit INTEGER NOT NULL DEFAULT 0,
+    timed_out INTEGER NOT NULL DEFAULT 0,
+    not_captured TEXT NOT NULL DEFAULT '',
+    log_hash TEXT NOT NULL DEFAULT '',
+    log_bytes INTEGER NOT NULL DEFAULT 0,
+    judge_step TEXT NOT NULL DEFAULT '',
+    judges INTEGER NOT NULL DEFAULT 0,
+    verdict TEXT NOT NULL DEFAULT '' CHECK (verdict IN ('', 'holds', 'fails')),
+    judge_reason TEXT NOT NULL DEFAULT '',
+    passed INTEGER NOT NULL DEFAULT 0,
+    created INTEGER NOT NULL,
+    ended INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE INDEX evidence_runs_epic_created ON evidence_runs (epic, created);
+
+CREATE TABLE evidence_artifacts (
+    run TEXT NOT NULL,
+    position INTEGER NOT NULL,
+    path TEXT NOT NULL,
+    state TEXT NOT NULL CHECK (state IN ('kept', 'missing', 'over_cap')),
+    hash TEXT NOT NULL DEFAULT '',
+    blob TEXT NOT NULL DEFAULT '',
+    size INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (run, position)
+);
+
 -- +goose Down
+DROP TABLE evidence_artifacts;
+DROP TABLE evidence_runs;
 ALTER TABLE epic_requirements DROP COLUMN item;
 DROP TABLE epic_gate_lists;
 DROP TABLE epic_gates;
