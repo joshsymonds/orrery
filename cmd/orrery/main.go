@@ -460,12 +460,14 @@ func runServe(ctx context.Context, opts globals, args []string, getenv func(stri
 	var engine enginev1connect.EngineClient
 	var steps server.StepClient
 	var epicStore server.EpicStoreClient
+	var evidence server.EvidenceClient
 	var pools enginev1connect.PoolsClient
 	if daemonSocket, sockErr := protocol.SocketPath(opts.daemonSocket, getenv); sockErr == nil {
 		sessionClient := cli.SessionHTTPClient(protocol.SessionSocketPath(daemonSocket))
 		engine = enginev1connect.NewEngineClient(sessionClient, cli.SessionBaseURL)
 		steps = enginev1connect.NewStepsClient(sessionClient, cli.SessionBaseURL)
-		epicStore = enginev1connect.NewEpicsClient(sessionClient, cli.SessionBaseURL)
+		epicStore, evidence = enginev1connect.NewEpicsClient(sessionClient, cli.SessionBaseURL),
+			enginev1connect.NewEvidenceClient(sessionClient, cli.SessionBaseURL)
 		pools = enginev1connect.NewPoolsClient(sessionClient, cli.SessionBaseURL)
 	}
 	// Without a HOME the record root stays empty: os.DirFS refuses an empty root, so Epics fails its reads rather than
@@ -488,6 +490,7 @@ func runServe(ctx context.Context, opts globals, args []string, getenv func(stri
 		Pools:       pools,
 		Records:     records,
 		EpicStore:   epicStore,
+		Evidence:    evidence,
 		Home:        home,
 		Picker:      servePickerConfig(tmux, getenv),
 		ReportSeen:  seenReporter(opts.daemonSocket, getenv),

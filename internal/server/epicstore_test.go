@@ -75,7 +75,7 @@ func storedEpicOf(id, phase string, changed int64, requirements ...*enginev1.Epi
 // Epics client.
 func epicStoreServe(t *testing.T, root string, steps StepClient, store EpicStoreClient) orreryv1connect.EpicsClient {
 	t.Helper()
-	path, handler := newEpicsHandler(root, steps, store, 0, epicsNow, newRetryClock())
+	path, handler := newEpicsHandler(root, steps, store, nil, 0, epicsNow, newRetryClock())
 	mux := http.NewServeMux()
 	mux.Handle(path, handler)
 	srv := httptest.NewServer(mux)
