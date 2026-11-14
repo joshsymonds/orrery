@@ -496,7 +496,7 @@ func (q *Queries) GetSession(ctx context.Context, id string) (Session, error) {
 }
 
 const getStep = `-- name: GetStep :one
-SELECT id, agent, prompt, output_schema, workspace, revision, worktree, done_value, read_only, owned, gate, gate_limit, started, checks, result, status, end_value, reason, ended, model_limit, doing, verdicts, epic, task, gate_name, gate_source, gate_needs, loop_round, loop_continues, loop_nudge, loop_owner_nudge, loop_nudged, loop_held, loop_judge_sent, loop_seq, gate_grant, gate_holder, gate_round FROM steps WHERE id = ?
+SELECT id, agent, prompt, output_schema, workspace, revision, worktree, done_value, read_only, owned, gate, gate_limit, started, checks, result, status, end_value, reason, ended, model_limit, doing, verdicts, epic, task, gate_name, gate_source, gate_needs, loop_round, loop_continues, loop_nudge, loop_owner_nudge, loop_nudged, loop_held, loop_judge_sent, loop_seq, gate_grant, gate_holder, gate_round, loop_limited, loop_limit_kind, loop_limit_resets FROM steps WHERE id = ?
 `
 
 func (q *Queries) GetStep(ctx context.Context, id string) (Step, error) {
@@ -541,6 +541,9 @@ func (q *Queries) GetStep(ctx context.Context, id string) (Step, error) {
 		&i.GateGrant,
 		&i.GateHolder,
 		&i.GateRound,
+		&i.LoopLimited,
+		&i.LoopLimitKind,
+		&i.LoopLimitResets,
 	)
 	return i, err
 }
@@ -2156,7 +2159,7 @@ func (q *Queries) ListKnownDirs(ctx context.Context) ([]string, error) {
 }
 
 const listLabelledSteps = `-- name: ListLabelledSteps :many
-SELECT id, agent, prompt, output_schema, workspace, revision, worktree, done_value, read_only, owned, gate, gate_limit, started, checks, result, status, end_value, reason, ended, model_limit, doing, verdicts, epic, task, gate_name, gate_source, gate_needs, loop_round, loop_continues, loop_nudge, loop_owner_nudge, loop_nudged, loop_held, loop_judge_sent, loop_seq, gate_grant, gate_holder, gate_round FROM steps
+SELECT id, agent, prompt, output_schema, workspace, revision, worktree, done_value, read_only, owned, gate, gate_limit, started, checks, result, status, end_value, reason, ended, model_limit, doing, verdicts, epic, task, gate_name, gate_source, gate_needs, loop_round, loop_continues, loop_nudge, loop_owner_nudge, loop_nudged, loop_held, loop_judge_sent, loop_seq, gate_grant, gate_holder, gate_round, loop_limited, loop_limit_kind, loop_limit_resets FROM steps
 WHERE epic <> '' AND (CAST(?1 AS TEXT) = '' OR epic = CAST(?1 AS TEXT))
   AND (CAST(?2 AS TEXT) = '' OR task = CAST(?2 AS TEXT))
 ORDER BY started, id
@@ -2215,6 +2218,78 @@ func (q *Queries) ListLabelledSteps(ctx context.Context, arg ListLabelledStepsPa
 			&i.GateGrant,
 			&i.GateHolder,
 			&i.GateRound,
+			&i.LoopLimited,
+			&i.LoopLimitKind,
+			&i.LoopLimitResets,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listLimitedSteps = `-- name: ListLimitedSteps :many
+SELECT id, agent, prompt, output_schema, workspace, revision, worktree, done_value, read_only, owned, gate, gate_limit, started, checks, result, status, end_value, reason, ended, model_limit, doing, verdicts, epic, task, gate_name, gate_source, gate_needs, loop_round, loop_continues, loop_nudge, loop_owner_nudge, loop_nudged, loop_held, loop_judge_sent, loop_seq, gate_grant, gate_holder, gate_round, loop_limited, loop_limit_kind, loop_limit_resets FROM steps WHERE end_value = '' AND loop_limited = 1 ORDER BY started, id
+`
+
+func (q *Queries) ListLimitedSteps(ctx context.Context) ([]Step, error) {
+	rows, err := q.db.QueryContext(ctx, listLimitedSteps)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Step
+	for rows.Next() {
+		var i Step
+		if err := rows.Scan(
+			&i.ID,
+			&i.Agent,
+			&i.Prompt,
+			&i.OutputSchema,
+			&i.Workspace,
+			&i.Revision,
+			&i.Worktree,
+			&i.DoneValue,
+			&i.ReadOnly,
+			&i.Owned,
+			&i.Gate,
+			&i.GateLimit,
+			&i.Started,
+			&i.Checks,
+			&i.Result,
+			&i.Status,
+			&i.EndValue,
+			&i.Reason,
+			&i.Ended,
+			&i.ModelLimit,
+			&i.Doing,
+			&i.Verdicts,
+			&i.Epic,
+			&i.Task,
+			&i.GateName,
+			&i.GateSource,
+			&i.GateNeeds,
+			&i.LoopRound,
+			&i.LoopContinues,
+			&i.LoopNudge,
+			&i.LoopOwnerNudge,
+			&i.LoopNudged,
+			&i.LoopHeld,
+			&i.LoopJudgeSent,
+			&i.LoopSeq,
+			&i.GateGrant,
+			&i.GateHolder,
+			&i.GateRound,
+			&i.LoopLimited,
+			&i.LoopLimitKind,
+			&i.LoopLimitResets,
 		); err != nil {
 			return nil, err
 		}
@@ -2230,7 +2305,7 @@ func (q *Queries) ListLabelledSteps(ctx context.Context, arg ListLabelledStepsPa
 }
 
 const listOpenSteps = `-- name: ListOpenSteps :many
-SELECT id, agent, prompt, output_schema, workspace, revision, worktree, done_value, read_only, owned, gate, gate_limit, started, checks, result, status, end_value, reason, ended, model_limit, doing, verdicts, epic, task, gate_name, gate_source, gate_needs, loop_round, loop_continues, loop_nudge, loop_owner_nudge, loop_nudged, loop_held, loop_judge_sent, loop_seq, gate_grant, gate_holder, gate_round FROM steps WHERE end_value = '' ORDER BY id
+SELECT id, agent, prompt, output_schema, workspace, revision, worktree, done_value, read_only, owned, gate, gate_limit, started, checks, result, status, end_value, reason, ended, model_limit, doing, verdicts, epic, task, gate_name, gate_source, gate_needs, loop_round, loop_continues, loop_nudge, loop_owner_nudge, loop_nudged, loop_held, loop_judge_sent, loop_seq, gate_grant, gate_holder, gate_round, loop_limited, loop_limit_kind, loop_limit_resets FROM steps WHERE end_value = '' ORDER BY id
 `
 
 func (q *Queries) ListOpenSteps(ctx context.Context) ([]Step, error) {
@@ -2281,6 +2356,9 @@ func (q *Queries) ListOpenSteps(ctx context.Context) ([]Step, error) {
 			&i.GateGrant,
 			&i.GateHolder,
 			&i.GateRound,
+			&i.LoopLimited,
+			&i.LoopLimitKind,
+			&i.LoopLimitResets,
 		); err != nil {
 			return nil, err
 		}
@@ -2925,19 +3003,22 @@ func (q *Queries) UpdateStepGate(ctx context.Context, arg UpdateStepGateParams) 
 const updateStepLoop = `-- name: UpdateStepLoop :exec
 UPDATE steps
 SET loop_round = ?, loop_continues = ?, loop_nudge = ?, loop_owner_nudge = ?, loop_nudged = ?, loop_held = ?,
-    loop_judge_sent = ?
+    loop_judge_sent = ?, loop_limited = ?, loop_limit_kind = ?, loop_limit_resets = ?
 WHERE id = ?
 `
 
 type UpdateStepLoopParams struct {
-	LoopRound      int64
-	LoopContinues  int64
-	LoopNudge      string
-	LoopOwnerNudge string
-	LoopNudged     bool
-	LoopHeld       bool
-	LoopJudgeSent  bool
-	ID             string
+	LoopRound       int64
+	LoopContinues   int64
+	LoopNudge       string
+	LoopOwnerNudge  string
+	LoopNudged      bool
+	LoopHeld        bool
+	LoopJudgeSent   bool
+	LoopLimited     bool
+	LoopLimitKind   string
+	LoopLimitResets int64
+	ID              string
 }
 
 func (q *Queries) UpdateStepLoop(ctx context.Context, arg UpdateStepLoopParams) error {
@@ -2949,6 +3030,9 @@ func (q *Queries) UpdateStepLoop(ctx context.Context, arg UpdateStepLoopParams) 
 		arg.LoopNudged,
 		arg.LoopHeld,
 		arg.LoopJudgeSent,
+		arg.LoopLimited,
+		arg.LoopLimitKind,
+		arg.LoopLimitResets,
 		arg.ID,
 	)
 	return err

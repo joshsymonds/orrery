@@ -194,6 +194,9 @@ WHERE epic <> '' AND (CAST(sqlc.arg(epic) AS TEXT) = '' OR epic = CAST(sqlc.arg(
   AND (CAST(sqlc.arg(task) AS TEXT) = '' OR task = CAST(sqlc.arg(task) AS TEXT))
 ORDER BY started, id;
 
+-- name: ListLimitedSteps :many
+SELECT * FROM steps WHERE end_value = '' AND loop_limited = 1 ORDER BY started, id;
+
 -- name: UpdateStepReturn :exec
 UPDATE steps
 SET result = ?, checks = ?,
@@ -204,7 +207,7 @@ WHERE id = ?;
 -- name: UpdateStepLoop :exec
 UPDATE steps
 SET loop_round = ?, loop_continues = ?, loop_nudge = ?, loop_owner_nudge = ?, loop_nudged = ?, loop_held = ?,
-    loop_judge_sent = ?
+    loop_judge_sent = ?, loop_limited = ?, loop_limit_kind = ?, loop_limit_resets = ?
 WHERE id = ?;
 
 -- name: UpdateStepGate :exec
