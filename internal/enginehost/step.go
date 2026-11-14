@@ -2,6 +2,7 @@ package enginehost
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -53,20 +54,25 @@ const stepDefaultWatchTick = 5 * time.Second
 // A named agent gate instead runs its agent as a read-only step with the verdict schema and the done value "done", and
 // its prompt is built from Prompt. Such a start is refused unless it is read-only and leaves Agent, Schema and
 // DoneValue empty.
+//
+// ReturnCheck, when set, runs on every schema-valid return of the step. Its failure lines are stored as the failed
+// check named return and sent back to the session, and a step with a ReturnCheck is never judged by Haiku. It is
+// Go-only: the Steps proto does not carry it, so only an in-process caller sets it.
 type StepStart struct {
-	Agent      string
-	Prompt     string
-	Schema     string
-	Workspace  string
-	Revision   string
-	ReadOnly   bool
-	Owned      []string
-	GateName   string
-	GatesFile  string
-	ModelLimit time.Duration
-	DoneValue  string
-	Epic       string
-	Task       string
+	Agent       string
+	Prompt      string
+	Schema      string
+	Workspace   string
+	Revision    string
+	ReadOnly    bool
+	Owned       []string
+	GateName    string
+	GatesFile   string
+	ModelLimit  time.Duration
+	DoneValue   string
+	Epic        string
+	Task        string
+	ReturnCheck func(value json.RawMessage) []string
 }
 
 // StepStore reads the step rows Steps reports. *store.Store satisfies it.
@@ -204,6 +210,7 @@ func (s *Steps) Start(ctx context.Context, start StepStart) (string, error) {
 		writing: !start.ReadOnly, start: commit, owned: start.Owned, gate: gate.argv, gateLimit: gateLimit,
 		gateName: gate.name, gateSource: gate.source, grant: gate.grant, pools: s.pools,
 		environ: s.environ, prompt: start.Prompt, now: s.now, modelLimit: modelLimit, agentGate: gate.agent,
+		returnCheck: start.ReturnCheck,
 	}
 	step := StepSession{ID: id, Dir: start.Workspace, Prompt: start.Prompt, Agent: start.Agent, Schema: start.Schema}
 	if start.ReadOnly {
