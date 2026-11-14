@@ -81,22 +81,20 @@ func (e *Evidence) readoptUnlaunched(ctx context.Context, repo string, run store
 	e.drive(ctx, repo, run)
 }
 
-// readoptCapture readopts the capture of run, whose grant is stored, and records it as drive does. A gate that detaches again
-// records nothing, so the next restart readopts it.
+// readoptCapture readopts the capture of run, whose grant is stored, and records it as drive does: an ended capture is
+// recorded even when ctx has ended, and a judge is readopted only while ctx has not. A gate that detaches again records
+// nothing, so the next restart readopts it.
 func (e *Evidence) readoptCapture(ctx context.Context, repo string, run store.EvidenceRun) {
 	capture, err := e.captures.readopt(ctx, repo, run.Revision, run.ID, run.Spec, run.Grant)
 	if err != nil {
-		e.logger.InfoContext(ctx, "evidence capture detached from its gate", "run", run.ID, "err", err)
+		e.logger.InfoContext(ctx, "evidence capture left for a restart", "run", run.ID, "err", err)
 		return
 	}
-	if ctx.Err() != nil {
-		return
-	}
-	if err = e.store.RecordEvidenceCapture(ctx, run.ID, capture); err != nil {
+	if err = e.store.RecordEvidenceCapture(context.WithoutCancel(ctx), run.ID, capture); err != nil {
 		e.logger.ErrorContext(ctx, "record evidence capture", "run", run.ID, "err", err)
 		return
 	}
-	if capture.NotCaptured != "" {
+	if capture.NotCaptured != "" || ctx.Err() != nil {
 		return
 	}
 	e.readoptJudge(ctx, repo, evidenceRunCaptured(run, capture))

@@ -192,8 +192,9 @@ func (e *Evidence) Artifact(ctx context.Context, run, name string) ([]byte, stri
 
 // Close cancels every drive and waits for each to return. Under a gate scope each drive is canceled with errGateDetach,
 // which leaves its capture's gate running under its holder for a restarted orreryd to re-adopt. Without one the cancel
-// kills the gate. A drive that is canceled records nothing more, so its run stays as it is for a restart to resume. Run
-// returns an error from then on.
+// kills the gate. A capture that has ended is recorded even so, but a canceled drive starts no judge, so its run is left
+// judging with no judge step for a restart's Resume to give the verdict. A capture cut short before its gate launched is
+// recorded as nothing, so its run stays capturing for a restart to run it. Run returns an error from then on.
 func (e *Evidence) Close() {
 	e.mu.Lock()
 	e.closed = true
@@ -312,41 +313,52 @@ func (e *Evidence) finish(id string) {
 	}
 }
 
-// drive runs run to its verdict. A captured run's capture, or a supplied run's reading of its files, is recorded, and a run
-// whose capture captured nothing ends there. Otherwise its judge gives the verdict. A capture whose gate detaches records
-// nothing, so the next restart re-adopts it. Each record is written only while ctx has not ended.
+// drive runs run to its verdict. A captured run's capture, or a supplied run's reading of its files, is recorded, even when
+// ctx has ended, and a run whose capture captured nothing ends there. A drive whose ctx has ended then stops before judging,
+// and a Resume gives the judge. Otherwise its judge gives the verdict. A capture whose gate detaches records nothing, so the
+// next restart re-adopts it, and so does one cut short before its gate launched or a supplied read cut short.
 func (e *Evidence) drive(ctx context.Context, repo string, run store.EvidenceRun) {
 	capture, err := e.capture(ctx, repo, run)
 	if err != nil {
-		e.logger.InfoContext(ctx, "evidence capture detached from its gate", "run", run.ID, "err", err)
+		e.logger.InfoContext(ctx, "evidence capture left for a restart", "run", run.ID, "err", err)
 		return
 	}
-	if ctx.Err() != nil {
-		return
-	}
-	if err = e.store.RecordEvidenceCapture(ctx, run.ID, capture); err != nil {
+	if err = e.store.RecordEvidenceCapture(context.WithoutCancel(ctx), run.ID, capture); err != nil {
 		e.logger.ErrorContext(ctx, "record evidence capture", "run", run.ID, "err", err)
 		return
 	}
-	if capture.NotCaptured != "" {
+	if capture.NotCaptured != "" || ctx.Err() != nil {
 		return
 	}
 	e.judgeRun(ctx, repo, evidenceRunCaptured(run, capture))
 }
 
 // capture captures run at repo's revision, or reads its supplied files. A captured run's grant and holder are recorded when
-// its grant holds, before its gate launches. It returns an error only when the gate detaches.
+// its grant holds, before its gate launches. It returns an error when the gate detaches, and when ctx ends before the capture
+// has ended: before its gate launched, or before its supplied files were read. Nothing ran then, so nothing is recorded.
 func (e *Evidence) capture(ctx context.Context, repo string, run store.EvidenceRun) (store.EvidenceCapture, error) {
 	if run.Source == evidence.SourceSupplied {
-		return readSupplied(ctx, repo, run.Revision, run.Spec.Supplied, e.blobs), nil
+		capture := readSupplied(ctx, repo, run.Revision, run.Spec.Supplied, e.blobs)
+		// A read that ctx cut short has not ended, so a restart reads the files again rather than recording the cut.
+		if capture.NotCaptured != "" && ctx.Err() != nil {
+			return store.EvidenceCapture{}, fmt.Errorf("read evidence run %s: %w", run.ID, ctx.Err())
+		}
+		return capture, nil
 	}
+	launched := false
 	started := func(startCtx context.Context, grant, holder string) error {
 		if err := e.store.SetEvidenceGrant(startCtx, run.ID, grant, holder); err != nil {
 			return fmt.Errorf("record grant of evidence run %s: %w", run.ID, err)
 		}
+		launched = true
 		return nil
 	}
-	return e.captures.run(ctx, repo, run.Revision, run.ID, run.Spec, started)
+	capture, err := e.captures.run(ctx, repo, run.Revision, run.ID, run.Spec, started)
+	// A capture that ctx cut short before its gate launched has not ended, so a restart runs it rather than recording the cut.
+	if err == nil && !launched && ctx.Err() != nil {
+		return store.EvidenceCapture{}, fmt.Errorf("capture evidence run %s: %w", run.ID, ctx.Err())
+	}
+	return capture, err
 }
 
 // evidenceRunCaptured returns run with the exit, timeout, log and artifacts its capture left, which the judge reads.
