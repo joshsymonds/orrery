@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"time"
+	"unicode/utf8"
 
 	"github.com/joshsymonds/orrery/internal/store/sqlcgen"
 )
@@ -247,4 +248,128 @@ func (s *Store) SetTurnStep(ctx context.Context, epic string, turn int64, step s
 		}
 		return nil
 	})
+}
+
+// TurnReasonMax is the most bytes a turn's reason and an epic's park reason keep.
+const TurnReasonMax = 1024
+
+// failuresToPark is how many of an epic's latest turns that are not free must all fail to park the epic.
+const failuresToPark = 3
+
+// parkedAfterFailures opens the park reason of an epic whose three latest turns that are not free all failed.
+const parkedAfterFailures = "3 planner turns failed in a row: "
+
+// TurnFree is how a running turn ends without a return: its Reason, whether it Pauses the epic, and the Park reason
+// it parks the epic with when not empty.
+type TurnFree struct {
+	Reason string
+	Pause  bool
+	Park   string
+}
+
+// FailTurn ends the running turn seq of epic as failed with reason, cut to TurnReasonMax bytes, in one write, and
+// returns the triggers it claimed to pending with turn 0. When the epic's three latest turns that are not free are all
+// failed, the same write parks the epic with parkedAfterFailures followed by the stored reason. A turn that is not
+// running, or does not exist, is ErrTurnNotRunning and writes nothing.
+func (s *Store) FailTurn(ctx context.Context, epic string, turn int64, reason string, at time.Time) error {
+	return s.write(ctx, func(queries *sqlcgen.Queries) error {
+		stored := capTurnText(reason)
+		if err := endTurn(ctx, queries, epic, turn, "failed", stored, at); err != nil {
+			return err
+		}
+		recent, err := queries.ListRecentEpicTurnStates(ctx, epic)
+		if err != nil {
+			return fmt.Errorf("read recent turns of epic %s: %w", epic, err)
+		}
+		if !failedInARow(recent) {
+			return nil
+		}
+		return setParked(ctx, queries, epic, parkedAfterFailures+stored)
+	})
+}
+
+// FreeTurn ends the running turn seq of epic as free with free.Reason, cut to TurnReasonMax bytes, and returns its
+// triggers to pending with turn 0 in one write. Pause pauses the epic, and a non-empty Park parks it with that reason.
+// A free turn never counts toward the three failed turns that park an epic. A turn that is not running, or does not
+// exist, is ErrTurnNotRunning and writes nothing.
+func (s *Store) FreeTurn(ctx context.Context, epic string, turn int64, free TurnFree, at time.Time) error {
+	return s.write(ctx, func(queries *sqlcgen.Queries) error {
+		if err := endTurn(ctx, queries, epic, turn, "free", capTurnText(free.Reason), at); err != nil {
+			return err
+		}
+		if free.Pause {
+			if err := queries.PauseEpic(ctx, epic); err != nil {
+				return fmt.Errorf("pause epic %s: %w", epic, err)
+			}
+		}
+		if free.Park == "" {
+			return nil
+		}
+		return setParked(ctx, queries, epic, free.Park)
+	})
+}
+
+// ParkEpic parks epic with reason, cut to TurnReasonMax bytes, in one write. An unknown epic is ErrNoEpic.
+func (s *Store) ParkEpic(ctx context.Context, epic string, reason string) error {
+	return s.write(ctx, func(queries *sqlcgen.Queries) error {
+		return setParked(ctx, queries, epic, reason)
+	})
+}
+
+// endTurn ends the running turn seq of epic as state with reason, ended at at, and returns the triggers the turn
+// claimed to pending with turn 0. A turn that is not running, or does not exist, is ErrTurnNotRunning.
+func endTurn(ctx context.Context, queries *sqlcgen.Queries, epic string, turn int64, state, reason string,
+	at time.Time,
+) error {
+	rows, err := queries.EndEpicTurn(ctx, sqlcgen.EndEpicTurnParams{
+		State: state, Reason: reason, Ended: at.Unix(), Epic: epic, Seq: turn,
+	})
+	if err != nil {
+		return fmt.Errorf("end turn %d of epic %s: %w", turn, epic, err)
+	}
+	if rows == 0 {
+		return fmt.Errorf("turn %d of epic %s: %w", turn, epic, ErrTurnNotRunning)
+	}
+	if err = queries.ReleaseEpicTriggers(ctx, sqlcgen.ReleaseEpicTriggersParams{Epic: epic, Turn: turn}); err != nil {
+		return fmt.Errorf("release triggers of turn %d of epic %s: %w", turn, epic, err)
+	}
+	return nil
+}
+
+// failedInARow reports whether states, the states of the latest turns that are not free, newest first, are three
+// failed turns.
+func failedInARow(states []string) bool {
+	if len(states) != failuresToPark {
+		return false
+	}
+	for _, state := range states {
+		if state != "failed" {
+			return false
+		}
+	}
+	return true
+}
+
+// setParked sets the park reason of epic to reason, cut to TurnReasonMax bytes. An unknown epic is ErrNoEpic.
+func setParked(ctx context.Context, queries *sqlcgen.Queries, epic, reason string) error {
+	rows, err := queries.SetEpicParked(ctx, sqlcgen.SetEpicParkedParams{Parked: capTurnText(reason), ID: epic})
+	if err != nil {
+		return fmt.Errorf("park epic %s: %w", epic, err)
+	}
+	if rows == 0 {
+		return fmt.Errorf("epic %s: %w", epic, ErrNoEpic)
+	}
+	return nil
+}
+
+// capTurnText cuts text to at most TurnReasonMax bytes at a UTF-8 rune start.
+func capTurnText(text string) string {
+	if len(text) <= TurnReasonMax {
+		return text
+	}
+	cut := TurnReasonMax
+	for cut > 0 && !utf8.RuneStart(text[cut]) {
+		cut--
+	}
+	return text[:cut]
 }

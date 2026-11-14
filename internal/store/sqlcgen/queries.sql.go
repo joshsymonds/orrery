@@ -272,6 +272,32 @@ func (q *Queries) DeleteStaleEngineText(ctx context.Context, arg DeleteStaleEngi
 	return err
 }
 
+const endEpicTurn = `-- name: EndEpicTurn :execrows
+UPDATE epic_turns SET state = ?, reason = ?, ended = ? WHERE epic = ? AND seq = ? AND state = 'running'
+`
+
+type EndEpicTurnParams struct {
+	State  string
+	Reason string
+	Ended  int64
+	Epic   string
+	Seq    int64
+}
+
+func (q *Queries) EndEpicTurn(ctx context.Context, arg EndEpicTurnParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, endEpicTurn,
+		arg.State,
+		arg.Reason,
+		arg.Ended,
+		arg.Epic,
+		arg.Seq,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const eventPageAfter = `-- name: EventPageAfter :many
 SELECT seq, session_id, kind, at, payload, write_id FROM events WHERE seq > ? ORDER BY seq LIMIT ?
 `
@@ -2000,6 +2026,33 @@ func (q *Queries) ListPushedNotices(ctx context.Context) ([]PushedNotice, error)
 	return items, nil
 }
 
+const listRecentEpicTurnStates = `-- name: ListRecentEpicTurnStates :many
+SELECT state FROM epic_turns WHERE epic = ? AND state <> 'free' ORDER BY seq DESC LIMIT 3
+`
+
+func (q *Queries) ListRecentEpicTurnStates(ctx context.Context, epic string) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, listRecentEpicTurnStates, epic)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var state string
+		if err := rows.Scan(&state); err != nil {
+			return nil, err
+		}
+		items = append(items, state)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listServerSessions = `-- name: ListServerSessions :many
 SELECT id, server, pane, state, changed, seen, question, summary, label, context, tool, claude_session, transcript, kind, dir, reason, consumed, replay_from, background, turn_output, prompts_from FROM sessions WHERE server = ? AND kind = '' ORDER BY id
 `
@@ -2199,6 +2252,15 @@ func (q *Queries) OldestEventSeq(ctx context.Context) (int64, error) {
 	return seq, err
 }
 
+const pauseEpic = `-- name: PauseEpic :exec
+UPDATE epics SET paused = 1 WHERE id = ?
+`
+
+func (q *Queries) PauseEpic(ctx context.Context, id string) error {
+	_, err := q.db.ExecContext(ctx, pauseEpic, id)
+	return err
+}
+
 const pruneEvents = `-- name: PruneEvents :exec
 DELETE FROM events WHERE events.at < ? AND events.seq < (SELECT MAX(newest.seq) FROM events AS newest)
 `
@@ -2214,6 +2276,20 @@ UPDATE pending_notice_ids SET high = MAX(high, ?1) WHERE id = 1
 
 func (q *Queries) RaiseNoticeIDFloor(ctx context.Context, id interface{}) error {
 	_, err := q.db.ExecContext(ctx, raiseNoticeIDFloor, id)
+	return err
+}
+
+const releaseEpicTriggers = `-- name: ReleaseEpicTriggers :exec
+UPDATE epic_triggers SET state = 'pending', turn = 0 WHERE epic = ? AND turn = ? AND state = 'claimed'
+`
+
+type ReleaseEpicTriggersParams struct {
+	Epic string
+	Turn int64
+}
+
+func (q *Queries) ReleaseEpicTriggers(ctx context.Context, arg ReleaseEpicTriggersParams) error {
+	_, err := q.db.ExecContext(ctx, releaseEpicTriggers, arg.Epic, arg.Turn)
 	return err
 }
 
@@ -2257,6 +2333,23 @@ func (q *Queries) SessionEventsAfter(ctx context.Context, arg SessionEventsAfter
 		return nil, err
 	}
 	return items, nil
+}
+
+const setEpicParked = `-- name: SetEpicParked :execrows
+UPDATE epics SET parked = ? WHERE id = ?
+`
+
+type SetEpicParkedParams struct {
+	Parked string
+	ID     string
+}
+
+func (q *Queries) SetEpicParked(ctx context.Context, arg SetEpicParkedParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, setEpicParked, arg.Parked, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const setEpicTurnStep = `-- name: SetEpicTurnStep :execrows

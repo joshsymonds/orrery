@@ -388,3 +388,18 @@ INSERT INTO epic_questions (epic, seq, turn, text, state) VALUES (?, ?, ?, ?, 'o
 
 -- name: ConsumeEpicTriggers :exec
 UPDATE epic_triggers SET state = 'consumed' WHERE epic = ? AND turn = ? AND state = 'claimed';
+
+-- name: EndEpicTurn :execrows
+UPDATE epic_turns SET state = ?, reason = ?, ended = ? WHERE epic = ? AND seq = ? AND state = 'running';
+
+-- name: ReleaseEpicTriggers :exec
+UPDATE epic_triggers SET state = 'pending', turn = 0 WHERE epic = ? AND turn = ? AND state = 'claimed';
+
+-- name: ListRecentEpicTurnStates :many
+SELECT state FROM epic_turns WHERE epic = ? AND state <> 'free' ORDER BY seq DESC LIMIT 3;
+
+-- name: SetEpicParked :execrows
+UPDATE epics SET parked = ? WHERE id = ?;
+
+-- name: PauseEpic :exec
+UPDATE epics SET paused = 1 WHERE id = ?;
