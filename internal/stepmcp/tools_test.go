@@ -157,7 +157,7 @@ func startDaemon(t *testing.T, steps enginehost.StepCommands) enginev1connect.St
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan error, 1)
-	go func() { done <- enginehost.Serve(ctx, ln, nil, steps, nil) }()
+	go func() { done <- enginehost.Serve(ctx, ln, nil, steps, nil, nil) }()
 	t.Cleanup(func() {
 		cancel()
 		if err := <-done; err != nil {
@@ -185,10 +185,10 @@ type peer struct {
 	nextRequest int
 }
 
-// newPeer serves an MCP server built over steps and completes the handshake.
-func newPeer(t *testing.T, steps enginev1connect.StepsClient) *peer {
+// newPeer serves an MCP server built over steps and epics and completes the handshake.
+func newPeer(t *testing.T, steps enginev1connect.StepsClient, epics enginev1connect.EpicsClient) *peer {
 	t.Helper()
-	server, err := NewServer(steps)
+	server, err := NewServer(steps, epics)
 	if err != nil {
 		t.Fatalf("NewServer: %v", err)
 	}
@@ -283,8 +283,8 @@ func decodeObject(t *testing.T, text string) map[string]any {
 	return object
 }
 
-func TestToolsListNamesTheFourStepTools(t *testing.T) {
-	p := newPeer(t, startDaemon(t, &fakeSteps{}))
+func TestToolsListNamesEveryStepAndEpicTool(t *testing.T) {
+	p := newPeer(t, startDaemon(t, &fakeSteps{}), &fakeEpics{})
 
 	reply := p.call("tools/list", map[string]any{})
 	var listed struct {
@@ -307,7 +307,10 @@ func TestToolsListNamesTheFourStepTools(t *testing.T) {
 			t.Errorf("tool %s schema has no required list", tool.Name)
 		}
 	}
-	want := []string{"step_start", "step_status", "step_stop", "step_wait"}
+	want := []string{
+		"epic_answer", "epic_create", "epic_get", "epic_list",
+		"step_start", "step_status", "step_stop", "step_wait",
+	}
 	slices.Sort(names)
 	if !slices.Equal(names, want) {
 		t.Fatalf("tools/list names = %v, want %v", names, want)
@@ -316,7 +319,7 @@ func TestToolsListNamesTheFourStepTools(t *testing.T) {
 
 func TestStepStartDeliversEveryFieldAndReturnsID(t *testing.T) {
 	fake := &fakeSteps{startID: "0123456789abcdef0123456789abcdef"}
-	p := newPeer(t, startDaemon(t, fake))
+	p := newPeer(t, startDaemon(t, fake), nil)
 
 	outcome := p.tool("step_start", `{
 		"agent": "reviewer",
@@ -360,7 +363,7 @@ func TestStepStartDeliversEveryFieldAndReturnsID(t *testing.T) {
 
 func TestStepStartWithoutLabelsReachesTheDaemonUnlabelled(t *testing.T) {
 	fake := &fakeSteps{startID: "0123456789abcdef0123456789abcdef"}
-	p := newPeer(t, startDaemon(t, fake))
+	p := newPeer(t, startDaemon(t, fake), nil)
 
 	outcome := p.tool("step_start", `{
 		"agent": "reviewer",
@@ -383,7 +386,7 @@ func TestStepStartWithoutLabelsReachesTheDaemonUnlabelled(t *testing.T) {
 }
 
 func TestStepStartSchemaListsLabelsAsOptionalStrings(t *testing.T) {
-	p := newPeer(t, startDaemon(t, &fakeSteps{}))
+	p := newPeer(t, startDaemon(t, &fakeSteps{}), nil)
 
 	reply := p.call("tools/list", map[string]any{})
 	var listed struct {
@@ -421,7 +424,7 @@ func TestStepStartSchemaListsLabelsAsOptionalStrings(t *testing.T) {
 }
 
 func TestStepStartRequiresOnlyPromptAndWorkspace(t *testing.T) {
-	p := newPeer(t, startDaemon(t, &fakeSteps{}))
+	p := newPeer(t, startDaemon(t, &fakeSteps{}), nil)
 
 	reply := p.call("tools/list", map[string]any{})
 	var listed struct {
@@ -458,7 +461,7 @@ func TestStepStartRequiresOnlyPromptAndWorkspace(t *testing.T) {
 
 func TestStepStartWithoutAgentAndSchemaReachesTheDaemon(t *testing.T) {
 	fake := &fakeSteps{startID: "0123456789abcdef0123456789abcdef"}
-	p := newPeer(t, startDaemon(t, fake))
+	p := newPeer(t, startDaemon(t, fake), nil)
 
 	outcome := p.tool("step_start", `{
 		"prompt": "check the change",
@@ -486,7 +489,7 @@ func TestStepStartWithoutAgentAndSchemaReachesTheDaemon(t *testing.T) {
 
 func TestStepStartRefusedByDaemonReadsAsCodeAndMessage(t *testing.T) {
 	fake := &fakeSteps{err: fmt.Errorf("%w: gate lint is not declared", enginehost.ErrBadGate)}
-	p := newPeer(t, startDaemon(t, fake))
+	p := newPeer(t, startDaemon(t, fake), nil)
 
 	outcome := p.tool("step_start", `{"prompt":"check the change","workspace":"/work","gateName":"lint"}`)
 
@@ -501,7 +504,7 @@ func TestStepStartRefusedByDaemonReadsAsCodeAndMessage(t *testing.T) {
 
 func TestStepStatusAndStopReachTheDaemonByID(t *testing.T) {
 	fake := &fakeSteps{row: fullRow()}
-	p := newPeer(t, startDaemon(t, fake))
+	p := newPeer(t, startDaemon(t, fake), nil)
 
 	status := p.tool("step_status", `{"id":"s1"}`)
 	if status.isError {
@@ -549,7 +552,7 @@ func TestStepStatusAndStopReachTheDaemonByID(t *testing.T) {
 func TestStepWaitReturnsEndedStepAtOnce(t *testing.T) {
 	ended := fullRow()
 	fake := &fakeSteps{ended: &ended, rows: []store.StepRow{ended, runningRow("s2")}}
-	p := newPeer(t, startDaemon(t, fake))
+	p := newPeer(t, startDaemon(t, fake), nil)
 
 	outcome := p.tool("step_wait", `{"ids":["s1","s2"]}`)
 	if outcome.isError {
@@ -567,7 +570,7 @@ func TestStepWaitReturnsEndedStepAtOnce(t *testing.T) {
 
 func TestStepWaitTimeoutReturnsNullEndedAndEveryStatus(t *testing.T) {
 	fake := &fakeSteps{rows: []store.StepRow{runningRow("s1"), runningRow("s2")}}
-	p := newPeer(t, startDaemon(t, fake))
+	p := newPeer(t, startDaemon(t, fake), nil)
 
 	outcome := p.tool("step_wait", `{"ids":["s1","s2"],"timeoutSeconds":5}`)
 	if outcome.isError {
@@ -608,7 +611,7 @@ func TestStepWaitClampsTimeoutToMaxWait(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			fake := &fakeSteps{rows: []store.StepRow{runningRow("s1")}}
-			p := newPeer(t, startDaemon(t, fake))
+			p := newPeer(t, startDaemon(t, fake), nil)
 
 			if outcome := p.tool("step_wait", tc.arguments); outcome.isError {
 				t.Fatalf("step_wait reported an error: %s", outcome.text)
@@ -644,7 +647,7 @@ func TestDaemonErrorsReadAsCodeAndMessageToolErrors(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			p := newPeer(t, startDaemon(t, &fakeSteps{err: tc.err}))
+			p := newPeer(t, startDaemon(t, &fakeSteps{err: tc.err}), nil)
 
 			outcome := p.tool(tc.tool, tc.args)
 			if !outcome.isError {
@@ -659,7 +662,7 @@ func TestDaemonErrorsReadAsCodeAndMessageToolErrors(t *testing.T) {
 
 func TestBadArgumentsAreToolErrorsAndServerKeepsServing(t *testing.T) {
 	fake := &fakeSteps{row: fullRow()}
-	p := newPeer(t, startDaemon(t, fake))
+	p := newPeer(t, startDaemon(t, fake), nil)
 
 	bad := []struct {
 		name string

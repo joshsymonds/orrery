@@ -270,7 +270,7 @@ func startRetryPeer(t *testing.T, handler http.Handler, clock *testClock) *peer 
 // newRetryPeer serves an MCP server built over steps with clock as its retry clock, and completes the handshake.
 func newRetryPeer(t *testing.T, steps enginev1connect.StepsClient, clock *testClock) *peer {
 	t.Helper()
-	server, err := newServer(steps, clock)
+	server, err := newServer(steps, nil, clock)
 	if err != nil {
 		t.Fatalf("newServer: %v", err)
 	}

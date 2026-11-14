@@ -48,44 +48,52 @@ const (
 		`},"required":["ids"],"additionalProperties":false}`
 )
 
-// NewServer returns the MCP server "orrery" whose step tools call steps.
-func NewServer(steps enginev1connect.StepsClient) (*mcp.Server, error) {
-	return newServer(steps, rpcretry.SystemClock{})
+// NewServer returns the MCP server "orrery" whose step tools call steps and whose epic tools call epics.
+func NewServer(steps enginev1connect.StepsClient, epics enginev1connect.EpicsClient) (*mcp.Server, error) {
+	return newServer(steps, epics, rpcretry.SystemClock{})
 }
 
-// newServer returns the MCP server "orrery" whose step tools call steps and time their retries on clock.
-func newServer(steps enginev1connect.StepsClient, clock rpcretry.Clock) (*mcp.Server, error) {
-	server, err := mcp.NewServer("orrery", "1",
-		mcp.Tool{
+// newServer returns the MCP server "orrery" whose step tools call steps and time their retries on clock, and whose epic
+// tools call epics.
+func newServer(
+	steps enginev1connect.StepsClient, epics enginev1connect.EpicsClient, clock rpcretry.Clock,
+) (*mcp.Server, error) {
+	server, err := mcp.NewServer("orrery", "1", slices.Concat(stepTools(steps, clock), epicTools(epics))...)
+	if err != nil {
+		return nil, fmt.Errorf("new orrery server: %w", err)
+	}
+	return server, nil
+}
+
+// stepTools returns the step tools, each calling steps and timing its retries on clock.
+func stepTools(steps enginev1connect.StepsClient, clock rpcretry.Clock) []mcp.Tool {
+	return []mcp.Tool{
+		{
 			Name:        "step_start",
 			Description: "Start a step: an agent working in a workspace. Returns the step id.",
 			InputSchema: json.RawMessage(startSchema),
 			Handler:     startHandler(steps, clock),
 		},
-		mcp.Tool{
+		{
 			Name:        "step_status",
 			Description: "Report a step's current state by id.",
 			InputSchema: json.RawMessage(idSchema),
 			Handler:     statusHandler(steps, clock),
 		},
-		mcp.Tool{
+		{
 			Name:        "step_stop",
 			Description: "Stop a running step by id.",
 			InputSchema: json.RawMessage(idSchema),
 			Handler:     stopHandler(steps, clock),
 		},
-		mcp.Tool{
+		{
 			Name: "step_wait",
 			Description: "Wait until one of the given steps ends, or until timeoutSeconds passes " +
 				"(at most 1500 seconds). Returns the ended step, or null with every step's state at timeout.",
 			InputSchema: json.RawMessage(waitSchema),
 			Handler:     waitHandler(steps, clock),
 		},
-	)
-	if err != nil {
-		return nil, fmt.Errorf("new orrery server: %w", err)
 	}
-	return server, nil
 }
 
 type startArgs struct {

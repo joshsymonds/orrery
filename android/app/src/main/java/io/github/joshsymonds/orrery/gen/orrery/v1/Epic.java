@@ -7,7 +7,7 @@ package io.github.joshsymonds.orrery.gen.orrery.v1;
 
 /**
  * <pre>
- * Epic is one epic under the record root.
+ * Epic is one epic under the record root or in orreryd's database. An id in both is one epic, whose source is orreryd.
  * </pre>
  *
  * Protobuf type {@code orrery.v1.Epic}
@@ -25,6 +25,7 @@ public  final class Epic extends
     outcome_ = "";
     runningSteps_ = emptyProtobufList();
     problem_ = "";
+    source_ = "";
   }
   public static final int ID_FIELD_NUMBER = 1;
   private java.lang.String id_;
@@ -97,7 +98,8 @@ public  final class Epic extends
   private java.lang.String repository_;
   /**
    * <pre>
-   * The repository the epic belongs to, the name of the record directory's parent.
+   * The repository the epic belongs to, the name of the record directory's parent. An orreryd epic's is the part of
+   * its id before the slash.
    * </pre>
    *
    * <code>string repository = 2 [json_name = "repository"];</code>
@@ -109,7 +111,8 @@ public  final class Epic extends
   }
   /**
    * <pre>
-   * The repository the epic belongs to, the name of the record directory's parent.
+   * The repository the epic belongs to, the name of the record directory's parent. An orreryd epic's is the part of
+   * its id before the slash.
    * </pre>
    *
    * <code>string repository = 2 [json_name = "repository"];</code>
@@ -122,7 +125,8 @@ public  final class Epic extends
   }
   /**
    * <pre>
-   * The repository the epic belongs to, the name of the record directory's parent.
+   * The repository the epic belongs to, the name of the record directory's parent. An orreryd epic's is the part of
+   * its id before the slash.
    * </pre>
    *
    * <code>string repository = 2 [json_name = "repository"];</code>
@@ -136,7 +140,8 @@ public  final class Epic extends
   }
   /**
    * <pre>
-   * The repository the epic belongs to, the name of the record directory's parent.
+   * The repository the epic belongs to, the name of the record directory's parent. An orreryd epic's is the part of
+   * its id before the slash.
    * </pre>
    *
    * <code>string repository = 2 [json_name = "repository"];</code>
@@ -147,7 +152,8 @@ public  final class Epic extends
   }
   /**
    * <pre>
-   * The repository the epic belongs to, the name of the record directory's parent.
+   * The repository the epic belongs to, the name of the record directory's parent. An orreryd epic's is the part of
+   * its id before the slash.
    * </pre>
    *
    * <code>string repository = 2 [json_name = "repository"];</code>
@@ -164,7 +170,7 @@ public  final class Epic extends
   private java.lang.String slug_;
   /**
    * <pre>
-   * The epic's slug, the name of its record directory.
+   * The epic's slug, the name of its record directory. An orreryd epic's is the part of its id after the slash.
    * </pre>
    *
    * <code>string slug = 3 [json_name = "slug"];</code>
@@ -176,7 +182,7 @@ public  final class Epic extends
   }
   /**
    * <pre>
-   * The epic's slug, the name of its record directory.
+   * The epic's slug, the name of its record directory. An orreryd epic's is the part of its id after the slash.
    * </pre>
    *
    * <code>string slug = 3 [json_name = "slug"];</code>
@@ -189,7 +195,7 @@ public  final class Epic extends
   }
   /**
    * <pre>
-   * The epic's slug, the name of its record directory.
+   * The epic's slug, the name of its record directory. An orreryd epic's is the part of its id after the slash.
    * </pre>
    *
    * <code>string slug = 3 [json_name = "slug"];</code>
@@ -203,7 +209,7 @@ public  final class Epic extends
   }
   /**
    * <pre>
-   * The epic's slug, the name of its record directory.
+   * The epic's slug, the name of its record directory. An orreryd epic's is the part of its id after the slash.
    * </pre>
    *
    * <code>string slug = 3 [json_name = "slug"];</code>
@@ -214,7 +220,7 @@ public  final class Epic extends
   }
   /**
    * <pre>
-   * The epic's slug, the name of its record directory.
+   * The epic's slug, the name of its record directory. An orreryd epic's is the part of its id after the slash.
    * </pre>
    *
    * <code>string slug = 3 [json_name = "slug"];</code>
@@ -231,7 +237,7 @@ public  final class Epic extends
   private java.lang.String outcome_;
   /**
    * <pre>
-   * The outcome the epic's head state.json records, as written.
+   * The outcome the epic's head state.json records, as written. An orreryd epic carries its phase here.
    * </pre>
    *
    * <code>string outcome = 4 [json_name = "outcome"];</code>
@@ -243,7 +249,7 @@ public  final class Epic extends
   }
   /**
    * <pre>
-   * The outcome the epic's head state.json records, as written.
+   * The outcome the epic's head state.json records, as written. An orreryd epic carries its phase here.
    * </pre>
    *
    * <code>string outcome = 4 [json_name = "outcome"];</code>
@@ -256,7 +262,7 @@ public  final class Epic extends
   }
   /**
    * <pre>
-   * The outcome the epic's head state.json records, as written.
+   * The outcome the epic's head state.json records, as written. An orreryd epic carries its phase here.
    * </pre>
    *
    * <code>string outcome = 4 [json_name = "outcome"];</code>
@@ -270,7 +276,7 @@ public  final class Epic extends
   }
   /**
    * <pre>
-   * The outcome the epic's head state.json records, as written.
+   * The outcome the epic's head state.json records, as written. An orreryd epic carries its phase here.
    * </pre>
    *
    * <code>string outcome = 4 [json_name = "outcome"];</code>
@@ -281,7 +287,7 @@ public  final class Epic extends
   }
   /**
    * <pre>
-   * The outcome the epic's head state.json records, as written.
+   * The outcome the epic's head state.json records, as written. An orreryd epic carries its phase here.
    * </pre>
    *
    * <code>string outcome = 4 [json_name = "outcome"];</code>
@@ -298,7 +304,7 @@ public  final class Epic extends
   private long changed_;
   /**
    * <pre>
-   * When the epic's head state.json last changed, in unix seconds.
+   * When the epic's head state.json last changed, in unix seconds. An orreryd epic's is its last write.
    * </pre>
    *
    * <code>int64 changed = 5 [json_name = "changed"];</code>
@@ -310,7 +316,7 @@ public  final class Epic extends
   }
   /**
    * <pre>
-   * When the epic's head state.json last changed, in unix seconds.
+   * When the epic's head state.json last changed, in unix seconds. An orreryd epic's is its last write.
    * </pre>
    *
    * <code>int64 changed = 5 [json_name = "changed"];</code>
@@ -322,7 +328,7 @@ public  final class Epic extends
   }
   /**
    * <pre>
-   * When the epic's head state.json last changed, in unix seconds.
+   * When the epic's head state.json last changed, in unix seconds. An orreryd epic's is its last write.
    * </pre>
    *
    * <code>int64 changed = 5 [json_name = "changed"];</code>
@@ -336,7 +342,8 @@ public  final class Epic extends
   private boolean live_;
   /**
    * <pre>
-   * Whether the epic is live: its outcome is not released, and it has a running step or changed within a day.
+   * Whether the epic is live: its outcome is not released, and it has a running step or changed within a day. An
+   * orreryd epic is live until its phase is released.
    * </pre>
    *
    * <code>bool live = 6 [json_name = "live"];</code>
@@ -348,7 +355,8 @@ public  final class Epic extends
   }
   /**
    * <pre>
-   * Whether the epic is live: its outcome is not released, and it has a running step or changed within a day.
+   * Whether the epic is live: its outcome is not released, and it has a running step or changed within a day. An
+   * orreryd epic is live until its phase is released.
    * </pre>
    *
    * <code>bool live = 6 [json_name = "live"];</code>
@@ -360,7 +368,8 @@ public  final class Epic extends
   }
   /**
    * <pre>
-   * Whether the epic is live: its outcome is not released, and it has a running step or changed within a day.
+   * Whether the epic is live: its outcome is not released, and it has a running step or changed within a day. An
+   * orreryd epic is live until its phase is released.
    * </pre>
    *
    * <code>bool live = 6 [json_name = "live"];</code>
@@ -613,6 +622,73 @@ public  final class Epic extends
 
   }
 
+  public static final int SOURCE_FIELD_NUMBER = 10;
+  private java.lang.String source_;
+  /**
+   * <pre>
+   * orreryd for an epic orreryd's database holds, record for an epic read from gambit records only.
+   * </pre>
+   *
+   * <code>string source = 10 [json_name = "source"];</code>
+   * @return The source.
+   */
+  @java.lang.Override
+  public java.lang.String getSource() {
+    return source_;
+  }
+  /**
+   * <pre>
+   * orreryd for an epic orreryd's database holds, record for an epic read from gambit records only.
+   * </pre>
+   *
+   * <code>string source = 10 [json_name = "source"];</code>
+   * @return The bytes for source.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getSourceBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(source_);
+  }
+  /**
+   * <pre>
+   * orreryd for an epic orreryd's database holds, record for an epic read from gambit records only.
+   * </pre>
+   *
+   * <code>string source = 10 [json_name = "source"];</code>
+   * @param value The source to set.
+   */
+  private void setSource(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    source_ = value;
+  }
+  /**
+   * <pre>
+   * orreryd for an epic orreryd's database holds, record for an epic read from gambit records only.
+   * </pre>
+   *
+   * <code>string source = 10 [json_name = "source"];</code>
+   */
+  private void clearSource() {
+
+    source_ = getDefaultInstance().getSource();
+  }
+  /**
+   * <pre>
+   * orreryd for an epic orreryd's database holds, record for an epic read from gambit records only.
+   * </pre>
+   *
+   * <code>string source = 10 [json_name = "source"];</code>
+   * @param value The bytes for source to set.
+   */
+  private void setSourceBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    source_ = value.toStringUtf8();
+
+  }
+
   public static io.github.joshsymonds.orrery.gen.orrery.v1.Epic parseFrom(
       java.nio.ByteBuffer data)
       throws com.google.protobuf.InvalidProtocolBufferException {
@@ -698,7 +774,7 @@ public  final class Epic extends
 
   /**
    * <pre>
-   * Epic is one epic under the record root.
+   * Epic is one epic under the record root or in orreryd's database. An id in both is one epic, whose source is orreryd.
    * </pre>
    *
    * Protobuf type {@code orrery.v1.Epic}
@@ -785,7 +861,8 @@ public  final class Epic extends
 
     /**
      * <pre>
-     * The repository the epic belongs to, the name of the record directory's parent.
+     * The repository the epic belongs to, the name of the record directory's parent. An orreryd epic's is the part of
+     * its id before the slash.
      * </pre>
      *
      * <code>string repository = 2 [json_name = "repository"];</code>
@@ -797,7 +874,8 @@ public  final class Epic extends
     }
     /**
      * <pre>
-     * The repository the epic belongs to, the name of the record directory's parent.
+     * The repository the epic belongs to, the name of the record directory's parent. An orreryd epic's is the part of
+     * its id before the slash.
      * </pre>
      *
      * <code>string repository = 2 [json_name = "repository"];</code>
@@ -810,7 +888,8 @@ public  final class Epic extends
     }
     /**
      * <pre>
-     * The repository the epic belongs to, the name of the record directory's parent.
+     * The repository the epic belongs to, the name of the record directory's parent. An orreryd epic's is the part of
+     * its id before the slash.
      * </pre>
      *
      * <code>string repository = 2 [json_name = "repository"];</code>
@@ -825,7 +904,8 @@ public  final class Epic extends
     }
     /**
      * <pre>
-     * The repository the epic belongs to, the name of the record directory's parent.
+     * The repository the epic belongs to, the name of the record directory's parent. An orreryd epic's is the part of
+     * its id before the slash.
      * </pre>
      *
      * <code>string repository = 2 [json_name = "repository"];</code>
@@ -838,7 +918,8 @@ public  final class Epic extends
     }
     /**
      * <pre>
-     * The repository the epic belongs to, the name of the record directory's parent.
+     * The repository the epic belongs to, the name of the record directory's parent. An orreryd epic's is the part of
+     * its id before the slash.
      * </pre>
      *
      * <code>string repository = 2 [json_name = "repository"];</code>
@@ -854,7 +935,7 @@ public  final class Epic extends
 
     /**
      * <pre>
-     * The epic's slug, the name of its record directory.
+     * The epic's slug, the name of its record directory. An orreryd epic's is the part of its id after the slash.
      * </pre>
      *
      * <code>string slug = 3 [json_name = "slug"];</code>
@@ -866,7 +947,7 @@ public  final class Epic extends
     }
     /**
      * <pre>
-     * The epic's slug, the name of its record directory.
+     * The epic's slug, the name of its record directory. An orreryd epic's is the part of its id after the slash.
      * </pre>
      *
      * <code>string slug = 3 [json_name = "slug"];</code>
@@ -879,7 +960,7 @@ public  final class Epic extends
     }
     /**
      * <pre>
-     * The epic's slug, the name of its record directory.
+     * The epic's slug, the name of its record directory. An orreryd epic's is the part of its id after the slash.
      * </pre>
      *
      * <code>string slug = 3 [json_name = "slug"];</code>
@@ -894,7 +975,7 @@ public  final class Epic extends
     }
     /**
      * <pre>
-     * The epic's slug, the name of its record directory.
+     * The epic's slug, the name of its record directory. An orreryd epic's is the part of its id after the slash.
      * </pre>
      *
      * <code>string slug = 3 [json_name = "slug"];</code>
@@ -907,7 +988,7 @@ public  final class Epic extends
     }
     /**
      * <pre>
-     * The epic's slug, the name of its record directory.
+     * The epic's slug, the name of its record directory. An orreryd epic's is the part of its id after the slash.
      * </pre>
      *
      * <code>string slug = 3 [json_name = "slug"];</code>
@@ -923,7 +1004,7 @@ public  final class Epic extends
 
     /**
      * <pre>
-     * The outcome the epic's head state.json records, as written.
+     * The outcome the epic's head state.json records, as written. An orreryd epic carries its phase here.
      * </pre>
      *
      * <code>string outcome = 4 [json_name = "outcome"];</code>
@@ -935,7 +1016,7 @@ public  final class Epic extends
     }
     /**
      * <pre>
-     * The outcome the epic's head state.json records, as written.
+     * The outcome the epic's head state.json records, as written. An orreryd epic carries its phase here.
      * </pre>
      *
      * <code>string outcome = 4 [json_name = "outcome"];</code>
@@ -948,7 +1029,7 @@ public  final class Epic extends
     }
     /**
      * <pre>
-     * The outcome the epic's head state.json records, as written.
+     * The outcome the epic's head state.json records, as written. An orreryd epic carries its phase here.
      * </pre>
      *
      * <code>string outcome = 4 [json_name = "outcome"];</code>
@@ -963,7 +1044,7 @@ public  final class Epic extends
     }
     /**
      * <pre>
-     * The outcome the epic's head state.json records, as written.
+     * The outcome the epic's head state.json records, as written. An orreryd epic carries its phase here.
      * </pre>
      *
      * <code>string outcome = 4 [json_name = "outcome"];</code>
@@ -976,7 +1057,7 @@ public  final class Epic extends
     }
     /**
      * <pre>
-     * The outcome the epic's head state.json records, as written.
+     * The outcome the epic's head state.json records, as written. An orreryd epic carries its phase here.
      * </pre>
      *
      * <code>string outcome = 4 [json_name = "outcome"];</code>
@@ -992,7 +1073,7 @@ public  final class Epic extends
 
     /**
      * <pre>
-     * When the epic's head state.json last changed, in unix seconds.
+     * When the epic's head state.json last changed, in unix seconds. An orreryd epic's is its last write.
      * </pre>
      *
      * <code>int64 changed = 5 [json_name = "changed"];</code>
@@ -1004,7 +1085,7 @@ public  final class Epic extends
     }
     /**
      * <pre>
-     * When the epic's head state.json last changed, in unix seconds.
+     * When the epic's head state.json last changed, in unix seconds. An orreryd epic's is its last write.
      * </pre>
      *
      * <code>int64 changed = 5 [json_name = "changed"];</code>
@@ -1018,7 +1099,7 @@ public  final class Epic extends
     }
     /**
      * <pre>
-     * When the epic's head state.json last changed, in unix seconds.
+     * When the epic's head state.json last changed, in unix seconds. An orreryd epic's is its last write.
      * </pre>
      *
      * <code>int64 changed = 5 [json_name = "changed"];</code>
@@ -1032,7 +1113,8 @@ public  final class Epic extends
 
     /**
      * <pre>
-     * Whether the epic is live: its outcome is not released, and it has a running step or changed within a day.
+     * Whether the epic is live: its outcome is not released, and it has a running step or changed within a day. An
+     * orreryd epic is live until its phase is released.
      * </pre>
      *
      * <code>bool live = 6 [json_name = "live"];</code>
@@ -1044,7 +1126,8 @@ public  final class Epic extends
     }
     /**
      * <pre>
-     * Whether the epic is live: its outcome is not released, and it has a running step or changed within a day.
+     * Whether the epic is live: its outcome is not released, and it has a running step or changed within a day. An
+     * orreryd epic is live until its phase is released.
      * </pre>
      *
      * <code>bool live = 6 [json_name = "live"];</code>
@@ -1058,7 +1141,8 @@ public  final class Epic extends
     }
     /**
      * <pre>
-     * Whether the epic is live: its outcome is not released, and it has a running step or changed within a day.
+     * Whether the epic is live: its outcome is not released, and it has a running step or changed within a day. An
+     * orreryd epic is live until its phase is released.
      * </pre>
      *
      * <code>bool live = 6 [json_name = "live"];</code>
@@ -1329,6 +1413,75 @@ public  final class Epic extends
       return this;
     }
 
+    /**
+     * <pre>
+     * orreryd for an epic orreryd's database holds, record for an epic read from gambit records only.
+     * </pre>
+     *
+     * <code>string source = 10 [json_name = "source"];</code>
+     * @return The source.
+     */
+    @java.lang.Override
+    public java.lang.String getSource() {
+      return instance.getSource();
+    }
+    /**
+     * <pre>
+     * orreryd for an epic orreryd's database holds, record for an epic read from gambit records only.
+     * </pre>
+     *
+     * <code>string source = 10 [json_name = "source"];</code>
+     * @return The bytes for source.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getSourceBytes() {
+      return instance.getSourceBytes();
+    }
+    /**
+     * <pre>
+     * orreryd for an epic orreryd's database holds, record for an epic read from gambit records only.
+     * </pre>
+     *
+     * <code>string source = 10 [json_name = "source"];</code>
+     * @param value The source to set.
+     * @return This builder for chaining.
+     */
+    public Builder setSource(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setSource(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * orreryd for an epic orreryd's database holds, record for an epic read from gambit records only.
+     * </pre>
+     *
+     * <code>string source = 10 [json_name = "source"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearSource() {
+      copyOnWrite();
+      instance.clearSource();
+      return this;
+    }
+    /**
+     * <pre>
+     * orreryd for an epic orreryd's database holds, record for an epic read from gambit records only.
+     * </pre>
+     *
+     * <code>string source = 10 [json_name = "source"];</code>
+     * @param value The bytes for source to set.
+     * @return This builder for chaining.
+     */
+    public Builder setSourceBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setSourceBytes(value);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:orrery.v1.Epic)
   }
   @java.lang.Override
@@ -1355,10 +1508,11 @@ public  final class Epic extends
             io.github.joshsymonds.orrery.gen.orrery.v1.EpicStep.class,
             "endedSteps_",
             "problem_",
+            "source_",
           };
           java.lang.String info =
-              "\u0000\t\u0000\u0000\u0001\t\t\u0000\u0001\u0000\u0001\u0208\u0002\u0208\u0003\u0208" +
-              "\u0004\u0208\u0005\u0002\u0006\u0007\u0007\u001b\b\u0004\t\u0208";
+              "\u0000\n\u0000\u0000\u0001\n\n\u0000\u0001\u0000\u0001\u0208\u0002\u0208\u0003\u0208" +
+              "\u0004\u0208\u0005\u0002\u0006\u0007\u0007\u001b\b\u0004\t\u0208\n\u0208";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

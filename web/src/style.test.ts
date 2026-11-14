@@ -693,6 +693,32 @@ test("the chart keeps the column's width at 100% and at most 404px", () => {
   assert.match(chart, /max-width:\s*404px;/);
 });
 
+test("the requirements list is a 1px grid, and no rule names a bare .epic-view .requirements", () => {
+  const list = declarationsFor(css, ".epic-view ol.requirements");
+  assert.match(list, /display:\s*grid;/);
+  assert.match(list, /(?<![-\w])gap:\s*1px;/);
+  assert.doesNotMatch(css, /\.epic-view \.requirements\b/);
+});
+
+test("a requirement row is a 7px grid of minmax(0, auto), minmax(0, 1fr) and auto columns at 12px over 18px mono", () => {
+  const row = declarationsFor(css, ".epic-view .requirement");
+  assert.match(row, /display:\s*grid;/);
+  assert.match(row, /grid-template-columns:\s*minmax\(0,\s*auto\) minmax\(0,\s*1fr\) auto;/);
+  assert.match(row, /(?<![-\w])gap:\s*7px;/);
+  assert.match(row, /font:\s*12px\/18px var\(--mono\);/);
+});
+
+test("a requirement's id is bold in subtext1, its text takes the text colour and wraps, and its kind is overlay0", () => {
+  const rid = declarationsFor(css, ".requirement .rid");
+  assert.match(rid, /font-weight:\s*700;/);
+  assert.match(rid, /(?<![-\w])color:\s*var\(--subtext1\);/);
+  const text = declarationsFor(css, ".requirement .text");
+  assert.match(text, /(?<![-\w])color:\s*var\(--text\);/);
+  assert.match(text, /overflow-wrap:\s*anywhere;/);
+  assert.doesNotMatch(text, /white-space:\s*nowrap/);
+  assert.match(declarationsFor(css, ".requirement .kind"), /(?<![-\w])color:\s*var\(--overlay0\);/);
+});
+
 test("the rules E1-D5 drops have no rules: the task's flex row, its mark and status, the outcome's paragraph, the old slug, the column's bare pips and the tone colours", () => {
   assert.doesNotMatch(css, /\.epic-view \.mark\b/);
   assert.doesNotMatch(css, /\.task \.status\b/);

@@ -375,8 +375,9 @@ func openServeStores(getenv func(string) string, pushHosts []string) (*push.Stor
 	return pushStore, store.NewReader(dbPath), nil
 }
 
-// runMCP runs `orrery mcp`. It serves the step tools over MCP on stdin and stdout until stdin closes. The step
-// service is the one on the session socket beside the daemon socket, so the command opens no listener and no store.
+// runMCP runs `orrery mcp`. It serves the step and epic tools over MCP on stdin and stdout until stdin closes. The
+// step and epic services are the ones on the session socket beside the daemon socket, so the command opens no
+// listener and no store.
 func runMCP(ctx context.Context, opts globals, args []string, stdin io.Reader, stdout io.Writer,
 	getenv func(string) string) error {
 	if len(args) > 0 {
@@ -388,7 +389,8 @@ func runMCP(ctx context.Context, opts globals, args []string, stdin io.Reader, s
 	}
 	sessionSocket := protocol.SessionSocketPath(socket)
 	steps := enginev1connect.NewStepsClient(cli.SessionHTTPClient(sessionSocket), cli.SessionBaseURL)
-	server, err := stepmcp.NewServer(steps)
+	epics := enginev1connect.NewEpicsClient(cli.SessionHTTPClient(sessionSocket), cli.SessionBaseURL)
+	server, err := stepmcp.NewServer(steps, epics)
 	if err != nil {
 		return fmt.Errorf("mcp: %w", err)
 	}
@@ -441,11 +443,13 @@ func runServe(ctx context.Context, opts globals, args []string, getenv func(stri
 	}
 	var engine enginev1connect.EngineClient
 	var steps server.StepClient
+	var epicStore server.EpicStoreClient
 	var pools enginev1connect.PoolsClient
 	if daemonSocket, sockErr := protocol.SocketPath(opts.daemonSocket, getenv); sockErr == nil {
 		sessionClient := cli.SessionHTTPClient(protocol.SessionSocketPath(daemonSocket))
 		engine = enginev1connect.NewEngineClient(sessionClient, cli.SessionBaseURL)
 		steps = enginev1connect.NewStepsClient(sessionClient, cli.SessionBaseURL)
+		epicStore = enginev1connect.NewEpicsClient(sessionClient, cli.SessionBaseURL)
 		pools = enginev1connect.NewPoolsClient(sessionClient, cli.SessionBaseURL)
 	}
 	// Without a HOME the record root stays empty: os.DirFS refuses an empty root, so Epics fails its reads rather than
@@ -467,6 +471,7 @@ func runServe(ctx context.Context, opts globals, args []string, getenv func(stri
 		Steps:      steps,
 		Pools:      pools,
 		Records:    records,
+		EpicStore:  epicStore,
 		Home:       home,
 		Picker:     servePickerConfig(tmux, getenv),
 		ReportSeen: seenReporter(opts.daemonSocket, getenv),

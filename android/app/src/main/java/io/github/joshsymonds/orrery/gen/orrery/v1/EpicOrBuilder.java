@@ -32,7 +32,8 @@ public interface EpicOrBuilder extends
 
   /**
    * <pre>
-   * The repository the epic belongs to, the name of the record directory's parent.
+   * The repository the epic belongs to, the name of the record directory's parent. An orreryd epic's is the part of
+   * its id before the slash.
    * </pre>
    *
    * <code>string repository = 2 [json_name = "repository"];</code>
@@ -41,7 +42,8 @@ public interface EpicOrBuilder extends
   java.lang.String getRepository();
   /**
    * <pre>
-   * The repository the epic belongs to, the name of the record directory's parent.
+   * The repository the epic belongs to, the name of the record directory's parent. An orreryd epic's is the part of
+   * its id before the slash.
    * </pre>
    *
    * <code>string repository = 2 [json_name = "repository"];</code>
@@ -52,7 +54,7 @@ public interface EpicOrBuilder extends
 
   /**
    * <pre>
-   * The epic's slug, the name of its record directory.
+   * The epic's slug, the name of its record directory. An orreryd epic's is the part of its id after the slash.
    * </pre>
    *
    * <code>string slug = 3 [json_name = "slug"];</code>
@@ -61,7 +63,7 @@ public interface EpicOrBuilder extends
   java.lang.String getSlug();
   /**
    * <pre>
-   * The epic's slug, the name of its record directory.
+   * The epic's slug, the name of its record directory. An orreryd epic's is the part of its id after the slash.
    * </pre>
    *
    * <code>string slug = 3 [json_name = "slug"];</code>
@@ -72,7 +74,7 @@ public interface EpicOrBuilder extends
 
   /**
    * <pre>
-   * The outcome the epic's head state.json records, as written.
+   * The outcome the epic's head state.json records, as written. An orreryd epic carries its phase here.
    * </pre>
    *
    * <code>string outcome = 4 [json_name = "outcome"];</code>
@@ -81,7 +83,7 @@ public interface EpicOrBuilder extends
   java.lang.String getOutcome();
   /**
    * <pre>
-   * The outcome the epic's head state.json records, as written.
+   * The outcome the epic's head state.json records, as written. An orreryd epic carries its phase here.
    * </pre>
    *
    * <code>string outcome = 4 [json_name = "outcome"];</code>
@@ -92,7 +94,7 @@ public interface EpicOrBuilder extends
 
   /**
    * <pre>
-   * When the epic's head state.json last changed, in unix seconds.
+   * When the epic's head state.json last changed, in unix seconds. An orreryd epic's is its last write.
    * </pre>
    *
    * <code>int64 changed = 5 [json_name = "changed"];</code>
@@ -102,7 +104,8 @@ public interface EpicOrBuilder extends
 
   /**
    * <pre>
-   * Whether the epic is live: its outcome is not released, and it has a running step or changed within a day.
+   * Whether the epic is live: its outcome is not released, and it has a running step or changed within a day. An
+   * orreryd epic is live until its phase is released.
    * </pre>
    *
    * <code>bool live = 6 [json_name = "live"];</code>
@@ -165,4 +168,24 @@ public interface EpicOrBuilder extends
    */
   com.google.protobuf.ByteString
       getProblemBytes();
+
+  /**
+   * <pre>
+   * orreryd for an epic orreryd's database holds, record for an epic read from gambit records only.
+   * </pre>
+   *
+   * <code>string source = 10 [json_name = "source"];</code>
+   * @return The source.
+   */
+  java.lang.String getSource();
+  /**
+   * <pre>
+   * orreryd for an epic orreryd's database holds, record for an epic read from gambit records only.
+   * </pre>
+   *
+   * <code>string source = 10 [json_name = "source"];</code>
+   * @return The bytes for source.
+   */
+  com.google.protobuf.ByteString
+      getSourceBytes();
 }

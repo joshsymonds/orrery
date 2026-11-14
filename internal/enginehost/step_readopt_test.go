@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -421,5 +422,19 @@ func TestStepsReconcileEndsGatedRowAndClearsItsGateHolder(t *testing.T) {
 	}
 	if row.End != stepRestartedEnd {
 		t.Errorf("end = %q, want %s", row.End, stepRestartedEnd)
+	}
+}
+
+func TestReadoptRunRefusesAnAgentGateStep(t *testing.T) {
+	steps := &Steps{}
+	row := store.StepRow{ID: "0123456789abcdef0123456789abcdef", GateName: "review", ReadOnly: true}
+	if _, err := steps.readoptRun(t.Context(), row); !errors.Is(err, errStepAgentGateRestarted) {
+		t.Fatalf("readoptRun of an agent gate step = %v, want errStepAgentGateRestarted", err)
+	}
+	if stepRowRunsAgentGate(store.StepRow{GateName: "check", Gate: []string{"/bin/true"}}) {
+		t.Fatal("a named argv gate's step reads as an agent gate step")
+	}
+	if stepRowRunsAgentGate(store.StepRow{}) {
+		t.Fatal("a step with no gate reads as an agent gate step")
 	}
 }

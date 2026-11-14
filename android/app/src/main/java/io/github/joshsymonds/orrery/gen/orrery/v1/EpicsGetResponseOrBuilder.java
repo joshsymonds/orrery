@@ -109,4 +109,30 @@ public interface EpicsGetResponseOrBuilder extends
    * <code>repeated .orrery.v1.EpicSlice slices = 4 [json_name = "slices"];</code>
    */
   int getSlicesCount();
+
+  /**
+   * <pre>
+   * The orreryd epic's requirements in contract order, empty for a record epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicRequirement requirements = 5 [json_name = "requirements"];</code>
+   */
+  java.util.List<io.github.joshsymonds.orrery.gen.orrery.v1.EpicRequirement> 
+      getRequirementsList();
+  /**
+   * <pre>
+   * The orreryd epic's requirements in contract order, empty for a record epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicRequirement requirements = 5 [json_name = "requirements"];</code>
+   */
+  io.github.joshsymonds.orrery.gen.orrery.v1.EpicRequirement getRequirements(int index);
+  /**
+   * <pre>
+   * The orreryd epic's requirements in contract order, empty for a record epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicRequirement requirements = 5 [json_name = "requirements"];</code>
+   */
+  int getRequirementsCount();
 }

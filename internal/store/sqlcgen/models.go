@@ -23,6 +23,86 @@ type EngineText struct {
 	Text            string
 }
 
+type Epic struct {
+	ID          string
+	Repository  string
+	Title       string
+	Approved    string
+	Intent      string
+	Care        string
+	Approach    string
+	ReleaseThen string
+	Checks      string
+	Phase       string
+	Created     int64
+	Changed     int64
+}
+
+type EpicAddition struct {
+	Epic     string
+	Position int64
+	Location string
+	What     string
+	Why      string
+	Cost     string
+}
+
+type EpicAlternative struct {
+	Epic        string
+	Position    int64
+	Alternative string
+	WhyNot      string
+	Reconsider  string
+}
+
+type EpicDecision struct {
+	Epic     string
+	Seq      int64
+	ClientID string
+	Text     string
+	Time     int64
+}
+
+type EpicExclusion struct {
+	Epic     string
+	Position int64
+	Text     string
+}
+
+type EpicFailure struct {
+	Epic     string
+	Position int64
+	ID       string
+	Text     string
+	Rating   string
+	Response string
+}
+
+type EpicPremise struct {
+	Epic     string
+	Position int64
+	ID       string
+	Text     string
+	IfWrong  string
+}
+
+type EpicReleaseStep struct {
+	Epic     string
+	Position int64
+	Step     string
+	Target   string
+	Undo     string
+}
+
+type EpicRequirement struct {
+	Epic     string
+	Position int64
+	ID       string
+	Text     string
+	Evidence string
+	Kind     string
+}
+
 type Event struct {
 	Seq       int64
 	SessionID string

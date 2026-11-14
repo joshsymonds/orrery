@@ -24,6 +24,7 @@ import io.github.joshsymonds.orrery.api.FakeOrreryServer
 import io.github.joshsymonds.orrery.api.OrreryClient
 import io.github.joshsymonds.orrery.api.StepRow
 import io.github.joshsymonds.orrery.gen.orrery.v1.Epic
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicRequirement
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicSlice
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicStep
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicStepCheck
@@ -103,12 +104,14 @@ class EpicScreenTest {
         steps: List<EpicStep> = emptyList(),
         slices: List<EpicSlice> = emptyList(),
         problem: String = "",
+        outcome: String = "in progress",
+        requirements: List<EpicRequirement> = emptyList(),
     ): EpicsGetResponse {
         val epic = Epic.newBuilder()
             .setId(EPIC_ID)
             .setRepository("example-repo")
             .setSlug("example-epic")
-            .setOutcome("in progress")
+            .setOutcome(outcome)
             .setChanged(CHANGED)
             .setLive(true)
             .addAllRunningSteps(steps.filter { it.end.isEmpty() })
@@ -119,8 +122,17 @@ class EpicScreenTest {
             .addAllTasks(tasks)
             .addAllSteps(steps)
             .addAllSlices(slices)
+            .addAllRequirements(requirements)
             .build()
     }
+
+    private fun requirement(id: String, text: String, kind: String): EpicRequirement =
+        EpicRequirement.newBuilder()
+            .setId(id)
+            .setText(text)
+            .setEvidence("example evidence")
+            .setKind(kind)
+            .build()
 
     private fun setScreen(server: FakeOrreryServer) {
         composeRule.setContent {
@@ -553,6 +565,57 @@ class EpicScreenTest {
             awaitText("example-epic")
             assertEquals(1, countNodes(hasText("example-epic")))
             assertEquals(1, countNodes(hasText("example-repo · in progress")))
+        }
+    }
+
+    @Test
+    fun requirementsShowUnderTheHeaderInContractOrderWithTheAcceptedPhase() {
+        val requirements = listOf(
+            Triple("R1", "Example requirement one.", "check"),
+            Triple("R2", "Example requirement two.", "review"),
+            Triple("R3", "Example requirement three.", "check"),
+        )
+        FakeOrreryServer().use { server ->
+            server.respond(
+                EPICS_GET,
+                body(
+                    outcome = "accepted",
+                    requirements = requirements.map { (id, text, kind) -> requirement(id, text, kind) },
+                ),
+            )
+            setScreen(server)
+            awaitText("example-epic")
+
+            assertEquals(1, countNodes(hasText("example-repo · accepted")))
+            assertEquals(1, countNodes(hasText("Requirements")))
+            val heading = composeRule.onNodeWithText("Requirements").fetchSemanticsNode().boundsInRoot.top
+            val tops = requirements.indices.map { index ->
+                composeRule.onNodeWithTag("requirement-row:$index", useUnmergedTree = true)
+                    .fetchSemanticsNode()
+                    .boundsInRoot
+                    .top
+            }
+            assertTrue(heading < tops.first())
+            assertTrue(tops.zipWithNext().all { (above, below) -> above < below })
+            for ((index, row) in requirements.withIndex()) {
+                val (id, text, kind) = row
+                val inRow = hasAnyAncestor(hasTestTag("requirement-row:$index"))
+                assertEquals(1, countNodes(hasText(id) and inRow))
+                assertEquals(1, countNodes(hasText(text) and inRow))
+                assertEquals(1, countNodes(hasText(kind) and inRow))
+            }
+        }
+    }
+
+    @Test
+    fun anEpicWithNoRequirementsShowsNoRequirementsHeader() {
+        FakeOrreryServer().use { server ->
+            server.respond(EPICS_GET, body())
+            setScreen(server)
+            awaitText("example-epic")
+
+            assertEquals(0, countNodes(hasText("Requirements")))
+            assertEquals(0, countNodes(hasTestTag("requirement-row:0")))
         }
     }
 

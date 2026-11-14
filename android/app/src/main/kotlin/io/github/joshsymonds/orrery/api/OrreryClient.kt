@@ -18,6 +18,7 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationState as ConversationStateProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.EngineText as EngineTextProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.Epic as EpicProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicRequirement as EpicRequirementProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicSlice as EpicSliceProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicStep as EpicStepProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicStepCheck as EpicStepCheckProto
@@ -251,7 +252,10 @@ data class StepRow(
     val reason: String,
 )
 
-/** One epic of the record root. [runningSteps] are the epic's steps with no end yet, held ones included. */
+/**
+ * One epic, from the record root or orreryd's database. [runningSteps] are the epic's steps with no end yet, held ones
+ * included. [source] is "orreryd" for an epic orreryd's database holds, "record" for an epic read from records only.
+ */
 data class EpicRow(
     val id: String,
     val repository: String,
@@ -262,7 +266,11 @@ data class EpicRow(
     val runningSteps: List<StepRow>,
     val endedSteps: Int,
     val problem: String,
+    val source: String = "",
 )
+
+/** One requirement of an orreryd epic's contract: [kind] is "check" or "review". */
+data class EpicRequirementRow(val id: String, val text: String, val evidence: String, val kind: String)
 
 data class EpicTaskRow(val effort: Int, val slug: String, val subject: String, val status: String)
 
@@ -284,8 +292,17 @@ data class EpicSliceRow(
     val errorAt: Int,
 )
 
-/** One epic with its tasks, its [slices] in serve's order, and every step labelled with it, oldest step first. */
-data class EpicDetail(val epic: EpicRow, val tasks: List<EpicTaskRow>, val slices: List<EpicSliceRow>, val steps: List<StepRow>)
+/**
+ * One epic with its tasks, its [slices] in serve's order, and every step labelled with it, oldest step first.
+ * [requirements] are an orreryd epic's requirements in contract order, empty for a record epic.
+ */
+data class EpicDetail(
+    val epic: EpicRow,
+    val tasks: List<EpicTaskRow>,
+    val slices: List<EpicSliceRow>,
+    val steps: List<StepRow>,
+    val requirements: List<EpicRequirementRow> = emptyList(),
+)
 
 /** What a hold, nudge or stop came to: it landed, or orreryd refused it with its reason. */
 sealed interface StepCallResult {
@@ -519,6 +536,7 @@ class OrreryClient(
             tasks = response.tasksList.map { it.toEpicTaskRow() },
             slices = response.slicesList.map { it.toEpicSliceRow() },
             steps = response.stepsList.map { it.toStepRow() },
+            requirements = response.requirementsList.map { it.toEpicRequirementRow() },
         )
     }
 
@@ -684,7 +702,11 @@ class OrreryClient(
             runningSteps = runningStepsList.map { it.toStepRow() },
             endedSteps = endedSteps,
             problem = problem,
+            source = source,
         )
+
+    private fun EpicRequirementProto.toEpicRequirementRow(): EpicRequirementRow =
+        EpicRequirementRow(id = id, text = text, evidence = evidence, kind = kind)
 
     private fun EpicStepProto.toStepRow(): StepRow =
         StepRow(

@@ -504,6 +504,7 @@ func startSessions(
 	}
 	var commands enginehost.Commands
 	var stepCommands enginehost.StepCommands
+	var epics enginehost.EpicCommands
 	if st != nil {
 		storePath, err := store.Path(getenv)
 		if err != nil {
@@ -547,6 +548,7 @@ func startSessions(
 		st.SetEngineLive(host.manager.Live)
 		commands = host.manager
 		stepCommands = host.steps
+		epics = st
 		var writerCtx context.Context
 		writerCtx, host.stopWriter = context.WithCancel(context.WithoutCancel(ctx))
 		go func() {
@@ -568,7 +570,7 @@ func startSessions(
 	}
 	var serveCtx context.Context
 	serveCtx, host.stopServe = context.WithCancel(ctx)
-	go func() { host.serveDone <- enginehost.Serve(serveCtx, ln, commands, stepCommands, host.pools) }()
+	go func() { host.serveDone <- enginehost.Serve(serveCtx, ln, commands, stepCommands, epics, host.pools) }()
 	return host, nil
 }
 

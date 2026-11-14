@@ -290,3 +290,73 @@ DELETE FROM pushed_notices WHERE pane = ? AND session = ?;
 
 -- name: ListPushedNotices :many
 SELECT * FROM pushed_notices ORDER BY pane, session;
+
+-- name: InsertEpic :exec
+INSERT INTO epics (id, repository, title, approved, intent, care, approach, release_then, checks, phase, created, changed)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+-- name: CountEpic :one
+SELECT COUNT(*) FROM epics WHERE id = ?;
+
+-- name: GetEpic :one
+SELECT * FROM epics WHERE id = ?;
+
+-- name: ListEpics :many
+SELECT * FROM epics ORDER BY id;
+
+-- name: UpdateEpicChanged :exec
+UPDATE epics SET changed = ? WHERE id = ?;
+
+-- name: InsertEpicFailure :exec
+INSERT INTO epic_failures (epic, position, id, text, rating, response) VALUES (?, ?, ?, ?, ?, ?);
+
+-- name: ListEpicFailures :many
+SELECT * FROM epic_failures WHERE epic = ? ORDER BY position;
+
+-- name: InsertEpicAddition :exec
+INSERT INTO epic_additions (epic, position, location, what, why, cost) VALUES (?, ?, ?, ?, ?, ?);
+
+-- name: ListEpicAdditions :many
+SELECT * FROM epic_additions WHERE epic = ? ORDER BY position;
+
+-- name: InsertEpicRequirement :exec
+INSERT INTO epic_requirements (epic, position, id, text, evidence, kind) VALUES (?, ?, ?, ?, ?, ?);
+
+-- name: ListEpicRequirements :many
+SELECT * FROM epic_requirements WHERE epic = ? ORDER BY position;
+
+-- name: InsertEpicPremise :exec
+INSERT INTO epic_premises (epic, position, id, text, if_wrong) VALUES (?, ?, ?, ?, ?);
+
+-- name: ListEpicPremises :many
+SELECT * FROM epic_premises WHERE epic = ? ORDER BY position;
+
+-- name: InsertEpicExclusion :exec
+INSERT INTO epic_exclusions (epic, position, text) VALUES (?, ?, ?);
+
+-- name: ListEpicExclusions :many
+SELECT * FROM epic_exclusions WHERE epic = ? ORDER BY position;
+
+-- name: InsertEpicAlternative :exec
+INSERT INTO epic_alternatives (epic, position, alternative, why_not, reconsider) VALUES (?, ?, ?, ?, ?);
+
+-- name: ListEpicAlternatives :many
+SELECT * FROM epic_alternatives WHERE epic = ? ORDER BY position;
+
+-- name: InsertEpicReleaseStep :exec
+INSERT INTO epic_release_steps (epic, position, step, target, undo) VALUES (?, ?, ?, ?, ?);
+
+-- name: ListEpicReleaseSteps :many
+SELECT * FROM epic_release_steps WHERE epic = ? ORDER BY position;
+
+-- name: InsertEpicDecision :exec
+INSERT INTO epic_decisions (epic, seq, client_id, text, time) VALUES (?, ?, ?, ?, ?);
+
+-- name: GetEpicDecisionByClientID :one
+SELECT * FROM epic_decisions WHERE epic = ? AND client_id = ?;
+
+-- name: MaxEpicDecisionSeq :one
+SELECT CAST(COALESCE(MAX(seq), 0) AS INTEGER) FROM epic_decisions WHERE epic = ?;
+
+-- name: ListEpicDecisions :many
+SELECT * FROM epic_decisions WHERE epic = ? ORDER BY seq;

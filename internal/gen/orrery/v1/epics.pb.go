@@ -161,7 +161,9 @@ type EpicsGetResponse struct {
 	Steps []*EpicStep `protobuf:"bytes,3,rep,name=steps,proto3" json:"steps,omitempty"`
 	// A slice per task label among the epic's labelled writing steps, in order of each label's first start. Read-only
 	// steps and steps with no task label add none.
-	Slices        []*EpicSlice `protobuf:"bytes,4,rep,name=slices,proto3" json:"slices,omitempty"`
+	Slices []*EpicSlice `protobuf:"bytes,4,rep,name=slices,proto3" json:"slices,omitempty"`
+	// The orreryd epic's requirements in contract order, empty for a record epic.
+	Requirements  []*EpicRequirement `protobuf:"bytes,5,rep,name=requirements,proto3" json:"requirements,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -224,27 +226,38 @@ func (x *EpicsGetResponse) GetSlices() []*EpicSlice {
 	return nil
 }
 
-// Epic is one epic under the record root.
+func (x *EpicsGetResponse) GetRequirements() []*EpicRequirement {
+	if x != nil {
+		return x.Requirements
+	}
+	return nil
+}
+
+// Epic is one epic under the record root or in orreryd's database. An id in both is one epic, whose source is orreryd.
 type Epic struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The epic's id, "<repo-id>/<epic-slug>", the same text a step's epic label carries.
 	Id string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	// The repository the epic belongs to, the name of the record directory's parent.
+	// The repository the epic belongs to, the name of the record directory's parent. An orreryd epic's is the part of
+	// its id before the slash.
 	Repository string `protobuf:"bytes,2,opt,name=repository,proto3" json:"repository,omitempty"`
-	// The epic's slug, the name of its record directory.
+	// The epic's slug, the name of its record directory. An orreryd epic's is the part of its id after the slash.
 	Slug string `protobuf:"bytes,3,opt,name=slug,proto3" json:"slug,omitempty"`
-	// The outcome the epic's head state.json records, as written.
+	// The outcome the epic's head state.json records, as written. An orreryd epic carries its phase here.
 	Outcome string `protobuf:"bytes,4,opt,name=outcome,proto3" json:"outcome,omitempty"`
-	// When the epic's head state.json last changed, in unix seconds.
+	// When the epic's head state.json last changed, in unix seconds. An orreryd epic's is its last write.
 	Changed int64 `protobuf:"varint,5,opt,name=changed,proto3" json:"changed,omitempty"`
-	// Whether the epic is live: its outcome is not released, and it has a running step or changed within a day.
+	// Whether the epic is live: its outcome is not released, and it has a running step or changed within a day. An
+	// orreryd epic is live until its phase is released.
 	Live bool `protobuf:"varint,6,opt,name=live,proto3" json:"live,omitempty"`
 	// The epic's steps that have not ended, held ones included, oldest first.
 	RunningSteps []*EpicStep `protobuf:"bytes,7,rep,name=running_steps,json=runningSteps,proto3" json:"running_steps,omitempty"`
 	// How many of the epic's labelled steps have ended.
 	EndedSteps int32 `protobuf:"varint,8,opt,name=ended_steps,json=endedSteps,proto3" json:"ended_steps,omitempty"`
 	// What could not be read from the epic's records, joined with "; ", empty when everything was read.
-	Problem       string `protobuf:"bytes,9,opt,name=problem,proto3" json:"problem,omitempty"`
+	Problem string `protobuf:"bytes,9,opt,name=problem,proto3" json:"problem,omitempty"`
+	// orreryd for an epic orreryd's database holds, record for an epic read from gambit records only.
+	Source        string `protobuf:"bytes,10,opt,name=source,proto3" json:"source,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -342,6 +355,13 @@ func (x *Epic) GetProblem() string {
 	return ""
 }
 
+func (x *Epic) GetSource() string {
+	if x != nil {
+		return x.Source
+	}
+	return ""
+}
+
 // EpicTask is one task from an effort's state.json.
 type EpicTask struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -424,8 +444,10 @@ type EpicStep struct {
 	Task string `protobuf:"bytes,2,opt,name=task,proto3" json:"task,omitempty"`
 	// The agent that runs the step.
 	Agent string `protobuf:"bytes,3,opt,name=agent,proto3" json:"agent,omitempty"`
-	// How the step ended, one of done, returned, goal_unmet, checks_failed, failed, stopped, engine_restarted, overtime,
-	// tool_stuck, silent, looping or wedged; empty while it runs.
+	// How the step ended, one of done, returned, goal_unmet, checks_failed, gate_failed, failed, stopped,
+	// engine_restarted, overtime, tool_stuck, silent, looping or wedged; empty while it runs. gate_failed is an agent
+	// gate step's checked return that did not pass: its assertions did not all hold, its status was not done, or an
+	// earlier return of the step held a fails result.
 	End string `protobuf:"bytes,4,opt,name=end,proto3" json:"end,omitempty"`
 	// The step's status.
 	Status string `protobuf:"bytes,5,opt,name=status,proto3" json:"status,omitempty"`
@@ -751,6 +773,79 @@ func (x *EpicSlice) GetErrorAt() int32 {
 	return 0
 }
 
+// EpicRequirement is one requirement of an orreryd epic's contract.
+type EpicRequirement struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The requirement's id, R<n>.
+	Id string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	// What will be true when the epic is done.
+	Text string `protobuf:"bytes,2,opt,name=text,proto3" json:"text,omitempty"`
+	// The check or review that shows the requirement is true.
+	Evidence string `protobuf:"bytes,3,opt,name=evidence,proto3" json:"evidence,omitempty"`
+	// How the requirement is shown: check or review.
+	Kind          string `protobuf:"bytes,4,opt,name=kind,proto3" json:"kind,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *EpicRequirement) Reset() {
+	*x = EpicRequirement{}
+	mi := &file_orrery_v1_epics_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EpicRequirement) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EpicRequirement) ProtoMessage() {}
+
+func (x *EpicRequirement) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_epics_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EpicRequirement.ProtoReflect.Descriptor instead.
+func (*EpicRequirement) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_epics_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *EpicRequirement) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *EpicRequirement) GetText() string {
+	if x != nil {
+		return x.Text
+	}
+	return ""
+}
+
+func (x *EpicRequirement) GetEvidence() string {
+	if x != nil {
+		return x.Evidence
+	}
+	return ""
+}
+
+func (x *EpicRequirement) GetKind() string {
+	if x != nil {
+		return x.Kind
+	}
+	return ""
+}
+
 // StepsHoldRequest names the step to hold.
 type StepsHoldRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -762,7 +857,7 @@ type StepsHoldRequest struct {
 
 func (x *StepsHoldRequest) Reset() {
 	*x = StepsHoldRequest{}
-	mi := &file_orrery_v1_epics_proto_msgTypes[9]
+	mi := &file_orrery_v1_epics_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -774,7 +869,7 @@ func (x *StepsHoldRequest) String() string {
 func (*StepsHoldRequest) ProtoMessage() {}
 
 func (x *StepsHoldRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_v1_epics_proto_msgTypes[9]
+	mi := &file_orrery_v1_epics_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -787,7 +882,7 @@ func (x *StepsHoldRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StepsHoldRequest.ProtoReflect.Descriptor instead.
 func (*StepsHoldRequest) Descriptor() ([]byte, []int) {
-	return file_orrery_v1_epics_proto_rawDescGZIP(), []int{9}
+	return file_orrery_v1_epics_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *StepsHoldRequest) GetId() string {
@@ -806,7 +901,7 @@ type StepsHoldResponse struct {
 
 func (x *StepsHoldResponse) Reset() {
 	*x = StepsHoldResponse{}
-	mi := &file_orrery_v1_epics_proto_msgTypes[10]
+	mi := &file_orrery_v1_epics_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -818,7 +913,7 @@ func (x *StepsHoldResponse) String() string {
 func (*StepsHoldResponse) ProtoMessage() {}
 
 func (x *StepsHoldResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_v1_epics_proto_msgTypes[10]
+	mi := &file_orrery_v1_epics_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -831,7 +926,7 @@ func (x *StepsHoldResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StepsHoldResponse.ProtoReflect.Descriptor instead.
 func (*StepsHoldResponse) Descriptor() ([]byte, []int) {
-	return file_orrery_v1_epics_proto_rawDescGZIP(), []int{10}
+	return file_orrery_v1_epics_proto_rawDescGZIP(), []int{11}
 }
 
 // StepsNudgeRequest names the step to nudge and the text to send it.
@@ -847,7 +942,7 @@ type StepsNudgeRequest struct {
 
 func (x *StepsNudgeRequest) Reset() {
 	*x = StepsNudgeRequest{}
-	mi := &file_orrery_v1_epics_proto_msgTypes[11]
+	mi := &file_orrery_v1_epics_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -859,7 +954,7 @@ func (x *StepsNudgeRequest) String() string {
 func (*StepsNudgeRequest) ProtoMessage() {}
 
 func (x *StepsNudgeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_v1_epics_proto_msgTypes[11]
+	mi := &file_orrery_v1_epics_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -872,7 +967,7 @@ func (x *StepsNudgeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StepsNudgeRequest.ProtoReflect.Descriptor instead.
 func (*StepsNudgeRequest) Descriptor() ([]byte, []int) {
-	return file_orrery_v1_epics_proto_rawDescGZIP(), []int{11}
+	return file_orrery_v1_epics_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *StepsNudgeRequest) GetId() string {
@@ -898,7 +993,7 @@ type StepsNudgeResponse struct {
 
 func (x *StepsNudgeResponse) Reset() {
 	*x = StepsNudgeResponse{}
-	mi := &file_orrery_v1_epics_proto_msgTypes[12]
+	mi := &file_orrery_v1_epics_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -910,7 +1005,7 @@ func (x *StepsNudgeResponse) String() string {
 func (*StepsNudgeResponse) ProtoMessage() {}
 
 func (x *StepsNudgeResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_v1_epics_proto_msgTypes[12]
+	mi := &file_orrery_v1_epics_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -923,7 +1018,7 @@ func (x *StepsNudgeResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StepsNudgeResponse.ProtoReflect.Descriptor instead.
 func (*StepsNudgeResponse) Descriptor() ([]byte, []int) {
-	return file_orrery_v1_epics_proto_rawDescGZIP(), []int{12}
+	return file_orrery_v1_epics_proto_rawDescGZIP(), []int{13}
 }
 
 // StepsStopRequest names the step to stop.
@@ -937,7 +1032,7 @@ type StepsStopRequest struct {
 
 func (x *StepsStopRequest) Reset() {
 	*x = StepsStopRequest{}
-	mi := &file_orrery_v1_epics_proto_msgTypes[13]
+	mi := &file_orrery_v1_epics_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -949,7 +1044,7 @@ func (x *StepsStopRequest) String() string {
 func (*StepsStopRequest) ProtoMessage() {}
 
 func (x *StepsStopRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_v1_epics_proto_msgTypes[13]
+	mi := &file_orrery_v1_epics_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -962,7 +1057,7 @@ func (x *StepsStopRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StepsStopRequest.ProtoReflect.Descriptor instead.
 func (*StepsStopRequest) Descriptor() ([]byte, []int) {
-	return file_orrery_v1_epics_proto_rawDescGZIP(), []int{13}
+	return file_orrery_v1_epics_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *StepsStopRequest) GetId() string {
@@ -981,7 +1076,7 @@ type StepsStopResponse struct {
 
 func (x *StepsStopResponse) Reset() {
 	*x = StepsStopResponse{}
-	mi := &file_orrery_v1_epics_proto_msgTypes[14]
+	mi := &file_orrery_v1_epics_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -993,7 +1088,7 @@ func (x *StepsStopResponse) String() string {
 func (*StepsStopResponse) ProtoMessage() {}
 
 func (x *StepsStopResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_orrery_v1_epics_proto_msgTypes[14]
+	mi := &file_orrery_v1_epics_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1006,7 +1101,7 @@ func (x *StepsStopResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StepsStopResponse.ProtoReflect.Descriptor instead.
 func (*StepsStopResponse) Descriptor() ([]byte, []int) {
-	return file_orrery_v1_epics_proto_rawDescGZIP(), []int{14}
+	return file_orrery_v1_epics_proto_rawDescGZIP(), []int{15}
 }
 
 var File_orrery_v1_epics_proto protoreflect.FileDescriptor
@@ -1018,12 +1113,13 @@ const file_orrery_v1_epics_proto_rawDesc = "" +
 	"\x11EpicsListResponse\x12%\n" +
 	"\x05epics\x18\x01 \x03(\v2\x0f.orrery.v1.EpicR\x05epics\"!\n" +
 	"\x0fEpicsGetRequest\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\"\xbb\x01\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\"\xfb\x01\n" +
 	"\x10EpicsGetResponse\x12#\n" +
 	"\x04epic\x18\x01 \x01(\v2\x0f.orrery.v1.EpicR\x04epic\x12)\n" +
 	"\x05tasks\x18\x02 \x03(\v2\x13.orrery.v1.EpicTaskR\x05tasks\x12)\n" +
 	"\x05steps\x18\x03 \x03(\v2\x13.orrery.v1.EpicStepR\x05steps\x12,\n" +
-	"\x06slices\x18\x04 \x03(\v2\x14.orrery.v1.EpicSliceR\x06slices\"\x87\x02\n" +
+	"\x06slices\x18\x04 \x03(\v2\x14.orrery.v1.EpicSliceR\x06slices\x12>\n" +
+	"\frequirements\x18\x05 \x03(\v2\x1a.orrery.v1.EpicRequirementR\frequirements\"\x9f\x02\n" +
 	"\x04Epic\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1e\n" +
 	"\n" +
@@ -1036,7 +1132,9 @@ const file_orrery_v1_epics_proto_rawDesc = "" +
 	"\rrunning_steps\x18\a \x03(\v2\x13.orrery.v1.EpicStepR\frunningSteps\x12\x1f\n" +
 	"\vended_steps\x18\b \x01(\x05R\n" +
 	"endedSteps\x12\x18\n" +
-	"\aproblem\x18\t \x01(\tR\aproblem\"h\n" +
+	"\aproblem\x18\t \x01(\tR\aproblem\x12\x16\n" +
+	"\x06source\x18\n" +
+	" \x01(\tR\x06source\"h\n" +
 	"\bEpicTask\x12\x16\n" +
 	"\x06effort\x18\x01 \x01(\x05R\x06effort\x12\x12\n" +
 	"\x04slug\x18\x02 \x01(\tR\x04slug\x12\x18\n" +
@@ -1071,7 +1169,12 @@ const file_orrery_v1_epics_proto_rawDesc = "" +
 	"\x02at\x18\b \x01(\x05R\x02at\x12\x12\n" +
 	"\x04held\x18\t \x01(\bR\x04held\x12\x19\n" +
 	"\berror_at\x18\n" +
-	" \x01(\x05R\aerrorAt\"\"\n" +
+	" \x01(\x05R\aerrorAt\"e\n" +
+	"\x0fEpicRequirement\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
+	"\x04text\x18\x02 \x01(\tR\x04text\x12\x1a\n" +
+	"\bevidence\x18\x03 \x01(\tR\bevidence\x12\x12\n" +
+	"\x04kind\x18\x04 \x01(\tR\x04kind\"\"\n" +
 	"\x10StepsHoldRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\"\x13\n" +
 	"\x11StepsHoldResponse\"7\n" +
@@ -1105,7 +1208,7 @@ func file_orrery_v1_epics_proto_rawDescGZIP() []byte {
 	return file_orrery_v1_epics_proto_rawDescData
 }
 
-var file_orrery_v1_epics_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
+var file_orrery_v1_epics_proto_msgTypes = make([]protoimpl.MessageInfo, 16)
 var file_orrery_v1_epics_proto_goTypes = []any{
 	(*EpicsListRequest)(nil),   // 0: orrery.v1.EpicsListRequest
 	(*EpicsListResponse)(nil),  // 1: orrery.v1.EpicsListResponse
@@ -1116,12 +1219,13 @@ var file_orrery_v1_epics_proto_goTypes = []any{
 	(*EpicStep)(nil),           // 6: orrery.v1.EpicStep
 	(*EpicStepCheck)(nil),      // 7: orrery.v1.EpicStepCheck
 	(*EpicSlice)(nil),          // 8: orrery.v1.EpicSlice
-	(*StepsHoldRequest)(nil),   // 9: orrery.v1.StepsHoldRequest
-	(*StepsHoldResponse)(nil),  // 10: orrery.v1.StepsHoldResponse
-	(*StepsNudgeRequest)(nil),  // 11: orrery.v1.StepsNudgeRequest
-	(*StepsNudgeResponse)(nil), // 12: orrery.v1.StepsNudgeResponse
-	(*StepsStopRequest)(nil),   // 13: orrery.v1.StepsStopRequest
-	(*StepsStopResponse)(nil),  // 14: orrery.v1.StepsStopResponse
+	(*EpicRequirement)(nil),    // 9: orrery.v1.EpicRequirement
+	(*StepsHoldRequest)(nil),   // 10: orrery.v1.StepsHoldRequest
+	(*StepsHoldResponse)(nil),  // 11: orrery.v1.StepsHoldResponse
+	(*StepsNudgeRequest)(nil),  // 12: orrery.v1.StepsNudgeRequest
+	(*StepsNudgeResponse)(nil), // 13: orrery.v1.StepsNudgeResponse
+	(*StepsStopRequest)(nil),   // 14: orrery.v1.StepsStopRequest
+	(*StepsStopResponse)(nil),  // 15: orrery.v1.StepsStopResponse
 }
 var file_orrery_v1_epics_proto_depIdxs = []int32{
 	4,  // 0: orrery.v1.EpicsListResponse.epics:type_name -> orrery.v1.Epic
@@ -1129,23 +1233,24 @@ var file_orrery_v1_epics_proto_depIdxs = []int32{
 	5,  // 2: orrery.v1.EpicsGetResponse.tasks:type_name -> orrery.v1.EpicTask
 	6,  // 3: orrery.v1.EpicsGetResponse.steps:type_name -> orrery.v1.EpicStep
 	8,  // 4: orrery.v1.EpicsGetResponse.slices:type_name -> orrery.v1.EpicSlice
-	6,  // 5: orrery.v1.Epic.running_steps:type_name -> orrery.v1.EpicStep
-	7,  // 6: orrery.v1.EpicStep.checks:type_name -> orrery.v1.EpicStepCheck
-	0,  // 7: orrery.v1.Epics.List:input_type -> orrery.v1.EpicsListRequest
-	2,  // 8: orrery.v1.Epics.Get:input_type -> orrery.v1.EpicsGetRequest
-	9,  // 9: orrery.v1.Steps.Hold:input_type -> orrery.v1.StepsHoldRequest
-	11, // 10: orrery.v1.Steps.Nudge:input_type -> orrery.v1.StepsNudgeRequest
-	13, // 11: orrery.v1.Steps.Stop:input_type -> orrery.v1.StepsStopRequest
-	1,  // 12: orrery.v1.Epics.List:output_type -> orrery.v1.EpicsListResponse
-	3,  // 13: orrery.v1.Epics.Get:output_type -> orrery.v1.EpicsGetResponse
-	10, // 14: orrery.v1.Steps.Hold:output_type -> orrery.v1.StepsHoldResponse
-	12, // 15: orrery.v1.Steps.Nudge:output_type -> orrery.v1.StepsNudgeResponse
-	14, // 16: orrery.v1.Steps.Stop:output_type -> orrery.v1.StepsStopResponse
-	12, // [12:17] is the sub-list for method output_type
-	7,  // [7:12] is the sub-list for method input_type
-	7,  // [7:7] is the sub-list for extension type_name
-	7,  // [7:7] is the sub-list for extension extendee
-	0,  // [0:7] is the sub-list for field type_name
+	9,  // 5: orrery.v1.EpicsGetResponse.requirements:type_name -> orrery.v1.EpicRequirement
+	6,  // 6: orrery.v1.Epic.running_steps:type_name -> orrery.v1.EpicStep
+	7,  // 7: orrery.v1.EpicStep.checks:type_name -> orrery.v1.EpicStepCheck
+	0,  // 8: orrery.v1.Epics.List:input_type -> orrery.v1.EpicsListRequest
+	2,  // 9: orrery.v1.Epics.Get:input_type -> orrery.v1.EpicsGetRequest
+	10, // 10: orrery.v1.Steps.Hold:input_type -> orrery.v1.StepsHoldRequest
+	12, // 11: orrery.v1.Steps.Nudge:input_type -> orrery.v1.StepsNudgeRequest
+	14, // 12: orrery.v1.Steps.Stop:input_type -> orrery.v1.StepsStopRequest
+	1,  // 13: orrery.v1.Epics.List:output_type -> orrery.v1.EpicsListResponse
+	3,  // 14: orrery.v1.Epics.Get:output_type -> orrery.v1.EpicsGetResponse
+	11, // 15: orrery.v1.Steps.Hold:output_type -> orrery.v1.StepsHoldResponse
+	13, // 16: orrery.v1.Steps.Nudge:output_type -> orrery.v1.StepsNudgeResponse
+	15, // 17: orrery.v1.Steps.Stop:output_type -> orrery.v1.StepsStopResponse
+	13, // [13:18] is the sub-list for method output_type
+	8,  // [8:13] is the sub-list for method input_type
+	8,  // [8:8] is the sub-list for extension type_name
+	8,  // [8:8] is the sub-list for extension extendee
+	0,  // [0:8] is the sub-list for field type_name
 }
 
 func init() { file_orrery_v1_epics_proto_init() }
@@ -1159,7 +1264,7 @@ func file_orrery_v1_epics_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_orrery_v1_epics_proto_rawDesc), len(file_orrery_v1_epics_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   15,
+			NumMessages:   16,
 			NumExtensions: 0,
 			NumServices:   2,
 		},

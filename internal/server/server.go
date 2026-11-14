@@ -115,6 +115,19 @@ type StepClient interface {
 	) (*connect.Response[enginev1.StopStepResponse], error)
 }
 
+// EpicStoreClient is the part of orreryd's Epics service serve uses: ListEpics and GetEpic, which the Epics service
+// merges with the gambit records. It has no CreateEpic or AnswerEpic, so serve cannot write an epic.
+type EpicStoreClient interface {
+	ListEpics(
+		context.Context,
+		*connect.Request[enginev1.ListEpicsRequest],
+	) (*connect.Response[enginev1.ListEpicsResponse], error)
+	GetEpic(
+		context.Context,
+		*connect.Request[enginev1.GetEpicRequest],
+	) (*connect.Response[enginev1.GetEpicResponse], error)
+}
+
 // ReadReporter receives the pane ID and the unix seconds of each read of a pane the phone makes through
 // Panes.Conversation or Panes.Screen.
 type ReadReporter func(pane string, at int64)
@@ -157,6 +170,8 @@ type Config struct {
 	Steps StepClient
 	// Records is the gambit record root the Epics service reads, or empty to list nothing.
 	Records string
+	// EpicStore is orreryd's Epics client, which List and Get merge with the records, or nil for no orreryd epics.
+	EpicStore EpicStoreClient
 	// Home is the home directory a Control start must name a directory under, after symlinks resolve. An empty,
 	// relative or root Home, or one that does not exist, refuses every start.
 	Home string
@@ -219,7 +234,9 @@ func New(cfg Config) (http.Handler, error) {
 	mux.Handle(eventsPath, events)
 	controlPath, control := newControlHandler(cfg.Engine, cfg.ControlTimeout, cfg.Home, cfg.Steps)
 	mux.Handle(controlPath, control)
-	epicsPath, epicsService := newEpicsHandler(cfg.Records, cfg.Steps, cfg.ControlTimeout, now, rpcretry.SystemClock{})
+	epicsPath, epicsService := newEpicsHandler(
+		cfg.Records, cfg.Steps, cfg.EpicStore, cfg.ControlTimeout, now, rpcretry.SystemClock{},
+	)
 	mux.Handle(epicsPath, epicsService)
 	stepsPath, stepsService := newStepsHandler(cfg.Steps, cfg.ControlTimeout, rpcretry.SystemClock{})
 	mux.Handle(stepsPath, stepsService)

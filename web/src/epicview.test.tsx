@@ -584,6 +584,59 @@ test("with no tasks the head reads 0 of 0 and draws no strip", () =>
     assert.equal(container.querySelectorAll(".strip").length, 0);
   }));
 
+// requirements are three requirements of an orreryd epic, in contract order.
+const requirements = [
+  { id: "R1", text: "the phase reads in the head", evidence: "web test", kind: "check" },
+  { id: "R2", text: "each requirement is listed in order", evidence: "review of the markup", kind: "review" },
+  { id: "R3", text: "record epics draw as before", evidence: "existing tests", kind: "check" },
+];
+
+test("an accepted orreryd epic reads its phase in the head and lists its requirements before the chart", () =>
+  withView(
+    {
+      detail: detail({
+        epic: { ...epic, source: "orreryd", outcome: "accepted" },
+        requirements,
+        slices: syntheticSlices(3),
+      }),
+      cursorStep: "",
+    },
+    (container) => {
+      assert.equal(container.querySelector(".epic-head .head-line .rt")?.textContent ?? null, "accepted · 0 of 0");
+      assert.equal(
+        container.querySelector("section.requirements > h3.eyebrow")?.firstChild?.textContent ?? null,
+        "REQUIREMENTS",
+      );
+      assert.equal(
+        container.querySelector("section.requirements > h3.eyebrow > span.sub")?.textContent ?? null,
+        "3",
+      );
+      const items = [...container.querySelectorAll("section.requirements > ol.requirements > li.requirement")];
+      assert.equal(items.length, 3);
+      assert.deepEqual(
+        items.map((item) => item.querySelector("span.rid")?.textContent ?? null),
+        ["R1", "R2", "R3"],
+      );
+      assert.deepEqual(
+        items.map((item) => item.querySelector("span.text")?.textContent ?? null),
+        requirements.map((requirement) => requirement.text),
+      );
+      assert.deepEqual(
+        items.map((item) => item.querySelector("span.kind")?.textContent ?? null),
+        ["check", "review", "check"],
+      );
+      assert.deepEqual(
+        [...(container.querySelector(".epic-view")?.children ?? [])].slice(0, 3).map(classOf),
+        ["epic-head", "requirements", "chart-block"],
+      );
+    },
+  ));
+
+test("an epic with no requirements draws no requirements section", () =>
+  withView({ detail: detail({ epic, tasks, steps, slices: syntheticSlices(3) }), cursorStep: "" }, (container) => {
+    assert.equal(container.querySelectorAll(".requirements").length, 0);
+  }));
+
 test("the strip has a segment per record task, toned as stripOf, and a task no slice names is none", () =>
   withView({ detail: detail({ epic, tasks: sevenTasks, slices: strip7Slices }), cursorStep: "" }, (container) => {
     assert.equal(container.querySelector(".strip")?.getAttribute("class") ?? null, "strip");
