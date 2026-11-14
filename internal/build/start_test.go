@@ -15,14 +15,17 @@ import (
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
-// startSteps is a Steps that records each start it is given. It returns the start's id, or err when it is set.
+// startSteps is a Steps that records each start it is given and the error its context had when the start arrived. It
+// returns the start's id, or err when it is set.
 type startSteps struct {
 	starts []enginehost.StepStart
+	ctxErr error
 	err    error
 }
 
-func (f *startSteps) Start(_ context.Context, start enginehost.StepStart) (string, error) {
+func (f *startSteps) Start(ctx context.Context, start enginehost.StepStart) (string, error) {
 	f.starts = append(f.starts, start)
+	f.ctxErr = ctx.Err()
 	if f.err != nil {
 		return "", f.err
 	}
@@ -461,6 +464,30 @@ func TestStartVerifierCarriesAgentSchemaCheckAndFinding(t *testing.T) {
 	none := json.RawMessage(`{"status":"done","results":[]}`)
 	if msgs := start.ReturnCheck(none); len(msgs) == 0 {
 		t.Error("ReturnCheck on no results = none, want a failure line")
+	}
+}
+
+func TestStartHandsEngineUncanceledContextWhenRunnerContextIsCanceled(t *testing.T) {
+	t.Parallel()
+	setup := newStartSetup(t)
+	task := startFindingTask(setup.base, setup.base)
+	id := StepID(setup.epic.ID, task.Seq, StageVerify, 1, 0, 0, 1)
+	steps := &startSteps{}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	got, err := startRunner(setup, steps, &startEvidence{}).startStep(
+		ctx, setup.epic, View{Task: task},
+		Action{Kind: ActStartStep, Unit: StageVerify, ID: id},
+	)
+	if err != nil {
+		t.Fatalf("startStep with a canceled context = %v, want nil", err)
+	}
+	if got != id {
+		t.Errorf("startStep with a canceled context id = %s, want %s", got, id)
+	}
+	onlyStart(t, steps)
+	if steps.ctxErr != nil {
+		t.Errorf("Start received a canceled context (%v), want one that runs the start to its end", steps.ctxErr)
 	}
 }
 

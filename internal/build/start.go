@@ -48,7 +48,9 @@ func (r *Runner) startStep(ctx context.Context, epic store.EpicRow, view View, a
 	if err != nil {
 		return "", err
 	}
-	id, err := r.steps.Start(ctx, start)
+	// The engine's start runs to its end under a context a shutdown cannot cancel. A start cut short after its row is
+	// committed ends the row failed under the derived id, and a restart then spends the attempt.
+	id, err := r.steps.Start(context.WithoutCancel(ctx), start)
 	if err != nil {
 		return "", fmt.Errorf("start step %s: %w", start.ID, err)
 	}
