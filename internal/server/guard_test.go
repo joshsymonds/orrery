@@ -9,7 +9,7 @@ import (
 )
 
 // phoneProcedures lists the Connect procedures of the phone services: Sessions (including the WatchConversation
-// stream), Panes (including the WatchConversation stream), Host, Push and Picker.
+// stream), Panes (including the WatchConversation stream), Host, Presence, Push and Picker.
 func phoneProcedures() []string {
 	return []string{
 		orreryv1connect.SessionsListHeadlessProcedure,
@@ -23,6 +23,7 @@ func phoneProcedures() []string {
 		orreryv1connect.PanesPullQueuedProcedure,
 		orreryv1connect.PanesWatchConversationProcedure,
 		orreryv1connect.HostStatusProcedure,
+		orreryv1connect.PresenceReportProcedure,
 		orreryv1connect.PushRegisterProcedure,
 		orreryv1connect.PushUnregisterProcedure,
 		orreryv1connect.PickerAskProcedure,
