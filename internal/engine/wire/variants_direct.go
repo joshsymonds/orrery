@@ -125,18 +125,19 @@ type SDKCommandLifecycleMessage struct {
 type SDKResultMessage struct {
 	sdkMessageEnvelope
 	Subtype           string                `json:"subtype"`
-	DurationMS        int64                 `json:"durationMs"               wire:"duration_ms"`
-	DurationAPIMS     int64                 `json:"durationApiMs"            wire:"duration_api_ms"`
-	IsError           bool                  `json:"isError"                  wire:"is_error"`
-	NumTurns          int64                 `json:"numTurns"                 wire:"num_turns"`
-	StopReason        *string               `json:"stopReason"               wire:"stop_reason"`
-	TotalCostUSD      float64               `json:"totalCostUsd"             wire:"total_cost_usd"`
+	DurationMS        int64                 `json:"durationMs"                 wire:"duration_ms"`
+	DurationAPIMS     int64                 `json:"durationApiMs"              wire:"duration_api_ms"`
+	IsError           bool                  `json:"isError"                    wire:"is_error"`
+	NumTurns          int64                 `json:"numTurns"                   wire:"num_turns"`
+	StopReason        *string               `json:"stopReason"                 wire:"stop_reason"`
+	TotalCostUSD      float64               `json:"totalCostUsd"               wire:"total_cost_usd"`
 	Usage             BetaUsage             `json:"usage"`
 	ModelUsage        map[string]ModelUsage `json:"modelUsage"`
-	PermissionDenials []SDKPermissionDenial `json:"permissionDenials"        wire:"permission_denials"`
-	TerminalReason    *string               `json:"terminalReason,omitempty" wire:"terminal_reason"`
-	FastModeState     *string               `json:"fastModeState,omitempty"  wire:"fast_mode_state"`
+	PermissionDenials []SDKPermissionDenial `json:"permissionDenials"          wire:"permission_denials"`
+	TerminalReason    *string               `json:"terminalReason,omitempty"   wire:"terminal_reason"`
+	FastModeState     *string               `json:"fastModeState,omitempty"    wire:"fast_mode_state"`
 	Origin            *SDKMessageOrigin     `json:"origin,omitempty"`
+	UserMessageUUIDs  []string              `json:"userMessageUuids,omitempty" wire:"user_message_uuids"`
 }
 
 // SDKResultSuccess is a successful terminal result.
