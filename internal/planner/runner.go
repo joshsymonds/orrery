@@ -293,11 +293,19 @@ func (r *Runner) refuse(ctx context.Context, epic string, seq int64, err error) 
 // settle settles turn seq of epic, whose step id ended as ended. A kept rejected rate limit of the step frees the turn
 // and pauses the epic, whatever the end. A done end completes the turn with the plan its return holds. A stopped step
 // frees the turn and pauses the epic, and an engine_restarted step frees it to rerun. Every other end fails the turn
-// with its end and reason. The write that ends the turn is retried until it lands (see retry).
+// with its end and reason. The read of the kept limit and the write that ends the turn are retried until they land
+// (see retry).
 func (r *Runner) settle(ctx context.Context, epic string, seq int64, id string, ended store.StepRow) error {
-	limit, limited, err := r.store.RateLimit(ctx, id)
-	if err != nil {
-		return fmt.Errorf("read rate limit of step %s: %w", id, err)
+	var limit store.RateLimit
+	var limited bool
+	if err := r.retry(ctx, "read rate limit of step "+id, func() error {
+		var readErr error
+		if limit, limited, readErr = r.store.RateLimit(ctx, id); readErr != nil {
+			return fmt.Errorf("read: %w", readErr)
+		}
+		return nil
+	}); err != nil || ctx.Err() != nil {
+		return err
 	}
 	if limited && limit.Status == rateLimitRejected {
 		return r.freeTurn(ctx, epic, seq, store.TurnFree{
@@ -359,12 +367,12 @@ func (r *Runner) freeTurn(ctx context.Context, epic string, seq int64, free stor
 	})
 }
 
-// retry runs write, a store write that ends a turn, until it succeeds or the store answers ErrTurnNotRunning, which it
-// returns wrapped with what. Until then each failed write is logged and run again after a tick with the same arguments.
-// Once ctx has ended, retry writes nothing more and returns nil, which leaves the turn running for the next start.
-func (r *Runner) retry(ctx context.Context, what string, write func() error) error {
+// retry runs op, a store call that settles a turn, until it succeeds or the store answers ErrTurnNotRunning, which it
+// returns wrapped with what. Until then each failed call is logged and run again after a tick with the same arguments.
+// Once ctx has ended, retry calls nothing more and returns nil, which leaves the turn running for the next start.
+func (r *Runner) retry(ctx context.Context, what string, op func() error) error {
 	for ctx.Err() == nil {
-		err := write()
+		err := op()
 		if err == nil {
 			return nil
 		}

@@ -64,6 +64,13 @@ func (f *faultyStore) FreeTurn(ctx context.Context, epic string, turn int64, fre
 	return f.Store.FreeTurn(ctx, epic, turn, free, at)
 }
 
+func (f *faultyStore) RateLimit(ctx context.Context, session string) (store.RateLimit, bool, error) {
+	if err := f.fault("RateLimit"); err != nil {
+		return store.RateLimit{}, false, err
+	}
+	return f.Store.RateLimit(ctx, session)
+}
+
 // faultyRunnerConfig returns the Config of a runner over s whose store is faulty, with its steps and agent.
 func faultyRunnerConfig(s *store.Store, faulty *faultyStore, steps *fakeSteps, reads *atomic.Int64) Config {
 	cfg := runnerConfig(s, steps, agentReturning(runnerAgent, nil, reads))
@@ -223,5 +230,27 @@ func TestRunnerStopsRetryingTurnWriteWhenItsContextEnds(t *testing.T) {
 	}
 	if got := epicOf(t, s).Turns[0].State; got != "running" {
 		t.Errorf("turn 1 state = %q, want running: the retry wrote nothing", got)
+	}
+}
+
+func TestRunnerRetriesRateLimitReadUntilItLands(t *testing.T) {
+	t.Parallel()
+	s := openRunnerStore(t)
+	createRunnerEpic(t, s)
+	faulty := &faultyStore{Store: s, write: "RateLimit", err: errSettleWrite, failures: 1}
+	steps := newFakeSteps()
+	var reads atomic.Int64
+	runRunner(t, faultyRunnerConfig(s, faulty, steps, &reads))
+	waitForStarts(t, steps, 1)
+	waitFor(t, "step-1 recorded on turn 1", func() bool { return stepOneOnTurnOne(t, s) })
+
+	steps.end("step-1", store.StepRow{End: "done", Result: validPlan})
+	waitFor(t, "turn 1 to succeed", func() bool { return epicOf(t, s).Turns[0].State == "succeeded" })
+
+	if got := faulty.calls.Load(); got != 2 {
+		t.Errorf("RateLimit calls = %d, want 2: one failed read and its retry", got)
+	}
+	if n := len(steps.started()); n != 1 {
+		t.Errorf("steps started = %d, want 1: a failed rate-limit read does not rerun the turn", n)
 	}
 }
