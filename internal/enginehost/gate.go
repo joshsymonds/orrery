@@ -65,6 +65,10 @@ var errGateNoRecord = errors.New("enginehost: gate holder ended without an exit 
 // errGateDetach is the cause a caller cancels a gate's context with to leave the gate running under its holder.
 var errGateDetach = errors.New("enginehost: detach from gate")
 
+// errGateLost reports a gate whose outcome cannot be read: its holder left no record that names how the gate ended, its
+// holder cannot be attached, or its grant cannot be reclaimed. The gate is ended and it does not run again.
+var errGateLost = errors.New("enginehost: gate outcome lost")
+
 // gateOutcome is how a gate's watch ended.
 type gateOutcome int
 
@@ -259,6 +263,18 @@ func gateHeld(
 		}
 		return gateExitResult(held, plan, exit), nil, nil
 	}
+	return gateWaitEnd(ctx, process, call, held, plan)
+}
+
+// gateWaitEnd waits for the gate that process serves, run under held, to end, and ends the grant as the gate's outcome
+// requires. A detach returns with the grant still held. A stop returns the stopped grant and no result.
+func gateWaitEnd(
+	ctx context.Context,
+	process *holder.Process,
+	call *gateCall,
+	held grants.Grant,
+	plan gatePlan,
+) (gateResult, *grants.Grant, error) {
 	waited := make(chan error, 1)
 	go func() {
 		waited <- process.Wait()
@@ -284,22 +300,138 @@ func gateHeld(
 	return gateExitResult(held, plan, exit), nil, nil
 }
 
-// gateLaunchExit returns the exit record the holder of dir left once the gate ended on its own, and whether there is one.
-// Launch fails when the holder ends before it serves its socket, so a gate that ends at once is read here. The gate ended
-// on its own when its child reached an exit status, or was killed at its limit: a holder that a stop or the idle timeout
-// ended is not an outcome, and neither is a child that reached no exit status, as a child that never started does: the
-// holder records it with code -1 and no signal. A directory that holds no readable record has none.
+// readoptGrantedGate resumes the granted gate that run names after the controller that started it ended. grantID is
+// the grant the gate holds. When a holder still serves the gate, grantID is reclaimed for req, naming that holder, and
+// the gate's end is waited for as an attempt waits for it. When the holder has ended, its exit record gives the outcome:
+// an exit or a limit is the result, with no grant and no run, and a stop, which an owner hold makes, reruns the gate once
+// on grantID. A holder that cannot be attached but has written its record is read the same way. Any other outcome, and a
+// reclaim the pools refuse, is errGateLost. The gate's holder is then ended and
+// cleared, so no later call reads a record that could rerun it. It returns errGateNoPools when pools is nil.
+func readoptGrantedGate(
+	ctx context.Context,
+	pools PoolCommands,
+	req grants.Request,
+	run gateRun,
+	grantID string,
+) (gateResult, error) {
+	if pools == nil {
+		return gateResult{}, errGateNoPools
+	}
+	plan, err := planGate(run)
+	if err != nil {
+		return gateResult{}, err
+	}
+	process, err := holder.ReattachGate(ctx, plan.dir)
+	switch {
+	case err == nil:
+		return readoptServed(ctx, pools, req, run, plan, process, grantID)
+	case errors.Is(err, holder.ErrGone):
+		return readoptEnded(ctx, pools, req, run, plan, grantID)
+	}
+	// A holder writes its exit record before it removes its socket, and frees its lock last, so a holder that is ending
+	// can be unattachable with its record already written. That record is the gate's outcome.
+	if _, recorded := gateExitRecord(plan.dir); recorded {
+		return readoptEnded(ctx, pools, req, run, plan, grantID)
+	}
+	return gateResult{}, errors.Join(errGateLost, err, gateEnd(ctx, plan.dir))
+}
+
+// readoptServed reclaims grantID for req, naming the holder that process is attached to, and waits for the gate's end
+// as an attempt does. A reclaim that is refused or ends leaves the gate running with no grant, so the holder is ended.
+func readoptServed(
+	ctx context.Context,
+	pools PoolCommands,
+	req grants.Request,
+	run gateRun,
+	plan gatePlan,
+	process *holder.Process,
+	grantID string,
+) (gateResult, error) {
+	req.GrantID = grantID
+	req.Holder = plan.dir
+	call := startGateCall(ctx, pools, req)
+	held, err := call.await(ctx)
+	if err != nil {
+		return gateResult{}, errors.Join(errGateLost, err, gateEnd(ctx, plan.dir))
+	}
+	result, stopped, err := gateWaitEnd(ctx, process, call, held, plan)
+	switch {
+	case errors.Is(err, errGateNoRecord):
+		return gateResult{}, errors.Join(errGateLost, err)
+	case err != nil || stopped == nil:
+		return result, err
+	}
+	return gateRerun(ctx, pools, req, run, stopped.ID)
+}
+
+// readoptEnded takes the outcome of a gate whose holder has ended, from the exit record the holder left in plan's
+// directory. It queues no grant for an exit or a limit, since the gate ended under its grant, and reruns a stopped gate.
+func readoptEnded(
+	ctx context.Context,
+	pools PoolCommands,
+	req grants.Request,
+	run gateRun,
+	plan gatePlan,
+	grantID string,
+) (gateResult, error) {
+	exit, ok := gateExitRecord(plan.dir)
+	switch {
+	case ok && exit.Reason == holder.ReasonStopped:
+		// The stop left the holder's directory and its record for clearing. Clear them here, as a live stop does: the
+		// rerun then launches a new holder, and no later call reads this record and reruns the gate again.
+		if err := gateEnd(ctx, plan.dir); err != nil {
+			return gateResult{}, errors.Join(errGateLost, err)
+		}
+		return gateRerun(ctx, pools, req, run, grantID)
+	case ok && gateEndedOnItsOwn(exit):
+		if err := gateKillLeftovers(plan.dir); err != nil {
+			return gateResult{}, err
+		}
+		return gateExitResult(grants.Grant{}, plan, exit), nil
+	}
+	return gateResult{}, errors.Join(errGateLost, gateEnd(ctx, plan.dir))
+}
+
+// gateRerun runs the gate again on grantID, the grant a stop ended, as runGrantedGate does after a stop. A grant the
+// pools no longer hold cannot be reclaimed, so the gate is lost.
+func gateRerun(
+	ctx context.Context,
+	pools PoolCommands,
+	req grants.Request,
+	run gateRun,
+	grantID string,
+) (gateResult, error) {
+	req.GrantID = grantID
+	result, err := runGrantedGate(ctx, pools, req, run)
+	if errors.Is(err, grants.ErrNoGrant) {
+		return gateResult{}, errors.Join(errGateLost, err)
+	}
+	return result, err
+}
+
+// gateLaunchExit returns the exit record the holder of dir left once the gate ended on its own, and whether there is
+// one. Launch fails when the holder ends before it serves its socket, so a gate that ends at once is read here.
 func gateLaunchExit(dir string) (holder.Exit, bool) {
+	exit, ok := gateExitRecord(dir)
+	return exit, ok && gateEndedOnItsOwn(exit)
+}
+
+// gateExitRecord returns the exit record the holder of dir left, and whether it left one. A directory that holds no
+// readable record has none.
+func gateExitRecord(dir string) (holder.Exit, bool) {
 	gone, err := holder.OpenGone(dir, 0)
 	if err != nil {
 		return holder.Exit{}, false
 	}
-	exit, ok := gone.Exit()
-	if !ok {
-		return holder.Exit{}, false
-	}
+	return gone.Exit()
+}
+
+// gateEndedOnItsOwn reports whether an exit record is the gate's own end: its child reached an exit status, or was
+// killed at its limit. A holder that a stop or the idle timeout ended is not an outcome, and neither is a child that
+// reached no exit status, as a child that never started does: the holder records it with code -1 and no signal.
+func gateEndedOnItsOwn(exit holder.Exit) bool {
 	reached := exit.Code >= 0 || exit.Signal != ""
-	return exit, reached && (exit.Reason == holder.ReasonExited || exit.Reason == holder.ReasonLimit)
+	return reached && (exit.Reason == holder.ReasonExited || exit.Reason == holder.ReasonLimit)
 }
 
 // gateExitResult returns the result of a gate that ended on its own with exit, under the grant held in plan's holder
