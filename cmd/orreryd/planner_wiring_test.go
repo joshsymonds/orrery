@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/joshsymonds/orrery/internal/enginehost"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -63,8 +62,9 @@ func TestSessionsHostParksEpicWithoutRoleFile(t *testing.T) {
 		sessionCap: defaultSessionCap,
 		stepCap:    defaultStepCap,
 	}
-	notifier := enginehost.NewNotifier(enginehost.NotifierConfig{})
-	host, err := startSessions(ctx, opts, plannerWiringHost, st, notifier, slog.New(slog.DiscardHandler), getenv)
+	host, err := startSessions(
+		ctx, opts, plannerWiringHost, st, &recordingRouter{}, slog.New(slog.DiscardHandler), getenv,
+	)
 	if err != nil {
 		t.Fatalf("startSessions: %v", err)
 	}
