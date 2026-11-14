@@ -131,7 +131,14 @@
               }
             ];
           };
+          withRoles = homeFor {
+            package = orrery;
+            roles = {
+              planner = "example-agent";
+            };
+          };
           localRootsFile = local.config.xdg.configFile."orrery/roots".source or "";
+          localRolesFile = local.config.xdg.configFile."orrery/roles.toml".source or "";
         in
         {
           package = self.packages.${system}.default;
@@ -179,6 +186,10 @@
             printf '%s\n' '2 Work' '1 Shared Projects' > expectedRoots
             rootsFile=${withRoots.config.xdg.configFile."orrery/roots".source}
             cmp -s "$rootsFile" expectedRoots || fail "roots file is [$(cat "$rootsFile")], want [2 Work, 1 Shared Projects]"
+
+            [ -z "${localRolesFile}" ] || fail "configuration without roles writes an orrery/roles.toml file"
+            rolesFile=${withRoles.config.xdg.configFile."orrery/roles.toml".source}
+            grep -qxF 'planner = "example-agent"' "$rolesFile" || fail "roles file is [$(cat "$rolesFile")], want the line planner = \"example-agent\""
 
             status=0
             "$p_remote" . 2>err || status=$?

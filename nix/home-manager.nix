@@ -86,6 +86,19 @@ in
         `orrery open` and the tree's `N` read. Empty writes no roots file.
       '';
     };
+
+    roles = lib.mkOption {
+      type = lib.types.attrsOf lib.types.str;
+      default = { };
+      example = {
+        planner = "opus-high-ro";
+      };
+      description = ''
+        Agent each role runs under, keyed by role name. Written to
+        `$XDG_CONFIG_HOME/orrery/roles.toml` (or `~/.config/orrery/roles.toml`),
+        which orreryd reads for the agent of each role. Empty writes no roles file.
+      '';
+    };
   };
 
   config = lib.mkIf cfg.enable {
@@ -98,6 +111,10 @@ in
 
     xdg.configFile."orrery/roots" = lib.mkIf (cfg.roots != [ ]) {
       text = lib.concatMapStrings (root: "${toString root.depth} ${root.path}\n") cfg.roots;
+    };
+
+    xdg.configFile."orrery/roles.toml" = lib.mkIf (cfg.roles != { }) {
+      source = (pkgs.formats.toml { }).generate "orrery-roles.toml" cfg.roles;
     };
   };
 }
