@@ -404,7 +404,7 @@ func (q *Queries) GetEngineSession(ctx context.Context, id string) (Session, err
 }
 
 const getEpic = `-- name: GetEpic :one
-SELECT id, repository, title, approved, intent, care, approach, release_then, checks, phase, created, changed, paused, parked FROM epics WHERE id = ?
+SELECT id, repository, title, approved, intent, care, approach, release_then, checks, phase, created, changed, paused, parked, base FROM epics WHERE id = ?
 `
 
 func (q *Queries) GetEpic(ctx context.Context, id string) (Epic, error) {
@@ -425,6 +425,7 @@ func (q *Queries) GetEpic(ctx context.Context, id string) (Epic, error) {
 		&i.Changed,
 		&i.Paused,
 		&i.Parked,
+		&i.Base,
 	)
 	return i, err
 }
@@ -642,13 +643,14 @@ func (q *Queries) InsertEngineSession(ctx context.Context, arg InsertEngineSessi
 }
 
 const insertEpic = `-- name: InsertEpic :exec
-INSERT INTO epics (id, repository, title, approved, intent, care, approach, release_then, checks, phase, created, changed)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO epics (id, repository, base, title, approved, intent, care, approach, release_then, checks, phase, created, changed)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 type InsertEpicParams struct {
 	ID          string
 	Repository  string
+	Base        string
 	Title       string
 	Approved    string
 	Intent      string
@@ -665,6 +667,7 @@ func (q *Queries) InsertEpic(ctx context.Context, arg InsertEpicParams) error {
 	_, err := q.db.ExecContext(ctx, insertEpic,
 		arg.ID,
 		arg.Repository,
+		arg.Base,
 		arg.Title,
 		arg.Approved,
 		arg.Intent,
@@ -790,6 +793,59 @@ func (q *Queries) InsertEpicFailure(ctx context.Context, arg InsertEpicFailurePa
 	return err
 }
 
+const insertEpicGate = `-- name: InsertEpicGate :exec
+INSERT INTO epic_gates (epic, position, name, argv, limit_seconds, needs, agent, must, must_not)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+`
+
+type InsertEpicGateParams struct {
+	Epic         string
+	Position     int64
+	Name         string
+	Argv         string
+	LimitSeconds int64
+	Needs        string
+	Agent        string
+	Must         string
+	MustNot      string
+}
+
+func (q *Queries) InsertEpicGate(ctx context.Context, arg InsertEpicGateParams) error {
+	_, err := q.db.ExecContext(ctx, insertEpicGate,
+		arg.Epic,
+		arg.Position,
+		arg.Name,
+		arg.Argv,
+		arg.LimitSeconds,
+		arg.Needs,
+		arg.Agent,
+		arg.Must,
+		arg.MustNot,
+	)
+	return err
+}
+
+const insertEpicGateList = `-- name: InsertEpicGateList :exec
+INSERT INTO epic_gate_lists (epic, list, position, gate) VALUES (?, ?, ?, ?)
+`
+
+type InsertEpicGateListParams struct {
+	Epic     string
+	List     string
+	Position int64
+	Gate     string
+}
+
+func (q *Queries) InsertEpicGateList(ctx context.Context, arg InsertEpicGateListParams) error {
+	_, err := q.db.ExecContext(ctx, insertEpicGateList,
+		arg.Epic,
+		arg.List,
+		arg.Position,
+		arg.Gate,
+	)
+	return err
+}
+
 const insertEpicPremise = `-- name: InsertEpicPremise :exec
 INSERT INTO epic_premises (epic, position, id, text, if_wrong) VALUES (?, ?, ?, ?, ?)
 `
@@ -858,7 +914,7 @@ func (q *Queries) InsertEpicReleaseStep(ctx context.Context, arg InsertEpicRelea
 }
 
 const insertEpicRequirement = `-- name: InsertEpicRequirement :exec
-INSERT INTO epic_requirements (epic, position, id, text, evidence, kind) VALUES (?, ?, ?, ?, ?, ?)
+INSERT INTO epic_requirements (epic, position, id, text, evidence, kind, item) VALUES (?, ?, ?, ?, ?, ?, ?)
 `
 
 type InsertEpicRequirementParams struct {
@@ -868,6 +924,7 @@ type InsertEpicRequirementParams struct {
 	Text     string
 	Evidence string
 	Kind     string
+	Item     string
 }
 
 func (q *Queries) InsertEpicRequirement(ctx context.Context, arg InsertEpicRequirementParams) error {
@@ -878,6 +935,7 @@ func (q *Queries) InsertEpicRequirement(ctx context.Context, arg InsertEpicRequi
 		arg.Text,
 		arg.Evidence,
 		arg.Kind,
+		arg.Item,
 	)
 	return err
 }
@@ -1390,6 +1448,38 @@ func (q *Queries) ListEpicDecisions(ctx context.Context, epic string) ([]EpicDec
 	return items, nil
 }
 
+const listEpicDoneGates = `-- name: ListEpicDoneGates :many
+SELECT epic, list, position, gate FROM epic_gate_lists WHERE epic = ? AND list = 'done' ORDER BY position
+`
+
+func (q *Queries) ListEpicDoneGates(ctx context.Context, epic string) ([]EpicGateList, error) {
+	rows, err := q.db.QueryContext(ctx, listEpicDoneGates, epic)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []EpicGateList
+	for rows.Next() {
+		var i EpicGateList
+		if err := rows.Scan(
+			&i.Epic,
+			&i.List,
+			&i.Position,
+			&i.Gate,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listEpicExclusions = `-- name: ListEpicExclusions :many
 SELECT epic, position, text FROM epic_exclusions WHERE epic = ? ORDER BY position
 `
@@ -1437,6 +1527,43 @@ func (q *Queries) ListEpicFailures(ctx context.Context, epic string) ([]EpicFail
 			&i.Text,
 			&i.Rating,
 			&i.Response,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listEpicGates = `-- name: ListEpicGates :many
+SELECT epic, position, name, argv, limit_seconds, needs, agent, must, must_not FROM epic_gates WHERE epic = ? ORDER BY position
+`
+
+func (q *Queries) ListEpicGates(ctx context.Context, epic string) ([]EpicGate, error) {
+	rows, err := q.db.QueryContext(ctx, listEpicGates, epic)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []EpicGate
+	for rows.Next() {
+		var i EpicGate
+		if err := rows.Scan(
+			&i.Epic,
+			&i.Position,
+			&i.Name,
+			&i.Argv,
+			&i.LimitSeconds,
+			&i.Needs,
+			&i.Agent,
+			&i.Must,
+			&i.MustNot,
 		); err != nil {
 			return nil, err
 		}
@@ -1597,7 +1724,7 @@ func (q *Queries) ListEpicReleaseSteps(ctx context.Context, epic string) ([]Epic
 }
 
 const listEpicRequirements = `-- name: ListEpicRequirements :many
-SELECT epic, position, id, text, evidence, kind FROM epic_requirements WHERE epic = ? ORDER BY position
+SELECT epic, position, id, text, evidence, kind, item FROM epic_requirements WHERE epic = ? ORDER BY position
 `
 
 func (q *Queries) ListEpicRequirements(ctx context.Context, epic string) ([]EpicRequirement, error) {
@@ -1616,6 +1743,39 @@ func (q *Queries) ListEpicRequirements(ctx context.Context, epic string) ([]Epic
 			&i.Text,
 			&i.Evidence,
 			&i.Kind,
+			&i.Item,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listEpicReviewGates = `-- name: ListEpicReviewGates :many
+SELECT epic, list, position, gate FROM epic_gate_lists WHERE epic = ? AND list = 'review' ORDER BY position
+`
+
+func (q *Queries) ListEpicReviewGates(ctx context.Context, epic string) ([]EpicGateList, error) {
+	rows, err := q.db.QueryContext(ctx, listEpicReviewGates, epic)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []EpicGateList
+	for rows.Next() {
+		var i EpicGateList
+		if err := rows.Scan(
+			&i.Epic,
+			&i.List,
+			&i.Position,
+			&i.Gate,
 		); err != nil {
 			return nil, err
 		}
@@ -1844,7 +2004,7 @@ func (q *Queries) ListEpicTurns(ctx context.Context, epic string) ([]EpicTurn, e
 }
 
 const listEpics = `-- name: ListEpics :many
-SELECT id, repository, title, approved, intent, care, approach, release_then, checks, phase, created, changed, paused, parked FROM epics ORDER BY id
+SELECT id, repository, title, approved, intent, care, approach, release_then, checks, phase, created, changed, paused, parked, base FROM epics ORDER BY id
 `
 
 func (q *Queries) ListEpics(ctx context.Context) ([]Epic, error) {
@@ -1871,6 +2031,7 @@ func (q *Queries) ListEpics(ctx context.Context) ([]Epic, error) {
 			&i.Changed,
 			&i.Paused,
 			&i.Parked,
+			&i.Base,
 		); err != nil {
 			return nil, err
 		}

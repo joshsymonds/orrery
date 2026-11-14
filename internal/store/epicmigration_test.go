@@ -9,27 +9,32 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/pressly/goose/v3"
 )
 
-// epicTableColumns returns, keyed by table, the columns in declaration order of every table migrations 00014 and
-// 00016 create, and of the epics columns 00016 adds.
+// epicTableColumns returns, keyed by table, the columns in declaration order of every table migrations 00014, 00016
+// and 00017 create, and of the columns those migrations add.
 func epicTableColumns() map[string][]string {
 	return map[string][]string{
 		"epics": {
 			"id", "repository", "title", "approved", "intent", "care", "approach", "release_then", "checks",
-			"phase", "created", "changed", "paused", "parked",
+			"phase", "created", "changed", "paused", "parked", "base",
 		},
 		"epic_failures":      {"epic", "position", "id", "text", "rating", "response"},
 		"epic_additions":     {"epic", "position", "location", "what", "why", "cost"},
-		"epic_requirements":  {"epic", "position", "id", "text", "evidence", "kind"},
+		"epic_requirements":  {"epic", "position", "id", "text", "evidence", "kind", "item"},
 		"epic_premises":      {"epic", "position", "id", "text", "if_wrong"},
 		"epic_exclusions":    {"epic", "position", "text"},
 		"epic_alternatives":  {"epic", "position", "alternative", "why_not", "reconsider"},
 		"epic_release_steps": {"epic", "position", "step", "target", "undo"},
-		"epic_decisions":     {"epic", "seq", "client_id", "text", "time"},
-		"epic_triggers":      {"epic", "id", "cause", "state", "turn", "created"},
+		"epic_gates": {
+			"epic", "position", "name", "argv", "limit_seconds", "needs", "agent", "must", "must_not",
+		},
+		"epic_gate_lists": {"epic", "list", "position", "gate"},
+		"epic_decisions":  {"epic", "seq", "client_id", "text", "time"},
+		"epic_triggers":   {"epic", "id", "cause", "state", "turn", "created"},
 		"epic_turns": {
 			"epic", "seq", "step", "state", "reason", "seen", "outline", "outcome", "started", "ended",
 		},
@@ -320,9 +325,9 @@ func TestEpicMigrationKeepsExistingRows(t *testing.T) {
 		`SELECT COALESCE(MAX(version_id), 0) FROM goose_db_version WHERE is_applied = 1`).Scan(&version); err != nil {
 		t.Fatalf("read store version: %v", err)
 	}
-	// Open applies 00014_epics.sql and every migration after it: 00016_planner.sql is the newest.
-	if version != 16 {
-		t.Fatalf("store version after Open = %d, want 16", version)
+	// Open applies 00014_epics.sql and every migration after it: 00017_evidence.sql is the newest.
+	if version != 17 {
+		t.Fatalf("store version after Open = %d, want 17", version)
 	}
 
 	// A later migration may add columns at the end of an existing table, as 00015_step_readopt.sql adds to steps and
@@ -331,6 +336,95 @@ func TestEpicMigrationKeepsExistingRows(t *testing.T) {
 		if got := leadingColumns(rowsOf(t, s.db, table), before[table]); !reflect.DeepEqual(got, before[table]) {
 			t.Errorf("%s after migration = %v, want %v", table, got, before[table])
 		}
+	}
+}
+
+// TestEpicStoredAtVersion16ReadsBackWithEmptyEvidence stores an epic and a Requirement at migration 16, before the
+// evidence migration, and reads them back after Open migrates the store: the base is empty and the item the zero Item.
+func TestEpicStoredAtVersion16ReadsBackWithEmptyEvidence(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "orrery.db")
+
+	fixture := openStoreAtVersion(t, path, 16)
+	const id = "orrery-0123456/epic-one"
+	seedEpic(t, fixture, id)
+	if _, err := fixture.ExecContext(ctx, `INSERT INTO epic_requirements (epic, position, id, text, evidence, kind)
+		VALUES (?, 1, 'R1', 'Stored before evidence', 'store test', 'check')`, id); err != nil {
+		fixture.Close()
+		t.Fatalf("seed requirement: %v", err)
+	}
+	if err := fixture.Close(); err != nil {
+		t.Fatalf("close fixture: %v", err)
+	}
+
+	s, err := Open(ctx, path)
+	if err != nil {
+		t.Fatalf("Open at version 16: %v", err)
+	}
+	defer s.Close()
+
+	got, err := s.Epic(ctx, id)
+	if err != nil {
+		t.Fatalf("Epic: %v", err)
+	}
+	at := time.Unix(1700000000, 0)
+	want := EpicRow{
+		ID: id, Repository: "/work/repo", Title: "Epic one", Approved: "approved line", Intent: "intent",
+		Care: "serious", Approach: "approach", ReleaseThen: "then", Checks: "checks", Phase: "accepted",
+		Created: at, Changed: at,
+		Requirements: []EpicRequirement{
+			{ID: "R1", Text: "Stored before evidence", Evidence: "store test", Kind: "check"},
+		},
+		Decisions: []EpicDecision{{Seq: 1, ID: "D1", Text: "Use the store", Time: at}},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("epic stored at version 16 = %+v, want %+v", got, want)
+	}
+}
+
+// TestEvidenceMigrationDownAndUp removes the epic gate tables and the base and item columns with the Down of
+// 00017_evidence.sql, and Up restores them.
+func TestEvidenceMigrationDownAndUp(t *testing.T) {
+	ctx := context.Background()
+	s := openEpicStore(t)
+
+	migrationsFS, err := fs.Sub(migrationFS, "migrations")
+	if err != nil {
+		t.Fatalf("sub migrations fs: %v", err)
+	}
+	provider, err := goose.NewProvider(goose.DialectSQLite3, s.db, migrationsFS)
+	if err != nil {
+		t.Fatalf("create goose provider: %v", err)
+	}
+
+	if _, err := provider.DownTo(ctx, 16); err != nil {
+		t.Fatalf("DownTo 16: %v", err)
+	}
+	tables := tableNames(t, s)
+	if tables["epic_gates"] || tables["epic_gate_lists"] {
+		t.Errorf("gate tables after Down: epic_gates %v, epic_gate_lists %v; want neither", tables["epic_gates"],
+			tables["epic_gate_lists"])
+	}
+	if hasAny(columnsOf(t, s, "epics"), "base") {
+		t.Errorf("epics columns after Down still hold base")
+	}
+	if hasAny(columnsOf(t, s, "epic_requirements"), "item") {
+		t.Errorf("epic_requirements columns after Down still hold item")
+	}
+
+	if _, err := provider.Up(ctx); err != nil {
+		t.Fatalf("Up: %v", err)
+	}
+	tables = tableNames(t, s)
+	if !tables["epic_gates"] || !tables["epic_gate_lists"] {
+		t.Errorf("gate tables after Up: epic_gates %v, epic_gate_lists %v; want both", tables["epic_gates"],
+			tables["epic_gate_lists"])
+	}
+	if !hasAll(columnsOf(t, s, "epics"), "base") {
+		t.Errorf("epics columns after Up = %v, want base", columnsOf(t, s, "epics"))
+	}
+	if !hasAll(columnsOf(t, s, "epic_requirements"), "item") {
+		t.Errorf("epic_requirements columns after Up = %v, want item", columnsOf(t, s, "epic_requirements"))
 	}
 }
 

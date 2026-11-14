@@ -46,6 +46,7 @@ type Epic struct {
 	Changed     int64
 	Paused      int64
 	Parked      string
+	Base        string
 }
 
 type EpicAddition struct {
@@ -88,6 +89,25 @@ type EpicFailure struct {
 	Response string
 }
 
+type EpicGate struct {
+	Epic         string
+	Position     int64
+	Name         string
+	Argv         string
+	LimitSeconds int64
+	Needs        string
+	Agent        string
+	Must         string
+	MustNot      string
+}
+
+type EpicGateList struct {
+	Epic     string
+	List     string
+	Position int64
+	Gate     string
+}
+
 type EpicPremise struct {
 	Epic     string
 	Position int64
@@ -119,6 +139,7 @@ type EpicRequirement struct {
 	Text     string
 	Evidence string
 	Kind     string
+	Item     string
 }
 
 type EpicTask struct {

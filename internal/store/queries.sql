@@ -292,8 +292,8 @@ DELETE FROM pushed_notices WHERE pane = ? AND session = ?;
 SELECT * FROM pushed_notices ORDER BY pane, session;
 
 -- name: InsertEpic :exec
-INSERT INTO epics (id, repository, title, approved, intent, care, approach, release_then, checks, phase, created, changed)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+INSERT INTO epics (id, repository, base, title, approved, intent, care, approach, release_then, checks, phase, created, changed)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 -- name: CountEpic :one
 SELECT COUNT(*) FROM epics WHERE id = ?;
@@ -320,7 +320,7 @@ INSERT INTO epic_additions (epic, position, location, what, why, cost) VALUES (?
 SELECT * FROM epic_additions WHERE epic = ? ORDER BY position;
 
 -- name: InsertEpicRequirement :exec
-INSERT INTO epic_requirements (epic, position, id, text, evidence, kind) VALUES (?, ?, ?, ?, ?, ?);
+INSERT INTO epic_requirements (epic, position, id, text, evidence, kind, item) VALUES (?, ?, ?, ?, ?, ?, ?);
 
 -- name: ListEpicRequirements :many
 SELECT * FROM epic_requirements WHERE epic = ? ORDER BY position;
@@ -348,6 +348,22 @@ INSERT INTO epic_release_steps (epic, position, step, target, undo) VALUES (?, ?
 
 -- name: ListEpicReleaseSteps :many
 SELECT * FROM epic_release_steps WHERE epic = ? ORDER BY position;
+
+-- name: InsertEpicGate :exec
+INSERT INTO epic_gates (epic, position, name, argv, limit_seconds, needs, agent, must, must_not)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+-- name: ListEpicGates :many
+SELECT * FROM epic_gates WHERE epic = ? ORDER BY position;
+
+-- name: InsertEpicGateList :exec
+INSERT INTO epic_gate_lists (epic, list, position, gate) VALUES (?, ?, ?, ?);
+
+-- name: ListEpicDoneGates :many
+SELECT * FROM epic_gate_lists WHERE epic = ? AND list = 'done' ORDER BY position;
+
+-- name: ListEpicReviewGates :many
+SELECT * FROM epic_gate_lists WHERE epic = ? AND list = 'review' ORDER BY position;
 
 -- name: InsertEpicTrigger :exec
 INSERT INTO epic_triggers (epic, id, cause, state, turn, created) VALUES (?, ?, ?, ?, ?, ?);
