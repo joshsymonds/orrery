@@ -42,15 +42,17 @@ func (f *stepCtlSessions) stoppedIDs() []string {
 }
 
 // stepCtlFixture holds a store, a writer and fake sessions shared by every Steps the test builds, with worktrees under
-// t.TempDir(). Each Steps is closed at cleanup.
+// t.TempDir() and the gates' holders under a state directory of the test's own, so a restarted Steps finds them. Each
+// Steps is closed at cleanup.
 type stepCtlFixture struct {
-	steps     *Steps
-	sessions  *stepCtlSessions
-	store     *store.Store
-	writer    *Writer
-	worktrees string
-	pools     *fakeGatePools
-	environ   []string
+	steps        *Steps
+	sessions     *stepCtlSessions
+	store        *store.Store
+	writer       *Writer
+	worktrees    string
+	gateStateDir string
+	pools        *fakeGatePools
+	environ      []string
 }
 
 // newStepCtlFixture returns a fixture with one Steps over a real store and writer. Its environment names a config home
@@ -63,12 +65,13 @@ func newStepCtlFixture(t *testing.T) *stepCtlFixture {
 	home := t.TempDir()
 	stepGateMachinePoolsFile(t, home, "pool_a", "pool_b", gates.DefaultPool)
 	f := &stepCtlFixture{
-		store:     s,
-		writer:    writer,
-		worktrees: t.TempDir(),
-		pools:     &fakeGatePools{},
-		environ:   []string{"PATH=" + os.Getenv("PATH"), "HOME=" + home, "XDG_CONFIG_HOME=" + home},
-		sessions:  &stepCtlSessions{stepStartSessions: &stepStartSessions{writer: writer}},
+		store:        s,
+		writer:       writer,
+		worktrees:    t.TempDir(),
+		gateStateDir: gateShortStateDir(t),
+		pools:        &fakeGatePools{},
+		environ:      []string{"PATH=" + os.Getenv("PATH"), "HOME=" + home, "XDG_CONFIG_HOME=" + home},
+		sessions:     &stepCtlSessions{stepStartSessions: &stepStartSessions{writer: writer}},
 	}
 	f.steps = f.newSteps(t)
 	return f
@@ -78,13 +81,14 @@ func newStepCtlFixture(t *testing.T) *stepCtlFixture {
 func (f *stepCtlFixture) newSteps(t *testing.T) *Steps {
 	t.Helper()
 	steps, err := NewSteps(StepsConfig{
-		Sessions:  f.sessions,
-		Store:     f.store,
-		Writer:    f.writer,
-		Pools:     f.pools,
-		Worktrees: f.worktrees,
-		Environ:   f.environ,
-		Logger:    slog.New(slog.DiscardHandler),
+		Sessions:     f.sessions,
+		Store:        f.store,
+		Writer:       f.writer,
+		Pools:        f.pools,
+		Worktrees:    f.worktrees,
+		Environ:      f.environ,
+		Logger:       slog.New(slog.DiscardHandler),
+		GateStateDir: f.gateStateDir,
 	})
 	if err != nil {
 		t.Fatalf("NewSteps: %v", err)

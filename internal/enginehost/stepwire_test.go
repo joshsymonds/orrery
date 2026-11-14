@@ -49,15 +49,16 @@ func newStepWireFixture(t *testing.T, haiku *Haiku) *stepWireFixture {
 	clock := &watchLoopClock{at: watchEpoch()}
 	sessions := &stepWireSessions{stepStartSessions: &stepStartSessions{writer: writer}}
 	steps, err := NewSteps(StepsConfig{
-		Sessions:  sessions,
-		Store:     s,
-		Writer:    writer,
-		Worktrees: t.TempDir(),
-		Environ:   []string{"PATH=" + os.Getenv("PATH"), "HOME=" + t.TempDir()},
-		Logger:    slog.New(slog.DiscardHandler),
-		Haiku:     haiku,
-		Now:       clock.now,
-		WatchTick: stepWireWatchTick,
+		Sessions:     sessions,
+		Store:        s,
+		Writer:       writer,
+		Worktrees:    t.TempDir(),
+		Environ:      []string{"PATH=" + os.Getenv("PATH"), "HOME=" + t.TempDir()},
+		Logger:       slog.New(slog.DiscardHandler),
+		Haiku:        haiku,
+		Now:          clock.now,
+		WatchTick:    stepWireWatchTick,
+		GateStateDir: gateShortStateDir(t),
 	})
 	if err != nil {
 		t.Fatalf("NewSteps: %v", err)
