@@ -93,7 +93,9 @@ type StepEnd struct {
 // with, whether it has been nudged, whether it is held, whether its judge has sent it back, and its usage-limit hold:
 // whether it is limited, the kind of limit and the time it resets, zero when the reset is unknown, and the time an
 // agent gate step's limit counts from after a resume from a usage limit, zero when it counts from the step's start. It
-// sets every loop column, so a field left at its zero value is stored as zero.
+// sets every loop column, so a field left at its zero value is stored as zero. A limit with a known reset also stores
+// the step's due row in the same write, unless the step has ended or already has a due row for that reset or a later
+// one.
 type StepLoop struct {
 	ID          string
 	Round       int
@@ -223,7 +225,8 @@ func (op StepReturn) applyEngine(ctx context.Context, queries *sqlcgen.Queries, 
 }
 
 func (op StepLoop) applyEngine(ctx context.Context, queries *sqlcgen.Queries, _ time.Time) error {
-	if _, err := requireStep(ctx, queries, op.ID); err != nil {
+	row, err := requireStep(ctx, queries, op.ID)
+	if err != nil {
 		return err
 	}
 	var resets, gateFrom int64
@@ -233,13 +236,17 @@ func (op StepLoop) applyEngine(ctx context.Context, queries *sqlcgen.Queries, _ 
 	if !op.GateFrom.IsZero() {
 		gateFrom = op.GateFrom.Unix()
 	}
-	if err := queries.UpdateStepLoop(ctx, sqlcgen.UpdateStepLoopParams{
+	if err = queries.UpdateStepLoop(ctx, sqlcgen.UpdateStepLoopParams{
 		LoopRound: int64(op.Round), LoopContinues: int64(op.Continues), LoopNudge: op.Nudge,
 		LoopOwnerNudge: op.OwnerNudge, LoopNudged: op.Nudged, LoopHeld: op.Held, LoopJudgeSent: op.JudgeSent,
 		LoopLimited: op.Limited, LoopLimitKind: op.LimitKind, LoopLimitResets: resets, LoopGateFrom: gateFrom,
 		ID: op.ID,
 	}); err != nil {
 		return fmt.Errorf("update loop of step %s: %w", op.ID, err)
+	}
+	// StepEnd closed the due rows of an ended step, so a limit that arrives after the end stores none.
+	if op.Limited && !op.LimitResets.IsZero() && row.EndValue == "" {
+		return insertDueResume(ctx, queries, dueKindStep, op.ID, op.LimitResets.Unix())
 	}
 	return nil
 }
@@ -297,7 +304,7 @@ func (op StepEnd) applyEngine(ctx context.Context, queries *sqlcgen.Queries, now
 	}); err != nil {
 		return fmt.Errorf("update end of step %s: %w", op.ID, err)
 	}
-	return nil
+	return StepDueResumesClosed{ID: op.ID}.applyEngine(ctx, queries, now)
 }
 
 // Step returns the step row with id. It returns an error matching ErrNoStep when no step has that id.

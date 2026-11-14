@@ -519,8 +519,11 @@ UPDATE epics SET parked = ? WHERE id = ?;
 -- name: PauseEpic :exec
 UPDATE epics SET paused = 1 WHERE id = ?;
 
+-- name: SetEpicPauseSource :exec
+UPDATE epics SET pause_source = ? WHERE id = ?;
+
 -- name: ResumeEpic :exec
-UPDATE epics SET paused = 0 WHERE id = ?;
+UPDATE epics SET paused = 0, pause_source = '' WHERE id = ?;
 
 -- name: RetryEpic :exec
 UPDATE epics SET parked = '', retried = ? WHERE id = ?;
@@ -651,3 +654,24 @@ SELECT * FROM evidence_runs WHERE epic = ? ORDER BY created, id;
 
 -- name: ListOpenEvidenceRuns :many
 SELECT * FROM evidence_runs WHERE state <> 'ended' ORDER BY created, id;
+
+-- name: InsertDueResume :exec
+INSERT INTO due_resumes (id, kind, target, resets, state)
+SELECT sqlc.arg(id), sqlc.arg(kind), sqlc.arg(target), sqlc.arg(resets), 'due'
+WHERE NOT EXISTS (
+    SELECT 1 FROM due_resumes
+    WHERE due_resumes.kind = sqlc.arg(kind) AND due_resumes.target = sqlc.arg(target)
+      AND due_resumes.resets >= sqlc.arg(resets)
+);
+
+-- name: GetDueResume :one
+SELECT * FROM due_resumes WHERE id = ?;
+
+-- name: ListDueResumes :many
+SELECT * FROM due_resumes WHERE state = 'due' ORDER BY resets, id;
+
+-- name: CloseDueResume :exec
+UPDATE due_resumes SET state = 'done' WHERE id = ?;
+
+-- name: CloseDueResumesOf :exec
+UPDATE due_resumes SET state = 'done' WHERE kind = ? AND target = ?;

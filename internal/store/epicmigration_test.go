@@ -17,12 +17,12 @@ import (
 )
 
 // epicTableColumns returns, keyed by table, the columns in declaration order of every table migrations 00014, 00016
-// and 00019 create, and of the columns those migrations and 00020 and 00021 add to epic tables.
+// and 00019 create, and of the columns those migrations and 00020, 00021 and 00022 add to epic tables.
 func epicTableColumns() map[string][]string {
 	return map[string][]string{
 		"epics": {
 			"id", "repository", "title", "approved", "intent", "care", "approach", "release_then", "checks",
-			"phase", "created", "changed", "paused", "parked", "retried", "base", "branch",
+			"phase", "created", "changed", "paused", "parked", "retried", "base", "branch", "pause_source",
 		},
 		"epic_failures":      {"epic", "position", "id", "text", "rating", "response"},
 		"epic_additions":     {"epic", "position", "location", "what", "why", "cost"},
@@ -410,9 +410,9 @@ func TestEpicMigrationKeepsExistingRows(t *testing.T) {
 		`SELECT COALESCE(MAX(version_id), 0) FROM goose_db_version WHERE is_applied = 1`).Scan(&version); err != nil {
 		t.Fatalf("read store version: %v", err)
 	}
-	// Open applies 00014_epics.sql and every migration after it: 00021_task_build.sql is the newest.
-	if version != 21 {
-		t.Fatalf("store version after Open = %d, want 21", version)
+	// Open applies 00014_epics.sql and every migration after it: 00022_due_resumes.sql is the newest.
+	if version != 22 {
+		t.Fatalf("store version after Open = %d, want 22", version)
 	}
 
 	// A later migration may add columns at the end of an existing table, as 00015_step_readopt.sql adds to steps and
@@ -646,6 +646,42 @@ func TestTaskBuildMigrationDownAndUp(t *testing.T) {
 	}
 }
 
+// TestDueResumesMigrationDownAndUp removes the due_resumes table and the epics pause_source column with the Down of
+// 00022_due_resumes.sql, and Up restores them.
+func TestDueResumesMigrationDownAndUp(t *testing.T) {
+	ctx := context.Background()
+	s := openEpicStore(t)
+
+	migrationsFS, err := fs.Sub(migrationFS, "migrations")
+	if err != nil {
+		t.Fatalf("sub migrations fs: %v", err)
+	}
+	provider, err := goose.NewProvider(goose.DialectSQLite3, s.db, migrationsFS)
+	if err != nil {
+		t.Fatalf("create goose provider: %v", err)
+	}
+
+	if _, err := provider.DownTo(ctx, 21); err != nil {
+		t.Fatalf("DownTo 21: %v", err)
+	}
+	if tableNames(t, s)["due_resumes"] {
+		t.Errorf("due_resumes after Down: present, want removed")
+	}
+	if hasAny(columnsOf(t, s, "epics"), "pause_source") {
+		t.Errorf("epics columns after Down = %v, want no pause_source", columnsOf(t, s, "epics"))
+	}
+
+	if _, err := provider.Up(ctx); err != nil {
+		t.Fatalf("Up: %v", err)
+	}
+	if !tableNames(t, s)["due_resumes"] {
+		t.Errorf("due_resumes after Up: absent, want present")
+	}
+	if !hasAll(columnsOf(t, s, "epics"), "pause_source") {
+		t.Errorf("epics columns after Up = %v, want pause_source", columnsOf(t, s, "epics"))
+	}
+}
+
 func TestPlannerControlsDefaultOnRowsStoredAtVersion16(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -688,7 +724,7 @@ func TestPlannerControlsDefaultOnRowsStoredAtVersion16(t *testing.T) {
 
 	// Each stored row keeps its values and gains the new column defaults at the end of its table.
 	added := map[string][]any{
-		"epics":           {int64(0), "", ""},
+		"epics":           {int64(0), "", "", ""},
 		"epic_turns":      {int64(0), int64(0), int64(0)},
 		"epic_decisions":  {int64(0)},
 		"pending_notices": {""},

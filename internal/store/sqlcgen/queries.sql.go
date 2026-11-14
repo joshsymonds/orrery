@@ -33,6 +33,29 @@ func (q *Queries) ClearEngineText(ctx context.Context, sessionID string) error {
 	return err
 }
 
+const closeDueResume = `-- name: CloseDueResume :exec
+UPDATE due_resumes SET state = 'done' WHERE id = ?
+`
+
+func (q *Queries) CloseDueResume(ctx context.Context, id string) error {
+	_, err := q.db.ExecContext(ctx, closeDueResume, id)
+	return err
+}
+
+const closeDueResumesOf = `-- name: CloseDueResumesOf :exec
+UPDATE due_resumes SET state = 'done' WHERE kind = ? AND target = ?
+`
+
+type CloseDueResumesOfParams struct {
+	Kind   string
+	Target string
+}
+
+func (q *Queries) CloseDueResumesOf(ctx context.Context, arg CloseDueResumesOfParams) error {
+	_, err := q.db.ExecContext(ctx, closeDueResumesOf, arg.Kind, arg.Target)
+	return err
+}
+
 const completeEpicTurn = `-- name: CompleteEpicTurn :execrows
 UPDATE epic_turns SET state = 'succeeded', outline = ?, outcome = ?, ended = ? WHERE epic = ? AND seq = ? AND state = 'running'
 `
@@ -380,6 +403,23 @@ func (q *Queries) EventPageAfter(ctx context.Context, arg EventPageAfterParams) 
 	return items, nil
 }
 
+const getDueResume = `-- name: GetDueResume :one
+SELECT id, kind, target, resets, state FROM due_resumes WHERE id = ?
+`
+
+func (q *Queries) GetDueResume(ctx context.Context, id string) (DueResume, error) {
+	row := q.db.QueryRowContext(ctx, getDueResume, id)
+	var i DueResume
+	err := row.Scan(
+		&i.ID,
+		&i.Kind,
+		&i.Target,
+		&i.Resets,
+		&i.State,
+	)
+	return i, err
+}
+
 const getEnginePromptFailure = `-- name: GetEnginePromptFailure :one
 SELECT reason FROM engine_prompt_failed WHERE session_id = ? AND prompt_id = ?
 `
@@ -447,7 +487,7 @@ func (q *Queries) GetEngineSession(ctx context.Context, id string) (Session, err
 }
 
 const getEpic = `-- name: GetEpic :one
-SELECT id, repository, title, approved, intent, care, approach, release_then, checks, phase, created, changed, paused, parked, retried, base, branch FROM epics WHERE id = ?
+SELECT id, repository, title, approved, intent, care, approach, release_then, checks, phase, created, changed, paused, parked, retried, base, branch, pause_source FROM epics WHERE id = ?
 `
 
 func (q *Queries) GetEpic(ctx context.Context, id string) (Epic, error) {
@@ -471,6 +511,7 @@ func (q *Queries) GetEpic(ctx context.Context, id string) (Epic, error) {
 		&i.Retried,
 		&i.Base,
 		&i.Branch,
+		&i.PauseSource,
 	)
 	return i, err
 }
@@ -787,6 +828,33 @@ func (q *Queries) GetStepTurnEnd(ctx context.Context, id string) (GetStepTurnEnd
 		&i.LoopSeq,
 	)
 	return i, err
+}
+
+const insertDueResume = `-- name: InsertDueResume :exec
+INSERT INTO due_resumes (id, kind, target, resets, state)
+SELECT ?1, ?2, ?3, ?4, 'due'
+WHERE NOT EXISTS (
+    SELECT 1 FROM due_resumes
+    WHERE due_resumes.kind = ?2 AND due_resumes.target = ?3
+      AND due_resumes.resets >= ?4
+)
+`
+
+type InsertDueResumeParams struct {
+	ID     string
+	Kind   string
+	Target string
+	Resets int64
+}
+
+func (q *Queries) InsertDueResume(ctx context.Context, arg InsertDueResumeParams) error {
+	_, err := q.db.ExecContext(ctx, insertDueResume,
+		arg.ID,
+		arg.Kind,
+		arg.Target,
+		arg.Resets,
+	)
+	return err
 }
 
 const insertEnginePromptEvent = `-- name: InsertEnginePromptEvent :exec
@@ -1636,6 +1704,39 @@ func (q *Queries) ListBuildEpics(ctx context.Context) ([]string, error) {
 			return nil, err
 		}
 		items = append(items, id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listDueResumes = `-- name: ListDueResumes :many
+SELECT id, kind, target, resets, state FROM due_resumes WHERE state = 'due' ORDER BY resets, id
+`
+
+func (q *Queries) ListDueResumes(ctx context.Context) ([]DueResume, error) {
+	rows, err := q.db.QueryContext(ctx, listDueResumes)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []DueResume
+	for rows.Next() {
+		var i DueResume
+		if err := rows.Scan(
+			&i.ID,
+			&i.Kind,
+			&i.Target,
+			&i.Resets,
+			&i.State,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
 	}
 	if err := rows.Close(); err != nil {
 		return nil, err
@@ -2516,7 +2617,7 @@ func (q *Queries) ListEpicTurns(ctx context.Context, epic string) ([]EpicTurn, e
 }
 
 const listEpics = `-- name: ListEpics :many
-SELECT id, repository, title, approved, intent, care, approach, release_then, checks, phase, created, changed, paused, parked, retried, base, branch FROM epics ORDER BY id
+SELECT id, repository, title, approved, intent, care, approach, release_then, checks, phase, created, changed, paused, parked, retried, base, branch, pause_source FROM epics ORDER BY id
 `
 
 func (q *Queries) ListEpics(ctx context.Context) ([]Epic, error) {
@@ -2546,6 +2647,7 @@ func (q *Queries) ListEpics(ctx context.Context) ([]Epic, error) {
 			&i.Retried,
 			&i.Base,
 			&i.Branch,
+			&i.PauseSource,
 		); err != nil {
 			return nil, err
 		}
@@ -2561,7 +2663,7 @@ func (q *Queries) ListEpics(ctx context.Context) ([]Epic, error) {
 }
 
 const listEpicsWithTurns = `-- name: ListEpicsWithTurns :many
-SELECT id, repository, title, approved, intent, care, approach, release_then, checks, phase, created, changed, paused, parked, retried, base, branch FROM epics
+SELECT id, repository, title, approved, intent, care, approach, release_then, checks, phase, created, changed, paused, parked, retried, base, branch, pause_source FROM epics
 WHERE EXISTS (SELECT 1 FROM epic_turns WHERE epic_turns.epic = epics.id)
 ORDER BY epics.id
 `
@@ -2593,6 +2695,7 @@ func (q *Queries) ListEpicsWithTurns(ctx context.Context) ([]Epic, error) {
 			&i.Retried,
 			&i.Base,
 			&i.Branch,
+			&i.PauseSource,
 		); err != nil {
 			return nil, err
 		}
@@ -3795,7 +3898,7 @@ func (q *Queries) ReleaseEpicTriggers(ctx context.Context, arg ReleaseEpicTrigge
 }
 
 const resumeEpic = `-- name: ResumeEpic :exec
-UPDATE epics SET paused = 0 WHERE id = ?
+UPDATE epics SET paused = 0, pause_source = '' WHERE id = ?
 `
 
 func (q *Queries) ResumeEpic(ctx context.Context, id string) error {
@@ -3888,6 +3991,20 @@ func (q *Queries) SetEpicParked(ctx context.Context, arg SetEpicParkedParams) (i
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const setEpicPauseSource = `-- name: SetEpicPauseSource :exec
+UPDATE epics SET pause_source = ? WHERE id = ?
+`
+
+type SetEpicPauseSourceParams struct {
+	PauseSource string
+	ID          string
+}
+
+func (q *Queries) SetEpicPauseSource(ctx context.Context, arg SetEpicPauseSourceParams) error {
+	_, err := q.db.ExecContext(ctx, setEpicPauseSource, arg.PauseSource, arg.ID)
+	return err
 }
 
 const setEpicQuestionAnswered = `-- name: SetEpicQuestionAnswered :exec
