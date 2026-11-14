@@ -333,10 +333,10 @@ func (r *Runner) refuse(ctx context.Context, epic string, seq int64, err error) 
 }
 
 // settle settles turn seq of epic, whose step id ended as ended. A kept rejected rate limit of the step frees the turn
-// with its reset time and pauses the epic, whatever the end. A done end completes the turn with the plan its return
-// holds. A stopped step frees the turn and pauses the epic, and an engine_restarted step frees it to rerun. Every
-// other end fails the turn with its end and reason. The read of the kept limit and the write that ends the turn are
-// retried until they land (see retry).
+// as a limit with its reset time and pauses the epic, whatever the end. A done end completes the turn with the plan
+// its return holds. A stopped step frees the turn and pauses the epic, and an engine_restarted step frees it to rerun.
+// Every other end fails the turn with its end and reason. The read of the kept limit and the write that ends the turn
+// are retried until they land (see retry).
 func (r *Runner) settle(ctx context.Context, epic string, seq int64, id string, ended store.StepRow) error {
 	var limit store.RateLimit
 	var limited bool
@@ -353,6 +353,7 @@ func (r *Runner) settle(ctx context.Context, epic string, seq int64, id string, 
 		return r.freeTurn(ctx, epic, seq, store.TurnFree{
 			Reason: fmt.Sprintf("%s rate limit, resets %s", limit.Kind, limit.ResetsAt.UTC().Format(time.RFC3339)),
 			Pause:  true,
+			Limit:  true,
 			Resets: limit.ResetsAt,
 		})
 	}

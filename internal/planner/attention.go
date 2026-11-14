@@ -180,7 +180,7 @@ func needOf(entry store.EpicAttention) attentionNeed {
 	switch {
 	case entry.Parked != "":
 		return needPark
-	case entry.Paused && entry.Latest.State == turnFree && !entry.Latest.Resets.IsZero():
+	case entry.Paused && entry.Latest.State == turnFree && entry.Latest.Limited:
 		return needLimit
 	case len(entry.Open) > 0:
 		return needQuestions
@@ -202,13 +202,16 @@ func tellsOwner(need attentionNeed, entry store.EpicAttention) bool {
 	}
 }
 
-// bodyOf returns the body of the notice of need for entry: the park reason, the limit's reset time, or the open
-// questions, one Q<seq> line each.
+// bodyOf returns the body of the notice of need for entry: the park reason, the limit's reset time or that it names
+// none, or the open questions, one Q<seq> line each.
 func bodyOf(need attentionNeed, entry store.EpicAttention) string {
 	switch need {
 	case needPark:
 		return "parked: " + entry.Parked
 	case needLimit:
+		if entry.Latest.Resets.IsZero() {
+			return "usage limit, reset time unknown"
+		}
 		return "usage limit, resets " + entry.Latest.Resets.UTC().Format(time.RFC3339)
 	default:
 		lines := make([]string, 0, len(entry.Open))

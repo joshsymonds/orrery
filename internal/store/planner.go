@@ -28,8 +28,8 @@ type EpicPlanState struct {
 }
 
 // EpicTurn is one planner turn on an epic. Times are stored at whole seconds; Ended is zero while the turn runs.
-// Told reports whether the owner was told about the turn, and Resets is the usage-limit reset time a free turn stored,
-// zero when it stored none.
+// Told reports whether the owner was told about the turn. Limited reports whether a free turn was a usage limit, and
+// Resets is the usage-limit reset time a free turn stored, zero when it stored none or when the limit named none.
 type EpicTurn struct {
 	Epic      string
 	Seq       int64
@@ -43,6 +43,7 @@ type EpicTurn struct {
 	Started   time.Time
 	Ended     time.Time
 	Told      bool
+	Limited   bool
 	Resets    time.Time
 }
 
@@ -200,7 +201,7 @@ func questionOf(question sqlcgen.EpicQuestion) EpicQuestion {
 }
 
 // turnOf returns the stored turn with its decisions in position order. Ended and Resets are zero while the turn runs
-// or when it stored no reset.
+// or when it stored no reset, and Limited is set when it stored a reset or a limit with none.
 func turnOf(ctx context.Context, queries *sqlcgen.Queries, stored sqlcgen.EpicTurn) (EpicTurn, error) {
 	decisions, err := queries.ListEpicTurnDecisionsOf(ctx, sqlcgen.ListEpicTurnDecisionsOfParams{
 		Epic: stored.Epic, Turn: stored.Seq,
@@ -219,6 +220,9 @@ func turnOf(ctx context.Context, queries *sqlcgen.Queries, stored sqlcgen.EpicTu
 		turn.Ended = time.Unix(stored.Ended, 0)
 	}
 	if stored.Resets != 0 {
+		turn.Limited = true
+	}
+	if stored.Resets > 0 {
 		turn.Resets = time.Unix(stored.Resets, 0)
 	}
 	return turn, nil
@@ -408,13 +412,32 @@ const failuresToPark = 3
 // parkedAfterFailures opens the park reason of an epic whose three latest turns that are not free all failed.
 const parkedAfterFailures = "3 planner turns failed in a row: "
 
+// limitWithoutReset is the epic_turns.resets of a usage limit that names no reset time. A reset time is never negative,
+// so the stored value marks a limit, and it reads back with a zero Resets.
+const limitWithoutReset = -1
+
 // TurnFree is how a running turn ends without a return: its Reason, whether it Pauses the epic, the Park reason
-// it parks the epic with when not empty, and the usage-limit Resets time it stores when not zero.
+// it parks the epic with when not empty, whether it is a usage Limit, and the usage-limit Resets time it stores when
+// not zero.
 type TurnFree struct {
 	Reason string
 	Pause  bool
 	Park   string
+	Limit  bool
 	Resets time.Time
+}
+
+// storedResetsOf returns the epic_turns.resets that free stores, and false when it stores none. A non-zero Resets is
+// stored as its unix second, and a Limit with no Resets as limitWithoutReset.
+func storedResetsOf(free TurnFree) (int64, bool) {
+	switch {
+	case !free.Resets.IsZero():
+		return free.Resets.Unix(), true
+	case free.Limit:
+		return limitWithoutReset, true
+	default:
+		return 0, false
+	}
 }
 
 // FailTurn ends the running turn seq of epic as failed with reason, cut to TurnReasonMax bytes, in one write, and
@@ -439,17 +462,18 @@ func (s *Store) FailTurn(ctx context.Context, epic string, turn int64, reason st
 }
 
 // FreeTurn ends the running turn seq of epic as free with free.Reason, cut to TurnReasonMax bytes, and returns its
-// triggers to pending with turn 0 in one write. A non-zero free.Resets is stored on the turn as its reset time. Pause
-// pauses the epic, and a non-empty Park parks it with that reason. A free turn never counts toward the three failed
-// turns that park an epic. A turn that is not running, or does not exist, is ErrTurnNotRunning and writes nothing.
+// triggers to pending with turn 0 in one write. The turn stores storedResetsOf(free): a non-zero free.Resets as its
+// reset time, and limitWithoutReset for a Limit that names none. Pause pauses the epic, and a non-empty Park parks it
+// with that reason. A free turn never counts toward the three failed turns that park an epic. A turn that is not
+// running, or does not exist, is ErrTurnNotRunning and writes nothing.
 func (s *Store) FreeTurn(ctx context.Context, epic string, turn int64, free TurnFree, at time.Time) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
 		if err := endTurn(ctx, queries, epic, turn, "free", capTurnText(free.Reason), at); err != nil {
 			return err
 		}
-		if !free.Resets.IsZero() {
+		if resets, stores := storedResetsOf(free); stores {
 			if err := queries.SetEpicTurnResets(ctx, sqlcgen.SetEpicTurnResetsParams{
-				Resets: free.Resets.Unix(), Epic: epic, Seq: turn,
+				Resets: resets, Epic: epic, Seq: turn,
 			}); err != nil {
 				return fmt.Errorf("set resets of turn %d of epic %s: %w", turn, epic, err)
 			}
