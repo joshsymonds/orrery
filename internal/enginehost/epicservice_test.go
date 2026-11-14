@@ -47,7 +47,7 @@ func startEpicServer(t *testing.T, epics EpicCommands) string {
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan error, 1)
-	go func() { done <- Serve(ctx, ln, nil, nil, epics, nil) }()
+	go func() { done <- Serve(ctx, ln, nil, nil, epics, nil, nil) }()
 	t.Cleanup(func() {
 		cancel()
 		if err := <-done; err != nil {
