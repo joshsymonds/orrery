@@ -145,7 +145,8 @@ func (s *Steps) Readopt(ctx context.Context, adopter StepAdopter) error {
 // readoptRun rebuilds the run of an open step row as Start builds the run of a started step, restoring it from the turn
 // end its session last stored. A named gate's grant is requested from the pools of the row's workspace, and a read-only
 // step's worktree is removed when the step ends. It returns an error matching errStepAgentGateRestarted for an agent gate
-// step, and an error when the turn end cannot be read, or when the run's grant or haiku caller cannot be bound.
+// step, and an error when the turn end cannot be read, when the return check cannot be restored, or when the run's grant
+// or haiku caller cannot be bound.
 func (s *Steps) readoptRun(ctx context.Context, row store.StepRow) (*stepRun, error) {
 	if stepRowRunsAgentGate(row) {
 		return nil, fmt.Errorf("%w: step %s runs agent gate %s", errStepAgentGateRestarted, row.ID, row.GateName)
@@ -175,6 +176,12 @@ func (s *Steps) readoptRun(ctx context.Context, row store.StepRow) (*stepRun, er
 			stepGetenv(s.environ))
 		if err != nil {
 			return nil, err
+		}
+	}
+	if s.readoptCheck != nil {
+		cfg.returnCheck, err = s.readoptCheck(ctx, row)
+		if err != nil {
+			return nil, fmt.Errorf("return check of step %s: %w", row.ID, err)
 		}
 	}
 	err = s.bindHaiku(&cfg, folder)

@@ -92,6 +92,9 @@ type StepStore interface {
 // GateStateDir is the state directory each gate's holder lives under, and a directory under os.TempDir when empty.
 // GateScope is the systemd-run scope each gate's holder runs in, and empty runs it without one. With GateScope set, Close
 // leaves a running gate under its holder for a restarted Steps to re-adopt; without it, Close kills the gate.
+// ReadoptCheck returns the return check a step row is re-adopted with: a return check is Go-only, so the row cannot hold
+// it, and the caller that started the step supplies it again. A nil ReadoptCheck, or one that returns a nil check,
+// rebuilds the run with none. An error leaves the row unregistered, so Reconcile ends it engine_restarted.
 type StepsConfig struct {
 	Sessions     stepSessions
 	Store        StepStore
@@ -105,6 +108,7 @@ type StepsConfig struct {
 	WatchTick    time.Duration
 	GateStateDir string
 	GateScope    string
+	ReadoptCheck func(ctx context.Context, row store.StepRow) (func(value json.RawMessage) []string, error)
 }
 
 // StepAdopter is what Readopt registers each open step with, and what Reconcile asks whether the step is live. Manager
@@ -131,6 +135,7 @@ type Steps struct {
 	tick         time.Duration
 	gateStateDir string
 	gateScope    string
+	readoptCheck func(ctx context.Context, row store.StepRow) (func(value json.RawMessage) []string, error)
 
 	mu      sync.Mutex
 	loops   map[string]context.CancelFunc
@@ -167,6 +172,7 @@ func NewSteps(cfg StepsConfig) (*Steps, error) {
 		tick:         tick,
 		gateStateDir: cfg.GateStateDir,
 		gateScope:    cfg.GateScope,
+		readoptCheck: cfg.ReadoptCheck,
 		loops:        map[string]context.CancelFunc{},
 		causes:       map[string]context.CancelCauseFunc{},
 		runs:         map[string]*stepRun{},
