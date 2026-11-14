@@ -90,7 +90,7 @@ func TestFailTurnStoresTheReasonAndFreesItsTriggersToPending(t *testing.T) {
 
 	wantTurns := [][]any{
 		{id, int64(1), "", "failed", "return had no outline", int64(len(seededDecisions())), "", "",
-			int64(1700000500), int64(1700000700)},
+			int64(1700000500), int64(1700000700), int64(0), int64(0), int64(0)},
 	}
 	if got := rowsOf(t, s.db, "epic_turns"); !reflect.DeepEqual(got, wantTurns) {
 		t.Errorf("epic_turns after FailTurn = %v, want %v", got, wantTurns)
@@ -255,7 +255,7 @@ func TestFreeTurnFreesItsTriggersAndStoresItsReason(t *testing.T) {
 
 	wantTurns := [][]any{
 		{id, int64(1), "", "free", "rate limited", int64(len(seededDecisions())), "", "",
-			int64(1700000500), int64(1700000700)},
+			int64(1700000500), int64(1700000700), int64(0), int64(0), int64(0)},
 	}
 	if got := rowsOf(t, s.db, "epic_turns"); !reflect.DeepEqual(got, wantTurns) {
 		t.Errorf("epic_turns after FreeTurn = %v, want %v", got, wantTurns)

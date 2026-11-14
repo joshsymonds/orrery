@@ -46,6 +46,7 @@ type Epic struct {
 	Changed     int64
 	Paused      int64
 	Parked      string
+	Retried     int64
 }
 
 type EpicAddition struct {
@@ -71,6 +72,7 @@ type EpicDecision struct {
 	ClientID string
 	Text     string
 	Time     int64
+	Question int64
 }
 
 type EpicExclusion struct {
@@ -165,6 +167,9 @@ type EpicTurn struct {
 	Outcome string
 	Started int64
 	Ended   int64
+	Told    int64
+	Stop    int64
+	Resets  int64
 }
 
 type EpicTurnDecision struct {
@@ -219,11 +224,17 @@ type PendingNotice struct {
 	SourceKind  string
 	Source      []byte
 	Silent      bool
+	Epic        string
 }
 
 type PendingNoticeID struct {
 	ID   int64
 	High int64
+}
+
+type PushedEpicNotice struct {
+	Epic string
+	Time int64
 }
 
 type PushedNotice struct {

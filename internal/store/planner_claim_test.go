@@ -242,6 +242,7 @@ func TestSetTurnStepStoresTheStepOnARunningTurn(t *testing.T) {
 	}
 	want := [][]any{{
 		id, int64(1), "step-1", "running", "", int64(len(seededDecisions())), "", "", int64(1700000500), int64(0),
+		int64(0), int64(0), int64(0),
 	}}
 	if got := rowsOf(t, s.db, "epic_turns"); !reflect.DeepEqual(got, want) {
 		t.Errorf("epic_turns after SetTurnStep = %v, want %v", got, want)

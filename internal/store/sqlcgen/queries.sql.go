@@ -404,7 +404,7 @@ func (q *Queries) GetEngineSession(ctx context.Context, id string) (Session, err
 }
 
 const getEpic = `-- name: GetEpic :one
-SELECT id, repository, title, approved, intent, care, approach, release_then, checks, phase, created, changed, paused, parked FROM epics WHERE id = ?
+SELECT id, repository, title, approved, intent, care, approach, release_then, checks, phase, created, changed, paused, parked, retried FROM epics WHERE id = ?
 `
 
 func (q *Queries) GetEpic(ctx context.Context, id string) (Epic, error) {
@@ -425,12 +425,13 @@ func (q *Queries) GetEpic(ctx context.Context, id string) (Epic, error) {
 		&i.Changed,
 		&i.Paused,
 		&i.Parked,
+		&i.Retried,
 	)
 	return i, err
 }
 
 const getEpicDecisionByClientID = `-- name: GetEpicDecisionByClientID :one
-SELECT epic, seq, client_id, text, time FROM epic_decisions WHERE epic = ? AND client_id = ?
+SELECT epic, seq, client_id, text, time, question FROM epic_decisions WHERE epic = ? AND client_id = ?
 `
 
 type GetEpicDecisionByClientIDParams struct {
@@ -447,6 +448,7 @@ func (q *Queries) GetEpicDecisionByClientID(ctx context.Context, arg GetEpicDeci
 		&i.ClientID,
 		&i.Text,
 		&i.Time,
+		&i.Question,
 	)
 	return i, err
 }
@@ -1358,7 +1360,7 @@ func (q *Queries) ListEpicAlternatives(ctx context.Context, epic string) ([]Epic
 }
 
 const listEpicDecisions = `-- name: ListEpicDecisions :many
-SELECT epic, seq, client_id, text, time FROM epic_decisions WHERE epic = ? ORDER BY seq
+SELECT epic, seq, client_id, text, time, question FROM epic_decisions WHERE epic = ? ORDER BY seq
 `
 
 func (q *Queries) ListEpicDecisions(ctx context.Context, epic string) ([]EpicDecision, error) {
@@ -1376,6 +1378,7 @@ func (q *Queries) ListEpicDecisions(ctx context.Context, epic string) ([]EpicDec
 			&i.ClientID,
 			&i.Text,
 			&i.Time,
+			&i.Question,
 		); err != nil {
 			return nil, err
 		}
@@ -1806,7 +1809,7 @@ func (q *Queries) ListEpicTurnTriggers(ctx context.Context, arg ListEpicTurnTrig
 }
 
 const listEpicTurns = `-- name: ListEpicTurns :many
-SELECT epic, seq, step, state, reason, seen, outline, outcome, started, ended FROM epic_turns WHERE epic = ? ORDER BY seq
+SELECT epic, seq, step, state, reason, seen, outline, outcome, started, ended, told, stop, resets FROM epic_turns WHERE epic = ? ORDER BY seq
 `
 
 func (q *Queries) ListEpicTurns(ctx context.Context, epic string) ([]EpicTurn, error) {
@@ -1829,6 +1832,9 @@ func (q *Queries) ListEpicTurns(ctx context.Context, epic string) ([]EpicTurn, e
 			&i.Outcome,
 			&i.Started,
 			&i.Ended,
+			&i.Told,
+			&i.Stop,
+			&i.Resets,
 		); err != nil {
 			return nil, err
 		}
@@ -1844,7 +1850,7 @@ func (q *Queries) ListEpicTurns(ctx context.Context, epic string) ([]EpicTurn, e
 }
 
 const listEpics = `-- name: ListEpics :many
-SELECT id, repository, title, approved, intent, care, approach, release_then, checks, phase, created, changed, paused, parked FROM epics ORDER BY id
+SELECT id, repository, title, approved, intent, care, approach, release_then, checks, phase, created, changed, paused, parked, retried FROM epics ORDER BY id
 `
 
 func (q *Queries) ListEpics(ctx context.Context) ([]Epic, error) {
@@ -1871,6 +1877,7 @@ func (q *Queries) ListEpics(ctx context.Context) ([]Epic, error) {
 			&i.Changed,
 			&i.Paused,
 			&i.Parked,
+			&i.Retried,
 		); err != nil {
 			return nil, err
 		}
@@ -2296,7 +2303,7 @@ func (q *Queries) ListOpenSteps(ctx context.Context) ([]Step, error) {
 }
 
 const listPendingNotices = `-- name: ListPendingNotices :many
-SELECT id, pane, session, state, time, phase, due, delay_served, watch_logged, source_kind, source, silent FROM pending_notices ORDER BY id
+SELECT id, pane, session, state, time, phase, due, delay_served, watch_logged, source_kind, source, silent, epic FROM pending_notices ORDER BY id
 `
 
 func (q *Queries) ListPendingNotices(ctx context.Context) ([]PendingNotice, error) {
@@ -2321,6 +2328,7 @@ func (q *Queries) ListPendingNotices(ctx context.Context) ([]PendingNotice, erro
 			&i.SourceKind,
 			&i.Source,
 			&i.Silent,
+			&i.Epic,
 		); err != nil {
 			return nil, err
 		}
@@ -2390,7 +2398,7 @@ func (q *Queries) ListRecentEpicTurnStates(ctx context.Context, epic string) ([]
 }
 
 const listRunningEpicTurns = `-- name: ListRunningEpicTurns :many
-SELECT epic, seq, step, state, reason, seen, outline, outcome, started, ended FROM epic_turns WHERE state = 'running' ORDER BY epic, seq
+SELECT epic, seq, step, state, reason, seen, outline, outcome, started, ended, told, stop, resets FROM epic_turns WHERE state = 'running' ORDER BY epic, seq
 `
 
 func (q *Queries) ListRunningEpicTurns(ctx context.Context) ([]EpicTurn, error) {
@@ -2413,6 +2421,9 @@ func (q *Queries) ListRunningEpicTurns(ctx context.Context) ([]EpicTurn, error) 
 			&i.Outcome,
 			&i.Started,
 			&i.Ended,
+			&i.Told,
+			&i.Stop,
+			&i.Resets,
 		); err != nil {
 			return nil, err
 		}

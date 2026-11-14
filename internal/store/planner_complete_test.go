@@ -94,7 +94,7 @@ func TestCompleteTurnStoresEveryRowAndConsumesItsTriggers(t *testing.T) {
 		},
 		"epic_turns": {
 			{id, int64(1), "", "succeeded", "", int64(len(seededDecisions())), "Store, then read", "work",
-				int64(1700000500), int64(1700000900)},
+				int64(1700000500), int64(1700000900), int64(0), int64(0), int64(0)},
 		},
 		"epic_triggers": {
 			{id, createdTriggerID, createdTriggerCause, "consumed", int64(1), int64(1700000000)},
@@ -172,9 +172,9 @@ func TestSecondCompleteTurnContinuesTaskAndQuestionSeqs(t *testing.T) {
 		},
 		"epic_turns": {
 			{id, int64(1), "", "succeeded", "", int64(len(seededDecisions())), "Store, then read", "work",
-				int64(1700000500), int64(1700000900)},
+				int64(1700000500), int64(1700000900), int64(0), int64(0), int64(0)},
 			{id, int64(2), "", "succeeded", "", int64(len(seededDecisions())), "", "wait",
-				int64(1700000560), int64(1700000960)},
+				int64(1700000560), int64(1700000960), int64(0), int64(0), int64(0)},
 		},
 		"epic_triggers": {
 			{id, createdTriggerID, createdTriggerCause, "consumed", int64(1), int64(1700000000)},
