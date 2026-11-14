@@ -198,7 +198,7 @@ func (r *Router) dueLocked(ent *entry, run func()) {
 
 // keyOf is the key of the notice row describes.
 func keyOf(row store.NoticeRow) notice.Key {
-	return notice.Key{Pane: row.Pane, Session: row.Session}
+	return notice.Key{Pane: row.Pane, Session: row.Session, Epic: row.Epic}
 }
 
 // rowLocked writes ent's row. A notice without a source, and a Router without a store, have no row. The first write
@@ -296,6 +296,7 @@ func rowOf(ent *entry) store.NoticeRow {
 		ID:          ent.row,
 		Pane:        ent.n.Key.Pane,
 		Session:     ent.n.Key.Session,
+		Epic:        ent.n.Key.Epic,
 		State:       ent.n.State,
 		Time:        ent.at,
 		Phase:       ent.phase,

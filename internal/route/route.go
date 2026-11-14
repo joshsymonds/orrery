@@ -493,6 +493,7 @@ func (r *Router) lineLocked(key notice.Key, state, routed, reason string) {
 		Host:    r.cfg.Host,
 		Pane:    key.Pane,
 		Session: key.Session,
+		Epic:    key.Epic,
 		State:   state,
 		Route:   routed,
 		Reason:  reason,

@@ -28,6 +28,7 @@ type Line struct {
 	Host    string `json:"host"`
 	Pane    string `json:"pane,omitempty"`
 	Session string `json:"session,omitempty"`
+	Epic    string `json:"epic,omitempty"`
 	State   string `json:"state"`
 	Route   string `json:"route"`
 	Reason  string `json:"reason"`
