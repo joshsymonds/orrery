@@ -99,6 +99,31 @@ func TestRunnerLimitedStepWithRejectedRateLimitPausesWithLimitReason(t *testing.
 	}
 }
 
+func TestRunnerLimitedStepWithRejectedRateLimitWithoutResetPausesWithUnknownResetReason(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openRunnerStore(t)
+	createRunnerEpic(t, s)
+	steps := newLimitedSteps()
+	var reads atomic.Int64
+	runRunner(t, limitRunnerConfig(s, steps, &reads))
+	waitForStarts(t, steps.fakeSteps, 1)
+	waitFor(t, "step-1 recorded on turn 1", func() bool { return stepOneOnTurnOne(t, s) })
+
+	if err := s.ApplyEngine(ctx, []store.EngineOp{store.EngineRateLimited{
+		ID: "step-1", Status: "rejected", Kind: "five_hour",
+	}}, claimedAt()); err != nil {
+		t.Fatalf("ApplyEngine: %v", err)
+	}
+	steps.limited.Store(true)
+	waitFor(t, "the epic to be paused", func() bool { return epicOf(t, s).Paused })
+
+	const want = "five_hour rate limit, reset time unknown"
+	if turn := epicOf(t, s).Turns[0]; turn.State != "free" || turn.Reason != want {
+		t.Errorf("turn 1 = state %q reason %q, want free %q", turn.State, turn.Reason, want)
+	}
+}
+
 func TestRunnerNotLimitedStepIsNeverStopped(t *testing.T) {
 	t.Parallel()
 	s := openRunnerStore(t)

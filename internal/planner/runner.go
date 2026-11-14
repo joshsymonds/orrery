@@ -369,8 +369,12 @@ func (r *Runner) settle(ctx context.Context, epic string, seq int64, id string, 
 		return err
 	}
 	if limited && limit.Status == rateLimitRejected {
+		reason := fmt.Sprintf("%s rate limit, reset time unknown", limit.Kind)
+		if !limit.ResetsAt.IsZero() {
+			reason = fmt.Sprintf("%s rate limit, resets %s", limit.Kind, limit.ResetsAt.UTC().Format(time.RFC3339))
+		}
 		return r.freeTurn(ctx, epic, seq, store.TurnFree{
-			Reason: fmt.Sprintf("%s rate limit, resets %s", limit.Kind, limit.ResetsAt.UTC().Format(time.RFC3339)),
+			Reason: reason,
 			Pause:  true,
 			Limit:  true,
 			Resets: limit.ResetsAt,
