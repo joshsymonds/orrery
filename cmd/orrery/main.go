@@ -102,6 +102,7 @@ subcommands:
   run status                                    print the pools orreryd runs
   gate [--gates FILE] NAME                      run a named gate under a grant from orreryd
   hold [--off] MEMBER                           place an owner hold on MEMBER through orreryd, or free it with --off
+  step resume ID                                resume a step a usage limit holds, through orreryd
   holder --session NAME [--state-dir DIR] -- PATH [ARGS...]
                                                 run PATH as one session's held child and serve its holder socket
                                                 until the child ends
@@ -230,8 +231,8 @@ func dispatch(ctx context.Context, opts globals, rest []string, stdin *os.File, 
 		return runCommand(ctx, opts, args, stdin, stdout, stderr, getenv)
 	case "gate":
 		return runGate(ctx, opts, args, stdin, stdout, stderr, getenv)
-	case "hold":
-		return runHold(ctx, opts, args, stderr, getenv)
+	case "hold", "step":
+		return runOwnerAction(ctx, opts, name, args, stderr, getenv)
 	case "holder":
 		return runHolder(ctx, args, stderr, getenv)
 	case "session":
@@ -241,6 +242,16 @@ func dispatch(ctx context.Context, opts globals, rest []string, stdin *os.File, 
 	default:
 		return usagef("unknown subcommand %q", name)
 	}
+}
+
+// runOwnerAction runs `orrery hold` or `orrery step`, the owner's commands that orreryd answers over the session socket
+// and that retry a call orreryd answers Unavailable.
+func runOwnerAction(ctx context.Context, opts globals, name string, args []string, stderr io.Writer,
+	getenv func(string) string) error {
+	if name == "step" {
+		return runStep(ctx, opts, args, stderr, getenv)
+	}
+	return runHold(ctx, opts, args, stderr, getenv)
 }
 
 // hookSocket returns the orreryd socket a hook forwards to, or "" when no socket path can be named.
