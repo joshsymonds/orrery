@@ -33,6 +33,7 @@ data class PushEvent(
     val question: String,
     val questionHash: String,
     val session: String = "",
+    val epic: String = "",
     val time: Long = 0L,
     val silent: Boolean = false,
 )
@@ -43,7 +44,7 @@ class PushNotifier(private val context: Context) {
     fun show(event: PushEvent) {
         if (context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
         ensureChannels()
-        val tag = event.session.ifEmpty { event.pane }
+        val tag = tagFor(event.epic, event.session, event.pane)
         val id = notificationId(event.host, tag)
         val replacedChannelId = manager.activeNotifications.firstOrNull { it.id == id }?.notification?.channelId
         val channelId = if (event.silent) SILENT_CHANNEL_ID else CHANNEL_ID
@@ -54,7 +55,7 @@ class PushNotifier(private val context: Context) {
             .setContentIntent(contentIntent(event, tag))
             .setOnlyAlertOnce(replacedChannelId == channelId && event.state !in ALERTING_STATES)
             .setExtras(timeExtras(event.time))
-        if (event.session.isEmpty()) {
+        if (event.session.isEmpty() && event.epic.isEmpty()) {
             if (event.question.isNotEmpty()) {
                 KEYS.forEach { key -> builder.addAction(keyAction(event, tag, key, id)) }
             }
@@ -78,8 +79,8 @@ class PushNotifier(private val context: Context) {
         manager.notify(notificationId, builder.build())
     }
 
-    fun clear(host: String, pane: String, session: String, seen: Long) {
-        val id = notificationId(host, session.ifEmpty { pane })
+    fun clear(host: String, pane: String, session: String, seen: Long, epic: String = "") {
+        val id = notificationId(host, tagFor(epic, session, pane))
         val notice = manager.activeNotifications.firstOrNull { it.id == id } ?: return
         if (notice.notification.extras.getLong(EXTRA_TIME) <= seen) manager.cancel(id)
     }
@@ -95,10 +96,10 @@ class PushNotifier(private val context: Context) {
 
     private fun contentIntent(event: PushEvent, tag: String): PendingIntent {
         val intent = Intent(context, MainActivity::class.java)
-        if (event.session.isNotEmpty()) {
-            intent.putExtra(EXTRA_SESSION, event.session)
-        } else {
-            intent.putExtra(EXTRA_PANE, event.pane)
+        when {
+            event.epic.isNotEmpty() -> intent.putExtra(EXTRA_EPIC, event.epic)
+            event.session.isNotEmpty() -> intent.putExtra(EXTRA_SESSION, event.session)
+            else -> intent.putExtra(EXTRA_PANE, event.pane)
         }
         return PendingIntent.getActivity(
             context,
@@ -141,6 +142,8 @@ class PushNotifier(private val context: Context) {
             .build()
     }
 
+    private fun tagFor(epic: String, session: String, pane: String): String = epic.ifEmpty { session.ifEmpty { pane } }
+
     private fun requestCode(host: String, tag: String, slot: String): Int = "$host|$tag|$slot".hashCode()
 
     private fun timeExtras(time: Long): Bundle = Bundle().apply { putLong(EXTRA_TIME, time) }
@@ -152,6 +155,7 @@ class PushNotifier(private val context: Context) {
         const val ACTION_REPLY = "io.github.joshsymonds.orrery.action.REPLY"
         const val EXTRA_PANE = "io.github.joshsymonds.orrery.extra.PANE"
         const val EXTRA_SESSION = "io.github.joshsymonds.orrery.extra.SESSION"
+        const val EXTRA_EPIC = "io.github.joshsymonds.orrery.extra.EPIC"
         const val EXTRA_KEY = "io.github.joshsymonds.orrery.extra.KEY"
         const val EXTRA_QUESTION_HASH = "io.github.joshsymonds.orrery.extra.QUESTION_HASH"
         const val EXTRA_NOTIFICATION_ID = "io.github.joshsymonds.orrery.extra.NOTIFICATION_ID"
