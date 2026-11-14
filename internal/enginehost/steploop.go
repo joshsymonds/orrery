@@ -89,6 +89,18 @@ type stepRunConfig struct {
 	gateSource string
 	stateDir   string
 	scope      string
+
+	// restore, when set, is the state a re-adopted step resumes from. run takes it up before it takes any return or
+	// exit.
+	restore *stepRestore
+}
+
+// stepRestore is the state a re-adopted step resumes from: its row as the store holds it, and the turn end its session
+// last ended after its last prompt. Turn is that turn end when Found is set, and Found is what store.StepTurn returns.
+type stepRestore struct {
+	Row   store.StepRow
+	Turn  store.StepTurnEnd
+	Found bool
 }
 
 // stepRun runs one step's loop. Each return is one round: it is checked and stored with its checks, and a failing return
@@ -116,6 +128,9 @@ type stepRun struct {
 	round int
 	// continues is how many failing returns the session has been sent back to fix, up to stepLoopMaxContinues.
 	continues int
+	// resumeGate is the gate a restored step's row stores as running: its grant and holder, and the round it runs in.
+	// runDoneGate re-adopts it in that round, and clears it then.
+	resumeGate store.StepGate
 	// ended is closed once finish has acted.
 	ended chan struct{}
 	// runDone is closed when run returns, so Return and Exited never wait on a run that will not drain them.
@@ -175,9 +190,13 @@ func (r *stepRun) Exited(reason string) {
 	}
 }
 
-// run handles returns and exits until the step ends or ctx ends. A ctx that ends stores no end.
+// run handles returns and exits until the step ends or ctx ends. A run with a restore takes it up first. A ctx that
+// ends stores no end.
 func (r *stepRun) run(ctx context.Context) {
 	defer close(r.runDone)
+	if r.restore != nil && !r.resume(ctx, *r.restore) {
+		return
+	}
 	for {
 		select {
 		case <-ctx.Done():
@@ -205,6 +224,61 @@ func (r *stepRun) run(ctx context.Context) {
 			}
 		}
 	}
+}
+
+// resume takes up a re-adopted step from restore. Its loop state is restored, and the watch's turn is marked running
+// when no turn end was found. A turn end its latest return covers goes to resumeReturn. Any other turn end is handled
+// as one the session has just given. It reports whether the run goes on.
+func (r *stepRun) resume(ctx context.Context, restore stepRestore) bool {
+	row := restore.Row
+	r.round = row.LoopRound
+	r.continues = row.LoopContinues
+	r.nudge = row.LoopNudge
+	r.ownerNudge = row.LoopOwnerNudge
+	r.judgeSent = row.LoopJudgeSent
+	r.held.Store(row.LoopHeld)
+	// A pending nudge is the interrupt of the running turn, so the turn's periodic check is off until its end.
+	nudging := !restore.Found && row.LoopNudge != ""
+	r.watch.restore(row.LoopNudged, !restore.Found, nudging, r.now())
+	if row.GateHolder != "" {
+		r.resumeGate = store.StepGate{ID: r.id, Grant: row.GateGrant, Holder: row.GateHolder, Round: row.GateRound}
+	}
+	switch {
+	case !restore.Found:
+		return true
+	case restore.Turn.Returned:
+		return r.resumeReturn(ctx, row)
+	}
+	return r.turnEnded(ctx, session.TurnEnded{
+		IsError: restore.Turn.IsError, StructuredOutput: json.RawMessage(restore.Turn.Output),
+	})
+}
+
+// resumeReturn takes up a step whose latest return is stored and covered by its turn end, so nothing has been sent
+// since that return. Its failed checks go back as retry sends them. A done return is judged as judge judges it, and
+// any other return ends the step returned. It reports whether the run goes on.
+func (r *stepRun) resumeReturn(ctx context.Context, row store.StepRow) bool {
+	checks := stepLoopRoundChecks(row.Checks, row.LoopRound)
+	if len(stepLoopFailures(checks)) > 0 {
+		return r.retry(ctx, row.LoopRound, checks)
+	}
+	var head struct {
+		Status string          `json:"status"`
+		Commit json.RawMessage `json:"commit"`
+	}
+	if err := json.Unmarshal([]byte(row.Result), &head); err != nil {
+		r.finish(ctx, stepLoopEndFailed, "", fmt.Sprintf("read status of step %s: %v", r.id, err))
+		return false
+	}
+	if head.Status != r.doneValue {
+		r.finish(ctx, stepLoopEndReturned, head.Status, "")
+		return false
+	}
+	var commit string
+	if r.writing {
+		commit = r.stepLoopCommit(ctx, head.Commit)
+	}
+	return r.judgeReturn(ctx, row.LoopRound, json.RawMessage(row.Result), commit, head.Status, checks)
 }
 
 // turnEnded handles a turn end the run takes. Whatever it is, it clears the pending nudges and stores the clear before
@@ -331,10 +405,9 @@ func (r *stepRun) judge(ctx context.Context, round int, value json.RawMessage) b
 			return false
 		}
 		if head.Status == r.doneValue && r.writing {
-			var err error
 			commit = r.stepLoopCommit(ctx, head.Commit)
-			if checks, gateDir, err = r.doneChecks(ctx, round, commit, checks); err != nil {
-				r.finish(ctx, stepLoopEndFailed, "", errors.Join(err, gateClear(ctx, gateDir)).Error())
+			var ok bool
+			if checks, gateDir, ok = r.writingChecks(ctx, round, commit, checks); !ok {
 				return false
 			}
 		}
@@ -360,10 +433,12 @@ func (r *stepRun) judge(ctx context.Context, round int, value json.RawMessage) b
 	return false
 }
 
-// doneChecks appends the checks of a writing step's done return to checks, and returns the holder directory of the gate it
-// ran, which the caller clears once the return is stored, or at once when the checks fail. The four commit checks run first. The gate runs only when they all
-// pass and a gate is set. A gate that cannot run is an error. The gate's check opens with the record of its run,
-// stepGateRecord. The step row stores the gate's grant, holder and round before the gate launches.
+// doneChecks appends the checks of a writing step's done return to checks, and returns the holder directory of the
+// gate it ran, which the caller clears once the return is stored, or at once when the checks fail. The four commit
+// checks run first. The gate runs only when they all pass and a gate is set. A gate that cannot run is an error, and
+// errGateLost when its outcome is lost. The gate's check opens with the record of its run, stepGateRecord. The step
+// row stores the gate's grant, holder and round before the gate launches. runDoneGate re-adopts a gate the restored
+// row stores as running in this round.
 func (r *stepRun) doneChecks(ctx context.Context, round int, commit string,
 	checks []store.StepCheck) ([]store.StepCheck, string, error) {
 	passed := true
@@ -375,13 +450,7 @@ func (r *stepRun) doneChecks(ctx context.Context, round int, commit string,
 		return checks, "", nil
 	}
 	r.beginGate()
-	result, err := runGrantedGate(ctx, r.pools, r.grant, gateRun{
-		Argv: r.gate, Dir: r.dir, Limit: r.gateLimit, Environ: r.environ,
-		Name: r.id + "-gate", StateDir: r.stateDir, Scope: r.scope,
-		Started: func(ctx context.Context, grantID, dir string) error {
-			return r.writer.Commit(ctx, r.id, store.StepGate{ID: r.id, Grant: grantID, Holder: dir, Round: round})
-		},
-	})
+	result, err := r.runDoneGate(ctx, round)
 	r.endGate()
 	if err != nil {
 		return checks, "", fmt.Errorf("run gate of step %s: %w", r.id, err)
@@ -393,6 +462,41 @@ func (r *stepRun) doneChecks(ctx context.Context, round int, commit string,
 	}
 	check.Detail = record + check.Detail
 	return append(checks, check), result.Holder, nil
+}
+
+// writingChecks runs the done checks of a writing step's return with doneChecks. A failed run ends the step: errGateLost
+// ends it engine_restarted, and any other error ends it failed. It returns the checks, the gate's holder directory and
+// whether the run goes on.
+func (r *stepRun) writingChecks(ctx context.Context, round int, commit string,
+	checks []store.StepCheck) ([]store.StepCheck, string, bool) {
+	checks, gateDir, err := r.doneChecks(ctx, round, commit, checks)
+	if err != nil {
+		end := stepLoopEndFailed
+		if errors.Is(err, errGateLost) {
+			end = stepRestartedEnd
+		}
+		r.finish(ctx, end, "", errors.Join(err, gateClear(ctx, gateDir)).Error())
+		return checks, "", false
+	}
+	return checks, gateDir, true
+}
+
+// runDoneGate runs the gate of round. A gate the restored row stores as running in round is re-adopted from its grant
+// and holder, and its exit is the result, so the gate is not run again. Any other gate runs once under a new grant, and
+// Started stores that grant and holder before the gate launches.
+func (r *stepRun) runDoneGate(ctx context.Context, round int) (gateResult, error) {
+	run := gateRun{
+		Argv: r.gate, Dir: r.dir, Limit: r.gateLimit, Environ: r.environ,
+		Name: r.id + "-gate", StateDir: r.stateDir, Scope: r.scope,
+	}
+	if restored := r.resumeGate; restored.Holder != "" && restored.Round == round {
+		r.resumeGate = store.StepGate{}
+		return readoptGrantedGate(ctx, r.pools, r.grant, run, restored.Grant)
+	}
+	run.Started = func(ctx context.Context, grantID, dir string) error {
+		return r.writer.Commit(ctx, r.id, store.StepGate{ID: r.id, Grant: grantID, Holder: dir, Round: round})
+	}
+	return runGrantedGate(ctx, r.pools, r.grant, run)
 }
 
 // stepGateRecord returns the record a granted gate's check detail opens with: the gate's name and the file it resolved
@@ -462,6 +566,17 @@ func (r *stepRun) retry(ctx context.Context, round int, checks []store.StepCheck
 	}
 	r.saveLoop(ctx)
 	return true
+}
+
+// stepLoopRoundChecks returns the checks among checks that ran in round, in the order they were stored.
+func stepLoopRoundChecks(checks []store.StepCheck, round int) []store.StepCheck {
+	var out []store.StepCheck
+	for _, check := range checks {
+		if check.Round == round {
+			out = append(out, check)
+		}
+	}
+	return out
 }
 
 // stepLoopFailures names each failed check with its detail.

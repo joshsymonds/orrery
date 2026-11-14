@@ -326,6 +326,19 @@ func (w *stepWatch) nudge(at time.Time) watchAction {
 	return watchAction{Kind: watchActNudge}
 }
 
+// restore sets the watch's state for a re-adopted step: whether its one nudge is spent, whether a turn is running, and
+// whether a nudge is interrupting that turn, which then counts from at, the clock reading of the restore.
+func (w *stepWatch) restore(nudged, running, nudging bool, at time.Time) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.nudged = nudged
+	w.running = running
+	w.nudging = nudging
+	if nudging {
+		w.nudgeAt = at
+	}
+}
+
 // dropNudge undoes the nudge apply just returned when it could not be sent: the step keeps its one nudge and the watch
 // trips again in the running turn.
 func (w *stepWatch) dropNudge() {
