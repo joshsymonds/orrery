@@ -271,6 +271,7 @@ func fileMode(t *testing.T, path string) os.FileMode {
 }
 
 func TestStoreMirrorsHooksIntoRowsAndEvents(t *testing.T) {
+	t.Parallel()
 	f := newStoreFixture(t)
 	daemon := f.startOrreryd(t)
 

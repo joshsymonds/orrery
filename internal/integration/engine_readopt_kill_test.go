@@ -26,6 +26,7 @@ import (
 // TestEngineHolderScopeSigkillReplaysFloodOnce proves that a FLOOD turn whose lines the store has not all taken when
 // orreryd is killed ends after the restart with each of its 50 blocks stored once, in order, and the turn done.
 func TestEngineHolderScopeSigkillReplaysFloodOnce(t *testing.T) {
+	t.Parallel()
 	f, scope, _ := scopedFixture(t)
 	daemon := f.startOrreryd(t, true, "--holder-scope", scope)
 	stateDir := filepath.Dir(f.dbPath)
@@ -61,6 +62,7 @@ func TestEngineHolderScopeSigkillReplaysFloodOnce(t *testing.T) {
 // TestEngineHolderScopeSigkillReplaysPairOnce proves that a PAIR turn killed while its two-block line is unstored ends
 // after the restart with both blocks of that line stored once, and the turn done.
 func TestEngineHolderScopeSigkillReplaysPairOnce(t *testing.T) {
+	t.Parallel()
 	f, scope, _ := scopedFixture(t)
 	daemon := f.startOrreryd(t, true, "--holder-scope", scope)
 	stateDir := filepath.Dir(f.dbPath)
@@ -92,6 +94,7 @@ func TestEngineHolderScopeSigkillReplaysPairOnce(t *testing.T) {
 // TestEngineHolderScopeSigkillKeepsSentPromptOnce proves that a prompt sent with session say just before orreryd is
 // killed, stored and written to the holder, reaches the fake claude once after the restart, and its turn completes once.
 func TestEngineHolderScopeSigkillKeepsSentPromptOnce(t *testing.T) {
+	t.Parallel()
 	f, scope, _ := scopedFixture(t)
 	daemon := f.startOrreryd(t, true, "--holder-scope", scope)
 	stateDir := filepath.Dir(f.dbPath)
@@ -122,6 +125,7 @@ func TestEngineHolderScopeSigkillKeepsSentPromptOnce(t *testing.T) {
 // only between turns, so a prompt sent during a TRICKLE turn and larger than the pipe blocks in the holder: its write id
 // is recorded and the write is part-way when orreryd dies.
 func TestEngineHolderScopeSigkillKeepsInFlightPromptOnce(t *testing.T) {
+	t.Parallel()
 	f, scope, _ := scopedFixture(t)
 	daemon := f.startOrreryd(t, true, "--holder-scope", scope)
 	stateDir := filepath.Dir(f.dbPath)

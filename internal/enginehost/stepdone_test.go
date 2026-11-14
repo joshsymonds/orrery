@@ -101,6 +101,7 @@ func stepDoneCheck(t *testing.T, checks []store.StepCheck, name string) store.St
 }
 
 func TestStepDoneCleanOwnedCommitAndGreenGateEndDone(t *testing.T) {
+	t.Parallel()
 	dir, start := stepDoneRepo(t)
 	commit := stepGitTestCommit(t, dir, map[string]string{stepDoneOwned: "owned\n"})
 	marker := filepath.Join(t.TempDir(), "environ")
@@ -147,6 +148,7 @@ func TestStepDoneCleanOwnedCommitAndGreenGateEndDone(t *testing.T) {
 }
 
 func TestStepDoneGateRedThenGreenContinuesOnceNamingGate(t *testing.T) {
+	t.Parallel()
 	dir, start := stepDoneRepo(t)
 	commit := stepGitTestCommit(t, dir, map[string]string{stepDoneOwned: "owned\n"})
 	marker := filepath.Join(t.TempDir(), "ran-once")
@@ -185,6 +187,7 @@ touch %[1]q; echo red; exit 1`, marker))
 }
 
 func TestStepDoneUnownedPathSendsBackOwnedAndRunsNoGate(t *testing.T) {
+	t.Parallel()
 	dir, start := stepDoneRepo(t)
 	commit := stepGitTestCommit(t, dir, map[string]string{"other/outside.txt": "stray\n"})
 	sentinel := filepath.Join(t.TempDir(), "gate-ran")
@@ -225,6 +228,7 @@ func TestStepDoneUnownedPathSendsBackOwnedAndRunsNoGate(t *testing.T) {
 }
 
 func TestStepDoneGateOverLimitFailsGateNamingLimit(t *testing.T) {
+	t.Parallel()
 	dir, start := stepDoneRepo(t)
 	commit := stepGitTestCommit(t, dir, map[string]string{stepDoneOwned: "owned\n"})
 	gate := stepDoneScript(t, "sleep 30")
@@ -250,6 +254,7 @@ func TestStepDoneGateOverLimitFailsGateNamingLimit(t *testing.T) {
 }
 
 func TestStepDoneReadOnlyDoneReturnEndsDoneWithSchemaCheckOnly(t *testing.T) {
+	t.Parallel()
 	gate := stepDoneScript(t, "exit 1")
 	pools := &fakeGatePools{}
 	f := newStepDoneFixture(t, func(cfg *stepRunConfig) {
@@ -281,6 +286,7 @@ func TestStepDoneReadOnlyDoneReturnEndsDoneWithSchemaCheckOnly(t *testing.T) {
 }
 
 func TestStepDoneGateWithoutPoolsEndsFailedBeforeRunning(t *testing.T) {
+	t.Parallel()
 	dir, start := stepDoneRepo(t)
 	commit := stepGitTestCommit(t, dir, map[string]string{stepDoneOwned: "owned\n"})
 	sentinel := filepath.Join(t.TempDir(), "gate-ran")
@@ -311,6 +317,7 @@ func TestStepDoneGateWithoutPoolsEndsFailedBeforeRunning(t *testing.T) {
 }
 
 func TestStepDoneGateErrorFromEndedCtxStoresNoEnd(t *testing.T) {
+	t.Parallel()
 	dir, start := stepDoneRepo(t)
 	commit := stepGitTestCommit(t, dir, map[string]string{stepDoneOwned: "owned\n"})
 	started := filepath.Join(t.TempDir(), "started")
@@ -329,6 +336,7 @@ func TestStepDoneGateErrorFromEndedCtxStoresNoEnd(t *testing.T) {
 }
 
 func TestStepDoneNonStringCommitSendsBackHeadAndReadOnlyIgnoresIt(t *testing.T) {
+	t.Parallel()
 	dir, start := stepDoneRepo(t)
 	f := newStepDoneFixture(t, stepDoneWriting(dir, start, nil, time.Minute, &fakeGatePools{}))
 	_, done := f.start(t)
@@ -359,6 +367,7 @@ func TestStepDoneNonStringCommitSendsBackHeadAndReadOnlyIgnoresIt(t *testing.T) 
 }
 
 func TestStepDoneFallbackEndsDone(t *testing.T) {
+	t.Parallel()
 	dir, start := stepDoneRepo(t)
 	commit := stepGitTestCommit(t, dir, map[string]string{stepDoneOwned: "owned\n"})
 	f := newStepDoneFixture(t, stepDoneWriting(dir, start, nil, time.Minute, &fakeGatePools{}))
@@ -381,6 +390,7 @@ func TestStepDoneFallbackEndsDone(t *testing.T) {
 }
 
 func TestStepDoneFallbackAtStart(t *testing.T) {
+	t.Parallel()
 	dir, start := stepDoneRepo(t)
 	f := newStepDoneFixture(t, stepDoneWriting(dir, start, nil, time.Minute, &fakeGatePools{}))
 	_, done := f.start(t)
@@ -404,6 +414,7 @@ func TestStepDoneFallbackAtStart(t *testing.T) {
 }
 
 func TestStepDoneNamedGoverns(t *testing.T) {
+	t.Parallel()
 	dir, start := stepDoneRepo(t)
 	commit := stepGitTestCommit(t, dir, map[string]string{stepDoneOwned: "owned\n"})
 	f := newStepDoneFixture(t, stepDoneWriting(dir, start, nil, time.Minute, &fakeGatePools{}))
@@ -425,6 +436,7 @@ func TestStepDoneNamedGoverns(t *testing.T) {
 }
 
 func TestStepDoneFallbackOwned(t *testing.T) {
+	t.Parallel()
 	dir, start := stepDoneRepo(t)
 	stepGitTestCommit(t, dir, map[string]string{"other/outside.txt": "stray\n"})
 	f := newStepDoneFixture(t, stepDoneWriting(dir, start, nil, time.Minute, &fakeGatePools{}))

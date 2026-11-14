@@ -241,6 +241,7 @@ func callAllSteps(t *testing.T, client enginev1connect.StepsClient) []error {
 }
 
 func TestStepStartForwardsEveryField(t *testing.T) {
+	t.Parallel()
 	fake := &fakeStepCommands{startID: "0123456789abcdef0123456789abcdef"}
 	path, stop := startServerWithSteps(t, nil, fake)
 	client := newStepClient(t, path)
@@ -327,6 +328,7 @@ func TestStartStepRefusesGateArgvAndGateLimit(t *testing.T) {
 }
 
 func TestStartStepZeroModelLimitHandsZero(t *testing.T) {
+	t.Parallel()
 	fake := &fakeStepCommands{startID: "0123456789abcdef0123456789abcdef"}
 	path, stop := startServerWithSteps(t, nil, fake)
 	client := newStepClient(t, path)
@@ -347,6 +349,7 @@ func TestStartStepZeroModelLimitHandsZero(t *testing.T) {
 }
 
 func TestStepStatusReturnsEveryRowField(t *testing.T) {
+	t.Parallel()
 	fake := &fakeStepCommands{row: fullStepRow()}
 	path, stop := startServerWithSteps(t, nil, fake)
 	client := newStepClient(t, path)
@@ -368,6 +371,7 @@ func TestStepStatusReturnsEveryRowField(t *testing.T) {
 }
 
 func TestStepStatusReportsRunningStepWithZeroEnded(t *testing.T) {
+	t.Parallel()
 	fake := &fakeStepCommands{row: runningStepRow("s1")}
 	path, _ := startServerWithSteps(t, nil, fake)
 	client := newStepClient(t, path)
@@ -386,6 +390,7 @@ func TestStepStatusReportsRunningStepWithZeroEnded(t *testing.T) {
 }
 
 func TestStepStatusRefusesCheckRoundOutsideUint32AsInternal(t *testing.T) {
+	t.Parallel()
 	row := fullStepRow()
 	row.Checks = []store.StepCheck{{Round: 1 << 40, Name: "gate"}}
 	fake := &fakeStepCommands{row: row}
@@ -399,6 +404,7 @@ func TestStepStatusRefusesCheckRoundOutsideUint32AsInternal(t *testing.T) {
 }
 
 func TestStepStatusReportsHeldStep(t *testing.T) {
+	t.Parallel()
 	fake := &fakeStepCommands{row: runningStepRow("s1"), held: map[string]bool{"s1": true}}
 	path, stop := startServerWithSteps(t, nil, fake)
 	client := newStepClient(t, path)
@@ -416,6 +422,7 @@ func TestStepStatusReportsHeldStep(t *testing.T) {
 }
 
 func TestWaitStepsReportsHeldRows(t *testing.T) {
+	t.Parallel()
 	fake := &fakeStepCommands{rows: []store.StepRow{runningStepRow("s1")}, held: map[string]bool{"s1": true}}
 	path, stop := startServerWithSteps(t, nil, fake)
 	client := newStepClient(t, path)
@@ -437,6 +444,7 @@ func TestWaitStepsReportsHeldRows(t *testing.T) {
 }
 
 func TestListStepsForwardsLabelsAndReturnsRowsInOrder(t *testing.T) {
+	t.Parallel()
 	fake := &fakeStepCommands{
 		listed: []store.StepRow{fullStepRow(), runningStepRow("s2")},
 		held:   map[string]bool{"s2": true},
@@ -473,6 +481,7 @@ func TestListStepsForwardsLabelsAndReturnsRowsInOrder(t *testing.T) {
 }
 
 func TestHoldStepForwardsID(t *testing.T) {
+	t.Parallel()
 	fake := &fakeStepCommands{}
 	path, stop := startServerWithSteps(t, nil, fake)
 	client := newStepClient(t, path)
@@ -489,6 +498,7 @@ func TestHoldStepForwardsID(t *testing.T) {
 }
 
 func TestNudgeStepForwardsIDAndText(t *testing.T) {
+	t.Parallel()
 	fake := &fakeStepCommands{}
 	path, stop := startServerWithSteps(t, nil, fake)
 	client := newStepClient(t, path)
@@ -509,6 +519,7 @@ func TestNudgeStepForwardsIDAndText(t *testing.T) {
 }
 
 func TestStopStepForwardsID(t *testing.T) {
+	t.Parallel()
 	fake := &fakeStepCommands{}
 	path, stop := startServerWithSteps(t, nil, fake)
 	client := newStepClient(t, path)
@@ -525,6 +536,7 @@ func TestStopStepForwardsID(t *testing.T) {
 }
 
 func TestWaitStepsTimeoutReturnsNoEndedStep(t *testing.T) {
+	t.Parallel()
 	first := runningStepRow("s1")
 	second := runningStepRow("s2")
 	fake := &fakeStepCommands{ended: nil, rows: []store.StepRow{first, second}}
@@ -562,6 +574,7 @@ func TestWaitStepsTimeoutReturnsNoEndedStep(t *testing.T) {
 }
 
 func TestWaitStepsReturnsFirstEndedStep(t *testing.T) {
+	t.Parallel()
 	ended := fullStepRow()
 	fake := &fakeStepCommands{ended: &ended, rows: []store.StepRow{ended, runningStepRow("s2")}}
 	path, stop := startServerWithSteps(t, nil, fake)
@@ -590,6 +603,7 @@ func TestWaitStepsReturnsFirstEndedStep(t *testing.T) {
 }
 
 func TestWaitStepsZeroTimeoutWaitsNotAtAll(t *testing.T) {
+	t.Parallel()
 	fake := &fakeStepCommands{}
 	path, stop := startServerWithSteps(t, nil, fake)
 	client := newStepClient(t, path)
@@ -656,6 +670,7 @@ func TestStepErrorsMapToConnectCodes(t *testing.T) {
 }
 
 func TestNilStepCommandsRefusesEveryStepRPCUnavailable(t *testing.T) {
+	t.Parallel()
 	path, _ := startServerWithSteps(t, &fakeCommands{}, nil)
 	client := newStepClient(t, path)
 
@@ -674,6 +689,7 @@ func TestNilStepCommandsRefusesEveryStepRPCUnavailable(t *testing.T) {
 }
 
 func TestEngineRPCsStillWorkWhenStepsAreServed(t *testing.T) {
+	t.Parallel()
 	engine := &fakeCommands{startID: "0123456789abcdef0123456789abcdef"}
 	steps := &fakeStepCommands{row: fullStepRow()}
 	path, stop := startServerWithSteps(t, engine, steps)

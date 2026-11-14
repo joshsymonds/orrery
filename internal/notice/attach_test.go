@@ -11,6 +11,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/notice"
 	"github.com/joshsymonds/orrery/internal/push"
 	"github.com/joshsymonds/orrery/internal/store"
+	"github.com/joshsymonds/orrery/internal/storetest"
 )
 
 // gatedRows is a store whose Pushed read reports on reading, then waits for release before it reads.
@@ -33,6 +34,7 @@ const attachAt int64 = 1700000000
 func storeWithPush(ctx context.Context, t *testing.T, key notice.Key) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "orrery.db")
+	storetest.Seed(t, path)
 	s, err := store.Open(ctx, path)
 	if err != nil {
 		t.Fatalf("Open(%s): %v", path, err)

@@ -42,6 +42,7 @@ func assertOldestFirst(t *testing.T, rows []store.StepRow) {
 }
 
 func TestStepsStartStoresLabelsAndStatusAndListReadThem(t *testing.T) {
+	t.Parallel()
 	f := newStepStartFixture(t)
 	repo := stepGitTestRepo(t)
 

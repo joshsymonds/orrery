@@ -8,11 +8,13 @@ import (
 	"testing"
 
 	"github.com/joshsymonds/orrery/internal/store"
+	"github.com/joshsymonds/orrery/internal/storetest"
 )
 
 // openTestStore opens a second handle on the store at path, closed when the test ends.
 func openTestStore(t *testing.T, path string) *store.Store {
 	t.Helper()
+	storetest.Seed(t, path)
 	s, err := store.Open(t.Context(), path)
 	if err != nil {
 		t.Fatalf("open store: %v", err)
@@ -48,6 +50,7 @@ func fakeStdinUserLines(t *testing.T, dir string) int {
 }
 
 func TestStartTracksRowAtZeroAndStoresPromptWithItsWriteID(t *testing.T) {
+	t.Parallel()
 	m, path := newTestManager(t, 1, fakeClaudePath(t))
 	s := openTestStore(t, path)
 	dir := t.TempDir()
@@ -81,6 +84,7 @@ func TestStartTracksRowAtZeroAndStoresPromptWithItsWriteID(t *testing.T) {
 }
 
 func TestSayStoresEachPromptWithItsOwnWriteID(t *testing.T) {
+	t.Parallel()
 	m, path := newTestManager(t, 1, fakeClaudePath(t))
 	s := openTestStore(t, path)
 	dir := t.TempDir()
@@ -113,6 +117,7 @@ func TestSayStoresEachPromptWithItsOwnWriteID(t *testing.T) {
 }
 
 func TestStartStepStoresPromptWithItsWriteIDAndSendsItOnce(t *testing.T) {
+	t.Parallel()
 	m, path := newStepManager(t, 1, fakeClaudePath(t), &fakeSink{})
 	s := openTestStore(t, path)
 	dir := t.TempDir()

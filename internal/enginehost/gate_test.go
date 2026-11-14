@@ -81,6 +81,7 @@ func gateParsePids(t *testing.T, path string) (int, int) {
 }
 
 func TestGateRunsArgvInDirAndReportsExitAndOutput(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	result, err := runGrantedGate(t.Context(), &fakeGatePools{}, gateGrantRequest(), gateRun{
 		Argv:  []string{"/bin/sh", "-c", `pwd -P; echo out; echo err >&2; exit 3`},
@@ -109,6 +110,7 @@ func TestGateRunsArgvInDirAndReportsExitAndOutput(t *testing.T) {
 }
 
 func TestGateEnvironDropsTmuxMarkers(t *testing.T) {
+	t.Parallel()
 	result, err := runGrantedGate(t.Context(), &fakeGatePools{}, gateGrantRequest(), gateRun{
 		Argv:    []string{"/bin/sh", "-c", `printf '%s\n' "${TMUX-unset}" "${TMUX_PANE-unset}" "$KEEP"`},
 		Dir:     t.TempDir(),
@@ -124,6 +126,7 @@ func TestGateEnvironDropsTmuxMarkers(t *testing.T) {
 }
 
 func TestGateKillsItsGroupAtLimit(t *testing.T) {
+	t.Parallel()
 	pids := filepath.Join(t.TempDir(), "pids")
 	started := time.Now()
 	result, err := runGrantedGate(t.Context(), &fakeGatePools{}, gateGrantRequest(), gateRun{
@@ -149,6 +152,7 @@ func TestGateKillsItsGroupAtLimit(t *testing.T) {
 }
 
 func TestGateCancelKillsGroupAndErrors(t *testing.T) {
+	t.Parallel()
 	pids := filepath.Join(t.TempDir(), "pids")
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
@@ -182,6 +186,7 @@ func TestGateCancelKillsGroupAndErrors(t *testing.T) {
 }
 
 func TestGateErrorsWhenItCannotStart(t *testing.T) {
+	t.Parallel()
 	_, err := runGrantedGate(t.Context(), &fakeGatePools{}, gateGrantRequest(), gateRun{
 		Argv:  []string{filepath.Join(t.TempDir(), "no-such-gate")},
 		Dir:   t.TempDir(),
@@ -193,6 +198,7 @@ func TestGateErrorsWhenItCannotStart(t *testing.T) {
 }
 
 func TestGateKeepsTheLastEightKiB(t *testing.T) {
+	t.Parallel()
 	result, err := runGrantedGate(t.Context(), &fakeGatePools{}, gateGrantRequest(), gateRun{
 		Argv:    []string{"/bin/sh", "-c", `head -c 20000 /dev/zero | tr '\0' a; printf END`},
 		Dir:     t.TempDir(),
@@ -222,6 +228,7 @@ func gateKillDetachedAtCleanup(t *testing.T, path string) {
 }
 
 func TestGateReturnsAtLimitPastDetachedChild(t *testing.T) {
+	t.Parallel()
 	pids := filepath.Join(t.TempDir(), "pids")
 	started := time.Now()
 	result, err := runGrantedGate(t.Context(), &fakeGatePools{}, gateGrantRequest(), gateRun{
@@ -243,6 +250,7 @@ func TestGateReturnsAtLimitPastDetachedChild(t *testing.T) {
 }
 
 func TestGateCancelReturnsPastDetachedChild(t *testing.T) {
+	t.Parallel()
 	pids := filepath.Join(t.TempDir(), "pids")
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
@@ -374,6 +382,7 @@ func gateWaitStarted(t *testing.T, started <-chan string) string {
 }
 
 func TestGateRunsUnderAHolderAndKeepsItsExitRecord(t *testing.T) {
+	t.Parallel()
 	stateDir := gateShortStateDir(t)
 	result, err := runGrantedGate(t.Context(), &fakeGatePools{}, gateGrantRequest(), gateRun{
 		Argv:     []string{"/bin/sh", "-c", `echo out; exit 3`},
@@ -405,6 +414,7 @@ func TestGateRunsUnderAHolderAndKeepsItsExitRecord(t *testing.T) {
 // record. The holder ends after Launch has attached, so the holder's own cleanup runs at its end unless the gate keeps
 // its directory.
 func TestGateExitRecordSurvivesAGateThatOutlivesItsAttach(t *testing.T) {
+	t.Parallel()
 	stateDir := gateShortStateDir(t)
 	result, err := runGrantedGate(t.Context(), &fakeGatePools{}, gateGrantRequest(), gateRun{
 		Argv:     []string{"/bin/sh", "-c", `sleep 0.3; echo out; exit 3`},
@@ -427,6 +437,7 @@ func TestGateExitRecordSurvivesAGateThatOutlivesItsAttach(t *testing.T) {
 }
 
 func TestGateStartedSeesGrantAndHolderBeforeLaunch(t *testing.T) {
+	t.Parallel()
 	marker := filepath.Join(t.TempDir(), "started")
 	pools := &fakeGatePools{}
 	var grantID, dir string
@@ -463,6 +474,7 @@ func TestGateStartedSeesGrantAndHolderBeforeLaunch(t *testing.T) {
 }
 
 func TestGateStartedErrorReleasesGrantAndStartsNothing(t *testing.T) {
+	t.Parallel()
 	stateDir := gateShortStateDir(t)
 	marker := filepath.Join(t.TempDir(), "started")
 	refused := errors.New("store refused the gate")
@@ -495,6 +507,7 @@ func TestGateStartedErrorReleasesGrantAndStartsNothing(t *testing.T) {
 }
 
 func TestGateDetachLeavesGateRunningToItsExitRecord(t *testing.T) {
+	t.Parallel()
 	released := make(chan struct{})
 	pools := &fakeGatePools{onEnd: func() { close(released) }}
 	ctx, cancel := context.WithCancelCause(t.Context())
@@ -551,6 +564,7 @@ func TestGateDetachLeavesGateRunningToItsExitRecord(t *testing.T) {
 // TestGateDetachDuringLaunchLeavesHolderRunning checks that a detach arriving while the gate's holder is launched leaves
 // the holder running with its grant, as a detach after the launch does.
 func TestGateDetachDuringLaunchLeavesHolderRunning(t *testing.T) {
+	t.Parallel()
 	released := make(chan struct{})
 	pools := &fakeGatePools{onEnd: func() { close(released) }}
 	ctx, cancel := context.WithCancelCause(t.Context())
@@ -585,6 +599,7 @@ func TestGateDetachDuringLaunchLeavesHolderRunning(t *testing.T) {
 }
 
 func TestGateCancelStopsHolderAndClearsItsDirectory(t *testing.T) {
+	t.Parallel()
 	pids := filepath.Join(t.TempDir(), "pids")
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
@@ -635,6 +650,7 @@ func TestGateCancelStopsHolderAndClearsItsDirectory(t *testing.T) {
 // TestGateNormalExitKillsWhatItLeftRunning checks that a gate which exits on its own takes its background child down
 // with it: the child outlives the holder's handshake, which a child that ends at once does not.
 func TestGateNormalExitKillsWhatItLeftRunning(t *testing.T) {
+	t.Parallel()
 	pids := filepath.Join(t.TempDir(), "pids")
 	pools := &fakeGatePools{onEnd: gateGroupGoneAtEnd(t, pids)}
 	result, err := runGrantedGate(t.Context(), pools, gateGrantRequest(), gateRun{

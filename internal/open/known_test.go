@@ -12,6 +12,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/archive"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/store"
+	"github.com/joshsymonds/orrery/internal/storetest"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
 )
 
@@ -36,6 +37,7 @@ func engineOps(dirs ...string) []store.EngineOp {
 func storeWith(t *testing.T, ops ...store.EngineOp) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "orrery.db")
+	storetest.Seed(t, path)
 	s, err := store.Open(t.Context(), path)
 	if err != nil {
 		t.Fatalf("store.Open: %v", err)

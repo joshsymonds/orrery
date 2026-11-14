@@ -40,6 +40,7 @@ func stepDone(t *testing.T, h store.EngineHistory, reply string) bool {
 }
 
 func TestContinueRespawnsIdleStoppedStepWithStoredLaunch(t *testing.T) {
+	t.Parallel()
 	sink := &fakeSink{}
 	m, path, clock := newStepIdleManager(t, 1, sink)
 	dir := t.TempDir()
@@ -87,6 +88,7 @@ func TestContinueRespawnsIdleStoppedStepWithStoredLaunch(t *testing.T) {
 }
 
 func TestRespawnedStepHandsItsTurnToTheObserverItStartedWith(t *testing.T) {
+	t.Parallel()
 	m, path := newStepManager(t, 1, fakeClaudePath(t), &fakeSink{})
 	dir := t.TempDir()
 	obs := &stepObserver{}
@@ -121,6 +123,7 @@ func TestRespawnedStepHandsItsTurnToTheObserverItStartedWith(t *testing.T) {
 }
 
 func TestSayToIdleStoppedStepStillRefuses(t *testing.T) {
+	t.Parallel()
 	m, path, clock := newStepIdleManager(t, 1, &fakeSink{})
 	dir := t.TempDir()
 	if err := m.StartStep(t.Context(), testStep(stepA, dir)); err != nil {
@@ -141,6 +144,7 @@ func TestSayToIdleStoppedStepStillRefuses(t *testing.T) {
 }
 
 func TestContinueOfStoppedSessionStillRefuses(t *testing.T) {
+	t.Parallel()
 	m, path := newStepManager(t, 1, fakeClaudePath(t), &fakeSink{})
 	dir := t.TempDir()
 	id, err := m.Start(t.Context(), StartRequest{Dir: dir, Prompt: "hi"})
@@ -164,6 +168,7 @@ func TestContinueOfStoppedSessionStillRefuses(t *testing.T) {
 }
 
 func TestRespawnWithStepCapFullGetsErrCapReached(t *testing.T) {
+	t.Parallel()
 	m, path := newStepManager(t, 1, fakeClaudePath(t), &fakeSink{})
 	dir := t.TempDir()
 	if err := m.StartStep(t.Context(), testStep(stepA, dir)); err != nil {
@@ -189,6 +194,7 @@ func TestRespawnWithStepCapFullGetsErrCapReached(t *testing.T) {
 }
 
 func TestRespawnOfStepWhoseDirIsGoneRecordsFailedWithoutNotice(t *testing.T) {
+	t.Parallel()
 	sink := &fakeSink{}
 	m, path := newStepManager(t, 1, fakeClaudePath(t), sink)
 	dir := t.TempDir()
@@ -218,6 +224,7 @@ func TestRespawnOfStepWhoseDirIsGoneRecordsFailedWithoutNotice(t *testing.T) {
 }
 
 func TestRespawnOfStepWhoseAgentNoLongerResolvesFailsBeforeClaude(t *testing.T) {
+	t.Parallel()
 	m, path, clock := newStepIdleManager(t, 1, &fakeSink{})
 	dir := t.TempDir()
 	if err := m.StartStep(t.Context(), testStep(stepA, dir)); err != nil {

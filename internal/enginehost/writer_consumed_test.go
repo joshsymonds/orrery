@@ -33,6 +33,7 @@ func waitQueuedOps(t *testing.T, w *Writer, ops ...store.EngineOp) {
 
 // A Put of only an EngineConsumed is outside the op limit: it returns while its session sits at the limit.
 func TestConsumedOffsetPutNeverWaitsAtTheLimit(t *testing.T) {
+	t.Parallel()
 	s, _ := openStore(t)
 	addSessions(t, s, "a")
 	applier := &recordingApplier{store: s, notify: make(chan struct{}, 1)}
@@ -52,6 +53,7 @@ func TestConsumedOffsetPutNeverWaitsAtTheLimit(t *testing.T) {
 
 // An EngineConsumed does not count against the limit, so it leaves room for the session's next non-text op.
 func TestConsumedOffsetDoesNotCountAgainstTheLimit(t *testing.T) {
+	t.Parallel()
 	s, _ := openStore(t)
 	addSessions(t, s, "a")
 	applier := &recordingApplier{store: s, notify: make(chan struct{}, 1)}
@@ -71,6 +73,7 @@ func TestConsumedOffsetDoesNotCountAgainstTheLimit(t *testing.T) {
 // A queued EngineConsumed absorbs the session's next one: the stored op takes the later offset, and each optional
 // field takes the later op's value when set and keeps the queued one's otherwise.
 func TestQueuedConsumedOffsetsStoreAsOneOpWithLaterOffsetAndMergedFields(t *testing.T) {
+	t.Parallel()
 	s, _ := openStore(t)
 	addSessions(t, s, "a")
 	applier := &recordingApplier{store: s, notify: make(chan struct{}, 1)}
@@ -110,6 +113,7 @@ func TestQueuedConsumedOffsetsStoreAsOneOpWithLaterOffsetAndMergedFields(t *test
 
 // An EngineConsumed of one session never merges into a queued one of another session.
 func TestConsumedOffsetOfAnotherSessionIsNotMerged(t *testing.T) {
+	t.Parallel()
 	s, _ := openStore(t)
 	addSessions(t, s, "a", "b")
 	applier := &recordingApplier{store: s, notify: make(chan struct{}, 1)}
@@ -135,6 +139,7 @@ func TestConsumedOffsetOfAnotherSessionIsNotMerged(t *testing.T) {
 // An EngineLaunch resets the consumed offset to zero, so a consumed offset queued after it must not move back
 // before it: the store would keep zero and the session would replay or lose its conversation.
 func TestConsumedOffsetAfterQueuedLaunchIsNotMerged(t *testing.T) {
+	t.Parallel()
 	s, _ := openStore(t)
 	addSessions(t, s, "a")
 	applier := &recordingApplier{store: s, notify: make(chan struct{}, 1)}
@@ -167,6 +172,7 @@ func TestConsumedOffsetAfterQueuedLaunchIsNotMerged(t *testing.T) {
 
 // An EngineConsumed queued before the session's row is added must not move past the EngineAdd that creates the row.
 func TestConsumedOffsetAfterQueuedAddIsNotMerged(t *testing.T) {
+	t.Parallel()
 	s, _ := openStore(t)
 	applier := &recordingApplier{store: s, notify: make(chan struct{}, 1)}
 	w := NewWriter(WriterConfig{Applier: applier, Tick: time.Hour})
@@ -199,6 +205,7 @@ func TestConsumedOffsetAfterQueuedAddIsNotMerged(t *testing.T) {
 
 // A Commit of an EngineConsumed that was absorbed into a queued one returns only once the merged op is stored.
 func TestCommitOfAbsorbedConsumedOffsetReturnsOnceMergedOpIsStored(t *testing.T) {
+	t.Parallel()
 	s, _ := openStore(t)
 	addSessions(t, s, "a")
 	applier := &recordingApplier{store: s, notify: make(chan struct{}, 1)}

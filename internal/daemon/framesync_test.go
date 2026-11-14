@@ -21,6 +21,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/store"
 	"github.com/joshsymonds/orrery/internal/store/sqlcgen"
+	"github.com/joshsymonds/orrery/internal/storetest"
 )
 
 // lockedStoreBudget bounds how long a frame may take to reach its observer while the store is write-locked.
@@ -31,6 +32,7 @@ const lockedStoreBudget = time.Second
 func openFrameStore(t *testing.T) (*store.Store, *sql.DB) {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "orrery.db")
+	storetest.Seed(t, path)
 	st, err := store.Open(t.Context(), path)
 	if err != nil {
 		t.Fatalf("store.Open: %v", err)

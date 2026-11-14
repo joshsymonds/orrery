@@ -9,6 +9,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/server"
 	"github.com/joshsymonds/orrery/internal/store"
+	"github.com/joshsymonds/orrery/internal/storetest"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
 )
 
@@ -24,6 +25,7 @@ const (
 func seedTurnEnds(t *testing.T, path string) {
 	t.Helper()
 	ctx := t.Context()
+	storetest.Seed(t, path)
 	s, err := store.Open(ctx, path)
 	if err != nil {
 		t.Fatalf("store.Open: %v", err)

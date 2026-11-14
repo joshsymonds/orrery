@@ -23,6 +23,8 @@ func TestReadsRacingRemovalAnswerUnavailable(t *testing.T) {
 
 	r := NewReader(path)
 	for round := range rounds {
+		// Each round's store starts as a copy of the migrated image, so the round costs its reads, not a migration.
+		seedMigrated(t, path)
 		s, err := Open(ctx, path)
 		if err != nil {
 			t.Fatalf("round %d Open: %v", round, err)

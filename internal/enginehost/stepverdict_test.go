@@ -167,6 +167,7 @@ func TestVerdictReturnThatMisreadsAssertionsIsSentBack(t *testing.T) {
 }
 
 func TestVerdictAllHoldsEndsDone(t *testing.T) {
+	t.Parallel()
 	f := newVerdictFixture(t, nil)
 	_, done := f.start(t)
 	raw := verdictTestJSON(t, "done", verdictTestHolds(), nil)
@@ -364,6 +365,7 @@ func TestVerdictAgentGateReturnIsNotJudged(t *testing.T) {
 }
 
 func TestVerdictOrdinaryReturnIsJudged(t *testing.T) {
+	t.Parallel()
 	haiku := &judgeLoopHaiku{replies: []judgeLoopReply{judgeLoopVerdict("met", "the report is complete")}}
 	f := newJudgeLoopFixture(t, haiku, judgeLoopNoConfig)
 	_, done := f.start(t)

@@ -61,6 +61,7 @@ func waitAcquireQueued(t *testing.T, pools *queuedClosePools) {
 // grants.ErrClosed while the gate runs is detached: its holder keeps running to its own exit, and the attempt returns
 // errGateDetach.
 func TestGateScopedCloseDetachesLaunchedGate(t *testing.T) {
+	t.Parallel()
 	stateDir := gateShortStateDir(t)
 	scope := fakeSystemdRunPath(t)
 	marker := filepath.Join(t.TempDir(), "running")
@@ -107,6 +108,7 @@ func TestGateScopedCloseDetachesLaunchedGate(t *testing.T) {
 // TestGateScopedCloseWhileQueuedLaunchesNothing checks that a gate with a Scope whose request is still queued when the
 // broker closes launches nothing, and that its attempt returns errGateDetach.
 func TestGateScopedCloseWhileQueuedLaunchesNothing(t *testing.T) {
+	t.Parallel()
 	stateDir := gateShortStateDir(t)
 	scope := fakeSystemdRunPath(t)
 	marker := filepath.Join(t.TempDir(), "started")
@@ -155,6 +157,7 @@ func TestGateScopedCloseWhileQueuedLaunchesNothing(t *testing.T) {
 // TestGateCloseWithoutScopeStopsGate checks that a gate with no Scope whose grant's Acquire ends with grants.ErrClosed
 // is stopped, its processes killed, as a gate whose grant ends is: the attempt does not detach.
 func TestGateCloseWithoutScopeStopsGate(t *testing.T) {
+	t.Parallel()
 	stateDir := gateShortStateDir(t)
 	pids := filepath.Join(t.TempDir(), "pids")
 	pools := &fakeGatePools{drop: make(chan error, 1)}
@@ -193,6 +196,7 @@ func TestGateCloseWithoutScopeStopsGate(t *testing.T) {
 // queued when the broker closes is detached: its holder keeps running with no grant, and the attempt returns
 // errGateDetach.
 func TestGateReadoptScopedCloseWhileQueuedDetaches(t *testing.T) {
+	t.Parallel()
 	stateDir := gateShortStateDir(t)
 	counter := filepath.Join(t.TempDir(), "counter")
 	release := filepath.Join(t.TempDir(), "release")
@@ -231,6 +235,7 @@ func TestGateReadoptScopedCloseWhileQueuedDetaches(t *testing.T) {
 // grants.ErrClosed while it runs stores no end, stops no session and runs no cleanup, so its row stays open for
 // re-adoption.
 func TestStepDoneGateCloseStoresNoEndAndStopsNoSession(t *testing.T) {
+	t.Parallel()
 	dir, start := stepDoneRepo(t)
 	commit := stepGitTestCommit(t, dir, map[string]string{stepDoneOwned: "owned\n"})
 	started := filepath.Join(t.TempDir(), "started")

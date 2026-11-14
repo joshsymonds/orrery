@@ -63,6 +63,7 @@ func requireRunning(t *testing.T, m *Manager, id string, pid int) {
 }
 
 func TestIdleStopsFinishedSessionAfterTenMinutes(t *testing.T) {
+	t.Parallel()
 	m, path, clock := newIdleManager(t, 1)
 	dir := t.TempDir()
 	id, err := m.Start(t.Context(), StartRequest{Dir: dir, Prompt: "hi"})
@@ -102,6 +103,7 @@ func TestIdleStopsFinishedSessionAfterTenMinutes(t *testing.T) {
 }
 
 func TestIdleKeepsAskAndHangSessions(t *testing.T) {
+	t.Parallel()
 	m, path, clock := newIdleManager(t, 2)
 	askDir, hangDir := t.TempDir(), t.TempDir()
 	askID, err := m.Start(t.Context(), StartRequest{Dir: askDir, Prompt: "ASK"})
@@ -128,6 +130,7 @@ func TestIdleKeepsAskAndHangSessions(t *testing.T) {
 }
 
 func TestIdleKeepsBackgroundSessionUntilItEnds(t *testing.T) {
+	t.Parallel()
 	m, path, clock := newIdleManager(t, 1)
 	dir := t.TempDir()
 	id, err := m.Start(t.Context(), StartRequest{Dir: dir, Prompt: "BACKGROUND"})
@@ -160,6 +163,7 @@ func TestIdleKeepsBackgroundSessionUntilItEnds(t *testing.T) {
 }
 
 func TestIdleStopFreesSlotForStart(t *testing.T) {
+	t.Parallel()
 	m, path, clock := newIdleManager(t, 1)
 	id, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "hi"})
 	if err != nil {
@@ -184,6 +188,7 @@ func TestIdleStopFreesSlotForStart(t *testing.T) {
 }
 
 func TestRunIdleReturnsWhenContextEnds(t *testing.T) {
+	t.Parallel()
 	m, _, _ := newIdleManager(t, 1)
 	ctx, cancel := context.WithCancel(t.Context())
 	returned := make(chan struct{})

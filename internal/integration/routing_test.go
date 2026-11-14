@@ -95,6 +95,7 @@ func sendInput(t *testing.T, socket string, input int64) {
 }
 
 func TestOrrerydRouteAwayPushesAndLogs(t *testing.T) {
+	t.Parallel()
 	client, name := newServer(t)
 	pane := startPane(t, client, "sleep 300")
 	dir := t.TempDir()
@@ -121,6 +122,7 @@ func TestOrrerydRouteAwayPushesAndLogs(t *testing.T) {
 }
 
 func TestOrrerydRouteSilencesBackgroundWorkStop(t *testing.T) {
+	t.Parallel()
 	client, name := newServer(t)
 	pane := startPane(t, client, "sleep 300")
 	dir := t.TempDir()
@@ -143,6 +145,7 @@ func TestOrrerydRouteSilencesBackgroundWorkStop(t *testing.T) {
 }
 
 func TestOrrerydRouteHoldsWatchedPane(t *testing.T) {
+	t.Parallel()
 	client, name := newServer(t)
 	pane := startPane(t, client, "sleep 300")
 	dir := t.TempDir()
@@ -174,6 +177,7 @@ func TestOrrerydRouteHoldsWatchedPane(t *testing.T) {
 }
 
 func TestOrrerydRouteAtDeskReachesStreamOnly(t *testing.T) {
+	t.Parallel()
 	client, name := newServer(t)
 	pane := startPane(t, client, "sleep 300")
 	dir := t.TempDir()
@@ -222,6 +226,7 @@ func TestOrrerydRouteAtDeskReachesStreamOnly(t *testing.T) {
 }
 
 func TestOrrerydRouteWithoutSubscriptionReachesDeskOnly(t *testing.T) {
+	t.Parallel()
 	client, name := newServer(t)
 	pane := startPane(t, client, "sleep 300")
 	dir := t.TempDir()
@@ -246,6 +251,7 @@ func TestOrrerydRouteWithoutSubscriptionReachesDeskOnly(t *testing.T) {
 }
 
 func TestOrrerydRouteNoticeLogOpenFailureExitsOne(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	stateHome := filepath.Join(dir, "state")
 	// A directory where the log file belongs makes the open fail, so orreryd exits before it listens.
@@ -290,6 +296,7 @@ func dialDesk(t *testing.T, socket string) (net.Conn, *bufio.Reader) {
 // or the failure sets the desk line's quiet key, the push's silent key and the log reason. The judge runs once, through
 // the pane's base URL and summary model.
 func TestOrrerydRouteJudgedDoneRoutesByVerdict(t *testing.T) {
+	t.Parallel()
 	const failedReason = "away; judge failed: done judge: haiku: result reported is_error"
 	tests := []struct {
 		name   string
@@ -313,6 +320,8 @@ func TestOrrerydRouteJudgedDoneRoutesByVerdict(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			// Each case has its own tmux server, orreryd and directory.
+			t.Parallel()
 			client, name := newServer(t)
 			pane := startPane(t, client, "sleep 300")
 			dir := t.TempDir()
@@ -363,6 +372,7 @@ func TestOrrerydRouteJudgedDoneRoutesByVerdict(t *testing.T) {
 // TestOrrerydRouteWorkAfterDoneIsChanged proves that work which starts before a done's judge delay ends the done as
 // changed, and that no judge runs for it.
 func TestOrrerydRouteWorkAfterDoneIsChanged(t *testing.T) {
+	t.Parallel()
 	client, name := newServer(t)
 	pane := startPane(t, client, "sleep 300")
 	dir := t.TempDir()
@@ -394,6 +404,7 @@ func TestOrrerydRouteWorkAfterDoneIsChanged(t *testing.T) {
 
 // TestOrrerydJudgesDoneWithSessions proves the judge runs when orreryd also serves the engine sessions.
 func TestOrrerydJudgesDoneWithSessions(t *testing.T) {
+	t.Parallel()
 	client, name := newServer(t)
 	pane := startPane(t, client, "sleep 300")
 	dir := t.TempDir()

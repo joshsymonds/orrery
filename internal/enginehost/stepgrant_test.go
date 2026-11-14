@@ -71,6 +71,7 @@ func stepGrantArgvJSON(t *testing.T, argv []string) string {
 }
 
 func TestStepsStartNamedGateCarriesItsGrant(t *testing.T) {
+	t.Parallel()
 	commands := &fakeGatePools{}
 	f := newStepGrantFixture(t, commands, stepGatePoolsText("gpu", gates.DefaultPool))
 	shell := stepGateShell(t)
@@ -114,6 +115,7 @@ func TestStepsStartNamedGateCarriesItsGrant(t *testing.T) {
 }
 
 func TestStepsStartNamedGateWithNoNeedsGrantsTheDefaultPool(t *testing.T) {
+	t.Parallel()
 	commands := &fakeGatePools{}
 	f := newStepGrantFixture(t, commands, stepGatePoolsText(gates.DefaultPool))
 	shell := stepGateShell(t)
@@ -177,6 +179,7 @@ func TestStepsStartNamedGateRefusesUndeclaredPoolAndStoresNothing(t *testing.T) 
 }
 
 func TestStepsNamedGateRunsOnlyOnItsGrantAndRecordsItsCheck(t *testing.T) {
+	t.Parallel()
 	marker := filepath.Join(t.TempDir(), "ran")
 	commands := &fakeGatePools{queue: make(chan struct{})}
 	f := newStepGrantFixture(t, commands, stepGatePoolsText("cpu", "gpu", gates.DefaultPool))
@@ -229,6 +232,7 @@ func TestStepsNamedGateRunsOnlyOnItsGrantAndRecordsItsCheck(t *testing.T) {
 }
 
 func TestStepsNamedGateStopStoresNoCheckAndRerunStoresItsCheck(t *testing.T) {
+	t.Parallel()
 	first := filepath.Join(t.TempDir(), "first")
 	commands := &fakeGatePools{stop: make(chan struct{})}
 	f := newStepGrantFixture(t, commands, stepGatePoolsText("gpu", gates.DefaultPool))

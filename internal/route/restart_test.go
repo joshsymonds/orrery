@@ -19,6 +19,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/push"
 	"github.com/joshsymonds/orrery/internal/route"
 	"github.com/joshsymonds/orrery/internal/store"
+	"github.com/joshsymonds/orrery/internal/storetest"
 )
 
 const (
@@ -125,6 +126,7 @@ func (b *logBuffer) String() string {
 // openStore opens the store at path and closes it when the test ends.
 func openStore(t *testing.T, path string) *store.Store {
 	t.Helper()
+	storetest.Seed(t, path)
 	s, err := store.Open(t.Context(), path)
 	if err != nil {
 		t.Fatalf("open store: %v", err)

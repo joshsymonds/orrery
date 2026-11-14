@@ -213,6 +213,7 @@ func waitForState(t *testing.T, db *sql.DB, id string, want protocol.State) sqlc
 }
 
 func TestDefaultSocketStartupRow(t *testing.T) {
+	t.Parallel()
 	f := newDefaultFixture(t)
 	daemon := f.startDaemon(t)
 
@@ -223,6 +224,7 @@ func TestDefaultSocketStartupRow(t *testing.T) {
 }
 
 func TestDefaultSocketOneRow(t *testing.T) {
+	t.Parallel()
 	f := newDefaultFixture(t)
 	daemon := f.startDaemon(t)
 	db, id, _ := f.waitForStartupRow(t, daemon)

@@ -158,6 +158,7 @@ func refusalCheck(t *testing.T, f *refusalFixture, id string, err error) {
 }
 
 func TestStepRefusedCapReachedStartsNothing(t *testing.T) {
+	t.Parallel()
 	f := newRefusalFixture(t, 1)
 	repo := stepGitTestRepo(t)
 	running := stepStartReadOnly(repo, "HEAD")
@@ -178,6 +179,7 @@ func TestStepRefusedCapReachedStartsNothing(t *testing.T) {
 }
 
 func TestStepRefusedBadAgentStartsNothing(t *testing.T) {
+	t.Parallel()
 	f := newRefusalFixture(t, 2)
 	repo := stepGitTestRepo(t)
 	start := stepStartReadOnly(repo, "HEAD")
@@ -194,6 +196,7 @@ func TestStepRefusedBadAgentStartsNothing(t *testing.T) {
 }
 
 func TestStepRefusedUnresolvedAgentStartsNothing(t *testing.T) {
+	t.Parallel()
 	f := newRefusalFixture(t, 2)
 	repo := stepGitTestRepo(t)
 	const agent = "no-such-agent-gate-probe"
@@ -245,6 +248,7 @@ func TestStepRefusedUnresolvedAgentStartsNothing(t *testing.T) {
 }
 
 func TestStepRefusedAfterCloseStartsNothing(t *testing.T) {
+	t.Parallel()
 	f := newRefusalFixture(t, 2)
 	f.manager.Close()
 	repo := stepGitTestRepo(t)
