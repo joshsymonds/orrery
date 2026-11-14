@@ -28,6 +28,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/donejudge"
 	"github.com/joshsymonds/orrery/internal/enginehost"
 	"github.com/joshsymonds/orrery/internal/grants"
+	"github.com/joshsymonds/orrery/internal/holder"
 	"github.com/joshsymonds/orrery/internal/notice"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/push"
@@ -483,9 +484,10 @@ type sessionHost struct {
 // until stop. With an open store it also starts the writer, a manager capped at opts.sessionCap that notifies through
 // notifier, the grants broker for hostName, which restores the grants a previous run stored and then ticks every
 // brokerTick until stop, and the step engine capped at opts.stepCap whose worktrees go under step-worktrees beside the
-// store file. The manager reconciles the rows a previous run left before the service serves, then the steps do, and
-// the manager stops idle sessions until stop. A reconcile or restore failure is logged and serving goes on; a failed
-// restore serves no Pools, which refuse as unavailable, and the gates fail for want of pools.
+// store file. The steps re-adopt the open step rows a previous run left, the manager reconciles the session rows and
+// the steps reconcile the rest before the service serves, and the manager stops idle sessions until stop. A readopt,
+// reconcile or restore failure is logged and serving goes on; a failed restore serves no Pools, which refuse as
+// unavailable, and the gates fail for want of pools.
 func startSessions(
 	ctx context.Context,
 	opts options,
@@ -507,13 +509,14 @@ func startSessions(
 		if err != nil {
 			return nil, fmt.Errorf("step worktrees: %w", err)
 		}
+		stateDir := filepath.Dir(storePath)
 		host.writer = enginehost.NewWriter(enginehost.WriterConfig{Applier: st, Logger: logger})
 		host.manager = enginehost.NewManager(enginehost.Config{
 			Shell:       opts.sessionShell,
 			Claude:      opts.claude,
 			Environ:     os.Environ(),
 			HolderScope: opts.holderScope,
-			StateDir:    filepath.Dir(storePath),
+			StateDir:    stateDir,
 			ManagedDir:  "/etc/claude-code",
 			Cap:         opts.sessionCap,
 			StepCap:     opts.stepCap,
@@ -525,14 +528,16 @@ func startSessions(
 		host.startBroker(ctx, hostName, st, logger)
 		// host.pools is nil when the broker's restore failed, which leaves the gates no pools to run under.
 		steps, err := enginehost.NewSteps(enginehost.StepsConfig{
-			Sessions:  host.manager,
-			Store:     st,
-			Writer:    host.writer,
-			Pools:     host.pools,
-			Worktrees: filepath.Join(filepath.Dir(storePath), "step-worktrees"),
-			Environ:   os.Environ(),
-			Logger:    logger,
-			Haiku:     enginehost.NewHaiku(enginehost.HaikuConfig{Claude: opts.claude, Environ: os.Environ()}),
+			Sessions:     host.manager,
+			Store:        st,
+			Writer:       host.writer,
+			Pools:        host.pools,
+			Worktrees:    filepath.Join(stateDir, "step-worktrees"),
+			Environ:      os.Environ(),
+			Logger:       logger,
+			Haiku:        enginehost.NewHaiku(enginehost.HaikuConfig{Claude: opts.claude, Environ: os.Environ()}),
+			GateStateDir: filepath.Join(stateDir, "gates"),
+			GateScope:    opts.holderScope,
 		})
 		if err != nil {
 			host.stopBroker()
@@ -548,12 +553,7 @@ func startSessions(
 			host.writer.Run(writerCtx)
 			close(host.writerDone)
 		}()
-		if reconcileErr := host.manager.Reconcile(ctx); reconcileErr != nil {
-			logger.ErrorContext(ctx, "reconcile sessions, serving anyway", "error", reconcileErr)
-		}
-		if reconcileErr := host.steps.Reconcile(ctx); reconcileErr != nil {
-			logger.ErrorContext(ctx, "reconcile steps, serving anyway", "error", reconcileErr)
-		}
+		host.reconcile(ctx, logger)
 		var idleCtx context.Context
 		idleCtx, host.stopIdle = context.WithCancel(ctx)
 		go func() {
@@ -572,6 +572,20 @@ func startSessions(
 	return host, nil
 }
 
+// reconcile re-adopts the open step rows a previous run left, then reconciles the session rows and the step rows that no
+// re-adoption holds. A failure is logged and serving goes on.
+func (h *sessionHost) reconcile(ctx context.Context, logger *slog.Logger) {
+	if err := h.steps.Readopt(ctx, h.manager); err != nil {
+		logger.ErrorContext(ctx, "readopt steps, serving anyway", "error", err)
+	}
+	if err := h.manager.Reconcile(ctx); err != nil {
+		logger.ErrorContext(ctx, "reconcile sessions, serving anyway", "error", err)
+	}
+	if err := h.steps.Reconcile(ctx); err != nil {
+		logger.ErrorContext(ctx, "reconcile steps, serving anyway", "error", err)
+	}
+}
+
 // startBroker builds the grants broker for hostName over st and restores the grants a previous run stored. A restore
 // that succeeds makes the broker the host's pools and starts its tick loop. A restore that fails is logged and leaves
 // the pools nil, so no Pools are served; the broker is still closed at shutdown, since its restore may have started
@@ -579,10 +593,11 @@ func startSessions(
 // Close after shutdownWait cancels each held Acquire, and an Acquire canceled while the broker is open ends its grant.
 func (h *sessionHost) startBroker(ctx context.Context, hostName string, st *store.Store, logger *slog.Logger) {
 	h.broker = grants.NewBroker(grants.Config{
-		Host:    hostName,
-		Store:   st,
-		Environ: os.Environ(),
-		Logger:  logger,
+		Host:        hostName,
+		Store:       st,
+		Environ:     os.Environ(),
+		Logger:      logger,
+		HolderAlive: holderLives,
 	})
 	context.AfterFunc(ctx, h.broker.Close)
 	if err := h.broker.Restore(ctx); err != nil {
@@ -592,6 +607,19 @@ func (h *sessionHost) startBroker(ctx context.Context, hostName string, st *stor
 	h.pools = h.broker
 	h.brokerRun = make(chan struct{})
 	go h.runBroker(context.WithoutCancel(ctx))
+}
+
+// holderLives reports whether the holder that serves the holder directory dir is running. A gate's grant names the
+// orreryd that started it as its client, which ends with a SIGKILL, so the gate's holder is what keeps the grant a
+// restarted broker restores until the gate exits. A directory whose pids record is missing or unreadable has no live
+// holder.
+func holderLives(dir string) bool {
+	pids, err := holder.ReadPids(dir)
+	if err != nil {
+		return false
+	}
+	running, err := holder.Running(pids.Holder, pids.HolderStart)
+	return err == nil && running
 }
 
 // runBroker ticks the broker every brokerTick until the broker closes. Each tick ends the grants of clients that are
