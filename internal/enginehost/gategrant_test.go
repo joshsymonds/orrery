@@ -30,6 +30,8 @@ type fakeGatePools struct {
 
 	mu       sync.Mutex
 	requests []grants.Request
+	// reclaimsEnded holds the grant id of each reclaim whose call has returned.
+	reclaimsEnded []string
 }
 
 // Acquire implements PoolCommands for the fake.
@@ -41,6 +43,13 @@ func (f *fakeGatePools) Acquire(ctx context.Context, req grants.Request, send fu
 		id = fmt.Sprintf("grant-%d", len(f.requests))
 	}
 	f.mu.Unlock()
+	if req.GrantID != "" {
+		defer func() {
+			f.mu.Lock()
+			f.reclaimsEnded = append(f.reclaimsEnded, req.GrantID)
+			f.mu.Unlock()
+		}()
+	}
 	if f.err != nil {
 		return f.err
 	}
@@ -96,6 +105,13 @@ func (f *fakeGatePools) requested() []grants.Request {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return slices.Clone(f.requests)
+}
+
+// ended reports whether a call that reclaimed the grant id has returned, which ends the reclaimed grant.
+func (f *fakeGatePools) ended(id string) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Contains(f.reclaimsEnded, id)
 }
 
 // fakeGateMembers returns the members a grant of needs holds: <pool>-1 up to each need's count, pool by pool.

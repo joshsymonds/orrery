@@ -182,8 +182,16 @@ func TestGateReadoptOfGateThatEndedWhileDetachedReturnsItsExitRecord(t *testing.
 	if result.Holder != dir {
 		t.Fatalf("Holder = %q, want %q", result.Holder, dir)
 	}
-	if n := len(pools.requested()); n != 1 {
-		t.Fatalf("Acquire was called %d times, want 1: a gate that ended needs no new grant", n)
+	// The gate needs no new grant: the second Acquire reclaims the grant it held, naming its holder, and ends it.
+	requests := pools.requested()
+	if len(requests) != 2 {
+		t.Fatalf("Acquire was called %d times, want 2: the run and the reclaim that ends its grant", len(requests))
+	}
+	if got := requests[1]; got.GrantID != "grant-1" || got.Holder != dir {
+		t.Fatalf("second Acquire = grant %q holder %q, want a reclaim of grant-1 naming %s", got.GrantID, got.Holder, dir)
+	}
+	if !pools.ended("grant-1") {
+		t.Fatal("the reclaimed grant-1 is still held after readoptGrantedGate returned, want it ended")
 	}
 	data, err := os.ReadFile(counter)
 	if err != nil || strings.TrimSpace(string(data)) != "1" {
@@ -346,8 +354,12 @@ func TestGateReadoptOfEndingHolderReturnsItsExitRecord(t *testing.T) {
 	if result.Exit != 3 || !strings.Contains(result.Output, "done\n") {
 		t.Fatalf("result = %+v, want the gate's exit 3 and its output", result)
 	}
-	if n := len(pools.requested()); n != 1 {
-		t.Fatalf("Acquire was called %d times, want 1: a gate that ended needs no new grant", n)
+	requests := pools.requested()
+	if len(requests) != 2 || requests[1].GrantID != "grant-1" {
+		t.Fatalf("Acquire requests = %d, want the run and a reclaim of grant-1 that ends it", len(requests))
+	}
+	if !pools.ended("grant-1") {
+		t.Fatal("the reclaimed grant-1 is still held after readoptGrantedGate returned, want it ended")
 	}
 	data, err := os.ReadFile(counter)
 	if err != nil || strings.TrimSpace(string(data)) != "1" {
@@ -428,8 +440,12 @@ func TestGateReadoptOfGateKilledAtItsLimitReturnsTimedOut(t *testing.T) {
 	if result.Holder != dir {
 		t.Fatalf("Holder = %q, want %q", result.Holder, dir)
 	}
-	if n := len(pools.requested()); n != 1 {
-		t.Fatalf("Acquire was called %d times, want 1: a gate killed at its limit needs no new grant", n)
+	requests := pools.requested()
+	if len(requests) != 2 || requests[1].GrantID != "grant-1" {
+		t.Fatalf("Acquire requests = %d, want the run and a reclaim of grant-1 that ends it", len(requests))
+	}
+	if !pools.ended("grant-1") {
+		t.Fatal("the reclaimed grant-1 is still held after readoptGrantedGate returned, want it ended")
 	}
 }
 

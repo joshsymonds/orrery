@@ -324,10 +324,11 @@ func gateWaitEnd(
 // readoptGrantedGate resumes the granted gate that run names after the controller that started it ended. grantID is
 // the grant the gate holds. When a holder still serves the gate, grantID is reclaimed for req, naming that holder, and
 // the gate's end is waited for as an attempt waits for it. When the holder has ended, its exit record gives the outcome:
-// an exit or a limit is the result, with no grant and no run, and a stop, which an owner hold makes, reruns the gate once
-// on grantID. A holder that cannot be attached but has written its record is read the same way. Any other outcome, and a
-// reclaim the pools refuse, is errGateLost. The gate's holder is then ended and
-// cleared, so no later call reads a record that could rerun it. It returns errGateNoPools when pools is nil.
+// an exit or a limit is the result, and runs nothing, once the grant the pools may still keep for the ended holder is
+// ended, and a stop, which an owner hold makes, reruns the gate once on grantID. A holder that cannot be attached but
+// has written its record is read the same way. Any other outcome, and a reclaim the pools refuse, is errGateLost. The
+// gate's holder is then ended and cleared, so no later call reads a record that could rerun it. It returns
+// errGateNoPools when pools is nil.
 func readoptGrantedGate(
 	ctx context.Context,
 	pools PoolCommands,
@@ -390,7 +391,8 @@ func readoptServed(
 }
 
 // readoptEnded takes the outcome of a gate whose holder has ended, from the exit record the holder left in plan's
-// directory. It queues no grant for an exit or a limit, since the gate ended under its grant, and reruns a stopped gate.
+// directory. An exit or a limit is the result, and runs nothing: the grant the gate held, which the broker may still keep
+// for its holder, is reclaimed and ended at once, so its members are free when the result lands. A stopped gate reruns.
 func readoptEnded(
 	ctx context.Context,
 	pools PoolCommands,
@@ -412,9 +414,40 @@ func readoptEnded(
 		if err := gateKillLeftovers(plan.dir); err != nil {
 			return gateResult{}, err
 		}
-		return gateExitResult(grants.Grant{}, plan, exit), nil
+		held, err := gateEndKept(ctx, pools, req, run, plan, grantID)
+		if err != nil {
+			return gateResult{}, err
+		}
+		return gateExitResult(held, plan, exit), nil
 	}
 	return gateResult{}, errors.Join(errGateLost, gateEnd(ctx, plan.dir))
+}
+
+// gateEndKept ends grantID, the grant a gate that has ended held, if the pools still keep it: it reclaims the grant for
+// req, naming the gate's holder directory, and releases it at once. It returns the grant it ended, or no grant when the
+// pools no longer hold it. A scoped gate whose reclaim the broker's close cuts returns an error matching errGateDetach.
+func gateEndKept(
+	ctx context.Context,
+	pools PoolCommands,
+	req grants.Request,
+	run gateRun,
+	plan gatePlan,
+	grantID string,
+) (grants.Grant, error) {
+	req.GrantID = grantID
+	req.Holder = plan.dir
+	call := startGateCall(ctx, pools, req, run.Scope != "")
+	held, err := call.await(ctx)
+	switch {
+	case errors.Is(err, grants.ErrNoGrant):
+		return grants.Grant{}, nil
+	case err != nil:
+		return grants.Grant{}, err
+	}
+	if err = call.release(); err != nil {
+		return grants.Grant{}, err
+	}
+	return held, nil
 }
 
 // gateRerun runs the gate again on grantID, the grant a stop ended, as runGrantedGate does after a stop. A grant the
