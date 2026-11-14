@@ -92,6 +92,10 @@ func (f *fakeSteps) Nudge(context.Context, string, string) error {
 	return errors.New("stepmcp test: Nudge is not expected")
 }
 
+func (f *fakeSteps) Resume(context.Context, string) error {
+	return errors.New("stepmcp test: Resume is not expected")
+}
+
 // fakeCalls is a copy of what the fake recorded.
 type fakeCalls struct {
 	starts   []enginehost.StepStart
