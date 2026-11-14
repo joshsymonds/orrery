@@ -453,8 +453,45 @@ func TestRunnerParksEpicWhenPlannerRoleFails(t *testing.T) {
 	if n := len(steps.started()); n != 0 {
 		t.Errorf("steps started for a parked epic = %d, want 0", n)
 	}
-	if n := len(epicOf(t, s).Turns); n != 0 {
-		t.Errorf("turns of a parked epic = %d, want 0", n)
+	turns := epicOf(t, s).Turns
+	if len(turns) != 1 {
+		t.Fatalf("turns of a parked epic = %d, want 1: the park frees a claimed turn", len(turns))
+	}
+	if turns[0].State != "free" || turns[0].Reason != roleErr.Error() {
+		t.Errorf("turn 1 = state %q reason %q, want free %q", turns[0].State, turns[0].Reason, roleErr.Error())
+	}
+	// A pending trigger belongs to turn 0; the freed turn 1 keeps none.
+	triggers, err := s.TurnTriggers(context.Background(), runnerEpicID, 0)
+	if err != nil {
+		t.Fatalf("TurnTriggers: %v", err)
+	}
+	if len(triggers) != 1 || triggers[0].ID != "created" || triggers[0].State != "pending" {
+		t.Errorf("pending triggers = %+v, want the created trigger pending again", triggers)
+	}
+}
+
+func TestRunnerRejectedRateLimitFreeStoresResetTime(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openRunnerStore(t)
+	createRunnerEpic(t, s)
+	steps := newFakeSteps()
+	var reads atomic.Int64
+	runRunner(t, runnerConfig(s, steps, agentReturning(runnerAgent, nil, &reads)))
+	waitForStarts(t, steps, 1)
+	waitFor(t, "step-1 recorded on turn 1", func() bool { return stepOneOnTurnOne(t, s) })
+
+	resets := time.Unix(1700018000, 0)
+	if err := s.ApplyEngine(ctx, []store.EngineOp{store.EngineRateLimited{
+		ID: "step-1", Status: "rejected", Kind: "five_hour", ResetsAt: resets,
+	}}, claimedAt()); err != nil {
+		t.Fatalf("ApplyEngine: %v", err)
+	}
+	steps.end("step-1", store.StepRow{End: "checks_failed", Reason: "tasks[0] wrong"})
+	waitFor(t, "the epic to be paused", func() bool { return epicOf(t, s).Paused })
+
+	if got := epicOf(t, s).Turns[0].Resets; !got.Equal(resets) {
+		t.Errorf("turn 1 resets = %v, want the limit's reset time %v", got, resets)
 	}
 }
 

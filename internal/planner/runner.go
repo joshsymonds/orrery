@@ -25,7 +25,6 @@ type Store interface {
 	CompleteTurn(ctx context.Context, epic string, turn int64, plan store.EpicPlan, at time.Time) error
 	FailTurn(ctx context.Context, epic string, turn int64, reason string, at time.Time) error
 	FreeTurn(ctx context.Context, epic string, turn int64, free store.TurnFree, at time.Time) error
-	ParkEpic(ctx context.Context, epic string, reason string) error
 	RunningTurns(ctx context.Context) ([]store.EpicTurn, error)
 	RateLimit(ctx context.Context, session string) (store.RateLimit, bool, error)
 }
@@ -123,8 +122,9 @@ func (r *Runner) Run(ctx context.Context) {
 	}
 }
 
-// pass decides each epic with pending triggers. A park action parks the epic with its reason, and a claim action
-// claims a turn for the epic in its own goroutine. agent is read once per pass.
+// pass decides each epic with pending triggers. A park action claims a turn for the epic in its own goroutine and frees
+// it with the park reason, and a claim action claims a turn for the epic in its own goroutine. agent is read once per
+// pass.
 func (r *Runner) pass(ctx context.Context) {
 	states, err := r.store.PlanStates(ctx)
 	if err != nil {
@@ -138,9 +138,8 @@ func (r *Runner) pass(ctx context.Context) {
 		}, roleErr)
 		switch action.Kind {
 		case ActionPark:
-			if err = r.store.ParkEpic(ctx, state.Epic, action.Reason); err != nil {
-				r.logger.ErrorContext(ctx, "park epic", "epic", state.Epic, "err", err)
-			}
+			r.turns.Add(1)
+			go r.parkTurn(ctx, state.Epic, action.Reason)
 		case ActionClaim:
 			r.turns.Add(1)
 			go r.runTurn(ctx, state.Epic, agent)
@@ -149,16 +148,37 @@ func (r *Runner) pass(ctx context.Context) {
 	}
 }
 
+// claim claims a turn for epic. It returns false when no turn is claimed: an epic that is not claimable is left
+// quietly, and a claim that fails is logged.
+func (r *Runner) claim(ctx context.Context, epic string) (store.EpicTurn, bool) {
+	turn, err := r.store.ClaimTurn(ctx, epic, r.now())
+	if errors.Is(err, store.ErrNotClaimable) {
+		return store.EpicTurn{}, false
+	}
+	if err != nil {
+		r.logger.ErrorContext(ctx, "claim planner turn", "epic", epic, "err", err)
+		return store.EpicTurn{}, false
+	}
+	return turn, true
+}
+
+// parkTurn claims a turn for epic and frees it with reason as both its reason and its park, so the park has a turn
+// that records it. The turn starts no step and returns its triggers to pending.
+func (r *Runner) parkTurn(ctx context.Context, epic, reason string) {
+	defer r.turns.Done()
+	turn, ok := r.claim(ctx, epic)
+	if !ok {
+		return
+	}
+	r.release(ctx, epic, turn.Seq, store.TurnFree{Reason: reason, Park: reason})
+}
+
 // runTurn claims a turn for epic, runs its planner step to an end and settles the turn. A turn whose context ends is
 // left running for the next start.
 func (r *Runner) runTurn(ctx context.Context, epic, agent string) {
 	defer r.turns.Done()
-	turn, err := r.store.ClaimTurn(ctx, epic, r.now())
-	if errors.Is(err, store.ErrNotClaimable) {
-		return
-	}
-	if err != nil {
-		r.logger.ErrorContext(ctx, "claim planner turn", "epic", epic, "err", err)
+	turn, ok := r.claim(ctx, epic)
+	if !ok {
 		return
 	}
 	id, err := r.startStep(ctx, epic, turn, agent)
@@ -313,10 +333,10 @@ func (r *Runner) refuse(ctx context.Context, epic string, seq int64, err error) 
 }
 
 // settle settles turn seq of epic, whose step id ended as ended. A kept rejected rate limit of the step frees the turn
-// and pauses the epic, whatever the end. A done end completes the turn with the plan its return holds. A stopped step
-// frees the turn and pauses the epic, and an engine_restarted step frees it to rerun. Every other end fails the turn
-// with its end and reason. The read of the kept limit and the write that ends the turn are retried until they land
-// (see retry).
+// with its reset time and pauses the epic, whatever the end. A done end completes the turn with the plan its return
+// holds. A stopped step frees the turn and pauses the epic, and an engine_restarted step frees it to rerun. Every
+// other end fails the turn with its end and reason. The read of the kept limit and the write that ends the turn are
+// retried until they land (see retry).
 func (r *Runner) settle(ctx context.Context, epic string, seq int64, id string, ended store.StepRow) error {
 	var limit store.RateLimit
 	var limited bool
@@ -333,6 +353,7 @@ func (r *Runner) settle(ctx context.Context, epic string, seq int64, id string, 
 		return r.freeTurn(ctx, epic, seq, store.TurnFree{
 			Reason: fmt.Sprintf("%s rate limit, resets %s", limit.Kind, limit.ResetsAt.UTC().Format(time.RFC3339)),
 			Pause:  true,
+			Resets: limit.ResetsAt,
 		})
 	}
 	switch ended.End {
