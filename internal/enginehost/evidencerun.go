@@ -7,8 +7,6 @@ import (
 	"log/slog"
 	"path/filepath"
 	"reflect"
-	"regexp"
-	"strconv"
 	"sync"
 	"time"
 
@@ -25,9 +23,6 @@ var ErrNoEvidenceArtifact = errors.New("no evidence artifact")
 
 // errEvidenceClosed is what Run returns once Close has been called.
 var errEvidenceClosed = errors.New("evidence runner is closed")
-
-// evidenceRunTaskPattern matches the name of a planned task's evidence item, T<n>.
-var evidenceRunTaskPattern = regexp.MustCompile(`^T[1-9][0-9]*$`)
 
 // evidenceJudgeTries is how many judge steps a run starts before it records no verdict. A judge that ends with no verdict
 // is followed by another on the same kept output.
@@ -118,9 +113,9 @@ func NewEvidence(cfg EvidenceConfig) *Evidence {
 }
 
 // Run runs the item named item of epic at revision, in phase red or green. item is a Requirement's R<n>, whose item must
-// be set, or a planned task's T<n>, whose evidence must be set. Run refuses a bad request with an error matching
-// ErrEvidenceRefused, and an epic that does not exist with the store's error. It stores the run in state capturing with its
-// item, revision and phase before anything runs, then drives it in the background and returns the stored run.
+// be set. Run refuses a bad request with an error matching ErrEvidenceRefused, and an epic that does not exist with the
+// store's error. It stores the run in state capturing with its item, revision and phase before anything runs, then drives
+// it in the background and returns the stored run.
 func (e *Evidence) Run(ctx context.Context, epic, item, revision, phase string) (store.EvidenceRun, error) {
 	row, err := e.store.Epic(ctx, epic)
 	if err != nil {
@@ -209,17 +204,13 @@ func (e *Evidence) Close() {
 	e.drives.Wait()
 }
 
-// evidenceRunItemOf returns the evidence item the name names in row: a Requirement's item for R<n>, or a planned task's
-// evidence for T<n>. Any other name is refused, and so is a Requirement or task with no item, such as a Requirement stored
-// before O3d2.
+// evidenceRunItemOf returns the evidence item the name names in row: a Requirement's item for R<n>. Any other name is
+// refused, and so is a Requirement with no item, such as a Requirement stored before O3d2.
 func evidenceRunItemOf(row store.EpicRow, name string) (evidence.Item, error) {
-	switch {
-	case epicRequirementIDPattern.MatchString(name):
-		return evidenceRunRequirementItem(row, name)
-	case evidenceRunTaskPattern.MatchString(name):
-		return evidenceRunTaskItem(row, name)
+	if !epicRequirementIDPattern.MatchString(name) {
+		return evidence.Item{}, fmt.Errorf("%w: item %q is not an R<n>", ErrEvidenceRefused, name)
 	}
-	return evidence.Item{}, fmt.Errorf("%w: item %q is neither an R<n> nor a T<n>", ErrEvidenceRefused, name)
+	return evidenceRunRequirementItem(row, name)
 }
 
 // evidenceRunRequirementItem returns the item of the Requirement named name in row.
@@ -234,24 +225,6 @@ func evidenceRunRequirementItem(row store.EpicRow, name string) (evidence.Item, 
 		return requirement.Item, nil
 	}
 	return evidence.Item{}, fmt.Errorf("%w: no requirement %s", ErrEvidenceRefused, name)
-}
-
-// evidenceRunTaskItem returns the evidence of the planned task named name in row, whose seq is the number after its T.
-func evidenceRunTaskItem(row store.EpicRow, name string) (evidence.Item, error) {
-	seq, err := strconv.ParseInt(name[1:], 10, 64)
-	if err != nil {
-		return evidence.Item{}, fmt.Errorf("%w: item %q names no task", ErrEvidenceRefused, name)
-	}
-	for _, task := range row.Tasks {
-		if task.Seq != seq {
-			continue
-		}
-		if reflect.ValueOf(task.Evidence).IsZero() {
-			return evidence.Item{}, fmt.Errorf("%w: task %s has no evidence item", ErrEvidenceRefused, name)
-		}
-		return task.Evidence, nil
-	}
-	return evidence.Item{}, fmt.Errorf("%w: no task %s", ErrEvidenceRefused, name)
 }
 
 // evidenceRunSource returns the source a run of spec has: captured when the item names a capture, else supplied.

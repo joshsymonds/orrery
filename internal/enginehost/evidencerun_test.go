@@ -121,15 +121,15 @@ func evidenceRunSettled(t *testing.T, st *store.Store, id string) store.Evidence
 	return run
 }
 
-// evidenceRunOnce starts a run of the item named by item at revision in phase through ev. It returns the run Run stored
-// and the run once it ended.
+// evidenceRunOnce starts a run of Requirement R1 at revision in phase through ev. It returns the run Run stored and the
+// run once it ended.
 func evidenceRunOnce(
-	t *testing.T, ev *Evidence, st *store.Store, item, revision, phase string,
+	t *testing.T, ev *Evidence, st *store.Store, revision, phase string,
 ) (store.EvidenceRun, store.EvidenceRun) {
 	t.Helper()
-	started, err := ev.Run(t.Context(), evidenceRunEpic, item, revision, phase)
+	started, err := ev.Run(t.Context(), evidenceRunEpic, "R1", revision, phase)
 	if err != nil {
-		t.Fatalf("Run(%s, %s, %s): %v", item, revision, phase, err)
+		t.Fatalf("Run(R1, %s, %s): %v", revision, phase, err)
 	}
 	return started, evidenceRunSettled(t, st, started.ID)
 }
@@ -235,7 +235,7 @@ func TestEvidenceRunRedJudgeFailsPasses(t *testing.T) {
 	steps := &evidenceRunSteps{judges: []evidenceRunJudge{evidenceRunFails()}}
 	ev := evidenceRunNew(t, st, steps)
 
-	started, got := evidenceRunOnce(t, ev, st, "R1", head, evidence.PhaseRed)
+	started, got := evidenceRunOnce(t, ev, st, head, evidence.PhaseRed)
 	evidenceRunWantStarted(t, started, "R1", head, evidence.PhaseRed, evidence.SourceCaptured)
 	if got.Verdict != evidence.VerdictFails || !got.Passed || got.Judges != 1 {
 		t.Fatalf(
@@ -257,7 +257,7 @@ func TestEvidenceRunRedJudgeHoldsDoesNotPass(t *testing.T) {
 	steps := &evidenceRunSteps{judges: []evidenceRunJudge{evidenceRunHolds()}}
 	ev := evidenceRunNew(t, st, steps)
 
-	_, got := evidenceRunOnce(t, ev, st, "R1", head, evidence.PhaseRed)
+	_, got := evidenceRunOnce(t, ev, st, head, evidence.PhaseRed)
 	if got.Verdict != evidence.VerdictHolds || got.Passed {
 		t.Fatalf("run = verdict %q passed %t, want holds and not passed", got.Verdict, got.Passed)
 	}
@@ -272,7 +272,7 @@ func TestEvidenceRunGreenExitZeroHoldsPasses(t *testing.T) {
 	steps := &evidenceRunSteps{judges: []evidenceRunJudge{evidenceRunHolds()}}
 	ev := evidenceRunNew(t, st, steps)
 
-	_, got := evidenceRunOnce(t, ev, st, "R1", head, evidence.PhaseGreen)
+	_, got := evidenceRunOnce(t, ev, st, head, evidence.PhaseGreen)
 	if got.Exit != 0 || got.Verdict != evidence.VerdictHolds || !got.Passed {
 		t.Fatalf("run = exit %d verdict %q passed %t, want exit 0, holds, passed", got.Exit, got.Verdict, got.Passed)
 	}
@@ -287,7 +287,7 @@ func TestEvidenceRunGreenExitOneHoldsDoesNotPass(t *testing.T) {
 	steps := &evidenceRunSteps{judges: []evidenceRunJudge{evidenceRunHolds()}}
 	ev := evidenceRunNew(t, st, steps)
 
-	_, got := evidenceRunOnce(t, ev, st, "R1", head, evidence.PhaseGreen)
+	_, got := evidenceRunOnce(t, ev, st, head, evidence.PhaseGreen)
 	if got.Exit != 1 || got.Verdict != evidence.VerdictHolds || got.Passed {
 		t.Fatalf(
 			"run = exit %d verdict %q passed %t, want exit 1, holds, not passed",
@@ -310,7 +310,7 @@ func TestEvidenceRunTimedOutCaptureStartsNoJudge(t *testing.T) {
 	steps := &evidenceRunSteps{}
 	ev := evidenceRunNew(t, st, steps)
 
-	_, got := evidenceRunOnce(t, ev, st, "R1", head, evidence.PhaseGreen)
+	_, got := evidenceRunOnce(t, ev, st, head, evidence.PhaseGreen)
 	if !got.TimedOut || got.NotCaptured != evidenceCaptureKilled || got.Passed || got.Verdict != "" {
 		t.Fatalf("run = timed out %t not captured %q passed %t verdict %q, want killed at its limit and no verdict",
 			got.TimedOut, got.NotCaptured, got.Passed, got.Verdict)
@@ -332,7 +332,7 @@ func TestEvidenceRunTwoNoVerdictEndsThenHoldsRecordsHolds(t *testing.T) {
 	}}
 	ev := evidenceRunNew(t, st, steps)
 
-	_, got := evidenceRunOnce(t, ev, st, "R1", head, evidence.PhaseGreen)
+	_, got := evidenceRunOnce(t, ev, st, head, evidence.PhaseGreen)
 	if got.Verdict != evidence.VerdictHolds || !got.Passed || got.Judges != 3 || steps.startCount() != 3 {
 		t.Fatalf("run = verdict %q passed %t judges %d starts %d, want holds, passed, three judges",
 			got.Verdict, got.Passed, got.Judges, steps.startCount())
@@ -351,7 +351,7 @@ func TestEvidenceRunThreeNoVerdictEndsRecordNoVerdict(t *testing.T) {
 	}}
 	ev := evidenceRunNew(t, st, steps)
 
-	_, got := evidenceRunOnce(t, ev, st, "R1", head, evidence.PhaseGreen)
+	_, got := evidenceRunOnce(t, ev, st, head, evidence.PhaseGreen)
 	starts := steps.startCount()
 	const wantReason = "failed: third"
 	if got.Verdict != "" || got.Passed || got.JudgeReason != wantReason || got.Judges != 3 || starts != 3 {
@@ -377,7 +377,7 @@ func TestEvidenceRunSuppliedReadsCommittedFiles(t *testing.T) {
 	steps := &evidenceRunSteps{judges: []evidenceRunJudge{evidenceRunHolds()}}
 	ev := evidenceRunNew(t, st, steps)
 
-	started, got := evidenceRunOnce(t, ev, st, "R1", head, evidence.PhaseRed)
+	started, got := evidenceRunOnce(t, ev, st, head, evidence.PhaseRed)
 	evidenceRunWantStarted(t, started, "R1", head, evidence.PhaseRed, evidence.SourceSupplied)
 	const committed = "committed\n"
 	wantKept := store.EvidenceArtifact{
@@ -422,6 +422,7 @@ func TestEvidenceRunRefusesABadRequest(t *testing.T) {
 		{"unknown requirement", evidenceRunEpic, "R9", head, evidence.PhaseRed, ErrEvidenceRefused},
 		{"malformed item", evidenceRunEpic, "X1", head, evidence.PhaseRed, ErrEvidenceRefused},
 		{"unknown task", evidenceRunEpic, "T9", head, evidence.PhaseRed, ErrEvidenceRefused},
+		{"planned task item", evidenceRunEpic, "T1", head, evidence.PhaseRed, ErrEvidenceRefused},
 		{"legacy requirement", evidenceRunEpic, "R2", head, evidence.PhaseRed, ErrEvidenceRefused},
 		{"unknown phase", evidenceRunEpic, "R1", head, "blue", ErrEvidenceRefused},
 		{"unresolvable revision", evidenceRunEpic, "R1", "no-such-revision", evidence.PhaseRed, ErrEvidenceRefused},
@@ -450,40 +451,20 @@ func evidenceRunWantNoRuns(t *testing.T, st *store.Store) {
 	}
 }
 
-// TestEvidenceRunAcceptsATaskItem runs a planned task's item, T1, which is stored with the run as named.
-func TestEvidenceRunAcceptsATaskItem(t *testing.T) {
-	t.Parallel()
-	repo, head := evidenceRunRepo(t, "exit 0\n")
-	st := epicTestStore(t)
-	task := evidence.Item{
-		Capture: []string{"/bin/sh", "capture.sh"}, Limit: 60, Conclusion: "the build passes", Judge: "reviewer",
-	}
-	evidenceRunSeed(t, st, repo, evidenceRunItem(), task)
-	steps := &evidenceRunSteps{judges: []evidenceRunJudge{evidenceRunHolds()}}
-	ev := evidenceRunNew(t, st, steps)
-
-	started, got := evidenceRunOnce(t, ev, st, "T1", head, evidence.PhaseGreen)
-	evidenceRunWantStarted(t, started, "T1", head, evidence.PhaseGreen, evidence.SourceCaptured)
-	if got.Verdict != evidence.VerdictHolds || !got.Passed {
-		t.Fatalf("run = verdict %q passed %t, want holds and passed", got.Verdict, got.Passed)
-	}
-}
-
 // TestEvidenceArtifactReadsLogAndKeptArtifact reads a run's log and a kept artifact. It refuses an artifact the run did
 // not keep, a name it does not list, a run with no log, and a run it does not have.
 func TestEvidenceArtifactReadsLogAndKeptArtifact(t *testing.T) {
 	t.Parallel()
 	repo, head := evidenceRunRepo(t, "echo log text\nprintf 'kept\\n' > small.txt\nexit 0\n")
+	silentHead := stepGitTestCommit(t, repo, map[string]string{"capture.sh": "exit 0\n"})
 	st := epicTestStore(t)
-	silent := evidence.Item{
-		Capture: []string{"/bin/sh", "-c", "exit 0"}, Limit: 60, Conclusion: "the build passes", Judge: "reviewer",
-	}
-	evidenceRunSeed(t, st, repo, evidenceRunItem("small.txt", "absent.txt"), silent)
+	item := evidenceRunItem("small.txt", "absent.txt")
+	evidenceRunSeed(t, st, repo, item, item)
 	steps := &evidenceRunSteps{judges: []evidenceRunJudge{evidenceRunHolds(), evidenceRunHolds()}}
 	ev := evidenceRunNew(t, st, steps)
 
-	_, got := evidenceRunOnce(t, ev, st, "R1", head, evidence.PhaseGreen)
-	_, quiet := evidenceRunOnce(t, ev, st, "T1", head, evidence.PhaseGreen)
+	_, got := evidenceRunOnce(t, ev, st, head, evidence.PhaseGreen)
+	_, quiet := evidenceRunOnce(t, ev, st, silentHead, evidence.PhaseGreen)
 	evidenceRunWantLog(t, ev, got, "log text\n")
 	evidenceRunWantArtifact(t, ev, got.ID, "small.txt", "kept\n")
 	for _, name := range []string{"absent.txt", "not-listed.txt"} {
