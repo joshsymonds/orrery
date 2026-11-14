@@ -52,7 +52,7 @@ func TestReadoptStepRestoresReturnCheckAndEndsDoneWithoutJudge(t *testing.T) {
 		Claude:  haikuWriteFake(t, haikuDir(t), haikuFake{stdout: stepReadoptMetLine}),
 		Environ: haikuEnviron(),
 	})
-	rig := newStepsRig(t, nil, haiku)
+	rig := newStepsRig(t, haiku)
 	id, wt := rig.startStalledStep(t)
 	pid := fakePID(t, wt)
 	check := &returnCheckRecorder{}
@@ -117,7 +117,7 @@ func TestReadoptStepRestoresReturnCheckAndEndsDoneWithoutJudge(t *testing.T) {
 
 func TestReadoptStepWhoseReturnCheckHookFailsEndsEngineRestarted(t *testing.T) {
 	t.Parallel()
-	rig := newStepsRig(t, nil, nil)
+	rig := newStepsRig(t, nil)
 	id, wt := rig.startStalledStep(t)
 	pid := fakePID(t, wt)
 
@@ -166,7 +166,7 @@ func TestReadoptStepWithoutHookIsRebuiltAsBefore(t *testing.T) {
 		Claude:  haikuWriteFake(t, haikuDir(t), haikuFake{stdout: stepReadoptMetLine}),
 		Environ: haikuEnviron(),
 	})
-	rig := newStepsRig(t, nil, haiku)
+	rig := newStepsRig(t, haiku)
 	id, wt := rig.startStalledStep(t)
 	pid := fakePID(t, wt)
 

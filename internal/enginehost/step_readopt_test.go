@@ -41,8 +41,8 @@ type stepsRig struct {
 }
 
 // newStepsRig returns a rig whose manager runs steps and whose Steps starts them with haiku as its Haiku, nil for none.
-// Its store refuses each batch trigger accepts. Its holders are cleared when the test ends.
-func newStepsRig(t *testing.T, trigger func([]store.EngineOp) bool, haiku *Haiku) stepsRig {
+// Its holders are cleared when the test ends.
+func newStepsRig(t *testing.T, haiku *Haiku) stepsRig {
 	t.Helper()
 	s, path := openStore(t)
 	root, gateRoot := holderRoot(t), holderRoot(t)
@@ -50,7 +50,7 @@ func newStepsRig(t *testing.T, trigger func([]store.EngineOp) bool, haiku *Haiku
 		clearHolderDirs(t, root)
 		clearHolderDirs(t, gateRoot)
 	})
-	applier := &crashApplier{inner: s, trigger: trigger}
+	applier := &crashApplier{inner: s}
 	writer := NewWriter(WriterConfig{Applier: applier, Tick: 5 * time.Millisecond})
 	startRun(t, writer)
 	home := t.TempDir()
@@ -218,7 +218,7 @@ func TestReadoptStepReattachedRunsLoopAndJudgesNextReturnOnce(t *testing.T) {
 		Claude:  haikuWriteFake(t, haikuDir(t), haikuFake{stdout: stepReadoptMetLine}),
 		Environ: haikuEnviron(),
 	})
-	rig := newStepsRig(t, nil, haiku)
+	rig := newStepsRig(t, haiku)
 	id, wt := rig.startStalledStep(t)
 	pid := fakePID(t, wt)
 
@@ -260,7 +260,7 @@ func TestReadoptStepReattachedRunsLoopAndJudgesNextReturnOnce(t *testing.T) {
 
 func TestReadoptStepWhoseHolderIsGoneEndsEngineRestarted(t *testing.T) {
 	t.Parallel()
-	rig := newStepsRig(t, nil, nil)
+	rig := newStepsRig(t, nil)
 	id, wt := rig.startStalledStep(t)
 	pid := fakePID(t, wt)
 
@@ -312,7 +312,7 @@ func TestReadoptStepThatCannotBeRebuiltEndsEngineRestarted(t *testing.T) {
 		Claude:  haikuWriteFake(t, haikuDir(t), haikuFake{stdout: stepReadoptMetLine}),
 		Environ: haikuEnviron(),
 	})
-	rig := newStepsRig(t, nil, haiku)
+	rig := newStepsRig(t, haiku)
 	id, wt := rig.startStalledStep(t)
 	pid := fakePID(t, wt)
 
