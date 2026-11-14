@@ -69,11 +69,12 @@ type StepStart struct {
 	Task       string
 }
 
-// StepStore reads the step rows Steps reports. *store.Store satisfies it.
+// StepStore reads the step rows Steps reports and the turn ends their sessions stored. *store.Store satisfies it.
 type StepStore interface {
 	Step(ctx context.Context, id string) (store.StepRow, error)
 	OpenSteps(ctx context.Context) ([]store.StepRow, error)
 	LabelledSteps(ctx context.Context, epic, task string) ([]store.StepRow, error)
+	StepTurn(ctx context.Context, id string) (store.StepTurnEnd, bool, error)
 }
 
 // StepsConfig configures Steps. Sessions starts and stops the step sessions, Store reads the step rows and Writer
@@ -82,38 +83,56 @@ type StepStore interface {
 // Worktrees is the directory read-only steps' worktrees are added under, one per step id. A nil Logger discards. Haiku
 // makes the monitor and judge calls of every started step, and nil makes none. Now is the clock each step's watch reads,
 // time.Now when nil. WatchTick is how often each started step's watch is checked, five seconds when zero.
+// GateStateDir is the state directory each gate's holder lives under, and a directory under os.TempDir when empty.
+// GateScope is the systemd-run scope each gate's holder runs in, and empty runs it without one. With GateScope set, Close
+// leaves a running gate under its holder for a restarted Steps to re-adopt; without it, Close kills the gate.
 type StepsConfig struct {
-	Sessions  stepSessions
-	Store     StepStore
-	Writer    *Writer
-	Pools     PoolCommands
-	Worktrees string
-	Environ   []string
-	Logger    *slog.Logger
-	Haiku     *Haiku
-	Now       func() time.Time
-	WatchTick time.Duration
+	Sessions     stepSessions
+	Store        StepStore
+	Writer       *Writer
+	Pools        PoolCommands
+	Worktrees    string
+	Environ      []string
+	Logger       *slog.Logger
+	Haiku        *Haiku
+	Now          func() time.Time
+	WatchTick    time.Duration
+	GateStateDir string
+	GateScope    string
+}
+
+// StepAdopter is what Readopt registers each open step with, and what Reconcile asks whether the step is live. Manager
+// satisfies it.
+type StepAdopter interface {
+	ExpectStep(id string, observer StepObserver)
+	StepLive(id string) bool
 }
 
 // Steps starts steps and reports their rows. Each started step's loop runs under a context Steps owns: loops holds the
-// cancel of every loop that has not returned, and runs holds its stepRun, both by step id. idle is broadcast whenever a
-// loop is removed from loops.
+// cancel of every loop that has not returned, causes holds the same cancels with a cause, and runs holds its stepRun, all
+// by step id. idle is broadcast whenever a loop is removed from loops. adopter is what Readopt registered the steps with,
+// and adopted holds the run Readopt rebuilt for each open row until Reconcile starts or settles it.
 type Steps struct {
-	sessions  stepSessions
-	store     StepStore
-	writer    *Writer
-	pools     PoolCommands
-	worktrees string
-	environ   []string
-	logger    *slog.Logger
-	haiku     *Haiku
-	now       func() time.Time
-	tick      time.Duration
+	sessions     stepSessions
+	store        StepStore
+	writer       *Writer
+	pools        PoolCommands
+	worktrees    string
+	environ      []string
+	logger       *slog.Logger
+	haiku        *Haiku
+	now          func() time.Time
+	tick         time.Duration
+	gateStateDir string
+	gateScope    string
 
-	mu    sync.Mutex
-	loops map[string]context.CancelFunc
-	runs  map[string]*stepRun
-	idle  *sync.Cond
+	mu      sync.Mutex
+	loops   map[string]context.CancelFunc
+	causes  map[string]context.CancelCauseFunc
+	runs    map[string]*stepRun
+	idle    *sync.Cond
+	adopter StepAdopter
+	adopted map[string]*stepRun
 }
 
 // NewSteps returns a Steps for cfg. A negative cfg.WatchTick returns an error matching ErrBadWatchTick and no Steps.
@@ -130,18 +149,22 @@ func NewSteps(cfg StepsConfig) (*Steps, error) {
 		tick = stepDefaultWatchTick
 	}
 	steps := &Steps{
-		sessions:  cfg.Sessions,
-		store:     cfg.Store,
-		writer:    cfg.Writer,
-		pools:     cfg.Pools,
-		worktrees: cfg.Worktrees,
-		environ:   cfg.Environ,
-		logger:    logger,
-		haiku:     cfg.Haiku,
-		now:       cfg.Now,
-		tick:      tick,
-		loops:     map[string]context.CancelFunc{},
-		runs:      map[string]*stepRun{},
+		sessions:     cfg.Sessions,
+		store:        cfg.Store,
+		writer:       cfg.Writer,
+		pools:        cfg.Pools,
+		worktrees:    cfg.Worktrees,
+		environ:      cfg.Environ,
+		logger:       logger,
+		haiku:        cfg.Haiku,
+		now:          cfg.Now,
+		tick:         tick,
+		gateStateDir: cfg.GateStateDir,
+		gateScope:    cfg.GateScope,
+		loops:        map[string]context.CancelFunc{},
+		causes:       map[string]context.CancelCauseFunc{},
+		runs:         map[string]*stepRun{},
+		adopted:      map[string]*stepRun{},
 	}
 	steps.idle = sync.NewCond(&steps.mu)
 	return steps, nil
@@ -204,6 +227,7 @@ func (s *Steps) Start(ctx context.Context, start StepStart) (string, error) {
 		writing: !start.ReadOnly, start: commit, owned: start.Owned, gate: gate.argv, gateLimit: gateLimit,
 		gateName: gate.name, gateSource: gate.source, grant: gate.grant, pools: s.pools,
 		environ: s.environ, prompt: start.Prompt, now: s.now, modelLimit: modelLimit,
+		stateDir: s.gateStateDir, scope: s.gateScope,
 	}
 	step := StepSession{ID: id, Dir: start.Workspace, Prompt: start.Prompt, Agent: start.Agent, Schema: start.Schema}
 	if start.ReadOnly {
@@ -321,14 +345,15 @@ func (s *Steps) List(ctx context.Context, epic, task string) ([]store.StepRow, e
 
 // runLoop runs run in its own goroutine under a context derived from ctx's values, not its cancellation, so the loop
 // outlives the Start call. The run's watch ticks come from a ticker at the Steps' tick, which stops when the loop
-// returns. The context's cancel and run are kept in loops and runs until the loop returns, and then they are removed and
-// the cancel is called.
+// returns. The context's cancel, with and without a cause, and run are kept in loops, causes and runs until the loop
+// returns, and then they are removed and the cancel is called.
 func (s *Steps) runLoop(ctx context.Context, id string, run *stepRun) {
-	loop, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	loop, cancel := context.WithCancelCause(context.WithoutCancel(ctx))
 	ticker := time.NewTicker(s.tick)
 	run.ticks = ticker.C
 	s.mu.Lock()
-	s.loops[id] = cancel
+	s.loops[id] = func() { cancel(nil) }
+	s.causes[id] = cancel
 	s.runs[id] = run
 	s.mu.Unlock()
 	go func() {
@@ -338,11 +363,13 @@ func (s *Steps) runLoop(ctx context.Context, id string, run *stepRun) {
 	}()
 }
 
-// endLoop removes the loop of id from loops and runs, wakes any Close waiting on loops, and cancels the loop's context.
+// endLoop removes the loop of id from loops, causes and runs, wakes any Close waiting on loops, and cancels the loop's
+// context.
 func (s *Steps) endLoop(id string) {
 	s.mu.Lock()
 	cancel := s.loops[id]
 	delete(s.loops, id)
+	delete(s.causes, id)
 	delete(s.runs, id)
 	s.idle.Broadcast()
 	s.mu.Unlock()
@@ -405,25 +432,34 @@ func (s *Steps) resolveStepGate(ctx context.Context, start StepStart) (stepGate,
 			name: start.GateName, source: resolved.Source, limit: resolved.Limit, agent: &resolved.Gate,
 		}, nil
 	}
-	project, defs, err := pools.Load(ctx, start.Workspace, getenv)
+	grant, err := stepGrant(ctx, start.Workspace, start.GateName, resolved.Argv, gateGrantNeeds(resolved.Needs), getenv)
 	if err != nil {
-		return stepGate{}, fmt.Errorf("%w: %w", ErrBadGate, err)
-	}
-	needs := gateGrantNeeds(resolved.Needs)
-	for _, need := range needs {
-		if !slices.ContainsFunc(defs, func(p pools.Pool) bool { return p.Name == need.Pool }) {
-			return stepGate{}, fmt.Errorf(
-				"%w: gate %s needs pool %s, which no pool file declares", ErrBadGate, start.GateName, need.Pool,
-			)
-		}
+		return stepGate{}, err
 	}
 	return stepGate{
 		argv: resolved.Argv, limit: resolved.Limit, name: start.GateName, source: resolved.Source,
-		needs: stepNeeds(resolved.Needs),
-		grant: grants.Request{
-			Project: project, Pools: defs, Needs: needs, ClientPID: os.Getpid(), Command: resolved.Argv,
-		},
+		needs: stepNeeds(resolved.Needs), grant: grant,
 	}, nil
+}
+
+// stepGrant returns the grant request a gate runs under in workspace: the project and the pool definitions every pool file
+// for workspace declares, with needs and argv as the command. It is refused with an error matching ErrBadGate when the pool
+// files do not load, or when a need is for a pool no pool file declares, which the error names gateName for.
+func stepGrant(
+	ctx context.Context, workspace, gateName string, argv []string, needs []grants.Need, getenv func(string) string,
+) (grants.Request, error) {
+	project, defs, err := pools.Load(ctx, workspace, getenv)
+	if err != nil {
+		return grants.Request{}, fmt.Errorf("%w: %w", ErrBadGate, err)
+	}
+	for _, need := range needs {
+		if !slices.ContainsFunc(defs, func(p pools.Pool) bool { return p.Name == need.Pool }) {
+			return grants.Request{}, fmt.Errorf(
+				"%w: gate %s needs pool %s, which no pool file declares", ErrBadGate, gateName, need.Pool,
+			)
+		}
+	}
+	return grants.Request{Project: project, Pools: defs, Needs: needs, ClientPID: os.Getpid(), Command: argv}, nil
 }
 
 // agentGateStart returns start as the step of gate runs it when gate is an agent gate: the gate's agent, the verdict
@@ -461,6 +497,15 @@ func stepNeeds(needs []gates.Need) []store.StepNeed {
 
 // gateGrantNeeds returns needs as the grants a gate's run requests them.
 func gateGrantNeeds(needs []gates.Need) []grants.Need {
+	out := make([]grants.Need, 0, len(needs))
+	for _, need := range needs {
+		out = append(out, grants.Need{Pool: need.Pool, Count: need.Count})
+	}
+	return out
+}
+
+// storedGrantNeeds returns the needs a step row stores as the grants a gate's run requests them.
+func storedGrantNeeds(needs []store.StepNeed) []grants.Need {
 	out := make([]grants.Need, 0, len(needs))
 	for _, need := range needs {
 		out = append(out, grants.Need{Pool: need.Pool, Count: need.Count})
