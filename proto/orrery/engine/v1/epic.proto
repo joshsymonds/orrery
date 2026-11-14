@@ -556,10 +556,17 @@ message ResumeEpicRequest {
   string id = 1;
 }
 
-// ResumeEpicResponse carries the resumed epic.
+// ResumeEpicResponse carries the resumed epic, the limited steps it resumed and the limited steps a full step cap left
+// limited.
 message ResumeEpicResponse {
   // The stored epic.
   StoredEpic epic = 1;
+
+  // The ids of the limited steps the resume resumed, oldest first.
+  repeated string resumed = 2;
+
+  // The ids of the limited steps the resume left limited because the step cap was full, oldest first.
+  repeated string still_limited = 3;
 }
 
 // StopEpicRequest names the epic to stop.

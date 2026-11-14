@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -254,7 +255,9 @@ func (s *epicService) PauseEpic(
 	return connect.NewResponse(&v1.PauseEpicResponse{Epic: storedEpicMessage(stored)}), nil
 }
 
-// ResumeEpic clears the pause of the epic and returns the epic read back. An epic that is not paused is refused.
+// ResumeEpic clears the pause of the epic when it is paused, resumes each limited step of the epic that has a task, and
+// returns the epic read back with the steps resumed and the steps a full step cap left limited. An epic that is not
+// paused and holds no such step is refused.
 func (s *epicService) ResumeEpic(
 	ctx context.Context,
 	req *connect.Request[v1.ResumeEpicRequest],
@@ -266,14 +269,60 @@ func (s *epicService) ResumeEpic(
 	if id == "" {
 		return nil, refuseEpic(connect.CodeInvalidArgument, "id: empty")
 	}
-	if err := s.epics.ResumeEpic(ctx, id); err != nil {
-		return nil, epicControlError(id, err)
+	head, err := s.epics.Epic(ctx, id)
+	if errors.Is(err, store.ErrNoEpic) {
+		return nil, refuseEpic(connect.CodeNotFound, fmt.Sprintf("id: no epic %s", id))
+	}
+	if err != nil {
+		return nil, epicStoreError(err)
+	}
+	limited, err := s.limitedTaskSteps(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if head.Paused || len(limited) == 0 {
+		if err = s.epics.ResumeEpic(ctx, id); err != nil {
+			return nil, epicControlError(id, err)
+		}
+	}
+	var resumed, stillLimited []string
+	for _, row := range limited {
+		err = s.steps.Resume(ctx, row.ID)
+		switch {
+		case err == nil:
+			resumed = append(resumed, row.ID)
+		case errors.Is(err, ErrCapReached):
+			stillLimited = append(stillLimited, row.ID)
+		case errors.Is(err, ErrStepNotLimited), errors.Is(err, ErrStepNotRunning):
+			// The step was resumed or ended after the list, so it is neither resumed nor still limited.
+		default:
+			return nil, epicStoreError(err)
+		}
 	}
 	stored, err := s.epics.Epic(ctx, id)
 	if err != nil {
 		return nil, epicStoreError(err)
 	}
-	return connect.NewResponse(&v1.ResumeEpicResponse{Epic: storedEpicMessage(stored)}), nil
+	return connect.NewResponse(&v1.ResumeEpicResponse{
+		Epic:         storedEpicMessage(stored),
+		Resumed:      resumed,
+		StillLimited: stillLimited,
+	}), nil
+}
+
+// limitedTaskSteps returns the open steps of epic that a usage limit holds and that have a task, oldest first. A
+// planner turn's step has no task, so it is not among them. Without a step store there are none.
+func (s *epicService) limitedTaskSteps(ctx context.Context, epic string) ([]store.StepRow, error) {
+	if s.steps == nil {
+		return nil, nil
+	}
+	rows, err := s.steps.List(ctx, epic, "")
+	if err != nil {
+		return nil, epicStoreError(err)
+	}
+	return slices.DeleteFunc(rows, func(row store.StepRow) bool {
+		return row.End != "" || !row.LoopLimited || row.Task == ""
+	}), nil
 }
 
 // StopEpic pauses the epic, flags its running turn to stop, stops the turn's step when the turn has one, and returns
