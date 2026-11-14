@@ -65,8 +65,12 @@ const (
 // rateLimitRejected is the status of a rate limit that refused a session's request.
 const rateLimitRejected = "rejected"
 
-// stepCapFull is the reason a turn is freed with when the step cap refuses its step.
-const stepCapFull = "step cap full"
+// stepCapFull is the reason a turn is freed with when the step cap refuses its step, and noStep the reason a running
+// turn with no step is freed with on recovery.
+const (
+	stepCapFull = "step cap full"
+	noStep      = "no step"
+)
 
 // taskDone is the status of a finished task. Its files are no longer owned by an unfinished task.
 const taskDone = "done"
@@ -100,10 +104,12 @@ func New(cfg Config) *Runner {
 	return runner
 }
 
-// Run passes at once, then once per tick, until ctx ends. It then waits for the turns it started and returns.
+// Run settles the turns a previous orreryd left running, then passes at once, then once per tick, until ctx ends. It
+// then waits for the turns it started and returns.
 func (r *Runner) Run(ctx context.Context) {
 	ticker := time.NewTicker(r.tick)
 	defer ticker.Stop()
+	r.recoverTurns(ctx)
 	for {
 		r.pass(ctx)
 		select {
@@ -158,17 +164,7 @@ func (r *Runner) runTurn(ctx context.Context, epic, agent string) {
 		r.refuse(ctx, epic, turn.Seq, err)
 		return
 	}
-	ended, err := r.await(ctx, id)
-	if err != nil {
-		r.fail(ctx, epic, turn.Seq, err.Error())
-		return
-	}
-	if ctx.Err() != nil {
-		return
-	}
-	if err = r.settle(ctx, epic, turn.Seq, id, ended); err != nil {
-		r.logger.ErrorContext(ctx, "settle planner turn", "epic", epic, "turn", turn.Seq, "err", err)
-	}
+	r.finish(ctx, epic, turn.Seq, id)
 }
 
 // startStep reads the claimed turn's epic and triggers and starts its read-only planner step. It returns the step's
@@ -201,6 +197,63 @@ func (r *Runner) startStep(ctx context.Context, epic string, turn store.EpicTurn
 		return id, fmt.Errorf("start planner step: %w", err)
 	}
 	return id, nil
+}
+
+// recoverTurns settles each turn a previous orreryd left running, before the first pass. A turn with no step is freed
+// with noStep. A turn whose step has ended is settled by that end, and a turn whose step is still open is waited on in
+// its own goroutine. A turn whose step cannot be read stays running and is logged; it still counts as running, so its
+// epic gets no new turn.
+func (r *Runner) recoverTurns(ctx context.Context) {
+	turns, err := r.store.RunningTurns(ctx)
+	if err != nil {
+		r.logger.ErrorContext(ctx, "list running planner turns", "err", err)
+		return
+	}
+	for _, turn := range turns {
+		if ctx.Err() != nil {
+			return
+		}
+		if turn.Step == "" {
+			r.release(ctx, turn.Epic, turn.Seq, store.TurnFree{Reason: noStep})
+			continue
+		}
+		row, readErr := r.steps.Status(ctx, turn.Step)
+		if readErr != nil {
+			r.logger.ErrorContext(ctx, "read step of running planner turn",
+				"epic", turn.Epic, "turn", turn.Seq, "step", turn.Step, "err", readErr)
+			continue
+		}
+		if row.End == "" {
+			r.turns.Add(1)
+			go r.resume(ctx, turn.Epic, turn.Seq, turn.Step)
+			continue
+		}
+		if err = r.settle(ctx, turn.Epic, turn.Seq, turn.Step, row); err != nil {
+			r.logger.ErrorContext(ctx, "settle planner turn", "epic", turn.Epic, "turn", turn.Seq, "err", err)
+		}
+	}
+}
+
+// resume settles turn seq of epic by the end of step id, which a previous orreryd left open.
+func (r *Runner) resume(ctx context.Context, epic string, seq int64, id string) {
+	defer r.turns.Done()
+	r.finish(ctx, epic, seq, id)
+}
+
+// finish waits until step id ends and settles turn seq of epic by that end. A wait that fails fails the turn with its
+// error. Once ctx has ended, the turn is left running for the next start.
+func (r *Runner) finish(ctx context.Context, epic string, seq int64, id string) {
+	ended, err := r.await(ctx, id)
+	if err != nil {
+		r.fail(ctx, epic, seq, err.Error())
+		return
+	}
+	if ctx.Err() != nil {
+		return
+	}
+	if err = r.settle(ctx, epic, seq, id, ended); err != nil {
+		r.logger.ErrorContext(ctx, "settle planner turn", "epic", epic, "turn", seq, "err", err)
+	}
 }
 
 // await waits until the step id ends and returns its row. Each Wait lasts a minute, and a Wait that times out is
