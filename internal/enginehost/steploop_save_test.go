@@ -26,6 +26,7 @@ func (f *stepLoopFixture) loopSettled(t *testing.T) {
 }
 
 func TestStepLoopSaveRetryStoresRoundAndContinues(t *testing.T) {
+	t.Parallel()
 	f := newStepLoopFixture(t, nil)
 	f.start(t)
 
@@ -43,6 +44,7 @@ func TestStepLoopSaveRetryStoresRoundAndContinues(t *testing.T) {
 }
 
 func TestStepLoopSaveFailedContinueStoresNoRaisedCount(t *testing.T) {
+	t.Parallel()
 	f := newStepLoopFixture(t, errors.New("session refused"))
 	_, done := f.start(t)
 
@@ -60,6 +62,7 @@ func TestStepLoopSaveFailedContinueStoresNoRaisedCount(t *testing.T) {
 }
 
 func TestStepLoopSaveReturnCommitStoresRoundAndContinuesAtChecksFailed(t *testing.T) {
+	t.Parallel()
 	f := newStepLoopFixture(t, nil)
 	_, done := f.start(t)
 
@@ -79,6 +82,7 @@ func TestStepLoopSaveReturnCommitStoresRoundAndContinuesAtChecksFailed(t *testin
 }
 
 func TestStepLoopSaveLandedHoldStoresHeld(t *testing.T) {
+	t.Parallel()
 	f := newStepLoopFixture(t, nil)
 	f.run.Event(session.Started{})
 	f.start(t)
@@ -94,6 +98,7 @@ func TestStepLoopSaveLandedHoldStoresHeld(t *testing.T) {
 }
 
 func TestStepLoopSaveOwnerNudgeStoredThenClearedAtTurnEnd(t *testing.T) {
+	t.Parallel()
 	f := newStepLoopFixture(t, nil)
 	f.run.Event(session.Started{})
 	f.start(t)
@@ -123,6 +128,7 @@ func TestStepLoopSaveOwnerNudgeStoredThenClearedAtTurnEnd(t *testing.T) {
 }
 
 func TestStepLoopSaveHeldOwnerNudgeSentClearsHeld(t *testing.T) {
+	t.Parallel()
 	f := newStepLoopFixture(t, nil)
 	f.run.Event(session.Started{})
 	f.start(t)
@@ -157,6 +163,7 @@ func TestStepLoopSaveHeldOwnerNudgeSentClearsHeld(t *testing.T) {
 }
 
 func TestStepLoopSaveWatchdogNudgeStoresNudgeAndNudged(t *testing.T) {
+	t.Parallel()
 	haiku := &watchLoopHaiku{replies: []watchLoopReply{watchLoopVerdict(watchVerdictLooping, watchLoopDoing)}}
 	f := newWatchLoopFixture(t, haiku, &stepLoopSessions{}, watchLoopModelLimit)
 	f.event(0, session.Started{})
@@ -172,6 +179,7 @@ func TestStepLoopSaveWatchdogNudgeStoresNudgeAndNudged(t *testing.T) {
 }
 
 func TestStepLoopSaveJudgeSendBackStoresJudgeSent(t *testing.T) {
+	t.Parallel()
 	haiku := &judgeLoopHaiku{replies: []judgeLoopReply{judgeLoopVerdict("unmet", "the report is missing its summary")}}
 	f := newJudgeLoopFixture(t, haiku, judgeLoopNoConfig)
 	f.start(t)
@@ -188,6 +196,7 @@ func TestStepLoopSaveJudgeSendBackStoresJudgeSent(t *testing.T) {
 }
 
 func TestStepLoopSaveFailedPutIsLoggedAndLoopGoesOn(t *testing.T) {
+	t.Parallel()
 	f := newStepLoopFixture(t, nil)
 	var logs bytes.Buffer
 	f.run.logger = slog.New(slog.NewTextHandler(&logs, nil))
@@ -215,6 +224,7 @@ func TestStepLoopSaveFailedPutIsLoggedAndLoopGoesOn(t *testing.T) {
 // TestStepLoopSaveTurnEndClearsOwnerNudgeBeforeSend checks that a turn end stores the clear of the pending owner text
 // before the text is sent, so a failed send leaves no pending text stored.
 func TestStepLoopSaveTurnEndClearsOwnerNudgeBeforeSend(t *testing.T) {
+	t.Parallel()
 	f := newStepLoopFixture(t, errors.New("session refused"))
 	f.run.Event(session.Started{})
 	_, done := f.start(t)
@@ -247,6 +257,7 @@ func TestStepLoopSaveTurnEndClearsOwnerNudgeBeforeSend(t *testing.T) {
 // TestStepLoopSaveTurnEndClearsWatchdogNudgeBeforeSend checks that a turn end stores the clear of the pending watchdog
 // text before the text is sent, so a failed send leaves no pending text stored.
 func TestStepLoopSaveTurnEndClearsWatchdogNudgeBeforeSend(t *testing.T) {
+	t.Parallel()
 	haiku := &watchLoopHaiku{replies: []watchLoopReply{watchLoopVerdict(watchVerdictLooping, watchLoopDoing)}}
 	sessions := &stepLoopSessions{continueErr: errors.New("session refused")}
 	f := newWatchLoopFixture(t, haiku, sessions, watchLoopModelLimit)

@@ -11,6 +11,7 @@ import (
 // TestLiveSessionSurvivesPrune checks that the engine row of a live session outlives the retention prune of a second
 // store that reads the manager's liveness, and that the same prune removes the row once the session has stopped.
 func TestLiveSessionSurvivesPrune(t *testing.T) {
+	t.Parallel()
 	m, path := newTestManager(t, 1, fakeClaudePath(t))
 	id, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "ASK"})
 	if err != nil {

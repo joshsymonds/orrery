@@ -135,9 +135,11 @@ func newStepLoopFixture(t *testing.T, continueErr error) *stepLoopFixture {
 		fixture.cleaned++
 		return nil
 	}
+	// Every fixture's step has the id stepLoopID, so its gate's holder would be named alike in every test. A state
+	// directory of the fixture's own keeps the holders of tests that run in parallel apart.
 	fixture.run = newStepRun(stepRunConfig{
 		id: stepLoopID, schema: stepLoopSchema, doneValue: stepLoopDone, sessions: fixture.sessions, writer: writer,
-		logger: slog.New(slog.DiscardHandler), cleanup: cleanup,
+		logger: slog.New(slog.DiscardHandler), cleanup: cleanup, stateDir: gateShortStateDir(t),
 	})
 	return fixture
 }
@@ -190,6 +192,7 @@ func (f *stepLoopFixture) row(t *testing.T) store.StepRow {
 }
 
 func TestStepLoopDoneReturnEndsDone(t *testing.T) {
+	t.Parallel()
 	f := newStepLoopFixture(t, nil)
 	_, done := f.start(t)
 	raw := json.RawMessage(`{"status":"DONE"}`)
@@ -225,6 +228,7 @@ func TestStepLoopDoneReturnEndsDone(t *testing.T) {
 }
 
 func TestStepLoopOtherStatusEndsReturned(t *testing.T) {
+	t.Parallel()
 	f := newStepLoopFixture(t, nil)
 	_, done := f.start(t)
 	raw := json.RawMessage(`{"status":"PARTIAL"}`)
@@ -248,6 +252,7 @@ func TestStepLoopOtherStatusEndsReturned(t *testing.T) {
 }
 
 func TestStepLoopSchemaFailureThenGoodReturnIsDone(t *testing.T) {
+	t.Parallel()
 	f := newStepLoopFixture(t, nil)
 	_, done := f.start(t)
 
@@ -278,6 +283,7 @@ func TestStepLoopSchemaFailureThenGoodReturnIsDone(t *testing.T) {
 }
 
 func TestStepLoopFourFailuresEndChecksFailed(t *testing.T) {
+	t.Parallel()
 	f := newStepLoopFixture(t, nil)
 	_, done := f.start(t)
 
@@ -307,6 +313,7 @@ func TestStepLoopFourFailuresEndChecksFailed(t *testing.T) {
 }
 
 func TestStepRunEventsReachWatch(t *testing.T) {
+	t.Parallel()
 	f := newStepLoopFixture(t, nil)
 	clock := newIdleClock()
 	cfg := f.run.stepRunConfig
@@ -327,6 +334,7 @@ func TestStepRunEventsReachWatch(t *testing.T) {
 }
 
 func TestStepLoopExitedEndsFailed(t *testing.T) {
+	t.Parallel()
 	f := newStepLoopFixture(t, nil)
 	_, done := f.start(t)
 
@@ -346,6 +354,7 @@ func TestStepLoopExitedEndsFailed(t *testing.T) {
 }
 
 func TestStepLoopCancelStoresNoEnd(t *testing.T) {
+	t.Parallel()
 	f := newStepLoopFixture(t, nil)
 	cancel, done := f.start(t)
 
@@ -387,6 +396,7 @@ func (f *stepLoopFixture) assertNoEndAfterCancel(t *testing.T) {
 }
 
 func TestStepLoopCanceledCtxWithExitQueuedStoresNoEnd(t *testing.T) {
+	t.Parallel()
 	f := newStepLoopFixture(t, nil)
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
@@ -398,6 +408,7 @@ func TestStepLoopCanceledCtxWithExitQueuedStoresNoEnd(t *testing.T) {
 }
 
 func TestStepLoopCanceledCtxWithReturnQueuedStoresNoEnd(t *testing.T) {
+	t.Parallel()
 	f := newStepLoopFixture(t, nil)
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
@@ -409,6 +420,7 @@ func TestStepLoopCanceledCtxWithReturnQueuedStoresNoEnd(t *testing.T) {
 }
 
 func TestStepLoopCtxCanceledDuringContinueStoresNoEnd(t *testing.T) {
+	t.Parallel()
 	f := newStepLoopFixture(t, nil)
 	ctx, cancel := context.WithCancel(t.Context())
 	t.Cleanup(cancel)
@@ -425,6 +437,7 @@ func TestStepLoopCtxCanceledDuringContinueStoresNoEnd(t *testing.T) {
 }
 
 func TestStepLoopReturnAndExitedDoNotBlockAfterRunReturns(t *testing.T) {
+	t.Parallel()
 	f := newStepLoopFixture(t, nil)
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
@@ -447,6 +460,7 @@ func TestStepLoopReturnAndExitedDoNotBlockAfterRunReturns(t *testing.T) {
 }
 
 func TestStepLoopContinueErrorEndsFailed(t *testing.T) {
+	t.Parallel()
 	f := newStepLoopFixture(t, errors.New("session refused"))
 	_, done := f.start(t)
 
@@ -460,6 +474,7 @@ func TestStepLoopContinueErrorEndsFailed(t *testing.T) {
 }
 
 func TestStepLoopFinishActsOnce(t *testing.T) {
+	t.Parallel()
 	f := newStepLoopFixture(t, nil)
 	ctx := t.Context()
 

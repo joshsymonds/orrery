@@ -52,6 +52,7 @@ func (s *runningAtStore) runningWhenStored() []bool {
 // it as a gone holder: its child ends, the text it spooled unrecorded is stored while the holder is gone, and the row is
 // interrupted.
 func TestReconcileStopsUnattachableHolderThenDrainsIt(t *testing.T) {
+	t.Parallel()
 	rig := newCrashRig(t, textTrigger("fake stalling 1"), false)
 	dir := t.TempDir()
 	id, err := rig.manager.Start(t.Context(), StartRequest{Dir: dir, Prompt: "STALL"})

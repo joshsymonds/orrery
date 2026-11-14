@@ -94,6 +94,7 @@ func watchNotice(w *stepWatch, d time.Duration) {
 
 // Silence and periodic counts run only on model time: a turn with no open main-conversation tool call.
 func TestWatchSilenceCountsModelTimeOnly(t *testing.T) {
+	t.Parallel()
 	w := watchNewAt(time.Hour)
 	watchStart(w, 0)
 	watchOpen(w, time.Minute)
@@ -109,6 +110,7 @@ func TestWatchSilenceCountsModelTimeOnly(t *testing.T) {
 
 // Time between turns is not model time: the overtime limit counts only the two turns' running time.
 func TestWatchTimeBetweenTurnsIsNotModelTime(t *testing.T) {
+	t.Parallel()
 	w := watchNewAt(30 * time.Minute)
 	watchStart(w, 0)
 	watchEndTurn(w, 10*time.Minute)
@@ -123,6 +125,7 @@ func TestWatchTimeBetweenTurnsIsNotModelTime(t *testing.T) {
 
 // A silent step is nudged at ten minutes of model time, and an event resets the count.
 func TestWatchSilentTripAndReset(t *testing.T) {
+	t.Parallel()
 	w := watchNewAt(time.Hour)
 	watchStart(w, 0)
 	watchApply(w, 5*time.Minute, watchWantDue(t, w, 5*time.Minute, watchTripPeriodic), watchVerdictProgressing)
@@ -148,6 +151,7 @@ func TestWatchSilentTripAndReset(t *testing.T) {
 
 // Any event resets the silence count, not only tool results.
 func TestWatchAnyEventResetsSilence(t *testing.T) {
+	t.Parallel()
 	w := watchNewAt(time.Hour)
 	watchStart(w, 0)
 	watchNotice(w, 9*time.Minute)
@@ -158,6 +162,7 @@ func TestWatchAnyEventResetsSilence(t *testing.T) {
 
 // A tool call open thirty minutes is stuck. Silence does not accrue while it is open.
 func TestWatchToolStuckAtThirtyMinutes(t *testing.T) {
+	t.Parallel()
 	w := watchNewAt(time.Hour)
 	watchStart(w, 0)
 	watchOpen(w, 0)
@@ -171,6 +176,7 @@ func TestWatchToolStuckAtThirtyMinutes(t *testing.T) {
 
 // A long_command verdict extends the named call once, to sixty minutes, and then the call ends the step.
 func TestWatchToolStuckExtendsOnceToSixtyMinutes(t *testing.T) {
+	t.Parallel()
 	w := watchNewAt(time.Hour)
 	watchStart(w, 0)
 	watchOpen(w, 0)
@@ -190,6 +196,7 @@ func TestWatchToolStuckExtendsOnceToSixtyMinutes(t *testing.T) {
 
 // Overtime wins over tool_stuck and periodic when all three are due.
 func TestWatchTripOrderOvertimeFirst(t *testing.T) {
+	t.Parallel()
 	w := watchNewAt(20 * time.Minute)
 	watchStart(w, 0)
 	watchNotice(w, 5*time.Minute)
@@ -202,6 +209,7 @@ func TestWatchTripOrderOvertimeFirst(t *testing.T) {
 
 // Overtime fires at the step's model-time limit whatever the verdict, and the verdict is not consulted.
 func TestWatchOvertimeEndsAtLimit(t *testing.T) {
+	t.Parallel()
 	w := watchNewAt(10 * time.Minute)
 	watchStart(w, 0)
 	// At nine minutes the only trip is the periodic check, so overtime has not reached its limit yet.
@@ -322,6 +330,7 @@ func TestWatchToolStuckPolicy(t *testing.T) {
 
 // A failed monitor call on a silent step leaves the mechanical action: one nudge, then end.
 func TestWatchFailedCallIsMechanical(t *testing.T) {
+	t.Parallel()
 	w := watchNewAt(time.Hour)
 	watchStart(w, 0)
 	trip := watchWantDue(t, w, 10*time.Minute, watchTripSilent)
@@ -359,6 +368,7 @@ func TestWatchStaleTripActsNone(t *testing.T) {
 
 // A trip is not due again while its monitor call is pending, and the periodic count restarts at apply.
 func TestWatchPendingTripBlocksDue(t *testing.T) {
+	t.Parallel()
 	w := watchNewAt(time.Hour)
 	watchStart(w, 0)
 	watchNotice(w, 5*time.Minute)
@@ -412,6 +422,7 @@ func TestWatchRecentWindowAndCuts(t *testing.T) {
 
 // recent labels every kind of block and notice it keeps.
 func TestWatchRecentLabels(t *testing.T) {
+	t.Parallel()
 	w := watchNewAt(time.Hour)
 	w.event(watchAt(0), session.Block{Kind: session.BlockThinking, Text: "hmm"})
 	w.event(watchAt(0), session.Block{Kind: session.BlockToolCall, Name: "Bash", Input: []byte(`{"command":"ls"}`)})
@@ -432,6 +443,7 @@ func TestWatchRecentLabels(t *testing.T) {
 
 // event and due run on different goroutines, and a race between them must neither race nor lose the window.
 func TestWatchEventRacesDue(t *testing.T) {
+	t.Parallel()
 	w := watchNewAt(time.Hour)
 	watchStart(w, 0)
 	var wg sync.WaitGroup
@@ -460,6 +472,7 @@ func TestWatchEventRacesDue(t *testing.T) {
 // A nudge on a stuck tool call quiets the watch until the interrupted turn ends and the next begins, so the same call
 // does not trip again on the next tick.
 func TestWatchNudgeQuietsUntilNextTurn(t *testing.T) {
+	t.Parallel()
 	w := watchNewAt(2 * time.Hour)
 	watchStart(w, 0)
 	watchOpen(w, 0)
@@ -477,6 +490,7 @@ func TestWatchNudgeQuietsUntilNextTurn(t *testing.T) {
 
 // A stale apply still restarts the periodic count, so no periodic check follows it on the next tick.
 func TestWatchStaleApplyRestartsPeriodic(t *testing.T) {
+	t.Parallel()
 	w := watchNewAt(2 * time.Hour)
 	watchStart(w, 0)
 	watchOpen(w, 0)

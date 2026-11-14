@@ -241,6 +241,7 @@ func noticeCount(rig recordingRig) int {
 }
 
 func TestPumpLinesPairStoresTheLineWithItsConsumedOffset(t *testing.T) {
+	t.Parallel()
 	out := fakeTurnOutput(t, "PAIR")
 	rig := newRecordingRig(t)
 	startTurn(t, rig, "PAIR")
@@ -260,6 +261,7 @@ func TestPumpLinesPairStoresTheLineWithItsConsumedOffset(t *testing.T) {
 }
 
 func TestPumpLinesFloodStoresEveryBatchWithItsLinesConsumedOffset(t *testing.T) {
+	t.Parallel()
 	out := fakeTurnOutput(t, "FLOOD")
 	rig := newRecordingRig(t)
 	startTurn(t, rig, "FLOOD")
@@ -278,6 +280,7 @@ func TestPumpLinesFloodStoresEveryBatchWithItsLinesConsumedOffset(t *testing.T) 
 }
 
 func TestPumpLinesBackgroundTurnStoresBackgroundOn(t *testing.T) {
+	t.Parallel()
 	out := fakeTurnOutput(t, "BACKGROUND")
 	rig := newRecordingRig(t)
 	startTurn(t, rig, "BACKGROUND")
@@ -289,6 +292,7 @@ func TestPumpLinesBackgroundTurnStoresBackgroundOn(t *testing.T) {
 }
 
 func TestPumpLinesTurnEndedStoresReplayFromOutputAndReachesTheSession(t *testing.T) {
+	t.Parallel()
 	rig := newRecordingRig(t)
 	launchSession(t, rig)
 	process := &fakeProcess{}
@@ -318,6 +322,7 @@ func TestPumpLinesTurnEndedStoresReplayFromOutputAndReachesTheSession(t *testing
 }
 
 func TestPumpLinesAnsweredRequestRecordsNoWaitingState(t *testing.T) {
+	t.Parallel()
 	rig := newRecordingRig(t)
 	launchSession(t, rig)
 	live := readoptLive(t, &fakeProcess{})
@@ -349,6 +354,7 @@ func TestPumpLinesAnsweredRequestRecordsNoWaitingState(t *testing.T) {
 }
 
 func TestPumpLinesAnsweredRequestRecordsOnlyItsRequest(t *testing.T) {
+	t.Parallel()
 	request := session.Request{
 		Kind: session.RequestPermission, RequestID: "permit-1", ToolName: "Write", Input: json.RawMessage(`{}`),
 		Answered: true,
@@ -364,6 +370,7 @@ func TestPumpLinesAnsweredRequestRecordsOnlyItsRequest(t *testing.T) {
 }
 
 func TestPumpLinesLineWithNoOpsStillStoresItsConsumedOffset(t *testing.T) {
+	t.Parallel()
 	rig := newRecordingRig(t)
 	launchSession(t, rig)
 	live := readoptLive(t, &fakeProcess{})
@@ -374,6 +381,7 @@ func TestPumpLinesLineWithNoOpsStillStoresItsConsumedOffset(t *testing.T) {
 }
 
 func TestPumpLinesExitLineStoresNoConsumedOffset(t *testing.T) {
+	t.Parallel()
 	rig := newRecordingRig(t)
 	launchSession(t, rig)
 	live := readoptLive(t, &fakeProcess{})

@@ -177,6 +177,7 @@ func stepCtlRequireKilled(t *testing.T, pid int) {
 }
 
 func TestStepsStopEndsRunningStepStoppedAndRemovesItsWorktree(t *testing.T) {
+	t.Parallel()
 	f := newStepCtlFixture(t)
 	repo := stepGitTestRepo(t)
 	id := f.startReadOnly(t, repo)
@@ -208,6 +209,7 @@ func TestStepsStopEndsRunningStepStoppedAndRemovesItsWorktree(t *testing.T) {
 }
 
 func TestStepsStopKillsGateAndReturnsPromptly(t *testing.T) {
+	t.Parallel()
 	f := newStepCtlFixture(t)
 	linked := stepWorktreeTestAddLinked(t, stepGitTestRepo(t))
 	pidFile := filepath.Join(t.TempDir(), "gate.pid")
@@ -236,6 +238,7 @@ func TestStepsStopKillsGateAndReturnsPromptly(t *testing.T) {
 }
 
 func TestStepsStopOfEndedStepChangesNothing(t *testing.T) {
+	t.Parallel()
 	f := newStepCtlFixture(t)
 	repo := stepGitTestRepo(t)
 	id := f.startReadOnly(t, repo)
@@ -265,6 +268,7 @@ func TestStepsStopOfEndedStepChangesNothing(t *testing.T) {
 }
 
 func TestStepsStopOfRowWithoutLoopEndsItStopped(t *testing.T) {
+	t.Parallel()
 	f := newStepCtlFixture(t)
 	repo := stepGitTestRepo(t)
 	id := f.startReadOnly(t, repo)
@@ -291,6 +295,7 @@ func TestStepsStopOfRowWithoutLoopEndsItStopped(t *testing.T) {
 }
 
 func TestStepsStopUnknownIDErrorsWithErrNoStep(t *testing.T) {
+	t.Parallel()
 	f := newStepCtlFixture(t)
 
 	err := f.steps.Stop(t.Context(), "no-such-step")
@@ -300,6 +305,7 @@ func TestStepsStopUnknownIDErrorsWithErrNoStep(t *testing.T) {
 }
 
 func TestStepsWaitReturnsEndedStepAtOnceWithRowsInOrder(t *testing.T) {
+	t.Parallel()
 	f := newStepCtlFixture(t)
 	repo := stepGitTestRepo(t)
 	running := f.startReadOnly(t, repo)
@@ -329,6 +335,7 @@ func TestStepsWaitReturnsEndedStepAtOnceWithRowsInOrder(t *testing.T) {
 }
 
 func TestStepsWaitBlocksUntilAStepEnds(t *testing.T) {
+	t.Parallel()
 	f := newStepCtlFixture(t)
 	id := f.startReadOnly(t, stepGitTestRepo(t))
 
@@ -368,6 +375,7 @@ func TestStepsWaitBlocksUntilAStepEnds(t *testing.T) {
 }
 
 func TestStepsWaitTimeoutReturnsStatusesAndNoEndedStep(t *testing.T) {
+	t.Parallel()
 	f := newStepCtlFixture(t)
 	id := f.startReadOnly(t, stepGitTestRepo(t))
 
@@ -384,6 +392,7 @@ func TestStepsWaitTimeoutReturnsStatusesAndNoEndedStep(t *testing.T) {
 }
 
 func TestStepsWaitCtxEndingReturnsItsError(t *testing.T) {
+	t.Parallel()
 	f := newStepCtlFixture(t)
 	id := f.startReadOnly(t, stepGitTestRepo(t))
 	ctx, cancel := context.WithCancel(t.Context())
@@ -400,6 +409,7 @@ func TestStepsWaitCtxEndingReturnsItsError(t *testing.T) {
 }
 
 func TestStepsWaitUnknownIDErrorsWithErrNoStep(t *testing.T) {
+	t.Parallel()
 	f := newStepCtlFixture(t)
 	repo := stepGitTestRepo(t)
 	ended := f.startReadOnly(t, repo)
@@ -412,6 +422,7 @@ func TestStepsWaitUnknownIDErrorsWithErrNoStep(t *testing.T) {
 }
 
 func TestStepsReconcileEndsOpenRowsEngineRestartedAndRemovesWorktrees(t *testing.T) {
+	t.Parallel()
 	f := newStepCtlFixture(t)
 	repo := stepGitTestRepo(t)
 	first := f.startReadOnly(t, repo)
@@ -456,6 +467,7 @@ func TestStepsReconcileEndsOpenRowsEngineRestartedAndRemovesWorktrees(t *testing
 }
 
 func TestStepsCloseKillsGateAndLeavesRowsOpen(t *testing.T) {
+	t.Parallel()
 	f := newStepCtlFixture(t)
 	linked := stepWorktreeTestAddLinked(t, stepGitTestRepo(t))
 	pidFile := filepath.Join(t.TempDir(), "gate.pid")
@@ -490,6 +502,7 @@ func stepCtlRowIDs(rows []store.StepRow) []string {
 }
 
 func TestStepsReconcileEndsEveryRowWhenAWorktreeCannotBeRemoved(t *testing.T) {
+	t.Parallel()
 	f := newStepCtlFixture(t)
 	repo := stepGitTestRepo(t)
 	first := f.startReadOnly(t, repo)

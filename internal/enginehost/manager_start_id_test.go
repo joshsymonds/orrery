@@ -36,6 +36,7 @@ func countKind(history store.EngineHistory, kind string) int {
 }
 
 func TestStartWithChosenIDStoresRowUnderThatID(t *testing.T) {
+	t.Parallel()
 	m, path := newTestManager(t, 1, fakeClaudePath(t))
 	dir := t.TempDir()
 
@@ -55,6 +56,7 @@ func TestStartWithChosenIDStoresRowUnderThatID(t *testing.T) {
 }
 
 func TestStartWithKnownIDReturnsItWithoutEffect(t *testing.T) {
+	t.Parallel()
 	m, path := newTestManager(t, 1, fakeClaudePath(t))
 	dir := t.TempDir()
 
@@ -146,6 +148,7 @@ func TestStartRefusesBadIDBeforeStoringOrSpawning(t *testing.T) {
 }
 
 func TestConcurrentStartsWithOneIDStoreOneRow(t *testing.T) {
+	t.Parallel()
 	m, path := newTestManager(t, 1, fakeClaudePath(t))
 	dir := t.TempDir()
 	const starts = 8

@@ -207,6 +207,7 @@ func countRows(t *testing.T, path, table string) int {
 }
 
 func TestStartRecordsRowThenRunsFirstPrompt(t *testing.T) {
+	t.Parallel()
 	m, path := newTestManager(t, 2, fakeClaudePath(t))
 	dir := t.TempDir()
 
@@ -239,6 +240,7 @@ func TestStartRecordsRowThenRunsFirstPrompt(t *testing.T) {
 }
 
 func TestCapRefusesStartPastCapAndAdmitsAfterStop(t *testing.T) {
+	t.Parallel()
 	m, _ := newTestManager(t, 2, fakeClaudePath(t))
 	first, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "one"})
 	if err != nil {
@@ -268,6 +270,7 @@ func TestCapRefusesStartPastCapAndAdmitsAfterStop(t *testing.T) {
 }
 
 func TestStopRecordsStoppedAndEndsProcess(t *testing.T) {
+	t.Parallel()
 	m, path := newTestManager(t, 1, fakeClaudePath(t))
 	dir := t.TempDir()
 	id, err := m.Start(t.Context(), StartRequest{Dir: dir, Prompt: "hi"})
@@ -292,6 +295,7 @@ func TestStopRecordsStoppedAndEndsProcess(t *testing.T) {
 }
 
 func TestStopRemovesUnfinishedText(t *testing.T) {
+	t.Parallel()
 	m, path := newTestManager(t, 1, fakeClaudePath(t))
 	id, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "STALL"})
 	if err != nil {
@@ -308,6 +312,7 @@ func TestStopRemovesUnfinishedText(t *testing.T) {
 }
 
 func TestSeenMarksStartedSession(t *testing.T) {
+	t.Parallel()
 	m, path := newTestManager(t, 1, fakeClaudePath(t))
 	id, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "hi"})
 	if err != nil {
@@ -365,6 +370,7 @@ func TestStartRefusesBadInputAndStoresNothing(t *testing.T) {
 }
 
 func TestUnresolvableClaudeRecordsFailedWithReason(t *testing.T) {
+	t.Parallel()
 	missing := filepath.Join(t.TempDir(), "no-claude")
 	m, path := newTestManager(t, 1, missing)
 	id, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "hi"})
@@ -386,6 +392,7 @@ func TestUnresolvableClaudeRecordsFailedWithReason(t *testing.T) {
 }
 
 func TestCloseInterruptsRunningTurnAndKeepsEndedTurn(t *testing.T) {
+	t.Parallel()
 	m, path := newTestManager(t, 3, fakeClaudePath(t))
 	stalledDir := t.TempDir()
 	stalled, err := m.Start(t.Context(), StartRequest{Dir: stalledDir, Prompt: "STALL"})
@@ -430,6 +437,7 @@ func TestCloseInterruptsRunningTurnAndKeepsEndedTurn(t *testing.T) {
 }
 
 func TestCloseEndsEverySessionAndRefusesStart(t *testing.T) {
+	t.Parallel()
 	m, path := newTestManager(t, 3, fakeClaudePath(t))
 	ids := make([]string, 0, 2)
 	pids := make([]int, 0, 2)

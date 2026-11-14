@@ -86,6 +86,7 @@ func newHandOffManager(t *testing.T, stepCap int, sink NoticeSink) (*Manager, st
 }
 
 func TestStepHandsFirstTurnToObserver(t *testing.T) {
+	t.Parallel()
 	m, path, _ := newHandOffManager(t, 1, &fakeSink{})
 	obs := &stepObserver{}
 	err := m.StartStep(t.Context(), StepSession{
@@ -104,6 +105,7 @@ func TestStepHandsFirstTurnToObserver(t *testing.T) {
 }
 
 func TestStepHandsEventsToObserverInOrder(t *testing.T) {
+	t.Parallel()
 	m, path, _ := newHandOffManager(t, 1, &fakeSink{})
 	obs := &stepObserver{}
 	err := m.StartStep(t.Context(), StepSession{
@@ -142,6 +144,7 @@ func TestStepHandsEventsToObserverInOrder(t *testing.T) {
 }
 
 func TestStepBackgroundTurnIsNotHandedOffUntilTaskEnds(t *testing.T) {
+	t.Parallel()
 	m, path, _ := newHandOffManager(t, 1, &fakeSink{})
 	obs := &stepObserver{}
 	err := m.StartStep(t.Context(), StepSession{
@@ -170,6 +173,7 @@ func TestStepBackgroundTurnIsNotHandedOffUntilTaskEnds(t *testing.T) {
 }
 
 func TestStepHandOffStaysBusyThroughIdleCheck(t *testing.T) {
+	t.Parallel()
 	sink := &fakeSink{}
 	m, path, clock := newHandOffManager(t, 2, sink)
 	held := &stepObserver{}
@@ -206,6 +210,7 @@ func TestStepHandOffStaysBusyThroughIdleCheck(t *testing.T) {
 }
 
 func TestContinueSendsPromptRecordsItAndHandsOffItsTurn(t *testing.T) {
+	t.Parallel()
 	m, path, _ := newHandOffManager(t, 1, &fakeSink{})
 	obs := &stepObserver{}
 	if err := m.StartStep(t.Context(), StepSession{
@@ -232,6 +237,7 @@ func TestContinueSendsPromptRecordsItAndHandsOffItsTurn(t *testing.T) {
 }
 
 func TestStepExitedCallsObserverWithFailureReason(t *testing.T) {
+	t.Parallel()
 	sink := &fakeSink{}
 	m, path, _ := newHandOffManager(t, 1, sink)
 	obs := &stepObserver{}
@@ -267,6 +273,7 @@ func TestStepExitedCallsObserverWithFailureReason(t *testing.T) {
 }
 
 func TestContinueSendFailureRecordsFailedWithoutNotice(t *testing.T) {
+	t.Parallel()
 	sink := &fakeSink{}
 	m, path, _ := newHandOffManager(t, 1, sink)
 	obs := &stepObserver{release: make(chan struct{})}
@@ -311,6 +318,7 @@ func TestContinueSendFailureRecordsFailedWithoutNotice(t *testing.T) {
 }
 
 func TestStepStopAndCloseCallNoExited(t *testing.T) {
+	t.Parallel()
 	m, _, _ := newHandOffManager(t, 2, &fakeSink{})
 	stopped := &stepObserver{}
 	closed := &stepObserver{}

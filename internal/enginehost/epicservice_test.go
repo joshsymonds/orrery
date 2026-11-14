@@ -13,6 +13,7 @@ import (
 	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
 	"github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1/enginev1connect"
 	"github.com/joshsymonds/orrery/internal/store"
+	"github.com/joshsymonds/orrery/internal/storetest"
 )
 
 // epicServiceID is the id of the synthetic epic the tests create.
@@ -21,7 +22,9 @@ const epicServiceID = "synthetic-repo-0a1b2c3/epic-service"
 // epicTestStore opens a store in a temporary directory. The store closes at cleanup.
 func epicTestStore(t *testing.T) *store.Store {
 	t.Helper()
-	st, err := store.Open(t.Context(), filepath.Join(t.TempDir(), "orrery.db"))
+	path := filepath.Join(t.TempDir(), "orrery.db")
+	storetest.Seed(t, path)
+	st, err := store.Open(t.Context(), path)
 	if err != nil {
 		t.Fatalf("store.Open: %v", err)
 	}
@@ -151,6 +154,7 @@ func getEpicOK(t *testing.T, client enginev1connect.EpicsClient) *v1.StoredEpic 
 }
 
 func TestEpicCreateThenGetRoundTripsContract(t *testing.T) {
+	t.Parallel()
 	st := epicTestStore(t)
 	client := newEpicsClient(t, startEpicServer(t, st))
 	req := fullEpicRequest(stepGitTestRepo(t), epicServiceID)
@@ -197,6 +201,7 @@ func TestEpicCreateThenGetRoundTripsContract(t *testing.T) {
 }
 
 func TestEpicCreateOfStoredIDIsAlreadyExists(t *testing.T) {
+	t.Parallel()
 	st := epicTestStore(t)
 	client := newEpicsClient(t, startEpicServer(t, st))
 	req := fullEpicRequest(stepGitTestRepo(t), epicServiceID)
@@ -245,6 +250,7 @@ func TestEpicCreateRefusesWhatCheckEpicRefuses(t *testing.T) {
 }
 
 func TestEpicGetUnknownIsNotFound(t *testing.T) {
+	t.Parallel()
 	client := newEpicsClient(t, startEpicServer(t, epicTestStore(t)))
 
 	_, err := client.GetEpic(t.Context(), connect.NewRequest(&v1.GetEpicRequest{Id: epicServiceID}))
@@ -252,6 +258,7 @@ func TestEpicGetUnknownIsNotFound(t *testing.T) {
 }
 
 func TestEpicListReturnsSummariesByID(t *testing.T) {
+	t.Parallel()
 	client := newEpicsClient(t, startEpicServer(t, epicTestStore(t)))
 	repo := stepGitTestRepo(t)
 	zeta := createEpicOK(t, client, fullEpicRequest(repo, "synthetic-repo-1111111/zeta"))
@@ -286,6 +293,7 @@ func summaryOf(epic *v1.StoredEpic) *v1.EpicSummary {
 }
 
 func TestEpicAnswerAppendsOnceAndRepeatsStoredDecision(t *testing.T) {
+	t.Parallel()
 	client := newEpicsClient(t, startEpicServer(t, epicTestStore(t)))
 	createEpicOK(t, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
 	answer := &v1.AnswerEpicRequest{EpicId: epicServiceID, Id: "A1", Text: "Ship it."}
@@ -322,6 +330,7 @@ func TestEpicAnswerAppendsOnceAndRepeatsStoredDecision(t *testing.T) {
 }
 
 func TestEpicAnswerWithOtherTextIsAlreadyExists(t *testing.T) {
+	t.Parallel()
 	client := newEpicsClient(t, startEpicServer(t, epicTestStore(t)))
 	createEpicOK(t, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
 	_, err := client.AnswerEpic(t.Context(), connect.NewRequest(
@@ -343,6 +352,7 @@ func TestEpicAnswerWithOtherTextIsAlreadyExists(t *testing.T) {
 }
 
 func TestEpicAnswerUnknownEpicIsNotFound(t *testing.T) {
+	t.Parallel()
 	client := newEpicsClient(t, startEpicServer(t, epicTestStore(t)))
 
 	_, err := client.AnswerEpic(t.Context(), connect.NewRequest(
@@ -392,6 +402,7 @@ func TestEpicAnswerNamesEmptyField(t *testing.T) {
 }
 
 func TestEpicServiceWithoutStoreIsUnavailable(t *testing.T) {
+	t.Parallel()
 	client := newEpicsClient(t, startEpicServer(t, nil))
 	ctx := t.Context()
 	repo := stepGitTestRepo(t)

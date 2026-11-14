@@ -93,6 +93,7 @@ func gateDetachedRun(t *testing.T, pools *fakeGatePools, run gateRun, started st
 }
 
 func TestGateReadoptRunsDetachedGateOnceAndHoldsItsReclaimedGrant(t *testing.T) {
+	t.Parallel()
 	stateDir := gateShortStateDir(t)
 	counter := filepath.Join(t.TempDir(), "counter")
 	release := filepath.Join(t.TempDir(), "release")
@@ -159,6 +160,7 @@ func TestGateReadoptRunsDetachedGateOnceAndHoldsItsReclaimedGrant(t *testing.T) 
 }
 
 func TestGateReadoptOfGateThatEndedWhileDetachedReturnsItsExitRecord(t *testing.T) {
+	t.Parallel()
 	stateDir := gateShortStateDir(t)
 	counter := filepath.Join(t.TempDir(), "counter")
 	release := filepath.Join(t.TempDir(), "release")
@@ -205,6 +207,7 @@ func TestGateReadoptOfGateThatEndedWhileDetachedReturnsItsExitRecord(t *testing.
 }
 
 func TestGateReadoptOfStoppedGateRunsItOnce(t *testing.T) {
+	t.Parallel()
 	stateDir := gateShortStateDir(t)
 	counter := filepath.Join(t.TempDir(), "counter")
 	pools := &fakeGatePools{}
@@ -245,6 +248,7 @@ func TestGateReadoptOfStoppedGateRunsItOnce(t *testing.T) {
 }
 
 func TestGateReadoptWithoutExitRecordIsLostAndRunsNothing(t *testing.T) {
+	t.Parallel()
 	marker := filepath.Join(t.TempDir(), "started")
 	pools := &fakeGatePools{}
 
@@ -268,6 +272,7 @@ func TestGateReadoptWithoutExitRecordIsLostAndRunsNothing(t *testing.T) {
 }
 
 func TestGateReadoptRefusedReclaimEndsTheLiveGate(t *testing.T) {
+	t.Parallel()
 	stateDir := gateShortStateDir(t)
 	counter := filepath.Join(t.TempDir(), "counter")
 	release := filepath.Join(t.TempDir(), "release")
@@ -296,6 +301,7 @@ func TestGateReadoptRefusedReclaimEndsTheLiveGate(t *testing.T) {
 }
 
 func TestGateReadoptOfUnattachableHolderStopsItAndIsLost(t *testing.T) {
+	t.Parallel()
 	stateDir := gateShortStateDir(t)
 	counter := filepath.Join(t.TempDir(), "counter")
 	release := filepath.Join(t.TempDir(), "release")
@@ -328,6 +334,7 @@ func TestGateReadoptOfUnattachableHolderStopsItAndIsLost(t *testing.T) {
 }
 
 func TestGateReadoptOfEndingHolderReturnsItsExitRecord(t *testing.T) {
+	t.Parallel()
 	stateDir := gateShortStateDir(t)
 	counter := filepath.Join(t.TempDir(), "counter")
 	release := filepath.Join(t.TempDir(), "release")
@@ -373,6 +380,7 @@ func TestGateReadoptOfEndingHolderReturnsItsExitRecord(t *testing.T) {
 }
 
 func TestGateReadoptOfIdleHolderIsLost(t *testing.T) {
+	t.Parallel()
 	stateDir := gateShortStateDir(t)
 	marker := filepath.Join(t.TempDir(), "started")
 	pools := &fakeGatePools{}
@@ -416,6 +424,7 @@ func TestGateReadoptOfIdleHolderIsLost(t *testing.T) {
 }
 
 func TestGateReadoptOfGateKilledAtItsLimitReturnsTimedOut(t *testing.T) {
+	t.Parallel()
 	stateDir := gateShortStateDir(t)
 	counter := filepath.Join(t.TempDir(), "counter")
 	pools := &fakeGatePools{}
@@ -455,6 +464,7 @@ func TestGateReadoptOfGateKilledAtItsLimitReturnsTimedOut(t *testing.T) {
 }
 
 func TestGateReadoptErrorsWithoutPools(t *testing.T) {
+	t.Parallel()
 	marker := filepath.Join(t.TempDir(), "started")
 
 	_, err := readoptGrantedGate(t.Context(), nil, gateGrantRequest(), gateRun{

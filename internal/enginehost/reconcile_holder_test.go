@@ -95,6 +95,7 @@ func requireDirGone(t *testing.T, dir string) {
 }
 
 func TestReconcileStopsHolderLeftRunningForWorkingRow(t *testing.T) {
+	t.Parallel()
 	root := holderRoot(t)
 	s, path := openStore(t)
 	dir := t.TempDir()
@@ -125,6 +126,7 @@ func TestReconcileStopsHolderLeftRunningForWorkingRow(t *testing.T) {
 }
 
 func TestReconcileAfterScopedCloseReadoptsHeldFake(t *testing.T) {
+	t.Parallel()
 	root := holderRoot(t)
 	s, path := openStore(t)
 	writer := NewWriter(WriterConfig{Applier: s, Tick: 5 * time.Millisecond})
@@ -168,6 +170,7 @@ func TestReconcileAfterScopedCloseReadoptsHeldFake(t *testing.T) {
 }
 
 func TestReconcileLeavesLiveSessionHolderRunning(t *testing.T) {
+	t.Parallel()
 	root := holderRoot(t)
 	s, path := openStore(t)
 	writer := NewWriter(WriterConfig{Applier: s, Tick: 5 * time.Millisecond})
@@ -212,6 +215,7 @@ func TestReconcileLeavesLiveSessionHolderRunning(t *testing.T) {
 }
 
 func TestReconcileWithoutHoldersDirSettlesRows(t *testing.T) {
+	t.Parallel()
 	root := holderRoot(t)
 	s, _ := openStore(t)
 	seedWorkingRow(t, s, "working", t.TempDir())
@@ -228,6 +232,7 @@ func TestReconcileWithoutHoldersDirSettlesRows(t *testing.T) {
 }
 
 func TestReconcileLogsFailedClearAndSettlesRows(t *testing.T) {
+	t.Parallel()
 	root := holderRoot(t)
 	s, _ := openStore(t)
 	dir := t.TempDir()

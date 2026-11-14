@@ -133,6 +133,7 @@ func waitHolderEnded(t *testing.T, pids holder.Pids) {
 }
 
 func TestDrainStoresDieTurnWrittenWhileDownOnce(t *testing.T) {
+	t.Parallel()
 	rig := newCrashRig(t, nil, false)
 	dir := t.TempDir()
 	id, err := rig.manager.Start(t.Context(), StartRequest{Dir: dir, Prompt: "hi"})
@@ -184,6 +185,7 @@ func TestDrainStoresDieTurnWrittenWhileDownOnce(t *testing.T) {
 }
 
 func TestDrainKilledHolderStoresStalledTextAndInterruptsTurn(t *testing.T) {
+	t.Parallel()
 	rig := newCrashRig(t, textTrigger("fake stalling 1"), false)
 	dir := t.TempDir()
 	id, err := rig.manager.Start(t.Context(), StartRequest{Dir: dir, Prompt: "STALL"})
@@ -226,6 +228,7 @@ func TestDrainKilledHolderStoresStalledTextAndInterruptsTurn(t *testing.T) {
 }
 
 func TestDrainOfAWorkingTurnWhoseChildDiedRecordsItFailed(t *testing.T) {
+	t.Parallel()
 	rig := newCrashRig(t, textTrigger("fake stalling 1"), false)
 	dir := t.TempDir()
 	id, err := rig.manager.Start(t.Context(), StartRequest{Dir: dir, Prompt: "STALL"})

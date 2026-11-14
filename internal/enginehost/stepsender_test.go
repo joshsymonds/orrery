@@ -61,6 +61,7 @@ func stepNudgeRun(t *testing.T, f *stepNudgeFixture, id string) *stepRun {
 }
 
 func TestStartStepStoresBriefSender(t *testing.T) {
+	t.Parallel()
 	m, path, _ := newHandOffManager(t, 1, &fakeSink{})
 	obs := &stepObserver{}
 	if err := m.StartStep(t.Context(), StepSession{
@@ -80,6 +81,7 @@ func TestStartStepStoresBriefSender(t *testing.T) {
 }
 
 func TestContinueStoresSenderAndRound(t *testing.T) {
+	t.Parallel()
 	m, path, _ := newHandOffManager(t, 1, &fakeSink{})
 	obs := &stepObserver{}
 	if err := m.StartStep(t.Context(), StepSession{
@@ -106,6 +108,7 @@ func TestContinueStoresSenderAndRound(t *testing.T) {
 }
 
 func TestSayStoresNoSenderOrRound(t *testing.T) {
+	t.Parallel()
 	m, path := newTestManager(t, 1, fakeClaudePath(t))
 	id, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "hi"})
 	if err != nil {
@@ -130,6 +133,7 @@ func TestSayStoresNoSenderOrRound(t *testing.T) {
 }
 
 func TestStepRetrySendsBackWithItsRound(t *testing.T) {
+	t.Parallel()
 	f := newStepLoopFixture(t, nil)
 	_, done := f.start(t)
 	failing := session.TurnEnded{StructuredOutput: json.RawMessage(`{"status":1}`)}
@@ -146,6 +150,7 @@ func TestStepRetrySendsBackWithItsRound(t *testing.T) {
 }
 
 func TestJudgeContinueSendsBackWithItsRound(t *testing.T) {
+	t.Parallel()
 	haiku := &judgeLoopHaiku{replies: []judgeLoopReply{
 		judgeLoopVerdict("unmet", "the report is missing its summary"),
 		judgeLoopVerdict("met", "the summary is there now"),
@@ -165,6 +170,7 @@ func TestJudgeContinueSendsBackWithItsRound(t *testing.T) {
 }
 
 func TestWatchdogTextAloneSendsEngineNoRound(t *testing.T) {
+	t.Parallel()
 	f := newStepNudgeFixture(t)
 	id := f.start(t)
 	f.beginTurn(t)
@@ -181,6 +187,7 @@ func TestWatchdogTextAloneSendsEngineNoRound(t *testing.T) {
 }
 
 func TestOwnerNudgeAloneSendsOwnerNoRound(t *testing.T) {
+	t.Parallel()
 	f := newStepNudgeFixture(t)
 	id := f.start(t)
 	f.beginTurn(t)
@@ -239,6 +246,7 @@ func TestOwnerNudgeResumingHoldSendsOwnerNoRound(t *testing.T) {
 }
 
 func TestOwnerNudgeJoinedAfterWatchdogSendsOwnerNoRound(t *testing.T) {
+	t.Parallel()
 	f := newStepNudgeFixture(t)
 	id := f.start(t)
 	f.beginTurn(t)

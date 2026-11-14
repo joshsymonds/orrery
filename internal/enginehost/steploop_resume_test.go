@@ -53,6 +53,7 @@ func resumeDoneOutput(commit string) string {
 }
 
 func TestStepLoopResumeReturnedFailureGoesBackOnce(t *testing.T) {
+	t.Parallel()
 	f := newStepLoopFixture(t, nil)
 	row := f.commit(t,
 		store.StepReturn{ID: stepLoopID, Result: `{"status":1}`, Checks: []store.StepCheck{
@@ -76,6 +77,7 @@ func TestStepLoopResumeReturnedFailureGoesBackOnce(t *testing.T) {
 }
 
 func TestStepLoopResumeReturnedDoneReturnIsJudged(t *testing.T) {
+	t.Parallel()
 	haiku := &judgeLoopHaiku{replies: []judgeLoopReply{judgeLoopVerdict("met", "the report is complete")}}
 	f := newJudgeLoopFixture(t, haiku, judgeLoopNoConfig)
 	row := f.commit(t,
@@ -105,6 +107,7 @@ func TestStepLoopResumeReturnedDoneReturnIsJudged(t *testing.T) {
 }
 
 func TestStepLoopResumeReturnedOtherStatusEndsReturned(t *testing.T) {
+	t.Parallel()
 	f := newStepLoopFixture(t, nil)
 	row := f.commit(t,
 		store.StepReturn{ID: stepLoopID, Result: `{"status":"PARTIAL"}`, Checks: []store.StepCheck{
@@ -126,6 +129,7 @@ func TestStepLoopResumeReturnedOtherStatusEndsReturned(t *testing.T) {
 }
 
 func TestStepLoopResumeFreshDoneTurnRunsItsGateOnce(t *testing.T) {
+	t.Parallel()
 	dir, start := stepDoneRepo(t)
 	commit := stepGitTestCommit(t, dir, map[string]string{stepDoneOwned: "owned\n"})
 	counter := filepath.Join(t.TempDir(), "counter")
@@ -155,6 +159,7 @@ func TestStepLoopResumeFreshDoneTurnRunsItsGateOnce(t *testing.T) {
 }
 
 func TestStepLoopResumeLiveStoredGateIsReadoptedNotRerun(t *testing.T) {
+	t.Parallel()
 	dir, start := stepDoneRepo(t)
 	commit := stepGitTestCommit(t, dir, map[string]string{stepDoneOwned: "owned\n"})
 	stateDir := gateShortStateDir(t)
@@ -199,6 +204,7 @@ func TestStepLoopResumeLiveStoredGateIsReadoptedNotRerun(t *testing.T) {
 }
 
 func TestStepLoopResumeLostGateEndsEngineRestarted(t *testing.T) {
+	t.Parallel()
 	dir, start := stepDoneRepo(t)
 	commit := stepGitTestCommit(t, dir, map[string]string{stepDoneOwned: "owned\n"})
 	marker := filepath.Join(t.TempDir(), "gate-ran")
@@ -234,6 +240,7 @@ func TestStepLoopResumeLostGateEndsEngineRestarted(t *testing.T) {
 }
 
 func TestStepLoopResumeRestoredNudgeContinuesTurnEnd(t *testing.T) {
+	t.Parallel()
 	f := newStepLoopFixture(t, nil)
 	const text = "The watchdog interrupted your turn. Continue the step where it stopped."
 	row := f.commit(t, store.StepLoop{ID: stepLoopID, Round: 1, Nudge: text, Nudged: true})
@@ -254,6 +261,7 @@ func TestStepLoopResumeRestoredNudgeContinuesTurnEnd(t *testing.T) {
 }
 
 func TestStepLoopResumeRestoredOwnerNudgeContinuesTurnEnd(t *testing.T) {
+	t.Parallel()
 	f := newStepLoopFixture(t, nil)
 	const text = "use the parser API instead"
 	row := f.commit(t, store.StepLoop{ID: stepLoopID, Round: 1, OwnerNudge: text})
@@ -274,6 +282,7 @@ func TestStepLoopResumeRestoredOwnerNudgeContinuesTurnEnd(t *testing.T) {
 }
 
 func TestStepLoopResumeRestoredHeldTurnEndWaitsForOwnerNudge(t *testing.T) {
+	t.Parallel()
 	f := newStepLoopFixture(t, nil)
 	row := f.commit(t, store.StepLoop{ID: stepLoopID, Round: 1, Held: true})
 	f.resumeFrom(stepRestore{Row: row, Turn: store.StepTurnEnd{Seq: 6, Output: `{"status":"DONE"}`}, Found: true})
@@ -305,6 +314,7 @@ func TestStepLoopResumeRestoredHeldTurnEndWaitsForOwnerNudge(t *testing.T) {
 }
 
 func TestStepLoopResumeWithoutTurnEndLeavesTurnRunning(t *testing.T) {
+	t.Parallel()
 	f := newStepLoopFixture(t, nil)
 	clock := newIdleClock()
 	f.run.now = clock.now
@@ -322,6 +332,7 @@ func TestStepLoopResumeWithoutTurnEndLeavesTurnRunning(t *testing.T) {
 }
 
 func TestStepLoopResumeTurnEndLeavesNoTurnRunning(t *testing.T) {
+	t.Parallel()
 	f := newStepLoopFixture(t, nil)
 	clock := newIdleClock()
 	f.run.now = clock.now
@@ -338,6 +349,7 @@ func TestStepLoopResumeTurnEndLeavesNoTurnRunning(t *testing.T) {
 }
 
 func TestStepLoopResumeFreshDoneAfterJudgeSendBackEndsGoalUnmet(t *testing.T) {
+	t.Parallel()
 	haiku := &judgeLoopHaiku{replies: []judgeLoopReply{judgeLoopVerdict("unmet", "the summary is still missing")}}
 	f := newJudgeLoopFixture(t, haiku, judgeLoopNoConfig)
 	row := f.commit(t, store.StepLoop{ID: stepLoopID, Round: 1, JudgeSent: true})
@@ -363,6 +375,7 @@ func TestStepLoopResumeFreshDoneAfterJudgeSendBackEndsGoalUnmet(t *testing.T) {
 }
 
 func TestStepLoopResumeNudgedTurnKeepsPeriodicCheckOff(t *testing.T) {
+	t.Parallel()
 	f := newStepLoopFixture(t, nil)
 	clock := newIdleClock()
 	f.run.now = clock.now

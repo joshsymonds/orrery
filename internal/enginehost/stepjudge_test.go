@@ -8,6 +8,7 @@ import (
 )
 
 func TestStepJudgeSchemaIsTwoVerdictObject(t *testing.T) {
+	t.Parallel()
 	var schema struct {
 		Type       string `json:"type"`
 		Properties map[string]struct {
@@ -48,6 +49,7 @@ func TestStepJudgeSchemaIsTwoVerdictObject(t *testing.T) {
 }
 
 func TestStepJudgeInputCarriesInstructionAndSections(t *testing.T) {
+	t.Parallel()
 	got := stepJudgeInput("write the parser", "parser written", "parser.go | 12 +", "PASS go test")
 	for _, want := range []string{
 		"mechanical checks already passed",
@@ -66,6 +68,7 @@ func TestStepJudgeInputCarriesInstructionAndSections(t *testing.T) {
 }
 
 func TestStepJudgeInputOmitsEmptyDiffStatAndGateTail(t *testing.T) {
+	t.Parallel()
 	got := stepJudgeInput("answer the question", "42", "  \n", "")
 	if strings.Contains(got, "## Diff stat") {
 		t.Fatalf("blank diff stat must be omitted:\n%s", got)
@@ -79,6 +82,7 @@ func TestStepJudgeInputOmitsEmptyDiffStatAndGateTail(t *testing.T) {
 }
 
 func TestStepJudgeInputCutsOversizedSectionsAtEightKiB(t *testing.T) {
+	t.Parallel()
 	big := strings.Repeat("a", 3*stepJudgeSectionBytes)
 	got := stepJudgeInput(big, big, big, big)
 	for _, heading := range []string{"## Task\n", "## Return\n", "## Diff stat\n", "## Gate output tail\n"} {
@@ -97,6 +101,7 @@ func TestStepJudgeInputCutsOversizedSectionsAtEightKiB(t *testing.T) {
 }
 
 func TestStepJudgeInputCutsOnRuneBoundary(t *testing.T) {
+	t.Parallel()
 	// A three-byte rune straddling the limit must not be split into invalid UTF-8.
 	big := strings.Repeat("a", stepJudgeSectionBytes-1) + "\u4e16\u4e16"
 	got := stepJudgeInput("task", big, "", "")
@@ -110,6 +115,7 @@ func TestStepJudgeInputCutsOnRuneBoundary(t *testing.T) {
 }
 
 func TestStepJudgeInputKeepsTheTailOfTheGateOutput(t *testing.T) {
+	t.Parallel()
 	gate := strings.Repeat("x", stepJudgeSectionBytes) + "FAILED: last line"
 	got := stepJudgeInput("task", "return", "", gate)
 	body := got[strings.Index(got, "## Gate output tail\n")+len("## Gate output tail\n"):]
@@ -122,6 +128,7 @@ func TestStepJudgeInputKeepsTheTailOfTheGateOutput(t *testing.T) {
 }
 
 func TestParseStepJudgeMet(t *testing.T) {
+	t.Parallel()
 	met, reason, err := parseStepJudge(json.RawMessage(`{"verdict":"met","reason":"  all three files written  "}`))
 	if err != nil {
 		t.Fatalf("parseStepJudge: %v", err)
@@ -132,6 +139,7 @@ func TestParseStepJudgeMet(t *testing.T) {
 }
 
 func TestParseStepJudgeUnmet(t *testing.T) {
+	t.Parallel()
 	met, reason, err := parseStepJudge(json.RawMessage(`{"verdict":"unmet","reason":"the tests are missing"}`))
 	if err != nil {
 		t.Fatalf("parseStepJudge: %v", err)
@@ -164,6 +172,7 @@ func TestParseStepJudgeRejectsBadReplies(t *testing.T) {
 // A section that is one long run of UTF-8 continuation bytes, as raw gate output can be, is cut without a panic and
 // stays within the section limit.
 func TestStepJudgeInputCutsInvalidUTF8WithoutPanic(t *testing.T) {
+	t.Parallel()
 	junk := strings.Repeat("\x80", stepJudgeSectionBytes+808)
 	got := stepJudgeInput(junk, "return", "", junk)
 	task := got[strings.Index(got, "## Task\n")+len("## Task\n") : strings.Index(got, "\n\n## Return")]

@@ -164,6 +164,7 @@ func wantRequest() grants.Request {
 }
 
 func TestAcquireMapsEveryFieldOfTheRequest(t *testing.T) {
+	t.Parallel()
 	fake := newFakePools(nil)
 	client := newPoolsClient(t, startPoolsServer(t, fake))
 
@@ -181,6 +182,7 @@ func TestAcquireMapsEveryFieldOfTheRequest(t *testing.T) {
 }
 
 func TestAcquireReclaimPassesTheGrantID(t *testing.T) {
+	t.Parallel()
 	fake := newFakePools(nil)
 	client := newPoolsClient(t, startPoolsServer(t, fake))
 	msg := newAcquire()
@@ -199,6 +201,7 @@ func TestAcquireReclaimPassesTheGrantID(t *testing.T) {
 }
 
 func TestAcquireSendsQueuedThenGranted(t *testing.T) {
+	t.Parallel()
 	fake := newFakePools(nil,
 		grants.Event{Position: 2},
 		grants.Event{Grant: &grants.Grant{ID: "g1", Members: []grants.Member{
@@ -235,6 +238,7 @@ func TestAcquireSendsQueuedThenGranted(t *testing.T) {
 }
 
 func TestAcquireSendsAStopEventAsStop(t *testing.T) {
+	t.Parallel()
 	fake := newFakePools(nil,
 		grants.Event{Grant: &grants.Grant{ID: "g1", Members: []grants.Member{{Pool: "gpu", Name: "a"}}}},
 		grants.Event{Stop: []grants.Member{{Pool: "gpu", Name: "a"}}},
@@ -311,6 +315,7 @@ func TestAcquireRefusesWithTheCodeOfItsError(t *testing.T) {
 }
 
 func TestAcquireWithoutPoolsIsUnavailable(t *testing.T) {
+	t.Parallel()
 	client := newPoolsClient(t, startPoolsServer(t, nil))
 
 	stream, err := client.Acquire(t.Context(), connect.NewRequest(newAcquire()))
@@ -367,6 +372,7 @@ func TestAcquireRefusesALimitOutsideOneSecondToTheDurationRange(t *testing.T) {
 }
 
 func TestAcquireEndsTheGrantWhenTheClientClosesItsStream(t *testing.T) {
+	t.Parallel()
 	fake := newFakePools(nil, grants.Event{Grant: &grants.Grant{ID: "g1", Members: []grants.Member{
 		{Pool: "gpu", Name: "a"},
 	}}})
@@ -394,6 +400,7 @@ func TestAcquireEndsTheGrantWhenTheClientClosesItsStream(t *testing.T) {
 }
 
 func TestStatusReportsThePoolsAndTheHolds(t *testing.T) {
+	t.Parallel()
 	fake := newFakePools(nil)
 	fake.status = grants.Status{
 		Pools: []grants.PoolStatus{{
@@ -440,6 +447,7 @@ func TestStatusReportsThePoolsAndTheHolds(t *testing.T) {
 }
 
 func TestHoldReachesThePoolsWithTheMember(t *testing.T) {
+	t.Parallel()
 	fake := newFakePools(nil)
 	client := newPoolsClient(t, startPoolsServer(t, fake))
 
@@ -452,6 +460,7 @@ func TestHoldReachesThePoolsWithTheMember(t *testing.T) {
 }
 
 func TestFreeReachesThePoolsWithTheMember(t *testing.T) {
+	t.Parallel()
 	fake := newFakePools(nil)
 	client := newPoolsClient(t, startPoolsServer(t, fake))
 
@@ -503,6 +512,7 @@ func TestHoldAndFreeMapTheirErrorsToCodes(t *testing.T) {
 }
 
 func TestStatusHoldAndFreeWithoutPoolsAreUnavailable(t *testing.T) {
+	t.Parallel()
 	client := newPoolsClient(t, startPoolsServer(t, nil))
 
 	_, err := client.Status(t.Context(), connect.NewRequest(&v1.PoolsStatusRequest{}))

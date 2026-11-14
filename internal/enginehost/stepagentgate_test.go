@@ -80,6 +80,7 @@ func checkStepStartRefused(t *testing.T, f *stepStartFixture, id string, err, wa
 }
 
 func TestStepsStartAgentGateRunsItsAgentSchemaAndPrompt(t *testing.T) {
+	t.Parallel()
 	f := newStepStartFixture(t)
 	repo := stepGitTestRepo(t)
 	commit := stepGitTestRun(t, repo, "rev-parse", "HEAD")
@@ -138,6 +139,7 @@ func TestStepsStartAgentGateRunsItsAgentSchemaAndPrompt(t *testing.T) {
 }
 
 func TestStepsStartAgentGateReadsNoPoolFile(t *testing.T) {
+	t.Parallel()
 	f := newStepStartFixture(t)
 	// The machine pool file does not parse. An agent gate takes no pool member, so its start must not read the file.
 	config := t.TempDir()
@@ -156,6 +158,7 @@ func TestStepsStartAgentGateReadsNoPoolFile(t *testing.T) {
 }
 
 func TestStepsStartAgentGateRefusedInAWritingStep(t *testing.T) {
+	t.Parallel()
 	f := newStepStartFixture(t)
 	linked := stepWorktreeTestAddLinked(t, stepGitTestRepo(t))
 	gatesFile := filepath.Join(t.TempDir(), "gates.toml")
@@ -195,6 +198,7 @@ func TestStepsStartAgentGateRefusesCallerAgentSchemaOrDoneValue(t *testing.T) {
 }
 
 func TestStepsStartAgentGateUnresolvedAgentStartsNothing(t *testing.T) {
+	t.Parallel()
 	f := newRefusalFixture(t, 2)
 	repo := stepGitTestRepo(t)
 	const agent = "no-such-agent-gate-probe"
@@ -265,6 +269,7 @@ func TestStepsStartNoGateWithoutAgentStartsNothing(t *testing.T) {
 }
 
 func TestStepsStartArgvGateWithoutAgentOrSchemaStartsNothing(t *testing.T) {
+	t.Parallel()
 	f := newStepGateFixture(t)
 	shell := stepGateShell(t)
 	gatesFile := filepath.Join(t.TempDir(), "gates.toml")
@@ -290,6 +295,7 @@ func stepAgentGateRun(t *testing.T, f *stepStartFixture) (StepSession, *stepRun)
 }
 
 func TestStepsStartAgentGateHandsItsRunTheResolvedGate(t *testing.T) {
+	t.Parallel()
 	f := newStepStartFixture(t)
 	gatesFile := filepath.Join(t.TempDir(), "gates.toml")
 	stepGateWriteFile(t, gatesFile, stepAgentGateText("reviewer"))
@@ -308,6 +314,7 @@ func TestStepsStartAgentGateHandsItsRunTheResolvedGate(t *testing.T) {
 }
 
 func TestStepsStartAgentGateFailedAssertionEndsGateFailed(t *testing.T) {
+	t.Parallel()
 	f := newStepStartFixture(t)
 	gatesFile := filepath.Join(t.TempDir(), "gates.toml")
 	stepGateWriteFile(t, gatesFile, stepAgentGateText("reviewer"))
