@@ -435,10 +435,10 @@ func (r *stepRun) judge(ctx context.Context, round int, value json.RawMessage) b
 
 // doneChecks appends the checks of a writing step's done return to checks, and returns the holder directory of the
 // gate it ran, which the caller clears once the return is stored, or at once when the checks fail. The four commit
-// checks run first. The gate runs only when they all pass and a gate is set. A gate that cannot run is an error, and
-// errGateLost when its outcome is lost. The gate's check opens with the record of its run, stepGateRecord. The step
-// row stores the gate's grant, holder and round before the gate launches. runDoneGate re-adopts a gate the restored
-// row stores as running in this round.
+// checks run first. The gate runs only when they all pass and a gate is set. A gate that cannot run is an error:
+// errGateLost when its outcome is lost, and errGateDetach when it is left running under its holder. The gate's check
+// opens with the record of its run, stepGateRecord. The step row stores the gate's grant, holder and round before the
+// gate launches. runDoneGate re-adopts a gate the restored row stores as running in this round.
 func (r *stepRun) doneChecks(ctx context.Context, round int, commit string,
 	checks []store.StepCheck) ([]store.StepCheck, string, error) {
 	passed := true
@@ -465,12 +465,16 @@ func (r *stepRun) doneChecks(ctx context.Context, round int, commit string,
 }
 
 // writingChecks runs the done checks of a writing step's return with doneChecks. A failed run ends the step: errGateLost
-// ends it engine_restarted, and any other error ends it failed. It returns the checks, the gate's holder directory and
-// whether the run goes on.
+// ends it engine_restarted, and any other error ends it failed. errGateDetach ends nothing: the gate runs on under its
+// holder, so the step is left open for re-adoption, with no end stored and no session stopped, and the holder's
+// directory is not cleared. It returns the checks, the gate's holder directory and whether the run goes on.
 func (r *stepRun) writingChecks(ctx context.Context, round int, commit string,
 	checks []store.StepCheck) ([]store.StepCheck, string, bool) {
 	checks, gateDir, err := r.doneChecks(ctx, round, commit, checks)
-	if err != nil {
+	switch {
+	case errors.Is(err, errGateDetach):
+		return checks, "", false
+	case err != nil:
 		end := stepLoopEndFailed
 		if errors.Is(err, errGateLost) {
 			end = stepRestartedEnd
