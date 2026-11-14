@@ -32,8 +32,8 @@ const resumePrompt = "Resume working."
 // resumedBody is the body of the notice that tells the owner a restart resumed the turn it interrupted.
 const resumedBody = "orreryd restarted during the turn; resumed it"
 
-// Reconcile goes through the holder directories under the manager's state directory whose session has no live session in
-// this manager. Each such holder is re-adopted when its row allows it (see readoptable). A holder that has ended is drained
+// Reconcile goes through the holder directories under the manager's state directory whose session has no pump in this
+// manager. Each such holder is re-adopted when its row allows it (see readoptable). A holder that has ended is drained
 // into the store, and its row is settled by that drain. A live holder that cannot be attached is stopped first, then drained
 // the same way. A step's holder that has ended or cannot be attached is cleared, never drained or stopped. Each other holder
 // is cleared. Then it settles the engine rows that have no process in this manager, as a restart leaves them. A re-adopted
@@ -59,6 +59,9 @@ func (m *Manager) Reconcile(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("reconcile sessions: %w", err)
 	}
+	// The sessions with a pump are taken before the rows are read again: a pump that ends after this has stored its
+	// state before the read, and one that runs at the read is left to record its own.
+	pumped := m.pumpingIDs()
 	// A drain that failed after it recorded lines has changed the rows, so they are read again after the holder pass.
 	rows, err = m.store.EngineSessions(ctx)
 	if err != nil {
@@ -69,7 +72,7 @@ func (m *Manager) Reconcile(ctx context.Context) error {
 	if textErr != nil {
 		firstErr = fmt.Errorf("read unfinished text: %w", textErr)
 	}
-	pending := m.pendingRows(rows, settled, text, textErr)
+	pending := m.pendingRows(rows, pumped, settled, text, textErr)
 	groups := make([]SessionOps, len(pending))
 	for i, row := range pending {
 		groups[i] = SessionOps{ID: row.ID, Ops: settleOps(row)}
@@ -88,12 +91,15 @@ func (m *Manager) Reconcile(ctx context.Context) error {
 	return writeErr
 }
 
-// pendingRows returns the rows Reconcile settles: each row with no live session that the holder pass did not settle, and
-// that has a running turn or unfinished text in text. A failed text read, textErr, makes every row count as holding text.
-func (m *Manager) pendingRows(rows []store.EngineRow, settled, text map[string]bool, textErr error) []store.EngineRow {
+// pendingRows returns the rows Reconcile settles: each row that had no pump in this manager when pumped was taken and
+// that the holder pass did not settle, and that has a running turn or unfinished text in text. A failed text read,
+// textErr, makes every row count as holding text.
+func (m *Manager) pendingRows(
+	rows []store.EngineRow, pumped, settled, text map[string]bool, textErr error,
+) []store.EngineRow {
 	var pending []store.EngineRow
 	for _, row := range rows {
-		if m.isLive(row.ID) || settled[row.ID] {
+		if pumped[row.ID] || settled[row.ID] {
 			continue
 		}
 		if turnRunning(row) || textErr != nil || text[row.ID] {
@@ -119,8 +125,8 @@ func (m *Manager) notifySettled(ctx context.Context, rows []store.EngineRow, err
 	return firstErr
 }
 
-// reconcileHolders goes through the holder directories under the state directory. The holder of each session with no live
-// session in this manager is re-adopted when its row, in rows by id, allows it (see readoptable), and drained when it has
+// reconcileHolders goes through the holder directories under the state directory. The holder of each session with no pump
+// in this manager is re-adopted when its row, in rows by id, allows it (see readoptable), and drained when it has
 // ended, or stopped and drained when it is live but cannot be attached. A step's holder is never drained or stopped. Every
 // other holder is cleared, as is one that fails to re-adopt, to stop or to drain. A drained holder is cleared by its drain's
 // settle (see reconcileRow), since a resume there starts a new holder in the same directory. It returns the ids of the
@@ -141,7 +147,7 @@ func (m *Manager) reconcileHolders(ctx context.Context, rows map[string]store.En
 	}
 	for _, entry := range entries {
 		id := entry.Name()
-		if m.isLive(id) {
+		if m.pumping(id) {
 			continue
 		}
 		dir := m.holderDirOf(id)
@@ -305,12 +311,29 @@ func (m *Manager) clearHolder(ctx context.Context, id, dir string) {
 	}
 }
 
-// isLive reports whether this manager has a live session with id.
-func (m *Manager) isLive(id string) bool {
+// pumpingIDs returns the ids of the sessions that a pump in this manager is still running (see pumping).
+func (m *Manager) pumpingIDs() map[string]bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	ids := make(map[string]bool, len(m.sessions)+len(m.stopping))
+	for id := range m.sessions {
+		ids[id] = true
+	}
+	for id := range m.stopping {
+		ids[id] = true
+	}
+	return ids
+}
+
+// pumping reports whether a pump in this manager is still running the session with id: the session is live, or it is
+// retired and its pump has not ended (see retireLocked). Such a pump records the session's state itself, so Reconcile
+// leaves its row and holder to that pump.
+func (m *Manager) pumping(id string) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	_, live := m.sessions[id]
-	return live
+	_, stopping := m.stopping[id]
+	return live || stopping
 }
 
 // ExpectStep registers observer for the step id before Reconcile. Reconcile re-adopts the holder of the step as a live

@@ -235,7 +235,7 @@ func TestSayWhileOldHolderStopsStartsResumedHolder(t *testing.T) {
 
 	releaseHeldTurn(t, dir)
 	waitUntil(t, "the turn end to take session "+id+" out of the live set", func() bool {
-		return !restarted.isLive(id)
+		return !slices.Contains(restarted.Live(), id)
 	})
 	said := make(chan error, 1)
 	go func() {
