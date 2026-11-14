@@ -74,8 +74,8 @@ const (
 	noStep      = "no step"
 )
 
-// taskDone is the status of a finished task. Its files are no longer owned by an unfinished task.
-const taskDone = "done"
+// taskOpen is the status of a task that is not yet accepted or failed. Only an open task owns its files.
+const taskOpen = "open"
 
 // Runner passes over the epics with pending triggers and runs their planner turns. Each claimed turn runs in its own
 // goroutine, and turns tracks them until Run returns.
@@ -474,15 +474,15 @@ func planOf(ret Return) store.EpicPlan {
 }
 
 // returnCheck returns the check a planner step's return runs for epic. A return that does not parse is one line.
-// Any other return gets the refusals of Check, against the epic's Requirement ids, the files of its tasks that are not
-// done, and the gates and judges that resolve answers for epic. The gate resolves under ctx without its cancellation,
-// so the turn that started the step ending does not refuse its return.
+// Any other return gets the refusals of Check, against the epic's Requirement ids, the files of its open tasks, and the
+// gates and judges that resolve answers for epic. The gate resolves under ctx without its cancellation, so the turn
+// that started the step ending does not refuse its return.
 func returnCheck(ctx context.Context, epic store.EpicRow, resolve Resolver) func(value json.RawMessage) []string {
 	requirements := make([]string, 0, len(epic.Requirements))
 	for _, requirement := range epic.Requirements {
 		requirements = append(requirements, requirement.ID)
 	}
-	owned := unfinishedFiles(epic.Tasks)
+	owned := openFiles(epic.Tasks)
 	gateCtx := context.WithoutCancel(ctx)
 	gate := func(name string) error { return resolve.Gate(gateCtx, epic, name) }
 	judge := func(name string) error { return resolve.Judge(epic, name) }
@@ -495,11 +495,11 @@ func returnCheck(ctx context.Context, epic store.EpicRow, resolve Resolver) func
 	}
 }
 
-// unfinishedFiles returns the files of the tasks whose status is not done, in task order.
-func unfinishedFiles(tasks []store.EpicTask) []string {
+// openFiles returns the files of the tasks whose status is open, in task order.
+func openFiles(tasks []store.EpicTask) []string {
 	var files []string
 	for _, task := range tasks {
-		if task.Status != taskDone {
+		if task.Status == taskOpen {
 			files = append(files, task.Files...)
 		}
 	}
