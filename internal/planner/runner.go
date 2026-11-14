@@ -293,7 +293,7 @@ func (r *Runner) refuse(ctx context.Context, epic string, seq int64, err error) 
 // settle settles turn seq of epic, whose step id ended as ended. A kept rejected rate limit of the step frees the turn
 // and pauses the epic, whatever the end. A done end completes the turn with the plan its return holds. A stopped step
 // frees the turn and pauses the epic, and an engine_restarted step frees it to rerun. Every other end fails the turn
-// with its end and reason.
+// with its end and reason. The write that ends the turn is retried until it lands (see retry).
 func (r *Runner) settle(ctx context.Context, epic string, seq int64, id string, ended store.StepRow) error {
 	limit, limited, err := r.store.RateLimit(ctx, id)
 	if err != nil {
@@ -323,45 +323,60 @@ func (r *Runner) complete(ctx context.Context, epic string, seq int64, result st
 	if err != nil {
 		return r.failTurn(ctx, epic, seq, err.Error())
 	}
-	if err = r.store.CompleteTurn(ctx, epic, seq, planOf(ret), r.now()); err != nil {
-		return fmt.Errorf("complete turn %d of epic %s: %w", seq, epic, err)
-	}
-	return nil
+	plan, at := planOf(ret), r.now()
+	return r.retry(ctx, fmt.Sprintf("complete turn %d of epic %s", seq, epic), func() error {
+		return r.store.CompleteTurn(ctx, epic, seq, plan, at)
+	})
 }
 
-// fail fails turn seq of epic with reason. It writes nothing once ctx has ended, which leaves the turn running for the
-// next start.
+// fail fails turn seq of epic with reason. An error the write ends with is logged.
 func (r *Runner) fail(ctx context.Context, epic string, seq int64, reason string) {
-	if ctx.Err() != nil {
-		return
-	}
 	if err := r.failTurn(ctx, epic, seq, reason); err != nil {
 		r.logger.ErrorContext(ctx, "fail planner turn", "epic", epic, "turn", seq, "err", err)
 	}
 }
 
-// release frees turn seq of epic with free. Like fail, it writes nothing once ctx has ended.
+// release frees turn seq of epic with free. An error the write ends with is logged.
 func (r *Runner) release(ctx context.Context, epic string, seq int64, free store.TurnFree) {
-	if ctx.Err() != nil {
-		return
-	}
 	if err := r.freeTurn(ctx, epic, seq, free); err != nil {
 		r.logger.ErrorContext(ctx, "free planner turn", "epic", epic, "turn", seq, "err", err)
 	}
 }
 
-// failTurn ends turn seq of epic as failed with reason.
+// failTurn ends turn seq of epic as failed with reason, retrying the write until it lands.
 func (r *Runner) failTurn(ctx context.Context, epic string, seq int64, reason string) error {
-	if err := r.store.FailTurn(ctx, epic, seq, reason, r.now()); err != nil {
-		return fmt.Errorf("fail turn %d of epic %s: %w", seq, epic, err)
-	}
-	return nil
+	at := r.now()
+	return r.retry(ctx, fmt.Sprintf("fail turn %d of epic %s", seq, epic), func() error {
+		return r.store.FailTurn(ctx, epic, seq, reason, at)
+	})
 }
 
-// freeTurn ends turn seq of epic without a return, as free describes.
+// freeTurn ends turn seq of epic without a return, as free describes, retrying the write until it lands.
 func (r *Runner) freeTurn(ctx context.Context, epic string, seq int64, free store.TurnFree) error {
-	if err := r.store.FreeTurn(ctx, epic, seq, free, r.now()); err != nil {
-		return fmt.Errorf("free turn %d of epic %s: %w", seq, epic, err)
+	at := r.now()
+	return r.retry(ctx, fmt.Sprintf("free turn %d of epic %s", seq, epic), func() error {
+		return r.store.FreeTurn(ctx, epic, seq, free, at)
+	})
+}
+
+// retry runs write, a store write that ends a turn, until it succeeds or the store answers ErrTurnNotRunning, which it
+// returns wrapped with what. Until then each failed write is logged and run again after a tick with the same arguments.
+// Once ctx has ended, retry writes nothing more and returns nil, which leaves the turn running for the next start.
+func (r *Runner) retry(ctx context.Context, what string, write func() error) error {
+	for ctx.Err() == nil {
+		err := write()
+		if err == nil {
+			return nil
+		}
+		err = fmt.Errorf("%s: %w", what, err)
+		if errors.Is(err, store.ErrTurnNotRunning) {
+			return err
+		}
+		r.logger.ErrorContext(ctx, "retry planner turn write", "err", err)
+		select {
+		case <-ctx.Done():
+		case <-time.After(r.tick):
+		}
 	}
 	return nil
 }
