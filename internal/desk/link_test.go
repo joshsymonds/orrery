@@ -2,7 +2,6 @@ package desk_test
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -17,9 +16,8 @@ import (
 )
 
 const (
-	testHost     = "box"
-	lostWait     = 5 * time.Minute
-	activityWait = 30 * time.Second
+	testHost = "box"
+	lostWait = 5 * time.Minute
 	// ioTimeout bounds each wait for the link to reach the state a step needs.
 	ioTimeout    = 5 * time.Second
 	pollInterval = 5 * time.Millisecond
@@ -30,14 +28,12 @@ func testStart() time.Time {
 	return time.Date(2026, 11, 11, 12, 0, 0, 0, time.UTC)
 }
 
-// streamScript is the fake stream command, run as /bin/sh script dir. Each run counts itself in dir/starts. Activity
-// from the desk goes to dir/activity. Session n runs dir/plan.n when it exists, which ends the run unless the plan
-// is a wait. Otherwise the run waits until dir/stop.n exists.
+// streamScript is the fake stream command, run as /bin/sh script dir. Each run counts itself in dir/starts. Session n
+// runs dir/plan.n when it exists, which ends the run unless the plan is a wait. Otherwise the run waits until
+// dir/stop.n exists.
 const streamScript = `dir=$1
 echo started >> "$dir/starts"
 n=$(wc -l < "$dir/starts" | tr -d ' ')
-exec 3<&0
-cat <&3 >> "$dir/activity" &
 if [ -f "$dir/plan.$n" ]; then . "$dir/plan.$n"; fi
 while [ ! -f "$dir/stop.$n" ]; do sleep 0.01; done
 `
@@ -122,7 +118,7 @@ func (c *fakeClock) restartWaits() []time.Duration {
 	defer c.mu.Unlock()
 	var waits []time.Duration
 	for _, call := range c.calls {
-		if call != lostWait && call != activityWait {
+		if call != lostWait {
 			waits = append(waits, call)
 		}
 	}
@@ -177,8 +173,8 @@ type fixture struct {
 	done   chan error
 }
 
-// newFixture prepares a link that has not started. input, when set, gives the desk's input at each report.
-func newFixture(t *testing.T, input func(now time.Time) (int64, bool, error)) *fixture {
+// newFixture prepares a link that has not started.
+func newFixture(t *testing.T) *fixture {
 	t.Helper()
 	dir := t.TempDir()
 	script := filepath.Join(dir, "stream.sh")
@@ -192,11 +188,6 @@ func newFixture(t *testing.T, input func(now time.Time) (int64, bool, error)) *f
 		Notify:  rec.notify,
 		Lost:    rec.onLost,
 		Clock:   clock,
-	}
-	if input != nil {
-		link.Input = func(_ context.Context) (int64, bool, error) {
-			return input(clock.Now())
-		}
 	}
 	return &fixture{t: t, dir: dir, clock: clock, rec: rec, link: link, done: make(chan error, 1)}
 }
@@ -238,21 +229,6 @@ func (f *fixture) stop(n int) {
 // starts counts the sessions the command has begun.
 func (f *fixture) starts() int {
 	return len(readLines(f.dir, "starts"))
-}
-
-// activity decodes the Activity lines the desk wrote to the command's stdin.
-func (f *fixture) activity() []int64 {
-	f.t.Helper()
-	lines := readLines(f.dir, "activity")
-	inputs := make([]int64, 0, len(lines))
-	for _, line := range lines {
-		var activity deskstream.Activity
-		if err := json.Unmarshal([]byte(line), &activity); err != nil {
-			f.t.Fatalf("activity line %q: %v", line, err)
-		}
-		inputs = append(inputs, activity.Input)
-	}
-	return inputs
 }
 
 // emit is a shell body that prints each line on stdout.
@@ -304,7 +280,7 @@ func waitFor(t *testing.T, what string, cond func() bool) {
 }
 
 func TestLinkNotifiesNoticesInOrder(t *testing.T) {
-	f := newFixture(t, nil)
+	f := newFixture(t)
 	f.plan(1, emit(helloLine, noticeLine("first"), "not json", statusLine, noticeLine("second"), noticeLine("third")))
 	f.run()
 
@@ -320,42 +296,8 @@ func TestLinkNotifiesNoticesInOrder(t *testing.T) {
 	f.finish()
 }
 
-func TestLinkSendsActivityAtHelloAndEvery30s(t *testing.T) {
-	f := newFixture(t, func(now time.Time) (int64, bool, error) { return now.Unix(), true, nil })
-	f.plan(1, emit(helloLine))
-	f.run()
-
-	waitFor(t, "activity at hello", func() bool { return len(f.activity()) == 1 })
-	for i := 1; i <= 2; i++ {
-		waitFor(t, "activity timer", func() bool { return f.clock.pending(activityWait) })
-		f.clock.Advance(activityWait)
-		waitFor(t, "activity tick", func() bool { return f.clock.callCount(activityWait) == i+1 })
-	}
-	waitFor(t, "three activity inputs", func() bool { return len(f.activity()) == 3 })
-	start := testStart()
-	want := []int64{start.Unix(), start.Add(activityWait).Unix(), start.Add(2 * activityWait).Unix()}
-	if got := f.activity(); !slices.Equal(got, want) {
-		t.Fatalf("activity inputs = %v, want %v", got, want)
-	}
-	f.finish()
-}
-
-func TestLinkSendsNoActivityWhenInputHasNone(t *testing.T) {
-	f := newFixture(t, func(time.Time) (int64, bool, error) { return 0, false, nil })
-	f.plan(1, emit(helloLine))
-	f.run()
-
-	waitFor(t, "activity timer", func() bool { return f.clock.pending(activityWait) })
-	f.clock.Advance(activityWait)
-	waitFor(t, "activity tick", func() bool { return f.clock.callCount(activityWait) == 2 })
-	if got := f.activity(); len(got) != 0 {
-		t.Fatalf("activity inputs = %v, want none", got)
-	}
-	f.finish()
-}
-
 func TestLinkRestartsWithBackoffCappedAt60s(t *testing.T) {
-	f := newFixture(t, nil)
+	f := newFixture(t)
 	for n := 1; n <= 8; n++ {
 		f.plan(n, exitFailure)
 	}
@@ -375,7 +317,7 @@ func TestLinkRestartsWithBackoffCappedAt60s(t *testing.T) {
 }
 
 func TestLinkHelloResetsBackoff(t *testing.T) {
-	f := newFixture(t, nil)
+	f := newFixture(t)
 	f.plan(1, exitFailure)
 	f.plan(2, exitFailure)
 	f.plan(3, emit(helloLine)+exitFailure)
@@ -395,7 +337,7 @@ func TestLinkHelloResetsBackoff(t *testing.T) {
 }
 
 func TestLinkLostRunsOnceAt5MinutesAndAgainAfterLaterLoss(t *testing.T) {
-	f := newFixture(t, nil)
+	f := newFixture(t)
 	f.plan(2, emit(helloLine, noticeLine("live"))) // session 2 connects and stays up
 	f.run()
 
@@ -423,16 +365,18 @@ func TestLinkLostRunsOnceAt5MinutesAndAgainAfterLaterLoss(t *testing.T) {
 }
 
 func TestLinkDoesNotRunLostWhileLive(t *testing.T) {
-	f := newFixture(t, nil)
-	// Session 1 says hello, stays live past five minutes, and prints a notice once the test releases it.
-	f.plan(1, emit(helloLine)+`while [ ! -f "$dir/go" ]; do sleep 0.01; done
+	f := newFixture(t)
+	// Session 1 says hello and prints a notice, stays live past five minutes, and prints a second notice once the test
+	// releases it.
+	f.plan(1, emit(helloLine, noticeLine("live"))+`while [ ! -f "$dir/go" ]; do sleep 0.01; done
 `+emit(noticeLine("late")))
 	f.run()
 
-	waitFor(t, "hello", func() bool { return f.clock.callCount(activityWait) == 1 })
+	// The link handles lines in order, so the live notice means the hello has already been handled.
+	waitFor(t, "live notice", func() bool { return f.rec.noticeCount() == 1 })
 	f.clock.Advance(lostWait)
 	writeFile(t, filepath.Join(f.dir, "go"), "")
-	waitFor(t, "late notice", func() bool { return f.rec.noticeCount() == 1 })
+	waitFor(t, "late notice", func() bool { return f.rec.noticeCount() == 2 })
 	if got := f.rec.lostCount(); got != 0 {
 		t.Fatalf("Lost ran %d times while the stream was live, want 0", got)
 	}

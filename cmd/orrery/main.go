@@ -311,10 +311,6 @@ func runDesk(ctx context.Context, opts globals, args []string) error {
 	if *sound == "" {
 		return usagef("desk: --sound is required")
 	}
-	tmux, err := tmuxctl.New(opts.server)
-	if err != nil {
-		return fmt.Errorf("tmux server: %w", err)
-	}
 	executable, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf("desk: %w", err)
@@ -326,9 +322,6 @@ func runDesk(ctx context.Context, opts globals, args []string) error {
 		Socket: opts.daemonSocket,
 		Hosts:  hosts,
 		Sound:  *sound,
-		Input: func(ctx context.Context) (int64, bool, error) {
-			return desk.NewestInput(ctx, tmux)
-		},
 		Clock:  desk.SystemClock{},
 		Logger: slog.New(slog.NewTextHandler(os.Stderr, nil)),
 	})
