@@ -284,6 +284,7 @@ func (r *stepReadoptRig) requireDone(t *testing.T, step *v1.Step) {
 // returns, re-adopts the step after the restart. The turn's return reaches the restarted orreryd, the gate runs once,
 // and the step ends done.
 func TestStepReadoptSigkillDuringTurnEndsDone(t *testing.T) {
+	t.Parallel()
 	r := newStepReadoptRig(t)
 	daemon := r.f.startOrreryd(t, true, "--holder-scope", r.scope)
 	id := r.startStep(t)
@@ -321,6 +322,7 @@ func TestStepReadoptSigkillDuringTurnEndsDone(t *testing.T) {
 // a pool member, leaves the member granted to the same grant after the restart. The gate is not run again, its result
 // lands once, and the member is free once the gate exits.
 func TestStepReadoptSigkillDuringGateHoldsMemberOnce(t *testing.T) {
+	t.Parallel()
 	r := newStepReadoptRig(t)
 	// The turn returns at once, so the gate is the next thing the step runs.
 	stepReadoptTouch(t, r.turnRelease)

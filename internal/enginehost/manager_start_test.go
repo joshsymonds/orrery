@@ -22,6 +22,7 @@ func hasFlagValue(args, flag, value string) bool {
 }
 
 func TestStartPassesModelToClaudeAndResumeOmitsIt(t *testing.T) {
+	t.Parallel()
 	m, path := newTestManager(t, 1, fakeClaudePath(t))
 	dir := t.TempDir()
 	id, err := m.Start(t.Context(), StartRequest{Dir: dir, Prompt: "hi", Model: "haiku"})
@@ -91,6 +92,7 @@ func TestStartRefusesBadModelBeforeStoringOrSpawning(t *testing.T) {
 }
 
 func TestCheckModelAcceptsAliasesAndRefusesOthers(t *testing.T) {
+	t.Parallel()
 	accepted := []string{
 		"",
 		"haiku",

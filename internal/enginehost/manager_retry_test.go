@@ -83,6 +83,7 @@ func isPromptWithID(promptID string) func(store.EngineOp) bool {
 // TestSayRetryAfterCanceledSayRunsPromptOnce cancels a keyed Say while its prompt is held in the writer. The Say
 // returns its context's error, the retry with the same prompt id returns nil, and the prompt is sent once.
 func TestSayRetryAfterCanceledSayRunsPromptOnce(t *testing.T) {
+	t.Parallel()
 	m, gate, path := gatedManager(t, isPromptWithID("p1"))
 	dir := t.TempDir()
 	id, err := m.Start(t.Context(), StartRequest{Dir: dir, Prompt: "hi"})
@@ -125,6 +126,7 @@ func TestSayRetryAfterCanceledSayRunsPromptOnce(t *testing.T) {
 // TestStartRetryAfterCanceledStartRunsOnce cancels a keyed Start while its row is held in the writer. The Start
 // returns its context's error, the retry with the same id returns that id, and one process starts.
 func TestStartRetryAfterCanceledStartRunsOnce(t *testing.T) {
+	t.Parallel()
 	m, gate, path := gatedManager(t, func(op store.EngineOp) bool {
 		add, ok := op.(store.EngineAdd)
 		return ok && add.ID == chosenID
@@ -175,6 +177,7 @@ func TestStartRetryAfterCanceledStartRunsOnce(t *testing.T) {
 // held in the writer. The retry must not return before the attempt ends, must return its result once it does, and the
 // prompt must be sent once.
 func TestRetryWhileAttemptHeldWaitsForItsResult(t *testing.T) {
+	t.Parallel()
 	m, gate, path := gatedManager(t, isPromptWithID("p1"))
 	dir := t.TempDir()
 	id, err := m.Start(t.Context(), StartRequest{Dir: dir, Prompt: "hi"})
@@ -225,6 +228,7 @@ func TestRetryWhileAttemptHeldWaitsForItsResult(t *testing.T) {
 // set, so the next Say claims it and its prompt fails on the closed transport after the prompt is stored. The retry with
 // the same prompt id returns that error and does nothing else, and a Say with a new prompt id resumes the session.
 func TestRetryOfSayFailedAfterStoringReturnsItsError(t *testing.T) {
+	t.Parallel()
 	m, path := newTestManager(t, 1, fakeClaudePath(t))
 	dir := t.TempDir()
 	id, err := m.Start(t.Context(), StartRequest{Dir: dir, Prompt: "hi"})
@@ -288,6 +292,7 @@ func TestRetryOfSayFailedAfterStoringReturnsItsError(t *testing.T) {
 // manager over the same store and writer. The retry with the same prompt id returns an error carrying the reason the
 // store recorded for the failure and does nothing else, and a Say with a new prompt id resumes the session.
 func TestRetryOfSayFailedBeforeRestartReturnsItsReason(t *testing.T) {
+	t.Parallel()
 	sh, err := exec.LookPath("sh")
 	if err != nil {
 		t.Fatalf("find sh: %v", err)
@@ -374,6 +379,7 @@ func TestRetryOfSayFailedBeforeRestartReturnsItsReason(t *testing.T) {
 // TestStartRefusedBeforeStoringFreesItsKey refuses a keyed Start whose directory is missing, before it stores anything.
 // Once the directory exists, the retry with the same id starts the session and gets its first reply.
 func TestStartRefusedBeforeStoringFreesItsKey(t *testing.T) {
+	t.Parallel()
 	m, path := newTestManager(t, 1, fakeClaudePath(t))
 	dir := filepath.Join(t.TempDir(), "later")
 	if _, err := m.Start(t.Context(), StartRequest{ID: chosenID, Dir: dir, Prompt: "hi"}); !errors.Is(err, ErrBadDir) {

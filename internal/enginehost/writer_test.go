@@ -16,6 +16,8 @@ import (
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/store"
+	"github.com/joshsymonds/orrery/internal/storetest"
+
 	// The blank import registers the pure-Go "sqlite" driver the lock test opens a second connection with.
 	_ "modernc.org/sqlite"
 )
@@ -72,6 +74,7 @@ func (a *recordingApplier) waitCalls(t *testing.T, n int) {
 func openStore(t *testing.T) (*store.Store, string) {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "orrery.db")
+	storetest.Seed(t, path)
 	s, err := store.Open(t.Context(), path)
 	if err != nil {
 		t.Fatalf("store.Open: %v", err)
@@ -190,6 +193,7 @@ func prompt(id, text string) store.EngineOp {
 }
 
 func TestFlushStoresEverySessionInOneApplyCallInPutOrder(t *testing.T) {
+	t.Parallel()
 	s, path := openStore(t)
 	addSessions(t, s, "a", "b", "c")
 	applier := &recordingApplier{store: s, notify: make(chan struct{}, 1)}
@@ -226,6 +230,7 @@ func TestFlushStoresEverySessionInOneApplyCallInPutOrder(t *testing.T) {
 }
 
 func TestRepeatedEngineTextWhileQueuedStoresLastTextInOneCall(t *testing.T) {
+	t.Parallel()
 	s, _ := openStore(t)
 	addSessions(t, s, "a")
 	applier := &recordingApplier{store: s, notify: make(chan struct{}, 1)}
@@ -252,6 +257,7 @@ func TestRepeatedEngineTextWhileQueuedStoresLastTextInOneCall(t *testing.T) {
 }
 
 func TestEngineTextAfterItsDoneIsNotCoalescedIntoIt(t *testing.T) {
+	t.Parallel()
 	s, _ := openStore(t)
 	addSessions(t, s, "a")
 	applier := &recordingApplier{store: s, notify: make(chan struct{}, 1)}
@@ -278,6 +284,7 @@ func TestEngineTextAfterItsDoneIsNotCoalescedIntoIt(t *testing.T) {
 }
 
 func TestPutBlocksAtLimitWhileStoreIsLockedAndStoresEveryOpOnce(t *testing.T) {
+	t.Parallel()
 	s, path := openStore(t)
 	addSessions(t, s, "a", "b")
 	applier := &recordingApplier{store: s, notify: make(chan struct{}, 1)}
@@ -322,6 +329,7 @@ func TestPutBlocksAtLimitWhileStoreIsLockedAndStoresEveryOpOnce(t *testing.T) {
 }
 
 func TestCommitReturnsOnlyAfterItsOpsAreStored(t *testing.T) {
+	t.Parallel()
 	s, path := openStore(t)
 	addSessions(t, s, "a")
 	applier := &recordingApplier{store: s, notify: make(chan struct{}, 1)}
@@ -337,6 +345,7 @@ func TestCommitReturnsOnlyAfterItsOpsAreStored(t *testing.T) {
 }
 
 func TestCancelingRunFlushesQueuedOps(t *testing.T) {
+	t.Parallel()
 	s, path := openStore(t)
 	addSessions(t, s, "a", "b")
 	applier := &recordingApplier{store: s, notify: make(chan struct{}, 1)}
@@ -360,6 +369,7 @@ func TestCancelingRunFlushesQueuedOps(t *testing.T) {
 }
 
 func TestPutAndCommitAfterRunStopsReturnErrWriterStopped(t *testing.T) {
+	t.Parallel()
 	s, _ := openStore(t)
 	addSessions(t, s, "a")
 	applier := &recordingApplier{store: s, notify: make(chan struct{}, 1)}
@@ -376,6 +386,7 @@ func TestPutAndCommitAfterRunStopsReturnErrWriterStopped(t *testing.T) {
 }
 
 func TestPutBlockedAtLimitReturnsErrWriterStoppedWhenRunStops(t *testing.T) {
+	t.Parallel()
 	s, path := openStore(t)
 	addSessions(t, s, "a")
 	applier := &recordingApplier{store: s, notify: make(chan struct{}, 1)}
@@ -422,6 +433,7 @@ func (a *gatedApplier) ApplyEngine(ctx context.Context, ops []store.EngineOp, no
 }
 
 func TestPutDuringTheLastFlushReturnsErrWriterStopped(t *testing.T) {
+	t.Parallel()
 	s, path := openStore(t)
 	addSessions(t, s, "a")
 	applier := &gatedApplier{store: s, entered: make(chan struct{}), release: make(chan struct{})}
@@ -473,6 +485,7 @@ func (a *ctxApplier) ApplyEngine(ctx context.Context, ops []store.EngineOp, now 
 // A store write that is canceled mid-commit can report an error although SQLite committed it, and the writer would
 // queue and store it again, so no flush may run on a context that Run's cancellation reaches.
 func TestRunCancelDoesNotCancelATickFlushInFlight(t *testing.T) {
+	t.Parallel()
 	s, path := openStore(t)
 	addSessions(t, s, "a")
 	applier := &ctxApplier{
@@ -524,6 +537,7 @@ func waitQueued(t *testing.T, w *Writer, n int) {
 // A session whose row the retention sync removed must not stall the writer: its op is dropped with a warning, its
 // Commit fails wrapping ErrNoEngineSession, and the other session's op in the same batch is stored that tick.
 func TestMissingEngineSessionDropsItsOpAndStoresTheRest(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	s, path := openStore(t)
 	// Session a's only event is at start. A sync one retention period and a second later removes its row, while session
@@ -597,6 +611,7 @@ func TestMissingEngineSessionDropsItsOpAndStoresTheRest(t *testing.T) {
 // A Commit whose step op names a step with no row must not stall the writer: its op is dropped with a warning naming
 // its session, its Commit fails wrapping ErrNoStep, and the other session's op in the same batch is stored that tick.
 func TestMissingStepDropsItsOpAndStoresTheRest(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	s, path := openStore(t)
 	addSessions(t, s, "a", "b")

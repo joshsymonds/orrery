@@ -66,6 +66,11 @@ const (
 // route.JudgeTimeout, then waitLimit for the rest of the route.
 const judgedLimit = route.JudgeDelay + route.JudgeTimeout + waitLimit
 
+// TestMain builds the binaries the tests run. Every test that leaves the process environment alone runs in parallel:
+// each starts its own tmux server, orreryd and directories, and much of the package's time is idle waiting, such as a
+// route.JudgeDelay or a session start retrying an absent socket for rpcretry.Window. A test that sets the environment
+// with t.Setenv, a store-failure test that bounds a notice's latency, and a test whose subtests are not each a fixture
+// of their own run alone first.
 func TestMain(m *testing.M) {
 	os.Exit(runWithBinaries(m))
 }
@@ -434,6 +439,7 @@ func assertNothingTyped(t *testing.T, client *tmuxctl.Client, name, pane string)
 }
 
 func TestHookForwardsFrameSilently(t *testing.T) {
+	t.Parallel()
 	socket := filepath.Join(t.TempDir(), "orreryd.sock")
 	listener, err := net.Listen("unix", socket)
 	if err != nil {
@@ -483,6 +489,7 @@ func TestHookForwardsFrameSilently(t *testing.T) {
 }
 
 func TestHookAbsentSocketIsSilentWithJunkArgs(t *testing.T) {
+	t.Parallel()
 	absent := filepath.Join(t.TempDir(), "absent.sock")
 	out := runOrrery(t, exampleHookJSON, nil, "--socket", absent, "hook", "--junk", "-x", "extra")
 	wantExit(t, out, 0)
@@ -518,6 +525,7 @@ func TestHookExitsSilentlyWhenGlobalFlagsFail(t *testing.T) {
 }
 
 func TestListJSONPrintsPanes(t *testing.T) {
+	t.Parallel()
 	client, name := newServer(t)
 	pane := startPane(t, client, "sleep 300")
 
@@ -553,6 +561,7 @@ func seenDaemonEnv(t *testing.T) []string {
 }
 
 func TestSeenSetsOption(t *testing.T) {
+	t.Parallel()
 	client, name := newServer(t)
 	pane := startPane(t, client, "sleep 300")
 
@@ -577,6 +586,7 @@ func TestSeenSetsOption(t *testing.T) {
 }
 
 func TestSeenReportsSeenFrame(t *testing.T) {
+	t.Parallel()
 	client, name := newServer(t)
 	pane := startPane(t, client, "sleep 300")
 
@@ -631,6 +641,7 @@ func TestSeenReportsSeenFrame(t *testing.T) {
 }
 
 func TestSendRefusesSendFlagsAfterKeys(t *testing.T) {
+	t.Parallel()
 	client, name := newServer(t)
 	pane := startPane(t, client, "cat")
 
@@ -654,6 +665,7 @@ func TestSendRefusesSendFlagsAfterKeys(t *testing.T) {
 }
 
 func TestSendGuardedKeysRequireMatchingQuestion(t *testing.T) {
+	t.Parallel()
 	client, name := newServer(t)
 	pane := startPane(t, client, "printf '"+exampleQuestion+"\\n'; exec cat")
 	if err := client.SetPaneOption(t.Context(), pane, protocol.OptionQuestion, exampleQuestion); err != nil {
@@ -676,6 +688,7 @@ func TestSendGuardedKeysRequireMatchingQuestion(t *testing.T) {
 }
 
 func TestDebugSummarizeWritesSummaryAndLabel(t *testing.T) {
+	t.Parallel()
 	client, name := newServer(t)
 	pane := startPane(t, client, "sleep 300")
 
@@ -714,6 +727,7 @@ func TestDebugSummarizeWritesSummaryAndLabel(t *testing.T) {
 }
 
 func TestDebugQueueReplayPrintsCountsOnly(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	project := filepath.Join(root, "example-project")
 	if err := os.Mkdir(project, 0o700); err != nil {
@@ -1193,6 +1207,7 @@ func sendHook(t *testing.T, socket, pane, project string, hook map[string]any, e
 }
 
 func TestOrrerydDrivesHooksEndToEnd(t *testing.T) {
+	t.Parallel()
 	client, name := newServer(t)
 	pane := startPane(t, client, "sleep 300")
 
@@ -1302,6 +1317,7 @@ func startSummaryDaemon(t *testing.T, server, script string) (*orreryProcess, st
 }
 
 func TestOrrerydForgetsPaneOnSessionEnd(t *testing.T) {
+	t.Parallel()
 	client, name := newServer(t)
 	pane := startPane(t, client, "sleep 300")
 	daemon, socket, dir := startSummaryDaemon(t, name, slowFakeClaudeScript)
@@ -1336,6 +1352,7 @@ func TestOrrerydForgetsPaneOnSessionEnd(t *testing.T) {
 }
 
 func TestOrrerydAsksLabelAfterSessionEnd(t *testing.T) {
+	t.Parallel()
 	client, name := newServer(t)
 	pane := startPane(t, client, "sleep 300")
 	daemon, socket, dir := startSummaryDaemon(t, name, slowFakeClaudeScript)
@@ -1459,6 +1476,7 @@ func (v viewer) typeKey(t *testing.T) {
 // typed. paneA in window 0 is marked seen when it finishes. paneB in window 1, which the client does not show, stays
 // unseen when it finishes.
 func TestOrrerydMarksViewedPaneSeenOnDone(t *testing.T) {
+	t.Parallel()
 	inner, name := newServer(t)
 	paneA := startPane(t, inner, "sleep 300")
 	if _, err := inner.Run(t.Context(), "new-window", "-d", "-t", "s1:1", "sleep 300"); err != nil {
@@ -1748,6 +1766,7 @@ func TestShellRelativeDirExitsOneWithoutSession(t *testing.T) {
 }
 
 func TestTmuxConfPrintsPluginForBinaryPath(t *testing.T) {
+	t.Parallel()
 	// os.Executable resolves symlinks, so the expected path is the resolved path of the built binary.
 	exe, err := filepath.EvalSymlinks(filepath.Join(os.Getenv(binDirEnv), "orrery"))
 	if err != nil {
@@ -1800,6 +1819,7 @@ func TestTmuxConfPluginSourcesOnPrivateServer(t *testing.T) {
 }
 
 func TestTmuxConfRefusesStrayArgument(t *testing.T) {
+	t.Parallel()
 	// The exit happens before any tmux call, so no server is started.
 	out := runOrrery(t, "", nil, "tmux-conf", "extra")
 	wantExit(t, out, 2)
@@ -1832,6 +1852,7 @@ func prefixServer(t *testing.T) string {
 }
 
 func TestHelpPrintsCardWithServerPrefix(t *testing.T) {
+	t.Parallel()
 	name := prefixServer(t)
 
 	out := runOrrery(t, "", nil, "-L", name, "help")
@@ -1845,6 +1866,7 @@ func TestHelpPrintsCardWithServerPrefix(t *testing.T) {
 }
 
 func TestHelpHTMLPrintsPageWithServerPrefix(t *testing.T) {
+	t.Parallel()
 	name := prefixServer(t)
 
 	out := runOrrery(t, "", nil, "-L", name, "help", "--html")
@@ -1887,6 +1909,7 @@ func TestHelpWithoutServerPrintsCardWithoutPrefix(t *testing.T) {
 }
 
 func TestHelpRefusesExtraArgument(t *testing.T) {
+	t.Parallel()
 	// The exit happens before any tmux call, so no server is started.
 	out := runOrrery(t, "", nil, "help", "extra")
 	wantExit(t, out, 2)
@@ -2162,6 +2185,7 @@ func TestTreeEscInPickerChangesNothing(t *testing.T) {
 }
 
 func TestTreeRefusesMissingClient(t *testing.T) {
+	t.Parallel()
 	out := runOrrery(t, "", nil, "-L", "orrery-integration-unused", "tree")
 	wantExit(t, out, 2)
 	if !strings.Contains(out.stderr, "usage: orrery") || !strings.Contains(out.stderr, "tree --client TTY") {
@@ -2722,6 +2746,7 @@ func TestOpenRemoteDotRefusesWithoutCreating(t *testing.T) {
 }
 
 func TestOpenRefusesIntentWithArgs(t *testing.T) {
+	t.Parallel()
 	out := runOrrery(t, "", nil, "-L", "orrery-integration-unused", "open", "--intent", "two words", "NAME")
 	wantExit(t, out, 2)
 	if !strings.Contains(out.stderr, "--intent takes no ARGS") || !strings.Contains(out.stderr, "usage: orrery") {
@@ -3117,6 +3142,7 @@ func decryptPush(t *testing.T, body []byte, uaPrivate *ecdh.PrivateKey, authSecr
 }
 
 func TestOrrerydPushesEncryptedNotifications(t *testing.T) {
+	t.Parallel()
 	client, name := newServer(t)
 	pane := startPane(t, client, "sleep 300")
 	dir := t.TempDir()
@@ -3149,6 +3175,7 @@ func TestOrrerydPushesEncryptedNotifications(t *testing.T) {
 }
 
 func TestOrrerydPushFailureHidesEndpointURL(t *testing.T) {
+	t.Parallel()
 	client, name := newServer(t)
 	pane := startPane(t, client, "sleep 300")
 	dir := t.TempDir()
@@ -3177,6 +3204,7 @@ func TestOrrerydPushFailureHidesEndpointURL(t *testing.T) {
 }
 
 func TestOrrerydWithoutPushStoreExitsOne(t *testing.T) {
+	t.Parallel()
 	// Without XDG_STATE_HOME or HOME the push store has no path, so orreryd exits before it listens.
 	var env []string
 	for _, entry := range scrubbedEnv() {
@@ -3373,6 +3401,7 @@ func assertServeWrites(t *testing.T, base, stateHome string) {
 }
 
 func TestServeServesAPIOnLoopback(t *testing.T) {
+	t.Parallel()
 	client, name := newServer(t)
 	pane := startPane(t, client, "echo example-screen; sleep 300")
 	waitForScreen(t, client, pane, "example-screen")

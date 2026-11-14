@@ -112,6 +112,7 @@ func changedHas(changes []map[string]string, field, value string) bool {
 }
 
 func TestStartStepRunsAgentWithSchemaAndRecordsRowOpsAndPrompt(t *testing.T) {
+	t.Parallel()
 	m, path := newStepManager(t, 1, fakeClaudePath(t), &fakeSink{})
 	dir := t.TempDir()
 	seen := "1700000000"
@@ -155,6 +156,7 @@ func TestStartStepRunsAgentWithSchemaAndRecordsRowOpsAndPrompt(t *testing.T) {
 }
 
 func TestStartStepCapCountsStepsApartFromSessions(t *testing.T) {
+	t.Parallel()
 	m, _ := newStepManager(t, 2, fakeClaudePath(t), &fakeSink{})
 	if _, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "hi"}); err != nil {
 		t.Fatalf("Start of the session: %v", err)
@@ -178,6 +180,7 @@ func TestStartStepCapCountsStepsApartFromSessions(t *testing.T) {
 }
 
 func TestStepFinishedTurnSendsNoNoticeAndSessionTurnDoes(t *testing.T) {
+	t.Parallel()
 	sink := &fakeSink{}
 	m, path := newStepManager(t, 1, fakeClaudePath(t), sink)
 	if err := m.StartStep(
@@ -208,6 +211,7 @@ func TestStepFinishedTurnSendsNoNoticeAndSessionTurnDoes(t *testing.T) {
 }
 
 func TestStepInterruptedByCloseSendsNoNotice(t *testing.T) {
+	t.Parallel()
 	sink := &fakeSink{}
 	m, path := newStepManager(t, 1, fakeClaudePath(t), sink)
 	if err := m.StartStep(
@@ -230,6 +234,7 @@ func TestStepInterruptedByCloseSendsNoNotice(t *testing.T) {
 }
 
 func TestStepWithUnfindableClaudeFailsWithoutNotice(t *testing.T) {
+	t.Parallel()
 	sink := &fakeSink{}
 	missing := filepath.Join(t.TempDir(), "no-claude")
 	m, path := newStepManager(t, 1, missing, sink)
@@ -257,6 +262,7 @@ func TestStepWithUnfindableClaudeFailsWithoutNotice(t *testing.T) {
 }
 
 func TestSayToStepIsRefusedAndNeverResumes(t *testing.T) {
+	t.Parallel()
 	sink := &fakeSink{}
 	claude := fakeClaudePath(t)
 	m, path := newStepManager(t, 1, claude, sink)

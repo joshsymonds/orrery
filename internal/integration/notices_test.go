@@ -31,6 +31,7 @@ func nextDeskLine(t *testing.T, conn net.Conn, r *bufio.Reader, limit time.Durat
 }
 
 func TestOrrerydStreamsNoticesToTheDesk(t *testing.T) {
+	t.Parallel()
 	client, name := newServer(t)
 	pane := startPane(t, client, "sleep 300")
 	daemon, socket, dir := startSummaryDaemon(t, name, fakeClaudeScript)

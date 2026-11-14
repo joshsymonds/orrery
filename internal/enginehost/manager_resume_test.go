@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/store"
+	"github.com/joshsymonds/orrery/internal/storetest"
 )
 
 // newManagerOn returns a manager with the given cap that runs the claude at claude, keeps its engine rows in the store at
@@ -25,6 +26,7 @@ func newManagerOn(t *testing.T, path string, limit int, claude string, sink Noti
 	if err != nil {
 		t.Fatalf("find sh: %v", err)
 	}
+	storetest.Seed(t, path)
 	s, err := store.Open(t.Context(), path)
 	if err != nil {
 		t.Fatalf("store.Open: %v", err)
@@ -61,6 +63,7 @@ func fakeArgs(t *testing.T, dir string) []string {
 }
 
 func TestSayResumesStoppedSession(t *testing.T) {
+	t.Parallel()
 	m, path := newTestManager(t, 1, fakeClaudePath(t))
 	dir := t.TempDir()
 	id, err := m.Start(t.Context(), StartRequest{Dir: dir, Prompt: "hi"})
@@ -91,6 +94,7 @@ func TestSayResumesStoppedSession(t *testing.T) {
 }
 
 func TestSecondManagerResumesSession(t *testing.T) {
+	t.Parallel()
 	first, path := newTestManager(t, 1, fakeClaudePath(t))
 	dir := t.TempDir()
 	id, err := first.Start(t.Context(), StartRequest{Dir: dir, Prompt: "hi"})
@@ -125,6 +129,7 @@ func TestSecondManagerResumesSession(t *testing.T) {
 }
 
 func TestSayAtCapRefusesAndStoresNothing(t *testing.T) {
+	t.Parallel()
 	m, path := newTestManager(t, 1, fakeClaudePath(t))
 	stoppedDir := t.TempDir()
 	id, err := m.Start(t.Context(), StartRequest{Dir: stoppedDir, Prompt: "hi"})
@@ -228,6 +233,7 @@ func TestSayToBadDirectoryRecordsFailed(t *testing.T) {
 }
 
 func TestConcurrentSaysStartOneProcess(t *testing.T) {
+	t.Parallel()
 	m, path := newTestManager(t, 1, fakeClaudePath(t))
 	dir := t.TempDir()
 	id, err := m.Start(t.Context(), StartRequest{Dir: dir, Prompt: "hi"})

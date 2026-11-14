@@ -9,6 +9,7 @@ import (
 )
 
 func TestStepMonitorSchemaIsFourVerdictObject(t *testing.T) {
+	t.Parallel()
 	var schema struct {
 		Type       string `json:"type"`
 		Properties map[string]struct {
@@ -49,6 +50,7 @@ func TestStepMonitorSchemaIsFourVerdictObject(t *testing.T) {
 }
 
 func TestStepMonitorInputDefinesVerdictsAndCarriesWhyAndRecent(t *testing.T) {
+	t.Parallel()
 	why := "The step has produced no event for ten minutes of model time."
 	got := stepMonitorInput(why, "10:02 bash: go test ./...")
 	for _, want := range []string{
@@ -73,6 +75,7 @@ func TestStepMonitorInputDefinesVerdictsAndCarriesWhyAndRecent(t *testing.T) {
 }
 
 func TestParseStepMonitorReturnsEachVerdict(t *testing.T) {
+	t.Parallel()
 	for _, verdict := range []string{watchVerdictProgressing, watchVerdictLongCommand, watchVerdictLooping, watchVerdictWedged} {
 		raw := json.RawMessage(`{"verdict":"` + verdict + `","doing":"running the suite"}`)
 		gotVerdict, gotDoing, err := parseStepMonitor(raw)
@@ -86,6 +89,7 @@ func TestParseStepMonitorReturnsEachVerdict(t *testing.T) {
 }
 
 func TestParseStepMonitorTrimsDoing(t *testing.T) {
+	t.Parallel()
 	raw := json.RawMessage(`{"verdict":"progressing","doing":"   editing the parser  \t"}`)
 	_, doing, err := parseStepMonitor(raw)
 	if err != nil {
@@ -97,6 +101,7 @@ func TestParseStepMonitorTrimsDoing(t *testing.T) {
 }
 
 func TestParseStepMonitorKeepsOnlyFirstLine(t *testing.T) {
+	t.Parallel()
 	raw := json.RawMessage(`{"verdict":"looping","doing":"  rerunning the build\nthen a second line\n"}`)
 	_, doing, err := parseStepMonitor(raw)
 	if err != nil {
@@ -108,6 +113,7 @@ func TestParseStepMonitorKeepsOnlyFirstLine(t *testing.T) {
 }
 
 func TestParseStepMonitorCutsLongDoingAtTwoHundredBytes(t *testing.T) {
+	t.Parallel()
 	long := strings.Repeat("a", 300)
 	raw, err := json.Marshal(map[string]string{"verdict": "progressing", "doing": long})
 	if err != nil {
@@ -123,6 +129,7 @@ func TestParseStepMonitorCutsLongDoingAtTwoHundredBytes(t *testing.T) {
 }
 
 func TestParseStepMonitorCutsOnRuneBoundary(t *testing.T) {
+	t.Parallel()
 	// A two-byte rune straddling byte 200 must not be split: the cut backs off to 199 bytes.
 	text := strings.Repeat("a", 199) + "\u00e9"
 	raw, err := json.Marshal(map[string]string{"verdict": "wedged", "doing": text})
@@ -142,6 +149,7 @@ func TestParseStepMonitorCutsOnRuneBoundary(t *testing.T) {
 }
 
 func TestParseStepMonitorFailsBadReplies(t *testing.T) {
+	t.Parallel()
 	for name, raw := range map[string]string{
 		"not JSON":           `{"verdict":`,
 		"verdict outside":    `{"verdict":"done","doing":"writing docs"}`,

@@ -59,6 +59,7 @@ func runEpicRefusals(t *testing.T, repo string, refusals []epicRefusal) {
 	t.Helper()
 	for _, tc := range refusals {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			req := epicTestRequest(repo)
 			tc.mutate(req)
 			err := checkEpic(t.Context(), req)
@@ -77,6 +78,7 @@ func runEpicRefusals(t *testing.T, repo string, refusals []epicRefusal) {
 }
 
 func TestCheckEpicAcceptsValidContract(t *testing.T) {
+	t.Parallel()
 	repo := stepGitTestRepo(t)
 	if err := checkEpic(t.Context(), epicTestRequest(repo)); err != nil {
 		t.Fatalf("checkEpic refused a valid contract: %v", err)
@@ -84,6 +86,7 @@ func TestCheckEpicAcceptsValidContract(t *testing.T) {
 }
 
 func TestCheckEpicRefusesContractHead(t *testing.T) {
+	t.Parallel()
 	repo := stepGitTestRepo(t)
 	notRepo := t.TempDir()
 	runEpicRefusals(t, repo, []epicRefusal{
@@ -128,6 +131,7 @@ func TestCheckEpicRefusesContractHead(t *testing.T) {
 }
 
 func TestCheckEpicRefusesFailures(t *testing.T) {
+	t.Parallel()
 	repo := stepGitTestRepo(t)
 	runEpicRefusals(t, repo, []epicRefusal{
 		{
@@ -152,6 +156,7 @@ func TestCheckEpicRefusesFailures(t *testing.T) {
 }
 
 func TestCheckEpicRefusesRequirements(t *testing.T) {
+	t.Parallel()
 	repo := stepGitTestRepo(t)
 	runEpicRefusals(t, repo, []epicRefusal{
 		{
@@ -186,6 +191,7 @@ func TestCheckEpicRefusesRequirements(t *testing.T) {
 }
 
 func TestCheckEpicRefusesPremisesAndAdditions(t *testing.T) {
+	t.Parallel()
 	repo := stepGitTestRepo(t)
 	runEpicRefusals(t, repo, []epicRefusal{
 		{
@@ -220,6 +226,7 @@ func TestCheckEpicRefusesPremisesAndAdditions(t *testing.T) {
 }
 
 func TestCheckEpicRefusesReleaseAndDecisions(t *testing.T) {
+	t.Parallel()
 	repo := stepGitTestRepo(t)
 	runEpicRefusals(t, repo, []epicRefusal{
 		{
@@ -249,6 +256,7 @@ func TestCheckEpicRefusesReleaseAndDecisions(t *testing.T) {
 
 // TestCheckEpicRefusesFirstFailureOnly asserts the refusals are checked in order and only the first is reported.
 func TestCheckEpicRefusesFirstFailureOnly(t *testing.T) {
+	t.Parallel()
 	repo := stepGitTestRepo(t)
 	runEpicRefusals(t, repo, []epicRefusal{
 		{

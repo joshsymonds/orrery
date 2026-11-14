@@ -276,6 +276,7 @@ type turn struct {
 // TestEngineSessionsOffByDefault proves that without --sessions orreryd creates no session socket, and that
 // `orrery session start` names the flag that enables sessions.
 func TestEngineSessionsOffByDefault(t *testing.T) {
+	t.Parallel()
 	f := newEngineFixture(t)
 	daemon := f.startOrreryd(t, false)
 
@@ -294,6 +295,7 @@ func TestEngineSessionsOffByDefault(t *testing.T) {
 
 // TestEngineSessionsSocketMode proves that the session socket is created beside the daemon socket and is private.
 func TestEngineSessionsSocketMode(t *testing.T) {
+	t.Parallel()
 	f := newEngineFixture(t)
 	daemon := f.startOrreryd(t, true)
 
@@ -310,6 +312,7 @@ func TestEngineSessionsSocketMode(t *testing.T) {
 // TestEngineSessionTurns proves start, say, seen and stop end to end: the started session's reply reaches the store,
 // a second prompt gets a second reply, seen is recorded, and stop ends the fake claude.
 func TestEngineSessionTurns(t *testing.T) {
+	t.Parallel()
 	f := newEngineFixture(t)
 	daemon := f.startOrreryd(t, true)
 	dir := f.sessionDir(t, "turns")
@@ -330,6 +333,7 @@ func TestEngineSessionTurns(t *testing.T) {
 // TestEngineSessionAskAnswer proves that a question the fake claude asks is stored as a request and that answer sends
 // the chosen option back, which the reply reports.
 func TestEngineSessionAskAnswer(t *testing.T) {
+	t.Parallel()
 	f := newEngineFixture(t)
 	daemon := f.startOrreryd(t, true)
 	dir := f.sessionDir(t, "ask")
@@ -347,6 +351,7 @@ func TestEngineSessionAskAnswer(t *testing.T) {
 // TestEngineSessionInterrupt proves that interrupt ends a turn that is still streaming, and the store records the turn
 // as ended by the interrupt.
 func TestEngineSessionInterrupt(t *testing.T) {
+	t.Parallel()
 	f := newEngineFixture(t)
 	daemon := f.startOrreryd(t, true)
 	dir := f.sessionDir(t, "interrupt")
@@ -364,6 +369,7 @@ func TestEngineSessionInterrupt(t *testing.T) {
 // TestEngineSessionCap proves that --session-cap 1 refuses a second live start with an error naming the cap, and that
 // the cap frees when the live session stops.
 func TestEngineSessionCap(t *testing.T) {
+	t.Parallel()
 	f := newEngineFixture(t)
 	daemon := f.startOrreryd(t, true, "--session-cap", "1")
 	first := f.sessionDir(t, "first")
@@ -387,6 +393,7 @@ func TestEngineSessionCap(t *testing.T) {
 // TestEngineSessionReplay proves that the events `orrery session watch` prints for a stopped session rebuild its
 // conversation: each prompt is a user turn and each finished assistant text block is an assistant turn.
 func TestEngineSessionReplay(t *testing.T) {
+	t.Parallel()
 	f := newEngineFixture(t)
 	daemon := f.startOrreryd(t, true)
 	dir := f.sessionDir(t, "replay")
@@ -453,6 +460,7 @@ func replayConversation(t *testing.T, lines string) []turn {
 
 // TestEngineSessionShutdown proves that stopping orreryd stops every live session: its fake claude exits.
 func TestEngineSessionShutdown(t *testing.T) {
+	t.Parallel()
 	f := newEngineFixture(t)
 	daemon := f.startOrreryd(t, true)
 	dir := f.sessionDir(t, "shutdown")

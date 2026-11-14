@@ -113,6 +113,7 @@ func requireUndrained(t *testing.T, rig crashRig, sink *fakeSink, obs *stepObser
 }
 
 func TestReadoptStepWithExpectedObserverGoesLive(t *testing.T) {
+	t.Parallel()
 	rig := newStepCrashRig(t, nil)
 	dir := t.TempDir()
 	if err := rig.manager.StartStep(t.Context(), testStep(stepA, dir)); err != nil {
@@ -156,6 +157,7 @@ func TestReadoptStepWithExpectedObserverGoesLive(t *testing.T) {
 }
 
 func TestReadoptStepWithoutExpectedObserverIsCleared(t *testing.T) {
+	t.Parallel()
 	rig := newStepCrashRig(t, nil)
 	dir := t.TempDir()
 	if err := rig.manager.StartStep(t.Context(), stalledStep(stepA, dir)); err != nil {
@@ -190,6 +192,7 @@ func TestReadoptStepWithoutExpectedObserverIsCleared(t *testing.T) {
 }
 
 func TestReadoptStepEndedWhileDownIsClearedNotDrained(t *testing.T) {
+	t.Parallel()
 	rig := newStepCrashRig(t, turnEndTrigger)
 	dir := t.TempDir()
 	startReplyStep(t, rig, dir)
@@ -217,6 +220,7 @@ func TestReadoptStepEndedWhileDownIsClearedNotDrained(t *testing.T) {
 }
 
 func TestReadoptStepUnattachableHolderIsClearedNotDrained(t *testing.T) {
+	t.Parallel()
 	rig := newStepCrashRig(t, turnEndTrigger)
 	dir := t.TempDir()
 	startReplyStep(t, rig, dir)

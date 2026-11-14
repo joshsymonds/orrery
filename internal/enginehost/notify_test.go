@@ -16,6 +16,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/push"
 	"github.com/joshsymonds/orrery/internal/route"
 	"github.com/joshsymonds/orrery/internal/store"
+	"github.com/joshsymonds/orrery/internal/storetest"
 )
 
 const (
@@ -54,6 +55,7 @@ func (f *fakeRouter) Seen(_ context.Context, key notice.Key, seen int64) {
 }
 
 func TestNotifyChangedHandsRouterSessionKey(t *testing.T) {
+	t.Parallel()
 	router := &fakeRouter{}
 	n := NewNotifier(NotifierConfig{Route: router})
 
@@ -193,6 +195,7 @@ func TestNotifyHandsRouterNothingForWorkingAndStopped(t *testing.T) {
 }
 
 func TestNotifyNilRouteIsSkipped(t *testing.T) {
+	t.Parallel()
 	n := NewNotifier(NotifierConfig{})
 	n.Notify(
 		t.Context(),
@@ -203,6 +206,7 @@ func TestNotifyNilRouteIsSkipped(t *testing.T) {
 }
 
 func TestNotifySeenForwardsSessionAndUnixTime(t *testing.T) {
+	t.Parallel()
 	router := &fakeRouter{}
 	n := NewNotifier(NotifierConfig{Route: router})
 
@@ -216,6 +220,7 @@ func TestNotifySeenForwardsSessionAndUnixTime(t *testing.T) {
 }
 
 func TestNotifyIgnoresCancellationOfCallerContext(t *testing.T) {
+	t.Parallel()
 	router := &fakeRouter{}
 	n := NewNotifier(NotifierConfig{Route: router})
 
@@ -311,6 +316,7 @@ func newRestartRig(t *testing.T, rows route.Rows) restartRig {
 // openRestartStore opens the store at path. It closes when the test ends, and closing it again is harmless.
 func openRestartStore(t *testing.T, path string) *store.Store {
 	t.Helper()
+	storetest.Seed(t, path)
 	st, err := store.Open(t.Context(), path)
 	if err != nil {
 		t.Fatalf("store.Open(%q): %v", path, err)
@@ -404,6 +410,7 @@ func TestSessionResumes(t *testing.T) {
 }
 
 func TestRestoreNoticeRebuildsTheNoticeNotifySent(t *testing.T) {
+	t.Parallel()
 	event := Notice{Session: notifierSession, Dir: notifierDir, State: "waiting", Body: "which file?"}
 	capture := &fakeRouter{}
 	NewNotifier(NotifierConfig{Route: capture}).Notify(t.Context(), event)
@@ -445,6 +452,7 @@ func TestRestoreNoticeRebuildsTheNoticeNotifySent(t *testing.T) {
 }
 
 func TestRestoreNoticeRejectsUndecodableData(t *testing.T) {
+	t.Parallel()
 	for _, data := range []string{"{not json", "[]"} {
 		_, err := RestoreNotice(t.Context(), []byte(data), 0)
 		if err == nil {

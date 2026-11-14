@@ -43,6 +43,7 @@ func stopHookInput(t *testing.T, transcript, background string) map[string]any {
 // holds a subagent or workflow sends no Web Push, and a shell task, a monitor task, or no background_tasks member
 // each push one done notification for its pane.
 func TestOrrerydWebPushHonorsStopBackgroundTasks(t *testing.T) {
+	t.Parallel()
 	client, name := newServer(t)
 	cases := []struct {
 		name       string

@@ -213,6 +213,7 @@ func (f *stepCtlFixture) startScopedGate(t *testing.T, steps *Steps, root string
 }
 
 func TestReadoptStepReattachedRunsLoopAndJudgesNextReturnOnce(t *testing.T) {
+	t.Parallel()
 	haiku := NewHaiku(HaikuConfig{
 		Claude:  haikuWriteFake(t, haikuDir(t), haikuFake{stdout: stepReadoptMetLine}),
 		Environ: haikuEnviron(),
@@ -258,6 +259,7 @@ func TestReadoptStepReattachedRunsLoopAndJudgesNextReturnOnce(t *testing.T) {
 }
 
 func TestReadoptStepWhoseHolderIsGoneEndsEngineRestarted(t *testing.T) {
+	t.Parallel()
 	rig := newStepsRig(t, nil, nil)
 	id, wt := rig.startStalledStep(t)
 	pid := fakePID(t, wt)
@@ -305,6 +307,7 @@ func TestReadoptStepWhoseHolderIsGoneEndsEngineRestarted(t *testing.T) {
 }
 
 func TestReadoptStepThatCannotBeRebuiltEndsEngineRestarted(t *testing.T) {
+	t.Parallel()
 	haiku := NewHaiku(HaikuConfig{
 		Claude:  haikuWriteFake(t, haikuDir(t), haikuFake{stdout: stepReadoptMetLine}),
 		Environ: haikuEnviron(),
@@ -349,6 +352,7 @@ func TestReadoptStepThatCannotBeRebuiltEndsEngineRestarted(t *testing.T) {
 }
 
 func TestStepsCloseWithGateScopeLeavesGateRunning(t *testing.T) {
+	t.Parallel()
 	f := newStepCtlFixture(t)
 	root := holderRoot(t)
 	steps := f.newGateScopedSteps(t, root)
@@ -372,6 +376,7 @@ func TestStepsCloseWithGateScopeLeavesGateRunning(t *testing.T) {
 }
 
 func TestStepsStopKillsGateWhenGateScopeIsSet(t *testing.T) {
+	t.Parallel()
 	f := newStepCtlFixture(t)
 	root := holderRoot(t)
 	steps := f.newGateScopedSteps(t, root)
@@ -393,6 +398,7 @@ func TestStepsStopKillsGateWhenGateScopeIsSet(t *testing.T) {
 }
 
 func TestStepsReconcileEndsGatedRowAndClearsItsGateHolder(t *testing.T) {
+	t.Parallel()
 	f := newStepCtlFixture(t)
 	root := holderRoot(t)
 	steps := f.newGateScopedSteps(t, root)
@@ -426,6 +432,7 @@ func TestStepsReconcileEndsGatedRowAndClearsItsGateHolder(t *testing.T) {
 }
 
 func TestReadoptRunRefusesAnAgentGateStep(t *testing.T) {
+	t.Parallel()
 	steps := &Steps{}
 	row := store.StepRow{ID: "0123456789abcdef0123456789abcdef", GateName: "review", ReadOnly: true}
 	if _, err := steps.readoptRun(t.Context(), row); !errors.Is(err, errStepAgentGateRestarted) {

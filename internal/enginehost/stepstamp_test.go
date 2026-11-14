@@ -23,8 +23,6 @@ const stepStampPlain = `{"disableAllHooks":true}`
 // repository.
 func stepStampTestHome(t *testing.T, body string) (string, string) {
 	t.Helper()
-	t.Setenv("GIT_CONFIG_GLOBAL", "/dev/null")
-	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
 	home := t.TempDir()
 	stamped := filepath.Join(home, "stamped")
 	if body != "" {

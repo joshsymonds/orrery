@@ -144,6 +144,7 @@ func TestStepsStartWiresEachRun(t *testing.T) {
 }
 
 func TestStepsStartTripsWatchOnTicks(t *testing.T) {
+	t.Parallel()
 	dir := haikuDir(t)
 	h := NewHaiku(HaikuConfig{Claude: haikuWriteFake(t, dir, haikuFake{stdout: stepWireMonitorLine}),
 		Environ: haikuEnviron()})
@@ -174,6 +175,7 @@ func TestStepsStartTripsWatchOnTicks(t *testing.T) {
 }
 
 func TestStepsStartStopsWatchTicksWhenStepEnds(t *testing.T) {
+	t.Parallel()
 	h := NewHaiku(HaikuConfig{Claude: haikuWriteFake(t, haikuDir(t), haikuFake{stdout: stepWireMonitorLine}),
 		Environ: haikuEnviron()})
 	f, id := stepWireStartOvertime(t, h)

@@ -130,6 +130,7 @@ func recordedArgs(t *testing.T, path string) []string {
 }
 
 func TestStartWithHolderScopeRunsSessionUnderScopedHolder(t *testing.T) {
+	t.Parallel()
 	root := holderRoot(t)
 	record := filepath.Join(t.TempDir(), "argv")
 	m, path := newHolderManager(t, fakeSystemdRunPath(t), root, "FAKE_SYSTEMD_RUN_ARGS="+record)
@@ -165,6 +166,7 @@ func TestStartWithHolderScopeRunsSessionUnderScopedHolder(t *testing.T) {
 }
 
 func TestStartWithHolderScopeFailureFailsWithItsReasonAndRunsNoClaude(t *testing.T) {
+	t.Parallel()
 	const reason = "fake systemd-run refused the scope"
 	root := holderRoot(t)
 	m, path := newHolderManager(t, fakeSystemdRunPath(t), root, "FAKE_SYSTEMD_RUN_FAIL="+reason)
@@ -191,6 +193,7 @@ func TestStartWithHolderScopeFailureFailsWithItsReasonAndRunsNoClaude(t *testing
 }
 
 func TestCloseWithHolderScopeLeavesSessionRunning(t *testing.T) {
+	t.Parallel()
 	root := holderRoot(t)
 	s, path := openStore(t)
 	writer := NewWriter(WriterConfig{Applier: s, Tick: 5 * time.Millisecond})
@@ -234,6 +237,7 @@ func TestCloseWithHolderScopeLeavesSessionRunning(t *testing.T) {
 }
 
 func TestCloseWithoutHolderScopeEndsSession(t *testing.T) {
+	t.Parallel()
 	m, path := newHolderManager(t, "", "")
 	dir := t.TempDir()
 	id, err := m.Start(t.Context(), StartRequest{Dir: dir, Prompt: "hi"})

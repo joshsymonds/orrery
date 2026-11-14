@@ -77,6 +77,7 @@ func gateAssertStillRunning(t *testing.T, pid int, why string) {
 }
 
 func TestGateLeftoversSpareGroupOfPidHeldElsewhere(t *testing.T) {
+	t.Parallel()
 	leader := gateStartLeader(t)
 	start, err := strconv.ParseUint(gateTestStart(t, leader), 10, 64)
 	if err != nil {
@@ -91,6 +92,7 @@ func TestGateLeftoversSpareGroupOfPidHeldElsewhere(t *testing.T) {
 }
 
 func TestGateLeftoversSignalNothingWithoutChildStart(t *testing.T) {
+	t.Parallel()
 	leader := gateStartLeader(t)
 	dir := t.TempDir()
 	gateWriteLeftoverPids(t, dir, leader, "")
@@ -101,6 +103,7 @@ func TestGateLeftoversSignalNothingWithoutChildStart(t *testing.T) {
 }
 
 func TestGateLeftoversKillsGroupOfRecordedChild(t *testing.T) {
+	t.Parallel()
 	child := gateStartLeader(t)
 	dir := t.TempDir()
 	gateWriteLeftoverPids(t, dir, child, gateTestStart(t, child))
@@ -111,6 +114,7 @@ func TestGateLeftoversKillsGroupOfRecordedChild(t *testing.T) {
 }
 
 func TestGateLeftoversKillsMemberLeftByExitedChild(t *testing.T) {
+	t.Parallel()
 	stateDir := gateShortStateDir(t)
 	holderDir, err := holder.SessionDir(filepath.Join(stateDir, gateHoldersName), "leftovers")
 	if err != nil {

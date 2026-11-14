@@ -41,6 +41,7 @@ func scopedFixture(t *testing.T) (*engineFixture, string, string) {
 // unfinished text. A restarted orreryd re-adopts the session at its reconcile: the fake still runs, the row is working with
 // the same text, and the session stops when it is asked to.
 func TestEngineHolderScopeSurvivesStop(t *testing.T) {
+	t.Parallel()
 	f, scope, argsFile := scopedFixture(t)
 
 	daemon := f.startOrreryd(t, true, "--holder-scope", scope)
@@ -95,6 +96,7 @@ func TestEngineHolderScopeSurvivesStop(t *testing.T) {
 // TestEngineHolderScopeSigkillReadoptsStalledTurn proves that a restart after orreryd is killed mid-turn re-adopts the
 // session: its holder and fake claude keep running, and its row stays working with the stalled text.
 func TestEngineHolderScopeSigkillReadoptsStalledTurn(t *testing.T) {
+	t.Parallel()
 	f, scope, _ := scopedFixture(t)
 	daemon := f.startOrreryd(t, true, "--holder-scope", scope)
 	stateDir := filepath.Dir(f.dbPath)
@@ -124,6 +126,7 @@ func TestEngineHolderScopeSigkillReadoptsStalledTurn(t *testing.T) {
 // TestEngineHolderScopeSigkillReadoptsAskedQuestion proves that a restart after orreryd is killed while a question waits
 // re-adopts the session: the question is still open, the answer reaches the fake claude, and the turn finishes.
 func TestEngineHolderScopeSigkillReadoptsAskedQuestion(t *testing.T) {
+	t.Parallel()
 	f, scope, _ := scopedFixture(t)
 	daemon := f.startOrreryd(t, true, "--holder-scope", scope)
 	stateDir := filepath.Dir(f.dbPath)

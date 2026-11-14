@@ -75,6 +75,7 @@ func stampTestRecordedReason(t *testing.T, history store.EngineHistory) string {
 }
 
 func TestStartWithStampPassesStampSettingsAndResumeKeepsThem(t *testing.T) {
+	t.Parallel()
 	home := stampTestHome(t)
 	stampTestWrite(t, filepath.Join(home, "work", ".claude", "settings.json"), stampSettings)
 	dir := filepath.Join(home, "work", "child")
@@ -112,12 +113,10 @@ func TestStartWithStampPassesStampSettingsAndResumeKeepsThem(t *testing.T) {
 }
 
 func TestStepInLinkedWorktreeOfStampedCheckoutPassesStampSettings(t *testing.T) {
+	t.Parallel()
 	home := stampTestHome(t)
 	stampTestWrite(t, filepath.Join(home, "work", ".claude", "settings.json"), stampSettings)
 	writeStepAgents(t, home)
-	// The owner's git config never applies to the repository the test makes.
-	t.Setenv("GIT_CONFIG_GLOBAL", "/dev/null")
-	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
 	checkout := filepath.Join(home, "work", "repo")
 	if err := os.MkdirAll(checkout, 0o755); err != nil {
 		t.Fatal(err)
@@ -156,6 +155,7 @@ func TestStepInLinkedWorktreeOfStampedCheckoutPassesStampSettings(t *testing.T) 
 }
 
 func TestStartWithoutStampPassesNoSettings(t *testing.T) {
+	t.Parallel()
 	home := stampTestHome(t)
 	dir := filepath.Join(home, "plain")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -238,6 +238,7 @@ func TestStartWithoutAbsoluteHomeRefusesBeforeClaude(t *testing.T) {
 }
 
 func TestStartBelowUnparseableStampRecordsFailedAndRunsNoClaude(t *testing.T) {
+	t.Parallel()
 	home := stampTestHome(t)
 	stamp := filepath.Join(home, "work", ".claude", "settings.json")
 	stampTestWrite(t, stamp, `{"env": `)

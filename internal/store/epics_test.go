@@ -79,7 +79,9 @@ func headOnly(row EpicRow) EpicRow {
 
 func openEpicStore(t *testing.T) *Store {
 	t.Helper()
-	s, err := Open(context.Background(), filepath.Join(t.TempDir(), "orrery.db"))
+	path := filepath.Join(t.TempDir(), "orrery.db")
+	seedMigrated(t, path)
+	s, err := Open(context.Background(), path)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}

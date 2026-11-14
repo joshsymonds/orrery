@@ -126,6 +126,8 @@ func haikuWantArgv(settings string) string {
 }
 
 // haikuAwaitFile waits up to 5 seconds for path to exist and fails the test with failMsg when it does not.
+// The haiku tests run serially, unlike the rest of the package, so a loaded parallel run does not eat into this
+// wait for a fake claude to start.
 func haikuAwaitFile(t *testing.T, path, failMsg string) {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)

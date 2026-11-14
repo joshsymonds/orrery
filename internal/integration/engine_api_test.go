@@ -97,6 +97,7 @@ func waitForReplyBlock(t *testing.T, base, id, text string) {
 // TestEngineAPIGuardsControlPaths proves that every Control procedure answers 403 with no login, a stranger's login,
 // or the allowed login without the client header, and admits the allowed login with the client header.
 func TestEngineAPIGuardsControlPaths(t *testing.T) {
+	t.Parallel()
 	f := newEngineFixture(t)
 	daemon := f.startOrreryd(t, true)
 	serve, base := startAPIServe(t, f.env, f.server)
@@ -138,6 +139,7 @@ func TestEngineAPIGuardsControlPaths(t *testing.T) {
 // TestEngineAPIStartUnderHomeReplies proves that a Start in a directory under HOME returns an id, and that the
 // session's reply arrives on Events.Watch as an engine_block.
 func TestEngineAPIStartUnderHomeReplies(t *testing.T) {
+	t.Parallel()
 	f := newEngineFixture(t)
 	daemon := f.startOrreryd(t, true)
 	serve, base := startAPIServe(t, f.env, f.server)
@@ -159,6 +161,7 @@ func TestEngineAPIStartUnderHomeReplies(t *testing.T) {
 
 // TestEngineAPIStartOutsideHomeInvalid proves that a Start in a directory outside HOME answers invalid_argument.
 func TestEngineAPIStartOutsideHomeInvalid(t *testing.T) {
+	t.Parallel()
 	f := newEngineFixture(t)
 	daemon := f.startOrreryd(t, true)
 	f.engineHome(t)
@@ -177,6 +180,7 @@ func TestEngineAPIStartOutsideHomeInvalid(t *testing.T) {
 // TestEngineAPIStartWithoutSessionsUnavailable proves that with orreryd running without --sessions, a Start under HOME
 // answers unavailable.
 func TestEngineAPIStartWithoutSessionsUnavailable(t *testing.T) {
+	t.Parallel()
 	f := newEngineFixture(t)
 	daemon := f.startOrreryd(t, false)
 	serve, base := startAPIServe(t, f.env, f.server)
@@ -194,6 +198,7 @@ func TestEngineAPIStartWithoutSessionsUnavailable(t *testing.T) {
 // TestEngineAPIStartWhenOrreryAway proves that with no orreryd running, a Start under HOME answers unavailable while
 // serve keeps answering.
 func TestEngineAPIStartWhenOrreryAway(t *testing.T) {
+	t.Parallel()
 	f := newEngineFixture(t)
 	serve, base := startAPIServe(t, f.env, f.server)
 	dir := f.homeSessionDir(t)
@@ -209,6 +214,7 @@ func TestEngineAPIStartWhenOrreryAway(t *testing.T) {
 // TestEngineAPIServeStartsWithoutDaemonSocket proves that when no daemon socket resolves, serve still starts and a
 // Start answers unavailable.
 func TestEngineAPIServeStartsWithoutDaemonSocket(t *testing.T) {
+	t.Parallel()
 	f := newEngineFixture(t)
 	f.engineHome(t)
 	env := scrubbedEnv("HOME="+filepath.Join(f.root, "home"), "XDG_STATE_HOME="+filepath.Join(f.root, "state"))
