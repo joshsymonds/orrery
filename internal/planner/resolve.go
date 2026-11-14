@@ -33,7 +33,7 @@ func NewResolver(environ []string, managed string) EnvResolver {
 // Gate returns nil when name resolves to a command gate for epic, from the epic's gates or else the repository's
 // project file. A name that neither defines wraps gates.ErrUnknown. An agent gate is refused.
 func (r EnvResolver) Gate(ctx context.Context, epic store.EpicRow, name string) error {
-	defined, err := defineEpicGates(epic.Gates)
+	defined, err := DefineEpicGates(epic.Gates)
 	if err != nil {
 		return err
 	}
@@ -62,8 +62,8 @@ func (r EnvResolver) Judge(epic store.EpicRow, name string) error {
 	return nil
 }
 
-// defineEpicGates builds each of an epic's gates with gates.Define. A gate that Define refuses is an error that names it.
-func defineEpicGates(epicGates []store.EpicGate) ([]gates.Gate, error) {
+// DefineEpicGates builds each of an epic's gates with gates.Define. A gate that Define refuses is an error that names it.
+func DefineEpicGates(epicGates []store.EpicGate) ([]gates.Gate, error) {
 	defined := make([]gates.Gate, 0, len(epicGates))
 	for _, epicGate := range epicGates {
 		needs := make([]gates.Need, 0, len(epicGate.Needs))
