@@ -7,25 +7,11 @@ import (
 	"net"
 	"path/filepath"
 	"strings"
-	"sync/atomic"
 	"testing"
 	"time"
 )
 
-// clock is a fixed clock whose time a test sets. The hub reads it from its own goroutines, so it is atomic.
-type clock struct{ sec atomic.Int64 }
-
-// newClock returns a clock at start.
-func newClock() *clock {
-	c := &clock{}
-	c.sec.Store(start)
-	return c
-}
-
-func (c *clock) now() time.Time { return time.Unix(c.sec.Load(), 0) }
-
-func (c *clock) set(sec int64) { c.sec.Store(sec) }
-
+// start is a sample web input time, in unix seconds.
 const start = int64(1700000000)
 
 // startHub listens on the notices socket beside a daemon socket and serves hub on it. It returns the socket path and
@@ -126,7 +112,7 @@ func TestTitles(t *testing.T) {
 }
 
 func TestHelloThenNoticesInOrder(t *testing.T) {
-	hub := NewHub("gnomon", newClock().now, nil)
+	hub := NewHub("gnomon", nil)
 	path, _ := startHub(t, hub)
 	c := dial(t, path)
 
@@ -150,7 +136,7 @@ func TestHelloThenNoticesInOrder(t *testing.T) {
 }
 
 func TestQuietNoticeLineCarriesQuietKey(t *testing.T) {
-	hub := NewHub("gnomon", newClock().now, nil)
+	hub := NewHub("gnomon", nil)
 	path, _ := startHub(t, hub)
 	c := dial(t, path)
 	c.readLine()
@@ -163,7 +149,7 @@ func TestQuietNoticeLineCarriesQuietKey(t *testing.T) {
 }
 
 func TestNoticeWithoutQuietHasNoQuietKey(t *testing.T) {
-	hub := NewHub("gnomon", newClock().now, nil)
+	hub := NewHub("gnomon", nil)
 	path, _ := startHub(t, hub)
 	c := dial(t, path)
 	c.readLine()
@@ -176,7 +162,7 @@ func TestNoticeWithoutQuietHasNoQuietKey(t *testing.T) {
 }
 
 func TestTwoStreamsReceiveNotices(t *testing.T) {
-	hub := NewHub("gnomon", newClock().now, nil)
+	hub := NewHub("gnomon", nil)
 	path, _ := startHub(t, hub)
 	a := dial(t, path)
 	b := dial(t, path)
@@ -194,7 +180,7 @@ func TestTwoStreamsReceiveNotices(t *testing.T) {
 }
 
 func TestStalledStreamClosedWhilePostReturns(t *testing.T) {
-	hub := NewHub("gnomon", newClock().now, nil)
+	hub := NewHub("gnomon", nil)
 	path, _ := startHub(t, hub)
 	stalled := dial(t, path)
 	stalled.readLine() // hello, so the stream is registered before the posts
@@ -243,7 +229,7 @@ func (c *client) closeWrite() {
 }
 
 func TestNoticePostedBeforeCloseDelivered(t *testing.T) {
-	hub := NewHub("gnomon", newClock().now, nil)
+	hub := NewHub("gnomon", nil)
 	path, _ := startHub(t, hub)
 	c := dial(t, path)
 	c.readLine()
@@ -259,7 +245,7 @@ func TestNoticePostedBeforeCloseDelivered(t *testing.T) {
 }
 
 func TestCloseStopsAcceptingAndServeReturnsNil(t *testing.T) {
-	hub := NewHub("gnomon", newClock().now, nil)
+	hub := NewHub("gnomon", nil)
 	path, errc := startHub(t, hub)
 	c := dial(t, path)
 	c.readLine()
@@ -280,7 +266,7 @@ func TestCloseStopsAcceptingAndServeReturnsNil(t *testing.T) {
 }
 
 func TestCloseWithStalledStreamReturnsWithin2s(t *testing.T) {
-	hub := NewHub("gnomon", newClock().now, nil)
+	hub := NewHub("gnomon", nil)
 	path, _ := startHub(t, hub)
 	stalled := dial(t, path)
 	stalled.readLine()
@@ -300,95 +286,64 @@ func TestCloseWithStalledStreamReturnsWithin2s(t *testing.T) {
 	stalled.drainToClose("stalled stream after Close")
 }
 
-func TestDeskPresenceWindow(t *testing.T) {
-	clk := newClock()
-	hub := NewHub("gnomon", clk.now, nil)
+func TestDeskPresentWhileStreamOpen(t *testing.T) {
+	hub := NewHub("gnomon", nil)
 	path, _ := startHub(t, hub)
 	c := dial(t, path)
 	c.readLine()
 
-	if input, present := hub.Desk(); present || input != 0 {
-		t.Fatalf("Desk with a stream and no activity = (%d, %v), want (0, false)", input, present)
+	if input, present := hub.Desk(); input != 0 || !present {
+		t.Fatalf("Desk with an open stream and no input = (%d, %v), want (0, true)", input, present)
 	}
 
-	c.write(`{"input":1700000000}` + "\n")
-	waitFor(t, "activity", func() bool {
-		input, present := hub.Desk()
-		return input == start && present
-	})
-
-	clk.set(start + 90)
-	if input, present := hub.Desk(); input != start || !present {
-		t.Fatalf("Desk at 90 s = (%d, %v), want (%d, true)", input, present, start)
-	}
-	clk.set(start + 91)
-	if input, present := hub.Desk(); input != start || present {
-		t.Fatalf("Desk at 91 s = (%d, %v), want (%d, false)", input, present, start)
-	}
-
-	// Activity within 90 s but no open stream is away.
-	clk.set(start + 90)
 	c.closeWrite()
 	waitFor(t, "stream to end", func() bool {
 		_, present := hub.Desk()
 		return !present
 	})
-	if input, present := hub.Desk(); input != start || present {
-		t.Fatalf("Desk with no stream = (%d, %v), want (%d, false)", input, present, start)
+	if input, present := hub.Desk(); input != 0 || present {
+		t.Fatalf("Desk after the stream closed = (%d, %v), want (0, false)", input, present)
 	}
 }
 
 func TestDeskAwayWithoutStream(t *testing.T) {
-	hub := NewHub("gnomon", newClock().now, nil)
+	hub := NewHub("gnomon", nil)
 	if input, present := hub.Desk(); input != 0 || present {
 		t.Fatalf("Desk on a fresh hub = (%d, %v), want (0, false)", input, present)
 	}
 }
 
-func TestDeskReturnsNewestInput(t *testing.T) {
-	hub := NewHub("gnomon", newClock().now, nil)
-	path, _ := startHub(t, hub)
-	c := dial(t, path)
-	c.readLine()
-
-	c.write(`{"input":1700000000}` + "\n")
-	waitFor(t, "first activity", func() bool {
-		input, _ := hub.Desk()
-		return input == start
-	})
-	c.write(`{"input":1700000030}` + "\n")
-	waitFor(t, "second activity", func() bool {
-		input, _ := hub.Desk()
-		return input == start+30
-	})
+func TestInputKeepsNewest(t *testing.T) {
+	hub := NewHub("gnomon", nil)
+	hub.Input(start + 30)
+	hub.Input(start)
+	if input, _ := hub.Desk(); input != start+30 {
+		t.Fatalf("Desk input after %d then %d = %d, want %d", start+30, start, input, start+30)
+	}
+	hub.Input(start + 60)
+	if input, _ := hub.Desk(); input != start+60 {
+		t.Fatalf("Desk input after %d = %d, want %d", start+60, input, start+60)
+	}
 }
 
-func TestMalformedAndNonActivityLinesIgnored(t *testing.T) {
-	clk := newClock()
-	hub := NewHub("gnomon", clk.now, nil)
+func TestDeskLinesAreDiscarded(t *testing.T) {
+	hub := NewHub("gnomon", nil)
 	path, _ := startHub(t, hub)
 	c := dial(t, path)
 	c.readLine()
 
-	c.write(`{"input":1700000000}` + "\n")
-	waitFor(t, "activity", func() bool {
-		input, present := hub.Desk()
-		return input == start && present
-	})
-
-	// These lines follow the activity on the same stream. None may change the desk's input. Closing the write side ends
-	// the stream only after the reader has consumed every line, so the stream ending is the sync point.
-	c.write("not json\n" +
+	// The desk's lines are read and discarded: none sets the hub's input. Closing the write side ends the stream only
+	// after the reader has consumed every line, so the stream ending is the sync point.
+	c.write(`{"input":1700000000}` + "\n" +
+		"not json\n" +
 		`{"kind":"notice","title":"T"}` + "\n" +
-		`{"input":0}` + "\n" +
-		`{"input":-5}` + "\n" +
-		"[]\n")
+		`{"input":-5}` + "\n")
 	c.closeWrite()
 	waitFor(t, "stream to end", func() bool {
 		_, present := hub.Desk()
 		return !present
 	})
-	if input, _ := hub.Desk(); input != start {
-		t.Fatalf("Desk input after ignored lines = %d, want %d", input, start)
+	if input, _ := hub.Desk(); input != 0 {
+		t.Fatalf("Desk input after the desk's lines = %d, want 0", input)
 	}
 }

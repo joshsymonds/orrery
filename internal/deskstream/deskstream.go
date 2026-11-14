@@ -1,12 +1,12 @@
 // Package deskstream serves the desk's notice stream. Each accepted connection gets a hello line, then each notice posted
-// while it is open, as JSON lines. Lines the desk sends back up the same connection report its activity, which sets
-// whether the desk is present. The hub never listens itself: Serve takes a listener the daemon opened.
+// while it is open, as JSON lines. The desk is present while a stream is open. Lines the desk sends back up the same
+// connection are read and discarded. The hub never listens itself: Serve takes a listener the daemon opened.
 package deskstream
 
 import (
-	"bufio"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"path/filepath"
@@ -22,8 +22,6 @@ const (
 )
 
 const (
-	// idleWindow is how long after its last activity the desk counts as present.
-	idleWindow = 90 * time.Second
 	// flushTimeout bounds how long Close lets queued lines reach their streams before it closes them.
 	flushTimeout = 2 * time.Second
 	// queueLen is how many lines a stream may hold unsent. A stream that falls this far behind is closed.
@@ -49,11 +47,6 @@ type Line struct {
 	Quiet bool   `json:"quiet,omitempty"`
 }
 
-// Activity is a line the desk sends when its user gives it input. Input is unix seconds.
-type Activity struct {
-	Input int64 `json:"input"`
-}
-
 // SocketPath names the notices socket beside the daemon socket, as protocol.SessionSocketPath does.
 func SocketPath(daemonSocket string) string {
 	return filepath.Join(filepath.Dir(daemonSocket), socketName)
@@ -73,10 +66,9 @@ func SessionTitle(project, id string) string {
 	return fmt.Sprintf("%s · session %s", project, string(runes))
 }
 
-// Hub holds the open streams and the desk's last activity. It is safe for concurrent use.
+// Hub holds the open streams and the newest web input. It is safe for concurrent use.
 type Hub struct {
 	host   string
-	now    func() time.Time
 	logger *slog.Logger
 
 	mu      sync.Mutex
@@ -84,7 +76,6 @@ type Hub struct {
 	ln      net.Listener
 	streams map[*subscriber]struct{}
 	input   int64
-	seen    time.Time
 	handler sync.WaitGroup
 }
 
@@ -96,12 +87,12 @@ type subscriber struct {
 	closing bool
 }
 
-// NewHub returns a hub for host that reads the time from now and logs with logger. A nil logger discards.
-func NewHub(host string, now func() time.Time, logger *slog.Logger) *Hub {
+// NewHub returns a hub for host that logs with logger. A nil logger discards.
+func NewHub(host string, logger *slog.Logger) *Hub {
 	if logger == nil {
 		logger = slog.New(slog.DiscardHandler)
 	}
-	return &Hub{host: host, now: now, logger: logger, streams: map[*subscriber]struct{}{}}
+	return &Hub{host: host, logger: logger, streams: map[*subscriber]struct{}{}}
 }
 
 // Serve accepts streams on ln until Close, then returns nil. Any other accept error is returned.
@@ -193,8 +184,16 @@ func (h *Hub) Close() {
 	<-ended
 }
 
-// Desk returns the newest input the desk reported. present is true while a stream is open and activity arrived within
-// idleWindow.
+// Input records the web input at input, unix seconds. The hub keeps the newest input it has been given.
+func (h *Hub) Input(input int64) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if input > h.input {
+		h.input = input
+	}
+}
+
+// Desk returns the newest web input and whether a stream is open.
 func (h *Hub) Desk() (input int64, present bool) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -205,8 +204,7 @@ func (h *Hub) Desk() (input int64, present bool) {
 			break
 		}
 	}
-	present = open && !h.seen.IsZero() && h.now().Sub(h.seen) <= idleWindow
-	return h.input, present
+	return h.input, open
 }
 
 func (h *Hub) isClosed() bool {
@@ -272,32 +270,11 @@ func (h *Hub) write(sub *subscriber, written chan<- struct{}) {
 	}
 }
 
-// read takes the desk's lines until the stream ends.
+// read discards what the desk sends until the stream ends.
 func (h *Hub) read(sub *subscriber) {
-	scanner := bufio.NewScanner(sub.conn)
-	for scanner.Scan() {
-		h.receive(scanner.Bytes())
-	}
-	if err := scanner.Err(); err != nil {
+	if _, err := io.Copy(io.Discard, sub.conn); err != nil {
 		h.logger.Debug("read desk stream", "error", err)
 	}
-}
-
-// receive records a line that is an Activity with positive input. Any other line is logged and ignored.
-func (h *Hub) receive(line []byte) {
-	var activity Activity
-	if err := json.Unmarshal(line, &activity); err != nil {
-		h.logger.Warn("ignored malformed desk line", "error", err)
-		return
-	}
-	if activity.Input <= 0 {
-		h.logger.Debug("ignored desk line", "line", string(line))
-		return
-	}
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	h.input = activity.Input
-	h.seen = h.now()
 }
 
 // dropLocked ends s's queue. The writer sends what is queued and stops. Callers hold h.mu.

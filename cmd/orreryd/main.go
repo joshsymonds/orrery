@@ -309,7 +309,7 @@ func listenSockets(socket string) (net.Listener, net.Listener, error) {
 // startDesk returns a hub for host that serves the desk stream on deskLn in the background. A failure to serve is
 // logged. The caller closes the hub.
 func startDesk(ctx context.Context, host string, deskLn net.Listener, logger *slog.Logger) *deskstream.Hub {
-	desk := deskstream.NewHub(host, time.Now, logger)
+	desk := deskstream.NewHub(host, logger)
 	go func() {
 		if err := desk.Serve(deskLn); err != nil {
 			logger.ErrorContext(ctx, "serve desk stream", "error", err)
@@ -398,6 +398,7 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 		Seen: func(report daemon.SeenReport) {
 			router.Seen(ctx, notice.Key{Pane: report.PaneID}, report.Seen)
 		},
+		Input: desk.Input,
 		Read: func(report daemon.ReadReport) {
 			hub.reads.note(report.PaneID, report.Read)
 		},
