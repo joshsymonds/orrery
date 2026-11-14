@@ -67,7 +67,10 @@ import kotlinx.coroutines.withTimeoutOrNull
 private const val TAG = "PaneScreen"
 private const val POLL_INTERVAL_MILLIS = 1_000L
 private const val STREAM_RECONNECT_MILLIS = 1_000L
-/** Consecutive streams that fail without a delta before the screen polls until its next start. */
+/**
+ * Consecutive streams that fail without a delta before the screen polls until its next start. A stream that ends
+ * UNAVAILABLE does not count.
+ */
 private const val STREAM_FAILURES_BEFORE_POLL = 3
 private const val HEADER_SLIDE_MILLIS = 220
 private const val QUICK_KEYS_FOLD_MILLIS = 180
@@ -182,7 +185,9 @@ fun PaneScreen(
                                         }
                                     }
                                     val gaveUp = ended is OrreryCallException && ended.code == Code.NOT_FOUND
-                                    if (!gaveUp) failures++
+                                    // An UNAVAILABLE end is the server restarting, so the reconnect does not count.
+                                    val restarting = ended is OrreryCallException && ended.code == Code.UNAVAILABLE
+                                    if (!gaveUp && !restarting) failures++
                                     if (gaveUp || failures >= STREAM_FAILURES_BEFORE_POLL) {
                                         // The poll shows the pane from now on, so what the stream held is stale.
                                         held = null

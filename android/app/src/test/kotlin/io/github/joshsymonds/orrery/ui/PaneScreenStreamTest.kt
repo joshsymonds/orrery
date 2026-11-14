@@ -27,6 +27,7 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import java.nio.ByteBuffer
+import java.util.concurrent.atomic.AtomicInteger
 
 private const val PANE_ID = "%3"
 private const val TRANSCRIPT = "synthetic-transcript"
@@ -43,6 +44,8 @@ private const val TIMEOUT_MILLIS = 5_000L
 private const val SHORT_READ_TIMEOUT_MILLIS = 300
 private const val QUIET_MILLIS = 5_000L
 private const val STREAM_PREFIX_BYTES = 5
+// Longer than STREAM_FAILURES_BEFORE_POLL, so a restart that ends this many streams UNAVAILABLE would poll if it counted.
+private const val UNAVAILABLE_ENDS = 4
 private const val VIRTUAL_STEP_MILLIS = 100L
 private const val REAL_PAUSE_MILLIS = 10L
 private const val NANOS_PER_MILLI = 1_000_000L
@@ -170,6 +173,37 @@ class PaneScreenStreamTest {
     }
 
     @Test
+    fun fourUnavailableEndsReconnectWithTheHeldTranscriptAndSeqWithoutPolling() {
+        FakeOrreryServer().use { server ->
+            val starts = AtomicInteger()
+            server.route(STREAM_PATH) {
+                val index = starts.getAndIncrement()
+                if (index < UNAVAILABLE_ENDS) {
+                    val delivered = if (index == 0) listOf(firstDelta("waiting", STREAMED_REPLY)) else emptyList()
+                    Reply.Stream(delivered, StreamEnd.Error(Code.UNAVAILABLE, "synthetic outage"))
+                } else {
+                    Reply.Stream(emptyList(), StreamEnd.HeldWith(keepalive()))
+                }
+            }
+            setScreen(server)
+
+            advanceUntil {
+                streamRequests(server).size == UNAVAILABLE_ENDS + 1 || requestCount(server, PANES_PATH) > 0
+            }
+            val requests = streamRequests(server)
+            assertEquals(UNAVAILABLE_ENDS + 1, requests.size)
+            assertEquals(0, requestCount(server, PANES_PATH))
+            assertEquals(0, requestCount(server, CONVERSATION_PATH))
+            assertEquals(0L, requests[0].after)
+            requests.drop(1).forEach { resumed ->
+                assertEquals(TRANSCRIPT, resumed.transcript)
+                assertEquals(STREAMED_SEQ, resumed.after)
+            }
+            composeRule.waitUntilExactlyOneExists(hasText(STREAMED_REPLY), TIMEOUT_MILLIS)
+        }
+    }
+
+    @Test
     fun stopClosesTheStreamAndTheNextStartOpensANewOne() {
         FakeOrreryServer().use { server ->
             server.route(STREAM_PATH) {
@@ -201,6 +235,34 @@ class PaneScreenStreamTest {
             )
             val client = OrreryClient(server.baseUrl, streamReadTimeoutMillis = SHORT_READ_TIMEOUT_MILLIS)
             setScreen(server, client)
+
+            advanceUntil { requestCount(server, CONVERSATION_PATH) >= 1 }
+            composeRule.waitUntilExactlyOneExists(hasText(POLLED_REPLY), TIMEOUT_MILLIS)
+            assertEquals(3, streamRequests(server).size)
+
+            composeRule.mainClock.advanceTimeBy(QUIET_MILLIS)
+            advanceUntil { requestCount(server, PANES_PATH) >= 2 }
+            assertEquals(3, streamRequests(server).size)
+
+            composeRule.activityRule.scenario.moveToState(Lifecycle.State.CREATED)
+            composeRule.activityRule.scenario.moveToState(Lifecycle.State.RESUMED)
+            advanceUntil { streamRequests(server).size == 4 }
+        }
+    }
+
+    @Test
+    fun threeFailedStreamsWithOtherErrorsFallBackToPollingUntilTheNextStart() {
+        FakeOrreryServer().use { server ->
+            server.route(STREAM_PATH) { Reply.Stream(emptyList(), StreamEnd.Error(Code.INTERNAL_ERROR, "synthetic failure")) }
+            server.respond(PANES_PATH, paneList("waiting"))
+            server.respond(
+                CONVERSATION_PATH,
+                ConversationResponse.newBuilder()
+                    .setOrigin("synthetic origin")
+                    .addItems(replyItem(POLLED_REPLY))
+                    .build(),
+            )
+            setScreen(server)
 
             advanceUntil { requestCount(server, CONVERSATION_PATH) >= 1 }
             composeRule.waitUntilExactlyOneExists(hasText(POLLED_REPLY), TIMEOUT_MILLIS)

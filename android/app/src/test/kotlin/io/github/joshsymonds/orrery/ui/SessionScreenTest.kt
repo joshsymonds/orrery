@@ -377,6 +377,31 @@ class SessionScreenTest {
     }
 
     @Test
+    fun failedStreamEndedUnavailableReconnectsWithTheHeldSeqAsAfter() {
+        FakeOrreryServer().use { server ->
+            serveStreams(
+                server,
+                streamOf(
+                    delta(
+                        seq = 7L,
+                        items = listOf(item("prompt", "synthetic prompt")),
+                        state = stateOf("working"),
+                    ),
+                    end = StreamEnd.Error(Code.UNAVAILABLE, "synthetic outage"),
+                ),
+            )
+            setScreen(server)
+
+            composeRule.waitUntilExactlyOneExists(hasText(REFRESH_FAILED), TIMEOUT_MILLIS)
+            composeRule.waitUntil(TIMEOUT_MILLIS) { watchRequests(server).size >= 2 }
+
+            val reconnect = watchRequests(server)[1]
+            assertEquals(SESSION_ID, reconnect.id)
+            assertEquals(7L, reconnect.after)
+        }
+    }
+
+    @Test
     fun interruptedShowsOnceTheTurnLeavesWorking() {
         FakeOrreryServer().use { server ->
             val gate = Semaphore(0)
