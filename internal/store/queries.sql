@@ -336,6 +336,9 @@ ORDER BY epics.id;
 -- name: UpdateEpicChanged :exec
 UPDATE epics SET changed = ? WHERE id = ?;
 
+-- name: SetEpicBranch :exec
+UPDATE epics SET branch = ? WHERE id = ?;
+
 -- name: InsertEpicFailure :exec
 INSERT INTO epic_failures (epic, position, id, text, rating, response) VALUES (?, ?, ?, ?, ?, ?);
 
@@ -473,6 +476,9 @@ WHERE epic = sqlc.arg(epic) AND seq = sqlc.arg(seq) AND status = 'open'
   AND revision = sqlc.arg(from_revision) AND failure = sqlc.arg(from_failure) AND review = sqlc.arg(from_review)
   AND refs = sqlc.arg(from_refs) AND gate_pos = sqlc.arg(from_gate_pos) AND finding_pos = sqlc.arg(from_finding_pos);
 
+-- name: SetEpicTaskStatus :exec
+UPDATE epic_tasks SET status = sqlc.arg(status) WHERE epic = sqlc.arg(epic) AND seq = sqlc.arg(seq);
+
 -- name: MaxEpicQuestionSeq :one
 SELECT CAST(COALESCE(MAX(seq), 0) AS INTEGER) FROM epic_questions WHERE epic = ?;
 
@@ -532,6 +538,12 @@ SELECT * FROM epic_task_reviews WHERE epic = ? ORDER BY task, attempt, position;
 
 -- name: ListEpicTaskFindings :many
 SELECT * FROM epic_task_findings WHERE epic = ? ORDER BY task, attempt, review, position;
+
+-- name: MaxEpicTellSeq :one
+SELECT CAST(COALESCE(MAX(seq), 0) AS INTEGER) FROM epic_tells WHERE epic = ?;
+
+-- name: InsertEpicTell :exec
+INSERT INTO epic_tells (epic, seq, text, at, told) VALUES (?, ?, ?, ?, 0);
 
 -- name: ListEpicQuestions :many
 SELECT * FROM epic_questions WHERE epic = ? ORDER BY seq;

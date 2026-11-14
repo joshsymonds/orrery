@@ -1218,6 +1218,27 @@ func (q *Queries) InsertEpicTaskRequirement(ctx context.Context, arg InsertEpicT
 	return err
 }
 
+const insertEpicTell = `-- name: InsertEpicTell :exec
+INSERT INTO epic_tells (epic, seq, text, at, told) VALUES (?, ?, ?, ?, 0)
+`
+
+type InsertEpicTellParams struct {
+	Epic string
+	Seq  int64
+	Text string
+	At   int64
+}
+
+func (q *Queries) InsertEpicTell(ctx context.Context, arg InsertEpicTellParams) error {
+	_, err := q.db.ExecContext(ctx, insertEpicTell,
+		arg.Epic,
+		arg.Seq,
+		arg.Text,
+		arg.At,
+	)
+	return err
+}
+
 const insertEpicTrigger = `-- name: InsertEpicTrigger :exec
 INSERT INTO epic_triggers (epic, id, cause, state, turn, created) VALUES (?, ?, ?, ?, ?, ?)
 `
@@ -3522,6 +3543,17 @@ func (q *Queries) MaxEpicTaskSeq(ctx context.Context, epic string) (int64, error
 	return column_1, err
 }
 
+const maxEpicTellSeq = `-- name: MaxEpicTellSeq :one
+SELECT CAST(COALESCE(MAX(seq), 0) AS INTEGER) FROM epic_tells WHERE epic = ?
+`
+
+func (q *Queries) MaxEpicTellSeq(ctx context.Context, epic string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, maxEpicTellSeq, epic)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const maxEpicTurnSeq = `-- name: MaxEpicTurnSeq :one
 SELECT CAST(COALESCE(MAX(seq), 0) AS INTEGER) FROM epic_turns WHERE epic = ?
 `
@@ -3714,6 +3746,20 @@ func (q *Queries) SessionEventsAfter(ctx context.Context, arg SessionEventsAfter
 	return items, nil
 }
 
+const setEpicBranch = `-- name: SetEpicBranch :exec
+UPDATE epics SET branch = ? WHERE id = ?
+`
+
+type SetEpicBranchParams struct {
+	Branch string
+	ID     string
+}
+
+func (q *Queries) SetEpicBranch(ctx context.Context, arg SetEpicBranchParams) error {
+	_, err := q.db.ExecContext(ctx, setEpicBranch, arg.Branch, arg.ID)
+	return err
+}
+
 const setEpicParked = `-- name: SetEpicParked :execrows
 UPDATE epics SET parked = ? WHERE id = ?
 `
@@ -3834,6 +3880,21 @@ func (q *Queries) SetEpicTaskBuild(ctx context.Context, arg SetEpicTaskBuildPara
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const setEpicTaskStatus = `-- name: SetEpicTaskStatus :exec
+UPDATE epic_tasks SET status = ?1 WHERE epic = ?2 AND seq = ?3
+`
+
+type SetEpicTaskStatusParams struct {
+	Status string
+	Epic   string
+	Seq    int64
+}
+
+func (q *Queries) SetEpicTaskStatus(ctx context.Context, arg SetEpicTaskStatusParams) error {
+	_, err := q.db.ExecContext(ctx, setEpicTaskStatus, arg.Status, arg.Epic, arg.Seq)
+	return err
 }
 
 const setEpicTurnResets = `-- name: SetEpicTurnResets :exec
