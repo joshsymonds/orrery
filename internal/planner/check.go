@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"path"
 	"strings"
+
+	"github.com/joshsymonds/orrery/internal/evidence"
 )
 
 // The reasons a refusal gives after its field. Each says what the field must be.
@@ -34,8 +36,9 @@ func Check(ret Return, requirements []string, owned []string) []string {
 	return refusals
 }
 
-// checkTask returns the refusals of one task's fields, in the order title, deliverable, files, requirements, check.
-// named records each well-formed file the plan names, so a later naming of the same file is refused.
+// checkTask returns the refusals of one task's fields, in the order title, deliverable, files, requirements, gate,
+// then each line of the evidence item's form. named records each well-formed file the plan names, so a later naming
+// of the same file is refused.
 func checkTask(i int, task Task, known, taken, named map[string]bool) []string {
 	prefix := fmt.Sprintf(`tasks[%d] "%s"`, i, task.Title)
 	var refusals []string
@@ -58,8 +61,11 @@ func checkTask(i int, task Task, known, taken, named map[string]bool) []string {
 			refusals = append(refusals, fmt.Sprintf("%s requirements[%d]: %s", prefix, k, reasonRequirement))
 		}
 	}
-	if strings.TrimSpace(task.Check) == "" {
-		refusals = append(refusals, prefix+" check: "+reasonEmpty)
+	if strings.TrimSpace(task.Gate) == "" {
+		refusals = append(refusals, prefix+" gate: "+reasonEmpty)
+	}
+	for _, line := range evidence.Check(task.Evidence) {
+		refusals = append(refusals, prefix+" evidence."+line)
 	}
 	return refusals
 }

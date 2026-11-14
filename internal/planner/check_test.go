@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"reflect"
 	"testing"
+
+	"github.com/joshsymonds/orrery/internal/evidence"
 )
 
 // epicRequirements returns the Requirement ids of the epic the tests plan against.
@@ -18,7 +20,13 @@ func validTask(title string, files ...string) Task {
 		Deliverable:  "a deliverable for " + title,
 		Files:        files,
 		Requirements: []string{"R1"},
-		Check:        "a check for " + title,
+		Gate:         "check",
+		Evidence: evidence.Item{
+			Capture:    []string{"scripts/check"},
+			Limit:      60,
+			Conclusion: "a conclusion for " + title,
+			Judge:      "a judge",
+		},
 	}
 }
 
@@ -144,8 +152,8 @@ func TestCheckRefusesEmptyTaskText(t *testing.T) {
 		{"blank title", func(task *Task) { task.Title = "   " }, `tasks[0] "   " title: empty`},
 		{"empty deliverable", func(task *Task) { task.Deliverable = "" }, `tasks[0] "T" deliverable: empty`},
 		{"blank deliverable", func(task *Task) { task.Deliverable = " \t" }, `tasks[0] "T" deliverable: empty`},
-		{"empty check", func(task *Task) { task.Check = "" }, `tasks[0] "T" check: empty`},
-		{"blank check", func(task *Task) { task.Check = "\n" }, `tasks[0] "T" check: empty`},
+		{"empty gate", func(task *Task) { task.Gate = "" }, `tasks[0] "T" gate: empty`},
+		{"blank gate", func(task *Task) { task.Gate = "\n" }, `tasks[0] "T" gate: empty`},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -153,6 +161,57 @@ func TestCheckRefusesEmptyTaskText(t *testing.T) {
 			task := validTask("T", "internal/a.go")
 			tc.mutate(&task)
 			checkLines(t, Check(Return{Tasks: []Task{task}}, epicRequirements(), nil), tc.want)
+		})
+	}
+}
+
+func TestCheckRefusesEvidenceForm(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name     string
+		evidence evidence.Item
+		want     []string
+	}{
+		{
+			name:     "no capture and no supplied files",
+			evidence: evidence.Item{Conclusion: "c", Judge: "j"},
+			want:     []string{`tasks[0] "T" evidence.capture: none, name a capture or supplied files`},
+		},
+		{
+			name:     "blank conclusion",
+			evidence: evidence.Item{Capture: []string{"scripts/check"}, Limit: 60, Conclusion: " ", Judge: "j"},
+			want:     []string{`tasks[0] "T" evidence.conclusion: empty or blank`},
+		},
+		{
+			name:     "blank judge",
+			evidence: evidence.Item{Capture: []string{"scripts/check"}, Limit: 60, Conclusion: "c"},
+			want:     []string{`tasks[0] "T" evidence.judge: empty or blank`},
+		},
+		{
+			name:     "capture program without a slash",
+			evidence: evidence.Item{Capture: []string{"check"}, Limit: 60, Conclusion: "c", Judge: "j"},
+			want:     []string{`tasks[0] "T" evidence.capture[0]: not a path with a / in it`},
+		},
+		{
+			name:     "limit outside the range beside a capture",
+			evidence: evidence.Item{Capture: []string{"scripts/check"}, Conclusion: "c", Judge: "j"},
+			want:     []string{`tasks[0] "T" evidence.limit: 0 is outside 1 to 9223372036 seconds`},
+		},
+		{
+			name: "artifact path outside the repository",
+			evidence: evidence.Item{
+				Capture: []string{"scripts/check"}, Limit: 60, Artifacts: []string{"../out"},
+				Conclusion: "c", Judge: "j",
+			},
+			want: []string{`tasks[0] "T" evidence.artifacts[0]: not a normalized repository-relative file path`},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			task := validTask("T", "internal/a.go")
+			task.Evidence = tc.evidence
+			checkLines(t, Check(Return{Tasks: []Task{task}}, epicRequirements(), nil), tc.want...)
 		})
 	}
 }
@@ -169,12 +228,12 @@ func TestCheckRefusesEachBadFieldOnce(t *testing.T) {
 	t.Parallel()
 	task := validTask("T")
 	task.Title = ""
-	task.Check = ""
+	task.Gate = ""
 	task.Files = nil
 	checkLines(t, Check(Return{Tasks: []Task{task}}, epicRequirements(), nil),
 		`tasks[0] "" title: empty`,
 		`tasks[0] "" files: no files`,
-		`tasks[0] "" check: empty`,
+		`tasks[0] "" gate: empty`,
 	)
 }
 
@@ -216,6 +275,57 @@ func TestParseRoundTripsValidReturn(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("Parse(%s) = %+v, want %+v", raw, got, want)
+	}
+}
+
+// schemaNode is the part of a JSON schema the schema test reads.
+type schemaNode struct {
+	Type                 string                `json:"type"`
+	Items                *schemaNode           `json:"items"`
+	Properties           map[string]schemaNode `json:"properties"`
+	Required             []string              `json:"required"`
+	AdditionalProperties *bool                 `json:"additionalProperties"`
+}
+
+func TestSchemaRequiresGateAndEvidenceOfEachTask(t *testing.T) {
+	t.Parallel()
+	var root schemaNode
+	if err := json.Unmarshal([]byte(Schema), &root); err != nil {
+		t.Fatalf("Schema is not JSON: %v", err)
+	}
+	task := root.Properties["tasks"].Items
+	if task == nil {
+		t.Fatalf("Schema has no tasks items")
+	}
+	wantTask := []string{"title", "deliverable", "files", "requirements", "gate", "evidence"}
+	if !reflect.DeepEqual(task.Required, wantTask) {
+		t.Errorf("task required = %q, want %q", task.Required, wantTask)
+	}
+	if _, ok := task.Properties["check"]; ok {
+		t.Errorf("task still has a check property")
+	}
+	if got := task.Properties["gate"].Type; got != "string" {
+		t.Errorf("gate type = %q, want string", got)
+	}
+
+	ev := task.Properties["evidence"]
+	wantEvidence := []string{"capture", "limit", "artifacts", "supplied", "conclusion", "judge"}
+	if !reflect.DeepEqual(ev.Required, wantEvidence) {
+		t.Errorf("evidence required = %q, want %q", ev.Required, wantEvidence)
+	}
+	if len(ev.Properties) != len(wantEvidence) {
+		t.Errorf("evidence has %d properties, want %d", len(ev.Properties), len(wantEvidence))
+	}
+	for _, name := range wantEvidence {
+		if _, ok := ev.Properties[name]; !ok {
+			t.Errorf("evidence lacks property %q", name)
+		}
+	}
+	if ev.AdditionalProperties == nil || *ev.AdditionalProperties {
+		t.Errorf("evidence additionalProperties = %v, want false", ev.AdditionalProperties)
+	}
+	if got := ev.Properties["limit"].Type; got != "integer" {
+		t.Errorf("evidence limit type = %q, want integer", got)
 	}
 }
 

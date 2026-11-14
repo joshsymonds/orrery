@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/joshsymonds/orrery/internal/evidence"
 	"github.com/joshsymonds/orrery/internal/store/sqlcgen"
 )
 
@@ -23,11 +24,18 @@ func plannedTurn() EpicPlan {
 		Tasks: []EpicTaskInput{
 			{
 				Title: "Write the store", Deliverable: "CompleteTurn stores the plan",
-				Files: []string{"a.go", "b.go"}, Requirements: []string{"R5", "R6"}, Check: "just check",
+				Files: []string{"a.go", "b.go"}, Requirements: []string{"R5", "R6"}, Gate: "check",
+				Evidence: evidence.Item{
+					Capture: []string{"scripts/check"}, Limit: 1800, Artifacts: []string{"out/report.txt"},
+					Conclusion: "the store keeps the plan", Judge: "the store judge",
+				},
 			},
 			{
 				Title: "Read the store", Deliverable: "Reads see the plan",
-				Files: []string{"c.go", "d.go"}, Requirements: []string{"R7", "R8"}, Check: "go test ./internal/store",
+				Files: []string{"c.go", "d.go"}, Requirements: []string{"R7", "R8"}, Gate: "race",
+				Evidence: evidence.Item{
+					Supplied: []string{"docs/read.md"}, Conclusion: "reads see the plan", Judge: "the read judge",
+				},
 			},
 		},
 		Outline:   "Store, then read",
@@ -74,8 +82,12 @@ func TestCompleteTurnStoresEveryRowAndConsumesItsTriggers(t *testing.T) {
 			{id, int64(1), int64(2), "Keep decisions append only"},
 		},
 		"epic_tasks": {
-			{id, int64(1), int64(1), "Write the store", "CompleteTurn stores the plan", "just check", "open"},
-			{id, int64(2), int64(1), "Read the store", "Reads see the plan", "go test ./internal/store", "open"},
+			{id, int64(1), int64(1), "Write the store", "CompleteTurn stores the plan", "open", "check",
+				`{"capture":["scripts/check"],"limit":1800,"artifacts":["out/report.txt"],"supplied":null,` +
+					`"conclusion":"the store keeps the plan","judge":"the store judge"}`},
+			{id, int64(2), int64(1), "Read the store", "Reads see the plan", "open", "race",
+				`{"capture":null,"limit":0,"artifacts":null,"supplied":["docs/read.md"],` +
+					`"conclusion":"reads see the plan","judge":"the read judge"}`},
 		},
 		"epic_task_files": {
 			{id, int64(1), int64(1), "a.go"},
@@ -133,7 +145,9 @@ func TestSecondCompleteTurnContinuesTaskAndQuestionSeqs(t *testing.T) {
 	later := EpicPlan{
 		Tasks: []EpicTaskInput{{
 			Title: "Third task", Deliverable: "Seq continues", Files: []string{"e.go"}, Requirements: []string{"R9"},
-			Check: "just check",
+			Gate: "check", Evidence: evidence.Item{
+				Capture: []string{"scripts/check"}, Limit: 1800, Conclusion: "the third task", Judge: "third judge",
+			},
 		}},
 		Questions: []string{"Is the second turn right?"},
 		Outcome:   "wait",
@@ -148,9 +162,15 @@ func TestSecondCompleteTurnContinuesTaskAndQuestionSeqs(t *testing.T) {
 			{id, int64(1), int64(2), "Keep decisions append only"},
 		},
 		"epic_tasks": {
-			{id, int64(1), int64(1), "Write the store", "CompleteTurn stores the plan", "just check", "open"},
-			{id, int64(2), int64(1), "Read the store", "Reads see the plan", "go test ./internal/store", "open"},
-			{id, int64(3), int64(2), "Third task", "Seq continues", "just check", "open"},
+			{id, int64(1), int64(1), "Write the store", "CompleteTurn stores the plan", "open", "check",
+				`{"capture":["scripts/check"],"limit":1800,"artifacts":["out/report.txt"],"supplied":null,` +
+					`"conclusion":"the store keeps the plan","judge":"the store judge"}`},
+			{id, int64(2), int64(1), "Read the store", "Reads see the plan", "open", "race",
+				`{"capture":null,"limit":0,"artifacts":null,"supplied":["docs/read.md"],` +
+					`"conclusion":"reads see the plan","judge":"the read judge"}`},
+			{id, int64(3), int64(2), "Third task", "Seq continues", "open", "check",
+				`{"capture":["scripts/check"],"limit":1800,"artifacts":null,"supplied":null,` +
+					`"conclusion":"the third task","judge":"third judge"}`},
 		},
 		"epic_task_files": {
 			{id, int64(1), int64(1), "a.go"},

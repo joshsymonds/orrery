@@ -148,8 +148,9 @@ type EpicTask struct {
 	Turn        int64
 	Title       string
 	Deliverable string
-	TaskCheck   string
 	Status      string
+	Gate        string
+	Evidence    string
 }
 
 type EpicTaskFile struct {

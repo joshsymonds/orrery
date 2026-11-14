@@ -9,6 +9,7 @@ import (
 
 	"connectrpc.com/connect"
 
+	"github.com/joshsymonds/orrery/internal/evidence"
 	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
 	"github.com/joshsymonds/orrery/internal/store"
 )
@@ -277,8 +278,21 @@ func taskMessage(task store.EpicTask) *v1.EpicTask {
 		Deliverable:  task.Deliverable,
 		Files:        task.Files,
 		Requirements: task.Requirements,
-		Check:        task.Check,
+		Gate:         task.Gate,
+		Evidence:     evidenceItemMessage(task.Evidence),
 		Status:       task.Status,
+	}
+}
+
+// evidenceItemMessage returns the EvidenceItem message of item.
+func evidenceItemMessage(item evidence.Item) *v1.EvidenceItem {
+	return &v1.EvidenceItem{
+		Capture:    item.Capture,
+		Limit:      item.Limit,
+		Artifacts:  item.Artifacts,
+		Supplied:   item.Supplied,
+		Conclusion: item.Conclusion,
+		Judge:      item.Judge,
 	}
 }
 

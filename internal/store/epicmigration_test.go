@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/pressly/goose/v3"
+
+	"github.com/joshsymonds/orrery/internal/evidence"
 )
 
 // epicTableColumns returns, keyed by table, the columns in declaration order of every table migrations 00014, 00016
@@ -39,7 +41,7 @@ func epicTableColumns() map[string][]string {
 			"epic", "seq", "step", "state", "reason", "seen", "outline", "outcome", "started", "ended",
 		},
 		"epic_turn_decisions":    {"epic", "turn", "position", "text"},
-		"epic_tasks":             {"epic", "seq", "turn", "title", "deliverable", "task_check", "status"},
+		"epic_tasks":             {"epic", "seq", "turn", "title", "deliverable", "status", "gate", "evidence"},
 		"epic_task_files":        {"epic", "task", "position", "path"},
 		"epic_task_requirements": {"epic", "task", "position", "requirement"},
 		"epic_questions":         {"epic", "seq", "turn", "text", "state"},
@@ -385,6 +387,81 @@ func TestEpicStoredAtVersion16ReadsBackWithEmptyEvidence(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("epic stored at version 16 = %+v, want %+v", got, want)
+	}
+}
+
+// TestEpicTaskStoredAtVersion16MigratesCheckToEvidence stores a task with a check at migration 16 and reads it back
+// after Open migrates the store: the check is the conclusion of its evidence, its gate is empty, and it has no judge.
+func TestEpicTaskStoredAtVersion16MigratesCheckToEvidence(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "orrery.db")
+
+	fixture := openStoreAtVersion(t, path, 16)
+	const id = "orrery-0123456/epic-one"
+	seedEpic(t, fixture, id)
+	if _, err := fixture.ExecContext(ctx, `INSERT INTO epic_tasks
+		(epic, seq, turn, title, deliverable, task_check, status)
+		VALUES (?, 1, 1, 'Build it', 'the migration', 'go test ./x', 'open')`, id); err != nil {
+		fixture.Close()
+		t.Fatalf("seed task: %v", err)
+	}
+	if err := fixture.Close(); err != nil {
+		t.Fatalf("close fixture: %v", err)
+	}
+
+	s, err := Open(ctx, path)
+	if err != nil {
+		t.Fatalf("Open at version 16: %v", err)
+	}
+	defer s.Close()
+
+	got, err := s.Epic(ctx, id)
+	if err != nil {
+		t.Fatalf("Epic: %v", err)
+	}
+	want := []EpicTask{{
+		Seq: 1, Turn: 1, Title: "Build it", Deliverable: "the migration", Status: "open",
+		Evidence: evidence.Item{Conclusion: "go test ./x"},
+	}}
+	if !reflect.DeepEqual(got.Tasks, want) {
+		t.Errorf("tasks stored at version 16 = %+v, want %+v", got.Tasks, want)
+	}
+}
+
+// TestEpicTaskCheckRestoredByEvidenceMigrationDown stores a task with an evidence item at migration 17 and reads its
+// conclusion back as task_check after the Down of 00017_evidence.sql, which drops gate and evidence.
+func TestEpicTaskCheckRestoredByEvidenceMigrationDown(t *testing.T) {
+	ctx := context.Background()
+	s := openEpicStore(t)
+	if _, err := s.db.ExecContext(ctx, `INSERT INTO epic_tasks
+		(epic, seq, turn, title, deliverable, status, gate, evidence)
+		VALUES ('orrery-0123456/epic-one', 1, 1, 'Build it', 'the down', 'open', 'check',
+		'{"capture":["scripts/check"],"limit":60,"artifacts":null,"supplied":null,"conclusion":"go test ./restored",
+		"judge":"a judge"}')`); err != nil {
+		t.Fatalf("insert task: %v", err)
+	}
+
+	migrationsFS, err := fs.Sub(migrationFS, "migrations")
+	if err != nil {
+		t.Fatalf("sub migrations fs: %v", err)
+	}
+	provider, err := goose.NewProvider(goose.DialectSQLite3, s.db, migrationsFS)
+	if err != nil {
+		t.Fatalf("create goose provider: %v", err)
+	}
+	if _, err := provider.DownTo(ctx, 16); err != nil {
+		t.Fatalf("DownTo 16: %v", err)
+	}
+
+	var check string
+	if err := s.db.QueryRowContext(ctx, `SELECT task_check FROM epic_tasks WHERE seq = 1`).Scan(&check); err != nil {
+		t.Fatalf("read task_check after Down: %v", err)
+	}
+	if want := "go test ./restored"; check != want {
+		t.Errorf("task_check after Down = %q, want %q", check, want)
+	}
+	if columns := columnsOf(t, s, "epic_tasks"); hasAny(columns, "gate", "evidence") {
+		t.Errorf("epic_tasks columns after Down = %v, want no gate or evidence", columns)
 	}
 }
 

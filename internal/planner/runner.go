@@ -178,9 +178,13 @@ func (r *Runner) startStep(ctx context.Context, epic string, turn store.EpicTurn
 	if err != nil {
 		return "", fmt.Errorf("read triggers of turn %d of epic %s: %w", turn.Seq, epic, err)
 	}
+	prompt, err := Prompt(row, turn.Seq, triggers)
+	if err != nil {
+		return "", fmt.Errorf("render prompt of turn %d of epic %s: %w", turn.Seq, epic, err)
+	}
 	id, err := r.steps.Start(ctx, enginehost.StepStart{
 		Agent:       agent,
-		Prompt:      Prompt(row, turn.Seq, triggers),
+		Prompt:      prompt,
 		Schema:      Schema,
 		Workspace:   row.Repository,
 		ReadOnly:    true,
@@ -395,7 +399,7 @@ func planOf(ret Return) store.EpicPlan {
 	for _, task := range ret.Tasks {
 		tasks = append(tasks, store.EpicTaskInput{
 			Title: task.Title, Deliverable: task.Deliverable, Files: task.Files,
-			Requirements: task.Requirements, Check: task.Check,
+			Requirements: task.Requirements, Gate: task.Gate, Evidence: task.Evidence,
 		})
 	}
 	return store.EpicPlan{

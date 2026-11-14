@@ -986,7 +986,7 @@ func (q *Queries) InsertEpicRequirement(ctx context.Context, arg InsertEpicRequi
 }
 
 const insertEpicTask = `-- name: InsertEpicTask :exec
-INSERT INTO epic_tasks (epic, seq, turn, title, deliverable, task_check, status) VALUES (?, ?, ?, ?, ?, ?, 'open')
+INSERT INTO epic_tasks (epic, seq, turn, title, deliverable, gate, evidence, status) VALUES (?, ?, ?, ?, ?, ?, ?, 'open')
 `
 
 type InsertEpicTaskParams struct {
@@ -995,7 +995,8 @@ type InsertEpicTaskParams struct {
 	Turn        int64
 	Title       string
 	Deliverable string
-	TaskCheck   string
+	Gate        string
+	Evidence    string
 }
 
 func (q *Queries) InsertEpicTask(ctx context.Context, arg InsertEpicTaskParams) error {
@@ -1005,7 +1006,8 @@ func (q *Queries) InsertEpicTask(ctx context.Context, arg InsertEpicTaskParams) 
 		arg.Turn,
 		arg.Title,
 		arg.Deliverable,
-		arg.TaskCheck,
+		arg.Gate,
+		arg.Evidence,
 	)
 	return err
 }
@@ -1957,7 +1959,7 @@ func (q *Queries) ListEpicTaskRequirements(ctx context.Context, epic string) ([]
 }
 
 const listEpicTasks = `-- name: ListEpicTasks :many
-SELECT epic, seq, turn, title, deliverable, task_check, status FROM epic_tasks WHERE epic = ? ORDER BY seq
+SELECT epic, seq, turn, title, deliverable, status, gate, evidence FROM epic_tasks WHERE epic = ? ORDER BY seq
 `
 
 func (q *Queries) ListEpicTasks(ctx context.Context, epic string) ([]EpicTask, error) {
@@ -1975,8 +1977,9 @@ func (q *Queries) ListEpicTasks(ctx context.Context, epic string) ([]EpicTask, e
 			&i.Turn,
 			&i.Title,
 			&i.Deliverable,
-			&i.TaskCheck,
 			&i.Status,
+			&i.Gate,
+			&i.Evidence,
 		); err != nil {
 			return nil, err
 		}

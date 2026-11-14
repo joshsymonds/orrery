@@ -62,7 +62,16 @@ CREATE TABLE evidence_artifacts (
     PRIMARY KEY (run, position)
 );
 
+ALTER TABLE epic_tasks ADD COLUMN gate TEXT NOT NULL DEFAULT '';
+ALTER TABLE epic_tasks ADD COLUMN evidence TEXT NOT NULL DEFAULT '';
+UPDATE epic_tasks SET evidence = json_object('conclusion', task_check, 'judge', '');
+ALTER TABLE epic_tasks DROP COLUMN task_check;
+
 -- +goose Down
+ALTER TABLE epic_tasks ADD COLUMN task_check TEXT NOT NULL DEFAULT '';
+UPDATE epic_tasks SET task_check = COALESCE(json_extract(NULLIF(evidence, ''), '$.conclusion'), '');
+ALTER TABLE epic_tasks DROP COLUMN evidence;
+ALTER TABLE epic_tasks DROP COLUMN gate;
 DROP TABLE evidence_artifacts;
 DROP TABLE evidence_runs;
 ALTER TABLE epic_requirements DROP COLUMN item;

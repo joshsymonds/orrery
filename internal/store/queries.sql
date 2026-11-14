@@ -416,7 +416,7 @@ INSERT INTO epic_turn_decisions (epic, turn, position, text) VALUES (?, ?, ?, ?)
 SELECT CAST(COALESCE(MAX(seq), 0) AS INTEGER) FROM epic_tasks WHERE epic = ?;
 
 -- name: InsertEpicTask :exec
-INSERT INTO epic_tasks (epic, seq, turn, title, deliverable, task_check, status) VALUES (?, ?, ?, ?, ?, ?, 'open');
+INSERT INTO epic_tasks (epic, seq, turn, title, deliverable, gate, evidence, status) VALUES (?, ?, ?, ?, ?, ?, ?, 'open');
 
 -- name: InsertEpicTaskFile :exec
 INSERT INTO epic_task_files (epic, task, position, path) VALUES (?, ?, ?, ?);

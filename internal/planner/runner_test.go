@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/enginehost"
+	"github.com/joshsymonds/orrery/internal/evidence"
 	"github.com/joshsymonds/orrery/internal/store"
 	"github.com/joshsymonds/orrery/internal/storetest"
 )
@@ -36,15 +37,27 @@ func claimedAt() time.Time {
 	return time.Unix(1700000500, 0)
 }
 
-// validPlan is a planner return that passes the check: one task on R1 that names a file no task owns.
+// validPlan is a planner return that passes the check: one task on R1 that names a file no task owns, a gate, and an
+// evidence item whose lists are empty.
 const validPlan = `{"status":"done","decisions":["use the store"],` +
 	`"tasks":[{"title":"Build it","deliverable":"the runner","files":["internal/planner/runner.go"],` +
-	`"requirements":["R1"],"check":"go test"}],"outline":"one task","questions":["which store?"],"outcome":"work"}`
+	`"requirements":["R1"],"gate":"check","evidence":{"capture":["scripts/check"],"limit":60,"artifacts":[],` +
+	`"supplied":[],"conclusion":"the runner runs","judge":"a judge"}}],"outline":"one task","questions":["which store?"],` +
+	`"outcome":"work"}`
+
+// runnerEvidenceItem returns the evidence item validPlan's task stores and reads back as.
+func runnerEvidenceItem() evidence.Item {
+	return evidence.Item{
+		Capture: []string{"scripts/check"}, Limit: 60, Artifacts: []string{}, Supplied: []string{},
+		Conclusion: "the runner runs", Judge: "a judge",
+	}
+}
 
 // unknownRequirementPlan is validPlan with its task on R9, which the epic does not have.
 const unknownRequirementPlan = `{"status":"done","decisions":[],` +
 	`"tasks":[{"title":"Build it","deliverable":"the runner","files":["internal/planner/runner.go"],` +
-	`"requirements":["R9"],"check":"go test"}],"outline":"one task","questions":[],"outcome":"work"}`
+	`"requirements":["R9"],"gate":"check","evidence":{"capture":["scripts/check"],"limit":60,"artifacts":[],` +
+	`"supplied":[],"conclusion":"the runner runs","judge":"a judge"}}],"outline":"one task","questions":[],"outcome":"work"}`
 
 // fakeSteps is a Steps whose steps end when the test ends them. It records each start.
 type fakeSteps struct {
@@ -238,7 +251,7 @@ func TestRunnerClaimsOneTurnAndStartsReadOnlyPlannerStep(t *testing.T) {
 	if start.Epic != runnerEpicID {
 		t.Errorf("step Epic = %q, want %q", start.Epic, runnerEpicID)
 	}
-	if want := Prompt(epic, 1, triggers); start.Prompt != want {
+	if want := promptOf(t, epic, 1, triggers); start.Prompt != want {
 		t.Errorf("step Prompt differs from Prompt of the claimed turn:\n got %s\nwant %s", start.Prompt, want)
 	}
 	if start.ReturnCheck == nil {
@@ -295,7 +308,7 @@ func TestRunnerDoneReturnStoresTasksAndConsumesTrigger(t *testing.T) {
 	}
 	wantTasks := []store.EpicTask{{
 		Seq: 1, Turn: 1, Title: "Build it", Deliverable: "the runner", Files: []string{"internal/planner/runner.go"},
-		Requirements: []string{"R1"}, Check: "go test", Status: "open",
+		Requirements: []string{"R1"}, Gate: "check", Evidence: runnerEvidenceItem(), Status: "open",
 	}}
 	if !reflect.DeepEqual(epic.Tasks, wantTasks) {
 		t.Errorf("tasks = %+v, want %+v", epic.Tasks, wantTasks)
@@ -475,10 +488,12 @@ func TestReturnCheckRefusesFilesOfUnfinishedTasksOnly(t *testing.T) {
 	check := returnCheck(epic)
 	const touchA = `{"status":"done","decisions":[],` +
 		`"tasks":[{"title":"Touch a","deliverable":"d","files":["internal/a.go"],` +
-		`"requirements":["R1"],"check":"go test"}],"outline":"o","questions":[],"outcome":"work"}`
+		`"requirements":["R1"],"gate":"check","evidence":{"capture":["scripts/check"],"limit":60,"artifacts":[],` +
+		`"supplied":[],"conclusion":"c","judge":"j"}}],"outline":"o","questions":[],"outcome":"work"}`
 	const touchB = `{"status":"done","decisions":[],` +
 		`"tasks":[{"title":"Touch b","deliverable":"d","files":["internal/b.go"],` +
-		`"requirements":["R1"],"check":"go test"}],"outline":"o","questions":[],"outcome":"work"}`
+		`"requirements":["R1"],"gate":"check","evidence":{"capture":["scripts/check"],"limit":60,"artifacts":[],` +
+		`"supplied":[],"conclusion":"c","judge":"j"}}],"outline":"o","questions":[],"outcome":"work"}`
 
 	want := []string{`tasks[0] "Touch a" files[0]: owned by an unfinished task`}
 	if got := check(json.RawMessage(touchA)); !reflect.DeepEqual(got, want) {

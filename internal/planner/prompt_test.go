@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/joshsymonds/orrery/internal/evidence"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -52,7 +53,10 @@ func syntheticEpic() store.EpicRow {
 		Tasks: []store.EpicTask{{
 			Seq: 1, Turn: 1, Title: "a task", Deliverable: "a deliverable",
 			Files: []string{"internal/planner/prompt.go"}, Requirements: []string{"R1"},
-			Check: "go test", Status: "open",
+			Gate: "check", Evidence: evidence.Item{
+				Capture: []string{"scripts/check"}, Limit: 60, Conclusion: "the task is done", Judge: "a judge",
+			},
+			Status: "open",
 		}},
 		Questions: []store.EpicQuestion{{Seq: 1, Turn: 1, Text: "which store?", State: "open"}},
 	}
@@ -64,6 +68,16 @@ func syntheticTriggers() []store.EpicTrigger {
 		{ID: "created", Cause: "epic created", State: "claimed", Turn: 2},
 		{ID: "answered-1", Cause: "owner answered Q1", State: "claimed", Turn: 2},
 	}
+}
+
+// promptOf returns the prompt of turn of epic, and fails the test when it cannot be rendered.
+func promptOf(t *testing.T, epic store.EpicRow, turn int64, triggers []store.EpicTrigger) string {
+	t.Helper()
+	prompt, err := Prompt(epic, turn, triggers)
+	if err != nil {
+		t.Fatalf("Prompt of turn %d: %v", turn, err)
+	}
+	return prompt
 }
 
 // inOrder asserts that each of wants occurs in got after the one before it.
@@ -81,7 +95,7 @@ func inOrder(t *testing.T, got string, wants ...string) {
 
 func TestPromptOpensWithRoleThenEverySectionInOrder(t *testing.T) {
 	t.Parallel()
-	prompt := Prompt(syntheticEpic(), 2, syntheticTriggers())
+	prompt := promptOf(t, syntheticEpic(), 2, syntheticTriggers())
 	if !strings.HasPrefix(prompt, strings.TrimRight(role, "\n")) {
 		t.Fatalf("prompt does not open with the role text")
 	}
@@ -132,7 +146,9 @@ func TestPromptOpensWithRoleThenEverySectionInOrder(t *testing.T) {
 		"  deliverable: a deliverable",
 		"  files: internal/planner/prompt.go",
 		"  requirements: R1",
-		"  check: go test",
+		"  gate: check",
+		`  evidence: {"capture":["scripts/check"],"limit":60,"artifacts":null,"supplied":null,`+
+			`"conclusion":"the task is done","judge":"a judge"}`,
 		"## Triggers",
 		"- created: epic created",
 		"- answered-1: owner answered Q1",
@@ -145,7 +161,7 @@ func TestPromptFirstTurnHasNoNewNotesOrFailureButListsEveryDecision(t *testing.T
 	t.Parallel()
 	epic := syntheticEpic()
 	epic.Turns = []store.EpicTurn{{Seq: 1, State: "running"}}
-	prompt := Prompt(epic, 1, syntheticTriggers())
+	prompt := promptOf(t, epic, 1, syntheticTriggers())
 	inOrder(t, prompt,
 		"## Decisions",
 		"- D1: seed one",
@@ -174,7 +190,7 @@ func TestPromptSkipsFreeTurnWhenFindingLastTurn(t *testing.T) {
 			{Seq: 3, State: "running", Seen: 3},
 		},
 	}
-	prompt := Prompt(epic, 3, nil)
+	prompt := promptOf(t, epic, 3, nil)
 	want := "## New notes\n- n2: note two\n- n3: note three\n\n## Open questions\nNone.\n"
 	if !strings.Contains(prompt, want) {
 		t.Fatalf("prompt lacks %q: a free turn must not set the new notes", want)
