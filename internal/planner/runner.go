@@ -240,32 +240,38 @@ func (r *Runner) resume(ctx context.Context, epic string, seq int64, id string) 
 	r.finish(ctx, epic, seq, id)
 }
 
-// finish waits until step id ends and settles turn seq of epic by that end. A wait that fails fails the turn with its
-// error. Once ctx has ended, the turn is left running for the next start.
+// finish waits until step id ends and settles turn seq of epic by that end. Once ctx has ended, the turn is left
+// running for the next start.
 func (r *Runner) finish(ctx context.Context, epic string, seq int64, id string) {
-	ended, err := r.await(ctx, id)
-	if err != nil {
-		r.fail(ctx, epic, seq, err.Error())
+	ended, ok := r.await(ctx, id)
+	if !ok {
 		return
 	}
-	if ctx.Err() != nil {
-		return
-	}
-	if err = r.settle(ctx, epic, seq, id, ended); err != nil {
+	if err := r.settle(ctx, epic, seq, id, ended); err != nil {
 		r.logger.ErrorContext(ctx, "settle planner turn", "epic", epic, "turn", seq, "err", err)
 	}
 }
 
-// await waits until the step id ends and returns its row. Each Wait lasts a minute, and a Wait that times out is
-// repeated.
-func (r *Runner) await(ctx context.Context, id string) (store.StepRow, error) {
+// await waits until the step id ends and returns its row, and reports false once ctx has ended. Each Wait lasts a
+// minute, and a Wait that times out is repeated. A Wait that fails is logged and repeated after a tick, since the step
+// may still be running.
+func (r *Runner) await(ctx context.Context, id string) (store.StepRow, bool) {
 	for {
 		ended, _, err := r.steps.Wait(ctx, []string{id}, waitInterval)
+		if ctx.Err() != nil {
+			return store.StepRow{}, false
+		}
 		if err != nil {
-			return store.StepRow{}, fmt.Errorf("wait for step %s: %w", id, err)
+			r.logger.ErrorContext(ctx, "wait for planner step", "step", id, "err", err)
+			select {
+			case <-ctx.Done():
+				return store.StepRow{}, false
+			case <-time.After(r.tick):
+			}
+			continue
 		}
 		if ended != nil {
-			return *ended, nil
+			return *ended, true
 		}
 	}
 }
