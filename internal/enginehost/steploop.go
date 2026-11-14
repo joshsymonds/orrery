@@ -440,13 +440,8 @@ func (r *stepRun) judge(ctx context.Context, round int, value json.RawMessage) b
 			}
 		}
 	}
-	if r.agentGate != nil && schemaErr == nil {
-		var check store.StepCheck
-		check, verdict = r.assertionsCheck(round, value)
-		checks = append(checks, check)
-	}
-	if r.returnCheck != nil && schemaErr == nil {
-		checks = append(checks, stepLoopReturnRecord(round, r.returnCheck(value)))
+	if schemaErr == nil {
+		checks, verdict = r.valueChecks(round, value, checks)
 	}
 	ret := store.StepReturn{ID: r.id, Result: string(value), Checks: checks}
 	if err := r.writer.Commit(ctx, r.id, ret, r.loopState()); err != nil {
@@ -471,6 +466,22 @@ func (r *stepRun) judge(ctx context.Context, round int, value json.RawMessage) b
 	}
 	r.finish(ctx, stepLoopEndReturned, head.Status, "")
 	return false
+}
+
+// valueChecks appends the checks a schema-valid return of round runs on its value to checks: an agent gate step's
+// assertions, whose verdict it returns, and a step's return check.
+func (r *stepRun) valueChecks(round int, value json.RawMessage,
+	checks []store.StepCheck) ([]store.StepCheck, verdictReturn) {
+	var verdict verdictReturn
+	if r.agentGate != nil {
+		var check store.StepCheck
+		check, verdict = r.assertionsCheck(round, value)
+		checks = append(checks, check)
+	}
+	if r.returnCheck != nil {
+		checks = append(checks, stepLoopReturnRecord(round, r.returnCheck(value)))
+	}
+	return checks, verdict
 }
 
 // endDoneReturn ends a done return whose checks all passed. A step with a return check ends done without a judge call,
