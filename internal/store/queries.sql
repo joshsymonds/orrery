@@ -390,6 +390,12 @@ UPDATE epic_triggers SET state = 'claimed', turn = ? WHERE epic = ? AND state = 
 -- name: SetEpicTurnStep :execrows
 UPDATE epic_turns SET step = ? WHERE epic = ? AND seq = ? AND state = 'running';
 
+-- name: SetEpicTurnStop :exec
+UPDATE epic_turns SET stop = 1 WHERE epic = ? AND seq = ? AND state = 'running';
+
+-- name: GetEpicTurnStop :one
+SELECT stop FROM epic_turns WHERE epic = ? AND seq = ?;
+
 -- name: CompleteEpicTurn :execrows
 UPDATE epic_turns SET state = 'succeeded', outline = ?, outcome = ?, ended = ? WHERE epic = ? AND seq = ? AND state = 'running';
 
@@ -424,7 +430,10 @@ UPDATE epic_turns SET state = ?, reason = ?, ended = ? WHERE epic = ? AND seq = 
 UPDATE epic_triggers SET state = 'pending', turn = 0 WHERE epic = ? AND turn = ? AND state = 'claimed';
 
 -- name: ListRecentEpicTurnStates :many
-SELECT state FROM epic_turns WHERE epic = ? AND state <> 'free' ORDER BY seq DESC LIMIT 3;
+SELECT state FROM epic_turns
+WHERE epic = sqlc.arg(epic) AND state <> 'free'
+  AND seq > (SELECT epics.retried FROM epics WHERE epics.id = sqlc.arg(epic))
+ORDER BY seq DESC LIMIT 3;
 
 -- name: SetEpicParked :execrows
 UPDATE epics SET parked = ? WHERE id = ?;
@@ -432,11 +441,20 @@ UPDATE epics SET parked = ? WHERE id = ?;
 -- name: PauseEpic :exec
 UPDATE epics SET paused = 1 WHERE id = ?;
 
+-- name: ResumeEpic :exec
+UPDATE epics SET paused = 0 WHERE id = ?;
+
+-- name: RetryEpic :exec
+UPDATE epics SET parked = '', retried = ? WHERE id = ?;
+
 -- name: ListEpicTurns :many
 SELECT * FROM epic_turns WHERE epic = ? ORDER BY seq;
 
 -- name: ListRunningEpicTurns :many
 SELECT * FROM epic_turns WHERE state = 'running' ORDER BY epic, seq;
+
+-- name: GetRunningEpicTurn :one
+SELECT * FROM epic_turns WHERE epic = ? AND state = 'running';
 
 -- name: ListEpicTurnDecisionsOf :many
 SELECT * FROM epic_turn_decisions WHERE epic = ? AND turn = ? ORDER BY position;

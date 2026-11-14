@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"time"
@@ -244,12 +243,9 @@ func (s *Store) ClaimTurn(ctx context.Context, epic string, at time.Time) (EpicT
 // checkClaimable returns ErrNoEpic for an unknown epic, and ErrNotClaimable when the epic is paused or parked, has a
 // running turn, or has no pending trigger.
 func checkClaimable(ctx context.Context, queries *sqlcgen.Queries, epic string) error {
-	head, err := queries.GetEpic(ctx, epic)
-	if errors.Is(err, sql.ErrNoRows) {
-		return fmt.Errorf("epic %s: %w", epic, ErrNoEpic)
-	}
+	head, err := epicHead(ctx, queries, epic)
 	if err != nil {
-		return fmt.Errorf("get epic %s: %w", epic, err)
+		return err
 	}
 	if head.Paused != 0 || head.Parked != "" {
 		return fmt.Errorf("epic %s is paused or parked: %w", epic, ErrNotClaimable)

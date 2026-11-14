@@ -475,6 +475,22 @@ func (q *Queries) GetEpicQuestion(ctx context.Context, arg GetEpicQuestionParams
 	return i, err
 }
 
+const getEpicTurnStop = `-- name: GetEpicTurnStop :one
+SELECT stop FROM epic_turns WHERE epic = ? AND seq = ?
+`
+
+type GetEpicTurnStopParams struct {
+	Epic string
+	Seq  int64
+}
+
+func (q *Queries) GetEpicTurnStop(ctx context.Context, arg GetEpicTurnStopParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, getEpicTurnStop, arg.Epic, arg.Seq)
+	var stop int64
+	err := row.Scan(&stop)
+	return stop, err
+}
+
 const getNoticeIDFloor = `-- name: GetNoticeIDFloor :one
 SELECT high FROM pending_notice_ids WHERE id = 1
 `
@@ -484,6 +500,31 @@ func (q *Queries) GetNoticeIDFloor(ctx context.Context) (int64, error) {
 	var high int64
 	err := row.Scan(&high)
 	return high, err
+}
+
+const getRunningEpicTurn = `-- name: GetRunningEpicTurn :one
+SELECT epic, seq, step, state, reason, seen, outline, outcome, started, ended, told, stop, resets FROM epic_turns WHERE epic = ? AND state = 'running'
+`
+
+func (q *Queries) GetRunningEpicTurn(ctx context.Context, epic string) (EpicTurn, error) {
+	row := q.db.QueryRowContext(ctx, getRunningEpicTurn, epic)
+	var i EpicTurn
+	err := row.Scan(
+		&i.Epic,
+		&i.Seq,
+		&i.Step,
+		&i.State,
+		&i.Reason,
+		&i.Seen,
+		&i.Outline,
+		&i.Outcome,
+		&i.Started,
+		&i.Ended,
+		&i.Told,
+		&i.Stop,
+		&i.Resets,
+	)
+	return i, err
 }
 
 const getSession = `-- name: GetSession :one
@@ -2428,7 +2469,10 @@ func (q *Queries) ListPushedNotices(ctx context.Context) ([]PushedNotice, error)
 }
 
 const listRecentEpicTurnStates = `-- name: ListRecentEpicTurnStates :many
-SELECT state FROM epic_turns WHERE epic = ? AND state <> 'free' ORDER BY seq DESC LIMIT 3
+SELECT state FROM epic_turns
+WHERE epic = ?1 AND state <> 'free'
+  AND seq > (SELECT epics.retried FROM epics WHERE epics.id = ?1)
+ORDER BY seq DESC LIMIT 3
 `
 
 func (q *Queries) ListRecentEpicTurnStates(ctx context.Context, epic string) ([]string, error) {
@@ -2735,6 +2779,29 @@ func (q *Queries) ReleaseEpicTriggers(ctx context.Context, arg ReleaseEpicTrigge
 	return err
 }
 
+const resumeEpic = `-- name: ResumeEpic :exec
+UPDATE epics SET paused = 0 WHERE id = ?
+`
+
+func (q *Queries) ResumeEpic(ctx context.Context, id string) error {
+	_, err := q.db.ExecContext(ctx, resumeEpic, id)
+	return err
+}
+
+const retryEpic = `-- name: RetryEpic :exec
+UPDATE epics SET parked = '', retried = ? WHERE id = ?
+`
+
+type RetryEpicParams struct {
+	Retried int64
+	ID      string
+}
+
+func (q *Queries) RetryEpic(ctx context.Context, arg RetryEpicParams) error {
+	_, err := q.db.ExecContext(ctx, retryEpic, arg.Retried, arg.ID)
+	return err
+}
+
 const sessionEventsAfter = `-- name: SessionEventsAfter :many
 SELECT seq, session_id, kind, at, payload, write_id FROM events
 WHERE session_id = ? AND seq > ?
@@ -2824,6 +2891,20 @@ func (q *Queries) SetEpicTurnStep(ctx context.Context, arg SetEpicTurnStepParams
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const setEpicTurnStop = `-- name: SetEpicTurnStop :exec
+UPDATE epic_turns SET stop = 1 WHERE epic = ? AND seq = ? AND state = 'running'
+`
+
+type SetEpicTurnStopParams struct {
+	Epic string
+	Seq  int64
+}
+
+func (q *Queries) SetEpicTurnStop(ctx context.Context, arg SetEpicTurnStopParams) error {
+	_, err := q.db.ExecContext(ctx, setEpicTurnStop, arg.Epic, arg.Seq)
+	return err
 }
 
 const updateEngineConsumed = `-- name: UpdateEngineConsumed :execrows
