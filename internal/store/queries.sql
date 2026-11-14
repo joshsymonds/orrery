@@ -493,6 +493,23 @@ UPDATE epic_questions SET state = 'answered' WHERE epic = ? AND seq = ?;
 -- name: ListEpicTurnTriggers :many
 SELECT * FROM epic_triggers WHERE epic = ? AND turn = ? ORDER BY id;
 
+-- name: ListEpicsWithTurns :many
+SELECT * FROM epics
+WHERE EXISTS (SELECT 1 FROM epic_turns WHERE epic_turns.epic = epics.id)
+ORDER BY epics.id;
+
+-- name: GetLatestEndedEpicTurn :one
+SELECT * FROM epic_turns WHERE epic = ? AND state <> 'running' ORDER BY seq DESC LIMIT 1;
+
+-- name: CountEpicQuestionsOfTurn :one
+SELECT CAST(COUNT(*) AS INTEGER) FROM epic_questions WHERE epic = ? AND turn = ?;
+
+-- name: MarkEpicTurnTold :execrows
+UPDATE epic_turns SET told = 1 WHERE epic = ? AND seq = ?;
+
+-- name: SetEpicTurnResets :exec
+UPDATE epic_turns SET resets = ? WHERE epic = ? AND seq = ?;
+
 -- name: UpsertEngineRateLimit :exec
 INSERT INTO engine_rate_limits (session_id, status, kind, resets_at, at) VALUES (?, ?, ?, ?, ?)
 ON CONFLICT (session_id)

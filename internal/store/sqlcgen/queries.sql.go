@@ -101,6 +101,22 @@ func (q *Queries) CountEpic(ctx context.Context, id string) (int64, error) {
 	return count, err
 }
 
+const countEpicQuestionsOfTurn = `-- name: CountEpicQuestionsOfTurn :one
+SELECT CAST(COUNT(*) AS INTEGER) FROM epic_questions WHERE epic = ? AND turn = ?
+`
+
+type CountEpicQuestionsOfTurnParams struct {
+	Epic string
+	Turn int64
+}
+
+func (q *Queries) CountEpicQuestionsOfTurn(ctx context.Context, arg CountEpicQuestionsOfTurnParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countEpicQuestionsOfTurn, arg.Epic, arg.Turn)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const countMemberGrants = `-- name: CountMemberGrants :one
 SELECT COUNT(*) FROM grant_members WHERE member = ?
 `
@@ -498,6 +514,31 @@ func (q *Queries) GetEpicTurnStop(ctx context.Context, arg GetEpicTurnStopParams
 	var stop int64
 	err := row.Scan(&stop)
 	return stop, err
+}
+
+const getLatestEndedEpicTurn = `-- name: GetLatestEndedEpicTurn :one
+SELECT epic, seq, step, state, reason, seen, outline, outcome, started, ended, told, stop, resets FROM epic_turns WHERE epic = ? AND state <> 'running' ORDER BY seq DESC LIMIT 1
+`
+
+func (q *Queries) GetLatestEndedEpicTurn(ctx context.Context, epic string) (EpicTurn, error) {
+	row := q.db.QueryRowContext(ctx, getLatestEndedEpicTurn, epic)
+	var i EpicTurn
+	err := row.Scan(
+		&i.Epic,
+		&i.Seq,
+		&i.Step,
+		&i.State,
+		&i.Reason,
+		&i.Seen,
+		&i.Outline,
+		&i.Outcome,
+		&i.Started,
+		&i.Ended,
+		&i.Told,
+		&i.Stop,
+		&i.Resets,
+	)
+	return i, err
 }
 
 const getNoticeIDFloor = `-- name: GetNoticeIDFloor :one
@@ -1966,6 +2007,51 @@ func (q *Queries) ListEpics(ctx context.Context) ([]Epic, error) {
 	return items, nil
 }
 
+const listEpicsWithTurns = `-- name: ListEpicsWithTurns :many
+SELECT id, repository, title, approved, intent, care, approach, release_then, checks, phase, created, changed, paused, parked, retried FROM epics
+WHERE EXISTS (SELECT 1 FROM epic_turns WHERE epic_turns.epic = epics.id)
+ORDER BY epics.id
+`
+
+func (q *Queries) ListEpicsWithTurns(ctx context.Context) ([]Epic, error) {
+	rows, err := q.db.QueryContext(ctx, listEpicsWithTurns)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Epic
+	for rows.Next() {
+		var i Epic
+		if err := rows.Scan(
+			&i.ID,
+			&i.Repository,
+			&i.Title,
+			&i.Approved,
+			&i.Intent,
+			&i.Care,
+			&i.Approach,
+			&i.ReleaseThen,
+			&i.Checks,
+			&i.Phase,
+			&i.Created,
+			&i.Changed,
+			&i.Paused,
+			&i.Parked,
+			&i.Retried,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listEvents = `-- name: ListEvents :many
 SELECT seq, session_id, kind, at, payload, write_id FROM events ORDER BY seq
 `
@@ -2708,6 +2794,23 @@ func (q *Queries) ListUnfinishedEngineText(ctx context.Context) ([]EngineText, e
 	return items, nil
 }
 
+const markEpicTurnTold = `-- name: MarkEpicTurnTold :execrows
+UPDATE epic_turns SET told = 1 WHERE epic = ? AND seq = ?
+`
+
+type MarkEpicTurnToldParams struct {
+	Epic string
+	Seq  int64
+}
+
+func (q *Queries) MarkEpicTurnTold(ctx context.Context, arg MarkEpicTurnToldParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, markEpicTurnTold, arg.Epic, arg.Seq)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const maxEpicDecisionSeq = `-- name: MaxEpicDecisionSeq :one
 SELECT CAST(COALESCE(MAX(seq), 0) AS INTEGER) FROM epic_decisions WHERE epic = ?
 `
@@ -2908,6 +3011,21 @@ type SetEpicQuestionAnsweredParams struct {
 
 func (q *Queries) SetEpicQuestionAnswered(ctx context.Context, arg SetEpicQuestionAnsweredParams) error {
 	_, err := q.db.ExecContext(ctx, setEpicQuestionAnswered, arg.Epic, arg.Seq)
+	return err
+}
+
+const setEpicTurnResets = `-- name: SetEpicTurnResets :exec
+UPDATE epic_turns SET resets = ? WHERE epic = ? AND seq = ?
+`
+
+type SetEpicTurnResetsParams struct {
+	Resets int64
+	Epic   string
+	Seq    int64
+}
+
+func (q *Queries) SetEpicTurnResets(ctx context.Context, arg SetEpicTurnResetsParams) error {
+	_, err := q.db.ExecContext(ctx, setEpicTurnResets, arg.Resets, arg.Epic, arg.Seq)
 	return err
 }
 
