@@ -255,6 +255,7 @@ func TestMCPServesStepToolsOverDaemon(t *testing.T) {
 	want := []string{
 		"step_start", "step_status", "step_stop", "step_wait",
 		"epic_create", "epic_get", "epic_list", "epic_answer",
+		"evidence_run", "evidence_list", "evidence_get",
 	}
 	if !slices.Equal(names, want) {
 		t.Fatalf("tool names = %v, want %v", names, want)
