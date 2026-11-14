@@ -25,6 +25,8 @@ const (
 	EpicsName = "orrery.v1.Epics"
 	// StepsName is the fully-qualified name of the Steps service.
 	StepsName = "orrery.v1.Steps"
+	// EvidenceName is the fully-qualified name of the Evidence service.
+	EvidenceName = "orrery.v1.Evidence"
 )
 
 // These constants are the fully-qualified names of the RPCs defined in this package. They're
@@ -45,6 +47,8 @@ const (
 	StepsNudgeProcedure = "/orrery.v1.Steps/Nudge"
 	// StepsStopProcedure is the fully-qualified name of the Steps's Stop RPC.
 	StepsStopProcedure = "/orrery.v1.Steps/Stop"
+	// EvidenceArtifactProcedure is the fully-qualified name of the Evidence's Artifact RPC.
+	EvidenceArtifactProcedure = "/orrery.v1.Evidence/Artifact"
 )
 
 // EpicsClient is a client for the orrery.v1.Epics service.
@@ -273,4 +277,76 @@ func (UnimplementedStepsHandler) Nudge(context.Context, *connect.Request[v1.Step
 
 func (UnimplementedStepsHandler) Stop(context.Context, *connect.Request[v1.StepsStopRequest]) (*connect.Response[v1.StepsStopResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.v1.Steps.Stop is not implemented"))
+}
+
+// EvidenceClient is a client for the orrery.v1.Evidence service.
+type EvidenceClient interface {
+	// Artifact returns one artifact of an evidence run, or the run's log when the name is empty.
+	Artifact(context.Context, *connect.Request[v1.EvidenceArtifactRequest]) (*connect.Response[v1.EvidenceArtifactResponse], error)
+}
+
+// NewEvidenceClient constructs a client for the orrery.v1.Evidence service. By default, it uses the
+// Connect protocol with the binary Protobuf Codec, asks for gzipped responses, and sends
+// uncompressed requests. To use the gRPC or gRPC-Web protocols, supply the connect.WithGRPC() or
+// connect.WithGRPCWeb() options.
+//
+// The URL supplied here should be the base URL for the Connect or gRPC server (for example,
+// http://api.acme.com or https://acme.com/grpc).
+func NewEvidenceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) EvidenceClient {
+	baseURL = strings.TrimRight(baseURL, "/")
+	evidenceMethods := v1.File_orrery_v1_epics_proto.Services().ByName("Evidence").Methods()
+	return &evidenceClient{
+		artifact: connect.NewClient[v1.EvidenceArtifactRequest, v1.EvidenceArtifactResponse](
+			httpClient,
+			baseURL+EvidenceArtifactProcedure,
+			connect.WithSchema(evidenceMethods.ByName("Artifact")),
+			connect.WithClientOptions(opts...),
+		),
+	}
+}
+
+// evidenceClient implements EvidenceClient.
+type evidenceClient struct {
+	artifact *connect.Client[v1.EvidenceArtifactRequest, v1.EvidenceArtifactResponse]
+}
+
+// Artifact calls orrery.v1.Evidence.Artifact.
+func (c *evidenceClient) Artifact(ctx context.Context, req *connect.Request[v1.EvidenceArtifactRequest]) (*connect.Response[v1.EvidenceArtifactResponse], error) {
+	return c.artifact.CallUnary(ctx, req)
+}
+
+// EvidenceHandler is an implementation of the orrery.v1.Evidence service.
+type EvidenceHandler interface {
+	// Artifact returns one artifact of an evidence run, or the run's log when the name is empty.
+	Artifact(context.Context, *connect.Request[v1.EvidenceArtifactRequest]) (*connect.Response[v1.EvidenceArtifactResponse], error)
+}
+
+// NewEvidenceHandler builds an HTTP handler from the service implementation. It returns the path on
+// which to mount the handler and the handler itself.
+//
+// By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
+// and JSON codecs. They also support gzip compression.
+func NewEvidenceHandler(svc EvidenceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
+	evidenceMethods := v1.File_orrery_v1_epics_proto.Services().ByName("Evidence").Methods()
+	evidenceArtifactHandler := connect.NewUnaryHandler(
+		EvidenceArtifactProcedure,
+		svc.Artifact,
+		connect.WithSchema(evidenceMethods.ByName("Artifact")),
+		connect.WithHandlerOptions(opts...),
+	)
+	return "/orrery.v1.Evidence/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case EvidenceArtifactProcedure:
+			evidenceArtifactHandler.ServeHTTP(w, r)
+		default:
+			http.NotFound(w, r)
+		}
+	})
+}
+
+// UnimplementedEvidenceHandler returns CodeUnimplemented from all methods.
+type UnimplementedEvidenceHandler struct{}
+
+func (UnimplementedEvidenceHandler) Artifact(context.Context, *connect.Request[v1.EvidenceArtifactRequest]) (*connect.Response[v1.EvidenceArtifactResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.v1.Evidence.Artifact is not implemented"))
 }

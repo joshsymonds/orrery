@@ -10,7 +10,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file orrery/v1/epics.proto.
  */
 export const file_orrery_v1_epics: GenFile = /*@__PURE__*/
-  fileDesc("ChVvcnJlcnkvdjEvZXBpY3MucHJvdG8SCW9ycmVyeS52MSISChBFcGljc0xpc3RSZXF1ZXN0IjMKEUVwaWNzTGlzdFJlc3BvbnNlEh4KBWVwaWNzGAEgAygLMg8ub3JyZXJ5LnYxLkVwaWMiHQoPRXBpY3NHZXRSZXF1ZXN0EgoKAmlkGAEgASgJItEBChBFcGljc0dldFJlc3BvbnNlEh0KBGVwaWMYASABKAsyDy5vcnJlcnkudjEuRXBpYxIiCgV0YXNrcxgCIAMoCzITLm9ycmVyeS52MS5FcGljVGFzaxIiCgVzdGVwcxgDIAMoCzITLm9ycmVyeS52MS5FcGljU3RlcBIkCgZzbGljZXMYBCADKAsyFC5vcnJlcnkudjEuRXBpY1NsaWNlEjAKDHJlcXVpcmVtZW50cxgFIAMoCzIaLm9ycmVyeS52MS5FcGljUmVxdWlyZW1lbnQixgEKBEVwaWMSCgoCaWQYASABKAkSEgoKcmVwb3NpdG9yeRgCIAEoCRIMCgRzbHVnGAMgASgJEg8KB291dGNvbWUYBCABKAkSDwoHY2hhbmdlZBgFIAEoAxIMCgRsaXZlGAYgASgIEioKDXJ1bm5pbmdfc3RlcHMYByADKAsyEy5vcnJlcnkudjEuRXBpY1N0ZXASEwoLZW5kZWRfc3RlcHMYCCABKAUSDwoHcHJvYmxlbRgJIAEoCRIOCgZzb3VyY2UYCiABKAkiSQoIRXBpY1Rhc2sSDgoGZWZmb3J0GAEgASgFEgwKBHNsdWcYAiABKAkSDwoHc3ViamVjdBgDIAEoCRIOCgZzdGF0dXMYBCABKAkixwEKCEVwaWNTdGVwEgoKAmlkGAEgASgJEgwKBHRhc2sYAiABKAkSDQoFYWdlbnQYAyABKAkSCwoDZW5kGAQgASgJEg4KBnN0YXR1cxgFIAEoCRIMCgRoZWxkGAYgASgIEg8KB3N0YXJ0ZWQYByABKAMSDQoFZW5kZWQYCCABKAMSDQoFZG9pbmcYCSABKAkSKAoGY2hlY2tzGAogAygLMhgub3JyZXJ5LnYxLkVwaWNTdGVwQ2hlY2sSDgoGcmVhc29uGAsgASgJIjgKDUVwaWNTdGVwQ2hlY2sSDQoFcm91bmQYASABKA0SDAoEbmFtZRgCIAEoCRIKCgJvaxgDIAEoCCKwAQoJRXBpY1NsaWNlEgwKBHRhc2sYASABKAkSCwoDaHVlGAIgASgJEhAKCHJlZF90ZXN0GAMgASgIEg8KB3dvcmtpbmcYBCABKAgSEgoKdGVzdHNfcGFzcxgFIAEoCBIOCgZjaGVja3MYBiABKAgSFQoNZ2F0ZV9hY2NlcHRlZBgHIAEoCBIKCgJhdBgIIAEoBRIMCgRoZWxkGAkgASgIEhAKCGVycm9yX2F0GAogASgFIksKD0VwaWNSZXF1aXJlbWVudBIKCgJpZBgBIAEoCRIMCgR0ZXh0GAIgASgJEhAKCGV2aWRlbmNlGAMgASgJEgwKBGtpbmQYBCABKAkiHgoQU3RlcHNIb2xkUmVxdWVzdBIKCgJpZBgBIAEoCSITChFTdGVwc0hvbGRSZXNwb25zZSItChFTdGVwc051ZGdlUmVxdWVzdBIKCgJpZBgBIAEoCRIMCgR0ZXh0GAIgASgJIhQKElN0ZXBzTnVkZ2VSZXNwb25zZSIeChBTdGVwc1N0b3BSZXF1ZXN0EgoKAmlkGAEgASgJIhMKEVN0ZXBzU3RvcFJlc3BvbnNlMooBCgVFcGljcxJBCgRMaXN0Ehsub3JyZXJ5LnYxLkVwaWNzTGlzdFJlcXVlc3QaHC5vcnJlcnkudjEuRXBpY3NMaXN0UmVzcG9uc2USPgoDR2V0Ehoub3JyZXJ5LnYxLkVwaWNzR2V0UmVxdWVzdBobLm9ycmVyeS52MS5FcGljc0dldFJlc3BvbnNlMtMBCgVTdGVwcxJBCgRIb2xkEhsub3JyZXJ5LnYxLlN0ZXBzSG9sZFJlcXVlc3QaHC5vcnJlcnkudjEuU3RlcHNIb2xkUmVzcG9uc2USRAoFTnVkZ2USHC5vcnJlcnkudjEuU3RlcHNOdWRnZVJlcXVlc3QaHS5vcnJlcnkudjEuU3RlcHNOdWRnZVJlc3BvbnNlEkEKBFN0b3ASGy5vcnJlcnkudjEuU3RlcHNTdG9wUmVxdWVzdBocLm9ycmVyeS52MS5TdGVwc1N0b3BSZXNwb25zZWIGcHJvdG8z");
+  fileDesc("ChVvcnJlcnkvdjEvZXBpY3MucHJvdG8SCW9ycmVyeS52MSISChBFcGljc0xpc3RSZXF1ZXN0IjMKEUVwaWNzTGlzdFJlc3BvbnNlEh4KBWVwaWNzGAEgAygLMg8ub3JyZXJ5LnYxLkVwaWMiHQoPRXBpY3NHZXRSZXF1ZXN0EgoKAmlkGAEgASgJItEBChBFcGljc0dldFJlc3BvbnNlEh0KBGVwaWMYASABKAsyDy5vcnJlcnkudjEuRXBpYxIiCgV0YXNrcxgCIAMoCzITLm9ycmVyeS52MS5FcGljVGFzaxIiCgVzdGVwcxgDIAMoCzITLm9ycmVyeS52MS5FcGljU3RlcBIkCgZzbGljZXMYBCADKAsyFC5vcnJlcnkudjEuRXBpY1NsaWNlEjAKDHJlcXVpcmVtZW50cxgFIAMoCzIaLm9ycmVyeS52MS5FcGljUmVxdWlyZW1lbnQixgEKBEVwaWMSCgoCaWQYASABKAkSEgoKcmVwb3NpdG9yeRgCIAEoCRIMCgRzbHVnGAMgASgJEg8KB291dGNvbWUYBCABKAkSDwoHY2hhbmdlZBgFIAEoAxIMCgRsaXZlGAYgASgIEioKDXJ1bm5pbmdfc3RlcHMYByADKAsyEy5vcnJlcnkudjEuRXBpY1N0ZXASEwoLZW5kZWRfc3RlcHMYCCABKAUSDwoHcHJvYmxlbRgJIAEoCRIOCgZzb3VyY2UYCiABKAkiSQoIRXBpY1Rhc2sSDgoGZWZmb3J0GAEgASgFEgwKBHNsdWcYAiABKAkSDwoHc3ViamVjdBgDIAEoCRIOCgZzdGF0dXMYBCABKAkixwEKCEVwaWNTdGVwEgoKAmlkGAEgASgJEgwKBHRhc2sYAiABKAkSDQoFYWdlbnQYAyABKAkSCwoDZW5kGAQgASgJEg4KBnN0YXR1cxgFIAEoCRIMCgRoZWxkGAYgASgIEg8KB3N0YXJ0ZWQYByABKAMSDQoFZW5kZWQYCCABKAMSDQoFZG9pbmcYCSABKAkSKAoGY2hlY2tzGAogAygLMhgub3JyZXJ5LnYxLkVwaWNTdGVwQ2hlY2sSDgoGcmVhc29uGAsgASgJIjgKDUVwaWNTdGVwQ2hlY2sSDQoFcm91bmQYASABKA0SDAoEbmFtZRgCIAEoCRIKCgJvaxgDIAEoCCKwAQoJRXBpY1NsaWNlEgwKBHRhc2sYASABKAkSCwoDaHVlGAIgASgJEhAKCHJlZF90ZXN0GAMgASgIEg8KB3dvcmtpbmcYBCABKAgSEgoKdGVzdHNfcGFzcxgFIAEoCBIOCgZjaGVja3MYBiABKAgSFQoNZ2F0ZV9hY2NlcHRlZBgHIAEoCBIKCgJhdBgIIAEoBRIMCgRoZWxkGAkgASgIEhAKCGVycm9yX2F0GAogASgFIoUBCg9FcGljUmVxdWlyZW1lbnQSCgoCaWQYASABKAkSDAoEdGV4dBgCIAEoCRIQCghldmlkZW5jZRgDIAEoCRIMCgRraW5kGAQgASgJEiQKBHJ1bnMYBSADKAsyFi5vcnJlcnkudjEuRXZpZGVuY2VSdW4SEgoKY29uY2x1c2lvbhgGIAEoCSKqAgoLRXZpZGVuY2VSdW4SCgoCaWQYASABKAkSDQoFcGhhc2UYAiABKAkSDgoGc291cmNlGAMgASgJEg0KBXN0YXRlGAQgASgJEgwKBGV4aXQYBSABKAUSEQoJdGltZWRfb3V0GAYgASgIEhQKDG5vdF9jYXB0dXJlZBgHIAEoCRIPCgd2ZXJkaWN0GAggASgJEhQKDGp1ZGdlX3JlYXNvbhgJIAEoCRIOCgZwYXNzZWQYCiABKAgSEAoIcmV2aXNpb24YCyABKAkSDwoHY3JlYXRlZBgMIAEoAxINCgVlbmRlZBgNIAEoAxIRCglsb2dfYnl0ZXMYDiABKAMSLgoJYXJ0aWZhY3RzGA8gAygLMhsub3JyZXJ5LnYxLkV2aWRlbmNlQXJ0aWZhY3QiUQoQRXZpZGVuY2VBcnRpZmFjdBIMCgRwYXRoGAEgASgJEg0KBXN0YXRlGAIgASgJEgwKBHNpemUYAyABKAMSEgoKbWVkaWFfdHlwZRgEIAEoCSI0ChdFdmlkZW5jZUFydGlmYWN0UmVxdWVzdBILCgNydW4YASABKAkSDAoEbmFtZRgCIAEoCSI8ChhFdmlkZW5jZUFydGlmYWN0UmVzcG9uc2USDAoEZGF0YRgBIAEoDBISCgptZWRpYV90eXBlGAIgASgJIh4KEFN0ZXBzSG9sZFJlcXVlc3QSCgoCaWQYASABKAkiEwoRU3RlcHNIb2xkUmVzcG9uc2UiLQoRU3RlcHNOdWRnZVJlcXVlc3QSCgoCaWQYASABKAkSDAoEdGV4dBgCIAEoCSIUChJTdGVwc051ZGdlUmVzcG9uc2UiHgoQU3RlcHNTdG9wUmVxdWVzdBIKCgJpZBgBIAEoCSITChFTdGVwc1N0b3BSZXNwb25zZTKKAQoFRXBpY3MSQQoETGlzdBIbLm9ycmVyeS52MS5FcGljc0xpc3RSZXF1ZXN0Ghwub3JyZXJ5LnYxLkVwaWNzTGlzdFJlc3BvbnNlEj4KA0dldBIaLm9ycmVyeS52MS5FcGljc0dldFJlcXVlc3QaGy5vcnJlcnkudjEuRXBpY3NHZXRSZXNwb25zZTLTAQoFU3RlcHMSQQoESG9sZBIbLm9ycmVyeS52MS5TdGVwc0hvbGRSZXF1ZXN0Ghwub3JyZXJ5LnYxLlN0ZXBzSG9sZFJlc3BvbnNlEkQKBU51ZGdlEhwub3JyZXJ5LnYxLlN0ZXBzTnVkZ2VSZXF1ZXN0Gh0ub3JyZXJ5LnYxLlN0ZXBzTnVkZ2VSZXNwb25zZRJBCgRTdG9wEhsub3JyZXJ5LnYxLlN0ZXBzU3RvcFJlcXVlc3QaHC5vcnJlcnkudjEuU3RlcHNTdG9wUmVzcG9uc2UyXwoIRXZpZGVuY2USUwoIQXJ0aWZhY3QSIi5vcnJlcnkudjEuRXZpZGVuY2VBcnRpZmFjdFJlcXVlc3QaIy5vcnJlcnkudjEuRXZpZGVuY2VBcnRpZmFjdFJlc3BvbnNlYgZwcm90bzM");
 
 /**
  * EpicsListRequest asks for every epic. It has no fields.
@@ -501,6 +501,20 @@ export type EpicRequirement = Message<"orrery.v1.EpicRequirement"> & {
    * @generated from field: string kind = 4;
    */
   kind: string;
+
+  /**
+   * The evidence runs of the requirement.
+   *
+   * @generated from field: repeated orrery.v1.EvidenceRun runs = 5;
+   */
+  runs: EvidenceRun[];
+
+  /**
+   * The conclusion the requirement's evidence is judged against.
+   *
+   * @generated from field: string conclusion = 6;
+   */
+  conclusion: string;
 };
 
 /**
@@ -509,6 +523,224 @@ export type EpicRequirement = Message<"orrery.v1.EpicRequirement"> & {
  */
 export const EpicRequirementSchema: GenMessage<EpicRequirement> = /*@__PURE__*/
   messageDesc(file_orrery_v1_epics, 9);
+
+/**
+ * EvidenceRun is one evidence run: an item's evidence captured or supplied for one phase at a revision, with its
+ * verdict.
+ *
+ * @generated from message orrery.v1.EvidenceRun
+ */
+export type EvidenceRun = Message<"orrery.v1.EvidenceRun"> & {
+  /**
+   * The run's id.
+   *
+   * @generated from field: string id = 1;
+   */
+  id: string;
+
+  /**
+   * The phase the run is for: red or green.
+   *
+   * @generated from field: string phase = 2;
+   */
+  phase: string;
+
+  /**
+   * How the evidence was produced: captured or supplied.
+   *
+   * @generated from field: string source = 3;
+   */
+  source: string;
+
+  /**
+   * The run's state: capturing, judging or ended.
+   *
+   * @generated from field: string state = 4;
+   */
+  state: string;
+
+  /**
+   * The capture's exit code; for a supplied run, 0 when every file is kept and 1 otherwise.
+   *
+   * @generated from field: int32 exit = 5;
+   */
+  exit: number;
+
+  /**
+   * Whether the capture was killed at its time limit.
+   *
+   * @generated from field: bool timed_out = 6;
+   */
+  timedOut: boolean;
+
+  /**
+   * Why the capture has no result: could not start, killed at its limit, or lost at a restart. Empty otherwise.
+   *
+   * @generated from field: string not_captured = 7;
+   */
+  notCaptured: string;
+
+  /**
+   * The judge's verdict: holds, fails, or empty when the judge gave none.
+   *
+   * @generated from field: string verdict = 8;
+   */
+  verdict: string;
+
+  /**
+   * Why the judge gave no verdict. Empty otherwise.
+   *
+   * @generated from field: string judge_reason = 9;
+   */
+  judgeReason: string;
+
+  /**
+   * Whether the run passes its phase: red when the conclusion fails; green when it holds and the capture exited 0.
+   *
+   * @generated from field: bool passed = 10;
+   */
+  passed: boolean;
+
+  /**
+   * The commit the run captured or read at.
+   *
+   * @generated from field: string revision = 11;
+   */
+  revision: string;
+
+  /**
+   * When the run was created, in unix seconds.
+   *
+   * @generated from field: int64 created = 12;
+   */
+  created: bigint;
+
+  /**
+   * When the run ended, in unix seconds; 0 while it runs.
+   *
+   * @generated from field: int64 ended = 13;
+   */
+  ended: bigint;
+
+  /**
+   * The size of the run's log in bytes.
+   *
+   * @generated from field: int64 log_bytes = 14;
+   */
+  logBytes: bigint;
+
+  /**
+   * The artifacts the run kept, each with the state it was kept in.
+   *
+   * @generated from field: repeated orrery.v1.EvidenceArtifact artifacts = 15;
+   */
+  artifacts: EvidenceArtifact[];
+};
+
+/**
+ * Describes the message orrery.v1.EvidenceRun.
+ * Use `create(EvidenceRunSchema)` to create a new message.
+ */
+export const EvidenceRunSchema: GenMessage<EvidenceRun> = /*@__PURE__*/
+  messageDesc(file_orrery_v1_epics, 10);
+
+/**
+ * EvidenceArtifact is one file an evidence run kept, with the state it was kept in.
+ *
+ * @generated from message orrery.v1.EvidenceArtifact
+ */
+export type EvidenceArtifact = Message<"orrery.v1.EvidenceArtifact"> & {
+  /**
+   * The artifact's repository-relative path.
+   *
+   * @generated from field: string path = 1;
+   */
+  path: string;
+
+  /**
+   * The artifact's state: kept, missing or over_cap.
+   *
+   * @generated from field: string state = 2;
+   */
+  state: string;
+
+  /**
+   * The artifact's size in bytes.
+   *
+   * @generated from field: int64 size = 3;
+   */
+  size: bigint;
+
+  /**
+   * The artifact's media type by extension.
+   *
+   * @generated from field: string media_type = 4;
+   */
+  mediaType: string;
+};
+
+/**
+ * Describes the message orrery.v1.EvidenceArtifact.
+ * Use `create(EvidenceArtifactSchema)` to create a new message.
+ */
+export const EvidenceArtifactSchema: GenMessage<EvidenceArtifact> = /*@__PURE__*/
+  messageDesc(file_orrery_v1_epics, 11);
+
+/**
+ * EvidenceArtifactRequest names one artifact of an evidence run.
+ *
+ * @generated from message orrery.v1.EvidenceArtifactRequest
+ */
+export type EvidenceArtifactRequest = Message<"orrery.v1.EvidenceArtifactRequest"> & {
+  /**
+   * The evidence run's id.
+   *
+   * @generated from field: string run = 1;
+   */
+  run: string;
+
+  /**
+   * The artifact's repository-relative path; empty for the run's log.
+   *
+   * @generated from field: string name = 2;
+   */
+  name: string;
+};
+
+/**
+ * Describes the message orrery.v1.EvidenceArtifactRequest.
+ * Use `create(EvidenceArtifactRequestSchema)` to create a new message.
+ */
+export const EvidenceArtifactRequestSchema: GenMessage<EvidenceArtifactRequest> = /*@__PURE__*/
+  messageDesc(file_orrery_v1_epics, 12);
+
+/**
+ * EvidenceArtifactResponse carries one artifact's bytes.
+ *
+ * @generated from message orrery.v1.EvidenceArtifactResponse
+ */
+export type EvidenceArtifactResponse = Message<"orrery.v1.EvidenceArtifactResponse"> & {
+  /**
+   * The artifact's bytes, or the run's log's bytes.
+   *
+   * @generated from field: bytes data = 1;
+   */
+  data: Uint8Array;
+
+  /**
+   * The artifact's media type by extension.
+   *
+   * @generated from field: string media_type = 2;
+   */
+  mediaType: string;
+};
+
+/**
+ * Describes the message orrery.v1.EvidenceArtifactResponse.
+ * Use `create(EvidenceArtifactResponseSchema)` to create a new message.
+ */
+export const EvidenceArtifactResponseSchema: GenMessage<EvidenceArtifactResponse> = /*@__PURE__*/
+  messageDesc(file_orrery_v1_epics, 13);
 
 /**
  * StepsHoldRequest names the step to hold.
@@ -529,7 +761,7 @@ export type StepsHoldRequest = Message<"orrery.v1.StepsHoldRequest"> & {
  * Use `create(StepsHoldRequestSchema)` to create a new message.
  */
 export const StepsHoldRequestSchema: GenMessage<StepsHoldRequest> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_epics, 10);
+  messageDesc(file_orrery_v1_epics, 14);
 
 /**
  * StepsHoldResponse confirms a held step.
@@ -544,7 +776,7 @@ export type StepsHoldResponse = Message<"orrery.v1.StepsHoldResponse"> & {
  * Use `create(StepsHoldResponseSchema)` to create a new message.
  */
 export const StepsHoldResponseSchema: GenMessage<StepsHoldResponse> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_epics, 11);
+  messageDesc(file_orrery_v1_epics, 15);
 
 /**
  * StepsNudgeRequest names the step to nudge and the text to send it.
@@ -572,7 +804,7 @@ export type StepsNudgeRequest = Message<"orrery.v1.StepsNudgeRequest"> & {
  * Use `create(StepsNudgeRequestSchema)` to create a new message.
  */
 export const StepsNudgeRequestSchema: GenMessage<StepsNudgeRequest> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_epics, 12);
+  messageDesc(file_orrery_v1_epics, 16);
 
 /**
  * StepsNudgeResponse confirms a nudge that landed.
@@ -587,7 +819,7 @@ export type StepsNudgeResponse = Message<"orrery.v1.StepsNudgeResponse"> & {
  * Use `create(StepsNudgeResponseSchema)` to create a new message.
  */
 export const StepsNudgeResponseSchema: GenMessage<StepsNudgeResponse> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_epics, 13);
+  messageDesc(file_orrery_v1_epics, 17);
 
 /**
  * StepsStopRequest names the step to stop.
@@ -608,7 +840,7 @@ export type StepsStopRequest = Message<"orrery.v1.StepsStopRequest"> & {
  * Use `create(StepsStopRequestSchema)` to create a new message.
  */
 export const StepsStopRequestSchema: GenMessage<StepsStopRequest> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_epics, 14);
+  messageDesc(file_orrery_v1_epics, 18);
 
 /**
  * StepsStopResponse confirms a stopped step.
@@ -623,7 +855,7 @@ export type StepsStopResponse = Message<"orrery.v1.StepsStopResponse"> & {
  * Use `create(StepsStopResponseSchema)` to create a new message.
  */
 export const StepsStopResponseSchema: GenMessage<StepsStopResponse> = /*@__PURE__*/
-  messageDesc(file_orrery_v1_epics, 15);
+  messageDesc(file_orrery_v1_epics, 19);
 
 /**
  * Epics reads the epics under the gambit record root and the epics orreryd's database holds.
@@ -692,4 +924,23 @@ export const Steps: GenService<{
   },
 }> = /*@__PURE__*/
   serviceDesc(file_orrery_v1_epics, 1);
+
+/**
+ * Evidence reads the artifacts evidence runs kept.
+ *
+ * @generated from service orrery.v1.Evidence
+ */
+export const Evidence: GenService<{
+  /**
+   * Artifact returns one artifact of an evidence run, or the run's log when the name is empty.
+   *
+   * @generated from rpc orrery.v1.Evidence.Artifact
+   */
+  artifact: {
+    methodKind: "unary";
+    input: typeof EvidenceArtifactRequestSchema;
+    output: typeof EvidenceArtifactResponseSchema;
+  },
+}> = /*@__PURE__*/
+  serviceDesc(file_orrery_v1_epics, 2);
 
