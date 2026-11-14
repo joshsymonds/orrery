@@ -15,8 +15,8 @@ import (
 // storeDeadline bounds each store call a Notices makes. A call that outlives it reads as failed.
 const storeDeadline = 200 * time.Millisecond
 
-// Key names the pane or session a notice belongs to. Exactly one of Pane and Session is set.
-type Key struct{ Pane, Session string }
+// Key names the pane, session, or usage limit a notice belongs to. Exactly one of Pane, Session, and Limit is set.
+type Key struct{ Pane, Session, Limit string }
 
 // Sender posts notices and clears. *push.Publisher satisfies it.
 type Sender interface {
@@ -28,6 +28,7 @@ type Sender interface {
 type Rows interface {
 	PutPushed(context.Context, store.PushedRow) error
 	DeletePushed(ctx context.Context, pane, session string) error
+	DeletePushedLimit(ctx context.Context, limit string) error
 	Pushed(context.Context) ([]store.PushedRow, error)
 }
 
@@ -100,6 +101,7 @@ func (n *Notices) Notify(
 		note.Host = n.host
 		note.Pane = key.Pane
 		note.Session = key.Session
+		note.Limit = key.Limit
 		if sendErr := n.sender.Publish(ctx, note); sendErr != nil {
 			n.logger.ErrorContext(ctx, "publish push notice", "error", push.RedactEndpoints(sendErr))
 		}
@@ -179,7 +181,7 @@ func (n *Notices) mergeLocked(ctx context.Context, rows Rows, stored []store.Pus
 		}
 	}
 	for _, row := range stored {
-		key := Key{Pane: row.Pane, Session: row.Session}
+		key := Key{Pane: row.Pane, Session: row.Session, Limit: row.Limit}
 		if pushed[key] {
 			continue
 		}
@@ -213,7 +215,7 @@ func bounded(parent context.Context, call func(context.Context) error) error {
 // clearSend returns the send that clears key at seen, then deletes key's row when rows is set.
 func (n *Notices) clearSend(key Key, seen int64, rows Rows) func(context.Context) {
 	return func(ctx context.Context) {
-		c := push.Clear{Host: n.host, Pane: key.Pane, Session: key.Session, Seen: seen}
+		c := push.Clear{Host: n.host, Pane: key.Pane, Session: key.Session, Limit: key.Limit, Seen: seen}
 		if err := n.sender.PublishClear(ctx, c); err != nil {
 			n.logger.ErrorContext(ctx, "publish push clear", "error", push.RedactEndpoints(err))
 		}
@@ -225,15 +227,18 @@ func (n *Notices) clearSend(key Key, seen int64, rows Rows) func(context.Context
 
 // putRow writes key's row with time at, bounded and logged on failure.
 func (n *Notices) putRow(ctx context.Context, rows Rows, key Key, at int64) {
-	row := store.PushedRow{Pane: key.Pane, Session: key.Session, Time: at}
+	row := store.PushedRow{Pane: key.Pane, Session: key.Session, Limit: key.Limit, Time: at}
 	if err := bounded(ctx, func(ctx context.Context) error { return rows.PutPushed(ctx, row) }); err != nil {
 		n.logger.ErrorContext(ctx, "put pushed notice", "key", key, "error", err)
 	}
 }
 
-// deleteRow deletes key's row, bounded and logged on failure.
+// deleteRow deletes key's row, bounded and logged on failure. A limit key's row is deleted by its limit.
 func (n *Notices) deleteRow(ctx context.Context, rows Rows, key Key) {
 	if err := bounded(ctx, func(ctx context.Context) error {
+		if key.Limit != "" {
+			return rows.DeletePushedLimit(ctx, key.Limit)
+		}
 		return rows.DeletePushed(ctx, key.Pane, key.Session)
 	}); err != nil {
 		n.logger.ErrorContext(ctx, "delete pushed notice", "key", key, "error", err)
