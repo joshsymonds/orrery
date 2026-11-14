@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -138,11 +139,20 @@ func cutFirst(t *testing.T, next http.Handler, procedure string, n int) http.Han
 	})
 }
 
-// retryServe serves engine on a session socket in a new directory and returns the socket's path. The first cuts
-// requests to procedure lose their responses.
+// retryServe serves engine on the session socket beside a daemon socket in a new directory and returns the daemon
+// socket's path. The first cuts requests to procedure lose their responses.
 func retryServe(t *testing.T, engine *retryEngine, procedure string, cuts int) string {
 	t.Helper()
-	socket := protocol.SessionSocketPath(filepath.Join(t.TempDir(), "orreryd.sock"))
+	daemon := filepath.Join(t.TempDir(), "orreryd.sock")
+	serveSessions(t, daemon, engine, procedure, cuts)
+	return daemon
+}
+
+// serveSessions serves engine on the session socket beside daemon. The first cuts requests to procedure lose their
+// responses.
+func serveSessions(t *testing.T, daemon string, engine *retryEngine, procedure string, cuts int) {
+	t.Helper()
+	socket := protocol.SessionSocketPath(daemon)
 	ln, err := net.Listen("unix", socket)
 	if err != nil {
 		t.Fatalf("listen on %s: %v", socket, err)
@@ -157,15 +167,205 @@ func retryServe(t *testing.T, engine *retryEngine, procedure string, cuts int) s
 			t.Errorf("close session server: %v", err)
 		}
 	})
-	return socket
+}
+
+// daemonMode is how the fake daemon of these tests meets a sessions question.
+type daemonMode int
+
+// The fake daemon answers off, answers on, closes with no answer, or has no socket at all.
+const (
+	daemonOff daemonMode = iota
+	daemonOn
+	daemonSilent
+	daemonAbsent
+)
+
+// fakeDaemon is the daemon socket of these tests. It takes each connection's sessions question, counts it, and then
+// answers it with off or on, or closes the connection with no answer, as its mode says.
+type fakeDaemon struct {
+	mode daemonMode
+
+	mu    sync.Mutex
+	asked int
+}
+
+// serveDaemon serves a fakeDaemon on the daemon socket path daemon. Its listener closes at cleanup.
+func serveDaemon(t *testing.T, daemon string, mode daemonMode) *fakeDaemon {
+	t.Helper()
+	ln, err := net.Listen("unix", daemon)
+	if err != nil {
+		t.Fatalf("listen on %s: %v", daemon, err)
+	}
+	fake := &fakeDaemon{mode: mode}
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go fake.answer(conn)
+		}
+	}()
+	t.Cleanup(func() {
+		if err := ln.Close(); err != nil {
+			t.Errorf("close daemon listener: %v", err)
+		}
+	})
+	return fake
+}
+
+// answer reads one frame from conn. A sessions question is counted, and then answered with off or on, or left
+// unanswered, as the mode says.
+func (d *fakeDaemon) answer(conn net.Conn) {
+	defer func() { _ = conn.Close() }()
+	frame, err := protocol.ReadFrame(conn)
+	if err != nil || frame.Ask != protocol.SessionsAsk {
+		return
+	}
+	d.mu.Lock()
+	d.asked++
+	d.mu.Unlock()
+	switch d.mode {
+	case daemonOff:
+		_ = protocol.WriteSessionsAnswer(conn, false)
+	case daemonOn:
+		_ = protocol.WriteSessionsAnswer(conn, true)
+	case daemonSilent, daemonAbsent:
+	}
+}
+
+// questions returns the number of sessions questions the daemon has counted.
+func (d *fakeDaemon) questions() int {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.asked
+}
+
+// waitClock is a retry clock that runs onFirstWait before its first wait advances the clock.
+type waitClock struct {
+	*retryClock
+	onFirstWait func()
+	once        sync.Once
+}
+
+// After runs onFirstWait on the first call, then advances the clock as retryClock does.
+func (c *waitClock) After(d time.Duration) <-chan time.Time {
+	c.once.Do(c.onFirstWait)
+	return c.retryClock.After(d)
+}
+
+// retryingVerb is a session verb that retries an Unavailable answer: the arguments that reach the retry and the Engine
+// procedure the verb calls.
+type retryingVerb struct {
+	verb      string
+	args      []string
+	procedure string
+}
+
+// retryingVerbs returns the session verbs that retry an Unavailable answer.
+func retryingVerbs() []retryingVerb {
+	return []retryingVerb{
+		{
+			verb:      "start",
+			args:      []string{"start", "sub/dir", "first prompt"},
+			procedure: enginev1connect.EngineStartProcedure,
+		},
+		{
+			verb:      "say",
+			args:      []string{"say", "s1", "hello there"},
+			procedure: enginev1connect.EngineSayProcedure,
+		},
+		{
+			verb:      "stop",
+			args:      []string{"stop", "s1"},
+			procedure: enginev1connect.EngineStopProcedure,
+		},
+	}
+}
+
+func TestSessionOffRefusesAtOnce(t *testing.T) {
+	t.Parallel()
+	for _, tc := range retryingVerbs() {
+		t.Run(tc.verb, func(t *testing.T) {
+			t.Parallel()
+			daemon := filepath.Join(t.TempDir(), "orreryd.sock")
+			fake := serveDaemon(t, daemon, daemonOff)
+			clock := newRetryClock()
+			begin := clock.Now()
+			err := session(t.Context(), clock, daemon, tc.args, &strings.Builder{}, nil)
+			want := fmt.Sprintf("session %s: orreryd takes no session commands on %s; start it with --sessions",
+				tc.verb, protocol.SessionSocketPath(daemon))
+			if err == nil || err.Error() != want {
+				t.Errorf("error = %v, want %q", err, want)
+			}
+			if got := clock.Now().Sub(begin); got != 0 {
+				t.Errorf("retry clock advanced %v, want no wait", got)
+			}
+			if got := fake.questions(); got != 1 {
+				t.Errorf("daemon counted %d sessions questions, want 1", got)
+			}
+		})
+	}
+}
+
+func TestSessionRetriesUntilSessionsSocketListens(t *testing.T) {
+	t.Parallel()
+	for _, tc := range retryingVerbs() {
+		t.Run(tc.verb+"/on", func(t *testing.T) {
+			t.Parallel()
+			runRetryUntilListen(t, tc.args, tc.procedure, daemonOn)
+		})
+		t.Run(tc.verb+"/silent", func(t *testing.T) {
+			t.Parallel()
+			runRetryUntilListen(t, tc.args, tc.procedure, daemonSilent)
+		})
+		t.Run(tc.verb+"/absent", func(t *testing.T) {
+			t.Parallel()
+			runRetryUntilListen(t, tc.args, tc.procedure, daemonAbsent)
+		})
+	}
+}
+
+// runRetryUntilListen runs args with the daemon answering on, silent (closing each sessions question with no answer),
+// or absent.
+// The session socket starts listening when the retry clock first waits, and the verb must then succeed with one
+// Engine call.
+func runRetryUntilListen(t *testing.T, args []string, procedure string, mode daemonMode) {
+	t.Helper()
+	daemon := filepath.Join(t.TempDir(), "orreryd.sock")
+	var fake *fakeDaemon
+	if mode != daemonAbsent {
+		fake = serveDaemon(t, daemon, mode)
+	}
+	engine := &retryEngine{}
+	clock := &waitClock{retryClock: newRetryClock()}
+	clock.onFirstWait = func() { serveSessions(t, daemon, engine, procedure, 0) }
+	var out strings.Builder
+	if err := session(t.Context(), clock, daemon, args, &out, nil); err != nil {
+		t.Fatalf("session %s after the retry: %v", args[0], err)
+	}
+	if fake != nil {
+		if got := fake.questions(); got != 1 {
+			t.Errorf("daemon counted %d sessions questions, want 1: the first attempt's", got)
+		}
+	}
+	starts, says, stops := engine.snapshot()
+	if got := len(starts) + len(says) + len(stops); got != 1 {
+		t.Fatalf("Engine received %d requests, want 1 after the retry", got)
+	}
+	if args[0] == "start" {
+		if want := starts[0].GetId() + "\n"; out.String() != want {
+			t.Errorf("start printed %q, want its id %q", out.String(), want)
+		}
+	}
 }
 
 func TestSessionStartRetriesWithItsIDAfterACutCall(t *testing.T) {
 	engine := &retryEngine{}
-	socket := retryServe(t, engine, enginev1connect.EngineStartProcedure, 1)
+	daemon := retryServe(t, engine, enginev1connect.EngineStartProcedure, 1)
 	var out strings.Builder
 	args := []string{"start", "sub/dir", "first prompt"}
-	if err := session(t.Context(), newRetryClock(), socket, args, &out, nil); err != nil {
+	if err := session(t.Context(), newRetryClock(), daemon, args, &out, nil); err != nil {
 		t.Fatalf("session start after a cut call: %v", err)
 	}
 	starts, _, _ := engine.snapshot()
@@ -186,10 +386,10 @@ func TestSessionStartRetriesWithItsIDAfterACutCall(t *testing.T) {
 
 func TestSessionSayRetriesWithItsPromptIDAfterACutCall(t *testing.T) {
 	engine := &retryEngine{}
-	socket := retryServe(t, engine, enginev1connect.EngineSayProcedure, 1)
+	daemon := retryServe(t, engine, enginev1connect.EngineSayProcedure, 1)
 	var out strings.Builder
 	args := []string{"say", "s1", "hello there"}
-	if err := session(t.Context(), newRetryClock(), socket, args, &out, nil); err != nil {
+	if err := session(t.Context(), newRetryClock(), daemon, args, &out, nil); err != nil {
 		t.Fatalf("session say after a cut call: %v", err)
 	}
 	_, says, _ := engine.snapshot()
@@ -215,9 +415,9 @@ func TestSessionSayRetriesWithItsPromptIDAfterACutCall(t *testing.T) {
 
 func TestSessionStopSucceedsAfterOneUnavailable(t *testing.T) {
 	engine := &retryEngine{}
-	socket := retryServe(t, engine, enginev1connect.EngineStopProcedure, 1)
+	daemon := retryServe(t, engine, enginev1connect.EngineStopProcedure, 1)
 	var out strings.Builder
-	if err := session(t.Context(), newRetryClock(), socket, []string{"stop", "s1"}, &out, nil); err != nil {
+	if err := session(t.Context(), newRetryClock(), daemon, []string{"stop", "s1"}, &out, nil); err != nil {
 		t.Fatalf("session stop after one Unavailable: %v", err)
 	}
 	_, _, stops := engine.snapshot()
@@ -236,10 +436,10 @@ func TestSessionStopSucceedsAfterOneUnavailable(t *testing.T) {
 
 func TestSessionStartFailsAfterTheWindow(t *testing.T) {
 	engine := &retryEngine{startErr: connect.NewError(connect.CodeUnavailable, errors.New("orreryd is restarting"))}
-	socket := retryServe(t, engine, enginev1connect.EngineStartProcedure, 0)
+	daemon := retryServe(t, engine, enginev1connect.EngineStartProcedure, 0)
 	clock := newRetryClock()
 	begin := clock.Now()
-	err := session(t.Context(), clock, socket, []string{"start", "sub/dir", "first prompt"}, &strings.Builder{}, nil)
+	err := session(t.Context(), clock, daemon, []string{"start", "sub/dir", "first prompt"}, &strings.Builder{}, nil)
 	if err == nil {
 		t.Fatal("session start answered Unavailable on every attempt returned nil")
 	}

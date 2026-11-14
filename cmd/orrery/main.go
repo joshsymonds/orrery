@@ -302,18 +302,18 @@ func tmuxCommand(ctx context.Context, opts globals, name string, args []string, 
 	return runTmux(ctx, client, name, args, stdin, stdout, getenv, seenReporter(opts.daemonSocket, getenv), pools)
 }
 
-// runSession runs `orrery session` with the session socket beside the daemon socket, unless the command names serve
-// with --url.
+// runSession runs `orrery session` with the daemon socket, which names the session socket beside it, unless the
+// command names serve with --url.
 func runSession(ctx context.Context, opts globals, args []string, stdout io.Writer, getenv func(string) string) error {
-	sessionSocket := ""
+	daemonSocket := ""
 	if !sessionViaURL(args) {
 		socket, err := protocol.SocketPath(opts.daemonSocket, getenv)
 		if err != nil {
 			return fmt.Errorf("session: %w", err)
 		}
-		sessionSocket = protocol.SessionSocketPath(socket)
+		daemonSocket = socket
 	}
-	return errors.Join(cli.Session(ctx, sessionSocket, args, stdout, getenv))
+	return errors.Join(cli.Session(ctx, daemonSocket, args, stdout, getenv))
 }
 
 // runNotices runs `orrery notices` against the notices socket beside the daemon socket.
