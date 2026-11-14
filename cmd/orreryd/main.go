@@ -544,6 +544,7 @@ func startSessions(
 			Haiku:        enginehost.NewHaiku(enginehost.HaikuConfig{Claude: opts.claude, Environ: os.Environ()}),
 			GateStateDir: filepath.Join(stateDir, "gates"),
 			GateScope:    opts.holderScope,
+			ReadoptCheck: planner.ReadoptCheck(st),
 		})
 		if err != nil {
 			host.stopBroker()
