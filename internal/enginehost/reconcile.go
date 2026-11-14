@@ -34,8 +34,9 @@ const clearTimeout = 10 * time.Second
 // its unfinished text. A row whose turn was running, working or waiting, is recorded interrupted with restartedReason and no
 // question. The owner is notified of an engine row's interruption; a step row is settled without a notice. A row in any
 // other state keeps its state. No row is removed. A holder that fails to re-adopt, to stop, to drain or to clear is logged
-// and its session is cleared, and the rows are settled anyway. It returns the first
-// read or write error.
+// and its session is cleared, and the rows are settled anyway. The rows that need a write are settled in one store
+// transaction, so a row that needs nothing, with no text and no turn running, is not written. A write that fails stops
+// no other row. It returns the first read or write error.
 func (m *Manager) Reconcile(ctx context.Context) error {
 	rows, err := m.store.EngineSessions(ctx)
 	// A failed read leaves no row, so every holder is then cleared.
@@ -47,20 +48,64 @@ func (m *Manager) Reconcile(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("reconcile sessions: %w", err)
 	}
+	// A drain that failed after it recorded lines has changed the rows, so they are read again after the holder pass.
+	rows, err = m.store.EngineSessions(ctx)
+	if err != nil {
+		return fmt.Errorf("reconcile sessions: %w", err)
+	}
+	text, textErr := m.store.EngineTextSessions(ctx)
+	var firstErr error
+	if textErr != nil {
+		firstErr = fmt.Errorf("read unfinished text: %w", textErr)
+	}
+	pending := m.pendingRows(rows, settled, text, textErr)
+	groups := make([]SessionOps, len(pending))
+	for i, row := range pending {
+		groups[i] = SessionOps{ID: row.ID, Ops: settleOps(row)}
+	}
+	errs, err := m.writer.CommitAll(ctx, groups)
+	if err != nil {
+		if firstErr != nil {
+			return firstErr
+		}
+		return fmt.Errorf("reconcile sessions: %w", err)
+	}
+	writeErr := m.notifySettled(ctx, pending, errs)
+	if firstErr != nil {
+		return firstErr
+	}
+	return writeErr
+}
+
+// pendingRows returns the rows Reconcile settles: each row with no live session that the holder pass did not settle, and
+// that has a running turn or unfinished text in text. A failed text read, textErr, makes every row count as holding text.
+func (m *Manager) pendingRows(rows []store.EngineRow, settled, text map[string]bool, textErr error) []store.EngineRow {
+	var pending []store.EngineRow
 	for _, row := range rows {
 		if m.isLive(row.ID) || settled[row.ID] {
 			continue
 		}
-		// A drain that failed after it recorded lines has changed the row, so the row is read again before it settles.
-		current, readErr := m.engineRow(ctx, row.ID)
-		if readErr != nil {
-			return fmt.Errorf("reconcile session %s: %w", row.ID, readErr)
-		}
-		if settleErr := m.reconcileRow(ctx, current); settleErr != nil {
-			return settleErr
+		if turnRunning(row) || textErr != nil || text[row.ID] {
+			pending = append(pending, row)
 		}
 	}
-	return nil
+	return pending
+}
+
+// notifySettled notifies the owner of each row in rows whose write, in errs, was stored. errs holds one error per row, in
+// order. A row whose write was dropped is not notified, and the first such error is returned.
+func (m *Manager) notifySettled(ctx context.Context, rows []store.EngineRow, errs []error) error {
+	var firstErr error
+	for i, row := range rows {
+		if errs[i] != nil {
+			if firstErr == nil {
+				firstErr = fmt.Errorf("reconcile session %s: %w", row.ID, errs[i])
+			}
+			continue
+		}
+		m.notifyInterrupted(ctx, row)
+	}
+	return firstErr
 }
 
 // reconcileHolders goes through the holder directories under the state directory. The holder of each session with no live
@@ -264,23 +309,39 @@ func (m *Manager) StepLive(id string) bool {
 	return ok && live.step
 }
 
-// reconcileRow removes the unfinished text of row and, when row's turn was running, records it interrupted and notifies
-// the owner of an engine row. It returns the error of the write.
+// reconcileRow settles row in one write as a restart leaves it (see settleOps), and notifies the owner of an engine row's
+// interruption. It returns the error of the write.
 func (m *Manager) reconcileRow(ctx context.Context, row store.EngineRow) error {
-	ops := []store.EngineOp{store.EngineTextClear{ID: row.ID}}
-	turning := row.State == string(protocol.StateWorking) || row.State == string(protocol.StateWaiting)
-	if turning {
-		interrupted := stateInterrupted
-		question := ""
-		reason := restartedReason
-		ops = append(ops, store.EngineSet{ID: row.ID,
-			Changes: store.EngineChanges{State: &interrupted, Question: &question, Reason: &reason}})
-	}
-	if err := m.writer.Commit(ctx, row.ID, ops...); err != nil {
+	if err := m.writer.Commit(ctx, row.ID, settleOps(row)...); err != nil {
 		return fmt.Errorf("reconcile session %s: %w", row.ID, err)
 	}
-	if turning && row.Kind == store.KindEngine {
+	m.notifyInterrupted(ctx, row)
+	return nil
+}
+
+// settleOps returns the ops that settle row as a restart leaves it: its unfinished text is removed, and when its turn
+// was running it is recorded interrupted with restartedReason and no question.
+func settleOps(row store.EngineRow) []store.EngineOp {
+	textClear := store.EngineTextClear{ID: row.ID}
+	if !turnRunning(row) {
+		return []store.EngineOp{textClear}
+	}
+	interrupted := stateInterrupted
+	question := ""
+	reason := restartedReason
+	return []store.EngineOp{textClear, store.EngineSet{ID: row.ID,
+		Changes: store.EngineChanges{State: &interrupted, Question: &question, Reason: &reason}}}
+}
+
+// turnRunning reports whether the turn of row was running: its row is working or waiting.
+func turnRunning(row store.EngineRow) bool {
+	return row.State == string(protocol.StateWorking) || row.State == string(protocol.StateWaiting)
+}
+
+// notifyInterrupted tells the owner that the turn of row was interrupted by the restart, when row is an engine row whose
+// turn was running. A step row sends no notice.
+func (m *Manager) notifyInterrupted(ctx context.Context, row store.EngineRow) {
+	if turnRunning(row) && row.Kind == store.KindEngine {
 		m.notify(ctx, row.ID, row.Dir, stateInterrupted, restartedReason)
 	}
-	return nil
 }
