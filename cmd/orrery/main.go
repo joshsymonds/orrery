@@ -102,10 +102,13 @@ subcommands:
   run status                                    print the pools orreryd runs
   gate [--gates FILE] NAME                      run a named gate under a grant from orreryd
   hold [--off] MEMBER                           place an owner hold on MEMBER through orreryd, or free it with --off
+  evidence run EPIC ITEM REVISION PHASE         run an item's evidence at a revision for one phase, red or green
+  evidence list EPIC                            list an epic's evidence runs and the artifacts each kept
+  evidence get RUN [NAME]                       write an artifact's bytes to stdout, or the run's log without NAME
   holder --session NAME [--state-dir DIR] -- PATH [ARGS...]
                                                 run PATH as one session's held child and serve its holder socket
                                                 until the child ends
-  holder --session NAME [--state-dir DIR] --gate-limit SECONDS -- PATH [ARGS...]
+  holder --session NAME [--state-dir DIR] --gate-limit SECONDS [--gate-tail BYTES] -- PATH [ARGS...]
                                                 run PATH as a gate: no stdin, one merged output tail, stopped at SECONDS
   serve --listen ADDR --allow-login LOGIN [--allow-login LOGIN]... [--push-host HOST]...
         [--host-status-cmd PATH]
@@ -226,12 +229,8 @@ func dispatch(ctx context.Context, opts globals, rest []string, stdin *os.File, 
 		return runDesk(ctx, opts, args)
 	case "mcp":
 		return runMCP(ctx, opts, args, stdin, stdout, getenv)
-	case "run":
-		return runCommand(ctx, opts, args, stdin, stdout, stderr, getenv)
-	case "gate":
-		return runGate(ctx, opts, args, stdin, stdout, stderr, getenv)
-	case "hold":
-		return runHold(ctx, opts, args, stderr, getenv)
+	case "run", "gate", "hold", "evidence":
+		return orreryCommand(ctx, opts, name, args, stdin, stdout, stderr, getenv)
 	case "holder":
 		return runHolder(ctx, args, stderr, getenv)
 	case "session":
@@ -250,6 +249,29 @@ func hookSocket(opts globals, getenv func(string) string) string {
 		return ""
 	}
 	return socket
+}
+
+// orreryCommand runs a subcommand that calls one of orreryd's services: run and gate take a grant of pool members, hold
+// places or frees an owner hold, and evidence runs an item's evidence or reads it back.
+func orreryCommand(
+	ctx context.Context,
+	opts globals,
+	name string,
+	args []string,
+	stdin *os.File,
+	stdout, stderr io.Writer,
+	getenv func(string) string,
+) error {
+	switch name {
+	case "run":
+		return runCommand(ctx, opts, args, stdin, stdout, stderr, getenv)
+	case "gate":
+		return runGate(ctx, opts, args, stdin, stdout, stderr, getenv)
+	case "hold":
+		return runHold(ctx, opts, args, stderr, getenv)
+	default:
+		return runEvidence(ctx, opts, args, stdout, stderr, getenv)
+	}
 }
 
 // tmuxCommand runs a subcommand that talks to the tmux server named by opts: open, or one of runTmux's commands.

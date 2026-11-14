@@ -169,7 +169,7 @@ func TestHolderGateTailAcceptsItsBounds(t *testing.T) {
 
 // TestUsageTextNamesGateLimit lists the holder's gate form, which names --gate-limit SECONDS.
 func TestUsageTextNamesGateLimit(t *testing.T) {
-	want := "\n  holder --session NAME [--state-dir DIR] --gate-limit SECONDS -- PATH [ARGS...]\n"
+	want := "\n  holder --session NAME [--state-dir DIR] --gate-limit SECONDS [--gate-tail BYTES] -- PATH [ARGS...]\n"
 	if !strings.Contains(usageText, want) {
 		t.Errorf("usage text does not name --gate-limit as %q:\n%s", want, usageText)
 	}
