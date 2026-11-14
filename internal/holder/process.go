@@ -123,6 +123,11 @@ func (p *Process) Stdout() io.ReadCloser {
 	return processStdout{p: p}
 }
 
+// Version returns the wire version the holder speaks, which is the version its hello carried.
+func (p *Process) Version() int {
+	return p.conn.Version()
+}
+
 // Exit returns the exit record once the exit frame has arrived, and false before.
 func (p *Process) Exit() (Exit, bool) {
 	p.mu.Lock()

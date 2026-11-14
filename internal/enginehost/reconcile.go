@@ -235,7 +235,7 @@ func (m *Manager) readopt(ctx context.Context, row store.EngineRow, dir string) 
 	if err != nil {
 		return err
 	}
-	process, written, err := holder.Reattach(ctx, dir, row.ReplayFrom)
+	process, written, err := holder.Reattach(ctx, dir, row.ReplayFrom, holder.WireVersion)
 	if err != nil {
 		return fmt.Errorf("attach holder of session %s: %w", row.ID, err)
 	}
