@@ -229,7 +229,7 @@ A return is taken only from a turn that ends with no background task live. The m
 
 ## 14. Step and epic tools
 
-`orrery [--socket PATH] mcp` serves the step tools and the epic tools as an MCP server on stdin and stdout. It serves until stdin closes and exits 0. Arguments after `mcp` exit 2. The transport is stdio only, so the process opens no listener and holds no database. It is a client of the `orrery.engine.v1.Steps` service (`proto/orrery/engine/v1/step.proto:7`) and of the `orrery.engine.v1.Epics` service (`proto/orrery/engine/v1/epic.proto:6`) on `sessions.sock`, the socket beside the daemon socket (`internal/protocol/protocol.go:156`, `:157`; `cmd/orreryd/main.go:596`). Each step tool call makes one `Steps` RPC: `step_start` calls `StartStep`, `step_status` calls `StepStatus`, `step_stop` calls `StopStep` and `step_wait` calls `WaitSteps` (`internal/stepmcp/tools.go:68`-`:97`). Each epic tool call makes one `Epics` RPC: `epic_create` calls `CreateEpic`, `epic_get` calls `GetEpic`, `epic_list` calls `ListEpics` and `epic_answer` calls `AnswerEpic` (`internal/stepmcp/epictools.go:34`-`:64`; `cmd/orrery/main.go:383`-`:386`).
+`orrery [--socket PATH] mcp` serves the step tools and the epic tools as an MCP server on stdin and stdout. It serves until stdin closes and exits 0. Arguments after `mcp` exit 2. The transport is stdio only, so the process opens no listener and holds no database. It is a client of the `orrery.engine.v1.Steps` service (`proto/orrery/engine/v1/step.proto:7`) and of the `orrery.engine.v1.Epics` service (`proto/orrery/engine/v1/epic.proto:6`) on `sessions.sock`, the socket beside the daemon socket (`internal/protocol/protocol.go:156`, `:157`; `cmd/orreryd/main.go:596`). Each step tool call makes one `Steps` RPC: `step_start` calls `StartStep`, `step_status` calls `StepStatus`, `step_stop` calls `StopStep`, `step_resume` calls `ResumeStep` and `step_wait` calls `WaitSteps` (`internal/stepmcp/tools.go:69`-`:103`). Each epic tool call makes one `Epics` RPC: `epic_create` calls `CreateEpic`, `epic_get` calls `GetEpic`, `epic_list` calls `ListEpics` and `epic_answer` calls `AnswerEpic` (`internal/stepmcp/epictools.go:34`-`:64`; `cmd/orrery/main.go:383`-`:386`).
 
 The package imports the connect client, the generated `Steps` and `Epics` stubs, protobuf's JSON encoding and the MCP server, and no database or listener package (`internal/stepmcp/tools.go:4`-`:20`; `internal/stepmcp/epictools.go:3`-`:15`). The step rows live in the daemon, so a result a caller lost in transit is still in its row (`step.proto:15`).
 
@@ -274,6 +274,12 @@ Arguments: `id`, required and non-empty (`internal/stepmcp/tools.go:42`-`:43`, `
 
 Arguments: `id`, required and non-empty. Result: `{"id": "<step id>", "stopped": true}` (`internal/stepmcp/tools.go:241`). The result says `stopped: true` whenever the daemon accepted the call, since `StopStepResponse` has no fields (`step.proto:95`-`:96`).
 
+#### step_resume
+
+Arguments: `id`, required and non-empty (`internal/stepmcp/tools.go:42`-`:43`, `:239`-`:241`). Result: `{"id": "<step id>", "resumed": true}` (`internal/stepmcp/tools.go:233`-`:250`). The result says `resumed: true` whenever the daemon accepted the call, since `ResumeStepResponse` has no fields (`step.proto:241`). The call resumes a step that a usage limit holds, through `ResumeStep` (see [Usage-limit hold](#usage-limit-hold)); `ResumeStep` refuses a step that no limit holds with `failed_precondition`.
+
+A refused call is a tool error whose text is the Connect error's text, such as `failed_precondition: step is not limited` (`internal/stepmcp/tools.go:233`-`:250`; `internal/enginehost/stepservice.go:242`-`:258`). Its codes are those of `ResumeStep` in [Steps](contract.md#steps). A call answered `Unavailable` is sent again for up to 60 seconds (`internal/stepmcp/tools.go:233`-`:250`; `internal/rpcretry/retry.go:16`, `:64`). The retry does not treat `step is not limited` as a resume. After a cut attempt that resumed the step, the retry answers that refusal, where `orrery step resume` exits 0 (`internal/stepmcp/tools.go:233`-`:250`; `cmd/orrery/step.go:57`-`:73`).
+
 #### step_wait
 
 Arguments (`internal/stepmcp/tools.go:44`-`:47`):
@@ -287,13 +293,14 @@ Result: `{"ended": <step or null>, "steps": [<step>, ...]}` (`internal/stepmcp/t
 
 #### The step object
 
-Every tool that reports a step returns these fields (`internal/stepmcp/tools.go:364`-`:389`):
+Every tool that reports a step returns these fields (`internal/stepmcp/tools.go:361`-`:377`, `:388`-`:416`):
 
 - `id`, `agent`, `workspace`, `revision`, `readOnly`, `worktree`: as the `Step` message defines them (`step.proto:131`-`:146`). `worktree` is empty for a writing step.
 - `end`, `reason`: empty while the step runs (`step.proto:149`, `:161`).
 - `status`: the done value the return carried, or the status the step ended with. `result`: the latest result the return carried (`step.proto:151`-`:155`).
 - `checks`: each `{round, name, ok, detail}` from the rounds the return's checks ran in (`internal/stepmcp/tools.go:365`-`:373`; `step.proto:157`-`:158`).
 - `started`, `ended`: unix seconds. `ended` is 0 while the step runs (`step.proto:163`-`:167`).
+- `limited`, `limitKind`, `limitResets`: whether a usage limit holds the step, the kind of that limit, and its reset in unix seconds. The kind is empty when it is unknown, and the reset is 0 when it is unknown. Both are empty or 0 when no limit holds the step (`step.proto:187`-`:195`; `internal/enginehost/stepservice.go:226`-`:238`).
 
 #### epic_create
 
@@ -320,6 +327,17 @@ Its refusals are those of `AnswerEpic`, as [Epics](contract.md#epics) gives them
 ### The planner's return
 
 A planner turn's step returns through a forced return, as [section 13](#13-forced-returns) describes. Its schema is `Schema` in `internal/planner/plan.go`, and the step starts with it (`internal/planner/runner.go:184`; `internal/planner/plan.go:10`-`:36`). The schema requires `status`, `decisions`, `tasks`, `outline`, `questions` and `outcome`, and refuses any other key at the top level. `status` must be `done`, and `outcome` must be `work`, `wait` or `complete`. Each task requires `title`, `deliverable`, `files`, `requirements` and `check`, and refuses any other key (`internal/planner/plan.go:10`-`:36`). A return that passes the schema is then checked by the plan check, and a refusal is sent back to the session (see [Planner turns](contract.md#planner-turns)).
+
+### Usage-limit hold
+
+A usage limit holds a step until the step is resumed or stopped. [Step lifecycle](contract.md#step-lifecycle) of the shared contract, under Usage limit, gives the rules. This subsection gives what the tools and the protocol show.
+
+- A turn is limited by a rejected rate limit stored at or after its prompt, or by an assistant error `rate_limit` (`internal/enginehost/steploop.go:404`-`:422`; `internal/enginehost/steploop.go:205`-`:208`; `internal/engine/session/translate.go:295`-`:310`). A limited turn is no round, and the step is released: its process is stopped and its slot is freed, and the step stays open (`internal/enginehost/steploop.go:373`-`:375`, `:431`; `internal/enginehost/stepsession.go:100`-`:118`).
+- A limited step spends nothing. Its ticks check nothing, so the watch makes no monitor call, and its exits are ignored (`internal/enginehost/steploop.go:266`-`:274`, `:298`-`:303`). The step stays limited through exits and restarts, and nothing resumes it at its reset time (`internal/enginehost/steploop.go:324`-`:327`; `internal/enginehost/stepctl.go:227`-`:229`; `internal/enginehost/limitnotices.go:97`-`:100`).
+- `step_status` and `step_wait` report the hold in the step object's `limited`, `limitKind` and `limitResets` fields (see [The step object](#the-step-object)). `step_resume` resumes the step (see [step_resume](#step_resume)).
+- A planner turn's limited step is stopped at the runner's first timed-out wait that shows it limited (`internal/planner/runner.go:257`-`:283`; see [Planner turns](contract.md#planner-turns)).
+- An agent gate step that is limited at a restart ends `engine_restarted`, since a restart never rebuilds an agent gate step (`internal/enginehost/stepctl.go:152`-`:154`, `:201`-`:205`, `:227`-`:231`).
+- The owner gets one limit notice for each limit key, `<kind>@<reset>`. It is updated when the steps it names change, and cleared when no step holds that key (`internal/enginehost/limitnotices.go:93`-`:141`). Its push carries the `limit` key, and so does its clear (`internal/push/publish.go:139`-`:141`, `:170`-`:172`).
 
 ### Caller facts
 
