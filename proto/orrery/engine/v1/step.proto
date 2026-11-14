@@ -30,6 +30,11 @@ service Steps {
   // step continued with the text instead of a round. A step with no turn running, or one running its gate, refuses with
   // failed_precondition. OK means the nudge landed; it neither spends nor replaces the watchdog's nudge.
   rpc NudgeStep(NudgeStepRequest) returns (NudgeStepResponse);
+
+  // ResumeStep resumes a step a usage limit holds: the owner's prompt that the limit has reset respawns the step's
+  // process in its session. A step no limit holds refuses with failed_precondition, a step at the step cap with
+  // resource_exhausted, and an id with no row with not_found.
+  rpc ResumeStep(ResumeStepRequest) returns (ResumeStepResponse);
 }
 
 // StartStepRequest asks for a new step.
@@ -178,6 +183,16 @@ message Step {
 
   // Whether an owner hold interrupted the step's turn and it waits for a nudge or a stop.
   bool held = 17;
+
+  // Whether a usage limit holds the step, so that it waits for a resume.
+  bool limited = 18;
+
+  // The kind of usage limit that holds the step. Empty when no limit holds it or the kind is unknown.
+  string limit_kind = 19;
+
+  // When the usage limit that holds the step resets, in unix seconds. Zero when no limit holds it or the reset is
+  // unknown.
+  int64 limit_resets = 20;
 }
 
 // ListStepsRequest asks for the labelled steps.
@@ -215,6 +230,15 @@ message NudgeStepRequest {
 
 // NudgeStepResponse acknowledges a nudge. It has no fields.
 message NudgeStepResponse {}
+
+// ResumeStepRequest asks for a limited step to be resumed.
+message ResumeStepRequest {
+  // The step's id.
+  string id = 1;
+}
+
+// ResumeStepResponse acknowledges a resume. It has no fields.
+message ResumeStepResponse {}
 
 // StepCheck is one check a step's return ran.
 message StepCheck {

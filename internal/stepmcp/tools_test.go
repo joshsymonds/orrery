@@ -15,8 +15,11 @@ import (
 	"testing"
 	"time"
 
+	"connectrpc.com/connect"
+
 	"github.com/joshsymonds/orrery/internal/cli"
 	"github.com/joshsymonds/orrery/internal/enginehost"
+	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
 	"github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1/enginev1connect"
 	"github.com/joshsymonds/orrery/internal/store"
 )
@@ -36,6 +39,7 @@ type fakeSteps struct {
 	stops    []string
 	statuses []string
 	waits    []waitCall
+	resumes  []string
 	startID  string
 	row      store.StepRow
 	ended    *store.StepRow
@@ -92,12 +96,20 @@ func (f *fakeSteps) Nudge(context.Context, string, string) error {
 	return errors.New("stepmcp test: Nudge is not expected")
 }
 
+func (f *fakeSteps) Resume(_ context.Context, id string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.resumes = append(f.resumes, id)
+	return f.err
+}
+
 // fakeCalls is a copy of what the fake recorded.
 type fakeCalls struct {
 	starts   []enginehost.StepStart
 	stops    []string
 	statuses []string
 	waits    []waitCall
+	resumes  []string
 }
 
 func (f *fakeSteps) calls() fakeCalls {
@@ -108,6 +120,7 @@ func (f *fakeSteps) calls() fakeCalls {
 		stops:    slices.Clone(f.stops),
 		statuses: slices.Clone(f.statuses),
 		waits:    slices.Clone(f.waits),
+		resumes:  slices.Clone(f.resumes),
 	}
 }
 
@@ -144,6 +157,15 @@ func runningRow(id string) store.StepRow {
 		Workspace: "/work",
 		Started:   time.Unix(1700000000, 0),
 	}
+}
+
+// limitedRow is a running step that a usage limit holds until 1700003600.
+func limitedRow(id string) store.StepRow {
+	row := runningRow(id)
+	row.LoopLimited = true
+	row.LoopLimitKind = "usage"
+	row.LoopLimitResets = time.Unix(1700003600, 0)
+	return row
 }
 
 // startDaemon serves steps on a socket in a temporary directory and returns a client
@@ -309,7 +331,7 @@ func TestToolsListNamesEveryStepAndEpicTool(t *testing.T) {
 	}
 	want := []string{
 		"epic_answer", "epic_create", "epic_get", "epic_list", "epic_pause", "epic_resume", "epic_retry", "epic_stop",
-		"step_start", "step_status", "step_stop", "step_wait",
+		"step_resume", "step_start", "step_status", "step_stop", "step_wait",
 	}
 	slices.Sort(names)
 	if !slices.Equal(names, want) {
@@ -524,9 +546,12 @@ func TestStepStatusAndStopReachTheDaemonByID(t *testing.T) {
 			map[string]any{"round": float64(1), "name": "gate", "ok": false, "detail": "exit 1"},
 			map[string]any{"round": float64(2), "name": "gate", "ok": true, "detail": ""},
 		},
-		"reason":  "returned",
-		"started": float64(1700000000),
-		"ended":   float64(1700000600),
+		"reason":      "returned",
+		"started":     float64(1700000000),
+		"ended":       float64(1700000600),
+		"limited":     false,
+		"limitKind":   "",
+		"limitResets": float64(0),
 	}
 	if got := decodeObject(t, status.text); !reflect.DeepEqual(got, wantStep) {
 		t.Fatalf("step_status result = %v, want %v", got, wantStep)
@@ -546,6 +571,81 @@ func TestStepStatusAndStopReachTheDaemonByID(t *testing.T) {
 	}
 	if !slices.Equal(calls.stops, []string{"s9"}) {
 		t.Fatalf("step_stop reached the daemon with ids %v, want [s9]", calls.stops)
+	}
+}
+
+func TestStepStatusShowsWhetherAStepIsLimitedWithItsKindAndReset(t *testing.T) {
+	cases := []struct {
+		name string
+		row  store.StepRow
+		want map[string]any
+	}{
+		{
+			name: "running step is not limited",
+			row:  runningRow("s1"),
+			want: map[string]any{"limited": false, "limitKind": "", "limitResets": float64(0)},
+		},
+		{
+			name: "limited step shows its kind and reset",
+			row:  limitedRow("s1"),
+			want: map[string]any{"limited": true, "limitKind": "usage", "limitResets": float64(1700003600)},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			p := newPeer(t, startDaemon(t, &fakeSteps{row: tc.row}), nil)
+
+			outcome := p.tool("step_status", `{"id":"s1"}`)
+			if outcome.isError {
+				t.Fatalf("step_status reported an error: %s", outcome.text)
+			}
+			got := decodeObject(t, outcome.text)
+			for key, want := range tc.want {
+				if got[key] != want {
+					t.Errorf("step_status %s = %v, want %v", key, got[key], want)
+				}
+			}
+		})
+	}
+}
+
+func TestStepResumeResumesALimitedStepOnce(t *testing.T) {
+	fake := &fakeSteps{}
+	p := newPeer(t, startDaemon(t, fake), nil)
+
+	outcome := p.tool("step_resume", `{"id":"s1"}`)
+
+	if outcome.isError {
+		t.Fatalf("step_resume reported an error: %s", outcome.text)
+	}
+	if got := decodeObject(t, outcome.text); !reflect.DeepEqual(got, map[string]any{"id": "s1", "resumed": true}) {
+		t.Fatalf("step_resume result = %v, want id s1 resumed", got)
+	}
+	if got := fake.calls().resumes; !slices.Equal(got, []string{"s1"}) {
+		t.Fatalf("step_resume reached the daemon with ids %v, want [s1] once", got)
+	}
+}
+
+func TestStepWaitListsALimitedStepWithItsReset(t *testing.T) {
+	fake := &fakeSteps{rows: []store.StepRow{limitedRow("s1"), runningRow("s2")}}
+	p := newPeer(t, startDaemon(t, fake), nil)
+
+	outcome := p.tool("step_wait", `{"ids":["s1","s2"],"timeoutSeconds":5}`)
+	if outcome.isError {
+		t.Fatalf("step_wait reported an error: %s", outcome.text)
+	}
+	steps, ok := decodeObject(t, outcome.text)["steps"].([]any)
+	if !ok || len(steps) != 2 {
+		t.Fatalf("step_wait steps = %s, want two steps", outcome.text)
+	}
+	limited, ok := steps[0].(map[string]any)
+	if !ok || limited["id"] != "s1" || limited["limited"] != true ||
+		limited["limitKind"] != "usage" || limited["limitResets"] != float64(1700003600) {
+		t.Fatalf("step_wait limited step = %v, want s1 limited by usage until 1700003600", steps[0])
+	}
+	running, ok := steps[1].(map[string]any)
+	if !ok || running["id"] != "s2" || running["limited"] != false {
+		t.Fatalf("step_wait running step = %v, want s2 not limited", steps[1])
 	}
 }
 
@@ -641,6 +741,10 @@ func TestDaemonErrorsReadAsCodeAndMessageToolErrors(t *testing.T) {
 			args: `{"id":"nope"}`, want: "not_found: no step",
 		},
 		{
+			name: "step not limited on resume", err: enginehost.ErrStepNotLimited, tool: "step_resume",
+			args: `{"id":"s1"}`, want: "failed_precondition: step is not limited",
+		},
+		{
 			name: "other failure", err: errors.New("disk on fire"), tool: "step_wait",
 			args: `{"ids":["s1"]}`, want: "internal: disk on fire",
 		},
@@ -734,6 +838,8 @@ func TestBadArgumentsAreToolErrorsAndServerKeepsServing(t *testing.T) {
 		{name: "status empty id", tool: "step_status", args: `{"id":""}`, want: "id is required"},
 		{name: "stop empty id", tool: "step_stop", args: `{"id":""}`, want: "id is required"},
 		{name: "stop id wrong type", tool: "step_stop", args: `{"id":7}`, want: "id"},
+		{name: "resume empty id", tool: "step_resume", args: `{"id":""}`, want: "id is required"},
+		{name: "resume missing id", tool: "step_resume", args: `{}`, want: "id is required"},
 		{name: "wait empty ids", tool: "step_wait", args: `{"ids":[]}`, want: "ids is required"},
 		{name: "wait missing ids", tool: "step_wait", args: `{"timeoutSeconds":5}`, want: "ids is required"},
 		{
@@ -774,5 +880,51 @@ func TestBadArgumentsAreToolErrorsAndServerKeepsServing(t *testing.T) {
 	outcome := p.tool("step_status", `{"id":"s1"}`)
 	if outcome.isError {
 		t.Fatalf("server stopped serving after bad arguments: %s", outcome.text)
+	}
+}
+
+// resumeRetrySteps is the Steps service of the resume retry test. Its first ResumeStep answers Unavailable and every
+// later one succeeds.
+type resumeRetrySteps struct {
+	enginev1connect.UnimplementedStepsHandler
+
+	mu    sync.Mutex
+	calls int
+}
+
+func (s *resumeRetrySteps) ResumeStep(
+	context.Context,
+	*connect.Request[v1.ResumeStepRequest],
+) (*connect.Response[v1.ResumeStepResponse], error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.calls++
+	if s.calls == 1 {
+		return nil, connect.NewError(connect.CodeUnavailable, errors.New("orreryd is restarting"))
+	}
+	return connect.NewResponse(&v1.ResumeStepResponse{}), nil
+}
+
+// A resume that meets Unavailable once succeeds on the retry.
+func TestStepResumeRetriesOnceAfterUnavailable(t *testing.T) {
+	clock := newTestClock()
+	service := &resumeRetrySteps{}
+	p := startRetryPeer(t, stepsHandler(service), clock)
+
+	outcome := p.tool("step_resume", `{"id":"s1"}`)
+	if outcome.isError {
+		t.Fatalf("step_resume reported an error: %s", outcome.text)
+	}
+	if got := decodeObject(t, outcome.text); !reflect.DeepEqual(got, map[string]any{"id": "s1", "resumed": true}) {
+		t.Fatalf("step_resume result = %v, want id s1 resumed", got)
+	}
+	service.mu.Lock()
+	calls := service.calls
+	service.mu.Unlock()
+	if calls != 2 {
+		t.Errorf("ResumeStep calls = %d, want 2: the Unavailable call is retried once", calls)
+	}
+	if got := clock.waitCount(); got != 1 {
+		t.Errorf("retry waits = %d, want 1", got)
 	}
 }

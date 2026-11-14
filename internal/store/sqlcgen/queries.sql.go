@@ -150,6 +150,15 @@ func (q *Queries) CountRunningEpicTurns(ctx context.Context, epic string) (int64
 	return column_1, err
 }
 
+const deleteEngineRateLimit = `-- name: DeleteEngineRateLimit :exec
+DELETE FROM engine_rate_limits WHERE session_id = ?
+`
+
+func (q *Queries) DeleteEngineRateLimit(ctx context.Context, sessionID string) error {
+	_, err := q.db.ExecContext(ctx, deleteEngineRateLimit, sessionID)
+	return err
+}
+
 const deleteEngineText = `-- name: DeleteEngineText :exec
 DELETE FROM engine_text
 WHERE session_id = ? AND message_id = ? AND block_index = ? AND parent_tool_use_id = ?
@@ -214,6 +223,15 @@ DELETE FROM pushed_epic_notices WHERE epic = ?
 
 func (q *Queries) DeletePushedEpicNotice(ctx context.Context, epic string) error {
 	_, err := q.db.ExecContext(ctx, deletePushedEpicNotice, epic)
+	return err
+}
+
+const deletePushedLimitNotice = `-- name: DeletePushedLimitNotice :exec
+DELETE FROM pushed_limit_notices WHERE limit_key = ?
+`
+
+func (q *Queries) DeletePushedLimitNotice(ctx context.Context, limitKey string) error {
+	_, err := q.db.ExecContext(ctx, deletePushedLimitNotice, limitKey)
 	return err
 }
 
@@ -611,7 +629,7 @@ func (q *Queries) GetSession(ctx context.Context, id string) (Session, error) {
 }
 
 const getStep = `-- name: GetStep :one
-SELECT id, agent, prompt, output_schema, workspace, revision, worktree, done_value, read_only, owned, gate, gate_limit, started, checks, result, status, end_value, reason, ended, model_limit, doing, verdicts, epic, task, gate_name, gate_source, gate_needs, loop_round, loop_continues, loop_nudge, loop_owner_nudge, loop_nudged, loop_held, loop_judge_sent, loop_seq, gate_grant, gate_holder, gate_round FROM steps WHERE id = ?
+SELECT id, agent, prompt, output_schema, workspace, revision, worktree, done_value, read_only, owned, gate, gate_limit, started, checks, result, status, end_value, reason, ended, model_limit, doing, verdicts, epic, task, gate_name, gate_source, gate_needs, loop_round, loop_continues, loop_nudge, loop_owner_nudge, loop_nudged, loop_held, loop_judge_sent, loop_seq, gate_grant, gate_holder, gate_round, loop_limited, loop_limit_kind, loop_limit_resets FROM steps WHERE id = ?
 `
 
 func (q *Queries) GetStep(ctx context.Context, id string) (Step, error) {
@@ -656,6 +674,33 @@ func (q *Queries) GetStep(ctx context.Context, id string) (Step, error) {
 		&i.GateGrant,
 		&i.GateHolder,
 		&i.GateRound,
+		&i.LoopLimited,
+		&i.LoopLimitKind,
+		&i.LoopLimitResets,
+	)
+	return i, err
+}
+
+const getStepRateLimit = `-- name: GetStepRateLimit :one
+SELECT session_id, status, kind, resets_at, at FROM engine_rate_limits
+WHERE engine_rate_limits.session_id = ?1 AND engine_rate_limits.status = 'rejected'
+  AND engine_rate_limits.at >= COALESCE((
+      SELECT prompts.at FROM events AS prompts
+      WHERE prompts.session_id = ?1 AND prompts.kind = 'engine_prompt'
+      ORDER BY prompts.seq DESC
+      LIMIT 1
+  ), 0)
+`
+
+func (q *Queries) GetStepRateLimit(ctx context.Context, id string) (EngineRateLimit, error) {
+	row := q.db.QueryRowContext(ctx, getStepRateLimit, id)
+	var i EngineRateLimit
+	err := row.Scan(
+		&i.SessionID,
+		&i.Status,
+		&i.Kind,
+		&i.ResetsAt,
+		&i.At,
 	)
 	return i, err
 }
@@ -2323,7 +2368,7 @@ func (q *Queries) ListKnownDirs(ctx context.Context) ([]string, error) {
 }
 
 const listLabelledSteps = `-- name: ListLabelledSteps :many
-SELECT id, agent, prompt, output_schema, workspace, revision, worktree, done_value, read_only, owned, gate, gate_limit, started, checks, result, status, end_value, reason, ended, model_limit, doing, verdicts, epic, task, gate_name, gate_source, gate_needs, loop_round, loop_continues, loop_nudge, loop_owner_nudge, loop_nudged, loop_held, loop_judge_sent, loop_seq, gate_grant, gate_holder, gate_round FROM steps
+SELECT id, agent, prompt, output_schema, workspace, revision, worktree, done_value, read_only, owned, gate, gate_limit, started, checks, result, status, end_value, reason, ended, model_limit, doing, verdicts, epic, task, gate_name, gate_source, gate_needs, loop_round, loop_continues, loop_nudge, loop_owner_nudge, loop_nudged, loop_held, loop_judge_sent, loop_seq, gate_grant, gate_holder, gate_round, loop_limited, loop_limit_kind, loop_limit_resets FROM steps
 WHERE epic <> '' AND (CAST(?1 AS TEXT) = '' OR epic = CAST(?1 AS TEXT))
   AND (CAST(?2 AS TEXT) = '' OR task = CAST(?2 AS TEXT))
 ORDER BY started, id
@@ -2382,6 +2427,78 @@ func (q *Queries) ListLabelledSteps(ctx context.Context, arg ListLabelledStepsPa
 			&i.GateGrant,
 			&i.GateHolder,
 			&i.GateRound,
+			&i.LoopLimited,
+			&i.LoopLimitKind,
+			&i.LoopLimitResets,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listLimitedSteps = `-- name: ListLimitedSteps :many
+SELECT id, agent, prompt, output_schema, workspace, revision, worktree, done_value, read_only, owned, gate, gate_limit, started, checks, result, status, end_value, reason, ended, model_limit, doing, verdicts, epic, task, gate_name, gate_source, gate_needs, loop_round, loop_continues, loop_nudge, loop_owner_nudge, loop_nudged, loop_held, loop_judge_sent, loop_seq, gate_grant, gate_holder, gate_round, loop_limited, loop_limit_kind, loop_limit_resets FROM steps WHERE end_value = '' AND loop_limited = 1 ORDER BY started, id
+`
+
+func (q *Queries) ListLimitedSteps(ctx context.Context) ([]Step, error) {
+	rows, err := q.db.QueryContext(ctx, listLimitedSteps)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Step
+	for rows.Next() {
+		var i Step
+		if err := rows.Scan(
+			&i.ID,
+			&i.Agent,
+			&i.Prompt,
+			&i.OutputSchema,
+			&i.Workspace,
+			&i.Revision,
+			&i.Worktree,
+			&i.DoneValue,
+			&i.ReadOnly,
+			&i.Owned,
+			&i.Gate,
+			&i.GateLimit,
+			&i.Started,
+			&i.Checks,
+			&i.Result,
+			&i.Status,
+			&i.EndValue,
+			&i.Reason,
+			&i.Ended,
+			&i.ModelLimit,
+			&i.Doing,
+			&i.Verdicts,
+			&i.Epic,
+			&i.Task,
+			&i.GateName,
+			&i.GateSource,
+			&i.GateNeeds,
+			&i.LoopRound,
+			&i.LoopContinues,
+			&i.LoopNudge,
+			&i.LoopOwnerNudge,
+			&i.LoopNudged,
+			&i.LoopHeld,
+			&i.LoopJudgeSent,
+			&i.LoopSeq,
+			&i.GateGrant,
+			&i.GateHolder,
+			&i.GateRound,
+			&i.LoopLimited,
+			&i.LoopLimitKind,
+			&i.LoopLimitResets,
 		); err != nil {
 			return nil, err
 		}
@@ -2430,7 +2547,7 @@ func (q *Queries) ListOpenEpicQuestions(ctx context.Context, epic string) ([]Epi
 }
 
 const listOpenSteps = `-- name: ListOpenSteps :many
-SELECT id, agent, prompt, output_schema, workspace, revision, worktree, done_value, read_only, owned, gate, gate_limit, started, checks, result, status, end_value, reason, ended, model_limit, doing, verdicts, epic, task, gate_name, gate_source, gate_needs, loop_round, loop_continues, loop_nudge, loop_owner_nudge, loop_nudged, loop_held, loop_judge_sent, loop_seq, gate_grant, gate_holder, gate_round FROM steps WHERE end_value = '' ORDER BY id
+SELECT id, agent, prompt, output_schema, workspace, revision, worktree, done_value, read_only, owned, gate, gate_limit, started, checks, result, status, end_value, reason, ended, model_limit, doing, verdicts, epic, task, gate_name, gate_source, gate_needs, loop_round, loop_continues, loop_nudge, loop_owner_nudge, loop_nudged, loop_held, loop_judge_sent, loop_seq, gate_grant, gate_holder, gate_round, loop_limited, loop_limit_kind, loop_limit_resets FROM steps WHERE end_value = '' ORDER BY id
 `
 
 func (q *Queries) ListOpenSteps(ctx context.Context) ([]Step, error) {
@@ -2481,6 +2598,9 @@ func (q *Queries) ListOpenSteps(ctx context.Context) ([]Step, error) {
 			&i.GateGrant,
 			&i.GateHolder,
 			&i.GateRound,
+			&i.LoopLimited,
+			&i.LoopLimitKind,
+			&i.LoopLimitResets,
 		); err != nil {
 			return nil, err
 		}
@@ -2550,6 +2670,33 @@ func (q *Queries) ListPushedEpicNotices(ctx context.Context) ([]PushedEpicNotice
 	for rows.Next() {
 		var i PushedEpicNotice
 		if err := rows.Scan(&i.Epic, &i.Time); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listPushedLimitNotices = `-- name: ListPushedLimitNotices :many
+SELECT limit_key, time FROM pushed_limit_notices ORDER BY limit_key
+`
+
+func (q *Queries) ListPushedLimitNotices(ctx context.Context) ([]PushedLimitNotice, error) {
+	rows, err := q.db.QueryContext(ctx, listPushedLimitNotices)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []PushedLimitNotice
+	for rows.Next() {
+		var i PushedLimitNotice
+		if err := rows.Scan(&i.LimitKey, &i.Time); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -3242,19 +3389,22 @@ func (q *Queries) UpdateStepGate(ctx context.Context, arg UpdateStepGateParams) 
 const updateStepLoop = `-- name: UpdateStepLoop :exec
 UPDATE steps
 SET loop_round = ?, loop_continues = ?, loop_nudge = ?, loop_owner_nudge = ?, loop_nudged = ?, loop_held = ?,
-    loop_judge_sent = ?
+    loop_judge_sent = ?, loop_limited = ?, loop_limit_kind = ?, loop_limit_resets = ?
 WHERE id = ?
 `
 
 type UpdateStepLoopParams struct {
-	LoopRound      int64
-	LoopContinues  int64
-	LoopNudge      string
-	LoopOwnerNudge string
-	LoopNudged     bool
-	LoopHeld       bool
-	LoopJudgeSent  bool
-	ID             string
+	LoopRound       int64
+	LoopContinues   int64
+	LoopNudge       string
+	LoopOwnerNudge  string
+	LoopNudged      bool
+	LoopHeld        bool
+	LoopJudgeSent   bool
+	LoopLimited     bool
+	LoopLimitKind   string
+	LoopLimitResets int64
+	ID              string
 }
 
 func (q *Queries) UpdateStepLoop(ctx context.Context, arg UpdateStepLoopParams) error {
@@ -3266,6 +3416,9 @@ func (q *Queries) UpdateStepLoop(ctx context.Context, arg UpdateStepLoopParams) 
 		arg.LoopNudged,
 		arg.LoopHeld,
 		arg.LoopJudgeSent,
+		arg.LoopLimited,
+		arg.LoopLimitKind,
+		arg.LoopLimitResets,
 		arg.ID,
 	)
 	return err
@@ -3414,6 +3567,21 @@ type UpsertPushedEpicNoticeParams struct {
 
 func (q *Queries) UpsertPushedEpicNotice(ctx context.Context, arg UpsertPushedEpicNoticeParams) error {
 	_, err := q.db.ExecContext(ctx, upsertPushedEpicNotice, arg.Epic, arg.Time)
+	return err
+}
+
+const upsertPushedLimitNotice = `-- name: UpsertPushedLimitNotice :exec
+INSERT INTO pushed_limit_notices (limit_key, time) VALUES (?, ?)
+ON CONFLICT (limit_key) DO UPDATE SET time = excluded.time
+`
+
+type UpsertPushedLimitNoticeParams struct {
+	LimitKey string
+	Time     int64
+}
+
+func (q *Queries) UpsertPushedLimitNotice(ctx context.Context, arg UpsertPushedLimitNoticeParams) error {
+	_, err := q.db.ExecContext(ctx, upsertPushedLimitNotice, arg.LimitKey, arg.Time)
 	return err
 }
 

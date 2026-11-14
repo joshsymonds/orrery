@@ -51,6 +51,7 @@ type fakeStepCommands struct {
 	lists   []listCall
 	holds   []string
 	nudges  []nudgeCall
+	resumes []string
 	held    map[string]bool
 	err     error
 }
@@ -114,6 +115,13 @@ func (f *fakeStepCommands) Nudge(_ context.Context, id, text string) error {
 	return f.err
 }
 
+func (f *fakeStepCommands) Resume(_ context.Context, id string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.resumes = append(f.resumes, id)
+	return f.err
+}
+
 func (f *fakeStepCommands) recordedStarts() []StepStart {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -154,6 +162,12 @@ func (f *fakeStepCommands) recordedNudges() []nudgeCall {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return slices.Clone(f.nudges)
+}
+
+func (f *fakeStepCommands) recordedResumes() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.resumes)
 }
 
 func (f *fakeStepCommands) setErr(err error) {
@@ -223,8 +237,8 @@ func fullStep() *v1.Step {
 	}
 }
 
-// callAllSteps calls each of the seven step RPCs once with fixed arguments and returns each error in order: StartStep,
-// StopStep, StepStatus, WaitSteps, ListSteps, HoldStep, NudgeStep.
+// callAllSteps calls each of the eight step RPCs once with fixed arguments and returns each error in order: StartStep,
+// StopStep, StepStatus, WaitSteps, ListSteps, HoldStep, NudgeStep, ResumeStep.
 func callAllSteps(t *testing.T, client enginev1connect.StepsClient) []error {
 	t.Helper()
 	ctx := context.Background()
@@ -237,7 +251,8 @@ func callAllSteps(t *testing.T, client enginev1connect.StepsClient) []error {
 	_, listErr := client.ListSteps(ctx, connect.NewRequest(&v1.ListStepsRequest{Epic: "orrery"}))
 	_, holdErr := client.HoldStep(ctx, connect.NewRequest(&v1.HoldStepRequest{Id: "s1"}))
 	_, nudgeErr := client.NudgeStep(ctx, connect.NewRequest(&v1.NudgeStepRequest{Id: "s1", Text: "continue"}))
-	return []error{startErr, stopErr, statusErr, waitErr, listErr, holdErr, nudgeErr}
+	_, resumeErr := client.ResumeStep(ctx, connect.NewRequest(&v1.ResumeStepRequest{Id: "s1"}))
+	return []error{startErr, stopErr, statusErr, waitErr, listErr, holdErr, nudgeErr, resumeErr}
 }
 
 func TestStepStartForwardsEveryField(t *testing.T) {
@@ -518,6 +533,72 @@ func TestNudgeStepForwardsIDAndText(t *testing.T) {
 	}
 }
 
+func TestResumeStepForwardsIDOnce(t *testing.T) {
+	t.Parallel()
+	fake := &fakeStepCommands{}
+	path, stop := startServerWithSteps(t, nil, fake)
+	client := newStepClient(t, path)
+
+	req := connect.NewRequest(&v1.ResumeStepRequest{Id: "s9"})
+	if _, err := client.ResumeStep(context.Background(), req); err != nil {
+		t.Fatalf("ResumeStep: %v", err)
+	}
+	if err := stop(); err != nil {
+		t.Fatalf("Serve: %v", err)
+	}
+	if got := fake.recordedResumes(); !slices.Equal(got, []string{"s9"}) {
+		t.Fatalf("ResumeStep reached commands with ids %v, want [s9]", got)
+	}
+}
+
+func TestStepStatusReportsLimitedStep(t *testing.T) {
+	t.Parallel()
+	row := runningStepRow("s1")
+	row.LoopLimited = true
+	row.LoopLimitKind = "session"
+	row.LoopLimitResets = time.Unix(1700003600, 0)
+	fake := &fakeStepCommands{row: row}
+	path, stop := startServerWithSteps(t, nil, fake)
+	client := newStepClient(t, path)
+
+	status, err := client.StepStatus(context.Background(), connect.NewRequest(&v1.StepStatusRequest{Id: "s1"}))
+	if err != nil {
+		t.Fatalf("StepStatus: %v", err)
+	}
+	if err := stop(); err != nil {
+		t.Fatalf("Serve: %v", err)
+	}
+	got := status.Msg.GetStep()
+	if !got.GetLimited() || got.GetLimitKind() != "session" || got.GetLimitResets() != 1700003600 {
+		t.Fatalf("limited step = limited %v kind %q resets %d, want limited, session, 1700003600",
+			got.GetLimited(), got.GetLimitKind(), got.GetLimitResets())
+	}
+}
+
+func TestStepStatusLimitedStepWithUnknownResetAnswersZero(t *testing.T) {
+	t.Parallel()
+	row := runningStepRow("s1")
+	row.LoopLimited = true
+	row.LoopLimitKind = "session"
+	row.LoopLimitResets = time.Time{}
+	fake := &fakeStepCommands{row: row}
+	path, stop := startServerWithSteps(t, nil, fake)
+	client := newStepClient(t, path)
+
+	status, err := client.StepStatus(context.Background(), connect.NewRequest(&v1.StepStatusRequest{Id: "s1"}))
+	if err != nil {
+		t.Fatalf("StepStatus: %v", err)
+	}
+	if err := stop(); err != nil {
+		t.Fatalf("Serve: %v", err)
+	}
+	got := status.Msg.GetStep()
+	if !got.GetLimited() || got.GetLimitResets() != 0 {
+		t.Fatalf("limited step with an unknown reset = limited %v resets %d, want limited and 0",
+			got.GetLimited(), got.GetLimitResets())
+	}
+}
+
 func TestStopStepForwardsID(t *testing.T) {
 	t.Parallel()
 	fake := &fakeStepCommands{}
@@ -642,6 +723,7 @@ func TestStepErrorsMapToConnectCodes(t *testing.T) {
 		{name: "step already held", err: ErrStepHeld, code: connect.CodeFailedPrecondition},
 		{name: "step running its gate", err: ErrStepGating, code: connect.CodeFailedPrecondition},
 		{name: "step not running", err: ErrStepNotRunning, code: connect.CodeFailedPrecondition},
+		{name: "step not limited", err: ErrStepNotLimited, code: connect.CodeFailedPrecondition},
 		{name: "other error is internal", err: errors.New("disk on fire"), code: connect.CodeInternal},
 	}
 	fake := &fakeStepCommands{}

@@ -194,6 +194,9 @@ WHERE epic <> '' AND (CAST(sqlc.arg(epic) AS TEXT) = '' OR epic = CAST(sqlc.arg(
   AND (CAST(sqlc.arg(task) AS TEXT) = '' OR task = CAST(sqlc.arg(task) AS TEXT))
 ORDER BY started, id;
 
+-- name: ListLimitedSteps :many
+SELECT * FROM steps WHERE end_value = '' AND loop_limited = 1 ORDER BY started, id;
+
 -- name: UpdateStepReturn :exec
 UPDATE steps
 SET result = ?, checks = ?,
@@ -204,7 +207,7 @@ WHERE id = ?;
 -- name: UpdateStepLoop :exec
 UPDATE steps
 SET loop_round = ?, loop_continues = ?, loop_nudge = ?, loop_owner_nudge = ?, loop_nudged = ?, loop_held = ?,
-    loop_judge_sent = ?
+    loop_judge_sent = ?, loop_limited = ?, loop_limit_kind = ?, loop_limit_resets = ?
 WHERE id = ?;
 
 -- name: UpdateStepGate :exec
@@ -300,6 +303,16 @@ DELETE FROM pushed_epic_notices WHERE epic = ?;
 
 -- name: ListPushedEpicNotices :many
 SELECT * FROM pushed_epic_notices ORDER BY epic;
+
+-- name: UpsertPushedLimitNotice :exec
+INSERT INTO pushed_limit_notices (limit_key, time) VALUES (?, ?)
+ON CONFLICT (limit_key) DO UPDATE SET time = excluded.time;
+
+-- name: DeletePushedLimitNotice :exec
+DELETE FROM pushed_limit_notices WHERE limit_key = ?;
+
+-- name: ListPushedLimitNotices :many
+SELECT * FROM pushed_limit_notices ORDER BY limit_key;
 
 -- name: InsertEpic :exec
 INSERT INTO epics (id, repository, title, approved, intent, care, approach, release_then, checks, phase, created, changed)
@@ -515,5 +528,18 @@ INSERT INTO engine_rate_limits (session_id, status, kind, resets_at, at) VALUES 
 ON CONFLICT (session_id)
 DO UPDATE SET status = excluded.status, kind = excluded.kind, resets_at = excluded.resets_at, at = excluded.at;
 
+-- name: DeleteEngineRateLimit :exec
+DELETE FROM engine_rate_limits WHERE session_id = ?;
+
 -- name: GetEngineRateLimit :one
 SELECT * FROM engine_rate_limits WHERE session_id = ?;
+
+-- name: GetStepRateLimit :one
+SELECT * FROM engine_rate_limits
+WHERE engine_rate_limits.session_id = sqlc.arg(id) AND engine_rate_limits.status = 'rejected'
+  AND engine_rate_limits.at >= COALESCE((
+      SELECT prompts.at FROM events AS prompts
+      WHERE prompts.session_id = sqlc.arg(id) AND prompts.kind = 'engine_prompt'
+      ORDER BY prompts.seq DESC
+      LIMIT 1
+  ), 0);

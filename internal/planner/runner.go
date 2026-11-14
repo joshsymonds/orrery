@@ -29,12 +29,12 @@ type Store interface {
 	RateLimit(ctx context.Context, session string) (store.RateLimit, bool, error)
 }
 
-// Steps starts planner steps and waits for them. *enginehost.Steps satisfies it.
+// Steps starts planner steps, waits for them and stops them. *enginehost.Steps satisfies it.
 type Steps interface {
 	Start(ctx context.Context, start enginehost.StepStart) (string, error)
 	Status(ctx context.Context, id string) (store.StepRow, error)
-	Stop(ctx context.Context, id string) error
 	Wait(ctx context.Context, ids []string, timeout time.Duration) (*store.StepRow, []store.StepRow, error)
+	Stop(ctx context.Context, id string) error
 }
 
 // Config configures a Runner. A Tick that is not positive means five seconds, and a nil Now means time.Now. A nil
@@ -295,11 +295,13 @@ func (r *Runner) finish(ctx context.Context, epic string, seq int64, id string) 
 }
 
 // await waits until the step id ends and returns its row, and reports false once ctx has ended. Each Wait lasts a
-// minute, and a Wait that times out is repeated. A Wait that fails is logged and repeated after a tick, since the step
-// may still be running.
+// minute, and a Wait that times out is repeated. A timed-out Wait whose row shows the step limited stops the step. A
+// Stop that succeeds is not repeated; one that fails is logged, and the next timed-out Wait that still shows the step
+// limited tries again. A Wait that fails is logged and repeated after a tick, since the step may still be running.
 func (r *Runner) await(ctx context.Context, id string) (store.StepRow, bool) {
+	stopped := false
 	for {
-		ended, _, err := r.steps.Wait(ctx, []string{id}, waitInterval)
+		ended, rows, err := r.steps.Wait(ctx, []string{id}, waitInterval)
 		if ctx.Err() != nil {
 			return store.StepRow{}, false
 		}
@@ -315,7 +317,24 @@ func (r *Runner) await(ctx context.Context, id string) (store.StepRow, bool) {
 		if ended != nil {
 			return *ended, true
 		}
+		if !stopped && rowLimited(rows, id) {
+			if err = r.steps.Stop(ctx, id); err != nil {
+				r.logger.ErrorContext(ctx, "stop limited planner step", "step", id, "err", err)
+			} else {
+				stopped = true
+			}
+		}
 	}
+}
+
+// rowLimited reports whether the row of step id in rows shows the step limited by a usage limit.
+func rowLimited(rows []store.StepRow, id string) bool {
+	for _, row := range rows {
+		if row.ID == id && row.LoopLimited {
+			return true
+		}
+	}
+	return false
 }
 
 // refuse settles turn seq of epic whose planner step did not start, by the error of its start. A refusal for the step

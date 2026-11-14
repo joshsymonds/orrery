@@ -40,6 +40,10 @@ func (f *stepLoopSessions) StartStep(context.Context, StepSession) error {
 	return errors.New("stepLoopSessions: StartStep is not used by the loop")
 }
 
+func (f *stepLoopSessions) Release(context.Context, string) error {
+	return errors.New("stepLoopSessions: Release is not used by the loop")
+}
+
 func (f *stepLoopSessions) Interrupt(_ context.Context, id string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -138,8 +142,8 @@ func newStepLoopFixture(t *testing.T, continueErr error) *stepLoopFixture {
 	// Every fixture's step has the id stepLoopID, so its gate's holder would be named alike in every test. A state
 	// directory of the fixture's own keeps the holders of tests that run in parallel apart.
 	fixture.run = newStepRun(stepRunConfig{
-		id: stepLoopID, schema: stepLoopSchema, doneValue: stepLoopDone, sessions: fixture.sessions, writer: writer,
-		logger: slog.New(slog.DiscardHandler), cleanup: cleanup, stateDir: gateShortStateDir(t),
+		id: stepLoopID, schema: stepLoopSchema, doneValue: stepLoopDone, sessions: fixture.sessions, store: s,
+		writer: writer, logger: slog.New(slog.DiscardHandler), cleanup: cleanup, stateDir: gateShortStateDir(t),
 	})
 	return fixture
 }

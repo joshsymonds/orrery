@@ -56,7 +56,7 @@ func TestRunnerStopsStartedStepWhenTurnWasFlaggedBeforeItHadAStep(t *testing.T) 
 	releaseStart()
 
 	waitFor(t, "turn 1 to end", func() bool { return epicOf(t, s).Turns[0].State == "free" })
-	if got, want := steps.stopped(), []string{"step-1"}; !reflect.DeepEqual(got, want) {
+	if got, want := steps.stopCalls(), []string{"step-1"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("steps stopped = %q, want %q", got, want)
 	}
 	epic := epicOf(t, s)
@@ -94,7 +94,7 @@ func TestRunnerDoesNotStopStepOfTurnWithoutStopFlag(t *testing.T) {
 
 	steps.end("step-1", store.StepRow{End: "done", Result: validPlan})
 	waitFor(t, "turn 1 to succeed", func() bool { return epicOf(t, s).Turns[0].State == "succeeded" })
-	if got := steps.stopped(); len(got) != 0 {
+	if got := steps.stopCalls(); len(got) != 0 {
 		t.Errorf("steps stopped = %q, want none: turn 1 was not flagged to stop", got)
 	}
 }

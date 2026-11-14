@@ -40,7 +40,9 @@ class OrreryPushService : PushService() {
         }
         if (json.optString("kind") == CLEAR_KIND) {
             val clear = parseClear(json) ?: return
-            PushNotifier(this).clear(clear.host, clear.pane, clear.session, clear.seen, clear.epic)
+            PushNotifier(this).clear(
+                clear.host, clear.pane, clear.session, clear.seen, epic = clear.epic, limit = clear.limit,
+            )
             return
         }
         val event = parse(json) ?: return
@@ -68,6 +70,7 @@ class OrreryPushService : PushService() {
                 questionHash = json.getString("question_hash"),
                 session = json.optString("session"),
                 epic = json.optString("epic"),
+                limit = json.optString("limit"),
                 time = optDecimal(json.optString("time")),
                 silent = json.opt("silent") == SILENT_TRUE,
             )
@@ -75,8 +78,8 @@ class OrreryPushService : PushService() {
             Log.w(TAG, "dropped malformed push", e)
             return null
         }
-        if (event.pane.isEmpty() && event.session.isEmpty() && event.epic.isEmpty()) {
-            Log.w(TAG, "dropped push with an empty pane, session, and epic")
+        if (event.pane.isEmpty() && event.session.isEmpty() && event.epic.isEmpty() && event.limit.isEmpty()) {
+            Log.w(TAG, "dropped push naming no pane, session, epic or limit")
             return null
         }
         return event
@@ -89,14 +92,15 @@ class OrreryPushService : PushService() {
                 pane = json.optString("pane"),
                 session = json.optString("session"),
                 epic = json.optString("epic"),
+                limit = json.optString("limit"),
                 seen = decimal(json.getString("seen")),
             )
         } catch (e: JSONException) {
             Log.w(TAG, "dropped malformed clear", e)
             return null
         }
-        if (clear.pane.isEmpty() && clear.session.isEmpty() && clear.epic.isEmpty()) {
-            Log.w(TAG, "dropped clear with no pane, session, or epic")
+        if (clear.pane.isEmpty() && clear.session.isEmpty() && clear.epic.isEmpty() && clear.limit.isEmpty()) {
+            Log.w(TAG, "dropped clear naming no pane, session, epic or limit")
             return null
         }
         return clear
@@ -112,5 +116,6 @@ private data class ClearEvent(
     val pane: String,
     val session: String,
     val epic: String,
+    val limit: String,
     val seen: Long,
 )

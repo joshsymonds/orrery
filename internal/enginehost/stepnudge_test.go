@@ -34,6 +34,10 @@ type nudgeSessions struct {
 	continueErr  error
 }
 
+func (f *nudgeSessions) Release(context.Context, string) error {
+	return errors.New("nudgeSessions: Release is not used")
+}
+
 func (f *nudgeSessions) Interrupt(_ context.Context, id string) error {
 	f.nmu.Lock()
 	defer f.nmu.Unlock()

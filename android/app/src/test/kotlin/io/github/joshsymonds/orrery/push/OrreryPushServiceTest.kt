@@ -5,6 +5,7 @@ import android.app.Notification
 import android.app.NotificationManager
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
+import io.github.joshsymonds.orrery.MainActivity
 import io.github.joshsymonds.orrery.ServerSettings
 import io.github.joshsymonds.orrery.api.FakeOrreryServer
 import io.github.joshsymonds.orrery.api.RecordedRequest
@@ -12,7 +13,9 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.RegisterRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.RegisterResponse
 import org.json.JSONObject
 import io.github.joshsymonds.orrery.push.PushNotifier.Companion.EXTRA_KEY
+import io.github.joshsymonds.orrery.push.PushNotifier.Companion.EXTRA_PANE
 import io.github.joshsymonds.orrery.push.PushNotifier.Companion.EXTRA_QUESTION_HASH
+import io.github.joshsymonds.orrery.push.PushNotifier.Companion.EXTRA_SESSION
 import io.github.joshsymonds.orrery.push.PushNotifier.Companion.EXTRA_TIME
 import io.github.joshsymonds.orrery.push.PushNotifier.Companion.notificationId
 import org.junit.After
@@ -51,6 +54,8 @@ class OrreryPushServiceTest {
     private val noticeTime = "1700000200"
     private val olderSeen = "1700000100"
     private val registerPath = "/orrery.v1.Push/Register"
+    private val sevenDayLimit = "seven_day@1900000000"
+    private val fiveHourLimit = "five_hour@1900000000"
 
     @Before
     fun setUp() {
@@ -88,11 +93,30 @@ class OrreryPushServiceTest {
         .toString()
         .toByteArray(Charsets.UTF_8)
 
+    private fun limitPayload(
+        limit: String = sevenDayLimit,
+        summary: String = "Synthetic limit summary.",
+        time: String = noticeTime,
+    ): ByteArray = JSONObject()
+        .put("pane", "")
+        .put("host", "synthetic-host")
+        .put("project", "usage limit")
+        .put("state", "limited")
+        .put("summary", summary)
+        .put("label", "")
+        .put("question", "")
+        .put("question_hash", "qh-synthetic-limit")
+        .put("time", time)
+        .put("limit", limit)
+        .toString()
+        .toByteArray(Charsets.UTF_8)
+
     private fun clearPayload(
         host: String? = "synthetic-host",
         pane: String? = null,
         session: String? = null,
         seen: String? = null,
+        limit: String? = null,
     ): ByteArray = JSONObject()
         .put("kind", "clear")
         .apply {
@@ -100,12 +124,16 @@ class OrreryPushServiceTest {
             pane?.let { put("pane", it) }
             session?.let { put("session", it) }
             seen?.let { put("seen", it) }
+            limit?.let { put("limit", it) }
         }
         .toString()
         .toByteArray(Charsets.UTF_8)
 
     private fun postedFor(tag: String): Notification? =
         shadowOf(manager).getNotification(null, notificationId("synthetic-host", tag))
+
+    private fun postedLimit(): Notification =
+        checkNotNull(postedFor(sevenDayLimit)) { "expected a notification for limit $sevenDayLimit" }
 
     private fun awaitRequests(count: Int): List<RecordedRequest> {
         val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)
@@ -299,5 +327,68 @@ class OrreryPushServiceTest {
         service.onMessage(PushMessage(clearPayload(seen = noticeTime), decrypted = true), instance)
 
         assertNotNull(postedFor(""))
+    }
+
+    @Test
+    fun limitPushWithEmptyPanePostsUnderHostAndLimitWithSummaryAndNoActions() {
+        service.onMessage(PushMessage(limitPayload(), decrypted = true), instance)
+
+        val notification = postedLimit()
+        assertEquals(1, shadowOf(manager).allNotifications.size)
+        assertEquals(
+            "usage limit · limited",
+            notification.extras.getCharSequence(Notification.EXTRA_TITLE).toString(),
+        )
+        assertEquals(
+            "Synthetic limit summary.",
+            notification.extras.getCharSequence(Notification.EXTRA_TEXT).toString(),
+        )
+        assertTrue(notification.actions.orEmpty().isEmpty())
+    }
+
+    @Test
+    fun limitNoticeTapOpensMainScreenWithoutPaneOrSession() {
+        service.onMessage(PushMessage(limitPayload(), decrypted = true), instance)
+
+        val intent = shadowOf(postedLimit().contentIntent).savedIntent
+        assertEquals(MainActivity::class.java.name, intent.component?.className)
+        assertNull(intent.getStringExtra(EXTRA_PANE))
+        assertNull(intent.getStringExtra(EXTRA_SESSION))
+    }
+
+    @Test
+    fun laterLimitPushReplacesEarlierNoticeForSameLimit() {
+        service.onMessage(PushMessage(limitPayload(summary = "First.", time = olderSeen), decrypted = true), instance)
+        service.onMessage(PushMessage(limitPayload(summary = "Second.", time = noticeTime), decrypted = true), instance)
+
+        val notification = postedLimit()
+        assertEquals(1, shadowOf(manager).allNotifications.size)
+        assertEquals("Second.", notification.extras.getCharSequence(Notification.EXTRA_TEXT).toString())
+        assertEquals(noticeTime.toLong(), notification.extras.getLong(EXTRA_TIME))
+    }
+
+    @Test
+    fun limitClearWithOlderSeenLeavesLimitNotice() {
+        service.onMessage(PushMessage(limitPayload(time = noticeTime), decrypted = true), instance)
+        service.onMessage(PushMessage(clearPayload(limit = sevenDayLimit, seen = olderSeen), decrypted = true), instance)
+
+        assertNotNull(postedFor(sevenDayLimit))
+    }
+
+    @Test
+    fun limitClearAtNoticeTimeRemovesLimitNotice() {
+        service.onMessage(PushMessage(limitPayload(time = noticeTime), decrypted = true), instance)
+        assertNotNull(postedFor(sevenDayLimit))
+        service.onMessage(PushMessage(clearPayload(limit = sevenDayLimit, seen = noticeTime), decrypted = true), instance)
+
+        assertNull(postedFor(sevenDayLimit))
+    }
+
+    @Test
+    fun limitClearForAnotherLimitLeavesLimitNotice() {
+        service.onMessage(PushMessage(limitPayload(time = noticeTime), decrypted = true), instance)
+        service.onMessage(PushMessage(clearPayload(limit = fiveHourLimit, seen = noticeTime), decrypted = true), instance)
+
+        assertNotNull(postedFor(sevenDayLimit))
     }
 }

@@ -19,6 +19,13 @@ type EngineRateLimited struct {
 	ResetsAt time.Time
 }
 
+// EngineRateLimitCleared deletes the stored rate limit of session ID, so RateLimit and StepRateLimit of the session
+// read false until a later EngineRateLimited stores a new row. A session with no row is not an error. It appends no
+// event.
+type EngineRateLimitCleared struct {
+	ID string
+}
+
 // RateLimit is the stored rate limit of an engine session. Times are stored at whole seconds.
 type RateLimit struct {
 	Status   string
@@ -36,6 +43,13 @@ func (op EngineRateLimited) applyEngine(ctx context.Context, queries *sqlcgen.Qu
 	return nil
 }
 
+func (op EngineRateLimitCleared) applyEngine(ctx context.Context, queries *sqlcgen.Queries, _ time.Time) error {
+	if err := queries.DeleteEngineRateLimit(ctx, op.ID); err != nil {
+		return fmt.Errorf("delete rate limit of session %s: %w", op.ID, err)
+	}
+	return nil
+}
+
 // RateLimit returns the stored rate limit of session and true. It returns the zero value and false when the session
 // has none.
 func (s *Store) RateLimit(ctx context.Context, session string) (RateLimit, bool, error) {
@@ -46,7 +60,25 @@ func (s *Store) RateLimit(ctx context.Context, session string) (RateLimit, bool,
 	if err != nil {
 		return RateLimit{}, false, fmt.Errorf("get rate limit of session %s: %w", session, err)
 	}
+	return rateLimitOf(row), true, nil
+}
+
+// StepRateLimit returns the stored rate limit of session id and true when its status is "rejected" and it was stored
+// at or after the at of the session's newest engine_prompt event. It returns the zero value and false otherwise. A
+// session with no prompt compares against zero.
+func (s *Store) StepRateLimit(ctx context.Context, id string) (RateLimit, bool, error) {
+	row, err := sqlcgen.New(s.db).GetStepRateLimit(ctx, id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return RateLimit{}, false, nil
+	}
+	if err != nil {
+		return RateLimit{}, false, fmt.Errorf("get step rate limit of session %s: %w", id, err)
+	}
+	return rateLimitOf(row), true, nil
+}
+
+func rateLimitOf(row sqlcgen.EngineRateLimit) RateLimit {
 	return RateLimit{
 		Status: row.Status, Kind: row.Kind, ResetsAt: time.Unix(row.ResetsAt, 0), At: time.Unix(row.At, 0),
-	}, true, nil
+	}
 }

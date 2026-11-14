@@ -76,6 +76,8 @@ const (
 	silentBackground = "background work"
 	// brokerTick is how often the grants broker ticks. Each tick ends the grants of gone clients and polls each member.
 	brokerTick = 60 * time.Second
+	// limitTick is how often the limit notices check the limited steps for a change.
+	limitTick = 5 * time.Second
 	// waitingBody and doneBody stand in for an empty question or summary.
 	waitingBody = "waiting for input"
 	doneBody    = "done"
@@ -399,7 +401,6 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 	})
 	router := hub.router
 	observe := func(transition daemon.Transition) { hub.observe(ctx, transition) }
-	notifier := enginehost.NewNotifier(enginehost.NotifierConfig{Route: router})
 	// The first tidy waits for tidyStart, which closes once the store is open and the sessions have started.
 	tidyStart := make(chan struct{})
 	serveDone := serveInBackground(ctx, ln, daemon.Config{
@@ -426,7 +427,7 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 	var sessions *sessionHost
 	var startErr error
 	if opts.sessions {
-		sessions, startErr = startSessions(ctx, opts, host, st, notifier, router, logger, getenv)
+		sessions, startErr = startSessions(ctx, opts, host, st, router, logger, getenv)
 	}
 	if startErr != nil {
 		stop()
@@ -505,26 +506,28 @@ type sessionHost struct {
 	plannerDone chan struct{}
 	// attentionDone is closed when the attention loop returns, and is nil when no loop runs.
 	attentionDone chan struct{}
+	stopLimits    context.CancelFunc
+	limitsDone    chan struct{}
 	stopServe     context.CancelFunc
 	serveDone     chan error
 }
 
 // startSessions listens on sessions.sock beside the daemon socket and serves the Engine, Steps and Pools services on it
 // until stop. With an open store it also starts the writer, a manager capped at opts.sessionCap that notifies through
-// notifier, the grants broker for hostName, which restores the grants a previous run stored and then ticks every
+// router, the grants broker for hostName, which restores the grants a previous run stored and then ticks every
 // brokerTick until stop, and the step engine capped at opts.stepCap whose worktrees go under step-worktrees beside the
 // store file. The steps re-adopt the open step rows a previous run left, the manager reconciles the session rows and
-// the steps reconcile the rest before the service serves. The planner then runs over the store and the steps, and the
-// manager stops idle sessions, until stop. When epicRoute is not nil, the planner's attention loop routes its epic
-// notices through it. A readopt, reconcile or restore failure is logged and serving goes on; a
-// failed restore serves no Pools, which refuse as unavailable, and the gates fail for want of pools.
+// the steps reconcile the rest before the service serves. The planner then runs over the store and the steps, and its
+// attention loop routes its epic notices through router when router is not nil; the limit notices tell router which
+// steps a usage limit holds, every limitTick until stop; and the manager stops idle sessions, until stop. A readopt,
+// reconcile or restore failure is logged and serving goes on; a failed restore serves no Pools, which refuse as
+// unavailable, and the gates fail for want of pools.
 func startSessions(
 	ctx context.Context,
 	opts options,
 	hostName string,
 	st *store.Store,
-	notifier *enginehost.Notifier,
-	epicRoute planner.Router,
+	router enginehost.Router,
 	logger *slog.Logger,
 	getenv func(string) string,
 ) (*sessionHost, error) {
@@ -532,6 +535,7 @@ func startSessions(
 		writerDone:  make(chan struct{}),
 		idleDone:    make(chan struct{}),
 		plannerDone: make(chan struct{}),
+		limitsDone:  make(chan struct{}),
 		serveDone:   make(chan error, 1),
 	}
 	var commands enginehost.Commands
@@ -544,6 +548,7 @@ func startSessions(
 		}
 		stateDir := filepath.Dir(storePath)
 		host.writer = enginehost.NewWriter(enginehost.WriterConfig{Applier: st, Logger: logger})
+		notifier := enginehost.NewNotifier(enginehost.NotifierConfig{Route: router})
 		host.manager = enginehost.NewManager(enginehost.Config{
 			Shell:       opts.sessionShell,
 			Claude:      opts.claude,
@@ -589,7 +594,8 @@ func startSessions(
 			close(host.writerDone)
 		}()
 		host.reconcile(ctx, logger)
-		host.startPlanner(ctx, st, epicRoute, getenv, logger)
+		host.startPlanner(ctx, st, router, getenv, logger)
+		host.startLimits(ctx, st, router, logger)
 		var idleCtx context.Context
 		idleCtx, host.stopIdle = context.WithCancel(ctx)
 		go func() {
@@ -727,9 +733,34 @@ func (h *sessionHost) startPlanner(
 	}()
 }
 
-// shutdown stops the broker, stops the idle check, stops the planner and waits for its runner and its attention loop to
-// return, ends every step loop, stops every live session, and ends the writer after its last flush. The notices the
-// sessions started are waited on in serve. Without a broker, manager and writer it does nothing.
+// startLimits tells router which steps a usage limit holds, checking st every limitTick until stop. A limit that holds
+// steps when it starts is remembered, not announced.
+func (h *sessionHost) startLimits(
+	ctx context.Context,
+	st *store.Store,
+	router enginehost.Router,
+	logger *slog.Logger,
+) {
+	ticker := time.NewTicker(limitTick)
+	limits := enginehost.NewLimitNotices(enginehost.LimitNoticesConfig{
+		Steps:  st,
+		Route:  router,
+		Now:    time.Now,
+		Tick:   ticker.C,
+		Logger: logger,
+	})
+	var limitsCtx context.Context
+	limitsCtx, h.stopLimits = context.WithCancel(ctx)
+	go func() {
+		defer close(h.limitsDone)
+		defer ticker.Stop()
+		limits.Run(limitsCtx)
+	}()
+}
+
+// shutdown stops the broker, stops the idle check, stops the planner and the limit notices and waits for the planner's
+// runner, its attention loop and the limit loop to return, ends every step loop, stops every live session, and ends
+// the writer after its last flush. The notices the sessions started are waited on in serve. Without a broker, manager and writer it does nothing.
 func (h *sessionHost) shutdown() {
 	h.stopBroker()
 	if h.manager != nil {
@@ -740,6 +771,8 @@ func (h *sessionHost) shutdown() {
 		if h.attentionDone != nil {
 			<-h.attentionDone
 		}
+		h.stopLimits()
+		<-h.limitsDone
 		h.steps.Close()
 		h.manager.Close()
 	}

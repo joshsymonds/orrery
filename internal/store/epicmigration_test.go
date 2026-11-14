@@ -14,7 +14,7 @@ import (
 )
 
 // epicTableColumns returns, keyed by table, the columns in declaration order of every table migrations 00014, 00016
-// and 00017 create, and of the columns those migrations add to epic tables.
+// and 00019 create, and of the columns those migrations add to epic tables.
 func epicTableColumns() map[string][]string {
 	return map[string][]string{
 		"epics": {
@@ -383,9 +383,9 @@ func TestEpicMigrationKeepsExistingRows(t *testing.T) {
 		`SELECT COALESCE(MAX(version_id), 0) FROM goose_db_version WHERE is_applied = 1`).Scan(&version); err != nil {
 		t.Fatalf("read store version: %v", err)
 	}
-	// Open applies 00014_epics.sql and every migration after it: 00017_planner_controls.sql is the newest.
-	if version != 17 {
-		t.Fatalf("store version after Open = %d, want 17", version)
+	// Open applies 00014_epics.sql and every migration after it: 00019_planner_controls.sql is the newest.
+	if version != 19 {
+		t.Fatalf("store version after Open = %d, want 19", version)
 	}
 
 	// A later migration may add columns at the end of an existing table, as 00015_step_readopt.sql adds to steps and

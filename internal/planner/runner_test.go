@@ -46,13 +46,15 @@ const unknownRequirementPlan = `{"status":"done","decisions":[],` +
 	`"tasks":[{"title":"Build it","deliverable":"the runner","files":["internal/planner/runner.go"],` +
 	`"requirements":["R9"],"check":"go test"}],"outline":"one task","questions":[],"outcome":"work"}`
 
-// fakeSteps is a Steps whose steps end when the test ends them. It records each start and each stop.
+// fakeSteps is a Steps whose steps end when the test ends them. It records each start and each Stop. The first
+// stopFailures Stops fail, and a Stop that succeeds ends its step as stopped, as the engine's Stop does.
 type fakeSteps struct {
-	mu       sync.Mutex
-	starts   []enginehost.StepStart
-	stops    []string
-	startErr error
-	ended    map[string]chan store.StepRow
+	mu           sync.Mutex
+	starts       []enginehost.StepStart
+	startErr     error
+	stops        []string
+	stopFailures int
+	ended        map[string]chan store.StepRow
 }
 
 func newFakeSteps() *fakeSteps {
@@ -91,11 +93,16 @@ func (f *fakeSteps) Wait(
 	}
 }
 
-// Stop records id and ends the step as stopped, as a real stop does.
+// Stop records the call of id in stops. A call within the first stopFailures fails with errSyntheticStop, and any other
+// call ends step id as stopped.
 func (f *fakeSteps) Stop(_ context.Context, id string) error {
 	f.mu.Lock()
 	f.stops = append(f.stops, id)
+	fail := len(f.stops) <= f.stopFailures
 	f.mu.Unlock()
+	if fail {
+		return errSyntheticStop
+	}
 	f.end(id, store.StepRow{End: "stopped"})
 	return nil
 }
@@ -116,8 +123,8 @@ func (f *fakeSteps) started() []enginehost.StepStart {
 	return append([]enginehost.StepStart(nil), f.starts...)
 }
 
-// stopped returns the ids of the steps stopped so far, in order.
-func (f *fakeSteps) stopped() []string {
+// stopCalls returns the ids Stop was called with so far, in order.
+func (f *fakeSteps) stopCalls() []string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return append([]string(nil), f.stops...)

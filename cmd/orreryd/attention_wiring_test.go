@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/daemon"
-	"github.com/joshsymonds/orrery/internal/enginehost"
 	"github.com/joshsymonds/orrery/internal/notice"
 	"github.com/joshsymonds/orrery/internal/planner"
 	"github.com/joshsymonds/orrery/internal/protocol"
@@ -106,7 +105,7 @@ func createAttentionEpic(t *testing.T, st *store.Store) {
 }
 
 // TestSessionsHostRoutesParkedEpicNotice checks that a --sessions orreryd runs the attention loop through the
-// notifier's route. The synthetic epic parks for want of a role file, and the loop routes exactly one epic-keyed notice
+// host's router. The synthetic epic parks for want of a role file, and the loop routes exactly one epic-keyed notice
 // that says so. The host then stops, and the loop ends with its notice given.
 func TestSessionsHostRoutesParkedEpicNotice(t *testing.T) {
 	ctx := t.Context()
@@ -128,9 +127,8 @@ func TestSessionsHostRoutesParkedEpicNotice(t *testing.T) {
 		stepCap:    defaultStepCap,
 	}
 	routed := &recordRoute{}
-	notifier := enginehost.NewNotifier(enginehost.NotifierConfig{Route: routed})
 	logger := slog.New(slog.DiscardHandler)
-	host, err := startSessions(ctx, opts, attentionWiringHost, st, notifier, routed, logger, getenv)
+	host, err := startSessions(ctx, opts, attentionWiringHost, st, routed, logger, getenv)
 	if err != nil {
 		t.Fatalf("startSessions: %v", err)
 	}

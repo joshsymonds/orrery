@@ -237,6 +237,11 @@ type PushedEpicNotice struct {
 	Time int64
 }
 
+type PushedLimitNotice struct {
+	LimitKey string
+	Time     int64
+}
+
 type PushedNotice struct {
 	Pane    string
 	Session string
@@ -268,42 +273,45 @@ type Session struct {
 }
 
 type Step struct {
-	ID             string
-	Agent          string
-	Prompt         string
-	OutputSchema   string
-	Workspace      string
-	Revision       string
-	Worktree       string
-	DoneValue      string
-	ReadOnly       bool
-	Owned          string
-	Gate           string
-	GateLimit      int64
-	Started        int64
-	Checks         string
-	Result         string
-	Status         string
-	EndValue       string
-	Reason         string
-	Ended          int64
-	ModelLimit     int64
-	Doing          string
-	Verdicts       string
-	Epic           string
-	Task           string
-	GateName       string
-	GateSource     string
-	GateNeeds      string
-	LoopRound      int64
-	LoopContinues  int64
-	LoopNudge      string
-	LoopOwnerNudge string
-	LoopNudged     bool
-	LoopHeld       bool
-	LoopJudgeSent  bool
-	LoopSeq        int64
-	GateGrant      string
-	GateHolder     string
-	GateRound      int64
+	ID              string
+	Agent           string
+	Prompt          string
+	OutputSchema    string
+	Workspace       string
+	Revision        string
+	Worktree        string
+	DoneValue       string
+	ReadOnly        bool
+	Owned           string
+	Gate            string
+	GateLimit       int64
+	Started         int64
+	Checks          string
+	Result          string
+	Status          string
+	EndValue        string
+	Reason          string
+	Ended           int64
+	ModelLimit      int64
+	Doing           string
+	Verdicts        string
+	Epic            string
+	Task            string
+	GateName        string
+	GateSource      string
+	GateNeeds       string
+	LoopRound       int64
+	LoopContinues   int64
+	LoopNudge       string
+	LoopOwnerNudge  string
+	LoopNudged      bool
+	LoopHeld        bool
+	LoopJudgeSent   bool
+	LoopSeq         int64
+	GateGrant       string
+	GateHolder      string
+	GateRound       int64
+	LoopLimited     bool
+	LoopLimitKind   string
+	LoopLimitResets int64
 }

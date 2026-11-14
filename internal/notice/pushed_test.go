@@ -174,6 +174,10 @@ func (s stubRows) DeletePushedEpic(ctx context.Context, _ string) error {
 	return s.call(ctx)
 }
 
+func (s stubRows) DeletePushedLimit(ctx context.Context, _ string) error {
+	return s.call(ctx)
+}
+
 func TestPushedRowStoreFails(t *testing.T) {
 	const at = 1700000000
 	ctx := context.Background()
