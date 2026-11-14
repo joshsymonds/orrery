@@ -335,3 +335,29 @@ SELECT CAST(COALESCE(MAX(seq), 0) AS INTEGER) FROM epic_decisions WHERE epic = ?
 
 -- name: ListEpicDecisions :many
 SELECT * FROM epic_decisions WHERE epic = ? ORDER BY seq;
+
+-- name: ListEpicPlanStates :many
+SELECT epics.id, epics.paused, epics.parked,
+    CAST(EXISTS (SELECT 1 FROM epic_turns WHERE epic_turns.epic = epics.id AND epic_turns.state = 'running') AS INTEGER) AS running,
+    CAST((SELECT COUNT(*) FROM epic_triggers WHERE epic_triggers.epic = epics.id AND epic_triggers.state = 'pending') AS INTEGER) AS pending
+FROM epics
+WHERE EXISTS (SELECT 1 FROM epic_triggers WHERE epic_triggers.epic = epics.id AND epic_triggers.state = 'pending')
+ORDER BY epics.id;
+
+-- name: CountPendingEpicTriggers :one
+SELECT CAST(COUNT(*) AS INTEGER) FROM epic_triggers WHERE epic = ? AND state = 'pending';
+
+-- name: CountRunningEpicTurns :one
+SELECT CAST(COUNT(*) AS INTEGER) FROM epic_turns WHERE epic = ? AND state = 'running';
+
+-- name: MaxEpicTurnSeq :one
+SELECT CAST(COALESCE(MAX(seq), 0) AS INTEGER) FROM epic_turns WHERE epic = ?;
+
+-- name: InsertEpicTurn :exec
+INSERT INTO epic_turns (epic, seq, state, seen, started) VALUES (?, ?, 'running', ?, ?);
+
+-- name: ClaimEpicTriggers :exec
+UPDATE epic_triggers SET state = 'claimed', turn = ? WHERE epic = ? AND state = 'pending';
+
+-- name: SetEpicTurnStep :execrows
+UPDATE epic_turns SET step = ? WHERE epic = ? AND seq = ? AND state = 'running';

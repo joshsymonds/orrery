@@ -10,6 +10,20 @@ import (
 	"database/sql"
 )
 
+const claimEpicTriggers = `-- name: ClaimEpicTriggers :exec
+UPDATE epic_triggers SET state = 'claimed', turn = ? WHERE epic = ? AND state = 'pending'
+`
+
+type ClaimEpicTriggersParams struct {
+	Turn int64
+	Epic string
+}
+
+func (q *Queries) ClaimEpicTriggers(ctx context.Context, arg ClaimEpicTriggersParams) error {
+	_, err := q.db.ExecContext(ctx, claimEpicTriggers, arg.Turn, arg.Epic)
+	return err
+}
+
 const clearEngineText = `-- name: ClearEngineText :exec
 DELETE FROM engine_text WHERE session_id = ?
 `
@@ -56,6 +70,28 @@ func (q *Queries) CountMemberGrants(ctx context.Context, member string) (int64, 
 	var count int64
 	err := row.Scan(&count)
 	return count, err
+}
+
+const countPendingEpicTriggers = `-- name: CountPendingEpicTriggers :one
+SELECT CAST(COUNT(*) AS INTEGER) FROM epic_triggers WHERE epic = ? AND state = 'pending'
+`
+
+func (q *Queries) CountPendingEpicTriggers(ctx context.Context, epic string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countPendingEpicTriggers, epic)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const countRunningEpicTurns = `-- name: CountRunningEpicTurns :one
+SELECT CAST(COUNT(*) AS INTEGER) FROM epic_turns WHERE epic = ? AND state = 'running'
+`
+
+func (q *Queries) CountRunningEpicTurns(ctx context.Context, epic string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countRunningEpicTurns, epic)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
 }
 
 const deleteEngineText = `-- name: DeleteEngineText :exec
@@ -720,6 +756,27 @@ func (q *Queries) InsertEpicTrigger(ctx context.Context, arg InsertEpicTriggerPa
 	return err
 }
 
+const insertEpicTurn = `-- name: InsertEpicTurn :exec
+INSERT INTO epic_turns (epic, seq, state, seen, started) VALUES (?, ?, 'running', ?, ?)
+`
+
+type InsertEpicTurnParams struct {
+	Epic    string
+	Seq     int64
+	Seen    int64
+	Started int64
+}
+
+func (q *Queries) InsertEpicTurn(ctx context.Context, arg InsertEpicTurnParams) error {
+	_, err := q.db.ExecContext(ctx, insertEpicTurn,
+		arg.Epic,
+		arg.Seq,
+		arg.Seen,
+		arg.Started,
+	)
+	return err
+}
+
 const insertEvent = `-- name: InsertEvent :exec
 INSERT INTO events (session_id, kind, at, payload) VALUES (?, ?, ?, ?)
 `
@@ -1138,6 +1195,52 @@ func (q *Queries) ListEpicFailures(ctx context.Context, epic string) ([]EpicFail
 			&i.Text,
 			&i.Rating,
 			&i.Response,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listEpicPlanStates = `-- name: ListEpicPlanStates :many
+SELECT epics.id, epics.paused, epics.parked,
+    CAST(EXISTS (SELECT 1 FROM epic_turns WHERE epic_turns.epic = epics.id AND epic_turns.state = 'running') AS INTEGER) AS running,
+    CAST((SELECT COUNT(*) FROM epic_triggers WHERE epic_triggers.epic = epics.id AND epic_triggers.state = 'pending') AS INTEGER) AS pending
+FROM epics
+WHERE EXISTS (SELECT 1 FROM epic_triggers WHERE epic_triggers.epic = epics.id AND epic_triggers.state = 'pending')
+ORDER BY epics.id
+`
+
+type ListEpicPlanStatesRow struct {
+	ID      string
+	Paused  int64
+	Parked  string
+	Running int64
+	Pending int64
+}
+
+func (q *Queries) ListEpicPlanStates(ctx context.Context) ([]ListEpicPlanStatesRow, error) {
+	rows, err := q.db.QueryContext(ctx, listEpicPlanStates)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListEpicPlanStatesRow
+	for rows.Next() {
+		var i ListEpicPlanStatesRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Paused,
+			&i.Parked,
+			&i.Running,
+			&i.Pending,
 		); err != nil {
 			return nil, err
 		}
@@ -1892,6 +1995,17 @@ func (q *Queries) MaxEpicDecisionSeq(ctx context.Context, epic string) (int64, e
 	return column_1, err
 }
 
+const maxEpicTurnSeq = `-- name: MaxEpicTurnSeq :one
+SELECT CAST(COALESCE(MAX(seq), 0) AS INTEGER) FROM epic_turns WHERE epic = ?
+`
+
+func (q *Queries) MaxEpicTurnSeq(ctx context.Context, epic string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, maxEpicTurnSeq, epic)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const newestEventSeq = `-- name: NewestEventSeq :one
 SELECT CAST(COALESCE(MAX(seq), 0) AS INTEGER) AS seq FROM events
 `
@@ -1972,6 +2086,24 @@ func (q *Queries) SessionEventsAfter(ctx context.Context, arg SessionEventsAfter
 		return nil, err
 	}
 	return items, nil
+}
+
+const setEpicTurnStep = `-- name: SetEpicTurnStep :execrows
+UPDATE epic_turns SET step = ? WHERE epic = ? AND seq = ? AND state = 'running'
+`
+
+type SetEpicTurnStepParams struct {
+	Step string
+	Epic string
+	Seq  int64
+}
+
+func (q *Queries) SetEpicTurnStep(ctx context.Context, arg SetEpicTurnStepParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, setEpicTurnStep, arg.Step, arg.Epic, arg.Seq)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const updateEngineConsumed = `-- name: UpdateEngineConsumed :execrows
