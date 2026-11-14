@@ -13,6 +13,8 @@ const epicsGetPath = "/orrery.v1.Epics/Get";
 const clientHeader = "X-Orrery-Client";
 const clientValue = "orrery web";
 const intervalMs = 5;
+// The pause before a stream that failed unavailable reopens, short so the tests' waits stay well inside their deadline.
+const retryMs = 5;
 // A poll interval far longer than any test waits, so only events and the stream can reload the list.
 const longPollMs = 60_000;
 
@@ -264,8 +266,8 @@ function endStream(watch: Watch): void {
   finishStream(watch, {});
 }
 
-function failStream(watch: Watch): void {
-  finishStream(watch, { error: { code: "unavailable", message: "stream failed" } });
+function failStream(watch: Watch, code: string): void {
+  finishStream(watch, { error: { code, message: "stream failed" } });
 }
 
 function finishStream(watch: Watch, last: object): void {
@@ -484,8 +486,24 @@ async function pollTakesOver(finish: (watch: Watch) => void): Promise<void> {
 test("after the stream ends, the poll reloads and the stream reopens from the newest seq", () =>
   pollTakesOver(endStream));
 
-test("after the stream fails, the poll reloads and the stream reopens from the newest seq", () =>
-  pollTakesOver(failStream));
+test("after the stream fails with another code, the poll reloads and the stream reopens from the newest seq", () =>
+  pollTakesOver((watch) => failStream(watch, "internal")));
+
+test("after the stream fails unavailable, it reopens from the last seq it delivered, not from the poll", () =>
+  withPage(async (root) => {
+    // longPollMs keeps the poll from running, so only the retry can reopen the stream.
+    const server = fakeServer("api", true);
+    const stop = start(root, clientsFor(server), longPollMs, retryMs);
+    try {
+      await until(() => server.watches.length === 1 && labels(root).includes("api"), "the first load and stream");
+      sendEvent(server.watches[0], 8);
+      failStream(server.watches[0], "unavailable");
+      await until(() => server.watches.length === 2, "the stream reopened");
+      assert.equal(server.watches[1].after, 8n, "the stream did not reopen from the last seq it delivered");
+    } finally {
+      stop();
+    }
+  }));
 
 test("a load that reports seq 0 opens no stream, and the poll reloads until a load reports a seq", () =>
   withPage(async (root) => {

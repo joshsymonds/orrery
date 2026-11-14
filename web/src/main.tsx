@@ -1,3 +1,4 @@
+import { Code, ConnectError } from "@connectrpc/connect";
 import { render } from "preact";
 
 import { App } from "./app";
@@ -8,6 +9,9 @@ import { loadRows } from "./load";
 import type { Row } from "./rows";
 
 const defaultIntervalMs = 5000;
+
+// How long a stream that failed unavailable waits before it reopens from the last seq it delivered.
+const defaultRetryMs = 1000;
 
 // How long an event waits before its reload, so the events of a burst share one reload.
 const eventReloadMs = 100;
@@ -22,17 +26,34 @@ interface Loaded {
   epicsError: string;
 }
 
+// pause resolves after ms, or as soon as signal aborts, so stopping the page does not wait out a retry.
+function pause(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, ms);
+    signal.addEventListener(
+      "abort",
+      () => {
+        clearTimeout(timer);
+        resolve();
+      },
+      { once: true },
+    );
+  });
+}
+
 // start renders App into root and reloads the rows and the epics. Each load that reports a seq above 0 opens
 // Events.Watch from it, and every event schedules one reload. While the stream is open each poll tick loads the epics
-// and moves the age labels to the current time, and the rows wait for the stream's events; once the stream ends or
-// fails, the poll reloads the rows, and the next successful load reopens the stream. A tick or event that lands while
-// a reload is in flight never starts a second one: an event waits for the reload in flight, then reloads again. The
-// epics load has its own guard: a tick or event that lands while it is in flight is left to the next tick. The
-// returned function stops reloading, aborts the stream and unmounts App.
+// and moves the age labels to the current time, and the rows wait for the stream's events. A stream that fails
+// unavailable reopens from the last seq it delivered after retryMs. Once the stream ends or fails any other way, the
+// poll reloads the rows, and the next successful load reopens the stream. A tick or event that lands while a reload is
+// in flight never starts a second one: an event waits for the reload in flight, then reloads again. The epics load has
+// its own guard: a tick or event that lands while it is in flight is left to the next tick. The returned function stops
+// reloading, aborts the stream and unmounts App.
 export function start(
   root: HTMLElement,
   clients: ReturnType<typeof createClients>,
   intervalMs = defaultIntervalMs,
+  retryMs = defaultRetryMs,
 ): () => void {
   let loaded: Loaded = { rows: [], error: "", epics: noEpics, epicsError: "" };
   let now = 0;
@@ -111,20 +132,31 @@ export function start(
     }, eventReloadMs);
   };
 
-  // watchEvents streams the events after seq until the stream ends, fails or start stops. Its end leaves the poll to
-  // reload and reopen the stream.
+  // watchEvents streams the events after seq and holds the stream slot while it does. A stream that fails unavailable
+  // reopens from the last seq it delivered after retryMs, still holding the slot, so the poll does not open a second
+  // stream meanwhile. Any other end leaves the poll to reload and reopen the stream.
   const watchEvents = async (after: bigint) => {
     const controller = new AbortController();
     stream = controller;
+    let seq = after;
     try {
-      for await (const _event of clients.events.watch({ after }, { signal: controller.signal })) {
-        if (stopped) {
+      while (!stopped) {
+        try {
+          for await (const event of clients.events.watch({ after: seq }, { signal: controller.signal })) {
+            if (stopped) {
+              return;
+            }
+            seq = event.seq;
+            onEvent();
+          }
           return;
+        } catch (error) {
+          if (ConnectError.from(error).code !== Code.Unavailable) {
+            return;
+          }
         }
-        onEvent();
+        await pause(retryMs, controller.signal);
       }
-    } catch {
-      // A failed stream is left to the poll, which reloads and reopens it.
     } finally {
       if (stream === controller) {
         stream = null;
