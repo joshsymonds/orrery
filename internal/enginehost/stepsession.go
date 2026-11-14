@@ -93,6 +93,30 @@ func (m *Manager) StartStep(ctx context.Context, step StepSession) error {
 	return nil
 }
 
+// Release stops the live session id's process without ending it, as checkIdle stops an idle session: it records nothing,
+// its observer is told of no exit, and its row stays as it was. Release waits for the session's pump, which frees its
+// slot, so the slot is free when Release returns. A later Continue respawns the step in its claude session with --resume.
+// It returns nil for an id with no live session, or a session Close has begun closing.
+func (m *Manager) Release(ctx context.Context, id string) error {
+	m.resumeMu.Lock()
+	defer m.resumeMu.Unlock()
+	m.mu.Lock()
+	live := m.sessions[id]
+	if live == nil || live.closing {
+		m.mu.Unlock()
+		return nil
+	}
+	live.idleStopped = true
+	delete(m.sessions, id)
+	m.mu.Unlock()
+	stopErr := live.sess.Stop()
+	waitErr := m.waitPump(ctx, live)
+	if err := errors.Join(stopErr, waitErr); err != nil {
+		return fmt.Errorf("release session %s: %w", id, err)
+	}
+	return nil
+}
+
 // checkStep reports whether a step's id, directory, prompt and agent are usable, before anything is stored.
 func checkStep(step StepSession) error {
 	if err := checkID(step.ID); err != nil {

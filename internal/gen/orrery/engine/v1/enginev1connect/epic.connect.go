@@ -43,6 +43,14 @@ const (
 	EpicsListEpicsProcedure = "/orrery.engine.v1.Epics/ListEpics"
 	// EpicsAnswerEpicProcedure is the fully-qualified name of the Epics's AnswerEpic RPC.
 	EpicsAnswerEpicProcedure = "/orrery.engine.v1.Epics/AnswerEpic"
+	// EpicsPauseEpicProcedure is the fully-qualified name of the Epics's PauseEpic RPC.
+	EpicsPauseEpicProcedure = "/orrery.engine.v1.Epics/PauseEpic"
+	// EpicsResumeEpicProcedure is the fully-qualified name of the Epics's ResumeEpic RPC.
+	EpicsResumeEpicProcedure = "/orrery.engine.v1.Epics/ResumeEpic"
+	// EpicsStopEpicProcedure is the fully-qualified name of the Epics's StopEpic RPC.
+	EpicsStopEpicProcedure = "/orrery.engine.v1.Epics/StopEpic"
+	// EpicsRetryEpicProcedure is the fully-qualified name of the Epics's RetryEpic RPC.
+	EpicsRetryEpicProcedure = "/orrery.engine.v1.Epics/RetryEpic"
 	// EvidenceRunEvidenceProcedure is the fully-qualified name of the Evidence's RunEvidence RPC.
 	EvidenceRunEvidenceProcedure = "/orrery.engine.v1.Evidence/RunEvidence"
 	// EvidenceListEvidenceProcedure is the fully-qualified name of the Evidence's ListEvidence RPC.
@@ -62,6 +70,14 @@ type EpicsClient interface {
 	ListEpics(context.Context, *connect.Request[v1.ListEpicsRequest]) (*connect.Response[v1.ListEpicsResponse], error)
 	// AnswerEpic records the owner's answer to a stored epic and returns the decision.
 	AnswerEpic(context.Context, *connect.Request[v1.AnswerEpicRequest]) (*connect.Response[v1.AnswerEpicResponse], error)
+	// PauseEpic pauses a stored epic, so the planner starts no turn for it, and returns the stored epic.
+	PauseEpic(context.Context, *connect.Request[v1.PauseEpicRequest]) (*connect.Response[v1.PauseEpicResponse], error)
+	// ResumeEpic clears the pause of a stored epic and returns the stored epic.
+	ResumeEpic(context.Context, *connect.Request[v1.ResumeEpicRequest]) (*connect.Response[v1.ResumeEpicResponse], error)
+	// StopEpic pauses a stored epic, stops the step of its running turn, and returns the stored epic.
+	StopEpic(context.Context, *connect.Request[v1.StopEpicRequest]) (*connect.Response[v1.StopEpicResponse], error)
+	// RetryEpic ends the park of a stored epic, so the planner starts its turns again, and returns the stored epic.
+	RetryEpic(context.Context, *connect.Request[v1.RetryEpicRequest]) (*connect.Response[v1.RetryEpicResponse], error)
 }
 
 // NewEpicsClient constructs a client for the orrery.engine.v1.Epics service. By default, it uses
@@ -99,6 +115,30 @@ func NewEpicsClient(httpClient connect.HTTPClient, baseURL string, opts ...conne
 			connect.WithSchema(epicsMethods.ByName("AnswerEpic")),
 			connect.WithClientOptions(opts...),
 		),
+		pauseEpic: connect.NewClient[v1.PauseEpicRequest, v1.PauseEpicResponse](
+			httpClient,
+			baseURL+EpicsPauseEpicProcedure,
+			connect.WithSchema(epicsMethods.ByName("PauseEpic")),
+			connect.WithClientOptions(opts...),
+		),
+		resumeEpic: connect.NewClient[v1.ResumeEpicRequest, v1.ResumeEpicResponse](
+			httpClient,
+			baseURL+EpicsResumeEpicProcedure,
+			connect.WithSchema(epicsMethods.ByName("ResumeEpic")),
+			connect.WithClientOptions(opts...),
+		),
+		stopEpic: connect.NewClient[v1.StopEpicRequest, v1.StopEpicResponse](
+			httpClient,
+			baseURL+EpicsStopEpicProcedure,
+			connect.WithSchema(epicsMethods.ByName("StopEpic")),
+			connect.WithClientOptions(opts...),
+		),
+		retryEpic: connect.NewClient[v1.RetryEpicRequest, v1.RetryEpicResponse](
+			httpClient,
+			baseURL+EpicsRetryEpicProcedure,
+			connect.WithSchema(epicsMethods.ByName("RetryEpic")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -108,6 +148,10 @@ type epicsClient struct {
 	getEpic    *connect.Client[v1.GetEpicRequest, v1.GetEpicResponse]
 	listEpics  *connect.Client[v1.ListEpicsRequest, v1.ListEpicsResponse]
 	answerEpic *connect.Client[v1.AnswerEpicRequest, v1.AnswerEpicResponse]
+	pauseEpic  *connect.Client[v1.PauseEpicRequest, v1.PauseEpicResponse]
+	resumeEpic *connect.Client[v1.ResumeEpicRequest, v1.ResumeEpicResponse]
+	stopEpic   *connect.Client[v1.StopEpicRequest, v1.StopEpicResponse]
+	retryEpic  *connect.Client[v1.RetryEpicRequest, v1.RetryEpicResponse]
 }
 
 // CreateEpic calls orrery.engine.v1.Epics.CreateEpic.
@@ -130,6 +174,26 @@ func (c *epicsClient) AnswerEpic(ctx context.Context, req *connect.Request[v1.An
 	return c.answerEpic.CallUnary(ctx, req)
 }
 
+// PauseEpic calls orrery.engine.v1.Epics.PauseEpic.
+func (c *epicsClient) PauseEpic(ctx context.Context, req *connect.Request[v1.PauseEpicRequest]) (*connect.Response[v1.PauseEpicResponse], error) {
+	return c.pauseEpic.CallUnary(ctx, req)
+}
+
+// ResumeEpic calls orrery.engine.v1.Epics.ResumeEpic.
+func (c *epicsClient) ResumeEpic(ctx context.Context, req *connect.Request[v1.ResumeEpicRequest]) (*connect.Response[v1.ResumeEpicResponse], error) {
+	return c.resumeEpic.CallUnary(ctx, req)
+}
+
+// StopEpic calls orrery.engine.v1.Epics.StopEpic.
+func (c *epicsClient) StopEpic(ctx context.Context, req *connect.Request[v1.StopEpicRequest]) (*connect.Response[v1.StopEpicResponse], error) {
+	return c.stopEpic.CallUnary(ctx, req)
+}
+
+// RetryEpic calls orrery.engine.v1.Epics.RetryEpic.
+func (c *epicsClient) RetryEpic(ctx context.Context, req *connect.Request[v1.RetryEpicRequest]) (*connect.Response[v1.RetryEpicResponse], error) {
+	return c.retryEpic.CallUnary(ctx, req)
+}
+
 // EpicsHandler is an implementation of the orrery.engine.v1.Epics service.
 type EpicsHandler interface {
 	// CreateEpic stores an accepted contract with its seed decisions and returns the stored epic.
@@ -140,6 +204,14 @@ type EpicsHandler interface {
 	ListEpics(context.Context, *connect.Request[v1.ListEpicsRequest]) (*connect.Response[v1.ListEpicsResponse], error)
 	// AnswerEpic records the owner's answer to a stored epic and returns the decision.
 	AnswerEpic(context.Context, *connect.Request[v1.AnswerEpicRequest]) (*connect.Response[v1.AnswerEpicResponse], error)
+	// PauseEpic pauses a stored epic, so the planner starts no turn for it, and returns the stored epic.
+	PauseEpic(context.Context, *connect.Request[v1.PauseEpicRequest]) (*connect.Response[v1.PauseEpicResponse], error)
+	// ResumeEpic clears the pause of a stored epic and returns the stored epic.
+	ResumeEpic(context.Context, *connect.Request[v1.ResumeEpicRequest]) (*connect.Response[v1.ResumeEpicResponse], error)
+	// StopEpic pauses a stored epic, stops the step of its running turn, and returns the stored epic.
+	StopEpic(context.Context, *connect.Request[v1.StopEpicRequest]) (*connect.Response[v1.StopEpicResponse], error)
+	// RetryEpic ends the park of a stored epic, so the planner starts its turns again, and returns the stored epic.
+	RetryEpic(context.Context, *connect.Request[v1.RetryEpicRequest]) (*connect.Response[v1.RetryEpicResponse], error)
 }
 
 // NewEpicsHandler builds an HTTP handler from the service implementation. It returns the path on
@@ -173,6 +245,30 @@ func NewEpicsHandler(svc EpicsHandler, opts ...connect.HandlerOption) (string, h
 		connect.WithSchema(epicsMethods.ByName("AnswerEpic")),
 		connect.WithHandlerOptions(opts...),
 	)
+	epicsPauseEpicHandler := connect.NewUnaryHandler(
+		EpicsPauseEpicProcedure,
+		svc.PauseEpic,
+		connect.WithSchema(epicsMethods.ByName("PauseEpic")),
+		connect.WithHandlerOptions(opts...),
+	)
+	epicsResumeEpicHandler := connect.NewUnaryHandler(
+		EpicsResumeEpicProcedure,
+		svc.ResumeEpic,
+		connect.WithSchema(epicsMethods.ByName("ResumeEpic")),
+		connect.WithHandlerOptions(opts...),
+	)
+	epicsStopEpicHandler := connect.NewUnaryHandler(
+		EpicsStopEpicProcedure,
+		svc.StopEpic,
+		connect.WithSchema(epicsMethods.ByName("StopEpic")),
+		connect.WithHandlerOptions(opts...),
+	)
+	epicsRetryEpicHandler := connect.NewUnaryHandler(
+		EpicsRetryEpicProcedure,
+		svc.RetryEpic,
+		connect.WithSchema(epicsMethods.ByName("RetryEpic")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/orrery.engine.v1.Epics/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case EpicsCreateEpicProcedure:
@@ -183,6 +279,14 @@ func NewEpicsHandler(svc EpicsHandler, opts ...connect.HandlerOption) (string, h
 			epicsListEpicsHandler.ServeHTTP(w, r)
 		case EpicsAnswerEpicProcedure:
 			epicsAnswerEpicHandler.ServeHTTP(w, r)
+		case EpicsPauseEpicProcedure:
+			epicsPauseEpicHandler.ServeHTTP(w, r)
+		case EpicsResumeEpicProcedure:
+			epicsResumeEpicHandler.ServeHTTP(w, r)
+		case EpicsStopEpicProcedure:
+			epicsStopEpicHandler.ServeHTTP(w, r)
+		case EpicsRetryEpicProcedure:
+			epicsRetryEpicHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -206,6 +310,22 @@ func (UnimplementedEpicsHandler) ListEpics(context.Context, *connect.Request[v1.
 
 func (UnimplementedEpicsHandler) AnswerEpic(context.Context, *connect.Request[v1.AnswerEpicRequest]) (*connect.Response[v1.AnswerEpicResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.engine.v1.Epics.AnswerEpic is not implemented"))
+}
+
+func (UnimplementedEpicsHandler) PauseEpic(context.Context, *connect.Request[v1.PauseEpicRequest]) (*connect.Response[v1.PauseEpicResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.engine.v1.Epics.PauseEpic is not implemented"))
+}
+
+func (UnimplementedEpicsHandler) ResumeEpic(context.Context, *connect.Request[v1.ResumeEpicRequest]) (*connect.Response[v1.ResumeEpicResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.engine.v1.Epics.ResumeEpic is not implemented"))
+}
+
+func (UnimplementedEpicsHandler) StopEpic(context.Context, *connect.Request[v1.StopEpicRequest]) (*connect.Response[v1.StopEpicResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.engine.v1.Epics.StopEpic is not implemented"))
+}
+
+func (UnimplementedEpicsHandler) RetryEpic(context.Context, *connect.Request[v1.RetryEpicRequest]) (*connect.Response[v1.RetryEpicResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.engine.v1.Epics.RetryEpic is not implemented"))
 }
 
 // EvidenceClient is a client for the orrery.engine.v1.Evidence service.

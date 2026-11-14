@@ -66,6 +66,10 @@ func (mcpSteps) Nudge(context.Context, string, string) error {
 	return errors.New("mcp test: Nudge is not expected")
 }
 
+func (mcpSteps) Resume(context.Context, string) error {
+	return errors.New("mcp test: Resume is not expected")
+}
+
 // startMCPDaemon serves the steps service on sessions.sock in a temporary directory, the session socket that
 // `orrery mcp` dials beside the daemon socket. It returns the daemon socket path that `--socket` names.
 func startMCPDaemon(t *testing.T, steps enginehost.StepCommands) string {
@@ -253,8 +257,9 @@ func TestMCPServesStepToolsOverDaemon(t *testing.T) {
 		names = append(names, tool.Name)
 	}
 	want := []string{
-		"step_start", "step_status", "step_stop", "step_wait",
+		"step_start", "step_status", "step_stop", "step_resume", "step_wait",
 		"epic_create", "epic_get", "epic_list", "epic_answer",
+		"epic_pause", "epic_resume", "epic_stop", "epic_retry",
 		"evidence_run", "evidence_list", "evidence_get",
 	}
 	if !slices.Equal(names, want) {

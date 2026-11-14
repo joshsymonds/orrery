@@ -25,12 +25,14 @@ type StepPrompt struct {
 	Round  int
 }
 
-// stepSessions is what a step run drives: its session starts, is interrupted, takes a follow-up message, and stops.
-// Manager satisfies it.
+// stepSessions is what a step run drives: its session starts, is interrupted, takes a follow-up message, is released, and
+// stops. Manager satisfies it.
 type stepSessions interface {
 	StartStep(ctx context.Context, step StepSession) error
 	Interrupt(ctx context.Context, id string) error
 	Continue(ctx context.Context, id string, prompt StepPrompt) error
+	// Release stops the process of a live step without ending the step, so a later Continue respawns it.
+	Release(ctx context.Context, id string) error
 	Stop(ctx context.Context, id string) error
 }
 
@@ -59,6 +61,9 @@ const stepLoopMaxContinues = 3
 // stepLoopBuffer is the capacity of the returns and exits channels. A send waits only while the buffer is full.
 const stepLoopBuffer = 8
 
+// apiErrorRateLimit is the API error an assistant message carries on a turn that hit a usage limit.
+const apiErrorRateLimit = "rate_limit"
+
 // stepRunConfig is what a stepRun is built from. A writing step may change its worktree: its done return is checked
 // with commitChecks against start and owned in dir, and with gate when every commit check passes and gate is set. gate
 // runs holding the members of grant that pools grants, and its check records gateName and gateSource; a nil pools fails
@@ -76,6 +81,7 @@ type stepRunConfig struct {
 	doneValue   string
 	prompt      string
 	sessions    stepSessions
+	store       StepStore
 	writer      *Writer
 	logger      *slog.Logger
 	cleanup     func(context.Context) error
@@ -122,10 +128,14 @@ type stepRun struct {
 
 	// watch decides the step's backstops from every event the run is handed.
 	watch *stepWatch
-	// started is the clock reading the run was built at. An agent gate step's limit counts its wall time from it.
+	// started is the clock reading the run was built at. An agent gate step's limit counts its wall time from it, or
+	// from gateFrom once set.
 	started time.Time
-	returns chan session.TurnEnded
-	exits   chan string
+	// gateFrom is the clock reading an agent gate step was last resumed from a usage limit at, zero before any resume.
+	// Its limit counts its wall time from it, so the wait for a limit's reset never ends the step overtime.
+	gateFrom time.Time
+	returns  chan session.TurnEnded
+	exits    chan string
 	// nudge is the text the next turn end is continued with when that turn is an error. It is set by a landed nudge's
 	// interrupt and cleared by the next turn end, whatever it is.
 	nudge string
@@ -134,6 +144,17 @@ type stepRun struct {
 	ownerNudge string
 	// heldEnded is set when a held run's turn end has been handled, so an owner nudge continues the step at once.
 	heldEnded bool
+	// rateLimit is set when the session hands the run an assistant message that carries the rate limit error. Event sets it
+	// on the session's goroutine, and the next turn end clears it.
+	rateLimit atomic.Bool
+	// limited is set once a turn has ended on a usage limit. A limited run spends nothing, skips its ticks and ignores its
+	// exits. limitKind and limitResets are the kind and reset the limit was stored with, empty and zero when unknown.
+	limited     bool
+	limitKind   string
+	limitResets time.Time
+	// limitReleased is set by Steps.Stop when the step's stored row is limited: its process was released for the limit, so
+	// finish stops no session. Nothing else sets it, since a failed resume may leave a respawned process live.
+	limitReleased bool
 	// judgeSent is set once the judge has sent the step back, so a second unmet verdict ends goal_unmet.
 	judgeSent bool
 	// round is the number of the step's latest round. A turn end that is no continuation is the next round, which judge
@@ -183,8 +204,12 @@ func newStepRun(cfg stepRunConfig) *stepRun {
 	}
 }
 
-// Event hands an event the session recorded to the watch, with the clock's reading now. It never blocks.
+// Event hands an event the session recorded to the watch, with the clock's reading now, and notes an assistant message
+// that carries the rate limit error for the next turn end. It never blocks.
 func (r *stepRun) Event(event session.Event) {
+	if ev, ok := event.(session.AssistantError); ok && ev.Error == apiErrorRateLimit {
+		r.rateLimit.Store(true)
+	}
 	r.watch.event(r.now(), event)
 }
 
@@ -220,8 +245,9 @@ func (r *stepRun) run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case reason := <-r.exits:
-			r.finish(ctx, stepLoopEndFailed, "", reason)
-			return
+			if !r.exitReceived(ctx, reason) {
+				return
+			}
 		case call := <-r.calls:
 			call.reply <- call.act(ctx)
 			select {
@@ -230,13 +256,7 @@ func (r *stepRun) run(ctx context.Context) {
 			default:
 			}
 		case <-r.ticks:
-			if r.held.Load() {
-				continue
-			}
-			if !r.watchGateLimit(ctx) {
-				return
-			}
-			if !r.watchTick(ctx) {
+			if !r.tick(ctx) {
 				return
 			}
 		case ended := <-r.returns:
@@ -247,9 +267,50 @@ func (r *stepRun) run(ctx context.Context) {
 	}
 }
 
+// exited handles the session's exit with its reason. A limited run ignores it, since its process was released; any
+// other exit ends the step failed. It reports whether the run goes on.
+func (r *stepRun) exited(ctx context.Context, reason string) bool {
+	if r.limited {
+		return true
+	}
+	r.finish(ctx, stepLoopEndFailed, "", reason)
+	return false
+}
+
+// exitReceived handles the session's exit with its reason once the turn ends queued before it are handled, so a
+// process that exits right after its limit turn leaves the step limited. It reports whether the run goes on.
+func (r *stepRun) exitReceived(ctx context.Context, reason string) bool {
+	return r.takeQueuedReturns(ctx) && r.exited(ctx, reason)
+}
+
+// takeQueuedReturns handles, in order, the turn ends already queued on returns, so that an exit taken after them comes
+// after their turn ends. run picks at random between a queued turn end and a queued exit, so this keeps a process that
+// exits right after its limit turn limited. It reports whether the run goes on.
+func (r *stepRun) takeQueuedReturns(ctx context.Context) bool {
+	for {
+		select {
+		case ended := <-r.returns:
+			if !r.turnEnded(ctx, ended) {
+				return false
+			}
+		default:
+			return true
+		}
+	}
+}
+
+// tick checks the watch on one tick. A held or limited run checks nothing. It reports whether the run goes on.
+func (r *stepRun) tick(ctx context.Context) bool {
+	if r.held.Load() || r.limited {
+		return true
+	}
+	return r.watchGateLimit(ctx) && r.watchTick(ctx)
+}
+
 // resume takes up a re-adopted step from restore. Its loop state is restored, and the watch's turn is marked running
-// when no turn end was found. A turn end its latest return covers goes to resumeReturn. Any other turn end is handled
-// as one the session has just given. It reports whether the run goes on.
+// when no turn end was found. A limited row is restored as limited, and its stored turn end is not handled again. A turn
+// end its latest return covers goes to resumeReturn. Any other turn end is handled as one the session has just given. It
+// reports whether the run goes on.
 func (r *stepRun) resume(ctx context.Context, restore stepRestore) bool {
 	row := restore.Row
 	r.round = row.LoopRound
@@ -257,6 +318,7 @@ func (r *stepRun) resume(ctx context.Context, restore stepRestore) bool {
 	r.nudge = row.LoopNudge
 	r.ownerNudge = row.LoopOwnerNudge
 	r.judgeSent = row.LoopJudgeSent
+	r.gateFrom = row.LoopGateFrom
 	r.held.Store(row.LoopHeld)
 	// A pending nudge is the interrupt of the running turn, so the turn's periodic check is off until its end.
 	nudging := !restore.Found && row.LoopNudge != ""
@@ -265,6 +327,10 @@ func (r *stepRun) resume(ctx context.Context, restore stepRestore) bool {
 		r.resumeGate = store.StepGate{ID: r.id, Grant: row.GateGrant, Holder: row.GateHolder, Round: row.GateRound}
 	}
 	switch {
+	case row.LoopLimited:
+		r.limited = true
+		r.limitKind, r.limitResets = row.LoopLimitKind, row.LoopLimitResets
+		return true
 	case !restore.Found:
 		return true
 	case restore.Turn.Returned:
@@ -302,13 +368,16 @@ func (r *stepRun) resumeReturn(ctx context.Context, row store.StepRow) bool {
 	return r.judgeReturn(ctx, row.LoopRound, json.RawMessage(row.Result), commit, head.Status, checks)
 }
 
-// turnEnded handles a turn end the run takes. Whatever it is, it clears the pending nudges and stores the clear before
-// anything is sent. A held step's turn end is no round and continues nothing, unless an owner nudge is pending, which
-// resumes the step with it. An owner nudge pending continues the step with it, error or not. A pending watchdog nudge is
-// sent back with an error turn end. A turn end
+// turnEnded handles a turn end the run takes. A turn that ended on a usage limit is handled by limitTurn, and is no round.
+// Whatever else it is, it clears the pending nudges and stores the clear before anything is sent. A held step's turn end
+// is no round and continues nothing, unless an owner nudge is pending, which resumes the step with it. An owner nudge
+// pending continues the step with it, error or not. A pending watchdog nudge is sent back with an error turn end. A turn end
 // that is no round latches its output's first fails for an agent gate step, as judge would latch a round's. Any other
 // turn end is the next round, which judge checks. It reports whether the run goes on.
 func (r *stepRun) turnEnded(ctx context.Context, ended session.TurnEnded) bool {
+	if limited, goOn := r.limitTurn(ctx); limited {
+		return goOn
+	}
 	nudge, owner := r.nudge, r.ownerNudge
 	r.nudge, r.ownerNudge = "", ""
 	if nudge != "" || owner != "" {
@@ -337,6 +406,40 @@ func (r *stepRun) turnEnded(ctx context.Context, ended session.TurnEnded) bool {
 	return r.judge(ctx, r.round, ended.StructuredOutput)
 }
 
+// limitTurn checks whether the turn that has just ended ended on a usage limit: the rate limit the store holds for the
+// step, or the rate limit error the session handed the run since the previous turn end. A limited turn drops the pending
+// nudges and the hold, stores the loop state with its limit, and releases the step's process, so the step stays open
+// and its slot is free. It reports whether the turn was limited and, when it was, whether the run goes on. A failed
+// read, store or release ends the step failed.
+func (r *stepRun) limitTurn(ctx context.Context) (limited, goOn bool) {
+	errored := r.rateLimit.Swap(false)
+	row, found, err := r.store.StepRateLimit(ctx, r.id)
+	if err != nil {
+		r.finish(ctx, stepLoopEndFailed, "", fmt.Sprintf("read rate limit of step %s: %v", r.id, err))
+		return true, false
+	}
+	if !found && !errored {
+		return false, true
+	}
+	r.limited = true
+	r.limitKind, r.limitResets = "", time.Time{}
+	if found {
+		r.limitKind, r.limitResets = row.Kind, row.ResetsAt
+	}
+	r.nudge, r.ownerNudge = "", ""
+	r.held.Store(false)
+	r.heldEnded = false
+	if err = r.writer.Commit(ctx, r.id, r.loopState()); err != nil {
+		r.finish(ctx, stepLoopEndFailed, "", fmt.Sprintf("record limit of step %s: %v", r.id, err))
+		return true, false
+	}
+	if err = r.sessions.Release(ctx, r.id); err != nil {
+		r.finish(ctx, stepLoopEndFailed, "", fmt.Sprintf("release step %s: %v", r.id, err))
+		return true, false
+	}
+	return true, true
+}
+
 // continueWith sends prompt to the session as its next message. A failed send ends the step failed. It reports whether
 // the run goes on.
 func (r *stepRun) continueWith(ctx context.Context, prompt StepPrompt) bool {
@@ -357,11 +460,13 @@ func (r *stepRun) continueStep(ctx context.Context, prompt StepPrompt) error {
 }
 
 // loopState returns the loop state the run stores: its round and continue count, the nudges pending for the next turn
-// end, whether the watch has spent its nudge, whether the run is held and whether the judge has sent the step back.
+// end, whether the watch has spent its nudge, whether the run is held, whether the judge has sent the step back and its
+// usage limit.
 func (r *stepRun) loopState() store.StepLoop {
 	return store.StepLoop{
 		ID: r.id, Round: r.round, Continues: r.continues, Nudge: r.nudge, OwnerNudge: r.ownerNudge,
 		Nudged: r.watch.nudgeSpent(), Held: r.held.Load(), JudgeSent: r.judgeSent,
+		Limited: r.limited, LimitKind: r.limitKind, LimitResets: r.limitResets, GateFrom: r.gateFrom,
 	}
 }
 
@@ -664,9 +769,9 @@ func stepLoopFailures(checks []store.StepCheck) []string {
 	return failures
 }
 
-// finish ends the step once. It stores StepEnd, stops the session, runs cleanup and closes ended. A store, stop or cleanup
-// error is logged, since nothing above finish can act on it. A ctx that has ended stores no end, so finish does nothing
-// then. It reports whether this call acted.
+// finish ends the step once. It stores StepEnd, stops the session unless limitReleased says a limit released it, runs
+// cleanup and closes ended. A store, stop or cleanup error is logged, since nothing above finish can act on it. A ctx
+// that has ended stores no end, so finish does nothing then. It reports whether this call acted.
 func (r *stepRun) finish(ctx context.Context, end, status, reason string) bool {
 	if ctx.Err() != nil {
 		return false
@@ -682,8 +787,10 @@ func (r *stepRun) finish(ctx context.Context, end, status, reason string) bool {
 		if err := r.writer.Commit(ctx, r.id, stepEnd); err != nil {
 			r.logger.ErrorContext(ctx, "record step end", "step", r.id, "err", err)
 		}
-		if err := r.sessions.Stop(ctx, r.id); err != nil {
-			r.logger.ErrorContext(ctx, "stop step session", "step", r.id, "err", err)
+		if !r.limitReleased {
+			if err := r.sessions.Stop(ctx, r.id); err != nil {
+				r.logger.ErrorContext(ctx, "stop step session", "step", r.id, "err", err)
+			}
 		}
 		if r.cleanup != nil {
 			if err := r.cleanup(ctx); err != nil {

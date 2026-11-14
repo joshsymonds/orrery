@@ -153,8 +153,8 @@ func releaseStepItems(steps []store.EpicReleaseStep) []string {
 	return items
 }
 
-// decisionLines returns every epic decision as `- id: text`, then the decisions of each turn before turn as
-// `- turn n: text`.
+// decisionLines returns every epic decision as `- id: text`, or as `- id (answers Qn): text` when it answers question n,
+// then the decisions of each turn before turn as `- turn n: text`.
 func decisionLines(epic store.EpicRow, turn int64) []string {
 	lines := make([]string, 0, len(epic.Decisions))
 	for _, d := range epic.Decisions {
@@ -171,20 +171,23 @@ func decisionLines(epic store.EpicRow, turn int64) []string {
 	return lines
 }
 
-// decisionLine returns one epic decision as `- id: text`.
+// decisionLine returns one epic decision as `- id: text`, or as `- id (answers Qn): text` when it answers question n.
 func decisionLine(d store.EpicDecision) string {
+	if d.Question != 0 {
+		return fmt.Sprintf("- %s (answers Q%d): %s", d.ID, d.Question, d.Text)
+	}
 	return fmt.Sprintf("- %s: %s", d.ID, d.Text)
 }
 
-// newNoteLines returns the epic decisions recorded after the point last had seen. With no earlier turn that is not free
-// there are none.
+// newNoteLines returns the notes, the epic decisions answering no question, recorded after the point last had seen.
+// With no earlier turn that is not free there are none.
 func newNoteLines(decisions []store.EpicDecision, last store.EpicTurn, found bool) []string {
 	if !found {
 		return nil
 	}
 	lines := make([]string, 0, len(decisions))
 	for _, d := range decisions {
-		if d.Seq > last.Seen {
+		if d.Seq > last.Seen && d.Question == 0 {
 			lines = append(lines, decisionLine(d))
 		}
 	}

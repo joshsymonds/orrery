@@ -17,12 +17,12 @@ import (
 )
 
 // epicTableColumns returns, keyed by table, the columns in declaration order of every table migrations 00014, 00016
-// and 00017 create, and of the columns those migrations add.
+// and 00019 create, and of the columns those migrations and 00020 add to epic tables.
 func epicTableColumns() map[string][]string {
 	return map[string][]string{
 		"epics": {
 			"id", "repository", "title", "approved", "intent", "care", "approach", "release_then", "checks",
-			"phase", "created", "changed", "paused", "parked", "base",
+			"phase", "created", "changed", "paused", "parked", "retried", "base",
 		},
 		"epic_failures":      {"epic", "position", "id", "text", "rating", "response"},
 		"epic_additions":     {"epic", "position", "location", "what", "why", "cost"},
@@ -35,10 +35,11 @@ func epicTableColumns() map[string][]string {
 			"epic", "position", "name", "argv", "limit_seconds", "needs", "agent", "must", "must_not",
 		},
 		"epic_gate_lists": {"epic", "list", "position", "gate"},
-		"epic_decisions":  {"epic", "seq", "client_id", "text", "time"},
+		"epic_decisions":  {"epic", "seq", "client_id", "text", "time", "question"},
 		"epic_triggers":   {"epic", "id", "cause", "state", "turn", "created"},
 		"epic_turns": {
 			"epic", "seq", "step", "state", "reason", "seen", "outline", "outcome", "started", "ended",
+			"told", "stop", "resets",
 		},
 		"epic_turn_decisions":    {"epic", "turn", "position", "text"},
 		"epic_tasks":             {"epic", "seq", "turn", "title", "deliverable", "status", "gate", "evidence"},
@@ -51,7 +52,8 @@ func epicTableColumns() map[string][]string {
 			"timed_out", "not_captured", "log_hash", "log_bytes", "judge_step", "judges", "verdict", "judge_reason",
 			"passed", "created", "ended",
 		},
-		"evidence_artifacts": {"run", "position", "path", "state", "hash", "blob", "size"},
+		"evidence_artifacts":  {"run", "position", "path", "state", "hash", "blob", "size"},
+		"pushed_epic_notices": {"epic", "time"},
 	}
 }
 
@@ -149,6 +151,67 @@ func TestEpicTablesCreatedOnFreshOpen(t *testing.T) {
 	}
 }
 
+func TestPlannerControlColumnsDefaultOnFreshOpen(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s, err := Open(ctx, filepath.Join(t.TempDir(), "orrery.db"))
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer s.Close()
+
+	added := []struct {
+		table, column, typ, dflt string
+	}{
+		{"epics", "retried", "INTEGER", "0"},
+		{"epic_turns", "told", "INTEGER", "0"},
+		{"epic_turns", "stop", "INTEGER", "0"},
+		{"epic_turns", "resets", "INTEGER", "0"},
+		{"epic_decisions", "question", "INTEGER", "0"},
+		{"pending_notices", "epic", "TEXT", "''"},
+	}
+	for _, c := range added {
+		var typ, dflt string
+		var notNull int
+		if err := s.db.QueryRowContext(ctx,
+			`SELECT type, "notnull", dflt_value FROM pragma_table_info(?) WHERE name = ?`,
+			c.table, c.column).Scan(&typ, &notNull, &dflt); err != nil {
+			t.Fatalf("read column %s.%s: %v", c.table, c.column, err)
+		}
+		if typ != c.typ || notNull != 1 || dflt != c.dflt {
+			t.Errorf("%s.%s = type %q, notnull %d, default %q; want type %q, NOT NULL, default %q",
+				c.table, c.column, typ, notNull, dflt, c.typ, c.dflt)
+		}
+	}
+}
+
+func TestPushedEpicNoticesKeepOneRowPerEpic(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s, err := Open(ctx, filepath.Join(t.TempDir(), "orrery.db"))
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer s.Close()
+
+	const epic = "orrery-0123456/epic-one"
+	insert := func(at int64) error {
+		_, err := s.db.ExecContext(ctx, `INSERT INTO pushed_epic_notices (epic, time) VALUES (?, ?)`, epic, at)
+		return err
+	}
+	if err := insert(1700000000); err != nil {
+		t.Fatalf("first pushed notice of %s: %v", epic, err)
+	}
+	err = insert(1700000100)
+	if err == nil || !strings.Contains(err.Error(), "UNIQUE constraint failed") {
+		t.Fatalf("second pushed notice of %s: err = %v, want the one-row-per-epic refusal", epic, err)
+	}
+	want := [][]any{{epic, int64(1700000000)}}
+	if got := rowsOf(t, s.db, "pushed_epic_notices"); !reflect.DeepEqual(got, want) {
+		t.Fatalf("pushed notices after refused insert = %v, want %v", got, want)
+	}
+}
+
 func TestEpicTriggerStateAcceptsOnlyPendingClaimedConsumed(t *testing.T) {
 	ctx := context.Background()
 	s, err := Open(ctx, filepath.Join(t.TempDir(), "orrery.db"))
@@ -230,7 +293,7 @@ func TestEpicDecisionsRefuseUpdateAndDelete(t *testing.T) {
 
 	const id = "orrery-0123456/epic-one"
 	seedEpic(t, s.db, id)
-	want := [][]any{{id, int64(1), "D1", "Use the store", int64(1700000000)}}
+	want := [][]any{{id, int64(1), "D1", "Use the store", int64(1700000000), int64(0)}}
 
 	if got := rowsOf(t, s.db, "epic_decisions"); !reflect.DeepEqual(got, want) {
 		t.Fatalf("seeded decisions = %v, want %v", got, want)
@@ -333,9 +396,9 @@ func TestEpicMigrationKeepsExistingRows(t *testing.T) {
 		`SELECT COALESCE(MAX(version_id), 0) FROM goose_db_version WHERE is_applied = 1`).Scan(&version); err != nil {
 		t.Fatalf("read store version: %v", err)
 	}
-	// Open applies 00014_epics.sql and every migration after it: 00017_evidence.sql is the newest.
-	if version != 17 {
-		t.Fatalf("store version after Open = %d, want 17", version)
+	// Open applies 00014_epics.sql and every migration after it: 00020_evidence.sql is the newest.
+	if version != 20 {
+		t.Fatalf("store version after Open = %d, want 20", version)
 	}
 
 	// A later migration may add columns at the end of an existing table, as 00015_step_readopt.sql adds to steps and
@@ -428,8 +491,8 @@ func TestEpicTaskStoredAtVersion16MigratesCheckToEvidence(t *testing.T) {
 	}
 }
 
-// TestEpicTaskCheckRestoredByEvidenceMigrationDown stores a task with an evidence item at migration 17 and reads its
-// conclusion back as task_check after the Down of 00017_evidence.sql, which drops gate and evidence.
+// TestEpicTaskCheckRestoredByEvidenceMigrationDown stores a task with an evidence item at migration 20 and reads its
+// conclusion back as task_check after the Down of 00020_evidence.sql, which drops gate and evidence.
 func TestEpicTaskCheckRestoredByEvidenceMigrationDown(t *testing.T) {
 	ctx := context.Background()
 	s := openEpicStore(t)
@@ -449,8 +512,8 @@ func TestEpicTaskCheckRestoredByEvidenceMigrationDown(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create goose provider: %v", err)
 	}
-	if _, err := provider.DownTo(ctx, 16); err != nil {
-		t.Fatalf("DownTo 16: %v", err)
+	if _, err := provider.DownTo(ctx, 19); err != nil {
+		t.Fatalf("DownTo 19: %v", err)
 	}
 
 	var check string
@@ -466,7 +529,7 @@ func TestEpicTaskCheckRestoredByEvidenceMigrationDown(t *testing.T) {
 }
 
 // TestEvidenceMigrationDownAndUp removes the epic gate tables and the base and item columns with the Down of
-// 00017_evidence.sql, and Up restores them.
+// 00020_evidence.sql, and Up restores them.
 func TestEvidenceMigrationDownAndUp(t *testing.T) {
 	ctx := context.Background()
 	s := openEpicStore(t)
@@ -480,8 +543,8 @@ func TestEvidenceMigrationDownAndUp(t *testing.T) {
 		t.Fatalf("create goose provider: %v", err)
 	}
 
-	if _, err := provider.DownTo(ctx, 16); err != nil {
-		t.Fatalf("DownTo 16: %v", err)
+	if _, err := provider.DownTo(ctx, 19); err != nil {
+		t.Fatalf("DownTo 19: %v", err)
 	}
 	tables := tableNames(t, s)
 	if tables["epic_gates"] || tables["epic_gate_lists"] {
@@ -516,6 +579,64 @@ func TestEvidenceMigrationDownAndUp(t *testing.T) {
 	}
 	if !hasAll(columnsOf(t, s, "epic_requirements"), "item") {
 		t.Errorf("epic_requirements columns after Up = %v, want item", columnsOf(t, s, "epic_requirements"))
+	}
+}
+
+func TestPlannerControlsDefaultOnRowsStoredAtVersion16(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "orrery.db")
+
+	const epic = "orrery-0123456/epic-one"
+	fixture := openStoreAtVersion(t, path, 16)
+	seedEpic(t, fixture, epic)
+	if _, err := fixture.ExecContext(ctx, `INSERT INTO epic_turns
+		(epic, seq, state, seen, outline, outcome, started, ended)
+		VALUES (?, 1, 'succeeded', 0, 'outline', 'outcome', 1700000000, 1700000100)`, epic); err != nil {
+		fixture.Close()
+		t.Fatalf("seed turn: %v", err)
+	}
+	if _, err := fixture.ExecContext(ctx, `INSERT INTO pending_notices
+		(id, pane, session, state, time, phase, due, delay_served, watch_logged, source_kind, source, silent)
+		VALUES (7, '%3', 'claude-1', 'waiting', 1700000100, 'delayed', 1700000190000, 1, 0, 'session', ?, 1)`,
+		[]byte(`{"event":"stop"}`)); err != nil {
+		fixture.Close()
+		t.Fatalf("seed pending notice: %v", err)
+	}
+	tables := []string{"epics", "epic_turns", "epic_decisions", "pending_notices"}
+	before := map[string][][]any{}
+	for _, table := range tables {
+		before[table] = rowsOf(t, fixture, table)
+		if len(before[table]) == 0 {
+			fixture.Close()
+			t.Fatalf("%s has no fixture row to compare", table)
+		}
+	}
+	if err := fixture.Close(); err != nil {
+		t.Fatalf("close fixture: %v", err)
+	}
+
+	s, err := Open(ctx, path)
+	if err != nil {
+		t.Fatalf("Open at version 16: %v", err)
+	}
+	defer s.Close()
+
+	// Each stored row keeps its values and gains the new column defaults at the end of its table.
+	added := map[string][]any{
+		"epics":           {int64(0), ""},
+		"epic_turns":      {int64(0), int64(0), int64(0)},
+		"epic_decisions":  {int64(0)},
+		"pending_notices": {""},
+	}
+	for _, table := range tables {
+		want := make([][]any, len(before[table]))
+		for i, row := range before[table] {
+			want[i] = append(append([]any{}, row...), added[table]...)
+		}
+		if got := rowsOf(t, s.db, table); !reflect.DeepEqual(got, want) {
+			t.Errorf("%s after migration = %v, want %v", table, got, want)
+		}
 	}
 }
 

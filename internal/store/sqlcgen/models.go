@@ -46,6 +46,7 @@ type Epic struct {
 	Changed     int64
 	Paused      int64
 	Parked      string
+	Retried     int64
 	Base        string
 }
 
@@ -72,6 +73,7 @@ type EpicDecision struct {
 	ClientID string
 	Text     string
 	Time     int64
+	Question int64
 }
 
 type EpicExclusion struct {
@@ -187,6 +189,9 @@ type EpicTurn struct {
 	Outcome string
 	Started int64
 	Ended   int64
+	Told    int64
+	Stop    int64
+	Resets  int64
 }
 
 type EpicTurnDecision struct {
@@ -276,11 +281,22 @@ type PendingNotice struct {
 	SourceKind  string
 	Source      []byte
 	Silent      bool
+	Epic        string
 }
 
 type PendingNoticeID struct {
 	ID   int64
 	High int64
+}
+
+type PushedEpicNotice struct {
+	Epic string
+	Time int64
+}
+
+type PushedLimitNotice struct {
+	LimitKey string
+	Time     int64
 }
 
 type PushedNotice struct {
@@ -314,42 +330,46 @@ type Session struct {
 }
 
 type Step struct {
-	ID             string
-	Agent          string
-	Prompt         string
-	OutputSchema   string
-	Workspace      string
-	Revision       string
-	Worktree       string
-	DoneValue      string
-	ReadOnly       bool
-	Owned          string
-	Gate           string
-	GateLimit      int64
-	Started        int64
-	Checks         string
-	Result         string
-	Status         string
-	EndValue       string
-	Reason         string
-	Ended          int64
-	ModelLimit     int64
-	Doing          string
-	Verdicts       string
-	Epic           string
-	Task           string
-	GateName       string
-	GateSource     string
-	GateNeeds      string
-	LoopRound      int64
-	LoopContinues  int64
-	LoopNudge      string
-	LoopOwnerNudge string
-	LoopNudged     bool
-	LoopHeld       bool
-	LoopJudgeSent  bool
-	LoopSeq        int64
-	GateGrant      string
-	GateHolder     string
-	GateRound      int64
+	ID              string
+	Agent           string
+	Prompt          string
+	OutputSchema    string
+	Workspace       string
+	Revision        string
+	Worktree        string
+	DoneValue       string
+	ReadOnly        bool
+	Owned           string
+	Gate            string
+	GateLimit       int64
+	Started         int64
+	Checks          string
+	Result          string
+	Status          string
+	EndValue        string
+	Reason          string
+	Ended           int64
+	ModelLimit      int64
+	Doing           string
+	Verdicts        string
+	Epic            string
+	Task            string
+	GateName        string
+	GateSource      string
+	GateNeeds       string
+	LoopRound       int64
+	LoopContinues   int64
+	LoopNudge       string
+	LoopOwnerNudge  string
+	LoopNudged      bool
+	LoopHeld        bool
+	LoopJudgeSent   bool
+	LoopSeq         int64
+	GateGrant       string
+	GateHolder      string
+	GateRound       int64
+	LoopLimited     bool
+	LoopLimitKind   string
+	LoopLimitResets int64
+	LoopGateFrom    int64
 }

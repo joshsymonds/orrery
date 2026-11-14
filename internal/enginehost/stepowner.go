@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/joshsymonds/orrery/internal/store"
 )
@@ -19,6 +20,12 @@ var ErrStepNotRunning = errors.New("step is not running")
 
 // ErrStepGating reports an owner action on a step that is running its gate.
 var ErrStepGating = errors.New("step is running its gate")
+
+// ErrStepNotLimited reports a resume of a step that no usage limit holds.
+var ErrStepNotLimited = errors.New("step is not limited")
+
+// stepResumePrompt is the owner's prompt a resume sends a limited step once its usage limit has reset.
+const stepResumePrompt = "The usage limit has reset. Carry on with your task from where you stopped."
 
 // stepOwnerCall is an owner action handed to a run's loop. The loop runs act in its goroutine and sends act's error on
 // reply, which is buffered so the loop never waits on the caller.
@@ -105,6 +112,37 @@ func (r *stepRun) nudgeOwner(ctx context.Context, text string) error {
 	return nil
 }
 
+// resumeLimited sends the owner's resume prompt to a limited run, which respawns its released process in its session. It
+// runs in the loop goroutine. A run that no limit holds refuses with ErrStepNotLimited. A Continue the step cap refuses
+// leaves the run limited, and any other failed Continue ends the step failed. A sent resume clears the limit, restarts
+// an agent gate step's limit from now, so the wait for the reset never ends it overtime, and stores the loop state with the
+// step's stored rate limit deleted.
+func (r *stepRun) resumeLimited(ctx context.Context) error {
+	if !r.limited {
+		return ErrStepNotLimited
+	}
+	prompt := StepPrompt{Text: stepResumePrompt, Sender: store.PromptSenderOwner}
+	if err := r.sessions.Continue(ctx, r.id, prompt); err != nil {
+		err = fmt.Errorf("continue step %s: %w", r.id, err)
+		if !errors.Is(err, ErrCapReached) {
+			r.finish(ctx, stepLoopEndFailed, "", err.Error())
+		}
+		return err
+	}
+	r.limited = false
+	r.limitKind, r.limitResets = "", time.Time{}
+	if r.agentGate != nil {
+		r.gateFrom = r.now()
+	}
+	// The limit's stored rate limit is cleared with the loop state, before the resumed turn's end is handled, so that
+	// turn end does not read the old limit as its own.
+	if err := r.writer.Commit(ctx, r.id, store.EngineRateLimitCleared{ID: r.id}, r.loopState()); err != nil {
+		r.finish(ctx, stepLoopEndFailed, "", fmt.Sprintf("record resume of step %s: %v", r.id, err))
+		return err
+	}
+	return nil
+}
+
 // turnRunning reports whether a turn is running as the watch has seen its events.
 func (w *stepWatch) turnRunning() bool {
 	w.mu.Lock()
@@ -160,4 +198,23 @@ func (s *Steps) Nudge(ctx context.Context, id, text string) error {
 	return run.do(ctx, func(ctx context.Context) error {
 		return run.nudgeOwner(ctx, text)
 	})
+}
+
+// Resume resumes the limited step with id: it sends the owner's prompt that the usage limit has reset, which respawns the
+// step's released process in its session with --resume. The resume runs in the step's loop, as Hold does. Resume returns
+// ErrStepNotLimited for a step that no limit holds, ErrStepNotRunning when the step has ended or has no loop, and
+// ErrStepGating when the step is running its gate. An id with no row returns an error matching store.ErrNoStep. A
+// Continue refused by the step cap returns an error matching ErrCapReached and leaves the step limited. Any other
+// Continue error ends the step failed and is returned.
+func (s *Steps) Resume(ctx context.Context, id string) error {
+	s.mu.Lock()
+	run := s.runs[id]
+	s.mu.Unlock()
+	if run == nil {
+		if _, err := s.Status(ctx, id); err != nil {
+			return err
+		}
+		return ErrStepNotRunning
+	}
+	return run.do(ctx, run.resumeLimited)
 }

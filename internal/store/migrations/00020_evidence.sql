@@ -67,7 +67,10 @@ ALTER TABLE epic_tasks ADD COLUMN evidence TEXT NOT NULL DEFAULT '';
 UPDATE epic_tasks SET evidence = json_object('conclusion', task_check, 'judge', '');
 ALTER TABLE epic_tasks DROP COLUMN task_check;
 
+ALTER TABLE steps ADD COLUMN loop_gate_from INTEGER NOT NULL DEFAULT 0;
+
 -- +goose Down
+ALTER TABLE steps DROP COLUMN loop_gate_from;
 ALTER TABLE epic_tasks ADD COLUMN task_check TEXT NOT NULL DEFAULT '';
 UPDATE epic_tasks SET task_check = COALESCE(json_extract(NULLIF(evidence, ''), '$.conclusion'), '');
 ALTER TABLE epic_tasks DROP COLUMN evidence;

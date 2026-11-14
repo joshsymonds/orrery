@@ -63,6 +63,15 @@ func epicFlags(t *testing.T, s *Store) (int64, string) {
 	return paused, parked
 }
 
+// parkEpic sets the park reason of epic id to reason by writing its row directly, so the fixture adds no turn.
+func parkEpic(t *testing.T, s *Store, id, reason string) {
+	t.Helper()
+	const park = "UPDATE epics SET parked = ? WHERE id = ?"
+	if _, err := s.db.ExecContext(context.Background(), park, reason, id); err != nil {
+		t.Fatalf("park epic %s: %v", id, err)
+	}
+}
+
 // storedTurnReason reads the reason of turn seq of epic id.
 func storedTurnReason(t *testing.T, s *Store, id string, seq int64) string {
 	t.Helper()
@@ -90,7 +99,7 @@ func TestFailTurnStoresTheReasonAndFreesItsTriggersToPending(t *testing.T) {
 
 	wantTurns := [][]any{
 		{id, int64(1), "", "failed", "return had no outline", int64(len(seededDecisions())), "", "",
-			int64(1700000500), int64(1700000700)},
+			int64(1700000500), int64(1700000700), int64(0), int64(0), int64(0)},
 	}
 	if got := rowsOf(t, s.db, "epic_turns"); !reflect.DeepEqual(got, wantTurns) {
 		t.Errorf("epic_turns after FailTurn = %v, want %v", got, wantTurns)
@@ -255,7 +264,7 @@ func TestFreeTurnFreesItsTriggersAndStoresItsReason(t *testing.T) {
 
 	wantTurns := [][]any{
 		{id, int64(1), "", "free", "rate limited", int64(len(seededDecisions())), "", "",
-			int64(1700000500), int64(1700000700)},
+			int64(1700000500), int64(1700000700), int64(0), int64(0), int64(0)},
 	}
 	if got := rowsOf(t, s.db, "epic_turns"); !reflect.DeepEqual(got, wantTurns) {
 		t.Errorf("epic_turns after FreeTurn = %v, want %v", got, wantTurns)
@@ -313,6 +322,24 @@ func TestFreeTurnWithParkParksTheEpic(t *testing.T) {
 	}
 }
 
+func TestFreeTurnWithParkCapsTheParkReasonAt1024Bytes(t *testing.T) {
+	ctx := context.Background()
+	s := openEpicStore(t)
+	const id = claimEpic
+	createEpic(t, s, fullEpic(id))
+	if _, err := s.ClaimTurn(ctx, id, claimedAt()); err != nil {
+		t.Fatalf("ClaimTurn: %v", err)
+	}
+
+	if err := s.FreeTurn(ctx, id, 1, TurnFree{Park: strings.Repeat("y", 2000)}, failedAt()); err != nil {
+		t.Fatalf("FreeTurn: %v", err)
+	}
+
+	if _, parked := epicFlags(t, s); parked != strings.Repeat("y", 1024) {
+		t.Errorf("parked reason of a 2000-byte FreeTurn Park has %d bytes, want 1024 bytes of y", len(parked))
+	}
+}
+
 func TestFailAndFreeTurnRefuseATurnThatIsNotRunningAndWriteNothing(t *testing.T) {
 	ctx := context.Background()
 	s := openEpicStore(t)
@@ -353,45 +380,5 @@ func TestFailAndFreeTurnRefuseATurnThatIsNotRunningAndWriteNothing(t *testing.T)
 	if paused, parked := epicFlags(t, s); paused != pausedBefore || parked != parkedBefore {
 		t.Errorf("epic after refused turn ends: paused = %d, parked = %q, want %d and %q", paused, parked,
 			pausedBefore, parkedBefore)
-	}
-}
-
-func TestParkEpicParksTheEpicWithItsReason(t *testing.T) {
-	ctx := context.Background()
-	s := openEpicStore(t)
-	const id = claimEpic
-	createEpic(t, s, fullEpic(id))
-
-	if err := s.ParkEpic(ctx, id, "needs a human"); err != nil {
-		t.Fatalf("ParkEpic: %v", err)
-	}
-
-	if paused, parked := epicFlags(t, s); paused != 0 || parked != "needs a human" {
-		t.Errorf("epic after ParkEpic: paused = %d, parked = %q, want 0 and %q", paused, parked, "needs a human")
-	}
-	if _, err := s.ClaimTurn(ctx, id, claimedAt()); !errors.Is(err, ErrNotClaimable) {
-		t.Errorf("ClaimTurn of a parked epic err = %v, want ErrNotClaimable", err)
-	}
-}
-
-func TestParkEpicCapsTheReasonAt1024Bytes(t *testing.T) {
-	ctx := context.Background()
-	s := openEpicStore(t)
-	const id = claimEpic
-	createEpic(t, s, fullEpic(id))
-
-	if err := s.ParkEpic(ctx, id, strings.Repeat("y", 2000)); err != nil {
-		t.Fatalf("ParkEpic: %v", err)
-	}
-
-	if _, parked := epicFlags(t, s); parked != strings.Repeat("y", 1024) {
-		t.Errorf("parked reason of a 2000-byte ParkEpic has %d bytes, want 1024 bytes of y", len(parked))
-	}
-}
-
-func TestParkEpicOfUnknownEpicIsErrNoEpic(t *testing.T) {
-	s := openEpicStore(t)
-	if err := s.ParkEpic(context.Background(), "orrery-1a2b3c4/missing", "reason"); !errors.Is(err, ErrNoEpic) {
-		t.Fatalf("ParkEpic of unknown epic err = %v, want ErrNoEpic", err)
 	}
 }

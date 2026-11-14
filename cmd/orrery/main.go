@@ -97,11 +97,21 @@ subcommands:
   tmux-conf                                     print the orrery tmux plugin for this binary
   help [--html]                                 print the help card for the tmux server, or the HTML page with --html
   mcp                                           serve the step tools over MCP on stdio until stdin closes
+  epic create FILE|-                            create an epic from the contract JSON in FILE, or on stdin for -
+  epic get ID                                   print a stored epic
+  epic list                                     print the stored epics as summaries
+  epic answer EPIC --id ID [--question QN] TEXT
+                                                record a decision on EPIC; --question names the Q<n> it answers
+  epic pause ID                                 pause an epic, so the planner starts no turn for it
+  epic resume ID                                clear an epic's pause
+  epic stop ID                                  pause an epic and stop the step of its running turn
+  epic retry ID                                 end an epic's park
   run --needs POOL=N [--needs POOL=N]... -- CMD [ARGS]
                                                 run CMD under a grant of pool members from orreryd
   run status                                    print the pools orreryd runs
   gate [--gates FILE] NAME                      run a named gate under a grant from orreryd
   hold [--off] MEMBER                           place an owner hold on MEMBER through orreryd, or free it with --off
+  step resume ID                                resume a step a usage limit holds, through orreryd
   evidence run EPIC ITEM REVISION PHASE         run an item's evidence at a revision for one phase, red or green
   evidence list EPIC                            list an epic's evidence runs and the artifacts each kept
   evidence get RUN [NAME]                       write an artifact's bytes to stdout, or the run's log without NAME
@@ -229,17 +239,41 @@ func dispatch(ctx context.Context, opts globals, rest []string, stdin *os.File, 
 		return runDesk(ctx, opts, args)
 	case "mcp":
 		return runMCP(ctx, opts, args, stdin, stdout, getenv)
-	case "run", "gate", "hold", "evidence":
+	case "epic":
+		return runEpic(ctx, opts, args, stdin, stdout, stderr, getenv)
+	case "run", "gate", "evidence":
 		return orreryCommand(ctx, opts, name, args, stdin, stdout, stderr, getenv)
+	case "hold", "step":
+		return runOwnerAction(ctx, opts, name, args, stderr, getenv)
 	case "holder":
 		return runHolder(ctx, args, stderr, getenv)
 	case "session":
 		return runSession(ctx, opts, args, stdout, getenv)
+	default:
+		return dispatchTmux(ctx, opts, name, args, stdin, stdout, getenv)
+	}
+}
+
+// dispatchTmux runs the subcommand named name when it works on the tmux server named by opts, and refuses any other
+// name as unknown.
+func dispatchTmux(ctx context.Context, opts globals, name string, args []string, stdin *os.File, stdout io.Writer,
+	getenv func(string) string) error {
+	switch name {
 	case "open", "list", "seen", "send", "debug", "shell", "tree":
 		return tmuxCommand(ctx, opts, name, args, stdin, stdout, getenv)
 	default:
 		return usagef("unknown subcommand %q", name)
 	}
+}
+
+// runOwnerAction runs `orrery hold` or `orrery step`, the owner's commands that orreryd answers over the session socket
+// and that retry a call orreryd answers Unavailable.
+func runOwnerAction(ctx context.Context, opts globals, name string, args []string, stderr io.Writer,
+	getenv func(string) string) error {
+	if name == "step" {
+		return runStep(ctx, opts, args, stderr, getenv)
+	}
+	return runHold(ctx, opts, args, stderr, getenv)
 }
 
 // hookSocket returns the orreryd socket a hook forwards to, or "" when no socket path can be named.
@@ -251,8 +285,8 @@ func hookSocket(opts globals, getenv func(string) string) string {
 	return socket
 }
 
-// orreryCommand runs a subcommand that calls one of orreryd's services: run and gate take a grant of pool members, hold
-// places or frees an owner hold, and evidence runs an item's evidence or reads it back.
+// orreryCommand runs a subcommand that calls one of orreryd's services: run and gate take a grant of pool members, and
+// evidence runs an item's evidence or reads it back.
 func orreryCommand(
 	ctx context.Context,
 	opts globals,
@@ -267,8 +301,6 @@ func orreryCommand(
 		return runCommand(ctx, opts, args, stdin, stdout, stderr, getenv)
 	case "gate":
 		return runGate(ctx, opts, args, stdin, stdout, stderr, getenv)
-	case "hold":
-		return runHold(ctx, opts, args, stderr, getenv)
 	default:
 		return runEvidence(ctx, opts, args, stdout, stderr, getenv)
 	}
@@ -414,6 +446,19 @@ func runMCP(ctx context.Context, opts globals, args []string, stdin io.Reader, s
 		return fmt.Errorf("mcp: %w", err)
 	}
 	return nil
+}
+
+// runEpic runs `orrery epic`. It calls the epic tools on the session socket beside the daemon socket, as runMCP does,
+// so the command opens no listener and no store.
+func runEpic(ctx context.Context, opts globals, args []string, stdin io.Reader, stdout, stderr io.Writer,
+	getenv func(string) string) error {
+	socket, err := protocol.SocketPath(opts.daemonSocket, getenv)
+	if err != nil {
+		return fmt.Errorf("epic: %w", err)
+	}
+	sessionSocket := protocol.SessionSocketPath(socket)
+	epics := enginev1connect.NewEpicsClient(cli.SessionHTTPClient(sessionSocket), cli.SessionBaseURL)
+	return epicCommand(ctx, epics, args, stdin, stdout, stderr)
 }
 
 // runServe runs `orrery serve`. It serves the HTTP API for the tmux server named by opts on the loopback address

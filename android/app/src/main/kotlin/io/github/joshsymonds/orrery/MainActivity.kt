@@ -158,10 +158,11 @@ class MainActivity : ComponentActivity() {
         openExtra(intent)?.let { screen = it }
     }
 
-    /** The screen a notice's intent opens: its pane, or its headless session. */
+    /** The screen a notice's intent opens: its pane, its headless session, or its epic. */
     private fun openExtra(intent: Intent): Screen? =
         intent.getStringExtra(PushNotifier.EXTRA_PANE)?.let { Screen.Pane(it) }
             ?: intent.getStringExtra(PushNotifier.EXTRA_SESSION)?.let { Screen.Session(it) }
+            ?: intent.getStringExtra(PushNotifier.EXTRA_EPIC)?.let { Screen.Epic(it) }
 
     private sealed interface Screen {
         data object Panes : Screen

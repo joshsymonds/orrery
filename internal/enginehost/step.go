@@ -81,12 +81,14 @@ type StepStart struct {
 	ReturnCheck func(value json.RawMessage) []string
 }
 
-// StepStore reads the step rows Steps reports and the turn ends their sessions stored. *store.Store satisfies it.
+// StepStore reads the step rows Steps reports, the turn ends their sessions stored and the rate limits their sessions were
+// rejected with. *store.Store satisfies it.
 type StepStore interface {
 	Step(ctx context.Context, id string) (store.StepRow, error)
 	OpenSteps(ctx context.Context) ([]store.StepRow, error)
 	LabelledSteps(ctx context.Context, epic, task string) ([]store.StepRow, error)
 	StepTurn(ctx context.Context, id string) (store.StepTurnEnd, bool, error)
+	StepRateLimit(ctx context.Context, id string) (store.RateLimit, bool, error)
 }
 
 // StepsConfig configures Steps. Sessions starts and stops the step sessions, Store reads the step rows and Writer
@@ -247,9 +249,9 @@ func (s *Steps) Start(ctx context.Context, start StepStart) (string, error) {
 		ModelLimit: modelLimit, Epic: start.Epic, Task: start.Task,
 	}
 	cfg := stepRunConfig{
-		id: id, schema: start.Schema, doneValue: doneValue, sessions: s.sessions, writer: s.writer, logger: s.logger,
-		writing: !start.ReadOnly, start: commit, owned: start.Owned, gate: gate.argv, gateLimit: gateLimit,
-		gateName: gate.name, gateSource: gate.source, grant: gate.grant, pools: s.pools,
+		id: id, schema: start.Schema, doneValue: doneValue, sessions: s.sessions, store: s.store, writer: s.writer,
+		logger: s.logger, writing: !start.ReadOnly, start: commit, owned: start.Owned, gate: gate.argv,
+		gateLimit: gateLimit, gateName: gate.name, gateSource: gate.source, grant: gate.grant, pools: s.pools,
 		environ: s.environ, prompt: start.Prompt, now: s.now, modelLimit: modelLimit, agentGate: gate.agent,
 		stateDir: s.gateStateDir, scope: s.gateScope, returnCheck: start.ReturnCheck,
 	}

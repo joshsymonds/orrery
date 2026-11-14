@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/joshsymonds/orrery/internal/enginehost"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -24,7 +23,8 @@ const (
 
 // TestSessionsHostParksEpicWithoutRoleFile checks that a --sessions orreryd runs the planner over its store. The
 // environment has no role file, so the planner's agent cannot be read, and the synthetic epic with a pending trigger
-// parks with that reason before any turn is claimed. The host then stops without error.
+// parks with that reason. The park claims a turn that is freed with the same reason. The host then stops without
+// error.
 func TestSessionsHostParksEpicWithoutRoleFile(t *testing.T) {
 	ctx := t.Context()
 	env := map[string]string{
@@ -63,8 +63,9 @@ func TestSessionsHostParksEpicWithoutRoleFile(t *testing.T) {
 		sessionCap: defaultSessionCap,
 		stepCap:    defaultStepCap,
 	}
-	notifier := enginehost.NewNotifier(enginehost.NotifierConfig{})
-	host, err := startSessions(ctx, opts, plannerWiringHost, st, notifier, slog.New(slog.DiscardHandler), getenv)
+	host, err := startSessions(
+		ctx, opts, plannerWiringHost, st, &recordingRouter{}, slog.New(slog.DiscardHandler), getenv,
+	)
 	if err != nil {
 		t.Fatalf("startSessions: %v", err)
 	}
@@ -73,8 +74,11 @@ func TestSessionsHostParksEpicWithoutRoleFile(t *testing.T) {
 	if !strings.Contains(row.Parked, "no role file") {
 		t.Errorf("parked = %q, want the reason %q", row.Parked, "no role file")
 	}
-	if len(row.Turns) != 0 {
-		t.Errorf("turns = %d, want none: the epic parks before a turn is claimed", len(row.Turns))
+	if len(row.Turns) != 1 {
+		t.Fatalf("turns = %d, want 1: the park frees a claimed turn", len(row.Turns))
+	}
+	if turn := row.Turns[0]; turn.State != "free" || !strings.Contains(turn.Reason, "no role file") {
+		t.Errorf("turn 1 = state %q reason %q, want free with the role error", turn.State, turn.Reason)
 	}
 
 	if err := host.stop(); err != nil {

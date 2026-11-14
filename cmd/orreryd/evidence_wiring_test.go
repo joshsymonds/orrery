@@ -11,7 +11,6 @@ import (
 
 	"connectrpc.com/connect"
 
-	"github.com/joshsymonds/orrery/internal/enginehost"
 	"github.com/joshsymonds/orrery/internal/evidence"
 	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
 	"github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1/enginev1connect"
@@ -44,7 +43,7 @@ func TestSessionsEngineAnswersListEvidenceWithStore(t *testing.T) {
 	st := openPaneStore(t, path)
 	opts := evidenceWiringOptions(t)
 	host, err := startSessions(
-		ctx, opts, evidenceWiringHost, st, enginehost.NewNotifier(enginehost.NotifierConfig{}),
+		ctx, opts, evidenceWiringHost, st, &recordingRouter{},
 		slog.New(slog.DiscardHandler), getenv,
 	)
 	if err != nil {
@@ -77,7 +76,7 @@ func TestSessionsHostTakesUpJudgingEvidenceRun(t *testing.T) {
 
 	opts := evidenceWiringOptions(t)
 	host, err := startSessions(
-		ctx, opts, evidenceWiringHost, st, enginehost.NewNotifier(enginehost.NotifierConfig{}),
+		ctx, opts, evidenceWiringHost, st, &recordingRouter{},
 		slog.New(slog.DiscardHandler), getenv,
 	)
 	if err != nil {
@@ -112,7 +111,7 @@ func TestSessionsEngineAnswersListEvidenceUnavailableWithoutStore(t *testing.T) 
 	getenv := func(string) string { return "" }
 	opts := evidenceWiringOptions(t)
 	host, err := startSessions(
-		ctx, opts, evidenceWiringHost, nil, enginehost.NewNotifier(enginehost.NotifierConfig{}),
+		ctx, opts, evidenceWiringHost, nil, &recordingRouter{},
 		slog.New(slog.DiscardHandler), getenv,
 	)
 	if err != nil {

@@ -53,6 +53,10 @@ func (f *stepStartSessions) Continue(context.Context, string, StepPrompt) error 
 	return errors.New("stepStartSessions: Continue is not used")
 }
 
+func (f *stepStartSessions) Release(context.Context, string) error {
+	return errors.New("stepStartSessions: Release is not used")
+}
+
 func (f *stepStartSessions) Stop(context.Context, string) error {
 	return nil
 }

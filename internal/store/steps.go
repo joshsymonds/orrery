@@ -90,17 +90,23 @@ type StepEnd struct {
 }
 
 // StepLoop sets a step's loop state: its round, its continue count, the nudge texts the next turn end is continued
-// with, whether it has been nudged, whether it is held and whether its judge has sent it back. It sets every loop
-// column, so a field left at its zero value is stored as zero.
+// with, whether it has been nudged, whether it is held, whether its judge has sent it back, and its usage-limit hold:
+// whether it is limited, the kind of limit and the time it resets, zero when the reset is unknown, and the time an
+// agent gate step's limit counts from after a resume from a usage limit, zero when it counts from the step's start. It
+// sets every loop column, so a field left at its zero value is stored as zero.
 type StepLoop struct {
-	ID         string
-	Round      int
-	Continues  int
-	Nudge      string
-	OwnerNudge string
-	Nudged     bool
-	Held       bool
-	JudgeSent  bool
+	ID          string
+	Round       int
+	Continues   int
+	Nudge       string
+	OwnerNudge  string
+	Nudged      bool
+	Held        bool
+	JudgeSent   bool
+	Limited     bool
+	LimitKind   string
+	LimitResets time.Time
+	GateFrom    time.Time
 }
 
 // StepGate sets a step's gate: the grant it holds, its holder and the round it holds in. An empty Holder clears all
@@ -122,46 +128,51 @@ type StepTurnEnd struct {
 	Returned bool
 }
 
-// StepRow is a step row. Ended is zero while End is empty.
+// StepRow is a step row. Ended is zero while End is empty, LoopLimitResets is zero when the limit's reset is unknown,
+// and LoopGateFrom is zero unless an agent gate step was resumed from a usage limit.
 type StepRow struct {
-	ID             string
-	Agent          string
-	Prompt         string
-	Schema         string
-	Workspace      string
-	Revision       string
-	Worktree       string
-	DoneValue      string
-	ReadOnly       bool
-	Owned          []string
-	Gate           []string
-	GateName       string
-	GateSource     string
-	GateNeeds      []StepNeed
-	GateLimit      time.Duration
-	ModelLimit     time.Duration
-	Started        time.Time
-	Checks         []StepCheck
-	Doing          string
-	Verdicts       []StepVerdict
-	Result         string
-	Status         string
-	End            string
-	Reason         string
-	Ended          time.Time
-	Epic           string
-	Task           string
-	LoopRound      int
-	LoopContinues  int
-	LoopNudge      string
-	LoopOwnerNudge string
-	LoopNudged     bool
-	LoopHeld       bool
-	LoopJudgeSent  bool
-	LoopSeq        int64
-	GateGrant      string
-	GateHolder     string
-	GateRound      int
+	ID              string
+	Agent           string
+	Prompt          string
+	Schema          string
+	Workspace       string
+	Revision        string
+	Worktree        string
+	DoneValue       string
+	ReadOnly        bool
+	Owned           []string
+	Gate            []string
+	GateName        string
+	GateSource      string
+	GateNeeds       []StepNeed
+	GateLimit       time.Duration
+	ModelLimit      time.Duration
+	Started         time.Time
+	Checks          []StepCheck
+	Doing           string
+	Verdicts        []StepVerdict
+	Result          string
+	Status          string
+	End             string
+	Reason          string
+	Ended           time.Time
+	Epic            string
+	Task            string
+	LoopRound       int
+	LoopContinues   int
+	LoopNudge       string
+	LoopOwnerNudge  string
+	LoopNudged      bool
+	LoopHeld        bool
+	LoopJudgeSent   bool
+	LoopSeq         int64
+	GateGrant       string
+	GateHolder      string
+	GateRound       int
+	LoopLimited     bool
+	LoopLimitKind   string
+	LoopLimitResets time.Time
+	LoopGateFrom    time.Time
 }
 
 func (op StepAdd) applyEngine(ctx context.Context, queries *sqlcgen.Queries, now time.Time) error {
@@ -215,9 +226,17 @@ func (op StepLoop) applyEngine(ctx context.Context, queries *sqlcgen.Queries, _ 
 	if _, err := requireStep(ctx, queries, op.ID); err != nil {
 		return err
 	}
+	var resets, gateFrom int64
+	if !op.LimitResets.IsZero() {
+		resets = op.LimitResets.Unix()
+	}
+	if !op.GateFrom.IsZero() {
+		gateFrom = op.GateFrom.Unix()
+	}
 	if err := queries.UpdateStepLoop(ctx, sqlcgen.UpdateStepLoopParams{
 		LoopRound: int64(op.Round), LoopContinues: int64(op.Continues), LoopNudge: op.Nudge,
 		LoopOwnerNudge: op.OwnerNudge, LoopNudged: op.Nudged, LoopHeld: op.Held, LoopJudgeSent: op.JudgeSent,
+		LoopLimited: op.Limited, LoopLimitKind: op.LimitKind, LoopLimitResets: resets, LoopGateFrom: gateFrom,
 		ID: op.ID,
 	}); err != nil {
 		return fmt.Errorf("update loop of step %s: %w", op.ID, err)
@@ -321,6 +340,15 @@ func (s *Store) OpenSteps(ctx context.Context) ([]StepRow, error) {
 	return toStepRows(rows)
 }
 
+// LimitedSteps returns the open step rows whose loop is limited, ordered by start time then id.
+func (s *Store) LimitedSteps(ctx context.Context) ([]StepRow, error) {
+	rows, err := sqlcgen.New(s.db).ListLimitedSteps(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list limited steps: %w", err)
+	}
+	return toStepRows(rows)
+}
+
 // LabelledSteps returns the step rows with a non-empty epic, narrowed to rows whose epic is epic when epic is not
 // empty and to rows whose task is task when task is not empty, ordered by start time then id.
 func (s *Store) LabelledSteps(ctx context.Context, epic, task string) ([]StepRow, error) {
@@ -380,6 +408,13 @@ func toStepRow(row sqlcgen.Step) (StepRow, error) {
 	if row.EndValue != "" {
 		ended = time.Unix(row.Ended, 0)
 	}
+	var limitResets, gateFrom time.Time
+	if row.LoopLimitResets != 0 {
+		limitResets = time.Unix(row.LoopLimitResets, 0)
+	}
+	if row.LoopGateFrom != 0 {
+		gateFrom = time.Unix(row.LoopGateFrom, 0)
+	}
 	return StepRow{
 		ID: row.ID, Agent: row.Agent, Prompt: row.Prompt, Schema: row.OutputSchema, Workspace: row.Workspace,
 		Revision: row.Revision, Worktree: row.Worktree, DoneValue: row.DoneValue, ReadOnly: row.ReadOnly,
@@ -392,6 +427,8 @@ func toStepRow(row sqlcgen.Step) (StepRow, error) {
 		LoopOwnerNudge: row.LoopOwnerNudge, LoopNudged: row.LoopNudged, LoopHeld: row.LoopHeld,
 		LoopJudgeSent: row.LoopJudgeSent, LoopSeq: row.LoopSeq,
 		GateGrant: row.GateGrant, GateHolder: row.GateHolder, GateRound: int(row.GateRound),
+		LoopLimited: row.LoopLimited, LoopLimitKind: row.LoopLimitKind, LoopLimitResets: limitResets,
+		LoopGateFrom: gateFrom,
 	}, nil
 }
 

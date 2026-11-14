@@ -27,6 +27,7 @@ type StepCommands interface {
 	Hold(ctx context.Context, id string) error
 	Held(id string) bool
 	Nudge(ctx context.Context, id, text string) error
+	Resume(ctx context.Context, id string) error
 }
 
 // stepService implements the Steps RPCs over steps.
@@ -181,6 +182,19 @@ func (s *stepService) NudgeStep(
 	return connect.NewResponse(&v1.NudgeStepResponse{}), nil
 }
 
+func (s *stepService) ResumeStep(
+	ctx context.Context,
+	req *connect.Request[v1.ResumeStepRequest],
+) (*connect.Response[v1.ResumeStepResponse], error) {
+	if err := s.ready(); err != nil {
+		return nil, err
+	}
+	if err := s.steps.Resume(ctx, req.Msg.GetId()); err != nil {
+		return nil, stepCommandError(err)
+	}
+	return connect.NewResponse(&v1.ResumeStepResponse{}), nil
+}
+
 // stepMessage returns the Step message of row, with held as its held flag. Ended is zero while the step runs. A check
 // round outside uint32 is an error, since the reply cannot carry it.
 func stepMessage(row store.StepRow, held bool) (*v1.Step, error) {
@@ -213,9 +227,14 @@ func stepMessage(row store.StepRow, held bool) (*v1.Step, error) {
 		Doing:     row.Doing,
 		Reason:    row.Reason,
 		Started:   row.Started.Unix(),
+		Limited:   row.LoopLimited,
+		LimitKind: row.LoopLimitKind,
 	}
 	if !row.Ended.IsZero() {
 		step.Ended = row.Ended.Unix()
+	}
+	if !row.LoopLimitResets.IsZero() {
+		step.LimitResets = row.LoopLimitResets.Unix()
 	}
 	return step, nil
 }
@@ -229,7 +248,7 @@ func stepCommandError(err error) error {
 	case errors.Is(err, store.ErrNoStep):
 		code = connect.CodeNotFound
 	case errors.Is(err, ErrStepNoTurn), errors.Is(err, ErrStepHeld), errors.Is(err, ErrStepGating),
-		errors.Is(err, ErrStepNotRunning):
+		errors.Is(err, ErrStepNotRunning), errors.Is(err, ErrStepNotLimited):
 		code = connect.CodeFailedPrecondition
 	case errors.Is(err, ErrEmptyPrompt), errors.Is(err, ErrBadSchema), errors.Is(err, ErrBadAgent),
 		errors.Is(err, ErrBadDir), errors.Is(err, ErrBadOwned), errors.Is(err, ErrBadGate),

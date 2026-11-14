@@ -79,6 +79,8 @@ const (
 	silentBackground = "background work"
 	// brokerTick is how often the grants broker ticks. Each tick ends the grants of gone clients and polls each member.
 	brokerTick = 60 * time.Second
+	// limitTick is how often the limit notices check the limited steps for a change.
+	limitTick = 5 * time.Second
 	// waitingBody and doneBody stand in for an empty question or summary.
 	waitingBody = "waiting for input"
 	doneBody    = "done"
@@ -402,7 +404,6 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 	})
 	router := hub.router
 	observe := func(transition daemon.Transition) { hub.observe(ctx, transition) }
-	notifier := enginehost.NewNotifier(enginehost.NotifierConfig{Route: router})
 	// The first tidy waits for tidyStart, which closes once the store is open and the sessions have started.
 	tidyStart := make(chan struct{})
 	serveDone := serveInBackground(ctx, ln, daemon.Config{
@@ -429,7 +430,7 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 	var sessions *sessionHost
 	var startErr error
 	if opts.sessions {
-		sessions, startErr = startSessions(ctx, opts, host, st, notifier, logger, getenv)
+		sessions, startErr = startSessions(ctx, opts, host, st, router, logger, getenv)
 	}
 	if startErr != nil {
 		stop()
@@ -508,26 +509,32 @@ type sessionHost struct {
 	idleDone    chan struct{}
 	stopPlanner context.CancelFunc
 	plannerDone chan struct{}
-	stopServe   context.CancelFunc
-	serveDone   chan error
+	// attentionDone is closed when the attention loop returns, and is nil when no loop runs.
+	attentionDone chan struct{}
+	stopLimits    context.CancelFunc
+	limitsDone    chan struct{}
+	stopServe     context.CancelFunc
+	serveDone     chan error
 }
 
 // startSessions listens on sessions.sock beside the daemon socket and serves the Engine, Steps, Pools and Evidence
 // services on it until stop. With an open store it also starts the writer, a manager capped at opts.sessionCap that
-// notifies through notifier, the grants broker for hostName, which restores the grants a previous run stored and then
+// notifies through router, the grants broker for hostName, which restores the grants a previous run stored and then
 // ticks every brokerTick until stop, and the step engine capped at opts.stepCap whose worktrees go under step-worktrees
 // beside the store file. The steps re-adopt the open step rows a previous run left, the manager reconciles the session
 // rows and the steps reconcile the rest before the service serves. The evidence runner is then built over the store,
 // the steps and the pools, and takes up the open evidence runs, so no judge starts beside a step already re-adopted.
-// The planner runs over the store and the steps, and the manager stops idle sessions, until stop. A readopt, reconcile,
-// restore or resume failure is logged and serving goes on; a failed restore serves no Pools, which refuse as
+// The planner then runs over the store and the steps, and its attention loop routes its epic notices through router
+// when router is not nil; the limit notices tell router which steps a usage limit holds, every limitTick until stop;
+// and the manager stops idle sessions, until stop. A readopt, reconcile, restore or resume failure is logged and
+// serving goes on; a failed restore serves no Pools, which refuse as
 // unavailable, and the gates fail for want of pools.
 func startSessions(
 	ctx context.Context,
 	opts options,
 	hostName string,
 	st *store.Store,
-	notifier *enginehost.Notifier,
+	router enginehost.Router,
 	logger *slog.Logger,
 	getenv func(string) string,
 ) (*sessionHost, error) {
@@ -535,6 +542,7 @@ func startSessions(
 		writerDone:  make(chan struct{}),
 		idleDone:    make(chan struct{}),
 		plannerDone: make(chan struct{}),
+		limitsDone:  make(chan struct{}),
 		serveDone:   make(chan error, 1),
 	}
 	var commands enginehost.Commands
@@ -548,6 +556,7 @@ func startSessions(
 		}
 		stateDir := filepath.Dir(storePath)
 		host.writer = enginehost.NewWriter(enginehost.WriterConfig{Applier: st, Logger: logger})
+		notifier := enginehost.NewNotifier(enginehost.NotifierConfig{Route: router})
 		host.manager = enginehost.NewManager(enginehost.Config{
 			Shell:       opts.sessionShell,
 			Claude:      opts.claude,
@@ -597,7 +606,8 @@ func startSessions(
 		host.reconcile(ctx, logger)
 		host.startEvidence(ctx, st, stateDir, opts.holderScope, logger)
 		evidence = host.evidence
-		host.startPlanner(ctx, st, getenv, resolve, logger)
+		host.startPlanner(ctx, st, router, getenv, resolve, logger)
+		host.startLimits(ctx, st, router, logger)
 		var idleCtx context.Context
 		idleCtx, host.stopIdle = context.WithCancel(ctx)
 		go func() {
@@ -728,12 +738,14 @@ func (h *sessionHost) startEvidence(
 	}
 }
 
-// startPlanner runs the planner runner over st and the steps until stop. The runner reads the planner's agent from the
-// role file on each pass, so without one it parks the epics that have pending triggers, and starts no turn. Each
-// planned task's gate and judge are resolved by resolve.
+// startPlanner runs the planner runner over st and the steps until stop. The runner reads the agent from the role
+// file on each pass; without one it parks each epic with pending triggers through a turn that starts no step. Each
+// planned task's gate and judge are resolved by resolve. With a router, the attention loop runs under the same context
+// and routes the epics that need their owner through it.
 func (h *sessionHost) startPlanner(
 	ctx context.Context,
 	st *store.Store,
+	router planner.Router,
 	getenv func(string) string,
 	resolve planner.Resolver,
 	logger *slog.Logger,
@@ -751,12 +763,46 @@ func (h *sessionHost) startPlanner(
 		runner.Run(plannerCtx)
 		close(h.plannerDone)
 	}()
+	if router == nil {
+		return
+	}
+	attention := planner.NewAttention(planner.AttentionConfig{Store: st, Router: router, Logger: logger})
+	h.attentionDone = make(chan struct{})
+	go func() {
+		attention.Run(plannerCtx)
+		close(h.attentionDone)
+	}()
 }
 
-// shutdown stops the broker, stops the idle check, stops the planner and waits for its runner to return, closes the
-// evidence runner and waits for its drives, ends every step loop, stops every live session, and ends the writer after its
-// last flush. The notices the sessions started are waited on in serve. Without a broker, manager and writer it does
-// nothing.
+// startLimits tells router which steps a usage limit holds, checking st every limitTick until stop. A limit that holds
+// steps when it starts is remembered, not announced.
+func (h *sessionHost) startLimits(
+	ctx context.Context,
+	st *store.Store,
+	router enginehost.Router,
+	logger *slog.Logger,
+) {
+	ticker := time.NewTicker(limitTick)
+	limits := enginehost.NewLimitNotices(enginehost.LimitNoticesConfig{
+		Steps:  st,
+		Route:  router,
+		Now:    time.Now,
+		Tick:   ticker.C,
+		Logger: logger,
+	})
+	var limitsCtx context.Context
+	limitsCtx, h.stopLimits = context.WithCancel(ctx)
+	go func() {
+		defer close(h.limitsDone)
+		defer ticker.Stop()
+		limits.Run(limitsCtx)
+	}()
+}
+
+// shutdown stops the broker, stops the idle check, stops the planner and the limit notices and waits for the planner's
+// runner, its attention loop and the limit loop to return, closes the evidence runner and waits for its drives, ends
+// every step loop, stops every live session, and ends the writer after its last flush. The notices the sessions started
+// are waited on in serve. Without a broker, manager and writer it does nothing.
 func (h *sessionHost) shutdown() {
 	h.stopBroker()
 	if h.manager != nil {
@@ -765,6 +811,11 @@ func (h *sessionHost) shutdown() {
 		h.stopPlanner()
 		<-h.plannerDone
 		h.evidence.Close()
+		if h.attentionDone != nil {
+			<-h.attentionDone
+		}
+		h.stopLimits()
+		<-h.limitsDone
 		h.steps.Close()
 		h.manager.Close()
 	}
@@ -1049,11 +1100,13 @@ func (r *relay) notify(ctx context.Context, transition daemon.Transition) {
 }
 
 // newRelay returns hub with the router cfg builds, which hub routes its notices through. The router restores each
-// stored notice through the rebuild of its source kind: a session notice through enginehost.RestoreNotice, a pane
-// notice through hub's rebuildPane. So hub is built first, and cfg's Rebuild is set here.
+// stored notice through the rebuild of its source kind: a session notice through enginehost.RestoreNotice, an epic
+// notice through planner.RestoreNotice, a pane notice through hub's rebuildPane. So hub is built first, and cfg's
+// Rebuild is set here.
 func newRelay(cfg route.Config, hub *relay) *relay {
 	cfg.Rebuild = map[string]route.Rebuild{
 		enginehost.SessionSource: enginehost.RestoreNotice,
+		planner.EpicSource:       planner.RestoreNotice,
 		paneSourceKind:           hub.rebuildPane,
 	}
 	hub.router = route.New(cfg)

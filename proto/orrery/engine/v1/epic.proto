@@ -15,6 +15,18 @@ service Epics {
 
   // AnswerEpic records the owner's answer to a stored epic and returns the decision.
   rpc AnswerEpic(AnswerEpicRequest) returns (AnswerEpicResponse);
+
+  // PauseEpic pauses a stored epic, so the planner starts no turn for it, and returns the stored epic.
+  rpc PauseEpic(PauseEpicRequest) returns (PauseEpicResponse);
+
+  // ResumeEpic clears the pause of a stored epic and returns the stored epic.
+  rpc ResumeEpic(ResumeEpicRequest) returns (ResumeEpicResponse);
+
+  // StopEpic pauses a stored epic, stops the step of its running turn, and returns the stored epic.
+  rpc StopEpic(StopEpicRequest) returns (StopEpicResponse);
+
+  // RetryEpic ends the park of a stored epic, so the planner starts its turns again, and returns the stored epic.
+  rpc RetryEpic(RetryEpicRequest) returns (RetryEpicResponse);
 }
 
 // Evidence runs an item's evidence, lists an epic's evidence runs and reads the artifacts a run kept.
@@ -329,6 +341,9 @@ message EpicDecision {
 
   // When the decision was recorded, in unix seconds.
   int64 time = 4;
+
+  // The question, Q<n>, the decision answers; empty for a note.
+  string question = 5;
 }
 
 // EpicTurn is one planner turn on an epic, in the order it started.
@@ -509,12 +524,66 @@ message AnswerEpicRequest {
 
   // The owner's answer.
   string text = 3;
+
+  // The question, Q<n>, the answer names; empty for a note.
+  string question = 4;
 }
 
 // AnswerEpicResponse carries the recorded decision.
 message AnswerEpicResponse {
   // The decision recorded, or the stored decision with the same text.
   EpicDecision decision = 1;
+
+  // A warning set when a note is recorded while questions are open; empty otherwise.
+  string warning = 2;
+}
+
+// PauseEpicRequest names the epic to pause.
+message PauseEpicRequest {
+  // The epic's id.
+  string id = 1;
+}
+
+// PauseEpicResponse carries the paused epic.
+message PauseEpicResponse {
+  // The stored epic.
+  StoredEpic epic = 1;
+}
+
+// ResumeEpicRequest names the epic to resume.
+message ResumeEpicRequest {
+  // The epic's id.
+  string id = 1;
+}
+
+// ResumeEpicResponse carries the resumed epic.
+message ResumeEpicResponse {
+  // The stored epic.
+  StoredEpic epic = 1;
+}
+
+// StopEpicRequest names the epic to stop.
+message StopEpicRequest {
+  // The epic's id.
+  string id = 1;
+}
+
+// StopEpicResponse carries the stopped epic.
+message StopEpicResponse {
+  // The stored epic.
+  StoredEpic epic = 1;
+}
+
+// RetryEpicRequest names the epic to retry.
+message RetryEpicRequest {
+  // The epic's id.
+  string id = 1;
+}
+
+// RetryEpicResponse carries the retried epic.
+message RetryEpicResponse {
+  // The stored epic.
+  StoredEpic epic = 1;
 }
 
 // RunEvidenceRequest asks for one item's evidence to run at a revision for one phase.

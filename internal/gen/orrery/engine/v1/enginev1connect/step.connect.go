@@ -47,6 +47,8 @@ const (
 	StepsHoldStepProcedure = "/orrery.engine.v1.Steps/HoldStep"
 	// StepsNudgeStepProcedure is the fully-qualified name of the Steps's NudgeStep RPC.
 	StepsNudgeStepProcedure = "/orrery.engine.v1.Steps/NudgeStep"
+	// StepsResumeStepProcedure is the fully-qualified name of the Steps's ResumeStep RPC.
+	StepsResumeStepProcedure = "/orrery.engine.v1.Steps/ResumeStep"
 )
 
 // StepsClient is a client for the orrery.engine.v1.Steps service.
@@ -69,6 +71,10 @@ type StepsClient interface {
 	// step continued with the text instead of a round. A step with no turn running, or one running its gate, refuses with
 	// failed_precondition. OK means the nudge landed; it neither spends nor replaces the watchdog's nudge.
 	NudgeStep(context.Context, *connect.Request[v1.NudgeStepRequest]) (*connect.Response[v1.NudgeStepResponse], error)
+	// ResumeStep resumes a step a usage limit holds: the owner's prompt that the limit has reset respawns the step's
+	// process in its session. A step no limit holds refuses with failed_precondition, a step at the step cap with
+	// resource_exhausted, and an id with no row with not_found.
+	ResumeStep(context.Context, *connect.Request[v1.ResumeStepRequest]) (*connect.Response[v1.ResumeStepResponse], error)
 }
 
 // NewStepsClient constructs a client for the orrery.engine.v1.Steps service. By default, it uses
@@ -124,6 +130,12 @@ func NewStepsClient(httpClient connect.HTTPClient, baseURL string, opts ...conne
 			connect.WithSchema(stepsMethods.ByName("NudgeStep")),
 			connect.WithClientOptions(opts...),
 		),
+		resumeStep: connect.NewClient[v1.ResumeStepRequest, v1.ResumeStepResponse](
+			httpClient,
+			baseURL+StepsResumeStepProcedure,
+			connect.WithSchema(stepsMethods.ByName("ResumeStep")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -136,6 +148,7 @@ type stepsClient struct {
 	listSteps  *connect.Client[v1.ListStepsRequest, v1.ListStepsResponse]
 	holdStep   *connect.Client[v1.HoldStepRequest, v1.HoldStepResponse]
 	nudgeStep  *connect.Client[v1.NudgeStepRequest, v1.NudgeStepResponse]
+	resumeStep *connect.Client[v1.ResumeStepRequest, v1.ResumeStepResponse]
 }
 
 // StartStep calls orrery.engine.v1.Steps.StartStep.
@@ -173,6 +186,11 @@ func (c *stepsClient) NudgeStep(ctx context.Context, req *connect.Request[v1.Nud
 	return c.nudgeStep.CallUnary(ctx, req)
 }
 
+// ResumeStep calls orrery.engine.v1.Steps.ResumeStep.
+func (c *stepsClient) ResumeStep(ctx context.Context, req *connect.Request[v1.ResumeStepRequest]) (*connect.Response[v1.ResumeStepResponse], error) {
+	return c.resumeStep.CallUnary(ctx, req)
+}
+
 // StepsHandler is an implementation of the orrery.engine.v1.Steps service.
 type StepsHandler interface {
 	// StartStep starts a step and returns its id once its row exists. A start that is refused returns the refusal and no
@@ -193,6 +211,10 @@ type StepsHandler interface {
 	// step continued with the text instead of a round. A step with no turn running, or one running its gate, refuses with
 	// failed_precondition. OK means the nudge landed; it neither spends nor replaces the watchdog's nudge.
 	NudgeStep(context.Context, *connect.Request[v1.NudgeStepRequest]) (*connect.Response[v1.NudgeStepResponse], error)
+	// ResumeStep resumes a step a usage limit holds: the owner's prompt that the limit has reset respawns the step's
+	// process in its session. A step no limit holds refuses with failed_precondition, a step at the step cap with
+	// resource_exhausted, and an id with no row with not_found.
+	ResumeStep(context.Context, *connect.Request[v1.ResumeStepRequest]) (*connect.Response[v1.ResumeStepResponse], error)
 }
 
 // NewStepsHandler builds an HTTP handler from the service implementation. It returns the path on
@@ -244,6 +266,12 @@ func NewStepsHandler(svc StepsHandler, opts ...connect.HandlerOption) (string, h
 		connect.WithSchema(stepsMethods.ByName("NudgeStep")),
 		connect.WithHandlerOptions(opts...),
 	)
+	stepsResumeStepHandler := connect.NewUnaryHandler(
+		StepsResumeStepProcedure,
+		svc.ResumeStep,
+		connect.WithSchema(stepsMethods.ByName("ResumeStep")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/orrery.engine.v1.Steps/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case StepsStartStepProcedure:
@@ -260,6 +288,8 @@ func NewStepsHandler(svc StepsHandler, opts ...connect.HandlerOption) (string, h
 			stepsHoldStepHandler.ServeHTTP(w, r)
 		case StepsNudgeStepProcedure:
 			stepsNudgeStepHandler.ServeHTTP(w, r)
+		case StepsResumeStepProcedure:
+			stepsResumeStepHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -295,4 +325,8 @@ func (UnimplementedStepsHandler) HoldStep(context.Context, *connect.Request[v1.H
 
 func (UnimplementedStepsHandler) NudgeStep(context.Context, *connect.Request[v1.NudgeStepRequest]) (*connect.Response[v1.NudgeStepResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.engine.v1.Steps.NudgeStep is not implemented"))
+}
+
+func (UnimplementedStepsHandler) ResumeStep(context.Context, *connect.Request[v1.ResumeStepRequest]) (*connect.Response[v1.ResumeStepResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.engine.v1.Steps.ResumeStep is not implemented"))
 }

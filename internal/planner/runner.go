@@ -19,21 +19,22 @@ type Store interface {
 	PlanStates(ctx context.Context) ([]store.EpicPlanState, error)
 	ClaimTurn(ctx context.Context, epic string, at time.Time) (store.EpicTurn, error)
 	SetTurnStep(ctx context.Context, epic string, turn int64, step string) error
+	TurnStopped(ctx context.Context, epic string, seq int64) (bool, error)
 	Epic(ctx context.Context, id string) (store.EpicRow, error)
 	TurnTriggers(ctx context.Context, epic string, turn int64) ([]store.EpicTrigger, error)
 	CompleteTurn(ctx context.Context, epic string, turn int64, plan store.EpicPlan, at time.Time) error
 	FailTurn(ctx context.Context, epic string, turn int64, reason string, at time.Time) error
 	FreeTurn(ctx context.Context, epic string, turn int64, free store.TurnFree, at time.Time) error
-	ParkEpic(ctx context.Context, epic string, reason string) error
 	RunningTurns(ctx context.Context) ([]store.EpicTurn, error)
 	RateLimit(ctx context.Context, session string) (store.RateLimit, bool, error)
 }
 
-// Steps starts planner steps and waits for them. *enginehost.Steps satisfies it.
+// Steps starts planner steps, waits for them and stops them. *enginehost.Steps satisfies it.
 type Steps interface {
 	Start(ctx context.Context, start enginehost.StepStart) (string, error)
 	Status(ctx context.Context, id string) (store.StepRow, error)
 	Wait(ctx context.Context, ids []string, timeout time.Duration) (*store.StepRow, []store.StepRow, error)
+	Stop(ctx context.Context, id string) error
 }
 
 // Config configures a Runner. A Tick that is not positive means five seconds, and a nil Now means time.Now. A nil
@@ -124,8 +125,9 @@ func (r *Runner) Run(ctx context.Context) {
 	}
 }
 
-// pass decides each epic with pending triggers. A park action parks the epic with its reason, and a claim action
-// claims a turn for the epic in its own goroutine. agent is read once per pass.
+// pass decides each epic with pending triggers. A park action claims a turn for the epic in its own goroutine and frees
+// it with the park reason, and a claim action claims a turn for the epic in its own goroutine. agent is read once per
+// pass.
 func (r *Runner) pass(ctx context.Context) {
 	states, err := r.store.PlanStates(ctx)
 	if err != nil {
@@ -139,9 +141,8 @@ func (r *Runner) pass(ctx context.Context) {
 		}, roleErr)
 		switch action.Kind {
 		case ActionPark:
-			if err = r.store.ParkEpic(ctx, state.Epic, action.Reason); err != nil {
-				r.logger.ErrorContext(ctx, "park epic", "epic", state.Epic, "err", err)
-			}
+			r.turns.Add(1)
+			go r.parkTurn(ctx, state.Epic, action.Reason)
 		case ActionClaim:
 			r.turns.Add(1)
 			go r.runTurn(ctx, state.Epic, agent)
@@ -150,16 +151,37 @@ func (r *Runner) pass(ctx context.Context) {
 	}
 }
 
+// claim claims a turn for epic. It returns false when no turn is claimed: an epic that is not claimable is left
+// quietly, and a claim that fails is logged.
+func (r *Runner) claim(ctx context.Context, epic string) (store.EpicTurn, bool) {
+	turn, err := r.store.ClaimTurn(ctx, epic, r.now())
+	if errors.Is(err, store.ErrNotClaimable) {
+		return store.EpicTurn{}, false
+	}
+	if err != nil {
+		r.logger.ErrorContext(ctx, "claim planner turn", "epic", epic, "err", err)
+		return store.EpicTurn{}, false
+	}
+	return turn, true
+}
+
+// parkTurn claims a turn for epic and frees it with reason as both its reason and its park, so the park has a turn
+// that records it. The turn starts no step and returns its triggers to pending.
+func (r *Runner) parkTurn(ctx context.Context, epic, reason string) {
+	defer r.turns.Done()
+	turn, ok := r.claim(ctx, epic)
+	if !ok {
+		return
+	}
+	r.release(ctx, epic, turn.Seq, store.TurnFree{Reason: reason, Park: reason})
+}
+
 // runTurn claims a turn for epic, runs its planner step to an end and settles the turn. A turn whose context ends is
 // left running for the next start.
 func (r *Runner) runTurn(ctx context.Context, epic, agent string) {
 	defer r.turns.Done()
-	turn, err := r.store.ClaimTurn(ctx, epic, r.now())
-	if errors.Is(err, store.ErrNotClaimable) {
-		return
-	}
-	if err != nil {
-		r.logger.ErrorContext(ctx, "claim planner turn", "epic", epic, "err", err)
+	turn, ok := r.claim(ctx, epic)
+	if !ok {
 		return
 	}
 	id, err := r.startStep(ctx, epic, turn, agent)
@@ -171,7 +193,8 @@ func (r *Runner) runTurn(ctx context.Context, epic, agent string) {
 }
 
 // startStep reads the claimed turn's epic and triggers and starts its read-only planner step. It returns the step's
-// id. A start that returns an id with an error still has its id recorded on the turn.
+// id. A start that returns an id with an error still has its id recorded on the turn, and a step whose turn was flagged
+// to stop before it had one is stopped as soon as its id is recorded.
 func (r *Runner) startStep(ctx context.Context, epic string, turn store.EpicTurn, agent string) (string, error) {
 	row, err := r.store.Epic(ctx, epic)
 	if err != nil {
@@ -198,12 +221,31 @@ func (r *Runner) startStep(ctx context.Context, epic string, turn store.EpicTurn
 		if setErr := r.store.SetTurnStep(ctx, epic, turn.Seq, id); setErr != nil {
 			r.logger.ErrorContext(ctx, "record step of planner turn",
 				"epic", epic, "turn", turn.Seq, "step", id, "err", setErr)
+		} else {
+			r.stopIfFlagged(ctx, epic, turn.Seq, id)
 		}
 	}
 	if err != nil {
 		return id, fmt.Errorf("start planner step: %w", err)
 	}
 	return id, nil
+}
+
+// stopIfFlagged stops step id when turn seq of epic was flagged to stop while it had no step. A read or stop error is
+// logged, and the wait that follows settles the turn either way.
+func (r *Runner) stopIfFlagged(ctx context.Context, epic string, seq int64, id string) {
+	stopped, err := r.store.TurnStopped(ctx, epic, seq)
+	if err != nil {
+		r.logger.ErrorContext(ctx, "read stop flag of planner turn", "epic", epic, "turn", seq, "err", err)
+		return
+	}
+	if !stopped {
+		return
+	}
+	if err = r.steps.Stop(ctx, id); err != nil {
+		r.logger.ErrorContext(ctx, "stop planner step of flagged turn",
+			"epic", epic, "turn", seq, "step", id, "err", err)
+	}
 }
 
 // recoverTurns settles each turn a previous orreryd left running, before the first pass. A turn with no step is freed
@@ -260,11 +302,13 @@ func (r *Runner) finish(ctx context.Context, epic string, seq int64, id string) 
 }
 
 // await waits until the step id ends and returns its row, and reports false once ctx has ended. Each Wait lasts a
-// minute, and a Wait that times out is repeated. A Wait that fails is logged and repeated after a tick, since the step
-// may still be running.
+// minute, and a Wait that times out is repeated. A timed-out Wait whose row shows the step limited stops the step. A
+// Stop that succeeds is not repeated; one that fails is logged, and the next timed-out Wait that still shows the step
+// limited tries again. A Wait that fails is logged and repeated after a tick, since the step may still be running.
 func (r *Runner) await(ctx context.Context, id string) (store.StepRow, bool) {
+	stopped := false
 	for {
-		ended, _, err := r.steps.Wait(ctx, []string{id}, waitInterval)
+		ended, rows, err := r.steps.Wait(ctx, []string{id}, waitInterval)
 		if ctx.Err() != nil {
 			return store.StepRow{}, false
 		}
@@ -280,7 +324,24 @@ func (r *Runner) await(ctx context.Context, id string) (store.StepRow, bool) {
 		if ended != nil {
 			return *ended, true
 		}
+		if !stopped && rowLimited(rows, id) {
+			if err = r.steps.Stop(ctx, id); err != nil {
+				r.logger.ErrorContext(ctx, "stop limited planner step", "step", id, "err", err)
+			} else {
+				stopped = true
+			}
+		}
 	}
+}
+
+// rowLimited reports whether the row of step id in rows shows the step limited by a usage limit.
+func rowLimited(rows []store.StepRow, id string) bool {
+	for _, row := range rows {
+		if row.ID == id && row.LoopLimited {
+			return true
+		}
+	}
+	return false
 }
 
 // refuse settles turn seq of epic whose planner step did not start, by the error of its start. A refusal for the step
@@ -298,10 +359,10 @@ func (r *Runner) refuse(ctx context.Context, epic string, seq int64, err error) 
 }
 
 // settle settles turn seq of epic, whose step id ended as ended. A kept rejected rate limit of the step frees the turn
-// and pauses the epic, whatever the end. A done end completes the turn with the plan its return holds. A stopped step
-// frees the turn and pauses the epic, and an engine_restarted step frees it to rerun. Every other end fails the turn
-// with its end and reason. The read of the kept limit and the write that ends the turn are retried until they land
-// (see retry).
+// as a limit with its reset time and pauses the epic, whatever the end. A done end completes the turn with the plan
+// its return holds. A stopped step frees the turn and pauses the epic, and an engine_restarted step frees it to rerun.
+// Every other end fails the turn with its end and reason. The read of the kept limit and the write that ends the turn
+// are retried until they land (see retry).
 func (r *Runner) settle(ctx context.Context, epic string, seq int64, id string, ended store.StepRow) error {
 	var limit store.RateLimit
 	var limited bool
@@ -318,6 +379,8 @@ func (r *Runner) settle(ctx context.Context, epic string, seq int64, id string, 
 		return r.freeTurn(ctx, epic, seq, store.TurnFree{
 			Reason: fmt.Sprintf("%s rate limit, resets %s", limit.Kind, limit.ResetsAt.UTC().Format(time.RFC3339)),
 			Pause:  true,
+			Limit:  true,
+			Resets: limit.ResetsAt,
 		})
 	}
 	switch ended.End {

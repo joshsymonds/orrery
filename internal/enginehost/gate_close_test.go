@@ -244,12 +244,18 @@ func TestStepDoneGateCloseStoresNoEndAndStopsNoSession(t *testing.T) {
 		started, release))
 	pools := &fakeGatePools{drop: make(chan error, 1)}
 	configure := stepDoneWriting(dir, start, []string{gate}, time.Minute, pools)
+	stateDir := gateShortStateDir(t)
 	f := newStepDoneFixture(t, func(cfg *stepRunConfig) {
 		configure(cfg)
 		cfg.scope = fakeSystemdRunPath(t)
-		cfg.stateDir = gateShortStateDir(t)
+		cfg.stateDir = stateDir
 	})
-	t.Cleanup(func() { _ = os.WriteFile(release, nil, 0o600) })
+	// The gate is left running for re-adoption, so the cleanup releases it and waits for its holder's exit record
+	// before the state directory is removed: the holder still writes in its directory until then.
+	t.Cleanup(func() {
+		_ = os.WriteFile(release, nil, 0o600)
+		gateWaitExit(t, holderDir(t, stateDir, stepLoopID+"-gate"))
+	})
 	_, done := f.start(t)
 
 	f.run.Return(stepDoneReturn(commit))

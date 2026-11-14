@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"reflect"
+	"strconv"
+	"strings"
 	"time"
 
 	"connectrpc.com/connect"
@@ -27,12 +29,22 @@ type EpicCommands interface {
 	Epic(ctx context.Context, id string) (store.EpicRow, error)
 	Epics(ctx context.Context) ([]store.EpicRow, error)
 	AnswerEpic(ctx context.Context, epic, id, text string, at time.Time) (store.EpicDecision, error)
+	AnswerQuestion(
+		ctx context.Context, epic, id, text string, question int64, at time.Time,
+	) (store.EpicDecision, error)
+	OpenQuestions(ctx context.Context, epic string) ([]store.EpicQuestion, error)
+	PauseEpic(ctx context.Context, epic string) error
+	ResumeEpic(ctx context.Context, epic string) error
+	StopEpic(ctx context.Context, epic string) (string, error)
+	RetryEpic(ctx context.Context, epic string) error
 }
 
 // epicService implements the Epics RPCs over epics. getenv reads the environment a contract's gates resolve in; nil
-// reads the process environment.
+// reads the process environment. steps is the step store StopEpic stops the turn's step through; it is nil when Serve
+// has no step engine, and StopEpic then stops no step.
 type epicService struct {
 	epics  EpicCommands
+	steps  StepCommands
 	getenv func(string) string
 }
 
@@ -110,8 +122,10 @@ func (s *epicService) ListEpics(
 	return connect.NewResponse(&v1.ListEpicsResponse{Epics: epicMap(rows, summaryMessage)}), nil
 }
 
-// AnswerEpic records the answer on the epic, once. It refuses an empty epic_id, id or text first; the store then
-// answers an unknown epic, or an id recorded with other text, as the refusals say.
+// AnswerEpic records the answer on the epic, once. It refuses an empty epic_id, id or text first. An answer with no
+// question is a note, and it warns, when questions are open, naming them. An answer with a question is tied to it,
+// which closes it; a question that is not Q<n> with a positive n is refused as unknown. The store then answers an
+// unknown epic, an unknown or closed question, or an id recorded with other text, as the refusals say.
 func (s *epicService) AnswerEpic(
 	ctx context.Context,
 	req *connect.Request[v1.AnswerEpicRequest],
@@ -122,19 +136,85 @@ func (s *epicService) AnswerEpic(
 	if err := checkEpicAnswer(req.Msg); err != nil {
 		return nil, err
 	}
-	decision, err := s.epics.AnswerEpic(ctx, req.Msg.GetEpicId(), req.Msg.GetId(), req.Msg.GetText(), time.Now())
-	switch {
-	case errors.Is(err, store.ErrNoEpic):
-		return nil, refuseEpic(connect.CodeNotFound, fmt.Sprintf("epic_id: no epic %s", req.Msg.GetEpicId()))
-	case errors.Is(err, store.ErrDecisionConflict):
-		return nil, refuseEpic(
-			connect.CodeAlreadyExists,
-			fmt.Sprintf("id: %s was recorded with other text", req.Msg.GetId()),
-		)
-	case err != nil:
-		return nil, epicStoreError(err)
+	if req.Msg.GetQuestion() == "" {
+		return s.answerNote(ctx, req.Msg)
+	}
+	seq, ok := questionSeq(req.Msg.GetQuestion())
+	if !ok {
+		return nil, questionNotFound(req.Msg)
+	}
+	decision, err := s.epics.AnswerQuestion(
+		ctx, req.Msg.GetEpicId(), req.Msg.GetId(), req.Msg.GetText(), seq, time.Now(),
+	)
+	if err != nil {
+		return nil, answerError(req.Msg, err)
 	}
 	return connect.NewResponse(&v1.AnswerEpicResponse{Decision: decisionMessage(decision)}), nil
+}
+
+// answerNote records the note req is, and returns it with the warning naming the open questions when any are open.
+func (s *epicService) answerNote(
+	ctx context.Context,
+	req *v1.AnswerEpicRequest,
+) (*connect.Response[v1.AnswerEpicResponse], error) {
+	decision, err := s.epics.AnswerEpic(ctx, req.GetEpicId(), req.GetId(), req.GetText(), time.Now())
+	if err != nil {
+		return nil, answerError(req, err)
+	}
+	open, err := s.epics.OpenQuestions(ctx, req.GetEpicId())
+	if err != nil {
+		return nil, epicStoreError(err)
+	}
+	reply := &v1.AnswerEpicResponse{Decision: decisionMessage(decision)}
+	if len(open) > 0 {
+		reply.Warning = noteWarning(open)
+	}
+	return connect.NewResponse(reply), nil
+}
+
+// answerError maps an error from recording the answer req names to its Connect error: an unknown epic is NotFound on
+// epic_id, an id recorded with other text is AlreadyExists, an unknown question is NotFound on question, a closed
+// question is FailedPrecondition, and any other error goes through epicStoreError.
+func answerError(req *v1.AnswerEpicRequest, err error) error {
+	switch {
+	case errors.Is(err, store.ErrNoEpic):
+		return refuseEpic(connect.CodeNotFound, fmt.Sprintf("epic_id: no epic %s", req.GetEpicId()))
+	case errors.Is(err, store.ErrDecisionConflict):
+		return refuseEpic(connect.CodeAlreadyExists, fmt.Sprintf("id: %s was recorded with other text", req.GetId()))
+	case errors.Is(err, store.ErrNoQuestion):
+		return questionNotFound(req)
+	case errors.Is(err, store.ErrQuestionClosed):
+		return refuseEpic(connect.CodeFailedPrecondition, fmt.Sprintf("question: %s is closed", req.GetQuestion()))
+	default:
+		return epicStoreError(err)
+	}
+}
+
+// questionNotFound is the refusal of a question req names that its epic does not hold.
+func questionNotFound(req *v1.AnswerEpicRequest) error {
+	return refuseEpic(
+		connect.CodeNotFound,
+		fmt.Sprintf("question: no question %s on epic %s", req.GetQuestion(), req.GetEpicId()),
+	)
+}
+
+// questionSeq returns n of the question Q<n> for a positive n, and false for any other text.
+func questionSeq(question string) (int64, bool) {
+	digits, ok := strings.CutPrefix(question, "Q")
+	if !ok || digits == "" || digits[0] < '0' || digits[0] > '9' {
+		return 0, false
+	}
+	seq, err := strconv.ParseInt(digits, 10, 64)
+	if err != nil || seq < 1 {
+		return 0, false
+	}
+	return seq, true
+}
+
+// noteWarning returns the warning a note gets while questions are open: it names them in seq order.
+func noteWarning(open []store.EpicQuestion) string {
+	ids := epicMap(open, func(question store.EpicQuestion) string { return questionID(question.Seq) })
+	return "recorded as a note: it answers no question, and " + strings.Join(ids, ", ") + " are open"
 }
 
 // checkEpicAnswer returns the refusal of an answer whose epic_id, id or text is empty, naming the first one that is.
@@ -149,6 +229,116 @@ func checkEpicAnswer(req *v1.AnswerEpicRequest) error {
 		return refuseEpic(connect.CodeInvalidArgument, "text: empty")
 	}
 	return nil
+}
+
+// PauseEpic pauses the epic, so the planner starts no turn for it, and returns the epic read back. An epic already
+// paused is refused.
+func (s *epicService) PauseEpic(
+	ctx context.Context,
+	req *connect.Request[v1.PauseEpicRequest],
+) (*connect.Response[v1.PauseEpicResponse], error) {
+	if err := s.ready(); err != nil {
+		return nil, err
+	}
+	id := req.Msg.GetId()
+	if id == "" {
+		return nil, refuseEpic(connect.CodeInvalidArgument, "id: empty")
+	}
+	if err := s.epics.PauseEpic(ctx, id); err != nil {
+		return nil, epicControlError(id, err)
+	}
+	stored, err := s.epics.Epic(ctx, id)
+	if err != nil {
+		return nil, epicStoreError(err)
+	}
+	return connect.NewResponse(&v1.PauseEpicResponse{Epic: storedEpicMessage(stored)}), nil
+}
+
+// ResumeEpic clears the pause of the epic and returns the epic read back. An epic that is not paused is refused.
+func (s *epicService) ResumeEpic(
+	ctx context.Context,
+	req *connect.Request[v1.ResumeEpicRequest],
+) (*connect.Response[v1.ResumeEpicResponse], error) {
+	if err := s.ready(); err != nil {
+		return nil, err
+	}
+	id := req.Msg.GetId()
+	if id == "" {
+		return nil, refuseEpic(connect.CodeInvalidArgument, "id: empty")
+	}
+	if err := s.epics.ResumeEpic(ctx, id); err != nil {
+		return nil, epicControlError(id, err)
+	}
+	stored, err := s.epics.Epic(ctx, id)
+	if err != nil {
+		return nil, epicStoreError(err)
+	}
+	return connect.NewResponse(&v1.ResumeEpicResponse{Epic: storedEpicMessage(stored)}), nil
+}
+
+// StopEpic pauses the epic, flags its running turn to stop, stops the turn's step when the turn has one, and returns
+// the epic read back. An epic with no running turn is refused, and stops nothing.
+func (s *epicService) StopEpic(
+	ctx context.Context,
+	req *connect.Request[v1.StopEpicRequest],
+) (*connect.Response[v1.StopEpicResponse], error) {
+	if err := s.ready(); err != nil {
+		return nil, err
+	}
+	id := req.Msg.GetId()
+	if id == "" {
+		return nil, refuseEpic(connect.CodeInvalidArgument, "id: empty")
+	}
+	step, err := s.epics.StopEpic(ctx, id)
+	if err != nil {
+		return nil, epicControlError(id, err)
+	}
+	if step != "" && s.steps != nil {
+		if err = s.steps.Stop(ctx, step); err != nil {
+			return nil, epicStoreError(err)
+		}
+	}
+	stored, err := s.epics.Epic(ctx, id)
+	if err != nil {
+		return nil, epicStoreError(err)
+	}
+	return connect.NewResponse(&v1.StopEpicResponse{Epic: storedEpicMessage(stored)}), nil
+}
+
+// RetryEpic ends the park of the epic and returns the epic read back. An epic that is not parked is refused.
+func (s *epicService) RetryEpic(
+	ctx context.Context,
+	req *connect.Request[v1.RetryEpicRequest],
+) (*connect.Response[v1.RetryEpicResponse], error) {
+	if err := s.ready(); err != nil {
+		return nil, err
+	}
+	id := req.Msg.GetId()
+	if id == "" {
+		return nil, refuseEpic(connect.CodeInvalidArgument, "id: empty")
+	}
+	if err := s.epics.RetryEpic(ctx, id); err != nil {
+		return nil, epicControlError(id, err)
+	}
+	stored, err := s.epics.Epic(ctx, id)
+	if err != nil {
+		return nil, epicStoreError(err)
+	}
+	return connect.NewResponse(&v1.RetryEpicResponse{Epic: storedEpicMessage(stored)}), nil
+}
+
+// epicControlError maps an error from an epic control on id to its Connect error: an unknown epic is NotFound, a
+// refusal is FailedPrecondition with its text, and any other error goes through epicStoreError.
+func epicControlError(id string, err error) error {
+	var refusal store.RefusalError
+	switch {
+	case errors.Is(err, store.ErrNoEpic):
+		return refuseEpic(connect.CodeNotFound, fmt.Sprintf("id: no epic %s", id))
+	case errors.As(err, &refusal):
+		return refuseEpic(connect.CodeFailedPrecondition, refusal.Error())
+	default:
+		return epicStoreError(err)
+	}
 }
 
 // refuseEpic returns a Connect error with code whose message is message.
@@ -285,9 +475,13 @@ func contractMessage(row store.EpicRow) *v1.EpicContract {
 	}
 }
 
-// decisionMessage returns the EpicDecision message of d.
+// decisionMessage returns the EpicDecision message of d, its question as Q<n> when it answers one, empty for a note.
 func decisionMessage(d store.EpicDecision) *v1.EpicDecision {
-	return &v1.EpicDecision{Seq: d.Seq, Id: d.ID, Text: d.Text, Time: d.Time.Unix()}
+	message := &v1.EpicDecision{Seq: d.Seq, Id: d.ID, Text: d.Text, Time: d.Time.Unix()}
+	if d.Question != 0 {
+		message.Question = questionID(d.Question)
+	}
+	return message
 }
 
 // turnMessage returns the EpicTurn message of turn. Ended is 0 while the turn runs.
@@ -360,11 +554,16 @@ func epicGateMessage(gate store.EpicGate) *v1.EpicGate {
 // questionMessage returns the EpicQuestion message of question, its id Q<seq>.
 func questionMessage(question store.EpicQuestion) *v1.EpicQuestion {
 	return &v1.EpicQuestion{
-		Id:    fmt.Sprintf("Q%d", question.Seq),
+		Id:    questionID(question.Seq),
 		Turn:  question.Turn,
 		Text:  question.Text,
 		State: question.State,
 	}
+}
+
+// questionID returns the id of the question with seq, Q<seq>.
+func questionID(seq int64) string {
+	return fmt.Sprintf("Q%d", seq)
 }
 
 // unixOrZero returns t in unix seconds, or 0 when t is the zero time.

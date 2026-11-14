@@ -45,6 +45,10 @@ func (f *holdSessions) Continue(_ context.Context, id string, _ StepPrompt) erro
 	return nil
 }
 
+func (f *holdSessions) Release(context.Context, string) error {
+	return errors.New("holdSessions: Release is not used")
+}
+
 func (f *holdSessions) Stop(_ context.Context, id string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()

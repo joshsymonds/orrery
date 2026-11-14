@@ -194,6 +194,9 @@ WHERE epic <> '' AND (CAST(sqlc.arg(epic) AS TEXT) = '' OR epic = CAST(sqlc.arg(
   AND (CAST(sqlc.arg(task) AS TEXT) = '' OR task = CAST(sqlc.arg(task) AS TEXT))
 ORDER BY started, id;
 
+-- name: ListLimitedSteps :many
+SELECT * FROM steps WHERE end_value = '' AND loop_limited = 1 ORDER BY started, id;
+
 -- name: UpdateStepReturn :exec
 UPDATE steps
 SET result = ?, checks = ?,
@@ -204,7 +207,7 @@ WHERE id = ?;
 -- name: UpdateStepLoop :exec
 UPDATE steps
 SET loop_round = ?, loop_continues = ?, loop_nudge = ?, loop_owner_nudge = ?, loop_nudged = ?, loop_held = ?,
-    loop_judge_sent = ?
+    loop_judge_sent = ?, loop_limited = ?, loop_limit_kind = ?, loop_limit_resets = ?, loop_gate_from = ?
 WHERE id = ?;
 
 -- name: UpdateStepGate :exec
@@ -262,12 +265,12 @@ DELETE FROM holds WHERE member = ?;
 SELECT * FROM holds ORDER BY member;
 
 -- name: UpsertPendingNotice :exec
-INSERT INTO pending_notices (id, pane, session, state, time, phase, due, delay_served, watch_logged, source_kind, source, silent)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO pending_notices (id, pane, session, state, time, phase, due, delay_served, watch_logged, source_kind, source, silent, epic)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT (id) DO UPDATE SET pane = excluded.pane, session = excluded.session, state = excluded.state,
     time = excluded.time, phase = excluded.phase, due = excluded.due, delay_served = excluded.delay_served,
     watch_logged = excluded.watch_logged, source_kind = excluded.source_kind, source = excluded.source,
-    silent = excluded.silent;
+    silent = excluded.silent, epic = excluded.epic;
 
 -- name: RaiseNoticeIDFloor :exec
 UPDATE pending_notice_ids SET high = MAX(high, sqlc.arg(id)) WHERE id = 1;
@@ -290,6 +293,26 @@ DELETE FROM pushed_notices WHERE pane = ? AND session = ?;
 
 -- name: ListPushedNotices :many
 SELECT * FROM pushed_notices ORDER BY pane, session;
+
+-- name: UpsertPushedEpicNotice :exec
+INSERT INTO pushed_epic_notices (epic, time) VALUES (?, ?)
+ON CONFLICT (epic) DO UPDATE SET time = excluded.time;
+
+-- name: DeletePushedEpicNotice :exec
+DELETE FROM pushed_epic_notices WHERE epic = ?;
+
+-- name: ListPushedEpicNotices :many
+SELECT * FROM pushed_epic_notices ORDER BY epic;
+
+-- name: UpsertPushedLimitNotice :exec
+INSERT INTO pushed_limit_notices (limit_key, time) VALUES (?, ?)
+ON CONFLICT (limit_key) DO UPDATE SET time = excluded.time;
+
+-- name: DeletePushedLimitNotice :exec
+DELETE FROM pushed_limit_notices WHERE limit_key = ?;
+
+-- name: ListPushedLimitNotices :many
+SELECT * FROM pushed_limit_notices ORDER BY limit_key;
 
 -- name: InsertEpic :exec
 INSERT INTO epics (id, repository, base, title, approved, intent, care, approach, release_then, checks, phase, created, changed)
@@ -369,7 +392,7 @@ SELECT * FROM epic_gate_lists WHERE epic = ? AND list = 'review' ORDER BY positi
 INSERT INTO epic_triggers (epic, id, cause, state, turn, created) VALUES (?, ?, ?, ?, ?, ?);
 
 -- name: InsertEpicDecision :exec
-INSERT INTO epic_decisions (epic, seq, client_id, text, time) VALUES (?, ?, ?, ?, ?);
+INSERT INTO epic_decisions (epic, seq, client_id, text, time, question) VALUES (?, ?, ?, ?, ?, ?);
 
 -- name: GetEpicDecisionByClientID :one
 SELECT * FROM epic_decisions WHERE epic = ? AND client_id = ?;
@@ -406,6 +429,12 @@ UPDATE epic_triggers SET state = 'claimed', turn = ? WHERE epic = ? AND state = 
 -- name: SetEpicTurnStep :execrows
 UPDATE epic_turns SET step = ? WHERE epic = ? AND seq = ? AND state = 'running';
 
+-- name: SetEpicTurnStop :exec
+UPDATE epic_turns SET stop = 1 WHERE epic = ? AND seq = ? AND state = 'running';
+
+-- name: GetEpicTurnStop :one
+SELECT stop FROM epic_turns WHERE epic = ? AND seq = ?;
+
 -- name: CompleteEpicTurn :execrows
 UPDATE epic_turns SET state = 'succeeded', outline = ?, outcome = ?, ended = ? WHERE epic = ? AND seq = ? AND state = 'running';
 
@@ -440,7 +469,10 @@ UPDATE epic_turns SET state = ?, reason = ?, ended = ? WHERE epic = ? AND seq = 
 UPDATE epic_triggers SET state = 'pending', turn = 0 WHERE epic = ? AND turn = ? AND state = 'claimed';
 
 -- name: ListRecentEpicTurnStates :many
-SELECT state FROM epic_turns WHERE epic = ? AND state <> 'free' ORDER BY seq DESC LIMIT 3;
+SELECT state FROM epic_turns
+WHERE epic = sqlc.arg(epic) AND state <> 'free'
+  AND seq > (SELECT epics.retried FROM epics WHERE epics.id = sqlc.arg(epic))
+ORDER BY seq DESC LIMIT 3;
 
 -- name: SetEpicParked :execrows
 UPDATE epics SET parked = ? WHERE id = ?;
@@ -448,11 +480,20 @@ UPDATE epics SET parked = ? WHERE id = ?;
 -- name: PauseEpic :exec
 UPDATE epics SET paused = 1 WHERE id = ?;
 
+-- name: ResumeEpic :exec
+UPDATE epics SET paused = 0 WHERE id = ?;
+
+-- name: RetryEpic :exec
+UPDATE epics SET parked = '', retried = ? WHERE id = ?;
+
 -- name: ListEpicTurns :many
 SELECT * FROM epic_turns WHERE epic = ? ORDER BY seq;
 
 -- name: ListRunningEpicTurns :many
 SELECT * FROM epic_turns WHERE state = 'running' ORDER BY epic, seq;
+
+-- name: GetRunningEpicTurn :one
+SELECT * FROM epic_turns WHERE epic = ? AND state = 'running';
 
 -- name: ListEpicTurnDecisionsOf :many
 SELECT * FROM epic_turn_decisions WHERE epic = ? AND turn = ? ORDER BY position;
@@ -469,16 +510,55 @@ SELECT * FROM epic_task_requirements WHERE epic = ? ORDER BY task, position;
 -- name: ListEpicQuestions :many
 SELECT * FROM epic_questions WHERE epic = ? ORDER BY seq;
 
+-- name: ListOpenEpicQuestions :many
+SELECT * FROM epic_questions WHERE epic = ? AND state = 'open' ORDER BY seq;
+
+-- name: GetEpicQuestion :one
+SELECT * FROM epic_questions WHERE epic = ? AND seq = ?;
+
+-- name: SetEpicQuestionAnswered :exec
+UPDATE epic_questions SET state = 'answered' WHERE epic = ? AND seq = ?;
+
 -- name: ListEpicTurnTriggers :many
 SELECT * FROM epic_triggers WHERE epic = ? AND turn = ? ORDER BY id;
+
+-- name: ListEpicsWithTurns :many
+SELECT * FROM epics
+WHERE EXISTS (SELECT 1 FROM epic_turns WHERE epic_turns.epic = epics.id)
+ORDER BY epics.id;
+
+-- name: GetLatestEndedEpicTurn :one
+SELECT * FROM epic_turns WHERE epic = ? AND state <> 'running' ORDER BY seq DESC LIMIT 1;
+
+-- name: CountEpicQuestionsOfTurn :one
+SELECT CAST(COUNT(*) AS INTEGER) FROM epic_questions WHERE epic = ? AND turn = ?;
+
+-- name: MarkEpicTurnTold :execrows
+UPDATE epic_turns SET told = 1 WHERE epic = ? AND seq = ?;
+
+-- name: SetEpicTurnResets :exec
+UPDATE epic_turns SET resets = ? WHERE epic = ? AND seq = ?;
 
 -- name: UpsertEngineRateLimit :exec
 INSERT INTO engine_rate_limits (session_id, status, kind, resets_at, at) VALUES (?, ?, ?, ?, ?)
 ON CONFLICT (session_id)
 DO UPDATE SET status = excluded.status, kind = excluded.kind, resets_at = excluded.resets_at, at = excluded.at;
 
+-- name: DeleteEngineRateLimit :exec
+DELETE FROM engine_rate_limits WHERE session_id = ?;
+
 -- name: GetEngineRateLimit :one
 SELECT * FROM engine_rate_limits WHERE session_id = ?;
+
+-- name: GetStepRateLimit :one
+SELECT * FROM engine_rate_limits
+WHERE engine_rate_limits.session_id = sqlc.arg(id) AND engine_rate_limits.status = 'rejected'
+  AND engine_rate_limits.at >= COALESCE((
+      SELECT prompts.at FROM events AS prompts
+      WHERE prompts.session_id = sqlc.arg(id) AND prompts.kind = 'engine_prompt'
+      ORDER BY prompts.seq DESC
+      LIMIT 1
+  ), 0);
 
 -- name: InsertEvidenceRun :exec
 INSERT INTO evidence_runs (id, epic, item, revision, phase, source, state, spec, created)

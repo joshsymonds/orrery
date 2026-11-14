@@ -22,6 +22,12 @@ var ErrEpicExists = errors.New("epic already stored")
 // ErrDecisionConflict reports that a decision id was already recorded on the epic with other text.
 var ErrDecisionConflict = errors.New("decision recorded with other text")
 
+// ErrNoQuestion reports that the epic has no question with the seq asked for.
+var ErrNoQuestion = errors.New("no question")
+
+// ErrQuestionClosed reports that the question asked for is no longer open.
+var ErrQuestionClosed = errors.New("question closed")
+
 // EpicRow is one epic: the head of an accepted contract and its ten ordered sections. Sections keep the order the
 // contract gave them. Times are stored at whole seconds.
 type EpicRow struct {
@@ -123,12 +129,14 @@ type EpicReleaseStep struct {
 }
 
 // EpicDecision is one recorded answer on an epic. Seq counts from 1 in recording order, and ID is the caller's id
-// for the decision: a seed decision's id, or the client id of an answer.
+// for the decision: a seed decision's id, or the client id of an answer. Question is the seq of the question the
+// decision answers, and 0 for a note.
 type EpicDecision struct {
-	Seq  int64
-	ID   string
-	Text string
-	Time time.Time
+	Seq      int64
+	ID       string
+	Text     string
+	Time     time.Time
+	Question int64
 }
 
 // CreateEpic stores row as one write. It seeds row.Decisions as seq 1..n dated at row.Created, ignoring their Seq
@@ -237,7 +245,7 @@ func insertEpicSections(ctx context.Context, queries *sqlcgen.Queries, row EpicR
 	}
 	if err := insertInOrder(row.Decisions, func(position int64, d EpicDecision) error {
 		return queries.InsertEpicDecision(ctx, sqlcgen.InsertEpicDecisionParams{
-			Epic: row.ID, Seq: position, ClientID: d.ID, Text: d.Text, Time: row.Created.Unix(),
+			Epic: row.ID, Seq: position, ClientID: d.ID, Text: d.Text, Time: row.Created.Unix(), Question: 0,
 		})
 	}); err != nil {
 		return fmt.Errorf("decisions: %w", err)
@@ -440,54 +448,178 @@ func (s *Store) Epics(ctx context.Context) ([]EpicRow, error) {
 	return mapInOrder(heads, epicHeadOf), nil
 }
 
-// AnswerEpic records text as decision id on epic in one write. A stored id with equal text returns the stored
-// decision and writes nothing; a stored id with other text is ErrDecisionConflict; otherwise the decision is
-// appended as the next seq, dated at, and the epic's changed moves to at. An unknown epic is ErrNoEpic.
+// AnswerEpic records text as decision id on epic in one write, as a note that answers no question. A stored id with
+// equal text returns the stored decision and writes nothing; a stored id with other text is ErrDecisionConflict;
+// otherwise the decision is appended as the next seq, dated at, and the epic's changed moves to at. An unknown epic
+// is ErrNoEpic.
 func (s *Store) AnswerEpic(ctx context.Context, epic, id, text string, at time.Time) (EpicDecision, error) {
 	var answer EpicDecision
 	err := s.write(ctx, func(queries *sqlcgen.Queries) error {
-		stored, err := queries.CountEpic(ctx, epic)
+		if err := requireEpic(ctx, queries, epic); err != nil {
+			return err
+		}
+		replay, found, err := replayAnswer(ctx, queries, epic, id, text)
 		if err != nil {
-			return fmt.Errorf("count epic %s: %w", epic, err)
+			return err
 		}
-		if stored == 0 {
-			return fmt.Errorf("epic %s: %w", epic, ErrNoEpic)
-		}
-		previous, err := queries.GetEpicDecisionByClientID(ctx, sqlcgen.GetEpicDecisionByClientIDParams{
-			Epic: epic, ClientID: id,
-		})
-		if err == nil {
-			if previous.Text != text {
-				return fmt.Errorf("decision %s on epic %s: %w", id, epic, ErrDecisionConflict)
-			}
-			answer = epicDecisionOf(previous)
+		if found {
+			answer = replay
 			return nil
 		}
-		if !errors.Is(err, sql.ErrNoRows) {
-			return fmt.Errorf("read decision %s on epic %s: %w", id, epic, err)
-		}
-		maxSeq, err := queries.MaxEpicDecisionSeq(ctx, epic)
-		if err != nil {
-			return fmt.Errorf("read decision count of epic %s: %w", epic, err)
-		}
-		decision := EpicDecision{Seq: maxSeq + 1, ID: id, Text: text, Time: time.Unix(at.Unix(), 0)}
-		if err = queries.InsertEpicDecision(ctx, sqlcgen.InsertEpicDecisionParams{
-			Epic: epic, Seq: decision.Seq, ClientID: id, Text: text, Time: at.Unix(),
-		}); err != nil {
-			return fmt.Errorf("insert decision %s on epic %s: %w", id, epic, err)
-		}
-		if err = queries.UpdateEpicChanged(ctx, sqlcgen.UpdateEpicChangedParams{
-			Changed: at.Unix(), ID: epic,
-		}); err != nil {
-			return fmt.Errorf("move changed of epic %s: %w", epic, err)
-		}
-		answer = decision
-		return nil
+		answer, err = appendDecision(ctx, queries, epic, id, text, 0, at)
+		return err
 	})
 	if err != nil {
 		return EpicDecision{}, err
 	}
 	return answer, nil
+}
+
+// AnswerQuestion records text as decision id on epic, tied to question seq, in one write. An unknown epic is
+// ErrNoEpic. A stored id with equal text returns the stored decision and writes nothing, even after its question
+// closed; a stored id with other text is ErrDecisionConflict. A question the epic does not have is ErrNoQuestion and
+// one that is not open is ErrQuestionClosed; both write nothing. Otherwise the decision is appended with its
+// question, the question becomes answered, a pending trigger `answer:<id>` is added, and the epic's changed moves to
+// at.
+func (s *Store) AnswerQuestion(
+	ctx context.Context,
+	epic, id, text string,
+	question int64,
+	at time.Time,
+) (EpicDecision, error) {
+	var answer EpicDecision
+	err := s.write(ctx, func(queries *sqlcgen.Queries) error {
+		if err := requireEpic(ctx, queries, epic); err != nil {
+			return err
+		}
+		replay, found, err := replayAnswer(ctx, queries, epic, id, text)
+		if err != nil {
+			return err
+		}
+		if found {
+			answer = replay
+			return nil
+		}
+		answer, err = recordQuestionAnswer(ctx, queries, epic, id, text, question, at)
+		return err
+	})
+	if err != nil {
+		return EpicDecision{}, err
+	}
+	return answer, nil
+}
+
+// recordQuestionAnswer answers the open question with seq question as decision id with text: the question becomes
+// answered, a pending trigger `answer:<id>` is added, and the decision is appended tied to the question.
+func recordQuestionAnswer(
+	ctx context.Context,
+	queries *sqlcgen.Queries,
+	epic, id, text string,
+	question int64,
+	at time.Time,
+) (EpicDecision, error) {
+	if err := requireOpenQuestion(ctx, queries, epic, question); err != nil {
+		return EpicDecision{}, err
+	}
+	if err := queries.SetEpicQuestionAnswered(ctx, sqlcgen.SetEpicQuestionAnsweredParams{
+		Epic: epic, Seq: question,
+	}); err != nil {
+		return EpicDecision{}, fmt.Errorf("answer question %d of epic %s: %w", question, epic, err)
+	}
+	if err := queries.InsertEpicTrigger(ctx, sqlcgen.InsertEpicTriggerParams{
+		Epic: epic, ID: "answer:" + id, Cause: fmt.Sprintf("answer %s to Q%d", id, question),
+		State: "pending", Turn: 0, Created: at.Unix(),
+	}); err != nil {
+		return EpicDecision{}, fmt.Errorf("insert trigger of answer %s on epic %s: %w", id, epic, err)
+	}
+	return appendDecision(ctx, queries, epic, id, text, question, at)
+}
+
+// OpenQuestions returns the open questions of epic in seq order, nil when none is open.
+func (s *Store) OpenQuestions(ctx context.Context, epic string) ([]EpicQuestion, error) {
+	rows, err := sqlcgen.New(s.db).ListOpenEpicQuestions(ctx, epic)
+	if err != nil {
+		return nil, fmt.Errorf("list open questions of epic %s: %w", epic, err)
+	}
+	return mapInOrder(rows, func(question sqlcgen.EpicQuestion) EpicQuestion {
+		return EpicQuestion{Seq: question.Seq, Turn: question.Turn, Text: question.Text, State: question.State}
+	}), nil
+}
+
+// requireEpic is ErrNoEpic when no epic has the id epic.
+func requireEpic(ctx context.Context, queries *sqlcgen.Queries, epic string) error {
+	stored, err := queries.CountEpic(ctx, epic)
+	if err != nil {
+		return fmt.Errorf("count epic %s: %w", epic, err)
+	}
+	if stored == 0 {
+		return fmt.Errorf("epic %s: %w", epic, ErrNoEpic)
+	}
+	return nil
+}
+
+// replayAnswer is the client-id check both answer paths share. found is true when the epic already holds decision id
+// with equal text, and then decision is that stored row; other text under id is ErrDecisionConflict; found is false
+// when id is not stored.
+func replayAnswer(ctx context.Context, queries *sqlcgen.Queries, epic, id, text string) (EpicDecision, bool, error) {
+	previous, err := queries.GetEpicDecisionByClientID(ctx, sqlcgen.GetEpicDecisionByClientIDParams{
+		Epic: epic, ClientID: id,
+	})
+	if errors.Is(err, sql.ErrNoRows) {
+		return EpicDecision{}, false, nil
+	}
+	if err != nil {
+		return EpicDecision{}, false, fmt.Errorf("read decision %s on epic %s: %w", id, epic, err)
+	}
+	if previous.Text != text {
+		return EpicDecision{}, false, fmt.Errorf("decision %s on epic %s: %w", id, epic, ErrDecisionConflict)
+	}
+	return epicDecisionOf(previous), true, nil
+}
+
+// requireOpenQuestion is ErrNoQuestion when epic has no question seq, and ErrQuestionClosed when that question is not
+// open.
+func requireOpenQuestion(ctx context.Context, queries *sqlcgen.Queries, epic string, question int64) error {
+	stored, err := queries.GetEpicQuestion(ctx, sqlcgen.GetEpicQuestionParams{Epic: epic, Seq: question})
+	if errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("question %d on epic %s: %w", question, epic, ErrNoQuestion)
+	}
+	if err != nil {
+		return fmt.Errorf("read question %d on epic %s: %w", question, epic, err)
+	}
+	if stored.State != "open" {
+		return fmt.Errorf("question %d on epic %s: %w", question, epic, ErrQuestionClosed)
+	}
+	return nil
+}
+
+// appendDecision appends text as decision id on epic, answering question (0 for a note), as the next seq dated at,
+// and moves the epic's changed to at.
+func appendDecision(
+	ctx context.Context,
+	queries *sqlcgen.Queries,
+	epic, id, text string,
+	question int64,
+	at time.Time,
+) (EpicDecision, error) {
+	maxSeq, err := queries.MaxEpicDecisionSeq(ctx, epic)
+	if err != nil {
+		return EpicDecision{}, fmt.Errorf("read decision count of epic %s: %w", epic, err)
+	}
+	decision := EpicDecision{
+		Seq: maxSeq + 1, ID: id, Text: text, Time: time.Unix(at.Unix(), 0), Question: question,
+	}
+	if err = queries.InsertEpicDecision(ctx, sqlcgen.InsertEpicDecisionParams{
+		Epic: epic, Seq: decision.Seq, ClientID: id, Text: text, Time: at.Unix(), Question: question,
+	}); err != nil {
+		return EpicDecision{}, fmt.Errorf("insert decision %s on epic %s: %w", id, epic, err)
+	}
+	if err = queries.UpdateEpicChanged(ctx, sqlcgen.UpdateEpicChangedParams{
+		Changed: at.Unix(), ID: epic,
+	}); err != nil {
+		return EpicDecision{}, fmt.Errorf("move changed of epic %s: %w", epic, err)
+	}
+	return decision, nil
 }
 
 // epicHeadOf returns the head fields of a stored epic, with its sections and decisions nil.
@@ -514,10 +646,11 @@ func epicHeadOf(head sqlcgen.Epic) EpicRow {
 // epicDecisionOf returns the decision a stored row holds, its client id as the decision id.
 func epicDecisionOf(decision sqlcgen.EpicDecision) EpicDecision {
 	return EpicDecision{
-		Seq:  decision.Seq,
-		ID:   decision.ClientID,
-		Text: decision.Text,
-		Time: time.Unix(decision.Time, 0),
+		Seq:      decision.Seq,
+		ID:       decision.ClientID,
+		Text:     decision.Text,
+		Time:     time.Unix(decision.Time, 0),
+		Question: decision.Question,
 	}
 }
 

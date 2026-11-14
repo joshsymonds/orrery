@@ -86,9 +86,7 @@ func TestPausedAndParkedEpicsReadTheirReasonsFromEpicAndEpics(t *testing.T) {
 		time.Unix(1700000560, 0)); err != nil {
 		t.Fatalf("FreeTurn of paused epic: %v", err)
 	}
-	if err := s.ParkEpic(ctx, parked, "needs a human"); err != nil {
-		t.Fatalf("ParkEpic: %v", err)
-	}
+	parkEpic(t, s, parked, "needs a human")
 
 	heads, err := s.Epics(ctx)
 	if err != nil {

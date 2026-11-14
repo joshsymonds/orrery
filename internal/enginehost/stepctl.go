@@ -21,9 +21,9 @@ const stepWaitPoll = 20 * time.Millisecond
 
 // Stop ends the step with id as stopped. A running loop is canceled, which kills its gate, and Stop waits for the loop
 // to return before it reads the row, so the end is stored once. The step then ends through finish with a context that
-// has not been canceled: its session is stopped and its worktree removed. A step that has already ended is left as it
-// is and Stop returns nil. An open row with no loop is ended the same way. An id with no row returns an error matching
-// store.ErrNoStep.
+// has not been canceled: its session is stopped and its worktree removed. A limited step's process was released for its
+// limit, so finish stops no session for it. A step that has already ended is left as it is and Stop returns nil. An open
+// row with no loop is ended the same way. An id with no row returns an error matching store.ErrNoStep.
 func (s *Steps) Stop(ctx context.Context, id string) error {
 	s.mu.Lock()
 	cancel, run := s.loops[id], s.runs[id]
@@ -42,6 +42,7 @@ func (s *Steps) Stop(ctx context.Context, id string) error {
 	if run == nil {
 		run = s.rowRun(row)
 	}
+	run.limitReleased = row.LoopLimited
 	run.finish(context.WithoutCancel(ctx), stepStoppedEnd, "", "")
 	return nil
 }
@@ -120,8 +121,9 @@ func earliestEnded(rows []store.StepRow) *store.StepRow {
 // end its session last stored. An agent gate step's gate is rebuilt by the Steps' ReadoptGate from the row. That turn
 // end is read here, before the restarted holders hand anything over, so it is the turn end stored before the restart.
 // The run is registered with adopter as its step's observer, and Reconcile starts its loop once adopter reports the step
-// live. A row whose run cannot be rebuilt, an agent gate step whose ReadoptGate does not rebuild its gate among them, is
-// logged and left unregistered, so Reconcile ends it engine_restarted. It returns the error of reading the open rows.
+// live, or at once for a limited row, which has no live session. A row whose run cannot be rebuilt, an agent gate step
+// whose ReadoptGate does not rebuild its gate among them, is logged and left unregistered, so Reconcile ends it
+// engine_restarted. It returns the error of reading the open rows.
 func (s *Steps) Readopt(ctx context.Context, adopter StepAdopter) error {
 	open, err := s.store.OpenSteps(ctx)
 	if err != nil {
@@ -170,9 +172,9 @@ func (s *Steps) readoptRun(ctx context.Context, row store.StepRow) (*stepRun, er
 		return nil, fmt.Errorf("%w: step %s stored its return before the restart", errStepAgentGateRestarted, row.ID)
 	}
 	cfg := stepRunConfig{
-		id: row.ID, schema: row.Schema, doneValue: row.DoneValue, sessions: s.sessions, writer: s.writer,
-		logger: s.logger, writing: !row.ReadOnly, start: row.Revision, owned: row.Owned, gate: row.Gate,
-		gateLimit: row.GateLimit, gateName: row.GateName, gateSource: row.GateSource, pools: s.pools,
+		id: row.ID, schema: row.Schema, doneValue: row.DoneValue, sessions: s.sessions, store: s.store,
+		writer: s.writer, logger: s.logger, writing: !row.ReadOnly, start: row.Revision, owned: row.Owned,
+		gate: row.Gate, gateLimit: row.GateLimit, gateName: row.GateName, gateSource: row.GateSource, pools: s.pools,
 		environ: s.environ, prompt: row.Prompt, now: s.now, modelLimit: row.ModelLimit, stateDir: s.gateStateDir,
 		scope: s.gateScope, restore: &stepRestore{Row: row, Turn: turn, Found: found}, agentGate: agent,
 	}
@@ -247,9 +249,9 @@ func (s *Steps) readoptAgentGate(ctx context.Context, row store.StepRow) (*gates
 }
 
 // Reconcile settles the open step rows that have no loop in this Steps, as a restart leaves them. A row Readopt registered
-// whose step its adopter reports live starts its loop. Each other such row is ended by endRestarted, in one write. A Steps
-// Readopt did not run for has no adopter, so it unregisters nothing. A row whose loop is running is left alone. It returns
-// the first read or write error.
+// whose step its adopter reports live, or whose row is limited, starts its loop. Each other such row is ended by
+// endRestarted, in one write. A Steps Readopt did not run for has no adopter, so it unregisters nothing. A row whose loop
+// is running is left alone. It returns the first read or write error.
 func (s *Steps) Reconcile(ctx context.Context) error {
 	open, err := s.store.OpenSteps(ctx)
 	if err != nil {
@@ -266,7 +268,7 @@ func (s *Steps) Reconcile(ctx context.Context) error {
 		if live {
 			continue
 		}
-		if run != nil && adopter.StepLive(row.ID) {
+		if run != nil && (row.LoopLimited || adopter.StepLive(row.ID)) {
 			s.runLoop(ctx, row.ID, run)
 			continue
 		}

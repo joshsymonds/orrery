@@ -9,17 +9,27 @@
 # assistant line that carries two finished text blocks, "fake pair n.1" and "fake pair n.2", STEPDONE waits until
 # fakeclaude.release exists in its directory, makes an empty commit there and ends with a success result whose
 # structured output is that commit as done, JUDGEHOLDS waits until fakeclaude.release exists in its directory and ends
-# with a success result whose structured output holds the one assertion JUDGEHOLDS, and any other prompt streams
-# "fake reply n". The turns reproduce the stream lines captured from the real CLI, with only text, ids and the session
-# id changed. Every line it reads from stdin, prompts and answers alike, is appended to fakeclaude.stdin as it is read.
-# It exits at stdin EOF.
+# with a success result whose structured output holds the one assertion JUDGEHOLDS, LIMIT plays a usage-limit turn (a
+# rejected seven_day rate_limit_event, an assistant line that carries the rate_limit error, then an error result, all
+# saying "You've hit your limit"), LIMITNORESET plays that turn without the rate_limit_event, and any other prompt
+# streams "fake reply n". The turns reproduce the stream lines captured from the real CLI, with only text, ids and the
+# session id changed. Every line it reads from stdin, prompts and answers alike, is appended to fakeclaude.stdin as it is
+# read. It exits at stdin EOF.
+# When fakeclaude.next exists in its directory as a prompt arrives, the contents of that file are matched in place of
+# the prompt's text for that prompt, and the file is removed, so a test can choose what a later prompt, such as a
+# resume, plays.
 #
 # Its init line lists the --agent it was given, or nothing when it was given none. A prompt that contains NOAGENT gets an
 # init line that lists nothing, as a claude that did not load the agent would.
 
-# assistant_line CONTENT: the assistant line that carries CONTENT, the JSON of its finished content blocks.
+# assistant_line CONTENT [ERROR]: the assistant line that carries CONTENT, the JSON of its finished content blocks. It
+# carries the error field ERROR when ERROR is given.
 assistant_line() {
-	printf '%s\n' '{"type":"assistant","message":{"model":"claude-haiku-5-5","id":"msg_1","type":"message","role":"assistant","content":['"$1"'],"container":null,"stop_reason":null,"stop_sequence":null,"stop_details":null,"usage":{"input_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"cache_creation":{"ephemeral_5m_input_tokens":0,"ephemeral_1h_input_tokens":0},"output_tokens":0,"service_tier":"redacted","inference_geo":"redacted","speed":"redacted"},"input_transformations":[],"diagnostics":null,"context_management":null},"parent_tool_use_id":null,"session_id":"session_1","uuid":"uuid_9","timestamp":"redacted","request_id":"req_2","user_message_uuid":"uuid_1","user_message_uuids":["uuid_1"]}'
+	error_field=
+	if [ -n "$2" ]; then
+		error_field='"error":"'"$2"'",'
+	fi
+	printf '%s\n' '{"type":"assistant","message":{"model":"claude-haiku-5-5","id":"msg_1","type":"message","role":"assistant","content":['"$1"'],"container":null,"stop_reason":null,"stop_sequence":null,"stop_details":null,"usage":{"input_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"cache_creation":{"ephemeral_5m_input_tokens":0,"ephemeral_1h_input_tokens":0},"output_tokens":0,"service_tier":"redacted","inference_geo":"redacted","speed":"redacted"},"input_transformations":[],"diagnostics":null,"context_management":null},"parent_tool_use_id":null,'"$error_field"'"session_id":"session_1","uuid":"uuid_9","timestamp":"redacted","request_id":"req_2","user_message_uuid":"uuid_1","user_message_uuids":["uuid_1"]}'
 }
 
 # text_block INDEX FULL DELTA...: a text block that streams each DELTA, then finishes as FULL.
@@ -54,7 +64,8 @@ turn_open() {
 }
 
 # turn_close ends a completed turn: the message delta, the message stop and the success result. The result carries
-# structured_output set to the JSON in structured when structured is set.
+# structured_output set to the JSON in structured when structured is set. Its is_error and result come from the variables
+# is_error and result_text, which each prompt sets to false and redacted by default.
 turn_close() {
 	printf '%s\n' '{"type":"stream_event","event":{"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null,"stop_details":null,"container":null},"usage":{"input_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":0,"output_tokens_details":{"thinking_tokens":0},"iterations":[{"input_tokens":0,"output_tokens":0,"cache_read_input_tokens":0,"cache_creation_input_tokens":0,"cache_creation":{"ephemeral_5m_input_tokens":0,"ephemeral_1h_input_tokens":0},"type":"redacted"}]},"context_management":{"applied_edits":[]}},"session_id":"session_1","parent_tool_use_id":null,"uuid":"uuid_11","api_message_id":"redacted"}'
 	printf '%s\n' '{"type":"stream_event","event":{"type":"message_stop"},"session_id":"session_1","parent_tool_use_id":null,"uuid":"uuid_12","api_message_id":"redacted"}'
@@ -62,13 +73,26 @@ turn_close() {
 	if [ -n "$structured" ]; then
 		printf '%s' '"structured_output":'"$structured"','
 	fi
-	printf '%s\n' '"duration_api_ms":0,"stop_reason":"end_turn","session_id":"session_1","total_cost_usd":0,"usage":{"input_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":0,"output_tokens_details":{"thinking_tokens":0},"server_tool_use":{"web_search_requests":0,"web_fetch_requests":0},"service_tier":"redacted","cache_creation":{"ephemeral_1h_input_tokens":0,"ephemeral_5m_input_tokens":0},"inference_geo":"redacted","iterations":[{"input_tokens":0,"output_tokens":0,"cache_read_input_tokens":0,"cache_creation_input_tokens":0,"cache_creation":{"ephemeral_5m_input_tokens":0,"ephemeral_1h_input_tokens":0},"type":"redacted"}],"speed":"redacted","fallback_credit":null},"modelUsage":{"key_1":{"inputTokens":0,"outputTokens":0,"cacheReadInputTokens":0,"cacheCreationInputTokens":0,"webSearchRequests":0,"costUSD":0,"contextWindow":0,"maxOutputTokens":0,"thinkingTokens":0,"cacheCreationEphemeral5mInputTokens":0,"cacheCreationEphemeral1hInputTokens":0,"canonicalModel":"redacted","provider":"redacted","costBasis":"redacted"}},"permission_denials":[],"terminal_reason":"completed","fast_mode_state":"redacted","fast_mode_disabled_reason":"redacted","subagent_stats":{"spawned":0,"requested":{"background":0,"foreground":0,"unset":0},"started_in_background":0,"max_depth":0,"spawned_by_subagents":0,"completed":0,"failed":0,"killed":{"parent":0,"user":0,"system":0},"refused":{"depth_limit":0,"concurrency_limit":0,"budget":0},"by_type":{}},"safety_stops":0,"is_error":false,"num_turns":1,"subtype":"success","api_error_status":null,"result":"redacted","ttft_ms":0,"type":"result","duration_ms":0,"uuid":"uuid_13","ttft_stream_ms":0,"time_to_request_ms":0,"first_content_frame_ms":0,"user_message_uuid":"uuid_1","user_message_uuids":["uuid_1"],"request_sent_wall_ms":0,"first_request_input_tokens":0,"first_request_cache_read_input_tokens":0,"queued_turn_count":0,"result_index":0,"model_usage_since_last_result":{"key_1":{"inputTokens":0,"outputTokens":0,"cacheReadInputTokens":0,"cacheCreationInputTokens":0,"webSearchRequests":0,"costUSD":0,"contextWindow":0,"maxOutputTokens":0,"thinkingTokens":0,"cacheCreationEphemeral5mInputTokens":0,"cacheCreationEphemeral1hInputTokens":0,"canonicalModel":"redacted","provider":"redacted","costBasis":"redacted"}}}'
+	printf '%s\n' '"duration_api_ms":0,"stop_reason":"end_turn","session_id":"session_1","total_cost_usd":0,"usage":{"input_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":0,"output_tokens_details":{"thinking_tokens":0},"server_tool_use":{"web_search_requests":0,"web_fetch_requests":0},"service_tier":"redacted","cache_creation":{"ephemeral_1h_input_tokens":0,"ephemeral_5m_input_tokens":0},"inference_geo":"redacted","iterations":[{"input_tokens":0,"output_tokens":0,"cache_read_input_tokens":0,"cache_creation_input_tokens":0,"cache_creation":{"ephemeral_5m_input_tokens":0,"ephemeral_1h_input_tokens":0},"type":"redacted"}],"speed":"redacted","fallback_credit":null},"modelUsage":{"key_1":{"inputTokens":0,"outputTokens":0,"cacheReadInputTokens":0,"cacheCreationInputTokens":0,"webSearchRequests":0,"costUSD":0,"contextWindow":0,"maxOutputTokens":0,"thinkingTokens":0,"cacheCreationEphemeral5mInputTokens":0,"cacheCreationEphemeral1hInputTokens":0,"canonicalModel":"redacted","provider":"redacted","costBasis":"redacted"}},"permission_denials":[],"terminal_reason":"completed","fast_mode_state":"redacted","fast_mode_disabled_reason":"redacted","subagent_stats":{"spawned":0,"requested":{"background":0,"foreground":0,"unset":0},"started_in_background":0,"max_depth":0,"spawned_by_subagents":0,"completed":0,"failed":0,"killed":{"parent":0,"user":0,"system":0},"refused":{"depth_limit":0,"concurrency_limit":0,"budget":0},"by_type":{}},"safety_stops":0,"is_error":'"$is_error"',"num_turns":1,"subtype":"success","api_error_status":null,"result":"'"$result_text"'","ttft_ms":0,"type":"result","duration_ms":0,"uuid":"uuid_13","ttft_stream_ms":0,"time_to_request_ms":0,"first_content_frame_ms":0,"user_message_uuid":"uuid_1","user_message_uuids":["uuid_1"],"request_sent_wall_ms":0,"first_request_input_tokens":0,"first_request_cache_read_input_tokens":0,"queued_turn_count":0,"result_index":0,"model_usage_since_last_result":{"key_1":{"inputTokens":0,"outputTokens":0,"cacheReadInputTokens":0,"cacheCreationInputTokens":0,"webSearchRequests":0,"costUSD":0,"contextWindow":0,"maxOutputTokens":0,"thinkingTokens":0,"cacheCreationEphemeral5mInputTokens":0,"cacheCreationEphemeral1hInputTokens":0,"canonicalModel":"redacted","provider":"redacted","costBasis":"redacted"}}}'
 }
 
 # reply streams "fake reply n" in two deltas and ends the turn.
 reply() {
 	turn_open
 	text_block 0 "fake reply $n" "fake " "reply $n"
+	turn_close
+}
+
+# limit plays a usage-limit turn. It sends a rejected seven_day rate_limit_event first, unless $1 is noreset, then an
+# assistant line that carries the rate_limit error and the limit text, then an error result with that text.
+limit() {
+	turn_open
+	if [ "$1" != noreset ]; then
+		printf '%s\n' '{"type":"rate_limit_event","rate_limit_info":{"status":"rejected","rateLimitType":"seven_day","resetsAt":1900000000},"session_id":"session_1","uuid":"uuid_t3"}'
+	fi
+	assistant_line '{"type":"text","text":"You'\''ve hit your limit"}' rate_limit
+	is_error=true
+	result_text="You've hit your limit"
 	turn_close
 }
 
@@ -230,12 +254,19 @@ while next; do
 		*'"type":"user"'*)
 			n=$((n + 1))
 			printf '%s\n' "$n" > fakeclaude.n
+			prompt=$line
+			if [ -e fakeclaude.next ]; then
+				prompt=$(cat fakeclaude.next)
+				rm -f fakeclaude.next
+			fi
 			omit_agent=
-			case $line in
+			case $prompt in
 				*NOAGENT*) omit_agent=1 ;;
 			esac
 			structured=
-			case $line in
+			is_error=false
+			result_text=redacted
+			case $prompt in
 				*ASK*) ask ;;
 				*PERMIT*) permit ;;
 				*HANG*) hang ;;
@@ -249,6 +280,8 @@ while next; do
 				*PAIR*) pair ;;
 				*STEPDONE*) stepdone ;;
 				*JUDGEHOLDS*) judgeholds ;;
+				*LIMITNORESET*) limit noreset ;;
+				*LIMIT*) limit ;;
 				*) reply ;;
 			esac
 			;;

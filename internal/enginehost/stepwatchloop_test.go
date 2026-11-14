@@ -120,7 +120,7 @@ func newWatchLoopFixture(t *testing.T, caller haikuCaller, sessions *stepLoopSes
 		done:     make(chan struct{}),
 	}
 	f.run = newStepRun(stepRunConfig{
-		id: stepLoopID, schema: stepLoopSchema, doneValue: stepLoopDone, sessions: sessions, writer: writer,
+		id: stepLoopID, schema: stepLoopSchema, doneValue: stepLoopDone, sessions: sessions, store: s, writer: writer,
 		logger: slog.New(slog.DiscardHandler), now: f.clock.now, modelLimit: modelLimit, haiku: caller,
 		ticks: f.ticks,
 	})
