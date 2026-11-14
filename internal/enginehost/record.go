@@ -17,6 +17,9 @@ const (
 	stateFailed  = "failed"
 )
 
+// rateLimitRejected is the rate-limit status that refuses the session's next turn. Only it is recorded.
+const rateLimitRejected = "rejected"
+
 // openText is the unfinished text of one streaming block: its kind and the text streamed so far.
 type openText struct {
 	kind string
@@ -54,6 +57,13 @@ func (r *recorder) ops(event session.Event) []store.EngineOp {
 		return r.block(ev)
 	case session.Request:
 		return r.request(ev)
+	case session.RateLimit:
+		if ev.Status != rateLimitRejected {
+			return nil
+		}
+		return []store.EngineOp{
+			store.EngineRateLimited{ID: r.id, Status: ev.Status, Kind: ev.Kind, ResetsAt: ev.ResetsAt},
+		}
 	case session.RequestCancelled:
 		working := string(protocol.StateWorking)
 		return []store.EngineOp{
