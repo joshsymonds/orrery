@@ -11,11 +11,9 @@ import (
 )
 
 // stepGitTestRepo makes a throwaway repository under t.TempDir() with one commit on main. The owner's git config
-// never applies: GIT_CONFIG_GLOBAL points at /dev/null and the commands below pass identity and signing flags.
+// never applies: TestMain points GIT_CONFIG_GLOBAL at /dev/null and the commands below pass identity and signing flags.
 func stepGitTestRepo(t *testing.T) string {
 	t.Helper()
-	t.Setenv("GIT_CONFIG_GLOBAL", "/dev/null")
-	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
 	dir := t.TempDir()
 	stepGitTestRun(t, dir, "init", "-q", "-b", "main")
 	stepGitTestWrite(t, dir, "README", "base\n")
@@ -91,6 +89,7 @@ func stepGitTestOrder(t *testing.T, checks []stepCheck) {
 }
 
 func TestStepGitCommitChecksAllPassOnOwnedCommit(t *testing.T) {
+	t.Parallel()
 	dir := stepGitTestRepo(t)
 	start := stepGitTestRun(t, dir, "rev-parse", "HEAD")
 	commit := stepGitTestCommit(t, dir, map[string]string{
@@ -108,6 +107,7 @@ func TestStepGitCommitChecksAllPassOnOwnedCommit(t *testing.T) {
 }
 
 func TestStepGitHeadFailsWhenHeadDiffersFromCommit(t *testing.T) {
+	t.Parallel()
 	dir := stepGitTestRepo(t)
 	start := stepGitTestRun(t, dir, "rev-parse", "HEAD")
 	first := stepGitTestCommit(t, dir, map[string]string{"owned/a.go": "one\n"})
@@ -124,6 +124,7 @@ func TestStepGitHeadFailsWhenHeadDiffersFromCommit(t *testing.T) {
 }
 
 func TestStepGitHeadFailsWhenCommitDoesNotResolve(t *testing.T) {
+	t.Parallel()
 	dir := stepGitTestRepo(t)
 	start := stepGitTestRun(t, dir, "rev-parse", "HEAD")
 
@@ -138,6 +139,7 @@ func TestStepGitHeadFailsWhenCommitDoesNotResolve(t *testing.T) {
 }
 
 func TestStepGitAncestryFailsOffBranch(t *testing.T) {
+	t.Parallel()
 	dir := stepGitTestRepo(t)
 	stepGitTestRun(t, dir, "checkout", "-q", "-b", "side")
 	side := stepGitTestCommit(t, dir, map[string]string{"side.txt": "side\n"})
@@ -228,6 +230,7 @@ func TestStepGitCleanFailsAndIgnoresIgnored(t *testing.T) {
 }
 
 func TestStepGitOwnedFailsNamingPathOutsideOwned(t *testing.T) {
+	t.Parallel()
 	dir := stepGitTestRepo(t)
 	start := stepGitTestRun(t, dir, "rev-parse", "HEAD")
 	commit := stepGitTestCommit(t, dir, map[string]string{
@@ -249,6 +252,7 @@ func TestStepGitOwnedFailsNamingPathOutsideOwned(t *testing.T) {
 }
 
 func TestStepGitOwnedMatchesExactPaths(t *testing.T) {
+	t.Parallel()
 	dir := stepGitTestRepo(t)
 	start := stepGitTestRun(t, dir, "rev-parse", "HEAD")
 	commit := stepGitTestCommit(t, dir, map[string]string{"owned/a.go.bak": "x\n"})
@@ -266,6 +270,7 @@ func TestStepGitOwnedMatchesExactPaths(t *testing.T) {
 }
 
 func TestStepGitOwnedCountsBothSidesOfRename(t *testing.T) {
+	t.Parallel()
 	dir := stepGitTestRepo(t)
 	body := "a fairly long body so the rename is detected cleanly\nline two\nline three\n"
 	stepGitTestCommit(t, dir, map[string]string{"outside/x.go": body})
@@ -289,6 +294,7 @@ func TestStepGitOwnedCountsBothSidesOfRename(t *testing.T) {
 }
 
 func TestStepGitOwnedCountsNewSideOfRename(t *testing.T) {
+	t.Parallel()
 	dir := stepGitTestRepo(t)
 	stepGitTestCommit(
 		t,
@@ -318,6 +324,7 @@ func TestStepGitOwnedCountsNewSideOfRename(t *testing.T) {
 }
 
 func TestStepGitOwnedDetailCapsPathsAtTwenty(t *testing.T) {
+	t.Parallel()
 	dir := stepGitTestRepo(t)
 	start := stepGitTestRun(t, dir, "rev-parse", "HEAD")
 	files := map[string]string{}
@@ -340,6 +347,7 @@ func TestStepGitOwnedDetailCapsPathsAtTwenty(t *testing.T) {
 }
 
 func TestStepGitReturnsTrimmedStdout(t *testing.T) {
+	t.Parallel()
 	dir := stepGitTestRepo(t)
 	want := stepGitTestRun(t, dir, "rev-parse", "HEAD")
 
@@ -353,6 +361,7 @@ func TestStepGitReturnsTrimmedStdout(t *testing.T) {
 }
 
 func TestStepGitErrorCarriesStderr(t *testing.T) {
+	t.Parallel()
 	dir := stepGitTestRepo(t)
 
 	_, err := stepGit(context.Background(), dir, "rev-parse", "--verify", "--end-of-options", "nope^{commit}")

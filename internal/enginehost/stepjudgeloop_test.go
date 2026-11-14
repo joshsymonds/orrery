@@ -94,6 +94,7 @@ func judgeLoopCheckVerdict(t *testing.T, got store.StepVerdict, round int, verdi
 }
 
 func TestJudgeLoopMetEndsDoneWithVerdictStored(t *testing.T) {
+	t.Parallel()
 	haiku := &judgeLoopHaiku{replies: []judgeLoopReply{judgeLoopVerdict("met", "the report is complete")}}
 	f := newJudgeLoopFixture(t, haiku, judgeLoopNoConfig)
 	_, done := f.start(t)
@@ -115,6 +116,7 @@ func TestJudgeLoopMetEndsDoneWithVerdictStored(t *testing.T) {
 }
 
 func TestJudgeLoopUnmetThenMetSendsOneContinueAndEndsDone(t *testing.T) {
+	t.Parallel()
 	haiku := &judgeLoopHaiku{replies: []judgeLoopReply{
 		judgeLoopVerdict("unmet", "the report is missing its summary"),
 		judgeLoopVerdict("met", "the summary is there now"),
@@ -145,6 +147,7 @@ func TestJudgeLoopUnmetThenMetSendsOneContinueAndEndsDone(t *testing.T) {
 }
 
 func TestJudgeLoopUnmetTwiceEndsGoalUnmetKeepingReturn(t *testing.T) {
+	t.Parallel()
 	haiku := &judgeLoopHaiku{replies: []judgeLoopReply{
 		judgeLoopVerdict("unmet", "first gap"),
 		judgeLoopVerdict("unmet", "second gap"),
@@ -180,6 +183,7 @@ func TestJudgeLoopUnmetTwiceEndsGoalUnmetKeepingReturn(t *testing.T) {
 }
 
 func TestJudgeLoopWritingStepInputCarriesDiffStatAndGateTail(t *testing.T) {
+	t.Parallel()
 	dir, start := stepDoneRepo(t)
 	commit := stepGitTestCommit(t, dir, map[string]string{stepDoneOwned: "owned\n"})
 	gate := stepDoneScript(t, "echo gate-tail-marker")
@@ -250,6 +254,7 @@ func TestJudgeLoopFailedCallEndsDoneWithErrorStored(t *testing.T) {
 }
 
 func TestJudgeLoopFailingCheckIsNeverJudged(t *testing.T) {
+	t.Parallel()
 	dir, start := stepDoneRepo(t)
 	commit := stepGitTestCommit(t, dir, map[string]string{"other/outside.txt": "stray\n"})
 	haiku := &judgeLoopHaiku{replies: []judgeLoopReply{judgeLoopVerdict("met", "complete")}}
@@ -270,6 +275,7 @@ func TestJudgeLoopFailingCheckIsNeverJudged(t *testing.T) {
 }
 
 func TestJudgeLoopNonDoneStatusIsNotJudged(t *testing.T) {
+	t.Parallel()
 	haiku := &judgeLoopHaiku{replies: []judgeLoopReply{judgeLoopVerdict("met", "complete")}}
 	f := newJudgeLoopFixture(t, haiku, judgeLoopNoConfig)
 	_, done := f.start(t)
@@ -286,6 +292,7 @@ func TestJudgeLoopNonDoneStatusIsNotJudged(t *testing.T) {
 }
 
 func TestJudgeLoopNilHaikuStoresNoVerdictAndEndsDone(t *testing.T) {
+	t.Parallel()
 	f := newJudgeLoopFixture(t, nil, judgeLoopNoConfig)
 	_, done := f.start(t)
 
@@ -302,6 +309,7 @@ func TestJudgeLoopNilHaikuStoresNoVerdictAndEndsDone(t *testing.T) {
 }
 
 func TestJudgeLoopFallback(t *testing.T) {
+	t.Parallel()
 	dir, start := stepDoneRepo(t)
 	stepGitTestCommit(t, dir, map[string]string{stepDoneOwned: "owned\n"})
 	haiku := &judgeLoopHaiku{replies: []judgeLoopReply{judgeLoopVerdict("met", "complete")}}

@@ -154,6 +154,7 @@ func waitNotices(t *testing.T, sink *fakeSink) []Notice {
 }
 
 func TestNoticeWaitingCarriesQuestion(t *testing.T) {
+	t.Parallel()
 	sink := &fakeSink{}
 	m, _ := newNoticeManager(t, fakeClaudePath(t), sink)
 	dir := t.TempDir()
@@ -170,6 +171,7 @@ func TestNoticeWaitingCarriesQuestion(t *testing.T) {
 }
 
 func TestNoticeDoneCarriesReply(t *testing.T) {
+	t.Parallel()
 	sink := &fakeSink{}
 	m, _ := newNoticeManager(t, fakeClaudePath(t), sink)
 	dir := t.TempDir()
@@ -186,6 +188,7 @@ func TestNoticeDoneCarriesReply(t *testing.T) {
 }
 
 func TestNoticeDoneCarriesLastFinishedBlock(t *testing.T) {
+	t.Parallel()
 	sink := &fakeSink{}
 	m, _ := newNoticeManager(t, fakeClaudePath(t), sink)
 	id, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "FLOOD"})
@@ -200,6 +203,7 @@ func TestNoticeDoneCarriesLastFinishedBlock(t *testing.T) {
 }
 
 func TestNoticeInterruptedTurnSendsNothingAndNextTurnNotifies(t *testing.T) {
+	t.Parallel()
 	sink := &fakeSink{}
 	m, path := newNoticeManager(t, fakeClaudePath(t), sink)
 	dir := t.TempDir()
@@ -228,6 +232,7 @@ func TestNoticeInterruptedTurnSendsNothingAndNextTurnNotifies(t *testing.T) {
 }
 
 func TestNoticeFailedCarriesRecordedReason(t *testing.T) {
+	t.Parallel()
 	sink := &fakeSink{}
 	missing := filepath.Join(t.TempDir(), "no-claude")
 	m, path := newNoticeManager(t, missing, sink)
@@ -254,6 +259,7 @@ func TestNoticeFailedCarriesRecordedReason(t *testing.T) {
 }
 
 func TestNoticeInterruptedOnCloseCarriesReason(t *testing.T) {
+	t.Parallel()
 	sink := &fakeSink{}
 	m, path := newNoticeManager(t, fakeClaudePath(t), sink)
 	dir := t.TempDir()
@@ -271,6 +277,7 @@ func TestNoticeInterruptedOnCloseCarriesReason(t *testing.T) {
 }
 
 func TestNoticeStopSendsNothing(t *testing.T) {
+	t.Parallel()
 	sink := &fakeSink{}
 	m, _ := newNoticeManager(t, fakeClaudePath(t), sink)
 	dir := t.TempDir()
@@ -395,6 +402,7 @@ func TestMainTextIsOnlyMainConversationAssistantText(t *testing.T) {
 }
 
 func TestSeenReportsKnownSessionToSink(t *testing.T) {
+	t.Parallel()
 	sink := &fakeSink{}
 	m, _ := newNoticeManager(t, fakeClaudePath(t), sink)
 	id, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "hi"})
@@ -412,6 +420,7 @@ func TestSeenReportsKnownSessionToSink(t *testing.T) {
 }
 
 func TestSeenUnknownSessionReportsNothing(t *testing.T) {
+	t.Parallel()
 	sink := &fakeSink{}
 	m, _ := newNoticeManager(t, fakeClaudePath(t), sink)
 	err := m.Seen(t.Context(), "0123456789abcdef0123456789abcdef")
@@ -424,6 +433,7 @@ func TestSeenUnknownSessionReportsNothing(t *testing.T) {
 }
 
 func TestSeenFailedWriteReportsNothing(t *testing.T) {
+	t.Parallel()
 	sink := &fakeSink{}
 	s, _ := openStore(t)
 	id := "0123456789abcdef0123456789abcdef"
@@ -486,6 +496,7 @@ func newSessionRouter(t *testing.T, phone route.PhoneSink, log route.Recorder) *
 }
 
 func TestSeenClearsWaitingSessionNotice(t *testing.T) {
+	t.Parallel()
 	sender := &fakeSender{}
 	notices := notice.New(sessionTestHost, sender, fixedClock, slog.New(slog.DiscardHandler))
 	router := newSessionRouter(t, notices, &fakeRouteLog{})
@@ -510,6 +521,7 @@ func TestSeenClearsWaitingSessionNotice(t *testing.T) {
 }
 
 func TestNoticeLogsSessionPingWithSessionKey(t *testing.T) {
+	t.Parallel()
 	sender := &fakeSender{}
 	notices := notice.New(sessionTestHost, sender, fixedClock, slog.New(slog.DiscardHandler))
 	log := &fakeRouteLog{}
@@ -535,6 +547,7 @@ func TestNoticeLogsSessionPingWithSessionKey(t *testing.T) {
 }
 
 func TestSayCallsSinkChangedForSession(t *testing.T) {
+	t.Parallel()
 	sink := &fakeSink{}
 	m, _ := newNoticeManager(t, fakeClaudePath(t), sink)
 	id, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "hi"})
@@ -555,6 +568,7 @@ func TestSayCallsSinkChangedForSession(t *testing.T) {
 }
 
 func TestStopCallsSinkChangedForSession(t *testing.T) {
+	t.Parallel()
 	sink := &fakeSink{}
 	m, _ := newNoticeManager(t, fakeClaudePath(t), sink)
 	id, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "hi"})
@@ -635,6 +649,7 @@ func (a *fakeAfter) fire(i int) {
 }
 
 func TestAnsweredWaitingNoticeAtDeskEndsChanged(t *testing.T) {
+	t.Parallel()
 	sender := &fakeSender{}
 	notices := notice.New(sessionTestHost, sender, fixedClock, slog.New(slog.DiscardHandler))
 	log := &fakeRouteLog{}

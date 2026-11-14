@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -60,8 +61,28 @@ func removeStepWorktree(ctx context.Context, repoDir, path string) error {
 	if err == nil {
 		return nil
 	}
-	if _, statErr := os.Lstat(path); errors.Is(statErr, os.ErrNotExist) {
+	absent, checkErr := stepPathAbsent(path)
+	if absent {
 		return nil
 	}
-	return fmt.Errorf("remove step worktree %s: %w", path, err)
+	return fmt.Errorf("remove step worktree %s: %w", path, errors.Join(err, checkErr))
+}
+
+// stepPathAbsent reports whether nothing is at path, not even a symbolic link. The check reads only the last element of
+// path, through an os.Root of its parent directory, so it stays inside that directory. An empty path is absent, as
+// os.Lstat reports it. It returns an error only when the root fails to close.
+func stepPathAbsent(path string) (bool, error) {
+	if path == "" {
+		return true, nil
+	}
+	path = filepath.Clean(path)
+	root, err := os.OpenRoot(filepath.Dir(path))
+	if err != nil {
+		return errors.Is(err, os.ErrNotExist), nil
+	}
+	_, err = root.Lstat(filepath.Base(path))
+	if closeErr := root.Close(); closeErr != nil {
+		return false, fmt.Errorf("close root of %s: %w", path, closeErr)
+	}
+	return errors.Is(err, os.ErrNotExist), nil
 }

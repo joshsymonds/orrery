@@ -195,6 +195,7 @@ func wantContinued(t *testing.T, f *stepNudgeFixture, want []string) {
 }
 
 func TestStepsNudgeHeldTurnEndedResumesWithTextAndNextTurnEndIsARound(t *testing.T) {
+	t.Parallel()
 	f := newStepNudgeFixture(t)
 	id := f.start(t)
 	f.beginTurn(t)
@@ -302,6 +303,7 @@ func TestStepsNudgeRunningTurnInterruptsAndContinuesInPlaceOfRound(t *testing.T)
 // TestStepsNudgeRunningTurnContinuesWithPendingWatchdogTextFirst checks that a turn end continued for an owner nudge
 // carries the watchdog's pending text ahead of the owner's.
 func TestStepsNudgeRunningTurnContinuesWithPendingWatchdogTextFirst(t *testing.T) {
+	t.Parallel()
 	f := newStepNudgeFixture(t)
 	id := f.start(t)
 	f.beginTurn(t)
@@ -330,6 +332,7 @@ func TestStepsNudgeRunningTurnContinuesWithPendingWatchdogTextFirst(t *testing.T
 }
 
 func TestStepsNudgeInterruptErrorLeavesNothingPending(t *testing.T) {
+	t.Parallel()
 	f := newStepNudgeFixture(t)
 	id := f.start(t)
 	f.beginTurn(t)
@@ -352,6 +355,7 @@ func TestStepsNudgeInterruptErrorLeavesNothingPending(t *testing.T) {
 }
 
 func TestStepsNudgeWithNoTurnRunningIsRefused(t *testing.T) {
+	t.Parallel()
 	f := newStepNudgeFixture(t)
 	id := f.start(t)
 
@@ -368,6 +372,7 @@ func TestStepsNudgeWithNoTurnRunningIsRefused(t *testing.T) {
 }
 
 func TestStepsNudgeEmptyTextIsRefused(t *testing.T) {
+	t.Parallel()
 	f := newStepNudgeFixture(t)
 	id := f.start(t)
 	f.beginTurn(t)
@@ -382,6 +387,7 @@ func TestStepsNudgeEmptyTextIsRefused(t *testing.T) {
 }
 
 func TestStepsNudgeUnknownIDErrorsWithErrNoStep(t *testing.T) {
+	t.Parallel()
 	f := newStepNudgeFixture(t)
 
 	err := f.steps.Nudge(t.Context(), "no-such-step", "owner text")
@@ -393,6 +399,7 @@ func TestStepsNudgeUnknownIDErrorsWithErrNoStep(t *testing.T) {
 // TestStepsNudgeHeldContinueFailureEndsStepFailed checks that a held step's resume that cannot continue ends the step
 // failed and returns the error.
 func TestStepsNudgeHeldContinueFailureEndsStepFailed(t *testing.T) {
+	t.Parallel()
 	f := newStepNudgeFixture(t)
 	id := f.start(t)
 	f.beginTurn(t)
@@ -429,6 +436,7 @@ func TestStepsNudgeHeldContinueFailureEndsStepFailed(t *testing.T) {
 // TestStepsHoldDropsPendingOwnerText holds a step after an owner nudge has interrupted its turn. The held turn's end
 // continues nothing and stores no round.
 func TestStepsHoldDropsPendingOwnerText(t *testing.T) {
+	t.Parallel()
 	f := newStepNudgeFixture(t)
 	id := f.start(t)
 	f.beginTurn(t)
@@ -483,6 +491,7 @@ func TestStepsNudgeAndHoldDuringGateRefusedPromptly(t *testing.T) {
 // TestStepRunOwnerActionWaitingWhenGateBeginsIsRefused checks an owner action already waiting for the loop when a gate
 // begins: the loop is not running, so the call can only be released by the gate.
 func TestStepRunOwnerActionWaitingWhenGateBeginsIsRefused(t *testing.T) {
+	t.Parallel()
 	run := newStepRun(stepRunConfig{id: stepLoopID, logger: slog.New(slog.DiscardHandler)})
 
 	errs := make(chan error, 1)
@@ -504,6 +513,7 @@ func TestStepRunOwnerActionWaitingWhenGateBeginsIsRefused(t *testing.T) {
 // TestStepRunLoopingVerdictStillNudgesAfterOwnerNudge checks that an owner nudge does not spend the watchdog's one
 // nudge: a later looping verdict still interrupts and continues the step with the watchdog's text.
 func TestStepRunLoopingVerdictStillNudgesAfterOwnerNudge(t *testing.T) {
+	t.Parallel()
 	haiku := &watchLoopHaiku{replies: []watchLoopReply{
 		watchLoopVerdict(watchVerdictLooping, watchLoopDoing),
 	}}

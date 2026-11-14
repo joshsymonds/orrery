@@ -27,9 +27,10 @@ const judgeLoopContinueText = "A judge found that your return does not meet the 
 	"Return again with a result that meets it."
 
 // judgeReturn judges a done return whose checks all passed and stores the verdict. A nil haiku makes no call and ends
-// done. A met verdict ends done. A first unmet verdict sends the session back once with its reason. A second unmet
-// verdict ends goal_unmet with the return kept. A failed call, a reply that does not parse or a diff stat that cannot be
-// read stores its error with no verdict and ends done. It reports whether the run goes on.
+// done. A met verdict ends done. A first unmet verdict sends the session back once with its reason, and stores the loop
+// state once that Continue is sent. A second unmet verdict ends goal_unmet with the return kept. A failed call, a reply
+// that does not parse or a diff stat that cannot be read stores its error with no verdict and ends done. It reports
+// whether the run goes on.
 func (r *stepRun) judgeReturn(ctx context.Context, round int, value json.RawMessage, commit, status string,
 	checks []store.StepCheck) bool {
 	if r.haiku == nil {
@@ -77,6 +78,7 @@ func (r *stepRun) judgeReturn(ctx context.Context, round int, value json.RawMess
 		r.finish(ctx, stepLoopEndFailed, "", fmt.Sprintf("continue step %s: %v", r.id, err))
 		return false
 	}
+	r.saveLoop(ctx)
 	return true
 }
 

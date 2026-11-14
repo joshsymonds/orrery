@@ -72,8 +72,8 @@ func (r *stepRun) watchMonitor(ctx context.Context, trip watchTrip) (verdict, do
 }
 
 // watchNudge interrupts the step for trip with its doing line. A landed interrupt sets the text the next error turn end
-// is continued with and returns the nudge action. A failed interrupt is logged and returns none, dropping the nudge, so
-// the watch keeps its one nudge and keeps watching the running turn.
+// is continued with, stores the loop state, and returns the nudge action. A failed interrupt is logged and returns none,
+// dropping the nudge, so the watch keeps its one nudge and keeps watching the running turn.
 func (r *stepRun) watchNudge(ctx context.Context, trip watchTrip, doing string) watchActionKind {
 	if err := r.sessions.Interrupt(ctx, r.id); err != nil {
 		r.logger.ErrorContext(ctx, "interrupt step for nudge", "step", r.id, "trip", string(trip.Kind), "err", err)
@@ -82,7 +82,15 @@ func (r *stepRun) watchNudge(ctx context.Context, trip watchTrip, doing string) 
 	}
 	r.nudge = "The watchdog interrupted your turn. " + watchLoopSummary(trip, doing) +
 		"\nContinue the step where it stopped, or return now if it is finished."
+	r.saveLoop(ctx)
 	return watchActNudge
+}
+
+// nudgeSpent reports whether the watch has spent the step's one nudge.
+func (w *stepWatch) nudgeSpent() bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.nudged
 }
 
 // watchLoopSummary names trip and the doing line, the sentence a nudge or an end carries.

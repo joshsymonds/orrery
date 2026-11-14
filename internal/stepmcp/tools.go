@@ -16,6 +16,7 @@ import (
 	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
 	"github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1/enginev1connect"
 	"github.com/joshsymonds/orrery/internal/mcp"
+	"github.com/joshsymonds/orrery/internal/rpcretry"
 )
 
 // MaxWait is the longest a step_wait call holds open. A longer wait is clamped to it, so
@@ -49,40 +50,48 @@ const (
 
 // NewServer returns the MCP server "orrery" whose step tools call steps and whose epic tools call epics.
 func NewServer(steps enginev1connect.StepsClient, epics enginev1connect.EpicsClient) (*mcp.Server, error) {
-	server, err := mcp.NewServer("orrery", "1", slices.Concat(stepTools(steps), epicTools(epics))...)
+	return newServer(steps, epics, rpcretry.SystemClock{})
+}
+
+// newServer returns the MCP server "orrery" whose step tools call steps and time their retries on clock, and whose epic
+// tools call epics.
+func newServer(
+	steps enginev1connect.StepsClient, epics enginev1connect.EpicsClient, clock rpcretry.Clock,
+) (*mcp.Server, error) {
+	server, err := mcp.NewServer("orrery", "1", slices.Concat(stepTools(steps, clock), epicTools(epics))...)
 	if err != nil {
 		return nil, fmt.Errorf("new orrery server: %w", err)
 	}
 	return server, nil
 }
 
-// stepTools returns the step tools, each calling steps.
-func stepTools(steps enginev1connect.StepsClient) []mcp.Tool {
+// stepTools returns the step tools, each calling steps and timing its retries on clock.
+func stepTools(steps enginev1connect.StepsClient, clock rpcretry.Clock) []mcp.Tool {
 	return []mcp.Tool{
 		{
 			Name:        "step_start",
 			Description: "Start a step: an agent working in a workspace. Returns the step id.",
 			InputSchema: json.RawMessage(startSchema),
-			Handler:     startHandler(steps),
+			Handler:     startHandler(steps, clock),
 		},
 		{
 			Name:        "step_status",
 			Description: "Report a step's current state by id.",
 			InputSchema: json.RawMessage(idSchema),
-			Handler:     statusHandler(steps),
+			Handler:     statusHandler(steps, clock),
 		},
 		{
 			Name:        "step_stop",
 			Description: "Stop a running step by id.",
 			InputSchema: json.RawMessage(idSchema),
-			Handler:     stopHandler(steps),
+			Handler:     stopHandler(steps, clock),
 		},
 		{
 			Name: "step_wait",
 			Description: "Wait until one of the given steps ends, or until timeoutSeconds passes " +
 				"(at most 1500 seconds). Returns the ended step, or null with every step's state at timeout.",
 			InputSchema: json.RawMessage(waitSchema),
-			Handler:     waitHandler(steps),
+			Handler:     waitHandler(steps, clock),
 		},
 	}
 }
@@ -148,7 +157,7 @@ func toolFailure(err error) mcp.ToolResult {
 	return mcp.ToolResult{Content: []mcp.Content{{Type: "text", Text: err.Error()}}, IsError: true}
 }
 
-func startHandler(steps enginev1connect.StepsClient) mcp.ToolHandler {
+func startHandler(steps enginev1connect.StepsClient, clock rpcretry.Clock) mcp.ToolHandler {
 	return func(ctx context.Context, call mcp.Call) (mcp.ToolResult, error) {
 		var args startArgs
 		if err := decodeArguments(call.Arguments, &args); err != nil {
@@ -164,20 +173,26 @@ func startHandler(steps enginev1connect.StepsClient) mcp.ToolHandler {
 		if err != nil {
 			return mcp.ToolResult{}, err
 		}
-		started, err := steps.StartStep(ctx, connect.NewRequest(&v1.StartStepRequest{
-			Agent:      args.Agent,
-			Prompt:     args.Prompt,
-			Schema:     schema,
-			Workspace:  args.Workspace,
-			Revision:   args.Revision,
-			ReadOnly:   args.ReadOnly,
-			OwnedPaths: args.OwnedPaths,
-			GateName:   args.GateName,
-			GatesFile:  args.GatesFile,
-			DoneValue:  args.DoneValue,
-			Epic:       args.Epic,
-			Task:       args.Task,
-		}))
+		// A start is retried only when no connection was made, so a start cut mid-call never runs twice.
+		var started *connect.Response[v1.StartStepResponse]
+		err = rpcretry.Do(ctx, clock, rpcretry.NeverConnected, func(callCtx context.Context) error {
+			var callErr error
+			started, callErr = steps.StartStep(callCtx, connect.NewRequest(&v1.StartStepRequest{
+				Agent:      args.Agent,
+				Prompt:     args.Prompt,
+				Schema:     schema,
+				Workspace:  args.Workspace,
+				Revision:   args.Revision,
+				ReadOnly:   args.ReadOnly,
+				OwnedPaths: args.OwnedPaths,
+				GateName:   args.GateName,
+				GatesFile:  args.GatesFile,
+				DoneValue:  args.DoneValue,
+				Epic:       args.Epic,
+				Task:       args.Task,
+			}))
+			return errors.Join(callErr)
+		})
 		if err != nil {
 			return toolFailure(err), nil
 		}
@@ -185,7 +200,7 @@ func startHandler(steps enginev1connect.StepsClient) mcp.ToolHandler {
 	}
 }
 
-func statusHandler(steps enginev1connect.StepsClient) mcp.ToolHandler {
+func statusHandler(steps enginev1connect.StepsClient, clock rpcretry.Clock) mcp.ToolHandler {
 	return func(ctx context.Context, call mcp.Call) (mcp.ToolResult, error) {
 		var args idArgs
 		if err := decodeArguments(call.Arguments, &args); err != nil {
@@ -194,7 +209,12 @@ func statusHandler(steps enginev1connect.StepsClient) mcp.ToolHandler {
 		if err := requireString("id", args.ID); err != nil {
 			return mcp.ToolResult{}, err
 		}
-		status, err := steps.StepStatus(ctx, connect.NewRequest(&v1.StepStatusRequest{Id: args.ID}))
+		var status *connect.Response[v1.StepStatusResponse]
+		err := rpcretry.Do(ctx, clock, rpcretry.Unavailable, func(callCtx context.Context) error {
+			var callErr error
+			status, callErr = steps.StepStatus(callCtx, connect.NewRequest(&v1.StepStatusRequest{Id: args.ID}))
+			return errors.Join(callErr)
+		})
 		if err != nil {
 			return toolFailure(err), nil
 		}
@@ -202,7 +222,7 @@ func statusHandler(steps enginev1connect.StepsClient) mcp.ToolHandler {
 	}
 }
 
-func stopHandler(steps enginev1connect.StepsClient) mcp.ToolHandler {
+func stopHandler(steps enginev1connect.StepsClient, clock rpcretry.Clock) mcp.ToolHandler {
 	return func(ctx context.Context, call mcp.Call) (mcp.ToolResult, error) {
 		var args idArgs
 		if err := decodeArguments(call.Arguments, &args); err != nil {
@@ -211,7 +231,11 @@ func stopHandler(steps enginev1connect.StepsClient) mcp.ToolHandler {
 		if err := requireString("id", args.ID); err != nil {
 			return mcp.ToolResult{}, err
 		}
-		if _, err := steps.StopStep(ctx, connect.NewRequest(&v1.StopStepRequest{Id: args.ID})); err != nil {
+		err := rpcretry.Do(ctx, clock, rpcretry.Unavailable, func(callCtx context.Context) error {
+			_, callErr := steps.StopStep(callCtx, connect.NewRequest(&v1.StopStepRequest{Id: args.ID}))
+			return errors.Join(callErr)
+		})
+		if err != nil {
 			return toolFailure(err), nil
 		}
 		return textResult(map[string]any{"id": args.ID, "stopped": true})
@@ -240,7 +264,47 @@ type waitResult struct {
 	Steps []stepJSON `json:"steps"`
 }
 
-func waitHandler(steps enginev1connect.StepsClient) mcp.ToolHandler {
+// waitSteps waits on ids for timeout seconds from now. When orreryd is unavailable mid-wait, it waits again for the
+// time the request has left, and gives up only at the request's deadline. Each request asks for that time rounded up
+// to whole seconds, so a retry never ends before the deadline.
+func waitSteps(
+	ctx context.Context,
+	steps enginev1connect.StepsClient,
+	clock rpcretry.Clock,
+	ids []string,
+	timeout uint32,
+) (*connect.Response[v1.WaitStepsResponse], error) {
+	deadline := clock.Now().Add(time.Duration(timeout) * time.Second)
+	retryable := func(err error) bool {
+		return rpcretry.Unavailable(err) && clock.Now().Before(deadline)
+	}
+	var waited *connect.Response[v1.WaitStepsResponse]
+	call := func(callCtx context.Context) error {
+		var callErr error
+		waited, callErr = steps.WaitSteps(callCtx, connect.NewRequest(&v1.WaitStepsRequest{
+			Ids:            ids,
+			TimeoutSeconds: roundUpSeconds(deadline.Sub(clock.Now())),
+		}))
+		return errors.Join(callErr)
+	}
+	for {
+		// Do stops after its own window, so a wait that outlasts the window runs Do again until its deadline.
+		err := rpcretry.Do(ctx, clock, retryable, call)
+		if err == nil || !retryable(err) {
+			return waited, errors.Join(err)
+		}
+	}
+}
+
+// roundUpSeconds returns d in whole seconds, rounded up, and 0 when d has passed.
+func roundUpSeconds(d time.Duration) uint32 {
+	if d <= 0 {
+		return 0
+	}
+	return uint32(math.Ceil(d.Seconds()))
+}
+
+func waitHandler(steps enginev1connect.StepsClient, clock rpcretry.Clock) mcp.ToolHandler {
 	return func(ctx context.Context, call mcp.Call) (mcp.ToolResult, error) {
 		var args waitArgs
 		if err := decodeArguments(call.Arguments, &args); err != nil {
@@ -256,10 +320,7 @@ func waitHandler(steps enginev1connect.StepsClient) mcp.ToolHandler {
 		if err != nil {
 			return mcp.ToolResult{}, err
 		}
-		waited, err := steps.WaitSteps(ctx, connect.NewRequest(&v1.WaitStepsRequest{
-			Ids:            args.IDs,
-			TimeoutSeconds: timeout,
-		}))
+		waited, err := waitSteps(ctx, steps, clock, args.IDs, timeout)
 		if err != nil {
 			return toolFailure(err), nil
 		}

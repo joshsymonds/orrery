@@ -29,6 +29,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/open"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/push"
+	"github.com/joshsymonds/orrery/internal/rpcretry"
 	"github.com/joshsymonds/orrery/internal/state"
 	"github.com/joshsymonds/orrery/internal/store"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
@@ -233,9 +234,11 @@ func New(cfg Config) (http.Handler, error) {
 	mux.Handle(eventsPath, events)
 	controlPath, control := newControlHandler(cfg.Engine, cfg.ControlTimeout, cfg.Home, cfg.Steps)
 	mux.Handle(controlPath, control)
-	epicsPath, epicsService := newEpicsHandler(cfg.Records, cfg.Steps, cfg.EpicStore, cfg.ControlTimeout, now)
+	epicsPath, epicsService := newEpicsHandler(
+		cfg.Records, cfg.Steps, cfg.EpicStore, cfg.ControlTimeout, now, rpcretry.SystemClock{},
+	)
 	mux.Handle(epicsPath, epicsService)
-	stepsPath, stepsService := newStepsHandler(cfg.Steps, cfg.ControlTimeout)
+	stepsPath, stepsService := newStepsHandler(cfg.Steps, cfg.ControlTimeout, rpcretry.SystemClock{})
 	mux.Handle(stepsPath, stepsService)
 	poolsPath, pools := newPoolsHandler(cfg.Pools, cfg.ControlTimeout)
 	mux.Handle(poolsPath, pools)

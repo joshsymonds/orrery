@@ -13,9 +13,11 @@ import (
 	"github.com/joshsymonds/orrery/internal/store/sqlcgen"
 )
 
-// openWriterAt opens the daemon's writer at path and closes it when the test ends.
+// openWriterAt opens the daemon's writer at path and closes it when the test ends. A path with no file yet starts as a
+// copy of the migrated store image.
 func openWriterAt(t *testing.T, path string) *Store {
 	t.Helper()
+	seedMigrated(t, path)
 	s, err := Open(context.Background(), path)
 	if err != nil {
 		t.Fatalf("Open: %v", err)

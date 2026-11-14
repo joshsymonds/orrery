@@ -262,6 +262,7 @@ func TestValidateReturnFailsWithPath(t *testing.T) {
 }
 
 func TestValidateReturnRejectsUnacceptedSchema(t *testing.T) {
+	t.Parallel()
 	err := validateReturn(
 		`{"type": "object", "properties": {"status": {"type": "string", "pattern": "^d"}}}`,
 		[]byte(`{"status": "done"}`),

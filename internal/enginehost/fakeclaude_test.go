@@ -66,6 +66,7 @@ func assistantTexts(t *testing.T, lines []string) [][]string {
 // TestFakeClaudePairLine checks that a PAIR prompt is answered by one assistant line carrying two finished text
 // blocks, that the next prompt is still answered as an ordinary reply, and that the fake logs each line it reads.
 func TestFakeClaudePairLine(t *testing.T) {
+	t.Parallel()
 	prompts := userLine("PAIR one") + userLine("plain two")
 	dir, lines := fakeClaudeRun(t, prompts)
 

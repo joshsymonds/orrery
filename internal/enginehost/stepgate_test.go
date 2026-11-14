@@ -95,6 +95,7 @@ func stepGateAdd(t *testing.T, step StepSession) store.StepAdd {
 }
 
 func TestStepsStartNamedGateStoresTheResolvedGate(t *testing.T) {
+	t.Parallel()
 	f := newStepGateFixture(t)
 	shell := stepGateShell(t)
 	gatesFile := filepath.Join(t.TempDir(), "gates.toml")
@@ -146,6 +147,7 @@ func stepGateProjectFile(t *testing.T, linked, shell string) {
 }
 
 func TestStepsStartNamedGateFromTheProjectFile(t *testing.T) {
+	t.Parallel()
 	f := newStepGateFixture(t)
 	shell := stepGateShell(t)
 	linked := stepWorktreeTestAddLinked(t, stepGitTestRepo(t))
@@ -223,6 +225,7 @@ func TestStepsStartNamedGateRefusalsStoreNothing(t *testing.T) {
 }
 
 func TestStepsStartNamedGateRefusesBareProgramNameAndStoresNothing(t *testing.T) {
+	t.Parallel()
 	f := newStepGateFixture(t)
 	gatesFile := filepath.Join(t.TempDir(), "gates.toml")
 	// sh is on PATH, so a lookup of the bare name would find it. A gate's argv[0] is a path, and the start refuses it.
@@ -242,6 +245,7 @@ func TestStepsStartNamedGateRefusesBareProgramNameAndStoresNothing(t *testing.T)
 }
 
 func TestStepsStartNamedGateRewriteAppliesToLaterStarts(t *testing.T) {
+	t.Parallel()
 	f := newStepGateFixture(t)
 	shell := stepGateShell(t)
 	gatesFile := filepath.Join(t.TempDir(), "gates.toml")
@@ -276,6 +280,7 @@ func TestStepsStartNamedGateRewriteAppliesToLaterStarts(t *testing.T) {
 }
 
 func TestStepsStartNamedGateReadsTheLastEnvironEntry(t *testing.T) {
+	t.Parallel()
 	f := newStepGateFixture(t)
 	shell := stepGateShell(t)
 	linked := stepWorktreeTestAddLinked(t, stepGitTestRepo(t))

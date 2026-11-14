@@ -165,6 +165,7 @@ func callAll(t *testing.T, client enginev1connect.EngineClient) []error {
 }
 
 func TestListenCreatesSocketModeZeroSixHundred(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "engine.sock")
 
 	ln, err := Listen(path)
@@ -186,6 +187,7 @@ func TestListenCreatesSocketModeZeroSixHundred(t *testing.T) {
 }
 
 func TestServeRoutesEachRPCToCommands(t *testing.T) {
+	t.Parallel()
 	fake := &fakeCommands{startID: "0123456789abcdef0123456789abcdef"}
 	path, stop := startServer(t, fake)
 	client := newClient(t, path)
@@ -234,6 +236,7 @@ func TestServeRoutesEachRPCToCommands(t *testing.T) {
 }
 
 func TestServeStartForwardsModel(t *testing.T) {
+	t.Parallel()
 	fake := &fakeCommands{startID: "0123456789abcdef0123456789abcdef"}
 	path, stop := startServer(t, fake)
 	client := newClient(t, path)
@@ -255,6 +258,7 @@ func TestServeStartForwardsModel(t *testing.T) {
 }
 
 func TestServeStartForwardsID(t *testing.T) {
+	t.Parallel()
 	fake := &fakeCommands{startID: "0123456789abcdef0123456789abcdef"}
 	path, stop := startServer(t, fake)
 	client := newClient(t, path)
@@ -276,6 +280,7 @@ func TestServeStartForwardsID(t *testing.T) {
 }
 
 func TestServeSayForwardsPromptID(t *testing.T) {
+	t.Parallel()
 	fake := &fakeCommands{}
 	path, stop := startServer(t, fake)
 	client := newClient(t, path)
@@ -396,6 +401,7 @@ func TestServeMapsErrorsToConnectCodes(t *testing.T) {
 }
 
 func TestServeRefusesStartPastCapWithReason(t *testing.T) {
+	t.Parallel()
 	path, _ := startServer(t, &fakeCommands{err: wrapf(ErrCapReached, "start session")})
 	client := newClient(t, path)
 
@@ -409,6 +415,7 @@ func TestServeRefusesStartPastCapWithReason(t *testing.T) {
 }
 
 func TestNilCommandsRefusesEveryRPCUnavailable(t *testing.T) {
+	t.Parallel()
 	path, _ := startServer(t, nil)
 	client := newClient(t, path)
 
@@ -427,6 +434,7 @@ func TestNilCommandsRefusesEveryRPCUnavailable(t *testing.T) {
 }
 
 func TestServeReturnsNilWhenContextEnds(t *testing.T) {
+	t.Parallel()
 	_, stop := startServer(t, &fakeCommands{})
 	if err := stop(); err != nil {
 		t.Fatalf("Serve after context ended = %v, want nil", err)

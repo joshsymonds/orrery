@@ -30,6 +30,8 @@ type fakeGatePools struct {
 
 	mu       sync.Mutex
 	requests []grants.Request
+	// reclaimsEnded holds the grant id of each reclaim whose call has returned.
+	reclaimsEnded []string
 }
 
 // Acquire implements PoolCommands for the fake.
@@ -41,6 +43,13 @@ func (f *fakeGatePools) Acquire(ctx context.Context, req grants.Request, send fu
 		id = fmt.Sprintf("grant-%d", len(f.requests))
 	}
 	f.mu.Unlock()
+	if req.GrantID != "" {
+		defer func() {
+			f.mu.Lock()
+			f.reclaimsEnded = append(f.reclaimsEnded, req.GrantID)
+			f.mu.Unlock()
+		}()
+	}
 	if f.err != nil {
 		return f.err
 	}
@@ -98,6 +107,13 @@ func (f *fakeGatePools) requested() []grants.Request {
 	return slices.Clone(f.requests)
 }
 
+// ended reports whether a call that reclaimed the grant id has returned, which ends the reclaimed grant.
+func (f *fakeGatePools) ended(id string) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Contains(f.reclaimsEnded, id)
+}
+
 // fakeGateMembers returns the members a grant of needs holds: <pool>-1 up to each need's count, pool by pool.
 func fakeGateMembers(needs []grants.Need) []grants.Member {
 	var members []grants.Member
@@ -151,6 +167,7 @@ func gateGroupGoneAtEnd(t *testing.T, pids string) func() {
 }
 
 func TestGrantedGateRunsOnlyAfterTheGrantAndReportsItsMembers(t *testing.T) {
+	t.Parallel()
 	pids := filepath.Join(t.TempDir(), "pids")
 	marker := filepath.Join(t.TempDir(), "started")
 	queue := make(chan struct{})
@@ -212,6 +229,7 @@ func TestGrantedGateRunsOnlyAfterTheGrantAndReportsItsMembers(t *testing.T) {
 }
 
 func TestGrantedGateQueuedTimeDoesNotCountTowardLimit(t *testing.T) {
+	t.Parallel()
 	queue := make(chan struct{})
 	pools := &fakeGatePools{queue: queue}
 	time.AfterFunc(1500*time.Millisecond, func() { close(queue) })
@@ -238,6 +256,7 @@ func TestGrantedGateQueuedTimeDoesNotCountTowardLimit(t *testing.T) {
 }
 
 func TestGrantedGateEachAttemptGetsItsOwnLimit(t *testing.T) {
+	t.Parallel()
 	first := filepath.Join(t.TempDir(), "first")
 	pools := &fakeGatePools{stop: make(chan struct{})}
 
@@ -293,6 +312,7 @@ func TestGrantedGateEachAttemptGetsItsOwnLimit(t *testing.T) {
 }
 
 func TestGrantedGateStopKillsGroupAndReclaimsItsGrant(t *testing.T) {
+	t.Parallel()
 	first := filepath.Join(t.TempDir(), "first")
 	pids := filepath.Join(t.TempDir(), "pids")
 	pools := &fakeGatePools{stop: make(chan struct{})}
@@ -345,6 +365,7 @@ func TestGrantedGateStopKillsGroupAndReclaimsItsGrant(t *testing.T) {
 }
 
 func TestGrantedGateCancelKillsGroupAndErrors(t *testing.T) {
+	t.Parallel()
 	pids := filepath.Join(t.TempDir(), "pids")
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
@@ -379,6 +400,7 @@ func TestGrantedGateCancelKillsGroupAndErrors(t *testing.T) {
 }
 
 func TestGrantedGateKillsGateWhenItsGrantEndsEarly(t *testing.T) {
+	t.Parallel()
 	pids := filepath.Join(t.TempDir(), "pids")
 	errBroker := errors.New("broker closed")
 	pools := &fakeGatePools{drop: make(chan error)}
@@ -412,6 +434,7 @@ func TestGrantedGateKillsGateWhenItsGrantEndsEarly(t *testing.T) {
 }
 
 func TestGrantedGateErrorsWhenAcquireFails(t *testing.T) {
+	t.Parallel()
 	marker := filepath.Join(t.TempDir(), "started")
 	refused := errors.New("pools refused the request")
 	pools := &fakeGatePools{err: refused}
@@ -431,6 +454,7 @@ func TestGrantedGateErrorsWhenAcquireFails(t *testing.T) {
 }
 
 func TestGrantedGateErrorsWithoutPools(t *testing.T) {
+	t.Parallel()
 	marker := filepath.Join(t.TempDir(), "started")
 
 	_, err := runGrantedGate(t.Context(), nil, gateGrantRequest(), gateRun{
@@ -448,6 +472,7 @@ func TestGrantedGateErrorsWithoutPools(t *testing.T) {
 }
 
 func TestGrantedGateErrorsWhenCtxEndsBeforeGrant(t *testing.T) {
+	t.Parallel()
 	marker := filepath.Join(t.TempDir(), "started")
 	pools := &fakeGatePools{queue: make(chan struct{})}
 	ctx, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
@@ -468,6 +493,7 @@ func TestGrantedGateErrorsWhenCtxEndsBeforeGrant(t *testing.T) {
 }
 
 func TestGrantedGateNeverStartsOnAGrantThatEndedAsItArrived(t *testing.T) {
+	t.Parallel()
 	marker := filepath.Join(t.TempDir(), "started")
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()

@@ -29,8 +29,7 @@ func stepWorktreeTestAddLinked(t *testing.T, repo string) string {
 }
 
 func TestCheckWritingWorkspaceRefusesNonGitDirectory(t *testing.T) {
-	t.Setenv("GIT_CONFIG_GLOBAL", "/dev/null")
-	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	t.Parallel()
 	dir := t.TempDir()
 
 	err := checkWritingWorkspace(context.Background(), dir)
@@ -40,6 +39,7 @@ func TestCheckWritingWorkspaceRefusesNonGitDirectory(t *testing.T) {
 }
 
 func TestCheckWritingWorkspaceRefusesMainWorkingTree(t *testing.T) {
+	t.Parallel()
 	repo := stepGitTestRepo(t)
 	sub := filepath.Join(repo, "sub")
 	if err := os.MkdirAll(sub, 0o755); err != nil {
@@ -55,6 +55,7 @@ func TestCheckWritingWorkspaceRefusesMainWorkingTree(t *testing.T) {
 }
 
 func TestCheckWritingWorkspaceAcceptsLinkedWorktree(t *testing.T) {
+	t.Parallel()
 	repo := stepGitTestRepo(t)
 	linked := stepWorktreeTestAddLinked(t, repo)
 	sub := filepath.Join(linked, "sub")
@@ -70,6 +71,7 @@ func TestCheckWritingWorkspaceAcceptsLinkedWorktree(t *testing.T) {
 }
 
 func TestAddStepWorktreeDetachesAtRevisionAndLeavesMainBranch(t *testing.T) {
+	t.Parallel()
 	repo := stepGitTestRepo(t)
 	revision := stepGitTestRun(t, repo, "rev-parse", "HEAD")
 	stepGitTestCommit(t, repo, map[string]string{"next.txt": "later\n"})
@@ -95,6 +97,7 @@ func TestAddStepWorktreeDetachesAtRevisionAndLeavesMainBranch(t *testing.T) {
 }
 
 func TestRemoveStepWorktreeRemovesDirtyWorktreeAndIsIdempotent(t *testing.T) {
+	t.Parallel()
 	repo := stepGitTestRepo(t)
 	revision := stepGitTestRun(t, repo, "rev-parse", "HEAD")
 	path := filepath.Join(t.TempDir(), "step")
@@ -122,6 +125,7 @@ func TestRemoveStepWorktreeRemovesDirtyWorktreeAndIsIdempotent(t *testing.T) {
 }
 
 func TestRemoveStepWorktreeLeavesMainTreeAndUnregisteredDirectory(t *testing.T) {
+	t.Parallel()
 	repo := stepGitTestRepo(t)
 	unregistered := t.TempDir()
 	stepGitTestWrite(t, unregistered, "keep.txt", "keep\n")

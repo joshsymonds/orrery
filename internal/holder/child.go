@@ -16,6 +16,9 @@ import (
 // DefaultGrace is how long a stopped child may run after SIGTERM before SIGKILL.
 const DefaultGrace = 5 * time.Second
 
+// gateTailBytes is the newest stdout and stderr a gate child keeps in its exit record.
+const gateTailBytes = 8 << 10
+
 // ChildConfig describes the child a holder runs.
 type ChildConfig struct {
 	// Path is the absolute path of the binary.
@@ -26,7 +29,12 @@ type ChildConfig struct {
 	Dir string
 	// Grace is how long Stop waits after SIGTERM before SIGKILL. Zero takes DefaultGrace.
 	Grace time.Duration
-	// Clock times the grace. Nil takes SystemClock{}.
+	// GateLimit makes the child a gate when positive: its stdin is closed at start, its stdout and stderr share one
+	// newest-8-KiB tail carried in the exit record's Stderr, and nothing is spooled. Once GateLimit has passed on
+	// Clock from the child's start, the child is stopped as Stop stops it and ends with ReasonLimit. Zero takes no
+	// limit.
+	GateLimit time.Duration
+	// Clock times the grace and the gate limit. Nil takes SystemClock{}.
 	Clock Clock
 }
 
@@ -36,15 +44,18 @@ type Child struct {
 	spool *Spool
 	clock Clock
 	grace time.Duration
+	gate  bool
 	done  chan struct{}
 
 	stopOnce sync.Once
 
-	mu    sync.Mutex
-	fault error // a failure of the holder's own pump or signals, reported in Exit
+	mu      sync.Mutex
+	fault   error // a failure of the holder's own pump or signals, reported in Exit
+	limited bool  // the gate limit passed while the child ran, so Exit reports ReasonLimit
 }
 
-// StartChild starts the child in its own process group with its stdout spooled into spool.
+// StartChild starts the child in its own process group with its stdout spooled into spool. A positive GateLimit makes
+// the child a gate, which spools nothing and keeps its output in the exit record's tail.
 func StartChild(cfg ChildConfig, spool *Spool) (*Child, error) {
 	if cfg.Grace == 0 {
 		cfg.Grace = DefaultGrace
@@ -52,16 +63,32 @@ func StartChild(cfg ChildConfig, spool *Spool) (*Child, error) {
 	if cfg.Clock == nil {
 		cfg.Clock = SystemClock{}
 	}
-	started, err := proc.Start(proc.Config{Path: cfg.Path, Args: cfg.Args, Dir: cfg.Dir})
+	gate := cfg.GateLimit > 0
+	procCfg := proc.Config{Path: cfg.Path, Args: cfg.Args, Dir: cfg.Dir}
+	if gate {
+		procCfg.MergeOutput = true
+		procCfg.StderrCapacity = gateTailBytes
+	}
+	started, err := proc.Start(procCfg)
 	if err != nil {
 		return nil, fmt.Errorf("holder: start child: %w", err)
+	}
+	if gate {
+		if closeErr := started.Stdin().Close(); closeErr != nil {
+			return nil, errors.Join(fmt.Errorf("holder: close gate stdin: %w", closeErr), started.Stop())
+		}
 	}
 	child := &Child{
 		proc:  started,
 		spool: spool,
 		clock: cfg.Clock,
 		grace: cfg.Grace,
+		gate:  gate,
 		done:  make(chan struct{}),
+	}
+	if gate {
+		// The limit is armed here, before the child is observed to run, so it counts from the child's start.
+		go child.limitAfter(cfg.Clock.After(cfg.GateLimit))
 	}
 	go child.pump()
 	return child, nil
@@ -100,8 +127,8 @@ func (c *Child) Done() <-chan struct{} {
 }
 
 // Exit returns the child's exit record. It waits for Done. Code is the exit status, or -1 when a signal ended the
-// child, with Signal the signal's name. A wait error with no exit status, or a fault of the holder, is the last line
-// of Stderr.
+// child, with Signal the signal's name. A child that passed its gate limit while it ran has ReasonLimit whatever
+// reason is given. A wait error with no exit status, or a fault of the holder, is the last line of Stderr.
 func (c *Child) Exit(reason string) Exit {
 	<-c.done
 	exit := Exit{Reason: reason, StdoutEnd: c.spool.End()}
@@ -116,9 +143,32 @@ func (c *Child) Exit(reason string) Exit {
 	}
 	c.mu.Lock()
 	faults := errors.Join(waitErr, c.fault)
+	if c.limited {
+		exit.Reason = ReasonLimit
+	}
 	c.mu.Unlock()
 	exit.Stderr = stderrWith(c.proc.Stderr(), faults)
 	return exit
+}
+
+// limitAfter stops the child once limit fires, unless the child is reaped first. A child that is stopped this way
+// is marked limited before the stop, so Exit reports ReasonLimit.
+func (c *Child) limitAfter(limit <-chan time.Time) {
+	select {
+	case <-limit:
+	case <-c.proc.Done():
+		return
+	}
+	c.mu.Lock()
+	select {
+	case <-c.proc.Done():
+		c.mu.Unlock()
+		return
+	default:
+	}
+	c.limited = true
+	c.mu.Unlock()
+	c.Stop()
 }
 
 // killAfterGrace sends SIGKILL to the child's group once Grace has passed on the clock, unless the child is reaped
@@ -132,7 +182,8 @@ func (c *Child) killAfterGrace() {
 }
 
 // pump copies the child's stdout into the spool, then closes the child's pipes once it is reaped and closes Done. A
-// failure stops the child and is reported in Exit.
+// gate's stdin was closed at start, so only its stdout is closed here. A failure stops the child and is reported in
+// Exit.
 func (c *Child) pump() {
 	reaped := c.proc.Done()
 	if err := c.copyStdout(reaped); err != nil {
@@ -140,8 +191,12 @@ func (c *Child) pump() {
 		c.Stop()
 	}
 	<-reaped
-	if err := errors.Join(c.proc.Stdout().Close(), c.proc.Stdin().Close()); err != nil {
-		c.fail(fmt.Errorf("holder: close child pipes: %w", err))
+	closeErr := c.proc.Stdout().Close()
+	if !c.gate {
+		closeErr = errors.Join(closeErr, c.proc.Stdin().Close())
+	}
+	if closeErr != nil {
+		c.fail(fmt.Errorf("holder: close child pipes: %w", closeErr))
 	}
 	close(c.done)
 }

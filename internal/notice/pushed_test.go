@@ -14,11 +14,13 @@ import (
 	"github.com/joshsymonds/orrery/internal/notice"
 	"github.com/joshsymonds/orrery/internal/push"
 	"github.com/joshsymonds/orrery/internal/store"
+	"github.com/joshsymonds/orrery/internal/storetest"
 )
 
 // openStore opens a store at path and closes it when the test ends.
 func openStore(ctx context.Context, t *testing.T, path string) *store.Store {
 	t.Helper()
+	storetest.Seed(t, path)
 	s, err := store.Open(ctx, path)
 	if err != nil {
 		t.Fatalf("Open(%s): %v", path, err)

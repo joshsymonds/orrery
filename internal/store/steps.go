@@ -73,7 +73,8 @@ type StepWatch struct {
 	Doing   string
 }
 
-// StepReturn sets a step's latest result and appends its checks to the ones already recorded.
+// StepReturn sets a step's latest result and appends its checks to the ones already recorded. It also sets its loop
+// seq to the newest event seq of its session and clears its gate, in the same write.
 type StepReturn struct {
 	ID     string
 	Result string
@@ -88,35 +89,79 @@ type StepEnd struct {
 	Reason string
 }
 
+// StepLoop sets a step's loop state: its round, its continue count, the nudge texts the next turn end is continued
+// with, whether it has been nudged, whether it is held and whether its judge has sent it back. It sets every loop
+// column, so a field left at its zero value is stored as zero.
+type StepLoop struct {
+	ID         string
+	Round      int
+	Continues  int
+	Nudge      string
+	OwnerNudge string
+	Nudged     bool
+	Held       bool
+	JudgeSent  bool
+}
+
+// StepGate sets a step's gate: the grant it holds, its holder and the round it holds in. An empty Holder clears all
+// three.
+type StepGate struct {
+	ID     string
+	Grant  string
+	Holder string
+	Round  int
+}
+
+// StepTurnEnd is the turn a step's session last ended after its last prompt. Seq is the turn end's event seq, IsError
+// whether the turn ended in error, Output the session's turn output, and Returned whether the turn ended at or before
+// the step's latest return.
+type StepTurnEnd struct {
+	Seq      int64
+	IsError  bool
+	Output   string
+	Returned bool
+}
+
 // StepRow is a step row. Ended is zero while End is empty.
 type StepRow struct {
-	ID         string
-	Agent      string
-	Prompt     string
-	Schema     string
-	Workspace  string
-	Revision   string
-	Worktree   string
-	DoneValue  string
-	ReadOnly   bool
-	Owned      []string
-	Gate       []string
-	GateName   string
-	GateSource string
-	GateNeeds  []StepNeed
-	GateLimit  time.Duration
-	ModelLimit time.Duration
-	Started    time.Time
-	Checks     []StepCheck
-	Doing      string
-	Verdicts   []StepVerdict
-	Result     string
-	Status     string
-	End        string
-	Reason     string
-	Ended      time.Time
-	Epic       string
-	Task       string
+	ID             string
+	Agent          string
+	Prompt         string
+	Schema         string
+	Workspace      string
+	Revision       string
+	Worktree       string
+	DoneValue      string
+	ReadOnly       bool
+	Owned          []string
+	Gate           []string
+	GateName       string
+	GateSource     string
+	GateNeeds      []StepNeed
+	GateLimit      time.Duration
+	ModelLimit     time.Duration
+	Started        time.Time
+	Checks         []StepCheck
+	Doing          string
+	Verdicts       []StepVerdict
+	Result         string
+	Status         string
+	End            string
+	Reason         string
+	Ended          time.Time
+	Epic           string
+	Task           string
+	LoopRound      int
+	LoopContinues  int
+	LoopNudge      string
+	LoopOwnerNudge string
+	LoopNudged     bool
+	LoopHeld       bool
+	LoopJudgeSent  bool
+	LoopSeq        int64
+	GateGrant      string
+	GateHolder     string
+	GateRound      int
 }
 
 func (op StepAdd) applyEngine(ctx context.Context, queries *sqlcgen.Queries, now time.Time) error {
@@ -162,6 +207,36 @@ func (op StepReturn) applyEngine(ctx context.Context, queries *sqlcgen.Queries, 
 		Result: op.Result, Checks: string(encoded), ID: op.ID,
 	}); err != nil {
 		return fmt.Errorf("update return of step %s: %w", op.ID, err)
+	}
+	return nil
+}
+
+func (op StepLoop) applyEngine(ctx context.Context, queries *sqlcgen.Queries, _ time.Time) error {
+	if _, err := requireStep(ctx, queries, op.ID); err != nil {
+		return err
+	}
+	if err := queries.UpdateStepLoop(ctx, sqlcgen.UpdateStepLoopParams{
+		LoopRound: int64(op.Round), LoopContinues: int64(op.Continues), LoopNudge: op.Nudge,
+		LoopOwnerNudge: op.OwnerNudge, LoopNudged: op.Nudged, LoopHeld: op.Held, LoopJudgeSent: op.JudgeSent,
+		ID: op.ID,
+	}); err != nil {
+		return fmt.Errorf("update loop of step %s: %w", op.ID, err)
+	}
+	return nil
+}
+
+func (op StepGate) applyEngine(ctx context.Context, queries *sqlcgen.Queries, _ time.Time) error {
+	if _, err := requireStep(ctx, queries, op.ID); err != nil {
+		return err
+	}
+	params := sqlcgen.UpdateStepGateParams{
+		GateGrant: op.Grant, GateHolder: op.Holder, GateRound: int64(op.Round), ID: op.ID,
+	}
+	if op.Holder == "" {
+		params.GateGrant, params.GateRound = "", 0
+	}
+	if err := queries.UpdateStepGate(ctx, params); err != nil {
+		return fmt.Errorf("update gate of step %s: %w", op.ID, err)
 	}
 	return nil
 }
@@ -216,6 +291,25 @@ func (s *Store) Step(ctx context.Context, id string) (StepRow, error) {
 		return StepRow{}, fmt.Errorf("get step %s: %w", id, err)
 	}
 	return toStepRow(row)
+}
+
+// StepTurn returns the last turn end of the step id's session that was stored after the session's last prompt, with
+// its output and whether it is at or before the step's latest return. It returns false, and no error, when there is no
+// such turn end or while the session's background flag is set.
+func (s *Store) StepTurn(ctx context.Context, id string) (StepTurnEnd, bool, error) {
+	row, err := sqlcgen.New(s.db).GetStepTurnEnd(ctx, id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return StepTurnEnd{}, false, nil
+	}
+	if err != nil {
+		return StepTurnEnd{}, false, fmt.Errorf("read turn end of step %s: %w", id, err)
+	}
+	if row.Background {
+		return StepTurnEnd{}, false, nil
+	}
+	return StepTurnEnd{
+		Seq: row.Seq, IsError: row.IsError != 0, Output: row.TurnOutput, Returned: row.Seq <= row.LoopSeq,
+	}, true, nil
 }
 
 // OpenSteps returns every step row with no end, ordered by id.
@@ -294,6 +388,10 @@ func toStepRow(row sqlcgen.Step) (StepRow, error) {
 		Started: time.Unix(row.Started, 0), Checks: checks, Doing: row.Doing, Verdicts: verdicts,
 		Result: row.Result, Status: row.Status, End: row.EndValue, Reason: row.Reason, Ended: ended,
 		Epic: row.Epic, Task: row.Task,
+		LoopRound: int(row.LoopRound), LoopContinues: int(row.LoopContinues), LoopNudge: row.LoopNudge,
+		LoopOwnerNudge: row.LoopOwnerNudge, LoopNudged: row.LoopNudged, LoopHeld: row.LoopHeld,
+		LoopJudgeSent: row.LoopJudgeSent, LoopSeq: row.LoopSeq,
+		GateGrant: row.GateGrant, GateHolder: row.GateHolder, GateRound: int(row.GateRound),
 	}, nil
 }
 

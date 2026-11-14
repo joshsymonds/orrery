@@ -53,7 +53,7 @@ func (r *stepRun) do(ctx context.Context, act func(ctx context.Context) error) e
 
 // hold interrupts the running turn and marks the run held. It runs in the loop goroutine. A held run refuses first, then
 // a run with no turn running. An interrupt error is returned with the run unheld. A landed hold drops the nudges pending
-// for the turn, the watchdog's and the owner's, so the held turn's end continues nothing.
+// for the turn, the watchdog's and the owner's, so the held turn's end continues nothing, and stores the loop state.
 func (r *stepRun) hold(ctx context.Context) error {
 	if r.held.Load() {
 		return ErrStepHeld
@@ -67,6 +67,7 @@ func (r *stepRun) hold(ctx context.Context) error {
 	r.nudge = ""
 	r.ownerNudge = ""
 	r.held.Store(true)
+	r.saveLoop(ctx)
 	return nil
 }
 
@@ -74,15 +75,18 @@ func (r *stepRun) hold(ctx context.Context) error {
 // at once when its held turn has already ended, and at that turn end otherwise, where the end is no round. A running turn
 // is interrupted and its end is continued with text, in place of a round. A run with no turn running and not held
 // refuses with ErrStepNoTurn. Text sent while a nudge is already pending joins it. An interrupt error is returned and
-// leaves nothing pending. A failed continue ends the step failed and is returned.
+// leaves nothing pending. A failed continue ends the step failed and is returned. Each landed change stores the loop
+// state: a pending text when it is set, and the held state when a held run resumes.
 func (r *stepRun) nudgeOwner(ctx context.Context, text string) error {
 	if r.held.Load() {
 		if !r.heldEnded {
 			r.ownerNudge = joinNudges(r.ownerNudge, text)
+			r.saveLoop(ctx)
 			return nil
 		}
 		r.held.Store(false)
 		r.heldEnded = false
+		r.saveLoop(ctx)
 		return r.continueStep(ctx, StepPrompt{Text: text, Sender: store.PromptSenderOwner})
 	}
 	if !r.watch.turnRunning() {
@@ -90,12 +94,14 @@ func (r *stepRun) nudgeOwner(ctx context.Context, text string) error {
 	}
 	if r.ownerNudge != "" {
 		r.ownerNudge = joinNudges(r.ownerNudge, text)
+		r.saveLoop(ctx)
 		return nil
 	}
 	if err := r.sessions.Interrupt(ctx, r.id); err != nil {
 		return fmt.Errorf("interrupt step %s: %w", r.id, err)
 	}
 	r.ownerNudge = text
+	r.saveLoop(ctx)
 	return nil
 }
 

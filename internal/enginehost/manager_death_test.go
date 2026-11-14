@@ -20,6 +20,7 @@ func failedNoticeOf(notices []Notice, id, reason string) bool {
 }
 
 func TestDyingSessionFailsAloneAndResumes(t *testing.T) {
+	t.Parallel()
 	sink := &fakeSink{}
 	_, path := openStore(t)
 	m := newManagerOn(t, path, 2, fakeClaudePath(t), sink)

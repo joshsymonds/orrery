@@ -40,6 +40,7 @@ func (f *storeFixture) waitForSummaryRow(t *testing.T, db *sql.DB, pane, summary
 }
 
 func TestSummaryReachesRowAndEvents(t *testing.T) {
+	t.Parallel()
 	f := newStoreFixture(t)
 	if err := os.WriteFile(f.fakeClaude, []byte(slowFakeClaudeScript), 0o700); err != nil {
 		t.Fatalf("write slow fake claude: %v", err)

@@ -224,6 +224,7 @@ func TestStepsStartRefusesBadInputAndStoresNothing(t *testing.T) {
 }
 
 func TestStepsStartWritingHandsStartStepTheStepAndRunsItsLoop(t *testing.T) {
+	t.Parallel()
 	f := newStepStartFixture(t)
 	repo := stepGitTestRepo(t)
 	linked := stepWorktreeTestAddLinked(t, repo)
@@ -278,6 +279,7 @@ func TestStepsStartWritingHandsStartStepTheStepAndRunsItsLoop(t *testing.T) {
 }
 
 func TestStepsStartWritingDefaultsDoneValueGateLimitAndRevision(t *testing.T) {
+	t.Parallel()
 	f := newStepStartFixture(t)
 	repo := stepGitTestRepo(t)
 	linked := stepWorktreeTestAddLinked(t, repo)
@@ -312,6 +314,7 @@ func TestStepsStartWritingDefaultsDoneValueGateLimitAndRevision(t *testing.T) {
 }
 
 func TestStepsStartReadOnlyRunsDetachedWorktreeAndRemovesItAtEnd(t *testing.T) {
+	t.Parallel()
 	f := newStepStartFixture(t)
 	repo := stepGitTestRepo(t)
 	revision := stepGitTestRun(t, repo, "rev-parse", "HEAD")
@@ -363,6 +366,7 @@ func TestStepsStartReadOnlyRunsDetachedWorktreeAndRemovesItAtEnd(t *testing.T) {
 }
 
 func TestStepsStartStartStepErrorEndsFailedAndRemovesWorktree(t *testing.T) {
+	t.Parallel()
 	f := newStepStartFixture(t)
 	spawnErr := errors.New("spawn refused")
 	f.sessions.startErr = spawnErr
@@ -386,6 +390,7 @@ func TestStepsStartStartStepErrorEndsFailedAndRemovesWorktree(t *testing.T) {
 }
 
 func TestStepsStartCanceledStartStepStillEndsFailedAndRemovesWorktree(t *testing.T) {
+	t.Parallel()
 	f := newStepStartFixture(t)
 	f.sessions.startErr = context.Canceled
 	repo := stepGitTestRepo(t)
@@ -410,6 +415,7 @@ func TestStepsStartCanceledStartStepStillEndsFailedAndRemovesWorktree(t *testing
 }
 
 func TestNewStepsNegativeWatchTickReturnsErrorAndNoSteps(t *testing.T) {
+	t.Parallel()
 	steps, err := NewSteps(StepsConfig{WatchTick: -time.Second})
 	if !errors.Is(err, ErrBadWatchTick) {
 		t.Fatalf("NewSteps error = %v, want it to match %v", err, ErrBadWatchTick)
@@ -420,6 +426,7 @@ func TestNewStepsNegativeWatchTickReturnsErrorAndNoSteps(t *testing.T) {
 }
 
 func TestNewStepsZeroWatchTickKeepsDefault(t *testing.T) {
+	t.Parallel()
 	steps, err := NewSteps(StepsConfig{})
 	if err != nil {
 		t.Fatalf("NewSteps: %v", err)

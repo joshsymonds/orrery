@@ -97,6 +97,7 @@ func requireEngineRows(t *testing.T, s *store.Store, want map[string]restartRow)
 }
 
 func TestReconcileInterruptsTurnsAndClearsTextOfRowsWithoutProcess(t *testing.T) {
+	t.Parallel()
 	s, path := openStore(t)
 	seedRestartRows(t, s)
 	writer := NewWriter(WriterConfig{Applier: s, Tick: 5 * time.Millisecond})
@@ -139,6 +140,7 @@ func TestReconcileInterruptsTurnsAndClearsTextOfRowsWithoutProcess(t *testing.T)
 }
 
 func TestReconcileSecondRunChangesNothingAndNotifiesNothing(t *testing.T) {
+	t.Parallel()
 	s, path := openStore(t)
 	seedRestartRows(t, s)
 	writer := NewWriter(WriterConfig{Applier: s, Tick: 5 * time.Millisecond})
@@ -203,6 +205,7 @@ func (f failingStore) HolderPrompts(context.Context, string) ([]store.HolderProm
 }
 
 func TestReconcileReturnsReadError(t *testing.T) {
+	t.Parallel()
 	errRead := errors.New("read failed")
 	writer := NewWriter(WriterConfig{Tick: time.Hour})
 	m := newReconcileManager(t, failingStore{err: errRead}, writer, &fakeSink{})
@@ -213,6 +216,7 @@ func TestReconcileReturnsReadError(t *testing.T) {
 }
 
 func TestReconcileReturnsWriteErrorAndNotifiesNothing(t *testing.T) {
+	t.Parallel()
 	s, _ := openStore(t)
 	seedRestartRows(t, s)
 	writer := NewWriter(WriterConfig{Applier: s, Tick: 5 * time.Millisecond})
@@ -230,6 +234,7 @@ func TestReconcileReturnsWriteErrorAndNotifiesNothing(t *testing.T) {
 }
 
 func TestReconcileLeavesLiveSessionAlone(t *testing.T) {
+	t.Parallel()
 	s, path := openStore(t)
 	writer := NewWriter(WriterConfig{Applier: s, Tick: 5 * time.Millisecond})
 	startRun(t, writer)
@@ -261,6 +266,7 @@ func TestReconcileLeavesLiveSessionAlone(t *testing.T) {
 }
 
 func TestReconcileSettlesStepRowSilently(t *testing.T) {
+	t.Parallel()
 	s, path := openStore(t)
 	if err := s.ApplyEngine(t.Context(), []store.EngineOp{
 		store.EngineAdd{ID: "step", Dir: "/work", State: "working", Kind: store.KindStep},

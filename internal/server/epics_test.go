@@ -74,10 +74,11 @@ func (f *epicsFake) StopStep(
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("synthetic unused"))
 }
 
-// epicsServe serves newEpicsHandler over root and steps with the fixed clock, and returns a generated Epics client.
+// epicsServe serves newEpicsHandler over root and steps with the fixed clock and a fake retry clock, and returns a
+// generated Epics client.
 func epicsServe(t *testing.T, root string, steps StepClient) orreryv1connect.EpicsClient {
 	t.Helper()
-	path, handler := newEpicsHandler(root, steps, nil, 0, epicsNow)
+	path, handler := newEpicsHandler(root, steps, nil, 0, epicsNow, newRetryClock())
 	mux := http.NewServeMux()
 	mux.Handle(path, handler)
 	srv := httptest.NewServer(mux)

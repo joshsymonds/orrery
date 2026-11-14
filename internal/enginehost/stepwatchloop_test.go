@@ -237,6 +237,7 @@ func watchLoopWantContains(t *testing.T, text string, parts ...string) {
 }
 
 func TestWatchLoopLoopingNudgesThenEndsLooping(t *testing.T) {
+	t.Parallel()
 	haiku := &watchLoopHaiku{replies: []watchLoopReply{
 		watchLoopVerdict(watchVerdictLooping, watchLoopDoing),
 		watchLoopVerdict(watchVerdictLooping, "still rerunning the grep"),
@@ -287,6 +288,7 @@ func TestWatchLoopLoopingNudgesThenEndsLooping(t *testing.T) {
 }
 
 func TestWatchLoopNonErrorTurnEndAfterNudgeIsARound(t *testing.T) {
+	t.Parallel()
 	haiku := &watchLoopHaiku{replies: []watchLoopReply{
 		watchLoopVerdict(watchVerdictProgressing, "reading the diff"),
 		watchLoopVerdict(watchVerdictProgressing, "thinking"),
@@ -322,6 +324,7 @@ func TestWatchLoopNonErrorTurnEndAfterNudgeIsARound(t *testing.T) {
 }
 
 func TestWatchLoopSilentNudgesThenEndsSilent(t *testing.T) {
+	t.Parallel()
 	haiku := &watchLoopHaiku{replies: []watchLoopReply{
 		watchLoopVerdict(watchVerdictProgressing, "thinking"),
 		watchLoopVerdict(watchVerdictProgressing, "still thinking"),
@@ -352,6 +355,7 @@ func TestWatchLoopSilentNudgesThenEndsSilent(t *testing.T) {
 }
 
 func TestWatchLoopLongCommandExtendsThenEndsToolStuck(t *testing.T) {
+	t.Parallel()
 	haiku := &watchLoopHaiku{replies: []watchLoopReply{
 		watchLoopVerdict(watchVerdictLongCommand, "running the test suite"),
 		watchLoopVerdict(watchVerdictProgressing, "waiting on the tests"),
@@ -382,6 +386,7 @@ func TestWatchLoopLongCommandExtendsThenEndsToolStuck(t *testing.T) {
 }
 
 func TestWatchLoopOvertimeEndsStep(t *testing.T) {
+	t.Parallel()
 	haiku := &watchLoopHaiku{replies: []watchLoopReply{watchLoopVerdict(watchVerdictProgressing, "still going")}}
 	sessions := &stepLoopSessions{}
 	f := newWatchLoopFixture(t, haiku, sessions, 20*time.Minute)
@@ -399,6 +404,7 @@ func TestWatchLoopOvertimeEndsStep(t *testing.T) {
 }
 
 func TestWatchLoopFailedCallActsMechanically(t *testing.T) {
+	t.Parallel()
 	haiku := &watchLoopHaiku{replies: []watchLoopReply{watchLoopFailure(), watchLoopFailure()}}
 	sessions := &stepLoopSessions{}
 	f := newWatchLoopFixture(t, haiku, sessions, watchLoopModelLimit)
@@ -421,6 +427,7 @@ func TestWatchLoopFailedCallActsMechanically(t *testing.T) {
 }
 
 func TestWatchLoopNilCallerEndsToolStuckMechanically(t *testing.T) {
+	t.Parallel()
 	sessions := &stepLoopSessions{}
 	f := newWatchLoopFixture(t, nil, sessions, watchLoopModelLimit)
 	f.event(0, session.Started{})
@@ -438,6 +445,7 @@ func TestWatchLoopNilCallerEndsToolStuckMechanically(t *testing.T) {
 }
 
 func TestWatchLoopFailedInterruptDropsNudge(t *testing.T) {
+	t.Parallel()
 	haiku := &watchLoopHaiku{replies: []watchLoopReply{watchLoopVerdict(watchVerdictProgressing, "thinking")}}
 	sessions := &stepLoopSessions{interruptErr: errors.New("interrupt refused")}
 	f := newWatchLoopFixture(t, haiku, sessions, watchLoopModelLimit)
@@ -466,6 +474,7 @@ func TestWatchLoopFailedInterruptDropsNudge(t *testing.T) {
 }
 
 func TestWatchLoopFailedNudgeContinueEndsFailed(t *testing.T) {
+	t.Parallel()
 	haiku := &watchLoopHaiku{replies: []watchLoopReply{watchLoopVerdict(watchVerdictProgressing, "thinking")}}
 	sessions := &stepLoopSessions{continueErr: errors.New("continue refused")}
 	f := newWatchLoopFixture(t, haiku, sessions, watchLoopModelLimit)
@@ -482,6 +491,7 @@ func TestWatchLoopFailedNudgeContinueEndsFailed(t *testing.T) {
 }
 
 func TestWatchLoopQuietTickMakesNoCall(t *testing.T) {
+	t.Parallel()
 	haiku := &watchLoopHaiku{}
 	f := newWatchLoopFixture(t, haiku, &stepLoopSessions{}, watchLoopModelLimit)
 	f.event(0, session.Started{})
@@ -513,6 +523,7 @@ func TestWatchLoopQuietTickMakesNoCall(t *testing.T) {
 
 // The turn end after a nudge's interrupt is no round: the next return is judged as round 1.
 func TestWatchLoopInterruptedTurnEndIsNoRound(t *testing.T) {
+	t.Parallel()
 	haiku := &watchLoopHaiku{replies: []watchLoopReply{watchLoopVerdict(watchVerdictLooping, watchLoopDoing)}}
 	sessions := &stepLoopSessions{}
 	f := newWatchLoopFixture(t, haiku, sessions, watchLoopModelLimit)
@@ -539,6 +550,7 @@ func TestWatchLoopInterruptedTurnEndIsNoRound(t *testing.T) {
 // A non-error turn end after a nudge is a round and drops the nudge: a later error turn end is a round too, sent back
 // for its checks, never continued with the nudge.
 func TestWatchLoopNonErrorTurnEndDropsTheNudge(t *testing.T) {
+	t.Parallel()
 	haiku := &watchLoopHaiku{replies: []watchLoopReply{watchLoopVerdict(watchVerdictProgressing, "thinking")}}
 	sessions := &stepLoopSessions{}
 	f := newWatchLoopFixture(t, haiku, sessions, watchLoopModelLimit)
@@ -569,6 +581,7 @@ func TestWatchLoopNonErrorTurnEndDropsTheNudge(t *testing.T) {
 // A nudge whose interrupt fails leaves the step its nudge and the watch awake: the next silent trip in the same turn
 // tries the nudge again.
 func TestWatchLoopFailedInterruptKeepsWatching(t *testing.T) {
+	t.Parallel()
 	haiku := &watchLoopHaiku{replies: []watchLoopReply{
 		watchLoopVerdict(watchVerdictProgressing, "thinking"),
 		watchLoopVerdict(watchVerdictProgressing, "still thinking"),
@@ -589,6 +602,7 @@ func TestWatchLoopFailedInterruptKeepsWatching(t *testing.T) {
 
 // A landed silent nudge whose turn never ends still ends silent: the silence count runs from the nudge.
 func TestWatchLoopNudgedTurnEndsSilentWithoutTurnEnd(t *testing.T) {
+	t.Parallel()
 	haiku := &watchLoopHaiku{replies: []watchLoopReply{
 		watchLoopVerdict(watchVerdictProgressing, "thinking"),
 		watchLoopVerdict(watchVerdictProgressing, "still thinking"),
@@ -615,6 +629,7 @@ func TestWatchLoopNudgedTurnEndsSilentWithoutTurnEnd(t *testing.T) {
 // A landed nudge on a stuck tool call whose turn never ends still ends tool_stuck: the call's clock restarts at the
 // nudge, so the call trips again thirty minutes after it.
 func TestWatchLoopNudgedToolCallEndsToolStuckWithoutTurnEnd(t *testing.T) {
+	t.Parallel()
 	haiku := &watchLoopHaiku{replies: []watchLoopReply{
 		watchLoopVerdict(watchVerdictWedged, "stuck on the grep"),
 		watchLoopVerdict(watchVerdictProgressing, "still stuck"),
@@ -642,6 +657,7 @@ func TestWatchLoopNudgedToolCallEndsToolStuckWithoutTurnEnd(t *testing.T) {
 
 // A landed nudge whose turn never ends still ends overtime at the model-time limit.
 func TestWatchLoopNudgedTurnEndsOvertimeWithoutTurnEnd(t *testing.T) {
+	t.Parallel()
 	haiku := &watchLoopHaiku{replies: []watchLoopReply{
 		watchLoopVerdict(watchVerdictProgressing, "thinking"),
 		watchLoopVerdict(watchVerdictProgressing, "still going"),
@@ -669,6 +685,7 @@ func TestWatchLoopNudgedTurnEndsOvertimeWithoutTurnEnd(t *testing.T) {
 // A nudge on a stuck tool call whose interrupt fails leaves the call's clock alone: the call is still past its limit,
 // so the next tick trips tool_stuck again and tries the nudge again.
 func TestWatchLoopFailedInterruptKeepsToolClock(t *testing.T) {
+	t.Parallel()
 	haiku := &watchLoopHaiku{replies: []watchLoopReply{
 		watchLoopVerdict(watchVerdictWedged, "stuck on the grep"),
 		watchLoopVerdict(watchVerdictWedged, "still stuck"),

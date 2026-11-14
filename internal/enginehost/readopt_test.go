@@ -190,6 +190,7 @@ func unfinishedTexts(history store.EngineHistory) []string {
 }
 
 func TestReadoptStalledTurnKeepsItsTextAndState(t *testing.T) {
+	t.Parallel()
 	rig := newCrashRig(t, nil, false)
 	dir := t.TempDir()
 	id, err := rig.manager.Start(t.Context(), StartRequest{Dir: dir, Prompt: "STALL"})
@@ -221,6 +222,7 @@ func TestReadoptStalledTurnKeepsItsTextAndState(t *testing.T) {
 }
 
 func TestReadoptAskedQuestionIsAnsweredOnce(t *testing.T) {
+	t.Parallel()
 	rig := newCrashRig(t, nil, false)
 	dir := t.TempDir()
 	id, err := rig.manager.Start(t.Context(), StartRequest{Dir: dir, Prompt: "ASK"})
@@ -257,8 +259,10 @@ func TestReadoptAskedQuestionIsAnsweredOnce(t *testing.T) {
 }
 
 func TestReadoptFloodStoresEveryBlockOnce(t *testing.T) {
+	t.Parallel()
 	for _, storeTrigger := range []bool{false, true} {
 		t.Run(fmt.Sprintf("trigger batch stored %t", storeTrigger), func(t *testing.T) {
+			t.Parallel()
 			rig := newCrashRig(t, blockTrigger("fake flood 1.20"), storeTrigger)
 			dir := t.TempDir()
 			id, err := rig.manager.Start(t.Context(), StartRequest{Dir: dir, Prompt: "FLOOD"})
@@ -284,8 +288,10 @@ func TestReadoptFloodStoresEveryBlockOnce(t *testing.T) {
 }
 
 func TestReadoptPairLineStoresEachBlockOnce(t *testing.T) {
+	t.Parallel()
 	for _, storeTrigger := range []bool{false, true} {
 		t.Run(fmt.Sprintf("trigger batch stored %t", storeTrigger), func(t *testing.T) {
+			t.Parallel()
 			rig := newCrashRig(t, blockTrigger("fake pair 1.1"), storeTrigger)
 			dir := t.TempDir()
 			id, err := rig.manager.Start(t.Context(), StartRequest{Dir: dir, Prompt: "PAIR"})
@@ -308,6 +314,7 @@ func TestReadoptPairLineStoresEachBlockOnce(t *testing.T) {
 }
 
 func TestReadoptWritesStoredPromptOnceAndSkipsWrittenOne(t *testing.T) {
+	t.Parallel()
 	rig := newCrashRig(t, nil, false)
 	dir := t.TempDir()
 	id, err := rig.manager.Start(t.Context(), StartRequest{Dir: dir, Prompt: "STALL"})
@@ -338,6 +345,7 @@ func TestReadoptWritesStoredPromptOnceAndSkipsWrittenOne(t *testing.T) {
 }
 
 func TestReadoptWaitingRowWithNoOpenRequestGoesWorking(t *testing.T) {
+	t.Parallel()
 	rig := newCrashRig(t, nil, false)
 	dir := t.TempDir()
 	id, err := rig.manager.Start(t.Context(), StartRequest{Dir: dir, Prompt: "hi"})
@@ -368,6 +376,7 @@ func TestReadoptWaitingRowWithNoOpenRequestGoesWorking(t *testing.T) {
 }
 
 func TestReconcileStopsStepRowHolder(t *testing.T) {
+	t.Parallel()
 	root := holderRoot(t)
 	s, _ := openStore(t)
 	dir := t.TempDir()
@@ -395,6 +404,7 @@ func TestReconcileStopsStepRowHolder(t *testing.T) {
 }
 
 func TestReadoptFailedRowHolderIsReleasedUndrained(t *testing.T) {
+	t.Parallel()
 	rig := newCrashRig(t, nil, false)
 	dir := t.TempDir()
 	id, err := rig.manager.Start(t.Context(), StartRequest{Dir: dir, Prompt: "STALL"})
@@ -427,6 +437,7 @@ func TestReadoptFailedRowHolderIsReleasedUndrained(t *testing.T) {
 }
 
 func TestReadoptHolderThatEndedIsClearedAndRowSettles(t *testing.T) {
+	t.Parallel()
 	rig := newCrashRig(t, nil, false)
 	dir := t.TempDir()
 	id, err := rig.manager.Start(t.Context(), StartRequest{Dir: dir, Prompt: "STALL"})
@@ -458,6 +469,7 @@ func TestReadoptHolderThatEndedIsClearedAndRowSettles(t *testing.T) {
 }
 
 func TestReconcileClearsHolderWithNoRow(t *testing.T) {
+	t.Parallel()
 	root := holderRoot(t)
 	s, _ := openStore(t)
 	dir := t.TempDir()
@@ -476,6 +488,7 @@ func TestReconcileClearsHolderWithNoRow(t *testing.T) {
 }
 
 func TestReconcileClearsHolderOfUntrackedRow(t *testing.T) {
+	t.Parallel()
 	root := holderRoot(t)
 	s, _ := openStore(t)
 	dir := t.TempDir()

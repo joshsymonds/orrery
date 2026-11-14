@@ -38,6 +38,7 @@ const (
 // store row and the event log in order, every session's pane event must fall within that session's blocks in the
 // event log, every session must store all of its blocks, and orreryd must log no dropped mirror sync.
 func TestEngineFourSessionsKeepPaneSyncs(t *testing.T) {
+	t.Parallel()
 	f := newEngineFixture(t)
 	daemon := f.startOrreryd(t, true)
 

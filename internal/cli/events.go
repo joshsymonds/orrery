@@ -15,6 +15,7 @@ import (
 
 	orreryv1 "github.com/joshsymonds/orrery/internal/gen/orrery/v1"
 	"github.com/joshsymonds/orrery/internal/gen/orrery/v1/orreryv1connect"
+	"github.com/joshsymonds/orrery/internal/rpcretry"
 )
 
 // ErrUsage matches every command line error that orrery reports with its usage text.
@@ -61,8 +62,14 @@ func (t clientTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 // Events writes the event stream of the serve at --url to out, one compact JSON object per line. It starts after
 // --after, or after the newest seq of the serve when --after is absent. Without --follow it writes the events up to
 // the newest seq it saw at start and returns nil. With --follow it writes new events until the stream ends, and
-// returns the error that ended the stream.
+// returns the error that ended the stream. A stream that fails to open or ends with Unavailable is opened again after
+// the last seq written, for as long as rpcretry.Window passes with no message.
 func Events(ctx context.Context, args []string, out io.Writer) error {
+	return eventsWithClock(ctx, rpcretry.SystemClock{}, args, out)
+}
+
+// eventsWithClock is Events with the clock that times its retries.
+func eventsWithClock(ctx context.Context, clock rpcretry.Clock, args []string, out io.Writer) error {
 	flags := flag.NewFlagSet("events", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	rawURL := flags.String("url", "", "base URL of the serve to read")
@@ -101,27 +108,62 @@ func Events(ctx context.Context, args []string, out io.Writer) error {
 	}
 
 	events := orreryv1connect.NewEventsClient(httpClient, *rawURL)
-	stream, err := events.Watch(ctx, connect.NewRequest(&orreryv1.WatchRequest{After: cursor}))
-	if err != nil {
-		return fmt.Errorf("orrery events: watch: %w", err)
-	}
-	return errors.Join(writeEvents(stream, out, *follow, newest), stream.Close())
+	return watchEvents(ctx, clock, events, out, *follow, newest, cursor)
 }
 
-// writeEvents writes each event the stream delivers as one line. Without follow it returns nil once it has written
-// the event at newest, and it returns an error when the stream ends before that. With follow it returns the error
-// the stream ended with.
+// watchEvents writes the events after cursor, one line each. A stream that fails to open or ends with Unavailable is
+// opened again after the last seq written. The retries stop once rpcretry.Window has passed on clock since the last
+// message was written, or since watchEvents began when no message has been written.
+func watchEvents(
+	ctx context.Context,
+	clock rpcretry.Clock,
+	events orreryv1connect.EventsClient,
+	out io.Writer,
+	follow bool,
+	newest int64,
+	cursor int64,
+) error {
+	lastMessage := clock.Now()
+	retryable := func(err error) bool {
+		return rpcretry.Unavailable(err) && clock.Now().Sub(lastMessage) < rpcretry.Window
+	}
+	attempt := func(ctx context.Context) error {
+		stream, err := events.Watch(ctx, connect.NewRequest(&orreryv1.WatchRequest{After: cursor}))
+		if err != nil {
+			return fmt.Errorf("orrery events: watch: %w", err)
+		}
+		wrote := func(seq int64) {
+			cursor = seq
+			lastMessage = clock.Now()
+		}
+		return errors.Join(writeEvents(stream, out, follow, newest, wrote), stream.Close())
+	}
+	for {
+		// rpcretry.Do counts its window from its first call, so it can stop while the window from the last message
+		// is still open. Then the next Do starts again from the cursor.
+		err := rpcretry.Do(ctx, clock, retryable, attempt)
+		if err == nil || !retryable(err) {
+			return errors.Join(err)
+		}
+	}
+}
+
+// writeEvents writes each event the stream delivers as one line, and calls wrote with the seq of each line it
+// writes. Without follow it returns nil once it has written the event at newest, and it returns an error when the
+// stream ends before that. With follow it returns the error the stream ended with.
 func writeEvents(
 	stream *connect.ServerStreamForClient[orreryv1.WatchResponse],
 	out io.Writer,
 	follow bool,
 	newest int64,
+	wrote func(seq int64),
 ) error {
 	for stream.Receive() {
 		msg := stream.Msg()
 		if err := writeLine(out, msg); err != nil {
 			return err
 		}
+		wrote(msg.GetSeq())
 		if !follow && msg.GetSeq() >= newest {
 			return nil
 		}

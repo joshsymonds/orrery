@@ -169,6 +169,7 @@ func (f *stepHoldFixture) status(t *testing.T, id string) store.StepRow {
 }
 
 func TestStepsHoldInterruptsRunningTurnOnceAndHoldsStep(t *testing.T) {
+	t.Parallel()
 	f := newStepHoldFixture(t)
 	id := f.start(t)
 	f.beginTurn(t)
@@ -192,6 +193,7 @@ func TestStepsHoldInterruptsRunningTurnOnceAndHoldsStep(t *testing.T) {
 }
 
 func TestStepsHoldWithNoTurnRunningIsRefused(t *testing.T) {
+	t.Parallel()
 	f := newStepHoldFixture(t)
 	id := f.start(t)
 
@@ -208,6 +210,7 @@ func TestStepsHoldWithNoTurnRunningIsRefused(t *testing.T) {
 }
 
 func TestStepsHoldOfHeldStepIsRefused(t *testing.T) {
+	t.Parallel()
 	f := newStepHoldFixture(t)
 	id := f.start(t)
 	f.beginTurn(t)
@@ -225,6 +228,7 @@ func TestStepsHoldOfHeldStepIsRefused(t *testing.T) {
 }
 
 func TestStepsHoldInterruptErrorLeavesStepUnheld(t *testing.T) {
+	t.Parallel()
 	f := newStepHoldFixture(t)
 	id := f.start(t)
 	f.beginTurn(t)
@@ -242,6 +246,7 @@ func TestStepsHoldInterruptErrorLeavesStepUnheld(t *testing.T) {
 }
 
 func TestStepsHoldOfEndedStepIsRefused(t *testing.T) {
+	t.Parallel()
 	f := newStepHoldFixture(t)
 	id := f.start(t)
 	f.beginTurn(t)
@@ -261,6 +266,7 @@ func TestStepsHoldOfEndedStepIsRefused(t *testing.T) {
 }
 
 func TestStepsHoldUnknownIDErrorsWithErrNoStep(t *testing.T) {
+	t.Parallel()
 	f := newStepHoldFixture(t)
 
 	err := f.steps.Hold(t.Context(), "no-such-step")
@@ -319,6 +325,7 @@ func TestStepsHeldTurnEndIsNoRound(t *testing.T) {
 }
 
 func TestStepsStopOfHeldStepEndsItStopped(t *testing.T) {
+	t.Parallel()
 	f := newStepHoldFixture(t)
 	id := f.start(t)
 	wt := filepath.Join(f.worktrees, id)
@@ -349,6 +356,7 @@ func TestStepsStopOfHeldStepEndsItStopped(t *testing.T) {
 }
 
 func TestStepWatchTurnRunningFollowsTurnEvents(t *testing.T) {
+	t.Parallel()
 	start := time.Unix(1, 0)
 	w := newStepWatch(start, time.Hour)
 	if w.turnRunning() {
@@ -368,6 +376,7 @@ func TestStepWatchTurnRunningFollowsTurnEvents(t *testing.T) {
 // limit. A checked step would trip overtime and end at that tick. The held step's run is still running after it, and an
 // unheld step ends overtime at the same tick.
 func TestStepRunHeldStepTripsNoBackstop(t *testing.T) {
+	t.Parallel()
 	held := newWatchLoopFixture(t, nil, &stepLoopSessions{}, time.Hour)
 	held.event(0, session.Started{})
 	if err := held.run.do(t.Context(), held.run.hold); err != nil {

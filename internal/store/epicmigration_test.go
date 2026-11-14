@@ -14,7 +14,7 @@ import (
 )
 
 // epicTableColumns returns, keyed by table, the columns in declaration order of every table migrations 00014 and
-// 00015 create, and of the epics columns 00015 adds.
+// 00016 create, and of the epics columns 00016 adds.
 func epicTableColumns() map[string][]string {
 	return map[string][]string{
 		"epics": {
@@ -320,13 +320,33 @@ func TestEpicMigrationKeepsExistingRows(t *testing.T) {
 		`SELECT COALESCE(MAX(version_id), 0) FROM goose_db_version WHERE is_applied = 1`).Scan(&version); err != nil {
 		t.Fatalf("read store version: %v", err)
 	}
-	if version != 15 {
-		t.Fatalf("store version after Open = %d, want 15", version)
+	// Open applies 00014_epics.sql and every migration after it: 00016_planner.sql is the newest.
+	if version != 16 {
+		t.Fatalf("store version after Open = %d, want 16", version)
 	}
 
+	// A later migration may add columns at the end of an existing table, as 00015_step_readopt.sql adds to steps and
+	// grants, so each row is compared over the columns it had before the migrations.
 	for _, table := range existing {
-		if got := rowsOf(t, s.db, table); !reflect.DeepEqual(got, before[table]) {
+		if got := leadingColumns(rowsOf(t, s.db, table), before[table]); !reflect.DeepEqual(got, before[table]) {
 			t.Errorf("%s after migration = %v, want %v", table, got, before[table])
 		}
 	}
+}
+
+// leadingColumns returns rows with each row cut to the width of the rows in want, the columns a table had before later
+// migrations added more. Rows of any other width, or with no rows in want, are returned as they are.
+func leadingColumns(rows, want [][]any) [][]any {
+	if len(want) == 0 {
+		return rows
+	}
+	width := len(want[0])
+	out := make([][]any, 0, len(rows))
+	for _, row := range rows {
+		if len(row) > width {
+			row = row[:width]
+		}
+		out = append(out, row)
+	}
+	return out
 }

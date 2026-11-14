@@ -37,6 +37,7 @@ func requireNeverWaits(t *testing.T, history store.EngineHistory) {
 }
 
 func TestStepAskIsDeniedWithoutAnswer(t *testing.T) {
+	t.Parallel()
 	m, path := newStepManager(t, 1, fakeClaudePath(t), &fakeSink{})
 	obs := &stepObserver{}
 	startDenyStep(t, m, "ASK", obs)
@@ -52,6 +53,7 @@ func TestStepAskIsDeniedWithoutAnswer(t *testing.T) {
 }
 
 func TestStepPermitIsDeniedWithoutAnswer(t *testing.T) {
+	t.Parallel()
 	m, path := newStepManager(t, 1, fakeClaudePath(t), &fakeSink{})
 	obs := &stepObserver{}
 	startDenyStep(t, m, "PERMIT", obs)
@@ -67,6 +69,7 @@ func TestStepPermitIsDeniedWithoutAnswer(t *testing.T) {
 }
 
 func TestSessionAskStillWaitsForAnswer(t *testing.T) {
+	t.Parallel()
 	m, path := newTestManager(t, 1, fakeClaudePath(t))
 	id, err := m.Start(t.Context(), StartRequest{Dir: t.TempDir(), Prompt: "ASK"})
 	if err != nil {

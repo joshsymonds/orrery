@@ -71,14 +71,14 @@ type Process struct {
 
 // newProcess returns the Process for held, the holder's own process. conn is attached at offset 0 to the holder that
 // socket names, on a holder that has not yet spooled or consumed anything. remove is the directory removed once the
-// holder has ended.
+// holder has ended, or empty to keep it.
 func newProcess(held heldProcess, conn *Conn, socket, remove string) *Process {
 	return newAttachedProcess(held, conn, socket, remove, 0, Frame{})
 }
 
 // newAttachedProcess returns the Process for held, the holder's own process, whose conn is attached at replayFrom. The
 // stream's out frames start at replayFrom. attached is the attached frame the holder answered: acks carry no consumed or
-// replay-from below its offsets. remove is the directory removed once the holder has ended.
+// replay-from below its offsets. remove is the directory removed once the holder has ended, or empty to keep it.
 func newAttachedProcess(
 	held heldProcess,
 	conn *Conn,
@@ -121,6 +121,16 @@ func (p *Process) Stdin() io.WriteCloser {
 // Stdout returns the read end of the child's stdout.
 func (p *Process) Stdout() io.ReadCloser {
 	return processStdout{p: p}
+}
+
+// Exit returns the exit record once the exit frame has arrived, and false before.
+func (p *Process) Exit() (Exit, bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.exit == nil {
+		return Exit{}, false
+	}
+	return *p.exit, true
 }
 
 // Stderr returns the child's stderr tail from the exit record once the exit frame has arrived. Before that it returns
@@ -228,13 +238,13 @@ func (p *Process) run() {
 }
 
 // awaitHolder waits for the holder's process to end and the stream to finish, so the exit record is read first. It then
-// removes the holder's directory unless the process is detached, and closes ended. endErr carries the connection's close
-// error and the removal's.
+// removes the holder's directory unless the process is detached or keeps it, and closes ended. endErr carries the
+// connection's close error and the removal's.
 func (p *Process) awaitHolder() {
 	<-p.held.Done()
 	<-p.streamDone
 	p.endErr = p.closeErr
-	if !p.isDetached() {
+	if !p.isDetached() && p.remove != "" {
 		if err := os.RemoveAll(p.remove); err != nil {
 			p.endErr = errors.Join(p.endErr, fmt.Errorf("holder: remove %s: %w", p.remove, err))
 		}

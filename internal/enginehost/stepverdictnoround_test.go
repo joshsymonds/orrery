@@ -123,6 +123,7 @@ func newVerdictWatchFixture(t *testing.T, haiku haikuCaller) *watchLoopFixture {
 }
 
 func TestVerdictNoRoundFailsLatchesBeforeOwnerNudge(t *testing.T) {
+	t.Parallel()
 	f := newVerdictFixture(t, nil)
 	_, done := f.start(t)
 	f.run.Event(session.Started{})
@@ -192,6 +193,7 @@ func TestVerdictNoRoundFailsLatchesAroundHold(t *testing.T) {
 }
 
 func TestVerdictNoRoundFailsLatchesAtWatchdogNudge(t *testing.T) {
+	t.Parallel()
 	haiku := &watchLoopHaiku{replies: []watchLoopReply{watchLoopVerdict(watchVerdictLooping, watchLoopDoing)}}
 	f := newVerdictWatchFixture(t, haiku)
 	f.event(0, session.Started{})

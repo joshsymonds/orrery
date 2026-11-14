@@ -97,10 +97,11 @@ func (f *stepsFake) StopStep(
 	return connect.NewResponse(&enginev1.StopStepResponse{}), nil
 }
 
-// stepsClient serves newStepsHandler(steps, 0) on an httptest server and returns a generated Steps client for it.
+// stepsClient serves newStepsHandler(steps, 0, a fake clock) on an httptest server and returns a generated Steps client
+// for it.
 func stepsClient(t *testing.T, steps StepClient) orreryv1connect.StepsClient {
 	t.Helper()
-	path, handler := newStepsHandler(steps, 0)
+	path, handler := newStepsHandler(steps, 0, newRetryClock())
 	mux := http.NewServeMux()
 	mux.Handle(path, handler)
 	srv := httptest.NewServer(mux)

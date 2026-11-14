@@ -30,6 +30,21 @@ var ErrUnattachable = errors.New("holder: live holder cannot be attached")
 // The holder is not the caller's child, so the Process learns the holder's end from the session lock: once the lock is
 // free, the exit record is read for Wait and Stderr. Its fallback Stop is Stop on dir.
 func Reattach(ctx context.Context, dir string, replayFrom int64) (*Process, []string, error) {
+	return reattach(ctx, dir, replayFrom, dir)
+}
+
+// ReattachGate takes over the gate holder that serves dir, as Reattach does, at offset 0. A gate's child starts with
+// its stdin closed, so the holder applies no writes and ReattachGate reports none. The Process keeps dir once the
+// holder has ended, exit record included, for the caller to clear, as a gate Launch's Process does. Its errors are
+// Reattach's.
+func ReattachGate(ctx context.Context, dir string) (*Process, error) {
+	p, _, err := reattach(ctx, dir, 0, "")
+	return p, err
+}
+
+// reattach does the work of Reattach and ReattachGate. The Process removes remove once the holder has ended, or keeps
+// its directory when remove is empty.
+func reattach(ctx context.Context, dir string, replayFrom int64, remove string) (*Process, []string, error) {
 	lockPath := filepath.Join(dir, LockName)
 	lock, err := os.OpenFile(filepath.Clean(lockPath), os.O_RDWR, 0)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -54,7 +69,7 @@ func Reattach(ctx context.Context, dir string, replayFrom int64) (*Process, []st
 		return nil, nil, failedAttach(lock, err)
 	}
 	held := watchHolder(dir, lock)
-	return newAttachedProcess(held, conn, sock, dir, replayFrom, attached), attached.Written, nil
+	return newAttachedProcess(held, conn, sock, remove, replayFrom, attached), attached.Written, nil
 }
 
 // unattachable wraps cause in ErrUnattachable.

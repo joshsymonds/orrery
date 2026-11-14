@@ -6,10 +6,11 @@
 # start of a text block and never finishes it, TERMPROOF ignores SIGTERM and then stalls as STALL does, DIE streams
 # the same start, writes fake died to stderr and exits with status 3, BACKGROUND starts a background task and ends
 # its turn while the task runs, BGEND ends that task and then answers as any other prompt does, PAIR answers with one
-# assistant line that carries two finished text blocks, "fake pair n.1" and "fake pair n.2", and any other prompt
-# streams "fake reply n". The turns reproduce the stream lines captured from the real CLI, with only text, ids and the
-# session id changed. Every line it reads from stdin, prompts and answers alike, is appended to fakeclaude.stdin as it
-# is read. It exits at stdin EOF.
+# assistant line that carries two finished text blocks, "fake pair n.1" and "fake pair n.2", STEPDONE waits until
+# fakeclaude.release exists in its directory, makes an empty commit there and ends with a success result whose
+# structured output is that commit as done, and any other prompt streams "fake reply n". The turns reproduce the
+# stream lines captured from the real CLI, with only text, ids and the session id changed. Every line it reads from
+# stdin, prompts and answers alike, is appended to fakeclaude.stdin as it is read. It exits at stdin EOF.
 #
 # Its init line lists the --agent it was given, or nothing when it was given none. A prompt that contains NOAGENT gets an
 # init line that lists nothing, as a claude that did not load the agent would.
@@ -50,11 +51,16 @@ turn_open() {
 	printf '%s\n' '{"type":"stream_event","event":{"type":"message_start","message":{"model":"claude-haiku-5-5","id":"msg_1","type":"message","role":"assistant","content":[],"container":null,"stop_reason":null,"stop_sequence":null,"stop_details":null,"usage":{"input_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"cache_creation":{"ephemeral_5m_input_tokens":0,"ephemeral_1h_input_tokens":0},"output_tokens":0,"service_tier":"redacted","inference_geo":"redacted","speed":"redacted"},"input_transformations":[],"diagnostics":null,"context_management":null}},"session_id":"session_1","parent_tool_use_id":null,"uuid":"uuid_6","ttft_ms":0,"thinking_display":"redacted","api_message_id":"redacted","user_message_uuid":"uuid_1","user_message_uuids":["uuid_1"]}'
 }
 
-# turn_close ends a completed turn: the message delta, the message stop and the success result.
+# turn_close ends a completed turn: the message delta, the message stop and the success result. The result carries
+# structured_output set to the JSON in structured when structured is set.
 turn_close() {
 	printf '%s\n' '{"type":"stream_event","event":{"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null,"stop_details":null,"container":null},"usage":{"input_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":0,"output_tokens_details":{"thinking_tokens":0},"iterations":[{"input_tokens":0,"output_tokens":0,"cache_read_input_tokens":0,"cache_creation_input_tokens":0,"cache_creation":{"ephemeral_5m_input_tokens":0,"ephemeral_1h_input_tokens":0},"type":"redacted"}]},"context_management":{"applied_edits":[]}},"session_id":"session_1","parent_tool_use_id":null,"uuid":"uuid_11","api_message_id":"redacted"}'
 	printf '%s\n' '{"type":"stream_event","event":{"type":"message_stop"},"session_id":"session_1","parent_tool_use_id":null,"uuid":"uuid_12","api_message_id":"redacted"}'
-	printf '%s\n' '{"duration_api_ms":0,"stop_reason":"end_turn","session_id":"session_1","total_cost_usd":0,"usage":{"input_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":0,"output_tokens_details":{"thinking_tokens":0},"server_tool_use":{"web_search_requests":0,"web_fetch_requests":0},"service_tier":"redacted","cache_creation":{"ephemeral_1h_input_tokens":0,"ephemeral_5m_input_tokens":0},"inference_geo":"redacted","iterations":[{"input_tokens":0,"output_tokens":0,"cache_read_input_tokens":0,"cache_creation_input_tokens":0,"cache_creation":{"ephemeral_5m_input_tokens":0,"ephemeral_1h_input_tokens":0},"type":"redacted"}],"speed":"redacted","fallback_credit":null},"modelUsage":{"key_1":{"inputTokens":0,"outputTokens":0,"cacheReadInputTokens":0,"cacheCreationInputTokens":0,"webSearchRequests":0,"costUSD":0,"contextWindow":0,"maxOutputTokens":0,"thinkingTokens":0,"cacheCreationEphemeral5mInputTokens":0,"cacheCreationEphemeral1hInputTokens":0,"canonicalModel":"redacted","provider":"redacted","costBasis":"redacted"}},"permission_denials":[],"terminal_reason":"completed","fast_mode_state":"redacted","fast_mode_disabled_reason":"redacted","subagent_stats":{"spawned":0,"requested":{"background":0,"foreground":0,"unset":0},"started_in_background":0,"max_depth":0,"spawned_by_subagents":0,"completed":0,"failed":0,"killed":{"parent":0,"user":0,"system":0},"refused":{"depth_limit":0,"concurrency_limit":0,"budget":0},"by_type":{}},"safety_stops":0,"is_error":false,"num_turns":1,"subtype":"success","api_error_status":null,"result":"redacted","ttft_ms":0,"type":"result","duration_ms":0,"uuid":"uuid_13","ttft_stream_ms":0,"time_to_request_ms":0,"first_content_frame_ms":0,"user_message_uuid":"uuid_1","user_message_uuids":["uuid_1"],"request_sent_wall_ms":0,"first_request_input_tokens":0,"first_request_cache_read_input_tokens":0,"queued_turn_count":0,"result_index":0,"model_usage_since_last_result":{"key_1":{"inputTokens":0,"outputTokens":0,"cacheReadInputTokens":0,"cacheCreationInputTokens":0,"webSearchRequests":0,"costUSD":0,"contextWindow":0,"maxOutputTokens":0,"thinkingTokens":0,"cacheCreationEphemeral5mInputTokens":0,"cacheCreationEphemeral1hInputTokens":0,"canonicalModel":"redacted","provider":"redacted","costBasis":"redacted"}}}'
+	printf '%s' '{'
+	if [ -n "$structured" ]; then
+		printf '%s' '"structured_output":'"$structured"','
+	fi
+	printf '%s\n' '"duration_api_ms":0,"stop_reason":"end_turn","session_id":"session_1","total_cost_usd":0,"usage":{"input_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":0,"output_tokens_details":{"thinking_tokens":0},"server_tool_use":{"web_search_requests":0,"web_fetch_requests":0},"service_tier":"redacted","cache_creation":{"ephemeral_1h_input_tokens":0,"ephemeral_5m_input_tokens":0},"inference_geo":"redacted","iterations":[{"input_tokens":0,"output_tokens":0,"cache_read_input_tokens":0,"cache_creation_input_tokens":0,"cache_creation":{"ephemeral_5m_input_tokens":0,"ephemeral_1h_input_tokens":0},"type":"redacted"}],"speed":"redacted","fallback_credit":null},"modelUsage":{"key_1":{"inputTokens":0,"outputTokens":0,"cacheReadInputTokens":0,"cacheCreationInputTokens":0,"webSearchRequests":0,"costUSD":0,"contextWindow":0,"maxOutputTokens":0,"thinkingTokens":0,"cacheCreationEphemeral5mInputTokens":0,"cacheCreationEphemeral1hInputTokens":0,"canonicalModel":"redacted","provider":"redacted","costBasis":"redacted"}},"permission_denials":[],"terminal_reason":"completed","fast_mode_state":"redacted","fast_mode_disabled_reason":"redacted","subagent_stats":{"spawned":0,"requested":{"background":0,"foreground":0,"unset":0},"started_in_background":0,"max_depth":0,"spawned_by_subagents":0,"completed":0,"failed":0,"killed":{"parent":0,"user":0,"system":0},"refused":{"depth_limit":0,"concurrency_limit":0,"budget":0},"by_type":{}},"safety_stops":0,"is_error":false,"num_turns":1,"subtype":"success","api_error_status":null,"result":"redacted","ttft_ms":0,"type":"result","duration_ms":0,"uuid":"uuid_13","ttft_stream_ms":0,"time_to_request_ms":0,"first_content_frame_ms":0,"user_message_uuid":"uuid_1","user_message_uuids":["uuid_1"],"request_sent_wall_ms":0,"first_request_input_tokens":0,"first_request_cache_read_input_tokens":0,"queued_turn_count":0,"result_index":0,"model_usage_since_last_result":{"key_1":{"inputTokens":0,"outputTokens":0,"cacheReadInputTokens":0,"cacheCreationInputTokens":0,"webSearchRequests":0,"costUSD":0,"contextWindow":0,"maxOutputTokens":0,"thinkingTokens":0,"cacheCreationEphemeral5mInputTokens":0,"cacheCreationEphemeral1hInputTokens":0,"canonicalModel":"redacted","provider":"redacted","costBasis":"redacted"}}}'
 }
 
 # reply streams "fake reply n" in two deltas and ends the turn.
@@ -158,6 +164,19 @@ pair() {
 	turn_close
 }
 
+# stepdone starts a turn, waits until fakeclaude.release exists in its directory, makes an empty commit there, and ends
+# the turn with a success result whose structured output returns that commit as done.
+stepdone() {
+	turn_open
+	while [ ! -e fakeclaude.release ]; do
+		sleep 0.05
+	done
+	git -c user.name=fake -c user.email=fake@example.invalid -c commit.gpgsign=false commit -q --allow-empty \
+		-m "fake done $n"
+	structured='{"status":"done","commit":"'"$(git rev-parse HEAD)"'"}'
+	turn_close
+}
+
 # die streams the start of a text block and one delta of it, writes fake died to stderr and exits with status 3.
 die() {
 	turn_open
@@ -201,6 +220,7 @@ while next; do
 			case $line in
 				*NOAGENT*) omit_agent=1 ;;
 			esac
+			structured=
 			case $line in
 				*ASK*) ask ;;
 				*PERMIT*) permit ;;
@@ -213,6 +233,7 @@ while next; do
 				*BACKGROUND*) background ;;
 				*BGEND*) bgend ;;
 				*PAIR*) pair ;;
+				*STEPDONE*) stepdone ;;
 				*) reply ;;
 			esac
 			;;

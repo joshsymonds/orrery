@@ -88,6 +88,7 @@ func gateLimitTestWantOvertime(t *testing.T, row store.StepRow) {
 }
 
 func TestGateLimitEndsAgentGateOvertimeAtItsLimit(t *testing.T) {
+	t.Parallel()
 	haiku := &watchLoopHaiku{}
 	f := newGateLimitTestFixture(t, haiku, &stepLoopSessions{}, gateLimitTestGate())
 	f.event(0, session.Started{})
@@ -103,6 +104,7 @@ func TestGateLimitEndsAgentGateOvertimeAtItsLimit(t *testing.T) {
 }
 
 func TestGateLimitEndsAgentGateOvertimeWithNoTurnRunning(t *testing.T) {
+	t.Parallel()
 	haiku := &watchLoopHaiku{}
 	f := newGateLimitTestFixture(t, haiku, &stepLoopSessions{}, gateLimitTestGate())
 
@@ -114,6 +116,7 @@ func TestGateLimitEndsAgentGateOvertimeWithNoTurnRunning(t *testing.T) {
 }
 
 func TestGateLimitHeldAgentGateWaitsForRelease(t *testing.T) {
+	t.Parallel()
 	haiku := &watchLoopHaiku{}
 	sessions := &stepLoopSessions{}
 	f := newGateLimitTestFixture(t, haiku, sessions, gateLimitTestGate())
@@ -144,6 +147,7 @@ func TestGateLimitHeldAgentGateWaitsForRelease(t *testing.T) {
 }
 
 func TestGateLimitOrdinaryStepPastLimitIsNotEnded(t *testing.T) {
+	t.Parallel()
 	haiku := &watchLoopHaiku{}
 	f := newGateLimitTestFixture(t, haiku, &stepLoopSessions{}, nil)
 	f.event(gateLimitTestLimit-2*time.Second, session.Started{})

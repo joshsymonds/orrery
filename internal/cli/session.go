@@ -2,6 +2,8 @@ package cli
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -13,6 +15,7 @@ import (
 
 	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
 	"github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1/enginev1connect"
+	"github.com/joshsymonds/orrery/internal/rpcretry"
 )
 
 // SessionBaseURL is the URL the session client sends its RPCs to. The transport dials the session socket for every
@@ -50,16 +53,28 @@ func (e sessionDialError) Unwrap() error {
 	return e.err
 }
 
-// Session implements `orrery session [--url URL] VERB ARGS`. Without --url, every verb but watch is one RPC over the
-// Engine service on the private session socket at socketPath, and watch reads the session's events from the local
-// store. With --url, the verbs go through serve at URL instead, and the socket is not dialed. Start writes the new
-// session's id to out and nothing else.
+// Session implements `orrery session [--url URL] VERB ARGS`. Without --url, every verb but watch is an RPC over the
+// Engine service on the private session socket at socketPath, and start, say, and stop retry an Unavailable answer
+// within rpcretry.Window. watch reads the session's events from the local store. With --url, the verbs go through
+// serve at URL instead, and the socket is not dialed. Start writes the new session's id to out and nothing else.
 func Session(ctx context.Context, socketPath string, args []string, out io.Writer, getenv func(string) string) error {
+	return session(ctx, rpcretry.SystemClock{}, socketPath, args, out, getenv)
+}
+
+// session is Session with the clock its retries wait on.
+func session(
+	ctx context.Context,
+	clock rpcretry.Clock,
+	socketPath string,
+	args []string,
+	out io.Writer,
+	getenv func(string) string,
+) error {
 	if len(args) > 0 && args[0] == sessionURLFlag {
 		if len(args) < sessionTwoArgs || args[1] == "" {
 			return usageError{msg: "session: --url needs a URL"}
 		}
-		return sessionURL(ctx, args[1], args[2:], out)
+		return sessionURL(ctx, clock, args[1], args[2:], out)
 	}
 	if len(args) == 0 {
 		return usageError{msg: sessionVerbUsage}
@@ -71,15 +86,15 @@ func Session(ctx context.Context, socketPath string, args []string, out io.Write
 	client := enginev1connect.NewEngineClient(SessionHTTPClient(socketPath), SessionBaseURL)
 	switch verb {
 	case "start":
-		return sessionStart(ctx, client, socketPath, rest, out)
+		return sessionStart(ctx, clock, client, socketPath, rest, out)
 	case "say":
-		return sessionSay(ctx, client, socketPath, rest)
+		return sessionSay(ctx, clock, client, socketPath, rest)
 	case "answer":
 		return sessionAnswer(ctx, client, socketPath, rest)
 	case "interrupt":
 		return sessionInterrupt(ctx, client, socketPath, rest)
 	case "stop":
-		return sessionStop(ctx, client, socketPath, rest)
+		return sessionStop(ctx, clock, client, socketPath, rest)
 	case "seen":
 		return sessionSeen(ctx, client, socketPath, rest)
 	default:
@@ -110,7 +125,12 @@ func parseStartArgs(args []string) (sessionStartArgs, bool) {
 
 // sessionStart sends the start RPC for `session start [--model MODEL] DIR PROMPT` and writes the new id to out.
 func sessionStart(
-	ctx context.Context, client enginev1connect.EngineClient, socketPath string, args []string, out io.Writer,
+	ctx context.Context,
+	clock rpcretry.Clock,
+	client enginev1connect.EngineClient,
+	socketPath string,
+	args []string,
+	out io.Writer,
 ) error {
 	start, ok := parseStartArgs(args)
 	if !ok {
@@ -120,11 +140,23 @@ func sessionStart(
 	if err != nil {
 		return sessionFailure("start", socketPath, err)
 	}
-	resp, err := client.Start(ctx, connect.NewRequest(&v1.StartRequest{
-		Dir:    dir,
-		Prompt: start.prompt,
-		Model:  start.model,
-	}))
+	// The id is chosen before the first attempt, so a retry names the same session. orreryd answers a start whose id
+	// it has begun with that id and starts nothing, so a start cut mid-call is retried without starting a second one.
+	id, err := newRequestID()
+	if err != nil {
+		return sessionFailure("start", socketPath, err)
+	}
+	var resp *connect.Response[v1.StartResponse]
+	err = rpcretry.Do(ctx, clock, rpcretry.Unavailable, func(callCtx context.Context) error {
+		var callErr error
+		resp, callErr = client.Start(callCtx, connect.NewRequest(&v1.StartRequest{
+			Dir:    dir,
+			Prompt: start.prompt,
+			Model:  start.model,
+			Id:     id,
+		}))
+		return errors.Join(callErr)
+	})
 	if err != nil {
 		return sessionFailure("start", socketPath, err)
 	}
@@ -134,12 +166,41 @@ func sessionStart(
 	return nil
 }
 
+// newRequestID returns a client-chosen id: 128 random bits in lowercase hex, the form orreryd takes for a session id
+// and a prompt id.
+func newRequestID() (string, error) {
+	var raw [16]byte
+	if _, err := rand.Read(raw[:]); err != nil {
+		return "", fmt.Errorf("mint id: %w", err)
+	}
+	return hex.EncodeToString(raw[:]), nil
+}
+
 // sessionSay sends the say RPC for `session say ID TEXT`.
-func sessionSay(ctx context.Context, client enginev1connect.EngineClient, socketPath string, args []string) error {
+func sessionSay(
+	ctx context.Context,
+	clock rpcretry.Clock,
+	client enginev1connect.EngineClient,
+	socketPath string,
+	args []string,
+) error {
 	if len(args) != sessionTwoArgs {
 		return sessionForm("say", "ID TEXT")
 	}
-	_, err := client.Say(ctx, connect.NewRequest(&v1.SayRequest{Id: args[0], Text: args[1]}))
+	// The prompt id is chosen before the first attempt, so a retry sends the same prompt. orreryd sends nothing for a
+	// prompt id the session has already recorded, so a say cut mid-call is retried without sending the prompt twice.
+	promptID, err := newRequestID()
+	if err != nil {
+		return sessionFailure("say", socketPath, err)
+	}
+	err = rpcretry.Do(ctx, clock, rpcretry.Unavailable, func(callCtx context.Context) error {
+		_, callErr := client.Say(callCtx, connect.NewRequest(&v1.SayRequest{
+			Id:       args[0],
+			Text:     args[1],
+			PromptId: promptID,
+		}))
+		return errors.Join(callErr)
+	})
 	return sessionFailure("say", socketPath, err)
 }
 
@@ -171,11 +232,20 @@ func sessionInterrupt(
 }
 
 // sessionStop sends the stop RPC for `session stop ID`.
-func sessionStop(ctx context.Context, client enginev1connect.EngineClient, socketPath string, args []string) error {
+func sessionStop(
+	ctx context.Context,
+	clock rpcretry.Clock,
+	client enginev1connect.EngineClient,
+	socketPath string,
+	args []string,
+) error {
 	if len(args) != sessionOneArg {
 		return sessionForm("stop", "ID")
 	}
-	_, err := client.Stop(ctx, connect.NewRequest(&v1.StopRequest{Id: args[0]}))
+	err := rpcretry.Do(ctx, clock, rpcretry.Unavailable, func(callCtx context.Context) error {
+		_, callErr := client.Stop(callCtx, connect.NewRequest(&v1.StopRequest{Id: args[0]}))
+		return errors.Join(callErr)
+	})
 	return sessionFailure("stop", socketPath, err)
 }
 

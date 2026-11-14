@@ -18,8 +18,10 @@ import (
 	orreryv1 "github.com/joshsymonds/orrery/internal/gen/orrery/v1"
 	"github.com/joshsymonds/orrery/internal/gen/orrery/v1/orreryv1connect"
 	"github.com/joshsymonds/orrery/internal/push"
+	"github.com/joshsymonds/orrery/internal/rpcretry"
 	"github.com/joshsymonds/orrery/internal/server"
 	"github.com/joshsymonds/orrery/internal/store"
+	"github.com/joshsymonds/orrery/internal/storetest"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
 )
 
@@ -87,6 +89,17 @@ func startEvents(t *testing.T, args ...string) *eventsCall {
 	return call
 }
 
+// startEventsOnClock is startEvents with the retry clock moving forward by step on every wait.
+func startEventsOnClock(t *testing.T, step time.Duration, args ...string) *eventsCall {
+	t.Helper()
+	call := &eventsCall{out: &eventsOutput{wrote: make(chan struct{}, 1)}, done: make(chan struct{})}
+	go func() {
+		call.err = cli.EventsOnSteppedClock(t.Context(), step, args, call.out)
+		close(call.done)
+	}()
+	return call
+}
+
 // wait returns the error the call returned, and fails the test when the call runs past eventsWait.
 func (c *eventsCall) wait(t *testing.T) error {
 	t.Helper()
@@ -118,6 +131,7 @@ func (c *eventsCall) waitLines(t *testing.T, want int) {
 // openEventsStore opens the writer for the store at path and closes it at cleanup.
 func openEventsStore(t *testing.T, path string) *store.Store {
 	t.Helper()
+	storetest.Seed(t, path)
 	s, err := store.Open(t.Context(), path)
 	if err != nil {
 		t.Fatalf("store.Open: %v", err)
@@ -275,7 +289,8 @@ func TestEventsFollowWithoutAfterWritesOnlyEventsAfterList(t *testing.T) {
 	watched := make(chan struct{}, 1)
 	url, stop := serveEvents(t, path, watched)
 
-	call := startEvents(t, "--url", url, "--follow")
+	// Each retry wait moves the clock a whole window, so serve's Unavailable end is retried once and then given up.
+	call := startEventsOnClock(t, rpcretry.Window, "--url", url, "--follow")
 	select {
 	case <-watched:
 	case <-time.After(eventsWait):

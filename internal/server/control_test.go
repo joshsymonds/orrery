@@ -419,6 +419,8 @@ func TestControlDeadlineExceeded(t *testing.T) {
 }
 
 func TestControlZeroTimeoutMeansTenSeconds(t *testing.T) {
+	// The test waits out the ten-second default, so it runs in parallel with the other tests.
+	t.Parallel()
 	fake := &fakeEngine{block: make(chan struct{})}
 	engine := newFakeOrreryd(t, fake)
 	t.Cleanup(func() { close(fake.block) })

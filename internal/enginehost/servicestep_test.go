@@ -37,6 +37,7 @@ func (f *stepIDs) Status(_ context.Context, id string) (store.StepRow, error) {
 }
 
 func TestEngineRefusesStepIDsWithoutReachingCommands(t *testing.T) {
+	t.Parallel()
 	engine := &fakeCommands{}
 	path, stop := startServerWithSteps(t, engine, &stepIDs{steps: map[string]bool{"s1": true}})
 	errs := callAll(t, newClient(t, path))
@@ -75,6 +76,7 @@ func TestEngineRefusesStepIDsWithoutReachingCommands(t *testing.T) {
 }
 
 func TestEngineForwardsNonStepIDsAsBefore(t *testing.T) {
+	t.Parallel()
 	engine := &fakeCommands{startID: "0123456789abcdef0123456789abcdef"}
 	path, stop := startServerWithSteps(t, engine, &stepIDs{})
 	for i, err := range callAll(t, newClient(t, path)) {
@@ -100,6 +102,7 @@ func TestEngineForwardsNonStepIDsAsBefore(t *testing.T) {
 }
 
 func TestEngineStatusFailureIsInternalAndReachesNoCommand(t *testing.T) {
+	t.Parallel()
 	engine := &fakeCommands{}
 	path, stop := startServerWithSteps(t, engine, &stepIDs{statusErr: errors.New("disk on fire")})
 	errs := callAll(t, newClient(t, path))

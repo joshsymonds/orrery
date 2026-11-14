@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"net/http"
@@ -15,6 +16,7 @@ import (
 	enginev1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
 	orreryv1 "github.com/joshsymonds/orrery/internal/gen/orrery/v1"
 	orreryv1connect "github.com/joshsymonds/orrery/internal/gen/orrery/v1/orreryv1connect"
+	"github.com/joshsymonds/orrery/internal/rpcretry"
 )
 
 // epicNotFound is the fixed message for a Get of an id that the record root does not list.
@@ -42,11 +44,12 @@ type epicsServer struct {
 	store   EpicStoreClient
 	timeout time.Duration
 	now     func() time.Time
+	clock   rpcretry.Clock
 }
 
 // List answers every epic under the record root and every epic orreryd's database holds, live or folded, sorted by id.
 // An epic in both is answered once, with the database's fields and the record's problem. It asks ListEpics and ListSteps
-// once each.
+// once each, and again only to retry an unavailable answer.
 func (e epicsServer) List(
 	ctx context.Context,
 	_ *connect.Request[orreryv1.EpicsListRequest],
@@ -146,14 +149,20 @@ func (e epicsServer) Get(
 }
 
 // listSteps asks the step client for the labeled steps, narrowed to epic when epic is not empty. A nil client, or a
-// ListSteps that fails, answers unavailable. The call runs under the timeout.
+// ListSteps that still fails after its unavailable retries, answers unavailable.
 func (e epicsServer) listSteps(ctx context.Context, epic string) ([]*enginev1.Step, error) {
 	if e.steps == nil {
 		return nil, listError(connect.CodeUnavailable, stepsUnavailable)
 	}
-	ctx, cancel := context.WithTimeout(ctx, e.timeout)
-	defer cancel()
-	resp, err := e.steps.ListSteps(ctx, connect.NewRequest(&enginev1.ListStepsRequest{Epic: epic}))
+	var resp *connect.Response[enginev1.ListStepsResponse]
+	err := retryUnder(ctx, e.clock, e.timeout, rpcretry.Unavailable, func(ctx context.Context) error {
+		var err error
+		resp, err = e.steps.ListSteps(ctx, connect.NewRequest(&enginev1.ListStepsRequest{Epic: epic}))
+		if err != nil {
+			return fmt.Errorf("server: list steps: %w", err)
+		}
+		return nil
+	})
 	if err != nil {
 		return nil, listError(connect.CodeUnavailable, stepsUnavailable)
 	}
@@ -161,14 +170,18 @@ func (e epicsServer) listSteps(ctx context.Context, epic string) ([]*enginev1.St
 }
 
 // listStored asks the epic store for its epics. A nil store lists none, and so does a ListEpics that is unimplemented, as
-// an older orreryd answers. Any other failure answers unavailable. The call runs under the timeout.
+// an older orreryd answers. An unavailable answer is retried as listSteps retries it. Any other failure answers
+// unavailable. Each attempt runs under the timeout.
 func (e epicsServer) listStored(ctx context.Context) ([]*enginev1.EpicSummary, error) {
 	if e.store == nil {
 		return nil, nil
 	}
-	ctx, cancel := context.WithTimeout(ctx, e.timeout)
-	defer cancel()
-	resp, err := e.store.ListEpics(ctx, connect.NewRequest(&enginev1.ListEpicsRequest{}))
+	var resp *connect.Response[enginev1.ListEpicsResponse]
+	err := retryUnder(ctx, e.clock, e.timeout, rpcretry.Unavailable, func(ctx context.Context) error {
+		var err error
+		resp, err = e.store.ListEpics(ctx, connect.NewRequest(&enginev1.ListEpicsRequest{}))
+		return errors.Join(err)
+	})
 	if err != nil {
 		if connect.CodeOf(err) == connect.CodeUnimplemented {
 			return nil, nil
@@ -179,15 +192,18 @@ func (e epicsServer) listStored(ctx context.Context) ([]*enginev1.EpicSummary, e
 }
 
 // getStored asks the epic store for the epic of id. It reports false, with no error, when there is no store or the store
-// answers not_found or unimplemented, so that the record answers. Any other failure answers unavailable. The call runs
-// under the timeout.
+// answers not_found or unimplemented, so that the record answers. An unavailable answer is retried as listSteps retries
+// it. Any other failure answers unavailable. Each attempt runs under the timeout.
 func (e epicsServer) getStored(ctx context.Context, id string) (*enginev1.StoredEpic, bool, error) {
 	if e.store == nil {
 		return nil, false, nil
 	}
-	ctx, cancel := context.WithTimeout(ctx, e.timeout)
-	defer cancel()
-	resp, err := e.store.GetEpic(ctx, connect.NewRequest(&enginev1.GetEpicRequest{Id: id}))
+	var resp *connect.Response[enginev1.GetEpicResponse]
+	err := retryUnder(ctx, e.clock, e.timeout, rpcretry.Unavailable, func(ctx context.Context) error {
+		var err error
+		resp, err = e.store.GetEpic(ctx, connect.NewRequest(&enginev1.GetEpicRequest{Id: id}))
+		return errors.Join(err)
+	})
 	if err != nil {
 		if code := connect.CodeOf(err); code == connect.CodeNotFound || code == connect.CodeUnimplemented {
 			return nil, false, nil
@@ -483,19 +499,20 @@ func epicTaskMessages(tasks []taskRecord) ([]*orreryv1.EpicTask, error) {
 
 // newEpicsHandler returns the path and handler that serve Epics over the records under root, the epics store holds, and
 // the labeled steps of steps, reading at most maxControlBody bytes of each request. A zero timeout is
-// defaultControlTimeout. now dates each record epic's liveness.
+// defaultControlTimeout. now dates each record epic's liveness, and clock times the retries of the calls to orreryd.
 func newEpicsHandler(
 	root string,
 	steps StepClient,
 	store EpicStoreClient,
 	timeout time.Duration,
 	now func() time.Time,
+	clock rpcretry.Clock,
 ) (string, http.Handler) {
 	if timeout == 0 {
 		timeout = defaultControlTimeout
 	}
 	return orreryv1connect.NewEpicsHandler(
-		epicsServer{root: root, steps: steps, store: store, timeout: timeout, now: now},
+		epicsServer{root: root, steps: steps, store: store, timeout: timeout, now: now, clock: clock},
 		connect.WithReadMaxBytes(maxControlBody),
 	)
 }
