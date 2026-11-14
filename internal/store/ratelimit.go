@@ -19,6 +19,13 @@ type EngineRateLimited struct {
 	ResetsAt time.Time
 }
 
+// EngineRateLimitCleared deletes the stored rate limit of session ID, so RateLimit and StepRateLimit of the session
+// read false until a later EngineRateLimited stores a new row. A session with no row is not an error. It appends no
+// event.
+type EngineRateLimitCleared struct {
+	ID string
+}
+
 // RateLimit is the stored rate limit of an engine session. Times are stored at whole seconds.
 type RateLimit struct {
 	Status   string
@@ -32,6 +39,13 @@ func (op EngineRateLimited) applyEngine(ctx context.Context, queries *sqlcgen.Qu
 		SessionID: op.ID, Status: op.Status, Kind: op.Kind, ResetsAt: op.ResetsAt.Unix(), At: now.Unix(),
 	}); err != nil {
 		return fmt.Errorf("upsert rate limit of session %s: %w", op.ID, err)
+	}
+	return nil
+}
+
+func (op EngineRateLimitCleared) applyEngine(ctx context.Context, queries *sqlcgen.Queries, _ time.Time) error {
+	if err := queries.DeleteEngineRateLimit(ctx, op.ID); err != nil {
+		return fmt.Errorf("delete rate limit of session %s: %w", op.ID, err)
 	}
 	return nil
 }

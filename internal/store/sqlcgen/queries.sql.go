@@ -134,6 +134,15 @@ func (q *Queries) CountRunningEpicTurns(ctx context.Context, epic string) (int64
 	return column_1, err
 }
 
+const deleteEngineRateLimit = `-- name: DeleteEngineRateLimit :exec
+DELETE FROM engine_rate_limits WHERE session_id = ?
+`
+
+func (q *Queries) DeleteEngineRateLimit(ctx context.Context, sessionID string) error {
+	_, err := q.db.ExecContext(ctx, deleteEngineRateLimit, sessionID)
+	return err
+}
+
 const deleteEngineText = `-- name: DeleteEngineText :exec
 DELETE FROM engine_text
 WHERE session_id = ? AND message_id = ? AND block_index = ? AND parent_tool_use_id = ?

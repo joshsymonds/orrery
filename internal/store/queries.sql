@@ -474,6 +474,9 @@ INSERT INTO engine_rate_limits (session_id, status, kind, resets_at, at) VALUES 
 ON CONFLICT (session_id)
 DO UPDATE SET status = excluded.status, kind = excluded.kind, resets_at = excluded.resets_at, at = excluded.at;
 
+-- name: DeleteEngineRateLimit :exec
+DELETE FROM engine_rate_limits WHERE session_id = ?;
+
 -- name: GetEngineRateLimit :one
 SELECT * FROM engine_rate_limits WHERE session_id = ?;
 
