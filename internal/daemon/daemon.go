@@ -29,6 +29,8 @@ const (
 	readTimeout = 2 * time.Second
 	// probeTimeout bounds the dial that decides whether a socket file has a live listener.
 	probeTimeout = time.Second
+	// answerTimeout bounds the write of a sessions answer, so a sender that stops reading holds no connection.
+	answerTimeout = time.Second
 	// defaultTidyInterval is the tidy period when Config.TidyInterval is not positive.
 	defaultTidyInterval = 10 * time.Second
 	// defaultSocketSkipMsg is the warning logged when the tidy skips the default socket.
@@ -66,6 +68,8 @@ type Config struct {
 	// Home is the user's home directory. Each applied frame's Cwd is searched for a context stamp below it. Empty
 	// means no stamp is found.
 	Home string
+	// Sessions is whether this orreryd serves sessions.sock. A sessions question is answered with it.
+	Sessions bool
 }
 
 // SeenReport is one seen report: the pane the sender marked seen and the seen time it wrote.
@@ -219,6 +223,10 @@ func (h *frameHandler) serveConn(ctx context.Context, conn net.Conn) {
 		h.logger.WarnContext(ctx, "read hook frame", "error", err)
 		return
 	}
+	if frame.Ask == protocol.SessionsAsk {
+		h.answerSessions(ctx, conn)
+		return
+	}
 	if frame.Hook == nil {
 		if frame.Input != 0 {
 			h.reportInput(frame)
@@ -236,6 +244,18 @@ func (h *frameHandler) serveConn(ctx context.Context, conn net.Conn) {
 		return
 	}
 	h.apply(context.WithoutCancel(ctx), frame)
+}
+
+// answerSessions writes whether this orreryd serves sessions to conn. It never touches tmux, a pane, the observers,
+// Config.Seen, Config.Read or Config.Input.
+func (h *frameHandler) answerSessions(ctx context.Context, conn net.Conn) {
+	if err := conn.SetWriteDeadline(time.Now().Add(answerTimeout)); err != nil {
+		h.logger.WarnContext(ctx, "set write deadline", "error", err)
+		return
+	}
+	if err := protocol.WriteSessionsAnswer(conn, h.cfg.Sessions); err != nil {
+		h.logger.WarnContext(ctx, "write sessions answer", "error", err)
+	}
 }
 
 // reportSeen passes a seen report to Config.Seen. It drops the report when its pane is empty or Config.Seen is nil,

@@ -407,6 +407,7 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 		Server:        opts.server,
 		DefaultServer: opts.defaultServer,
 		Home:          home,
+		Sessions:      opts.sessions,
 		Observers: []daemon.Observer{observe, autoseen.New(time.Now, logger, func(pane string, seen int64) {
 			router.Seen(ctx, notice.Key{Pane: pane}, seen)
 		})},
