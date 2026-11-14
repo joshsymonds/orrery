@@ -185,8 +185,9 @@ type Manager struct {
 	mu sync.Mutex
 	// sessions holds the running sessions whose pump has not finished.
 	sessions map[string]*liveSession
-	// stopping holds the retired sessions whose pump has not finished, by id. A Say that finds no live session waits for
-	// the one held here, so its slot is free when it resumes (see awaitStopping).
+	// stopping holds the retired sessions, by id, until their pump has ended and their stop has returned (see
+	// stopRetired). A Say or Continue that finds no live session waits for the one held here, so its old holder's
+	// directory is gone when it resumes (see awaitStopping).
 	stopping map[string]*liveSession
 	// reserved counts the sessions being started or running, which is what the cap limits. stepLimit is the cap on
 	// step sessions, and stepsRunning counts the step sessions being started or running, apart from reserved.
@@ -583,9 +584,9 @@ func (m *Manager) Continue(ctx context.Context, id string, prompt StepPrompt) er
 // claude session with the step's agent and schema, registered as a step with the observer it was started with. It first
 // waits for a drained holder of id to end (see awaitStopping), so the new process never starts over the old holder's record
 // or directory. Then it takes the step slot kept for id, or one under StepCap, before reading the rows, so a full cap
-// refuses the respawn before anything is recorded (see reserveStep). A directory that is gone, an agent that no longer resolves, or a spawn
-// that fails, records the step failed without a notice and returns the error. It returns the step claimed with its turn
-// running, as claimStep does. resumeMu makes concurrent calls for one id start a single process. It returns an error
+// refuses the respawn before anything is recorded (see reserveStep). A directory that is gone, an agent that no longer
+// resolves, or a spawn that fails, records the step failed without a notice and returns the error. It returns the step
+// claimed with its turn running, as claimStep does. resumeMu makes concurrent calls for one id start a single process. It returns an error
 // wrapping ErrNoSession when id is not a step row.
 func (m *Manager) respawnStep(ctx context.Context, id string) (*liveSession, error) {
 	m.resumeMu.Lock()
