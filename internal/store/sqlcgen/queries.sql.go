@@ -1463,6 +1463,39 @@ func (q *Queries) ListEpicPremises(ctx context.Context, epic string) ([]EpicPrem
 	return items, nil
 }
 
+const listEpicQuestions = `-- name: ListEpicQuestions :many
+SELECT epic, seq, turn, text, state FROM epic_questions WHERE epic = ? ORDER BY seq
+`
+
+func (q *Queries) ListEpicQuestions(ctx context.Context, epic string) ([]EpicQuestion, error) {
+	rows, err := q.db.QueryContext(ctx, listEpicQuestions, epic)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []EpicQuestion
+	for rows.Next() {
+		var i EpicQuestion
+		if err := rows.Scan(
+			&i.Epic,
+			&i.Seq,
+			&i.Turn,
+			&i.Text,
+			&i.State,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listEpicReleaseSteps = `-- name: ListEpicReleaseSteps :many
 SELECT epic, position, step, target, undo FROM epic_release_steps WHERE epic = ? ORDER BY position
 `
@@ -1516,6 +1549,219 @@ func (q *Queries) ListEpicRequirements(ctx context.Context, epic string) ([]Epic
 			&i.Text,
 			&i.Evidence,
 			&i.Kind,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listEpicTaskFiles = `-- name: ListEpicTaskFiles :many
+SELECT epic, task, position, path FROM epic_task_files WHERE epic = ? ORDER BY task, position
+`
+
+func (q *Queries) ListEpicTaskFiles(ctx context.Context, epic string) ([]EpicTaskFile, error) {
+	rows, err := q.db.QueryContext(ctx, listEpicTaskFiles, epic)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []EpicTaskFile
+	for rows.Next() {
+		var i EpicTaskFile
+		if err := rows.Scan(
+			&i.Epic,
+			&i.Task,
+			&i.Position,
+			&i.Path,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listEpicTaskRequirements = `-- name: ListEpicTaskRequirements :many
+SELECT epic, task, position, requirement FROM epic_task_requirements WHERE epic = ? ORDER BY task, position
+`
+
+func (q *Queries) ListEpicTaskRequirements(ctx context.Context, epic string) ([]EpicTaskRequirement, error) {
+	rows, err := q.db.QueryContext(ctx, listEpicTaskRequirements, epic)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []EpicTaskRequirement
+	for rows.Next() {
+		var i EpicTaskRequirement
+		if err := rows.Scan(
+			&i.Epic,
+			&i.Task,
+			&i.Position,
+			&i.Requirement,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listEpicTasks = `-- name: ListEpicTasks :many
+SELECT epic, seq, turn, title, deliverable, task_check, status FROM epic_tasks WHERE epic = ? ORDER BY seq
+`
+
+func (q *Queries) ListEpicTasks(ctx context.Context, epic string) ([]EpicTask, error) {
+	rows, err := q.db.QueryContext(ctx, listEpicTasks, epic)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []EpicTask
+	for rows.Next() {
+		var i EpicTask
+		if err := rows.Scan(
+			&i.Epic,
+			&i.Seq,
+			&i.Turn,
+			&i.Title,
+			&i.Deliverable,
+			&i.TaskCheck,
+			&i.Status,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listEpicTurnDecisionsOf = `-- name: ListEpicTurnDecisionsOf :many
+SELECT epic, turn, position, text FROM epic_turn_decisions WHERE epic = ? AND turn = ? ORDER BY position
+`
+
+type ListEpicTurnDecisionsOfParams struct {
+	Epic string
+	Turn int64
+}
+
+func (q *Queries) ListEpicTurnDecisionsOf(ctx context.Context, arg ListEpicTurnDecisionsOfParams) ([]EpicTurnDecision, error) {
+	rows, err := q.db.QueryContext(ctx, listEpicTurnDecisionsOf, arg.Epic, arg.Turn)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []EpicTurnDecision
+	for rows.Next() {
+		var i EpicTurnDecision
+		if err := rows.Scan(
+			&i.Epic,
+			&i.Turn,
+			&i.Position,
+			&i.Text,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listEpicTurnTriggers = `-- name: ListEpicTurnTriggers :many
+SELECT epic, id, cause, state, turn, created FROM epic_triggers WHERE epic = ? AND turn = ? ORDER BY id
+`
+
+type ListEpicTurnTriggersParams struct {
+	Epic string
+	Turn int64
+}
+
+func (q *Queries) ListEpicTurnTriggers(ctx context.Context, arg ListEpicTurnTriggersParams) ([]EpicTrigger, error) {
+	rows, err := q.db.QueryContext(ctx, listEpicTurnTriggers, arg.Epic, arg.Turn)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []EpicTrigger
+	for rows.Next() {
+		var i EpicTrigger
+		if err := rows.Scan(
+			&i.Epic,
+			&i.ID,
+			&i.Cause,
+			&i.State,
+			&i.Turn,
+			&i.Created,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listEpicTurns = `-- name: ListEpicTurns :many
+SELECT epic, seq, step, state, reason, seen, outline, outcome, started, ended FROM epic_turns WHERE epic = ? ORDER BY seq
+`
+
+func (q *Queries) ListEpicTurns(ctx context.Context, epic string) ([]EpicTurn, error) {
+	rows, err := q.db.QueryContext(ctx, listEpicTurns, epic)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []EpicTurn
+	for rows.Next() {
+		var i EpicTurn
+		if err := rows.Scan(
+			&i.Epic,
+			&i.Seq,
+			&i.Step,
+			&i.State,
+			&i.Reason,
+			&i.Seen,
+			&i.Outline,
+			&i.Outcome,
+			&i.Started,
+			&i.Ended,
 		); err != nil {
 			return nil, err
 		}
@@ -2043,6 +2289,44 @@ func (q *Queries) ListRecentEpicTurnStates(ctx context.Context, epic string) ([]
 			return nil, err
 		}
 		items = append(items, state)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listRunningEpicTurns = `-- name: ListRunningEpicTurns :many
+SELECT epic, seq, step, state, reason, seen, outline, outcome, started, ended FROM epic_turns WHERE state = 'running' ORDER BY epic, seq
+`
+
+func (q *Queries) ListRunningEpicTurns(ctx context.Context) ([]EpicTurn, error) {
+	rows, err := q.db.QueryContext(ctx, listRunningEpicTurns)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []EpicTurn
+	for rows.Next() {
+		var i EpicTurn
+		if err := rows.Scan(
+			&i.Epic,
+			&i.Seq,
+			&i.Step,
+			&i.State,
+			&i.Reason,
+			&i.Seen,
+			&i.Outline,
+			&i.Outcome,
+			&i.Started,
+			&i.Ended,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
 	}
 	if err := rows.Close(); err != nil {
 		return nil, err

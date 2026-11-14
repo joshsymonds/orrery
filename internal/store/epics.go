@@ -34,6 +34,8 @@ type EpicRow struct {
 	Phase       string
 	Created     time.Time
 	Changed     time.Time
+	Paused      bool
+	Parked      string
 
 	Failures     []EpicFailure
 	Additions    []EpicAddition
@@ -43,6 +45,9 @@ type EpicRow struct {
 	Alternatives []EpicAlternative
 	ReleaseSteps []EpicReleaseStep
 	Decisions    []EpicDecision
+	Turns        []EpicTurn
+	Tasks        []EpicTask
+	Questions    []EpicQuestion
 }
 
 // EpicFailure is one thing that could go wrong, with its level of care and its response.
@@ -225,7 +230,7 @@ func (s *Store) Epic(ctx context.Context, id string) (EpicRow, error) {
 	return row, nil
 }
 
-// loadEpicSections fills the ordered sections and decisions of row from the rows stored under row.ID.
+// loadEpicSections fills the ordered sections, decisions and planner sections of row from the rows stored under row.ID.
 func loadEpicSections(ctx context.Context, queries *sqlcgen.Queries, row *EpicRow) error {
 	failures, err := queries.ListEpicFailures(ctx, row.ID)
 	if err != nil {
@@ -286,6 +291,10 @@ func loadEpicSections(ctx context.Context, queries *sqlcgen.Queries, row *EpicRo
 		return fmt.Errorf("list decisions: %w", err)
 	}
 	row.Decisions = mapInOrder(decisions, epicDecisionOf)
+
+	if err = loadPlanSections(ctx, queries, row); err != nil {
+		return fmt.Errorf("planner sections: %w", err)
+	}
 	return nil
 }
 
@@ -363,6 +372,8 @@ func epicHeadOf(head sqlcgen.Epic) EpicRow {
 		Phase:       head.Phase,
 		Created:     time.Unix(head.Created, 0),
 		Changed:     time.Unix(head.Changed, 0),
+		Paused:      head.Paused != 0,
+		Parked:      head.Parked,
 	}
 }
 

@@ -403,3 +403,27 @@ UPDATE epics SET parked = ? WHERE id = ?;
 
 -- name: PauseEpic :exec
 UPDATE epics SET paused = 1 WHERE id = ?;
+
+-- name: ListEpicTurns :many
+SELECT * FROM epic_turns WHERE epic = ? ORDER BY seq;
+
+-- name: ListRunningEpicTurns :many
+SELECT * FROM epic_turns WHERE state = 'running' ORDER BY epic, seq;
+
+-- name: ListEpicTurnDecisionsOf :many
+SELECT * FROM epic_turn_decisions WHERE epic = ? AND turn = ? ORDER BY position;
+
+-- name: ListEpicTasks :many
+SELECT * FROM epic_tasks WHERE epic = ? ORDER BY seq;
+
+-- name: ListEpicTaskFiles :many
+SELECT * FROM epic_task_files WHERE epic = ? ORDER BY task, position;
+
+-- name: ListEpicTaskRequirements :many
+SELECT * FROM epic_task_requirements WHERE epic = ? ORDER BY task, position;
+
+-- name: ListEpicQuestions :many
+SELECT * FROM epic_questions WHERE epic = ? ORDER BY seq;
+
+-- name: ListEpicTurnTriggers :many
+SELECT * FROM epic_triggers WHERE epic = ? AND turn = ? ORDER BY id;

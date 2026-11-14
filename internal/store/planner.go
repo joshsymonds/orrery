@@ -43,6 +43,37 @@ type EpicTurn struct {
 	Ended     time.Time
 }
 
+// EpicTask is one task an epic's planner turn planned: its title, its deliverable, the files it touches, the
+// Requirements it covers, its check and its status. Turn is the seq of the turn that planned it.
+type EpicTask struct {
+	Seq          int64
+	Turn         int64
+	Title        string
+	Deliverable  string
+	Files        []string
+	Requirements []string
+	Check        string
+	Status       string
+}
+
+// EpicQuestion is one question a planner turn asked, with its state. Turn is the seq of the turn that asked it.
+type EpicQuestion struct {
+	Seq   int64
+	Turn  int64
+	Text  string
+	State string
+}
+
+// EpicTrigger is one trigger of an epic: its cause, its state, the turn that claimed it (0 while pending) and when it
+// was created.
+type EpicTrigger struct {
+	ID      string
+	Cause   string
+	State   string
+	Turn    int64
+	Created time.Time
+}
+
 // EpicPlan is the valid return of one planner turn: its decisions, its tasks, its outline, its questions and its
 // outcome.
 type EpicPlan struct {
@@ -78,6 +109,116 @@ func (s *Store) PlanStates(ctx context.Context) ([]EpicPlanState, error) {
 			Pending: int(state.Pending),
 		}
 	}), nil
+}
+
+// RunningTurns returns every running turn of every epic, ordered by epic then seq, each with its decisions.
+func (s *Store) RunningTurns(ctx context.Context) ([]EpicTurn, error) {
+	queries := sqlcgen.New(s.db)
+	rows, err := queries.ListRunningEpicTurns(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list running turns: %w", err)
+	}
+	var turns []EpicTurn
+	for _, row := range rows {
+		var turn EpicTurn
+		if turn, err = turnOf(ctx, queries, row); err != nil {
+			return nil, fmt.Errorf("turn %d of epic %s: %w", row.Seq, row.Epic, err)
+		}
+		turns = append(turns, turn)
+	}
+	return turns, nil
+}
+
+// TurnTriggers returns the triggers of epic whose turn is seq, ordered by id. A turn with none is nil.
+func (s *Store) TurnTriggers(ctx context.Context, epic string, turn int64) ([]EpicTrigger, error) {
+	rows, err := sqlcgen.New(s.db).ListEpicTurnTriggers(ctx, sqlcgen.ListEpicTurnTriggersParams{
+		Epic: epic, Turn: turn,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list triggers of turn %d of epic %s: %w", turn, epic, err)
+	}
+	return mapInOrder(rows, triggerOf), nil
+}
+
+// loadPlanSections fills the turns, tasks and questions of row from the rows stored under row.ID, each in seq order.
+// A task carries its files and Requirements in position order.
+func loadPlanSections(ctx context.Context, queries *sqlcgen.Queries, row *EpicRow) error {
+	turns, err := queries.ListEpicTurns(ctx, row.ID)
+	if err != nil {
+		return fmt.Errorf("list turns: %w", err)
+	}
+	for _, stored := range turns {
+		var turn EpicTurn
+		if turn, err = turnOf(ctx, queries, stored); err != nil {
+			return fmt.Errorf("turn %d: %w", stored.Seq, err)
+		}
+		row.Turns = append(row.Turns, turn)
+	}
+
+	tasks, err := queries.ListEpicTasks(ctx, row.ID)
+	if err != nil {
+		return fmt.Errorf("list tasks: %w", err)
+	}
+	files, err := queries.ListEpicTaskFiles(ctx, row.ID)
+	if err != nil {
+		return fmt.Errorf("list task files: %w", err)
+	}
+	requirements, err := queries.ListEpicTaskRequirements(ctx, row.ID)
+	if err != nil {
+		return fmt.Errorf("list task requirements: %w", err)
+	}
+	pathsOf := make(map[int64][]string)
+	for _, file := range files {
+		pathsOf[file.Task] = append(pathsOf[file.Task], file.Path)
+	}
+	requirementsOf := make(map[int64][]string)
+	for _, requirement := range requirements {
+		requirementsOf[requirement.Task] = append(requirementsOf[requirement.Task], requirement.Requirement)
+	}
+	row.Tasks = mapInOrder(tasks, func(task sqlcgen.EpicTask) EpicTask {
+		return EpicTask{
+			Seq: task.Seq, Turn: task.Turn, Title: task.Title, Deliverable: task.Deliverable,
+			Files: pathsOf[task.Seq], Requirements: requirementsOf[task.Seq], Check: task.TaskCheck,
+			Status: task.Status,
+		}
+	})
+
+	questions, err := queries.ListEpicQuestions(ctx, row.ID)
+	if err != nil {
+		return fmt.Errorf("list questions: %w", err)
+	}
+	row.Questions = mapInOrder(questions, func(question sqlcgen.EpicQuestion) EpicQuestion {
+		return EpicQuestion{Seq: question.Seq, Turn: question.Turn, Text: question.Text, State: question.State}
+	})
+	return nil
+}
+
+// turnOf returns the stored turn with its decisions in position order. Ended is zero while the turn runs.
+func turnOf(ctx context.Context, queries *sqlcgen.Queries, stored sqlcgen.EpicTurn) (EpicTurn, error) {
+	decisions, err := queries.ListEpicTurnDecisionsOf(ctx, sqlcgen.ListEpicTurnDecisionsOfParams{
+		Epic: stored.Epic, Turn: stored.Seq,
+	})
+	if err != nil {
+		return EpicTurn{}, fmt.Errorf("list decisions: %w", err)
+	}
+	turn := EpicTurn{
+		Epic: stored.Epic, Seq: stored.Seq, Step: stored.Step, State: stored.State, Reason: stored.Reason,
+		Seen: stored.Seen, Outline: stored.Outline, Outcome: stored.Outcome,
+		Decisions: mapInOrder(decisions, func(decision sqlcgen.EpicTurnDecision) string { return decision.Text }),
+		Started:   time.Unix(stored.Started, 0),
+	}
+	if stored.Ended != 0 {
+		turn.Ended = time.Unix(stored.Ended, 0)
+	}
+	return turn, nil
+}
+
+// triggerOf returns the trigger a stored row holds.
+func triggerOf(trigger sqlcgen.EpicTrigger) EpicTrigger {
+	return EpicTrigger{
+		ID: trigger.ID, Cause: trigger.Cause, State: trigger.State, Turn: trigger.Turn,
+		Created: time.Unix(trigger.Created, 0),
+	}
 }
 
 // ClaimTurn starts a running turn on epic in one write and claims every pending trigger of the epic for it. The turn's
