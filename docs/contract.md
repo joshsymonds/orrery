@@ -374,6 +374,14 @@ Subcommands:
     - `124`: the gate's limit passed, and the argv was killed with `SIGKILL`.
     - Otherwise, the argv's own status, as `run` gives it for `CMD`: its exit code, or 128 plus the signal number when a signal ended it. `127` means `argv[0]` is not an executable file, and nothing is requested. `126` means it cannot start after the grant. `1` means its status cannot be read.
   - `SIGINT`, `SIGTERM` and `SIGHUP` stop `gate` as they stop `run`: after the argv has started, the argv gets `SIGTERM` and `gate` returns its status. While the request waits, the signal ends the run with 75 (`cmd/orrery/gate.go:71`-`:72`).
+- `epic FORM` makes one call of the Epics service on `sessions.sock` (see [Epics](#epics)) and prints its result. Each form is the call of the MCP tool of the same name that `orrery mcp` serves (`cmd/orrery/main.go:238`-`:239`, `:419`-`:428`; `internal/stepmcp/epictools.go:36`-`:96`). The forms are these (`cmd/orrery/epic.go:49`-`:74`):
+  - `epic create FILE|-` creates an epic. The JSON of `FILE`, or of stdin for `-`, is the arguments of `epic_create`.
+  - `epic get ID` prints the stored epic, as `epic_get` returns it.
+  - `epic list` prints each stored epic as a summary, as `epic_list` returns it.
+  - `epic answer EPIC --id ID [--question QN] TEXT` records a decision on `EPIC` with the id `ID`. `--question QN` names the question the decision answers, as `Q<n>`, and is left out for a note. `--id` is required, and the flags come after `EPIC` and before `TEXT` (`cmd/orrery/epic.go:111`-`:152`).
+  - `epic pause ID`, `epic resume ID`, `epic stop ID` and `epic retry ID` make the calls `epic_pause`, `epic_resume`, `epic_stop` and `epic_retry`.
+  - The result text is printed on stdout with a newline. For `answer`, a non-empty warning in the result is also printed on stderr.
+  - Exit statuses: `0` after the result is printed. `1` when the call is refused, with its text on stderr as `orrery: TEXT`, or when the session socket cannot be reached. `2` for a usage error: a missing or unknown verb, a form with the wrong number of arguments, or an `answer` without `--id` (`cmd/orrery/main.go:177`-`:189`).
 
 Exit codes:
 
@@ -384,7 +392,7 @@ Exit codes:
 | 2 | usage error |
 | 3 | question refused (`send --expect-question`: no question, hash mismatch, empty display fragment, or fragment not visible) |
 
-`run` and `gate` exit with the statuses listed in their bullets above, which are not in this table. `run status` and `hold` use only the codes in this table.
+`run` and `gate` exit with the statuses listed in their bullets above, which are not in this table. `run status`, `hold` and `epic` use only the codes in this table.
 
 ### orrery serve
 
@@ -448,7 +456,7 @@ orreryd [-L NAME | -S PATH] [--socket PATH] [--claude PATH] [--summary-model CON
 
 `orreryd` listens on unix sockets only. It opens no network listener. `--sessions` adds the session socket. The desk stream is served on `notices.sock` beside the daemon socket, as [Desk stream](#desk-stream) describes.
 
-With `--sessions` and an open store, `orreryd` runs the planner after the step reconcile (`cmd/orreryd/main.go:536`, `:587`-`:588`, `:695`-`:713`). [Planner turns](#planner-turns) gives its turns. The planner's agent is the `planner` key of the role file, `$XDG_CONFIG_HOME/orrery/roles.toml`, or `$HOME/.config/orrery/roles.toml` when `XDG_CONFIG_HOME` is unset. The file's top-level keys are role names and their values are agent names. A missing file, a file that does not parse, a `planner` key with no agent, and a non-string value are each an error that names the file (`internal/roles/roles.go:16`-`:19`, `:20`-`:47`, `:50`-`:60`; `cmd/orreryd/main.go:704`). The nix module writes this file from `programs.orrery.roles`, and writes none when that option is empty (`nix/home-manager.nix:90`-`:101`, `:116`-`:118`).
+With `--sessions` and an open store, `orreryd` runs the planner after the step reconcile (`cmd/orreryd/main.go:591`-`:592`, `:697`-`:727`). [Planner turns](#planner-turns) gives its turns, and its attention loop, which runs beside the planner and routes the epic notices. The planner's agent is the `planner` key of the role file, `$XDG_CONFIG_HOME/orrery/roles.toml`, or `$HOME/.config/orrery/roles.toml` when `XDG_CONFIG_HOME` is unset. The file's top-level keys are role names and their values are agent names. A missing file, a file that does not parse, a `planner` key with no agent, and a non-string value are each an error that names the file (`internal/roles/roles.go:16`-`:19`, `:20`-`:47`, `:50`-`:60`; `cmd/orreryd/main.go:710`). The nix module writes this file from `programs.orrery.roles`, and writes none when that option is empty (`nix/home-manager.nix:90`-`:101`, `:116`-`:118`).
 
 Summaries run when a session enters `working` (throttled) and when it becomes `done`.
 
@@ -459,7 +467,7 @@ Each pane transition to `waiting` or `done` makes a pane notice. [Notice routing
 - The title is `<project> · <session>:<window>`, as [Desk stream](#desk-stream) gives it.
 - The line's `host` is the machine host name.
 
-Headless session notices (`--sessions`) are routed the same way, with the title and body that [Headless sessions](#headless-sessions) gives.
+Headless session notices (`--sessions`) are routed the same way, with the title and body that [Headless sessions](#headless-sessions) gives. Epic notices are routed the same way, with the title and body that [Planner turns](#planner-turns) gives.
 
 When a pane enters `done` while an attached client shows the pane's window and had input in the last 30 seconds, `orreryd` sets `@orrery_seen` on the pane to the current Unix time.
 
@@ -468,7 +476,7 @@ When the router sends a notice to the phone, `orreryd` posts it as an encrypted 
 - `$XDG_STATE_HOME/orrery/push.json` when `XDG_STATE_HOME` is set.
 - Otherwise `$HOME/.local/state/orrery/push.json`.
 
-`orreryd` keeps, per pane and per session, the time of the last notice it sent. With the store open, each kept time is also stored (see [Pushed notices in the store](#pushed-notices-in-the-store)), so it outlives a restart: a seen write after the restart clears the push as it would without the restart. Without the store, kept times live in memory only. A seen write made while `orreryd` is down clears nothing. When a seen write sets a seen time at or after that time, `orreryd` sends one clear push for that pane or session and forgets the kept time. Seen writes are `orrery seen` (both forms), the tree's switch and mark-read keys, autoseen, the `Panes.MarkSeen` call of [Phone API](#phone-api), and the `Seen` call of the session socket. `orrery seen`, the tree and `Panes.MarkSeen` send `orreryd` a seen report (section 9) with the time they wrote; autoseen and the session `Seen` call run inside `orreryd`. The clear payload is defined in [Clear payload](#clear-payload).
+`orreryd` keeps, per pane, per session and per epic, the time of the last notice it sent. With the store open, each kept time is also stored (see [Pushed notices in the store](#pushed-notices-in-the-store)), so it outlives a restart: a seen write after the restart clears the push as it would without the restart. Without the store, kept times live in memory only. A seen write made while `orreryd` is down clears nothing. When a seen write sets a seen time at or after that time, `orreryd` sends one clear push for that pane, session or epic and forgets the kept time. Seen writes are `orrery seen` (both forms), the tree's switch and mark-read keys, autoseen, the `Panes.MarkSeen` call of [Phone API](#phone-api), the `Seen` call of the session socket, and the attention loop's write for an epic that needs nothing (see [Planner turns](#planner-turns)). `orrery seen`, the tree and `Panes.MarkSeen` send `orreryd` a seen report (section 9) with the time they wrote; autoseen and the session `Seen` call run inside `orreryd`. The clear payload is defined in [Clear payload](#clear-payload).
 
 When neither variable is set, `orreryd` exits 1.
 
@@ -478,16 +486,16 @@ When neither variable is set, `orreryd` exits 1.
 
 #### Notice routing
 
-`orreryd` routes each pane notice, a transition to `waiting` or `done`, and each headless session notice (see [Session notifications](#session-notifications)). A notice stays pending until one of the rules below ends it. The rules apply in this order, and each event writes one line to the [notice log](#notice-log).
+`orreryd` routes each pane notice, a transition to `waiting` or `done`, each headless session notice (see [Session notifications](#session-notifications)), and each epic notice (see [Planner turns](#planner-turns)). A notice stays pending until one of the rules below ends it. The rules apply in this order, and each event writes one line to the [notice log](#notice-log).
 
 1. **Background work.** A pane's `done` whose `Stop` hook has a `background_tasks` holding a subagent or workflow goes nowhere. It is posted to neither the desk stream nor Web Push, and the log records a silence with reason `background work`. A hook whose `background_tasks` does not decode is logged, and its notice routes by the rules below.
 2. **Watching.** A pane notice is held while its pane is watched. The pane is watched when either of these holds:
    - a tmux client of the pane's server shows the pane's window and had input in the last 30 seconds;
    - a read report for the pane, sent by `serve` (see [orrery serve](#orrery-serve)), arrived in the last 30 seconds.
 
-   A held notice goes to neither sink. The first hold writes a line with reason `watching`, and orreryd checks the watch again every 5 seconds. A failed check reads as not watched. A session notice is never watched, so it is never held.
+   A held notice goes to neither sink. The first hold writes a line with reason `watching`, and orreryd checks the watch again every 5 seconds. A failed check reads as not watched. A session notice and an epic notice are never watched, so they are never held.
 
-**Done judge.** A pane's `done` that rule 1 does not silence is judged, with or without `--sessions`. The first time its pane is found unwatched, the notice waits 10 seconds, sending nothing and writing no line. A change, a seen write or a newer notice in that time ends it as rule 7 says. Shutdown keeps it or ends it as rule 7 says. Each later check is made as rule 2 makes it: a watched pane holds the notice with no judge call, and an unwatched pane is judged at once. The judge is Haiku. It reads the `last_assistant_message` of the `Stop` hook's input (section 9), runs through the pane's own `ANTHROPIC_BASE_URL` (section 9) with the summary model that section 8 gives its patchbay context, and answers `needed` (true or false) with a `why`. It must answer within 15 seconds, or it is late. A judge that errors fails, and so does a notice with no or an empty `last_assistant_message`. Waiting notices (questions and permission prompts) and session notices are never judged.
+**Done judge.** A pane's `done` that rule 1 does not silence is judged, with or without `--sessions`. The first time its pane is found unwatched, the notice waits 10 seconds, sending nothing and writing no line. A change, a seen write or a newer notice in that time ends it as rule 7 says. Shutdown keeps it or ends it as rule 7 says. Each later check is made as rule 2 makes it: a watched pane holds the notice with no judge call, and an unwatched pane is judged at once. The judge is Haiku. It reads the `last_assistant_message` of the `Stop` hook's input (section 9), runs through the pane's own `ANTHROPIC_BASE_URL` (section 9) with the summary model that section 8 gives its patchbay context, and answers `needed` (true or false) with a `why`. It must answer within 15 seconds, or it is late. A judge that errors fails, and so does a notice with no or an empty `last_assistant_message`. Waiting notices (questions and permission prompts), session notices and epic notices are never judged.
 
 - **Unneeded.** The judge answers not needed, with no error and no late answer. At once, whether or not the desk is at hand, the desk stream gets the notice as a quiet notice and Web Push gets it as a silent notice. Rule 5 applies to the phone part. Nothing escalates the notice, and it ends with that line. Its route names the sinks it reached, as for `away`, and its reason is `unneeded`, with `: <why>` when the judge gave a why. A desk notice that cannot be built is not posted, and the reason gains `; desk notice failed` as rule 6 says, but the silent phone notice is still sent.
 - **Needed, failed or late.** The notice routes by rules 3 to 6, and its reason gains `needed` (with its why), `judge failed: <error>` or `judge late`, whichever applies (see the [clauses](#notice-log)).
@@ -496,9 +504,9 @@ When neither variable is set, `orreryd` exits 1.
 4. **Away.** Otherwise the notice goes to the desk stream and to the phone at once, with route `desk+phone` and reason `away`.
 5. **Push subscription.** The phone gets a notice only when the push store lists at least one subscription. Without one, the phone part is dropped: the route names what remains, and the reason gains `; no push subscription`. An escalation with no subscription ends the notice with route `none` and reason `unseen after 5 minutes; no push subscription`. A failed subscription check reads as a subscription, so the push is attempted.
 6. **Desk notice failure.** A desk notice that cannot be built is not posted. The notice then routes as away, and its reason gains `; desk notice failed` before any `; no push subscription`.
-7. **Ending.** A newer notice for the same pane or session ends the pending one, and so does a pane's or a session's transition to a state other than `waiting` or `done`. Each ends with route `none` and reason `changed`. A seen write at or after the notice's time ends it with `none` and `seen`, and the seen write still clears any notice already sent to the phone (see [orreryd](#orreryd)). At shutdown, a pending pane notice or headless session notice is kept when the store is open and its row is stored. Otherwise it ends with `none` and `shutdown`, and is not sent (see Restart below).
+7. **Ending.** A newer notice for the same pane, session or epic ends the pending one, and so does a pane's or a session's transition to a state other than `waiting` or `done`. Each ends with route `none` and reason `changed`. A seen write at or after the notice's time ends it with `none` and `seen`, and the seen write still clears any notice already sent to the phone (see [orreryd](#orreryd)). At shutdown, a pending pane notice or headless session notice is kept when the store is open and its row is stored. Otherwise it ends with `none` and `shutdown`, and is not sent (see Restart below).
 
-**Restart.** With the store open, a pane notice or a headless session notice still pending at shutdown is kept: no line is written and nothing is sent. One whose row could not be stored, even after shutdown retries the failed row writes, ends `shutdown` instead. At start, once the store opens and before the headless sessions start, `orreryd` stores a row for each pane notice and headless session notice already pending, then restores each stored row by its phase (see [Pending notices in the store](#pending-notices-in-the-store)):
+**Restart.** With the store open, a pane notice, a headless session notice or an epic notice still pending at shutdown is kept: no line is written and nothing is sent. One whose row could not be stored, even after shutdown retries the failed row writes, ends `shutdown` instead. At start, once the store opens and before the headless sessions start, `orreryd` stores a row for each pane notice and headless session notice already pending, then restores each stored row by its phase (see [Pending notices in the store](#pending-notices-in-the-store)):
 
 - `deciding` is decided anew.
 - `held` checks the watch at once.
@@ -507,9 +515,9 @@ When neither variable is set, `orreryd` exits 1.
 - A row whose `due` has passed runs at once.
 - `sending` is pushed again, with route `phone` and reason `resent after restart`. It is silent if its push was silent. It is not posted to the desk stream, and its row is deleted when that publish returns. It is not pending again: a seen write or a newer notice after the restore does not end it, and a seen write at or after the resend still clears the resent push on the phone. A notice for its key recorded before the restore, or a stored row for its key with a higher `id`, ends it `changed` with no resend, as for other rows.
 
-Before a pane notice resumes, in any phase, `orreryd` reads its pane from the pane's tmux server once. A pane that is gone, either absent from its server or on a server that is not running, ends the notice with route `none` and reason `changed`. A pane whose state differs from the notice's state ends it the same way. A pane whose seen time is at or after the notice's time ends it with `none` and `seen`. Each of these sends nothing and writes one line. Any other tmux read failure is a restore error, as below.
+Before a pane notice resumes, in any phase, `orreryd` reads its pane from the pane's tmux server once. A pane that is gone, either absent from its server or on a server that is not running, ends the notice with route `none` and reason `changed`. A pane whose state differs from the notice's state ends it the same way. A pane whose seen time is at or after the notice's time ends it with `none` and `seen`. Each of these sends nothing and writes one line. Any other tmux read failure is a restore error, as below. An epic notice has no pane, so no tmux read is made for it: it is restored from its stored data alone, and its restore fails only when that data does not decode.
 
-Apart from `sending`, a restored notice keeps its original time, so a seen write at or after that time ends it with `none` and `seen`. A newer notice for the same pane or session ends it with `none` and `changed`, whether the newer notice is recorded before or after the restore. The sessions' start can record an `interrupted` notice that does this. A row that cannot be restored writes a line with route `none` and reason `not restored: <error>`, and the row is deleted. A stop during a publish can push the notice once more, and the phone alerts again for a resent waiting or failed push. A publish that finishes after shutdown still deletes its row, so a clean stop resends nothing. For the kept push times, see [Pushed notices in the store](#pushed-notices-in-the-store).
+Apart from `sending`, a restored notice keeps its original time, so a seen write at or after that time ends it with `none` and `seen`. A newer notice for the same pane, session or epic ends it with `none` and `changed`, whether the newer notice is recorded before or after the restore. The sessions' start can record an `interrupted` notice that does this. A row that cannot be restored writes a line with route `none` and reason `not restored: <error>`, and the row is deleted. A stop during a publish can push the notice once more, and the phone alerts again for a resent waiting or failed push. A publish that finishes after shutdown still deletes its row, so a clean stop resends nothing. For the kept push times, see [Pushed notices in the store](#pushed-notices-in-the-store).
 
 ### Headless sessions
 
@@ -723,18 +731,22 @@ Errors are Connect codes:
 
 #### Epics
 
-`orreryd` serves the `orrery.engine.v1.Epics` service (`proto/orrery/engine/v1/epic.proto`) on the session socket beside `Steps`, when it runs with `--sessions` (`internal/enginehost/service.go:64`-`:69`; `cmd/orreryd/main.go:428`-`:430`). Its epics are stored in orreryd's store (see [Epics in the store](#epics-in-the-store)). With no store open, the service has no store behind it, and every call answers `unavailable` (`cmd/orreryd/main.go:535`-`:536`, `:580`; `internal/enginehost/epicservice.go:34`-`:40`). `serve` calls its `ListEpics` and `GetEpic` to merge the epics with the records, and no other epic call (see [Epics and Steps](#epics-and-steps); `internal/server/server.go:118`-`:129`).
+`orreryd` serves the `orrery.engine.v1.Epics` service (`proto/orrery/engine/v1/epic.proto`) on the session socket beside `Steps`, when it runs with `--sessions` (`internal/enginehost/service.go:64`-`:69`; `cmd/orreryd/main.go:428`-`:430`). Its epics are stored in orreryd's store (see [Epics in the store](#epics-in-the-store)). With no store open, the service has no store behind it, and every call answers `unavailable` (`cmd/orreryd/main.go:539`-`:540`, `:584`; `internal/enginehost/epicservice.go:46`-`:52`). `serve` calls its `ListEpics` and `GetEpic` to merge the epics with the records, and no other epic call (see [Epics and Steps](#epics-and-steps); `internal/server/server.go:118`-`:129`).
 
 | Call | Request | Response | Effect |
 |---|---|---|---|
 | `CreateEpic` | `contract`, `decisions` | `epic` | checks the contract, stores it accepted with its seed decisions and its `created` trigger, and returns the stored epic |
 | `GetEpic` | `id` | `epic` | returns the stored epic with that id, with its planner state (see **GetEpic and ListEpics** below) |
 | `ListEpics` | none | `epics` | returns a summary of each stored epic, ordered by `id` |
-| `AnswerEpic` | `epic_id`, `id`, `text` | `decision` | records the answer as a decision on the epic |
+| `AnswerEpic` | `epic_id`, `id`, `text`, `question` | `decision`, `warning` | records the answer as a decision on the epic: tied to the question `question` names, or a note when it is empty (see **AnswerEpic** below) |
+| `PauseEpic` | `id` | `epic` | pauses the epic, so the planner starts no turn for it (see **Controls** below) |
+| `ResumeEpic` | `id` | `epic` | clears the pause of the epic; a park stays |
+| `StopEpic` | `id` | `epic` | pauses the epic, flags its running turn to stop, and stops that turn's step |
+| `RetryEpic` | `id` | `epic` | ends the park of the epic |
 
-The calls are declared in `proto/orrery/engine/v1/epic.proto:6`-`:18`, and implemented in `internal/enginehost/epicservice.go:42`-`:124`.
+The calls are declared in `proto/orrery/engine/v1/epic.proto:6`-`:30`, and implemented in `internal/enginehost/epicservice.go:56`-`:314`.
 
-**Contract.** `CreateEpic` checks the contract before it stores anything. The checks run in the order below, and the first one that fails is the refusal (`internal/enginehost/epiccheck.go:45`-`:57`; `internal/enginehost/epicservice.go:51`-`:53`). A refusal is `invalid_argument` with the message `<field>: <reason>`. The field is named by its proto name, and a row of a section by its zero-based index, as in `release_steps[0].undo: empty` (`internal/enginehost/epiccheck.go:36`-`:41`, `:225`-`:227`). The checks, in order:
+**Contract.** `CreateEpic` checks the contract before it stores anything. The checks run in the order below, and the first one that fails is the refusal (`internal/enginehost/epiccheck.go:45`-`:57`; `internal/enginehost/epicservice.go:63`-`:65`). A refusal is `invalid_argument` with the message `<field>: <reason>`. The field is named by its proto name, and a row of a section by its zero-based index, as in `release_steps[0].undo: empty` (`internal/enginehost/epiccheck.go:36`-`:41`, `:225`-`:227`). The checks, in order:
 
 1. `contract: missing`, when the request has no contract (`epiccheck.go:46`-`:49`).
 2. `id: bad form, want <repo-id>-<7 hex>/<slug>`, when the id does not match `^[A-Za-z0-9][A-Za-z0-9._-]*-[0-9a-f]{7}/[a-z0-9]+(-[a-z0-9]+)*$`. `id: over 128 bytes`, when it matches and is longer than 128 bytes (`epiccheck.go:13`-`:14`, `:29`, `:61`-`:67`).
@@ -748,20 +760,41 @@ The calls are declared in `proto/orrery/engine/v1/epic.proto:6`-`:18`, and imple
 10. For each release step in order: `release_steps[i].undo: empty`, when it is empty after trimming (`epiccheck.go:182`-`:189`).
 11. For each seed decision in order: `decisions[i].id: empty`, or `decisions[i].id: duplicate` when an earlier decision has the id. Then `decisions[i].text: empty`, when the text is the empty string. The text is not trimmed (`epiccheck.go:193`-`:209`).
 
-A contract that passes is stored in one write, with its sections, its seed decisions and its `created` trigger (`internal/store/epics.go:109`-`:136`). The trigger has the id `created` and the cause `epic created`, and it is `pending` (`internal/store/epics.go:128`-`:133`, `:140`-`:141`). Its `phase` is `accepted`, and its `created` and `changed` are both the time of the call. The response is the stored epic read back (`internal/enginehost/epicservice.go:54`-`:65`, `:163`-`:165`). An `id` that is already stored answers `already_exists`, and nothing is stored (`epicservice.go:55`-`:58`; `internal/store/epics.go:115`-`:117`).
+A contract that passes is stored in one write, with its sections, its seed decisions and its `created` trigger (`internal/store/epics.go:117`-`:144`). The trigger has the id `created` and the cause `epic created`, and it is `pending` (`internal/store/epics.go:136`-`:141`, `:147`-`:150`). Its `phase` is `accepted`, and its `created` and `changed` are both the time of the call. The response is the stored epic read back (`internal/enginehost/epicservice.go:73`-`:77`). An `id` that is already stored answers `already_exists`, and nothing is stored (`epicservice.go:68`-`:70`; `internal/store/epics.go:123`-`:125`).
 
-**Phase and changed.** The create is the only writer of `phase`, and it sets `accepted`. The store has no query that updates the phase. `changed` is the time of the epic's last write: its creation, or its latest answer (`internal/store/queries.sql:307`-`:308`; `internal/store/epics.go:346`-`:350`). Planner writes do not move `changed`. They change the planner tables and the epic's `paused` and `parked` columns (`internal/store/planner.go:441`-`:445`, `:495`-`:504`).
+**Phase and changed.** The create is the only writer of `phase`, and it sets `accepted`. The store has no query that updates the phase. `changed` is the time of the epic's last write: its creation, or its latest answer (`internal/store/queries.sql:317`-`:318`; `internal/store/epics.go:484`-`:488`). The planner's writes and the controls do not move `changed`. They change the planner tables and the epic's `paused` and `parked` columns (`internal/store/planner.go:457`-`:461`, `:504`-`:513`; `internal/store/controls.go:26`-`:115`).
 
-**GetEpic and ListEpics.** `GetEpic` answers an unknown id with `not_found` (`epicservice.go:75`-`:78`). The stored epic it returns also carries its planner state: `paused` and `parked`, then `turns`, `tasks` and `questions`, each in order. A turn has `seq`, `step`, `state`, `reason`, `outline`, `outcome`, `decisions`, `started` and `ended`. A task has the id `T<seq>` and has `turn`, `title`, `deliverable`, `files`, `requirements`, `check` and `status`. A question has the id `Q<seq>` and has `turn`, `text` and `state` (`internal/enginehost/epicservice.go:195`-`:208`, `:250`-`:286`; `proto/orrery/engine/v1/epic.proto:266`-`:278`, `:177`-`:204`, `:207`-`:231`, `:234`-`:246`; `internal/store/planner.go:145`-`:194`). `ListEpics` answers each stored epic as an `EpicSummary`: `id`, `repository`, `title`, `phase`, `created` and `changed`, with no sections. The list is ordered by `id` (`epicservice.go:85`-`:97`, `:297`-`:306`; `internal/store/queries.sql:304`-`:305`).
+**GetEpic and ListEpics.** `GetEpic` answers an unknown id with `not_found` (`epicservice.go:88`-`:89`). The stored epic it returns also carries its planner state: `paused` and `parked`, then `turns`, `tasks` and `questions`, each in order. A turn has `seq`, `step`, `state`, `reason`, `outline`, `outcome`, `decisions`, `started` and `ended`. A task has the id `T<seq>` and has `turn`, `title`, `deliverable`, `files`, `requirements`, `check` and `status`. A question has the id `Q<seq>` and has `turn`, `text` and `state`, which is `open` or `answered` (`internal/enginehost/epicservice.go:385`-`:398`, `:444`-`:480`; `proto/orrery/engine/v1/epic.proto:264`-`:294`, `:192`-`:219`, `:222`-`:246`, `:249`-`:261`; `internal/store/planner.go:148`-`:195`). `ListEpics` answers each stored epic as an `EpicSummary`: `id`, `repository`, `title`, `phase`, `created` and `changed`, with no sections. The list is ordered by `id` (`epicservice.go:97`-`:109`, `:496`-`:505`; `internal/store/queries.sql:314`-`:315`).
 
-**AnswerEpic.** Before the store is asked, `AnswerEpic` refuses an empty `epic_id`, `id` or `text`, with `invalid_argument`, naming the first one that is empty. The text is empty after trimming white space (`epicservice.go:126`-`:138`). The store then records the answer in one write (`internal/store/epics.go:313`-`:358`):
+**AnswerEpic.** Before the store is asked, `AnswerEpic` refuses an empty `epic_id`, `id` or `text`, with `invalid_argument`, naming the first one that is empty. The text is empty after trimming white space (`epicservice.go:206`-`:218`, `:115`-`:123`). An empty `question` makes the answer a note. Any other `question` must be `Q` followed by a positive decimal number. One that is not is refused as `not_found`, before the store is asked (`epicservice.go:125`-`:131`, `:187`-`:198`).
 
-- An `epic_id` that names no epic answers `not_found` (`epicservice.go:113`-`:114`; `internal/store/epics.go:318`-`:323`).
-- An `id` already recorded on the epic with other text answers `already_exists`. Text is compared exactly (`epicservice.go:115`-`:119`; `internal/store/epics.go:327`-`:330`).
-- An `id` already recorded with equal text returns the stored decision, and writes nothing (`internal/store/epics.go:327`-`:332`).
-- Otherwise the decision is appended with the next `seq`, counted from 1, dated at the call, and the epic's `changed` moves to that time (`internal/store/epics.go:336`-`:350`).
+The store then records the answer in one write. A note is `AnswerEpic` (`internal/store/epics.go:322`-`:343`). An answer that names a question is `AnswerQuestion` (`internal/store/epics.go:351`-`:377`):
 
-No call updates or deletes a decision. The store has no query that does, and the table's triggers abort any update or delete (`internal/store/queries.sql:355`-`:365`; `internal/store/migrations/00014_epics.sql:91`-`:103`).
+- An `epic_id` that names no epic answers `not_found` (`epicservice.go:166`-`:167`; `internal/store/epics.go:417`-`:426`).
+- An `id` already recorded on the epic with other text answers `already_exists`. Text is compared exactly (`epicservice.go:168`-`:169`; `internal/store/epics.go:431`-`:445`).
+- An `id` already recorded with equal text returns the stored decision, and writes nothing. This check runs first, so a repeat that names a question its first submission closed still returns the stored decision (`internal/store/epics.go:362`-`:369`, `:431`-`:445`).
+- A question the epic does not hold answers `not_found`, and a question that is not `open` answers `failed_precondition` with `question: <question> is closed`. Both write nothing (`epicservice.go:170`-`:173`; `internal/store/epics.go:449`-`:461`).
+- Otherwise an answer that names a question is written as one unit: the question becomes `answered`, a pending trigger with the id `answer:<id>` and the cause `answer <id> to Q<n>` is inserted, and the decision is appended with its `question` set to that question's seq (`internal/store/epics.go:381`-`:403`, `:396`-`:401`).
+- Otherwise a note is appended with `question` `0`. A note closes nothing and adds no trigger.
+- Either way the decision is appended with the next `seq`, counted from 1, dated at the call, and the epic's `changed` moves to that time (`internal/store/epics.go:465`-`:490`).
+
+The response carries the decision, whose `question` is `Q<n>` or empty for a note. While questions are open, a note also gets a `warning` that names them in seq order: `recorded as a note: it answers no question, and Q1, Q2 are open`. A repeat of a note gets the warning too, when questions are open at the repeat (`epicservice.go:141`-`:159`, `:200`-`:204`).
+
+No call updates or deletes a decision. The store has no query that does, and the table's triggers abort any update or delete (`internal/store/queries.sql:365`-`:375`; `internal/store/migrations/00014_epics.sql:91`-`:103`).
+
+**Controls.** `PauseEpic`, `ResumeEpic`, `StopEpic` and `RetryEpic` each take `id`, return the stored epic read back, and make one store write. An empty `id` is `invalid_argument` with `id: empty`. An unknown epic is `not_found` with `id: no epic <id>`. A store refusal is `failed_precondition` with its text, and nothing is written (`internal/enginehost/epicservice.go:229`-`:232`, `:316`-`:328`; `internal/store/controls.go:24`-`:115`). The refusals are these:
+
+- `PauseEpic` of a paused epic: `epic <id> is already paused`.
+- `ResumeEpic` of an epic that is not paused: `epic <id> is parked, not paused; retry ends a park` when it is parked, or `epic <id> is not paused` otherwise.
+- `StopEpic` of an epic with no running turn: `epic <id> has no running turn`.
+- `RetryEpic` of an epic that is not parked: `epic <id> is not parked`.
+
+The effects are these (`internal/store/controls.go:24`-`:115`; `internal/store/queries.sql:451`-`:458`):
+
+- `PauseEpic` sets `paused`. A running turn finishes, and the planner starts no turn for the epic.
+- `ResumeEpic` clears `paused`. It does not clear a park.
+- `StopEpic` sets `paused` and flags the running turn's `stop`, in one write, and returns the turn's step, which is empty while the turn has none. The service then stops that step when it has one (`internal/enginehost/epicservice.go:278`-`:286`). A step that has already ended is left as it is, so a result it stored stays. A failure of that stop is `internal` after the pause and the flag are stored. The turn ends as [Planner turns](#planner-turns) gives.
+- `RetryEpic` clears `parked` and stores the epic's highest turn seq in `retried`, so the failed turns up to that seq stop counting toward a park. Its triggers stay pending.
 
 **Refusals.** The Connect codes and messages:
 
@@ -773,42 +806,47 @@ No call updates or deletes a decision. The store has no query that does, and the
 | `invalid_argument` | `AnswerEpic` with an empty `epic_id`, `id` or `text` | `epic_id: empty`, `id: empty` or `text: empty` |
 | `not_found` | `GetEpic` with an unknown `id` | `id: no epic <id>` |
 | `not_found` | `AnswerEpic` with an unknown `epic_id` | `epic_id: no epic <id>` |
+| `not_found` | `AnswerEpic` with a `question` that is not `Q<n>`, or that the epic does not hold | `question: no question <question> on epic <epic_id>` |
+| `failed_precondition` | `AnswerEpic` with a `question` that is not open | `question: <question> is closed` |
 | `already_exists` | `AnswerEpic` with an `id` recorded with other text | `id: <id> was recorded with other text` |
-| `internal` | a store failure | the store's error text |
+| `invalid_argument` | `PauseEpic`, `ResumeEpic`, `StopEpic` or `RetryEpic` with an empty `id` | `id: empty` |
+| `not_found` | `PauseEpic`, `ResumeEpic`, `StopEpic` or `RetryEpic` with an unknown `id` | `id: no epic <id>` |
+| `failed_precondition` | a control refused by the state of its epic | the refusal text (see **Controls**) |
+| `internal` | a store failure, or a failed `Steps.Stop` in `StopEpic` | the error text |
 
-(`internal/enginehost/epicservice.go:15`-`:16`, `:35`-`:40`, `:51`-`:58`, `:75`-`:78`, `:113`-`:119`, `:145`-`:148`)
+(`internal/enginehost/epicservice.go:17`-`:18`, `:46`-`:52`, `:56`-`:78`, `:80`-`:95`, `:115`-`:139`, `:161`-`:185`, `:206`-`:218`, `:316`-`:338`)
 
 #### Planner turns
 
-The planner plans an epic in a turn. A turn is a read-only step (see [Steps](#steps)) whose return is checked before it is stored. The runner passes every 5 seconds, its default tick (`internal/planner/runner.go:50`-`:51`, `:95`-`:96`).
+The planner plans an epic in a turn. A turn is a read-only step (see [Steps](#steps)) whose return is checked before it is stored. The runner passes every 5 seconds, its default tick (`internal/planner/runner.go:52`, `:96`-`:98`).
 
-**Triggers.** A trigger is a reason to plan. `CreateEpic` writes the first one, `created`, in its write (`internal/store/epics.go:128`-`:133`). A trigger is `pending`, `claimed` by a turn, or `consumed` by that turn's return (`internal/store/migrations/00016_planner.sql:5`-`:13`). A turn that ends without a return sets its claimed triggers back to `pending` with turn 0 (`internal/store/queries.sql:423`-`:424`). Nothing else inserts a trigger (`internal/store/epics.go:128`).
+**Triggers.** A trigger is a reason to plan. `CreateEpic` writes the first one, `created`, in its write (`internal/store/epics.go:136`-`:141`). Each answer that names a question writes one more, with the id `answer:<id>` and the cause `answer <id> to Q<n>` (`internal/store/epics.go:396`-`:401`). A trigger is `pending`, `claimed` by a turn, or `consumed` by that turn's return (`internal/store/migrations/00016_planner.sql:5`-`:13`). A turn that ends without a return sets its claimed triggers back to `pending` with turn 0 (`internal/store/queries.sql:439`-`:440`). A note writes no trigger. Nothing else inserts one.
 
-**Decide.** Each pass lists the epics with a pending trigger (`internal/store/planner.go:98`-`:112`), then reads the role file once (`internal/planner/runner.go:132`). `Decide` returns one of three actions for each of them (`internal/planner/decide.go:28`-`:37`):
+**Decide.** Each pass lists the epics with a pending trigger (`internal/store/planner.go:101`-`:115`), then reads the role file once (`internal/planner/runner.go:134`). `Decide` returns one of three actions for each of them (`internal/planner/decide.go:28`-`:37`):
 
 - None, when the epic is paused, parked or running, or has no pending trigger (`decide.go:30`-`:31`).
-- Park with the role file's error, when that read failed (`decide.go:32`-`:33`; `internal/planner/runner.go:138`-`:141`). Without a role file, each epic that would be claimed is parked, and no turn starts (`cmd/orreryd/main.go:693`-`:694`).
-- Claim a turn (`decide.go:34`-`:35`; `internal/planner/runner.go:142`-`:144`).
+- Park, with the role file's error, when that read failed (`decide.go:32`-`:33`; `internal/planner/runner.go:140`-`:142`). A park is a turn. `parkTurn` claims one and frees it at once, with the error as both its reason and its park, so the turn records the park. The turn starts no step, and its triggers return to `pending` (`internal/planner/runner.go:167`-`:174`).
+- Claim a turn (`decide.go:34`-`:35`; `internal/planner/runner.go:143`-`:145`).
 
-**Claim.** `ClaimTurn` runs in one write (`internal/store/planner.go:228`-`:242`). It refuses an unknown epic, a paused or parked epic, an epic with a running turn, and an epic with no pending trigger. A refusal changes nothing (`internal/store/planner.go:246`-`:272`). Otherwise it inserts the next turn, numbered after the epic's highest turn, with `seen` set to the epic's highest decision seq. It then claims every pending trigger for that turn (`internal/store/planner.go:276`-`:295`; `internal/store/queries.sql:384`-`:388`). A partial unique index allows one `running` turn per epic (`internal/store/migrations/00016_planner.sql:29`).
+**Claim.** `ClaimTurn` runs in one write (`internal/store/planner.go:239`-`:253`). It refuses an unknown epic, a paused or parked epic, an epic with a running turn, and an epic with no pending trigger. A refusal changes nothing (`internal/store/planner.go:257`-`:280`). Otherwise it inserts the next turn, numbered after the epic's highest turn, with `seen` set to the epic's highest decision seq. It then claims every pending trigger for that turn (`internal/store/planner.go:284`-`:303`; `internal/store/queries.sql:397`-`:398`). A partial unique index allows one `running` turn per epic (`internal/store/migrations/00016_planner.sql:29`).
 
-**The step.** The runner reads the epic and the turn's triggers, then starts the step (`internal/planner/runner.go:172`-`:189`). The step has these settings:
+**The step.** The runner reads the epic and the turn's triggers, then starts the step (`internal/planner/runner.go:195`-`:225`). The step has these settings:
 
-- Agent: the planner role's agent (`internal/planner/runner.go:182`).
-- Workspace: the epic's repository, read-only, with no revision, so the step starts at HEAD (`internal/planner/runner.go:185`-`:186`; `internal/enginehost/step.go:206`-`:209`).
-- Label: the epic's id, and no task (`internal/planner/runner.go:187`).
-- Schema: `Schema`. Its `status` must be `done`, and its `outcome` must be `work`, `wait` or `complete` (`internal/planner/runner.go:184`; `internal/planner/plan.go:10`-`:36`).
+- Agent: the planner role's agent (`internal/planner/runner.go:205`).
+- Workspace: the epic's repository, read-only, with no revision, so the step starts at HEAD (`internal/planner/runner.go:208`-`:209`; `internal/enginehost/step.go:206`-`:209`).
+- Label: the epic's id, and no task (`internal/planner/runner.go:210`).
+- Schema: `Schema`. Its `status` must be `done`, and its `outcome` must be `work`, `wait` or `complete` (`internal/planner/runner.go:207`; `internal/planner/plan.go:10`-`:36`).
 - Prompt: the role text (`internal/planner/role.md`), then these sections, each under a `## ` heading in this order. A section with no lines says `None.` (`internal/planner/prompt.go:26`-`:49`).
   - `Contract`: the contract's fields in order, with each list as its items (`internal/planner/prompt.go:65`-`:77`).
-  - `Decisions`: each epic decision as `- id: text`, then the decisions of each earlier turn as `- turn n: text` (`internal/planner/prompt.go:152`-`:171`).
-  - `New notes`: the epic decisions recorded after the last earlier turn that is not free had seen (`internal/planner/prompt.go:52`-`:61`, `:175`-`:186`).
-  - `Open questions`: each open question as `- Qn (turn n): text` (`internal/planner/prompt.go:189`-`:197`).
-  - `Tasks`: each task as `- Tn [status] title`, then its deliverable, files, requirements and check (`internal/planner/prompt.go:200`-`:212`).
-  - `Triggers`: the turn's claimed triggers as `- id: cause` (`internal/planner/prompt.go:215`-`:221`).
-  - `Last failure`: the reason of the last earlier turn that is not free, when that turn failed with a reason (`internal/planner/prompt.go:224`-`:229`).
-- Return check: the planner's return check, described below (`internal/planner/runner.go:188`, `:406`-`:422`).
+  - `Decisions`: each epic decision as `- id: text`, or as `- id (answers Qn): text` when it answers question n, then the decisions of each earlier turn as `- turn n: text` (`internal/planner/prompt.go:152`-`:174`).
+  - `New notes`: the notes, the epic decisions that answer no question, recorded after the last earlier turn that is not free had seen (`internal/planner/prompt.go:52`-`:61`, `:178`-`:189`).
+  - `Open questions`: each open question as `- Qn (turn n): text` (`internal/planner/prompt.go:192`-`:200`).
+  - `Tasks`: each task as `- Tn [status] title`, then its deliverable, files, requirements and check (`internal/planner/prompt.go:203`-`:215`).
+  - `Triggers`: the turn's claimed triggers as `- id: cause` (`internal/planner/prompt.go:218`-`:224`).
+  - `Last failure`: the reason of the last earlier turn that is not free, when that turn failed with a reason (`internal/planner/prompt.go:227`-`:232`).
+- Return check: the planner's return check, described below (`internal/planner/runner.go:211`, `:452`-`:465`).
 
-**The forced return and its check.** Each return that passes `schema` runs the plan check (`internal/enginehost/steploop.go:481`-`:483`). A return that does not parse is one line: its parse error (`internal/planner/runner.go:415`-`:419`). Any other return is checked by `Check` against the epic's Requirement ids and the files of its tasks whose status is not `done` (`internal/planner/check.go:23`-`:35`; `internal/planner/runner.go:406`-`:422`). Each refusal is one line: `tasks[i] "<title>" <field>: <reason>`, with `files[j]` or `requirements[k]` for a list item. The reasons are these (`internal/planner/check.go:9`-`:18`, `:39`-`:65`):
+**The forced return and its check.** Each return that passes `schema` runs the plan check (`internal/enginehost/steploop.go:481`-`:483`). A return that does not parse is one line: its parse error (`internal/planner/runner.go:459`-`:463`). Any other return is checked by `Check` against the epic's Requirement ids and the files of its tasks whose status is not `done` (`internal/planner/check.go:23`-`:35`; `internal/planner/runner.go:452`-`:465`, `:468`-`:476`). Each refusal is one line: `tasks[i] "<title>" <field>: <reason>`, with `files[j]` or `requirements[k]` for a list item. The reasons are these (`internal/planner/check.go:9`-`:18`, `:39`-`:65`):
 
 - `not a normalized repository-relative file path`, for a file that is empty, has surrounding white space, starts with `/`, contains `\`, is not clean, or has a `.` or `..` part (`internal/planner/check.go:88`-`:101`).
 - `inside a .git directory`, for a file with a `.git` part in any letter case, such as a hook under `.git/hooks`, which could run code on later git operations (`internal/planner/check.go:73`-`:75`, `:105`-`:112`).
@@ -819,36 +857,53 @@ The planner plans an epic in a turn. A turn is a read-only step (see [Steps](#st
 
 A failed check is sent back to the session as `return: <lines>`, its lines joined with `; `, and a failed `schema` check is sent back the same way under `schema` (`internal/enginehost/steploop.go:500`-`:504`, `:627`-`:643`). The step is sent back three times, and a fourth failing return ends it `checks_failed` (`internal/enginehost/steploop.go:56`-`:57`, `:629`-`:632`). A return that passes its checks ends the step `done` with no judge call (`internal/enginehost/steploop.go:487`-`:494`).
 
-**Ends.** The runner waits for the step in one-minute waits (`internal/planner/runner.go:53`-`:54`, `:258`-`:277`). A `Wait` that fails is logged and repeated after a tick. It never ends a running turn, since the step may still be running (`internal/planner/runner.go:264`-`:272`). When the step ends, `settle` checks these cases in order (`internal/planner/runner.go:298`-`:326`):
+**Ends.** The runner waits for the step in one-minute waits (`internal/planner/runner.go:55`, `:300`-`:319`). A `Wait` that fails is logged and repeated after a tick. It never ends a running turn, since the step may still be running (`internal/planner/runner.go:306`-`:313`). When the step ends, `settle` checks these cases in order (`internal/planner/runner.go:340`-`:369`):
 
-1. A rejected rate limit kept for the step. The turn is freed with the reason `<kind> rate limit, resets <time>`, where the time is RFC 3339 in UTC, and the epic is paused. This applies whatever the end (`internal/planner/runner.go:299`-`:315`; `internal/store/planner.go:436`-`:451`).
-2. `done`. In one write the turn stores its decisions, its tasks with their files and Requirements (each `open`), its questions (each `open`), its outline and its outcome. The turn becomes `succeeded`, and its triggers become `consumed` (`internal/planner/runner.go:317`-`:318`, `:329`-`:338`; `internal/store/planner.go:301`-`:332`). A result that does not parse fails the turn (`internal/planner/runner.go:329`-`:333`).
-3. `stopped`. The turn is freed with the reason `stopped`, and the epic is paused (`internal/planner/runner.go:319`-`:320`).
-4. `engine_restarted`. The turn is freed with the reason `engine_restarted`, and the epic is not paused (`internal/planner/runner.go:321`-`:322`).
-5. Any other end. The turn fails with `<end>: <reason>` (`internal/planner/runner.go:323`-`:324`).
+1. A rejected rate limit kept for the step. The turn is freed with the reason `<kind> rate limit, resets <time>`, where the time is RFC 3339 in UTC. The turn stores the reset time, and the epic is paused. This applies whatever the end (`internal/planner/runner.go:343`-`:358`; `internal/store/planner.go:450`-`:456`).
+2. `done`. In one write the turn stores its decisions, its tasks with their files and Requirements (each `open`), its questions (each `open`), its outline and its outcome. The turn becomes `succeeded`, and its triggers become `consumed` (`internal/planner/runner.go:361`, `:372`-`:381`; `internal/store/planner.go:309`-`:340`). A result that does not parse fails the turn (`internal/planner/runner.go:373`-`:376`).
+3. `stopped`. The turn is freed with the reason `stopped`, and the epic is paused (`internal/planner/runner.go:362`-`:363`).
+4. `engine_restarted`. The turn is freed with the reason `engine_restarted`, and the epic is not paused (`internal/planner/runner.go:364`-`:365`).
+5. Any other end. The turn fails with `<end>: <reason>` (`internal/planner/runner.go:366`-`:367`).
 
-The read of the step's kept rate limit, and each write that ends a turn (`CompleteTurn`, `FailTurn` or `FreeTurn`), is retried each tick until it lands, until the store answers `ErrTurnNotRunning` (which is logged, and the write is not retried), or until the context ends. A turn whose context ends is left running for the next start (`internal/planner/runner.go:354`-`:390`).
+The read of the step's kept rate limit, and each write that ends a turn (`CompleteTurn`, `FailTurn` or `FreeTurn`), is retried each tick until it lands, until the store answers `ErrTurnNotRunning` (which is logged, and the write is not retried), or until the context ends. A turn whose context ends is left running for the next start (`internal/planner/runner.go:343`-`:349`, `:413`-`:433`).
 
-A freed turn returns its triggers to `pending`, and it is not counted toward a park (`internal/store/planner.go:434`, `:436`-`:478`). A failed turn's reason is cut to 1024 bytes at a UTF-8 boundary (`internal/store/planner.go:395`, `:411`-`:420`, `:507`-`:516`). After a failure, when the three latest turns that are not free have all failed, the same write parks the epic with `3 planner turns failed in a row: ` and the stored reason (`internal/store/planner.go:398`-`:401`, `:415`-`:430`, `:480`-`:492`; `internal/store/queries.sql:426`-`:430`).
+**Stop.** `StopEpic` flags the running turn's `stop` in the same write that pauses the epic (`internal/store/controls.go:66`-`:92`). The turn runs on until its step ends. When the turn already has its step, the service stops that step (`internal/enginehost/epicservice.go:278`-`:286`). When the turn has no step yet, the runner checks the flag as it records the step, and stops the step then (`internal/planner/runner.go:213`-`:218`, `:229`-`:242`). Either way the step ends `stopped`, and the turn is freed with the reason `stopped`, as Ends gives. A step that has already ended `done` keeps its result, and the turn completes with it.
 
-**Refusals at the start.** A start refused before its row is written settles the turn as follows (`internal/planner/runner.go:282`-`:291`):
+A freed turn returns its triggers to `pending`, and it is not counted toward a park (`internal/store/planner.go:471`-`:487`; `internal/store/queries.sql:442`-`:446`). A failed turn's reason is cut to 1024 bytes at a UTF-8 boundary (`internal/store/planner.go:403`, `:516`-`:525`). After a failure, when the three latest turns that are not free, and that are later than the epic's `retried` seq, have all failed, the same write parks the epic with `3 planner turns failed in a row: ` and the stored reason (`internal/store/planner.go:424`-`:437`, `:491`-`:501`; `internal/store/queries.sql:442`-`:446`).
 
-- The step cap is full (`enginehost.ErrCapReached`, `internal/enginehost/stepsession.go:135`). The turn is freed with the reason `step cap full`, with no pause and no park.
-- The agent does not resolve (`internal/agents/resolve.go:16`), or its name is not valid (`enginehost.ErrBadAgent`, `internal/enginehost/stepsession.go:39`). The turn is freed with the error's text, and the epic is parked with the same text (`internal/planner/runner.go:286`-`:287`; `internal/enginehost/stepsession.go:56`-`:61`, `:117`-`:125`).
-- Any other start error fails the turn with its text (`internal/planner/runner.go:288`-`:289`).
+**Refusals at the start.** A start refused before its row is written settles the turn as follows (`internal/planner/runner.go:324`-`:333`):
 
-**Pause and park.** A free that pauses sets the epic's `paused` to 1 (`internal/store/planner.go:441`-`:445`; `internal/store/queries.sql:432`-`:433`). A park sets `parked` to its reason (`internal/store/planner.go:495`-`:504`). Nothing in this code clears `paused` or `parked`. A paused or parked epic is not claimed (`internal/store/planner.go:254`-`:256`), and `Decide` does nothing for it (`internal/planner/decide.go:30`).
+- The step cap is full (`enginehost.ErrCapReached`, `internal/enginehost/stepsession.go:135`). The turn is freed with the reason `step cap full`, with no pause and no park (`internal/planner/runner.go:326`-`:327`).
+- The agent does not resolve (`internal/agents/resolve.go:16`), or its name is not valid (`enginehost.ErrBadAgent`, `internal/enginehost/stepsession.go:39`). The turn is freed with the error's text, and the epic is parked with the same text (`internal/planner/runner.go:328`-`:329`; `internal/enginehost/stepsession.go:56`-`:61`, `:117`-`:125`).
+- Any other start error fails the turn with its text (`internal/planner/runner.go:330`-`:331`).
 
-**The kept rate limit.** Each `rate_limit_event` line becomes a `RateLimit` event, with its status, its rate-limit type and its reset time (`internal/engine/session/translate.go:118`-`:119`, `:127`-`:136`; `internal/engine/session/event.go:157`-`:163`). The recorder stores a `rejected` status only, in `engine_rate_limits` under the session's id (`internal/enginehost/record.go:60`-`:66`). A step's turn reads that row when the step ends (`internal/planner/runner.go:299`-`:310`). [Engine sessions in the store](#engine-sessions-in-the-store) gives the table.
+**Pause and park.** A free that pauses sets the epic's `paused` to 1 (`internal/store/planner.go:457`-`:461`; `internal/store/queries.sql:451`-`:452`). A park sets `parked` to its reason (`internal/store/planner.go:504`-`:513`; `internal/store/queries.sql:448`-`:449`). A pause from a free, whether a stop or a usage limit, lasts until `ResumeEpic` clears it. A park lasts until `RetryEpic` ends it (see [Epics](#epics)). A paused or parked epic is not claimed (`internal/store/planner.go:262`-`:264`), and `Decide` does nothing for it (`internal/planner/decide.go:30`).
 
-**Restart.** At start, `orreryd` runs `Steps.Readopt`, then the manager's Reconcile, then `Steps.Reconcile`, and it starts the planner after them (`cmd/orreryd/main.go:609`-`:618`, `:587`-`:588`). `Steps.Readopt` rebuilds the run of each open step row it can and registers it with the manager, which re-adopts the step's holder when that holder is live and tracked. `Steps.Reconcile` then starts the loop of each rebuilt step the manager reports live, and ends each other open row `engine_restarted` (`internal/enginehost/stepctl.go:123`-`:143`, `:209`-`:232`; see [Restart](#step-lifecycle)). Then `Run` settles each running turn before its first pass (`internal/planner/runner.go:107`-`:112`, `:206`-`:235`):
+**The kept rate limit.** Each `rate_limit_event` line becomes a `RateLimit` event, with its status, its rate-limit type and its reset time (`internal/engine/session/translate.go:118`-`:119`, `:127`-`:136`; `internal/engine/session/event.go:157`-`:163`). The recorder stores a `rejected` status only, in `engine_rate_limits` under the session's id (`internal/enginehost/record.go:60`-`:66`). A step's turn reads that row when the step ends (`internal/planner/runner.go:343`-`:351`). [Engine sessions in the store](#engine-sessions-in-the-store) gives the table.
 
-- A turn with no step is freed with the reason `no step` (`internal/planner/runner.go:216`-`:218`).
-- A turn whose step row cannot be read is logged. It stays running, so its epic gets no new turn (`internal/planner/runner.go:220`-`:225`).
-- A turn whose step row is still open is waited on in its own goroutine (`internal/planner/runner.go:226`-`:230`, `:237`-`:241`).
-- A turn whose step row has ended is settled by that end (`internal/planner/runner.go:231`-`:233`).
+**Restart.** At start, `orreryd` runs `Steps.Readopt`, then the manager's Reconcile, then `Steps.Reconcile` (`cmd/orreryd/main.go:613`-`:622`), and it starts the planner after them (`cmd/orreryd/main.go:591`-`:592`). `Steps.Readopt` rebuilds the run of each open step row it can and registers it with the manager, which re-adopts the step's holder when that holder is live and tracked. `Steps.Reconcile` then starts the loop of each rebuilt step the manager reports live, and ends each other open row `engine_restarted` (`internal/enginehost/stepctl.go:123`-`:143`, `:209`-`:232`; see [Restart](#step-lifecycle)). Then `Run` settles each running turn before its first pass (`internal/planner/runner.go:113`, `:248`-`:277`):
 
-A turn whose step `Reconcile` ended `engine_restarted` is freed with that reason, and its epic runs the turn again. A turn whose step was re-adopted waits for that step like any open step, and is settled by its end. The re-adopted step keeps its plan check: `StepsConfig.ReadoptCheck` supplies the check that `planner.ReadoptCheck` gives its epic (`internal/enginehost/stepctl.go:181`-`:186`; `internal/enginehost/step.go:111`; `internal/planner/readopt.go:11`-`:31`; `cmd/orreryd/main.go:570`). So its return is checked against the plan and ends `done` with no judge call, as a new planner step's does (`internal/enginehost/steploop.go:487`-`:494`). A turn whose context ends when `orreryd` stops writes nothing, and it stays running (`internal/planner/runner.go:150`-`:151`, `:246`-`:248`, `:372`-`:389`).
+- A turn with no step is freed with the reason `no step` (`internal/planner/runner.go:258`-`:260`).
+- A turn whose step row cannot be read is logged. It stays running, so its epic gets no new turn (`internal/planner/runner.go:262`-`:267`).
+- A turn whose step row is still open is waited on in its own goroutine (`internal/planner/runner.go:268`-`:271`, `:280`-`:283`).
+- A turn whose step row has ended is settled by that end (`internal/planner/runner.go:273`-`:276`).
+
+A turn whose step `Reconcile` ended `engine_restarted` is freed with that reason, and its epic runs the turn again. A turn whose step was re-adopted waits for that step like any open step, and is settled by its end. The re-adopted step keeps its plan check: `StepsConfig.ReadoptCheck` supplies the check that `planner.ReadoptCheck` gives its epic (`internal/enginehost/stepctl.go:181`-`:186`; `internal/enginehost/step.go:111`; `internal/planner/readopt.go:11`-`:31`; `cmd/orreryd/main.go:574`). So its return is checked against the plan and ends `done` with no judge call, as a new planner step's does (`internal/enginehost/steploop.go:487`-`:494`). A turn whose context ends when `orreryd` stops writes nothing, and it stays running (`internal/planner/runner.go:300`-`:319`, `:413`-`:433`).
+
+**Notices.** The planner's attention loop tells the owner when an epic needs them. `planner.NewAttention` runs beside the runner, under the same context, and starts when `orreryd` has the store open and `--sessions` (`cmd/orreryd/main.go:697`-`:727`; `internal/planner/attention.go:76`-`:90`). It passes at once and then once per tick, 5 seconds by default (`internal/planner/attention.go:93`-`:104`; `internal/planner/runner.go:52`).
+
+Each pass reads what each epic with a turn needs, in this order, and the first that holds is the need (`internal/planner/attention.go:179`-`:190`; `internal/store/attention.go:26`-`:41`):
+
+- `park`: the epic is parked.
+- `limit`: the epic is paused, and its latest ended turn is `free` with a reset time.
+- `questions`: the epic has open questions.
+- `none`: otherwise.
+
+For an epic with the need `none`, the pass makes a seen write for the epic's key at the pass time, which clears a notice still out (`internal/planner/attention.go:121`-`:125`). For any epic whose latest ended turn is not told, the pass sends one notice when the need is `park` or `limit`, or when the need is `questions` and that turn succeeded and asked at least one question (`internal/planner/attention.go:126`-`:131`, `:194`-`:203`). Then it marks that turn told (`internal/planner/attention.go:132`-`:134`; `internal/store/attention.go:78`-`:89`). The notice is routed before the turn is marked, so a crash between the two repeats the notice rather than losing it. A told turn is never announced again, across restarts too.
+
+The notice is keyed by its epic, is in state `waiting`, and is routed by the rules of [Notice routing](#notice-routing) with no watch and no judge (`internal/planner/attention.go:139`-`:175`; `internal/route/route.go:295`-`:307`). Its desk notice has the epic's id as its title and the body as its body. Its push has the epic's title as `project` and the body as `summary` (`internal/planner/attention.go:164`-`:175`). The body is `parked: <reason>`, or `usage limit, resets <time>` with the time in RFC 3339 UTC, or the open questions, one `Q<n>: <text>` line each (`internal/planner/attention.go:207`-`:219`). Its stored source is the epic's id, title and body as JSON, and a restart rebuilds the same notice from it (`internal/planner/attention.go:151`-`:160`).
+
+The notice clears when the epic needs nothing: when its last open question is answered, when `ResumeEpic` clears a limit pause, or when `RetryEpic` ends a park, as the seen write of the next pass gives (see [Notice routing](#notice-routing) and [orreryd](#orreryd)).
 
 #### Pools
 
@@ -1004,8 +1059,9 @@ The notices on the stream are these:
 
 - A pane notice, on a pane's transition to `waiting` or `done` (section 11, orreryd). Its title is `<project> · <session>:<window>`, where `project` is the base name of the pane's directory, `session` is the tmux session's name, and `window` is the window's index.
 - A session notice, on a headless session's transition to `waiting`, `done`, `failed` or `interrupted` (see [Session notifications](#session-notifications)).
+- An epic notice, on an epic that needs its owner (see [Planner turns](#planner-turns)). Its state is `waiting`, its title is the epic's id, and its body is the body that Planner turns gives.
 
-The stream carries a pane or session notice only when [Notice routing](#notice-routing) posts it there. A `done` whose `Stop` hook holds a subagent or workflow is never posted, on the stream or to Web Push.
+The stream carries a pane, session or epic notice only when [Notice routing](#notice-routing) posts it there. A `done` whose `Stop` hook holds a subagent or workflow is never posted, on the stream or to Web Push.
 
 ### orrery notices
 
@@ -1118,8 +1174,9 @@ Each record has these keys, in this order. The example is synthetic:
 |---|---|---|
 | `time` | number | unix seconds of the event |
 | `host` | string | the machine host name |
-| `pane` | string | the tmux pane id, for a pane notice; absent for a session notice |
-| `session` | string | the session id, for a session notice; absent for a pane notice |
+| `pane` | string | the tmux pane id, for a pane notice; absent for a session or epic notice |
+| `session` | string | the session id, for a session notice; absent for a pane or epic notice |
+| `epic` | string | the epic id, for an epic notice; absent for a pane or session notice |
 | `state` | string | the notice's state: `waiting`, `done`, `failed` or `interrupted` |
 | `route` | string | where the notice went, as below |
 | `reason` | string | why, as below |
@@ -1411,7 +1468,7 @@ holder      {"type":"out","data":"ZXhhbXBsZSBvdXRwdXQK"}
 
 ### Store
 
-`orreryd` keeps a SQLite store that mirrors each pane's tmux options, records each headless engine session (see [Engine sessions in the store](#engine-sessions-in-the-store)), keeps the live grants of the Pools service (see [Grants in the store](#grants-in-the-store)), keeps the pending pane and headless session notices (see [Pending notices in the store](#pending-notices-in-the-store)), keeps the kept push times (see [Pushed notices in the store](#pushed-notices-in-the-store)), keeps the owner holds of the Pools service (see [Holds in the store](#holds-in-the-store)), and keeps the epics that the Epics service stores (see [Epics in the store](#epics-in-the-store)). Outside the store's tests, `orreryd`'s own writes read it, `orrery serve` reads it for the Connect API (section 12), and `orrery open` and the tree's `N` read it read-only for the known-directory lookup (see `open` under [orrery](#orrery)). A sync reads the pane's row to compare it with the new snapshot, and a tidy also reads the server's rows to find the panes that are gone. `serve` only reads the store, and never writes it.
+`orreryd` keeps a SQLite store that mirrors each pane's tmux options, records each headless engine session (see [Engine sessions in the store](#engine-sessions-in-the-store)), keeps the live grants of the Pools service (see [Grants in the store](#grants-in-the-store)), keeps the pending pane, headless session and epic notices (see [Pending notices in the store](#pending-notices-in-the-store)), keeps the kept push times (see [Pushed notices in the store](#pushed-notices-in-the-store)), keeps the owner holds of the Pools service (see [Holds in the store](#holds-in-the-store)), and keeps the epics that the Epics service stores (see [Epics in the store](#epics-in-the-store)). Outside the store's tests, `orreryd`'s own writes read it, `orrery serve` reads it for the Connect API (section 12), and `orrery open` and the tree's `N` read it read-only for the known-directory lookup (see `open` under [orrery](#orrery)). A sync reads the pane's row to compare it with the new snapshot, and a tidy also reads the server's rows to find the panes that are gone. `serve` only reads the store, and never writes it.
 
 The store file is `$XDG_STATE_HOME/orrery/orrery.db` when `XDG_STATE_HOME` is set, else `$HOME/.local/state/orrery/orrery.db`. When neither variable is set, no path resolves.
 
@@ -1647,22 +1704,23 @@ The `holds` table (migration `00008_holds.sql`) has one row per owner hold (see 
 
 #### Pending notices in the store
 
-The `pending_notices` table (migration `00010_pending_notices.sql`) has one row per pending pane notice and per pending headless session notice (see [Notice routing](#notice-routing)):
+The `pending_notices` table (migration `00010_pending_notices.sql`) has one row per pending pane notice, per pending headless session notice and per pending epic notice (see [Notice routing](#notice-routing) and [Planner turns](#planner-turns)):
 
 | Column | Type | Meaning |
 |---|---|---|
 | `id` | `INTEGER`, primary key | the row's id. An id is never reused |
-| `pane` | `TEXT` | the notice's pane; `""` for a session notice |
-| `session` | `TEXT` | the notice's session id |
+| `pane` | `TEXT` | the notice's pane; `""` for a session or epic notice |
+| `session` | `TEXT` | the notice's session id; `""` for a pane or epic notice |
 | `state` | `TEXT` | the notice's state |
 | `time` | `INTEGER` | unix seconds when the notice was recorded |
-| `phase` | `TEXT` | where the notice is: `deciding`, `held` (its pane is watched), `delayed` (the 10-second judge wait of a pane `done`), `desk` or `sending`. `sending` is a notice handed to the phone whose publish has not returned. A session notice is never held or judged, so its phase is `deciding`, `desk` or `sending` |
+| `phase` | `TEXT` | where the notice is: `deciding`, `held` (its pane is watched), `delayed` (the 10-second judge wait of a pane `done`), `desk` or `sending`. `sending` is a notice handed to the phone whose publish has not returned. A session notice and an epic notice are never held or judged, so their phase is `deciding`, `desk` or `sending` |
 | `due` | `INTEGER` | unix milliseconds when the phase's wait runs out; `0` for none |
-| `delay_served` | `INTEGER` | `1` once the judge wait started, else `0`; always `0` for a session notice |
-| `watch_logged` | `INTEGER` | `1` once the `watching` line was written, else `0`; always `0` for a session notice |
-| `source_kind` | `TEXT` | `pane` for a pane notice, `session` for a session notice |
-| `source` | `BLOB` | for a pane notice, the pane's transition as JSON, with the hook input included, so a restored judge reads the stored `last_assistant_message`; for a session notice, the session notice as JSON: its session, directory, state and body |
-| `silent` | `INTEGER` | `1` when the push handed off was silent, else `0`; always `0` for a session notice. Added by migration `00011_pending_notice_silent.sql` |
+| `delay_served` | `INTEGER` | `1` once the judge wait started, else `0`; always `0` for a session or epic notice |
+| `watch_logged` | `INTEGER` | `1` once the `watching` line was written, else `0`; always `0` for a session or epic notice |
+| `source_kind` | `TEXT` | `pane` for a pane notice, `session` for a session notice, `epic` for an epic notice |
+| `source` | `BLOB` | for a pane notice, the pane's transition as JSON, with the hook input included, so a restored judge reads the stored `last_assistant_message`; for a session notice, the session notice as JSON: its session, directory, state and body; for an epic notice, the epic notice as JSON: its epic, title and body |
+| `silent` | `INTEGER` | `1` when the push handed off was silent, else `0`; always `0` for a session or epic notice. Added by migration `00011_pending_notice_silent.sql` |
+| `epic` | `TEXT` | the epic's id, for an epic notice; `""` otherwise. Added by migration `00017_planner_controls.sql` |
 
 The `pending_notice_ids` table has one row, whose `high` is the highest `id` the table has ever stored. Deleting rows does not lower it, so ids keep rising.
 
@@ -1684,7 +1742,16 @@ The `pushed_notices` table (migration `00012_pushed_notices.sql`) has one row pe
 
 Before each push is published, `orreryd` writes the row of its pane or session with the push's time, so a newer push replaces the row. The clear that ends a kept push removes its row (see [Clear payload](#clear-payload)).
 
-At start, once the store opens and before the router restores its rows, `orreryd` reads the table, and each row's time becomes that key's kept push time. Rows for gone panes or sessions are not pruned.
+The `pushed_epic_notices` table (migration `00017_planner_controls.sql`) has one row per epic whose push is kept:
+
+| Column | Type | Meaning |
+|---|---|---|
+| `epic` | `TEXT`, primary key | the epic whose push is kept |
+| `time` | `INTEGER` | unix seconds of the kept push |
+
+An epic's push is written and cleared with the same rules as a pane's or session's. `pushed_notices` and `pushed_epic_notices` are read in one read transaction, so both come from one snapshot (`internal/store/pushed.go:66`-`:90`).
+
+At start, once the store opens and before the router restores its rows, `orreryd` reads both tables, and each row's time becomes that key's kept push time. Rows for gone panes, sessions or epics are not pruned.
 
 Until the store opens, `orreryd` holds the seen writes it receives in memory. When the store opens, it applies each held seen write to the kept pushes: a seen write clears each kept push at or before its time, once. A pane or session pushed before the store opened keeps only its new time: the row read back for it and any seen held for it are dropped.
 
@@ -1725,7 +1792,7 @@ Each section table has an `epic` column and a `position` column, which counts fr
 | `epic_alternatives` | `alternative`, `why_not`, `reconsider` | `:63`-`:70` |
 | `epic_release_steps` | `step`, `target`, `undo` | `:72`-`:79` |
 
-The `epic_decisions` table has `epic` (`TEXT`), `seq` (`INTEGER`), `client_id` (`TEXT`), `text` (`TEXT`) and `time` (`INTEGER`). Its primary key is `(epic, seq)`, and `(epic, client_id)` is unique (`internal/store/migrations/00014_epics.sql:81`-`:89`). `seq` counts from 1 in recording order. A create records its seed decisions as `seq` 1 to `n`, each dated at the epic's creation. `client_id` is the decision's id (`internal/store/epics.go:195`-`:201`, `:341`-`:343`).
+The `epic_decisions` table has `epic` (`TEXT`), `seq` (`INTEGER`), `client_id` (`TEXT`), `text` (`TEXT`) and `time` (`INTEGER`), and from migration 00017 the `question` column (see below). Its primary key is `(epic, seq)`, and `(epic, client_id)` is unique (`internal/store/migrations/00014_epics.sql:81`-`:89`). `seq` counts from 1 in recording order. A create records its seed decisions as `seq` 1 to `n`, each dated at the epic's creation. `client_id` is the decision's id (`internal/store/epics.go:203`-`:209`, `:476`-`:481`).
 
 Two triggers guard `epic_decisions`. `epic_decisions_no_update` runs before any `UPDATE`, and `epic_decisions_no_delete` runs before any `DELETE`. Each aborts with `epic decisions are append-only` (`internal/store/migrations/00014_epics.sql:91`-`:103`).
 
@@ -1739,9 +1806,17 @@ Migration `00016_planner.sql` adds two columns to `epics`: `paused`, an `INTEGER
 | `epic_tasks` | `seq`, `turn`, `title`, `deliverable`, `task_check`, `status` (`open` when created); primary key `(epic, seq)` | `:39`-`:48` |
 | `epic_task_files` | `task`, `position`, `path`; primary key `(epic, task, position)` | `:50`-`:56` |
 | `epic_task_requirements` | `task`, `position`, `requirement`; primary key `(epic, task, position)` | `:58`-`:64` |
-| `epic_questions` | `seq`, `turn`, `text`, `state` (`open` when created); primary key `(epic, seq)` | `:66`-`:73` |
+| `epic_questions` | `seq`, `turn`, `text`, `state` (`open` when created, `answered` when a decision answers it); primary key `(epic, seq)` | `:66`-`:73` |
 
-Each call that writes an epic runs in one `BEGIN IMMEDIATE` write transaction, and a failed one leaves no rows behind (`internal/store/sync.go:239`-`:262`). `CreateEpic` writes the head, every section and the `created` trigger in one transaction (`internal/store/epics.go:109`-`:136`). Times are stored at whole seconds (`internal/store/epics.go:22`-`:23`). The store checks no contract content. The checks of [Epics](#epics) run before a create reaches it (`internal/enginehost/epicservice.go:51`-`:53`).
+Migration `00017_planner_controls.sql` adds the columns and the table below, and changes nothing else (`internal/store/migrations/00017_planner_controls.sql:2`-`:12`). Its down step drops them (`:14`-`:21`).
+
+- `epics.retried` (`INTEGER`, `0`): the highest turn seq at the last retry. A failed turn at or below it does not count toward a park (see [Planner turns](#planner-turns)).
+- `epic_turns.told`, `epic_turns.stop` and `epic_turns.resets` (`INTEGER`, `0`): the told marker of a turn, the flag of a stop asked while the turn runs, and the unix reset time of the usage limit that freed the turn, `0` for none.
+- `epic_decisions.question` (`INTEGER`, `0`): the seq of the question the decision answers, `0` for a note.
+- `pending_notices.epic` (`TEXT`, `""`): the epic of an epic notice (see [Pending notices in the store](#pending-notices-in-the-store)).
+- The table `pushed_epic_notices`, with the columns of [Pushed notices in the store](#pushed-notices-in-the-store).
+
+Each call that writes an epic runs in one `BEGIN IMMEDIATE` write transaction, and a failed one leaves no rows behind (`internal/store/sync.go:239`-`:262`). `CreateEpic` writes the head, every section and the `created` trigger in one transaction (`internal/store/epics.go:117`-`:144`). Times are stored at whole seconds (`internal/store/epics.go:28`-`:29`). The store checks no contract content. The checks of [Epics](#epics) run before a create reaches it (`internal/enginehost/epicservice.go:63`-`:65`).
 
 ### Claude Code hook settings
 
@@ -1861,11 +1936,11 @@ The web page is the one exception to the 404 rule. After the login check, GET an
 
 ### Push payload
 
-When [Notice routing](#notice-routing) sends a pane's `waiting` or `done` notice to the phone, `orreryd` posts it to each registered subscription. A headless session notice (see [Session notifications](#session-notifications)) is posted to each subscription the same way when it goes to the phone.
+When [Notice routing](#notice-routing) sends a pane's `waiting` or `done` notice to the phone, `orreryd` posts it to each registered subscription. A headless session notice (see [Session notifications](#session-notifications)) and an epic notice (see [Planner turns](#planner-turns)) are posted to each subscription the same way when they go to the phone.
 
 - The body is one RFC 8291 `aes128gcm` record. The record is at most 4096 bytes.
 - The headers are `Content-Encoding: aes128gcm` and `TTL: 3600`.
-- The plaintext is a JSON object. Every value is a string. The keys are `pane`, `host`, `project`, `state`, `summary`, `label`, `question`, `question_hash`, and `time`. `time` is the notice's time, as decimal unix seconds. A headless session notice also has the key `session`, holding the session id. A pane notice has no `session` key. A silent notice (see [Notice routing](#notice-routing)) also has the key `silent`, holding `"true"`. No other notice has a `silent` key.
+- The plaintext is a JSON object. Every value is a string. The keys are `pane`, `host`, `project`, `state`, `summary`, `label`, `question`, `question_hash`, and `time`. `time` is the notice's time, as decimal unix seconds. A headless session notice also has the key `session`, holding the session id. An epic notice also has the key `epic`, holding the epic's id, with `pane`, `label` and `question` empty and `project` set to the epic's title. A pane notice has neither `session` nor `epic`. A silent notice (see [Notice routing](#notice-routing)) also has the key `silent`, holding `"true"`. No other notice has a `silent` key.
 - The plaintext is at most 3993 bytes. When it is longer, the question is cut first, then the summary.
 - `question_hash` always covers the full question, even when the question is cut.
 
@@ -1877,11 +1952,11 @@ Example plaintext. The question and its hash are the fixed vector of section 10:
 
 #### Clear payload
 
-A clear is posted when a seen write sets a seen time at or after the time of the kept notice for a pane or session (see [orreryd](#orreryd)). Once the clear is published, the row of that pane or session is deleted from the store (see [Pushed notices in the store](#pushed-notices-in-the-store)). Its headers are the same as a notice's, `Content-Encoding: aes128gcm` and `TTL: 3600`. Its plaintext is a JSON object of string values with exactly these keys:
+A clear is posted when a seen write sets a seen time at or after the time of the kept notice for a pane, session or epic (see [orreryd](#orreryd)). Once the clear is published, the row of that pane, session or epic is deleted from the store (see [Pushed notices in the store](#pushed-notices-in-the-store)). Its headers are the same as a notice's, `Content-Encoding: aes128gcm` and `TTL: 3600`. Its plaintext is a JSON object of string values with exactly these keys:
 
 - `kind`, which is `clear`.
 - `host`, the machine host name.
-- `pane`, the pane id, for a pane notice, or `session`, the full session id, for a session notice. Only the one that applies is set.
+- `pane`, the pane id, for a pane notice, `session`, the full session id, for a session notice, or `epic`, the epic's id, for an epic notice. Only the one that applies is set.
 - `seen`, the seen time, as decimal unix seconds.
 
 Example clear plaintext. Every value is synthetic:
@@ -1892,10 +1967,11 @@ Example clear plaintext. Every value is synthetic:
 
 On the phone, the notices of a host are shown as follows:
 
-- One notification per host and pane or session.
+- One notification per host and pane, session or epic.
 - A replacement is silent unless its state is `waiting` or `failed`.
 - A clear removes only the notices at or before its `seen` time.
-- Session notices carry no actions.
+- Session notices and epic notices carry no actions.
+- An epic notice is tagged by the epic's id. A tap on it opens that epic's screen (`android/app/src/main/kotlin/io/github/joshsymonds/orrery/push/PushNotifier.kt:47`, `:58`, `:100`; `android/app/src/main/kotlin/io/github/joshsymonds/orrery/MainActivity.kt:165`).
 - A silent notice shows on the app's silent channel, with no sound or vibration.
 
 ### Connect API
@@ -2420,3 +2496,5 @@ orrery E31c (step and gate re-adoption) added, additively: the `steps` columns `
 orrery web presence (effort 1) added, additively: the `orrery.v1.Presence` service and its `Report` call (see [Connect API](#connect-api) and [Phone API](#phone-api)); the `/orrery.v1.Presence/` Connect path prefix of [Guard](#guard); the `input` key of HookFrame and the input report (section 9); serve's input reports to `orreryd` (see [orrery serve](#orrery-serve)); and the desk's presence from the newest web input while a stream is open (see [Desk stream](#desk-stream)). The removals are a change, not an addition: the desk's activity reports on the stream and its idle window, the desk link's periodic activity reports, the input of the desk's tmux clients and of orreryd's local tmux clients as desk signals, and `orrery desk`'s use of the tmux server that `-L` and `-S` name, which those reports came from (the global flags of section 6 are still accepted). Watching (rule 2 of [Notice routing](#notice-routing)) is unchanged. No other existing name or value changes.
 
 orrery restart-cost added, additively: the readiness signal of `orreryd`, one `READY=1` datagram to `NOTIFY_SOCKET` once it serves, and its read and removal of `NOTIFY_SOCKET` at start (see [orreryd](#orreryd)). Three values change, none of them additive: a restart writes nothing for an engine row with no unfinished text and no running turn, where it wrote every row with no live session, and `Steps.Reconcile` stores its ends in one store transaction, where it stored each in its own (see [Reconcile at start](#lifecycle-rules) and [Step lifecycle](#step-lifecycle)); a dropped settle write or step end no longer ends the pass, the other rows settle or end and the first error is returned, where the first read or write error ended it (see [Reconcile at start](#lifecycle-rules) and [Step lifecycle](#step-lifecycle)); and `orreryd`'s children no longer inherit `NOTIFY_SOCKET`, which `orreryd` removes from its environment at start, where they inherited it (see [Headless sessions](#headless-sessions)). No existing name changes.
+
+orrery O3c2 (planner controls) added, additively: the `orrery epic` subcommand and its forms (see [orrery](#orrery)); the `PauseEpic`, `ResumeEpic`, `StopEpic` and `RetryEpic` calls of the Epics service, the `question` field of `AnswerEpicRequest`, the `warning` field of `AnswerEpicResponse`, the `question` field of `EpicDecision`, and the refusals of [Epics](#epics); the `epic_pause`, `epic_resume`, `epic_stop` and `epic_retry` tools of `orrery mcp`; the answers tied to a question, the notes that answer none, and the `answer:<id>` trigger (see [Planner turns](#planner-turns)); the epic notices, their attention loop, and their lines in the notice log and on the desk stream (see [Planner turns](#planner-turns), [Notice log](#notice-log) and [Desk stream](#desk-stream)); the `epic` key of the Push payload and of the clear payload, and the `pushed_epic_notices` table (see [Push payload](#push-payload) and [Pushed notices in the store](#pushed-notices-in-the-store)); the `epic` key of the notice log line; migration `00017_planner_controls.sql` (see [Epics in the store](#epics-in-the-store)); and the phone's tag and tap for an epic push (see [Push payload](#push-payload)). One value changes, and it is not additive: a role-file error that parks an epic now claims a planner turn and frees it with the error, where it parked the epic with no turn (see [Planner turns](#planner-turns)). No existing name changes.
