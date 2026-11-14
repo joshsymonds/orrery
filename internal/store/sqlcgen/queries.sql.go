@@ -33,6 +33,46 @@ func (q *Queries) ClearEngineText(ctx context.Context, sessionID string) error {
 	return err
 }
 
+const completeEpicTurn = `-- name: CompleteEpicTurn :execrows
+UPDATE epic_turns SET state = 'succeeded', outline = ?, outcome = ?, ended = ? WHERE epic = ? AND seq = ? AND state = 'running'
+`
+
+type CompleteEpicTurnParams struct {
+	Outline string
+	Outcome string
+	Ended   int64
+	Epic    string
+	Seq     int64
+}
+
+func (q *Queries) CompleteEpicTurn(ctx context.Context, arg CompleteEpicTurnParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, completeEpicTurn,
+		arg.Outline,
+		arg.Outcome,
+		arg.Ended,
+		arg.Epic,
+		arg.Seq,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const consumeEpicTriggers = `-- name: ConsumeEpicTriggers :exec
+UPDATE epic_triggers SET state = 'consumed' WHERE epic = ? AND turn = ? AND state = 'claimed'
+`
+
+type ConsumeEpicTriggersParams struct {
+	Epic string
+	Turn int64
+}
+
+func (q *Queries) ConsumeEpicTriggers(ctx context.Context, arg ConsumeEpicTriggersParams) error {
+	_, err := q.db.ExecContext(ctx, consumeEpicTriggers, arg.Epic, arg.Turn)
+	return err
+}
+
 const countEnginePrompts = `-- name: CountEnginePrompts :one
 SELECT COUNT(*) FROM events
 WHERE session_id = ?1 AND kind = 'engine_prompt' AND json_extract(payload, '$.promptId') = ?2
@@ -683,6 +723,27 @@ func (q *Queries) InsertEpicPremise(ctx context.Context, arg InsertEpicPremisePa
 	return err
 }
 
+const insertEpicQuestion = `-- name: InsertEpicQuestion :exec
+INSERT INTO epic_questions (epic, seq, turn, text, state) VALUES (?, ?, ?, ?, 'open')
+`
+
+type InsertEpicQuestionParams struct {
+	Epic string
+	Seq  int64
+	Turn int64
+	Text string
+}
+
+func (q *Queries) InsertEpicQuestion(ctx context.Context, arg InsertEpicQuestionParams) error {
+	_, err := q.db.ExecContext(ctx, insertEpicQuestion,
+		arg.Epic,
+		arg.Seq,
+		arg.Turn,
+		arg.Text,
+	)
+	return err
+}
+
 const insertEpicReleaseStep = `-- name: InsertEpicReleaseStep :exec
 INSERT INTO epic_release_steps (epic, position, step, target, undo) VALUES (?, ?, ?, ?, ?)
 `
@@ -731,6 +792,73 @@ func (q *Queries) InsertEpicRequirement(ctx context.Context, arg InsertEpicRequi
 	return err
 }
 
+const insertEpicTask = `-- name: InsertEpicTask :exec
+INSERT INTO epic_tasks (epic, seq, turn, title, deliverable, task_check, status) VALUES (?, ?, ?, ?, ?, ?, 'open')
+`
+
+type InsertEpicTaskParams struct {
+	Epic        string
+	Seq         int64
+	Turn        int64
+	Title       string
+	Deliverable string
+	TaskCheck   string
+}
+
+func (q *Queries) InsertEpicTask(ctx context.Context, arg InsertEpicTaskParams) error {
+	_, err := q.db.ExecContext(ctx, insertEpicTask,
+		arg.Epic,
+		arg.Seq,
+		arg.Turn,
+		arg.Title,
+		arg.Deliverable,
+		arg.TaskCheck,
+	)
+	return err
+}
+
+const insertEpicTaskFile = `-- name: InsertEpicTaskFile :exec
+INSERT INTO epic_task_files (epic, task, position, path) VALUES (?, ?, ?, ?)
+`
+
+type InsertEpicTaskFileParams struct {
+	Epic     string
+	Task     int64
+	Position int64
+	Path     string
+}
+
+func (q *Queries) InsertEpicTaskFile(ctx context.Context, arg InsertEpicTaskFileParams) error {
+	_, err := q.db.ExecContext(ctx, insertEpicTaskFile,
+		arg.Epic,
+		arg.Task,
+		arg.Position,
+		arg.Path,
+	)
+	return err
+}
+
+const insertEpicTaskRequirement = `-- name: InsertEpicTaskRequirement :exec
+INSERT INTO epic_task_requirements (epic, task, position, requirement) VALUES (?, ?, ?, ?)
+`
+
+type InsertEpicTaskRequirementParams struct {
+	Epic        string
+	Task        int64
+	Position    int64
+	Requirement string
+}
+
+func (q *Queries) InsertEpicTaskRequirement(ctx context.Context, arg InsertEpicTaskRequirementParams) error {
+	_, err := q.db.ExecContext(ctx, insertEpicTaskRequirement,
+		arg.Epic,
+		arg.Task,
+		arg.Position,
+		arg.Requirement,
+	)
+	return err
+}
+
 const insertEpicTrigger = `-- name: InsertEpicTrigger :exec
 INSERT INTO epic_triggers (epic, id, cause, state, turn, created) VALUES (?, ?, ?, ?, ?, ?)
 `
@@ -773,6 +901,27 @@ func (q *Queries) InsertEpicTurn(ctx context.Context, arg InsertEpicTurnParams) 
 		arg.Seq,
 		arg.Seen,
 		arg.Started,
+	)
+	return err
+}
+
+const insertEpicTurnDecision = `-- name: InsertEpicTurnDecision :exec
+INSERT INTO epic_turn_decisions (epic, turn, position, text) VALUES (?, ?, ?, ?)
+`
+
+type InsertEpicTurnDecisionParams struct {
+	Epic     string
+	Turn     int64
+	Position int64
+	Text     string
+}
+
+func (q *Queries) InsertEpicTurnDecision(ctx context.Context, arg InsertEpicTurnDecisionParams) error {
+	_, err := q.db.ExecContext(ctx, insertEpicTurnDecision,
+		arg.Epic,
+		arg.Turn,
+		arg.Position,
+		arg.Text,
 	)
 	return err
 }
@@ -1990,6 +2139,28 @@ SELECT CAST(COALESCE(MAX(seq), 0) AS INTEGER) FROM epic_decisions WHERE epic = ?
 
 func (q *Queries) MaxEpicDecisionSeq(ctx context.Context, epic string) (int64, error) {
 	row := q.db.QueryRowContext(ctx, maxEpicDecisionSeq, epic)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const maxEpicQuestionSeq = `-- name: MaxEpicQuestionSeq :one
+SELECT CAST(COALESCE(MAX(seq), 0) AS INTEGER) FROM epic_questions WHERE epic = ?
+`
+
+func (q *Queries) MaxEpicQuestionSeq(ctx context.Context, epic string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, maxEpicQuestionSeq, epic)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const maxEpicTaskSeq = `-- name: MaxEpicTaskSeq :one
+SELECT CAST(COALESCE(MAX(seq), 0) AS INTEGER) FROM epic_tasks WHERE epic = ?
+`
+
+func (q *Queries) MaxEpicTaskSeq(ctx context.Context, epic string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, maxEpicTaskSeq, epic)
 	var column_1 int64
 	err := row.Scan(&column_1)
 	return column_1, err

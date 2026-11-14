@@ -361,3 +361,30 @@ UPDATE epic_triggers SET state = 'claimed', turn = ? WHERE epic = ? AND state = 
 
 -- name: SetEpicTurnStep :execrows
 UPDATE epic_turns SET step = ? WHERE epic = ? AND seq = ? AND state = 'running';
+
+-- name: CompleteEpicTurn :execrows
+UPDATE epic_turns SET state = 'succeeded', outline = ?, outcome = ?, ended = ? WHERE epic = ? AND seq = ? AND state = 'running';
+
+-- name: InsertEpicTurnDecision :exec
+INSERT INTO epic_turn_decisions (epic, turn, position, text) VALUES (?, ?, ?, ?);
+
+-- name: MaxEpicTaskSeq :one
+SELECT CAST(COALESCE(MAX(seq), 0) AS INTEGER) FROM epic_tasks WHERE epic = ?;
+
+-- name: InsertEpicTask :exec
+INSERT INTO epic_tasks (epic, seq, turn, title, deliverable, task_check, status) VALUES (?, ?, ?, ?, ?, ?, 'open');
+
+-- name: InsertEpicTaskFile :exec
+INSERT INTO epic_task_files (epic, task, position, path) VALUES (?, ?, ?, ?);
+
+-- name: InsertEpicTaskRequirement :exec
+INSERT INTO epic_task_requirements (epic, task, position, requirement) VALUES (?, ?, ?, ?);
+
+-- name: MaxEpicQuestionSeq :one
+SELECT CAST(COALESCE(MAX(seq), 0) AS INTEGER) FROM epic_questions WHERE epic = ?;
+
+-- name: InsertEpicQuestion :exec
+INSERT INTO epic_questions (epic, seq, turn, text, state) VALUES (?, ?, ?, ?, 'open');
+
+-- name: ConsumeEpicTriggers :exec
+UPDATE epic_triggers SET state = 'consumed' WHERE epic = ? AND turn = ? AND state = 'claimed';

@@ -42,6 +42,26 @@ type EpicTurn struct {
 	Ended     time.Time
 }
 
+// EpicPlan is the valid return of one planner turn: its decisions, its tasks, its outline, its questions and its
+// outcome.
+type EpicPlan struct {
+	Decisions []string
+	Tasks     []EpicTaskInput
+	Outline   string
+	Questions []string
+	Outcome   string
+}
+
+// EpicTaskInput is one task of a planner return: its title, its deliverable, the files it touches, the Requirements
+// it covers and its check.
+type EpicTaskInput struct {
+	Title        string
+	Deliverable  string
+	Files        []string
+	Requirements []string
+	Check        string
+}
+
 // PlanStates returns one entry per epic with at least one pending trigger, ordered by epic id.
 func (s *Store) PlanStates(ctx context.Context) ([]EpicPlanState, error) {
 	rows, err := sqlcgen.New(s.db).ListEpicPlanStates(ctx)
@@ -130,6 +150,88 @@ func startTurn(ctx context.Context, queries *sqlcgen.Queries, epic string, at ti
 		return EpicTurn{}, fmt.Errorf("claim triggers of epic %s for turn %d: %w", epic, seq, err)
 	}
 	return EpicTurn{Epic: epic, Seq: seq, State: "running", Seen: seen, Started: time.Unix(at.Unix(), 0)}, nil
+}
+
+// CompleteTurn stores plan as the return of the running turn seq of epic in one write: its decisions, its tasks with
+// their files and Requirements, its outline, its questions and its outcome. The turn succeeds ended at at, and every
+// trigger the turn claimed is consumed. A turn that is not running, or does not exist, is ErrTurnNotRunning and
+// writes nothing.
+func (s *Store) CompleteTurn(ctx context.Context, epic string, turn int64, plan EpicPlan, at time.Time) error {
+	return s.write(ctx, func(queries *sqlcgen.Queries) error {
+		rows, err := queries.CompleteEpicTurn(ctx, sqlcgen.CompleteEpicTurnParams{
+			Outline: plan.Outline, Outcome: plan.Outcome, Ended: at.Unix(), Epic: epic, Seq: turn,
+		})
+		if err != nil {
+			return fmt.Errorf("complete turn %d of epic %s: %w", turn, epic, err)
+		}
+		if rows == 0 {
+			return fmt.Errorf("turn %d of epic %s: %w", turn, epic, ErrTurnNotRunning)
+		}
+		if err = insertInOrder(plan.Decisions, func(position int64, text string) error {
+			return queries.InsertEpicTurnDecision(ctx, sqlcgen.InsertEpicTurnDecisionParams{
+				Epic: epic, Turn: turn, Position: position, Text: text,
+			})
+		}); err != nil {
+			return fmt.Errorf("decisions of turn %d of epic %s: %w", turn, epic, err)
+		}
+		if err = insertTasks(ctx, queries, epic, turn, plan.Tasks); err != nil {
+			return fmt.Errorf("tasks of turn %d of epic %s: %w", turn, epic, err)
+		}
+		if err = insertQuestions(ctx, queries, epic, turn, plan.Questions); err != nil {
+			return fmt.Errorf("questions of turn %d of epic %s: %w", turn, epic, err)
+		}
+		if err = queries.ConsumeEpicTriggers(ctx, sqlcgen.ConsumeEpicTriggersParams{
+			Epic: epic, Turn: turn,
+		}); err != nil {
+			return fmt.Errorf("consume triggers of turn %d of epic %s: %w", turn, epic, err)
+		}
+		return nil
+	})
+}
+
+// insertTasks stores tasks as the next task seqs of epic after its highest, each with its files and Requirements in
+// order.
+func insertTasks(ctx context.Context, queries *sqlcgen.Queries, epic string, turn int64, tasks []EpicTaskInput) error {
+	highest, err := queries.MaxEpicTaskSeq(ctx, epic)
+	if err != nil {
+		return fmt.Errorf("read task count of epic %s: %w", epic, err)
+	}
+	return insertInOrder(tasks, func(taskPosition int64, task EpicTaskInput) error {
+		seq := highest + taskPosition
+		if err = queries.InsertEpicTask(ctx, sqlcgen.InsertEpicTaskParams{
+			Epic: epic, Seq: seq, Turn: turn, Title: task.Title, Deliverable: task.Deliverable, TaskCheck: task.Check,
+		}); err != nil {
+			return fmt.Errorf("insert task %d of epic %s: %w", seq, epic, err)
+		}
+		if err = insertInOrder(task.Files, func(position int64, path string) error {
+			return queries.InsertEpicTaskFile(ctx, sqlcgen.InsertEpicTaskFileParams{
+				Epic: epic, Task: seq, Position: position, Path: path,
+			})
+		}); err != nil {
+			return fmt.Errorf("files of task %d of epic %s: %w", seq, epic, err)
+		}
+		if err = insertInOrder(task.Requirements, func(position int64, requirement string) error {
+			return queries.InsertEpicTaskRequirement(ctx, sqlcgen.InsertEpicTaskRequirementParams{
+				Epic: epic, Task: seq, Position: position, Requirement: requirement,
+			})
+		}); err != nil {
+			return fmt.Errorf("requirements of task %d of epic %s: %w", seq, epic, err)
+		}
+		return nil
+	})
+}
+
+// insertQuestions stores questions as the next question seqs of epic after its highest, each open.
+func insertQuestions(ctx context.Context, queries *sqlcgen.Queries, epic string, turn int64, questions []string) error {
+	highest, err := queries.MaxEpicQuestionSeq(ctx, epic)
+	if err != nil {
+		return fmt.Errorf("read question count of epic %s: %w", epic, err)
+	}
+	return insertInOrder(questions, func(position int64, text string) error {
+		return queries.InsertEpicQuestion(ctx, sqlcgen.InsertEpicQuestionParams{
+			Epic: epic, Seq: highest + position, Turn: turn, Text: text,
+		})
+	})
 }
 
 // SetTurnStep records step as the step of the running turn seq of epic in one write. A turn that is not running, or
