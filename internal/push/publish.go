@@ -19,17 +19,18 @@ import (
 type Notification struct {
 	Pane, Host, Project      string
 	Session                  string
+	Limit                    string
 	State                    protocol.State
 	Summary, Label, Question string
 	Time                     int64
 	Silent                   bool
 }
 
-// Clear tells the app that a pane or session was seen at Seen (unix seconds), so notices at or before it
-// can be removed. Pane is set for a pane clear and Session for a session clear.
+// Clear tells the app that a pane, session, or limit was seen at Seen (unix seconds), so notices at or before it
+// can be removed. Pane is set for a pane clear, Session for a session clear, and Limit for a limit clear.
 type Clear struct {
-	Host, Pane, Session string
-	Seen                int64
+	Host, Pane, Session, Limit string
+	Seen                       int64
 }
 
 // Payload keys the app reads.
@@ -38,6 +39,7 @@ const (
 	keyHost         = "host"
 	keyProject      = "project"
 	keySession      = "session"
+	keyLimit        = "limit"
 	keyState        = "state"
 	keySummary      = "summary"
 	keyLabel        = "label"
@@ -119,8 +121,9 @@ func (p *Publisher) publishPayload(ctx context.Context, build func() ([]byte, er
 	return errors.Join(errs...)
 }
 
-// clearPayload returns the JSON payload for cleared. The pane key is present only when cleared.Pane is set and
-// the session key only when cleared.Session is set. A clear carries no notice keys.
+// clearPayload returns the JSON payload for cleared. The pane key is present only when cleared.Pane is set, the
+// session key only when cleared.Session is set, and the limit key only when cleared.Limit is set. A clear carries
+// no notice keys.
 func clearPayload(cleared Clear) ([]byte, error) {
 	fields := map[string]string{
 		keyKind: kindClear,
@@ -133,6 +136,9 @@ func clearPayload(cleared Clear) ([]byte, error) {
 	if cleared.Session != "" {
 		fields[keySession] = cleared.Session
 	}
+	if cleared.Limit != "" {
+		fields[keyLimit] = cleared.Limit
+	}
 	body, err := json.Marshal(fields)
 	if err != nil {
 		return nil, fmt.Errorf("encode clear payload: %w", err)
@@ -142,8 +148,8 @@ func clearPayload(cleared Clear) ([]byte, error) {
 
 // boundedPayload returns the JSON payload for note. The question is shortened first, then the summary if
 // the payload still does not fit with an empty question. The question_hash always covers the full question.
-// The time key is always present. The session key is present only when note.Session is set, and the silent
-// key only when note.Silent is set.
+// The time key is always present. The session key is present only when note.Session is set, the limit key only
+// when note.Limit is set, and the silent key only when note.Silent is set.
 func boundedPayload(note Notification) ([]byte, error) {
 	hash := protocol.QuestionHash(note.Question)
 	encode := func(summary, question string) ([]byte, error) {
@@ -160,6 +166,9 @@ func boundedPayload(note Notification) ([]byte, error) {
 		}
 		if note.Session != "" {
 			fields[keySession] = note.Session
+		}
+		if note.Limit != "" {
+			fields[keyLimit] = note.Limit
 		}
 		if note.Silent {
 			fields[keySilent] = "true"
