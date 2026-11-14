@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"time"
 
 	"connectrpc.com/connect"
@@ -26,9 +27,11 @@ type EpicCommands interface {
 	AnswerEpic(ctx context.Context, epic, id, text string, at time.Time) (store.EpicDecision, error)
 }
 
-// epicService implements the Epics RPCs over epics.
+// epicService implements the Epics RPCs over epics. getenv reads the environment a contract's gates resolve in; nil
+// reads the process environment.
 type epicService struct {
-	epics EpicCommands
+	epics  EpicCommands
+	getenv func(string) string
 }
 
 // ready returns the refusal every epic RPC gets when there is no epic store.
@@ -48,7 +51,11 @@ func (s *epicService) CreateEpic(
 	if err := s.ready(); err != nil {
 		return nil, err
 	}
-	if err := checkEpic(ctx, req.Msg); err != nil {
+	getenv := s.getenv
+	if getenv == nil {
+		getenv = os.Getenv
+	}
+	if err := checkEpic(ctx, req.Msg, getenv); err != nil {
 		return nil, refuseEpic(connect.CodeInvalidArgument, err.Error())
 	}
 	row := epicRowOf(req.Msg, time.Now())

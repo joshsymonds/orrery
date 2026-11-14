@@ -7,21 +7,25 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/joshsymonds/orrery/internal/evidence"
+	"github.com/joshsymonds/orrery/internal/gates"
 	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
 )
 
 // epicIDMaxBytes caps the length of a contract's id.
 const epicIDMaxBytes = 128
 
-// The reasons a refusal gives after its field. Each says what the field must be.
+// The reasons a refusal gives after its field. Each says what the field must be, or what it may not sit beside.
 const (
-	epicReasonMissing   = "missing"
-	epicReasonEmpty     = "empty"
-	epicReasonNone      = "none"
-	epicReasonDuplicate = "duplicate"
-	epicReasonUnknownID = "unknown id"
-	epicReasonLevel     = "not limited, serious or severe"
-	epicReasonKind      = "not check or review"
+	epicReasonMissing    = "missing"
+	epicReasonEmpty      = "empty"
+	epicReasonNone       = "none"
+	epicReasonDuplicate  = "duplicate"
+	epicReasonUnknownID  = "unknown id"
+	epicReasonLevel      = "not limited, serious or severe"
+	epicReasonBesideItem = "set beside an item"
+	epicReasonNotCommand = "not a command gate"
+	epicReasonNotAgent   = "not an agent gate"
 )
 
 // The forms of the ids a contract names: its own id, and the F, R and P rows of its sections.
@@ -41,8 +45,9 @@ type epicFieldError struct {
 func (e *epicFieldError) Error() string { return e.field + ": " + e.reason }
 
 // checkEpic returns the first refusal of a CreateEpic request, checked in the order E1-D5 lists them, or nil when
-// the request passes. It runs git in the contract's repository and does not check the database.
-func checkEpic(ctx context.Context, req *v1.CreateEpicRequest) error {
+// the request passes. It runs git in the contract's repository, reads the project file for the repository through
+// getenv, and does not check the database.
+func checkEpic(ctx context.Context, req *v1.CreateEpicRequest, getenv func(string) string) error {
 	contract := req.GetContract()
 	if contract == nil {
 		return &epicFieldError{field: "contract", reason: epicReasonMissing}
@@ -50,10 +55,110 @@ func checkEpic(ctx context.Context, req *v1.CreateEpicRequest) error {
 	if err := checkEpicHead(ctx, contract); err != nil {
 		return err
 	}
+	if err := checkEpicBase(ctx, contract); err != nil {
+		return err
+	}
+	if err := checkEpicGateDefs(ctx, contract, getenv); err != nil {
+		return err
+	}
 	if err := checkEpicSections(contract); err != nil {
 		return err
 	}
 	return checkEpicDecisions(req.GetDecisions())
+}
+
+// checkEpicGateDefs refuses the contract's gates, then the done and review gates that name them.
+func checkEpicGateDefs(ctx context.Context, contract *v1.EpicContract, getenv func(string) string) error {
+	defined, err := checkEpicGates(contract.GetGates())
+	if err != nil {
+		return err
+	}
+	return checkEpicGateRefs(ctx, contract, defined, getenv)
+}
+
+// checkEpicBase refuses a base that is blank or names no commit of the contract's repository. git exits non-zero for
+// a name it cannot resolve, so any failure of the check means the base is not a commit there.
+func checkEpicBase(ctx context.Context, contract *v1.EpicContract) error {
+	base := contract.GetBase()
+	if isBlank(base) {
+		return &epicFieldError{field: "base", reason: epicReasonEmpty}
+	}
+	_, err := stepGit(
+		ctx, contract.GetRepository(), "rev-parse", "--verify", "--quiet", "--end-of-options", base+"^{commit}",
+	)
+	if err != nil {
+		return &epicFieldError{field: "base", reason: "not a commit in the repository"}
+	}
+	return nil
+}
+
+// checkEpicGates returns the gates the contract defines, each one gates.Define builds from its data. A gate Define
+// refuses is refused at its index, and a name an earlier gate took is a duplicate.
+func checkEpicGates(epicGates []*v1.EpicGate) ([]gates.Gate, error) {
+	seen := make(map[string]bool, len(epicGates))
+	defined := make([]gates.Gate, 0, len(epicGates))
+	for i, epicGate := range epicGates {
+		gate, err := gates.Define(
+			epicGate.GetName(),
+			epicGate.GetArgv(),
+			epicGate.GetLimit(),
+			epicGateNeeds(epicGate.GetNeeds()),
+			epicGate.GetAgent(),
+			epicGate.GetMust(),
+			epicGate.GetMustNot(),
+		)
+		if err != nil {
+			return nil, &epicFieldError{field: fmt.Sprintf("gates[%d]", i), reason: err.Error()}
+		}
+		if seen[gate.Name] {
+			return nil, &epicFieldError{field: epicRowField("gates", i, "name"), reason: epicReasonDuplicate}
+		}
+		seen[gate.Name] = true
+		defined = append(defined, gate)
+	}
+	return defined, nil
+}
+
+// epicGateNeeds returns the pool needs of an epic gate as gates.Need, in order.
+func epicGateNeeds(needs []*v1.EpicGateNeed) []gates.Need {
+	return epicMap(needs, func(need *v1.EpicGateNeed) gates.Need {
+		return gates.Need{Pool: need.GetPool(), Count: int(need.GetCount())}
+	})
+}
+
+// checkEpicGateRefs refuses the first done gate that does not resolve to a command gate, then the first review gate
+// that does not resolve to an agent gate. A name resolves from the contract's gates, else from the repository's
+// project file.
+func checkEpicGateRefs(
+	ctx context.Context,
+	contract *v1.EpicContract,
+	defined []gates.Gate,
+	getenv func(string) string,
+) error {
+	resolve := func(name string) (gates.Resolved, error) {
+		return gates.ResolveDefined(ctx, name, defined, contract.GetRepository(), getenv)
+	}
+	for i, name := range contract.GetDoneGates() {
+		resolved, err := resolve(name)
+		field := fmt.Sprintf("done_gates[%d]", i)
+		if err != nil {
+			return &epicFieldError{field: field, reason: err.Error()}
+		}
+		if resolved.Agent != "" {
+			return &epicFieldError{field: field, reason: epicReasonNotCommand}
+		}
+	}
+	for i, name := range contract.GetReviewGates() {
+		resolved, err := resolve(name)
+		field := fmt.Sprintf("review_gates[%d]", i)
+		if err != nil {
+			return &epicFieldError{field: field, reason: err.Error()}
+		}
+		if resolved.Agent == "" {
+			return &epicFieldError{field: field, reason: epicReasonNotAgent}
+		}
+	}
+	return nil
 }
 
 // checkEpicHead refuses the contract's id, repository, intent and care.
@@ -123,7 +228,7 @@ func checkEpicFailures(failures []*v1.EpicFailure) error {
 }
 
 // checkEpicRequirements refuses a contract with no requirements, and a requirement whose id is not R<n> or repeats
-// one, whose evidence is empty, or whose kind is not check or review.
+// one, or whose evidence item is missing or refused.
 func checkEpicRequirements(requirements []*v1.EpicRequirement) error {
 	if len(requirements) == 0 {
 		return &epicFieldError{field: "requirements", reason: epicReasonNone}
@@ -134,14 +239,44 @@ func checkEpicRequirements(requirements []*v1.EpicRequirement) error {
 		if err := checkEpicRowID(field, requirement.GetId(), epicRequirementIDPattern, seen); err != nil {
 			return err
 		}
-		if isBlank(requirement.GetEvidence()) {
-			return &epicFieldError{field: epicRowField("requirements", i, "evidence"), reason: epicReasonEmpty}
-		}
-		if kind := requirement.GetKind(); kind != "check" && kind != "review" {
-			return &epicFieldError{field: epicRowField("requirements", i, "kind"), reason: epicReasonKind}
+		if err := checkEpicRequirementItem(i, requirement); err != nil {
+			return err
 		}
 	}
 	return nil
+}
+
+// checkEpicRequirementItem refuses a requirement without an evidence item, or whose item evidence.Check refuses. A new
+// epic sets neither the evidence nor the kind an epic stored before O3d2 kept, so either one beside the item is refused.
+func checkEpicRequirementItem(i int, requirement *v1.EpicRequirement) error {
+	item := requirement.GetItem()
+	if item == nil {
+		return &epicFieldError{field: epicRowField("requirements", i, "item"), reason: epicReasonMissing}
+	}
+	if lines := evidence.Check(evidenceItemOf(item)); len(lines) > 0 {
+		// Each line is "<field>: <reason>", and its field is named under the item.
+		field, reason, _ := strings.Cut(lines[0], ": ")
+		return &epicFieldError{field: epicRowField("requirements", i, "item") + "." + field, reason: reason}
+	}
+	if requirement.GetEvidence() != "" {
+		return &epicFieldError{field: epicRowField("requirements", i, "evidence"), reason: epicReasonBesideItem}
+	}
+	if requirement.GetKind() != "" {
+		return &epicFieldError{field: epicRowField("requirements", i, "kind"), reason: epicReasonBesideItem}
+	}
+	return nil
+}
+
+// evidenceItemOf returns the evidence.Item an EvidenceItem message carries.
+func evidenceItemOf(item *v1.EvidenceItem) evidence.Item {
+	return evidence.Item{
+		Capture:    item.GetCapture(),
+		Limit:      item.GetLimit(),
+		Artifacts:  item.GetArtifacts(),
+		Supplied:   item.GetSupplied(),
+		Conclusion: item.GetConclusion(),
+		Judge:      item.GetJudge(),
+	}
 }
 
 // checkEpicPremises refuses a premise whose id is not P<n> or repeats one.
