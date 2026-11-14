@@ -198,6 +198,7 @@ Claude Code hooks send their events to the daemon as frames.
 | AnthropicBaseURL | string | `anthropicBaseUrl` | `$ANTHROPIC_BASE_URL` |
 | Seen | int64 | `seen` | the seen time of a seen report, omitted at zero |
 | Read | int64 | `read` | the read time of a read report, omitted at zero |
+| Input | int64 | `input` | the input time of an input report, unix seconds, omitted at zero |
 
 Wire format:
 
@@ -205,11 +206,12 @@ Wire format:
 - One JSON object, terminated by `\n`. The object is written on a single line.
 - A frame with `seen` above zero and no `hook` is a seen report. orreryd sends no state change for it.
 - A frame with `read` above zero and neither `hook` nor `seen` is a read report: serve's word that the phone read the pane at that time. orreryd sends no state change for it. It keeps the time as the pane's newest read (see [Notice routing](#notice-routing)), and it drops a report whose `tmuxPane` is empty.
+- A frame with `input` above zero and neither `hook`, `seen` nor `read` is an input report: serve's word that the web view had input at that time. orreryd sends no state change for it, and it touches no pane. It keeps the newest input it receives (see [Desk stream](#desk-stream)). A zero `input` is absent, not an input report.
 
 Functions:
 
 - `func WriteFrame(w io.Writer, frame HookFrame) error` writes exactly that format.
-- `func ReadFrame(r io.Reader) (HookFrame, error)` decodes one frame. It has no line-length limit, because hook payloads can be large. It returns an error on malformed JSON, on a frame with both `seen` above zero and `hook`, on a frame whose `read` is below zero, and on a frame with `read` above zero together with `hook` or `seen`. Otherwise it returns an error when `hook` is missing, is `null`, or is not a JSON object, unless the frame is a seen report or a read report.
+- `func ReadFrame(r io.Reader) (HookFrame, error)` decodes one frame. It has no line-length limit, because hook payloads can be large. It returns an error on malformed JSON, on a frame with both `seen` above zero and `hook`, on a frame whose `read` is below zero, and on a frame with `read` above zero together with `hook` or `seen`. It also returns an error on a frame whose `input` is below zero, and on a frame with `input` above zero together with `hook`, a non-zero `seen` or a non-zero `read`. Otherwise it returns an error when `hook` is missing, is `null`, or is not a JSON object, unless the frame is a seen report, a read report or an input report.
 
 Example frame. Every value is synthetic. The wire form is this object on one line, terminated by `\n`:
 
@@ -221,6 +223,12 @@ Example read report. The value is synthetic. The wire form is this object on one
 
 ```json
 {"tmuxPane":"%1","tmux":"","cwd":"","anthropicBaseUrl":"","read":1700000000}
+```
+
+Example input report. The value is synthetic. The wire form is this object on one line, terminated by `\n`:
+
+```json
+{"tmuxPane":"","tmux":"","cwd":"","anthropicBaseUrl":"","input":1700000000}
 ```
 
 ## 10. Question hash
@@ -406,6 +414,8 @@ The picker call `Picker.Ask` (see [Phone API](#phone-api)) looks up `claude` on 
 
 `serve` also sends `orreryd` a read report (section 9) with the pane and the time of each read it answers. It sends one after each successful `Panes.Conversation` or `Panes.Screen` answer. While a `Panes.WatchConversation` stream stays open, it sends one at the stream's first successful step, and again each time the keepalive interval has passed since the last report. That interval is 5 seconds by default. The report goes to the daemon socket (section 5). When no `orreryd` listens there, the report is dropped.
 
+`serve` also sends `orreryd` an input report (section 9) for each `Presence.Report` it answers (see [Phone API](#phone-api)). The input is dated at serve's clock less the reported `input_age_ms`, in whole unix seconds. An age that is not below serve's clock reports nothing. The report goes to the daemon socket (section 5), and it is dropped when no `orreryd` listens there. Any other failure is written to standard error, and the call still answers.
+
 `--listen` and at least one `--allow-login` are required. Without them `serve` exits 2.
 
 `serve` is meant to sit behind `tailscale serve`, which sets the `Tailscale-User-Login` header that section 12 checks. Do not expose it through Tailscale Funnel.
@@ -479,7 +489,7 @@ When neither variable is set, `orreryd` exits 1.
 - **Unneeded.** The judge answers not needed, with no error and no late answer. At once, whether or not the desk is at hand, the desk stream gets the notice as a quiet notice and Web Push gets it as a silent notice. Rule 5 applies to the phone part. Nothing escalates the notice, and it ends with that line. Its route names the sinks it reached, as for `away`, and its reason is `unneeded`, with `: <why>` when the judge gave a why. A desk notice that cannot be built is not posted, and the reason gains `; desk notice failed` as rule 6 says, but the silent phone notice is still sent.
 - **Needed, failed or late.** The notice routes by rules 3 to 6, and its reason gains `needed` (with its why), `judge failed: <error>` or `judge late`, whichever applies (see the [clauses](#notice-log)).
 
-3. **At the desk.** The desk is at hand when the desk stream is present (see [Desk stream](#desk-stream)) and either the desk's newest input or this host's newest tmux client input is within the last 2 minutes. A failed input read reads as no local input. The notice then goes to the desk stream only, with route `desk` and reason `at the desk`, and stays pending. If it is still unseen and unchanged 5 minutes later, it goes to the phone, with route `phone` and reason `unseen after 5 minutes`, and ends.
+3. **At the desk.** The desk is at hand when the desk stream is present (see [Desk stream](#desk-stream)) and the newest web input is within the last 2 minutes. That input is the newest one the page reported through its input reports (see [orrery serve](#orrery-serve)). Terminal input does not count, so a needed notice while the owner types only in a terminal and the web view is idle is away, and reaches the phone at once. The notice then goes to the desk stream only, with route `desk` and reason `at the desk`, and stays pending. If it is still unseen and unchanged 5 minutes later, it goes to the phone, with route `phone` and reason `unseen after 5 minutes`, and ends.
 4. **Away.** Otherwise the notice goes to the desk stream and to the phone at once, with route `desk+phone` and reason `away`.
 5. **Push subscription.** The phone gets a notice only when the push store lists at least one subscription. Without one, the phone part is dropped: the route names what remains, and the reason gains `; no push subscription`. An escalation with no subscription ends the notice with route `none` and reason `unseen after 5 minutes; no push subscription`. A failed subscription check reads as a subscription, so the push is attempted.
 6. **Desk notice failure.** A desk notice that cannot be built is not posted. The notice then routes as away, and its reason gains `; desk notice failed` before any `; no push subscription`.
@@ -908,11 +918,11 @@ The stream is JSON lines. Each line is one object and ends with a newline.
 
 - `hello` is the first line of every stream: `{"kind":"hello","host":"example-host"}`.
 - `notice` carries one notice: `{"kind":"notice","host":"example-host","state":"waiting","title":"example-project · example-session:1","body":"Which file should I edit?"}`. `state`, `title` and `body` are left out when empty. `quiet` is `true` on a quiet notice, which the judge found unneeded (see [Notice routing](#notice-routing)), and absent otherwise. A quiet notice: `{"kind":"notice","host":"example-host","state":"done","title":"example-project · example-session:1","body":"Example summary of the work.","quiet":true}`.
-- The desk sends activity lines, which hold only `input`: `{"input":1700000000}`. `input` is the unix time in seconds of the desk's newest input. A line whose `input` is zero or less is ignored, and so is a line that is not JSON.
+- A line the desk sends up the stream is read and discarded. It has no effect on the desk's presence.
 
 Each stream gets `hello` first, then each notice posted while it is open, in the order posted. The stream keeps no backlog, so a notice posted while no stream is open is dropped. A stream that falls 64 lines behind is closed. On shutdown, queued lines get up to 2 seconds to reach their streams, and then open streams are closed.
 
-The desk is present while a stream is open and an activity line arrived within the last 90 seconds. `orreryd` keeps the input of the last activity line it received.
+The desk is present while a stream is open. `orreryd` keeps the newest web input that `serve` reports to it (section 9).
 
 The notices on the stream are these:
 
@@ -938,10 +948,8 @@ orrery [--socket PATH] notices
 ### orrery desk
 
 ```
-orrery [-L NAME | -S PATH] [--socket PATH] desk --sound FILE [--host HOST]...
+orrery [--socket PATH] desk --sound FILE [--host HOST]...
 ```
-
-- `-L NAME` and `-S PATH` select the desk's tmux server, whose clients' input the activity lines carry, as section 6 defines.
 
 - `--sound FILE` is required. Without it, `desk` exits 2. `FILE` is the sound that each popup plays, except a quiet notice's popup (see [Popups](#orrery-desk)).
 - `--host HOST` adds a link to `HOST`. Repeat the flag for each host. Without it, the desk has only the local link.
@@ -958,9 +966,9 @@ ssh -T -o BatchMode=yes -o ControlMaster=no -o ControlPath=none -o ServerAliveIn
 
   `BatchMode=yes` stops ssh from prompting, so a connection that would prompt fails. `ControlMaster=no` and `ControlPath=none` give each link its own connection. ssh ends the connection when three keepalives, 15 seconds apart, go unanswered.
 
-A link reads the lines its command prints, and it writes activity lines to the command's stdin:
+A link reads the lines its command prints. It keeps the command's stdin open and writes nothing to it, because `orrery notices` exits when its stdin ends:
 
-- A `hello` makes the stream live. The link writes an activity line at once and then every 30 seconds while the stream is live. The line holds the newest input of the clients attached to the desk's tmux server, in unix seconds. When no client is attached, no line is written.
+- A `hello` makes the stream live.
 - A `notice` pops up (see Popups).
 - When the command exits, or fails to start, the link waits and then runs the command again. The wait starts at 1 second and doubles after each restart, up to 60 seconds. A `hello` resets it to 1 second.
 - When a host has no live stream for 5 minutes, `desk` pops up a lost notice for it. The five minutes start when `desk` starts, or when a live stream ends. A `hello` before they end cancels them. Each stretch without a live stream gets one lost notice.
@@ -1757,7 +1765,7 @@ The guard runs before routing. It checks every request:
 
 - The `Tailscale-User-Login` header must equal one of the `--allow-login` values. Otherwise the response is 403.
 
-Connect paths are those beginning `/orrery.v1.Sessions/`, `/orrery.v1.Events/`, `/orrery.v1.Control/`, `/orrery.v1.Panes/`, `/orrery.v1.Host/`, `/orrery.v1.Push/`, `/orrery.v1.Picker/`, `/orrery.v1.Epics/`, `/orrery.v1.Steps/` or `/orrery.v1.Pools/` (see [Connect API](#connect-api), [Control API](#control-api) and [Phone API](#phone-api)). Every request to a Connect path, whatever its method, must also send a non-empty `X-Orrery-Client` header. Otherwise the response is 403. A POST to a Connect path must send `Content-Type` `application/proto`, `application/json`, `application/connect+proto`, or `application/connect+json`. Otherwise the response is 403.
+Connect paths are those beginning `/orrery.v1.Sessions/`, `/orrery.v1.Events/`, `/orrery.v1.Control/`, `/orrery.v1.Panes/`, `/orrery.v1.Host/`, `/orrery.v1.Push/`, `/orrery.v1.Picker/`, `/orrery.v1.Epics/`, `/orrery.v1.Steps/`, `/orrery.v1.Pools/` or `/orrery.v1.Presence/` (see [Connect API](#connect-api), [Control API](#control-api) and [Phone API](#phone-api)). Every request to a Connect path, whatever its method, must also send a non-empty `X-Orrery-Client` header. Otherwise the response is 403. A POST to a Connect path must send `Content-Type` `application/proto`, `application/json`, `application/connect+proto`, or `application/connect+json`. Otherwise the response is 403.
 
 The web page is the one exception to the 404 rule. After the login check, GET and HEAD of `/` answer `index.html`, and GET and HEAD of any other file path of the page answer that file. A path the page lacks, a directory, and any other method answer 404. Each page answer carries `Content-Security-Policy: default-src 'self'; frame-ancestors 'none'` and `X-Content-Type-Options: nosniff`. The page needs no client header. Any other path that is not a Connect path answers 404, after the login check. The server sends no CORS headers.
 
@@ -1804,7 +1812,7 @@ On the phone, the notices of a host are shown as follows:
 
 `orrery serve` also serves a typed API over the Connect protocol. The schema is `proto/orrery/v1/orrery.proto`, package `orrery.v1`. Generated Go lives in `internal/gen`. `just generate` writes it, and `just check` fails when it drifts from the schema. The same `just generate` also writes the generated Kotlin into `android/app/src/main/java`, from the template `proto/buf.gen.android.yaml`. `just gen-diff` diffs that directory and `internal/gen`.
 
-The services are `orrery.v1.Sessions`, with three calls, `List`, `ListHeadless` and `WatchConversation`, `orrery.v1.Events`, with one call, `Watch`, `orrery.v1.Control`, with six calls, which [Control API](#control-api) describes, and the five phone services `orrery.v1.Panes`, `orrery.v1.Host`, `orrery.v1.Push`, `orrery.v1.Picker` and `orrery.v1.Pools`, with sixteen calls, which [Phone API](#phone-api) describes. The services `orrery.v1.Epics`, with two calls, and `orrery.v1.Steps`, with three calls, which [Epics and Steps](#epics-and-steps) describes. Their schema is `proto/orrery/v1/epics.proto`. `orrery.v1.Steps` is not the engine's `orrery.engine.v1.Steps` service of [Steps](#steps).
+The services are `orrery.v1.Sessions`, with three calls, `List`, `ListHeadless` and `WatchConversation`, `orrery.v1.Events`, with one call, `Watch`, `orrery.v1.Control`, with six calls, which [Control API](#control-api) describes, and the six phone services `orrery.v1.Panes`, `orrery.v1.Host`, `orrery.v1.Push`, `orrery.v1.Picker`, `orrery.v1.Pools` and `orrery.v1.Presence`, with seventeen calls, which [Phone API](#phone-api) describes. The services `orrery.v1.Epics`, with two calls, and `orrery.v1.Steps`, with three calls, which [Epics and Steps](#epics-and-steps) describes. Their schema is `proto/orrery/v1/epics.proto`. `orrery.v1.Steps` is not the engine's `orrery.engine.v1.Steps` service of [Steps](#steps).
 
 | Call | Path | Request | Response |
 |---|---|---|---|
@@ -1839,6 +1847,7 @@ The services are `orrery.v1.Sessions`, with three calls, `List`, `ListHeadless` 
 | `Pools.Status` | `POST /orrery.v1.Pools/Status` | `PoolsStatusRequest`, empty | `PoolsStatusResponse` |
 | `Pools.Hold` | `POST /orrery.v1.Pools/Hold` | `PoolsHoldRequest` | `PoolsHoldResponse` |
 | `Pools.Free` | `POST /orrery.v1.Pools/Free` | `PoolsFreeRequest` | `PoolsFreeResponse` |
+| `Presence.Report` | `POST /orrery.v1.Presence/Report` | `PresenceReportRequest` | `PresenceReportResponse` |
 
 `ListResponse` has these fields:
 
@@ -2002,7 +2011,7 @@ Errors are Connect codes. The messages marked fixed are the same whatever orrery
 
 ### Phone API
 
-The phone's calls are the five services `orrery.v1.Panes`, `orrery.v1.Host`, `orrery.v1.Push`, `orrery.v1.Picker` and `orrery.v1.Pools` of [Connect API](#connect-api), with sixteen calls. Each call is a Connect POST to its path in [Connect API](#connect-api), and the Connect rules of [Guard](#guard) apply to it. This section states each call's request meaning, answer and errors. The error table at the end gives each error code with its message. A successful `Panes.Screen` or `Panes.Conversation` answer reports the read to `orreryd`, and an open `Panes.WatchConversation` stream reports it at its first successful step and once per keepalive interval after that (see [orrery serve](#orrery-serve)).
+The phone's calls are the six services `orrery.v1.Panes`, `orrery.v1.Host`, `orrery.v1.Push`, `orrery.v1.Picker`, `orrery.v1.Pools` and `orrery.v1.Presence` of [Connect API](#connect-api), with seventeen calls. Each call is a Connect POST to its path in [Connect API](#connect-api), and the Connect rules of [Guard](#guard) apply to it. This section states each call's request meaning, answer and errors. The error table at the end gives each error code with its message. A successful `Panes.Screen` or `Panes.Conversation` answer reports the read to `orreryd`, and an open `Panes.WatchConversation` stream reports it at its first successful step and once per keepalive interval after that (see [orrery serve](#orrery-serve)).
 
 Request fields and what their zero and presence values mean:
 
@@ -2014,6 +2023,7 @@ Request fields and what their zero and presence values mean:
 - `SendKeysRequest`: `pane` is as for `ScreenRequest`, and `keys` is the list of keys sent, in order. `expect_question` is present when the field is set. When it is present, the question check applies.
 - `MarkSeenRequest`: `pane` is as for `ScreenRequest`. `read_up_to` absent means now. When present, it must be 0 or more, or the call is `invalid_argument`.
 - `PullQueuedRequest`: `pane` is as for `ScreenRequest`.
+- `PresenceReportRequest`: `input_age_ms` is the milliseconds since the page's newest input, by the page's own clock. A negative value is `invalid_argument`. The page reports only while it is visible, and serve dates each input as [orrery serve](#orrery-serve) says.
 - `RegisterRequest`: `endpoint`, `p256dh` and `auth` are the subscription. `p256dh` and `auth` are the subscription's keys. The endpoint must be `https` and must be on a host named by `--push-host` (section 11).
 - `UnregisterRequest`: `endpoint` is the endpoint of the subscription to remove.
 - `AskRequest`: `text` is the text to look up. Blank text, meaning empty or only white space, is `invalid_argument`.
@@ -2193,6 +2203,7 @@ Errors are Connect codes. The message column gives the text of each error exactl
 | `invalid_argument` | `Panes.SendKeys` with no keys; `Panes.MarkSeen` with a negative `read_up_to`; `Push.Register` with keys that do not decode | `bad request body` |
 | `invalid_argument` | `Push.Register` with an endpoint that is not allowed | `endpoint not allowed` |
 | `invalid_argument` | `Picker.Ask` with blank text; `Picker.Run` with a blank token | `bad request` |
+| `invalid_argument` | `Presence.Report` with a negative `input_age_ms` | `input age is negative` |
 | `not_found` | an absent pane, including a pane that goes away during `Panes.WatchConversation` | `pane not found` |
 | `not_found` | `Panes.Conversation` with no live session, no transcript, or a transcript file that is missing; `Panes.WatchConversation` with the same cases, at start or mid-stream; `Panes.PullQueued` with the same cases | `no live session`, `no transcript`, or `transcript not found` |
 | `not_found` | `Host.Status` with no `--host-status-cmd`; `Picker.Ask` with no picker configured | `404 page not found` |
@@ -2315,3 +2326,5 @@ orrery agent gates (verdict) added, additively: the `assertions` check of an age
 orrery O3a (epic store) added, additively: the `orrery.engine.v1.Epics` service on `sessions.sock`, its four calls and their Connect codes (see [Epics](#epics)); the `epics`, `epic_failures`, `epic_additions`, `epic_requirements`, `epic_premises`, `epic_exclusions`, `epic_alternatives`, `epic_release_steps` and `epic_decisions` tables and the two triggers on `epic_decisions`, from migration `00014_epics.sql` (see [Epics in the store](#epics-in-the-store)); serve's `ListEpics` and `GetEpic` calls of that service, and its merge of the epics it holds with the records (see [Epics and Steps](#epics-and-steps)); the `epic_create`, `epic_get`, `epic_list` and `epic_answer` tools of `orrery mcp` (see [Step and epic tools](engine-protocol.md#14-step-and-epic-tools)); and the phone's `Epic.source` field (field 10), the `EpicsGetResponse.requirements` field (field 5) and the `EpicRequirement` message of `orrery.v1.Epics` (see [Epics and Steps](#epics-and-steps)). No existing name or value changes.
 
 orrery E31c (step and gate re-adoption) added, additively: the `steps` columns `loop_round`, `loop_continues`, `loop_nudge`, `loop_owner_nudge`, `loop_nudged`, `loop_held`, `loop_judge_sent`, `loop_seq`, `gate_grant`, `gate_holder` and `gate_round`, the `grants.holder` column, and their migration `00015_step_readopt.sql` (see [Steps in the store](#steps-in-the-store) and [Grants in the store](#grants-in-the-store)); the `--gate-limit` flag of `orrery holder`, its `limit` exit reason and the gate child's rules (see [orrery](#orrery) and [Holder](#holder)); the re-adoption, gate, shutdown and restart rules of [Step lifecycle](#step-lifecycle); and the client retries and watch resumes of [orrery](#orrery), [Connect API](#connect-api), [Steps](#steps) and [Epics and Steps](#epics-and-steps). Five values change, none of them additive: a restart re-adopts a step whose holder is live, where E31b ended each open step `engine_restarted`; a restart keeps a stored grant while its holder directory is alive, where E31b kept it only while its client pid lived, and a reclaim may name the holder; `session start`, `say` and `stop` on the session socket, `orrery hold` and `hold --off`, the step tools of `orrery mcp` and serve's `Steps` calls retry an `Unavailable` answer for up to 60 seconds, where they failed at once; `orrery events --follow`, `session --url ... watch`, the web page's events stream and the phone's pane screen reopen after an `Unavailable` end, where they ended with it; and a shutdown under `--holder-scope` detaches a running gate, where E31b's `Steps.Close` killed it. Merged after the agent gate verdict and the O3a epic store, a step that runs an agent gate is not re-adopted and ends `engine_restarted` at a restart, as every step did before (see [Restart](#step-lifecycle)), and serve's `ListEpics` and `GetEpic` calls retry an `Unavailable` answer as its `ListSteps` call does (see [Epics and Steps](#epics-and-steps)). No existing name changes.
+
+orrery web presence (effort 1) added, additively: the `orrery.v1.Presence` service and its `Report` call (see [Connect API](#connect-api) and [Phone API](#phone-api)); the `/orrery.v1.Presence/` Connect path prefix of [Guard](#guard); the `input` key of HookFrame and the input report (section 9); serve's input reports to `orreryd` (see [orrery serve](#orrery-serve)); and the desk's presence from the newest web input while a stream is open (see [Desk stream](#desk-stream)). The removals are a change, not an addition: the desk's activity reports on the stream and its idle window, the desk link's periodic activity reports, the input of the desk's tmux clients and of orreryd's local tmux clients as desk signals, and `orrery desk`'s use of the tmux server that `-L` and `-S` name, which those reports came from (the global flags of section 6 are still accepted). Watching (rule 2 of [Notice routing](#notice-routing)) is unchanged. No other existing name or value changes.
