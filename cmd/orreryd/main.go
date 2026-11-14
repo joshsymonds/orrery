@@ -29,8 +29,10 @@ import (
 	"github.com/joshsymonds/orrery/internal/enginehost"
 	"github.com/joshsymonds/orrery/internal/grants"
 	"github.com/joshsymonds/orrery/internal/notice"
+	"github.com/joshsymonds/orrery/internal/planner"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/push"
+	"github.com/joshsymonds/orrery/internal/roles"
 	"github.com/joshsymonds/orrery/internal/route"
 	"github.com/joshsymonds/orrery/internal/stamp"
 	"github.com/joshsymonds/orrery/internal/store"
@@ -465,27 +467,30 @@ func shutdownServe(
 // and nil otherwise, so no Pools are served. brokerRun is closed when the broker's tick loop returns, and is nil when no
 // loop runs.
 type sessionHost struct {
-	manager    *enginehost.Manager
-	steps      *enginehost.Steps
-	writer     *enginehost.Writer
-	broker     *grants.Broker
-	pools      enginehost.PoolCommands
-	brokerRun  chan struct{}
-	stopWriter context.CancelFunc
-	writerDone chan struct{}
-	stopIdle   context.CancelFunc
-	idleDone   chan struct{}
-	stopServe  context.CancelFunc
-	serveDone  chan error
+	manager     *enginehost.Manager
+	steps       *enginehost.Steps
+	writer      *enginehost.Writer
+	broker      *grants.Broker
+	pools       enginehost.PoolCommands
+	brokerRun   chan struct{}
+	stopWriter  context.CancelFunc
+	writerDone  chan struct{}
+	stopIdle    context.CancelFunc
+	idleDone    chan struct{}
+	stopPlanner context.CancelFunc
+	plannerDone chan struct{}
+	stopServe   context.CancelFunc
+	serveDone   chan error
 }
 
 // startSessions listens on sessions.sock beside the daemon socket and serves the Engine, Steps and Pools services on it
 // until stop. With an open store it also starts the writer, a manager capped at opts.sessionCap that notifies through
 // notifier, the grants broker for hostName, which restores the grants a previous run stored and then ticks every
 // brokerTick until stop, and the step engine capped at opts.stepCap whose worktrees go under step-worktrees beside the
-// store file. The manager reconciles the rows a previous run left before the service serves, then the steps do, and
-// the manager stops idle sessions until stop. A reconcile or restore failure is logged and serving goes on; a failed
-// restore serves no Pools, which refuse as unavailable, and the gates fail for want of pools.
+// store file. The manager reconciles the rows a previous run left before the service serves, then the steps do. The
+// planner runs over the store and the steps, and the manager stops idle sessions, until stop. A reconcile or restore
+// failure is logged and serving goes on; a failed restore serves no Pools, which refuse as unavailable, and the gates
+// fail for want of pools.
 func startSessions(
 	ctx context.Context,
 	opts options,
@@ -496,9 +501,10 @@ func startSessions(
 	getenv func(string) string,
 ) (*sessionHost, error) {
 	host := &sessionHost{
-		writerDone: make(chan struct{}),
-		idleDone:   make(chan struct{}),
-		serveDone:  make(chan error, 1),
+		writerDone:  make(chan struct{}),
+		idleDone:    make(chan struct{}),
+		plannerDone: make(chan struct{}),
+		serveDone:   make(chan error, 1),
 	}
 	var commands enginehost.Commands
 	var stepCommands enginehost.StepCommands
@@ -556,6 +562,7 @@ func startSessions(
 		if reconcileErr := host.steps.Reconcile(ctx); reconcileErr != nil {
 			logger.ErrorContext(ctx, "reconcile steps, serving anyway", "error", reconcileErr)
 		}
+		host.startPlanner(ctx, st, getenv, logger)
 		var idleCtx context.Context
 		idleCtx, host.stopIdle = context.WithCancel(ctx)
 		go func() {
@@ -632,14 +639,38 @@ func (h *sessionHost) stop() error {
 	return nil
 }
 
-// shutdown stops the broker, stops the idle check, ends every step loop, stops every live session, and ends the writer
-// after its last flush. The notices the sessions started are waited on in serve. Without a broker, manager and writer
-// it does nothing.
+// startPlanner runs the planner runner over st and the steps until stop. The runner reads the planner's agent from the
+// role file on each pass, so without one it parks the epics that have pending triggers, and starts no turn.
+func (h *sessionHost) startPlanner(
+	ctx context.Context,
+	st *store.Store,
+	getenv func(string) string,
+	logger *slog.Logger,
+) {
+	runner := planner.New(planner.Config{
+		Store:  st,
+		Steps:  h.steps,
+		Agent:  func() (string, error) { return roles.Agent(getenv, "planner") },
+		Logger: logger,
+	})
+	var plannerCtx context.Context
+	plannerCtx, h.stopPlanner = context.WithCancel(ctx)
+	go func() {
+		runner.Run(plannerCtx)
+		close(h.plannerDone)
+	}()
+}
+
+// shutdown stops the broker, stops the idle check, stops the planner and waits for its runner to return, ends every
+// step loop, stops every live session, and ends the writer after its last flush. The notices the sessions started are
+// waited on in serve. Without a broker, manager and writer it does nothing.
 func (h *sessionHost) shutdown() {
 	h.stopBroker()
 	if h.manager != nil {
 		h.stopIdle()
 		<-h.idleDone
+		h.stopPlanner()
+		<-h.plannerDone
 		h.steps.Close()
 		h.manager.Close()
 	}
