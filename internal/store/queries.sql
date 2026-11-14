@@ -558,6 +558,12 @@ SELECT CAST(COALESCE(MAX(seq), 0) AS INTEGER) FROM epic_tells WHERE epic = ?;
 -- name: InsertEpicTell :exec
 INSERT INTO epic_tells (epic, seq, text, at, told) VALUES (?, ?, ?, ?, 0);
 
+-- name: ListEpicTells :many
+SELECT * FROM epic_tells WHERE epic = ? ORDER BY seq;
+
+-- name: MarkEpicTellTold :execrows
+UPDATE epic_tells SET told = 1 WHERE epic = ? AND seq = ?;
+
 -- name: ListEpicQuestions :many
 SELECT * FROM epic_questions WHERE epic = ? ORDER BY seq;
 

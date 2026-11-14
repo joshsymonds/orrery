@@ -5,18 +5,25 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/joshsymonds/orrery/internal/store/sqlcgen"
 )
 
+// ErrNoTell reports that the epic has no tell with the seq asked for.
+var ErrNoTell = errors.New("no tell")
+
 // EpicAttention is what an epic needs from its owner: its park reason, whether it is paused, its open questions in seq
-// order, and its latest ended turn with the number of questions that turn asked.
+// order, its untold tells in seq order, the time of its newest tell, and its latest ended turn with the number of
+// questions that turn asked.
 type EpicAttention struct {
 	Epic        string
 	Title       string
 	Parked      string
 	Paused      bool
 	Open        []EpicQuestion
+	Tells       []EpicTell
+	LatestTell  time.Time
 	Latest      EpicTurn
 	LatestAsked int
 }
@@ -46,10 +53,10 @@ func (s *Store) attention(ctx context.Context, afterLatest func(epic string)) ([
 	return out, nil
 }
 
-// attentionOf returns the attention of epic: its head, its open questions in seq order, and its latest ended turn with
-// the questions that turn asked. The latest ended turn is read first, so every write that lands between the reads
-// either leaves the turn as the latest or adds the questions it asked to Open; a turn that ends after the read is
-// reported on a later pass.
+// attentionOf returns the attention of epic: its head, its open questions in seq order, its untold tells in seq order
+// with the time of its newest tell, and its latest ended turn with the questions that turn asked. The latest ended turn
+// is read first, so every write that lands between the reads either leaves the turn as the latest or adds the questions
+// it asked to Open; a turn that ends after the read is reported on a later pass.
 func attentionOf(
 	ctx context.Context,
 	queries *sqlcgen.Queries,
@@ -70,9 +77,16 @@ func attentionOf(
 	if err != nil {
 		return EpicAttention{}, fmt.Errorf("list open questions: %w", err)
 	}
+	tells, err := queries.ListEpicTells(ctx, id)
+	if err != nil {
+		return EpicAttention{}, fmt.Errorf("list tells: %w", err)
+	}
 	entry := EpicAttention{
 		Epic: head.ID, Title: head.Title, Parked: head.Parked, Paused: head.Paused != 0,
-		Open: mapInOrder(open, questionOf),
+		Open: mapInOrder(open, questionOf), Tells: untoldTellsOf(tells),
+	}
+	if len(tells) != 0 {
+		entry.LatestTell = time.Unix(tells[len(tells)-1].At, 0)
 	}
 	if noEnded {
 		return entry, nil
@@ -90,6 +104,32 @@ func attentionOf(
 	entry.Latest = latest
 	entry.LatestAsked = int(asked)
 	return entry, nil
+}
+
+// untoldTellsOf returns the tells not yet told, in the seq order the rows come in.
+func untoldTellsOf(tells []sqlcgen.EpicTell) []EpicTell {
+	var out []EpicTell
+	for _, tell := range tells {
+		if tell.Told == 0 {
+			out = append(out, EpicTell{Seq: tell.Seq, Text: tell.Text, At: time.Unix(tell.At, 0)})
+		}
+	}
+	return out
+}
+
+// MarkTellTold sets the told marker of tell seq of epic in one write. A tell that does not exist is an error matching
+// ErrNoTell.
+func (s *Store) MarkTellTold(ctx context.Context, epic string, seq int64) error {
+	return s.write(ctx, func(queries *sqlcgen.Queries) error {
+		rows, err := queries.MarkEpicTellTold(ctx, sqlcgen.MarkEpicTellToldParams{Epic: epic, Seq: seq})
+		if err != nil {
+			return fmt.Errorf("mark tell %d of epic %s told: %w", seq, epic, err)
+		}
+		if rows == 0 {
+			return fmt.Errorf("tell %d of epic %s: %w", seq, epic, ErrNoTell)
+		}
+		return nil
+	})
 }
 
 // MarkTold sets the told marker of turn seq of epic in one write. A turn that does not exist is an error matching

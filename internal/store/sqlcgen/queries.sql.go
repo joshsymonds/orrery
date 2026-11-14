@@ -2365,6 +2365,39 @@ func (q *Queries) ListEpicTasks(ctx context.Context, epic string) ([]EpicTask, e
 	return items, nil
 }
 
+const listEpicTells = `-- name: ListEpicTells :many
+SELECT epic, seq, text, at, told FROM epic_tells WHERE epic = ? ORDER BY seq
+`
+
+func (q *Queries) ListEpicTells(ctx context.Context, epic string) ([]EpicTell, error) {
+	rows, err := q.db.QueryContext(ctx, listEpicTells, epic)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []EpicTell
+	for rows.Next() {
+		var i EpicTell
+		if err := rows.Scan(
+			&i.Epic,
+			&i.Seq,
+			&i.Text,
+			&i.At,
+			&i.Told,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listEpicTurnDecisionsOf = `-- name: ListEpicTurnDecisionsOf :many
 SELECT epic, turn, position, text FROM epic_turn_decisions WHERE epic = ? AND turn = ? ORDER BY position
 `
@@ -3554,6 +3587,23 @@ func (q *Queries) ListUnfinishedEngineText(ctx context.Context) ([]EngineText, e
 		return nil, err
 	}
 	return items, nil
+}
+
+const markEpicTellTold = `-- name: MarkEpicTellTold :execrows
+UPDATE epic_tells SET told = 1 WHERE epic = ? AND seq = ?
+`
+
+type MarkEpicTellToldParams struct {
+	Epic string
+	Seq  int64
+}
+
+func (q *Queries) MarkEpicTellTold(ctx context.Context, arg MarkEpicTellToldParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, markEpicTellTold, arg.Epic, arg.Seq)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const markEpicTurnTold = `-- name: MarkEpicTurnTold :execrows
