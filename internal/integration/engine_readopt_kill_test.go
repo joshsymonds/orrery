@@ -139,9 +139,10 @@ func TestEngineHolderScopeSigkillKeepsInFlightPromptOnce(t *testing.T) {
 	say := startBinary(t, "orrery", f.env, "session", "say", id, "BIG "+strings.Repeat("x", 96<<10))
 	waitUntil(t, "the stdin pipe of the fake claude full", func() bool { return !stdinWritable(t, pid) })
 	killOrreryd(t, daemon)
-	say.exitOutcome(t)
 
+	// The say retries its cut call with the same prompt id until the restarted orreryd answers it.
 	restarted := f.startOrreryd(t, true, "--holder-scope", scope)
+	wantExit(t, say.exitOutcome(t), 0)
 	f.waitForBlock(t, id, "fake reply 3")
 	f.waitForHistory(t, id, turnDone)
 	var wantTrickle []string

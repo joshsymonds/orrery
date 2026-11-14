@@ -289,7 +289,11 @@ func TestSessionLocalStartSendsModel(t *testing.T) {
 	}
 	want := &v1.StartRequest{Dir: absDir, Prompt: "first prompt", Model: "haiku"}
 	got := fake.received()
-	if len(got) != 1 || !proto.Equal(got[0], want) {
+	if len(got) != 1 {
+		t.Fatalf("requests = %v, want one %v", got, want)
+	}
+	adoptRequestID(t, got[0], want)
+	if !proto.Equal(got[0], want) {
 		t.Fatalf("requests = %v, want one %v", got, want)
 	}
 }

@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -22,6 +23,35 @@ import (
 
 // sessionFakeID is the id the fake Engine returns from Start.
 const sessionFakeID = "session-7"
+
+// requestIDPattern matches a client-chosen id: 32 lowercase hex digits.
+var requestIDPattern = regexp.MustCompile(`^[0-9a-f]{32}$`)
+
+// adoptRequestID checks that got, a start or say request, carries a client-chosen id, and copies that id into want.
+// A test then compares the rest of the request exactly. Requests that carry no such id are left as they are.
+func adoptRequestID(t *testing.T, got, want proto.Message) {
+	t.Helper()
+	switch g := got.(type) {
+	case *v1.StartRequest:
+		w, ok := want.(*v1.StartRequest)
+		if !ok {
+			t.Fatalf("want is %T, want *v1.StartRequest", want)
+		}
+		if !requestIDPattern.MatchString(g.GetId()) {
+			t.Errorf("Start id = %q, want 32 lowercase hex digits", g.GetId())
+		}
+		w.Id = g.GetId()
+	case *v1.SayRequest:
+		w, ok := want.(*v1.SayRequest)
+		if !ok {
+			t.Fatalf("want is %T, want *v1.SayRequest", want)
+		}
+		if !requestIDPattern.MatchString(g.GetPromptId()) {
+			t.Errorf("Say prompt_id = %q, want 32 lowercase hex digits", g.GetPromptId())
+		}
+		w.PromptId = g.GetPromptId()
+	}
+}
 
 // sessionFake is an in-process Engine. It records every request it receives, in order, and returns sayErr from Say.
 type sessionFake struct {
@@ -173,6 +203,7 @@ func TestSessionVerbsSendTheirRequest(t *testing.T) {
 			if len(got) != 1 {
 				t.Fatalf("Session(%v) sent %d requests, want 1", tc.args, len(got))
 			}
+			adoptRequestID(t, got[0], tc.want)
 			if !proto.Equal(got[0], tc.want) {
 				t.Errorf("request = %v, want %v", got[0], tc.want)
 			}
