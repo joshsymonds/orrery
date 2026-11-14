@@ -190,7 +190,8 @@ func epicRowOf(req *v1.CreateEpicRequest, now time.Time) store.EpicRow {
 	}
 }
 
-// storedEpicMessage returns the StoredEpic message of row: its contract, phase, times and decisions in order.
+// storedEpicMessage returns the StoredEpic message of row: its contract, phase, times, decisions in order, and its
+// paused and parked state with its turns, tasks and questions in order.
 func storedEpicMessage(row store.EpicRow) *v1.StoredEpic {
 	return &v1.StoredEpic{
 		Contract:  contractMessage(row),
@@ -198,6 +199,11 @@ func storedEpicMessage(row store.EpicRow) *v1.StoredEpic {
 		Created:   row.Created.Unix(),
 		Changed:   row.Changed.Unix(),
 		Decisions: epicMap(row.Decisions, decisionMessage),
+		Paused:    row.Paused,
+		Parked:    row.Parked,
+		Turns:     epicMap(row.Turns, turnMessage),
+		Tasks:     epicMap(row.Tasks, taskMessage),
+		Questions: epicMap(row.Questions, questionMessage),
 	}
 }
 
@@ -238,6 +244,53 @@ func contractMessage(row store.EpicRow) *v1.EpicContract {
 // decisionMessage returns the EpicDecision message of d.
 func decisionMessage(d store.EpicDecision) *v1.EpicDecision {
 	return &v1.EpicDecision{Seq: d.Seq, Id: d.ID, Text: d.Text, Time: d.Time.Unix()}
+}
+
+// turnMessage returns the EpicTurn message of turn. Ended is 0 while the turn runs.
+func turnMessage(turn store.EpicTurn) *v1.EpicTurn {
+	return &v1.EpicTurn{
+		Seq:       turn.Seq,
+		Step:      turn.Step,
+		State:     turn.State,
+		Reason:    turn.Reason,
+		Outline:   turn.Outline,
+		Outcome:   turn.Outcome,
+		Decisions: turn.Decisions,
+		Started:   turn.Started.Unix(),
+		Ended:     unixOrZero(turn.Ended),
+	}
+}
+
+// taskMessage returns the EpicTask message of task, its id T<seq>.
+func taskMessage(task store.EpicTask) *v1.EpicTask {
+	return &v1.EpicTask{
+		Id:           fmt.Sprintf("T%d", task.Seq),
+		Turn:         task.Turn,
+		Title:        task.Title,
+		Deliverable:  task.Deliverable,
+		Files:        task.Files,
+		Requirements: task.Requirements,
+		Check:        task.Check,
+		Status:       task.Status,
+	}
+}
+
+// questionMessage returns the EpicQuestion message of question, its id Q<seq>.
+func questionMessage(question store.EpicQuestion) *v1.EpicQuestion {
+	return &v1.EpicQuestion{
+		Id:    fmt.Sprintf("Q%d", question.Seq),
+		Turn:  question.Turn,
+		Text:  question.Text,
+		State: question.State,
+	}
+}
+
+// unixOrZero returns t in unix seconds, or 0 when t is the zero time.
+func unixOrZero(t time.Time) int64 {
+	if t.IsZero() {
+		return 0
+	}
+	return t.Unix()
 }
 
 // summaryMessage returns the EpicSummary message of row: its head fields, with no sections.

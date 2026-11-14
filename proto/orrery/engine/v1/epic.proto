@@ -173,7 +173,79 @@ message EpicDecision {
   int64 time = 4;
 }
 
-// StoredEpic is a stored epic with its contract, phase, times and decisions.
+// EpicTurn is one planner turn on an epic, in the order it started.
+message EpicTurn {
+  // The turn's position on the epic, counted from 1.
+  int64 seq = 1;
+
+  // The step the turn runs, empty until the turn has one.
+  string step = 2;
+
+  // The turn's state: running, succeeded, failed or free.
+  string state = 3;
+
+  // Why the turn failed or was freed, empty otherwise.
+  string reason = 4;
+
+  // The outline the turn's return gave, empty until the turn succeeds.
+  string outline = 5;
+
+  // The outcome the turn's return gave, empty until the turn succeeds.
+  string outcome = 6;
+
+  // The decisions the turn's return recorded, in the order they were recorded.
+  repeated string decisions = 7;
+
+  // When the turn started, in unix seconds.
+  int64 started = 8;
+
+  // When the turn ended, in unix seconds; 0 while the turn runs.
+  int64 ended = 9;
+}
+
+// EpicTask is one task a planner turn planned.
+message EpicTask {
+  // The task's id, T<seq>.
+  string id = 1;
+
+  // The position of the turn that planned the task, counted from 1.
+  int64 turn = 2;
+
+  // The task's title.
+  string title = 3;
+
+  // What the task delivers.
+  string deliverable = 4;
+
+  // The files the task touches.
+  repeated string files = 5;
+
+  // The requirements the task covers.
+  repeated string requirements = 6;
+
+  // The check that shows the task is done.
+  string check = 7;
+
+  // The task's status: open until it is done.
+  string status = 8;
+}
+
+// EpicQuestion is one question a planner turn asked.
+message EpicQuestion {
+  // The question's id, Q<seq>.
+  string id = 1;
+
+  // The position of the turn that asked the question, counted from 1.
+  int64 turn = 2;
+
+  // The question.
+  string text = 3;
+
+  // The question's state: open until the owner answers it.
+  string state = 4;
+}
+
+// StoredEpic is a stored epic with its contract, phase, times, decisions and planner state.
 message StoredEpic {
   // The epic's contract as created.
   EpicContract contract = 1;
@@ -189,6 +261,21 @@ message StoredEpic {
 
   // The epic's decisions in the order they were recorded.
   repeated EpicDecision decisions = 5;
+
+  // Whether the epic is paused. A paused epic starts no planner turn until it is resumed.
+  bool paused = 6;
+
+  // Why the epic is parked, empty when it is not parked. A parked epic starts no planner turn.
+  string parked = 7;
+
+  // The epic's planner turns in the order they started.
+  repeated EpicTurn turns = 8;
+
+  // The tasks the epic's planner turns planned, in the order they were planned.
+  repeated EpicTask tasks = 9;
+
+  // The questions the epic's planner turns asked, in the order they were asked.
+  repeated EpicQuestion questions = 10;
 }
 
 // EpicSummary is an epic's head fields, without its contract.

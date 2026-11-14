@@ -42,8 +42,9 @@ func epicTools(epics enginev1connect.EpicsClient) []mcp.Tool {
 			Handler:     epicCreateHandler(epics),
 		},
 		{
-			Name:        "epic_get",
-			Description: "Return a stored epic by id: its contract, phase, timestamps and decisions.",
+			Name: "epic_get",
+			Description: "Return a stored epic by id: its contract, phase, timestamps, decisions, whether it is " +
+				"paused and why it is parked, and its planner turns, tasks and questions.",
 			InputSchema: json.RawMessage(idSchema),
 			Handler:     epicGetHandler(epics),
 		},
