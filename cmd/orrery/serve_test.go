@@ -342,8 +342,78 @@ func TestServeAnswersPageAtRoot(t *testing.T) {
 	}
 }
 
+// TestServeReportsInputToDaemon runs orrery serve through runServe with a daemon socket a test listener holds. A
+// Presence.Report through the login guard sends one input report to the daemon, dated at the serve clock's now.
+func TestServeReportsInputToDaemon(t *testing.T) {
+	daemon, ln := listenDaemon(t)
+	got := receiveFrame(ln)
+	state := t.TempDir()
+	getenv := func(key string) string { return map[string]string{"XDG_STATE_HOME": state}[key] }
+	addr := serveFreeLoopbackAddr(t)
+	opts := globals{server: tmuxctl.Server{Name: "orrery-serve-test-unstarted"}, daemonSocket: daemon}
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		done <- runServe(ctx, opts, []string{"--listen", addr, "--allow-login", serveTestLogin}, getenv)
+	}()
+
+	presence := orreryv1connect.NewPresenceClient(
+		&http.Client{Transport: serveLoginTransport{base: http.DefaultTransport}}, "http://"+addr)
+	var before, after int64
+	deadline := time.After(serveTestWait)
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	for after == 0 {
+		select {
+		case err := <-done:
+			t.Fatalf("runServe returned before serving: %v", err)
+		case <-deadline:
+			t.Fatalf("no answer from runServe on %s within %v", addr, serveTestWait)
+		case <-ticker.C:
+		}
+		callCtx, callCancel := context.WithTimeout(ctx, serveTestWait)
+		before = time.Now().Unix()
+		_, err := presence.Report(callCtx, connect.NewRequest(&orreryv1.PresenceReportRequest{}))
+		callCancel()
+		if err == nil {
+			after = time.Now().Unix()
+		}
+	}
+
+	var result serveReceived
+	select {
+	case result = <-got:
+	case <-time.After(serveTestWait):
+		t.Fatalf("daemon received no frame within %v", serveTestWait)
+	}
+	if result.err != nil {
+		t.Fatalf("read frame: %v", result.err)
+	}
+	if result.frame.Input < before || result.frame.Input > after {
+		t.Fatalf("frame Input = %d, want a unix second in [%d, %d]", result.frame.Input, before, after)
+	}
+	want := protocol.HookFrame{Input: result.frame.Input}
+	if !reflect.DeepEqual(result.frame, want) {
+		t.Fatalf("frame = %+v, want only Input set", result.frame)
+	}
+
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("runServe returned %v, want nil", err)
+		}
+	case <-time.After(serveTestWait):
+		t.Fatalf("runServe did not return within %v of cancel", serveTestWait)
+	}
+}
+
 // serveTestRead is the synthetic read time, in unix seconds, the read reporter tests send.
 const serveTestRead int64 = 1_700_000_001
+
+// serveTestInput is the synthetic input time, in unix seconds, the input reporter tests send.
+const serveTestInput int64 = 1_700_000_002
 
 // servePane is the synthetic pane the read reporter tests name.
 const servePane = "%7"
@@ -464,6 +534,85 @@ func TestReadReporterFailureWritesStderr(t *testing.T) {
 		t.Fatalf("read stderr capture: %v", err)
 	}
 	const prefix = "orrery serve: report read: "
+	if !strings.HasPrefix(string(out), prefix) || !strings.HasSuffix(string(out), "\n") {
+		t.Fatalf("stderr = %q, want one line starting %q", out, prefix)
+	}
+}
+
+// TestInputReporterSendsOneInputReport runs the reporter against a daemon socket a test listener holds. It sends one
+// input report that names the input time and no pane, and no second connection follows.
+func TestInputReporterSendsOneInputReport(t *testing.T) {
+	path, ln := listenDaemon(t)
+	got := receiveFrame(ln)
+
+	report := inputReporter(path, serveNoEnv)
+	if report == nil {
+		t.Fatal("inputReporter returned nil for a resolvable socket, want a reporter")
+	}
+	report(serveTestInput)
+
+	var result serveReceived
+	select {
+	case result = <-got:
+	case <-time.After(serveTestWait):
+		t.Fatalf("daemon received no frame within %v", serveTestWait)
+	}
+	if result.err != nil {
+		t.Fatalf("read frame: %v", result.err)
+	}
+	want := protocol.HookFrame{Input: serveTestInput}
+	if !reflect.DeepEqual(result.frame, want) {
+		t.Fatalf("frame = %+v, want %+v", result.frame, want)
+	}
+
+	// The reporter returns after its write, so a second connection would already be queued and Accept would return it.
+	if err := ln.SetDeadline(time.Now().Add(serveQuietWait)); err != nil {
+		t.Fatalf("set deadline: %v", err)
+	}
+	if conn, err := ln.Accept(); err == nil {
+		_ = conn.Close()
+		t.Fatal("daemon received a second connection, want exactly one input report")
+	}
+}
+
+// TestInputReporterNilWithoutSocket leaves the reporter nil when neither the flag nor the environment names a socket.
+func TestInputReporterNilWithoutSocket(t *testing.T) {
+	if report := inputReporter("", serveNoEnv); report != nil {
+		t.Fatal("inputReporter returned a reporter with no daemon socket, want nil")
+	}
+}
+
+// TestInputReporterFailureWritesStderr points the reporter at a socket whose directory is a regular file. The dial fails
+// for a reason other than absence, so the reporter returns normally and writes the error to the writer inputReporter
+// gives standard error.
+func TestInputReporterFailureWritesStderr(t *testing.T) {
+	// A regular file in place of the socket's directory makes the dial fail with ENOTDIR.
+	blocker := filepath.Join(t.TempDir(), "blocker")
+	if err := os.WriteFile(blocker, nil, 0o600); err != nil {
+		t.Fatalf("write blocker: %v", err)
+	}
+	capturePath := filepath.Join(t.TempDir(), "stderr")
+	capture, err := os.Create(capturePath)
+	if err != nil {
+		t.Fatalf("create stderr capture: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := capture.Close(); err != nil {
+			t.Errorf("close stderr capture: %v", err)
+		}
+	})
+	report := inputReporterTo(filepath.Join(blocker, "orreryd.sock"), serveNoEnv, capture)
+	if report == nil {
+		t.Fatal("inputReporterTo returned nil for a resolvable socket, want a reporter")
+	}
+
+	report(serveTestInput)
+
+	out, err := os.ReadFile(capturePath)
+	if err != nil {
+		t.Fatalf("read stderr capture: %v", err)
+	}
+	const prefix = "orrery serve: report input: "
 	if !strings.HasPrefix(string(out), prefix) || !strings.HasSuffix(string(out), "\n") {
 		t.Fatalf("stderr = %q, want one line starting %q", out, prefix)
 	}

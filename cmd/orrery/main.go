@@ -71,7 +71,7 @@ global flags, before the subcommand:
 
 subcommands:
   hook                                          forward a Claude Code hook event from stdin; exits 0
-  notices                                       print desk notices as JSON lines on stdout; relay activity from stdin
+  notices                                       print desk notices as JSON lines on stdout; runs until stdin ends
   desk --sound FILE [--host HOST]...            show each notice as a popup and play FILE with it, from this machine
                                                 and each HOST's notices, until SIGINT or SIGTERM
   list --json                                   print the panes of the tmux server as a JSON array
@@ -454,22 +454,23 @@ func runServe(ctx context.Context, opts globals, args []string, getenv func(stri
 	}
 	shutdown := make(chan struct{})
 	handler, err := server.New(server.Config{
-		Logins:     logins,
-		Tmux:       tmux,
-		Push:       pushStore,
-		HostStatus: hostStatus,
-		Sessions:   sessions,
-		Shutdown:   shutdown,
-		Engine:     engine,
-		Steps:      steps,
-		Pools:      pools,
-		Records:    records,
-		EpicStore:  epicStore,
-		Home:       home,
-		Picker:     servePickerConfig(tmux, getenv),
-		ReportSeen: seenReporter(opts.daemonSocket, getenv),
-		ReportRead: readReporter(opts.daemonSocket, getenv),
-		Web:        webui.FS(),
+		Logins:      logins,
+		Tmux:        tmux,
+		Push:        pushStore,
+		HostStatus:  hostStatus,
+		Sessions:    sessions,
+		Shutdown:    shutdown,
+		Engine:      engine,
+		Steps:       steps,
+		Pools:       pools,
+		Records:     records,
+		EpicStore:   epicStore,
+		Home:        home,
+		Picker:      servePickerConfig(tmux, getenv),
+		ReportSeen:  seenReporter(opts.daemonSocket, getenv),
+		ReportRead:  readReporter(opts.daemonSocket, getenv),
+		ReportInput: inputReporter(opts.daemonSocket, getenv),
+		Web:         webui.FS(),
 	})
 	if err != nil {
 		return fmt.Errorf("serve: %w", err)
@@ -532,6 +533,26 @@ func readReporterTo(flagSocket string, getenv func(string) string, errs io.Write
 	return func(pane string, at int64) {
 		if err := hook.ReportRead(socket, pane, at); err != nil {
 			fmt.Fprintf(errs, "orrery serve: report read: %v\n", err)
+		}
+	}
+}
+
+// inputReporter returns the reporter that tells the daemon socket protocol.SocketPath resolves that the web view had
+// input at a time. It returns nil when no socket resolves, so the input still answers. A failed report is written to
+// standard error and never fails the input.
+func inputReporter(flagSocket string, getenv func(string) string) server.InputReporter {
+	return inputReporterTo(flagSocket, getenv, os.Stderr)
+}
+
+// inputReporterTo is inputReporter with the writer that receives each failed report.
+func inputReporterTo(flagSocket string, getenv func(string) string, errs io.Writer) server.InputReporter {
+	socket, err := protocol.SocketPath(flagSocket, getenv)
+	if err != nil {
+		return nil
+	}
+	return func(input int64) {
+		if err := hook.ReportInput(socket, input); err != nil {
+			fmt.Fprintf(errs, "orrery serve: report input: %v\n", err)
 		}
 	}
 }
