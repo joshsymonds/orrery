@@ -131,9 +131,9 @@ type Config struct {
 // step slot rather than a session slot. observer receives the hand-offs of a step, which the pump makes, and returned is
 // set from a hand-off until Continue sends the step's next prompt, so the step stays busy meanwhile. draining is set for a
 // session re-adopted from a holder one version older than the controller's, which retireLocked takes out of the live set
-// once it is not busy and owes no answer, and retired is set once it has. sending counts the sends of a prompt that
-// claim, claimStep or markSending began and send has not ended, so a draining session is not retired between a claim and
-// the end of its send.
+// once no turn, request or background task runs and it owes no answer, and retired is set once it has. sending counts the
+// sends of a prompt that claim, claimStep or markSending began and send has not ended, so a draining session is not
+// retired between a claim and the end of its send.
 type liveSession struct {
 	id           string
 	dir          string
@@ -194,7 +194,10 @@ type Manager struct {
 	// stepObservers holds the observer each step was started with, kept after the step stops so a respawn hands its turns
 	// to the same observer.
 	stepObservers map[string]StepObserver
-	closed        bool
+	// kept holds the drained steps whose step slot is kept for their id, by id (see retireLocked). Each has no live session,
+	// and its slot still counts in stepsRunning until Stop, Release or a respawn takes it.
+	kept   map[string]*liveSession
+	closed bool
 
 	// resumeMu serializes the resume of a session that is not live, so concurrent Says to one id start one process.
 	resumeMu sync.Mutex
@@ -227,6 +230,7 @@ func NewManager(cfg Config) *Manager {
 		sessions:      map[string]*liveSession{},
 		stopping:      map[string]*liveSession{},
 		stepObservers: map[string]StepObserver{},
+		kept:          map[string]*liveSession{},
 		attempts:      map[attemptKey]*attempt{},
 	}
 	if manager.holderVersion == 0 {
@@ -381,21 +385,50 @@ func (m *Manager) start(ctx context.Context, id string, req StartRequest) (strin
 	return id, nil
 }
 
-// Stop stops the live session id and records it stopped once its pump has stored its last ops. It returns
-// ErrNoSession when id is not a live session.
+// Stop stops the live session id and records it stopped once its pump has stored its last ops. A drained step with no live
+// session is recorded stopped the same way, and its kept slot is freed (see stopDrained). It returns ErrNoSession when id
+// is neither. resumeMu is held, as Release holds it, so a respawn cannot take the kept slot between the lookup and the stop.
 func (m *Manager) Stop(ctx context.Context, id string) error {
+	m.resumeMu.Lock()
+	defer m.resumeMu.Unlock()
 	m.mu.Lock()
 	live := m.sessions[id]
+	drained := m.kept[id]
 	m.mu.Unlock()
-	if live == nil {
-		return fmt.Errorf("stop session %s: %w", id, ErrNoSession)
+	switch {
+	case live != nil:
+		stopErr := live.sess.Stop()
+		recordErr := m.recordStopped(ctx, live)
+		if stopErr == nil && recordErr == nil {
+			return nil
+		}
+		return fmt.Errorf("stop session %s: %w", id, errors.Join(stopErr, recordErr))
+	case drained != nil:
+		return m.stopDrained(ctx, drained)
 	}
-	stopErr := live.sess.Stop()
-	recordErr := m.recordStopped(ctx, live)
-	if stopErr == nil && recordErr == nil {
-		return nil
+	return fmt.Errorf("stop session %s: %w", id, ErrNoSession)
+}
+
+// stopDrained records the drained step stopped once its pump has ended, then frees its kept slot. The caller holds
+// resumeMu. The slot is freed even when the record fails, since the step is stopped either way.
+func (m *Manager) stopDrained(ctx context.Context, drained *liveSession) error {
+	recordErr := m.recordStopped(ctx, drained)
+	m.mu.Lock()
+	m.dropKeptLocked(drained.id)
+	m.mu.Unlock()
+	if recordErr != nil {
+		return fmt.Errorf("stop session %s: %w", drained.id, recordErr)
 	}
-	return fmt.Errorf("stop session %s: %w", id, errors.Join(stopErr, recordErr))
+	return nil
+}
+
+// dropKeptLocked frees the step slot kept for the drained step id, if one is kept (see retireLocked). The caller holds the
+// lock.
+func (m *Manager) dropKeptLocked(id string) {
+	if m.kept[id] != nil {
+		delete(m.kept, id)
+		m.stepsRunning--
+	}
 }
 
 // Seen marks the engine row id as seen now, and once that is stored reports the seen time to the notifier, which clears
@@ -524,10 +557,10 @@ func (m *Manager) send(ctx context.Context, live *liveSession, prompt store.Engi
 }
 
 // Continue sends prompt to the step id as its next prompt, which ends the step's hand-off: the step is busy again until
-// this turn ends. A step that is not live, as after an idle stop, is respawned first from its rows (see respawnStep). The
-// prompt is recorded with its sender and round, as Say records one without them, and a failed send records the step
-// failed without a notice. It returns an error wrapping ErrNoSession when id is not a step row, and ErrEmptyPrompt for
-// empty text.
+// this turn ends. A step that is not live, as after an idle stop or a drain at its hand-off, is respawned first from its
+// rows (see respawnStep). The prompt is recorded with its sender and round, as Say records one without them, and a failed
+// send records the step failed without a notice. It returns an error wrapping ErrNoSession when id is not a step row, and
+// ErrEmptyPrompt for empty text.
 func (m *Manager) Continue(ctx context.Context, id string, prompt StepPrompt) error {
 	if prompt.Text == "" {
 		return ErrEmptyPrompt
@@ -545,19 +578,23 @@ func (m *Manager) Continue(ctx context.Context, id string, prompt StepPrompt) er
 }
 
 // respawnStep starts the step id that is not live again, from its engine row and its steps row: it resumes the row's
-// claude session with the step's agent and schema, registered as a step with the observer it was started with. It takes a
-// step slot under StepCap before reading the rows, so a full cap refuses the respawn before anything is recorded. A
-// directory that is gone, an agent that no longer resolves, or a spawn that fails, records the step failed without a
-// notice and returns the error. It returns the step claimed with its turn running, as claimStep does. resumeMu makes
-// concurrent calls for one id start a single process. It returns an error wrapping ErrNoSession when id is not a step
-// row.
+// claude session with the step's agent and schema, registered as a step with the observer it was started with. It first
+// waits for the pump of a drained holder of id to end, so the new process never starts over the old holder's record. Then
+// it takes the step slot kept for id, or one under StepCap, before reading the rows, so a full cap refuses the respawn
+// before anything is recorded (see reserveStep). A directory that is gone, an agent that no longer resolves, or a spawn
+// that fails, records the step failed without a notice and returns the error. It returns the step claimed with its turn
+// running, as claimStep does. resumeMu makes concurrent calls for one id start a single process. It returns an error
+// wrapping ErrNoSession when id is not a step row.
 func (m *Manager) respawnStep(ctx context.Context, id string) (*liveSession, error) {
 	m.resumeMu.Lock()
 	defer m.resumeMu.Unlock()
 	if live, err := m.claimStep(id); err == nil {
 		return live, nil
 	}
-	if err := m.reserveStep(); err != nil {
+	if err := m.awaitStopping(ctx, id); err != nil {
+		return nil, err
+	}
+	if err := m.reserveStep(id); err != nil {
 		return nil, err
 	}
 	row, step, err := m.stepLaunch(ctx, id)
@@ -722,8 +759,9 @@ func (m *Manager) resumeSession(ctx context.Context, id string) (*liveSession, e
 	return m.resume(ctx, row)
 }
 
-// awaitStopping waits until the retired session with id, if one is stopping, has ended, so its slot is free. It returns
-// an error wrapping ctx's error when ctx ends first.
+// awaitStopping waits until the retired session with id, if one is stopping, has ended, so it records nothing more. A
+// drained step's slot is kept for its id, not freed, when it ends (see retireLocked). It returns an error wrapping ctx's
+// error when ctx ends first.
 func (m *Manager) awaitStopping(ctx context.Context, id string) error {
 	m.mu.Lock()
 	old := m.stopping[id]
@@ -1282,7 +1320,8 @@ func stampHome(environ []string) (string, error) {
 // pump records the events of one running session, line by line and in order, until its lines close, and tells the owner
 // of each event once it is recorded. reply is the reply text of the turn the session's earlier lines left, so the pump
 // continues that turn. It is the only reader of the session's lines and the only user of its recorder. When it ends it
-// frees the session's slot and removes its entries, only while each is its own.
+// frees the session's slot and removes its entries, only while each is its own. A retired step keeps its slot for its id
+// instead (see retireLocked).
 func (m *Manager) pump(ctx context.Context, live *liveSession, rec *recorder, reply string) {
 	defer m.pumps.Done()
 	for line := range live.sess.Lines() {
@@ -1295,10 +1334,11 @@ func (m *Manager) pump(ctx context.Context, live *liveSession, rec *recorder, re
 	if m.stopping[live.id] == live {
 		delete(m.stopping, live.id)
 	}
-	if live.step {
-		m.stepsRunning--
-	} else {
+	switch {
+	case !live.step:
 		m.reserved--
+	case !live.retired:
+		m.stepsRunning--
 	}
 	m.mu.Unlock()
 	close(live.done)
@@ -1496,14 +1536,18 @@ func (m *Manager) noteEvent(live *liveSession, event session.Event) (record, int
 // request is open and no background task runs, so the stop ends nothing the session is still doing. It also needs no send
 // pending, and every prompt the session sent answered, so the stop leaves no prompt unanswered: a prompt claude runs as a
 // following turn, or folds into the running turn, is answered on this holder before it stops. A background task still
-// running at a turn's end keeps the session until a later turn ends with none, or until the idle stop takes it.
-// Each step that can leave a draining session drained calls it under the lock: register, noteEvent at a turn's end, and
-// endSend. The session leaves m.sessions and enters m.stopping in that lock hold, so no prompt reaches it afterwards. Its
-// stop runs on its own goroutine, so the pump that calls this goes on recording the line it is on. The stop records
-// nothing, and the session holds its slot until its pump ends, which is what awaitStopping waits for. The caller holds the
-// lock.
+// running at a turn's end keeps the session until a later turn ends with none, or until the idle stop takes it. A step's
+// hand-off does not hold a draining step: its next Continue respawns it, so the step is retired at its hand-off. A retired
+// step keeps its step slot for its id, in m.kept, which its pump does not free. Each step that can leave a draining session
+// drained calls it under the lock: register, noteEvent at a turn's end, and endSend. The session leaves m.sessions and
+// enters m.stopping in that lock hold, so no prompt reaches it afterwards. Its stop runs on its own goroutine, so the pump
+// that calls this goes on recording the line it is on. The stop records nothing. An engine session holds its slot until its
+// pump ends, which is what awaitStopping waits for. The caller holds the lock.
 func (m *Manager) retireLocked(live *liveSession) {
-	if !live.draining || live.busy() || live.retired || live.sending > 0 || live.sess.UnansweredPrompts() > 0 {
+	if !live.draining || live.retired || live.sending > 0 || live.sess.UnansweredPrompts() > 0 {
+		return
+	}
+	if live.turning || live.background || len(live.requests) > 0 {
 		return
 	}
 	live.retired = true
@@ -1511,6 +1555,9 @@ func (m *Manager) retireLocked(live *liveSession) {
 		delete(m.sessions, live.id)
 	}
 	m.stopping[live.id] = live
+	if live.step {
+		m.kept[live.id] = live
+	}
 	go m.stopRetired(live)
 }
 

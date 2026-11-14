@@ -39,14 +39,15 @@ const resumedBody = "orreryd restarted during the turn; resumed it"
 // is cleared. Then it settles the engine rows that have no process in this manager, as a restart leaves them. A re-adopted
 // session is live, so its row is left as its replay gave it, except that a session re-adopted from a holder one version
 // older is stopped once it is not busy, at its turn's end or at once (see retireLocked), and that stop records nothing. A
-// drained row is settled by its drain. Each other row loses its unfinished text. A row whose turn was running, working or
-// waiting, is recorded interrupted with restartedReason and no question. A working turn of an engine row whose session has
-// a Claude id is then resumed with resumePrompt, unless its last prompt is resumePrompt already, and the owner is told of
-// the resume in place of the interruption (see resumable). A step row is settled without a notice. A row in any other
-// state keeps its state. No row is removed. A holder that fails to re-adopt, to stop, to drain or to clear is logged and
-// its session is cleared, and the rows are settled anyway. The rows
-// that need a write are settled in one store transaction, so a row that needs nothing, with no text and no turn running, is
-// not written. A write that fails stops no other row. It returns the first read or write error.
+// step's stop keeps its slot for its id, and the step stays held (see StepLive). A drained row is settled by its drain.
+// Each other row loses its unfinished text. A row whose turn was running, working or waiting, is recorded interrupted with
+// restartedReason and no question. A working turn of an engine row whose session has a Claude id is then resumed with
+// resumePrompt, unless its last prompt is resumePrompt already, and the owner is told of the resume in place of the
+// interruption (see resumable). A step row is settled without a notice. A row in any other state keeps its state. No row
+// is removed. A holder that fails to re-adopt, to stop, to drain or to clear is logged and its session is cleared, and the
+// rows are settled anyway. The rows that need a write are settled in one store transaction, so a row that needs nothing,
+// with no text and no turn running, is not written. A write that fails stops no other row. It returns the first read or
+// write error.
 func (m *Manager) Reconcile(ctx context.Context) error {
 	rows, err := m.store.EngineSessions(ctx)
 	// A failed read leaves no row, so every holder is then cleared.
@@ -230,10 +231,10 @@ func (m *Manager) drainGone(ctx context.Context, row store.EngineRow, dir string
 // readopt re-adopts the session of row from its holder in dir. It reads the spec the session is registered with, attaches
 // the holder at row's replay-from, replays the stdout from there to row's consumed offset, and registers the session live,
 // primed from that replay (see prime). A holder one version older than the controller's is re-adopted as well, but its
-// session is draining, so it is retired once it is not busy (see retireLocked). A step's holder is never draining. It
-// takes a slot without the cap check, since the holder's process already runs: a step slot for a step, and a session slot
-// otherwise. A failure after the holder is attached ends the session with Detach, which leaves the holder running for the
-// caller to clear.
+// session is draining, so it is retired once no turn runs (see retireLocked); a step is retired at its hand-off and keeps
+// its step slot for its id. It takes a slot without the cap check, since the holder's process already runs: a step slot for
+// a step, and a session slot otherwise. A failure after the holder is attached ends the session with Detach, which leaves
+// the holder running for the caller to clear.
 func (m *Manager) readopt(ctx context.Context, row store.EngineRow, dir string) error {
 	sp, err := m.readoptSpec(ctx, row)
 	if err != nil {
@@ -243,7 +244,7 @@ func (m *Manager) readopt(ctx context.Context, row store.EngineRow, dir string) 
 	if err != nil {
 		return fmt.Errorf("attach holder of session %s: %w", row.ID, err)
 	}
-	draining := !sp.step && process.Version() == m.holderVersion-1
+	draining := process.Version() == m.holderVersion-1
 	sess, lines, err := session.Readopt(ctx, process, session.ReadoptOptions{
 		From: row.ReplayFrom, Consumed: row.Consumed, Written: written,
 	})
@@ -321,12 +322,13 @@ func (m *Manager) ExpectStep(id string, observer StepObserver) {
 	m.stepObservers[id] = observer
 }
 
-// StepLive reports whether this manager has a live step session with id.
+// StepLive reports whether this manager holds the step id for its loop: a live step session, or a drained one whose step
+// slot is kept for its next Continue (see retireLocked).
 func (m *Manager) StepLive(id string) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	live, ok := m.sessions[id]
-	return ok && live.step
+	return (ok && live.step) || m.kept[id] != nil
 }
 
 // reconcileRow settles row in one write as a restart leaves it (see settleOps). The drain of its holder has read that
