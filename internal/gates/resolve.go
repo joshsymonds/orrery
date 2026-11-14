@@ -45,6 +45,39 @@ func Resolve(ctx context.Context, name, gatesFile, dir string, getenv func(strin
 			return Resolved{Gate: g, Source: SourceEpic, File: gatesFile}, nil
 		}
 	}
+	return resolveProject(ctx, name, dir, getenv, searched)
+}
+
+// ResolveDefined finds the gate named name in defined, the gate data an epic carries. A name defined there resolves
+// from it with no file read. Otherwise the project file for dir is read as Resolve reads it. A name neither defines
+// is an error wrapping ErrUnknown that names the epic's gates when defined is not empty, and the project file when
+// one exists.
+func ResolveDefined(
+	ctx context.Context,
+	name string,
+	defined []Gate,
+	dir string,
+	getenv func(string) string,
+) (Resolved, error) {
+	if g, ok := findGate(defined, name); ok {
+		return Resolved{Gate: g, Source: SourceEpic}, nil
+	}
+	var searched []string
+	if len(defined) > 0 {
+		searched = append(searched, "the epic's gates")
+	}
+	return resolveProject(ctx, name, dir, getenv, searched)
+}
+
+// resolveProject finds name in the project file that pools.Discover finds for dir. searched names the sources the
+// caller consulted before the project file. A name the project file does not define is an error wrapping ErrUnknown
+// that names searched and the project file.
+func resolveProject(
+	ctx context.Context,
+	name, dir string,
+	getenv func(string) string,
+	searched []string,
+) (Resolved, error) {
 	files, err := pools.Discover(ctx, dir, getenv)
 	if err != nil {
 		return Resolved{}, fmt.Errorf("find the project for %s: %w", dir, err)
