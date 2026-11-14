@@ -33,6 +33,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/push"
 	"github.com/joshsymonds/orrery/internal/route"
+	"github.com/joshsymonds/orrery/internal/sdnotify"
 	"github.com/joshsymonds/orrery/internal/stamp"
 	"github.com/joshsymonds/orrery/internal/store"
 	"github.com/joshsymonds/orrery/internal/summary"
@@ -54,6 +55,9 @@ const (
 
 // envAnthropicBaseURL is the settings env key that sets claude's API base URL.
 const envAnthropicBaseURL = "ANTHROPIC_BASE_URL"
+
+// envNotifySocket is the variable systemd sets to the socket that takes READY=1 for a Type=notify unit.
+const envNotifySocket = "NOTIFY_SOCKET"
 
 const (
 	defaultClaude = "claude"
@@ -126,6 +130,7 @@ type options struct {
 	sessionShell  string
 	holderScope   string
 	stepCap       int
+	notifySocket  string // the NOTIFY_SOCKET value orreryd started with, "" when unset
 }
 
 // repeatFlag is a repeatable string flag. It collects the values in the order given.
@@ -169,10 +174,16 @@ func main() {
 
 // run starts orreryd with the command line args and returns its exit code. It exits 0 after SIGINT or SIGTERM.
 func run(args []string, stderr io.Writer, getenv func(string) string) int {
+	// The notify socket is read and removed before anything captures the environment, so no child inherits it.
+	notifySocket := getenv(envNotifySocket)
+	if err := os.Unsetenv(envNotifySocket); err != nil {
+		return report(stderr, fmt.Errorf("unset %s: %w", envNotifySocket, err))
+	}
 	opts, err := parseFlags(args, getenv)
 	if err != nil {
 		return report(stderr, err)
 	}
+	opts.notifySocket = notifySocket
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	logger := slog.New(slog.NewTextHandler(stderr, nil))
@@ -321,7 +332,8 @@ func startDesk(ctx context.Context, host string, deskLn net.Listener, logger *sl
 
 // serve listens on the daemon and desk sockets and applies hook frames while it opens the store, so no frame waits for
 // the store. The first tidy runs once the store is open and the sessions have started. A failed sessions start stops
-// serving and returns its error. Once the store is open, serve returns only after the store is closed.
+// serving and returns its error. Once the store is open, serve returns only after the store is closed. serve sends
+// systemd READY=1 once the sessions have started, or once the store has opened when there are no sessions.
 func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(string) string) error {
 	host, err := os.Hostname()
 	if err != nil {
@@ -419,6 +431,7 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 		stop()
 	} else {
 		close(tidyStart)
+		notifyReady(ctx, logger, opts.notifySocket)
 	}
 	serveErr := <-serveDone
 	sessionErr := shutdownServe(ctx, logger, st, hub, sessions, router, notices)
@@ -426,6 +439,17 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 		serveErr = fmt.Errorf("serve: %w", serveErr)
 	}
 	return errors.Join(startErr, serveErr, sessionErr)
+}
+
+// notifyReady sends systemd READY=1 to socket. An empty socket means systemd did not start orreryd, so nothing is sent.
+// A failed send is logged and serving goes on.
+func notifyReady(ctx context.Context, logger *slog.Logger, socket string) {
+	if socket == "" {
+		return
+	}
+	if err := sdnotify.Ready(socket); err != nil {
+		logger.ErrorContext(ctx, "notify systemd, serving anyway", "error", err)
+	}
 }
 
 // serveInBackground runs daemon.Serve on ln with cfg until ctx is done. The returned channel receives Serve's error

@@ -129,13 +129,14 @@ func runCommand(t *testing.T, dir, name, stdin string, env []string, args ...str
 }
 
 // scrubbedEnv returns the test's environment without the variables orreryd and the hook read from a developer's
-// shell, plus extra. A test that starts a daemon or a hook passes every value it relies on in extra.
+// shell, plus extra. NOTIFY_SOCKET is dropped too, so a test daemon never notifies the systemd that runs the tests.
+// A test that starts a daemon or a hook passes every value it relies on in extra.
 func scrubbedEnv(extra ...string) []string {
 	var env []string
 	for _, entry := range os.Environ() {
 		if strings.HasPrefix(entry, "ORRERY_") || strings.HasPrefix(entry, "ANTHROPIC_BASE_URL=") ||
 			strings.HasPrefix(entry, "TMUX=") || strings.HasPrefix(entry, "TMUX_PANE=") ||
-			strings.HasPrefix(entry, "XDG_RUNTIME_DIR=") {
+			strings.HasPrefix(entry, "XDG_RUNTIME_DIR=") || strings.HasPrefix(entry, "NOTIFY_SOCKET=") {
 			continue
 		}
 		env = append(env, entry)
