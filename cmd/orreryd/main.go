@@ -60,6 +60,9 @@ const envAnthropicBaseURL = "ANTHROPIC_BASE_URL"
 // envNotifySocket is the variable systemd sets to the socket that takes READY=1 for a Type=notify unit.
 const envNotifySocket = "NOTIFY_SOCKET"
 
+// managedDir is the managed settings root the session manager runs under and the planner's resolver checks agents in.
+const managedDir = "/etc/claude-code"
+
 const (
 	defaultClaude = "claude"
 	// defaultSessionCap is the most live engine sessions at once when --session-cap is not given.
@@ -546,7 +549,7 @@ func startSessions(
 			Environ:     os.Environ(),
 			HolderScope: opts.holderScope,
 			StateDir:    stateDir,
-			ManagedDir:  "/etc/claude-code",
+			ManagedDir:  managedDir,
 			Cap:         opts.sessionCap,
 			StepCap:     opts.stepCap,
 			Writer:      host.writer,
@@ -556,6 +559,7 @@ func startSessions(
 		})
 		host.startBroker(ctx, hostName, st, logger)
 		// host.pools is nil when the broker's restore failed, which leaves the gates no pools to run under.
+		resolve := planner.NewResolver(os.Environ(), managedDir)
 		steps, err := enginehost.NewSteps(enginehost.StepsConfig{
 			Sessions:     host.manager,
 			Store:        st,
@@ -567,7 +571,7 @@ func startSessions(
 			Haiku:        enginehost.NewHaiku(enginehost.HaikuConfig{Claude: opts.claude, Environ: os.Environ()}),
 			GateStateDir: filepath.Join(stateDir, "gates"),
 			GateScope:    opts.holderScope,
-			ReadoptCheck: planner.ReadoptCheck(st),
+			ReadoptCheck: planner.ReadoptCheck(st, resolve),
 		})
 		if err != nil {
 			host.stopBroker()
@@ -585,7 +589,7 @@ func startSessions(
 			close(host.writerDone)
 		}()
 		host.reconcile(ctx, logger)
-		host.startPlanner(ctx, st, getenv, logger)
+		host.startPlanner(ctx, st, getenv, resolve, logger)
 		var idleCtx context.Context
 		idleCtx, host.stopIdle = context.WithCancel(ctx)
 		go func() {
@@ -691,18 +695,21 @@ func (h *sessionHost) stop() error {
 }
 
 // startPlanner runs the planner runner over st and the steps until stop. The runner reads the planner's agent from the
-// role file on each pass, so without one it parks the epics that have pending triggers, and starts no turn.
+// role file on each pass, so without one it parks the epics that have pending triggers, and starts no turn. Each
+// planned task's gate and judge are resolved by resolve.
 func (h *sessionHost) startPlanner(
 	ctx context.Context,
 	st *store.Store,
 	getenv func(string) string,
+	resolve planner.Resolver,
 	logger *slog.Logger,
 ) {
 	runner := planner.New(planner.Config{
-		Store:  st,
-		Steps:  h.steps,
-		Agent:  func() (string, error) { return roles.Agent(getenv, "planner") },
-		Logger: logger,
+		Store:   st,
+		Steps:   h.steps,
+		Agent:   func() (string, error) { return roles.Agent(getenv, "planner") },
+		Logger:  logger,
+		Resolve: resolve,
 	})
 	var plannerCtx context.Context
 	plannerCtx, h.stopPlanner = context.WithCancel(ctx)

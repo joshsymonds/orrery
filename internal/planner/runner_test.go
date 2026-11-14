@@ -13,17 +13,44 @@ import (
 	"testing"
 	"time"
 
+	"github.com/joshsymonds/orrery/internal/agents"
 	"github.com/joshsymonds/orrery/internal/enginehost"
 	"github.com/joshsymonds/orrery/internal/evidence"
+	"github.com/joshsymonds/orrery/internal/gates"
 	"github.com/joshsymonds/orrery/internal/store"
 	"github.com/joshsymonds/orrery/internal/storetest"
 )
 
-// The Runner runs against the real store and the in-process Steps.
+// The Runner runs against the real store and the in-process Steps, and checks plans with testResolver.
 var (
-	_ Store = (*store.Store)(nil)
-	_ Steps = (*enginehost.Steps)(nil)
+	_ Store    = (*store.Store)(nil)
+	_ Steps    = (*enginehost.Steps)(nil)
+	_ Resolver = testResolver{}
 )
+
+// testResolver is the Resolver the planner tests check plans with. It resolves the command gate check and the judge
+// a judge, refuses the agent gate review, and refuses every other name with the text the real resolver gives.
+type testResolver struct{}
+
+// Gate returns nil for the command gate check, the agent gate refusal for review, and an unknown-gate error otherwise.
+func (testResolver) Gate(_ context.Context, _ store.EpicRow, name string) error {
+	switch name {
+	case "check":
+		return nil
+	case "review":
+		return fmt.Errorf("gate %q is an agent gate, not a command gate", name)
+	default:
+		return fmt.Errorf("resolve gate: %w: %q", gates.ErrUnknown, name)
+	}
+}
+
+// Judge returns nil for the judge a judge, and an unresolved-agent error for any other name.
+func (testResolver) Judge(_ store.EpicRow, name string) error {
+	if name == "a judge" {
+		return nil
+	}
+	return fmt.Errorf("resolve judge: %w: %q", agents.ErrUnresolved, name)
+}
 
 const (
 	runnerEpicID = "orrery-1a2b3c4/planner-runner"
@@ -58,6 +85,18 @@ const unknownRequirementPlan = `{"status":"done","decisions":[],` +
 	`"tasks":[{"title":"Build it","deliverable":"the runner","files":["internal/planner/runner.go"],` +
 	`"requirements":["R9"],"gate":"check","evidence":{"capture":["scripts/check"],"limit":60,"artifacts":[],` +
 	`"supplied":[],"conclusion":"the runner runs","judge":"a judge"}}],"outline":"one task","questions":[],"outcome":"work"}`
+
+// unknownGatePlan is validPlan with its task's gate named missing, which no gate defines.
+const unknownGatePlan = `{"status":"done","decisions":[],` +
+	`"tasks":[{"title":"Build it","deliverable":"the runner","files":["internal/planner/runner.go"],` +
+	`"requirements":["R1"],"gate":"missing","evidence":{"capture":["scripts/check"],"limit":60,"artifacts":[],` +
+	`"supplied":[],"conclusion":"the runner runs","judge":"a judge"}}],"outline":"one task","questions":[],"outcome":"work"}`
+
+// unknownJudgePlan is validPlan with its task's judge named nobody, which no agent answers to.
+const unknownJudgePlan = `{"status":"done","decisions":[],` +
+	`"tasks":[{"title":"Build it","deliverable":"the runner","files":["internal/planner/runner.go"],` +
+	`"requirements":["R1"],"gate":"check","evidence":{"capture":["scripts/check"],"limit":60,"artifacts":[],` +
+	`"supplied":[],"conclusion":"the runner runs","judge":"nobody"}}],"outline":"one task","questions":[],"outcome":"work"}`
 
 // fakeSteps is a Steps whose steps end when the test ends them. It records each start.
 type fakeSteps struct {
@@ -165,7 +204,7 @@ func agentReturning(agent string, err error, reads *atomic.Int64) func() (string
 func runnerConfig(s *store.Store, steps *fakeSteps, agent func() (string, error)) Config {
 	return Config{
 		Store: s, Steps: steps, Agent: agent, Tick: runnerTick,
-		Now: claimedAt,
+		Now: claimedAt, Resolve: testResolver{},
 	}
 }
 
@@ -281,6 +320,26 @@ func TestRunnerReturnCheckRefusesUnknownRequirementAndPassesValidPlan(t *testing
 	}
 	if got := check(json.RawMessage(`{`)); len(got) != 1 {
 		t.Errorf("ReturnCheck of invalid JSON = %q, want one line", got)
+	}
+}
+
+func TestRunnerReturnCheckRefusesUnknownGateAndJudge(t *testing.T) {
+	t.Parallel()
+	s := openRunnerStore(t)
+	createRunnerEpic(t, s)
+	steps := newFakeSteps()
+	var reads atomic.Int64
+	runRunner(t, runnerConfig(s, steps, agentReturning(runnerAgent, nil, &reads)))
+	waitFor(t, "a planner step to start", func() bool { return len(steps.started()) == 1 })
+	check := steps.started()[0].ReturnCheck
+
+	wantGate := []string{`tasks[0] "Build it" gate: resolve gate: unknown gate: "missing"`}
+	if got := check(json.RawMessage(unknownGatePlan)); !reflect.DeepEqual(got, wantGate) {
+		t.Errorf("ReturnCheck of a plan naming gate missing = %q, want %q", got, wantGate)
+	}
+	wantJudge := []string{`tasks[0] "Build it" evidence.judge: resolve judge: agent name does not resolve: "nobody"`}
+	if got := check(json.RawMessage(unknownJudgePlan)); !reflect.DeepEqual(got, wantJudge) {
+		t.Errorf("ReturnCheck of a plan naming judge nobody = %q, want %q", got, wantJudge)
 	}
 }
 
@@ -485,15 +544,15 @@ func TestReturnCheckRefusesFilesOfUnfinishedTasksOnly(t *testing.T) {
 			{Seq: 2, Title: "done", Files: []string{"internal/b.go"}, Status: "done"},
 		},
 	}
-	check := returnCheck(epic)
+	check := returnCheck(context.Background(), epic, testResolver{})
 	const touchA = `{"status":"done","decisions":[],` +
 		`"tasks":[{"title":"Touch a","deliverable":"d","files":["internal/a.go"],` +
 		`"requirements":["R1"],"gate":"check","evidence":{"capture":["scripts/check"],"limit":60,"artifacts":[],` +
-		`"supplied":[],"conclusion":"c","judge":"j"}}],"outline":"o","questions":[],"outcome":"work"}`
+		`"supplied":[],"conclusion":"c","judge":"a judge"}}],"outline":"o","questions":[],"outcome":"work"}`
 	const touchB = `{"status":"done","decisions":[],` +
 		`"tasks":[{"title":"Touch b","deliverable":"d","files":["internal/b.go"],` +
 		`"requirements":["R1"],"gate":"check","evidence":{"capture":["scripts/check"],"limit":60,"artifacts":[],` +
-		`"supplied":[],"conclusion":"c","judge":"j"}}],"outline":"o","questions":[],"outcome":"work"}`
+		`"supplied":[],"conclusion":"c","judge":"a judge"}}],"outline":"o","questions":[],"outcome":"work"}`
 
 	want := []string{`tasks[0] "Touch a" files[0]: owned by an unfinished task`}
 	if got := check(json.RawMessage(touchA)); !reflect.DeepEqual(got, want) {

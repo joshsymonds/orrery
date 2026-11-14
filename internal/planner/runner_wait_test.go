@@ -36,6 +36,7 @@ func TestRunnerWaitErrorKeepsTurnRunningUntilStepEnds(t *testing.T) {
 	var reads atomic.Int64
 	runRunner(t, Config{
 		Store: s, Steps: steps, Agent: agentReturning(runnerAgent, nil, &reads), Tick: runnerTick, Now: claimedAt,
+		Resolve: testResolver{},
 	})
 	waitFor(t, "a planner step to start", func() bool { return len(steps.started()) == 1 })
 	waitFor(t, "step-1 recorded on turn 1", func() bool { return stepOneOnTurnOne(t, s) })
