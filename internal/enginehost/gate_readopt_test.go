@@ -188,7 +188,12 @@ func TestGateReadoptOfGateThatEndedWhileDetachedReturnsItsExitRecord(t *testing.
 		t.Fatalf("Acquire was called %d times, want 2: the run and the reclaim that ends its grant", len(requests))
 	}
 	if got := requests[1]; got.GrantID != "grant-1" || got.Holder != dir {
-		t.Fatalf("second Acquire = grant %q holder %q, want a reclaim of grant-1 naming %s", got.GrantID, got.Holder, dir)
+		t.Fatalf(
+			"second Acquire = grant %q holder %q, want a reclaim of grant-1 naming %s",
+			got.GrantID,
+			got.Holder,
+			dir,
+		)
 	}
 	if !pools.ended("grant-1") {
 		t.Fatal("the reclaimed grant-1 is still held after readoptGrantedGate returned, want it ended")

@@ -444,8 +444,8 @@ func gateEndKept(
 	case err != nil:
 		return grants.Grant{}, err
 	}
-	if err = call.release(); err != nil {
-		return grants.Grant{}, err
+	if releaseErr := call.release(); releaseErr != nil {
+		return grants.Grant{}, releaseErr
 	}
 	return held, nil
 }
