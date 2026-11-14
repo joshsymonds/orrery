@@ -17,12 +17,13 @@ import (
 )
 
 // epicTableColumns returns, keyed by table, the columns in declaration order of every table migrations 00014, 00016
-// and 00019 create, and of the columns those migrations and 00020 and 00021 add to epic tables.
+// and 00019 create, and of the columns those migrations and 00020, 00021 and 00022 add to epic tables.
 func epicTableColumns() map[string][]string {
 	return map[string][]string{
 		"epics": {
 			"id", "repository", "title", "approved", "intent", "care", "approach", "release_then", "checks",
-			"phase", "created", "changed", "paused", "parked", "retried", "base", "branch",
+			"phase", "created", "changed", "paused", "parked", "retried", "base", "branch", "workflow",
+			"workflow_text", "workflow_sha256",
 		},
 		"epic_failures":      {"epic", "position", "id", "text", "rating", "response"},
 		"epic_additions":     {"epic", "position", "location", "what", "why", "cost"},
@@ -54,9 +55,10 @@ func epicTableColumns() map[string][]string {
 			"epic", "task", "attempt", "review", "position", "id", "claim", "citation", "location", "evidence",
 			"verify_by", "step", "result", "reason",
 		},
-		"epic_tells":         {"epic", "seq", "text", "at", "told"},
-		"epic_questions":     {"epic", "seq", "turn", "text", "state"},
-		"engine_rate_limits": {"session_id", "status", "kind", "resets_at", "at"},
+		"epic_workflow_nodes": {"epic", "position", "id", "parent", "kind"},
+		"epic_tells":          {"epic", "seq", "text", "at", "told"},
+		"epic_questions":      {"epic", "seq", "turn", "text", "state"},
+		"engine_rate_limits":  {"session_id", "status", "kind", "resets_at", "at"},
 		"evidence_runs": {
 			"id", "epic", "item", "revision", "phase", "source", "state", "spec", "grant_id", "holder", "exit",
 			"timed_out", "not_captured", "log_hash", "log_bytes", "judge_step", "judges", "verdict", "judge_reason",
@@ -410,9 +412,9 @@ func TestEpicMigrationKeepsExistingRows(t *testing.T) {
 		`SELECT COALESCE(MAX(version_id), 0) FROM goose_db_version WHERE is_applied = 1`).Scan(&version); err != nil {
 		t.Fatalf("read store version: %v", err)
 	}
-	// Open applies 00014_epics.sql and every migration after it: 00021_task_build.sql is the newest.
-	if version != 21 {
-		t.Fatalf("store version after Open = %d, want 21", version)
+	// Open applies 00014_epics.sql and every migration after it: 00022_workflow.sql is the newest.
+	if version != 22 {
+		t.Fatalf("store version after Open = %d, want 22", version)
 	}
 
 	// A later migration may add columns at the end of an existing table, as 00015_step_readopt.sql adds to steps and
@@ -461,6 +463,7 @@ func TestEpicStoredAtVersion16ReadsBackWithEmptyEvidence(t *testing.T) {
 			{ID: "R1", Text: "Stored before evidence", Evidence: "store test", Kind: "check"},
 		},
 		Decisions: []EpicDecision{{Seq: 1, ID: "D1", Text: "Use the store", Time: at}},
+		Workflow:  builtInEpicWorkflow(),
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("epic stored at version 16 = %+v, want %+v", got, want)
@@ -646,6 +649,51 @@ func TestTaskBuildMigrationDownAndUp(t *testing.T) {
 	}
 }
 
+// TestWorkflowMigrationDownAndUp removes the workflow columns and the node table with the Down of 00022_workflow.sql,
+// and Up restores them and pins the built-in epic to the epic stored before the Down.
+func TestWorkflowMigrationDownAndUp(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openEpicStore(t)
+	seedEpic(t, s.db)
+
+	migrationsFS, err := fs.Sub(migrationFS, "migrations")
+	if err != nil {
+		t.Fatalf("sub migrations fs: %v", err)
+	}
+	provider, err := goose.NewProvider(goose.DialectSQLite3, s.db, migrationsFS)
+	if err != nil {
+		t.Fatalf("create goose provider: %v", err)
+	}
+
+	if _, err := provider.DownTo(ctx, 21); err != nil {
+		t.Fatalf("DownTo 21: %v", err)
+	}
+	if tables := tableNames(t, s); tables["epic_workflow_nodes"] {
+		t.Errorf("epic_workflow_nodes after Down: present, want absent")
+	}
+	if hasAny(columnsOf(t, s, "epics"), "workflow", "workflow_text", "workflow_sha256") {
+		t.Errorf("epics columns after Down = %v, want no workflow columns", columnsOf(t, s, "epics"))
+	}
+
+	if _, err := provider.Up(ctx); err != nil {
+		t.Fatalf("Up: %v", err)
+	}
+	if tables := tableNames(t, s); !tables["epic_workflow_nodes"] {
+		t.Errorf("epic_workflow_nodes after Up: absent, want present")
+	}
+	if !hasAll(columnsOf(t, s, "epics"), "workflow", "workflow_text", "workflow_sha256") {
+		t.Errorf("epics columns after Up = %v, want the workflow columns", columnsOf(t, s, "epics"))
+	}
+	got, err := s.Epic(ctx, seededEpic)
+	if err != nil {
+		t.Fatalf("Epic after Up: %v", err)
+	}
+	if want := builtInEpicWorkflow(); !reflect.DeepEqual(got.Workflow, want) {
+		t.Errorf("workflow of seeded epic after Up = %+v, want %+v", got.Workflow, want)
+	}
+}
+
 func TestPlannerControlsDefaultOnRowsStoredAtVersion16(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -686,9 +734,10 @@ func TestPlannerControlsDefaultOnRowsStoredAtVersion16(t *testing.T) {
 	}
 	defer s.Close()
 
-	// Each stored row keeps its values and gains the new column defaults at the end of its table.
+	// Each stored row keeps its values and gains what later migrations give it at the end of its table: the epic
+	// stored at version 16 pins the built-in epic workflow.
 	added := map[string][]any{
-		"epics":           {int64(0), "", ""},
+		"epics":           {int64(0), "", "", "epic", builtInEpicText, textSHA256(builtInEpicText)},
 		"epic_turns":      {int64(0), int64(0), int64(0)},
 		"epic_decisions":  {int64(0)},
 		"pending_notices": {""},

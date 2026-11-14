@@ -315,8 +315,9 @@ DELETE FROM pushed_limit_notices WHERE limit_key = ?;
 SELECT * FROM pushed_limit_notices ORDER BY limit_key;
 
 -- name: InsertEpic :exec
-INSERT INTO epics (id, repository, base, title, approved, intent, care, approach, release_then, checks, phase, created, changed)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+INSERT INTO epics (id, repository, base, title, approved, intent, care, approach, release_then, checks, phase, created,
+    changed, workflow, workflow_text, workflow_sha256)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 -- name: CountEpic :one
 SELECT COUNT(*) FROM epics WHERE id = ?;
@@ -396,6 +397,12 @@ SELECT * FROM epic_gate_lists WHERE epic = ? AND list = 'done' ORDER BY position
 
 -- name: ListEpicReviewGates :many
 SELECT * FROM epic_gate_lists WHERE epic = ? AND list = 'review' ORDER BY position;
+
+-- name: InsertEpicWorkflowNode :exec
+INSERT INTO epic_workflow_nodes (epic, position, id, parent, kind) VALUES (?, ?, ?, ?, ?);
+
+-- name: ListEpicWorkflowNodes :many
+SELECT * FROM epic_workflow_nodes WHERE epic = ? ORDER BY position;
 
 -- name: InsertEpicTrigger :exec
 INSERT INTO epic_triggers (epic, id, cause, state, turn, created) VALUES (?, ?, ?, ?, ?, ?);

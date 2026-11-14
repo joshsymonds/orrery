@@ -47,6 +47,7 @@ type EpicRow struct {
 	Changed     time.Time
 	Paused      bool
 	Parked      string
+	Workflow    EpicWorkflow
 
 	Failures     []EpicFailure
 	Additions    []EpicAddition
@@ -62,6 +63,23 @@ type EpicRow struct {
 	Turns        []EpicTurn
 	Tasks        []EpicTask
 	Questions    []EpicQuestion
+}
+
+// EpicWorkflow is the workflow an epic pins: its name, the canonical text it was loaded as, the sha256 of that text,
+// and its nodes in preorder. A zero EpicWorkflow is an epic with no pinned workflow.
+type EpicWorkflow struct {
+	Name   string
+	Text   string
+	SHA256 string
+	Nodes  []EpicWorkflowNode
+}
+
+// EpicWorkflowNode is one node of a pinned workflow. Parent is the id of the node that encloses it, "" at the top
+// level, and Kind is the kind name, or `loop` for a loop node.
+type EpicWorkflowNode struct {
+	ID     string
+	Parent string
+	Kind   string
 }
 
 // EpicFailure is one thing that could go wrong, with its level of care and its response.
@@ -155,11 +173,15 @@ func (s *Store) CreateEpic(ctx context.Context, row EpicRow) error {
 			ID: row.ID, Repository: row.Repository, Base: row.Base, Title: row.Title, Approved: row.Approved,
 			Intent: row.Intent, Care: row.Care, Approach: row.Approach, ReleaseThen: row.ReleaseThen,
 			Checks: row.Checks, Phase: row.Phase, Created: row.Created.Unix(), Changed: row.Changed.Unix(),
+			Workflow: row.Workflow.Name, WorkflowText: row.Workflow.Text, WorkflowSha256: row.Workflow.SHA256,
 		}); err != nil {
 			return fmt.Errorf("insert epic %s: %w", row.ID, err)
 		}
 		if err = insertEpicSections(ctx, queries, row); err != nil {
 			return fmt.Errorf("insert sections of epic %s: %w", row.ID, err)
+		}
+		if err = insertWorkflowNodes(ctx, queries, row); err != nil {
+			return fmt.Errorf("insert workflow nodes of epic %s: %w", row.ID, err)
 		}
 		if err = queries.InsertEpicTrigger(ctx, sqlcgen.InsertEpicTriggerParams{
 			Epic: row.ID, ID: createdTriggerID, Cause: createdTriggerCause, State: "pending", Turn: 0,
@@ -254,6 +276,18 @@ func insertEpicSections(ctx context.Context, queries *sqlcgen.Queries, row EpicR
 	return nil
 }
 
+// insertWorkflowNodes stores the nodes of row's pinned workflow in preorder, positions counted from 0.
+func insertWorkflowNodes(ctx context.Context, queries *sqlcgen.Queries, row EpicRow) error {
+	for i, node := range row.Workflow.Nodes {
+		if err := queries.InsertEpicWorkflowNode(ctx, sqlcgen.InsertEpicWorkflowNodeParams{
+			Epic: row.ID, Position: int64(i), ID: node.ID, Parent: node.Parent, Kind: node.Kind,
+		}); err != nil {
+			return fmt.Errorf("node %s: %w", node.ID, err)
+		}
+	}
+	return nil
+}
+
 // insertInOrder calls insert for each item with its position, counted from 1, and stops at the first error.
 func insertInOrder[T any](items []T, insert func(position int64, item T) error) error {
 	for i, item := range items {
@@ -339,7 +373,22 @@ func (s *Store) Epic(ctx context.Context, id string) (EpicRow, error) {
 	if err = loadEpicSections(ctx, queries, &row); err != nil {
 		return EpicRow{}, fmt.Errorf("read sections of epic %s: %w", id, err)
 	}
+	if err = loadEpicWorkflowNodes(ctx, queries, &row); err != nil {
+		return EpicRow{}, fmt.Errorf("read workflow of epic %s: %w", id, err)
+	}
 	return row, nil
+}
+
+// loadEpicWorkflowNodes fills the nodes of the workflow of row from the rows stored under row.ID, in position order.
+func loadEpicWorkflowNodes(ctx context.Context, queries *sqlcgen.Queries, row *EpicRow) error {
+	nodes, err := queries.ListEpicWorkflowNodes(ctx, row.ID)
+	if err != nil {
+		return fmt.Errorf("list workflow nodes: %w", err)
+	}
+	row.Workflow.Nodes = mapInOrder(nodes, func(n sqlcgen.EpicWorkflowNode) EpicWorkflowNode {
+		return EpicWorkflowNode{ID: n.ID, Parent: n.Parent, Kind: n.Kind}
+	})
+	return nil
 }
 
 // loadEpicSections fills the ordered sections, decisions and planner sections of row from the rows stored under row.ID.
@@ -440,13 +489,21 @@ func loadGateSections(ctx context.Context, queries *sqlcgen.Queries, row *EpicRo
 	return nil
 }
 
-// Epics returns every stored epic ordered by id, with its head fields only: the sections and decisions are nil.
+// Epics returns every stored epic ordered by id, with its head fields and pinned workflow only: the sections and
+// decisions are nil.
 func (s *Store) Epics(ctx context.Context) ([]EpicRow, error) {
-	heads, err := sqlcgen.New(s.db).ListEpics(ctx)
+	queries := sqlcgen.New(s.db)
+	heads, err := queries.ListEpics(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list epics: %w", err)
 	}
-	return mapInOrder(heads, epicHeadOf), nil
+	rows := mapInOrder(heads, epicHeadOf)
+	for i := range rows {
+		if err = loadEpicWorkflowNodes(ctx, queries, &rows[i]); err != nil {
+			return nil, fmt.Errorf("read workflow of epic %s: %w", rows[i].ID, err)
+		}
+	}
+	return rows, nil
 }
 
 // AnswerEpic records text as decision id on epic in one write, as a note that answers no question. A stored id with
@@ -642,6 +699,9 @@ func epicHeadOf(head sqlcgen.Epic) EpicRow {
 		Changed:     time.Unix(head.Changed, 0),
 		Paused:      head.Paused != 0,
 		Parked:      head.Parked,
+		Workflow: EpicWorkflow{
+			Name: head.Workflow, Text: head.WorkflowText, SHA256: head.WorkflowSha256,
+		},
 	}
 }
 

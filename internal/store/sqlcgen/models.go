@@ -32,23 +32,26 @@ type EngineText struct {
 }
 
 type Epic struct {
-	ID          string
-	Repository  string
-	Title       string
-	Approved    string
-	Intent      string
-	Care        string
-	Approach    string
-	ReleaseThen string
-	Checks      string
-	Phase       string
-	Created     int64
-	Changed     int64
-	Paused      int64
-	Parked      string
-	Retried     int64
-	Base        string
-	Branch      string
+	ID             string
+	Repository     string
+	Title          string
+	Approved       string
+	Intent         string
+	Care           string
+	Approach       string
+	ReleaseThen    string
+	Checks         string
+	Phase          string
+	Created        int64
+	Changed        int64
+	Paused         int64
+	Parked         string
+	Retried        int64
+	Base           string
+	Branch         string
+	Workflow       string
+	WorkflowText   string
+	WorkflowSha256 string
 }
 
 type EpicAddition struct {
@@ -250,6 +253,14 @@ type EpicTurnDecision struct {
 	Turn     int64
 	Position int64
 	Text     string
+}
+
+type EpicWorkflowNode struct {
+	Epic     string
+	Position int64
+	ID       string
+	Parent   string
+	Kind     string
 }
 
 type Event struct {
