@@ -30,8 +30,9 @@ func (e *Evidence) Resume(ctx context.Context) error {
 	return errors.Join(errs...)
 }
 
-// readoptStart drives open run in the background at its epic's repository, as start drives a new run. It returns an error when
-// the epic cannot be read or the runner is closed.
+// readoptStart drives open run in the background at its epic's repository, as start drives a new run, under the same
+// cancel: a Close under a gate scope detaches the readopted gate, as it does a new one. It returns an error when the epic
+// cannot be read or the runner is closed.
 func (e *Evidence) readoptStart(ctx context.Context, run store.EvidenceRun) error {
 	row, err := e.store.Epic(ctx, run.Epic)
 	if err != nil {
@@ -45,7 +46,7 @@ func (e *Evidence) readoptStart(ctx context.Context, run store.EvidenceRun) erro
 	if _, driven := e.cancels[run.ID]; driven {
 		return nil
 	}
-	driveCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	driveCtx, cancel := context.WithCancelCause(context.WithoutCancel(ctx))
 	e.cancels[run.ID] = cancel
 	e.drives.Go(func() {
 		e.readoptDrive(driveCtx, row.Repository, run)

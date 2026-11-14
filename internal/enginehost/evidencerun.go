@@ -83,7 +83,7 @@ type Evidence struct {
 
 	mu      sync.Mutex
 	closed  bool
-	cancels map[string]context.CancelFunc
+	cancels map[string]context.CancelCauseFunc
 	drives  sync.WaitGroup
 }
 
@@ -113,7 +113,7 @@ func NewEvidence(cfg EvidenceConfig) *Evidence {
 		blobs:   blobs,
 		now:     now,
 		logger:  logger,
-		cancels: map[string]context.CancelFunc{},
+		cancels: map[string]context.CancelCauseFunc{},
 	}
 }
 
@@ -190,13 +190,19 @@ func (e *Evidence) Artifact(ctx context.Context, run, name string) ([]byte, stri
 	return data, hash, nil
 }
 
-// Close cancels every drive and waits for each to return. A drive that is canceled records nothing more, so its run stays
-// as it is for a restart to resume. Run returns an error from then on.
+// Close cancels every drive and waits for each to return. Under a gate scope each drive is canceled with errGateDetach,
+// which leaves its capture's gate running under its holder for a restarted orreryd to re-adopt. Without one the cancel
+// kills the gate. A drive that is canceled records nothing more, so its run stays as it is for a restart to resume. Run
+// returns an error from then on.
 func (e *Evidence) Close() {
 	e.mu.Lock()
 	e.closed = true
+	var cause error
+	if e.captures.gateScope != "" {
+		cause = errGateDetach
+	}
 	for _, cancel := range e.cancels {
-		cancel()
+		cancel(cause)
 	}
 	e.mu.Unlock()
 	e.drives.Wait()
@@ -278,15 +284,16 @@ func evidenceRunFile(run store.EvidenceRun, name string) (string, string, error)
 	return "", "", fmt.Errorf("artifact %s of evidence run %s: %w", name, run.ID, ErrNoEvidenceArtifact)
 }
 
-// start drives run at repo in the background, under a context that Close and finish cancel. It returns an error when the
-// runner is closed, and the run then stays as it was stored for a restart to resume.
+// start drives run at repo in the background, under a context that Close cancels, with errGateDetach under a gate scope, and
+// that finish cancels with nil. It returns an error when the runner is closed, and the run then stays as it was stored for a
+// restart to resume.
 func (e *Evidence) start(ctx context.Context, repo string, run store.EvidenceRun) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	if e.closed {
 		return errEvidenceClosed
 	}
-	driveCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	driveCtx, cancel := context.WithCancelCause(context.WithoutCancel(ctx))
 	e.cancels[run.ID] = cancel
 	e.drives.Go(func() {
 		e.drive(driveCtx, repo, run)
@@ -295,12 +302,12 @@ func (e *Evidence) start(ctx context.Context, repo string, run store.EvidenceRun
 	return nil
 }
 
-// finish cancels the drive of run id and forgets it, once the drive has returned.
+// finish cancels the drive of run id with nil and forgets it, once the drive has returned.
 func (e *Evidence) finish(id string) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	if cancel, ok := e.cancels[id]; ok {
-		cancel()
+		cancel(nil)
 		delete(e.cancels, id)
 	}
 }
