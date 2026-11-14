@@ -797,13 +797,14 @@ The planner plans an epic in a turn. A turn is a read-only step (see [Steps](#st
   - `Last failure`: the reason of the last earlier turn that is not free, when that turn failed with a reason (`internal/planner/prompt.go:224`-`:229`).
 - Return check: the planner's return check, described below (`internal/planner/runner.go:188`, `:406`-`:422`).
 
-**The forced return and its check.** Each return that passes `schema` runs the plan check (`internal/enginehost/steploop.go:481`-`:483`). A return that does not parse is one line: its parse error (`internal/planner/runner.go:415`-`:419`). Any other return is checked by `Check` against the epic's Requirement ids and the files of its tasks whose status is not `done` (`internal/planner/check.go:22`-`:34`; `internal/planner/runner.go:406`-`:422`). Each refusal is one line: `tasks[i] "<title>" <field>: <reason>`, with `files[j]` or `requirements[k]` for a list item. The reasons are these (`internal/planner/check.go:9`-`:17`, `:38`-`:64`):
+**The forced return and its check.** Each return that passes `schema` runs the plan check (`internal/enginehost/steploop.go:481`-`:483`). A return that does not parse is one line: its parse error (`internal/planner/runner.go:415`-`:419`). Any other return is checked by `Check` against the epic's Requirement ids and the files of its tasks whose status is not `done` (`internal/planner/check.go:23`-`:35`; `internal/planner/runner.go:406`-`:422`). Each refusal is one line: `tasks[i] "<title>" <field>: <reason>`, with `files[j]` or `requirements[k]` for a list item. The reasons are these (`internal/planner/check.go:9`-`:18`, `:39`-`:65`):
 
-- `not a normalized repository-relative file path`, for a file that is empty, has surrounding white space, starts with `/`, contains `\`, is not clean, or has a `.` or `..` part (`internal/planner/check.go:84`-`:97`).
-- `named twice in the plan`, for a file that an earlier file of the return already names (`internal/planner/check.go:72`-`:75`).
-- `owned by an unfinished task`, for a file that a task whose status is not `done` owns (`internal/planner/check.go:76`-`:78`).
-- `not a Requirement of the epic`, for a Requirement id the contract does not list (`internal/planner/check.go:55`-`:58`).
-- `empty`, for a blank title, deliverable or check, and `no files`, for a task with no files (`internal/planner/check.go:41`-`:49`, `:60`-`:62`).
+- `not a normalized repository-relative file path`, for a file that is empty, has surrounding white space, starts with `/`, contains `\`, is not clean, or has a `.` or `..` part (`internal/planner/check.go:88`-`:101`).
+- `inside a .git directory`, for a file with a `.git` part in any letter case, such as a hook under `.git/hooks`, which could run code on later git operations (`internal/planner/check.go:73`-`:75`, `:105`-`:112`).
+- `named twice in the plan`, for a file that an earlier file of the return already names (`internal/planner/check.go:76`-`:79`).
+- `owned by an unfinished task`, for a file that a task whose status is not `done` owns (`internal/planner/check.go:80`-`:82`).
+- `not a Requirement of the epic`, for a Requirement id the contract does not list (`internal/planner/check.go:56`-`:59`).
+- `empty`, for a blank title, deliverable or check, and `no files`, for a task with no files (`internal/planner/check.go:42`-`:50`, `:61`-`:63`).
 
 A failed check is sent back to the session as `return: <lines>`, its lines joined with `; `, and a failed `schema` check is sent back the same way under `schema` (`internal/enginehost/steploop.go:500`-`:504`, `:627`-`:643`). The step is sent back three times, and a fourth failing return ends it `checks_failed` (`internal/enginehost/steploop.go:56`-`:57`, `:629`-`:632`). A return that passes its checks ends the step `done` with no judge call (`internal/enginehost/steploop.go:487`-`:494`).
 

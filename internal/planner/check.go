@@ -11,6 +11,7 @@ const (
 	reasonFileForm    = "not a normalized repository-relative file path"
 	reasonFileTwice   = "named twice in the plan"
 	reasonFileOwned   = "owned by an unfinished task"
+	reasonGitDir      = "inside a .git directory"
 	reasonRequirement = "not a Requirement of the epic"
 	reasonEmpty       = "empty"
 	reasonNoFiles     = "no files"
@@ -69,6 +70,9 @@ func fileReason(file string, taken, named map[string]bool) string {
 	if !fileFormOK(file) {
 		return reasonFileForm
 	}
+	if inGitDir(file) {
+		return reasonGitDir
+	}
 	if named[file] {
 		return reasonFileTwice
 	}
@@ -94,6 +98,17 @@ func fileFormOK(file string) bool {
 		}
 	}
 	return true
+}
+
+// inGitDir reports whether file is a .git directory or lies inside one, at any depth and in any letter case. A task
+// that owned a file there, such as a hook, could run code on later git operations.
+func inGitDir(file string) bool {
+	for part := range strings.SplitSeq(file, "/") {
+		if strings.EqualFold(part, ".git") {
+			return true
+		}
+	}
+	return false
 }
 
 // stringSet returns the set of items.

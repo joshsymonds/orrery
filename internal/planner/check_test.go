@@ -59,6 +59,34 @@ func TestCheckRefusesUncleanOrNonRelativeFile(t *testing.T) {
 	}
 }
 
+func TestCheckRefusesFileInsideGitDirectory(t *testing.T) {
+	t.Parallel()
+	const reason = "inside a .git directory"
+	cases := []struct {
+		name string
+		file string
+	}{
+		{"a hook", ".git/hooks/pre-commit"},
+		{"the config", ".git/config"},
+		{"the directory itself", ".git"},
+		{"a nested repository's hook", "vendor/lib/.git/hooks/post-checkout"},
+		{"another letter case", ".Git/hooks/pre-push"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			ret := Return{Tasks: []Task{validTask("T", tc.file)}}
+			checkLines(t, Check(ret, epicRequirements(), nil), `tasks[0] "T" files[0]: `+reason)
+		})
+	}
+}
+
+func TestCheckAcceptsGitNamedFilesOutsideGitDirectory(t *testing.T) {
+	t.Parallel()
+	ret := Return{Tasks: []Task{validTask("T", ".gitignore", "docs/.github/x.md", "internal/git/run.go")}}
+	checkLines(t, Check(ret, epicRequirements(), nil))
+}
+
 func TestCheckRefusesFileNamedTwice(t *testing.T) {
 	t.Parallel()
 	const reason = "named twice in the plan"
