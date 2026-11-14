@@ -308,7 +308,7 @@ func TestToolsListNamesEveryStepAndEpicTool(t *testing.T) {
 		}
 	}
 	want := []string{
-		"epic_answer", "epic_create", "epic_get", "epic_list",
+		"epic_answer", "epic_create", "epic_get", "epic_list", "epic_pause", "epic_resume", "epic_retry", "epic_stop",
 		"step_start", "step_status", "step_stop", "step_wait",
 	}
 	slices.Sort(names)
