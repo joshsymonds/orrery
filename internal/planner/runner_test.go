@@ -46,10 +46,11 @@ const unknownRequirementPlan = `{"status":"done","decisions":[],` +
 	`"tasks":[{"title":"Build it","deliverable":"the runner","files":["internal/planner/runner.go"],` +
 	`"requirements":["R9"],"check":"go test"}],"outline":"one task","questions":[],"outcome":"work"}`
 
-// fakeSteps is a Steps whose steps end when the test ends them. It records each start.
+// fakeSteps is a Steps whose steps end when the test ends them. It records each start and each stop.
 type fakeSteps struct {
 	mu       sync.Mutex
 	starts   []enginehost.StepStart
+	stops    []string
 	startErr error
 	ended    map[string]chan store.StepRow
 }
@@ -90,6 +91,15 @@ func (f *fakeSteps) Wait(
 	}
 }
 
+// Stop records id and ends the step as stopped, as a real stop does.
+func (f *fakeSteps) Stop(_ context.Context, id string) error {
+	f.mu.Lock()
+	f.stops = append(f.stops, id)
+	f.mu.Unlock()
+	f.end(id, store.StepRow{End: "stopped"})
+	return nil
+}
+
 // end ends step id with row, which the runner's Wait returns.
 func (f *fakeSteps) end(id string, row store.StepRow) {
 	f.mu.Lock()
@@ -104,6 +114,13 @@ func (f *fakeSteps) started() []enginehost.StepStart {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return append([]enginehost.StepStart(nil), f.starts...)
+}
+
+// stopped returns the ids of the steps stopped so far, in order.
+func (f *fakeSteps) stopped() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.stops...)
 }
 
 // openRunnerStore opens a store in a temp dir and closes it when the test ends.
@@ -149,7 +166,7 @@ func agentReturning(agent string, err error, reads *atomic.Int64) func() (string
 }
 
 // runnerConfig returns the Config of a runner over s and steps, read through agent, at the runner tick.
-func runnerConfig(s *store.Store, steps *fakeSteps, agent func() (string, error)) Config {
+func runnerConfig(s *store.Store, steps Steps, agent func() (string, error)) Config {
 	return Config{
 		Store: s, Steps: steps, Agent: agent, Tick: runnerTick,
 		Now: claimedAt,

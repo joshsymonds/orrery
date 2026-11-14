@@ -19,6 +19,7 @@ type Store interface {
 	PlanStates(ctx context.Context) ([]store.EpicPlanState, error)
 	ClaimTurn(ctx context.Context, epic string, at time.Time) (store.EpicTurn, error)
 	SetTurnStep(ctx context.Context, epic string, turn int64, step string) error
+	TurnStopped(ctx context.Context, epic string, seq int64) (bool, error)
 	Epic(ctx context.Context, id string) (store.EpicRow, error)
 	TurnTriggers(ctx context.Context, epic string, turn int64) ([]store.EpicTrigger, error)
 	CompleteTurn(ctx context.Context, epic string, turn int64, plan store.EpicPlan, at time.Time) error
@@ -33,6 +34,7 @@ type Store interface {
 type Steps interface {
 	Start(ctx context.Context, start enginehost.StepStart) (string, error)
 	Status(ctx context.Context, id string) (store.StepRow, error)
+	Stop(ctx context.Context, id string) error
 	Wait(ctx context.Context, ids []string, timeout time.Duration) (*store.StepRow, []store.StepRow, error)
 }
 
@@ -168,7 +170,8 @@ func (r *Runner) runTurn(ctx context.Context, epic, agent string) {
 }
 
 // startStep reads the claimed turn's epic and triggers and starts its read-only planner step. It returns the step's
-// id. A start that returns an id with an error still has its id recorded on the turn.
+// id. A start that returns an id with an error still has its id recorded on the turn, and a step whose turn was flagged
+// to stop before it had one is stopped as soon as its id is recorded.
 func (r *Runner) startStep(ctx context.Context, epic string, turn store.EpicTurn, agent string) (string, error) {
 	row, err := r.store.Epic(ctx, epic)
 	if err != nil {
@@ -191,12 +194,31 @@ func (r *Runner) startStep(ctx context.Context, epic string, turn store.EpicTurn
 		if setErr := r.store.SetTurnStep(ctx, epic, turn.Seq, id); setErr != nil {
 			r.logger.ErrorContext(ctx, "record step of planner turn",
 				"epic", epic, "turn", turn.Seq, "step", id, "err", setErr)
+		} else {
+			r.stopIfFlagged(ctx, epic, turn.Seq, id)
 		}
 	}
 	if err != nil {
 		return id, fmt.Errorf("start planner step: %w", err)
 	}
 	return id, nil
+}
+
+// stopIfFlagged stops step id when turn seq of epic was flagged to stop while it had no step. A read or stop error is
+// logged, and the wait that follows settles the turn either way.
+func (r *Runner) stopIfFlagged(ctx context.Context, epic string, seq int64, id string) {
+	stopped, err := r.store.TurnStopped(ctx, epic, seq)
+	if err != nil {
+		r.logger.ErrorContext(ctx, "read stop flag of planner turn", "epic", epic, "turn", seq, "err", err)
+		return
+	}
+	if !stopped {
+		return
+	}
+	if err = r.steps.Stop(ctx, id); err != nil {
+		r.logger.ErrorContext(ctx, "stop planner step of flagged turn",
+			"epic", epic, "turn", seq, "step", id, "err", err)
+	}
 }
 
 // recoverTurns settles each turn a previous orreryd left running, before the first pass. A turn with no step is freed
