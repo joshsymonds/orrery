@@ -40,7 +40,7 @@ class OrreryPushService : PushService() {
         }
         if (json.optString("kind") == CLEAR_KIND) {
             val clear = parseClear(json) ?: return
-            PushNotifier(this).clear(clear.host, clear.pane, clear.session, clear.seen)
+            PushNotifier(this).clear(clear.host, clear.pane, clear.session, clear.seen, clear.limit)
             return
         }
         val event = parse(json) ?: return
@@ -67,6 +67,7 @@ class OrreryPushService : PushService() {
                 question = json.getString("question"),
                 questionHash = json.getString("question_hash"),
                 session = json.optString("session"),
+                limit = json.optString("limit"),
                 time = optDecimal(json.optString("time")),
                 silent = json.opt("silent") == SILENT_TRUE,
             )
@@ -74,8 +75,8 @@ class OrreryPushService : PushService() {
             Log.w(TAG, "dropped malformed push", e)
             return null
         }
-        if (event.pane.isEmpty() && event.session.isEmpty()) {
-            Log.w(TAG, "dropped push with an empty pane and no session")
+        if (event.pane.isEmpty() && event.session.isEmpty() && event.limit.isEmpty()) {
+            Log.w(TAG, "dropped push naming no pane, session or limit")
             return null
         }
         return event
@@ -87,14 +88,15 @@ class OrreryPushService : PushService() {
                 host = json.getString("host"),
                 pane = json.optString("pane"),
                 session = json.optString("session"),
+                limit = json.optString("limit"),
                 seen = decimal(json.getString("seen")),
             )
         } catch (e: JSONException) {
             Log.w(TAG, "dropped malformed clear", e)
             return null
         }
-        if (clear.pane.isEmpty() && clear.session.isEmpty()) {
-            Log.w(TAG, "dropped clear with no pane or session")
+        if (clear.pane.isEmpty() && clear.session.isEmpty() && clear.limit.isEmpty()) {
+            Log.w(TAG, "dropped clear naming no pane, session or limit")
             return null
         }
         return clear
@@ -109,5 +111,6 @@ private data class ClearEvent(
     val host: String,
     val pane: String,
     val session: String,
+    val limit: String,
     val seen: Long,
 )
