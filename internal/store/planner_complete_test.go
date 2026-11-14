@@ -84,10 +84,12 @@ func TestCompleteTurnStoresEveryRowAndConsumesItsTriggers(t *testing.T) {
 		"epic_tasks": {
 			{id, int64(1), int64(1), "Write the store", "CompleteTurn stores the plan", "open", "check",
 				`{"capture":["scripts/check"],"limit":1800,"artifacts":["out/report.txt"],"supplied":null,` +
-					`"conclusion":"the store keeps the plan","judge":"the store judge"}`},
+					`"conclusion":"the store keeps the plan","judge":"the store judge"}`,
+				"", "", int64(0), int64(0), int64(0), "", "", "", "", "", "", "", "", int64(0), int64(0)},
 			{id, int64(2), int64(1), "Read the store", "Reads see the plan", "open", "race",
 				`{"capture":null,"limit":0,"artifacts":null,"supplied":["docs/read.md"],` +
-					`"conclusion":"reads see the plan","judge":"the read judge"}`},
+					`"conclusion":"reads see the plan","judge":"the read judge"}`,
+				"", "", int64(0), int64(0), int64(0), "", "", "", "", "", "", "", "", int64(0), int64(0)},
 		},
 		"epic_task_files": {
 			{id, int64(1), int64(1), "a.go"},
@@ -164,13 +166,16 @@ func TestSecondCompleteTurnContinuesTaskAndQuestionSeqs(t *testing.T) {
 		"epic_tasks": {
 			{id, int64(1), int64(1), "Write the store", "CompleteTurn stores the plan", "open", "check",
 				`{"capture":["scripts/check"],"limit":1800,"artifacts":["out/report.txt"],"supplied":null,` +
-					`"conclusion":"the store keeps the plan","judge":"the store judge"}`},
+					`"conclusion":"the store keeps the plan","judge":"the store judge"}`,
+				"", "", int64(0), int64(0), int64(0), "", "", "", "", "", "", "", "", int64(0), int64(0)},
 			{id, int64(2), int64(1), "Read the store", "Reads see the plan", "open", "race",
 				`{"capture":null,"limit":0,"artifacts":null,"supplied":["docs/read.md"],` +
-					`"conclusion":"reads see the plan","judge":"the read judge"}`},
+					`"conclusion":"reads see the plan","judge":"the read judge"}`,
+				"", "", int64(0), int64(0), int64(0), "", "", "", "", "", "", "", "", int64(0), int64(0)},
 			{id, int64(3), int64(2), "Third task", "Seq continues", "open", "check",
 				`{"capture":["scripts/check"],"limit":1800,"artifacts":null,"supplied":null,` +
-					`"conclusion":"the third task","judge":"third judge"}`},
+					`"conclusion":"the third task","judge":"third judge"}`,
+				"", "", int64(0), int64(0), int64(0), "", "", "", "", "", "", "", "", int64(0), int64(0)},
 		},
 		"epic_task_files": {
 			{id, int64(1), int64(1), "a.go"},

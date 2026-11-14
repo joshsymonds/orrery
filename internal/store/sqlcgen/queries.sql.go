@@ -447,7 +447,7 @@ func (q *Queries) GetEngineSession(ctx context.Context, id string) (Session, err
 }
 
 const getEpic = `-- name: GetEpic :one
-SELECT id, repository, title, approved, intent, care, approach, release_then, checks, phase, created, changed, paused, parked, retried, base FROM epics WHERE id = ?
+SELECT id, repository, title, approved, intent, care, approach, release_then, checks, phase, created, changed, paused, parked, retried, base, branch FROM epics WHERE id = ?
 `
 
 func (q *Queries) GetEpic(ctx context.Context, id string) (Epic, error) {
@@ -470,6 +470,7 @@ func (q *Queries) GetEpic(ctx context.Context, id string) (Epic, error) {
 		&i.Parked,
 		&i.Retried,
 		&i.Base,
+		&i.Branch,
 	)
 	return i, err
 }
@@ -1531,6 +1532,36 @@ func (q *Queries) LastTurnEnds(ctx context.Context) ([]LastTurnEndsRow, error) {
 	return items, nil
 }
 
+const listBuildEpics = `-- name: ListBuildEpics :many
+SELECT epics.id FROM epics
+WHERE epics.base <> '' AND epics.phase = 'accepted'
+  AND EXISTS (SELECT 1 FROM epic_tasks WHERE epic_tasks.epic = epics.id AND epic_tasks.status = 'open')
+ORDER BY epics.id
+`
+
+func (q *Queries) ListBuildEpics(ctx context.Context) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, listBuildEpics)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listEngineSessions = `-- name: ListEngineSessions :many
 SELECT id, server, pane, state, changed, seen, question, summary, label, context, tool, claude_session, transcript, kind, dir, reason, consumed, replay_from, background, turn_output, prompts_from FROM sessions WHERE kind IN ('engine', 'step') ORDER BY id
 `
@@ -2090,6 +2121,48 @@ func (q *Queries) ListEpicTaskFiles(ctx context.Context, epic string) ([]EpicTas
 	return items, nil
 }
 
+const listEpicTaskFindings = `-- name: ListEpicTaskFindings :many
+SELECT epic, task, attempt, review, position, id, claim, citation, location, evidence, verify_by, step, result, reason FROM epic_task_findings WHERE epic = ? ORDER BY task, attempt, review, position
+`
+
+func (q *Queries) ListEpicTaskFindings(ctx context.Context, epic string) ([]EpicTaskFinding, error) {
+	rows, err := q.db.QueryContext(ctx, listEpicTaskFindings, epic)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []EpicTaskFinding
+	for rows.Next() {
+		var i EpicTaskFinding
+		if err := rows.Scan(
+			&i.Epic,
+			&i.Task,
+			&i.Attempt,
+			&i.Review,
+			&i.Position,
+			&i.ID,
+			&i.Claim,
+			&i.Citation,
+			&i.Location,
+			&i.Evidence,
+			&i.VerifyBy,
+			&i.Step,
+			&i.Result,
+			&i.Reason,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listEpicTaskRequirements = `-- name: ListEpicTaskRequirements :many
 SELECT epic, task, position, requirement FROM epic_task_requirements WHERE epic = ? ORDER BY task, position
 `
@@ -2122,8 +2195,43 @@ func (q *Queries) ListEpicTaskRequirements(ctx context.Context, epic string) ([]
 	return items, nil
 }
 
+const listEpicTaskReviews = `-- name: ListEpicTaskReviews :many
+SELECT epic, task, attempt, position, gate, step, verdict FROM epic_task_reviews WHERE epic = ? ORDER BY task, attempt, position
+`
+
+func (q *Queries) ListEpicTaskReviews(ctx context.Context, epic string) ([]EpicTaskReview, error) {
+	rows, err := q.db.QueryContext(ctx, listEpicTaskReviews, epic)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []EpicTaskReview
+	for rows.Next() {
+		var i EpicTaskReview
+		if err := rows.Scan(
+			&i.Epic,
+			&i.Task,
+			&i.Attempt,
+			&i.Position,
+			&i.Gate,
+			&i.Step,
+			&i.Verdict,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listEpicTasks = `-- name: ListEpicTasks :many
-SELECT epic, seq, turn, title, deliverable, status, gate, evidence FROM epic_tasks WHERE epic = ? ORDER BY seq
+SELECT epic, seq, turn, title, deliverable, status, gate, evidence, stage, base, attempt, rerun, no_verdict, held, step, red_run, green_run, revision, failure, review, refs, gate_pos, finding_pos FROM epic_tasks WHERE epic = ? ORDER BY seq
 `
 
 func (q *Queries) ListEpicTasks(ctx context.Context, epic string) ([]EpicTask, error) {
@@ -2144,6 +2252,21 @@ func (q *Queries) ListEpicTasks(ctx context.Context, epic string) ([]EpicTask, e
 			&i.Status,
 			&i.Gate,
 			&i.Evidence,
+			&i.Stage,
+			&i.Base,
+			&i.Attempt,
+			&i.Rerun,
+			&i.NoVerdict,
+			&i.Held,
+			&i.Step,
+			&i.RedRun,
+			&i.GreenRun,
+			&i.Revision,
+			&i.Failure,
+			&i.Review,
+			&i.Refs,
+			&i.GatePos,
+			&i.FindingPos,
 		); err != nil {
 			return nil, err
 		}
@@ -2276,7 +2399,7 @@ func (q *Queries) ListEpicTurns(ctx context.Context, epic string) ([]EpicTurn, e
 }
 
 const listEpics = `-- name: ListEpics :many
-SELECT id, repository, title, approved, intent, care, approach, release_then, checks, phase, created, changed, paused, parked, retried, base FROM epics ORDER BY id
+SELECT id, repository, title, approved, intent, care, approach, release_then, checks, phase, created, changed, paused, parked, retried, base, branch FROM epics ORDER BY id
 `
 
 func (q *Queries) ListEpics(ctx context.Context) ([]Epic, error) {
@@ -2305,6 +2428,7 @@ func (q *Queries) ListEpics(ctx context.Context) ([]Epic, error) {
 			&i.Parked,
 			&i.Retried,
 			&i.Base,
+			&i.Branch,
 		); err != nil {
 			return nil, err
 		}
@@ -2320,7 +2444,7 @@ func (q *Queries) ListEpics(ctx context.Context) ([]Epic, error) {
 }
 
 const listEpicsWithTurns = `-- name: ListEpicsWithTurns :many
-SELECT id, repository, title, approved, intent, care, approach, release_then, checks, phase, created, changed, paused, parked, retried, base FROM epics
+SELECT id, repository, title, approved, intent, care, approach, release_then, checks, phase, created, changed, paused, parked, retried, base, branch FROM epics
 WHERE EXISTS (SELECT 1 FROM epic_turns WHERE epic_turns.epic = epics.id)
 ORDER BY epics.id
 `
@@ -2351,6 +2475,7 @@ func (q *Queries) ListEpicsWithTurns(ctx context.Context) ([]Epic, error) {
 			&i.Parked,
 			&i.Retried,
 			&i.Base,
+			&i.Branch,
 		); err != nil {
 			return nil, err
 		}
@@ -3618,6 +3743,97 @@ type SetEpicQuestionAnsweredParams struct {
 func (q *Queries) SetEpicQuestionAnswered(ctx context.Context, arg SetEpicQuestionAnsweredParams) error {
 	_, err := q.db.ExecContext(ctx, setEpicQuestionAnswered, arg.Epic, arg.Seq)
 	return err
+}
+
+const setEpicTaskBuild = `-- name: SetEpicTaskBuild :execrows
+UPDATE epic_tasks
+SET stage = ?1, base = ?2, attempt = ?3,
+    rerun = ?4, no_verdict = ?5, held = ?6,
+    step = ?7, red_run = ?8, green_run = ?9,
+    revision = ?10, failure = ?11, review = ?12,
+    refs = ?13, gate_pos = ?14, finding_pos = ?15
+WHERE epic = ?16 AND seq = ?17 AND status = 'open'
+  AND stage = ?18 AND base = ?19 AND attempt = ?20
+  AND rerun = ?21 AND no_verdict = ?22 AND held = ?23
+  AND step = ?24 AND red_run = ?25 AND green_run = ?26
+  AND revision = ?27 AND failure = ?28 AND review = ?29
+  AND refs = ?30 AND gate_pos = ?31 AND finding_pos = ?32
+`
+
+type SetEpicTaskBuildParams struct {
+	ToStage        string
+	ToBase         string
+	ToAttempt      int64
+	ToRerun        int64
+	ToNoVerdict    int64
+	ToHeld         string
+	ToStep         string
+	ToRedRun       string
+	ToGreenRun     string
+	ToRevision     string
+	ToFailure      string
+	ToReview       string
+	ToRefs         string
+	ToGatePos      int64
+	ToFindingPos   int64
+	Epic           string
+	Seq            int64
+	FromStage      string
+	FromBase       string
+	FromAttempt    int64
+	FromRerun      int64
+	FromNoVerdict  int64
+	FromHeld       string
+	FromStep       string
+	FromRedRun     string
+	FromGreenRun   string
+	FromRevision   string
+	FromFailure    string
+	FromReview     string
+	FromRefs       string
+	FromGatePos    int64
+	FromFindingPos int64
+}
+
+func (q *Queries) SetEpicTaskBuild(ctx context.Context, arg SetEpicTaskBuildParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, setEpicTaskBuild,
+		arg.ToStage,
+		arg.ToBase,
+		arg.ToAttempt,
+		arg.ToRerun,
+		arg.ToNoVerdict,
+		arg.ToHeld,
+		arg.ToStep,
+		arg.ToRedRun,
+		arg.ToGreenRun,
+		arg.ToRevision,
+		arg.ToFailure,
+		arg.ToReview,
+		arg.ToRefs,
+		arg.ToGatePos,
+		arg.ToFindingPos,
+		arg.Epic,
+		arg.Seq,
+		arg.FromStage,
+		arg.FromBase,
+		arg.FromAttempt,
+		arg.FromRerun,
+		arg.FromNoVerdict,
+		arg.FromHeld,
+		arg.FromStep,
+		arg.FromRedRun,
+		arg.FromGreenRun,
+		arg.FromRevision,
+		arg.FromFailure,
+		arg.FromReview,
+		arg.FromRefs,
+		arg.FromGatePos,
+		arg.FromFindingPos,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const setEpicTurnResets = `-- name: SetEpicTurnResets :exec

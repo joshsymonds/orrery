@@ -48,6 +48,7 @@ type Epic struct {
 	Parked      string
 	Retried     int64
 	Base        string
+	Branch      string
 }
 
 type EpicAddition struct {
@@ -153,6 +154,21 @@ type EpicTask struct {
 	Status      string
 	Gate        string
 	Evidence    string
+	Stage       string
+	Base        string
+	Attempt     int64
+	Rerun       int64
+	NoVerdict   int64
+	Held        string
+	Step        string
+	RedRun      string
+	GreenRun    string
+	Revision    string
+	Failure     string
+	Review      string
+	Refs        string
+	GatePos     int64
+	FindingPos  int64
 }
 
 type EpicTaskFile struct {
@@ -162,11 +178,46 @@ type EpicTaskFile struct {
 	Path     string
 }
 
+type EpicTaskFinding struct {
+	Epic     string
+	Task     int64
+	Attempt  int64
+	Review   int64
+	Position int64
+	ID       string
+	Claim    string
+	Citation string
+	Location string
+	Evidence string
+	VerifyBy string
+	Step     string
+	Result   string
+	Reason   string
+}
+
 type EpicTaskRequirement struct {
 	Epic        string
 	Task        int64
 	Position    int64
 	Requirement string
+}
+
+type EpicTaskReview struct {
+	Epic     string
+	Task     int64
+	Attempt  int64
+	Position int64
+	Gate     string
+	Step     string
+	Verdict  string
+}
+
+type EpicTell struct {
+	Epic string
+	Seq  int64
+	Text string
+	At   int64
+	Told int64
 }
 
 type EpicTrigger struct {

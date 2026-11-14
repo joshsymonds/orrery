@@ -17,12 +17,12 @@ import (
 )
 
 // epicTableColumns returns, keyed by table, the columns in declaration order of every table migrations 00014, 00016
-// and 00019 create, and of the columns those migrations and 00020 add to epic tables.
+// and 00019 create, and of the columns those migrations and 00020 and 00021 add to epic tables.
 func epicTableColumns() map[string][]string {
 	return map[string][]string{
 		"epics": {
 			"id", "repository", "title", "approved", "intent", "care", "approach", "release_then", "checks",
-			"phase", "created", "changed", "paused", "parked", "retried", "base",
+			"phase", "created", "changed", "paused", "parked", "retried", "base", "branch",
 		},
 		"epic_failures":      {"epic", "position", "id", "text", "rating", "response"},
 		"epic_additions":     {"epic", "position", "location", "what", "why", "cost"},
@@ -41,12 +41,22 @@ func epicTableColumns() map[string][]string {
 			"epic", "seq", "step", "state", "reason", "seen", "outline", "outcome", "started", "ended",
 			"told", "stop", "resets",
 		},
-		"epic_turn_decisions":    {"epic", "turn", "position", "text"},
-		"epic_tasks":             {"epic", "seq", "turn", "title", "deliverable", "status", "gate", "evidence"},
+		"epic_turn_decisions": {"epic", "turn", "position", "text"},
+		"epic_tasks": {
+			"epic", "seq", "turn", "title", "deliverable", "status", "gate", "evidence", "stage", "base", "attempt",
+			"rerun", "no_verdict", "held", "step", "red_run", "green_run", "revision", "failure", "review", "refs",
+			"gate_pos", "finding_pos",
+		},
 		"epic_task_files":        {"epic", "task", "position", "path"},
 		"epic_task_requirements": {"epic", "task", "position", "requirement"},
-		"epic_questions":         {"epic", "seq", "turn", "text", "state"},
-		"engine_rate_limits":     {"session_id", "status", "kind", "resets_at", "at"},
+		"epic_task_reviews":      {"epic", "task", "attempt", "position", "gate", "step", "verdict"},
+		"epic_task_findings": {
+			"epic", "task", "attempt", "review", "position", "id", "claim", "citation", "location", "evidence",
+			"verify_by", "step", "result", "reason",
+		},
+		"epic_tells":         {"epic", "seq", "text", "at", "told"},
+		"epic_questions":     {"epic", "seq", "turn", "text", "state"},
+		"engine_rate_limits": {"session_id", "status", "kind", "resets_at", "at"},
 		"evidence_runs": {
 			"id", "epic", "item", "revision", "phase", "source", "state", "spec", "grant_id", "holder", "exit",
 			"timed_out", "not_captured", "log_hash", "log_bytes", "judge_step", "judges", "verdict", "judge_reason",
@@ -400,9 +410,9 @@ func TestEpicMigrationKeepsExistingRows(t *testing.T) {
 		`SELECT COALESCE(MAX(version_id), 0) FROM goose_db_version WHERE is_applied = 1`).Scan(&version); err != nil {
 		t.Fatalf("read store version: %v", err)
 	}
-	// Open applies 00014_epics.sql and every migration after it: 00020_evidence.sql is the newest.
-	if version != 20 {
-		t.Fatalf("store version after Open = %d, want 20", version)
+	// Open applies 00014_epics.sql and every migration after it: 00021_task_build.sql is the newest.
+	if version != 21 {
+		t.Fatalf("store version after Open = %d, want 21", version)
 	}
 
 	// A later migration may add columns at the end of an existing table, as 00015_step_readopt.sql adds to steps and
@@ -586,6 +596,56 @@ func TestEvidenceMigrationDownAndUp(t *testing.T) {
 	}
 }
 
+// TestTaskBuildMigrationDownAndUp removes the branch and build columns and the review, finding and tell tables with
+// the Down of 00021_task_build.sql, and Up restores them.
+func TestTaskBuildMigrationDownAndUp(t *testing.T) {
+	ctx := context.Background()
+	s := openEpicStore(t)
+	buildColumns := []string{
+		"stage", "base", "attempt", "rerun", "no_verdict", "held", "step", "red_run", "green_run", "revision",
+		"failure", "review", "refs", "gate_pos", "finding_pos",
+	}
+
+	migrationsFS, err := fs.Sub(migrationFS, "migrations")
+	if err != nil {
+		t.Fatalf("sub migrations fs: %v", err)
+	}
+	provider, err := goose.NewProvider(goose.DialectSQLite3, s.db, migrationsFS)
+	if err != nil {
+		t.Fatalf("create goose provider: %v", err)
+	}
+
+	if _, err := provider.DownTo(ctx, 20); err != nil {
+		t.Fatalf("DownTo 20: %v", err)
+	}
+	tables := tableNames(t, s)
+	if tables["epic_task_reviews"] || tables["epic_task_findings"] || tables["epic_tells"] {
+		t.Errorf("build tables after Down: epic_task_reviews %v, epic_task_findings %v, epic_tells %v; want none",
+			tables["epic_task_reviews"], tables["epic_task_findings"], tables["epic_tells"])
+	}
+	if hasAny(columnsOf(t, s, "epics"), "branch") {
+		t.Errorf("epics columns after Down = %v, want no branch", columnsOf(t, s, "epics"))
+	}
+	if hasAny(columnsOf(t, s, "epic_tasks"), buildColumns...) {
+		t.Errorf("epic_tasks columns after Down = %v, want no build columns", columnsOf(t, s, "epic_tasks"))
+	}
+
+	if _, err := provider.Up(ctx); err != nil {
+		t.Fatalf("Up: %v", err)
+	}
+	tables = tableNames(t, s)
+	if !tables["epic_task_reviews"] || !tables["epic_task_findings"] || !tables["epic_tells"] {
+		t.Errorf("build tables after Up: epic_task_reviews %v, epic_task_findings %v, epic_tells %v; want all",
+			tables["epic_task_reviews"], tables["epic_task_findings"], tables["epic_tells"])
+	}
+	if !hasAll(columnsOf(t, s, "epics"), "branch") {
+		t.Errorf("epics columns after Up = %v, want branch", columnsOf(t, s, "epics"))
+	}
+	if !hasAll(columnsOf(t, s, "epic_tasks"), buildColumns...) {
+		t.Errorf("epic_tasks columns after Up = %v, want the build columns", columnsOf(t, s, "epic_tasks"))
+	}
+}
+
 func TestPlannerControlsDefaultOnRowsStoredAtVersion16(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -628,7 +688,7 @@ func TestPlannerControlsDefaultOnRowsStoredAtVersion16(t *testing.T) {
 
 	// Each stored row keeps its values and gains the new column defaults at the end of its table.
 	added := map[string][]any{
-		"epics":           {int64(0), ""},
+		"epics":           {int64(0), "", ""},
 		"epic_turns":      {int64(0), int64(0), int64(0)},
 		"epic_decisions":  {int64(0)},
 		"pending_notices": {""},

@@ -34,6 +34,7 @@ type EpicRow struct {
 	ID          string
 	Repository  string
 	Base        string
+	Branch      string
 	Title       string
 	Approved    string
 	Intent      string
@@ -628,6 +629,7 @@ func epicHeadOf(head sqlcgen.Epic) EpicRow {
 		ID:          head.ID,
 		Repository:  head.Repository,
 		Base:        head.Base,
+		Branch:      head.Branch,
 		Title:       head.Title,
 		Approved:    head.Approved,
 		Intent:      head.Intent,
