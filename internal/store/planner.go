@@ -466,13 +466,6 @@ func (s *Store) FreeTurn(ctx context.Context, epic string, turn int64, free Turn
 	})
 }
 
-// ParkEpic parks epic with reason, cut to TurnReasonMax bytes, in one write. An unknown epic is ErrNoEpic.
-func (s *Store) ParkEpic(ctx context.Context, epic string, reason string) error {
-	return s.write(ctx, func(queries *sqlcgen.Queries) error {
-		return setParked(ctx, queries, epic, reason)
-	})
-}
-
 // endTurn ends the running turn seq of epic as state with reason, ended at at, and returns the triggers the turn
 // claimed to pending with turn 0. A turn that is not running, or does not exist, is ErrTurnNotRunning.
 func endTurn(ctx context.Context, queries *sqlcgen.Queries, epic string, turn int64, state, reason string,

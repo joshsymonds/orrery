@@ -88,9 +88,7 @@ func TestResumeEpicClearsThePauseAndRefusesWhatIsNotPaused(t *testing.T) {
 		t.Errorf("rows after refused ResumeEpic = %v, want %v", got, before)
 	}
 
-	if err := s.ParkEpic(ctx, claimEpic, "credit ran out"); err != nil {
-		t.Fatalf("ParkEpic: %v", err)
-	}
+	parkEpic(t, s, claimEpic, "credit ran out")
 	before = controlRows(t, s)
 	requireRefusal(t, s.ResumeEpic(ctx, claimEpic),
 		"epic "+claimEpic+" is parked, not paused; retry ends a park")
@@ -179,9 +177,7 @@ func TestRetryEpicClearsThePark(t *testing.T) {
 	addPendingTrigger(t, s)
 	claimAndFail(t, s, "return had no outline")
 	claimAndFail(t, s, "return had no outline")
-	if err := s.ParkEpic(ctx, claimEpic, "credit ran out"); err != nil {
-		t.Fatalf("ParkEpic: %v", err)
-	}
+	parkEpic(t, s, claimEpic, "credit ran out")
 
 	if err := s.RetryEpic(ctx, claimEpic); err != nil {
 		t.Fatalf("RetryEpic: %v", err)

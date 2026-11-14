@@ -12,6 +12,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
+	"github.com/joshsymonds/orrery/internal/store"
 )
 
 // stopRecorder is a StepCommands that records each Stop. Its other methods come from the nil embedded StepCommands, so
@@ -94,8 +95,13 @@ func TestEpicResumeClearsPauseAndKeepsPark(t *testing.T) {
 	_, err := client.ResumeEpic(ctx, resume)
 	wantConnectError(t, err, connect.CodeFailedPrecondition, "epic "+epicServiceID+" is not paused")
 
-	if err = st.ParkEpic(ctx, epicServiceID, "needs a human"); err != nil {
-		t.Fatalf("ParkEpic: %v", err)
+	turn, err := st.ClaimTurn(ctx, epicServiceID, time.Unix(turnStarted, 0))
+	if err != nil {
+		t.Fatalf("ClaimTurn: %v", err)
+	}
+	free := store.TurnFree{Park: "needs a human"}
+	if err = st.FreeTurn(ctx, epicServiceID, turn.Seq, free, time.Unix(turnFreed, 0)); err != nil {
+		t.Fatalf("FreeTurn: %v", err)
 	}
 	_, err = client.ResumeEpic(ctx, resume)
 	wantConnectError(t, err, connect.CodeFailedPrecondition,
@@ -184,8 +190,13 @@ func TestEpicRetryEndsParkAndRefusesUnparked(t *testing.T) {
 	_, err := client.RetryEpic(ctx, connect.NewRequest(&v1.RetryEpicRequest{Id: epicServiceID}))
 	wantConnectError(t, err, connect.CodeFailedPrecondition, "epic "+epicServiceID+" is not parked")
 
-	if err = st.ParkEpic(ctx, epicServiceID, "needs a human"); err != nil {
-		t.Fatalf("ParkEpic: %v", err)
+	turn, err := st.ClaimTurn(ctx, epicServiceID, time.Unix(turnStarted, 0))
+	if err != nil {
+		t.Fatalf("ClaimTurn: %v", err)
+	}
+	free := store.TurnFree{Park: "needs a human"}
+	if err = st.FreeTurn(ctx, epicServiceID, turn.Seq, free, time.Unix(turnFreed, 0)); err != nil {
+		t.Fatalf("FreeTurn: %v", err)
 	}
 	retried, err := client.RetryEpic(ctx, connect.NewRequest(&v1.RetryEpicRequest{Id: epicServiceID}))
 	if err != nil {
