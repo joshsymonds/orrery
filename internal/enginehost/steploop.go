@@ -3,6 +3,7 @@ package enginehost
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -56,7 +57,8 @@ const stepLoopBuffer = 8
 // stepRunConfig is what a stepRun is built from. A writing step may change its worktree: its done return is checked
 // with commitChecks against start and owned in dir, and with gate when every commit check passes and gate is set. gate
 // runs holding the members of grant that pools grants, and its check records gateName and gateSource; a nil pools fails
-// the gate. A read-only step's done return passes on its schema check alone. A nil cleanup has nothing to run. The watch
+// the gate. stateDir and scope are the state directory and the systemd-run scope the gate's holder runs under. A read-only
+// step's done return passes on its schema check alone. A nil cleanup has nothing to run. The watch
 // reads now as its clock, time.Now when now is nil, and allows the step modelLimit of model time. Each tick on ticks
 // checks the watch, and a nil ticks never ticks. A nil haiku makes no monitor or judge calls. prompt is the step's first
 // prompt, which the judge is given with each done return.
@@ -85,6 +87,8 @@ type stepRunConfig struct {
 	grant      grants.Request
 	gateName   string
 	gateSource string
+	stateDir   string
+	scope      string
 }
 
 // stepRun runs one step's loop. Each return is one round: it is checked and stored with its checks, and a failing return
@@ -294,7 +298,7 @@ func (r *stepRun) judge(ctx context.Context, round int, value json.RawMessage, c
 		Status string          `json:"status"`
 		Commit json.RawMessage `json:"commit"`
 	}
-	var commit string
+	var commit, gateDir string
 	if schemaErr == nil {
 		if err := json.Unmarshal(value, &head); err != nil {
 			r.finish(ctx, stepLoopEndFailed, "", fmt.Sprintf("read status of step %s: %v", r.id, err))
@@ -303,15 +307,21 @@ func (r *stepRun) judge(ctx context.Context, round int, value json.RawMessage, c
 		if head.Status == r.doneValue && r.writing {
 			var err error
 			commit = r.stepLoopCommit(ctx, head.Commit)
-			if checks, err = r.doneChecks(ctx, round, commit, checks); err != nil {
-				r.finish(ctx, stepLoopEndFailed, "", err.Error())
+			if checks, gateDir, err = r.doneChecks(ctx, round, commit, checks); err != nil {
+				r.finish(ctx, stepLoopEndFailed, "", errors.Join(err, gateClear(ctx, gateDir)).Error())
 				return false
 			}
 		}
 	}
 	ret := store.StepReturn{ID: r.id, Result: string(value), Checks: checks}
 	if err := r.writer.Commit(ctx, r.id, ret); err != nil {
-		r.finish(ctx, stepLoopEndFailed, "", fmt.Sprintf("record return of step %s: %v", r.id, err))
+		r.finish(ctx, stepLoopEndFailed, "", fmt.Sprintf("record return of step %s: %v", r.id,
+			errors.Join(err, gateClear(ctx, gateDir))))
+		return false
+	}
+	// The gate's holder keeps its exit record until the return that judges it is stored.
+	if err := gateClear(ctx, gateDir); err != nil {
+		r.finish(ctx, stepLoopEndFailed, "", fmt.Sprintf("clear gate of step %s: %v", r.id, err))
 		return false
 	}
 	if len(stepLoopFailures(checks)) > 0 {
@@ -324,34 +334,39 @@ func (r *stepRun) judge(ctx context.Context, round int, value json.RawMessage, c
 	return false
 }
 
-// doneChecks appends the checks of a writing step's done return to checks. The four commit checks run first. The gate
-// runs only when they all pass and a gate is set. A gate that cannot run is an error. The gate's check opens with the
-// record of its run, stepGateRecord.
+// doneChecks appends the checks of a writing step's done return to checks, and returns the holder directory of the gate it
+// ran, which the caller clears once the return is stored, or at once when the checks fail. The four commit checks run first. The gate runs only when they all
+// pass and a gate is set. A gate that cannot run is an error. The gate's check opens with the record of its run,
+// stepGateRecord. The step row stores the gate's grant, holder and round before the gate launches.
 func (r *stepRun) doneChecks(ctx context.Context, round int, commit string,
-	checks []store.StepCheck) ([]store.StepCheck, error) {
+	checks []store.StepCheck) ([]store.StepCheck, string, error) {
 	passed := true
 	for _, c := range commitChecks(ctx, r.dir, r.start, commit, r.owned) {
 		checks = append(checks, stepLoopRecord(round, c))
 		passed = passed && c.OK
 	}
 	if !passed || len(r.gate) == 0 {
-		return checks, nil
+		return checks, "", nil
 	}
 	r.beginGate()
 	result, err := runGrantedGate(ctx, r.pools, r.grant, gateRun{
 		Argv: r.gate, Dir: r.dir, Limit: r.gateLimit, Environ: r.environ,
+		Name: r.id + "-gate", StateDir: r.stateDir, Scope: r.scope,
+		Started: func(ctx context.Context, grantID, dir string) error {
+			return r.writer.Commit(ctx, r.id, store.StepGate{ID: r.id, Grant: grantID, Holder: dir, Round: round})
+		},
 	})
 	r.endGate()
 	if err != nil {
-		return checks, fmt.Errorf("run gate of step %s: %w", r.id, err)
+		return checks, "", fmt.Errorf("run gate of step %s: %w", r.id, err)
 	}
 	check := stepLoopGateCheck(round, result, r.gateLimit)
 	record, err := stepGateRecord(r.gateName, r.gateSource, r.gate, result.Members)
 	if err != nil {
-		return checks, fmt.Errorf("record gate of step %s: %w", r.id, err)
+		return checks, result.Holder, fmt.Errorf("record gate of step %s: %w", r.id, err)
 	}
 	check.Detail = record + check.Detail
-	return append(checks, check), nil
+	return append(checks, check), result.Holder, nil
 }
 
 // stepGateRecord returns the record a granted gate's check detail opens with: the gate's name and the file it resolved
