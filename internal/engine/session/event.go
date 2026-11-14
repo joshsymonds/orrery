@@ -1,6 +1,9 @@
 package session
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"time"
+)
 
 // Event is one thing a session reports to its host. It is sealed: only the event types of this
 // package implement it.
@@ -147,6 +150,17 @@ type Notice struct {
 }
 
 func (Notice) isEvent() {}
+
+// RateLimit reports the session's subscription rate-limit state from a rate_limit_event line: its
+// status, the rate-limit type it applies to and the time it resets. Kind is empty when the line gives
+// no type and ResetsAt is the zero time when it gives no reset.
+type RateLimit struct {
+	Status   string
+	Kind     string
+	ResetsAt time.Time
+}
+
+func (RateLimit) isEvent() {}
 
 // BackgroundTask is one task the session runs in the background.
 type BackgroundTask struct {

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/joshsymonds/orrery/internal/engine/wire"
 )
@@ -114,9 +115,24 @@ func reportEvents(variant wire.SDKMessageVariant, line []byte) []Event {
 		return hookResponseEvents(message, line)
 	case wire.SDKBackgroundTasksChangedMessage:
 		return []Event{backgroundTasks(message.Tasks)}
+	case wire.SDKRateLimitEvent:
+		return []Event{rateLimitEvent(message.RateLimitInfo)}
 	default:
 		return nil
 	}
+}
+
+// rateLimitEvent returns the RateLimit a rate-limit state reports. Kind is empty when the state gives no
+// rate-limit type, and ResetsAt is the zero time when it gives no reset; a reset keeps its whole seconds.
+func rateLimitEvent(info wire.SDKRateLimitInfo) RateLimit {
+	limit := RateLimit{Status: info.Status}
+	if info.RateLimitType != nil {
+		limit.Kind = *info.RateLimitType
+	}
+	if info.ResetsAt != nil {
+		limit.ResetsAt = time.Unix(int64(*info.ResetsAt), 0)
+	}
+	return limit
 }
 
 // noticeEvents returns the one Notice of a kind, with its text and a copy of the line it came from.
