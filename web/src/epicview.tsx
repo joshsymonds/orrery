@@ -2,6 +2,7 @@ import type { JSX } from "preact";
 import { useState } from "preact/hooks";
 
 import { denseStrip, doneOf, pipsOf, roundOf, type StripTone, stripOf } from "./epics";
+import { EvidenceRuns, type LoadArtifact } from "./evidence";
 import type { EpicRequirement, EpicSlice, EpicStep, EpicsGetResponse, EpicTask } from "./gen/orrery/v1/epics_pb";
 import { cellKind, cellTitle, type EpicReadout, epicReadout, RINGS, type TaskReadout, taskReadout } from "./orbitcells";
 import { bezel, cellPath, CENTRE, handPath, hitSlice, ringLetters, VIEW, wedgePath } from "./orbits";
@@ -18,13 +19,19 @@ const markOf: Record<Exclude<StripTone, "now">, string> = { passed: "✓", held:
 const secondsToMillis = 1000;
 
 // EpicView draws the right column for one epic: its head, with the slug, repository, outcome and done count, any
-// problem and the task strip; the Requirements of an orreryd epic; a chart of its slices, or the orbits and the line
-// that it has none; the task rows, each with its mark, agent, pips and line; a card for the cursor's step while it
-// runs; and the steps, folded behind a line that counts them and their ends. The fold opens to the steps started on
-// now's day, oldest first, each with a pip per stored check and its end kind. The cursor's step and its task are
-// marked. Every text is a child of its element, so no markup in a slug, status, label or check name becomes an element.
-export function EpicView(props: { detail: EpicsGetResponse; cursorStep: string; now: number }): JSX.Element {
-  const { detail, cursorStep, now } = props;
+// problem and the task strip; the Requirements of an orreryd epic, each with its conclusion and evidence runs; a chart
+// of its slices, or the orbits and the line that it has none; the task rows, each with its mark, agent, pips and line;
+// a card for the cursor's step while it runs; and the steps, folded behind a line that counts them and their ends. The
+// fold opens to the steps started on now's day, oldest first, each with a pip per stored check and its end kind. The
+// cursor's step and its task are marked. loadArtifact reads a run's log and artifacts for the runs' toggles and images.
+// Every text is a child of its element, so no markup in a slug, status, label or check name becomes an element.
+export function EpicView(props: {
+  detail: EpicsGetResponse;
+  cursorStep: string;
+  now: number;
+  loadArtifact: LoadArtifact;
+}): JSX.Element {
+  const { detail, cursorStep, now, loadArtifact } = props;
   const { epic, tasks, slices, steps, requirements } = detail;
   const [open, setOpen] = useState(false);
   const cursor = cursorStep === "" ? undefined : steps.find((step) => step.id === cursorStep);
@@ -50,7 +57,7 @@ export function EpicView(props: { detail: EpicsGetResponse; cursorStep: string; 
           )}
         </header>
       )}
-      {requirements.length > 0 && <Requirements requirements={requirements} />}
+      {requirements.length > 0 && <Requirements requirements={requirements} loadArtifact={loadArtifact} />}
       {slices.length === 0 ? (
         <NoSteps />
       ) : (
@@ -123,9 +130,10 @@ export function EpicView(props: { detail: EpicsGetResponse; cursorStep: string; 
   );
 }
 
-// Requirements is an orreryd epic's requirements under their count: each id, text and kind, in contract order.
-function Requirements(props: { requirements: EpicRequirement[] }): JSX.Element {
-  const { requirements } = props;
+// Requirements is an orreryd epic's requirements under their count: each id and text in contract order, with its
+// conclusion and evidence runs. Only a legacy requirement, stored before the evidence shapes, has a kind.
+function Requirements(props: { requirements: EpicRequirement[]; loadArtifact: LoadArtifact }): JSX.Element {
+  const { requirements, loadArtifact } = props;
   return (
     <section class="requirements">
       <h3 class="eyebrow">
@@ -136,7 +144,9 @@ function Requirements(props: { requirements: EpicRequirement[] }): JSX.Element {
           <li key={index} class="requirement">
             <span class="rid">{requirement.id}</span>
             <span class="text">{requirement.text}</span>
-            <span class="kind">{requirement.kind}</span>
+            {requirement.kind !== "" && <span class="kind">{requirement.kind}</span>}
+            {requirement.conclusion !== "" && <p class="conclusion">{requirement.conclusion}</p>}
+            {requirement.runs.length > 0 && <EvidenceRuns runs={requirement.runs} loadArtifact={loadArtifact} />}
           </li>
         ))}
       </ol>

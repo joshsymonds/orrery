@@ -1,5 +1,5 @@
 import { Fragment } from "preact";
-import { useEffect, useRef, useState } from "preact/hooks";
+import { useCallback, useEffect, useRef, useState } from "preact/hooks";
 
 import * as actions from "./actions";
 import type { Clients } from "./actions";
@@ -133,6 +133,9 @@ export function App({
   const [seenWritten, setSeenWritten] = useState<Map<string, number>>(() => new Map());
   const [seenError, setSeenError] = useState("");
   const [answerError, setAnswerError] = useState("");
+  // loadArtifact reads a run's log or artifact for the epic view. It is stable across renders, so an open log or image
+  // is not loaded again on every poll.
+  const loadArtifact = useCallback((run: string, name: string) => clients.evidence.artifact({ run, name }), [clients]);
   // The answers that landed from the list, by row key. Each shows in place of its row's chips while the row
   // waits on the question it answered.
   const [answered, setAnswered] = useState<Map<string, Answer>>(() => new Map());
@@ -711,7 +714,7 @@ export function App({
             (epicDetail === undefined ? (
               <p class="side-note">{epicUnavailableText}</p>
             ) : (
-              <EpicView detail={epicDetail} cursorStep={cursorStepId} now={now} />
+              <EpicView detail={epicDetail} cursorStep={cursorStepId} now={now} loadArtifact={loadArtifact} />
             ))}
         </aside>
       </div>

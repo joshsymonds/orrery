@@ -446,6 +446,26 @@ button, input, textarea, select { font-family: var(--mono); }
 .requirement .rid { font-weight: 700; color: var(--subtext1); }
 .requirement .text { color: var(--text); overflow-wrap: anywhere; }
 .requirement .kind { color: var(--overlay0); }
+.epic-view .requirement .conclusion { grid-column: 2 / -1; margin: 0; font: 11.5px/17px var(--mono); color: var(--subtext0); overflow-wrap: anywhere; }
+.epic-view .requirement .runs { grid-column: 1 / -1; display: grid; gap: 4px; }
+.epic-view .run { display: grid; gap: 4px; padding: 6px 8px; border-radius: 8px; background: var(--mantle); font: 11.5px/17px var(--mono); }
+.epic-view .run .run-head { display: flex; flex-wrap: wrap; gap: 0 9px; min-width: 0; color: var(--overlay1); }
+.epic-view .run .phase { font-weight: 700; color: var(--subtext1); }
+.epic-view .run .pass.ok { color: var(--green); }
+.epic-view .run .log-toggle {
+  justify-self: start; padding: 0; border: 0; background: none; cursor: pointer;
+  font: 11px/17px var(--mono); color: var(--overlay1); appearance: none; -webkit-appearance: none;
+}
+.epic-view .run .log {
+  margin: 0; max-height: 240px; overflow: auto; padding: 6px 8px; border-radius: 6px; background: var(--crust);
+  font: 11px/16px var(--mono); color: var(--subtext1); white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.epic-view .run .pending { margin: 0; color: var(--overlay0); }
+.epic-view .run .unavailable { margin: 0; color: var(--red); }
+.epic-view .run .artifacts { display: grid; gap: 4px; }
+.epic-view .artifact { display: flex; flex-wrap: wrap; gap: 0 9px; min-width: 0; color: var(--overlay1); }
+.epic-view .artifact .path { min-width: 0; overflow-wrap: anywhere; color: var(--subtext1); }
+.epic-view .artifact-image { display: block; max-width: 100%; height: auto; border-radius: 6px; }
 .epic-view .chart { display: block; width: 100%; max-width: 404px; height: auto; margin-inline: auto; }
 .epic-view .chart text { font-family: var(--mono); }
 .epic-view .cell.passed { fill: var(--green); }
