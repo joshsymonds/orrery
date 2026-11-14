@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -33,7 +34,8 @@ type LaunchConfig struct {
 	// plainly.
 	Scope string
 	// StateDir is the state directory whose holders subdirectory holds the session. Empty takes a fresh directory that
-	// is removed once the holder ends or the launch fails.
+	// is removed once the holder ends or the launch fails. A gate needs a StateDir, since its caller clears the session's
+	// directory and no caller can reach a fresh one.
 	StateDir string
 	// Session names the session.
 	Session string
@@ -41,6 +43,10 @@ type LaunchConfig struct {
 	Child proc.Config
 	// Clock times the wait for the holder. Nil takes SystemClock{}.
 	Clock Clock
+	// GateLimit makes the child a gate when positive: the holder runs it with that limit, and the Process keeps the
+	// session's directory, exit record included, once the holder ends, for the caller to clear. Zero launches the child
+	// with no limit, and the directory is removed once the holder ends.
+	GateLimit time.Duration
 }
 
 // Launch starts the session's child under orrery holder and returns the child as a Process. When cfg.Scope is set, the
@@ -48,6 +54,9 @@ type LaunchConfig struct {
 // its place. Launch returns once the holder serves its socket and the attach at offset 0 succeeds. A holder that ends
 // before it serves fails the launch with its status and stderr.
 func Launch(ctx context.Context, cfg LaunchConfig) (*Process, error) {
+	if cfg.GateLimit > 0 && cfg.StateDir == "" {
+		return nil, errors.New("holder: a gate launch needs a state directory")
+	}
 	if cfg.Clock == nil {
 		cfg.Clock = SystemClock{}
 	}
@@ -106,20 +115,27 @@ func launchIn(ctx context.Context, cfg LaunchConfig, orrery, stateDir string, pr
 	if _, err = conn.Attach(0); err != nil {
 		return nil, abandon(held, err)
 	}
-	remove := dir
-	if private {
-		remove = stateDir
+	// A gate's directory stays for its caller to clear, so its Process removes nothing.
+	remove := ""
+	if cfg.GateLimit <= 0 {
+		remove = dir
+		if private {
+			remove = stateDir
+		}
 	}
 	return newProcess(held, conn, sock, remove), nil
 }
 
 // holderCommand returns the program and argument vector that start the holder: orrery holder, with the session, the
-// state directory and the child's path and arguments after the separator. When cfg.Scope is set, the program is the
-// scope, and orrery's argv follows the scope's arguments.
+// state directory, a positive gate limit as --gate-limit, and the child's path and arguments after the separator. When
+// cfg.Scope is set, the program is the scope, and orrery's argv follows the scope's arguments.
 func holderCommand(cfg LaunchConfig, orrery, stateDir string) (string, []string) {
-	argv := append([]string{
-		"holder", "--session", cfg.Session, "--state-dir", stateDir, "--", cfg.Child.Path,
-	}, cfg.Child.Args...)
+	argv := []string{"holder", "--session", cfg.Session, "--state-dir", stateDir}
+	if cfg.GateLimit > 0 {
+		argv = append(argv, "--gate-limit", strconv.FormatInt(gateSeconds(cfg.GateLimit), 10))
+	}
+	argv = append(argv, "--", cfg.Child.Path)
+	argv = append(argv, cfg.Child.Args...)
 	if cfg.Scope == "" {
 		return orrery, argv
 	}
@@ -127,6 +143,15 @@ func holderCommand(cfg LaunchConfig, orrery, stateDir string) (string, []string)
 		"--user", "--scope", "--collect", "-p", "OOMPolicy=continue", "--unit", "orrery-hold-" + cfg.Session, orrery,
 	}, argv...)
 	return cfg.Scope, scoped
+}
+
+// gateSeconds returns limit in whole seconds, rounded up, as --gate-limit takes it.
+func gateSeconds(limit time.Duration) int64 {
+	seconds := int64(limit / time.Second)
+	if limit%time.Second != 0 {
+		seconds++
+	}
+	return seconds
 }
 
 // holderBinary returns the absolute path of the orrery binary that runs a holder. An empty orrery takes the default.
