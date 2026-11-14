@@ -56,6 +56,7 @@ func TestStepJudgeInputCarriesInstructionAndSections(t *testing.T) {
 		"meet the task's goal",
 		"one-line reason",
 		"naming what is missing",
+		"lost only its middle, which does not mean the return was cut off",
 		"## Task\nwrite the parser",
 		"## Return\nparser written",
 		"## Diff stat\nparser.go | 12 +",
@@ -83,34 +84,71 @@ func TestStepJudgeInputOmitsEmptyDiffStatAndGateTail(t *testing.T) {
 
 func TestStepJudgeInputCutsOversizedSectionsAtEightKiB(t *testing.T) {
 	t.Parallel()
-	big := strings.Repeat("a", 3*stepJudgeSectionBytes)
+	// Each third is 8 KiB, so the head, middle, and tail of the input are told apart in what each cut keeps.
+	k := stepJudgeSectionBytes
+	big := strings.Repeat("h", k) + strings.Repeat("m", k) + strings.Repeat("t", k)
 	got := stepJudgeInput(big, big, big, big)
-	for _, heading := range []string{"## Task\n", "## Return\n", "## Diff stat\n", "## Gate output tail\n"} {
-		start := strings.Index(got, heading)
+	// The task and the return keep 8 KiB of head and 8 KiB of tail around the 8192 bytes left out.
+	ends := strings.Repeat("h", k) + "\n[8192 bytes left out]\n" + strings.Repeat("t", k)
+	for _, tc := range []struct{ heading, want string }{
+		{"## Task\n", ends},
+		{"## Return\n", ends},
+		{"## Diff stat\n", strings.Repeat("h", k)},
+		{"## Gate output tail\n", strings.Repeat("t", k)},
+	} {
+		start := strings.Index(got, tc.heading)
 		if start < 0 {
-			t.Fatalf("missing section %q", heading)
+			t.Fatalf("missing section %q", tc.heading)
 		}
-		body := got[start+len(heading):]
+		body := got[start+len(tc.heading):]
 		if next := strings.Index(body, "\n\n## "); next >= 0 {
 			body = body[:next]
 		}
-		if len(body) != stepJudgeSectionBytes {
-			t.Fatalf("section %q is %d bytes, want %d", heading, len(body), stepJudgeSectionBytes)
+		if body != tc.want {
+			t.Fatalf("section %q is %d bytes, want %d bytes of the expected cut", tc.heading, len(body), len(tc.want))
 		}
+	}
+}
+
+func TestStepJudgeInputKeepsEndsAndOmissionOfLongReturn(t *testing.T) {
+	t.Parallel()
+	// A 20 KiB return keeps its first and last 8 KiB around a line naming the 4104 bytes that fall between them.
+	long := strings.Repeat("a", 20*1024) + "END-MARK"
+	got := stepJudgeInput("task", long, "", "")
+	ends := strings.Repeat("a", stepJudgeSectionBytes) + "\n[4104 bytes left out]\n" +
+		strings.Repeat("a", stepJudgeSectionBytes-len("END-MARK")) + "END-MARK"
+	if !strings.HasSuffix(got, "## Return\n"+ends) {
+		t.Fatalf("20 KiB return is not its head, omission line, and end marker:\n%q", got[len(got)-200:])
+	}
+	// A return of exactly 16 KiB is not cut.
+	whole := strings.Repeat("b", 2*stepJudgeSectionBytes)
+	if got := stepJudgeInput("task", whole, "", ""); !strings.HasSuffix(got, "## Return\n"+whole) {
+		t.Fatal("16 KiB return was cut")
 	}
 }
 
 func TestStepJudgeInputCutsOnRuneBoundary(t *testing.T) {
 	t.Parallel()
-	// A three-byte rune straddling the limit must not be split into invalid UTF-8.
-	big := strings.Repeat("a", stepJudgeSectionBytes-1) + "\u4e16\u4e16"
-	got := stepJudgeInput("task", big, "", "")
-	body := got[strings.Index(got, "## Return\n")+len("## Return\n"):]
-	if strings.ContainsRune(body, '\uFFFD') {
-		t.Fatal("cut produced invalid UTF-8")
-	}
-	if body != strings.Repeat("a", stepJudgeSectionBytes-1) {
-		t.Fatalf("cut kept %d bytes, want the %d whole bytes before the split rune", len(body), stepJudgeSectionBytes-1)
+	// A three-byte rune straddling a cut must not be split into invalid UTF-8. Each section is just over 16 KiB, with
+	// the rune placed on the head cut in one case and on the tail cut in the other.
+	k := stepJudgeSectionBytes
+	headCut := strings.Repeat("a", k-1) + "\u4e16" + strings.Repeat("b", k)
+	tailCut := strings.Repeat("a", k) + "\u4e16" + strings.Repeat("c", k-2)
+	for name, tc := range map[string]struct{ text, want string }{
+		"head cut": {headCut, strings.Repeat("a", k-1) + "\n[3 bytes left out]\n" + strings.Repeat("b", k)},
+		"tail cut": {tailCut, strings.Repeat("a", k) + "\n[3 bytes left out]\n" + strings.Repeat("c", k-2)},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			got := stepJudgeInput("task", tc.text, "", "")
+			body := got[strings.Index(got, "## Return\n")+len("## Return\n"):]
+			if strings.ContainsRune(body, '\uFFFD') {
+				t.Fatal("cut produced invalid UTF-8")
+			}
+			if body != tc.want {
+				t.Fatalf("cut kept %d bytes, want the whole bytes on each side of the split rune", len(body))
+			}
+		})
 	}
 }
 
@@ -173,11 +211,11 @@ func TestParseStepJudgeRejectsBadReplies(t *testing.T) {
 // stays within the section limit.
 func TestStepJudgeInputCutsInvalidUTF8WithoutPanic(t *testing.T) {
 	t.Parallel()
-	junk := strings.Repeat("\x80", stepJudgeSectionBytes+808)
+	junk := strings.Repeat("\x80", 2*stepJudgeSectionBytes+808)
 	got := stepJudgeInput(junk, "return", "", junk)
 	task := got[strings.Index(got, "## Task\n")+len("## Task\n") : strings.Index(got, "\n\n## Return")]
-	if len(task) > stepJudgeSectionBytes {
-		t.Fatalf("task section is %d bytes, want at most %d", len(task), stepJudgeSectionBytes)
+	if len(task) > 2*stepJudgeSectionBytes {
+		t.Fatalf("task section is %d bytes, want at most %d", len(task), 2*stepJudgeSectionBytes)
 	}
 	gate := got[strings.Index(got, "## Gate output tail\n")+len("## Gate output tail\n"):]
 	if len(gate) > stepJudgeSectionBytes {

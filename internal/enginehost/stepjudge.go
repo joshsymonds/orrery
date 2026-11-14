@@ -25,13 +25,14 @@ const stepJudgeSchema = `{
 	"additionalProperties": false
 }`
 
-// stepJudgeSectionBytes is how much of each section of the judge's input is kept.
+// stepJudgeSectionBytes is the most a kept head or tail of a section holds.
 const stepJudgeSectionBytes = 8 * 1024
 
 // stepJudgeInstruction opens the judge's input. The mechanical checks have already passed, so the judge judges only
 // whether the return meets the task.
 const stepJudgeInstruction = "The step's mechanical checks already passed. Does the return meet the task's goal? " +
-	"Give a one-line reason, naming what is missing when unmet."
+	"Give a one-line reason, naming what is missing when unmet. " +
+	"A section with a line naming bytes left out lost only its middle, which does not mean the return was cut off."
 
 // errStepJudgeVerdict reports a judge reply whose verdict is neither met nor unmet.
 var errStepJudgeVerdict = errors.New("enginehost: judge verdict is not met or unmet")
@@ -40,12 +41,13 @@ var errStepJudgeVerdict = errors.New("enginehost: judge verdict is not met or un
 var errStepJudgeReason = errors.New("enginehost: judge reason is empty")
 
 // stepJudgeInput builds the judge's stdin from the step's first prompt, its return, and, when non-empty, the diff stat
-// and the gate output tail. Each section is cut to stepJudgeSectionBytes; the diff stat and the gate tail are omitted
-// when blank. A gate tail keeps its last bytes, since the failure a judge needs sits at the end of the output.
+// and the gate output tail. The prompt and the return keep both ends of a long text, as stepJudgeEnds describes. The
+// diff stat keeps its head and the gate tail keeps its last bytes, since the failure a judge needs sits at the end of
+// the output. The diff stat and the gate tail are omitted when blank.
 func stepJudgeInput(prompt, result, diffStat, gateTail string) string {
 	sections := []string{
-		"## Task\n" + stepJudgeHead(prompt),
-		"## Return\n" + stepJudgeHead(result),
+		"## Task\n" + stepJudgeEnds(prompt),
+		"## Return\n" + stepJudgeEnds(result),
 	}
 	if strings.TrimSpace(diffStat) != "" {
 		sections = append(sections, "## Diff stat\n"+stepJudgeHead(diffStat))
@@ -78,6 +80,18 @@ func stepJudgeTail(text string) string {
 		n++
 	}
 	return text[n:]
+}
+
+// stepJudgeEnds keeps the head and the tail of text longer than twice stepJudgeSectionBytes, with a line between them
+// that counts the bytes left out. Text of up to twice stepJudgeSectionBytes is returned whole. The head and the tail
+// never overlap, since each is at most stepJudgeSectionBytes long and the text is longer than both together.
+func stepJudgeEnds(text string) string {
+	if len(text) <= 2*stepJudgeSectionBytes {
+		return text
+	}
+	head := stepJudgeHead(text)
+	tail := stepJudgeTail(text)
+	return head + fmt.Sprintf("\n[%d bytes left out]\n", len(text)-len(head)-len(tail)) + tail
 }
 
 // parseStepJudge reads the judge's reply. It returns met for a met verdict and unmet for an unmet one, with the reason
