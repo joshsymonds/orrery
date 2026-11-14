@@ -101,6 +101,7 @@ func newBatchRestartSteps(t *testing.T, s *store.Store, writer *Writer) *Steps {
 }
 
 func TestStepsReconcileEndsSixtyFourOpenRowsInOneApplyEngineCall(t *testing.T) {
+	t.Parallel()
 	const rows = 64
 	for _, tc := range []struct {
 		name string
@@ -110,6 +111,7 @@ func TestStepsReconcileEndsSixtyFourOpenRowsInOneApplyEngineCall(t *testing.T) {
 		{name: "default tick"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			s, _ := openStore(t)
 			ids := make([]string, rows)
 			for i := range ids {
@@ -155,6 +157,7 @@ func TestStepsReconcileEndsSixtyFourOpenRowsInOneApplyEngineCall(t *testing.T) {
 }
 
 func TestStepsReconcileCleansUpOtherRowsWhenOneEndIsDropped(t *testing.T) {
+	t.Parallel()
 	s, _ := openStore(t)
 	ids := []string{fmt.Sprintf("%032d", 0), fmt.Sprintf("%032d", 1), fmt.Sprintf("%032d", 2)}
 	dropped := ids[1]

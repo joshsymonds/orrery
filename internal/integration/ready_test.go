@@ -123,6 +123,7 @@ func hasEnvVar(recorded, name string) bool {
 // TestOrrerydReadyWithSessions proves that orreryd with --sessions sends READY=1 once, and that sessions.sock accepts a
 // connection when the datagram arrives.
 func TestOrrerydReadyWithSessions(t *testing.T) {
+	t.Parallel()
 	f := newEngineFixture(t)
 	notify := bindNotifySocket(t, f.root)
 	daemon := f.startReady(t, f.notifyEnv(notify.path), f.fakeClaude, true)
@@ -140,6 +141,7 @@ func TestOrrerydReadyWithSessions(t *testing.T) {
 // TestOrrerydReadyWithoutSessions proves that orreryd without --sessions sends READY=1 once after its store opens, and
 // once after the store fails to open.
 func TestOrrerydReadyWithoutSessions(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name    string
 		store   string
@@ -150,6 +152,7 @@ func TestOrrerydReadyWithoutSessions(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			f := newEngineFixture(t)
 			if tc.store != "" {
 				if err := os.MkdirAll(filepath.Dir(f.dbPath), 0o700); err != nil {
@@ -178,6 +181,7 @@ func TestOrrerydReadyWithoutSessions(t *testing.T) {
 // TestOrrerydReadyFailedSendServesAnyway proves that a READY=1 send to a socket nobody listens on is logged, and that
 // orreryd keeps serving.
 func TestOrrerydReadyFailedSendServesAnyway(t *testing.T) {
+	t.Parallel()
 	f := newEngineFixture(t)
 	missing := filepath.Join(f.root, "no-listener.sock")
 	daemon := f.startReady(t, f.notifyEnv(missing), f.fakeClaude, false)
@@ -192,6 +196,7 @@ func TestOrrerydReadyFailedSendServesAnyway(t *testing.T) {
 // TestOrrerydReadyEmptySocketSendsNothing proves that an empty NOTIFY_SOCKET names no socket: orreryd serves and
 // logs no failed send.
 func TestOrrerydReadyEmptySocketSendsNothing(t *testing.T) {
+	t.Parallel()
 	f := newEngineFixture(t)
 	daemon := f.startReady(t, f.notifyEnv(""), f.fakeClaude, false)
 	daemon.waitForStoreOpen(t)
@@ -206,6 +211,7 @@ func TestOrrerydReadyEmptySocketSendsNothing(t *testing.T) {
 // TestOrrerydReadyFailedSessionsStartSendsNothing proves that a --sessions orreryd whose session socket cannot be
 // listened on exits without sending READY=1.
 func TestOrrerydReadyFailedSessionsStartSendsNothing(t *testing.T) {
+	t.Parallel()
 	f := newEngineFixture(t)
 	held, err := net.Listen("unix", f.sessions)
 	if err != nil {
@@ -231,6 +237,7 @@ func TestOrrerydReadyFailedSessionsStartSendsNothing(t *testing.T) {
 // TestOrrerydReadyKeepsNotifySocketFromChildren proves that a session's claude does not inherit NOTIFY_SOCKET, though
 // orreryd was started with it set.
 func TestOrrerydReadyKeepsNotifySocketFromChildren(t *testing.T) {
+	t.Parallel()
 	f := newEngineFixture(t)
 	notify := bindNotifySocket(t, f.root)
 	dir := f.sessionDir(t, "wrapped")

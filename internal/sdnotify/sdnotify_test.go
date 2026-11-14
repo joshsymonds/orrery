@@ -36,6 +36,7 @@ func readOneDatagram(t *testing.T, ln *net.UnixConn, send func() error) string {
 }
 
 func TestReadyPathSocket(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "notify.sock")
 	ln, err := net.ListenUnixgram("unixgram", &net.UnixAddr{Name: path, Net: "unixgram"})
 	if err != nil {
@@ -50,6 +51,7 @@ func TestReadyPathSocket(t *testing.T) {
 }
 
 func TestReadyAbstractSocket(t *testing.T) {
+	t.Parallel()
 	// The abstract name is the test's own temporary directory, whose parent MkdirTemp names at random, so concurrent
 	// runs on the host never share a socket in the abstract namespace.
 	name := t.TempDir()
@@ -66,12 +68,15 @@ func TestReadyAbstractSocket(t *testing.T) {
 }
 
 func TestReadyErrors(t *testing.T) {
+	t.Parallel()
 	t.Run("no listener at path", func(t *testing.T) {
+		t.Parallel()
 		if err := Ready(filepath.Join(t.TempDir(), "missing.sock")); err == nil {
 			t.Fatal("Ready with no listener returned nil, want error")
 		}
 	})
 	t.Run("empty address", func(t *testing.T) {
+		t.Parallel()
 		if err := Ready(""); err == nil {
 			t.Fatal("Ready with empty addr returned nil, want error")
 		}

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/store"
+	"github.com/joshsymonds/orrery/internal/storetest"
 )
 
 const (
@@ -173,8 +174,9 @@ func waitForAccept(t *testing.T, daemon *orreryProcess, path string, deadline ti
 // An orreryd with --sessions starts on a store of restartRowCount engine rows, and its sessions.sock accepts a connection
 // within restartBound of its store-open line. A working row the restart settles reads interrupted afterwards.
 func TestRestartCostServesSessionsWithinBound(t *testing.T) {
+	t.Parallel()
 	f := newEngineFixture(t)
-	prepareStore(t, f.dbPath)
+	storetest.Seed(t, f.dbPath)
 	seedRestartRows(t, f.dbPath, restartRows(restartRowCount))
 
 	daemon := startBinary(t, "orreryd", f.env,

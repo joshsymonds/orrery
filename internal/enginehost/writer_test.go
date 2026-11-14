@@ -676,6 +676,7 @@ func promptGroups(ids ...string) []SessionOps {
 
 // Many sessions passed to one CommitAll reach the Applier in one ApplyEngine call, whatever the tick.
 func TestCommitAllStoresManySessionsInOneApplyCall(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name string
 		tick time.Duration
@@ -684,6 +685,7 @@ func TestCommitAllStoresManySessionsInOneApplyCall(t *testing.T) {
 		{name: "default tick", tick: 0},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			s, path := openStore(t)
 			ids := make([]string, 1000)
 			for i := range ids {
@@ -725,6 +727,7 @@ func TestCommitAllStoresManySessionsInOneApplyCall(t *testing.T) {
 
 // A group whose row is gone gets its dropped error; every other group gets nil and is stored in the same tick.
 func TestCommitAllDropsOnlyTheGroupWhoseRowIsGone(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	s, path := openStore(t)
 	// Session a is never added, so its row is gone.
@@ -777,6 +780,7 @@ func TestCommitAllDropsOnlyTheGroupWhoseRowIsGone(t *testing.T) {
 
 // A stopped writer makes CommitAll return ErrWriterStopped and no per-group errors.
 func TestCommitAllAfterRunStopsReturnsErrWriterStopped(t *testing.T) {
+	t.Parallel()
 	s, _ := openStore(t)
 	addSessions(t, s, "a")
 	applier := &recordingApplier{store: s, notify: make(chan struct{}, 1)}
@@ -796,6 +800,7 @@ func TestCommitAllAfterRunStopsReturnsErrWriterStopped(t *testing.T) {
 // No group, or groups with no ops, return at once: the writer is not running, and the context is already canceled, so
 // any wait would fail.
 func TestCommitAllWithNoOpsReturnsAtOnce(t *testing.T) {
+	t.Parallel()
 	w := NewWriter(WriterConfig{Tick: time.Hour})
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()

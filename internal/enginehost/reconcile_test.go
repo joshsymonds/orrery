@@ -555,6 +555,7 @@ func requireSettledOps(t *testing.T, applier *countingApplier, rows []mixedRow) 
 }
 
 func TestReconcileSettlesMixedRowsInOneWrite(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name string
 		tick time.Duration
@@ -563,6 +564,7 @@ func TestReconcileSettlesMixedRowsInOneWrite(t *testing.T) {
 		{name: "default tick", tick: 0},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			s, path := openStore(t)
 			rows := mixedRows(reconcileMixedRows)
 			seedMixedRows(t, path, rows)
@@ -644,6 +646,7 @@ func (g ghostStore) EngineSessions(ctx context.Context) ([]store.EngineRow, erro
 }
 
 func TestReconcileDroppedGroupStopsNoOtherRow(t *testing.T) {
+	t.Parallel()
 	s, path := openStore(t)
 	seedRestartRows(t, s)
 	writer := NewWriter(WriterConfig{Applier: s, Tick: 5 * time.Millisecond})
@@ -676,6 +679,7 @@ func (f textFailingStore) EngineTextSessions(context.Context) (map[string]bool, 
 }
 
 func TestReconcileTextReadErrorClearsEverySettledRow(t *testing.T) {
+	t.Parallel()
 	errText := errors.New("text read failed")
 	s, path := openStore(t)
 	seedRestartRows(t, s)
