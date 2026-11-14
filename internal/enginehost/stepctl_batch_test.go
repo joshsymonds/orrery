@@ -83,15 +83,17 @@ func seedOpenSteps(t *testing.T, s *store.Store, ids ...string) {
 	}
 }
 
-// newBatchRestartSteps returns a Steps over s and writer. It is closed at cleanup.
+// newBatchRestartSteps returns a Steps over s and writer, with its gates' holders under a state directory of the
+// test's own. It is closed at cleanup.
 func newBatchRestartSteps(t *testing.T, s *store.Store, writer *Writer) *Steps {
 	t.Helper()
 	steps, err := NewSteps(StepsConfig{
-		Sessions:  &stepCtlSessions{stepStartSessions: &stepStartSessions{writer: writer}},
-		Store:     s,
-		Writer:    writer,
-		Worktrees: t.TempDir(),
-		Logger:    slog.New(slog.DiscardHandler),
+		Sessions:     &stepCtlSessions{stepStartSessions: &stepStartSessions{writer: writer}},
+		Store:        s,
+		Writer:       writer,
+		Worktrees:    t.TempDir(),
+		Logger:       slog.New(slog.DiscardHandler),
+		GateStateDir: gateShortStateDir(t),
 	})
 	if err != nil {
 		t.Fatalf("NewSteps: %v", err)
