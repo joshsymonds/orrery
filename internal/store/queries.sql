@@ -262,12 +262,12 @@ DELETE FROM holds WHERE member = ?;
 SELECT * FROM holds ORDER BY member;
 
 -- name: UpsertPendingNotice :exec
-INSERT INTO pending_notices (id, pane, session, state, time, phase, due, delay_served, watch_logged, source_kind, source, silent)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO pending_notices (id, pane, session, state, time, phase, due, delay_served, watch_logged, source_kind, source, silent, epic)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT (id) DO UPDATE SET pane = excluded.pane, session = excluded.session, state = excluded.state,
     time = excluded.time, phase = excluded.phase, due = excluded.due, delay_served = excluded.delay_served,
     watch_logged = excluded.watch_logged, source_kind = excluded.source_kind, source = excluded.source,
-    silent = excluded.silent;
+    silent = excluded.silent, epic = excluded.epic;
 
 -- name: RaiseNoticeIDFloor :exec
 UPDATE pending_notice_ids SET high = MAX(high, sqlc.arg(id)) WHERE id = 1;
@@ -290,6 +290,16 @@ DELETE FROM pushed_notices WHERE pane = ? AND session = ?;
 
 -- name: ListPushedNotices :many
 SELECT * FROM pushed_notices ORDER BY pane, session;
+
+-- name: UpsertPushedEpicNotice :exec
+INSERT INTO pushed_epic_notices (epic, time) VALUES (?, ?)
+ON CONFLICT (epic) DO UPDATE SET time = excluded.time;
+
+-- name: DeletePushedEpicNotice :exec
+DELETE FROM pushed_epic_notices WHERE epic = ?;
+
+-- name: ListPushedEpicNotices :many
+SELECT * FROM pushed_epic_notices ORDER BY epic;
 
 -- name: InsertEpic :exec
 INSERT INTO epics (id, repository, title, approved, intent, care, approach, release_then, checks, phase, created, changed)
