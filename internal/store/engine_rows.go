@@ -75,6 +75,20 @@ func (s *Store) EngineSession(ctx context.Context, id string) (EngineRow, error)
 	return toEngineRow(row), nil
 }
 
+// EngineTextSessions returns the ids of the engine sessions that hold at least one unfinished engine text block,
+// each id once. A session with no unfinished text is absent from the map.
+func (s *Store) EngineTextSessions(ctx context.Context) (map[string]bool, error) {
+	rows, err := sqlcgen.New(s.db).ListUnfinishedEngineText(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list engine sessions with unfinished text: %w", err)
+	}
+	out := make(map[string]bool)
+	for _, row := range rows {
+		out[row.SessionID] = true
+	}
+	return out, nil
+}
+
 func toEngineRow(row sqlcgen.Session) EngineRow {
 	return EngineRow{
 		ID: row.ID, Dir: row.Dir, State: row.State, Question: row.Question,
