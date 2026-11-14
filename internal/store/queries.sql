@@ -177,10 +177,10 @@ ON CONFLICT (session_id, prompt_id) DO NOTHING;
 SELECT reason FROM engine_prompt_failed WHERE session_id = ? AND prompt_id = ?;
 
 -- name: InsertStep :exec
-INSERT INTO steps (id, agent, prompt, output_schema, workspace, revision, worktree, done_value, read_only, owned, gate,
-                   gate_name, gate_source, gate_needs, gate_limit, model_limit, started, checks, result, status,
-                   end_value, reason, ended, doing, verdicts, epic, task)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', '', '', '', '', 0, '', '[]', ?, ?);
+INSERT INTO steps (id, agent, prompt, output_schema, workspace, revision, worktree, checkout_head, checkout_hash,
+                   done_value, read_only, owned, gate, gate_name, gate_source, gate_needs, gate_limit, model_limit,
+                   started, checks, result, status, end_value, reason, ended, doing, verdicts, epic, task)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', '', '', '', '', 0, '', '[]', ?, ?);
 
 -- name: GetStep :one
 SELECT * FROM steps WHERE id = ?;
@@ -628,7 +628,8 @@ SELECT state FROM evidence_runs WHERE id = ?;
 UPDATE evidence_runs SET grant_id = ?, holder = ? WHERE id = ?;
 
 -- name: RecordEvidenceRunCapture :exec
-UPDATE evidence_runs SET exit = ?, timed_out = ?, not_captured = ?, log_hash = ?, log_bytes = ?, state = ?, ended = ?
+UPDATE evidence_runs SET exit = ?, timed_out = ?, not_captured = ?, log_hash = ?, log_bytes = ?, stderr_hash = ?,
+    stderr_bytes = ?, state = ?, ended = ?
 WHERE id = ?;
 
 -- name: InsertEvidenceArtifact :exec

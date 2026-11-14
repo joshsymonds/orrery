@@ -294,6 +294,8 @@ type EvidenceRun struct {
 	Passed      int64
 	Created     int64
 	Ended       int64
+	StderrHash  string
+	StderrBytes int64
 }
 
 type Grant struct {
@@ -423,4 +425,6 @@ type Step struct {
 	LoopLimitKind   string
 	LoopLimitResets int64
 	LoopGateFrom    int64
+	CheckoutHead    string
+	CheckoutHash    string
 }

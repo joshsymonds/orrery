@@ -60,7 +60,7 @@ func epicTableColumns() map[string][]string {
 		"evidence_runs": {
 			"id", "epic", "item", "revision", "phase", "source", "state", "spec", "grant_id", "holder", "exit",
 			"timed_out", "not_captured", "log_hash", "log_bytes", "judge_step", "judges", "verdict", "judge_reason",
-			"passed", "created", "ended",
+			"passed", "created", "ended", "stderr_hash", "stderr_bytes",
 		},
 		"evidence_artifacts":  {"run", "position", "path", "state", "hash", "blob", "size"},
 		"pushed_epic_notices": {"epic", "time"},
@@ -410,9 +410,9 @@ func TestEpicMigrationKeepsExistingRows(t *testing.T) {
 		`SELECT COALESCE(MAX(version_id), 0) FROM goose_db_version WHERE is_applied = 1`).Scan(&version); err != nil {
 		t.Fatalf("read store version: %v", err)
 	}
-	// Open applies 00014_epics.sql and every migration after it: 00021_task_build.sql is the newest.
-	if version != 21 {
-		t.Fatalf("store version after Open = %d, want 21", version)
+	// Open applies 00014_epics.sql and every migration after it: 00022_checkout_tails.sql is the newest.
+	if version != 22 {
+		t.Fatalf("store version after Open = %d, want 22", version)
 	}
 
 	// A later migration may add columns at the end of an existing table, as 00015_step_readopt.sql adds to steps and
