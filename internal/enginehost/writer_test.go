@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"path/filepath"
 	"reflect"
@@ -661,5 +662,158 @@ func TestMissingStepDropsItsOpAndStoresTheRest(t *testing.T) {
 	stop()
 	if got := len(applier.callsOf()); got != 2 {
 		t.Fatalf("ApplyEngine calls after another flush and stop: got %d, want 2", got)
+	}
+}
+
+// promptGroups returns one SessionOps per id, each holding a single prompt op for that session.
+func promptGroups(ids ...string) []SessionOps {
+	groups := make([]SessionOps, 0, len(ids))
+	for _, id := range ids {
+		groups = append(groups, SessionOps{ID: id, Ops: []store.EngineOp{prompt(id, id+"-1")}})
+	}
+	return groups
+}
+
+// Many sessions passed to one CommitAll reach the Applier in one ApplyEngine call, whatever the tick.
+func TestCommitAllStoresManySessionsInOneApplyCall(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name string
+		tick time.Duration
+	}{
+		{name: "short tick", tick: time.Millisecond},
+		{name: "default tick", tick: 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			s, path := openStore(t)
+			ids := make([]string, 1000)
+			for i := range ids {
+				ids[i] = fmt.Sprintf("s%04d", i)
+			}
+			addSessions(t, s, ids...)
+			applier := &recordingApplier{store: s, notify: make(chan struct{}, 1)}
+			w := NewWriter(WriterConfig{Applier: applier, Tick: tc.tick})
+			startRun(t, w)
+
+			errs, err := w.CommitAll(t.Context(), promptGroups(ids...))
+			if err != nil {
+				t.Fatalf("CommitAll: %v", err)
+			}
+			if len(errs) != len(ids) {
+				t.Fatalf("errors: got %d, want one per group (%d)", len(errs), len(ids))
+			}
+			for i, e := range errs {
+				if e != nil {
+					t.Fatalf("group %s: got error %v, want nil", ids[i], e)
+				}
+			}
+
+			calls := applier.callsOf()
+			if len(calls) != 1 {
+				t.Fatalf("ApplyEngine calls: got %d, want 1", len(calls))
+			}
+			if got := len(calls[0]); got != len(ids) {
+				t.Fatalf("ops in the call: got %d, want %d", got, len(ids))
+			}
+			for _, id := range []string{ids[0], ids[len(ids)-1]} {
+				if got, want := promptTexts(t, path, id), []string{id + "-1"}; !reflect.DeepEqual(got, want) {
+					t.Fatalf("session %s stored texts: got %v, want %v", id, got, want)
+				}
+			}
+		})
+	}
+}
+
+// A group whose row is gone gets its dropped error; every other group gets nil and is stored in the same tick.
+func TestCommitAllDropsOnlyTheGroupWhoseRowIsGone(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	s, path := openStore(t)
+	// Session a is never added, so its row is gone.
+	addSessions(t, s, "b", "c")
+
+	var logs bytes.Buffer
+	applier := &recordingApplier{store: s, notify: make(chan struct{}, 1)}
+	w := NewWriter(WriterConfig{
+		Applier: applier, Tick: 5 * time.Millisecond, Logger: slog.New(slog.NewTextHandler(&logs, nil)),
+	})
+	startRun(t, w)
+
+	idle := "idle"
+	groups := []SessionOps{
+		{ID: "b", Ops: []store.EngineOp{prompt("b", "b1")}},
+		{ID: "a", Ops: []store.EngineOp{store.EngineSet{ID: "a", Changes: store.EngineChanges{State: &idle}}}},
+		{ID: "c", Ops: []store.EngineOp{prompt("c", "c1")}},
+	}
+	errs, err := w.CommitAll(ctx, groups)
+	if err != nil {
+		t.Fatalf("CommitAll: %v", err)
+	}
+	if len(errs) != 3 {
+		t.Fatalf("errors: got %d, want 3", len(errs))
+	}
+	if errs[0] != nil || errs[2] != nil {
+		t.Fatalf("groups b and c: got errors %v and %v, want nil", errs[0], errs[2])
+	}
+	if !errors.Is(errs[1], store.ErrNoEngineSession) {
+		t.Fatalf("group a: got %v, want an error wrapping ErrNoEngineSession", errs[1])
+	}
+	if got, want := promptTexts(t, path, "b"), []string{"b1"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("session b stored texts: got %v, want %v", got, want)
+	}
+	if got, want := promptTexts(t, path, "c"), []string{"c1"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("session c stored texts: got %v, want %v", got, want)
+	}
+	if !strings.Contains(logs.String(), "session=a") {
+		t.Fatalf("warning does not name session a: %q", logs.String())
+	}
+
+	calls := applier.callsOf()
+	if len(calls) != 2 {
+		t.Fatalf("ApplyEngine calls: got %d, want 2 (the batch, then the batch without a's op)", len(calls))
+	}
+	if want := []store.EngineOp{prompt("b", "b1"), prompt("c", "c1")}; !reflect.DeepEqual(calls[1], want) {
+		t.Fatalf("ops in the second call: got %+v, want %+v", calls[1], want)
+	}
+}
+
+// A stopped writer makes CommitAll return ErrWriterStopped and no per-group errors.
+func TestCommitAllAfterRunStopsReturnsErrWriterStopped(t *testing.T) {
+	t.Parallel()
+	s, _ := openStore(t)
+	addSessions(t, s, "a")
+	applier := &recordingApplier{store: s, notify: make(chan struct{}, 1)}
+	w := NewWriter(WriterConfig{Applier: applier, Tick: time.Hour})
+	stop := startRun(t, w)
+	stop()
+
+	errs, err := w.CommitAll(t.Context(), promptGroups("a"))
+	if !errors.Is(err, ErrWriterStopped) {
+		t.Fatalf("CommitAll after Run stopped: got %v, want ErrWriterStopped", err)
+	}
+	if errs != nil {
+		t.Fatalf("errors after Run stopped: got %v, want nil", errs)
+	}
+}
+
+// No group, or groups with no ops, return at once: the writer is not running, and the context is already canceled, so
+// any wait would fail.
+func TestCommitAllWithNoOpsReturnsAtOnce(t *testing.T) {
+	t.Parallel()
+	w := NewWriter(WriterConfig{Tick: time.Hour})
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	errs, err := w.CommitAll(ctx, nil)
+	if err != nil || len(errs) != 0 {
+		t.Fatalf("CommitAll with no groups: got %v, %v; want no errors and no error", errs, err)
+	}
+	errs, err = w.CommitAll(ctx, []SessionOps{{ID: "a"}, {ID: "b", Ops: []store.EngineOp{}}})
+	if err != nil {
+		t.Fatalf("CommitAll with groups that have no ops: got error %v", err)
+	}
+	if len(errs) != 2 || errs[0] != nil || errs[1] != nil {
+		t.Fatalf("CommitAll with groups that have no ops: got %v, want two nil errors", errs)
 	}
 }

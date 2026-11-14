@@ -92,10 +92,9 @@ func newWiringFixture(t *testing.T) wiringFixture {
 	return fx
 }
 
-// typeIntoClient types one key through outerPane and waits until tmux records the client's input. It returns the
-// client's newest activity from before the key. The wall clock must first pass that activity, so the new activity
-// falls in a different whole second.
-func (fx wiringFixture) typeIntoClient(t *testing.T) int64 {
+// typeIntoClient types one key through outerPane and waits until tmux records the client's input. The wall clock must
+// first pass the client's newest activity from before the key, so the new activity falls in a different whole second.
+func (fx wiringFixture) typeIntoClient(t *testing.T) {
 	t.Helper()
 	before := newestActivity(t, fx.client)
 	waitFor(t, "wall clock to pass the client's last activity", func() (bool, error) {
@@ -107,7 +106,6 @@ func (fx wiringFixture) typeIntoClient(t *testing.T) int64 {
 	waitFor(t, "client_activity to advance after typing", func() (bool, error) {
 		return newestActivity(t, fx.client) > before, nil
 	})
-	return before
 }
 
 // newestActivity returns the largest client_activity among the clients of client's server.
@@ -160,26 +158,5 @@ func TestRelayWatchingReportsPaneWithClientInput(t *testing.T) {
 	}
 	if !watching {
 		t.Fatalf("watching(%s) = false, want true: a client shows the pane with recent input", fx.pane)
-	}
-}
-
-// TestLocalInputReportsInputOnTmuxClient runs the router's LocalInput after input on an attached tmux client. It
-// must report that client's newest activity with ok set.
-func TestLocalInputReportsInputOnTmuxClient(t *testing.T) {
-	fx := newWiringFixture(t)
-	before := fx.typeIntoClient(t)
-
-	input, ok, err := localInput(options{server: fx.inner})(t.Context())
-	if err != nil {
-		t.Fatalf("localInput: %v", err)
-	}
-	if !ok {
-		t.Fatalf("localInput ok = false, want true: a client gave input")
-	}
-	if want := newestActivity(t, fx.client); input != want {
-		t.Fatalf("localInput = %d, want the client's newest activity %d", input, want)
-	}
-	if input <= before {
-		t.Fatalf("localInput = %d, want after the client's activity before typing (%d)", input, before)
 	}
 }

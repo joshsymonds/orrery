@@ -203,14 +203,15 @@ func stepRowRunsAgentGate(row store.StepRow) bool {
 }
 
 // Reconcile settles the open step rows that have no loop in this Steps, as a restart leaves them. A row Readopt registered
-// whose step its adopter reports live starts its loop. Each other such row is ended by endRestarted. A Steps Readopt did
-// not run for has no adopter, so it unregisters nothing. A row whose loop is running is left alone. It returns the first
-// read or write error.
+// whose step its adopter reports live starts its loop. Each other such row is ended by endRestarted, in one write. A Steps
+// Readopt did not run for has no adopter, so it unregisters nothing. A row whose loop is running is left alone. It returns
+// the first read or write error.
 func (s *Steps) Reconcile(ctx context.Context) error {
 	open, err := s.store.OpenSteps(ctx)
 	if err != nil {
 		return fmt.Errorf("reconcile steps: %w", err)
 	}
+	var ended []store.StepRow
 	for _, row := range open {
 		s.mu.Lock()
 		_, live := s.loops[row.ID]
@@ -225,22 +226,48 @@ func (s *Steps) Reconcile(ctx context.Context) error {
 			s.runLoop(ctx, row.ID, run)
 			continue
 		}
-		if endErr := s.endRestarted(ctx, row, adopter); endErr != nil {
-			return endErr
-		}
+		ended = append(ended, row)
 	}
-	return nil
+	return s.endRestarted(ctx, ended)
 }
 
-// endRestarted ends the open row of a step with no live loop as a restart leaves it: engine_restarted, then its worktree
-// removed, its gate holder stopped and cleared, and its observer unregistered from adopter when there is one. Nothing is
-// notified and no session is stopped, since a restart leaves no session to stop. A worktree or gate holder that cannot be
-// removed or cleared is logged and the rest goes on, so one bad row never keeps the others open. It returns the error of
-// the end's write.
-func (s *Steps) endRestarted(ctx context.Context, row store.StepRow, adopter StepAdopter) error {
-	if err := s.writer.Commit(ctx, row.ID, store.StepEnd{ID: row.ID, End: stepRestartedEnd}); err != nil {
-		return fmt.Errorf("reconcile step %s: %w", row.ID, err)
+// endRestarted ends the open rows of steps with no live loop as a restart leaves them: engine_restarted, all stored in one
+// CommitAll so one ApplyEngine call carries every end. Then each row whose end was stored has its worktree removed, its gate
+// holder stopped and cleared, and its observer unregistered from the adopter when there is one. A row whose end is dropped
+// is not cleaned up, the other rows still are, and the first dropped end is returned. A queueing failure returns its error
+// with no cleanup. Nothing is notified and no session is stopped, since a restart leaves no session to stop.
+func (s *Steps) endRestarted(ctx context.Context, rows []store.StepRow) error {
+	groups := make([]SessionOps, 0, len(rows))
+	for _, row := range rows {
+		groups = append(groups, SessionOps{
+			ID:  row.ID,
+			Ops: []store.EngineOp{store.StepEnd{ID: row.ID, End: stepRestartedEnd}},
+		})
 	}
+	errs, err := s.writer.CommitAll(ctx, groups)
+	if err != nil {
+		return fmt.Errorf("reconcile steps: %w", err)
+	}
+	s.mu.Lock()
+	adopter := s.adopter
+	s.mu.Unlock()
+	var first error
+	for i, row := range rows {
+		if errs[i] != nil {
+			if first == nil {
+				first = fmt.Errorf("reconcile step %s: %w", row.ID, errs[i])
+			}
+			continue
+		}
+		s.cleanRestartedStep(ctx, row, adopter)
+	}
+	return first
+}
+
+// cleanRestartedStep cleans up the row of a step endRestarted stored engine_restarted: its worktree removed, its gate holder
+// stopped and cleared, and its observer unregistered from adopter when there is one. A worktree or gate holder that cannot
+// be removed or cleared is logged and the rest goes on, so one bad row never keeps the others open.
+func (s *Steps) cleanRestartedStep(ctx context.Context, row store.StepRow, adopter StepAdopter) {
 	if row.Worktree != "" {
 		if err := removeStepWorktree(ctx, row.Workspace, row.Worktree); err != nil {
 			s.logger.WarnContext(ctx, "remove worktree of restarted step", "step", row.ID, "err", err)
@@ -254,7 +281,6 @@ func (s *Steps) endRestarted(ctx context.Context, row store.StepRow, adopter Ste
 	if adopter != nil {
 		adopter.ExpectStep(row.ID, nil)
 	}
-	return nil
 }
 
 // Close cancels every loop and waits until no loop is left. Without a gate scope the cancel kills any gate a loop is

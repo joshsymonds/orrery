@@ -78,11 +78,12 @@ type NoticeSink interface {
 	Seen(ctx context.Context, session string, seen time.Time)
 }
 
-// Store reads the engine rows Reconcile settles, the rows Say resumes, checks and Seen marks, the prompts a re-adopted
-// holder has not written, the step rows Continue respawns from, and the failure markers Say checks. *store.Store
-// satisfies it.
+// Store reads the engine rows Reconcile settles, the ids of the sessions holding unfinished text that Reconcile clears, the
+// rows Say resumes, checks and Seen marks, the prompts a re-adopted holder has not written, the step rows Continue
+// respawns from, and the failure markers Say checks. *store.Store satisfies it.
 type Store interface {
 	EngineSessions(ctx context.Context) ([]store.EngineRow, error)
+	EngineTextSessions(ctx context.Context) (map[string]bool, error)
 	EngineSession(ctx context.Context, id string) (store.EngineRow, error)
 	HolderPrompts(ctx context.Context, id string) ([]store.HolderPrompt, error)
 	Step(ctx context.Context, id string) (store.StepRow, error)

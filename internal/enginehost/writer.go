@@ -19,7 +19,13 @@ const (
 	defaultLimit = 256
 )
 
-// ErrWriterStopped reports a Put or Commit that cannot be stored because Run has returned.
+// SessionOps is one session's ops for CommitAll. Each op must carry ID as its session ID.
+type SessionOps struct {
+	ID  string
+	Ops []store.EngineOp
+}
+
+// ErrWriterStopped reports a Put, Commit or CommitAll that cannot be stored because Run has returned.
 var ErrWriterStopped = errors.New("engine writer stopped")
 
 // Applier stores engine ops in one transaction. *store.Store satisfies it.
@@ -159,17 +165,60 @@ func (w *Writer) Commit(ctx context.Context, id string, ops ...store.EngineOp) e
 		if awaitErr := w.await(ctx, result); awaitErr != nil {
 			return awaitErr
 		}
+		if result.err != nil {
+			return result.err
+		}
 	}
 	return nil
 }
 
-// put queues ops and returns, for each op, its outcome. A text or consumed-offset op coalesced into a queued one returns
-// that op's outcome.
-func (w *Writer) put(ctx context.Context, id string, ops []store.EngineOp) ([]*outcome, error) {
-	needsRoom := slices.ContainsFunc(ops, countsAgainstLimit)
+// CommitAll queues every group's ops like Commit does for one session, then returns once they are all stored. It
+// waits for room under the limit for every group before queueing any, and queues them all under one hold of the lock,
+// so one tick stores them in one ApplyEngine call. It returns one error per group, in order: nil when every op of the
+// group was stored, or the error of its dropped op. A dropped op does not stop the other groups. When queueing or
+// waiting fails, it returns a nil slice and that error.
+func (w *Writer) CommitAll(ctx context.Context, groups []SessionOps) ([]error, error) {
+	if !slices.ContainsFunc(groups, hasOps) {
+		return make([]error, len(groups)), nil
+	}
+	queued, err := w.putAll(ctx, groups)
+	if err != nil {
+		return nil, err
+	}
+	errs := make([]error, len(groups))
+	for i, results := range queued {
+		for _, result := range results {
+			if awaitErr := w.await(ctx, result); awaitErr != nil {
+				return nil, awaitErr
+			}
+			if errs[i] == nil {
+				errs[i] = result.err
+			}
+		}
+	}
+	return errs, nil
+}
 
+// put queues ops for session id and returns, for each op, its outcome. A text or consumed-offset op coalesced into a
+// queued one returns that op's outcome.
+func (w *Writer) put(ctx context.Context, id string, ops []store.EngineOp) ([]*outcome, error) {
+	results, err := w.putAll(ctx, []SessionOps{{ID: id, Ops: ops}})
+	if err != nil {
+		return nil, err
+	}
+	return results[0], nil
+}
+
+// putAll queues the ops of every group and returns, for each group's op, its outcome. A group with an op that counts
+// against the limit waits while its session has as many unstored ops as the limit, and no op is queued until no group
+// waits. The check and the queueing share one hold of w.mu.
+func (w *Writer) putAll(ctx context.Context, groups []SessionOps) ([][]*outcome, error) {
 	w.mu.Lock()
-	for needsRoom && w.unstored[id] >= w.limit {
+	for {
+		full := w.fullLocked(groups)
+		if full == nil {
+			break
+		}
 		changed := w.changed
 		w.mu.Unlock()
 		select {
@@ -177,7 +226,7 @@ func (w *Writer) put(ctx context.Context, id string, ops []store.EngineOp) ([]*o
 		case <-w.stopped:
 			return nil, ErrWriterStopped
 		case <-ctx.Done():
-			return nil, fmt.Errorf("queue ops for session %s: %w", id, ctx.Err())
+			return nil, fmt.Errorf("queue ops for session %s: %w", full.ID, ctx.Err())
 		}
 		w.mu.Lock()
 	}
@@ -186,11 +235,31 @@ func (w *Writer) put(ctx context.Context, id string, ops []store.EngineOp) ([]*o
 		return nil, ErrWriterStopped
 	}
 
-	results := make([]*outcome, 0, len(ops))
-	for _, op := range ops {
-		results = append(results, w.enqueueLocked(id, op))
+	results := make([][]*outcome, len(groups))
+	for i, group := range groups {
+		results[i] = make([]*outcome, 0, len(group.Ops))
+		for _, op := range group.Ops {
+			results[i] = append(results[i], w.enqueueLocked(group.ID, op))
+		}
 	}
 	return results, nil
+}
+
+// fullLocked returns the first group whose session has as many unstored ops as the limit, when the group has an op
+// that counts against the limit. It returns nil when no group waits. w.mu must be held.
+func (w *Writer) fullLocked(groups []SessionOps) *SessionOps {
+	for i := range groups {
+		group := &groups[i]
+		if slices.ContainsFunc(group.Ops, countsAgainstLimit) && w.unstored[group.ID] >= w.limit {
+			return group
+		}
+	}
+	return nil
+}
+
+// hasOps reports whether group has any ops.
+func hasOps(group SessionOps) bool {
+	return len(group.Ops) > 0
 }
 
 // enqueueLocked appends op to the queue, or coalesces an EngineText or EngineConsumed into the queued one it merges
@@ -345,17 +414,17 @@ func (w *Writer) settleLocked(e entry) {
 	}
 }
 
-// await waits for result to settle, or for ctx to end or Run to return without settling it. It returns the op's
-// error when the op was dropped.
+// await waits for result to settle, or for ctx to end or Run to return without settling it. It returns nil once the op
+// is settled, whether stored or dropped; the op's error, when it was dropped, is result.err.
 func (w *Writer) await(ctx context.Context, result *outcome) error {
 	select {
 	case <-result.done:
-		return result.err
+		return nil
 	case <-ctx.Done():
 		return fmt.Errorf("wait for stored ops: %w", ctx.Err())
 	case <-w.stopped:
 		if isClosed(result.done) {
-			return result.err
+			return nil
 		}
 		return ErrWriterStopped
 	}

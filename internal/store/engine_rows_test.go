@@ -59,3 +59,58 @@ func TestEngineRowsReadEngineRowsOnly(t *testing.T) {
 		t.Fatalf("EngineSession of an unknown id: got %v, want ErrNoEngineSession", err)
 	}
 }
+
+func TestEngineTextSessionsNamesEachSessionWithUnfinishedText(t *testing.T) {
+	ctx := context.Background()
+	s := openSyncStore(t)
+	now := engineNowAt()
+
+	if err := s.ApplyEngine(ctx, []EngineOp{
+		EngineAdd{ID: "e1", Dir: "/a", State: "working"},
+		EngineAdd{ID: "e2", Dir: "/b", State: "working"},
+		EngineAdd{ID: "e3", Dir: "/c", State: "working"},
+		EngineAdd{ID: "e4", Dir: "/d", State: "working"},
+		EngineAdd{ID: "e5", Dir: "/e", State: "idle"},
+		EngineText{ID: "e1", MessageID: "m1", Index: 0, Kind: "text", Text: "one"},
+		EngineText{ID: "e1", MessageID: "m1", Index: 1, Kind: "text", Text: "two"},
+		EngineText{ID: "e2", MessageID: "m2", Index: 0, Kind: "thinking", Text: "pending"},
+		EngineText{ID: "e3", MessageID: "m3", Index: 0, Kind: "text", Text: "finished"},
+		EngineTextDone{ID: "e3", MessageID: "m3", Index: 0},
+		EngineText{ID: "e4", MessageID: "m4", Index: 0, Kind: "text", Text: "cleared"},
+		EngineTextClear{ID: "e4"},
+	}, now); err != nil {
+		t.Fatalf("ApplyEngine: %v", err)
+	}
+
+	want := map[string]bool{"e1": true, "e2": true}
+	got, err := s.EngineTextSessions(ctx)
+	if err != nil {
+		t.Fatalf("EngineTextSessions: %v", err)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("EngineTextSessions: got %v, want %v", got, want)
+	}
+}
+
+func TestEngineTextSessionsEmptyStoreIsEmpty(t *testing.T) {
+	s := openSyncStore(t)
+
+	got, err := s.EngineTextSessions(context.Background())
+	if err != nil {
+		t.Fatalf("EngineTextSessions: %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("EngineTextSessions of an empty store: got %v, want none", got)
+	}
+}
+
+func TestEngineTextSessionsClosedStoreErrors(t *testing.T) {
+	s := openSyncStore(t)
+	if err := s.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	if _, err := s.EngineTextSessions(context.Background()); err == nil {
+		t.Fatalf("EngineTextSessions of a closed store: got nil error, want one")
+	}
+}

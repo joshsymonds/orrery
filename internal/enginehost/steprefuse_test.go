@@ -73,6 +73,7 @@ func newRefusalFixture(t *testing.T, stepCap int) *refusalFixture {
 	steps, err := NewSteps(StepsConfig{
 		Sessions: manager, Store: s, Writer: writer,
 		Worktrees: worktrees, Environ: []string{"PATH=" + os.Getenv("PATH"), "HOME=" + t.TempDir()}, Logger: logger,
+		GateStateDir: gateShortStateDir(t),
 	})
 	if err != nil {
 		t.Fatalf("NewSteps: %v", err)

@@ -132,6 +132,9 @@ type EpicStoreClient interface {
 // Panes.Conversation or Panes.Screen.
 type ReadReporter func(pane string, at int64)
 
+// InputReporter receives the unix seconds of each input the page reports through Presence.Report, dated by Now.
+type InputReporter func(input int64)
+
 // Config holds the guard settings for New.
 type Config struct {
 	// Logins lists the Tailscale logins admitted by the guard, matched exactly.
@@ -185,6 +188,9 @@ type Config struct {
 	// ReportRead receives the pane and the read time after each Panes.Conversation or Panes.Screen answers, dated by
 	// Now, or is nil to report nothing.
 	ReportRead ReadReporter
+	// ReportInput receives the unix seconds of each input Presence.Report dates by Now, or is nil to report
+	// nothing.
+	ReportInput InputReporter
 	// Web holds the built page, with index.html at its root and its assets beside it, or is nil for no page.
 	// After the login check, GET and HEAD answer a file of Web at its path, and "/" answers index.html.
 	Web fs.FS
@@ -249,6 +255,7 @@ func New(cfg Config) (http.Handler, error) {
 	mux.Handle(panesPath, panesService)
 	hostPath, hostService := newHostHandler(cfg.HostStatus)
 	mux.Handle(hostPath, hostService)
+	presencePath := registerPresence(mux, cfg.ReportInput, now)
 	pushPath, pushService := newPushHandler(cfg.Push)
 	mux.Handle(pushPath, pushService)
 	pickerPath, pickerService := newPickerHandler(cfg.Picker, tokens, cfg.Tmux, now)
@@ -258,7 +265,7 @@ func New(cfg Config) (http.Handler, error) {
 	}
 	connectPaths := []string{
 		sessionsPath, eventsPath, controlPath, epicsPath, stepsPath, poolsPath, panesPath, hostPath, pushPath,
-		pickerPath,
+		pickerPath, presencePath,
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if _, ok := allowed[r.Header.Get(HeaderLogin)]; !ok {

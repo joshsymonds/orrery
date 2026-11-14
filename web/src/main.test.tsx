@@ -10,6 +10,7 @@ const sessionsPath = "/orrery.v1.Sessions/List";
 const watchPath = "/orrery.v1.Events/Watch";
 const epicsListPath = "/orrery.v1.Epics/List";
 const epicsGetPath = "/orrery.v1.Epics/Get";
+const presencePath = "/orrery.v1.Presence/Report";
 const clientHeader = "X-Orrery-Client";
 const clientValue = "orrery web";
 const intervalMs = 5;
@@ -104,6 +105,10 @@ interface FakeServer {
   storeSeq: bigint;
   // The Events.Watch calls, in order. Only a server built with streaming answers them.
   watches: Watch[];
+  // The Presence.Report calls, in order: the client header each carried and the input age it sent.
+  reports: { header: string | null; inputAgeMs: string }[];
+  // While set, Presence.Report answers with a server error.
+  presenceFails: boolean;
   // The epics Epics.List answers with. Epics.Get answers the one whose id it is asked for, and 404s any other.
   epics: ReturnType<typeof liveEpic>[];
   // While set, Epics.List waits for it before answering.
@@ -142,6 +147,21 @@ function fakeServer(paneLabel: string, streaming = false): FakeServer {
         });
         server.watches.push(watch);
         return new Response(stream, { status: 200, headers: { "content-type": "application/connect+json" } });
+      }
+      if (path === presencePath) {
+        // proto3 JSON omits a zero age, so an absent inputAgeMs is "0".
+        const body = (await request.json()) as { inputAgeMs?: string };
+        server.reports.push({
+          header: request.headers.get(clientHeader),
+          inputAgeMs: body.inputAgeMs ?? "0",
+        });
+        if (server.presenceFails) {
+          return new Response(JSON.stringify({ code: "internal", message: "presence detail" }), {
+            status: 500,
+            headers: { "content-type": "application/json" },
+          });
+        }
+        return json({});
       }
       if (path === epicsListPath) {
         server.epicsListCalls++;
@@ -189,6 +209,8 @@ function fakeServer(paneLabel: string, streaming = false): FakeServer {
     maxPanesInFlight: 0,
     storeSeq: 7n,
     watches: [],
+    reports: [],
+    presenceFails: false,
     epics: [],
     epicsGate: null,
     epicsListCalls: 0,
@@ -642,6 +664,54 @@ test("a second tick during a slow epics load starts no second load", () =>
       await until(() => labels(root).includes("alpha"), "the epic after release");
     } finally {
       release();
+      stop();
+    }
+  }));
+
+test("a keydown reports the input age to Presence.Report with the client header", () =>
+  withPage(async (root) => {
+    const server = fakeServer("api");
+    const stop = start(root, clientsFor(server), longPollMs);
+    try {
+      await until(() => labels(root).includes("api"), "the first load");
+      document.dispatchEvent(new KeyboardEvent("keydown"));
+      await until(() => server.reports.length === 1, "the report after the keydown");
+      assert.equal(server.reports[0].header, clientValue, "the report lacked the client header");
+      assert.match(server.reports[0].inputAgeMs, /^\d+$/, "the report did not carry an age in milliseconds");
+    } finally {
+      stop();
+    }
+  }));
+
+// No report has gone out before stop, so a live watch would send this keydown at once.
+test("a keydown after stop reports nothing", () =>
+  withPage(async (root) => {
+    const server = fakeServer("api");
+    const stop = start(root, clientsFor(server), longPollMs);
+    try {
+      await until(() => labels(root).includes("api"), "the first load");
+      stop();
+      document.dispatchEvent(new KeyboardEvent("keydown"));
+      await sleep(intervalMs * 10);
+      assert.equal(server.reports.length, 0, "a keydown after stop reported");
+    } finally {
+      stop();
+    }
+  }));
+
+test("a failed Presence.Report leaves the page without an error line and keeps the rows", () =>
+  withPage(async (root) => {
+    const server = fakeServer("api");
+    server.presenceFails = true;
+    const stop = start(root, clientsFor(server), longPollMs);
+    try {
+      await until(() => labels(root).includes("api"), "the first load");
+      document.dispatchEvent(new KeyboardEvent("keydown"));
+      await until(() => server.reports.length === 1, "the failed report");
+      await sleep(intervalMs * 10);
+      assert.equal(root.querySelector(".error")?.textContent ?? "", "", "a failed report showed an error line");
+      assert.ok(labels(root).includes("api"), "the rows went away after a failed report");
+    } finally {
       stop();
     }
   }));

@@ -36,9 +36,6 @@ type fake struct {
 	timers     []*fakeTimer
 	present    bool
 	deskInput  int64
-	localInput int64
-	localOK    bool
-	localErr   error
 	subscribed bool
 	subErr     error
 	watching   bool
@@ -86,7 +83,6 @@ func newRouter(t *testing.T, f *fake) *route.Router {
 		Desk:       f,
 		Phone:      f,
 		Subscribed: f.Subscribed,
-		LocalInput: f.LocalInput,
 		Log:        f,
 	})
 	t.Cleanup(r.Close)
@@ -173,12 +169,6 @@ func (f *fake) Subscribed() (bool, error) {
 	return f.subscribed, f.subErr
 }
 
-func (f *fake) LocalInput(context.Context) (int64, bool, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return f.localInput, f.localOK, f.localErr
-}
-
 func (f *fake) Watching(context.Context) (bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -197,14 +187,6 @@ func (f *fake) setDesk(present bool, input int64) {
 	defer f.mu.Unlock()
 	f.present = present
 	f.deskInput = input
-}
-
-func (f *fake) setLocal(input int64, ok bool, err error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.localInput = input
-	f.localOK = ok
-	f.localErr = err
 }
 
 func (f *fake) setSubscribed(subscribed bool, err error) {
@@ -510,23 +492,9 @@ func TestAtDeskByDeskInputEscalatesAfterFiveMinutesUnseen(t *testing.T) {
 	f.checkActiveTimers(t, 0)
 }
 
-func TestAtDeskByDeskInputNewerThanLocalInput(t *testing.T) {
+func TestAtDeskByDeskInputEndedBySeen(t *testing.T) {
 	f := newFake()
 	f.setDesk(true, clockStart)
-	f.setLocal(clockStart-3600, true, nil)
-	r := newRouter(t, f)
-
-	r.Notify(t.Context(), f.notice(testPane, stateWaiting, false))
-	r.Wait()
-	f.check(t, []route.Line{lineOf(testPane, clockStart, stateWaiting, route.Desk, "at the desk")},
-		[]deskstream.Notice{deskPost(stateWaiting)}, nil)
-	f.checkActiveTimers(t, 1)
-}
-
-func TestAtDeskByLocalInputEndedBySeen(t *testing.T) {
-	f := newFake()
-	f.setDesk(true, clockStart-3600)
-	f.setLocal(clockStart, true, nil)
 	r := newRouter(t, f)
 	key := notice.Key{Pane: testPane}
 
@@ -683,7 +651,6 @@ func TestErrorsReadAsDefaults(t *testing.T) {
 	err := errors.New("synthetic read failure")
 	f.setWatching(true, err)
 	f.setDesk(true, clockStart-3600)
-	f.setLocal(clockStart, true, err)
 	f.setSubscribed(false, err)
 	r := newRouter(t, f)
 

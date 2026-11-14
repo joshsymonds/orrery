@@ -22,13 +22,12 @@ const (
 
 // Config is what Run needs. Orrery is the orrery binary the local link runs, and Socket is the --socket path it
 // passes on, or empty for the default. Hosts are the other machines whose streams the desk keeps. Sound is the file
-// pw-play plays for each popup that is not quiet. Input reports the desk's newest input, and Clock times the links.
+// pw-play plays for each popup that is not quiet. Clock times the links.
 type Config struct {
 	Orrery string
 	Socket string
 	Hosts  []string
 	Sound  string
-	Input  func(context.Context) (int64, bool, error)
 	Clock  Clock
 	Logger *slog.Logger
 }
@@ -108,7 +107,6 @@ func newLink(host string, command []string, cfg Config, queue *popupQueue, logge
 	return &Link{
 		Host:    host,
 		Command: command,
-		Input:   cfg.Input,
 		Notify:  queue.notify,
 		Lost:    queue.lost,
 		Clock:   cfg.Clock,

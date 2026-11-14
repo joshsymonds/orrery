@@ -5191,6 +5191,89 @@ func (*PoolsFreeResponse) Descriptor() ([]byte, []int) {
 	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{77}
 }
 
+// PresenceReportRequest reports how long ago the page's newest input was.
+type PresenceReportRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The milliseconds since the page's newest input, by the page's own clock.
+	InputAgeMs    int64 `protobuf:"varint,1,opt,name=input_age_ms,json=inputAgeMs,proto3" json:"input_age_ms,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PresenceReportRequest) Reset() {
+	*x = PresenceReportRequest{}
+	mi := &file_orrery_v1_orrery_proto_msgTypes[78]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PresenceReportRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PresenceReportRequest) ProtoMessage() {}
+
+func (x *PresenceReportRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_orrery_proto_msgTypes[78]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PresenceReportRequest.ProtoReflect.Descriptor instead.
+func (*PresenceReportRequest) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{78}
+}
+
+func (x *PresenceReportRequest) GetInputAgeMs() int64 {
+	if x != nil {
+		return x.InputAgeMs
+	}
+	return 0
+}
+
+// PresenceReportResponse is the reply to a Report. It has no fields.
+type PresenceReportResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PresenceReportResponse) Reset() {
+	*x = PresenceReportResponse{}
+	mi := &file_orrery_v1_orrery_proto_msgTypes[79]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PresenceReportResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PresenceReportResponse) ProtoMessage() {}
+
+func (x *PresenceReportResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_orrery_v1_orrery_proto_msgTypes[79]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PresenceReportResponse.ProtoReflect.Descriptor instead.
+func (*PresenceReportResponse) Descriptor() ([]byte, []int) {
+	return file_orrery_v1_orrery_proto_rawDescGZIP(), []int{79}
+}
+
 var File_orrery_v1_orrery_proto protoreflect.FileDescriptor
 
 const file_orrery_v1_orrery_proto_rawDesc = "" +
@@ -5574,7 +5657,11 @@ const file_orrery_v1_orrery_proto_rawDesc = "" +
 	"\x11PoolsHoldResponse\"*\n" +
 	"\x10PoolsFreeRequest\x12\x16\n" +
 	"\x06member\x18\x01 \x01(\tR\x06member\"\x13\n" +
-	"\x11PoolsFreeResponse2\x86\x02\n" +
+	"\x11PoolsFreeResponse\"9\n" +
+	"\x15PresenceReportRequest\x12 \n" +
+	"\finput_age_ms\x18\x01 \x01(\x03R\n" +
+	"inputAgeMs\"\x18\n" +
+	"\x16PresenceReportResponse2\x86\x02\n" +
 	"\bSessions\x127\n" +
 	"\x04List\x12\x16.orrery.v1.ListRequest\x1a\x17.orrery.v1.ListResponse\x12O\n" +
 	"\fListHeadless\x12\x1e.orrery.v1.ListHeadlessRequest\x1a\x1f.orrery.v1.ListHeadlessResponse\x12p\n" +
@@ -5599,7 +5686,9 @@ const file_orrery_v1_orrery_proto_rawDesc = "" +
 	"PullQueued\x12\x1c.orrery.v1.PullQueuedRequest\x1a\x1d.orrery.v1.PullQueuedResponse\x12`\n" +
 	"\x11WatchConversation\x12#.orrery.v1.WatchConversationRequest\x1a$.orrery.v1.WatchConversationResponse0\x012M\n" +
 	"\x04Host\x12E\n" +
-	"\x06Status\x12\x1c.orrery.v1.HostStatusRequest\x1a\x1d.orrery.v1.HostStatusResponse2\x96\x01\n" +
+	"\x06Status\x12\x1c.orrery.v1.HostStatusRequest\x1a\x1d.orrery.v1.HostStatusResponse2Y\n" +
+	"\bPresence\x12M\n" +
+	"\x06Report\x12 .orrery.v1.PresenceReportRequest\x1a!.orrery.v1.PresenceReportResponse2\x96\x01\n" +
 	"\x04Push\x12C\n" +
 	"\bRegister\x12\x1a.orrery.v1.RegisterRequest\x1a\x1b.orrery.v1.RegisterResponse\x12I\n" +
 	"\n" +
@@ -5626,7 +5715,7 @@ func file_orrery_v1_orrery_proto_rawDescGZIP() []byte {
 	return file_orrery_v1_orrery_proto_rawDescData
 }
 
-var file_orrery_v1_orrery_proto_msgTypes = make([]protoimpl.MessageInfo, 78)
+var file_orrery_v1_orrery_proto_msgTypes = make([]protoimpl.MessageInfo, 80)
 var file_orrery_v1_orrery_proto_goTypes = []any{
 	(*ListRequest)(nil),                       // 0: orrery.v1.ListRequest
 	(*ListResponse)(nil),                      // 1: orrery.v1.ListResponse
@@ -5706,6 +5795,8 @@ var file_orrery_v1_orrery_proto_goTypes = []any{
 	(*PoolsHoldResponse)(nil),                 // 75: orrery.v1.PoolsHoldResponse
 	(*PoolsFreeRequest)(nil),                  // 76: orrery.v1.PoolsFreeRequest
 	(*PoolsFreeResponse)(nil),                 // 77: orrery.v1.PoolsFreeResponse
+	(*PresenceReportRequest)(nil),             // 78: orrery.v1.PresenceReportRequest
+	(*PresenceReportResponse)(nil),            // 79: orrery.v1.PresenceReportResponse
 }
 var file_orrery_v1_orrery_proto_depIdxs = []int32{
 	2,  // 0: orrery.v1.ListResponse.sessions:type_name -> orrery.v1.Session
@@ -5762,41 +5853,43 @@ var file_orrery_v1_orrery_proto_depIdxs = []int32{
 	53, // 51: orrery.v1.Panes.PullQueued:input_type -> orrery.v1.PullQueuedRequest
 	44, // 52: orrery.v1.Panes.WatchConversation:input_type -> orrery.v1.WatchConversationRequest
 	55, // 53: orrery.v1.Host.Status:input_type -> orrery.v1.HostStatusRequest
-	58, // 54: orrery.v1.Push.Register:input_type -> orrery.v1.RegisterRequest
-	60, // 55: orrery.v1.Push.Unregister:input_type -> orrery.v1.UnregisterRequest
-	62, // 56: orrery.v1.Picker.Ask:input_type -> orrery.v1.AskRequest
-	65, // 57: orrery.v1.Picker.Run:input_type -> orrery.v1.RunRequest
-	67, // 58: orrery.v1.Pools.Status:input_type -> orrery.v1.PoolsStatusRequest
-	74, // 59: orrery.v1.Pools.Hold:input_type -> orrery.v1.PoolsHoldRequest
-	76, // 60: orrery.v1.Pools.Free:input_type -> orrery.v1.PoolsFreeRequest
-	1,  // 61: orrery.v1.Sessions.List:output_type -> orrery.v1.ListResponse
-	4,  // 62: orrery.v1.Sessions.ListHeadless:output_type -> orrery.v1.ListHeadlessResponse
-	7,  // 63: orrery.v1.Sessions.WatchConversation:output_type -> orrery.v1.SessionsWatchConversationResponse
-	10, // 64: orrery.v1.Events.Watch:output_type -> orrery.v1.WatchResponse
-	15, // 65: orrery.v1.Control.Start:output_type -> orrery.v1.StartResponse
-	17, // 66: orrery.v1.Control.Say:output_type -> orrery.v1.SayResponse
-	19, // 67: orrery.v1.Control.Answer:output_type -> orrery.v1.AnswerResponse
-	21, // 68: orrery.v1.Control.Interrupt:output_type -> orrery.v1.InterruptResponse
-	23, // 69: orrery.v1.Control.Stop:output_type -> orrery.v1.StopResponse
-	25, // 70: orrery.v1.Control.Seen:output_type -> orrery.v1.SeenResponse
-	35, // 71: orrery.v1.Panes.List:output_type -> orrery.v1.PanesListResponse
-	38, // 72: orrery.v1.Panes.Screen:output_type -> orrery.v1.ScreenResponse
-	40, // 73: orrery.v1.Panes.Conversation:output_type -> orrery.v1.ConversationResponse
-	48, // 74: orrery.v1.Panes.SendText:output_type -> orrery.v1.SendTextResponse
-	50, // 75: orrery.v1.Panes.SendKeys:output_type -> orrery.v1.SendKeysResponse
-	52, // 76: orrery.v1.Panes.MarkSeen:output_type -> orrery.v1.MarkSeenResponse
-	54, // 77: orrery.v1.Panes.PullQueued:output_type -> orrery.v1.PullQueuedResponse
-	45, // 78: orrery.v1.Panes.WatchConversation:output_type -> orrery.v1.WatchConversationResponse
-	56, // 79: orrery.v1.Host.Status:output_type -> orrery.v1.HostStatusResponse
-	59, // 80: orrery.v1.Push.Register:output_type -> orrery.v1.RegisterResponse
-	61, // 81: orrery.v1.Push.Unregister:output_type -> orrery.v1.UnregisterResponse
-	63, // 82: orrery.v1.Picker.Ask:output_type -> orrery.v1.AskResponse
-	66, // 83: orrery.v1.Picker.Run:output_type -> orrery.v1.RunResponse
-	68, // 84: orrery.v1.Pools.Status:output_type -> orrery.v1.PoolsStatusResponse
-	75, // 85: orrery.v1.Pools.Hold:output_type -> orrery.v1.PoolsHoldResponse
-	77, // 86: orrery.v1.Pools.Free:output_type -> orrery.v1.PoolsFreeResponse
-	61, // [61:87] is the sub-list for method output_type
-	35, // [35:61] is the sub-list for method input_type
+	78, // 54: orrery.v1.Presence.Report:input_type -> orrery.v1.PresenceReportRequest
+	58, // 55: orrery.v1.Push.Register:input_type -> orrery.v1.RegisterRequest
+	60, // 56: orrery.v1.Push.Unregister:input_type -> orrery.v1.UnregisterRequest
+	62, // 57: orrery.v1.Picker.Ask:input_type -> orrery.v1.AskRequest
+	65, // 58: orrery.v1.Picker.Run:input_type -> orrery.v1.RunRequest
+	67, // 59: orrery.v1.Pools.Status:input_type -> orrery.v1.PoolsStatusRequest
+	74, // 60: orrery.v1.Pools.Hold:input_type -> orrery.v1.PoolsHoldRequest
+	76, // 61: orrery.v1.Pools.Free:input_type -> orrery.v1.PoolsFreeRequest
+	1,  // 62: orrery.v1.Sessions.List:output_type -> orrery.v1.ListResponse
+	4,  // 63: orrery.v1.Sessions.ListHeadless:output_type -> orrery.v1.ListHeadlessResponse
+	7,  // 64: orrery.v1.Sessions.WatchConversation:output_type -> orrery.v1.SessionsWatchConversationResponse
+	10, // 65: orrery.v1.Events.Watch:output_type -> orrery.v1.WatchResponse
+	15, // 66: orrery.v1.Control.Start:output_type -> orrery.v1.StartResponse
+	17, // 67: orrery.v1.Control.Say:output_type -> orrery.v1.SayResponse
+	19, // 68: orrery.v1.Control.Answer:output_type -> orrery.v1.AnswerResponse
+	21, // 69: orrery.v1.Control.Interrupt:output_type -> orrery.v1.InterruptResponse
+	23, // 70: orrery.v1.Control.Stop:output_type -> orrery.v1.StopResponse
+	25, // 71: orrery.v1.Control.Seen:output_type -> orrery.v1.SeenResponse
+	35, // 72: orrery.v1.Panes.List:output_type -> orrery.v1.PanesListResponse
+	38, // 73: orrery.v1.Panes.Screen:output_type -> orrery.v1.ScreenResponse
+	40, // 74: orrery.v1.Panes.Conversation:output_type -> orrery.v1.ConversationResponse
+	48, // 75: orrery.v1.Panes.SendText:output_type -> orrery.v1.SendTextResponse
+	50, // 76: orrery.v1.Panes.SendKeys:output_type -> orrery.v1.SendKeysResponse
+	52, // 77: orrery.v1.Panes.MarkSeen:output_type -> orrery.v1.MarkSeenResponse
+	54, // 78: orrery.v1.Panes.PullQueued:output_type -> orrery.v1.PullQueuedResponse
+	45, // 79: orrery.v1.Panes.WatchConversation:output_type -> orrery.v1.WatchConversationResponse
+	56, // 80: orrery.v1.Host.Status:output_type -> orrery.v1.HostStatusResponse
+	79, // 81: orrery.v1.Presence.Report:output_type -> orrery.v1.PresenceReportResponse
+	59, // 82: orrery.v1.Push.Register:output_type -> orrery.v1.RegisterResponse
+	61, // 83: orrery.v1.Push.Unregister:output_type -> orrery.v1.UnregisterResponse
+	63, // 84: orrery.v1.Picker.Ask:output_type -> orrery.v1.AskResponse
+	66, // 85: orrery.v1.Picker.Run:output_type -> orrery.v1.RunResponse
+	68, // 86: orrery.v1.Pools.Status:output_type -> orrery.v1.PoolsStatusResponse
+	75, // 87: orrery.v1.Pools.Hold:output_type -> orrery.v1.PoolsHoldResponse
+	77, // 88: orrery.v1.Pools.Free:output_type -> orrery.v1.PoolsFreeResponse
+	62, // [62:89] is the sub-list for method output_type
+	35, // [35:62] is the sub-list for method input_type
 	35, // [35:35] is the sub-list for extension type_name
 	35, // [35:35] is the sub-list for extension extendee
 	0,  // [0:35] is the sub-list for field type_name
@@ -5831,9 +5924,9 @@ func file_orrery_v1_orrery_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_orrery_v1_orrery_proto_rawDesc), len(file_orrery_v1_orrery_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   78,
+			NumMessages:   80,
 			NumExtensions: 0,
-			NumServices:   8,
+			NumServices:   9,
 		},
 		GoTypes:           file_orrery_v1_orrery_proto_goTypes,
 		DependencyIndexes: file_orrery_v1_orrery_proto_depIdxs,

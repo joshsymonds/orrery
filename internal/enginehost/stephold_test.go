@@ -91,12 +91,13 @@ func newStepHoldFixture(t *testing.T) *stepHoldFixture {
 	sessions := &holdSessions{stepStartSessions: &stepStartSessions{writer: writer}}
 	worktrees := t.TempDir()
 	steps, err := NewSteps(StepsConfig{
-		Sessions:  sessions,
-		Store:     s,
-		Writer:    writer,
-		Worktrees: worktrees,
-		Environ:   []string{"PATH=" + os.Getenv("PATH"), "HOME=" + t.TempDir()},
-		Logger:    slog.New(slog.DiscardHandler),
+		Sessions:     sessions,
+		Store:        s,
+		Writer:       writer,
+		Worktrees:    worktrees,
+		Environ:      []string{"PATH=" + os.Getenv("PATH"), "HOME=" + t.TempDir()},
+		Logger:       slog.New(slog.DiscardHandler),
+		GateStateDir: gateShortStateDir(t),
 	})
 	if err != nil {
 		t.Fatalf("NewSteps: %v", err)

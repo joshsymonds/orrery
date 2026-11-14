@@ -104,9 +104,9 @@ var (
 // with.
 type Rebuild func(ctx context.Context, data []byte, at int64) (Notice, error)
 
-// Config holds the Router's collaborators. A nil After uses time.AfterFunc, a nil LocalInput reports no input,
-// and a nil Logger discards. Rebuild maps each source kind to its Rebuild; a stored row of a kind it lacks is not
-// restored. Attach calls each Rebuild under the Router's lock, so a Rebuild must not call the Router.
+// Config holds the Router's collaborators. A nil After uses time.AfterFunc and a nil Logger discards. Rebuild maps
+// each source kind to its Rebuild; a stored row of a kind it lacks is not restored. Attach calls each Rebuild under
+// the Router's lock, so a Rebuild must not call the Router.
 type Config struct {
 	Host       string
 	Now        func() time.Time
@@ -114,7 +114,6 @@ type Config struct {
 	Desk       DeskSink
 	Phone      PhoneSink
 	Subscribed func() (bool, error)
-	LocalInput func(context.Context) (input int64, ok bool, err error)
 	Log        Recorder
 	Logger     *slog.Logger
 	Rebuild    map[string]Rebuild
@@ -166,9 +165,6 @@ type entry struct {
 func New(cfg Config) *Router {
 	if cfg.After == nil {
 		cfg.After = afterFunc
-	}
-	if cfg.LocalInput == nil {
-		cfg.LocalInput = noLocalInput
 	}
 	if cfg.Logger == nil {
 		cfg.Logger = slog.New(slog.DiscardHandler)
@@ -376,9 +372,6 @@ func (r *Router) hold(ctx context.Context, ent *entry) {
 // line route writes.
 func (r *Router) route(ctx context.Context, ent *entry, clause string) {
 	input, present := r.cfg.Desk.Desk()
-	if local, ok := r.localInput(ctx); ok && local > input {
-		input = local
-	}
 	atDesk := present && input >= r.cfg.Now().Add(-DeskWindow).Unix()
 	dn, built := r.buildDesk(ctx, ent)
 	if atDesk && built {
@@ -529,16 +522,6 @@ func (r *Router) buildDesk(ctx context.Context, ent *entry) (deskstream.Notice, 
 	return dn, true
 }
 
-// localInput reads the input made on this machine. An error reads as no input.
-func (r *Router) localInput(ctx context.Context) (int64, bool) {
-	input, ok, err := r.cfg.LocalInput(ctx)
-	if err != nil {
-		r.cfg.Logger.ErrorContext(ctx, "read local input", "error", err)
-		return 0, false
-	}
-	return input, ok
-}
-
 // subscribed reports whether a push subscription exists. An error reads as subscribed, so the push is attempted.
 func (r *Router) subscribed() bool {
 	ok, err := r.cfg.Subscribed()
@@ -582,8 +565,4 @@ func silent(build func(context.Context) (push.Notification, error)) func(context
 
 func afterFunc(d time.Duration, f func()) func() bool {
 	return time.AfterFunc(d, f).Stop
-}
-
-func noLocalInput(context.Context) (int64, bool, error) {
-	return 0, false, nil
 }
