@@ -2,10 +2,14 @@ package planner
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -76,6 +80,13 @@ const (
 
 // taskOpen is the status of a task that is not yet accepted or failed. Only an open task owns its files.
 const taskOpen = "open"
+
+// plannerNamespace starts the parts every planner turn's step id hashes, so the ids are this package's. turnStepIDLength
+// is the number of hex digits of a step id, the form a fresh id has.
+const (
+	plannerNamespace = "orrery-planner"
+	turnStepIDLength = 32
+)
 
 // Runner passes over the epics with pending triggers and runs their planner turns. Each claimed turn runs in its own
 // goroutine, and turns tracks them until Run returns.
@@ -192,9 +203,17 @@ func (r *Runner) runTurn(ctx context.Context, epic, agent string) {
 	r.finish(ctx, epic, turn.Seq, id)
 }
 
-// startStep reads the claimed turn's epic and triggers and starts its read-only planner step. It returns the step's
-// id. A start that returns an id with an error still has its id recorded on the turn, and a step whose turn was flagged
-// to stop before it had one is stopped as soon as its id is recorded.
+// turnStepID returns the id turn seq of epic starts its planner step under: the lowercase hex sha256 of the namespace,
+// the epic and the seq joined with NUL, cut to turnStepIDLength digits. The same epic and seq give the same id, so
+// recovery finds a step that was started before its id was recorded on the turn.
+func turnStepID(epic string, seq int64) string {
+	sum := sha256.Sum256([]byte(strings.Join([]string{plannerNamespace, epic, strconv.FormatInt(seq, 10)}, "\x00")))
+	return hex.EncodeToString(sum[:])[:turnStepIDLength]
+}
+
+// startStep reads the claimed turn's epic and triggers and starts its read-only planner step under turnStepID. It
+// returns the step's id. A start that returns an id with an error still has its id recorded on the turn, and a step
+// whose turn was flagged to stop before it had one is stopped as soon as its id is recorded.
 func (r *Runner) startStep(ctx context.Context, epic string, turn store.EpicTurn, agent string) (string, error) {
 	row, err := r.store.Epic(ctx, epic)
 	if err != nil {
@@ -209,6 +228,7 @@ func (r *Runner) startStep(ctx context.Context, epic string, turn store.EpicTurn
 		return "", fmt.Errorf("render prompt of turn %d of epic %s: %w", turn.Seq, epic, err)
 	}
 	id, err := r.steps.Start(ctx, enginehost.StepStart{
+		ID:          turnStepID(epic, turn.Seq),
 		Agent:       agent,
 		Prompt:      prompt,
 		Schema:      Schema,
@@ -248,10 +268,11 @@ func (r *Runner) stopIfFlagged(ctx context.Context, epic string, seq int64, id s
 	}
 }
 
-// recoverTurns settles each turn a previous orreryd left running, before the first pass. A turn with no step is freed
-// with noStep. A turn whose step has ended is settled by that end, and a turn whose step is still open is waited on in
-// its own goroutine. A turn whose step cannot be read stays running and is logged; it still counts as running, so its
-// epic gets no new turn.
+// recoverTurns settles each turn a previous orreryd left running, before the first pass. A turn with no recorded step
+// is looked up under the id its step starts under: a step stored under that id is recorded on the turn, and a turn with
+// no such step is freed with noStep. A turn whose step has ended is settled by that end. A turn whose step is still
+// open is waited on in its own goroutine, and stopped first when the turn was flagged to stop. A turn whose step cannot
+// be read stays running and is logged; it still counts as running, so its epic gets no new turn.
 func (r *Runner) recoverTurns(ctx context.Context) {
 	turns, err := r.store.RunningTurns(ctx)
 	if err != nil {
@@ -262,25 +283,53 @@ func (r *Runner) recoverTurns(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
-		if turn.Step == "" {
-			r.release(ctx, turn.Epic, turn.Seq, store.TurnFree{Reason: noStep})
-			continue
-		}
-		row, readErr := r.steps.Status(ctx, turn.Step)
-		if readErr != nil {
-			r.logger.ErrorContext(ctx, "read step of running planner turn",
-				"epic", turn.Epic, "turn", turn.Seq, "step", turn.Step, "err", readErr)
-			continue
-		}
-		if row.End == "" {
-			r.turns.Add(1)
-			go r.resume(ctx, turn.Epic, turn.Seq, turn.Step)
-			continue
-		}
-		if err = r.settle(ctx, turn.Epic, turn.Seq, turn.Step, row); err != nil {
-			r.logger.ErrorContext(ctx, "settle planner turn", "epic", turn.Epic, "turn", turn.Seq, "err", err)
-		}
+		r.recoverTurn(ctx, turn)
 	}
+}
+
+// recoverTurn settles one running turn as recoverTurns describes. A turn with no recorded step reads the step stored
+// under its derived id, and is freed with noStep when there is none.
+func (r *Runner) recoverTurn(ctx context.Context, turn store.EpicTurn) {
+	id, recorded := turn.Step, turn.Step != ""
+	if !recorded {
+		id = turnStepID(turn.Epic, turn.Seq)
+	}
+	row, err := r.steps.Status(ctx, id)
+	if !recorded && errors.Is(err, store.ErrNoStep) {
+		r.release(ctx, turn.Epic, turn.Seq, store.TurnFree{Reason: noStep})
+		return
+	}
+	if err != nil {
+		r.logger.ErrorContext(ctx, "read step of running planner turn",
+			"epic", turn.Epic, "turn", turn.Seq, "step", id, "err", err)
+		return
+	}
+	if !recorded && !r.recordFound(ctx, turn.Epic, turn.Seq, id, row) {
+		return
+	}
+	if row.End == "" {
+		r.turns.Add(1)
+		go r.resume(ctx, turn.Epic, turn.Seq, id)
+		return
+	}
+	if err = r.settle(ctx, turn.Epic, turn.Seq, id, row); err != nil {
+		r.logger.ErrorContext(ctx, "settle planner turn", "epic", turn.Epic, "turn", turn.Seq, "err", err)
+	}
+}
+
+// recordFound records step id on turn seq of epic, a turn with no recorded step whose step was found under its derived
+// id. An open step is stopped when the turn was flagged to stop, as a step started before its id was recorded is. It
+// reports false, after logging, when the step is not recorded; the turn then stays running for the next start.
+func (r *Runner) recordFound(ctx context.Context, epic string, seq int64, id string, row store.StepRow) bool {
+	if err := r.store.SetTurnStep(ctx, epic, seq, id); err != nil {
+		r.logger.ErrorContext(ctx, "record step of running planner turn",
+			"epic", epic, "turn", seq, "step", id, "err", err)
+		return false
+	}
+	if row.End == "" {
+		r.stopIfFlagged(ctx, epic, seq, id)
+	}
+	return true
 }
 
 // resume settles turn seq of epic by the end of step id, which a previous orreryd left open.
