@@ -53,7 +53,8 @@ func newRecordingRig(t *testing.T) recordingRig {
 	return recordingRig{manager: m, store: s, path: path, applier: applier, sink: sink}
 }
 
-// fakeTurnOutput returns the stdout the fake claude writes for one prompt. The session reads the same bytes as lines.
+// fakeTurnOutput returns the stdout the fake claude writes for one prompt. The session reads the same bytes as lines. The
+// prompt carries a uuid as long as the one a session sends, since the fake claude lists it in the turn's lines.
 func fakeTurnOutput(t *testing.T, prompt string) []byte {
 	t.Helper()
 	sh, err := exec.LookPath("sh")
@@ -62,7 +63,9 @@ func fakeTurnOutput(t *testing.T, prompt string) []byte {
 	}
 	cmd := exec.CommandContext(t.Context(), sh, fakeClaudePath(t))
 	cmd.Dir = t.TempDir()
-	cmd.Stdin = strings.NewReader(`{"type":"user","message":{"role":"user","content":"` + prompt + `"}}` + "\n")
+	cmd.Stdin = strings.NewReader(
+		`{"type":"user","message":{"role":"user","content":"` + prompt + `"},"uuid":"00000000-0000-4000-8000-000000000000"}` + "\n",
+	)
 	out, err := cmd.Output()
 	if err != nil {
 		t.Fatalf("run fake claude for %q: %v", prompt, err)

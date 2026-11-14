@@ -124,14 +124,16 @@ type Config struct {
 // Stop and Close do not record over the state that exit recorded. turning is set while a turn runs, from the send of its
 // prompt or a Started event until its TurnEnded or the process's Exited. interrupting is set by Interrupt while a turn
 // runs, until that turn's end, which then sends no notice. closing is set by Close before it stops the session. The
-// manager's lock guards turning, interrupting, closing, requests, background, returned, idleSince and idleStopped, and
+// manager's lock guards turning, interrupting, closing, sending, requests, background, returned, idleSince and idleStopped, and
 // the pump sets exited under it too. requests holds the ids of the requests the host has open, background is set while a
 // background task runs, idleSince is when the session last became not busy (zero while it is busy), and idleStopped is
 // set when a check stops the session for being idle. step is set for a step session, which sends no notice and frees a
 // step slot rather than a session slot. observer receives the hand-offs of a step, which the pump makes, and returned is
 // set from a hand-off until Continue sends the step's next prompt, so the step stays busy meanwhile. draining is set for a
 // session re-adopted from a holder one version older than the controller's, which retireLocked takes out of the live set
-// once it is not busy, and retired is set once it has.
+// once it is not busy and owes no answer, and retired is set once it has. sending counts the sends of a prompt that
+// claim, claimStep or markSending began and send has not ended, so a draining session is not retired between a claim and
+// the end of its send.
 type liveSession struct {
 	id           string
 	dir          string
@@ -147,6 +149,7 @@ type liveSession struct {
 	closing      bool
 	draining     bool
 	retired      bool
+	sending      int
 	requests     map[string]struct{}
 	background   bool
 	returned     bool
@@ -473,7 +476,7 @@ func (m *Manager) say(ctx context.Context, req SayRequest) error {
 	if errors.Is(err, ErrNoSession) {
 		live, err = m.resumeSession(ctx, req.ID)
 		if err == nil {
-			m.setTurning(live, true)
+			m.markSending(live)
 		}
 	}
 	if err != nil {
@@ -483,9 +486,11 @@ func (m *Manager) say(ctx context.Context, req SayRequest) error {
 }
 
 // send records prompt as the next prompt of live, with the working state, and then sends its text. live must have its
-// turn marked running. A failed send records the session failed with the send's error, and with a prompt.PromptID the
+// turn marked running and a send begun, as claim, claimStep or markSending leaves it, and the send ends when send
+// returns (see endSend). A failed send records the session failed with the send's error, and with a prompt.PromptID the
 // same write stores that prompt's failure marker. A step sends no notice, so its failed send is recorded without one.
 func (m *Manager) send(ctx context.Context, live *liveSession, prompt store.EnginePrompt) error {
+	defer m.endSend(live)
 	id, text := prompt.ID, prompt.Text
 	working := string(protocol.StateWorking)
 	writeID, err := newWriteID()
@@ -577,7 +582,7 @@ func (m *Manager) respawnStep(ctx context.Context, id string) (*liveSession, err
 		m.releaseStep()
 		return nil, errors.Join(err, m.writeFailed(ctx, id, err))
 	}
-	m.setTurning(live, true)
+	m.markSending(live)
 	return live, nil
 }
 
@@ -1005,8 +1010,9 @@ func (m *Manager) updateIdleLocked(live *liveSession) {
 	}
 }
 
-// claim returns the live session id with its turn marked running, under the lock, so a check cannot stop the session
-// between the lookup and the prompt. It returns ErrNoSession when no session with that id is live.
+// claim returns the live session id with its turn marked running and a send begun, under the lock, so a check cannot stop
+// the session between the lookup and the prompt. The send ends in send. It returns ErrNoSession when no session with that
+// id is live.
 func (m *Manager) claim(id string) (*liveSession, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -1015,12 +1021,14 @@ func (m *Manager) claim(id string) (*liveSession, error) {
 		return nil, ErrNoSession
 	}
 	live.turning = true
+	live.sending++
 	m.updateIdleLocked(live)
 	return live, nil
 }
 
-// claimStep returns the live step id with its turn marked running and its hand-off ended, under the lock, so a check
-// cannot stop the step between the lookup and the prompt. It returns ErrNoSession when no live step has that id.
+// claimStep returns the live step id with its turn marked running, its hand-off ended and a send begun, under the lock, so
+// a check cannot stop the step between the lookup and the prompt. The send ends in send. It returns ErrNoSession when no
+// live step has that id.
 func (m *Manager) claimStep(id string) (*liveSession, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -1030,8 +1038,29 @@ func (m *Manager) claimStep(id string) (*liveSession, error) {
 	}
 	live.turning = true
 	live.returned = false
+	live.sending++
 	m.updateIdleLocked(live)
 	return live, nil
+}
+
+// markSending marks the turn of live running and a send begun, as claim does, for a session that resumeSession or
+// respawnStep has just started. The send ends in send.
+func (m *Manager) markSending(live *liveSession) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	live.turning = true
+	live.sending++
+	m.updateIdleLocked(live)
+}
+
+// endSend ends the send that claim, claimStep or markSending began for live, and retires live when the send leaves it
+// drained (see retireLocked). A prompt the send sent stays unanswered until its turn ends, so that turn retires the
+// session; a send that failed sent nothing to answer, so this retires it.
+func (m *Manager) endSend(live *liveSession) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	live.sending--
+	m.retireLocked(live)
 }
 
 // closeRequest removes the open request requestID from live once the session has accepted its answer.
@@ -1464,14 +1493,17 @@ func (m *Manager) noteEvent(live *liveSession, event session.Event) (record, int
 }
 
 // retireLocked takes live out of the live set and stops its process, when live is draining and not busy: no turn runs, no
-// request is open and no background task runs, so the stop ends nothing the session is still doing. A background task
-// still running at a turn's end keeps the session until a later turn ends with none, or until the idle stop takes it.
-// Each step that can leave a draining session not busy calls it under the lock: register, and noteEvent at a turn's end. The
-// session leaves m.sessions and enters m.stopping in that lock hold, so no prompt reaches it afterwards. Its stop runs on
-// its own goroutine, so the pump that calls this goes on recording the line it is on. The stop records nothing, and the
-// session holds its slot until its pump ends, which is what awaitStopping waits for. The caller holds the lock.
+// request is open and no background task runs, so the stop ends nothing the session is still doing. It also needs no send
+// pending, and every prompt the session sent answered, so the stop leaves no prompt unanswered: a prompt claude runs as a
+// following turn, or folds into the running turn, is answered on this holder before it stops. A background task still
+// running at a turn's end keeps the session until a later turn ends with none, or until the idle stop takes it.
+// Each step that can leave a draining session drained calls it under the lock: register, noteEvent at a turn's end, and
+// endSend. The session leaves m.sessions and enters m.stopping in that lock hold, so no prompt reaches it afterwards. Its
+// stop runs on its own goroutine, so the pump that calls this goes on recording the line it is on. The stop records
+// nothing, and the session holds its slot until its pump ends, which is what awaitStopping waits for. The caller holds the
+// lock.
 func (m *Manager) retireLocked(live *liveSession) {
-	if !live.draining || live.busy() || live.retired {
+	if !live.draining || live.busy() || live.retired || live.sending > 0 || live.sess.UnansweredPrompts() > 0 {
 		return
 	}
 	live.retired = true
