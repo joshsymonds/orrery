@@ -156,9 +156,9 @@ func (s *Steps) readoptRun(ctx context.Context, row store.StepRow) (*stepRun, er
 		return nil, fmt.Errorf("read turn end of step %s: %w", row.ID, err)
 	}
 	cfg := stepRunConfig{
-		id: row.ID, schema: row.Schema, doneValue: row.DoneValue, sessions: s.sessions, writer: s.writer,
-		logger: s.logger, writing: !row.ReadOnly, start: row.Revision, owned: row.Owned, gate: row.Gate,
-		gateLimit: row.GateLimit, gateName: row.GateName, gateSource: row.GateSource, pools: s.pools,
+		id: row.ID, schema: row.Schema, doneValue: row.DoneValue, sessions: s.sessions, store: s.store,
+		writer: s.writer, logger: s.logger, writing: !row.ReadOnly, start: row.Revision, owned: row.Owned,
+		gate: row.Gate, gateLimit: row.GateLimit, gateName: row.GateName, gateSource: row.GateSource, pools: s.pools,
 		environ: s.environ, prompt: row.Prompt, now: s.now, modelLimit: row.ModelLimit, stateDir: s.gateStateDir,
 		scope: s.gateScope, restore: &stepRestore{Row: row, Turn: turn, Found: found},
 	}
