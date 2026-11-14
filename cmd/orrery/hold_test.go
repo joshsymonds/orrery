@@ -17,6 +17,7 @@ import (
 	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
 	"github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1/enginev1connect"
 	"github.com/joshsymonds/orrery/internal/protocol"
+	"github.com/joshsymonds/orrery/internal/rpcretry"
 )
 
 // holdPools is an in-process Pools service for the hold tests. It records each Hold and Free as "Hold MEMBER" or
@@ -174,8 +175,6 @@ func TestHoldRefusedByOrreydExitsOne(t *testing.T) {
 			"Free builds-1"},
 		{"hold refused as invalid", []string{"hold", "builds-1"}, connect.CodeInvalidArgument, "invalid_argument",
 			"Hold builds-1"},
-		{"hold while orreryd has no store", []string{"hold", "builds-1"}, connect.CodeUnavailable, "unavailable",
-			"Hold builds-1"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -197,17 +196,49 @@ func TestHoldRefusedByOrreydExitsOne(t *testing.T) {
 	}
 }
 
-// TestHoldWithoutOrreydExitsOne exits 1 with the reason when nothing listens on the session socket.
+// TestHoldWhileOrreydHasNoStoreExitsOne answers every Hold Unavailable, as orreryd does while it has no store. Each
+// Hold is retried until rpcretry.Window has passed on the clock, then hold exits 1 with the reason.
+func TestHoldWhileOrreydHasNoStoreExitsOne(t *testing.T) {
+	setupProject(t, buildsPoolFile, "")
+	fake := &holdPools{refuse: connect.CodeUnavailable}
+	daemon := serveHoldPools(t, fake)
+	clock := newHoldClock()
+	start := clock.Now()
+	code, stderr := runHoldRetry(t, clock, daemon, "builds-1")
+	if code != exitFailure {
+		t.Errorf("exit status %d, want %d; stderr %q", code, exitFailure, stderr)
+	}
+	if !strings.HasPrefix(stderr, "orrery hold: ") || !strings.Contains(stderr, "unavailable") {
+		t.Errorf("stderr %q, want the reason unavailable prefixed with orrery hold:", stderr)
+	}
+	got := fake.received()
+	if len(got) < 2 {
+		t.Fatalf("orreryd received %q, want retried Holds", got)
+	}
+	if want := slices.Repeat([]string{"Hold builds-1"}, len(got)); !slices.Equal(got, want) {
+		t.Errorf("orreryd received %q, want only Hold builds-1 each retry", got)
+	}
+	if elapsed := clock.Now().Sub(start); elapsed != rpcretry.Window {
+		t.Errorf("hold gave up after %v on the clock, want exactly Window %v", elapsed, rpcretry.Window)
+	}
+}
+
+// TestHoldWithoutOrreydExitsOne exits 1 with the reason when nothing listens on the session socket. Each attempt is
+// refused at dial and retried until rpcretry.Window has passed on the clock.
 func TestHoldWithoutOrreydExitsOne(t *testing.T) {
 	setupProject(t, buildsPoolFile, "")
 	daemon := filepath.Join(t.TempDir(), "orreryd.sock")
-	var stdout bytes.Buffer
-	res := awaitOrrery(t, startOrrery(t, &stdout, "--socket", daemon, "hold", "builds-1"))
-	if res.code != exitFailure {
-		t.Errorf("exit status %d, want %d; stderr %q", res.code, exitFailure, res.stderr)
+	clock := newHoldClock()
+	start := clock.Now()
+	code, stderr := runHoldRetry(t, clock, daemon, "builds-1")
+	if code != exitFailure {
+		t.Errorf("exit status %d, want %d; stderr %q", code, exitFailure, stderr)
 	}
-	if !strings.HasPrefix(res.stderr, "orrery hold: ") {
-		t.Errorf("stderr %q, want the reason prefixed with orrery hold:", res.stderr)
+	if !strings.HasPrefix(stderr, "orrery hold: ") {
+		t.Errorf("stderr %q, want the reason prefixed with orrery hold:", stderr)
+	}
+	if elapsed := clock.Now().Sub(start); elapsed != rpcretry.Window {
+		t.Errorf("hold gave up after %v on the clock, want exactly Window %v", elapsed, rpcretry.Window)
 	}
 }
 
