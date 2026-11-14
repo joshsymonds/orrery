@@ -16,14 +16,42 @@ import (
 // lets that turn finish, into dir, the directory the step's fake claude runs in.
 func writeResumeFiles(t *testing.T, dir string) {
 	t.Helper()
-	for _, name := range []string{"fakeclaude.next", "fakeclaude.release"} {
-		content := []byte("STEPDONE")
-		if name == "fakeclaude.release" {
-			content = nil
-		}
-		if err := os.WriteFile(filepath.Join(dir, name), content, 0o600); err != nil {
-			t.Fatalf("write %s: %v", name, err)
-		}
+	writeResumeNext(t, dir)
+	releaseResumedTurn(t, dir)
+}
+
+// writeResumeNext writes fakeclaude.next into dir, so the resume prompt plays STEPDONE, which holds its turn until
+// releaseResumedTurn lets it finish.
+func writeResumeNext(t *testing.T, dir string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(dir, "fakeclaude.next"), []byte("STEPDONE"), 0o600); err != nil {
+		t.Fatalf("write fakeclaude.next: %v", err)
+	}
+}
+
+// releaseResumedTurn writes fakeclaude.release into dir, which lets the resumed STEPDONE turn finish.
+func releaseResumedTurn(t *testing.T, dir string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(dir, "fakeclaude.release"), nil, 0o600); err != nil {
+		t.Fatalf("write fakeclaude.release: %v", err)
+	}
+}
+
+// requireResumedStart waits until the fake claude in dir has started twice and checks that the second start resumed
+// session_1. It reads the starts before the resumed turn may end: a read-only step's worktree, where the starts are
+// logged, is removed when the step ends.
+func requireResumedStart(t *testing.T, dir string) {
+	t.Helper()
+	var args []string
+	waitUntil(t, "the respawned fake claude start", func() bool {
+		args = fakeArgs(t, dir)
+		return len(args) >= 2
+	})
+	if len(args) != 2 {
+		t.Fatalf("fake claude starts = %q, want two", args)
+	}
+	if !hasFlagValue(args[1], "--resume", "session_1") {
+		t.Fatalf("respawn args = %q, want --resume session_1", args[1])
 	}
 }
 
@@ -39,11 +67,13 @@ func TestStepsResumeRespawnsLimitedStepInItsSession(t *testing.T) {
 	pid := fakePID(t, dir)
 	waitUntil(t, "step limited", func() bool { return stepRowOf(t, rig.steps, id).LoopLimited })
 	requireGone(t, pid)
-	writeResumeFiles(t, dir)
+	writeResumeNext(t, dir)
 
 	if err := rig.steps.Resume(t.Context(), id); err != nil {
 		t.Fatalf("Resume of a limited step: %v", err)
 	}
+	requireResumedStart(t, dir)
+	releaseResumedTurn(t, dir)
 	var row store.StepRow
 	waitUntil(t, "resumed step done", func() bool {
 		row = stepRowOf(t, rig.steps, id)
@@ -54,14 +84,6 @@ func TestStepsResumeRespawnsLimitedStepInItsSession(t *testing.T) {
 	}
 	if row.LoopLimited {
 		t.Fatal("LoopLimited = true after the resumed turn, want the limit cleared")
-	}
-
-	args := fakeArgs(t, dir)
-	if len(args) != 2 {
-		t.Fatalf("fake claude starts = %q, want two", args)
-	}
-	if !hasFlagValue(args[1], "--resume", "session_1") {
-		t.Fatalf("respawn args = %q, want --resume session_1", args[1])
 	}
 }
 
@@ -143,8 +165,11 @@ func TestStepsResumeWithStepCapFullLeavesStepLimited(t *testing.T) {
 	repo := stepGitTestRepo(t)
 	revision := stepGitTestRun(t, repo, "rev-parse", "HEAD")
 	id := startLimitProbe(t, rig, repo, revision, "LIMIT")
-	waitUntil(t, "step limited", func() bool { return stepRowOf(t, rig.steps, id).LoopLimited })
 	dir := filepath.Join(rig.worktrees, id)
+	pid := fakePID(t, dir)
+	waitUntil(t, "step limited", func() bool { return stepRowOf(t, rig.steps, id).LoopLimited })
+	// The loop stores the limit before it releases the process, so the slot is free only once the release finishes.
+	requireGone(t, pid)
 	writeResumeFiles(t, dir)
 	holder := startLimitProbe(t, rig, repo, revision, "STEPDONE")
 

@@ -95,14 +95,19 @@ func TestStepLimitResumedAfterRestartRespawnsWithResume(t *testing.T) {
 	revision := stepGitTestRun(t, repo, "rev-parse", "HEAD")
 	id := startLimitProbe(t, rig, repo, revision, "LIMIT")
 	dir := filepath.Join(rig.worktrees, id)
+	pid := fakePID(t, dir)
 	waitUntil(t, "step limited", func() bool { return stepRowOf(t, rig.steps, id).LoopLimited })
-	writeResumeFiles(t, dir)
+	// The loop stores the limit before it releases the process, so the crash waits for the release to finish.
+	requireGone(t, pid)
+	writeResumeNext(t, dir)
 
 	var logs bytes.Buffer
 	_, steps := restartLimitedStep(t, rig, &logs)
 	if err := steps.Resume(t.Context(), id); err != nil {
 		t.Fatalf("Resume after the restart: %v", err)
 	}
+	requireResumedStart(t, dir)
+	releaseResumedTurn(t, dir)
 	var row store.StepRow
 	waitUntil(t, "resumed step done", func() bool {
 		row = stepRowOf(t, steps, id)
@@ -110,14 +115,6 @@ func TestStepLimitResumedAfterRestartRespawnsWithResume(t *testing.T) {
 	})
 	if row.End != stepLoopEndDone {
 		t.Fatalf("End = %q reason %q, want %q", row.End, row.Reason, stepLoopEndDone)
-	}
-
-	args := fakeArgs(t, dir)
-	if len(args) != 2 {
-		t.Fatalf("fake claude starts = %q, want two", args)
-	}
-	if !hasFlagValue(args[1], "--resume", "session_1") {
-		t.Fatalf("respawn args = %q, want --resume session_1", args[1])
 	}
 	requireNoLoggedError(t, &logs)
 }
@@ -156,7 +153,10 @@ func TestStepsStopOfLimitedStepAfterRestartEndsStopped(t *testing.T) {
 	repo := stepGitTestRepo(t)
 	revision := stepGitTestRun(t, repo, "rev-parse", "HEAD")
 	id := startLimitProbe(t, rig, repo, revision, "LIMIT")
+	pid := fakePID(t, filepath.Join(rig.worktrees, id))
 	waitUntil(t, "step limited", func() bool { return stepRowOf(t, rig.steps, id).LoopLimited })
+	// The loop stores the limit before it releases the process, so the crash waits for the release to finish.
+	requireGone(t, pid)
 
 	var logs bytes.Buffer
 	_, steps := restartLimitedStep(t, rig, &logs)
@@ -177,7 +177,10 @@ func TestStepsStopOfLimitedRowWithoutLoopEndsStopped(t *testing.T) {
 	repo := stepGitTestRepo(t)
 	revision := stepGitTestRun(t, repo, "rev-parse", "HEAD")
 	id := startLimitProbe(t, rig, repo, revision, "LIMIT")
+	pid := fakePID(t, filepath.Join(rig.worktrees, id))
 	waitUntil(t, "step limited", func() bool { return stepRowOf(t, rig.steps, id).LoopLimited })
+	// The loop stores the limit before it releases the process, so the crash waits for the release to finish.
+	requireGone(t, pid)
 
 	var logs bytes.Buffer
 	rig.crash()
