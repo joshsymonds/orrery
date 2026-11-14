@@ -11,6 +11,7 @@ import (
 
 	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
 	"github.com/joshsymonds/orrery/internal/store"
+	"github.com/joshsymonds/orrery/internal/storetest"
 )
 
 // The synthetic times of the planner turns the tests run, in unix seconds.
@@ -45,6 +46,7 @@ func plannedReturn() store.EpicPlan {
 func openPlannerStore(t *testing.T) (*store.Store, string) {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "orrery.db")
+	storetest.Seed(t, path)
 	st, err := store.Open(t.Context(), path)
 	if err != nil {
 		t.Fatalf("store.Open: %v", err)
@@ -93,6 +95,7 @@ func wantProtos[M proto.Message](t *testing.T, name string, got, want []M) {
 }
 
 func TestEpicGetReturnsCompletedTurnPausedAndParkedEpic(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	st, path := openPlannerStore(t)
 	client := newEpicsClient(t, startEpicServer(t, st))
@@ -148,6 +151,7 @@ func TestEpicGetReturnsCompletedTurnPausedAndParkedEpic(t *testing.T) {
 }
 
 func TestEpicGetRunningTurnHasNoEnd(t *testing.T) {
+	t.Parallel()
 	st, _ := openPlannerStore(t)
 	client := newEpicsClient(t, startEpicServer(t, st))
 	createEpicOK(t, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
@@ -161,6 +165,7 @@ func TestEpicGetRunningTurnHasNoEnd(t *testing.T) {
 }
 
 func TestEpicGetWithNoPlannerStateIsEmpty(t *testing.T) {
+	t.Parallel()
 	client := newEpicsClient(t, startEpicServer(t, epicTestStore(t)))
 	createEpicOK(t, client, fullEpicRequest(stepGitTestRepo(t), epicServiceID))
 

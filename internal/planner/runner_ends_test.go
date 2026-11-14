@@ -20,6 +20,7 @@ func waitForStarts(t *testing.T, steps *fakeSteps, n int) {
 }
 
 func TestRunnerFailedEndStoresReasonCappedAndFreesTrigger(t *testing.T) {
+	t.Parallel()
 	s := openRunnerStore(t)
 	createRunnerEpic(t, s)
 	steps := newFakeSteps()
@@ -51,6 +52,7 @@ func TestRunnerFailedEndStoresReasonCappedAndFreesTrigger(t *testing.T) {
 }
 
 func TestRunnerThreeFailingTurnsInARowParkTheEpic(t *testing.T) {
+	t.Parallel()
 	s := openRunnerStore(t)
 	createRunnerEpic(t, s)
 	steps := newFakeSteps()
@@ -82,6 +84,7 @@ func TestRunnerThreeFailingTurnsInARowParkTheEpic(t *testing.T) {
 }
 
 func TestRunnerStoppedStepFreesTurnAndPausesEpic(t *testing.T) {
+	t.Parallel()
 	s := openRunnerStore(t)
 	createRunnerEpic(t, s)
 	steps := newFakeSteps()
@@ -104,6 +107,7 @@ func TestRunnerStoppedStepFreesTurnAndPausesEpic(t *testing.T) {
 }
 
 func TestRunnerRejectedRateLimitFreesAndPausesCheckFailedStep(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openRunnerStore(t)
 	createRunnerEpic(t, s)
@@ -133,6 +137,7 @@ func TestRunnerRejectedRateLimitFreesAndPausesCheckFailedStep(t *testing.T) {
 }
 
 func TestRunnerEngineRestartedFreesTurnAndNextPassStartsNewTurn(t *testing.T) {
+	t.Parallel()
 	s := openRunnerStore(t)
 	createRunnerEpic(t, s)
 	steps := newFakeSteps()
@@ -159,6 +164,7 @@ func TestRunnerEngineRestartedFreesTurnAndNextPassStartsNewTurn(t *testing.T) {
 }
 
 func TestRunnerStepCapRefusalFreesTurnAndRerunsNextPass(t *testing.T) {
+	t.Parallel()
 	s := openRunnerStore(t)
 	createRunnerEpic(t, s)
 	steps := newFakeSteps()
@@ -183,6 +189,7 @@ func TestRunnerStepCapRefusalFreesTurnAndRerunsNextPass(t *testing.T) {
 }
 
 func TestRunnerRefusedAgentStartFreesTurnAndParksEpicWithErrorText(t *testing.T) {
+	t.Parallel()
 	refusals := []struct {
 		name string
 		err  error
@@ -192,6 +199,7 @@ func TestRunnerRefusedAgentStartFreesTurnAndParksEpicWithErrorText(t *testing.T)
 	}
 	for _, refusal := range refusals {
 		t.Run(refusal.name, func(t *testing.T) {
+			t.Parallel()
 			s := openRunnerStore(t)
 			createRunnerEpic(t, s)
 			steps := newFakeSteps()

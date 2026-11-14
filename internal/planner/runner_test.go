@@ -15,6 +15,7 @@ import (
 
 	"github.com/joshsymonds/orrery/internal/enginehost"
 	"github.com/joshsymonds/orrery/internal/store"
+	"github.com/joshsymonds/orrery/internal/storetest"
 )
 
 // The Runner runs against the real store and the in-process Steps.
@@ -108,7 +109,9 @@ func (f *fakeSteps) started() []enginehost.StepStart {
 // openRunnerStore opens a store in a temp dir and closes it when the test ends.
 func openRunnerStore(t *testing.T) *store.Store {
 	t.Helper()
-	s, err := store.Open(context.Background(), filepath.Join(t.TempDir(), "orrery.db"))
+	path := filepath.Join(t.TempDir(), "orrery.db")
+	storetest.Seed(t, path)
+	s, err := store.Open(context.Background(), path)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -204,6 +207,7 @@ func stepOneOnTurnOne(t *testing.T, s *store.Store) bool {
 }
 
 func TestRunnerClaimsOneTurnAndStartsReadOnlyPlannerStep(t *testing.T) {
+	t.Parallel()
 	s := openRunnerStore(t)
 	createRunnerEpic(t, s)
 	steps := newFakeSteps()
@@ -246,6 +250,7 @@ func TestRunnerClaimsOneTurnAndStartsReadOnlyPlannerStep(t *testing.T) {
 }
 
 func TestRunnerReturnCheckRefusesUnknownRequirementAndPassesValidPlan(t *testing.T) {
+	t.Parallel()
 	s := openRunnerStore(t)
 	createRunnerEpic(t, s)
 	steps := newFakeSteps()
@@ -267,6 +272,7 @@ func TestRunnerReturnCheckRefusesUnknownRequirementAndPassesValidPlan(t *testing
 }
 
 func TestRunnerDoneReturnStoresTasksAndConsumesTrigger(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openRunnerStore(t)
 	createRunnerEpic(t, s)
@@ -315,6 +321,7 @@ func TestRunnerDoneReturnStoresTasksAndConsumesTrigger(t *testing.T) {
 }
 
 func TestRunnerPassWhileTurnRunsStartsNoSecondStep(t *testing.T) {
+	t.Parallel()
 	s := openRunnerStore(t)
 	createRunnerEpic(t, s)
 	steps := newFakeSteps()
@@ -334,6 +341,7 @@ func TestRunnerPassWhileTurnRunsStartsNoSecondStep(t *testing.T) {
 }
 
 func TestRunnerPausedEpicGetsNoTurn(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openRunnerStore(t)
 	createRunnerEpic(t, s)
@@ -362,6 +370,7 @@ func TestRunnerPausedEpicGetsNoTurn(t *testing.T) {
 }
 
 func TestRunnerChecksFailedEndFailsTurnWithReasonAndFreesTrigger(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openRunnerStore(t)
 	createRunnerEpic(t, s)
@@ -394,6 +403,7 @@ func TestRunnerChecksFailedEndFailsTurnWithReasonAndFreesTrigger(t *testing.T) {
 }
 
 func TestRunnerStartErrorFailsTurnWithErrorText(t *testing.T) {
+	t.Parallel()
 	s := openRunnerStore(t)
 	createRunnerEpic(t, s)
 	steps := newFakeSteps()
@@ -412,6 +422,7 @@ func TestRunnerStartErrorFailsTurnWithErrorText(t *testing.T) {
 }
 
 func TestRunnerParksEpicWhenPlannerRoleFails(t *testing.T) {
+	t.Parallel()
 	s := openRunnerStore(t)
 	createRunnerEpic(t, s)
 	steps := newFakeSteps()
@@ -431,6 +442,7 @@ func TestRunnerParksEpicWhenPlannerRoleFails(t *testing.T) {
 }
 
 func TestRunnerLeavesTurnRunningWhenItsContextEnds(t *testing.T) {
+	t.Parallel()
 	s := openRunnerStore(t)
 	createRunnerEpic(t, s)
 	steps := newFakeSteps()
@@ -452,6 +464,7 @@ func TestRunnerLeavesTurnRunningWhenItsContextEnds(t *testing.T) {
 }
 
 func TestReturnCheckRefusesFilesOfUnfinishedTasksOnly(t *testing.T) {
+	t.Parallel()
 	epic := store.EpicRow{
 		Requirements: []store.EpicRequirement{{ID: "R1"}},
 		Tasks: []store.EpicTask{
@@ -477,7 +490,9 @@ func TestReturnCheckRefusesFilesOfUnfinishedTasksOnly(t *testing.T) {
 }
 
 func TestRunnerClaimsEveryPendingTriggerInOneTurn(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "orrery.db")
+	storetest.Seed(t, path)
 	s, err := store.Open(context.Background(), path)
 	if err != nil {
 		t.Fatalf("Open: %v", err)

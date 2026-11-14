@@ -31,6 +31,7 @@ func checkLines(t *testing.T, got []string, want ...string) {
 }
 
 func TestCheckRefusesUncleanOrNonRelativeFile(t *testing.T) {
+	t.Parallel()
 	const reason = "not a normalized repository-relative file path"
 	cases := []struct {
 		name string
@@ -51,6 +52,7 @@ func TestCheckRefusesUncleanOrNonRelativeFile(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			ret := Return{Tasks: []Task{validTask("T", tc.file)}}
 			checkLines(t, Check(ret, epicRequirements(), nil), `tasks[0] "T" files[0]: `+reason)
 		})
@@ -58,6 +60,7 @@ func TestCheckRefusesUncleanOrNonRelativeFile(t *testing.T) {
 }
 
 func TestCheckRefusesFileNamedTwice(t *testing.T) {
+	t.Parallel()
 	const reason = "named twice in the plan"
 	cases := []struct {
 		name string
@@ -80,12 +83,14 @@ func TestCheckRefusesFileNamedTwice(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			checkLines(t, Check(tc.ret, epicRequirements(), nil), tc.want)
 		})
 	}
 }
 
 func TestCheckRefusesFileOwnedByUnfinishedTask(t *testing.T) {
+	t.Parallel()
 	ret := Return{Tasks: []Task{validTask("T", "internal/store/epics.go")}}
 	owned := []string{"internal/store/epics.go"}
 	checkLines(t, Check(ret, epicRequirements(), owned),
@@ -93,6 +98,7 @@ func TestCheckRefusesFileOwnedByUnfinishedTask(t *testing.T) {
 }
 
 func TestCheckRefusesUnknownRequirement(t *testing.T) {
+	t.Parallel()
 	task := validTask("T", "internal/a.go")
 	task.Requirements = []string{"R1", "R9"}
 	checkLines(t, Check(Return{Tasks: []Task{task}}, epicRequirements(), nil),
@@ -100,6 +106,7 @@ func TestCheckRefusesUnknownRequirement(t *testing.T) {
 }
 
 func TestCheckRefusesEmptyTaskText(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name   string
 		mutate func(*Task)
@@ -114,6 +121,7 @@ func TestCheckRefusesEmptyTaskText(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			task := validTask("T", "internal/a.go")
 			tc.mutate(&task)
 			checkLines(t, Check(Return{Tasks: []Task{task}}, epicRequirements(), nil), tc.want)
@@ -122,6 +130,7 @@ func TestCheckRefusesEmptyTaskText(t *testing.T) {
 }
 
 func TestCheckRefusesTaskWithNoFiles(t *testing.T) {
+	t.Parallel()
 	task := validTask("T")
 	task.Files = nil
 	checkLines(t, Check(Return{Tasks: []Task{task}}, epicRequirements(), nil),
@@ -129,6 +138,7 @@ func TestCheckRefusesTaskWithNoFiles(t *testing.T) {
 }
 
 func TestCheckRefusesEachBadFieldOnce(t *testing.T) {
+	t.Parallel()
 	task := validTask("T")
 	task.Title = ""
 	task.Check = ""
@@ -141,6 +151,7 @@ func TestCheckRefusesEachBadFieldOnce(t *testing.T) {
 }
 
 func TestCheckWritesTitleBetweenQuotesAsGiven(t *testing.T) {
+	t.Parallel()
 	task := validTask(`Add "x" flag`, "internal/a.go")
 	task.Deliverable = ""
 	checkLines(t, Check(Return{Tasks: []Task{task}}, epicRequirements(), nil),
@@ -148,6 +159,7 @@ func TestCheckWritesTitleBetweenQuotesAsGiven(t *testing.T) {
 }
 
 func TestCheckPassesValidPlanWithNewFiles(t *testing.T) {
+	t.Parallel()
 	ret := Return{Tasks: []Task{
 		validTask("A", "internal/planner/plan.go", "internal/planner/check.go"),
 		validTask("B", "internal/planner/brand_new.go"),
@@ -157,6 +169,7 @@ func TestCheckPassesValidPlanWithNewFiles(t *testing.T) {
 }
 
 func TestParseRoundTripsValidReturn(t *testing.T) {
+	t.Parallel()
 	want := Return{
 		Status:    "done",
 		Decisions: []string{"split the store work from the planner"},
@@ -179,6 +192,7 @@ func TestParseRoundTripsValidReturn(t *testing.T) {
 }
 
 func TestParseRefusesInvalidJSON(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name string
 		raw  string
@@ -189,6 +203,7 @@ func TestParseRefusesInvalidJSON(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			if _, err := Parse(json.RawMessage(tc.raw)); err == nil {
 				t.Errorf("Parse(%q) error = nil, want an error", tc.raw)
 			}

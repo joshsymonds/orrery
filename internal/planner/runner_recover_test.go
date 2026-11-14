@@ -58,6 +58,7 @@ func claimTurnLeftRunning(t *testing.T, s *store.Store, step, result, end string
 }
 
 func TestRecoveryFreesTurnWithNoStepAndNextPassClaimsItsTriggers(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openRunnerStore(t)
 	createRunnerEpic(t, s)
@@ -86,6 +87,7 @@ func TestRecoveryFreesTurnWithNoStepAndNextPassClaimsItsTriggers(t *testing.T) {
 }
 
 func TestRecoveryReRunsTurnWhoseStepEndedEngineRestartedWithoutFailure(t *testing.T) {
+	t.Parallel()
 	s := openRunnerStore(t)
 	createRunnerEpic(t, s)
 	claimTurnLeftRunning(t, s, "old-step-1", "", "engine_restarted")
@@ -115,6 +117,7 @@ func TestRecoveryReRunsTurnWhoseStepEndedEngineRestartedWithoutFailure(t *testin
 }
 
 func TestRecoveryCompletesTurnWhoseStepEndedDoneWithValidReturn(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openRunnerStore(t)
 	createRunnerEpic(t, s)
@@ -148,6 +151,7 @@ func TestRecoveryCompletesTurnWhoseStepEndedDoneWithValidReturn(t *testing.T) {
 }
 
 func TestRecoveryWaitsForOpenStepAndSettlesTurnWhenItEnds(t *testing.T) {
+	t.Parallel()
 	s := openRunnerStore(t)
 	createRunnerEpic(t, s)
 	claimTurnLeftRunning(t, s, "old-step-1", "", "")

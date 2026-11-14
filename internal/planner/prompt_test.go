@@ -80,6 +80,7 @@ func inOrder(t *testing.T, got string, wants ...string) {
 }
 
 func TestPromptOpensWithRoleThenEverySectionInOrder(t *testing.T) {
+	t.Parallel()
 	prompt := Prompt(syntheticEpic(), 2, syntheticTriggers())
 	if !strings.HasPrefix(prompt, strings.TrimRight(role, "\n")) {
 		t.Fatalf("prompt does not open with the role text")
@@ -141,6 +142,7 @@ func TestPromptOpensWithRoleThenEverySectionInOrder(t *testing.T) {
 }
 
 func TestPromptFirstTurnHasNoNewNotesOrFailureButListsEveryDecision(t *testing.T) {
+	t.Parallel()
 	epic := syntheticEpic()
 	epic.Turns = []store.EpicTurn{{Seq: 1, State: "running"}}
 	prompt := Prompt(epic, 1, syntheticTriggers())
@@ -158,6 +160,7 @@ func TestPromptFirstTurnHasNoNewNotesOrFailureButListsEveryDecision(t *testing.T
 }
 
 func TestPromptSkipsFreeTurnWhenFindingLastTurn(t *testing.T) {
+	t.Parallel()
 	epic := store.EpicRow{
 		ID: "epic-2",
 		Decisions: []store.EpicDecision{

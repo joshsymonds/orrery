@@ -24,6 +24,7 @@ func writeFile(t *testing.T, path, text string) {
 }
 
 func TestAgentReadsXDGConfigHome(t *testing.T) {
+	t.Parallel()
 	xdg := t.TempDir()
 	home := t.TempDir()
 	writeFile(t, filepath.Join(xdg, "orrery", "roles.toml"), `planner = "opus-high-ro"`+"\n")
@@ -39,6 +40,7 @@ func TestAgentReadsXDGConfigHome(t *testing.T) {
 }
 
 func TestAgentFallsBackToHomeWhenXDGConfigHomeEmpty(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	writeFile(t, filepath.Join(home, ".config", "orrery", "roles.toml"), `planner = "  opus-high-ro  "`+"\n")
 
@@ -52,6 +54,7 @@ func TestAgentFallsBackToHomeWhenXDGConfigHomeEmpty(t *testing.T) {
 }
 
 func TestAgentMissingFileNamesPathAndDoesNotCreateIt(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	path := filepath.Join(home, ".config", "orrery", "roles.toml")
 
@@ -68,6 +71,7 @@ func TestAgentMissingFileNamesPathAndDoesNotCreateIt(t *testing.T) {
 }
 
 func TestAgentFileWithoutRoleNamesPathAndRole(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	path := filepath.Join(home, ".config", "orrery", "roles.toml")
 	writeFile(t, path, `worker = "sonnet-ro"`+"\n")
@@ -82,6 +86,7 @@ func TestAgentFileWithoutRoleNamesPathAndRole(t *testing.T) {
 }
 
 func TestAgentEmptyAgentNamesPathAndRole(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	path := filepath.Join(home, ".config", "orrery", "roles.toml")
 	writeFile(t, path, `planner = "   "`+"\n")
@@ -96,6 +101,7 @@ func TestAgentEmptyAgentNamesPathAndRole(t *testing.T) {
 }
 
 func TestAgentNonStringValueNamesPathAndCause(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	path := filepath.Join(home, ".config", "orrery", "roles.toml")
 	writeFile(t, path, "planner = 3\n")
@@ -112,6 +118,7 @@ func TestAgentNonStringValueNamesPathAndCause(t *testing.T) {
 }
 
 func TestAgentInvalidTOMLNamesPath(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
 	path := filepath.Join(home, ".config", "orrery", "roles.toml")
 	writeFile(t, path, "planner = \n")
@@ -126,6 +133,7 @@ func TestAgentInvalidTOMLNamesPath(t *testing.T) {
 }
 
 func TestAgentNeitherXDGNorHomeIsAnError(t *testing.T) {
+	t.Parallel()
 	_, err := Agent(fakeEnv(map[string]string{}), "planner")
 	if err == nil {
 		t.Fatal("Agent with neither XDG_CONFIG_HOME nor HOME returned no error")

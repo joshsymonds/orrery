@@ -34,6 +34,7 @@ func (c *returnCheckRecorder) check(value json.RawMessage) []string {
 }
 
 func TestStepLoopReturnCheckRefusalIsSentBackThenPassingReturnEndsDone(t *testing.T) {
+	t.Parallel()
 	check := &returnCheckRecorder{}
 	f := newStepDoneFixture(t, func(cfg *stepRunConfig) { cfg.returnCheck = check.check })
 	_, done := f.start(t)
@@ -66,6 +67,7 @@ func TestStepLoopReturnCheckRefusalIsSentBackThenPassingReturnEndsDone(t *testin
 }
 
 func TestStepLoopReturnCheckFourRefusalsEndChecksFailed(t *testing.T) {
+	t.Parallel()
 	check := &returnCheckRecorder{}
 	f := newStepDoneFixture(t, func(cfg *stepRunConfig) { cfg.returnCheck = check.check })
 	_, done := f.start(t)
@@ -95,6 +97,7 @@ func TestStepLoopReturnCheckFourRefusalsEndChecksFailed(t *testing.T) {
 }
 
 func TestStepLoopReturnCheckEndsDoneWithoutHaikuJudge(t *testing.T) {
+	t.Parallel()
 	check := &returnCheckRecorder{}
 	haiku := &judgeLoopHaiku{}
 	f := newJudgeLoopFixture(t, haiku, func(cfg *stepRunConfig) { cfg.returnCheck = check.check })
@@ -121,6 +124,7 @@ func TestStepLoopReturnCheckEndsDoneWithoutHaikuJudge(t *testing.T) {
 }
 
 func TestStepsStartHandsItsRunTheReturnCheck(t *testing.T) {
+	t.Parallel()
 	f := newStepStartFixture(t)
 	start := stepStartWriting(stepWorktreeTestAddLinked(t, stepGitTestRepo(t)))
 	start.ReturnCheck = func(json.RawMessage) []string { return []string{"from start"} }

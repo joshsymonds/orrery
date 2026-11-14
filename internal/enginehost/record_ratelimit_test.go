@@ -10,6 +10,7 @@ import (
 )
 
 func TestRecorderRateLimit(t *testing.T) {
+	t.Parallel()
 	const id = "orrery-session-7"
 	resets := time.Date(2026, 11, 14, 9, 30, 0, 0, time.UTC)
 	cases := []struct {
@@ -38,6 +39,7 @@ func TestRecorderRateLimit(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			r := newRecorder(id)
 			for i, st := range tc.steps {
 				got := r.ops(st.event)

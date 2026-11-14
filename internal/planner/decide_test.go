@@ -6,6 +6,7 @@ import (
 )
 
 func TestDecide(t *testing.T) {
+	t.Parallel()
 	roleErr := errors.New(`no role file: "planner" is not defined in roles.toml`)
 	cases := []struct {
 		name    string
@@ -31,6 +32,7 @@ func TestDecide(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			got := Decide(tc.state, tc.roleErr)
 			if got != tc.want {
 				t.Errorf("Decide(%+v, %v) = %+v, want %+v", tc.state, tc.roleErr, got, tc.want)
