@@ -111,6 +111,11 @@ type stepRun struct {
 	heldEnded bool
 	// judgeSent is set once the judge has sent the step back, so a second unmet verdict ends goal_unmet.
 	judgeSent bool
+	// round is the number of the step's latest round. A turn end that is no continuation is the next round, which judge
+	// checks.
+	round int
+	// continues is how many failing returns the session has been sent back to fix, up to stepLoopMaxContinues.
+	continues int
 	// ended is closed once finish has acted.
 	ended chan struct{}
 	// runDone is closed when run returns, so Return and Exited never wait on a run that will not drain them.
@@ -173,8 +178,6 @@ func (r *stepRun) Exited(reason string) {
 // run handles returns and exits until the step ends or ctx ends. A ctx that ends stores no end.
 func (r *stepRun) run(ctx context.Context) {
 	defer close(r.runDone)
-	continues := 0
-	round := 0
 	for {
 		select {
 		case <-ctx.Done():
@@ -197,20 +200,24 @@ func (r *stepRun) run(ctx context.Context) {
 				return
 			}
 		case ended := <-r.returns:
-			if !r.turnEnded(ctx, ended, &round, &continues) {
+			if !r.turnEnded(ctx, ended) {
 				return
 			}
 		}
 	}
 }
 
-// turnEnded handles a turn end the run takes. Whatever it is, it clears the pending nudges. A held step's turn end is no
-// round and continues nothing, unless an owner nudge is pending, which resumes the step with it. An owner nudge pending
-// continues the step with it, error or not. A pending watchdog nudge is sent back with an error turn end. Any other turn
-// end is the next round, which judge checks. It reports whether the run goes on.
-func (r *stepRun) turnEnded(ctx context.Context, ended session.TurnEnded, round, continues *int) bool {
+// turnEnded handles a turn end the run takes. Whatever it is, it clears the pending nudges and stores the clear before
+// anything is sent. A held step's turn end is no round and continues nothing, unless an owner nudge is pending, which
+// resumes the step with it. An owner nudge pending continues the step with it, error or not. A pending watchdog nudge is
+// sent back with an error turn end. Any other turn end is the next round, which judge checks. It reports whether the run
+// goes on.
+func (r *stepRun) turnEnded(ctx context.Context, ended session.TurnEnded) bool {
 	nudge, owner := r.nudge, r.ownerNudge
 	r.nudge, r.ownerNudge = "", ""
+	if nudge != "" || owner != "" {
+		r.saveLoop(ctx)
+	}
 	if r.held.Load() {
 		if owner == "" {
 			r.heldEnded = true
@@ -218,6 +225,7 @@ func (r *stepRun) turnEnded(ctx context.Context, ended session.TurnEnded, round,
 		}
 		r.held.Store(false)
 		r.heldEnded = false
+		r.saveLoop(ctx)
 		return r.continueWith(ctx, StepPrompt{Text: joinNudges(nudge, owner), Sender: store.PromptSenderOwner})
 	}
 	if owner != "" {
@@ -226,8 +234,8 @@ func (r *stepRun) turnEnded(ctx context.Context, ended session.TurnEnded, round,
 	if nudge != "" && ended.IsError {
 		return r.continueWith(ctx, StepPrompt{Text: nudge, Sender: store.PromptSenderEngine})
 	}
-	*round++
-	return r.judge(ctx, *round, ended.StructuredOutput, continues)
+	r.round++
+	return r.judge(ctx, r.round, ended.StructuredOutput)
 }
 
 // continueWith sends prompt to the session as its next message. A failed send ends the step failed. It reports whether
@@ -247,6 +255,23 @@ func (r *stepRun) continueStep(ctx context.Context, prompt StepPrompt) error {
 		return err
 	}
 	return nil
+}
+
+// loopState returns the loop state the run stores: its round and continue count, the nudges pending for the next turn
+// end, whether the watch has spent its nudge, whether the run is held and whether the judge has sent the step back.
+func (r *stepRun) loopState() store.StepLoop {
+	return store.StepLoop{
+		ID: r.id, Round: r.round, Continues: r.continues, Nudge: r.nudge, OwnerNudge: r.ownerNudge,
+		Nudged: r.watch.nudgeSpent(), Held: r.held.Load(), JudgeSent: r.judgeSent,
+	}
+}
+
+// saveLoop queues the loop state with Put. A failed put is logged and the loop goes on, since the next change stores the
+// state again.
+func (r *stepRun) saveLoop(ctx context.Context) {
+	if err := r.writer.Put(ctx, r.id, r.loopState()); err != nil {
+		r.logger.ErrorContext(ctx, "save loop state of step", "step", r.id, "err", err)
+	}
 }
 
 // gateState returns the channel a gate start closes and whether a gate is running now. A caller that sees no gate
@@ -285,9 +310,10 @@ func joinNudges(first, second string) string {
 	return first + "\n" + second
 }
 
-// judge checks the return of round and stores it with its checks. A done return whose checks all passed is judged; any
-// other return ends the step, or its failed checks are sent back. It reports whether the run goes on.
-func (r *stepRun) judge(ctx context.Context, round int, value json.RawMessage, continues *int) bool {
+// judge checks the return of round and stores it with its checks and the loop state, in one commit. A done return whose
+// checks all passed is judged; any other return ends the step, or its failed checks are sent back. It reports whether the
+// run goes on.
+func (r *stepRun) judge(ctx context.Context, round int, value json.RawMessage) bool {
 	schemaErr := validateReturn(r.schema, value)
 	schema := store.StepCheck{Round: round, Name: stepLoopSchemaName, OK: schemaErr == nil}
 	if schemaErr != nil {
@@ -314,7 +340,7 @@ func (r *stepRun) judge(ctx context.Context, round int, value json.RawMessage, c
 		}
 	}
 	ret := store.StepReturn{ID: r.id, Result: string(value), Checks: checks}
-	if err := r.writer.Commit(ctx, r.id, ret); err != nil {
+	if err := r.writer.Commit(ctx, r.id, ret, r.loopState()); err != nil {
 		r.finish(ctx, stepLoopEndFailed, "", fmt.Sprintf("record return of step %s: %v", r.id,
 			errors.Join(err, gateClear(ctx, gateDir))))
 		return false
@@ -325,7 +351,7 @@ func (r *stepRun) judge(ctx context.Context, round int, value json.RawMessage, c
 		return false
 	}
 	if len(stepLoopFailures(checks)) > 0 {
-		return r.retry(ctx, round, checks, continues)
+		return r.retry(ctx, round, checks)
 	}
 	if head.Status == r.doneValue {
 		return r.judgeReturn(ctx, round, value, commit, head.Status, checks)
@@ -419,14 +445,14 @@ func stepLoopGateCheck(round int, result gateResult, limit time.Duration) store.
 }
 
 // retry sends the failed checks of round back to the session while it has continues left, and otherwise ends
-// checks_failed. It reports whether the run goes on.
-func (r *stepRun) retry(ctx context.Context, round int, checks []store.StepCheck, continues *int) bool {
+// checks_failed. A raised continue count is stored once its Continue is sent. It reports whether the run goes on.
+func (r *stepRun) retry(ctx context.Context, round int, checks []store.StepCheck) bool {
 	failures := stepLoopFailures(checks)
-	if *continues == stepLoopMaxContinues {
+	if r.continues == stepLoopMaxContinues {
 		r.finish(ctx, stepLoopEndChecksFailed, "", strings.Join(failures, "; "))
 		return false
 	}
-	*continues++
+	r.continues++
 	text := "Your return failed these checks. Return again with a result that passes them:\n- " +
 		strings.Join(failures, "\n- ")
 	prompt := StepPrompt{Text: text, Sender: store.PromptSenderEngine, Round: round}
@@ -434,6 +460,7 @@ func (r *stepRun) retry(ctx context.Context, round int, checks []store.StepCheck
 		r.finish(ctx, stepLoopEndFailed, "", fmt.Sprintf("continue step %s: %v", r.id, err))
 		return false
 	}
+	r.saveLoop(ctx)
 	return true
 }
 
