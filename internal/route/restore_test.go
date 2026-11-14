@@ -54,7 +54,6 @@ func newRestoreRouter(f *fake, rebuilds map[string]route.Rebuild, logger *slog.L
 		Desk:       f,
 		Phone:      f,
 		Subscribed: f.Subscribed,
-		LocalInput: f.LocalInput,
 		Log:        f,
 		Logger:     logger,
 		Rebuild:    rebuilds,
