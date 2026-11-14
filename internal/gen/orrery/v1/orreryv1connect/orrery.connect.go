@@ -31,6 +31,8 @@ const (
 	PanesName = "orrery.v1.Panes"
 	// HostName is the fully-qualified name of the Host service.
 	HostName = "orrery.v1.Host"
+	// PresenceName is the fully-qualified name of the Presence service.
+	PresenceName = "orrery.v1.Presence"
 	// PushName is the fully-qualified name of the Push service.
 	PushName = "orrery.v1.Push"
 	// PickerName is the fully-qualified name of the Picker service.
@@ -86,6 +88,8 @@ const (
 	PanesWatchConversationProcedure = "/orrery.v1.Panes/WatchConversation"
 	// HostStatusProcedure is the fully-qualified name of the Host's Status RPC.
 	HostStatusProcedure = "/orrery.v1.Host/Status"
+	// PresenceReportProcedure is the fully-qualified name of the Presence's Report RPC.
+	PresenceReportProcedure = "/orrery.v1.Presence/Report"
 	// PushRegisterProcedure is the fully-qualified name of the Push's Register RPC.
 	PushRegisterProcedure = "/orrery.v1.Push/Register"
 	// PushUnregisterProcedure is the fully-qualified name of the Push's Unregister RPC.
@@ -860,6 +864,78 @@ type UnimplementedHostHandler struct{}
 
 func (UnimplementedHostHandler) Status(context.Context, *connect.Request[v1.HostStatusRequest]) (*connect.Response[v1.HostStatusResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.v1.Host.Status is not implemented"))
+}
+
+// PresenceClient is a client for the orrery.v1.Presence service.
+type PresenceClient interface {
+	// Report records how long ago the page's newest input was, by the page's own clock.
+	Report(context.Context, *connect.Request[v1.PresenceReportRequest]) (*connect.Response[v1.PresenceReportResponse], error)
+}
+
+// NewPresenceClient constructs a client for the orrery.v1.Presence service. By default, it uses the
+// Connect protocol with the binary Protobuf Codec, asks for gzipped responses, and sends
+// uncompressed requests. To use the gRPC or gRPC-Web protocols, supply the connect.WithGRPC() or
+// connect.WithGRPCWeb() options.
+//
+// The URL supplied here should be the base URL for the Connect or gRPC server (for example,
+// http://api.acme.com or https://acme.com/grpc).
+func NewPresenceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) PresenceClient {
+	baseURL = strings.TrimRight(baseURL, "/")
+	presenceMethods := v1.File_orrery_v1_orrery_proto.Services().ByName("Presence").Methods()
+	return &presenceClient{
+		report: connect.NewClient[v1.PresenceReportRequest, v1.PresenceReportResponse](
+			httpClient,
+			baseURL+PresenceReportProcedure,
+			connect.WithSchema(presenceMethods.ByName("Report")),
+			connect.WithClientOptions(opts...),
+		),
+	}
+}
+
+// presenceClient implements PresenceClient.
+type presenceClient struct {
+	report *connect.Client[v1.PresenceReportRequest, v1.PresenceReportResponse]
+}
+
+// Report calls orrery.v1.Presence.Report.
+func (c *presenceClient) Report(ctx context.Context, req *connect.Request[v1.PresenceReportRequest]) (*connect.Response[v1.PresenceReportResponse], error) {
+	return c.report.CallUnary(ctx, req)
+}
+
+// PresenceHandler is an implementation of the orrery.v1.Presence service.
+type PresenceHandler interface {
+	// Report records how long ago the page's newest input was, by the page's own clock.
+	Report(context.Context, *connect.Request[v1.PresenceReportRequest]) (*connect.Response[v1.PresenceReportResponse], error)
+}
+
+// NewPresenceHandler builds an HTTP handler from the service implementation. It returns the path on
+// which to mount the handler and the handler itself.
+//
+// By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
+// and JSON codecs. They also support gzip compression.
+func NewPresenceHandler(svc PresenceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
+	presenceMethods := v1.File_orrery_v1_orrery_proto.Services().ByName("Presence").Methods()
+	presenceReportHandler := connect.NewUnaryHandler(
+		PresenceReportProcedure,
+		svc.Report,
+		connect.WithSchema(presenceMethods.ByName("Report")),
+		connect.WithHandlerOptions(opts...),
+	)
+	return "/orrery.v1.Presence/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case PresenceReportProcedure:
+			presenceReportHandler.ServeHTTP(w, r)
+		default:
+			http.NotFound(w, r)
+		}
+	})
+}
+
+// UnimplementedPresenceHandler returns CodeUnimplemented from all methods.
+type UnimplementedPresenceHandler struct{}
+
+func (UnimplementedPresenceHandler) Report(context.Context, *connect.Request[v1.PresenceReportRequest]) (*connect.Response[v1.PresenceReportResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.v1.Presence.Report is not implemented"))
 }
 
 // PushClient is a client for the orrery.v1.Push service.

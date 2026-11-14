@@ -200,7 +200,8 @@ func SummaryModel(baseURL string, models map[string]string) string {
 }
 
 // HookFrame is the single frame a sender writes to orreryd per connection. A Claude Code hook frame carries Hook.
-// A seen report carries Seen and no Hook. A read report carries Read and neither Hook nor Seen.
+// A seen report carries Seen and no Hook. A read report carries Read and neither Hook nor Seen. An input report
+// carries Input and neither Hook, Seen nor Read.
 type HookFrame struct {
 	Hook             json.RawMessage `json:"hook,omitempty"`
 	TmuxPane         string          `json:"tmuxPane"`
@@ -210,6 +211,8 @@ type HookFrame struct {
 	Seen             int64           `json:"seen,omitempty"`
 	// Read is the time of a read report: serve's word that the phone read the pane at that time.
 	Read int64 `json:"read,omitempty"`
+	// Input is the time of an input report: serve's word that the web view had input at that time.
+	Input int64 `json:"input,omitempty"`
 }
 
 // WriteFrame writes frame to w as one JSON object terminated by a newline.
@@ -220,15 +223,34 @@ func WriteFrame(w io.Writer, frame HookFrame) error {
 	return nil
 }
 
+// checkInputReport rejects an input report that carries a hook, a seen or a read, or a negative input.
+func checkInputReport(frame HookFrame) error {
+	if frame.Hook != nil || frame.Seen != 0 || frame.Read != 0 {
+		return errors.New("read hook frame: an input report carries no hook, seen or read")
+	}
+	if frame.Input < 0 {
+		return errors.New("read hook frame: input must be positive")
+	}
+	return nil
+}
+
 // ReadFrame decodes one frame from r with no line-length limit. It accepts a hook frame, whose hook is a JSON
 // object, a seen report, which has a positive seen and no hook, and a read report, which has a positive read and
-// neither a hook nor a seen. It rejects malformed JSON, a hook that is null or not a JSON object, a frame with
-// neither a hook nor a positive seen nor a positive read, a frame with both a hook and a seen, and a frame that
-// carries read together with a hook or a seen, or with a negative read.
+// neither a hook nor a seen, and an input report, which has a positive input and neither a hook, a seen nor a read.
+// It rejects malformed JSON, a hook that is null or not a JSON object, a frame with neither a hook nor a positive
+// seen nor a positive read, a frame with both a hook and a seen, a frame that carries read together with a hook or
+// a seen, or with a negative read, and a frame that carries input together with a hook, a seen or a read, or with
+// a negative input.
 func ReadFrame(r io.Reader) (HookFrame, error) {
 	var frame HookFrame
 	if err := json.NewDecoder(r).Decode(&frame); err != nil {
 		return HookFrame{}, fmt.Errorf("read hook frame: %w", err)
+	}
+	if frame.Input != 0 {
+		if err := checkInputReport(frame); err != nil {
+			return HookFrame{}, err
+		}
+		return frame, nil
 	}
 	if frame.Read != 0 {
 		if frame.Hook != nil || frame.Seen != 0 {

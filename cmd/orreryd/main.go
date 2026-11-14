@@ -23,7 +23,6 @@ import (
 
 	"github.com/joshsymonds/orrery/internal/autoseen"
 	"github.com/joshsymonds/orrery/internal/daemon"
-	"github.com/joshsymonds/orrery/internal/desk"
 	"github.com/joshsymonds/orrery/internal/deskstream"
 	"github.com/joshsymonds/orrery/internal/donejudge"
 	"github.com/joshsymonds/orrery/internal/enginehost"
@@ -321,7 +320,7 @@ func listenSockets(socket string) (net.Listener, net.Listener, error) {
 // startDesk returns a hub for host that serves the desk stream on deskLn in the background. A failure to serve is
 // logged. The caller closes the hub.
 func startDesk(ctx context.Context, host string, deskLn net.Listener, logger *slog.Logger) *deskstream.Hub {
-	desk := deskstream.NewHub(host, time.Now, logger)
+	desk := deskstream.NewHub(host, logger)
 	go func() {
 		if err := desk.Serve(deskLn); err != nil {
 			logger.ErrorContext(ctx, "serve desk stream", "error", err)
@@ -381,7 +380,6 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 		Desk:       desk,
 		Phone:      notices,
 		Subscribed: hasSubscription(store),
-		LocalInput: localInput(opts),
 		Log:        noticeLog,
 		Logger:     logger,
 	}, &relay{
@@ -412,6 +410,7 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 		Seen: func(report daemon.SeenReport) {
 			router.Seen(ctx, notice.Key{Pane: report.PaneID}, report.Seen)
 		},
+		Input: desk.Input,
 		Read: func(report daemon.ReadReport) {
 			hub.reads.note(report.PaneID, report.Read)
 		},
@@ -771,26 +770,6 @@ func tmuxClient(server tmuxctl.Server) (*tmuxctl.Client, error) {
 		return nil, fmt.Errorf("resolve tmux server: %w", err)
 	}
 	return client, nil
-}
-
-// localInput returns the router's LocalInput: the newest input made on the tmux server orreryd serves, or on the
-// default server when it serves none by name.
-func localInput(opts options) func(context.Context) (int64, bool, error) {
-	server := opts.server
-	if server == (tmuxctl.Server{}) {
-		server = opts.defaultServer
-	}
-	return func(ctx context.Context) (int64, bool, error) {
-		client, err := tmuxClient(server)
-		if err != nil {
-			return 0, false, err
-		}
-		input, ok, err := desk.NewestInput(ctx, client)
-		if err != nil {
-			return 0, false, fmt.Errorf("newest input: %w", err)
-		}
-		return input, ok, nil
-	}
 }
 
 // hasSubscription returns the router's Subscribed: whether the push store lists at least one subscription.

@@ -556,6 +556,13 @@ service Host {
   rpc Status(HostStatusRequest) returns (HostStatusResponse);
 }
 
+// Presence takes the web page's reports of its newest input. serve dates each by its own clock and forwards it to
+// orreryd.
+service Presence {
+  // Report records how long ago the page's newest input was, by the page's own clock.
+  rpc Report(PresenceReportRequest) returns (PresenceReportResponse);
+}
+
 // Push manages the push subscriptions of the phone.
 service Push {
   // Register stores a push subscription.
@@ -1090,3 +1097,12 @@ message PoolsFreeRequest {
 
 // PoolsFreeResponse is the reply to a Free. It has no fields.
 message PoolsFreeResponse {}
+
+// PresenceReportRequest reports how long ago the page's newest input was.
+message PresenceReportRequest {
+  // The milliseconds since the page's newest input, by the page's own clock.
+  int64 input_age_ms = 1;
+}
+
+// PresenceReportResponse is the reply to a Report. It has no fields.
+message PresenceReportResponse {}

@@ -58,6 +58,9 @@ type Config struct {
 	Seen func(SeenReport)
 	// Read receives each read report whose pane is set, in the connection's goroutine. Nil drops read reports.
 	Read func(ReadReport)
+	// Input receives the time, in unix seconds, of each input report, in the connection's goroutine. Nil drops input
+	// reports.
+	Input func(input int64)
 	// Logger receives read, resolve and apply errors. Nil discards them.
 	Logger *slog.Logger
 	// Home is the user's home directory. Each applied frame's Cwd is searched for a context stamp below it. Empty
@@ -217,6 +220,10 @@ func (h *frameHandler) serveConn(ctx context.Context, conn net.Conn) {
 		return
 	}
 	if frame.Hook == nil {
+		if frame.Input != 0 {
+			h.reportInput(frame)
+			return
+		}
 		if frame.Read != 0 {
 			h.reportRead(ctx, frame)
 			return
@@ -242,6 +249,15 @@ func (h *frameHandler) reportSeen(ctx context.Context, frame protocol.HookFrame)
 		return
 	}
 	h.cfg.Seen(SeenReport{PaneID: frame.TmuxPane, Seen: frame.Seen})
+}
+
+// reportInput passes an input report's time to Config.Input. It drops the report when Config.Input is nil, and never
+// touches tmux, the pane state, the observers, Config.Seen or Config.Read.
+func (h *frameHandler) reportInput(frame protocol.HookFrame) {
+	if h.cfg.Input == nil {
+		return
+	}
+	h.cfg.Input(frame.Input)
 }
 
 // reportRead passes a read report to Config.Read. It drops the report when its pane is empty or Config.Read is nil,

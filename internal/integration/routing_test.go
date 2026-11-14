@@ -81,15 +81,16 @@ func permissionRequestHook() map[string]any {
 	}
 }
 
-// sendDeskActivity writes one desk activity line on conn, reporting that the desk's user gave input at input.
-func sendDeskActivity(t *testing.T, conn net.Conn, input int64) {
+// sendInput reports on the daemon socket that the web view had input at input, unix seconds.
+func sendInput(t *testing.T, socket string, input int64) {
 	t.Helper()
-	raw, err := json.Marshal(deskstream.Activity{Input: input})
+	conn, err := net.Dial("unix", socket)
 	if err != nil {
-		t.Fatalf("encode desk activity: %v", err)
+		t.Fatalf("dial daemon socket: %v", err)
 	}
-	if _, err = conn.Write(append(raw, '\n')); err != nil {
-		t.Fatalf("write desk activity: %v", err)
+	t.Cleanup(func() { conn.Close() })
+	if err := protocol.WriteFrame(conn, protocol.HookFrame{Input: input}); err != nil {
+		t.Fatalf("write input frame: %v", err)
 	}
 }
 
@@ -203,9 +204,9 @@ func TestOrrerydRouteAtDeskReachesStreamOnly(t *testing.T) {
 	}
 	since := time.Now().Unix()
 
-	// The desk's input is recorded on the stream's own reader, which the waiting hook's process and tmux calls outlast
-	// before orreryd decides the notice.
-	sendDeskActivity(t, conn, time.Now().Unix())
+	// The input report is applied on its own connection, which the waiting hook's process and tmux calls outlast before
+	// orreryd decides the notice.
+	sendInput(t, socket, time.Now().Unix())
 	sendHook(t, socket, pane, project, permissionRequestHook())
 	waitForOption(t, client, pane, protocol.OptionState, string(protocol.StateWaiting))
 	line := nextDeskLine(t, conn, r, waitLimit)

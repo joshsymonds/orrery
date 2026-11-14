@@ -16,7 +16,6 @@ import (
 
 const (
 	deskSound = "/sounds/tick.wav"
-	deskInput = 1700000123
 	// deskSocket is the --socket path a test passes to the local link.
 	deskSocket = "/run/user/1000/orrery/orreryd.sock"
 )
@@ -85,10 +84,9 @@ func (r *deskRig) script(name, body string) {
 	writeFile(r.t, filepath.Join(r.dir, "stream."+name), "dir='"+r.dir+"'\n"+body)
 }
 
-// live writes stream NAME: it records the activity the desk sends on its stdin, prints lines, then stays up until Run cancels it.
+// live writes stream NAME: it prints lines, then stays up until Run cancels it.
 func (r *deskRig) live(name string, lines ...string) {
-	r.script(name, "exec 3<&0\ncat <&3 > \"$dir/activity."+name+"\" &\n"+
-		emit(lines...)+"while :; do sleep 0.01; done\n")
+	r.script(name, emit(lines...)+"while :; do sleep 0.01; done\n")
 }
 
 // exits writes stream NAME, which fails at once without printing anything.
@@ -96,16 +94,13 @@ func (r *deskRig) exits(name string) {
 	r.script(name, "exit 1\n")
 }
 
-// config is the desk's Config for hosts, with a fixed input and the rig's clock.
+// config is the desk's Config for hosts, with the rig's clock.
 func (r *deskRig) config(hosts ...string) desk.Config {
 	return desk.Config{
 		Orrery: filepath.Join(r.dir, "orrery"),
 		Hosts:  hosts,
 		Sound:  deskSound,
-		Input: func(context.Context) (int64, bool, error) {
-			return deskInput, true, nil
-		},
-		Clock: r.clock,
+		Clock:  r.clock,
 	}
 }
 
@@ -373,29 +368,4 @@ func TestRunPopsUpLostHost(t *testing.T) {
 		}
 	}
 	rig.finish()
-}
-
-func TestRunSendsActivityAtHello(t *testing.T) {
-	rig := newDeskRig(t)
-	rig.live("local", hello("local"))
-	rig.live("box", hello("box"))
-	rig.run(rig.config("box"))
-
-	want := marshalActivity(t, deskInput)
-	for _, name := range []string{"local", "box"} {
-		waitFor(t, "activity from "+name, func() bool { return len(readLines(rig.dir, "activity."+name)) > 0 })
-		if got := readLines(rig.dir, "activity."+name)[0]; got != want {
-			t.Fatalf("%s activity = %q, want %q", name, got, want)
-		}
-	}
-	rig.finish()
-}
-
-func marshalActivity(t *testing.T, input int64) string {
-	t.Helper()
-	b, err := json.Marshal(deskstream.Activity{Input: input})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return string(b)
 }

@@ -150,7 +150,6 @@ func newRestartRouter(t *testing.T, f *fake, logger *slog.Logger) *route.Router 
 		Desk:       f,
 		Phone:      f,
 		Subscribed: f.Subscribed,
-		LocalInput: f.LocalInput,
 		Log:        f,
 		Logger:     logger,
 	})
@@ -330,7 +329,6 @@ func TestSendingRowKept(t *testing.T) {
 			Desk:       f,
 			Phone:      f,
 			Subscribed: f.Subscribed,
-			LocalInput: f.LocalInput,
 			Log:        f,
 		})
 		r.Attach(ctx, s)

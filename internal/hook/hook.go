@@ -88,6 +88,12 @@ func ReportRead(socketPath, pane string, read int64) error {
 	return sendReport(socketPath, protocol.HookFrame{TmuxPane: pane, Read: read})
 }
 
+// ReportInput tells orreryd that the web view had input at input, in unix seconds. It shares ReportSeen's nil and
+// error rules.
+func ReportInput(socketPath string, input int64) error {
+	return sendReport(socketPath, protocol.HookFrame{Input: input})
+}
+
 // sendReport writes frame, a seen or read report, to the daemon listening on socketPath. A missing socket file or a
 // refused connection means no daemon is listening and so holds nothing to update, so both return nil. An empty
 // socketPath sends nothing. Any other dial or write failure is returned.

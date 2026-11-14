@@ -532,6 +532,74 @@ func TestDaemonReadReportWithoutHandler(t *testing.T) {
 	wantOption(t, srv, protocol.OptionState, "working")
 }
 
+// inputAt is the synthetic input time every input report in these tests carries.
+const inputAt = 1700000200
+
+// inputFrameFor returns an input report for pane whose $TMUX names socket. It carries no hook, seen or read.
+func inputFrameFor(pane, socket string) protocol.HookFrame {
+	return protocol.HookFrame{
+		TmuxPane: pane,
+		Tmux:     fmt.Sprintf("%s,1234,0", socket),
+		Input:    inputAt,
+	}
+}
+
+func TestDaemonInputReport(t *testing.T) {
+	srv := startServer(t)
+	inputs := make(chan int64, 4)
+	seens := make(chan daemon.SeenReport, 4)
+	reads := make(chan daemon.ReadReport, 4)
+	transitions := make(chan daemon.Transition, 4)
+	socket := serve(t, daemon.Config{
+		Input:     func(input int64) { inputs <- input },
+		Seen:      func(report daemon.SeenReport) { seens <- report },
+		Read:      func(report daemon.ReadReport) { reads <- report },
+		Observers: []daemon.Observer{func(transition daemon.Transition) { transitions <- transition }},
+	})
+
+	sendFrame(t, socket, inputFrameFor(srv.pane, srv.socket))
+	if got := drain(inputs); len(got) != 1 || got[0] != inputAt {
+		t.Fatalf("input reports = %v, want exactly [%d]", got, inputAt)
+	}
+	if got := drain(seens); len(got) != 0 {
+		t.Fatalf("input report reached Config.Seen: %+v", got)
+	}
+	if got := drain(reads); len(got) != 0 {
+		t.Fatalf("input report reached Config.Read: %+v", got)
+	}
+	if got := drain(transitions); len(got) != 0 {
+		t.Fatalf("input report notified observers: %+v", got)
+	}
+	unsetPaneOptions(t, srv)
+
+	sendFrame(t, socket, protocol.HookFrame{Input: inputAt})
+	if got := drain(inputs); len(got) != 1 || got[0] != inputAt {
+		t.Fatalf("paneless input report reached Config.Input %v times, want once with %d", got, inputAt)
+	}
+}
+
+func TestDaemonInputReportWithoutHandler(t *testing.T) {
+	srv := startServer(t)
+	seens := make(chan daemon.SeenReport, 4)
+	transitions := make(chan daemon.Transition, 4)
+	socket := serve(t, daemon.Config{
+		Seen:      func(report daemon.SeenReport) { seens <- report },
+		Observers: []daemon.Observer{func(transition daemon.Transition) { transitions <- transition }},
+	})
+
+	sendFrame(t, socket, inputFrameFor(srv.pane, srv.socket))
+	if got := drain(seens); len(got) != 0 {
+		t.Fatalf("input report reached Config.Seen: %+v", got)
+	}
+	if got := drain(transitions); len(got) != 0 {
+		t.Fatalf("input report notified observers: %+v", got)
+	}
+	unsetPaneOptions(t, srv)
+
+	sendFrame(t, socket, frameFor(userPromptSubmitHook, srv.pane, srv.socket))
+	wantOption(t, srv, protocol.OptionState, "working")
+}
+
 // contextObservation is the @orrery_context value an observer read when it ran.
 type contextObservation struct {
 	value string

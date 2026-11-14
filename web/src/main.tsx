@@ -6,7 +6,9 @@ import { createClients, createTransport } from "./client";
 import { type EpicsView, epicsView, noEpics } from "./epics";
 import { loadEpics } from "./loadepics";
 import { loadRows } from "./load";
+import { watchPresence } from "./presence";
 import type { Row } from "./rows";
+import type { SeenClock } from "./seen";
 
 const defaultIntervalMs = 5000;
 
@@ -18,6 +20,13 @@ const eventReloadMs = 100;
 
 // The element index.html provides for the page to mount into.
 const pageRootId = "app";
+
+// The clock the presence watch reads and times its reports with.
+const realClock: SeenClock = {
+  now: () => Date.now(),
+  setTimeout: (fn, ms) => setTimeout(fn, ms),
+  clearTimeout: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
+};
 
 interface Loaded {
   rows: Row[];
@@ -47,8 +56,9 @@ function pause(ms: number, signal: AbortSignal): Promise<void> {
 // unavailable reopens from the last seq it delivered after retryMs. Once the stream ends or fails any other way, the
 // poll reloads the rows, and the next successful load reopens the stream. A tick or event that lands while a reload is
 // in flight never starts a second one: an event waits for the reload in flight, then reloads again. The epics load has
-// its own guard: a tick or event that lands while it is in flight is left to the next tick. The returned function stops
-// reloading, aborts the stream and unmounts App.
+// its own guard: a tick or event that lands while it is in flight is left to the next tick. The page also reports its input: watchPresence
+// sends the age of the newest input through Presence.Report, and a failed report is dropped. The returned function
+// stops reloading, aborts the stream, stops the presence watch and unmounts App.
 export function start(
   root: HTMLElement,
   clients: ReturnType<typeof createClients>,
@@ -176,8 +186,18 @@ export function start(
     draw();
   }, intervalMs);
 
+  // A failed report is dropped without a page error; the next input sends again.
+  const presence = watchPresence(
+    window,
+    (ageMs) => {
+      void clients.presence.report({ inputAgeMs: BigInt(ageMs) }).catch(() => undefined);
+    },
+    realClock,
+  );
+
   return () => {
     stopped = true;
+    presence.stop();
     clearInterval(timer);
     clearTimeout(eventTimer);
     stream?.abort();
