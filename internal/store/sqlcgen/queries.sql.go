@@ -453,6 +453,28 @@ func (q *Queries) GetEpicDecisionByClientID(ctx context.Context, arg GetEpicDeci
 	return i, err
 }
 
+const getEpicQuestion = `-- name: GetEpicQuestion :one
+SELECT epic, seq, turn, text, state FROM epic_questions WHERE epic = ? AND seq = ?
+`
+
+type GetEpicQuestionParams struct {
+	Epic string
+	Seq  int64
+}
+
+func (q *Queries) GetEpicQuestion(ctx context.Context, arg GetEpicQuestionParams) (EpicQuestion, error) {
+	row := q.db.QueryRowContext(ctx, getEpicQuestion, arg.Epic, arg.Seq)
+	var i EpicQuestion
+	err := row.Scan(
+		&i.Epic,
+		&i.Seq,
+		&i.Turn,
+		&i.Text,
+		&i.State,
+	)
+	return i, err
+}
+
 const getNoticeIDFloor = `-- name: GetNoticeIDFloor :one
 SELECT high FROM pending_notice_ids WHERE id = 1
 `
@@ -730,7 +752,7 @@ func (q *Queries) InsertEpicAlternative(ctx context.Context, arg InsertEpicAlter
 }
 
 const insertEpicDecision = `-- name: InsertEpicDecision :exec
-INSERT INTO epic_decisions (epic, seq, client_id, text, time) VALUES (?, ?, ?, ?, ?)
+INSERT INTO epic_decisions (epic, seq, client_id, text, time, question) VALUES (?, ?, ?, ?, ?, ?)
 `
 
 type InsertEpicDecisionParams struct {
@@ -739,6 +761,7 @@ type InsertEpicDecisionParams struct {
 	ClientID string
 	Text     string
 	Time     int64
+	Question int64
 }
 
 func (q *Queries) InsertEpicDecision(ctx context.Context, arg InsertEpicDecisionParams) error {
@@ -748,6 +771,7 @@ func (q *Queries) InsertEpicDecision(ctx context.Context, arg InsertEpicDecision
 		arg.ClientID,
 		arg.Text,
 		arg.Time,
+		arg.Question,
 	)
 	return err
 }
@@ -2236,6 +2260,39 @@ func (q *Queries) ListLabelledSteps(ctx context.Context, arg ListLabelledStepsPa
 	return items, nil
 }
 
+const listOpenEpicQuestions = `-- name: ListOpenEpicQuestions :many
+SELECT epic, seq, turn, text, state FROM epic_questions WHERE epic = ? AND state = 'open' ORDER BY seq
+`
+
+func (q *Queries) ListOpenEpicQuestions(ctx context.Context, epic string) ([]EpicQuestion, error) {
+	rows, err := q.db.QueryContext(ctx, listOpenEpicQuestions, epic)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []EpicQuestion
+	for rows.Next() {
+		var i EpicQuestion
+		if err := rows.Scan(
+			&i.Epic,
+			&i.Seq,
+			&i.Turn,
+			&i.Text,
+			&i.State,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listOpenSteps = `-- name: ListOpenSteps :many
 SELECT id, agent, prompt, output_schema, workspace, revision, worktree, done_value, read_only, owned, gate, gate_limit, started, checks, result, status, end_value, reason, ended, model_limit, doing, verdicts, epic, task, gate_name, gate_source, gate_needs, loop_round, loop_continues, loop_nudge, loop_owner_nudge, loop_nudged, loop_held, loop_judge_sent, loop_seq, gate_grant, gate_holder, gate_round FROM steps WHERE end_value = '' ORDER BY id
 `
@@ -2735,6 +2792,20 @@ func (q *Queries) SetEpicParked(ctx context.Context, arg SetEpicParkedParams) (i
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const setEpicQuestionAnswered = `-- name: SetEpicQuestionAnswered :exec
+UPDATE epic_questions SET state = 'answered' WHERE epic = ? AND seq = ?
+`
+
+type SetEpicQuestionAnsweredParams struct {
+	Epic string
+	Seq  int64
+}
+
+func (q *Queries) SetEpicQuestionAnswered(ctx context.Context, arg SetEpicQuestionAnsweredParams) error {
+	_, err := q.db.ExecContext(ctx, setEpicQuestionAnswered, arg.Epic, arg.Seq)
+	return err
 }
 
 const setEpicTurnStep = `-- name: SetEpicTurnStep :execrows

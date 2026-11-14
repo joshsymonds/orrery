@@ -353,7 +353,7 @@ SELECT * FROM epic_release_steps WHERE epic = ? ORDER BY position;
 INSERT INTO epic_triggers (epic, id, cause, state, turn, created) VALUES (?, ?, ?, ?, ?, ?);
 
 -- name: InsertEpicDecision :exec
-INSERT INTO epic_decisions (epic, seq, client_id, text, time) VALUES (?, ?, ?, ?, ?);
+INSERT INTO epic_decisions (epic, seq, client_id, text, time, question) VALUES (?, ?, ?, ?, ?, ?);
 
 -- name: GetEpicDecisionByClientID :one
 SELECT * FROM epic_decisions WHERE epic = ? AND client_id = ?;
@@ -452,6 +452,15 @@ SELECT * FROM epic_task_requirements WHERE epic = ? ORDER BY task, position;
 
 -- name: ListEpicQuestions :many
 SELECT * FROM epic_questions WHERE epic = ? ORDER BY seq;
+
+-- name: ListOpenEpicQuestions :many
+SELECT * FROM epic_questions WHERE epic = ? AND state = 'open' ORDER BY seq;
+
+-- name: GetEpicQuestion :one
+SELECT * FROM epic_questions WHERE epic = ? AND seq = ?;
+
+-- name: SetEpicQuestionAnswered :exec
+UPDATE epic_questions SET state = 'answered' WHERE epic = ? AND seq = ?;
 
 -- name: ListEpicTurnTriggers :many
 SELECT * FROM epic_triggers WHERE epic = ? AND turn = ? ORDER BY id;
