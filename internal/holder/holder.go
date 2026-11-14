@@ -191,6 +191,10 @@ type holder struct {
 	queue        []stdinWrite
 	queued       chan struct{}
 	writesClosed chan struct{}
+	// delivering is held while one write is written to the child's stdin and answered. The end path takes it before the
+	// exit frame goes out, so a child that reads a write and ends at once cannot end the stream before that write's
+	// written answer, which would answer a delivered write with the stream's end.
+	delivering sync.Mutex
 }
 
 // controller is the connection attached to the child's stdout stream. quit closes when the controller is replaced or
@@ -237,7 +241,10 @@ func (h *holder) run(ctx context.Context) error {
 	// Close stops the accept loop and removes the socket file.
 	closeErr := h.listener.Close()
 	<-accepting
+	// A write the child received before it ended is answered before the exit frame ends its controller's stream.
+	h.delivering.Lock()
 	h.endStreams(exit)
+	h.delivering.Unlock()
 	if writeErr == nil {
 		h.answerStops()
 	}
@@ -561,13 +568,16 @@ func (h *holder) writeStdin() {
 }
 
 // deliver writes one recorded write to the child's stdin and answers its peer: written once the data is written, or an
-// error frame when the child's stdin refuses it. The connection stays open either way.
-func (h *holder) deliver(w stdinWrite) {
-	answer := Frame{Type: TypeWritten, ID: w.id}
-	if err := h.child.Write(w.data); err != nil {
-		answer = Frame{Type: TypeError, ID: w.id, Message: err.Error()}
+// error frame when the child's stdin refuses it. The connection stays open either way. It holds delivering throughout,
+// so the answer reaches the peer before any exit frame.
+func (h *holder) deliver(recorded stdinWrite) {
+	h.delivering.Lock()
+	defer h.delivering.Unlock()
+	answer := Frame{Type: TypeWritten, ID: recorded.id}
+	if err := h.child.Write(recorded.data); err != nil {
+		answer = Frame{Type: TypeError, ID: recorded.id, Message: err.Error()}
 	}
-	if err := w.peer.write(answer); err != nil {
+	if err := recorded.peer.write(answer); err != nil {
 		h.cfg.Logger.Warn("holder: answer write", "err", err)
 	}
 }

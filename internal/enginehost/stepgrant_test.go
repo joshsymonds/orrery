@@ -39,13 +39,14 @@ func newStepGrantFixture(t *testing.T, commands PoolCommands, poolsText string) 
 	stepGateWriteFile(t, filepath.Join(home, "orrery", "pools.toml"), poolsText)
 	environ := []string{"PATH=" + os.Getenv("PATH"), "HOME=" + home, "XDG_CONFIG_HOME=" + home}
 	steps, err := NewSteps(StepsConfig{
-		Sessions:  sessions,
-		Store:     s,
-		Writer:    writer,
-		Pools:     commands,
-		Worktrees: t.TempDir(),
-		Environ:   environ,
-		Logger:    slog.New(slog.DiscardHandler),
+		Sessions:     sessions,
+		Store:        s,
+		Writer:       writer,
+		Pools:        commands,
+		Worktrees:    t.TempDir(),
+		Environ:      environ,
+		Logger:       slog.New(slog.DiscardHandler),
+		GateStateDir: gateShortStateDir(t),
 	})
 	if err != nil {
 		t.Fatalf("NewSteps: %v", err)
