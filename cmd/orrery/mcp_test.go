@@ -257,7 +257,7 @@ func TestMCPServesStepToolsOverDaemon(t *testing.T) {
 		names = append(names, tool.Name)
 	}
 	want := []string{
-		"step_start", "step_status", "step_stop", "step_wait",
+		"step_start", "step_status", "step_stop", "step_resume", "step_wait",
 		"epic_create", "epic_get", "epic_list", "epic_answer",
 	}
 	if !slices.Equal(names, want) {

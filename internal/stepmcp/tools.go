@@ -87,6 +87,12 @@ func stepTools(steps enginev1connect.StepsClient, clock rpcretry.Clock) []mcp.To
 			Handler:     stopHandler(steps, clock),
 		},
 		{
+			Name:        "step_resume",
+			Description: "Resume a step a usage limit holds by id.",
+			InputSchema: json.RawMessage(idSchema),
+			Handler:     resumeHandler(steps, clock),
+		},
+		{
 			Name: "step_wait",
 			Description: "Wait until one of the given steps ends, or until timeoutSeconds passes " +
 				"(at most 1500 seconds). Returns the ended step, or null with every step's state at timeout.",
@@ -222,24 +228,39 @@ func statusHandler(steps enginev1connect.StepsClient, clock rpcretry.Clock) mcp.
 	}
 }
 
-func stopHandler(steps enginev1connect.StepsClient, clock rpcretry.Clock) mcp.ToolHandler {
-	return func(ctx context.Context, call mcp.Call) (mcp.ToolResult, error) {
+// idCallHandler returns the handler of a tool that takes a step id and makes one call for it. The call is retried on
+// Unavailable, and a call that succeeds answers the id with outcome set to true.
+func idCallHandler(clock rpcretry.Clock, outcome string, call func(context.Context, string) error) mcp.ToolHandler {
+	return func(ctx context.Context, tool mcp.Call) (mcp.ToolResult, error) {
 		var args idArgs
-		if err := decodeArguments(call.Arguments, &args); err != nil {
+		if err := decodeArguments(tool.Arguments, &args); err != nil {
 			return mcp.ToolResult{}, err
 		}
 		if err := requireString("id", args.ID); err != nil {
 			return mcp.ToolResult{}, err
 		}
 		err := rpcretry.Do(ctx, clock, rpcretry.Unavailable, func(callCtx context.Context) error {
-			_, callErr := steps.StopStep(callCtx, connect.NewRequest(&v1.StopStepRequest{Id: args.ID}))
-			return errors.Join(callErr)
+			return errors.Join(call(callCtx, args.ID))
 		})
 		if err != nil {
 			return toolFailure(err), nil
 		}
-		return textResult(map[string]any{"id": args.ID, "stopped": true})
+		return textResult(map[string]any{"id": args.ID, outcome: true})
 	}
+}
+
+func stopHandler(steps enginev1connect.StepsClient, clock rpcretry.Clock) mcp.ToolHandler {
+	return idCallHandler(clock, "stopped", func(ctx context.Context, id string) error {
+		_, err := steps.StopStep(ctx, connect.NewRequest(&v1.StopStepRequest{Id: id}))
+		return errors.Join(err)
+	})
+}
+
+func resumeHandler(steps enginev1connect.StepsClient, clock rpcretry.Clock) mcp.ToolHandler {
+	return idCallHandler(clock, "resumed", func(ctx context.Context, id string) error {
+		_, err := steps.ResumeStep(ctx, connect.NewRequest(&v1.ResumeStepRequest{Id: id}))
+		return errors.Join(err)
+	})
 }
 
 // waitSeconds returns the requested wait in whole seconds, clamped to MaxWait. An omitted wait is MaxWait.
@@ -338,19 +359,22 @@ func waitHandler(steps enginev1connect.StepsClient, clock rpcretry.Clock) mcp.To
 
 // stepJSON is a step as the tools report it.
 type stepJSON struct {
-	ID        string      `json:"id"`
-	Agent     string      `json:"agent"`
-	Workspace string      `json:"workspace"`
-	Revision  string      `json:"revision"`
-	ReadOnly  bool        `json:"readOnly"`
-	Worktree  string      `json:"worktree"`
-	End       string      `json:"end"`
-	Status    string      `json:"status"`
-	Result    string      `json:"result"`
-	Checks    []checkJSON `json:"checks"`
-	Reason    string      `json:"reason"`
-	Started   int64       `json:"started"`
-	Ended     int64       `json:"ended"`
+	ID          string      `json:"id"`
+	Agent       string      `json:"agent"`
+	Workspace   string      `json:"workspace"`
+	Revision    string      `json:"revision"`
+	ReadOnly    bool        `json:"readOnly"`
+	Worktree    string      `json:"worktree"`
+	End         string      `json:"end"`
+	Status      string      `json:"status"`
+	Result      string      `json:"result"`
+	Checks      []checkJSON `json:"checks"`
+	Reason      string      `json:"reason"`
+	Started     int64       `json:"started"`
+	Ended       int64       `json:"ended"`
+	Limited     bool        `json:"limited"`
+	LimitKind   string      `json:"limitKind"`
+	LimitResets int64       `json:"limitResets"`
 }
 
 // checkJSON is one gate check of a step.
@@ -372,19 +396,22 @@ func stepFromProto(step *v1.Step) stepJSON {
 		})
 	}
 	return stepJSON{
-		ID:        step.GetId(),
-		Agent:     step.GetAgent(),
-		Workspace: step.GetWorkspace(),
-		Revision:  step.GetRevision(),
-		ReadOnly:  step.GetReadOnly(),
-		Worktree:  step.GetWorktree(),
-		End:       step.GetEnd(),
-		Status:    step.GetStatus(),
-		Result:    step.GetResult(),
-		Checks:    checks,
-		Reason:    step.GetReason(),
-		Started:   step.GetStarted(),
-		Ended:     step.GetEnded(),
+		ID:          step.GetId(),
+		Agent:       step.GetAgent(),
+		Workspace:   step.GetWorkspace(),
+		Revision:    step.GetRevision(),
+		ReadOnly:    step.GetReadOnly(),
+		Worktree:    step.GetWorktree(),
+		End:         step.GetEnd(),
+		Status:      step.GetStatus(),
+		Result:      step.GetResult(),
+		Checks:      checks,
+		Reason:      step.GetReason(),
+		Started:     step.GetStarted(),
+		Ended:       step.GetEnded(),
+		Limited:     step.GetLimited(),
+		LimitKind:   step.GetLimitKind(),
+		LimitResets: step.GetLimitResets(),
 	}
 }
 
