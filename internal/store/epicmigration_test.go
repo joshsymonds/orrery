@@ -17,8 +17,8 @@ import (
 )
 
 // epicTableColumns returns, keyed by table, the columns in declaration order of every table migrations 00014, 00016,
-// 00019, 00028 and 00030 create, and of the columns those migrations and 00020, 00021, 00022, 00025, 00029 and 00033
-// add to epic tables.
+// 00019, 00028, 00030 and 00034 create, and of the columns those migrations and 00020, 00021, 00022, 00025, 00029 and
+// 00033 add to epic tables.
 func epicTableColumns() map[string][]string {
 	return map[string][]string{
 		"epics": {
@@ -65,6 +65,11 @@ func epicTableColumns() map[string][]string {
 			"id", "epic", "path", "revision", "argv", "limit_seconds", "needs", "state", "grant_id", "holder", "exit",
 			"timed_out", "not_run", "stdout", "stderr", "created", "ended",
 		},
+		"epic_release_runs": {
+			"epic", "part", "position", "attempt", "step", "start", "head", "finish", "commits", "evidence",
+			"passed", "reason", "at",
+		},
+		"epic_release_slots": {"repository", "epic"},
 		"epic_tells":         {"epic", "seq", "text", "at", "told"},
 		"epic_questions":     {"epic", "seq", "turn", "text", "state"},
 		"engine_rate_limits": {"session_id", "status", "kind", "resets_at", "at"},
@@ -430,9 +435,9 @@ func TestEpicMigrationKeepsExistingRows(t *testing.T) {
 		`SELECT COALESCE(MAX(version_id), 0) FROM goose_db_version WHERE is_applied = 1`).Scan(&version); err != nil {
 		t.Fatalf("read store version: %v", err)
 	}
-	// Open applies 00014_epics.sql and every migration after it: 00033_integration.sql is the newest.
-	if version != 33 {
-		t.Fatalf("store version after Open = %d, want 33", version)
+	// Open applies 00014_epics.sql and every migration after it: 00034_release.sql is the newest.
+	if version != 34 {
+		t.Fatalf("store version after Open = %d, want 34", version)
 	}
 
 	// A later migration may add columns at the end of an existing table, as 00015_step_readopt.sql adds to steps and
@@ -805,6 +810,39 @@ func TestLimitToldMigrationDownAndUp(t *testing.T) {
 	}
 	if !hasAll(columnsOf(t, s, "pending_notices"), "limit_key") {
 		t.Errorf("pending_notices columns after Up = %v, want limit_key", columnsOf(t, s, "pending_notices"))
+	}
+}
+
+// TestReleaseMigrationDownAndUp removes the release run and release slot tables with the Down of 00034_release.sql,
+// and Up restores them.
+func TestReleaseMigrationDownAndUp(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openEpicStore(t)
+
+	migrationsFS, err := fs.Sub(migrationFS, "migrations")
+	if err != nil {
+		t.Fatalf("sub migrations fs: %v", err)
+	}
+	provider, err := goose.NewProvider(goose.DialectSQLite3, s.db.DB, migrationsFS)
+	if err != nil {
+		t.Fatalf("create goose provider: %v", err)
+	}
+
+	if _, err := provider.DownTo(ctx, 33); err != nil {
+		t.Fatalf("DownTo 33: %v", err)
+	}
+	if tables := tableNames(t, s); tables["epic_release_runs"] || tables["epic_release_slots"] {
+		t.Errorf("release tables after Down: epic_release_runs %v, epic_release_slots %v; want neither",
+			tables["epic_release_runs"], tables["epic_release_slots"])
+	}
+
+	if _, err := provider.Up(ctx); err != nil {
+		t.Fatalf("Up: %v", err)
+	}
+	if tables := tableNames(t, s); !tables["epic_release_runs"] || !tables["epic_release_slots"] {
+		t.Errorf("release tables after Up: epic_release_runs %v, epic_release_slots %v; want both",
+			tables["epic_release_runs"], tables["epic_release_slots"])
 	}
 }
 

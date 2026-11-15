@@ -617,6 +617,15 @@ func (q *Queries) EventPageAfter(ctx context.Context, arg EventPageAfterParams) 
 	return items, nil
 }
 
+const freeEpicReleaseSlot = `-- name: FreeEpicReleaseSlot :exec
+DELETE FROM epic_release_slots WHERE epic = ?
+`
+
+func (q *Queries) FreeEpicReleaseSlot(ctx context.Context, epic string) error {
+	_, err := q.db.ExecContext(ctx, freeEpicReleaseSlot, epic)
+	return err
+}
+
 const getDueResume = `-- name: GetDueResume :one
 SELECT id, kind, target, resets, state FROM due_resumes WHERE id = ?
 `
@@ -844,6 +853,17 @@ func (q *Queries) GetEpicQuestion(ctx context.Context, arg GetEpicQuestionParams
 		&i.State,
 	)
 	return i, err
+}
+
+const getEpicReleaseSlotHolder = `-- name: GetEpicReleaseSlotHolder :one
+SELECT epic FROM epic_release_slots WHERE repository = ?
+`
+
+func (q *Queries) GetEpicReleaseSlotHolder(ctx context.Context, repository string) (string, error) {
+	row := q.db.QueryRowContext(ctx, getEpicReleaseSlotHolder, repository)
+	var epic string
+	err := row.Scan(&epic)
+	return epic, err
 }
 
 const getEpicTurnStop = `-- name: GetEpicTurnStop :one
@@ -1577,6 +1597,63 @@ func (q *Queries) InsertEpicQuestion(ctx context.Context, arg InsertEpicQuestion
 		arg.Turn,
 		arg.Text,
 	)
+	return err
+}
+
+const insertEpicReleaseRun = `-- name: InsertEpicReleaseRun :exec
+INSERT INTO epic_release_runs (epic, part, position, attempt, step, start, head, finish, commits, evidence, passed,
+    reason, at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT (epic, part, position, attempt) DO NOTHING
+`
+
+type InsertEpicReleaseRunParams struct {
+	Epic     string
+	Part     string
+	Position int64
+	Attempt  int64
+	Step     string
+	Start    string
+	Head     string
+	Finish   string
+	Commits  string
+	Evidence string
+	Passed   bool
+	Reason   string
+	At       int64
+}
+
+func (q *Queries) InsertEpicReleaseRun(ctx context.Context, arg InsertEpicReleaseRunParams) error {
+	_, err := q.db.ExecContext(ctx, insertEpicReleaseRun,
+		arg.Epic,
+		arg.Part,
+		arg.Position,
+		arg.Attempt,
+		arg.Step,
+		arg.Start,
+		arg.Head,
+		arg.Finish,
+		arg.Commits,
+		arg.Evidence,
+		arg.Passed,
+		arg.Reason,
+		arg.At,
+	)
+	return err
+}
+
+const insertEpicReleaseSlot = `-- name: InsertEpicReleaseSlot :exec
+INSERT INTO epic_release_slots (repository, epic) VALUES (?, ?)
+ON CONFLICT (repository) DO NOTHING
+`
+
+type InsertEpicReleaseSlotParams struct {
+	Repository string
+	Epic       string
+}
+
+func (q *Queries) InsertEpicReleaseSlot(ctx context.Context, arg InsertEpicReleaseSlotParams) error {
+	_, err := q.db.ExecContext(ctx, insertEpicReleaseSlot, arg.Repository, arg.Epic)
 	return err
 }
 
@@ -2739,6 +2816,47 @@ func (q *Queries) ListEpicQuestions(ctx context.Context, epic string) ([]EpicQue
 			&i.Turn,
 			&i.Text,
 			&i.State,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listEpicReleaseRuns = `-- name: ListEpicReleaseRuns :many
+SELECT epic, part, position, attempt, step, start, head, finish, commits, evidence, passed, reason, at FROM epic_release_runs WHERE epic = ? ORDER BY attempt, part, position
+`
+
+func (q *Queries) ListEpicReleaseRuns(ctx context.Context, epic string) ([]EpicReleaseRun, error) {
+	rows, err := q.db.QueryContext(ctx, listEpicReleaseRuns, epic)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []EpicReleaseRun
+	for rows.Next() {
+		var i EpicReleaseRun
+		if err := rows.Scan(
+			&i.Epic,
+			&i.Part,
+			&i.Position,
+			&i.Attempt,
+			&i.Step,
+			&i.Start,
+			&i.Head,
+			&i.Finish,
+			&i.Commits,
+			&i.Evidence,
+			&i.Passed,
+			&i.Reason,
+			&i.At,
 		); err != nil {
 			return nil, err
 		}
@@ -5165,6 +5283,24 @@ type SetEvidenceRunJudgeParams struct {
 
 func (q *Queries) SetEvidenceRunJudge(ctx context.Context, arg SetEvidenceRunJudgeParams) error {
 	_, err := q.db.ExecContext(ctx, setEvidenceRunJudge, arg.JudgeStep, arg.ID)
+	return err
+}
+
+const startEpicRelease = `-- name: StartEpicRelease :exec
+UPDATE epics SET phase = 'releasing' WHERE id = ? AND phase = 'clean'
+`
+
+func (q *Queries) StartEpicRelease(ctx context.Context, id string) error {
+	_, err := q.db.ExecContext(ctx, startEpicRelease, id)
+	return err
+}
+
+const stopEpicRelease = `-- name: StopEpicRelease :exec
+UPDATE epics SET phase = 'stopped' WHERE id = ? AND phase = 'releasing'
+`
+
+func (q *Queries) StopEpicRelease(ctx context.Context, id string) error {
+	_, err := q.db.ExecContext(ctx, stopEpicRelease, id)
 	return err
 }
 

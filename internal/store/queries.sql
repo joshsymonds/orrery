@@ -427,6 +427,31 @@ INSERT INTO epic_release_steps (epic, position, step, target, undo) VALUES (?, ?
 -- name: ListEpicReleaseSteps :many
 SELECT * FROM epic_release_steps WHERE epic = ? ORDER BY position;
 
+-- name: InsertEpicReleaseRun :exec
+INSERT INTO epic_release_runs (epic, part, position, attempt, step, start, head, finish, commits, evidence, passed,
+    reason, at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT (epic, part, position, attempt) DO NOTHING;
+
+-- name: ListEpicReleaseRuns :many
+SELECT * FROM epic_release_runs WHERE epic = ? ORDER BY attempt, part, position;
+
+-- name: InsertEpicReleaseSlot :exec
+INSERT INTO epic_release_slots (repository, epic) VALUES (?, ?)
+ON CONFLICT (repository) DO NOTHING;
+
+-- name: GetEpicReleaseSlotHolder :one
+SELECT epic FROM epic_release_slots WHERE repository = ?;
+
+-- name: FreeEpicReleaseSlot :exec
+DELETE FROM epic_release_slots WHERE epic = ?;
+
+-- name: StartEpicRelease :exec
+UPDATE epics SET phase = 'releasing' WHERE id = ? AND phase = 'clean';
+
+-- name: StopEpicRelease :exec
+UPDATE epics SET phase = 'stopped' WHERE id = ? AND phase = 'releasing';
+
 -- name: InsertEpicGate :exec
 INSERT INTO epic_gates (epic, position, name, argv, limit_seconds, needs, agent, must, must_not)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
