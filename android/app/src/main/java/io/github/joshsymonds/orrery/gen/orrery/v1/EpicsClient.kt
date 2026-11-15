@@ -45,4 +45,94 @@ public class EpicsClient(
     ),
   )
 
+
+  /**
+   *  History returns one page of an epic's turns, triggers, steps, evidence runs, decisions and tells, oldest first.
+   */
+  override suspend fun history(request: EpicsHistoryRequest, headers: Headers): ResponseMessage<EpicsHistoryResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "orrery.v1.Epics/History",
+      io.github.joshsymonds.orrery.gen.orrery.v1.EpicsHistoryRequest::class,
+      io.github.joshsymonds.orrery.gen.orrery.v1.EpicsHistoryResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
+
+  /**
+   *  Pause pauses the named orreryd epic, so its planner starts no turn.
+   */
+  override suspend fun pause(request: EpicsPauseRequest, headers: Headers): ResponseMessage<EpicsPauseResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "orrery.v1.Epics/Pause",
+      io.github.joshsymonds.orrery.gen.orrery.v1.EpicsPauseRequest::class,
+      io.github.joshsymonds.orrery.gen.orrery.v1.EpicsPauseResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
+
+  /**
+   *  Resume clears the named orreryd epic's pause and resumes its limited task steps.
+   */
+  override suspend fun resume(request: EpicsResumeRequest, headers: Headers): ResponseMessage<EpicsResumeResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "orrery.v1.Epics/Resume",
+      io.github.joshsymonds.orrery.gen.orrery.v1.EpicsResumeRequest::class,
+      io.github.joshsymonds.orrery.gen.orrery.v1.EpicsResumeResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
+
+  /**
+   *  Stop pauses the named orreryd epic and stops the step of its running turn.
+   */
+  override suspend fun stop(request: EpicsStopRequest, headers: Headers): ResponseMessage<EpicsStopResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "orrery.v1.Epics/Stop",
+      io.github.joshsymonds.orrery.gen.orrery.v1.EpicsStopRequest::class,
+      io.github.joshsymonds.orrery.gen.orrery.v1.EpicsStopResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
+
+  /**
+   *  Retry ends the named orreryd epic's park, or reruns the parked runs of one of its workflow nodes.
+   */
+  override suspend fun retry(request: EpicsRetryRequest, headers: Headers): ResponseMessage<EpicsRetryResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "orrery.v1.Epics/Retry",
+      io.github.joshsymonds.orrery.gen.orrery.v1.EpicsRetryRequest::class,
+      io.github.joshsymonds.orrery.gen.orrery.v1.EpicsRetryResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
+
+  /**
+   *  Answer records the owner's answer on the named orreryd epic, tied to the question it names or as a note.
+   */
+  override suspend fun answer(request: EpicsAnswerRequest, headers: Headers): ResponseMessage<EpicsAnswerResponse> = client.unary(
+    request,
+    headers,
+    MethodSpec(
+    "orrery.v1.Epics/Answer",
+      io.github.joshsymonds.orrery.gen.orrery.v1.EpicsAnswerRequest::class,
+      io.github.joshsymonds.orrery.gen.orrery.v1.EpicsAnswerResponse::class,
+      StreamType.UNARY,
+    ),
+  )
+
 }

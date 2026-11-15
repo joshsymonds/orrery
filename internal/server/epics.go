@@ -39,8 +39,9 @@ const (
 
 // epicsServer answers orrery.v1.Epics from the records under root, the epics store holds, the runs of evidence, and the
 // labeled steps of steps. A nil steps answers unavailable. A nil store lists no database epics, and a nil evidence
-// client attaches no runs.
+// client attaches no runs. The rpcs it does not answer yet come from the embedded unimplemented handler.
 type epicsServer struct {
+	orreryv1connect.UnimplementedEpicsHandler
 	root     string
 	steps    StepClient
 	store    EpicStoreClient
@@ -101,8 +102,9 @@ func (e epicsServer) List(
 
 // Get answers one epic by the id List gave it, with its tasks, its labeled steps oldest first, and its slices. An epic
 // orreryd's database holds answers as List does, with its Requirements in contract order, each with its conclusion and
-// the evidence runs of its item, its workflow nodes in the engine's order, its build_tasks in plan order, and the tasks
-// of its record when one exists. An id that neither the database nor the record root lists answers not_found, and the
+// the evidence runs of its item, its workflow nodes in the engine's order, its build_tasks in plan order, its open
+// questions, its contract with its acceptance time, whether it is paused and why it is parked, and the tasks of its
+// record when one exists. An id that neither the database nor the record root lists answers not_found, and the
 // id is never joined into a path.
 func (e epicsServer) Get(
 	ctx context.Context,
@@ -153,6 +155,10 @@ func (e epicsServer) Get(
 		resp.Requirements = epicRequirementMessages(stored.GetContract().GetRequirements(), runs)
 		resp.Nodes = epicNodeMessages(stored.GetNodes(), runs)
 		resp.BuildTasks = epicBuildTaskMessages(stored.GetTasks())
+		resp.Questions = epicQuestionMessages(stored.GetQuestions(), stored.GetTurns())
+		resp.Contract = epicContractMessage(stored.GetContract(), stored.GetCreated())
+		resp.Paused = stored.GetPaused()
+		resp.Parked = stored.GetParked()
 	} else {
 		resp.Epic = epicMessage(rec, taskProblems, labeled, e.now())
 	}
@@ -345,6 +351,120 @@ func epicRequirementMessages(
 			msg.Runs = epicRunMessages(runsByItem[req.GetId()])
 		}
 		out = append(out, msg)
+	}
+	return out
+}
+
+// epicQuestionOpen is the state of a question the owner has not answered. Only open questions are answered.
+const epicQuestionOpen = "open"
+
+// epicQuestionMessages converts each open question to its EpicQuestion, in order, and leaves out the answered ones. A
+// question's asked is the end of the turn whose seq is the question's turn; a turn that no seq matches gives zero.
+func epicQuestionMessages(questions []*enginev1.EpicQuestion, turns []*enginev1.EpicTurn) []*orreryv1.EpicQuestion {
+	endedBySeq := make(map[int64]int64, len(turns))
+	for _, turn := range turns {
+		endedBySeq[turn.GetSeq()] = turn.GetEnded()
+	}
+	out := make([]*orreryv1.EpicQuestion, 0, len(questions))
+	for _, question := range questions {
+		if question.GetState() != epicQuestionOpen {
+			continue
+		}
+		out = append(out, &orreryv1.EpicQuestion{
+			Id:    question.GetId(),
+			Text:  question.GetText(),
+			Turn:  question.GetTurn(),
+			Asked: endedBySeq[question.GetTurn()],
+		})
+	}
+	return out
+}
+
+// epicContractMessage converts contract to its EpicContract: its sections in the contract's order, and accepted, which
+// is the epic's created time. The contract's requirements are not part of it; Get answers them as its requirements.
+func epicContractMessage(contract *enginev1.EpicContract, accepted int64) *orreryv1.EpicContract {
+	return &orreryv1.EpicContract{
+		Title:        contract.GetTitle(),
+		Approved:     contract.GetApproved(),
+		Intent:       contract.GetIntent(),
+		Failures:     epicFailureMessages(contract.GetFailures()),
+		Care:         contract.GetCare(),
+		Additions:    epicAdditionMessages(contract.GetAdditions()),
+		Premises:     epicPremiseMessages(contract.GetPremises()),
+		Exclusions:   contract.GetExclusions(),
+		Approach:     contract.GetApproach(),
+		Alternatives: epicAlternativeMessages(contract.GetAlternatives()),
+		ReleaseSteps: epicReleaseStepMessages(contract.GetReleaseSteps()),
+		ReleaseThen:  contract.GetReleaseThen(),
+		Checks:       contract.GetChecks(),
+		Base:         contract.GetBase(),
+		Accepted:     accepted,
+	}
+}
+
+// epicFailureMessages converts each failure of a contract to its EpicFailure, in order.
+func epicFailureMessages(failures []*enginev1.EpicFailure) []*orreryv1.EpicFailure {
+	out := make([]*orreryv1.EpicFailure, 0, len(failures))
+	for _, failure := range failures {
+		out = append(out, &orreryv1.EpicFailure{
+			Id:       failure.GetId(),
+			Text:     failure.GetText(),
+			Rating:   failure.GetRating(),
+			Response: failure.GetResponse(),
+		})
+	}
+	return out
+}
+
+// epicAdditionMessages converts each addition of a contract to its EpicAddition, in order.
+func epicAdditionMessages(additions []*enginev1.EpicAddition) []*orreryv1.EpicAddition {
+	out := make([]*orreryv1.EpicAddition, 0, len(additions))
+	for _, addition := range additions {
+		out = append(out, &orreryv1.EpicAddition{
+			Location: addition.GetLocation(),
+			What:     addition.GetWhat(),
+			Why:      addition.GetWhy(),
+			Cost:     addition.GetCost(),
+		})
+	}
+	return out
+}
+
+// epicPremiseMessages converts each premise of a contract to its EpicPremise, in order.
+func epicPremiseMessages(premises []*enginev1.EpicPremise) []*orreryv1.EpicPremise {
+	out := make([]*orreryv1.EpicPremise, 0, len(premises))
+	for _, premise := range premises {
+		out = append(out, &orreryv1.EpicPremise{
+			Id:      premise.GetId(),
+			Text:    premise.GetText(),
+			IfWrong: premise.GetIfWrong(),
+		})
+	}
+	return out
+}
+
+// epicAlternativeMessages converts each alternative of a contract to its EpicAlternative, in order.
+func epicAlternativeMessages(alternatives []*enginev1.EpicAlternative) []*orreryv1.EpicAlternative {
+	out := make([]*orreryv1.EpicAlternative, 0, len(alternatives))
+	for _, alternative := range alternatives {
+		out = append(out, &orreryv1.EpicAlternative{
+			Alternative: alternative.GetAlternative(),
+			WhyNot:      alternative.GetWhyNot(),
+			Reconsider:  alternative.GetReconsider(),
+		})
+	}
+	return out
+}
+
+// epicReleaseStepMessages converts each release step of a contract to its EpicReleaseStep, in order.
+func epicReleaseStepMessages(steps []*enginev1.EpicReleaseStep) []*orreryv1.EpicReleaseStep {
+	out := make([]*orreryv1.EpicReleaseStep, 0, len(steps))
+	for _, step := range steps {
+		out = append(out, &orreryv1.EpicReleaseStep{
+			Step:   step.GetStep(),
+			Target: step.GetTarget(),
+			Undo:   step.GetUndo(),
+		})
 	}
 	return out
 }
