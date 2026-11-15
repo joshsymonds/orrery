@@ -283,7 +283,7 @@ func TestReattachOfAHolderThatHasEndedIsGone(t *testing.T) {
 	if err := Stop(t.Context(), dir); err != nil {
 		t.Fatalf("Stop: %v", err)
 	}
-	awaitLockUnheld(t, lockID)
+	awaitLockUnheld(t, dir, lockID)
 	if _, _, err := Reattach(t.Context(), dir, 0, WireVersion); !errors.Is(err, ErrGone) {
 		t.Fatalf("Reattach of an ended holder = %v, want ErrGone", err)
 	}
