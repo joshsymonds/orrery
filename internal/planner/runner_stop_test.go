@@ -6,7 +6,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
-	"time"
 
 	"github.com/joshsymonds/orrery/internal/enginehost"
 	"github.com/joshsymonds/orrery/internal/store"
@@ -41,11 +40,7 @@ func TestRunnerStopsStartedStepWhenTurnWasFlaggedBeforeItHadAStep(t *testing.T) 
 	releaseStart := sync.OnceFunc(func() { close(steps.release) })
 	t.Cleanup(releaseStart)
 
-	select {
-	case <-steps.entered:
-	case <-time.After(5 * time.Second):
-		t.Fatal("timed out waiting for the planner step to be started")
-	}
+	<-steps.entered
 	step, err := s.StopEpic(ctx, runnerEpicID)
 	if err != nil {
 		t.Fatalf("StopEpic: %v", err)

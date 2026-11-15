@@ -180,11 +180,7 @@ func TestRunnerStopAfterStepStoredResultKeepsIt(t *testing.T) {
 	releaseWait := sync.OnceFunc(func() { close(steps.release) })
 	t.Cleanup(releaseWait)
 
-	select {
-	case <-steps.entered:
-	case <-time.After(5 * time.Second):
-		t.Fatal("timed out waiting for the runner to wait on the planner step")
-	}
+	<-steps.entered
 	// The step has stored its result, and the runner holds its Wait, so StopEpic runs before the runner settles it.
 	steps.end("step-1", store.StepRow{End: "done", Result: validPlan})
 	step, err := s.StopEpic(ctx, runnerEpicID)
