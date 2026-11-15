@@ -415,7 +415,7 @@ Exit codes:
 ### orrery serve
 
 ```
-orrery [-L NAME | -S PATH] serve --listen ADDR --allow-login LOGIN [--allow-login LOGIN]... [--push-host HOST]... [--host-status-cmd PATH]
+orrery [-L NAME | -S PATH] serve --listen ADDR --allow-login LOGIN [--allow-login LOGIN]... [--push-host HOST]... [--host-status-cmd PATH] [--metrics-listen ADDR]
 ```
 
 - `-L NAME` and `-S PATH` select the tmux server, as section 6 defines.
@@ -423,6 +423,7 @@ orrery [-L NAME | -S PATH] serve --listen ADDR --allow-login LOGIN [--allow-logi
 - `--allow-login LOGIN` admits one Tailscale login. Repeat the flag for each login. At least one is required.
 - `--push-host HOST` names a push relay host, as `orreryd` does. Repeat the flag for each host. The default is `ntfy.sh`.
 - `--host-status-cmd PATH` sets the command that `Host.Status` runs (section 12). `PATH` must be absolute; a relative `PATH` exits 2 before anything is bound. Without the flag, `Host.Status` answers `not_found`. The command runs at `PATH` with no arguments and no shell. Its stdout is read up to 64 KiB, and its stderr is discarded. A run is limited to 2 seconds, and a child that outlives it and holds stdout open is cut off 500 ms later. Each run's outcome is cached for 5 seconds (section 12).
+- `--metrics-listen ADDR` serves `/metrics` on a second loopback address, ADDR, in the form `--listen` takes. Without the flag, `serve` records and serves no metrics. [Metrics](#metrics) gives the listener, the series and the alert rules.
 
 Registrations are written to the push store that `orreryd` reads (see `### orreryd`). When neither `XDG_STATE_HOME` nor `HOME` is set, `serve` exits 1.
 
@@ -457,7 +458,7 @@ orrery serve --listen 127.0.0.1:8080 --allow-login user@example.test
 ### orreryd
 
 ```
-orreryd [-L NAME | -S PATH] [--socket PATH] [--claude PATH] [--summary-model CONTEXT=MODEL]... [--push-host HOST]... [--sessions] [--session-cap N] [--session-shell PATH] [--holder-scope PATH] [--step-cap N]
+orreryd [-L NAME | -S PATH] [--socket PATH] [--claude PATH] [--summary-model CONTEXT=MODEL]... [--push-host HOST]... [--sessions] [--session-cap N] [--session-shell PATH] [--holder-scope PATH] [--step-cap N] [--metrics-listen ADDR]
 ```
 
 - `-L`, `-S`, and `--socket` work as they do for `orrery`.
@@ -471,8 +472,9 @@ orreryd [-L NAME | -S PATH] [--socket PATH] [--claude PATH] [--summary-model CON
 - `--session-shell PATH` is the absolute login shell that starts each session. The default is `$SHELL`.
 - `--holder-scope PATH` is the absolute path of `systemd-run`, which runs each session's holder in its own user scope. The default is none, and the holder then starts plainly. A relative path exits 2 (`cmd/orreryd/main.go:251`-`:252`, `:209`). [Headless sessions](#headless-sessions) gives the start under the flag, and [Lifecycle rules](#lifecycle-rules) gives shutdown under it.
 - `--step-cap N` is the most live step sessions at once. Steps count apart from `--session-cap`. The default is 6. A value below 1 exits 2.
+- `--metrics-listen ADDR` serves `/metrics` on ADDR, a loopback IP literal with a port. Without the flag, `orreryd` records and serves no metrics. [Metrics](#metrics) gives the listener, the series and the alert rules.
 
-`orreryd` listens on unix sockets only. It opens no network listener. `--sessions` adds the session socket. The desk stream is served on `notices.sock` beside the daemon socket, as [Desk stream](#desk-stream) describes.
+`orreryd` listens on unix sockets only, apart from the loopback `/metrics` listener that `--metrics-listen` adds ([Metrics](#metrics)). `--sessions` adds the session socket. The desk stream is served on `notices.sock` beside the daemon socket, as [Desk stream](#desk-stream) describes.
 
 With `--sessions` and an open store, `orreryd` runs the planner after the step reconcile (`cmd/orreryd/main.go:613`-`:616`, `:782`-`:817`). [Planner turns](#planner-turns) gives its turns, and its attention loop, which runs beside the planner and routes the epic notices. The planner's agent is the `planner` key of the role file, `$XDG_CONFIG_HOME/orrery/roles.toml`, or `$HOME/.config/orrery/roles.toml` when `XDG_CONFIG_HOME` is unset. The file's top-level keys are role names and their values are agent names. A missing file, a file that does not parse, a `planner` key with no agent, and a non-string value are each an error that names the file (`internal/roles/roles.go:16`-`:19`, `:20`-`:47`, `:50`-`:60`; `cmd/orreryd/main.go:798`). The nix module writes this file from `programs.orrery.roles`, and writes none when that option is empty (`nix/home-manager.nix:90`-`:101`, `:116`-`:118`).
 
@@ -1287,6 +1289,67 @@ A hold on a granted member stops that grant:
 4. The client's reclaim, by the grant's id, attaches to that request. It is queued at its place, and is then granted under a new grant id.
 
 A requeued request is kept in memory only. A restart of `orreryd` ends it, and a reclaim after that answers `not_found`.
+
+### Metrics
+
+`orreryd` and `orrery serve` each export Prometheus metrics on the loopback address that `--metrics-listen` names. A scraper reads `GET /metrics`. Nothing else is exported: no OpenTelemetry traces, no remote write, and no push to a collector (`internal/telemetry/telemetry.go:2`-`:3`). Without `--metrics-listen`, the process records no metrics and serves none.
+
+#### Listeners
+
+The address is a loopback IP literal with a port, such as `127.0.0.1:9464`. `server.Listen` (`internal/server/server.go:960`) refuses every other host before it binds anything, including an empty host, a wildcard address, a hostname and a non-loopback address. The listener is local to the host.
+
+- `orreryd`: `run` calls `startMetrics` before `serve` creates any socket (`cmd/orreryd/main.go:223`). A refused address exits 1 (`cmd/orreryd/main.go:276`). If the metrics server later fails, `orreryd` logs it as `serve metrics` and keeps serving.
+- `orrery serve`: `serveListeners` binds the metrics address before the API address (`cmd/orrery/main.go:596`), so a refused metrics address binds nothing and `serve` exits 1 (`cmd/orrery/main.go:203`). A failed API bind closes the metrics listener. In `serveWithMetrics` (`cmd/orrery/main.go:620`), a failure of either server ends the other, and `serve` returns both errors.
+
+Both listeners answer `GET /metrics` and no other path, which answers 404 (`internal/telemetry/telemetry.go:91`).
+
+#### Series
+
+Apart from the `le` label of histogram buckets, no series carries a label other than the `job` and `instance` labels that the scrape adds and the labels named here. The OpenTelemetry exporter writes no `target_info` series and no `otel_scope_*` labels (`internal/telemetry/telemetry.go:54`-`:55`).
+
+Each process registers the standard process collector (`internal/telemetry/telemetry.go:49`) and no Go runtime collector. Its `process_*` series carry no labels, and include `process_cpu_seconds_total`.
+
+Both processes export `rpc_server_call_duration_seconds`, a histogram with `_bucket`, `_sum` and `_count` series. Its labels are exactly these two:
+
+- `rpc_method` is the procedure without its leading slash, such as `orrery.engine.v1.Pools/Status`.
+- `rpc_response_status_code` is `OK` on success, and otherwise the Connect code name in capitals, such as `UNIMPLEMENTED`.
+
+`orrery serve` gives these options to every Connect handler that `server.New` mounts (`internal/server/server.go:214`-`:215`). `orreryd` gives them only to the five services that `enginehost.Serve` mounts on `sessions.sock` (`internal/enginehost/service.go:55`, `:65`-`:69`; `cmd/orreryd/main.go:736`).
+
+`orreryd` also registers six `orrery_*` series in `NewDaemon` (`internal/telemetry/telemetry.go:127`). Every one is present at 0 from `NewDaemon`, except `orrery_start_timestamp_seconds`, which holds the start time. The four `class` series of `orrery_push_failures_total` are present at 0 from the start too.
+
+| Series | Type | Labels | Recorded when |
+|---|---|---|---|
+| `orrery_start_timestamp_seconds` | gauge | none | Set once to the Unix time that `run` passes to `startMetrics` (`cmd/orreryd/main.go:223`). |
+| `orrery_ready_timestamp_seconds` | gauge | none | Set to the Unix time at READY, and 0 until then. `notifyReady` (`cmd/orreryd/main.go:524`) records it before it checks `NOTIFY_SOCKET`, so it is set without `NOTIFY_SOCKET` too. |
+| `orrery_push_failures_total` | counter | `class`: `transport`, `4xx`, `5xx` or `other` | Each failed push. `transport` is a push with no reply. `4xx` and `5xx` are those reply ranges. `other` is any other reply that is not 2xx. `post` counts it (`internal/push/publish.go:258`, `:263`). |
+| `orrery_holder_losses_total` | counter | none | Each holder that has ended or cannot be attached when the sessions reconcile re-adopts it. `readoptHolder` counts it (`internal/enginehost/reconcile.go:199`-`:200`). Only the start-time sessions reconcile moves it. |
+| `orrery_writer_wait_seconds_total` | counter | none | Seconds that callers wait on the writer: a `Put`, `Commit` or `CommitAll` waiting for room under its session's op limit, and a `Commit` or `CommitAll` waiting for its ops to be stored. Each wait adds its whole duration, including a wait that ends with an error (`internal/enginehost/writer.go:229`, `:251`-`:253`, `:446`-`:449`, `:453`-`:455`). |
+| `orrery_writer_backlog_age_seconds` | gauge | none | Age in seconds of the oldest op in the writer's queue, and 0 when the queue is empty. The writer sets it at the end of each flush, so a flush that has not returned leaves the last value in place (`internal/enginehost/writer.go:368`-`:369`, `:436`-`:444`). |
+
+#### Alert rules
+
+`observability/orrery-rules.yml` holds five alerts over these series. Each alert's labels are `job`, `instance` and `severity: warning`. Each summary is a fixed string, except `OrreryCPUHigh`'s, which names the process by its `job` label and gives the rate in cores with two decimals, such as `An orrery process (orreryd) has used 1.62 CPU cores for 15 minutes.` `observability/orrery-rules.test.yml` replays synthetic series through the rules with promtool. `just alert-check` runs that test (`justfile:20`), and `just check` runs `alert-check` (`justfile:188`).
+
+| Alert | Fires when | Window |
+|---|---|---|
+| `OrreryPushFailing` | the summed increase of `orrery_push_failures_total`, over all classes, is more than 5 | 10 minutes |
+| `OrreryStartSlow` | READY came more than 10 s after start and less than 600 s ago, or no READY has come and more than 10 s have passed since start | 600 s after READY |
+| `OrreryHolderLost` | the summed increase of `orrery_holder_losses_total` is above 0 | 15 minutes |
+| `OrreryWriterStalled` | the summed rate of `orrery_writer_wait_seconds_total` is above 0.5 per second, or the largest `orrery_writer_backlog_age_seconds` is above 10 s | 5 minutes for the rate |
+| `OrreryCPUHigh` | the summed rate of `process_cpu_seconds_total` is above 0.3 of a CPU core | 10 minutes for the rate, held for 15 minutes |
+
+Only `OrreryCPUHigh` has a `for` clause. The other four fire at the first evaluation where their expression holds.
+
+#### Flight traces
+
+Only `orreryd` runs a flight recorder, and `orrery serve` does not. The recorder starts with `orreryd` whether or not `--metrics-listen` is set, and it keeps a window of about 10 MiB of execution trace (`internal/telemetry/flight.go:16`).
+
+When the start-to-READY time or the sessions reconcile takes longer than 10 s, `orreryd` writes that window as one trace for that phase, named `start` or `reconcile`. The sessions reconcile is `sessionHost.reconcile`, which `startSessions` calls. A phase that takes 10 s or less writes nothing. A recorder that cannot start is logged, and `orreryd` serves on.
+
+The traces go in a `traces` directory beside the store (see [Store](#store)). That is `$XDG_STATE_HOME/orrery/traces` when `XDG_STATE_HOME` is set, and `$HOME/.local/state/orrery/traces` otherwise. The directory is created with mode `0700`, and each trace file with mode `0600` (`internal/telemetry/flight.go:39`, `:68`). A file is named `<UTC write time to the nanosecond>-<phase>.trace`, such as `20260114T093015.123456789Z-start.trace`, so names sort in write order. After each write, the newest 10 trace files stay and older ones are removed. Other files in the directory are left alone (`internal/telemetry/flight.go:80`-`:99`). A trace that fails to write is removed, so it takes no kept slot (`internal/telemetry/flight.go:73`-`:74`).
+
+Traces are local files. Nothing exports them.
 
 ### Desk stream
 
