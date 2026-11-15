@@ -16,6 +16,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/joshsymonds/orrery/internal/protocol"
+	"github.com/joshsymonds/orrery/internal/rpcretry"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
 )
 
@@ -46,7 +47,14 @@ const (
 // T with bracketed paste; either way it then presses Enter as a separate key. --keys sends each
 // positional argument as one key. With --expect-question, nothing is sent unless the pane's question
 // hashes to H and its display fragment is visible on the pane. Send prints nothing.
-func Send(ctx context.Context, client *tmuxctl.Client, args []string, _ io.Writer) error {
+func Send(ctx context.Context, client *tmuxctl.Client, args []string, out io.Writer) error {
+	return sendWithClock(ctx, rpcretry.SystemClock{}, client, args, out)
+}
+
+// sendWithClock is Send with the clock that times the typed send's pauses.
+func sendWithClock(
+	ctx context.Context, clock rpcretry.Clock, client *tmuxctl.Client, args []string, _ io.Writer,
+) error {
 	flags := flag.NewFlagSet("send", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	pane := flags.String("pane", "", "pane ID to send to")
@@ -70,7 +78,7 @@ func Send(ctx context.Context, client *tmuxctl.Client, args []string, _ io.Write
 		}
 	}
 	if given["text"] {
-		return sendText(ctx, client, *pane, *text)
+		return sendText(ctx, clock, client, *pane, *text)
 	}
 	return sendKeys(ctx, client, *pane, keys)
 }
@@ -209,8 +217,8 @@ func collapseSpace(s string) string {
 }
 
 // sendText types text into pane when sendTypable and sendTypeable allow it, else pastes it, then presses
-// Enter.
-func sendText(ctx context.Context, client *tmuxctl.Client, pane, text string) error {
+// Enter. clock times the typed send's pauses.
+func sendText(ctx context.Context, clock rpcretry.Clock, client *tmuxctl.Client, pane, text string) error {
 	typable, err := sendTypable(ctx, client, pane)
 	if err != nil {
 		return err
@@ -220,7 +228,7 @@ func sendText(ctx context.Context, client *tmuxctl.Client, pane, text string) er
 		// message in the input box.
 		typeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), sendTypeBound)
 		defer cancel()
-		return sendTyped(typeCtx, client, pane, text)
+		return sendTyped(typeCtx, clock, client, pane, text)
 	}
 	return sendPaste(ctx, client, pane, text)
 }
@@ -267,11 +275,12 @@ func sendTypable(ctx context.Context, client *tmuxctl.Client, pane string) (bool
 	return inputBoxVisible(screen, width), nil
 }
 
-// sendTyped types text into pane one key, line break, or piece at a time, pauses, then presses Enter.
-func sendTyped(ctx context.Context, client *tmuxctl.Client, pane, text string) error {
+// sendTyped types text into pane one key, line break, or piece at a time, pauses, then presses Enter. clock times
+// the pauses.
+func sendTyped(ctx context.Context, clock rpcretry.Clock, client *tmuxctl.Client, pane, text string) error {
 	for i, argv := range typedSteps(pane, text) {
 		if i > 0 {
-			if err := sendPause(ctx, sendTypeGap); err != nil {
+			if err := sendPause(ctx, clock, sendTypeGap); err != nil {
 				return err
 			}
 		}
@@ -279,7 +288,7 @@ func sendTyped(ctx context.Context, client *tmuxctl.Client, pane, text string) e
 			return fmt.Errorf("send: %w", err)
 		}
 	}
-	if err := sendPause(ctx, sendSettle); err != nil {
+	if err := sendPause(ctx, clock, sendSettle); err != nil {
 		return err
 	}
 	if _, err := client.Run(ctx, sendKeysCmd, "-t", pane, "Enter"); err != nil {
@@ -334,14 +343,12 @@ func sendPieces(line string) []string {
 	return pieces
 }
 
-// sendPause waits for d or until ctx is done.
-func sendPause(ctx context.Context, d time.Duration) error {
-	timer := time.NewTimer(d)
-	defer timer.Stop()
+// sendPause waits for d on clock or until ctx is done.
+func sendPause(ctx context.Context, clock rpcretry.Clock, d time.Duration) error {
 	select {
 	case <-ctx.Done():
 		return fmt.Errorf("send: %w", ctx.Err())
-	case <-timer.C:
+	case <-clock.After(d):
 		return nil
 	}
 }
