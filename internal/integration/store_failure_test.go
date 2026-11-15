@@ -173,10 +173,11 @@ func TestOrrerydServesHooksWithWriteLockedStore(t *testing.T) {
 
 	f.assertHooksStillReach(t)
 
-	// Serve waits for every in-flight frame before it returns, so each sync that the lock fails has been logged by the
-	// time stop returns. The lock is released only after that.
-	out := daemon.stop(t)
+	// The lock is released once a sync it failed has been logged, and orreryd stops after that, so its stop writes
+	// the notice rows to an unlocked store instead of waiting out each write's bound against the lock.
+	waitUntil(t, func() bool { return strings.Contains(daemon.stderr.String(), mirrorDroppedLog) })
 	release()
+	out := daemon.stop(t)
 	wantExit(t, out, 0)
 	if !strings.Contains(out.stderr, mirrorDroppedLog) {
 		t.Fatalf("stderr %q, want the locked write logged as dropped", out.stderr)
