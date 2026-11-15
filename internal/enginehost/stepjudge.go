@@ -41,10 +41,10 @@ var errStepJudgeVerdict = errors.New("enginehost: judge verdict is not met or un
 var errStepJudgeReason = errors.New("enginehost: judge reason is empty")
 
 // stepJudgeInput builds the judge's stdin from the step's first prompt, its return, and, when non-empty, the diff stat
-// and the gate output tail. The prompt and the return keep both ends of a long text, as stepJudgeEnds describes. The
-// diff stat keeps its head and the gate tail keeps its last bytes, since the failure a judge needs sits at the end of
-// the output. The diff stat and the gate tail are omitted when blank.
-func stepJudgeInput(prompt, result, diffStat, gateTail string) string {
+// and the gate's stdout and stderr tails, each in its own section. The prompt and the return keep both ends of a long
+// text, as stepJudgeEnds describes. The diff stat keeps its head and each gate tail keeps its last bytes, since the
+// failure a judge needs sits at the end of the output. The diff stat and each gate tail are omitted when blank.
+func stepJudgeInput(prompt, result, diffStat, gateStdout, gateStderr string) string {
 	sections := []string{
 		"## Task\n" + stepJudgeEnds(prompt),
 		"## Return\n" + stepJudgeEnds(result),
@@ -52,8 +52,11 @@ func stepJudgeInput(prompt, result, diffStat, gateTail string) string {
 	if strings.TrimSpace(diffStat) != "" {
 		sections = append(sections, "## Diff stat\n"+stepJudgeHead(diffStat))
 	}
-	if strings.TrimSpace(gateTail) != "" {
-		sections = append(sections, "## Gate output tail\n"+stepJudgeTail(gateTail))
+	if strings.TrimSpace(gateStdout) != "" {
+		sections = append(sections, "## Gate stdout tail\n"+stepJudgeTail(gateStdout))
+	}
+	if strings.TrimSpace(gateStderr) != "" {
+		sections = append(sections, "## Gate stderr tail\n"+stepJudgeTail(gateStderr))
 	}
 	return stepJudgeInstruction + "\n\n" + strings.Join(sections, "\n\n")
 }

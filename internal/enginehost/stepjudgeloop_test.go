@@ -204,11 +204,35 @@ func TestJudgeLoopWritingStepInputCarriesDiffStatAndGateTail(t *testing.T) {
 		"## Return\n" + fmt.Sprintf(`{"status":%q,"commit":%q}`, stepLoopDone, commit),
 		"## Diff stat\n",
 		stepDoneOwned,
-		"## Gate output tail\n",
-		"gate exited 0; output tail: gate-tail-marker",
+		"## Gate stdout tail\ngate-tail-marker",
 	} {
 		if !strings.Contains(input, want) {
 			t.Errorf("judge input does not contain %q:\n%s", want, input)
+		}
+	}
+}
+
+// TestJudgeLoopGateInputCarriesStdoutAndStderrSections runs a writing step whose gate passes and prints distinct stdout and
+// stderr. The judge input carries each stream as its own section.
+func TestJudgeLoopGateInputCarriesStdoutAndStderrSections(t *testing.T) {
+	t.Parallel()
+	dir, start := stepDoneRepo(t)
+	commit := stepGitTestCommit(t, dir, map[string]string{stepDoneOwned: "owned\n"})
+	gate := stepDoneScript(t, `printf 'out-%s\n' tail; printf 'err-%s\n' tail >&2`)
+	haiku := &judgeLoopHaiku{replies: []judgeLoopReply{judgeLoopVerdict("met", "complete")}}
+	f := newJudgeLoopFixture(t, haiku, stepDoneWriting(dir, start, []string{gate}, time.Minute, &fakeGatePools{}))
+	_, done := f.start(t)
+
+	f.run.Return(stepDoneReturn(commit))
+	waitRunEnd(t, done)
+
+	inputs := haiku.callInputs()
+	if len(inputs) != 1 {
+		t.Fatalf("judge called %d times, want 1", len(inputs))
+	}
+	for _, want := range []string{"## Gate stdout tail\nout-tail\n", "## Gate stderr tail\nerr-tail\n"} {
+		if !strings.Contains(inputs[0], want) {
+			t.Errorf("judge input does not contain %q:\n%s", want, inputs[0])
 		}
 	}
 }

@@ -762,16 +762,20 @@ func stepLoopRecord(round int, c stepCheck) store.StepCheck {
 }
 
 // stepLoopGateCheck returns the gate check of round for result. It passes when the gate exits 0 without passing limit.
-// Its detail gives the exit status, or the limit when the gate was killed for it, and the tail of the gate's output.
+// Its detail gives the exit status, or the limit when the gate was killed for it. Its Stdout and Stderr keep the tails of
+// the gate's two streams apart.
 func stepLoopGateCheck(round int, result gateResult, limit time.Duration) store.StepCheck {
-	check := store.StepCheck{Round: round, Name: stepLoopGateName, OK: !result.TimedOut && result.Exit == 0}
+	check := store.StepCheck{
+		Round:  round,
+		Name:   stepLoopGateName,
+		OK:     !result.TimedOut && result.Exit == 0,
+		Stdout: result.Stdout,
+		Stderr: result.Stderr,
+	}
 	if result.TimedOut {
 		check.Detail = fmt.Sprintf("gate ran past its limit of %s and was killed", limit)
 	} else {
 		check.Detail = fmt.Sprintf("gate exited %d", result.Exit)
-	}
-	if tail := strings.TrimSpace(result.Output); tail != "" {
-		check.Detail += "; output tail: " + tail
 	}
 	return check
 }
@@ -807,13 +811,21 @@ func stepLoopRoundChecks(checks []store.StepCheck, round int) []store.StepCheck 
 	return out
 }
 
-// stepLoopFailures names each failed check with its detail.
+// stepLoopFailures names each failed check with its detail, and with the stdout and stderr tails it kept, each labeled.
 func stepLoopFailures(checks []store.StepCheck) []string {
 	var failures []string
 	for _, check := range checks {
-		if !check.OK {
-			failures = append(failures, check.Name+": "+check.Detail)
+		if check.OK {
+			continue
 		}
+		failure := check.Name + ": " + check.Detail
+		if tail := strings.TrimSpace(check.Stdout); tail != "" {
+			failure += "; stdout tail: " + tail
+		}
+		if tail := strings.TrimSpace(check.Stderr); tail != "" {
+			failure += "; stderr tail: " + tail
+		}
+		failures = append(failures, failure)
 	}
 	return failures
 }
