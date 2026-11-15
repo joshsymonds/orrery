@@ -17,8 +17,8 @@ import (
 )
 
 // epicTableColumns returns, keyed by table, the columns in declaration order of every table migrations 00014, 00016,
-// 00019, 00028 and 00030 create, and of the columns those migrations and 00020, 00021, 00022, 00025 and 00029 add to
-// epic tables.
+// 00019, 00028, 00030 and 00033 create, and of the columns those migrations and 00020, 00021, 00022, 00025, 00029 and
+// 00033 add to epic tables.
 func epicTableColumns() map[string][]string {
 	return map[string][]string{
 		"epics": {
@@ -54,7 +54,11 @@ func epicTableColumns() map[string][]string {
 		"epic_task_reviews":      {"epic", "task", "attempt", "position", "gate", "step", "verdict"},
 		"epic_task_findings": {
 			"epic", "task", "attempt", "review", "position", "id", "claim", "citation", "location", "evidence",
-			"verify_by", "step", "result", "reason",
+			"verify_by", "step", "result", "reason", "unverified",
+		},
+		"epic_reviewers": {
+			"epic", "position", "name", "enabled", "stage", "must", "must_not", "prompt", "agent", "model", "tools",
+			"effort", "limit_seconds", "verify",
 		},
 		"epic_workflow_nodes": {"epic", "position", "id", "parent", "kind"},
 		"epic_node_runs": {
@@ -174,6 +178,51 @@ func TestEpicTablesCreatedOnFreshOpen(t *testing.T) {
 		if strings.HasPrefix(name, "epic") && columns[name] == nil {
 			t.Errorf("unexpected epic table %q", name)
 		}
+	}
+}
+
+// TestReviewersMigrationDownAndUp removes the agents column of steps, the unverified column of epic_task_findings and
+// the epic_reviewers table with the Down of 00033_reviewers.sql, and Up restores them.
+func TestReviewersMigrationDownAndUp(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openSyncStore(t)
+
+	migrationsFS, err := fs.Sub(migrationFS, "migrations")
+	if err != nil {
+		t.Fatalf("sub migrations fs: %v", err)
+	}
+	provider, err := goose.NewProvider(goose.DialectSQLite3, s.db, migrationsFS)
+	if err != nil {
+		t.Fatalf("create goose provider: %v", err)
+	}
+
+	if _, err := provider.DownTo(ctx, 32); err != nil {
+		t.Fatalf("DownTo 32: %v", err)
+	}
+	if hasAny(tableColumns(t, s, "steps"), "agents") {
+		t.Fatalf("steps columns after Down = %v, want no agents column", tableColumns(t, s, "steps"))
+	}
+	if hasAny(tableColumns(t, s, "epic_task_findings"), "unverified") {
+		t.Fatalf("epic_task_findings columns after Down = %v, want no unverified column",
+			tableColumns(t, s, "epic_task_findings"))
+	}
+	if tableNames(t, s)["epic_reviewers"] {
+		t.Fatalf("epic_reviewers after Down: present, want absent")
+	}
+
+	if _, err := provider.Up(ctx); err != nil {
+		t.Fatalf("Up: %v", err)
+	}
+	if !hasAll(tableColumns(t, s, "steps"), "agents") {
+		t.Fatalf("steps columns after Up = %v, want the agents column", tableColumns(t, s, "steps"))
+	}
+	if !hasAll(tableColumns(t, s, "epic_task_findings"), "unverified") {
+		t.Fatalf("epic_task_findings columns after Up = %v, want the unverified column",
+			tableColumns(t, s, "epic_task_findings"))
+	}
+	if !tableNames(t, s)["epic_reviewers"] {
+		t.Fatalf("epic_reviewers after Up: absent, want present")
 	}
 }
 
@@ -427,9 +476,9 @@ func TestEpicMigrationKeepsExistingRows(t *testing.T) {
 		`SELECT COALESCE(MAX(version_id), 0) FROM goose_db_version WHERE is_applied = 1`).Scan(&version); err != nil {
 		t.Fatalf("read store version: %v", err)
 	}
-	// Open applies 00014_epics.sql and every migration after it: 00032_step_stage.sql is the newest.
-	if version != 32 {
-		t.Fatalf("store version after Open = %d, want 32", version)
+	// Open applies 00014_epics.sql and every migration after it: 00033_reviewers.sql is the newest.
+	if version != 33 {
+		t.Fatalf("store version after Open = %d, want 33", version)
 	}
 
 	// A later migration may add columns at the end of an existing table, as 00015_step_readopt.sql adds to steps and

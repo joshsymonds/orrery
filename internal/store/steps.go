@@ -56,9 +56,11 @@ type StepNeed struct {
 // StepAdd inserts a step row, started now. The row is never pruned. Epic and Task are optional labels; a step with
 // an empty Epic is never listed by LabelledSteps. Gate and GateLimit are the resolved argv and limit of the gate the
 // step runs; GateName, GateSource and GateNeeds say which named gate that was, where it was declared and what it held.
+// Agents is the JSON object of the inline agent definitions the step is started with, empty when it has none.
 type StepAdd struct {
 	ID           string
 	Agent        string
+	Agents       string
 	Prompt       string
 	Schema       string
 	Workspace    string
@@ -153,6 +155,7 @@ type StepTurnEnd struct {
 type StepRow struct {
 	ID              string
 	Agent           string
+	Agents          string
 	Prompt          string
 	Schema          string
 	Workspace       string
@@ -219,7 +222,7 @@ func (op StepAdd) applyEngine(ctx context.Context, queries *sqlcgen.Queries, now
 		Owned: string(owned), Gate: string(gate), GateName: op.GateName, GateSource: op.GateSource,
 		GateNeeds: string(gateNeeds), GateLimit: int64(op.GateLimit),
 		ModelLimit: int64(op.ModelLimit), Started: now.Unix(), Epic: op.Epic, Task: op.Task,
-		LoopStage: StepStageTurn, LoopStageFrom: now.Unix(),
+		LoopStage: StepStageTurn, LoopStageFrom: now.Unix(), Agents: op.Agents,
 	}); err != nil {
 		return fmt.Errorf("insert step %s: %w", op.ID, err)
 	}
@@ -453,20 +456,53 @@ func toStepRow(row sqlcgen.Step) (StepRow, error) {
 		stageFrom = time.Unix(row.LoopStageFrom, 0)
 	}
 	return StepRow{
-		ID: row.ID, Agent: row.Agent, Prompt: row.Prompt, Schema: row.OutputSchema, Workspace: row.Workspace,
-		Revision: row.Revision, Worktree: row.Worktree, CheckoutHead: row.CheckoutHead, CheckoutHash: row.CheckoutHash,
-		DoneValue: row.DoneValue, ReadOnly: row.ReadOnly,
-		Owned: owned, Gate: gate, GateName: row.GateName, GateSource: row.GateSource, GateNeeds: gateNeeds,
-		GateLimit: time.Duration(row.GateLimit), ModelLimit: time.Duration(row.ModelLimit),
-		Started: time.Unix(row.Started, 0), Checks: checks, Doing: row.Doing, Verdicts: verdicts,
-		Result: row.Result, Status: row.Status, End: row.EndValue, Reason: row.Reason, Ended: ended,
-		Epic: row.Epic, Task: row.Task,
-		LoopRound: int(row.LoopRound), LoopContinues: int(row.LoopContinues), LoopNudge: row.LoopNudge,
-		LoopOwnerNudge: row.LoopOwnerNudge, LoopNudged: row.LoopNudged, LoopHeld: row.LoopHeld,
-		LoopJudgeSent: row.LoopJudgeSent, LoopSeq: row.LoopSeq,
-		GateGrant: row.GateGrant, GateHolder: row.GateHolder, GateRound: int(row.GateRound),
-		LoopLimited: row.LoopLimited, LoopLimitKind: row.LoopLimitKind, LoopLimitResets: limitResets,
-		LoopGateFrom: gateFrom, LoopStage: row.LoopStage, LoopStageFrom: stageFrom,
+		ID:              row.ID,
+		Agent:           row.Agent,
+		Agents:          row.Agents,
+		Prompt:          row.Prompt,
+		Schema:          row.OutputSchema,
+		Workspace:       row.Workspace,
+		Revision:        row.Revision,
+		Worktree:        row.Worktree,
+		CheckoutHead:    row.CheckoutHead,
+		CheckoutHash:    row.CheckoutHash,
+		DoneValue:       row.DoneValue,
+		ReadOnly:        row.ReadOnly,
+		Owned:           owned,
+		Gate:            gate,
+		GateName:        row.GateName,
+		GateSource:      row.GateSource,
+		GateNeeds:       gateNeeds,
+		GateLimit:       time.Duration(row.GateLimit),
+		ModelLimit:      time.Duration(row.ModelLimit),
+		Started:         time.Unix(row.Started, 0),
+		Checks:          checks,
+		Doing:           row.Doing,
+		Verdicts:        verdicts,
+		Result:          row.Result,
+		Status:          row.Status,
+		End:             row.EndValue,
+		Reason:          row.Reason,
+		Ended:           ended,
+		Epic:            row.Epic,
+		Task:            row.Task,
+		LoopRound:       int(row.LoopRound),
+		LoopContinues:   int(row.LoopContinues),
+		LoopNudge:       row.LoopNudge,
+		LoopOwnerNudge:  row.LoopOwnerNudge,
+		LoopNudged:      row.LoopNudged,
+		LoopHeld:        row.LoopHeld,
+		LoopJudgeSent:   row.LoopJudgeSent,
+		LoopSeq:         row.LoopSeq,
+		GateGrant:       row.GateGrant,
+		GateHolder:      row.GateHolder,
+		GateRound:       int(row.GateRound),
+		LoopLimited:     row.LoopLimited,
+		LoopLimitKind:   row.LoopLimitKind,
+		LoopLimitResets: limitResets,
+		LoopGateFrom:    gateFrom,
+		LoopStage:       row.LoopStage,
+		LoopStageFrom:   stageFrom,
 	}, nil
 }
 
