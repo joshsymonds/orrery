@@ -71,7 +71,7 @@ func TestNewDaemonHoldsEverySeriesAtZeroButStart(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 	start := time.Unix(1_800_000_000, 0)
-	if _, err := telemetry.NewDaemon(p, start); err != nil {
+	if _, err := telemetry.NewDaemon(t.Context(), p, start); err != nil {
 		t.Fatalf("NewDaemon: %v", err)
 	}
 
@@ -106,24 +106,24 @@ func TestDaemonMethodsMoveTheirSeries(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 	start := time.Unix(1_800_000_000, 0)
-	d, err := telemetry.NewDaemon(p, start)
+	d, err := telemetry.NewDaemon(t.Context(), p, start)
 	if err != nil {
 		t.Fatalf("NewDaemon: %v", err)
 	}
 
 	ready := time.Unix(1_800_000_060, 500_000_000)
-	d.Ready(ready)
-	d.PushFailed(0)
-	d.PushFailed(400)
-	d.PushFailed(404)
-	d.PushFailed(503)
-	d.PushFailed(302)
-	d.HolderLost()
-	d.HolderLost()
-	d.WriterWaited(1500 * time.Millisecond)
-	d.WriterWaited(500 * time.Millisecond)
-	d.WriterBacklog(3 * time.Second)
-	d.WriterBacklog(7500 * time.Millisecond)
+	d.Ready(t.Context(), ready)
+	d.PushFailed(t.Context(), 0)
+	d.PushFailed(t.Context(), 400)
+	d.PushFailed(t.Context(), 404)
+	d.PushFailed(t.Context(), 503)
+	d.PushFailed(t.Context(), 302)
+	d.HolderLost(t.Context())
+	d.HolderLost(t.Context())
+	d.WriterWaited(t.Context(), 1500*time.Millisecond)
+	d.WriterWaited(t.Context(), 500*time.Millisecond)
+	d.WriterBacklog(t.Context(), 3*time.Second)
+	d.WriterBacklog(t.Context(), 7500*time.Millisecond)
 
 	families := scrape(t, p)
 	checks := []struct {
@@ -162,11 +162,11 @@ func TestNilDaemonMethodsDoNothing(t *testing.T) {
 	t.Parallel()
 
 	var d *telemetry.Daemon
-	d.Ready(time.Unix(1_800_000_000, 0))
-	d.PushFailed(500)
-	d.HolderLost()
-	d.WriterWaited(time.Second)
-	d.WriterBacklog(time.Second)
+	d.Ready(t.Context(), time.Unix(1_800_000_000, 0))
+	d.PushFailed(t.Context(), 500)
+	d.HolderLost(t.Context())
+	d.WriterWaited(t.Context(), time.Second)
+	d.WriterBacklog(t.Context(), time.Second)
 }
 
 func TestServeAnswersMetricsUntilCancelled(t *testing.T) {

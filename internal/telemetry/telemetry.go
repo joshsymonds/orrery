@@ -124,7 +124,7 @@ type Daemon struct {
 
 // NewDaemon registers the orreryd series on p and records start as the start timestamp. Every other series is present
 // at 0 until its method moves it.
-func NewDaemon(p *Provider, start time.Time) (*Daemon, error) {
+func NewDaemon(ctx context.Context, p *Provider, start time.Time) (*Daemon, error) {
 	meter := p.meterProvider.Meter("github.com/joshsymonds/orrery/internal/telemetry")
 	startGauge, err := meter.Float64Gauge(
 		"orrery_start_timestamp_seconds",
@@ -169,7 +169,6 @@ func NewDaemon(p *Provider, start time.Time) (*Daemon, error) {
 		return nil, fmt.Errorf("create writer backlog age gauge: %w", err)
 	}
 
-	ctx := context.Background()
 	startGauge.Record(ctx, unixSeconds(start))
 	ready.Record(ctx, 0)
 	writerBacklogAge.Record(ctx, 0)
@@ -188,44 +187,44 @@ func NewDaemon(p *Provider, start time.Time) (*Daemon, error) {
 }
 
 // Ready records at as the time the daemon became ready.
-func (d *Daemon) Ready(at time.Time) {
+func (d *Daemon) Ready(ctx context.Context, at time.Time) {
 	if d == nil {
 		return
 	}
-	d.ready.Record(context.Background(), unixSeconds(at))
+	d.ready.Record(ctx, unixSeconds(at))
 }
 
 // PushFailed counts a failed push by the class of its HTTP status. Status 0 means no response was received.
-func (d *Daemon) PushFailed(status int) {
+func (d *Daemon) PushFailed(ctx context.Context, status int) {
 	if d == nil {
 		return
 	}
 	class := attribute.String("class", pushFailureClass(status))
-	d.pushFailures.Add(context.Background(), 1, metric.WithAttributes(class))
+	d.pushFailures.Add(ctx, 1, metric.WithAttributes(class))
 }
 
 // HolderLost counts one loss of the holder.
-func (d *Daemon) HolderLost() {
+func (d *Daemon) HolderLost(ctx context.Context) {
 	if d == nil {
 		return
 	}
-	d.holderLosses.Add(context.Background(), 1)
+	d.holderLosses.Add(ctx, 1)
 }
 
 // WriterWaited adds wait to the time spent waiting on the writer.
-func (d *Daemon) WriterWaited(wait time.Duration) {
+func (d *Daemon) WriterWaited(ctx context.Context, wait time.Duration) {
 	if d == nil {
 		return
 	}
-	d.writerWait.Add(context.Background(), wait.Seconds())
+	d.writerWait.Add(ctx, wait.Seconds())
 }
 
 // WriterBacklog records age as the age of the oldest write in the writer backlog.
-func (d *Daemon) WriterBacklog(age time.Duration) {
+func (d *Daemon) WriterBacklog(ctx context.Context, age time.Duration) {
 	if d == nil {
 		return
 	}
-	d.writerBacklogAge.Record(context.Background(), age.Seconds())
+	d.writerBacklogAge.Record(ctx, age.Seconds())
 }
 
 // pushFailureClass names the class of a failed push by its HTTP status.
