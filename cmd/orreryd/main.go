@@ -569,6 +569,8 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 		Logger:    logger,
 		Mirror:    mirror,
 		TidyStart: tidyStart,
+		// Each tidy pass retries the notice row writes the store refused, so they are stored once it takes writes.
+		AfterTidy: notices.Retry,
 	})
 
 	st := openStore(ctx, getenv, logger)
@@ -697,9 +699,10 @@ func shutdownServe(
 	if sessions != nil {
 		sessionErr = sessions.stop()
 	}
-	// Stopping the sessions can notify an interrupted turn, so the router and the notices are waited on after it.
+	// Stopping the sessions can notify an interrupted turn, so the router and the notices are waited on after it. The
+	// notices close before the store, so a row write the store refused gets its last try while the store is open.
 	shutdownRouter(router)
-	notices.Wait()
+	notices.Close(ctx)
 	closeStore(ctx, st, logger)
 	return sessionErr
 }

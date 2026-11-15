@@ -219,6 +219,27 @@ func (n *Notices) Wait() {
 	n.sends.Wait()
 }
 
+// Retry queues a store of every key's unstored row write again, each in its key's own order of sends, so it never
+// overtakes a later write of the key. A key whose retry is already queued is skipped. orreryd calls it on each tidy
+// pass, so a write the store refused is stored once the store takes writes again, even when no later row write comes
+// to retry it. A retry the store refuses again stays unstored for the next. Retry returns without waiting for the
+// retries.
+func (n *Notices) Retry(ctx context.Context) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	if n.rows != nil {
+		n.retryLocked(ctx, n.rows)
+	}
+}
+
+// Close retries every unstored row write once more, then returns once every send, the retries among them, has
+// finished. Call it after the last Notify and Seen and before the store closes, so a write the store refused earlier
+// gets its last try while the store is open.
+func (n *Notices) Close(ctx context.Context) {
+	n.Retry(ctx)
+	n.Wait()
+}
+
 // bounded runs one store call on parent under storeDeadline and returns its error. A call that outlives the deadline
 // reads as failed, even when it succeeded, because it was late.
 func bounded(parent context.Context, call func(context.Context) error) error {
@@ -250,7 +271,7 @@ func (n *Notices) clearSend(key Key, seen int64, rows Rows) func(context.Context
 }
 
 // putRow writes key's row with time at, bounded. A failure is logged, and the write is kept to be stored again (see
-// stored).
+// stored, Retry and Close).
 func (n *Notices) putRow(ctx context.Context, rows Rows, key Key, at int64) {
 	row := store.PushedRow{
 		Pane: key.Pane, Session: key.Session, Epic: key.Epic, Limit: key.Limit, Alert: key.Alert, Time: at,
@@ -273,17 +294,23 @@ func (n *Notices) unstoredWrite(key Key, write rowWrite) {
 // stored records that the store took key's row write, and queues a retry of every other key's unstored write: the
 // store took a write, so it may take theirs now. Each retry runs in its key's own order of sends, after the sends
 // already queued for that key, so it never overtakes a later write of the key. A retry the store refuses again stays
-// unstored until the next write the store takes.
+// unstored until the next write the store takes, the next Retry, or Close.
 func (n *Notices) stored(ctx context.Context, rows Rows, key Key) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	delete(n.unstored, key)
-	for _, other := range slices.SortedFunc(maps.Keys(n.unstored), compareKeys) {
-		if n.retrying[other] {
+	n.retryLocked(ctx, rows)
+}
+
+// retryLocked queues a retry through rows of every unstored key's write whose retry is not already queued. The caller
+// holds n.mu.
+func (n *Notices) retryLocked(ctx context.Context, rows Rows) {
+	for _, key := range slices.SortedFunc(maps.Keys(n.unstored), compareKeys) {
+		if n.retrying[key] {
 			continue
 		}
-		n.retrying[other] = true
-		n.enqueueLocked(ctx, other, func(ctx context.Context) { n.retryRow(ctx, rows, other) })
+		n.retrying[key] = true
+		n.enqueueLocked(ctx, key, func(ctx context.Context) { n.retryRow(ctx, rows, key) })
 	}
 }
 
@@ -311,7 +338,8 @@ func compareKeys(a, b Key) int {
 }
 
 // deleteRow deletes key's row, bounded. An epic key's row is deleted by its epic, a limit key's by its limit, and an
-// alert key's by its alert. A failure is logged, and the delete is kept to be stored again (see stored).
+// alert key's by its alert. A failure is logged, and the delete is kept to be stored again (see stored, Retry and
+// Close).
 func (n *Notices) deleteRow(ctx context.Context, rows Rows, key Key) {
 	if err := bounded(ctx, func(ctx context.Context) error {
 		if key.Epic != "" {
