@@ -81,10 +81,11 @@ func newSessionsHandler(
 	steps StepClient,
 	poll, keepalive, sendTimeout time.Duration,
 	shutdown <-chan struct{},
+	opts ...connect.HandlerOption,
 ) (string, http.Handler) {
 	service := sessionsServer{
 		reader: reader, steps: steps, poll: poll, keepalive: keepalive, sendTimeout: sendTimeout, shutdown: shutdown,
 	}
-	path, handler := orreryv1connect.NewSessionsHandler(service)
+	path, handler := orreryv1connect.NewSessionsHandler(service, opts...)
 	return path, withResponseWriter(handler)
 }

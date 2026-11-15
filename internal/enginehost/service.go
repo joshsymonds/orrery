@@ -52,7 +52,7 @@ func Listen(socketPath string) (net.Listener, error) {
 // refuses every step RPC as unavailable, a nil epics refuses every epic RPC as unavailable, a nil pools refuses every
 // Acquire as unavailable, a nil evidence refuses every evidence RPC as unavailable, and a nil notices refuses every notices
 // RPC as unavailable. With steps served, the engine refuses Say, Answer, Interrupt and Stop on a step id, since a step is
-// driven only through the Steps service.
+// driven only through the Steps service. opts apply to each of the six handlers.
 func Serve(
 	ctx context.Context,
 	ln net.Listener,
@@ -62,13 +62,14 @@ func Serve(
 	pools PoolCommands,
 	evidence EvidenceCommands,
 	notices NoticeSource,
+	opts ...connect.HandlerOption,
 ) error {
-	path, handler := enginev1connect.NewEngineHandler(&service{commands: commands, steps: steps})
-	stepsPath, stepsHandler := enginev1connect.NewStepsHandler(&stepService{steps: steps})
-	epicsPath, epicsHandler := enginev1connect.NewEpicsHandler(&epicService{epics: epics, steps: steps})
-	poolsPath, poolsHandler := enginev1connect.NewPoolsHandler(&poolService{pools: pools})
-	evidencePath, evidenceHandler := enginev1connect.NewEvidenceHandler(&evidenceService{evidence: evidence})
-	noticesPath, noticesHandler := enginev1connect.NewNoticesHandler(&noticesService{notices: notices})
+	path, handler := enginev1connect.NewEngineHandler(&service{commands: commands, steps: steps}, opts...)
+	stepsPath, stepsHandler := enginev1connect.NewStepsHandler(&stepService{steps: steps}, opts...)
+	epicsPath, epicsHandler := enginev1connect.NewEpicsHandler(&epicService{epics: epics, steps: steps}, opts...)
+	poolsPath, poolsHandler := enginev1connect.NewPoolsHandler(&poolService{pools: pools}, opts...)
+	evidencePath, evidenceHandler := enginev1connect.NewEvidenceHandler(&evidenceService{evidence: evidence}, opts...)
+	noticesPath, noticesHandler := enginev1connect.NewNoticesHandler(&noticesService{notices: notices}, opts...)
 	mux := http.NewServeMux()
 	mux.Handle(path, handler)
 	mux.Handle(stepsPath, stepsHandler)

@@ -29,12 +29,13 @@ func newNoticesHandler(
 	engine enginev1connect.NoticesClient,
 	timeout, sendTimeout time.Duration,
 	shutdown <-chan struct{},
+	opts ...connect.HandlerOption,
 ) (string, http.Handler) {
 	if timeout == 0 {
 		timeout = defaultControlTimeout
 	}
 	service := noticesServer{engine: engine, timeout: timeout, sendTimeout: sendTimeout, shutdown: shutdown}
-	path, handler := orreryv1connect.NewNoticesHandler(service)
+	path, handler := orreryv1connect.NewNoticesHandler(service, opts...)
 	return path, withResponseWriter(handler)
 }
 

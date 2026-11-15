@@ -30,6 +30,7 @@ in
     pkgs.just
     pkgs.nodejs
     pkgs.procps
+    pkgs.prometheus.cli
     pkgs.protobuf
     pkgs.protoc-gen-connect-go
     pkgs.protoc-gen-es

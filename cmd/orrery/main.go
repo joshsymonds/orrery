@@ -20,6 +20,8 @@ import (
 	"syscall"
 	"time"
 
+	"connectrpc.com/connect"
+
 	"github.com/joshsymonds/orrery/internal/archive"
 	"github.com/joshsymonds/orrery/internal/cli"
 	"github.com/joshsymonds/orrery/internal/conversation"
@@ -38,6 +40,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/stepmcp"
 	"github.com/joshsymonds/orrery/internal/store"
 	"github.com/joshsymonds/orrery/internal/summary"
+	"github.com/joshsymonds/orrery/internal/telemetry"
 	"github.com/joshsymonds/orrery/internal/tmuxconf"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
 	"github.com/joshsymonds/orrery/internal/tui"
@@ -121,8 +124,9 @@ subcommands:
   holder --session NAME [--state-dir DIR] --gate-limit SECONDS [--gate-tail BYTES] -- PATH [ARGS...]
                                                 run PATH as a gate: no stdin, stdout/stderr tails, stopped at SECONDS
   serve --listen ADDR --allow-login LOGIN [--allow-login LOGIN]... [--push-host HOST]...
-        [--host-status-cmd PATH]
+        [--host-status-cmd PATH] [--metrics-listen ADDR]
                                                 serve the HTTP API on a loopback address until SIGINT or SIGTERM
+                                                with --metrics-listen, also /metrics on a second loopback address
 `
 
 // usageError is a command line refused before any work. It exits 2 and prints the usage text.
@@ -462,11 +466,13 @@ func runEpic(ctx context.Context, opts globals, args []string, stdin io.Reader, 
 }
 
 // runServe runs `orrery serve`. It serves the HTTP API for the tmux server named by opts on the loopback address
-// --listen until SIGINT or SIGTERM, then shuts down and returns nil.
+// --listen until SIGINT or SIGTERM, then shuts down and returns nil. With --metrics-listen it also serves /metrics on
+// that loopback address.
 func runServe(ctx context.Context, opts globals, args []string, getenv func(string) string) error {
 	flags := flag.NewFlagSet("orrery serve", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	listen := flags.String("listen", "", "loopback address to serve on")
+	metricsListen := flags.String("metrics-listen", "", "loopback address to serve /metrics on")
 	var logins listFlag
 	flags.Var(&logins, "allow-login", "Tailscale login the API admits, repeatable")
 	var pushHosts listFlag
@@ -526,39 +532,111 @@ func runServe(ctx context.Context, opts globals, args []string, getenv func(stri
 	if home != "" {
 		records = filepath.Join(home, ".gambit")
 	}
+	metrics, handlerOptions, err := serveMetrics(*metricsListen)
+	if err != nil {
+		return err
+	}
 	shutdown := make(chan struct{})
 	handler, err := server.New(server.Config{
-		Logins:      logins,
-		Tmux:        tmux,
-		Push:        pushStore,
-		HostStatus:  hostStatus,
-		Sessions:    sessions,
-		Shutdown:    shutdown,
-		Engine:      engine,
-		Steps:       steps,
-		Pools:       pools,
-		Notices:     notices,
-		Records:     records,
-		EpicStore:   epicStore,
-		Evidence:    evidence,
-		Home:        home,
-		Picker:      servePickerConfig(tmux, getenv),
-		ReportSeen:  seenReporter(opts.daemonSocket, getenv),
-		ReportRead:  readReporter(opts.daemonSocket, getenv),
-		ReportInput: inputReporter(opts.daemonSocket, getenv),
-		Web:         webui.FS(),
+		HandlerOptions: handlerOptions,
+		Logins:         logins,
+		Tmux:           tmux,
+		Push:           pushStore,
+		HostStatus:     hostStatus,
+		Sessions:       sessions,
+		Shutdown:       shutdown,
+		Engine:         engine,
+		Steps:          steps,
+		Pools:          pools,
+		Notices:        notices,
+		Records:        records,
+		EpicStore:      epicStore,
+		Evidence:       evidence,
+		Home:           home,
+		Picker:         servePickerConfig(tmux, getenv),
+		ReportSeen:     seenReporter(opts.daemonSocket, getenv),
+		ReportRead:     readReporter(opts.daemonSocket, getenv),
+		ReportInput:    inputReporter(opts.daemonSocket, getenv),
+		Web:            webui.FS(),
 	})
 	if err != nil {
 		return fmt.Errorf("serve: %w", err)
 	}
 
+	return serveListening(ctx, *listen, *metricsListen, handler, shutdown, metrics)
+}
+
+// serveMetrics returns the metrics provider and the handler options that record to it when metricsListen is set.
+// Without --metrics-listen nothing reads the metrics, so it returns neither and none are recorded.
+func serveMetrics(metricsListen string) (*telemetry.Provider, []connect.HandlerOption, error) {
+	if metricsListen == "" {
+		return nil, nil, nil
+	}
+	metrics, err := telemetry.New()
+	if err != nil {
+		return nil, nil, fmt.Errorf("serve: metrics: %w", err)
+	}
+	options := metrics.HandlerOptions()
+	return metrics, options, nil
+}
+
+// serveListening binds listen and, when metricsListen is set, the metrics address, then serves handler until SIGINT
+// or SIGTERM. With metricsListen it also serves metrics from provider on that address.
+func serveListening(ctx context.Context, listen, metricsListen string, handler http.Handler, shutdown chan struct{},
+	metrics *telemetry.Provider) error {
 	ctx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-	ln, err := server.Listen(ctx, *listen)
+	ln, metricsLn, err := serveListeners(ctx, listen, metricsListen)
 	if err != nil {
-		return fmt.Errorf("serve: %w", err)
+		return err
 	}
-	return serveUntilDone(ctx, ln, handler, shutdown)
+	if metricsLn == nil {
+		return serveUntilDone(ctx, ln, handler, shutdown)
+	}
+	return serveWithMetrics(ctx, ln, handler, shutdown, metrics, metricsLn)
+}
+
+// serveListeners binds the API address listen and, when metricsListen is set, the metrics address. It binds the
+// metrics address first, so a refused metrics address binds nothing. A failed API bind closes the metrics listener.
+func serveListeners(ctx context.Context, listen, metricsListen string) (net.Listener, net.Listener, error) {
+	var metricsLn net.Listener
+	if metricsListen != "" {
+		var err error
+		metricsLn, err = server.Listen(ctx, metricsListen)
+		if err != nil {
+			return nil, nil, fmt.Errorf("serve: metrics: %w", err)
+		}
+	}
+	ln, err := server.Listen(ctx, listen)
+	if err != nil {
+		err = fmt.Errorf("serve: %w", err)
+		if metricsLn != nil {
+			if closeErr := metricsLn.Close(); closeErr != nil {
+				err = errors.Join(err, fmt.Errorf("serve: close metrics listener: %w", closeErr))
+			}
+		}
+		return nil, nil, err
+	}
+	return ln, metricsLn, nil
+}
+
+// serveWithMetrics serves handler on ln and metrics on metricsLn until ctx is done. A failure of either server ends
+// the other, and the errors of both are returned.
+func serveWithMetrics(ctx context.Context, ln net.Listener, handler http.Handler, shutdown chan struct{},
+	metrics *telemetry.Provider, metricsLn net.Listener) error {
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	metricsDone := make(chan error, 1)
+	go func() {
+		err := metrics.Serve(runCtx, metricsLn)
+		if err != nil {
+			cancel()
+		}
+		metricsDone <- err
+	}()
+	apiErr := serveUntilDone(runCtx, ln, handler, shutdown)
+	cancel()
+	return errors.Join(apiErr, <-metricsDone)
 }
 
 // serveUntilDone serves handler on ln until ctx is done, then shuts down and returns nil. It stops the server only

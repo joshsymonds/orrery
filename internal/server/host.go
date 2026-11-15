@@ -17,8 +17,8 @@ type hostServer struct {
 }
 
 // newHostHandler returns the path and handler that serve Host over runner.
-func newHostHandler(runner *hoststatus.Runner) (string, http.Handler) {
-	return orreryv1connect.NewHostHandler(hostServer{runner: runner})
+func newHostHandler(runner *hoststatus.Runner, opts ...connect.HandlerOption) (string, http.Handler) {
+	return orreryv1connect.NewHostHandler(hostServer{runner: runner}, opts...)
 }
 
 // Status answers Host.Status with what hostAnswer returns. The error codes follow hostAnswer's routeError.

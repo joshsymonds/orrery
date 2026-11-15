@@ -20,11 +20,15 @@ type poolsServer struct {
 }
 
 // newPoolsHandler returns the path and handler that serve Pools over engine. A zero timeout is defaultControlTimeout.
-func newPoolsHandler(engine enginev1connect.PoolsClient, timeout time.Duration) (string, http.Handler) {
+func newPoolsHandler(
+	engine enginev1connect.PoolsClient,
+	timeout time.Duration,
+	opts ...connect.HandlerOption,
+) (string, http.Handler) {
 	if timeout == 0 {
 		timeout = defaultControlTimeout
 	}
-	return orreryv1connect.NewPoolsHandler(poolsServer{engine: engine, timeout: timeout})
+	return orreryv1connect.NewPoolsHandler(poolsServer{engine: engine, timeout: timeout}, opts...)
 }
 
 // Status forwards a status request to the engine and answers with its pools and holds, as poolsStatusMessage maps them.

@@ -55,6 +55,7 @@ func newPanesHandler(
 	now func() time.Time,
 	conversationPoll, conversationKeepalive, sendTimeout time.Duration,
 	shutdown <-chan struct{},
+	opts ...connect.HandlerOption,
 ) (string, http.Handler) {
 	path, handler := orreryv1connect.NewPanesHandler(panesServer{
 		tmux:                  tmux,
@@ -71,7 +72,7 @@ func newPanesHandler(
 		conversationKeepalive: conversationKeepalive,
 		sendTimeout:           sendTimeout,
 		shutdown:              shutdown,
-	})
+	}, opts...)
 	return path, withResponseWriter(handler)
 }
 

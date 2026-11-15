@@ -281,12 +281,14 @@ func newControlHandler(
 	timeout time.Duration,
 	home string,
 	steps StepClient,
+	opts ...connect.HandlerOption,
 ) (string, http.Handler) {
 	if timeout == 0 {
 		timeout = defaultControlTimeout
 	}
+	options := append([]connect.HandlerOption{connect.WithReadMaxBytes(maxControlBody)}, opts...)
 	return orreryv1connect.NewControlHandler(
 		controlServer{engine: engine, timeout: timeout, home: home, steps: steps},
-		connect.WithReadMaxBytes(maxControlBody),
+		options...,
 	)
 }

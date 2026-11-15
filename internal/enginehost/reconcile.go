@@ -190,12 +190,15 @@ func (m *Manager) readoptable(row store.EngineRow) bool {
 // readoptHolder re-adopts the session of row from its holder in dir, bounded by clearTimeout. When the holder has ended, it
 // drains the session instead. A live holder that cannot be attached is stopped, then drained. A step's holder that has
 // ended or cannot be attached is left for the caller to clear, neither drained nor stopped. A failure is logged, and the
-// holder is left for the caller to clear. It reports whether the session was re-adopted, and whether it was drained and its
-// row settled.
+// holder is left for the caller to clear. A holder that has ended or cannot be attached counts one holder loss. It
+// reports whether the session was re-adopted, and whether it was drained and its row settled.
 func (m *Manager) readoptHolder(ctx context.Context, row store.EngineRow, dir string) (readopted, drained bool) {
 	readoptCtx, cancel := context.WithTimeout(ctx, clearTimeout)
 	defer cancel()
 	err := m.readopt(readoptCtx, row, dir)
+	if errors.Is(err, holder.ErrGone) || errors.Is(err, holder.ErrUnattachable) {
+		m.metrics.HolderLost(ctx)
+	}
 	switch {
 	case err == nil:
 		return true, false
