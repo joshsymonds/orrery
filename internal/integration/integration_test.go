@@ -66,9 +66,9 @@ const cleanupGrace = 10 * time.Second
 
 // TestMain builds the binaries the tests run. Every test that leaves the process environment alone runs in parallel:
 // each starts its own tmux server, orreryd and directories, and much of the package's time is idle waiting, such as a
-// route.JudgeDelay or a session start retrying an absent socket for rpcretry.Window. Only a test that sets the
-// environment with t.Setenv runs alone first. A test whose subtests share one fixture runs in parallel with the other
-// tests while its subtests run one at a time.
+// route.JudgeDelay or a session start retrying an absent socket for rpcretry.Window. No test sets the process
+// environment: a test that needs its own HOME, PATH or XDG directories passes them to the processes it starts, as
+// openEnv does.
 func TestMain(m *testing.M) {
 	os.Exit(runWithBinaries(m))
 }
@@ -1597,10 +1597,10 @@ func waitForNewClient(t *testing.T, client *tmuxctl.Client, session string, know
 
 // startScript runs command on a pseudo-terminal through script, with the test's environment minus the tmux
 // variables. The process stays until cleanup, which closes its input and waits for it.
-func startScript(t *testing.T, command string) {
+func startScript(t *testing.T, command string, env ...string) {
 	t.Helper()
 	cmd := exec.CommandContext(t.Context(), "script", "-qfc", command, "/dev/null")
-	cmd.Env = scrubbedEnv("TERM=xterm-256color")
+	cmd.Env = scrubbedEnv(append([]string{"TERM=xterm-256color"}, env...)...)
 	cmd.Stdout = io.Discard
 	cmd.Stderr = io.Discard
 	stdin, err := cmd.StdinPipe()
@@ -2033,8 +2033,7 @@ func waitForCursor(t *testing.T, client *tmuxctl.Client, pane, want string) {
 }
 
 // treeWorld is a private server for one tree test. Session s1 shows the tree on the invoking client. Session s2
-// holds the waiting target pane, in targetDir. Session s3 is the session of the other client. The fake claude
-// leads PATH, and HOME and XDG_STATE_HOME are temp directories.
+// holds the waiting target pane, in targetDir. Session s3 is the session of the other client. The server runs in env.
 type treeWorld struct {
 	client    *tmuxctl.Client
 	invoking  string
@@ -2043,18 +2042,19 @@ type treeWorld struct {
 	targetDir string
 	tree      string
 	claude    fakeTool
+	env       openEnv
 }
 
-// setupTree builds a treeWorld and starts orrery tree in a pane of s1 for the invoking client.
+// setupTree builds a treeWorld in a new openEnv and starts orrery tree in a pane of s1 for the invoking client.
 func setupTree(t *testing.T) treeWorld {
 	t.Helper()
-	claude := installFake(t, "fake-claude", "claude", "pane d1\ntask: no\n")
-	t.Setenv("PATH", claude.dir+string(os.PathListSeparator)+os.Getenv("PATH"))
-	t.Setenv("HOME", t.TempDir())
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	return setupTreeIn(t, newOpenEnv(t))
+}
 
-	client, name := newServer(t)
-	newSession(t, client, "s1", t.TempDir())
+// setupTreeIn is setupTree in env, for a test that prepares env's directories before the tree starts.
+func setupTreeIn(t *testing.T, env openEnv) treeWorld {
+	t.Helper()
+	client, name := env.startServer(t, "s1", t.TempDir())
 	invoking := attachClient(t, client, name, "s1", 80, 24)
 
 	targetDir := t.TempDir()
@@ -2064,11 +2064,11 @@ func setupTree(t *testing.T) treeWorld {
 	other := attachClient(t, client, name, "s3", 100, 30)
 
 	orrery := filepath.Join(os.Getenv(binDirEnv), "orrery")
-	tree := splitPane(t, client, "s1", fmt.Sprintf("%s -L %s tree --client %s", orrery, name, invoking))
+	tree := env.splitPane(t, name, "s1", fmt.Sprintf("%s -L %s tree --client %s", orrery, name, invoking))
 	waitForCursor(t, client, tree, "waiting")
 	return treeWorld{
 		client: client, invoking: invoking, other: other, target: target, targetDir: targetDir, tree: tree,
-		claude: claude,
+		claude: env.claude, env: env,
 	}
 }
 
@@ -2081,6 +2081,7 @@ func mustSetState(t *testing.T, client *tmuxctl.Client, pane string) {
 }
 
 func TestTreeEnterSwitchesOnlyInvokingClient(t *testing.T) {
+	t.Parallel()
 	w := setupTree(t)
 	sendKeys(t, w.client, w.tree, false, "Enter")
 
@@ -2094,6 +2095,7 @@ func TestTreeEnterSwitchesOnlyInvokingClient(t *testing.T) {
 }
 
 func TestTreeNOpensPaneInGroupDirectory(t *testing.T) {
+	t.Parallel()
 	w := setupTree(t)
 	before := sessionNames(t, w.client)
 	w.claude.setHold(t, true)
@@ -2134,6 +2136,7 @@ func TestTreeNOpensPaneInGroupDirectory(t *testing.T) {
 }
 
 func TestTreeEscInPickerChangesNothing(t *testing.T) {
+	t.Parallel()
 	w := setupTree(t)
 	before := sessionNames(t, w.client)
 	w.claude.setHold(t, true)
@@ -2172,8 +2175,9 @@ func TestTreeRefusesMissingClient(t *testing.T) {
 }
 
 func TestTreeXArchivesClaudePaneBeforeClose(t *testing.T) {
+	t.Parallel()
 	w := setupTree(t)
-	stateHome := os.Getenv("XDG_STATE_HOME")
+	stateHome := w.env.stateHome
 	transcript := filepath.Join(t.TempDir(), "example-transcript.jsonl")
 	writeFile(t, transcript, "{}\n", 0o600)
 	if _, err := w.client.Run(t.Context(), "set-option", "-p", "-t", w.target, protocol.OptionClaudeSession,
@@ -2241,15 +2245,98 @@ func orreryPath() string {
 	return filepath.Join(os.Getenv(binDirEnv), "orrery")
 }
 
-// installOpenFakes installs a fake claude, leads PATH with it, and points HOME and XDG_STATE_HOME at temp directories.
-// It returns the fake claude.
-func installOpenFakes(t *testing.T) fakeTool {
+// openEnv is the environment an open or tree test gives each process it starts: a fake claude leads PATH, and HOME,
+// XDG_STATE_HOME, XDG_CONFIG_HOME and XDG_RUNTIME_DIR are the test's own temp directories. No orreryd listens under
+// that XDG_RUNTIME_DIR, so orrery finds no daemon. The test starts its tmux server in it, so every pane inherits it,
+// and passes it to each orrery it runs outside tmux. The test sets no process environment, so it runs in parallel.
+type openEnv struct {
+	claude     fakeTool
+	path       string
+	home       string
+	stateHome  string
+	configHome string
+	runtimeDir string
+}
+
+// newOpenEnv installs a fake claude and returns the openEnv around it.
+func newOpenEnv(t *testing.T) openEnv {
 	t.Helper()
 	claude := installFake(t, "fake-claude", "claude", "pane d1\ntask: no\n")
-	t.Setenv("PATH", claude.dir+string(os.PathListSeparator)+os.Getenv("PATH"))
-	t.Setenv("HOME", t.TempDir())
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
-	return claude
+	return openEnv{
+		claude:     claude,
+		path:       claude.dir + string(os.PathListSeparator) + os.Getenv("PATH"),
+		home:       t.TempDir(),
+		stateHome:  t.TempDir(),
+		configHome: t.TempDir(),
+		runtimeDir: t.TempDir(),
+	}
+}
+
+// vars returns env as NAME=value entries, which override the same names in an environment they are appended to.
+func (e openEnv) vars() []string {
+	return []string{
+		"PATH=" + e.path, "HOME=" + e.home, "XDG_STATE_HOME=" + e.stateHome, "XDG_CONFIG_HOME=" + e.configHome,
+		"XDG_RUNTIME_DIR=" + e.runtimeDir,
+	}
+}
+
+// getenv looks key up in env, and in the process environment for any other name.
+func (e openEnv) getenv(key string) string {
+	switch key {
+	case "PATH":
+		return e.path
+	case "HOME":
+		return e.home
+	case "XDG_STATE_HOME":
+		return e.stateHome
+	case "XDG_CONFIG_HOME":
+		return e.configHome
+	case "XDG_RUNTIME_DIR":
+		return e.runtimeDir
+	default:
+		return os.Getenv(key)
+	}
+}
+
+// startServer starts a private tmux server in env, whose first session is session with one pane in dir, and returns a
+// client for it and its name. tmux copies the environment of the client that starts the server into the server's
+// global environment, which every later pane inherits. The server is killed at cleanup.
+func (e openEnv) startServer(t *testing.T, session, dir string) (*tmuxctl.Client, string) {
+	t.Helper()
+	client, name := newServer(t)
+	cmd := exec.CommandContext(t.Context(), "tmux", "-L", name, "-f", noConfig,
+		"new-session", "-d", "-s", session, "-c", dir, "sleep 300")
+	cmd.Env = scrubbedEnv(e.vars()...)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("start tmux server %s in session %s: %v: %s", name, session, err, out)
+	}
+	return client, name
+}
+
+// splitPane runs command in a new pane split from pane on the server named name, as splitPane does, from a tmux client
+// that runs in env. tmux gives a new pane the PATH of the client command that creates it, even over split-window -e,
+// and this test's own PATH lacks the fake claude.
+func (e openEnv) splitPane(t *testing.T, name, pane, command string) string {
+	t.Helper()
+	cmd := exec.CommandContext(t.Context(), "tmux", "-L", name,
+		"split-window", "-d", "-P", "-F", "#{pane_id}", "-t", pane, command)
+	cmd.Env = scrubbedEnv(e.vars()...)
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("split-window: %v", err)
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// writeRoots writes content to the orrery roots file under env's XDG_CONFIG_HOME and returns the file's path.
+func (e openEnv) writeRoots(t *testing.T, content string) string {
+	t.Helper()
+	if err := os.Mkdir(filepath.Join(e.configHome, "orrery"), 0o700); err != nil {
+		t.Fatalf("make orrery config directory: %v", err)
+	}
+	path := filepath.Join(e.configHome, "orrery", "roots")
+	writeFile(t, path, content, 0o600)
+	return path
 }
 
 // openWorld is a private server for the open tests. Session s1 is the invoking client's session and holds the pane
@@ -2260,6 +2347,7 @@ type openWorld struct {
 	invoking string
 	other    string
 	claude   fakeTool
+	env      openEnv
 }
 
 // setupOpen installs the open fakes, then attaches the invoking client to s1 and the other client to s3.
@@ -2272,14 +2360,18 @@ func setupOpen(t *testing.T) openWorld {
 // it draws in, so a test whose rows hold long directory paths sets a wider client.
 func setupOpenAt(t *testing.T, cols int) openWorld {
 	t.Helper()
-	claude := installOpenFakes(t)
-	client, name := newServer(t)
-	newSession(t, client, "s1", t.TempDir())
+	return setupOpenIn(t, newOpenEnv(t), cols)
+}
+
+// setupOpenIn is setupOpenAt in env, for a test that prepares env's directories before the server starts.
+func setupOpenIn(t *testing.T, env openEnv, cols int) openWorld {
+	t.Helper()
+	client, name := env.startServer(t, "s1", t.TempDir())
 	invoking := attachClient(t, client, name, "s1", cols, 24)
 	newSession(t, client, "s2", t.TempDir())
 	newSession(t, client, "s3", t.TempDir())
 	other := attachClient(t, client, name, "s3", 100, 30)
-	return openWorld{client: client, name: name, invoking: invoking, other: other, claude: claude}
+	return openWorld{client: client, name: name, invoking: invoking, other: other, claude: env.claude, env: env}
 }
 
 // runInPane starts orrery with args in a new pane of s1, so the command runs with TMUX set. The pane then prints
@@ -2287,21 +2379,21 @@ func setupOpenAt(t *testing.T, cols int) openWorld {
 func (w openWorld) runInPane(t *testing.T, args string) string {
 	t.Helper()
 	command := fmt.Sprintf("%s -L %s %s; echo exit $?; sleep 300", orreryPath(), w.name, args)
-	return splitPane(t, w.client, "s1", command)
+	return w.env.splitPane(t, w.name, "s1", command)
 }
 
 // runBareInPane is runInPane with orrery's PATH set to bare for that one command, so the pane's shell keeps its PATH.
 func (w openWorld) runBareInPane(t *testing.T, bare, args string) string {
 	t.Helper()
 	command := fmt.Sprintf("PATH='%s' %s -L %s %s; echo exit $?; sleep 300", bare, orreryPath(), w.name, args)
-	return splitPane(t, w.client, "s1", command)
+	return w.env.splitPane(t, w.name, "s1", command)
 }
 
 // barePath returns a directory holding only tmux, through a symlink, and claude, a script that runs the fake claude.
 // orrery runs with this directory as its whole PATH in the bare-PATH tests, so it finds tmux and claude and no other
 // tool. tmux gives each pane that orrery creates the PATH of the client that created it, so claude restores the test's
 // PATH before it runs the fake, as a user's claude runs with the user's PATH.
-func barePath(t *testing.T, claude fakeTool) string {
+func barePath(t *testing.T, env openEnv) string {
 	t.Helper()
 	tmux, err := exec.LookPath("tmux")
 	if err != nil {
@@ -2311,16 +2403,16 @@ func barePath(t *testing.T, claude fakeTool) string {
 	if err = os.Symlink(tmux, filepath.Join(dir, "tmux")); err != nil {
 		t.Fatalf("link tmux: %v", err)
 	}
-	script := fmt.Sprintf("#!/bin/sh\nPATH='%s'\nexport PATH\nexec '%s' \"$@\"\n", os.Getenv("PATH"), claude.bin)
+	script := fmt.Sprintf("#!/bin/sh\nPATH='%s'\nexport PATH\nexec '%s' \"$@\"\n", env.path, env.claude.bin)
 	writeFile(t, filepath.Join(dir, "claude"), script, 0o755)
 	return dir
 }
 
-// exampleProjectDir creates example-project under HOME/Personal, the default root whose children open lists, and
-// returns its path. Call it after setupOpen, which points HOME at a temp directory.
-func exampleProjectDir(t *testing.T) string {
+// exampleProjectDir creates example-project under home's Personal, the default root whose children open lists, and
+// returns its path.
+func exampleProjectDir(t *testing.T, home string) string {
 	t.Helper()
-	dir := filepath.Join(os.Getenv("HOME"), "Personal", "example-project")
+	dir := filepath.Join(home, "Personal", "example-project")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatalf("make directory: %v", err)
 	}
@@ -2328,6 +2420,7 @@ func exampleProjectDir(t *testing.T) string {
 }
 
 func TestOpenExistingSessionSwitchesOnlyInvokingClient(t *testing.T) {
+	t.Parallel()
 	w := setupOpen(t)
 	pane := w.runInPane(t, "open s2")
 	waitForScreen(t, w.client, pane, "exit 0")
@@ -2340,8 +2433,9 @@ func TestOpenExistingSessionSwitchesOnlyInvokingClient(t *testing.T) {
 }
 
 func TestOpenKnownDirCreatesSessionAndSwitchesInvokingClient(t *testing.T) {
+	t.Parallel()
 	w := setupOpen(t)
-	dir := exampleProjectDir(t)
+	dir := exampleProjectDir(t, w.env.home)
 	pane := w.runInPane(t, "open example-project")
 	waitForScreen(t, w.client, pane, "> continue latest in ")
 	sendKeys(t, w.client, pane, false, "Enter")
@@ -2366,9 +2460,10 @@ func TestOpenKnownDirCreatesSessionAndSwitchesInvokingClient(t *testing.T) {
 }
 
 func TestOpenKnownDirOffersArchivedResume(t *testing.T) {
+	t.Parallel()
 	w := setupOpen(t)
-	dir := exampleProjectDir(t)
-	archivePath, err := archive.Path(os.Getenv)
+	dir := exampleProjectDir(t, w.env.home)
+	archivePath, err := archive.Path(w.env.getenv)
 	if err != nil {
 		t.Fatalf("archive.Path: %v", err)
 	}
@@ -2417,22 +2512,23 @@ func TestOpenKnownDirOffersArchivedResume(t *testing.T) {
 }
 
 func TestOpenOutsideTmuxAttachesNamedSession(t *testing.T) {
-	installOpenFakes(t)
-	client, name := newServer(t)
-	newSession(t, client, "s2", t.TempDir())
+	t.Parallel()
+	env := newOpenEnv(t)
+	client, name := env.startServer(t, "s2", t.TempDir())
 	known := knownClients(t, client)
-	startScript(t, fmt.Sprintf("stty cols 80 rows 24; %s -L %s open s2", orreryPath(), name))
+	startScript(t, fmt.Sprintf("stty cols 80 rows 24; %s -L %s open s2", orreryPath(), name), env.vars()...)
 	waitForNewClient(t, client, "s2", known)
 }
 
 func TestOpenNewSessionOutsideTmuxCreatesDirectoryAndAttaches(t *testing.T) {
-	claude := installOpenFakes(t)
+	t.Parallel()
+	env := newOpenEnv(t)
+	claude := env.claude
 	root := t.TempDir()
-	client, name := newServer(t)
-	newSession(t, client, "s1", t.TempDir())
+	client, name := env.startServer(t, "s1", t.TempDir())
 	known := knownClients(t, client)
 	startScript(t, fmt.Sprintf("stty cols 80 rows 24; %s -L %s open new example-new --root %s",
-		orreryPath(), name, root))
+		orreryPath(), name, root), env.vars()...)
 	waitForNewClient(t, client, "example-new", known)
 
 	dir := filepath.Join(root, "example-new")
@@ -2450,16 +2546,18 @@ func TestOpenNewSessionOutsideTmuxCreatesDirectoryAndAttaches(t *testing.T) {
 }
 
 func TestOpenNewSessionDefaultsToPersonalUnderHome(t *testing.T) {
-	claude := installOpenFakes(t)
-	home := os.Getenv("HOME")
+	t.Parallel()
+	env := newOpenEnv(t)
+	claude := env.claude
+	home := env.home
 	personal := filepath.Join(home, "Personal")
 	if err := os.Mkdir(personal, 0o700); err != nil {
 		t.Fatalf("make directory: %v", err)
 	}
-	client, name := newServer(t)
-	newSession(t, client, "s1", t.TempDir())
+	client, name := env.startServer(t, "s1", t.TempDir())
 	known := knownClients(t, client)
-	startScript(t, fmt.Sprintf("stty cols 80 rows 24; %s -L %s open new example-new", orreryPath(), name))
+	startScript(t, fmt.Sprintf("stty cols 80 rows 24; %s -L %s open new example-new", orreryPath(), name),
+		env.vars()...)
 	waitForNewClient(t, client, "example-new", known)
 
 	dir := filepath.Join(personal, "example-new")
@@ -2480,6 +2578,7 @@ func TestOpenNewSessionDefaultsToPersonalUnderHome(t *testing.T) {
 }
 
 func TestOpenPickerEnterRunsFirstActionAndSwitchesInvokingClient(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name string
 		args string
@@ -2489,8 +2588,9 @@ func TestOpenPickerEnterRunsFirstActionAndSwitchesInvokingClient(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			w := setupOpen(t)
-			exampleProjectDir(t)
+			exampleProjectDir(t, w.env.home)
 			pane := w.runInPane(t, tc.args)
 			waitForScreen(t, w.client, pane, "> pane ")
 			sendKeys(t, w.client, pane, false, "Enter")
@@ -2507,8 +2607,9 @@ func TestOpenPickerEnterRunsFirstActionAndSwitchesInvokingClient(t *testing.T) {
 }
 
 func TestOpenPickerEscCreatesNothing(t *testing.T) {
+	t.Parallel()
 	w := setupOpen(t)
-	exampleProjectDir(t)
+	exampleProjectDir(t, w.env.home)
 	before := sessionNames(t, w.client)
 	pane := w.runInPane(t, "open two words")
 	waitForScreen(t, w.client, pane, "> pane ")
@@ -2529,12 +2630,13 @@ func TestOpenPickerEscCreatesNothing(t *testing.T) {
 }
 
 func TestBarePathOpenAbsoluteDirOpensIt(t *testing.T) {
+	t.Parallel()
 	w := setupOpen(t)
 	dir := filepath.Join(t.TempDir(), "example-path")
 	if err := os.Mkdir(dir, 0o700); err != nil {
 		t.Fatalf("make directory: %v", err)
 	}
-	pane := w.runBareInPane(t, barePath(t, w.claude), "open '"+dir+"'")
+	pane := w.runBareInPane(t, barePath(t, w.env), "open '"+dir+"'")
 	waitForScreen(t, w.client, pane, "> continue latest in ")
 	if got := w.claude.runs(t); got != 0 {
 		t.Fatalf("fake claude ran %d times before Enter, want 0", got)
@@ -2562,10 +2664,11 @@ func TestBarePathOpenAbsoluteDirOpensIt(t *testing.T) {
 }
 
 func TestBarePathOpenMissingPathExitsOne(t *testing.T) {
+	t.Parallel()
 	w := setupOpen(t)
 	before := sessionNames(t, w.client)
 	missing := filepath.Join(t.TempDir(), "example-missing")
-	out := runOrrery(t, "", []string{"PATH=" + barePath(t, w.claude)}, "-L", w.name, "open", missing)
+	out := runOrrery(t, "", append(w.env.vars(), "PATH="+barePath(t, w.env)), "-L", w.name, "open", missing)
 	wantExit(t, out, 1)
 	if !strings.Contains(out.stderr, missing) {
 		t.Fatalf("stderr %q, want the path %s", out.stderr, missing)
@@ -2582,24 +2685,25 @@ func TestBarePathOpenMissingPathExitsOne(t *testing.T) {
 }
 
 func TestBarePathOpenSameNamedDirsOffersBoth(t *testing.T) {
+	t.Parallel()
 	w := setupOpenAt(t, 120)
 	archived := filepath.Join(t.TempDir(), "example-same")
 	if err := os.Mkdir(archived, 0o700); err != nil {
 		t.Fatalf("make directory: %v", err)
 	}
-	archivePath, err := archive.Path(os.Getenv)
+	archivePath, err := archive.Path(w.env.getenv)
 	if err != nil {
 		t.Fatalf("archive.Path: %v", err)
 	}
 	if err = archive.Append(archivePath, archive.Record{Dir: archived, Session: "s2", Closed: 100}); err != nil {
 		t.Fatalf("archive.Append: %v", err)
 	}
-	dir := filepath.Join(os.Getenv("HOME"), "Personal", "example-same")
+	dir := filepath.Join(w.env.home, "Personal", "example-same")
 	if err = os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatalf("make directory: %v", err)
 	}
 
-	pane := w.runBareInPane(t, barePath(t, w.claude), "open example-same")
+	pane := w.runBareInPane(t, barePath(t, w.env), "open example-same")
 	waitForScreen(t, w.client, pane, "> pane "+archived)
 	waitForScreen(t, w.client, pane, "pane "+dir)
 	sendKeys(t, w.client, pane, false, "Down")
@@ -2622,25 +2726,11 @@ func TestBarePathOpenSameNamedDirsOffersBoth(t *testing.T) {
 	w.claude.waitForStarted(t, 1)
 }
 
-// writeRootsFile points XDG_CONFIG_HOME at a temp directory whose orrery roots file holds content, and returns the
-// roots file's path. Call it before the tmux server starts, since panes inherit the server's environment.
-func writeRootsFile(t *testing.T, content string) string {
+// makeWorkTree creates the made-up tree Work/example-client/example-project under home and returns the project
+// directory.
+func makeWorkTree(t *testing.T, home string) string {
 	t.Helper()
-	configHome := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", configHome)
-	if err := os.Mkdir(filepath.Join(configHome, "orrery"), 0o700); err != nil {
-		t.Fatalf("make orrery config directory: %v", err)
-	}
-	path := filepath.Join(configHome, "orrery", "roots")
-	writeFile(t, path, content, 0o600)
-	return path
-}
-
-// makeWorkTree creates the made-up tree HOME/Work/example-client/example-project under the test's HOME and returns
-// the project directory.
-func makeWorkTree(t *testing.T) string {
-	t.Helper()
-	dir := filepath.Join(os.Getenv("HOME"), "Work", "example-client", "example-project")
+	dir := filepath.Join(home, "Work", "example-client", "example-project")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatalf("make %s: %v", dir, err)
 	}
@@ -2664,9 +2754,11 @@ func assertRootLines(t *testing.T, claude fakeTool) {
 }
 
 func TestOpenIntentListsRootDirectoriesAndOpensProject(t *testing.T) {
-	writeRootsFile(t, "2 Work\n")
-	w := setupOpen(t)
-	project := makeWorkTree(t)
+	t.Parallel()
+	env := newOpenEnv(t)
+	env.writeRoots(t, "2 Work\n")
+	w := setupOpenIn(t, env, 80)
+	project := makeWorkTree(t, env.home)
 	w.claude.setReply(t, "pane d2\ntask: no\n")
 
 	pane := w.runInPane(t, "open --intent 'two words'")
@@ -2681,9 +2773,11 @@ func TestOpenIntentListsRootDirectoriesAndOpensProject(t *testing.T) {
 }
 
 func TestTreeNIntentListsRootDirectories(t *testing.T) {
-	writeRootsFile(t, "2 Work\n")
-	w := setupTree(t)
-	makeWorkTree(t)
+	t.Parallel()
+	env := newOpenEnv(t)
+	env.writeRoots(t, "2 Work\n")
+	w := setupTreeIn(t, env)
+	makeWorkTree(t, env.home)
 
 	sendKeys(t, w.client, w.tree, true, "N")
 	waitForScreen(t, w.client, w.tree, "text:")
@@ -2693,12 +2787,13 @@ func TestTreeNIntentListsRootDirectories(t *testing.T) {
 }
 
 func TestOpenIntentMalformedRootsFileRefuses(t *testing.T) {
-	roots := writeRootsFile(t, "x Work\n")
-	claude := installOpenFakes(t)
-	client, name := newServer(t)
-	newSession(t, client, "s1", t.TempDir())
+	t.Parallel()
+	env := newOpenEnv(t)
+	roots := env.writeRoots(t, "x Work\n")
+	claude := env.claude
+	_, name := env.startServer(t, "s1", t.TempDir())
 
-	out := runOrrery(t, "", nil, "-L", name, "open", "--intent", "two words")
+	out := runOrrery(t, "", env.vars(), "-L", name, "open", "--intent", "two words")
 	wantExit(t, out, 1)
 	if !strings.Contains(out.stderr, roots) || !strings.Contains(out.stderr, "line 1") {
 		t.Fatalf("stderr %q, want the roots file %s and line 1", out.stderr, roots)
@@ -2709,11 +2804,11 @@ func TestOpenIntentMalformedRootsFileRefuses(t *testing.T) {
 }
 
 func TestOpenRemoteDotRefusesWithoutCreating(t *testing.T) {
-	installOpenFakes(t)
-	client, name := newServer(t)
-	newSession(t, client, "s1", t.TempDir())
+	t.Parallel()
+	env := newOpenEnv(t)
+	client, name := env.startServer(t, "s1", t.TempDir())
 	before := sessionNames(t, client)
-	out := runOrrery(t, "", nil, "-L", name, "open", "--remote", ".")
+	out := runOrrery(t, "", env.vars(), "-L", name, "open", "--remote", ".")
 	wantExit(t, out, 1)
 	if !strings.Contains(out.stderr, "open .: the current directory is on the remote host") {
 		t.Fatalf("stderr %q, want the open . remote refusal", out.stderr)
@@ -2760,14 +2855,13 @@ func newRecentSession(t *testing.T, client *tmuxctl.Client, name string) {
 // client shows s1, and the other client shows s3.
 func setupRecentOpen(t *testing.T) openWorld {
 	t.Helper()
-	claude := installOpenFakes(t)
-	client, name := newServer(t)
-	newSession(t, client, "s1", t.TempDir())
+	env := newOpenEnv(t)
+	client, name := env.startServer(t, "s1", t.TempDir())
 	invoking := attachClient(t, client, name, "s1", 80, 24)
 	newSession(t, client, "s3", t.TempDir())
 	other := attachClient(t, client, name, "s3", 200, 60)
 	newRecentSession(t, client, "s2")
-	return openWorld{client: client, name: name, invoking: invoking, other: other, claude: claude}
+	return openWorld{client: client, name: name, invoking: invoking, other: other, claude: env.claude, env: env}
 }
 
 // treePIDs returns the IDs of the processes whose command line ends in tree --client TTY, which are the tree
@@ -2878,6 +2972,7 @@ func waitForTreePopup(t *testing.T, client *tmuxctl.Client, tty string) {
 }
 
 func TestOpenNoArgumentShowsTreeOnInvokingClient(t *testing.T) {
+	t.Parallel()
 	w := setupRecentOpen(t)
 	killTreesAtCleanup(t, w.invoking)
 	killTreesAtCleanup(t, w.other)
@@ -2900,18 +2995,19 @@ func TestOpenNoArgumentShowsTreeOnInvokingClient(t *testing.T) {
 }
 
 func TestOpenNoArgumentOutsideTmuxAttachesRecentAndShowsTree(t *testing.T) {
-	installOpenFakes(t)
-	client, name := newServer(t)
-	newSession(t, client, "s1", t.TempDir())
+	t.Parallel()
+	env := newOpenEnv(t)
+	client, name := env.startServer(t, "s1", t.TempDir())
 	newRecentSession(t, client, "s2")
 	known := knownClients(t, client)
-	startScript(t, fmt.Sprintf("stty cols 80 rows 24; %s -L %s open", orreryPath(), name))
+	startScript(t, fmt.Sprintf("stty cols 80 rows 24; %s -L %s open", orreryPath(), name), env.vars()...)
 	tty := waitForNewClient(t, client, "s2", known)
 	killTreesAtCleanup(t, tty)
 	waitForTreePopup(t, client, tty)
 }
 
 func TestOpenNamedSessionStartsNoTree(t *testing.T) {
+	t.Parallel()
 	w := setupOpen(t)
 	killTreesAtCleanup(t, w.invoking)
 	killTreesAtCleanup(t, w.other)
