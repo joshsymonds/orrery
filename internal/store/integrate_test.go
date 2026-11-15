@@ -11,6 +11,9 @@ import (
 	"github.com/joshsymonds/orrery/internal/store/sqlcgen"
 )
 
+// integrationBase is the base commit the integration tests create their epics at. It is a synthetic sha.
+const integrationBase = "0123456789abcdef0123456789abcdef01234567"
+
 // integrateEpic is the epic the integration write tests create at integrationBase.
 const integrateEpic = "orrery-6e7f8a9/epic-writes"
 
