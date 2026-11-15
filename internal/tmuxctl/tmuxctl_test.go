@@ -319,3 +319,78 @@ func TestListPanesRejectsNonNumericTimestamps(t *testing.T) {
 		})
 	}
 }
+
+func TestListCarriesOrreryOptions(t *testing.T) {
+	t.Parallel()
+	client := newServer(t)
+	dir := t.TempDir()
+	startSession(t, client, "s1", dir)
+	mustRun(t, client, "split-window", "-t", "s1", "-c", dir, testCommand)
+
+	panes := paneIDs(t, client, "s1")
+	if len(panes) != 2 {
+		t.Fatalf("pane IDs %v, want 2", panes)
+	}
+	setPaneOption(t, client, panes[0], protocol.OptionID, "example-orrery-id")
+	setPaneOption(t, client, panes[0], protocol.OptionTranscript, "/example/transcript.jsonl")
+	setPaneOption(t, client, panes[0], protocol.OptionTurnStart, "1700000200")
+	for _, pane := range panes {
+		waitForCommand(t, client, pane, "sleep")
+	}
+
+	listed, err := client.List(t.Context())
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	listedPanes, err := client.ListPanes(t.Context())
+	if err != nil {
+		t.Fatalf("ListPanes: %v", err)
+	}
+	if len(listed) != 2 || len(listedPanes) != 2 {
+		t.Fatalf("List returned %d panes and ListPanes %d, want 2 each", len(listed), len(listedPanes))
+	}
+
+	plain := make(map[string]protocol.Pane, len(listedPanes))
+	for _, pane := range listedPanes {
+		plain[pane.ID] = pane
+	}
+	byID := make(map[string]tmuxctl.Listed, len(listed))
+	for _, entry := range listed {
+		byID[entry.ID] = entry
+		p, ok := plain[entry.ID]
+		if !ok {
+			t.Errorf("pane %s missing from ListPanes", entry.ID)
+			continue
+		}
+		if !reflect.DeepEqual(entry.Pane, p) {
+			t.Errorf("pane %s Pane from List:\n got %+v\nwant %+v", entry.ID, entry.Pane, p)
+		}
+	}
+
+	tagged := byID[panes[0]]
+	if tagged.OrreryID != "example-orrery-id" || tagged.Transcript != "/example/transcript.jsonl" ||
+		tagged.TurnStart != 1700000200 {
+		t.Errorf("pane %s options = (%q, %q, %d), want (%q, %q, %d)", panes[0],
+			tagged.OrreryID, tagged.Transcript, tagged.TurnStart,
+			"example-orrery-id", "/example/transcript.jsonl", 1700000200)
+	}
+	untagged := byID[panes[1]]
+	if untagged.OrreryID != "" || untagged.Transcript != "" || untagged.TurnStart != 0 {
+		t.Errorf("pane %s options = (%q, %q, %d), want (\"\", \"\", 0)", panes[1],
+			untagged.OrreryID, untagged.Transcript, untagged.TurnStart)
+	}
+}
+
+func TestListRejectsNonNumericTurnStart(t *testing.T) {
+	t.Parallel()
+	client, pane := startPane(t)
+	setPaneOption(t, client, pane, protocol.OptionTurnStart, "soon")
+
+	_, err := client.List(t.Context())
+	if err == nil {
+		t.Fatal("List with non-numeric @orrery_turn_start: want error, got nil")
+	}
+	if !strings.Contains(err.Error(), pane) {
+		t.Fatalf("List error %q does not name pane %s", err, pane)
+	}
+}

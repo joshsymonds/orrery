@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/store"
+	"github.com/joshsymonds/orrery/internal/storetest"
 )
 
 // TestLiveSessionSurvivesPrune checks that the engine row of a live session outlives the retention prune of a second
@@ -24,7 +25,7 @@ func TestLiveSessionSurvivesPrune(t *testing.T) {
 	// has its cutoff an hour after them, so only a live session keeps its row.
 	now := time.Now().Add(store.EventRetention + time.Hour)
 
-	s, err := store.Open(t.Context(), path)
+	s, err := store.Open(t.Context(), path, storetest.NoSync())
 	if err != nil {
 		t.Fatalf("store.Open: %v", err)
 	}

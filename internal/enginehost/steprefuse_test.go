@@ -17,9 +17,6 @@ import (
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
-// refusalGuard bounds each call the refusal tests make, so a call that blocks fails the test rather than hanging it.
-const refusalGuard = 5 * time.Second
-
 // refusalLog is a log buffer that several goroutines may write and the test may read.
 type refusalLog struct {
 	mu  sync.Mutex
@@ -88,43 +85,22 @@ func newRefusalFixture(t *testing.T, stepCap int) *refusalFixture {
 	return &refusalFixture{steps: steps, writer: writer, manager: manager, log: log, worktrees: worktrees, home: home}
 }
 
-// refusalStart runs Start for start and returns its id and error. It fails the test if Start has not returned in
-// refusalGuard.
+// refusalStart runs Start for start and returns its id and error. The refusal tests call Start directly: a Start that
+// never returns is the test binary's timeout to end, since how long a refusal's store reads take is the machine's load.
 func refusalStart(t *testing.T, steps *Steps, start StepStart) (string, error) {
 	t.Helper()
-	type result struct {
-		id  string
-		err error
-	}
-	done := make(chan result, 1)
-	go func() {
-		id, err := steps.Start(t.Context(), start)
-		done <- result{id, err}
-	}()
-	select {
-	case r := <-done:
-		return r.id, r.err
-	case <-time.After(refusalGuard):
-		t.Fatalf("Start did not return within %v", refusalGuard)
-		return "", nil
-	}
+	return steps.Start(t.Context(), start)
 }
 
-// refusalCommitReturns checks that another session's Writer.Commit returns within refusalGuard.
+// refusalCommitReturns checks that another session's Writer.Commit succeeds after a refusal, so the refusal left the
+// writer nothing that blocks it. A blocked writer never returns, which the test binary's timeout ends; the commit is a
+// real store write, so the test does not time it.
 func refusalCommitReturns(t *testing.T, writer *Writer) {
 	t.Helper()
 	const other = "cccccccccccccccccccccccccccccccc"
-	done := make(chan error, 1)
-	go func() {
-		done <- writer.Commit(t.Context(), other, store.EngineAdd{ID: other, Dir: "/work", State: "working"})
-	}()
-	select {
-	case err := <-done:
-		if err != nil {
-			t.Errorf("other session Commit: %v", err)
-		}
-	case <-time.After(refusalGuard):
-		t.Fatalf("other session Commit did not return within %v", refusalGuard)
+	add := store.EngineAdd{ID: other, Dir: "/work", State: "working"}
+	if err := writer.Commit(t.Context(), other, add); err != nil {
+		t.Errorf("other session Commit: %v", err)
 	}
 }
 

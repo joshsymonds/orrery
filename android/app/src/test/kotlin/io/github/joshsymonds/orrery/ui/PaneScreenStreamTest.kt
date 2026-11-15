@@ -5,7 +5,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
-import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.lifecycle.Lifecycle
 import com.connectrpc.Code
 import io.github.joshsymonds.orrery.api.FakeOrreryServer
@@ -19,6 +18,7 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.Pane as PaneProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.PanesListResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.WatchConversationRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.WatchConversationResponse
+import io.github.joshsymonds.orrery.mainThreadAndroidComposeRule
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -55,7 +55,7 @@ private const val NANOS_PER_MILLI = 1_000_000L
 @Config(sdk = [35])
 class PaneScreenStreamTest {
     @get:Rule
-    val composeRule = createAndroidComposeRule<ComponentActivity>()
+    val composeRule = mainThreadAndroidComposeRule<ComponentActivity>()
 
     private fun paneProto(state: String): PaneProto = PaneProto.newBuilder()
         .setId(PANE_ID)

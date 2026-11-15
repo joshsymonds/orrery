@@ -9,11 +9,13 @@ import (
 )
 
 func TestHoldSurvivesReopeningTheStore(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	row := HoldRow{Member: "m1", Since: engineNowAt()}
 
-	s, err := Open(ctx, path)
+	seedMigrated(t, path)
+	s, err := Open(ctx, path, noSync())
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
@@ -24,7 +26,7 @@ func TestHoldSurvivesReopeningTheStore(t *testing.T) {
 		t.Fatalf("Close: %v", err)
 	}
 
-	reopened, err := Open(ctx, path)
+	reopened, err := Open(ctx, path, noSync())
 	if err != nil {
 		t.Fatalf("Open after close: %v", err)
 	}
@@ -43,6 +45,7 @@ func TestHoldSurvivesReopeningTheStore(t *testing.T) {
 }
 
 func TestAddHoldOfHeldMemberKeepsFirstSince(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openSyncStore(t)
 	t0 := engineNowAt()
@@ -63,6 +66,7 @@ func TestAddHoldOfHeldMemberKeepsFirstSince(t *testing.T) {
 }
 
 func TestEndHoldFreesMemberAndUnknownMemberIsNoError(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openSyncStore(t)
 	row := HoldRow{Member: "m1", Since: engineNowAt()}
@@ -94,6 +98,7 @@ func TestEndHoldFreesMemberAndUnknownMemberIsNoError(t *testing.T) {
 }
 
 func TestHoldsOrderedByMember(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openSyncStore(t)
 	t0 := engineNowAt()

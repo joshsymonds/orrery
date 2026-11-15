@@ -45,7 +45,7 @@ func TestReadEpicsListsDirectoriesHoldingState(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got, err := readEpics(root)
+	got, err := readEpics(root, newHeadCache())
 	if err != nil {
 		t.Fatalf("readEpics: %v", err)
 	}
@@ -73,7 +73,7 @@ func TestReadEpicsListsDirectoriesHoldingState(t *testing.T) {
 }
 
 func TestReadEpicsMissingRootIsEmpty(t *testing.T) {
-	got, err := readEpics(filepath.Join(t.TempDir(), "missing"))
+	got, err := readEpics(filepath.Join(t.TempDir(), "missing"), newHeadCache())
 	if err != nil {
 		t.Fatalf("readEpics on a missing root: %v", err)
 	}
@@ -99,7 +99,7 @@ func TestReadEpicsOutcomeIsRecordText(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			root := t.TempDir()
 			writeHead(t, root, "repo", "slug", tc.body, now)
-			got, err := readEpics(root)
+			got, err := readEpics(root, newHeadCache())
 			if err != nil {
 				t.Fatalf("readEpics: %v", err)
 			}
@@ -125,7 +125,7 @@ func TestReadEpicsUnparseableHeadIsListedWithProblem(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			root := t.TempDir()
 			writeHead(t, root, "repo", "slug", tc.body, time.Unix(1_700_000_000, 0))
-			got, err := readEpics(root)
+			got, err := readEpics(root, newHeadCache())
 			if err != nil {
 				t.Fatalf("readEpics: %v", err)
 			}
@@ -146,7 +146,7 @@ func TestReadEpicsChangedIsHeadMtime(t *testing.T) {
 	root := t.TempDir()
 	mtime := time.Unix(1_699_000_000, 0)
 	writeHead(t, root, "repo", "slug", `{}`, mtime)
-	got, err := readEpics(root)
+	got, err := readEpics(root, newHeadCache())
 	if err != nil {
 		t.Fatalf("readEpics: %v", err)
 	}
@@ -213,7 +213,7 @@ func TestFindEpic(t *testing.T) {
 	now := time.Unix(1_700_000_000, 0)
 	writeHead(t, root, "repoa", "slug", `{"outcome":"shipped"}`, now)
 
-	rec, ok, err := findEpic(root, "repoa/slug")
+	rec, ok, err := findEpic(root, "repoa/slug", newHeadCache())
 	if err != nil {
 		t.Fatalf("findEpic: %v", err)
 	}
@@ -222,7 +222,7 @@ func TestFindEpic(t *testing.T) {
 	}
 
 	for _, id := range []string{"../x", "a/b/c", "repoa/missing", "repoa", ""} {
-		_, ok, err := findEpic(root, id)
+		_, ok, err := findEpic(root, id, newHeadCache())
 		if err != nil {
 			t.Fatalf("findEpic(%q): %v", id, err)
 		}
@@ -231,7 +231,7 @@ func TestFindEpic(t *testing.T) {
 		}
 	}
 
-	_, ok, err = findEpic(filepath.Join(t.TempDir(), "missing"), "repoa/slug")
+	_, ok, err = findEpic(filepath.Join(t.TempDir(), "missing"), "repoa/slug", newHeadCache())
 	if err != nil || ok {
 		t.Fatalf("findEpic on a missing root = (%v, %v), want (false, nil)", ok, err)
 	}

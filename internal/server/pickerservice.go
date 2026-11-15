@@ -29,8 +29,9 @@ func newPickerHandler(
 	tokens *pickerTokens,
 	tmux *tmuxctl.Client,
 	now func() time.Time,
+	opts ...connect.HandlerOption,
 ) (string, http.Handler) {
-	return orreryv1connect.NewPickerHandler(pickerServer{picker: picker, tokens: tokens, tmux: tmux, now: now})
+	return orreryv1connect.NewPickerHandler(pickerServer{picker: picker, tokens: tokens, tmux: tmux, now: now}, opts...)
 }
 
 // Ask answers Picker.Ask with the rows askPicker returns.

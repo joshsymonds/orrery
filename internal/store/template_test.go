@@ -22,7 +22,7 @@ var migratedImage = sync.OnceValues(func() ([]byte, error) {
 	}
 	defer os.RemoveAll(dir)
 	path := filepath.Join(dir, "orrery.db")
-	s, err := Open(context.Background(), path)
+	s, err := Open(context.Background(), path, noSync())
 	if err != nil {
 		return nil, err
 	}
@@ -35,6 +35,12 @@ var migratedImage = sync.OnceValues(func() ([]byte, error) {
 	}
 	return os.ReadFile(path)
 })
+
+// noSync is the Open option this package's test stores open with: synchronous OFF, so their commits and checkpoints
+// skip the fsyncs a throwaway file does not need.
+func noSync() Option {
+	return WithSynchronous(SynchronousOff)
+}
 
 // seedMigrated writes a copy of the migrated store image at path, mode 0600, in a directory it creates 0700, unless a
 // file is already there. Open on the path then finds every migration applied and runs none.

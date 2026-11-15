@@ -15,12 +15,38 @@ import (
 // AttachTimeout is how long Reattach waits for a holder to answer its hello and its attach.
 const AttachTimeout = 5 * time.Second
 
+// ReattachOption changes how Reattach and ReattachGate attach a holder.
+type ReattachOption func(*reattachOptions)
+
+// reattachOptions are the settings a ReattachOption changes.
+type reattachOptions struct {
+	// attachTimeout bounds the dial, the hello and the attach.
+	attachTimeout time.Duration
+}
+
+// WithAttachTimeout bounds the hello and the attach by d in place of AttachTimeout.
+func WithAttachTimeout(d time.Duration) ReattachOption {
+	return func(o *reattachOptions) {
+		o.attachTimeout = d
+	}
+}
+
+// newReattachOptions returns the settings opts make, starting from AttachTimeout.
+func newReattachOptions(opts []ReattachOption) reattachOptions {
+	o := reattachOptions{attachTimeout: AttachTimeout}
+	for _, opt := range opts {
+		opt(&o)
+	}
+	return o
+}
+
 // ErrUnattachable means a live holder could not be attached: its lock is held, yet its socket refused the connection,
 // did not answer in time, spoke a wire version this controller does not attach, refused the attach, or was cut off.
 var ErrUnattachable = errors.New("holder: live holder cannot be attached")
 
 // Reattach takes over the holder that serves dir, a session's holder directory, although this controller did not start
-// it. It attaches to the holder at replayFrom, with the hello and the attach bounded by AttachTimeout and ctx. It returns
+// it. It attaches to the holder at replayFrom, with the hello and the attach bounded by AttachTimeout, or the timeout
+// WithAttachTimeout gives, and by ctx. It returns
 // the Process, whose stdout starts at replayFrom, and the ids of the writes the holder has already applied to the child's
 // stdin. The controller speaks version on the hello and the attach, so the holder must speak version or one less.
 //
@@ -29,27 +55,34 @@ var ErrUnattachable = errors.New("holder: live holder cannot be attached")
 //
 // The holder is not the caller's child, so the Process learns the holder's end from the session lock: once the lock is
 // free, the exit record is read for Wait and Stderr. Its fallback Stop is Stop on dir.
-func Reattach(ctx context.Context, dir string, replayFrom int64, version int) (*Process, []string, error) {
-	return reattach(ctx, dir, replayFrom, version, dir)
+func Reattach(
+	ctx context.Context,
+	dir string,
+	replayFrom int64,
+	version int,
+	opts ...ReattachOption,
+) (*Process, []string, error) {
+	return reattach(ctx, dir, replayFrom, version, dir, newReattachOptions(opts))
 }
 
 // ReattachGate takes over the gate holder that serves dir, as Reattach does, at offset 0. A gate's child starts with
 // its stdin closed, so the holder applies no writes and ReattachGate reports none. The Process keeps dir once the
-// holder has ended, exit record included, for the caller to clear, as a gate Launch's Process does. Its errors are
-// Reattach's.
-func ReattachGate(ctx context.Context, dir string) (*Process, error) {
-	p, _, err := reattach(ctx, dir, 0, WireVersion, "")
+// holder has ended, exit record included, for the caller to clear, as a gate Launch's Process does. Its options and its
+// errors are Reattach's.
+func ReattachGate(ctx context.Context, dir string, opts ...ReattachOption) (*Process, error) {
+	p, _, err := reattach(ctx, dir, 0, WireVersion, "", newReattachOptions(opts))
 	return p, err
 }
 
-// reattach does the work of Reattach and ReattachGate, attaching at version. The Process removes remove once the holder
-// has ended, or keeps its directory when remove is empty.
+// reattach does the work of Reattach and ReattachGate, attaching at version under settings. The Process removes
+// remove once the holder has ended, or keeps its directory when remove is empty.
 func reattach(
 	ctx context.Context,
 	dir string,
 	replayFrom int64,
 	version int,
 	remove string,
+	settings reattachOptions,
 ) (*Process, []string, error) {
 	lockPath := filepath.Join(dir, LockName)
 	lock, err := os.OpenFile(filepath.Clean(lockPath), os.O_RDWR, 0)
@@ -70,7 +103,7 @@ func reattach(
 	if err != nil {
 		return nil, nil, failedAttach(lock, err)
 	}
-	conn, attached, err := attachBounded(ctx, sock, replayFrom, version)
+	conn, attached, err := attachBounded(ctx, sock, replayFrom, version, settings.attachTimeout)
 	if err != nil {
 		return nil, nil, failedAttach(lock, err)
 	}
@@ -135,11 +168,17 @@ type attachResult struct {
 	err      error
 }
 
-// attachBounded dials the holder on sock, greets it at version and attaches it at replayFrom, all within AttachTimeout and
-// ctx. It returns the connection and the attached frame. The connection's deadline is cleared, since its stream runs on.
+// attachBounded dials the holder on sock, greets it at version and attaches it at replayFrom, all within timeout and ctx.
+// It returns the connection and the attached frame. The connection's deadline is cleared, since its stream runs on.
 // When ctx ends first, the connection is closed, which ends the exchange.
-func attachBounded(ctx context.Context, sock string, replayFrom int64, version int) (*Conn, Frame, error) {
-	due := time.Now().Add(AttachTimeout)
+func attachBounded(
+	ctx context.Context,
+	sock string,
+	replayFrom int64,
+	version int,
+	timeout time.Duration,
+) (*Conn, Frame, error) {
+	due := time.Now().Add(timeout)
 	dialer := net.Dialer{Deadline: due}
 	raw, err := dialer.DialContext(ctx, "unix", sock)
 	if err != nil {

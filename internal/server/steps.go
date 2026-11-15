@@ -152,12 +152,18 @@ func retryUnder(
 // newStepsHandler returns the path and handler that serve Steps over steps, reading at most maxControlBody bytes of each
 // request. A zero timeout is defaultControlTimeout. clock times the retries. Steps has no start: serve forwards no
 // StartStep.
-func newStepsHandler(steps StepClient, timeout time.Duration, clock rpcretry.Clock) (string, http.Handler) {
+func newStepsHandler(
+	steps StepClient,
+	timeout time.Duration,
+	clock rpcretry.Clock,
+	opts ...connect.HandlerOption,
+) (string, http.Handler) {
 	if timeout == 0 {
 		timeout = defaultControlTimeout
 	}
+	options := append([]connect.HandlerOption{connect.WithReadMaxBytes(maxControlBody)}, opts...)
 	return orreryv1connect.NewStepsHandler(
 		stepsServer{steps: steps, timeout: timeout, clock: clock},
-		connect.WithReadMaxBytes(maxControlBody),
+		options...,
 	)
 }

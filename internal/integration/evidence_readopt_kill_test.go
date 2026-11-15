@@ -279,6 +279,17 @@ func TestEvidenceReadoptSigkillDuringCaptureAndJudge(t *testing.T) {
 		return fileContains(t, filepath.Join(judgeDir, "fakeclaude.stdin"), evidenceKillConclusion)
 	})
 	judgePID := fakeClaudePID(t, judgeDir)
+	// The judge is read-only, so its worktree, and the fake's stdin log in it, is removed as soon as its end is stored.
+	// A link to the log outside the worktree keeps every line the fake appends, for the count once the run has ended.
+	judgeLog := filepath.Join(r.f.root, "judge")
+	if err := os.Mkdir(judgeLog, 0o700); err != nil {
+		t.Fatalf("make judge log directory: %v", err)
+	}
+	if err := os.Link(
+		filepath.Join(judgeDir, "fakeclaude.stdin"), filepath.Join(judgeLog, "fakeclaude.stdin"),
+	); err != nil {
+		t.Fatalf("link the judge's stdin log: %v", err)
+	}
 
 	killOrreryd(t, daemon)
 	daemon = r.f.startOrreryd(t, true, "--holder-scope", r.scope)
@@ -313,7 +324,7 @@ func TestEvidenceReadoptSigkillDuringCaptureAndJudge(t *testing.T) {
 	if len(judges) != 1 || judges[0].GetId() != judge || judges[0].GetEnd() != "done" {
 		t.Fatalf("judge steps of run %s = %+v, want the one step %s ended done", run, judges, judge)
 	}
-	if n := promptsWritten(t, judgeDir, evidenceKillConclusion); n != 1 {
+	if n := promptsWritten(t, judgeLog, evidenceKillConclusion); n != 1 {
 		t.Fatalf("fake claude read the judge prompt %d times, want 1", n)
 	}
 	r.requireCaptureWorktreesEmpty(t)

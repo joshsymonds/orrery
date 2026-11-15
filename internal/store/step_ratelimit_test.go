@@ -7,6 +7,7 @@ import (
 )
 
 func TestStepRateLimitReadsRejectedRowAtOrAfterThePrompt(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name  string
 		after time.Duration
@@ -15,6 +16,7 @@ func TestStepRateLimitReadsRejectedRowAtOrAfterThePrompt(t *testing.T) {
 		{name: "after the prompt", after: time.Minute},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			ctx := context.Background()
 			s := openSyncStore(t)
 			rowAt := engineNowAt().Add(tc.after)
@@ -54,6 +56,7 @@ func TestStepRateLimitReadsRejectedRowAtOrAfterThePrompt(t *testing.T) {
 }
 
 func TestStepRateLimitBeforeTheNewestPromptReadsFalse(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openSyncStore(t)
 	newest := engineNowAt()
@@ -87,6 +90,7 @@ func TestStepRateLimitBeforeTheNewestPromptReadsFalse(t *testing.T) {
 }
 
 func TestStepRateLimitOfNotRejectedRowReadsFalse(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openSyncStore(t)
 
@@ -114,6 +118,7 @@ func TestStepRateLimitOfNotRejectedRowReadsFalse(t *testing.T) {
 }
 
 func TestStepRateLimitOfSessionWithNoRowReadsFalse(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openSyncStore(t)
 
@@ -136,6 +141,7 @@ func TestStepRateLimitOfSessionWithNoRowReadsFalse(t *testing.T) {
 }
 
 func TestStepRateLimitOfSessionWithNoPromptReadsTrue(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openSyncStore(t)
 

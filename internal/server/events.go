@@ -389,9 +389,10 @@ func newEventsHandler(
 	reader *store.Reader,
 	poll, sendTimeout time.Duration,
 	shutdown <-chan struct{},
+	opts ...connect.HandlerOption,
 ) (string, http.Handler) {
 	service := eventsServer{reader: reader, poll: poll, sendTimeout: sendTimeout, shutdown: shutdown}
-	path, handler := orreryv1connect.NewEventsHandler(service)
+	path, handler := orreryv1connect.NewEventsHandler(service, opts...)
 	return path, withResponseWriter(handler)
 }
 

@@ -27,10 +27,10 @@ type Client struct {
 // listFieldSeparator splits ListPanes fields. tmux prints it raw, and it cannot appear in a single-line option value.
 const listFieldSeparator = "\x1f"
 
-// listFieldCount is the number of fields in listFormat, one per Pane member other than Host.
-const listFieldCount = 16
+// listFieldCount is the number of fields in listFormat: one per Pane member other than Host, then the three Listed options.
+const listFieldCount = 19
 
-// listFormat is the list-panes format: one field per Pane member in declaration order.
+// listFormat is the list-panes format: one field per Pane member in declaration order, then the Listed options.
 const listFormat = "#{pane_id}" + listFieldSeparator +
 	"#{session_name}" + listFieldSeparator +
 	"#{window_index}" + listFieldSeparator +
@@ -46,7 +46,21 @@ const listFormat = "#{pane_id}" + listFieldSeparator +
 	"#{" + protocol.OptionContext + "}" + listFieldSeparator +
 	"#{" + protocol.OptionClaudeSession + "}" + listFieldSeparator +
 	"#{session_activity}" + listFieldSeparator +
-	"#{" + protocol.OptionTool + "}"
+	"#{" + protocol.OptionTool + "}" + listFieldSeparator +
+	"#{" + protocol.OptionID + "}" + listFieldSeparator +
+	"#{" + protocol.OptionTranscript + "}" + listFieldSeparator +
+	"#{" + protocol.OptionTurnStart + "}"
+
+// Listed is one pane from List: its Pane, plus the per-pane options serve reads with it.
+type Listed struct {
+	protocol.Pane
+	// OrreryID is the pane's @orrery_id, or "" when unset.
+	OrreryID string
+	// Transcript is the pane's @orrery_transcript, or "" when unset.
+	Transcript string
+	// TurnStart is the unix seconds in the pane's @orrery_turn_start, or 0 when unset.
+	TurnStart int64
+}
 
 // New validates server and returns a Client for it.
 func New(server Server) (*Client, error) {
@@ -103,80 +117,103 @@ func (c *Client) PaneOption(ctx context.Context, paneID, name string) (string, b
 	return strings.TrimSuffix(out, "\n"), true, nil
 }
 
-// ListPanes returns every pane of every session on the server, without Host.
-func (c *Client) ListPanes(ctx context.Context) ([]protocol.Pane, error) {
+// List returns every pane of every session on the server, without Host, with the options serve reads.
+func (c *Client) List(ctx context.Context) ([]Listed, error) {
 	out, err := c.Run(ctx, "list-panes", "-a", "-F", listFormat)
 	if err != nil {
 		return nil, err
 	}
 
-	var panes []protocol.Pane
+	var listed []Listed
 	for line := range strings.SplitSeq(out, "\n") {
 		if line == "" {
 			continue
 		}
-		pane, parseErr := parsePane(line)
+		entry, parseErr := parseListed(line)
 		if parseErr != nil {
 			return nil, parseErr
 		}
-		panes = append(panes, pane)
+		listed = append(listed, entry)
+	}
+	return listed, nil
+}
+
+// ListPanes returns every pane of every session on the server, without Host.
+func (c *Client) ListPanes(ctx context.Context) ([]protocol.Pane, error) {
+	listed, err := c.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	var panes []protocol.Pane
+	for _, entry := range listed {
+		panes = append(panes, entry.Pane)
 	}
 	return panes, nil
 }
 
-// parsePane decodes one line of the listFormat output.
-func parsePane(line string) (protocol.Pane, error) {
+// parseListed decodes one line of the listFormat output.
+func parseListed(line string) (Listed, error) {
 	fields := strings.Split(line, listFieldSeparator)
 	if len(fields) != listFieldCount {
-		return protocol.Pane{}, fmt.Errorf("list-panes: got %d fields, want %d", len(fields), listFieldCount)
+		return Listed{}, fmt.Errorf("list-panes: got %d fields, want %d", len(fields), listFieldCount)
 	}
 
 	windowIndex, err := strconv.Atoi(fields[2])
 	if err != nil {
-		return protocol.Pane{}, fmt.Errorf("list-panes window index %q: %w", fields[2], err)
+		return Listed{}, fmt.Errorf("list-panes window index %q: %w", fields[2], err)
 	}
 	paneIndex, err := strconv.Atoi(fields[3])
 	if err != nil {
-		return protocol.Pane{}, fmt.Errorf("list-panes pane index %q: %w", fields[3], err)
+		return Listed{}, fmt.Errorf("list-panes pane index %q: %w", fields[3], err)
 	}
 
 	var state protocol.State
 	if fields[6] != "" {
 		state, err = protocol.ParseState(fields[6])
 		if err != nil {
-			return protocol.Pane{}, fmt.Errorf("pane %s: %w", fields[0], err)
+			return Listed{}, fmt.Errorf("pane %s: %w", fields[0], err)
 		}
 	}
 	changed, err := parseTimestamp(fields[0], protocol.OptionChanged, fields[9])
 	if err != nil {
-		return protocol.Pane{}, err
+		return Listed{}, err
 	}
 	seen, err := parseTimestamp(fields[0], protocol.OptionSeen, fields[10])
 	if err != nil {
-		return protocol.Pane{}, err
+		return Listed{}, err
 	}
 	activity, err := parseTimestamp(fields[0], "session_activity", fields[14])
 	if err != nil {
-		return protocol.Pane{}, err
+		return Listed{}, err
+	}
+	turnStart, err := parseTimestamp(fields[0], protocol.OptionTurnStart, fields[18])
+	if err != nil {
+		return Listed{}, err
 	}
 
-	return protocol.Pane{
-		ID:            fields[0],
-		Session:       fields[1],
-		WindowIndex:   windowIndex,
-		PaneIndex:     paneIndex,
-		Cwd:           fields[4],
-		Command:       fields[5],
-		State:         state,
-		Summary:       fields[7],
-		Label:         fields[8],
-		Changed:       changed,
-		Seen:          seen,
-		Question:      fields[11],
-		Context:       fields[12],
-		ClaudeSession: fields[13],
-		Activity:      activity,
-		Tool:          fields[15],
+	return Listed{
+		Pane: protocol.Pane{
+			ID:            fields[0],
+			Session:       fields[1],
+			WindowIndex:   windowIndex,
+			PaneIndex:     paneIndex,
+			Cwd:           fields[4],
+			Command:       fields[5],
+			State:         state,
+			Summary:       fields[7],
+			Label:         fields[8],
+			Changed:       changed,
+			Seen:          seen,
+			Question:      fields[11],
+			Context:       fields[12],
+			ClaudeSession: fields[13],
+			Activity:      activity,
+			Tool:          fields[15],
+		},
+		OrreryID:   fields[16],
+		Transcript: fields[17],
+		TurnStart:  turnStart,
 	}, nil
 }
 

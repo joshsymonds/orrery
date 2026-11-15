@@ -38,6 +38,7 @@ func engineHistoryStore(t *testing.T) string {
 }
 
 func TestEngineHistoryReadsEachSessionInSeqOrder(t *testing.T) {
+	t.Parallel()
 	r := NewReader(engineHistoryStore(t))
 
 	type wantEvent struct {
@@ -71,6 +72,7 @@ func TestEngineHistoryReadsEachSessionInSeqOrder(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.id, func(t *testing.T) {
+			t.Parallel()
 			history, err := r.EngineHistory(context.Background(), tc.id, 0, 10)
 			if err != nil {
 				t.Fatalf("EngineHistory(%s): %v", tc.id, err)
@@ -100,6 +102,7 @@ func TestEngineHistoryReadsEachSessionInSeqOrder(t *testing.T) {
 }
 
 func TestEngineHistoryPagingByLastSeqReachesEveryEventOnce(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	r := NewReader(engineHistoryStore(t))
 
@@ -129,6 +132,7 @@ func TestEngineHistoryPagingByLastSeqReachesEveryEventOnce(t *testing.T) {
 }
 
 func TestEngineHistoryRejectsUnknownAndPaneIDs(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	r := NewReader(engineHistoryStore(t))
 
@@ -141,6 +145,7 @@ func TestEngineHistoryRejectsUnknownAndPaneIDs(t *testing.T) {
 }
 
 func TestEngineHistoryReturnsUnavailableWhenStoreIsMissing(t *testing.T) {
+	t.Parallel()
 	dir := filepath.Join(t.TempDir(), "absent")
 	path := filepath.Join(dir, "orrery.db")
 
@@ -157,6 +162,7 @@ func TestEngineHistoryReturnsUnavailableWhenStoreIsMissing(t *testing.T) {
 }
 
 func TestEngineHistoryRejectsNonPositiveLimit(t *testing.T) {
+	t.Parallel()
 	r := NewReader(engineHistoryStore(t))
 
 	for _, limit := range []int{0, -1} {
@@ -190,6 +196,7 @@ func unfinishedHistoryStore(t *testing.T) (string, *Store) {
 }
 
 func TestEngineHistoryCarriesRowFieldsAndUnfinishedText(t *testing.T) {
+	t.Parallel()
 	path, _ := unfinishedHistoryStore(t)
 
 	history, err := NewReader(path).EngineHistory(context.Background(), "e1", 0, 10)
@@ -214,6 +221,7 @@ func TestEngineHistoryCarriesRowFieldsAndUnfinishedText(t *testing.T) {
 }
 
 func TestEngineHistoryDropsTextAfterEngineTextDone(t *testing.T) {
+	t.Parallel()
 	path, s := unfinishedHistoryStore(t)
 	ctx := context.Background()
 	if err := s.ApplyEngine(ctx, []EngineOp{
@@ -235,6 +243,7 @@ func TestEngineHistoryDropsTextAfterEngineTextDone(t *testing.T) {
 }
 
 func TestEngineHistoryReadsStepKindWithNoUnfinishedText(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	s := openWriterAt(t, path)

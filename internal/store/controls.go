@@ -132,8 +132,8 @@ func (s *Store) StopEpic(ctx context.Context, epic string) (string, error) {
 }
 
 // RetryEpic ends the park of epic in one write and leaves its triggers pending. The failed turns up to the epic's
-// highest turn seq stop counting toward a park. An unknown epic is ErrNoEpic, and an epic that is not parked is a
-// RefusalError.
+// highest turn seq stop counting toward a park. Each loop of epic parked by ParkLoop turns running with one more
+// granted round in the same write. An unknown epic is ErrNoEpic, and an epic that is not parked is a RefusalError.
 func (s *Store) RetryEpic(ctx context.Context, epic string) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
 		head, err := epicHead(ctx, queries, epic)
@@ -150,7 +150,7 @@ func (s *Store) RetryEpic(ctx context.Context, epic string) error {
 		if err = queries.RetryEpic(ctx, sqlcgen.RetryEpicParams{Retried: highest, ID: epic}); err != nil {
 			return fmt.Errorf("retry epic %s: %w", epic, err)
 		}
-		return nil
+		return grantParkedLoops(ctx, queries, epic)
 	})
 }
 

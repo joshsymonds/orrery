@@ -3241,10 +3241,18 @@ const (
 	unusedServer  = "orrery-integration-unused"
 )
 
-// freeLoopbackAddr returns a 127.0.0.1 address whose port was free when it was chosen.
+// freeLoopbackAddr returns a loopback address whose port was free when it was chosen, on an IP of 127.0.0.0/8 that
+// only this call picks. The port is released before the process under test binds it, and on 127.0.0.1 any listener
+// of a parallel test, in any package, can take it then: the process's bind fails, and the test's probe and requests
+// reach that other listener. Nothing else listens on the picked IP, so the port stays free for the process.
 func freeLoopbackAddr(t *testing.T) string {
 	t.Helper()
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	var octets [3]byte
+	if _, err := rand.Read(octets[:]); err != nil {
+		t.Fatalf("pick a loopback IP: %v", err)
+	}
+	ip := net.IPv4(127, 1+octets[0]%254, 1+octets[1]%254, 1+octets[2]%254)
+	ln, err := net.Listen("tcp", net.JoinHostPort(ip.String(), "0"))
 	if err != nil {
 		t.Fatalf("pick a loopback port: %v", err)
 	}

@@ -21,8 +21,10 @@ import (
 const (
 	// engineStreamSessions is how many sessions stream at the same time.
 	engineStreamSessions = 4
-	// engineStreamPrompt is the prompt that makes the fake claude stream engineStreamBlocks finished text blocks.
-	engineStreamPrompt = "TRICKLE"
+	// engineStreamPrompt is the prompt that makes the fake claude stream engineStreamBlocks finished text blocks. It
+	// holds the last block until fakeclaude.release exists in the session's directory, so each turn stays open until the
+	// test has sent every pane hook.
+	engineStreamPrompt = "TRICKLEHELD"
 	// engineStreamBlocks is how many finished text blocks one stream prompt streams.
 	engineStreamBlocks = 60
 	// engineStreamText starts the text of each finished block the stream prompt streams.
@@ -48,6 +50,11 @@ func TestEngineFourSessionsKeepPaneSyncs(t *testing.T) {
 		dirs[i] = f.sessionDir(t, fmt.Sprintf("stream-%d", i))
 		ids[i] = f.start(t, dirs[i], engineStreamPrompt)
 	}
+	// Every session's first block is stored before the first hook, and its last block only after the last hook, so
+	// every pane event falls within every session's blocks whatever the machine's pace.
+	for _, id := range ids {
+		f.waitForBlock(t, id, engineStreamText+" 1.1")
+	}
 
 	client, err := tmuxctl.New(tmuxctl.Server{Name: f.server})
 	if err != nil {
@@ -71,7 +78,8 @@ func TestEngineFourSessionsKeepPaneSyncs(t *testing.T) {
 		want = append(want, string(state))
 	}
 
-	for _, id := range ids {
+	for i, id := range ids {
+		writeFile(t, filepath.Join(dirs[i], "fakeclaude.release"), "", 0o600)
 		f.waitForHistory(t, id, hasStreamBlocks)
 	}
 

@@ -10,7 +10,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -265,6 +267,78 @@ func awaitLockFree(t *testing.T, dir string) {
 		case <-time.After(holderPoll):
 		}
 	}
+}
+
+// heldLockID returns how the kernel's lock table names the session lock file in dir, which the live holder that dir's
+// pids record names must hold: the MAJOR:MINOR:INODE field of the holder's line in /proc/locks. The device there need
+// not be the one stat reports, as on btrfs, so it is read from the holder's own line rather than computed.
+func heldLockID(t *testing.T, dir string) string {
+	t.Helper()
+	pids, err := ReadPids(dir)
+	if err != nil {
+		t.Fatalf("read the holder's pids: %v", err)
+	}
+	info, err := os.Stat(filepath.Join(dir, LockName))
+	if err != nil {
+		t.Fatalf("stat session lock: %v", err)
+	}
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		t.Fatalf("stat of the session lock is %T, want *syscall.Stat_t", info.Sys())
+	}
+	inode := fmt.Sprintf(":%d", stat.Ino)
+	for _, fields := range lockTable(t) {
+		if fields[4] == strconv.Itoa(pids.Holder) && strings.HasSuffix(fields[5], inode) {
+			return fields[5]
+		}
+	}
+	t.Fatalf("the kernel's lock table has no lock of holder %d on %s", pids.Holder, filepath.Join(dir, LockName))
+	return ""
+}
+
+// awaitLockUnheld waits until the kernel's lock table holds no lock on the file it names id, as heldLockID returns it,
+// failing the test after waitArmedTimeout. It never opens the lock file, so unlike awaitLockFree it leaves no
+// descriptor that a parallel test's fork could copy and so keep the lock held. Stop takes and releases the lock in this
+// process, and a fork in that window holds the lock for a moment after Stop returns, so a test that next probes the
+// lock waits here first.
+func awaitLockUnheld(t *testing.T, id string) {
+	t.Helper()
+	timeout := time.After(waitArmedTimeout)
+	for {
+		held := false
+		for _, fields := range lockTable(t) {
+			if fields[5] == id {
+				held = true
+				break
+			}
+		}
+		if !held {
+			return
+		}
+		select {
+		case <-timeout:
+			t.Fatalf("lock %s still held after %v", id, waitArmedTimeout)
+		case <-time.After(holderPoll):
+		}
+	}
+}
+
+// lockTable returns the fields of each lock line of /proc/locks: number, class, mode, access, pid and
+// MAJOR:MINOR:INODE come first. A waiter's line, marked "->", is left out: a waiter holds nothing.
+func lockTable(t *testing.T) [][]string {
+	t.Helper()
+	raw, err := os.ReadFile("/proc/locks")
+	if err != nil {
+		t.Fatalf("read the kernel's lock table: %v", err)
+	}
+	var table [][]string
+	for line := range strings.Lines(string(raw)) {
+		fields := strings.Fields(line)
+		if len(fields) > 5 && fields[1] != "->" {
+			table = append(table, fields)
+		}
+	}
+	return table
 }
 
 func TestHolderHelloAnswersWireVersionAndSessionToAnyController(t *testing.T) {

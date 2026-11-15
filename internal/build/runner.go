@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/store"
@@ -37,6 +38,14 @@ func (r *Runner) Run(ctx context.Context) {
 	}
 }
 
+// PassTasks ensures the branch of epic id, then carries out the actions of each open task of the epic among seqs, as
+// a pass does for each open task of the epic. A seq that is not an open task of the epic moves nothing.
+func (r *Runner) PassTasks(ctx context.Context, id string, seqs []int64) {
+	r.passEpic(ctx, id, func(epic store.EpicRow) []int64 {
+		return slices.DeleteFunc(openSeqs(epic), func(seq int64) bool { return !slices.Contains(seqs, seq) })
+	})
+}
+
 // pass runs one pass over every build epic. An epic whose pass fails is logged and waits for the next pass.
 func (r *Runner) pass(ctx context.Context) {
 	ids, err := r.store.BuildEpics(ctx)
@@ -45,19 +54,20 @@ func (r *Runner) pass(ctx context.Context) {
 		return
 	}
 	for _, id := range ids {
-		r.passEpic(ctx, id)
+		r.passEpic(ctx, id, openSeqs)
 	}
 }
 
-// passEpic ensures the branch of epic id, then carries out the actions of each open task of the epic.
-func (r *Runner) passEpic(ctx context.Context, id string) {
+// passEpic ensures the branch of epic id, then carries out the actions of each task seqs picks from the epic, in the
+// order it picks them.
+func (r *Runner) passEpic(ctx context.Context, id string, seqs func(store.EpicRow) []int64) {
 	epic, err := r.store.Epic(ctx, id)
 	if err != nil {
 		r.logger.ErrorContext(ctx, "read build epic", "epic", id, "err", err)
 		return
 	}
 	tip := r.ensureBranch(ctx, epic)
-	for _, seq := range openSeqs(epic) {
+	for _, seq := range seqs(epic) {
 		if epic, err = r.passTask(ctx, epic, seq, tip); err != nil {
 			r.logger.ErrorContext(ctx, "read build epic", "epic", id, "err", err)
 			return

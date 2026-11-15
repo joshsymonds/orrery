@@ -123,6 +123,23 @@ type EpicGateList struct {
 	Gate     string
 }
 
+type EpicNodeRun struct {
+	Epic      string
+	Path      string
+	ID        string
+	Node      string
+	Kind      string
+	Task      int64
+	Round     int64
+	State     string
+	Outcome   string
+	LoopRound int64
+	Granted   int64
+	Mark      int64
+	Started   int64
+	Ended     int64
+}
+
 type EpicPremise struct {
 	Epic     string
 	Position int64

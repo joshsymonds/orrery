@@ -317,7 +317,7 @@ func newRestartRig(t *testing.T, rows route.Rows) restartRig {
 func openRestartStore(t *testing.T, path string) *store.Store {
 	t.Helper()
 	storetest.Seed(t, path)
-	st, err := store.Open(t.Context(), path)
+	st, err := store.Open(t.Context(), path, storetest.NoSync())
 	if err != nil {
 		t.Fatalf("store.Open(%q): %v", path, err)
 	}

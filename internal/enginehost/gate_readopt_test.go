@@ -19,15 +19,24 @@ import (
 // The holder writes its exit record before it releases the lock, so a free lock means the record is there to read.
 func gateWaitLockFree(t *testing.T, dir string) {
 	t.Helper()
+	lock := gateTakeLock(t, dir)
+	if err := lock.Close(); err != nil {
+		t.Fatalf("release lock in %s: %v", dir, err)
+	}
+}
+
+// gateTakeLock polls until it takes the session lock in dir, and returns it held. A test that must hold the lock takes
+// it here once rather than after gateWaitLockFree: a child that any test of the package forks between that wait's take
+// and its close keeps a copy of the lock's open file until the child execs, so the lock can stay held past the close
+// and a second take fail.
+func gateTakeLock(t *testing.T, dir string) *os.File {
+	t.Helper()
 	path := filepath.Join(dir, holder.LockName)
 	deadline := time.Now().Add(10 * time.Second)
 	for {
 		lock, err := holder.Lock(path)
 		if err == nil {
-			if closeErr := lock.Close(); closeErr != nil {
-				t.Fatalf("release lock %s: %v", path, closeErr)
-			}
-			return
+			return lock
 		}
 		if !errors.Is(err, holder.ErrLocked) {
 			t.Fatalf("take lock %s: %v", path, err)
@@ -346,13 +355,9 @@ func TestGateReadoptOfEndingHolderReturnsItsExitRecord(t *testing.T) {
 	}
 	dir := filepath.Join(stateDir, "holders", "ending")
 	gateWaitExit(t, dir)
-	gateWaitLockFree(t, dir)
-	// An ending holder has written its record and removed its socket, and still holds its lock. Holding the lock here
-	// puts the directory in that state.
-	lock, err := holder.Lock(filepath.Join(dir, holder.LockName))
-	if err != nil {
-		t.Fatalf("hold the holder's lock: %v", err)
-	}
+	// An ending holder has written its record and removed its socket, and still holds its lock. Holding the lock here,
+	// once the holder has freed it, puts the directory in that state.
+	lock := gateTakeLock(t, dir)
 	t.Cleanup(func() {
 		if closeErr := lock.Close(); closeErr != nil {
 			t.Errorf("free the holder's lock: %v", closeErr)

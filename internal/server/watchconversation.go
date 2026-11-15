@@ -251,14 +251,16 @@ func (s panesServer) livePane(ctx context.Context, id string) (*v1.Pane, string,
 	if err != nil {
 		return nil, "", err
 	}
-	msgs, err := paneMessages(panes)
+	msgs, err := paneMessages(paneObjects(panes))
 	if err != nil {
 		return nil, "", err
 	}
 	var pane *v1.Pane
-	for _, msg := range msgs {
+	var transcript string
+	for i, msg := range msgs {
 		if msg.GetId() == id {
 			pane = msg
+			transcript = panes[i].listed.Transcript
 			break
 		}
 	}
@@ -268,14 +270,10 @@ func (s panesServer) livePane(ctx context.Context, id string) (*v1.Pane, string,
 	if pane.GetState() == "" {
 		return nil, "", routeError{status: http.StatusNotFound, message: "no live session"}
 	}
-	path, ok, err := s.tmux.PaneOption(ctx, id, protocol.OptionTranscript)
-	if err != nil {
-		return nil, "", internalError()
-	}
-	if !ok || path == "" {
+	if transcript == "" {
 		return nil, "", routeError{status: http.StatusNotFound, message: "no transcript"}
 	}
-	return pane, path, nil
+	return pane, transcript, nil
 }
 
 // transcriptError returns the routeError of a failed transcript read: 404 when the file is missing, and internal

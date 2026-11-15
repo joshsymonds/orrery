@@ -22,13 +22,18 @@ type evidenceServer struct {
 
 // newEvidenceHandler returns the path and handler that serve Evidence over client, reading at most maxControlBody bytes
 // of each request. A zero timeout is defaultControlTimeout.
-func newEvidenceHandler(client EvidenceClient, timeout time.Duration) (string, http.Handler) {
+func newEvidenceHandler(
+	client EvidenceClient,
+	timeout time.Duration,
+	opts ...connect.HandlerOption,
+) (string, http.Handler) {
 	if timeout == 0 {
 		timeout = defaultControlTimeout
 	}
+	options := append([]connect.HandlerOption{connect.WithReadMaxBytes(maxControlBody)}, opts...)
 	return orreryv1connect.NewEvidenceHandler(
 		evidenceServer{client: client, timeout: timeout},
-		connect.WithReadMaxBytes(maxControlBody),
+		options...,
 	)
 }
 

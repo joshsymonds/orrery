@@ -428,8 +428,31 @@ INSERT INTO epic_workflow_nodes (epic, position, id, parent, kind) VALUES (?, ?,
 -- name: ListEpicWorkflowNodes :many
 SELECT * FROM epic_workflow_nodes WHERE epic = ? ORDER BY position;
 
+-- name: InsertEpicNodeRun :exec
+INSERT INTO epic_node_runs (epic, path, id, node, kind, task, round, state, outcome, loop_round, granted, mark, started, ended)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT (epic, path) DO NOTHING;
+
+-- name: ListEpicNodeRuns :many
+SELECT * FROM epic_node_runs WHERE epic = ? ORDER BY path;
+
+-- name: EndEpicNodeRun :exec
+UPDATE epic_node_runs SET state = 'ended', outcome = ?, ended = ? WHERE epic = ? AND path = ? AND state = 'running';
+
+-- name: MoveEpicLoopRound :exec
+UPDATE epic_node_runs SET loop_round = loop_round + 1
+WHERE epic = ? AND path = ? AND kind = 'loop' AND state = 'running' AND loop_round = ?;
+
+-- name: ParkEpicLoopRun :execrows
+UPDATE epic_node_runs SET state = 'parked'
+WHERE epic = ? AND path = ? AND kind = 'loop' AND state = 'running' AND loop_round = ?;
+
 -- name: InsertEpicTrigger :exec
 INSERT INTO epic_triggers (epic, id, cause, state, turn, created) VALUES (?, ?, ?, ?, ?, ?);
+
+-- name: InsertEpicTriggerOnce :exec
+INSERT INTO epic_triggers (epic, id, cause, state, turn, created) VALUES (?, ?, ?, ?, ?, ?)
+ON CONFLICT (epic, id) DO NOTHING;
 
 -- name: InsertEpicDecision :exec
 INSERT INTO epic_decisions (epic, seq, client_id, text, time, question) VALUES (?, ?, ?, ?, ?, ?);
@@ -558,6 +581,10 @@ UPDATE epics SET paused = 0, pause_source = '' WHERE id = ?;
 
 -- name: RetryEpic :exec
 UPDATE epics SET parked = '', retried = ? WHERE id = ?;
+
+-- name: GrantEpicParkedLoops :exec
+UPDATE epic_node_runs SET state = 'running', granted = granted + 1
+WHERE epic = ? AND kind = 'loop' AND state = 'parked';
 
 -- name: ListEpicTurns :many
 SELECT * FROM epic_turns WHERE epic = ? ORDER BY seq;

@@ -30,11 +30,6 @@ const maxQuestionBytes = 8192
 // from the finished turn. A tool event at or after it means Claude continued the turn.
 const stopGraceWindow = 5 * time.Second
 
-// optionTurnStart holds the unix seconds of the newest UserPromptSubmit. The state options move only when the
-// state changes, so a prompt sent to a pane that is already working leaves @orrery_changed at the earlier
-// turn's start. This option moves on every prompt.
-const optionTurnStart = "@orrery_turn_start"
-
 // Hook JSON keys and values the state machine reads.
 const (
 	keyEventName        = "hook_event_name"
@@ -144,7 +139,7 @@ func EndInterruptedTurn(
 	if err != nil {
 		return false, err
 	}
-	turnStart, _, err := optionSecond(ctx, client, paneID, optionTurnStart)
+	turnStart, _, err := optionSecond(ctx, client, paneID, protocol.OptionTurnStart)
 	if err != nil {
 		return false, err
 	}
@@ -304,8 +299,9 @@ func writeTransition(
 		return err
 	}
 	if event == eventUserPromptSubmit {
-		if err := client.SetPaneOption(ctx, paneID, optionTurnStart, strconv.FormatInt(now.Unix(), 10)); err != nil {
-			return fmt.Errorf("set %s: %w", optionTurnStart, err)
+		turnStart := strconv.FormatInt(now.Unix(), 10)
+		if err := client.SetPaneOption(ctx, paneID, protocol.OptionTurnStart, turnStart); err != nil {
+			return fmt.Errorf("set %s: %w", protocol.OptionTurnStart, err)
 		}
 	}
 	if transition.From == transition.To {
@@ -448,7 +444,7 @@ func unsetSession(ctx context.Context, client *tmuxctl.Client, paneID string) er
 		protocol.OptionSummary,
 		protocol.OptionLabel,
 		protocol.OptionTool,
-		optionTurnStart,
+		protocol.OptionTurnStart,
 	} {
 		if err := client.UnsetPaneOption(ctx, paneID, name); err != nil {
 			return fmt.Errorf("unset %s: %w", name, err)

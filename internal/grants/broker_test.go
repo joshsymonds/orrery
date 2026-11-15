@@ -43,7 +43,7 @@ func newBroker(t *testing.T, extra ...string) (*Broker, *store.Store) {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	storetest.Seed(t, path)
-	s, err := store.Open(t.Context(), path)
+	s, err := store.Open(t.Context(), path, storetest.NoSync())
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}

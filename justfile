@@ -16,6 +16,15 @@ default:
 lint:
     golangci-lint run
 
+# Measure, on demand and never in check, how soon a restart over a large store serves sessions.sock, against the
+# contract's restart bound (DL11). Run it on an idle machine: the time counts real store writes, which load inflates.
+measure-restart-cost:
+    env -u TMUX -u TMUX_PANE go test -count=1 -tags measure -run '^TestMeasureRestartCost$' -v ./internal/integration/
+
+# Replay the orrery alert rules against their promtool unit tests.
+alert-check:
+    promtool test rules observability/orrery-rules.test.yml
+
 # Run tests with race and coverage, and enforce at least 80% total coverage
 # excluding cmd/ entry points and the generated code in internal/gen.
 # -coverpkg=./... attributes coverage across package boundaries.
@@ -117,6 +126,10 @@ refresh-env:
 pin-check:
     scripts/check-nix-pin.sh
 
+# Fail when docs/ cites code by file:line instead of by symbol.
+doc-cites:
+    scripts/check-doc-cites.sh
+
 # Move the shared nixpkgs pin. Rewrites the rev literal in BOTH devenv.yaml and
 # flake.nix, refreshes both locks with their own tools, regenerates the env
 # snapshot, then runs the pin check. This is the ONLY sanctioned way to move
@@ -181,7 +194,12 @@ web-page:
     scripts/build-web.sh web/build/page
 
 # Lint, coverage, typed-client, and generated-code gates. The pin check runs first.
-check: pin-check lint proto-lint proto-breaking cover sqlc-diff gen-diff web-check web-page
+check: pin-check doc-cites lint proto-lint proto-breaking cover sqlc-diff gen-diff web-check web-page alert-check
+
+# The fast gate for a task in progress: run only the checks the changes since BASE can affect (BASE defaults to the
+# merge base of HEAD and origin/main). Integration, review and release keep the full `check` and `android-test`.
+check-changed BASE="":
+    scripts/check-changed.sh {{BASE}}
 
 # Assemble the debug APK, then run the Android lint and JVM unit tests.
 android-test:

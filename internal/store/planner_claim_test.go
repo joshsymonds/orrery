@@ -29,6 +29,7 @@ func addPendingTrigger(t *testing.T, s *Store) {
 }
 
 func TestClaimTurnClaimsEveryPendingTriggerInOneTurn(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openEpicStore(t)
 	const id = claimEpic
@@ -56,6 +57,7 @@ func TestClaimTurnClaimsEveryPendingTriggerInOneTurn(t *testing.T) {
 }
 
 func TestClaimTurnRefusesWhileATurnRunsAndWritesNothing(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openEpicStore(t)
 	const id = claimEpic
@@ -79,6 +81,7 @@ func TestClaimTurnRefusesWhileATurnRunsAndWritesNothing(t *testing.T) {
 }
 
 func TestClaimTurnRefusesPausedAndParkedEpicsAndWritesNothing(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	for _, tc := range []struct {
 		name  string
@@ -108,6 +111,7 @@ func TestClaimTurnRefusesPausedAndParkedEpicsAndWritesNothing(t *testing.T) {
 }
 
 func TestClaimTurnRefusesEpicWithNoPendingTrigger(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openEpicStore(t)
 	const id = claimEpic
@@ -129,6 +133,7 @@ func TestClaimTurnRefusesEpicWithNoPendingTrigger(t *testing.T) {
 }
 
 func TestClaimTurnUnknownEpicIsErrNoEpic(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openEpicStore(t)
 
@@ -141,6 +146,7 @@ func TestClaimTurnUnknownEpicIsErrNoEpic(t *testing.T) {
 }
 
 func TestClaimTurnNumbersTurnsAndSeesTheLatestDecision(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openEpicStore(t)
 	const id = claimEpic
@@ -173,6 +179,7 @@ func TestClaimTurnNumbersTurnsAndSeesTheLatestDecision(t *testing.T) {
 }
 
 func TestPlanStatesListsEpicsWithPendingTriggersInIDOrder(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openEpicStore(t)
 	const claimed, late, early = "orrery-1a2b3c4/claimed", "orrery-1a2b3c4/late", "orrery-1a2b3c4/early"
@@ -197,6 +204,7 @@ func TestPlanStatesListsEpicsWithPendingTriggersInIDOrder(t *testing.T) {
 }
 
 func TestPlanStatesReportsPauseParkAndRunningTurn(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openEpicStore(t)
 	const id = claimEpic
@@ -229,6 +237,7 @@ func TestPlanStatesReportsPauseParkAndRunningTurn(t *testing.T) {
 }
 
 func TestSetTurnStepStoresTheStepOnARunningTurn(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openEpicStore(t)
 	const id = claimEpic
@@ -250,6 +259,7 @@ func TestSetTurnStepStoresTheStepOnARunningTurn(t *testing.T) {
 }
 
 func TestSetTurnStepRefusesATurnThatIsNotRunning(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	s := openEpicStore(t)
 	const id = claimEpic
