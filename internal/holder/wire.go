@@ -105,6 +105,8 @@ type Exit struct {
 	Signal string `json:"signal,omitempty"`
 	// StdoutEnd is the stdout offset just past the last byte the spool holds.
 	StdoutEnd int64 `json:"stdoutEnd"`
+	// Stdout is the tail of the child's stdout, kept apart from Stderr. Only a gate keeps one.
+	Stdout string `json:"stdout"`
 	// Stderr is the tail of the child's stderr.
 	Stderr string `json:"stderr"`
 }

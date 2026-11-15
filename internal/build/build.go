@@ -158,10 +158,11 @@ type Steps interface {
 	Status(ctx context.Context, id string) (store.StepRow, error)
 }
 
-// Evidence starts a task's evidence runs and reads their artifacts.
+// Evidence starts a task's evidence runs and reads their artifacts and stderr logs.
 type Evidence interface {
 	RunTask(ctx context.Context, id, epic string, task int64, revision, phase string) (store.EvidenceRun, error)
 	Artifact(ctx context.Context, run, name string) ([]byte, string, error)
+	StderrLog(ctx context.Context, run string) ([]byte, string, error)
 }
 
 // Config configures a Runner. A Tick that is not positive means five seconds, and a nil Now means time.Now. A nil

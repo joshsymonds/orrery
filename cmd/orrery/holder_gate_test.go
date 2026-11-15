@@ -67,10 +67,10 @@ func awaitHolderRefusal(t *testing.T, work, root string, args []string) runResul
 	return res
 }
 
-// TestHolderGateLimitStopsGateWithMergedTail runs a gate with a one-second limit whose child prints to stdout and to
-// stderr, then sleeps. The limit stops the child, so the exit record gives ReasonLimit with both outputs in its stderr
-// tail, and the holder exits 0.
-func TestHolderGateLimitStopsGateWithMergedTail(t *testing.T) {
+// TestHolderGateLimitStopsGateWithSplitTails runs a gate with a one-second limit whose child prints to stdout and to
+// stderr, then sleeps. The limit stops the child, so the exit record gives ReasonLimit with stdout in its Stdout tail
+// and stderr in its Stderr tail, and the holder exits 0.
+func TestHolderGateLimitStopsGateWithSplitTails(t *testing.T) {
 	chdirTemp(t)
 	root := shortStateDir(t)
 	hc := startGateHolderCommand(t, root, "gate", "1", shellChild(t, "echo out; echo err >&2; sleep 30")...)
@@ -81,8 +81,11 @@ func TestHolderGateLimitStopsGateWithMergedTail(t *testing.T) {
 	if exit.Reason != holder.ReasonLimit {
 		t.Errorf("exit reason %q, want %q", exit.Reason, holder.ReasonLimit)
 	}
-	if want := "out\nerr\n"; exit.Stderr != want {
-		t.Errorf("exit stderr %q, want both outputs %q", exit.Stderr, want)
+	if want := "out\n"; exit.Stdout != want {
+		t.Errorf("exit stdout %q, want %q", exit.Stdout, want)
+	}
+	if want := "err\n"; exit.Stderr != want {
+		t.Errorf("exit stderr %q, want %q", exit.Stderr, want)
 	}
 }
 

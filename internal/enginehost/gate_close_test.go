@@ -100,7 +100,7 @@ func TestGateScopedCloseDetachesLaunchedGate(t *testing.T) {
 		t.Fatalf("err = %v, want errGateDetach", err)
 	}
 	exit := gateWaitExit(t, dir)
-	if exit.Reason != holder.ReasonExited || exit.Code != 0 || !strings.Contains(exit.Stderr, "done") {
+	if exit.Reason != holder.ReasonExited || exit.Code != 0 || !strings.Contains(exit.Stdout, "done") {
 		t.Fatalf("exit record = %+v, want the gate's own exit 0 with its output: the holder was not left running", exit)
 	}
 }
@@ -226,7 +226,7 @@ func TestGateReadoptScopedCloseWhileQueuedDetaches(t *testing.T) {
 		t.Fatalf("release the gate: %v", err)
 	}
 	exit := gateWaitExit(t, holderDir(t, stateDir, run.Name))
-	if exit.Reason != holder.ReasonExited || exit.Code != 3 || !strings.Contains(exit.Stderr, "done") {
+	if exit.Reason != holder.ReasonExited || exit.Code != 3 || !strings.Contains(exit.Stdout, "done") {
 		t.Fatalf("exit record = %+v, want the gate's own exit 3 with its output: the holder was not left running", exit)
 	}
 }

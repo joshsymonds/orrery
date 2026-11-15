@@ -123,7 +123,13 @@ func TestStepsStartAgentGateRunsItsAgentSchemaAndPrompt(t *testing.T) {
 		GateLimit:  300 * time.Second,
 		ModelLimit: stepDefaultModelLimit,
 	}
-	if got := stepGateAdd(t, step); !reflect.DeepEqual(got, want) {
+	got := stepGateAdd(t, step)
+	if got.CheckoutHash == "" {
+		t.Fatal("StepAdd CheckoutHash is empty, want the fingerprint of the read-only checkout")
+	}
+	want.CheckoutHead = commit
+	want.CheckoutHash = got.CheckoutHash
+	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("StepAdd = %#v, want %#v", got, want)
 	}
 	run, ok := step.Observer.(*stepRun)

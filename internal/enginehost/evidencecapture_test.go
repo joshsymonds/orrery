@@ -154,6 +154,37 @@ func TestEvidenceCaptureKeepsItsExitLogAndArtifacts(t *testing.T) {
 	}
 }
 
+// TestEvidenceCaptureKeepsStdoutAndStderrLogsApart runs a capture that writes distinct stdout and stderr. The log holds the
+// stdout tail and the stderr blob holds the stderr tail, each with its hash and size.
+func TestEvidenceCaptureKeepsStdoutAndStderrLogsApart(t *testing.T) {
+	t.Parallel()
+	repo, head := evidenceCaptureRepo(t)
+	c := evidenceCaptureFor(t, &fakeGatePools{})
+	item := evidence.Item{Capture: []string{"/bin/sh", "-c", `printf out; printf err >&2`}, Limit: 60}
+	got, err := c.run(t.Context(), repo, head, "split", item, nil)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if got.NotCaptured != "" || got.Exit != 0 {
+		t.Fatalf("capture = %+v, want exit 0 and captured", got)
+	}
+	if got.LogBytes != 3 || got.LogHash != evidenceCaptureHash("out") {
+		t.Fatalf("log = %d bytes hash %s, want the stdout tail out", got.LogBytes, got.LogHash)
+	}
+	if got.StderrBytes != 3 || got.StderrHash != evidenceCaptureHash("err") {
+		t.Fatalf("stderr log = %d bytes hash %s, want the stderr tail err", got.StderrBytes, got.StderrHash)
+	}
+	for _, blob := range []struct{ hash, want string }{{got.LogHash, "out"}, {got.StderrHash, "err"}} {
+		data, readErr := c.blobs.read(blob.hash + ".log")
+		if readErr != nil {
+			t.Fatalf("read blob %s: %v", blob.hash, readErr)
+		}
+		if string(data) != blob.want {
+			t.Fatalf("blob %s = %q, want %q", blob.hash, data, blob.want)
+		}
+	}
+}
+
 // TestEvidenceCaptureRemovesItsWorktreeAndLeavesTheRepositoryAlone runs the capture and checks that its worktree is gone and
 // the repository's HEAD, status, index, branches and worktree list are as they were.
 func TestEvidenceCaptureRemovesItsWorktreeAndLeavesTheRepositoryAlone(t *testing.T) {

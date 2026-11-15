@@ -127,7 +127,7 @@
   },
   {
     "name": "epic_create",
-    "description": "Create an epic from an accepted contract. decisions seeds the epic's recorded decisions. Returns the stored epic. A refusal names the field that failed.",
+    "description": "Create an epic from an accepted contract. decisions seeds the epic's recorded decisions. workflow names the workflow the epic pins, epic by default. Returns the stored epic. A refusal names the field that failed.",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -153,6 +153,10 @@
             ],
             "additionalProperties": false
           }
+        },
+        "workflow": {
+          "type": "string",
+          "description": "the workflow the epic pins, read at the contract's base: a repository file .orrery/workflows/\u003cname\u003e.yaml, else the built-in of that name; omit it to pin epic"
         }
       },
       "required": [
@@ -163,7 +167,7 @@
   },
   {
     "name": "epic_get",
-    "description": "Return a stored epic by id: its contract, phase, timestamps, decisions, whether it is paused and why it is parked, and its planner turns, tasks and questions.",
+    "description": "Return a stored epic by id: its contract, the workflow it pins with its name, text and sha256, phase, timestamps, decisions, whether it is paused and why it is parked, and its planner turns, tasks and questions.",
     "inputSchema": {
       "type": "object",
       "properties": {

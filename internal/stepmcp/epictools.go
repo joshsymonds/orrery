@@ -18,6 +18,7 @@ import (
 type epicCreateArgs struct {
 	Contract  json.RawMessage    `json:"contract"            jsonschema:"the accepted contract in protobuf JSON field names: id, repository, title, approved, intent, failures, care, additions, requirements, premises, exclusions, approach, alternatives, releaseSteps, releaseThen, checks, base, gates, doneGates, reviewGates. A requirement carries item, its evidence: capture, limit, artifacts, supplied, conclusion and judge."`
 	Decisions []epicDecisionArgs `json:"decisions,omitempty"`
+	Workflow  string             `json:"workflow,omitempty"  jsonschema:"the workflow the epic pins, read at the contract's base: a repository file .orrery/workflows/<name>.yaml, else the built-in of that name; omit it to pin epic"`
 }
 
 // epicDecisionArgs is one decision of epic_create's decisions.
@@ -59,14 +60,16 @@ func epicTools(epics enginev1connect.EpicsClient) ([]Tool, error) {
 		{
 			Name: "epic_create",
 			Description: "Create an epic from an accepted contract. decisions seeds the epic's recorded " +
-				"decisions. Returns the stored epic. A refusal names the field that failed.",
+				"decisions. workflow names the workflow the epic pins, epic by default. Returns the stored epic. " +
+				"A refusal names the field that failed.",
 			InputSchema: createInput,
 			Handler:     epicCreateHandler(epics),
 		},
 		{
 			Name: "epic_get",
-			Description: "Return a stored epic by id: its contract, phase, timestamps, decisions, whether it is " +
-				"paused and why it is parked, and its planner turns, tasks and questions.",
+			Description: "Return a stored epic by id: its contract, the workflow it pins with its name, text and " +
+				"sha256, phase, timestamps, decisions, whether it is paused and why it is parked, and its planner " +
+				"turns, tasks and questions.",
 			InputSchema: idInput,
 			Handler:     epicGetHandler(epics),
 		},

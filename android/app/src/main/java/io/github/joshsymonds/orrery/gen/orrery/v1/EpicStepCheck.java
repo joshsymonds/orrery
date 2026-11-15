@@ -20,6 +20,8 @@ public  final class EpicStepCheck extends
     EpicStepCheckOrBuilder {
   private EpicStepCheck() {
     name_ = "";
+    stdout_ = "";
+    stderr_ = "";
   }
   public static final int ROUND_FIELD_NUMBER = 1;
   private int round_;
@@ -162,6 +164,140 @@ public  final class EpicStepCheck extends
   private void clearOk() {
 
     ok_ = false;
+  }
+
+  public static final int STDOUT_FIELD_NUMBER = 4;
+  private java.lang.String stdout_;
+  /**
+   * <pre>
+   * The tail of the check's stdout, redacted; set only for a failed gate check.
+   * </pre>
+   *
+   * <code>string stdout = 4 [json_name = "stdout"];</code>
+   * @return The stdout.
+   */
+  @java.lang.Override
+  public java.lang.String getStdout() {
+    return stdout_;
+  }
+  /**
+   * <pre>
+   * The tail of the check's stdout, redacted; set only for a failed gate check.
+   * </pre>
+   *
+   * <code>string stdout = 4 [json_name = "stdout"];</code>
+   * @return The bytes for stdout.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getStdoutBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(stdout_);
+  }
+  /**
+   * <pre>
+   * The tail of the check's stdout, redacted; set only for a failed gate check.
+   * </pre>
+   *
+   * <code>string stdout = 4 [json_name = "stdout"];</code>
+   * @param value The stdout to set.
+   */
+  private void setStdout(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    stdout_ = value;
+  }
+  /**
+   * <pre>
+   * The tail of the check's stdout, redacted; set only for a failed gate check.
+   * </pre>
+   *
+   * <code>string stdout = 4 [json_name = "stdout"];</code>
+   */
+  private void clearStdout() {
+
+    stdout_ = getDefaultInstance().getStdout();
+  }
+  /**
+   * <pre>
+   * The tail of the check's stdout, redacted; set only for a failed gate check.
+   * </pre>
+   *
+   * <code>string stdout = 4 [json_name = "stdout"];</code>
+   * @param value The bytes for stdout to set.
+   */
+  private void setStdoutBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    stdout_ = value.toStringUtf8();
+
+  }
+
+  public static final int STDERR_FIELD_NUMBER = 5;
+  private java.lang.String stderr_;
+  /**
+   * <pre>
+   * The tail of the check's stderr, redacted; set only for a failed gate check.
+   * </pre>
+   *
+   * <code>string stderr = 5 [json_name = "stderr"];</code>
+   * @return The stderr.
+   */
+  @java.lang.Override
+  public java.lang.String getStderr() {
+    return stderr_;
+  }
+  /**
+   * <pre>
+   * The tail of the check's stderr, redacted; set only for a failed gate check.
+   * </pre>
+   *
+   * <code>string stderr = 5 [json_name = "stderr"];</code>
+   * @return The bytes for stderr.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getStderrBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(stderr_);
+  }
+  /**
+   * <pre>
+   * The tail of the check's stderr, redacted; set only for a failed gate check.
+   * </pre>
+   *
+   * <code>string stderr = 5 [json_name = "stderr"];</code>
+   * @param value The stderr to set.
+   */
+  private void setStderr(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    stderr_ = value;
+  }
+  /**
+   * <pre>
+   * The tail of the check's stderr, redacted; set only for a failed gate check.
+   * </pre>
+   *
+   * <code>string stderr = 5 [json_name = "stderr"];</code>
+   */
+  private void clearStderr() {
+
+    stderr_ = getDefaultInstance().getStderr();
+  }
+  /**
+   * <pre>
+   * The tail of the check's stderr, redacted; set only for a failed gate check.
+   * </pre>
+   *
+   * <code>string stderr = 5 [json_name = "stderr"];</code>
+   * @param value The bytes for stderr to set.
+   */
+  private void setStderrBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    stderr_ = value.toStringUtf8();
+
   }
 
   public static io.github.joshsymonds.orrery.gen.orrery.v1.EpicStepCheck parseFrom(
@@ -414,6 +550,144 @@ public  final class EpicStepCheck extends
       return this;
     }
 
+    /**
+     * <pre>
+     * The tail of the check's stdout, redacted; set only for a failed gate check.
+     * </pre>
+     *
+     * <code>string stdout = 4 [json_name = "stdout"];</code>
+     * @return The stdout.
+     */
+    @java.lang.Override
+    public java.lang.String getStdout() {
+      return instance.getStdout();
+    }
+    /**
+     * <pre>
+     * The tail of the check's stdout, redacted; set only for a failed gate check.
+     * </pre>
+     *
+     * <code>string stdout = 4 [json_name = "stdout"];</code>
+     * @return The bytes for stdout.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getStdoutBytes() {
+      return instance.getStdoutBytes();
+    }
+    /**
+     * <pre>
+     * The tail of the check's stdout, redacted; set only for a failed gate check.
+     * </pre>
+     *
+     * <code>string stdout = 4 [json_name = "stdout"];</code>
+     * @param value The stdout to set.
+     * @return This builder for chaining.
+     */
+    public Builder setStdout(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setStdout(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The tail of the check's stdout, redacted; set only for a failed gate check.
+     * </pre>
+     *
+     * <code>string stdout = 4 [json_name = "stdout"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearStdout() {
+      copyOnWrite();
+      instance.clearStdout();
+      return this;
+    }
+    /**
+     * <pre>
+     * The tail of the check's stdout, redacted; set only for a failed gate check.
+     * </pre>
+     *
+     * <code>string stdout = 4 [json_name = "stdout"];</code>
+     * @param value The bytes for stdout to set.
+     * @return This builder for chaining.
+     */
+    public Builder setStdoutBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setStdoutBytes(value);
+      return this;
+    }
+
+    /**
+     * <pre>
+     * The tail of the check's stderr, redacted; set only for a failed gate check.
+     * </pre>
+     *
+     * <code>string stderr = 5 [json_name = "stderr"];</code>
+     * @return The stderr.
+     */
+    @java.lang.Override
+    public java.lang.String getStderr() {
+      return instance.getStderr();
+    }
+    /**
+     * <pre>
+     * The tail of the check's stderr, redacted; set only for a failed gate check.
+     * </pre>
+     *
+     * <code>string stderr = 5 [json_name = "stderr"];</code>
+     * @return The bytes for stderr.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getStderrBytes() {
+      return instance.getStderrBytes();
+    }
+    /**
+     * <pre>
+     * The tail of the check's stderr, redacted; set only for a failed gate check.
+     * </pre>
+     *
+     * <code>string stderr = 5 [json_name = "stderr"];</code>
+     * @param value The stderr to set.
+     * @return This builder for chaining.
+     */
+    public Builder setStderr(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setStderr(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The tail of the check's stderr, redacted; set only for a failed gate check.
+     * </pre>
+     *
+     * <code>string stderr = 5 [json_name = "stderr"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearStderr() {
+      copyOnWrite();
+      instance.clearStderr();
+      return this;
+    }
+    /**
+     * <pre>
+     * The tail of the check's stderr, redacted; set only for a failed gate check.
+     * </pre>
+     *
+     * <code>string stderr = 5 [json_name = "stderr"];</code>
+     * @param value The bytes for stderr to set.
+     * @return This builder for chaining.
+     */
+    public Builder setStderrBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setStderrBytes(value);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:orrery.v1.EpicStepCheck)
   }
   @java.lang.Override
@@ -433,10 +707,12 @@ public  final class EpicStepCheck extends
             "round_",
             "name_",
             "ok_",
+            "stdout_",
+            "stderr_",
           };
           java.lang.String info =
-              "\u0000\u0003\u0000\u0000\u0001\u0003\u0003\u0000\u0000\u0000\u0001\u000b\u0002\u0208" +
-              "\u0003\u0007";
+              "\u0000\u0005\u0000\u0000\u0001\u0005\u0005\u0000\u0000\u0000\u0001\u000b\u0002\u0208" +
+              "\u0003\u0007\u0004\u0208\u0005\u0208";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

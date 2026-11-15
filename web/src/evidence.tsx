@@ -3,15 +3,21 @@ import { useEffect, useState } from "preact/hooks";
 
 import type { EvidenceArtifact, EvidenceRun } from "./gen/orrery/v1/epics_pb";
 
-// LoadArtifact reads one artifact of an evidence run, or the run's log when the name is empty.
-export type LoadArtifact = (run: string, name: string) => Promise<{ data: Uint8Array; mediaType: string }>;
+// LoadArtifact reads one artifact of an evidence run, or the run's log when the name is empty: its stderr log when
+// stderr is set, else its stdout log.
+export type LoadArtifact = (
+  run: string,
+  name: string,
+  stderr: boolean,
+) => Promise<{ data: Uint8Array; mediaType: string }>;
 
 // revisionLength is how many characters of a run's commit id show.
 const revisionLength = 12;
 
 // EvidenceRuns is a requirement's evidence runs in order. Each run shows its phase, source, state, verdict, result,
-// exit and revision, its log behind a toggle, and its artifacts; a kept image is drawn inline. Every text is a child of
-// its element, so no markup in a log, reason or path becomes an element.
+// exit and revision, its stdout log behind a toggle and its stderr log behind a second toggle when it has one, and its
+// artifacts; a kept image is drawn inline. Every text is a child of its element, so no markup in a log, reason or path
+// becomes an element.
 export function EvidenceRuns(props: { runs: EvidenceRun[]; loadArtifact: LoadArtifact }): JSX.Element {
   const { runs, loadArtifact } = props;
   return (
@@ -23,11 +29,11 @@ export function EvidenceRuns(props: { runs: EvidenceRun[]; loadArtifact: LoadArt
   );
 }
 
-// EvidenceRunRow is one run: its head line, its log toggle with the log while it is open, and its artifacts. The exit
-// shows once the run has ended, since a run that is still going has none.
+// EvidenceRunRow is one run: its head line, its log toggles with each log while it is open, and its artifacts. The exit
+// shows once the run has ended, since a run that is still going has none. A run with no stderr bytes has no stderr
+// toggle.
 function EvidenceRunRow(props: { run: EvidenceRun; loadArtifact: LoadArtifact }): JSX.Element {
   const { run, loadArtifact } = props;
-  const [open, setOpen] = useState(false);
   const ended = run.state === "ended";
   return (
     <li class="run">
@@ -40,15 +46,8 @@ function EvidenceRunRow(props: { run: EvidenceRun; loadArtifact: LoadArtifact })
         {ended && <span class="exit">{`exit ${run.exit}`}</span>}
         <span class="revision">{run.revision.slice(0, revisionLength)}</span>
       </div>
-      <button
-        type="button"
-        class="log-toggle"
-        aria-expanded={open}
-        onClick={() => setOpen((isOpen) => !isOpen)}
-      >
-        log
-      </button>
-      {open && <RunLog run={run.id} loadArtifact={loadArtifact} />}
+      <LogToggle run={run.id} stderr={false} loadArtifact={loadArtifact} />
+      {run.stderrBytes > 0n && <LogToggle run={run.id} stderr loadArtifact={loadArtifact} />}
       {run.artifacts.length > 0 && (
         <ul class="artifacts">
           {run.artifacts.map((artifact) => (
@@ -60,15 +59,30 @@ function EvidenceRunRow(props: { run: EvidenceRun; loadArtifact: LoadArtifact })
   );
 }
 
+// LogToggle is one of a run's logs behind a toggle, the stderr log when stderr is set and else the stdout log. The log
+// shows while the toggle is open.
+function LogToggle(props: { run: string; stderr: boolean; loadArtifact: LoadArtifact }): JSX.Element {
+  const { run, stderr, loadArtifact } = props;
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button type="button" class="log-toggle" aria-expanded={open} onClick={() => setOpen((isOpen) => !isOpen)}>
+        {stderr ? "stderr" : "stdout"}
+      </button>
+      {open && <RunLog run={run} stderr={stderr} loadArtifact={loadArtifact} />}
+    </>
+  );
+}
+
 // RunLog is a run's log while its toggle is open: a loading line until the bytes arrive, then the text preformatted. A
 // log that fails to load says so. A load that lands after the log closes sets nothing.
-function RunLog(props: { run: string; loadArtifact: LoadArtifact }): JSX.Element {
-  const { run, loadArtifact } = props;
+function RunLog(props: { run: string; stderr: boolean; loadArtifact: LoadArtifact }): JSX.Element {
+  const { run, stderr, loadArtifact } = props;
   const [text, setText] = useState<string | undefined>(undefined);
   const [failed, setFailed] = useState(false);
   useEffect(() => {
     let current = true;
-    loadArtifact(run, "").then(
+    loadArtifact(run, "", stderr).then(
       (artifact) => {
         if (current) setText(new TextDecoder().decode(artifact.data));
       },
@@ -79,7 +93,7 @@ function RunLog(props: { run: string; loadArtifact: LoadArtifact }): JSX.Element
     return () => {
       current = false;
     };
-  }, [run, loadArtifact]);
+  }, [run, stderr, loadArtifact]);
   if (failed) return <p class="unavailable">log unavailable</p>;
   if (text === undefined) return <p class="pending">loading</p>;
   return <pre class="log">{text}</pre>;
@@ -108,7 +122,7 @@ function ArtifactImage(props: { run: string; path: string; loadArtifact: LoadArt
   useEffect(() => {
     let current = true;
     let url: string | undefined;
-    loadArtifact(run, path).then(
+    loadArtifact(run, path, false).then(
       (artifact) => {
         if (!current) return;
         // A Blob takes an ArrayBuffer-backed array, so the bytes are copied into one.

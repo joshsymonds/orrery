@@ -258,6 +258,53 @@ func TestReadoptStepReattachedRunsLoopAndJudgesNextReturnOnce(t *testing.T) {
 	judgeLoopCheckVerdict(t, row.Verdicts[0], 1, "met", "the report is complete", "end")
 }
 
+// TestReadoptStepCheckoutMovedEndsChecksFailed re-adopts a read-only step, moves its checkout, and returns. The return is
+// compared with the before state the step stored at its start, so it ends checks_failed without a judge call.
+func TestReadoptStepCheckoutMovedEndsChecksFailed(t *testing.T) {
+	t.Parallel()
+	haiku := NewHaiku(HaikuConfig{
+		Claude:  haikuWriteFake(t, haikuDir(t), haikuFake{stdout: stepReadoptMetLine}),
+		Environ: haikuEnviron(),
+	})
+	rig := newStepsRig(t, haiku)
+	id, wt := rig.startStalledStep(t)
+
+	rig.crash()
+	restarted, steps := rig.restart(t, rig.environ, slog.New(slog.DiscardHandler))
+	if err := steps.Readopt(t.Context(), restarted); err != nil {
+		t.Fatalf("Readopt: %v", err)
+	}
+	if err := restarted.Reconcile(t.Context()); err != nil {
+		t.Fatalf("Reconcile of the manager: %v", err)
+	}
+	if err := steps.Reconcile(t.Context()); err != nil {
+		t.Fatalf("Reconcile of the steps: %v", err)
+	}
+	stepGitTestWrite(t, wt, "README", "changed\n")
+
+	run := stepsRunOf(t, steps, id)
+	run.Return(session.TurnEnded{StructuredOutput: json.RawMessage(`{"status":"done"}`)})
+	stepStartAwait(t, "step "+id+" to end", func() bool {
+		row, err := steps.Status(t.Context(), id)
+		return err == nil && row.End != ""
+	})
+
+	row, err := steps.Status(t.Context(), id)
+	if err != nil {
+		t.Fatalf("Status: %v", err)
+	}
+	if row.End != stepLoopEndChecksFailed {
+		t.Fatalf("end = %q, want %q", row.End, stepLoopEndChecksFailed)
+	}
+	if len(row.Verdicts) != 0 {
+		t.Errorf("stored %d verdicts, want no judge call", len(row.Verdicts))
+	}
+	check, ok := stepCheckoutCheckIn(row.Checks)
+	if !ok || check.OK || !strings.Contains(check.Detail, "changed paths: README") {
+		t.Errorf("checks = %+v, want a failed checkout check naming README", row.Checks)
+	}
+}
+
 func TestReadoptStepWhoseHolderIsGoneEndsEngineRestarted(t *testing.T) {
 	t.Parallel()
 	rig := newStepsRig(t, nil)

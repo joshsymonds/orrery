@@ -208,6 +208,8 @@ func stepMessage(row store.StepRow, held bool) (*v1.Step, error) {
 			Name:   check.Name,
 			Ok:     check.OK,
 			Detail: check.Detail,
+			Stdout: check.Stdout,
+			Stderr: check.Stderr,
 		})
 	}
 	step := &v1.Step{

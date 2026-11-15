@@ -33,6 +33,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import io.github.joshsymonds.orrery.api.EpicDetail
 import io.github.joshsymonds.orrery.api.EpicRequirementRow
@@ -68,7 +69,9 @@ fun EpicScreen(
     var load by remember { mutableStateOf<EpicLoad>(EpicLoad.Loading) }
     var generation by remember { mutableIntStateOf(0) }
     // Kept per client, so a recomposition does not start the evidence loads again.
-    val loadArtifact: ArtifactLoader = remember(client) { { run: String, name: String -> client.artifact(run, name) } }
+    val loadArtifact: ArtifactLoader = remember(client) {
+        { run: String, name: String, stderr: Boolean -> client.artifact(run, name, stderr) }
+    }
 
     LaunchedEffect(client, epicId, generation) {
         load = EpicLoad.Loading
@@ -300,25 +303,50 @@ private fun StepLine(step: StepRow, onOpenStep: (StepRow) -> Unit) {
         step.held -> "held"
         else -> "running"
     }
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .testTag("step-row:${step.id}")
-            .clickable { onOpenStep(step) }
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(step.agent, style = MaterialTheme.typography.bodyMedium)
-            if (step.task.isNotEmpty()) {
-                Text(step.task, style = MaterialTheme.typography.labelSmall)
+    Column(modifier = Modifier.fillMaxWidth().testTag("step-row:${step.id}")) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { onOpenStep(step) }
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(step.agent, style = MaterialTheme.typography.bodyMedium)
+                if (step.task.isNotEmpty()) {
+                    Text(step.task, style = MaterialTheme.typography.labelSmall)
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                step.checks.forEach { check -> CheckPip(check) }
+            }
+            Text(end, style = MaterialTheme.typography.labelMedium)
+        }
+        step.checks.forEachIndexed { index, check ->
+            if (!check.ok) {
+                if (check.stdout.isNotEmpty()) {
+                    CheckTail(tag = "check-tail:${step.id}:$index:stdout", label = "stdout", tail = check.stdout)
+                }
+                if (check.stderr.isNotEmpty()) {
+                    CheckTail(tag = "check-tail:${step.id}:$index:stderr", label = "stderr", tail = check.stderr)
+                }
             }
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
-            step.checks.forEach { check -> CheckPip(check) }
-        }
-        Text(end, style = MaterialTheme.typography.labelMedium)
+    }
+}
+
+/** The tail of a failed gate check, under its [label]: stdout or stderr. The tail is shown as given. */
+@Composable
+private fun CheckTail(tag: String, label: String, tail: String) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag(tag)
+            .padding(start = 16.dp, end = 16.dp, bottom = 8.dp),
+    ) {
+        Text(label, style = MaterialTheme.typography.labelSmall)
+        Text(tail, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
     }
 }
 

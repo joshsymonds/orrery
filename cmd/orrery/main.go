@@ -119,7 +119,7 @@ subcommands:
                                                 run PATH as one session's held child and serve its holder socket
                                                 until the child ends
   holder --session NAME [--state-dir DIR] --gate-limit SECONDS [--gate-tail BYTES] -- PATH [ARGS...]
-                                                run PATH as a gate: no stdin, one merged output tail, stopped at SECONDS
+                                                run PATH as a gate: no stdin, stdout/stderr tails, stopped at SECONDS
   serve --listen ADDR --allow-login LOGIN [--allow-login LOGIN]... [--push-host HOST]...
         [--host-status-cmd PATH]
                                                 serve the HTTP API on a loopback address until SIGINT or SIGTERM

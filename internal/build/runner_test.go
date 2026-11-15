@@ -109,6 +109,10 @@ func (f *passEvidence) Artifact(_ context.Context, _, _ string) ([]byte, string,
 	return nil, "", nil
 }
 
+func (f *passEvidence) StderrLog(_ context.Context, _ string) ([]byte, string, error) {
+	return nil, "", nil
+}
+
 // passPlan is the planner's return for one task, task 1, which builds at check and whose evidence is its conclusion.
 func passPlan() store.EpicPlan {
 	return store.EpicPlan{

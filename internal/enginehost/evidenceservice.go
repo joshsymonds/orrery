@@ -19,6 +19,7 @@ type EvidenceCommands interface {
 	Run(ctx context.Context, epic, item, revision, phase string) (store.EvidenceRun, error)
 	Runs(ctx context.Context, epic string) ([]store.EvidenceRun, error)
 	Artifact(ctx context.Context, run, name string) ([]byte, string, error)
+	StderrLog(ctx context.Context, run string) ([]byte, string, error)
 }
 
 // evidenceService implements the Evidence RPCs over evidence.
@@ -81,8 +82,9 @@ func (s *evidenceService) ListEvidence(
 	return connect.NewResponse(&v1.ListEvidenceResponse{Runs: runs}), nil
 }
 
-// GetEvidenceArtifact refuses an empty run before anything is read. It returns the bytes and hash of the run's artifact
-// named name, or of its log when name is empty.
+// GetEvidenceArtifact refuses an empty run before anything is read, and a stderr request that names an artifact. It
+// returns the bytes and hash of the run's artifact named name, of its log when name is empty, or of its stderr log when
+// stderr is set.
 func (s *evidenceService) GetEvidenceArtifact(
 	ctx context.Context,
 	req *connect.Request[v1.GetEvidenceArtifactRequest],
@@ -90,14 +92,26 @@ func (s *evidenceService) GetEvidenceArtifact(
 	if err := s.ready(); err != nil {
 		return nil, err
 	}
-	run, name := req.Msg.GetRun(), req.Msg.GetName()
+	run, name, stderr := req.Msg.GetRun(), req.Msg.GetName(), req.Msg.GetStderr()
 	if run == "" {
 		return nil, evidenceServiceRefuse(connect.CodeInvalidArgument, "run: empty")
 	}
-	data, hash, err := s.evidence.Artifact(ctx, run, name)
+	if stderr && name != "" {
+		return nil, evidenceServiceRefuse(connect.CodeInvalidArgument, "name: a stderr log is named by its run alone")
+	}
+	var data []byte
+	var hash string
+	var err error
+	if stderr {
+		data, hash, err = s.evidence.StderrLog(ctx, run)
+	} else {
+		data, hash, err = s.evidence.Artifact(ctx, run, name)
+	}
 	switch {
 	case errors.Is(err, store.ErrNoEvidenceRun):
 		return nil, evidenceServiceRefuse(connect.CodeNotFound, fmt.Sprintf("run: no run %s", run))
+	case errors.Is(err, ErrNoEvidenceArtifact) && stderr:
+		return nil, evidenceServiceRefuse(connect.CodeNotFound, fmt.Sprintf("stderr: no stderr log of run %s", run))
 	case errors.Is(err, ErrNoEvidenceArtifact):
 		return nil, evidenceServiceRefuse(connect.CodeNotFound, fmt.Sprintf("name: no kept artifact %s", name))
 	case err != nil:
@@ -169,6 +183,8 @@ func evidenceServiceRunMessage(run store.EvidenceRun) (*v1.EvidenceRun, error) {
 		NotCaptured: run.NotCaptured,
 		LogHash:     run.LogHash,
 		LogBytes:    run.LogBytes,
+		StderrHash:  run.StderrHash,
+		StderrBytes: run.StderrBytes,
 		Artifacts:   epicMap(run.Artifacts, evidenceServiceArtifactMessage),
 		JudgeStep:   run.JudgeStep,
 		Verdict:     run.Verdict,

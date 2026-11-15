@@ -144,8 +144,8 @@ func (c evidenceCapture) captureRequest(
 	return stepGrant(ctx, worktree, "evidence-"+id, item.Capture, needs, stepGetenv(c.environ))
 }
 
-// captureGate returns the gate that runs item's capture in worktree as run id. Its output tail is 1 MiB, and its limit is
-// the item's limit in seconds.
+// captureGate returns the gate that runs item's capture in worktree as run id. Its stdout and stderr tails are 1 MiB
+// each, and its limit is the item's limit in seconds.
 func (c evidenceCapture) captureGate(
 	worktree, id string,
 	item evidence.Item,
@@ -184,10 +184,11 @@ func (c evidenceCapture) end(
 		if result.TimedOut {
 			capture.NotCaptured = evidenceCaptureKilled
 		}
-		var logErr, artifactErr error
-		capture.LogHash, capture.LogBytes, logErr = c.keepLog(result.Output)
+		var logErr, stderrErr, artifactErr error
+		capture.LogHash, capture.LogBytes, logErr = c.keepLog(result.Stdout)
+		capture.StderrHash, capture.StderrBytes, stderrErr = c.keepLog(result.Stderr)
 		capture.Artifacts, artifactErr = c.keepArtifacts(worktree, item.Artifacts)
-		keepErr = errors.Join(logErr, artifactErr)
+		keepErr = errors.Join(logErr, stderrErr, artifactErr)
 	}
 	cleanErr := errors.Join(
 		removeStepWorktree(context.WithoutCancel(ctx), repo, worktree),
@@ -197,16 +198,17 @@ func (c evidenceCapture) end(
 	return captureFinished(capture, errors.Join(keepErr, cleanErr))
 }
 
-// keepLog stores output as the capture's log and returns its hash and size. An empty output stores no log.
-func (c evidenceCapture) keepLog(output string) (string, int64, error) {
-	if output == "" {
+// keepLog stores one of the capture's output tails as a log blob and returns its hash and size. An empty tail stores no
+// blob.
+func (c evidenceCapture) keepLog(tail string) (string, int64, error) {
+	if tail == "" {
 		return "", 0, nil
 	}
-	hash, _, err := c.blobs.put([]byte(output), ".log")
+	hash, _, err := c.blobs.put([]byte(tail), ".log")
 	if err != nil {
 		return "", 0, err
 	}
-	return hash, int64(len(output)), nil
+	return hash, int64(len(tail)), nil
 }
 
 // keepArtifacts returns what each path left in worktree, in the order paths gives. A regular file up to the cap is kept as a

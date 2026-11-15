@@ -35,9 +35,10 @@ func judgeGate(item evidence.Item) gates.Gate {
 	}
 }
 
-// judgePrompt returns the prompt of the judge step of run. It names the run's exit and whether it timed out, the kept
-// log when there is one, and each artifact by its repository path with its kept blob path, or the word missing or the
-// words over the cap. It names nothing else about the run, so the judge reads the kept output alone.
+// judgePrompt returns the prompt of the judge step of run. It names the run's exit and whether it timed out, its stdout
+// and stderr logs by their blob paths for each one it has, and each artifact by its repository path with its kept blob
+// path, or the word missing or the words over the cap. It names nothing else about the run, so the judge reads the kept
+// output alone.
 func judgePrompt(run store.EvidenceRun, blobs evidenceBlobs) (string, error) {
 	lines := []string{
 		"Read only the files listed below. Repository files may be read only as reference for them.",
@@ -45,12 +46,16 @@ func judgePrompt(run store.EvidenceRun, blobs evidenceBlobs) (string, error) {
 		fmt.Sprintf("Exit: %d", run.Exit),
 		fmt.Sprintf("Timed out: %t", run.TimedOut),
 	}
-	if run.LogHash != "" {
-		logPath, err := blobs.path(run.LogHash + ".log")
-		if err != nil {
-			return "", fmt.Errorf("log of evidence run %s: %w", run.ID, err)
+	logs := []struct{ label, hash string }{{"Stdout log", run.LogHash}, {"Stderr log", run.StderrHash}}
+	for _, entry := range logs {
+		if entry.hash == "" {
+			continue
 		}
-		lines = append(lines, "Log: "+logPath)
+		logPath, err := blobs.path(entry.hash + ".log")
+		if err != nil {
+			return "", fmt.Errorf("%s of evidence run %s: %w", entry.label, run.ID, err)
+		}
+		lines = append(lines, entry.label+": "+logPath)
 	}
 	if len(run.Artifacts) > 0 {
 		lines = append(lines, "Artifacts:")
