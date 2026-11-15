@@ -248,7 +248,7 @@ func (d *sessionDesk) Post(n deskstream.Notice) {
 	d.posts = append(d.posts, n)
 }
 
-func (d *sessionDesk) Desk() (int64, bool) { return fixedClock().Unix(), true }
+func (d *sessionDesk) Desk() int64 { return fixedClock().Unix() }
 
 // got returns a copy of the notices posted so far.
 func (d *sessionDesk) got() []deskstream.Notice {

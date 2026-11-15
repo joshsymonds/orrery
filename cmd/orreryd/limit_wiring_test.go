@@ -2,8 +2,11 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
+	"maps"
 	"path/filepath"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -105,15 +108,22 @@ func startLimitHost(t *testing.T, st *store.Store, getenv func(string) string, r
 		sessionCap: defaultSessionCap,
 		stepCap:    defaultStepCap,
 	}
-	host, err := startSessions(t.Context(), opts, limitWiringHost, st, router, slog.New(slog.DiscardHandler), getenv)
+	host, err := startSessions(
+		t.Context(), opts, limitWiringHost, st, router, nil, slog.New(slog.DiscardHandler), getenv,
+	)
 	if err != nil {
 		t.Fatalf("startSessions: %v", err)
 	}
 	return host
 }
 
+// limitWiringKey is the key of the usage limit that resets at resets, as the limit notices and their marks name it.
+func limitWiringKey(resets time.Time) string {
+	return fmt.Sprintf("usage@%d", resets.Unix())
+}
+
 // pastStartCheck waits out one tick. The check at start runs before the first tick, so once the tick has passed, the
-// check at start is done and a step limited after it is not remembered by it.
+// check at start is done and a step limited after it is checked against the marks by the ticks that follow.
 func pastStartCheck() {
 	time.Sleep(limitTick + time.Second)
 }
@@ -145,14 +155,168 @@ func waitNotices(t *testing.T, router *recordingRouter, n int) []route.Notice {
 	}
 }
 
+// TestSessionsHostTellsStepLimitedBeforeStartOnce checks that a step a usage limit holds when orreryd starts is told
+// once, and marked as told in the store, so a restart does not tell it again. It then stops without error.
+func TestSessionsHostTellsStepLimitedBeforeStartOnce(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	st, getenv := openLimitStore(t)
+	addLimitedStep(t, st, limitWiringBefore, limitWiringReset())
+
+	router := &recordingRouter{}
+	host := startLimitHost(t, st, getenv, router)
+	got := waitNotices(t, router, 1)
+	if len(got) != 1 {
+		t.Fatalf("got %d notices for the step limited before start, want 1", len(got))
+	}
+	desk, err := got[0].Desk(ctx)
+	if err != nil {
+		t.Fatalf("desk notice: %v", err)
+	}
+	const want = "1 step held by the usage limit, reset 2026-11-15T17:00:00Z: " + limitWiringBefore
+	if desk.Body != want {
+		t.Errorf("notice body = %q, want %q", desk.Body, want)
+	}
+
+	pastStartCheck()
+	if got := router.received(); len(got) != 1 {
+		t.Fatalf("got %d notices after a tick, want 1: the told step is not told again", len(got))
+	}
+	marks, err := st.ToldLimits(ctx)
+	if err != nil {
+		t.Fatalf("read told limits: %v", err)
+	}
+	if steps := marks[limitWiringKey(limitWiringReset())]; !slices.Equal(steps, []string{limitWiringBefore}) {
+		t.Fatalf("marked steps = %v, want [%s]", steps, limitWiringBefore)
+	}
+
+	if err := host.stop(); err != nil {
+		t.Fatalf("stop sessions: %v", err)
+	}
+}
+
+// TestSessionsHostTellsNothingAfterRestartForStepTold checks that a step told before a restart is not told again when
+// orreryd starts over the same store.
+func TestSessionsHostTellsNothingAfterRestartForStepTold(t *testing.T) {
+	t.Parallel()
+	st, getenv := openLimitStore(t)
+	addLimitedStep(t, st, limitWiringBefore, limitWiringReset())
+
+	first := &recordingRouter{}
+	host := startLimitHost(t, st, getenv, first)
+	if got := waitNotices(t, first, 1); len(got) != 1 {
+		t.Fatalf("got %d notices before the restart, want 1", len(got))
+	}
+	if err := host.stop(); err != nil {
+		t.Fatalf("stop sessions: %v", err)
+	}
+
+	second := &recordingRouter{}
+	host = startLimitHost(t, st, getenv, second)
+	pastStartCheck()
+	if got := second.received(); len(got) != 0 {
+		t.Fatalf("got %d notices after the restart, want none: the step was told before it", len(got))
+	}
+	if err := host.stop(); err != nil {
+		t.Fatalf("stop sessions after restart: %v", err)
+	}
+}
+
+// TestSessionsHostTellsAStepLimitedAgainAfterItsResume checks that a step told on a limit, resumed at its reset as the
+// due pass resumes it, and then limited again on a later reset is told again, and that a restart after that tells
+// nothing: the resume's loop state empties the first limit, whose mark is forgotten, and the second limit is marked.
+func TestSessionsHostTellsAStepLimitedAgainAfterItsResume(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	st, getenv := openLimitStore(t)
+	addLimitedStep(t, st, limitWiringBefore, limitWiringReset())
+
+	first := &recordingRouter{}
+	host := startLimitHost(t, st, getenv, first)
+	if got := waitNotices(t, first, 1); len(got) != 1 {
+		t.Fatalf("got %d notices before the resume, want 1", len(got))
+	}
+	// A resume stores the step's loop state with no limit and closes its due rows, as resumeWith writes it.
+	if err := st.ApplyEngine(ctx, []store.EngineOp{
+		store.StepDueResumesClosed{ID: limitWiringBefore},
+		store.StepLoop{ID: limitWiringBefore},
+	}, time.Unix(limitWiringStamp+1, 0)); err != nil {
+		t.Fatalf("resume step: %v", err)
+	}
+	pastStartCheck()
+	if err := st.ApplyEngine(ctx, []store.EngineOp{
+		store.StepLoop{ID: limitWiringBefore, Limited: true, LimitKind: "usage", LimitResets: limitWiringLaterReset()},
+	}, time.Unix(limitWiringStamp+2, 0)); err != nil {
+		t.Fatalf("limit step again: %v", err)
+	}
+	got := waitNotices(t, first, 2)
+	if len(got) != 2 {
+		t.Fatalf("got %d notices after the step was limited again, want 2", len(got))
+	}
+	desk, err := got[1].Desk(ctx)
+	if err != nil {
+		t.Fatalf("desk notice: %v", err)
+	}
+	const want = "1 step held by the usage limit, reset 2026-11-16T09:00:00Z: " + limitWiringBefore
+	if desk.Body != want {
+		t.Errorf("notice body after the resume = %q, want %q", desk.Body, want)
+	}
+	marks, err := st.ToldLimits(ctx)
+	if err != nil {
+		t.Fatalf("read told limits: %v", err)
+	}
+	if want := map[string][]string{limitWiringKey(limitWiringLaterReset()): {limitWiringBefore}}; !maps.EqualFunc(
+		marks, want, slices.Equal[[]string]) {
+		t.Fatalf("told limits = %v, want %v", marks, want)
+	}
+	if err := host.stop(); err != nil {
+		t.Fatalf("stop sessions: %v", err)
+	}
+
+	second := &recordingRouter{}
+	host = startLimitHost(t, st, getenv, second)
+	pastStartCheck()
+	if got := second.received(); len(got) != 0 {
+		t.Fatalf("got %d notices after the restart, want none: the second limit was told before it", len(got))
+	}
+	if err := host.stop(); err != nil {
+		t.Fatalf("stop sessions after restart: %v", err)
+	}
+}
+
+// TestSessionsHostSendsNothingForStepMarkedBeforeStart checks that a step a usage limit holds when orreryd starts gets
+// no notice when the store already marks it as told.
+func TestSessionsHostSendsNothingForStepMarkedBeforeStart(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	st, getenv := openLimitStore(t)
+	addLimitedStep(t, st, limitWiringBefore, limitWiringReset())
+	if err := st.TellLimit(ctx, limitWiringKey(limitWiringReset()), []string{limitWiringBefore}); err != nil {
+		t.Fatalf("mark limit told: %v", err)
+	}
+
+	router := &recordingRouter{}
+	host := startLimitHost(t, st, getenv, router)
+	pastStartCheck()
+	if got := router.received(); len(got) != 0 {
+		t.Fatalf("got %d notices, want none for a step marked as told", len(got))
+	}
+	if err := host.stop(); err != nil {
+		t.Fatalf("stop sessions: %v", err)
+	}
+}
+
 // TestSessionsHostRoutesLimitNoticeForStepLimitedAfterStart checks that a --sessions orreryd routes one limit notice for
-// a step a usage limit holds when the step is limited after start. A step limited before start is remembered, so it
-// gets no notice. The host then stops without error.
+// a step a usage limit holds when the step is limited after start. The step limited before start is marked as told, so
+// it gets no notice. The host then stops without error.
 func TestSessionsHostRoutesLimitNoticeForStepLimitedAfterStart(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 	st, getenv := openLimitStore(t)
 	addLimitedStep(t, st, limitWiringBefore, limitWiringReset())
+	if err := st.TellLimit(ctx, limitWiringKey(limitWiringReset()), []string{limitWiringBefore}); err != nil {
+		t.Fatalf("mark limit told: %v", err)
+	}
 
 	router := &recordingRouter{}
 	host := startLimitHost(t, st, getenv, router)
@@ -168,7 +332,7 @@ func TestSessionsHostRoutesLimitNoticeForStepLimitedAfterStart(t *testing.T) {
 
 	pastStartCheck()
 	if got := router.received(); len(got) != 0 {
-		t.Fatalf("got %d notices before the new limit, want none: a limit held at start is remembered", len(got))
+		t.Fatalf("got %d notices before the new limit, want none: a limit marked as told is not told again", len(got))
 	}
 
 	addLimitedStep(t, st, limitWiringAfter, limitWiringLaterReset())

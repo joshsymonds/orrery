@@ -39,13 +39,13 @@ func TestLimitNoticeRoutedOnAttachedRouterIsNotRoutedAgainAfterRestart(t *testin
 	phone := notice.New(sessionTestHost, sender, fixedClock, slog.New(slog.DiscardHandler))
 	router := newSessionRouter(t, phone, log)
 	router.Attach(ctx, first)
-	limits := NewLimitNotices(LimitNoticesConfig{Steps: first, Route: router, Now: limitNow})
-	// The check before any step is limited remembers that none is.
+	limits := NewLimitNotices(LimitNoticesConfig{Steps: first, Told: first, Route: router, Now: limitNow})
+	// The check before any step is limited reads the marks, and finds none.
 	limits.check(ctx)
 	if err := first.ApplyEngine(ctx, limitStepOps("a", "b"), limitNow()); err != nil {
 		t.Fatalf("ApplyEngine limiting a and b: %v", err)
 	}
-	// The check after they are limited routes their usage limit once.
+	// The check after they are limited routes their usage limit once, and marks it told in the store.
 	limits.check(ctx)
 	router.Wait()
 	phone.Wait()
@@ -85,7 +85,9 @@ func TestLimitNoticeRoutedOnAttachedRouterIsNotRoutedAgainAfterRestart(t *testin
 	restarted := newSessionRouter(t, restartedPhone, restartedLog)
 	restarted.Attach(ctx, second)
 	ticks := make(chan time.Time)
-	rebuilt := NewLimitNotices(LimitNoticesConfig{Steps: second, Route: restarted, Now: limitNow, Tick: ticks})
+	rebuilt := NewLimitNotices(LimitNoticesConfig{
+		Steps: second, Told: second, Route: restarted, Now: limitNow, Tick: ticks,
+	})
 	runCtx, cancel := context.WithCancel(ctx)
 	done := make(chan struct{})
 	go func() {

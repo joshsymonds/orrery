@@ -79,18 +79,6 @@ func (c *client) write(s string) {
 	}
 }
 
-// waitFor polls cond until it holds, failing the test after five seconds.
-func waitFor(t *testing.T, what string, cond func() bool) {
-	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
-	for !cond() {
-		if time.Now().After(deadline) {
-			t.Fatalf("timed out waiting for %s", what)
-		}
-		time.Sleep(time.Millisecond)
-	}
-}
-
 func TestSocketPath(t *testing.T) {
 	got := SocketPath("/run/user/1000/orrery/orreryd.sock")
 	want := "/run/user/1000/orrery/notices.sock"
@@ -286,30 +274,26 @@ func TestCloseWithStalledStreamReturnsWithin2s(t *testing.T) {
 	stalled.drainToClose("stalled stream after Close")
 }
 
-func TestDeskPresentWhileStreamOpen(t *testing.T) {
+// TestDeskIsWebInputOnly checks that Desk reports the recorded input and nothing about streams: an open stream is not
+// input, and input survives the stream closing.
+func TestDeskIsWebInputOnly(t *testing.T) {
 	hub := NewHub("gnomon", nil)
+	if input := hub.Desk(); input != 0 {
+		t.Fatalf("Desk on a fresh hub = %d, want 0", input)
+	}
+
 	path, _ := startHub(t, hub)
 	c := dial(t, path)
 	c.readLine()
-
-	if input, present := hub.Desk(); input != 0 || !present {
-		t.Fatalf("Desk with an open stream and no input = (%d, %v), want (0, true)", input, present)
+	if input := hub.Desk(); input != 0 {
+		t.Fatalf("Desk with an open stream and no input = %d, want 0", input)
 	}
 
+	hub.Input(start)
 	c.closeWrite()
-	waitFor(t, "stream to end", func() bool {
-		_, present := hub.Desk()
-		return !present
-	})
-	if input, present := hub.Desk(); input != 0 || present {
-		t.Fatalf("Desk after the stream closed = (%d, %v), want (0, false)", input, present)
-	}
-}
-
-func TestDeskAwayWithoutStream(t *testing.T) {
-	hub := NewHub("gnomon", nil)
-	if input, present := hub.Desk(); input != 0 || present {
-		t.Fatalf("Desk on a fresh hub = (%d, %v), want (0, false)", input, present)
+	c.expectEOF()
+	if input := hub.Desk(); input != start {
+		t.Fatalf("Desk after the stream closed = %d, want %d", input, start)
 	}
 }
 
@@ -317,11 +301,11 @@ func TestInputKeepsNewest(t *testing.T) {
 	hub := NewHub("gnomon", nil)
 	hub.Input(start + 30)
 	hub.Input(start)
-	if input, _ := hub.Desk(); input != start+30 {
+	if input := hub.Desk(); input != start+30 {
 		t.Fatalf("Desk input after %d then %d = %d, want %d", start+30, start, input, start+30)
 	}
 	hub.Input(start + 60)
-	if input, _ := hub.Desk(); input != start+60 {
+	if input := hub.Desk(); input != start+60 {
 		t.Fatalf("Desk input after %d = %d, want %d", start+60, input, start+60)
 	}
 }
@@ -339,11 +323,8 @@ func TestDeskLinesAreDiscarded(t *testing.T) {
 		`{"kind":"notice","title":"T"}` + "\n" +
 		`{"input":-5}` + "\n")
 	c.closeWrite()
-	waitFor(t, "stream to end", func() bool {
-		_, present := hub.Desk()
-		return !present
-	})
-	if input, _ := hub.Desk(); input != 0 {
+	c.expectEOF()
+	if input := hub.Desk(); input != 0 {
 		t.Fatalf("Desk input after the desk's lines = %d, want 0", input)
 	}
 }

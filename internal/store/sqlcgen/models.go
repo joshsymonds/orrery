@@ -356,6 +356,7 @@ type PendingNotice struct {
 	Source      []byte
 	Silent      bool
 	Epic        string
+	LimitKey    string
 }
 
 type PendingNoticeID struct {
@@ -448,4 +449,9 @@ type Step struct {
 	LoopGateFrom    int64
 	CheckoutHead    string
 	CheckoutHash    string
+}
+
+type ToldLimitStep struct {
+	LimitKey string
+	Step     string
 }

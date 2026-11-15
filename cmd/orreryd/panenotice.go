@@ -19,6 +19,15 @@ import (
 // paneSourceKind is the source kind of a pane notice. Its data is the daemon.Transition that notify routed, as JSON.
 const paneSourceKind = "pane"
 
+// Hook JSON keys and event a StopFailure notice reads. Claude Code writes them in snake case.
+const (
+	keyHookEventName = "hook_event_name"
+	keyAPIError      = "error"
+	stopFailureEvent = "StopFailure"
+	// unknownAPIError names the API error of a StopFailure whose error field is empty or absent.
+	unknownAPIError = "unknown"
+)
+
 // paneSource is the stored form of a daemon.Transition. It has the transition's fields under the JSON names a stored
 // source uses, and it converts to and from the transition field for field.
 type paneSource struct {
@@ -66,7 +75,8 @@ func decodePaneSource(data []byte) (daemon.Transition, error) {
 }
 
 // paneNotice is the notice transition makes, with the closures that route it: Watching, Desk and Push, and Judge for a
-// done that is not silent. notify and rebuildPane both build it, so a restored notice is the notice notify built.
+// done that is not silent and not a StopFailure. notify and rebuildPane both build it, so a restored notice is the
+// notice notify built. A StopFailure done names its API error as its desk body and push summary.
 func (r *relay) paneNotice(ctx context.Context, transition daemon.Transition) route.Notice {
 	wanted, err := push.Wanted(transition.To, transition.Frame.Hook)
 	if err != nil {
@@ -76,18 +86,56 @@ func (r *relay) paneNotice(ctx context.Context, transition daemon.Transition) ro
 	if !wanted {
 		silent = silentBackground
 	}
+	failure, failed := r.stopFailureText(ctx, transition)
 	incoming := route.Notice{
 		Key:      notice.Key{Pane: transition.PaneID},
 		State:    string(transition.To),
 		Silent:   silent,
 		Watching: func(ctx context.Context) (bool, error) { return r.watching(ctx, transition) },
-		Desk:     func(ctx context.Context) (deskstream.Notice, error) { return r.deskNotice(ctx, transition) },
-		Push:     func(ctx context.Context) (push.Notification, error) { return r.pushNotification(ctx, transition) },
+		Desk: func(ctx context.Context) (deskstream.Notice, error) {
+			desk, err := r.deskNotice(ctx, transition)
+			if err == nil && failed {
+				desk.Body = failure
+			}
+			return desk, err
+		},
+		Push: func(ctx context.Context) (push.Notification, error) {
+			note, err := r.pushNotification(ctx, transition)
+			if err == nil && failed {
+				note.Summary = failure
+			}
+			return note, err
+		},
 	}
-	if transition.To == protocol.StateDone && silent == "" {
+	if transition.To == protocol.StateDone && silent == "" && !failed {
 		incoming.Judge = r.judgeDone(ctx, transition)
 	}
 	return incoming
+}
+
+// stopFailureText returns the text of a done that a StopFailure hook reported, and whether transition is one. The text
+// is "API error: " and the hook's error field, or unknownAPIError when the field is empty or absent. A hook that does
+// not decode is logged and is not a StopFailure.
+func (r *relay) stopFailureText(ctx context.Context, transition daemon.Transition) (string, bool) {
+	if transition.To != protocol.StateDone {
+		return "", false
+	}
+	event, err := hookString(transition.Frame.Hook, keyHookEventName)
+	if err != nil {
+		r.logger.WarnContext(ctx, "read hook event name", "pane", transition.PaneID, "error", err)
+		return "", false
+	}
+	if event != stopFailureEvent {
+		return "", false
+	}
+	apiError, err := hookString(transition.Frame.Hook, keyAPIError)
+	if err != nil {
+		r.logger.WarnContext(ctx, "read api error", "pane", transition.PaneID, "error", err)
+	}
+	if apiError == "" {
+		apiError = unknownAPIError
+	}
+	return "API error: " + apiError, true
 }
 
 // rebuildPane is the route.Rebuild of paneSourceKind. It decodes the transition that notify stored, checks the pane

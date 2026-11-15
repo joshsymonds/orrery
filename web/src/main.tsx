@@ -4,8 +4,10 @@ import { render } from "preact";
 import { App } from "./app";
 import { createClients, createTransport } from "./client";
 import { type EpicsView, epicsView, noEpics } from "./epics";
+import type { InAppNotice } from "./gen/orrery/v1/notice_pb";
 import { loadEpics } from "./loadepics";
 import { loadRows } from "./load";
+import { watchNotices } from "./notices";
 import { watchPresence } from "./presence";
 import type { Row } from "./rows";
 import type { SeenClock } from "./seen";
@@ -58,7 +60,8 @@ function pause(ms: number, signal: AbortSignal): Promise<void> {
 // in flight never starts a second one: an event waits for the reload in flight, then reloads again. The epics load has
 // its own guard: a tick or event that lands while it is in flight is left to the next tick. The page also reports its input: watchPresence
 // sends the age of the newest input through Presence.Report, and a failed report is dropped. The returned function
-// stops reloading, aborts the stream, stops the presence watch and unmounts App.
+// stops reloading, aborts the stream, stops the presence watch, aborts the notices watch and unmounts App. The page also
+// watches the in-app notices its banner shows until each ends; a notices stream that fails reopens after retryMs.
 export function start(
   root: HTMLElement,
   clients: ReturnType<typeof createClients>,
@@ -66,6 +69,7 @@ export function start(
   retryMs = defaultRetryMs,
 ): () => void {
   let loaded: Loaded = { rows: [], error: "", epics: noEpics, epicsError: "" };
+  let notices: InAppNotice[] = [];
   let now = 0;
   let stopped = false;
   let loading = false;
@@ -76,7 +80,10 @@ export function start(
 
   const draw = () => {
     const error = [loaded.error, loaded.epicsError].filter((text) => text !== "").join("; ");
-    render(<App rows={loaded.rows} error={error} epics={loaded.epics} now={now} clients={clients} />, root);
+    render(
+      <App rows={loaded.rows} error={error} epics={loaded.epics} now={now} clients={clients} notices={notices} />,
+      root,
+    );
   };
 
   const loadEpicsView = async () => {
@@ -195,12 +202,24 @@ export function start(
     realClock,
   );
 
+  const noticesWatch = new AbortController();
+  void watchNotices(
+    clients,
+    (list) => {
+      notices = list;
+      draw();
+    },
+    retryMs,
+    noticesWatch.signal,
+  );
+
   return () => {
     stopped = true;
     presence.stop();
     clearInterval(timer);
     clearTimeout(eventTimer);
     stream?.abort();
+    noticesWatch.abort();
     render(null, root);
   };
 }

@@ -43,7 +43,7 @@ func TestSessionsEngineAnswersListEvidenceWithStore(t *testing.T) {
 	st := openPaneStore(t, path)
 	opts := evidenceWiringOptions(t)
 	host, err := startSessions(
-		ctx, opts, evidenceWiringHost, st, &recordingRouter{},
+		ctx, opts, evidenceWiringHost, st, &recordingRouter{}, nil,
 		slog.New(slog.DiscardHandler), getenv,
 	)
 	if err != nil {
@@ -76,7 +76,7 @@ func TestSessionsHostTakesUpJudgingEvidenceRun(t *testing.T) {
 
 	opts := evidenceWiringOptions(t)
 	host, err := startSessions(
-		ctx, opts, evidenceWiringHost, st, &recordingRouter{},
+		ctx, opts, evidenceWiringHost, st, &recordingRouter{}, nil,
 		slog.New(slog.DiscardHandler), getenv,
 	)
 	if err != nil {
@@ -111,7 +111,7 @@ func TestSessionsEngineAnswersListEvidenceUnavailableWithoutStore(t *testing.T) 
 	getenv := func(string) string { return "" }
 	opts := evidenceWiringOptions(t)
 	host, err := startSessions(
-		ctx, opts, evidenceWiringHost, nil, &recordingRouter{},
+		ctx, opts, evidenceWiringHost, nil, &recordingRouter{}, nil,
 		slog.New(slog.DiscardHandler), getenv,
 	)
 	if err != nil {

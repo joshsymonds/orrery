@@ -49,9 +49,9 @@ func (d *postedDesk) Post(dn deskstream.Notice) {
 	d.posted = append(d.posted, dn)
 }
 
-// Desk reports the desk as present with input at claimedAt.
-func (d *postedDesk) Desk() (int64, bool) {
-	return claimedAt().Unix(), true
+// Desk reports web input at claimedAt, so the desk is at hand.
+func (d *postedDesk) Desk() int64 {
+	return claimedAt().Unix()
 }
 
 // silentPhone is the PhoneSink of the restart tests. No notice escalates to it, so it is never handed a push.

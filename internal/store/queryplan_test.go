@@ -94,6 +94,41 @@ func TestHolderPromptQueryPlans(t *testing.T) {
 	}
 }
 
+// TestToldLimitQueryPlans checks the told-limit queries against told_limit_steps. Deleting a limit's marks searches its
+// primary key. Listing reads every mark, as the check at start needs them all, so it may scan, but only in primary-key
+// order: a bare scan of the table or a temporary sort would mean the key no longer serves the query.
+func TestToldLimitQueryPlans(t *testing.T) {
+	t.Parallel()
+	texts := sqlcQueryTexts(t)
+	s := openWriterAt(t, filepath.Join(t.TempDir(), "orrery.db"))
+	names := map[string]bool{"told_limit_steps": true}
+	for _, tc := range []struct {
+		name     string
+		scanning bool
+	}{
+		{"InsertToldLimitStep", false},
+		{"DeleteToldLimit", false},
+		{"ListToldLimitSteps", true},
+	} {
+		text, ok := texts[tc.name]
+		if !ok {
+			t.Fatalf("query %s is not defined in %s", tc.name, queryPlanSource)
+		}
+		for _, detail := range planDetails(t, s.db, tc.name, text) {
+			if strings.Contains(detail, "TEMP B-TREE") {
+				t.Errorf("query %s: plan row %q sorts told_limit_steps in a temporary b-tree", tc.name, detail)
+			}
+			index, scans := eventsScan(detail, names)
+			switch {
+			case scans && !tc.scanning:
+				t.Errorf("query %s: plan row %q scans told_limit_steps, want a search of its key", tc.name, detail)
+			case scans && index == "":
+				t.Errorf("query %s: plan row %q scans told_limit_steps without its key", tc.name, detail)
+			}
+		}
+	}
+}
+
 // TestReaderQueryPlansAliases checks that the guard sees a scan of events under an alias, with or without AS, and
 // passes a search of events under an alias. EXPLAIN QUERY PLAN names an aliased table by its alias, so each plan row
 // of a query that reads events through an alias must be matched against the names that the query gives events.

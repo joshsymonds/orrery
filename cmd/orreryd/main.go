@@ -30,6 +30,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/gates"
 	"github.com/joshsymonds/orrery/internal/grants"
 	"github.com/joshsymonds/orrery/internal/holder"
+	"github.com/joshsymonds/orrery/internal/inapp"
 	"github.com/joshsymonds/orrery/internal/notice"
 	"github.com/joshsymonds/orrery/internal/planner"
 	"github.com/joshsymonds/orrery/internal/protocol"
@@ -379,6 +380,8 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 	desk := startDesk(ctx, host, deskLn, logger)
 	// The hub closes last, after the sessions and notices that post to it have stopped.
 	defer desk.Close()
+	// shutdownServe closes pages first, so its Watch streams end before the session socket stops.
+	pages := inapp.NewHub()
 
 	// The mirror waits for the store that the open below attaches to it.
 	mirror := daemon.NewPendingMirror(time.Now, logger)
@@ -388,6 +391,7 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 		Now:        time.Now,
 		Desk:       desk,
 		Phone:      notices,
+		Pages:      pages,
 		Subscribed: hasSubscription(store),
 		Log:        noticeLog,
 		Logger:     logger,
@@ -405,6 +409,7 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 		summarizers: make(map[tmuxctl.Server]*summary.Summarizer),
 	})
 	router := hub.router
+	pageNotices := enginehost.NewPageNotices(pages, router, time.Now)
 	observe := func(transition daemon.Transition) { hub.observe(ctx, transition) }
 	// The first tidy waits for tidyStart, which closes once the store is open and the sessions have started.
 	tidyStart := make(chan struct{})
@@ -416,9 +421,7 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 		Observers: []daemon.Observer{observe, autoseen.New(time.Now, logger, func(pane string, seen int64) {
 			router.Seen(ctx, notice.Key{Pane: pane}, seen)
 		})},
-		Seen: func(report daemon.SeenReport) {
-			router.Seen(ctx, notice.Key{Pane: report.PaneID}, report.Seen)
-		},
+		Seen:  func(report daemon.SeenReport) { router.Seen(ctx, notice.Key{Pane: report.PaneID}, report.Seen) },
 		Input: desk.Input,
 		Read: func(report daemon.ReadReport) {
 			hub.reads.note(report.PaneID, report.Read)
@@ -433,7 +436,7 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 	var sessions *sessionHost
 	var startErr error
 	if opts.sessions {
-		sessions, startErr = startSessions(ctx, opts, host, st, router, logger, getenv)
+		sessions, startErr = startSessions(ctx, opts, host, st, router, pageNotices, logger, getenv)
 	}
 	if startErr != nil {
 		stop()
@@ -442,7 +445,7 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 		notifyReady(ctx, logger, opts.notifySocket)
 	}
 	serveErr := <-serveDone
-	sessionErr := shutdownServe(ctx, logger, st, hub, sessions, router, notices)
+	sessionErr := shutdownServe(ctx, logger, pages, st, hub, sessions, router, notices)
 	if serveErr != nil {
 		serveErr = fmt.Errorf("serve: %w", serveErr)
 	}
@@ -468,17 +471,20 @@ func serveInBackground(ctx context.Context, ln net.Listener, cfg daemon.Config) 
 	return done
 }
 
-// shutdownServe runs once Serve has returned. It waits for the summaries, stops the sessions, then waits for the router
-// and the notices, since the sessions can post to them, and closes the store. It returns the sessions' stop error.
+// shutdownServe runs once Serve has returned. It closes pages first, so the Watch streams open on it end before the
+// session socket stops serving. It waits for the summaries, stops the sessions, then waits for the router and the
+// notices, since the sessions can post to them, and closes the store. It returns the sessions' stop error.
 func shutdownServe(
 	ctx context.Context,
 	logger *slog.Logger,
+	pages *inapp.Hub,
 	st *store.Store,
 	hub *relay,
 	sessions *sessionHost,
 	router *route.Router,
 	notices *notice.Notices,
 ) error {
+	pages.Close()
 	hub.wait()
 	var sessionErr error
 	if sessions != nil {
@@ -536,13 +542,15 @@ type sessionHost struct {
 // limit notices tell router which steps a usage limit holds, every limitTick until stop; the due pass resumes each due
 // row whose reset has passed, every limitTick until stop; and the manager stops idle sessions, until stop. A readopt, reconcile, restore or resume failure is logged and
 // serving goes on; a failed restore serves no Pools, which refuse as
-// unavailable, and the gates fail for want of pools.
+// unavailable, and the gates fail for want of pools. The Notices service on it answers from notices, and refuses as
+// unavailable when notices is nil.
 func startSessions(
 	ctx context.Context,
 	opts options,
 	hostName string,
 	st *store.Store,
 	router enginehost.Router,
+	notices enginehost.NoticeSource,
 	logger *slog.Logger,
 	getenv func(string) string,
 ) (*sessionHost, error) {
@@ -597,6 +605,7 @@ func startSessions(
 			GateScope:    opts.holderScope,
 			ReadoptCheck: readoptCheck(st, resolve),
 			ReadoptGate:  readoptGate(st, getenv),
+			Notifier:     notifier,
 		})
 		if err != nil {
 			host.stopBroker()
@@ -620,12 +629,7 @@ func startSessions(
 		host.startBuild(ctx, st, getenv, stateDir, logger)
 		host.startLimits(ctx, st, router, logger)
 		host.startDue(ctx, st, logger)
-		var idleCtx context.Context
-		idleCtx, host.stopIdle = context.WithCancel(ctx)
-		go func() {
-			host.manager.RunIdle(idleCtx)
-			close(host.idleDone)
-		}()
+		host.startIdle(ctx)
 	}
 	ln, err := enginehost.Listen(protocol.SessionSocketPath(opts.socket))
 	if err != nil {
@@ -635,7 +639,7 @@ func startSessions(
 	var serveCtx context.Context
 	serveCtx, host.stopServe = context.WithCancel(ctx)
 	go func() {
-		host.serveDone <- enginehost.Serve(serveCtx, ln, commands, stepCommands, epics, host.pools, evidence)
+		host.serveDone <- enginehost.Serve(serveCtx, ln, commands, stepCommands, epics, host.pools, evidence, notices)
 	}()
 	return host, nil
 }
@@ -845,8 +849,8 @@ func (h *sessionHost) startBuild(
 	}()
 }
 
-// startLimits tells router which steps a usage limit holds, checking st every limitTick until stop. A limit that holds
-// steps when it starts is remembered, not announced.
+// startLimits tells router which steps a usage limit holds, checking st every limitTick until stop. The marks st holds
+// say which limits a previous orreryd told, and those are not told again.
 func (h *sessionHost) startLimits(
 	ctx context.Context,
 	st *store.Store,
@@ -856,6 +860,7 @@ func (h *sessionHost) startLimits(
 	ticker := time.NewTicker(limitTick)
 	limits := enginehost.NewLimitNotices(enginehost.LimitNoticesConfig{
 		Steps:  st,
+		Told:   st,
 		Route:  router,
 		Now:    time.Now,
 		Tick:   ticker.C,
@@ -867,6 +872,16 @@ func (h *sessionHost) startLimits(
 		defer close(h.limitsDone)
 		defer ticker.Stop()
 		limits.Run(limitsCtx)
+	}()
+}
+
+// startIdle runs the manager's stop of idle sessions until stop.
+func (h *sessionHost) startIdle(ctx context.Context) {
+	var idleCtx context.Context
+	idleCtx, h.stopIdle = context.WithCancel(ctx)
+	go func() {
+		h.manager.RunIdle(idleCtx)
+		close(h.idleDone)
 	}()
 }
 
@@ -1196,12 +1211,13 @@ func (r *relay) notify(ctx context.Context, transition daemon.Transition) {
 }
 
 // newRelay returns hub with the router cfg builds, which hub routes its notices through. The router restores each
-// stored notice through the rebuild of its source kind: a session notice through enginehost.RestoreNotice, an epic
-// notice through planner.RestoreNotice, a pane notice through hub's rebuildPane. So hub is built first, and cfg's
-// Rebuild is set here.
+// stored notice through the rebuild of its source kind: a session notice through enginehost.RestoreNotice, a limit
+// notice through enginehost.RestoreLimitNotice, an epic notice through planner.RestoreNotice, a pane notice through
+// hub's rebuildPane. So hub is built first, and cfg's Rebuild is set here.
 func newRelay(cfg route.Config, hub *relay) *relay {
 	cfg.Rebuild = map[string]route.Rebuild{
 		enginehost.SessionSource: enginehost.RestoreNotice,
+		enginehost.LimitSource:   enginehost.RestoreLimitNotice,
 		planner.EpicSource:       planner.RestoreNotice,
 		paneSourceKind:           hub.rebuildPane,
 	}

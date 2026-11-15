@@ -164,8 +164,8 @@ type Config struct {
 	Sessions *store.Reader
 	// EventPoll is the interval at which Events.Watch polls the store for new events, or zero for the default.
 	EventPoll time.Duration
-	// EventSendTimeout bounds each Events.Watch, Panes.WatchConversation and Sessions.WatchConversation send, or is
-	// zero for the default. A send that does not complete in time ends its stream, and no other.
+	// EventSendTimeout bounds each Events.Watch, Notices.Watch, Panes.WatchConversation and Sessions.WatchConversation
+	// send, or is zero for the default. A send that does not complete in time ends its stream, and no other.
 	EventSendTimeout time.Duration
 	// ConversationPoll is the interval at which Panes.WatchConversation and Sessions.WatchConversation poll their
 	// pane or session and transcript, or zero for the default.
@@ -173,14 +173,16 @@ type Config struct {
 	// ConversationKeepalive is the time without a delta after which Panes.WatchConversation and
 	// Sessions.WatchConversation send a keepalive, or zero for the default.
 	ConversationKeepalive time.Duration
-	// Shutdown ends every open Events.Watch, Panes.WatchConversation and Sessions.WatchConversation stream when it
-	// closes, or is nil to leave streams open.
+	// Shutdown ends every open Events.Watch, Notices.Watch, Panes.WatchConversation and Sessions.WatchConversation stream
+	// when it closes, or is nil to leave streams open.
 	Shutdown <-chan struct{}
 	// Engine forwards the Control API to orreryd's engine socket, or is nil, which answers unavailable.
 	Engine enginev1connect.EngineClient
 	// Pools forwards the Pools API to orreryd's engine Pools service, or is nil, which answers unavailable.
 	Pools enginev1connect.PoolsClient
-	// ControlTimeout bounds each forward to Engine and Pools, or is zero for the default.
+	// Notices forwards the Notices API to orreryd's engine Notices service, or is nil, which answers unavailable.
+	Notices enginev1connect.NoticesClient
+	// ControlTimeout bounds each forward to Engine, Pools and Notices, or is zero for the default.
 	ControlTimeout time.Duration
 	// Steps is orreryd's Steps client, which Control asks before it forwards a session command, or is nil, which
 	// forwards every session command as before.
@@ -262,6 +264,7 @@ func New(cfg Config) (http.Handler, error) {
 	mux.Handle(stepsPath, stepsService)
 	poolsPath, pools := newPoolsHandler(cfg.Pools, cfg.ControlTimeout)
 	mux.Handle(poolsPath, pools)
+	noticesPath := registerNotices(mux, cfg, sendTimeout)
 	panesPath, panesService := newPanesHandler(
 		cfg.Tmux, cfg.Sessions, newest, goals, queues, textLocks, seenLocks, cfg.ReportSeen, cfg.ReportRead, now,
 		conversationPoll, conversationKeepalive, sendTimeout, cfg.Shutdown,
@@ -278,8 +281,8 @@ func New(cfg Config) (http.Handler, error) {
 		mux.Handle("/", newPageHandler(cfg.Web))
 	}
 	connectPaths := []string{
-		sessionsPath, eventsPath, controlPath, epicsPath, evidencePath, stepsPath, poolsPath, panesPath, hostPath,
-		pushPath, pickerPath, presencePath,
+		sessionsPath, eventsPath, controlPath, epicsPath, evidencePath, stepsPath, poolsPath, noticesPath, panesPath,
+		hostPath, pushPath, pickerPath, presencePath,
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if _, ok := allowed[r.Header.Get(HeaderLogin)]; !ok {
@@ -304,6 +307,14 @@ func registerEpicServices(mux *http.ServeMux, cfg Config, now func() time.Time) 
 	evidencePath, evidenceService := newEvidenceHandler(cfg.Evidence, cfg.ControlTimeout)
 	mux.Handle(evidencePath, evidenceService)
 	return epicsPath, evidencePath
+}
+
+// registerNotices mounts the Notices service on mux, forwarding to cfg.Notices with each Watch send bounded by
+// sendTimeout, and returns the path it routes.
+func registerNotices(mux *http.ServeMux, cfg Config, sendTimeout time.Duration) string {
+	path, handler := newNoticesHandler(cfg.Notices, cfg.ControlTimeout, sendTimeout, cfg.Shutdown)
+	mux.Handle(path, handler)
+	return path
 }
 
 // newPageHandler returns the handler that answers GET and HEAD of a file of web, with "/" answering index.html.
