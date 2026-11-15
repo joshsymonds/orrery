@@ -66,7 +66,7 @@ func verdictNoRoundNudge(run *stepRun) func(context.Context) error {
 // channel is empty is handled after the turn end.
 func verdictNoRoundSettle(t *testing.T, run *stepRun) {
 	t.Helper()
-	stepStartAwait(t, "the loop to take the turn end", func() bool {
+	stepStartAwait(t, engineOf(run), "the loop to take the turn end", func() bool {
 		return len(run.returns) == 0
 	})
 	if err := run.do(t.Context(), func(context.Context) error { return nil }); err != nil {

@@ -146,7 +146,7 @@ func (f *stepHoldFixture) loopRun(t *testing.T, id string) *stepRun {
 func (f *stepHoldFixture) settleHeldTurnEnd(t *testing.T, id string) {
 	t.Helper()
 	run := f.loopRun(t, id)
-	stepStartAwait(t, "the loop to take the turn end", func() bool {
+	stepStartAwait(t, engineOf(f.steps, run), "the loop to take the turn end", func() bool {
 		return len(run.returns) == 0
 	})
 	if err := f.steps.Hold(t.Context(), id); !errors.Is(err, ErrStepHeld) {
@@ -257,7 +257,7 @@ func TestStepsHoldOfEndedStepIsRefused(t *testing.T) {
 	f.beginTurn(t)
 	raw := fmt.Sprintf(`{"status":%q}`, stepDefaultDone)
 	f.sessions.first(t).Observer.Return(session.TurnEnded{StructuredOutput: []byte(raw)})
-	stepStartAwait(t, "the step to end", func() bool {
+	stepStartAwait(t, engineOf(f.steps), "the step to end", func() bool {
 		return f.status(t, id).End != ""
 	})
 

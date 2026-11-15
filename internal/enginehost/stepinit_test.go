@@ -48,7 +48,7 @@ func TestStepStartedWithoutItsAgentInInitEndsFailed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	stepStartAwait(t, "step "+id+" to end", func() bool {
+	stepStartAwait(t, engineOf(f.steps, f.manager), "step "+id+" to end", func() bool {
 		row, err := f.steps.Status(t.Context(), id)
 		return err == nil && row.End != ""
 	})

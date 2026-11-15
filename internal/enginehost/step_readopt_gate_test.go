@@ -94,7 +94,7 @@ func TestReadoptAgentGateStepReattachedJudgesNextReturnOnce(t *testing.T) {
 	}
 
 	run.Return(session.TurnEnded{StructuredOutput: verdictTestJSON(t, stepDefaultDone, verdictTestHolds(), nil)})
-	stepStartAwait(t, "step "+id+" to end", func() bool {
+	stepStartAwait(t, engineOf(rig.manager, rig.steps, restarted, steps, run), "step "+id+" to end", func() bool {
 		row, err := steps.Status(t.Context(), id)
 		return err == nil && row.End != ""
 	})
