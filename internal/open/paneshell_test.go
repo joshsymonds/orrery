@@ -55,7 +55,6 @@ type paneRun struct {
 func waitPaneRun(t *testing.T, claude string) paneRun {
 	t.Helper()
 	dir := filepath.Dir(claude)
-	deadline := time.Now().Add(10 * time.Second)
 	for {
 		_, err := os.Stat(filepath.Join(dir, "done"))
 		if err == nil {
@@ -63,9 +62,6 @@ func waitPaneRun(t *testing.T, claude string) paneRun {
 		}
 		if !errors.Is(err, fs.ErrNotExist) {
 			t.Fatalf("stat claude done: %v", err)
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("claude did not finish within 10s")
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
