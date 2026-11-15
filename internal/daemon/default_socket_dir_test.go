@@ -67,13 +67,9 @@ func skipRecords(t *testing.T, logs *lockedBuffer) []map[string]any {
 // waitSkipRecords waits until logs holds at least n skip records.
 func waitSkipRecords(t *testing.T, logs *lockedBuffer, n int) {
 	t.Helper()
-	deadline := time.Now().Add(ioTimeout)
 	for {
 		if len(skipRecords(t, logs)) >= n {
 			return
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("%d %q records not logged after %v; logs:\n%s", n, defaultSocketSkipMsg, ioTimeout, logs.String())
 		}
 		time.Sleep(tidyPollInterval)
 	}

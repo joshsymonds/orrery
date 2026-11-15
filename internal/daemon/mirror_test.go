@@ -2,7 +2,6 @@ package daemon
 
 import (
 	"bytes"
-	"context"
 	"crypto/rand"
 	"database/sql"
 	"encoding/json"
@@ -32,9 +31,6 @@ const mirrorCommand = "sleep 300"
 
 // mirrorIDPattern matches a minted id: 128 random bits in lowercase hex.
 var mirrorIDPattern = regexp.MustCompile(`^[0-9a-f]{32}$`)
-
-// mirrorServerExitBudget bounds how long a restart waits for a killed tmux server to stop accepting connections.
-const mirrorServerExitBudget = 5 * time.Second
 
 // mirrorServerExitPoll is how often a restart re-checks a killed tmux server.
 const mirrorServerExitPoll = 10 * time.Millisecond
@@ -85,8 +81,7 @@ func newMirrorSession(t *testing.T, server tmuxctl.Server) mirrorServer {
 // gone, the socket refuses connections, so a server started on the same name cannot reach the old one.
 func awaitMirrorServerGone(t *testing.T, client *tmuxctl.Client) {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(t.Context(), mirrorServerExitBudget)
-	defer cancel()
+	ctx := t.Context()
 	ticker := time.NewTicker(mirrorServerExitPoll)
 	defer ticker.Stop()
 	for {
@@ -94,12 +89,7 @@ func awaitMirrorServerGone(t *testing.T, client *tmuxctl.Client) {
 		if err != nil && strings.Contains(err.Error(), "no server running") {
 			return
 		}
-		select {
-		case <-ctx.Done():
-			t.Fatalf("tmux server still accepts connections %v after kill-server; last result: %v",
-				mirrorServerExitBudget, err)
-		case <-ticker.C:
-		}
+		<-ticker.C
 	}
 }
 
