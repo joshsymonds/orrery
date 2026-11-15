@@ -7,7 +7,7 @@ import type { JSX } from "preact";
 
 import { PaneSchema, type Pane } from "./gen/orrery/v1/orrery_pb";
 import { installTestDom, removeTestDom } from "./testdom";
-import { Pill, rowPill, stepPill, WorkNote } from "./workline";
+import { Pill, rowPill, stepPill } from "./workline";
 
 const now = 1_000_000;
 
@@ -176,51 +176,3 @@ test("a tool holding markup draws as text in the pill with no element", () =>
     },
   ));
 
-test("a working note draws the note for a working pane", () =>
-  withRender(<WorkNote pane={workingTool("Bash", now)} now={now} />, (container) =>
-    assert.equal(
-      textOf(container, "p.how.work-note"),
-      "a message sent now lands at Claude's next step",
-    ),
-  ));
-
-test("a working note names when the last turn ended", () =>
-  withRender(
-    <WorkNote pane={pane({ state: "working", changed: BigInt(now), lastTurnEnd: BigInt(now - 300) })} now={now} />,
-    (container) =>
-      assert.equal(
-        textOf(container, "p.how.work-note"),
-        "a message sent now lands at Claude's next step · last turn ended 5m ago",
-      ),
-  ));
-
-for (const [seconds, age] of [
-  [45, "45s"],
-  [300, "5m"],
-  [7_200, "2h"],
-  [259_200, "3d"],
-] as const) {
-  test(`the note says the last turn ended ${age} ago when it ended ${seconds} seconds back`, () =>
-    withRender(
-      <WorkNote
-        pane={pane({ state: "working", tool: "", changed: BigInt(now), lastTurnEnd: BigInt(now - seconds) })}
-        now={now}
-      />,
-      (container) =>
-        assert.equal(
-          textOf(container, "p.how.work-note"),
-          `a message sent now lands at Claude's next step · last turn ended ${age} ago`,
-        ),
-    ));
-}
-
-for (const [label, paneValue] of [
-  ["a done pane", pane({ state: "done", changed: BigInt(now) })],
-  ["a waiting pane", pane({ state: "waiting", changed: BigInt(now) })],
-  ["no pane", undefined],
-] as const) {
-  test(`the working note draws nothing for ${label}`, () =>
-    withRender(<WorkNote pane={paneValue} now={now} />, (container) => {
-      assert.equal(container.childNodes.length, 0);
-    }));
-}

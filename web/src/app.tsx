@@ -27,7 +27,7 @@ import { byAttention, byProject, type Row } from "./rows";
 import { type SeenClock, type SeenWindow, watchSeen } from "./seen";
 import { StepBox } from "./stepbox";
 import { ReplyText } from "./text";
-import { Pill, rowPill, stepPill, WorkNote } from "./workline";
+import { Pill, rowPill, stepPill } from "./workline";
 
 type View = "attention" | "project";
 
@@ -652,7 +652,6 @@ export function App({
             />
           )}
           <div class="send">
-            <WorkNote pane={cursorConversation?.state?.pane} now={now} />
             {composerRows(visited, cursorRow).map((row) => (
               <div key={row.key} class="reply" hidden={row.key !== cursorRowKey}>
                 <Composer
@@ -709,7 +708,6 @@ export function App({
             />
           )}
           <div class="send">
-            <WorkNote pane={pinnedConversation?.state?.pane} now={now} />
             {composerRows(pinnedRows, pinned).map((row) => (
               <div key={row.key} class="pin-reply" hidden={row.key !== pinnedKey}>
                 <Composer

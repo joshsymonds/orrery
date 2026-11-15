@@ -406,6 +406,12 @@ function readerNote(container: HTMLElement): Element | null {
   return container.querySelector('[aria-label="reader"] .work-note');
 }
 
+// noteWords is true when a reader section's text holds the working note's words, which no reader draws now.
+function noteWords(section: Element | null): boolean {
+  const text = section?.textContent ?? "";
+  return text.includes("lands at Claude's next step") || text.includes("last turn ended");
+}
+
 // sectionChildren names each child of a reader section as its tag and first class, in order: a head, a conversation
 // and a foot is ["header.head", "div.reader", "div.send"].
 function sectionChildren(section: Element | null): string[] {
@@ -1106,38 +1112,34 @@ test("each step box takes its own step's held flag, and a box the cursor left ke
   });
 });
 
-test("a working pane's delta puts its tool and time in the head's pill, and its note under the reader", () =>
+test("a working pane's delta puts its tool and time in the head's pill, and draws no note under the reader", () =>
   withApp({}, async (container, fake) => {
     await until(() => fake.callsTo(paneWatchPath).length === 1, "the pane stream");
     const [stream] = fake.callsTo(paneWatchPath);
     fake.emit(stream, { transcript: "t1", seq: "1", reset: true, items: [], state: { pane: workingPane("Bash") } });
-    await until(() => readerNote(container) !== null, "the working note");
-    assert.equal(readerHead(container)?.querySelector(".pill .word")?.textContent, "working");
+    await until(() => readerHead(container)?.querySelector(".pill .word")?.textContent === "working", "the working pill");
     assert.equal(readerHead(container)?.querySelector(".pill .tool")?.textContent, "Bash");
     assert.equal(readerHead(container)?.querySelector(".pill .clock")?.textContent, "1:00");
-    const note = readerNote(container);
-    assert.equal(note?.textContent, "a message sent now lands at Claude's next step · last turn ended 5m ago");
-    assert.equal(note?.parentElement?.classList.contains("send"), true, "the note is in the foot");
-    assert.equal(note?.previousElementSibling === null, true, "the note is the foot's first child");
-    assert.equal(note?.nextElementSibling?.classList.contains("reply"), true, "the note is above the reply boxes");
+    assert.equal(readerNote(container) === null, true, "the cursor's reader draws no working note");
+    assert.equal(noteWords(container.querySelector('section[aria-label="reader"]')), false, "the reader's text names no note");
     assert.equal(container.querySelector(".work-line") === null, true, "no work line is drawn");
   }));
 
-test("a later delta whose pane is done removes the working note and the pill's tool", () =>
+test("a later delta whose pane is done drops the pill's tool and draws no working note", () =>
   withApp({}, async (container, fake) => {
     await until(() => fake.callsTo(paneWatchPath).length === 1, "the pane stream");
     const [stream] = fake.callsTo(paneWatchPath);
     fake.emit(stream, { transcript: "t1", seq: "1", reset: true, items: [], state: { pane: workingPane("Bash") } });
-    await until(() => readerNote(container) !== null, "the working note");
+    await until(() => readerHead(container)?.querySelector(".pill .tool")?.textContent === "Bash", "the working tool");
     fake.emit(stream, {
       transcript: "t1",
       seq: "2",
       items: [],
       state: { pane: { id: "a", state: "done", tool: "", changed: "1000", lastTurnEnd: "1000" } },
     });
-    await until(() => readerNote(container) === null, "the working note removed");
-    assert.equal(readerHead(container)?.querySelector(".pill .word")?.textContent, "done");
+    await until(() => readerHead(container)?.querySelector(".pill .word")?.textContent === "done", "the done pill");
     assert.equal(readerHead(container)?.querySelector(".pill .tool") === null, true);
+    assert.equal(readerNote(container) === null, true, "the cursor's reader draws no working note");
   }));
 
 test("moving the cursor to a session row aborts the pane's stream and opens the session's", () =>
@@ -1898,7 +1900,7 @@ test("the pinned head names the pinned row while the cursor rests on another, an
     assert.equal(container.querySelector(".pin-head") === null, true);
   }));
 
-test("the pinned column draws the note and the pill of its own stream while the cursor rests on another pane", () =>
+test("the pinned column draws the pill of its own stream and no note while the cursor rests on another pane", () =>
   withApp({}, async (container, fake) => {
     await until(() => fake.callsTo(paneWatchPath).length === 1, "the cursor's stream");
     await press("|");
@@ -1915,9 +1917,15 @@ test("the pinned column draws the note and the pill of its own stream while the 
       items: [],
       state: { pane: workingPane("Bash") },
     });
-    await until(() => pinnedNote(container) !== null, "the pinned working note");
+    await until(() => pinnedHead(container)?.querySelector(".pill .word")?.textContent === "working", "the pinned pill");
     assert.equal(pinnedHead(container)?.querySelector(".pill .tool")?.textContent, "Bash");
     assert.equal(pinnedHead(container)?.querySelector(".pill .clock")?.textContent, "1:00");
+    assert.equal(pinnedNote(container) === null, true, "the pinned reader draws no working note");
+    assert.equal(
+      noteWords(container.querySelector('section[aria-label="pinned reader"]')),
+      false,
+      "the pinned reader's text names no note",
+    );
     assert.equal(readerNote(container) === null, true, "the cursor's reader on c draws no note");
     assert.equal(readerHead(container)?.querySelector(".pill .tool") === null, true, "c's pill has no tool");
   }));
