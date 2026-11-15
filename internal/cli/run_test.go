@@ -364,29 +364,15 @@ func awaitClosed(t *testing.T, ch <-chan struct{}, status <-chan int, what strin
 }
 
 // receiveDuringRun receives from ch, which the run whose result arrives on status feeds, and reports whether ch was
-// open. It has no deadline of its own. Once the run has returned it looks at ch once more, then fails the test with
-// the run's status: what names what the test waited for. It reads whether the run has returned from the channel's
-// length, so the status stays on the channel for the test to read until it fails.
+// open. It has no deadline of its own, and fails the test with the run's status once the run has returned and ch
+// still has nothing (see receiveUntil): what names what the test waited for.
 func receiveDuringRun[T any](t *testing.T, ch <-chan T, status <-chan int, what string) (T, bool) {
 	t.Helper()
-	tick := time.NewTicker(pollInterval)
-	defer tick.Stop()
-	for {
-		select {
-		case v, ok := <-ch:
-			return v, ok
-		case <-tick.C:
-		}
-		if len(status) == 0 {
-			continue
-		}
-		select {
-		case v, ok := <-ch:
-			return v, ok
-		default:
-		}
+	v, open, received := receiveUntil(ch, resultQueued(status))
+	if !received {
 		t.Fatalf("the run returned %d while the test waited for %s", <-status, what)
 	}
+	return v, open
 }
 
 // stdoutPipe returns a pipe for a command's stdout: the command writes to w and the test reads r.
