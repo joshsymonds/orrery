@@ -347,7 +347,9 @@ func TestToolsListNamesEveryStepEpicAndEvidenceTool(t *testing.T) {
 	}
 }
 
-func TestEpicCreateContractDescriptionNamesTheEvidenceFields(t *testing.T) {
+// epicCreateContractDescription returns the description of epic_create's contract argument, as tools/list reports it.
+func epicCreateContractDescription(t *testing.T) string {
+	t.Helper()
 	p := newPeer(t, nil, &fakeEpics{})
 
 	reply := p.call("tools/list", map[string]any{})
@@ -375,13 +377,46 @@ func TestEpicCreateContractDescriptionNamesTheEvidenceFields(t *testing.T) {
 	if description == "" {
 		t.Fatal("tools/list has no epic_create contract description")
 	}
-	words := strings.FieldsFunc(description, func(r rune) bool { return !unicode.IsLetter(r) })
+	return description
+}
+
+// descriptionWords splits a description into its words, each a run of letters.
+func descriptionWords(description string) []string {
+	return strings.FieldsFunc(description, func(r rune) bool { return !unicode.IsLetter(r) })
+}
+
+func TestEpicCreateContractDescriptionNamesTheEvidenceFields(t *testing.T) {
+	description := epicCreateContractDescription(t)
+	words := descriptionWords(description)
 	for _, want := range []string{
-		"base", "gates", "doneGates", "reviewGates",
+		"base", "gates", "doneGates",
 		"item", "capture", "limit", "artifacts", "supplied", "conclusion", "judge",
 	} {
 		if !slices.Contains(words, want) {
 			t.Errorf("epic_create contract description %q does not name %s", description, want)
+		}
+	}
+}
+
+// TestEpicCreateContractDescriptionNamesTheReviewers checks that the contract description names reviewers and, in
+// the sentence about a reviewers entry, each key of the entry in protobuf JSON names, and that it does not name
+// reviewGates, which epic_create refuses. The evidence sentence also names limit, so the keys are read from the
+// reviewers sentence alone.
+func TestEpicCreateContractDescriptionNamesTheReviewers(t *testing.T) {
+	description := epicCreateContractDescription(t)
+	if slices.Contains(descriptionWords(description), "reviewGates") {
+		t.Errorf("epic_create contract description %q names reviewGates, which epic_create refuses", description)
+	}
+	at := strings.LastIndex(description, "reviewers")
+	if at < 0 {
+		t.Fatalf("epic_create contract description %q does not name reviewers", description)
+	}
+	entry := descriptionWords(description[at:])
+	for _, want := range []string{
+		"name", "enabled", "stage", "must", "mustNot", "prompt", "agent", "model", "tools", "effort", "limit", "verify",
+	} {
+		if !slices.Contains(entry, want) {
+			t.Errorf("epic_create contract description %q does not name the reviewers entry key %s", description, want)
 		}
 	}
 }
