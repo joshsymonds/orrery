@@ -51,7 +51,7 @@ const listFormat = "#{pane_id}" + listFieldSeparator +
 	"#{" + protocol.OptionTranscript + "}" + listFieldSeparator +
 	"#{" + protocol.OptionTurnStart + "}"
 
-// Listed is one pane from List: its Pane, plus the per-pane options the orchestrator reads with it.
+// Listed is one pane from List: its Pane, plus the per-pane options serve reads with it.
 type Listed struct {
 	protocol.Pane
 	// OrreryID is the pane's @orrery_id, or "" when unset.
@@ -117,7 +117,7 @@ func (c *Client) PaneOption(ctx context.Context, paneID, name string) (string, b
 	return strings.TrimSuffix(out, "\n"), true, nil
 }
 
-// List returns every pane of every session on the server, without Host, with its orchestrator options.
+// List returns every pane of every session on the server, without Host, with the options serve reads.
 func (c *Client) List(ctx context.Context) ([]Listed, error) {
 	out, err := c.Run(ctx, "list-panes", "-a", "-F", listFormat)
 	if err != nil {
