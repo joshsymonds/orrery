@@ -93,7 +93,8 @@ const (
 	silentBackground = "background work"
 	// brokerTick is how often the grants broker ticks. Each tick ends the grants of gone clients and polls each member.
 	brokerTick = 60 * time.Second
-	// limitTick is how often the limit notices check the limited steps for a change, and how often the due pass runs.
+	// limitTick is how often the limit notices check the limited steps for a change, and how often the due pass and
+	// the epic summaries run.
 	limitTick = 5 * time.Second
 	// waitingBody and doneBody stand in for an empty question or summary.
 	waitingBody = "waiting for input"
@@ -742,6 +743,8 @@ type sessionHost struct {
 	limitsDone    chan struct{}
 	stopDue       context.CancelFunc
 	dueDone       chan struct{}
+	stopSummaries context.CancelFunc
+	summariesDone chan struct{}
 	stopServe     context.CancelFunc
 	serveDone     chan error
 }
@@ -769,11 +772,12 @@ func stateDirOf(getenv func(string) string) (string, error) {
 // the steps and the pools, and takes up the open evidence runs, so no judge starts beside a step already re-adopted.
 // The node checks are built over the store and the pools the same way, and take up the open checks before the flow
 // starts. The flow then runs over the store until stop, with the planner and the build runner as its planner and
-// builder, and its attention loop routes its epic notices through router when router is not nil. The limit notices tell router which
-// steps a usage limit holds, every limitTick until stop; the due pass resumes each due
-// row whose reset has passed, every limitTick until stop; and the manager stops idle sessions, until stop. A readopt, reconcile, restore or resume failure is logged and
-// serving goes on; a failed restore serves no Pools, which refuse as
-// unavailable, and the gates fail for want of pools. The Notices service on it answers from notices, and refuses as
+// builder, and its attention loop routes its epic notices through router when router is not nil. The limit notices tell
+// router which steps a usage limit holds, every limitTick until stop; the due pass resumes each due row whose reset has
+// passed, every limitTick until stop; the epic summaries write each stored epic's missing summary through haiku, every
+// limitTick until stop; and the manager stops idle sessions, until stop. A readopt, reconcile, restore or resume failure
+// is logged and serving goes on; a failed restore serves no Pools, which refuse as unavailable, and the gates fail for
+// want of pools. The Notices service on it answers from notices, and refuses as
 // unavailable when notices is nil.
 func startSessions(
 	ctx context.Context,
@@ -786,12 +790,13 @@ func startSessions(
 	getenv func(string) string,
 ) (*sessionHost, error) {
 	host := &sessionHost{
-		writerDone: make(chan struct{}),
-		idleDone:   make(chan struct{}),
-		flowDone:   make(chan struct{}),
-		limitsDone: make(chan struct{}),
-		dueDone:    make(chan struct{}),
-		serveDone:  make(chan error, 1),
+		writerDone:    make(chan struct{}),
+		idleDone:      make(chan struct{}),
+		flowDone:      make(chan struct{}),
+		limitsDone:    make(chan struct{}),
+		dueDone:       make(chan struct{}),
+		summariesDone: make(chan struct{}),
+		serveDone:     make(chan error, 1),
 	}
 	var commands enginehost.Commands
 	var stepCommands enginehost.StepCommands
@@ -824,6 +829,7 @@ func startSessions(
 		host.startBroker(ctx, hostName, st, logger)
 		// host.pools is nil when the broker's restore failed, which leaves the gates no pools to run under.
 		resolve := planner.NewResolver(os.Environ(), managedDir)
+		haiku := enginehost.NewHaiku(enginehost.HaikuConfig{Claude: opts.claude, Environ: os.Environ()})
 		steps, err := enginehost.NewSteps(enginehost.StepsConfig{
 			Sessions:     host.manager,
 			Store:        st,
@@ -832,7 +838,7 @@ func startSessions(
 			Worktrees:    filepath.Join(stateDir, "step-worktrees"),
 			Environ:      os.Environ(),
 			Logger:       logger,
-			Haiku:        enginehost.NewHaiku(enginehost.HaikuConfig{Claude: opts.claude, Environ: os.Environ()}),
+			Haiku:        haiku,
 			GateStateDir: filepath.Join(stateDir, "gates"),
 			GateScope:    opts.holderScope,
 			ReadoptCheck: readoptCheck(st, resolve),
@@ -860,6 +866,7 @@ func startSessions(
 		host.startNodeChecks(ctx, st, stateDir, opts.holderScope, logger)
 		host.startFlow(ctx, st, router, opts.attentionTicks, opts.flowTicks, getenv, resolve, stateDir, logger)
 		host.startLimits(ctx, st, router, opts.limitTicks, logger)
+		host.startSummaries(ctx, st, haiku, logger)
 		host.startDue(ctx, st, opts.dueNow, logger)
 		host.startIdle(ctx)
 	}
@@ -1241,11 +1248,35 @@ func (h *sessionHost) startDue(ctx context.Context, st *store.Store, now func() 
 	}()
 }
 
+// startSummaries writes the summary of each stored epic that has none, through haiku, checking st every limitTick until
+// stop. The first check runs at start.
+func (h *sessionHost) startSummaries(
+	ctx context.Context,
+	st *store.Store,
+	haiku *enginehost.Haiku,
+	logger *slog.Logger,
+) {
+	ticker := time.NewTicker(limitTick)
+	summaries := enginehost.NewEpicSummaries(enginehost.EpicSummariesConfig{
+		Store:  st,
+		Haiku:  haiku,
+		Tick:   ticker.C,
+		Logger: logger,
+	})
+	var summariesCtx context.Context
+	summariesCtx, h.stopSummaries = context.WithCancel(ctx)
+	go func() {
+		defer close(h.summariesDone)
+		defer ticker.Stop()
+		summaries.Run(summariesCtx)
+	}()
+}
+
 // shutdown stops the broker, stops the idle check, stops the flow and waits for it to return, which waits for the
-// planner's turns, stops the limit notices and waits for the attention loop, the limit loop and the due pass to return,
-// closes the node checks and the evidence runner and waits for their drives, ends every step loop, stops every live session, and ends the
-// writer after its last flush. The notices the sessions started are waited on in serve. Without a broker, manager and
-// writer it does nothing.
+// planner's turns, stops the limit notices and waits for the attention loop, the limit loop, the due pass and the epic
+// summaries to return, closes the node checks and the evidence runner and waits for their drives, ends every step
+// loop, stops every live session, and ends the writer after its last flush. The notices the sessions started are waited
+// on in serve. Without a broker, manager and writer it does nothing.
 func (h *sessionHost) shutdown() {
 	h.stopBroker()
 	if h.manager != nil {
@@ -1262,6 +1293,8 @@ func (h *sessionHost) shutdown() {
 		<-h.limitsDone
 		h.stopDue()
 		<-h.dueDone
+		h.stopSummaries()
+		<-h.summariesDone
 		h.steps.Close()
 		h.manager.Close()
 	}

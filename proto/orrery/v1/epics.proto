@@ -9,6 +9,24 @@ service Epics {
 
   // Get returns one epic by the id List gave it.
   rpc Get(EpicsGetRequest) returns (EpicsGetResponse);
+
+  // History returns one page of an epic's turns, triggers, steps, evidence runs, decisions and tells, oldest first.
+  rpc History(EpicsHistoryRequest) returns (EpicsHistoryResponse);
+
+  // Pause pauses the named orreryd epic, so its planner starts no turn.
+  rpc Pause(EpicsPauseRequest) returns (EpicsPauseResponse);
+
+  // Resume clears the named orreryd epic's pause and resumes its limited task steps.
+  rpc Resume(EpicsResumeRequest) returns (EpicsResumeResponse);
+
+  // Stop pauses the named orreryd epic and stops the step of its running turn.
+  rpc Stop(EpicsStopRequest) returns (EpicsStopResponse);
+
+  // Retry ends the named orreryd epic's park, or reruns the parked runs of one of its workflow nodes.
+  rpc Retry(EpicsRetryRequest) returns (EpicsRetryResponse);
+
+  // Answer records the owner's answer on the named orreryd epic, tied to the question it names or as a note.
+  rpc Answer(EpicsAnswerRequest) returns (EpicsAnswerResponse);
 }
 
 // Steps carries the owner's calls on one labelled step. It has no call that starts a step.
@@ -67,6 +85,353 @@ message EpicsGetResponse {
 
   // The orreryd epic's planned tasks, in the order they were planned; empty for a record epic.
   repeated EpicBuildTask build_tasks = 7;
+
+  // The orreryd epic's open questions, in the order they were asked; empty for a record epic.
+  repeated EpicQuestion questions = 8;
+
+  // The orreryd epic's accepted contract; absent for a record epic. Its Requirements are in requirements.
+  EpicContract contract = 9;
+
+  // Whether the orreryd epic is paused, so its planner starts no turn; false for a record epic.
+  bool paused = 10;
+
+  // Why the orreryd epic is parked; empty when it is not parked and for a record epic.
+  string parked = 11;
+
+  // The orreryd epic's summary paragraph, written once from its contract; empty until it is written and for a record
+  // epic.
+  string summary = 12;
+}
+
+// EpicQuestion is one open question a planner turn of an orreryd epic asked.
+message EpicQuestion {
+  // The question's id, Q<seq>.
+  string id = 1;
+
+  // The question.
+  string text = 2;
+
+  // The position of the turn that asked the question, counted from 1.
+  int64 turn = 3;
+
+  // When the question was asked: the end of the turn that asked it, in unix seconds.
+  int64 asked = 4;
+}
+
+// EpicContract is an orreryd epic's accepted contract, its sections in the contract's order, without its Requirements.
+message EpicContract {
+  // The epic's name.
+  string title = 1;
+
+  // The sentence of the decision line that approved the contract.
+  string approved = 2;
+
+  // What the owner asked for.
+  string intent = 3;
+
+  // What could go wrong, each failure with its level of care.
+  repeated EpicFailure failures = 4;
+
+  // The level of care the epic is worked at: limited, serious or severe.
+  string care = 5;
+
+  // Things the epic adds that the owner did not ask for.
+  repeated EpicAddition additions = 6;
+
+  // What the contract assumes, each with what changes if the assumption is wrong.
+  repeated EpicPremise premises = 7;
+
+  // What the epic will not do.
+  repeated string exclusions = 8;
+
+  // How the epic will be done.
+  string approach = 9;
+
+  // The approaches considered and why each was not chosen.
+  repeated EpicAlternative alternatives = 10;
+
+  // What leaves the machine when the epic is released, each step with how it is undone.
+  repeated EpicReleaseStep release_steps = 11;
+
+  // The Then line that closes the release.
+  string release_then = 12;
+
+  // The checks the machines run.
+  string checks = 13;
+
+  // The commit the epic starts from, as the full commit id.
+  string base = 14;
+
+  // When the contract was accepted, which is when orreryd stored the epic, in unix seconds.
+  int64 accepted = 15;
+}
+
+// EpicFailure is one failure an epic's contract guards against.
+message EpicFailure {
+  // The failure's id, F<n>.
+  string id = 1;
+
+  // What could go wrong.
+  string text = 2;
+
+  // The failure's level of care: limited, serious or severe.
+  string rating = 3;
+
+  // What the epic does about the failure.
+  string response = 4;
+}
+
+// EpicAddition is one thing an epic's contract adds that the owner did not ask for.
+message EpicAddition {
+  // Where the addition applies, as the contract names it.
+  string location = 1;
+
+  // What the addition is.
+  string what = 2;
+
+  // Why the epic needs the addition.
+  string why = 3;
+
+  // What the addition costs.
+  string cost = 4;
+}
+
+// EpicPremise is one assumption an epic's contract makes.
+message EpicPremise {
+  // The premise's id, P<n>.
+  string id = 1;
+
+  // The assumption.
+  string text = 2;
+
+  // What changes if the assumption is wrong.
+  string if_wrong = 3;
+}
+
+// EpicAlternative is one approach an epic's contract considered and did not choose.
+message EpicAlternative {
+  // The approach.
+  string alternative = 1;
+
+  // Why the approach was not chosen.
+  string why_not = 2;
+
+  // What would make the owner reconsider the approach.
+  string reconsider = 3;
+}
+
+// EpicReleaseStep is one step of an epic's contract that leaves the machine on release.
+message EpicReleaseStep {
+  // What the step does.
+  string step = 1;
+
+  // Where the step sends what leaves the machine.
+  string target = 2;
+
+  // How the step is undone.
+  string undo = 3;
+}
+
+// EpicsHistoryRequest names one epic and the page of its history to return.
+message EpicsHistoryRequest {
+  // The epic's id, as List gave it.
+  string id = 1;
+
+  // The cursor of the last entry already read; empty starts at the oldest entry.
+  string after = 2;
+
+  // The most entries to return: 0 returns 50, and more than 200 returns 200.
+  int32 limit = 3;
+}
+
+// EpicsHistoryResponse carries one page of an epic's history.
+message EpicsHistoryResponse {
+  // The entries after the request's cursor, oldest first.
+  repeated EpicHistoryEntry entries = 1;
+
+  // The cursor to pass as after for the next page; empty when no entry follows this page.
+  string next = 2;
+}
+
+// EpicHistoryEntry is one row of an epic's history: a turn, a trigger, a step, an evidence run, a decision or a tell.
+message EpicHistoryEntry {
+  // The entry's time, in unix seconds: a turn's start, a trigger's creation, a step's start, an evidence run's
+  // creation, a decision's recording, or a tell's writing.
+  int64 time = 1;
+
+  // The entry's cursor. A History whose after is this cursor returns the entries after this one.
+  string cursor = 2;
+
+  // The row the entry carries.
+  oneof item {
+    // A planner turn.
+    EpicTurn turn = 3;
+
+    // A trigger of a planner turn.
+    EpicTrigger trigger = 4;
+
+    // A step labelled with the epic.
+    EpicStep step = 5;
+
+    // An evidence run.
+    EvidenceRun evidence = 6;
+
+    // A decision.
+    EpicDecision decision = 7;
+
+    // A tell: what the owner was told.
+    EpicTell tell = 8;
+  }
+}
+
+// EpicTurn is one planner turn of an orreryd epic.
+message EpicTurn {
+  // The turn's position on the epic, counted from 1.
+  int64 seq = 1;
+
+  // The step the turn runs, empty until the turn has one.
+  string step = 2;
+
+  // The turn's state: running, succeeded, failed or free.
+  string state = 3;
+
+  // Why the turn failed or was freed, empty otherwise.
+  string reason = 4;
+
+  // The outline the turn's return gave, empty until the turn succeeds.
+  string outline = 5;
+
+  // The outcome the turn's return gave, empty until the turn succeeds.
+  string outcome = 6;
+
+  // The decisions the turn's return recorded, in the order they were recorded.
+  repeated string decisions = 7;
+
+  // When the turn started, in unix seconds.
+  int64 started = 8;
+
+  // When the turn ended, in unix seconds; 0 while the turn runs.
+  int64 ended = 9;
+}
+
+// EpicTrigger is one cause that asks an orreryd epic's planner for a turn.
+message EpicTrigger {
+  // The trigger's id.
+  string id = 1;
+
+  // What caused the trigger.
+  string cause = 2;
+
+  // The trigger's state: pending, claimed or consumed.
+  string state = 3;
+
+  // The position of the turn that claimed the trigger; 0 while it is pending.
+  int64 turn = 4;
+
+  // When the trigger was created, in unix seconds.
+  int64 created = 5;
+}
+
+// EpicDecision is one decision recorded on an orreryd epic.
+message EpicDecision {
+  // The decision's position on the epic, counted from 1.
+  int64 seq = 1;
+
+  // The decision's id.
+  string id = 2;
+
+  // The decision's text.
+  string text = 3;
+
+  // When the decision was recorded, in unix seconds.
+  int64 time = 4;
+
+  // The question, Q<n>, the decision answers; empty for a note.
+  string question = 5;
+}
+
+// EpicTell is one thing an orreryd epic told its owner.
+message EpicTell {
+  // The tell's position on the epic, counted from 1.
+  int64 seq = 1;
+
+  // What the owner was told.
+  string text = 2;
+
+  // When the tell was written, in unix seconds.
+  int64 at = 3;
+
+  // Whether the owner has been told it.
+  bool told = 4;
+}
+
+// EpicsPauseRequest names the orreryd epic to pause.
+message EpicsPauseRequest {
+  // The epic's id.
+  string id = 1;
+}
+
+// EpicsPauseResponse confirms a paused epic.
+message EpicsPauseResponse {}
+
+// EpicsResumeRequest names the orreryd epic to resume.
+message EpicsResumeRequest {
+  // The epic's id.
+  string id = 1;
+}
+
+// EpicsResumeResponse carries the limited steps a resume resumed and those a full step cap left limited.
+message EpicsResumeResponse {
+  // The ids of the limited steps the resume resumed, oldest first.
+  repeated string resumed = 1;
+
+  // The ids of the limited steps the resume left limited because the step cap was full, oldest first.
+  repeated string still_limited = 2;
+}
+
+// EpicsStopRequest names the orreryd epic to stop.
+message EpicsStopRequest {
+  // The epic's id.
+  string id = 1;
+}
+
+// EpicsStopResponse confirms a stopped epic.
+message EpicsStopResponse {}
+
+// EpicsRetryRequest names the orreryd epic to retry, and the workflow node to rerun when node is set.
+message EpicsRetryRequest {
+  // The epic's id.
+  string id = 1;
+
+  // The workflow node id whose parked runs rerun under their next attempt. Empty ends the epic's park instead.
+  string node = 2;
+}
+
+// EpicsRetryResponse confirms a retried epic.
+message EpicsRetryResponse {}
+
+// EpicsAnswerRequest records the owner's answer on one orreryd epic.
+message EpicsAnswerRequest {
+  // The id of the epic the answer belongs to.
+  string epic_id = 1;
+
+  // The decision's id, chosen by the caller. A repeated id with the same text returns the first decision.
+  string id = 2;
+
+  // The owner's answer.
+  string text = 3;
+
+  // The question, Q<n>, the answer names; empty for a note.
+  string question = 4;
+}
+
+// EpicsAnswerResponse carries the recorded decision.
+message EpicsAnswerResponse {
+  // The decision recorded, or the decision first recorded under the same id.
+  EpicDecision decision = 1;
+
+  // A warning set when a note is recorded while questions are open; empty otherwise.
+  string warning = 2;
 }
 
 // Epic is one epic under the record root or in orreryd's database. An id in both is one epic, whose source is orreryd.
@@ -489,6 +854,10 @@ message EvidenceRun {
 
   // The size of the run's stderr log in bytes.
   int64 stderr_bytes = 16;
+
+  // The requirement or task whose evidence the run shows. History sets it; Get leaves it empty, since there each run
+  // sits under its requirement, node or task.
+  string item = 17;
 }
 
 // EvidenceArtifact is one file an evidence run kept, with the state it was kept in.

@@ -25,6 +25,9 @@ public  final class EpicsGetResponse extends
     requirements_ = emptyProtobufList();
     nodes_ = emptyProtobufList();
     buildTasks_ = emptyProtobufList();
+    questions_ = emptyProtobufList();
+    parked_ = "";
+    summary_ = "";
   }
   private int bitField0_;
   public static final int EPIC_FIELD_NUMBER = 1;
@@ -931,6 +934,388 @@ public  final class EpicsGetResponse extends
   private void removeBuildTasks(int index) {
     ensureBuildTasksIsMutable();
     buildTasks_.remove(index);
+  }
+
+  public static final int QUESTIONS_FIELD_NUMBER = 8;
+  private com.google.protobuf.Internal.ProtobufList<io.github.joshsymonds.orrery.gen.orrery.v1.EpicQuestion> questions_;
+  /**
+   * <pre>
+   * The orreryd epic's open questions, in the order they were asked; empty for a record epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicQuestion questions = 8 [json_name = "questions"];</code>
+   */
+  @java.lang.Override
+  public java.util.List<io.github.joshsymonds.orrery.gen.orrery.v1.EpicQuestion> getQuestionsList() {
+    return questions_;
+  }
+  /**
+   * <pre>
+   * The orreryd epic's open questions, in the order they were asked; empty for a record epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicQuestion questions = 8 [json_name = "questions"];</code>
+   */
+  public java.util.List<? extends io.github.joshsymonds.orrery.gen.orrery.v1.EpicQuestionOrBuilder> 
+      getQuestionsOrBuilderList() {
+    return questions_;
+  }
+  /**
+   * <pre>
+   * The orreryd epic's open questions, in the order they were asked; empty for a record epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicQuestion questions = 8 [json_name = "questions"];</code>
+   */
+  @java.lang.Override
+  public int getQuestionsCount() {
+    return questions_.size();
+  }
+  /**
+   * <pre>
+   * The orreryd epic's open questions, in the order they were asked; empty for a record epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicQuestion questions = 8 [json_name = "questions"];</code>
+   */
+  @java.lang.Override
+  public io.github.joshsymonds.orrery.gen.orrery.v1.EpicQuestion getQuestions(int index) {
+    return questions_.get(index);
+  }
+  /**
+   * <pre>
+   * The orreryd epic's open questions, in the order they were asked; empty for a record epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicQuestion questions = 8 [json_name = "questions"];</code>
+   */
+  public io.github.joshsymonds.orrery.gen.orrery.v1.EpicQuestionOrBuilder getQuestionsOrBuilder(
+      int index) {
+    return questions_.get(index);
+  }
+  private void ensureQuestionsIsMutable() {
+    com.google.protobuf.Internal.ProtobufList<io.github.joshsymonds.orrery.gen.orrery.v1.EpicQuestion> tmp = questions_;
+    if (!tmp.isModifiable()) {
+      questions_ =
+          com.google.protobuf.GeneratedMessageLite.mutableCopy(tmp);
+     }
+  }
+
+  /**
+   * <pre>
+   * The orreryd epic's open questions, in the order they were asked; empty for a record epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicQuestion questions = 8 [json_name = "questions"];</code>
+   */
+  private void setQuestions(
+      int index, io.github.joshsymonds.orrery.gen.orrery.v1.EpicQuestion value) {
+    java.util.Objects.requireNonNull(value);
+    ensureQuestionsIsMutable();
+    questions_.set(index, value);
+  }
+  /**
+   * <pre>
+   * The orreryd epic's open questions, in the order they were asked; empty for a record epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicQuestion questions = 8 [json_name = "questions"];</code>
+   */
+  private void addQuestions(io.github.joshsymonds.orrery.gen.orrery.v1.EpicQuestion value) {
+    java.util.Objects.requireNonNull(value);
+    ensureQuestionsIsMutable();
+    questions_.add(value);
+  }
+  /**
+   * <pre>
+   * The orreryd epic's open questions, in the order they were asked; empty for a record epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicQuestion questions = 8 [json_name = "questions"];</code>
+   */
+  private void addQuestions(
+      int index, io.github.joshsymonds.orrery.gen.orrery.v1.EpicQuestion value) {
+    java.util.Objects.requireNonNull(value);
+    ensureQuestionsIsMutable();
+    questions_.add(index, value);
+  }
+  /**
+   * <pre>
+   * The orreryd epic's open questions, in the order they were asked; empty for a record epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicQuestion questions = 8 [json_name = "questions"];</code>
+   */
+  private void addAllQuestions(
+      java.lang.Iterable<? extends io.github.joshsymonds.orrery.gen.orrery.v1.EpicQuestion> values) {
+    ensureQuestionsIsMutable();
+    com.google.protobuf.AbstractMessageLite.addAll(
+        values, questions_);
+  }
+  /**
+   * <pre>
+   * The orreryd epic's open questions, in the order they were asked; empty for a record epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicQuestion questions = 8 [json_name = "questions"];</code>
+   */
+  private void clearQuestions() {
+    questions_ = emptyProtobufList();
+  }
+  /**
+   * <pre>
+   * The orreryd epic's open questions, in the order they were asked; empty for a record epic.
+   * </pre>
+   *
+   * <code>repeated .orrery.v1.EpicQuestion questions = 8 [json_name = "questions"];</code>
+   */
+  private void removeQuestions(int index) {
+    ensureQuestionsIsMutable();
+    questions_.remove(index);
+  }
+
+  public static final int CONTRACT_FIELD_NUMBER = 9;
+  private io.github.joshsymonds.orrery.gen.orrery.v1.EpicContract contract_;
+  /**
+   * <pre>
+   * The orreryd epic's accepted contract; absent for a record epic. Its Requirements are in requirements.
+   * </pre>
+   *
+   * <code>.orrery.v1.EpicContract contract = 9 [json_name = "contract"];</code>
+   */
+  @java.lang.Override
+  public boolean hasContract() {
+    return ((bitField0_ & 0x00000002) != 0);
+  }
+  /**
+   * <pre>
+   * The orreryd epic's accepted contract; absent for a record epic. Its Requirements are in requirements.
+   * </pre>
+   *
+   * <code>.orrery.v1.EpicContract contract = 9 [json_name = "contract"];</code>
+   */
+  @java.lang.Override
+  public io.github.joshsymonds.orrery.gen.orrery.v1.EpicContract getContract() {
+    return contract_ == null ? io.github.joshsymonds.orrery.gen.orrery.v1.EpicContract.getDefaultInstance() : contract_;
+  }
+  /**
+   * <pre>
+   * The orreryd epic's accepted contract; absent for a record epic. Its Requirements are in requirements.
+   * </pre>
+   *
+   * <code>.orrery.v1.EpicContract contract = 9 [json_name = "contract"];</code>
+   */
+  private void setContract(io.github.joshsymonds.orrery.gen.orrery.v1.EpicContract value) {
+    java.util.Objects.requireNonNull(value);
+    contract_ = value;
+    bitField0_ |= 0x00000002;
+  }
+  /**
+   * <pre>
+   * The orreryd epic's accepted contract; absent for a record epic. Its Requirements are in requirements.
+   * </pre>
+   *
+   * <code>.orrery.v1.EpicContract contract = 9 [json_name = "contract"];</code>
+   */
+  @java.lang.SuppressWarnings("ReferenceEquality")
+  private void mergeContract(io.github.joshsymonds.orrery.gen.orrery.v1.EpicContract value) {
+    java.util.Objects.requireNonNull(value);
+    if (contract_ != null &&
+        contract_ != io.github.joshsymonds.orrery.gen.orrery.v1.EpicContract.getDefaultInstance()) {
+      contract_ =
+        io.github.joshsymonds.orrery.gen.orrery.v1.EpicContract.newBuilder(contract_).mergeFrom(value).buildPartial();
+    } else {
+      contract_ = value;
+    }
+    bitField0_ |= 0x00000002;
+  }
+  /**
+   * <pre>
+   * The orreryd epic's accepted contract; absent for a record epic. Its Requirements are in requirements.
+   * </pre>
+   *
+   * <code>.orrery.v1.EpicContract contract = 9 [json_name = "contract"];</code>
+   */
+  private void clearContract() {
+    contract_ = null;
+    bitField0_ = (bitField0_ & ~0x00000002);
+  }
+
+  public static final int PAUSED_FIELD_NUMBER = 10;
+  private boolean paused_;
+  /**
+   * <pre>
+   * Whether the orreryd epic is paused, so its planner starts no turn; false for a record epic.
+   * </pre>
+   *
+   * <code>bool paused = 10 [json_name = "paused"];</code>
+   * @return The paused.
+   */
+  @java.lang.Override
+  public boolean getPaused() {
+    return paused_;
+  }
+  /**
+   * <pre>
+   * Whether the orreryd epic is paused, so its planner starts no turn; false for a record epic.
+   * </pre>
+   *
+   * <code>bool paused = 10 [json_name = "paused"];</code>
+   * @param value The paused to set.
+   */
+  private void setPaused(boolean value) {
+    
+    paused_ = value;
+  }
+  /**
+   * <pre>
+   * Whether the orreryd epic is paused, so its planner starts no turn; false for a record epic.
+   * </pre>
+   *
+   * <code>bool paused = 10 [json_name = "paused"];</code>
+   */
+  private void clearPaused() {
+
+    paused_ = false;
+  }
+
+  public static final int PARKED_FIELD_NUMBER = 11;
+  private java.lang.String parked_;
+  /**
+   * <pre>
+   * Why the orreryd epic is parked; empty when it is not parked and for a record epic.
+   * </pre>
+   *
+   * <code>string parked = 11 [json_name = "parked"];</code>
+   * @return The parked.
+   */
+  @java.lang.Override
+  public java.lang.String getParked() {
+    return parked_;
+  }
+  /**
+   * <pre>
+   * Why the orreryd epic is parked; empty when it is not parked and for a record epic.
+   * </pre>
+   *
+   * <code>string parked = 11 [json_name = "parked"];</code>
+   * @return The bytes for parked.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getParkedBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(parked_);
+  }
+  /**
+   * <pre>
+   * Why the orreryd epic is parked; empty when it is not parked and for a record epic.
+   * </pre>
+   *
+   * <code>string parked = 11 [json_name = "parked"];</code>
+   * @param value The parked to set.
+   */
+  private void setParked(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    parked_ = value;
+  }
+  /**
+   * <pre>
+   * Why the orreryd epic is parked; empty when it is not parked and for a record epic.
+   * </pre>
+   *
+   * <code>string parked = 11 [json_name = "parked"];</code>
+   */
+  private void clearParked() {
+
+    parked_ = getDefaultInstance().getParked();
+  }
+  /**
+   * <pre>
+   * Why the orreryd epic is parked; empty when it is not parked and for a record epic.
+   * </pre>
+   *
+   * <code>string parked = 11 [json_name = "parked"];</code>
+   * @param value The bytes for parked to set.
+   */
+  private void setParkedBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    parked_ = value.toStringUtf8();
+
+  }
+
+  public static final int SUMMARY_FIELD_NUMBER = 12;
+  private java.lang.String summary_;
+  /**
+   * <pre>
+   * The orreryd epic's summary paragraph, written once from its contract; empty until it is written and for a record
+   * epic.
+   * </pre>
+   *
+   * <code>string summary = 12 [json_name = "summary"];</code>
+   * @return The summary.
+   */
+  @java.lang.Override
+  public java.lang.String getSummary() {
+    return summary_;
+  }
+  /**
+   * <pre>
+   * The orreryd epic's summary paragraph, written once from its contract; empty until it is written and for a record
+   * epic.
+   * </pre>
+   *
+   * <code>string summary = 12 [json_name = "summary"];</code>
+   * @return The bytes for summary.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getSummaryBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(summary_);
+  }
+  /**
+   * <pre>
+   * The orreryd epic's summary paragraph, written once from its contract; empty until it is written and for a record
+   * epic.
+   * </pre>
+   *
+   * <code>string summary = 12 [json_name = "summary"];</code>
+   * @param value The summary to set.
+   */
+  private void setSummary(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    summary_ = value;
+  }
+  /**
+   * <pre>
+   * The orreryd epic's summary paragraph, written once from its contract; empty until it is written and for a record
+   * epic.
+   * </pre>
+   *
+   * <code>string summary = 12 [json_name = "summary"];</code>
+   */
+  private void clearSummary() {
+
+    summary_ = getDefaultInstance().getSummary();
+  }
+  /**
+   * <pre>
+   * The orreryd epic's summary paragraph, written once from its contract; empty until it is written and for a record
+   * epic.
+   * </pre>
+   *
+   * <code>string summary = 12 [json_name = "summary"];</code>
+   * @param value The bytes for summary to set.
+   */
+  private void setSummaryBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    summary_ = value.toStringUtf8();
+
   }
 
   public static io.github.joshsymonds.orrery.gen.orrery.v1.EpicsGetResponse parseFrom(
@@ -2017,6 +2402,410 @@ public  final class EpicsGetResponse extends
       return this;
     }
 
+    /**
+     * <pre>
+     * The orreryd epic's open questions, in the order they were asked; empty for a record epic.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicQuestion questions = 8 [json_name = "questions"];</code>
+     */
+    @java.lang.Override
+    public java.util.List<io.github.joshsymonds.orrery.gen.orrery.v1.EpicQuestion> getQuestionsList() {
+      return java.util.Collections.unmodifiableList(
+          instance.getQuestionsList());
+    }
+    /**
+     * <pre>
+     * The orreryd epic's open questions, in the order they were asked; empty for a record epic.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicQuestion questions = 8 [json_name = "questions"];</code>
+     */
+    @java.lang.Override
+    public int getQuestionsCount() {
+      return instance.getQuestionsCount();
+    }/**
+     * <pre>
+     * The orreryd epic's open questions, in the order they were asked; empty for a record epic.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicQuestion questions = 8 [json_name = "questions"];</code>
+     */
+    @java.lang.Override
+    public io.github.joshsymonds.orrery.gen.orrery.v1.EpicQuestion getQuestions(int index) {
+      return instance.getQuestions(index);
+    }
+    /**
+     * <pre>
+     * The orreryd epic's open questions, in the order they were asked; empty for a record epic.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicQuestion questions = 8 [json_name = "questions"];</code>
+     */
+    public Builder setQuestions(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.EpicQuestion value) {
+      copyOnWrite();
+      instance.setQuestions(index, value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The orreryd epic's open questions, in the order they were asked; empty for a record epic.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicQuestion questions = 8 [json_name = "questions"];</code>
+     */
+    public Builder setQuestions(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.EpicQuestion.Builder builderForValue) {
+      copyOnWrite();
+      instance.setQuestions(index,
+          builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * The orreryd epic's open questions, in the order they were asked; empty for a record epic.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicQuestion questions = 8 [json_name = "questions"];</code>
+     */
+    public Builder addQuestions(io.github.joshsymonds.orrery.gen.orrery.v1.EpicQuestion value) {
+      copyOnWrite();
+      instance.addQuestions(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The orreryd epic's open questions, in the order they were asked; empty for a record epic.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicQuestion questions = 8 [json_name = "questions"];</code>
+     */
+    public Builder addQuestions(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.EpicQuestion value) {
+      copyOnWrite();
+      instance.addQuestions(index, value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The orreryd epic's open questions, in the order they were asked; empty for a record epic.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicQuestion questions = 8 [json_name = "questions"];</code>
+     */
+    public Builder addQuestions(
+        io.github.joshsymonds.orrery.gen.orrery.v1.EpicQuestion.Builder builderForValue) {
+      copyOnWrite();
+      instance.addQuestions(builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * The orreryd epic's open questions, in the order they were asked; empty for a record epic.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicQuestion questions = 8 [json_name = "questions"];</code>
+     */
+    public Builder addQuestions(
+        int index, io.github.joshsymonds.orrery.gen.orrery.v1.EpicQuestion.Builder builderForValue) {
+      copyOnWrite();
+      instance.addQuestions(index,
+          builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * The orreryd epic's open questions, in the order they were asked; empty for a record epic.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicQuestion questions = 8 [json_name = "questions"];</code>
+     */
+    public Builder addAllQuestions(
+        java.lang.Iterable<? extends io.github.joshsymonds.orrery.gen.orrery.v1.EpicQuestion> values) {
+      copyOnWrite();
+      instance.addAllQuestions(values);
+      return this;
+    }
+    /**
+     * <pre>
+     * The orreryd epic's open questions, in the order they were asked; empty for a record epic.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicQuestion questions = 8 [json_name = "questions"];</code>
+     */
+    public Builder clearQuestions() {
+      copyOnWrite();
+      instance.clearQuestions();
+      return this;
+    }
+    /**
+     * <pre>
+     * The orreryd epic's open questions, in the order they were asked; empty for a record epic.
+     * </pre>
+     *
+     * <code>repeated .orrery.v1.EpicQuestion questions = 8 [json_name = "questions"];</code>
+     */
+    public Builder removeQuestions(int index) {
+      copyOnWrite();
+      instance.removeQuestions(index);
+      return this;
+    }
+
+    /**
+     * <pre>
+     * The orreryd epic's accepted contract; absent for a record epic. Its Requirements are in requirements.
+     * </pre>
+     *
+     * <code>.orrery.v1.EpicContract contract = 9 [json_name = "contract"];</code>
+     */
+    @java.lang.Override
+    public boolean hasContract() {
+      return instance.hasContract();
+    }
+    /**
+     * <pre>
+     * The orreryd epic's accepted contract; absent for a record epic. Its Requirements are in requirements.
+     * </pre>
+     *
+     * <code>.orrery.v1.EpicContract contract = 9 [json_name = "contract"];</code>
+     */
+    @java.lang.Override
+    public io.github.joshsymonds.orrery.gen.orrery.v1.EpicContract getContract() {
+      return instance.getContract();
+    }
+    /**
+     * <pre>
+     * The orreryd epic's accepted contract; absent for a record epic. Its Requirements are in requirements.
+     * </pre>
+     *
+     * <code>.orrery.v1.EpicContract contract = 9 [json_name = "contract"];</code>
+     */
+    public Builder setContract(io.github.joshsymonds.orrery.gen.orrery.v1.EpicContract value) {
+      copyOnWrite();
+      instance.setContract(value);
+      return this;
+      }
+    /**
+     * <pre>
+     * The orreryd epic's accepted contract; absent for a record epic. Its Requirements are in requirements.
+     * </pre>
+     *
+     * <code>.orrery.v1.EpicContract contract = 9 [json_name = "contract"];</code>
+     */
+    public Builder setContract(
+        io.github.joshsymonds.orrery.gen.orrery.v1.EpicContract.Builder builderForValue) {
+      copyOnWrite();
+      instance.setContract(builderForValue.build());
+      return this;
+    }
+    /**
+     * <pre>
+     * The orreryd epic's accepted contract; absent for a record epic. Its Requirements are in requirements.
+     * </pre>
+     *
+     * <code>.orrery.v1.EpicContract contract = 9 [json_name = "contract"];</code>
+     */
+    public Builder mergeContract(io.github.joshsymonds.orrery.gen.orrery.v1.EpicContract value) {
+      copyOnWrite();
+      instance.mergeContract(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The orreryd epic's accepted contract; absent for a record epic. Its Requirements are in requirements.
+     * </pre>
+     *
+     * <code>.orrery.v1.EpicContract contract = 9 [json_name = "contract"];</code>
+     */
+    public Builder clearContract() {  copyOnWrite();
+      instance.clearContract();
+      return this;
+    }
+
+    /**
+     * <pre>
+     * Whether the orreryd epic is paused, so its planner starts no turn; false for a record epic.
+     * </pre>
+     *
+     * <code>bool paused = 10 [json_name = "paused"];</code>
+     * @return The paused.
+     */
+    @java.lang.Override
+    public boolean getPaused() {
+      return instance.getPaused();
+    }
+    /**
+     * <pre>
+     * Whether the orreryd epic is paused, so its planner starts no turn; false for a record epic.
+     * </pre>
+     *
+     * <code>bool paused = 10 [json_name = "paused"];</code>
+     * @param value The paused to set.
+     * @return This builder for chaining.
+     */
+    public Builder setPaused(boolean value) {
+      copyOnWrite();
+      instance.setPaused(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * Whether the orreryd epic is paused, so its planner starts no turn; false for a record epic.
+     * </pre>
+     *
+     * <code>bool paused = 10 [json_name = "paused"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearPaused() {
+      copyOnWrite();
+      instance.clearPaused();
+      return this;
+    }
+
+    /**
+     * <pre>
+     * Why the orreryd epic is parked; empty when it is not parked and for a record epic.
+     * </pre>
+     *
+     * <code>string parked = 11 [json_name = "parked"];</code>
+     * @return The parked.
+     */
+    @java.lang.Override
+    public java.lang.String getParked() {
+      return instance.getParked();
+    }
+    /**
+     * <pre>
+     * Why the orreryd epic is parked; empty when it is not parked and for a record epic.
+     * </pre>
+     *
+     * <code>string parked = 11 [json_name = "parked"];</code>
+     * @return The bytes for parked.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getParkedBytes() {
+      return instance.getParkedBytes();
+    }
+    /**
+     * <pre>
+     * Why the orreryd epic is parked; empty when it is not parked and for a record epic.
+     * </pre>
+     *
+     * <code>string parked = 11 [json_name = "parked"];</code>
+     * @param value The parked to set.
+     * @return This builder for chaining.
+     */
+    public Builder setParked(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setParked(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * Why the orreryd epic is parked; empty when it is not parked and for a record epic.
+     * </pre>
+     *
+     * <code>string parked = 11 [json_name = "parked"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearParked() {
+      copyOnWrite();
+      instance.clearParked();
+      return this;
+    }
+    /**
+     * <pre>
+     * Why the orreryd epic is parked; empty when it is not parked and for a record epic.
+     * </pre>
+     *
+     * <code>string parked = 11 [json_name = "parked"];</code>
+     * @param value The bytes for parked to set.
+     * @return This builder for chaining.
+     */
+    public Builder setParkedBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setParkedBytes(value);
+      return this;
+    }
+
+    /**
+     * <pre>
+     * The orreryd epic's summary paragraph, written once from its contract; empty until it is written and for a record
+     * epic.
+     * </pre>
+     *
+     * <code>string summary = 12 [json_name = "summary"];</code>
+     * @return The summary.
+     */
+    @java.lang.Override
+    public java.lang.String getSummary() {
+      return instance.getSummary();
+    }
+    /**
+     * <pre>
+     * The orreryd epic's summary paragraph, written once from its contract; empty until it is written and for a record
+     * epic.
+     * </pre>
+     *
+     * <code>string summary = 12 [json_name = "summary"];</code>
+     * @return The bytes for summary.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getSummaryBytes() {
+      return instance.getSummaryBytes();
+    }
+    /**
+     * <pre>
+     * The orreryd epic's summary paragraph, written once from its contract; empty until it is written and for a record
+     * epic.
+     * </pre>
+     *
+     * <code>string summary = 12 [json_name = "summary"];</code>
+     * @param value The summary to set.
+     * @return This builder for chaining.
+     */
+    public Builder setSummary(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setSummary(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The orreryd epic's summary paragraph, written once from its contract; empty until it is written and for a record
+     * epic.
+     * </pre>
+     *
+     * <code>string summary = 12 [json_name = "summary"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearSummary() {
+      copyOnWrite();
+      instance.clearSummary();
+      return this;
+    }
+    /**
+     * <pre>
+     * The orreryd epic's summary paragraph, written once from its contract; empty until it is written and for a record
+     * epic.
+     * </pre>
+     *
+     * <code>string summary = 12 [json_name = "summary"];</code>
+     * @param value The bytes for summary to set.
+     * @return This builder for chaining.
+     */
+    public Builder setSummaryBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setSummaryBytes(value);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:orrery.v1.EpicsGetResponse)
   }
   @java.lang.Override
@@ -2047,10 +2836,17 @@ public  final class EpicsGetResponse extends
             io.github.joshsymonds.orrery.gen.orrery.v1.EpicNode.class,
             "buildTasks_",
             io.github.joshsymonds.orrery.gen.orrery.v1.EpicBuildTask.class,
+            "questions_",
+            io.github.joshsymonds.orrery.gen.orrery.v1.EpicQuestion.class,
+            "contract_",
+            "paused_",
+            "parked_",
+            "summary_",
           };
           java.lang.String info =
-              "\u0000\u0007\u0000\u0001\u0001\u0007\u0007\u0000\u0006\u0000\u0001\u1009\u0000\u0002" +
-              "\u001b\u0003\u001b\u0004\u001b\u0005\u001b\u0006\u001b\u0007\u001b";
+              "\u0000\f\u0000\u0001\u0001\f\f\u0000\u0007\u0000\u0001\u1009\u0000\u0002\u001b\u0003" +
+              "\u001b\u0004\u001b\u0005\u001b\u0006\u001b\u0007\u001b\b\u001b\t\u1009\u0001\n\u0007" +
+              "\u000b\u0208\f\u0208";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {
