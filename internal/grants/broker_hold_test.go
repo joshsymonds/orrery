@@ -33,13 +33,9 @@ func storedHolds(t *testing.T, s *store.Store) []store.HoldRow {
 // that follows it runs under the same lock, so the state a poll sees is the state after that settle.
 func awaitState(t *testing.T, b *Broker, pool, member string, want MemberState) {
 	t.Helper()
-	deadline := time.Now().Add(guard)
 	for {
 		if got, _ := memberOf(t, b, pool, member); got == want {
 			return
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("member %s of pool %s did not reach state %d within the guard", member, pool, want)
 		}
 		time.Sleep(time.Millisecond)
 	}

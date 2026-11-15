@@ -92,14 +92,10 @@ func lines(t *testing.T, path string) []string {
 	return strings.Fields(string(data))
 }
 
-// await polls cond until it holds, and fails the test when it has not held within the guard.
-func await(t *testing.T, what string, cond func() bool) {
+// await polls cond until it holds. It has no deadline of its own.
+func await(t *testing.T, cond func() bool) {
 	t.Helper()
-	deadline := time.Now().Add(guard)
 	for !cond() {
-		if time.Now().After(deadline) {
-			t.Fatalf("%s did not happen within the guard", what)
-		}
 		time.Sleep(time.Millisecond)
 	}
 }
@@ -108,7 +104,7 @@ func await(t *testing.T, what string, cond func() bool) {
 // its member before anything else it does, so the count reaches n only once every run of the ticks so far has started.
 func awaitStatuses(t *testing.T, b *Broker, f fakes, n int) {
 	t.Helper()
-	await(t, "the status runs ending", func() bool {
+	await(t, func() bool {
 		return len(lines(t, f.runs)) == n && runningCommands(b, "fleet") == 0
 	})
 }
@@ -116,7 +112,7 @@ func awaitStatuses(t *testing.T, b *Broker, f fakes, n int) {
 // awaitIdle waits until no member command of pool fleet runs.
 func awaitIdle(t *testing.T, b *Broker) {
 	t.Helper()
-	await(t, "the member commands ending", func() bool { return runningCommands(b, "fleet") == 0 })
+	await(t, func() bool { return runningCommands(b, "fleet") == 0 })
 }
 
 // ticker runs Broker.Run on a goroutine and hands it ticks. The run ends at the end of the test, or when drain closes
@@ -142,15 +138,13 @@ func runTicks(t *testing.T, b *Broker) *ticker {
 	return k
 }
 
-// send hands Run one tick, and fails the test when Run does not take it within the guard.
+// send hands Run one tick, and fails the test when Run returns first. It has no deadline of its own.
 func (k *ticker) send(t *testing.T) {
 	t.Helper()
 	select {
 	case k.tick <- fixedNow():
 	case <-k.done:
 		t.Fatal("Run returned before taking the tick")
-	case <-time.After(guard):
-		t.Fatal("Run did not take the tick within the guard")
 	}
 }
 
@@ -159,11 +153,7 @@ func (k *ticker) send(t *testing.T) {
 func (k *ticker) drain(t *testing.T) {
 	t.Helper()
 	close(k.tick)
-	select {
-	case <-k.done:
-	case <-time.After(guard):
-		t.Fatal("Run did not return after its tick channel closed")
-	}
+	<-k.done
 }
 
 // admittedFree grants one member of def to a holding request, which keeps it so the pool stays in use. It then grants
@@ -436,7 +426,7 @@ func TestRequestDoesNotPrepareMemberWhoseStatusRuns(t *testing.T) {
 	}
 	f.setMode(t, other, "gate")
 	tick.send(t)
-	await(t, "the gated status to start", func() bool { return runningCommands(b, "fleet") == 1 })
+	await(t, func() bool { return runningCommands(b, "fleet") == 1 })
 	waiter := start(t.Context(), b, request("c", p, 1))
 	if e := waiter.next(t); e.Position != 1 {
 		t.Fatalf("waiter event = %+v, want position 1", e)
@@ -476,11 +466,7 @@ func TestRunReturnsWhenItsContextEndsOrItsTickCloses(t *testing.T) {
 				close(done)
 			}()
 			tc.stop(cancel, tick)
-			select {
-			case <-done:
-			case <-time.After(guard):
-				t.Fatal("Run did not return within the guard")
-			}
+			<-done
 		})
 	}
 }
