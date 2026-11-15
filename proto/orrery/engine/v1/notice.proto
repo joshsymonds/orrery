@@ -29,6 +29,9 @@ message NoticeKey {
 
   // The usage limit, its kind and reset as kind@unix-seconds.
   string limit = 4;
+
+  // The alert's name.
+  string alert = 5;
 }
 
 // InAppNotice is one notice an open web page shows.

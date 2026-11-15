@@ -23,6 +23,7 @@ public  final class NoticeKey extends
     session_ = "";
     epic_ = "";
     limit_ = "";
+    alert_ = "";
   }
   public static final int PANE_FIELD_NUMBER = 1;
   private java.lang.String pane_;
@@ -289,6 +290,73 @@ public  final class NoticeKey extends
       com.google.protobuf.ByteString value) {
     checkByteStringIsUtf8(value);
     limit_ = value.toStringUtf8();
+
+  }
+
+  public static final int ALERT_FIELD_NUMBER = 5;
+  private java.lang.String alert_;
+  /**
+   * <pre>
+   * The alert's name.
+   * </pre>
+   *
+   * <code>string alert = 5 [json_name = "alert"];</code>
+   * @return The alert.
+   */
+  @java.lang.Override
+  public java.lang.String getAlert() {
+    return alert_;
+  }
+  /**
+   * <pre>
+   * The alert's name.
+   * </pre>
+   *
+   * <code>string alert = 5 [json_name = "alert"];</code>
+   * @return The bytes for alert.
+   */
+  @java.lang.Override
+  public com.google.protobuf.ByteString
+      getAlertBytes() {
+    return com.google.protobuf.ByteString.copyFromUtf8(alert_);
+  }
+  /**
+   * <pre>
+   * The alert's name.
+   * </pre>
+   *
+   * <code>string alert = 5 [json_name = "alert"];</code>
+   * @param value The alert to set.
+   */
+  private void setAlert(
+      java.lang.String value) {
+    java.util.Objects.requireNonNull(value);
+
+    alert_ = value;
+  }
+  /**
+   * <pre>
+   * The alert's name.
+   * </pre>
+   *
+   * <code>string alert = 5 [json_name = "alert"];</code>
+   */
+  private void clearAlert() {
+
+    alert_ = getDefaultInstance().getAlert();
+  }
+  /**
+   * <pre>
+   * The alert's name.
+   * </pre>
+   *
+   * <code>string alert = 5 [json_name = "alert"];</code>
+   * @param value The bytes for alert to set.
+   */
+  private void setAlertBytes(
+      com.google.protobuf.ByteString value) {
+    checkByteStringIsUtf8(value);
+    alert_ = value.toStringUtf8();
 
   }
 
@@ -669,6 +737,75 @@ public  final class NoticeKey extends
       return this;
     }
 
+    /**
+     * <pre>
+     * The alert's name.
+     * </pre>
+     *
+     * <code>string alert = 5 [json_name = "alert"];</code>
+     * @return The alert.
+     */
+    @java.lang.Override
+    public java.lang.String getAlert() {
+      return instance.getAlert();
+    }
+    /**
+     * <pre>
+     * The alert's name.
+     * </pre>
+     *
+     * <code>string alert = 5 [json_name = "alert"];</code>
+     * @return The bytes for alert.
+     */
+    @java.lang.Override
+    public com.google.protobuf.ByteString
+        getAlertBytes() {
+      return instance.getAlertBytes();
+    }
+    /**
+     * <pre>
+     * The alert's name.
+     * </pre>
+     *
+     * <code>string alert = 5 [json_name = "alert"];</code>
+     * @param value The alert to set.
+     * @return This builder for chaining.
+     */
+    public Builder setAlert(
+        java.lang.String value) {
+      copyOnWrite();
+      instance.setAlert(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The alert's name.
+     * </pre>
+     *
+     * <code>string alert = 5 [json_name = "alert"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearAlert() {
+      copyOnWrite();
+      instance.clearAlert();
+      return this;
+    }
+    /**
+     * <pre>
+     * The alert's name.
+     * </pre>
+     *
+     * <code>string alert = 5 [json_name = "alert"];</code>
+     * @param value The bytes for alert to set.
+     * @return This builder for chaining.
+     */
+    public Builder setAlertBytes(
+        com.google.protobuf.ByteString value) {
+      copyOnWrite();
+      instance.setAlertBytes(value);
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:orrery.v1.NoticeKey)
   }
   @java.lang.Override
@@ -689,10 +826,11 @@ public  final class NoticeKey extends
             "session_",
             "epic_",
             "limit_",
+            "alert_",
           };
           java.lang.String info =
-              "\u0000\u0004\u0000\u0000\u0001\u0004\u0004\u0000\u0000\u0000\u0001\u0208\u0002\u0208" +
-              "\u0003\u0208\u0004\u0208";
+              "\u0000\u0005\u0000\u0000\u0001\u0005\u0005\u0000\u0000\u0000\u0001\u0208\u0002\u0208" +
+              "\u0003\u0208\u0004\u0208\u0005\u0208";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

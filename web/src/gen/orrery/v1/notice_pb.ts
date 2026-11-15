@@ -10,7 +10,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file orrery/v1/notice.proto.
  */
 export const file_orrery_v1_notice: GenFile = /*@__PURE__*/
-  fileDesc("ChZvcnJlcnkvdjEvbm90aWNlLnByb3RvEglvcnJlcnkudjEiRwoJTm90aWNlS2V5EgwKBHBhbmUYASABKAkSDwoHc2Vzc2lvbhgCIAEoCRIMCgRlcGljGAMgASgJEg0KBWxpbWl0GAQgASgJIlwKC0luQXBwTm90aWNlEiEKA2tleRgBIAEoCzIULm9ycmVyeS52MS5Ob3RpY2VLZXkSDQoFc3RhdGUYAiABKAkSDQoFdGl0bGUYAyABKAkSDAoEYm9keRgEIAEoCSIVChNOb3RpY2VzV2F0Y2hSZXF1ZXN0InAKFE5vdGljZXNXYXRjaFJlc3BvbnNlEicKBXNob3duGAEgASgLMhYub3JyZXJ5LnYxLkluQXBwTm90aWNlSAASJQoFZW5kZWQYAiABKAsyFC5vcnJlcnkudjEuTm90aWNlS2V5SABCCAoGY2hhbmdlIjcKEk5vdGljZXNTZWVuUmVxdWVzdBIhCgNrZXkYASABKAsyFC5vcnJlcnkudjEuTm90aWNlS2V5IhUKE05vdGljZXNTZWVuUmVzcG9uc2UynAEKB05vdGljZXMSSgoFV2F0Y2gSHi5vcnJlcnkudjEuTm90aWNlc1dhdGNoUmVxdWVzdBofLm9ycmVyeS52MS5Ob3RpY2VzV2F0Y2hSZXNwb25zZTABEkUKBFNlZW4SHS5vcnJlcnkudjEuTm90aWNlc1NlZW5SZXF1ZXN0Gh4ub3JyZXJ5LnYxLk5vdGljZXNTZWVuUmVzcG9uc2ViBnByb3RvMw");
+  fileDesc("ChZvcnJlcnkvdjEvbm90aWNlLnByb3RvEglvcnJlcnkudjEiVgoJTm90aWNlS2V5EgwKBHBhbmUYASABKAkSDwoHc2Vzc2lvbhgCIAEoCRIMCgRlcGljGAMgASgJEg0KBWxpbWl0GAQgASgJEg0KBWFsZXJ0GAUgASgJIlwKC0luQXBwTm90aWNlEiEKA2tleRgBIAEoCzIULm9ycmVyeS52MS5Ob3RpY2VLZXkSDQoFc3RhdGUYAiABKAkSDQoFdGl0bGUYAyABKAkSDAoEYm9keRgEIAEoCSIVChNOb3RpY2VzV2F0Y2hSZXF1ZXN0InAKFE5vdGljZXNXYXRjaFJlc3BvbnNlEicKBXNob3duGAEgASgLMhYub3JyZXJ5LnYxLkluQXBwTm90aWNlSAASJQoFZW5kZWQYAiABKAsyFC5vcnJlcnkudjEuTm90aWNlS2V5SABCCAoGY2hhbmdlIjcKEk5vdGljZXNTZWVuUmVxdWVzdBIhCgNrZXkYASABKAsyFC5vcnJlcnkudjEuTm90aWNlS2V5IhUKE05vdGljZXNTZWVuUmVzcG9uc2UynAEKB05vdGljZXMSSgoFV2F0Y2gSHi5vcnJlcnkudjEuTm90aWNlc1dhdGNoUmVxdWVzdBofLm9ycmVyeS52MS5Ob3RpY2VzV2F0Y2hSZXNwb25zZTABEkUKBFNlZW4SHS5vcnJlcnkudjEuTm90aWNlc1NlZW5SZXF1ZXN0Gh4ub3JyZXJ5LnYxLk5vdGljZXNTZWVuUmVzcG9uc2ViBnByb3RvMw");
 
 /**
  * NoticeKey names what a notice is about. Exactly one field is set.
@@ -45,6 +45,13 @@ export type NoticeKey = Message<"orrery.v1.NoticeKey"> & {
    * @generated from field: string limit = 4;
    */
   limit: string;
+
+  /**
+   * The alert's name.
+   *
+   * @generated from field: string alert = 5;
+   */
+  alert: string;
 };
 
 /**
