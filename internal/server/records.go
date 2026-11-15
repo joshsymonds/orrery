@@ -12,6 +12,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -30,7 +31,7 @@ type epicRecord struct {
 // readEpics lists every epic under root, sorted by ID. A missing root lists nothing. Records are only read, through
 // a read-only view of root; a head that does not parse is listed with a Problem, and only an unexpected I/O failure
 // is an error.
-func readEpics(root string) ([]epicRecord, error) {
+func readEpics(root string, heads *headCache) ([]epicRecord, error) {
 	fsys := os.DirFS(root)
 	repos, err := fs.ReadDir(fsys, ".")
 	if errors.Is(err, fs.ErrNotExist) {
@@ -44,7 +45,7 @@ func readEpics(root string) ([]epicRecord, error) {
 		if !listed(repo) {
 			continue
 		}
-		found, repoErr := readRepo(root, fsys, repo.Name())
+		found, repoErr := readRepo(root, fsys, repo.Name(), heads)
 		if repoErr != nil {
 			return nil, repoErr
 		}
@@ -64,7 +65,7 @@ func listed(entry fs.DirEntry) bool {
 // two parts: the first must be a repository in the record root's listing and the second an epic in that repository's
 // listing, both by readEpics' filter. The id is never joined into a path, so an id the listings do not name, a symlink
 // or a file among them, finds nothing and reads nothing.
-func findEpic(root, id string) (epicRecord, bool, error) {
+func findEpic(root, id string, heads *headCache) (epicRecord, bool, error) {
 	repo, slug, found := strings.Cut(id, "/")
 	if !found || strings.Contains(slug, "/") {
 		return epicRecord{}, false, nil
@@ -87,7 +88,7 @@ func findEpic(root, id string) (epicRecord, bool, error) {
 	if !slices.ContainsFunc(slugs, func(entry fs.DirEntry) bool { return listed(entry) && entry.Name() == slug }) {
 		return epicRecord{}, false, nil
 	}
-	return readHead(root, fsys, repo, slug)
+	return readHead(root, fsys, repo, slug, heads)
 }
 
 // epicLive reports whether an epic is live: never when its outcome is exactly "released", otherwise when a
@@ -122,7 +123,7 @@ func recordText(raw json.RawMessage) string {
 }
 
 // readRepo lists the epics under one repository directory of root, in directory order.
-func readRepo(root string, fsys fs.FS, repo string) ([]epicRecord, error) {
+func readRepo(root string, fsys fs.FS, repo string, heads *headCache) ([]epicRecord, error) {
 	slugs, err := fs.ReadDir(fsys, repo)
 	if err != nil {
 		return nil, fmt.Errorf("read record repository: %w", err)
@@ -132,7 +133,7 @@ func readRepo(root string, fsys fs.FS, repo string) ([]epicRecord, error) {
 		if !listed(slug) {
 			continue
 		}
-		rec, ok, headErr := readHead(root, fsys, repo, slug.Name())
+		rec, ok, headErr := readHead(root, fsys, repo, slug.Name(), heads)
 		if headErr != nil {
 			return nil, headErr
 		}
@@ -144,8 +145,8 @@ func readRepo(root string, fsys fs.FS, repo string) ([]epicRecord, error) {
 }
 
 // readHead reads the head state.json of <repo>/<slug> through fsys. It reports false when the directory holds no
-// state.json.
-func readHead(root string, fsys fs.FS, repo, slug string) (epicRecord, bool, error) {
+// state.json. The head is stat'd on every call, and decoded through heads only when its size or mtime changed.
+func readHead(root string, fsys fs.FS, repo, slug string, heads *headCache) (epicRecord, bool, error) {
 	headPath := path.Join(repo, slug, "state.json")
 	info, err := fs.Stat(fsys, headPath)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -161,16 +162,21 @@ func readHead(root string, fsys fs.FS, repo, slug string) (epicRecord, bool, err
 		Dir:        filepath.Join(root, repo, slug),
 		Changed:    info.ModTime(),
 	}
-	raw, err := fs.ReadFile(fsys, headPath)
-	if err != nil {
-		return epicRecord{}, false, fmt.Errorf("read record head: %w", err)
-	}
-	outcome, ok := headOutcome(raw)
+	key := filepath.Join(rec.Dir, "state.json")
+	entry, ok := heads.lookup(key, info)
 	if !ok {
+		raw, readErr := fs.ReadFile(fsys, headPath)
+		if readErr != nil {
+			return epicRecord{}, false, fmt.Errorf("read record head: %w", readErr)
+		}
+		entry = decodeHead(raw)
+		heads.store(key, info, entry)
+	}
+	if !entry.parsed {
 		rec.Problem = headPath + ": does not parse"
 		return rec, true, nil
 	}
-	rec.Outcome = recordText(outcome)
+	rec.Outcome = entry.outcome
 	return rec, true, nil
 }
 
@@ -183,4 +189,55 @@ func headOutcome(raw []byte) (json.RawMessage, bool) {
 		return nil, false
 	}
 	return head.Outcome, true
+}
+
+// headCache holds the decode of each record state.json the epics server has read, keyed by path, so that a read
+// decodes a file again only after its size or mtime changed. It is shared by every call of an epicsServer, which
+// serves concurrent RPCs, so its methods hold mu.
+type headCache struct {
+	mu      sync.Mutex
+	entries map[string]headEntry
+}
+
+// headEntry is the decode of one state.json, parse failures included, with the size and mtime the file had when it was
+// decoded. A head fills outcome; an effort state fills tasks. parsed is false when the content did not parse.
+type headEntry struct {
+	size    int64
+	modTime time.Time
+	parsed  bool
+	outcome string
+	tasks   []taskRecord
+}
+
+// newHeadCache returns an empty headCache.
+func newHeadCache() *headCache {
+	return &headCache{entries: make(map[string]headEntry)}
+}
+
+// lookup returns the entry of the file at key when the entry was decoded at the size and mtime info reports. It
+// reports false when the file has no entry or has changed since.
+func (c *headCache) lookup(key string, info fs.FileInfo) (headEntry, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	entry, ok := c.entries[key]
+	if !ok || entry.size != info.Size() || !entry.modTime.Equal(info.ModTime()) {
+		return headEntry{}, false
+	}
+	return entry, true
+}
+
+// store records entry as the decode of the file at key, which info describes. info must be the stat taken before the
+// file was read, so that the entry is never newer than its content.
+func (c *headCache) store(key string, info fs.FileInfo, entry headEntry) {
+	entry.size = info.Size()
+	entry.modTime = info.ModTime()
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.entries[key] = entry
+}
+
+// decodeHead decodes the content of a head state.json into the entry readHead keeps.
+func decodeHead(raw []byte) headEntry {
+	outcome, ok := headOutcome(raw)
+	return headEntry{parsed: ok, outcome: recordText(outcome)}
 }
