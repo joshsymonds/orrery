@@ -18,8 +18,9 @@ import {
 import { EpicView } from "./epicview";
 import { type Followed, follow } from "./follow";
 import type { InAppNotice, NoticeKey } from "./gen/orrery/v1/notice_pb";
-import type { Pane } from "./gen/orrery/v1/orrery_pb";
+import type { HostStatusResponse, Pane } from "./gen/orrery/v1/orrery_pb";
 import { Mark } from "./mark";
+import { MetersButton, MetersPanel } from "./meters";
 import { NoticeBanner } from "./notices";
 import { type ParsedQuestion, parseQuestion } from "./question";
 import { Reader, ReaderHead } from "./reader";
@@ -89,6 +90,7 @@ const helpEntries: [string[], string][] = [
   [["1", "2", "3"], "answer the cursor's waiting question with that choice"],
   [["o"], "open or close a compaction's summary"],
   [["|"], "pin the cursor's row in a second column, or close the pin"],
+  [["m"], "open or close the host's meters"],
   [["?"], "toggle this help"],
   [["Esc"], "close this help"],
 ];
@@ -102,6 +104,7 @@ export function App({
   seenWindow,
   epics = noEpics,
   notices = [],
+  host = null,
 }: {
   rows: Row[];
   error: string;
@@ -111,12 +114,14 @@ export function App({
   seenWindow?: SeenWindow;
   epics?: EpicsView;
   notices?: InAppNotice[];
+  host?: HostStatusResponse | null;
 }) {
   const [view, setView] = useState<View>("attention");
   const [cursor, setCursor] = useState<Cursor>({ key: "", index: 0 });
   const [filter, setFilter] = useState("");
   const [helpOpen, setHelpOpen] = useState(false);
   const [open, setOpen] = useState(false);
+  const [metersOpen, setMetersOpen] = useState(false);
   const [stream, setStream] = useState<Stream | null>(null);
   // The rows the cursor has rested on, each with its own composer, so a draft waits where it was typed. A row stays
   // here while it is missing from the list, as it is for a poll whose list call failed, so its draft is not lost.
@@ -317,6 +322,7 @@ export function App({
   const heldConversation = (key: string) =>
     key === cursorRowKey ? cursorConversation : key === pinnedKey ? pinnedConversation : null;
   const toggleOpen = () => setOpen((value) => !value);
+  const toggleMeters = () => setMetersOpen((value) => !value);
 
   const moveTo = (target: number) => {
     if (flat.length === 0) {
@@ -468,6 +474,11 @@ export function App({
           setPinStream(null);
         }
         break;
+      case "m":
+        if (host !== null) {
+          toggleMeters();
+        }
+        break;
       case "?":
         setHelpOpen((open) => !open);
         break;
@@ -610,12 +621,14 @@ export function App({
               </div>
             ))}
           </div>
+          {host !== null && metersOpen && <MetersPanel stats={host.stats} />}
           <footer class="lfoot">
-            {hosts.map((host) => (
-              <span key={host} class="host">
-                {host}
+            {hosts.map((name) => (
+              <span key={name} class="host">
+                {name}
               </span>
             ))}
+            {host !== null && <MetersButton status={host} onToggle={toggleMeters} />}
             <span class="keys-hint">
               <kbd>?</kbd> keys
             </span>

@@ -17,6 +17,7 @@ import {
   type EpicsGetResponse,
   EpicsGetResponseSchema,
 } from "./gen/orrery/v1/epics_pb";
+import { type HostStatusResponse, HostStatusResponseSchema } from "./gen/orrery/v1/orrery_pb";
 import type { Row } from "./rows";
 import type { SeenClock, SeenWindow } from "./seen";
 import { installTestDom, removeTestDom } from "./testdom";
@@ -52,6 +53,7 @@ interface Props {
   clients: Clients;
   seen: Seen;
   epics?: EpicsView;
+  host?: HostStatusResponse | null;
 }
 
 // One request the fake server received. A unary call has no controller; a stream call has one until it ends.
@@ -296,7 +298,7 @@ function fixture(): Row[] {
 // fixtureCounts is what the brand shows for fixture(): one row needs you, one is working, and two are new.
 const fixtureCounts = ["st-waiting: 1 need you", "st-working: 1 working", "st-new: ✱ 2 new"];
 
-const keysHelpList = ["j", "k", "↓", "↑", "gg", "G", "a", "p", "w", "n", "x", "Enter", "e", "/", "i", "1", "2", "3", "o", "|", "?", "Esc"];
+const keysHelpList = ["j", "k", "↓", "↑", "gg", "G", "a", "p", "w", "n", "x", "Enter", "e", "/", "i", "1", "2", "3", "o", "|", "m", "?", "Esc"];
 
 async function mount(container: HTMLElement, props: Props): Promise<void> {
   await act(() => {
@@ -309,6 +311,7 @@ async function mount(container: HTMLElement, props: Props): Promise<void> {
         seenClock={props.seen.clock}
         seenWindow={props.seen.window}
         epics={props.epics}
+        host={props.host}
       />,
       container,
     );
@@ -561,6 +564,54 @@ function hostTexts(container: HTMLElement): string[] {
   return [...container.querySelectorAll(".lfoot > .host")].map((element) => element.textContent ?? "");
 }
 
+// hostStatus is the host's status the footer's meters read: its host and three stats, two of them with a percent.
+function hostStatus(): HostStatusResponse {
+  return create(HostStatusResponseSchema, {
+    host: "den",
+    stats: [
+      { label: "cpu", value: "12%", percent: 12, level: "ok" },
+      { label: "uptime", value: "3d", level: "warn" },
+      { label: "mem", value: "7.1 GB", percent: 88, level: "crit" },
+    ],
+  });
+}
+
+// footerChildren names the children of the footer in order, by class.
+function footerChildren(container: HTMLElement): string[] {
+  const footer = container.querySelector(".lfoot");
+  assert.ok(footer !== null, "the footer is rendered");
+  return [...footer.children].map((element) => element.getAttribute("class") ?? "");
+}
+
+// meterButtonShown is whether the footer draws the meters button.
+function meterButtonShown(container: HTMLElement): boolean {
+  return container.querySelector(".lfoot > .meters") !== null;
+}
+
+// meterText is the text of the element the selector picks inside the footer's meters button, or null when none is.
+function meterText(container: HTMLElement, selector: string): string | null {
+  return container.querySelector(`.lfoot > .meters ${selector}`)?.textContent ?? null;
+}
+
+// meterPanelShown is whether the panel of the host's stats is open.
+function meterPanelShown(container: HTMLElement): boolean {
+  return container.querySelector(".meters-panel") !== null;
+}
+
+// meterLabels is the label of each stat the open panel draws, in order.
+function meterLabels(container: HTMLElement): string[] {
+  return [...container.querySelectorAll(".meters-panel .meter-label")].map((element) => element.textContent ?? "");
+}
+
+// clickMeterButton clicks the footer's meters button, which the footer must draw.
+async function clickMeterButton(container: HTMLElement): Promise<void> {
+  const button = container.querySelector(".lfoot > .meters");
+  assert.ok(button, "the footer draws the meters button");
+  await act(() => {
+    button.dispatchEvent(new Event("click", { bubbles: true }));
+  });
+}
+
 // newCount is the text of the brand's new count, or null when the brand shows none.
 function newCount(container: HTMLElement): string | null {
   return container.querySelector(".brand .counts .st-new")?.textContent ?? null;
@@ -743,6 +794,54 @@ test("a session row's empty host adds nothing to the footer", () =>
       assert.deepEqual(hostTexts(container), ["laptop"]);
     },
   ));
+
+test("the footer's meters button follows the host names and reads the status's host and first stat", () =>
+  withApp({ host: hostStatus() }, (container) => {
+    assert.deepEqual(footerChildren(container), ["host", "host", "meters", "keys-hint"]);
+    assert.equal(meterText(container, ".meters-host"), "den");
+    assert.equal(meterText(container, ".meter-label"), "cpu");
+  }));
+
+test("m opens a panel with every stat, and a second m closes it", () =>
+  withApp({ host: hostStatus() }, async (container) => {
+    assert.equal(meterPanelShown(container), false);
+    await press("m");
+    assert.deepEqual(meterLabels(container), ["cpu", "uptime", "mem"]);
+    await press("m");
+    assert.equal(meterPanelShown(container), false);
+  }));
+
+test("a click on the meters button opens the panel, and a second click closes it", () =>
+  withApp({ host: hostStatus() }, async (container) => {
+    await clickMeterButton(container);
+    assert.deepEqual(meterLabels(container), ["cpu", "uptime", "mem"]);
+    await clickMeterButton(container);
+    assert.equal(meterPanelShown(container), false);
+  }));
+
+test("with a null status the footer draws no meters button, and m opens no panel, even once a status arrives", () =>
+  withApp({ host: null }, async (container, fake) => {
+    assert.equal(meterButtonShown(container), false);
+    await press("m");
+    assert.equal(meterPanelShown(container), false);
+    await mount(container, {
+      rows: fixture(),
+      error: "",
+      now,
+      clients: fake.clients,
+      seen: fake.seen,
+      host: hostStatus(),
+    });
+    assert.equal(meterButtonShown(container), true);
+    assert.equal(meterPanelShown(container), false);
+  }));
+
+test("with no status given the footer draws no meters button, and m opens no panel", () =>
+  withApp({}, async (container) => {
+    assert.equal(meterButtonShown(container), false);
+    await press("m");
+    assert.equal(meterPanelShown(container), false);
+  }));
 
 test("with the filter focused, shortcut keys do nothing and Enter blurs it", () =>
   withApp({}, async (container, fake) => {
