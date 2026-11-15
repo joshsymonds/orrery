@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"os"
 	"path"
+	"path/filepath"
 	"sort"
 	"strconv"
 )
@@ -21,8 +22,9 @@ type taskRecord struct {
 // readTasks lists the tasks of the epic whose record directory is dir: every efforts/<n>/state.json, effort number
 // ascending and file order within each. Only directories named in decimal digits are efforts. A state.json that
 // does not parse, or whose "tasks" is not an array, is reported in problems and skipped; only an unexpected I/O
-// failure is an error. An epic without an efforts directory has no tasks. Records are only read.
-func readTasks(dir string) ([]taskRecord, []string, error) {
+// failure is an error. An epic without an efforts directory has no tasks. Records are only read. Each state.json is
+// stat'd on every call, and decoded through heads only when its size or mtime changed.
+func readTasks(dir string, heads *headCache) ([]taskRecord, []string, error) {
 	fsys := os.DirFS(dir)
 	entries, err := fs.ReadDir(fsys, "efforts")
 	if errors.Is(err, fs.ErrNotExist) {
@@ -47,21 +49,39 @@ func readTasks(dir string) ([]taskRecord, []string, error) {
 	var problems []string
 	for _, candidate := range efforts {
 		statePath := path.Join("efforts", candidate.name, "state.json")
-		raw, readErr := fs.ReadFile(fsys, statePath)
-		if errors.Is(readErr, fs.ErrNotExist) {
+		info, statErr := fs.Stat(fsys, statePath)
+		if errors.Is(statErr, fs.ErrNotExist) {
 			continue
 		}
-		if readErr != nil {
-			return nil, nil, fmt.Errorf("read effort state: %w", readErr)
+		if statErr != nil {
+			return nil, nil, fmt.Errorf("stat effort state: %w", statErr)
 		}
-		found, ok := parseEffortTasks(raw, candidate.number)
+		key := filepath.Join(dir, statePath)
+		entry, ok := heads.lookup(key, info)
 		if !ok {
+			raw, readErr := fs.ReadFile(fsys, statePath)
+			if errors.Is(readErr, fs.ErrNotExist) {
+				continue
+			}
+			if readErr != nil {
+				return nil, nil, fmt.Errorf("read effort state: %w", readErr)
+			}
+			entry = decodeEffort(raw, candidate.number)
+			heads.store(key, info, entry)
+		}
+		if !entry.parsed {
 			problems = append(problems, statePath+": does not parse")
 			continue
 		}
-		tasks = append(tasks, found...)
+		tasks = append(tasks, entry.tasks...)
 	}
 	return tasks, problems, nil
+}
+
+// decodeEffort decodes the content of one effort's state.json, as effort, into the entry readTasks keeps.
+func decodeEffort(raw []byte, effort int) headEntry {
+	found, ok := parseEffortTasks(raw, effort)
+	return headEntry{parsed: ok, tasks: found}
 }
 
 // effortNumber reports the effort number an entry under efforts/ names: a directory whose name is all decimal
