@@ -157,26 +157,13 @@ func withoutEnv(env []string, name string) []string {
 	return kept
 }
 
-// waitFor polls cond until it returns nil, and fails the test with its last error at the deadline.
-func waitFor(t *testing.T, what string, cond func() error) {
+// waitFor polls cond until it returns nil; what names the condition. It has no deadline of its own: tmux runs at the
+// machine's pace, and the test binary's timeout ends a wait that never ends.
+func waitFor(t *testing.T, _ string, cond func() error) {
 	t.Helper()
-	deadline := time.Now().Add(10 * time.Second)
-	for {
-		err := cond()
-		if err == nil {
-			return
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("%s: %v", what, err)
-		}
+	for cond() != nil {
 		time.Sleep(50 * time.Millisecond)
 	}
-}
-
-// pastSecond sleeps past one whole second. Session activity is recorded in whole seconds, so a
-// session created after this sleep is strictly newer than one created before it.
-func pastSecond() {
-	time.Sleep(1100 * time.Millisecond)
 }
 
 func TestCloseArchivesClaudePaneBeforeClosingIt(t *testing.T) {
@@ -280,19 +267,19 @@ func TestCloseArchiveFailureLeavesPaneOpen(t *testing.T) {
 	}
 }
 
-func TestCloseMovesInvokingClientToNewestOtherSession(t *testing.T) {
+// TestCloseMovesInvokingClientToTheOtherSession checks that closing the pane of the session the invoking client shows
+// moves that client, and only it, to the one other session that keeps a pane, past a shell session, before the pane
+// closes. Which of several sessions is the newest is TestNewestOtherSessionPicksTheMostRecentlyActiveKeptSession's,
+// since tmux keeps activity in whole seconds.
+func TestCloseMovesInvokingClientToTheOtherSession(t *testing.T) {
 	client := closerServer(t)
 	dir := t.TempDir()
 	alphaID := newSession(t, client, "alpha", dir)
 	invoking := attach(t, client, "alpha")
-	newSession(t, client, "beta", dir)
-	second := attach(t, client, "beta")
-	pastSecond()
-	newSession(t, client, "delta", dir)
-	pastSecond()
+	beta := protocol.ShellSessionPrefix + "beta"
+	newSession(t, client, beta, dir)
+	second := attach(t, client, beta)
 	newSession(t, client, "gamma", dir)
-	pastSecond()
-	newSession(t, client, protocol.ShellSessionPrefix+"popup", dir)
 
 	plan, err := closer.PlanPane(t.Context(), client, alphaID, invoking)
 	if err != nil {
@@ -318,8 +305,8 @@ func TestCloseMovesInvokingClientToNewestOtherSession(t *testing.T) {
 	if got := clients[invoking]; got != "gamma" {
 		t.Errorf("invoking client shows %q, want gamma", got)
 	}
-	if got := clients[second]; got != "beta" {
-		t.Errorf("second client shows %q, want beta (untouched)", got)
+	if got := clients[second]; got != beta {
+		t.Errorf("second client shows %q, want %s (untouched)", got, beta)
 	}
 	if paneListed(t, client, alphaID) {
 		t.Errorf("pane %s is still open after Close", alphaID)
@@ -407,8 +394,6 @@ func TestPlanProjectCloseKeepsForeignPaneAndMovesClient(t *testing.T) {
 	shellPane := newSession(t, client, shellName, dir)
 	setSessionDir(t, client, shellName, dir)
 	foreignPane := newSession(t, client, "foreign", dir)
-	pastSecond()
-	newSession(t, client, "beta", t.TempDir())
 	invoking := attach(t, client, "alpha")
 
 	plan, err := closer.PlanProject(t.Context(), client, dir, invoking)
@@ -425,8 +410,9 @@ func TestPlanProjectCloseKeepsForeignPaneAndMovesClient(t *testing.T) {
 	if got := paneIDsOf(plan.Kept); !slices.Equal(got, []string{foreignPane}) {
 		t.Errorf("plan keeps panes %v, want [%s]", got, foreignPane)
 	}
-	if plan.MoveTo != "beta" || plan.Detach {
-		t.Fatalf("plan MoveTo=%q Detach=%t, want MoveTo beta and Detach false", plan.MoveTo, plan.Detach)
+	// The foreign session is the one other session that keeps a pane, so the invoking client moves there.
+	if plan.MoveTo != "foreign" || plan.Detach {
+		t.Fatalf("plan MoveTo=%q Detach=%t, want MoveTo foreign and Detach false", plan.MoveTo, plan.Detach)
 	}
 	if plan.Dir != dir || plan.ClientTTY != invoking {
 		t.Errorf("plan Dir=%q ClientTTY=%q, want %q and %q", plan.Dir, plan.ClientTTY, dir, invoking)
@@ -464,8 +450,8 @@ func TestPlanProjectCloseKeepsForeignPaneAndMovesClient(t *testing.T) {
 	if err != nil {
 		t.Fatalf("clientSessions: %v", err)
 	}
-	if got := clients[invoking]; got != "beta" {
-		t.Errorf("invoking client shows %q, want beta", got)
+	if got := clients[invoking]; got != "foreign" {
+		t.Errorf("invoking client shows %q, want foreign", got)
 	}
 }
 

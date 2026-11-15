@@ -77,7 +77,7 @@ func (l *flightWiringLog) String() string {
 // are in XDG_STATE_HOME/orrery/traces.
 func flightWiringEnv(t *testing.T) (func(string) string, string, string) {
 	t.Helper()
-	state := t.TempDir()
+	state := wiringStateDir(t)
 	env := map[string]string{
 		"XDG_STATE_HOME":  state,
 		"XDG_CONFIG_HOME": t.TempDir(),

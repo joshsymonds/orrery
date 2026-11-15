@@ -9,7 +9,6 @@ import (
 	"slices"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/joshsymonds/orrery/internal/archive"
 	"github.com/joshsymonds/orrery/internal/protocol"
@@ -19,9 +18,8 @@ import (
 
 // Every test tmux server starts with -f /dev/null so the user's tmux config never applies.
 const (
-	noConfig     = "/dev/null"
-	testCommand  = "sleep 300"
-	activityTick = 1100 * time.Millisecond // session_activity has one-second resolution
+	noConfig    = "/dev/null"
+	testCommand = "sleep 300"
 )
 
 // newClient returns a client for a unique private server name. The server is started only by the
@@ -128,10 +126,11 @@ func TestListSessionsReadsNameActivityAndDir(t *testing.T) {
 	}
 }
 
-func TestResolveNoArgumentPicksMostRecentNonShellSession(t *testing.T) {
+// TestResolveNoArgumentPicksTheNonShellSession checks that Resolve with no argument opens the tree in the one non-shell
+// session, past a newer shell session. Which of several sessions is the most recent is mostRecent's, checked on
+// synthetic activity times, since tmux keeps activity in whole seconds.
+func TestResolveNoArgumentPicksTheNonShellSession(t *testing.T) {
 	client := newClient(t)
-	startSession(t, client, "alpha", t.TempDir())
-	time.Sleep(activityTick)
 	startSession(t, client, "zeta", t.TempDir())
 	startSession(t, client, protocol.ShellSessionPrefix+"newest", t.TempDir())
 

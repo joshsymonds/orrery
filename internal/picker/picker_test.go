@@ -10,8 +10,11 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
+
+	"golang.org/x/sys/unix"
 
 	"github.com/joshsymonds/orrery/internal/archive"
 	"github.com/joshsymonds/orrery/internal/open"
@@ -28,10 +31,6 @@ const (
 	// paneWidth and paneHeight keep a list row on one line of the captured pane.
 	paneWidth  = "200"
 	paneHeight = "50"
-	// settle is how long a check waits for the picker to act on a key it must ignore.
-	settle = 500 * time.Millisecond
-	// waitLimit bounds every wait for the picker pane.
-	waitLimit = 20 * time.Second
 	// testText is the synthetic TEXT every test sends.
 	testText = "example text"
 )
@@ -308,13 +307,43 @@ func (f *fixture) awaitOutcome(t *testing.T) pickerOutcome {
 	return outcome
 }
 
-// assertNoOutcome fails when Run has returned, after giving the picker time to return.
-func (f *fixture) assertNoOutcome(t *testing.T) {
+// assertNoOutcome fails when Run has returned, with selected the list line the cursor is on. The picker reads its
+// keys in order, so it sends j and waits until the cursor has left selected or Run has written its outcome: once the
+// j has moved the cursor, every key queued before it has been read and acted on. It then sends k to put the cursor
+// back on selected.
+func (f *fixture) assertNoOutcome(t *testing.T, selected string) {
 	t.Helper()
-	time.Sleep(settle)
+	f.sendKeys(t, "j")
+	waitUntil(t, "the cursor to leave "+strconv.Quote(selected), func() bool {
+		if _, err := os.Stat(f.result); err == nil {
+			return true
+		}
+		return !strings.Contains(f.frame(t), selected)
+	})
 	if _, err := os.Stat(f.result); err == nil {
 		t.Fatal("Run returned before Enter on a shown choice")
 	}
+	f.sendKeys(t, "k")
+	f.waitForFrame(t, selected)
+}
+
+// awaitQueued waits until the picker pane's terminal holds n bytes of input that no read has taken, as keys typed
+// before the picker reads them are held. It asks the kernel for the terminal's input queue and reads none of it.
+func (f *fixture) awaitQueued(t *testing.T, n int) {
+	t.Helper()
+	tty := trimLine(mustRun(t, f.client, "display-message", "-p", "-t", f.pane, "#{pane_tty}"))
+	file, err := os.OpenFile(tty, os.O_RDONLY|syscall.O_NOCTTY|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		t.Fatalf("open the picker pane's terminal %s: %v", tty, err)
+	}
+	defer file.Close()
+	waitUntil(t, fmt.Sprintf("%d queued input bytes on %s", n, tty), func() bool {
+		queued, err := unix.IoctlGetInt(int(file.Fd()), unix.TIOCINQ)
+		if err != nil {
+			t.Fatalf("read the input queue of %s: %v", tty, err)
+		}
+		return queued >= n
+	})
 }
 
 // state is the sessions, the windows, and the entries under the root. A test asserts it is unchanged to show
@@ -362,13 +391,14 @@ func TestPickerDiscardsKeysTypedBeforeRender(t *testing.T) {
 	waitUntil(t, "the fake claude run to start", func() bool { return claudeRuns(t, f.claude) > 0 })
 	f.sendKeys(t, "j")
 	f.sendKeys(t, "Enter")
-	time.Sleep(settle)
+	// The j and the newline Enter becomes are a complete line queued on the terminal before the picker draws.
+	f.awaitQueued(t, 2)
 	if err := os.Remove(f.hold); err != nil {
 		t.Fatalf("release the fake claude run: %v", err)
 	}
 
 	f.waitForFrame(t, "> pane "+f.dir1+" (prompt)")
-	f.assertNoOutcome(t)
+	f.assertNoOutcome(t, "> pane "+f.dir1+" (prompt)")
 	if got := f.state(t); got != baseline {
 		t.Fatalf("state changed before Enter on a shown choice:\nbefore:\n%s\nafter:\n%s", baseline, got)
 	}
@@ -459,7 +489,7 @@ func TestPickerTextDiscardsKeysTypedBeforePrompt(t *testing.T) {
 	// The pane waits at the gate, so the j and Enter are queued before the prompt draws. Read, the j would start
 	// the text.
 	f.sendKeys(t, "j", "Enter")
-	time.Sleep(settle)
+	f.awaitQueued(t, 2)
 	writeFile(t, f.gate, "")
 
 	f.waitForFrame(t, "text:")
@@ -620,7 +650,7 @@ func TestChooseShowsActionsAndRunsNothingBeforeInput(t *testing.T) {
 	if n := claudeRuns(t, f.claude); n != 0 {
 		t.Fatalf("fake claude ran %d times before input, want none", n)
 	}
-	f.assertNoOutcome(t)
+	f.assertNoOutcome(t, "> pane "+f.actions[0].Dir)
 	if got := f.state(t); got != baseline {
 		t.Fatalf("state changed before Enter on a shown choice:\nbefore:\n%s\nafter:\n%s", baseline, got)
 	}
@@ -839,14 +869,11 @@ func installFake(t *testing.T, src, name, reply string, status int) string {
 	return bin
 }
 
-// waitUntil polls cond until it holds, failing the test when waitLimit passes.
-func waitUntil(t *testing.T, what string, cond func() bool) {
+// waitUntil polls cond until it holds; what names the condition. It has no deadline of its own: the picker, tmux and
+// the fake claude run at the machine's pace, and the test binary's timeout ends a wait that never ends.
+func waitUntil(t *testing.T, _ string, cond func() bool) {
 	t.Helper()
-	deadline := time.Now().Add(waitLimit)
 	for !cond() {
-		if time.Now().After(deadline) {
-			t.Fatalf("timed out waiting for %s", what)
-		}
 		time.Sleep(50 * time.Millisecond)
 	}
 }

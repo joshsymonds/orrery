@@ -16,6 +16,8 @@ import com.connectrpc.Code
 import io.github.joshsymonds.orrery.api.FakeOrreryServer
 import io.github.joshsymonds.orrery.api.OrreryClient
 import io.github.joshsymonds.orrery.api.RecordedRequest
+import io.github.joshsymonds.orrery.awaitUntil
+import io.github.joshsymonds.orrery.awaitUntilAfterIdle
 import io.github.joshsymonds.orrery.gen.orrery.v1.AnswerRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.AnswerResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.InterruptRequest
@@ -23,7 +25,6 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.InterruptResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.StopRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.StopResponse
 import io.github.joshsymonds.orrery.mainThreadComposeRule
-import io.github.joshsymonds.orrery.waitUntilAfterIdle
 import java.util.concurrent.atomic.AtomicInteger
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -43,7 +44,6 @@ private const val OPTION_TWO = "Synthetic two"
 private const val ANSWER_PATH = "/orrery.v1.Control/Answer"
 private const val INTERRUPT_PATH = "/orrery.v1.Control/Interrupt"
 private const val STOP_PATH = "/orrery.v1.Control/Stop"
-private const val WAIT_MS = 5_000L
 private const val NOT_ANSWERABLE = "not answerable"
 private const val STOPPED = "stopped"
 private const val NOT_SENT = "not sent"
@@ -77,7 +77,7 @@ class SessionControlsTest {
         composeRule.onNodeWithTag(REQUEST_TAG).assertIsDisplayed()
         composeRule.onNodeWithText(QUESTION).assertIsDisplayed()
         composeRule.onNodeWithTag("session-option:$OPTION_TWO").performClick()
-        composeRule.waitUntil(WAIT_MS) { answered.get() == 1 }
+        composeRule.awaitUntil { answered.get() == 1 }
 
         assertEquals(1, server.requests.size)
         val request = server.requests.single()
@@ -102,7 +102,7 @@ class SessionControlsTest {
         setCard(listOf(OPTION_ONE)) { answered.incrementAndGet() }
 
         composeRule.onNodeWithTag("session-option:$OPTION_ONE").performClick()
-        composeRule.waitUntil(WAIT_MS) {
+        composeRule.awaitUntil {
             composeRule.onAllNodesWithText(NOT_ANSWERABLE).fetchSemanticsNodes().isNotEmpty()
         }
 
@@ -117,7 +117,7 @@ class SessionControlsTest {
         setCard(listOf(OPTION_ONE)) { answered.incrementAndGet() }
 
         composeRule.onNodeWithTag("session-option:$OPTION_ONE").performClick()
-        composeRule.waitUntil(WAIT_MS) {
+        composeRule.awaitUntil {
             composeRule.onAllNodesWithText(NOT_SENT).fetchSemanticsNodes().isNotEmpty()
         }
 
@@ -148,7 +148,7 @@ class SessionControlsTest {
         setActions("working") { changed.incrementAndGet() }
 
         composeRule.onNodeWithTag(INTERRUPT_TAG).performClick()
-        composeRule.waitUntil(WAIT_MS) { changed.get() == 1 }
+        composeRule.awaitUntil { changed.get() == 1 }
 
         assertEquals(1, server.requests.size)
         val request = server.requests.single()
@@ -173,7 +173,7 @@ class SessionControlsTest {
         assertTrue(server.requests.isEmpty())
 
         composeRule.onNodeWithTag(CONFIRM_TAG).performClick()
-        composeRule.waitUntil(WAIT_MS) { changed.get() == 1 }
+        composeRule.awaitUntil { changed.get() == 1 }
 
         assertEquals(1, server.requests.size)
         val request = server.requests.single()
@@ -207,7 +207,7 @@ class SessionControlsTest {
         setActions("working")
 
         composeRule.onNodeWithTag(INTERRUPT_TAG).performClick()
-        composeRule.waitUntil(WAIT_MS) {
+        composeRule.awaitUntil {
             composeRule.onAllNodesWithText(STOPPED).fetchSemanticsNodes().isNotEmpty()
         }
 
@@ -221,7 +221,7 @@ class SessionControlsTest {
 
         composeRule.onNodeWithTag(STOP_TAG).performClick()
         composeRule.onNodeWithTag(CONFIRM_TAG).performClick()
-        composeRule.waitUntil(WAIT_MS) {
+        composeRule.awaitUntil {
             composeRule.onAllNodesWithText(STOPPED).fetchSemanticsNodes().isNotEmpty()
         }
 
@@ -234,7 +234,7 @@ class SessionControlsTest {
         setActions("working")
 
         composeRule.onNodeWithTag(INTERRUPT_TAG).performClick()
-        composeRule.waitUntil(WAIT_MS) {
+        composeRule.awaitUntil {
             composeRule.onAllNodesWithText(NOT_SENT).fetchSemanticsNodes().isNotEmpty()
         }
 
@@ -265,13 +265,13 @@ class SessionControlsTest {
         composeRule.mainClock.autoAdvance = false
 
         composeRule.onNodeWithTag(INTERRUPT_TAG).performClick()
-        composeRule.waitUntilAfterIdle(WAIT_MS) { server.requests.size == 1 }
+        composeRule.awaitUntilAfterIdle { server.requests.size == 1 }
 
         assertEquals(listOf(HapticFeedbackType.LongPress), haptic.performed)
         assertTrue("Interrupt flashes although the call failed", flashing(INTERRUPT_TAG))
 
         composeRule.mainClock.autoAdvance = true
-        composeRule.waitUntil(WAIT_MS) {
+        composeRule.awaitUntil {
             composeRule.onAllNodesWithText(NOT_SENT).fetchSemanticsNodes().isNotEmpty()
         }
         assertEquals(listOf(HapticFeedbackType.LongPress), haptic.performed)
@@ -324,13 +324,13 @@ class SessionControlsTest {
         composeRule.mainClock.autoAdvance = false
 
         composeRule.onNodeWithTag(CONFIRM_TAG).performClick()
-        composeRule.waitUntilAfterIdle(WAIT_MS) { server.requests.size == 1 }
+        composeRule.awaitUntilAfterIdle { server.requests.size == 1 }
 
         assertEquals(listOf(HapticFeedbackType.LongPress, HapticFeedbackType.LongPress), haptic.performed)
         assertTrue("Confirm stop flashes although the call failed", flashing(CONFIRM_TAG))
 
         composeRule.mainClock.autoAdvance = true
-        composeRule.waitUntil(WAIT_MS) {
+        composeRule.awaitUntil {
             composeRule.onAllNodesWithText(NOT_SENT).fetchSemanticsNodes().isNotEmpty()
         }
         assertEquals(listOf(HapticFeedbackType.LongPress, HapticFeedbackType.LongPress), haptic.performed)
@@ -345,7 +345,7 @@ class SessionControlsTest {
         composeRule.mainClock.autoAdvance = false
 
         composeRule.onNodeWithTag(CONFIRM_TAG).performClick()
-        composeRule.waitUntilAfterIdle(WAIT_MS) { server.requests.size == 1 }
+        composeRule.awaitUntilAfterIdle { server.requests.size == 1 }
         composeRule.onNodeWithTag(CONFIRM_TAG).performClick()
         composeRule.waitForIdle()
         composeRule.mainClock.advanceTimeBy(FLASH_MILLIS, ignoreFrameDuration = true)

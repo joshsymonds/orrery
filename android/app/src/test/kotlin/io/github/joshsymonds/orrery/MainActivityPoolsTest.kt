@@ -25,7 +25,6 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.robolectric.android.controller.ActivityController
 
-private const val TIMEOUT_MS = 5_000L
 private const val NOW = 1_700_000_000L
 private const val PANES_PATH = "/orrery.v1.Panes/List"
 private const val POOLS_STATUS_PATH = "/orrery.v1.Pools/Status"
@@ -94,7 +93,7 @@ class MainActivityPoolsTest {
         Robolectric.buildActivity(MainActivity::class.java).setup().also { launched += it }
 
     private fun awaitNode(matcher: SemanticsMatcher) {
-        composeRule.waitUntil(TIMEOUT_MS) {
+        composeRule.awaitUntil {
             composeRule.onAllNodes(matcher, useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()
         }
     }

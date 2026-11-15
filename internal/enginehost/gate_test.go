@@ -26,19 +26,17 @@ func gateEnv(extra ...string) []string {
 // running gate and then lets it end.
 const gateHeldScript = `echo running > "$MARKER"; until [ -e "$RELEASE" ]; do sleep 0.01; done; echo done; exit 0`
 
-// gateWaitFile polls until path exists with content and returns the trimmed content.
+// gateWaitFile polls until path exists with content and returns the trimmed content. It has no deadline of its own:
+// the gate runs at the machine's pace, and the test binary's timeout ends a wait that never ends.
 func gateWaitFile(t *testing.T, path string) string {
 	t.Helper()
-	deadline := time.Now().Add(10 * time.Second)
-	for time.Now().Before(deadline) {
+	for {
 		data, err := os.ReadFile(path)
 		if err == nil && strings.TrimSpace(string(data)) != "" {
 			return strings.TrimSpace(string(data))
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	t.Fatalf("file %s never got content", path)
-	return ""
 }
 
 // gateProcessGone reports whether pid has exited: no /proc entry, or a zombie waiting to be reaped.
@@ -371,13 +369,7 @@ func gateWaitExit(t *testing.T, dir string) holder.Exit {
 // gateWaitStarted returns the holder directory a gate's Started hook was handed.
 func gateWaitStarted(t *testing.T, started <-chan string) string {
 	t.Helper()
-	select {
-	case dir := <-started:
-		return dir
-	case <-time.After(10 * time.Second):
-		t.Fatal("the gate never reached Started")
-		return ""
-	}
+	return <-started
 }
 
 func TestGateRunsUnderAHolderAndKeepsItsExitRecord(t *testing.T) {
