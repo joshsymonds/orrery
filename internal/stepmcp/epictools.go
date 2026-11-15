@@ -13,47 +13,67 @@ import (
 	"github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1/enginev1connect"
 )
 
-const (
-	epicCreateSchema = `{"type":"object","properties":{` +
-		`"contract":{"type":"object","description":"the accepted contract in protobuf JSON field names: ` +
-		`id, repository, title, approved, intent, failures, care, additions, requirements, premises, ` +
-		`exclusions, approach, alternatives, releaseSteps, releaseThen, checks, base, gates, doneGates, ` +
-		`reviewGates. A requirement carries item, its evidence: capture, limit, artifacts, supplied, ` +
-		`conclusion and judge."},` +
-		`"decisions":{"type":"array","items":{"type":"object","properties":{` +
-		`"id":{"type":"string"},"text":{"type":"string"}},` +
-		`"required":["id","text"],"additionalProperties":false}}` +
-		`},"required":["contract"],"additionalProperties":false}`
+// epicCreateArgs is the arguments of epic_create, described for its input schema. The handler decodes the arguments
+// with protojson, which refuses an unknown key, so the struct is never decoded into.
+type epicCreateArgs struct {
+	Contract  json.RawMessage    `json:"contract"            jsonschema:"the accepted contract in protobuf JSON field names: id, repository, title, approved, intent, failures, care, additions, requirements, premises, exclusions, approach, alternatives, releaseSteps, releaseThen, checks, base, gates, doneGates, reviewGates. A requirement carries item, its evidence: capture, limit, artifacts, supplied, conclusion and judge."`
+	Decisions []epicDecisionArgs `json:"decisions,omitempty"`
+}
 
-	epicListSchema = `{"type":"object","properties":{},"required":[],"additionalProperties":false}`
+// epicDecisionArgs is one decision of epic_create's decisions.
+type epicDecisionArgs struct {
+	ID   string `json:"id"`
+	Text string `json:"text"`
+}
 
-	epicAnswerSchema = `{"type":"object","properties":{` +
-		`"epicId":{"type":"string"},"id":{"type":"string"},"text":{"type":"string"},` +
-		`"question":{"type":"string","description":"the Q<n> the answer names; omit for a note"}},` +
-		`"required":["epicId","id","text"],"additionalProperties":false}`
-)
+// epicListArgs is the arguments of epic_list, which takes none.
+type epicListArgs struct{}
+
+// epicAnswerArgs is the arguments of epic_answer, described for its input schema as epicCreateArgs is.
+type epicAnswerArgs struct {
+	EpicID   string `json:"epicId"`
+	ID       string `json:"id"`
+	Text     string `json:"text"`
+	Question string `json:"question,omitempty" jsonschema:"the Q<n> the answer names; omit for a note"`
+}
 
 // epicTools returns the epic tools, each calling epics.
-func epicTools(epics enginev1connect.EpicsClient) []Tool {
+func epicTools(epics enginev1connect.EpicsClient) ([]Tool, error) {
+	createInput, err := argumentSchema[epicCreateArgs](nil)
+	if err != nil {
+		return nil, err
+	}
+	idInput, err := argumentSchema[idArgs](nil)
+	if err != nil {
+		return nil, err
+	}
+	listInput, err := argumentSchema[epicListArgs](nil)
+	if err != nil {
+		return nil, err
+	}
+	answerInput, err := argumentSchema[epicAnswerArgs](nil)
+	if err != nil {
+		return nil, err
+	}
 	return []Tool{
 		{
 			Name: "epic_create",
 			Description: "Create an epic from an accepted contract. decisions seeds the epic's recorded " +
 				"decisions. Returns the stored epic. A refusal names the field that failed.",
-			InputSchema: json.RawMessage(epicCreateSchema),
+			InputSchema: createInput,
 			Handler:     epicCreateHandler(epics),
 		},
 		{
 			Name: "epic_get",
 			Description: "Return a stored epic by id: its contract, phase, timestamps, decisions, whether it is " +
 				"paused and why it is parked, and its planner turns, tasks and questions.",
-			InputSchema: json.RawMessage(idSchema),
+			InputSchema: idInput,
 			Handler:     epicGetHandler(epics),
 		},
 		{
 			Name:        "epic_list",
 			Description: "List the stored epics as summaries: id, repository, title, phase, created and changed.",
-			InputSchema: json.RawMessage(epicListSchema),
+			InputSchema: listInput,
 			Handler:     epicListHandler(epics),
 		},
 		{
@@ -62,14 +82,14 @@ func epicTools(epics enginev1connect.EpicsClient) []Tool {
 				"a note, which answers no question and returns a warning naming the questions still open. " +
 				"A decision id already recorded with the same text returns the stored decision; other text " +
 				"under that id is refused. Returns the decision and the warning.",
-			InputSchema: json.RawMessage(epicAnswerSchema),
+			InputSchema: answerInput,
 			Handler:     epicAnswerHandler(epics),
 		},
 		{
 			Name: "epic_pause",
 			Description: "Pause an epic by id, so the planner starts no turn for it. Returns the stored epic. " +
 				"An epic that is already paused is refused.",
-			InputSchema: json.RawMessage(idSchema),
+			InputSchema: idInput,
 			Handler:     epicPauseHandler(epics),
 		},
 		{
@@ -78,24 +98,24 @@ func epicTools(epics enginev1connect.EpicsClient) []Tool {
 				"Returns the stored epic, the ids of the steps resumed, and the ids of the steps a full step cap " +
 				"left limited. An epic that is not paused and holds no limited task step is refused. A park " +
 				"stays; epic_retry ends a park.",
-			InputSchema: json.RawMessage(idSchema),
+			InputSchema: idInput,
 			Handler:     epicResumeHandler(epics),
 		},
 		{
 			Name: "epic_stop",
 			Description: "Pause an epic by id and stop the step of its running turn. Returns the stored epic. " +
 				"An epic with no running turn is refused, and nothing is stopped.",
-			InputSchema: json.RawMessage(idSchema),
+			InputSchema: idInput,
 			Handler:     epicStopHandler(epics),
 		},
 		{
 			Name: "epic_retry",
 			Description: "End the park of an epic by id, so the planner starts its turns again. Returns the stored " +
 				"epic. An epic that is not parked is refused.",
-			InputSchema: json.RawMessage(idSchema),
+			InputSchema: idInput,
 			Handler:     epicRetryHandler(epics),
 		},
-	}
+	}, nil
 }
 
 // CallEpicTool runs the epic tool named name with args, as the MCP server runs it, and returns its result. A name that
@@ -103,11 +123,15 @@ func epicTools(epics enginev1connect.EpicsClient) []Tool {
 func CallEpicTool(
 	ctx context.Context, epics enginev1connect.EpicsClient, name string, args json.RawMessage,
 ) (ToolResult, error) {
-	for _, tool := range epicTools(epics) {
+	tools, err := epicTools(epics)
+	if err != nil {
+		return ToolResult{}, err
+	}
+	for _, tool := range tools {
 		if tool.Name == name {
-			result, err := tool.Handler(ctx, Call{Arguments: args})
-			if err != nil {
-				return ToolResult{}, fmt.Errorf("run %s: %w", name, err)
+			result, callErr := tool.Handler(ctx, Call{Arguments: args})
+			if callErr != nil {
+				return ToolResult{}, fmt.Errorf("run %s: %w", name, callErr)
 			}
 			return result, nil
 		}

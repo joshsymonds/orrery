@@ -8,10 +8,12 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"reflect"
 	"slices"
 	"time"
 
 	"connectrpc.com/connect"
+	"github.com/google/jsonschema-go/jsonschema"
 
 	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
 	"github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1/enginev1connect"
@@ -21,31 +23,6 @@ import (
 // MaxWait is the longest a step_wait call holds open. A longer wait is clamped to it, so
 // the call returns inside the time Claude Code allows a tool call and the caller asks again.
 const MaxWait = 25 * time.Minute
-
-const (
-	startSchema = `{"type":"object","properties":{` +
-		`"agent":{"type":"string"},` +
-		`"prompt":{"type":"string"},` +
-		`"workspace":{"type":"string"},` +
-		`"schema":{"type":"object","description":"JSON schema of the step's return value"},` +
-		`"revision":{"type":"string"},` +
-		`"doneValue":{"type":"string"},` +
-		`"readOnly":{"type":"boolean"},` +
-		`"ownedPaths":{"type":"array","items":{"type":"string"}},` +
-		`"gateName":{"type":"string"},` +
-		`"gatesFile":{"type":"string"},` +
-		`"epic":{"type":"string"},` +
-		`"task":{"type":"string"}` +
-		`},"required":["prompt","workspace"],"additionalProperties":false}`
-
-	idSchema = `{"type":"object","properties":{"id":{"type":"string"}},` +
-		`"required":["id"],"additionalProperties":false}`
-
-	waitSchema = `{"type":"object","properties":{` +
-		`"ids":{"type":"array","items":{"type":"string"},"minItems":1},` +
-		`"timeoutSeconds":{"type":"integer","minimum":0}` +
-		`},"required":["ids"],"additionalProperties":false}`
-)
 
 // NewServer returns the MCP server "orrery" whose step tools call steps, whose epic tools call epics and whose evidence
 // tools call evidence.
@@ -65,7 +42,19 @@ func newServer(
 	evidence enginev1connect.EvidenceClient,
 	clock rpcretry.Clock,
 ) (*Server, error) {
-	tools := slices.Concat(stepTools(steps, clock), epicTools(epics), evidenceTools(evidence))
+	stepList, err := stepTools(steps, clock)
+	if err != nil {
+		return nil, fmt.Errorf("new orrery server: %w", err)
+	}
+	epicList, err := epicTools(epics)
+	if err != nil {
+		return nil, fmt.Errorf("new orrery server: %w", err)
+	}
+	evidenceList, err := evidenceTools(evidence)
+	if err != nil {
+		return nil, fmt.Errorf("new orrery server: %w", err)
+	}
+	tools := slices.Concat(stepList, epicList, evidenceList)
 	names := make(map[string]bool, len(tools))
 	for _, tool := range tools {
 		if names[tool.Name] {
@@ -77,64 +66,82 @@ func newServer(
 }
 
 // stepTools returns the step tools, each calling steps and timing its retries on clock.
-func stepTools(steps enginev1connect.StepsClient, clock rpcretry.Clock) []Tool {
+func stepTools(steps enginev1connect.StepsClient, clock rpcretry.Clock) ([]Tool, error) {
+	startInput, err := argumentSchema[startArgs](nil)
+	if err != nil {
+		return nil, err
+	}
+	idInput, err := argumentSchema[idArgs](nil)
+	if err != nil {
+		return nil, err
+	}
+	waitInput, err := argumentSchema[waitArgs](func(root *jsonschema.Schema) {
+		root.Properties["ids"].MinItems = new(1)
+		root.Properties["timeoutSeconds"] = &jsonschema.Schema{Type: "integer", Minimum: new(0.0)}
+	})
+	if err != nil {
+		return nil, err
+	}
 	return []Tool{
 		{
 			Name:        "step_start",
 			Description: "Start a step: an agent working in a workspace. Returns the step id.",
-			InputSchema: json.RawMessage(startSchema),
+			InputSchema: startInput,
 			Handler:     startHandler(steps, clock),
 		},
 		{
 			Name:        "step_status",
 			Description: "Report a step's current state by id.",
-			InputSchema: json.RawMessage(idSchema),
+			InputSchema: idInput,
 			Handler:     statusHandler(steps, clock),
 		},
 		{
 			Name:        "step_stop",
 			Description: "Stop a running step by id.",
-			InputSchema: json.RawMessage(idSchema),
+			InputSchema: idInput,
 			Handler:     stopHandler(steps, clock),
 		},
 		{
 			Name:        "step_resume",
 			Description: "Resume a step a usage limit holds by id.",
-			InputSchema: json.RawMessage(idSchema),
+			InputSchema: idInput,
 			Handler:     resumeHandler(steps, clock),
 		},
 		{
 			Name: "step_wait",
 			Description: "Wait until one of the given steps ends, or until timeoutSeconds passes " +
 				"(at most 1500 seconds). Returns the ended step, or null with every step's state at timeout.",
-			InputSchema: json.RawMessage(waitSchema),
+			InputSchema: waitInput,
 			Handler:     waitHandler(steps, clock),
 		},
-	}
+	}, nil
 }
 
+// startArgs is the arguments of step_start. A step's workspace and prompt are required; the rest are optional.
 type startArgs struct {
-	Agent      string          `json:"agent"`
+	Agent      string          `json:"agent,omitempty"`
 	Prompt     string          `json:"prompt"`
 	Workspace  string          `json:"workspace"`
-	Schema     json.RawMessage `json:"schema"`
-	Revision   string          `json:"revision"`
-	DoneValue  string          `json:"doneValue"`
-	ReadOnly   bool            `json:"readOnly"`
-	OwnedPaths []string        `json:"ownedPaths"`
-	GateName   string          `json:"gateName"`
-	GatesFile  string          `json:"gatesFile"`
-	Epic       string          `json:"epic"`
-	Task       string          `json:"task"`
+	Schema     json.RawMessage `json:"schema,omitempty"     jsonschema:"JSON schema of the step's return value"`
+	Revision   string          `json:"revision,omitempty"`
+	DoneValue  string          `json:"doneValue,omitempty"`
+	ReadOnly   bool            `json:"readOnly,omitempty"`
+	OwnedPaths []string        `json:"ownedPaths,omitempty"`
+	GateName   string          `json:"gateName,omitempty"`
+	GatesFile  string          `json:"gatesFile,omitempty"`
+	Epic       string          `json:"epic,omitempty"`
+	Task       string          `json:"task,omitempty"`
 }
 
+// idArgs is the arguments of a tool that takes one id, the step tools and the epic tools alike.
 type idArgs struct {
 	ID string `json:"id"`
 }
 
+// waitArgs is the arguments of step_wait. TimeoutSeconds is a pointer so that an omitted wait differs from a zero one.
 type waitArgs struct {
 	IDs            []string `json:"ids"`
-	TimeoutSeconds *float64 `json:"timeoutSeconds"`
+	TimeoutSeconds *float64 `json:"timeoutSeconds,omitempty"`
 }
 
 // decodeArguments decodes a tool's arguments, refusing unknown keys and mistyped values.
@@ -145,6 +152,63 @@ func decodeArguments(raw json.RawMessage, into any) error {
 		return fmt.Errorf("decode arguments: %w", err)
 	}
 	return nil
+}
+
+// argumentSchema returns the input schema of the argument struct T as JSON text, inferred from its fields. Inference
+// makes each slice and pointer nullable and reads a json.RawMessage as an array of bytes, so argumentSchema types them
+// as the tools have always listed them. adjust, when not nil, first sets the properties inference cannot type.
+func argumentSchema[T any](adjust func(root *jsonschema.Schema)) (json.RawMessage, error) {
+	root, err := jsonschema.For[T](&jsonschema.ForOptions{
+		TypeSchemas: map[reflect.Type]*jsonschema.Schema{
+			reflect.TypeFor[json.RawMessage](): {Type: "object"},
+		},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("infer input schema: %w", err)
+	}
+	if adjust != nil {
+		adjust(root)
+	}
+	nonNullable(root)
+	text, err := json.Marshal(root)
+	if err != nil {
+		return nil, fmt.Errorf("encode input schema: %w", err)
+	}
+	// Inference omits an empty required list and an empty properties object, which every listed schema carries.
+	var object map[string]any
+	if err = json.Unmarshal(text, &object); err != nil {
+		return nil, fmt.Errorf("encode input schema: %w", err)
+	}
+	if _, ok := object["properties"]; !ok {
+		object["properties"] = map[string]any{}
+	}
+	if _, ok := object["required"]; !ok {
+		object["required"] = []string{}
+	}
+	out, err := json.Marshal(object)
+	if err != nil {
+		return nil, fmt.Errorf("encode input schema: %w", err)
+	}
+	return out, nil
+}
+
+// nonNullable sets the type of schema, and of each schema under its properties and items, to the type it lists besides
+// null.
+func nonNullable(schema *jsonschema.Schema) {
+	if len(schema.Types) > 0 {
+		for _, typ := range schema.Types {
+			if typ != "null" {
+				schema.Type = typ
+			}
+		}
+		schema.Types = nil
+	}
+	for _, property := range schema.Properties {
+		nonNullable(property)
+	}
+	if schema.Items != nil {
+		nonNullable(schema.Items)
+	}
 }
 
 // requireString reports an error naming field when value is empty.
