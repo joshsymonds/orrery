@@ -105,7 +105,7 @@ func TestRecordEvidenceCaptureStoresStderrBesideLog(t *testing.T) {
 }
 
 // TestCheckoutTailsMigrationDownAndUp removes the checkout columns of steps and the stderr columns of evidence_runs
-// with the Down of 00022_checkout_tails.sql, and Up restores them.
+// with the Down of 00023_checkout_tails.sql, and Up restores them.
 func TestCheckoutTailsMigrationDownAndUp(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -122,8 +122,8 @@ func TestCheckoutTailsMigrationDownAndUp(t *testing.T) {
 		t.Fatalf("create goose provider: %v", err)
 	}
 
-	if _, err := provider.DownTo(ctx, 21); err != nil {
-		t.Fatalf("DownTo 21: %v", err)
+	if _, err := provider.DownTo(ctx, 22); err != nil {
+		t.Fatalf("DownTo 22: %v", err)
 	}
 	if hasAny(tableColumns(t, s, "steps"), stepColumns...) {
 		t.Fatalf("steps columns after Down = %v, want no checkout columns", tableColumns(t, s, "steps"))

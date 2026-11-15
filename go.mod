@@ -9,6 +9,7 @@ require (
 	github.com/charmbracelet/x/ansi v0.11.7
 	github.com/charmbracelet/x/term v0.2.2
 	github.com/pressly/goose/v3 v3.29.0
+	go.yaml.in/yaml/v3 v3.0.5
 	google.golang.org/protobuf v1.36.12
 	modernc.org/sqlite v1.61.0
 )

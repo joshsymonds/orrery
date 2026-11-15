@@ -49,8 +49,8 @@ func (s *runningAtStore) runningWhenStored() []bool {
 
 // TestReconcileStopsUnattachableHolderThenDrainsIt crashes orreryd during the stalled turn, then stops the holder with
 // SIGSTOP, so its hello never comes and Reattach cannot attach it. The restart stops that live holder first, then drains
-// it as a gone holder: its child ends, the text it spooled unrecorded is stored while the holder is gone, and the row is
-// interrupted.
+// it as a gone holder: its child ends, the text it spooled unrecorded is stored while the holder is gone, and the turn
+// is resumed on its Claude session.
 func TestReconcileStopsUnattachableHolderThenDrainsIt(t *testing.T) {
 	t.Parallel()
 	rig := newCrashRig(t, textTrigger("fake stalling 1"), false)
@@ -86,6 +86,8 @@ func TestReconcileStopsUnattachableHolderThenDrainsIt(t *testing.T) {
 		}
 	})
 
+	// The resumed turn stalls too, so the row stays working while the test reads it.
+	stallNextPrompt(t, dir)
 	spy := &textSpy{inner: rig.store}
 	ordered := &runningAtStore{t: t, inner: spy, pids: pids}
 	writer := NewWriter(WriterConfig{Applier: ordered, Tick: 5 * time.Millisecond})
@@ -104,21 +106,16 @@ func TestReconcileStopsUnattachableHolderThenDrainsIt(t *testing.T) {
 	}
 	waitHolderEnded(t, pids)
 	gateWaitGone(t, pid)
-	requireDirGone(t, holderDir(t, rig.root, id))
-	if got := spy.storedTexts(); !slices.Equal(got, []string{"fake stalling 1"}) {
-		t.Fatalf("texts stored after the restart = %q, want the stalled text once", got)
+	requireDirPresent(t, holderDir(t, rig.root, id))
+	requireResumed(t, rig.store, rig.path, id, dir, sink)
+	waitUntil(t, "the resumed turn's text", func() bool { return len(spy.storedTexts()) == 2 })
+	if got := spy.storedTexts(); !slices.Equal(got, []string{"fake stalling 1", "fake stalling 2"}) {
+		t.Fatalf("texts stored after the restart = %q, want the stalled text once, then the resumed text", got)
 	}
 	if got := ordered.runningWhenStored(); len(got) == 0 || slices.Contains(got, true) {
 		t.Fatalf("holder running when its text was stored = %v, want stored only once it had ended", got)
 	}
-	requireEngineRows(t, rig.store, map[string]restartRow{
-		id: {state: "interrupted", reason: restartedReason},
-	})
-	if n := countRows(t, rig.path, "engine_text"); n != 0 {
-		t.Fatalf("unfinished text rows after the restart = %d, want 0", n)
-	}
-	want := Notice{Session: id, Dir: dir, State: "interrupted", Body: restartedReason}
-	if got := sink.got(); len(got) != 1 || got[0] != want {
-		t.Fatalf("notices = %+v, want exactly [%+v]", got, want)
+	if n := countRows(t, rig.path, "engine_text"); n != 1 {
+		t.Fatalf("unfinished text rows after the restart = %d, want the resumed turn's 1", n)
 	}
 }

@@ -212,6 +212,10 @@ func (f failingStore) HolderPrompts(context.Context, string) ([]store.HolderProm
 	return nil, f.err
 }
 
+func (f failingStore) HolderPromptsAfterTurnEnd(context.Context, string) (int, error) {
+	return 0, f.err
+}
+
 func TestReconcileReturnsReadError(t *testing.T) {
 	t.Parallel()
 	errRead := errors.New("read failed")

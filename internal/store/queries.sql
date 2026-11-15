@@ -169,6 +169,15 @@ WHERE events.session_id = sqlc.arg(id) AND events.kind = 'engine_prompt' AND eve
   AND events.seq > (SELECT sessions.prompts_from FROM sessions WHERE sessions.id = sqlc.arg(id))
 ORDER BY events.seq;
 
+-- name: CountHolderPromptsAfterTurnEnd :one
+SELECT COUNT(*) FROM events
+WHERE events.session_id = sqlc.arg(id) AND events.kind = 'engine_prompt' AND events.write_id <> ''
+  AND events.seq > (SELECT sessions.prompts_from FROM sessions WHERE sessions.id = sqlc.arg(id))
+  AND events.seq > (
+      SELECT CAST(COALESCE(MAX(turns.seq), 0) AS INTEGER) FROM events AS turns
+      WHERE turns.session_id = sqlc.arg(id) AND turns.kind = 'engine_turn_ended'
+  );
+
 -- name: InsertEnginePromptFailed :exec
 INSERT INTO engine_prompt_failed (session_id, prompt_id, reason) VALUES (?, ?, ?)
 ON CONFLICT (session_id, prompt_id) DO NOTHING;
@@ -315,8 +324,9 @@ DELETE FROM pushed_limit_notices WHERE limit_key = ?;
 SELECT * FROM pushed_limit_notices ORDER BY limit_key;
 
 -- name: InsertEpic :exec
-INSERT INTO epics (id, repository, base, title, approved, intent, care, approach, release_then, checks, phase, created, changed)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+INSERT INTO epics (id, repository, base, title, approved, intent, care, approach, release_then, checks, phase, created,
+    changed, workflow, workflow_text, workflow_sha256)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 -- name: CountEpic :one
 SELECT COUNT(*) FROM epics WHERE id = ?;
@@ -396,6 +406,12 @@ SELECT * FROM epic_gate_lists WHERE epic = ? AND list = 'done' ORDER BY position
 
 -- name: ListEpicReviewGates :many
 SELECT * FROM epic_gate_lists WHERE epic = ? AND list = 'review' ORDER BY position;
+
+-- name: InsertEpicWorkflowNode :exec
+INSERT INTO epic_workflow_nodes (epic, position, id, parent, kind) VALUES (?, ?, ?, ?, ?);
+
+-- name: ListEpicWorkflowNodes :many
+SELECT * FROM epic_workflow_nodes WHERE epic = ? ORDER BY position;
 
 -- name: InsertEpicTrigger :exec
 INSERT INTO epic_triggers (epic, id, cause, state, turn, created) VALUES (?, ?, ?, ?, ?, ?);

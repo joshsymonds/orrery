@@ -117,6 +117,23 @@ func (q *Queries) CountEpicQuestionsOfTurn(ctx context.Context, arg CountEpicQue
 	return column_1, err
 }
 
+const countHolderPromptsAfterTurnEnd = `-- name: CountHolderPromptsAfterTurnEnd :one
+SELECT COUNT(*) FROM events
+WHERE events.session_id = ?1 AND events.kind = 'engine_prompt' AND events.write_id <> ''
+  AND events.seq > (SELECT sessions.prompts_from FROM sessions WHERE sessions.id = ?1)
+  AND events.seq > (
+      SELECT CAST(COALESCE(MAX(turns.seq), 0) AS INTEGER) FROM events AS turns
+      WHERE turns.session_id = ?1 AND turns.kind = 'engine_turn_ended'
+  )
+`
+
+func (q *Queries) CountHolderPromptsAfterTurnEnd(ctx context.Context, id string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countHolderPromptsAfterTurnEnd, id)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countMemberGrants = `-- name: CountMemberGrants :one
 SELECT COUNT(*) FROM grant_members WHERE member = ?
 `
@@ -447,7 +464,7 @@ func (q *Queries) GetEngineSession(ctx context.Context, id string) (Session, err
 }
 
 const getEpic = `-- name: GetEpic :one
-SELECT id, repository, title, approved, intent, care, approach, release_then, checks, phase, created, changed, paused, parked, retried, base, branch FROM epics WHERE id = ?
+SELECT id, repository, title, approved, intent, care, approach, release_then, checks, phase, created, changed, paused, parked, retried, base, branch, workflow, workflow_text, workflow_sha256 FROM epics WHERE id = ?
 `
 
 func (q *Queries) GetEpic(ctx context.Context, id string) (Epic, error) {
@@ -471,6 +488,9 @@ func (q *Queries) GetEpic(ctx context.Context, id string) (Epic, error) {
 		&i.Retried,
 		&i.Base,
 		&i.Branch,
+		&i.Workflow,
+		&i.WorkflowText,
+		&i.WorkflowSha256,
 	)
 	return i, err
 }
@@ -854,24 +874,28 @@ func (q *Queries) InsertEngineSession(ctx context.Context, arg InsertEngineSessi
 }
 
 const insertEpic = `-- name: InsertEpic :exec
-INSERT INTO epics (id, repository, base, title, approved, intent, care, approach, release_then, checks, phase, created, changed)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO epics (id, repository, base, title, approved, intent, care, approach, release_then, checks, phase, created,
+    changed, workflow, workflow_text, workflow_sha256)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 type InsertEpicParams struct {
-	ID          string
-	Repository  string
-	Base        string
-	Title       string
-	Approved    string
-	Intent      string
-	Care        string
-	Approach    string
-	ReleaseThen string
-	Checks      string
-	Phase       string
-	Created     int64
-	Changed     int64
+	ID             string
+	Repository     string
+	Base           string
+	Title          string
+	Approved       string
+	Intent         string
+	Care           string
+	Approach       string
+	ReleaseThen    string
+	Checks         string
+	Phase          string
+	Created        int64
+	Changed        int64
+	Workflow       string
+	WorkflowText   string
+	WorkflowSha256 string
 }
 
 func (q *Queries) InsertEpic(ctx context.Context, arg InsertEpicParams) error {
@@ -889,6 +913,9 @@ func (q *Queries) InsertEpic(ctx context.Context, arg InsertEpicParams) error {
 		arg.Phase,
 		arg.Created,
 		arg.Changed,
+		arg.Workflow,
+		arg.WorkflowText,
+		arg.WorkflowSha256,
 	)
 	return err
 }
@@ -1369,6 +1396,29 @@ func (q *Queries) InsertEpicTurnDecision(ctx context.Context, arg InsertEpicTurn
 		arg.Turn,
 		arg.Position,
 		arg.Text,
+	)
+	return err
+}
+
+const insertEpicWorkflowNode = `-- name: InsertEpicWorkflowNode :exec
+INSERT INTO epic_workflow_nodes (epic, position, id, parent, kind) VALUES (?, ?, ?, ?, ?)
+`
+
+type InsertEpicWorkflowNodeParams struct {
+	Epic     string
+	Position int64
+	ID       string
+	Parent   string
+	Kind     string
+}
+
+func (q *Queries) InsertEpicWorkflowNode(ctx context.Context, arg InsertEpicWorkflowNodeParams) error {
+	_, err := q.db.ExecContext(ctx, insertEpicWorkflowNode,
+		arg.Epic,
+		arg.Position,
+		arg.ID,
+		arg.Parent,
+		arg.Kind,
 	)
 	return err
 }
@@ -2523,8 +2573,41 @@ func (q *Queries) ListEpicTurns(ctx context.Context, epic string) ([]EpicTurn, e
 	return items, nil
 }
 
+const listEpicWorkflowNodes = `-- name: ListEpicWorkflowNodes :many
+SELECT epic, position, id, parent, kind FROM epic_workflow_nodes WHERE epic = ? ORDER BY position
+`
+
+func (q *Queries) ListEpicWorkflowNodes(ctx context.Context, epic string) ([]EpicWorkflowNode, error) {
+	rows, err := q.db.QueryContext(ctx, listEpicWorkflowNodes, epic)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []EpicWorkflowNode
+	for rows.Next() {
+		var i EpicWorkflowNode
+		if err := rows.Scan(
+			&i.Epic,
+			&i.Position,
+			&i.ID,
+			&i.Parent,
+			&i.Kind,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listEpics = `-- name: ListEpics :many
-SELECT id, repository, title, approved, intent, care, approach, release_then, checks, phase, created, changed, paused, parked, retried, base, branch FROM epics ORDER BY id
+SELECT id, repository, title, approved, intent, care, approach, release_then, checks, phase, created, changed, paused, parked, retried, base, branch, workflow, workflow_text, workflow_sha256 FROM epics ORDER BY id
 `
 
 func (q *Queries) ListEpics(ctx context.Context) ([]Epic, error) {
@@ -2554,6 +2637,9 @@ func (q *Queries) ListEpics(ctx context.Context) ([]Epic, error) {
 			&i.Retried,
 			&i.Base,
 			&i.Branch,
+			&i.Workflow,
+			&i.WorkflowText,
+			&i.WorkflowSha256,
 		); err != nil {
 			return nil, err
 		}
@@ -2569,7 +2655,7 @@ func (q *Queries) ListEpics(ctx context.Context) ([]Epic, error) {
 }
 
 const listEpicsWithTurns = `-- name: ListEpicsWithTurns :many
-SELECT id, repository, title, approved, intent, care, approach, release_then, checks, phase, created, changed, paused, parked, retried, base, branch FROM epics
+SELECT id, repository, title, approved, intent, care, approach, release_then, checks, phase, created, changed, paused, parked, retried, base, branch, workflow, workflow_text, workflow_sha256 FROM epics
 WHERE EXISTS (SELECT 1 FROM epic_turns WHERE epic_turns.epic = epics.id)
 ORDER BY epics.id
 `
@@ -2601,6 +2687,9 @@ func (q *Queries) ListEpicsWithTurns(ctx context.Context) ([]Epic, error) {
 			&i.Retried,
 			&i.Base,
 			&i.Branch,
+			&i.Workflow,
+			&i.WorkflowText,
+			&i.WorkflowSha256,
 		); err != nil {
 			return nil, err
 		}
