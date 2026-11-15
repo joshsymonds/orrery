@@ -196,16 +196,17 @@ func openStalledWatch(t *testing.T, url string) (*watch, net.Conn, string) {
 	return stalled, conn, conn.LocalAddr().String()
 }
 
-// openHeldStall opens, on a server that holds the stalled connection's write deadline, a Watch from seq 0 through a
-// client that never reads, and returns once the server's send to it is blocked. It returns the stream, the client's
-// connection, the address the server's closed channel names it by, the channel, and the listener that holds it.
+// openHeldStall opens, on a server that holds the write deadlines of the connections it accepts, a Watch from seq 0
+// through a client that never reads, and returns once the server's send to it is blocked. The hold stays on, so a
+// connection accepted later is held as well: its deadlines are never applied, and no send to a client that reads can
+// miss its deadline however slowly the machine runs. It returns the stream, the client's connection, the address the
+// server's closed channel names it by, the channel, and the listener that holds it.
 func openHeldStall(t *testing.T, path string) (*watch, net.Conn, string, <-chan string, *observedListener) {
 	t.Helper()
 	url, closed, obs := startConvDeadlineServer(t, deadlineHandler(t, path, deadlineSendTimeout))
 	obs.setHold(true)
 	stalled, conn, addr := openStalledWatch(t, url)
 	waitBlockedSend(t, obs)
-	obs.setHold(false)
 	return stalled, conn, addr, closed, obs
 }
 
