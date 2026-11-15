@@ -9,20 +9,21 @@ import (
 	"github.com/joshsymonds/orrery/internal/store/sqlcgen"
 )
 
-// PushedRow is the last push of one pane, one session, one epic or one usage limit. Exactly one of Pane, Session,
-// Epic and Limit is set: a pane row has an empty Session, Epic and Limit, a session row an empty Pane, Epic and Limit,
-// an epic row an empty Pane, Session and Limit, and a limit row an empty Pane, Session and Epic. Time is the unix
-// second of the push.
+// PushedRow is the last push of one pane, one session, one epic, one usage limit or one alert. Exactly one of Pane,
+// Session, Epic, Limit and Alert is set: a pane row has an empty Session, Epic, Limit and Alert, a session row an empty
+// Pane, Epic, Limit and Alert, an epic row an empty Pane, Session, Limit and Alert, a limit row an empty Pane, Session,
+// Epic and Alert, and an alert row an empty Pane, Session, Epic and Limit. Time is the unix second of the push.
 type PushedRow struct {
 	Pane    string
 	Session string
 	Epic    string
 	Limit   string
+	Alert   string
 	Time    int64
 }
 
-// PutPushed inserts the row for row's pane, session, epic or limit, or replaces the time of the row already stored
-// under that key.
+// PutPushed inserts the row for row's pane, session, epic, limit or alert, or replaces the time of the row already
+// stored under that key.
 func (s *Store) PutPushed(ctx context.Context, row PushedRow) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
 		if row.Epic != "" {
@@ -38,6 +39,14 @@ func (s *Store) PutPushed(ctx context.Context, row PushedRow) error {
 				LimitKey: row.Limit, Time: row.Time,
 			}); err != nil {
 				return fmt.Errorf("put pushed limit notice %q: %w", row.Limit, err)
+			}
+			return nil
+		}
+		if row.Alert != "" {
+			if err := queries.UpsertPushedAlertNotice(ctx, sqlcgen.UpsertPushedAlertNoticeParams{
+				Alert: row.Alert, Time: row.Time,
+			}); err != nil {
+				return fmt.Errorf("put pushed alert notice %q: %w", row.Alert, err)
 			}
 			return nil
 		}
@@ -82,9 +91,19 @@ func (s *Store) DeletePushedLimit(ctx context.Context, limit string) error {
 	})
 }
 
+// DeletePushedAlert removes the row for alert. An alert that is not stored is not an error.
+func (s *Store) DeletePushedAlert(ctx context.Context, alert string) error {
+	return s.write(ctx, func(queries *sqlcgen.Queries) error {
+		if err := queries.DeletePushedAlertNotice(ctx, alert); err != nil {
+			return fmt.Errorf("delete pushed alert notice %q: %w", alert, err)
+		}
+		return nil
+	})
+}
+
 // Pushed returns every stored push: the pane and session rows ordered by pane, then session, then the epic rows
-// ordered by epic, then the limit rows ordered by limit. The three tables are read in one read transaction, so they
-// come from one snapshot.
+// ordered by epic, then the limit rows ordered by limit, then the alert rows ordered by alert. The four tables are
+// read in one read transaction, so they come from one snapshot.
 func (s *Store) Pushed(ctx context.Context) ([]PushedRow, error) {
 	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
@@ -103,10 +122,14 @@ func (s *Store) Pushed(ctx context.Context) ([]PushedRow, error) {
 	if err != nil {
 		return nil, errors.Join(fmt.Errorf("list pushed limit notices: %w", err), tx.Rollback())
 	}
+	alerts, err := queries.ListPushedAlertNotices(ctx)
+	if err != nil {
+		return nil, errors.Join(fmt.Errorf("list pushed alert notices: %w", err), tx.Rollback())
+	}
 	if err = tx.Commit(); err != nil {
 		return nil, fmt.Errorf("end pushed read: %w", err)
 	}
-	out := make([]PushedRow, 0, len(rows)+len(epics)+len(limits))
+	out := make([]PushedRow, 0, len(rows)+len(epics)+len(limits)+len(alerts))
 	for _, row := range rows {
 		out = append(out, PushedRow{Pane: row.Pane, Session: row.Session, Time: row.Time})
 	}
@@ -115,6 +138,9 @@ func (s *Store) Pushed(ctx context.Context) ([]PushedRow, error) {
 	}
 	for _, row := range limits {
 		out = append(out, PushedRow{Limit: row.LimitKey, Time: row.Time})
+	}
+	for _, row := range alerts {
+		out = append(out, PushedRow{Alert: row.Alert, Time: row.Time})
 	}
 	return out, nil
 }

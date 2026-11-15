@@ -381,6 +381,11 @@ type PendingNoticeID struct {
 	High int64
 }
 
+type PushedAlertNotice struct {
+	Alert string
+	Time  int64
+}
+
 type PushedEpicNotice struct {
 	Epic string
 	Time int64

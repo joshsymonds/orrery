@@ -328,6 +328,16 @@ DELETE FROM pushed_limit_notices WHERE limit_key = ?;
 -- name: ListPushedLimitNotices :many
 SELECT * FROM pushed_limit_notices ORDER BY limit_key;
 
+-- name: UpsertPushedAlertNotice :exec
+INSERT INTO pushed_alert_notices (alert, time) VALUES (?, ?)
+ON CONFLICT (alert) DO UPDATE SET time = excluded.time;
+
+-- name: DeletePushedAlertNotice :exec
+DELETE FROM pushed_alert_notices WHERE alert = ?;
+
+-- name: ListPushedAlertNotices :many
+SELECT * FROM pushed_alert_notices ORDER BY alert;
+
 -- name: InsertToldLimitStep :exec
 INSERT INTO told_limit_steps (limit_key, step) VALUES (?, ?)
 ON CONFLICT (limit_key, step) DO NOTHING;
