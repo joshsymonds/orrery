@@ -169,6 +169,9 @@ type options struct {
 	// limitTicks is a test seam: when set, the limit notices check at each value it delivers in place of every
 	// limitTick, and production leaves it nil.
 	limitTicks <-chan time.Time
+	// dueNow is a test seam: the clock the due pass reads to decide which limited steps are due. Production leaves it
+	// nil, which is time.Now. A test whose steps carry fixed reset dates sets it, so the real date never makes them due.
+	dueNow func() time.Time
 	// flowTicks is a test seam: the path the flow appends a line to after each pass, and each SIGUSR1 starts a pass in
 	// place of the flow's five-second ticks. Production leaves it "".
 	flowTicks string
@@ -792,7 +795,7 @@ func startSessions(
 		host.startNodeChecks(ctx, st, stateDir, opts.holderScope, logger)
 		host.startFlow(ctx, st, router, opts.attentionTicks, opts.flowTicks, getenv, resolve, stateDir, logger)
 		host.startLimits(ctx, st, router, opts.limitTicks, logger)
-		host.startDue(ctx, st, logger)
+		host.startDue(ctx, st, opts.dueNow, logger)
 		host.startIdle(ctx)
 	}
 	ln, err := enginehost.Listen(protocol.SessionSocketPath(opts.socket))
@@ -1145,14 +1148,18 @@ func (h *sessionHost) startIdle(ctx context.Context) {
 	}()
 }
 
-// startDue resumes the due rows over st every limitTick until stop, and once when it starts. Its steps are the host's
-// steps, which startSessions has re-adopted before it starts the pass.
-func (h *sessionHost) startDue(ctx context.Context, st *store.Store, logger *slog.Logger) {
+// startDue resumes the due rows over st every limitTick until stop, and once when it starts, by the clock now, or
+// time.Now when now is nil. Its steps are the host's steps, which startSessions has re-adopted before it starts the
+// pass.
+func (h *sessionHost) startDue(ctx context.Context, st *store.Store, now func() time.Time, logger *slog.Logger) {
+	if now == nil {
+		now = time.Now
+	}
 	ticker := time.NewTicker(limitTick)
 	due := enginehost.NewDuePass(enginehost.DuePassConfig{
 		Store:  st,
 		Steps:  h.steps,
-		Now:    time.Now,
+		Now:    now,
 		Tick:   ticker.C,
 		Logger: logger,
 	})
