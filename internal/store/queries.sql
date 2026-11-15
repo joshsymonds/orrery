@@ -351,9 +351,9 @@ DELETE FROM told_limit_steps WHERE limit_key = ?;
 SELECT * FROM told_limit_steps ORDER BY limit_key, step;
 
 -- name: InsertEpic :exec
-INSERT INTO epics (id, repository, base, title, approved, intent, care, approach, release_then, checks, phase, created,
-    changed, workflow, workflow_text, workflow_sha256)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+INSERT INTO epics (id, repository, base, stored_base, title, approved, intent, care, approach, release_then, checks,
+    phase, created, changed, workflow, workflow_text, workflow_sha256)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 -- name: CountEpic :one
 SELECT COUNT(*) FROM epics WHERE id = ?;
@@ -375,6 +375,15 @@ UPDATE epics SET changed = ? WHERE id = ?;
 
 -- name: SetEpicBranch :exec
 UPDATE epics SET branch = ? WHERE id = ?;
+
+-- name: MoveEpicStoredBase :exec
+UPDATE epics SET stored_base = ?, candidate = '' WHERE id = ?;
+
+-- name: SetEpicCandidate :exec
+UPDATE epics SET candidate = ? WHERE id = ?;
+
+-- name: SetEpicPhase :exec
+UPDATE epics SET phase = ? WHERE id = ?;
 
 -- name: InsertEpicFailure :exec
 INSERT INTO epic_failures (epic, position, id, text, rating, response) VALUES (?, ?, ?, ?, ?, ?);
@@ -467,6 +476,20 @@ WHERE epic = ? AND path = ? AND attempt = ? AND state = 'running' AND refs_check
 UPDATE epic_node_runs SET state = 'parked', outcome = ?, output = ?
 WHERE epic = ? AND path = ? AND attempt = ? AND state = 'running';
 
+-- name: ClaimEpicNodeRunWork :execrows
+UPDATE epic_node_runs SET revision = ?, refs = ?, result = ?
+WHERE epic = ? AND path = ? AND attempt = ? AND state = 'running' AND revision = '';
+
+-- name: EndEpicNodeRunAttempt :execrows
+UPDATE epic_node_runs SET state = 'ended', outcome = ?, ended = ?, output = ?
+WHERE epic = ? AND path = ? AND attempt = ? AND state = 'running';
+
+-- name: GetEpicNodeRun :one
+SELECT * FROM epic_node_runs WHERE epic = ? AND path = ?;
+
+-- name: CountRunningEpicNodeRun :one
+SELECT CAST(COUNT(*) AS INTEGER) FROM epic_node_runs WHERE epic = ? AND path = ? AND state = 'running';
+
 -- name: RetryEpicNode :execrows
 UPDATE epic_node_runs SET state = 'running', attempt = attempt + 1, outcome = '', output = '', revision = '',
     refs = '', refs_checked = 0, result = '', ended = 0
@@ -486,6 +509,9 @@ INSERT INTO epic_triggers (epic, id, cause, state, turn, created) VALUES (?, ?, 
 -- name: InsertEpicTriggerOnce :exec
 INSERT INTO epic_triggers (epic, id, cause, state, turn, created) VALUES (?, ?, ?, ?, ?, ?)
 ON CONFLICT (epic, id) DO NOTHING;
+
+-- name: CountEpicTrigger :one
+SELECT CAST(COUNT(*) AS INTEGER) FROM epic_triggers WHERE epic = ? AND id = ?;
 
 -- name: InsertEpicDecision :exec
 INSERT INTO epic_decisions (epic, seq, client_id, text, time, question) VALUES (?, ?, ?, ?, ?, ?);
@@ -565,6 +591,10 @@ WHERE epic = sqlc.arg(epic) AND seq = sqlc.arg(seq) AND status = 'open'
 
 -- name: SetEpicTaskStatus :exec
 UPDATE epic_tasks SET status = sqlc.arg(status) WHERE epic = sqlc.arg(epic) AND seq = sqlc.arg(seq);
+
+-- name: ClaimEpicTaskBatch :exec
+UPDATE epic_tasks SET batch = sqlc.arg(batch)
+WHERE epic = sqlc.arg(epic) AND seq = sqlc.arg(seq) AND status = 'done' AND (batch = '' OR batch = sqlc.arg(batch));
 
 -- name: InsertEpicTaskReview :exec
 INSERT INTO epic_task_reviews (epic, task, attempt, position, gate, step, verdict) VALUES (?, ?, ?, ?, ?, ?, ?);

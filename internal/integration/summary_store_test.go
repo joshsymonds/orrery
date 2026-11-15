@@ -5,11 +5,11 @@ import (
 	"encoding/json"
 	"io"
 	"net"
-	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/joshsymonds/orrery/internal/exectest"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/store"
 	"github.com/joshsymonds/orrery/internal/store/sqlcgen"
@@ -37,17 +37,25 @@ printf 'summary: example summary\nlabel: example label\n'
 // the mirror lock. The wait has no deadline of its own: the sync's store write has no bound.
 func (f *storeFixture) hookAndWait(t *testing.T, hook map[string]any) {
 	t.Helper()
+	sendHookFrame(t, f.socket, f.pane, f.project, hook)
+}
+
+// sendHookFrame sends hook for pane, run in cwd, straight to the orreryd on socket as the hook command would, and
+// returns once orreryd closes the connection, which it does after it has applied the frame and synced the pane. It
+// spawns no orrery process, for a test whose subject is not the hook command. The wait has no deadline of its own.
+func sendHookFrame(t *testing.T, socket, pane, cwd string, hook map[string]any) {
+	t.Helper()
 	payload, err := json.Marshal(hook)
 	if err != nil {
 		t.Fatalf("encode hook: %v", err)
 	}
 	var dialer net.Dialer
-	conn, err := dialer.DialContext(t.Context(), "unix", f.socket)
+	conn, err := dialer.DialContext(t.Context(), "unix", socket)
 	if err != nil {
-		t.Fatalf("dial %s: %v", f.socket, err)
+		t.Fatalf("dial %s: %v", socket, err)
 	}
 	defer conn.Close()
-	frame := protocol.HookFrame{Hook: payload, TmuxPane: f.pane, Cwd: f.project, AnthropicBaseURL: examplePatchbayURL}
+	frame := protocol.HookFrame{Hook: payload, TmuxPane: pane, Cwd: cwd, AnthropicBaseURL: examplePatchbayURL}
 	if err = protocol.WriteFrame(conn, frame); err != nil {
 		t.Fatalf("write hook frame: %v", err)
 	}
@@ -67,6 +75,7 @@ func (f *storeFixture) waitForPaneID(t *testing.T) {
 		case <-t.Context().Done():
 			t.Fatalf("pane %s never had an %s", f.pane, protocol.OptionID)
 		case <-ticker.C:
+			stopIfFailed(t)
 		}
 	}
 }
@@ -90,6 +99,7 @@ func (f *storeFixture) waitForSummaryRow(t *testing.T, db *sql.DB, pane, summary
 			t.Fatalf("pane %s row never held summary %q and label %q: row %+v (found %t)",
 				pane, summary, label, got, ok)
 		case <-ticker.C:
+			stopIfFailed(t)
 		}
 	}
 }
@@ -97,9 +107,7 @@ func (f *storeFixture) waitForSummaryRow(t *testing.T, db *sql.DB, pane, summary
 func TestSummaryReachesRowAndEvents(t *testing.T) {
 	t.Parallel()
 	f := newStoreFixture(t)
-	if err := os.WriteFile(f.fakeClaude, []byte(gatedFakeClaudeScript), 0o700); err != nil {
-		t.Fatalf("write gated fake claude: %v", err)
-	}
+	exectest.WriteFile(t, f.fakeClaude, []byte(gatedFakeClaudeScript), 0o700)
 	daemon := f.startOrreryd(t)
 	// A sync waits at most 200 ms for a store still opening, or for the mirror lock, and is then dropped. So the
 	// summarizer's sync must find the store open and the lock free: the hook follows the store-open line and the first

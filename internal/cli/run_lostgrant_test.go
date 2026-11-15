@@ -16,10 +16,10 @@ import (
 )
 
 // lostGrantScript is the command the lost-grant tests run. Under grant-term it is stopScript's stoppable command, which
-// prints a ready line once its trap is set and exits on SIGTERM. Under any other grant it prints the grant and the
-// builds members it was granted, and exits 3.
+// prints a ready line once it ignores SIGTERM, then prints term and exits 0 on SIGTERM. Under any other grant it prints
+// the grant and the builds members it was granted, and exits 3.
 const lostGrantScript = `case "$ORRERY_GRANT" in
-grant-term) trap 'echo term; exit 0' TERM; echo "ready $$"; read -r line ;;
+grant-term) ` + termWatch + `echo "ready $$"; wait $watch; echo term; exit 0 ;;
 *) echo "rerun $ORRERY_GRANT $ORRERY_POOL_BUILDS"; exit 3 ;;
 esac`
 
@@ -78,12 +78,12 @@ func TestRunLostGrantStopsCommandWhileReclaimWaits(t *testing.T) {
 	lines := outputLines(r)
 	errW, stderr := stderrFile(t)
 	status := runAsync(context.Background(), lostConfig(t, socket, w, errW, stdinR))
-	pid := readyPID(t, nextLine(t, lines))
+	pid := readyPID(t, nextLine(t, lines, status))
 	close(ready)
 
 	// The stream ends with no stop, and the reclaim queues at position 1. CMD must exit on SIGTERM while the reclaim
 	// still waits, so the gate stays closed until CMD is gone.
-	awaitStopRequests(t, pools, 2)
+	awaitStopRequests(t, pools, 2, status)
 	waitGone(t, pid)
 	close(gate)
 	if got := awaitStatus(t, status); got != 3 {
@@ -122,7 +122,7 @@ func TestRunLostGrantRerunsUnderNewGrant(t *testing.T) {
 	lines := outputLines(r)
 	errW, stderr := stderrFile(t)
 	status := runAsync(context.Background(), lostConfig(t, socket, w, errW, stdinR))
-	nextLine(t, lines)
+	nextLine(t, lines, status)
 	close(ready)
 
 	if got := awaitStatus(t, status); got != 3 {
@@ -159,7 +159,7 @@ func TestRunLostGrantReclaimsAgainWhenQueuedStreamEnds(t *testing.T) {
 	lines := outputLines(r)
 	errW, _ := stderrFile(t)
 	status := runAsync(context.Background(), lostConfig(t, socket, w, errW, stdinR))
-	nextLine(t, lines)
+	nextLine(t, lines, status)
 	close(ready)
 
 	if got := awaitStatus(t, status); got != 3 {

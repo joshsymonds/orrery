@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/store"
+	"github.com/joshsymonds/orrery/internal/waittest"
 )
 
 // stateTrigger accepts a batch that sets an engine row to state. A crashApplier that refuses it leaves the row at its
@@ -95,11 +96,11 @@ func requireResumed(t *testing.T, s *store.Store, path, id, dir string, sink *fa
 	if got := sink.got(); len(got) != 1 || got[0] != want {
 		t.Fatalf("notices after the restart = %+v, want exactly [%+v]", got, want)
 	}
-	waitUntil(t, "the fake claude to start with --resume session_1", func() bool {
+	waittest.Until(t, nil, "the fake claude to start with --resume session_1", func() bool {
 		starts := fakeStarts(t, dir)
 		return len(starts) > 0 && strings.Contains(starts[len(starts)-1], "--resume session_1")
 	})
-	waitUntil(t, "the fake claude to read Resume working.", func() bool {
+	waittest.Until(t, nil, "the fake claude to read Resume working.", func() bool {
 		return stdinLinesWith(t, dir, "Resume working.") == 1
 	})
 }
@@ -282,7 +283,7 @@ func TestDrainOfTurnEndInSpoolIsNotResumed(t *testing.T) {
 		t.Fatalf("Start: %v", err)
 	}
 	// The store refuses the turn's end, so the holder spools it unrecorded and the row stays working.
-	waitUntil(t, "the store refuses the turn's end", rig.crash.isRefusing)
+	waitUntil(t, engineOf(rig.manager), "the store refuses the turn's end", rig.crash.isRefusing)
 	pid := fakePID(t, dir)
 	pids := holderPids(t, holderDir(t, rig.root, id))
 	rig.manager.Close()
@@ -323,7 +324,7 @@ func TestDrainOfOpenQuestionInSpoolIsNotResumed(t *testing.T) {
 		t.Fatalf("Start: %v", err)
 	}
 	// The store refuses the open question, so the holder spools it unrecorded and the row stays working.
-	waitUntil(t, "the store refuses the open question", rig.crash.isRefusing)
+	waitUntil(t, engineOf(rig.manager), "the store refuses the open question", rig.crash.isRefusing)
 	pid := fakePID(t, dir)
 	pids := holderPids(t, holderDir(t, rig.root, id))
 	rig.manager.Close()

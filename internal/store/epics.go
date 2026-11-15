@@ -35,6 +35,8 @@ type EpicRow struct {
 	ID          string
 	Repository  string
 	Base        string
+	StoredBase  string
+	Candidate   string
 	Branch      string
 	Title       string
 	Approved    string
@@ -172,10 +174,11 @@ func (s *Store) CreateEpic(ctx context.Context, row EpicRow) error {
 			return fmt.Errorf("epic %s: %w", row.ID, ErrEpicExists)
 		}
 		if err = queries.InsertEpic(ctx, sqlcgen.InsertEpicParams{
-			ID: row.ID, Repository: row.Repository, Base: row.Base, Title: row.Title, Approved: row.Approved,
-			Intent: row.Intent, Care: row.Care, Approach: row.Approach, ReleaseThen: row.ReleaseThen,
-			Checks: row.Checks, Phase: row.Phase, Created: row.Created.Unix(), Changed: row.Changed.Unix(),
-			Workflow: row.Workflow.Name, WorkflowText: row.Workflow.Text, WorkflowSha256: row.Workflow.SHA256,
+			ID: row.ID, Repository: row.Repository, Base: row.Base, StoredBase: row.Base, Title: row.Title,
+			Approved: row.Approved, Intent: row.Intent, Care: row.Care, Approach: row.Approach,
+			ReleaseThen: row.ReleaseThen, Checks: row.Checks, Phase: row.Phase, Created: row.Created.Unix(),
+			Changed: row.Changed.Unix(), Workflow: row.Workflow.Name, WorkflowText: row.Workflow.Text,
+			WorkflowSha256: row.Workflow.SHA256,
 		}); err != nil {
 			return fmt.Errorf("insert epic %s: %w", row.ID, err)
 		}
@@ -759,6 +762,8 @@ func epicHeadOf(head sqlcgen.Epic) EpicRow {
 		ID:          head.ID,
 		Repository:  head.Repository,
 		Base:        head.Base,
+		StoredBase:  head.StoredBase,
+		Candidate:   head.Candidate,
 		Branch:      head.Branch,
 		Title:       head.Title,
 		Approved:    head.Approved,

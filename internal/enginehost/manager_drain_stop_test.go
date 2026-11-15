@@ -15,15 +15,28 @@ import (
 	"github.com/joshsymonds/orrery/internal/exectest"
 	"github.com/joshsymonds/orrery/internal/holder"
 	"github.com/joshsymonds/orrery/internal/store"
+	"github.com/joshsymonds/orrery/internal/waittest"
 )
 
-// stubbornClaudePath returns the path of a claude that ignores SIGTERM and then runs the fake claude. The ignored signal
-// survives the exec, so the holder that stops this claude waits out the child's grace before it kills it, and the stop
-// of the session takes that long. The script is written into a directory of the test.
+// stubbornTermed and stubbornRelease are the files, in a stubborn claude's working directory, that it makes when the
+// stop's SIGTERM reaches it and that it waits for before it exits.
+const (
+	stubbornTermed  = "stubborn.termed"
+	stubbornRelease = "stubborn.release"
+)
+
+// stubbornClaudePath returns the path of a claude that runs the fake claude as its child and outlives a stop until the
+// test releases it: on SIGTERM it makes stubbornTermed and exits only once stubbornRelease exists. The holder that stops
+// it waits for it to exit, so the stop of the session lasts until the release. The script is written into a directory
+// of the test.
 func stubbornClaudePath(t *testing.T) string {
 	t.Helper()
 	quoted := "'" + strings.ReplaceAll(fakeClaudePath(t), "'", `'\''`) + "'"
-	script := fmt.Sprintf("#!/bin/sh\ntrap '' TERM\nexec %s \"$@\"\n", quoted)
+	script := fmt.Sprintf("#!/bin/sh\n"+
+		"trap ': > %[2]s; while [ ! -e %[3]s ]; do sleep 0.01; done; exit 143' TERM\n"+
+		"exec 3<&0\n"+
+		"%[1]s \"$@\" <&3 3<&- &\n"+
+		"wait $!\n", quoted, stubbornTermed, stubbornRelease)
 	path := filepath.Join(t.TempDir(), "claude")
 	exectest.WriteFile(t, path, []byte(script), 0o700)
 	return path
@@ -58,10 +71,10 @@ func newClaudeManager(
 }
 
 // TestAwaitStoppingWaitsForRetiredHolderRemoval holds the turn end of a one-version-older holder in the store, so its
-// session is retired at the turn end and its stop starts. The stubborn claude ignores that stop's SIGTERM, so the holder
-// runs on for the child's grace. The hold then opens, so the pump ends at once. awaitStopping must still wait for the
-// stop: when it returns, the old holder has ended and its directory is gone. A Say that waits then starts a new holder
-// in the same directory, which stays and answers it.
+// session is retired at the turn end and its stop starts. The stubborn claude outlives that stop's SIGTERM until the test
+// releases it, so the holder runs on. The hold then opens, so the pump ends at once. awaitStopping must still wait for
+// the stop: it has not returned while the claude runs on, and when it returns, the old holder has ended and its
+// directory is gone. A Say that waits then starts a new holder in the same directory, which stays and answers it.
 func TestAwaitStoppingWaitsForRetiredHolderRemoval(t *testing.T) {
 	t.Parallel()
 	s, path := openStore(t)
@@ -95,11 +108,27 @@ func TestAwaitStoppingWaitsForRetiredHolderRemoval(t *testing.T) {
 	}
 
 	releaseHeldTurn(t, dir)
-	waitUntil(t, "the turn end to retire session "+id, func() bool {
+	waitUntil(t, engineOf(first, restarted), "the turn end to retire session "+id, func() bool {
 		return !slices.Contains(restarted.Live(), id)
 	})
 	hold.open()
-	if err := restarted.awaitStopping(t.Context(), id); err != nil {
+	stopped := make(chan error, 1)
+	go func() { stopped <- restarted.awaitStopping(t.Context(), id) }()
+	ended, stopResult := waittest.Closed(stopped)
+	termed := filepath.Join(dir, stubbornTermed)
+	waittest.Until(t, ended, "the stop's SIGTERM to the old holder's claude", func() bool {
+		_, statErr := os.Stat(termed)
+		return statErr == nil
+	})
+	select {
+	case <-ended:
+		t.Fatalf("awaitStopping returned %v while the old holder's claude still ran", <-stopResult)
+	default:
+	}
+	if err := os.WriteFile(filepath.Join(dir, stubbornRelease), nil, 0o600); err != nil {
+		t.Fatalf("release the stubborn claude: %v", err)
+	}
+	if err := <-stopResult; err != nil {
 		t.Fatalf("awaitStopping: %v", err)
 	}
 
@@ -121,9 +150,16 @@ func TestAwaitStoppingWaitsForRetiredHolderRemoval(t *testing.T) {
 	if err := restarted.Say(t.Context(), SayRequest{ID: id, Text: "again"}); err != nil {
 		t.Fatalf("Say after the stop: %v", err)
 	}
-	waitHistory(t, path, id, "the reply to the Say that waited", func(h store.EngineHistory) bool {
-		return h.State == "done" && hasBlock(t, h, "fake reply 2")
-	})
+	waitHistory(
+		t,
+		engineOf(first, restarted),
+		path,
+		id,
+		"the reply to the Say that waited",
+		func(h store.EngineHistory) bool {
+			return h.State == "done" && hasBlock(t, h, "fake reply 2")
+		},
+	)
 	requireDirPresent(t, oldDir)
 	if starts := fakeStarts(t, dir); len(starts) != 2 || !strings.Contains(starts[1], "--resume session_1") {
 		t.Fatalf("fake claude starts = %q, want a second with --resume session_1", starts)

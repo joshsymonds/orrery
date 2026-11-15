@@ -216,10 +216,10 @@ func TestPidsHolderRecordsItsOwnAndItsChildsPidsWithStartTimes(t *testing.T) {
 	// The pid goes to a temporary file renamed into place, so the file never appears empty.
 	cfg.Child = shChild(t,
 		"echo $$ > "+pidsChildPidFile+".tmp && mv "+pidsChildPidFile+".tmp "+pidsChildPidFile+"; exec sleep 60")
-	startHolder(t.Context(), t, cfg)
+	run := startHolder(t.Context(), t, cfg)
 	recordPath := filepath.Join(cfg.Dir, PidsName)
-	awaitFile(t, recordPath)
-	awaitFile(t, filepath.Join(cfg.Child.Dir, pidsChildPidFile))
+	awaitFile(t, run.done, recordPath)
+	awaitFile(t, run.done, filepath.Join(cfg.Child.Dir, pidsChildPidFile))
 
 	childPid := readChildPid(t, filepath.Join(cfg.Child.Dir, pidsChildPidFile))
 	holderPid := os.Getpid()

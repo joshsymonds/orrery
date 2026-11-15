@@ -162,7 +162,7 @@ func (f *stepNudgeFixture) settle(t *testing.T, id string) {
 	if run == nil {
 		t.Fatalf("step %s has no running loop", id)
 	}
-	stepStartAwait(t, "the loop to take the turn end", func() bool {
+	stepStartAwait(t, engineOf(f.steps, run), "the loop to take the turn end", func() bool {
 		return len(run.returns) == 0
 	})
 	if err := run.do(t.Context(), func(context.Context) error { return nil }); err != nil {
@@ -221,7 +221,7 @@ func TestStepsNudgeHeldTurnEndedResumesWithTextAndNextTurnEndIsARound(t *testing
 
 	f.beginTurn(t)
 	f.endTurn(t, false)
-	stepStartAwait(t, "the step to end", func() bool { return f.status(t, id).End != "" })
+	stepStartAwait(t, engineOf(f.steps), "the step to end", func() bool { return f.status(t, id).End != "" })
 	if end := f.status(t, id).End; end != stepLoopEndDone {
 		t.Errorf("end after the next turn end = %q, want an ordinary round ending %q", end, stepLoopEndDone)
 	}
@@ -301,7 +301,7 @@ func TestStepsNudgeRunningTurnInterruptsAndContinuesInPlaceOfRound(t *testing.T)
 
 			f.beginTurn(t)
 			f.endTurn(t, false)
-			stepStartAwait(t, "the step to end", func() bool { return f.status(t, id).End != "" })
+			stepStartAwait(t, engineOf(f.steps), "the step to end", func() bool { return f.status(t, id).End != "" })
 			if end := f.status(t, id).End; end != stepLoopEndDone {
 				t.Errorf("end after the next turn end = %q, want %q", end, stepLoopEndDone)
 			}
@@ -357,7 +357,7 @@ func TestStepsNudgeInterruptErrorLeavesNothingPending(t *testing.T) {
 
 	f.endTurn(t, false)
 	wantContinued(t, f, nil)
-	stepStartAwait(t, "the step to end", func() bool { return f.status(t, id).End != "" })
+	stepStartAwait(t, engineOf(f.steps), "the step to end", func() bool { return f.status(t, id).End != "" })
 	if end := f.status(t, id).End; end != stepLoopEndDone {
 		t.Errorf("end = %q, want the clean turn end to be an ordinary round ending %q", end, stepLoopEndDone)
 	}
@@ -469,7 +469,7 @@ func TestStepsNudgeAndHoldDuringGateRefusedPromptly(t *testing.T) {
 	linked := stepWorktreeTestAddLinked(t, stepGitTestRepo(t))
 	pidFile := filepath.Join(t.TempDir(), "gate.pid")
 	id := f.startGated(t, linked, pidFile)
-	stepCtlAwaitGatePid(t, pidFile)
+	stepCtlAwaitGatePid(t, engineOf(f.steps), pidFile)
 
 	calls := []struct {
 		name string
@@ -538,7 +538,7 @@ func TestStepRunLoopingVerdictStillNudgesAfterOwnerNudge(t *testing.T) {
 	}
 
 	f.turnEnd(6*time.Minute, session.TurnEnded{IsError: true})
-	watchLoopWait(t, "the watchdog continue", func() bool {
+	watchLoopWait(t, f.done, "the watchdog continue", func() bool {
 		return len(sessions.continuedTexts()) == 2
 	})
 	watchLoopWantContains(t, sessions.continuedTexts()[1], "periodic", watchLoopDoing)

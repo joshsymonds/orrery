@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/store"
+	"github.com/joshsymonds/orrery/internal/waittest"
 )
 
 // requireNothingSent checks that session id was sent no prompt and that its row is still state. A Resume that went on to
@@ -50,11 +51,11 @@ func TestResumeSendsResumePromptToInterruptedSession(t *testing.T) {
 	if texts := promptTexts(t, path, "interrupted"); !slices.Equal(texts, []string{"Resume working."}) {
 		t.Fatalf("prompts after Resume = %q, want [Resume working.]", texts)
 	}
-	waitUntil(t, "the fake claude to start with --resume session_1", func() bool {
+	waittest.Until(t, nil, "the fake claude to start with --resume session_1", func() bool {
 		starts := fakeStarts(t, dir)
 		return len(starts) > 0 && strings.Contains(starts[len(starts)-1], "--resume session_1")
 	})
-	waitUntil(t, "the fake claude to read Resume working.", func() bool {
+	waittest.Until(t, nil, "the fake claude to read Resume working.", func() bool {
 		return stdinLinesWith(t, dir, "Resume working.") == 1
 	})
 }

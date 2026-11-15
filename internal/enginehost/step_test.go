@@ -141,13 +141,11 @@ func stepStartReadOnly(workspace, revision string) StepStart {
 	}
 }
 
-// stepStartAwait polls until ready reports true; its second argument names the state. It has no deadline of its own:
-// the step's git and store work runs at the machine's pace, and the test binary's timeout ends a wait that never ends.
-func stepStartAwait(t *testing.T, _ string, ready func() bool) {
+// stepStartAwait polls until ready reports true; what names the state. It has no deadline of its own: the step's git and
+// store work runs at the machine's pace. It fails at once when the work of eng has finished first.
+func stepStartAwait(t *testing.T, eng engine, what string, ready func() bool) {
 	t.Helper()
-	for !ready() {
-		time.Sleep(5 * time.Millisecond)
-	}
+	eng.until(t, what, ready)
 }
 
 // stepStartGone reports whether nothing exists at path.
@@ -269,7 +267,7 @@ func TestStepsStartWritingHandsStartStepTheStepAndRunsItsLoop(t *testing.T) {
 	}
 
 	step.Observer.Return(session.TurnEnded{StructuredOutput: []byte(`{"status":"stopped"}`)})
-	stepStartAwait(t, "the step to end", func() bool {
+	stepStartAwait(t, engineOf(f.steps), "the step to end", func() bool {
 		row, err := f.steps.Status(t.Context(), id)
 		return err == nil && row.End != ""
 	})
@@ -355,7 +353,7 @@ func TestStepsStartReadOnlyRunsDetachedWorktreeAndRemovesItAtEnd(t *testing.T) {
 	step.Observer.Return(session.TurnEnded{StructuredOutput: []byte(`{"status":"done"}`)})
 	// The end is stored before the worktree is removed, and git removes the worktree's directory before its record of
 	// it, so the removal is done once git no longer lists the worktree.
-	stepStartAwait(t, "the step to end and its worktree to go", func() bool {
+	stepStartAwait(t, engineOf(f.steps), "the step to end and its worktree to go", func() bool {
 		row, err := f.steps.Status(t.Context(), id)
 		return err == nil && row.End != "" && stepStartGone(wt) &&
 			!strings.Contains(stepWorktreeTestWorktrees(t, repo), id)

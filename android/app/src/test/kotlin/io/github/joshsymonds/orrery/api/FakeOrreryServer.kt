@@ -13,6 +13,9 @@ import java.nio.ByteBuffer
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 import java.util.concurrent.LinkedBlockingQueue
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 
 private const val STREAM_CONTENT_TYPE = "application/connect+proto"
 private const val ENVELOPE_MESSAGE_FLAG = 0
@@ -81,7 +84,15 @@ class FakeOrreryServer : AutoCloseable {
     private val streamsClosedByClient = LinkedBlockingQueue<String>()
 
     /** Handlers run on daemon threads, so a held stream does not block the other procedures. */
-    private val workers = Executors.newCachedThreadPool { task -> Thread(task).apply { isDaemon = true } }
+    private val workers = Executors.newCachedThreadPool { task ->
+        Thread(task, "$SERVER_THREAD_PREFIX${threadNumbers.incrementAndGet()}").apply { isDaemon = true }
+    }
+
+    /** Handlers at work: everything but a stream holding for its client to close, which only waits. */
+    private val busy = AtomicInteger()
+
+    /** Keepalives written on held streams, for [awaitStreamClosedByClient]. */
+    private val keepalivesWritten = AtomicInteger()
 
     val baseUrl: String = "http://127.0.0.1:${server.address.port}"
 
@@ -89,17 +100,33 @@ class FakeOrreryServer : AutoCloseable {
         get() = synchronized(recorded) { recorded.toList() }
 
     init {
+        Quiescence.install()
+        // The first fake server a test opens begins its count; a second one inside the same test keeps it.
+        if (live.isEmpty()) Quiescence.newTest()
+        live += this
         server.executor = workers
         server.createContext("/") { exchange -> handle(exchange) }
         server.start()
     }
 
     /**
-     * Waits for a [StreamEnd.Held] stream whose client closed the connection. The close is the client's work on its
-     * own threads, so the wait has no deadline of its own; the test task's timeout bounds a close that never comes.
+     * Waits for a [StreamEnd.Held] stream whose client closed the connection, and fails if the client keeps it open
+     * through [KEEPALIVES_BEFORE_CLOSE_FAILS] more keepalives: a close the client has made shows at the next write
+     * or two, so by then it is not coming. Counted in keepalives, not time, so a loaded machine only makes it slower.
      */
     fun awaitStreamClosedByClient() {
-        streamsClosedByClient.take()
+        val from = keepalivesWritten.get()
+        while (streamsClosedByClient.poll(HELD_STREAM_INTERVAL_MILLIS, TimeUnit.MILLISECONDS) == null) {
+            check(keepalivesWritten.get() - from < KEEPALIVES_BEFORE_CLOSE_FAILS) {
+                "the client kept its held stream open through $KEEPALIVES_BEFORE_CLOSE_FAILS keepalives; ${describe()}"
+            }
+        }
+    }
+
+    /** This server's requests so far, by path, and its handlers at work. */
+    fun describe(): String {
+        val counts = requests.groupingBy { it.rawPath }.eachCount()
+        return "fake server $baseUrl: ${busy.get()} handler(s) at work, requests $counts"
     }
 
     /** Answers [procedure], a path such as `/orrery.v1.Panes/List`, with [message]. */
@@ -123,11 +150,22 @@ class FakeOrreryServer : AutoCloseable {
     }
 
     override fun close() {
+        live -= this
         server.stop(0)
         workers.shutdownNow()
     }
 
     private fun handle(exchange: HttpExchange) {
+        busy.incrementAndGet()
+        val holding = AtomicBoolean(false)
+        try {
+            answer(exchange, holding)
+        } finally {
+            if (!holding.get()) busy.decrementAndGet()
+        }
+    }
+
+    private fun answer(exchange: HttpExchange, holding: AtomicBoolean) {
         val rawPath = exchange.requestURI.rawPath
         val body = exchange.requestBody.use { it.readBytes() }
         val headers = exchange.requestHeaders.entries.associate { entry ->
@@ -149,12 +187,12 @@ class FakeOrreryServer : AutoCloseable {
                 val json = JSONObject().put("code", reply.code.codeName).put("message", reply.message)
                 send(exchange, reply.code.httpStatus(), "application/json", json.toString().toByteArray(Charsets.UTF_8))
             }
-            is Reply.Stream -> stream(exchange, reply)
+            is Reply.Stream -> stream(exchange, reply, holding)
         }
     }
 
     /** Answers 200 with a chunked body of envelopes, as a Connect server stream does. */
-    private fun stream(exchange: HttpExchange, reply: Reply.Stream) {
+    private fun stream(exchange: HttpExchange, reply: Reply.Stream, holding: AtomicBoolean) {
         exchange.responseHeaders.add("Content-Type", STREAM_CONTENT_TYPE)
         exchange.sendResponseHeaders(200, 0)
         exchange.responseBody.use { body ->
@@ -171,17 +209,20 @@ class FakeOrreryServer : AutoCloseable {
                     Thread.sleep(SILENT_STREAM_MILLIS)
                     body.writeEnvelope(ENVELOPE_END_FLAG, "{}".toByteArray(Charsets.UTF_8))
                 }
-                StreamEnd.Held -> holdUntilClientCloses(exchange, body, ByteArray(0))
-                is StreamEnd.HeldWith -> holdUntilClientCloses(exchange, body, end.keepalive.toByteArray())
+                StreamEnd.Held -> holdUntilClientCloses(exchange, body, ByteArray(0), holding)
+                is StreamEnd.HeldWith -> holdUntilClientCloses(exchange, body, end.keepalive.toByteArray(), holding)
             }
         }
     }
 
-    private fun holdUntilClientCloses(exchange: HttpExchange, body: OutputStream, keepalive: ByteArray) {
+    private fun holdUntilClientCloses(exchange: HttpExchange, body: OutputStream, keepalive: ByteArray, holding: AtomicBoolean) {
         try {
             while (true) {
                 Thread.sleep(HELD_STREAM_INTERVAL_MILLIS)
                 body.writeEnvelope(ENVELOPE_MESSAGE_FLAG, keepalive)
+                keepalivesWritten.incrementAndGet()
+                // Once its first keepalive is out, the stream only waits for its client: no longer work in flight.
+                if (holding.compareAndSet(false, true)) busy.decrementAndGet()
             }
         } catch (e: IOException) {
             streamsClosedByClient.add(exchange.requestURI.rawPath)
@@ -204,6 +245,23 @@ class FakeOrreryServer : AutoCloseable {
             exchange.sendResponseHeaders(status, bytes.size.toLong())
             exchange.responseBody.use { it.write(bytes) }
         }
+    }
+
+    companion object {
+        private const val SERVER_THREAD_PREFIX = "fake-orrery-server-"
+        private const val KEEPALIVES_BEFORE_CLOSE_FAILS = 20
+        private val threadNumbers = AtomicInteger()
+        private val live: MutableSet<FakeOrreryServer> = ConcurrentHashMap.newKeySet()
+
+        /** Handlers at work across every open fake server. */
+        internal fun busyHandlers(): Int = live.sumOf { it.busy.get() }
+
+        /** Whether [thread] is one of the fake servers' own: their waiting is the server's, counted by [busyHandlers]. */
+        internal fun isServerThread(thread: Thread): Boolean =
+            thread.name.startsWith(SERVER_THREAD_PREFIX) || thread.name.startsWith("HTTP-Dispatcher")
+
+        /** Every open fake server's state, for a failure message. */
+        internal fun describeLive(): String = live.joinToString("; ") { it.describe() }.ifEmpty { "no fake server open" }
     }
 
     /** The HTTP status Connect sends for this code. */

@@ -5,6 +5,7 @@ import android.app.RemoteInput
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import io.github.joshsymonds.orrery.BackgroundWork
 import io.github.joshsymonds.orrery.ServerSettings
 import io.github.joshsymonds.orrery.api.KeysResult
 import io.github.joshsymonds.orrery.api.OrreryClient
@@ -28,13 +29,13 @@ class ReplyReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (!intent.hasExtra(EXTRA_NOTIFICATION_ID)) return
         val pending = goAsync()
-        Thread {
+        BackgroundWork.run {
             try {
                 deliver(context, intent)
             } finally {
                 pending.finish()
             }
-        }.start()
+        }
     }
 
     private fun deliver(context: Context, intent: Intent) {

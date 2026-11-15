@@ -189,6 +189,8 @@ type Steps struct {
 	adopter  StepAdopter
 	adopted  map[string]*stepRun
 	starting map[string]bool
+	// calls counts the calls under way that can start or end work (see callsInFlight).
+	calls callsInFlight
 }
 
 // NewSteps returns a Steps for cfg. A negative cfg.WatchTick returns an error matching ErrBadWatchTick and no Steps.
@@ -239,6 +241,7 @@ func NewSteps(cfg StepsConfig) (*Steps, error) {
 // same way. The step's monitor and judge calls carry the env of the stamp in effect for its folder. Any
 // other StartStep error, after the row is written, ends the step failed and returns its id with the error.
 func (s *Steps) Start(ctx context.Context, start StepStart) (string, error) {
+	defer s.calls.enter()()
 	if err := checkStepStart(start); err != nil {
 		return "", err
 	}

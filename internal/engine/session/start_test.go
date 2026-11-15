@@ -10,6 +10,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/joshsymonds/orrery/internal/exectest"
 )
 
 // pollInterval is the pause between checks while a test waits for a child process.
@@ -44,9 +46,7 @@ func writeClaude(t *testing.T, body string) string {
 	}
 	path := filepath.Join(t.TempDir(), "claude")
 	script := "#!" + sh + "\n" + body
-	if err := os.WriteFile(path, []byte(script), 0o700); err != nil {
-		t.Fatalf("write fake claude: %v", err)
-	}
+	exectest.WriteFile(t, path, []byte(script), 0o700)
 	return path
 }
 

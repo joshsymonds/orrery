@@ -88,7 +88,7 @@ func TestStartWithStampPassesStampSettingsAndResumeKeepsThem(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	waitHistory(t, path, id, "the first reply block", func(h store.EngineHistory) bool {
+	waitHistory(t, engineOf(m), path, id, "the first reply block", func(h store.EngineHistory) bool {
 		return hasBlock(t, h, "fake reply 1")
 	})
 	if err := m.Stop(t.Context(), id); err != nil {
@@ -97,7 +97,7 @@ func TestStartWithStampPassesStampSettingsAndResumeKeepsThem(t *testing.T) {
 	if err := m.Say(t.Context(), SayRequest{ID: id, Text: "again"}); err != nil {
 		t.Fatalf("Say of a stopped session: %v", err)
 	}
-	waitHistory(t, path, id, "the resumed reply block", func(h store.EngineHistory) bool {
+	waitHistory(t, engineOf(m), path, id, "the resumed reply block", func(h store.EngineHistory) bool {
 		return hasBlock(t, h, "fake reply 2")
 	})
 
@@ -140,10 +140,10 @@ func TestStepInLinkedWorktreeOfStampedCheckoutPassesStampSettings(t *testing.T) 
 	if err != nil {
 		t.Fatalf("StartStep: %v", err)
 	}
-	waitHistory(t, path, stepA, "the step's reply block", func(h store.EngineHistory) bool {
+	waitHistory(t, engineOf(m), path, stepA, "the step's reply block", func(h store.EngineHistory) bool {
 		return hasBlock(t, h, "fake reply 1")
 	})
-	waitReturns(t, obs, 1)
+	waitReturns(t, engineOf(m), obs, 1)
 
 	args := fakeArgs(t, linked)
 	if len(args) != 1 {
@@ -167,7 +167,7 @@ func TestStartWithoutStampPassesNoSettings(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	waitHistory(t, path, id, "the first reply block", func(h store.EngineHistory) bool {
+	waitHistory(t, engineOf(m), path, id, "the first reply block", func(h store.EngineHistory) bool {
 		return hasBlock(t, h, "fake reply 1")
 	})
 	if err := m.Stop(t.Context(), id); err != nil {
@@ -226,7 +226,7 @@ func TestStartWithoutAbsoluteHomeRefusesBeforeClaude(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Start: %v, want the refusal recorded on the session", err)
 			}
-			history := waitHistory(t, path, id, "the failed state", func(h store.EngineHistory) bool {
+			history := waitHistory(t, engineOf(m), path, id, "the failed state", func(h store.EngineHistory) bool {
 				return h.State == "failed"
 			})
 			if reason := stampTestRecordedReason(t, history); !strings.Contains(reason, "HOME") {
@@ -254,7 +254,7 @@ func TestStartBelowUnparseableStampRecordsFailedAndRunsNoClaude(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start: %v, want the spawn failure recorded on the session", err)
 	}
-	history := waitHistory(t, path, id, "the failed state", func(h store.EngineHistory) bool {
+	history := waitHistory(t, engineOf(m), path, id, "the failed state", func(h store.EngineHistory) bool {
 		return h.State == "failed"
 	})
 	if reason := stampTestRecordedReason(t, history); !strings.Contains(reason, stamp) {

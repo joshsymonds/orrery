@@ -60,7 +60,7 @@ func TestReconcileStopsUnattachableHolderThenDrainsIt(t *testing.T) {
 		t.Fatalf("Start: %v", err)
 	}
 	// The store refuses the stalled block's first streamed text, so the holder spools it unrecorded.
-	waitUntil(t, "the store refuses the batch of fake stalling 1", rig.crash.isRefusing)
+	waitUntil(t, engineOf(rig.manager), "the store refuses the batch of fake stalling 1", rig.crash.isRefusing)
 	pid := fakePID(t, dir)
 	pids := holderPids(t, holderDir(t, rig.root, id))
 	rig.manager.Close()
@@ -94,6 +94,8 @@ func TestReconcileStopsUnattachableHolderThenDrainsIt(t *testing.T) {
 	startRun(t, writer)
 	sink := &fakeSink{}
 	restarted := newStateManager(t, rig.store, writer, sink, fakeSystemdRunPath(t), rig.root, nil)
+	// The stopped holder answers no attach, so the attach runs out of time however short its bound is.
+	restarted.attachTimeout = time.Millisecond
 	if err := restarted.Reconcile(t.Context()); err != nil {
 		t.Fatalf("Reconcile after the crash: %v", err)
 	}
@@ -103,7 +105,12 @@ func TestReconcileStopsUnattachableHolderThenDrainsIt(t *testing.T) {
 	gateWaitGone(t, pid)
 	requireDirPresent(t, holderDir(t, rig.root, id))
 	requireResumed(t, rig.store, rig.path, id, dir, sink)
-	waitUntil(t, "the resumed turn's text", func() bool { return len(spy.storedTexts()) == 2 })
+	waitUntil(
+		t,
+		engineOf(rig.manager, restarted),
+		"the resumed turn's text",
+		func() bool { return len(spy.storedTexts()) == 2 },
+	)
 	if got := spy.storedTexts(); !slices.Equal(got, []string{"fake stalling 1", "fake stalling 2"}) {
 		t.Fatalf("texts stored after the restart = %q, want the stalled text once, then the resumed text", got)
 	}

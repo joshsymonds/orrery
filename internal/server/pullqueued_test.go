@@ -7,7 +7,6 @@ import (
 	"os"
 	"strings"
 	"testing"
-	"time"
 
 	"connectrpc.com/connect"
 
@@ -15,6 +14,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/gen/orrery/v1/orreryv1connect"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
+	"github.com/joshsymonds/orrery/internal/waittest"
 )
 
 const (
@@ -81,19 +81,20 @@ func pqPane(t *testing.T, tmux *tmuxctl.Client, session, box, transcript string)
 }
 
 // pqAwait polls file until ok reports true for its content, and returns that content. It has no deadline of its own:
-// tmux and the pane run at the machine's pace, and the test binary's timeout ends a wait that never ends.
-func pqAwait(t *testing.T, file string, ok func(string) bool) string {
+// tmux and the pane run at the machine's pace, and the test binary's timeout ends a wait that never ends. It fails at
+// once if ended, the end of what sends the awaited keys or of the pane that records them, closes first.
+func pqAwait(t *testing.T, ended <-chan struct{}, file string, ok func(string) bool) string {
 	t.Helper()
-	for {
-		data, err := os.ReadFile(file)
+	var data []byte
+	waittest.Until(t, ended, "the awaited input in "+file, func() bool {
+		var err error
+		data, err = os.ReadFile(file)
 		if err != nil && !errors.Is(err, fs.ErrNotExist) {
 			t.Fatalf("read input: %v", err)
 		}
-		if ok(string(data)) {
-			return string(data)
-		}
-		time.Sleep(screenPoll)
-	}
+		return ok(string(data))
+	})
+	return string(data)
 }
 
 // pqAssertQuiet requires that no key reached pane, whose input file records. The pane reads its input in order, so it
@@ -104,7 +105,8 @@ func pqAssertQuiet(t *testing.T, tmux *tmuxctl.Client, pane, file string) {
 	if _, err := tmux.Run(t.Context(), "send-keys", "-t", pane, "-l", "--", pqMarker); err != nil {
 		t.Fatalf("send the marker key: %v", err)
 	}
-	if data := pqAwait(t, file, func(got string) bool { return strings.Contains(got, pqMarker) }); data != pqMarker {
+	marked := func(got string) bool { return strings.Contains(got, pqMarker) }
+	if data := pqAwait(t, paneExited(t, tmux, pane), file, marked); data != pqMarker {
 		t.Fatalf("pane received %q before the marker, want no key", strings.TrimSuffix(data, pqMarker))
 	}
 }
@@ -148,8 +150,14 @@ func TestPanesPullQueuedTakesQueuedMessages(t *testing.T) {
 	pane, file := pqPane(t, tmux, "s1", pqDim, transcript)
 	client := panesClient(t, newHandler(t, tmux))
 
-	ch := pqCall(t, client, pane)
-	pqAwait(t, file, func(s string) bool { return strings.Contains(s, pqUp) })
+	pullEnded, ch := waittest.Closed(pqCall(t, client, pane))
+	// The pull answers only after the test appends its popAll, so a pull that ends first has failed.
+	pqAwait(
+		t,
+		waittest.Any(pullEnded, paneExited(t, tmux, pane)),
+		file,
+		func(s string) bool { return strings.Contains(s, pqUp) },
+	)
 	pqAppend(t, transcript, pqLine(t, "popAll", "alpha line", ""), pqLine(t, "popAll", "beta line", ""))
 	got := pqWait(t, ch)
 	if got.err != nil {
@@ -159,7 +167,7 @@ func TestPanesPullQueuedTakesQueuedMessages(t *testing.T) {
 	if got.text != want {
 		t.Fatalf("Panes.PullQueued text = %q, want %q", got.text, want)
 	}
-	awaitInput(t, file, pqUp+strings.Repeat(pqDel, len(want)))
+	awaitInput(t, paneExited(t, tmux, pane), file, pqUp+strings.Repeat(pqDel, len(want)))
 }
 
 func TestPanesPullQueuedHoldsTextLock(t *testing.T) {
@@ -170,8 +178,14 @@ func TestPanesPullQueuedHoldsTextLock(t *testing.T) {
 	pane, file := pqPane(t, tmux, "s1", pqDim, transcript)
 	client := panesClient(t, newHandler(t, tmux))
 
-	pulled := pqCall(t, client, pane)
-	pqAwait(t, file, func(s string) bool { return strings.Contains(s, pqUp) })
+	pullEnded, pulled := waittest.Closed(pqCall(t, client, pane))
+	// The pull answers only after the test appends its popAll, so a pull that ends first has failed.
+	pqAwait(
+		t,
+		waittest.Any(pullEnded, paneExited(t, tmux, pane)),
+		file,
+		func(s string) bool { return strings.Contains(s, pqUp) },
+	)
 
 	// The send starts while the pull holds the pane's text lock, so it must wait until the pull has cleared the box.
 	sent := make(chan error, 1)
@@ -189,7 +203,7 @@ func TestPanesPullQueuedHoldsTextLock(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Panes.SendText: %v", err)
 	}
-	got := pqAwait(t, file, func(s string) bool {
+	got := pqAwait(t, paneExited(t, tmux, pane), file, func(s string) bool {
 		return strings.Contains(s, "zq") && strings.Count(s, pqDel) == len("alpha")
 	})
 	if strings.Index(got, "zq") < strings.LastIndex(got, pqDel) {
@@ -207,8 +221,14 @@ func TestPanesPullQueuedFailedClearAnswersAborted(t *testing.T) {
 	pane, file := pqPane(t, tmux, "s1", pqDim, transcript)
 	client := panesClient(t, newHandler(t, tmux))
 
-	ch := pqCall(t, client, pane)
-	pqAwait(t, file, func(s string) bool { return strings.Contains(s, pqUp) })
+	pullEnded, ch := waittest.Closed(pqCall(t, client, pane))
+	// The pull answers only after the test appends its popAll, so a pull that ends first has failed.
+	pqAwait(
+		t,
+		waittest.Any(pullEnded, paneExited(t, tmux, pane)),
+		file,
+		func(s string) bool { return strings.Contains(s, pqUp) },
+	)
 	pqAppend(t, transcript, pqLine(t, "popAll", "alpha line", ""))
 	// The queue has given up the message and the pane is gone, so the Backspaces that empty the box fail after the
 	// text was taken. The call must answer aborted, because the box holds that text, and never internal.

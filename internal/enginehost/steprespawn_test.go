@@ -59,7 +59,7 @@ func TestInlineAgentStepStartsAndRespawnsWithAgentsFlags(t *testing.T) {
 	if err != nil {
 		t.Fatalf("StartStep: %v", err)
 	}
-	waitHistory(t, path, stepA, "the step's first turn done", func(h store.EngineHistory) bool {
+	waitHistory(t, engineOf(m), path, stepA, "the step's first turn done", func(h store.EngineHistory) bool {
 		return stepDone(t, h, "fake reply 1")
 	})
 	pid := fakePID(t, dir)
@@ -71,7 +71,7 @@ func TestInlineAgentStepStartsAndRespawnsWithAgentsFlags(t *testing.T) {
 	if err := m.Continue(t.Context(), stepA, StepPrompt{Text: "again", Sender: store.PromptSenderOwner}); err != nil {
 		t.Fatalf("Continue of an idle-stopped inline-agent step: %v", err)
 	}
-	waitHistory(t, path, stepA, "the respawned step's reply done", func(h store.EngineHistory) bool {
+	waitHistory(t, engineOf(m), path, stepA, "the respawned step's reply done", func(h store.EngineHistory) bool {
 		return stepDone(t, h, "fake reply 2")
 	})
 	if err := m.Stop(t.Context(), stepA); err != nil {
@@ -181,7 +181,7 @@ func TestContinueRespawnsIdleStoppedStepWithStoredLaunch(t *testing.T) {
 	if err := m.StartStep(t.Context(), testStep(stepA, dir)); err != nil {
 		t.Fatalf("StartStep: %v", err)
 	}
-	waitHistory(t, path, stepA, "the step's first turn done", func(h store.EngineHistory) bool {
+	waitHistory(t, engineOf(m), path, stepA, "the step's first turn done", func(h store.EngineHistory) bool {
 		return stepDone(t, h, "fake reply 1")
 	})
 	pid := fakePID(t, dir)
@@ -193,9 +193,16 @@ func TestContinueRespawnsIdleStoppedStepWithStoredLaunch(t *testing.T) {
 	if err := m.Continue(t.Context(), stepA, StepPrompt{Text: "again", Sender: store.PromptSenderOwner}); err != nil {
 		t.Fatalf("Continue of an idle-stopped step: %v", err)
 	}
-	history := waitHistory(t, path, stepA, "the respawned step's reply done", func(h store.EngineHistory) bool {
-		return stepDone(t, h, "fake reply 2")
-	})
+	history := waitHistory(
+		t,
+		engineOf(m),
+		path,
+		stepA,
+		"the respawned step's reply done",
+		func(h store.EngineHistory) bool {
+			return stepDone(t, h, "fake reply 2")
+		},
+	)
 	if err := m.Stop(t.Context(), stepA); err != nil {
 		t.Fatalf("Stop of the respawned step: %v", err)
 	}
@@ -231,7 +238,7 @@ func TestRespawnedStepHandsItsTurnToTheObserverItStartedWith(t *testing.T) {
 	if err := m.StartStep(t.Context(), step); err != nil {
 		t.Fatalf("StartStep: %v", err)
 	}
-	waitHistory(t, path, stepA, "the step's first turn done", func(h store.EngineHistory) bool {
+	waitHistory(t, engineOf(m), path, stepA, "the step's first turn done", func(h store.EngineHistory) bool {
 		return stepDone(t, h, "fake reply 1")
 	})
 	// Stop waits for the step's pump, so the first hand-off has reached the observer when it returns.
@@ -245,7 +252,7 @@ func TestRespawnedStepHandsItsTurnToTheObserverItStartedWith(t *testing.T) {
 	if err := m.Continue(t.Context(), stepA, StepPrompt{Text: "again", Sender: store.PromptSenderOwner}); err != nil {
 		t.Fatalf("Continue of a stopped step: %v", err)
 	}
-	waitHistory(t, path, stepA, "the respawned step's reply done", func(h store.EngineHistory) bool {
+	waitHistory(t, engineOf(m), path, stepA, "the respawned step's reply done", func(h store.EngineHistory) bool {
 		return stepDone(t, h, "fake reply 2")
 	})
 	if err := m.Stop(t.Context(), stepA); err != nil {
@@ -263,7 +270,7 @@ func TestSayToIdleStoppedStepStillRefuses(t *testing.T) {
 	if err := m.StartStep(t.Context(), testStep(stepA, dir)); err != nil {
 		t.Fatalf("StartStep: %v", err)
 	}
-	waitHistory(t, path, stepA, "the step's first turn done", func(h store.EngineHistory) bool {
+	waitHistory(t, engineOf(m), path, stepA, "the step's first turn done", func(h store.EngineHistory) bool {
 		return stepDone(t, h, "fake reply 1")
 	})
 	clock.advance(10 * time.Minute)
@@ -285,7 +292,7 @@ func TestContinueOfStoppedSessionStillRefuses(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	waitHistory(t, path, id, "the session's first reply done", func(h store.EngineHistory) bool {
+	waitHistory(t, engineOf(m), path, id, "the session's first reply done", func(h store.EngineHistory) bool {
 		return stepDone(t, h, "fake reply 1")
 	})
 	if err := m.Stop(t.Context(), id); err != nil {
@@ -308,7 +315,7 @@ func TestRespawnWithStepCapFullGetsErrCapReached(t *testing.T) {
 	if err := m.StartStep(t.Context(), testStep(stepA, dir)); err != nil {
 		t.Fatalf("StartStep: %v", err)
 	}
-	waitHistory(t, path, stepA, "the step's first turn done", func(h store.EngineHistory) bool {
+	waitHistory(t, engineOf(m), path, stepA, "the step's first turn done", func(h store.EngineHistory) bool {
 		return stepDone(t, h, "fake reply 1")
 	})
 	if err := m.Stop(t.Context(), stepA); err != nil {
@@ -335,7 +342,7 @@ func TestRespawnOfStepWhoseDirIsGoneRecordsFailedWithoutNotice(t *testing.T) {
 	if err := m.StartStep(t.Context(), testStep(stepA, dir)); err != nil {
 		t.Fatalf("StartStep: %v", err)
 	}
-	waitHistory(t, path, stepA, "the step's first turn done", func(h store.EngineHistory) bool {
+	waitHistory(t, engineOf(m), path, stepA, "the step's first turn done", func(h store.EngineHistory) bool {
 		return stepDone(t, h, "fake reply 1")
 	})
 	if err := m.Stop(t.Context(), stepA); err != nil {
@@ -364,7 +371,7 @@ func TestRespawnOfStepWhoseAgentNoLongerResolvesFailsBeforeClaude(t *testing.T) 
 	if err := m.StartStep(t.Context(), testStep(stepA, dir)); err != nil {
 		t.Fatalf("StartStep: %v", err)
 	}
-	waitHistory(t, path, stepA, "the step's first turn done", func(h store.EngineHistory) bool {
+	waitHistory(t, engineOf(m), path, stepA, "the step's first turn done", func(h store.EngineHistory) bool {
 		return stepDone(t, h, "fake reply 1")
 	})
 	pid := fakePID(t, dir)

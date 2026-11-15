@@ -10,14 +10,12 @@ import (
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
-// nodeCheckLost is the reason a check ends with when its gate cannot be readopted at a restart.
-const nodeCheckLost = "lost at a restart"
-
 // Resume takes up every running check the store holds, as a restarted orreryd does. A check with a stored grant
 // readopts its gate under that grant, and one with no grant runs from the start. Each check is driven in the background
 // under a context that Close cancels and waits for, as Run's drives are, and a check this NodeChecks already drives is
 // left alone. It returns the errors of the checks it could not take up, joined.
 func (n *NodeChecks) Resume(ctx context.Context) error {
+	defer n.calls.enter()()
 	open, err := n.store.OpenNodeChecks(ctx)
 	if err != nil {
 		return fmt.Errorf("resume node checks: %w", err)
@@ -140,7 +138,7 @@ func (n *NodeChecks) readoptLost(
 ) store.NodeCheckEnd {
 	n.logger.WarnContext(ctx, "node check lost at a restart", "check", check.ID, "err", cause)
 	clearErr := gateClear(ctx, check.Holder)
-	ended := n.end(ctx, repo, worktree, nil, nodeCheckLost)
+	ended := n.end(ctx, repo, worktree, nil, store.LostAtRestart)
 	if clearErr != nil {
 		ended.NotRun += "; " + captureNotFinished(clearErr)
 	}

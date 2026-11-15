@@ -1,5 +1,6 @@
 package io.github.joshsymonds.orrery.api
 
+import androidx.annotation.VisibleForTesting
 import com.connectrpc.Code
 import com.connectrpc.ConnectException
 import com.connectrpc.ProtocolClientConfig
@@ -18,6 +19,7 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.ConversationState as ConversationStateProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.EngineText as EngineTextProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.Epic as EpicProto
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicBuildTask as EpicBuildTaskProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicNode as EpicNodeProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicNodeCheck as EpicNodeCheckProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicRequirement as EpicRequirementProto
@@ -75,12 +77,14 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.WatchConversationRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.WatchConversationResponse
 import kotlinx.coroutines.channels.ReceiveChannel
 import kotlinx.coroutines.runBlocking
+import okhttp3.EventListener
 import okhttp3.OkHttpClient
 import org.json.JSONException
 import org.json.JSONObject
 import java.io.IOException
 import java.net.MalformedURLException
 import java.util.concurrent.TimeUnit
+import javax.net.SocketFactory
 import kotlin.time.Duration
 
 private const val TIMEOUT_MS = 10_000
@@ -379,9 +383,23 @@ data class EpicNodeCheckRow(
 )
 
 /**
+ * One task of an orreryd epic's plan, with its build: [stage] is the stage the build is on, empty before its first
+ * unit. [red] and [green] are the evidence runs the build names, null until it names one.
+ */
+data class EpicBuildTaskRow(
+    val id: String,
+    val title: String,
+    val status: String,
+    val stage: String,
+    val red: EvidenceRunRow?,
+    val green: EvidenceRunRow?,
+)
+
+/**
  * One epic with its tasks, its [slices] in serve's order, and every step labelled with it, oldest step first.
  * [requirements] are an orreryd epic's requirements in contract order, empty for a record epic. [nodes] are its
- * workflow node runs in the order the server lists them.
+ * workflow node runs in the order the server lists them. [buildTasks] are an orreryd epic's planned tasks in the order
+ * they were planned, empty for a record epic.
  */
 data class EpicDetail(
     val epic: EpicRow,
@@ -390,6 +408,7 @@ data class EpicDetail(
     val steps: List<StepRow>,
     val requirements: List<EpicRequirementRow> = emptyList(),
     val nodes: List<EpicNodeRow> = emptyList(),
+    val buildTasks: List<EpicBuildTaskRow> = emptyList(),
 )
 
 /** What a hold, nudge or stop came to: it landed, or orreryd refused it with its reason. */
@@ -416,6 +435,18 @@ class NoAnswerException(cause: IOException) : IOException("no answer to the requ
 private class RequestSentException(val transport: IOException) : IOException(transport)
 
 /**
+ * The socket factory every [OrreryClient] opens its connections with. The app keeps the default; the unit tests swap
+ * in one that tells them whether a request or an answer is still on its way, so a wait can tell "still coming" from
+ * "never coming".
+ */
+@VisibleForTesting
+internal var socketFactory: SocketFactory = SocketFactory.getDefault()
+
+/** The event listener every [OrreryClient] call reports to. The app keeps none; the unit tests count calls with it. */
+@VisibleForTesting
+internal var eventListenerFactory: EventListener.Factory = EventListener.Factory { EventListener.NONE }
+
+/**
  * Blocking client for the orrery phone API over Connect. Each call is one unary request. A write
  * call is never retried, so a dropped connection cannot send it twice.
  */
@@ -428,6 +459,8 @@ class OrreryClient(
     private val root = baseUrl.removeSuffix("/")
 
     private val http: OkHttpClient = OkHttpClient.Builder()
+        .socketFactory(socketFactory)
+        .eventListenerFactory(eventListenerFactory)
         .connectTimeout(TIMEOUT_MS.toLong(), TimeUnit.MILLISECONDS)
         .retryOnConnectionFailure(false)
         .addNetworkInterceptor { chain ->
@@ -627,6 +660,7 @@ class OrreryClient(
             steps = response.stepsList.map { it.toStepRow() },
             requirements = response.requirementsList.map { it.toEpicRequirementRow() },
             nodes = response.nodesList.map { it.toEpicNodeRow() },
+            buildTasks = response.buildTasksList.map { it.toEpicBuildTaskRow() },
         )
     }
 
@@ -891,6 +925,16 @@ class OrreryClient(
 
     private fun EpicStepCheckProto.toStepCheckRow(): StepCheckRow =
         StepCheckRow(round = round, name = name, ok = ok, stdout = stdout, stderr = stderr)
+
+    private fun EpicBuildTaskProto.toEpicBuildTaskRow(): EpicBuildTaskRow =
+        EpicBuildTaskRow(
+            id = id,
+            title = title,
+            status = status,
+            stage = stage,
+            red = if (hasRed()) red.toEvidenceRunRow() else null,
+            green = if (hasGreen()) green.toEvidenceRunRow() else null,
+        )
 
     private fun EpicTaskProto.toEpicTaskRow(): EpicTaskRow =
         EpicTaskRow(effort = effort, slug = slug, subject = subject, status = status)

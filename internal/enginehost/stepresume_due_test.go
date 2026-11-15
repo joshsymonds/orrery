@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/store"
+	"github.com/joshsymonds/orrery/internal/waittest"
 )
 
 // probeResetUnix is the reset of the usage limit the fake claude's LIMIT turn names, which a step limited by it stores
@@ -95,7 +96,12 @@ func TestStepsAutoResumeSendsDerivedPromptAndClosesDueRow(t *testing.T) {
 	id := startLimitProbe(t, rig, repo, revision, "LIMIT")
 	dir := filepath.Join(rig.worktrees, id)
 	pid := fakePID(t, dir)
-	waitUntil(t, "step limited", func() bool { return stepRowOf(t, rig.steps, id).LoopLimited })
+	waitUntil(
+		t,
+		engineOf(rig.manager, rig.steps),
+		"step limited",
+		func() bool { return stepRowOf(t, rig.steps, id).LoopLimited },
+	)
 	requireGone(t, pid)
 	if got := dueResumesOf(t, rig, id); len(got) != 1 || got[0].Resets.Unix() != probeResetUnix {
 		t.Fatalf("due rows = %+v, want one for reset %d", got, probeResetUnix)
@@ -119,10 +125,10 @@ func TestStepsAutoResumeSendsDerivedPromptAndClosesDueRow(t *testing.T) {
 	if _, promptID := promptFieldsOf(t, resumes[0]); promptID != resumePromptID(id, probeResetUnix) {
 		t.Fatalf("resume PromptID = %q, want the id derived from the step and its reset", promptID)
 	}
-	waitUntil(t, "resume prompt delivered once", func() bool { return resumePromptsLogged(t, dir) == 1 })
+	waittest.Until(t, nil, "resume prompt delivered once", func() bool { return resumePromptsLogged(t, dir) == 1 })
 	releaseResumedTurn(t, dir)
 	var row store.StepRow
-	waitUntil(t, "resumed step done", func() bool {
+	waitUntil(t, engineOf(rig.manager, rig.steps), "resumed step done", func() bool {
 		row = stepRowOf(t, rig.steps, id)
 		return row.End != ""
 	})
@@ -141,7 +147,12 @@ func TestStepsAutoResumeWithStoredPromptSendsNothingAndClearsLimit(t *testing.T)
 	revision := stepGitTestRun(t, repo, "rev-parse", "HEAD")
 	id := startLimitProbe(t, rig, repo, revision, "LIMIT")
 	pid := fakePID(t, filepath.Join(rig.worktrees, id))
-	waitUntil(t, "step limited", func() bool { return stepRowOf(t, rig.steps, id).LoopLimited })
+	waitUntil(
+		t,
+		engineOf(rig.manager, rig.steps),
+		"step limited",
+		func() bool { return stepRowOf(t, rig.steps, id).LoopLimited },
+	)
 	requireGone(t, pid)
 	reset := time.Unix(probeResetUnix, 0)
 	writeID, err := newWriteID()
@@ -188,7 +199,12 @@ func TestStepsAutoResumeOfOtherResetRefusesNothingSent(t *testing.T) {
 	revision := stepGitTestRun(t, repo, "rev-parse", "HEAD")
 	id := startLimitProbe(t, rig, repo, revision, "LIMIT")
 	pid := fakePID(t, filepath.Join(rig.worktrees, id))
-	waitUntil(t, "step limited", func() bool { return stepRowOf(t, rig.steps, id).LoopLimited })
+	waitUntil(
+		t,
+		engineOf(rig.manager, rig.steps),
+		"step limited",
+		func() bool { return stepRowOf(t, rig.steps, id).LoopLimited },
+	)
 	requireGone(t, pid)
 	before := len(promptEventsOf(t, rig, id))
 
@@ -241,7 +257,12 @@ func TestStepsAutoResumeWithStepCapFullLeavesRowDue(t *testing.T) {
 	id := startLimitProbe(t, rig, repo, revision, "LIMIT")
 	dir := filepath.Join(rig.worktrees, id)
 	pid := fakePID(t, dir)
-	waitUntil(t, "step limited", func() bool { return stepRowOf(t, rig.steps, id).LoopLimited })
+	waitUntil(
+		t,
+		engineOf(rig.manager, rig.steps),
+		"step limited",
+		func() bool { return stepRowOf(t, rig.steps, id).LoopLimited },
+	)
 	requireGone(t, pid)
 	writeResumeFiles(t, dir)
 	holder := startLimitProbe(t, rig, repo, revision, "STEPDONE")
@@ -267,7 +288,12 @@ func TestStepsAutoResumeWithStepCapFullLeavesRowDue(t *testing.T) {
 	if got := dueResumesOf(t, rig, id); len(got) != 0 {
 		t.Fatalf("due rows after the automatic resume = %+v, want none", got)
 	}
-	waitUntil(t, "resumed step done", func() bool { return stepRowOf(t, rig.steps, id).End != "" })
+	waitUntil(
+		t,
+		engineOf(rig.manager, rig.steps),
+		"resumed step done",
+		func() bool { return stepRowOf(t, rig.steps, id).End != "" },
+	)
 	if row := stepRowOf(t, rig.steps, id); row.End != stepLoopEndDone {
 		t.Fatalf("End = %q reason %q, want %q", row.End, row.Reason, stepLoopEndDone)
 	}
@@ -283,7 +309,12 @@ func TestStepsResumeClosesDueRowAndSendsUnkeyedPrompt(t *testing.T) {
 	id := startLimitProbe(t, rig, repo, revision, "LIMIT")
 	dir := filepath.Join(rig.worktrees, id)
 	pid := fakePID(t, dir)
-	waitUntil(t, "step limited", func() bool { return stepRowOf(t, rig.steps, id).LoopLimited })
+	waitUntil(
+		t,
+		engineOf(rig.manager, rig.steps),
+		"step limited",
+		func() bool { return stepRowOf(t, rig.steps, id).LoopLimited },
+	)
 	requireGone(t, pid)
 	if got := dueResumesOf(t, rig, id); len(got) != 1 {
 		t.Fatalf("due rows before the owner's resume = %+v, want one", got)
@@ -303,7 +334,12 @@ func TestStepsResumeClosesDueRowAndSendsUnkeyedPrompt(t *testing.T) {
 	if _, promptID := promptFieldsOf(t, resumes[0]); promptID != "" {
 		t.Fatalf("owner resume PromptID = %q, want none", promptID)
 	}
-	waitUntil(t, "resumed step done", func() bool { return stepRowOf(t, rig.steps, id).End != "" })
+	waitUntil(
+		t,
+		engineOf(rig.manager, rig.steps),
+		"resumed step done",
+		func() bool { return stepRowOf(t, rig.steps, id).End != "" },
+	)
 }
 
 // TestResumePromptIDDerivesFromStepAndReset covers R3: the automatic resume's PromptID is the same for the same step and

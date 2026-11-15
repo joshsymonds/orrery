@@ -38,6 +38,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/server"
 	"github.com/joshsymonds/orrery/internal/tmuxctl"
 	"github.com/joshsymonds/orrery/internal/tmuxtest"
+	"github.com/joshsymonds/orrery/internal/waittest"
 )
 
 const (
@@ -544,29 +545,59 @@ func waitForScreen(t *testing.T, tmux *tmuxctl.Client, pane, want string) {
 }
 
 // awaitInput waits until file holds as many bytes as the options, then requires it to equal one of them
-// exactly. The options must share one length.
-func awaitInput(t *testing.T, file string, options ...string) {
+// exactly. The options must share one length. It has no deadline of its own, and fails at once if ended, the end of
+// the pane process that writes file (see paneExited), closes first.
+func awaitInput(t *testing.T, ended <-chan struct{}, file string, options ...string) {
 	t.Helper()
-	ctx := t.Context()
-	ticker := time.NewTicker(screenPoll)
-	defer ticker.Stop()
-	for {
-		got, err := os.ReadFile(file)
+	var got []byte
+	waittest.Until(t, ended, fmt.Sprintf("input of %d bytes in %s", len(options[0]), file), func() bool {
+		var err error
+		got, err = os.ReadFile(file)
 		if err != nil && !errors.Is(err, fs.ErrNotExist) {
 			t.Fatalf("read input: %v", err)
 		}
-		if len(got) >= len(options[0]) {
-			if !slices.Contains(options, string(got)) {
-				t.Fatalf("pane received %q, want one of %q", got, options)
-			}
-			return
-		}
-		select {
-		case <-ctx.Done():
-			t.Fatalf("pane received %q, want one of %q", got, options)
-		case <-ticker.C:
-		}
+		return len(got) >= len(options[0])
+	})
+	if !slices.Contains(options, string(got)) {
+		t.Fatalf("pane received %q, want one of %q", got, options)
 	}
+}
+
+// paneExited returns a channel that closes once the process tmux started for pane has exited. What the pane's process
+// writes stops arriving then, so a wait for it selects on the channel. The pane must exist when it is called.
+func paneExited(t *testing.T, tmux *tmuxctl.Client, pane string) <-chan struct{} {
+	t.Helper()
+	out, err := tmux.Run(t.Context(), "display-message", "-p", "-t", pane, "#{pane_pid}")
+	if err != nil {
+		t.Fatalf("pane %s pane_pid: %v", pane, err)
+	}
+	stat := filepath.Join("/proc", strings.TrimSpace(out), "stat")
+	ctx := t.Context()
+	exited := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(screenPoll)
+		defer ticker.Stop()
+		for !processEnded(stat) {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+			}
+		}
+		close(exited)
+	}()
+	return exited
+}
+
+// processEnded reports whether the process whose /proc stat file is stat has exited: the file is gone, or the process
+// is a zombie.
+func processEnded(stat string) bool {
+	data, err := os.ReadFile(stat)
+	if err != nil {
+		return true
+	}
+	_, after, found := strings.Cut(string(data), ") ")
+	return !found || strings.HasPrefix(after, "Z") || strings.HasPrefix(after, "X")
 }
 
 // synthPrompt is the synthetic text that follows the prompt mark in a typing pane's input box.
@@ -718,8 +749,9 @@ func conversationPane(t *testing.T, tmux *tmuxctl.Client, options map[string]str
 }
 
 // awaitPaneExec waits until the process tmux started for pane has exec'd program: its /proc comm is program. It has no
-// deadline of its own. Until then tmux can report the pane's command as program and then as the shell again, so a
-// stream opened earlier could see the command change twice; an exec does not go back.
+// deadline of its own, and fails at once if the process exits first. Until then tmux can report the pane's command as
+// program and then as the shell again, so a stream opened earlier could see the command change twice; an exec does
+// not go back.
 func awaitPaneExec(t *testing.T, tmux *tmuxctl.Client, pane, program string) {
 	t.Helper()
 	out, err := tmux.Run(t.Context(), "display-message", "-p", "-t", pane, "#{pane_pid}")
@@ -730,8 +762,12 @@ func awaitPaneExec(t *testing.T, tmux *tmuxctl.Client, pane, program string) {
 	ticker := time.NewTicker(screenPoll)
 	defer ticker.Stop()
 	for {
-		if comm, err := os.ReadFile(commPath); err == nil && strings.TrimSpace(string(comm)) == program {
+		comm, err := os.ReadFile(commPath)
+		if err == nil && strings.TrimSpace(string(comm)) == program {
 			return
+		}
+		if errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("pane %s never exec'd %s: its process exited first", pane, program)
 		}
 		<-ticker.C
 	}
@@ -1097,7 +1133,7 @@ func TestServePanesWriteRequiresClientHeader(t *testing.T) {
 		connect.NewRequest(&orreryv1.SendKeysRequest{Pane: pane, Keys: []string{"ok"}})); err != nil {
 		t.Fatalf("Panes.SendKeys: %v", err)
 	}
-	awaitInput(t, file, "ok")
+	awaitInput(t, paneExited(t, tmux, pane), file, "ok")
 }
 
 func TestServePaneTextConcurrentSendsDoNotInterleave(t *testing.T) {
@@ -1129,7 +1165,7 @@ func TestServePaneTextConcurrentSendsDoNotInterleave(t *testing.T) {
 	}
 	first := typedLinesOf("a") + "\r"
 	second := typedLinesOf("b") + "\r"
-	awaitInput(t, file, first+second, second+first)
+	awaitInput(t, paneExited(t, tmux, pane), file, first+second, second+first)
 }
 
 func TestServePaneKeys(t *testing.T) {
@@ -1171,13 +1207,13 @@ func TestServePaneKeys(t *testing.T) {
 		connect.NewRequest(&orreryv1.SendKeysRequest{Pane: pane, Keys: []string{"--pane=" + other}})); err != nil {
 		t.Fatalf("Panes.SendKeys literal: %v", err)
 	}
-	awaitInput(t, file, "ab--pane="+other)
+	awaitInput(t, paneExited(t, tmux, pane), file, "ab--pane="+other)
 
 	if _, err := client.SendKeys(t.Context(),
 		connect.NewRequest(&orreryv1.SendKeysRequest{Pane: other, Keys: []string{"z"}})); err != nil {
 		t.Fatalf("Panes.SendKeys other: %v", err)
 	}
-	awaitInput(t, otherFile, "z")
+	awaitInput(t, paneExited(t, tmux, other), otherFile, "z")
 }
 
 func TestServePaneSeenNoTimeSetsNow(t *testing.T) {

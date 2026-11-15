@@ -139,7 +139,7 @@ func TestStartWithHolderScopeRunsSessionUnderScopedHolder(t *testing.T) {
 		t.Fatalf("Start: %v", err)
 	}
 	t.Cleanup(func() { closeAndClear(t, m, root, id) })
-	waitHistory(t, path, id, "the first reply block", func(h store.EngineHistory) bool {
+	waitHistory(t, engineOf(m), path, id, "the first reply block", func(h store.EngineHistory) bool {
 		return hasBlock(t, h, "fake reply 1")
 	})
 
@@ -174,7 +174,7 @@ func TestStartWithHolderScopeFailureFailsWithItsReasonAndRunsNoClaude(t *testing
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	history := waitHistory(t, path, id, "the failed state", func(h store.EngineHistory) bool {
+	history := waitHistory(t, engineOf(m), path, id, "the failed state", func(h store.EngineHistory) bool {
 		return h.State == "failed"
 	})
 	failure := ""
@@ -205,7 +205,12 @@ func TestCloseWithHolderScopeLeavesSessionRunning(t *testing.T) {
 		t.Fatalf("Start: %v", err)
 	}
 	t.Cleanup(func() { closeAndClear(t, m, root, id) })
-	waitUntil(t, "the stalled block's unfinished text", func() bool { return countRows(t, path, "engine_text") == 1 })
+	waitUntil(
+		t,
+		engineOf(m),
+		"the stalled block's unfinished text",
+		func() bool { return countRows(t, path, "engine_text") == 1 },
+	)
 	pid := fakePID(t, dir)
 
 	m.Close()
@@ -243,7 +248,7 @@ func TestCloseWithoutHolderScopeEndsSession(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	waitHistory(t, path, id, "the first reply block and the turn's end", func(h store.EngineHistory) bool {
+	waitHistory(t, engineOf(m), path, id, "the first reply block and the turn's end", func(h store.EngineHistory) bool {
 		return hasBlock(t, h, "fake reply 1") && h.State == "done"
 	})
 	pid := fakePID(t, dir)

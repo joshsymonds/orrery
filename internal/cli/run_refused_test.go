@@ -38,12 +38,12 @@ func TestRunRefusedReclaimStopsCommandWithGrace(t *testing.T) {
 		return fire
 	}
 	status := runAsync(context.Background(), cfg)
-	pid := readyPID(t, nextLine(t, lines))
+	pid := readyPID(t, nextLine(t, lines, status))
 	// CMD ignores SIGTERM and would run forever if the test failed before SIGKILL, so the group is killed at cleanup.
 	t.Cleanup(func() { _ = syscall.Kill(-pid, syscall.SIGKILL) })
 	close(ready)
 
-	d := <-graces
+	d, _ := receiveDuringRun(t, graces, status, "the stop's grace")
 	if d != stopGrace {
 		t.Fatalf("the grace = %v, want %v", d, stopGrace)
 	}

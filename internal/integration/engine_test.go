@@ -16,6 +16,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/holder"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/store"
+	"github.com/joshsymonds/orrery/internal/storetest"
 )
 
 // engineFakeClaude is the scripted claude the engine host tests run in place of the real one.
@@ -96,6 +97,9 @@ func newEngineFixture(t *testing.T) *engineFixture {
 			"ORRERY_SOCKET="+socket,
 		),
 	}
+	// The store starts as a migrated image, so each orreryd the test starts opens it without applying every migration.
+	// A test of the store's own creation uses storeFixture, which starts with none.
+	storetest.Seed(t, f.dbPath)
 	f.reader = store.NewReader(f.dbPath)
 	return f
 }
@@ -130,6 +134,7 @@ func terminate(p *orreryProcess) {
 		return
 	default:
 	}
+	p.asked.Store(true)
 	_ = p.cmd.Process.Signal(syscall.SIGTERM)
 	select {
 	case <-p.done:
@@ -180,6 +185,11 @@ func (f *engineFixture) waitForHistory(t *testing.T, id string, ready func(store
 		if err == nil && ready(history) {
 			return
 		}
+		// A failed session gives no more events, so a wait it has not satisfied would never end.
+		if err == nil && history.State == "failed" {
+			t.Fatalf("session %s failed before its history reached the wanted state; reason %q", id, history.Reason)
+		}
+		stopIfFailed(t)
 		<-ticker.C
 	}
 }
@@ -252,6 +262,7 @@ func fakeClaudePID(t *testing.T, dir string) int {
 func waitGone(t *testing.T, pid int) {
 	t.Helper()
 	for syscall.Kill(pid, 0) != syscall.ESRCH {
+		stopIfFailed(t)
 		time.Sleep(pollEvery)
 	}
 }
@@ -266,6 +277,7 @@ func waitHolderEnded(t *testing.T, dir string) {
 		t.Fatalf("read holder pids in %s: %v", dir, err)
 	}
 	for syscall.Kill(pids.Holder, 0) != syscall.ESRCH {
+		stopIfFailed(t)
 		time.Sleep(pollEvery)
 	}
 }

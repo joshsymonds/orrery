@@ -92,3 +92,85 @@ func TestRefusedPushedDeleteIsStoredAtTheNextWrite(t *testing.T) {
 	n.Wait()
 	wantRows(t, storedPushes(ctx, t, s), store.PushedRow{Pane: "%4", Time: at})
 }
+
+// TestRefusedPushedRowIsStoredAtTheNextRetry has the store refuse one key's row write, with no later row write to
+// retry it. The next Retry, which orreryd makes on each tidy pass, stores it once the store takes writes again.
+func TestRefusedPushedRowIsStoredAtTheNextRetry(t *testing.T) {
+	t.Parallel()
+	const at = 1700000000
+	ctx := context.Background()
+	s := openStore(ctx, t, filepath.Join(t.TempDir(), "orrery.db"))
+	rows := &refusingRows{Store: s, refuse: "%3"}
+	n := notice.New("host-a", &fakeSender{}, (&clock{at: time.Unix(at, 0)}).now, slog.New(slog.DiscardHandler))
+	n.Attach(ctx, rows)
+
+	n.Notify(ctx, notice.Key{Pane: "%3"}, build(push.Notification{Summary: "done"}), nil)
+	n.Wait()
+	wantRows(t, storedPushes(ctx, t, s))
+
+	n.Retry(ctx)
+	n.Wait()
+	wantRows(t, storedPushes(ctx, t, s), store.PushedRow{Pane: "%3", Time: at})
+}
+
+// TestRefusedPushedDeleteIsStoredAtTheNextRetry has the store refuse the delete of one key's row when the key is seen.
+// The next Retry deletes it once the store takes writes again.
+func TestRefusedPushedDeleteIsStoredAtTheNextRetry(t *testing.T) {
+	t.Parallel()
+	const at = 1700000000
+	ctx := context.Background()
+	s := openStore(ctx, t, filepath.Join(t.TempDir(), "orrery.db"))
+	rows := &refusingRows{Store: s, refuse: "%3"}
+	rows.refusedPut = true // only the delete is refused
+	n := notice.New("host-a", &fakeSender{}, (&clock{at: time.Unix(at, 0)}).now, slog.New(slog.DiscardHandler))
+	n.Attach(ctx, rows)
+
+	n.Notify(ctx, notice.Key{Pane: "%3"}, build(push.Notification{Summary: "done"}), nil)
+	n.Seen(ctx, notice.Key{Pane: "%3"}, at)
+	n.Wait()
+	wantRows(t, storedPushes(ctx, t, s), store.PushedRow{Pane: "%3", Time: at})
+
+	n.Retry(ctx)
+	n.Wait()
+	wantRows(t, storedPushes(ctx, t, s))
+}
+
+// TestRefusedPushedRowIsStoredAtClose has the store refuse one key's row write, with no later row write or Retry. Close
+// stores it before it returns, so a store closed after Close keeps the push.
+func TestRefusedPushedRowIsStoredAtClose(t *testing.T) {
+	t.Parallel()
+	const at = 1700000000
+	ctx := context.Background()
+	s := openStore(ctx, t, filepath.Join(t.TempDir(), "orrery.db"))
+	rows := &refusingRows{Store: s, refuse: "%3"}
+	n := notice.New("host-a", &fakeSender{}, (&clock{at: time.Unix(at, 0)}).now, slog.New(slog.DiscardHandler))
+	n.Attach(ctx, rows)
+
+	n.Notify(ctx, notice.Key{Pane: "%3"}, build(push.Notification{Summary: "done"}), nil)
+	n.Wait()
+	wantRows(t, storedPushes(ctx, t, s))
+
+	n.Close(ctx)
+	wantRows(t, storedPushes(ctx, t, s), store.PushedRow{Pane: "%3", Time: at})
+}
+
+// TestRefusedPushedDeleteIsStoredAtClose has the store refuse the delete of one key's row when the key is seen. Close
+// deletes it before it returns, so the next orreryd does not clear the push again.
+func TestRefusedPushedDeleteIsStoredAtClose(t *testing.T) {
+	t.Parallel()
+	const at = 1700000000
+	ctx := context.Background()
+	s := openStore(ctx, t, filepath.Join(t.TempDir(), "orrery.db"))
+	rows := &refusingRows{Store: s, refuse: "%3"}
+	rows.refusedPut = true // only the delete is refused
+	n := notice.New("host-a", &fakeSender{}, (&clock{at: time.Unix(at, 0)}).now, slog.New(slog.DiscardHandler))
+	n.Attach(ctx, rows)
+
+	n.Notify(ctx, notice.Key{Pane: "%3"}, build(push.Notification{Summary: "done"}), nil)
+	n.Seen(ctx, notice.Key{Pane: "%3"}, at)
+	n.Wait()
+	wantRows(t, storedPushes(ctx, t, s), store.PushedRow{Pane: "%3", Time: at})
+
+	n.Close(ctx)
+	wantRows(t, storedPushes(ctx, t, s))
+}

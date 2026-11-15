@@ -84,6 +84,10 @@ func newWiringFixture(t *testing.T) wiringFixture {
 		outerPane: strings.TrimSpace(outerPane),
 	}
 	waitFor(t, "client attached to s1", func() (bool, error) {
+		// The client runs in the outer pane, so a gone outer pane means the client will never attach.
+		if _, err := outerClient.Run(ctx, "display-message", "-p", "-t", fx.outerPane, "#{pane_id}"); err != nil {
+			return false, fmt.Errorf("the outer pane that runs the client is gone: %w", err)
+		}
 		out, err := innerClient.Run(ctx, "list-clients", "-F", "#{client_name}")
 		return strings.TrimSpace(out) != "", err
 	})

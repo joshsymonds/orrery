@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/store"
-	"github.com/joshsymonds/orrery/internal/storetest"
 )
 
 const (
@@ -136,6 +135,7 @@ func waitForAccept(t *testing.T, daemon *orreryProcess, path string) {
 		case <-daemon.done:
 			t.Fatalf("%s exited before %s accepted a connection; stderr %q", daemon.name, path, daemon.stderr.String())
 		case <-ticker.C:
+			stopIfFailed(t)
 		}
 	}
 }
@@ -144,7 +144,6 @@ func waitForAccept(t *testing.T, daemon *orreryProcess, path string) {
 // it, returning once the daemon has logged its store-open line.
 func startRestartDaemon(t *testing.T, f *engineFixture) *orreryProcess {
 	t.Helper()
-	storetest.Seed(t, f.dbPath)
 	seedRestartRows(t, f.dbPath, restartRows(restartRowCount))
 	daemon := startBinary(t, "orreryd", f.env,
 		"-L", f.server, "--socket", f.socket, "--claude", f.fakeClaude,

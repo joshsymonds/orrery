@@ -1,11 +1,13 @@
 package enginehost
 
 import (
+	"fmt"
 	"reflect"
 	"testing"
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/store"
+	"github.com/joshsymonds/orrery/internal/waittest"
 )
 
 // consumedAt returns an EngineConsumed of session id that sets only the consumed offset.
@@ -13,18 +15,15 @@ func consumedAt(id string, offset int64) store.EngineConsumed {
 	return store.EngineConsumed{ID: id, Consumed: offset}
 }
 
-// waitQueuedOps blocks until the writer's queue holds exactly ops. It has no deadline of its own.
-func waitQueuedOps(t *testing.T, w *Writer, ops ...store.EngineOp) {
+// waitQueuedOps blocks until the writer's queue holds exactly ops. It has no deadline of its own, and fails at once if
+// ended, the end of the call that queues them, closes first.
+func waitQueuedOps(t *testing.T, w *Writer, ended <-chan struct{}, ops ...store.EngineOp) {
 	t.Helper()
-	for {
+	waittest.Until(t, ended, fmt.Sprintf("queue of %v", ops), func() bool {
 		w.mu.Lock()
-		got := opsOf(w.queue)
-		w.mu.Unlock()
-		if reflect.DeepEqual(got, ops) {
-			return
-		}
-		time.Sleep(time.Millisecond)
-	}
+		defer w.mu.Unlock()
+		return reflect.DeepEqual(opsOf(w.queue), ops)
+	})
 }
 
 // A Put of only an EngineConsumed is outside the op limit: it returns while its session sits at the limit.
@@ -213,15 +212,16 @@ func TestCommitOfAbsorbedConsumedOffsetReturnsOnceMergedOpIsStored(t *testing.T)
 	}
 	commit := make(chan error, 1)
 	go func() { commit <- w.Commit(ctx, "a", consumedAt("a", 10)) }()
-	waitQueuedOps(t, w, consumedAt("a", 10))
+	ended, commitResult := waittest.Closed(commit)
+	waitQueuedOps(t, w, ended, consumedAt("a", 10))
 
 	select {
-	case err := <-commit:
-		t.Fatalf("Commit returned before the merged op was stored: %v", err)
+	case <-ended:
+		t.Fatalf("Commit returned before the merged op was stored: %v", <-commitResult)
 	default:
 	}
 	w.flush(ctx)
-	if err := receive(t, commit); err != nil {
+	if err := receive(t, commitResult); err != nil {
 		t.Fatalf("Commit of the absorbed consumed offset: %v", err)
 	}
 	row, err := s.EngineSession(ctx, "a")

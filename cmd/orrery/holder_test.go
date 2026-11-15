@@ -188,15 +188,25 @@ func (c *holderConn) read() holder.Frame {
 	return frame
 }
 
-// awaitFile returns the contents of path once the file ends with a newline. It has no deadline of its own.
-func awaitFile(t *testing.T, path string) string {
-	t.Helper()
+// awaitFile returns the contents of path once the file ends with a newline. It has no deadline of its own, and fails
+// at once when the holder returns first.
+func (hc *holderCommand) awaitFile(path string) string {
+	hc.t.Helper()
 	for {
 		data, err := os.ReadFile(path)
 		if err == nil && strings.HasSuffix(string(data), "\n") {
 			return string(data)
 		}
-		time.Sleep(holderPollInterval)
+		select {
+		case res := <-hc.ch:
+			hc.res, hc.done = res, true
+			// The child may have written the line just before the holder exited.
+			if data, err := os.ReadFile(path); err == nil && strings.HasSuffix(string(data), "\n") {
+				return string(data)
+			}
+			hc.t.Fatalf("the holder exited %d before %s held a line; stderr %q", res.code, path, res.stderr)
+		case <-time.After(holderPollInterval):
+		}
 	}
 }
 
@@ -214,7 +224,7 @@ func TestHolderServesHelloAndStop(t *testing.T) {
 	if answer.Type != holder.TypeHello || answer.Version != holder.WireVersion || answer.Session != "s1" {
 		t.Fatalf("answer to hello = %+v, want a hello for session s1 at version %d", answer, holder.WireVersion)
 	}
-	if got := awaitFile(t, filepath.Join(work, "fakeclaude.args")); got != "alpha beta\n" {
+	if got := hc.awaitFile(filepath.Join(work, "fakeclaude.args")); got != "alpha beta\n" {
 		t.Errorf("child arguments = %q, want %q", got, "alpha beta\n")
 	}
 

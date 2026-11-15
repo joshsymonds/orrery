@@ -41,8 +41,8 @@ const lastAttempt = 2
 const noVerdictLimit = 2
 
 // View is what Decide reads of one open task: the epic and whether it is paused or parked, its review gates, whether
-// the reviewer at its gate position has verify off, the task, its branch, the step and evidence run of its current
-// unit when they exist, the primary checkout's HEAD, and the ref moves the implementer's step made.
+// the reviewer at its gate position has verify off, the task, its branch, the epic's candidate, the step and evidence
+// run of its current unit when they exist, the primary checkout's HEAD, and the ref moves the implementer's step made.
 type View struct {
 	Epic        string
 	Paused      bool
@@ -51,6 +51,7 @@ type View struct {
 	NoVerify    bool
 	Task        store.EpicTask
 	Branch      string
+	Candidate   string
 	Step        *store.StepRow
 	Run         *store.EvidenceRun
 	Head        string

@@ -9,7 +9,8 @@ import (
 	"path/filepath"
 	"sync/atomic"
 	"testing"
-	"time"
+
+	"github.com/joshsymonds/orrery/internal/waittest"
 )
 
 // withConnectGate runs gate before each connection the store opens.
@@ -62,10 +63,9 @@ func TestCloseWaitsForAConnectThePoolStartsOnItsOwn(t *testing.T) {
 		}
 		waited <- connErr
 	}()
+	waitEnded, waitedResult := waittest.Closed(waited)
 	// The pool counts a call as waiting once it has queued it.
-	for s.db.Stats().WaitCount == 0 {
-		time.Sleep(time.Millisecond)
-	}
+	waittest.Until(t, waitEnded, "the pool's queued Conn call", func() bool { return s.db.Stats().WaitCount > 0 })
 	// Discarding the held connection while the call waits makes the pool open another on its own goroutine.
 	err = held.Raw(func(any) error { return driver.ErrBadConn })
 	if !errors.Is(err, driver.ErrBadConn) {
@@ -90,5 +90,5 @@ func TestCloseWaitsForAConnectThePoolStartsOnItsOwn(t *testing.T) {
 		}
 	}
 	cancelWait()
-	<-waited
+	<-waitedResult
 }

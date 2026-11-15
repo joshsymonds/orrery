@@ -1198,6 +1198,78 @@ for (const [name, step, line] of lineCases) {
     ));
 }
 
+// buildTasks are an orreryd epic's planned tasks, which the TASKS list shows in place of the record's: T1 is done, its
+// red and green runs named, and its green run keeps one image; T2 is open, with no run named yet.
+const buildTasks = [
+  {
+    id: "T1",
+    title: "the head shows the phase",
+    status: "done",
+    stage: "green",
+    red: { id: "b-red", phase: "red", source: "captured", state: "ended", verdict: "fails", passed: true, exit: 1 },
+    green: {
+      id: "b-green",
+      phase: "green",
+      source: "captured",
+      state: "ended",
+      verdict: "holds",
+      passed: true,
+      exit: 0,
+      artifacts: [{ path: "shots/after.png", state: "kept", size: 4n, mediaType: "image/png" }],
+    },
+  },
+  { id: "T2", title: "the task list reads build tasks", status: "open", stage: "" },
+];
+
+// pngLoader answers every artifact with four bytes of PNG, which is all a kept image needs in these tests.
+const pngLoader: LoadArtifact = () =>
+  Promise.resolve({ data: new Uint8Array([137, 80, 78, 71]), mediaType: "image/png" });
+
+// textsOf is the text of each element under root that matches selector, in document order.
+function textsOf(root: ParentNode, selector: string): (string | null)[] {
+  return [...root.querySelectorAll(selector)].map((element) => element.textContent);
+}
+
+// listedOf are the rows of the TASKS list, in the order drawn, whichever kind of task they are.
+function listedOf(container: HTMLElement): Element[] {
+  return [...container.querySelectorAll(".tasks > li")];
+}
+
+test("a database epic lists its build tasks in place of its record tasks, each with its id, title, status and stage", () =>
+  withView({ detail: detail({ epic, tasks, buildTasks }), cursorStep: "", loadArtifact: pngLoader }, (container) => {
+    assert.deepEqual(textsOf(container, ".tasks > li .slug"), ["T1", "T2"], "the record's tasks are not listed");
+    assert.deepEqual(textsOf(container, ".tasks > li .line"), [
+      "the head shows the phase",
+      "the task list reads build tasks",
+    ]);
+    assert.deepEqual(textsOf(container, ".tasks > li .status"), ["done", "open"]);
+    assert.deepEqual(textsOf(container, ".tasks > li .stage"), ["green", ""]);
+  }));
+
+test("a build task's red and green runs draw under its row in that order, its image's artifact named; a task with no runs has no run list", () =>
+  withView({ detail: detail({ epic, buildTasks }), cursorStep: "", loadArtifact: pngLoader }, (container) => {
+    const rows = listedOf(container);
+    assert.deepEqual(
+      rows.map((row) => [...row.children].map(classOf)),
+      [["task", "runs"], ["task out"]],
+      "the runs follow the head of their row",
+    );
+    assert.deepEqual(rows.map((row) => textsOf(row, ".run .phase")), [["red", "green"], []]);
+    assert.deepEqual(rows.map((row) => textsOf(row, ".artifact .path")), [["shots/after.png"], []]);
+  }));
+
+test("a build task's mark is passed when its status is done, and none while it is open", () =>
+  withView({ detail: detail({ epic, buildTasks }), cursorStep: "", loadArtifact: pngLoader }, (container) => {
+    assert.deepEqual(textsOf(container, ".tasks > li .um"), ["✓", "○"]);
+  }));
+
+test("the TASKS count of a database epic is its build tasks', not its record's", () =>
+  withView({ detail: detail({ epic, tasks, buildTasks }), cursorStep: "", loadArtifact: pngLoader }, (container) => {
+    const tasksEyebrow = [...container.querySelectorAll(".eyebrow")].at(1);
+    assert.equal(tasksEyebrow?.firstChild?.textContent ?? null, "TASKS");
+    assert.equal(tasksEyebrow?.querySelector(".sub")?.textContent ?? null, "2");
+  }));
+
 // clickFold presses the fold, and waits for Preact to paint what the press changed.
 async function clickFold(container: HTMLElement): Promise<void> {
   const fold = container.querySelector<HTMLButtonElement>(".steps-fold");

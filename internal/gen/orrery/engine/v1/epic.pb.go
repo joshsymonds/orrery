@@ -3884,14 +3884,13 @@ const file_orrery_engine_v1_epic_proto_rawDesc = "" +
 	"\x06_modelB\t\n" +
 	"\a_effortB\b\n" +
 	"\x06_limitB\t\n" +
-	"\a_verify\"\xdb\x01\n" +
+	"\a_verify\"\x99\x01\n" +
 	"\x0fEpicRequirement\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04text\x18\x02 \x01(\tR\x04text\x12\x1a\n" +
 	"\bevidence\x18\x03 \x01(\tR\bevidence\x12\x12\n" +
 	"\x04kind\x18\x04 \x01(\tR\x04kind\x122\n" +
-	"\x04item\x18\x05 \x01(\v2\x1e.orrery.engine.v1.EvidenceItemR\x04itemJ\x04\b\x06\x10\aJ\x04\b\a\x10\bJ\x04\b\b\x10\tJ\x04\b\t\x10\n" +
-	"R\x05ownerR\fcontributorsR\x05stateR\fdisagreement\"8\n" +
+	"\x04item\x18\x05 \x01(\v2\x1e.orrery.engine.v1.EvidenceItemR\x04item\"8\n" +
 	"\fEpicGateNeed\x12\x12\n" +
 	"\x04pool\x18\x01 \x01(\tR\x04pool\x12\x14\n" +
 	"\x05count\x18\x02 \x01(\x03R\x05count\"\xc3\x01\n" +
@@ -3902,7 +3901,7 @@ const file_orrery_engine_v1_epic_proto_rawDesc = "" +
 	"\x05needs\x18\x04 \x03(\v2\x1e.orrery.engine.v1.EpicGateNeedR\x05needs\x12\x14\n" +
 	"\x05agent\x18\x05 \x01(\tR\x05agent\x12\x12\n" +
 	"\x04must\x18\x06 \x03(\tR\x04must\x12\x19\n" +
-	"\bmust_not\x18\a \x03(\tR\amustNot\"\xc7\x01\n" +
+	"\bmust_not\x18\a \x03(\tR\amustNot\"\xae\x01\n" +
 	"\fEvidenceItem\x12\x18\n" +
 	"\acapture\x18\x01 \x03(\tR\acapture\x12\x14\n" +
 	"\x05limit\x18\x02 \x01(\x03R\x05limit\x12\x1c\n" +
@@ -3911,7 +3910,7 @@ const file_orrery_engine_v1_epic_proto_rawDesc = "" +
 	"\n" +
 	"conclusion\x18\x05 \x01(\tR\n" +
 	"conclusion\x12\x14\n" +
-	"\x05judge\x18\x06 \x01(\tR\x05judgeJ\x04\b\a\x10\bJ\x04\b\b\x10\tR\x04kindR\x05tests\"d\n" +
+	"\x05judge\x18\x06 \x01(\tR\x05judge\"d\n" +
 	"\x10EvidenceArtifact\x12\x12\n" +
 	"\x04path\x18\x01 \x01(\tR\x04path\x12\x14\n" +
 	"\x05state\x18\x02 \x01(\tR\x05state\x12\x12\n" +
@@ -3974,7 +3973,7 @@ const file_orrery_engine_v1_epic_proto_rawDesc = "" +
 	"\aoutcome\x18\x06 \x01(\tR\aoutcome\x12\x1c\n" +
 	"\tdecisions\x18\a \x03(\tR\tdecisions\x12\x18\n" +
 	"\astarted\x18\b \x01(\x03R\astarted\x12\x14\n" +
-	"\x05ended\x18\t \x01(\x03R\x05ended\"\xae\x05\n" +
+	"\x05ended\x18\t \x01(\x03R\x05ended\"\xfa\x04\n" +
 	"\bEpicTask\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04turn\x18\x02 \x01(\x03R\x04turn\x12\x14\n" +
@@ -3997,7 +3996,7 @@ const file_orrery_engine_v1_epic_proto_rawDesc = "" +
 	"\x04held\x18\x12 \x01(\tR\x04held\x12/\n" +
 	"\x03red\x18\x13 \x01(\v2\x1d.orrery.engine.v1.EvidenceRunR\x03red\x123\n" +
 	"\x05green\x18\x14 \x01(\v2\x1d.orrery.engine.v1.EvidenceRunR\x05green\x12:\n" +
-	"\areviews\x18\x15 \x03(\v2 .orrery.engine.v1.EpicTaskReviewR\areviewsJ\x04\b\x16\x10\x17J\x04\b\x17\x10\x18J\x04\b\x18\x10\x19R\vcontributesR\ftest_changesR\x05guard\"\xab\x01\n" +
+	"\areviews\x18\x15 \x03(\v2 .orrery.engine.v1.EpicTaskReviewR\areviews\"\xab\x01\n" +
 	"\x0eEpicTaskReview\x12\x18\n" +
 	"\aattempt\x18\x01 \x01(\x03R\aattempt\x12\x12\n" +
 	"\x04gate\x18\x02 \x01(\tR\x04gate\x12\x12\n" +
@@ -4013,12 +4012,12 @@ const file_orrery_engine_v1_epic_proto_rawDesc = "" +
 	"\x06reason\x18\x06 \x01(\tR\x06reason\x12\x1e\n" +
 	"\n" +
 	"unverified\x18\a \x01(\bR\n" +
-	"unverified\"b\n" +
+	"unverified\"\\\n" +
 	"\fEpicQuestion\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04turn\x18\x02 \x01(\x03R\x04turn\x12\x12\n" +
 	"\x04text\x18\x03 \x01(\tR\x04text\x12\x14\n" +
-	"\x05state\x18\x04 \x01(\tR\x05stateJ\x04\b\x05\x10\v\"N\n" +
+	"\x05state\x18\x04 \x01(\tR\x05state\"N\n" +
 	"\fEpicWorkflow\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x12\n" +
 	"\x04text\x18\x02 \x01(\tR\x04text\x12\x16\n" +
@@ -4047,7 +4046,7 @@ const file_orrery_engine_v1_epic_proto_rawDesc = "" +
 	"\x05tasks\x18\f \x03(\x03R\x05tasks\x12\x12\n" +
 	"\x04runs\x18\r \x03(\tR\x04runs\x125\n" +
 	"\x05check\x18\x0e \x01(\v2\x1f.orrery.engine.v1.EpicNodeCheckR\x05check\x12\x12\n" +
-	"\x04step\x18\x0f \x01(\tR\x04step\"\x9b\x05\n" +
+	"\x04step\x18\x0f \x01(\tR\x04step\"\xe6\x04\n" +
 	"\n" +
 	"StoredEpic\x12:\n" +
 	"\bcontract\x18\x01 \x01(\v2\x1e.orrery.engine.v1.EpicContractR\bcontract\x12\x14\n" +
@@ -4064,7 +4063,7 @@ const file_orrery_engine_v1_epic_proto_rawDesc = "" +
 	"\x06branch\x18\v \x01(\tR\x06branch\x12:\n" +
 	"\bworkflow\x18\f \x01(\v2\x1e.orrery.engine.v1.EpicWorkflowR\bworkflow\x120\n" +
 	"\x05nodes\x18\r \x03(\v2\x1a.orrery.engine.v1.EpicNodeR\x05nodes\x12<\n" +
-	"\treviewers\x18\x0e \x03(\v2\x1e.orrery.engine.v1.EpicReviewerR\treviewersJ\x04\b\x0f\x10\x14R\x06ledgerR\x06frozenR\x05cleanR\breleasesR\frelease_slot\"\x9d\x01\n" +
+	"\treviewers\x18\x0e \x03(\v2\x1e.orrery.engine.v1.EpicReviewerR\treviewers\"\x9d\x01\n" +
 	"\vEpicSummary\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1e\n" +
 	"\n" +
@@ -4086,12 +4085,12 @@ const file_orrery_engine_v1_epic_proto_rawDesc = "" +
 	"\x04epic\x18\x01 \x01(\v2\x1c.orrery.engine.v1.StoredEpicR\x04epic\"\x12\n" +
 	"\x10ListEpicsRequest\"H\n" +
 	"\x11ListEpicsResponse\x123\n" +
-	"\x05epics\x18\x01 \x03(\v2\x1d.orrery.engine.v1.EpicSummaryR\x05epics\"z\n" +
+	"\x05epics\x18\x01 \x03(\v2\x1d.orrery.engine.v1.EpicSummaryR\x05epics\"l\n" +
 	"\x11AnswerEpicRequest\x12\x17\n" +
 	"\aepic_id\x18\x01 \x01(\tR\x06epicId\x12\x0e\n" +
 	"\x02id\x18\x02 \x01(\tR\x02id\x12\x12\n" +
 	"\x04text\x18\x03 \x01(\tR\x04text\x12\x1a\n" +
-	"\bquestion\x18\x04 \x01(\tR\bquestionJ\x04\b\x05\x10\x06R\x06choice\"j\n" +
+	"\bquestion\x18\x04 \x01(\tR\bquestion\"j\n" +
 	"\x12AnswerEpicResponse\x12:\n" +
 	"\bdecision\x18\x01 \x01(\v2\x1e.orrery.engine.v1.EpicDecisionR\bdecision\x12\x18\n" +
 	"\awarning\x18\x02 \x01(\tR\awarning\"\"\n" +

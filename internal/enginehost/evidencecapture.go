@@ -23,11 +23,8 @@ const evidenceCaptureLogTail = 1 << 20
 // stored.
 const evidenceCaptureArtifactCap = 10 << 20
 
-// The reasons a capture captured nothing, as the store records them.
-const (
-	evidenceCaptureKilled = "killed at its limit"
-	evidenceCaptureLost   = "lost at a restart"
-)
+// evidenceCaptureKilled is the reason a capture that ran past its limit captured nothing, as the store records it.
+const evidenceCaptureKilled = "killed at its limit"
 
 // evidenceCapture runs an evidence item's capture at a revision in a detached worktree, under the holder and the pool
 // grant its gate queues for, and keeps what the capture leaves. worktrees is the directory the worktrees are added under,
@@ -144,7 +141,7 @@ func (c evidenceCapture) readoptLost(
 	if err == nil {
 		err = gateClear(ctx, plan.dir)
 	}
-	return captureFinished(c.end(ctx, repo, worktree, item, nil, evidenceCaptureLost), err)
+	return captureFinished(c.end(ctx, repo, worktree, item, nil, store.LostAtRestart), err)
 }
 
 // captureRequest returns the grant request run id's capture queues in worktree: one member of the default gate pool.

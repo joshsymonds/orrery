@@ -47,7 +47,7 @@ func TestStartWithChosenIDStoresRowUnderThatID(t *testing.T) {
 	if id != chosenID {
 		t.Fatalf("Start id = %q, want the chosen %q", id, chosenID)
 	}
-	waitHistory(t, path, chosenID, "the first reply block", func(h store.EngineHistory) bool {
+	waitHistory(t, engineOf(m), path, chosenID, "the first reply block", func(h store.EngineHistory) bool {
 		return hasBlock(t, h, "fake reply 1")
 	})
 	if n := countRows(t, path, "sessions"); n != 1 {
@@ -65,7 +65,7 @@ func TestStartWithKnownIDReturnsItWithoutEffect(t *testing.T) {
 	}
 	// Wait for the first turn to end, not just its reply block: the turn's end and its state change are recorded
 	// after the block, and counting them against the repeat below made this test fail under load.
-	waitHistory(t, path, chosenID, "the first turn's end", func(h store.EngineHistory) bool {
+	waitHistory(t, engineOf(m), path, chosenID, "the first turn's end", func(h store.EngineHistory) bool {
 		return hasBlock(t, h, "fake reply 1") && h.State == "done"
 	})
 
@@ -175,7 +175,7 @@ func TestConcurrentStartsWithOneIDStoreOneRow(t *testing.T) {
 	if n := countRows(t, path, "sessions"); n != 1 {
 		t.Fatalf("sessions rows = %d, want 1", n)
 	}
-	history := waitHistory(t, path, chosenID, "the first reply block", func(h store.EngineHistory) bool {
+	history := waitHistory(t, engineOf(m), path, chosenID, "the first reply block", func(h store.EngineHistory) bool {
 		return hasBlock(t, h, "fake reply 1")
 	})
 	if n := countKind(history, store.EventEnginePrompt); n != 1 {

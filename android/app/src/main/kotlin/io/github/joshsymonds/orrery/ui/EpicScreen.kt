@@ -35,6 +35,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
+import io.github.joshsymonds.orrery.api.EpicBuildTaskRow
 import io.github.joshsymonds.orrery.api.EpicDetail
 import io.github.joshsymonds.orrery.api.EpicRequirementRow
 import io.github.joshsymonds.orrery.api.EpicTaskRow
@@ -232,8 +233,14 @@ private fun EpicList(
             }
         }
         item("tasks-heading") { SectionHeading("Tasks") }
-        itemsIndexed(detail.tasks, key = { index, _ -> "task:$index" }) { index, task ->
-            TaskRow(index, task, selected = index == selectedRow, onTap = { onTapTask(index) })
+        if (detail.buildTasks.isNotEmpty()) {
+            itemsIndexed(detail.buildTasks, key = { index, _ -> "build-task:$index" }) { index, task ->
+                BuildTaskRow(index, task, loadArtifact)
+            }
+        } else {
+            itemsIndexed(detail.tasks, key = { index, _ -> "task:$index" }) { index, task ->
+                TaskRow(index, task, selected = index == selectedRow, onTap = { onTapTask(index) })
+            }
         }
         item("steps-heading") { SectionHeading("Steps") }
         items(running, key = { "step:${it.id}" }) { step ->
@@ -279,6 +286,40 @@ private fun TaskRow(index: Int, task: EpicTaskRow, selected: Boolean, onTap: () 
         Text(task.slug, style = MaterialTheme.typography.bodyLarge)
         Text(task.subject, style = MaterialTheme.typography.bodySmall)
         Text(task.status, style = MaterialTheme.typography.labelMedium)
+    }
+}
+
+/**
+ * The evidence runs of build task [index] are drawn under the key BUILD_TASK_RUNS minus its index: below 0, so never a
+ * Requirement's index (from 0) nor a workflow node's (-1), and distinct for each task.
+ */
+private const val BUILD_TASK_RUNS = -2
+
+/**
+ * One build task of a database epic: its id, title, status and stage, then its red and green runs drawn by
+ * [EvidenceRuns]. The stage shows only once the build is on one.
+ */
+@Composable
+private fun BuildTaskRow(index: Int, task: EpicBuildTaskRow, loadArtifact: ArtifactLoader) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("build-task-row:$index")
+            .padding(horizontal = 16.dp, vertical = 6.dp),
+    ) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(task.id, style = MaterialTheme.typography.bodyMedium)
+            Text(task.title, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+            Text(task.status, style = MaterialTheme.typography.labelMedium)
+        }
+        if (task.stage.isNotEmpty()) {
+            Text(task.stage, style = MaterialTheme.typography.labelSmall)
+        }
+        EvidenceRuns(
+            requirement = BUILD_TASK_RUNS - index,
+            runs = listOfNotNull(task.red, task.green),
+            loadArtifact = loadArtifact,
+        )
     }
 }
 

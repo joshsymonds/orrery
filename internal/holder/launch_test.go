@@ -17,6 +17,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/engine/proc"
 	"github.com/joshsymonds/orrery/internal/exectest"
 	"github.com/joshsymonds/orrery/internal/holdertest"
+	"github.com/joshsymonds/orrery/internal/waittest"
 )
 
 const (
@@ -295,10 +296,11 @@ func TestLaunchTimeoutFailsAndStopsAHolderThatNeverServes(t *testing.T) {
 		})
 		return err
 	})
-	awaitFile(t, pidFile)
+	ended, launched := waittest.Closed(result)
+	awaitFile(t, ended, pidFile)
 	clock.waitArmed(t, 2)
 	clock.Advance(LaunchTimeout)
-	if err := awaitResult(t, "Launch", result); err == nil || !strings.Contains(err.Error(), "did not serve") {
+	if err := awaitResult(t, "Launch", launched); err == nil || !strings.Contains(err.Error(), "did not serve") {
 		t.Fatalf("Launch error %v, want the timeout", err)
 	}
 	requireProcessGone(t, readPid(t, pidFile))
@@ -314,9 +316,10 @@ func TestLaunchCancelStopsAHolderThatNeverServes(t *testing.T) {
 		_, err := Launch(ctx, LaunchConfig{Orrery: orrery, StateDir: root, Session: testSession, Child: child})
 		return err
 	})
-	awaitFile(t, pidFile)
+	ended, launched := waittest.Closed(result)
+	awaitFile(t, ended, pidFile)
 	cancel()
-	if err := awaitResult(t, "Launch", result); !errors.Is(err, context.Canceled) {
+	if err := awaitResult(t, "Launch", launched); !errors.Is(err, context.Canceled) {
 		t.Fatalf("Launch error %v, want context.Canceled", err)
 	}
 	requireProcessGone(t, readPid(t, pidFile))

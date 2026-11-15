@@ -20,15 +20,16 @@ const testLimit = 500 * time.Millisecond
 // set, then waits on its stdin, so only the limit can end it.
 const ignoreTermScript = `trap '' TERM; echo "ready $$"; read -r line`
 
-// termNoticeScript is the command the cancel test runs under sh. It prints a ready line, then prints term for each
-// SIGTERM and runs on, waiting on its stdin, so only the limit can end it and the test sees when SIGTERM came.
-const termNoticeScript = `trap 'echo term' TERM; echo "ready $$"; while :; do read -r line; done`
+// termNoticeScript is the command the cancel test runs under sh. It prints a ready line once it ignores SIGTERM, then
+// prints term when SIGTERM comes and runs on, waiting on its stdin, so only the limit can end it and the test sees when
+// SIGTERM came.
+const termNoticeScript = termWatch + `echo "ready $$"; wait $watch; echo term; while :; do read -r line; done`
 
 // rerunScript returns the command the rerun tests run under sh. Under grant-term it prints a ready line, then exits 0
 // when SIGTERM stops it. Under any other grant it runs rerun.
 func rerunScript(rerun string) string {
 	return `case "$ORRERY_GRANT" in
-grant-term) trap 'exit 0' TERM; echo "ready $$"; read -r line ;;
+grant-term) ` + termWatch + `echo "ready $$"; wait $watch; exit 0 ;;
 *) ` + rerun + ` ;;
 esac`
 }
@@ -56,10 +57,13 @@ func newRunTimers(cfg *cli.RunConfig) *runTimers {
 	return timers
 }
 
-// next returns the next timer of duration d the run arms. Timers of other durations it passes are left unfired.
-func (timers *runTimers) next(d time.Duration) armedTimer {
+// next returns the next timer of duration d the run whose result arrives on status arms. Timers of other durations it
+// passes are left unfired. It has no deadline of its own, and fails at once when the run returns first (see
+// receiveDuringRun).
+func (timers *runTimers) next(t *testing.T, d time.Duration, status <-chan int) armedTimer {
+	t.Helper()
 	for {
-		if timer := <-timers.armed; timer.d == d {
+		if timer, _ := receiveDuringRun(t, timers.armed, status, "a "+d.String()+" timer"); timer.d == d {
 			return timer
 		}
 	}
@@ -99,10 +103,10 @@ func stopThenRerun(t *testing.T, rerun string, fireRerun bool) int {
 	cfg := limitConfig(t, socket, rerunScript(rerun), w, io.Discard, stdinPipe(t))
 	timers := newRunTimers(&cfg)
 	status := runAsync(testContext(t), cfg)
-	awaitReady(t, r)
-	first := timers.next(testLimit)
+	awaitReady(t, r, status)
+	first := timers.next(t, testLimit, status)
 	close(ready)
-	second := timers.next(testLimit)
+	second := timers.next(t, testLimit, status)
 	close(first.fire)
 	if fireRerun {
 		close(second.fire)
@@ -121,8 +125,8 @@ func TestRunLimitKillsCommandPastLimit(t *testing.T) {
 	cfg.Limit = testLimit
 	timers := newRunTimers(&cfg)
 	status := runAsync(testContext(t), cfg)
-	pid := readyPID(t, awaitReady(t, r))
-	close(timers.next(testLimit).fire)
+	pid := readyPID(t, awaitReady(t, r, status))
+	close(timers.next(t, testLimit, status).fire)
 	if got := awaitStatus(t, status); got != cli.ExitLimit {
 		t.Fatalf("RunWithGrant = %d, want ExitLimit %d", got, cli.ExitLimit)
 	}
@@ -164,9 +168,7 @@ func TestRunLimitIgnoresQueueTime(t *testing.T) {
 	cfg := limitConfig(t, socket, "exit 0", io.Discard, &stderr, nil)
 	timers := newRunTimers(&cfg)
 	status := runAsync(testContext(t), cfg)
-	for len(pools.received()) == 0 {
-		time.Sleep(testRetry)
-	}
+	awaitRequests(t, pools, 1, status)
 	select {
 	case timer := <-timers.armed:
 		t.Fatalf("a %v timer was armed while the grant was queued", timer.d)
@@ -211,10 +213,10 @@ func TestRunLimitKillsStoppedCommandPastLimit(t *testing.T) {
 	cfg.Limit = testLimit
 	timers := newRunTimers(&cfg)
 	status := runAsync(testContext(t), cfg)
-	awaitReady(t, r)
-	limit := timers.next(testLimit)
+	awaitReady(t, r, status)
+	limit := timers.next(t, testLimit, status)
 	close(ready)
-	timers.next(stopGrace)
+	timers.next(t, stopGrace, status)
 	close(limit.fire)
 	if got := awaitStatus(t, status); got != cli.ExitLimit {
 		t.Errorf("RunWithGrant = %d, want ExitLimit %d", got, cli.ExitLimit)
@@ -236,11 +238,11 @@ func TestRunLimitKillsCancelledCommandPastLimit(t *testing.T) {
 	cfg := limitConfig(t, socket, termNoticeScript, w, io.Discard, stdinPipe(t))
 	timers := newRunTimers(&cfg)
 	status := runAsync(ctx, cfg)
-	nextLine(t, lines)
-	limit := timers.next(testLimit)
+	nextLine(t, lines, status)
+	limit := timers.next(t, testLimit, status)
 	cancel()
 	// The cancel's SIGTERM has reached the command, which runs on, before the limit passes.
-	if got := nextLine(t, lines); got != "term" {
+	if got := nextLine(t, lines, status); got != "term" {
 		t.Fatalf("line after the cancel = %q, want term", got)
 	}
 	close(limit.fire)
@@ -260,10 +262,10 @@ func TestRunLimitKillsRefusedCommandPastLimit(t *testing.T) {
 	cfg := limitConfig(t, socket, ignoreTermScript, w, io.Discard, stdinPipe(t))
 	timers := newRunTimers(&cfg)
 	status := runAsync(testContext(t), cfg)
-	awaitReady(t, r)
-	limit := timers.next(testLimit)
+	awaitReady(t, r, status)
+	limit := timers.next(t, testLimit, status)
 	close(ready)
-	timers.next(stopGrace)
+	timers.next(t, stopGrace, status)
 	close(limit.fire)
 	if got := awaitStatus(t, status); got != cli.ExitLimit {
 		t.Errorf("RunWithGrant = %d, want ExitLimit %d", got, cli.ExitLimit)

@@ -4,12 +4,14 @@ import { useState } from "preact/hooks";
 import { denseStrip, doneOf, pipsOf, roundOf, type StripTone, stripOf } from "./epics";
 import { EvidenceRuns, type LoadArtifact } from "./evidence";
 import type {
+  EpicBuildTask,
   EpicRequirement,
   EpicSlice,
   EpicStep,
   EpicStepCheck,
   EpicsGetResponse,
   EpicTask,
+  EvidenceRun,
 } from "./gen/orrery/v1/epics_pb";
 import { cellKind, cellTitle, type EpicReadout, epicReadout, RINGS, type TaskReadout, taskReadout } from "./orbitcells";
 import { bezel, cellPath, CENTRE, handPath, hitSlice, ringLetters, VIEW, wedgePath } from "./orbits";
@@ -29,10 +31,11 @@ const secondsToMillis = 1000;
 // EpicView draws the right column for one epic: its head, with the slug, repository, outcome and done count, any
 // problem and the task strip; the Requirements of an orreryd epic, each with its conclusion and evidence runs; its
 // WORKFLOW, the node runs it pins, each with the rows its kind holds; a chart of its slices, or the orbits and the line
-// that it has none; the task rows, each with its mark, agent, pips and line; a card for the cursor's step while it runs;
-// and the steps, folded behind a line that counts them and their ends. The fold opens to the steps started on now's
-// day, oldest first, each with a pip per stored check, its end kind, and the tails of its failed checks. The cursor's
-// step and its task are marked. loadArtifact reads a run's log and artifacts for the runs' toggles and images.
+// that it has none; the task rows, each with its mark, agent, pips and line, or for an orreryd epic with build tasks
+// those tasks, each with its id, stage, status and title and its red and green runs; a card for the cursor's step while
+// it runs; and the steps, folded behind a line that counts them and their ends. The fold opens to the steps started on
+// now's day, oldest first, each with a pip per stored check, its end kind, and the tails of its failed checks. The
+// cursor's step and its task are marked. loadArtifact reads a run's log and artifacts for the runs' toggles and images.
 // Every text is a child of its element, so no markup in a slug, status, label or check name becomes an element.
 export function EpicView(props: {
   detail: EpicsGetResponse;
@@ -41,11 +44,13 @@ export function EpicView(props: {
   loadArtifact: LoadArtifact;
 }): JSX.Element {
   const { detail, cursorStep, now, loadArtifact } = props;
-  const { epic, tasks, slices, steps, requirements, nodes } = detail;
+  const { epic, tasks, slices, steps, requirements, nodes, buildTasks } = detail;
   const [open, setOpen] = useState(false);
   const cursor = cursorStep === "" ? undefined : steps.find((step) => step.id === cursorStep);
   const cursorTask = cursor === undefined || cursor.task === "" ? undefined : cursor.task;
   const strip = stripOf(tasks, slices);
+  const trackedCount = strip.filter((tone) => tone !== "none").length;
+  const taskCount = buildTasks.length > 0 ? `${buildTasks.length}` : `${tasks.length} · ${trackedCount} tracked`;
   return (
     <div class="epic-view">
       {epic && (
@@ -74,32 +79,34 @@ export function EpicView(props: {
         <SliceChart slices={slices} cursorTask={cursorTask} recordTasks={tasks.length} />
       )}
       <h3 class="eyebrow">
-        TASKS<span class="sub">{`${tasks.length} · ${strip.filter((tone) => tone !== "none").length} tracked`}</span>
+        TASKS<span class="sub">{taskCount}</span>
       </h3>
       <ul class="tasks">
-        {tasks.map((task, index) => {
-          const tone = rowToneOf(task, strip[index]);
-          const step = latestStepOf(steps, task.slug);
-          return (
-            <li key={index} class={taskClassOf(task.slug === cursorTask, tone)}>
-              {tone === "now" ? (
-                <span class="um g-working" aria-hidden="true" />
-              ) : (
-                <span class={`um k-${tone}`} aria-hidden="true">
-                  {markOf[tone]}
-                </span>
-              )}
-              <span class="slug">{task.slug}</span>
-              <span class="agent">{step?.agent ?? ""}</span>
-              <span class="pips">
-                {pipsOf(task.slug, slices).map((kind, pip) => (
-                  <i key={pip} class={`k-${kind}`} />
-                ))}
-              </span>
-              <span class="line">{lineOf(task, step)}</span>
-            </li>
-          );
-        })}
+        {buildTasks.length > 0
+          ? buildTasks.map((task) => <BuildTaskRow key={task.id} task={task} loadArtifact={loadArtifact} />)
+          : tasks.map((task, index) => {
+              const tone = rowToneOf(task, strip[index]);
+              const step = latestStepOf(steps, task.slug);
+              return (
+                <li key={index} class={taskClassOf(task.slug === cursorTask, tone)}>
+                  {tone === "now" ? (
+                    <span class="um g-working" aria-hidden="true" />
+                  ) : (
+                    <span class={`um k-${tone}`} aria-hidden="true">
+                      {markOf[tone]}
+                    </span>
+                  )}
+                  <span class="slug">{task.slug}</span>
+                  <span class="agent">{step?.agent ?? ""}</span>
+                  <span class="pips">
+                    {pipsOf(task.slug, slices).map((kind, pip) => (
+                      <i key={pip} class={`k-${kind}`} />
+                    ))}
+                  </span>
+                  <span class="line">{lineOf(task, step)}</span>
+                </li>
+              );
+            })}
       </ul>
       {cursor !== undefined && cursor.end === "" && !cursor.held && (
         <section class="now-card">
@@ -164,6 +171,28 @@ function Requirements(props: { requirements: EpicRequirement[]; loadArtifact: Lo
         ))}
       </ol>
     </section>
+  );
+}
+
+// BuildTaskRow is one task of an orreryd epic's plan: its mark, id, stage, status and title, with the red and green runs
+// its build names drawn under the row, red first. A task is passed when its status is done, and none otherwise.
+function BuildTaskRow(props: { task: EpicBuildTask; loadArtifact: LoadArtifact }): JSX.Element {
+  const { task, loadArtifact } = props;
+  const tone = taskStateOf(task.status) === "done" ? "passed" : "none";
+  const runs = [task.red, task.green].filter((run): run is EvidenceRun => run !== undefined);
+  return (
+    <li>
+      <div class={taskClassOf(false, tone)}>
+        <span class={`um k-${tone}`} aria-hidden="true">
+          {markOf[tone]}
+        </span>
+        <span class="slug">{task.id}</span>
+        <span class="stage">{task.stage}</span>
+        <span class="status">{task.status}</span>
+        <span class="line">{task.title}</span>
+      </div>
+      {runs.length > 0 && <EvidenceRuns runs={runs} loadArtifact={loadArtifact} />}
+    </li>
   );
 }
 

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/joshsymonds/orrery/internal/cli"
 	"github.com/joshsymonds/orrery/internal/deskstream"
@@ -47,14 +48,25 @@ func (o *noticesOutput) String() string {
 	return o.buf.String()
 }
 
-// waitFor returns once the output equals want. It has no deadline of its own.
-func (o *noticesOutput) waitFor(t *testing.T, want string) {
+// waitFor returns once the output equals want. It has no deadline of its own, and fails at once when call returns first.
+func (o *noticesOutput) waitFor(t *testing.T, call noticesCall, want string) {
 	t.Helper()
 	for {
 		if got := o.String(); got == want {
 			return
 		}
-		<-o.wrote
+		// Notices writes all it writes before it returns, so once its result is queued the output is final. The result
+		// is read by its length, so it stays on the channel for call.wait.
+		if len(call.done) > 0 {
+			if got := o.String(); got != want {
+				t.Fatalf("Notices returned with output %q, want %q first", got, want)
+			}
+			return
+		}
+		select {
+		case <-o.wrote:
+		case <-time.After(pollInterval):
+		}
 	}
 }
 
@@ -71,6 +83,18 @@ func startNotices(t *testing.T, socketPath string, stdin io.Reader, stdout io.Wr
 		done <- cli.Notices(t.Context(), socketPath, nil, stdin, stdout)
 	}()
 	return noticesCall{done: done}
+}
+
+// receiveWhileNotices receives from ch, which the fake socket or the test's stdin writer feeds as Notices runs. It has
+// no deadline of its own, and fails the test with what Notices returned once it has returned and ch still has nothing
+// (see receiveUntil): what names what the test waited for.
+func receiveWhileNotices[T any](t *testing.T, call noticesCall, ch <-chan T, what string) T {
+	t.Helper()
+	v, _, received := receiveUntil(ch, resultQueued(call.done))
+	if !received {
+		t.Fatalf("Notices returned %v while the test waited for %s", <-call.done, what)
+	}
+	return v
 }
 
 // wait returns the error Notices returned. It has no deadline of its own.
@@ -161,15 +185,16 @@ func TestNoticesRelaysBothWays(t *testing.T) {
 		_, err := io.WriteString(pw, activity)
 		written <- err
 	}()
-	err := <-written
-	if err != nil {
+	// The stdin write returns once Notices reads it, and the socket's line comes once Notices relays it, so both wait
+	// on Notices and end when it returns.
+	if err := receiveWhileNotices(t, call, written, "it to read stdin"); err != nil {
 		t.Fatalf("write stdin: %v", err)
 	}
-	got := <-received
+	got := receiveWhileNotices(t, call, received, "the socket to receive the stdin line")
 	if got != activity {
 		t.Fatalf("socket received %q, want %q", got, activity)
 	}
-	stdout.waitFor(t, hello+notice)
+	stdout.waitFor(t, call, hello+notice)
 
 	if err := pw.Close(); err != nil {
 		t.Fatalf("close stdin: %v", err)
