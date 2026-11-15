@@ -204,7 +204,7 @@ func TestStepFinishedTurnSendsNoNoticeAndSessionTurnDoes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start of the session: %v", err)
 	}
-	got := waitNotices(t, sink)
+	got := waitNotices(t, engineOf(m), sink)
 	if len(got) != 1 || got[0].Session != sid || got[0].State != string(protocol.StateDone) {
 		t.Fatalf("notices = %+v, want only the session's done notice", got)
 	}
@@ -255,7 +255,7 @@ func TestStepWithUnfindableClaudeFailsWithoutNotice(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start with a missing claude: %v", err)
 	}
-	got := waitNotices(t, sink)
+	got := waitNotices(t, engineOf(m), sink)
 	if len(got) != 1 || got[0].Session != sid || got[0].State != "failed" {
 		t.Fatalf("notices = %+v, want only the session's failed notice", got)
 	}

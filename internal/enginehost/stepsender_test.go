@@ -79,7 +79,7 @@ func TestStartStepStoresBriefSender(t *testing.T) {
 			return hasBlock(t, h, "fake reply 1")
 		},
 	)
-	waitReturns(t, obs, 1)
+	waitReturns(t, engineOf(m), obs, 1)
 
 	want := []storedPrompt{{Text: "hi", Sender: store.PromptSenderBrief}}
 	if got := storedPromptsOf(t, history); !reflect.DeepEqual(got, want) {
@@ -96,7 +96,7 @@ func TestContinueStoresSenderAndRound(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("StartStep: %v", err)
 	}
-	waitReturns(t, obs, 1)
+	waitReturns(t, engineOf(m), obs, 1)
 
 	prompt := StepPrompt{Text: "again", Sender: store.PromptSenderEngine, Round: 2}
 	if err := m.Continue(t.Context(), stepA, prompt); err != nil {

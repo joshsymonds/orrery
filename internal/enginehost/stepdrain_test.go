@@ -92,7 +92,7 @@ func drainHeldStep(t *testing.T, rig crashRig, dir string, obs *stepObserver, st
 		t.Fatalf("step %s is not live after the restart, want its holder re-adopted mid-round", stepA)
 	}
 	releaseHeldTurn(t, dir)
-	waitReturns(t, obs, 1)
+	waitReturns(t, engineOf(rig.manager, restarted), obs, 1)
 	waitHolderEnded(t, pids)
 	gateWaitGone(t, pid)
 	waitStoppingEnded(t, restarted, stepA)
@@ -335,7 +335,7 @@ func TestReadoptOwnVersionStepStaysLiveAfterHandOff(t *testing.T) {
 		t.Fatalf("session %s is not live after the restart: live %v", stepA, restarted.Live())
 	}
 	releaseHeldTurn(t, dir)
-	waitReturns(t, obs, 1)
+	waitReturns(t, engineOf(rig.manager, restarted), obs, 1)
 	waitHistory(
 		t,
 		engineOf(rig.manager, restarted),

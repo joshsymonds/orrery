@@ -143,7 +143,7 @@ func TestStepInLinkedWorktreeOfStampedCheckoutPassesStampSettings(t *testing.T) 
 	waitHistory(t, engineOf(m), path, stepA, "the step's reply block", func(h store.EngineHistory) bool {
 		return hasBlock(t, h, "fake reply 1")
 	})
-	waitReturns(t, obs, 1)
+	waitReturns(t, engineOf(m), obs, 1)
 
 	args := fakeArgs(t, linked)
 	if len(args) != 1 {

@@ -80,14 +80,10 @@ func (o *stepObserver) exited() []string {
 }
 
 // waitReturns waits until the observer has received at least n turn ends.
-func waitReturns(t *testing.T, o *stepObserver, n int) {
+// It fails at once when the work of eng has finished first.
+func waitReturns(t *testing.T, eng engine, o *stepObserver, n int) {
 	t.Helper()
-	waitUntil(
-		t,
-		engine{},
-		fmt.Sprintf("%d turn ends handed to the observer", n),
-		func() bool { return o.returned() >= n },
-	)
+	waitUntil(t, eng, fmt.Sprintf("%d turn ends handed to the observer", n), func() bool { return o.returned() >= n })
 }
 
 // newHandOffManager returns a step manager with the given step cap and a clock set by hand. Its store is at the returned
@@ -113,7 +109,7 @@ func TestStepHandsFirstTurnToObserver(t *testing.T) {
 	waitHistory(t, engineOf(m), path, stepA, "the step's first reply block", func(h store.EngineHistory) bool {
 		return hasBlock(t, h, "fake reply 1")
 	})
-	waitReturns(t, obs, 1)
+	waitReturns(t, engineOf(m), obs, 1)
 	if n := obs.returned(); n != 1 {
 		t.Fatalf("turn ends handed to the observer = %d, want 1", n)
 	}
@@ -132,7 +128,7 @@ func TestStepHandsEventsToObserverInOrder(t *testing.T) {
 	waitHistory(t, engineOf(m), path, stepA, "the step's first reply block", func(h store.EngineHistory) bool {
 		return hasBlock(t, h, "fake reply 1")
 	})
-	waitReturns(t, obs, 1)
+	waitReturns(t, engineOf(m), obs, 1)
 
 	seq := obs.sequence()
 	started, reply, ended, returned := -1, -1, -1, -1
@@ -188,7 +184,7 @@ func TestStepBackgroundTurnIsNotHandedOffUntilTaskEnds(t *testing.T) {
 			return hasBlock(t, h, "fake reply 2") && lastState(t, h) == string(protocol.StateDone)
 		},
 	)
-	waitReturns(t, obs, 1)
+	waitReturns(t, engineOf(m), obs, 1)
 	if n := obs.returned(); n != 1 {
 		t.Fatalf("turn ends handed to the observer after the task ended = %d, want 1", n)
 	}
@@ -221,7 +217,7 @@ func TestStepDoneReturnWhileBackgroundTaskIsListedIsHanded(t *testing.T) {
 			return hasBlock(t, h, "fake bgdone 2") && lastState(t, h) == string(protocol.StateDone)
 		},
 	)
-	waitReturns(t, obs, 1)
+	waitReturns(t, engineOf(m), obs, 1)
 	if n := obs.returned(); n != 1 {
 		t.Fatalf("turn ends handed to the observer with the task listed = %d, want 1", n)
 	}
@@ -274,7 +270,7 @@ func TestStepHandOffStaysBusyThroughIdleCheck(t *testing.T) {
 	waitHistory(t, engineOf(m), path, stepB, "the unobserved step's reply", func(h store.EngineHistory) bool {
 		return hasBlock(t, h, "fake reply 1") && lastState(t, h) == string(protocol.StateDone)
 	})
-	waitReturns(t, held, 1)
+	waitReturns(t, engineOf(m), held, 1)
 	pidA := fakePID(t, dirA)
 	pidB := fakePID(t, dirB)
 
@@ -299,7 +295,7 @@ func TestContinueSendsPromptRecordsItAndHandsOffItsTurn(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("StartStep: %v", err)
 	}
-	waitReturns(t, obs, 1)
+	waitReturns(t, engineOf(m), obs, 1)
 
 	if err := m.Continue(t.Context(), stepA, StepPrompt{Text: "again", Sender: store.PromptSenderOwner}); err != nil {
 		t.Fatalf("Continue: %v", err)
@@ -318,7 +314,7 @@ func TestContinueSendsPromptRecordsItAndHandsOffItsTurn(t *testing.T) {
 	if got := conversationOf(t, history); fmt.Sprint(got) != fmt.Sprint(want) {
 		t.Fatalf("conversation = %q, want %q", got, want)
 	}
-	waitReturns(t, obs, 2)
+	waitReturns(t, engineOf(m), obs, 2)
 	if n := obs.returned(); n != 2 {
 		t.Fatalf("turn ends handed to the observer = %d, want 2", n)
 	}
@@ -335,7 +331,7 @@ func TestStepExitedCallsObserverWithFailureReason(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("StartStep: %v", err)
 	}
-	waitReturns(t, obs, 1)
+	waitReturns(t, engineOf(m), obs, 1)
 
 	if err := m.Continue(t.Context(), stepA, StepPrompt{Text: "DIE", Sender: store.PromptSenderOwner}); err != nil {
 		t.Fatalf("Continue DIE: %v", err)
@@ -372,7 +368,7 @@ func TestContinueSendFailureRecordsFailedWithoutNotice(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("StartStep: %v", err)
 	}
-	waitReturns(t, obs, 1)
+	waitReturns(t, engineOf(m), obs, 1)
 	if err := m.Continue(t.Context(), stepA, StepPrompt{Text: "DIE", Sender: store.PromptSenderOwner}); err != nil {
 		t.Fatalf("Continue DIE: %v", err)
 	}
@@ -420,8 +416,8 @@ func TestStepStopAndCloseCallNoExited(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("StartStep closed: %v", err)
 	}
-	waitReturns(t, stopped, 1)
-	waitReturns(t, closed, 1)
+	waitReturns(t, engineOf(m), stopped, 1)
+	waitReturns(t, engineOf(m), closed, 1)
 
 	if err := m.Stop(t.Context(), stepA); err != nil {
 		t.Fatalf("Stop: %v", err)

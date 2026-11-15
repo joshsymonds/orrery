@@ -148,9 +148,10 @@ func newNoticeManager(t *testing.T, claude string, sink NoticeSink) (*Manager, s
 }
 
 // waitNotices waits until sink has received a notice, and returns the notices it has received.
-func waitNotices(t *testing.T, sink *fakeSink) []Notice {
+// It fails at once when the work of eng has finished first.
+func waitNotices(t *testing.T, eng engine, sink *fakeSink) []Notice {
 	t.Helper()
-	waitUntil(t, engine{}, "a notice", func() bool { return len(sink.got()) > 0 })
+	waitUntil(t, eng, "a notice", func() bool { return len(sink.got()) > 0 })
 	return sink.got()
 }
 
@@ -164,7 +165,7 @@ func TestNoticeWaitingCarriesQuestion(t *testing.T) {
 		t.Fatalf("Start: %v", err)
 	}
 
-	got := waitNotices(t, sink)
+	got := waitNotices(t, engineOf(m), sink)
 	want := Notice{Session: id, Dir: dir, State: string(protocol.StateWaiting), Body: "Which color?"}
 	if len(got) != 1 || got[0] != want {
 		t.Fatalf("notices = %+v, want [%+v]", got, want)
@@ -181,7 +182,7 @@ func TestNoticeDoneCarriesReply(t *testing.T) {
 		t.Fatalf("Start: %v", err)
 	}
 
-	got := waitNotices(t, sink)
+	got := waitNotices(t, engineOf(m), sink)
 	want := Notice{Session: id, Dir: dir, State: string(protocol.StateDone), Body: "fake reply 1"}
 	if len(got) != 1 || got[0] != want {
 		t.Fatalf("notices = %+v, want [%+v]", got, want)
@@ -197,7 +198,7 @@ func TestNoticeDoneCarriesLastFinishedBlock(t *testing.T) {
 		t.Fatalf("Start: %v", err)
 	}
 
-	got := waitNotices(t, sink)
+	got := waitNotices(t, engineOf(m), sink)
 	if len(got) != 1 || got[0].Session != id || got[0].Body != "fake flood 1.50" {
 		t.Fatalf("notices = %+v, want one done notice carrying the last block fake flood 1.50", got)
 	}
@@ -225,7 +226,7 @@ func TestNoticeInterruptedTurnSendsNothingAndNextTurnNotifies(t *testing.T) {
 	if err := m.Say(t.Context(), SayRequest{ID: id, Text: "again"}); err != nil {
 		t.Fatalf("Say: %v", err)
 	}
-	got := waitNotices(t, sink)
+	got := waitNotices(t, engineOf(m), sink)
 	want := Notice{Session: id, Dir: dir, State: string(protocol.StateDone), Body: "fake reply 2"}
 	if len(got) != 1 || got[0] != want {
 		t.Fatalf("notices = %+v, want only [%+v]: the interrupted turn must send nothing", got, want)
@@ -252,7 +253,7 @@ func TestNoticeFailedCarriesRecordedReason(t *testing.T) {
 		}
 	}
 
-	got := waitNotices(t, sink)
+	got := waitNotices(t, engineOf(m), sink)
 	want := Notice{Session: id, Dir: dir, State: "failed", Body: reason}
 	if len(got) != 1 || got[0] != want {
 		t.Fatalf("notices = %+v, want [%+v]", got, want)
@@ -291,7 +292,7 @@ func TestNoticeStopSendsNothing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	waitNotices(t, sink)
+	waitNotices(t, engineOf(m), sink)
 
 	if err := m.Stop(t.Context(), id); err != nil {
 		t.Fatalf("Stop: %v", err)
@@ -564,7 +565,7 @@ func TestSayCallsSinkChangedForSession(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	waitNotices(t, sink)
+	waitNotices(t, engineOf(m), sink)
 	if got := sink.changedCalls(); len(got) != 0 {
 		t.Fatalf("Changed calls before the prompt = %v, want none", got)
 	}
@@ -585,7 +586,7 @@ func TestStopCallsSinkChangedForSession(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	waitNotices(t, sink)
+	waitNotices(t, engineOf(m), sink)
 
 	if err := m.Stop(t.Context(), id); err != nil {
 		t.Fatalf("Stop: %v", err)

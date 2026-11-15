@@ -56,7 +56,7 @@ func TestStepAskIsDeniedWithoutAnswer(t *testing.T) {
 	waitHistory(t, engineOf(m), path, stepA, "the step's done state", func(h store.EngineHistory) bool {
 		return lastState(t, h) == string(protocol.StateDone)
 	})
-	waitReturns(t, obs, 1)
+	waitReturns(t, engineOf(m), obs, 1)
 }
 
 func TestStepPermitIsDeniedWithoutAnswer(t *testing.T) {
@@ -79,7 +79,7 @@ func TestStepPermitIsDeniedWithoutAnswer(t *testing.T) {
 	waitHistory(t, engineOf(m), path, stepA, "the step's done state", func(h store.EngineHistory) bool {
 		return lastState(t, h) == string(protocol.StateDone)
 	})
-	waitReturns(t, obs, 1)
+	waitReturns(t, engineOf(m), obs, 1)
 }
 
 func TestSessionAskStillWaitsForAnswer(t *testing.T) {
