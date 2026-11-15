@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"slices"
 
 	"github.com/joshsymonds/orrery/internal/enginehost"
+	"github.com/joshsymonds/orrery/internal/reviewers"
 	"github.com/joshsymonds/orrery/internal/roles"
 	"github.com/joshsymonds/orrery/internal/store"
 )
@@ -28,8 +30,8 @@ func (e RoleError) Unwrap() error { return e.Err }
 
 // startStep starts the step of action, under the id it carries, for the task of view in epic, and returns the id the
 // engine started it under. An implement step runs the implementer's agent in its own worktree; a review step runs the
-// epic's review gate read-only; a verify step runs the verifier's agent read-only on one finding. An error the engine
-// returns on start is wrapped, so errors.Is still matches it.
+// task-stage reviewer its review gate names, read-only; a verify step runs the verifier's agent read-only on one
+// finding. An error the engine returns on start is wrapped, so errors.Is still matches it.
 func (r *Runner) startStep(ctx context.Context, epic store.EpicRow, view View, action Action) (string, error) {
 	var (
 		start enginehost.StepStart
@@ -39,7 +41,7 @@ func (r *Runner) startStep(ctx context.Context, epic store.EpicRow, view View, a
 	case StageImplement:
 		start, err = r.implementerStart(ctx, epic, view.Task, action.ID)
 	case StageReview:
-		start, err = r.reviewStart(ctx, epic, view.Task, action.ID)
+		start, err = r.reviewStart(epic, view.Task, action.ID)
 	case StageVerify:
 		start, err = r.verifierStart(epic, view, action.ID)
 	default:
@@ -122,31 +124,40 @@ func (r *Runner) redEvidence(ctx context.Context, task store.EpicTask) (store.Ev
 	return *task.Red, redLog, redStderr
 }
 
-// reviewStart returns the start of the review step id for task of epic: the review gate at the task's gate position,
-// run read-only at the revision the task's build reached. A gate that is a command gate is an error.
-func (r *Runner) reviewStart(
-	ctx context.Context, epic store.EpicRow, task store.EpicTask, id string,
-) (enginehost.StepStart, error) {
+// reviewStart returns the start of the review step id for task of epic: the epic's task-stage reviewer named by the
+// review gate at the task's gate position, run read-only at the revision the task's build reached. A model reviewer
+// carries its inline agent, and an agent reviewer's prompt heads the review prompt.
+func (r *Runner) reviewStart(epic store.EpicRow, task store.EpicTask, id string) (enginehost.StepStart, error) {
 	pos := task.Build.GatePos
 	if pos < 0 || pos >= int64(len(epic.ReviewGates)) {
 		return enginehost.StepStart{}, fmt.Errorf("review gate %d of epic %s is not defined", pos, epic.ID)
 	}
 	name := epic.ReviewGates[pos]
-	gate, err := ResolveGate(ctx, epic, name, r.getenv)
+	taskReviewers := reviewers.ForStage(epic.Reviewers, reviewers.StageTask)
+	i := slices.IndexFunc(taskReviewers, func(rev reviewers.Reviewer) bool { return rev.Name == name })
+	if i < 0 {
+		return enginehost.StepStart{}, fmt.Errorf(
+			"review gate %s of epic %s is not a task-stage reviewer", name, epic.ID)
+	}
+	rev := taskReviewers[i]
+	agents, err := rev.Agents()
 	if err != nil {
-		return enginehost.StepStart{}, err
+		return enginehost.StepStart{}, fmt.Errorf("review gate %s: %w", name, err)
 	}
-	if gate.Agent == "" {
-		return enginehost.StepStart{}, fmt.Errorf("gate %s is a command gate, not an agent gate", name)
-	}
+	gate := rev.Gate()
 	base, revision := task.Build.Base, task.Build.Revision
+	prompt := ReviewPrompt(epic, task, base, revision)
+	if rev.Agent != "" && rev.Prompt != "" {
+		prompt = rev.Prompt + "\n\n" + prompt
+	}
 	return enginehost.StepStart{
 		ID:        id,
 		ReadOnly:  true,
 		Workspace: epic.Repository,
 		Revision:  revision,
 		AgentGate: &gate,
-		Prompt:    ReviewPrompt(epic, task, base, revision),
+		Agents:    agents,
+		Prompt:    prompt,
 		Epic:      epic.ID,
 		Task:      taskLabel(task.Seq),
 	}, nil
