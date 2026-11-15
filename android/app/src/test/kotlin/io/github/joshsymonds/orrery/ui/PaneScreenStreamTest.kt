@@ -9,6 +9,7 @@ import androidx.lifecycle.Lifecycle
 import com.connectrpc.Code
 import io.github.joshsymonds.orrery.api.FakeOrreryServer
 import io.github.joshsymonds.orrery.api.OrreryClient
+import io.github.joshsymonds.orrery.api.Quiescence
 import io.github.joshsymonds.orrery.api.Reply
 import io.github.joshsymonds.orrery.api.StreamEnd
 import io.github.joshsymonds.orrery.awaitExactlyOne
@@ -47,6 +48,9 @@ private const val STREAM_PREFIX_BYTES = 5
 // Longer than STREAM_FAILURES_BEFORE_POLL, so a restart that ends this many streams UNAVAILABLE would poll if it counted.
 private const val UNAVAILABLE_ENDS = 4
 private const val VIRTUAL_STEP_MILLIS = 100L
+
+/** How far [PaneScreenStreamTest.advanceUntil] moves the clock, with nothing in flight, before it fails. */
+private const val ADVANCE_BUDGET_MILLIS = 30_000L
 private const val REAL_PAUSE_MILLIS = 10L
 
 @OptIn(ExperimentalTestApi::class)
@@ -116,15 +120,24 @@ class PaneScreenStreamTest {
     /**
      * Moves the virtual clock [VIRTUAL_STEP_MILLIS] at a time until [condition] holds. The screen's reconnect delays and
      * poll intervals run on that clock, so they pass by these steps rather than by the frames a waitUntil loop must
-     * reach them in, and the steps needed do not depend on how fast frames run. The real pause between steps lets the
-     * requests in flight finish; that real work has no deadline here, and the test task's timeout bounds a condition
-     * that never holds. Each step then idles the main looper, so the deltas the screen hops to the main thread are
-     * applied before [condition] is checked.
+     * reach them in, and the steps needed do not depend on how fast frames run. The clock moves only while nothing is
+     * in flight (Quiescence), so the requests in flight finish first however long they take. Each step then idles the
+     * main looper, so the deltas the screen hops to the main thread are applied before [condition] is checked. The
+     * wait fails once the clock has moved [ADVANCE_BUDGET_MILLIS] with [condition] still false.
      */
     private fun advanceUntil(condition: () -> Boolean) {
+        val startedAt = composeRule.mainClock.currentTime
         while (!condition()) {
+            if (Quiescence.inFlight() != null) {
+                Thread.sleep(REAL_PAUSE_MILLIS)
+                composeRule.waitForIdle()
+                continue
+            }
+            val moved = composeRule.mainClock.currentTime - startedAt
+            check(moved < ADVANCE_BUDGET_MILLIS) {
+                "the condition never held through $moved ms of virtual time with nothing in flight; ${Quiescence.serverState()}"
+            }
             composeRule.mainClock.advanceTimeBy(VIRTUAL_STEP_MILLIS)
-            Thread.sleep(REAL_PAUSE_MILLIS)
             composeRule.waitForIdle()
         }
     }

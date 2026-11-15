@@ -11,6 +11,7 @@ import androidx.test.core.app.ApplicationProvider
 import com.connectrpc.Code
 import io.github.joshsymonds.orrery.ServerSettings
 import io.github.joshsymonds.orrery.api.FakeOrreryServer
+import io.github.joshsymonds.orrery.api.Quiescence
 import io.github.joshsymonds.orrery.gen.orrery.v1.SendKeysRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.SendKeysResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.SendTextRequest
@@ -180,17 +181,10 @@ class ReplyReceiverTest {
             ?.toString()
 
     /**
-     * Idles the main looper until [settled]. The receiver's call runs on other threads, so the wait has no deadline of
-     * its own; the test task's timeout bounds one that never settles.
+     * Idles the main looper until [settled], failing once nothing is in flight and it still has not settled. The
+     * receiver's call runs on other threads; the wait ends on that work, not on a clock.
      */
     private fun awaitSettled(settled: () -> Boolean) {
-        while (!settled()) {
-            shadowOf(Looper.getMainLooper()).idle()
-            Thread.sleep(POLL_MS)
-        }
-    }
-
-    private companion object {
-        const val POLL_MS = 10L
+        Quiescence.awaitUntil("the reply settled", step = { shadowOf(Looper.getMainLooper()).idle() }, condition = settled)
     }
 }
