@@ -89,4 +89,9 @@ tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach 
 
 tasks.withType<org.gradle.api.tasks.testing.Test>().configureEach {
     jvmArgs("--add-modules", "jdk.httpserver")
+    // Test classes run in parallel JVMs, half the cores and at most four; each JVM starts its own
+    // Robolectric sandbox. Four 1 GB forks fit beside Gradle on a 16 GB CI runner. 1 GB is twice
+    // Gradle's 512 MB default test heap.
+    maxParallelForks = (Runtime.getRuntime().availableProcessors() / 2).coerceIn(1, 4)
+    maxHeapSize = "1g"
 }
