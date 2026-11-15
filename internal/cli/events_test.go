@@ -237,6 +237,7 @@ func checkEventLine(t *testing.T, line string, want store.Event) {
 }
 
 func TestEventsAfterWithoutFollowWritesThroughNewest(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	seedEvents(t, openEventsStore(t, path))
 	stored := eventsStored(t, path)
@@ -258,6 +259,7 @@ func TestEventsAfterWithoutFollowWritesThroughNewest(t *testing.T) {
 }
 
 func TestEventsWithoutAfterOrFollowWritesNothing(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	seedEvents(t, openEventsStore(t, path))
 	url, _ := serveEvents(t, path, nil)
@@ -273,6 +275,7 @@ func TestEventsWithoutAfterOrFollowWritesNothing(t *testing.T) {
 }
 
 func TestEventsFollowWithoutAfterWritesOnlyEventsAfterList(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	s := openEventsStore(t, path)
 	seedEvents(t, s)
@@ -305,6 +308,7 @@ func TestEventsFollowWithoutAfterWritesOnlyEventsAfterList(t *testing.T) {
 }
 
 func TestEventsCursorPastEndIsAnError(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	seedEvents(t, openEventsStore(t, path))
 	url, _ := serveEvents(t, path, nil)
@@ -320,6 +324,7 @@ func TestEventsCursorPastEndIsAnError(t *testing.T) {
 }
 
 func TestEventsWithoutURLIsUsageError(t *testing.T) {
+	t.Parallel()
 	err := cli.Events(t.Context(), nil, io.Discard)
 	if !errors.Is(err, cli.ErrUsage) {
 		t.Fatalf("Events without --url returned %v, want a usage error", err)
