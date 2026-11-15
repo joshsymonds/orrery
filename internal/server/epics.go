@@ -40,10 +40,8 @@ const (
 
 // epicsServer answers orrery.v1.Epics from the records under root, the epics store holds, the runs of evidence, and the
 // labeled steps of steps. A nil steps answers unavailable. A nil store lists no database epics, a nil commands answers
-// the epic commands unavailable, and a nil evidence client attaches no runs. The rpcs it does not answer yet come from
-// the embedded unimplemented handler.
+// the epic commands unavailable, and a nil evidence client attaches no runs. Each rpc of the service is a method here.
 type epicsServer struct {
-	orreryv1connect.UnimplementedEpicsHandler
 	root     string
 	steps    StepClient
 	store    EpicStoreClient
@@ -106,9 +104,9 @@ func (e epicsServer) List(
 // Get answers one epic by the id List gave it, with its tasks, its labeled steps oldest first, and its slices. An epic
 // orreryd's database holds answers as List does, with its Requirements in contract order, each with its conclusion and
 // the evidence runs of its item, its workflow nodes in the engine's order, its build_tasks in plan order, its open
-// questions, its contract with its acceptance time, whether it is paused and why it is parked, and the tasks of its
-// record when one exists. An id that neither the database nor the record root lists answers not_found, and the
-// id is never joined into a path.
+// questions, its contract with its acceptance time, its summary, whether it is paused and why it is parked, and the
+// tasks of its record when one exists. An id that neither the database nor the record root lists answers not_found,
+// and the id is never joined into a path.
 func (e epicsServer) Get(
 	ctx context.Context,
 	req *connect.Request[orreryv1.EpicsGetRequest],
@@ -160,6 +158,7 @@ func (e epicsServer) Get(
 		resp.BuildTasks = epicBuildTaskMessages(stored.GetTasks())
 		resp.Questions = epicQuestionMessages(stored.GetQuestions(), stored.GetTurns())
 		resp.Contract = epicContractMessage(stored.GetContract(), stored.GetCreated())
+		resp.Summary = stored.GetSummary()
 		resp.Paused = stored.GetPaused()
 		resp.Parked = stored.GetParked()
 	} else {
