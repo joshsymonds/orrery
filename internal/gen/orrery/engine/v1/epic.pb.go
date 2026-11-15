@@ -2446,11 +2446,11 @@ type StoredEpic struct {
 	// workflow does not hold after the others. Every epic RPC that returns the epic fills it.
 	Nodes []*EpicNode `protobuf:"bytes,13,rep,name=nodes,proto3" json:"nodes,omitempty"`
 	// The epic's summary, written once from its contract. Empty until it is written.
-	Summary string `protobuf:"bytes,14,opt,name=summary,proto3" json:"summary,omitempty"`
+	Summary string `protobuf:"bytes,20,opt,name=summary,proto3" json:"summary,omitempty"`
 	// The epic's triggers, oldest first. Only a GetEpic that asks for history fills them.
-	Triggers []*EpicTrigger `protobuf:"bytes,15,rep,name=triggers,proto3" json:"triggers,omitempty"`
+	Triggers []*EpicTrigger `protobuf:"bytes,21,rep,name=triggers,proto3" json:"triggers,omitempty"`
 	// The epic's tells in seq order. Only a GetEpic that asks for history fills them.
-	Tells         []*EpicTell `protobuf:"bytes,16,rep,name=tells,proto3" json:"tells,omitempty"`
+	Tells         []*EpicTell `protobuf:"bytes,22,rep,name=tells,proto3" json:"tells,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -4064,9 +4064,9 @@ const file_orrery_engine_v1_epic_proto_rawDesc = "" +
 	"\x06branch\x18\v \x01(\tR\x06branch\x12:\n" +
 	"\bworkflow\x18\f \x01(\v2\x1e.orrery.engine.v1.EpicWorkflowR\bworkflow\x120\n" +
 	"\x05nodes\x18\r \x03(\v2\x1a.orrery.engine.v1.EpicNodeR\x05nodes\x12\x18\n" +
-	"\asummary\x18\x0e \x01(\tR\asummary\x129\n" +
-	"\btriggers\x18\x0f \x03(\v2\x1d.orrery.engine.v1.EpicTriggerR\btriggers\x120\n" +
-	"\x05tells\x18\x10 \x03(\v2\x1a.orrery.engine.v1.EpicTellR\x05tells\"\x9d\x01\n" +
+	"\asummary\x18\x14 \x01(\tR\asummary\x129\n" +
+	"\btriggers\x18\x15 \x03(\v2\x1d.orrery.engine.v1.EpicTriggerR\btriggers\x120\n" +
+	"\x05tells\x18\x16 \x03(\v2\x1a.orrery.engine.v1.EpicTellR\x05tells\"\x9d\x01\n" +
 	"\vEpicSummary\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1e\n" +
 	"\n" +

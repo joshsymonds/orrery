@@ -660,13 +660,13 @@ message StoredEpic {
   repeated EpicNode nodes = 13;
 
   // The epic's summary, written once from its contract. Empty until it is written.
-  string summary = 14;
+  string summary = 20;
 
   // The epic's triggers, oldest first. Only a GetEpic that asks for history fills them.
-  repeated EpicTrigger triggers = 15;
+  repeated EpicTrigger triggers = 21;
 
   // The epic's tells in seq order. Only a GetEpic that asks for history fills them.
-  repeated EpicTell tells = 16;
+  repeated EpicTell tells = 22;
 }
 
 // EpicSummary is an epic's head fields, without its contract.
