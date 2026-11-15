@@ -290,7 +290,8 @@ func (r *Router) dueIn(d time.Duration) int64 {
 	return r.cfg.Now().Add(d).UnixMilli()
 }
 
-// rowOf is the whole row ent keeps.
+// rowOf is the whole row ent keeps. It carries the told mark of ent's notice, so the write that stores the row marks
+// it told too.
 func rowOf(ent *entry) store.NoticeRow {
 	return store.NoticeRow{
 		ID:          ent.row,
@@ -306,5 +307,6 @@ func rowOf(ent *entry) store.NoticeRow {
 		SourceKind:  ent.n.Source.Kind,
 		Source:      ent.n.Source.Data,
 		Silent:      ent.silent,
+		Told:        ent.n.Told,
 	}
 }

@@ -7,9 +7,18 @@ import (
 	"github.com/joshsymonds/orrery/internal/store/sqlcgen"
 )
 
+// ToldMark names the turn or tell of an epic that a write of a notice row marks told, in the same transaction. Seq is
+// the turn's seq, or the tell's seq when Tell is set.
+type ToldMark struct {
+	Epic string
+	Seq  int64
+	Tell bool
+}
+
 // NoticeRow is one pending notice. Exactly one of Pane, Session and Epic names what it is about. Time is the unix
 // second the notice was recorded. Due is the unix millisecond its phase timer runs out, 0 for none. Phase and
-// SourceKind are stored as given; the store does not interpret them.
+// SourceKind are stored as given; the store does not interpret them. A non-nil Told is not stored: PutNotice applies
+// it, and the rows Notices returns carry none.
 type NoticeRow struct {
 	ID          int64
 	Pane        string
@@ -24,10 +33,12 @@ type NoticeRow struct {
 	Source      []byte
 	Silent      bool
 	Epic        string
+	Told        *ToldMark
 }
 
 // PutNotice inserts the row named by row.ID, or replaces every column of the row already stored under that id. It
-// raises the id floor to row.ID in the same write, so no id ever put is above the floor.
+// raises the id floor to row.ID and marks row.Told, in the same write, so no id ever put is above the floor and a
+// notice's row and its told mark land together or not at all.
 func (s *Store) PutNotice(ctx context.Context, row NoticeRow) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
 		if err := queries.UpsertPendingNotice(ctx, sqlcgen.UpsertPendingNoticeParams{
@@ -40,8 +51,34 @@ func (s *Store) PutNotice(ctx context.Context, row NoticeRow) error {
 		if err := queries.RaiseNoticeIDFloor(ctx, row.ID); err != nil {
 			return fmt.Errorf("raise notice id floor to %d: %w", row.ID, err)
 		}
+		if row.Told != nil {
+			return markToldIn(ctx, queries, *row.Told)
+		}
 		return nil
 	})
+}
+
+// markToldIn sets the told marker of the turn or tell told names, inside the write queries belongs to. A turn or tell
+// that does not exist is an error matching ErrNoTurn or ErrNoTell, which fails that write.
+func markToldIn(ctx context.Context, queries *sqlcgen.Queries, told ToldMark) error {
+	if told.Tell {
+		rows, err := queries.MarkEpicTellTold(ctx, sqlcgen.MarkEpicTellToldParams{Epic: told.Epic, Seq: told.Seq})
+		if err != nil {
+			return fmt.Errorf("mark tell %d of epic %s told: %w", told.Seq, told.Epic, err)
+		}
+		if rows == 0 {
+			return fmt.Errorf("tell %d of epic %s: %w", told.Seq, told.Epic, ErrNoTell)
+		}
+		return nil
+	}
+	rows, err := queries.MarkEpicTurnTold(ctx, sqlcgen.MarkEpicTurnToldParams{Epic: told.Epic, Seq: told.Seq})
+	if err != nil {
+		return fmt.Errorf("mark turn %d of epic %s told: %w", told.Seq, told.Epic, err)
+	}
+	if rows == 0 {
+		return fmt.Errorf("turn %d of epic %s: %w", told.Seq, told.Epic, ErrNoTurn)
+	}
+	return nil
 }
 
 // DeleteNotice removes the row with id. An id that is not stored is not an error.

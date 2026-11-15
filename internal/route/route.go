@@ -79,12 +79,14 @@ type Source struct {
 }
 
 // Notice is one waiting or done notice to route. A non-empty Silent is the reason it goes nowhere. A nil
-// Watching is never watched. A nil Judge is never judged. A Source with a Kind keeps the notice's row in the store.
+// Watching is never watched. A nil Judge is never judged. A Source with a Kind keeps the notice's row in the store,
+// and a non-nil Told is written into each of those rows, marking its turn or tell told in the same write.
 type Notice struct {
 	Key      notice.Key
 	State    string
 	Silent   string
 	Source   Source
+	Told     *store.ToldMark
 	Watching func(context.Context) (bool, error)
 	Judge    func(context.Context) (Verdict, error)
 	Desk     func(context.Context) (deskstream.Notice, error)

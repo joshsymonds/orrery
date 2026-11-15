@@ -155,10 +155,11 @@ func (a *Attention) storedIDs(ctx context.Context) (map[string]bool, error) {
 	return ids, nil
 }
 
-// attend passes over one epic. An epic that needs nothing has its notice cleared. Each untold tell is then routed as the
-// epic's notice and marked told. Last, the latest turn, when it has ended and is not told, tells the owner once, if the
-// need is one the owner must answer, and is marked told. stored holds the ids of the epic notices stored at the start of
-// the pass, and a notice whose id is there is not routed again.
+// attend passes over one epic. An epic that needs nothing has its notice cleared. Each untold tell is then routed as
+// the epic's notice and marked told. Last, the latest turn, when it has ended and is not told, tells the owner once, if
+// the need is one the owner must answer, and is marked told. Each notice routed here carries the mark of its turn or
+// tell, which its row's write applies. stored holds the ids of the epic notices stored at the start of the pass, and a
+// notice whose id is there is not routed again.
 func (a *Attention) attend(ctx context.Context, entry store.EpicAttention, now time.Time, stored map[string]bool) {
 	need := needOf(entry)
 	if need == needNone {
@@ -173,7 +174,7 @@ func (a *Attention) attend(ctx context.Context, entry store.EpicAttention, now t
 	if tellsOwner(need, entry) {
 		id := turnNoticeID(entry.Epic, entry.Latest.Seq, need)
 		if !stored[id] {
-			a.notify(ctx, entry, id, bodyOf(need, entry))
+			a.notify(ctx, entry, id, bodyOf(need, entry), store.ToldMark{Epic: entry.Epic, Seq: entry.Latest.Seq})
 		}
 	}
 	if err := a.store.MarkTold(ctx, entry.Epic, entry.Latest.Seq); err != nil {
@@ -181,13 +182,14 @@ func (a *Attention) attend(ctx context.Context, entry store.EpicAttention, now t
 	}
 }
 
-// tell routes tell of entry as the epic's notice, with the tell's text, unless a stored notice carries its id, and marks
-// it told. It runs before the tell is marked, so a restart between the two finds the notice stored and marks the tell
-// without routing it again. A tell whose mark fails is routed again on the next pass only when its notice is not stored.
+// tell routes tell of entry as the epic's notice, with the tell's text, unless a stored notice carries its id, and
+// marks it told. The notice's row marks the tell told in the write that stores it, so a restart after the route finds
+// the tell told whether or not the row is still stored. The mark after the route covers a tell whose row write failed,
+// and a tell whose mark fails is routed again on the next pass only when its notice is not stored.
 func (a *Attention) tell(ctx context.Context, entry store.EpicAttention, tell store.EpicTell, stored map[string]bool) {
 	id := tellNoticeID(entry.Epic, tell.Seq)
 	if !stored[id] {
-		a.notify(ctx, entry, id, tell.Text)
+		a.notify(ctx, entry, id, tell.Text, store.ToldMark{Epic: entry.Epic, Seq: tell.Seq, Tell: true})
 	}
 	if err := a.store.MarkTellTold(ctx, entry.Epic, tell.Seq); err != nil {
 		a.logger.ErrorContext(ctx, "mark tell told", "epic", entry.Epic, "tell", tell.Seq, "err", err)
@@ -205,10 +207,11 @@ func tellNoticeID(epic string, seq int64) string {
 	return fmt.Sprintf("%s:tell:%d", epic, seq)
 }
 
-// notify routes a notice of body for entry, keyed by its epic, with id in its source data.
-func (a *Attention) notify(ctx context.Context, entry store.EpicAttention, id, body string) {
+// notify routes a notice of body for entry, keyed by its epic, with id in its source data. Its rows mark told.
+func (a *Attention) notify(ctx context.Context, entry store.EpicAttention, id, body string, told store.ToldMark) {
 	stored := epicNotice{ID: id, Epic: entry.Epic, Title: entry.Title, Body: body}
 	incoming := attentionNotice(stored)
+	incoming.Told = &told
 	data, err := json.Marshal(stored)
 	if err != nil {
 		a.logger.ErrorContext(ctx, "marshal epic notice", "epic", entry.Epic, "err", err)
