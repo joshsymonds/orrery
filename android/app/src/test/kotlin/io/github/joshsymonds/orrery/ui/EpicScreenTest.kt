@@ -19,17 +19,22 @@ import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.unit.dp
 import com.connectrpc.Code
+import com.google.protobuf.ByteString
 import io.github.joshsymonds.orrery.api.FakeOrreryServer
 import io.github.joshsymonds.orrery.api.OrreryClient
 import io.github.joshsymonds.orrery.api.StepRow
 import io.github.joshsymonds.orrery.awaitUntil
 import io.github.joshsymonds.orrery.gen.orrery.v1.Epic
+import io.github.joshsymonds.orrery.gen.orrery.v1.EpicBuildTask
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicRequirement
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicSlice
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicStep
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicStepCheck
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicTask
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsGetResponse
+import io.github.joshsymonds.orrery.gen.orrery.v1.EvidenceArtifact
+import io.github.joshsymonds.orrery.gen.orrery.v1.EvidenceArtifactResponse
+import io.github.joshsymonds.orrery.gen.orrery.v1.EvidenceRun
 import io.github.joshsymonds.orrery.mainThreadComposeRule
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -39,6 +44,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import java.util.Base64
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.PI
 import kotlin.math.cos
@@ -52,6 +58,14 @@ class EpicScreenTest {
         const val EPIC_ID = "example-repo/example-epic"
         const val EPICS_GET = "/orrery.v1.Epics/Get"
         const val CHANGED = 4_102_444_800L
+        const val REVISION = "0123456789abcdef0123456789abcdef01234567"
+        const val EVIDENCE_ARTIFACT = "/orrery.v1.Evidence/Artifact"
+        const val IMAGE_TAG = "evidence-image:-2:1:0"
+
+        // A 1x1 PNG.
+        val PNG: ByteArray = Base64.getDecoder().decode(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=",
+        )
     }
 
     @get:Rule
@@ -114,6 +128,7 @@ class EpicScreenTest {
         problem: String = "",
         outcome: String = "in progress",
         requirements: List<EpicRequirement> = emptyList(),
+        buildTasks: List<EpicBuildTask> = emptyList(),
     ): EpicsGetResponse {
         val epic = Epic.newBuilder()
             .setId(EPIC_ID)
@@ -131,8 +146,49 @@ class EpicScreenTest {
             .addAllSteps(steps)
             .addAllSlices(slices)
             .addAllRequirements(requirements)
+            .addAllBuildTasks(buildTasks)
             .build()
     }
+
+    private fun buildTask(
+        id: String,
+        title: String,
+        status: String,
+        stage: String = "",
+        red: EvidenceRun? = null,
+        green: EvidenceRun? = null,
+    ): EpicBuildTask {
+        val builder = EpicBuildTask.newBuilder()
+            .setId(id)
+            .setTitle(title)
+            .setStatus(status)
+            .setStage(stage)
+        red?.let { builder.setRed(it) }
+        green?.let { builder.setGreen(it) }
+        return builder.build()
+    }
+
+    private fun evidenceRun(id: String, phase: String, vararg artifacts: EvidenceArtifact): EvidenceRun =
+        EvidenceRun.newBuilder()
+            .setId(id)
+            .setPhase(phase)
+            .setSource("captured")
+            .setState("ended")
+            .setVerdict("holds")
+            .setPassed(true)
+            .setRevision(REVISION)
+            .setCreated(CHANGED - 600)
+            .setEnded(CHANGED - 60)
+            .addAllArtifacts(artifacts.toList())
+            .build()
+
+    private fun keptImage(path: String): EvidenceArtifact =
+        EvidenceArtifact.newBuilder()
+            .setPath(path)
+            .setState("kept")
+            .setSize(PNG.size.toLong())
+            .setMediaType("image/png")
+            .build()
 
     private fun requirement(id: String, text: String, kind: String): EpicRequirement =
         EpicRequirement.newBuilder()
@@ -669,6 +725,84 @@ class EpicScreenTest {
 
             assertEquals(0, countNodes(hasText("Requirements")))
             assertEquals(0, countNodes(hasTestTag("requirement-row:0")))
+        }
+    }
+
+    @Test
+    fun buildTasksShowTheirIdTitleStatusStageAndTheirRunsWithTheKeptImageInline() {
+        FakeOrreryServer().use { server ->
+            server.respond(
+                EPICS_GET,
+                body(
+                    buildTasks = listOf(
+                        buildTask(
+                            "T1",
+                            "Example build task one.",
+                            "done",
+                            stage = "review",
+                            red = evidenceRun("example-run-1", "red"),
+                            green = evidenceRun("example-run-2", "green", keptImage("example/screenshot.png")),
+                        ),
+                    ),
+                ),
+            )
+            server.respond(
+                EVIDENCE_ARTIFACT,
+                EvidenceArtifactResponse.newBuilder()
+                    .setData(ByteString.copyFrom(PNG))
+                    .setMediaType("image/png")
+                    .build(),
+            )
+            setScreen(server)
+            awaitText("Example build task one.")
+
+            val row = "build-task-row:0"
+            assertEquals(1, countIn(row, hasText("T1")))
+            assertEquals(1, countIn(row, hasText("Example build task one.")))
+            assertEquals(1, countIn(row, hasText("done")))
+            assertEquals(1, countIn(row, hasText("review")))
+            assertEquals(1, countIn("evidence-run:-2:0", hasText("red")))
+            assertEquals(1, countIn("evidence-run:-2:1", hasText("green")))
+
+            composeRule.awaitUntil { countNodes(hasTestTag(IMAGE_TAG)) > 0 }
+            assertEquals(1, countIn(row, hasTestTag(IMAGE_TAG)))
+        }
+    }
+
+    @Test
+    fun aBuildTaskWithNoRunsShowsNoRuns() {
+        FakeOrreryServer().use { server ->
+            server.respond(
+                EPICS_GET,
+                body(buildTasks = listOf(buildTask("T1", "Example build task one.", "open", stage = "implement"))),
+            )
+            setScreen(server)
+            awaitText("Example build task one.")
+
+            val row = "build-task-row:0"
+            assertEquals(1, countIn(row, hasText("open")))
+            assertEquals(1, countIn(row, hasText("implement")))
+            assertEquals(0, countNodes(hasTestTag("evidence-run:-2:0")))
+            assertEquals(0, countNodes(hasTestTag("evidence-run:-2:1")))
+        }
+    }
+
+    @Test
+    fun buildTasksReplaceTheRecordsTasksWhenThereAreAny() {
+        FakeOrreryServer().use { server ->
+            server.respond(
+                EPICS_GET,
+                body(
+                    tasks = listOf(task(1, "example-task", "Record subject", "done")),
+                    buildTasks = listOf(buildTask("T1", "Example build task one.", "done")),
+                ),
+            )
+            setScreen(server)
+            awaitText("Example build task one.")
+
+            assertEquals(0, countNodes(hasText("example-task")))
+            assertEquals(0, countNodes(hasText("Record subject")))
+            assertEquals(0, countNodes(hasTestTag("task-row:0")))
         }
     }
 
