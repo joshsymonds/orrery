@@ -26,44 +26,25 @@ const summaryStamp = 1794700000
 // summaryResult is the result line the fake claude prints for a valid summary. Its summary is the fake's own echo.
 const summaryResult = `{"type":"result","subtype":"success","is_error":false,"structured_output":{"summary":"Fake summary."}}`
 
-// summaryFakeScript is the fake claude the summary tests run. A run appends start to dir/calls, writes its argv to
-// dir/argv and its stdin to dir/stdin, prints dir/stdout, appends end to dir/calls and exits with status. So the calls
-// file holds each run's start and end in the order the runs happened.
-const summaryFakeScript = `#!/bin/sh
+// summaryOrderFakeScript is the fake claude the ordering test runs. A run appends start to dir/calls, prints dir/stdout,
+// appends end to dir/calls and exits 0. So the calls file holds each run's start and end in the order the runs happened.
+const summaryOrderFakeScript = `#!/bin/sh
 dir='%s'
 echo start >> "$dir/calls"
-for a in "$@"; do printf '%%s\n' "$a"; done > "$dir/argv"
-cat > "$dir/stdin"
 cat "$dir/stdout"
 echo end >> "$dir/calls"
-exit %d
 `
 
-// summaryClaude writes the fake claude into dir, set to print stdout and exit with status, and returns its path.
-func summaryClaude(t *testing.T, dir, stdout string, status int) string {
+// summaryOrderClaude writes the start and end mark fake claude into dir, set to print summaryResult, and returns its
+// path.
+func summaryOrderClaude(t *testing.T, dir string) string {
 	t.Helper()
-	summarySetStdout(t, dir, stdout)
-	path := filepath.Join(dir, "claude")
-	exectest.WriteFile(t, path, fmt.Appendf(nil, summaryFakeScript, dir, status), 0o700)
-	return path
-}
-
-// summarySetStdout sets what the fake claude in dir prints from its next run on.
-func summarySetStdout(t *testing.T, dir, stdout string) {
-	t.Helper()
-	if err := os.WriteFile(filepath.Join(dir, "stdout"), []byte(stdout), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "stdout"), []byte(summaryResult), 0o600); err != nil {
 		t.Fatalf("write fake stdout: %v", err)
 	}
-}
-
-// summaryRead returns the contents of name in dir, or fails the test.
-func summaryRead(t *testing.T, dir, name string) string {
-	t.Helper()
-	data, err := os.ReadFile(filepath.Join(dir, name))
-	if err != nil {
-		t.Fatalf("read %s: %v", name, err)
-	}
-	return string(data)
+	path := filepath.Join(dir, "claude")
+	exectest.WriteFile(t, path, fmt.Appendf(nil, summaryOrderFakeScript, dir), 0o700)
+	return path
 }
 
 // summaryCalls returns the start and end marks the fake claude in dir has written, in order.
@@ -77,18 +58,6 @@ func summaryCalls(t *testing.T, dir string) []string {
 		t.Fatalf("read calls: %v", err)
 	}
 	return strings.Fields(string(data))
-}
-
-// summaryRuns counts the runs of the fake claude in dir.
-func summaryRuns(t *testing.T, dir string) int {
-	t.Helper()
-	runs := 0
-	for _, mark := range summaryCalls(t, dir) {
-		if mark == "start" {
-			runs++
-		}
-	}
-	return runs
 }
 
 // createSummaryEpic stores an accepted epic with id, created at the unix second created, whose contract has no summary.
@@ -161,18 +130,18 @@ func (l *summaryLoop) tick() {
 func TestEpicSummaryCallsHaikuWithSchemaAndStoresTheSummaryOnce(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	claude := summaryClaude(t, dir, summaryResult, 0)
+	claude := haikuWriteFake(t, dir, haikuFake{stdout: summaryResult, status: 0})
 	st := epicTestStore(t)
 	createSummaryEpic(t, st, summaryEpicA, summaryStamp)
 
 	loop := startSummaryLoop(t, st, claude)
-	if got := summaryRuns(t, dir); got != 1 {
+	if got := haikuRuns(t, dir); got != 1 {
 		t.Fatalf("calls after start = %d, want 1", got)
 	}
-	if argv := summaryRead(t, dir, "argv"); !strings.Contains(argv, "--json-schema\n"+epicSummarySchema+"\n") {
+	if argv := haikuReadFile(t, dir, "argv"); !strings.Contains(argv, "--json-schema\n"+epicSummarySchema+"\n") {
 		t.Fatalf("argv = %q, want --json-schema followed by the summary schema", argv)
 	}
-	if stdin := summaryRead(t, dir, "stdin"); !strings.Contains(stdin, "Intent: Synthetic intent.") {
+	if stdin := haikuReadFile(t, dir, "stdin"); !strings.Contains(stdin, "Intent: Synthetic intent.") {
 		t.Fatalf("stdin = %q, want the epic's contract", stdin)
 	}
 	if got := storedSummaryOf(t, st, summaryEpicA); got != "Fake summary." {
@@ -180,7 +149,7 @@ func TestEpicSummaryCallsHaikuWithSchemaAndStoresTheSummaryOnce(t *testing.T) {
 	}
 	loop.tick()
 	loop.tick()
-	if got := summaryRuns(t, dir); got != 1 {
+	if got := haikuRuns(t, dir); got != 1 {
 		t.Fatalf("calls after two ticks = %d, want still 1", got)
 	}
 }
@@ -190,14 +159,14 @@ func TestEpicSummaryCallsHaikuWithSchemaAndStoresTheSummaryOnce(t *testing.T) {
 func TestEpicSummaryFillsAnEpicCreatedAfterStartAtTheNextTick(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	claude := summaryClaude(t, dir, summaryResult, 0)
+	claude := haikuWriteFake(t, dir, haikuFake{stdout: summaryResult, status: 0})
 	st := epicTestStore(t)
 	createSummaryEpic(t, st, summaryEpicA, summaryStamp)
 	loop := startSummaryLoop(t, st, claude)
 
 	createSummaryEpic(t, st, summaryEpicB, summaryStamp+60)
 	loop.tick()
-	if got := summaryRuns(t, dir); got != 2 {
+	if got := haikuRuns(t, dir); got != 2 {
 		t.Fatalf("calls after the tick = %d, want 2: one for each epic", got)
 	}
 	if got := storedSummaryOf(t, st, summaryEpicB); got != "Fake summary." {
@@ -224,19 +193,19 @@ func TestEpicSummaryFailedOrInvalidCallLeavesTheSummaryEmptyForTheStart(t *testi
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			dir := t.TempDir()
-			claude := summaryClaude(t, dir, tc.stdout, tc.status)
+			claude := haikuWriteFake(t, dir, haikuFake{stdout: tc.stdout, status: tc.status})
 			st := epicTestStore(t)
 			createSummaryEpic(t, st, summaryEpicA, summaryStamp)
 
 			loop := startSummaryLoop(t, st, claude)
-			if got := summaryRuns(t, dir); got != 1 {
+			if got := haikuRuns(t, dir); got != 1 {
 				t.Fatalf("calls after start = %d, want 1", got)
 			}
 			if got := storedSummaryOf(t, st, summaryEpicA); got != "" {
 				t.Fatalf("summary after a failed call = %q, want empty", got)
 			}
 			loop.tick()
-			if got := summaryRuns(t, dir); got != 1 {
+			if got := haikuRuns(t, dir); got != 1 {
 				t.Fatalf("calls after a tick = %d, want still 1", got)
 			}
 		})
@@ -248,27 +217,27 @@ func TestEpicSummaryFailedOrInvalidCallLeavesTheSummaryEmptyForTheStart(t *testi
 func TestEpicSummarySecondStartRetriesAnEmptyEpicOnce(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	claude := summaryClaude(t, dir, "not json", 0)
+	claude := haikuWriteFake(t, dir, haikuFake{stdout: "not json", status: 0})
 	st := epicTestStore(t)
 	createSummaryEpic(t, st, summaryEpicA, summaryStamp)
 
 	first := startSummaryLoop(t, st, claude)
 	first.tick()
 	first.stop()
-	if got := summaryRuns(t, dir); got != 1 {
+	if got := haikuRuns(t, dir); got != 1 {
 		t.Fatalf("calls of the first start = %d, want 1", got)
 	}
 
-	summarySetStdout(t, dir, summaryResult)
+	claude = haikuWriteFake(t, dir, haikuFake{stdout: summaryResult, status: 0})
 	second := startSummaryLoop(t, st, claude)
-	if got := summaryRuns(t, dir); got != 2 {
+	if got := haikuRuns(t, dir); got != 2 {
 		t.Fatalf("calls after the second start = %d, want 2", got)
 	}
 	if got := storedSummaryOf(t, st, summaryEpicA); got != "Fake summary." {
 		t.Fatalf("summary after the second start = %q, want the fake's echo", got)
 	}
 	second.tick()
-	if got := summaryRuns(t, dir); got != 2 {
+	if got := haikuRuns(t, dir); got != 2 {
 		t.Fatalf("calls after a tick of the second start = %d, want still 2", got)
 	}
 }
@@ -278,7 +247,7 @@ func TestEpicSummarySecondStartRetriesAnEmptyEpicOnce(t *testing.T) {
 func TestEpicSummaryCallsRunOneAtATime(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	claude := summaryClaude(t, dir, summaryResult, 0)
+	claude := summaryOrderClaude(t, dir)
 	st := epicTestStore(t)
 	createSummaryEpic(t, st, summaryEpicA, summaryStamp)
 	createSummaryEpic(t, st, summaryEpicB, summaryStamp)
