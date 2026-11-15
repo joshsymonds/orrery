@@ -55,17 +55,15 @@ func (s *Store) AcceptTask(ctx context.Context, epic string, seq int64, from Tas
 	})
 }
 
-// StopTask stores to as the build of task seq of epic and pauses the epic, in one write, when the stored build is
-// from. A task that is not open, or whose stored build is not from, is ErrTaskMoved and pauses nothing.
+// StopTask stores to as the build of task seq of epic and pauses the epic with the owner as its pause source, in one
+// write, when the stored build is from. A task that is not open, or whose stored build is not from, is ErrTaskMoved
+// and pauses nothing.
 func (s *Store) StopTask(ctx context.Context, epic string, seq int64, from, to TaskBuild) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
 		if err := moveTask(ctx, queries, epic, seq, from, to); err != nil {
 			return err
 		}
-		if err := queries.PauseEpic(ctx, epic); err != nil {
-			return fmt.Errorf("pause epic %s: %w", epic, err)
-		}
-		return nil
+		return pauseEpicAs(ctx, queries, epic, pauseOwner)
 	})
 }
 
