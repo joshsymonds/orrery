@@ -22,6 +22,7 @@ import com.connectrpc.Code
 import io.github.joshsymonds.orrery.api.FakeOrreryServer
 import io.github.joshsymonds.orrery.api.OrreryClient
 import io.github.joshsymonds.orrery.api.StepRow
+import io.github.joshsymonds.orrery.awaitUntil
 import io.github.joshsymonds.orrery.gen.orrery.v1.Epic
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicRequirement
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicSlice
@@ -50,7 +51,6 @@ class EpicScreenTest {
     private companion object {
         const val EPIC_ID = "example-repo/example-epic"
         const val EPICS_GET = "/orrery.v1.Epics/Get"
-        const val TIMEOUT_MS = 5_000L
         const val CHANGED = 4_102_444_800L
     }
 
@@ -160,7 +160,7 @@ class EpicScreenTest {
         countNodes(matcher and hasAnyAncestor(hasTestTag(tag)))
 
     private fun awaitText(text: String) {
-        composeRule.waitUntil(TIMEOUT_MS) { countNodes(hasText(text)) > 0 }
+        composeRule.awaitUntil { countNodes(hasText(text)) > 0 }
     }
 
     private fun clickTag(tag: String) {

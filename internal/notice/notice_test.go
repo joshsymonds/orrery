@@ -22,9 +22,6 @@ import (
 // ioTimeout bounds each wait on a goroutine or socket exchange in these tests.
 const ioTimeout = 5 * time.Second
 
-// clearHold is how long TestClearNeverPrecedesNoticeWhenBuildBlocks holds the build after Seen returns.
-const clearHold = 100 * time.Millisecond
-
 // call is one Sender call, recorded in call order.
 type call struct {
 	kind  string
@@ -89,13 +86,14 @@ func wantCalls(t *testing.T, got []call, want ...call) {
 	}
 }
 
-// requireNotSent fails the test when sentRan has a value. Callers hold the send in progress before they call it.
+// requireNotSent fails the test when sentRan has a value. Callers hold the send in progress before they call it, so a
+// sent that ran ahead of the send's end has run by then.
 func requireNotSent(t *testing.T, sentRan <-chan struct{}) {
 	t.Helper()
 	select {
 	case <-sentRan:
 		t.Fatal("sent ran before the send finished")
-	case <-time.After(clearHold):
+	default:
 	}
 }
 
@@ -255,9 +253,11 @@ func TestClearNeverPrecedesNoticeWhenBuildBlocks(t *testing.T) {
 	case <-time.After(ioTimeout):
 		t.Fatal("Seen blocked on a notice whose build is still running")
 	}
-	// Hold the build long enough for an unordered clear to reach the sender first, so broken ordering fails here
-	// every time rather than only when the scheduler happens to run the clear early.
-	time.Sleep(clearHold)
+	// Seen has returned with the build still held. A clear that did not queue behind the build would have reached the
+	// sender already.
+	if calls := sender.snapshot(); len(calls) != 0 {
+		t.Fatalf("sender calls while the build is held = %+v, want none: the clear went ahead of its publish", calls)
+	}
 	close(release)
 	n.Wait()
 

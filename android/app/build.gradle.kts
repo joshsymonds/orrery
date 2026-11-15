@@ -1,3 +1,5 @@
+import java.time.Duration
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.plugin.compose")
@@ -94,4 +96,7 @@ tasks.withType<org.gradle.api.tasks.testing.Test>().configureEach {
     // Gradle's 512 MB default test heap.
     maxParallelForks = (Runtime.getRuntime().availableProcessors() / 2).coerceIn(1, 4)
     maxHeapSize = "1g"
+    // The tests' waits on fake-server round trips and other threads' work have no deadline of their own (a wall-clock
+    // deadline per wait timed out under load), so this bounds a wait that never ends. A clean run takes about 3 minutes.
+    timeout.set(Duration.ofMinutes(20))
 }

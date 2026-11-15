@@ -179,16 +179,18 @@ class ReplyReceiverTest {
             ?.getCharSequence(Notification.EXTRA_TEXT)
             ?.toString()
 
+    /**
+     * Idles the main looper until [settled]. The receiver's call runs on other threads, so the wait has no deadline of
+     * its own; the test task's timeout bounds one that never settles.
+     */
     private fun awaitSettled(settled: () -> Boolean) {
-        val deadline = System.currentTimeMillis() + TIMEOUT_MS
-        while (!settled() && System.currentTimeMillis() < deadline) {
+        while (!settled()) {
             shadowOf(Looper.getMainLooper()).idle()
             Thread.sleep(POLL_MS)
         }
     }
 
     private companion object {
-        const val TIMEOUT_MS = 5_000L
         const val POLL_MS = 10L
     }
 }

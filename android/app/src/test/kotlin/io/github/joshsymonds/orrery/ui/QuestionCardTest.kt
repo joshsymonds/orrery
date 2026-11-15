@@ -12,6 +12,7 @@ import io.github.joshsymonds.orrery.api.OrreryClient
 import com.connectrpc.Code
 import io.github.joshsymonds.orrery.api.Pane
 import io.github.joshsymonds.orrery.api.RecordedRequest
+import io.github.joshsymonds.orrery.awaitUntil
 import io.github.joshsymonds.orrery.gen.orrery.v1.SendKeysRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.SendKeysResponse
 import io.github.joshsymonds.orrery.mainThreadComposeRule
@@ -90,7 +91,7 @@ class QuestionCardTest {
             setCard(server, toolQuestion) { refreshes++ }
 
             composeRule.onNodeWithText("1 Yes").performClick()
-            composeRule.waitUntil(timeoutMillis = 5_000) { refreshes == 1 }
+            composeRule.awaitUntil { refreshes == 1 }
 
             assertEquals(1, server.requests.size)
             assertKeysRequest(server.requests.single(), "1")
@@ -107,7 +108,7 @@ class QuestionCardTest {
             composeRule.onNodeWithText("Pick a synthetic option?").assertIsDisplayed()
             composeRule.onNodeWithText("Synthetic one").assertIsDisplayed()
             composeRule.onNodeWithText("Synthetic two").performClick()
-            composeRule.waitUntil(timeoutMillis = 5_000) { refreshes == 1 }
+            composeRule.awaitUntil { refreshes == 1 }
 
             assertEquals(1, server.requests.size)
             assertKeysRequest(server.requests.single(), "2")
@@ -122,7 +123,7 @@ class QuestionCardTest {
             setCard(server, toolQuestion) { refreshes++ }
 
             composeRule.onNodeWithText("1 Yes").performClick()
-            composeRule.waitUntil(timeoutMillis = 5_000) { refreshes == 1 }
+            composeRule.awaitUntil { refreshes == 1 }
 
             composeRule.onNodeWithText("prompt changed").assertIsDisplayed()
             assertKeysRequest(server.requests.single(), "1")
@@ -137,8 +138,8 @@ class QuestionCardTest {
             setCard(server, toolQuestion) { refreshes++ }
 
             composeRule.onNodeWithText("1 Yes").performClick()
-            composeRule.waitUntil(timeoutMillis = 5_000) { server.requests.isNotEmpty() }
-            composeRule.waitUntil(timeoutMillis = 5_000) {
+            composeRule.awaitUntil { server.requests.isNotEmpty() }
+            composeRule.awaitUntil {
                 composeRule.onAllNodesWithText("not sent").fetchSemanticsNodes().isNotEmpty()
             }
             composeRule.onNodeWithText("not sent").assertIsDisplayed()
@@ -201,7 +202,7 @@ class QuestionCardTest {
             composeRule.onNodeWithText("Synthetic detail one").assertIsDisplayed()
             composeRule.onNodeWithText("Synthetic detail two").assertIsDisplayed()
             composeRule.onNodeWithText("Described two").performClick()
-            composeRule.waitUntil(timeoutMillis = 5_000) { refreshes == 1 }
+            composeRule.awaitUntil { refreshes == 1 }
 
             assertEquals(1, server.requests.size)
             assertKeysRequest(server.requests.single(), "2")

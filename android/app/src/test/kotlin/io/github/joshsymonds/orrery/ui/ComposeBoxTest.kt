@@ -28,6 +28,7 @@ import com.connectrpc.Code
 import io.github.joshsymonds.orrery.api.NoAnswerException
 import io.github.joshsymonds.orrery.api.OrreryCallException
 import io.github.joshsymonds.orrery.api.OrreryClient
+import io.github.joshsymonds.orrery.awaitUntil
 import io.github.joshsymonds.orrery.gen.orrery.v1.SendTextRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.SendTextResponse
 import io.github.joshsymonds.orrery.mainThreadAndroidComposeRule
@@ -50,7 +51,6 @@ import org.robolectric.annotation.Config
 private const val PANE_ID = "%3"
 private const val TEXT_PATH = "/orrery.v1.Panes/SendText"
 private const val OTHER_PANE_ID = "%2"
-private const val WAIT_MS = 5_000L
 private const val DRAFT = "first line\nsecond line"
 private const val OTHER_DRAFT = "text for the other pane"
 private const val HINT = "synthetic hint"
@@ -107,7 +107,7 @@ class ComposeBoxTest {
         setDraft(DRAFT)
 
         composeRule.onNodeWithText("Send").performClick()
-        composeRule.waitUntil(WAIT_MS) { editField().text.isEmpty() }
+        composeRule.awaitUntil { editField().text.isEmpty() }
 
         assertEquals(1, server.requests.size)
         val request = server.requests.single()
@@ -126,7 +126,7 @@ class ComposeBoxTest {
         setDraft(DRAFT)
 
         composeRule.onNodeWithText("Send").performClick()
-        composeRule.waitUntil(WAIT_MS) {
+        composeRule.awaitUntil {
             composeRule.onAllNodesWithText("not sent").fetchSemanticsNodes().isNotEmpty()
         }
 
@@ -142,7 +142,7 @@ class ComposeBoxTest {
         setDraft(DRAFT)
 
         composeRule.onNodeWithText("Send").performClick()
-        composeRule.waitUntil(WAIT_MS) { editField().text.isEmpty() }
+        composeRule.awaitUntil { editField().text.isEmpty() }
         composeRule.waitForIdle()
 
         assertNoOutcomeLabel()
@@ -155,7 +155,7 @@ class ComposeBoxTest {
         setDraft(DRAFT)
 
         composeRule.onNodeWithText("Send").performClick()
-        composeRule.waitUntil(WAIT_MS) {
+        composeRule.awaitUntil {
             composeRule.onAllNodesWithText(NOT_SENT_LABEL).fetchSemanticsNodes().isNotEmpty()
         }
 
@@ -170,7 +170,7 @@ class ComposeBoxTest {
         setDraft(DRAFT)
 
         composeRule.onNodeWithText("Send").performClick()
-        composeRule.waitUntil(WAIT_MS) {
+        composeRule.awaitUntil {
             composeRule.onAllNodesWithText(NO_ANSWER_LABEL).fetchSemanticsNodes().isNotEmpty()
         }
 
@@ -186,7 +186,7 @@ class ComposeBoxTest {
         setBox(client = slowClient())
         setDraft(DRAFT)
         composeRule.onNodeWithText("Send").performClick()
-        composeRule.waitUntil(WAIT_MS) {
+        composeRule.awaitUntil {
             composeRule.onAllNodesWithText(NO_ANSWER_LABEL).fetchSemanticsNodes().isNotEmpty()
         }
 
@@ -195,7 +195,7 @@ class ComposeBoxTest {
         Thread.sleep(SLOW_ANSWER_MS)
         server.respond(TEXT_PATH, SendTextResponse.getDefaultInstance())
         composeRule.onNodeWithText("Send").performClick()
-        composeRule.waitUntil(WAIT_MS) { editField().text.isEmpty() }
+        composeRule.awaitUntil { editField().text.isEmpty() }
         composeRule.waitForIdle()
 
         assertEquals(2, server.requests.size)
@@ -226,7 +226,7 @@ class ComposeBoxTest {
 
         setDraft(OTHER_DRAFT)
         composeRule.onNodeWithText("Send").performClick()
-        composeRule.waitUntil(WAIT_MS) { editField().text.isEmpty() }
+        composeRule.awaitUntil { editField().text.isEmpty() }
 
         assertEquals(1, server.requests.size)
         val request = server.requests.single()
@@ -357,7 +357,7 @@ class ComposeBoxTest {
         setDraft(DRAFT)
 
         composeRule.onNodeWithText("Send").performClick()
-        composeRule.waitUntil(WAIT_MS) { editField().text.isEmpty() }
+        composeRule.awaitUntil { editField().text.isEmpty() }
 
         assertEquals(DRAFT, sent.single().first)
         assertNotSame(Looper.getMainLooper().thread, sent.single().second)
@@ -370,7 +370,7 @@ class ComposeBoxTest {
         setDraft(DRAFT)
 
         composeRule.onNodeWithText("Send").performClick()
-        composeRule.waitUntil(WAIT_MS) {
+        composeRule.awaitUntil {
             composeRule.onAllNodesWithText(NOT_SENT_LABEL).fetchSemanticsNodes().isNotEmpty()
         }
 
@@ -385,7 +385,7 @@ class ComposeBoxTest {
         setDraft(DRAFT)
 
         composeRule.onNodeWithText("Send").performClick()
-        composeRule.waitUntil(WAIT_MS) {
+        composeRule.awaitUntil {
             composeRule.onAllNodesWithText(NO_ANSWER_LABEL).fetchSemanticsNodes().isNotEmpty()
         }
 

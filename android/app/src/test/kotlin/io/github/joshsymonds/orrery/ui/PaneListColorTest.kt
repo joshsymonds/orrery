@@ -14,6 +14,7 @@ import androidx.compose.ui.test.hasText
 import androidx.compose.ui.text.TextLayoutResult
 import io.github.joshsymonds.orrery.api.FakeOrreryServer
 import io.github.joshsymonds.orrery.api.OrreryClient
+import io.github.joshsymonds.orrery.awaitUntil
 import io.github.joshsymonds.orrery.gen.orrery.v1.Pane as PaneProto
 import io.github.joshsymonds.orrery.gen.orrery.v1.PanesListResponse
 import io.github.joshsymonds.orrery.mainThreadAndroidComposeRule
@@ -33,7 +34,6 @@ import org.robolectric.annotation.GraphicsMode
 class PaneListColorTest {
     private companion object {
         const val NOW = 1_700_000_000L
-        const val TIMEOUT_MS = 5_000L
         const val PANES_LIST = "/orrery.v1.Panes/List"
         const val MAUVE_ARGB = 0xFFCBA6F7.toInt()
         val YELLOW = Color(0xFFF9E2AF)
@@ -95,7 +95,7 @@ class PaneListColorTest {
         composeRule.onAllNodes(matcher, useUnmergedTree = true).fetchSemanticsNodes().size
 
     private fun awaitRow(id: String) {
-        composeRule.waitUntil(TIMEOUT_MS) { countNodes(hasTestTag("pane-row:$id")) == 1 }
+        composeRule.awaitUntil { countNodes(hasTestTag("pane-row:$id")) == 1 }
     }
 
     private fun renderedColor(node: SemanticsNode): Color {

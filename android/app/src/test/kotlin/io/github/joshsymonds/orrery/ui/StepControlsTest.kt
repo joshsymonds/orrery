@@ -9,6 +9,7 @@ import androidx.compose.ui.test.performClick
 import com.connectrpc.Code
 import io.github.joshsymonds.orrery.api.FakeOrreryServer
 import io.github.joshsymonds.orrery.api.OrreryClient
+import io.github.joshsymonds.orrery.awaitUntil
 import io.github.joshsymonds.orrery.gen.orrery.v1.StepsHoldRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.StepsHoldResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.StepsNudgeRequest
@@ -40,7 +41,6 @@ private const val NUDGE_LANDED = "nudge landed"
 private const val STOPPED = "stopped"
 private const val UNREACHABLE = "could not reach the step"
 private const val REFUSAL_REASON = "synthetic refusal"
-private const val WAIT_MS = 5_000L
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35])
@@ -62,7 +62,7 @@ class StepControlsTest {
         setActions(calls, held = false)
 
         composeRule.onNodeWithTag(HOLD_TAG).performClick()
-        composeRule.waitUntil(WAIT_MS) { calls.outcome == HOLD_LANDED }
+        composeRule.awaitUntil { calls.outcome == HOLD_LANDED }
         composeRule.waitForIdle()
 
         composeRule.onNodeWithText(HOLD_LANDED).assertIsDisplayed()
@@ -95,7 +95,7 @@ class StepControlsTest {
         assertTrue(server.requests.isEmpty())
 
         composeRule.onNodeWithTag(CONFIRM_TAG).performClick()
-        composeRule.waitUntil(WAIT_MS) { calls.outcome == STOPPED }
+        composeRule.awaitUntil { calls.outcome == STOPPED }
         composeRule.waitForIdle()
 
         composeRule.onNodeWithText(STOPPED).assertIsDisplayed()
@@ -113,7 +113,7 @@ class StepControlsTest {
         setActions(calls, held = false)
 
         composeRule.onNodeWithTag(HOLD_TAG).performClick()
-        composeRule.waitUntil(WAIT_MS) { calls.outcome == "refused: $REFUSAL_REASON" }
+        composeRule.awaitUntil { calls.outcome == "refused: $REFUSAL_REASON" }
         composeRule.waitForIdle()
 
         composeRule.onNodeWithText("refused: $REFUSAL_REASON").assertIsDisplayed()
@@ -155,7 +155,7 @@ class StepControlsTest {
         setActions(calls, held = false)
 
         composeRule.onNodeWithTag(HOLD_TAG).performClick()
-        composeRule.waitUntil(WAIT_MS) { calls.outcome == UNREACHABLE }
+        composeRule.awaitUntil { calls.outcome == UNREACHABLE }
         composeRule.waitForIdle()
 
         composeRule.onNodeWithText(UNREACHABLE).assertIsDisplayed()
