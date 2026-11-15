@@ -117,6 +117,42 @@ func TestReadEpicsOutcomeIsRecordText(t *testing.T) {
 	}
 }
 
+func TestReadEpicsOutcomeDetailIsRecordText(t *testing.T) {
+	t.Parallel()
+	now := time.Unix(1_700_000_000, 0)
+	cases := []struct {
+		name string
+		body string
+		want string
+	}{
+		{"string", `{"outcome":"released","outcome_detail":"v0.36.0 shipped"}`, "v0.36.0 shipped"},
+		{"null", `{"outcome_detail":null}`, ""},
+		{"absent", `{"outcome":"released"}`, ""},
+		{"object", `{"outcome_detail": {"a" : [1, 2]}}`, `{"a":[1,2]}`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			root := t.TempDir()
+			writeHead(t, root, "repo", "slug", tc.body, now)
+			heads := newHeadCache()
+			// The first read decodes the head; the second is served by the head cache.
+			for read := range 2 {
+				got, err := readEpics(root, heads)
+				if err != nil {
+					t.Fatalf("readEpics read %d: %v", read, err)
+				}
+				if len(got) != 1 {
+					t.Fatalf("read %d listed %d epics, want 1", read, len(got))
+				}
+				if got[0].OutcomeDetail != tc.want {
+					t.Fatalf("read %d OutcomeDetail = %q, want %q", read, got[0].OutcomeDetail, tc.want)
+				}
+			}
+		})
+	}
+}
+
 func TestReadEpicsUnparseableHeadIsListedWithProblem(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
@@ -202,7 +238,17 @@ func TestEpicLive(t *testing.T) {
 	}{
 		{"released is folded even when running", "released", now, true, false},
 		{"released is folded even when recent", "released", now, false, false},
+		{"released with a semicolon is folded even when running", "released;", now, true, false},
+		{"released with a semicolon is folded even when recent", "released;", now, false, false},
+		{"released with a version is folded even when running", "released: v0.36.0", now, true, false},
+		{"released with a version is folded even when recent", "released: v0.36.0", now, false, false},
+		{"released is case-sensitive", "Released", now.Add(-72 * time.Hour), true, true},
+		{"unreleased is live when running", "unreleased", now.Add(-72 * time.Hour), true, true},
+		{"unreleased is folded when old and not running", "unreleased", now.Add(-72 * time.Hour), false, false},
+		{"not released is live when running", "not released", now.Add(-72 * time.Hour), true, true},
+		{"not released is folded when old and not running", "not released", now.Add(-72 * time.Hour), false, false},
 		{"running is live without a recent change", "", now.Add(-72 * time.Hour), true, true},
+		{"empty outcome is folded when old and not running", "", now.Add(-72 * time.Hour), false, false},
 		{"recent change is live", "shipped", now.Add(-time.Hour), false, true},
 		{"change inside 24h is live", "", now.Add(-24*time.Hour + time.Minute), false, true},
 		{"change at exactly 24h is live", "", now.Add(-24 * time.Hour), false, true},
