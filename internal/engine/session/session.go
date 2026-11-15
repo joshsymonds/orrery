@@ -139,8 +139,8 @@ func newSession(process Process, written []string) *Session {
 
 // ReadoptOptions says where a re-adopted session resumes. From is the stdout offset the process's stdout begins at,
 // Consumed the offset the controller has consumed, and Written the write ids the holder has applied to the process's
-// stdin. Owed is how many prompts the previous controller wrote to the holder after the session's newest turn end, which
-// no turn has answered yet; it is never negative.
+// stdin. Owed is how many prompts the previous controller wrote to the holder that no later stored turn end answers; it is
+// never negative.
 type ReadoptOptions struct {
 	From, Consumed int64
 	Written        []string

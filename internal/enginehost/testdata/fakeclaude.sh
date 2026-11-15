@@ -15,7 +15,8 @@
 # structured output is done with no commit, as a read-only step's return is, JUDGEHOLDS waits until fakeclaude.release exists in its directory and ends
 # with a success result whose structured output holds the one assertion JUDGEHOLDS, FOLD waits until fakeclaude.release
 # exists in its directory, then folds the next line it reads from stdin into its turn: the turn streams one text block
-# and ends with a success result that lists the uuids of both prompts as answered, LIMIT plays a usage-limit turn (a
+# and ends with a success result that lists the uuids of both prompts as answered, WAITOPEN waits until fakeclaude.open
+# exists in its directory before it opens its turn, then answers as any other prompt does, LIMIT plays a usage-limit turn (a
 # rejected seven_day rate_limit_event, an assistant line that carries the rate_limit error, then an error result, all
 # saying "You've hit your limit"), LIMITNORESET plays that turn without the rate_limit_event, and any other prompt
 # streams "fake reply n". The turns reproduce the stream lines captured from the real CLI, with only text, ids and the
@@ -299,6 +300,14 @@ fold() {
 	turn_close
 }
 
+# waitopen waits until fakeclaude.open exists in its directory before it opens its turn, then answers as reply does.
+waitopen() {
+	while [ ! -e fakeclaude.open ]; do
+		sleep 0.05
+	done
+	reply
+}
+
 # die streams the start of a text block and one delta of it, writes fake died to stderr and exits with status 3.
 die() {
 	turn_open
@@ -373,6 +382,7 @@ while next; do
 				*STEPDONE*) stepdone ;;
 				*JUDGEHOLDS*) judgeholds ;;
 				*FOLD*) fold ;;
+				*WAITOPEN*) waitopen ;;
 				*LIMITNORESET*) limit noreset ;;
 				*LIMIT*) limit ;;
 				*) reply ;;

@@ -3,18 +3,20 @@ package store
 import (
 	"context"
 	"testing"
+
+	"github.com/joshsymonds/orrery/internal/store/sqlcgen"
 )
 
-func holderPromptsAfterTurnEnd(t *testing.T, s *Store, id string) int {
+func holderPromptsUnanswered(t *testing.T, s *Store, id string) int {
 	t.Helper()
-	n, err := s.HolderPromptsAfterTurnEnd(context.Background(), id)
+	n, err := s.HolderPromptsUnanswered(context.Background(), id)
 	if err != nil {
-		t.Fatalf("HolderPromptsAfterTurnEnd %s: %v", id, err)
+		t.Fatalf("HolderPromptsUnanswered %s: %v", id, err)
 	}
 	return n
 }
 
-func TestHolderPromptsAfterTurnEndCountsWritesSinceLaunch(t *testing.T) {
+func TestHolderPromptsUnansweredCountsWritesSinceLaunch(t *testing.T) {
 	ctx := context.Background()
 	s := openSyncStore(t)
 
@@ -31,12 +33,14 @@ func TestHolderPromptsAfterTurnEndCountsWritesSinceLaunch(t *testing.T) {
 		t.Fatalf("ApplyEngine: %v", err)
 	}
 
-	if got := holderPromptsAfterTurnEnd(t, s, "e1"); got != 2 {
+	if got := holderPromptsUnanswered(t, s, "e1"); got != 2 {
 		t.Fatalf("after launch with no turn end: got %d, want 2 (the written prompts after the launch)", got)
 	}
 }
 
-func TestHolderPromptsAfterTurnEndCountsWritesAfterNewestTurnEnd(t *testing.T) {
+// TestHolderPromptsUnansweredCountsPromptsLaterTurnEndsOmit checks each prompt against the turn ends after it: a prompt
+// a later turn end lists is answered, and a prompt every later turn end omits is owed, even when a turn end sits after it.
+func TestHolderPromptsUnansweredCountsPromptsLaterTurnEndsOmit(t *testing.T) {
 	ctx := context.Background()
 	s := openSyncStore(t)
 
@@ -49,7 +53,7 @@ func TestHolderPromptsAfterTurnEndCountsWritesAfterNewestTurnEnd(t *testing.T) {
 	}, engineNowAt()); err != nil {
 		t.Fatalf("ApplyEngine launch: %v", err)
 	}
-	if got := holderPromptsAfterTurnEnd(t, s, "e1"); got != 2 {
+	if got := holderPromptsUnanswered(t, s, "e1"); got != 2 {
 		t.Fatalf("before any turn end: got %d, want 2", got)
 	}
 
@@ -59,31 +63,36 @@ func TestHolderPromptsAfterTurnEndCountsWritesAfterNewestTurnEnd(t *testing.T) {
 		want int
 	}{
 		{
-			name: "turn end of the session leaves no prompt after it",
-			ops:  []EngineOp{EngineTurnEnded{ID: "e1", Subtype: "success"}},
-			want: 0,
+			name: "a turn end listing only the first prompt leaves the second owed",
+			ops:  []EngineOp{EngineTurnEnded{ID: "e1", Subtype: "success", Answered: []string{"w1"}}},
+			want: 1,
 		},
 		{
-			name: "written prompt after the turn end counts, one without a write id does not",
+			name: "a written prompt after the turn end is owed, one without a write id is not",
 			ops: []EngineOp{
 				EnginePrompt{ID: "e1", Text: "third", WriteID: "w3"},
 				EnginePrompt{ID: "e1", Text: "no write id"},
 			},
+			want: 2,
+		},
+		{
+			name: "another session's turn end does not answer this session's prompts",
+			ops:  []EngineOp{EngineTurnEnded{ID: "e2", Subtype: "success", Answered: []string{"w2", "w3"}}},
+			want: 2,
+		},
+		{
+			name: "a later turn end that lists the second prompt leaves the third, which it omits, owed",
+			ops:  []EngineOp{EngineTurnEnded{ID: "e1", Subtype: "success", Answered: []string{"w2"}}},
 			want: 1,
 		},
 		{
-			name: "another session's turn end does not move this session's newest turn end",
-			ops:  []EngineOp{EngineTurnEnded{ID: "e2", Subtype: "success"}},
-			want: 1,
-		},
-		{
-			name: "a later written prompt counts beside the earlier one",
+			name: "a later written prompt is owed beside the omitted one",
 			ops:  []EngineOp{EnginePrompt{ID: "e1", Text: "fourth", WriteID: "w4"}},
 			want: 2,
 		},
 		{
-			name: "a second turn end leaves no prompt after it",
-			ops:  []EngineOp{EngineTurnEnded{ID: "e1", Subtype: "success"}},
+			name: "a turn end that lists every owed prompt leaves none owed",
+			ops:  []EngineOp{EngineTurnEnded{ID: "e1", Subtype: "success", Answered: []string{"w3", "w4"}}},
 			want: 0,
 		},
 	}
@@ -91,13 +100,53 @@ func TestHolderPromptsAfterTurnEndCountsWritesAfterNewestTurnEnd(t *testing.T) {
 		if err := s.ApplyEngine(ctx, step.ops, engineNowAt()); err != nil {
 			t.Fatalf("%s: ApplyEngine: %v", step.name, err)
 		}
-		if got := holderPromptsAfterTurnEnd(t, s, "e1"); got != step.want {
+		if got := holderPromptsUnanswered(t, s, "e1"); got != step.want {
 			t.Fatalf("%s: got %d, want %d", step.name, got, step.want)
 		}
 	}
 }
 
-func TestHolderPromptsAfterTurnEndUnknownIDCountsZero(t *testing.T) {
+// TestHolderPromptsUnansweredNullTurnEndAnswersEarlierPrompts stores a turn end with a NULL answered column, as one
+// stored before the column existed. It answers every prompt before it, so only the prompt after it, which the later turn
+// end omits, is owed.
+func TestHolderPromptsUnansweredNullTurnEndAnswersEarlierPrompts(t *testing.T) {
+	ctx := context.Background()
+	s := openSyncStore(t)
+
+	if err := s.ApplyEngine(ctx, []EngineOp{
+		EngineAdd{ID: "e1", Dir: "/a", State: "idle"},
+		EngineLaunch{ID: "e1"},
+		EnginePrompt{ID: "e1", Text: "first", WriteID: "w1"},
+		EnginePrompt{ID: "e1", Text: "second", WriteID: "w2"},
+	}, engineNowAt()); err != nil {
+		t.Fatalf("ApplyEngine: %v", err)
+	}
+
+	payload, err := encodeEnginePayload(EventEngineTurnEnded, engineTurnEndedPayload{Subtype: "success"})
+	if err != nil {
+		t.Fatalf("encode turn end payload: %v", err)
+	}
+	if err := sqlcgen.New(s.db).InsertEngineTurnEndedEvent(ctx, sqlcgen.InsertEngineTurnEndedEventParams{
+		SessionID: "e1", At: engineNowAt().Unix(), Payload: payload,
+	}); err != nil {
+		t.Fatalf("insert turn end with NULL answered: %v", err)
+	}
+	if got := holderPromptsUnanswered(t, s, "e1"); got != 0 {
+		t.Fatalf("after a NULL turn end: got %d, want 0 (it answers w1 and w2)", got)
+	}
+
+	if err := s.ApplyEngine(ctx, []EngineOp{
+		EnginePrompt{ID: "e1", Text: "third", WriteID: "w3"},
+		EngineTurnEnded{ID: "e1", Subtype: "success"},
+	}, engineNowAt()); err != nil {
+		t.Fatalf("ApplyEngine: %v", err)
+	}
+	if got := holderPromptsUnanswered(t, s, "e1"); got != 1 {
+		t.Fatalf("after a turn end that lists nothing: got %d, want 1 (w3 is omitted, w1 and w2 stay answered)", got)
+	}
+}
+
+func TestHolderPromptsUnansweredUnknownIDCountsZero(t *testing.T) {
 	ctx := context.Background()
 	s := openSyncStore(t)
 
@@ -109,7 +158,7 @@ func TestHolderPromptsAfterTurnEndUnknownIDCountsZero(t *testing.T) {
 		t.Fatalf("ApplyEngine: %v", err)
 	}
 
-	if got := holderPromptsAfterTurnEnd(t, s, "missing"); got != 0 {
+	if got := holderPromptsUnanswered(t, s, "missing"); got != 0 {
 		t.Fatalf("unknown id: got %d, want 0", got)
 	}
 }

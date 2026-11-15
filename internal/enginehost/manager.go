@@ -82,14 +82,14 @@ type NoticeSink interface {
 
 // Store reads the engine rows Reconcile settles, the ids of the sessions holding unfinished text that Reconcile clears, the
 // rows Say resumes, checks and Seen marks, the prompts a re-adopted holder has not written and how many prompts were written
-// after a session's newest turn end, the step rows Continue respawns from, and the failure markers Say checks. *store.Store
+// that no later turn end answers, the step rows Continue respawns from, and the failure markers Say checks. *store.Store
 // satisfies it.
 type Store interface {
 	EngineSessions(ctx context.Context) ([]store.EngineRow, error)
 	EngineTextSessions(ctx context.Context) (map[string]bool, error)
 	EngineSession(ctx context.Context, id string) (store.EngineRow, error)
 	HolderPrompts(ctx context.Context, id string) ([]store.HolderPrompt, error)
-	HolderPromptsAfterTurnEnd(ctx context.Context, id string) (int, error)
+	HolderPromptsUnanswered(ctx context.Context, id string) (int, error)
 	Step(ctx context.Context, id string) (store.StepRow, error)
 	EnginePromptSent(ctx context.Context, sessionID, promptID string) (bool, error)
 	EnginePromptFailure(ctx context.Context, sessionID, promptID string) (string, bool, error)

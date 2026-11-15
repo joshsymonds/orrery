@@ -172,13 +172,15 @@ WHERE events.session_id = sqlc.arg(id) AND events.kind = 'engine_prompt' AND eve
   AND events.seq > (SELECT sessions.prompts_from FROM sessions WHERE sessions.id = sqlc.arg(id))
 ORDER BY events.seq;
 
--- name: CountHolderPromptsAfterTurnEnd :one
-SELECT COUNT(*) FROM events
-WHERE events.session_id = sqlc.arg(id) AND events.kind = 'engine_prompt' AND events.write_id <> ''
-  AND events.seq > (SELECT sessions.prompts_from FROM sessions WHERE sessions.id = sqlc.arg(id))
-  AND events.seq > (
-      SELECT CAST(COALESCE(MAX(turns.seq), 0) AS INTEGER) FROM events AS turns
-      WHERE turns.session_id = sqlc.arg(id) AND turns.kind = 'engine_turn_ended'
+-- name: CountHolderPromptsUnanswered :one
+SELECT COUNT(*) FROM events AS prompts
+WHERE prompts.session_id = sqlc.arg(id) AND prompts.kind = 'engine_prompt' AND prompts.write_id <> ''
+  AND prompts.seq > (SELECT sessions.prompts_from FROM sessions WHERE sessions.id = sqlc.arg(id))
+  AND NOT EXISTS (
+      SELECT 1 FROM events AS turns
+      WHERE turns.session_id = sqlc.arg(id) AND turns.kind = 'engine_turn_ended' AND turns.seq > prompts.seq
+        AND (turns.answered IS NULL OR EXISTS (
+            SELECT 1 FROM json_each(turns.answered) WHERE json_each.value = prompts.write_id))
   );
 
 -- name: InsertEnginePromptFailed :exec
