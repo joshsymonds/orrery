@@ -466,114 +466,210 @@ func TestRunTimesOutAndStopsProcess(t *testing.T) {
 	runWaitGone(t, runReadPID(t, pidPath))
 }
 
-// runReplyDelay is how long runDelayedScript holds each reply, and runReplyGap the least time Run must
-// then leave between the line it waits on and its next line.
-const (
-	runReplyDelay = 300 * time.Millisecond
-	runReplyGap   = 250 * time.Millisecond
-)
-
-// runDelayedScript answers initialize at once, and the mode change and each user line only after
-// runReplyDelay, so a Run that sends its next line without waiting writes it early.
-const runDelayedScript = `while IFS= read -r line; do
+// runRequestBeforeReplyScript answers initialize at once. Before it answers the mode change or a user line,
+// it sends the permission request in the file named by $1 and reads the answer, so the answer is the last
+// line Run may send before that reply. A line read in place of the answer ends the script with status 3.
+const runRequestBeforeReplyScript = `await_answer() {
+  IFS= read -r answer
+  case "$answer" in
+    *'"type":"control_response"'*) ;;
+    *) printf 'read %s in place of the answer\n' "$answer" >&2; exit 3 ;;
+  esac
+}
+while IFS= read -r line; do
   case "$line" in
     *'"subtype":"initialize"'*) printf '%s\n' '` + runInitReply + `' ;;
-    *'"subtype":"set_permission_mode"'*) sleep 0.3; printf '%s\n' '` + runModeReply + `' ;;
-    *'"type":"user"'*) sleep 0.3; printf '%s\n' '` + runResultLine + `' ;;
+    *'"subtype":"set_permission_mode"'*) cat "$1"; await_answer; printf '%s\n' '` + runModeReply + `' ;;
+    *'"type":"user"'*) cat "$1"; await_answer; printf '%s\n' '` + runResultLine + `' ;;
   esac
 done
 `
 
-// runStampedWriter records when each write arrived.
-type runStampedWriter struct {
-	mu     sync.Mutex
-	writes []runStampedWrite
+// runLockedWriter is a sink a test reads while Run writes it from its own goroutine.
+type runLockedWriter struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
 }
 
-type runStampedWrite struct {
-	at   time.Time
-	data string
-}
-
-// Write records data with the time it arrived.
-func (writer *runStampedWriter) Write(data []byte) (int, error) {
+// Write appends data.
+func (writer *runLockedWriter) Write(data []byte) (int, error) {
 	writer.mu.Lock()
 	defer writer.mu.Unlock()
-	writer.writes = append(writer.writes, runStampedWrite{at: time.Now(), data: string(data)})
-	return len(data), nil
-}
-
-// when returns the time of the first write that contains fragment.
-func (writer *runStampedWriter) when(t *testing.T, fragment string) time.Time {
-	t.Helper()
-	writer.mu.Lock()
-	defer writer.mu.Unlock()
-	for _, write := range writer.writes {
-		if strings.Contains(write.data, fragment) {
-			return write.at
-		}
+	n, err := writer.buf.Write(data)
+	if err != nil {
+		return n, fmt.Errorf("record sink write: %w", err)
 	}
-	t.Fatalf("no write contains %s", fragment)
-	return time.Time{}
+	return n, nil
 }
 
+// String returns everything written so far.
+func (writer *runLockedWriter) String() string {
+	writer.mu.Lock()
+	defer writer.mu.Unlock()
+	return writer.buf.String()
+}
+
+// TestRunWaitsForEachReplyBeforeItsNextLine has the script send a permission request before each reply it
+// owes, and read the answer. Run writes its lines in order on one goroutine, so a Run that sent its next line
+// without waiting for the reply would write that line before the answer.
 func TestRunWaitsForEachReplyBeforeItsNextLine(t *testing.T) {
-	in := &runStampedWriter{}
-	probe := Probe{Name: "wait", PermissionMode: "default", ModeChange: "acceptEdits", Prompts: []string{"ONE", "TWO"}}
+	in := &runLockedWriter{}
+	probe := Probe{
+		Name: "wait", PermissionMode: "default", ModeChange: "acceptEdits", Answer: AnswerAllow,
+		Prompts: []string{"ONE", "TWO"},
+	}
+	cmd := runCommand(t, runRequestBeforeReplyScript, runWriteFile(t, runWriteRequest))
 
-	outcome := runExecute(t, probe, runCommand(t, runDelayedScript), Sinks{In: in, Out: io.Discard})
+	runRequireCompleted(t, runExecute(t, probe, cmd, Sinks{In: in, Out: io.Discard}))
+	runCompare(t, "In", in.String(),
+		runInitLine+runModeLine+runAllowReply+runPromptOne+runAllowReply+runPromptTwo+runAllowReply)
+}
 
-	runRequireCompleted(t, outcome)
-	for _, step := range []struct{ waitedOn, next string }{
-		{waitedOn: `"req_mode"`, next: `"text":"ONE"`},
-		{waitedOn: `"text":"ONE"`, next: `"text":"TWO"`},
-	} {
-		if gap := in.when(t, step.next).Sub(in.when(t, step.waitedOn)); gap < runReplyGap {
-			t.Errorf("%s written %v after %s, want at least %v (the reply is held %v)",
-				step.next, gap, step.waitedOn, runReplyGap, runReplyDelay)
+// runTimer is one timer a fake clock armed: its length, and the channel the test fires it on.
+type runTimer struct {
+	length time.Duration
+	fire   chan time.Time
+}
+
+// runFakeClock arms timers that fire only when the test fires them. Each armed timer is sent on armed, in
+// the order Run arms them.
+type runFakeClock struct {
+	armed chan runTimer
+}
+
+func newRunFakeClock() *runFakeClock {
+	return &runFakeClock{armed: make(chan runTimer, 4)}
+}
+
+// After arms a timer of length d.
+func (clock *runFakeClock) After(d time.Duration) <-chan time.Time {
+	timer := runTimer{length: d, fire: make(chan time.Time, 1)}
+	clock.armed <- timer
+	return timer.fire
+}
+
+// next returns the next timer Run arms, failing the test unless its length is want.
+func (clock *runFakeClock) next(t *testing.T, want time.Duration) runTimer {
+	t.Helper()
+	timer := <-clock.armed
+	if timer.length != want {
+		t.Fatalf("armed a timer of %v, want %v", timer.length, want)
+	}
+	return timer
+}
+
+// runOutcome is what one Run returned.
+type runOutcome struct {
+	outcome Outcome
+	err     error
+}
+
+// startRun runs probe on cmd in its own goroutine and returns the channel its result arrives on.
+func startRun(t *testing.T, probe Probe, cmd Command, sinks Sinks) <-chan runOutcome {
+	t.Helper()
+	done := make(chan runOutcome, 1)
+	go func() {
+		outcome, err := Run(t.Context(), probe, cmd, sinks)
+		done <- runOutcome{outcome: outcome, err: err}
+	}()
+	return done
+}
+
+// awaitRun returns the outcome of the Run on done, failing the test if it returned an error.
+func awaitRun(t *testing.T, done <-chan runOutcome) Outcome {
+	t.Helper()
+	got := <-done
+	if got.err != nil {
+		t.Fatalf("Run: %v", got.err)
+	}
+	return got.outcome
+}
+
+// awaitAnswered waits until the In sink holds the answer to the request the script sends after its result.
+// Run answers on the goroutine that ends the prompts, so once the answer is in the sink, a Run that closed
+// stdin at the last result instead of at the linger has already done so and failed the answer's write. It
+// fails the test if Run returns first.
+func awaitAnswered(t *testing.T, done <-chan runOutcome, in *runLockedWriter) {
+	t.Helper()
+	for !strings.Contains(in.String(), runAllowReply) {
+		select {
+		case got := <-done:
+			t.Fatalf("Run returned %+v before it answered the request sent during the linger", got)
+		default:
+			time.Sleep(time.Millisecond)
 		}
 	}
 }
 
-// runLinger is the Linger of the linger tests: long enough to observe, short enough to keep the tests fast.
+// runLinger is the Linger of the linger tests. The fake clock fires it, so its length only names the timer.
 const runLinger = 400 * time.Millisecond
 
-// runUserExtraResult answers a user line with a result, then a second result 100ms later, inside the linger.
-const runUserExtraResult = runUserResult + "\n      sleep 0.1\n" + runUserResult
+// runUserResultThenRequest answers a user line with a result and then sends the permission request in the file
+// named by $1, which arrives during the linger.
+const runUserResultThenRequest = runUserResult + `
+      cat "$1"`
 
+// runUserExtraResult answers a user line with two results and then sends the permission request in the file
+// named by $1.
+const runUserExtraResult = runUserResult + "\n" + runUserResultThenRequest
+
+// TestRunLingerHoldsStdinOpenAfterLastResult checks that stdin stays open from the last result until the linger
+// fires: a request that arrives in between is answered, and the trailer the script writes once stdin closes
+// comes after the answer.
 func TestRunLingerHoldsStdinOpenAfterLastResult(t *testing.T) {
-	out := &runStampedWriter{}
-	var in bytes.Buffer
-	probe := Probe{Name: "linger", PermissionMode: "default", Prompts: []string{"ONE"}, Linger: runLinger}
+	clock := newRunFakeClock()
+	in, out := &runLockedWriter{}, &runLockedWriter{}
+	probe := Probe{
+		Name: "linger", PermissionMode: "default", Answer: AnswerAllow, Prompts: []string{"ONE"}, Linger: runLinger,
+	}
+	cmd := runCommand(t, runScript(runUserResultThenRequest), runWriteFile(t, runWriteRequest))
+	cmd.After = clock.After
 
-	outcome := runExecute(t, probe, runCommand(t, runScript(runUserResult)), Sinks{In: &in, Out: out})
+	done := startRun(t, probe, cmd, Sinks{In: in, Out: out})
+	clock.next(t, runNoTimeout)
+	linger := clock.next(t, runLinger)
+	awaitAnswered(t, done, in)
+	linger.fire <- time.Time{}
 
+	outcome := awaitRun(t, done)
 	runRequireCompleted(t, outcome)
-	if gap := out.when(t, runTrailerLine).Sub(out.when(t, runResultLine)); gap < runLinger {
-		t.Errorf("trailer written %v after the result, want at least %v (stdin closes after the linger)",
-			gap, runLinger)
+	runCompare(t, "In", in.String(), runInitLine+runPromptOne+runAllowReply)
+	if got := out.String(); !strings.HasSuffix(got, runTrailerLine+"\n") {
+		t.Errorf("Out = %q, want the trailer last, written once the linger closed stdin", got)
 	}
 }
 
+// TestRunLingerCountsExtraResultsAndSendsNothing checks that a second result during the linger sends nothing and
+// leaves stdin open: the request after it is answered, and nothing else is sent.
 func TestRunLingerCountsExtraResultsAndSendsNothing(t *testing.T) {
-	out := &runStampedWriter{}
-	var in bytes.Buffer
-	probe := Probe{Name: "linger-extra", PermissionMode: "default", Prompts: []string{"ONE"}, Linger: runLinger}
+	clock := newRunFakeClock()
+	in, out := &runLockedWriter{}, &runLockedWriter{}
+	probe := Probe{
+		Name: "linger-extra", PermissionMode: "default", Answer: AnswerAllow, Prompts: []string{"ONE"},
+		Linger: runLinger,
+	}
+	cmd := runCommand(t, runScript(runUserExtraResult), runWriteFile(t, runWriteRequest))
+	cmd.After = clock.After
 
-	outcome := runExecute(t, probe, runCommand(t, runScript(runUserExtraResult)), Sinks{In: &in, Out: out})
+	done := startRun(t, probe, cmd, Sinks{In: in, Out: out})
+	clock.next(t, runNoTimeout)
+	linger := clock.next(t, runLinger)
+	awaitAnswered(t, done, in)
+	linger.fire <- time.Time{}
 
-	runRequireCompleted(t, outcome)
-	runCompare(t, "In", in.String(), runInitLine+runPromptOne)
-	if gap := out.when(t, runTrailerLine).Sub(out.when(t, runResultLine)); gap < runLinger {
-		t.Errorf("trailer written %v after the first result, want at least %v (the extra result must not close stdin)",
-			gap, runLinger)
+	runRequireCompleted(t, awaitRun(t, done))
+	runCompare(t, "In", in.String(), runInitLine+runPromptOne+runAllowReply)
+	if got := out.String(); !strings.HasSuffix(got, runTrailerLine+"\n") {
+		t.Errorf("Out = %q, want the trailer last, written once the linger closed stdin", got)
 	}
 }
 
 func TestRunLingerLongerThanTimeoutStopsProcess(t *testing.T) {
+	clock := newRunFakeClock()
 	pidPath := filepath.Join(t.TempDir(), "pid")
 	cmd := runCommand(t, `printf '%s\n' "$$" > "$1"`+"\n"+runScript(runUserResult), pidPath)
 	cmd.Timeout = runShortTimeout
+	cmd.After = clock.After
 	probe := Probe{
 		Name:           "linger-timeout",
 		PermissionMode: "default",
@@ -581,12 +677,12 @@ func TestRunLingerLongerThanTimeoutStopsProcess(t *testing.T) {
 		Linger:         10 * time.Second,
 	}
 
-	outcome, err := Run(t.Context(), probe, cmd, Sinks{In: io.Discard, Out: io.Discard})
+	done := startRun(t, probe, cmd, Sinks{In: io.Discard, Out: io.Discard})
+	timeout := clock.next(t, runShortTimeout)
+	clock.next(t, probe.Linger)
+	timeout.fire <- time.Time{}
 
-	if err != nil {
-		t.Fatalf("Run: %v", err)
-	}
-	if !outcome.TimedOut {
+	if outcome := awaitRun(t, done); !outcome.TimedOut {
 		t.Fatalf("outcome = %+v, want TimedOut while lingering", outcome)
 	}
 	runWaitGone(t, runReadPID(t, pidPath))
