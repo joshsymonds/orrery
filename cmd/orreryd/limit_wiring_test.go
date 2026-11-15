@@ -107,7 +107,9 @@ func startLimitHost(t *testing.T, st *store.Store, getenv func(string) string, r
 		sessionCap: defaultSessionCap,
 		stepCap:    defaultStepCap,
 	}
-	host, err := startSessions(t.Context(), opts, limitWiringHost, st, router, slog.New(slog.DiscardHandler), getenv)
+	host, err := startSessions(
+		t.Context(), opts, limitWiringHost, st, router, nil, slog.New(slog.DiscardHandler), getenv,
+	)
 	if err != nil {
 		t.Fatalf("startSessions: %v", err)
 	}

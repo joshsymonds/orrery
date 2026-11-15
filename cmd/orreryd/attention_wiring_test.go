@@ -128,7 +128,7 @@ func TestSessionsHostRoutesParkedEpicNotice(t *testing.T) {
 	}
 	routed := &recordRoute{}
 	logger := slog.New(slog.DiscardHandler)
-	host, err := startSessions(ctx, opts, attentionWiringHost, st, routed, logger, getenv)
+	host, err := startSessions(ctx, opts, attentionWiringHost, st, routed, nil, logger, getenv)
 	if err != nil {
 		t.Fatalf("startSessions: %v", err)
 	}
