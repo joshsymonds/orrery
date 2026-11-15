@@ -55,6 +55,11 @@ func Clear(ctx context.Context, dir string) error {
 	}
 	lock, err := stopHolder(ctx, dir)
 	if err != nil {
+		// The controller of a holder that ended removes its directory, and can do so while this clear runs. A
+		// directory gone by now is as cleared as this clear would leave it.
+		if stillPresent, checkErr := dirPresent(dir); checkErr == nil && !stillPresent {
+			return nil
+		}
 		return fmt.Errorf("holder: clear %s: %w", dir, err)
 	}
 	removeErr := os.RemoveAll(dir)
