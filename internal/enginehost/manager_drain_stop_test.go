@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/joshsymonds/orrery/internal/exectest"
 	"github.com/joshsymonds/orrery/internal/holder"
 	"github.com/joshsymonds/orrery/internal/store"
 )
@@ -24,9 +25,7 @@ func stubbornClaudePath(t *testing.T) string {
 	quoted := "'" + strings.ReplaceAll(fakeClaudePath(t), "'", `'\''`) + "'"
 	script := fmt.Sprintf("#!/bin/sh\ntrap '' TERM\nexec %s \"$@\"\n", quoted)
 	path := filepath.Join(t.TempDir(), "claude")
-	if err := os.WriteFile(path, []byte(script), 0o700); err != nil {
-		t.Fatalf("write stubborn claude: %v", err)
-	}
+	exectest.WriteFile(t, path, []byte(script), 0o700)
 	return path
 }
 

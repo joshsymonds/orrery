@@ -17,6 +17,7 @@ import (
 	"connectrpc.com/connect"
 
 	"github.com/joshsymonds/orrery/internal/archive"
+	"github.com/joshsymonds/orrery/internal/exectest"
 	orreryv1 "github.com/joshsymonds/orrery/internal/gen/orrery/v1"
 	"github.com/joshsymonds/orrery/internal/open"
 	"github.com/joshsymonds/orrery/internal/protocol"
@@ -80,9 +81,8 @@ cat "$D/reply"
 // writePickerFile writes content to path.
 func writePickerFile(t *testing.T, path, content string) {
 	t.Helper()
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-		t.Fatalf("write %s: %v", path, err)
-	}
+	// The file may be a program the test runs, so it is written under the fork lock (see exectest.WriteFile).
+	exectest.WriteFile(t, path, []byte(content), 0o644)
 }
 
 // mkdirAt creates the directory path, which the intent lookup then lists as a child of its root.

@@ -28,6 +28,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/joshsymonds/orrery/internal/cli"
+	"github.com/joshsymonds/orrery/internal/exectest"
 	orreryv1 "github.com/joshsymonds/orrery/internal/gen/orrery/v1"
 	"github.com/joshsymonds/orrery/internal/gen/orrery/v1/orreryv1connect"
 	"github.com/joshsymonds/orrery/internal/hoststatus"
@@ -658,9 +659,7 @@ func writeHostStatusScript(t *testing.T, output string, status int) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "host-status")
 	body := fmt.Sprintf("#!/bin/sh\ncat <<'EOF'\n%s\nEOF\nexit %d\n", output, status)
-	if err := os.WriteFile(path, []byte(body), 0o700); err != nil {
-		t.Fatalf("write host status script: %v", err)
-	}
+	exectest.WriteFile(t, path, []byte(body), 0o700)
 	return path
 }
 
