@@ -53,19 +53,24 @@ type ReleaseRun struct {
 // one stored already changes nothing, so a repeat is a no-op.
 func (s *Store) RecordRelease(ctx context.Context, epic string, run ReleaseRun) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
-		commits, err := encodeList(run.Commits)
-		if err != nil {
-			return fmt.Errorf("encode commits of release run %s of epic %s: %w", run.Part, epic, err)
-		}
-		if err = queries.InsertEpicReleaseRun(ctx, sqlcgen.InsertEpicReleaseRunParams{
-			Epic: epic, Part: run.Part, Position: run.Position, Attempt: run.Attempt, Step: run.Step,
-			Start: run.Start, Head: run.Head, Finish: run.End, Commits: commits, Evidence: run.Evidence,
-			Passed: run.Passed, Reason: run.Reason, At: run.At.Unix(),
-		}); err != nil {
-			return fmt.Errorf("insert release run %s of epic %s: %w", run.Part, epic, err)
-		}
-		return nil
+		return recordRelease(ctx, queries, epic, run)
 	})
+}
+
+// recordRelease stores run as a release run of epic in the caller's write, as RecordRelease does.
+func recordRelease(ctx context.Context, queries *sqlcgen.Queries, epic string, run ReleaseRun) error {
+	commits, err := encodeList(run.Commits)
+	if err != nil {
+		return fmt.Errorf("encode commits of release run %s of epic %s: %w", run.Part, epic, err)
+	}
+	if err = queries.InsertEpicReleaseRun(ctx, sqlcgen.InsertEpicReleaseRunParams{
+		Epic: epic, Part: run.Part, Position: run.Position, Attempt: run.Attempt, Step: run.Step,
+		Start: run.Start, Head: run.Head, Finish: run.End, Commits: commits, Evidence: run.Evidence,
+		Passed: run.Passed, Reason: run.Reason, At: run.At.Unix(),
+	}); err != nil {
+		return fmt.Errorf("insert release run %s of epic %s: %w", run.Part, epic, err)
+	}
+	return nil
 }
 
 // TakeReleaseSlot takes the release slot of epic's repository for epic, in one write, and returns the slot's holder

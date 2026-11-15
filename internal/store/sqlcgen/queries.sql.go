@@ -4897,6 +4897,15 @@ func (q *Queries) ResumeEpic(ctx context.Context, id string) error {
 	return err
 }
 
+const resumeEpicRelease = `-- name: ResumeEpicRelease :exec
+UPDATE epics SET phase = 'releasing' WHERE id = ? AND phase = 'stopped'
+`
+
+func (q *Queries) ResumeEpicRelease(ctx context.Context, id string) error {
+	_, err := q.db.ExecContext(ctx, resumeEpicRelease, id)
+	return err
+}
+
 const retryEpic = `-- name: RetryEpic :exec
 UPDATE epics SET parked = '', retried = ? WHERE id = ?
 `

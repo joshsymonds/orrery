@@ -449,6 +449,9 @@ DELETE FROM epic_release_slots WHERE epic = ?;
 -- name: StartEpicRelease :exec
 UPDATE epics SET phase = 'releasing' WHERE id = ? AND phase = 'clean';
 
+-- name: ResumeEpicRelease :exec
+UPDATE epics SET phase = 'releasing' WHERE id = ? AND phase = 'stopped';
+
 -- name: StopEpicRelease :exec
 UPDATE epics SET phase = 'stopped' WHERE id = ? AND phase = 'releasing';
 
