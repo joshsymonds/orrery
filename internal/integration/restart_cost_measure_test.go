@@ -59,6 +59,7 @@ func acceptedAt(t *testing.T, daemon *orreryProcess, path string, deadline time.
 		case <-daemon.done:
 			t.Fatalf("%s exited before %s accepted a connection; stderr %q", daemon.name, path, daemon.stderr.String())
 		case <-ticker.C:
+			stopIfFailed(t)
 		}
 	}
 }

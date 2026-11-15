@@ -168,6 +168,7 @@ func (f *defaultFixture) waitForStartupRow(t *testing.T, daemon *orreryProcess) 
 				return db, id, row
 			}
 		}
+		stopIfFailed(t)
 		<-ticker.C
 	}
 }
@@ -186,6 +187,7 @@ func waitForState(t *testing.T, db *sql.DB, id string, want protocol.State) sqlc
 		if row.State == string(want) {
 			return row
 		}
+		stopIfFailed(t)
 		<-ticker.C
 	}
 }

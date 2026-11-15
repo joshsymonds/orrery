@@ -13,6 +13,7 @@ import (
 
 	"github.com/joshsymonds/orrery/internal/engine/session"
 	"github.com/joshsymonds/orrery/internal/store"
+	"github.com/joshsymonds/orrery/internal/waittest"
 )
 
 // watchLoopDoing is the doing line the first canned monitor reply of most tests carries.
@@ -167,7 +168,7 @@ func (f *watchLoopFixture) row(t *testing.T) store.StepRow {
 func (f *watchLoopFixture) waitVerdicts(t *testing.T, n int) []store.StepVerdict {
 	t.Helper()
 	var verdicts []store.StepVerdict
-	watchLoopWait(t, fmt.Sprintf("%d verdicts", n), func() bool {
+	watchLoopWait(t, f.done, fmt.Sprintf("%d verdicts", n), func() bool {
 		verdicts = f.row(t).Verdicts
 		return len(verdicts) >= n
 	})
@@ -178,7 +179,7 @@ func (f *watchLoopFixture) waitVerdicts(t *testing.T, n int) []store.StepVerdict
 func (f *watchLoopFixture) waitContinue(t *testing.T) string {
 	t.Helper()
 	var texts []string
-	watchLoopWait(t, "a continue", func() bool {
+	watchLoopWait(t, f.done, "a continue", func() bool {
 		texts = f.sessions.continuedTexts()
 		return len(texts) > 0
 	})
@@ -192,12 +193,11 @@ func (f *watchLoopFixture) waitEnd(t *testing.T) store.StepRow {
 	return f.row(t)
 }
 
-// watchLoopWait polls ok until it returns true. It has no deadline of its own.
-func watchLoopWait(t *testing.T, _ string, ok func() bool) {
+// watchLoopWait polls ok until it returns true. It has no deadline of its own, and fails at once if ended, the end of
+// the run whose work ok waits for, closes first.
+func watchLoopWait(t *testing.T, ended <-chan struct{}, what string, ok func() bool) {
 	t.Helper()
-	for !ok() {
-		time.Sleep(time.Millisecond)
-	}
+	waittest.Until(t, ended, what, ok)
 }
 
 // watchLoopWantVerdict asserts that got is the stored monitor verdict for trip with the given verdict, doing line and
@@ -557,14 +557,14 @@ func TestWatchLoopNonErrorTurnEndDropsTheNudge(t *testing.T) {
 	})
 	watchLoopWantContains(t, f.waitContinue(t), "schema:")
 	f.turnEnd(11*time.Minute, session.TurnEnded{IsError: true, Subtype: "error_during_execution"})
-	watchLoopWait(t, "a second continue", func() bool { return len(sessions.continuedTexts()) >= 2 })
+	watchLoopWait(t, f.done, "a second continue", func() bool { return len(sessions.continuedTexts()) >= 2 })
 	for i, text := range sessions.continuedTexts() {
 		if strings.Contains(text, "watchdog") {
 			t.Fatalf("continue %d %q carries the dropped nudge", i, text)
 		}
 		watchLoopWantContains(t, text, "schema:")
 	}
-	watchLoopWait(t, "the second round's checks", func() bool {
+	watchLoopWait(t, f.done, "the second round's checks", func() bool {
 		checks := f.row(t).Checks
 		return len(checks) == 2 && checks[1].Round == 2
 	})

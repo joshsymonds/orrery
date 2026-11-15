@@ -17,6 +17,7 @@ import (
 
 	"github.com/joshsymonds/orrery/internal/store"
 	"github.com/joshsymonds/orrery/internal/storetest"
+	"github.com/joshsymonds/orrery/internal/waittest"
 
 	// The blank import registers the pure-Go "sqlite" driver the lock test opens a second connection with.
 	_ "modernc.org/sqlite"
@@ -504,18 +505,15 @@ func TestRunCancelDoesNotCancelATickFlushInFlight(t *testing.T) {
 	}
 }
 
-// waitQueued blocks until the writer's queue holds at least n ops. It has no deadline of its own.
-func waitQueued(t *testing.T, w *Writer, n int) {
+// waitQueued blocks until the writer's queue holds at least n ops. It has no deadline of its own, and fails at once if
+// ended, the end of the call that queues the last of them, closes first.
+func waitQueued(t *testing.T, w *Writer, n int, ended <-chan struct{}) {
 	t.Helper()
-	for {
+	waittest.Until(t, ended, fmt.Sprintf("op %d queued", n), func() bool {
 		w.mu.Lock()
-		got := len(w.queue)
-		w.mu.Unlock()
-		if got >= n {
-			return
-		}
-		time.Sleep(time.Millisecond)
-	}
+		defer w.mu.Unlock()
+		return len(w.queue) >= n
+	})
 }
 
 // A session whose row the retention sync removed must not stall the writer: its op is dropped with a warning, its
@@ -559,11 +557,12 @@ func TestMissingEngineSessionDropsItsOpAndStoresTheRest(t *testing.T) {
 	go func() {
 		commitA <- w.Commit(ctx, "a", store.EngineSet{ID: "a", Changes: store.EngineChanges{State: &idle}})
 	}()
-	waitQueued(t, w, 2)
+	ended, commitAResult := waittest.Closed(commitA)
+	waitQueued(t, w, 2, ended)
 	// The tick is one flush the test makes, so both ops share one batch.
 	w.flush(ctx)
 
-	if err := receive(t, commitA); !errors.Is(err, store.ErrNoEngineSession) {
+	if err := receive(t, commitAResult); !errors.Is(err, store.ErrNoEngineSession) {
 		t.Fatalf("Commit for session a: got %v, want an error wrapping ErrNoEngineSession", err)
 	}
 	if got, want := promptTexts(t, path, "b"), []string{"b1"}; !reflect.DeepEqual(got, want) {
@@ -616,11 +615,12 @@ func TestMissingStepDropsItsOpAndStoresTheRest(t *testing.T) {
 	go func() {
 		commitA <- w.Commit(ctx, "a", store.StepEnd{ID: "a", End: "done", Status: "done"})
 	}()
-	waitQueued(t, w, 2)
+	ended, commitAResult := waittest.Closed(commitA)
+	waitQueued(t, w, 2, ended)
 	// The tick is one flush the test makes, so both ops share one batch.
 	w.flush(ctx)
 
-	if err := receive(t, commitA); !errors.Is(err, store.ErrNoStep) {
+	if err := receive(t, commitAResult); !errors.Is(err, store.ErrNoStep) {
 		t.Fatalf("Commit for session a: got %v, want an error wrapping ErrNoStep", err)
 	}
 	if got, want := promptTexts(t, path, "b"), []string{"b1"}; !reflect.DeepEqual(got, want) {

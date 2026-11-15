@@ -55,7 +55,7 @@ func TestNodeChecksResumeEndsADetachedGateWithItsExitOnce(t *testing.T) {
 		defer close(done)
 		_, runErr = f.checks.run(ctx, f.repo, check)
 	}()
-	gateWaitFile(t, started)
+	gateWaitFile(t, started, done)
 	cancel(errGateDetach)
 	evidenceCaptureWait(t, done)
 	if !errors.Is(runErr, errGateDetach) {
@@ -181,7 +181,7 @@ func TestNodeChecksResumeLeavesACheckItDrivesAlone(t *testing.T) {
 	if err := f.checks.Resume(t.Context()); err != nil {
 		t.Fatalf("Resume: %v", err)
 	}
-	gateWaitFile(t, started)
+	gateWaitFile(t, started, nil)
 	if err := f.checks.Resume(t.Context()); err != nil {
 		t.Fatalf("second Resume: %v", err)
 	}

@@ -253,7 +253,7 @@ func TestOrrerydRouteNoticeLogOpenFailureExitsOne(t *testing.T) {
 		t.Fatalf("make directory at the log path: %v", err)
 	}
 	socket := filepath.Join(dir, "orreryd.sock")
-	daemon := startBinary(t, "orreryd", scrubbedEnv("XDG_STATE_HOME="+stateHome), "--socket", socket)
+	daemon := startExitingOrreryd(t, scrubbedEnv("XDG_STATE_HOME="+stateHome), "--socket", socket)
 	out := daemon.exitOutcome(t)
 	wantExit(t, out, 1)
 	if !strings.Contains(out.stderr, "notice log") {

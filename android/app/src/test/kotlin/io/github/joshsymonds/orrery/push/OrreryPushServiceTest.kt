@@ -8,6 +8,7 @@ import androidx.test.core.app.ApplicationProvider
 import io.github.joshsymonds.orrery.MainActivity
 import io.github.joshsymonds.orrery.ServerSettings
 import io.github.joshsymonds.orrery.api.FakeOrreryServer
+import io.github.joshsymonds.orrery.api.Quiescence
 import io.github.joshsymonds.orrery.api.RecordedRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.RegisterRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.RegisterResponse
@@ -160,13 +161,11 @@ class OrreryPushServiceTest {
         postedFor("alert:$alert")
 
     /**
-     * Waits until the fake server has [count] requests. They come from the service's call on other threads, so the
-     * wait has no deadline of its own; the test task's timeout bounds one that never comes.
+     * Waits until the fake server has [count] requests, failing once nothing is in flight and they have not all come.
+     * They come from the service's call on other threads; the wait ends on that work, not on a clock.
      */
     private fun awaitRequests(count: Int): List<RecordedRequest> {
-        while (server.requests.size < count) {
-            Thread.sleep(10)
-        }
+        Quiescence.awaitUntil("$count request(s) to the fake server") { server.requests.size >= count }
         return server.requests
     }
 

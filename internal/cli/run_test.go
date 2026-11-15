@@ -25,6 +25,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/joshsymonds/orrery/internal/cli"
+	"github.com/joshsymonds/orrery/internal/exectest"
 	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
 	"github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1/enginev1connect"
 	"github.com/joshsymonds/orrery/internal/protocol"
@@ -237,11 +238,27 @@ func refusedAfter(gate <-chan struct{}, code connect.Code) acquireStep {
 	return step
 }
 
-// awaitRequests waits until fake has received n requests. It has no deadline of its own.
-func awaitRequests(t *testing.T, fake *poolsFake, n int) {
+// awaitRequests waits until fake has received n requests. It has no deadline of its own, and fails at once when the
+// run whose result arrives on status has returned without them (see awaitRunRequests).
+func awaitRequests(t *testing.T, fake *poolsFake, n int, status <-chan int) {
 	t.Helper()
-	for len(fake.received()) < n {
-		<-time.After(pollInterval)
+	awaitRunRequests(t, status, func() int { return len(fake.received()) }, n)
+}
+
+// awaitRunRequests waits until received reports want requests. It has no deadline of its own. It fails the test once
+// the run whose result arrives on status has returned and received still reports fewer: a fake records each request
+// before it answers it, so a run that has returned sends no more. It reads whether the run has returned from the
+// channel's length, so the status stays on the channel for the test to read.
+func awaitRunRequests(t *testing.T, status <-chan int, received func() int, want int) {
+	t.Helper()
+	for received() < want {
+		if len(status) > 0 {
+			if had := received(); had < want {
+				t.Fatalf("RunWithGrant returned after %d requests, want %d first", had, want)
+			}
+			return
+		}
+		time.Sleep(pollInterval)
 	}
 }
 
@@ -601,9 +618,7 @@ func TestRunWithGrantExitsCannotRunWhenCommandFailsToStart(t *testing.T) {
 	fake := newPoolsFake(nil, true, grantedWith("grant-bad", poolMembers("builds", "m1")))
 	socket := runServe(t, fake)
 	notProgram := filepath.Join(t.TempDir(), "notprogram")
-	if err := os.WriteFile(notProgram, []byte("not a program\n"), 0o700); err != nil {
-		t.Fatalf("write %s: %v", notProgram, err)
-	}
+	exectest.WriteFile(t, notProgram, []byte("not a program\n"), 0o700)
 	var stderr bytes.Buffer
 	cfg := runConfig(t, socket, "env", io.Discard, &stderr)
 	cfg.Argv = []string{notProgram}

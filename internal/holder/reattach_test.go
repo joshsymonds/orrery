@@ -88,7 +88,7 @@ func launchDetachedSpool(t *testing.T) string {
 	if !bytes.Equal(data, spoolBytes(0, reattachSize)) {
 		t.Fatalf("the first controller read bytes other than the child's output")
 	}
-	awaitSegmentFiles(t, dir, []string{segmentName(DefaultSegmentBytes)})
+	awaitSegmentFiles(t, p.ended, dir, []string{segmentName(DefaultSegmentBytes)})
 	if err := p.Detach(); err != nil {
 		t.Fatalf("Detach the first controller: %v", err)
 	}
@@ -331,6 +331,19 @@ func TestReattachHolderThatNeverAnswersIsUnattachableWithinTheTimeout(t *testing
 	if !errors.Is(err, ErrUnattachable) || !errors.Is(err, ErrNoAnswer) || !errors.Is(err, os.ErrDeadlineExceeded) {
 		t.Fatalf("Reattach of a holder that never answers = %v, want ErrUnattachable and ErrNoAnswer from the timeout",
 			err)
+	}
+}
+
+// TestReattachWhoseDialRunsOutOfTimeGaveNoAnswer gives the attach a bound that has run out before the dial, as a busy
+// machine can for a short bound, so the dial itself times out. net reports that as its i/o timeout, not as
+// os.ErrDeadlineExceeded, and it is still a holder that gave no answer within the bound.
+func TestReattachWhoseDialRunsOutOfTimeGaveNoAnswer(t *testing.T) {
+	t.Parallel()
+
+	dir, _ := startWedged(t)
+	_, _, err := Reattach(t.Context(), dir, 0, WireVersion, WithAttachTimeout(-time.Second))
+	if !errors.Is(err, ErrUnattachable) || !errors.Is(err, ErrNoAnswer) {
+		t.Fatalf("Reattach whose dial ran out of time = %v, want ErrUnattachable and ErrNoAnswer", err)
 	}
 }
 

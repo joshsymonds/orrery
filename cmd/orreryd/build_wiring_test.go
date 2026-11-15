@@ -149,7 +149,7 @@ func TestSessionsHostRunsBuildAndParksWithoutRoleFile(t *testing.T) {
 		t.Fatalf("startSessions: %v", err)
 	}
 
-	row := waitParked(t, st, buildWiringEpic)
+	row := waitParked(t, st, host, buildWiringEpic)
 	tip, exists, err := build.BranchTip(ctx, repo, buildWiringEpic)
 	if err != nil {
 		t.Fatalf("branch tip: %v", err)

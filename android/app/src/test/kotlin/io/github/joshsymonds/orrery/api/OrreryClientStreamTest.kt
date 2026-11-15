@@ -265,7 +265,7 @@ class OrreryClientStreamTest {
                 val job = launch(Dispatchers.IO) {
                     client.watchConversation("%3", "example-transcript", 0L) { firstDelta.complete(Unit) }
                 }
-                firstDelta.await()
+                Quiescence.awaitUntil("the first delta") { firstDelta.isCompleted }
 
                 job.cancelAndJoin()
             }

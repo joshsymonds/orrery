@@ -1,5 +1,6 @@
 package io.github.joshsymonds.orrery.api
 
+import androidx.annotation.VisibleForTesting
 import com.connectrpc.Code
 import com.connectrpc.ConnectException
 import com.connectrpc.ProtocolClientConfig
@@ -75,12 +76,14 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.WatchConversationRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.WatchConversationResponse
 import kotlinx.coroutines.channels.ReceiveChannel
 import kotlinx.coroutines.runBlocking
+import okhttp3.EventListener
 import okhttp3.OkHttpClient
 import org.json.JSONException
 import org.json.JSONObject
 import java.io.IOException
 import java.net.MalformedURLException
 import java.util.concurrent.TimeUnit
+import javax.net.SocketFactory
 import kotlin.time.Duration
 
 private const val TIMEOUT_MS = 10_000
@@ -416,6 +419,18 @@ class NoAnswerException(cause: IOException) : IOException("no answer to the requ
 private class RequestSentException(val transport: IOException) : IOException(transport)
 
 /**
+ * The socket factory every [OrreryClient] opens its connections with. The app keeps the default; the unit tests swap
+ * in one that tells them whether a request or an answer is still on its way, so a wait can tell "still coming" from
+ * "never coming".
+ */
+@VisibleForTesting
+internal var socketFactory: SocketFactory = SocketFactory.getDefault()
+
+/** The event listener every [OrreryClient] call reports to. The app keeps none; the unit tests count calls with it. */
+@VisibleForTesting
+internal var eventListenerFactory: EventListener.Factory = EventListener.Factory { EventListener.NONE }
+
+/**
  * Blocking client for the orrery phone API over Connect. Each call is one unary request. A write
  * call is never retried, so a dropped connection cannot send it twice.
  */
@@ -428,6 +443,8 @@ class OrreryClient(
     private val root = baseUrl.removeSuffix("/")
 
     private val http: OkHttpClient = OkHttpClient.Builder()
+        .socketFactory(socketFactory)
+        .eventListenerFactory(eventListenerFactory)
         .connectTimeout(TIMEOUT_MS.toLong(), TimeUnit.MILLISECONDS)
         .retryOnConnectionFailure(false)
         .addNetworkInterceptor { chain ->

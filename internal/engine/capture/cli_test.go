@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/joshsymonds/orrery/internal/exectest"
 )
 
 // cliFakeSession is the session id the fake claude reports. A sanitized fixture must not contain it.
@@ -130,9 +132,7 @@ done
 func cliFakePath(t *testing.T, script string) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "claude")
-	if err := os.WriteFile(path, []byte(script), 0o700); err != nil {
-		t.Fatalf("write fake claude: %v", err)
-	}
+	exectest.WriteFile(t, path, []byte(script), 0o700)
 	return path
 }
 
@@ -172,7 +172,8 @@ ORRERY_TEST_FORM=$form
 export ORRERY_TEST_FORM
 exec '` + shell + `' "$@"
 `
-	if err := os.WriteFile(wrapper, []byte(script), 0o700); err != nil {
+	// The wrapper is a program the daemon runs, so it is written under the fork lock (see exectest.WriteFile).
+	if err := exectest.Write(wrapper, []byte(script), 0o700); err != nil {
 		return Daemon{}, err
 	}
 	return Daemon{Shell: wrapper, Claude: path, Tmux: path, Home: dir, User: "orrery", Lang: "C", RuntimeDir: dir}, nil

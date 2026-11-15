@@ -40,14 +40,14 @@ func TestReaderQueryPlans(t *testing.T) {
 
 	texts := sqlcQueryTexts(t)
 	s := openWriterAt(t, filepath.Join(t.TempDir(), "orrery.db"))
-	partial := partialIndexesOf(t, s.db, "events")
+	partial := partialIndexesOf(t, s.db.DB, "events")
 	for method, names := range readerQueries {
 		for _, name := range names {
 			text, ok := texts[name]
 			if !ok {
 				t.Fatalf("Reader.%s issues query %s, which %s does not define", method, name, queryPlanSource)
 			}
-			for _, detail := range unpartitionedEventsScans(t, s.db, partial, name, text) {
+			for _, detail := range unpartitionedEventsScans(t, s.db.DB, partial, name, text) {
 				t.Errorf("Reader.%s query %s: plan row %q scans events without a partial index",
 					method, name, detail)
 			}
@@ -62,14 +62,14 @@ func TestDueResumeQueryPlans(t *testing.T) {
 	t.Parallel()
 	texts := sqlcQueryTexts(t)
 	s := openWriterAt(t, filepath.Join(t.TempDir(), "orrery.db"))
-	partial := partialIndexesOf(t, s.db, "due_resumes")
+	partial := partialIndexesOf(t, s.db.DB, "due_resumes")
 	names := map[string]bool{"due_resumes": true}
 	for _, name := range []string{"InsertDueResume", "GetDueResume", "ListDueResumes", "CloseDueResume", "CloseDueResumesOf"} {
 		text, ok := texts[name]
 		if !ok {
 			t.Fatalf("query %s is not defined in %s", name, queryPlanSource)
 		}
-		for _, detail := range planDetails(t, s.db, name, text) {
+		for _, detail := range planDetails(t, s.db.DB, name, text) {
 			if index, scans := eventsScan(detail, names); scans && !partial[index] {
 				t.Errorf("query %s: plan row %q scans due_resumes without a partial index", name, detail)
 			}
@@ -85,13 +85,13 @@ func TestHolderPromptQueryPlans(t *testing.T) {
 	t.Parallel()
 	texts := sqlcQueryTexts(t)
 	s := openWriterAt(t, filepath.Join(t.TempDir(), "orrery.db"))
-	partial := partialIndexesOf(t, s.db, "events")
+	partial := partialIndexesOf(t, s.db.DB, "events")
 	for _, name := range []string{"InsertEngineTurnEndedEvent", "CountHolderPromptsUnanswered"} {
 		text, ok := texts[name]
 		if !ok {
 			t.Fatalf("query %s is not defined in %s", name, queryPlanSource)
 		}
-		for _, detail := range unpartitionedEventsScans(t, s.db, partial, name, text) {
+		for _, detail := range unpartitionedEventsScans(t, s.db.DB, partial, name, text) {
 			t.Errorf("query %s: plan row %q scans events without a partial index", name, detail)
 		}
 	}
@@ -117,7 +117,7 @@ func TestToldLimitQueryPlans(t *testing.T) {
 		if !ok {
 			t.Fatalf("query %s is not defined in %s", tc.name, queryPlanSource)
 		}
-		for _, detail := range planDetails(t, s.db, tc.name, text) {
+		for _, detail := range planDetails(t, s.db.DB, tc.name, text) {
 			if strings.Contains(detail, "TEMP B-TREE") {
 				t.Errorf("query %s: plan row %q sorts told_limit_steps in a temporary b-tree", tc.name, detail)
 			}
@@ -138,7 +138,7 @@ func TestToldLimitQueryPlans(t *testing.T) {
 func TestReaderQueryPlansAliases(t *testing.T) {
 	t.Parallel()
 	s := openWriterAt(t, filepath.Join(t.TempDir(), "orrery.db"))
-	partial := partialIndexesOf(t, s.db, "events")
+	partial := partialIndexesOf(t, s.db.DB, "events")
 	for _, tc := range []struct {
 		name    string
 		text    string
@@ -153,7 +153,7 @@ func TestReaderQueryPlansAliases(t *testing.T) {
 		},
 		{"aliased search", `SELECT p.payload FROM events AS p WHERE p.seq = ?`, false},
 	} {
-		rows := unpartitionedEventsScans(t, s.db, partial, tc.name, tc.text)
+		rows := unpartitionedEventsScans(t, s.db.DB, partial, tc.name, tc.text)
 		if got := len(rows) > 0; got != tc.flagged {
 			t.Errorf("%s: flagged = %v (plan rows flagged %q), want %v", tc.name, got, rows, tc.flagged)
 		}
@@ -325,7 +325,7 @@ func TestNodeRunQueryPlans(t *testing.T) {
 	ctx := context.Background()
 	s := openWriterAt(t, filepath.Join(t.TempDir(), "orrery.db"))
 	seedFlowPlanEpic(t, s)
-	recorder := &planRecorder{db: s.db}
+	recorder := &planRecorder{db: s.db.DB}
 	if _, err := readEpicFlow(ctx, sqlcgen.New(recorder), queryPlanEpic); err != nil {
 		t.Fatalf("readEpicFlow: %v", err)
 	}
@@ -351,7 +351,7 @@ func TestNodeRunQueryPlans(t *testing.T) {
 		t.Fatalf("recorded %d queries, want EpicFlow's reads and the node-run writes", len(byName))
 	}
 	for name, text := range byName {
-		for _, detail := range planDetails(t, s.db, name, text) {
+		for _, detail := range planDetails(t, s.db.DB, name, text) {
 			if fields := strings.Fields(detail); len(fields) > 1 && fields[0] == "SCAN" {
 				t.Errorf("query %s: plan row %q scans a table, want a search of the epic's key", name, detail)
 			}

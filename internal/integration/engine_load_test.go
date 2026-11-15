@@ -140,6 +140,7 @@ func waitForPaneState(t *testing.T, q *sqlcgen.Queries, client *tmuxctl.Client, 
 				return
 			}
 		}
+		stopIfFailed(t)
 		<-ticker.C
 	}
 }

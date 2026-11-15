@@ -927,12 +927,13 @@ A workflow is a YAML file that names the nodes an epic's run is made of, in orde
     - `command` takes `argv`, a non-empty sequence of non-empty strings whose first item contains a `/`, `limit`, an integer of 1 or more that counts seconds, `needs`, an optional mapping from a pool name matching `^[a-z][a-z0-9_]*$` to an integer of 1 or more, and `at`.
     - `agent` takes `agent` and `prompt`, each required and not blank, `schema`, a required mapping, and `at`.
     - `at` is `base` or `head`, and is required by `gate`, `evidence`, `command` and `agent`. `base` is the epic's base, and `head` is the head of the epic's branch `epic/<slug>` (`workflow.readAt`, `interpret.revisionOf`).
+  - The epic kinds `review`, `conclude` and `release` sit only at the top level, and `closure` sits only in a loop body. Each takes no settings and no body. `review` and `conclude` report the outcome `passed`, and `closure` and `release` report `passed` and `failed`. The format registers them so a workflow can name them now; the interpreter registers none of them, so a node of one starts and then waits (see **Running** and **Reserved names**).
 - A loop node has `id`, `loop` and `body`. `loop` is a mapping of `max`, `until` and `spent`, and no other key (`workflow.readLoop`, `workflow.readLoopSettings`, `workflow.readLoopFields`, `workflow.readMax`, `workflow.readUntil`, `workflow.readSpent`):
   - `max` is required: an integer of 1 or more.
   - `until` is required: `<node id>.<outcome>`, naming a direct child of the loop's body whose kind reports that outcome.
   - `spent` is `park` or `continue`, and `park` when it is absent.
 
-  A loop sits at the top level and in a loop body. Its `body` is a non-empty sequence that holds what the top level holds: `plan`, `loop`, `include` and the check kinds.
+  A loop sits at the top level and in a loop body. Its `body` is a non-empty sequence that holds what the top level holds, `plan`, `loop`, `include` and the check kinds, and `closure`, but not `review`, `conclude` or `release`.
 - An include node has the single key `include`, the name of another workflow. It sits at the top level and in a loop body, and expansion replaces it with that workflow's nodes.
 
 The load check validates `max`, `until` and `spent`, and the interpreter enforces them when it runs a loop (see **Running**).
@@ -977,7 +978,7 @@ Its sha256 is `8e56cd7c52ea852c4deb42ce575ba11e4e6c0e0ca4f201ff03cf24ba0afd8e1e`
 | Refusal | When | Code |
 |---|---|---|
 | `key kind: unknown kind "<kind>"` | a `kind` names no registered kind | `workflow.readKind` |
-| `key kind: <kind> cannot sit <where>` | a kind sits where it may not: `build` outside a plan body, or `plan` in a plan body. `<where>` is `at the top level`, `in a loop body` or `in a plan body` | `workflow.readKind`, `workflow.kinds` |
+| `key kind: <kind> cannot sit <where>` | a kind sits where it may not: `build` outside a plan body, `plan` in a plan body, `review`, `conclude` or `release` anywhere but the top level, or `closure` anywhere but a loop body. `<where>` is `at the top level`, `in a loop body` or `in a plan body` | `workflow.readKind`, `workflow.kinds` |
 | `key loop: cannot sit <where>`, `key include: cannot sit <where>` | a loop or an include in a plan body | `workflow.readLoop`, `workflow.readInclude` |
 | `key kind: one of kind, loop or include is required` | a node with none of the three | `workflow.formOf` |
 | `key <form>: cannot sit beside <form>` | a node with two of the three; the second is named | `workflow.formOf` |
@@ -1021,7 +1022,7 @@ Its sha256 is `8e56cd7c52ea852c4deb42ce575ba11e4e6c0e0ca4f201ff03cf24ba0afd8e1e`
 
 A node run is one instance of a workflow node on an epic, stored as described in [Node runs in the store](#node-runs-in-the-store). A top-level node's path is its id. A node in a loop body in round `r` has the path `<loop path>@<r>/<id>`, and a build child of a plan run has the path `<plan path>/<build id>/T<seq>` (`interpret.pass.walk`, `interpret.pass.loop`, `interpret.pass.fanOut`). Its id is `NodeRunID` of the epic, the path, the round and a cause: the first 32 hex digits of the lowercase SHA-256 of `orrery-workflow`, the epic, the path, the round in decimal and the cause, joined with NUL bytes. The cause is `start` for a node or loop that starts, and `turn <turn> task <position>` for a build child, with the position the task's 1-based place among its turn's tasks in seq order. A later plan's trigger id is `workflow:` and the id for the cause `trigger` (`store.NodeRunID`; `interpret.pass.start`, `interpret.pass.causeOf`). The same inputs give the same id, and a start whose path or trigger id is stored already changes nothing, so a restart that decides the same rows again starts nothing twice (see [Node runs in the store](#node-runs-in-the-store)). The work of a check node run has its own ids, as `NodeWorkID` gives them: the first 32 hex digits of the lowercase SHA-256 of `orrery-workflow-work`, the node run's id, its attempt and a part, joined with NUL bytes. A gate's or command's check is named `check`, an agent's step `step`, and an evidence item by its Requirement's id. A node run starts at attempt `0`, and `epic retry ID NODE` reruns a parked node at its next attempt (`store.NodeWorkID`, `kinds.checkRun`, `kinds.Agent.Decide`, `kinds.Evidence.Decide`).
 
-The walk takes the top-level nodes in order. A node with no run starts, and the walk stops there, so a node starts when the one before it has ended. A parked run stops the walk. Once every top-level node has ended, the pass returns no action, so the epic keeps its phase (`interpret.Decide`, `interpret.pass.walk`). A running node is decided by its kind: an end ends its run and every running run under it, and a run hands the node on to the planner or the build (see [Planner turns](#planner-turns) and [Task builds](#task-builds); `interpret.pass.running`). A check node's kind asks for its `prepare`, `start` or `refs` work instead, which the interpreter carries out (see **Check kinds**; `interpret.Runner.work`).
+The walk takes the top-level nodes in order. A node with no run starts, and the walk stops there, so a node starts when the one before it has ended. A parked run stops the walk. Once every top-level node has ended, the pass returns no action, so the epic keeps its phase (`interpret.Decide`, `interpret.pass.walk`). A running node is decided by its kind, and a node whose kind the interpreter does not register, such as `review`, gets no action: its run stays running, parks nothing, and the walk waits there (`interpret.pass.running`). A registered kind decides: an end ends its run and every running run under it, and a run hands the node on to the planner or the build (see [Planner turns](#planner-turns) and [Task builds](#task-builds); `interpret.pass.running`). A check node's kind asks for its `prepare`, `start` or `refs` work instead, which the interpreter carries out (see **Check kinds**; `interpret.Runner.work`).
 
 A loop starts at round 1. Each round walks the loop's body, and once every node of the round has ended, the loop decides from that round. It ends when its `until` node ended with the until outcome in that round. Otherwise it moves to the next round while its rounds, `max` plus the rounds granted to it, are not spent. When they are spent, it ends if `spent` is `continue` and parks if `spent` is `park` (`interpret.pass.loop`). A park parks the loop at its round, and parks the epic with the reason `loop <id> spent its <n> rounds without <node>.<outcome>`, which is also written as a tell (`store.Store.ParkLoop`).
 
@@ -1030,6 +1031,45 @@ A loop starts at round 1. Each round walks the loop's body, and once every node 
 The interpreter adds no pause or park rule of its own, except that a check's `prepare` waits while the epic is paused or parked (see **Check kinds**). A paused or parked epic's node runs start and end as usual, and the planner and the build keep their own rules (`planner.Decide`; see [Planner turns](#planner-turns) and [Task builds](#task-builds)).
 
 **Restart of check nodes.** Before the interpreter's first pass, `orreryd` takes up the open checks (`cmd/orreryd.sessionHost.startNodeChecks`, `cmd/orreryd.startSessions`; `enginehost.NodeChecks.Resume`). A check stored with a grant re-adopts its gate under that grant, and ends `failed` with `lost at a restart` when the gate cannot be re-adopted (`enginehost.NodeChecks.readoptGranted`, `enginehost.NodeChecks.readoptLost`). A check with no grant runs from the start, after its worktree is removed. A check cut before its gate launched is left running for the next start (`enginehost.NodeChecks.readoptUnlaunched`, `enginehost.NodeChecks.notStarted`). `Resume` re-reads each check before driving it, so a check that a drive ended after `Resume` listed is left alone (`enginehost.NodeChecks.Resume`, `enginehost.NodeChecks.readoptStart`). A gate that detaches under `--holder-scope` keeps running under its holder and records nothing, so the next start readopts it. An agent node's step is re-adopted when its holder is live, as any step is. Otherwise the step ends `engine_restarted` (`enginehost.Steps.Readopt`, `enginehost.Steps.Reconcile`, `enginehost.Steps.endRestarted`), and its node fails with that end as its output, so it parks as a failed top-level check does. The writes of a node run's work and outcome each change only a run still in the state they need, so a repeat changes nothing: a repeated `Run` returns the stored check, and `PrepareNode`, `RecordNodeResult`, `CheckNodeRefs`, `ParkNode` and `EndNodesWaking` each skip a run that is past their step (`enginehost.NodeChecks.Run`, `store.Store.PrepareNode`, `store.Store.RecordNodeResult`, `store.Store.CheckNodeRefs`, `store.Store.ParkNode`, `store.Store.EndNodesWaking`).
+
+**Reserved names.** These names are reserved for the engine epics that fill them, so the epics can be built in parallel without colliding. Each is contract now and has no behavior until its epic lands. Migration numbers are assigned in merge order; the names stay.
+
+| Name | What | Epic |
+|---|---|---|
+| `integrate` | kind, top level | O3d4 |
+| `review`, `conclude` | kinds, top level; registered by the format, not the interpreter | O3e2 |
+| `closure` | kind, loop body; registered by the format, not the interpreter | O3e2 |
+| `release` | kind, top level; registered by the format, not the interpreter | O3e3 |
+| `built`, `met_at_base` | phases | O3d4 |
+| `reviewing`, `correcting`, `clean`, `ended_with_gaps` | phases | O3e2 |
+| `releasing`, `released`, `done`, `stopped` | phases | O3e3 |
+| `00033_integration` | migration | O3d4 |
+| `assertions` | migration | O3d5a |
+| `guards` | migration | O3d5b |
+| `reviewers` | migration | O3e1 |
+| `review_ledger` | migration | O3e2 |
+| `release` | migration | O3e3 |
+| `questions` | migration | attention |
+| `ledger` | trigger cause | O3e2 |
+| `repro <R>` | work part | O3d5b |
+| `reviewer <n>`, `verify <n> <k>`, `close <id>` | work parts | O3e2 |
+| `release <pos>`, `judge` | work parts | O3e3 |
+| `ReleaseEpic` | RPC of `orrery.engine.v1.Epics`, not yet declared | O3e3 |
+| `FollowEpics` | RPC of `orrery.engine.v1.Epics`, not yet declared | attention |
+| `EvidenceItem` 7 `kind`, 8 `tests` | reserved proto fields (this table) | O3d5a |
+| `EpicTask` 22 `contributes` | reserved proto field (this table) | O3d5a |
+| `EpicTask` 23 `test_changes`, 24 `guard` | reserved proto fields (this table) | O3d5b |
+| `EpicRequirement` 6 `owner`, 7 `contributors`, 8 `state` | reserved proto fields (this table) | O3d5a |
+| `EpicRequirement` 9 `disagreement` | reserved proto field (this table) | O3d5b |
+| `EpicTaskFinding` 7 `unverified` | reserved proto field (this table) | O3e1 |
+| `EpicContract` 21 `reviewers`, `StoredEpic` 14 `reviewers` | reserved proto fields (this table) | O3e1 |
+| `StoredEpic` 15 `ledger`, 16 `frozen`, 17 `clean` | reserved proto fields (this table) | O3e2 |
+| `StoredEpic` 18 `releases`, 19 `release_slot` | reserved proto fields (this table) | O3e3 |
+| `EpicQuestion` 5 to 10 | reserved proto field numbers; attention names them | attention |
+| `AnswerEpicRequest` 5 `choice` | reserved proto field (this table) | attention |
+| `orrery.v1.EpicsGetResponse` 13 `ledger`, 14 `releases`, 15 `reviews` | reserved proto fields (this table) | O3e4 |
+
+The built-in workflow takes its final shape in O3d4: a red evidence check at base, `plan` holding `build` and `integrate`, `review`, a loop `correct` (`max` 2, `until` `closure.passed`, `spent` `continue`) over a `plan` and `closure`, `conclude`, then `release`. Until O3e2 lands, an epic on it waits at `review`. The proto fields above are reserved by this table only, not by `reserved` statements: buf counts deleting a reserved name as a breaking change even when the same field is then declared, so each epic adds its field at the number named here when it builds. The Go names `evidence.Kind`, `evidence.Item.Kind`, `evidence.Item.Tests`, `evidence.Current` and `interpret.Ending` are declared now and follow the same rule.
 
 #### Planner turns
 
@@ -1306,7 +1346,7 @@ The CLI (`orrery run status`), the tree's pools view and the phone's Pools calls
 Restart:
 
 - On shutdown, the Pools broker closes before the session socket closes. Each open `Acquire` ends `unavailable`, and each stored grant stays for the next start. Member commands in flight are cancelled.
-- At start, `orreryd` restores the holds, then the stored grants, before it serves Pools. A grant whose `client_pid` has no process, and which names no holder that is alive, is ended in the store at once (`grants.Broker.lasts`, `grants.Broker.Restore`). A process is gone when a signal 0 to its pid fails with ESRCH. Each other grant keeps its members, and waits for its client or its holder to reclaim it. Its pools come back into use, so each of their members gets a status run. `orreryd` gives the broker that holder check (`cmd/orreryd.sessionHost.startBroker`, `cmd/orreryd.holderLives`). Member commands keep these rules: the ones in flight are cancelled at shutdown, and a pool's members get a status run when the pool comes into use at start (`grants.Broker.Close`, `grants.Broker.useLocked`).
+- At start, `orreryd` restores the holds, then the stored grants, before it serves Pools. A grant whose `client_pid` has no process, and which names no holder that is alive, is ended in the store at once (`grants.Broker.lasts`, `grants.Broker.Restore`). A process is gone when a signal 0 to its pid fails with ESRCH. Each other grant keeps its members, and waits for its client or its holder to reclaim it. Its pools come back into use, so each of their members gets a status run. `orreryd` gives the broker that holder check: a holder is alive while it holds its session lock, `holder.lock` in its directory, which it takes before it starts its child and keeps for its life, so a holder whose child has started before its pids record is written still counts (`cmd/orreryd.sessionHost.startBroker`, `cmd/orreryd.holderLives`). Member commands keep these rules: the ones in flight are cancelled at shutdown, and a pool's members get a status run when the pool comes into use at start (`grants.Broker.Close`, `grants.Broker.useLocked`).
 - On each 60-second tick, a kept grant whose client has no process and which names no live holder is ended the same way, and so is a stopped grant's request that waits for its client and names no live holder (`grants.Broker.endDeadLocked`).
 - If the restore fails, `orreryd` logs the error, and Pools refuses every call as `unavailable` until `orreryd` restarts. No grant is made from a partly restored broker.
 
@@ -1416,7 +1456,7 @@ Both processes export `rpc_server_call_duration_seconds`, a histogram with `_buc
 
 `orrery serve` gives these options to every Connect handler that `server.New` mounts (`server.Config.HandlerOptions`). `orreryd` gives them only to the six services that `enginehost.Serve` mounts on `sessions.sock` (`enginehost.Serve`; `cmd/orreryd.startSessions`).
 
-`orreryd` also registers six `orrery_*` series in `NewDaemon` (`telemetry.NewDaemon`). Every one is present at 0 from `NewDaemon`, except `orrery_start_timestamp_seconds`, which holds the start time. The four `class` series of `orrery_push_failures_total` are present at 0 from the start too.
+`orreryd` also registers seven `orrery_*` series in `NewDaemon` (`telemetry.NewDaemon`). Every one is present at 0 from `NewDaemon`, except `orrery_start_timestamp_seconds`, which holds the start time. The four `class` series of `orrery_push_failures_total` are present at 0 from the start too.
 
 | Series | Type | Labels | Recorded when |
 |---|---|---|---|
@@ -1426,6 +1466,7 @@ Both processes export `rpc_server_call_duration_seconds`, a histogram with `_buc
 | `orrery_holder_losses_total` | counter | none | Each holder that has ended or cannot be attached when the sessions reconcile re-adopts it. `readoptHolder` counts it (`enginehost.Manager.readoptHolder`). Only the start-time sessions reconcile moves it. |
 | `orrery_writer_wait_seconds_total` | counter | none | Seconds that callers wait on the writer: a `Put`, `Commit` or `CommitAll` waiting for room under its session's op limit, and a `Commit` or `CommitAll` waiting for its ops to be stored. Each wait adds its whole duration, including a wait that ends with an error (`enginehost.Writer.putAll`, `enginehost.Writer.waitForRoom`, `enginehost.Writer.recordWait`, `enginehost.Writer.await`). |
 | `orrery_writer_backlog_age_seconds` | gauge | none | Age in seconds of the oldest op in the writer's queue, and 0 when the queue is empty. The writer sets it at the end of each flush, so a flush that has not returned leaves the last value in place (`enginehost.Writer.flush`, `enginehost.Writer.recordBacklog`). |
+| `orrery_store_slow_calls_total` | counter | none | Each store call that takes longer than 100 ms, from the call until the store's one connection is free again: an Exec, a query until its rows close, a read transaction until it ends, or a write. The store logs each one as `slow store call` with its `queries`, its `wait` for the connection and its `run` on it (`store.callTimer.finish`, `store.WithSlowCallCounter`, `cmd/orreryd.openStore`). |
 
 #### Alert rules
 
