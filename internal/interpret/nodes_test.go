@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/joshsymonds/orrery/internal/agents"
 	"github.com/joshsymonds/orrery/internal/enginehost"
 	"github.com/joshsymonds/orrery/internal/evidence"
 	"github.com/joshsymonds/orrery/internal/store"
@@ -100,6 +101,14 @@ nodes:
   - id: evidence
     kind: evidence
     at: base
+`
+
+// nodeEvidenceHeadFlow is a flow of one evidence item at head.
+const nodeEvidenceHeadFlow = `name: nodes
+nodes:
+  - id: evidence
+    kind: evidence
+    at: head
 `
 
 // nodeAgentFlow is a flow of one agent at head.
@@ -197,15 +206,19 @@ func (f *fakeEvidence) RunItem(
 }
 
 // fakeSteps stands in for the step service. It stores each step it starts as a step row, under its id, and records every
-// start.
+// start. A fake given refuse refuses every start with it and stores nothing, as the real service does.
 type fakeSteps struct {
-	store *store.Store
-	calls []enginehost.StepStart
+	store  *store.Store
+	refuse error
+	calls  []enginehost.StepStart
 }
 
-// Start records start, and stores its step row.
+// Start records start, and stores its step row unless the fake refuses.
 func (f *fakeSteps) Start(ctx context.Context, start enginehost.StepStart) (string, error) {
 	f.calls = append(f.calls, start)
+	if f.refuse != nil {
+		return "", f.refuse
+	}
 	err := f.store.ApplyEngine(ctx, []store.EngineOp{store.StepAdd{
 		ID: start.ID, Agent: start.Agent, Prompt: start.Prompt, Schema: start.Schema, Workspace: start.Workspace,
 		Revision: start.Revision, DoneValue: "done", ReadOnly: start.ReadOnly, Epic: start.Epic,
@@ -742,5 +755,105 @@ func TestNodeWorkWithoutItsServiceStartsNothing(t *testing.T) {
 				t.Errorf("node %s = %+v, want running", tc.path, run)
 			}
 		})
+	}
+}
+
+// TestEvidenceAtHeadRunsGreenAtBranchHead: an evidence node at head starts each Requirement's run in phase green, at
+// the head of the epic's branch.
+func TestEvidenceAtHeadRunsGreenAtBranchHead(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	repo, base := nodeRepo(t)
+	head := nodeEpicBranch(t, repo, "b.go")
+	s := openRunStore(t)
+	createNodeEpic(t, s, repo, base, nodeEvidenceHeadFlow)
+	fakes := newNodeFakes(s)
+	runNodes(s, fakes).Pass(ctx)
+
+	wantEvidence := []evidenceCall{{
+		id: workID(t, s, "evidence", "R1"), epic: runEpic, item: "R1", revision: head, phase: evidence.PhaseGreen,
+	}}
+	if !reflect.DeepEqual(fakes.evidence.calls, wantEvidence) {
+		t.Errorf("evidence calls = %+v, want %+v", fakes.evidence.calls, wantEvidence)
+	}
+	if got := runAt(t, s, "evidence").Revision; got != head {
+		t.Errorf("revision of evidence = %q, want %q", got, head)
+	}
+}
+
+// TestRefusedAgentStartParksAndTells: an agent node at the top level whose start is refused for good records the
+// refusal as its result in the pass that refused it, and the next pass ends it failed with that result. That parks the
+// node and the epic with the refusal as the reason, and tells it. The refused start is not retried.
+func TestRefusedAgentStartParksAndTells(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		err  error
+	}{
+		{name: "bad schema", err: enginehost.ErrBadSchema},
+		{name: "bad agent", err: enginehost.ErrBadAgent},
+		{name: "unresolved agent", err: agents.ErrUnresolved},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+			repo, base := nodeRepo(t)
+			nodeEpicBranch(t, repo, "b.go")
+			s, dbPath := openNodeStore(t)
+			createNodeEpic(t, s, repo, base, nodeAgentFlow)
+			fakes := newNodeFakes(s)
+			fakes.steps.refuse = tc.err
+			runner := runNodes(s, fakes)
+
+			runner.Pass(ctx)
+			refusal := "not run: " + tc.err.Error()
+			if run := runAt(t, s, "review"); run.State != store.NodeRunning || run.Result != refusal {
+				t.Errorf("node review = %+v, want running with result %q", run, refusal)
+			}
+
+			runner.Pass(ctx)
+			reason := "workflow node review failed: " + refusal
+			if run := runAt(t, s, "review"); run.State != store.NodeParked || run.Outcome != "failed" ||
+				run.Output != refusal {
+				t.Errorf("node review = %+v, want parked failed with the refusal", run)
+			}
+			if got := epicOf(t, s).Parked; got != reason {
+				t.Errorf("epic Parked = %q, want %q", got, reason)
+			}
+			if got := nodeTells(t, dbPath); !reflect.DeepEqual(got, []string{reason}) {
+				t.Errorf("tells = %q, want %q", got, []string{reason})
+			}
+			if got := len(fakes.steps.calls); got != 1 {
+				t.Errorf("step starts = %d, want 1: a refused start is not retried", got)
+			}
+		})
+	}
+}
+
+// TestOtherAgentStartErrorIsRetried: an agent node whose start fails with an error that is not a refusal for good
+// records nothing, stays running, and starts again on the next pass.
+func TestOtherAgentStartErrorIsRetried(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	repo, base := nodeRepo(t)
+	nodeEpicBranch(t, repo, "b.go")
+	s := openRunStore(t)
+	createNodeEpic(t, s, repo, base, nodeAgentFlow)
+	fakes := newNodeFakes(s)
+	fakes.steps.refuse = errors.New("spawn claude: no such file")
+	runner := runNodes(s, fakes)
+
+	runner.Pass(ctx)
+	runner.Pass(ctx)
+
+	if run := runAt(t, s, "review"); run.State != store.NodeRunning || run.Result != "" {
+		t.Errorf("node review = %+v, want running with no result", run)
+	}
+	if got := epicOf(t, s).Parked; got != "" {
+		t.Errorf("epic Parked = %q, want not parked", got)
+	}
+	if got := len(fakes.steps.calls); got != 2 {
+		t.Errorf("step starts = %d, want 2: a start that is not refused for good is retried", got)
 	}
 }

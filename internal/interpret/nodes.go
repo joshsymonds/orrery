@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/joshsymonds/orrery/internal/agents"
 	"github.com/joshsymonds/orrery/internal/build"
 	"github.com/joshsymonds/orrery/internal/enginehost"
 	"github.com/joshsymonds/orrery/internal/evidence"
@@ -218,7 +219,10 @@ func (r *Runner) startEvidence(ctx context.Context, epic store.EpicRow, act Acti
 	return nil
 }
 
-// startAgent starts the read-only step of an agent run at the run's revision, under the id derived from the run.
+// startAgent starts the read-only step of an agent run at the run's revision, under the id derived from the run. A
+// start refused for good records the refusal as the run's result, once, and returns it: the pass stops there, and the
+// next pass ends the run failed with that result. Any other start error is returned as it is, and the start is tried
+// again on the next pass.
 func (r *Runner) startAgent(ctx context.Context, epic store.EpicRow, act Action) error {
 	settings := act.Def.Settings
 	start := enginehost.StepStart{
@@ -226,9 +230,24 @@ func (r *Runner) startAgent(ctx context.Context, epic store.EpicRow, act Action)
 		Schema: settings.Schema, Workspace: epic.Repository, Revision: act.Run.Revision, ReadOnly: true, Epic: epic.ID,
 	}
 	if _, err := r.steps.Start(ctx, start); err != nil {
-		return fmt.Errorf("start step %s: %w", start.ID, err)
+		startErr := fmt.Errorf("start step %s: %w", start.ID, err)
+		if !refusedForGood(err) {
+			return startErr
+		}
+		result := "not run: " + err.Error()
+		if recErr := r.store.RecordNodeResult(ctx, epic.ID, act.Path, act.Run.Attempt, result); recErr != nil {
+			return errors.Join(startErr, fmt.Errorf("record refusal of node %s: %w", act.Path, recErr))
+		}
+		return startErr
 	}
 	return nil
+}
+
+// refusedForGood reports whether err refuses a step's start for good: a step schema the step rules do not accept, an
+// agent name that is not valid, or an agent that does not resolve.
+func refusedForGood(err error) bool {
+	return errors.Is(err, enginehost.ErrBadSchema) || errors.Is(err, enginehost.ErrBadAgent) ||
+		errors.Is(err, agents.ErrUnresolved)
 }
 
 // recordOwned records the paths the epic's branch changes over its base as a JSON array, which is [] when none changed.

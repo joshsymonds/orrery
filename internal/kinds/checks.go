@@ -192,7 +192,8 @@ func owns(paths []string, path string) bool {
 
 // Decide decides an agent run. It prepares the run's revision, starts its step, waits while the step runs, and ends
 // passed when the step ends done. Its output is the step's end, with its result when it is done and its reason when it
-// is not.
+// is not. A run whose start was refused for good has no step and has its refusal as its result, so it ends failed with
+// that result.
 func (Agent) Decide(node Node, rows Rows) Action {
 	if node.Run.Revision == "" {
 		return prepare(rows)
@@ -200,6 +201,9 @@ func (Agent) Decide(node Node, rows Rows) Action {
 	id := store.NodeWorkID(node.Run.ID, node.Run.Attempt, stepPart)
 	i := slices.IndexFunc(rows.Steps, func(step store.StepRow) bool { return step.ID == id })
 	if i < 0 {
+		if node.Run.Result != "" {
+			return Action{Kind: ActEnd, Outcome: outcomeFailed, Output: node.Run.Result}
+		}
 		return Action{Kind: ActStart}
 	}
 	step := rows.Steps[i]

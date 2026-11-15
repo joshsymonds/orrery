@@ -2,6 +2,7 @@ package kinds
 
 import (
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -137,9 +138,16 @@ func TestGateDecide(t *testing.T) {
 	checkDecisions(t, Gate{}, checkCases())
 }
 
+// TestCommandDecide checks that Command decides through the rule Gate does: one case from the shared table, since
+// TestGateDecide runs the whole table through the same checkRun.
 func TestCommandDecide(t *testing.T) {
 	t.Parallel()
-	checkDecisions(t, Command{}, checkCases())
+	cases := checkCases()
+	i := slices.IndexFunc(
+		cases,
+		func(tc decideCase) bool { return tc.name == "revision with no check starts the check" },
+	)
+	checkDecisions(t, Command{}, cases[i:i+1])
 }
 
 // evidenceItem returns an evidence item with a conclusion, so a Requirement that names it has a non-zero Item.
@@ -321,6 +329,8 @@ func TestOwnedMalformedResultFails(t *testing.T) {
 
 func TestAgentDecide(t *testing.T) {
 	t.Parallel()
+	refused := nodeWith(testRev, false)
+	refused.Run.Result = "not run: step schema is not a supported object schema with a string status"
 	cases := []decideCase{
 		{
 			"paused epic without a revision gives none",
@@ -330,6 +340,12 @@ func TestAgentDecide(t *testing.T) {
 		},
 		{"no revision gives prepare", nodeWith("", false), Rows{}, Action{Kind: ActPrepare}},
 		{"no step starts", nodeWith(testRev, false), Rows{}, Action{Kind: ActStart}},
+		{
+			"refused start with no step ends failed with its result",
+			refused,
+			Rows{},
+			Action{Kind: ActEnd, Outcome: "failed", Output: refused.Run.Result},
+		},
 		{
 			"step of another attempt does not count",
 			nodeWith(testRev, false),
