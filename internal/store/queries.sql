@@ -424,6 +424,14 @@ SELECT * FROM epic_node_runs WHERE epic = ? ORDER BY path;
 -- name: EndEpicNodeRun :exec
 UPDATE epic_node_runs SET state = 'ended', outcome = ?, ended = ? WHERE epic = ? AND path = ? AND state = 'running';
 
+-- name: MoveEpicLoopRound :exec
+UPDATE epic_node_runs SET loop_round = loop_round + 1
+WHERE epic = ? AND path = ? AND kind = 'loop' AND state = 'running' AND loop_round = ?;
+
+-- name: ParkEpicLoopRun :execrows
+UPDATE epic_node_runs SET state = 'parked'
+WHERE epic = ? AND path = ? AND kind = 'loop' AND state = 'running' AND loop_round = ?;
+
 -- name: InsertEpicTrigger :exec
 INSERT INTO epic_triggers (epic, id, cause, state, turn, created) VALUES (?, ?, ?, ?, ?, ?);
 
@@ -558,6 +566,10 @@ UPDATE epics SET paused = 0, pause_source = '' WHERE id = ?;
 
 -- name: RetryEpic :exec
 UPDATE epics SET parked = '', retried = ? WHERE id = ?;
+
+-- name: GrantEpicParkedLoops :exec
+UPDATE epic_node_runs SET state = 'running', granted = granted + 1
+WHERE epic = ? AND kind = 'loop' AND state = 'parked';
 
 -- name: ListEpicTurns :many
 SELECT * FROM epic_turns WHERE epic = ? ORDER BY seq;

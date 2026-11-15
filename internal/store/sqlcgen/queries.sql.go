@@ -875,6 +875,16 @@ func (q *Queries) GetStepTurnEnd(ctx context.Context, id string) (GetStepTurnEnd
 	return i, err
 }
 
+const grantEpicParkedLoops = `-- name: GrantEpicParkedLoops :exec
+UPDATE epic_node_runs SET state = 'running', granted = granted + 1
+WHERE epic = ? AND kind = 'loop' AND state = 'parked'
+`
+
+func (q *Queries) GrantEpicParkedLoops(ctx context.Context, epic string) error {
+	_, err := q.db.ExecContext(ctx, grantEpicParkedLoops, epic)
+	return err
+}
+
 const insertDueResume = `-- name: InsertDueResume :exec
 INSERT INTO due_resumes (id, kind, target, resets, state)
 SELECT ?1, ?2, ?3, ?4, 'due'
@@ -4020,6 +4030,22 @@ func (q *Queries) MaxEpicTurnSeq(ctx context.Context, epic string) (int64, error
 	return column_1, err
 }
 
+const moveEpicLoopRound = `-- name: MoveEpicLoopRound :exec
+UPDATE epic_node_runs SET loop_round = loop_round + 1
+WHERE epic = ? AND path = ? AND kind = 'loop' AND state = 'running' AND loop_round = ?
+`
+
+type MoveEpicLoopRoundParams struct {
+	Epic      string
+	Path      string
+	LoopRound int64
+}
+
+func (q *Queries) MoveEpicLoopRound(ctx context.Context, arg MoveEpicLoopRoundParams) error {
+	_, err := q.db.ExecContext(ctx, moveEpicLoopRound, arg.Epic, arg.Path, arg.LoopRound)
+	return err
+}
+
 const newestEventSeq = `-- name: NewestEventSeq :one
 SELECT CAST(COALESCE(MAX(seq), 0) AS INTEGER) AS seq FROM events
 `
@@ -4040,6 +4066,25 @@ func (q *Queries) OldestEventSeq(ctx context.Context) (int64, error) {
 	var seq int64
 	err := row.Scan(&seq)
 	return seq, err
+}
+
+const parkEpicLoopRun = `-- name: ParkEpicLoopRun :execrows
+UPDATE epic_node_runs SET state = 'parked'
+WHERE epic = ? AND path = ? AND kind = 'loop' AND state = 'running' AND loop_round = ?
+`
+
+type ParkEpicLoopRunParams struct {
+	Epic      string
+	Path      string
+	LoopRound int64
+}
+
+func (q *Queries) ParkEpicLoopRun(ctx context.Context, arg ParkEpicLoopRunParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, parkEpicLoopRun, arg.Epic, arg.Path, arg.LoopRound)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const pauseEpic = `-- name: PauseEpic :exec
