@@ -1,39 +1,16 @@
 package server
 
 import (
-	"context"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
 	"testing"
 	"time"
 
-	"connectrpc.com/connect"
-
 	enginev1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
 	orreryv1 "github.com/joshsymonds/orrery/internal/gen/orrery/v1"
 	orreryv1connect "github.com/joshsymonds/orrery/internal/gen/orrery/v1/orreryv1connect"
 )
-
-// stepDataEvidence is the EvidenceClient of the role test. ListEvidence answers its runs. GetEvidenceArtifact is unused.
-type stepDataEvidence struct {
-	runs []*enginev1.EvidenceRun
-}
-
-func (f *stepDataEvidence) ListEvidence(
-	context.Context,
-	*connect.Request[enginev1.ListEvidenceRequest],
-) (*connect.Response[enginev1.ListEvidenceResponse], error) {
-	return connect.NewResponse(&enginev1.ListEvidenceResponse{Runs: f.runs}), nil
-}
-
-func (f *stepDataEvidence) GetEvidenceArtifact(
-	context.Context,
-	*connect.Request[enginev1.GetEvidenceArtifactRequest],
-) (*connect.Response[enginev1.GetEvidenceArtifactResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("synthetic unused"))
-}
 
 // stepDataServe serves newEpicsHandler over root, steps, store and evidence with the fixed clock, and returns a
 // generated Epics client.
@@ -185,7 +162,7 @@ func TestEpicStepRolesOnGetAndList(t *testing.T) {
 		{Id: "judge", Epic: "repoa/shared", ReadOnly: true, Started: epicsAgo(2 * time.Hour)},
 		{Id: "idle", Epic: "repoa/shared", ReadOnly: true, Started: epicsAgo(time.Hour)},
 	}}
-	evidence := &stepDataEvidence{runs: []*enginev1.EvidenceRun{{Id: "run-1", JudgeStep: "judge"}}}
+	evidence := &evidenceRunsFake{runs: []*enginev1.EvidenceRun{{Id: "run-1", JudgeStep: "judge"}}}
 	client := stepDataServe(t, root, steps, store, evidence)
 
 	getWant := map[string]string{
