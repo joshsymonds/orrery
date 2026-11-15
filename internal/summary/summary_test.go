@@ -1,6 +1,7 @@
 package summary_test
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/json"
 	"errors"
@@ -676,6 +677,47 @@ func TestSummarizerWritesOptions(t *testing.T) {
 			t.Errorf("%s = %q, want previous %q", protocol.OptionLabel, got, previousLabel)
 		}
 	})
+}
+
+// onWriteCall is one OnWrite call: the pane it named and the pane's summary and label options when it ran.
+type onWriteCall struct {
+	pane, summary, label string
+}
+
+// TestSummarizerCallsOnWriteOnceTheOptionsAreWritten checks that a run that writes the options calls OnWrite once with
+// the pane, after the options are on the pane, and that a run that fails calls it not at all. orreryd's OnWrite syncs
+// the pane into the store, so the sync reads the options the run wrote.
+func TestSummarizerCallsOnWriteOnceTheOptionsAreWritten(t *testing.T) {
+	var r rig
+	var calls []onWriteCall
+	r = newRigWith(t, summary.Config{OnWrite: func(ctx context.Context, pane string) {
+		read := func(name string) string {
+			value, _, err := r.client.PaneOption(ctx, pane, name)
+			if err != nil {
+				t.Errorf("PaneOption(%s) in OnWrite: %v", name, err)
+			}
+			return value
+		}
+		calls = append(calls, onWriteCall{
+			pane: pane, summary: read(protocol.OptionSummary), label: read(protocol.OptionLabel),
+		})
+	}})
+	r.place(t, "reply", "summary: fresh summary\nlabel: fresh label\n")
+	if err := r.s.Summarize(t.Context(), r.job(true)); err != nil {
+		t.Fatalf("Summarize: %v", err)
+	}
+	want := []onWriteCall{{pane: r.pane, summary: "fresh summary", label: "fresh label"}}
+	if !slices.Equal(calls, want) {
+		t.Fatalf("OnWrite calls after a run that wrote = %+v, want %+v", calls, want)
+	}
+
+	r.place(t, "exit", "3\n")
+	if err := r.s.Summarize(t.Context(), r.job(true)); err == nil {
+		t.Fatal("Summarize: want error for non-zero exit, got nil")
+	}
+	if !slices.Equal(calls, want) {
+		t.Fatalf("OnWrite calls after a failed run = %+v, want only the earlier %+v", calls, want)
+	}
 }
 
 func TestSummaryFailureKeepsPrevious(t *testing.T) {

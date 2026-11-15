@@ -1,7 +1,6 @@
 package integration_test
 
 import (
-	"context"
 	"database/sql"
 	"encoding/json"
 	"io"
@@ -15,10 +14,6 @@ import (
 	"github.com/joshsymonds/orrery/internal/store"
 	"github.com/joshsymonds/orrery/internal/store/sqlcgen"
 )
-
-// summaryStoreDeadline bounds how long a summary and label take to reach the pane's row once tmux holds them. It is
-// well under the tidy interval, so only the summarizer's own sync can meet it.
-const summaryStoreDeadline = 2 * time.Second
 
 // summaryReleaseFile is the file beside gatedFakeClaudeScript whose creation lets its summary run reply.
 const summaryReleaseFile = "release"
@@ -61,29 +56,28 @@ func (f *storeFixture) hookAndWait(t *testing.T, hook map[string]any) {
 	}
 }
 
-// waitForPaneID polls until the fixture's pane has an @orrery_id, failing the test after waitLimit. orreryd's first
-// tidy sets the id just before it releases the mirror lock.
+// waitForPaneID polls until the fixture's pane has an @orrery_id. orreryd's first tidy sets the id just before it
+// releases the mirror lock. It sets no deadline of its own: the tidy follows a store write whose time load decides.
 func (f *storeFixture) waitForPaneID(t *testing.T) {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(t.Context(), waitLimit)
-	defer cancel()
 	ticker := time.NewTicker(pollEvery)
 	defer ticker.Stop()
 	for readOption(t, f.client, f.pane, protocol.OptionID) == "" {
 		select {
-		case <-ctx.Done():
-			t.Fatalf("pane %s had no %s within %v", f.pane, protocol.OptionID, waitLimit)
+		case <-t.Context().Done():
+			t.Fatalf("pane %s never had an %s", f.pane, protocol.OptionID)
 		case <-ticker.C:
 		}
 	}
 }
 
-// waitForSummaryRow polls the store row for pane until it holds summary and label, failing the test after
-// summaryStoreDeadline. It returns the row it matched.
+// waitForSummaryRow polls the store row for pane until it holds summary and label, and returns the row it matched. It
+// sets no deadline of its own: the summarizer's sync, or a later tidy when the contract lets that sync be dropped,
+// writes the row after real store writes whose time load decides, and the test binary's timeout ends a wait that never
+// ends. That the summarizer calls for the sync once it has written the options is
+// TestSummarizerCallsOnWriteOnceTheOptionsAreWritten (internal/summary).
 func (f *storeFixture) waitForSummaryRow(t *testing.T, db *sql.DB, pane, summary, label string) sqlcgen.Session {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(t.Context(), summaryStoreDeadline)
-	defer cancel()
 	ticker := time.NewTicker(pollEvery)
 	defer ticker.Stop()
 	for {
@@ -92,9 +86,9 @@ func (f *storeFixture) waitForSummaryRow(t *testing.T, db *sql.DB, pane, summary
 			return got
 		}
 		select {
-		case <-ctx.Done():
-			t.Fatalf("pane %s row never held summary %q and label %q within %s: row %+v (found %t)",
-				pane, summary, label, summaryStoreDeadline, got, ok)
+		case <-t.Context().Done():
+			t.Fatalf("pane %s row never held summary %q and label %q: row %+v (found %t)",
+				pane, summary, label, got, ok)
 		case <-ticker.C:
 		}
 	}
@@ -117,8 +111,8 @@ func TestSummaryReachesRowAndEvents(t *testing.T) {
 	waitForOption(t, f.client, f.pane, protocol.OptionSummary, exampleSummary)
 	db := openStoreForInspection(t, f.dbPath)
 
-	// No hook follows the summarizer's writes, so the row can only reach the summary and label through the sync
-	// that the summarizer triggers after its run writes them.
+	// No hook follows the summarizer's writes, so the row reaches the summary and label through the sync the
+	// summarizer calls for after its run writes them, or through a later tidy.
 	row := f.waitForSummaryRow(t, db, f.pane, exampleSummary, exampleLabel)
 
 	events, err := sqlcgen.New(db).ListEvents(t.Context())
