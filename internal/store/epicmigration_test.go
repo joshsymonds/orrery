@@ -17,7 +17,7 @@ import (
 )
 
 // epicTableColumns returns, keyed by table, the columns in declaration order of every table migrations 00014, 00016,
-// 00019 and 00026 create, and of the columns those migrations and 00020, 00021, 00022 and 00025 add to epic tables.
+// 00019 and 00028 create, and of the columns those migrations and 00020, 00021, 00022 and 00025 add to epic tables.
 func epicTableColumns() map[string][]string {
 	return map[string][]string{
 		"epics": {
@@ -416,9 +416,9 @@ func TestEpicMigrationKeepsExistingRows(t *testing.T) {
 		`SELECT COALESCE(MAX(version_id), 0) FROM goose_db_version WHERE is_applied = 1`).Scan(&version); err != nil {
 		t.Fatalf("read store version: %v", err)
 	}
-	// Open applies 00014_epics.sql and every migration after it: 00026_node_runs.sql is the newest.
-	if version != 26 {
-		t.Fatalf("store version after Open = %d, want 26", version)
+	// Open applies 00014_epics.sql and every migration after it: 00028_node_runs.sql is the newest.
+	if version != 28 {
+		t.Fatalf("store version after Open = %d, want 28", version)
 	}
 
 	// A later migration may add columns at the end of an existing table, as 00015_step_readopt.sql adds to steps and
@@ -735,6 +735,43 @@ func TestDueResumesMigrationDownAndUp(t *testing.T) {
 	}
 }
 
+// TestLimitToldMigrationDownAndUp removes the told limit steps table and the limit key column with the Down of
+// 00026_limit_told.sql, and Up restores them.
+func TestLimitToldMigrationDownAndUp(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openEpicStore(t)
+
+	migrationsFS, err := fs.Sub(migrationFS, "migrations")
+	if err != nil {
+		t.Fatalf("sub migrations fs: %v", err)
+	}
+	provider, err := goose.NewProvider(goose.DialectSQLite3, s.db, migrationsFS)
+	if err != nil {
+		t.Fatalf("create goose provider: %v", err)
+	}
+
+	if _, err := provider.DownTo(ctx, 25); err != nil {
+		t.Fatalf("DownTo 25: %v", err)
+	}
+	if tableNames(t, s)["told_limit_steps"] {
+		t.Errorf("told_limit_steps after Down: want no table")
+	}
+	if hasAny(columnsOf(t, s, "pending_notices"), "limit_key") {
+		t.Errorf("pending_notices columns after Down = %v, want no limit_key", columnsOf(t, s, "pending_notices"))
+	}
+
+	if _, err := provider.Up(ctx); err != nil {
+		t.Fatalf("Up: %v", err)
+	}
+	if !tableNames(t, s)["told_limit_steps"] {
+		t.Errorf("told_limit_steps after Up: want the table")
+	}
+	if !hasAll(columnsOf(t, s, "pending_notices"), "limit_key") {
+		t.Errorf("pending_notices columns after Up = %v, want limit_key", columnsOf(t, s, "pending_notices"))
+	}
+}
+
 func TestPlannerControlsDefaultOnRowsStoredAtVersion16(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
@@ -781,7 +818,7 @@ func TestPlannerControlsDefaultOnRowsStoredAtVersion16(t *testing.T) {
 		"epics":           {int64(0), "", "", "epic", builtInEpicText, textSHA256(builtInEpicText), ""},
 		"epic_turns":      {int64(0), int64(0), int64(0)},
 		"epic_decisions":  {int64(0)},
-		"pending_notices": {""},
+		"pending_notices": {"", ""},
 	}
 	for _, table := range tables {
 		want := make([][]any, len(before[table]))

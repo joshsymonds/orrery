@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -70,15 +71,92 @@ func (s *scriptedLimits) LimitedSteps(context.Context) ([]store.StepRow, error) 
 	return read.rows, read.err
 }
 
-// runLimitNotices runs LimitNotices over reads. The first read is the one at start, and each later read is one tick.
-// It returns once every tick has been taken and processed, with what the router was told and what was logged.
-func runLimitNotices(t *testing.T, reads ...limitRead) (*fakeRouter, string) {
+// tellCall is one TellLimit call a fakeTold received.
+type tellCall struct {
+	limit string
+	steps []string
+}
+
+// fakeTold is a LimitTold that answers reads from marks. Its first failReads reads fail. Each write fails with writeErr
+// when it is set, and is recorded either way. Marks are not changed by writes, since a check reads them only at start.
+type fakeTold struct {
+	marks     map[string][]string
+	failReads int
+	writeErr  error
+	tells     []tellCall
+	forgets   []string
+}
+
+func (f *fakeTold) ToldLimits(context.Context) (map[string][]string, error) {
+	if f.failReads > 0 {
+		f.failReads--
+		return nil, errors.New("store is closed")
+	}
+	return f.marks, nil
+}
+
+// TellLimit records the mark. Like the store, it refuses a write on an ended context, which then records nothing.
+func (f *fakeTold) TellLimit(ctx context.Context, limit string, steps []string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	f.tells = append(f.tells, tellCall{limit: limit, steps: steps})
+	return f.writeErr
+}
+
+// ForgetLimit records the forget. Like the store, it refuses a write on an ended context, which then records nothing.
+func (f *fakeTold) ForgetLimit(ctx context.Context, limit string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	f.forgets = append(f.forgets, limit)
+	return f.writeErr
+}
+
+// stoppingRouter is a fakeRouter that ends the LimitNotices context once it is told a notice or a seen report, as a
+// stop of orreryd landing right after the router took it.
+type stoppingRouter struct {
+	fakeRouter
+	stop context.CancelFunc
+}
+
+func (s *stoppingRouter) Notify(ctx context.Context, n route.Notice) {
+	s.fakeRouter.Notify(ctx, n)
+	s.stop()
+}
+
+func (s *stoppingRouter) Seen(ctx context.Context, key notice.Key, seen int64) {
+	s.fakeRouter.Seen(ctx, key, seen)
+	s.stop()
+}
+
+// runStoppedLimitNotices runs LimitNotices over told and one read of rows, with a router that stops it at its first
+// notice or seen report. It returns what the router was told.
+func runStoppedLimitNotices(t *testing.T, told *fakeTold, rows []store.StepRow) *stoppingRouter {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	router := &stoppingRouter{stop: cancel}
+	NewLimitNotices(LimitNoticesConfig{
+		Steps: &scriptedLimits{reads: []limitRead{{rows: rows}}},
+		Told:  told,
+		Route: router,
+		Now:   limitNow,
+		Tick:  make(chan time.Time),
+	}).Run(ctx)
+	return router
+}
+
+// runLimitNotices runs LimitNotices over told and reads. The first read is the one at start, and each later read is one
+// tick. It returns once every tick has been taken and processed, with what the router was told and what was logged.
+func runLimitNotices(t *testing.T, told *fakeTold, reads ...limitRead) (*fakeRouter, string) {
 	t.Helper()
 	router := &fakeRouter{}
 	var logs bytes.Buffer
 	ticks := make(chan time.Time)
 	limits := NewLimitNotices(LimitNoticesConfig{
 		Steps:  &scriptedLimits{reads: reads},
+		Told:   told,
 		Route:  router,
 		Now:    limitNow,
 		Tick:   ticks,
@@ -121,9 +199,19 @@ func checkLimitNotice(t *testing.T, n route.Notice, key notice.Key, body string)
 	}
 }
 
+// checkTells fails the test unless told received exactly the TellLimit calls want, in order.
+func checkTells(t *testing.T, told *fakeTold, want ...tellCall) {
+	t.Helper()
+	if !slices.EqualFunc(told.tells, want, func(a, b tellCall) bool {
+		return a.limit == b.limit && slices.Equal(a.steps, b.steps)
+	}) {
+		t.Fatalf("tells = %+v, want %+v", told.tells, want)
+	}
+}
+
 func TestLimitNoticesNamesEveryStepOfOneLimitInOneNotice(t *testing.T) {
 	t.Parallel()
-	router, _ := runLimitNotices(t,
+	router, _ := runLimitNotices(t, &fakeTold{},
 		limitRead{},
 		limitRead{rows: []store.StepRow{usageRow("a"), usageRow("b")}},
 	)
@@ -137,7 +225,8 @@ func TestLimitNoticesNamesEveryStepOfOneLimitInOneNotice(t *testing.T) {
 
 func TestLimitNoticesRenotifiesWhenAStepJoins(t *testing.T) {
 	t.Parallel()
-	router, _ := runLimitNotices(t,
+	told := &fakeTold{}
+	router, _ := runLimitNotices(t, told,
 		limitRead{},
 		limitRead{rows: []store.StepRow{usageRow("a"), usageRow("b")}},
 		limitRead{rows: []store.StepRow{usageRow("a"), usageRow("b"), usageRow("c")}},
@@ -148,11 +237,15 @@ func TestLimitNoticesRenotifiesWhenAStepJoins(t *testing.T) {
 	}
 	checkLimitNotice(t, router.notices[1], resetKey(),
 		"3 steps held by the usage limit, reset 2026-11-14T17:00:00Z: a, b, c")
+	checkTells(t, told,
+		tellCall{limit: resetKey().Limit, steps: []string{"a", "b"}},
+		tellCall{limit: resetKey().Limit, steps: []string{"a", "b", "c"}},
+	)
 }
 
 func TestLimitNoticesSecondResetIsSecondNotice(t *testing.T) {
 	t.Parallel()
-	router, _ := runLimitNotices(t,
+	router, _ := runLimitNotices(t, &fakeTold{},
 		limitRead{},
 		limitRead{rows: []store.StepRow{usageRow("a"), usageRow("b")}},
 		limitRead{rows: []store.StepRow{usageRow("a"), usageRow("b"), laterUsageRow("d")}},
@@ -171,7 +264,7 @@ func TestLimitNoticesSecondResetIsSecondNotice(t *testing.T) {
 func TestLimitNoticesNamesAnUnknownReset(t *testing.T) {
 	t.Parallel()
 	unknown := store.StepRow{ID: "a", LoopLimited: true, LoopLimitKind: "usage"}
-	router, _ := runLimitNotices(t,
+	router, _ := runLimitNotices(t, &fakeTold{},
 		limitRead{},
 		limitRead{rows: []store.StepRow{unknown}},
 	)
@@ -183,18 +276,41 @@ func TestLimitNoticesNamesAnUnknownReset(t *testing.T) {
 		"1 step held by the usage limit, reset unknown: a")
 }
 
-func TestLimitNoticesStartedOverLimitedStepsSendsNothingUntilTheyChange(t *testing.T) {
+func TestLimitNoticesTellsStepsLimitedAtStartOnceAndMarksThem(t *testing.T) {
 	t.Parallel()
 	steps := []store.StepRow{usageRow("a"), usageRow("b")}
-	router, _ := runLimitNotices(t,
+	told := &fakeTold{}
+	router, _ := runLimitNotices(t, told,
+		limitRead{rows: steps},
+		limitRead{rows: steps},
+		limitRead{rows: steps},
+	)
+
+	if len(router.notices) != 1 {
+		t.Fatalf("got %d notices, want 1 for steps unmarked at start: %+v", len(router.notices), router.notices)
+	}
+	checkLimitNotice(t, router.notices[0], resetKey(),
+		"2 steps held by the usage limit, reset 2026-11-14T17:00:00Z: a, b")
+	checkTells(t, told, tellCall{limit: resetKey().Limit, steps: []string{"a", "b"}})
+	if len(router.seens) != 0 {
+		t.Fatalf("got seen reports %+v, want none", router.seens)
+	}
+}
+
+func TestLimitNoticesSendsNothingForStepsMarkedBeforeStart(t *testing.T) {
+	t.Parallel()
+	steps := []store.StepRow{usageRow("a"), usageRow("b")}
+	told := &fakeTold{marks: map[string][]string{resetKey().Limit: {"a", "b"}}}
+	router, _ := runLimitNotices(t, told,
 		limitRead{rows: steps},
 		limitRead{rows: steps},
 		limitRead{rows: steps},
 	)
 
 	if len(router.notices) != 0 || len(router.seens) != 0 {
-		t.Fatalf("notices %+v seens %+v, want none for steps already limited", router.notices, router.seens)
+		t.Fatalf("notices %+v seens %+v, want none for steps marked as told", router.notices, router.seens)
 	}
+	checkTells(t, told)
 }
 
 func TestLimitNoticesReportsAChangedMembershipOfTheSameSize(t *testing.T) {
@@ -218,7 +334,8 @@ func TestLimitNoticesReportsAChangedMembershipOfTheSameSize(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			router, _ := runLimitNotices(t,
+			told := &fakeTold{marks: map[string][]string{resetKey().Limit: {"a", "b"}}}
+			router, _ := runLimitNotices(t, told,
 				limitRead{rows: []store.StepRow{usageRow("a"), usageRow("b")}},
 				limitRead{rows: tc.next},
 			)
@@ -236,7 +353,8 @@ func TestLimitNoticesReportsAChangedMembershipOfTheSameSize(t *testing.T) {
 
 func TestLimitNoticesSeesAGroupThatEmptiesAndNotifiesANewOne(t *testing.T) {
 	t.Parallel()
-	router, _ := runLimitNotices(t,
+	told := &fakeTold{marks: map[string][]string{resetKey().Limit: {"a", "b"}}}
+	router, _ := runLimitNotices(t, told,
 		limitRead{rows: []store.StepRow{usageRow("a"), usageRow("b")}},
 		limitRead{rows: []store.StepRow{laterUsageRow("c")}},
 	)
@@ -250,11 +368,61 @@ func TestLimitNoticesSeesAGroupThatEmptiesAndNotifiesANewOne(t *testing.T) {
 	}
 	checkLimitNotice(t, router.notices[0], otherResetKey(),
 		"1 step held by the usage limit, reset 2026-11-15T09:00:00Z: c")
+	if !slices.Equal(told.forgets, []string{resetKey().Limit}) {
+		t.Fatalf("forgot %v, want the emptied limit %q", told.forgets, resetKey().Limit)
+	}
+	checkTells(t, told, tellCall{limit: otherResetKey().Limit, steps: []string{"c"}})
 }
 
-func TestLimitNoticesSeesAGroupThatEmptiesOnceResumedOrStopped(t *testing.T) {
+// TestLimitNoticesTellsALimitAgainAfterAResume checks that a step told on a limit, then resumed at its reset, and then
+// limited again is told again: the resume empties the limit's group, which is seen and forgotten, so the next limit
+// has no mark, whether it resets later or at the same time.
+func TestLimitNoticesTellsALimitAgainAfterAResume(t *testing.T) {
 	t.Parallel()
-	router, _ := runLimitNotices(t,
+	for _, tc := range []struct {
+		name  string
+		again store.StepRow
+		key   notice.Key
+	}{
+		{"a later reset", laterUsageRow("a"), otherResetKey()},
+		{"the same reset", usageRow("a"), resetKey()},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			told := &fakeTold{}
+			router, _ := runLimitNotices(t, told,
+				limitRead{rows: []store.StepRow{usageRow("a")}},
+				limitRead{},
+				limitRead{rows: []store.StepRow{tc.again}},
+			)
+
+			if len(router.notices) != 2 {
+				t.Fatalf("got %d notices, want 2: the limit before the resume and the one after it",
+					len(router.notices))
+			}
+			if router.notices[0].Key != resetKey() || router.notices[1].Key != tc.key {
+				t.Fatalf("notice keys = %+v, %+v, want %+v, %+v",
+					router.notices[0].Key, router.notices[1].Key, resetKey(), tc.key)
+			}
+			want := seenReport{key: resetKey(), seen: limitNow().Unix()}
+			if len(router.seens) != 1 || router.seens[0] != want {
+				t.Fatalf("seen reports = %+v, want exactly [%+v]", router.seens, want)
+			}
+			if !slices.Equal(told.forgets, []string{resetKey().Limit}) {
+				t.Fatalf("forgot %v, want the resumed limit %q once", told.forgets, resetKey().Limit)
+			}
+			checkTells(t, told,
+				tellCall{limit: resetKey().Limit, steps: []string{"a"}},
+				tellCall{limit: tc.key.Limit, steps: []string{"a"}},
+			)
+		})
+	}
+}
+
+func TestLimitNoticesSeesAMarkedGroupThatEmptiesOnceAndForgetsIt(t *testing.T) {
+	t.Parallel()
+	told := &fakeTold{marks: map[string][]string{resetKey().Limit: {"a"}}}
+	router, _ := runLimitNotices(t, told,
 		limitRead{rows: []store.StepRow{usageRow("a")}},
 		limitRead{},
 		limitRead{},
@@ -267,11 +435,43 @@ func TestLimitNoticesSeesAGroupThatEmptiesOnceResumedOrStopped(t *testing.T) {
 	if len(router.seens) != 1 || router.seens[0] != want {
 		t.Fatalf("seen reports = %+v, want exactly [%+v]", router.seens, want)
 	}
+	if !slices.Equal(told.forgets, []string{resetKey().Limit}) {
+		t.Fatalf("forgot %v, want %q once", told.forgets, resetKey().Limit)
+	}
+}
+
+// TestLimitNoticesMarksALimitWhenAStopFollowsItsNotice checks that a limit told just before a stop is still marked,
+// so the next start does not tell it again.
+func TestLimitNoticesMarksALimitWhenAStopFollowsItsNotice(t *testing.T) {
+	t.Parallel()
+	told := &fakeTold{}
+	router := runStoppedLimitNotices(t, told, []store.StepRow{usageRow("a")})
+
+	if len(router.notices) != 1 {
+		t.Fatalf("got %d notices, want 1", len(router.notices))
+	}
+	checkTells(t, told, tellCall{limit: resetKey().Limit, steps: []string{"a"}})
+}
+
+// TestLimitNoticesForgetsALimitWhenAStopFollowsItsSeen checks that a marked limit seen just before a stop is still
+// forgotten, so the next start does not see it again.
+func TestLimitNoticesForgetsALimitWhenAStopFollowsItsSeen(t *testing.T) {
+	t.Parallel()
+	told := &fakeTold{marks: map[string][]string{resetKey().Limit: {"a"}}}
+	router := runStoppedLimitNotices(t, told, nil)
+
+	if len(router.seens) != 1 {
+		t.Fatalf("got %d seen reports, want 1", len(router.seens))
+	}
+	if !slices.Equal(told.forgets, []string{resetKey().Limit}) {
+		t.Fatalf("forgot %v, want %q once", told.forgets, resetKey().Limit)
+	}
 }
 
 func TestLimitNoticesFailedReadIsLoggedAndSkipped(t *testing.T) {
 	t.Parallel()
-	router, logs := runLimitNotices(t,
+	told := &fakeTold{marks: map[string][]string{resetKey().Limit: {"a", "b"}}}
+	router, logs := runLimitNotices(t, told,
 		limitRead{rows: []store.StepRow{usageRow("a"), usageRow("b")}},
 		limitRead{err: errors.New("store is closed")},
 		limitRead{rows: []store.StepRow{usageRow("a"), usageRow("b")}},
@@ -290,18 +490,103 @@ func TestLimitNoticesFailedReadIsLoggedAndSkipped(t *testing.T) {
 	}
 }
 
-func TestLimitNoticesStartReadThatFailsRemembersOnTheNextRead(t *testing.T) {
+func TestLimitNoticesFailedMarkReadReportsNothingUntilALaterRead(t *testing.T) {
 	t.Parallel()
-	router, _ := runLimitNotices(t,
-		limitRead{err: errors.New("store is closed")},
+	// The start check makes no step read while the marks are unread, so the one tick's read is the first step read, and
+	// it holds a and b. Had the start check reported, a and b would be told at start, and the tick's a, b, c would be a
+	// second notice.
+	told := &fakeTold{failReads: 1}
+	router, logs := runLimitNotices(t, told,
 		limitRead{rows: []store.StepRow{usageRow("a"), usageRow("b")}},
 		limitRead{rows: []store.StepRow{usageRow("a"), usageRow("b"), usageRow("c")}},
 	)
 
+	if !strings.Contains(logs, "store is closed") {
+		t.Fatalf("log = %q, want the failed mark read logged", logs)
+	}
 	if len(router.notices) != 1 {
-		t.Fatalf("got %d notices, want 1 (the first good read is remembered, not reported): %+v",
-			len(router.notices), router.notices)
+		t.Fatalf("got %d notices, want 1: %+v", len(router.notices), router.notices)
 	}
 	checkLimitNotice(t, router.notices[0], resetKey(),
-		"3 steps held by the usage limit, reset 2026-11-14T17:00:00Z: a, b, c")
+		"2 steps held by the usage limit, reset 2026-11-14T17:00:00Z: a, b")
+}
+
+func TestLimitNoticesLogsAFailedMarkWriteAndStillTells(t *testing.T) {
+	t.Parallel()
+	told := &fakeTold{writeErr: errors.New("store is read-only")}
+	router, logs := runLimitNotices(t, told,
+		limitRead{},
+		limitRead{rows: []store.StepRow{usageRow("a"), usageRow("b")}},
+	)
+
+	if len(router.notices) != 1 {
+		t.Fatalf("got %d notices, want 1: %+v", len(router.notices), router.notices)
+	}
+	if !strings.Contains(logs, "store is read-only") {
+		t.Fatalf("log = %q, want the failed mark write logged", logs)
+	}
+}
+
+func TestLimitNoticesLogsAFailedForgetWrite(t *testing.T) {
+	t.Parallel()
+	told := &fakeTold{
+		marks:    map[string][]string{resetKey().Limit: {"a"}},
+		writeErr: errors.New("store is read-only"),
+	}
+	router, logs := runLimitNotices(t, told,
+		limitRead{rows: []store.StepRow{usageRow("a")}},
+		limitRead{},
+	)
+
+	want := seenReport{key: resetKey(), seen: limitNow().Unix()}
+	if len(router.seens) != 1 || router.seens[0] != want {
+		t.Fatalf("seen reports = %+v, want exactly [%+v]", router.seens, want)
+	}
+	if !strings.Contains(logs, "store is read-only") {
+		t.Fatalf("log = %q, want the failed forget write logged", logs)
+	}
+}
+
+func TestRestoreLimitNoticeRebuildsTheNotice(t *testing.T) {
+	t.Parallel()
+	unknown := store.StepRow{ID: "c", LoopLimited: true, LoopLimitKind: "usage"}
+	cases := []struct {
+		name string
+		rows []store.StepRow
+		key  notice.Key
+		body string
+	}{
+		{
+			name: "known reset",
+			rows: []store.StepRow{usageRow("a"), usageRow("b")},
+			key:  resetKey(),
+			body: "2 steps held by the usage limit, reset 2026-11-14T17:00:00Z: a, b",
+		},
+		{
+			name: "unknown reset",
+			rows: []store.StepRow{unknown},
+			key:  notice.Key{Limit: "usage@0"},
+			body: "1 step held by the usage limit, reset unknown: c",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			router, _ := runLimitNotices(t, &fakeTold{}, limitRead{}, limitRead{rows: tc.rows})
+			if len(router.notices) != 1 {
+				t.Fatalf("got %d notices, want 1: %+v", len(router.notices), router.notices)
+			}
+			told := router.notices[0]
+			checkLimitNotice(t, told, tc.key, tc.body)
+			if told.Source.Kind != LimitSource {
+				t.Fatalf("source kind = %q, want %q", told.Source.Kind, LimitSource)
+			}
+
+			restored, err := RestoreLimitNotice(t.Context(), told.Source.Data, limitNow().Unix())
+			if err != nil {
+				t.Fatalf("restore limit notice: %v", err)
+			}
+			checkLimitNotice(t, restored, tc.key, tc.body)
+		})
+	}
 }

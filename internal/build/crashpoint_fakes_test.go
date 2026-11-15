@@ -478,8 +478,8 @@ func (d crashDesk) Post(deskstream.Notice) {
 	d.w.effect("desk post", func() {})
 }
 
-func (d crashDesk) Desk() (int64, bool) {
-	return 0, false
+func (d crashDesk) Desk() int64 {
+	return 0
 }
 
 // crashLog is the notice log. Each line is one action.

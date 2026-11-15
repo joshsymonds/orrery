@@ -212,7 +212,7 @@ func (f failingStore) HolderPrompts(context.Context, string) ([]store.HolderProm
 	return nil, f.err
 }
 
-func (f failingStore) HolderPromptsAfterTurnEnd(context.Context, string) (int, error) {
+func (f failingStore) HolderPromptsUnanswered(context.Context, string) (int, error) {
 	return 0, f.err
 }
 

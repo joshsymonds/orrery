@@ -32,6 +32,7 @@ const (
 	postToolFailureHook  = `{"hook_event_name":"PostToolUseFailure","tool_name":"Bash","tool_input":{"command":"false"}}`
 	permissionHook       = `{"hook_event_name":"PermissionRequest","tool_name":"Bash","tool_input":{"command":"echo synthetic"}}`
 	stopHook             = `{"hook_event_name":"Stop","stop_hook_active":false}`
+	stopFailureHook      = `{"hook_event_name":"StopFailure","error":"rate_limit","error_details":"synthetic","last_assistant_message":"synthetic"}`
 	sessionEndHook       = `{"hook_event_name":"SessionEnd","reason":"other"}`
 	permissionPromptHook = `{"hook_event_name":"Notification","notification_type":"permission_prompt","message":"synthetic"}`
 	elicitationHook      = `{"hook_event_name":"Notification","notification_type":"elicitation_dialog","message":"synthetic"}`
@@ -137,6 +138,7 @@ func TestPaneStateTransitions(t *testing.T) {
 			{"Notification elicitation_dialog", elicitationHook, protocol.StateWaiting},
 			{"Notification agent_needs_input", agentInputHook, protocol.StateWaiting},
 			{"Stop", stopHook, protocol.StateDone},
+			{"StopFailure", stopFailureHook, protocol.StateDone},
 		}
 		for _, tc := range cases {
 			t.Run(tc.name, func(t *testing.T) {
@@ -362,6 +364,74 @@ func TestDonePaneIgnoresLateToolEvents(t *testing.T) {
 			wantState(t, client, pane, protocol.StateWaiting)
 		}
 	})
+}
+
+// TestStopFailureMatchesStop checks that StopFailure ends a turn as Stop does: the pane becomes done with
+// the same options written, a tool event inside the grace window stays a late frame, and one after it
+// starts working. An API error sends StopFailure in place of Stop, so both run the same expectations.
+func TestStopFailureMatchesStop(t *testing.T) {
+	t0 := time.Unix(1700000000, 0)
+	stops := []struct {
+		name string
+		hook string
+	}{
+		{"Stop", stopHook},
+		{"StopFailure", stopFailureHook},
+	}
+	for _, stop := range stops {
+		t.Run(stop.name, func(t *testing.T) {
+			t.Run("working pane becomes done and its change time is written", func(t *testing.T) {
+				client, pane := startPane(t)
+				startTurn(t, client, pane, t0)
+
+				transition, changed := apply(t, client, pane, stop.hook, t0.Add(4*time.Second))
+				if transition != (state.Transition{From: protocol.StateWorking, To: protocol.StateDone}) || !changed {
+					t.Fatalf("%s transition = %+v changed = %v, want working to done and true",
+						stop.name, transition, changed)
+				}
+				wantState(t, client, pane, protocol.StateDone)
+				if got, _ := option(t, client, pane, protocol.OptionChanged); got != "1700000004" {
+					t.Fatalf("%s = %q, want the end time 1700000004", protocol.OptionChanged, got)
+				}
+				wantToolID(t, client, pane, "")
+				wantQuestion(t, client, pane, "")
+			})
+
+			t.Run("tool event inside the grace window stays a late frame", func(t *testing.T) {
+				client, pane := startPane(t)
+				startTurn(t, client, pane, t0)
+				apply(t, client, pane, stop.hook, t0.Add(4*time.Second))
+
+				late := toolHook(t, "PreToolUse", "synthetic-2", "echo late")
+				transition, changed := apply(t, client, pane, late, t0.Add(8*time.Second))
+				if transition != (state.Transition{From: protocol.StateDone, To: protocol.StateDone}) || changed {
+					t.Fatalf("late transition = %+v changed = %v, want done to done and false", transition, changed)
+				}
+				wantState(t, client, pane, protocol.StateDone)
+				if got, _ := option(t, client, pane, protocol.OptionChanged); got != "1700000004" {
+					t.Fatalf("%s after late frame = %q, want the end time 1700000004", protocol.OptionChanged, got)
+				}
+				wantToolID(t, client, pane, "")
+			})
+
+			t.Run("tool event after the grace window starts working", func(t *testing.T) {
+				client, pane := startPane(t)
+				startTurn(t, client, pane, t0)
+				apply(t, client, pane, stop.hook, t0.Add(4*time.Second))
+
+				later := toolHook(t, "PreToolUse", "synthetic-2", "echo later")
+				transition, changed := apply(t, client, pane, later, t0.Add(9*time.Second))
+				if transition != (state.Transition{From: protocol.StateDone, To: protocol.StateWorking}) || !changed {
+					t.Fatalf("later transition = %+v changed = %v, want done to working and true", transition, changed)
+				}
+				wantState(t, client, pane, protocol.StateWorking)
+				if got, _ := option(t, client, pane, protocol.OptionChanged); got != "1700000009" {
+					t.Fatalf("%s after later event = %q, want 1700000009", protocol.OptionChanged, got)
+				}
+				wantToolID(t, client, pane, "synthetic-2")
+			})
+		})
+	}
 }
 
 // setPaneState writes @orrery_state directly, for a pane whose history is not replayed.

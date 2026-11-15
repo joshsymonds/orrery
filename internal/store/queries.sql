@@ -32,7 +32,7 @@ SELECT CAST(COALESCE(MAX(seq), 0) AS INTEGER) AS seq FROM events;
 SELECT CAST(COALESCE(MIN(seq), 0) AS INTEGER) AS seq FROM events;
 
 -- name: EventPageAfter :many
-SELECT seq, session_id, kind, at, payload, write_id FROM events WHERE seq > ? ORDER BY seq LIMIT ?;
+SELECT seq, session_id, kind, at, payload, write_id, answered FROM events WHERE seq > ? ORDER BY seq LIMIT ?;
 
 -- name: PruneEvents :exec
 DELETE FROM events WHERE events.at < ? AND events.seq < (SELECT MAX(newest.seq) FROM events AS newest);
@@ -146,7 +146,7 @@ SELECT * FROM engine_text
 ORDER BY session_id, message_id, parent_tool_use_id, block_index;
 
 -- name: SessionEventsAfter :many
-SELECT seq, session_id, kind, at, payload, write_id FROM events
+SELECT seq, session_id, kind, at, payload, write_id, answered FROM events
 WHERE session_id = ? AND seq > ?
 ORDER BY seq LIMIT ?;
 
@@ -163,19 +163,24 @@ WHERE session_id = sqlc.arg(session_id) AND kind = 'engine_prompt' AND json_extr
 -- name: InsertEnginePromptEvent :exec
 INSERT INTO events (session_id, kind, at, payload, write_id) VALUES (?, 'engine_prompt', ?, ?, ?);
 
+-- name: InsertEngineTurnEndedEvent :exec
+INSERT INTO events (session_id, kind, at, payload, answered) VALUES (?, 'engine_turn_ended', ?, ?, ?);
+
 -- name: ListHolderPrompts :many
 SELECT events.write_id, CAST(json_extract(events.payload, '$.text') AS TEXT) AS text FROM events
 WHERE events.session_id = sqlc.arg(id) AND events.kind = 'engine_prompt' AND events.write_id <> ''
   AND events.seq > (SELECT sessions.prompts_from FROM sessions WHERE sessions.id = sqlc.arg(id))
 ORDER BY events.seq;
 
--- name: CountHolderPromptsAfterTurnEnd :one
-SELECT COUNT(*) FROM events
-WHERE events.session_id = sqlc.arg(id) AND events.kind = 'engine_prompt' AND events.write_id <> ''
-  AND events.seq > (SELECT sessions.prompts_from FROM sessions WHERE sessions.id = sqlc.arg(id))
-  AND events.seq > (
-      SELECT CAST(COALESCE(MAX(turns.seq), 0) AS INTEGER) FROM events AS turns
-      WHERE turns.session_id = sqlc.arg(id) AND turns.kind = 'engine_turn_ended'
+-- name: CountHolderPromptsUnanswered :one
+SELECT COUNT(*) FROM events AS prompts
+WHERE prompts.session_id = sqlc.arg(id) AND prompts.kind = 'engine_prompt' AND prompts.write_id <> ''
+  AND prompts.seq > (SELECT sessions.prompts_from FROM sessions WHERE sessions.id = sqlc.arg(id))
+  AND NOT EXISTS (
+      SELECT 1 FROM events AS turns
+      WHERE turns.session_id = sqlc.arg(id) AND turns.kind = 'engine_turn_ended' AND turns.seq > prompts.seq
+        AND (turns.answered IS NULL OR EXISTS (
+            SELECT 1 FROM json_each(turns.answered) WHERE json_each.value = prompts.write_id))
   );
 
 -- name: InsertEnginePromptFailed :exec
@@ -274,12 +279,12 @@ DELETE FROM holds WHERE member = ?;
 SELECT * FROM holds ORDER BY member;
 
 -- name: UpsertPendingNotice :exec
-INSERT INTO pending_notices (id, pane, session, state, time, phase, due, delay_served, watch_logged, source_kind, source, silent, epic)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO pending_notices (id, pane, session, state, time, phase, due, delay_served, watch_logged, source_kind, source, silent, epic, limit_key)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT (id) DO UPDATE SET pane = excluded.pane, session = excluded.session, state = excluded.state,
     time = excluded.time, phase = excluded.phase, due = excluded.due, delay_served = excluded.delay_served,
     watch_logged = excluded.watch_logged, source_kind = excluded.source_kind, source = excluded.source,
-    silent = excluded.silent, epic = excluded.epic;
+    silent = excluded.silent, epic = excluded.epic, limit_key = excluded.limit_key;
 
 -- name: RaiseNoticeIDFloor :exec
 UPDATE pending_notice_ids SET high = MAX(high, sqlc.arg(id)) WHERE id = 1;
@@ -322,6 +327,16 @@ DELETE FROM pushed_limit_notices WHERE limit_key = ?;
 
 -- name: ListPushedLimitNotices :many
 SELECT * FROM pushed_limit_notices ORDER BY limit_key;
+
+-- name: InsertToldLimitStep :exec
+INSERT INTO told_limit_steps (limit_key, step) VALUES (?, ?)
+ON CONFLICT (limit_key, step) DO NOTHING;
+
+-- name: DeleteToldLimit :exec
+DELETE FROM told_limit_steps WHERE limit_key = ?;
+
+-- name: ListToldLimitSteps :many
+SELECT * FROM told_limit_steps ORDER BY limit_key, step;
 
 -- name: InsertEpic :exec
 INSERT INTO epics (id, repository, base, title, approved, intent, care, approach, release_then, checks, phase, created,

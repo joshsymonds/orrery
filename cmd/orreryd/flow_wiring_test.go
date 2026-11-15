@@ -54,7 +54,7 @@ func TestSessionsHostLeavesCompletedEpicUnparked(t *testing.T) {
 		stepCap:    defaultStepCap,
 	}
 	host, err := startSessions(
-		ctx, opts, flowWiringHost, st, &recordingRouter{}, slog.New(slog.DiscardHandler), getenv,
+		ctx, opts, flowWiringHost, st, &recordingRouter{}, nil, slog.New(slog.DiscardHandler), getenv,
 	)
 	if err != nil {
 		t.Fatalf("startSessions: %v", err)

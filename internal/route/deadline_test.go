@@ -109,7 +109,7 @@ func TestRouterLatePutIsRetried(t *testing.T) {
 		hold: func(callCtx context.Context) { <-callCtx.Done() },
 	}
 	f := newFake()
-	f.setDesk(true, clockStart)
+	f.setDesk(clockStart)
 	b := &bounds{t: t}
 	r := boundedRouter(t, f, b)
 	r.Attach(ctx, s)
@@ -139,7 +139,7 @@ func TestRouterPutUnderANeverFiringBoundIsNotLate(t *testing.T) {
 		hold: func(context.Context) { <-release },
 	}
 	f := newFake()
-	f.setDesk(true, clockStart)
+	f.setDesk(clockStart)
 	r := boundedRouter(t, f, &bounds{t: t})
 	r.Attach(ctx, s)
 

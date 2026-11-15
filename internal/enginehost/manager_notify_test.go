@@ -455,7 +455,7 @@ type absentDesk struct{}
 
 func (absentDesk) Post(deskstream.Notice) {}
 
-func (absentDesk) Desk() (int64, bool) { return 0, false }
+func (absentDesk) Desk() int64 { return 0 }
 
 // fakeRouteLog records the lines the Router writes. Write runs on the Router's goroutines, so it locks.
 type fakeRouteLog struct {
@@ -617,7 +617,7 @@ type presentDesk struct {
 
 func (presentDesk) Post(deskstream.Notice) {}
 
-func (d presentDesk) Desk() (int64, bool) { return d.input, true }
+func (d presentDesk) Desk() int64 { return d.input }
 
 // fakeAfter holds the timers a Router arms, so a test fires them itself. The Router arms them under its own lock on
 // other goroutines, so it locks.

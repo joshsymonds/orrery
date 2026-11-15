@@ -22,9 +22,14 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 	"unicode/utf8"
 
+	"github.com/prometheus/common/expfmt"
+	"github.com/prometheus/common/model"
+
 	"github.com/joshsymonds/orrery/internal/protocol"
+	"github.com/joshsymonds/orrery/internal/telemetry"
 )
 
 // Wire constants restated in the test so the decryption checks the RFC 8188 framing on its own.
@@ -67,7 +72,11 @@ type pubRequest struct {
 	body   []byte
 }
 
-// pubEndpoint is an httptest TLS push endpoint that records every request and answers with status.
+// pubHangUp is the status of a pubEndpoint that closes the connection without a reply.
+const pubHangUp = 0
+
+// pubEndpoint is an httptest TLS push endpoint that records every request and answers with status, or closes the
+// connection without a reply when status is pubHangUp.
 type pubEndpoint struct {
 	srv       *httptest.Server
 	recipient pubRecipient
@@ -87,6 +96,15 @@ func newPubEndpoint(t *testing.T, status int) *pubEndpoint {
 		ep.mu.Lock()
 		ep.requests = append(ep.requests, pubRequest{method: r.Method, header: r.Header.Clone(), body: body})
 		ep.mu.Unlock()
+		if status == pubHangUp {
+			conn, _, err := http.NewResponseController(w).Hijack()
+			if err != nil {
+				t.Errorf("hijack push connection: %v", err)
+				return
+			}
+			_ = conn.Close()
+			return
+		}
 		w.WriteHeader(status)
 	}))
 	t.Cleanup(ep.srv.Close)
@@ -111,6 +129,17 @@ func (ep *pubEndpoint) subscription() Subscription {
 // allows only 127.0.0.1, where the httptest servers listen.
 func newPubPublisher(t *testing.T, client *http.Client, endpoints ...*pubEndpoint) *Publisher {
 	t.Helper()
+	return newPubPublisherFor(t, nil, client, endpoints...)
+}
+
+// newPubPublisherFor is newPubPublisher with daemon counting the failed posts.
+func newPubPublisherFor(
+	t *testing.T,
+	daemon *telemetry.Daemon,
+	client *http.Client,
+	endpoints ...*pubEndpoint,
+) *Publisher {
+	t.Helper()
 	store, err := NewStore(filepath.Join(t.TempDir(), "push.json"), []string{"127.0.0.1"})
 	if err != nil {
 		t.Fatalf("NewStore: %v", err)
@@ -120,11 +149,54 @@ func newPubPublisher(t *testing.T, client *http.Client, endpoints ...*pubEndpoin
 			t.Fatalf("Add: %v", err)
 		}
 	}
-	p, err := NewPublisher(store, client)
+	p, err := NewPublisher(store, client, daemon)
 	if err != nil {
 		t.Fatalf("NewPublisher: %v", err)
 	}
 	return p
+}
+
+// pubDaemon returns a telemetry Daemon on a fresh registry and the provider that serves its scrape.
+func pubDaemon(t *testing.T) (*telemetry.Daemon, *telemetry.Provider) {
+	t.Helper()
+	provider, err := telemetry.New()
+	if err != nil {
+		t.Fatalf("telemetry.New: %v", err)
+	}
+	daemon, err := telemetry.NewDaemon(t.Context(), provider, time.Unix(1700000000, 0))
+	if err != nil {
+		t.Fatalf("telemetry.NewDaemon: %v", err)
+	}
+	return daemon, provider
+}
+
+// pubPushFailures scrapes provider and returns orrery_push_failures_total by class.
+func pubPushFailures(t *testing.T, provider *telemetry.Provider) map[string]float64 {
+	t.Helper()
+	rec := httptest.NewRecorder()
+	provider.Handler().ServeHTTP(rec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/metrics", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /metrics status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	parser := expfmt.NewTextParser(model.LegacyValidation)
+	families, err := parser.TextToMetricFamilies(rec.Body)
+	if err != nil {
+		t.Fatalf("parse exposition: %v", err)
+	}
+	counts := make(map[string]float64)
+	for _, m := range families["orrery_push_failures_total"].GetMetric() {
+		for _, pair := range m.GetLabel() {
+			if pair.GetName() == "class" {
+				counts[pair.GetValue()] = m.GetCounter().GetValue()
+			}
+		}
+	}
+	return counts
+}
+
+// pubNoFailures is the class counts of a push that failed nowhere.
+func pubNoFailures() map[string]float64 {
+	return map[string]float64{"transport": 0, "4xx": 0, "5xx": 0, "other": 0}
 }
 
 func pubNotification(question string) Notification {
@@ -612,10 +684,64 @@ func TestPushPublishRejectsNilDependencies(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewStore: %v", err)
 	}
-	if _, err := NewPublisher(nil, http.DefaultClient); err == nil {
+	if _, err := NewPublisher(nil, http.DefaultClient, nil); err == nil {
 		t.Error("NewPublisher accepted a nil store")
 	}
-	if _, err := NewPublisher(store, nil); err == nil {
+	if _, err := NewPublisher(store, nil, nil); err == nil {
 		t.Error("NewPublisher accepted a nil client")
+	}
+}
+
+func TestPushPublishCountsFailedPostsByClass(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name   string
+		status int
+		class  string
+	}{
+		{name: "insufficient storage", status: http.StatusInsufficientStorage, class: "5xx"},
+		{name: "not found", status: http.StatusNotFound, class: "4xx"},
+		{name: "connection closed without reply", status: pubHangUp, class: "transport"},
+		{name: "redirect without location", status: http.StatusMultipleChoices, class: "other"},
+		{name: "created counts nothing", status: http.StatusCreated, class: ""},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			ep := newPubEndpoint(t, tc.status)
+			daemon, provider := pubDaemon(t)
+			p := newPubPublisherFor(t, daemon, ep.srv.Client(), ep)
+
+			err := p.Publish(t.Context(), pubNotification("synthetic question?"))
+			if failed := err != nil; failed != (tc.class != "") {
+				t.Fatalf("Publish error = %v, want failure %v", err, tc.class != "")
+			}
+			want := pubNoFailures()
+			if tc.class != "" {
+				want[tc.class] = 1
+			}
+			if got := pubPushFailures(t, provider); !maps.Equal(got, want) {
+				t.Errorf("orrery_push_failures_total = %v, want %v", got, want)
+			}
+		})
+	}
+}
+
+func TestPushPublishCountsEachFailedSubscription(t *testing.T) {
+	t.Parallel()
+	notFound := newPubEndpoint(t, http.StatusNotFound)
+	failing := newPubEndpoint(t, http.StatusInternalServerError)
+	healthy := newPubEndpoint(t, http.StatusCreated)
+	daemon, provider := pubDaemon(t)
+	p := newPubPublisherFor(t, daemon, notFound.srv.Client(), notFound, failing, healthy)
+
+	if err := p.Publish(t.Context(), pubNotification("synthetic question?")); err == nil {
+		t.Fatal("Publish succeeded although two endpoints failed")
+	}
+	want := pubNoFailures()
+	want["4xx"] = 1
+	want["5xx"] = 1
+	if got := pubPushFailures(t, provider); !maps.Equal(got, want) {
+		t.Errorf("orrery_push_failures_total = %v, want %v", got, want)
 	}
 }

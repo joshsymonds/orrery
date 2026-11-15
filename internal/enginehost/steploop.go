@@ -218,6 +218,15 @@ func (r *stepRun) Event(event session.Event) {
 	r.watch.event(r.now(), event)
 }
 
+// Done reports whether the structured return of ended has the step's done value. It reads only the step's fixed config,
+// so the manager may call it under its lock.
+func (r *stepRun) Done(ended session.TurnEnded) bool {
+	var head struct {
+		Status string `json:"status"`
+	}
+	return json.Unmarshal(ended.StructuredOutput, &head) == nil && head.Status == r.doneValue
+}
+
 // Return hands the structured return of the session's ended turn to run. It returns once run has queued it, the step has
 // ended, or run has returned.
 func (r *stepRun) Return(ended session.TurnEnded) {

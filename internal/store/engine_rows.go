@@ -49,14 +49,15 @@ func (s *Store) HolderPrompts(ctx context.Context, id string) ([]HolderPrompt, e
 	return out, nil
 }
 
-// HolderPromptsAfterTurnEnd returns how many prompts were written to an engine session's holder after the
-// session's newest turn end: the engine_prompt events above the session's prompts_from that carry a write id and
-// whose seq is greater than the seq of its newest engine_turn_ended. With no turn end, it counts every such
-// prompt. It returns 0 for an id that names no engine session.
-func (s *Store) HolderPromptsAfterTurnEnd(ctx context.Context, id string) (int, error) {
-	count, err := sqlcgen.New(s.db).CountHolderPromptsAfterTurnEnd(ctx, id)
+// HolderPromptsUnanswered returns how many prompts were written to an engine session's holder that no later turn end
+// answers: the engine_prompt events above the session's prompts_from that carry a write id and that no engine_turn_ended
+// with a greater seq answers. A turn end answers a prompt when its answered column lists the prompt's write id, and a
+// turn end with a NULL answered column, stored before the column existed, answers every earlier prompt. It returns 0 for
+// an id that names no engine session.
+func (s *Store) HolderPromptsUnanswered(ctx context.Context, id string) (int, error) {
+	count, err := sqlcgen.New(s.db).CountHolderPromptsUnanswered(ctx, id)
 	if err != nil {
-		return 0, fmt.Errorf("count holder prompts after the turn end of engine session %s: %w", id, err)
+		return 0, fmt.Errorf("count holder prompts no turn end answers of engine session %s: %w", id, err)
 	}
 	return int(count), nil
 }

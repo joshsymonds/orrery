@@ -26,7 +26,7 @@ type Transition struct {
 // larger value would make the set-option fail.
 const maxQuestionBytes = 8192
 
-// stopGraceWindow is how long after a done pane's Stop a tool event is still treated as a late frame
+// stopGraceWindow is how long after a done pane's Stop or StopFailure a tool event is still treated as a late frame
 // from the finished turn. A tool event at or after it means Claude continued the turn.
 const stopGraceWindow = 5 * time.Second
 
@@ -55,6 +55,7 @@ const (
 	eventPermissionRequest  = "PermissionRequest"
 	eventNotification       = "Notification"
 	eventStop               = "Stop"
+	eventStopFailure        = "StopFailure"
 	eventSessionEnd         = "SessionEnd"
 	toolAskUserQuestion     = "AskUserQuestion"
 	notifyPermissionPrompt  = "permission_prompt"
@@ -231,7 +232,7 @@ func targetState(event, notification string) (protocol.State, bool) {
 		case notifyPermissionPrompt, notifyElicitationDialog, notifyAgentNeedsInput:
 			return protocol.StateWaiting, true
 		}
-	case eventStop:
+	case eventStop, eventStopFailure:
 		return protocol.StateDone, true
 	case eventSessionEnd:
 		return "", true
@@ -240,7 +241,7 @@ func targetState(event, notification string) (protocol.State, bool) {
 }
 
 // isLateToolEvent reports whether a tool event at now falls inside stopGraceWindow after the pane's
-// Stop, read from @orrery_changed. An unset @orrery_changed is outside the window.
+// Stop or StopFailure, read from @orrery_changed. An unset @orrery_changed is outside the window.
 func isLateToolEvent(
 	ctx context.Context,
 	client *tmuxctl.Client,
@@ -350,7 +351,7 @@ func writeQuestion(
 }
 
 // writeTool records the tool a PreToolUse starts, clears it when its PostToolUse or
-// PostToolUseFailure ends it, and clears it on Stop. Other events leave it unchanged.
+// PostToolUseFailure ends it, and clears it on Stop or StopFailure. Other events leave it unchanged.
 func writeTool(
 	ctx context.Context,
 	client *tmuxctl.Client,
@@ -364,7 +365,7 @@ func writeTool(
 		return setTool(ctx, client, paneID, fields, now)
 	case eventPostToolUse, eventPostToolUseFailure:
 		return clearTool(ctx, client, paneID, fields)
-	case eventStop:
+	case eventStop, eventStopFailure:
 		return unsetTool(ctx, client, paneID)
 	}
 	return nil

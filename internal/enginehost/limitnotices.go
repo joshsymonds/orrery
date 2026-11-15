@@ -2,6 +2,7 @@ package enginehost
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"maps"
@@ -22,23 +23,61 @@ type LimitedStepReader interface {
 	LimitedSteps(ctx context.Context) ([]store.StepRow, error)
 }
 
-// LimitNoticesConfig configures LimitNotices. Steps reads the limited steps, Route receives the notices, Now is the
-// clock, Tick is the channel each check waits on, and Logger logs a failed read. A nil Logger discards.
+// LimitTold holds the marks of the usage limits told: for each limit, the sorted ids of the steps its last notice
+// named. A limit with no marked step is absent from ToldLimits. *store.Store satisfies it.
+type LimitTold interface {
+	ToldLimits(ctx context.Context) (map[string][]string, error)
+	TellLimit(ctx context.Context, limit string, steps []string) error
+	ForgetLimit(ctx context.Context, limit string) error
+}
+
+// LimitNoticesConfig configures LimitNotices. Steps reads the limited steps, Told holds the marks of the limits told,
+// Route receives the notices, Now is the clock, Tick is the channel each check waits on, and Logger logs a failed read
+// or write. A nil Logger discards.
 type LimitNoticesConfig struct {
 	Steps  LimitedStepReader
+	Told   LimitTold
 	Route  Router
 	Now    func() time.Time
 	Tick   <-chan time.Time
 	Logger *slog.Logger
 }
 
-// LimitNotices tells the owner once per usage limit which steps are waiting on it.
+// LimitSource is the source kind of a limit notice. Its data is the limitData of the group it tells.
+const LimitSource = "limit"
+
+// limitData is what a limit notice stores to be rebuilt: its group's kind, reset and step ids in row order.
+type limitData struct {
+	Kind   string    `json:"kind"`
+	Resets time.Time `json:"resets"`
+	IDs    []string  `json:"ids"`
+}
+
+// RestoreLimitNotice rebuilds the notice that a stored row of LimitSource describes, from the limitData in data. It is
+// the route.Rebuild for LimitSource, and it returns the notice the check builds for the same group. It ignores at, the
+// row's recorded time: a limit notice never ends by it.
+func RestoreLimitNotice(_ context.Context, data []byte, _ int64) (route.Notice, error) {
+	var stored limitData
+	if err := json.Unmarshal(data, &stored); err != nil {
+		return route.Notice{}, fmt.Errorf("%s notice: %w", LimitSource, err)
+	}
+	return limitNotice(&limitGroup{
+		key:    limitKeyOf(stored.Kind, stored.Resets),
+		kind:   stored.Kind,
+		resets: stored.Resets,
+		ids:    stored.IDs,
+	}), nil
+}
+
+// LimitNotices tells the owner once per usage limit which steps are waiting on it. It keeps a mark per limit of the
+// step ids it last told, in the store, so a restart tells neither a limit told before nor one twice.
 type LimitNotices struct {
 	cfg LimitNoticesConfig
-	// known holds, for each limit with held steps, the ids of those steps as the last report left them, sorted.
+	// known holds, for each limit with a mark, the ids the mark names, sorted. It is read from the store once and kept
+	// as each check changes it.
 	known map[notice.Key][]string
-	// remembered is set once the limited steps have been read. Until then a check reads them without reporting.
-	remembered bool
+	// read is set once the marks have been read. Until then a check reads them and reports nothing.
+	read bool
 }
 
 // NewLimitNotices returns a LimitNotices for cfg.
@@ -49,9 +88,8 @@ func NewLimitNotices(cfg LimitNoticesConfig) *LimitNotices {
 	return &LimitNotices{cfg: cfg, known: make(map[notice.Key][]string)}
 }
 
-// Run checks the limited steps at start and at each tick until ctx ends. The check at start only remembers the groups
-// it reads, so steps already limited when Run starts are not reported. A start read that fails leaves nothing
-// remembered, so the first check that reads remembers instead.
+// Run checks the limited steps at start and at each tick until ctx ends. The check at start reads the marks first, so
+// a limit told before a restart is not told again. A failed read of the marks is retried at the next check.
 func (l *LimitNotices) Run(ctx context.Context) {
 	l.check(ctx)
 	for {
@@ -78,23 +116,39 @@ type limitGroup struct {
 	ids    []string
 }
 
-// check reads the limited steps and reports the changes since the last check. A failed read is logged, and the check
-// changes nothing.
+// check reads the marks until they are read, then the limited steps, and reports the changes since the last check. A
+// failed read is logged, and the check changes nothing.
 func (l *LimitNotices) check(ctx context.Context) {
+	if !l.read && !l.readMarks(ctx) {
+		return
+	}
 	rows, err := l.cfg.Steps.LimitedSteps(ctx)
 	if err != nil {
 		l.cfg.Logger.ErrorContext(ctx, "read limited steps", "error", err)
 		return
 	}
-	l.update(ctx, limitGroups(rows), l.remembered)
-	l.remembered = true
+	l.update(ctx, limitGroups(rows))
+}
+
+// readMarks reads the marks of the limits told into known, and reports whether it did. A failed read is logged.
+func (l *LimitNotices) readMarks(ctx context.Context) bool {
+	marks, err := l.cfg.Told.ToldLimits(ctx)
+	if err != nil {
+		l.cfg.Logger.ErrorContext(ctx, "read told limits", "error", err)
+		return false
+	}
+	for limit, ids := range marks {
+		l.known[notice.Key{Limit: limit}] = slices.Sorted(slices.Values(ids))
+	}
+	l.read = true
+	return true
 }
 
 // limitGroups groups rows by kind and reset. Each group's ids are in row order.
 func limitGroups(rows []store.StepRow) map[notice.Key]*limitGroup {
 	groups := make(map[notice.Key]*limitGroup)
 	for _, row := range rows {
-		key := notice.Key{Limit: fmt.Sprintf("%s@%d", row.LoopLimitKind, resetUnix(row.LoopLimitResets))}
+		key := limitKeyOf(row.LoopLimitKind, row.LoopLimitResets)
 		group, ok := groups[key]
 		if !ok {
 			group = &limitGroup{key: key, kind: row.LoopLimitKind, resets: row.LoopLimitResets}
@@ -105,6 +159,11 @@ func limitGroups(rows []store.StepRow) map[notice.Key]*limitGroup {
 	return groups
 }
 
+// limitKeyOf is the key of the usage limit of kind that resets at resets.
+func limitKeyOf(kind string, resets time.Time) notice.Key {
+	return notice.Key{Limit: fmt.Sprintf("%s@%d", kind, resetUnix(resets))}
+}
+
 // resetUnix is the reset in unix seconds, or 0 when the reset is unknown.
 func resetUnix(resets time.Time) int64 {
 	if resets.IsZero() {
@@ -113,19 +172,23 @@ func resetUnix(resets time.Time) int64 {
 	return resets.Unix()
 }
 
-// update brings known to groups. A group whose step ids differ from the ones known is new, grown or shrunk, and is
-// routed as one notice when report is set. A known group that is gone has emptied, and is seen when report is set.
-// Either way known then holds groups' ids, so the next update compares against them.
-func (l *LimitNotices) update(ctx context.Context, groups map[notice.Key]*limitGroup, report bool) {
+// update brings the marks to groups. A group whose step ids differ from its mark is told as one notice, and marked with
+// its ids. A marked limit with no group has emptied: it is seen, and its mark is forgotten. The Router takes a notice
+// whatever ctx's cancellation, so the mark writes ignore it too: a stop landing after a notice still marks it, and the
+// next start does not tell it again. A failed write of a mark is logged, and the mark is kept in memory either way, so
+// the check does not tell or see the limit again.
+func (l *LimitNotices) update(ctx context.Context, groups map[notice.Key]*limitGroup) {
+	markCtx := context.WithoutCancel(ctx)
 	for _, key := range sortedLimitKeys(groups) {
 		group := groups[key]
 		ids := slices.Sorted(slices.Values(group.ids))
 		if slices.Equal(l.known[key], ids) {
 			continue
 		}
+		l.cfg.Route.Notify(ctx, limitRouted(group))
 		l.known[key] = ids
-		if report {
-			l.cfg.Route.Notify(ctx, limitNotice(group))
+		if err := l.cfg.Told.TellLimit(markCtx, key.Limit, ids); err != nil {
+			l.cfg.Logger.ErrorContext(ctx, "mark limit told", "limit", key.Limit, "error", err)
 		}
 	}
 	now := l.cfg.Now().Unix()
@@ -134,8 +197,9 @@ func (l *LimitNotices) update(ctx context.Context, groups map[notice.Key]*limitG
 			continue
 		}
 		delete(l.known, key)
-		if report {
-			l.cfg.Route.Seen(ctx, key, now)
+		l.cfg.Route.Seen(ctx, key, now)
+		if err := l.cfg.Told.ForgetLimit(markCtx, key.Limit); err != nil {
+			l.cfg.Logger.ErrorContext(ctx, "forget limit told", "limit", key.Limit, "error", err)
 		}
 	}
 }
@@ -164,6 +228,17 @@ func limitNotice(group *limitGroup) route.Notice {
 			}, nil
 		},
 	}
+}
+
+// limitRouted is limitNotice for group with the Source that restores it after a restart. The data is strings and a
+// time, which marshal unless the reset lies outside years 0 to 9999; then the notice routes with no row to restore it
+// from.
+func limitRouted(group *limitGroup) route.Notice {
+	n := limitNotice(group)
+	if data, err := json.Marshal(limitData{Kind: group.kind, Resets: group.resets, IDs: group.ids}); err == nil {
+		n.Source = route.Source{Kind: LimitSource, Data: data}
+	}
+	return n
 }
 
 // limitBody names the count of the group's steps, its kind, its reset in RFC 3339 UTC or "unknown", and its step ids.

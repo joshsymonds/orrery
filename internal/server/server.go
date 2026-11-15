@@ -164,8 +164,8 @@ type Config struct {
 	Sessions *store.Reader
 	// EventPoll is the interval at which Events.Watch polls the store for new events, or zero for the default.
 	EventPoll time.Duration
-	// EventSendTimeout bounds each Events.Watch, Panes.WatchConversation and Sessions.WatchConversation send, or is
-	// zero for the default. A send that does not complete in time ends its stream, and no other.
+	// EventSendTimeout bounds each Events.Watch, Notices.Watch, Panes.WatchConversation and Sessions.WatchConversation
+	// send, or is zero for the default. A send that does not complete in time ends its stream, and no other.
 	EventSendTimeout time.Duration
 	// ConversationPoll is the interval at which Panes.WatchConversation and Sessions.WatchConversation poll their
 	// pane or session and transcript, or zero for the default.
@@ -173,14 +173,16 @@ type Config struct {
 	// ConversationKeepalive is the time without a delta after which Panes.WatchConversation and
 	// Sessions.WatchConversation send a keepalive, or zero for the default.
 	ConversationKeepalive time.Duration
-	// Shutdown ends every open Events.Watch, Panes.WatchConversation and Sessions.WatchConversation stream when it
-	// closes, or is nil to leave streams open.
+	// Shutdown ends every open Events.Watch, Notices.Watch, Panes.WatchConversation and Sessions.WatchConversation stream
+	// when it closes, or is nil to leave streams open.
 	Shutdown <-chan struct{}
 	// Engine forwards the Control API to orreryd's engine socket, or is nil, which answers unavailable.
 	Engine enginev1connect.EngineClient
 	// Pools forwards the Pools API to orreryd's engine Pools service, or is nil, which answers unavailable.
 	Pools enginev1connect.PoolsClient
-	// ControlTimeout bounds each forward to Engine and Pools, or is zero for the default.
+	// Notices forwards the Notices API to orreryd's engine Notices service, or is nil, which answers unavailable.
+	Notices enginev1connect.NoticesClient
+	// ControlTimeout bounds each forward to Engine, Pools and Notices, or is zero for the default.
 	ControlTimeout time.Duration
 	// Steps is orreryd's Steps client, which Control asks before it forwards a session command, or is nil, which
 	// forwards every session command as before.
@@ -211,6 +213,8 @@ type Config struct {
 	// Web holds the built page, with index.html at its root and its assets beside it, or is nil for no page.
 	// After the login check, GET and HEAD answer a file of Web at its path, and "/" answers index.html.
 	Web fs.FS
+	// HandlerOptions apply to every Connect handler New mounts, or are nil for none.
+	HandlerOptions []connect.HandlerOption
 }
 
 // New returns a handler that admits only the configured logins, and never emits CORS headers. A request to
@@ -251,35 +255,41 @@ func New(cfg Config) (http.Handler, error) {
 	tokens := &pickerTokens{entries: make(map[string]pickerEntry)}
 	sessionsPath, sessions := newSessionsHandler(
 		cfg.Sessions, cfg.Steps, conversationPoll, conversationKeepalive, sendTimeout, cfg.Shutdown,
+		cfg.HandlerOptions...,
 	)
 	mux.Handle(sessionsPath, sessions)
-	eventsPath, events := newEventsHandler(cfg.Sessions, poll, sendTimeout, cfg.Shutdown)
+	eventsPath, events := newEventsHandler(cfg.Sessions, poll, sendTimeout, cfg.Shutdown, cfg.HandlerOptions...)
 	mux.Handle(eventsPath, events)
-	controlPath, control := newControlHandler(cfg.Engine, cfg.ControlTimeout, cfg.Home, cfg.Steps)
+	controlPath, control := newControlHandler(
+		cfg.Engine, cfg.ControlTimeout, cfg.Home, cfg.Steps, cfg.HandlerOptions...,
+	)
 	mux.Handle(controlPath, control)
 	epicsPath, evidencePath := registerEpicServices(mux, cfg, now)
-	stepsPath, stepsService := newStepsHandler(cfg.Steps, cfg.ControlTimeout, rpcretry.SystemClock{})
+	stepsPath, stepsService := newStepsHandler(
+		cfg.Steps, cfg.ControlTimeout, rpcretry.SystemClock{}, cfg.HandlerOptions...,
+	)
 	mux.Handle(stepsPath, stepsService)
-	poolsPath, pools := newPoolsHandler(cfg.Pools, cfg.ControlTimeout)
+	poolsPath, pools := newPoolsHandler(cfg.Pools, cfg.ControlTimeout, cfg.HandlerOptions...)
 	mux.Handle(poolsPath, pools)
+	noticesPath := registerNotices(mux, cfg, sendTimeout)
 	panesPath, panesService := newPanesHandler(
 		cfg.Tmux, cfg.Sessions, newest, goals, queues, textLocks, seenLocks, cfg.ReportSeen, cfg.ReportRead, now,
-		conversationPoll, conversationKeepalive, sendTimeout, cfg.Shutdown,
+		conversationPoll, conversationKeepalive, sendTimeout, cfg.Shutdown, cfg.HandlerOptions...,
 	)
 	mux.Handle(panesPath, panesService)
-	hostPath, hostService := newHostHandler(cfg.HostStatus)
+	hostPath, hostService := newHostHandler(cfg.HostStatus, cfg.HandlerOptions...)
 	mux.Handle(hostPath, hostService)
-	presencePath := registerPresence(mux, cfg.ReportInput, now)
-	pushPath, pushService := newPushHandler(cfg.Push)
+	presencePath := registerPresence(mux, cfg.ReportInput, now, cfg.HandlerOptions...)
+	pushPath, pushService := newPushHandler(cfg.Push, cfg.HandlerOptions...)
 	mux.Handle(pushPath, pushService)
-	pickerPath, pickerService := newPickerHandler(cfg.Picker, tokens, cfg.Tmux, now)
+	pickerPath, pickerService := newPickerHandler(cfg.Picker, tokens, cfg.Tmux, now, cfg.HandlerOptions...)
 	mux.Handle(pickerPath, pickerService)
 	if cfg.Web != nil {
 		mux.Handle("/", newPageHandler(cfg.Web))
 	}
 	connectPaths := []string{
-		sessionsPath, eventsPath, controlPath, epicsPath, evidencePath, stepsPath, poolsPath, panesPath, hostPath,
-		pushPath, pickerPath, presencePath,
+		sessionsPath, eventsPath, controlPath, epicsPath, evidencePath, stepsPath, poolsPath, noticesPath, panesPath,
+		hostPath, pushPath, pickerPath, presencePath,
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if _, ok := allowed[r.Header.Get(HeaderLogin)]; !ok {
@@ -299,11 +309,22 @@ func New(cfg Config) (http.Handler, error) {
 func registerEpicServices(mux *http.ServeMux, cfg Config, now func() time.Time) (string, string) {
 	epicsPath, epicsService := newEpicsHandler(
 		cfg.Records, cfg.Steps, cfg.EpicStore, cfg.Evidence, cfg.ControlTimeout, now, rpcretry.SystemClock{},
+		cfg.HandlerOptions...,
 	)
 	mux.Handle(epicsPath, epicsService)
-	evidencePath, evidenceService := newEvidenceHandler(cfg.Evidence, cfg.ControlTimeout)
+	evidencePath, evidenceService := newEvidenceHandler(cfg.Evidence, cfg.ControlTimeout, cfg.HandlerOptions...)
 	mux.Handle(evidencePath, evidenceService)
 	return epicsPath, evidencePath
+}
+
+// registerNotices mounts the Notices service on mux, forwarding to cfg.Notices with each Watch send bounded by
+// sendTimeout, and returns the path it routes.
+func registerNotices(mux *http.ServeMux, cfg Config, sendTimeout time.Duration) string {
+	path, handler := newNoticesHandler(
+		cfg.Notices, cfg.ControlTimeout, sendTimeout, cfg.Shutdown, cfg.HandlerOptions...,
+	)
+	mux.Handle(path, handler)
+	return path
 }
 
 // newPageHandler returns the handler that answers GET and HEAD of a file of web, with "/" answering index.html.

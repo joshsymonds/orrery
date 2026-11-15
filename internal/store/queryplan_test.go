@@ -12,6 +12,9 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/joshsymonds/orrery/internal/store/sqlcgen"
 )
 
 // queryPlanSource is the sqlc output that holds the SQL text of every query the Reader issues.
@@ -69,6 +72,61 @@ func TestDueResumeQueryPlans(t *testing.T) {
 		for _, detail := range planDetails(t, s.db, name, text) {
 			if index, scans := eventsScan(detail, names); scans && !partial[index] {
 				t.Errorf("query %s: plan row %q scans due_resumes without a partial index", name, detail)
+			}
+		}
+	}
+}
+
+// TestHolderPromptQueryPlans fails when a query that writes a turn end's answered uuids, or counts the holder prompts
+// no later turn end answers, scans events without a partial index. Re-adoption counts the owed prompts of each holder it
+// attaches, and events holds every session's log, so a full scan of it grows with the whole store. A search of events
+// is not a scan and passes.
+func TestHolderPromptQueryPlans(t *testing.T) {
+	t.Parallel()
+	texts := sqlcQueryTexts(t)
+	s := openWriterAt(t, filepath.Join(t.TempDir(), "orrery.db"))
+	partial := partialIndexesOf(t, s.db, "events")
+	for _, name := range []string{"InsertEngineTurnEndedEvent", "CountHolderPromptsUnanswered"} {
+		text, ok := texts[name]
+		if !ok {
+			t.Fatalf("query %s is not defined in %s", name, queryPlanSource)
+		}
+		for _, detail := range unpartitionedEventsScans(t, s.db, partial, name, text) {
+			t.Errorf("query %s: plan row %q scans events without a partial index", name, detail)
+		}
+	}
+}
+
+// TestToldLimitQueryPlans checks the told-limit queries against told_limit_steps. Deleting a limit's marks searches its
+// primary key. Listing reads every mark, as the check at start needs them all, so it may scan, but only in primary-key
+// order: a bare scan of the table or a temporary sort would mean the key no longer serves the query.
+func TestToldLimitQueryPlans(t *testing.T) {
+	t.Parallel()
+	texts := sqlcQueryTexts(t)
+	s := openWriterAt(t, filepath.Join(t.TempDir(), "orrery.db"))
+	names := map[string]bool{"told_limit_steps": true}
+	for _, tc := range []struct {
+		name     string
+		scanning bool
+	}{
+		{"InsertToldLimitStep", false},
+		{"DeleteToldLimit", false},
+		{"ListToldLimitSteps", true},
+	} {
+		text, ok := texts[tc.name]
+		if !ok {
+			t.Fatalf("query %s is not defined in %s", tc.name, queryPlanSource)
+		}
+		for _, detail := range planDetails(t, s.db, tc.name, text) {
+			if strings.Contains(detail, "TEMP B-TREE") {
+				t.Errorf("query %s: plan row %q sorts told_limit_steps in a temporary b-tree", tc.name, detail)
+			}
+			index, scans := eventsScan(detail, names)
+			switch {
+			case scans && !tc.scanning:
+				t.Errorf("query %s: plan row %q scans told_limit_steps, want a search of its key", tc.name, detail)
+			case scans && index == "":
+				t.Errorf("query %s: plan row %q scans told_limit_steps without its key", tc.name, detail)
 			}
 		}
 	}
@@ -256,4 +314,109 @@ func eventsScan(detail string, names map[string]bool) (string, bool) {
 		}
 	}
 	return "", true
+}
+
+// TestNodeRunQueryPlans fails when a query that EpicFlow issues, or a node-run write, scans a table without an index.
+// The interpreter calls EpicFlow for every epic on every pass, so each of its queries must search an epic's rows by
+// key rather than read a whole table. The EpicFlow queries are recorded from a real read of a seeded epic with a
+// planned task and a node run, so a query EpicFlow later adds is checked too.
+func TestNodeRunQueryPlans(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	s := openWriterAt(t, filepath.Join(t.TempDir(), "orrery.db"))
+	seedFlowPlanEpic(t, s)
+	recorder := &planRecorder{db: s.db}
+	if _, err := readEpicFlow(ctx, sqlcgen.New(recorder), queryPlanEpic); err != nil {
+		t.Fatalf("readEpicFlow: %v", err)
+	}
+	texts := sqlcQueryTexts(t)
+	byName := map[string]string{}
+	for _, text := range recorder.texts {
+		if name, ok := queryName(text); ok {
+			byName[name] = text
+		}
+	}
+	for _, name := range []string{
+		"ListEpicNodeRuns", "CountPendingEpicTriggers", "InsertEpicNodeRun", "EndEpicNodeRun",
+		"MoveEpicLoopRound", "ParkEpicLoopRun", "GrantEpicParkedLoops", "InsertEpicTriggerOnce",
+		"ListEpicWorkflowNodes",
+	} {
+		text, ok := texts[name]
+		if !ok {
+			t.Fatalf("query %s is not defined in %s", name, queryPlanSource)
+		}
+		byName[name] = text
+	}
+	if len(byName) < 12 {
+		t.Fatalf("recorded %d queries, want EpicFlow's reads and the node-run writes", len(byName))
+	}
+	for name, text := range byName {
+		for _, detail := range planDetails(t, s.db, name, text) {
+			if fields := strings.Fields(detail); len(fields) > 1 && fields[0] == "SCAN" {
+				t.Errorf("query %s: plan row %q scans a table, want a search of the epic's key", name, detail)
+			}
+		}
+	}
+}
+
+// queryPlanEpic is the synthetic epic TestNodeRunQueryPlans reads.
+const queryPlanEpic = "orrery-0123456/query-plan"
+
+// seedFlowPlanEpic stores queryPlanEpic with one planned task and a running plan run, so a read of it issues every
+// query EpicFlow has, the per-task ones included.
+func seedFlowPlanEpic(t *testing.T, s *Store) {
+	t.Helper()
+	ctx := context.Background()
+	at := time.Unix(1700000000, 0)
+	if err := s.CreateEpic(ctx, EpicRow{
+		ID: queryPlanEpic, Repository: "/work/synthetic", Base: "base", Title: "Plan the query plans",
+		Phase: "accepted", Created: at, Changed: at,
+		Requirements: []EpicRequirement{{ID: "R1", Text: "plans search", Evidence: "plan test", Kind: "test"}},
+	}); err != nil {
+		t.Fatalf("CreateEpic: %v", err)
+	}
+	if err := s.StartNodes(ctx, queryPlanEpic, []NodeRun{{
+		Path: "plan", ID: NodeRunID(queryPlanEpic, "plan", 0, "start"), Node: "plan", Kind: "plan",
+	}}, nil, at); err != nil {
+		t.Fatalf("StartNodes: %v", err)
+	}
+	if _, err := s.ClaimTurn(ctx, queryPlanEpic, at); err != nil {
+		t.Fatalf("ClaimTurn: %v", err)
+	}
+	if err := s.CompleteTurn(ctx, queryPlanEpic, 1, EpicPlan{
+		Tasks: []EpicTaskInput{{
+			Title: "Search by key", Deliverable: "every query searches", Files: []string{"plan.go"},
+			Requirements: []string{"R1"}, Gate: "check",
+		}},
+		Outline: "One task", Outcome: "work",
+	}, at); err != nil {
+		t.Fatalf("CompleteTurn: %v", err)
+	}
+}
+
+// planRecorder is a sqlcgen.DBTX that keeps the text of each query it runs on db, so a test can read the plan of
+// every query a store read issues.
+type planRecorder struct {
+	db    *sql.DB
+	texts []string
+}
+
+func (r *planRecorder) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
+	r.texts = append(r.texts, query)
+	return r.db.ExecContext(ctx, query, args...)
+}
+
+func (r *planRecorder) PrepareContext(ctx context.Context, query string) (*sql.Stmt, error) {
+	r.texts = append(r.texts, query)
+	return r.db.PrepareContext(ctx, query)
+}
+
+func (r *planRecorder) QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
+	r.texts = append(r.texts, query)
+	return r.db.QueryContext(ctx, query, args...)
+}
+
+func (r *planRecorder) QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row {
+	r.texts = append(r.texts, query)
+	return r.db.QueryRowContext(ctx, query, args...)
 }

@@ -20,9 +20,9 @@ type absentDesk struct{}
 // Post does nothing.
 func (absentDesk) Post(deskstream.Notice) {}
 
-// Desk reports the desk as absent.
-func (absentDesk) Desk() (int64, bool) {
-	return 0, false
+// Desk reports no web input, so the desk is away.
+func (absentDesk) Desk() int64 {
+	return 0
 }
 
 // sendingPhone is the PhoneSink of the tests that route a push and then restart. Each push handed to it keeps its sent

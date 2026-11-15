@@ -34,7 +34,6 @@ type fake struct {
 	mu         sync.Mutex
 	now        int64
 	timers     []*fakeTimer
-	present    bool
 	deskInput  int64
 	subscribed bool
 	subErr     error
@@ -111,10 +110,10 @@ func (f *fake) After(d time.Duration, fn func()) func() bool {
 	}
 }
 
-func (f *fake) Desk() (int64, bool) {
+func (f *fake) Desk() int64 {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return f.deskInput, f.present
+	return f.deskInput
 }
 
 func (f *fake) Post(n deskstream.Notice) {
@@ -182,10 +181,10 @@ func (f *fake) setWatching(watching bool, err error) {
 	f.watchErr = err
 }
 
-func (f *fake) setDesk(present bool, input int64) {
+// setDesk records input as the newest web input, unix seconds. Zero is no input.
+func (f *fake) setDesk(input int64) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.present = present
 	f.deskInput = input
 }
 
@@ -358,7 +357,7 @@ func TestNewNoticeReplacesPendingNoticeAsChanged(t *testing.T) {
 
 	r.Notify(t.Context(), f.notice(testPane, stateWaiting, true))
 	r.Wait()
-	f.setDesk(true, clockStart)
+	f.setDesk(clockStart)
 	r.Notify(t.Context(), f.notice(testPane, stateDone, false))
 	r.Wait()
 
@@ -475,7 +474,7 @@ func TestChangedDuringWatchCheckWritesNoSecondLine(t *testing.T) {
 
 func TestAtDeskByDeskInputEscalatesAfterFiveMinutesUnseen(t *testing.T) {
 	f := newFake()
-	f.setDesk(true, clockStart)
+	f.setDesk(clockStart)
 	r := newRouter(t, f)
 
 	r.Notify(t.Context(), f.notice(testPane, stateWaiting, false))
@@ -494,7 +493,7 @@ func TestAtDeskByDeskInputEscalatesAfterFiveMinutesUnseen(t *testing.T) {
 
 func TestAtDeskByDeskInputEndedBySeen(t *testing.T) {
 	f := newFake()
-	f.setDesk(true, clockStart)
+	f.setDesk(clockStart)
 	r := newRouter(t, f)
 	key := notice.Key{Pane: testPane}
 
@@ -513,47 +512,62 @@ func TestAtDeskByDeskInputEndedBySeen(t *testing.T) {
 	f.checkActiveTimers(t, 0)
 }
 
-func TestDeskInputWindowAndPresenceDecideRoute(t *testing.T) {
+func TestWebInputWithoutDeskLinkRoutesAtDesk(t *testing.T) {
+	f := newFake()
+	f.setDesk(clockStart)
+	r := newRouter(t, f)
+
+	r.Notify(t.Context(), f.notice(testPane, stateWaiting, false))
+	r.Wait()
+	f.check(t, []route.Line{lineOf(testPane, clockStart, stateWaiting, route.Desk, "at the desk")},
+		[]deskstream.Notice{deskPost(stateWaiting)}, nil)
+
+	f.fire(t, route.Escalation)
+	r.Wait()
+	f.check(t, []route.Line{
+		lineOf(testPane, clockStart, stateWaiting, route.Desk, "at the desk"),
+		lineOf(testPane, clockStart+300, stateWaiting, route.Phone, "unseen after 5 minutes"),
+	}, []deskstream.Notice{deskPost(stateWaiting)}, []push.Notification{phonePush(testPane, stateWaiting)})
+	f.checkActiveTimers(t, 0)
+}
+
+func TestDeskInputWindowDecidesRoute(t *testing.T) {
 	cases := []struct {
-		name    string
-		present bool
-		input   int64
-		routed  string
-		reason  string
-		posts   []deskstream.Notice
-		pushes  []push.Notification
+		name   string
+		input  int64
+		routed string
+		reason string
+		posts  []deskstream.Notice
+		pushes []push.Notification
 	}{
 		{
-			name:    "input at the window edge is at the desk",
-			present: true,
-			input:   clockStart - 120,
-			routed:  route.Desk,
-			reason:  "at the desk",
-			posts:   []deskstream.Notice{deskPost(stateWaiting)},
+			name:   "input at the window edge is at the desk",
+			input:  clockStart - 120,
+			routed: route.Desk,
+			reason: "at the desk",
+			posts:  []deskstream.Notice{deskPost(stateWaiting)},
 		},
 		{
-			name:    "input older than the window is away",
-			present: true,
-			input:   clockStart - 121,
-			routed:  route.DeskPhone,
-			reason:  "away",
-			posts:   []deskstream.Notice{deskPost(stateWaiting)},
-			pushes:  []push.Notification{phonePush(testPane, stateWaiting)},
+			name:   "input older than the window is away",
+			input:  clockStart - 121,
+			routed: route.DeskPhone,
+			reason: "away",
+			posts:  []deskstream.Notice{deskPost(stateWaiting)},
+			pushes: []push.Notification{phonePush(testPane, stateWaiting)},
 		},
 		{
-			name:    "desk not present is away",
-			present: false,
-			input:   clockStart,
-			routed:  route.DeskPhone,
-			reason:  "away",
-			posts:   []deskstream.Notice{deskPost(stateWaiting)},
-			pushes:  []push.Notification{phonePush(testPane, stateWaiting)},
+			name:   "no web input is away",
+			input:  0,
+			routed: route.DeskPhone,
+			reason: "away",
+			posts:  []deskstream.Notice{deskPost(stateWaiting)},
+			pushes: []push.Notification{phonePush(testPane, stateWaiting)},
 		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			f := newFake()
-			f.setDesk(tc.present, tc.input)
+			f.setDesk(tc.input)
 			r := newRouter(t, f)
 
 			r.Notify(t.Context(), f.notice(testPane, stateWaiting, false))
@@ -571,7 +585,7 @@ func TestDeskInputWindowAndPresenceDecideRoute(t *testing.T) {
 
 func TestNoSubscriptionAtDeskEscalatesToNone(t *testing.T) {
 	f := newFake()
-	f.setDesk(true, clockStart)
+	f.setDesk(clockStart)
 	f.setSubscribed(false, nil)
 	r := newRouter(t, f)
 
@@ -604,7 +618,7 @@ func TestNoSubscriptionAwayRoutesDeskOnly(t *testing.T) {
 func TestFailedDeskBuildRoutesAwayWithoutDeskNotice(t *testing.T) {
 	cases := []struct {
 		name       string
-		present    bool
+		input      int64
 		subscribed bool
 		routed     string
 		reason     string
@@ -612,7 +626,7 @@ func TestFailedDeskBuildRoutesAwayWithoutDeskNotice(t *testing.T) {
 	}{
 		{
 			name:       "at the desk routes away to the phone",
-			present:    true,
+			input:      clockStart,
 			subscribed: true,
 			routed:     route.Phone,
 			reason:     "away; desk notice failed",
@@ -620,7 +634,7 @@ func TestFailedDeskBuildRoutesAwayWithoutDeskNotice(t *testing.T) {
 		},
 		{
 			name:       "away without a subscription routes nowhere",
-			present:    false,
+			input:      0,
 			subscribed: false,
 			routed:     route.None,
 			reason:     "away; desk notice failed; no push subscription",
@@ -629,7 +643,7 @@ func TestFailedDeskBuildRoutesAwayWithoutDeskNotice(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			f := newFake()
-			f.setDesk(tc.present, clockStart)
+			f.setDesk(tc.input)
 			f.setSubscribed(tc.subscribed, nil)
 			r := newRouter(t, f)
 
@@ -650,7 +664,7 @@ func TestErrorsReadAsDefaults(t *testing.T) {
 	f := newFake()
 	err := errors.New("synthetic read failure")
 	f.setWatching(true, err)
-	f.setDesk(true, clockStart-3600)
+	f.setDesk(clockStart - 3600)
 	f.setSubscribed(false, err)
 	r := newRouter(t, f)
 
@@ -681,7 +695,7 @@ func TestCloseWritesShutdownForEachPendingNoticeAndStopsTimers(t *testing.T) {
 
 	r.Notify(t.Context(), f.notice(testPane, stateWaiting, true))
 	r.Wait()
-	f.setDesk(true, clockStart)
+	f.setDesk(clockStart)
 	r.Notify(t.Context(), f.notice(otherPane, stateDone, false))
 	r.Wait()
 
@@ -828,7 +842,7 @@ func TestJudgeUnneededGoesQuietToDeskAndSilentToPhone(t *testing.T) {
 			f := newFake()
 			f.setSubscribed(tc.subscribed, nil)
 			if tc.atDesk {
-				f.setDesk(true, clockStart)
+				f.setDesk(clockStart)
 			}
 			c := &canned{verdict: route.Verdict{Needed: false, Why: tc.why}}
 			r := newRouter(t, f)
@@ -915,7 +929,7 @@ func TestJudgeNeededRoutesAsTodayWithVerdictClause(t *testing.T) {
 
 func TestJudgeNeededAtDeskEscalatesAsToday(t *testing.T) {
 	f := newFake()
-	f.setDesk(true, clockStart)
+	f.setDesk(clockStart)
 	c := &canned{verdict: route.Verdict{Needed: true, Why: testWhy}}
 	r := newRouter(t, f)
 

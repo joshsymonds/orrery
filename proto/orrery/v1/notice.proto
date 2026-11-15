@@ -1,0 +1,70 @@
+syntax = "proto3";
+
+package orrery.v1;
+
+// Notices streams the notices open web pages show in-app, and takes the page's word that the owner opened one. serve
+// forwards both to orreryd.
+service Notices {
+  // Watch streams the in-app notices: first one shown message for each notice showing now, then a shown message for
+  // each notice shown later and an ended message for each one that ends. A notice shown again under the same key
+  // replaces the earlier one. The stream ends when serve or orreryd stops. With no orreryd to forward to, Watch is
+  // unavailable.
+  rpc Watch(NoticesWatchRequest) returns (stream NoticesWatchResponse);
+
+  // Seen records that the owner opened the notice under key, as seen at orreryd's own clock. A key that sets none or
+  // more than one of its fields is invalid_argument. With no orreryd to forward to, Seen is unavailable.
+  rpc Seen(NoticesSeenRequest) returns (NoticesSeenResponse);
+}
+
+// NoticeKey names what a notice is about. Exactly one field is set.
+message NoticeKey {
+  // The tmux pane id, % followed by digits.
+  string pane = 1;
+
+  // The headless session's or the step's id.
+  string session = 2;
+
+  // The epic's id.
+  string epic = 3;
+
+  // The usage limit, its kind and reset as kind@unix-seconds.
+  string limit = 4;
+}
+
+// InAppNotice is one notice an open web page shows.
+message InAppNotice {
+  // What the notice is about.
+  NoticeKey key = 1;
+
+  // The state the notice reports, such as waiting, done or limited.
+  string state = 2;
+
+  // The notice's title.
+  string title = 3;
+
+  // The notice's body.
+  string body = 4;
+}
+
+// NoticesWatchRequest opens the in-app notice stream. It has no fields.
+message NoticesWatchRequest {}
+
+// NoticesWatchResponse is one change to the in-app notices. Exactly one of shown and ended is set.
+message NoticesWatchResponse {
+  oneof change {
+    // A notice that shows now, or replaces the one shown under its key.
+    InAppNotice shown = 1;
+
+    // The key of a notice that ended.
+    NoticeKey ended = 2;
+  }
+}
+
+// NoticesSeenRequest names the notice the owner opened.
+message NoticesSeenRequest {
+  // The opened notice's key.
+  NoticeKey key = 1;
+}
+
+// NoticesSeenResponse is the reply to a Seen. It has no fields.
+message NoticesSeenResponse {}

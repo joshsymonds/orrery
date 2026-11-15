@@ -161,8 +161,8 @@ func (r *Router) rebuildLocked(ctx context.Context, ent *entry) error {
 }
 
 // resumeLocked resumes the restored ent from its phase. A deciding or held notice decides at once. A delayed notice
-// decides, and a desk notice escalates, when its due passes. A sending notice is sent to the phone again at once. The
-// caller holds r.mu.
+// decides, and a desk notice escalates, when its due passes. A desk notice is shown on Pages again at once. A sending
+// notice is sent to the phone again at once. The caller holds r.mu.
 func (r *Router) resumeLocked(ctx context.Context, ent *entry) {
 	switch ent.phase {
 	case phaseDeciding, phaseHeld:
@@ -171,9 +171,26 @@ func (r *Router) resumeLocked(ctx context.Context, ent *entry) {
 		r.dueLocked(ent, func() { r.decide(ctx, ent) })
 	case phaseDesk:
 		r.dueLocked(ent, func() { r.escalate(ctx, ent) })
+		r.startLocked(func() { r.showRestored(ctx, ent) })
 	case phaseSending:
 		r.resendLocked(ctx, ent)
 	}
+}
+
+// showRestored builds the desk notice of the restored desk ent outside the lock, as route does, and shows it on Pages
+// until ent ends. It is not posted to the desk link again, and a failed build shows nothing.
+func (r *Router) showRestored(ctx context.Context, ent *entry) {
+	dn, built := r.buildDesk(ctx, ent)
+	if !built {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if ent.ended || r.cfg.Pages == nil {
+		return
+	}
+	r.cfg.Pages.Show(ent.n.Key, dn)
+	ent.shown = true
 }
 
 // resendLocked hands the push of the restored sending ent to the phone again, silent when its row is silent. The row
@@ -199,7 +216,7 @@ func (r *Router) dueLocked(ent *entry, run func()) {
 
 // keyOf is the key of the notice row describes.
 func keyOf(row store.NoticeRow) notice.Key {
-	return notice.Key{Pane: row.Pane, Session: row.Session, Epic: row.Epic}
+	return notice.Key{Pane: row.Pane, Session: row.Session, Epic: row.Epic, Limit: row.Limit}
 }
 
 // rowLocked writes ent's row. A notice without a source, and a Router without a store, have no row. The first write
@@ -309,6 +326,7 @@ func rowOf(ent *entry) store.NoticeRow {
 		Pane:        ent.n.Key.Pane,
 		Session:     ent.n.Key.Session,
 		Epic:        ent.n.Key.Epic,
+		Limit:       ent.n.Key.Limit,
 		State:       ent.n.State,
 		Time:        ent.at,
 		Phase:       ent.phase,

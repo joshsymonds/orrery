@@ -1,0 +1,174 @@
+# promtool unit tests for orrery-rules.yml, run by `just alert-check`.
+#
+# Every series is synthetic. Times are seconds from the promtool origin, so a
+# process that starts at the origin has a start timestamp of 0. A ready
+# timestamp is the time READY was reached on the same clock, and 0 means READY
+# has not been reached.
+rule_files:
+  - orrery-rules.yml
+
+evaluation_interval: 1m
+
+tests:
+  # Three days of failed pushes: two failures every 2 minutes.
+  - interval: 2m
+    input_series:
+      - series: 'orrery_push_failures_total{job="orreryd", instance="busy-host:9464", class="transport"}'
+        values: '0+2x2160'
+    alert_rule_test:
+      - eval_time: 3d
+        alertname: OrreryPushFailing
+        exp_alerts:
+          - exp_labels:
+              job: "orreryd"
+              instance: "busy-host:9464"
+              severity: "warning"
+            exp_annotations:
+              summary: "More than 5 orrery push failures in 10 minutes."
+
+  # Exactly five failures inside the 10-minute window: not more than five.
+  - interval: 2m
+    input_series:
+      - series: 'orrery_push_failures_total{job="orreryd", instance="quiet-host:9464", class="4xx"}'
+        values: '0+1x5 5x60'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: OrreryPushFailing
+        exp_alerts: []
+
+  # Slow start at 152 s, a start still not ready at 1 minute and at 1 hour, and
+  # a 3 s start that is never slow.
+  - interval: 1s
+    input_series:
+      - series: 'orrery_start_timestamp_seconds{job="orreryd", instance="slow-host:9464"}'
+        values: '0x3900'
+      - series: 'orrery_ready_timestamp_seconds{job="orreryd", instance="slow-host:9464"}'
+        values: '0x151 152x3700'
+      - series: 'orrery_start_timestamp_seconds{job="orreryd", instance="stuck-host:9464"}'
+        values: '0x3900'
+      - series: 'orrery_ready_timestamp_seconds{job="orreryd", instance="stuck-host:9464"}'
+        values: '0x3900'
+      - series: 'orrery_start_timestamp_seconds{job="orreryd", instance="fast-host:9464"}'
+        values: '0x3900'
+      - series: 'orrery_ready_timestamp_seconds{job="orreryd", instance="fast-host:9464"}'
+        values: '0x2 3x3900'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: OrreryStartSlow
+        exp_alerts:
+          - exp_labels:
+              job: "orreryd"
+              instance: "slow-host:9464"
+              severity: "warning"
+            exp_annotations:
+              summary: "orrery took over 10 seconds to become ready, or has not become ready 10 seconds after start."
+          - exp_labels:
+              job: "orreryd"
+              instance: "stuck-host:9464"
+              severity: "warning"
+            exp_annotations:
+              summary: "orrery took over 10 seconds to become ready, or has not become ready 10 seconds after start."
+      - eval_time: 3m
+        alertname: OrreryStartSlow
+        exp_alerts:
+          - exp_labels:
+              job: "orreryd"
+              instance: "slow-host:9464"
+              severity: "warning"
+            exp_annotations:
+              summary: "orrery took over 10 seconds to become ready, or has not become ready 10 seconds after start."
+          - exp_labels:
+              job: "orreryd"
+              instance: "stuck-host:9464"
+              severity: "warning"
+            exp_annotations:
+              summary: "orrery took over 10 seconds to become ready, or has not become ready 10 seconds after start."
+      - eval_time: 63m
+        alertname: OrreryStartSlow
+        exp_alerts:
+          - exp_labels:
+              job: "orreryd"
+              instance: "stuck-host:9464"
+              severity: "warning"
+            exp_annotations:
+              summary: "orrery took over 10 seconds to become ready, or has not become ready 10 seconds after start."
+
+  # One holder loss at 11 minutes; a series that never moves does not fire.
+  - interval: 1m
+    input_series:
+      - series: 'orrery_holder_losses_total{job="orreryd", instance="lost-host:9464"}'
+        values: '0x10 1x50'
+      - series: 'orrery_holder_losses_total{job="orreryd", instance="stable-host:9464"}'
+        values: '0x60'
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: OrreryHolderLost
+        exp_alerts:
+          - exp_labels:
+              job: "orreryd"
+              instance: "lost-host:9464"
+              severity: "warning"
+            exp_annotations:
+              summary: "orrery lost its holder within the last 15 minutes."
+      - eval_time: 30m
+        alertname: OrreryHolderLost
+        exp_alerts: []
+
+  # Writer wait at 0.6 s/s for five minutes fires; 0.4 s/s does not. A backlog
+  # of 11 s fires; 5 s does not.
+  - interval: 1m
+    input_series:
+      - series: 'orrery_writer_wait_seconds_total{job="orreryd", instance="stalled-host:9464"}'
+        values: '0+36x60'
+      - series: 'orrery_writer_wait_seconds_total{job="orreryd", instance="busy-host:9464"}'
+        values: '0+24x60'
+      - series: 'orrery_writer_backlog_age_seconds{job="orreryd", instance="backlog-host:9464"}'
+        values: '11x60'
+      - series: 'orrery_writer_backlog_age_seconds{job="orreryd", instance="fresh-host:9464"}'
+        values: '5x60'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: OrreryWriterStalled
+        exp_alerts:
+          - exp_labels:
+              job: "orreryd"
+              instance: "stalled-host:9464"
+              severity: "warning"
+            exp_annotations:
+              summary: "orrery writer is stalled: callers wait over half of wall time, or the oldest unstored op is over 10 seconds old."
+          - exp_labels:
+              job: "orreryd"
+              instance: "backlog-host:9464"
+              severity: "warning"
+            exp_annotations:
+              summary: "orrery writer is stalled: callers wait over half of wall time, or the oldest unstored op is over 10 seconds old."
+
+  # CPU at 1.62 and 0.5 cores fires once it has held for 15 minutes; 0.1 never
+  # fires. At 10 minutes the 1.62 and 0.5 cores are still pending.
+  - interval: 1m
+    input_series:
+      - series: 'process_cpu_seconds_total{job="orreryd", instance="busy-host:9464"}'
+        values: '0+97.2x60'
+      - series: 'process_cpu_seconds_total{job="orrery-serve", instance="serve-host:9464"}'
+        values: '0+30x60'
+      - series: 'process_cpu_seconds_total{job="orreryd", instance="idle-host:9464"}'
+        values: '0+6x60'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: OrreryCPUHigh
+        exp_alerts: []
+      - eval_time: 30m
+        alertname: OrreryCPUHigh
+        exp_alerts:
+          - exp_labels:
+              job: "orreryd"
+              instance: "busy-host:9464"
+              severity: "warning"
+            exp_annotations:
+              summary: "An orrery process (orreryd) has used 1.62 CPU cores for 15 minutes."
+          - exp_labels:
+              job: "orrery-serve"
+              instance: "serve-host:9464"
+              severity: "warning"
+            exp_annotations:
+              summary: "An orrery process (orrery-serve) has used 0.50 CPU cores for 15 minutes."
