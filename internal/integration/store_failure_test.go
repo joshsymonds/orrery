@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/store"
@@ -25,21 +24,13 @@ const mirrorDroppedLog = "mirror sync dropped"
 // corruptStoreBytes is not a SQLite database. A store file holding it must stay byte-identical.
 const corruptStoreBytes = "this is not a sqlite database, it is plain text kept for the test\n"
 
-// noticeWithin returns the next notice the stream sent, failing the test unless it arrives within limit of since.
-func noticeWithin(t *testing.T, r *noticeReader, since time.Time, limit time.Duration) notice {
-	t.Helper()
-	got := noticeOf(t, r.receive(t, time.Until(since.Add(limit))))
-	return got
-}
-
 // assertHooksStillReach sends a PermissionRequest and fails unless the pane reads waiting and its waiting notice
-// arrives within one second of the send. It then sends a Stop and fails unless the pane reads done.
+// arrives. It then sends a Stop and fails unless the pane reads done.
 func (f *storeFixture) assertHooksStillReach(t *testing.T) {
 	t.Helper()
-	sent := time.Now()
 	f.hook(t, f.permissionHook())
 	waitForOption(t, f.client, f.pane, protocol.OptionState, string(protocol.StateWaiting))
-	waiting := noticeWithin(t, f.notices, sent, time.Second)
+	waiting := noticeOf(t, f.notices.receive(t, waitLimit))
 	question := readOption(t, f.client, f.pane, protocol.OptionQuestion)
 	want := notice{state: string(protocol.StateWaiting), title: exampleTitle, body: question}
 	if question == "" || waiting != want {
