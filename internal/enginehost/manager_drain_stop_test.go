@@ -95,7 +95,7 @@ func TestAwaitStoppingWaitsForRetiredHolderRemoval(t *testing.T) {
 	}
 
 	releaseHeldTurn(t, dir)
-	waitUntil(t, "the turn end to retire session "+id, func() bool {
+	waitUntil(t, engineOf(first, restarted), "the turn end to retire session "+id, func() bool {
 		return !slices.Contains(restarted.Live(), id)
 	})
 	hold.open()

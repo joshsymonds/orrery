@@ -35,7 +35,7 @@ func TestStepBackgroundDoneReturnIsHandedWhenClaudeStartsTheTurn(t *testing.T) {
 		t.Fatalf("write fakeclaude.release: %v", err)
 	}
 	var row store.StepRow
-	waitUntil(t, "the step to end", func() bool {
+	waitUntil(t, engineOf(rig.manager, rig.steps), "the step to end", func() bool {
 		row = stepRowOf(t, rig.steps, id)
 		return row.End != ""
 	})

@@ -46,7 +46,7 @@ func TestLiveSessionSurvivesPrune(t *testing.T) {
 	if err := m.Stop(t.Context(), id); err != nil {
 		t.Fatalf("Stop: %v", err)
 	}
-	waitUntil(t, "session "+id+" to leave the live set", func() bool {
+	waitUntil(t, engineOf(m), "session "+id+" to leave the live set", func() bool {
 		return len(m.Live()) == 0
 	})
 	if err := s.SyncServer(t.Context(), "-L a", nil, now); err != nil {

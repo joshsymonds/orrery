@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/store"
+	"github.com/joshsymonds/orrery/internal/waittest"
 )
 
 // duePassEpic is the epic the due pass tests create, and duePassStep the step the fake-steps tests give a due row.
@@ -157,7 +158,12 @@ func TestDuePassResumesPastDueStepOnceAtResetPlusGrace(t *testing.T) {
 	id := startLimitProbe(t, rig, repo, revision, "LIMIT")
 	dir := filepath.Join(rig.worktrees, id)
 	pid := fakePID(t, dir)
-	waitUntil(t, "step limited", func() bool { return stepRowOf(t, rig.steps, id).LoopLimited })
+	waitUntil(
+		t,
+		engineOf(rig.manager, rig.steps),
+		"step limited",
+		func() bool { return stepRowOf(t, rig.steps, id).LoopLimited },
+	)
 	requireGone(t, pid)
 	writeResumeNext(t, dir)
 	at := time.Unix(probeResetUnix, 0).Add(dueGrace - time.Second)
@@ -180,7 +186,7 @@ func TestDuePassResumesPastDueStepOnceAtResetPlusGrace(t *testing.T) {
 		t.Fatalf("due rows at reset+60s = %+v, want none", got)
 	}
 	requireResumedStart(t, dir)
-	waitUntil(t, "resume prompt delivered once", func() bool { return resumePromptsLogged(t, dir) == 1 })
+	waittest.Until(t, nil, "resume prompt delivered once", func() bool { return resumePromptsLogged(t, dir) == 1 })
 	if got := resumePromptEventsOf(t, rig, id); len(got) != 1 {
 		t.Fatalf("resume prompts stored at reset+60s = %d, want one", len(got))
 	}
@@ -191,7 +197,12 @@ func TestDuePassResumesPastDueStepOnceAtResetPlusGrace(t *testing.T) {
 		t.Fatalf("resume prompts after a later pass = %d, want still one", len(got))
 	}
 	releaseResumedTurn(t, dir)
-	waitUntil(t, "resumed step done", func() bool { return stepRowOf(t, rig.steps, id).End != "" })
+	waitUntil(
+		t,
+		engineOf(rig.manager, rig.steps),
+		"resumed step done",
+		func() bool { return stepRowOf(t, rig.steps, id).End != "" },
+	)
 	if row := stepRowOf(t, rig.steps, id); row.End != stepLoopEndDone {
 		t.Fatalf("End = %q reason %q, want %q", row.End, row.Reason, stepLoopEndDone)
 	}
@@ -207,7 +218,12 @@ func TestDuePassKeepsStepRowDueWhileStepCapIsFull(t *testing.T) {
 	id := startLimitProbe(t, rig, repo, revision, "LIMIT")
 	dir := filepath.Join(rig.worktrees, id)
 	pid := fakePID(t, dir)
-	waitUntil(t, "step limited", func() bool { return stepRowOf(t, rig.steps, id).LoopLimited })
+	waitUntil(
+		t,
+		engineOf(rig.manager, rig.steps),
+		"step limited",
+		func() bool { return stepRowOf(t, rig.steps, id).LoopLimited },
+	)
 	requireGone(t, pid)
 	writeResumeNext(t, dir)
 	holder := startLimitProbe(t, rig, repo, revision, "STEPDONE")
@@ -234,7 +250,12 @@ func TestDuePassKeepsStepRowDueWhileStepCapIsFull(t *testing.T) {
 	}
 	requireResumedStart(t, dir)
 	releaseResumedTurn(t, dir)
-	waitUntil(t, "resumed step done", func() bool { return stepRowOf(t, rig.steps, id).End != "" })
+	waitUntil(
+		t,
+		engineOf(rig.manager, rig.steps),
+		"resumed step done",
+		func() bool { return stepRowOf(t, rig.steps, id).End != "" },
+	)
 	if row := stepRowOf(t, rig.steps, id); row.End != stepLoopEndDone {
 		t.Fatalf("End = %q reason %q, want %q", row.End, row.Reason, stepLoopEndDone)
 	}
@@ -250,7 +271,12 @@ func TestDuePassResumesPastDueStepAfterRestart(t *testing.T) {
 	id := startLimitProbe(t, rig, repo, revision, "LIMIT")
 	dir := filepath.Join(rig.worktrees, id)
 	pid := fakePID(t, dir)
-	waitUntil(t, "step limited", func() bool { return stepRowOf(t, rig.steps, id).LoopLimited })
+	waitUntil(
+		t,
+		engineOf(rig.manager, rig.steps),
+		"step limited",
+		func() bool { return stepRowOf(t, rig.steps, id).LoopLimited },
+	)
 	requireGone(t, pid)
 	writeResumeNext(t, dir)
 
@@ -263,9 +289,14 @@ func TestDuePassResumesPastDueStepAfterRestart(t *testing.T) {
 		t.Fatalf("due rows after the restarted pass = %+v, want none", got)
 	}
 	requireResumedStart(t, dir)
-	waitUntil(t, "resume prompt delivered once", func() bool { return resumePromptsLogged(t, dir) == 1 })
+	waittest.Until(t, nil, "resume prompt delivered once", func() bool { return resumePromptsLogged(t, dir) == 1 })
 	releaseResumedTurn(t, dir)
-	waitUntil(t, "resumed step done", func() bool { return stepRowOf(t, rig.steps, id).End != "" })
+	waitUntil(
+		t,
+		engineOf(rig.manager, rig.steps, steps),
+		"resumed step done",
+		func() bool { return stepRowOf(t, rig.steps, id).End != "" },
+	)
 	requireNoLoggedError(t, &logs)
 }
 
@@ -280,7 +311,12 @@ func TestDuePassResumesPlannerTurnThroughItsEpicRowOnce(t *testing.T) {
 	turn := claimDuePassTurn(t, rig.store)
 	id := startLimitProbe(t, rig, repo, revision, "LIMIT")
 	pid := fakePID(t, filepath.Join(rig.worktrees, id))
-	waitUntil(t, "step limited", func() bool { return stepRowOf(t, rig.steps, id).LoopLimited })
+	waitUntil(
+		t,
+		engineOf(rig.manager, rig.steps),
+		"step limited",
+		func() bool { return stepRowOf(t, rig.steps, id).LoopLimited },
+	)
 	requireGone(t, pid)
 	if err := rig.store.SetTurnStep(t.Context(), duePassEpic, turn.Seq, id); err != nil {
 		t.Fatalf("SetTurnStep: %v", err)

@@ -100,7 +100,7 @@ func startTurn(t *testing.T, rig recordingRig, prompt string) {
 func waitConsumed(t *testing.T, rig recordingRig, offset int64) store.EngineRow {
 	t.Helper()
 	var row store.EngineRow
-	waitUntil(t, fmt.Sprintf("session %s consumes to %d", chosenID, offset), func() bool {
+	waitUntil(t, engineOf(rig.manager), fmt.Sprintf("session %s consumes to %d", chosenID, offset), func() bool {
 		r, err := rig.store.EngineSession(t.Context(), chosenID)
 		if err != nil {
 			return false

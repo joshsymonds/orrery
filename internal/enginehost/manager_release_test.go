@@ -24,7 +24,7 @@ func TestReleaseFreesStepSlotAndRecordsNothing(t *testing.T) {
 	waitHistory(t, path, stepA, "the step's first turn done", func(h store.EngineHistory) bool {
 		return stepDone(t, h, "fake reply 1")
 	})
-	waitUntil(t, "the step's hand-off", func() bool { return obs.returned() == 1 })
+	waitUntil(t, engineOf(m), "the step's hand-off", func() bool { return obs.returned() == 1 })
 	if err := m.StartStep(t.Context(), testStep(stepB, t.TempDir())); !errors.Is(err, ErrCapReached) {
 		t.Fatalf("StartStep with the step cap full: err = %v, want ErrCapReached", err)
 	}

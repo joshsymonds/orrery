@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/store"
+	"github.com/joshsymonds/orrery/internal/waittest"
 )
 
 // matchGate forwards to inner, but holds the first ApplyEngine call whose ops include one that match accepts. entered
@@ -157,7 +158,7 @@ func TestStartRetryAfterCanceledStartRunsOnce(t *testing.T) {
 	if id != chosenID {
 		t.Fatalf("retry Start id = %q, want %q", id, chosenID)
 	}
-	waitUntil(t, "the fake claude start", func() bool {
+	waittest.Until(t, nil, "the fake claude start", func() bool {
 		_, statErr := os.Stat(filepath.Join(dir, "fakeclaude.args"))
 		return statErr == nil
 	})

@@ -141,7 +141,7 @@ func (r stepsRig) startStalledStep(t *testing.T) (string, string) {
 	if err != nil {
 		t.Fatalf("Start stalled step: %v", err)
 	}
-	waitUntil(t, "the stalled block's unfinished text", func() bool {
+	waitUntil(t, engineOf(r.manager, r.steps), "the stalled block's unfinished text", func() bool {
 		return countRows(t, r.path, "engine_text") == 1
 	})
 	return id, filepath.Join(r.worktrees, id)

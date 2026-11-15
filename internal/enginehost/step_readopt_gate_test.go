@@ -49,7 +49,7 @@ func startStalledAgentGate(t *testing.T, rig stepsRig) (string, string) {
 	if err != nil {
 		t.Fatalf("Start stalled agent gate step: %v", err)
 	}
-	waitUntil(t, "the stalled block's unfinished text", func() bool {
+	waitUntil(t, engineOf(rig.manager, rig.steps), "the stalled block's unfinished text", func() bool {
 		return countRows(t, rig.path, "engine_text") == 1
 	})
 	return id, filepath.Join(rig.worktrees, id)

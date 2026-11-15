@@ -63,7 +63,7 @@ func TestReconcileLeavesStoppingDrainingRowToItsPump(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	waitUntil(t, "the store refuses the batch of fake trickle 1.5", rig.crash.isRefusing)
+	waitUntil(t, engineOf(rig.manager), "the store refuses the batch of fake trickle 1.5", rig.crash.isRefusing)
 	pid := fakePID(t, dir)
 	pids := holderPids(t, holderDir(t, rig.root, id))
 
@@ -109,7 +109,7 @@ func TestReconcileLeavesStoppingDrainingRowToItsPump(t *testing.T) {
 	waitHistory(t, rig.path, id, "the done state of the trickled turn", func(h store.EngineHistory) bool {
 		return h.State == "done"
 	})
-	waitUntil(t, "the pump of session "+id+" to end", func() bool {
+	waitUntil(t, engineOf(rig.manager, restarted), "the pump of session "+id+" to end", func() bool {
 		restarted.mu.Lock()
 		defer restarted.mu.Unlock()
 		return restarted.stopping[id] == nil

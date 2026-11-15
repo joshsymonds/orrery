@@ -6,6 +6,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/joshsymonds/orrery/internal/waittest"
 )
 
 // engine is the work a test's wait can see end: the Managers, Steps, Evidence runners, node checks and bare step runs
@@ -93,6 +95,13 @@ func (e engine) finished() bool {
 		}
 	}
 	return true
+}
+
+// until polls ok until it holds. It has no deadline of its own, and fails at once, naming what, when the engine's work
+// has finished first.
+func (e engine) until(t *testing.T, what string, ok func() bool) {
+	t.Helper()
+	waittest.UntilIdle(t, e.finished, what, ok)
 }
 
 // underWay reports whether a call c counts is under way.

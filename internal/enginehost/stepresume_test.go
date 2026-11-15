@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/joshsymonds/orrery/internal/store"
+	"github.com/joshsymonds/orrery/internal/waittest"
 )
 
 // writeResumeFiles writes fakeclaude.next, which makes the resume prompt play READDONE, and fakeclaude.release, which
@@ -44,7 +45,7 @@ func releaseResumedTurn(t *testing.T, dir string) {
 func requireResumedStart(t *testing.T, dir string) {
 	t.Helper()
 	var args []string
-	waitUntil(t, "the respawned fake claude start", func() bool {
+	waittest.Until(t, nil, "the respawned fake claude start", func() bool {
 		args = fakeArgs(t, dir)
 		return len(args) >= 2
 	})
@@ -66,7 +67,12 @@ func TestStepsResumeRespawnsLimitedStepInItsSession(t *testing.T) {
 	id := startLimitProbe(t, rig, repo, revision, "LIMIT")
 	dir := filepath.Join(rig.worktrees, id)
 	pid := fakePID(t, dir)
-	waitUntil(t, "step limited", func() bool { return stepRowOf(t, rig.steps, id).LoopLimited })
+	waitUntil(
+		t,
+		engineOf(rig.manager, rig.steps),
+		"step limited",
+		func() bool { return stepRowOf(t, rig.steps, id).LoopLimited },
+	)
 	requireGone(t, pid)
 	writeResumeNext(t, dir)
 
@@ -76,7 +82,7 @@ func TestStepsResumeRespawnsLimitedStepInItsSession(t *testing.T) {
 	requireResumedStart(t, dir)
 	releaseResumedTurn(t, dir)
 	var row store.StepRow
-	waitUntil(t, "resumed step done", func() bool {
+	waitUntil(t, engineOf(rig.manager, rig.steps), "resumed step done", func() bool {
 		row = stepRowOf(t, rig.steps, id)
 		return row.End != ""
 	})
@@ -96,14 +102,24 @@ func TestStepsResumeSendsOwnerResumePrompt(t *testing.T) {
 	repo := stepGitTestRepo(t)
 	revision := stepGitTestRun(t, repo, "rev-parse", "HEAD")
 	id := startLimitProbe(t, rig, repo, revision, "LIMIT")
-	waitUntil(t, "step limited", func() bool { return stepRowOf(t, rig.steps, id).LoopLimited })
+	waitUntil(
+		t,
+		engineOf(rig.manager, rig.steps),
+		"step limited",
+		func() bool { return stepRowOf(t, rig.steps, id).LoopLimited },
+	)
 	dir := filepath.Join(rig.worktrees, id)
 	writeResumeFiles(t, dir)
 
 	if err := rig.steps.Resume(t.Context(), id); err != nil {
 		t.Fatalf("Resume: %v", err)
 	}
-	waitUntil(t, "resumed step done", func() bool { return stepRowOf(t, rig.steps, id).End != "" })
+	waitUntil(
+		t,
+		engineOf(rig.manager, rig.steps),
+		"resumed step done",
+		func() bool { return stepRowOf(t, rig.steps, id).End != "" },
+	)
 
 	history := waitHistory(t, rig.path, id, "the resume prompt recorded", func(h store.EngineHistory) bool {
 		return slices.Contains(conversationOf(t, h), "prompt: "+stepResumePrompt)
@@ -151,7 +167,12 @@ func TestStepsResumeOfEndedStepIsNotRunning(t *testing.T) {
 	repo := stepGitTestRepo(t)
 	revision := stepGitTestRun(t, repo, "rev-parse", "HEAD")
 	id := startLimitProbe(t, rig, repo, revision, "DIE")
-	waitUntil(t, "step ended", func() bool { return stepRowOf(t, rig.steps, id).End != "" })
+	waitUntil(
+		t,
+		engineOf(rig.manager, rig.steps),
+		"step ended",
+		func() bool { return stepRowOf(t, rig.steps, id).End != "" },
+	)
 
 	if err := rig.steps.Resume(t.Context(), id); !errors.Is(err, ErrStepNotRunning) {
 		t.Fatalf("Resume of an ended step = %v, want ErrStepNotRunning", err)
@@ -168,7 +189,12 @@ func TestStepsResumeWithStepCapFullLeavesStepLimited(t *testing.T) {
 	id := startLimitProbe(t, rig, repo, revision, "LIMIT")
 	dir := filepath.Join(rig.worktrees, id)
 	pid := fakePID(t, dir)
-	waitUntil(t, "step limited", func() bool { return stepRowOf(t, rig.steps, id).LoopLimited })
+	waitUntil(
+		t,
+		engineOf(rig.manager, rig.steps),
+		"step limited",
+		func() bool { return stepRowOf(t, rig.steps, id).LoopLimited },
+	)
 	// The loop stores the limit before it releases the process, so the slot is free only once the release finishes.
 	requireGone(t, pid)
 	writeResumeFiles(t, dir)
@@ -188,7 +214,12 @@ func TestStepsResumeWithStepCapFullLeavesStepLimited(t *testing.T) {
 	if err := rig.steps.Resume(t.Context(), id); err != nil {
 		t.Fatalf("Resume once the slot frees: %v", err)
 	}
-	waitUntil(t, "resumed step done", func() bool { return stepRowOf(t, rig.steps, id).End != "" })
+	waitUntil(
+		t,
+		engineOf(rig.manager, rig.steps),
+		"resumed step done",
+		func() bool { return stepRowOf(t, rig.steps, id).End != "" },
+	)
 	if row := stepRowOf(t, rig.steps, id); row.End != stepLoopEndDone {
 		t.Fatalf("End = %q reason %q, want %q", row.End, row.Reason, stepLoopEndDone)
 	}

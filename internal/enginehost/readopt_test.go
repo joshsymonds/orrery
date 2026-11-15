@@ -16,6 +16,7 @@ import (
 
 	"github.com/joshsymonds/orrery/internal/holder"
 	"github.com/joshsymonds/orrery/internal/store"
+	"github.com/joshsymonds/orrery/internal/waittest"
 )
 
 // errStoreRefused is what a crashApplier returns for every batch it refuses.
@@ -203,7 +204,7 @@ func TestReadoptStalledTurnKeepsItsTextAndState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	waitUntil(t, "the stalled block's unfinished text", func() bool {
+	waitUntil(t, engineOf(rig.manager), "the stalled block's unfinished text", func() bool {
 		return countRows(t, rig.path, "engine_text") == 1
 	})
 	pid := fakePID(t, dir)
@@ -275,7 +276,7 @@ func TestReadoptFloodStoresEveryBlockOnce(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Start: %v", err)
 			}
-			waitUntil(t, "the store refuses the batch of fake flood 1.20", rig.crash.isRefusing)
+			waitUntil(t, engineOf(rig.manager), "the store refuses the batch of fake flood 1.20", rig.crash.isRefusing)
 
 			restartAfterCrash(t, rig)
 
@@ -304,7 +305,7 @@ func TestReadoptPairLineStoresEachBlockOnce(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Start: %v", err)
 			}
-			waitUntil(t, "the store refuses the batch of fake pair 1.1", rig.crash.isRefusing)
+			waitUntil(t, engineOf(rig.manager), "the store refuses the batch of fake pair 1.1", rig.crash.isRefusing)
 
 			restartAfterCrash(t, rig)
 
@@ -327,7 +328,7 @@ func TestReadoptWritesStoredPromptOnceAndSkipsWrittenOne(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	waitUntil(t, "the stalled block's unfinished text", func() bool {
+	waitUntil(t, engineOf(rig.manager), "the stalled block's unfinished text", func() bool {
 		return countRows(t, rig.path, "engine_text") == 1
 	})
 	// The prompt is stored, but the crash came before the holder received its write.
@@ -339,7 +340,7 @@ func TestReadoptWritesStoredPromptOnceAndSkipsWrittenOne(t *testing.T) {
 	rig.crash.refuse()
 	restartAfterCrash(t, rig)
 
-	waitUntil(t, "the unwritten prompt reaches the fake claude", func() bool {
+	waittest.Until(t, nil, "the unwritten prompt reaches the fake claude", func() bool {
 		return stdinLinesWith(t, dir, `"text":"after the crash"`) > 0
 	})
 	if n := stdinLinesWith(t, dir, `"text":"after the crash"`); n != 1 {
@@ -371,7 +372,7 @@ func TestReadoptWaitingRowWithNoOpenRequestGoesWorking(t *testing.T) {
 	rig.crash.refuse()
 	restarted, _ := restartAfterCrash(t, rig)
 
-	waitUntil(t, "the row goes working with no question", func() bool {
+	waitUntil(t, engineOf(rig.manager, restarted), "the row goes working with no question", func() bool {
 		row, err := rig.store.EngineSession(t.Context(), id)
 		return err == nil && row.State == "working" && row.Question == ""
 	})
@@ -417,7 +418,7 @@ func TestReadoptFailedRowHolderIsReleasedUndrained(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	waitUntil(t, "the stalled block's unfinished text", func() bool {
+	waitUntil(t, engineOf(rig.manager), "the stalled block's unfinished text", func() bool {
 		return countRows(t, rig.path, "engine_text") == 1
 	})
 	pid := fakePID(t, dir)
@@ -450,7 +451,7 @@ func TestReadoptHolderThatEndedIsClearedAndRowResumes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	waitUntil(t, "the stalled block's unfinished text", func() bool {
+	waitUntil(t, engineOf(rig.manager), "the stalled block's unfinished text", func() bool {
 		return countRows(t, rig.path, "engine_text") == 1
 	})
 	pid := fakePID(t, dir)

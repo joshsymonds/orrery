@@ -19,6 +19,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/push"
 	"github.com/joshsymonds/orrery/internal/route"
 	"github.com/joshsymonds/orrery/internal/store"
+	"github.com/joshsymonds/orrery/internal/waittest"
 )
 
 // Notifier must satisfy the sink the manager is configured with.
@@ -149,7 +150,7 @@ func newNoticeManager(t *testing.T, claude string, sink NoticeSink) (*Manager, s
 // waitNotices waits until sink has received a notice, and returns the notices it has received.
 func waitNotices(t *testing.T, sink *fakeSink) []Notice {
 	t.Helper()
-	waitUntil(t, "a notice", func() bool { return len(sink.got()) > 0 })
+	waitUntil(t, engine{}, "a notice", func() bool { return len(sink.got()) > 0 })
 	return sink.got()
 }
 
@@ -267,7 +268,12 @@ func TestNoticeInterruptedOnCloseCarriesReason(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	waitUntil(t, "the stalled block's unfinished text", func() bool { return countRows(t, path, "engine_text") == 1 })
+	waitUntil(
+		t,
+		engineOf(m),
+		"the stalled block's unfinished text",
+		func() bool { return countRows(t, path, "engine_text") == 1 },
+	)
 
 	m.Close()
 	want := Notice{Session: id, Dir: dir, State: stateInterrupted, Body: "orreryd stopped during the turn"}
@@ -509,7 +515,7 @@ func TestSeenClearsWaitingSessionNotice(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	waitUntil(t, "the waiting notice's push", func() bool { return len(sender.publishes()) == 1 })
+	waittest.Until(t, nil, "the waiting notice's push", func() bool { return len(sender.publishes()) == 1 })
 	if got := sender.publishes()[0].Session; got != id {
 		t.Fatalf("pushed session = %q, want %q", got, id)
 	}
@@ -535,7 +541,7 @@ func TestNoticeLogsSessionPingWithSessionKey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	waitUntil(t, "the waiting notice's line", func() bool { return len(log.got()) == 1 })
+	waittest.Until(t, nil, "the waiting notice's line", func() bool { return len(log.got()) == 1 })
 
 	want := route.Line{
 		Time:    fixedClock().Unix(),
@@ -675,7 +681,7 @@ func TestAnsweredWaitingNoticeAtDeskEndsChanged(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	waitUntil(t, "the waiting notice at the desk", func() bool {
+	waittest.Until(t, nil, "the waiting notice at the desk", func() bool {
 		return len(log.got()) == 1 && after.armed() == 1
 	})
 	waiting := waitHistory(t, path, id, "the waiting state", func(h store.EngineHistory) bool {

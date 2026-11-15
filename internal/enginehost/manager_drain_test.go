@@ -14,6 +14,7 @@ import (
 
 	"github.com/joshsymonds/orrery/internal/holder"
 	"github.com/joshsymonds/orrery/internal/store"
+	"github.com/joshsymonds/orrery/internal/waittest"
 )
 
 // newDrainManager returns a manager with one slot whose controller speaks holder wire version version, over writer and s.
@@ -104,7 +105,7 @@ func stalledSession(t *testing.T, rig crashRig, dir string) (string, int, holder
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	waitUntil(t, "the stalled block's unfinished text", func() bool {
+	waitUntil(t, engineOf(rig.manager), "the stalled block's unfinished text", func() bool {
 		return countRows(t, rig.path, "engine_text") == 1
 	})
 	return id, fakePID(t, dir), holderPids(t, holderDir(t, rig.root, id))
@@ -121,7 +122,7 @@ func TestReconcileDrainsOneVersionOlderHolderAfterItsTurn(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	waitUntil(t, "the store refuses the batch of fake trickle 1.5", rig.crash.isRefusing)
+	waitUntil(t, engineOf(rig.manager), "the store refuses the batch of fake trickle 1.5", rig.crash.isRefusing)
 	pid := fakePID(t, dir)
 	pids := holderPids(t, holderDir(t, rig.root, id))
 
@@ -178,7 +179,7 @@ func TestReconcileStopsOneVersionOlderIdleHolderAndNextSayResumes(t *testing.T) 
 	waitHolderEnded(t, pids)
 	gateWaitGone(t, pid)
 	// The pump ends after the stopped child's exit has been read, so its end means any exit record has been stored.
-	waitUntil(t, "the stopped session's pump to end", func() bool {
+	waitUntil(t, engineOf(rig.manager, restarted), "the stopped session's pump to end", func() bool {
 		restarted.mu.Lock()
 		defer restarted.mu.Unlock()
 		return restarted.stopping[id] == nil
@@ -234,14 +235,19 @@ func TestSayWhileOldHolderStopsStartsResumedHolder(t *testing.T) {
 	}
 
 	releaseHeldTurn(t, dir)
-	waitUntil(t, "the turn end to take session "+id+" out of the live set", func() bool {
-		return !slices.Contains(restarted.Live(), id)
-	})
+	waitUntil(
+		t,
+		engineOf(rig.manager, restarted),
+		"the turn end to take session "+id+" out of the live set",
+		func() bool {
+			return !slices.Contains(restarted.Live(), id)
+		},
+	)
 	said := make(chan error, 1)
 	go func() {
 		said <- restarted.Say(t.Context(), SayRequest{ID: id, Text: "again"})
 	}()
-	waitUntil(t, "the Say to wait for the old holder to stop", func() bool {
+	waitUntil(t, engineOf(rig.manager, restarted), "the Say to wait for the old holder to stop", func() bool {
 		// Only a Say that finds no live session takes resumeMu, so holding it means the Say is in resumeSession, and the
 		// held pump keeps that Say from resuming until the hold opens.
 		if restarted.resumeMu.TryLock() {
@@ -255,7 +261,7 @@ func TestSayWhileOldHolderStopsStartsResumedHolder(t *testing.T) {
 		t.Fatalf("Say while the old holder stopped: %v", err)
 	}
 
-	waitUntil(t, "the fake claude to start a second time", func() bool {
+	waittest.Until(t, nil, "the fake claude to start a second time", func() bool {
 		return len(fakeStarts(t, dir)) == 2
 	})
 	// The Say waited for the old holder to end, so the old claude is gone by the time the new one starts.

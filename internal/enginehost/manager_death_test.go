@@ -55,7 +55,7 @@ func TestDyingSessionFailsAloneAndResumes(t *testing.T) {
 	if !strings.Contains(reason, "exit status 3") || !strings.HasSuffix(reason, "fake died") {
 		t.Fatalf("failed reason = %q, want the exit status 3 and a suffix fake died", reason)
 	}
-	waitUntil(t, "the dead session to leave the live set", func() bool {
+	waitUntil(t, engineOf(m), "the dead session to leave the live set", func() bool {
 		m.mu.Lock()
 		defer m.mu.Unlock()
 		_, ok := m.sessions[dead]
@@ -64,7 +64,7 @@ func TestDyingSessionFailsAloneAndResumes(t *testing.T) {
 	if n := countRows(t, path, "engine_text"); n != 0 {
 		t.Fatalf("engine_text rows after the death = %d, want 0 unfinished text", n)
 	}
-	waitUntil(t, "the failed notice of the dead session", func() bool {
+	waitUntil(t, engineOf(m), "the failed notice of the dead session", func() bool {
 		return failedNoticeOf(sink.got(), dead, reason)
 	})
 

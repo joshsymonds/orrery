@@ -82,7 +82,12 @@ func (o *stepObserver) exited() []string {
 // waitReturns waits until the observer has received at least n turn ends.
 func waitReturns(t *testing.T, o *stepObserver, n int) {
 	t.Helper()
-	waitUntil(t, fmt.Sprintf("%d turn ends handed to the observer", n), func() bool { return o.returned() >= n })
+	waitUntil(
+		t,
+		engine{},
+		fmt.Sprintf("%d turn ends handed to the observer", n),
+		func() bool { return o.returned() >= n },
+	)
 }
 
 // newHandOffManager returns a step manager with the given step cap and a clock set by hand. Its store is at the returned
@@ -307,7 +312,7 @@ func TestStepExitedCallsObserverWithFailureReason(t *testing.T) {
 	if err := m.Continue(t.Context(), stepA, StepPrompt{Text: "DIE", Sender: store.PromptSenderOwner}); err != nil {
 		t.Fatalf("Continue DIE: %v", err)
 	}
-	waitUntil(t, "the observer's exit", func() bool { return len(obs.exited()) == 1 })
+	waitUntil(t, engineOf(m), "the observer's exit", func() bool { return len(obs.exited()) == 1 })
 	reason := obs.exited()[0]
 	if !strings.Contains(reason, "exit status 3") || !strings.HasSuffix(reason, "fake died") {
 		t.Fatalf("exit reason = %q, want the exit status 3 and a suffix fake died", reason)
@@ -318,7 +323,7 @@ func TestStepExitedCallsObserverWithFailureReason(t *testing.T) {
 	if n := obs.returned(); n != 1 {
 		t.Fatalf("turn ends handed to the observer = %d, want the one before the death", n)
 	}
-	waitUntil(t, "the dead step to leave the live set", func() bool {
+	waitUntil(t, engineOf(m), "the dead step to leave the live set", func() bool {
 		_, err := m.live(stepA)
 		return err != nil
 	})
@@ -343,7 +348,7 @@ func TestContinueSendFailureRecordsFailedWithoutNotice(t *testing.T) {
 	if err := m.Continue(t.Context(), stepA, StepPrompt{Text: "DIE", Sender: store.PromptSenderOwner}); err != nil {
 		t.Fatalf("Continue DIE: %v", err)
 	}
-	waitUntil(t, "the observer's exit", func() bool { return len(obs.exited()) == 1 })
+	waitUntil(t, engineOf(m), "the observer's exit", func() bool { return len(obs.exited()) == 1 })
 
 	if err := m.Continue(t.Context(), stepA, StepPrompt{Text: "again", Sender: store.PromptSenderOwner}); err == nil {
 		t.Fatalf("Continue to a dead step: err = nil, want the send error")

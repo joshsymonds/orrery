@@ -137,7 +137,12 @@ func TestReconcileAfterScopedCloseReadoptsHeldFake(t *testing.T) {
 		t.Fatalf("Start: %v", err)
 	}
 	t.Cleanup(func() { closeAndClear(t, first, root, id) })
-	waitUntil(t, "the stalled block's unfinished text", func() bool { return countRows(t, path, "engine_text") == 1 })
+	waitUntil(
+		t,
+		engineOf(first),
+		"the stalled block's unfinished text",
+		func() bool { return countRows(t, path, "engine_text") == 1 },
+	)
 	pid := fakePID(t, dir)
 
 	first.Close()
@@ -182,7 +187,12 @@ func TestReconcileLeavesLiveSessionHolderRunning(t *testing.T) {
 		t.Fatalf("Start: %v", err)
 	}
 	t.Cleanup(func() { closeAndClear(t, m, root, id) })
-	waitUntil(t, "the stalled block's unfinished text", func() bool { return countRows(t, path, "engine_text") == 1 })
+	waitUntil(
+		t,
+		engineOf(m),
+		"the stalled block's unfinished text",
+		func() bool { return countRows(t, path, "engine_text") == 1 },
+	)
 	pid := fakePID(t, dir)
 
 	if err := m.Reconcile(t.Context()); err != nil {

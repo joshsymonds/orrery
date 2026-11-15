@@ -12,6 +12,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/engine/session"
 	"github.com/joshsymonds/orrery/internal/holder"
 	"github.com/joshsymonds/orrery/internal/store"
+	"github.com/joshsymonds/orrery/internal/waittest"
 )
 
 // restartStepDrain ends the step manager of rig as a crash leaves it, and returns a manager over the same store and state
@@ -58,7 +59,7 @@ func startHeldStep(t *testing.T, rig crashRig, dir string, obs StepObserver) {
 	if err := rig.manager.StartStep(t.Context(), step); err != nil {
 		t.Fatalf("StartStep: %v", err)
 	}
-	waitUntil(t, "the fake claude to read the held prompt", func() bool {
+	waittest.Until(t, nil, "the fake claude to read the held prompt", func() bool {
 		return stdinLinesWith(t, dir, "JUDGEHOLDS") == 1
 	})
 }
@@ -66,7 +67,7 @@ func startHeldStep(t *testing.T, rig crashRig, dir string, obs StepObserver) {
 // waitStoppingEnded waits until the pump of the retired session id has ended, so nothing it records is still to come.
 func waitStoppingEnded(t *testing.T, m *Manager, id string) {
 	t.Helper()
-	waitUntil(t, "the stopped session "+id+" to end its pump", func() bool {
+	waitUntil(t, engineOf(m), "the stopped session "+id+" to end its pump", func() bool {
 		m.mu.Lock()
 		defer m.mu.Unlock()
 		return m.stopping[id] == nil
@@ -366,7 +367,7 @@ func TestContinueWaitsForDrainedStepsPumpBeforeRespawn(t *testing.T) {
 	go func() {
 		said <- restarted.Continue(t.Context(), stepA, StepPrompt{Text: "again", Sender: store.PromptSenderOwner})
 	}()
-	waitUntil(t, "the Continue to wait for the drained step's pump", func() bool {
+	waitUntil(t, engineOf(rig.manager, restarted), "the Continue to wait for the drained step's pump", func() bool {
 		// Only a Continue that finds no live session holds resumeMu, so holding it means the Continue is in respawnStep,
 		// and the held hand-off keeps that Continue from respawning until the hold opens.
 		if restarted.resumeMu.TryLock() {

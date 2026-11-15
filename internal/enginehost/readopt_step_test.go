@@ -92,7 +92,7 @@ func startReplyStep(t *testing.T, rig crashRig, dir string) {
 	if err := rig.manager.StartStep(t.Context(), testStep(stepA, dir)); err != nil {
 		t.Fatalf("StartStep: %v", err)
 	}
-	waitUntil(t, "the store refuses the batch of the reply's turn end", rig.crash.isRefusing)
+	waitUntil(t, engineOf(rig.manager), "the store refuses the batch of the reply's turn end", rig.crash.isRefusing)
 }
 
 // requireUndrained fails unless the step's row settles as a restart leaves a working row, so the turn end the holder
@@ -164,7 +164,7 @@ func TestReadoptStepWithoutExpectedObserverIsCleared(t *testing.T) {
 	if err := rig.manager.StartStep(t.Context(), stalledStep(stepA, dir)); err != nil {
 		t.Fatalf("StartStep: %v", err)
 	}
-	waitUntil(t, "the stalled block's unfinished text", func() bool {
+	waitUntil(t, engineOf(rig.manager), "the stalled block's unfinished text", func() bool {
 		return countRows(t, rig.path, "engine_text") == 1
 	})
 	pid := fakePID(t, dir)

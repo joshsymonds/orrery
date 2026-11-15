@@ -11,6 +11,7 @@ import (
 
 	"github.com/joshsymonds/orrery/internal/holder"
 	"github.com/joshsymonds/orrery/internal/store"
+	"github.com/joshsymonds/orrery/internal/waittest"
 )
 
 // textSpy is an Applier that stores through inner and keeps the text of each EngineText op it stored, in order.
@@ -114,7 +115,7 @@ func writeAsController(t *testing.T, socket string, from int64, id string, line 
 func holderPids(t *testing.T, dir string) holder.Pids {
 	t.Helper()
 	var pids holder.Pids
-	waitUntil(t, "the pids record of "+dir, func() bool {
+	waittest.Until(t, nil, "the pids record of "+dir, func() bool {
 		var err error
 		pids, err = holder.ReadPids(dir)
 		return err == nil
@@ -125,7 +126,7 @@ func holderPids(t *testing.T, dir string) holder.Pids {
 // waitHolderEnded waits until the holder process that pids records has ended, as /proc shows it.
 func waitHolderEnded(t *testing.T, pids holder.Pids) {
 	t.Helper()
-	waitUntil(t, "the holder process to end", func() bool {
+	waittest.Until(t, nil, "the holder process to end", func() bool {
 		running, err := holder.Running(pids.Holder, pids.HolderStart)
 		if err != nil {
 			t.Fatalf("read holder %d: %v", pids.Holder, err)
@@ -195,7 +196,7 @@ func TestDrainKilledHolderStoresStalledTextAndResumesTurn(t *testing.T) {
 		t.Fatalf("Start: %v", err)
 	}
 	// The store refuses the stalled block's first streamed text, so the holder spools it unrecorded.
-	waitUntil(t, "the store refuses the batch of fake stalling 1", rig.crash.isRefusing)
+	waitUntil(t, engineOf(rig.manager), "the store refuses the batch of fake stalling 1", rig.crash.isRefusing)
 	pid := fakePID(t, dir)
 	pids := holderPids(t, holderDir(t, rig.root, id))
 	// orreryd goes down with its session detached, so nothing removes the holder's directory when the holder dies.
@@ -217,7 +218,7 @@ func TestDrainKilledHolderStoresStalledTextAndResumesTurn(t *testing.T) {
 	gateWaitGone(t, pid)
 	requireDirPresent(t, holderDir(t, rig.root, id))
 	requireResumed(t, rig.store, rig.path, id, dir, sink)
-	waitUntil(t, "the resumed turn's text", func() bool { return len(spy.storedTexts()) == 2 })
+	waitUntil(t, engineOf(rig.manager), "the resumed turn's text", func() bool { return len(spy.storedTexts()) == 2 })
 	if got := spy.storedTexts(); !slices.Equal(got, []string{"fake stalling 1", "fake stalling 2"}) {
 		t.Fatalf("texts stored after the restart = %q, want the stalled text once, then the resumed text", got)
 	}
@@ -235,7 +236,7 @@ func TestDrainOfAWorkingTurnWhoseChildDiedRecordsItFailed(t *testing.T) {
 		t.Fatalf("Start: %v", err)
 	}
 	// The store refuses the stalled text, so the row is still working when orreryd goes down.
-	waitUntil(t, "the store refuses the batch of fake stalling 1", rig.crash.isRefusing)
+	waitUntil(t, engineOf(rig.manager), "the store refuses the batch of fake stalling 1", rig.crash.isRefusing)
 	pid := fakePID(t, dir)
 	pids := holderPids(t, holderDir(t, rig.root, id))
 	rig.manager.Close()
