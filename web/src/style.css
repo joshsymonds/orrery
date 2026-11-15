@@ -553,6 +553,13 @@ button, input, textarea, select { font-family: var(--mono); }
 .epic-view .pip.ok { background: var(--green); }
 .epic-view .pip.bad { background: var(--red); }
 .epic-view .end { flex: none; color: var(--overlay1); }
+.epic-view .step:has(> .tails) { flex-wrap: wrap; }
+.epic-view .step .tails { flex-basis: 100%; min-width: 0; }
+.epic-view .step .tails .log {
+  margin: 0; max-height: 240px; overflow: auto; padding: 6px 8px; border-radius: 6px; background: var(--crust);
+  font: 11px/16px var(--mono); color: var(--subtext1); white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.epic-view .step .tail-label { color: var(--overlay1); }
 .side-note { margin: 0; color: var(--overlay1); overflow-wrap: anywhere; }
 
 /* A control that carries .flash shows a mauve ring for a moment after a use; flash.ts adds and removes the class. */
