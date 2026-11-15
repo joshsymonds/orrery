@@ -96,10 +96,7 @@ func newNodesRig(t *testing.T) *buildRig {
 	repo := filepath.Join(f.root, "repo")
 	stepReadoptGit(t, f.root, "init", "-q", "-b", "main", repo)
 	stepReadoptWrite(t, filepath.Join(repo, "README"), "base\n")
-	host, err := os.Hostname()
-	if err != nil {
-		t.Fatalf("read host name: %v", err)
-	}
+	host := testHost
 	stepReadoptWrite(t, filepath.Join(repo, ".orrery", "project.toml"), fmt.Sprintf(
 		"[pools.%s]\nhost = %q\ncap = 1\nmembers = [\"m1\"]\n"+
 			"wake = [%q, \"-c\", \"exit 0\"]\nwake_limit = 60\n"+

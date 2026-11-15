@@ -73,6 +73,13 @@ type Request struct {
 	Stop                 bool   // true on Stop, false while working
 }
 
+// pending is a pane's request that could not start yet, with the settle channels of it and of each earlier request it
+// replaced: its run settles them all, since it reads the transcript after theirs would have.
+type pending struct {
+	req     Request
+	settled []chan struct{}
+}
+
 // Summarizer runs the claude binary once per job and writes the reply to the job's pane.
 type Summarizer struct {
 	claude  string
@@ -89,7 +96,7 @@ type Summarizer struct {
 	mu              sync.Mutex
 	running         map[string]bool      // panes with a run in flight
 	started         map[string]time.Time // start of each pane's latest run
-	waiting         map[string]Request   // each pane's latest request that could not start yet
+	waiting         map[string]pending   // each pane's latest request that could not start yet
 	labeledExchange map[string]int       // exchange count of each pane's latest label run
 	epoch           map[string]int       // Forget count of each pane; a run writes only while its pane's epoch is unchanged
 }
@@ -129,7 +136,7 @@ func New(cfg Config) (*Summarizer, error) {
 		onWrite:         onWrite,
 		running:         make(map[string]bool),
 		started:         make(map[string]time.Time),
-		waiting:         make(map[string]Request),
+		waiting:         make(map[string]pending),
 		labeledExchange: make(map[string]int),
 		epoch:           make(map[string]int),
 	}, nil
@@ -200,6 +207,9 @@ func (s *Summarizer) Forget(pane string) {
 
 	s.mu.Lock()
 	s.epoch[pane]++
+	if p, ok := s.waiting[pane]; ok {
+		settle(p.settled)
+	}
 	delete(s.waiting, pane)
 	delete(s.labeledExchange, pane)
 	s.mu.Unlock()
@@ -215,21 +225,36 @@ func (s *Summarizer) Forget(pane string) {
 // when the pane's last run started less than Throttle ago. Otherwise the request starts at once when its pane has
 // no run in flight and fewer than MaxRuns runs are in flight; if not, it replaces the pane's waiting request.
 // ctx bounds the runs that Request starts, including the waiting requests they start in turn.
-func (s *Summarizer) Request(ctx context.Context, req Request) {
+//
+// The returned channel closes once the request has settled: its run, or the run of a later request that replaced it,
+// has written the pane's summary or failed. It also closes when the request is dropped, by the throttle or by Forget.
+// A caller that reads the pane's summary after it closes reads what the request's run left.
+func (s *Summarizer) Request(ctx context.Context, req Request) <-chan struct{} {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	settled := make(chan struct{})
 	now := s.now()
 	if !req.Stop {
 		if last, ok := s.started[req.PaneID]; ok && now.Sub(last) < Throttle {
-			return
+			close(settled)
+			return settled
 		}
 	}
 	if s.running[req.PaneID] || len(s.running) >= MaxRuns {
-		s.waiting[req.PaneID] = req
-		return
+		p := s.waiting[req.PaneID]
+		s.waiting[req.PaneID] = pending{req: req, settled: append(p.settled, settled)}
+		return settled
 	}
-	s.startLocked(ctx, req, now)
+	s.startLocked(ctx, req, []chan struct{}{settled}, now)
+	return settled
+}
+
+// settle closes each of settled.
+func settle(settled []chan struct{}) {
+	for _, c := range settled {
+		close(c)
+	}
 }
 
 // Wait returns once no run is in flight or waiting.
@@ -244,19 +269,20 @@ func (s *Summarizer) paneEpoch(pane string) int {
 	return s.epoch[pane]
 }
 
-// startLocked starts the run for req and records its start. The caller holds s.mu.
-func (s *Summarizer) startLocked(ctx context.Context, req Request, now time.Time) {
+// startLocked starts the run for req, which settles settled, and records its start. The caller holds s.mu.
+func (s *Summarizer) startLocked(ctx context.Context, req Request, settled []chan struct{}, now time.Time) {
 	s.running[req.PaneID] = true
 	s.started[req.PaneID] = now
 	s.runs.Add(1)
-	go s.execute(ctx, req, s.epoch[req.PaneID])
+	go s.execute(ctx, req, s.epoch[req.PaneID], settled)
 }
 
-// execute runs req, whose pane had Forget count epoch when req started, then starts each waiting request whose
-// pane is free while a run slot is open.
-func (s *Summarizer) execute(ctx context.Context, req Request, epoch int) {
+// execute runs req, whose pane had Forget count epoch when req started, and closes settled once the run has written
+// or failed. It then starts each waiting request whose pane is free while a run slot is open.
+func (s *Summarizer) execute(ctx context.Context, req Request, epoch int, settled []chan struct{}) {
 	defer s.runs.Done()
 	s.summarizeRequest(ctx, req, epoch)
+	settle(settled)
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -269,7 +295,7 @@ func (s *Summarizer) execute(ctx context.Context, req Request, epoch int) {
 			continue
 		}
 		delete(s.waiting, pane)
-		s.startLocked(ctx, next, s.now())
+		s.startLocked(ctx, next.req, next.settled, s.now())
 	}
 }
 

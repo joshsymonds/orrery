@@ -59,10 +59,7 @@ func newEvidenceKillRig(t *testing.T) *evidenceKillRig {
 	// config directory does not exist, so the project file alone defines the pools.
 	f.env = append(f.env, "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_NOSYSTEM=1",
 		"XDG_CONFIG_HOME="+filepath.Join(f.root, "config"))
-	host, err := os.Hostname()
-	if err != nil {
-		t.Fatalf("read host name: %v", err)
-	}
+	host := testHost
 	captureRuns := filepath.Join(f.root, "capture.runs")
 	captureRelease := filepath.Join(f.root, "capture.release")
 	script := fmt.Sprintf("echo run >> '%s'; while [ ! -e '%s' ]; do sleep 0.05; done", captureRuns, captureRelease)
