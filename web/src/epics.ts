@@ -46,6 +46,7 @@ export interface EpicBlock {
 
 export interface EpicsView {
   blocks: EpicBlock[];
+  waiting: EpicItem[];
   live: number;
   folded: number;
   details: Map<string, EpicsGetResponse>;
@@ -54,6 +55,7 @@ export interface EpicsView {
 export interface EpicSection {
   title: string;
   epics: EpicBlock[];
+  waiting: EpicItem[];
   rows: Row[];
   folded: number;
   count: number;
@@ -74,14 +76,15 @@ const epicsTitle = "Epics";
 // A repository's record name ends in a dash and seven lowercase hex digits; the folder it is named for does not.
 const hexSuffix = /-[0-9a-f]{7}$/;
 
-export const noEpics: EpicsView = { blocks: [], live: 0, folded: 0, details: new Map() };
+export const noEpics: EpicsView = { blocks: [], waiting: [], live: 0, folded: 0, details: new Map() };
 
-// Blocks the live epics that draw, and counts every other epic as folded. Epics with a running or held step draw first,
-// in input order; quiet live epics follow in input order while fewer than shownBlocks are drawn. An epic with no detail
-// reads as unknown, with a gauge of zero.
+// Blocks the live epics that draw, collects the live epics waiting to start in input order, and counts every other epic
+// as folded. Epics with a running or held step draw first, in input order; quiet live epics follow in input order while
+// fewer than shownBlocks are drawn. An epic with no detail reads as unknown, with a gauge of zero.
 export function epicsView(epics: Epic[], details: Map<string, EpicsGetResponse>): EpicsView {
   const busy: EpicBlock[] = [];
   const quiet: EpicBlock[] = [];
+  const waiting: EpicItem[] = [];
   let live = 0;
   for (const epic of epics) {
     if (!epic.live) {
@@ -89,14 +92,16 @@ export function epicsView(epics: Epic[], details: Map<string, EpicsGetResponse>)
     }
     live++;
     const block = blockOf(epic, details.get(epic.id));
-    if (block.full) {
+    if (epic.waiting) {
+      waiting.push(block.epic);
+    } else if (block.full) {
       busy.push(block);
     } else {
       quiet.push(block);
     }
   }
   const blocks = [...busy, ...quiet.slice(0, Math.max(0, shownBlocks - busy.length))];
-  return { blocks, live, folded: epics.length - blocks.length, details };
+  return { blocks, waiting, live, folded: epics.length - blocks.length - waiting.length, details };
 }
 
 function blockOf(epic: Epic, detail: EpicsGetResponse | undefined): EpicBlock {
@@ -187,18 +192,25 @@ export function repositoryName(repository: string): string {
 
 // A row section, counting its rows.
 function rowSection(section: Section): EpicSection {
-  return { title: section.title, epics: [], rows: section.rows, folded: 0, count: section.rows.length };
+  return { title: section.title, epics: [], waiting: [], rows: section.rows, folded: 0, count: section.rows.length };
 }
 
 // Wraps each section, then places the Epics group after the Needs you section, or first when there is none. The group
-// counts every live epic and is left out when no epic is live and none is folded.
+// counts every live epic and is left out when no epic is drawn, waiting or folded.
 export function withEpicsGroup(sections: Section[], view: EpicsView): EpicSection[] {
   const result = sections.map(rowSection);
-  if (view.blocks.length === 0 && view.folded === 0) {
+  if (view.blocks.length === 0 && view.waiting.length === 0 && view.folded === 0) {
     return result;
   }
   const after = sections.findIndex((section) => section.title === needsYouTitle) + 1;
-  result.splice(after, 0, { title: epicsTitle, epics: view.blocks, rows: [], folded: view.folded, count: view.live });
+  result.splice(after, 0, {
+    title: epicsTitle,
+    epics: view.blocks,
+    waiting: view.waiting,
+    rows: [],
+    folded: view.folded,
+    count: view.live,
+  });
   return result;
 }
 
@@ -223,7 +235,7 @@ export function placeEpics(sections: Section[], blocks: EpicBlock[]): EpicSectio
     }
   }
   for (const [repository, epics] of unmatched) {
-    result.push({ title: repository, epics, rows: [], folded: 0, count: epics.length });
+    result.push({ title: repository, epics, waiting: [], rows: [], folded: 0, count: epics.length });
   }
   return result;
 }
