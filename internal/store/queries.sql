@@ -755,3 +755,24 @@ UPDATE due_resumes SET state = 'done' WHERE id = ?;
 
 -- name: CloseDueResumesOf :exec
 UPDATE due_resumes SET state = 'done' WHERE kind = ? AND target = ?;
+
+-- name: InsertEpicNodeCheck :exec
+INSERT INTO epic_node_checks (id, epic, path, revision, argv, limit_seconds, needs, state, not_run, created, ended)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT (id) DO NOTHING;
+
+-- name: GetEpicNodeCheck :one
+SELECT * FROM epic_node_checks WHERE id = ?;
+
+-- name: ListEpicNodeChecks :many
+SELECT * FROM epic_node_checks WHERE epic = ? ORDER BY created, id;
+
+-- name: ListOpenEpicNodeChecks :many
+SELECT * FROM epic_node_checks WHERE state = 'running' ORDER BY created, id;
+
+-- name: SetEpicNodeCheckGrant :exec
+UPDATE epic_node_checks SET grant_id = ?, holder = ? WHERE id = ? AND state = 'running';
+
+-- name: EndEpicNodeCheck :exec
+UPDATE epic_node_checks SET state = 'ended', exit = ?, timed_out = ?, not_run = ?, stdout = ?, stderr = ?, ended = ?
+WHERE id = ? AND state = 'running';

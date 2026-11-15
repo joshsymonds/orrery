@@ -385,6 +385,34 @@ func (q *Queries) DeleteToldLimit(ctx context.Context, limitKey string) error {
 	return err
 }
 
+const endEpicNodeCheck = `-- name: EndEpicNodeCheck :exec
+UPDATE epic_node_checks SET state = 'ended', exit = ?, timed_out = ?, not_run = ?, stdout = ?, stderr = ?, ended = ?
+WHERE id = ? AND state = 'running'
+`
+
+type EndEpicNodeCheckParams struct {
+	Exit     int64
+	TimedOut int64
+	NotRun   string
+	Stdout   string
+	Stderr   string
+	Ended    int64
+	ID       string
+}
+
+func (q *Queries) EndEpicNodeCheck(ctx context.Context, arg EndEpicNodeCheckParams) error {
+	_, err := q.db.ExecContext(ctx, endEpicNodeCheck,
+		arg.Exit,
+		arg.TimedOut,
+		arg.NotRun,
+		arg.Stdout,
+		arg.Stderr,
+		arg.Ended,
+		arg.ID,
+	)
+	return err
+}
+
 const endEpicNodeRun = `-- name: EndEpicNodeRun :exec
 UPDATE epic_node_runs SET state = 'ended', outcome = ?, ended = ?, output = ? WHERE epic = ? AND path = ? AND state = 'running'
 `
@@ -609,6 +637,35 @@ func (q *Queries) GetEpicDecisionByClientID(ctx context.Context, arg GetEpicDeci
 		&i.Text,
 		&i.Time,
 		&i.Question,
+	)
+	return i, err
+}
+
+const getEpicNodeCheck = `-- name: GetEpicNodeCheck :one
+SELECT id, epic, path, revision, argv, limit_seconds, needs, state, grant_id, holder, exit, timed_out, not_run, stdout, stderr, created, ended FROM epic_node_checks WHERE id = ?
+`
+
+func (q *Queries) GetEpicNodeCheck(ctx context.Context, id string) (EpicNodeCheck, error) {
+	row := q.db.QueryRowContext(ctx, getEpicNodeCheck, id)
+	var i EpicNodeCheck
+	err := row.Scan(
+		&i.ID,
+		&i.Epic,
+		&i.Path,
+		&i.Revision,
+		&i.Argv,
+		&i.LimitSeconds,
+		&i.Needs,
+		&i.State,
+		&i.GrantID,
+		&i.Holder,
+		&i.Exit,
+		&i.TimedOut,
+		&i.NotRun,
+		&i.Stdout,
+		&i.Stderr,
+		&i.Created,
+		&i.Ended,
 	)
 	return i, err
 }
@@ -1235,6 +1292,43 @@ func (q *Queries) InsertEpicGateList(ctx context.Context, arg InsertEpicGateList
 		arg.List,
 		arg.Position,
 		arg.Gate,
+	)
+	return err
+}
+
+const insertEpicNodeCheck = `-- name: InsertEpicNodeCheck :exec
+INSERT INTO epic_node_checks (id, epic, path, revision, argv, limit_seconds, needs, state, not_run, created, ended)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT (id) DO NOTHING
+`
+
+type InsertEpicNodeCheckParams struct {
+	ID           string
+	Epic         string
+	Path         string
+	Revision     string
+	Argv         string
+	LimitSeconds int64
+	Needs        string
+	State        string
+	NotRun       string
+	Created      int64
+	Ended        int64
+}
+
+func (q *Queries) InsertEpicNodeCheck(ctx context.Context, arg InsertEpicNodeCheckParams) error {
+	_, err := q.db.ExecContext(ctx, insertEpicNodeCheck,
+		arg.ID,
+		arg.Epic,
+		arg.Path,
+		arg.Revision,
+		arg.Argv,
+		arg.LimitSeconds,
+		arg.Needs,
+		arg.State,
+		arg.NotRun,
+		arg.Created,
+		arg.Ended,
 	)
 	return err
 }
@@ -2277,6 +2371,51 @@ func (q *Queries) ListEpicGates(ctx context.Context, epic string) ([]EpicGate, e
 			&i.Agent,
 			&i.Must,
 			&i.MustNot,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listEpicNodeChecks = `-- name: ListEpicNodeChecks :many
+SELECT id, epic, path, revision, argv, limit_seconds, needs, state, grant_id, holder, exit, timed_out, not_run, stdout, stderr, created, ended FROM epic_node_checks WHERE epic = ? ORDER BY created, id
+`
+
+func (q *Queries) ListEpicNodeChecks(ctx context.Context, epic string) ([]EpicNodeCheck, error) {
+	rows, err := q.db.QueryContext(ctx, listEpicNodeChecks, epic)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []EpicNodeCheck
+	for rows.Next() {
+		var i EpicNodeCheck
+		if err := rows.Scan(
+			&i.ID,
+			&i.Epic,
+			&i.Path,
+			&i.Revision,
+			&i.Argv,
+			&i.LimitSeconds,
+			&i.Needs,
+			&i.State,
+			&i.GrantID,
+			&i.Holder,
+			&i.Exit,
+			&i.TimedOut,
+			&i.NotRun,
+			&i.Stdout,
+			&i.Stderr,
+			&i.Created,
+			&i.Ended,
 		); err != nil {
 			return nil, err
 		}
@@ -3536,6 +3675,51 @@ func (q *Queries) ListLimitedSteps(ctx context.Context) ([]Step, error) {
 	return items, nil
 }
 
+const listOpenEpicNodeChecks = `-- name: ListOpenEpicNodeChecks :many
+SELECT id, epic, path, revision, argv, limit_seconds, needs, state, grant_id, holder, exit, timed_out, not_run, stdout, stderr, created, ended FROM epic_node_checks WHERE state = 'running' ORDER BY created, id
+`
+
+func (q *Queries) ListOpenEpicNodeChecks(ctx context.Context) ([]EpicNodeCheck, error) {
+	rows, err := q.db.QueryContext(ctx, listOpenEpicNodeChecks)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []EpicNodeCheck
+	for rows.Next() {
+		var i EpicNodeCheck
+		if err := rows.Scan(
+			&i.ID,
+			&i.Epic,
+			&i.Path,
+			&i.Revision,
+			&i.Argv,
+			&i.LimitSeconds,
+			&i.Needs,
+			&i.State,
+			&i.GrantID,
+			&i.Holder,
+			&i.Exit,
+			&i.TimedOut,
+			&i.NotRun,
+			&i.Stdout,
+			&i.Stderr,
+			&i.Created,
+			&i.Ended,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listOpenEpicQuestions = `-- name: ListOpenEpicQuestions :many
 SELECT epic, seq, turn, text, state FROM epic_questions WHERE epic = ? AND state = 'open' ORDER BY seq
 `
@@ -4461,6 +4645,21 @@ type SetEpicBranchParams struct {
 
 func (q *Queries) SetEpicBranch(ctx context.Context, arg SetEpicBranchParams) error {
 	_, err := q.db.ExecContext(ctx, setEpicBranch, arg.Branch, arg.ID)
+	return err
+}
+
+const setEpicNodeCheckGrant = `-- name: SetEpicNodeCheckGrant :exec
+UPDATE epic_node_checks SET grant_id = ?, holder = ? WHERE id = ? AND state = 'running'
+`
+
+type SetEpicNodeCheckGrantParams struct {
+	GrantID string
+	Holder  string
+	ID      string
+}
+
+func (q *Queries) SetEpicNodeCheckGrant(ctx context.Context, arg SetEpicNodeCheckGrantParams) error {
+	_, err := q.db.ExecContext(ctx, setEpicNodeCheckGrant, arg.GrantID, arg.Holder, arg.ID)
 	return err
 }
 
