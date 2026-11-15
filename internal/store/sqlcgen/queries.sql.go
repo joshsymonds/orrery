@@ -355,6 +355,27 @@ func (q *Queries) DeleteStaleEngineText(ctx context.Context, arg DeleteStaleEngi
 	return err
 }
 
+const endEpicNodeRun = `-- name: EndEpicNodeRun :exec
+UPDATE epic_node_runs SET state = 'ended', outcome = ?, ended = ? WHERE epic = ? AND path = ? AND state = 'running'
+`
+
+type EndEpicNodeRunParams struct {
+	Outcome string
+	Ended   int64
+	Epic    string
+	Path    string
+}
+
+func (q *Queries) EndEpicNodeRun(ctx context.Context, arg EndEpicNodeRunParams) error {
+	_, err := q.db.ExecContext(ctx, endEpicNodeRun,
+		arg.Outcome,
+		arg.Ended,
+		arg.Epic,
+		arg.Path,
+	)
+	return err
+}
+
 const endEpicTurn = `-- name: EndEpicTurn :execrows
 UPDATE epic_turns SET state = ?, reason = ?, ended = ? WHERE epic = ? AND seq = ? AND state = 'running'
 `
@@ -1154,6 +1175,49 @@ func (q *Queries) InsertEpicGateList(ctx context.Context, arg InsertEpicGateList
 	return err
 }
 
+const insertEpicNodeRun = `-- name: InsertEpicNodeRun :exec
+INSERT INTO epic_node_runs (epic, path, id, node, kind, task, round, state, outcome, loop_round, granted, mark, started, ended)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT (epic, path) DO NOTHING
+`
+
+type InsertEpicNodeRunParams struct {
+	Epic      string
+	Path      string
+	ID        string
+	Node      string
+	Kind      string
+	Task      int64
+	Round     int64
+	State     string
+	Outcome   string
+	LoopRound int64
+	Granted   int64
+	Mark      int64
+	Started   int64
+	Ended     int64
+}
+
+func (q *Queries) InsertEpicNodeRun(ctx context.Context, arg InsertEpicNodeRunParams) error {
+	_, err := q.db.ExecContext(ctx, insertEpicNodeRun,
+		arg.Epic,
+		arg.Path,
+		arg.ID,
+		arg.Node,
+		arg.Kind,
+		arg.Task,
+		arg.Round,
+		arg.State,
+		arg.Outcome,
+		arg.LoopRound,
+		arg.Granted,
+		arg.Mark,
+		arg.Started,
+		arg.Ended,
+	)
+	return err
+}
+
 const insertEpicPremise = `-- name: InsertEpicPremise :exec
 INSERT INTO epic_premises (epic, position, id, text, if_wrong) VALUES (?, ?, ?, ?, ?)
 `
@@ -1416,6 +1480,32 @@ type InsertEpicTriggerParams struct {
 
 func (q *Queries) InsertEpicTrigger(ctx context.Context, arg InsertEpicTriggerParams) error {
 	_, err := q.db.ExecContext(ctx, insertEpicTrigger,
+		arg.Epic,
+		arg.ID,
+		arg.Cause,
+		arg.State,
+		arg.Turn,
+		arg.Created,
+	)
+	return err
+}
+
+const insertEpicTriggerOnce = `-- name: InsertEpicTriggerOnce :exec
+INSERT INTO epic_triggers (epic, id, cause, state, turn, created) VALUES (?, ?, ?, ?, ?, ?)
+ON CONFLICT (epic, id) DO NOTHING
+`
+
+type InsertEpicTriggerOnceParams struct {
+	Epic    string
+	ID      string
+	Cause   string
+	State   string
+	Turn    int64
+	Created int64
+}
+
+func (q *Queries) InsertEpicTriggerOnce(ctx context.Context, arg InsertEpicTriggerOnceParams) error {
+	_, err := q.db.ExecContext(ctx, insertEpicTriggerOnce,
 		arg.Epic,
 		arg.ID,
 		arg.Cause,
@@ -2106,6 +2196,48 @@ func (q *Queries) ListEpicGates(ctx context.Context, epic string) ([]EpicGate, e
 			&i.Agent,
 			&i.Must,
 			&i.MustNot,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listEpicNodeRuns = `-- name: ListEpicNodeRuns :many
+SELECT epic, path, id, node, kind, task, round, state, outcome, loop_round, granted, mark, started, ended FROM epic_node_runs WHERE epic = ? ORDER BY path
+`
+
+func (q *Queries) ListEpicNodeRuns(ctx context.Context, epic string) ([]EpicNodeRun, error) {
+	rows, err := q.db.QueryContext(ctx, listEpicNodeRuns, epic)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []EpicNodeRun
+	for rows.Next() {
+		var i EpicNodeRun
+		if err := rows.Scan(
+			&i.Epic,
+			&i.Path,
+			&i.ID,
+			&i.Node,
+			&i.Kind,
+			&i.Task,
+			&i.Round,
+			&i.State,
+			&i.Outcome,
+			&i.LoopRound,
+			&i.Granted,
+			&i.Mark,
+			&i.Started,
+			&i.Ended,
 		); err != nil {
 			return nil, err
 		}

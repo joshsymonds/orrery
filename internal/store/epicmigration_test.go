@@ -16,8 +16,8 @@ import (
 	"github.com/joshsymonds/orrery/internal/evidence"
 )
 
-// epicTableColumns returns, keyed by table, the columns in declaration order of every table migrations 00014, 00016
-// and 00019 create, and of the columns those migrations and 00020, 00021, 00022 and 00025 add to epic tables.
+// epicTableColumns returns, keyed by table, the columns in declaration order of every table migrations 00014, 00016,
+// 00019 and 00026 create, and of the columns those migrations and 00020, 00021, 00022 and 00025 add to epic tables.
 func epicTableColumns() map[string][]string {
 	return map[string][]string{
 		"epics": {
@@ -56,9 +56,13 @@ func epicTableColumns() map[string][]string {
 			"verify_by", "step", "result", "reason",
 		},
 		"epic_workflow_nodes": {"epic", "position", "id", "parent", "kind"},
-		"epic_tells":          {"epic", "seq", "text", "at", "told"},
-		"epic_questions":      {"epic", "seq", "turn", "text", "state"},
-		"engine_rate_limits":  {"session_id", "status", "kind", "resets_at", "at"},
+		"epic_node_runs": {
+			"epic", "path", "id", "node", "kind", "task", "round", "state", "outcome", "loop_round", "granted",
+			"mark", "started", "ended",
+		},
+		"epic_tells":         {"epic", "seq", "text", "at", "told"},
+		"epic_questions":     {"epic", "seq", "turn", "text", "state"},
+		"engine_rate_limits": {"session_id", "status", "kind", "resets_at", "at"},
 		"evidence_runs": {
 			"id", "epic", "item", "revision", "phase", "source", "state", "spec", "grant_id", "holder", "exit",
 			"timed_out", "not_captured", "log_hash", "log_bytes", "judge_step", "judges", "verdict", "judge_reason",
@@ -412,9 +416,9 @@ func TestEpicMigrationKeepsExistingRows(t *testing.T) {
 		`SELECT COALESCE(MAX(version_id), 0) FROM goose_db_version WHERE is_applied = 1`).Scan(&version); err != nil {
 		t.Fatalf("read store version: %v", err)
 	}
-	// Open applies 00014_epics.sql and every migration after it: 00025_due_resumes.sql is the newest.
-	if version != 25 {
-		t.Fatalf("store version after Open = %d, want 25", version)
+	// Open applies 00014_epics.sql and every migration after it: 00026_node_runs.sql is the newest.
+	if version != 26 {
+		t.Fatalf("store version after Open = %d, want 26", version)
 	}
 
 	// A later migration may add columns at the end of an existing table, as 00015_step_readopt.sql adds to steps and

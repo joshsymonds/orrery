@@ -413,8 +413,23 @@ INSERT INTO epic_workflow_nodes (epic, position, id, parent, kind) VALUES (?, ?,
 -- name: ListEpicWorkflowNodes :many
 SELECT * FROM epic_workflow_nodes WHERE epic = ? ORDER BY position;
 
+-- name: InsertEpicNodeRun :exec
+INSERT INTO epic_node_runs (epic, path, id, node, kind, task, round, state, outcome, loop_round, granted, mark, started, ended)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT (epic, path) DO NOTHING;
+
+-- name: ListEpicNodeRuns :many
+SELECT * FROM epic_node_runs WHERE epic = ? ORDER BY path;
+
+-- name: EndEpicNodeRun :exec
+UPDATE epic_node_runs SET state = 'ended', outcome = ?, ended = ? WHERE epic = ? AND path = ? AND state = 'running';
+
 -- name: InsertEpicTrigger :exec
 INSERT INTO epic_triggers (epic, id, cause, state, turn, created) VALUES (?, ?, ?, ?, ?, ?);
+
+-- name: InsertEpicTriggerOnce :exec
+INSERT INTO epic_triggers (epic, id, cause, state, turn, created) VALUES (?, ?, ?, ?, ?, ?)
+ON CONFLICT (epic, id) DO NOTHING;
 
 -- name: InsertEpicDecision :exec
 INSERT INTO epic_decisions (epic, seq, client_id, text, time, question) VALUES (?, ?, ?, ?, ?, ?);
