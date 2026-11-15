@@ -27,7 +27,8 @@ var ErrNoEvidenceArtifact = errors.New("no evidence artifact")
 // errEvidenceClosed is what Run returns once Close has been called.
 var errEvidenceClosed = errors.New("evidence runner is closed")
 
-// evidenceJudgeTries is how many judge steps a run starts before it records no verdict. A judge that ends with no verdict
+// evidenceJudgeTries is how many judge attempts a run makes before it records no verdict. An attempt whose judge does not start
+// counts too. A judge that ends with no verdict
 // is followed by another on the same kept output.
 const evidenceJudgeTries = 3
 
@@ -45,7 +46,7 @@ type EvidenceStore interface {
 	EvidenceRun(ctx context.Context, id string) (store.EvidenceRun, error)
 	EvidenceRuns(ctx context.Context, epic string) ([]store.EvidenceRun, error)
 	OpenEvidenceRuns(ctx context.Context) ([]store.EvidenceRun, error)
-	LabelledSteps(ctx context.Context, epic, task string) ([]store.StepRow, error)
+	Step(ctx context.Context, id string) (store.StepRow, error)
 }
 
 // EvidenceSteps starts judge steps and waits for them to end. *Steps satisfies it.
@@ -373,56 +374,67 @@ func evidenceRunCaptured(run store.EvidenceRun, capture store.EvidenceCapture) s
 	return run
 }
 
-// judgeRun gives run its verdict. A judge that ends with no verdict is followed by another, up to evidenceJudgeTries judges,
-// and the third's end then stands as the reason. The verdict is recorded once.
+// judgeRun gives run its verdict. A judge that ends with no verdict is followed by another, up to evidenceJudgeTries attempts
+// in all, and the last attempt's end then stands as the reason. An attempt whose judge does not start is one too. The verdict
+// is recorded once.
 func (e *Evidence) judgeRun(ctx context.Context, repo string, run store.EvidenceRun) {
-	for judges := 1; ; judges++ {
-		verdict, reason, err := e.judgeOnce(ctx, repo, run)
+	judges := run.Judges
+	for tries := 1; ; tries++ {
+		started, verdict, reason, err := e.judgeOnce(ctx, repo, run, judges+1)
 		if err != nil {
 			e.logger.WarnContext(ctx, "evidence judge stopped", "run", run.ID, "err", err)
 			return
 		}
-		if verdict != "" || judges == evidenceJudgeTries {
+		if started {
+			judges++
+		}
+		if verdict != "" || tries == evidenceJudgeTries {
 			e.recordVerdict(ctx, run, verdict, reason)
 			return
 		}
 	}
 }
 
-// judgeOnce starts one judge step on run's kept output and waits for it to end. It returns the verdict the end gives, or
-// the reason it gives none. A judge that does not start gives no verdict, and the reason is why. An error is returned only
-// when the step cannot be recorded or waited for.
-func (e *Evidence) judgeOnce(ctx context.Context, repo string, run store.EvidenceRun) (string, string, error) {
+// judgeOnce starts judge number judge on run's kept output and waits for it to end. It returns whether the judge started and
+// was recorded as run's judge, and the verdict its end gives, or the reason it gives none. A judge that does not start gives no
+// verdict, and the reason is why. An error is returned only when the step cannot be recorded or waited for.
+func (e *Evidence) judgeOnce(
+	ctx context.Context, repo string, run store.EvidenceRun, judge int,
+) (bool, string, string, error) {
 	if err := ctx.Err(); err != nil {
-		return "", "", fmt.Errorf("judge evidence run %s: %w", run.ID, err)
+		return false, "", "", fmt.Errorf("judge evidence run %s: %w", run.ID, err)
 	}
-	step, refusal := e.startJudge(ctx, repo, run)
+	step, refusal := e.startJudge(ctx, repo, run, judge)
 	if refusal != "" {
-		return "", refusal, nil
+		return false, "", refusal, nil
 	}
 	if err := ctx.Err(); err != nil {
-		return "", "", fmt.Errorf("judge evidence run %s: %w", run.ID, err)
+		return false, "", "", fmt.Errorf("judge evidence run %s: %w", run.ID, err)
 	}
 	if err := e.store.SetEvidenceJudge(ctx, run.ID, step); err != nil {
-		return "", "", fmt.Errorf("record judge of evidence run %s: %w", run.ID, err)
+		return false, "", "", fmt.Errorf("record judge of evidence run %s: %w", run.ID, err)
 	}
 	row, err := e.awaitJudge(ctx, step)
 	if err != nil {
-		return "", "", err
+		return true, "", "", err
 	}
 	verdict, reason := judgeVerdict(row)
-	return verdict, reason, nil
+	return true, verdict, reason, nil
 }
 
-// startJudge starts the judge step of run at repo. It returns the step's id, or the reason the step did not start: its
-// prompt could not be built, or Start refused it.
-func (e *Evidence) startJudge(ctx context.Context, repo string, run store.EvidenceRun) (string, string) {
+// startJudge starts judge number judge of run at repo under the id evidenceJudgeID derives for it. It returns the step's id, or
+// the reason the step did not start: its prompt could not be built, or Start refused it. Start returns the id of a step whose
+// StartStep failed after its row was written, with that row ended failed, so such a judge returns its id and its end gives the
+// reason; the start's error is that end's reason.
+func (e *Evidence) startJudge(ctx context.Context, repo string, run store.EvidenceRun, judge int) (string, string) {
 	prompt, err := judgePrompt(run, e.blobs)
 	if err != nil {
 		return "", err.Error()
 	}
-	step, err := e.steps.Start(ctx, judgeStart(run, repo, prompt))
-	if err != nil {
+	start := judgeStart(run, repo, prompt)
+	start.ID = evidenceJudgeID(run.ID, judge)
+	step, err := e.steps.Start(ctx, start)
+	if err != nil && step == "" {
 		return "", err.Error()
 	}
 	return step, ""

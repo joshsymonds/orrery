@@ -25,21 +25,35 @@ func (s *tellingStore) MarkTellTold(ctx context.Context, epic string, seq int64)
 	return s.Store.MarkTellTold(ctx, epic, seq)
 }
 
-// endWorkTurn claims the pending turn of the runner epic and completes it with no questions at ended.
+// plannedRunnerTasks is the one task a turn of the runner epic plans, so the epic has a planned task its tells are
+// written to.
+func plannedRunnerTasks() []store.EpicTaskInput {
+	return []store.EpicTaskInput{{
+		Title: "Build it", Deliverable: "the runner", Files: []string{"internal/planner/runner.go"},
+		Requirements: []string{"R1"}, Gate: "check", Evidence: runnerEvidenceItem(),
+	}}
+}
+
+// endWorkTurn claims the pending turn of the runner epic and completes it with one planned task and no questions at
+// ended.
 func endWorkTurn(t *testing.T, s *store.Store, ended time.Time) {
 	t.Helper()
 	turn := claimAttentionTurn(t, s)
-	plan := store.EpicPlan{Outcome: "work"}
+	plan := store.EpicPlan{Outcome: "work", Tasks: plannedRunnerTasks()}
 	if err := s.CompleteTurn(context.Background(), runnerEpicID, turn, plan, ended); err != nil {
 		t.Fatalf("CompleteTurn: %v", err)
 	}
 }
 
-// tellRunner adds text to the runner epic as a tell written at at.
+// tellRunner adds text to the runner epic as a tell written at at, through the write the ref check tells through, with
+// task 1 kept at the build it has.
 func tellRunner(t *testing.T, s *store.Store, text string, at time.Time) {
 	t.Helper()
-	if err := s.Tell(context.Background(), runnerEpicID, text, at); err != nil {
-		t.Fatalf("Tell %q: %v", text, err)
+	build := store.TaskBuild{}
+	if err := s.SetTaskBuildTelling(
+		context.Background(), runnerEpicID, 1, build, build, []string{text}, at,
+	); err != nil {
+		t.Fatalf("SetTaskBuildTelling %q: %v", text, err)
 	}
 }
 
@@ -130,8 +144,20 @@ func TestAttentionClearsTheNoticeOnceATurnEndsAfterTheLatestTell(t *testing.T) {
 	ctx := context.Background()
 	s := openRunnerStore(t)
 	createRunnerEpic(t, s)
-	tellRunner(t, s, "tell before the turn", claimedAt())
-	endWorkTurn(t, s, claimedAt().Add(time.Second))
+	// The tell needs a planned task, which only a turn that has ended plans. That earlier turn asks a question, and the
+	// answer makes the turn that ends after the tell claimable.
+	turn := claimAttentionTurn(t, s)
+	if err := s.CompleteTurn(ctx, runnerEpicID, turn, store.EpicPlan{
+		Questions: []string{"which store?"}, Tasks: plannedRunnerTasks(), Outcome: "work",
+	}, claimedAt()); err != nil {
+		t.Fatalf("CompleteTurn: %v", err)
+	}
+	if _, err := s.AnswerQuestion(ctx, runnerEpicID, "answer-1", "use the store", 1, claimedAt()); err != nil {
+		t.Fatalf("AnswerQuestion: %v", err)
+	}
+	// The tell is newer than the earlier turn's end, so only the turn that ends after it clears the notice.
+	tellRunner(t, s, "tell before the turn", claimedAt().Add(time.Second))
+	endWorkTurn(t, s, claimedAt().Add(2*time.Second))
 	router := &fakeAttentionRouter{}
 
 	attentionOver(s, router).pass(ctx)

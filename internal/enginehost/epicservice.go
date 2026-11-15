@@ -245,8 +245,9 @@ func checkEpicAnswer(req *v1.AnswerEpicRequest) error {
 	return nil
 }
 
-// PauseEpic pauses the epic, so the planner starts no turn for it, and returns the epic read back. An epic already
-// paused is refused.
+// PauseEpic pauses the epic as its owner's, so the planner starts no turn for it and no reset resumes it, and returns
+// the epic read back. An epic the owner paused, or paused with no recorded source, is refused; an epic a usage limit
+// paused is taken over by the owner.
 func (s *epicService) PauseEpic(
 	ctx context.Context,
 	req *connect.Request[v1.PauseEpicRequest],

@@ -18,11 +18,13 @@ import (
 )
 
 // StepPrompt is a prompt sent to a step session as its next message. Sender is who sent it, which the engine stores with
-// it: brief, engine or owner. Round is the round of a send-back, and zero when the prompt carries none.
+// it: brief, engine or owner. Round is the round of a send-back, and zero when the prompt carries none. PromptID is the
+// client-chosen id of the prompt, and empty when it carries none.
 type StepPrompt struct {
-	Text   string
-	Sender string
-	Round  int
+	Text     string
+	Sender   string
+	Round    int
+	PromptID string
 }
 
 // stepSessions is what a step run drives: its session starts, is interrupted, takes a follow-up message, is released, and

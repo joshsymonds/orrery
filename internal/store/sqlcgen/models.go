@@ -8,6 +8,14 @@ import (
 	"database/sql"
 )
 
+type DueResume struct {
+	ID     string
+	Kind   string
+	Target string
+	Resets int64
+	State  string
+}
+
 type EnginePromptFailed struct {
 	SessionID string
 	PromptID  string
@@ -52,6 +60,7 @@ type Epic struct {
 	Workflow       string
 	WorkflowText   string
 	WorkflowSha256 string
+	PauseSource    string
 }
 
 type EpicAddition struct {

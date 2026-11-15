@@ -55,23 +55,40 @@ func (s *Store) AcceptTask(ctx context.Context, epic string, seq int64, from Tas
 	})
 }
 
-// StopTask stores to as the build of task seq of epic and pauses the epic, in one write, when the stored build is
-// from. A task that is not open, or whose stored build is not from, is ErrTaskMoved and pauses nothing.
+// SetTaskBuildTelling stores to as the build of task seq of epic and adds each of tells as a tell of epic, in one
+// write, when the stored build is from, as SetTaskBuild does. A task that is not open, or whose stored build is not
+// from, is ErrTaskMoved and adds no tell.
+func (s *Store) SetTaskBuildTelling(
+	ctx context.Context,
+	epic string,
+	seq int64,
+	from, to TaskBuild,
+	tells []string,
+	at time.Time,
+) error {
+	return s.write(ctx, func(queries *sqlcgen.Queries) error {
+		if err := moveTask(ctx, queries, epic, seq, from, to); err != nil {
+			return err
+		}
+		return insertTells(ctx, queries, epic, tells, at)
+	})
+}
+
+// StopTask stores to as the build of task seq of epic and pauses the epic with the owner as its pause source, closing
+// its due rows, in one write, when the stored build is from. A task that is not open, or whose stored build is not
+// from, is ErrTaskMoved and pauses nothing.
 func (s *Store) StopTask(ctx context.Context, epic string, seq int64, from, to TaskBuild) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
 		if err := moveTask(ctx, queries, epic, seq, from, to); err != nil {
 			return err
 		}
-		if err := queries.PauseEpic(ctx, epic); err != nil {
-			return fmt.Errorf("pause epic %s: %w", epic, err)
-		}
-		return nil
+		return pauseAsOwner(ctx, queries, epic)
 	})
 }
 
-// ParkTask stores to as the build of task seq of epic, parks the epic with reason and adds reason as a tell, in one
-// write, when the stored build is from. Reason is cut to TurnReasonMax bytes. A task that is not open, or whose stored
-// build is not from, is ErrTaskMoved and parks nothing.
+// ParkTask stores to as the build of task seq of epic, parks the epic with reason, adds reason as a tell, and adds each
+// of tells after it, in one write, when the stored build is from. Reason is cut to TurnReasonMax bytes. A task that is
+// not open, or whose stored build is not from, is ErrTaskMoved and parks nothing.
 func (s *Store) ParkTask(
 	ctx context.Context,
 	epic string,
@@ -79,12 +96,16 @@ func (s *Store) ParkTask(
 	from, to TaskBuild,
 	reason string,
 	at time.Time,
+	tells ...string,
 ) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
 		if err := moveTask(ctx, queries, epic, seq, from, to); err != nil {
 			return err
 		}
-		return parkWithTell(ctx, queries, epic, capTurnText(reason), at)
+		if err := parkWithTell(ctx, queries, epic, capTurnText(reason), at); err != nil {
+			return err
+		}
+		return insertTells(ctx, queries, epic, tells, at)
 	})
 }
 
@@ -93,17 +114,6 @@ func (s *Store) ParkTask(
 func (s *Store) ParkEpic(ctx context.Context, epic, reason string, at time.Time) error {
 	return s.write(ctx, func(queries *sqlcgen.Queries) error {
 		return parkWithTell(ctx, queries, epic, capTurnText(reason), at)
-	})
-}
-
-// Tell adds text to epic as its next tell, numbered one past its highest and not yet told. An unknown epic is
-// ErrNoEpic and writes nothing.
-func (s *Store) Tell(ctx context.Context, epic, text string, at time.Time) error {
-	return s.write(ctx, func(queries *sqlcgen.Queries) error {
-		if _, err := epicHead(ctx, queries, epic); err != nil {
-			return err
-		}
-		return insertTell(ctx, queries, epic, text, at)
 	})
 }
 
@@ -149,6 +159,16 @@ func parkWithTell(ctx context.Context, queries *sqlcgen.Queries, epic, reason st
 		return err
 	}
 	return insertTell(ctx, queries, epic, reason, at)
+}
+
+// insertTells adds each of texts to epic as tells, in order, as insertTell does.
+func insertTells(ctx context.Context, queries *sqlcgen.Queries, epic string, texts []string, at time.Time) error {
+	for _, text := range texts {
+		if err := insertTell(ctx, queries, epic, text, at); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // insertTell adds text to epic as its next tell, numbered one past its highest, and not yet told.
