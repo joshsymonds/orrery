@@ -49,6 +49,10 @@ const (
 	OptionClaudeSession = "@orrery_claude_session"
 	OptionTranscript    = "@orrery_transcript"
 	OptionTool          = "@orrery_tool"
+	// OptionTurnStart holds the unix seconds of the newest UserPromptSubmit. The state options move only when the
+	// state changes, so a prompt sent to a pane that is already working leaves OptionChanged at the earlier turn's
+	// start. This option moves on every prompt.
+	OptionTurnStart = "@orrery_turn_start"
 )
 
 // ShellSessionPrefix is the fixed prefix of shell session names.
