@@ -4,7 +4,6 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.Epic
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicNode
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicNodeCheck
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsGetResponse
-import io.github.joshsymonds.orrery.gen.orrery.v1.EvidenceArtifact
 import io.github.joshsymonds.orrery.gen.orrery.v1.EvidenceRun
 import org.junit.Assert.assertEquals
 import org.junit.Test
@@ -17,77 +16,29 @@ class OrreryClientEpicNodesTest {
         .setSource("orreryd")
         .build()
 
-    private val screenshotProto = EvidenceArtifact.newBuilder()
-        .setPath("example/screenshot.png")
-        .setState("kept")
-        .setSize(2048L)
-        .setMediaType("image/png")
-        .build()
+    // The runs of an evidence node map through the same mapper the Requirements' runs do, whose fields
+    // OrreryClientEvidenceTest checks. Two runs that differ in id and phase show the node's runs reach it in order.
+    private val redRunProto = EvidenceRun.newBuilder().setId("example-run-1").setPhase("red").build()
 
-    private val redRunProto = EvidenceRun.newBuilder()
-        .setId("example-run-1")
-        .setPhase("red")
-        .setSource("captured")
-        .setState("ended")
-        .setExit(3)
-        .setTimedOut(true)
-        .setVerdict("fails")
-        .setPassed(true)
-        .setRevision("example-revision-2")
-        .setCreated(4102444100L)
-        .setEnded(4102444200L)
-        .setLogBytes(4096L)
-        .setStderrBytes(1024L)
-        .addArtifacts(screenshotProto)
-        .build()
+    private val greenRunProto = EvidenceRun.newBuilder().setId("example-run-2").setPhase("green").build()
 
-    private val greenRunProto = EvidenceRun.newBuilder()
-        .setId("example-run-2")
-        .setPhase("green")
-        .setSource("supplied")
-        .setState("judging")
-        .setExit(0)
-        .setNotCaptured("lost at a restart")
-        .setJudgeReason("example judge reason")
-        .setPassed(false)
-        .setRevision("example-revision-2")
-        .setCreated(4102444300L)
-        .build()
+    private val redRunRow = runRow("example-run-1", "red")
 
-    private val redRunRow = EvidenceRunRow(
-        id = "example-run-1",
-        phase = "red",
-        source = "captured",
-        state = "ended",
-        exit = 3,
-        timedOut = true,
-        notCaptured = "",
-        verdict = "fails",
-        judgeReason = "",
-        passed = true,
-        revision = "example-revision-2",
-        created = 4102444100L,
-        ended = 4102444200L,
-        logBytes = 4096L,
-        stderrBytes = 1024L,
-        artifacts = listOf(
-            EvidenceArtifactRow(path = "example/screenshot.png", state = "kept", size = 2048L, mediaType = "image/png"),
-        ),
-    )
+    private val greenRunRow = runRow("example-run-2", "green")
 
-    private val greenRunRow = EvidenceRunRow(
-        id = "example-run-2",
-        phase = "green",
-        source = "supplied",
-        state = "judging",
+    private fun runRow(id: String, phase: String) = EvidenceRunRow(
+        id = id,
+        phase = phase,
+        source = "",
+        state = "",
         exit = 0,
         timedOut = false,
-        notCaptured = "lost at a restart",
+        notCaptured = "",
         verdict = "",
-        judgeReason = "example judge reason",
+        judgeReason = "",
         passed = false,
-        revision = "example-revision-2",
-        created = 4102444300L,
+        revision = "",
+        created = 0L,
         ended = 0L,
         logBytes = 0L,
         stderrBytes = 0L,

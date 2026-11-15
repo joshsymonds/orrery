@@ -155,7 +155,8 @@ test("a plan's turns draw as rows, then its tasks; a build's task draws as its o
     },
   ));
 
-test("an evidence node's runs draw as EvidenceRuns does, and its kept image draws from the bytes it loads", () => {
+// EvidenceRuns' own fields are its tests'; this one pins only that a node's runs reach it in order with loadArtifact.
+test("an evidence node's runs reach EvidenceRuns in order, with the loader its kept image draws through", () => {
   const pngBytes = new Uint8Array([137, 80, 78, 71]);
   const load: LoadArtifact = (run, name) =>
     run === "r-green" && name === "shots/after.png"
@@ -195,11 +196,6 @@ test("an evidence node's runs draw as EvidenceRuns does, and its kept image draw
         [...row.querySelectorAll(".run .phase")].map((phase) => phase.textContent),
         ["red", "green"],
       );
-      assert.deepEqual(
-        [...row.querySelectorAll(".run .source")].map((source) => source.textContent),
-        ["captured", "agent-supplied"],
-      );
-      assert.equal(row.querySelector("img")?.getAttribute("alt") ?? null, "shots/after.png");
       assert.equal(row.querySelector("img")?.getAttribute("src")?.startsWith("blob:"), true);
     },
     load,
