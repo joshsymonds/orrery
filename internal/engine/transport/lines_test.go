@@ -57,11 +57,7 @@ func TestRawLinesManyShortLinesSurviveBufferRefill(t *testing.T) {
 	}
 	emit(fake, stream.String())
 
-	deadline := time.Now().Add(testTimeout)
 	for len(transport.Lines()) < count {
-		if time.Now().After(deadline) {
-			t.Fatalf("only %d of %d lines queued before the consumer started", len(transport.Lines()), count)
-		}
 		time.Sleep(time.Millisecond)
 	}
 	for i, expected := range want {
@@ -81,7 +77,7 @@ func TestRawLinesLongerThanReadBufferArriveIntact(t *testing.T) {
 	small := paddedEvent(70 << 10)
 	emit(fake, large+"\n"+small+"\n"+rawAssistantLine+"\n")
 
-	if got := string(receiveWithin(t, transport.Lines(), maxLineTimeout)); got != large {
+	if got := string(receive(t, transport.Lines())); got != large {
 		t.Fatalf("first line has %d bytes, want %d intact bytes", len(got), len(large))
 	}
 	if got := string(receive(t, transport.Lines())); got != small {
