@@ -121,6 +121,10 @@ refresh-env:
 pin-check:
     scripts/check-nix-pin.sh
 
+# Fail when docs/ cites code by file:line instead of by symbol.
+doc-cites:
+    scripts/check-doc-cites.sh
+
 # Move the shared nixpkgs pin. Rewrites the rev literal in BOTH devenv.yaml and
 # flake.nix, refreshes both locks with their own tools, regenerates the env
 # snapshot, then runs the pin check. This is the ONLY sanctioned way to move
@@ -185,7 +189,7 @@ web-page:
     scripts/build-web.sh web/build/page
 
 # Lint, coverage, typed-client, and generated-code gates. The pin check runs first.
-check: pin-check lint proto-lint proto-breaking cover sqlc-diff gen-diff web-check web-page alert-check
+check: pin-check doc-cites lint proto-lint proto-breaking cover sqlc-diff gen-diff web-check web-page alert-check
 
 # Assemble the debug APK, then run the Android lint and JVM unit tests.
 android-test:
