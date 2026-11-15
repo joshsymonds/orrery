@@ -208,22 +208,17 @@ func TestGateErrorsWhenItCannotStart(t *testing.T) {
 	}
 }
 
-// TestGateKeepsTheLastEightKiB runs a gate that names no tail and writes the default-tail lines to stderr. Its stderr keeps
-// the newest 8 KiB, cut at its start, and the lines after the cut.
+// TestGateKeepsTheLastEightKiB runs a gate that names no tail and writes one byte less than 8 KiB over many lines. The
+// default tail keeps all of it, so nothing is cut and the first line stays. It proves the default from below, as
+// TestGateRedactTailCutInsideTokenDropsItsLineOnBothStreams proves it from above.
 func TestGateKeepsTheLastEightKiB(t *testing.T) {
 	t.Parallel()
-	script := gateRedactHeredoc(gateTailLines(0, 1000), true)
-	result, err := runGrantedGate(t.Context(), &fakeGatePools{}, gateGrantRequest(), gateRun{
-		Argv:    []string{"/bin/sh", "-c", script},
-		Dir:     t.TempDir(),
-		Limit:   time.Minute,
-		Environ: gateEnv(),
-	})
-	if err != nil {
-		t.Fatalf("runGrantedGate: %v", err)
+	out := gateTailLines(0, 818) + "line-final\n"
+	if len(out) != 8<<10-1 {
+		t.Fatalf("output is %d bytes, want one byte less than 8 KiB", len(out))
 	}
-	if want := gateDefaultTailWant(); result.Stderr != want {
-		t.Fatalf("len(Stderr) = %d, want the placeholder and lines 181 to 999 (len %d)", len(result.Stderr), len(want))
+	if got := runGateScript(t, gateRedactHeredoc(out, false), 0).Stdout; got != out {
+		t.Fatalf("len(Stdout) = %d, want the whole %d-byte output with its first line", len(got), len(out))
 	}
 }
 
