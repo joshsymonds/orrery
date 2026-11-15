@@ -3,6 +3,7 @@ package stepmcp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 
@@ -45,8 +46,8 @@ type ToolResult struct {
 	IsError bool
 }
 
-// ToolHandler executes one tool call. Its context ends when the call's request is canceled or the connection ends,
-// so a handler must abandon its work once that context is done.
+// ToolHandler executes one tool call. Its context ends when the connection ends, and also when the call's request is
+// canceled unless the tool is a mutating one. A handler must abandon its work once that context is done.
 type ToolHandler func(context.Context, Call) (ToolResult, error)
 
 // Tool declares a tool served by a Server.
@@ -113,7 +114,7 @@ func (server *Server) sdk(ctx context.Context) *mcp.Server {
 	for _, tool := range server.tools {
 		sdk.AddTool(&mcp.Tool{
 			Name: tool.Name, Description: tool.Description, InputSchema: tool.InputSchema,
-		}, toolHandler(ctx, tool.Handler))
+		}, toolHandler(ctx, tool.Handler, mutatingTool(tool.Name)))
 	}
 	return sdk
 }
@@ -142,10 +143,11 @@ func limitToolCalls(limit int) mcp.Middleware {
 	}
 }
 
-// toolHandler adapts handler to the SDK's handler for raw arguments, on a connection that ends with connCtx. Absent
-// arguments decode as an empty object, and arguments that are not an object are an invalid-params error. A handler
-// error becomes a result with IsError set whose one text block is the error's text.
-func toolHandler(connCtx context.Context, handler ToolHandler) mcp.ToolHandler {
+// toolHandler adapts handler to the SDK's handler for raw arguments, on a connection that ends with connCtx. A detached
+// handler ignores the cancellation of its request. Absent arguments decode as an empty object, and arguments that are
+// not an object are an invalid-params error. A handler error becomes a result with IsError set whose one text block is
+// the error's text.
+func toolHandler(connCtx context.Context, handler ToolHandler, detached bool) mcp.ToolHandler {
 	return func(ctx context.Context, request *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		arguments := request.Params.Arguments
 		if len(arguments) == 0 {
@@ -154,16 +156,46 @@ func toolHandler(connCtx context.Context, handler ToolHandler) mcp.ToolHandler {
 		if !isJSONObject(arguments) {
 			return nil, &jsonrpc.Error{Code: jsonrpc.CodeInvalidParams, Message: "Tool arguments must be an object"}
 		}
-		ctx, cancel := context.WithCancel(ctx)
+		callCtx, cancel := callContext(connCtx, ctx, detached)
 		defer cancel()
-		stop := context.AfterFunc(connCtx, cancel)
-		defer stop()
-		result, err := handler(ctx, Call{Arguments: arguments})
+		result, err := handler(callCtx, Call{Arguments: arguments})
 		if err != nil {
 			result = ToolResult{Content: []Content{{Type: textContentType, Text: err.Error()}}, IsError: true}
 		}
 		return toCallToolResult(result), nil
 	}
+}
+
+// mutatingTool reports whether name is a tool that changes daemon state. A cancel notification for a call to one of
+// them does not reach the call's context, so the handler finishes its one daemon call. The call still ends when the
+// connection does.
+func mutatingTool(name string) bool {
+	switch name {
+	case "step_start", "step_stop", "step_resume",
+		"epic_create", "epic_answer", "epic_pause", "epic_resume", "epic_stop", "epic_retry",
+		"evidence_run":
+		return true
+	}
+	return false
+}
+
+// callContext returns the context a tool call runs under, for a request whose context is requestCtx, on a connection
+// that ends with connCtx. A call ends with its request unless it is detached. A detached call ends only with the
+// connection: a cancel notification cancels its request with the cause context.Canceled, while the end of the
+// connection cancels every request with another cause. The returned cancel releases both watches.
+func callContext(connCtx, requestCtx context.Context, detached bool) (context.Context, context.CancelFunc) {
+	if !detached {
+		ctx, cancel := context.WithCancel(requestCtx)
+		stop := context.AfterFunc(connCtx, cancel)
+		return ctx, func() { stop(); cancel() }
+	}
+	ctx, cancel := context.WithCancel(connCtx)
+	stop := context.AfterFunc(requestCtx, func() {
+		if !errors.Is(context.Cause(requestCtx), context.Canceled) {
+			cancel()
+		}
+	})
+	return ctx, func() { stop(); cancel() }
 }
 
 // isJSONObject reports whether raw is a JSON object.
