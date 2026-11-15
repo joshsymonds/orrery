@@ -303,9 +303,12 @@ func TestReattachWithAStaleSocketAndAFreeLockIsGone(t *testing.T) {
 	t.Parallel()
 
 	dir := sessionDir(t)
-	lock, err := Lock(filepath.Join(dir, LockName))
+	// The lock file is left as an ended holder leaves it, free, but the test never takes its flock: a parallel test's
+	// fork holds a copy of each open descriptor until it execs, so a lock the test took and closed could stay held then.
+	lockPath := filepath.Join(dir, LockName)
+	lock, err := os.OpenFile(filepath.Clean(lockPath), os.O_RDWR|os.O_CREATE, lockFileMode)
 	if err != nil {
-		t.Fatalf("Lock: %v", err)
+		t.Fatalf("create lock file: %v", err)
 	}
 	if err = lock.Close(); err != nil {
 		t.Fatalf("close lock: %v", err)
