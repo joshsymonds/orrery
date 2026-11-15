@@ -36,13 +36,24 @@ func sessionsHandler(
 	sendTimeout time.Duration,
 ) http.Handler {
 	t.Helper()
+	return sessionsHandlerKeepalive(t, reader, shutdown, sendTimeout, convKeepalive)
+}
+
+// sessionsHandlerKeepalive is sessionsHandler with its WatchConversation sending a keepalive after keepalive.
+func sessionsHandlerKeepalive(
+	t *testing.T,
+	reader *store.Reader,
+	shutdown <-chan struct{},
+	sendTimeout, keepalive time.Duration,
+) http.Handler {
+	t.Helper()
 	handler, err := server.New(server.Config{
 		Logins:                []string{allowedLogin},
 		Tmux:                  newTmuxClient(t),
 		Push:                  newPushStore(t),
 		Sessions:              reader,
 		ConversationPoll:      convPoll,
-		ConversationKeepalive: convKeepalive,
+		ConversationKeepalive: keepalive,
 		EventSendTimeout:      sendTimeout,
 		Shutdown:              shutdown,
 	})
@@ -369,14 +380,23 @@ func TestSessionWatchKeepaliveCarriesUnfinishedSet(t *testing.T) {
 	})
 }
 
+// quietKeepalive is a keepalive interval no test runs long enough to reach, so a stream on an unchanged session sends
+// nothing after its first delta.
+const quietKeepalive = time.Hour
+
 // TestSessionWatchEndsOnShutdown holds a stream waiting for its next poll. Closing the shutdown signal must end the
-// stream with Unavailable and the fixed shutdown message.
+// stream with Unavailable and the fixed shutdown message, sending nothing more. The session does not change and the
+// keepalive never comes due, so no message the stream may send before shutdown can reach the client: one that
+// arrives after the first delta is a send the shutdown failed to stop.
 func TestSessionWatchEndsOnShutdown(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	s := openEventStore(t, path)
 	addEngine(t, s)
 	shutdown := make(chan struct{})
-	client := sessionsWatchClient(t, sessionsHandler(t, store.NewReader(path), shutdown, 0))
+	client := sessionsWatchClient(
+		t,
+		sessionsHandlerKeepalive(t, store.NewReader(path), shutdown, 0, quietKeepalive),
+	)
 	stream := openSessionStream(t, client, sessionReq(eventEngine, 0, 0))
 	stream.next(t)
 

@@ -28,6 +28,9 @@ type Process struct {
 	conn   *Conn
 	socket string
 	remove string
+	// stopTimeout bounds a stop over the socket before Stop falls back to the holder's own process: holderStopTimeout,
+	// which a test may shorten before it calls Stop.
+	stopTimeout time.Duration
 
 	// readMu serializes Reads, so the acks they send reach the holder in the order of their consumed offsets.
 	readMu sync.Mutex
@@ -91,6 +94,7 @@ func newAttachedProcess(
 		conn:               conn,
 		socket:             socket,
 		remove:             remove,
+		stopTimeout:        holderStopTimeout,
 		returned:           replayFrom,
 		next:               replayFrom,
 		attachedConsumed:   attached.Consumed,
@@ -190,7 +194,7 @@ func (p *Process) exitReceived() bool {
 // stopHolder asks the holder to stop its child over its socket. When that fails, it stops the holder's own process, and
 // it returns an error only when that fails too.
 func (p *Process) stopHolder() error {
-	socketErr := stopOverSocket(p.socket)
+	socketErr := stopOverSocket(p.socket, p.stopTimeout)
 	if socketErr == nil {
 		return nil
 	}
@@ -201,10 +205,10 @@ func (p *Process) stopHolder() error {
 }
 
 // stopOverSocket dials the holder on socket and sends it stop, which returns once the child has stopped. The dial, the
-// hello and the wait for stopped share one deadline holderStopTimeout away, so a holder that accepts its socket and never
-// answers fails the stop, and stopHolder then falls back to the holder's own process.
-func stopOverSocket(socket string) error {
-	return stopBounded(context.Background(), socket, time.Now().Add(holderStopTimeout))
+// hello and the wait for stopped share one deadline timeout away, so a holder that accepts its socket and never answers
+// fails the stop, and stopHolder then falls back to the holder's own process.
+func stopOverSocket(socket string, timeout time.Duration) error {
+	return stopBounded(context.Background(), socket, time.Now().Add(timeout))
 }
 
 // Wait returns once the holder has ended and its directory is removed. It returns "signal: NAME" when a signal ended the

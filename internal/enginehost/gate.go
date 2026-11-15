@@ -25,6 +25,9 @@ const gateHoldersName = "holders"
 // gateStateDirName is the directory under os.TempDir that holds a gate's holders when its run names no state directory.
 const gateStateDirName = "orrery-gates"
 
+// gateTailDefault is the number of newest bytes a gate keeps of each of its stdout and stderr when its run names no tail.
+const gateTailDefault = 8 << 10
+
 // errGateNoCommand reports a gate that names no command to run.
 var errGateNoCommand = errors.New("enginehost: gate names no command")
 
@@ -33,7 +36,7 @@ var errGateNoCommand = errors.New("enginehost: gate names no command")
 // directory lives under, and a directory under os.TempDir when empty. Scope, when set, is the systemd-run scope the holder
 // runs in. Started, when set, is called once the grant holds, with the grant's id and the holder directory, before the gate
 // launches; its error releases the grant and launches nothing. Tail is the number of newest bytes the gate keeps of each
-// of its stdout and stderr, and zero keeps the holder's default of 8 KiB.
+// of its stdout and stderr, and zero keeps gateTailDefault.
 type gateRun struct {
 	Argv     []string
 	Dir      string
@@ -118,12 +121,14 @@ func runGrantedGate(ctx context.Context, pools PoolCommands, req grants.Request,
 }
 
 // gatePlan is where an attempt's gate runs: its session, the holder directory that serves the session, the state directory
-// that holds the holder directory, and the absolute path of the program.
+// that holds the holder directory, the absolute path of the program, and the number of newest bytes the gate keeps of each
+// of its stdout and stderr.
 type gatePlan struct {
 	stateDir string
 	session  string
 	dir      string
 	program  string
+	tail     int
 }
 
 // planGate returns where the attempt for run runs. A run that names no session gets a fresh one.
@@ -146,7 +151,11 @@ func planGate(run gateRun) (gatePlan, error) {
 	if err != nil {
 		return gatePlan{}, err
 	}
-	return gatePlan{stateDir: stateDir, session: session, dir: dir, program: program}, nil
+	tail := run.Tail
+	if tail <= 0 {
+		tail = gateTailDefault
+	}
+	return gatePlan{stateDir: stateDir, session: session, dir: dir, program: program, tail: tail}, nil
 }
 
 // gateCall is the Acquire call an attempt queues with. The call runs on its own goroutine, and ended closes once it
@@ -274,7 +283,7 @@ func gateHeld(
 		Session:   plan.session,
 		Child:     proc.Config{Path: plan.program, Args: run.Argv[1:], Dir: run.Dir, Env: gateEnviron(run.Environ)},
 		GateLimit: run.Limit,
-		GateTail:  run.Tail,
+		GateTail:  plan.tail,
 	})
 	if err != nil {
 		exit, ended := gateLaunchExit(plan.dir)
@@ -504,11 +513,22 @@ func gateExitResult(held grants.Grant, plan gatePlan, exit holder.Exit) gateResu
 	return gateResult{
 		Exit:     exit.Code,
 		TimedOut: exit.Reason == holder.ReasonLimit,
-		Stdout:   redact.Text(exit.Stdout),
-		Stderr:   redact.Text(exit.Stderr),
+		Stdout:   gateRedactTail(exit.Stdout, plan.tail),
+		Stderr:   gateRedactTail(exit.Stderr, plan.tail),
 		Members:  held.Members,
 		Holder:   plan.dir,
 	}
+}
+
+// gateRedactTail redacts a stream's tail with redact.CutTail when the tail is at least size bytes. The holder keeps at
+// most size bytes of stdout, so a full tail was cut at its start and its first line may hold a credential cut in half.
+// Stderr can grow past size when the holder appends a fault, which still counts as cut. A shorter tail was not cut, and
+// redact.Text redacts it.
+func gateRedactTail(tail string, size int) string {
+	if len(tail) >= size {
+		return redact.CutTail(tail)
+	}
+	return redact.Text(tail)
 }
 
 // gateWatch waits until the gate's holder ends, or until a stop, the end of the grant or ctx ends the gate. A gate that a

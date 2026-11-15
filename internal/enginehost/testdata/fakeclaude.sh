@@ -2,7 +2,8 @@
 # fakeclaude.sh stands in for the claude binary in the engine host tests. It writes its pid to fakeclaude.pid in its
 # working directory, then answers each user prompt with a scripted turn. The prompt number n counts from 1. A prompt
 # containing ASK asks one AskUserQuestion, PERMIT asks for a Write permission, HANG streams text until an interrupt,
-# FLOOD streams 50 finished text blocks, TRICKLE streams 60 finished text blocks about 50 ms apart, STALL streams the
+# FLOOD streams 50 finished text blocks, TRICKLE streams 60 finished text blocks about 50 ms apart, TRICKLEHELD streams
+# them as TRICKLE does but waits until fakeclaude.release exists in its directory before the last one, STALL streams the
 # start of a text block and never finishes it, TERMPROOF ignores SIGTERM and then stalls as STALL does, DIE streams
 # the same start, writes fake died to stderr and exits with status 3, BACKGROUND starts a background task and ends
 # its turn while the task runs, BGEND ends that task and then answers as any other prompt does, BGDONE answers with a
@@ -166,11 +167,18 @@ flood() {
 	turn_close
 }
 
-# trickle streams 60 finished text blocks, about 50 ms apart, and ends the turn.
+# trickle streams 60 finished text blocks, about 50 ms apart, and ends the turn. With held set, it waits until
+# fakeclaude.release exists in its directory before the last block, so the turn stays open until the test releases it.
 trickle() {
+	held=$1
 	turn_open
 	k=1
 	while [ "$k" -le 60 ]; do
+		if [ "$k" -eq 60 ] && [ -n "$held" ]; then
+			while [ ! -e fakeclaude.release ]; do
+				sleep 0.05
+			done
+		fi
 		text_block $((k - 1)) "fake trickle $n.$k" "fake trickle $n.$k"
 		sleep 0.05
 		k=$((k + 1))
@@ -369,6 +377,7 @@ while next; do
 				*PERMIT*) permit ;;
 				*HANG*) hang ;;
 				*FLOOD*) flood ;;
+				*TRICKLEHELD*) trickle held ;;
 				*TRICKLE*) trickle ;;
 				*STALL*) stall ;;
 				*TERMPROOF*) termproof ;;

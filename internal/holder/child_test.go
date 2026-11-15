@@ -409,22 +409,30 @@ func TestChildStopSurvivesSIGTERMUntilGraceThenKills(t *testing.T) {
 func TestChildDefaultGraceAndClockKillAfterDefaultGrace(t *testing.T) {
 	t.Parallel()
 
+	// A child started with no grace and no clock times its grace on the system clock and waits DefaultGrace.
+	defaultSpool, _ := newTestSpool(t, SpoolConfig{})
+	defaulted := startFakeChild(t, defaultSpool, ChildConfig{})
+	if defaulted.grace != DefaultGrace {
+		t.Errorf("grace with none set = %v, want DefaultGrace %v", defaulted.grace, DefaultGrace)
+	}
+	if _, ok := defaulted.clock.(SystemClock); !ok {
+		t.Errorf("clock with none set = %T, want SystemClock", defaulted.clock)
+	}
+
+	// The default grace is the one the kill waits out, on a fake clock so the test does not wait it out too.
 	spool, _ := newTestSpool(t, SpoolConfig{})
-	child := startFakeChild(t, spool, ChildConfig{})
+	clock := newFakeClock()
+	child := startFakeChild(t, spool, ChildConfig{Clock: clock})
 	childPrompt(t, child, "TERMPROOF")
 	awaitChildSpool(t, spool, "the stalled block", func() bool {
 		return bytes.Contains(childSpooled(t, spool), []byte(childStallingOne))
 	})
-	started := time.Now()
 	child.Stop()
-	select {
-	case <-child.Done():
-	case <-time.After(DefaultGrace + waitArmedTimeout):
-		t.Fatalf("child not done within DefaultGrace %v plus %v", DefaultGrace, waitArmedTimeout)
-	}
-	if elapsed := time.Since(started); elapsed < DefaultGrace {
-		t.Errorf("child killed after %v, before DefaultGrace %v", elapsed, DefaultGrace)
-	}
+	clock.waitArmed(t, 1)
+	clock.Advance(DefaultGrace - time.Nanosecond)
+	assertOpen(t, child.Done(), "child that ignores SIGTERM before DefaultGrace passes")
+	clock.Advance(time.Nanosecond)
+	awaitChildDone(t, child)
 	exit := child.Exit(ReasonStopped)
 	if exit.Signal != childSignalKill {
 		t.Errorf("Signal = %q, want %q", exit.Signal, childSignalKill)

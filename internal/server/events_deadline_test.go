@@ -22,8 +22,8 @@ import (
 const (
 	// deadlineSendTimeout is the Watch send deadline the tests inject.
 	deadlineSendTimeout = 300 * time.Millisecond
-	// deadlineStalledSendTimeout is the send deadline of the stalled stream's server in the test that proves a stuck
-	// send leaves other streams alone. It is long enough that the healthy stream's whole replay finishes inside it.
+	// deadlineStalledSendTimeout is the send deadline the stalled-reader tests of the session and conversation streams
+	// give their servers.
 	deadlineStalledSendTimeout = 4 * time.Second
 	// deadlineSocketBuffer is the kernel buffer, in bytes, of the stalled client's reads and of every accepted
 	// server connection's writes, so a few kilobytes of replayed events fill the path between them.
@@ -62,9 +62,24 @@ func (l smallBufferListener) Accept() (net.Conn, error) {
 }
 
 // startDeadlineServer serves the guarded handler for the store at path with sendTimeout injected as the send deadline
-// and small connection write buffers. It returns the URL, and a channel that receives the remote address of each
-// connection as it closes.
-func startDeadlineServer(t *testing.T, path string, sendTimeout time.Duration) (string, <-chan string) {
+// and small connection write buffers, and returns its URL.
+func startDeadlineServer(t *testing.T, path string, sendTimeout time.Duration) string {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	srv := &httptest.Server{
+		Listener: smallBufferListener{Listener: listener},
+		Config:   &http.Server{Handler: deadlineHandler(t, path, sendTimeout)},
+	}
+	srv.Start()
+	t.Cleanup(srv.Close)
+	return srv.URL
+}
+
+// deadlineHandler is the guarded handler for the store at path with sendTimeout injected as the send deadline.
+func deadlineHandler(t *testing.T, path string, sendTimeout time.Duration) http.Handler {
 	t.Helper()
 	handler, err := server.New(server.Config{
 		Logins:           []string{allowedLogin},
@@ -77,22 +92,7 @@ func startDeadlineServer(t *testing.T, path string, sendTimeout time.Duration) (
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("listen: %v", err)
-	}
-	closed := make(chan string, deadlineConnCapacity)
-	srv := &httptest.Server{
-		Listener: smallBufferListener{Listener: listener},
-		Config: &http.Server{Handler: handler, ConnState: func(conn net.Conn, state http.ConnState) {
-			if state == http.StateClosed {
-				closed <- conn.RemoteAddr().String()
-			}
-		}},
-	}
-	srv.Start()
-	t.Cleanup(srv.Close)
-	return srv.URL, closed
+	return handler
 }
 
 // stalledTransport returns a transport whose connections read through deadlineSocketBuffer bytes of kernel buffer.
@@ -195,19 +195,40 @@ func drainUntilEnd(t *testing.T, w *watch) error {
 	}
 }
 
-func TestStalledStreamEndsAloneAtSendDeadline(t *testing.T) {
+// openStalledWatch opens a Watch from seq 0 through a client that never reads, on the server at url. It returns the
+// stream, the client's connection, and the address the server's closed channel names it by.
+func openStalledWatch(t *testing.T, url string) (*watch, net.Conn, string) {
+	t.Helper()
+	dialed := make(chan net.Conn, 1)
+	stalledHTTP := &http.Client{Transport: headerTransport{base: stalledTransport(dialed), login: allowedLogin}}
+	stalled := openWatch(t, orreryv1connect.NewEventsClient(stalledHTTP, url), 0)
+	conn := <-dialed
+	return stalled, conn, conn.LocalAddr().String()
+}
+
+// openHeldStall opens, on a server that holds the stalled connection's write deadline, a Watch from seq 0 through a
+// client that never reads, and returns once the server's send to it is blocked. It returns the stream, the client's
+// connection, the address the server's closed channel names it by, the channel, and the listener that holds it.
+func openHeldStall(t *testing.T, path string) (*watch, net.Conn, string, <-chan string, *observedListener) {
+	t.Helper()
+	url, closed, obs := startConvDeadlineServer(t, deadlineHandler(t, path, deadlineSendTimeout))
+	obs.setHold(true)
+	stalled, conn, addr := openStalledWatch(t, url)
+	waitBlockedSend(t, obs)
+	obs.setHold(false)
+	return stalled, conn, addr, closed, obs
+}
+
+// TestStalledStreamLeavesOtherStreamsServed proves that a stream whose client never reads does not hold up another
+// stream: while the stalled send is blocked, its deadline held unapplied, a healthy stream replays every event and
+// receives a new one, and the stalled connection is still open after. Closing the stalled client then ends its
+// connection.
+func TestStalledStreamLeavesOtherStreamsServed(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	s := openEventStore(t, path)
 	seedBigEvents(t, s, deadlineBigEvents)
-	url, closed := startDeadlineServer(t, path, deadlineStalledSendTimeout)
-
-	dialed := make(chan net.Conn, 1)
-	stalledHTTP := &http.Client{Transport: headerTransport{base: stalledTransport(dialed), login: allowedLogin}}
-	// The stalled stream's request has not been sent yet, so its blocked send's deadline starts after this. A healthy
-	// stream that finishes within the deadline from here finished while the stalled send was still blocked.
-	started := time.Now()
-	stalled := openWatch(t, orreryv1connect.NewEventsClient(stalledHTTP, url), 0)
-	stalledAddr := (<-dialed).LocalAddr().String()
+	_, stalledConn, stalledAddr, closed, obs := openHeldStall(t, path)
+	url := "http://" + obs.Addr().String()
 
 	healthy := openWatch(t, orreryv1connect.NewEventsClient(guardedHTTPClient(), url), 0)
 	for i := range deadlineBigEvents + 1 {
@@ -215,17 +236,30 @@ func TestStalledStreamEndsAloneAtSendDeadline(t *testing.T) {
 			t.Fatalf("replayed message %d: seq %d, want %d", i, got, i+1)
 		}
 	}
-
 	writeState(t, s, deadlineBigEvents+1)
 	if got := healthy.next(t).GetSeq(); got != deadlineBigEvents+2 {
 		t.Fatalf("healthy stream message after the stall: seq %d, want %d", got, deadlineBigEvents+2)
 	}
-	if elapsed := time.Since(started); elapsed >= deadlineStalledSendTimeout {
-		t.Fatalf("healthy stream finished %v after the stalled stream started, want inside the %v send deadline",
-			elapsed, deadlineStalledSendTimeout)
-	}
 	assertStillOpen(t, closed, stalledAddr)
 
+	if err := stalledConn.Close(); err != nil {
+		t.Fatalf("close the stalled client: %v", err)
+	}
+	waitClosed(t, closed, stalledAddr)
+}
+
+// TestStalledStreamEndsAtSendDeadline proves that a stream whose client never reads is ended by its send deadline:
+// once the server's send is blocked, the deadline it set is applied as already due, the server closes the connection,
+// and the stream ends with a transport error and no end-of-stream message. No real deadline is waited out.
+func TestStalledStreamEndsAtSendDeadline(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "orrery.db")
+	s := openEventStore(t, path)
+	seedBigEvents(t, s, deadlineBigEvents)
+	stalled, _, stalledAddr, closed, obs := openHeldStall(t, path)
+
+	if err := obs.releaseAll(); err != nil {
+		t.Fatalf("release the stalled connection: %v", err)
+	}
 	waitClosed(t, closed, stalledAddr)
 	if err := drainUntilEnd(t, stalled); err == nil {
 		t.Fatal("stalled stream ended cleanly, want a transport error with no end-of-stream message")
@@ -236,7 +270,7 @@ func TestIdleStreamReceivesEventAfterSeveralDeadlines(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	s := openEventStore(t, path)
 	seedEvents(t, s, 0)
-	url, _ := startDeadlineServer(t, path, deadlineSendTimeout)
+	url := startDeadlineServer(t, path, deadlineSendTimeout)
 	events := orreryv1connect.NewEventsClient(guardedHTTPClient(), url)
 
 	w := openWatch(t, events, 0)
@@ -258,7 +292,7 @@ func TestIdleStreamStillEndsWithItsCodeAfterSeveralDeadlines(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	s := openEventStore(t, path)
 	seedEvents(t, s, 0)
-	url, _ := startDeadlineServer(t, path, deadlineSendTimeout)
+	url := startDeadlineServer(t, path, deadlineSendTimeout)
 	events := orreryv1connect.NewEventsClient(guardedHTTPClient(), url)
 
 	w := openWatch(t, events, 0)

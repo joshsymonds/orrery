@@ -17,15 +17,40 @@ import (
 	"github.com/joshsymonds/orrery/internal/telemetry"
 )
 
-// Synthetic values only. The flight threshold is lowered from the production ten seconds. A forced delay of
-// flightWiringSlow is over it, and a reconcile of an empty store is far under it.
+// Synthetic values only. The flight threshold is lowered from the production ten seconds. The phases are timed on a
+// flightClock: a hold that advances it by flightWiringSlow puts a phase over the threshold, and a phase the clock does
+// not move in takes no time.
 const (
 	flightWiringThreshold = time.Second
 	flightWiringSlow      = 2 * flightWiringThreshold
 	flightWiringHost      = "synthetic-host"
-	flightWiringWait      = 10 * time.Second
 	flightWiringPoll      = 10 * time.Millisecond
 )
+
+// flightClock is a clock that moves only when advanced. The flight wiring tests time orreryd's phases on it.
+type flightClock struct {
+	mu  sync.Mutex
+	now time.Time
+}
+
+// newFlightClock returns a flightClock at a fixed synthetic time.
+func newFlightClock() *flightClock {
+	return &flightClock{now: time.Unix(1_700_000_000, 0)}
+}
+
+// Now returns the clock's time.
+func (c *flightClock) Now() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.now
+}
+
+// Advance moves the clock forward by d.
+func (c *flightClock) Advance(d time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.now = c.now.Add(d)
+}
 
 // flightWiringLog is the stderr of a run. Its goroutines may write while the test reads it, so the writes are locked.
 type flightWiringLog struct {
@@ -78,17 +103,6 @@ func flightWiringRecorder(t *testing.T, getenv func(string) string) *telemetry.F
 	return flight
 }
 
-// flightWiringHold blocks for d, or until ctx ends. It is the forced delay that the held reconcile and the late READY
-// stand on.
-func flightWiringHold(ctx context.Context, d time.Duration) {
-	timer := time.NewTimer(d)
-	defer timer.Stop()
-	select {
-	case <-timer.C:
-	case <-ctx.Done():
-	}
-}
-
 // flightWiringTraces returns how many trace files named for phase dir holds.
 func flightWiringTraces(t *testing.T, dir, phase string) int {
 	t.Helper()
@@ -114,7 +128,7 @@ func TestFlightReconcileTraceOnlyWhenSlow(t *testing.T) {
 		want int
 	}{
 		{name: "slow", hold: flightWiringSlow, want: 1},
-		{name: "quick", want: 0},
+		{name: "quick", hold: 0, want: 0},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -123,9 +137,9 @@ func TestFlightReconcileTraceOnlyWhenSlow(t *testing.T) {
 			st := openPaneStore(t, path)
 			opts := evidenceWiringOptions(t)
 			opts.flight = flight
-			if tc.hold > 0 {
-				opts.holdReconcile = func(ctx context.Context) { flightWiringHold(ctx, tc.hold) }
-			}
+			clock := newFlightClock()
+			opts.clock = clock.Now
+			opts.holdReconcile = func(context.Context) { clock.Advance(tc.hold) }
 			host, err := startSessions(
 				t.Context(), opts, flightWiringHost, st, &recordingRouter{}, nil,
 				slog.New(slog.DiscardHandler), getenv,
@@ -157,24 +171,22 @@ func TestFlightStartTraceWhenReadyIsLate(t *testing.T) {
 		t.Fatalf("parseFlags: %v", err)
 	}
 	opts.flight = flight
-	opts.started = time.Now()
-	opts.holdReconcile = func(ctx context.Context) { flightWiringHold(ctx, flightWiringSlow) }
+	clock := newFlightClock()
+	opts.clock = clock.Now
+	opts.started = clock.Now()
+	opts.holdReconcile = func(context.Context) { clock.Advance(flightWiringSlow) }
 
 	ctx, cancel := context.WithCancel(t.Context())
 	served := make(chan error, 1)
 	go func() { served <- serve(ctx, opts, slog.New(slog.DiscardHandler), getenv) }()
 
 	// READY comes after the held reconcile, and the start trace is written just after it, so the test waits for
-	// the file.
-	deadline := time.After(flightWiringWait)
+	// the file. The wait has no deadline of its own: serve's start does real store work, and the test binary's timeout
+	// ends a wait that never ends.
 	for flightWiringTraces(t, traces, "start") == 0 {
 		select {
 		case err := <-served:
 			t.Fatalf("serve returned before READY wrote a start trace: %v", err)
-		case <-deadline:
-			cancel()
-			<-served
-			t.Fatal("READY wrote no start trace")
 		case <-time.After(flightWiringPoll):
 		}
 	}
@@ -203,14 +215,12 @@ func TestFlightRefusedStartServesOn(t *testing.T) {
 	go func() { codes <- run([]string{"--socket", socket}, &stderr, getenv) }()
 
 	// serve logs "store open" once the store has opened, after the sockets listen. Signaling before that would
-	// interrupt the open, so the test waits for the log line.
-	deadline := time.After(flightWiringWait)
+	// interrupt the open, so the test waits for the log line. The waits have no deadline of their own: the open is
+	// real store work, and the test binary's timeout ends a wait that never ends.
 	for !strings.Contains(stderr.String(), "store open") {
 		select {
 		case code := <-codes:
 			t.Fatalf("run returned %d before it served; stderr %q", code, stderr.String())
-		case <-deadline:
-			t.Fatalf("store did not open; stderr %q", stderr.String())
 		case <-time.After(flightWiringPoll):
 		}
 	}
@@ -218,12 +228,7 @@ func TestFlightRefusedStartServesOn(t *testing.T) {
 	if err := syscall.Kill(os.Getpid(), syscall.SIGINT); err != nil {
 		t.Fatalf("signal run: %v", err)
 	}
-	var code int
-	select {
-	case code = <-codes:
-	case <-time.After(flightWiringWait):
-		t.Fatal("run did not return after SIGINT")
-	}
+	code := <-codes
 	if code != exitOK {
 		t.Fatalf("exit code = %d, want %d; stderr %q", code, exitOK, stderr.String())
 	}

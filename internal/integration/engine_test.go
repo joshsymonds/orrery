@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/joshsymonds/orrery/internal/holder"
 	"github.com/joshsymonds/orrery/internal/protocol"
 	"github.com/joshsymonds/orrery/internal/store"
 )
@@ -260,6 +261,24 @@ func waitGone(t *testing.T, pid int) {
 	for syscall.Kill(pid, 0) != syscall.ESRCH {
 		if time.Now().After(deadline) {
 			t.Fatalf("fake claude process %d still running", pid)
+		}
+		time.Sleep(pollEvery)
+	}
+}
+
+// waitHolderEnded waits until the holder that served the holder directory dir has exited. A holder writes its exit
+// record and exits once its child has ended, and its lock goes with its process, so a holder gone from the process
+// table has left its directory as an ended holder leaves it: the next orreryd finds the lock free and drains the record.
+func waitHolderEnded(t *testing.T, dir string) {
+	t.Helper()
+	pids, err := holder.ReadPids(dir)
+	if err != nil {
+		t.Fatalf("read holder pids in %s: %v", dir, err)
+	}
+	deadline := time.Now().Add(waitLimit)
+	for syscall.Kill(pids.Holder, 0) != syscall.ESRCH {
+		if time.Now().After(deadline) {
+			t.Fatalf("holder process %d of %s still running", pids.Holder, dir)
 		}
 		time.Sleep(pollEvery)
 	}

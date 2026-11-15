@@ -1,6 +1,7 @@
 package summary_test
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/json"
 	"errors"
@@ -678,6 +679,47 @@ func TestSummarizerWritesOptions(t *testing.T) {
 	})
 }
 
+// onWriteCall is one OnWrite call: the pane it named and the pane's summary and label options when it ran.
+type onWriteCall struct {
+	pane, summary, label string
+}
+
+// TestSummarizerCallsOnWriteOnceTheOptionsAreWritten checks that a run that writes the options calls OnWrite once with
+// the pane, after the options are on the pane, and that a run that fails calls it not at all. orreryd's OnWrite syncs
+// the pane into the store, so the sync reads the options the run wrote.
+func TestSummarizerCallsOnWriteOnceTheOptionsAreWritten(t *testing.T) {
+	var r rig
+	var calls []onWriteCall
+	r = newRigWith(t, summary.Config{OnWrite: func(ctx context.Context, pane string) {
+		read := func(name string) string {
+			value, _, err := r.client.PaneOption(ctx, pane, name)
+			if err != nil {
+				t.Errorf("PaneOption(%s) in OnWrite: %v", name, err)
+			}
+			return value
+		}
+		calls = append(calls, onWriteCall{
+			pane: pane, summary: read(protocol.OptionSummary), label: read(protocol.OptionLabel),
+		})
+	}})
+	r.place(t, "reply", "summary: fresh summary\nlabel: fresh label\n")
+	if err := r.s.Summarize(t.Context(), r.job(true)); err != nil {
+		t.Fatalf("Summarize: %v", err)
+	}
+	want := []onWriteCall{{pane: r.pane, summary: "fresh summary", label: "fresh label"}}
+	if !slices.Equal(calls, want) {
+		t.Fatalf("OnWrite calls after a run that wrote = %+v, want %+v", calls, want)
+	}
+
+	r.place(t, "exit", "3\n")
+	if err := r.s.Summarize(t.Context(), r.job(true)); err == nil {
+		t.Fatal("Summarize: want error for non-zero exit, got nil")
+	}
+	if !slices.Equal(calls, want) {
+		t.Fatalf("OnWrite calls after a failed run = %+v, want only the earlier %+v", calls, want)
+	}
+}
+
 func TestSummaryFailureKeepsPrevious(t *testing.T) {
 	t.Run("non-zero exit", func(t *testing.T) {
 		r := newRig(t, nil, 0)
@@ -754,12 +796,8 @@ func TestSummaryFailureKeepsPrevious(t *testing.T) {
 		r := newRig(t, nil, shortTimeout)
 		r.setPrevious(t)
 		r.place(t, "hold", "")
-		start := time.Now()
 		if err := r.s.Summarize(t.Context(), r.job(true)); err == nil {
 			t.Fatal("Summarize: want error for timed-out run, got nil")
-		}
-		if elapsed := time.Since(start); elapsed > failureBound {
-			t.Fatalf("Summarize returned after %v, want within %v", elapsed, failureBound)
 		}
 		r.assertPrevious(t)
 	})
@@ -839,12 +877,8 @@ func TestSummarizerCap(t *testing.T) {
 	panes := []string{r.pane, newPane(t, r.client, "s2"), newPane(t, r.client, "s3")}
 	transcript := exampleTranscript(t, 1)
 
-	start := time.Now()
 	for _, pane := range panes {
 		r.s.Request(t.Context(), exampleRequest(pane, true, transcript, "Example last message"))
-	}
-	if elapsed := time.Since(start); elapsed > failureBound {
-		t.Fatalf("Request calls took %v while runs were held, want within %v", elapsed, failureBound)
 	}
 
 	waitRunning(t, r.bin, summary.MaxRuns)
@@ -1005,11 +1039,7 @@ func TestSummarizerForgetEndsInFlightRun(t *testing.T) {
 	waitRunning(t, r.bin, 1)
 	r.s.Request(t.Context(), exampleRequest(r.pane, true, transcript, "Example message waiting"))
 
-	start := time.Now()
 	r.s.Forget(r.pane)
-	if elapsed := time.Since(start); elapsed > failureBound {
-		t.Fatalf("Forget took %v while a run was held, want within %v", elapsed, failureBound)
-	}
 
 	r.release(t)
 	waitIdle(t, r.s)

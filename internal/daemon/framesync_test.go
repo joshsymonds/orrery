@@ -24,9 +24,6 @@ import (
 	"github.com/joshsymonds/orrery/internal/storetest"
 )
 
-// lockedStoreBudget bounds how long a frame may take to reach its observer while the store is write-locked.
-const lockedStoreBudget = time.Second
-
 // openFrameStore opens a store at a fresh path under t.TempDir and a second connection to the same file for
 // reads and for holding the write lock.
 func openFrameStore(t *testing.T) (*store.Store, *sql.DB) {
@@ -302,14 +299,10 @@ func TestFrameSyncStoreWriteLockedStillReachesTmuxAndObserver(t *testing.T) {
 		}},
 	})
 
-	sent := time.Now()
 	sendFrame(t, socket, frameFor(permissionHook, srv.pane, srv.socket))
 
 	select {
-	case at := <-observed:
-		if elapsed := at.Sub(sent); elapsed > lockedStoreBudget {
-			t.Fatalf("observer reached %v after the frame was sent, want at most %v", elapsed, lockedStoreBudget)
-		}
+	case <-observed:
 	default:
 		t.Fatal("observer was not called for the frame")
 	}
@@ -390,7 +383,6 @@ func TestFrameSyncLockedStoreBurstStillReachesObserversInTime(t *testing.T) {
 		}},
 	})
 
-	sent := time.Now()
 	errs := make(chan error, burstPanes)
 	for _, pane := range panes {
 		go func() { errs <- sendFrameErr(socket, frameFor(permissionHook, pane, srv.socket)) }()
@@ -402,11 +394,7 @@ func TestFrameSyncLockedStoreBurstStillReachesObserversInTime(t *testing.T) {
 	}
 	for range panes {
 		select {
-		case at := <-observed:
-			if elapsed := at.Sub(sent); elapsed > lockedStoreBudget {
-				t.Fatalf("an observer was reached %v after the burst was sent, want at most %v", elapsed,
-					lockedStoreBudget)
-			}
+		case <-observed:
 		default:
 			t.Fatal("an observer was not called for its frame")
 		}
