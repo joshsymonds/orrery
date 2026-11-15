@@ -54,10 +54,11 @@ type Verdict struct {
 	Why    string
 }
 
-// DeskSink posts notices to the desk and reports whether the desk is present. *deskstream.Hub satisfies it.
+// DeskSink posts notices to the open desk links and reports the newest web input, in unix seconds. *deskstream.Hub
+// satisfies it.
 type DeskSink interface {
 	Post(deskstream.Notice)
-	Desk() (input int64, present bool)
+	Desk() int64
 }
 
 // PhoneSink sends push notices and clears. *notice.Notices satisfies it.
@@ -371,8 +372,7 @@ func (r *Router) hold(ctx context.Context, ent *entry) {
 // route sends ent to the desk when the desk is at hand, and away otherwise. clause is added to the reason of the
 // line route writes.
 func (r *Router) route(ctx context.Context, ent *entry, clause string) {
-	input, present := r.cfg.Desk.Desk()
-	atDesk := present && input >= r.cfg.Now().Add(-DeskWindow).Unix()
+	atDesk := r.cfg.Desk.Desk() >= r.cfg.Now().Add(-DeskWindow).Unix()
 	dn, built := r.buildDesk(ctx, ent)
 	if atDesk && built {
 		r.atDesk(ctx, ent, dn, clause)

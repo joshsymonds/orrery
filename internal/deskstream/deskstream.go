@@ -1,6 +1,7 @@
 // Package deskstream serves the desk's notice stream. Each accepted connection gets a hello line, then each notice posted
-// while it is open, as JSON lines. The desk is present while a stream is open. Lines the desk sends back up the same
-// connection are read and discarded. The hub never listens itself: Serve takes a listener the daemon opened.
+// while it is open, as JSON lines. Whether the desk is at hand is decided by the web input Input records, not by an
+// open stream. Lines the desk sends back up the same connection are read and discarded. The hub never listens itself:
+// Serve takes a listener the daemon opened.
 package deskstream
 
 import (
@@ -193,18 +194,11 @@ func (h *Hub) Input(input int64) {
 	}
 }
 
-// Desk returns the newest web input and whether a stream is open.
-func (h *Hub) Desk() (input int64, present bool) {
+// Desk returns the newest web input, unix seconds. Zero means none has been recorded.
+func (h *Hub) Desk() int64 {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	open := false
-	for sub := range h.streams {
-		if !sub.closing {
-			open = true
-			break
-		}
-	}
-	return h.input, open
+	return h.input
 }
 
 func (h *Hub) isClosed() bool {
