@@ -20,8 +20,8 @@ func judgeTestHash(c string) string {
 	return strings.Repeat(c, 64)
 }
 
-// judgeTestRun returns a judging run of a captured item whose capture exited 3 at its limit. Its log and one artifact
-// are kept, one artifact is missing and one is over the cap.
+// judgeTestRun returns a judging run of a captured item whose capture exited 3 at its limit. Its stdout and stderr logs
+// and one artifact are kept, one artifact is missing and one is over the cap.
 func judgeTestRun() store.EvidenceRun {
 	blob := judgeTestHash("b") + ".json"
 	return store.EvidenceRun{
@@ -38,9 +38,11 @@ func judgeTestRun() store.EvidenceRun {
 			Conclusion: "the build passes",
 			Judge:      "reviewer",
 		},
-		Exit:     3,
-		TimedOut: true,
-		LogHash:  judgeTestHash("a"),
+		Exit:        3,
+		TimedOut:    true,
+		LogHash:     judgeTestHash("a"),
+		StderrHash:  judgeTestHash("c"),
+		StderrBytes: 96,
 		Artifacts: []store.EvidenceArtifact{
 			{Path: "out/store.json", State: "kept", Hash: judgeTestHash("b"), Blob: blob, Size: 512},
 			{Path: "out/trace.txt", State: "missing"},
@@ -78,7 +80,8 @@ func TestEvidenceJudgePromptNamesKeptFilesAndMarksTheRest(t *testing.T) {
 		"read only",
 		"Exit: 3",
 		"Timed out: true",
-		filepath.Join(judgeTestBlobDir, judgeTestHash("a")+".log"),
+		"Stdout log: " + filepath.Join(judgeTestBlobDir, judgeTestHash("a")+".log"),
+		"Stderr log: " + filepath.Join(judgeTestBlobDir, judgeTestHash("c")+".log"),
 		"out/store.json: " + filepath.Join(judgeTestBlobDir, judgeTestHash("b")+".json"),
 		"out/trace.txt: missing",
 		"out/big.bin: over the 10 MiB cap",
@@ -90,17 +93,60 @@ func TestEvidenceJudgePromptNamesKeptFilesAndMarksTheRest(t *testing.T) {
 	}
 }
 
-func TestEvidenceJudgePromptOmitsLogWithoutOne(t *testing.T) {
+// TestEvidenceJudgePromptNamesOnlyTheLogsARunHas names the logs of a run with both, of a run captured before this
+// release with its stdout log alone, and of a run with neither, which the prompt names no log for.
+func TestEvidenceJudgePromptNamesOnlyTheLogsARunHas(t *testing.T) {
 	t.Parallel()
-	run := judgeTestRun()
-	run.LogHash = ""
-	run.Artifacts = nil
-	prompt, err := judgePrompt(run, evidenceBlobs{dir: judgeTestBlobDir})
-	if err != nil {
-		t.Fatalf("judgePrompt: %v", err)
+	stdout := "Stdout log: " + filepath.Join(judgeTestBlobDir, judgeTestHash("a")+".log")
+	stderr := "Stderr log: " + filepath.Join(judgeTestBlobDir, judgeTestHash("c")+".log")
+	cases := []struct {
+		name      string
+		mutate    func(run *store.EvidenceRun)
+		wantLines []string
+		noLines   []string
+	}{
+		{
+			name:      "both logs",
+			mutate:    func(*store.EvidenceRun) {},
+			wantLines: []string{stdout, stderr},
+		},
+		{
+			name: "stdout log alone, as a run captured before this release has it",
+			mutate: func(run *store.EvidenceRun) {
+				run.StderrHash, run.StderrBytes = "", 0
+			},
+			wantLines: []string{stdout},
+			noLines:   []string{"Stderr log"},
+		},
+		{
+			name: "neither log",
+			mutate: func(run *store.EvidenceRun) {
+				run.LogHash, run.StderrHash, run.StderrBytes = "", "", 0
+				run.Artifacts = nil
+			},
+			noLines: []string{"Stdout log", "Stderr log", ".log"},
+		},
 	}
-	if strings.Contains(prompt, ".log") {
-		t.Errorf("prompt names a log though the run has none:\n%s", prompt)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			run := judgeTestRun()
+			tc.mutate(&run)
+			prompt, err := judgePrompt(run, evidenceBlobs{dir: judgeTestBlobDir})
+			if err != nil {
+				t.Fatalf("judgePrompt: %v", err)
+			}
+			for _, want := range tc.wantLines {
+				if !strings.Contains(prompt, want) {
+					t.Errorf("prompt lacks %q:\n%s", want, prompt)
+				}
+			}
+			for _, unwanted := range tc.noLines {
+				if strings.Contains(prompt, unwanted) {
+					t.Errorf("prompt names %q though the run has no such log:\n%s", unwanted, prompt)
+				}
+			}
+		})
 	}
 }
 
@@ -134,6 +180,10 @@ func TestEvidenceJudgePromptRefusesBadNames(t *testing.T) {
 		{
 			name:   "log hash that is not a hash",
 			mutate: func(run *store.EvidenceRun) { run.LogHash = "../escape" },
+		},
+		{
+			name:   "stderr log hash that is not a hash",
+			mutate: func(run *store.EvidenceRun) { run.StderrHash = "../escape" },
 		},
 		{
 			name:   "kept blob that is not a blob name",
