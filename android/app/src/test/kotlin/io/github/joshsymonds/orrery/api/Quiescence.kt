@@ -100,16 +100,17 @@ object Quiescence {
     }
 
     /**
-     * The test ends: wait for its BackgroundWork to finish, and fail, naming it, once it cannot. Work still finishes
-     * while its thread has not run yet, runs, or waits on something in flight (an answer, a call); when every job left
-     * is parked and nothing else is in flight, only time could end it (a retry's sleep), so the test left it running.
-     * Never reads a clock: a loaded machine makes this slower, never failed.
+     * The test ends: wait for its BackgroundWork to finish, and fail, naming it, once only time could. Work still
+     * finishes while its thread has not run yet, runs, or waits on anything but the clock (an answer in flight, a lock
+     * or latch another thread can release). Work sleeping (Thread.sleep, a retry's backoff) with nothing else in flight
+     * is waiting for time alone, so the test ended and left it running. A parked thread cannot be told from one just
+     * released, so only a sleep counts as stuck. Never reads a clock: a loaded machine makes this slower, never failed.
      */
     internal fun endTest() {
         while (true) {
             val left = currentWork()
             if (left.isEmpty()) return
-            if (left.any { it.isRunning() } || inFlightBesidesWork() != null) {
+            if (left.any { !it.isSleeping() } || inFlightBesidesWork() != null) {
                 Thread.sleep(PAUSE_MILLIS)
                 continue
             }
@@ -121,10 +122,11 @@ object Quiescence {
         }
     }
 
-    /** Whether the job is still on its way or at work: not yet on a thread, or on one that is not parked. */
-    private fun Work.isRunning(): Boolean {
-        val running = thread ?: return true
-        return running.state == Thread.State.RUNNABLE || running.state == Thread.State.NEW
+    /** Whether the job's thread is in Thread.sleep: waiting for the clock and nothing else. */
+    private fun Work.isSleeping(): Boolean {
+        val running = thread ?: return false
+        if (running.state != Thread.State.TIMED_WAITING && running.state != Thread.State.WAITING) return false
+        return running.stackTrace.take(SLEEP_FRAMES).any { it.className == "java.lang.Thread" && it.methodName.startsWith("sleep") }
     }
 
     private fun Work.describe(): String {
@@ -236,6 +238,7 @@ object Quiescence {
             (frame.className == "java.net.Socket\$SocketInputStream" && frame.methodName == "read")
 
     private const val PAUSE_MILLIS = 10L
+    private const val SLEEP_FRAMES = 4
     private const val APP_PACKAGE = "io.github.joshsymonds.orrery."
     private const val DISPATCHED_TASK = "kotlinx.coroutines.DispatchedTask"
     private val CLIENT_PACKAGES = listOf("com.connectrpc.", "okhttp3.", "okio.", "com.google.protobuf.")

@@ -195,17 +195,21 @@ class QuiescentWaitTest {
     }
 
     @Test
-    fun aTestThatEndsWithItsWorkParkedFailsNamingTheWork() {
-        // Work parked with nothing in flight that could end it, as the push registration was in its retry sleep.
-        val release = CountDownLatch(1)
-        BackgroundWork.run("synthetic parked work") { release.await() }
+    fun aTestThatEndsWithItsWorkAsleepFailsNamingTheWork() {
+        // Work that only the clock could end, with nothing in flight, as the push registration in its retry sleep.
+        BackgroundWork.run("synthetic sleeping work") {
+            try {
+                Thread.sleep(Long.MAX_VALUE)
+            } catch (e: InterruptedException) {
+                // Let go by the test below.
+            }
+        }
 
         val failure = assertThrows(AssertionError::class.java) { Quiescence.endTest() }
 
-        assertTrue(failure.message, failure.message!!.contains("\"synthetic parked work\""))
-        release.countDown()
-        Quiescence.endTest()
-        assertEquals(0, Quiescence.backgroundWorkRunning())
+        assertTrue(failure.message, failure.message!!.contains("\"synthetic sleeping work\""))
+        Thread.getAllStackTraces().keys.single { it.name == "synthetic sleeping work" }.interrupt()
+        Quiescence.awaitUntil("the sleeping work to end") { Quiescence.backgroundWorkRunning() == 0 }
     }
 
     @Test
@@ -223,22 +227,20 @@ class QuiescentWaitTest {
     }
 
     @Test
-    fun aRefusedRegistrationLeftRetryingFailsTheTestEndUntilItCanFinish() {
-        // OrreryPushServiceTest's leak, forced: the server refuses, so the registration parks in its retry sleep.
+    fun aRefusedRegistrationLeftRetryingFailsTheTestEnd() {
+        // OrreryPushServiceTest's leak, forced: the server refuses, so the registration sleeps before its retry.
         FakeOrreryServer().use { server ->
             server.fail(REGISTER_PATH, Code.UNAVAILABLE, "synthetic refusal")
-            val retry = CountDownLatch(1)
-            val registration = PushRegistration(OrreryClient(server.baseUrl), sleep = { retry.await() })
-            BackgroundWork.run("push registration") { registration.register("https://push.example.com/up", "key", "auth") }
+            BackgroundWork.run("push registration") {
+                PushRegistration(OrreryClient(server.baseUrl)).register("https://push.example.com/up", "key", "auth")
+            }
 
             val failure = assertThrows(AssertionError::class.java) { Quiescence.endTest() }
             assertTrue(failure.message, failure.message!!.contains("\"push registration\""))
 
-            // Once the server accepts and the retry runs, the work can finish, and the end waits for it.
+            // Accepted on its next try, the registration ends, and the server's close finds nothing left running.
             server.respond(REGISTER_PATH, RegisterResponse.getDefaultInstance())
-            retry.countDown()
-            Quiescence.endTest()
-            assertEquals(0, Quiescence.backgroundWorkRunning())
+            Quiescence.awaitUntil("the registration to be accepted") { Quiescence.backgroundWorkRunning() == 0 }
         }
     }
 
