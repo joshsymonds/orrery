@@ -70,8 +70,9 @@ func releaseHold(build store.TaskBuild) Action {
 	return Action{Kind: ActMove, Next: build}
 }
 
-// decideFresh returns the action for a task with no stage: it starts at red on the epic's branch, once the epic is
-// running and the branch exists.
+// decideFresh returns the action for a task with no stage: it starts at red, once the epic is running and the branch
+// exists. Its base is the epic's candidate when the epic has one (a red batch's fixes start from it), and otherwise the
+// branch tip.
 func decideFresh(view View) Action {
 	if view.Paused || view.Parked || view.Branch == "" {
 		return Action{Kind: ActNone}
@@ -79,6 +80,9 @@ func decideFresh(view View) Action {
 	build := view.Task.Build
 	build.Stage = StageRed
 	build.Base = view.Branch
+	if view.Candidate != "" {
+		build.Base = view.Candidate
+	}
 	return Action{Kind: ActMove, Next: build}
 }
 
