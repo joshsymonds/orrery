@@ -83,6 +83,12 @@ func runWithBinaries(m *testing.M) int {
 		return 1
 	}
 	defer os.RemoveAll(dir)
+	// The isolation comes first: it unsets every ORRERY_ variable, and the test's own ones are set after it.
+	guardLog, err := isolateFromHost(dir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "isolate the tests from the host: %v\n", err)
+		return 1
+	}
 	// One go build builds both commands at once, where two builds ran one after the other. With -o naming a directory,
 	// each binary lands there under its command's name.
 	out, buildErr := exec.Command("go", "build", "-o", dir+string(os.PathSeparator), "../../cmd/orrery", "../../cmd/orreryd").
@@ -103,7 +109,49 @@ func runWithBinaries(m *testing.M) int {
 		fmt.Fprintf(os.Stderr, "%v\n", err)
 		return 1
 	}
-	return m.Run()
+	code := m.Run()
+	if calls, readErr := os.ReadFile(guardLog); readErr == nil && len(calls) > 0 {
+		fmt.Fprintf(os.Stderr, "a test ran claude from PATH, not a fake; the guard recorded:\n%s", calls)
+		return 1
+	}
+	return code
+}
+
+// isolateFromHost keeps every process a test starts away from the developer's own claude and orreryd. It runs before
+// any test, so it may set the process environment. XDG_RUNTIME_DIR becomes a directory under dir, where no orreryd
+// listens, and the ORRERY_ variables and NOTIFY_SOCKET are unset, so no orrery or orreryd finds the live daemon's
+// socket. PATH starts with a directory under dir whose claude records its arguments in the returned log and exits 97,
+// so a process that looks claude up on PATH, rather than running a test's fake, reaches the guard and not the real
+// claude. A test's own fake leads PATH ahead of it where the test puts it there.
+func isolateFromHost(dir string) (string, error) {
+	runtime := filepath.Join(dir, "runtime")
+	guard := filepath.Join(dir, "guard")
+	for _, d := range []string{runtime, guard} {
+		if err := os.Mkdir(d, 0o700); err != nil {
+			return "", fmt.Errorf("make %s: %w", d, err)
+		}
+	}
+	log := filepath.Join(dir, "guard.calls")
+	script := fmt.Sprintf("#!/bin/sh\nprintf '%%s\\n' \"$*\" >> '%s'\n"+
+		"echo 'claude guard: a test ran claude from PATH' >&2\nexit 97\n", log)
+	if err := os.WriteFile(filepath.Join(guard, "claude"), []byte(script), 0o700); err != nil {
+		return "", fmt.Errorf("write the claude guard: %w", err)
+	}
+	for _, entry := range os.Environ() {
+		name, _, _ := strings.Cut(entry, "=")
+		if strings.HasPrefix(name, "ORRERY_") || name == "NOTIFY_SOCKET" {
+			if err := os.Unsetenv(name); err != nil {
+				return "", fmt.Errorf("unset %s: %w", name, err)
+			}
+		}
+	}
+	if err := os.Setenv("XDG_RUNTIME_DIR", runtime); err != nil {
+		return "", fmt.Errorf("set XDG_RUNTIME_DIR: %w", err)
+	}
+	if err := os.Setenv("PATH", guard+string(os.PathListSeparator)+os.Getenv("PATH")); err != nil {
+		return "", fmt.Errorf("set PATH: %w", err)
+	}
+	return log, nil
 }
 
 // outcome is what one orrery run printed and how it exited.
