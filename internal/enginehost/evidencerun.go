@@ -84,6 +84,8 @@ type Evidence struct {
 	closed  bool
 	cancels map[string]context.CancelCauseFunc
 	drives  sync.WaitGroup
+	// calls counts the calls under way that can start or end work (see callsInFlight).
+	calls callsInFlight
 }
 
 // NewEvidence returns an Evidence for cfg. Its blobs are kept under StateDir/evidence/blobs, and its capture worktrees under
@@ -121,6 +123,7 @@ func NewEvidence(cfg EvidenceConfig) *Evidence {
 // store's error. It stores the run in state capturing with its item, revision and phase before anything runs, then drives
 // it in the background and returns the stored run.
 func (e *Evidence) Run(ctx context.Context, epic, item, revision, phase string) (store.EvidenceRun, error) {
+	defer e.calls.enter()()
 	row, err := e.store.Epic(ctx, epic)
 	if err != nil {
 		return store.EvidenceRun{}, fmt.Errorf("evidence run of epic %s: %w", epic, err)
@@ -232,6 +235,7 @@ func (e *Evidence) readLog(run store.EvidenceRun, hash string) ([]byte, string, 
 // judging with no judge step for a restart's Resume to give the verdict. A capture cut short before its gate launched is
 // recorded as nothing, so its run stays capturing for a restart to run it. Run returns an error from then on.
 func (e *Evidence) Close() {
+	defer e.calls.enter()()
 	e.mu.Lock()
 	e.closed = true
 	var cause error
