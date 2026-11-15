@@ -181,6 +181,7 @@ func TestStepsStartAgentGateRefusedInAWritingStep(t *testing.T) {
 }
 
 func TestStepsStartAgentGateRefusesCallerAgentSchemaOrDoneValue(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name   string
 		mutate func(*StepStart)
@@ -191,6 +192,7 @@ func TestStepsStartAgentGateRefusesCallerAgentSchemaOrDoneValue(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			f := newStepStartFixture(t)
 			gatesFile := filepath.Join(t.TempDir(), "gates.toml")
 			stepGateWriteFile(t, gatesFile, stepAgentGateText("reviewer"))
@@ -236,6 +238,7 @@ func TestStepsStartAgentGateUnresolvedAgentStartsNothing(t *testing.T) {
 }
 
 func TestStepsStartNoGateWithoutAgentStartsNothing(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name   string
 		schema string
@@ -246,6 +249,7 @@ func TestStepsStartNoGateWithoutAgentStartsNothing(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			f := newRefusalFixture(t, 2)
 			start := stepStartReadOnly(stepGitTestRepo(t), "HEAD")
 			start.Agent = ""
@@ -356,6 +360,7 @@ func TestStepsStartAgentGateFailedAssertionEndsGateFailed(t *testing.T) {
 }
 
 func TestStepsStartGateWithoutAgentLeavesNoAgentGate(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name  string
 		start func(t *testing.T) (*stepStartFixture, StepStart)
@@ -382,6 +387,7 @@ func TestStepsStartGateWithoutAgentLeavesNoAgentGate(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			f, start := tc.start(t)
 
 			if _, err := f.steps.Start(t.Context(), start); err != nil {

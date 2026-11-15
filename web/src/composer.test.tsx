@@ -19,6 +19,7 @@ const serverText = "upstream said: secret-session-7";
 function baseProps(init: Partial<Props>): Props {
   return {
     label: "web",
+    state: "done",
     send: () => Promise.resolve(),
     pull: null,
     newPromptId: () => "prompt-1",
@@ -88,6 +89,15 @@ function flashing(container: HTMLElement): boolean {
   const root = container.querySelector(".composer");
   assert.ok(root, "the composer renders its root");
   return root.classList.contains("flash");
+}
+
+const edgeNames = ["edge-working", "edge-waiting", "edge-idle"];
+
+// edgesOf names the edge classes the composer's root carries, in the order of edgeNames.
+function edgesOf(container: HTMLElement): string[] {
+  const root = container.querySelector(".composer");
+  assert.ok(root, "the composer renders its root");
+  return edgeNames.filter((edge) => root.classList.contains(edge));
 }
 
 function sendButton(container: HTMLElement): HTMLButtonElement {
@@ -434,11 +444,22 @@ test("Up with text in the box does not flash", async (t) => {
   });
 });
 
-test("the placeholder names the row", async () => {
-  await withComposer({ label: "api" }, async (box) => {
-    assert.equal(box.placeholder, "Reply to api");
+// The state cases: working queues the text, waiting answers, and any other state, known or not, replies.
+const stateCases = [
+  { state: "working", edge: "edge-working", placeholder: "Queue for api; it lands at Claude's next step" },
+  { state: "waiting", edge: "edge-waiting", placeholder: "Answer api" },
+  { state: "idle", edge: "edge-idle", placeholder: "Reply to api" },
+  { state: "unknown-state", edge: "edge-idle", placeholder: "Reply to api" },
+];
+
+for (const { state, edge, placeholder } of stateCases) {
+  test(`a ${state} composer has the ${edge} edge and the placeholder "${placeholder}"`, async () => {
+    await withComposer({ label: "api", state }, async (box, container) => {
+      assert.deepEqual(edgesOf(container), [edge]);
+      assert.equal(box.placeholder, placeholder);
+    });
   });
-});
+}
 
 test("the send button is a button labeled send inside the composer", async () => {
   await withComposer({}, async (_box, container) => {
@@ -516,7 +537,7 @@ test("queued messages draw above the input in the given order, each tagged, a ca
     ]);
     const root = container.querySelector(".compose");
     assert.ok(root, "the composer renders its root");
-    assert.deepEqual(Array.from(root.children, (child) => child.className), ["queue", "composer"]);
+    assert.deepEqual(Array.from(root.children, (child) => child.className), ["queue", "composer edge-idle"]);
   });
 });
 

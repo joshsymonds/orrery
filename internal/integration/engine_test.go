@@ -296,10 +296,16 @@ func TestEngineSessionsOffByDefault(t *testing.T) {
 }
 
 // TestEngineSessionsSocketMode proves that the session socket is created beside the daemon socket and is private.
+// The socket accepts connections once it is bound, before orreryd restricts its mode, so the mode is read at READY=1,
+// which orreryd sends after its sessions have started.
 func TestEngineSessionsSocketMode(t *testing.T) {
 	t.Parallel()
 	f := newEngineFixture(t)
-	daemon := f.startOrreryd(t, true)
+	notify := bindNotifySocket(t, f.root)
+	daemon := f.startReady(t, f.notifyEnv(notify.path), f.fakeClaude, true)
+	if got := notify.read(t); got != readyDatagram {
+		t.Fatalf("datagram %q, want %q", got, readyDatagram)
+	}
 
 	info, err := os.Stat(f.sessions)
 	if err != nil {

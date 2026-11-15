@@ -68,7 +68,6 @@ private val MONTH_DAY: DateTimeFormatter = DateTimeFormatter.ofPattern("MMM d", 
 
 // Entry keys always start with their kind ("reply:", "tool:", ...), so these never equal one.
 private const val FOOTER_KEY = "footer"
-private const val WORKING_KEY = "working"
 // Waiting rows are keyed by their position in the queue, oldest first, so two equal items stay apart.
 private const val WAITING_KEY_PREFIX = "waiting:"
 private const val WAITING_MORE_KEY = "waiting-more"
@@ -90,9 +89,9 @@ private enum class CallMark(val symbol: String, val colour: Color) {
 /**
  * The folded conversation as the phone draws it: time labels, prompt blocks, markdown replies, tool
  * rows that expand to their result, groups of calls that expand to their rows, compaction bars that
- * expand to their summary, and slim notice rows, with an optional footer after the last entry. While
- * [working], a working mark sits after the last entry; the [waiting] rows follow it, one per queued
- * message up to three, then a "+N more" row for the rest, and the footer comes last. Which rows are
+ * expand to their summary, and slim notice rows, with an optional footer after the last entry. The
+ * [waiting] rows follow the last entry, one per queued message up to three, then a "+N more" row for
+ * the rest, and the footer comes last. Which rows are
  * open is kept by tool id (a group by its first call's id, a compaction bar by its entry key, a
  * waiting row by its message's time and text), so it survives new entries. The first entries it
  * shows open at the divider's entry, at the top, when a divider is
@@ -117,7 +116,6 @@ fun ConversationView(
     listState: LazyListState = rememberLazyListState(),
     contentPadding: PaddingValues = PaddingValues(),
     footer: (@Composable () -> Unit)? = null,
-    working: Boolean = false,
     waiting: List<WaitingItem> = emptyList(),
     endRequests: Int = 0,
     seen: Long? = null,
@@ -135,7 +133,7 @@ fun ConversationView(
     val newerAt = remember(entries, seen) { firstNewerIndex(entries, seen) }
     val currentNewer by rememberUpdatedState(newerAt)
     val waitingRows = minOf(waiting.size, WAITING_SHOWN) + (if (waiting.size > WAITING_SHOWN) 1 else 0)
-    val lastIndex = entries.size + (if (working) 1 else 0) + waitingRows + (if (footer == null) 0 else 1) - 1
+    val lastIndex = entries.size + waitingRows + (if (footer == null) 0 else 1) - 1
     // Following is decided when a scroll ends, not when the first visible item moves: a slid window
     // moves it without the reader scrolling.
     LaunchedEffect(listState) {
@@ -238,7 +236,6 @@ fun ConversationView(
                 }
             }
         }
-        if (working) item(key = WORKING_KEY) { WorkingMark() }
         waiting.take(WAITING_SHOWN).forEachIndexed { index, waitingItem ->
             item(key = "$WAITING_KEY_PREFIX$index") { WaitingRow(waitingItem, expanded, toggle) }
         }
@@ -603,28 +600,6 @@ private fun NoticeRow(notice: ConvoEntry.Notice) {
             overflow = TextOverflow.Ellipsis,
         )
         if (notice.error) MarkText(CallMark.Failed)
-    }
-}
-
-/** The mark that Claude is still working: a quiet notice-style line after the last entry. */
-@Composable
-private fun WorkingMark() {
-    Row(
-        modifier = Modifier
-            .testTag("working-mark")
-            .fillMaxWidth()
-            .padding(start = 4.dp, end = 4.dp, top = 5.dp, bottom = 5.dp),
-        verticalAlignment = Alignment.Top,
-        horizontalArrangement = Arrangement.spacedBy(7.dp),
-    ) {
-        NoticeDot(Mocha.Overlay1)
-        Text(
-            text = "Claude is still working",
-            color = Mocha.Overlay1,
-            fontSize = NOTICE_TEXT_SIZE,
-            lineHeight = NOTICE_LINE_HEIGHT,
-            maxLines = 1,
-        )
     }
 }
 

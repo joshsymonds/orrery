@@ -34,6 +34,7 @@ type Commands interface {
 	Interrupt(ctx context.Context, id string) error
 	Stop(ctx context.Context, id string) error
 	Seen(ctx context.Context, id string) error
+	Resume(ctx context.Context, id string) error
 }
 
 // Listen returns a listener on the engine socket at socketPath. daemon.Listen creates the socket directory and
@@ -51,8 +52,8 @@ func Listen(socketPath string) (net.Listener, error) {
 // then shuts down within shutdownWait and returns nil. A nil commands refuses every engine RPC as unavailable, a nil steps
 // refuses every step RPC as unavailable, a nil epics refuses every epic RPC as unavailable, a nil pools refuses every
 // Acquire as unavailable, a nil evidence refuses every evidence RPC as unavailable, and a nil notices refuses every notices
-// RPC as unavailable. With steps served, the engine refuses Say, Answer, Interrupt and Stop on a step id, since a step is
-// driven only through the Steps service. opts apply to each of the six handlers.
+// RPC as unavailable. With steps served, the engine refuses Say, Answer, Interrupt, Stop and Resume on a step id, since
+// a step is driven only through the Steps service. opts apply to each of the six handlers.
 func Serve(
 	ctx context.Context,
 	ln net.Listener,
@@ -237,6 +238,22 @@ func (s *service) Seen(
 	return connect.NewResponse(&v1.SeenResponse{}), nil
 }
 
+func (s *service) Resume(
+	ctx context.Context,
+	req *connect.Request[v1.ResumeRequest],
+) (*connect.Response[v1.ResumeResponse], error) {
+	if err := s.ready(); err != nil {
+		return nil, err
+	}
+	if err := s.refuseStep(ctx, req.Msg.GetId()); err != nil {
+		return nil, err
+	}
+	if err := s.commands.Resume(ctx, req.Msg.GetId()); err != nil {
+		return nil, commandError(err)
+	}
+	return connect.NewResponse(&v1.ResumeResponse{}), nil
+}
+
 // commandError maps a Commands error to its Connect code. The error's text is the message.
 func commandError(err error) error {
 	code := connect.CodeInternal
@@ -248,6 +265,8 @@ func commandError(err error) error {
 	case errors.Is(err, ErrBadDir), errors.Is(err, ErrEmptyPrompt), errors.Is(err, ErrBadModel),
 		errors.Is(err, ErrBadID), errors.Is(err, ErrBadAnswer), errors.Is(err, session.ErrUnverifiedAnswer):
 		code = connect.CodeInvalidArgument
+	case errors.Is(err, ErrNotResumable):
+		code = connect.CodeFailedPrecondition
 	}
 	return errors.Join(connect.NewError(code, err))
 }

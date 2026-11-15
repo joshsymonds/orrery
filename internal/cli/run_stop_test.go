@@ -227,6 +227,7 @@ func remainingLines(lines <-chan string) []string {
 }
 
 func TestRunStopSendsSIGTERMAndRerunsCommand(t *testing.T) {
+	t.Parallel()
 	ready := make(chan struct{})
 	pools := &stopPools{steps: []scriptedStep{stopStep("grant-term", ready), rejoinStep("grant-rerun")}}
 	socket := serveStopPools(t, pools)
@@ -271,6 +272,7 @@ func TestRunStopSendsSIGTERMAndRerunsCommand(t *testing.T) {
 }
 
 func TestRunStopKillsCommandOnlyAfterGrace(t *testing.T) {
+	t.Parallel()
 	ready := make(chan struct{})
 	pools := &stopPools{steps: []scriptedStep{stopStep("grant-stubborn", ready), rejoinStep("grant-rerun")}}
 	socket := serveStopPools(t, pools)
@@ -315,6 +317,7 @@ func TestRunStopKillsCommandOnlyAfterGrace(t *testing.T) {
 }
 
 func TestRunStopKillsGroupOnlyAfterGrace(t *testing.T) {
+	t.Parallel()
 	ready := make(chan struct{})
 	pools := &stopPools{steps: []scriptedStep{stopStep("grant-orphan", ready), rejoinStep("grant-rerun")}}
 	socket := serveStopPools(t, pools)
@@ -370,6 +373,7 @@ func TestRunStopKillsGroupOnlyAfterGrace(t *testing.T) {
 }
 
 func TestRunStopExitsNoGrantWhenReclaimIsRefused(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		code connect.Code
@@ -379,6 +383,7 @@ func TestRunStopExitsNoGrantWhenReclaimIsRefused(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			ready := make(chan struct{})
 			pools := &stopPools{steps: []scriptedStep{
 				stopStep("grant-term", ready),
@@ -407,6 +412,7 @@ func TestRunStopExitsNoGrantWhenReclaimIsRefused(t *testing.T) {
 }
 
 func TestRunStopExitsWhenContextEndsWhileWaitingAgain(t *testing.T) {
+	t.Parallel()
 	ready := make(chan struct{})
 	pools := &stopPools{steps: []scriptedStep{
 		stopStep("grant-term", ready),

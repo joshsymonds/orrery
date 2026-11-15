@@ -93,6 +93,10 @@ func (f *fakeCommands) Seen(_ context.Context, id string) error {
 	return f.record(call{method: "Seen", id: id})
 }
 
+func (f *fakeCommands) Resume(_ context.Context, id string) error {
+	return f.record(call{method: "Resume", id: id})
+}
+
 // startServer listens on a socket in a temp directory and serves commands on it, with no steps. The returned stop
 // cancels the server's context and returns Serve's error. A test that does not call stop gets it through t.Cleanup.
 func startServer(t *testing.T, commands Commands) (string, func() error) {
@@ -147,8 +151,8 @@ func newClient(t *testing.T, path string) enginev1connect.EngineClient {
 	return enginev1connect.NewEngineClient(unixHTTPClient(t, path), "http://engine.invalid")
 }
 
-// callAll calls each of the six RPCs once with fixed arguments and returns each error in order: Start, Say, Answer,
-// Interrupt, Stop, Seen.
+// callAll calls each of the seven RPCs once with fixed arguments and returns each error in order: Start, Say, Answer,
+// Interrupt, Stop, Seen, Resume.
 func callAll(t *testing.T, client enginev1connect.EngineClient) []error {
 	t.Helper()
 	ctx := context.Background()
@@ -161,7 +165,8 @@ func callAll(t *testing.T, client enginev1connect.EngineClient) []error {
 	_, interruptErr := client.Interrupt(ctx, connect.NewRequest(&v1.InterruptRequest{Id: "s1"}))
 	_, stopErr := client.Stop(ctx, connect.NewRequest(&v1.StopRequest{Id: "s1"}))
 	_, seenErr := client.Seen(ctx, connect.NewRequest(&v1.SeenRequest{Id: "s1"}))
-	return []error{startErr, sayErr, answerErr, interruptErr, stopErr, seenErr}
+	_, resumeErr := client.Resume(ctx, connect.NewRequest(&v1.ResumeRequest{Id: "s1"}))
+	return []error{startErr, sayErr, answerErr, interruptErr, stopErr, seenErr, resumeErr}
 }
 
 func TestListenCreatesSocketModeZeroSixHundred(t *testing.T) {
@@ -218,6 +223,9 @@ func TestServeRoutesEachRPCToCommands(t *testing.T) {
 	if _, err := client.Seen(ctx, connect.NewRequest(&v1.SeenRequest{Id: "s1"})); err != nil {
 		t.Fatalf("Seen: %v", err)
 	}
+	if _, err := client.Resume(ctx, connect.NewRequest(&v1.ResumeRequest{Id: "s1"})); err != nil {
+		t.Fatalf("Resume: %v", err)
+	}
 	if err := stop(); err != nil {
 		t.Fatalf("Serve: %v", err)
 	}
@@ -229,6 +237,7 @@ func TestServeRoutesEachRPCToCommands(t *testing.T) {
 		{method: "Interrupt", id: "s1"},
 		{method: "Stop", id: "s1"},
 		{method: "Seen", id: "s1"},
+		{method: "Resume", id: "s1"},
 	}
 	if got := fake.recorded(); !slices.Equal(got, want) {
 		t.Fatalf("commands received %+v, want %+v", got, want)
@@ -331,6 +340,12 @@ func TestServeMapsErrorsToConnectCodes(t *testing.T) {
 			err:  wrapf(session.ErrNoPendingRequest, "answer"),
 			code: connect.CodeNotFound,
 			text: "answer: " + session.ErrNoPendingRequest.Error(),
+		},
+		{
+			name: "session not resumable",
+			err:  fmt.Errorf("resume session x: %w: its state is done, not interrupted", ErrNotResumable),
+			code: connect.CodeFailedPrecondition,
+			text: "resume session x: " + ErrNotResumable.Error() + ": its state is done, not interrupted",
 		},
 		{
 			name: "bad directory",

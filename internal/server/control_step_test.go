@@ -95,7 +95,7 @@ func newStepControlHandler(
 	return handler
 }
 
-// stepSessionCalls returns the four session Control calls that a step id refuses, and Seen, each on id with every
+// stepSessionCalls returns the five session Control calls that a step id refuses, and Seen, each on id with every
 // request field set. Each names the engine request it forwards and the reply it answers with.
 func stepSessionCalls(id string) []controlCall {
 	return []controlCall{
@@ -136,6 +136,14 @@ func stepSessionCalls(id string) []controlCall {
 			reply:  &orreryv1.StopResponse{},
 		},
 		{
+			name: "Resume",
+			call: func(ctx context.Context, c orreryv1connect.ControlClient) (proto.Message, error) {
+				return replyOf(c.Resume(ctx, connect.NewRequest(&orreryv1.ResumeRequest{Id: id})))
+			},
+			engine: &enginev1.ResumeRequest{Id: id},
+			reply:  &orreryv1.ResumeResponse{},
+		},
+		{
 			name: "Seen",
 			call: func(ctx context.Context, c orreryv1connect.ControlClient) (proto.Message, error) {
 				return replyOf(c.Seen(ctx, connect.NewRequest(&orreryv1.SeenRequest{Id: id})))
@@ -147,11 +155,13 @@ func stepSessionCalls(id string) []controlCall {
 }
 
 func TestControlRefusesStepIDs(t *testing.T) {
+	t.Parallel()
 	for _, tc := range stepSessionCalls(synthStepID) {
 		if tc.name == "Seen" {
 			continue
 		}
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			fake := &fakeEngine{}
 			steps := &fakeSteps{known: synthStepID}
 			control := controlClient(t, newStepControlHandler(t, newFakeOrreryd(t, fake), steps))
@@ -166,8 +176,10 @@ func TestControlRefusesStepIDs(t *testing.T) {
 }
 
 func TestControlForwardsSessionIDsStepsDoNotFind(t *testing.T) {
+	t.Parallel()
 	for _, tc := range stepSessionCalls(synthOtherID) {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			fake := &fakeEngine{}
 			steps := &fakeSteps{known: synthStepID}
 			control := controlClient(t, newStepControlHandler(t, newFakeOrreryd(t, fake), steps))
@@ -188,6 +200,7 @@ func TestControlForwardsSessionIDsStepsDoNotFind(t *testing.T) {
 }
 
 func TestControlAnswersStepLookupFailures(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name string
 		err  error
@@ -207,6 +220,7 @@ func TestControlAnswersStepLookupFailures(t *testing.T) {
 				continue
 			}
 			t.Run(lookup.name+" "+tc.name, func(t *testing.T) {
+				t.Parallel()
 				fake := &fakeEngine{}
 				steps := &fakeSteps{known: synthStepID, err: lookup.err}
 				control := controlClient(t, newStepControlHandler(t, newFakeOrreryd(t, fake), steps))
@@ -222,6 +236,7 @@ func TestControlAnswersStepLookupFailures(t *testing.T) {
 }
 
 func TestControlForwardsSeenOnStepID(t *testing.T) {
+	t.Parallel()
 	for _, tc := range stepSessionCalls(synthStepID) {
 		if tc.name != "Seen" {
 			continue

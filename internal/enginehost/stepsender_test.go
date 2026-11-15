@@ -205,7 +205,9 @@ func TestOwnerNudgeAloneSendsOwnerNoRound(t *testing.T) {
 }
 
 func TestOwnerNudgeResumingHoldSendsOwnerNoRound(t *testing.T) {
+	t.Parallel()
 	t.Run("held turn already ended", func(t *testing.T) {
+		t.Parallel()
 		f := newStepNudgeFixture(t)
 		id := f.start(t)
 		f.beginTurn(t)
@@ -225,6 +227,7 @@ func TestOwnerNudgeResumingHoldSendsOwnerNoRound(t *testing.T) {
 		wantNoRound(t, f.status(t, id))
 	})
 	t.Run("held turn end still to come", func(t *testing.T) {
+		t.Parallel()
 		f := newStepNudgeFixture(t)
 		id := f.start(t)
 		f.beginTurn(t)

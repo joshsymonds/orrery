@@ -70,6 +70,8 @@ const (
 	ControlStopProcedure = "/orrery.v1.Control/Stop"
 	// ControlSeenProcedure is the fully-qualified name of the Control's Seen RPC.
 	ControlSeenProcedure = "/orrery.v1.Control/Seen"
+	// ControlResumeProcedure is the fully-qualified name of the Control's Resume RPC.
+	ControlResumeProcedure = "/orrery.v1.Control/Resume"
 	// PanesListProcedure is the fully-qualified name of the Panes's List RPC.
 	PanesListProcedure = "/orrery.v1.Panes/List"
 	// PanesScreenProcedure is the fully-qualified name of the Panes's Screen RPC.
@@ -322,6 +324,8 @@ type ControlClient interface {
 	Stop(context.Context, *connect.Request[v1.StopRequest]) (*connect.Response[v1.StopResponse], error)
 	// Seen records that the user has seen a headless session.
 	Seen(context.Context, *connect.Request[v1.SeenRequest]) (*connect.Response[v1.SeenResponse], error)
+	// Resume resumes an interrupted headless session's turn by sending its resume prompt.
+	Resume(context.Context, *connect.Request[v1.ResumeRequest]) (*connect.Response[v1.ResumeResponse], error)
 }
 
 // NewControlClient constructs a client for the orrery.v1.Control service. By default, it uses the
@@ -371,6 +375,12 @@ func NewControlClient(httpClient connect.HTTPClient, baseURL string, opts ...con
 			connect.WithSchema(controlMethods.ByName("Seen")),
 			connect.WithClientOptions(opts...),
 		),
+		resume: connect.NewClient[v1.ResumeRequest, v1.ResumeResponse](
+			httpClient,
+			baseURL+ControlResumeProcedure,
+			connect.WithSchema(controlMethods.ByName("Resume")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -382,6 +392,7 @@ type controlClient struct {
 	interrupt *connect.Client[v1.InterruptRequest, v1.InterruptResponse]
 	stop      *connect.Client[v1.StopRequest, v1.StopResponse]
 	seen      *connect.Client[v1.SeenRequest, v1.SeenResponse]
+	resume    *connect.Client[v1.ResumeRequest, v1.ResumeResponse]
 }
 
 // Start calls orrery.v1.Control.Start.
@@ -414,6 +425,11 @@ func (c *controlClient) Seen(ctx context.Context, req *connect.Request[v1.SeenRe
 	return c.seen.CallUnary(ctx, req)
 }
 
+// Resume calls orrery.v1.Control.Resume.
+func (c *controlClient) Resume(ctx context.Context, req *connect.Request[v1.ResumeRequest]) (*connect.Response[v1.ResumeResponse], error) {
+	return c.resume.CallUnary(ctx, req)
+}
+
 // ControlHandler is an implementation of the orrery.v1.Control service.
 type ControlHandler interface {
 	// Start starts a headless session in a directory and sends it its first prompt.
@@ -428,6 +444,8 @@ type ControlHandler interface {
 	Stop(context.Context, *connect.Request[v1.StopRequest]) (*connect.Response[v1.StopResponse], error)
 	// Seen records that the user has seen a headless session.
 	Seen(context.Context, *connect.Request[v1.SeenRequest]) (*connect.Response[v1.SeenResponse], error)
+	// Resume resumes an interrupted headless session's turn by sending its resume prompt.
+	Resume(context.Context, *connect.Request[v1.ResumeRequest]) (*connect.Response[v1.ResumeResponse], error)
 }
 
 // NewControlHandler builds an HTTP handler from the service implementation. It returns the path on
@@ -473,6 +491,12 @@ func NewControlHandler(svc ControlHandler, opts ...connect.HandlerOption) (strin
 		connect.WithSchema(controlMethods.ByName("Seen")),
 		connect.WithHandlerOptions(opts...),
 	)
+	controlResumeHandler := connect.NewUnaryHandler(
+		ControlResumeProcedure,
+		svc.Resume,
+		connect.WithSchema(controlMethods.ByName("Resume")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/orrery.v1.Control/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case ControlStartProcedure:
@@ -487,6 +511,8 @@ func NewControlHandler(svc ControlHandler, opts ...connect.HandlerOption) (strin
 			controlStopHandler.ServeHTTP(w, r)
 		case ControlSeenProcedure:
 			controlSeenHandler.ServeHTTP(w, r)
+		case ControlResumeProcedure:
+			controlResumeHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -518,6 +544,10 @@ func (UnimplementedControlHandler) Stop(context.Context, *connect.Request[v1.Sto
 
 func (UnimplementedControlHandler) Seen(context.Context, *connect.Request[v1.SeenRequest]) (*connect.Response[v1.SeenResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.v1.Control.Seen is not implemented"))
+}
+
+func (UnimplementedControlHandler) Resume(context.Context, *connect.Request[v1.ResumeRequest]) (*connect.Response[v1.ResumeResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("orrery.v1.Control.Resume is not implemented"))
 }
 
 // PanesClient is a client for the orrery.v1.Panes service.

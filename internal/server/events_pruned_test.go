@@ -28,6 +28,7 @@ func prunedLog(t *testing.T, path string) (*store.Store, time.Time) {
 }
 
 func TestListThenWatchAfterPrunedLogReceivesNextWrite(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	s, later := prunedLog(t, path)
 	url := startServer(t, path)
@@ -49,6 +50,7 @@ func TestListThenWatchAfterPrunedLogReceivesNextWrite(t *testing.T) {
 }
 
 func TestWatchAfterPrunedLogLastSeqReceivesNextWrite(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	s, later := prunedLog(t, path)
 	events := orreryv1connect.NewEventsClient(guardedHTTPClient(), startServer(t, path))

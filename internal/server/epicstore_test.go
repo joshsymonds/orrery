@@ -93,6 +93,7 @@ func epicIDs(epics []*orreryv1.Epic) []string {
 }
 
 func TestEpicsListMergesDatabaseEpics(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	writeHead(t, root, "repoa", "shared", `{"outcome":"shipped"}`, epicsNow().Add(-48*time.Hour))
 	writeHead(t, root, "repoa", "record", `{"outcome":"shipped"}`, epicsNow().Add(-time.Hour))
@@ -146,6 +147,7 @@ func TestEpicsListMergesDatabaseEpics(t *testing.T) {
 }
 
 func TestEpicsSharedIDTakesProblemFromRecord(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	writeHead(t, root, "repoa", "shared", `{not json`, epicsNow())
 	store := &epicStoreFake{stored: []*enginev1.StoredEpic{
@@ -171,6 +173,7 @@ func TestEpicsSharedIDTakesProblemFromRecord(t *testing.T) {
 }
 
 func TestEpicsGetSharedEpicCarriesRequirementsAndRecordTasks(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	dir := filepath.Join(root, "repoa", "shared")
 	writeHead(t, root, "repoa", "shared", `{"outcome":"shipped"}`, epicsNow().Add(-48*time.Hour))
@@ -224,6 +227,7 @@ func TestEpicsGetSharedEpicCarriesRequirementsAndRecordTasks(t *testing.T) {
 }
 
 func TestEpicsGetRecordOnlyEpicHasNoRequirements(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	writeHead(t, root, "repoa", "record", `{"outcome":"shipped"}`, epicsNow())
 	store := &epicStoreFake{stored: []*enginev1.StoredEpic{
@@ -242,6 +246,7 @@ func TestEpicsGetRecordOnlyEpicHasNoRequirements(t *testing.T) {
 }
 
 func TestEpicsStoreMissingOrOlderListsRecordsAsToday(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	writeHead(t, root, "repo", "epic", `{"outcome":"shipped"}`, epicsNow())
 	// A server with no Epics service answers every call with 404, which the generated client reports as unimplemented:
@@ -257,6 +262,7 @@ func TestEpicsStoreMissingOrOlderListsRecordsAsToday(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			client := epicStoreServe(t, root, &epicsFake{}, tc.store)
 
 			got := epicsList(t, client)
@@ -274,16 +280,19 @@ func TestEpicsStoreMissingOrOlderListsRecordsAsToday(t *testing.T) {
 }
 
 func TestEpicsStoreFailureAnswersUnavailable(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	writeHead(t, root, "repo", "epic", `{"outcome":"shipped"}`, epicsNow())
 	failure := connect.NewError(connect.CodeInternal, errors.New("synthetic store failure"))
 
 	t.Run("ListEpics", func(t *testing.T) {
+		t.Parallel()
 		client := epicStoreServe(t, root, &epicsFake{}, &epicStoreFake{listErr: failure})
 		_, err := client.List(context.Background(), connect.NewRequest(&orreryv1.EpicsListRequest{}))
 		requireConnectError(t, err, connect.CodeUnavailable, "epic store unavailable")
 	})
 	t.Run("GetEpic", func(t *testing.T) {
+		t.Parallel()
 		client := epicStoreServe(t, root, &epicsFake{}, &epicStoreFake{getErr: failure})
 		_, err := client.Get(context.Background(), connect.NewRequest(&orreryv1.EpicsGetRequest{Id: "repo/epic"}))
 		requireConnectError(t, err, connect.CodeUnavailable, "epic store unavailable")

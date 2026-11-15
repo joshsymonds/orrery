@@ -20,6 +20,7 @@ import (
 const reclaimHold = 5 * testRetry
 
 func TestRunReclaimRequestCarriesGrantID(t *testing.T) {
+	t.Parallel()
 	fake := newPoolsFakeSteps(grantThenBreak("grant-id-1"), grantedHeld("grant-id-1"))
 	socket := runServe(t, fake)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -44,6 +45,7 @@ func TestRunReclaimRequestCarriesGrantID(t *testing.T) {
 }
 
 func TestRunReclaimResumesHolding(t *testing.T) {
+	t.Parallel()
 	fake := newPoolsFakeSteps(grantThenBreak("grant-hold"), grantedHeld("grant-hold"))
 	socket := runServe(t, fake)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -67,6 +69,7 @@ func TestRunReclaimResumesHolding(t *testing.T) {
 }
 
 func TestRunReclaimRetriesUntilGranted(t *testing.T) {
+	t.Parallel()
 	fake := newPoolsFakeSteps(
 		grantThenBreak("grant-retry"),
 		refusedWith(connect.CodeUnavailable),
@@ -100,6 +103,7 @@ func TestRunReclaimRetriesUntilGranted(t *testing.T) {
 }
 
 func TestRunReclaimRefusedStopsCommand(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		code connect.Code
@@ -109,6 +113,7 @@ func TestRunReclaimRefusedStopsCommand(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			gate := make(chan struct{})
 			fake := newPoolsFakeSteps(grantThenBreak("grant-refused"), refusedAfter(gate, tc.code))
 			socket := runServe(t, fake)
@@ -129,6 +134,7 @@ func TestRunReclaimRefusedStopsCommand(t *testing.T) {
 }
 
 func TestRunReclaimCommandExitsWhileReconnecting(t *testing.T) {
+	t.Parallel()
 	fake := newPoolsFakeSteps(grantThenBreak("grant-exit"), refusedWith(connect.CodeUnavailable))
 	socket := runServe(t, fake)
 	ready, w := stdoutPipe(t)
@@ -149,6 +155,7 @@ func TestRunReclaimCommandExitsWhileReconnecting(t *testing.T) {
 }
 
 func TestRunReclaimContextEndsWhileReconnecting(t *testing.T) {
+	t.Parallel()
 	fake := newPoolsFakeSteps(grantThenBreak("grant-cancel"), refusedWith(connect.CodeUnavailable))
 	socket := runServe(t, fake)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -162,6 +169,7 @@ func TestRunReclaimContextEndsWhileReconnecting(t *testing.T) {
 }
 
 func TestRunWithGrantHoldsGrantUntilCommandExits(t *testing.T) {
+	t.Parallel()
 	fake := newPoolsFake(nil, true, grantedWith("grant-slow", poolMembers("builds", "m1")))
 	socket := runServe(t, fake)
 	ready, w := stdoutPipe(t)

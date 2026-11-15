@@ -60,6 +60,7 @@ func wantMessage(t *testing.T, got, want *orreryv1.WatchResponse) {
 }
 
 func TestWatchSendsEachEngineKindTyped(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	s := openEventStore(t, path)
 	applyEngineOps(t, s, store.EngineAdd{ID: eventEngine, Dir: "/a", State: "idle"})
@@ -131,6 +132,7 @@ func TestWatchSendsEachEngineKindTyped(t *testing.T) {
 }
 
 func TestWatchSendsUnfinishedTextToLateJoiner(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	s := openEventStore(t, path)
 	addEngine(t, s)
@@ -162,6 +164,7 @@ func TestWatchSendsUnfinishedTextToLateJoiner(t *testing.T) {
 }
 
 func TestWatchSendsUnfinishedTextOnlyWhenItChanges(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	s := openEventStore(t, path)
 	addEngine(t, s)
@@ -193,6 +196,7 @@ func TestWatchSendsUnfinishedTextOnlyWhenItChanges(t *testing.T) {
 }
 
 func TestWatchSendsBlockTextAgainAfterItLeavesUnfinished(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	s := openEventStore(t, path)
 	addEngine(t, s)
@@ -221,6 +225,7 @@ func TestWatchSendsBlockTextAgainAfterItLeavesUnfinished(t *testing.T) {
 }
 
 func TestWatchResumedSendsLaterEventsThenCurrentText(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	s := openEventStore(t, path)
 	addEngine(t, s)
@@ -238,6 +243,7 @@ func TestWatchResumedSendsLaterEventsThenCurrentText(t *testing.T) {
 }
 
 func TestWatchSendsPromptSenderAndRound(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	s := openEventStore(t, path)
 	addEngine(t, s)
@@ -261,6 +267,7 @@ func TestWatchSendsPromptSenderAndRound(t *testing.T) {
 }
 
 func TestWatchEndsInternalOnMalformedEnginePayload(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name    string
 		kind    string
@@ -277,6 +284,7 @@ func TestWatchEndsInternalOnMalformedEnginePayload(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			path := filepath.Join(t.TempDir(), "orrery.db")
 			s := openEventStore(t, path)
 			addEngine(t, s)

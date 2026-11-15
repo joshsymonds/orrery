@@ -97,6 +97,7 @@ func countUntilEnd(t *testing.T, w *watch) (int, error) {
 }
 
 func TestShutdownEndsEveryOpenStream(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	s := openEventStore(t, path)
 	seedBigEvents(t, s, shutdownReplayCount)
@@ -127,6 +128,7 @@ func TestShutdownEndsEveryOpenStream(t *testing.T) {
 // the replay reaches its last event. Without the check before each send, the server would send the rest of the
 // replay once the client drains it, and the stream would deliver every event before the end.
 func TestShutdownEndsReplayBetweenSends(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	s := openEventStore(t, path)
 	seedBigEvents(t, s, shutdownReplayCount)
@@ -153,6 +155,7 @@ func TestShutdownEndsReplayBetweenSends(t *testing.T) {
 }
 
 func TestNilShutdownKeepsFollowing(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "orrery.db")
 	s := openEventStore(t, path)
 	seedEvents(t, s, 2)

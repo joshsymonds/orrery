@@ -275,8 +275,10 @@ func TestGateCancelReturnsPastDetachedChild(t *testing.T) {
 }
 
 func TestGateReportsExitWhenDetachedChildHoldsOutput(t *testing.T) {
+	t.Parallel()
 	for _, exit := range []int{0, 5} {
 		t.Run(strconv.Itoa(exit), func(t *testing.T) {
+			t.Parallel()
 			pids := filepath.Join(t.TempDir(), "pids")
 			result, err := runGrantedGate(t.Context(), &fakeGatePools{}, gateGrantRequest(), gateRun{
 				Argv:    []string{"/bin/sh", "-c", fmt.Sprintf(`setsid sleep 20 & echo "$!" > "$PIDS"; exit %d`, exit)},

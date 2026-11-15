@@ -33,6 +33,7 @@ func hostClient(t *testing.T, handler http.Handler) orreryv1connect.HostClient {
 // fixture's concrete values: the machine's host name, and each stat with its percent present exactly where the
 // command gave one.
 func TestHostStatusParity(t *testing.T) {
+	t.Parallel()
 	host, err := os.Hostname()
 	if err != nil {
 		t.Fatalf("Hostname: %v", err)
@@ -59,6 +60,7 @@ func TestHostStatusParity(t *testing.T) {
 // TestHostStatusErrorParity checks that each failure Host.Status answers carries its concrete Connect code and
 // message.
 func TestHostStatusErrorParity(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name    string
 		runner  *hoststatus.Runner
@@ -86,6 +88,7 @@ func TestHostStatusErrorParity(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			handler := newHostHandler(t, tc.runner)
 
 			_, err := hostClient(t, handler).Status(t.Context(), connect.NewRequest(&orreryv1.HostStatusRequest{}))

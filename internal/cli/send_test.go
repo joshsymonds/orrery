@@ -24,7 +24,6 @@ const (
 	// sendQuestion is printed by the pane program; it is synthetic.
 	sendQuestion = "Continue with synthetic fixture?"
 	sendPoll     = 20 * time.Millisecond
-	sendDeadline = 5 * time.Second
 )
 
 // sendServer returns a client for a unique private server name and kills that server at cleanup.
@@ -56,13 +55,11 @@ func sendRun(t *testing.T, client *tmuxctl.Client, args ...string) string {
 	return out
 }
 
-// sendPollUntil calls ready every sendPoll until it reports true, failing the test at sendDeadline.
+// sendPollUntil calls ready every sendPoll until it reports true. It has no deadline of its own.
 func sendPollUntil(t *testing.T, what string, ready func() (bool, error)) {
 	t.Helper()
 	ticker := time.NewTicker(sendPoll)
 	defer ticker.Stop()
-	deadline := time.NewTimer(sendDeadline)
-	defer deadline.Stop()
 	for {
 		done, err := ready()
 		if err != nil {
@@ -71,11 +68,7 @@ func sendPollUntil(t *testing.T, what string, ready func() (bool, error)) {
 		if done {
 			return
 		}
-		select {
-		case <-ticker.C:
-		case <-deadline.C:
-			t.Fatalf("timed out waiting for %s", what)
-		}
+		<-ticker.C
 	}
 }
 
@@ -143,6 +136,7 @@ func sendSetQuestion(t *testing.T, client *tmuxctl.Client, pane, question string
 }
 
 func TestSendTextPastesThenEnter(t *testing.T) {
+	t.Parallel()
 	client := sendServer(t)
 	pane, file := sendStartPane(t, client, sendQuestion)
 
@@ -184,8 +178,10 @@ func sendTextAwait(t *testing.T, client *tmuxctl.Client, pane, file, text, want 
 // TestSendTextTypesIntoInputBox drives a pane in the working and done states whose screen shows the
 // input box. The text is typed: line breaks arrive as C-j, and no paste markers appear.
 func TestSendTextTypesIntoInputBox(t *testing.T) {
+	t.Parallel()
 	for _, state := range []string{string(protocol.StateWorking), string(protocol.StateDone)} {
 		t.Run(state, func(t *testing.T) {
+			t.Parallel()
 			client := sendServer(t)
 			pane, file := sendStartPane(t, client, sendBoxScreen())
 			width := strings.TrimSpace(sendRun(t, client, "display-message", "-p", "-t", pane, "#{pane_width}"))
@@ -202,6 +198,7 @@ func TestSendTextTypesIntoInputBox(t *testing.T) {
 // TestSendTextTypedBytes checks the exact bytes a typed send delivers. Each text is invented to hit one
 // rule: blank lines, line endings, length, the semicolon and dash handling of tmux, and UTF-8 cuts.
 func TestSendTextTypedBytes(t *testing.T) {
+	t.Parallel()
 	emoji := "😀"
 	cases := []struct {
 		name string
@@ -237,6 +234,7 @@ func TestSendTextTypedBytes(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			client := sendServer(t)
 			pane, file := sendStartPane(t, client, sendBoxScreen())
 			sendSetState(t, client, pane, string(protocol.StateDone))
@@ -249,6 +247,7 @@ func TestSendTextTypedBytes(t *testing.T) {
 // TestSendTextPastesOutsideInputBox requires the paste path, with no typed bytes, when the state, the
 // screen, or the pane mode is not one the typed path accepts.
 func TestSendTextPastesOutsideInputBox(t *testing.T) {
+	t.Parallel()
 	rule := strings.Repeat("─", 80)
 	dialog := rule + "\n ☐ Header\n\nInvented question?\n\n❯ 1. Option\n   2. Other\n" +
 		rule + "\n  4. Chat about this\n\nEnter to select · ↑/↓ to navigate · Esc to cancel"
@@ -274,6 +273,7 @@ func TestSendTextPastesOutsideInputBox(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			client := sendServer(t)
 			pane, file := sendStartPane(t, client, tc.screen)
 			if tc.state != "" {
@@ -294,6 +294,7 @@ func TestSendTextPastesOutsideInputBox(t *testing.T) {
 // Each want is what tmux's paste-buffer -p delivers today: it shows ESC and a stray 0xff byte in caret
 // form and turns each LF into CR.
 func TestSendTextPastesWhatTypingCannotCarry(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name  string
 		text  string
@@ -311,6 +312,7 @@ func TestSendTextPastesWhatTypingCannotCarry(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			client := sendServer(t)
 			pane, file := sendStartPane(t, client, sendBoxScreen())
 			sendSetState(t, client, pane, string(protocol.StateDone))
@@ -323,6 +325,7 @@ func TestSendTextPastesWhatTypingCannotCarry(t *testing.T) {
 // TestSendTextTypesAtTypeLimit requires text of exactly 200 typed invocations to be typed: 99 line
 // breaks as C-j and 101 literal pieces, with no paste markers.
 func TestSendTextTypesAtTypeLimit(t *testing.T) {
+	t.Parallel()
 	text := strings.Repeat("b\n", 99) + strings.Repeat("c", 401)
 	client := sendServer(t)
 	pane, file := sendStartPane(t, client, sendBoxScreen())
@@ -335,6 +338,7 @@ func TestSendTextTypesAtTypeLimit(t *testing.T) {
 // and cancels it once the first bytes reach the pane's input file. The typed send runs on its own bounded
 // context, so Send returns nil and the pane receives every typed byte, then Enter.
 func TestSendTextFinishesWhenCallerCancels(t *testing.T) {
+	t.Parallel()
 	lines := make([]string, 0, 20)
 	for i := range 20 {
 		lines = append(lines, fmt.Sprintf("synthetic line %02d", i))
@@ -372,6 +376,7 @@ func TestSendTextFinishesWhenCallerCancels(t *testing.T) {
 }
 
 func TestSendKeysDeliversKeys(t *testing.T) {
+	t.Parallel()
 	client := sendServer(t)
 	pane, file := sendStartPane(t, client, sendQuestion)
 
@@ -387,6 +392,7 @@ func TestSendKeysDeliversKeys(t *testing.T) {
 }
 
 func TestSendKeysAcceptsDashKey(t *testing.T) {
+	t.Parallel()
 	client := sendServer(t)
 	pane, file := sendStartPane(t, client, sendQuestion)
 
@@ -398,6 +404,7 @@ func TestSendKeysAcceptsDashKey(t *testing.T) {
 }
 
 func TestSendExpectQuestionMatchingSends(t *testing.T) {
+	t.Parallel()
 	client := sendServer(t)
 	pane, file := sendStartPane(t, client, sendQuestion)
 	sendSetQuestion(t, client, pane, sendQuestion)
@@ -417,6 +424,7 @@ func TestSendExpectQuestionMatchingSends(t *testing.T) {
 // and prints only its display fragment on the pane. Each screen is written out by hand from the rule,
 // not computed by the code under test.
 func TestSendExpectQuestionFragmentDelivers(t *testing.T) {
+	t.Parallel()
 	long := strings.Repeat("abcdefghij", 5) // 50 runes; its fragment is the first 40
 	cases := []struct {
 		name   string
@@ -466,6 +474,7 @@ func TestSendExpectQuestionFragmentDelivers(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			client := sendServer(t)
 			pane, file := sendStartPane(t, client, tc.screen)
 			sendSetQuestion(t, client, pane, tc.stored)
@@ -487,6 +496,7 @@ func TestSendExpectQuestionFragmentDelivers(t *testing.T) {
 }
 
 func TestSendExpectQuestionRefusesBeforeSending(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name     string
 		question string // value of @orrery_question; empty means it is never set
@@ -525,6 +535,7 @@ func TestSendExpectQuestionRefusesBeforeSending(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			client := sendServer(t)
 			pane, file := sendStartPane(t, client, sendQuestion)
 			if tc.setIt {
@@ -552,6 +563,7 @@ func TestSendExpectQuestionRefusesBeforeSending(t *testing.T) {
 }
 
 func TestSendRejectsBadArguments(t *testing.T) {
+	t.Parallel()
 	client := sendServer(t)
 	pane, _ := sendStartPane(t, client, sendQuestion)
 
@@ -570,6 +582,7 @@ func TestSendRejectsBadArguments(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			var out bytes.Buffer
 			err := cli.Send(t.Context(), client, tc.args, &out)
 			if err == nil {

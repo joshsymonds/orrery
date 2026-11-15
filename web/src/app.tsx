@@ -18,7 +18,9 @@ import {
 import { EpicView } from "./epicview";
 import { type Followed, follow } from "./follow";
 import type { InAppNotice, NoticeKey } from "./gen/orrery/v1/notice_pb";
+import type { HostStatusResponse, Pane } from "./gen/orrery/v1/orrery_pb";
 import { Mark } from "./mark";
+import { MetersButton, MetersPanel } from "./meters";
 import { NoticeBanner } from "./notices";
 import { type ParsedQuestion, parseQuestion } from "./question";
 import { Reader, ReaderHead } from "./reader";
@@ -26,7 +28,7 @@ import { byAttention, byProject, type Row } from "./rows";
 import { type SeenClock, type SeenWindow, watchSeen } from "./seen";
 import { StepBox } from "./stepbox";
 import { ReplyText } from "./text";
-import { Pill, rowPill, stepPill, WorkNote } from "./workline";
+import { Pill, rowPill, stepPill } from "./workline";
 
 type View = "attention" | "project";
 
@@ -88,6 +90,7 @@ const helpEntries: [string[], string][] = [
   [["1", "2", "3"], "answer the cursor's waiting question with that choice"],
   [["o"], "open or close a compaction's summary"],
   [["|"], "pin the cursor's row in a second column, or close the pin"],
+  [["m"], "open or close the host's meters"],
   [["?"], "toggle this help"],
   [["Esc"], "close this help"],
 ];
@@ -101,6 +104,7 @@ export function App({
   seenWindow,
   epics = noEpics,
   notices = [],
+  host = null,
 }: {
   rows: Row[];
   error: string;
@@ -110,12 +114,14 @@ export function App({
   seenWindow?: SeenWindow;
   epics?: EpicsView;
   notices?: InAppNotice[];
+  host?: HostStatusResponse | null;
 }) {
   const [view, setView] = useState<View>("attention");
   const [cursor, setCursor] = useState<Cursor>({ key: "", index: 0 });
   const [filter, setFilter] = useState("");
   const [helpOpen, setHelpOpen] = useState(false);
   const [open, setOpen] = useState(false);
+  const [metersOpen, setMetersOpen] = useState(false);
   const [stream, setStream] = useState<Stream | null>(null);
   // The rows the cursor has rested on, each with its own composer, so a draft waits where it was typed. A row stays
   // here while it is missing from the list, as it is for a poll whose list call failed, so its draft is not lost.
@@ -316,6 +322,7 @@ export function App({
   const heldConversation = (key: string) =>
     key === cursorRowKey ? cursorConversation : key === pinnedKey ? pinnedConversation : null;
   const toggleOpen = () => setOpen((value) => !value);
+  const toggleMeters = () => setMetersOpen((value) => !value);
 
   const moveTo = (target: number) => {
     if (flat.length === 0) {
@@ -467,6 +474,11 @@ export function App({
           setPinStream(null);
         }
         break;
+      case "m":
+        if (host !== null) {
+          toggleMeters();
+        }
+        break;
       case "?":
         setHelpOpen((open) => !open);
         break;
@@ -609,12 +621,14 @@ export function App({
               </div>
             ))}
           </div>
+          {host !== null && metersOpen && <MetersPanel stats={host.stats} />}
           <footer class="lfoot">
-            {hosts.map((host) => (
-              <span key={host} class="host">
-                {host}
+            {hosts.map((name) => (
+              <span key={name} class="host">
+                {name}
               </span>
             ))}
+            {host !== null && <MetersButton status={host} onToggle={toggleMeters} />}
             <span class="keys-hint">
               <kbd>?</kbd> keys
             </span>
@@ -651,11 +665,11 @@ export function App({
             />
           )}
           <div class="send">
-            <WorkNote pane={cursorConversation?.state?.pane} now={now} />
             {composerRows(visited, cursorRow).map((row) => (
               <div key={row.key} class="reply" hidden={row.key !== cursorRowKey}>
                 <Composer
                   label={row.label}
+                  state={row.key === cursorRowKey ? headState(row, cursorConversation?.state?.pane) : row.state}
                   send={(text, promptId) => actions.send(clients, row, text, promptId)}
                   pull={row.kind === "pane" ? () => actions.pullQueued(clients, row) : null}
                   newPromptId={actions.newPromptId}
@@ -676,6 +690,7 @@ export function App({
                 <div key={step.id} class="reply" hidden={step.key !== cursorStepKey}>
                   <StepBox
                     label={step.label}
+                    held={step.held}
                     nudge={calls.nudge}
                     hold={calls.hold}
                     stop={calls.stop}
@@ -706,11 +721,11 @@ export function App({
             />
           )}
           <div class="send">
-            <WorkNote pane={pinnedConversation?.state?.pane} now={now} />
             {composerRows(pinnedRows, pinned).map((row) => (
               <div key={row.key} class="pin-reply" hidden={row.key !== pinnedKey}>
                 <Composer
                   label={row.label}
+                  state={row.key === pinnedKey ? headState(row, pinnedConversation?.state?.pane) : row.state}
                   send={(text, promptId) => actions.send(clients, row, text, promptId)}
                   pull={row.kind === "pane" ? () => actions.pullQueued(clients, row) : null}
                   newPromptId={actions.newPromptId}
@@ -833,6 +848,12 @@ function keepEntries<T extends { key: string }>(previous: T[], latest: T[], adde
   }
   const unchanged = kept.length === previous.length && kept.every((entry, position) => entry === previous[position]);
   return unchanged ? previous : kept;
+}
+
+// headState is the state a column's head pill reads: a pane given speaks for the row, and a row with no pane reads its
+// own state.
+function headState(row: Row, pane: Pane | undefined): string {
+  return pane?.state ?? row.state;
 }
 
 // composerRows returns the entries that render a box: the kept entries, and the shown entry before the effect has added

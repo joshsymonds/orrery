@@ -98,6 +98,7 @@ func newVerdictFixture(t *testing.T, haiku haikuCaller) *stepLoopFixture {
 }
 
 func TestVerdictReturnThatMisreadsAssertionsIsSentBack(t *testing.T) {
+	t.Parallel()
 	mustHolds := verdictTestResult(verdictTestMust, gates.KindMust, "holds")
 	mustNotHolds := verdictTestResult(verdictTestMustNot, gates.KindMustNot, "holds")
 	cases := []struct {
@@ -137,6 +138,7 @@ func TestVerdictReturnThatMisreadsAssertionsIsSentBack(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			f := newVerdictFixture(t, nil)
 			_, done := f.start(t)
 
@@ -195,6 +197,7 @@ func TestVerdictAllHoldsEndsDone(t *testing.T) {
 }
 
 func TestVerdictNotAllHeldEndsGateFailed(t *testing.T) {
+	t.Parallel()
 	mustHolds := verdictTestResult(verdictTestMust, gates.KindMust, "holds")
 	mustNotHolds := verdictTestResult(verdictTestMustNot, gates.KindMustNot, "holds")
 	cases := []struct {
@@ -238,6 +241,7 @@ func TestVerdictNotAllHeldEndsGateFailed(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			f := newVerdictFixture(t, nil)
 			_, done := f.start(t)
 			raw := verdictTestJSON(t, tc.status, tc.results, tc.findings)
@@ -264,6 +268,7 @@ func TestVerdictNotAllHeldEndsGateFailed(t *testing.T) {
 }
 
 func TestVerdictEarlierFailsEndsGateFailed(t *testing.T) {
+	t.Parallel()
 	mustNotHolds := verdictTestResult(verdictTestMustNot, gates.KindMustNot, "holds")
 	cases := []struct {
 		name string
@@ -292,6 +297,7 @@ func TestVerdictEarlierFailsEndsGateFailed(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			f := newVerdictFixture(t, nil)
 			_, done := f.start(t)
 
@@ -315,6 +321,7 @@ func TestVerdictEarlierFailsEndsGateFailed(t *testing.T) {
 }
 
 func TestVerdictAgentGateReturnIsNotJudged(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name     string
 		judge    judgeLoopReply
@@ -343,6 +350,7 @@ func TestVerdictAgentGateReturnIsNotJudged(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			haiku := &judgeLoopHaiku{replies: []judgeLoopReply{tc.judge}}
 			f := newVerdictFixture(t, haiku)
 			_, done := f.start(t)

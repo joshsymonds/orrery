@@ -99,6 +99,7 @@ func stepWireStartOvertime(t *testing.T, haiku *Haiku) (*stepWireFixture, string
 }
 
 func TestStepsStartWiresEachRun(t *testing.T) {
+	t.Parallel()
 	h := NewHaiku(HaikuConfig{Claude: haikuWriteFake(t, haikuDir(t), haikuFake{stdout: stepWireMonitorLine}),
 		Environ: haikuEnviron()})
 	cases := []struct {
@@ -112,6 +113,7 @@ func TestStepsStartWiresEachRun(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			f := newStepWireFixture(t, tc.haiku)
 			f.clock.set(90 * time.Second)
 			start := stepStartWriting(stepWorktreeTestAddLinked(t, stepGitTestRepo(t)))

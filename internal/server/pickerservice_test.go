@@ -30,6 +30,7 @@ func pickerClient(t *testing.T, handler http.Handler) orreryv1connect.PickerClie
 // rows are the jump row to the fixture's pane, the pane row of the first directory under root, and the pane row of
 // the root.
 func TestPickerAskParity(t *testing.T) {
+	t.Parallel()
 	tmux := newTmuxServer(t)
 	root := t.TempDir()
 	paneDir := t.TempDir()
@@ -55,6 +56,7 @@ func TestPickerAskParity(t *testing.T) {
 // TestPickerAskErrorParity answers each error of Picker.Ask with its code of the docs/contract.md table and its
 // reason as the message.
 func TestPickerAskErrorParity(t *testing.T) {
+	t.Parallel()
 	cases := map[string]struct {
 		text    string
 		build   func(t *testing.T, tmux *tmuxctl.Client) http.Handler
@@ -104,6 +106,7 @@ func TestPickerAskErrorParity(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 			tmux := newTmuxClient(t)
 			handler := tc.build(t, tmux)
 
@@ -117,6 +120,7 @@ func TestPickerAskErrorParity(t *testing.T) {
 // fixture's session, and the two panes differ because each run opens its own window. A repeat of either token answers
 // the same pane, and runs nothing, so neither the window count nor the claude run count moves.
 func TestPickerRunParity(t *testing.T) {
+	t.Parallel()
 	tmux := newTmuxServer(t)
 	root := t.TempDir()
 	paneDir := t.TempDir()
@@ -167,6 +171,7 @@ func TestPickerRunParity(t *testing.T) {
 // TestPickerRunErrorParity answers each error of Picker.Run with its code of the docs/contract.md table and its reason
 // as the message. Each build returns the handler, the token to run, and the message its run must answer.
 func TestPickerRunErrorParity(t *testing.T) {
+	t.Parallel()
 	cases := map[string]struct {
 		build func(t *testing.T) (http.Handler, string, string)
 		code  connect.Code
@@ -240,6 +245,7 @@ func TestPickerRunErrorParity(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 			handler, token, message := tc.build(t)
 
 			_, err := runToken(t, handler, token)

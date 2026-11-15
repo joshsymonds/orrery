@@ -157,6 +157,7 @@ func stepStartGone(path string) bool {
 }
 
 func TestStepsStartRefusesBadInputAndStoresNothing(t *testing.T) {
+	t.Parallel()
 	mainTree := stepGitTestRepo(t)
 	nonGit := t.TempDir()
 	cases := []struct {
@@ -190,6 +191,7 @@ func TestStepsStartRefusesBadInputAndStoresNothing(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			f := newStepStartFixture(t)
 			linked := stepWorktreeTestAddLinked(t, stepGitTestRepo(t))
 			start := stepStartWriting(linked)
