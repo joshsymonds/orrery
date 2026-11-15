@@ -78,9 +78,11 @@ func TestReattachGateOfAHolderThatHasEndedIsGone(t *testing.T) {
 	if err := first.Detach(); err != nil {
 		t.Fatalf("Detach the launching controller: %v", err)
 	}
+	lockID := heldLockID(t, dir)
 	if err := Stop(t.Context(), dir); err != nil {
 		t.Fatalf("Stop: %v", err)
 	}
+	awaitLockUnheld(t, lockID)
 	if _, err := ReattachGate(t.Context(), dir); !errors.Is(err, ErrGone) {
 		t.Fatalf("ReattachGate of an ended holder = %v, want ErrGone", err)
 	}

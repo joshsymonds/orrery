@@ -36,8 +36,11 @@ const (
 	reattachCancelAfter = 200 * time.Millisecond
 	// reattachCancelWait is how long a canceled Reattach may take to return.
 	reattachCancelWait = 2 * time.Second
-	// reattachSlack is how much longer than AttachTimeout a holder that never answers may keep Reattach.
+	// reattachSlack is how much longer than its bound a holder that never answers may keep Reattach or Stop.
 	reattachSlack = 2 * time.Second
+	// reattachTestBound is the attach timeout, and the stop bound, that a test of a holder that never answers waits out
+	// in place of the default.
+	reattachTestBound = 300 * time.Millisecond
 )
 
 // launchHolder launches a real holder for testSession under root that runs child, and returns the launch's Process and
@@ -282,9 +285,11 @@ func TestReattachOfAHolderThatHasEndedIsGone(t *testing.T) {
 	if err := p1.Detach(); err != nil {
 		t.Fatalf("Detach the first controller: %v", err)
 	}
+	lockID := heldLockID(t, dir)
 	if err := Stop(t.Context(), dir); err != nil {
 		t.Fatalf("Stop: %v", err)
 	}
+	awaitLockUnheld(t, lockID)
 	if _, _, err := Reattach(t.Context(), dir, 0, WireVersion); !errors.Is(err, ErrGone) {
 		t.Fatalf("Reattach of an ended holder = %v, want ErrGone", err)
 	}
@@ -303,9 +308,12 @@ func TestReattachWithAStaleSocketAndAFreeLockIsGone(t *testing.T) {
 	t.Parallel()
 
 	dir := sessionDir(t)
-	lock, err := Lock(filepath.Join(dir, LockName))
+	// The lock file is left as an ended holder leaves it, free, but the test never takes its flock: a parallel test's
+	// fork holds a copy of each open descriptor until it execs, so a lock the test took and closed could stay held then.
+	lockPath := filepath.Join(dir, LockName)
+	lock, err := os.OpenFile(filepath.Clean(lockPath), os.O_RDWR|os.O_CREATE, lockFileMode)
 	if err != nil {
-		t.Fatalf("Lock: %v", err)
+		t.Fatalf("create lock file: %v", err)
 	}
 	if err = lock.Close(); err != nil {
 		t.Fatalf("close lock: %v", err)
@@ -321,15 +329,18 @@ func TestReattachWithAStaleSocketAndAFreeLockIsGone(t *testing.T) {
 func TestReattachHolderThatNeverAnswersIsUnattachableWithinTheTimeout(t *testing.T) {
 	t.Parallel()
 
+	if got := newReattachOptions(nil).attachTimeout; got != AttachTimeout {
+		t.Fatalf("attach timeout with no options = %v, want AttachTimeout %v", got, AttachTimeout)
+	}
 	dir, _ := startWedged(t)
 	start := time.Now()
-	_, _, err := Reattach(t.Context(), dir, 0, WireVersion)
+	_, _, err := Reattach(t.Context(), dir, 0, WireVersion, WithAttachTimeout(reattachTestBound))
 	elapsed := time.Since(start)
 	if !errors.Is(err, ErrUnattachable) || !errors.Is(err, os.ErrDeadlineExceeded) {
 		t.Fatalf("Reattach of a holder that never answers = %v, want ErrUnattachable from the timeout", err)
 	}
-	if elapsed < AttachTimeout || elapsed > AttachTimeout+reattachSlack {
-		t.Fatalf("Reattach returned after %v, want about %v", elapsed, AttachTimeout)
+	if elapsed < reattachTestBound || elapsed > reattachTestBound+reattachSlack {
+		t.Fatalf("Reattach returned after %v, want about %v", elapsed, reattachTestBound)
 	}
 }
 
@@ -486,7 +497,11 @@ func TestReattachStreamsFromItsOffsetAndAcksAtOrAboveTheAttachedFrame(t *testing
 func TestReattachHeldEndReadsTheExitRecordWhenDetached(t *testing.T) {
 	t.Parallel()
 
-	p1, dir := launchHolder(t, launchRoot(t), launchChild(t, "read line; "+exitTailChild))
+	// The child reads the write, then waits for the release file before it ends, so the controller detaches before the
+	// child ends and the end is read by the lock watch, not from an exit frame. A controller still attached at the end
+	// would also remove the holder's directory.
+	child := launchChild(t, "read line; while [ ! -e "+launchReleaseFile+" ]; do sleep 0.01; done; "+exitTailChild)
+	p1, dir := launchHolder(t, launchRoot(t), child)
 	if err := p1.Detach(); err != nil {
 		t.Fatalf("Detach the first controller: %v", err)
 	}
@@ -494,14 +509,13 @@ func TestReattachHeldEndReadsTheExitRecordWhenDetached(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Reattach: %v", err)
 	}
-	// The write releases the child, and the controller detaches before the child ends, so the end is read by the lock
-	// watch, not from an exit frame.
 	if got := awaitWrite(t, startWrite(p2, []byte("go\n"))); got.err != nil {
-		t.Fatalf("write to release the child: %v", got.err)
+		t.Fatalf("write to the child: %v", got.err)
 	}
 	if err = p2.Detach(); err != nil {
 		t.Fatalf("Detach the reattached controller: %v", err)
 	}
+	writeChildFile(t, child.Dir, launchReleaseFile, nil)
 	held, ok := p2.held.(*attachedHolder)
 	if !ok {
 		t.Fatalf("held process is %T, want *attachedHolder", p2.held)
@@ -524,6 +538,10 @@ func TestReattachStopOfAWedgedHolderFallsBackWithinTheBound(t *testing.T) {
 	t.Parallel()
 
 	p, server, held, listener := rawProcessHeld(t)
+	if p.stopTimeout != holderStopTimeout {
+		t.Fatalf("Process stop bound = %v, want holderStopTimeout %v", p.stopTimeout, holderStopTimeout)
+	}
+	p.stopTimeout = reattachTestBound
 	// Ending the held process also ends the stream, with the exit frame the holder sends when its child has ended.
 	held.cancel = func() {
 		close(held.done)
@@ -544,14 +562,14 @@ func TestReattachStopOfAWedgedHolderFallsBackWithinTheBound(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Stop = %v, want nil from the held process's stop", err)
 		}
-	case <-time.After(holderStopTimeout + reattachSlack):
-		t.Fatalf("Stop of a holder that never answers did not return within %v", holderStopTimeout+reattachSlack)
+	case <-time.After(reattachTestBound + reattachSlack):
+		t.Fatalf("Stop of a holder that never answers did not return within %v", reattachTestBound+reattachSlack)
 	}
-	if elapsed := time.Since(start); elapsed < holderStopTimeout {
+	if elapsed := time.Since(start); elapsed < reattachTestBound {
 		t.Fatalf(
 			"Stop returned after %v, want it to wait out the %v bound before falling back",
 			elapsed,
-			holderStopTimeout,
+			reattachTestBound,
 		)
 	}
 }

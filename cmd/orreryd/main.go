@@ -157,8 +157,11 @@ type options struct {
 	notifySocket    string                  // the NOTIFY_SOCKET value orreryd started with, "" when unset
 	// holdReconcile is a test seam: reconcile calls it before it starts, and production leaves it nil.
 	holdReconcile func(ctx context.Context)
-	flight        *telemetry.Flight // the flight recorder run starts, nil when it could not start
-	started       time.Time         // when run began, the start of the start phase
+	// limitTicks is a test seam: when set, the limit notices check at each value it delivers in place of every
+	// limitTick, and production leaves it nil.
+	limitTicks <-chan time.Time
+	flight     *telemetry.Flight // the flight recorder run starts, nil when it could not start
+	started    time.Time         // when run began, the start of the start phase
 }
 
 // repeatFlag is a repeatable string flag. It collects the values in the order given.
@@ -726,7 +729,7 @@ func startSessions(
 		host.startEvidence(ctx, st, stateDir, opts.holderScope, logger)
 		evidence = host.evidence
 		host.startFlow(ctx, st, router, getenv, resolve, stateDir, logger)
-		host.startLimits(ctx, st, router, logger)
+		host.startLimits(ctx, st, router, opts.limitTicks, logger)
 		host.startDue(ctx, st, logger)
 		host.startIdle(ctx)
 	}
@@ -948,28 +951,34 @@ func (h *sessionHost) startFlow(
 	}()
 }
 
-// startLimits tells router which steps a usage limit holds, checking st every limitTick until stop. The marks st holds
-// say which limits a previous orreryd told, and those are not told again.
+// startLimits tells router which steps a usage limit holds, checking st every limitTick until stop, or at each value
+// ticks delivers when ticks is not nil. The marks st holds say which limits a previous orreryd told, and those are not
+// told again.
 func (h *sessionHost) startLimits(
 	ctx context.Context,
 	st *store.Store,
 	router enginehost.Router,
+	ticks <-chan time.Time,
 	logger *slog.Logger,
 ) {
-	ticker := time.NewTicker(limitTick)
+	stopTicker := func() {}
+	if ticks == nil {
+		ticker := time.NewTicker(limitTick)
+		ticks, stopTicker = ticker.C, ticker.Stop
+	}
 	limits := enginehost.NewLimitNotices(enginehost.LimitNoticesConfig{
 		Steps:  st,
 		Told:   st,
 		Route:  router,
 		Now:    time.Now,
-		Tick:   ticker.C,
+		Tick:   ticks,
 		Logger: logger,
 	})
 	var limitsCtx context.Context
 	limitsCtx, h.stopLimits = context.WithCancel(ctx)
 	go func() {
 		defer close(h.limitsDone)
-		defer ticker.Stop()
+		defer stopTicker()
 		limits.Run(limitsCtx)
 	}()
 }

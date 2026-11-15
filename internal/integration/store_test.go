@@ -274,6 +274,9 @@ func TestStoreMirrorsHooksIntoRowsAndEvents(t *testing.T) {
 	t.Parallel()
 	f := newStoreFixture(t)
 	daemon := f.startOrreryd(t)
+	// A hook's sync waits at most 200 ms for a store still opening and is then dropped, so the hooks follow the
+	// store-open line.
+	daemon.waitForStoreOpen(t)
 
 	f.hook(t, f.userPromptHook())
 	waitForOption(t, f.client, f.pane, protocol.OptionState, string(protocol.StateWorking))

@@ -72,6 +72,13 @@ func (b *bounds) after(d time.Duration, fn func()) func() bool {
 // fire fires the armed bound, and fails the test when none is armed.
 func (b *bounds) fire() {
 	b.t.Helper()
+	if !b.fireArmed() {
+		b.t.Fatal("no store call bound is armed")
+	}
+}
+
+// fireArmed fires the newest bound that is armed and reports whether one was.
+func (b *bounds) fireArmed() bool {
 	b.mu.Lock()
 	var armed *bound
 	for _, bd := range b.armed {
@@ -81,11 +88,12 @@ func (b *bounds) fire() {
 	}
 	if armed == nil {
 		b.mu.Unlock()
-		b.t.Fatal("no store call bound is armed")
+		return false
 	}
 	armed.fired = true
 	b.mu.Unlock()
 	armed.fn()
+	return true
 }
 
 // boundedRouter returns a Router wired to f whose store-call bounds b arms. It is closed when the test ends.

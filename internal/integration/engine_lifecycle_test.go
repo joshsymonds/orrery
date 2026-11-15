@@ -139,6 +139,9 @@ func TestEngineSigkillReconcilesOnRestart(t *testing.T) {
 		t.Fatalf("kill orphaned fake claude %d: %v", pid, err)
 	}
 	waitGone(t, pid)
+	// The restart must find the holder ended, with its exit record written and its lock free. A holder that still runs
+	// when orreryd starts is re-adopted as live, and the row stays working until its end is streamed.
+	waitHolderEnded(t, filepath.Join(filepath.Dir(f.dbPath), "holders", id))
 
 	restarted := f.startOrreryd(t, true)
 	if got := f.stateOf(t, id); got != "failed" {

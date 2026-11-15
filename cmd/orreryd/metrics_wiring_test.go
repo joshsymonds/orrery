@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"errors"
 	"io"
 	"io/fs"
@@ -358,11 +359,18 @@ func metricsWiringEnv(t *testing.T) func(string) string {
 	return func(key string) string { return env[key] }
 }
 
-// metricsWiringAddr returns a loopback address with a port nothing holds yet.
+// metricsWiringAddr returns a loopback address with a port nothing holds yet, on an IP of 127.0.0.0/8 that only this
+// call picks. The port is released before the metrics listener binds it, and on 127.0.0.1 a listener of a parallel test,
+// in any package, could take it in that time. Nothing else listens on the picked IP.
 func metricsWiringAddr(t *testing.T) string {
 	t.Helper()
+	var octets [3]byte
+	if _, err := rand.Read(octets[:]); err != nil {
+		t.Fatalf("pick a loopback IP: %v", err)
+	}
+	ip := net.IPv4(127, 1+octets[0]%254, 1+octets[1]%254, 1+octets[2]%254)
 	var lc net.ListenConfig
-	ln, err := lc.Listen(t.Context(), "tcp", "127.0.0.1:0")
+	ln, err := lc.Listen(t.Context(), "tcp", net.JoinHostPort(ip.String(), "0"))
 	if err != nil {
 		t.Fatalf("pick a loopback port: %v", err)
 	}
