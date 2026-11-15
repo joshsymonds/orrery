@@ -497,6 +497,8 @@ type Step struct {
 	LoopGateFrom    int64
 	CheckoutHead    string
 	CheckoutHash    string
+	LoopStage       string
+	LoopStageFrom   int64
 }
 
 type ToldLimitStep struct {

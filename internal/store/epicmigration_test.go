@@ -427,9 +427,9 @@ func TestEpicMigrationKeepsExistingRows(t *testing.T) {
 		`SELECT COALESCE(MAX(version_id), 0) FROM goose_db_version WHERE is_applied = 1`).Scan(&version); err != nil {
 		t.Fatalf("read store version: %v", err)
 	}
-	// Open applies 00014_epics.sql and every migration after it: 00031_pushed_alert.sql is the newest.
-	if version != 31 {
-		t.Fatalf("store version after Open = %d, want 31", version)
+	// Open applies 00014_epics.sql and every migration after it: 00032_step_stage.sql is the newest.
+	if version != 32 {
+		t.Fatalf("store version after Open = %d, want 32", version)
 	}
 
 	// A later migration may add columns at the end of an existing table, as 00015_step_readopt.sql adds to steps and

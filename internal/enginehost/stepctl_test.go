@@ -123,12 +123,13 @@ func (f *stepCtlFixture) startReadOnly(t *testing.T, repo string) string {
 }
 
 // startGated starts a writing step in linked that names gate unit from a gates file in t.TempDir(). The gate writes its
-// pid to pidFile and sleeps a minute. Its done return names the workspace's HEAD, so every commit check passes and the
-// gate runs.
+// pid to pidFile and runs until it is killed, by Stop, Close or the cleanup's Close, so it is running whenever the test
+// acts on it. Its 300-second limit, which a gate must have, only ends a gate nothing killed. Its done return names the
+// workspace's HEAD, so every commit check passes and the gate runs.
 func (f *stepCtlFixture) startGated(t *testing.T, linked, pidFile string) string {
 	t.Helper()
 	gatesFile := filepath.Join(t.TempDir(), "gates.toml")
-	script := fmt.Sprintf(`echo $$ > %q; sleep 60`, pidFile)
+	script := fmt.Sprintf(`echo $$ > %q; exec sleep infinity`, pidFile)
 	stepGateWriteFile(t, gatesFile, stepGateFileText(stepGateShell(t), script, 300))
 	id, err := f.steps.Start(t.Context(), stepGateNamedStart(linked, "unit", gatesFile))
 	if err != nil {

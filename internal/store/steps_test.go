@@ -120,6 +120,7 @@ func TestStepAddStoresEveryFieldWithEndEmpty(t *testing.T) {
 		GateLimit: 90 * time.Second, ModelLimit: 60 * time.Minute, Started: now, Checks: []StepCheck{},
 		Verdicts: []StepVerdict{}, GateName: "lint", GateSource: "gates.toml",
 		GateNeeds: []StepNeed{{Pool: "pool-a", Count: 2}, {Pool: "pool-b", Count: 1}},
+		LoopStage: StepStageTurn, LoopStageFrom: now,
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("Step: got %+v, want %+v", got, want)
