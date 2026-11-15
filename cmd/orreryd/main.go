@@ -77,6 +77,11 @@ const (
 	defaultStepCap = 6
 	// notifyTimeout bounds each notification request.
 	notifyTimeout = 10 * time.Second
+	// flightThreshold is how long a start to READY or a sessions reconcile may take before the flight recorder writes
+	// a trace.
+	flightThreshold = 10 * time.Second
+	// flightDirName is the directory beside the store that holds the flight traces.
+	flightDirName = "traces"
 	// noticeLogName is the notice log's file name, beside the push store.
 	noticeLogName = "notices.jsonl"
 	// readWindow is how long after a read report its pane still counts as read, so a waiting notice for it is held.
@@ -150,6 +155,8 @@ type options struct {
 	notifySocket    string                  // the NOTIFY_SOCKET value orreryd started with, "" when unset
 	// holdReconcile is a test seam: reconcile calls it before it starts, and production leaves it nil.
 	holdReconcile func(ctx context.Context)
+	flight        *telemetry.Flight // the flight recorder run starts, nil when it could not start
+	started       time.Time         // when run began, the start of the start phase
 }
 
 // repeatFlag is a repeatable string flag. It collects the values in the order given.
@@ -193,6 +200,8 @@ func main() {
 
 // run starts orreryd with the command line args and returns its exit code. It exits 0 after SIGINT or SIGTERM.
 func run(args []string, stderr io.Writer, getenv func(string) string) int {
+	// start is when orreryd began, the start of the start phase that the flight recorder times to READY.
+	start := time.Now()
 	// The notify socket is read and removed before anything captures the environment, so no child inherits it.
 	notifySocket := getenv(envNotifySocket)
 	if err := os.Unsetenv(envNotifySocket); err != nil {
@@ -203,14 +212,54 @@ func run(args []string, stderr io.Writer, getenv func(string) string) int {
 		return report(stderr, err)
 	}
 	opts.notifySocket = notifySocket
+	opts.started = start
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	logger := slog.New(slog.NewTextHandler(stderr, nil))
-	// The metrics address is bound before anything else, so a refused address fails before any socket exists.
-	if err := startMetrics(ctx, &opts, time.Now(), logger); err != nil {
+	// The recorder starts whether or not --metrics-listen is set, and stops when run returns.
+	opts.flight = startFlight(ctx, getenv, flightThreshold, logger)
+	defer opts.flight.Stop()
+	// The metrics address is bound before any socket exists, so a refused address fails before the daemon socket does.
+	if err := startMetrics(ctx, &opts, start, logger); err != nil {
 		return report(stderr, err)
 	}
 	return report(stderr, serve(ctx, opts, logger, getenv))
+}
+
+// startFlight starts the flight recorder over the traces directory beside the store, so a phase that takes longer than
+// threshold writes a trace there. A recorder that cannot start is logged and nil is returned, so orreryd serves on.
+func startFlight(
+	ctx context.Context,
+	getenv func(string) string,
+	threshold time.Duration,
+	logger *slog.Logger,
+) *telemetry.Flight {
+	storePath, err := store.Path(getenv)
+	if err != nil {
+		logger.ErrorContext(ctx, "flight recorder off, serving anyway", "error", err)
+		return nil
+	}
+	dir := filepath.Join(filepath.Dir(storePath), flightDirName)
+	flight, err := telemetry.StartFlight(dir, threshold)
+	if err != nil {
+		logger.ErrorContext(ctx, "start flight recorder, serving anyway", "dir", dir, "error", err)
+		return nil
+	}
+	return flight
+}
+
+// observeFlight writes a flight trace named for phase when took is over the flight threshold. A write that fails is
+// logged and serving goes on. A nil flight writes nothing.
+func observeFlight(
+	ctx context.Context,
+	logger *slog.Logger,
+	flight *telemetry.Flight,
+	phase string,
+	took time.Duration,
+) {
+	if err := flight.Observe(phase, took); err != nil {
+		logger.ErrorContext(ctx, "write flight trace, serving anyway", "phase", phase, "error", err)
+	}
 }
 
 // report prints err to stderr and returns the exit code it maps to. A nil err exits 0 silently.
@@ -359,7 +408,8 @@ func startDesk(ctx context.Context, host string, deskLn net.Listener, logger *sl
 // the store. The first tidy runs once the store is open and the sessions have started. A failed sessions start stops
 // serving and returns its error. Once the store is open, serve returns only after the store is closed. serve sends
 // systemd READY=1 once the sessions have started, or once the store has opened when there are no sessions. With
-// --metrics-listen, the ready time is recorded just before READY=1.
+// --metrics-listen, the ready time is recorded just before READY=1. With a flight recorder, a start to READY over its
+// threshold writes a start trace once READY=1 is sent.
 func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(string) string) error {
 	host, err := os.Hostname()
 	if err != nil {
@@ -457,7 +507,7 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 		stop()
 	} else {
 		close(tidyStart)
-		notifyReady(ctx, logger, opts.notifySocket, opts.metrics)
+		notifyReady(ctx, logger, opts)
 	}
 	serveErr := <-serveDone
 	sessionErr := shutdownServe(ctx, logger, st, hub, sessions, router, notices)
@@ -467,16 +517,19 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 	return errors.Join(startErr, serveErr, sessionErr)
 }
 
-// notifyReady records the ready time on metrics, then sends systemd READY=1 to socket. An empty socket means systemd
-// did not start orreryd, so nothing is sent. A failed send is logged and serving goes on. A nil metrics records nothing.
-func notifyReady(ctx context.Context, logger *slog.Logger, socket string, metrics *telemetry.Daemon) {
-	metrics.Ready(ctx, time.Now())
-	if socket == "" {
-		return
+// notifyReady records the ready time on metrics, then sends systemd READY=1 to opts.notifySocket. An empty socket means
+// systemd did not start orreryd, so nothing is sent. A failed send is logged and serving goes on. A nil metrics records
+// nothing. The start to READY time is then observed by the flight recorder, which writes a start trace when it is over
+// the threshold.
+func notifyReady(ctx context.Context, logger *slog.Logger, opts options) {
+	took := time.Since(opts.started)
+	opts.metrics.Ready(ctx, time.Now())
+	if opts.notifySocket != "" {
+		if err := sdnotify.Ready(opts.notifySocket); err != nil {
+			logger.ErrorContext(ctx, "notify systemd, serving anyway", "error", err)
+		}
 	}
-	if err := sdnotify.Ready(socket); err != nil {
-		logger.ErrorContext(ctx, "notify systemd, serving anyway", "error", err)
-	}
+	observeFlight(ctx, logger, opts.flight, "start", took)
 }
 
 // startMetrics serves /metrics for a --metrics-listen orreryd until ctx ends. It binds the address, records start as
@@ -659,7 +712,7 @@ func startSessions(
 			host.writer.Run(writerCtx)
 			close(host.writerDone)
 		}()
-		host.reconcile(ctx, logger, opts.holdReconcile)
+		host.reconcile(ctx, logger, opts.holdReconcile, opts.flight)
 		host.startEvidence(ctx, st, stateDir, opts.holderScope, logger)
 		evidence = host.evidence
 		host.startPlanner(ctx, st, router, getenv, resolve, logger)
@@ -723,8 +776,16 @@ func readoptGate(
 
 // reconcile re-adopts the open step rows a previous run left, then reconciles the session rows and the step rows that no
 // re-adoption holds. A failure is logged and serving goes on. hold, when not nil, is called first and returns when the
-// reconcile may start.
-func (h *sessionHost) reconcile(ctx context.Context, logger *slog.Logger, hold func(context.Context)) {
+// reconcile may start. The flight recorder flight, when not nil, writes a reconcile trace when the whole call, hold
+// included, takes longer than its threshold.
+func (h *sessionHost) reconcile(
+	ctx context.Context,
+	logger *slog.Logger,
+	hold func(context.Context),
+	flight *telemetry.Flight,
+) {
+	start := time.Now()
+	defer func() { observeFlight(ctx, logger, flight, "reconcile", time.Since(start)) }()
 	if hold != nil {
 		hold(ctx)
 	}
