@@ -215,10 +215,13 @@ func TestGateErrorsWhenItCannotStart(t *testing.T) {
 	}
 }
 
+// TestGateKeepsTheLastEightKiB runs a gate that names no tail and writes the default-tail lines to stderr. Its stderr keeps
+// the newest 8 KiB, cut at its start, and the lines after the cut.
 func TestGateKeepsTheLastEightKiB(t *testing.T) {
 	t.Parallel()
+	script := gateRedactHeredoc(gateTailLines(0, 1000), true)
 	result, err := runGrantedGate(t.Context(), &fakeGatePools{}, gateGrantRequest(), gateRun{
-		Argv:    []string{"/bin/sh", "-c", `head -c 20000 /dev/zero | tr '\0' a; printf END`},
+		Argv:    []string{"/bin/sh", "-c", script},
 		Dir:     t.TempDir(),
 		Limit:   time.Minute,
 		Environ: gateEnv(),
@@ -226,11 +229,8 @@ func TestGateKeepsTheLastEightKiB(t *testing.T) {
 	if err != nil {
 		t.Fatalf("runGrantedGate: %v", err)
 	}
-	if len(result.Stdout) != 8*1024 {
-		t.Fatalf("len(Stdout) = %d, want %d", len(result.Stdout), 8*1024)
-	}
-	if !strings.HasSuffix(result.Stdout, "END") {
-		t.Fatalf("Stdout does not end with the last bytes written: %q", result.Stdout[len(result.Stdout)-16:])
+	if want := gateDefaultTailWant(); result.Stderr != want {
+		t.Fatalf("len(Stderr) = %d, want the placeholder and lines 181 to 999 (len %d)", len(result.Stderr), len(want))
 	}
 }
 
