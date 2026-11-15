@@ -194,7 +194,7 @@ func TestResumeDueEpicResumesNothingForAnEpicNotPaused(t *testing.T) {
 	s := openEpicStore(t)
 	createEpic(t, s, fullEpic(claimEpic))
 	insertStaleDueRow(t, s)
-	epicsBefore := rowsOf(t, s.db, "epics")
+	epicsBefore := rowsOf(t, s.db.DB, "epics")
 
 	resumed, err := s.ResumeDueEpic(ctx, dueEpicA)
 	if err != nil {
@@ -203,7 +203,7 @@ func TestResumeDueEpicResumesNothingForAnEpicNotPaused(t *testing.T) {
 	if resumed {
 		t.Errorf("ResumeDueEpic of an epic not paused reported a resume, want none")
 	}
-	if got := rowsOf(t, s.db, "epics"); !reflect.DeepEqual(got, epicsBefore) {
+	if got := rowsOf(t, s.db.DB, "epics"); !reflect.DeepEqual(got, epicsBefore) {
 		t.Errorf("epics after ResumeDueEpic of an epic not paused = %v, want %v", got, epicsBefore)
 	}
 	if got := dueStateOf(t, s, dueEpicA); got != "done" {

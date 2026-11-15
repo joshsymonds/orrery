@@ -96,6 +96,9 @@ func TestNewDaemonHoldsEverySeriesAtZeroButStart(t *testing.T) {
 	if got := sample(t, families, "orrery_writer_backlog_age_seconds", nil); got != 0 {
 		t.Fatalf("orrery_writer_backlog_age_seconds = %v, want 0", got)
 	}
+	if got := sample(t, families, "orrery_store_slow_calls_total", nil); got != 0 {
+		t.Fatalf("orrery_store_slow_calls_total = %v, want 0", got)
+	}
 }
 
 func TestDaemonMethodsMoveTheirSeries(t *testing.T) {
@@ -124,6 +127,9 @@ func TestDaemonMethodsMoveTheirSeries(t *testing.T) {
 	d.WriterWaited(t.Context(), 500*time.Millisecond)
 	d.WriterBacklog(t.Context(), 3*time.Second)
 	d.WriterBacklog(t.Context(), 7500*time.Millisecond)
+	d.StoreSlowCall(t.Context())
+	d.StoreSlowCall(t.Context())
+	d.StoreSlowCall(t.Context())
 
 	families := scrape(t, p)
 	checks := []struct {
@@ -156,6 +162,9 @@ func TestDaemonMethodsMoveTheirSeries(t *testing.T) {
 	if got := sample(t, families, "orrery_writer_backlog_age_seconds", nil); got != 7.5 {
 		t.Fatalf("orrery_writer_backlog_age_seconds = %v, want 7.5 (the latest WriterBacklog)", got)
 	}
+	if got := sample(t, families, "orrery_store_slow_calls_total", nil); got != 3 {
+		t.Fatalf("orrery_store_slow_calls_total = %v, want 3", got)
+	}
 }
 
 func TestNilDaemonMethodsDoNothing(t *testing.T) {
@@ -167,6 +176,7 @@ func TestNilDaemonMethodsDoNothing(t *testing.T) {
 	d.HolderLost(t.Context())
 	d.WriterWaited(t.Context(), time.Second)
 	d.WriterBacklog(t.Context(), time.Second)
+	d.StoreSlowCall(t.Context())
 }
 
 func TestServeAnswersMetricsUntilCancelled(t *testing.T) {

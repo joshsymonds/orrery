@@ -151,8 +151,8 @@ func assertRun(t *testing.T, s *Store, id string, want EvidenceRun, step string)
 func evidenceRowsOf(t *testing.T, s *Store) map[string][][]any {
 	t.Helper()
 	return map[string][][]any{
-		"evidence_runs":      rowsOf(t, s.db, "evidence_runs"),
-		"evidence_artifacts": rowsOf(t, s.db, "evidence_artifacts"),
+		"evidence_runs":      rowsOf(t, s.db.DB, "evidence_runs"),
+		"evidence_artifacts": rowsOf(t, s.db.DB, "evidence_artifacts"),
 	}
 }
 
