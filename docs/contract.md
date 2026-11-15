@@ -463,7 +463,7 @@ orrery serve --listen 127.0.0.1:8080 --allow-login user@example.test
 ### orreryd
 
 ```
-orreryd [-L NAME | -S PATH] [--socket PATH] [--claude PATH] [--summary-model CONTEXT=MODEL]... [--push-host HOST]... [--sessions] [--session-cap N] [--session-shell PATH] [--holder-scope PATH] [--step-cap N] [--metrics-listen ADDR]
+orreryd [-L NAME | -S PATH] [--socket PATH] [--claude PATH] [--summary-model CONTEXT=MODEL]... [--push-host HOST]... [--sessions] [--session-cap N] [--session-shell PATH] [--holder-scope PATH] [--step-cap N] [--metrics-listen ADDR] [--flow-ticks PATH]
 ```
 
 - `-L`, `-S`, and `--socket` work as they do for `orrery`.
@@ -478,6 +478,7 @@ orreryd [-L NAME | -S PATH] [--socket PATH] [--claude PATH] [--summary-model CON
 - `--holder-scope PATH` is the absolute path of `systemd-run`, which runs each session's holder in its own user scope. The default is none, and the holder then starts plainly. A relative path exits 2 (`cmd/orreryd.parseFlags`, `cmd/orreryd.report`). [Headless sessions](#headless-sessions) gives the start under the flag, and [Lifecycle rules](#lifecycle-rules) gives shutdown under it.
 - `--step-cap N` is the most live step sessions at once. Steps count apart from `--session-cap`. The default is 6. A value below 1 exits 2.
 - `--metrics-listen ADDR` serves `/metrics` on ADDR, a loopback IP literal with a port. Without the flag, `orreryd` records and serves no metrics. [Metrics](#metrics) gives the listener, the series and the alert rules.
+- `--flow-ticks PATH` is a test seam. With it, the flow passes once at start and once per `SIGUSR1` in place of its five-second ticks, and appends one line to PATH after each pass. Without it, the flow passes every five seconds and `SIGUSR1` keeps its default action (`cmd/orreryd.flowSeam`, `cmd/orreryd.forwardSignals`, `cmd/orreryd.appendPassLine`).
 
 `orreryd` listens on unix sockets only, apart from the loopback `/metrics` listener that `--metrics-listen` adds ([Metrics](#metrics)). `--sessions` adds the session socket. The desk stream is served on `notices.sock` beside the daemon socket, as [Desk stream](#desk-stream) describes.
 

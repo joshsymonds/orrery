@@ -81,7 +81,7 @@ func (r *buildRig) epicSteps(t *testing.T) []*v1.Step {
 func (r *buildRig) awaitEpicStep(t *testing.T) *v1.Step {
 	t.Helper()
 	var steps []*v1.Step
-	waitUntil(t, "a step of epic "+buildRigEpic, func() bool {
+	waitUntil(t, func() bool {
 		steps = r.epicSteps(t)
 		return len(steps) > 0
 	})
@@ -89,16 +89,6 @@ func (r *buildRig) awaitEpicStep(t *testing.T) *v1.Step {
 		t.Fatalf("labeled steps of epic %s = %d, want the agent node's one step", buildRigEpic, len(steps))
 	}
 	return steps[0]
-}
-
-// awaitAgentNode waits until the agent node leaves running, and returns its run. The pass after the step's end ends the
-// node, so the wait spans one pass.
-func (r *buildRig) awaitAgentNode(t *testing.T) sqlcgen.EpicNodeRun {
-	t.Helper()
-	waitUntil(t, "node "+agentNode+" to end or park", func() bool {
-		return r.nodeRun(t, agentNode).State != store.NodeRunning
-	})
-	return r.nodeRun(t, agentNode)
 }
 
 // requireAgentStep fails unless step, as the store lists it, is the read-only step of run: its id is derived from run,
@@ -122,7 +112,7 @@ func requireAgentClaude(t *testing.T, step *v1.Step, prompt string) {
 	t.Helper()
 	dir := step.GetWorktree()
 	stdin := filepath.Join(dir, "fakeclaude.stdin")
-	waitUntil(t, "the fake claude to read the prompt", func() bool { return fileContains(t, stdin, prompt) })
+	waitUntil(t, func() bool { return fileContains(t, stdin, prompt) })
 	args := filepath.Join(dir, "fakeclaude.args")
 	if !fileContains(t, args, "--agent "+agentNodeAgent) {
 		t.Fatalf("fake claude was not started with --agent %s", agentNodeAgent)
@@ -138,7 +128,7 @@ func TestWorkflowAgentNodeStepDonePassesNode(t *testing.T) {
 	t.Parallel()
 	r := newAgentNodesRig(t)
 	seedNodesEpic(t, r, agentNodesText(agentNodeDonePrompt), nil)
-	daemon := r.f.startOrreryd(t, true, "--holder-scope", r.scope)
+	daemon, ack := r.startPassDaemon(t, "first")
 	t.Cleanup(func() { clearHolders(t, r.stateDir) })
 
 	step := r.awaitEpicStep(t)
@@ -148,7 +138,8 @@ func TestWorkflowAgentNodeStepDonePassesNode(t *testing.T) {
 	if end := r.awaitEnd(t, step.GetId()).GetEnd(); end != "done" {
 		t.Fatalf("step %s ended %q, want done", step.GetId(), end)
 	}
-	if run := r.awaitAgentNode(t); run.State != store.NodeEnded || run.Outcome != "passed" {
+	signalPass(t, daemon, ack)
+	if run := r.nodeRun(t, agentNode); run.State != store.NodeEnded || run.Outcome != "passed" {
 		t.Fatalf("agent node %q with outcome %q, want ended passed; output %q", run.State, run.Outcome, run.Output)
 	}
 	wantExit(t, daemon.stop(t), 0)
@@ -160,7 +151,7 @@ func TestWorkflowAgentNodeStepNotDoneFailsAndParks(t *testing.T) {
 	t.Parallel()
 	r := newAgentNodesRig(t)
 	seedNodesEpic(t, r, agentNodesText(agentNodeNotDonePrompt), nil)
-	daemon := r.f.startOrreryd(t, true, "--holder-scope", r.scope)
+	daemon, ack := r.startPassDaemon(t, "first")
 	t.Cleanup(func() { clearHolders(t, r.stateDir) })
 
 	step := r.awaitEpicStep(t)
@@ -170,7 +161,8 @@ func TestWorkflowAgentNodeStepNotDoneFailsAndParks(t *testing.T) {
 	if end := r.awaitEnd(t, step.GetId()).GetEnd(); end == "done" {
 		t.Fatalf("step %s ended done, want a step that does not end done", step.GetId())
 	}
-	if run := r.awaitAgentNode(t); run.State != store.NodeParked || run.Outcome != "failed" {
+	signalPass(t, daemon, ack)
+	if run := r.nodeRun(t, agentNode); run.State != store.NodeParked || run.Outcome != "failed" {
 		t.Fatalf("agent node %q with outcome %q, want parked failed; output %q", run.State, run.Outcome, run.Output)
 	}
 	if reason := r.epic(t).GetParked(); !strings.Contains(reason, "workflow node "+agentNode+" failed") {

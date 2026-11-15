@@ -84,8 +84,13 @@ type Config struct {
 	Steps    Steps
 	Getenv   func(string) string
 	Tick     time.Duration
-	Now      func() time.Time
-	Logger   *slog.Logger
+	// Ticks is a test seam: when set, Run passes at start and then once at each value it receives, in place of a ticker
+	// every Tick. Production leaves it nil.
+	Ticks  <-chan time.Time
+	Now    func() time.Time
+	Logger *slog.Logger
+	// Passed is a test seam: when set, Run calls it after each pass. Production leaves it nil.
+	Passed func()
 }
 
 // Runner runs each epic's workflow over its node runs: it carries out the structural actions the decisions ask for,
@@ -99,8 +104,10 @@ type Runner struct {
 	steps    Steps
 	getenv   func(string) string
 	tick     time.Duration
+	ticks    <-chan time.Time
 	now      func() time.Time
 	logger   *slog.Logger
+	passed   func()
 	kinds    map[string]kinds.Kind
 }
 
@@ -119,6 +126,7 @@ func New(cfg Config) *Runner {
 	runner := &Runner{
 		store: cfg.Store, planner: cfg.Planner, builder: cfg.Builder, checks: cfg.Checks, evidence: cfg.Evidence,
 		steps: cfg.Steps, getenv: cfg.Getenv, tick: cfg.Tick, now: cfg.Now, logger: cfg.Logger,
+		ticks: cfg.Ticks, passed: cfg.Passed,
 		kinds: map[string]kinds.Kind{
 			kindPlan: kinds.Plan{}, kindBuild: kinds.Build{}, kindGate: kinds.Gate{}, kindCommand: kinds.Command{},
 			kindEvidence: kinds.Evidence{}, kindOwned: kinds.Owned{}, kindAgent: kinds.Agent{},
@@ -140,18 +148,26 @@ func New(cfg Config) *Runner {
 }
 
 // Run recovers the planner's turns a previous orreryd left running, then passes at once, then once per tick, until ctx
-// ends. It then waits for the planner's turns and returns.
+// ends. It then waits for the planner's turns and returns. With Config.Ticks set, the ticks are the values it receives,
+// and Config.Passed is called after each pass.
 func (r *Runner) Run(ctx context.Context) {
-	ticker := time.NewTicker(r.tick)
-	defer ticker.Stop()
+	ticks := r.ticks
+	if ticks == nil {
+		ticker := time.NewTicker(r.tick)
+		defer ticker.Stop()
+		ticks = ticker.C
+	}
 	r.planner.Recover(ctx)
 	for {
 		r.Pass(ctx)
+		if r.passed != nil {
+			r.passed()
+		}
 		select {
 		case <-ctx.Done():
 			r.planner.WaitTurns()
 			return
-		case <-ticker.C:
+		case <-ticks:
 		}
 	}
 }

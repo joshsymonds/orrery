@@ -166,8 +166,11 @@ type options struct {
 	// limitTicks is a test seam: when set, the limit notices check at each value it delivers in place of every
 	// limitTick, and production leaves it nil.
 	limitTicks <-chan time.Time
-	flight     *telemetry.Flight // the flight recorder run starts, nil when it could not start
-	started    time.Time         // when run began, the start of the start phase
+	// flowTicks is a test seam: the path the flow appends a line to after each pass, and each SIGUSR1 starts a pass in
+	// place of the flow's five-second ticks. Production leaves it "".
+	flowTicks string
+	flight    *telemetry.Flight // the flight recorder run starts, nil when it could not start
+	started   time.Time         // when run began, the start of the start phase
 }
 
 // repeatFlag is a repeatable string flag. It collects the values in the order given.
@@ -306,6 +309,7 @@ func parseFlags(args []string, getenv func(string) string) (options, error) {
 	holderScope := flags.String("holder-scope", "", "systemd-run binary that runs each session's holder")
 	stepCap := flags.Int("step-cap", defaultStepCap, "most live step sessions")
 	metricsListen := flags.String("metrics-listen", "", "loopback address that serves /metrics")
+	flowTicks := flags.String("flow-ticks", "", "test seam: file each flow pass appends a line to")
 	if err := flags.Parse(args); err != nil {
 		return options{}, usagef("%v", err)
 	}
@@ -355,6 +359,7 @@ func parseFlags(args []string, getenv func(string) string) (options, error) {
 		holderScope:   *holderScope,
 		stepCap:       *stepCap,
 		metricsListen: *metricsListen,
+		flowTicks:     *flowTicks,
 	}, nil
 }
 
@@ -758,7 +763,7 @@ func startSessions(
 		host.startEvidence(ctx, st, stateDir, opts.holderScope, logger)
 		evidence = host.evidence
 		host.startNodeChecks(ctx, st, stateDir, opts.holderScope, logger)
-		host.startFlow(ctx, st, router, opts.attentionTicks, getenv, resolve, stateDir, logger)
+		host.startFlow(ctx, st, router, opts.attentionTicks, opts.flowTicks, getenv, resolve, stateDir, logger)
 		host.startLimits(ctx, st, router, opts.limitTicks, logger)
 		host.startDue(ctx, st, logger)
 		host.startIdle(ctx)
@@ -965,12 +970,14 @@ func (h *sessionHost) startNodeChecks(
 // evidence and agent nodes of the flow run on the node checks, the evidence runner and the steps, and read the
 // environment through getenv. With a
 // router, the attention loop runs under the same context and routes the epics that need their owner through it,
-// passing at each value of attentionTicks when it is not nil.
+// passing at each value of attentionTicks when it is not nil. With flowTicks set, the flow passes at start and once per
+// SIGUSR1, and logs each pass to the file flowTicks names (flowSeam).
 func (h *sessionHost) startFlow(
 	ctx context.Context,
 	st *store.Store,
 	router planner.Router,
 	attentionTicks <-chan time.Time,
+	flowTicks string,
 	getenv func(string) string,
 	resolve planner.Resolver,
 	stateDir string,
@@ -991,6 +998,9 @@ func (h *sessionHost) startFlow(
 		StateDir: stateDir,
 		Logger:   logger,
 	})
+	var flowCtx context.Context
+	flowCtx, h.stopFlow = context.WithCancel(ctx)
+	ticks, passed := flowSeam(flowCtx, flowTicks, logger)
 	flow := interpret.New(interpret.Config{
 		Store:    st,
 		Planner:  plannerRun,
@@ -1000,9 +1010,9 @@ func (h *sessionHost) startFlow(
 		Steps:    h.steps,
 		Getenv:   getenv,
 		Logger:   logger,
+		Ticks:    ticks,
+		Passed:   passed,
 	})
-	var flowCtx context.Context
-	flowCtx, h.stopFlow = context.WithCancel(ctx)
 	go func() {
 		flow.Run(flowCtx)
 		close(h.flowDone)
@@ -1018,6 +1028,52 @@ func (h *sessionHost) startFlow(
 		attention.Run(flowCtx)
 		close(h.attentionDone)
 	}()
+}
+
+// flowSeam returns the test seam of the flow when path is set: the channel the flow passes at, which gets one value per
+// SIGUSR1, and the function the flow calls after each pass, which appends a line to path. The SIGUSR1 handler is
+// installed here, before the flow starts, and it is stopped when ctx ends. Without a path it returns nil and nil, and
+// SIGUSR1 keeps its default action.
+func flowSeam(ctx context.Context, path string, logger *slog.Logger) (<-chan time.Time, func()) {
+	if path == "" {
+		return nil, nil
+	}
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, syscall.SIGUSR1)
+	ticks := make(chan time.Time)
+	go forwardSignals(ctx, signals, ticks)
+	return ticks, func() { appendPassLine(ctx, logger, path) }
+}
+
+// forwardSignals sends one value on ticks for each signal it receives, until ctx ends. It stops the signals when it
+// returns.
+func forwardSignals(ctx context.Context, signals chan os.Signal, ticks chan<- time.Time) {
+	defer signal.Stop(signals)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-signals:
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case ticks <- time.Now():
+		}
+	}
+}
+
+// appendPassLine appends one line to the file at path, which logs each pass of the flow. A failed write is logged, and
+// serving goes on.
+func appendPassLine(ctx context.Context, logger *slog.Logger, path string) {
+	file, err := os.OpenFile(filepath.Clean(path), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err == nil {
+		_, err = file.WriteString("pass\n")
+		err = errors.Join(err, file.Close())
+	}
+	if err != nil {
+		logger.ErrorContext(ctx, "write flow pass line, serving anyway", "path", path, "error", err)
+	}
 }
 
 // startLimits tells router which steps a usage limit holds, checking st every limitTick until stop, or at each value

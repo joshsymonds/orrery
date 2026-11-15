@@ -1,10 +1,16 @@
 package integration_test
 
 import (
+	"database/sql"
+	"errors"
 	"fmt"
+	"io/fs"
+	"math"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -37,6 +43,9 @@ const (
 	nodesGateNode    = "verify"
 	nodesGate        = "check"
 )
+
+// nodeCheckPart is the part a check node run's check is stored under: NodeWorkID of the run and its attempt with it.
+const nodeCheckPart = "check"
 
 // nodesCommandText returns a workflow whose one command node runs argv at the base.
 func nodesCommandText(argv []string) string {
@@ -171,15 +180,81 @@ func (r *buildRig) retryNode(t *testing.T, node string) {
 	}
 }
 
-// waitNodeEnds waits for the node run at path to check its refs and leave running. The flow passes once per tick, and
-// the pass after the node's check ends does both, so a caller first waits for the check to run, and each wait spans one
-// pass.
-func (r *buildRig) waitNodeEnds(t *testing.T, path string) {
+// startPassDaemon starts orreryd over the rig with --flow-ticks at a file of its own, named for name, and returns the
+// daemon with that file. The flow passes at start and logs that pass as the file's first line. The handler is installed
+// before the flow starts, so that line shows the handler is there, and no pass is signaled before it.
+func (r *buildRig) startPassDaemon(t *testing.T, name string) (*orreryProcess, string) {
 	t.Helper()
-	waitUntil(t, "node "+path+" to check its refs", func() bool { return r.nodeRun(t, path).RefsChecked != 0 })
-	waitUntil(t, "node "+path+" to end or park", func() bool {
-		return r.nodeRun(t, path).State != store.NodeRunning
-	})
+	ack := filepath.Join(r.f.root, name+".passes")
+	daemon := r.f.startOrreryd(t, true, "--holder-scope", r.scope, "--flow-ticks", ack)
+	waitUntil(t, func() bool { return passCount(t, ack) > 0 })
+	return daemon, ack
+}
+
+// signalPass signals daemon to run one pass of its flow, and waits until the pass has logged its line in ack. The line
+// is written after the pass returns, so the store holds the pass's writes once the wait ends.
+func signalPass(t *testing.T, daemon *orreryProcess, ack string) {
+	t.Helper()
+	before := passCount(t, ack)
+	if err := daemon.cmd.Process.Signal(syscall.SIGUSR1); err != nil {
+		t.Fatalf("signal orreryd to run a pass: %v", err)
+	}
+	waitUntil(t, func() bool { return passCount(t, ack) > before })
+}
+
+// passCount returns how many passes the daemon has logged in ack: each pass appends one line.
+func passCount(t *testing.T, ack string) int {
+	t.Helper()
+	raw, err := os.ReadFile(ack)
+	if errors.Is(err, fs.ErrNotExist) {
+		return 0
+	}
+	if err != nil {
+		t.Fatalf("read pass log: %v", err)
+	}
+	return strings.Count(string(raw), "\n")
+}
+
+// awaitCheck waits until the check of the node run at path has ended. The check's drive writes the end when the check
+// exits, and no pass runs for that write, so the wait is on the write itself. The check is the one stored at the run's
+// current attempt.
+func (r *buildRig) awaitCheck(t *testing.T, path string) {
+	t.Helper()
+	run := r.nodeRun(t, path)
+	id := store.NodeWorkID(run.ID, run.Attempt, nodeCheckPart)
+	waitUntil(t, func() bool { return r.checkEnded(t, id) })
+}
+
+// openReadOnlyStore returns a read-only handle on the rig's store. The handle's busy timeout is the largest SQLite
+// takes, so a read waits out any lock orreryd holds, and the caller closes the handle at once so orreryd keeps the file.
+func (r *buildRig) openReadOnlyStore(t *testing.T) *sql.DB {
+	t.Helper()
+	query := url.Values{}
+	query.Set("mode", "ro")
+	query.Add("_pragma", fmt.Sprintf("busy_timeout(%d)", math.MaxInt32))
+	dsn := (&url.URL{Scheme: "file", Path: r.f.dbPath, RawQuery: query.Encode()}).String()
+	db, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		t.Fatalf("open store read-only: %v", err)
+	}
+	return db
+}
+
+// checkEnded reports whether the node check id is stored and has ended.
+func (r *buildRig) checkEnded(t *testing.T, id string) bool {
+	t.Helper()
+	db := r.openReadOnlyStore(t)
+	check, readErr := sqlcgen.New(db).GetEpicNodeCheck(t.Context(), id)
+	if closeErr := db.Close(); closeErr != nil {
+		t.Fatalf("close store read-only: %v", closeErr)
+	}
+	if errors.Is(readErr, sql.ErrNoRows) {
+		return false
+	}
+	if readErr != nil {
+		t.Fatalf("read node check %s: %v", id, readErr)
+	}
+	return check.State == store.NodeEnded
 }
 
 // TestWorkflowNodesSigkillCommandRunsOnce proves that orreryd killed while a pinned workflow's command node runs starts
@@ -193,14 +268,14 @@ func TestWorkflowNodesSigkillCommandRunsOnce(t *testing.T) {
 	release := filepath.Join(r.f.root, "command.release")
 	script := fmt.Sprintf("echo run >> '%s'; while [ ! -e '%s' ]; do sleep 0.05; done", lines, release)
 	seedNodesEpic(t, r, nodesCommandText([]string{r.f.shell, "-c", script}), nil)
-	daemon := r.f.startOrreryd(t, true, "--holder-scope", r.scope)
+	daemon, _ := r.startPassDaemon(t, "first")
 	t.Cleanup(func() { clearHolders(t, r.stateDir) })
 	// A command still held at the end of a failed test exits at once, so its holder is not left waiting.
 	t.Cleanup(func() { stepReadoptTouch(t, release) })
-	waitUntil(t, "the command to append its line", func() bool { return gateRunCount(t, lines) == 1 })
+	waitUntil(t, func() bool { return gateRunCount(t, lines) == 1 })
 
 	killOrreryd(t, daemon)
-	restarted := r.f.startOrreryd(t, true, "--holder-scope", r.scope)
+	restarted, restartedAck := r.startPassDaemon(t, "restarted")
 	if run := r.nodeRun(t, nodesCommandNode); run.State != store.NodeRunning {
 		t.Fatalf("command node after the restart is %q, want running", run.State)
 	}
@@ -209,7 +284,8 @@ func TestWorkflowNodesSigkillCommandRunsOnce(t *testing.T) {
 	}
 
 	stepReadoptTouch(t, release)
-	r.waitNodeEnds(t, nodesCommandNode)
+	r.awaitCheck(t, nodesCommandNode)
+	signalPass(t, restarted, restartedAck)
 	if run := r.nodeRun(t, nodesCommandNode); run.State != store.NodeEnded || run.Outcome != "passed" {
 		t.Fatalf("command node %q with outcome %q, want ended passed; output %q", run.State, run.Outcome, run.Output)
 	}
@@ -230,11 +306,12 @@ func TestWorkflowNodesGateRetryAfterRestartRunsEachAttemptOnce(t *testing.T) {
 	script := fmt.Sprintf("echo run >> '%s'; test -e '%s'", lines, allow)
 	gate := store.EpicGate{Name: nodesGate, Argv: []string{r.f.shell, "-c", script}, Limit: 60}
 	seedNodesEpic(t, r, nodesGateText(), []store.EpicGate{gate})
-	daemon := r.f.startOrreryd(t, true, "--holder-scope", r.scope)
+	daemon, ack := r.startPassDaemon(t, "first")
 	t.Cleanup(func() { clearHolders(t, r.stateDir) })
 
-	waitUntil(t, "the gate to run", func() bool { return gateRunCount(t, lines) == 1 })
-	r.waitNodeEnds(t, nodesGateNode)
+	waitUntil(t, func() bool { return gateRunCount(t, lines) == 1 })
+	r.awaitCheck(t, nodesGateNode)
+	signalPass(t, daemon, ack)
 	if run := r.nodeRun(t, nodesGateNode); run.State != store.NodeParked || r.epic(t).GetParked() == "" {
 		t.Fatalf("gate node %q with the epic parked %q, want both parked", run.State, r.epic(t).GetParked())
 	}
@@ -249,7 +326,7 @@ func TestWorkflowNodesGateRetryAfterRestartRunsEachAttemptOnce(t *testing.T) {
 	}
 
 	killOrreryd(t, daemon)
-	restarted := r.f.startOrreryd(t, true, "--holder-scope", r.scope)
+	restarted, restartedAck := r.startPassDaemon(t, "restarted")
 	if run := r.nodeRun(t, nodesGateNode); run.State != store.NodeParked {
 		t.Fatalf("gate node after the restart is %q, want parked", run.State)
 	}
@@ -259,8 +336,10 @@ func TestWorkflowNodesGateRetryAfterRestartRunsEachAttemptOnce(t *testing.T) {
 
 	stepReadoptTouch(t, allow)
 	r.retryNode(t, nodesGateNode)
-	waitUntil(t, "the retried gate to run", func() bool { return gateRunCount(t, lines) == 2 })
-	r.waitNodeEnds(t, nodesGateNode)
+	signalPass(t, restarted, restartedAck)
+	waitUntil(t, func() bool { return gateRunCount(t, lines) == 2 })
+	r.awaitCheck(t, nodesGateNode)
+	signalPass(t, restarted, restartedAck)
 	if run := r.nodeRun(t, nodesGateNode); run.State != store.NodeEnded || run.Outcome != "passed" || run.Attempt != 1 {
 		t.Fatalf("gate node %q with outcome %q at attempt %d, want ended passed at its next attempt, 1",
 			run.State, run.Outcome, run.Attempt)
