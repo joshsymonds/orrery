@@ -52,6 +52,8 @@ func routerWith(t *testing.T, s *store.Store, desk route.DeskSink, phone route.P
 		Subscribed: func() (bool, error) { return true, nil },
 		Log:        discardLines{},
 		Rebuild:    map[string]route.Rebuild{EpicSource: RestoreNotice},
+		// The store-call bound never fires: a row write slower than the real bound under load would read as failed.
+		StoreAfter: neverFires,
 	})
 	router.Attach(context.Background(), s)
 	return router

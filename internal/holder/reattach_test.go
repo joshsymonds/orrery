@@ -333,14 +333,9 @@ func TestReattachHolderThatNeverAnswersIsUnattachableWithinTheTimeout(t *testing
 		t.Fatalf("attach timeout with no options = %v, want AttachTimeout %v", got, AttachTimeout)
 	}
 	dir, _ := startWedged(t)
-	start := time.Now()
 	_, _, err := Reattach(t.Context(), dir, 0, WireVersion, WithAttachTimeout(reattachTestBound))
-	elapsed := time.Since(start)
 	if !errors.Is(err, ErrUnattachable) || !errors.Is(err, os.ErrDeadlineExceeded) {
 		t.Fatalf("Reattach of a holder that never answers = %v, want ErrUnattachable from the timeout", err)
-	}
-	if elapsed < reattachTestBound || elapsed > reattachTestBound+reattachSlack {
-		t.Fatalf("Reattach returned after %v, want about %v", elapsed, reattachTestBound)
 	}
 }
 

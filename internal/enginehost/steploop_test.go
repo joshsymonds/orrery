@@ -175,14 +175,11 @@ func (f *stepLoopFixture) settle(t *testing.T) {
 	}
 }
 
-// waitRunEnd fails the test unless run returns within waitTimeout.
+// waitRunEnd waits for run to return. It sets no deadline of its own: a run's rounds do real git, holder and store
+// work whose time the machine's load decides, and the test binary's timeout ends a run that never returns.
 func waitRunEnd(t *testing.T, done <-chan struct{}) {
 	t.Helper()
-	select {
-	case <-done:
-	case <-time.After(waitTimeout):
-		t.Fatal("run did not return")
-	}
+	<-done
 }
 
 // row returns the step row the fixture's store holds.

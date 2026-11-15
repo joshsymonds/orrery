@@ -136,14 +136,16 @@ func liveHeap() uint64 {
 
 // TestOversizedInboundLineEndsTheSessionWithBoundedMemory checks that one inbound line over 1 MiB ends the session
 // with an error, that the server answers nothing for it, that the server reads no more than 1 MiB of it, and that the
-// heap grows by less than the 2 MiB line would take if it were held whole. It reads process-wide heap statistics, so
+// heap grows by far less than the 8 MiB line would take if it were held whole. It reads process-wide heap statistics, so
 // it does not run in parallel.
 func TestOversizedInboundLineEndsTheSessionWithBoundedMemory(t *testing.T) {
 	const (
-		lineBytes      = 2 << 20
-		maxLineBytes   = 1 << 20
-		chunkBytes     = 64 << 10
-		maxGrowthBytes = 2 << 20
+		lineBytes    = 8 << 20
+		maxLineBytes = 1 << 20
+		chunkBytes   = 64 << 10
+		// maxGrowthBytes is well under the line held whole. Reading up to the 1 MiB frame limit, the SDK's JSON decoder
+		// doubles its buffer to about 2 MiB, so the bound leaves room for that buffer and is still half the line.
+		maxGrowthBytes = 4 * maxLineBytes
 	)
 	server, err := NewServer(nil, nil, nil)
 	if err != nil {
