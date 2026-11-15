@@ -51,7 +51,7 @@ func TestClaimTurnClaimsEveryPendingTriggerInOneTurn(t *testing.T) {
 		{id, createdTriggerID, createdTriggerCause, "claimed", int64(1), int64(1700000000)},
 		{id, "t2", "test trigger", "claimed", int64(1), int64(1700000000)},
 	}
-	if got := rowsOf(t, s.db, "epic_triggers"); !reflect.DeepEqual(got, wantTriggers) {
+	if got := rowsOf(t, s.db.DB, "epic_triggers"); !reflect.DeepEqual(got, wantTriggers) {
 		t.Errorf("epic_triggers after ClaimTurn = %v, want %v", got, wantTriggers)
 	}
 }
@@ -66,16 +66,16 @@ func TestClaimTurnRefusesWhileATurnRunsAndWritesNothing(t *testing.T) {
 		t.Fatalf("first ClaimTurn: %v", err)
 	}
 	addPendingTrigger(t, s)
-	turnsBefore := rowsOf(t, s.db, "epic_turns")
-	triggersBefore := rowsOf(t, s.db, "epic_triggers")
+	turnsBefore := rowsOf(t, s.db.DB, "epic_turns")
+	triggersBefore := rowsOf(t, s.db.DB, "epic_triggers")
 
 	if _, err := s.ClaimTurn(ctx, id, claimedAt().Add(time.Minute)); !errors.Is(err, ErrNotClaimable) {
 		t.Fatalf("second ClaimTurn err = %v, want ErrNotClaimable", err)
 	}
-	if got := rowsOf(t, s.db, "epic_turns"); !reflect.DeepEqual(got, turnsBefore) {
+	if got := rowsOf(t, s.db.DB, "epic_turns"); !reflect.DeepEqual(got, turnsBefore) {
 		t.Errorf("epic_turns after refused ClaimTurn = %v, want %v", got, turnsBefore)
 	}
-	if got := rowsOf(t, s.db, "epic_triggers"); !reflect.DeepEqual(got, triggersBefore) {
+	if got := rowsOf(t, s.db.DB, "epic_triggers"); !reflect.DeepEqual(got, triggersBefore) {
 		t.Errorf("epic_triggers after refused ClaimTurn = %v, want %v", got, triggersBefore)
 	}
 }
@@ -96,15 +96,15 @@ func TestClaimTurnRefusesPausedAndParkedEpicsAndWritesNothing(t *testing.T) {
 		if _, err := s.db.Exec(tc.setup, tc.epic); err != nil {
 			t.Fatalf("set %s: %v", tc.name, err)
 		}
-		triggersBefore := rowsOf(t, s.db, "epic_triggers")
+		triggersBefore := rowsOf(t, s.db.DB, "epic_triggers")
 
 		if _, err := s.ClaimTurn(ctx, tc.epic, claimedAt()); !errors.Is(err, ErrNotClaimable) {
 			t.Errorf("ClaimTurn of %s epic err = %v, want ErrNotClaimable", tc.name, err)
 		}
-		if got := rowsOf(t, s.db, "epic_turns"); len(got) != 0 {
+		if got := rowsOf(t, s.db.DB, "epic_turns"); len(got) != 0 {
 			t.Errorf("%s: epic_turns after refused ClaimTurn = %v, want none", tc.name, got)
 		}
-		if got := rowsOf(t, s.db, "epic_triggers"); !reflect.DeepEqual(got, triggersBefore) {
+		if got := rowsOf(t, s.db.DB, "epic_triggers"); !reflect.DeepEqual(got, triggersBefore) {
 			t.Errorf("%s: epic_triggers after refused ClaimTurn = %v, want %v", tc.name, got, triggersBefore)
 		}
 	}
@@ -122,12 +122,12 @@ func TestClaimTurnRefusesEpicWithNoPendingTrigger(t *testing.T) {
 	if _, err := s.db.Exec(`UPDATE epic_turns SET state = 'succeeded' WHERE epic = ?`, id); err != nil {
 		t.Fatalf("finish turn: %v", err)
 	}
-	turnsBefore := rowsOf(t, s.db, "epic_turns")
+	turnsBefore := rowsOf(t, s.db.DB, "epic_turns")
 
 	if _, err := s.ClaimTurn(ctx, id, claimedAt()); !errors.Is(err, ErrNotClaimable) {
 		t.Fatalf("ClaimTurn with no pending trigger err = %v, want ErrNotClaimable", err)
 	}
-	if got := rowsOf(t, s.db, "epic_turns"); !reflect.DeepEqual(got, turnsBefore) {
+	if got := rowsOf(t, s.db.DB, "epic_turns"); !reflect.DeepEqual(got, turnsBefore) {
 		t.Errorf("epic_turns after refused ClaimTurn = %v, want %v", got, turnsBefore)
 	}
 }
@@ -140,7 +140,7 @@ func TestClaimTurnUnknownEpicIsErrNoEpic(t *testing.T) {
 	if _, err := s.ClaimTurn(ctx, "orrery-1a2b3c4/missing", claimedAt()); !errors.Is(err, ErrNoEpic) {
 		t.Fatalf("ClaimTurn of unknown epic err = %v, want ErrNoEpic", err)
 	}
-	if got := rowsOf(t, s.db, "epic_turns"); len(got) != 0 {
+	if got := rowsOf(t, s.db.DB, "epic_turns"); len(got) != 0 {
 		t.Errorf("epic_turns after unknown ClaimTurn = %v, want none", got)
 	}
 }
@@ -173,7 +173,7 @@ func TestClaimTurnNumbersTurnsAndSeesTheLatestDecision(t *testing.T) {
 		t.Errorf("second turn Seen = %d, want %d", turn.Seen, want)
 	}
 	wantTrigger := []any{id, "t2", "test trigger", "claimed", int64(2), int64(1700000000)}
-	if got := rowsOf(t, s.db, "epic_triggers"); !reflect.DeepEqual(got[len(got)-1], wantTrigger) {
+	if got := rowsOf(t, s.db.DB, "epic_triggers"); !reflect.DeepEqual(got[len(got)-1], wantTrigger) {
 		t.Errorf("last epic_trigger after second ClaimTurn = %v, want %v", got[len(got)-1], wantTrigger)
 	}
 }
@@ -253,7 +253,7 @@ func TestSetTurnStepStoresTheStepOnARunningTurn(t *testing.T) {
 		id, int64(1), "step-1", "running", "", int64(len(seededDecisions())), "", "", int64(1700000500), int64(0),
 		int64(0), int64(0), int64(0),
 	}}
-	if got := rowsOf(t, s.db, "epic_turns"); !reflect.DeepEqual(got, want) {
+	if got := rowsOf(t, s.db.DB, "epic_turns"); !reflect.DeepEqual(got, want) {
 		t.Errorf("epic_turns after SetTurnStep = %v, want %v", got, want)
 	}
 }
@@ -270,7 +270,7 @@ func TestSetTurnStepRefusesATurnThatIsNotRunning(t *testing.T) {
 	if _, err := s.db.Exec(`UPDATE epic_turns SET state = 'succeeded' WHERE epic = ?`, id); err != nil {
 		t.Fatalf("finish turn: %v", err)
 	}
-	turnsBefore := rowsOf(t, s.db, "epic_turns")
+	turnsBefore := rowsOf(t, s.db.DB, "epic_turns")
 
 	if err := s.SetTurnStep(ctx, id, 1, "step-1"); !errors.Is(err, ErrTurnNotRunning) {
 		t.Errorf("SetTurnStep of finished turn err = %v, want ErrTurnNotRunning", err)
@@ -278,7 +278,7 @@ func TestSetTurnStepRefusesATurnThatIsNotRunning(t *testing.T) {
 	if err := s.SetTurnStep(ctx, id, 9, "step-9"); !errors.Is(err, ErrTurnNotRunning) {
 		t.Errorf("SetTurnStep of missing turn err = %v, want ErrTurnNotRunning", err)
 	}
-	if got := rowsOf(t, s.db, "epic_turns"); !reflect.DeepEqual(got, turnsBefore) {
+	if got := rowsOf(t, s.db.DB, "epic_turns"); !reflect.DeepEqual(got, turnsBefore) {
 		t.Errorf("epic_turns after refused SetTurnStep = %v, want %v", got, turnsBefore)
 	}
 }

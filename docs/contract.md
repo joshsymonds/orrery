@@ -1416,7 +1416,7 @@ Both processes export `rpc_server_call_duration_seconds`, a histogram with `_buc
 
 `orrery serve` gives these options to every Connect handler that `server.New` mounts (`server.Config.HandlerOptions`). `orreryd` gives them only to the six services that `enginehost.Serve` mounts on `sessions.sock` (`enginehost.Serve`; `cmd/orreryd.startSessions`).
 
-`orreryd` also registers six `orrery_*` series in `NewDaemon` (`telemetry.NewDaemon`). Every one is present at 0 from `NewDaemon`, except `orrery_start_timestamp_seconds`, which holds the start time. The four `class` series of `orrery_push_failures_total` are present at 0 from the start too.
+`orreryd` also registers seven `orrery_*` series in `NewDaemon` (`telemetry.NewDaemon`). Every one is present at 0 from `NewDaemon`, except `orrery_start_timestamp_seconds`, which holds the start time. The four `class` series of `orrery_push_failures_total` are present at 0 from the start too.
 
 | Series | Type | Labels | Recorded when |
 |---|---|---|---|
@@ -1426,6 +1426,7 @@ Both processes export `rpc_server_call_duration_seconds`, a histogram with `_buc
 | `orrery_holder_losses_total` | counter | none | Each holder that has ended or cannot be attached when the sessions reconcile re-adopts it. `readoptHolder` counts it (`enginehost.Manager.readoptHolder`). Only the start-time sessions reconcile moves it. |
 | `orrery_writer_wait_seconds_total` | counter | none | Seconds that callers wait on the writer: a `Put`, `Commit` or `CommitAll` waiting for room under its session's op limit, and a `Commit` or `CommitAll` waiting for its ops to be stored. Each wait adds its whole duration, including a wait that ends with an error (`enginehost.Writer.putAll`, `enginehost.Writer.waitForRoom`, `enginehost.Writer.recordWait`, `enginehost.Writer.await`). |
 | `orrery_writer_backlog_age_seconds` | gauge | none | Age in seconds of the oldest op in the writer's queue, and 0 when the queue is empty. The writer sets it at the end of each flush, so a flush that has not returned leaves the last value in place (`enginehost.Writer.flush`, `enginehost.Writer.recordBacklog`). |
+| `orrery_store_slow_calls_total` | counter | none | Each store call that takes longer than 100 ms, from the call until the store's one connection is free again: an Exec, a query until its rows close, a read transaction until it ends, or a write. The store logs each one as `slow store call` with its `queries`, its `wait` for the connection and its `run` on it (`store.callTimer.finish`, `store.WithSlowCallCounter`, `cmd/orreryd.openStore`). |
 
 #### Alert rules
 

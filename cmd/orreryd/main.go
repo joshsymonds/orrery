@@ -573,7 +573,7 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 		AfterTidy: notices.Retry,
 	})
 
-	st := openStore(ctx, getenv, logger)
+	st := openStore(ctx, getenv, logger, opts.metrics)
 	attachStore(ctx, st, mirror, notices, router)
 	var sessions *sessionHost
 	var startErr error
@@ -1260,14 +1260,19 @@ func (h *sessionHost) shutdown() {
 
 // openStore opens the store at its resolved path and logs "store open" once the store is open and migrated. When the
 // path does not resolve or the store cannot be opened, it logs the error and returns nil, so orreryd serves hooks and
-// notifications without the store.
-func openStore(ctx context.Context, getenv func(string) string, logger *slog.Logger) *store.Store {
+// notifications without the store. The store warns on logger of each call over 100 ms and counts it on metrics.
+func openStore(
+	ctx context.Context,
+	getenv func(string) string,
+	logger *slog.Logger,
+	metrics *telemetry.Daemon,
+) *store.Store {
 	path, err := store.Path(getenv)
 	if err != nil {
 		logger.ErrorContext(ctx, "store unavailable, serving without it", "error", err)
 		return nil
 	}
-	st, err := store.Open(ctx, path)
+	st, err := store.Open(ctx, path, store.WithLogger(logger), store.WithSlowCallCounter(metrics.StoreSlowCall))
 	if err != nil {
 		logger.ErrorContext(ctx, "store unavailable, serving without it", "path", path, "error", err)
 		return nil
