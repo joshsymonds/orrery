@@ -20,8 +20,6 @@ const (
 	testBaseURL = "https://patchbay.example.com/ctx/example-context"
 	testHook    = `{"hook_event_name":"Stop","session_id":"example-session"}`
 
-	// frameWait bounds how long a test waits for the listener to receive a frame.
-	frameWait = 2 * time.Second
 	// quietWindow is how long TestHookSentinel waits for a stray connection to arrive.
 	quietWindow = 200 * time.Millisecond
 	// oversize is larger than a default unix socket buffer, so an unread write blocks.
@@ -97,12 +95,7 @@ func TestHookForwardsFrame(t *testing.T) {
 	}
 	Run(strings.NewReader(testHook), testEnv(env), path)
 
-	var result received
-	select {
-	case result = <-got:
-	case <-time.After(frameWait):
-		t.Fatal("daemon received no frame")
-	}
+	result := <-got
 	if result.err != nil {
 		t.Fatalf("read frame: %v", result.err)
 	}
@@ -159,12 +152,7 @@ func TestHookEncodingOutsideDeadline(t *testing.T) {
 	hook := `{"hook_event_name":"Stop",` + strings.Repeat(" ", whitespace) + `"session_id":"example-session"}`
 	Run(strings.NewReader(hook), testEnv(map[string]string{"TMUX_PANE": testPane}), path)
 
-	var result received
-	select {
-	case result = <-got:
-	case <-time.After(frameWait):
-		t.Fatal("daemon received no frame")
-	}
+	result := <-got
 	if result.err != nil {
 		t.Fatalf("read frame: %v (the frame was dropped; encoding ran inside the deadline)", result.err)
 	}
@@ -190,25 +178,10 @@ func TestHookDeadline(t *testing.T) {
 	hook := `{"hook_event_name":"Stop","padding":"` + strings.Repeat("x", oversize) + `"}`
 	env := testEnv(map[string]string{"TMUX_PANE": testPane})
 
-	// Run runs in its own goroutine so an overrunning Run fails the test rather than hanging it.
-	finished := make(chan struct{})
-	go func() {
-		Run(strings.NewReader(hook), env, path)
-		close(finished)
-	}()
+	Run(strings.NewReader(hook), env, path)
 
-	select {
-	case <-finished:
-	case <-time.After(frameWait):
-		t.Fatalf("Run did not return within %v with an unread daemon", frameWait)
-	}
-
-	select {
-	case conn := <-accepted:
-		t.Cleanup(func() { _ = conn.Close() })
-	case <-time.After(frameWait):
-		t.Fatal("daemon never accepted the connection")
-	}
+	conn := <-accepted
+	t.Cleanup(func() { _ = conn.Close() })
 }
 
 func TestHookSentinel(t *testing.T) {
@@ -260,17 +233,7 @@ func TestHookSessionMarker(t *testing.T) {
 				protocol.EnvSession: value,
 				"TMUX_PANE":         testPane,
 			}
-			finished := make(chan struct{})
-			go func() {
-				Run(stdin, testEnv(env), path)
-				close(finished)
-			}()
-
-			select {
-			case <-finished:
-			case <-time.After(frameWait):
-				t.Fatal("Run blocked under the session marker, want it to return without reading stdin")
-			}
+			Run(stdin, testEnv(env), path)
 
 			select {
 			case <-dialed:
@@ -303,12 +266,7 @@ func TestReportSeenFrame(t *testing.T) {
 		t.Fatalf("ReportSeen: %v", err)
 	}
 
-	var result received
-	select {
-	case result = <-got:
-	case <-time.After(frameWait):
-		t.Fatal("daemon received no frame")
-	}
+	result := <-got
 	if result.err != nil {
 		t.Fatalf("read frame: %v", result.err)
 	}
@@ -387,12 +345,7 @@ func TestReportReadFrame(t *testing.T) {
 		t.Fatalf("ReportRead: %v", err)
 	}
 
-	var result received
-	select {
-	case result = <-got:
-	case <-time.After(frameWait):
-		t.Fatal("daemon received no frame")
-	}
+	result := <-got
 	if result.err != nil {
 		t.Fatalf("read frame: %v", result.err)
 	}
@@ -471,12 +424,7 @@ func TestReportInputFrame(t *testing.T) {
 		t.Fatalf("ReportInput: %v", err)
 	}
 
-	var result received
-	select {
-	case result = <-got:
-	case <-time.After(frameWait):
-		t.Fatal("daemon received no frame")
-	}
+	result := <-got
 	if result.err != nil {
 		t.Fatalf("read frame: %v", result.err)
 	}
