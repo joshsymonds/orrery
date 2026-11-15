@@ -120,6 +120,22 @@ func builtinPin(t *testing.T) store.EpicWorkflow {
 	}
 	return store.EpicWorkflow{
 		Name: pinned.Name, Text: pinned.Text, SHA256: pinned.SHA256,
+		Nodes: []store.EpicWorkflowNode{
+			{ID: "red", Kind: "evidence"},
+			{ID: "plan", Kind: "plan"},
+			{ID: "build", Parent: "plan", Kind: "build"},
+			{ID: "integrate", Parent: "plan", Kind: "integrate"},
+		},
+	}
+}
+
+// planBuildPin returns the pin of a workflow of its own: a plan holding build, which the built-in epic was before red
+// and integrate. The tests of plan and build mechanics pin it, so a change to the built-in epic does not change them.
+func planBuildPin() store.EpicWorkflow {
+	text := "name: plan-build\nnodes:\n  - id: plan\n    kind: plan\n    body:\n" +
+		"      - id: build\n        kind: build\n"
+	return store.EpicWorkflow{
+		Name: "plan-build", Text: text, SHA256: sha256Hex(text),
 		Nodes: []store.EpicWorkflowNode{{ID: "plan", Kind: "plan"}, {ID: "build", Parent: "plan", Kind: "build"}},
 	}
 }
@@ -217,19 +233,27 @@ func completeTurn(t *testing.T, s *store.Store, plan store.EpicPlan) {
 	}
 }
 
-// TestNewEpicOnBuiltInStartsPlanAndPassesOnlyIt: a new epic pinned to the built-in epic gets its plan run stored by the
-// first pass, the planner is passed for that epic, and no build run is handed out.
-func TestNewEpicOnBuiltInStartsPlanAndPassesOnlyIt(t *testing.T) {
+// TestNewEpicOnBuiltInCapturesRedThenStartsPlan: a new epic pinned to the built-in epic gets its red run at base
+// captured and passed by the first pass, then its plan run stored, the planner is passed for that epic, and no build
+// run is handed out.
+func TestNewEpicOnBuiltInCapturesRedThenStartsPlan(t *testing.T) {
 	t.Parallel()
 	s := openRunStore(t)
 	createRunEpic(t, s, builtinPin(t))
 	planner, builder := &fakePlanner{known: []string{runEpic}}, &fakeBuilder{}
 	newRunner(s, planner, builder).Pass(context.Background())
 
-	want := []store.NodeRun{{
-		Path: "plan", ID: store.NodeRunID(runEpic, "plan", 0, "start"), Node: "plan", Kind: "plan",
-		State: store.NodeRunning, Started: runClock(),
-	}}
+	want := []store.NodeRun{
+		{
+			Path: "plan", ID: store.NodeRunID(runEpic, "plan", 0, "start"), Node: "plan", Kind: "plan",
+			State: store.NodeRunning, Started: runClock(),
+		},
+		{
+			Path: "red", ID: store.NodeRunID(runEpic, "red", 0, "start"), Node: "red", Kind: "evidence",
+			State: store.NodeEnded, Outcome: "passed", Output: "no Requirement names an evidence item",
+			Started: runClock(), Ended: runClock(),
+		},
+	}
 	if got := runsOf(t, s); !reflect.DeepEqual(got, want) {
 		t.Errorf("node runs = %+v, want %+v", got, want)
 	}
@@ -247,7 +271,7 @@ func TestCompletedTurnPassesTasksThenEndsPlan(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	s := openRunStore(t)
-	createRunEpic(t, s, builtinPin(t))
+	createRunEpic(t, s, planBuildPin())
 	planner, builder := &fakePlanner{known: []string{runEpic}}, &fakeBuilder{}
 	runner := newRunner(s, planner, builder)
 	runner.Pass(ctx)
@@ -301,7 +325,7 @@ func TestCompletedTurnPassesTasksThenEndsPlan(t *testing.T) {
 func TestTasksPlannedBeforeAnyPlanRunGetChildren(t *testing.T) {
 	t.Parallel()
 	s := openRunStore(t)
-	createRunEpic(t, s, store.EpicWorkflow{})
+	createRunEpic(t, s, planBuildPin())
 	completeTurn(t, s, runPlan("work"))
 	planner, builder := &fakePlanner{known: []string{runEpic}}, &fakeBuilder{}
 	newRunner(s, planner, builder).Pass(context.Background())

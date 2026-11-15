@@ -10,8 +10,9 @@ import (
 
 // epicLiteral is the built-in epic's canonical text, exactly as decision E2 freezes it, and epicDigest is its sha256.
 const (
-	epicLiteral = "name: epic\nnodes:\n  - id: plan\n    kind: plan\n    body:\n      - id: build\n        kind: build\n"
-	epicDigest  = "8e56cd7c52ea852c4deb42ce575ba11e4e6c0e0ca4f201ff03cf24ba0afd8e1e"
+	epicLiteral = "name: epic\nnodes:\n  - id: red\n    kind: evidence\n    at: base\n  - id: plan\n    kind: plan\n" +
+		"    body:\n      - id: build\n        kind: build\n      - id: integrate\n        kind: integrate\n"
+	epicDigest = "c1e3aa00af4e050003c2ba37afc2c9ca346233cbaed0dcab92df836c370ddf7b"
 )
 
 // repoPath is the repository path Load reads a workflow name from.
@@ -90,9 +91,12 @@ func TestLoadBuiltInEpic(t *testing.T) {
 		t.Fatalf("Load = {%s %q %s}, want the built-in epic {epic %q %s}", got.Name, got.Text, got.SHA256,
 			epicLiteral, epicDigest)
 	}
-	want := []Node{{ID: "plan", Kind: "plan", Body: []Node{{ID: "build", Kind: "build"}}}}
+	want := []Node{
+		{ID: "red", Kind: "evidence", Settings: &Settings{At: "base"}},
+		{ID: "plan", Kind: "plan", Body: []Node{{ID: "build", Kind: "build"}, {ID: "integrate", Kind: "integrate"}}},
+	}
 	if !reflect.DeepEqual(stripOrigin(got.Workflow.Nodes), want) {
-		t.Fatalf("nodes = %+v, want plan holding build", got.Workflow.Nodes)
+		t.Fatalf("nodes = %+v, want red at base, then plan holding build and integrate", got.Workflow.Nodes)
 	}
 	checkPin(t, got, "built-in epic")
 }
@@ -128,7 +132,9 @@ func TestLoadExpandsIncludesInPlace(t *testing.T) {
 	want := lines("name: flow", "nodes:",
 		"  - id: first", "    kind: plan", "    body:", "      - id: one", "        kind: build",
 		"  - id: second", "    kind: plan", "    body:", "      - id: two", "        kind: build",
-		"  - id: plan", "    kind: plan", "    body:", "      - id: build", "        kind: build")
+		"  - id: red", "    kind: evidence", "    at: base",
+		"  - id: plan", "    kind: plan", "    body:", "      - id: build", "        kind: build",
+		"      - id: integrate", "        kind: integrate")
 	if got.Text != want {
 		t.Fatalf("Text = %q, want %q", got.Text, want)
 	}

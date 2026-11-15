@@ -18,8 +18,9 @@ const pinTestEpicPath = ".orrery/workflows/epic.yaml"
 
 // pinTestEpicText is the canonical text of the built-in epic, as E2 freezes it, and pinTestEpicSHA its sha256.
 const (
-	pinTestEpicText = "name: epic\nnodes:\n  - id: plan\n    kind: plan\n    body:\n      - id: build\n        kind: build\n"
-	pinTestEpicSHA  = "8e56cd7c52ea852c4deb42ce575ba11e4e6c0e0ca4f201ff03cf24ba0afd8e1e"
+	pinTestEpicText = "name: epic\nnodes:\n  - id: red\n    kind: evidence\n    at: base\n  - id: plan\n    kind: plan\n" +
+		"    body:\n      - id: build\n        kind: build\n      - id: integrate\n        kind: integrate\n"
+	pinTestEpicSHA = "c1e3aa00af4e050003c2ba37afc2c9ca346233cbaed0dcab92df836c370ddf7b"
 )
 
 // pinTestOutline is a committed epic: an outline plan holding one write build.
@@ -71,8 +72,10 @@ func TestPinWorkflowEmptyNamePinsBuiltInEpic(t *testing.T) {
 		Text:   pinTestEpicText,
 		SHA256: pinTestEpicSHA,
 		Nodes: []store.EpicWorkflowNode{
+			{ID: "red", Parent: "", Kind: "evidence"},
 			{ID: "plan", Parent: "", Kind: "plan"},
 			{ID: "build", Parent: "plan", Kind: "build"},
+			{ID: "integrate", Parent: "plan", Kind: "integrate"},
 		},
 	}
 	if !reflect.DeepEqual(got, want) {

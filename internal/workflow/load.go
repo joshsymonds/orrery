@@ -26,8 +26,10 @@ type Pinned struct {
 // canonicalIndent is the indent of the canonical text's sequences and mappings.
 const canonicalIndent = 2
 
-// epicText is the built-in epic: a plan holding build, in canonical form.
-const epicText = "name: epic\nnodes:\n  - id: plan\n    kind: plan\n    body:\n      - id: build\n        kind: build\n"
+// epicText is the built-in epic in canonical form: red, an evidence node captured at base before the first task, then
+// plan holding build and integrate.
+const epicText = "name: epic\nnodes:\n  - id: red\n    kind: evidence\n    at: base\n  - id: plan\n    kind: plan\n" +
+	"    body:\n      - id: build\n        kind: build\n      - id: integrate\n        kind: integrate\n"
 
 // canonDoc, canonNode, canonSettings and canonLoop are the shape of a canonical workflow. Their field order is the key
 // order the text is written in, and spent is always written.
