@@ -1112,7 +1112,11 @@ type StepCheck struct {
 	// Whether the check passed.
 	Ok bool `protobuf:"varint,3,opt,name=ok,proto3" json:"ok,omitempty"`
 	// The check's detail, such as the failure it reported.
-	Detail        string `protobuf:"bytes,4,opt,name=detail,proto3" json:"detail,omitempty"`
+	Detail string `protobuf:"bytes,4,opt,name=detail,proto3" json:"detail,omitempty"`
+	// The tail of the check's stdout, redacted.
+	Stdout string `protobuf:"bytes,5,opt,name=stdout,proto3" json:"stdout,omitempty"`
+	// The tail of the check's stderr, redacted.
+	Stderr        string `protobuf:"bytes,6,opt,name=stderr,proto3" json:"stderr,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1171,6 +1175,20 @@ func (x *StepCheck) GetOk() bool {
 func (x *StepCheck) GetDetail() string {
 	if x != nil {
 		return x.Detail
+	}
+	return ""
+}
+
+func (x *StepCheck) GetStdout() string {
+	if x != nil {
+		return x.Stdout
+	}
+	return ""
+}
+
+func (x *StepCheck) GetStderr() string {
+	if x != nil {
+		return x.Stderr
 	}
 	return ""
 }
@@ -1252,12 +1270,14 @@ const file_orrery_engine_v1_step_proto_rawDesc = "" +
 	"\x11NudgeStepResponse\"#\n" +
 	"\x11ResumeStepRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\"\x14\n" +
-	"\x12ResumeStepResponse\"]\n" +
+	"\x12ResumeStepResponse\"\x8d\x01\n" +
 	"\tStepCheck\x12\x14\n" +
 	"\x05round\x18\x01 \x01(\rR\x05round\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x0e\n" +
 	"\x02ok\x18\x03 \x01(\bR\x02ok\x12\x16\n" +
-	"\x06detail\x18\x04 \x01(\tR\x06detail2\xb7\x05\n" +
+	"\x06detail\x18\x04 \x01(\tR\x06detail\x12\x16\n" +
+	"\x06stdout\x18\x05 \x01(\tR\x06stdout\x12\x16\n" +
+	"\x06stderr\x18\x06 \x01(\tR\x06stderr2\xb7\x05\n" +
 	"\x05Steps\x12T\n" +
 	"\tStartStep\x12\".orrery.engine.v1.StartStepRequest\x1a#.orrery.engine.v1.StartStepResponse\x12Q\n" +
 	"\bStopStep\x12!.orrery.engine.v1.StopStepRequest\x1a\".orrery.engine.v1.StopStepResponse\x12W\n" +

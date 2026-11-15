@@ -253,4 +253,10 @@ message StepCheck {
 
   // The check's detail, such as the failure it reported.
   string detail = 4;
+
+  // The tail of the check's stdout, redacted.
+  string stdout = 5;
+
+  // The tail of the check's stderr, redacted.
+  string stderr = 6;
 }

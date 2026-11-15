@@ -16,13 +16,17 @@ import (
 //go:embed implementer.json
 var ImplementerSchema string
 
-// redLogTailBytes is how many bytes of a red run's log the brief carries: the end of the log, where the failure is.
+// redLogTailBytes is how many bytes of each of a red run's logs the brief carries: the end of the log, where the
+// failure is.
 const redLogTailBytes = 8192
 
 // Brief renders the prompt of an implementer step for task T<seq> of epic: the task, its Gate and evidence, the
 // Requirements it covers, the epic's exclusions and decisions, the red run's exit and verdict with the end of its
-// log, the previous attempt's failure when failure is set, and the closing instruction to commit once.
-func Brief(epic store.EpicRow, task store.EpicTask, red store.EvidenceRun, redLog []byte, failure string) string {
+// stdout log and, when redStderr is not empty, the end of its stderr log, the previous attempt's failure when failure
+// is set, and the closing instruction to commit once.
+func Brief(
+	epic store.EpicRow, task store.EpicTask, red store.EvidenceRun, redLog, redStderr []byte, failure string,
+) string {
 	lines := slices.Concat(
 		[]string{
 			fmt.Sprintf(
@@ -52,6 +56,9 @@ func Brief(epic store.EpicRow, task store.EpicTask, red store.EvidenceRun, redLo
 			"```",
 		},
 	)
+	if len(redStderr) > 0 {
+		lines = append(lines, "Red stderr (last 8 KiB):", "```", string(logTail(redStderr)), "```")
+	}
 	if failure != "" {
 		lines = append(lines, "Your previous attempt failed: "+failure)
 	}

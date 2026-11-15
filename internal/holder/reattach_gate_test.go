@@ -43,7 +43,10 @@ func TestReattachGateTakesOverALaunchedGateAndKeepsItsExitRecord(t *testing.T) {
 		t.Fatalf("Exit = reason %q code %d, want reason %q code %d",
 			exit.Reason, exit.Code, ReasonExited, childDiedCode)
 	}
-	if got, want := p.Stderr(), "out\nerr\n"; got != want {
+	if exit.Stdout != "out\n" {
+		t.Fatalf("Stdout = %q, want %q", exit.Stdout, "out\n")
+	}
+	if got, want := p.Stderr(), "err\n"; got != want {
 		t.Fatalf("Stderr = %q, want %q", got, want)
 	}
 	if _, statErr := os.Stat(filepath.Join(dir, ExitName)); statErr != nil {

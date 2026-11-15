@@ -87,6 +87,7 @@ func TestTwoTurnsFixtureSequence(t *testing.T) {
 	if !reflect.DeepEqual(kinds, wantKinds) {
 		t.Fatalf("event kinds =\n%q\nwant\n%q", kinds, wantKinds)
 	}
+	answeredByTurn := [][]string{{"uuid_1"}, {"uuid_15"}}
 	for number, messageID := range []string{"msg_1", "msg_2"} {
 		base := number * len(turn)
 		started, ok := got[base].(Started)
@@ -107,6 +108,9 @@ func TestTwoTurnsFixtureSequence(t *testing.T) {
 		ended, ok := got[base+3].(TurnEnded)
 		if !ok || ended.Subtype != "success" || ended.IsError {
 			t.Errorf("turn %d end = %#v, want successful TurnEnded", number+1, got[base+3])
+		}
+		if !reflect.DeepEqual(ended.Answered, answeredByTurn[number]) {
+			t.Errorf("turn %d answered = %#v, want %#v", number+1, ended.Answered, answeredByTurn[number])
 		}
 	}
 }
@@ -325,5 +329,24 @@ func TestUndeclaredResultSubtypeEndsTurn(t *testing.T) {
 	)
 	requireEvents(t, got, []Event{
 		TurnEnded{Subtype: "error_future", IsError: true, TerminalReason: "future_reason"},
+	})
+}
+
+func TestTurnEndedCarriesAnsweredUUIDs(t *testing.T) {
+	t.Parallel()
+	tr := newTranslator()
+	got := translateLines(
+		t,
+		tr,
+		`{"type":"result","subtype":"success","is_error":false,"result":"all done","terminal_reason":"completed","user_message_uuids":["u1","u2"],"session_id":"session_1"}`,
+		`{"type":"result","subtype":"error_during_execution","is_error":true,"errors":["made-up failure"],"user_message_uuids":["u1","u2"],"session_id":"session_1"}`,
+		`{"type":"result","subtype":"error_future","is_error":true,"errors":["made-up failure"],"user_message_uuids":["u3"],"session_id":"session_1"}`,
+		`{"type":"result","subtype":"success","is_error":false,"result":"all done","terminal_reason":"completed","session_id":"session_1"}`,
+	)
+	requireEvents(t, got, []Event{
+		TurnEnded{Subtype: "success", Result: "all done", TerminalReason: "completed", Answered: []string{"u1", "u2"}},
+		TurnEnded{Subtype: "error_during_execution", IsError: true, Answered: []string{"u1", "u2"}},
+		TurnEnded{Subtype: "error_future", IsError: true, Answered: []string{"u3"}},
+		TurnEnded{Subtype: "success", Result: "all done", TerminalReason: "completed"},
 	})
 }

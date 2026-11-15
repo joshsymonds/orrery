@@ -7,6 +7,9 @@ CREATE TABLE due_resumes (
     state TEXT NOT NULL CHECK (state IN ('due', 'done'))
 );
 
+CREATE INDEX due_resumes_target ON due_resumes (kind, target, resets);
+CREATE INDEX due_resumes_due ON due_resumes (resets, id) WHERE state = 'due';
+
 ALTER TABLE epics ADD COLUMN pause_source TEXT NOT NULL DEFAULT '' CHECK (pause_source IN ('', 'owner', 'limit'));
 
 -- +goose Down

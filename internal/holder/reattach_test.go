@@ -141,7 +141,7 @@ func TestReattachReplaysFromTheOffsetThenGoesLive(t *testing.T) {
 	t.Parallel()
 
 	dir := launchDetachedSpool(t)
-	p, written, err := Reattach(t.Context(), dir, reattachMid)
+	p, written, err := Reattach(t.Context(), dir, reattachMid, WireVersion)
 	if err != nil {
 		t.Fatalf("Reattach at %d: %v", reattachMid, err)
 	}
@@ -181,11 +181,11 @@ func TestReattachOutsideTheSpoolIsUnattachableAndTheHolderKeepsRunning(t *testin
 	dir := launchDetachedSpool(t)
 	// The holder trimmed its first segment, so 0 is below the retained start, and one past the end is past the last byte.
 	for _, off := range []int64{0, reattachSize + 1} {
-		if _, _, err := Reattach(t.Context(), dir, off); !errors.Is(err, ErrUnattachable) {
+		if _, _, err := Reattach(t.Context(), dir, off, WireVersion); !errors.Is(err, ErrUnattachable) {
 			t.Fatalf("Reattach at %d = %v, want ErrUnattachable", off, err)
 		}
 	}
-	p, _, err := Reattach(t.Context(), dir, reattachMid)
+	p, _, err := Reattach(t.Context(), dir, reattachMid, WireVersion)
 	if err != nil {
 		t.Fatalf("Reattach at %d after the refusals: %v", reattachMid, err)
 	}
@@ -200,7 +200,7 @@ func TestReattachStopEndsTheHolderAndItsChild(t *testing.T) {
 	if err := p1.Detach(); err != nil {
 		t.Fatalf("Detach the first controller: %v", err)
 	}
-	p, _, err := Reattach(t.Context(), dir, 0)
+	p, _, err := Reattach(t.Context(), dir, 0, WireVersion)
 	if err != nil {
 		t.Fatalf("Reattach: %v", err)
 	}
@@ -223,6 +223,58 @@ func TestReattachStopEndsTheHolderAndItsChild(t *testing.T) {
 	}
 }
 
+func TestReattachAttachesAHolderAtTheControllersVersionAndReportsItsVersion(t *testing.T) {
+	t.Parallel()
+
+	// The live holder speaks WireVersion. A controller at that version attaches it, and so does one version newer, which
+	// attaches a holder one older. Each Process reports the version the holder speaks.
+	for _, version := range []int{WireVersion, WireVersion + 1} {
+		t.Run(fmt.Sprintf("controller at version %d", version), func(t *testing.T) {
+			t.Parallel()
+
+			p1, dir := launchHolder(t, launchRoot(t), launchChild(t, "exec cat"))
+			if err := p1.Detach(); err != nil {
+				t.Fatalf("Detach the first controller: %v", err)
+			}
+			p, _, err := Reattach(t.Context(), dir, 0, version)
+			if err != nil {
+				t.Fatalf("Reattach at version %d: %v", version, err)
+			}
+			if got := p.Version(); got != WireVersion {
+				t.Fatalf("Process Version = %d, want the holder's %d", got, WireVersion)
+			}
+			stopProcess(t, p)
+			requireHolderRemoved(t, dir)
+		})
+	}
+}
+
+func TestReattachRefusesAHolderTwoOlderOrOneNewerAndTheHolderKeepsRunning(t *testing.T) {
+	t.Parallel()
+
+	p1, dir := launchHolder(t, launchRoot(t), launchChild(t, "exec cat"))
+	if err := p1.Detach(); err != nil {
+		t.Fatalf("Detach the first controller: %v", err)
+	}
+	// The live holder speaks WireVersion. A controller two versions newer, or one older, does not attach it.
+	for _, version := range []int{WireVersion + 2, WireVersion - 1} {
+		_, _, err := Reattach(t.Context(), dir, 0, version)
+		if !errors.Is(err, ErrUnattachable) {
+			t.Fatalf("Reattach at version %d = %v, want ErrUnattachable", version, err)
+		}
+		versionErr := requireVersionError(t, err)
+		if versionErr.Holder != WireVersion || versionErr.Controller != version {
+			t.Fatalf("VersionError = %+v, want holder %d and controller %d", *versionErr, WireVersion, version)
+		}
+	}
+	p, _, err := Reattach(t.Context(), dir, 0, WireVersion)
+	if err != nil {
+		t.Fatalf("Reattach at %d after the refusals: %v", WireVersion, err)
+	}
+	stopProcess(t, p)
+	requireHolderRemoved(t, dir)
+}
+
 func TestReattachOfAHolderThatHasEndedIsGone(t *testing.T) {
 	t.Parallel()
 
@@ -233,7 +285,7 @@ func TestReattachOfAHolderThatHasEndedIsGone(t *testing.T) {
 	if err := Stop(t.Context(), dir); err != nil {
 		t.Fatalf("Stop: %v", err)
 	}
-	if _, _, err := Reattach(t.Context(), dir, 0); !errors.Is(err, ErrGone) {
+	if _, _, err := Reattach(t.Context(), dir, 0, WireVersion); !errors.Is(err, ErrGone) {
 		t.Fatalf("Reattach of an ended holder = %v, want ErrGone", err)
 	}
 }
@@ -242,7 +294,7 @@ func TestReattachWithNoDirIsGone(t *testing.T) {
 	t.Parallel()
 
 	dir := filepath.Join(t.TempDir(), "missing")
-	if _, _, err := Reattach(t.Context(), dir, 0); !errors.Is(err, ErrGone) {
+	if _, _, err := Reattach(t.Context(), dir, 0, WireVersion); !errors.Is(err, ErrGone) {
 		t.Fatalf("Reattach of a missing dir = %v, want ErrGone", err)
 	}
 }
@@ -261,7 +313,7 @@ func TestReattachWithAStaleSocketAndAFreeLockIsGone(t *testing.T) {
 	if err = os.WriteFile(socketOf(t, dir), nil, socketTestMode); err != nil {
 		t.Fatalf("WriteFile stale socket: %v", err)
 	}
-	if _, _, reErr := Reattach(t.Context(), dir, 0); !errors.Is(reErr, ErrGone) {
+	if _, _, reErr := Reattach(t.Context(), dir, 0, WireVersion); !errors.Is(reErr, ErrGone) {
 		t.Fatalf("Reattach with a stale socket and a free lock = %v, want ErrGone", reErr)
 	}
 }
@@ -271,7 +323,7 @@ func TestReattachHolderThatNeverAnswersIsUnattachableWithinTheTimeout(t *testing
 
 	dir, _ := startWedged(t)
 	start := time.Now()
-	_, _, err := Reattach(t.Context(), dir, 0)
+	_, _, err := Reattach(t.Context(), dir, 0, WireVersion)
 	elapsed := time.Since(start)
 	if !errors.Is(err, ErrUnattachable) || !errors.Is(err, os.ErrDeadlineExceeded) {
 		t.Fatalf("Reattach of a holder that never answers = %v, want ErrUnattachable from the timeout", err)
@@ -290,7 +342,7 @@ func TestReattachCanceledWhileAttachingIsUnattachable(t *testing.T) {
 	timer := time.AfterFunc(reattachCancelAfter, cancel)
 	defer timer.Stop()
 	result := startAsync(func() error {
-		_, _, err := Reattach(ctx, dir, 0)
+		_, _, err := Reattach(ctx, dir, 0, WireVersion)
 		return err
 	})
 	var err error
@@ -310,7 +362,7 @@ func TestReattachAHolderOfAnotherVersionIsUnattachable(t *testing.T) {
 	dir, listener := rawHolderDir(t)
 	const version = WireVersion + 2
 	result := startAsync(func() error {
-		_, _, err := Reattach(t.Context(), dir, 0)
+		_, _, err := Reattach(t.Context(), dir, 0, WireVersion)
 		return err
 	})
 	server := acceptRaw(t, listener)
@@ -333,7 +385,7 @@ func TestReattachAHolderThatRefusesTheAttachIsUnattachable(t *testing.T) {
 	dir, listener := rawHolderDir(t)
 	const refusal = "holder: attach at offset 100: retained output is [200, 2000)"
 	result := startAsync(func() error {
-		_, _, err := Reattach(t.Context(), dir, 100)
+		_, _, err := Reattach(t.Context(), dir, 100, WireVersion)
 		return err
 	})
 	server := acceptRaw(t, listener)
@@ -358,7 +410,7 @@ type reattachResult struct {
 // startReattach runs Reattach for dir at replayFrom in a goroutine, since the test answers the holder while it runs.
 func startReattach(ctx context.Context, dir string, replayFrom int64) <-chan reattachResult {
 	return startAsync(func() reattachResult {
-		p, written, err := Reattach(ctx, dir, replayFrom)
+		p, written, err := Reattach(ctx, dir, replayFrom, WireVersion)
 		return reattachResult{p: p, written: written, err: err}
 	})
 }
@@ -438,7 +490,7 @@ func TestReattachHeldEndReadsTheExitRecordWhenDetached(t *testing.T) {
 	if err := p1.Detach(); err != nil {
 		t.Fatalf("Detach the first controller: %v", err)
 	}
-	p2, _, err := Reattach(t.Context(), dir, 0)
+	p2, _, err := Reattach(t.Context(), dir, 0, WireVersion)
 	if err != nil {
 		t.Fatalf("Reattach: %v", err)
 	}

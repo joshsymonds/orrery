@@ -47,8 +47,8 @@ class OrreryClientEpicsTest {
         ended = 0L,
         doing = "Example doing.",
         checks = listOf(
-            StepCheckRow(round = 1, name = "example-check", ok = true),
-            StepCheckRow(round = 2, name = "other-check", ok = false),
+            StepCheckRow(round = 1, name = "example-check", ok = true, stdout = "", stderr = ""),
+            StepCheckRow(round = 2, name = "other-check", ok = false, stdout = "", stderr = ""),
         ),
         reason = "",
     )
@@ -105,7 +105,14 @@ class OrreryClientEpicsTest {
                 .setStarted(4102444000L)
                 .setEnded(4102444600L)
                 .setDoing("")
-                .addChecks(EpicStepCheck.newBuilder().setRound(1).setName("example-check").setOk(false))
+                .addChecks(
+                    EpicStepCheck.newBuilder()
+                        .setRound(1)
+                        .setName("example-check")
+                        .setOk(false)
+                        .setStdout("example stdout tail")
+                        .setStderr("example stderr tail"),
+                )
                 .setReason("example reason")
                 .build()
             server.respond(
@@ -150,7 +157,15 @@ class OrreryClientEpicsTest {
                             started = 4102444000L,
                             ended = 4102444600L,
                             doing = "",
-                            checks = listOf(StepCheckRow(round = 1, name = "example-check", ok = false)),
+                            checks = listOf(
+                                StepCheckRow(
+                                    round = 1,
+                                    name = "example-check",
+                                    ok = false,
+                                    stdout = "example stdout tail",
+                                    stderr = "example stderr tail",
+                                ),
+                            ),
                             reason = "example reason",
                         ),
                     ),

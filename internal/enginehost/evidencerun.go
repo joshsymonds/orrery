@@ -2,6 +2,8 @@ package enginehost
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -11,6 +13,7 @@ import (
 	"time"
 
 	"github.com/joshsymonds/orrery/internal/evidence"
+	"github.com/joshsymonds/orrery/internal/redact"
 	"github.com/joshsymonds/orrery/internal/store"
 )
 
@@ -166,14 +169,17 @@ func (e *Evidence) Runs(ctx context.Context, epic string) ([]store.EvidenceRun, 
 	return runs, nil
 }
 
-// Artifact returns the bytes of a file of run and the hash they are stored under. The name "" is the run's log, and any
-// other name is the kept artifact with that path. A run that does not exist returns an error matching
-// store.ErrNoEvidenceRun. A file the run does not have, or has but did not keep, returns an error matching
-// ErrNoEvidenceArtifact.
+// Artifact returns the bytes of a file of run and the hash they are stored under. The name "" is the run's stdout log,
+// and any other name is the kept artifact with that path. A log is returned redacted, under the hash of the redacted
+// bytes, and an artifact as it was stored. A run that does not exist returns an error matching store.ErrNoEvidenceRun.
+// A file the run does not have, or has but did not keep, returns an error matching ErrNoEvidenceArtifact.
 func (e *Evidence) Artifact(ctx context.Context, run, name string) ([]byte, string, error) {
 	stored, err := e.store.EvidenceRun(ctx, run)
 	if err != nil {
 		return nil, "", fmt.Errorf("artifact of evidence run %s: %w", run, err)
+	}
+	if name == "" {
+		return e.readLog(stored, stored.LogHash)
 	}
 	blob, hash, err := evidenceRunFile(stored, name)
 	if err != nil {
@@ -184,6 +190,33 @@ func (e *Evidence) Artifact(ctx context.Context, run, name string) ([]byte, stri
 		return nil, "", fmt.Errorf("artifact of evidence run %s: %w", run, err)
 	}
 	return data, hash, nil
+}
+
+// StderrLog returns the stderr log of run, read as Artifact reads a log, and the hash of the bytes returned. A run that
+// does not exist returns an error matching store.ErrNoEvidenceRun, and a run with no stderr log one matching
+// ErrNoEvidenceArtifact.
+func (e *Evidence) StderrLog(ctx context.Context, run string) ([]byte, string, error) {
+	stored, err := e.store.EvidenceRun(ctx, run)
+	if err != nil {
+		return nil, "", fmt.Errorf("stderr log of evidence run %s: %w", run, err)
+	}
+	return e.readLog(stored, stored.StderrHash)
+}
+
+// readLog returns the log of run stored under hash, redacted, and the sha256 of the bytes returned. Every read redacts,
+// so a log stored before redaction is redacted when shown. A run with no log under hash returns an error matching
+// ErrNoEvidenceArtifact.
+func (e *Evidence) readLog(run store.EvidenceRun, hash string) ([]byte, string, error) {
+	if hash == "" {
+		return nil, "", fmt.Errorf("log of evidence run %s: %w", run.ID, ErrNoEvidenceArtifact)
+	}
+	raw, err := e.blobs.read(hash + ".log")
+	if err != nil {
+		return nil, "", fmt.Errorf("log of evidence run %s: %w", run.ID, err)
+	}
+	data := []byte(redact.Text(string(raw)))
+	sum := sha256.Sum256(data)
+	return data, hex.EncodeToString(sum[:]), nil
 }
 
 // Close cancels every drive and waits for each to return. Under a gate scope each drive is canceled with errGateDetach,
@@ -236,15 +269,9 @@ func evidenceRunSource(spec evidence.Item) string {
 	return evidence.SourceSupplied
 }
 
-// evidenceRunFile returns the blob name and hash of the file of run that name asks for: the log for the name "", else the
-// kept artifact with that path. It returns an error matching ErrNoEvidenceArtifact when run has no such file.
+// evidenceRunFile returns the blob name and hash of the kept artifact of run named name. It returns an error matching
+// ErrNoEvidenceArtifact when run lists no artifact of that name, or lists one it did not keep.
 func evidenceRunFile(run store.EvidenceRun, name string) (string, string, error) {
-	if name == "" {
-		if run.LogHash == "" {
-			return "", "", fmt.Errorf("log of evidence run %s: %w", run.ID, ErrNoEvidenceArtifact)
-		}
-		return run.LogHash + ".log", run.LogHash, nil
-	}
 	for _, artifact := range run.Artifacts {
 		if artifact.Path != name {
 			continue
@@ -335,12 +362,14 @@ func (e *Evidence) capture(ctx context.Context, repo string, run store.EvidenceR
 	return capture, err
 }
 
-// evidenceRunCaptured returns run with the exit, timeout, log and artifacts its capture left, which the judge reads.
+// evidenceRunCaptured returns run with the exit, timeout, logs and artifacts its capture left, which the judge reads.
 func evidenceRunCaptured(run store.EvidenceRun, capture store.EvidenceCapture) store.EvidenceRun {
 	run.Exit = capture.Exit
 	run.TimedOut = capture.TimedOut
 	run.LogHash = capture.LogHash
 	run.LogBytes = capture.LogBytes
+	run.StderrHash = capture.StderrHash
+	run.StderrBytes = capture.StderrBytes
 	run.Artifacts = capture.Artifacts
 	return run
 }

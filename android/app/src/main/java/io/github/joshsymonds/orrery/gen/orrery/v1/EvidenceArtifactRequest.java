@@ -156,6 +156,44 @@ public  final class EvidenceArtifactRequest extends
 
   }
 
+  public static final int STDERR_FIELD_NUMBER = 3;
+  private boolean stderr_;
+  /**
+   * <pre>
+   * Whether to read the run's stderr log instead of its stdout log; applies only when name is empty.
+   * </pre>
+   *
+   * <code>bool stderr = 3 [json_name = "stderr"];</code>
+   * @return The stderr.
+   */
+  @java.lang.Override
+  public boolean getStderr() {
+    return stderr_;
+  }
+  /**
+   * <pre>
+   * Whether to read the run's stderr log instead of its stdout log; applies only when name is empty.
+   * </pre>
+   *
+   * <code>bool stderr = 3 [json_name = "stderr"];</code>
+   * @param value The stderr to set.
+   */
+  private void setStderr(boolean value) {
+    
+    stderr_ = value;
+  }
+  /**
+   * <pre>
+   * Whether to read the run's stderr log instead of its stdout log; applies only when name is empty.
+   * </pre>
+   *
+   * <code>bool stderr = 3 [json_name = "stderr"];</code>
+   */
+  private void clearStderr() {
+
+    stderr_ = false;
+  }
+
   public static io.github.joshsymonds.orrery.gen.orrery.v1.EvidenceArtifactRequest parseFrom(
       java.nio.ByteBuffer data)
       throws com.google.protobuf.InvalidProtocolBufferException {
@@ -395,6 +433,46 @@ public  final class EvidenceArtifactRequest extends
       return this;
     }
 
+    /**
+     * <pre>
+     * Whether to read the run's stderr log instead of its stdout log; applies only when name is empty.
+     * </pre>
+     *
+     * <code>bool stderr = 3 [json_name = "stderr"];</code>
+     * @return The stderr.
+     */
+    @java.lang.Override
+    public boolean getStderr() {
+      return instance.getStderr();
+    }
+    /**
+     * <pre>
+     * Whether to read the run's stderr log instead of its stdout log; applies only when name is empty.
+     * </pre>
+     *
+     * <code>bool stderr = 3 [json_name = "stderr"];</code>
+     * @param value The stderr to set.
+     * @return This builder for chaining.
+     */
+    public Builder setStderr(boolean value) {
+      copyOnWrite();
+      instance.setStderr(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * Whether to read the run's stderr log instead of its stdout log; applies only when name is empty.
+     * </pre>
+     *
+     * <code>bool stderr = 3 [json_name = "stderr"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearStderr() {
+      copyOnWrite();
+      instance.clearStderr();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:orrery.v1.EvidenceArtifactRequest)
   }
   @java.lang.Override
@@ -413,10 +491,11 @@ public  final class EvidenceArtifactRequest extends
           java.lang.Object[] objects = new java.lang.Object[] {
             "run_",
             "name_",
+            "stderr_",
           };
           java.lang.String info =
-              "\u0000\u0002\u0000\u0000\u0001\u0002\u0002\u0000\u0000\u0000\u0001\u0208\u0002\u0208" +
-              "";
+              "\u0000\u0003\u0000\u0000\u0001\u0003\u0003\u0000\u0000\u0000\u0001\u0208\u0002\u0208" +
+              "\u0003\u0007";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

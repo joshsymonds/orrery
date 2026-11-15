@@ -352,8 +352,8 @@ func TestGrantedGateStopKillsGroupAndReclaimsItsGrant(t *testing.T) {
 	if got.result.Exit != 7 {
 		t.Fatalf("Exit = %d, want the rerun's 7: the stopped attempt must yield no result", got.result.Exit)
 	}
-	if !strings.Contains(got.result.Output, "rerun\n") {
-		t.Fatalf("Output %q does not show the rerun", got.result.Output)
+	if !strings.Contains(got.result.Stdout, "rerun\n") {
+		t.Fatalf("Stdout %q does not show the rerun", got.result.Stdout)
 	}
 	requests := pools.requested()
 	if len(requests) != 2 {

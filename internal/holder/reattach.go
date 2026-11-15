@@ -22,15 +22,15 @@ var ErrUnattachable = errors.New("holder: live holder cannot be attached")
 // Reattach takes over the holder that serves dir, a session's holder directory, although this controller did not start
 // it. It attaches to the holder at replayFrom, with the hello and the attach bounded by AttachTimeout and ctx. It returns
 // the Process, whose stdout starts at replayFrom, and the ids of the writes the holder has already applied to the child's
-// stdin.
+// stdin. The controller speaks version on the hello and the attach, so the holder must speak version or one less.
 //
 // ErrGone means no holder holds the session's lock: the dir is missing, or the lock is free, as it is once a holder has
 // ended, whether or not its socket still exists. Any other failure to attach a live holder wraps ErrUnattachable.
 //
 // The holder is not the caller's child, so the Process learns the holder's end from the session lock: once the lock is
 // free, the exit record is read for Wait and Stderr. Its fallback Stop is Stop on dir.
-func Reattach(ctx context.Context, dir string, replayFrom int64) (*Process, []string, error) {
-	return reattach(ctx, dir, replayFrom, dir)
+func Reattach(ctx context.Context, dir string, replayFrom int64, version int) (*Process, []string, error) {
+	return reattach(ctx, dir, replayFrom, version, dir)
 }
 
 // ReattachGate takes over the gate holder that serves dir, as Reattach does, at offset 0. A gate's child starts with
@@ -38,13 +38,19 @@ func Reattach(ctx context.Context, dir string, replayFrom int64) (*Process, []st
 // holder has ended, exit record included, for the caller to clear, as a gate Launch's Process does. Its errors are
 // Reattach's.
 func ReattachGate(ctx context.Context, dir string) (*Process, error) {
-	p, _, err := reattach(ctx, dir, 0, "")
+	p, _, err := reattach(ctx, dir, 0, WireVersion, "")
 	return p, err
 }
 
-// reattach does the work of Reattach and ReattachGate. The Process removes remove once the holder has ended, or keeps
-// its directory when remove is empty.
-func reattach(ctx context.Context, dir string, replayFrom int64, remove string) (*Process, []string, error) {
+// reattach does the work of Reattach and ReattachGate, attaching at version. The Process removes remove once the holder
+// has ended, or keeps its directory when remove is empty.
+func reattach(
+	ctx context.Context,
+	dir string,
+	replayFrom int64,
+	version int,
+	remove string,
+) (*Process, []string, error) {
 	lockPath := filepath.Join(dir, LockName)
 	lock, err := os.OpenFile(filepath.Clean(lockPath), os.O_RDWR, 0)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -64,7 +70,7 @@ func reattach(ctx context.Context, dir string, replayFrom int64, remove string) 
 	if err != nil {
 		return nil, nil, failedAttach(lock, err)
 	}
-	conn, attached, err := attachBounded(ctx, sock, replayFrom)
+	conn, attached, err := attachBounded(ctx, sock, replayFrom, version)
 	if err != nil {
 		return nil, nil, failedAttach(lock, err)
 	}
@@ -129,17 +135,17 @@ type attachResult struct {
 	err      error
 }
 
-// attachBounded dials the holder on sock, greets it and attaches it at replayFrom, all within AttachTimeout and ctx. It
-// returns the connection and the attached frame. The connection's deadline is cleared, since its stream runs on. When ctx
-// ends first, the connection is closed, which ends the exchange.
-func attachBounded(ctx context.Context, sock string, replayFrom int64) (*Conn, Frame, error) {
+// attachBounded dials the holder on sock, greets it at version and attaches it at replayFrom, all within AttachTimeout and
+// ctx. It returns the connection and the attached frame. The connection's deadline is cleared, since its stream runs on.
+// When ctx ends first, the connection is closed, which ends the exchange.
+func attachBounded(ctx context.Context, sock string, replayFrom int64, version int) (*Conn, Frame, error) {
 	due := time.Now().Add(AttachTimeout)
 	dialer := net.Dialer{Deadline: due}
 	raw, err := dialer.DialContext(ctx, "unix", sock)
 	if err != nil {
 		return nil, Frame{}, fmt.Errorf("holder: dial %s: %w", sock, err)
 	}
-	conn := &Conn{conn: raw, frames: NewFrameReader(raw), controllerVersion: WireVersion}
+	conn := &Conn{conn: raw, frames: NewFrameReader(raw), controllerVersion: version}
 	if err = raw.SetDeadline(due); err != nil {
 		return nil, Frame{}, conn.closeAfter(fmt.Errorf("holder: set deadline on %s: %w", sock, err))
 	}

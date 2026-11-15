@@ -44,6 +44,8 @@ type EvidenceRun struct {
 	NotCaptured string
 	LogHash     string
 	LogBytes    int64
+	StderrHash  string
+	StderrBytes int64
 	Artifacts   []EvidenceArtifact
 	JudgeStep   string
 	Judges      int
@@ -72,6 +74,8 @@ type EvidenceCapture struct {
 	NotCaptured string
 	LogHash     string
 	LogBytes    int64
+	StderrHash  string
+	StderrBytes int64
 	Artifacts   []EvidenceArtifact
 	At          time.Time
 }
@@ -134,7 +138,8 @@ func (s *Store) RecordEvidenceCapture(ctx context.Context, id string, capture Ev
 		}
 		if err := queries.RecordEvidenceRunCapture(ctx, sqlcgen.RecordEvidenceRunCaptureParams{
 			Exit: int64(capture.Exit), TimedOut: boolInt(capture.TimedOut), NotCaptured: capture.NotCaptured,
-			LogHash: capture.LogHash, LogBytes: capture.LogBytes, State: state, Ended: ended, ID: id,
+			LogHash: capture.LogHash, LogBytes: capture.LogBytes, StderrHash: capture.StderrHash,
+			StderrBytes: capture.StderrBytes, State: state, Ended: ended, ID: id,
 		}); err != nil {
 			return fmt.Errorf("record capture of evidence run %s: %w", id, err)
 		}
@@ -256,9 +261,10 @@ func evidenceRunOf(ctx context.Context, queries *sqlcgen.Queries, stored sqlcgen
 		ID: stored.ID, Epic: stored.Epic, Item: stored.Item, Revision: stored.Revision, Phase: stored.Phase,
 		Source: stored.Source, State: stored.State, Spec: spec, Grant: stored.GrantID, Holder: stored.Holder,
 		Exit: int(stored.Exit), TimedOut: stored.TimedOut != 0, NotCaptured: stored.NotCaptured,
-		LogHash: stored.LogHash, LogBytes: stored.LogBytes,
-		Artifacts: mapInOrder(artifacts, evidenceArtifactOf),
-		JudgeStep: stored.JudgeStep, Judges: int(stored.Judges), Verdict: stored.Verdict,
+		LogHash: stored.LogHash, LogBytes: stored.LogBytes, StderrHash: stored.StderrHash,
+		StderrBytes: stored.StderrBytes,
+		Artifacts:   mapInOrder(artifacts, evidenceArtifactOf),
+		JudgeStep:   stored.JudgeStep, Judges: int(stored.Judges), Verdict: stored.Verdict,
 		JudgeReason: stored.JudgeReason, Passed: stored.Passed != 0, Created: time.Unix(stored.Created, 0),
 	}
 	if stored.Ended != 0 {

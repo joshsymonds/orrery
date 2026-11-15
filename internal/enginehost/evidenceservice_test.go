@@ -51,6 +51,11 @@ func (f *evidenceServiceFake) Artifact(_ context.Context, run, name string) ([]b
 	return f.data, f.hash, f.err
 }
 
+func (f *evidenceServiceFake) StderrLog(_ context.Context, run string) ([]byte, string, error) {
+	f.record("StderrLog", run)
+	return f.data, f.hash, f.err
+}
+
 // record appends a call to method with args.
 func (f *evidenceServiceFake) record(method string, args ...string) {
 	f.mu.Lock()

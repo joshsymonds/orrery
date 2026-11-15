@@ -197,14 +197,15 @@ func undeclaredEvents(raw json.RawMessage) ([]Event, error) {
 // not declare. It keeps the subtype, the error flag and the terminal reason the line gives.
 func undeclaredResultEvents(raw json.RawMessage) ([]Event, error) {
 	var result struct {
-		Subtype        string  `json:"subtype"`
-		IsError        bool    `json:"isError"        wire:"is_error"`
-		TerminalReason *string `json:"terminalReason" wire:"terminal_reason"`
+		Subtype          string   `json:"subtype"`
+		IsError          bool     `json:"isError"        wire:"is_error"`
+		TerminalReason   *string  `json:"terminalReason" wire:"terminal_reason"`
+		UserMessageUUIDs []string `json:"userMessageUuids,omitempty" wire:"user_message_uuids"`
 	}
 	if err := wire.UnmarshalControlJSON(raw, &result); err != nil {
 		return nil, fmt.Errorf("decode undeclared result: %w", err)
 	}
-	ended := TurnEnded{Subtype: result.Subtype, IsError: result.IsError}
+	ended := TurnEnded{Subtype: result.Subtype, IsError: result.IsError, Answered: result.UserMessageUUIDs}
 	if result.TerminalReason != nil {
 		ended.TerminalReason = *result.TerminalReason
 	}
@@ -273,7 +274,12 @@ func cancelEvents(raw json.RawMessage) ([]Event, error) {
 }
 
 func turnEnded(result wire.SDKResultMessage, text string) TurnEnded {
-	ended := TurnEnded{Subtype: result.Subtype, IsError: result.IsError, Result: text}
+	ended := TurnEnded{
+		Subtype:  result.Subtype,
+		IsError:  result.IsError,
+		Result:   text,
+		Answered: result.UserMessageUUIDs,
+	}
 	if result.TerminalReason != nil {
 		ended.TerminalReason = *result.TerminalReason
 	}

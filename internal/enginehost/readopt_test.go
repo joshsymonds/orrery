@@ -436,7 +436,7 @@ func TestReadoptFailedRowHolderIsReleasedUndrained(t *testing.T) {
 	}
 }
 
-func TestReadoptHolderThatEndedIsClearedAndRowSettles(t *testing.T) {
+func TestReadoptHolderThatEndedIsClearedAndRowResumes(t *testing.T) {
 	t.Parallel()
 	rig := newCrashRig(t, nil, false)
 	dir := t.TempDir()
@@ -456,16 +456,12 @@ func TestReadoptHolderThatEndedIsClearedAndRowSettles(t *testing.T) {
 	}
 	gateWaitGone(t, pid)
 
+	// The resumed turn stalls too, so the row stays working while the test reads it.
+	stallNextPrompt(t, dir)
 	_, sink := restartAfterCrash(t, rig)
 
-	requireDirGone(t, holderDir(t, rig.root, id))
-	requireEngineRows(t, rig.store, map[string]restartRow{
-		id: {state: "interrupted", reason: restartedReason},
-	})
-	want := Notice{Session: id, Dir: dir, State: "interrupted", Body: restartedReason}
-	if got := sink.got(); len(got) != 1 || got[0] != want {
-		t.Fatalf("notices = %+v, want exactly [%+v]", got, want)
-	}
+	requireDirPresent(t, holderDir(t, rig.root, id))
+	requireResumed(t, rig.store, rig.path, id, dir, sink)
 }
 
 func TestReconcileClearsHolderWithNoRow(t *testing.T) {

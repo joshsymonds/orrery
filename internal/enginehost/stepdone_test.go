@@ -173,8 +173,8 @@ touch %[1]q; echo red; exit 1`, marker))
 		t.Fatalf("end = %q, want done", row.End)
 	}
 	gateRed := stepDoneCheck(t, stepDoneRoundChecks(row.Checks, 1), stepLoopGateName)
-	if gateRed.OK || !strings.Contains(gateRed.Detail, "gate exited 1") || !strings.Contains(gateRed.Detail, "red") {
-		t.Errorf("round 1 gate check = %+v, want a failing exit 1 with the output tail", gateRed)
+	if gateRed.OK || !strings.Contains(gateRed.Detail, "gate exited 1") || gateRed.Stdout != "red\n" {
+		t.Errorf("round 1 gate check = %+v, want a failing exit 1 with the stdout tail red", gateRed)
 	}
 	for _, c := range stepDoneRoundChecks(row.Checks, 2) {
 		if !c.OK {
@@ -183,6 +183,47 @@ touch %[1]q; echo red; exit 1`, marker))
 	}
 	if got := len(stepDoneRoundChecks(row.Checks, 2)); got != 6 {
 		t.Errorf("round 2 stored %d checks, want 6", got)
+	}
+}
+
+// TestStepDoneGateKeepsStdoutAndStderrApart runs a writing step whose gate prints distinct stdout and stderr and fails. The
+// gate check stores the two tails apart with no tail in its detail, and the send-back and the checks_failed reason name
+// each tail with its label.
+func TestStepDoneGateKeepsStdoutAndStderrApart(t *testing.T) {
+	t.Parallel()
+	dir, start := stepDoneRepo(t)
+	commit := stepGitTestCommit(t, dir, map[string]string{stepDoneOwned: "owned\n"})
+	gate := stepDoneScript(t, `printf 'out-%s\n' tail; printf 'err-%s\n' tail >&2; exit 1`)
+	f := newStepDoneFixture(t, stepDoneWriting(dir, start, []string{gate}, time.Minute, &fakeGatePools{}))
+	_, done := f.start(t)
+
+	for range stepLoopMaxContinues + 1 {
+		f.run.Return(stepDoneReturn(commit))
+	}
+	waitRunEnd(t, done)
+
+	row := f.row(t)
+	if row.End != stepLoopEndChecksFailed {
+		t.Fatalf("end = %q, want checks_failed", row.End)
+	}
+	gateCheck := stepDoneCheck(t, stepDoneRoundChecks(row.Checks, 1), stepLoopGateName)
+	if gateCheck.Stdout != "out-tail\n" || gateCheck.Stderr != "err-tail\n" {
+		t.Errorf("gate check stdout %q stderr %q, want the two tails kept apart", gateCheck.Stdout, gateCheck.Stderr)
+	}
+	if !strings.HasSuffix(gateCheck.Detail, "; gate exited 1") {
+		t.Errorf("gate check detail = %q, want the exit and no tail", gateCheck.Detail)
+	}
+	continued := f.sessions.continuedTexts()
+	if len(continued) == 0 {
+		t.Fatal("Continue was never called, want the failed gate sent back")
+	}
+	for _, want := range []string{"stdout tail: out-tail", "stderr tail: err-tail"} {
+		if !strings.Contains(continued[0], want) {
+			t.Errorf("Continue text %q does not carry %q", continued[0], want)
+		}
+		if !strings.Contains(row.Reason, want) {
+			t.Errorf("reason %q does not carry %q", row.Reason, want)
+		}
 	}
 }
 

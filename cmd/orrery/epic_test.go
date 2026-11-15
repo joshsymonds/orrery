@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"connectrpc.com/connect"
+	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 
 	v1 "github.com/joshsymonds/orrery/internal/gen/orrery/engine/v1"
@@ -390,5 +391,48 @@ func TestEpicWrongFormsAreUsageErrors(t *testing.T) {
 				t.Errorf("epicCommand(%v) made %d calls, want none", tc.args, n)
 			}
 		})
+	}
+}
+
+// TestEpicCreateNamesTheWorkflowThroughTheMCPTool checks that epic_create sends the workflow it is given to CreateEpic.
+func TestEpicCreateNamesTheWorkflowThroughTheMCPTool(t *testing.T) {
+	t.Parallel()
+	fake := newRecordingEpics()
+	input := `{"contract":{"id":"demo-0a1b2c3/epic-login","title":"Login"},"workflow":"demo"}`
+
+	if _, err := stepmcp.CallEpicTool(t.Context(), fake, "epic_create", json.RawMessage(input)); err != nil {
+		t.Fatalf("CallEpicTool(epic_create) = %v, want nil", err)
+	}
+	requests := fake.recorded()
+	if len(requests) != 1 {
+		t.Fatalf("requests = %d, want 1", len(requests))
+	}
+	req, ok := requests[0].(*v1.CreateEpicRequest)
+	if !ok {
+		t.Fatalf("request is %T, want *v1.CreateEpicRequest", requests[0])
+	}
+	if got := req.GetWorkflow(); got != "demo" {
+		t.Fatalf("workflow = %q, want demo", got)
+	}
+}
+
+// TestEpicGetPrintsTheEpicWorkflow checks that `orrery epic get` prints the name, text and sha256 of the workflow the
+// epic pinned.
+func TestEpicGetPrintsTheEpicWorkflow(t *testing.T) {
+	t.Parallel()
+	fake := newRecordingEpics()
+	want := &v1.EpicWorkflow{Name: "demo", Text: "name: demo\n", Sha256: "synthetic-sha256"}
+	fake.epic.Workflow = want
+
+	stdout, _, err := runEpicCommand(t, fake, nil, "get", epicTestID)
+	if err != nil {
+		t.Fatalf("epicCommand(get) = %v, want nil", err)
+	}
+	var got v1.StoredEpic
+	if err := protojson.Unmarshal([]byte(stdout), &got); err != nil {
+		t.Fatalf("stdout is not a stored epic: %v\n%s", err, stdout)
+	}
+	if !proto.Equal(got.GetWorkflow(), want) {
+		t.Fatalf("printed workflow = %v, want %v", got.GetWorkflow(), want)
 	}
 }

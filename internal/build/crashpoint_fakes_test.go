@@ -425,6 +425,11 @@ func (e crashEvidence) Artifact(_ context.Context, _, _ string) ([]byte, string,
 	return nil, "", nil
 }
 
+// StderrLog returns no log: the crash runs store no stderr log, so the build reads none.
+func (e crashEvidence) StderrLog(_ context.Context, _ string) ([]byte, string, error) {
+	return nil, "", nil
+}
+
 // crashGit is the Git the build runner writes repository refs and worktrees through, one action per write.
 type crashGit struct{ w *crashWorld }
 

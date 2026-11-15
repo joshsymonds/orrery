@@ -760,7 +760,7 @@ public  final class EvidenceRun extends
   private long logBytes_;
   /**
    * <pre>
-   * The size of the run's log in bytes.
+   * The size of the run's stdout log in bytes.
    * </pre>
    *
    * <code>int64 log_bytes = 14 [json_name = "logBytes"];</code>
@@ -772,7 +772,7 @@ public  final class EvidenceRun extends
   }
   /**
    * <pre>
-   * The size of the run's log in bytes.
+   * The size of the run's stdout log in bytes.
    * </pre>
    *
    * <code>int64 log_bytes = 14 [json_name = "logBytes"];</code>
@@ -784,7 +784,7 @@ public  final class EvidenceRun extends
   }
   /**
    * <pre>
-   * The size of the run's log in bytes.
+   * The size of the run's stdout log in bytes.
    * </pre>
    *
    * <code>int64 log_bytes = 14 [json_name = "logBytes"];</code>
@@ -930,6 +930,44 @@ public  final class EvidenceRun extends
   private void removeArtifacts(int index) {
     ensureArtifactsIsMutable();
     artifacts_.remove(index);
+  }
+
+  public static final int STDERR_BYTES_FIELD_NUMBER = 16;
+  private long stderrBytes_;
+  /**
+   * <pre>
+   * The size of the run's stderr log in bytes.
+   * </pre>
+   *
+   * <code>int64 stderr_bytes = 16 [json_name = "stderrBytes"];</code>
+   * @return The stderrBytes.
+   */
+  @java.lang.Override
+  public long getStderrBytes() {
+    return stderrBytes_;
+  }
+  /**
+   * <pre>
+   * The size of the run's stderr log in bytes.
+   * </pre>
+   *
+   * <code>int64 stderr_bytes = 16 [json_name = "stderrBytes"];</code>
+   * @param value The stderrBytes to set.
+   */
+  private void setStderrBytes(long value) {
+    
+    stderrBytes_ = value;
+  }
+  /**
+   * <pre>
+   * The size of the run's stderr log in bytes.
+   * </pre>
+   *
+   * <code>int64 stderr_bytes = 16 [json_name = "stderrBytes"];</code>
+   */
+  private void clearStderrBytes() {
+
+    stderrBytes_ = 0L;
   }
 
   public static io.github.joshsymonds.orrery.gen.orrery.v1.EvidenceRun parseFrom(
@@ -1788,7 +1826,7 @@ public  final class EvidenceRun extends
 
     /**
      * <pre>
-     * The size of the run's log in bytes.
+     * The size of the run's stdout log in bytes.
      * </pre>
      *
      * <code>int64 log_bytes = 14 [json_name = "logBytes"];</code>
@@ -1800,7 +1838,7 @@ public  final class EvidenceRun extends
     }
     /**
      * <pre>
-     * The size of the run's log in bytes.
+     * The size of the run's stdout log in bytes.
      * </pre>
      *
      * <code>int64 log_bytes = 14 [json_name = "logBytes"];</code>
@@ -1814,7 +1852,7 @@ public  final class EvidenceRun extends
     }
     /**
      * <pre>
-     * The size of the run's log in bytes.
+     * The size of the run's stdout log in bytes.
      * </pre>
      *
      * <code>int64 log_bytes = 14 [json_name = "logBytes"];</code>
@@ -1976,6 +2014,46 @@ public  final class EvidenceRun extends
       return this;
     }
 
+    /**
+     * <pre>
+     * The size of the run's stderr log in bytes.
+     * </pre>
+     *
+     * <code>int64 stderr_bytes = 16 [json_name = "stderrBytes"];</code>
+     * @return The stderrBytes.
+     */
+    @java.lang.Override
+    public long getStderrBytes() {
+      return instance.getStderrBytes();
+    }
+    /**
+     * <pre>
+     * The size of the run's stderr log in bytes.
+     * </pre>
+     *
+     * <code>int64 stderr_bytes = 16 [json_name = "stderrBytes"];</code>
+     * @param value The stderrBytes to set.
+     * @return This builder for chaining.
+     */
+    public Builder setStderrBytes(long value) {
+      copyOnWrite();
+      instance.setStderrBytes(value);
+      return this;
+    }
+    /**
+     * <pre>
+     * The size of the run's stderr log in bytes.
+     * </pre>
+     *
+     * <code>int64 stderr_bytes = 16 [json_name = "stderrBytes"];</code>
+     * @return This builder for chaining.
+     */
+    public Builder clearStderrBytes() {
+      copyOnWrite();
+      instance.clearStderrBytes();
+      return this;
+    }
+
     // @@protoc_insertion_point(builder_scope:orrery.v1.EvidenceRun)
   }
   @java.lang.Override
@@ -2008,11 +2086,12 @@ public  final class EvidenceRun extends
             "logBytes_",
             "artifacts_",
             io.github.joshsymonds.orrery.gen.orrery.v1.EvidenceArtifact.class,
+            "stderrBytes_",
           };
           java.lang.String info =
-              "\u0000\u000f\u0000\u0000\u0001\u000f\u000f\u0000\u0001\u0000\u0001\u0208\u0002\u0208" +
+              "\u0000\u0010\u0000\u0000\u0001\u0010\u0010\u0000\u0001\u0000\u0001\u0208\u0002\u0208" +
               "\u0003\u0208\u0004\u0208\u0005\u0004\u0006\u0007\u0007\u0208\b\u0208\t\u0208\n\u0007" +
-              "\u000b\u0208\f\u0002\r\u0002\u000e\u0002\u000f\u001b";
+              "\u000b\u0208\f\u0002\r\u0002\u000e\u0002\u000f\u001b\u0010\u0002";
           return newMessageInfo(DEFAULT_INSTANCE, info, objects);
       }
       case GET_DEFAULT_INSTANCE: {

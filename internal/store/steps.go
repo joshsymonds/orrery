@@ -20,6 +20,8 @@ type StepCheck struct {
 	Name   string `json:"name"`
 	OK     bool   `json:"ok"`
 	Detail string `json:"detail"`
+	Stdout string `json:"stdout,omitempty"`
+	Stderr string `json:"stderr,omitempty"`
 }
 
 // StepVerdict is one Haiku verdict on a step: a monitor call on a trip, or a judge call on a done return. Verdict is
@@ -45,24 +47,26 @@ type StepNeed struct {
 // an empty Epic is never listed by LabelledSteps. Gate and GateLimit are the resolved argv and limit of the gate the
 // step runs; GateName, GateSource and GateNeeds say which named gate that was, where it was declared and what it held.
 type StepAdd struct {
-	ID         string
-	Agent      string
-	Prompt     string
-	Schema     string
-	Workspace  string
-	Revision   string
-	Worktree   string
-	DoneValue  string
-	ReadOnly   bool
-	Owned      []string
-	Gate       []string
-	GateName   string
-	GateSource string
-	GateNeeds  []StepNeed
-	GateLimit  time.Duration
-	ModelLimit time.Duration
-	Epic       string
-	Task       string
+	ID           string
+	Agent        string
+	Prompt       string
+	Schema       string
+	Workspace    string
+	Revision     string
+	Worktree     string
+	CheckoutHead string
+	CheckoutHash string
+	DoneValue    string
+	ReadOnly     bool
+	Owned        []string
+	Gate         []string
+	GateName     string
+	GateSource   string
+	GateNeeds    []StepNeed
+	GateLimit    time.Duration
+	ModelLimit   time.Duration
+	Epic         string
+	Task         string
 }
 
 // StepWatch appends Verdict to a step's verdicts, stamped with the write time, and sets its doing line to Doing when
@@ -140,6 +144,8 @@ type StepRow struct {
 	Workspace       string
 	Revision        string
 	Worktree        string
+	CheckoutHead    string
+	CheckoutHash    string
 	DoneValue       string
 	ReadOnly        bool
 	Owned           []string
@@ -192,7 +198,8 @@ func (op StepAdd) applyEngine(ctx context.Context, queries *sqlcgen.Queries, now
 	}
 	if err = queries.InsertStep(ctx, sqlcgen.InsertStepParams{
 		ID: op.ID, Agent: op.Agent, Prompt: op.Prompt, OutputSchema: op.Schema, Workspace: op.Workspace,
-		Revision: op.Revision, Worktree: op.Worktree, DoneValue: op.DoneValue, ReadOnly: op.ReadOnly,
+		Revision: op.Revision, Worktree: op.Worktree, CheckoutHead: op.CheckoutHead, CheckoutHash: op.CheckoutHash,
+		DoneValue: op.DoneValue, ReadOnly: op.ReadOnly,
 		Owned: string(owned), Gate: string(gate), GateName: op.GateName, GateSource: op.GateSource,
 		GateNeeds: string(gateNeeds), GateLimit: int64(op.GateLimit),
 		ModelLimit: int64(op.ModelLimit), Started: now.Unix(), Epic: op.Epic, Task: op.Task,
@@ -424,7 +431,8 @@ func toStepRow(row sqlcgen.Step) (StepRow, error) {
 	}
 	return StepRow{
 		ID: row.ID, Agent: row.Agent, Prompt: row.Prompt, Schema: row.OutputSchema, Workspace: row.Workspace,
-		Revision: row.Revision, Worktree: row.Worktree, DoneValue: row.DoneValue, ReadOnly: row.ReadOnly,
+		Revision: row.Revision, Worktree: row.Worktree, CheckoutHead: row.CheckoutHead, CheckoutHash: row.CheckoutHash,
+		DoneValue: row.DoneValue, ReadOnly: row.ReadOnly,
 		Owned: owned, Gate: gate, GateName: row.GateName, GateSource: row.GateSource, GateNeeds: gateNeeds,
 		GateLimit: time.Duration(row.GateLimit), ModelLimit: time.Duration(row.ModelLimit),
 		Started: time.Unix(row.Started, 0), Checks: checks, Doing: row.Doing, Verdicts: verdicts,

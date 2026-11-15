@@ -222,8 +222,9 @@ func NewSteps(cfg StepsConfig) (*Steps, error) {
 // the schema. It then resolves its revision and starts the step under start.ID, or under a fresh id when it names none,
 // and runs its loop. A refusal returns its error with an empty id and stores nothing; a read-only step's worktree is
 // removed then too. A writing step runs in start.Workspace. A read-only step gets a detached worktree at its start
-// commit under the worktrees directory, which is removed when the step ends. A folder whose stamp cannot be read refuses
-// the start the same way. The step's monitor and judge calls carry the env of the stamp in effect for its folder. Any
+// commit under the worktrees directory, which is removed when the step ends. Its checkout is fingerprinted before its agent
+// starts, and a git error there refuses the start the same way. A folder whose stamp cannot be read refuses the start the
+// same way. The step's monitor and judge calls carry the env of the stamp in effect for its folder. Any
 // other StartStep error, after the row is written, ends the step failed and returns its id with the error.
 func (s *Steps) Start(ctx context.Context, start StepStart) (string, error) {
 	if err := checkStepStart(start); err != nil {
@@ -280,16 +281,10 @@ func (s *Steps) Start(ctx context.Context, start StepStart) (string, error) {
 	}
 	step := StepSession{ID: id, Dir: start.Workspace, Prompt: start.Prompt, Agent: start.Agent, Schema: start.Schema}
 	if start.ReadOnly {
-		wt := filepath.Join(s.worktrees, id)
-		err = addStepWorktree(ctx, start.Workspace, wt, commit)
-		if err != nil {
-			return "", err
+		if err = s.addReadOnlyStep(ctx, start, id, commit, &add, &cfg); err != nil {
+			return s.refuseStart(ctx, id, cfg.cleanup, err)
 		}
-		add.Worktree = wt
-		step.Dir = wt
-		cfg.cleanup = func(ctx context.Context) error {
-			return removeStepWorktree(ctx, start.Workspace, wt)
-		}
+		step.Dir = cfg.dir
 	} else {
 		cfg.dir = start.Workspace
 	}
@@ -305,6 +300,30 @@ func (s *Steps) Start(ctx context.Context, start StepStart) (string, error) {
 	}
 	s.runLoop(ctx, id, run)
 	return id, nil
+}
+
+// addReadOnlyStep adds the detached worktree of the read-only step id at commit, under the worktrees directory. It records
+// the checkout's state in add, and sets cfg to run in the worktree and to remove it when the step ends. cfg's cleanup is
+// set only once the worktree exists, so a caller that refuses the start on the error removes exactly what was added.
+func (s *Steps) addReadOnlyStep(
+	ctx context.Context, start StepStart, id, commit string, add *store.StepAdd, cfg *stepRunConfig,
+) error {
+	wt := filepath.Join(s.worktrees, id)
+	if err := addStepWorktree(ctx, start.Workspace, wt, commit); err != nil {
+		return err
+	}
+	add.Worktree = wt
+	cfg.cleanup = func(ctx context.Context) error {
+		return removeStepWorktree(ctx, start.Workspace, wt)
+	}
+	cfg.dir = wt
+	checkout, err := stepGitCheckout(ctx, wt)
+	if err != nil {
+		return fmt.Errorf("fingerprint worktree %s: %w", wt, err)
+	}
+	cfg.checkout = checkout
+	add.CheckoutHead, add.CheckoutHash = checkout.head, checkout.hash
+	return nil
 }
 
 // resolveStart resolves start's gate and returns start as the step runs it, with the gate. An agent gate sets start's

@@ -224,11 +224,14 @@ func TestStepsNamedGateRunsOnlyOnItsGrantAndRecordsItsCheck(t *testing.T) {
 		t.Errorf("gate check = %+v, want round 1 passing", check)
 	}
 	want := fmt.Sprintf(
-		"gate unit from %s ran %s holding cpu:cpu-1,cpu:cpu-2,gpu:gpu-1; gate exited 0; output tail: ran",
+		"gate unit from %s ran %s holding cpu:cpu-1,cpu:cpu-2,gpu:gpu-1; gate exited 0",
 		gates.SourceEpic, stepGrantArgvJSON(t, []string{shell, "-c", script}),
 	)
 	if check.Detail != want {
 		t.Errorf("gate check detail = %q, want %q", check.Detail, want)
+	}
+	if check.Stdout != "ran\n" {
+		t.Errorf("gate check stdout = %q, want %q", check.Stdout, "ran\n")
 	}
 }
 
@@ -282,10 +285,13 @@ func TestStepsNamedGateStopStoresNoCheckAndRerunStoresItsCheck(t *testing.T) {
 		t.Fatalf("stored %d gate checks, want only the rerun's: %+v", len(gateChecks), gateChecks)
 	}
 	want := fmt.Sprintf(
-		"gate unit from %s ran %s holding gpu:gpu-1; gate exited 0; output tail: rerun",
+		"gate unit from %s ran %s holding gpu:gpu-1; gate exited 0",
 		gates.SourceEpic, stepGrantArgvJSON(t, []string{shell, "-c", script}),
 	)
 	if gateChecks[0].Detail != want {
 		t.Errorf("gate check detail = %q, want %q", gateChecks[0].Detail, want)
+	}
+	if gateChecks[0].Stdout != "rerun\n" {
+		t.Errorf("gate check stdout = %q, want %q", gateChecks[0].Stdout, "rerun\n")
 	}
 }

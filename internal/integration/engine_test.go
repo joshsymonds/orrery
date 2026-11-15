@@ -71,11 +71,8 @@ func newEngineFixture(t *testing.T) *engineFixture {
 			t.Errorf("remove %s: %v", root, rmErr)
 		}
 	})
-	fakeClaude, err := filepath.Abs(engineFakeClaude)
-	if err != nil {
-		t.Fatalf("resolve fake claude: %v", err)
-	}
-	if _, err = os.Stat(fakeClaude); err != nil {
+	fakeClaude := os.Getenv(fakeClaudeEnv)
+	if _, err = os.Stat(engineFakeClaude); err != nil {
 		t.Fatalf("fake claude: %v", err)
 	}
 	shell, err := exec.LookPath("sh")

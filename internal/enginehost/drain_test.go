@@ -184,7 +184,7 @@ func TestDrainStoresDieTurnWrittenWhileDownOnce(t *testing.T) {
 	}
 }
 
-func TestDrainKilledHolderStoresStalledTextAndInterruptsTurn(t *testing.T) {
+func TestDrainKilledHolderStoresStalledTextAndResumesTurn(t *testing.T) {
 	t.Parallel()
 	rig := newCrashRig(t, textTrigger("fake stalling 1"), false)
 	dir := t.TempDir()
@@ -207,23 +207,20 @@ func TestDrainKilledHolderStoresStalledTextAndInterruptsTurn(t *testing.T) {
 	}
 	waitHolderEnded(t, pids)
 
+	// The resumed turn stalls too, so the row stays working while the test reads it.
+	stallNextPrompt(t, dir)
 	spy := &textSpy{inner: rig.store}
 	sink := restartOver(t, rig, spy)
 
-	if got := spy.storedTexts(); !slices.Equal(got, []string{"fake stalling 1"}) {
-		t.Fatalf("texts stored after the restart = %q, want the stalled text once", got)
-	}
 	gateWaitGone(t, pid)
-	requireDirGone(t, holderDir(t, rig.root, id))
-	requireEngineRows(t, rig.store, map[string]restartRow{
-		id: {state: "interrupted", reason: restartedReason},
-	})
-	if n := countRows(t, rig.path, "engine_text"); n != 0 {
-		t.Fatalf("unfinished text rows after the restart = %d, want 0", n)
+	requireDirPresent(t, holderDir(t, rig.root, id))
+	requireResumed(t, rig.store, rig.path, id, dir, sink)
+	waitUntil(t, "the resumed turn's text", func() bool { return len(spy.storedTexts()) == 2 })
+	if got := spy.storedTexts(); !slices.Equal(got, []string{"fake stalling 1", "fake stalling 2"}) {
+		t.Fatalf("texts stored after the restart = %q, want the stalled text once, then the resumed text", got)
 	}
-	want := Notice{Session: id, Dir: dir, State: "interrupted", Body: restartedReason}
-	if got := sink.got(); len(got) != 1 || got[0] != want {
-		t.Fatalf("notices = %+v, want exactly [%+v]", got, want)
+	if n := countRows(t, rig.path, "engine_text"); n != 1 {
+		t.Fatalf("unfinished text rows after the restart = %d, want the resumed turn's 1", n)
 	}
 }
 

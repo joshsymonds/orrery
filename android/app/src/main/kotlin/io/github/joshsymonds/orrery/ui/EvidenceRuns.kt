@@ -32,8 +32,11 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.IOException
 
-/** Fetches an artifact of a run by its path, or the run's log when the name is empty. Null when the server has none. */
-internal typealias ArtifactLoader = (run: String, name: String) -> EvidenceArtifactFile?
+/**
+ * Fetches an artifact of a run by its path, or one of the run's logs when the name is empty: its stderr log when
+ * [stderr] is set, its stdout log otherwise. Null when the server has none.
+ */
+internal typealias ArtifactLoader = (run: String, name: String, stderr: Boolean) -> EvidenceArtifactFile?
 
 /** One fetch from the phone's evidence: what it fetched, or why there is nothing to show. */
 private sealed interface Fetch<out T> {
@@ -46,8 +49,9 @@ private sealed interface Fetch<out T> {
 /**
  * The evidence runs of requirement [requirement], oldest first. A run shows its phase, "agent-supplied" when an agent
  * supplied it, its verdict or "no verdict" with the judge's reason, whether it passed, its exit, the first 12
- * characters of its revision, and "running" while it has not ended. Its log loads when asked for. Each artifact it kept
- * is named: a kept image is drawn, and a missing or over-cap artifact says so.
+ * characters of its revision, and "running" while it has not ended. Its stdout log loads when asked for, and its stderr
+ * log too when it has one. Each artifact it kept is named: a kept image is drawn, and a missing or over-cap artifact
+ * says so.
  */
 @Composable
 fun EvidenceRuns(
@@ -89,7 +93,10 @@ private fun EvidenceRunView(position: String, run: EvidenceRunRow, loadArtifact:
             Text("exit ${run.exit}", style = MaterialTheme.typography.labelSmall)
             Text("revision ${run.revision.take(12)}", style = MaterialTheme.typography.labelSmall)
         }
-        RunLog(position = position, runId = run.id, loadArtifact = loadArtifact)
+        RunLog(position = position, runId = run.id, stderr = false, loadArtifact = loadArtifact)
+        if (run.stderrBytes > 0) {
+            RunLog(position = position, runId = run.id, stderr = true, loadArtifact = loadArtifact)
+        }
         run.artifacts.forEachIndexed { artifactIndex, artifact ->
             ArtifactView(
                 position = position,
@@ -102,30 +109,33 @@ private fun EvidenceRunView(position: String, run: EvidenceRunRow, loadArtifact:
     }
 }
 
-/** The log button of one run, and the log once it has loaded. */
+/** The toggle of one log of one run, stdout or stderr, and the log once it has loaded under the toggle. */
 @Composable
-private fun RunLog(position: String, runId: String, loadArtifact: ArtifactLoader) {
+private fun RunLog(position: String, runId: String, stderr: Boolean, loadArtifact: ArtifactLoader) {
+    val stream = if (stderr) "stderr" else "stdout"
     var log by remember { mutableStateOf<Fetch<String>?>(null) }
     val scope = rememberCoroutineScope()
-    TextButton(
-        onClick = {
-            log = Fetch.Loading
-            scope.launch { log = fetchLog(runId, loadArtifact) }
-        },
-        modifier = Modifier.testTag("evidence-log:$position"),
-    ) {
-        Text("log")
-    }
-    when (val current = log) {
-        null -> Unit
-        Fetch.Loading -> Text("loading log", style = MaterialTheme.typography.labelSmall)
-        Fetch.Missing -> Text("log missing", style = MaterialTheme.typography.labelSmall)
-        is Fetch.Failed -> Text(current.message, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelSmall)
-        is Fetch.Loaded -> Text(
-            current.value,
-            fontFamily = FontFamily.Monospace,
-            style = MaterialTheme.typography.bodySmall,
-        )
+    Column(modifier = Modifier.fillMaxWidth().testTag("evidence-stream:$position:$stream")) {
+        TextButton(
+            onClick = {
+                log = Fetch.Loading
+                scope.launch { log = fetchLog(runId, stderr, loadArtifact) }
+            },
+            modifier = Modifier.testTag("evidence-log:$position:$stream"),
+        ) {
+            Text(stream)
+        }
+        when (val current = log) {
+            null -> Unit
+            Fetch.Loading -> Text("loading log", style = MaterialTheme.typography.labelSmall)
+            Fetch.Missing -> Text("log missing", style = MaterialTheme.typography.labelSmall)
+            is Fetch.Failed -> Text(current.message, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelSmall)
+            is Fetch.Loaded -> Text(
+                current.value,
+                fontFamily = FontFamily.Monospace,
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
     }
 }
 
@@ -167,9 +177,9 @@ private fun ArtifactImage(runId: String, path: String, tag: String, loadArtifact
     }
 }
 
-private suspend fun fetchLog(runId: String, loadArtifact: ArtifactLoader): Fetch<String> =
+private suspend fun fetchLog(runId: String, stderr: Boolean, loadArtifact: ArtifactLoader): Fetch<String> =
     try {
-        val file = withContext(Dispatchers.IO) { loadArtifact(runId, "") }
+        val file = withContext(Dispatchers.IO) { loadArtifact(runId, "", stderr) }
         if (file == null) Fetch.Missing else Fetch.Loaded(String(file.data, Charsets.UTF_8))
     } catch (error: IOException) {
         Fetch.Failed("could not load log")
@@ -178,7 +188,7 @@ private suspend fun fetchLog(runId: String, loadArtifact: ArtifactLoader): Fetch
 private suspend fun fetchImage(runId: String, path: String, loadArtifact: ArtifactLoader): Fetch<ImageBitmap> =
     try {
         withContext(Dispatchers.IO) {
-            val file = loadArtifact(runId, path) ?: return@withContext Fetch.Missing
+            val file = loadArtifact(runId, path, false) ?: return@withContext Fetch.Missing
             val bitmap = BitmapFactory.decodeByteArray(file.data, 0, file.data.size)
                 ?: return@withContext Fetch.Failed("could not show image")
             Fetch.Loaded(bitmap.asImageBitmap())

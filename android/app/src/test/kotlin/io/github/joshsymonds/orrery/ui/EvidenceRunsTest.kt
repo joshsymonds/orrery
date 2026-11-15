@@ -18,6 +18,7 @@ import io.github.joshsymonds.orrery.api.EvidenceArtifactRow
 import io.github.joshsymonds.orrery.api.EvidenceRunRow
 import io.github.joshsymonds.orrery.api.FakeOrreryServer
 import io.github.joshsymonds.orrery.api.OrreryClient
+import io.github.joshsymonds.orrery.api.Reply
 import io.github.joshsymonds.orrery.gen.orrery.v1.Epic
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicRequirement
 import io.github.joshsymonds.orrery.gen.orrery.v1.EpicsGetResponse
@@ -43,6 +44,7 @@ class EvidenceRunsTest {
         const val REQUIREMENT = 1
         const val REVISION = "0123456789abcdef0123456789abcdef01234567"
         const val LOG = "example log line one\nexample log line two\n"
+        const val STDERR = "example stderr line one\n"
         const val EPIC_ID = "example-repo/example-epic"
         const val EPICS_GET = "/orrery.v1.Epics/Get"
         const val EVIDENCE_ARTIFACT = "/orrery.v1.Evidence/Artifact"
@@ -59,15 +61,18 @@ class EvidenceRunsTest {
     @get:Rule
     val composeRule = createComposeRule()
 
-    /** A loader over [files], keyed by run and name. It records each call and whether one ran on the main thread. */
-    private class Loader(private val files: Map<Pair<String, String>, EvidenceArtifactFile>) {
-        val calls = ConcurrentLinkedQueue<Pair<String, String>>()
+    /**
+     * A loader over [files], keyed by run, name and stderr flag. It records each call and whether one ran on the main
+     * thread.
+     */
+    private class Loader(private val files: Map<Triple<String, String, Boolean>, EvidenceArtifactFile>) {
+        val calls = ConcurrentLinkedQueue<Triple<String, String, Boolean>>()
         val onMainThread = AtomicBoolean(false)
 
-        val load: (String, String) -> EvidenceArtifactFile? = { run, name ->
-            calls.add(run to name)
+        val load: (String, String, Boolean) -> EvidenceArtifactFile? = { run, name, stderr ->
+            calls.add(Triple(run, name, stderr))
             if (Looper.myLooper() == Looper.getMainLooper()) onMainThread.set(true)
-            files[run to name]
+            files[Triple(run, name, stderr)]
         }
     }
 
@@ -81,6 +86,7 @@ class EvidenceRunsTest {
         passed: Boolean = true,
         exit: Int = 0,
         logBytes: Long = 0L,
+        stderrBytes: Long = 0L,
         artifacts: List<EvidenceArtifactRow> = emptyList(),
     ): EvidenceRunRow =
         EvidenceRunRow(
@@ -98,6 +104,7 @@ class EvidenceRunsTest {
             created = CHANGED - 600,
             ended = if (state == "ended") CHANGED - 60 else 0L,
             logBytes = logBytes,
+            stderrBytes = stderrBytes,
             artifacts = artifacts,
         )
 
@@ -115,6 +122,10 @@ class EvidenceRunsTest {
 
     private fun awaitAll(matcher: SemanticsMatcher) {
         composeRule.waitUntil(TIMEOUT_MS) { countAll(matcher) > 0 }
+    }
+
+    private fun awaitIn(tag: String, matcher: SemanticsMatcher) {
+        composeRule.waitUntil(TIMEOUT_MS) { countIn(tag, matcher) > 0 }
     }
 
     private fun clickTag(tag: String) {
@@ -189,18 +200,67 @@ class EvidenceRunsTest {
     }
 
     @Test
-    fun tappingLogShowsTheLogInMonospaceLoadedOffTheMainThread() {
+    fun tappingStdoutShowsTheLogInMonospaceLoadedOffTheMainThread() {
         val loader = Loader(
-            mapOf(("example-run-1" to "") to EvidenceArtifactFile(LOG.toByteArray(Charsets.UTF_8), "text/plain")),
+            mapOf(
+                Triple("example-run-1", "", false) to EvidenceArtifactFile(LOG.toByteArray(Charsets.UTF_8), "text/plain"),
+            ),
         )
         setRuns(listOf(run("example-run-1", logBytes = LOG.length.toLong())), loader)
 
-        clickTag("evidence-log:$REQUIREMENT:0")
+        clickTag("evidence-log:$REQUIREMENT:0:stdout")
 
         awaitAll(hasText("example log line two", substring = true))
-        assertEquals(listOf("example-run-1" to ""), loader.calls.toList())
+        assertEquals(listOf(Triple("example-run-1", "", false)), loader.calls.toList())
         assertFalse(loader.onMainThread.get())
         assertEquals(FontFamily.Monospace, textLayoutOf(hasText("example log line two", substring = true)).layoutInput.style.fontFamily)
+    }
+
+    @Test
+    fun eachLogLoadsUnderItsOwnToggleAndOnlyTheStderrLoadSetsTheStderrFlag() {
+        val loader = Loader(
+            mapOf(
+                Triple("example-run-1", "", false) to EvidenceArtifactFile(LOG.toByteArray(Charsets.UTF_8), "text/plain"),
+                Triple("example-run-1", "", true) to EvidenceArtifactFile(STDERR.toByteArray(Charsets.UTF_8), "text/plain"),
+            ),
+        )
+        setRuns(listOf(run("example-run-1", logBytes = LOG.length.toLong(), stderrBytes = STDERR.length.toLong())), loader)
+
+        val stdout = "evidence-stream:$REQUIREMENT:0:stdout"
+        val stderr = "evidence-stream:$REQUIREMENT:0:stderr"
+
+        clickTag("evidence-log:$REQUIREMENT:0:stdout")
+        awaitIn(stdout, hasText("example log line two", substring = true))
+        assertEquals(1, countIn(stdout, hasText("example log line two", substring = true)))
+        assertEquals(0, countIn(stderr, hasText("example log line two", substring = true)))
+
+        clickTag("evidence-log:$REQUIREMENT:0:stderr")
+        awaitIn(stderr, hasText("example stderr line one", substring = true))
+        assertEquals(1, countIn(stderr, hasText("example stderr line one", substring = true)))
+        assertEquals(0, countIn(stderr, hasText("example log line two", substring = true)))
+        assertEquals(0, countIn(stdout, hasText("example stderr line one", substring = true)))
+
+        assertEquals(
+            listOf(Triple("example-run-1", "", false), Triple("example-run-1", "", true)),
+            loader.calls.toList(),
+        )
+        assertFalse(loader.onMainThread.get())
+    }
+
+    @Test
+    fun aStderrToggleShowsOnlyForARunThatHasStderr() {
+        setRuns(
+            listOf(
+                run("example-run-1", logBytes = LOG.length.toLong(), stderrBytes = STDERR.length.toLong()),
+                run("example-run-2", logBytes = LOG.length.toLong(), stderrBytes = 0L),
+            ),
+            Loader(emptyMap()),
+        )
+
+        assertEquals(1, countAll(hasTestTag("evidence-log:$REQUIREMENT:0:stdout")))
+        assertEquals(1, countAll(hasTestTag("evidence-log:$REQUIREMENT:0:stderr")))
+        assertEquals(1, countAll(hasTestTag("evidence-log:$REQUIREMENT:1:stdout")))
+        assertEquals(0, countAll(hasTestTag("evidence-log:$REQUIREMENT:1:stderr")))
     }
 
     @Test
@@ -212,14 +272,14 @@ class EvidenceRunsTest {
             mediaType = "image/png",
         )
         val loader = Loader(
-            mapOf(("example-run-1" to "example/screenshot.png") to EvidenceArtifactFile(PNG, "image/png")),
+            mapOf(Triple("example-run-1", "example/screenshot.png", false) to EvidenceArtifactFile(PNG, "image/png")),
         )
         setRuns(listOf(run("example-run-1", artifacts = listOf(artifact))), loader)
 
         awaitAll(hasTestTag(IMAGE_TAG))
 
         assertEquals(1, countAll(hasTestTag(IMAGE_TAG)))
-        assertEquals(listOf("example-run-1" to "example/screenshot.png"), loader.calls.toList())
+        assertEquals(listOf(Triple("example-run-1", "example/screenshot.png", false)), loader.calls.toList())
         assertTrue(composeRule.onNodeWithTag(IMAGE_TAG, useUnmergedTree = true).fetchSemanticsNode().size.width > 0)
     }
 
@@ -294,7 +354,7 @@ class EvidenceRunsTest {
             awaitAll(hasText("Example legacy requirement."))
 
             assertEquals(0, countAll(hasTestTag("evidence-run:0:0")))
-            assertEquals(0, countAll(hasText("log")))
+            assertEquals(0, countAll(hasText("stdout")))
         }
     }
 
@@ -337,13 +397,71 @@ class EvidenceRunsTest {
             awaitAll(hasText("example conclusion"))
 
             assertEquals(1, countIn("evidence-run:0:0", hasText("fails")))
-            clickTag("evidence-log:0:0")
+            clickTag("evidence-log:0:0:stdout")
             awaitAll(hasText("example log line two", substring = true))
 
             val request = server.requests.last { it.rawPath == EVIDENCE_ARTIFACT }
             val sent = EvidenceArtifactRequest.parseFrom(request.body)
             assertEquals("example-run-1", sent.run)
             assertEquals("", sent.name)
+        }
+    }
+
+    @Test
+    fun epicScreenFetchesTheStderrLogWithTheStderrFlagAndShowsItUnderItsToggle() {
+        val redRun = EvidenceRun.newBuilder()
+            .setId("example-run-1")
+            .setPhase("red")
+            .setSource("captured")
+            .setState("ended")
+            .setVerdict("fails")
+            .setPassed(true)
+            .setRevision(REVISION)
+            .setCreated(CHANGED - 600)
+            .setEnded(CHANGED - 60)
+            .setLogBytes(LOG.length.toLong())
+            .setStderrBytes(STDERR.length.toLong())
+            .build()
+        FakeOrreryServer().use { server ->
+            server.respond(
+                EPICS_GET,
+                epicBody(
+                    EpicRequirement.newBuilder()
+                        .setId("R1")
+                        .setText("Example requirement.")
+                        .setEvidence("example check")
+                        .setKind("check")
+                        .setConclusion("example conclusion")
+                        .addRuns(redRun)
+                        .build(),
+                ),
+            )
+            server.route(EVIDENCE_ARTIFACT) { request ->
+                val sent = EvidenceArtifactRequest.parseFrom(request.body)
+                val text = if (sent.stderr) STDERR else LOG
+                Reply.Message(
+                    EvidenceArtifactResponse.newBuilder()
+                        .setData(ByteString.copyFromUtf8(text))
+                        .setMediaType("text/plain")
+                        .build(),
+                    0L,
+                )
+            }
+            setScreen(server)
+            awaitAll(hasText("example conclusion"))
+
+            clickTag("evidence-log:0:0:stdout")
+            awaitIn("evidence-stream:0:0:stdout", hasText("example log line two", substring = true))
+            clickTag("evidence-log:0:0:stderr")
+            awaitIn("evidence-stream:0:0:stderr", hasText("example stderr line one", substring = true))
+
+            assertEquals(1, countIn("evidence-stream:0:0:stderr", hasText("example stderr line one", substring = true)))
+            assertEquals(0, countIn("evidence-stream:0:0:stdout", hasText("example stderr line one", substring = true)))
+            val sent = server.requests
+                .filter { it.rawPath == EVIDENCE_ARTIFACT }
+                .map { EvidenceArtifactRequest.parseFrom(it.body) }
+            assertEquals(listOf(false, true), sent.map { it.stderr })
+            assertEquals(listOf("", ""), sent.map { it.name })
         }
     }
 }

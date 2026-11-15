@@ -101,11 +101,29 @@ func TestGateRunsArgvInDirAndReportsExitAndOutput(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve dir: %v", err)
 	}
-	if !strings.Contains(result.Output, resolved+"\n") {
-		t.Fatalf("Output %q does not show the working directory %q", result.Output, resolved)
+	if !strings.Contains(result.Stdout, resolved+"\n") {
+		t.Fatalf("Stdout %q does not show the working directory %q", result.Stdout, resolved)
 	}
-	if !strings.Contains(result.Output, "out\n") || !strings.Contains(result.Output, "err\n") {
-		t.Fatalf("Output %q misses stdout or stderr", result.Output)
+	if !strings.Contains(result.Stdout, "out\n") {
+		t.Fatalf("Stdout %q misses the gate's stdout", result.Stdout)
+	}
+	if !strings.Contains(result.Stderr, "err\n") {
+		t.Fatalf("Stderr %q misses the gate's stderr", result.Stderr)
+	}
+}
+
+func TestGateKeepsStdoutAndStderrApart(t *testing.T) {
+	t.Parallel()
+	result, err := runGrantedGate(t.Context(), &fakeGatePools{}, gateGrantRequest(), gateRun{
+		Argv:  []string{"/bin/sh", "-c", `printf out; printf err >&2`},
+		Dir:   t.TempDir(),
+		Limit: time.Minute,
+	})
+	if err != nil {
+		t.Fatalf("runGrantedGate: %v", err)
+	}
+	if result.Stdout != "out" || result.Stderr != "err" {
+		t.Fatalf("Stdout = %q, Stderr = %q, want %q and %q", result.Stdout, result.Stderr, "out", "err")
 	}
 }
 
@@ -120,8 +138,8 @@ func TestGateEnvironDropsTmuxMarkers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("runGrantedGate: %v", err)
 	}
-	if want := "unset\nunset\nyes\n"; result.Output != want {
-		t.Fatalf("Output = %q, want %q", result.Output, want)
+	if want := "unset\nunset\nyes\n"; result.Stdout != want {
+		t.Fatalf("Stdout = %q, want %q", result.Stdout, want)
 	}
 }
 
@@ -208,11 +226,11 @@ func TestGateKeepsTheLastEightKiB(t *testing.T) {
 	if err != nil {
 		t.Fatalf("runGrantedGate: %v", err)
 	}
-	if len(result.Output) != 8*1024 {
-		t.Fatalf("len(Output) = %d, want %d", len(result.Output), 8*1024)
+	if len(result.Stdout) != 8*1024 {
+		t.Fatalf("len(Stdout) = %d, want %d", len(result.Stdout), 8*1024)
 	}
-	if !strings.HasSuffix(result.Output, "END") {
-		t.Fatalf("Output does not end with the last bytes written: %q", result.Output[len(result.Output)-16:])
+	if !strings.HasSuffix(result.Stdout, "END") {
+		t.Fatalf("Stdout does not end with the last bytes written: %q", result.Stdout[len(result.Stdout)-16:])
 	}
 }
 
@@ -405,8 +423,8 @@ func TestGateRunsUnderAHolderAndKeepsItsExitRecord(t *testing.T) {
 	if result.Exit != 3 {
 		t.Fatalf("Exit = %d, want 3", result.Exit)
 	}
-	if !strings.Contains(result.Output, "out\n") {
-		t.Fatalf("Output %q does not show the gate's stdout", result.Output)
+	if !strings.Contains(result.Stdout, "out\n") {
+		t.Fatalf("Stdout %q does not show the gate's stdout", result.Stdout)
 	}
 }
 
@@ -431,8 +449,8 @@ func TestGateExitRecordSurvivesAGateThatOutlivesItsAttach(t *testing.T) {
 	if exit.Reason != holder.ReasonExited || exit.Code != 3 {
 		t.Fatalf("exit record = %+v, want reason %q with code 3", exit, holder.ReasonExited)
 	}
-	if result.Exit != 3 || !strings.Contains(result.Output, "out\n") {
-		t.Fatalf("Exit = %d, Output %q, want 3 and the gate's stdout", result.Exit, result.Output)
+	if result.Exit != 3 || !strings.Contains(result.Stdout, "out\n") {
+		t.Fatalf("Exit = %d, Stdout %q, want 3 and the gate's stdout", result.Exit, result.Stdout)
 	}
 }
 
@@ -556,7 +574,7 @@ func TestGateDetachLeavesGateRunningToItsExitRecord(t *testing.T) {
 	default:
 	}
 	exit := gateWaitExit(t, dir)
-	if exit.Reason != holder.ReasonExited || exit.Code != 0 || !strings.Contains(exit.Stderr, "done") {
+	if exit.Reason != holder.ReasonExited || exit.Code != 0 || !strings.Contains(exit.Stdout, "done") {
 		t.Fatalf("exit record = %+v, want the gate's own exit 0 with its output", exit)
 	}
 }
@@ -593,7 +611,7 @@ func TestGateDetachDuringLaunchLeavesHolderRunning(t *testing.T) {
 	default:
 	}
 	exit := gateWaitExit(t, dir)
-	if exit.Reason != holder.ReasonExited || exit.Code != 0 || !strings.Contains(exit.Stderr, "done") {
+	if exit.Reason != holder.ReasonExited || exit.Code != 0 || !strings.Contains(exit.Stdout, "done") {
 		t.Fatalf("exit record = %+v, want the gate's own exit 0 with its output", exit)
 	}
 }
