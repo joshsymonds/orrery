@@ -144,6 +144,7 @@ func noticeKeyPairs() []noticeKeyPair {
 			&enginev1.NoticeKey{Limit: "synthetic-limit@1700000000"},
 			&orreryv1.NoticeKey{Limit: "synthetic-limit@1700000000"},
 		},
+		{&enginev1.NoticeKey{Alert: "synthetic-alert"}, &orreryv1.NoticeKey{Alert: "synthetic-alert"}},
 	}
 }
 

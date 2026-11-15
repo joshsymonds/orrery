@@ -141,6 +141,7 @@ func noticeKeyMessage(key *enginev1.NoticeKey) *orreryv1.NoticeKey {
 		Session: key.GetSession(),
 		Epic:    key.GetEpic(),
 		Limit:   key.GetLimit(),
+		Alert:   key.GetAlert(),
 	}
 }
 
@@ -151,5 +152,6 @@ func engineNoticeKey(key *orreryv1.NoticeKey) *enginev1.NoticeKey {
 		Session: key.GetSession(),
 		Epic:    key.GetEpic(),
 		Limit:   key.GetLimit(),
+		Alert:   key.GetAlert(),
 	}
 }
