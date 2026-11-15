@@ -46,6 +46,16 @@ func limitTurnThenResume(t *testing.T, s *Store, resets time.Time) {
 	}
 }
 
+// dueRowCount returns how many due rows s stores in any state.
+func dueRowCount(t *testing.T, s *Store) int {
+	t.Helper()
+	var n int
+	if err := s.db.QueryRowContext(context.Background(), `SELECT COUNT(*) FROM due_resumes`).Scan(&n); err != nil {
+		t.Fatalf("count due rows: %v", err)
+	}
+	return n
+}
+
 // pauseSourceOf returns the pause source of claimEpic as the store reads it.
 func pauseSourceOf(t *testing.T, s *Store) string {
 	t.Helper()
@@ -192,19 +202,20 @@ func TestEmptySourcePauseMadeWhileTurnRunsWinsOverALimitWithAKnownReset(t *testi
 	s := openEpicStore(t)
 	createEpic(t, s, fullEpic(claimEpic))
 	turn := claimTurnOf(t, s)
-	if _, err := s.StopEpic(context.Background(), claimEpic); err != nil {
-		t.Fatalf("StopEpic: %v", err)
+	// A pause stored before pause sources were recorded has an empty source.
+	if err := sqlcgen.New(s.db).PauseEpic(context.Background(), claimEpic); err != nil {
+		t.Fatalf("PauseEpic query: %v", err)
 	}
 	freeLimitOf(t, s, turn, time.Unix(dueResetA, 0))
 
 	if paused, _ := epicFlags(t, s); paused != 1 {
-		t.Errorf("paused after a stop and a limit = %d, want 1", paused)
+		t.Errorf("paused after an empty-source pause and a limit = %d, want 1", paused)
 	}
 	if got := pauseSourceOf(t, s); got != "" {
-		t.Errorf("pause source after a stop and a limit = %q, want empty", got)
+		t.Errorf("pause source after an empty-source pause and a limit = %q, want empty", got)
 	}
 	if got := dueIDs(t, s); len(got) != 0 {
-		t.Errorf("due rows after a stop and a limit = %v, want none", got)
+		t.Errorf("due rows after an empty-source pause and a limit = %v, want none", got)
 	}
 }
 
@@ -215,13 +226,16 @@ func TestResumedEpicLimitedAtAnEarlierOrEqualResetAddsNoSecondDueRow(t *testing.
 	limitTurnThenResume(t, s, time.Unix(dueResetA, 0))
 
 	limitTurnThenResume(t, s, time.Unix(dueResetA-3600, 0))
-	if got := dueIDs(t, s); !reflect.DeepEqual(got, []string{dueEpicA}) {
-		t.Fatalf("due rows after an earlier reset = %v, want [%s]", got, dueEpicA)
+	if got := dueRowCount(t, s); got != 1 {
+		t.Fatalf("due rows stored after an earlier reset = %d, want only the first", got)
 	}
 
 	limitTurnThenResume(t, s, time.Unix(dueResetA, 0))
-	if got := dueIDs(t, s); !reflect.DeepEqual(got, []string{dueEpicA}) {
-		t.Fatalf("due rows after an equal reset = %v, want [%s]", got, dueEpicA)
+	if got := dueRowCount(t, s); got != 1 {
+		t.Fatalf("due rows stored after an equal reset = %d, want only the first", got)
+	}
+	if state := dueStateOf(t, s, dueEpicA); state != "done" {
+		t.Fatalf("state of the first row = %q, want done by its resume", state)
 	}
 }
 
@@ -232,7 +246,10 @@ func TestResumedEpicLimitedAtALaterResetAddsItsDueRow(t *testing.T) {
 	limitTurnThenResume(t, s, time.Unix(dueResetA, 0))
 
 	limitTurnThenResume(t, s, time.Unix(dueResetB, 0))
-	if got := dueIDs(t, s); !reflect.DeepEqual(got, []string{dueEpicA, dueEpicB}) {
-		t.Fatalf("due rows after a later reset = %v, want [%s %s]", got, dueEpicA, dueEpicB)
+	if got := dueRowCount(t, s); got != 2 {
+		t.Fatalf("due rows stored after a later reset = %d, want two", got)
+	}
+	if state := dueStateOf(t, s, dueEpicB); state != "done" {
+		t.Fatalf("state of the later row = %q, want done by its resume", state)
 	}
 }
