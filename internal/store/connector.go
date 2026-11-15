@@ -1,0 +1,105 @@
+package store
+
+import (
+	"context"
+	"database/sql/driver"
+	"errors"
+	"fmt"
+	"sync"
+)
+
+// errStoreClosing is what a connection the store's pool asks for once Close has begun gets. database/sql opens a
+// connection on its own goroutine when a connection is discarded while a call waits for one, and DB.Close does not
+// wait for that open, so the store refuses new connections and waits out the ones already made.
+var errStoreClosing = errors.New("store is closing")
+
+// sqliteConn is the part of the sqlite driver's connection that database/sql uses: the context forms of each call,
+// the session reset, and the validity check that discards an interrupted connection.
+type sqliteConn interface {
+	driver.Conn
+	driver.ConnBeginTx
+	driver.ConnPrepareContext
+	driver.ExecerContext
+	driver.QueryerContext
+	driver.Pinger
+	driver.SessionResetter
+	driver.Validator
+}
+
+// trackedConnector opens the store's connections and counts each one from the start of its open to its Close, so the
+// store's Close can wait until no connection is left. Once closing is set it opens no more.
+type trackedConnector struct {
+	// inner is the sqlite driver's connector for the store's DSN.
+	inner driver.Connector
+	// gate, when set, runs before each open. A test sets it to hold an open while it closes the store.
+	gate func(context.Context)
+	// waiting, when set, runs once Close has closed the pool and is about to wait for the connections left.
+	waiting func()
+
+	mu      sync.Mutex
+	closing bool
+	open    sync.WaitGroup
+}
+
+// Connect opens one connection, unless the store is closing. The connection counts as open until its Close.
+func (c *trackedConnector) Connect(ctx context.Context) (driver.Conn, error) {
+	c.mu.Lock()
+	if c.closing {
+		c.mu.Unlock()
+		return nil, errStoreClosing
+	}
+	c.open.Add(1)
+	c.mu.Unlock()
+	if c.gate != nil {
+		c.gate(ctx)
+	}
+	raw, err := c.inner.Connect(ctx)
+	if err != nil {
+		c.open.Done()
+		return nil, fmt.Errorf("open store connection: %w", err)
+	}
+	conn, ok := raw.(sqliteConn)
+	if !ok {
+		closeErr := raw.Close()
+		c.open.Done()
+		return nil, errors.Join(fmt.Errorf("store connection %T lacks a method database/sql uses", raw), closeErr)
+	}
+	return &trackedConn{sqliteConn: conn, done: c.open.Done}, nil
+}
+
+// Driver returns the sqlite driver.
+func (c *trackedConnector) Driver() driver.Driver {
+	return c.inner.Driver()
+}
+
+// beginClose stops new connections. Connections already counted stay counted until they close.
+func (c *trackedConnector) beginClose() {
+	c.mu.Lock()
+	c.closing = true
+	c.mu.Unlock()
+}
+
+// wait returns once every connection the connector opened is closed.
+func (c *trackedConnector) wait() {
+	if c.waiting != nil {
+		c.waiting()
+	}
+	c.open.Wait()
+}
+
+// trackedConn is a store connection that tells its connector when it closes.
+type trackedConn struct {
+	sqliteConn
+	once sync.Once
+	done func()
+}
+
+// Close closes the connection and counts it closed, once.
+func (c *trackedConn) Close() error {
+	err := c.sqliteConn.Close()
+	c.once.Do(c.done)
+	if err != nil {
+		return fmt.Errorf("close store connection: %w", err)
+	}
+	return nil
+}
