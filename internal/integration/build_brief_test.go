@@ -13,12 +13,12 @@ import (
 func TestBuildImplementerStartsWithItsBrief(t *testing.T) {
 	t.Parallel()
 	r := newBuildRig(t)
-	daemon := r.f.startOrreryd(t, true, "--holder-scope", r.scope)
+	daemon, ack := r.startPassDaemon(t, "first")
 	id := r.stepID()
 	dir := r.stepDir(id)
 	t.Cleanup(func() { clearHolder(t, filepath.Join(r.stateDir, "holders", id)) })
 
-	r.awaitStep(t, id)
+	r.awaitStep(t, daemon, ack, id)
 	row := r.stepRow(t, id)
 	if got := row.GetAgent(); got != buildRigAgent {
 		t.Errorf("agent of %s = %q, want %q from the roles file", id, got, buildRigAgent)
