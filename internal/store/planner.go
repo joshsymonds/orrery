@@ -52,7 +52,8 @@ type EpicTurn struct {
 // EpicTask is one task an epic's planner turn planned: its title, its deliverable, the files it touches, the
 // Requirements it covers, its gate, its evidence item and its status. Turn is the seq of the turn that planned it.
 // Build is its build state, Reviews its reviews in attempt then position order, and Red and Green the evidence runs
-// its build names, nil when it names none.
+// its build names, nil when it names none. Batch is the path of the integrate run that claimed the task, "" while none
+// has.
 type EpicTask struct {
 	Seq          int64
 	Turn         int64
@@ -67,6 +68,7 @@ type EpicTask struct {
 	Reviews      []TaskReview
 	Red          *EvidenceRun
 	Green        *EvidenceRun
+	Batch        string
 }
 
 // EpicQuestion is one question a planner turn asked, with its state. Turn is the seq of the turn that asked it.
@@ -229,7 +231,7 @@ func taskOf(
 	task := EpicTask{
 		Seq: stored.Seq, Turn: stored.Turn, Title: stored.Title, Deliverable: stored.Deliverable,
 		Files: files, Requirements: requirements, Gate: stored.Gate, Evidence: item, Status: stored.Status,
-		Build: buildOf(stored), Reviews: reviews,
+		Build: buildOf(stored), Reviews: reviews, Batch: stored.Batch,
 	}
 	if task.Build.RedRun != "" {
 		run, runErr := taskRunOf(ctx, queries, task.Build.RedRun)

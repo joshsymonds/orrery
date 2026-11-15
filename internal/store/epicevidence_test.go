@@ -61,6 +61,7 @@ func TestCreatedEpicReadsBaseGatesListsAndItemsInOrder(t *testing.T) {
 		t.Fatalf("Epic: %v", err)
 	}
 	want := evidenceEpic(id)
+	want.StoredBase = want.Base
 	want.Decisions = seededDecisions()
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("Epic round trip differs:\n got %+v\nwant %+v", got, want)
