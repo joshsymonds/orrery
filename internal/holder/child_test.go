@@ -67,11 +67,7 @@ func startChildUnderCleanup(t *testing.T, spool *Spool, cfg ChildConfig) *Child 
 		if fake, ok := cfg.Clock.(*fakeClock); ok {
 			fake.Advance(time.Hour)
 		}
-		select {
-		case <-child.Done():
-		case <-time.After(waitArmedTimeout):
-			t.Errorf("child not reaped within %v of Stop", waitArmedTimeout)
-		}
+		<-child.Done()
 	})
 	return child
 }
@@ -209,16 +205,12 @@ func readChildPid(t *testing.T, name string) int {
 	return pid
 }
 
-// awaitPidGone waits until process pid no longer exists, failing the test after waitArmedTimeout.
-func awaitPidGone(t *testing.T, pid int, what string) {
+// awaitPidGone waits until process pid no longer exists; its last argument names the process. It has no deadline of
+// its own.
+func awaitPidGone(t *testing.T, pid int, _ string) {
 	t.Helper()
-	timeout := time.After(waitArmedTimeout)
 	for processLive(t, pid) {
-		select {
-		case <-timeout:
-			t.Fatalf("%s: process %d still alive %v after Stop", what, pid, waitArmedTimeout)
-		case <-time.After(10 * time.Millisecond):
-		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 

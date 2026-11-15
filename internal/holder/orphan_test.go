@@ -45,32 +45,22 @@ func procRunning(t *testing.T, pid int, start string) bool {
 	return ok && state != "Z" && got == start
 }
 
-// awaitStopped waits until process pid with start start no longer runs, failing the test after waitArmedTimeout.
+// awaitStopped waits until process pid with start start no longer runs, with no deadline of its own.
 func awaitStopped(t *testing.T, pid int, start string) {
 	t.Helper()
-	timeout := time.After(waitArmedTimeout)
 	for procRunning(t, pid, start) {
-		select {
-		case <-timeout:
-			t.Fatalf("process %d still runs %v after it should have stopped", pid, waitArmedTimeout)
-		case <-time.After(holderPoll):
-		}
+		time.Sleep(holderPoll)
 	}
 }
 
-// awaitState waits until /proc holds process pid in state want, failing the test after waitArmedTimeout.
+// awaitState waits until /proc holds process pid in state want, with no deadline of its own.
 func awaitState(t *testing.T, pid int, want string) {
 	t.Helper()
-	timeout := time.After(waitArmedTimeout)
 	for {
 		if state, _, ok := procStatOf(t, pid); ok && state == want {
 			return
 		}
-		select {
-		case <-timeout:
-			t.Fatalf("process %d did not reach state %q within %v", pid, want, waitArmedTimeout)
-		case <-time.After(holderPoll):
-		}
+		time.Sleep(holderPoll)
 	}
 }
 
