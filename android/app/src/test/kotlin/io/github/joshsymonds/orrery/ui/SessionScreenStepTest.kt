@@ -9,7 +9,6 @@ import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
-import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -31,6 +30,7 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.StepsNudgeRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.StepsNudgeResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.StepsStopRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.StepsStopResponse
+import io.github.joshsymonds.orrery.mainThreadAndroidComposeRule
 import java.util.concurrent.atomic.AtomicInteger
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -73,7 +73,7 @@ private const val TIMEOUT_MILLIS = 5_000L
 @Config(sdk = [35])
 class SessionScreenStepTest {
     @get:Rule
-    val composeRule = createAndroidComposeRule<ComponentActivity>()
+    val composeRule = mainThreadAndroidComposeRule<ComponentActivity>()
 
     private fun setStepScreen(server: FakeOrreryServer, held: Boolean = false) {
         val client = OrreryClient(server.baseUrl)

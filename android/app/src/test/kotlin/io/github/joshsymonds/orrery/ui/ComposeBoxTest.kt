@@ -15,7 +15,6 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
-import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -31,6 +30,7 @@ import io.github.joshsymonds.orrery.api.OrreryCallException
 import io.github.joshsymonds.orrery.api.OrreryClient
 import io.github.joshsymonds.orrery.gen.orrery.v1.SendTextRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.SendTextResponse
+import io.github.joshsymonds.orrery.mainThreadAndroidComposeRule
 import java.io.IOException
 import java.net.InetAddress
 import java.net.ServerSocket
@@ -68,7 +68,7 @@ private val CAPPED_FIELD_HEIGHT = 60.dp
 @Config(sdk = [35])
 class ComposeBoxTest {
     @get:Rule
-    val composeRule = createAndroidComposeRule<ComponentActivity>()
+    val composeRule = mainThreadAndroidComposeRule<ComponentActivity>()
 
     private val server = FakeOrreryServer()
 

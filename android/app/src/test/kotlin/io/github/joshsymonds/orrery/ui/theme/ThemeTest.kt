@@ -3,13 +3,13 @@ package io.github.joshsymonds.orrery.ui.theme
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import io.github.joshsymonds.orrery.R
+import io.github.joshsymonds.orrery.mainThreadComposeRule
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertSame
 import org.junit.Rule
@@ -22,7 +22,7 @@ import org.robolectric.annotation.Config
 @Config(sdk = [35])
 class ThemeTest {
     @get:Rule
-    val composeRule = createComposeRule()
+    val composeRule = mainThreadComposeRule()
 
     @Test
     fun mochaSchemePinsBackgroundSurfacePrimaryAndOnSurface() {

@@ -5,7 +5,6 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertTextEquals
-import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
@@ -22,6 +21,7 @@ import io.github.joshsymonds.orrery.gen.orrery.v1.RunRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.RunResponse
 import io.github.joshsymonds.orrery.gen.orrery.v1.StartRequest
 import io.github.joshsymonds.orrery.gen.orrery.v1.StartResponse
+import io.github.joshsymonds.orrery.mainThreadComposeRule
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
@@ -50,7 +50,7 @@ class PickerPanelTest {
     }
 
     @get:Rule
-    val composeRule = createComposeRule()
+    val composeRule = mainThreadComposeRule()
 
     private val opened = AtomicReference<String?>(null)
     private val started = AtomicReference<String?>(null)

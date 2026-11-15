@@ -5,7 +5,6 @@ import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import androidx.compose.ui.test.hasTestTag
-import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.core.view.WindowCompat
 import androidx.test.core.app.ApplicationProvider
 import io.github.joshsymonds.orrery.api.FakeOrreryServer
@@ -36,7 +35,7 @@ private const val MOCHA_BASE_ARGB = 0xFF1E1E2E.toInt()
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class MainActivityThemeTest {
     @get:Rule
-    val composeRule = createEmptyComposeRule()
+    val composeRule = mainThreadEmptyComposeRule()
 
     private lateinit var context: Context
     private lateinit var server: FakeOrreryServer
