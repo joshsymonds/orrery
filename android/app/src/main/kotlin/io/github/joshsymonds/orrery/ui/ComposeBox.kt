@@ -76,6 +76,16 @@ private const val FOCUSED_OUTLINE_ALPHA = 0.7f
  */
 private enum class SendFailure { NOT_SENT, NO_ANSWER }
 
+/** The state of the conversation a composer speaks to, as its field's outline shows it. */
+enum class ComposeEdge { IDLE, WORKING, WAITING, HELD }
+
+/** The edge a pane or session state shows: working and waiting have their own, any other state is idle. */
+fun composeEdgeOf(state: String): ComposeEdge = when (state) {
+    "working" -> ComposeEdge.WORKING
+    "waiting" -> ComposeEdge.WAITING
+    else -> ComposeEdge.IDLE
+}
+
 /**
  * The composer for one pane, laid out like a text message: the draft field takes the row and
  * Send sits at its trailing edge, level with the field's bottom as the field grows. Send posts
@@ -83,8 +93,9 @@ private enum class SendFailure { NOT_SENT, NO_ANSWER }
  * field is locked while a send is in flight, so the draft cannot change under the request.
  *
  * The composer is its own band: a hairline above, a mantle bar, and a filled, outlined field whose
- * outline turns mauve while it has focus; a tap anywhere in the field focuses it. [status], when
- * given, sits at the top of the band, above the field.
+ * outline turns mauve while it has focus; a tap anywhere in the field focuses it. [edge] colours that
+ * outline by the conversation's state: yellow while working, peach while waiting or held. [status],
+ * when given, sits at the top of the band, above the field.
  *
  * The field grows with the draft up to [COMPOSE_MAX_LINES] lines and never past [maxFieldHeight],
  * then scrolls inside itself, keeping the cursor's line in view from the first character of a new
@@ -98,6 +109,7 @@ fun ComposeBox(
     paneId: String,
     client: OrreryClient,
     modifier: Modifier = Modifier,
+    edge: ComposeEdge = ComposeEdge.IDLE,
     maxFieldHeight: Dp = Dp.Unspecified,
     hint: String = "",
     onDraftPresent: (Boolean) -> Unit = {},
@@ -106,12 +118,13 @@ fun ComposeBox(
     send: (String) -> Unit = { text -> client.sendComposed(paneId, text) },
 ) {
     key(paneId) {
-        ComposeDraft(modifier, maxFieldHeight, hint, onDraftPresent, status, onSend, send)
+        ComposeDraft(edge, modifier, maxFieldHeight, hint, onDraftPresent, status, onSend, send)
     }
 }
 
 @Composable
 private fun ComposeDraft(
+    edge: ComposeEdge,
     modifier: Modifier,
     maxFieldHeight: Dp,
     hint: String,
@@ -129,6 +142,12 @@ private fun ComposeDraft(
     val draftPresent by rememberUpdatedState(onDraftPresent)
     val present = draft.isNotEmpty()
     LaunchedEffect(present) { draftPresent(present) }
+    val outline = when (edge) {
+        ComposeEdge.IDLE -> if (focused) Mocha.Mauve.copy(alpha = FOCUSED_OUTLINE_ALPHA) else Mocha.Surface1
+        ComposeEdge.WORKING -> Mocha.Yellow
+        ComposeEdge.WAITING, ComposeEdge.HELD -> Mocha.Peach
+    }
+    val edgeTag = "composer-edge:${edge.name.lowercase()}"
 
     Column(modifier = modifier.testTag("composer").fillMaxWidth().background(Mocha.Mantle)) {
         Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(Mocha.Surface0))
@@ -143,12 +162,13 @@ private fun ComposeDraft(
             AndroidView(
                 modifier = Modifier
                     .weight(1f)
+                    .testTag(edgeTag)
                     .heightIn(max = maxFieldHeight)
                     .clip(COMPOSER_SHAPE)
                     .background(Mocha.Surface0)
                     .border(
                         width = 1.dp,
-                        color = if (focused) Mocha.Mauve.copy(alpha = FOCUSED_OUTLINE_ALPHA) else Mocha.Surface1,
+                        color = outline,
                         shape = COMPOSER_SHAPE,
                     ),
                 factory = { context ->

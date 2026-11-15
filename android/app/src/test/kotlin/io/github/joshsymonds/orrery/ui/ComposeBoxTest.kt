@@ -15,6 +15,7 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -272,6 +273,55 @@ class ComposeBoxTest {
     }
 
     @Test
+    fun workingEdgeTagsTheFieldWorking() {
+        setBox(edge = ComposeEdge.WORKING)
+
+        assertEquals(1, edgeTagCount("working"))
+    }
+
+    @Test
+    fun waitingEdgeTagsTheFieldWaiting() {
+        setBox(edge = ComposeEdge.WAITING)
+
+        assertEquals(1, edgeTagCount("waiting"))
+    }
+
+    @Test
+    fun heldEdgeTagsTheFieldHeld() {
+        setBox(edge = ComposeEdge.HELD)
+
+        assertEquals(1, edgeTagCount("held"))
+    }
+
+    @Test
+    fun boxGivenNoEdgeTagsTheFieldIdle() {
+        composeRule.setContent { ComposeBox(paneId = PANE_ID, client = OrreryClient(server.baseUrl)) }
+        composeRule.waitForIdle()
+
+        assertEquals(1, edgeTagCount("idle"))
+    }
+
+    @Test
+    fun composeEdgeOfMapsWorkingToWorking() {
+        assertEquals(ComposeEdge.WORKING, composeEdgeOf("working"))
+    }
+
+    @Test
+    fun composeEdgeOfMapsWaitingToWaiting() {
+        assertEquals(ComposeEdge.WAITING, composeEdgeOf("waiting"))
+    }
+
+    @Test
+    fun composeEdgeOfMapsDoneToIdle() {
+        assertEquals(ComposeEdge.IDLE, composeEdgeOf("done"))
+    }
+
+    @Test
+    fun composeEdgeOfMapsEmptyStateToIdle() {
+        assertEquals(ComposeEdge.IDLE, composeEdgeOf(""))
+    }
+
+    @Test
     fun editorIsCappedAtComposeMaxLines() {
         setBox()
 
@@ -408,6 +458,7 @@ class ComposeBoxTest {
         maxFieldHeight: Dp = Dp.Unspecified,
         client: OrreryClient = OrreryClient(server.baseUrl),
         send: ((String) -> Unit)? = null,
+        edge: ComposeEdge = ComposeEdge.IDLE,
     ) {
         composeRule.setContent {
             val sender = send
@@ -415,6 +466,7 @@ class ComposeBoxTest {
                 ComposeBox(
                     paneId = paneId.value,
                     client = client,
+                    edge = edge,
                     maxFieldHeight = maxFieldHeight,
                     hint = hint,
                     onDraftPresent = onDraftPresent,
@@ -424,6 +476,7 @@ class ComposeBoxTest {
                 ComposeBox(
                     paneId = paneId.value,
                     client = client,
+                    edge = edge,
                     maxFieldHeight = maxFieldHeight,
                     hint = hint,
                     onDraftPresent = onDraftPresent,
@@ -434,6 +487,9 @@ class ComposeBoxTest {
         }
         composeRule.waitForIdle()
     }
+
+    private fun edgeTagCount(edgeName: String): Int =
+        composeRule.onAllNodesWithTag("composer-edge:$edgeName").fetchSemanticsNodes().size
 
     private fun lines(count: Int): String = (1..count).joinToString("\n") { "line $it" }
 
