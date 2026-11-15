@@ -140,9 +140,9 @@ func rowsOf(turns []store.EpicTurn, tasks []store.EpicTask, runs ...store.NodeRu
 	return kinds.Rows{Epic: epic, Runs: runs}
 }
 
-// deciding returns rows with the epic still deciding, so its build children wait.
-func deciding(rows kinds.Rows) kinds.Rows {
-	rows.Epic.Phase = "deciding"
+// endedClean returns rows with the epic ended clean, so its build children wait.
+func endedClean(rows kinds.Rows) kinds.Rows {
+	rows.Epic.Phase = "clean"
 	return rows
 }
 
@@ -260,9 +260,9 @@ func TestDecidePlan(t *testing.T) {
 			},
 		},
 		{
-			name: "open children wait while the epic is not accepted",
+			name: "open children wait once the epic has ended",
 			flow: []workflow.Node{planNode()},
-			rows: deciding(rowsOf(
+			rows: endedClean(rowsOf(
 				[]store.EpicTurn{turnAt(1, "work")},
 				[]store.EpicTask{openTask(1, 1)},
 				runningPlan(0),

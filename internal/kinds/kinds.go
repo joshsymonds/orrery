@@ -64,22 +64,27 @@ type Kind interface {
 // succeeded with outcome complete, and no turn runs, no task is open and no trigger is pending.
 type Plan struct{}
 
-// Build is the build kind. Its run is one planned task: it runs while the task is open on an accepted epic with a base,
-// and ends once the task is no longer open.
+// Build is the build kind. Its run is one planned task: it runs while the task is open on an epic with a base whose phase
+// is not ended, and ends once the task is no longer open.
 type Build struct{}
 
-// The states, statuses, outcomes and phase a kind reads, as the store and the epic write them.
+// The states, statuses, outcomes and phases a kind reads, as the store and the epic write them.
 const (
-	turnRunning     = "running"
-	turnSucceeded   = "succeeded"
-	taskOpen        = "open"
-	taskDone        = "done"
-	outcomeComplete = "complete"
-	outcomePassed   = "passed"
-	outcomeFailed   = "failed"
-	phaseAccepted   = "accepted"
-	runEnded        = "ended"
-	stepDone        = "done"
+	turnRunning        = "running"
+	turnSucceeded      = "succeeded"
+	taskOpen           = "open"
+	taskDone           = "done"
+	outcomeComplete    = "complete"
+	outcomePassed      = "passed"
+	outcomeFailed      = "failed"
+	runEnded           = "ended"
+	stepDone           = "done"
+	phaseMetAtBase     = "met_at_base"
+	phaseClean         = "clean"
+	phaseEndedWithGaps = "ended_with_gaps"
+	phaseReleased      = "released"
+	phaseDone          = "done"
+	phaseStopped       = "stopped"
 )
 
 // Decide returns end complete when planComplete holds, and run otherwise.
@@ -121,12 +126,12 @@ func anyTaskOpen(tasks []store.EpicTask) bool {
 }
 
 // Decide returns end with no outcome when the run's task is not open on the epic. Otherwise it returns run when the
-// epic has a base and is accepted, and none when it does not.
+// epic has a base and its phase is not ended, and none when it does not.
 func (Build) Decide(node Node, rows Rows) Action {
 	if !isOpenTask(rows.Epic.Tasks, node.Run.Task) {
 		return Action{Kind: ActEnd}
 	}
-	if rows.Epic.Base != "" && rows.Epic.Phase == phaseAccepted {
+	if rows.Epic.Base != "" && !Ended(rows.Epic.Phase) {
 		return Action{Kind: ActRun}
 	}
 	return Action{Kind: ActNone}
@@ -138,6 +143,15 @@ func isOpenTask(tasks []store.EpicTask, seq int64) bool {
 		if tasks[i].Seq == seq && tasks[i].Status == taskOpen {
 			return true
 		}
+	}
+	return false
+}
+
+// Ended reports whether phase is a phase an epic ends in. Every other phase, the empty one included, is not ended.
+func Ended(phase string) bool {
+	switch phase {
+	case phaseMetAtBase, phaseClean, phaseEndedWithGaps, phaseReleased, phaseDone, phaseStopped:
+		return true
 	}
 	return false
 }
