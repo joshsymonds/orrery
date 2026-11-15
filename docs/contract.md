@@ -463,7 +463,7 @@ orrery serve --listen 127.0.0.1:8080 --allow-login user@example.test
 ### orreryd
 
 ```
-orreryd [-L NAME | -S PATH] [--socket PATH] [--claude PATH] [--summary-model CONTEXT=MODEL]... [--push-host HOST]... [--sessions] [--session-cap N] [--session-shell PATH] [--holder-scope PATH] [--step-cap N] [--metrics-listen ADDR] [--flow-ticks PATH]
+orreryd [-L NAME | -S PATH] [--socket PATH] [--claude PATH] [--summary-model CONTEXT=MODEL]... [--push-host HOST]... [--sessions] [--session-cap N] [--session-shell PATH] [--holder-scope PATH] [--step-cap N] [--metrics-listen ADDR] [--flow-ticks PATH] [--judge-delay DURATION]
 ```
 
 - `-L`, `-S`, and `--socket` work as they do for `orrery`.
@@ -479,6 +479,7 @@ orreryd [-L NAME | -S PATH] [--socket PATH] [--claude PATH] [--summary-model CON
 - `--step-cap N` is the most live step sessions at once. Steps count apart from `--session-cap`. The default is 6. A value below 1 exits 2.
 - `--metrics-listen ADDR` serves `/metrics` on ADDR, a loopback IP literal with a port, and takes Alertmanager's webhook at `POST /alerts` (see [Alert intake](#alert-intake)). Without the flag, `orreryd` records and serves no metrics and takes no alerts. [Metrics](#metrics) gives the listener, the series and the alert rules.
 - `--flow-ticks PATH` is a test seam. With it, the flow passes once at start and once per `SIGUSR1` in place of its five-second ticks, and appends one line to PATH after each pass. Without it, the flow passes every five seconds and `SIGUSR1` keeps its default action (`cmd/orreryd.flowSeam`, `cmd/orreryd.forwardSignals`, `cmd/orreryd.appendPassLine`).
+- `--judge-delay DURATION` is a test seam. It replaces the 10-second wait of an unwatched pane's `done` before its judge (see [Notice routing](#notice-routing)) with DURATION, a Go duration of zero or more; zero judges at once. Without it, the wait is 10 seconds (`route.JudgeDelay`, `route.Config.JudgeDelay`, `route.NoJudgeDelay`). A negative value exits 2.
 
 `orreryd` listens on unix sockets only, apart from the loopback listener that `--metrics-listen` adds, which serves `/metrics` and `POST /alerts` ([Metrics](#metrics), [Alert intake](#alert-intake)). `--sessions` adds the session socket. The desk stream is served on `notices.sock` beside the daemon socket, as [Desk stream](#desk-stream) describes.
 
@@ -558,7 +559,7 @@ When neither variable is set, `orreryd` exits 1.
 
 - `deciding` is decided anew.
 - `held` checks the watch at once.
-- `delayed` is judged when its 10 seconds run out. A notice whose delay was served is never delayed again.
+- `delayed` is judged when its judge delay runs out. A notice whose delay was served is never delayed again.
 - `desk` is not posted again, is shown on open web pages again at once, and escalates when its 5 minutes run out (see [In-app notices](#in-app-notices)).
 - A row whose `due` has passed runs at once.
 - `sending` is pushed again, with route `phone` and reason `resent after restart`. It is silent if its push was silent. It is not posted to the desk stream, and its row is deleted when that publish returns. It is not pending again: a seen write or a newer notice after the restore does not end it, and a seen write at or after the resend still clears the resent push on the phone. A notice for its key recorded before the restore, or a stored row for its key with a higher `id`, ends it `changed` with no resend, as for other rows.

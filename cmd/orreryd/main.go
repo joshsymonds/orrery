@@ -152,6 +152,7 @@ type options struct {
 	sessionShell    string
 	holderScope     string
 	stepCap         int
+	judgeDelay      time.Duration           // the --judge-delay test seam's wait, route.JudgeDelay by default
 	metricsListen   string                  // the --metrics-listen address, "" when unset
 	metrics         *telemetry.Daemon       // set by startMetrics when metricsListen is set, nil otherwise
 	metricsHandlers []connect.HandlerOption // set by startMetrics when metricsListen is set, nil otherwise
@@ -297,6 +298,29 @@ func report(stderr io.Writer, err error) int {
 	}
 }
 
+// routeJudgeDelay is the route.Config.JudgeDelay of the --judge-delay wait d: d itself, or route.NoJudgeDelay for zero,
+// which route.Config reads as its default.
+func routeJudgeDelay(d time.Duration) time.Duration {
+	if d == 0 {
+		return route.NoJudgeDelay
+	}
+	return d
+}
+
+// checkLimits refuses a --session-cap or --step-cap below 1 and a negative --judge-delay, each as a usage error.
+func checkLimits(sessionCap, stepCap int, judgeDelay time.Duration) error {
+	if sessionCap < 1 {
+		return usagef("--session-cap must be at least 1, got %d", sessionCap)
+	}
+	if stepCap < 1 {
+		return usagef("--step-cap must be at least 1, got %d", stepCap)
+	}
+	if judgeDelay < 0 {
+		return usagef("--judge-delay must not be negative, got %v", judgeDelay)
+	}
+	return nil
+}
+
 // parseFlags reads the command line and resolves the daemon socket. Every error it returns is a usage error.
 func parseFlags(args []string, getenv func(string) string) (options, error) {
 	flags := flag.NewFlagSet("orreryd", flag.ContinueOnError)
@@ -316,6 +340,7 @@ func parseFlags(args []string, getenv func(string) string) (options, error) {
 	stepCap := flags.Int("step-cap", defaultStepCap, "most live step sessions")
 	metricsListen := flags.String("metrics-listen", "", "loopback address that serves /metrics")
 	flowTicks := flags.String("flow-ticks", "", "test seam: file each flow pass appends a line to")
+	judgeDelay := flags.Duration("judge-delay", route.JudgeDelay, "test seam: wait of an unwatched done before its judge")
 	if err := flags.Parse(args); err != nil {
 		return options{}, usagef("%v", err)
 	}
@@ -328,17 +353,14 @@ func parseFlags(args []string, getenv func(string) string) (options, error) {
 	if *claude == "" {
 		return options{}, usagef("--claude is empty")
 	}
-	if *sessionCap < 1 {
-		return options{}, usagef("--session-cap must be at least 1, got %d", *sessionCap)
+	if err := checkLimits(*sessionCap, *stepCap, *judgeDelay); err != nil {
+		return options{}, err
 	}
 	if *sessions && !filepath.IsAbs(*sessionShell) {
 		return options{}, usagef("--sessions needs an absolute --session-shell, got %q", *sessionShell)
 	}
 	if *holderScope != "" && !filepath.IsAbs(*holderScope) {
 		return options{}, usagef("--holder-scope needs an absolute path, got %q", *holderScope)
-	}
-	if *stepCap < 1 {
-		return options{}, usagef("--step-cap must be at least 1, got %d", *stepCap)
 	}
 	socket, err := protocol.SocketPath(*daemonSocket, getenv)
 	if err != nil {
@@ -364,6 +386,7 @@ func parseFlags(args []string, getenv func(string) string) (options, error) {
 		sessionShell:  *sessionShell,
 		holderScope:   *holderScope,
 		stepCap:       *stepCap,
+		judgeDelay:    *judgeDelay,
 		metricsListen: *metricsListen,
 		flowTicks:     *flowTicks,
 	}, nil
@@ -478,6 +501,7 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 	hub := newRelay(route.Config{
 		Host:       host,
 		Now:        time.Now,
+		JudgeDelay: routeJudgeDelay(opts.judgeDelay),
 		Desk:       desk,
 		Phone:      notices,
 		Pages:      pages,
@@ -508,11 +532,9 @@ func serve(ctx context.Context, opts options, logger *slog.Logger, getenv func(s
 		Observers: []daemon.Observer{observe, autoseen.New(time.Now, logger, func(pane string, seen int64) {
 			router.Seen(ctx, notice.Key{Pane: pane}, seen)
 		})},
-		Seen:  func(report daemon.SeenReport) { router.Seen(ctx, notice.Key{Pane: report.PaneID}, report.Seen) },
-		Input: desk.Input,
-		Read: func(report daemon.ReadReport) {
-			hub.reads.note(report.PaneID, report.Read)
-		},
+		Seen:      func(report daemon.SeenReport) { router.Seen(ctx, notice.Key{Pane: report.PaneID}, report.Seen) },
+		Input:     desk.Input,
+		Read:      func(report daemon.ReadReport) { hub.reads.note(report.PaneID, report.Read) },
 		Logger:    logger,
 		Mirror:    mirror,
 		TidyStart: tidyStart,

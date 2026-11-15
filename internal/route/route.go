@@ -23,8 +23,12 @@ const (
 	DeskWindow = 2 * time.Minute
 	// Escalation is how long a notice at the desk waits unseen before the phone is pushed.
 	Escalation = 5 * time.Minute
-	// JudgeDelay is how long a judged notice waits unwatched before it is judged.
+	// JudgeDelay is how long a judged notice waits unwatched before it is judged, unless Config.JudgeDelay names
+	// another wait.
 	JudgeDelay = 10 * time.Second
+	// NoJudgeDelay is the Config.JudgeDelay that judges an unwatched judged notice at once. It is negative, since a zero
+	// Config.JudgeDelay selects JudgeDelay.
+	NoJudgeDelay time.Duration = -1
 	// JudgeTimeout is how long a judge may run before its context is canceled. A judge still running then is late.
 	JudgeTimeout = 15 * time.Second
 )
@@ -113,7 +117,9 @@ var (
 // with.
 type Rebuild func(ctx context.Context, data []byte, at int64) (Notice, error)
 
-// Config holds the Router's collaborators. A nil After uses time.AfterFunc and a nil Logger discards. StoreAfter arms
+// Config holds the Router's collaborators. A nil After uses time.AfterFunc and a nil Logger discards. JudgeDelay is how
+// long a judged notice waits unwatched before it is judged: zero selects the JudgeDelay constant, and NoJudgeDelay, or
+// any negative value, judges at once. StoreAfter arms
 // the bound on each store call the Router makes, and a nil StoreAfter uses time.AfterFunc. A nil Pages shows nothing.
 // Rebuild maps each source kind to its Rebuild; a stored row of a kind it lacks is not restored. Attach calls each
 // Rebuild under the Router's lock, so a Rebuild must not call the Router.
@@ -122,6 +128,7 @@ type Config struct {
 	Now        func() time.Time
 	After      func(d time.Duration, f func()) (stop func() bool)
 	StoreAfter func(d time.Duration, f func()) (stop func() bool)
+	JudgeDelay time.Duration
 	Desk       DeskSink
 	Phone      PhoneSink
 	Pages      PageSink
@@ -182,6 +189,12 @@ func New(cfg Config) *Router {
 	}
 	if cfg.StoreAfter == nil {
 		cfg.StoreAfter = afterFunc
+	}
+	switch {
+	case cfg.JudgeDelay == 0:
+		cfg.JudgeDelay = JudgeDelay
+	case cfg.JudgeDelay < 0:
+		cfg.JudgeDelay = 0
 	}
 	if cfg.Logger == nil {
 		cfg.Logger = slog.New(slog.DiscardHandler)
@@ -307,7 +320,7 @@ func (r *Router) finish() {
 	}
 }
 
-// decide routes ent: it holds ent while the pane is watched. A judged notice that is not watched waits JudgeDelay
+// decide routes ent: it holds ent while the pane is watched. A judged notice that is not watched waits the judge delay
 // and is judged. Any other notice routes at once.
 func (r *Router) decide(ctx context.Context, ent *entry) {
 	if ent.n.Watching != nil && r.watching(ctx, ent) {
@@ -323,7 +336,7 @@ func (r *Router) decide(ctx context.Context, ent *entry) {
 	}
 }
 
-// delayServed reports whether ent has served its JudgeDelay. The first call arms the wait and reports false, and
+// delayServed reports whether ent has served its judge delay. The first call arms the wait and reports false, and
 // the wait's end decides ent again. Later calls report true, so the delay is never served twice. It reports false
 // once ent has ended.
 func (r *Router) delayServed(ctx context.Context, ent *entry) bool {
@@ -336,8 +349,8 @@ func (r *Router) delayServed(ctx context.Context, ent *entry) bool {
 		return true
 	}
 	ent.delayed = true
-	r.laterLocked(ent, JudgeDelay, func() { r.decide(ctx, ent) })
-	ent.phase, ent.due = phaseDelayed, r.dueIn(JudgeDelay)
+	r.laterLocked(ent, r.cfg.JudgeDelay, func() { r.decide(ctx, ent) })
+	ent.phase, ent.due = phaseDelayed, r.dueIn(r.cfg.JudgeDelay)
 	r.rowLocked(ent)
 	return false
 }

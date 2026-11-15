@@ -58,17 +58,19 @@ const (
 	exampleContext  = "http://example.invalid/ctx/example-context"
 	sentinelKey     = "z"
 	pollEvery       = 10 * time.Millisecond
+	// judgeDelay is the --judge-delay test seam the daemons of the notice tests run with, so a plain done is judged at
+	// once and not after route.JudgeDelay of real time. route's own tests check that wait on fake timers.
+	judgeDelay = "0s"
 )
 
 // cleanupGrace is how long a cleanup waits for a process it asked to end before it kills the process. It is a fallback
 // for a test that ended early, not an assertion: no test fails when it fires.
 const cleanupGrace = 10 * time.Second
 
-// TestMain builds the binaries the tests run. Every test that leaves the process environment alone runs in parallel:
-// each starts its own tmux server, orreryd and directories, and much of the package's time is idle waiting, such as a
-// route.JudgeDelay or a session start retrying an absent socket for rpcretry.Window. No test sets the process
-// environment: a test that needs its own HOME, PATH or XDG directories passes them to the processes it starts, as
-// openEnv does.
+// TestMain builds the binaries the tests run. Every test runs in parallel: each starts its own tmux server, orreryd and
+// directories, and much of the package's time is idle waiting, such as a session start retrying an absent socket for
+// rpcretry.Window. No test sets the process environment: a test that needs its own HOME, PATH or XDG directories
+// passes them to the processes it starts, as openEnv does.
 func TestMain(m *testing.M) {
 	os.Exit(runWithBinaries(m))
 }
@@ -1088,14 +1090,18 @@ func writeJudgeReply(t *testing.T, dir, reply string) {
 	writeFile(t, filepath.Join(dir, judgeReplyFile), reply, 0o600)
 }
 
-// waitForRunWithStdin polls until a finished fake claude run received stdin containing text, and returns that run's
-// directory.
+// waitForRunWithStdin polls until a finished fake claude run that is not a judge run received stdin containing text,
+// and returns that run's directory. A done's judge run reads the Stop's last message as the summarizer's run does, and
+// carries --json-schema, which no summary or intent run does.
 func waitForRunWithStdin(t *testing.T, dir, text string) string {
 	t.Helper()
 	ticker := time.NewTicker(pollEvery)
 	defer ticker.Stop()
 	for {
 		for _, run := range finishedRuns(t, dir) {
+			if slices.Contains(readLines(t, filepath.Join(run, "args")), "--json-schema") {
+				continue
+			}
 			stdin, err := os.ReadFile(filepath.Join(run, "stdin"))
 			if err != nil {
 				t.Fatalf("read run stdin: %v", err)
@@ -1194,7 +1200,7 @@ func TestOrrerydDrivesHooksEndToEnd(t *testing.T) {
 	socket := filepath.Join(dir, "orreryd.sock")
 
 	daemon := startBinary(t, "orreryd", scrubbedEnv("XDG_STATE_HOME="+t.TempDir()),
-		"-L", name, "--socket", socket,
+		"-L", name, "--socket", socket, "--judge-delay", judgeDelay,
 		"--claude", fakeClaude, "--summary-model", exampleContextName+"="+exampleModel)
 	daemon.waitForListener(t, "unix", socket)
 	notices := startNoticeReader(t, scrubbedEnv(), socket)
@@ -1278,7 +1284,7 @@ func startSummaryDaemon(t *testing.T, server, script string) (*orreryProcess, st
 	writeFile(t, fakeClaude, script, 0o700)
 	socket := filepath.Join(dir, "orreryd.sock")
 	daemon := startBinary(t, "orreryd", scrubbedEnv("XDG_STATE_HOME="+dir), "-L", server, "--socket", socket,
-		"--claude", fakeClaude, "--summary-model", exampleContextName+"="+exampleModel)
+		"--judge-delay", judgeDelay, "--claude", fakeClaude, "--summary-model", exampleContextName+"="+exampleModel)
 	daemon.waitForListener(t, "unix", socket)
 	return daemon, socket, dir
 }
@@ -3104,8 +3110,10 @@ func startPushDaemon(
 	writeFile(t, roots, string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: ep.server.Certificate().Raw})),
 		0o600)
 	socket := filepath.Join(dir, "orreryd.sock")
-	args := slices.Concat([]string{"-L", server, "--socket", socket, "--claude", fakeClaude, "--summary-model",
-		exampleContextName + "=" + exampleModel, "--push-host", "127.0.0.1"}, extra)
+	args := slices.Concat([]string{
+		"-L", server, "--socket", socket, "--judge-delay", judgeDelay, "--claude", fakeClaude,
+		"--summary-model", exampleContextName + "=" + exampleModel, "--push-host", "127.0.0.1",
+	}, extra)
 	daemon := startBinary(t, "orreryd", scrubbedEnv("XDG_STATE_HOME="+stateHome, "SSL_CERT_FILE="+roots), args...)
 	daemon.waitForListener(t, "unix", socket)
 	return daemon, socket
