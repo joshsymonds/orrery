@@ -15,6 +15,7 @@ import (
 	"github.com/joshsymonds/orrery/internal/engine/proc"
 	"github.com/joshsymonds/orrery/internal/grants"
 	"github.com/joshsymonds/orrery/internal/holder"
+	"github.com/joshsymonds/orrery/internal/redact"
 )
 
 // gateHoldersName is the subdirectory of a gate's state directory that holds the holder directories, as holder.Launch
@@ -497,13 +498,14 @@ func gateEndedOnItsOwn(exit holder.Exit) bool {
 }
 
 // gateExitResult returns the result of a gate that ended on its own with exit, under the grant held in plan's holder
-// directory. Its Stdout and Stderr are the tails of the two streams, kept apart.
+// directory. Its Stdout and Stderr are the tails of the two streams, kept apart and each redacted, so nothing stored,
+// shown, judged or sent back from the gate holds a listed credential.
 func gateExitResult(held grants.Grant, plan gatePlan, exit holder.Exit) gateResult {
 	return gateResult{
 		Exit:     exit.Code,
 		TimedOut: exit.Reason == holder.ReasonLimit,
-		Stdout:   exit.Stdout,
-		Stderr:   exit.Stderr,
+		Stdout:   redact.Text(exit.Stdout),
+		Stderr:   redact.Text(exit.Stderr),
 		Members:  held.Members,
 		Holder:   plan.dir,
 	}
