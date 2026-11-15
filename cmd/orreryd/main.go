@@ -159,6 +159,9 @@ type options struct {
 	// clock is a test seam: the clock the flight recorder times the start and reconcile phases on. Production leaves
 	// it nil, which is time.Now.
 	clock func() time.Time
+	// attentionTicks is a test seam: when set, the attention loop passes at each value it delivers in place of every
+	// five seconds, and production leaves it nil.
+	attentionTicks <-chan time.Time
 	// limitTicks is a test seam: when set, the limit notices check at each value it delivers in place of every
 	// limitTick, and production leaves it nil.
 	limitTicks <-chan time.Time
@@ -741,7 +744,7 @@ func startSessions(
 		host.reconcile(ctx, logger, opts.holdReconcile, opts.flight, opts.flightNow)
 		host.startEvidence(ctx, st, stateDir, opts.holderScope, logger)
 		evidence = host.evidence
-		host.startPlanner(ctx, st, router, getenv, resolve, logger)
+		host.startPlanner(ctx, st, router, opts.attentionTicks, getenv, resolve, logger)
 		host.startBuild(ctx, st, getenv, stateDir, logger)
 		host.startLimits(ctx, st, router, opts.limitTicks, logger)
 		host.startDue(ctx, st, logger)
@@ -922,11 +925,12 @@ func (h *sessionHost) startEvidence(
 // startPlanner runs the planner runner over st and the steps until stop. The runner reads the agent from the role
 // file on each pass; without one it parks each epic with pending triggers through a turn that starts no step. Each
 // planned task's gate and judge are resolved by resolve. With a router, the attention loop runs under the same context
-// and routes the epics that need their owner through it.
+// and routes the epics that need their owner through it, passing at each value of attentionTicks when it is not nil.
 func (h *sessionHost) startPlanner(
 	ctx context.Context,
 	st *store.Store,
 	router planner.Router,
+	attentionTicks <-chan time.Time,
 	getenv func(string) string,
 	resolve planner.Resolver,
 	logger *slog.Logger,
@@ -947,7 +951,9 @@ func (h *sessionHost) startPlanner(
 	if router == nil {
 		return
 	}
-	attention := planner.NewAttention(planner.AttentionConfig{Store: st, Router: router, Logger: logger})
+	attention := planner.NewAttention(planner.AttentionConfig{
+		Store: st, Router: router, Ticks: attentionTicks, Logger: logger,
+	})
 	h.attentionDone = make(chan struct{})
 	go func() {
 		attention.Run(plannerCtx)
