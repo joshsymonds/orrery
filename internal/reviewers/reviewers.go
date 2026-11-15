@@ -5,8 +5,10 @@ package reviewers
 
 import (
 	"fmt"
+	"math"
 	"regexp"
 	"slices"
+	"time"
 )
 
 // Stages a reviewer runs at: each task, and the epic once its tasks are done.
@@ -74,6 +76,10 @@ const maxNameBytes = 48
 
 // defaultLimit is the run limit, in seconds, of a reviewer no layer sets a limit for.
 const defaultLimit = 1800
+
+// maxLimitSeconds is the largest limit whose duration fits in a time.Duration. It mirrors the bound internal/gates
+// checks when it turns a limit into a duration.
+const maxLimitSeconds = math.MaxInt64 / int64(time.Second)
 
 // pending is one reviewer under merge, with the entry that last set it: the entry an Error names.
 type pending struct {
@@ -218,7 +224,7 @@ func checkLists(entry Entry) *Error {
 }
 
 // checkKeys refuses a scalar key no layer can hold: agent beside model, tools or effort; an empty agent, model or
-// prompt; an effort off the list; a limit under one second.
+// prompt; an effort off the list; a limit outside 1 to maxLimitSeconds seconds.
 func checkKeys(entry Entry) *Error {
 	if entry.Agent != nil {
 		switch {
@@ -241,8 +247,13 @@ func checkKeys(entry Entry) *Error {
 	if entry.Effort != nil && !validEffort(*entry.Effort) {
 		return refuse(entry, "effort", fmt.Sprintf("%q is not low, medium, high, xhigh or max", *entry.Effort))
 	}
-	if entry.Limit != nil && *entry.Limit < 1 {
-		return refuse(entry, "limit", "must be at least 1 second")
+	if entry.Limit != nil {
+		switch {
+		case *entry.Limit < 1:
+			return refuse(entry, "limit", "must be at least 1 second")
+		case *entry.Limit > maxLimitSeconds:
+			return refuse(entry, "limit", fmt.Sprintf("must be at most %d seconds", maxLimitSeconds))
+		}
 	}
 	return nil
 }

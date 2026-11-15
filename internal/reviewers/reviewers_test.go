@@ -149,6 +149,17 @@ func TestMergeRules(t *testing.T) {
 			},
 			want: []Reviewer{{Name: "alpha", Enabled: false, Limit: 1800, Verify: true}},
 		},
+		{
+			name: "a limit at the bound is kept",
+			layers: [][]Entry{
+				{{Source: project, Index: 0, Name: "alpha", Stage: []string{StageTask}, Must: []string{"x"},
+					Agent: str("a"), Limit: secs(9223372036)}},
+			},
+			want: []Reviewer{{
+				Name: "alpha", Enabled: true, Stage: []string{StageTask}, Must: []string{"x"},
+				Agent: "a", Limit: 9223372036, Verify: true,
+			}},
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -492,6 +503,23 @@ func TestEntryRefusals(t *testing.T) {
 				},
 			},
 			want: "project.toml: reviewers[1] alpha: limit: must be at least 1 second",
+		},
+		{
+			name: "limit is over the bound",
+			layers: [][]Entry{
+				{
+					{
+						Source: project,
+						Index:  1,
+						Name:   "alpha",
+						Stage:  []string{StageTask},
+						Must:   []string{"x"},
+						Agent:  str("a"),
+						Limit:  secs(9223372037),
+					},
+				},
+			},
+			want: "project.toml: reviewers[1] alpha: limit: must be at most 9223372036 seconds",
 		},
 	})
 }
