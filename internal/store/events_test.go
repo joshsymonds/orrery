@@ -282,7 +282,7 @@ func TestEventsRejectsRowsThatDoNotDecode(t *testing.T) {
 			payload: `{"server":"-L a","pane":"%1","extra":"x"}`},
 		{name: "added with wrong type", kind: EventSessionAdded, payload: `{"server":1,"pane":"%1"}`},
 		{name: "changed with unknown field", kind: EventSessionChanged, payload: `{"fields":{"bogus":"red"}}`},
-		{name: "changed malformed", kind: EventSessionChanged, payload: `{"fields":`},
+		{name: "added malformed", kind: EventSessionAdded, payload: `{"server":`},
 		{name: "removed with a field", kind: EventSessionRemoved, payload: `{"pane":"%1"}`},
 	}
 	for _, tc := range cases {
