@@ -13,6 +13,15 @@ import (
 // textContentType is the Type of a text content block.
 const textContentType = "text"
 
+// maxToolCalls is the number of tools/call requests one connection runs at once. A request past it is refused.
+const maxToolCalls = 8
+
+// maxFrameBytes bounds one inbound message. A message longer than it ends the connection.
+const maxFrameBytes = 1 << 20
+
+// toolCallsInFlightCode is the JSON-RPC error code of a refused tools/call request.
+const toolCallsInFlightCode = -32000
+
 // Call contains one tool invocation.
 type Call struct {
 	// Arguments is the JSON object supplied by the client.
@@ -67,7 +76,7 @@ func (server *Server) Serve(ctx context.Context, input io.Reader, output io.Writ
 		return nil
 	default:
 	}
-	transport := &mcp.IOTransport{Reader: readCloser{input}, Writer: writeCloser{output}}
+	transport := &mcp.IOTransport{Reader: readCloser{input}, Writer: writeCloser{output}, MaxLineLength: maxFrameBytes}
 	session, err := server.sdk(ctx).Connect(ctx, transport, nil)
 	if err != nil {
 		return fmt.Errorf("mcp: connect: %w", err)
@@ -100,12 +109,37 @@ func (server *Server) sdk(ctx context.Context) *mcp.Server {
 	sdk := mcp.NewServer(&mcp.Implementation{Name: "orrery", Version: "1"}, &mcp.ServerOptions{
 		Capabilities: &mcp.ServerCapabilities{Tools: &mcp.ToolCapabilities{}},
 	})
+	sdk.AddReceivingMiddleware(limitToolCalls(maxToolCalls))
 	for _, tool := range server.tools {
 		sdk.AddTool(&mcp.Tool{
 			Name: tool.Name, Description: tool.Description, InputSchema: tool.InputSchema,
 		}, toolHandler(ctx, tool.Handler))
 	}
 	return sdk
+}
+
+// limitToolCalls returns middleware that lets at most limit tools/call requests run at once on the connection it
+// serves. A request past the limit is refused at once with a JSON-RPC error, is not queued, and never reaches its
+// handler. The SDK runs each call in its own goroutine, so the refusal does not block the reader.
+func limitToolCalls(limit int) mcp.Middleware {
+	slots := make(chan struct{}, limit)
+	return func(next mcp.MethodHandler) mcp.MethodHandler {
+		return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
+			if method != "tools/call" {
+				return next(ctx, method, req)
+			}
+			select {
+			case slots <- struct{}{}:
+			default:
+				return nil, &jsonrpc.Error{
+					Code:    toolCallsInFlightCode,
+					Message: fmt.Sprintf("Server already has %d tool calls in flight", limit),
+				}
+			}
+			defer func() { <-slots }()
+			return next(ctx, method, req)
+		}
+	}
 }
 
 // toolHandler adapts handler to the SDK's handler for raw arguments, on a connection that ends with connCtx. Absent
